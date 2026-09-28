@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import './App.css'
+import ExcelPreview from './ExcelPreview'
 
 function App() {
   const [message, setMessage] = useState('正在连接后端……')
@@ -42,10 +43,11 @@ function App() {
   }, [])
 
   return (
-    <main>
+    <main className="workspace">
       <h1>PaperAssist System</h1>
       <p>科研论文辅助系统</p>
-      <h2>{message}</h2>
+      <p className="connection-status" role="status">{message}</p>
+      <ExcelPreview />
     </main>
   )
 }
