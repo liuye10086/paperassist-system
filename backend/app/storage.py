@@ -22,13 +22,14 @@ class ProjectStore:
     def __init__(self, directory: Path):
         self.directory = directory
         self.files_dir = directory / "files"
+        self.figures_dir = directory / "figures"
         try:
             self.files_dir.mkdir(parents=True, exist_ok=True)
             with self.connection() as db:
                 version = db.execute("PRAGMA user_version").fetchone()[0]
-                if version not in (0, 1, 2, 3):
+                if version not in (0, 1, 2, 3, 4):
                     raise StorageError("storage_version", "数据版本不兼容，请使用对应版本的程序。")
-                if version == 3:
+                if version == 4:
                     return
                 db.executescript("""
                     BEGIN IMMEDIATE;
@@ -55,7 +56,17 @@ class ProjectStore:
                         completed_at TEXT NOT NULL, result_json TEXT NOT NULL,
                         UNIQUE(file_id, setup_revision, engine_version)
                     );
-                    PRAGMA user_version = 3;
+                    CREATE TABLE IF NOT EXISTS figures (
+                        id TEXT PRIMARY KEY, analysis_run_id TEXT NOT NULL REFERENCES analysis_runs(id),
+                        renderer_version TEXT NOT NULL, figure_json TEXT NOT NULL,
+                        UNIQUE(analysis_run_id, renderer_version)
+                    );
+                    CREATE TABLE IF NOT EXISTS figure_jobs (
+                        id TEXT PRIMARY KEY, analysis_run_id TEXT NOT NULL REFERENCES analysis_runs(id),
+                        renderer_version TEXT NOT NULL, created_at TEXT NOT NULL, job_json TEXT NOT NULL
+                    );
+                    CREATE INDEX IF NOT EXISTS figure_jobs_run ON figure_jobs(analysis_run_id, created_at DESC);
+                    PRAGMA user_version = 4;
                     COMMIT;
                 """)
         except OSError as exc:
@@ -237,6 +248,122 @@ class ProjectStore:
         result = json.loads(row['result_json']) if row else None
         return {'current_revision': revision, 'result': result,
                 'is_current': bool(result and result['setup_revision'] == revision and result['engine']['id'] == engine)}
+
+    def analysis_result_by_id(self, project_id: str, file_id: str, run_id: str):
+        self.file(project_id, file_id)
+        with self.connection() as db:
+            row = db.execute('SELECT result_json FROM analysis_runs WHERE id = ? AND file_id = ?',
+                             (run_id, file_id)).fetchone()
+        if row is None:
+            raise StorageError('result_not_found', '当前文件中没有此统计结果，请重新读取统计结果。', 404)
+        return json.loads(row['result_json'])
+
+    def figure_state(self, result: dict, renderer: str, engine: str):
+        with self.connection() as db:
+            db.execute('BEGIN')
+            setup = db.execute('SELECT revision FROM analysis_setups WHERE file_id = ?', (result['file_id'],)).fetchone()
+            row = db.execute('SELECT figure_json FROM figures WHERE analysis_run_id = ? AND renderer_version = ?',
+                             (result['id'], renderer)).fetchone()
+        revision = setup['revision'] if setup else None
+        return {'current_revision': revision,
+                'is_current': revision == result['setup_revision'] and result['engine']['id'] == engine,
+                'figure': json.loads(row['figure_json']) if row else None}
+
+    def figure_job(self, run_id: str, renderer: str):
+        with self.connection() as db:
+            row = db.execute('SELECT job_json FROM figure_jobs WHERE analysis_run_id = ? AND renderer_version = ? '
+                             'ORDER BY created_at DESC, rowid DESC LIMIT 1', (run_id, renderer)).fetchone()
+        return json.loads(row['job_json']) if row else None
+
+    def pending_figures(self):
+        with self.connection() as db:
+            return [dict(row) for row in db.execute('''
+                SELECT j.id AS job_id, j.analysis_run_id AS run_id, r.file_id, f.project_id
+                FROM figure_jobs j JOIN analysis_runs r ON r.id = j.analysis_run_id JOIN files f ON f.id = r.file_id
+                WHERE json_extract(j.job_json, '$.status') IN ('running', 'submitting')
+                ORDER BY j.created_at
+            ''')]
+
+    def begin_figure_job(self, result: dict, renderer: str, payload: dict, expected: dict, model: str, retry: bool):
+        with self.connection() as db:
+            db.execute('BEGIN IMMEDIATE')
+            self.require_analysis_revision(db, result['file_id'], result['setup_revision'])
+            row = db.execute('SELECT job_json FROM figure_jobs WHERE analysis_run_id = ? AND renderer_version = ? '
+                             'ORDER BY created_at DESC, rowid DESC LIMIT 1', (result['id'], renderer)).fetchone()
+            existing = json.loads(row['job_json']) if row else None
+            if existing and (existing['status'] not in ('failed', 'uncertain') or not retry):
+                return existing, False
+            job = {'id': str(uuid4()), 'analysis_run_id': result['id'], 'status': 'submitting',
+                   'message': '正在向 OpenAI 提交数据，请勿重复生成。', 'response_id': None, 'container_id': None,
+                   'created_at': datetime.now(timezone.utc).isoformat(), 'model': model,
+                   'payload': payload, 'expected': expected}
+            db.execute('INSERT INTO figure_jobs VALUES (?, ?, ?, ?, ?)',
+                       (job['id'], result['id'], renderer, job['created_at'], json.dumps(job, ensure_ascii=False, allow_nan=False)))
+        return job, True
+
+    def update_figure_job(self, job_id: str, **changes):
+        with self.connection() as db:
+            db.execute('BEGIN IMMEDIATE')
+            row = db.execute('SELECT job_json FROM figure_jobs WHERE id = ?', (job_id,)).fetchone()
+            job = json.loads(row['job_json'])
+            # A concurrent poll must not revert a completed download to running/failed.
+            if job['status'] == 'completed':
+                return job
+            job.update(changes)
+            db.execute('UPDATE figure_jobs SET job_json = ? WHERE id = ?',
+                       (json.dumps(job, ensure_ascii=False, allow_nan=False), job_id))
+        return job
+
+    def figure_png(self, figure: dict):
+        path = self.figures_dir / (figure['id'] + '.png')
+        try:
+            with path.open('rb') as stream:
+                content = stream.read(figure['size_bytes'] + 1)
+        except FileNotFoundError as exc:
+            raise StorageError('figure_missing', '已保存的图片缺失，请恢复完整数据目录；也可另存配置并重新统计、生成新图。', 410) from exc
+        except OSError as exc:
+            raise StorageError('storage_unavailable', '无法读取图片，请检查目录权限。') from exc
+        if len(content) != figure['size_bytes'] or hashlib.sha256(content).hexdigest() != figure['sha256']:
+            raise StorageError('figure_changed', '已保存的图片内容发生变化，请恢复原图或另存配置生成新图。', 409)
+        return content
+
+    def save_figure(self, project_id: str, file_id: str, figure: dict, content: bytes):
+        self.analysis_result_by_id(project_id, file_id, figure['analysis_run_id'])
+        figure_id = str(uuid4())
+        temporary, target = (self.figures_dir / (figure_id + suffix) for suffix in ('.part', '.png'))
+        try:
+            with self.connection() as db:
+                db.execute('BEGIN IMMEDIATE')
+                self.require_analysis_revision(db, file_id, figure['setup_revision'])
+                existing = db.execute('SELECT figure_json FROM figures WHERE analysis_run_id = ? AND renderer_version = ?',
+                    (figure['analysis_run_id'], figure['engine']['id'])).fetchone()
+                if existing:
+                    saved = json.loads(existing['figure_json'])
+                    self.figure_png(saved)
+                    return saved
+                self.figures_dir.mkdir(parents=True, exist_ok=True)
+                with temporary.open('xb') as stream:
+                    stream.write(content)
+                    stream.flush()
+                    os.fsync(stream.fileno())
+                temporary.rename(target)
+                saved = {**figure, 'id': figure_id, 'size_bytes': len(content),
+                         'sha256': hashlib.sha256(content).hexdigest()}
+                db.execute('INSERT INTO figures VALUES (?, ?, ?, ?)', (figure_id, figure['analysis_run_id'],
+                    figure['engine']['id'], json.dumps(saved, ensure_ascii=False, allow_nan=False)))
+                db.execute('UPDATE projects SET updated_at = MAX(updated_at, ?) WHERE id = ?',
+                           (saved['created_at'], project_id))
+            return saved
+        except (OSError, StorageError) as exc:
+            # Only clean up this attempt's new UUID paths, never existing artifacts.
+            for path in (temporary, target):
+                try:
+                    path.unlink(missing_ok=True)
+                except OSError:
+                    pass
+            if isinstance(exc, StorageError):
+                raise
+            raise StorageError('storage_unavailable', '图片保存失败，请检查目录权限和磁盘空间。') from exc
 
 
 def get_project_store() -> ProjectStore:

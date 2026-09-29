@@ -21,8 +21,9 @@
 - 选择“描述统计＋箱线图”、工作表、数值列和可选分组列，查看整表字段类型和缺失情况
 - 检查可用记录与分组数量，保存分析配置；刷新或重启后选择同一文件可恢复配置
 - 按保存的配置执行真实描述统计，显示总体/分组结果，并保存来源、计算口径和版本；刷新或重启后恢复结果
+- 第三步已接入 OpenAI 官方 Responses API + Code Interpreter：云端运行 Python 计算并生成箱线图，本地核对后保存 PNG、图注与来源；真实 API 联调和图像视觉验收情况见下方验证记录
 
-当前覆盖需求 V0.13 中项目创建、Excel 文件管理与预览、基础字段检查与配置保存，以及 5.5 真实计算中的固定描述统计，不代表整个 M1 已完成。结合现有本地单用户代码，使用 Python 内置 SQLite 保存元数据、磁盘目录保存原文件，无需安装数据库服务；技术方案中的 PostgreSQL、pandas 和 Worker 尚未引入。
+当前按最小闭环逐步实现 V0.13 的文件管理、字段配置、真实计算和图表能力，不代表整个 M1 已完成。使用 SQLite 保存元数据、磁盘保存原文件和 PNG。根据用户确认，绘图采用 OpenAI 托管 Code Interpreter，保留本地描述统计用于独立核对；并非在本地运行模型代码。PostgreSQL、Celery 和完整多用户任务系统尚未引入。
 
 ## 项目目录
 
@@ -32,12 +33,14 @@
 - backend/app/projects.py、backend/app/storage.py：项目接口与本地存储
 - backend/app/analysis.py：字段概况、有效记录检查和分析配置接口
 - backend/app/descriptive.py：固定描述统计计算及结果接口
+- backend/app/boxplot.py、backend/app/openai_plot.py：云端绘图任务、官方 SDK 和结果核验
 - backend/data：首次访问项目接口时自动创建的数据库和原文件目录，不提交 Git
 - frontend：前端代码
 - frontend/src/ProjectWorkspace.tsx：项目创建、选择和文件历史
 - frontend/src/ExcelPreview.tsx：上传、切表和数据预览组件
 - frontend/src/AnalysisSetup.tsx：分析任务、字段选择、检查与配置保存
 - frontend/src/StatisticsResults.tsx：执行描述统计、结果表和计算来源
+- frontend/src/BoxplotFigure.tsx：OpenAI 箱线图生成、任务状态、预览和下载
 - script：预留脚本目录
 
 ## 本地运行
@@ -113,7 +116,7 @@ python -m venv .\backend\.venv
 
 ## 下一步
 
-已完成字段配置和真实描述统计。后续按“生成带标签和图注的箱线图 → 接入模型解释 → 导出 Word 报告 → 完整验收”推进。当前任务名称仍为“描述统计＋箱线图”，本步只生成统计结果；绘图、模型解释与报告导出分别在后续步骤实现。
+OpenAI Code Interpreter 箱线图已通过手动验收，后续待用户确认后按“模型解释 → Word 报告 → 完整闭环验收”推进。当前仍限定一种明确分析任务。自然语言分析规划、更多图型及 OpenAI 图片生成模型属于后续能力；图片生成模型与本步的 Python 数据绘图分别接入，不改变完整产品范围。
 
 ## 使用与数据规则
 
@@ -136,7 +139,7 @@ python -m venv .\backend\.venv
 
 ## 第一步：选择分析任务与字段
 
-日常启动命令保持不变，无需安装新依赖。已有 schema 1/2 数据库在首次访问项目接口时自动升级到 schema 3，仅增加缺失的分析配置表/统计结果表，保留项目、文件、预览和已有配置。升级前可按下方说明完整备份数据目录；旧程序不支持直接读取 schema 3，如需回退应同时恢复匹配的备份。
+日常启动命令保持不变。本轮新增依赖后先重新安装 `backend/requirements.txt`。已有 schema 1/2/3 数据库自动升级到 schema 4，只增加缺失的分析配置、统计结果、图表与绘图请求表，保留既有数据。升级前可按下方说明完整备份数据目录；旧程序不支持直接读取 schema 4，回退应同时恢复匹配的备份。
 
 1. 进入已有项目，在页面下方找到“选择分析任务与字段”。
 2. 分析任务目前固定为“描述统计＋箱线图”；选择一份已保存且解析成功的 Excel。
@@ -175,7 +178,7 @@ python -m venv .\backend\.venv
 | `Q1` / 中位数 / `Q3` | 排序后从 0 开始的位置 `(n−1)p` 线性插值，`p=0.25/0.5/0.75`；单条记录均取该值 |
 | 四分位距 `iqr` | `Q3−Q1`，在分位数转成输出浮点数前计算，避免先舍入再相减造成失真 |
 
-采用 Python 标准库 `statistics` 和 `fractions`，无需新增 pandas/SciPy 依赖。方法参考：[Python 3.11 statistics 官方文档](https://docs.python.org/3.11/library/statistics.html)。工具标识固定为 `descriptive_statistics_v1`，结果同时保存 Python、openpyxl 版本及开始/完成时间。分组按有效记录中首次出现的顺序展示。
+本地描述统计采用 Python 标准库 `statistics` 和 `fractions`，无需 pandas/SciPy 依赖。方法参考：[Python 3.11 statistics 官方文档](https://docs.python.org/3.11/library/statistics.html)。工具标识固定为 `descriptive_statistics_v1`，结果同时保存 Python、openpyxl 版本及开始/完成时间。分组按有效记录中首次出现的顺序展示。
 
 数值及边界：
 
@@ -185,11 +188,58 @@ python -m venv .\backend\.venv
 - 不自动插补、去重、剔除离群值，也不执行单位换算；本步不做显著性检验、P 值或置信区间。
 - 结果表按文件、配置修订号、工具版本唯一保存，写入时再次核对配置版本，防止执行中途修改配置后错配。失败不会覆盖之前的结果。页面目前只展示最新保存结果，完整历史结果选择和导出尚未实现。
 
+## 第三步：OpenAI Code Interpreter 箱线图
+
+本步通过官方 Python SDK 调用 **Responses API + Code Interpreter**。模型在 OpenAI 容器中运行 Python，读取所选有效数据、计算统计量并生成 `boxplot.png` 和 `result.json`。图片直接来自云端，本地只核验和保存。与直接生成图片的 GPT Image 接口不同；后者按用户要求留到后续独立接入。[Code Interpreter 官方说明](https://developers.openai.com/api/docs/guides/tools-code-interpreter)
+
+### 配置与运行
+
+在项目根目录 PowerShell 执行，已有 `.env` 时保留它：
+
+```powershell
+.\backend\.venv\Scripts\python.exe -m pip install -r .\backend\requirements.txt
+if (-not (Test-Path .\backend\.env)) { Copy-Item .\backend\.env.example .\backend\.env }
+notepad .\backend\.env
+```
+
+在 `backend/.env` 填写真实密钥和账号可用模型：
+
+```dotenv
+OPENAI_API_KEY=在本机填写你的API密钥
+OPENAI_MODEL=gpt-5.4
+```
+
+模型名可替换，要求支持 Responses、后台执行及 Code Interpreter；`gpt-5.4` 是官方列明支持该工具的示例，是否对你的账号可用须实际调用验证。[模型说明](https://developers.openai.com/api/docs/models/gpt-5.4)
+
+后端现在自动读取 `backend/.env`，PowerShell 环境变量优先；文件已被 Git 忽略。不要把密钥放入前端、`VITE_*` 变量或提交到 Git。配置接口只返回是否填写及模型名，不返回密钥。没有配置 API 仍可使用健康检查、上传、配置和本地统计，也能查看已保存图片。日常前后端启动命令仍为上方的 `uvicorn` 和 `npm.cmd --prefix .\frontend run dev`。
+
+### 使用与图表口径
+
+1. 选择已保存的字段配置，先完成第二步描述统计。
+2. 在“第三步 · 云端绘图”点击“使用 OpenAI 生成箱线图”。只有本次点击会提交生成请求；打开页面不自动生成。
+3. 页面显示提交/运行状态，后端也会每轮间隔 5 秒扫描未完成请求。即使切换文件或关闭网页，只要后端继续运行，仍会查询并下载完成的图表。
+4. 云端结构化结果与本地总体/分组统计、样本数、分位数、须端、离群点及标签图注核对通过后保存 PNG。浮点量使用相对容差 `1e-10`，计数、来源及文字精确匹配。
+5. 查看图及图注，点击“下载箱线图 PNG”。图号、标题、坐标轴字段/单位、分组和 n、完整图注均要求在 PNG 内；无分组绘制总体，有分组只绘制各组。图 1 是每次分析内的编号。
+6. 刷新/重启后选择同一文件，可恢复已保存图；修改配置并重新统计后生成新图，旧图和旧结果保留。未保存字段或旧配置不能触发新生成。
+
+箱体为 Q1–Q3，中线为中位数；分位数沿用线性 inclusive 算法。须端到 `[Q1−1.5×IQR, Q3+1.5×IQR]` 内最远实际观测；范围外观测为空心点，不从统计中删除。重复离群点可能重叠，记录同时保留真实个数。单条或常数数据显示重合线，不伪造箱体高度；未进行显著性检验。字段名/分组标签超过 160 字符会在调用前提示简化。
+
+**核验边界：**代码校验结构化数值、标签/图注文本及 PNG 的格式、尺寸和可解码性，不能证明图片每个像素都与 JSON 一致。云端图的中文字体、轴刻度、标签和图注排版仍需人工查看；未通过人工验收前不要将图像视觉正确性当作已保证。
+
+### 发送内容、重试与恢复
+
+- 只上传所选数值/分组的完整有效记录、字段标签、单位、缺失计数和来源标识；不上传其他字段、整个 Excel 或项目研究主题。模型提示词把字段内容限定为数据。生成涉及 OpenAI API 与 Code Interpreter 费用。
+- 保存模型名、response/container ID、模型实际执行代码、token 用量、原文件哈希、统计结果版本、PNG 哈希及提示词版本。模型报告的 Python/Matplotlib/字体环境也作为来源记录保存。
+- 提交前建立持久化请求记录，相同结果重复点击复用进行中任务或已有图。SDK 关闭自动重试。失败或提交状态不确定时，只在用户点击“重试生成（再次调用 API）”后新建请求，可能再次收费。
+- 超时先点“重新读取图表”。已取得 response ID 的任务可继续查询，后端重启后自动扫描；暂时下载失败可再次读取，不重新调用生成。提交过程中被强制终止、未保存 response ID 的请求超过 180 秒后标记为状态不确定，无法保证找回该次产物或避免已发生费用。
+- 使用 OpenAI 后台响应模式，远端响应按其策略留存；每次创建独立容器并设置 20 分钟闲置过期。若后端停机过久，尚未下载的容器文件可能过期且不可恢复。已下载 PNG 不依赖远端容器；任务恢复不等于永久云端保存。[后台模式](https://developers.openai.com/api/docs/guides/background)、[容器生命周期](https://developers.openai.com/api/docs/guides/tools-code-interpreter)
+- 目前为本地单用户原型：后台扫描在 FastAPI 进程内串行运行，尚非完整任务队列；关闭后端期间不会下载。API 密钥失效、额度不足、模型不支持、结果不一致、图片损坏及存储失败均有反馈，失败不会覆盖旧图。
+
 ## 上传与解析配置
 
 默认单文件上限 **10 MiB（10,485,760 字节）**。前端从后端读取限制，服务端再次校验。请求体在 multipart 解析前按实际接收字节限制，即使没有 `Content-Length` 也生效；multipart 额外允许 64 KiB 开销。
 
-后端配置示例见 `backend/.env.example`。以下 `EXCEL_*` 配置均为正整数，修改后重启后端；无效的解析限制会阻止启动。当前**不自动加载 `.env`**，须在启动后端的 PowerShell 终端设置环境变量。在项目根目录执行：
+后端配置示例见 `backend/.env.example`。以下 `EXCEL_*` 配置均为正整数，修改后重启后端；无效的解析限制会阻止启动。可填写 `backend/.env`，也可在启动后端的 PowerShell 终端设置优先级更高的环境变量。在项目根目录执行：
 
 ```powershell
 $env:EXCEL_MAX_UPLOAD_BYTES = '20971520'
@@ -217,8 +267,9 @@ $env:EXCEL_MAX_UPLOAD_BYTES = '20971520'
 
 ```text
 backend/data/
-  paperassist.sqlite3     项目、文件信息、有限预览、当前分析配置及统计结果快照
+  paperassist.sqlite3     项目、文件、预览、配置、统计结果、图表元数据和云端请求记录
   files/<UUID>.xlsx      上传的原始文件，每次上传独立保存
+  figures/<UUID>.png     核对通过后下载保存的云端箱线图
 ```
 
 无需复制 `.env.example` 即可使用默认值。需要更换目录时，在启动后端的 PowerShell 中设置：
@@ -230,7 +281,7 @@ $env:PAPERASSIST_DATA_DIR = 'D:\PaperAssistData'
 
 该变量默认是 `data`，相对路径以 `backend` 为基准，也接受绝对路径。更换目录不会自动迁移数据；不要指向临时目录。默认 `backend/data` 和 SQLite 文件已被 Git 忽略；若自定义到仓库中的其他目录，需要同时忽略其中的原文件。
 
-备份时先停止后端，再完整复制数据目录；恢复时数据库和 `files` 必须来自同一份备份。不要手工修改数据库或 UUID 原文件。预览和下载会检查原文件大小及 SHA256，文件缺失或内容改变时给出明确错误。历史预览使用上传时保存的结果，调整解析限制不会自动重新解析已有记录。
+备份时先停止后端，再完整复制数据目录；恢复时数据库、`files` 和 `figures` 必须来自同一份备份。不要手工修改数据库或 UUID 文件。预览和下载会检查原文件大小及 SHA256，文件缺失或内容改变时给出明确错误。历史预览使用上传时保存的结果，调整解析限制不会自动重新解析已有记录。
 
 写入流程为原文件临时写入、重命名、数据库事务保存。普通磁盘或数据库写入失败会尝试清理本次文件；进程被强制终止或清理本身失败时，仍可能留下孤立文件，尚无自动恢复工具。
 
@@ -239,6 +290,7 @@ $env:PAPERASSIST_DATA_DIR = 'D:\PaperAssistData'
 | 方法和路径 | 用途 |
 | --- | --- |
 | `GET /api/v1/health` | 保留 `{ "status": "ok", "service": "paperassist-system" }` |
+| `GET /api/v1/ai/config` | OpenAI 是否已配置、模型名及提示，不包含密钥 |
 | `GET /api/v1/excel/config` | 返回 `max_upload_bytes`、`preview_row_limit` |
 | `POST /api/v1/excel/preview` | 保留临时预览接口，multipart 字段 `file`；不保存项目文件 |
 | `GET /api/v1/projects` | 项目列表，含文件数量，按最近更新时间排序 |
@@ -254,6 +306,9 @@ $env:PAPERASSIST_DATA_DIR = 'D:\PaperAssistData'
 | `PUT /api/v1/projects/{project_id}/files/{file_id}/analysis-setup` | 重新校验并保存当前配置，返回递增修订号 |
 | `POST /api/v1/projects/{project_id}/files/{file_id}/analysis-runs` | JSON `{"expected_revision": 1}`；执行该已保存配置，或返回同配置/工具版本的已有结果 |
 | `GET /api/v1/projects/{project_id}/files/{file_id}/analysis-result` | 返回最新保存结果、当前配置修订号及结果是否匹配 |
+| `GET .../analysis-runs/{run_id}/boxplot` | 读取图及请求状态；进行中则查询云端并尝试保存完成结果，不新建生成请求 |
+| `POST .../analysis-runs/{run_id}/boxplot` | `{ "expected_revision": 1 }`；生成/复用请求，明确重试增加 `"retry": true` |
+| `GET .../analysis-runs/{run_id}/boxplot/image` | 读取已保存 PNG；`?download=true` 作为附件下载 |
 
 字段检查的 JSON 请求示例；保存时额外携带 `expected_revision`（首次为 `0`，之后使用读取到的当前修订号）：
 
@@ -271,6 +326,8 @@ $env:PAPERASSIST_DATA_DIR = 'D:\PaperAssistData'
 `group_column` 为 `null` 表示不分组。检查接口返回 `ready`、`row_count`、`valid_count`、`excluded_count`、`groups`、`issues` 和 `warnings`；只有 `ready: true` 时才可以保存。保存结果的 `status: configured` 只表示配置已准备好。非法列/工作表或不可用配置返回 `422`，过期修订号返回 `409`，存储失败返回 `503`。
 
 统计执行返回 `id`、`file_id`、`filename`、`source_sha256`、`setup_revision`、`selection`、`check`、`numeric_name`、`group_name`、`engine`、`started_at`、`completed_at`、`overall` 和 `groups`。`overall` 包含上述 9 个统计指标及 `warnings`；`groups` 每项包含 `label` 和相同结构的 `statistics`。读取结果返回 `{"current_revision": 1, "is_current": true, "result": {...}}`；未执行时 `result: null`、`is_current: false`。执行和复用结果均返回 `200`；未保存或配置过期返回 `409`，解析限制或精度不支持返回 `422`。所有结果接口仍校验项目归属和原文件完整性。复用已有结果时不重新计算，首次计算才重新应用当前解析限制。
+
+图表路径的 `...` 为 `/api/v1/projects/{project_id}/files/{file_id}`。GET/POST 返回 `{current_revision, is_current, figure, job}`，`is_current` 表示所绑定统计结果是否对应当前配置，即使尚无图也可为 `true`。`job` 状态为 `submitting/running/failed/uncertain/completed`；初次提交或仍运行返回 `202`，已有图及失败任务状态返回 `200`。失败状态不等于生成成功，应检查 `figure` 和 `job.status`。配置不足 `503`、配置变化 `409`、无结果/无图 `404`、图片缺失 `410`、图片篡改 `409`；云端读取错误使用 `502/503` 与可读原因。PNG 下载始终核对归属、原始文件和图片哈希。
 
 临时预览接口返回结构（项目上传结果中的 `preview` 也使用此结构）：
 
@@ -300,7 +357,7 @@ curl.exe -F 'file=@C:\path\to\example.xlsx' http://127.0.0.1:5173/api/v1/excel/p
 
 ## 依赖文件说明
 
-后端统一使用 `backend/requirements.txt` 管理运行依赖和测试工具（`pytest`、`httpx2`），安装这一份文件即可运行服务和执行测试。
+后端统一使用 `backend/requirements.txt` 管理运行依赖和测试工具（`pytest`、`httpx2`）。本轮新增官方 `openai` SDK、`python-dotenv` 和用于校验 PNG 的 Pillow，以及 SDK 的必要依赖；没有第二份依赖文件，也不需要本地安装 Matplotlib 来生成图。
 
 ## 验证方法与结果
 
@@ -339,6 +396,17 @@ npm.cmd --prefix .\frontend run lint
 - 描述统计代码经独立审查；已修复超大整数转浮点丢精度与先舍入分位数再计算 IQR 的问题，并增加回归测试。
 - 描述统计阶段（2026-09-29）用户手动确认“选择已保存配置 → 执行描述统计 → 核对结果 → 刷新或重启确认恢复 → 修改并保存配置 → 再次执行”验收通过。该结果来自用户手动验证；单条记录、精度边界及并发等补充场景已有自动测试，尚未收到用户的手动验收结果。
 
+第三步验证记录（2026-09-29）：
+
+- 后端合计 **138 项通过**。新增 44 项覆盖官方 SDK 的 HTTP 请求与文件下载契约、错误反馈、统计核对、图片校验、幂等与并发请求、配置变化、数据库失败恢复、独立进程恢复，以及关闭网页后的后台下载。测试隔离真实密钥并禁用默认后台查询，不会调用收费 API。
+- 前端合计 **45 项通过**，覆盖显式生成、运行状态、失败重试、缺少配置、旧结果、网络错误、图片错误和切换结果。build、lint、pip check 通过。
+- 独立审查发现的后台恢复和任务扫描遗漏问题已修复，并增加回归测试；当前没有未解决的审查阻塞项。
+- 独立临时目录及端口 `18000/15173` 的真实 HTTP 验证通过健康检查、创建项目、上传、保存配置及描述统计。28 行合成数据使用 26 行、排除 2 行，均值 `15.653846153846153`，样本标准差 `18.523374007328812`，Q1 `7`、中位数 `12.5`、Q3 `18.75`。浏览器已确认这些结果恢复，并显示未配置密钥的提示、禁用生成按钮。
+- **真实 OpenAI API 联调已通过。**本机配置 `gpt-5.6`，实际响应模型为 `gpt-5.6-sol`，经官方 Responses + Code Interpreter 生成 2550×1800 PNG。云端总体/分组统计、须端、离群点、来源及图注均通过本地核对；已查看此张图片，中文标题、单位、分组 n、100 mg/L 的离群点、单条记录重合线与完整图注显示正常。该结果只代表本次合成样例，不保证所有数据的视觉排版。
+- 在云端运行中停止并重新启动真实 Uvicorn，已保存的 response ID 成功恢复，后台下载并保存图表。保存后再次重启、刷新网页并选择同一文件，图片加载为 2550×1800，结果编号及 PNG SHA256 一致；浏览器实际下载成功。重复生成请求复用同一图，数据库始终只有一次云端请求记录。重启造成网页请求中断时，点击“重新读取图表”可恢复。
+- 上述联调使用独立临时目录，没有修改已有项目数据；自动测试仍采用 HTTP 模拟响应，不消耗真实 API。更多分组及极端值的真实出图仍待后续样例验证。
+- 图表阶段（2026-09-29）用户手动确认“生成 → 下载 → 刷新/重启恢复 → 修改配置后重新生成”验收通过。该结果来自用户手动验证，包含修改配置后的再次云端生成；不代表所有数据场景的图像排版均已验证。
+
 手动验收：创建项目 → 上传文件 → 刷新页面并再次预览 → 停止并重启后端再预览 → 同名上传确认旧记录仍在 → 上传损坏的 `.xlsx` 确认失败记录和下载入口。可再创建第二个项目确认文件列表分开。
 
 本步手动验收：进入项目 → 选择分析文件与工作表 → 选择数值列、可选分组列和单位 → 检查有效/排除行数 → 保存分析配置 → 刷新或重启后重新选择该文件，确认选择恢复。补充检查：空表不可保存、混合列不可选为数值列、修改字段后必须重新检查。
@@ -349,9 +417,11 @@ npm.cmd --prefix .\frontend run lint
 
 ## 尚未解决与本次边界
 
+- 本步已通过合成样例的真实 API 联调和上述用户手动验收。模型生成图像仍需按每张实际结果检查中文标签、单位、样本数、须端、离群点和图注；自动数值核对不能替代图像检查。
+
 - 项目与文件已持久化，但尚未实现项目编辑/删除、文件删除、显式版本关联、后台重解析、迁移工具或自动备份；同名上传目前是独立记录。
 - 只支持 `.xlsx`；不支持 `.xls`、`.xlsm`、带密码文件、图表工作表预览或复杂多行表头识别。公式仅展示原文，不执行、不判断缓存新旧；合并布局不还原。
-- 目前是中文界面，已有基础字段检查和固定描述统计；其他统计方法、图表、AI 解释、报告和英文界面仍待后续开发。配置检查及固定统计工具仍在线程池同步执行，尚未接入技术方案中的独立执行进程、硬超时或后台任务系统；不接受模型或用户提交任意执行代码。
+- 目前是中文界面和固定描述统计/箱线图任务；自然语言规划、其他统计方法/图型、图片生成模型、完整 AI 解释、报告和英文界面待后续开发。云端绘图调用官方 Code Interpreter；本地配置检查和独立核算仍在线程池同步执行，不在宿主机执行模型返回代码。
 - 解析在线程池内同步执行；尚无独立解析进程、服务端硬超时和多用户并发容量验证。前端等待上限 120 秒，超时不会强制终止已经开始的后端解析。
 - 列表尚未分页，未限制整个数据目录的累计大小；数据量增大后的查询性能、磁盘配额和崩溃恢复仍需完善。
 - 尚未接入认证和用户级项目权限。文件路由只校验项目归属，不能作为多用户隔离机制；继续仅绑定 `127.0.0.1` 用于本地开发。生产环境的反向代理、上传超时、并发配额及数据库迁移仍需另行实现。

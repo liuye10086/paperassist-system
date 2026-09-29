@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import type { Check, Selection } from './AnalysisSetup'
+import BoxplotFigure from './BoxplotFigure'
 
 type Summary = { n: number; mean: number; std: number | null; min: number; q1: number; median: number
   q3: number; max: number; iqr: number | null; warnings: string[] }
@@ -35,6 +36,7 @@ export default function StatisticsResults({ base, savedRevision, fieldsMatch, di
   const [state, setState] = useState<ResultState | null>(null)
   const [loading, setLoading] = useState(!!savedRevision)
   const [running, setRunning] = useState(false)
+  const [plotBusy, setPlotBusy] = useState(false)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
   const [attempt, setAttempt] = useState(0)
@@ -54,10 +56,10 @@ export default function StatisticsResults({ base, savedRevision, fieldsMatch, di
     return () => { active = false; controller.abort(); window.clearTimeout(timeout) }
   }, [base, savedRevision, attempt])
   useEffect(() => () => action.current?.abort(), [])
-  useEffect(() => { onBusyChange(running) }, [running, onBusyChange])
+  useEffect(() => { onBusyChange(running || plotBusy) }, [running, plotBusy, onBusyChange])
 
   async function execute() {
-    if (action.current || loading || disabled || !fieldsMatch || !revisionMatches) return
+    if (action.current || loading || disabled || plotBusy || !fieldsMatch || !revisionMatches) return
     const controller = new AbortController()
     action.current = controller
     let timedOut = false
@@ -91,8 +93,8 @@ export default function StatisticsResults({ base, savedRevision, fieldsMatch, di
       : !fieldsMatch && <p className="warning-panel">当前字段尚未保存，请先检查并保存，再执行统计。已有结果对应其标注的配置。</p>}
     {state && savedRevision && !revisionMatches && <p className="warning-panel">配置已在其他页面变化，请点击“重新载入分析配置”后再执行。</p>}
     <div className="analysis-actions">
-      <button type="button" disabled={disabled || loading || running || !fieldsMatch || !revisionMatches} onClick={() => void execute()}>执行描述统计</button>
-      <button type="button" disabled={disabled || loading || running || !savedRevision} onClick={() => {
+      <button type="button" disabled={disabled || plotBusy || loading || running || !fieldsMatch || !revisionMatches} onClick={() => void execute()}>执行描述统计</button>
+      <button type="button" disabled={disabled || plotBusy || loading || running || !savedRevision} onClick={() => {
         setNotice(''); setError(''); setLoading(true); setAttempt(value => value + 1)
       }}>重新读取统计结果</button>
     </div>
@@ -127,6 +129,8 @@ export default function StatisticsResults({ base, savedRevision, fieldsMatch, di
         <p>工具：{result.engine.id}；Python {result.engine.python_version}；openpyxl {result.engine.openpyxl_version}</p>
         <p>开始时间：{result.started_at}；完成时间：{result.completed_at}</p>
       </details>
+      <BoxplotFigure base={base} runId={result.id} revision={result.setup_revision}
+        canGenerate={fieldsMatch && revisionMatches && state.is_current} disabled={disabled || loading || running} onBusyChange={setPlotBusy} />
     </>}
   </section>
 }

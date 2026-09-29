@@ -275,3 +275,7 @@
     border-right-color: var(--border);
   }
 }
+.boxplot-figure { margin-top: 2rem; padding-top: 1.5rem; border-top: 1px solid #dce3e6; }
+.boxplot-figure figure { margin: 1.25rem 0 0; }
+.boxplot-figure img { display: block; width: 100%; height: auto; max-width: 1100px; border: 1px solid #dce3e6; background: white; }
+.boxplot-figure figcaption { margin-top: .75rem; white-space: pre-wrap; }

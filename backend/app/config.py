@@ -2,6 +2,14 @@ import os
 from pathlib import Path
 
 from pydantic import BaseModel, Field
+from dotenv import dotenv_values
+
+
+def local_config():
+    # Read at request time so a locally saved API key is usable without exposing it.
+    # Environment variables (including deliberately empty values) take precedence.
+    values = dotenv_values(Path(__file__).resolve().parents[1] / '.env', encoding='utf-8-sig', interpolate=False)
+    return {**values, **os.environ}
 
 
 class ExcelSettings(BaseModel):
@@ -14,14 +22,15 @@ class ExcelSettings(BaseModel):
 
 
 def get_excel_settings() -> ExcelSettings:
+    config = local_config()
     return ExcelSettings(**{
-        name: os.environ[f"EXCEL_{name.upper()}"]
+        name: config[f"EXCEL_{name.upper()}"]
         for name in ExcelSettings.model_fields
-        if f"EXCEL_{name.upper()}" in os.environ
+        if f"EXCEL_{name.upper()}" in config
     })
 
 
 def get_data_dir() -> Path:
     backend_dir = Path(__file__).resolve().parents[1]
-    configured = Path(os.environ.get("PAPERASSIST_DATA_DIR", "data")).expanduser()
+    configured = Path(local_config().get("PAPERASSIST_DATA_DIR") or "data").expanduser()
     return (backend_dir / configured).resolve()

@@ -29,6 +29,9 @@ function api(options: { existing?: boolean; conflict?: boolean; invalid?: boolea
   let current: typeof saved | null = options.existing ? saved : null
   let result: typeof analysisResult | null = options.existingResult ? analysisResult : null
   const mock = vi.fn(async (url: string, init?: RequestInit) => {
+    if (url === '/api/v1/ai/config') return Response.json({ configured: true, model: 'test-model', message: '' })
+    if (url.endsWith('/boxplot')) return Response.json({ current_revision: current?.revision ?? null,
+      is_current: result?.setup_revision === current?.revision, figure: null, job: null })
     if (url.endsWith('/analysis-result')) {
       if (options.resultFailOnce) { options.resultFailOnce = false; throw new TypeError('offline') }
       return Response.json({ current_revision: current?.revision ?? null, is_current: !!result && result.setup_revision === current?.revision, result })
@@ -66,6 +69,38 @@ async function chooseFile(user: ReturnType<typeof userEvent.setup>) {
   await user.selectOptions(screen.getByLabelText('用于分析的文件'), 'f1')
   await screen.findByLabelText('数值列')
 }
+
+test('restored statistics expose an explicit OpenAI generation action without submitting', async () => {
+  const mock = api({ existing: true, existingResult: true })
+  const user = userEvent.setup()
+  render(<AnalysisSetup projectId="p1" files={files} />)
+  await chooseFile(user)
+  expect(await screen.findByRole('button', { name: '使用 OpenAI 生成箱线图' })).toBeTruthy()
+  expect(mock.mock.calls.some(call => call[0].endsWith('/boxplot') && call[1]?.method === 'POST')).toBe(false)
+})
+
+test('OpenAI submission locks configuration and statistics but allows file switching', async () => {
+  const mock = api({ existing: true, existingResult: true })
+  const original = mock.getMockImplementation()!
+  let submitted = false
+  mock.mockImplementation(async (url: string, init?: RequestInit) => {
+    if (url.endsWith('/boxplot') && (init?.method === 'POST' || submitted)) {
+      submitted = true
+      return Response.json({ current_revision: 1, is_current: true, figure: null,
+        job: { id: 'j', status: 'running', message: '处理中', response_id: 'r', created_at: '' } })
+    }
+    return original(url, init)
+  })
+  const user = userEvent.setup()
+  render(<AnalysisSetup projectId="p1" files={files} />)
+  await chooseFile(user)
+  const generate = await screen.findByRole('button', { name: '使用 OpenAI 生成箱线图' })
+  await waitFor(() => expect((generate as HTMLButtonElement).disabled).toBe(false))
+  await user.click(generate)
+  await waitFor(() => expect((screen.getByLabelText('数值列') as HTMLSelectElement).disabled).toBe(true))
+  expect((screen.getByRole('button', { name: '执行描述统计' }) as HTMLButtonElement).disabled).toBe(true)
+  expect((screen.getByLabelText('用于分析的文件') as HTMLSelectElement).disabled).toBe(false)
+})
 
 test('chooses fields, checks complete rows and saves configuration without running statistics', async () => {
   const mock = api()
