@@ -16,3 +16,10 @@ dist/
 
 # Logs
 *.log
+
+# Local project database, original research files and partial uploads
+/backend/data/
+*.sqlite3
+*.sqlite3-journal
+*.sqlite3-wal
+*.sqlite3-shm

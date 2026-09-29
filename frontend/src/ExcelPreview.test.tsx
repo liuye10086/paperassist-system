@@ -1,7 +1,7 @@
 import { afterEach, expect, test, vi } from 'vitest'
 import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import App from './App'
+import ExcelPreview from './ExcelPreview'
 
 afterEach(() => { cleanup(); vi.unstubAllGlobals() })
 
@@ -27,8 +27,8 @@ function mockApi(uploadResponse: () => Promise<Response> = async () => Response.
 test('uploads a real File using FormData, shows twenty rows and switches sheets', async () => {
   const fetchMock = mockApi()
   const user = userEvent.setup()
-  render(<App />)
-  expect(await screen.findByText('后端连接成功')).toBeTruthy()
+  render(<ExcelPreview />)
+  await waitFor(() => expect((screen.getByLabelText('选择 Excel 文件') as HTMLInputElement).disabled).toBe(false))
   const input = await screen.findByLabelText('选择 Excel 文件')
   const file = new File(['sample'], '研究.xlsx')
   await user.upload(input, file)
@@ -47,8 +47,8 @@ test('uploads a real File using FormData, shows twenty rows and switches sheets'
 test('validates extension and size before sending', async () => {
   const fetchMock = mockApi()
   const user = userEvent.setup({ applyAccept: false })
-  render(<App />)
-  await screen.findByText('后端连接成功')
+  render(<ExcelPreview />)
+  await waitFor(() => expect((screen.getByLabelText('选择 Excel 文件') as HTMLInputElement).disabled).toBe(false))
   const input = screen.getByLabelText('选择 Excel 文件')
   await user.upload(input, new File(['bad'], 'data.xls'))
   expect((await screen.findByRole('alert')).textContent).toContain('.xlsx')
@@ -63,8 +63,8 @@ test('shows server errors and allows retrying the same file', async () => {
     ? Response.json({ detail: { code: 'parse_failed', message: '解析失败，请检查文件。' } }, { status: 422 })
     : Response.json(workbook))
   const user = userEvent.setup()
-  render(<App />)
-  await screen.findByText('后端连接成功')
+  render(<ExcelPreview />)
+  await waitFor(() => expect((screen.getByLabelText('选择 Excel 文件') as HTMLInputElement).disabled).toBe(false))
   await user.upload(screen.getByLabelText('选择 Excel 文件'), new File(['x'], '研究.xlsx'))
   await user.click(screen.getByRole('button', { name: '上传并预览' }))
   expect((await screen.findByRole('alert')).textContent).toContain('解析失败')
@@ -77,8 +77,8 @@ test('clears stale preview when another file is selected and handles network fai
   let attempts = 0
   mockApi(async () => { if (++attempts === 1) return Response.json(workbook); throw new TypeError('network') })
   const user = userEvent.setup()
-  render(<App />)
-  await screen.findByText('后端连接成功')
+  render(<ExcelPreview />)
+  await waitFor(() => expect((screen.getByLabelText('选择 Excel 文件') as HTMLInputElement).disabled).toBe(false))
   await user.upload(screen.getByLabelText('选择 Excel 文件'), new File(['x'], '研究.xlsx'))
   await user.click(screen.getByRole('button', { name: '上传并预览' }))
   await screen.findByRole('table')
@@ -92,12 +92,12 @@ test('prevents duplicate submission while parsing', async () => {
   let finish: (response: Response) => void = () => {}
   const fetchMock = mockApi(() => new Promise(resolve => { finish = resolve }))
   const user = userEvent.setup()
-  render(<App />)
-  await screen.findByText('后端连接成功')
+  render(<ExcelPreview />)
+  await waitFor(() => expect((screen.getByLabelText('选择 Excel 文件') as HTMLInputElement).disabled).toBe(false))
   const input = screen.getByLabelText('选择 Excel 文件') as HTMLInputElement
   await user.upload(input, new File(['x'], '研究.xlsx'))
   await user.click(screen.getByRole('button', { name: '上传并预览' }))
-  const button = screen.getByRole('button', { name: '正在上传并解析……' }) as HTMLButtonElement
+  const button = screen.getByRole('button', { name: '正在处理……' }) as HTMLButtonElement
   expect(button.disabled).toBe(true)
   expect(input.disabled).toBe(true)
   await user.click(button)
@@ -114,7 +114,7 @@ test('configuration failure offers a working retry', async () => {
     return Response.json({ max_upload_bytes: 1024, preview_row_limit: 20 })
   }))
   const user = userEvent.setup()
-  render(<App />)
+  render(<ExcelPreview />)
   expect((await screen.findByRole('alert')).textContent).toContain('无法读取上传限制')
   expect((screen.getByLabelText('选择 Excel 文件') as HTMLInputElement).disabled).toBe(true)
   await user.click(screen.getByRole('button', { name: '重试读取配置' }))
@@ -125,8 +125,8 @@ test('configuration failure offers a working retry', async () => {
 test('rejects an empty file without uploading', async () => {
   const fetchMock = mockApi()
   const user = userEvent.setup()
-  render(<App />)
-  await screen.findByText('后端连接成功')
+  render(<ExcelPreview />)
+  await waitFor(() => expect((screen.getByLabelText('选择 Excel 文件') as HTMLInputElement).disabled).toBe(false))
   await user.upload(screen.getByLabelText('选择 Excel 文件'), new File([], 'empty.xlsx'))
   expect((await screen.findByRole('alert')).textContent).toContain('为空')
   expect(fetchMock.mock.calls.some(([url]) => url.endsWith('/preview'))).toBe(false)
@@ -138,8 +138,8 @@ test('renders null, zero, false and header-only sheet without losing values', as
     { name: '仅表头', columns: ['字段'], row_count: 0, column_count: 1, preview_rows: [], warnings: ['此工作表只有表头，没有数据行。'] },
   ] }))
   const user = userEvent.setup()
-  render(<App />)
-  await screen.findByText('后端连接成功')
+  render(<ExcelPreview />)
+  await waitFor(() => expect((screen.getByLabelText('选择 Excel 文件') as HTMLInputElement).disabled).toBe(false))
   await user.upload(screen.getByLabelText('选择 Excel 文件'), new File(['x'], 'types.xlsx'))
   await user.click(screen.getByRole('button', { name: '上传并预览' }))
   const table = await screen.findByRole('table')

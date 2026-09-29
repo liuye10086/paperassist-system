@@ -19,7 +19,14 @@ function fileSize(bytes: number) {
     : `${bytes} 字节`
 }
 
-export default function ExcelPreview() {
+type PreviewProps = {
+  projectId?: string
+  savedFile?: { id: string; request: number } | null
+  onSaved?: () => void
+  onBusyChange?: (busy: boolean) => void
+}
+
+export default function ExcelPreview({ projectId, savedFile, onSaved, onBusyChange }: PreviewProps) {
   const [config, setConfig] = useState<PreviewConfig | null>(null)
   const [configError, setConfigError] = useState('')
   const [configAttempt, setConfigAttempt] = useState(0)
@@ -27,9 +34,22 @@ export default function ExcelPreview() {
   const [workbook, setWorkbook] = useState<WorkbookPreview | null>(null)
   const [sheetIndex, setSheetIndex] = useState(0)
   const [error, setError] = useState('')
-  const [busy, setBusy] = useState(false)
+  const [busy, setBusy] = useState(Boolean(savedFile))
+  const [notice, setNotice] = useState('')
+  const [requestedFile, setRequestedFile] = useState(savedFile)
   const uploadController = useRef<AbortController | null>(null)
   const sheet = workbook?.sheets[sheetIndex]
+
+  // Clear the previous result before rendering a newly selected remote file.
+  if (savedFile !== requestedFile) {
+    setRequestedFile(savedFile)
+    if (savedFile) {
+      setBusy(true)
+      setWorkbook(null)
+      setError('')
+      setNotice('')
+    }
+  }
 
   useEffect(() => {
     const controller = new AbortController()
@@ -54,12 +74,39 @@ export default function ExcelPreview() {
   }, [configAttempt])
 
   useEffect(() => () => uploadController.current?.abort(), [])
+  useEffect(() => { onBusyChange?.(busy) }, [busy, onBusyChange])
+
+  useEffect(() => {
+    if (!projectId || !savedFile) return
+    const controller = new AbortController()
+    let active = true
+    uploadController.current = controller
+    const timeout = window.setTimeout(() => controller.abort(), 15_000)
+    async function loadSaved() {
+      try {
+        const response = await fetch(`/api/v1/projects/${projectId}/files/${savedFile!.id}/preview`, { signal: controller.signal })
+        const result = await response.json().catch(() => null)
+        if (!response.ok) throw new Error(result?.detail?.message ?? '读取已保存文件失败，请刷新后重试。')
+        if (active && !controller.signal.aborted) { setWorkbook(result); setSheetIndex(0) }
+      } catch (cause) {
+        if (active) setError(cause instanceof TypeError ? '无法连接后端，请确认服务正常后重试。'
+          : controller.signal.aborted ? '读取预览超时，请重试。' : cause instanceof Error ? cause.message : '读取预览失败。')
+      } finally {
+        window.clearTimeout(timeout)
+        if (uploadController.current === controller) uploadController.current = null
+        if (active) setBusy(false)
+      }
+    }
+    void loadSaved()
+    return () => { active = false; controller.abort(); window.clearTimeout(timeout) }
+  }, [projectId, savedFile])
 
   function chooseFile(event: ChangeEvent<HTMLInputElement>) {
     const selected = event.target.files?.[0] ?? null
     setWorkbook(null)
     setSheetIndex(0)
     setError('')
+    setNotice('')
     setFile(null)
     if (!selected) return
     if (!selected.name.toLowerCase().endsWith('.xlsx')) {
@@ -82,11 +129,12 @@ export default function ExcelPreview() {
     const timeout = window.setTimeout(() => { timedOut = true; controller.abort() }, 120_000)
     setBusy(true)
     setError('')
+    setNotice('')
     setWorkbook(null)
     const body = new FormData()
     body.append('file', file)
     try {
-      const response = await fetch('/api/v1/excel/preview', {
+      const response = await fetch(projectId ? `/api/v1/projects/${projectId}/files` : '/api/v1/excel/preview', {
         method: 'POST', body, signal: controller.signal,
       })
       const result = await response.json().catch(() => null)
@@ -97,16 +145,26 @@ export default function ExcelPreview() {
             : '上传或解析失败，请检查文件和后端服务后重试。'
         throw new Error(message)
       }
-      if (!Array.isArray(result?.sheets) || result.sheets.length === 0) {
+      if (controller.signal.aborted) return
+      if (projectId) {
+        onSaved?.()
+        if (result?.file?.parse_status === 'failed') {
+          setError(`文件已保存，但解析失败：${result.file.error?.message ?? '请检查文件后重新上传。'}`)
+          return
+        }
+        setNotice('文件已保存到当前项目，可从项目文件列表再次打开。')
+      }
+      const preview = projectId ? result?.preview : result
+      if (!Array.isArray(preview?.sheets) || preview.sheets.length === 0) {
         throw new Error('后端返回的工作表信息不完整，请重试。')
       }
       if (!controller.signal.aborted) {
-        setWorkbook(result)
+        setWorkbook(preview)
         setSheetIndex(0)
       }
     } catch (cause) {
       if (timedOut) {
-        setError('上传或解析超时，请缩小文件或稍后重试。')
+        setError(projectId ? '上传或解析超时，请先刷新文件列表确认是否已保存，再决定是否重新上传。' : '上传或解析超时，请缩小文件或稍后重试。')
       } else if (!controller.signal.aborted) {
         setError(cause instanceof TypeError ? '无法连接后端，请确认服务和网络正常后重试。'
           : cause instanceof Error ? cause.message : '上传失败，请重试。')
@@ -129,22 +187,23 @@ export default function ExcelPreview() {
         <label htmlFor="excel-file">选择 Excel 文件</label>
         <p id="upload-help" className="muted">
           {config ? `支持 .xlsx · 单文件上限 ${fileSize(config.max_upload_bytes)}` : '正在读取上传配置……'}
-          {' · 文件仅用于本次预览，刷新页面后需重新上传。'}
+          {projectId ? ' · 原文件将保存在当前项目中，同名上传不会覆盖已有文件。' : ' · 文件仅用于本次预览，刷新页面后需重新上传。'}
         </p>
         <div className="upload-controls">
           <input id="excel-file" type="file" accept=".xlsx" onChange={chooseFile}
             disabled={busy || !config} aria-describedby="upload-help" />
           <button type="submit" disabled={!file || !config || busy}>
-            {busy ? '正在上传并解析……' : '上传并预览'}
+            {busy ? '正在处理……' : '上传并预览'}
           </button>
         </div>
         {file && <p className="muted">已选择：{file.name}（{fileSize(file.size)}）</p>}
-        {busy && <p role="status">正在读取工作表并统计行列，请稍候。</p>}
+        {busy && <p role="status">正在读取文件数据，请稍候。</p>}
       </form>
       {configError && <div className="error-panel" role="alert">{configError}{' '}
         <button type="button" onClick={() => setConfigAttempt(value => value + 1)}>重试读取配置</button>
       </div>}
       {error && <p className="error-panel" role="alert">{error}</p>}
+      {notice && <p className="saved-notice" role="status">{notice}</p>}
       {workbook && sheet && <div className="preview-panel">
         <div className="preview-heading">
           <div><h3>{workbook.filename}</h3><p className="muted">已识别 {workbook.sheets.length} 个工作表</p></div>
@@ -175,7 +234,9 @@ export default function ExcelPreview() {
           </div>}
         </div>
       </div>}
-      {!workbook && !busy && !error && <p className="empty-preview">选择并上传文件后，这里将显示工作表和数据预览。</p>}
+      {!workbook && !busy && !error && <p className="empty-preview">{projectId
+        ? '上传文件，或点击项目文件中的“预览”，查看工作表和数据。'
+        : '选择并上传文件后，这里将显示工作表和数据预览。'}</p>}
     </section>
   )
 }

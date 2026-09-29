@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 
 from pydantic import BaseModel, Field
 
@@ -18,3 +19,9 @@ def get_excel_settings() -> ExcelSettings:
         for name in ExcelSettings.model_fields
         if f"EXCEL_{name.upper()}" in os.environ
     })
+
+
+def get_data_dir() -> Path:
+    backend_dir = Path(__file__).resolve().parents[1]
+    configured = Path(os.environ.get("PAPERASSIST_DATA_DIR", "data")).expanduser()
+    return (backend_dir / configured).resolve()

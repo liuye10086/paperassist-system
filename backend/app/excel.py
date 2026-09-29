@@ -205,11 +205,7 @@ def preview_config(settings: Annotated[ExcelSettings, Depends(get_excel_settings
     return PreviewConfig(max_upload_bytes=settings.max_upload_bytes)
 
 
-@router.post("/preview", response_model=WorkbookPreview)
-def preview_excel(
-    settings: Annotated[ExcelSettings, Depends(get_excel_settings)],
-    file: Annotated[UploadFile | None, File(description="一个 .xlsx 工作簿")] = None,
-):
+def read_upload(file: UploadFile | None, settings: ExcelSettings) -> tuple[str, bytes]:
     if file is None:
         fail("missing_file", "请选择一个 .xlsx 文件后上传。")
     try:
@@ -221,6 +217,15 @@ def preview_excel(
             fail("file_too_large", f"文件超过大小限制（{settings.max_upload_bytes} 字节），请缩小文件后重试。", 413)
         if not content:
             fail("empty_file", "上传的文件为空，请选择包含工作簿内容的 .xlsx 文件。")
-        return parse_workbook(content, filename, settings)
+        return filename, content
     finally:
         file.file.close()
+
+
+@router.post("/preview", response_model=WorkbookPreview)
+def preview_excel(
+    settings: Annotated[ExcelSettings, Depends(get_excel_settings)],
+    file: Annotated[UploadFile | None, File(description="一个 .xlsx 工作簿")] = None,
+):
+    filename, content = read_upload(file, settings)
+    return parse_workbook(content, filename, settings)

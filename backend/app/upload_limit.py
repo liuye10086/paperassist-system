@@ -1,3 +1,5 @@
+import re
+
 from starlette.responses import JSONResponse
 from starlette.types import ASGIApp, Receive, Scope, Send
 
@@ -11,8 +13,9 @@ class UploadLimitMiddleware:
         self.app = app
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send):
-        if (scope["type"] != "http" or scope["method"] != "POST"
-                or scope["path"].rstrip("/") != "/api/v1/excel/preview"):
+        path = scope.get("path", "").rstrip("/")
+        is_upload = path == "/api/v1/excel/preview" or re.fullmatch(r"/api/v1/projects/[^/]+/files", path)
+        if scope["type"] != "http" or scope["method"] != "POST" or not is_upload:
             return await self.app(scope, receive, send)
 
         # Small fixed allowance for the multipart boundary and file headers.
