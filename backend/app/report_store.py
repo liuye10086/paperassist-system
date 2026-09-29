@@ -24,7 +24,7 @@ class ReportStore:
 
     @staticmethod
     def cached(db, explanation_id):
-        row = db.execute('SELECT report_json FROM reports WHERE explanation_id=? AND renderer_version=?',
+        row = db.execute('SELECT report_json FROM reports WHERE explanation_id=%s AND renderer_version=%s',
                          (explanation_id, VERSION)).fetchone()
         return json.loads(row['report_json']) if row else None
 
@@ -35,7 +35,7 @@ class ReportStore:
     def by_id(self, project_id, file_id, run_id, report_id):
         self.store.analysis_result_by_id(project_id, file_id, run_id)
         with self.store.connection() as db:
-            row = db.execute('SELECT report_json FROM reports WHERE id=? AND analysis_run_id=?', (report_id, run_id)).fetchone()
+            row = db.execute('SELECT report_json FROM reports WHERE id=%s AND analysis_run_id=%s', (report_id, run_id)).fetchone()
         if row is None:
             raise StorageError('report_not_found', '当前统计结果中没有此报告，请重新读取报告。', 404)
         return json.loads(row['report_json'])
@@ -67,16 +67,15 @@ class ReportStore:
         target = self.directory / (report['id'] + '.docx')
         owned_paths = []
         try:
-            with self.store.connection() as db:
-                db.execute('BEGIN IMMEDIATE')
+            with self.store.connection(write=True) as db:
                 self.store.require_analysis_revision(db, result['file_id'], result['setup_revision'])
                 # All three immutable source records must still equal the rendering snapshot.
                 for table, column, value in [('analysis_runs', 'result_json', result), ('figures', 'figure_json', figure),
                                               ('explanations', 'explanation_json', explanation)]:
-                    row = db.execute(f'SELECT {column} FROM {table} WHERE id=?', (value['id'],)).fetchone()
+                    row = db.execute(f'SELECT {column} FROM {table} WHERE id=%s', (value['id'],)).fetchone()
                     if not row or json.loads(row[column]) != value:
                         raise StorageError('report_source_changed', '导出期间统计、图表或解释发生变化，请重新读取当前结果。', 409)
-                record = db.execute('SELECT * FROM files WHERE id=? AND project_id=?',
+                record = db.execute('SELECT * FROM files WHERE id=%s AND project_id=%s',
                                     (result['file_id'], snapshot['project']['id'])).fetchone()
                 if not record or record['sha256'] != result['source_sha256']:
                     raise StorageError('report_source_changed', '报告数据来源已变化，请重新读取结果。', 409)
@@ -93,10 +92,10 @@ class ReportStore:
                 temporary.rename(target)
                 owned_paths.append(target)
                 saved = {**report, 'size_bytes': len(content), 'sha256': hashlib.sha256(content).hexdigest()}
-                db.execute('INSERT INTO reports VALUES (?, ?, ?, ?, ?, ?)',
+                db.execute('INSERT INTO reports VALUES (%s, %s, %s, %s, %s, %s)',
                            (report['id'], result['id'], explanation['id'], VERSION,
                             json.dumps(saved, ensure_ascii=False, allow_nan=False), json.dumps(snapshot, ensure_ascii=False, allow_nan=False)))
-                db.execute('UPDATE projects SET updated_at=MAX(updated_at, ?) WHERE id=?', (saved['created_at'], snapshot['project']['id']))
+                db.execute('UPDATE projects SET updated_at=GREATEST(updated_at, %s) WHERE id=%s', (saved['created_at'], snapshot['project']['id']))
             return saved, True
         except (OSError, StorageError) as exc:
             # Only this attempt's UUID files can be removed; existing reports stay intact.

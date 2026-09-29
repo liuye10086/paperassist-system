@@ -3,7 +3,6 @@ import json
 import math
 import os
 from pathlib import Path
-import sqlite3
 import subprocess
 import sys
 from threading import Barrier
@@ -11,6 +10,7 @@ from io import BytesIO
 from zipfile import ZipFile
 
 import pytest
+from app.database import database_connection, migrate_database
 
 from test_analysis import add_file, client, selection
 
@@ -138,8 +138,8 @@ def test_idempotent_retry_and_changed_configuration_keeps_old_result(client):
     second = run(client, base, 2)
     assert second['id'] != first['id'] and second['overall']['n'] == 4
     assert second['selection']['unit'] == 'new'
-    with sqlite3.connect(Path(os.environ['PAPERASSIST_DATA_DIR']) / 'paperassist.sqlite3') as db:
-        assert db.execute('SELECT count(*) FROM analysis_runs').fetchone()[0] == 2
+    with database_connection() as db:
+        assert db.execute('SELECT count(*) AS count FROM analysis_runs').fetchone()['count'] == 2
 
 
 def test_result_restored_in_independent_process(client):
@@ -166,17 +166,13 @@ def test_ownership_and_original_integrity_guard_results(client):
     assert client.get(base + '/analysis-result').status_code == 410
 
 
-def test_schema_two_upgrade_preserves_configuration_and_file(client):
+def test_explicit_migration_preserves_configuration_and_file(client):
     base, _ = configured(client)
     before = client.get(base + '/analysis-setup').json()
-    with sqlite3.connect(Path(os.environ['PAPERASSIST_DATA_DIR']) / 'paperassist.sqlite3') as db:
-        db.execute('DROP TABLE IF EXISTS analysis_runs')
-        db.execute('PRAGMA user_version = 2')
+    migrate_database()
     run(client, base)
     assert client.get(base + '/analysis-setup').json() == before
     assert client.get(base + '/preview').status_code == 200
-    with sqlite3.connect(Path(os.environ['PAPERASSIST_DATA_DIR']) / 'paperassist.sqlite3') as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0] == 6
 
 
 def test_execution_rechecks_current_parse_limits(client, monkeypatch):
@@ -215,16 +211,15 @@ def test_parallel_runs_return_one_persisted_result(client, monkeypatch):
     with ThreadPoolExecutor(max_workers=2) as pool:
         results = list(pool.map(lambda _: run(client, base), range(2)))
     assert results[0] == results[1]
-    with sqlite3.connect(Path(os.environ['PAPERASSIST_DATA_DIR']) / 'paperassist.sqlite3') as db:
-        assert db.execute('SELECT count(*) FROM analysis_runs').fetchone()[0] == 1
+    with database_connection() as db:
+        assert db.execute('SELECT count(*) AS count FROM analysis_runs').fetchone()['count'] == 1
 
 
-def test_failed_save_preserves_previous_result(client):
+def test_failed_save_preserves_previous_result(client, reject_database_write):
     base, _ = configured(client)
     previous = run(client, base)
     client.put(base + '/analysis-setup', json=selection(expected_revision=1, unit='changed'))
-    with sqlite3.connect(Path(os.environ['PAPERASSIST_DATA_DIR']) / 'paperassist.sqlite3') as db:
-        db.execute("CREATE TRIGGER reject_run BEFORE INSERT ON analysis_runs BEGIN SELECT RAISE(ABORT, 'test'); END;")
-    response = client.post(base + '/analysis-runs', json={'expected_revision': 2})
+    with reject_database_write('analysis_runs'):
+        response = client.post(base + '/analysis-runs', json={'expected_revision': 2})
     assert response.status_code == 503
     assert client.get(base + '/analysis-result').json()['result'] == previous

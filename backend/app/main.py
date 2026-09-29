@@ -9,7 +9,7 @@ from .config import get_excel_settings, local_config
 from .excel import router as excel_router
 from .upload_limit import UploadLimitMiddleware
 from .projects import router as projects_router
-from .storage import StorageError
+from .storage import StorageError, check_database_ready
 from .analysis import router as analysis_router
 from .descriptive import router as descriptive_router
 from .boxplot import router as boxplot_router, poll_pending_figures
@@ -31,6 +31,7 @@ async def run_recovery_worker(poll, name):
 
 @asynccontextmanager
 async def lifespan(app):
+    check_database_ready()
     tasks = []
     if local_config().get('PAPERASSIST_PLOT_WORKER_ENABLED', '1') != '0':
         tasks = [asyncio.create_task(run_recovery_worker(poll, name)) for poll, name in
@@ -67,6 +68,7 @@ async def storage_error_handler(request, exc: StorageError):
 
 @app.get("/api/v1/health")
 def health():
+    check_database_ready()
     return {
         "status": "ok",
         "service": "paperassist-system",

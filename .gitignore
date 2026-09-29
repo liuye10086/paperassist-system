@@ -19,6 +19,7 @@ dist/
 
 # Local project database, original research files and partial uploads
 /backend/data/
+/backend/backups/
 *.sqlite3
 *.sqlite3-journal
 *.sqlite3-wal

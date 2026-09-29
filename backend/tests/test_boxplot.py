@@ -4,7 +4,6 @@ import hashlib
 import json
 import os
 from pathlib import Path
-import sqlite3
 import statistics
 import subprocess
 import sys
@@ -12,6 +11,7 @@ from threading import Barrier
 
 from PIL import Image
 import pytest
+from app.database import database_connection, migrate_database
 
 from test_analysis import client, add_file, selection  # noqa: F401
 from test_descriptive import configured, run
@@ -165,15 +165,11 @@ def test_changed_png_and_failed_local_save_are_not_silently_regenerated(client, 
     assert len(cloud.calls) == 1
 
 
-def test_save_failure_leaves_cloud_job_resumable_without_another_charge(client, cloud):
+def test_save_failure_leaves_cloud_job_resumable_without_another_charge(client, cloud, reject_database_write):
     _, _, _, url = prepared(client)
     client.post(url, json={'expected_revision': 1})
-    database = Path(os.environ['PAPERASSIST_DATA_DIR']) / 'paperassist.sqlite3'
-    with sqlite3.connect(database) as db:
-        db.execute("CREATE TRIGGER reject_figure BEFORE INSERT ON figures BEGIN SELECT RAISE(ABORT, 'test'); END;")
-    assert client.get(url).status_code == 503
-    with sqlite3.connect(database) as db:
-        db.execute('DROP TRIGGER reject_figure')
+    with reject_database_write('figures'):
+        assert client.get(url).status_code == 503
     assert client.get(url).json()['figure'] is not None
     assert len(cloud.calls) == 1
 
@@ -186,17 +182,11 @@ def test_concurrent_submits_create_only_one_paid_job(client, cloud, monkeypatch)
     assert len(cloud.calls) == 1
 
 
-def test_schema_three_migration_preserves_result(client, cloud):
+def test_explicit_migration_preserves_analysis_result(client, cloud):
     base, _, result, url = prepared(client)
-    database = Path(os.environ['PAPERASSIST_DATA_DIR']) / 'paperassist.sqlite3'
-    with sqlite3.connect(database) as db:
-        db.execute('DROP TABLE figure_jobs')
-        db.execute('DROP TABLE figures')
-        db.execute('PRAGMA user_version = 3')
+    migrate_database()
     generate(client, url)
     assert client.get(base + '/analysis-result').json()['result'] == result
-    with sqlite3.connect(database) as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0] == 6
 
 
 def test_persisted_cloud_chart_restores_in_a_fresh_process(client, cloud):
@@ -232,11 +222,10 @@ def test_interrupted_submission_is_uncertain_and_never_reposts_automatically(cli
 def test_stale_submitting_job_is_exposed_for_explicit_recovery(client, cloud):
     _, _, _, url = prepared(client)
     client.post(url, json={'expected_revision': 1})
-    database = Path(os.environ['PAPERASSIST_DATA_DIR']) / 'paperassist.sqlite3'
-    with sqlite3.connect(database) as db:
-        job_id, job_json = db.execute('SELECT id, job_json FROM figure_jobs').fetchone()
-        job = {**json.loads(job_json), 'status': 'submitting', 'response_id': None, 'created_at': '2020-01-01T00:00:00+00:00'}
-        db.execute('UPDATE figure_jobs SET job_json = ? WHERE id = ?', (json.dumps(job), job_id))
+    with database_connection(write=True) as db:
+        row = db.execute('SELECT id, job_json FROM figure_jobs').fetchone()
+        job = {**json.loads(row['job_json']), 'status': 'submitting', 'response_id': None, 'created_at': '2020-01-01T00:00:00+00:00'}
+        db.execute('UPDATE figure_jobs SET job_json = %s WHERE id = %s', (json.dumps(job), row['id']))
     state = client.get(url).json()
     assert state['job']['status'] == 'uncertain' and state['figure'] is None
     assert len(cloud.calls) == 1

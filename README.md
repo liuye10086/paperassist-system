@@ -25,7 +25,18 @@
 - 第四步调用 OpenAI 官方 Responses API，根据已保存的统计汇总与图表元数据生成六部分中文解释；程序填入事实引用并保存证据和版本，刷新/重启后恢复，内容仍需人工审核
 - 第五步将同一配置版本的数据检查、真实统计、原始 PNG、图注、解释和依据导出为可编辑 `.docx`；本地生成，不额外调用 API；报告持久化，支持重复下载和刷新/重启恢复
 
-当前按最小闭环逐步实现 V0.13 的文件管理、字段配置、真实计算、图表及报告能力，不代表整个 M1 已完成。使用 SQLite 保存元数据、磁盘保存原文件、PNG 和 DOCX。根据用户确认，绘图采用 OpenAI 托管 Code Interpreter，保留本地描述统计用于独立核对；并非在本地运行模型代码。PostgreSQL、Celery 和完整多用户任务系统尚未引入。
+当前按最小闭环逐步实现 V0.13 的文件管理、字段配置、真实计算、图表及报告能力，不代表整个 M1 已完成。应用与集成测试统一使用 PostgreSQL，磁盘保存原文件、PNG 和 DOCX；SQLite 仅保留为旧 schema 6 数据的离线导入来源。数据库层采用 SQLAlchemy Core + psycopg + Alembic，显式执行迁移，启动和健康检查只核对版本。根据用户确认，绘图采用 OpenAI 托管 Code Interpreter，保留本地描述统计用于独立核对。Celery、用户认证和完整多用户任务系统尚未引入；本轮迁移与验收证据见[PostgreSQL统一与迁移记录](docs/开发阶段/PostgreSQL统一与迁移记录.md)。
+
+## 后续开发文档
+
+后续按模块分阶段推进，每阶段遵循“数据库 → 后端 → 前端 → 验收”，使用带编号的勾选框记录功能进度：
+
+- [开发路线与阶段导航](docs/开发阶段/00-开发路线与使用说明.md)
+- [开发前准备与测试边界](docs/开发阶段/阶段00-开发准备与边界确认.md)
+- [参考项目接收与复用清单](docs/开发阶段/参考项目接收与复用清单.md)
+- [需求覆盖与决策台账](docs/开发阶段/需求覆盖与决策台账.md)
+
+本机 PostgreSQL 18.1 的开发库为 `paperassist_system`（owner `paperassist_app`），测试库为 `paperassist_system_test`（owner `paperassist_test`）。两个角色均非超级用户且无 `CREATEDB`/`CREATEROLE`；各自拥有对应数据库，可在其中显式执行迁移，并非仅有业务 DML 权限。已撤销两库的 `PUBLIC CONNECT`，连接授权分别授予对应角色。应用使用项目专用连接变量，拒绝缺失或不匹配的配置；不读取通用 `DATABASE_URL` 或 `TEST_DATABASE_URL`，后者在本机属于其他项目。后续阶段仍按数据库、后端、前端逐模块完成全部功能点，不因这次底座统一提前标记认证、文献或论文能力完成。
 
 ## 项目目录
 
@@ -39,7 +50,9 @@
 - backend/app/explanations.py、backend/app/explanation_store.py：解释接口、持久化任务及恢复
 - backend/app/openai_explanation.py、backend/app/explanation_content.py：官方解释 API、事实目录与引用核对
 - backend/app/reports.py、backend/app/report_store.py、backend/app/report_docx.py：报告接口、来源快照与持久化、Word 排版生成
-- backend/data：首次访问项目接口时自动创建的数据库和原文件目录，不提交 Git
+- backend/app/database.py、backend/alembic/：PostgreSQL 连接保护、事务及显式版本迁移
+- backend/scripts/migrate_sqlite.py：旧 schema 6 的离线备份、检查和导入工具
+- backend/data：原文件、PNG、DOCX 资产目录，不提交 Git；业务元数据在 PostgreSQL
 - frontend：前端代码
 - frontend/src/ProjectWorkspace.tsx：项目创建、选择和文件历史
 - frontend/src/ExcelPreview.tsx：上传、切表和数据预览组件
@@ -70,13 +83,33 @@ python -m venv .\backend\.venv
 .\backend\.venv\Scripts\python.exe -m pip install -r .\backend\requirements.txt
 ```
 
-日常启动（已完成上述安装时，只执行这一条）：
+首次运行还需配置专用 PostgreSQL 连接。已有 `backend/.env` 时保留原内容；按 `backend/.env.example` 填写 `PAPERASSIST_ENV=development`、`PAPERASSIST_DATABASE_URL`、`PAPERASSIST_TEST_DATABASE_URL` 和 `PAPERASSIST_DB_SCHEMA=public`。本机已配置的 `.env` 不应被示例覆盖。密码仅存放在本地受 Git 忽略的文件中，连接串内的特殊字符需 URL 编码。
+
+首次部署或数据库迁移版本变化时，在 `backend` 目录显式执行；完成后回到项目根目录启动服务：
+
+```powershell
+Push-Location .\backend
+try {
+  .\.venv\Scripts\python.exe -m app.database upgrade
+  if ($LASTEXITCODE -ne 0) { throw '数据库迁移失败' }
+  .\.venv\Scripts\python.exe -m app.database check
+  if ($LASTEXITCODE -ne 0) { throw '数据库版本检查失败' }
+} finally {
+  Pop-Location
+}
+```
+
+`upgrade` 只迁移已存在的指定 schema；它不创建数据库或账号。旧 SQLite 数据需按[离线迁移流程](docs/开发阶段/PostgreSQL统一与迁移记录.md)导入，启动应用不会自动读取或迁移旧库。
+
+日常启动（已完成依赖、专用连接配置和迁移时）：
 
 ```powershell
 .\backend\.venv\Scripts\python.exe -m uvicorn app.main:app --app-dir backend --reload --host 127.0.0.1 --port 8000
 ```
 
 健康检查：http://127.0.0.1:8000/api/v1/health
+
+启动和健康检查都会检查 PostgreSQL 连通性及 Alembic 版本。缺少配置、数据库不可用或版本未迁移时会失败，不创建 SQLite，也不自动执行 DDL。
 
 接口文档：http://127.0.0.1:8000/docs
 
@@ -125,7 +158,7 @@ python -m venv .\backend\.venv
 
 **此小闭环六步的开发和开发侧验证已完成，没有剩余功能开发步骤。**第六步从新建项目、浏览器选择并上传 Excel 到真实 API 绘图、解释和 Word 下载完整走通，检查了配置变更、刷新/重启、错误恢复和来源一致性。详见[完整闭环验收记录](docs/superpowers/plans/2026-09-29-workflow-acceptance.md)。
 
-用户已确认小闭环最终验收通过，并授权提交和推送本轮测试与文档。下一步是单独规划整个项目的开发阶段及步骤，待用户确认后开始，不自动进入其他功能开发。
+用户已确认此前小闭环最终验收通过。完整项目现已拆成阶段00—10的逐模块清单；本轮按后续要求统一 PostgreSQL 底座。该变更的验证单独记录，不能用此前 SQLite 时代的验收替代；阶段01的认证、用户隔离与项目中心仍是后续工作。
 
 当前仍限定一种明确分析任务。PDF 单独验证，自然语言规划、更多图型及 OpenAI 图片生成模型属于后续能力；图片生成模型与已实现的 Python 数据绘图分别接入，不改变完整产品范围。
 
@@ -136,7 +169,7 @@ python -m venv .\backend\.venv
 3. 选择 `.xlsx`，点击“上传并预览”。上传期间禁用重复提交，保存后文件出现在当前项目的文件列表。
 4. 后端返回全部数据工作表的有限预览，默认展示第一张；通过“工作表”下拉框切换，无需再次上传。
 5. 刷新页面后，地址中的项目 ID 会恢复当前项目和文件列表；点击文件的“预览”重新打开，点击“下载原文件”取得上传时的原始字节。
-6. 重启前后端后，使用相同的数据目录即可继续查看项目。切换项目会清除旧预览并取消旧页面请求。
+6. 重启前后端后，使用相同的 PostgreSQL 开发库、schema 和资产目录即可继续查看项目。切换项目会清除旧预览并取消旧页面请求。
 
 - **同名文件**：每次上传生成独立 ID；名称只用于展示，不用于磁盘路径，不覆盖旧文件。
 - **失败记录**：扩展名不支持、零字节或超过上传大小限制直接拒绝，不产生记录；通过基本校验但解析失败的 `.xlsx` 保存原文件和失败原因，可以下载，不能预览。
@@ -150,7 +183,7 @@ python -m venv .\backend\.venv
 
 ## 第一步：选择分析任务与字段
 
-日常启动命令保持不变；第五步新增 python-docx 与 lxml，请先按上方命令安装更新后的 `backend/requirements.txt`。已有 schema 1–5 数据库自动升级到 schema 6，只增加缺失的表；相对第四步新增报告表及输入快照，保留既有项目、文件、配置、统计结果、图表和解释。升级前可按下方说明完整备份数据目录；旧程序不支持直接读取 schema 6，回退应同时恢复匹配的备份。
+先按上方命令安装更新后的 `backend/requirements.txt` 并显式迁移 PostgreSQL。当前版本为 Alembic `0001_postgresql`；旧 SQLite schema 1–5 自动升级至 schema 6 的说明属于历史实现，已被 PostgreSQL 统一方案替代。离线导入工具只接受 schema 6；更早的库需使用匹配的旧程序升级独立副本，不能让当前应用回退到 SQLite。
 
 1. 进入已有项目，在页面下方找到“选择分析任务与字段”。
 2. 分析任务目前固定为“描述统计＋箱线图”；选择一份已保存且解析成功的 Excel。
@@ -310,26 +343,25 @@ $env:EXCEL_MAX_UPLOAD_BYTES = '20971520'
 
 ## 本地存储与备份
 
-默认保存到 `backend/data`，不因启动终端所在目录改变：
+元数据、预览、配置、统计、图表/解释/报告快照与云端请求记录保存在 PostgreSQL。文件资产默认保存到 `backend/data`，不因启动终端所在目录改变：
 
 ```text
 backend/data/
-  paperassist.sqlite3     项目、文件、预览、配置、统计、图表、解释、报告快照和云端请求记录
   files/<UUID>.xlsx      上传的原始文件，每次上传独立保存
   figures/<UUID>.png     核对通过后下载保存的云端箱线图
   reports/<UUID>.docx    由已保存的统计、图片及解释生成的 Word 报告
 ```
 
-无需复制 `.env.example` 即可使用默认值。需要更换目录时，在启动后端的 PowerShell 中设置：
+数据库连接必须显式配置，资产目录可使用默认值。需要更换资产目录时，在启动后端的 PowerShell 中设置：
 
 ```powershell
 $env:PAPERASSIST_DATA_DIR = 'D:\PaperAssistData'
 .\backend\.venv\Scripts\python.exe -m uvicorn app.main:app --app-dir backend --reload --host 127.0.0.1 --port 8000
 ```
 
-该变量默认是 `data`，相对路径以 `backend` 为基准，也接受绝对路径。更换目录不会自动迁移数据；不要指向临时目录。默认 `backend/data` 和 SQLite 文件已被 Git 忽略；若自定义到仓库中的其他目录，需要同时忽略其中的原文件。
+该变量默认是 `data`，相对路径以 `backend` 为基准，也接受绝对路径。更换目录不会自动迁移资产或切换数据库；不要指向临时目录。本轮数据库统一保留原资产路径。默认 `backend/data`、旧 SQLite 文件及本地备份已被 Git 忽略；若自定义到仓库中的其他目录，需要同时忽略资产与备份。
 
-备份时先停止后端，再完整复制数据目录；恢复时数据库、`files`、`figures` 和 `reports` 必须来自同一份备份。不要手工修改数据库或 UUID 文件。原文件/PNG/报告下载分别按对应接口校验文件大小及 SHA256，文件缺失或内容改变时给出明确错误。历史预览使用上传时保存的结果，调整解析限制不会自动重新解析已有记录。
+备份时先停止后端与恢复扫描，使用 PostgreSQL 的备份工具备份指定业务库，并复制同一静止时点的 `files`、`figures` 和 `reports`，保存大小及 SHA256 清单。只复制 `backend/data` 已不能备份数据库。恢复必须匹配数据库版本和同一份资产快照；自动备份与完整恢复演练仍待阶段10实现。旧库一次性切换的备份位置与恢复边界见[迁移记录](docs/开发阶段/PostgreSQL统一与迁移记录.md)。不要手工修改数据库或 UUID 文件。原文件/PNG/报告下载分别校验大小及 SHA256，文件缺失或内容改变时给出明确错误。历史预览使用上传时保存的结果，调整解析限制不会自动重新解析已有记录。
 
 写入流程为原文件临时写入、重命名、数据库事务保存。普通磁盘或数据库写入失败会尝试清理本次文件；进程被强制终止或清理本身失败时，仍可能留下孤立文件，尚无自动恢复工具。
 
@@ -418,9 +450,11 @@ curl.exe -F 'file=@C:\path\to\example.xlsx' http://127.0.0.1:5173/api/v1/excel/p
 
 第五步在同一文件新增 `python-docx==1.2.0` 和 `lxml==6.1.3`，用于生成可编辑 Word 文档；没有拆分新的依赖清单。实现参考 [python-docx 官方文档](https://python-docx.readthedocs.io/en/latest/user/quickstart.html)。
 
+PostgreSQL 统一在同一文件固定 `SQLAlchemy==2.1.1`、`psycopg[binary]==3.3.6` 和 `alembic==1.20.0`。SQLAlchemy Core 承接已有 SQL 与事务，不要求为所有未来模块预建 ORM 模型。
+
 ## 验证方法与结果
 
-后端：在项目根目录打开 PowerShell 执行，无需激活虚拟环境。
+后端：先在本地配置可用的 `PAPERASSIST_TEST_DATABASE_URL`，目标必须为 `paperassist_system_test`。在项目根目录打开 PowerShell 执行，无需激活虚拟环境。
 
 ```powershell
 .\backend\.venv\Scripts\python.exe -m pip install -r .\backend\requirements.txt
@@ -437,7 +471,11 @@ npm.cmd --prefix .\frontend run build
 npm.cmd --prefix .\frontend run lint
 ```
 
-2026-09-29，Windows、Python 3.11.4、Node.js 22.15.0、npm 10.9.2 下已验证：
+除纯配置检查外，每例后端测试都创建独立的 `pa_test_<uuid32>` PostgreSQL schema、显式迁移并使用临时资产目录；结束时只清理本例创建的 schema。测试配置缺失、错误目标或连接失败会失败，不回退到 SQLite，也不使用全局通用连接变量。测试默认清空真实模型密钥、关闭恢复扫描；需要模型配置的用例显式注入假密钥与模拟响应。
+
+本轮 PostgreSQL 统一已完成：后端完整回归 **289项通过（168.67秒）**，前端 **78项通过**，build、lint与pip check通过。九张旧业务表全行值及哈希一致，5份资产校验通过，重复导入无重复；原SQLite已归档，实际应用重新连接后的读取和下载检查通过。测试后专用库残留测试schema及public业务表均为0。详细证据与尚未完成的角色分权、恢复演练等边界见[PostgreSQL统一与迁移记录](docs/开发阶段/PostgreSQL统一与迁移记录.md)。
+
+以下为此前 SQLite 小闭环的历史验证记录，不代表本轮 PostgreSQL 验收结果。2026-09-29，Windows、Python 3.11.4、Node.js 22.15.0、npm 10.9.2 下已验证：
 
 第六步完整闭环验收：
 
@@ -508,10 +546,10 @@ Word 导出手动验收路径：先安装更新后的后端依赖并启动前后
 
 - 图表和第四步解释均已通过上述自动测试、合成样例真实 API 联调及用户手动验收。模型生成图像仍需逐张检查，AI 文字仍需审核语义、比较关系和研究适用性；数值/引用核对不能替代人工检查。
 
-- 项目与文件已持久化，但尚未实现项目编辑/删除、文件删除、显式版本关联、后台重解析、迁移工具或自动备份；同名上传目前是独立记录。
+- 项目与文件已持久化，已提供 schema 6 的离线 SQLite→PostgreSQL 导入工具；尚未实现项目编辑/删除、文件删除、显式版本关联、后台重解析或自动备份；同名上传目前是独立记录。
 - 只支持 `.xlsx`；不支持 `.xls`、`.xlsm`、带密码文件、图表工作表预览或复杂多行表头识别。公式仅展示原文，不执行、不判断缓存新旧；合并布局不还原。
 - 目前是中文界面和固定描述统计/箱线图任务，已提供本任务的 AI 解释初稿与 Word 分析报告；自然语言规划、其他统计方法/图型、图片生成模型、研究背景补充、多轮解释编辑、完整论文、PDF 和英文界面待后续开发。云端绘图调用官方 Code Interpreter；本地配置检查和独立核算仍在线程池同步执行，不在宿主机执行模型返回代码。
 - Word 导出主流程及 Word/WPS 核对已通过用户手动验收；自动分页渲染仍不可用，更多数据规模与软件版本的排版兼容性尚未系统验证。报告尚无历史版本列表；旧版本文件保留，可通过保留的下载地址访问。崩溃时可能留下孤立报告文件，暂无清理/修复工具。
 - 解析在线程池内同步执行；尚无独立解析进程、服务端硬超时和多用户并发容量验证。前端等待上限 120 秒，超时不会强制终止已经开始的后端解析。
 - 列表尚未分页，未限制整个数据目录的累计大小；数据量增大后的查询性能、磁盘配额和崩溃恢复仍需完善。
-- 尚未接入认证和用户级项目权限。文件路由只校验项目归属，不能作为多用户隔离机制；继续仅绑定 `127.0.0.1` 用于本地开发。生产环境的反向代理、上传超时、并发配额及数据库迁移仍需另行实现。
+- 尚未接入认证和用户级项目权限。文件路由只校验项目归属，不能作为多用户隔离机制；继续仅绑定 `127.0.0.1` 用于本地开发。数据库已有显式版本迁移；生产环境的反向代理、上传超时、并发配额、迁移/运行角色进一步分权及备份恢复流程仍需完善。

@@ -3,13 +3,13 @@ from io import BytesIO
 import hashlib
 import json
 from pathlib import Path
-import sqlite3
 import subprocess
 import sys
 from zipfile import ZipFile
 from xml.etree import ElementTree as ET
 
 import pytest
+from app.database import database_connection, ensure_schema_current, migrate_database
 
 from test_analysis import client  # noqa: F401
 from test_boxplot import cloud, prepared, generate  # noqa: F401
@@ -146,11 +146,10 @@ def test_foreign_run_and_project_cannot_download_report(client, cloud, writer):
     assert client.get(base2 + '/analysis-runs/' + result['id'] + '/report/' + report['id'] + '/download').status_code == 404
 
 
-def test_export_survives_fresh_process_and_schema_five_upgrade(client, cloud, writer, tmp_path):
+def test_export_survives_fresh_process_after_explicit_migration(client, cloud, writer, tmp_path):
     *_, figure, explanation, url = report_ready(client)
     report = export(client, url, figure, explanation).json()['report']
-    with sqlite3.connect(tmp_path / 'data' / 'paperassist.sqlite3') as db:
-        db.execute('PRAGMA user_version = 5')
+    migrate_database()
     script = """from fastapi.testclient import TestClient
 from app.main import app
 import hashlib, sys
@@ -160,15 +159,15 @@ with TestClient(app) as c:
     process = subprocess.run([sys.executable, '-c', script, url + '/' + report['id'] + '/download'],
                              cwd=Path(__file__).parents[1], capture_output=True, text=True, check=True)
     assert process.stdout.strip() == '200 ' + report['sha256']
-    with sqlite3.connect(tmp_path / 'data' / 'paperassist.sqlite3') as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0] == 6
+    with database_connection() as db:
+        ensure_schema_current(db)
 
 
 def test_changed_explanation_evidence_is_rejected(client, cloud, writer, tmp_path):
     *_, figure, explanation, url = report_ready(client)
     explanation['sections'][0]['evidence'][0]['value'] = 'forged'
-    with sqlite3.connect(tmp_path / 'data' / 'paperassist.sqlite3') as db:
-        db.execute('UPDATE explanations SET explanation_json=? WHERE id=?', (json.dumps(explanation), explanation['id']))
+    with database_connection(write=True) as db:
+        db.execute('UPDATE explanations SET explanation_json=%s WHERE id=%s', (json.dumps(explanation), explanation['id']))
     assert export(client, url, figure, explanation).status_code == 409
 
 

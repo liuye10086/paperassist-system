@@ -3,7 +3,6 @@ from datetime import datetime, timedelta, timezone
 import json
 import os
 from pathlib import Path
-import sqlite3
 import subprocess
 import sys
 from concurrent.futures import ThreadPoolExecutor
@@ -198,17 +197,26 @@ def test_changed_original_returns_clear_error(client):
         assert response.json()["detail"]["code"] == "file_changed"
 
 
-def test_database_write_failure_rolls_back_upload(client):
+def test_database_write_failure_rolls_back_upload(client, reject_database_write):
     project = create_project(client)
     directory = Path(os.environ["PAPERASSIST_DATA_DIR"])
-    with sqlite3.connect(directory / "paperassist.sqlite3") as db:
-        db.execute("CREATE TRIGGER reject_file BEFORE INSERT ON files BEGIN SELECT RAISE(ABORT, 'test failure'); END;")
-    response = upload(client, project["id"])
+    with reject_database_write('files'):
+        response = upload(client, project["id"])
     assert response.status_code == 503
     assert response.json()["detail"]["code"] == "storage_unavailable"
     assert list((directory / "files").iterdir()) == []
     assert client.get(f'/api/v1/projects/{project["id"]}').json() == project
     assert client.get(f'/api/v1/projects/{project["id"]}/files').json() == []
+
+
+def test_store_uses_dedicated_postgresql_database_and_isolated_schema(client, postgres_schema):
+    create_project(client)
+    store = ProjectStore(Path(os.environ['PAPERASSIST_DATA_DIR']))
+    with store.connection() as db:
+        identity = db.execute('SELECT current_database() AS database, current_schema() AS schema').fetchone()
+    assert identity['database'] == 'paperassist_system_test'
+    assert identity['schema'] == postgres_schema.schema
+    assert not list(store.directory.rglob('*.sqlite3'))
 
 
 def test_unavailable_directory_does_not_break_health(client, tmp_path, monkeypatch):

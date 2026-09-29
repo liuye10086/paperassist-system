@@ -3,7 +3,6 @@ from io import BytesIO
 import json
 import os
 from pathlib import Path
-import sqlite3
 import subprocess
 import sys
 from concurrent.futures import ThreadPoolExecutor
@@ -14,6 +13,7 @@ from fastapi.testclient import TestClient
 from openpyxl import Workbook
 
 from app.main import app
+from app.database import database_connection, migrate_database
 
 
 @pytest.fixture
@@ -152,18 +152,38 @@ def test_original_integrity_and_project_ownership_are_checked(client):
     assert client.put(base + '/analysis-setup', json=selection(expected_revision=0)).status_code == 409
 
 
-def test_existing_schema_one_data_survives_upgrade(client):
+def test_explicit_migration_preserves_project_and_uploaded_file(client):
     base, record = add_file(client)
-    database = Path(os.environ['PAPERASSIST_DATA_DIR']) / 'paperassist.sqlite3'
-    with sqlite3.connect(database) as db:
-        db.execute('DROP TABLE IF EXISTS analysis_setups')
-        db.execute('PRAGMA user_version = 1')
+    migrate_database()
     response = client.put(base + '/analysis-setup', json=selection(expected_revision=0))
     assert response.status_code == 200, response.text
     assert client.get(base + '/preview').status_code == 200
     assert client.get(base.rsplit('/', 1)[0]).json()[0]['sha256'] == record['sha256']
-    with sqlite3.connect(database) as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0] == 6
+
+
+@pytest.mark.parametrize('revision_state', ['missing', 'unknown'])
+def test_schema_mismatch_is_rejected_without_implicit_migration(client, revision_state):
+    base, record = add_file(client)
+    with database_connection(write=True) as db:
+        revision = db.execute('SELECT version_num FROM alembic_version').fetchone()['version_num']
+        if revision_state == 'missing':
+            db.execute('DELETE FROM alembic_version')
+        else:
+            db.execute('UPDATE alembic_version SET version_num = %s', ('unsupported_revision',))
+    response = client.get(base + '/preview')
+    assert response.status_code == 503
+    assert response.json()['detail']['code'] == 'storage_version'
+    with database_connection(write=True) as db:
+        current = db.execute('SELECT version_num FROM alembic_version').fetchone()
+        if revision_state == 'missing':
+            assert current is None
+            db.execute('INSERT INTO alembic_version (version_num) VALUES (%s)', (revision,))
+        else:
+            assert current['version_num'] == 'unsupported_revision'
+            db.execute('UPDATE alembic_version SET version_num = %s', (revision,))
+    migrate_database()
+    assert client.get(base + '/preview').status_code == 200
+    assert client.get(base.rsplit('/', 1)[0]).json()[0]['sha256'] == record['sha256']
 
 
 def test_two_simultaneous_saves_cannot_overwrite_each_other(client):
@@ -181,13 +201,11 @@ def test_two_simultaneous_saves_cannot_overwrite_each_other(client):
     assert client.get(base + '/analysis-setup').json() == winning
 
 
-def test_database_failure_keeps_existing_configuration(client):
+def test_database_failure_keeps_existing_configuration(client, reject_database_write):
     base, _ = add_file(client)
     original = client.put(base + '/analysis-setup', json=selection(expected_revision=0)).json()
-    database = Path(os.environ['PAPERASSIST_DATA_DIR']) / 'paperassist.sqlite3'
-    with sqlite3.connect(database) as db:
-        db.execute("CREATE TRIGGER reject_setup BEFORE UPDATE ON analysis_setups BEGIN SELECT RAISE(ABORT, 'test'); END;")
-    response = client.put(base + '/analysis-setup', json=selection(expected_revision=1, unit='new'))
+    with reject_database_write('analysis_setups', 'UPDATE'):
+        response = client.put(base + '/analysis-setup', json=selection(expected_revision=1, unit='new'))
     assert response.status_code == 503
     assert client.get(base + '/analysis-setup').json() == original
 

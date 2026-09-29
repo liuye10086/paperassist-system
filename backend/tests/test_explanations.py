@@ -2,12 +2,12 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 import json
 from pathlib import Path
-import sqlite3
 import subprocess
 import sys
 import time
 
 import pytest
+from app.database import ensure_schema_current, migrate_database
 
 from test_analysis import client  # noqa: F401
 from test_boxplot import cloud, prepared, generate  # noqa: F401
@@ -194,17 +194,15 @@ def test_stale_submitting_becomes_uncertain(client, cloud, writer):
     assert client.get(url).json()['job']['status'] == 'uncertain'
 
 
-def test_schema_four_upgrade_preserves_existing_figure(client, cloud, writer):
+def test_explicit_migration_preserves_existing_figure(client, cloud, writer):
     from app.storage import get_project_store
     *_, figure, url = ready(client)
-    directory = get_project_store().directory
-    with sqlite3.connect(directory / 'paperassist.sqlite3') as db:
-        db.executescript('DROP TABLE explanation_jobs; DROP TABLE explanations; PRAGMA user_version = 4;')
+    migrate_database()
     store = get_project_store()
     assert store.figure_png(figure).startswith(b'\x89PNG')
     assert client.get(url).json()['explanation'] is None
     with store.connection() as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0] == 6
+        ensure_schema_current(db)
 
 
 @pytest.mark.parametrize('target,missing,status', [('source', False, 409), ('source', True, 410),
