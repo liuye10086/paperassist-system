@@ -6,6 +6,7 @@ from .excel import router as excel_router
 from .upload_limit import UploadLimitMiddleware
 from .projects import router as projects_router
 from .storage import StorageError
+from .analysis import router as analysis_router
 
 # Fail early on invalid environment configuration.
 get_excel_settings()
@@ -13,6 +14,7 @@ app = FastAPI(title="PaperAssist System")
 app.add_middleware(UploadLimitMiddleware)
 app.include_router(excel_router)
 app.include_router(projects_router)
+app.include_router(analysis_router)
 
 
 @app.exception_handler(StorageError)

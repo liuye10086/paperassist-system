@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import ExcelPreview from './ExcelPreview'
+import AnalysisSetup from './AnalysisSetup'
 
 type Project = {
   id: string; name: string; research_topic: string; project_type: 'sci' | 'thesis'
@@ -86,6 +87,7 @@ function ProjectFiles({ projectId, onSaved }: { projectId: string; onSaved: () =
       </li>)}</ul>
     </section>
     <ExcelPreview projectId={projectId} savedFile={opened} onSaved={uploaded} onBusyChange={setBusy} />
+    <AnalysisSetup projectId={projectId} files={files} />
   </>
 }
 

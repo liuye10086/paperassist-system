@@ -53,6 +53,19 @@
   .file-parsed, .saved-notice { color: #8bd6a5; }
 }
 .excel-preview { margin-top: 32px; font-size: 15px; line-height: 1.65; }
+.analysis-setup { margin-top: 36px; padding-top: 28px; border-top: 1px solid var(--border); }
+.analysis-field-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin: 18px 0; }
+.analysis-setup label { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.analysis-setup select { max-width: 100%; }
+.analysis-sheet-label { margin: 18px 0; }
+.analysis-actions { display: flex; flex-wrap: wrap; gap: 12px; margin: 16px 0; }
+.field-table-scroll { overflow: auto; max-height: 360px; margin: 18px 0; border: 1px solid var(--border); border-radius: 8px; }
+.field-table { border-collapse: collapse; width: 100%; font-size: 13px; }
+.field-table caption { padding: 10px; text-align: left; }
+.field-table th, .field-table td { padding: 8px 12px; border-bottom: 1px solid var(--border); text-align: left; overflow-wrap: anywhere; }
+.field-table thead { background: var(--code-bg); color: var(--text-h); }
+.missing-policy, .selection-check { margin-top: 16px; }
+@media (max-width: 640px) { .analysis-field-grid { grid-template-columns: 1fr; } }
 .section-heading { margin-bottom: 20px; }
 .step-label { display: block; color: var(--accent); font-size: 13px; margin-bottom: 8px; font-weight: 600; }
 .section-heading h2 { margin-bottom: 10px; }

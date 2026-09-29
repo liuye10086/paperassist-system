@@ -3,6 +3,7 @@ from io import BytesIO
 from math import isfinite
 from posixpath import normpath
 from typing import Annotated
+from collections.abc import Callable, Sequence
 from zipfile import BadZipFile, ZipFile
 
 from defusedxml.ElementTree import fromstring, iterparse
@@ -130,7 +131,8 @@ def json_value(value) -> CellValue:
     return str(getattr(value, "text", value))
 
 
-def parse_workbook(content: bytes, filename: str, settings: ExcelSettings) -> WorkbookPreview:
+def parse_workbook(content: bytes, filename: str, settings: ExcelSettings, *,
+                   observe_row: Callable[[str, int, Sequence], None] | None = None) -> WorkbookPreview:
     workbook = None
     try:
         with BytesIO(content) as stream:
@@ -155,6 +157,8 @@ def parse_workbook(content: bytes, filename: str, settings: ExcelSettings) -> Wo
                     if (row_index > settings.max_rows or len(cells) > settings.max_columns
                             or scanned_cells > settings.max_cells):
                         too_large()
+                    if observe_row is not None:
+                        observe_row(sheet.title, row_index, cells)
                     values = [json_value(cell.value) for cell in cells]
                     has_formula |= any(cell.data_type == "f" for cell in cells)
                     used = [index for index, value in enumerate(values, start=1) if value is not None and value != ""]

@@ -26,9 +26,12 @@ class ProjectStore:
             self.files_dir.mkdir(parents=True, exist_ok=True)
             with self.connection() as db:
                 version = db.execute("PRAGMA user_version").fetchone()[0]
-                if version not in (0, 1):
+                if version not in (0, 1, 2):
                     raise StorageError("storage_version", "数据版本不兼容，请使用对应版本的程序。")
+                if version == 2:
+                    return
                 db.executescript("""
+                    BEGIN IMMEDIATE;
                     CREATE TABLE IF NOT EXISTS projects (
                         id TEXT PRIMARY KEY, name TEXT NOT NULL, research_topic TEXT NOT NULL,
                         project_type TEXT NOT NULL CHECK(project_type IN ('sci', 'thesis')),
@@ -42,7 +45,12 @@ class ProjectStore:
                         error_json TEXT, preview_json TEXT
                     );
                     CREATE INDEX IF NOT EXISTS files_project ON files(project_id, uploaded_at DESC);
-                    PRAGMA user_version = 1;
+                    CREATE TABLE IF NOT EXISTS analysis_setups (
+                        file_id TEXT PRIMARY KEY REFERENCES files(id),
+                        revision INTEGER NOT NULL, setup_json TEXT NOT NULL
+                    );
+                    PRAGMA user_version = 2;
+                    COMMIT;
                 """)
         except OSError as exc:
             raise StorageError("storage_unavailable", "无法访问数据目录，请检查目录权限和磁盘空间。") from exc
@@ -154,6 +162,27 @@ class ProjectStore:
         if len(content) != record["size_bytes"] or hashlib.sha256(content).hexdigest() != record["sha256"]:
             raise StorageError("file_changed", "原始文件已发生变化，请恢复原文件或重新上传。", 409)
         return content
+
+    def analysis_setup(self, project_id: str, file_id: str):
+        self.file(project_id, file_id)
+        with self.connection() as db:
+            row = db.execute('SELECT setup_json FROM analysis_setups WHERE file_id = ?', (file_id,)).fetchone()
+        return json.loads(row['setup_json']) if row else None
+
+    def save_analysis_setup(self, project_id: str, file_id: str, expected_revision: int, setup: dict):
+        self.file(project_id, file_id)
+        with self.connection() as db:
+            db.execute('BEGIN IMMEDIATE')
+            row = db.execute('SELECT revision FROM analysis_setups WHERE file_id = ?', (file_id,)).fetchone()
+            revision = row['revision'] if row else 0
+            if revision != expected_revision:
+                raise StorageError('setup_conflict', '分析配置已在其他页面更新，请重新载入配置后再修改。', 409)
+            saved = {**setup, 'revision': revision + 1, 'updated_at': datetime.now(timezone.utc).isoformat()}
+            db.execute('''INSERT INTO analysis_setups VALUES (?, ?, ?)
+                ON CONFLICT(file_id) DO UPDATE SET revision = excluded.revision, setup_json = excluded.setup_json''',
+                (file_id, saved['revision'], json.dumps(saved, ensure_ascii=False, allow_nan=False)))
+            db.execute('UPDATE projects SET updated_at = MAX(updated_at, ?) WHERE id = ?', (saved['updated_at'], project_id))
+        return saved
 
 
 def get_project_store() -> ProjectStore:
