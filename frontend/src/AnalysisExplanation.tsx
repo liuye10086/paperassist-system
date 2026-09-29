@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import WordReport from './WordReport'
 
 type Config = { configured: boolean; model: string | null; message: string }
 type Explanation = {
@@ -43,6 +44,7 @@ function ExplanationPanel({ base, runId, revision, figureId, canGenerate, disabl
   const [attempt, setAttempt] = useState(0)
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
+  const [reportBusy, setReportBusy] = useState(false)
   const [error, setError] = useState('')
   const active = useRef(true)
   const action = useRef<AbortController | null>(null)
@@ -56,10 +58,10 @@ function ExplanationPanel({ base, runId, revision, figureId, canGenerate, disabl
   const explanation = state?.explanation
   const current = !!state?.is_current && state.current_revision === revision && state.figure_id === figureId
     && (!explanation || (explanation.setup_revision === revision && explanation.figure_id === figureId && explanation.analysis_run_id === runId))
-  const allowed = !!config?.configured && current && canGenerate && !disabled && !loading && !busy && !error
+  const allowed = !!config?.configured && current && canGenerate && !disabled && !loading && !busy && !reportBusy && !error
 
   useEffect(() => { active.current = true; return () => { active.current = false; action.current?.abort(); reading.current?.abort() } }, [])
-  useEffect(() => { onBusyChange(busy); return () => onBusyChange(false) }, [busy, onBusyChange])
+  useEffect(() => { onBusyChange(busy || reportBusy); return () => onBusyChange(false) }, [busy, reportBusy, onBusyChange])
   useEffect(() => {
     if (sharedConfig) return
     const controller = new AbortController(); let disposed = false
@@ -118,7 +120,7 @@ function ExplanationPanel({ base, runId, revision, figureId, canGenerate, disabl
     {retry && <p className="warning-panel">{state.job?.status === 'uncertain' ? '上次解释提交状态不确定，不能确认是否已计费。' : '上次解释生成失败。'}再次调用 API 可能产生额外费用，请确认后点击重试。</p>}
     <div className="analysis-actions">
       <button type="button" disabled={!allowed} onClick={() => void generate()}>{retry ? '重试生成解释（再次调用 API）' : '使用 OpenAI 生成解释'}</button>
-      <button type="button" disabled={loading || submitting} onClick={() => { setLoading(true); setAttempt(value => value + 1) }}>重新读取解释</button>
+      <button type="button" disabled={loading || submitting || reportBusy} onClick={() => { setLoading(true); setAttempt(value => value + 1) }}>重新读取解释</button>
     </div>
     {loading && <p role="status">正在读取解释……</p>}
     {(submitting || running) && <p role="status">{state?.job?.message || '正在提交 OpenAI 解释任务，请稍候……'}</p>}
@@ -139,6 +141,7 @@ function ExplanationPanel({ base, runId, revision, figureId, canGenerate, disabl
         <pre>{JSON.stringify(explanation.provenance, null, 2)}</pre>
       </details>
     </>}
+    {explanation && <WordReport key={explanation.id} base={base} runId={runId} revision={revision} figureId={figureId} explanationId={explanation.id} canGenerate={canGenerate && current} disabled={disabled || loading || busy} onBusyChange={setReportBusy} />}
     {state && !explanation && !state.job && <p>尚未生成此图表的分析解释。</p>}
   </section>
 }

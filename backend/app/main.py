@@ -15,6 +15,7 @@ from .descriptive import router as descriptive_router
 from .boxplot import router as boxplot_router, poll_pending_figures
 from .openai_plot import configuration
 from .explanations import router as explanations_router, poll_pending_explanations
+from .reports import router as reports_router
 
 # Fail early on invalid environment configuration.
 get_excel_settings()
@@ -51,6 +52,7 @@ app.include_router(analysis_router)
 app.include_router(descriptive_router)
 app.include_router(boxplot_router)
 app.include_router(explanations_router)
+app.include_router(reports_router)
 
 
 @app.get('/api/v1/ai/config')

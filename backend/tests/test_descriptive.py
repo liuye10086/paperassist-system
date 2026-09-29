@@ -176,7 +176,7 @@ def test_schema_two_upgrade_preserves_configuration_and_file(client):
     assert client.get(base + '/analysis-setup').json() == before
     assert client.get(base + '/preview').status_code == 200
     with sqlite3.connect(Path(os.environ['PAPERASSIST_DATA_DIR']) / 'paperassist.sqlite3') as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0] == 5
+        assert db.execute('PRAGMA user_version').fetchone()[0] == 6
 
 
 def test_execution_rechecks_current_parse_limits(client, monkeypatch):

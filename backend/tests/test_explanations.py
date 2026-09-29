@@ -204,7 +204,7 @@ def test_schema_four_upgrade_preserves_existing_figure(client, cloud, writer):
     assert store.figure_png(figure).startswith(b'\x89PNG')
     assert client.get(url).json()['explanation'] is None
     with store.connection() as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0] == 5
+        assert db.execute('PRAGMA user_version').fetchone()[0] == 6
 
 
 @pytest.mark.parametrize('target,missing,status', [('source', False, 409), ('source', True, 410),
