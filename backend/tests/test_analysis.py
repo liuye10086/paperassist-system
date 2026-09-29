@@ -163,7 +163,7 @@ def test_existing_schema_one_data_survives_upgrade(client):
     assert client.get(base + '/preview').status_code == 200
     assert client.get(base.rsplit('/', 1)[0]).json()[0]['sha256'] == record['sha256']
     with sqlite3.connect(database) as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0] == 2
+        assert db.execute('PRAGMA user_version').fetchone()[0] == 3
 
 
 def test_two_simultaneous_saves_cannot_overwrite_each_other(client):

@@ -65,6 +65,10 @@
 .field-table th, .field-table td { padding: 8px 12px; border-bottom: 1px solid var(--border); text-align: left; overflow-wrap: anywhere; }
 .field-table thead { background: var(--code-bg); color: var(--text-h); }
 .missing-policy, .selection-check { margin-top: 16px; }
+.statistics-results { margin-top: 32px; padding-top: 24px; border-top: 1px solid var(--border); }
+.statistics-table { min-width: 940px; }
+.statistics-table td { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.statistics-provenance { margin-top: 16px; overflow-wrap: anywhere; }
 @media (max-width: 640px) { .analysis-field-grid { grid-template-columns: 1fr; } }
 .section-heading { margin-bottom: 20px; }
 .step-label { display: block; color: var(--accent); font-size: 13px; margin-bottom: 8px; font-weight: 600; }

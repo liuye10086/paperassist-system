@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import StatisticsResults from './StatisticsResults'
 
 type FileSummary = { id: string; filename: string; uploaded_at: string; parse_status: 'parsed' | 'failed' }
 type Column = {
@@ -6,9 +7,9 @@ type Column = {
   numeric_count: number; can_be_numeric: boolean; can_be_group: boolean; issue_cells: string[]
 }
 type Profile = { sheet_name: string; row_count: number; columns: Column[]; warnings: string[] }
-type Selection = { task_type: 'descriptive_boxplot'; sheet_name: string; numeric_column: string
+export type Selection = { task_type: 'descriptive_boxplot'; sheet_name: string; numeric_column: string
   group_column: string | null; unit: string; missing_policy: 'exclude_selected_missing' }
-type Check = { ready: boolean; row_count: number; valid_count: number; excluded_count: number
+export type Check = { ready: boolean; row_count: number; valid_count: number; excluded_count: number
   groups: { label: string; count: number }[]; issues: string[]; warnings: string[] }
 type Saved = { file_id: string; source_sha256: string; status: 'configured'; revision: number
   updated_at: string; selection: Selection; check: Check }
@@ -44,6 +45,7 @@ function SheetAnalysis({ base, sheetName, saved, onSaved, onBusyChange }: {
   const [unit, setUnit] = useState(previous?.unit ?? '')
   const [checked, setChecked] = useState<Check | null>(null)
   const [busy, setBusy] = useState(false)
+  const [running, setRunning] = useState(false)
   const actionController = useRef<AbortController | null>(null)
 
   useEffect(() => {
@@ -57,12 +59,12 @@ function SheetAnalysis({ base, sheetName, saved, onSaved, onBusyChange }: {
     return () => { active = false; controller.abort(); window.clearTimeout(timeout) }
   }, [base, sheetName, attempt])
   useEffect(() => () => actionController.current?.abort(), [])
-  useEffect(() => { onBusyChange(busy) }, [busy, onBusyChange])
+  useEffect(() => { onBusyChange(busy || running) }, [busy, running, onBusyChange])
 
   function changed() { setChecked(null); setNotice(''); setError('') }
 
   async function perform(save: boolean) {
-    if (actionController.current || !numeric) return
+    if (actionController.current || running || !numeric) return
     const controller = new AbortController()
     actionController.current = controller
     let timedOut = false
@@ -80,7 +82,7 @@ function SheetAnalysis({ base, sheetName, saved, onSaved, onBusyChange }: {
         if (!controller.signal.aborted) {
           onSaved(result)
           setChecked(result.check)
-          setNotice('已保存分析配置，刷新或重启后可再次载入。当前状态：等待执行。')
+          setNotice('已保存分析配置，刷新或重启后可再次载入。可在下方执行描述统计。')
         }
       } else {
         const result = await request<Check>(`${base}/analysis-check`, controller.signal, { method: 'POST',
@@ -101,6 +103,7 @@ function SheetAnalysis({ base, sheetName, saved, onSaved, onBusyChange }: {
     <button type="button" onClick={() => { setLoading(true); setLoadError(''); setAttempt(value => value + 1) }}>重试字段检查</button>
   </div>
   const numericColumn = profile.columns.find(column => column.id === numeric)
+  const fieldsMatch = !!previous && numeric === previous.numeric_column && (group || null) === previous.group_column && unit === previous.unit
   return <div className="analysis-fields" aria-busy={busy}>
     <p className="data-count">整表检查：{profile.row_count} 行数据</p>
     <p className="muted">使用完整工作表。空单元格、空字符串和纯空白字符串视为缺失；NA 等文本保持原义。</p>
@@ -116,7 +119,7 @@ function SheetAnalysis({ base, sheetName, saved, onSaved, onBusyChange }: {
       </table>
     </div>}
     <div className="analysis-field-grid">
-      <label>数值列<select value={numeric} disabled={busy} onChange={event => {
+      <label>数值列<select value={numeric} disabled={busy || running} onChange={event => {
         setNumeric(event.target.value); if (group === event.target.value) setGroup(''); changed()
       }}>
         <option value="">请选择数值列</option>
@@ -124,18 +127,18 @@ function SheetAnalysis({ base, sheetName, saved, onSaved, onBusyChange }: {
           {column.id} · {column.name}（{typeNames[column.type]}）
         </option>)}
       </select></label>
-      <label>分组列（可选）<select value={group} disabled={busy} onChange={event => { setGroup(event.target.value); changed() }}>
+      <label>分组列（可选）<select value={group} disabled={busy || running} onChange={event => { setGroup(event.target.value); changed() }}>
         <option value="">不分组</option>
         {profile.columns.filter(column => column.can_be_group && column.id !== numeric).map(column =>
           <option key={column.id} value={column.id}>{column.id} · {column.name}</option>)}
       </select></label>
-      <label>数值单位（可选）<input value={unit} maxLength={80} disabled={busy} onChange={event => { setUnit(event.target.value); changed() }} /></label>
+      <label>数值单位（可选）<input value={unit} maxLength={80} disabled={busy || running} onChange={event => { setUnit(event.target.value); changed() }} /></label>
     </div>
     <p className="muted">数值列仅接受实际数值，文本数字、布尔、日期、公式、错误及混合类型需先在原文件中核对。分组最多 20 组。</p>
     <p className="missing-policy">缺失值规则：后续计算只使用数值列及所选分组列均非缺失的行，原文件保持不变。</p>
     <div className="analysis-actions">
-      <button type="button" disabled={busy || !numericColumn?.can_be_numeric || !profile.row_count} onClick={() => void perform(false)}>检查字段</button>
-      <button type="button" disabled={busy || !checked?.ready} onClick={() => void perform(true)}>保存分析配置</button>
+      <button type="button" disabled={busy || running || !numericColumn?.can_be_numeric || !profile.row_count} onClick={() => void perform(false)}>检查字段</button>
+      <button type="button" disabled={busy || running || !checked?.ready} onClick={() => void perform(true)}>保存分析配置</button>
     </div>
     {busy && <p role="status">正在核对数据，请稍候……</p>}
     {error && <p className="error-panel" role="alert">{error}</p>}
@@ -146,6 +149,8 @@ function SheetAnalysis({ base, sheetName, saved, onSaved, onBusyChange }: {
       {checked.warnings.length > 0 && <ul className="warning-panel">{checked.warnings.map(note => <li key={note}>{note}</li>)}</ul>}
     </div>}
     {notice && <p className="saved-notice" role="status">{notice}</p>}
+    <StatisticsResults key={`${base}:${saved?.revision ?? 0}`} base={base} savedRevision={saved?.revision ?? null}
+      fieldsMatch={fieldsMatch} disabled={busy} onBusyChange={setRunning} />
   </div>
 }
 

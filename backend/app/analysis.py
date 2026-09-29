@@ -98,13 +98,15 @@ def cell_kind(cell):
 
 
 class SheetScan:
-    def __init__(self, sheet_name: str, selection: AnalysisSelection | None):
+    def __init__(self, sheet_name: str, selection: AnalysisSelection | None, collect_values: bool = False):
         self.sheet_name = sheet_name
         self.selection = selection
         self.types: list[Counter] = []
         self.issue_cells: list[list[str]] = []
         self.valid_count = 0
         self.groups = Counter()
+        self.values = [] if collect_values else None
+        self.grouped_values = {}
 
     def observe(self, sheet_name, row_index, cells):
         if sheet_name != self.sheet_name or row_index == 1:
@@ -125,8 +127,11 @@ class SheetScan:
             index = column_index_from_string(column) - 1
             return cell_kind(cells[index] if index < len(cells) else None)
 
-        if selected(self.selection.numeric_column)[0] != 'number':
+        kind, value = selected(self.selection.numeric_column)
+        if kind != 'number':
             return
+        if self.values is not None and isinstance(value, int) and abs(value) > 2**53 - 1:
+            fail('numeric_precision', f'数值列 {self.selection.numeric_column}{row_index} 的整数超过安全精度范围（±9007199254740991）。请调整单位或核对数据后重新上传，避免计算时丢失精度。')
         if self.selection.group_column is not None:
             kind, group = selected(self.selection.group_column)
             if kind not in ('text', 'number', 'boolean'):
@@ -134,7 +139,11 @@ class SheetScan:
             # Bound category memory/output even for an accidentally selected identifier.
             if group in self.groups or len(self.groups) <= MAX_GROUPS:
                 self.groups[group] += 1
+                if self.values is not None:
+                    self.grouped_values.setdefault(group, []).append(float(value))
         self.valid_count += 1
+        if self.values is not None:
+            self.values.append(float(value))
 
     def profile(self, sheet):
         columns = []
@@ -188,9 +197,9 @@ def source(store: ProjectStore, project_id: str, file_id: str):
     return record, content
 
 
-def inspect_selection(store, project_id, file_id, settings, sheet_name, selection=None):
+def inspect_selection(store, project_id, file_id, settings, sheet_name, selection=None, *, collect_values=False):
     record, content = source(store, project_id, file_id)
-    scan = SheetScan(sheet_name, selection)
+    scan = SheetScan(sheet_name, selection, collect_values)
     preview = parse_workbook(content, record['filename'], settings, observe_row=scan.observe)
     sheet = next((sheet for sheet in preview.sheets if sheet.name == sheet_name), None)
     if sheet is None:

@@ -26,9 +26,9 @@ class ProjectStore:
             self.files_dir.mkdir(parents=True, exist_ok=True)
             with self.connection() as db:
                 version = db.execute("PRAGMA user_version").fetchone()[0]
-                if version not in (0, 1, 2):
+                if version not in (0, 1, 2, 3):
                     raise StorageError("storage_version", "数据版本不兼容，请使用对应版本的程序。")
-                if version == 2:
+                if version == 3:
                     return
                 db.executescript("""
                     BEGIN IMMEDIATE;
@@ -49,7 +49,13 @@ class ProjectStore:
                         file_id TEXT PRIMARY KEY REFERENCES files(id),
                         revision INTEGER NOT NULL, setup_json TEXT NOT NULL
                     );
-                    PRAGMA user_version = 2;
+                    CREATE TABLE IF NOT EXISTS analysis_runs (
+                        id TEXT PRIMARY KEY, file_id TEXT NOT NULL REFERENCES files(id),
+                        setup_revision INTEGER NOT NULL, engine_version TEXT NOT NULL,
+                        completed_at TEXT NOT NULL, result_json TEXT NOT NULL,
+                        UNIQUE(file_id, setup_revision, engine_version)
+                    );
+                    PRAGMA user_version = 3;
                     COMMIT;
                 """)
         except OSError as exc:
@@ -183,6 +189,54 @@ class ProjectStore:
                 (file_id, saved['revision'], json.dumps(saved, ensure_ascii=False, allow_nan=False)))
             db.execute('UPDATE projects SET updated_at = MAX(updated_at, ?) WHERE id = ?', (saved['updated_at'], project_id))
         return saved
+
+    def analysis_run(self, project_id: str, file_id: str, revision: int, engine: str):
+        self.file(project_id, file_id)
+        with self.connection() as db:
+            # Check the revision and cache together in one read snapshot.
+            db.execute('BEGIN')
+            self.require_analysis_revision(db, file_id, revision)
+            row = db.execute('''SELECT result_json FROM analysis_runs
+                WHERE file_id = ? AND setup_revision = ? AND engine_version = ?''',
+                (file_id, revision, engine)).fetchone()
+        return json.loads(row['result_json']) if row else None
+
+    @staticmethod
+    def require_analysis_revision(db, file_id, revision):
+        current = db.execute('SELECT revision FROM analysis_setups WHERE file_id = ?', (file_id,)).fetchone()
+        if current is None or current['revision'] != revision:
+            raise StorageError('setup_conflict', '分析配置已变化或尚未保存，请重新载入配置后再执行。', 409)
+
+    def save_analysis_run(self, project_id: str, file_id: str, result: dict):
+        self.file(project_id, file_id)
+        with self.connection() as db:
+            db.execute('BEGIN IMMEDIATE')
+            revision, engine = result['setup_revision'], result['engine']['id']
+            self.require_analysis_revision(db, file_id, revision)
+            existing = db.execute('''SELECT result_json FROM analysis_runs
+                WHERE file_id = ? AND setup_revision = ? AND engine_version = ?''',
+                (file_id, revision, engine)).fetchone()
+            if existing:
+                return json.loads(existing['result_json'])
+            saved = {**result, 'id': str(uuid4())}
+            db.execute('INSERT INTO analysis_runs VALUES (?, ?, ?, ?, ?, ?)',
+                (saved['id'], file_id, revision, engine, saved['completed_at'],
+                 json.dumps(saved, ensure_ascii=False, allow_nan=False)))
+            db.execute('UPDATE projects SET updated_at = MAX(updated_at, ?) WHERE id = ?',
+                (saved['completed_at'], project_id))
+        return saved
+
+    def latest_analysis_result(self, project_id: str, file_id: str, engine: str):
+        self.file(project_id, file_id)
+        with self.connection() as db:
+            db.execute('BEGIN')
+            setup = db.execute('SELECT revision FROM analysis_setups WHERE file_id = ?', (file_id,)).fetchone()
+            row = db.execute('''SELECT result_json FROM analysis_runs WHERE file_id = ?
+                ORDER BY setup_revision DESC, completed_at DESC, id DESC LIMIT 1''', (file_id,)).fetchone()
+        revision = setup['revision'] if setup else None
+        result = json.loads(row['result_json']) if row else None
+        return {'current_revision': revision, 'result': result,
+                'is_current': bool(result and result['setup_revision'] == revision and result['engine']['id'] == engine)}
 
 
 def get_project_store() -> ProjectStore:
