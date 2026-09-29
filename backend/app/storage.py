@@ -27,9 +27,9 @@ class ProjectStore:
             self.files_dir.mkdir(parents=True, exist_ok=True)
             with self.connection() as db:
                 version = db.execute("PRAGMA user_version").fetchone()[0]
-                if version not in (0, 1, 2, 3, 4):
+                if version not in (0, 1, 2, 3, 4, 5):
                     raise StorageError("storage_version", "数据版本不兼容，请使用对应版本的程序。")
-                if version == 4:
+                if version == 5:
                     return
                 db.executescript("""
                     BEGIN IMMEDIATE;
@@ -66,7 +66,18 @@ class ProjectStore:
                         renderer_version TEXT NOT NULL, created_at TEXT NOT NULL, job_json TEXT NOT NULL
                     );
                     CREATE INDEX IF NOT EXISTS figure_jobs_run ON figure_jobs(analysis_run_id, created_at DESC);
-                    PRAGMA user_version = 4;
+                    CREATE TABLE IF NOT EXISTS explanations (
+                        id TEXT PRIMARY KEY, analysis_run_id TEXT NOT NULL REFERENCES analysis_runs(id),
+                        figure_id TEXT NOT NULL REFERENCES figures(id), engine_version TEXT NOT NULL,
+                        explanation_json TEXT NOT NULL, UNIQUE(figure_id, engine_version)
+                    );
+                    CREATE TABLE IF NOT EXISTS explanation_jobs (
+                        id TEXT PRIMARY KEY, analysis_run_id TEXT NOT NULL REFERENCES analysis_runs(id),
+                        figure_id TEXT NOT NULL REFERENCES figures(id), engine_version TEXT NOT NULL,
+                        created_at TEXT NOT NULL, job_json TEXT NOT NULL
+                    );
+                    CREATE INDEX IF NOT EXISTS explanation_jobs_figure ON explanation_jobs(figure_id, created_at DESC);
+                    PRAGMA user_version = 5;
                     COMMIT;
                 """)
         except OSError as exc:

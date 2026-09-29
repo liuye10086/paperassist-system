@@ -196,7 +196,7 @@ def test_schema_three_migration_preserves_result(client, cloud):
     generate(client, url)
     assert client.get(base + '/analysis-result').json()['result'] == result
     with sqlite3.connect(database) as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0] == 4
+        assert db.execute('PRAGMA user_version').fetchone()[0] == 5
 
 
 def test_persisted_cloud_chart_restores_in_a_fresh_process(client, cloud):

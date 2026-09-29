@@ -120,3 +120,35 @@ it('server revision conflict marks the retained image as old and blocks generati
   expect(screen.getByText(/以下图表对应旧配置/)).toBeTruthy()
   expect(screen.getByAltText(figure.title)).toBeTruthy()
 })
+
+it('offers fourth-step explanation only after a saved figure and propagates its busy state', async () => {
+  const onBusyChange = vi.fn()
+  const fetch = vi.fn((url: string, _init?: RequestInit) => json(url === '/api/v1/ai/config'
+    ? { configured: true, model: 'model', message: '' }
+    : url.endsWith('/explanation') ? { current_revision: 1, is_current: true, figure_id: 'figure', explanation: null, job: { id: 'job', status: 'running', message: '解释生成中', response_id: null, created_at: '' } }
+    : { ...empty, figure }))
+  vi.stubGlobal('fetch', fetch); render(<BoxplotFigure {...props} onBusyChange={onBusyChange} />)
+  expect(await screen.findByText('第四步 · AI 分析解释')).toBeTruthy()
+  await screen.findByText('解释生成中')
+  await waitFor(() => expect(onBusyChange).toHaveBeenLastCalledWith(true))
+  expect((screen.getByRole('button', { name: '使用 OpenAI 生成箱线图' }) as HTMLButtonElement).disabled).toBe(true)
+})
+
+it('releases plot controls when a restored explanation task completes without deadlock', async () => {
+  vi.useFakeTimers(); let reads = 0; const onBusyChange = vi.fn()
+  const fetch = vi.fn((url: string, _init?: RequestInit) => json(url === '/api/v1/ai/config' ? { configured: true }
+    : url.endsWith('/explanation') ? { current_revision: 1, is_current: true, figure_id: 'figure', explanation: null,
+      job: reads++ === 0 ? { id: 'job', status: 'running', message: '解释生成中', response_id: null, created_at: '' } : null }
+    : { ...empty, figure }))
+  vi.stubGlobal('fetch', fetch); render(<BoxplotFigure {...props} onBusyChange={onBusyChange} />); await act(async () => {})
+  expect((screen.getByRole('button', { name: '重新读取图表' }) as HTMLButtonElement).disabled).toBe(true)
+  await act(async () => { vi.advanceTimersByTime(3000) })
+  expect((screen.getByRole('button', { name: '使用 OpenAI 生成箱线图' }) as HTMLButtonElement).disabled).toBe(false)
+  expect((screen.getByRole('button', { name: '使用 OpenAI 生成解释' }) as HTMLButtonElement).disabled).toBe(false)
+  expect(onBusyChange).toHaveBeenLastCalledWith(false)
+})
+it('prompts for a saved figure before reading or generating explanations', async () => {
+  const fetch = api(); vi.stubGlobal('fetch', fetch); render(<BoxplotFigure {...props} />)
+  expect(await screen.findByText('请先生成并保存箱线图，再生成分析解释。')).toBeTruthy()
+  expect(fetch.mock.calls.some(call => call[0].endsWith('/explanation'))).toBe(false)
+})

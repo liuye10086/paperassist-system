@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import AnalysisExplanation from './AnalysisExplanation'
 
 type Figure = { id: string; analysis_run_id: string; setup_revision: number; title: string; caption: string
   x_label: string; y_label: string; source_sha256: string; sha256: string; created_at: string
@@ -34,6 +35,7 @@ export default function BoxplotFigure(props: Props) {
 function FigurePanel({ base, runId, revision, canGenerate, disabled, onBusyChange }: Props) {
   const endpoint = `${base}/analysis-runs/${runId}/boxplot`
   const [state, setState] = useState<State | null>(null)
+  const [explanationBusy, setExplanationBusy] = useState(false)
   const [config, setConfig] = useState<Config | null>(null)
   const [configError, setConfigError] = useState('')
   const [configAttempt, setConfigAttempt] = useState(0)
@@ -49,10 +51,10 @@ function FigurePanel({ base, runId, revision, canGenerate, disabled, onBusyChang
   const running = state?.job?.status === 'submitting' || state?.job?.status === 'running'
   const retry = state?.job?.status === 'failed' || state?.job?.status === 'uncertain'
   const busy = submitting || (running && !error)
-  const allowed = !!config?.configured && canGenerate && !disabled && !!state?.is_current && state.current_revision === revision && !loading && !busy && !error
+  const allowed = !!config?.configured && canGenerate && !disabled && !!state?.is_current && state.current_revision === revision && !loading && !busy && !explanationBusy && !error
 
   useEffect(() => { active.current = true; return () => { active.current = false; action.current?.abort(); reading.current?.abort() } }, [])
-  useEffect(() => { onBusyChange(busy); return () => onBusyChange(false) }, [busy, onBusyChange])
+  useEffect(() => { onBusyChange(busy || explanationBusy); return () => onBusyChange(false) }, [busy, explanationBusy, onBusyChange])
   useEffect(() => {
     const controller = new AbortController()
     let disposed = false
@@ -112,7 +114,7 @@ function FigurePanel({ base, runId, revision, canGenerate, disabled, onBusyChang
     {retry && <p className="warning-panel">{state.job?.status === 'uncertain' ? '上次提交状态不确定，不能确认是否已计费。' : '上次生成失败。'}再次调用 API 可能产生额外费用，请确认后点击重试。</p>}
     <div className="analysis-actions">
       <button type="button" disabled={!allowed} onClick={() => void generate()}>{retry ? '重试生成（再次调用 API）' : '使用 OpenAI 生成箱线图'}</button>
-      <button type="button" disabled={loading || submitting} onClick={() => { setLoading(true); setImageError(false); setImageAttempt(value => value + 1); setAttempt(value => value + 1) }}>重新读取图表</button>
+      <button type="button" disabled={loading || submitting || explanationBusy} onClick={() => { setLoading(true); setImageError(false); setImageAttempt(value => value + 1); setAttempt(value => value + 1) }}>重新读取图表</button>
     </div>
     {loading && <p role="status">正在读取图表……</p>}
     {(submitting || running) && <p role="status">{state?.job?.message || '正在提交 OpenAI 绘图任务，请稍候……'}</p>}
@@ -133,5 +135,11 @@ function FigurePanel({ base, runId, revision, canGenerate, disabled, onBusyChang
       </details>
     </figure>}
     {state && !figure && !state.job && <p>尚未生成此统计结果的箱线图。</p>}
+    {figure ? <AnalysisExplanation base={base} runId={runId} revision={revision} figureId={figure.id}
+      canGenerate={canGenerate && !!state?.is_current && state.current_revision === revision && figure.setup_revision === revision}
+      disabled={disabled || loading || busy || !!error} onBusyChange={setExplanationBusy}
+      configuration={config} configurationError={configError}
+      onReloadConfiguration={() => { setConfig(null); setConfigError(''); setConfigAttempt(value => value + 1) }} />
+      : <section className="analysis-explanation"><span className="step-label">第四步 · AI 分析解释</span><p>请先生成并保存箱线图，再生成分析解释。</p></section>}
   </section>
 }

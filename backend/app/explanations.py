@@ -1,0 +1,122 @@
+"""Explain saved statistics and figure metadata without inventing new calculations."""
+
+from datetime import datetime, timezone
+import hashlib
+import json
+
+from fastapi import APIRouter, HTTPException, Response
+from pydantic import Field
+
+from .analysis import Store
+from .boxplot import RENDERER, STATISTICS_ENGINE, public_job, result_source
+from .descriptive import RunRequest
+from .excel import fail
+from .explanation_content import LIMITATIONS, VERSION, build_payload, render_explanation
+from .explanation_store import ExplanationStore
+from .openai_explanation import CloudExplanation
+from .openai_plot import PlotError, configuration
+from .storage import StorageError, get_project_store
+
+router = APIRouter(prefix='/api/v1/projects/{project_id}/files/{file_id}/analysis-runs/{run_id}', tags=['结果解释'])
+
+
+class ExplanationRequest(RunRequest):
+    figure_id: str = Field(min_length=1, max_length=64)
+    retry: bool = False
+
+
+def context(store, project_id, file_id, run_id):
+    result = result_source(store, project_id, file_id, run_id)
+    state = store.figure_state(result, RENDERER, STATISTICS_ENGINE)
+    figure = state.pop('figure')
+    if figure:
+        store.figure_png(figure)
+    state['figure_id'] = figure['id'] if figure else None
+    state['explanation'] = ExplanationStore(store).saved(figure['id']) if figure else None
+    return result, figure, state
+
+
+@router.get('/explanation')
+def get_explanation(project_id: str, file_id: str, run_id: str, store: Store):
+    result, figure, state = context(store, project_id, file_id, run_id)
+    repository = ExplanationStore(store)
+    job = repository.job(figure['id']) if figure else None
+    if job and state['explanation'] and job['status'] != 'completed':
+        job = repository.update_job(job['id'], status='completed', message='解释及事实引用已保存。')
+    if job and job['status'] == 'submitting' and (datetime.now(timezone.utc) - datetime.fromisoformat(job['created_at'])).total_seconds() > 180:
+        job = repository.update_job(job['id'], status='uncertain', message='提交中断，尚未获得云端任务编号。无法确认是否已收费；确认后可手动重试。')
+    if job and job['status'] == 'running' and not state['explanation']:
+        try:
+            if not state['is_current']:
+                raise StorageError('setup_conflict', '配置已变化，请使用当前统计结果和图表生成解释。', 409)
+            output = CloudExplanation(job['model']).fetch(job)
+            if output is not None:
+                payload = build_payload(result, figure)
+                if payload != job['payload']:
+                    raise StorageError('source_conflict', '生成期间数据或图表已变化，请重新读取结果。', 409)
+                sections = render_explanation(output['draft'], payload)
+                explanation = {'analysis_run_id': run_id, 'figure_id': figure['id'], 'figure_sha256': figure['sha256'],
+                    'source_sha256': result['source_sha256'], 'setup_revision': result['setup_revision'],
+                    'language': 'zh-CN', 'created_at': datetime.now(timezone.utc).isoformat(),
+                    'sections': sections, 'limitations': LIMITATIONS,
+                    'engine': {'id': VERSION, 'provider': 'openai', 'model': output['provenance']['model']},
+                    'verification': {'status': 'references_checked',
+                        'note': '数值与事实引用已由程序填入并核对；语义和研究适用性仍需人工审阅。'},
+                    'provenance': {**output['provenance'], 'prompt_version': VERSION,
+                        'input_sha256': hashlib.sha256(json.dumps(payload, ensure_ascii=False, allow_nan=False,
+                            sort_keys=True, separators=(',', ':')).encode('utf-8')).hexdigest()}}
+                state['explanation'] = repository.save(project_id, file_id, explanation)
+                job = repository.update_job(job['id'], status='completed', message='解释及事实引用已核对并保存，请人工审阅初稿。')
+        except PlotError as exc:
+            if exc.status == 503 or exc.code == 'openai_request_failed' and exc.status != 404:
+                fail(exc.code, exc.message, exc.status)
+            job = repository.update_job(job['id'], status='failed', message=exc.message)
+        except StorageError as exc:
+            if exc.status != 409:
+                raise
+            job = repository.update_job(job['id'], status='failed', message=exc.message)
+    state['job'] = public_job(job)
+    return state
+
+
+@router.post('/explanation')
+def generate(project_id: str, file_id: str, run_id: str, request: ExplanationRequest, store: Store, response: Response):
+    result, figure, state = context(store, project_id, file_id, run_id)
+    if not state['is_current'] or request.expected_revision != result['setup_revision']:
+        fail('setup_conflict', '配置或统计结果已变化，请重新载入当前结果后生成解释。', 409)
+    if not figure or request.figure_id != figure['id']:
+        fail('figure_conflict', '请先生成并读取当前统计结果的图表。', 409)
+    repository = ExplanationStore(store)
+    job = repository.job(figure['id'])
+    if state['explanation'] or job and (job['status'] not in ('failed', 'uncertain') or not request.retry):
+        state['job'] = public_job(job)
+        response.status_code = 202 if job and job['status'] in ('running', 'submitting') and not state['explanation'] else 200
+        return state
+    config = configuration()
+    if not config['configured']:
+        fail('openai_not_configured', config['message'], 503)
+    job, created = repository.begin(result, figure, build_payload(result, figure), config['model'], request.retry)
+    if created:
+        try:
+            response_id = CloudExplanation(config['model']).start(job['payload'])
+            job = repository.update_job(job['id'], response_id=response_id, status='running', message='OpenAI 正在根据统计汇总组织中文解释。')
+        except PlotError as exc:
+            job = repository.update_job(job['id'], status='uncertain' if exc.uncertain else 'failed', message=exc.message)
+    state['job'] = public_job(job)
+    response.status_code = 202 if job['status'] in ('running', 'submitting') else 200
+    return state
+
+
+def poll_pending_explanations():
+    """Retrieve existing responses after restart; never start or retry a paid request."""
+    if not configuration()['configured']:
+        return
+    store = get_project_store()
+    repository = ExplanationStore(store)
+    for pending in repository.pending():
+        try:
+            get_explanation(pending['project_id'], pending['file_id'], pending['run_id'], store)
+        except (HTTPException, StorageError) as exc:
+            status = exc.status_code if isinstance(exc, HTTPException) else exc.status
+            if status in (404, 409, 410, 422):
+                repository.update_job(pending['job_id'], status='failed', message='原文件、图表或配置已不可用，后台无法保存解释。请检查项目数据。')
