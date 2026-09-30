@@ -1,7 +1,9 @@
 """SQLAlchemy Core metadata matching the persisted PaperAssist v6 contract."""
 
+from sqlalchemy.dialects.postgresql import DOUBLE_PRECISION
+
 from sqlalchemy import (
-    BigInteger, CheckConstraint, Column, ForeignKey, Identity, Index, Integer,
+    Boolean, BigInteger, CheckConstraint, Column, ForeignKey, Identity, Index, Integer,
     MetaData, Table, Text, UniqueConstraint,
 )
 
@@ -16,6 +18,7 @@ projects = Table(
     Column("project_type", Text, nullable=False),
     Column("created_at", Text, nullable=False),
     Column("updated_at", Text, nullable=False),
+    Column("owner_id", Text, ForeignKey("users.id")),
     CheckConstraint("project_type IN ('sci', 'thesis')", name="projects_project_type_check"),
 )
 
@@ -105,3 +108,29 @@ reports = Table(
     Column("input_json", Text, nullable=False),
     UniqueConstraint("explanation_id", "renderer_version", name="reports_input_key"),
 )
+
+Index("projects_owner", projects.c.owner_id)
+users = Table("users", metadata,
+    Column("id", Text, primary_key=True),
+    Column("email", Text, nullable=False, unique=True),
+    Column("password_hash", Text, nullable=False),
+    Column("role", Text, nullable=False),
+    Column("active", Boolean, nullable=False),
+    Column("created_at", DOUBLE_PRECISION, nullable=False),
+    Column("updated_at", DOUBLE_PRECISION, nullable=False),
+    CheckConstraint("role IN ('user','admin')", name="users_role_check"))
+sessions = Table("sessions", metadata,
+    Column("token_hash", Text, primary_key=True),
+    Column("user_id", Text, ForeignKey("users.id"), nullable=False),
+    Column("csrf_token", Text, nullable=False),
+    Column("created_at", DOUBLE_PRECISION, nullable=False),
+    Column("last_seen_at", DOUBLE_PRECISION, nullable=False),
+    Column("expires_at", DOUBLE_PRECISION, nullable=False))
+Index("sessions_user", sessions.c.user_id)
+auth_login_attempts = Table("auth_login_attempts", metadata,
+    Column("id", BigInteger, Identity(), primary_key=True),
+    Column("email", Text, nullable=False),
+    Column("client_ip", Text, nullable=False),
+    Column("attempted_at", DOUBLE_PRECISION, nullable=False))
+Index("auth_attempts_email_time", auth_login_attempts.c.email, auth_login_attempts.c.attempted_at)
+Index("auth_attempts_ip_time", auth_login_attempts.c.client_ip, auth_login_attempts.c.attempted_at)

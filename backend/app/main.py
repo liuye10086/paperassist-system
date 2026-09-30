@@ -8,6 +8,9 @@ from fastapi.responses import JSONResponse
 from .config import get_excel_settings, local_config
 from .excel import router as excel_router
 from .upload_limit import UploadLimitMiddleware
+from .auth.middleware import AuthMiddleware
+from .auth.routes import router as auth_router
+from .auth.config import settings as auth_settings
 from .projects import router as projects_router
 from .storage import StorageError, check_database_ready
 from .analysis import router as analysis_router
@@ -19,6 +22,7 @@ from .reports import router as reports_router
 
 # Fail early on invalid environment configuration.
 get_excel_settings()
+auth_settings()
 async def run_recovery_worker(poll, name):
     while True:
         try:
@@ -47,6 +51,8 @@ async def lifespan(app):
 
 app = FastAPI(title="PaperAssist System", lifespan=lifespan)
 app.add_middleware(UploadLimitMiddleware)
+app.add_middleware(AuthMiddleware)
+app.include_router(auth_router)
 app.include_router(excel_router)
 app.include_router(projects_router)
 app.include_router(analysis_router)

@@ -1,3 +1,4 @@
+import { apiFetch } from './api'
 import { useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import ExcelPreview from './ExcelPreview'
@@ -40,7 +41,7 @@ function ProjectFiles({ projectId, onSaved }: { projectId: string; onSaved: () =
     const timeout = window.setTimeout(() => controller.abort(), 15_000)
     async function load() {
       try {
-        const response = await fetch(`/api/v1/projects/${projectId}/files`, { signal: controller.signal })
+        const response = await apiFetch(`/api/v1/projects/${projectId}/files`, { signal: controller.signal })
         const result = await responseData(response, '文件列表读取失败。')
         if (!Array.isArray(result)) throw new Error('文件列表格式不正确。')
         if (active) setFiles(result)
@@ -117,7 +118,7 @@ export default function ProjectWorkspace() {
     const timeout = window.setTimeout(() => controller.abort(), 15_000)
     async function load() {
       try {
-        const response = await fetch('/api/v1/projects', { signal: controller.signal })
+        const response = await apiFetch('/api/v1/projects', { signal: controller.signal })
         const result = await responseData(response, '项目列表读取失败。')
         if (!Array.isArray(result)) throw new Error('项目列表格式不正确。')
         if (active) {
@@ -151,7 +152,7 @@ export default function ProjectWorkspace() {
     setCreating(true)
     setCreateError('')
     try {
-      const response = await fetch('/api/v1/projects', { method: 'POST', signal: controller.signal,
+      const response = await apiFetch('/api/v1/projects', { method: 'POST', signal: controller.signal,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: name.trim(), research_topic: topic.trim(), project_type: projectType }),
       })

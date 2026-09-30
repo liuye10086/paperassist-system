@@ -30,3 +30,5 @@ psycopg[binary]==3.3.6
 Mako==1.4.3
 MarkupSafe==3.0.3
 tzdata==2026.4
+
+argon2-cffi==25.1.0

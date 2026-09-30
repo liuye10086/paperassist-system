@@ -11,6 +11,8 @@ from threading import Event
 import pytest
 from fastapi.testclient import TestClient
 
+from auth_helpers import login_test_client, session_subprocess_env
+
 from app.main import app
 from app import storage
 from app.storage import ProjectStore
@@ -21,7 +23,7 @@ from test_excel import workbook_bytes
 def client(tmp_path, monkeypatch):
     monkeypatch.setenv("PAPERASSIST_DATA_DIR", str(tmp_path / "data"))
     with TestClient(app) as instance:
-        yield instance
+        yield login_test_client(instance)
 
 
 def create_project(client, name="研究项目", project_type="sci"):
@@ -163,14 +165,14 @@ def test_data_is_readable_in_new_python_process(client):
 import json, sys
 from fastapi.testclient import TestClient
 from app.main import app
-with TestClient(app) as client:
+with TestClient(app, cookies={"paperassist_session": __import__("os").environ["PAPERASSIST_TEST_SESSION_COOKIE"]}) as client:
     project = client.get('/api/v1/projects/' + sys.argv[1]).json()
     files = client.get('/api/v1/projects/' + sys.argv[1] + '/files').json()
     preview = client.get('/api/v1/projects/' + sys.argv[1] + '/files/' + sys.argv[2] + '/preview')
     print(json.dumps([project['id'], files[0]['id'], preview.status_code]))
 '''
     result = subprocess.run([sys.executable, "-c", code, project["id"], record["id"]],
-        cwd=Path(__file__).resolve().parents[1], capture_output=True, text=True, check=True, timeout=30)
+        cwd=Path(__file__).resolve().parents[1], env=session_subprocess_env(client), capture_output=True, text=True, check=True, timeout=30)
     assert json.loads(result.stdout) == [project["id"], record["id"], 200]
 
 

@@ -1,3 +1,4 @@
+from auth_helpers import session_subprocess_env
 from concurrent.futures import ThreadPoolExecutor
 import json
 import math
@@ -145,9 +146,9 @@ def test_idempotent_retry_and_changed_configuration_keeps_old_result(client):
 def test_result_restored_in_independent_process(client):
     base, _ = configured(client)
     expected = run(client, base)
-    code = 'from fastapi.testclient import TestClient; from app.main import app; import sys; print(TestClient(app).get(sys.argv[1]).text)'
+    code = 'from fastapi.testclient import TestClient; from app.main import app; import sys; print(TestClient(app, cookies={"paperassist_session": __import__("os").environ["PAPERASSIST_TEST_SESSION_COOKIE"]}).get(sys.argv[1]).text)'
     completed = subprocess.run([sys.executable, '-c', code, base + '/analysis-result'],
-        cwd=Path(__file__).resolve().parents[1], capture_output=True, text=True, check=True, timeout=30)
+        cwd=Path(__file__).resolve().parents[1], env=session_subprocess_env(client), capture_output=True, text=True, check=True, timeout=30)
     assert json.loads(completed.stdout)['result'] == expected
 
 

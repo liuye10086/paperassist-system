@@ -1,3 +1,4 @@
+import { apiFetch } from './api'
 import { useEffect, useRef, useState } from 'react'
 import WordReport from './WordReport'
 
@@ -20,7 +21,7 @@ class RequestError extends Error {
 async function request<T>(url: string, controller: AbortController, init?: RequestInit): Promise<T> {
   let timer = 0
   try {
-    return await Promise.race([fetch(url, { ...init, signal: controller.signal }).then(async response => {
+    return await Promise.race([apiFetch(url, { ...init, signal: controller.signal }).then(async response => {
       const body = await response.json().catch(() => null)
       if (!response.ok) throw new RequestError(typeof body?.detail?.message === 'string' ? body.detail.message : '解释请求失败，请重新读取解释。', response.status)
       return body as T

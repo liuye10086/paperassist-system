@@ -12,6 +12,8 @@ import pytest
 from fastapi.testclient import TestClient
 from openpyxl import Workbook
 
+from auth_helpers import login_test_client, session_subprocess_env
+
 from app.main import app
 from app.database import database_connection, migrate_database
 
@@ -20,7 +22,7 @@ from app.database import database_connection, migrate_database
 def client(tmp_path, monkeypatch):
     monkeypatch.setenv('PAPERASSIST_DATA_DIR', str(tmp_path / 'data'))
     with TestClient(app) as instance:
-        yield instance
+        yield login_test_client(instance)
 
 
 def add_file(client, rows=None):
@@ -135,9 +137,9 @@ def test_save_reload_revision_conflict_and_new_process(client):
     assert client.put(base + '/analysis-setup', json=selection(expected_revision=0)).status_code == 409
     updated = client.put(base + '/analysis-setup', json=selection(group_column=None, expected_revision=1)).json()
     assert updated['revision'] == 2 and updated['check']['valid_count'] == 4
-    code = "from fastapi.testclient import TestClient; from app.main import app; import sys; print(TestClient(app).get(sys.argv[1]).text)"
+    code = 'from fastapi.testclient import TestClient; from app.main import app; import sys; print(TestClient(app, cookies={"paperassist_session": __import__("os").environ["PAPERASSIST_TEST_SESSION_COOKIE"]}).get(sys.argv[1]).text)'
     result = subprocess.run([sys.executable, '-c', code, base + '/analysis-setup'],
-        cwd=Path(__file__).resolve().parents[1], capture_output=True, text=True, check=True, timeout=30)
+        cwd=Path(__file__).resolve().parents[1], env=session_subprocess_env(client), capture_output=True, text=True, check=True, timeout=30)
     assert json.loads(result.stdout) == updated
 
 

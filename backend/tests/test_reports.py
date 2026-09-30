@@ -1,3 +1,4 @@
+from auth_helpers import session_subprocess_env
 from concurrent.futures import ThreadPoolExecutor
 from io import BytesIO
 import hashlib
@@ -153,11 +154,11 @@ def test_export_survives_fresh_process_after_explicit_migration(client, cloud, w
     script = """from fastapi.testclient import TestClient
 from app.main import app
 import hashlib, sys
-with TestClient(app) as c:
+with TestClient(app, cookies={"paperassist_session": __import__("os").environ["PAPERASSIST_TEST_SESSION_COOKIE"]}) as c:
  r=c.get(sys.argv[1]); print(r.status_code, hashlib.sha256(r.content).hexdigest())
 """
     process = subprocess.run([sys.executable, '-c', script, url + '/' + report['id'] + '/download'],
-                             cwd=Path(__file__).parents[1], capture_output=True, text=True, check=True)
+                             cwd=Path(__file__).parents[1], env=session_subprocess_env(client), capture_output=True, text=True, check=True)
     assert process.stdout.strip() == '200 ' + report['sha256']
     with database_connection() as db:
         ensure_schema_current(db)

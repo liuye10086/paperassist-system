@@ -152,7 +152,10 @@ def test_import_preserves_every_value_and_job_order_then_is_idempotent(legacy):
     assert result['status'] == 'imported'
     assert result['counts'] == expected.counts
     assert result['hashes'] == expected.hashes
-    assert target_rows() == {name: list(rows) for name, rows in expected.rows.items()}
+    expected_target = {name: list(rows) for name, rows in expected.rows.items()}
+    # Offline imported projects remain unclaimed until first-admin bootstrap.
+    expected_target["projects"] = [{**row, "owner_id": None} for row in expected_target["projects"]]
+    assert target_rows() == expected_target
     again = module.import_sqlite(source, directory)
     assert again['status'] == 'already_imported'
     assert source.read_bytes() == before
@@ -170,7 +173,7 @@ def test_existing_unrelated_target_data_is_never_overwritten(legacy):
     module = importer()
     from app.database import database_connection
     with database_connection(write=True) as db:
-        db.execute("INSERT INTO projects VALUES ('unrelated','keep','topic','sci','before','before')")
+        db.execute("INSERT INTO projects (id, name, research_topic, project_type, created_at, updated_at) VALUES ('unrelated','keep','topic','sci','before','before')")
     before = target_rows()
     with pytest.raises(module.ImportError, match='target'):
         module.import_sqlite(*legacy)

@@ -1,3 +1,4 @@
+import { apiFetch } from './api'
 import { useEffect, useRef, useState } from 'react'
 import type { ChangeEvent, FormEvent } from 'react'
 
@@ -58,7 +59,7 @@ export default function ExcelPreview({ projectId, savedFile, onSaved, onBusyChan
     async function loadConfig() {
       setConfigError('')
       try {
-        const response = await fetch('/api/v1/excel/config', { signal: controller.signal })
+        const response = await apiFetch('/api/v1/excel/config', { signal: controller.signal })
         if (!response.ok) throw new Error('config')
         const data: PreviewConfig = await response.json()
         if (!Number.isSafeInteger(data.max_upload_bytes) || data.max_upload_bytes <= 0) throw new Error('config')
@@ -84,7 +85,7 @@ export default function ExcelPreview({ projectId, savedFile, onSaved, onBusyChan
     const timeout = window.setTimeout(() => controller.abort(), 15_000)
     async function loadSaved() {
       try {
-        const response = await fetch(`/api/v1/projects/${projectId}/files/${savedFile!.id}/preview`, { signal: controller.signal })
+        const response = await apiFetch(`/api/v1/projects/${projectId}/files/${savedFile!.id}/preview`, { signal: controller.signal })
         const result = await response.json().catch(() => null)
         if (!response.ok) throw new Error(result?.detail?.message ?? '读取已保存文件失败，请刷新后重试。')
         if (active && !controller.signal.aborted) { setWorkbook(result); setSheetIndex(0) }
@@ -134,7 +135,7 @@ export default function ExcelPreview({ projectId, savedFile, onSaved, onBusyChan
     const body = new FormData()
     body.append('file', file)
     try {
-      const response = await fetch(projectId ? `/api/v1/projects/${projectId}/files` : '/api/v1/excel/preview', {
+      const response = await apiFetch(projectId ? `/api/v1/projects/${projectId}/files` : '/api/v1/excel/preview', {
         method: 'POST', body, signal: controller.signal,
       })
       const result = await response.json().catch(() => null)

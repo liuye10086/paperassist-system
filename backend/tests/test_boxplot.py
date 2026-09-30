@@ -1,3 +1,4 @@
+from auth_helpers import session_subprocess_env
 from concurrent.futures import ThreadPoolExecutor
 from io import BytesIO
 import hashlib
@@ -192,9 +193,9 @@ def test_explicit_migration_preserves_analysis_result(client, cloud):
 def test_persisted_cloud_chart_restores_in_a_fresh_process(client, cloud):
     _, _, _, url = prepared(client)
     expected = generate(client, url)
-    code = 'from fastapi.testclient import TestClient; from app.main import app; import sys,json; print(json.dumps(TestClient(app).get(sys.argv[1]).json()))'
+    code = 'from fastapi.testclient import TestClient; from app.main import app; import sys,json; print(json.dumps(TestClient(app, cookies={"paperassist_session": __import__("os").environ["PAPERASSIST_TEST_SESSION_COOKIE"]}).get(sys.argv[1]).json()))'
     process = subprocess.run([sys.executable, '-c', code, url], cwd=Path(__file__).resolve().parents[1],
-                             capture_output=True, text=True, check=True, timeout=30)
+                             env=session_subprocess_env(client), capture_output=True, text=True, check=True, timeout=30)
     assert json.loads(process.stdout)['figure'] == expected
 
 

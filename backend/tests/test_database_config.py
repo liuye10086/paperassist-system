@@ -126,11 +126,12 @@ def test_schema_fixture_rejects_url_redirection_before_creating_engine(database,
         fixture.close()
 
 
-def test_schema_preserves_nine_tables_and_uses_job_sequences(database):
+def test_schema_preserves_business_tables_and_auth_tables_and_uses_job_sequences(database):
     schema = importlib.import_module("app.db_schema")
     assert set(schema.metadata.tables) == {
         "projects", "files", "analysis_setups", "analysis_runs", "figures", "figure_jobs",
         "explanations", "explanation_jobs", "reports",
+        "users", "sessions", "auth_login_attempts",
     }
     for name in ("figure_jobs", "explanation_jobs"):
         table = schema.metadata.tables[name]

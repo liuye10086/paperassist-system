@@ -1,3 +1,4 @@
+from auth_helpers import session_subprocess_env
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 import json
@@ -242,9 +243,9 @@ def test_persisted_explanation_restores_in_fresh_process_without_credentials(cli
     submit(client, url, figure)
     saved = client.get(url).json()['explanation']
     monkeypatch.setenv('OPENAI_API_KEY', '')
-    code = 'from fastapi.testclient import TestClient; from app.main import app; import json,sys; print(json.dumps(TestClient(app).get(sys.argv[1]).json()))'
+    code = 'from fastapi.testclient import TestClient; from app.main import app; import json,sys; print(json.dumps(TestClient(app, cookies={"paperassist_session": __import__("os").environ["PAPERASSIST_TEST_SESSION_COOKIE"]}).get(sys.argv[1]).json()))'
     process = subprocess.run([sys.executable, '-c', code, url], cwd=Path(__file__).resolve().parents[1],
-                             capture_output=True, text=True, check=True, timeout=30)
+                             env=session_subprocess_env(client), capture_output=True, text=True, check=True, timeout=30)
     assert json.loads(process.stdout)['explanation'] == saved
 
 

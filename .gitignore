@@ -20,6 +20,8 @@ dist/
 # Local project database, original research files and partial uploads
 /backend/data/
 /backend/backups/
+# Downloaded upstream source archives and extracted reference repositories
+/reference-projects/
 *.sqlite3
 *.sqlite3-journal
 *.sqlite3-wal

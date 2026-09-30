@@ -1,3 +1,4 @@
+import { apiFetch } from './api'
 import { useEffect, useRef, useState } from 'react'
 import StatisticsResults from './StatisticsResults'
 
@@ -17,7 +18,7 @@ const typeNames: Record<string, string> = { number: '数值', text: '文本', bo
   formula: '公式', error: 'Excel 错误', mixed: '混合类型', empty: '空列' }
 
 async function request<T>(url: string, signal: AbortSignal, init?: RequestInit): Promise<T> {
-  const response = await fetch(url, { ...init, signal })
+  const response = await apiFetch(url, { ...init, signal })
   const result = await response.json().catch(() => null)
   if (!response.ok) throw new Error(typeof result?.detail?.message === 'string'
     ? result.detail.message : '分析配置请求失败，请检查字段选择后重试。')

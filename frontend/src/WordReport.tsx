@@ -1,3 +1,4 @@
+import { apiFetch } from './api'
 import { useEffect, useRef, useState } from 'react'
 type Report = { id: string; analysis_run_id: string; figure_id: string; explanation_id: string; setup_revision: number; source_sha256: string; figure_sha256: string; created_at: string; filename: string; size_bytes: number; sha256: string; language: 'zh-CN'; engine: { id: string; python_docx: string }; input_sha256: string }
 type State = { current_revision: number | null; is_current: boolean; ready: boolean; issues: string[]; report: Report | null }
@@ -19,7 +20,7 @@ function ReportPanel({ base, runId, revision, figureId, explanationId, canGenera
   useEffect(() => { onBusyChange(submitting); return () => onBusyChange(false) }, [submitting, onBusyChange])
   async function request(controller: AbortController, post: boolean): Promise<State> {
     let timer = 0
-    try { return await Promise.race([fetch(endpoint, { signal: controller.signal, ...(post ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ expected_revision: revision, figure_id: figureId, explanation_id: explanationId }) } : {}) }).then(async response => {
+    try { return await Promise.race([apiFetch(endpoint, { signal: controller.signal, ...(post ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ expected_revision: revision, figure_id: figureId, explanation_id: explanationId }) } : {}) }).then(async response => {
       const body = await response.json().catch(() => null)
       if (!response.ok) throw new Error(typeof body?.detail?.message === 'string' ? body.detail.message : '报告请求失败，请重新读取报告。')
       return body as State

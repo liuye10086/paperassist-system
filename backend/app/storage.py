@@ -8,6 +8,7 @@ import os
 from pathlib import Path
 from uuid import uuid4
 
+from fastapi import Request
 from sqlalchemy.exc import SQLAlchemyError
 
 from .config import get_data_dir
@@ -39,7 +40,11 @@ def check_database_ready():
 
 
 class ProjectStore:
-    def __init__(self, directory: Path):
+    def __init__(self, directory: Path, *, owner_id: str | None = None):
+        # None is reserved for trusted local management and recovery workers.
+        if owner_id is not None and not owner_id:
+            raise ValueError('An owner scope must be non-empty.')
+        self.owner_id = owner_id
         self.directory = directory
         self.files_dir = directory / "files"
         self.figures_dir = directory / "figures"
@@ -59,18 +64,24 @@ class ProjectStore:
             yield db
 
     def projects(self):
+        scope = ' WHERE owner_id = %s' if self.owner_id is not None else ''
+        parameters = (self.owner_id,) if self.owner_id is not None else ()
         with self.connection() as db:
             return [dict(row) for row in db.execute("""
-                SELECT projects.*, (SELECT count(*) FROM files WHERE project_id = projects.id) AS file_count
-                FROM projects ORDER BY updated_at DESC, id
-            """)]
+                SELECT projects.id, name, research_topic, project_type, created_at, updated_at,
+                    (SELECT count(*) FROM files WHERE project_id = projects.id) AS file_count
+                FROM projects
+            """ + scope + ' ORDER BY updated_at DESC, id', parameters)]
 
     def project(self, project_id: str):
+        scope = ' AND owner_id = %s' if self.owner_id is not None else ''
+        parameters = (project_id, self.owner_id) if self.owner_id is not None else (project_id,)
         with self.connection() as db:
             row = db.execute("""
-                SELECT projects.*, (SELECT count(*) FROM files WHERE project_id = projects.id) AS file_count
+                SELECT projects.id, name, research_topic, project_type, created_at, updated_at,
+                    (SELECT count(*) FROM files WHERE project_id = projects.id) AS file_count
                 FROM projects WHERE id = %s
-            """, (project_id,)).fetchone()
+            """ + scope, parameters).fetchone()
         if row is None:
             raise StorageError("project_not_found", "项目不存在，请刷新项目列表。", 404)
         return dict(row)
@@ -79,8 +90,10 @@ class ProjectStore:
         project_id = str(uuid4())
         now = datetime.now(timezone.utc).isoformat()
         with self.connection(write=True) as db:
-            db.execute("INSERT INTO projects VALUES (%s, %s, %s, %s, %s, %s)",
-                       (project_id, name, research_topic, project_type, now, now))
+            db.execute("""INSERT INTO projects
+                (id, name, research_topic, project_type, created_at, updated_at, owner_id)
+                VALUES (%s, %s, %s, %s, %s, %s, %s)""",
+                       (project_id, name, research_topic, project_type, now, now, self.owner_id))
         return self.project(project_id)
 
     @staticmethod
@@ -330,4 +343,13 @@ class ProjectStore:
 
 
 def get_project_store() -> ProjectStore:
+    """Trusted system scope for recovery workers and local administration only."""
     return ProjectStore(get_data_dir())
+
+
+def get_request_project_store(request: Request) -> ProjectStore:
+    """An HTTP request must never fall back to the system-wide store."""
+    user = getattr(request.state, 'user', None)
+    if not isinstance(user, dict) or not isinstance(user.get('id'), str) or not user['id']:
+        raise StorageError('authentication_required', '请先登录。', 401)
+    return ProjectStore(get_data_dir(), owner_id=user['id'])

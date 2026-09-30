@@ -283,3 +283,9 @@
 .explanation-section { margin-top: 1.5rem; }
 .explanation-text { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.7; }
 .analysis-explanation pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+.login-panel { max-width: 420px; margin: 32px auto; padding: 24px; border: 1px solid var(--border); border-radius: 12px; }
+.login-panel label { display: flex; flex-direction: column; gap: 6px; margin: 16px 0; }
+.login-panel input { font: inherit; padding: 10px; border: 1px solid var(--border); border-radius: 6px; }
+.login-panel button, .session-bar button { font: inherit; padding: 8px 14px; cursor: pointer; }
+.session-bar { display: flex; gap: 16px; align-items: center; justify-content: flex-end; }
+.login-panel button:disabled, .session-bar button:disabled { cursor: wait; opacity: .65; }

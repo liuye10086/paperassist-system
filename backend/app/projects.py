@@ -7,10 +7,10 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from .config import ExcelSettings, get_excel_settings
 from .excel import WorkbookPreview, fail, parse_workbook, read_upload
-from .storage import ProjectStore, get_project_store
+from .storage import ProjectStore, get_request_project_store
 
 router = APIRouter(prefix="/api/v1/projects", tags=["项目与文件"])
-Store = Annotated[ProjectStore, Depends(get_project_store)]
+Store = Annotated[ProjectStore, Depends(get_request_project_store)]
 
 
 class ProjectInput(BaseModel):

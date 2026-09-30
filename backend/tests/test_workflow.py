@@ -211,7 +211,7 @@ def test_excel_to_word_versioned_workflow(client, cloud, writer, project_type):
     assert client.get(old_download).content == downloaded.content
 
     # New client lifecycle, same isolated on-disk store: no setup or source reseeding.
-    with TestClient(app) as reopened:
+    with TestClient(app, cookies=dict(client.cookies), headers=dict(client.headers)) as reopened:
         assert reopened.get(base + '/analysis-setup').json() == new_setup
         assert reopened.get(base + '/analysis-result').json()['result'] == new_result
         assert reopened.get(new_run + '/boxplot').json()['figure'] == new_figure

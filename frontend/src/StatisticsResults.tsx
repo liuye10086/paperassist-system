@@ -1,3 +1,4 @@
+import { apiFetch } from './api'
 import { useEffect, useRef, useState } from 'react'
 import type { Check, Selection } from './AnalysisSetup'
 import BoxplotFigure from './BoxplotFigure'
@@ -18,7 +19,7 @@ function formatted(value: number | null) {
 }
 
 async function request<T>(url: string, signal: AbortSignal, init?: RequestInit): Promise<T> {
-  const response = await fetch(url, { ...init, signal })
+  const response = await apiFetch(url, { ...init, signal })
   const body = await response.json().catch(() => null)
   if (!response.ok) throw new Error(typeof body?.detail?.message === 'string' ? body.detail.message : '统计请求失败，请重新读取结果后重试。')
   return body

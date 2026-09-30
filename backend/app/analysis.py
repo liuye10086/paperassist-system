@@ -11,10 +11,10 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from .config import ExcelSettings, get_excel_settings
 from .excel import fail, parse_workbook
-from .storage import ProjectStore, get_project_store
+from .storage import ProjectStore, get_request_project_store
 
 router = APIRouter(prefix='/api/v1/projects/{project_id}/files/{file_id}', tags=['分析配置'])
-Store = Annotated[ProjectStore, Depends(get_project_store)]
+Store = Annotated[ProjectStore, Depends(get_request_project_store)]
 Settings = Annotated[ExcelSettings, Depends(get_excel_settings)]
 ColumnId = Annotated[str, Field(pattern=r'^[A-Z]{1,3}$')]
 MAX_GROUPS = 20

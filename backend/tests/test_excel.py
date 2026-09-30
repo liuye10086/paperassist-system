@@ -8,13 +8,15 @@ from fastapi.testclient import TestClient
 from openpyxl import Workbook
 from openpyxl.styles import Font
 
+from auth_helpers import login_test_client
+
 from app.main import app
 
 
 @pytest.fixture
 def client():
     with TestClient(app) as test_client:
-        yield test_client
+        yield login_test_client(test_client)
 
 
 def workbook_bytes():
