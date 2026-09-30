@@ -35,14 +35,25 @@ function api(options: { patch?: (init: RequestInit) => Promise<Response> } = {})
     if (url.endsWith('/me')) return currentSession ? Response.json(currentSession) : new Response(null, { status: 401 })
     if (url.endsWith('/logout')) { currentSession = null; return new Response(null, { status: 204 }) }
     if (url.endsWith('/login')) { currentSession = otherSession; projects = [{ ...project, name: '乙用户项目' }]; return Response.json(currentSession) }
-    if (url === '/api/v1/projects') return Response.json(projects)
+    if (url.startsWith('/api/v1/projects?')) {
+      const parameters = new URL(url, 'http://localhost').searchParams
+      return Response.json({ items: projects, total: projects.length, page: Number(parameters.get('page')), page_size: Number(parameters.get('page_size')) })
+    }
     if (url === '/api/v1/projects/p1' && init?.method === 'PATCH') {
-      if (options.patch) return options.patch(init)
+      if (options.patch) {
+        const response = await options.patch(init)
+        if (response.ok) {
+          const updated = await response.clone().json()
+          projects = projects.map(item => item.id === updated.id ? updated : item)
+        }
+        return response
+      }
       const updated = { ...projects[0], ...JSON.parse(String(init.body)), updated_at: '2026-09-30T10:00:00Z' }
       projects = projects.map(item => item.id === updated.id ? updated : item)
       return Response.json(updated)
     }
     if (url === '/api/v1/projects/p1') return Response.json(projects[0])
+    if (url === '/api/v1/projects/p2') return Response.json(projects.find(item => item.id === 'p2'))
     if (url.endsWith('/config')) return Response.json({ max_upload_bytes: 10485760, preview_row_limit: 20 })
     if (url.endsWith('/files') && init?.method === 'POST') return Response.json({ file: record, preview }, { status: 201 })
     if (url === '/api/v1/projects/p1/files') return Response.json([record])
@@ -57,7 +68,7 @@ function api(options: { patch?: (init: RequestInit) => Promise<Response> } = {})
 async function openProject() {
   const user = userEvent.setup()
   render(<App />)
-  await user.selectOptions(await screen.findByLabelText('当前项目'), 'p1')
+  await user.click(await screen.findByRole('button', { name: '打开项目 药学项目' }))
   await screen.findByRole('button', { name: '预览 实验.xlsx' })
   return user
 }
@@ -91,7 +102,7 @@ test('patches only changed name and updates heading and selection without resett
   await editName(user, '  新名称  ')
   await user.click(screen.getByRole('button', { name: '保存修改' }))
   expect(await screen.findByRole('heading', { name: '新名称' })).toBeTruthy()
-  expect(within(screen.getByLabelText('当前项目')).getByRole('option', { name: '新名称 · SCI 科研论文' })).toBeTruthy()
+  expect(await screen.findByRole('button', { name: '打开项目 新名称' })).toBeTruthy()
   expect(JSON.parse(String(patchCalls(mock)[0][1]!.body))).toEqual({ name: '新名称' })
   expect(new Headers(patchCalls(mock)[0][1]!.headers).get('X-CSRF-Token')).toBe('csrf-a')
   expect(patchCalls(mock)[0][1]!.credentials).toBe('same-origin')
@@ -192,8 +203,18 @@ test('times out after fifteen seconds and rereads server result while preserving
     init.signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')))
   }) })
   const normal = mock.getMockImplementation()!
-  mock.mockImplementation(async (url, init) => url === '/api/v1/projects/p1' && init?.method !== 'PATCH'
-    ? Response.json({ ...project, name: '服务端已保存' }) : normal(url, init))
+  let reads = 0
+  mock.mockImplementation(async (url, init) => {
+    if (url === '/api/v1/projects/p1' && init?.method !== 'PATCH') {
+      return Response.json(++reads > 1 ? { ...project, name: '服务端已保存' } : project)
+    }
+    const response = await normal(url, init)
+    if (url.startsWith('/api/v1/projects?') && reads > 1) {
+      const page = await response.json()
+      return Response.json({ ...page, items: page.items.map((item: typeof project) => item.id === 'p1' ? { ...item, name: '服务端已保存' } : item) })
+    }
+    return response
+  })
   const user = await openProject()
   await user.click(screen.getByRole('button', { name: '预览 实验.xlsx' }))
   await screen.findByRole('cell', { name: '10' })
@@ -209,7 +230,7 @@ test('times out after fifteen seconds and rereads server result while preserving
   fireEvent.click(screen.getByRole('button', { name: '重新读取项目' }))
   await act(async () => {})
   expect(screen.getByRole('heading', { name: '服务端已保存' })).toBeTruthy()
-  expect(within(screen.getByLabelText('当前项目')).getByRole('option', { name: /服务端已保存/ })).toBeTruthy()
+  expect(screen.getByRole('button', { name: '打开项目 服务端已保存' })).toBeTruthy()
   expect(screen.getByRole('cell', { name: '10' })).toBeTruthy()
   expect(patchCalls(mock)).toHaveLength(1)
 })
@@ -229,7 +250,7 @@ for (const late of ['response', 'body']) {
     await editName(user)
     await user.click(screen.getByRole('button', { name: '保存修改' }))
     if (late === 'body') await waitFor(() => expect(bodyStarted).toBe(true))
-    await user.selectOptions(screen.getByLabelText('当前项目'), 'p2')
+    await user.click(screen.getByRole('button', { name: '打开项目 毕业论文项目' }))
     await screen.findByRole('heading', { name: '毕业论文项目' })
     expect(patchCalls(mock)[0][1]!.signal!.aborted).toBe(true)
     await act(async () => {
@@ -263,7 +284,7 @@ for (const late of ['response', 'body']) {
     await user.type(await screen.findByLabelText('邮箱'), otherSession.user.email)
     await user.type(screen.getByLabelText('密码'), 'valid-password')
     await user.click(screen.getByRole('button', { name: /^登录$/ }))
-    await user.selectOptions(await screen.findByLabelText('当前项目'), 'p1')
+    await user.click(await screen.findByRole('button', { name: '打开项目 乙用户项目' }))
     await screen.findByRole('heading', { name: '乙用户项目' })
     await act(async () => {
       if (late === 'response') pending.resolve(Response.json({ ...project, name: '甲用户迟到名称' }))
@@ -280,7 +301,7 @@ test('retains an editing draft during same-project refresh and ignores stale lis
   const normal = mock.getMockImplementation()!
   let lists = 0
   mock.mockImplementation(async (url, init) => {
-    if (url === '/api/v1/projects' && ++lists === 2) return staleList.promise
+    if (url.startsWith('/api/v1/projects?') && ++lists === 2) return staleList.promise
     return normal(url, init)
   })
   const user = await openProject()
@@ -294,9 +315,9 @@ test('retains an editing draft during same-project refresh and ignores stale lis
   await waitFor(() => expect(lists).toBe(2))
   await user.click(screen.getByRole('button', { name: '保存修改' }))
   await screen.findByRole('heading', { name: '新名称' })
-  await act(async () => staleList.resolve(Response.json([project, secondProject])))
+  await act(async () => staleList.resolve(Response.json({ items: [project, secondProject], total: 2, page: 1, page_size: 10 })))
   expect(screen.getByRole('heading', { name: '新名称' })).toBeTruthy()
-  expect(within(screen.getByLabelText('当前项目')).getByRole('option', { name: /新名称/ })).toBeTruthy()
+  expect(await screen.findByRole('button', { name: '打开项目 新名称' })).toBeTruthy()
   expect(screen.getByRole('cell', { name: '10' })).toBeTruthy()
 })
 
@@ -308,7 +329,7 @@ test('does not reset draft when a same-project list refresh completes', async ()
   await waitFor(() => expect((input as HTMLInputElement).disabled).toBe(false))
   await user.upload(input, new File(['sample'], '实验.xlsx'))
   await user.click(screen.getByRole('button', { name: '上传并预览' }))
-  await waitFor(() => expect(mock.mock.calls.filter(([url]) => url === '/api/v1/projects')).toHaveLength(2))
+  await waitFor(() => expect(mock.mock.calls.filter(([url]) => url.startsWith('/api/v1/projects?'))).toHaveLength(2))
   await screen.findByRole('cell', { name: '10' })
   expect((screen.getByLabelText('修改项目名称') as HTMLInputElement).value).toBe('新名称')
 })

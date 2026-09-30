@@ -4,6 +4,11 @@ import App from './App'
 
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); window.location.hash = '' })
 const session = { user: { id: 'a', email: 'admin@paperassist.local', role: 'admin' }, csrf_token: 'csrf' }
+function empty(url: string) {
+  const parameters = new URL(url, 'http://localhost').searchParams
+  return Response.json(url.startsWith('/api/v1/projects?')
+    ? { items: [], total: 0, page: Number(parameters.get('page')), page_size: Number(parameters.get('page_size')) } : [])
+}
 for (const late of ['login', 'logout'] as const) {
   it(`rebinds both tab workspaces to shared cookie after late ${late}`, async () => {
     vi.resetModules()
@@ -43,8 +48,13 @@ for (const late of ['login', 'logout'] as const) {
           resolve(late === 'login' ? Response.json(session) : new Response(null, { status: 204 }))
         }
       })
-      if (url === '/api/v1/projects') return Response.json(cookie ? [{ id: cookie.user.id, name: `${cookie.user.id}-private`, research_topic: 'topic', project_type: 'sci' }] : [])
-      return Response.json([])
+      if (url.startsWith('/api/v1/projects?')) {
+        const parameters = new URL(url, 'http://localhost').searchParams
+        const projects = cookie ? [{ id: cookie.user.id, name: `${cookie.user.id}-private`, research_topic: 'topic', project_type: 'sci',
+          file_count: 0, created_at: '2026-09-30T10:00:00Z', updated_at: '2026-09-30T10:00:00Z' }] : []
+        return Response.json({ items: projects, total: projects.length, page: Number(parameters.get('page')), page_size: Number(parameters.get('page_size')) })
+      }
+      return empty(url)
     }))
     const firstTab = within(render(<FirstApp />).container)
     const secondTab = within(render(<SecondApp />).container)
@@ -99,7 +109,7 @@ it('offers retry when session restoration fails without pretending anonymous', a
   expect(screen.queryByLabelText('密码')).toBeNull()
 })
 it('restores session and retains workspace if logout fails, clearing hash only after revocation', async () => {
-  const fetchMock = vi.fn(async (url: string) => url.endsWith('/me') ? Response.json(session) : url.endsWith('/logout') ? new Response('', { status: 503 }) : Response.json([]))
+  const fetchMock = vi.fn(async (url: string) => url.endsWith('/me') ? Response.json(session) : url.endsWith('/logout') ? new Response('', { status: 503 }) : empty(url))
   vi.stubGlobal('fetch', fetchMock)
   window.location.hash = '#project-old'
   render(<App />)
@@ -110,7 +120,7 @@ it('restores session and retains workspace if logout fails, clearing hash only a
   expect(await screen.findByRole('alert')).toBeTruthy()
   expect(screen.getByText(session.user.email)).toBeTruthy()
   expect(window.location.hash).toBe('#project-old')
-  fetchMock.mockImplementation(async (url: string) => url.endsWith('/logout') ? new Response(null, { status: 204 }) : Response.json([]))
+  fetchMock.mockImplementation(async (url: string) => url.endsWith('/logout') ? new Response(null, { status: 204 }) : empty(url))
   fireEvent.click(screen.getByRole('button', { name: '退出登录' }))
   await waitFor(() => expect(screen.getByLabelText('邮箱')).toBeTruthy())
   expect(window.location.hash).toBe('')
@@ -148,8 +158,8 @@ it('unmounts private workspace on expiry and mounts fresh state after a new logi
   let lists = 0
   vi.stubGlobal('fetch', vi.fn(async (url: string) => {
     if (url.endsWith('/me') || url.endsWith('/login')) return Response.json(session)
-    if (url === '/api/v1/projects' && lists++ === 0) return new Promise<Response>(resolve => { expire = resolve })
-    return Response.json([])
+    if (url.startsWith('/api/v1/projects?') && lists++ === 0) return new Promise<Response>(resolve => { expire = resolve })
+    return empty(url)
   }))
   render(<App />)
   await screen.findByText(session.user.email)
@@ -186,7 +196,7 @@ it('removes private workspace before restoring after another tab changes the coo
       if (restores++ === 0) return Response.json(session)
       return new Promise<Response>(resolve => { restore = resolve })
     }
-    return Response.json([])
+    return empty(url)
   }))
   render(<App />)
   await screen.findByText('还没有项目，请先创建一个项目。')
@@ -205,7 +215,7 @@ it('broadcasts only a non-secret session change after login and confirmed logout
     if (url.endsWith('/me')) return new Response(null, { status: 401 })
     if (url.endsWith('/login')) return Response.json(session)
     if (url.endsWith('/logout')) return new Response(null, { status: 204 })
-    return Response.json([])
+    return empty(url)
   }))
   render(<App />)
   fireEvent.change(await screen.findByLabelText('邮箱'), { target: { value: session.user.email } })

@@ -1,6 +1,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
 import BoxplotFigure from './BoxplotFigure'
+import { captureProjectAccess, watchProjectAccess } from './projectAccess'
 
 const figure = { id: 'figure', analysis_run_id: 'run', setup_revision: 1, title: '图 1 测量值箱线图', caption: '完整记录；n=3', x_label: '分组', y_label: '测量值', source_sha256: 'source', sha256: 'image', created_at: '2026-09-29', engine: { id: 'boxplot-v1', provider: 'openai_code_interpreter', model: 'model' }, verification: { status: 'matched', note: '统计核对一致' } }
 const empty = { current_revision: 1, is_current: true, figure: null, job: null }
@@ -10,6 +11,55 @@ function api(state: unknown = empty, configured = true) {
   return vi.fn((url: string, _init?: RequestInit) => json(url === '/api/v1/ai/config' ? { configured, model: 'model', message: '请在 backend/.env 配置 API。' } : state))
 }
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.useRealTimers() })
+
+it.each([
+  [404, 'project_not_found', true], [404, 'file_not_found', false], [410, 'project_not_found', false], [200, '', false], [500, '', false],
+])('rechecks project after image failure (%s %s)', async (status, code, loss) => {
+  const base = '/api/v1/projects/p1/files/f1'; const unavailable = vi.fn(); const stop = watchProjectAccess('p1', unavailable)
+  const fetch = vi.fn((url: string, _init?: RequestInit) => Promise.resolve(url === '/api/v1/projects/p1'
+    ? Response.json({ detail: { code } }, { status })
+    : Response.json(url === '/api/v1/ai/config' ? { configured: true } : url.endsWith('/explanation') ? { explanation: null, job: null } : { ...empty, figure })))
+  vi.stubGlobal('fetch', fetch); const view = render(<BoxplotFigure {...props} base={base} />)
+  fireEvent.error(await screen.findByAltText(figure.title))
+  expect(screen.getByRole('alert').textContent).toContain('图片读取失败')
+  await waitFor(() => expect(fetch.mock.calls.some(([url]) => url === '/api/v1/projects/p1')).toBe(true))
+  await act(async () => {})
+  expect(unavailable).toHaveBeenCalledTimes(loss ? 1 : 0)
+  if (loss) expect(() => captureProjectAccess(base).check()).toThrow()
+  expect(fetch.mock.calls.every(([, init]) => !init?.method)).toBe(true)
+  view.unmount(); stop()
+})
+it('aborts the 15 second image recheck and never infers project loss from timeout', async () => {
+  vi.useFakeTimers(); let signal!: AbortSignal
+  const unavailable = vi.fn(); const stop = watchProjectAccess('p1', unavailable)
+  vi.stubGlobal('fetch', vi.fn((url: string, init?: RequestInit) => {
+    if (url === '/api/v1/projects/p1') { signal = init?.signal as AbortSignal; return new Promise<Response>(() => {}) }
+    return Response.json(url === '/api/v1/ai/config' ? { configured: true } : url.endsWith('/explanation') ? { explanation: null, job: null } : { ...empty, figure })
+  }))
+  const view = render(<BoxplotFigure {...props} base="/api/v1/projects/p1/files/f1" />); await act(async () => {})
+  fireEvent.error(screen.getByAltText(figure.title)); await act(async () => { vi.advanceTimersByTime(15_000) })
+  expect(signal.aborted).toBe(true); expect(unavailable).not.toHaveBeenCalled(); expect(screen.getByRole('alert').textContent).toContain('图片读取失败')
+  view.unmount(); stop()
+})
+it('aborts the image recheck when the figure panel unmounts', async () => {
+  let signal!: AbortSignal
+  vi.stubGlobal('fetch', vi.fn((url: string, init?: RequestInit) => {
+    if (url === '/api/v1/projects/p1') { signal = init?.signal as AbortSignal; return new Promise<Response>(() => {}) }
+    return Response.json(url === '/api/v1/ai/config' ? { configured: true } : url.endsWith('/explanation') ? { explanation: null, job: null } : { ...empty, figure })
+  }))
+  const view = render(<BoxplotFigure {...props} base="/api/v1/projects/p1/files/f1" />)
+  fireEvent.error(await screen.findByAltText(figure.title)); view.unmount(); expect(signal.aborted).toBe(true)
+})
+it('downloads saved PNG bytes with a safe default filename without generation', async () => {
+  const create = vi.fn((_blob: Blob) => 'blob:png'); const revoke = vi.fn()
+  vi.stubGlobal('URL', class extends URL { static createObjectURL = create; static revokeObjectURL = revoke })
+  const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (this: HTMLAnchorElement) { expect(this.download).toBe('boxplot.png') })
+  const fetch = vi.fn((url: string, _init?: RequestInit) => Promise.resolve(url.endsWith('/image?download=true') ? new Response('png bytes') : Response.json(url === '/api/v1/ai/config' ? { configured: true } : url.endsWith('/explanation') ? { explanation: null, job: null } : { ...empty, figure })))
+  vi.stubGlobal('fetch', fetch); render(<BoxplotFigure {...props} />)
+  fireEvent.click(await screen.findByRole('link', { name: '下载箱线图 PNG' }))
+  await waitFor(() => expect(create).toHaveBeenCalledTimes(1)); expect(await create.mock.calls[0][0].text()).toBe('png bytes')
+  expect(fetch.mock.calls.every(([, init]) => !init?.method)).toBe(true); expect(revoke).toHaveBeenCalledWith('blob:png'); click.mockRestore()
+})
 
 it('restores saved image without POST and keeps its provenance', async () => {
   const fetch = api({ ...empty, figure }); vi.stubGlobal('fetch', fetch)

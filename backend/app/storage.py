@@ -76,6 +76,41 @@ class ProjectStore:
                 FROM projects
             """ + scope + ' ORDER BY updated_at DESC, id', parameters)]
 
+    def query_projects(self, *, page=1, page_size=10, q='', project_type=None) -> dict:
+        invalid = StorageError('project_query_invalid',
+                               '页码须为1–1000000，页面大小须为1–100，搜索最多120字符，类型仅支持sci或thesis。', 422)
+        if (type(page) is not int or not 1 <= page <= 1_000_000
+                or type(page_size) is not int or not 1 <= page_size <= 100
+                or not isinstance(q, str) or len(q.strip()) > 120
+                or (project_type is not None and project_type not in ('sci', 'thesis'))):
+            raise invalid
+        q = q.strip()
+        conditions, parameters = [], []
+        if self.owner_id is not None:
+            conditions.append('owner_id = %s')
+            parameters.append(self.owner_id)
+        if project_type is not None:
+            conditions.append('project_type = %s')
+            parameters.append(project_type)
+        if q:
+            # strpos provides literal substring semantics without LIKE escapes:
+            # percent, underscore, backslash and quotes remain bound data.
+            conditions.append('strpos(lower(name), lower(%s)) > 0')
+            parameters.append(q)
+        where = ' WHERE ' + ' AND '.join(conditions) if conditions else ''
+        parameters = tuple(parameters)
+        projection = '''SELECT projects.id, name, research_topic, project_type, created_at, updated_at,
+            (SELECT count(*) FROM files WHERE project_id = projects.id) AS file_count
+            FROM projects'''
+        # connection() opens one read-only REPEATABLE READ transaction; count
+        # and rows use the identical predicates and the same committed snapshot.
+        with self.connection() as db:
+            total = db.execute('SELECT count(*) AS total FROM projects' + where, parameters).fetchone()['total']
+            rows = db.execute(projection + where + ' ORDER BY updated_at DESC, id ASC LIMIT %s OFFSET %s',
+                              (*parameters, page_size, (page - 1) * page_size))
+            return {'items': [dict(row) for row in rows], 'total': total,
+                    'page': page, 'page_size': page_size}
+
     def project(self, project_id: str):
         scope = ' AND owner_id = %s' if self.owner_id is not None else ''
         parameters = (project_id, self.owner_id) if self.owner_id is not None else (project_id,)

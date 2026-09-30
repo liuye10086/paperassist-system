@@ -8,6 +8,16 @@ const json = (value: unknown) => Promise.resolve({ ok: true, json: async () => v
 const generate = () => screen.getByRole('button', { name: '生成 Word 报告' }) as HTMLButtonElement
 const reload = () => screen.getByRole('button', { name: '重新读取报告' }) as HTMLButtonElement
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.useRealTimers() })
+it('downloads restored Word bytes using the saved report filename without POST', async () => {
+  const create = vi.fn((_blob: Blob) => 'blob:word'); const revoke = vi.fn()
+  vi.stubGlobal('URL', class extends URL { static createObjectURL = create; static revokeObjectURL = revoke })
+  const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (this: HTMLAnchorElement) { expect(this.download).toBe(report.filename) })
+  const fetch = vi.fn((url: string, _init?: RequestInit) => Promise.resolve(url.endsWith('/download') ? new Response('docx bytes') : Response.json({ ...state, report })))
+  vi.stubGlobal('fetch', fetch); render(<WordReport {...props} />)
+  fireEvent.click(await screen.findByRole('link', { name: '下载 Word 报告' }))
+  await waitFor(() => expect(create).toHaveBeenCalledTimes(1)); expect(await create.mock.calls[0][0].text()).toBe('docx bytes')
+  expect(fetch.mock.calls.every(([, init]) => !init?.method)).toBe(true); expect(revoke).toHaveBeenCalledWith('blob:word'); click.mockRestore()
+})
 it('generates once with exact source IDs and restores a download on remount without an API key', async () => {
   let saved = false
   const fetch = vi.fn((_url: string, init?: RequestInit) => { if (init?.method === 'POST') saved = true; return json(saved ? { ...state, report } : state) })

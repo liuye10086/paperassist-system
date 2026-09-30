@@ -1,5 +1,6 @@
 import { apiFetch } from './api'
 import { useEffect, useRef, useState } from 'react'
+import ProjectDownloadLink from './ProjectDownloadLink'
 type Report = { id: string; analysis_run_id: string; figure_id: string; explanation_id: string; setup_revision: number; source_sha256: string; figure_sha256: string; created_at: string; filename: string; size_bytes: number; sha256: string; language: 'zh-CN'; engine: { id: string; python_docx: string }; input_sha256: string }
 type State = { current_revision: number | null; is_current: boolean; ready: boolean; issues: string[]; report: Report | null }
 type Props = { base: string; runId: string; revision: number; figureId: string; explanationId: string; canGenerate: boolean; disabled: boolean; onBusyChange: (busy: boolean) => void }
@@ -51,7 +52,7 @@ function ReportPanel({ base, runId, revision, figureId, explanationId, canGenera
     {loading && <p role="status">正在读取报告……</p>}{submitting && <p role="status">正在生成 Word 报告……</p>}
     {error && <p role="alert" className="error-panel">{error}</p>}
     {state?.issues?.length ? <ul>{state.issues.map((issue, index) => <li key={index}>{issue}</li>)}</ul> : null}
-    {report && <><p><a href={`${endpoint}/${encodeURIComponent(report.id)}/download`}>下载 Word 报告</a></p><p>文件：{report.filename}；配置版本：{report.setup_revision}；生成时间：{report.created_at}；文件大小：{report.size_bytes} 字节</p>
+    {report && <><p><ProjectDownloadLink href={`${endpoint}/${encodeURIComponent(report.id)}/download`} filename={report.filename}>下载 Word 报告</ProjectDownloadLink></p><p>文件：{report.filename}；配置版本：{report.setup_revision}；生成时间：{report.created_at}；文件大小：{report.size_bytes} 字节</p>
       <details className="statistics-provenance"><summary>报告来源记录</summary><p>报告编号：{report.id}；统计结果编号：{report.analysis_run_id}；图表编号：{report.figure_id}；解释编号：{report.explanation_id}</p><p>原文件 SHA256：{report.source_sha256}</p><p>图片 SHA256：{report.figure_sha256}</p><p>报告 SHA256：{report.sha256}</p><p>输入 SHA256：{report.input_sha256}</p><p>语言：{report.language}；工具：{report.engine.id}；python-docx：{report.engine.python_docx}</p></details></>}
   </section>
 }

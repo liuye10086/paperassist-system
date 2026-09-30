@@ -4,7 +4,10 @@ import type { FormEvent } from 'react'
 import ExcelPreview from './ExcelPreview'
 import AnalysisSetup from './AnalysisSetup'
 import ProjectDetails from './ProjectDetails'
-import { typeNames, type Project } from './projectTypes'
+import ProjectDownloadLink from './ProjectDownloadLink'
+import ProjectList, { type ProjectListQuery } from './ProjectList'
+import useProjectSelection from './useProjectSelection'
+import { isProject, type Project, type ProjectPage } from './projectTypes'
 type ProjectFile = {
   id: string; filename: string; size_bytes: number; uploaded_at: string
   parse_status: 'parsed' | 'failed'; error: { code: string; message: string } | null
@@ -79,7 +82,7 @@ function ProjectFiles({ projectId, onSaved }: { projectId: string; onSaved: () =
         <div className="file-actions">
           {file.parse_status === 'parsed' && <button type="button" disabled={busy}
             aria-label={`预览 ${file.filename}`} onClick={() => setOpened({ id: file.id, request: ++openSequence.current })}>预览</button>}
-          <a href={`/api/v1/projects/${projectId}/files/${file.id}/download`} aria-label={`下载 ${file.filename}`}>下载原文件</a>
+          <ProjectDownloadLink href={`/api/v1/projects/${projectId}/files/${file.id}/download`} filename={file.filename} ariaLabel={`下载 ${file.filename}`}>下载原文件</ProjectDownloadLink>
         </div>
       </li>)}</ul>
     </section>
@@ -90,7 +93,9 @@ function ProjectFiles({ projectId, onSaved }: { projectId: string; onSaved: () =
 
 export default function ProjectWorkspace() {
   const [projects, setProjects] = useState<Project[]>([])
-  const [selectedId, setSelectedId] = useState(() => new URLSearchParams(window.location.hash.slice(1)).get('project') ?? '')
+  const [total, setTotal] = useState(0)
+  const [query, setQuery] = useState<ProjectListQuery>({ page: 1, pageSize: 10, q: '', type: '' })
+  const [searchDraft, setSearchDraft] = useState('')
   const [attempt, setAttempt] = useState(0)
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState('')
@@ -102,30 +107,72 @@ export default function ProjectWorkspace() {
   const createController = useRef<AbortController | null>(null)
   const listRequest = useRef<{ controller: AbortController; timeout: number } | null>(null)
   const listSequence = useRef(0)
-  const project = projects.find(item => item.id === selectedId)
+  const unavailableIds = useRef(new Set<string>())
+  const nameInput = useRef<HTMLInputElement | null>(null)
+  const selection = useProjectSelection(id => {
+    unavailableIds.current.add(id)
+    setProjects(previous => previous.filter(item => item.id !== id))
+    refresh()
+  }, id => {
+    if (unavailableIds.current.delete(id)) refresh()
+  })
+  const project = selection.project
+
+  function invalidateList() {
+    listSequence.current++
+    if (listRequest.current) {
+      listRequest.current.controller.abort()
+      window.clearTimeout(listRequest.current.timeout)
+      listRequest.current = null
+    }
+  }
 
   function refresh() {
-    listSequence.current++
+    invalidateList()
     setLoading(true)
     setLoadError('')
     setAttempt(value => value + 1)
+  }
+
+  function changeQuery(next: ProjectListQuery) {
+    invalidateList()
+    setLoading(true)
+    setLoadError('')
+    setQuery(next)
   }
 
   useEffect(() => {
     const controller = new AbortController()
     let active = true
     const sequence = ++listSequence.current
-    const timeout = window.setTimeout(() => controller.abort(), 15_000)
+    const timeout = window.setTimeout(() => {
+      if (!active || sequence !== listSequence.current) return
+      controller.abort()
+      listSequence.current++
+      setLoadError('项目列表读取超时，请稍后重试。')
+      setLoading(false)
+    }, 15_000)
     listRequest.current = { controller, timeout }
     async function load() {
       try {
-        const response = await apiFetch('/api/v1/projects', { signal: controller.signal })
+        const parameters = new URLSearchParams({ page: String(query.page), page_size: String(query.pageSize) })
+        if (query.q) parameters.set('q', query.q)
+        if (query.type) parameters.set('type', query.type)
+        const response = await apiFetch(`/api/v1/projects?${parameters}`, { signal: controller.signal })
         const result = await responseData(response, '项目列表读取失败。')
-        if (!Array.isArray(result)) throw new Error('项目列表格式不正确。')
-        if (active && sequence === listSequence.current) {
-          setProjects(result)
-          setSelectedId(previous => result.some(item => item.id === previous) ? previous : '')
+        if (!active || sequence !== listSequence.current || controller.signal.aborted) return
+        if (!result || !Array.isArray(result.items) || !result.items.every(isProject)
+          || !Number.isSafeInteger(result.total) || result.total < 0 || result.page !== query.page || result.page_size !== query.pageSize) {
+          throw new Error('项目列表格式不正确。')
         }
+        const data: ProjectPage = result
+        const lastPage = Math.max(1, Math.ceil(data.total / query.pageSize))
+        if (query.page > lastPage) {
+          changeQuery({ ...query, page: lastPage })
+          return
+        }
+        setProjects(data.items.filter(item => !unavailableIds.current.has(item.id)))
+        setTotal(data.total)
       } catch {
         if (active && sequence === listSequence.current) setLoadError('项目列表读取失败，请确认后端服务正常后重试。')
       } finally {
@@ -135,24 +182,15 @@ export default function ProjectWorkspace() {
     }
     void load()
     return () => { active = false; controller.abort(); window.clearTimeout(timeout) }
-  }, [attempt])
+  }, [query, attempt])
 
   function updated(result: Project) {
-    // Lists requested before a successful edit must not overwrite its result.
-    listSequence.current++
-    if (listRequest.current) {
-      listRequest.current.controller.abort()
-      window.clearTimeout(listRequest.current.timeout)
-    }
-    setLoading(false)
-    setLoadError('')
+    selection.update(result)
     setProjects(previous => previous.map(item => item.id === result.id ? result : item)
       .sort((a, b) => b.updated_at.localeCompare(a.updated_at)))
+    refresh()
   }
 
-  useEffect(() => {
-    window.history.replaceState(null, '', window.location.pathname + window.location.search + (selectedId ? `#project=${encodeURIComponent(selectedId)}` : ''))
-  }, [selectedId])
   useEffect(() => () => createController.current?.abort(), [])
 
   async function create(event: FormEvent<HTMLFormElement>) {
@@ -173,12 +211,14 @@ export default function ProjectWorkspace() {
       })
       const created: Project = await responseData(response, '创建项目失败，请检查输入后重试。')
       if (!controller.signal.aborted) {
-        setProjects(previous => [created, ...previous])
-        setSelectedId(created.id)
+        if (!isProject(created)) throw new Error('项目响应格式不正确，请刷新项目列表。')
+        setProjects([created])
+        selection.open(created.id, created)
+        setSearchDraft('')
+        changeQuery({ ...query, page: 1, q: '', type: '' })
         setName('')
         setTopic('')
         setProjectType('')
-        refresh()
       }
     } catch (cause) {
       if (timedOut) setCreateError('创建请求超时，请先刷新项目列表确认是否已创建。')
@@ -196,30 +236,32 @@ export default function ProjectWorkspace() {
     <form className="project-form" onSubmit={create} aria-busy={creating}>
       <h3>新建项目</h3>
       <div className="project-fields">
-        <label>项目名称<input value={name} onChange={event => setName(event.target.value)} required maxLength={120} disabled={creating} /></label>
+        <label>项目名称<input ref={nameInput} value={name} onChange={event => setName(event.target.value)} required maxLength={120} disabled={creating} /></label>
         <label>项目类型<select value={projectType} onChange={event => setProjectType(event.target.value as '' | 'sci' | 'thesis')} required disabled={creating}>
           <option value="">请选择项目类型</option><option value="sci">SCI 科研论文</option><option value="thesis">毕业论文</option>
         </select></label>
       </div>
       <label>研究主题<textarea value={topic} onChange={event => setTopic(event.target.value)} required maxLength={500} rows={2} disabled={creating} /></label>
-      <button type="submit" disabled={creating || loading}>{creating ? '正在创建……' : '创建项目'}</button>
+      <button type="submit" disabled={creating}>{creating ? '正在创建……' : '创建项目'}</button>
       {createError && <p className="error-panel" role="alert">{createError}</p>}
     </form>
-    {loading && <p role="status">正在读取项目列表……</p>}
-    {loadError && <div className="error-panel" role="alert">{loadError}{' '}
-      <button type="button" onClick={refresh}>重试项目列表</button>
+    <ProjectList items={projects} total={total} query={query} searchDraft={searchDraft} loading={loading} error={loadError}
+      onSearchDraftChange={setSearchDraft} onQueryChange={changeQuery} onOpen={selection.open} onRetry={refresh}
+      onCreate={() => nameInput.current?.focus()} />
+    {selection.unavailableId && <div className="error-panel" role="alert">项目不存在或无权访问。{' '}
+      <button type="button" onClick={selection.close}>返回项目列表</button>{' '}
+      <button type="button" onClick={() => selection.open(selection.unavailableId)}>重试打开项目</button>
     </div>}
-    {!loading && !loadError && projects.length === 0 && <p className="empty-preview">还没有项目，请先创建一个项目。</p>}
-    {projects.length > 0 && <div className="project-selection">
-      <label htmlFor="project-select">当前项目</label>
-      <select id="project-select" value={selectedId} onChange={event => setSelectedId(event.target.value)}>
-        <option value="">请选择项目</option>
-        {projects.map(item => <option key={item.id} value={item.id}>{item.name} · {typeNames[item.project_type]}</option>)}
-      </select>
-    </div>}
-    {project && <>
-      <ProjectDetails key={`details-${project.id}`} project={project} onUpdated={updated} />
-      <ProjectFiles key={project.id} projectId={project.id} onSaved={refresh} />
-    </>}
+    {selection.instance && <section className="selected-project" aria-label="当前项目工作区">
+      <button type="button" onClick={selection.close}>返回项目列表</button>
+      {selection.loading && <p role="status">正在读取项目详情……</p>}
+      {selection.error && <div className="error-panel" role="alert">{selection.error}{' '}
+        <button type="button" onClick={selection.refresh}>重试项目详情</button>
+      </div>}
+      {project && <div key={selection.instance.key}>
+        <ProjectDetails project={project} onUpdated={updated} />
+        <ProjectFiles projectId={project.id} onSaved={() => { refresh(); selection.refresh() }} />
+      </div>}
+    </section>}
   </section>
 }

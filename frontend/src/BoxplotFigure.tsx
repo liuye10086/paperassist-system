@@ -1,6 +1,7 @@
 import { apiFetch } from './api'
 import { useEffect, useRef, useState } from 'react'
 import AnalysisExplanation from './AnalysisExplanation'
+import ProjectDownloadLink from './ProjectDownloadLink'
 
 type Figure = { id: string; analysis_run_id: string; setup_revision: number; title: string; caption: string
   x_label: string; y_label: string; source_sha256: string; sha256: string; created_at: string
@@ -55,6 +56,16 @@ function FigurePanel({ base, runId, revision, canGenerate, disabled, onBusyChang
   const allowed = !!config?.configured && canGenerate && !disabled && !!state?.is_current && state.current_revision === revision && !loading && !busy && !explanationBusy && !error
 
   useEffect(() => { active.current = true; return () => { active.current = false; action.current?.abort(); reading.current?.abort() } }, [])
+  useEffect(() => {
+    if (!imageError) return
+    const projectPath = /^\/api\/v1\/projects\/[^/?#]+/.exec(base)?.[0]
+    if (!projectPath) return
+    const controller = new AbortController()
+    const timer = window.setTimeout(() => controller.abort(), 15_000)
+    // The image request cannot distinguish a missing resource from lost project access.
+    void apiFetch(projectPath, { signal: controller.signal }).catch(() => {}).finally(() => window.clearTimeout(timer))
+    return () => { controller.abort(); window.clearTimeout(timer) }
+  }, [base, imageError])
   useEffect(() => { onBusyChange(busy || explanationBusy); return () => onBusyChange(false) }, [busy, explanationBusy, onBusyChange])
   useEffect(() => {
     const controller = new AbortController()
@@ -126,7 +137,7 @@ function FigurePanel({ base, runId, revision, canGenerate, disabled, onBusyChang
       <h4>{figure.title}</h4>
       {!imageError && <img key={`${figure.id}:${imageAttempt}`} src={`${endpoint}/image?v=${encodeURIComponent(figure.id)}&reload=${imageAttempt}`} alt={figure.title} onError={() => setImageError(true)} />}
       <figcaption>{figure.caption}</figcaption>
-      <p><a href={`${endpoint}/image?download=true`}>下载箱线图 PNG</a></p>
+      <p><ProjectDownloadLink href={`${endpoint}/image?download=true`} filename="boxplot.png">下载箱线图 PNG</ProjectDownloadLink></p>
       <details className="statistics-provenance"><summary>图表来源与核对记录</summary>
         <p>配置版本：{figure.setup_revision}；统计结果编号：{figure.analysis_run_id}</p>
         <p>横轴：{figure.x_label}；纵轴：{figure.y_label}</p>

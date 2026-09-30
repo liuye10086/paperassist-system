@@ -33,6 +33,21 @@
 .project-selection { display: flex; gap: 12px; align-items: center; margin: 20px 0; }
 .project-selection label { flex-shrink: 0; }
 .project-selection select { width: 100%; }
+.project-list { margin: 24px 0; }
+.project-list-filters, .project-pagination { display: flex; flex-wrap: wrap; align-items: end; gap: 12px; }
+.project-list-filters label, .project-pagination label { display: flex; flex-direction: column; gap: 6px; }
+.project-list-filters label:first-child { flex: 1; min-width: 180px; }
+.project-table-scroll { overflow: auto; margin: 18px 0; border: 1px solid var(--border); border-radius: 8px; }
+.project-table { border-collapse: collapse; width: 100%; min-width: 720px; text-align: left; }
+.project-table caption { text-align: left; padding: 10px 14px; color: var(--text-h); }
+.project-table th, .project-table td { padding: 10px 14px; border-bottom: 1px solid var(--border); }
+.project-table thead { background: var(--code-bg); }
+.project-table td:first-child { overflow-wrap: anywhere; min-width: 140px; max-width: 300px; }
+.project-table time, .project-table button { white-space: nowrap; }
+.project-pagination { align-items: center; }
+.project-pagination span { flex: 1; min-width: 190px; }
+.selected-project { border-top: 1px solid var(--border); margin-top: 28px; padding-top: 20px; }
+.selected-project > button { margin-bottom: 16px; }
 .project-details { padding: 18px 20px; background: var(--social-bg); border-radius: 8px; overflow-wrap: anywhere; }
 .project-edit-form { margin-top: 16px; }
 .project-edit-form label { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; }

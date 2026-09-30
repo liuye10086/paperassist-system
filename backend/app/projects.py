@@ -2,8 +2,8 @@ import json
 from typing import Annotated, Any, Literal
 from urllib.parse import quote
 
-from fastapi import APIRouter, Body, Depends, File, HTTPException, Response, UploadFile
-from pydantic import BaseModel, ConfigDict, Field
+from fastapi import APIRouter, Body, Depends, File, HTTPException, Query, Response, UploadFile
+from pydantic import BaseModel, BeforeValidator, ConfigDict, Field
 
 from .config import ExcelSettings, get_excel_settings
 from .excel import WorkbookPreview, fail, parse_workbook, read_upload
@@ -25,6 +25,13 @@ class Project(ProjectInput):
     created_at: str
     updated_at: str
     file_count: int
+
+
+class ProjectPage(BaseModel):
+    items: list[Project]
+    total: int
+    page: int
+    page_size: int
 
 
 class FileError(BaseModel):
@@ -49,9 +56,27 @@ class SavedUpload(BaseModel):
     preview: WorkbookPreview | None
 
 
-@router.get("", response_model=list[Project])
-def list_projects(store: Store):
-    return store.projects()
+def decimal_query_integer(value):
+    # Validate the raw HTTP string before Pydantic can coerce "1.0" to 1.
+    if value is not None and (not isinstance(value, str) or not value.isascii() or not value.isdecimal()):
+        raise ValueError('页码和页面大小须为十进制整数字符串。')
+    return value
+
+
+@router.get("", response_model=list[Project] | ProjectPage,
+            description='无page/page_size/q/type参数返回数组，任一显式参数启用分页对象。')
+def list_projects(
+    store: Store,
+    page: Annotated[int | None, Query(ge=1, le=1_000_000), BeforeValidator(decimal_query_integer)] = None,
+    page_size: Annotated[int | None, Query(ge=1, le=100), BeforeValidator(decimal_query_integer)] = None,
+    q: Annotated[str | None, Query()] = None,
+    project_type: Annotated[Literal['sci', 'thesis'] | None, Query(alias='type')] = None,
+):
+    if all(value is None for value in (page, page_size, q, project_type)):
+        return store.projects()
+    return store.query_projects(page=page if page is not None else 1,
+                                page_size=page_size if page_size is not None else 10,
+                                q=q if q is not None else '', project_type=project_type)
 
 
 @router.post("", status_code=201, response_model=Project)

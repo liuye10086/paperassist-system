@@ -1,6 +1,85 @@
 import { afterEach, expect, it, vi } from 'vitest'
 import { apiFetch, setApiSession, clearApiSession, onSessionCookieChanged, onSessionExpired } from './api'
+import { watchProjectAccess } from './projectAccess'
 afterEach(() => { clearApiSession(); vi.unstubAllGlobals() })
+const missingProject = () => Response.json({ detail: { code: 'project_not_found', message: '项目不可用' } }, { status: 404 })
+it('notifies project loss once without consuming the caller error body', async () => {
+  const unavailable = vi.fn(); const stop = watchProjectAccess('p1', unavailable)
+  vi.stubGlobal('fetch', vi.fn().mockImplementation(() => missingProject()))
+  try {
+    const response = await apiFetch('/api/v1/projects/p1/files/f1/download')
+    expect(unavailable).toHaveBeenCalledTimes(1)
+    expect(response.bodyUsed).toBe(false)
+    await expect(response.json()).rejects.toMatchObject({ name: 'AbortError' })
+    await expect(apiFetch('/api/v1/projects/p1')).rejects.toMatchObject({ name: 'AbortError' })
+    expect(unavailable).toHaveBeenCalledTimes(1)
+  } finally { stop() }
+})
+it.each([
+  [404, { detail: { code: 'file_not_found' } }],
+  [410, { detail: { code: 'project_not_found' } }],
+  [404, '<html>not found</html>'],
+])('keeps ordinary resource errors available (%s, %j)', async (status, body) => {
+  const unavailable = vi.fn(); const stop = watchProjectAccess('p1', unavailable)
+  const response = typeof body === 'string' ? new Response(body, { status }) : Response.json(body, { status })
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response))
+  try {
+    const returned = await apiFetch('/api/v1/projects/p1/files/f1/download')
+    expect(await returned.text()).toBe(typeof body === 'string' ? body : JSON.stringify(body))
+    expect(unavailable).not.toHaveBeenCalled()
+  } finally { stop() }
+})
+it('does not treat project_not_found from a non-project path as project loss', async () => {
+  const unavailable = vi.fn(); const stop = watchProjectAccess('p1', unavailable)
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(missingProject()))
+  try { await apiFetch('/api/v1/ai/config'); expect(unavailable).not.toHaveBeenCalled() } finally { stop() }
+})
+it.each(['stop', 'reopen', 'switch', 'session', 'abort'])('rejects delayed 404 inspection after %s', async change => {
+  const oldUnavailable = vi.fn(); const currentUnavailable = vi.fn()
+  const stop = watchProjectAccess('p1', oldUnavailable)
+  let finish!: (body: unknown) => void
+  const response = missingProject(); const clone = response.clone()
+  clone.json = () => new Promise(resolve => { finish = resolve })
+  response.clone = () => clone
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response))
+  const controller = new AbortController()
+  const pending = apiFetch('/api/v1/projects/p1/files', { signal: controller.signal })
+  await vi.waitFor(() => expect(finish).toBeTypeOf('function'))
+  let currentStop = () => {}
+  if (change === 'session') setApiSession('new-account')
+  else if (change === 'abort') controller.abort()
+  else { stop(); if (change === 'switch') { const stopB = watchProjectAccess('p2', vi.fn()); stopB() }; if (change !== 'stop') currentStop = watchProjectAccess('p1', currentUnavailable) }
+  finish({ detail: { code: 'project_not_found' } })
+  await expect(pending).rejects.toMatchObject({ name: 'AbortError' })
+  expect(oldUnavailable).not.toHaveBeenCalled(); expect(currentUnavailable).not.toHaveBeenCalled()
+  stop(); currentStop()
+})
+it.each(['stop', 'reopen', 'session', 'unavailable'])('rejects a saved successful body after %s', async change => {
+  const stop = watchProjectAccess('p1', vi.fn())
+  let finish!: (body: Blob) => void
+  const response = new Response('private'); response.blob = () => new Promise(resolve => { finish = resolve })
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response))
+  const returned = await apiFetch('/api/v1/projects/p1/files/f1/download')
+  const pending = returned.blob(); let currentStop = () => {}
+  if (change === 'session') setApiSession('new')
+  else if (change === 'unavailable') { vi.stubGlobal('fetch', vi.fn().mockResolvedValue(missingProject())); await apiFetch('/api/v1/projects/p1') }
+  else { stop(); if (change === 'reopen') currentStop = watchProjectAccess('p1', vi.fn()) }
+  finish(new Blob(['private']))
+  await expect(pending).rejects.toMatchObject({ name: 'AbortError' })
+  stop(); currentStop()
+})
+it.each(['reopen', 'session'])('keeps cloned successful responses protected after %s', async change => {
+  const stop = watchProjectAccess('p1', vi.fn())
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('private')))
+  const returned = await apiFetch('/api/v1/projects/p1/files/f1/download')
+  const clone = returned.clone()
+  let stopNew = () => {}
+  if (change === 'session') setApiSession('new')
+  else { stop(); stopNew = watchProjectAccess('p1', vi.fn()) }
+  await expect(clone.text()).rejects.toMatchObject({ name: 'AbortError' })
+  expect(() => returned.clone()).toThrow()
+  stop(); stopNew()
+})
 it('resynchronizes a successful login cookie when its body cannot be read', async () => {
   const response = Response.json({})
   response.json = async () => { throw new Error('body connection lost') }

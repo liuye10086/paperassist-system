@@ -1,32 +1,48 @@
-# React + TypeScript + Vite
+# PaperAssist 前端
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+使用React、TypeScript和Vite，负责登录后的项目工作台。后端启动、PostgreSQL连接及首个管理员初始化见[项目README](../README.md)；本机管理员已经初始化，不需要重复创建。
 
-Currently, two official plugins are available:
+## 启动与检查
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+在项目根目录使用Windows PowerShell执行。首次运行或锁文件变化后安装依赖：
 
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the Oxlint configuration
-
-If you are developing a production application, we recommend enabling type-aware lint rules by installing `oxlint-tsgolint` and editing `.oxlintrc.json`:
-
-```json
-{
-  "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["react", "typescript", "oxc"],
-  "options": {
-    "typeAware": true
-  },
-  "rules": {
-    "react/rules-of-hooks": "error",
-    "react/only-export-components": ["warn", { "allowConstantExport": true }]
-  }
-}
+```powershell
+npm.cmd --prefix frontend ci
 ```
 
-See the [Oxlint rules documentation](https://oxc.rs/docs/guide/usage/linter/rules) for the full list of rules and categories.
+先按根README启动后端，再启动前端：
+
+```powershell
+npm.cmd --prefix frontend run dev
+```
+
+访问 `http://127.0.0.1:5173/`。Vite固定使用该地址与端口，将 `/api` 代理至 `http://127.0.0.1:8000`；Cookie和CSRF通过同源请求处理，前端不保存数据库或模型密钥。
+
+```powershell
+npm.cmd --prefix frontend test
+npm.cmd --prefix frontend run build
+npm.cmd --prefix frontend run lint
+```
+
+测试使用Vitest、Testing Library和jsdom；`build`先执行TypeScript检查，再生成 `dist/`；`lint`使用Oxlint。脚本和依赖以[package.json](package.json)及锁文件为准。
+
+## 模块入口
+
+| 文件 | 职责 |
+| --- | --- |
+| [auth/AuthBoundary.tsx](src/auth/AuthBoundary.tsx) | 登录、会话恢复、退出及跨标签同步 |
+| [ProjectWorkspace.tsx](src/ProjectWorkspace.tsx) | 项目创建、分页查询与文件工作区组合 |
+| [ProjectList.tsx](src/ProjectList.tsx) | 列表字段、名称搜索、类型筛选和分页控件 |
+| [useProjectSelection.ts](src/useProjectSelection.ts) | 独立选中项目、hash恢复及项目失权空态 |
+| [ProjectDetails.tsx](src/ProjectDetails.tsx) | 名称/研究主题编辑与创建后类型只读 |
+| [api.ts](src/api.ts)、[projectAccess.ts](src/projectAccess.ts) | 会话/CSRF请求及工作区实例有效性检查 |
+| [ProjectDownloadLink.tsx](src/ProjectDownloadLink.tsx) | Excel、PNG和Word受控下载 |
+| [ExcelPreview.tsx](src/ExcelPreview.tsx)、[AnalysisSetup.tsx](src/AnalysisSetup.tsx) | Excel预览与分析字段配置 |
+| [StatisticsResults.tsx](src/StatisticsResults.tsx)、[BoxplotFigure.tsx](src/BoxplotFigure.tsx) | 描述统计与云端箱线图 |
+| [AnalysisExplanation.tsx](src/AnalysisExplanation.tsx)、[WordReport.tsx](src/WordReport.tsx) | AI解释与Word报告入口 |
+
+## 当前进度
+
+2026-09-30，项目列表分页、名称搜索、类型筛选、独立工作区与权限空态已实现；用户确认本轮功能手动验收通过。翻页或筛选保留已打开项目，确认项目失权后清除旧内容。交付时前端14文件195项测试及构建、lint通过，详细证据与限制见[列表交付记录](../docs/开发记录/阶段01/项目列表分页与权限空态交付记录.md)。
+
+下一项建议为项目任务与成果摘要；完整双语、账号管理等仍待开发，完整阶段01尚未完成。以[阶段01清单](../docs/开发阶段/阶段01-数据库迁移与用户项目基础.md)为准。

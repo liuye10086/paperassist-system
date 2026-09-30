@@ -1,5 +1,5 @@
 import { afterEach, expect, test, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import App from './App'
 
@@ -22,19 +22,23 @@ function api(options: { empty?: boolean; failed?: boolean; uploadFailed?: boolea
     if (url.endsWith('/me')) return Response.json({ user: { id: 'test-user', email: 'test@paperassist.local', role: 'user' }, csrf_token: 'test-csrf' })
     if (url.endsWith('/health')) return Response.json({ status: 'ok', service: 'paperassist-system' })
     if (url.endsWith('/config')) return Response.json({ max_upload_bytes: 10485760, preview_row_limit: 20 })
-    if (url === '/api/v1/projects') {
+    if (new URL(url, 'http://localhost').pathname === '/api/v1/projects') {
       if (init?.method === 'POST') {
         const created = { ...project, ...JSON.parse(init.body as string), file_count: 0 }
         projects = [created]
         return Response.json(created, { status: 201 })
       }
       if (options.listFailsOnce) { options.listFailsOnce = false; throw new TypeError('offline') }
-      return Response.json(projects)
+      const parameters = new URL(url, 'http://localhost').searchParams
+      return Response.json({ items: projects, total: projects.length, page: Number(parameters.get('page')), page_size: Number(parameters.get('page_size')) })
     }
+    const detail = projects.find(item => url === `/api/v1/projects/${item.id}`)
+    if (detail) return Response.json(detail)
     if (url.endsWith('/files') && init?.method === 'POST') {
       files = [...files, options.uploadFailed
         ? { ...record, id: 'f2', parse_status: 'failed', error: { code: 'parse_failed', message: '文件损坏，请重新上传。' } }
         : { ...record, id: 'f2' }]
+      projects = projects.map(item => item.id === 'p1' ? { ...item, file_count: files.length } : item)
       return Response.json({ file: files[files.length - 1], preview: options.uploadFailed ? null : preview }, { status: 201 })
     }
     if (url === '/api/v1/projects/p1/files') return Response.json(files)
@@ -95,7 +99,7 @@ test('opens a saved file, switches sheets, then reloads its project without uplo
   const mock = api()
   const user = userEvent.setup()
   const first = render(<App />)
-  await user.selectOptions(await screen.findByLabelText('当前项目'), 'p1')
+  await user.click(await screen.findByRole('button', { name: '打开项目 药学项目' }))
   await user.click(await screen.findByRole('button', { name: '预览 实验.xlsx' }))
   expect(await screen.findByRole('cell', { name: '10' })).toBeTruthy()
   await user.selectOptions(screen.getByLabelText('工作表'), '1')
@@ -103,7 +107,8 @@ test('opens a saved file, switches sheets, then reloads its project without uplo
   first.unmount()
   render(<App />)
   await screen.findByRole('button', { name: '预览 实验.xlsx' })
-  expect((screen.getByLabelText('当前项目') as HTMLSelectElement).value).toBe('p1')
+  expect(screen.getByRole('heading', { name: '药学项目' })).toBeTruthy()
+  expect(window.location.hash).toBe('#project=p1')
   expect(mock.mock.calls.some(([, init]) => init?.method === 'POST')).toBe(false)
 })
 
@@ -111,7 +116,7 @@ test('uploads into selected project and refreshes file history', async () => {
   const mock = api()
   const user = userEvent.setup()
   render(<App />)
-  await user.selectOptions(await screen.findByLabelText('当前项目'), 'p1')
+  await user.click(await screen.findByRole('button', { name: '打开项目 药学项目' }))
   const input = await screen.findByLabelText('选择 Excel 文件')
   await waitFor(() => expect((input as HTMLInputElement).disabled).toBe(false))
   await user.upload(input, new File(['sample'], '实验.xlsx'))
@@ -125,11 +130,25 @@ test('failed files show their saved reason and can download original', async () 
   api({ failed: true })
   const user = userEvent.setup()
   render(<App />)
-  await user.selectOptions(await screen.findByLabelText('当前项目'), 'p1')
+  await user.click(await screen.findByRole('button', { name: '打开项目 药学项目' }))
   expect(await screen.findByText('文件损坏，请重新上传。')).toBeTruthy()
   expect(screen.getByText('解析失败')).toBeTruthy()
   expect(screen.getByRole('link', { name: '下载 实验.xlsx' }).getAttribute('href')).toBe('/api/v1/projects/p1/files/f1/download')
   expect(screen.queryByRole('button', { name: '预览 实验.xlsx' })).toBeNull()
+})
+
+test('downloads original Excel bytes using its original filename without uploading', async () => {
+  const mock = api({ failed: true }); const normal = mock.getMockImplementation()!
+  const create = vi.fn((_blob: Blob) => 'blob:excel'); const revoke = vi.fn()
+  vi.stubGlobal('URL', class extends URL { static createObjectURL = create; static revokeObjectURL = revoke })
+  const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (this: HTMLAnchorElement) { expect(this.download).toBe(record.filename) })
+  mock.mockImplementation((url, init) => url.endsWith('/download') ? Promise.resolve(new Response('excel bytes')) : normal(url, init))
+  const user = userEvent.setup(); render(<App />)
+  await user.click(await screen.findByRole('button', { name: '打开项目 药学项目' }))
+  fireEvent.click(await screen.findByRole('link', { name: '下载 实验.xlsx' }))
+  await waitFor(() => expect(create).toHaveBeenCalledTimes(1)); expect(await create.mock.calls[0][0].text()).toBe('excel bytes')
+  expect(revoke).toHaveBeenCalledWith('blob:excel'); expect(mock.mock.calls.every(([, init]) => !init?.method)).toBe(true)
+  click.mockRestore()
 })
 
 test('late preview response cannot appear in another project', async () => {
@@ -137,13 +156,13 @@ test('late preview response cannot appear in another project', async () => {
   api({ slowPreview: new Promise(resolve => { finish = resolve }) })
   const user = userEvent.setup()
   render(<App />)
-  await user.selectOptions(await screen.findByLabelText('当前项目'), 'p1')
+  await user.click(await screen.findByRole('button', { name: '打开项目 药学项目' }))
   await user.click(await screen.findByRole('button', { name: '预览 实验.xlsx' }))
-  await user.selectOptions(screen.getByLabelText('当前项目'), 'p2')
+  await user.click(screen.getByRole('button', { name: '打开项目 毕业论文项目' }))
   expect(await screen.findByText('此项目还没有文件。')).toBeTruthy()
   finish(Response.json(preview))
   await waitFor(() => expect(screen.queryByRole('cell', { name: '10' })).toBeNull())
-  expect(within(screen.getByLabelText('当前项目')).getByRole('option', { name: /毕业论文项目/ })).toBeTruthy()
+  expect(screen.getByRole('heading', { name: '毕业论文项目' })).toBeTruthy()
 })
 
 test('project list network failure can be retried', async () => {
@@ -152,14 +171,14 @@ test('project list network failure can be retried', async () => {
   render(<App />)
   expect((await screen.findByRole('alert')).textContent).toContain('项目列表')
   await user.click(screen.getByRole('button', { name: '重试项目列表' }))
-  expect(await screen.findByLabelText('当前项目')).toBeTruthy()
+  expect(await screen.findByRole('button', { name: '打开项目 药学项目' })).toBeTruthy()
 })
 
 test('failed upload remains in history and reports saved original separately from parsing', async () => {
   api({ uploadFailed: true })
   const user = userEvent.setup()
   render(<App />)
-  await user.selectOptions(await screen.findByLabelText('当前项目'), 'p1')
+  await user.click(await screen.findByRole('button', { name: '打开项目 药学项目' }))
   const input = await screen.findByLabelText('选择 Excel 文件')
   await waitFor(() => expect((input as HTMLInputElement).disabled).toBe(false))
   await user.upload(input, new File(['broken'], '实验.xlsx'))
@@ -167,7 +186,7 @@ test('failed upload remains in history and reports saved original separately fro
   expect((await screen.findByRole('alert')).textContent).toContain('文件已保存，但解析失败')
   expect(await screen.findByText('解析失败')).toBeTruthy()
   expect(screen.getAllByRole('link', { name: '下载 实验.xlsx' })).toHaveLength(2)
-  expect(screen.queryByRole('table')).toBeNull()
+  expect(screen.queryByRole('region', { name: '数据预览，可横向滚动' })).toBeNull()
 })
 
 test('missing saved original clears old preview and allows retry', async () => {
@@ -175,7 +194,7 @@ test('missing saved original clears old preview and allows retry', async () => {
   const normal = mock.getMockImplementation()!
   const user = userEvent.setup()
   render(<App />)
-  await user.selectOptions(await screen.findByLabelText('当前项目'), 'p1')
+  await user.click(await screen.findByRole('button', { name: '打开项目 药学项目' }))
   await user.click(await screen.findByRole('button', { name: '预览 实验.xlsx' }))
   await screen.findByRole('cell', { name: '10' })
   mock.mockImplementation(async (url, init) => url.endsWith('/preview')
@@ -183,7 +202,7 @@ test('missing saved original clears old preview and allows retry', async () => {
     : normal(url, init))
   await user.click(screen.getByRole('button', { name: '预览 实验.xlsx' }))
   expect((await screen.findByRole('alert')).textContent).toContain('原始文件已缺失')
-  expect(screen.queryByRole('table')).toBeNull()
+  expect(screen.queryByRole('region', { name: '数据预览，可横向滚动' })).toBeNull()
   mock.mockImplementation(normal)
   await user.click(screen.getByRole('button', { name: '预览 实验.xlsx' }))
   expect(await screen.findByRole('cell', { name: '10' })).toBeTruthy()
