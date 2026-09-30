@@ -34,6 +34,9 @@
 .project-selection label { flex-shrink: 0; }
 .project-selection select { width: 100%; }
 .project-details { padding: 18px 20px; background: var(--social-bg); border-radius: 8px; overflow-wrap: anywhere; }
+.project-edit-form { margin-top: 16px; }
+.project-edit-form label { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; }
+.project-edit-actions { display: flex; flex-wrap: wrap; gap: 12px; }
 .file-history { margin-top: 24px; }
 .file-list { list-style: none; margin: 0; padding: 0; }
 .file-list > li { border-bottom: 1px solid var(--border); padding: 14px 0; display: flex; align-items: center; justify-content: space-between; gap: 16px; }

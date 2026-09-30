@@ -1,5 +1,5 @@
 import { afterEach, expect, test, vi } from 'vitest'
-import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import App from './App'
 
@@ -61,6 +61,34 @@ test('creates a project with a type and topic before uploading', async () => {
   const call = mock.mock.calls.find(([url, init]) => url === '/api/v1/projects' && init?.method === 'POST')
   expect(JSON.parse(call![1]!.body as string)).toEqual({ name: '新的毕业论文', research_topic: '药物疗效比较', project_type: 'thesis' })
   expect(window.location.hash).toContain('p1')
+})
+
+test('requires an explicit project type before creating', async () => {
+  const mock = api({ empty: true })
+  const user = userEvent.setup()
+  render(<App />)
+  await screen.findByText('还没有项目，请先创建一个项目。')
+  expect((screen.getByLabelText('项目类型') as HTMLSelectElement).value).toBe('')
+  await user.type(screen.getByLabelText('项目名称'), '新项目')
+  await user.type(screen.getByLabelText('研究主题'), '新主题')
+  fireEvent.submit(screen.getByLabelText('项目名称').closest('form')!)
+  expect((await screen.findByRole('alert')).textContent).toContain('请选择项目类型')
+  expect(mock.mock.calls.some(([, init]) => init?.method === 'POST')).toBe(false)
+})
+
+test('clears the explicit project type after successful creation', async () => {
+  api({ empty: true })
+  const user = userEvent.setup()
+  render(<App />)
+  await screen.findByText('还没有项目，请先创建一个项目。')
+  await user.type(screen.getByLabelText('项目名称'), '新项目')
+  await user.type(screen.getByLabelText('研究主题'), '新主题')
+  await user.selectOptions(screen.getByLabelText('项目类型'), 'thesis')
+  await user.click(screen.getByRole('button', { name: '创建项目' }))
+  await screen.findByRole('heading', { name: '新项目' })
+  expect((screen.getByLabelText('项目类型') as HTMLSelectElement).value).toBe('')
+  expect((screen.getByLabelText('项目名称') as HTMLInputElement).value).toBe('')
+  expect((screen.getByLabelText('研究主题') as HTMLTextAreaElement).value).toBe('')
 })
 
 test('opens a saved file, switches sheets, then reloads its project without uploading', async () => {

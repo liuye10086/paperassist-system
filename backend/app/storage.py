@@ -15,6 +15,9 @@ from .config import get_data_dir
 from .database import database_connection, ensure_schema_current, get_database_config, SchemaVersionError
 
 
+PROJECT_UPDATE_LIMITS = {'name': 120, 'research_topic': 500}
+
+
 class StorageError(Exception):
     def __init__(self, code: str, message: str, status: int = 503):
         self.code, self.message, self.status = code, message, status
@@ -95,6 +98,45 @@ class ProjectStore:
                 VALUES (%s, %s, %s, %s, %s, %s, %s)""",
                        (project_id, name, research_topic, project_type, now, now, self.owner_id))
         return self.project(project_id)
+
+    def update_project(self, project_id: str, changes: dict) -> dict:
+        # This entry point also serves trusted local tools: never rely on HTTP
+        # validation for immutable fields or dynamically constructed SQL columns.
+        if isinstance(changes, dict) and 'project_type' in changes:
+            raise StorageError('project_type_immutable', '项目类型创建后不可更改。', 422)
+        invalid = StorageError('project_update_invalid', '请仅提交项目名称或研究主题；名称为1–120字符，主题为1–500字符。', 422)
+        if not isinstance(changes, dict) or not changes or changes.keys() - PROJECT_UPDATE_LIMITS.keys():
+            raise invalid
+        normalized = {}
+        for field, limit in PROJECT_UPDATE_LIMITS.items():
+            if field in changes:
+                value = changes[field]
+                if not isinstance(value, str) or not 1 <= len(value.strip()) <= limit:
+                    raise invalid
+                normalized[field] = value.strip()
+
+        scope = ' AND owner_id = %s' if self.owner_id is not None else ''
+        parameters = (project_id, self.owner_id) if self.owner_id is not None else (project_id,)
+        projection = '''projects.id, name, research_topic, project_type, created_at, updated_at,
+            (SELECT count(*) FROM files WHERE project_id = projects.id) AS file_count'''
+        with self.connection(write=True) as db:
+            row = db.execute('SELECT ' + projection + ' FROM projects WHERE id = %s' + scope
+                             + ' FOR UPDATE OF projects', parameters).fetchone()
+            if row is None:
+                raise StorageError('project_not_found', '项目不存在，请刷新项目列表。', 404)
+            changed_fields = [field for field in PROJECT_UPDATE_LIMITS
+                              if field in normalized and normalized[field] != row[field]]
+            if not changed_fields:
+                return dict(row)
+            # Column names come only from the fixed whitelist; all values and
+            # owner identifiers remain parameters. Return within the write lock.
+            assignments = ', '.join(field + ' = %s' for field in changed_fields)
+            now = datetime.now(timezone.utc).isoformat()
+            updated = db.execute('UPDATE projects SET ' + assignments
+                                 + ', updated_at = GREATEST(updated_at, %s) WHERE id = %s'
+                                 + scope + ' RETURNING ' + projection,
+                                 tuple(normalized[field] for field in changed_fields) + (now,) + parameters).fetchone()
+            return dict(updated)
 
     @staticmethod
     def file_record(row):

@@ -3,16 +3,12 @@ import { useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import ExcelPreview from './ExcelPreview'
 import AnalysisSetup from './AnalysisSetup'
-
-type Project = {
-  id: string; name: string; research_topic: string; project_type: 'sci' | 'thesis'
-  file_count: number; created_at: string; updated_at: string
-}
+import ProjectDetails from './ProjectDetails'
+import { typeNames, type Project } from './projectTypes'
 type ProjectFile = {
   id: string; filename: string; size_bytes: number; uploaded_at: string
   parse_status: 'parsed' | 'failed'; error: { code: string; message: string } | null
 }
-const typeNames = { sci: 'SCI 科研论文', thesis: '毕业论文' }
 
 async function responseData(response: Response, fallback: string) {
   const data = await response.json().catch(() => null)
@@ -102,11 +98,14 @@ export default function ProjectWorkspace() {
   const [creating, setCreating] = useState(false)
   const [name, setName] = useState('')
   const [topic, setTopic] = useState('')
-  const [projectType, setProjectType] = useState<'sci' | 'thesis'>('sci')
+  const [projectType, setProjectType] = useState<'' | 'sci' | 'thesis'>('')
   const createController = useRef<AbortController | null>(null)
+  const listRequest = useRef<{ controller: AbortController; timeout: number } | null>(null)
+  const listSequence = useRef(0)
   const project = projects.find(item => item.id === selectedId)
 
   function refresh() {
+    listSequence.current++
     setLoading(true)
     setLoadError('')
     setAttempt(value => value + 1)
@@ -115,26 +114,41 @@ export default function ProjectWorkspace() {
   useEffect(() => {
     const controller = new AbortController()
     let active = true
+    const sequence = ++listSequence.current
     const timeout = window.setTimeout(() => controller.abort(), 15_000)
+    listRequest.current = { controller, timeout }
     async function load() {
       try {
         const response = await apiFetch('/api/v1/projects', { signal: controller.signal })
         const result = await responseData(response, '项目列表读取失败。')
         if (!Array.isArray(result)) throw new Error('项目列表格式不正确。')
-        if (active) {
+        if (active && sequence === listSequence.current) {
           setProjects(result)
           setSelectedId(previous => result.some(item => item.id === previous) ? previous : '')
         }
       } catch {
-        if (active) setLoadError('项目列表读取失败，请确认后端服务正常后重试。')
+        if (active && sequence === listSequence.current) setLoadError('项目列表读取失败，请确认后端服务正常后重试。')
       } finally {
         window.clearTimeout(timeout)
-        if (active) setLoading(false)
+        if (active && sequence === listSequence.current) setLoading(false)
       }
     }
     void load()
     return () => { active = false; controller.abort(); window.clearTimeout(timeout) }
   }, [attempt])
+
+  function updated(result: Project) {
+    // Lists requested before a successful edit must not overwrite its result.
+    listSequence.current++
+    if (listRequest.current) {
+      listRequest.current.controller.abort()
+      window.clearTimeout(listRequest.current.timeout)
+    }
+    setLoading(false)
+    setLoadError('')
+    setProjects(previous => previous.map(item => item.id === result.id ? result : item)
+      .sort((a, b) => b.updated_at.localeCompare(a.updated_at)))
+  }
 
   useEffect(() => {
     window.history.replaceState(null, '', window.location.pathname + window.location.search + (selectedId ? `#project=${encodeURIComponent(selectedId)}` : ''))
@@ -145,6 +159,7 @@ export default function ProjectWorkspace() {
     event.preventDefault()
     if (createController.current) return
     if (!name.trim() || !topic.trim()) { setCreateError('请填写项目名称和研究主题。'); return }
+    if (!projectType) { setCreateError('请选择项目类型。'); return }
     const controller = new AbortController()
     createController.current = controller
     let timedOut = false
@@ -162,6 +177,7 @@ export default function ProjectWorkspace() {
         setSelectedId(created.id)
         setName('')
         setTopic('')
+        setProjectType('')
         refresh()
       }
     } catch (cause) {
@@ -181,8 +197,8 @@ export default function ProjectWorkspace() {
       <h3>新建项目</h3>
       <div className="project-fields">
         <label>项目名称<input value={name} onChange={event => setName(event.target.value)} required maxLength={120} disabled={creating} /></label>
-        <label>项目类型<select value={projectType} onChange={event => setProjectType(event.target.value as 'sci' | 'thesis')} disabled={creating}>
-          <option value="sci">SCI 科研论文</option><option value="thesis">毕业论文</option>
+        <label>项目类型<select value={projectType} onChange={event => setProjectType(event.target.value as '' | 'sci' | 'thesis')} required disabled={creating}>
+          <option value="">请选择项目类型</option><option value="sci">SCI 科研论文</option><option value="thesis">毕业论文</option>
         </select></label>
       </div>
       <label>研究主题<textarea value={topic} onChange={event => setTopic(event.target.value)} required maxLength={500} rows={2} disabled={creating} /></label>
@@ -202,9 +218,7 @@ export default function ProjectWorkspace() {
       </select>
     </div>}
     {project && <>
-      <div className="project-details"><h3>{project.name}</h3><p>{project.research_topic}</p>
-        <p className="muted">{typeNames[project.project_type]} · {project.file_count} 个文件 · 创建于 {new Date(project.created_at).toLocaleString('zh-CN')}</p>
-      </div>
+      <ProjectDetails key={`details-${project.id}`} project={project} onUpdated={updated} />
       <ProjectFiles key={project.id} projectId={project.id} onSaved={refresh} />
     </>}
   </section>
