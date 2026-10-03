@@ -21,7 +21,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from .config import local_config
 
 
-SCHEMA_HEAD = "0002_auth_ownership"
+SCHEMA_HEAD = "0003_password_security"
 _SCHEMA_NAME = re.compile(r"[a-z_][a-z0-9_]{0,62}\Z")
 _TEST_SCHEMA = re.compile(r"pa_test_[0-9a-f]{32}\Z")
 _CONNECTION_OPTIONS = frozenset({

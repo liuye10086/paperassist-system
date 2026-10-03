@@ -28,7 +28,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
         try:
             config = settings()
-            public = request.url.path in ("/api/v1/health", "/api/v1/auth/login")
+            public = request.url.path in ("/api/v1/health", "/api/v1/auth/login", "/api/v1/auth/reset-password")
             session = None
             if not public:
                 token = request.cookies.get(COOKIE_NAME)

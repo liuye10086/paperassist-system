@@ -134,3 +134,31 @@ auth_login_attempts = Table("auth_login_attempts", metadata,
     Column("attempted_at", DOUBLE_PRECISION, nullable=False))
 Index("auth_attempts_email_time", auth_login_attempts.c.email, auth_login_attempts.c.attempted_at)
 Index("auth_attempts_ip_time", auth_login_attempts.c.client_ip, auth_login_attempts.c.attempted_at)
+
+session_revocations = Table("session_revocations", metadata,
+    Column("token_hash", Text, primary_key=True),
+    Column("user_id", Text, ForeignKey("users.id"), nullable=False),
+    Column("reason", Text, nullable=False),
+    Column("revoked_at", DOUBLE_PRECISION, nullable=False),
+    Column("source", Text, nullable=False))
+Index("session_revocations_user_time", session_revocations.c.user_id, session_revocations.c.revoked_at)
+
+password_recovery_codes = Table("password_recovery_codes", metadata,
+    Column("code_hash", Text, primary_key=True),
+    Column("user_id", Text, ForeignKey("users.id"), nullable=False),
+    Column("created_at", DOUBLE_PRECISION, nullable=False),
+    Column("expires_at", DOUBLE_PRECISION, nullable=False),
+    Column("used_at", DOUBLE_PRECISION),
+    Column("revoked_at", DOUBLE_PRECISION),
+    CheckConstraint("used_at IS NULL OR revoked_at IS NULL", name="recovery_single_terminal_state"))
+Index("password_recovery_user", password_recovery_codes.c.user_id)
+
+auth_password_attempts = Table("auth_password_attempts", metadata,
+    Column("id", BigInteger, Identity(), primary_key=True),
+    Column("user_id", Text, ForeignKey("users.id")),
+    Column("code_hash", Text),
+    Column("client_ip", Text, nullable=False),
+    Column("attempted_at", DOUBLE_PRECISION, nullable=False))
+Index("password_attempts_user_time", auth_password_attempts.c.user_id, auth_password_attempts.c.attempted_at)
+Index("password_attempts_code_time", auth_password_attempts.c.code_hash, auth_password_attempts.c.attempted_at)
+Index("password_attempts_ip_time", auth_password_attempts.c.client_ip, auth_password_attempts.c.attempted_at)

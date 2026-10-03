@@ -2,6 +2,39 @@ import { afterEach, expect, it, vi } from 'vitest'
 import { apiFetch, setApiSession, clearApiSession, onSessionCookieChanged, onSessionExpired } from './api'
 import { watchProjectAccess } from './projectAccess'
 afterEach(() => { clearApiSession(); vi.unstubAllGlobals() })
+it.each(['/api/v1/auth/change-password', '/api/v1/auth/reset-password'])('resynchronizes late cookie clearing from %s after abort or new session', async endpoint => {
+  for (const reason of ['abort', 'session']) {
+    let finish!: (response: Response) => void
+    vi.stubGlobal('fetch', vi.fn(() => new Promise<Response>(resolve => { finish = resolve })))
+    const changed = vi.fn()
+    const stop = onSessionCookieChanged(changed)
+    const controller = new AbortController()
+    try {
+      const pending = apiFetch(endpoint, { method: 'POST', signal: controller.signal })
+      if (reason === 'abort') controller.abort()
+      else setApiSession('new-session')
+      finish(new Response(null, { status: 204 }))
+      await expect(pending).rejects.toMatchObject({ name: 'AbortError' })
+      expect(changed).toHaveBeenCalledTimes(1)
+    } finally { stop() }
+  }
+})
+it.each(['/api/v1/auth/change-password', '/api/v1/auth/reset-password'])('rejects late %s body and reports possible cookie changes once', async endpoint => {
+  let finish!: (body: unknown) => void
+  const response = Response.json({ detail: { code: 'invalid_request' } }, { status: 422 })
+  response.json = () => new Promise(resolve => { finish = resolve })
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response))
+  const changed = vi.fn(); const stop = onSessionCookieChanged(changed)
+  try {
+    const returned = await apiFetch(endpoint, { method: 'POST' })
+    const body = returned.json()
+    setApiSession('peer')
+    finish({ detail: { code: 'invalid_request' } })
+    await expect(body).rejects.toMatchObject({ name: 'AbortError' })
+    await expect(returned.json()).rejects.toMatchObject({ name: 'AbortError' })
+    expect(changed).toHaveBeenCalledTimes(1)
+  } finally { stop() }
+})
 const missingProject = () => Response.json({ detail: { code: 'project_not_found', message: '项目不可用' } }, { status: 404 })
 it('notifies project loss once without consuming the caller error body', async () => {
   const unavailable = vi.fn(); const stop = watchProjectAccess('p1', unavailable)

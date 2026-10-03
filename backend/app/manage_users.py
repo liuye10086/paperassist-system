@@ -10,6 +10,7 @@ from app.auth.service import (
     set_user_active,
 )
 from app.storage import StorageError
+from app.auth.passwords import issue_recovery_code
 
 
 def read_password():
@@ -26,7 +27,7 @@ def main():
     parser = argparse.ArgumentParser(description="PaperAssist 本机账号管理")
     parser.add_argument(
         "command",
-        choices=["bootstrap", "create", "reset-password", "disable", "enable"],
+        choices=["bootstrap", "create", "reset-password", "issue-recovery", "disable", "enable"],
     )
     parser.add_argument("--email", required=True)
     parser.add_argument("--role", choices=["user", "admin"], default="user")
@@ -43,6 +44,14 @@ def main():
         elif args.command == "reset-password":
             reset_password(args.email, read_password())
             print("密码已重置，旧会话已撤销。")
+        elif args.command == "issue-recovery":
+            if not all(stream.isatty() for stream in (sys.stdin, sys.stdout, sys.stderr)):
+                raise ValueError("恢复码签发必须在交互式终端执行，不能重定向输出。")
+            if input("确认已线下核验该账号持有人身份？输入 YES 继续: ").strip() != "YES":
+                raise ValueError("未确认身份核验，未签发恢复码。")
+            code = issue_recovery_code(args.email)
+            print("恢复码仅显示一次，15分钟内有效；请安全交给已核验的账号持有人。")
+            print(code)
         else:
             set_user_active(args.email, args.command == "enable")
             print("账号状态已更新，旧会话已撤销。")

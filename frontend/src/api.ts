@@ -46,7 +46,8 @@ export function onSessionExpired(listener: () => void) {
 export async function apiFetch(input: string, init: RequestInit = {}): Promise<Response> {
   const requestGeneration = generation
   const projectAccess = captureProjectAccess(input)
-  const changesCookie = input === '/api/v1/auth/login' || input === '/api/v1/auth/logout'
+  const changesCookie = ['/api/v1/auth/login', '/api/v1/auth/logout',
+    '/api/v1/auth/change-password', '/api/v1/auth/reset-password'].includes(input)
   let cookieChangeReported = false
   const reportCookieChange = () => {
     if (!changesCookie || cookieChangeReported) return

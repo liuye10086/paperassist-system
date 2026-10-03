@@ -132,6 +132,7 @@ def test_schema_preserves_business_tables_and_auth_tables_and_uses_job_sequences
         "projects", "files", "analysis_setups", "analysis_runs", "figures", "figure_jobs",
         "explanations", "explanation_jobs", "reports",
         "users", "sessions", "auth_login_attempts",
+        "session_revocations", "password_recovery_codes", "auth_password_attempts",
     }
     for name in ("figure_jobs", "explanation_jobs"):
         table = schema.metadata.tables[name]

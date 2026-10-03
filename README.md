@@ -120,10 +120,12 @@ try {
 日常启动（已完成依赖、专用连接配置和迁移时）：
 
 ```powershell
-.\backend\.venv\Scripts\python.exe -m uvicorn app.main:app --app-dir backend --reload --host 127.0.0.1 --port 8000
+.\backend\.venv\Scripts\python.exe -m uvicorn app.main:app --app-dir backend --reload --host 127.0.0.1 --port 8000 --no-proxy-headers
 ```
 
 健康检查：http://127.0.0.1:8000/api/v1/health
+
+本机直连启动必须保留 `--no-proxy-headers`，使登录及密码操作按真实连接IP限流，忽略客户端伪造的 `X-Forwarded-For`。未来接入反向代理时需另行配置可信代理边界，不能直接启用任意代理头。
 
 启动和健康检查都会检查 PostgreSQL 连通性及 Alembic 版本。缺少配置、数据库不可用或版本未迁移时会失败，不创建 SQLite，也不自动执行 DDL。
 
@@ -131,18 +133,34 @@ try {
 
 ### 首个管理员与登录
 
-本机开发库已升级到 Alembic `0002_auth_ownership`。2026-09-30用户已设置管理员密码；只读核对确认 `admin@paperassist.local` 已启用、角色为 `admin`，原来的1个历史项目已归该账号，无主项目为0。**本机无需再次初始化；以下命令仅供新环境首次初始化参考**：
+本机开发库已备份升级到 Alembic `0003_password_security`，原12张表及5份资产保持不变，详见[密码安全交付记录](docs/开发记录/阶段01/会话撤销审计与密码恢复交付记录.md)。2026-09-30用户已设置管理员密码；只读核对确认 `admin@paperassist.local` 已启用、角色为 `admin`，原来的1个历史项目已归该账号，无主项目为0。**本机无需再次初始化；以下命令仅供新环境首次初始化参考**：
 
 ```powershell
 cd backend
 .\.venv\Scripts\python.exe -m app.manage_users bootstrap --email admin@paperassist.local
 ```
 
-新环境初始化时按提示输入两次12–128字符密码（`getpass` 隐藏输入）；命令在同一事务创建首个管理员并认领历史项目。已有账号时再次执行会拒绝。本机现在可以直接登录核对历史资料。账号管理同样使用 `app.manage_users` 的 `create`、`reset-password`、`disable`、`enable` 命令和 `--email`；密码重置或停用会使旧会话失效。当前没有公开注册、邮件恢复、管理网页或用户自行修改密码页面。
+新环境初始化时按提示输入两次12–128字符密码（`getpass` 隐藏输入）；命令在同一事务创建首个管理员并认领历史项目。已有账号时再次执行会拒绝。本机现在可以直接登录核对历史资料。账号管理同样使用 `app.manage_users` 的 `create`、`reset-password`、`disable`、`enable` 命令和 `--email`；密码重置或停用会使旧会话失效。公开注册、邮件恢复及管理员网页暂未开放；用户可在页面自行修改密码或使用管理员签发的恢复码。
 
 接口为 `/api/v1/auth/login`、`/api/v1/auth/me`、`/api/v1/auth/logout`。会话令牌只保存摘要，Cookie 使用 HttpOnly、SameSite=Lax，生产环境启用 Secure；绝对有效期 7 天、闲置期 30 分钟，状态修改请求检查 CSRF 与来源。15 分钟内失败限制为每邮箱 5 次、每 IP 30 次。管理员仅能读取自己名下研究内容，嵌套资源、写入与下载均核对项目归属，越权返回 404。
 
 登录交付的后端全量回归为 **313 项通过（182.76 秒）**，包含原 289 项、19 项认证与 5 项归属测试。真实迁移备份位于 `backend/backups/auth-ownership-20260930T013940Z`，包含 `database.dump`、九表迁移前快照与 5 份资产 SHA256；升级后九表全部值及资产保持一致。前端最终验证与当前限制见[登录与项目归属交付记录](docs/开发记录/阶段01/登录与项目归属交付记录.md)。历史 PostgreSQL 统一验证仍保留其原日期与计数。
+
+### 修改密码与密码恢复
+
+登录后点击“修改密码”，输入当前密码、新密码和确认新密码。密码仍为12–128个字符；成功后所有旧会话失效，需要重新登录。
+
+忘记密码时联系管理员线下核验身份。管理员在交互式终端、`backend` 目录执行：
+
+```powershell
+.\.venv\Scripts\python.exe -m app.manage_users issue-recovery --email user@example.local
+```
+
+将示例邮箱替换为已核验账号，按提示输入 `YES`；恢复码只在当前终端显示一次，15分钟有效。管理员通过已核验的联系渠道交给账号持有人，用户在登录页点击“忘记密码”，输入恢复码并设置新密码。恢复码不要放入URL、聊天记录或日志；命令拒绝非交互环境及输出重定向，不接入邮件服务。
+
+恢复码只存摘要，成功使用一次后失效；重新签发、改密、本机密码重置及账号停用/启用会使待用恢复码失效。改密及恢复成功均撤销该用户全部旧会话，并保留撤销原因和时间。15分钟内密码操作失败限制为每账号/恢复码5次、每直接客户端IP30次；超限返回429。请求超时不代表密码未变，请按页面提示重新登录或联系管理员。
+
+`POST /api/v1/auth/change-password` 接收 `current_password/new_password`，需要登录和CSRF；`POST /api/v1/auth/reset-password` 接收 `recovery_code/new_password`，允许匿名但仍检查安全标头和来源。成功返回204并清除会话Cookie；错误不回显输入凭据。真实密码由用户自行输入，开发验证只使用隔离测试账号。
 
 ### 前端
 
@@ -189,9 +207,9 @@ python -m venv .\backend\.venv
 
 **此小闭环六步的开发和开发侧验证已完成，没有剩余功能开发步骤。**第六步从新建项目、浏览器选择并上传 Excel 到真实 API 绘图、解释和 Word 下载完整走通，检查了配置变更、刷新/重启、错误恢复和来源一致性。详见[完整闭环验收记录](docs/开发记录/历史小闭环/2026-09-29-workflow-acceptance.md)。
 
-用户已确认此前小闭环最终验收通过。当前阶段01完整完成57/79项：数据库底座、登录归属、项目编辑、列表分页及本轮项目任务与成果摘要已实现。摘要汇总真实任务状态和PNG/Word成果，按类型显示后续功能空态；完整双语、账号补充与数据库运维仍待完成。
+用户已确认此前小闭环及项目任务/成果摘要验收通过。当前阶段01完成60/79项：本轮新增会话撤销审计、自行改密及管理员线下核验后的15分钟一次性恢复码。完整双语、语言偏好和项目默认输出语言、数据库运维及阶段验收仍待完成。
 
-首个管理员及历史项目认领已完成，登录后完整历史资料人工核对仍待用户反馈。项目编辑及列表已按授权提交推送，列表提交为 `a4f19df`。2026-10-03本轮摘要后端383项、前端206项及build/lint/pip check通过，独立审查Approved；浏览器验证分页、来源展开、类型空态和退出清理。用户已启动前后端并确认本轮人工验收通过、图片和Word下载正常；临时预览目录删除被自动审批拒绝；证据见[摘要交付记录](docs/开发记录/阶段01/项目任务与成果摘要交付记录.md)及[实施计划](docs/开发记录/阶段01/2026-10-03-项目任务与成果摘要-实施计划.md)。用户已授权以“开发阶段01：实现项目任务与成果摘要”提交并推送，提交编号与远端同步状态以Git记录为准；下一项及阶段剩余范围见[阶段清单§8](docs/开发阶段/阶段01-数据库迁移与用户项目基础.md#8-本阶段剩余步骤与建议下一步)。
+首个管理员及历史项目认领已完成；管理员完整历史资料逐项核对未单独确认。项目编辑、列表和摘要已按授权提交推送，摘要提交为 `35e5b50`。本轮密码安全后端全量419项及追加启动层1项、前端234项、build/lint/pip check通过，独立审查Approved；开发库已备份升级0003并核对原数据/资产不变。用户已启动前后端并确认本轮验收通过，授权先更新相关文档，再提交并推送；实际提交编号与远端同步状态以Git记录为准。提交推送后等待用户确认再开始下一步。证据见[密码安全交付记录](docs/开发记录/阶段01/会话撤销审计与密码恢复交付记录.md)及[实施计划](docs/开发记录/阶段01/2026-10-03-会话撤销审计与密码恢复-实施计划.md)；剩余步骤与下一项见[阶段清单§8](docs/开发阶段/阶段01-数据库迁移与用户项目基础.md#8-本阶段剩余步骤与建议下一步)。
 
 当前仍限定一种明确分析任务。PDF 单独验证，自然语言规划、更多图型及 OpenAI 图片生成模型属于后续能力；图片生成模型与已实现的 Python 数据绘图分别接入，不改变完整产品范围。
 
@@ -217,7 +235,7 @@ python -m venv .\backend\.venv
 
 ## 第一步：选择分析任务与字段
 
-先按上方命令安装更新后的 `backend/requirements.txt` 并显式迁移 PostgreSQL。当前版本为 Alembic `0002_auth_ownership`；旧 SQLite schema 1–5 自动升级至 schema 6 的说明属于历史实现，已被 PostgreSQL 统一方案替代。离线导入工具只接受 schema 6；更早的库需使用匹配的旧程序升级独立副本，不能让当前应用回退到 SQLite。
+先按上方命令安装更新后的 `backend/requirements.txt` 并显式迁移 PostgreSQL。当前版本为 Alembic `0003_password_security`；旧 SQLite schema 1–5 自动升级至 schema 6 的说明属于历史实现，已被 PostgreSQL 统一方案替代。离线导入工具只接受 schema 6；更早的库需使用匹配的旧程序升级独立副本，不能让当前应用回退到 SQLite。
 
 1. 进入已有项目，在页面下方找到“选择分析任务与字段”。
 2. 分析任务目前固定为“描述统计＋箱线图”；选择一份已保存且解析成功的 Excel。
@@ -357,7 +375,7 @@ OPENAI_MODEL=gpt-5.4
 
 ```powershell
 $env:EXCEL_MAX_UPLOAD_BYTES = '20971520'
-.\backend\.venv\Scripts\python.exe -m uvicorn app.main:app --app-dir backend --reload --host 127.0.0.1 --port 8000
+.\backend\.venv\Scripts\python.exe -m uvicorn app.main:app --app-dir backend --reload --host 127.0.0.1 --port 8000 --no-proxy-headers
 ```
 
 该设置只影响当前终端及从它启动的进程，新开终端时需要重新设置。
@@ -390,7 +408,7 @@ backend/data/
 
 ```powershell
 $env:PAPERASSIST_DATA_DIR = 'D:\PaperAssistData'
-.\backend\.venv\Scripts\python.exe -m uvicorn app.main:app --app-dir backend --reload --host 127.0.0.1 --port 8000
+.\backend\.venv\Scripts\python.exe -m uvicorn app.main:app --app-dir backend --reload --host 127.0.0.1 --port 8000 --no-proxy-headers
 ```
 
 该变量默认是 `data`，相对路径以 `backend` 为基准，也接受绝对路径。更换目录不会自动迁移资产或切换数据库；不要指向临时目录。本轮数据库统一保留原资产路径。默认 `backend/data`、旧 SQLite 文件及本地备份已被 Git 忽略；若自定义到仓库中的其他目录，需要同时忽略资产与备份。

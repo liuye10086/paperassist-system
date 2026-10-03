@@ -11,6 +11,7 @@ from app.storage import _storage_connection, StorageError
 from contextlib import contextmanager
 from app.database import ensure_schema_current
 from .config import settings
+from .revocations import invalidate_recovery_codes, revoke_sessions, session_expiry_reason
 
 
 class AccountValidationError(ValueError):
@@ -39,9 +40,13 @@ def normalize_email(email):
     return value
 
 
-def password_hash(password):
+def validate_password(password):
     if not 12 <= len(password) <= 128:
         raise ValueError("密码须为12至128个字符。")
+
+
+def password_hash(password):
+    validate_password(password)
     return hasher.hash(password)
 
 
@@ -90,26 +95,28 @@ def bootstrap_admin(email, password):
     return _create(email, password, "admin", True)
 
 
-def _change(email, field, value):
+def _change(email, field, value, reason):
     email = normalize_email(email)
     with auth_connection(write=True) as db:
         ensure_schema_current(db)
         row = db.execute("SELECT id FROM users WHERE email = %s", (email,)).fetchone()
         if not row:
             raise AccountValidationError("账号不存在。")
+        now = time.time()
         db.execute(
             f"UPDATE users SET {field} = %s, updated_at = %s WHERE id = %s",
-            (value, time.time(), row["id"]),
+            (value, now, row["id"]),
         )
-        db.execute("DELETE FROM sessions WHERE user_id = %s", (row["id"],))
+        invalidate_recovery_codes(db, row["id"], now)
+        revoke_sessions(db, user_id=row["id"], reason=reason, source="cli", revoked_at=now)
 
 
 def reset_password(email, password):
-    _change(email, "password_hash", password_hash(password))
+    _change(email, "password_hash", password_hash(password), "admin_password_reset")
 
 
 def set_user_active(email, active):
-    _change(email, "active", bool(active))
+    _change(email, "active", bool(active), "account_enabled" if active else "account_disabled")
 
 
 def digest(token):
@@ -178,21 +185,18 @@ def authenticate(email, password, ip):
 
 
 def resolve_session(token):
-    now = time.time()
     with auth_connection(write=True) as db:
         ensure_schema_current(db)
+        now = time.time()
         row = db.execute(
             "SELECT users.id,users.email,users.role,users.active,sessions.csrf_token,sessions.last_seen_at,sessions.expires_at FROM sessions JOIN users ON users.id=sessions.user_id WHERE token_hash = %s",
             (digest(token),),
         ).fetchone()
         if row is None:
             return None
-        if (
-            not row["active"]
-            or row["expires_at"] <= now
-            or row["last_seen_at"] + settings().idle_seconds <= now
-        ):
-            db.execute("DELETE FROM sessions WHERE token_hash = %s", (digest(token),))
+        reason = session_expiry_reason(row, now, settings().idle_seconds)
+        if reason:
+            revoke_sessions(db, token_hash=digest(token), reason=reason, source="session", revoked_at=now)
             return None
         db.execute(
             "UPDATE sessions SET last_seen_at = %s WHERE token_hash = %s",
@@ -204,4 +208,4 @@ def resolve_session(token):
 def revoke_session(token):
     with auth_connection(write=True) as db:
         ensure_schema_current(db)
-        db.execute("DELETE FROM sessions WHERE token_hash = %s", (digest(token),))
+        revoke_sessions(db, token_hash=digest(token), reason="logout", source="web", revoked_at=time.time())

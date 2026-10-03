@@ -306,6 +306,7 @@
 .login-panel input { font: inherit; padding: 10px; border: 1px solid var(--border); border-radius: 6px; }
 .login-panel button, .session-bar button { font: inherit; padding: 8px 14px; cursor: pointer; }
 .session-bar { display: flex; gap: 16px; align-items: center; justify-content: flex-end; }
+.password-actions { display: flex; gap: 12px; flex-wrap: wrap; }
 .login-panel button:disabled, .session-bar button:disabled { cursor: wait; opacity: .65; }
 .project-summary { margin: 1.5rem 0; padding: 1.25rem; border: 1px solid var(--border); border-radius: 12px; }
 .project-summary h4 { margin: 1.5rem 0 .75rem; }

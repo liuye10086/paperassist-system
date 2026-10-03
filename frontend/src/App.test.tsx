@@ -9,6 +9,80 @@ function empty(url: string) {
   return Response.json(url.startsWith('/api/v1/projects?')
     ? { items: [], total: 0, page: Number(parameters.get('page')), page_size: Number(parameters.get('page_size')) } : [])
 }
+it.each([
+  ['change-password', false], ['reset-password', false],
+  ['change-password', true], ['reset-password', true],
+] as const)('removes both tab workspaces after %s cookie clearing (late=%s)', async (endpoint, late) => {
+  vi.resetModules()
+  const { default: FirstApp } = await import('./App')
+  const firstApi = await import('./api')
+  vi.resetModules()
+  const { default: SecondApp } = await import('./App')
+  const secondApi = await import('./api')
+  const nextSession = { user: { id: 'b', email: 'b@example.com', role: 'user' }, csrf_token: 'b-csrf' }
+  let cookie: typeof session | null = endpoint === 'change-password' ? session : null
+  let finish!: () => void
+  let passwordSignal: AbortSignal | null | undefined
+  const tokens: (string | null)[] = []
+  const channels: Channel[] = []
+  class Channel {
+    onmessage: ((event: MessageEvent) => void) | null = null
+    constructor() { channels.push(this) }
+    postMessage(data: string) { for (const peer of channels) if (peer !== this) peer.onmessage?.(new MessageEvent('message', { data })) }
+    close() { channels.splice(channels.indexOf(this), 1) }
+  }
+  vi.stubGlobal('BroadcastChannel', Channel)
+  const fetchMock = vi.fn(async (url: string, init?: RequestInit): Promise<Response> => {
+    if (url.endsWith('/me')) return cookie ? Response.json(cookie) : new Response(null, { status: 401 })
+    if (url.endsWith(`/${endpoint}`)) {
+      passwordSignal = init?.signal
+      return new Promise(resolve => { finish = () => { cookie = null; resolve(new Response(null, { status: 204 })) } })
+    }
+    if (url === '/cookie-probe') { tokens.push(new Headers(init?.headers).get('X-CSRF-Token')); return new Response(null, { status: 204 }) }
+    if (url.startsWith('/api/v1/projects?')) {
+      const parameters = new URL(url, 'http://localhost').searchParams
+      const projects = cookie ? [{ id: cookie.user.id, name: `${cookie.user.id}-private`, research_topic: 'topic', project_type: 'sci',
+        file_count: 0, created_at: '2026-09-30T10:00:00Z', updated_at: '2026-09-30T10:00:00Z' }] : []
+      return Response.json({ items: projects, total: projects.length, page: Number(parameters.get('page')), page_size: Number(parameters.get('page_size')) })
+    }
+    return empty(url)
+  })
+  vi.stubGlobal('fetch', fetchMock)
+  const first = within(render(<FirstApp />).container)
+  const second = within(render(<SecondApp />).container)
+  const changing = endpoint === 'change-password'
+  if (changing) { await first.findByText(/a-private/); await second.findByText(/a-private/) }
+  fireEvent.click(await first.findByRole('button', { name: changing ? '修改密码' : '忘记密码' }))
+  fireEvent.change(first.getByLabelText(changing ? '当前密码' : '恢复码'), { target: { value: 'one-use-secret-123' } })
+  for (const label of ['新密码', '确认新密码']) fireEvent.change(first.getByLabelText(label), { target: { value: 'updated-password-123' } })
+  fireEvent.submit(first.getByLabelText('新密码').closest('form')!)
+  await waitFor(() => expect(finish).toBeTypeOf('function'))
+  if (late) {
+    act(() => {
+      // A third tab logged in; both mounted tabs receive the shared-cookie change.
+      cookie = nextSession
+      const source = new Channel(); source.postMessage('session_changed'); source.close()
+    })
+    await first.findByText(/b-private/)
+    await second.findByText(/b-private/)
+    expect(passwordSignal?.aborted).toBe(true)
+    expect(first.queryByLabelText('新密码')).toBeNull()
+  }
+  window.location.hash = '#private-project'
+  await act(async () => { finish() })
+  for (const tab of [first, second]) {
+    await tab.findByLabelText('邮箱')
+    expect(tab.queryByText('项目中心')).toBeNull()
+    expect(tab.queryByText(/a-private|b-private/)).toBeNull()
+    expect(tab.queryByText(nextSession.user.email)).toBeNull()
+  }
+  expect(window.location.hash).toBe('')
+  expect(first.queryByText('密码已更新，请重新登录。') !== null).toBe(!late)
+  if (late) expect(fetchMock.mock.calls.filter(([url]) => url.endsWith('/me')).length).toBeGreaterThanOrEqual(5)
+  await firstApi.apiFetch('/cookie-probe', { method: 'POST' })
+  await secondApi.apiFetch('/cookie-probe', { method: 'POST' })
+  expect(tokens).toEqual([null, null])
+})
 for (const late of ['login', 'logout'] as const) {
   it(`rebinds both tab workspaces to shared cookie after late ${late}`, async () => {
     vi.resetModules()

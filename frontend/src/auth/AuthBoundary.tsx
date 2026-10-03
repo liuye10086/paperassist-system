@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { apiFetch, clearApiSession, onSessionCookieChanged, onSessionExpired, setApiSession } from '../api'
+import PasswordForm from './PasswordForm'
 
 type Session = { user: { id: string; email: string; role: string }; csrf_token: string }
 type Status = 'restoring' | 'unavailable' | 'anonymous' | 'authenticated'
@@ -25,12 +26,15 @@ export default function AuthBoundary({ children }: { children: ReactNode }) {
   const [busy, setBusy] = useState(false)
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [passwordMode, setPasswordMode] = useState<'change' | 'reset' | null>(null)
+  const [notice, setNotice] = useState('')
   const channel = useRef<BroadcastChannel | null>(null)
 
   const reset = () => {
     window.history.replaceState(null, '', window.location.pathname + window.location.search)
     setSession(null)
     setPassword('')
+    setPasswordMode(null)
     setStatus('anonymous')
   }
 
@@ -40,6 +44,7 @@ export default function AuthBoundary({ children }: { children: ReactNode }) {
       reset()
       setBusy(false)
       setError('')
+      setNotice('')
       setStatus('restoring')
       setAttempt(value => value + 1)
     }
@@ -103,6 +108,7 @@ export default function AuthBoundary({ children }: { children: ReactNode }) {
     if (busy) return
     setBusy(true)
     setError('')
+    setNotice('')
     try {
       const response = await apiFetch('/api/v1/auth/login', {
         method: 'POST',
@@ -151,6 +157,14 @@ export default function AuthBoundary({ children }: { children: ReactNode }) {
     }
   }
 
+  function passwordUpdated() {
+    clearApiSession()
+    reset()
+    setError('')
+    setNotice('密码已更新，请重新登录。')
+    channel.current?.postMessage('session_changed')
+  }
+
   if (status === 'restoring') return <p role="status">正在恢复会话……</p>
   if (status === 'unavailable') {
     return <section>
@@ -163,25 +177,30 @@ export default function AuthBoundary({ children }: { children: ReactNode }) {
       <p className="connection-status" role="status">后端连接成功</p>
       <div className="session-bar">
         <span>{session?.user.email}</span>
+        <button disabled={busy || passwordMode !== null} onClick={() => { setError(''); setPasswordMode('change') }}>修改密码</button>
         <button disabled={busy} onClick={() => void logout()}>{busy ? '正在退出……' : '退出登录'}</button>
       </div>
       {error && <p role="alert">{error}</p>}
+      {passwordMode === 'change' && <PasswordForm mode="change" onCancel={() => setPasswordMode(null)} onSuccess={passwordUpdated} />}
       {children}
     </>
   }
+  if (passwordMode === 'reset') return <PasswordForm mode="reset" onCancel={() => setPasswordMode(null)} onSuccess={passwordUpdated} />
   return <section className="login-panel">
     <h2>登录</h2>
     <p>账号由管理员创建</p>
+    {notice && <p role="status">{notice}</p>}
     <form onSubmit={event => void login(event)} aria-busy={busy}>
       <label>邮箱
         <input type="email" autoComplete="username" required value={email} disabled={busy}
           onChange={event => setEmail(event.target.value)} />
       </label>
       <label>密码
-        <input type="password" autoComplete="current-password" required maxLength={128} value={password}
+        <input type="password" autoComplete="current-password" required maxLength={256} value={password}
           disabled={busy} onChange={event => setPassword(event.target.value)} />
       </label>
       <button disabled={busy} type="submit">{busy ? '正在登录……' : '登录'}</button>
+      <button disabled={busy} type="button" onClick={() => { setPassword(''); setError(''); setNotice(''); setPasswordMode('reset') }}>忘记密码</button>
       {error && <p role="alert">{error}</p>}
     </form>
   </section>
