@@ -3,6 +3,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testi
 import userEvent from '@testing-library/user-event'
 import App from './App'
 import type { Project } from './projectTypes'
+import { summaryFixture } from './test/summaryFixture'
 
 afterEach(() => { cleanup(); vi.useRealTimers(); vi.unstubAllGlobals(); window.history.replaceState(null, '', '/') })
 const project: Project = { id: 'p1', name: '药学项目', research_topic: '分组比较', project_type: 'sci', file_count: 1,
@@ -15,6 +16,8 @@ function api() {
   let projects: Project[] = [project, ...Array.from({ length: 11 }, (_, index) => ({ ...project, id: `p${index + 2}`, name: `其他项目${index + 2}`, project_type: 'thesis' as const }))]
   let files = [record]
   const fetchMock = vi.fn(async (url: string, init?: RequestInit): Promise<Response> => {
+    const summaryProject = projects.find(item => url.startsWith(`/api/v1/projects/${item.id}/summary?`))
+    if (summaryProject) return Response.json(summaryFixture(summaryProject.id, summaryProject.project_type))
     const parsed = new URL(url, 'http://localhost')
     if (url.endsWith('/me')) return Response.json({ user: { id: 'test', email: 'test@example.com', role: 'user' }, csrf_token: 'test-csrf' })
     if (url.endsWith('/config')) return Response.json({ max_upload_bytes: 10485760, preview_row_limit: 20 })

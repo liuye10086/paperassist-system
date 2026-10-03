@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import ProjectWorkspace from './ProjectWorkspace'
 import { clearApiSession, setApiSession } from './api'
+import { summaryFixture } from './test/summaryFixture'
 
 // Keep permission requests, saved previews and all three download components real.
 // Only replace the expensive configuration flow with saved-result assembly.
@@ -53,6 +54,8 @@ function api() {
   const fetch = vi.fn(async (url: string, init?: RequestInit): Promise<Response> => {
     const result = override(url, init)
     if (result !== undefined) return result
+    const summaryProject = items.find(item => url.startsWith(`/api/v1/projects/${item.id}/summary?`))
+    if (summaryProject) return Response.json(summaryFixture(summaryProject.id, summaryProject.project_type))
     const path = new URL(url, 'http://localhost')
     if (path.pathname === '/api/v1/projects') return Response.json({ items, total: items.length,
       page: Number(path.searchParams.get('page')), page_size: Number(path.searchParams.get('page_size')) })
@@ -98,11 +101,23 @@ async function expectCleared() {
   expect(screen.queryByLabelText('分析草稿')).toBeNull()
   expect(screen.queryByText('统计内容 p1')).toBeNull()
   expect(screen.queryByText('已保存解释内容')).toBeNull()
+  expect(screen.queryByRole('region', { name: '项目任务与成果' })).toBeNull()
   expect(screen.queryByAltText(figure.title)).toBeNull()
   for (const download of downloads) expect(screen.queryByRole('link', { name: download.label })).toBeNull()
   expect(window.location.hash).toBe('')
   expect(screen.queryByRole('button', { name: `打开项目 ${project.name}` })).toBeNull()
 }
+
+test('summary project 404 clears the whole workspace and file preview', async () => {
+  const mock = api()
+  render(<ProjectWorkspace />)
+  const user = await savedWorkspace()
+  await screen.findByText('SCI 期刊与投稿')
+  mock.removeProject()
+  mock.override(url => url.includes('/p1/summary?') ? missing() : undefined)
+  await user.click(screen.getByRole('button', { name: '刷新项目摘要' }))
+  await expectCleared()
+})
 
 test.each([404, 410])('ordinary resource %s preserves the selected project, draft and saved analysis', async status => {
   const mock = api(); render(<ProjectWorkspace />)

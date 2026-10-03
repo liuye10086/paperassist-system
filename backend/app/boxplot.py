@@ -2,6 +2,8 @@
 
 from datetime import datetime, timezone
 from fractions import Fraction
+import json
+from urllib.parse import quote
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import Response
@@ -131,6 +133,23 @@ def image(project_id: str, file_id: str, run_id: str, store: Store, download: bo
     content = store.figure_png(figure)
     return Response(content, media_type='image/png', headers={
         'Content-Disposition': f'{"attachment" if download else "inline"}; filename="boxplot-{figure["id"]}.png"',
+        'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff'})
+
+
+@router.get('/figures/{figure_id}/download')
+def download_saved_figure(project_id: str, file_id: str, run_id: str, figure_id: str, store: Store):
+    result = result_source(store, project_id, file_id, run_id)
+    with store.connection() as db:
+        row = db.execute('SELECT figure_json FROM figures WHERE id=%s AND analysis_run_id=%s',
+                         (figure_id, run_id)).fetchone()
+    if row is None:
+        fail('figure_not_found', '此统计结果中没有该图表。', 404)
+    figure = json.loads(row['figure_json'])
+    if (figure['id'] != figure_id or figure['analysis_run_id'] != run_id or figure['file_id'] != file_id
+            or figure['source_sha256'] != result['source_sha256']):
+        fail('source_conflict', '图表与统计结果的来源不一致。', 409)
+    return Response(store.figure_png(figure), media_type='image/png', headers={
+        'Content-Disposition': "attachment; filename*=UTF-8''" + quote(f'boxplot-{figure_id}.png', safe=''),
         'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff'})
 
 

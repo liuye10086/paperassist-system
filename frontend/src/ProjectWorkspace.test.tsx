@@ -2,6 +2,7 @@ import { afterEach, expect, test, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import App from './App'
+import { summaryFixture } from './test/summaryFixture'
 
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); window.history.replaceState(null, '', '/') })
 
@@ -19,6 +20,8 @@ function api(options: { empty?: boolean; failed?: boolean; uploadFailed?: boolea
   let files: Array<Omit<typeof record, 'error'> & { error: { code: string; message: string } | null }> = options.failed
     ? [{ ...record, parse_status: 'failed', error: { code: 'parse_failed', message: '文件损坏，请重新上传。' } }] : [record]
   const mock = vi.fn(async (url: string, init?: RequestInit) => {
+    const summaryProject = projects.find(item => url.startsWith(`/api/v1/projects/${item.id}/summary?`))
+    if (summaryProject) return Response.json(summaryFixture(summaryProject.id, summaryProject.project_type as 'sci' | 'thesis'))
     if (url.endsWith('/me')) return Response.json({ user: { id: 'test-user', email: 'test@paperassist.local', role: 'user' }, csrf_token: 'test-csrf' })
     if (url.endsWith('/health')) return Response.json({ status: 'ok', service: 'paperassist-system' })
     if (url.endsWith('/config')) return Response.json({ max_upload_bytes: 10485760, preview_row_limit: 20 })

@@ -4,6 +4,7 @@ import type { FormEvent } from 'react'
 import ExcelPreview from './ExcelPreview'
 import AnalysisSetup from './AnalysisSetup'
 import ProjectDetails from './ProjectDetails'
+import ProjectSummary from './ProjectSummary'
 import ProjectDownloadLink from './ProjectDownloadLink'
 import ProjectList, { type ProjectListQuery } from './ProjectList'
 import useProjectSelection from './useProjectSelection'
@@ -260,6 +261,7 @@ export default function ProjectWorkspace() {
       </div>}
       {project && <div key={selection.instance.key}>
         <ProjectDetails project={project} onUpdated={updated} />
+        <ProjectSummary projectId={project.id} projectType={project.project_type} />
         <ProjectFiles projectId={project.id} onSaved={() => { refresh(); selection.refresh() }} />
       </div>}
     </section>}

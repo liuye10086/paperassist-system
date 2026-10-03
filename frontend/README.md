@@ -35,6 +35,7 @@ npm.cmd --prefix frontend run lint
 | [ProjectList.tsx](src/ProjectList.tsx) | 列表字段、名称搜索、类型筛选和分页控件 |
 | [useProjectSelection.ts](src/useProjectSelection.ts) | 独立选中项目、hash恢复及项目失权空态 |
 | [ProjectDetails.tsx](src/ProjectDetails.tsx) | 名称/研究主题编辑与创建后类型只读 |
+| [ProjectSummary.tsx](src/ProjectSummary.tsx)、[projectSummaryTypes.ts](src/projectSummaryTypes.ts) | 真实任务/成果摘要、独立分页、来源与类型空态及响应校验 |
 | [api.ts](src/api.ts)、[projectAccess.ts](src/projectAccess.ts) | 会话/CSRF请求及工作区实例有效性检查 |
 | [ProjectDownloadLink.tsx](src/ProjectDownloadLink.tsx) | Excel、PNG和Word受控下载 |
 | [ExcelPreview.tsx](src/ExcelPreview.tsx)、[AnalysisSetup.tsx](src/AnalysisSetup.tsx) | Excel预览与分析字段配置 |
@@ -45,4 +46,4 @@ npm.cmd --prefix frontend run lint
 
 2026-09-30，项目列表分页、名称搜索、类型筛选、独立工作区与权限空态已实现；用户确认本轮功能手动验收通过。翻页或筛选保留已打开项目，确认项目失权后清除旧内容。交付时前端14文件195项测试及构建、lint通过，详细证据与限制见[列表交付记录](../docs/开发记录/阶段01/项目列表分页与权限空态交付记录.md)。
 
-下一项建议为项目任务与成果摘要；完整双语、账号管理等仍待开发，完整阶段01尚未完成。以[阶段01清单](../docs/开发阶段/阶段01-数据库迁移与用户项目基础.md)为准。
+2026-10-03已实现项目任务与成果摘要，前端15文件206项测试、构建及lint通过。打开项目后可刷新摘要、查看历史状态与来源、下载已保存PNG/Word；未开放的写作、期刊、学校和修改功能明确显示空态。用户已启动前后端并确认人工验收通过、图片和Word下载正常；开发侧内置浏览器下载观察与用户验收证据分别记入[摘要交付记录](../docs/开发记录/阶段01/项目任务与成果摘要交付记录.md)。下一项为会话撤销审计与用户改密/恢复；完整双语等仍待开发，阶段01整体尚未完成，以[阶段01清单](../docs/开发阶段/阶段01-数据库迁移与用户项目基础.md)为准。

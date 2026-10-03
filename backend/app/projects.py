@@ -8,6 +8,7 @@ from pydantic import BaseModel, BeforeValidator, ConfigDict, Field
 from .config import ExcelSettings, get_excel_settings
 from .excel import WorkbookPreview, fail, parse_workbook, read_upload
 from .storage import PROJECT_UPDATE_LIMITS, ProjectStore, get_request_project_store
+from .project_summary import ProjectSummary, read_project_summary
 
 router = APIRouter(prefix="/api/v1/projects", tags=["项目与文件"])
 Store = Annotated[ProjectStore, Depends(get_request_project_store)]
@@ -87,6 +88,18 @@ def create_project(project: ProjectInput, store: Store):
 @router.get("/{project_id}", response_model=Project)
 def get_project(project_id: str, store: Store):
     return store.project(project_id)
+
+
+@router.get('/{project_id}/summary', response_model=ProjectSummary)
+def get_project_summary(
+    project_id: str, store: Store,
+    task_page: Annotated[int | None, Query(ge=1, le=1_000_000), BeforeValidator(decimal_query_integer)] = None,
+    artifact_page: Annotated[int | None, Query(ge=1, le=1_000_000), BeforeValidator(decimal_query_integer)] = None,
+    page_size: Annotated[int | None, Query(ge=1, le=50), BeforeValidator(decimal_query_integer)] = None,
+):
+    return read_project_summary(store, project_id, task_page=task_page if task_page is not None else 1,
+                                artifact_page=artifact_page if artifact_page is not None else 1,
+                                page_size=page_size if page_size is not None else 10)
 
 
 @router.patch('/{project_id}', response_model=Project,

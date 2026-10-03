@@ -2,6 +2,7 @@ import { afterEach, expect, test, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import App from './App'
+import { summaryFixture } from './test/summaryFixture'
 
 afterEach(() => {
   cleanup()
@@ -32,6 +33,8 @@ function api(options: { patch?: (init: RequestInit) => Promise<Response> } = {})
   let projects = [project, secondProject]
   let currentSession: typeof session | null = session
   const mock = vi.fn(async (url: string, init?: RequestInit): Promise<Response> => {
+    const summaryProject = projects.find(item => url.startsWith(`/api/v1/projects/${item.id}/summary?`))
+    if (summaryProject) return Response.json(summaryFixture(summaryProject.id, summaryProject.project_type as 'sci' | 'thesis'))
     if (url.endsWith('/me')) return currentSession ? Response.json(currentSession) : new Response(null, { status: 401 })
     if (url.endsWith('/logout')) { currentSession = null; return new Response(null, { status: 204 }) }
     if (url.endsWith('/login')) { currentSession = otherSession; projects = [{ ...project, name: '乙用户项目' }]; return Response.json(currentSession) }
