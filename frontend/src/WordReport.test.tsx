@@ -43,7 +43,7 @@ it.each(['GET', 'POST'])('recovers %s errors only through explicit reread', asyn
   const fetch = vi.fn((_url: string, init?: RequestInit) => fail || init?.method === 'POST' ? Promise.resolve({ ok: false, status: 500, json: async () => ({ detail: { message: '报告保存失败' } }) }) : json(state))
   vi.stubGlobal('fetch', fetch); render(<WordReport {...props} />)
   if (method === 'POST') { await waitFor(() => expect(generate().disabled).toBe(false)); fireEvent.click(generate()) }
-  await screen.findByText('报告保存失败'); expect(generate().disabled).toBe(true)
+  await screen.findByText('报告请求失败，请重新读取报告。'); expect(screen.queryByText('报告保存失败')).toBeNull(); expect(generate().disabled).toBe(true)
   fail = false; fireEvent.click(reload()); await waitFor(() => expect(generate().disabled).toBe(false))
 })
 it.each(['GET', 'POST'])('%s timeout aborts and releases busy for manual recovery', async method => {

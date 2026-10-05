@@ -90,7 +90,8 @@ def test_http_and_internal_store_reject_invalid_edits_without_partial_changes(cl
                             json=changes if changes is not None else None,
                             headers={'Content-Type': 'application/json'})
     assert response.status_code == 422, response.text
-    assert set(response.json()['detail']) == {'code', 'message'}
+    assert set(response.json()['detail']) == {'code', 'message', 'params'}
+    assert response.json()['detail']['params'] == {}
     assert response.json()['detail']['code'] == code
     assert 'private-marker' not in response.text
     internal = ProjectStore(Path(os.environ['PAPERASSIST_DATA_DIR']))

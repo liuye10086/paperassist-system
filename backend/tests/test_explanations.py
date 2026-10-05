@@ -8,7 +8,7 @@ import sys
 import time
 
 import pytest
-from app.database import ensure_schema_current, migrate_database
+from app.database import database_connection, ensure_schema_current, migrate_database
 
 from test_analysis import client  # noqa: F401
 from test_boxplot import cloud, prepared, generate  # noqa: F401
@@ -67,6 +67,8 @@ def test_generates_bound_persisted_explanation_with_evidence_and_minimal_payload
     state = client.get(url).json()
     saved = state['explanation']
     assert saved and state['job']['status'] == 'completed'
+    assert state['job']['message_code'] == 'task_completed'
+    assert state['job']['message_params'] == {}
     assert saved['analysis_run_id'] == result['id'] and saved['figure_id'] == figure['id']
     assert saved['figure_sha256'] == figure['sha256'] and saved['source_sha256'] == file['sha256']
     assert len(saved['sections']) == 6 and saved['limitations']
@@ -96,7 +98,13 @@ def test_bad_output_failed_and_retry_only_on_explicit_request(client, cloud, wri
     *_, figure, url = ready(client)
     writer.corrupt = True
     submit(client, url, figure)
-    assert client.get(url).json()['job']['status'] == 'failed'
+    state = client.get(url).json()
+    assert state['job']['status'] == 'failed'
+    assert state['job']['message_code'] == 'explanation_invalid'
+    with database_connection() as db:
+        persisted = json.loads(db.execute('SELECT job_json FROM explanation_jobs WHERE id=%s', (state['job']['id'],)).fetchone()['job_json'])
+    assert persisted['message_code'] == 'explanation_invalid'
+    assert persisted['message_params'] == {}
     assert submit(client, url, figure).json()['explanation'] is None
     assert len(writer.calls) == 1
     writer.corrupt = False
@@ -155,6 +163,7 @@ def test_uncertain_submission_never_resubmits_automatically(client, cloud, write
     writer.error = PlotError('openai_connection', 'timeout', 503, uncertain=True)
     state = submit(client, url, figure).json()
     assert state['job']['status'] == 'uncertain'
+    assert state['job']['message_code'] == 'openai_connection'
     assert client.get(url).json()['explanation'] is None
     submit(client, url, figure)
     assert len(writer.calls) == 1

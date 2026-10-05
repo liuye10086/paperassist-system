@@ -1,24 +1,27 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { apiFetch, clearApiSession, onSessionCookieChanged, onSessionExpired, setApiSession } from '../api'
 import PasswordForm from './PasswordForm'
+import LanguageControl from './LanguageControl'
+import { apiError, isLocale, message, setLocale, useI18n, type Locale } from '../i18n'
 
-type Session = { user: { id: string; email: string; role: string }; csrf_token: string }
+type Session = { user: { id: string; email: string; role: string; ui_language?: Locale }; csrf_token: string }
 type Status = 'restoring' | 'unavailable' | 'anonymous' | 'authenticated'
 
 async function errorMessage(response: Response, fallback: string) {
   if (response.status === 429) {
     const retry = response.headers.get('Retry-After')
-    return `登录尝试过多，请${retry ? ` ${retry} 秒后` : '稍后'}重试。`
+    return retry && /^\d{1,6}$/.test(retry) ? message('登录尝试过多，请 {seconds} 秒后重试。', { seconds: retry }) : '登录尝试过多，请稍后重试。'
   }
   if (response.status === 401) return '账号或密码错误。'
   try {
-    return (await response.json()).detail?.message ?? fallback
+    return apiError(await response.json(), fallback)
   } catch {
     return fallback
   }
 }
 
 export default function AuthBoundary({ children }: { children: ReactNode }) {
+  const { t } = useI18n()
   const [status, setStatus] = useState<Status>('restoring')
   const [session, setSession] = useState<Session | null>(null)
   const [attempt, setAttempt] = useState(0)
@@ -31,6 +34,7 @@ export default function AuthBoundary({ children }: { children: ReactNode }) {
   const channel = useRef<BroadcastChannel | null>(null)
 
   const reset = () => {
+    setLocale('zh-CN')
     window.history.replaceState(null, '', window.location.pathname + window.location.search)
     setSession(null)
     setPassword('')
@@ -41,6 +45,7 @@ export default function AuthBoundary({ children }: { children: ReactNode }) {
   useEffect(() => {
     const restoreCookieSession = () => {
       clearApiSession()
+      setLocale('zh-CN')
       reset()
       setBusy(false)
       setError('')
@@ -71,6 +76,7 @@ export default function AuthBoundary({ children }: { children: ReactNode }) {
       channel.current?.close()
       channel.current = null
       clearApiSession()
+      setLocale('zh-CN')
     }
   }, [])
 
@@ -90,6 +96,7 @@ export default function AuthBoundary({ children }: { children: ReactNode }) {
         const restored: Session = await response.json()
         if (controller.signal.aborted) return
         setApiSession(restored.csrf_token)
+        setLocale(isLocale(restored.user.ui_language) ? restored.user.ui_language : 'zh-CN')
         setSession(restored)
         setStatus('authenticated')
       } catch {
@@ -121,6 +128,7 @@ export default function AuthBoundary({ children }: { children: ReactNode }) {
       }
       const restored: Session = await response.json()
       setApiSession(restored.csrf_token)
+      setLocale(isLocale(restored.user.ui_language) ? restored.user.ui_language : 'zh-CN')
       setSession(restored)
       setPassword('')
       setStatus('authenticated')
@@ -165,43 +173,42 @@ export default function AuthBoundary({ children }: { children: ReactNode }) {
     channel.current?.postMessage('session_changed')
   }
 
-  if (status === 'restoring') return <p role="status">正在恢复会话……</p>
+  const languageControl = <LanguageControl key={session?.user.id ?? status} userId={status === 'authenticated' ? session?.user.id : undefined} disabled={status === 'restoring'} />
+  if (status === 'restoring') return <>{languageControl}<p role="status">{t('正在恢复会话……')}</p></>
   if (status === 'unavailable') {
-    return <section>
-      <p role="alert">{error}</p>
-      <button onClick={() => setAttempt(value => value + 1)}>重试</button>
+    return <section>{languageControl}
+      <p role="alert">{t(error)}</p>
+      <button onClick={() => setAttempt(value => value + 1)}>{t("重试")}</button>
     </section>
   }
   if (status === 'authenticated') {
-    return <>
-      <p className="connection-status" role="status">后端连接成功</p>
+    return <>{languageControl}
+      <p className="connection-status" role="status">{t("后端连接成功")}</p>
       <div className="session-bar">
         <span>{session?.user.email}</span>
-        <button disabled={busy || passwordMode !== null} onClick={() => { setError(''); setPasswordMode('change') }}>修改密码</button>
-        <button disabled={busy} onClick={() => void logout()}>{busy ? '正在退出……' : '退出登录'}</button>
+        <button disabled={busy || passwordMode !== null} onClick={() => { setError(''); setPasswordMode('change') }}>{t("修改密码")}</button>
+        <button disabled={busy} onClick={() => void logout()}>{busy ? t("正在退出……") : t("退出登录")}</button>
       </div>
-      {error && <p role="alert">{error}</p>}
+      {error && <p role="alert">{t(error)}</p>}
       {passwordMode === 'change' && <PasswordForm mode="change" onCancel={() => setPasswordMode(null)} onSuccess={passwordUpdated} />}
       {children}
     </>
   }
-  if (passwordMode === 'reset') return <PasswordForm mode="reset" onCancel={() => setPasswordMode(null)} onSuccess={passwordUpdated} />
-  return <section className="login-panel">
-    <h2>登录</h2>
-    <p>账号由管理员创建</p>
-    {notice && <p role="status">{notice}</p>}
+  if (passwordMode === 'reset') return <>{languageControl}<PasswordForm mode="reset" onCancel={() => setPasswordMode(null)} onSuccess={passwordUpdated} /></>
+  return <section className="login-panel">{languageControl}
+    <h2>{t("登录")}</h2>
+    <p>{t("账号由管理员创建")}</p>
+    {notice && <p role="status">{t(notice)}</p>}
     <form onSubmit={event => void login(event)} aria-busy={busy}>
-      <label>邮箱
-        <input type="email" autoComplete="username" required value={email} disabled={busy}
+      <label>{t("邮箱")}<input type="email" autoComplete="username" required value={email} disabled={busy}
           onChange={event => setEmail(event.target.value)} />
       </label>
-      <label>密码
-        <input type="password" autoComplete="current-password" required maxLength={256} value={password}
+      <label>{t("密码")}<input type="password" autoComplete="current-password" required maxLength={256} value={password}
           disabled={busy} onChange={event => setPassword(event.target.value)} />
       </label>
-      <button disabled={busy} type="submit">{busy ? '正在登录……' : '登录'}</button>
-      <button disabled={busy} type="button" onClick={() => { setPassword(''); setError(''); setNotice(''); setPasswordMode('reset') }}>忘记密码</button>
-      {error && <p role="alert">{error}</p>}
+      <button disabled={busy} type="submit">{busy ? t("正在登录……") : t("登录")}</button>
+      <button disabled={busy} type="button" onClick={() => { setPassword(''); setError(''); setNotice(''); setPasswordMode('reset') }}>{t("忘记密码")}</button>
+      {error && <p role="alert">{t(error)}</p>}
     </form>
   </section>
 }

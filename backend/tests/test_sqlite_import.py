@@ -154,7 +154,8 @@ def test_import_preserves_every_value_and_job_order_then_is_idempotent(legacy):
     assert result['hashes'] == expected.hashes
     expected_target = {name: list(rows) for name, rows in expected.rows.items()}
     # Offline imported projects remain unclaimed until first-admin bootstrap.
-    expected_target["projects"] = [{**row, "owner_id": None} for row in expected_target["projects"]]
+    expected_target["projects"] = [{**row, "owner_id": None, "default_output_language": "zh-CN"}
+                                   for row in expected_target["projects"]]
     assert target_rows() == expected_target
     again = module.import_sqlite(source, directory)
     assert again['status'] == 'already_imported'

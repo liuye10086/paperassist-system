@@ -19,6 +19,12 @@ class ProjectInput(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     research_topic: str = Field(min_length=1, max_length=500)
     project_type: Literal["sci", "thesis"]
+    default_output_language: Literal["zh-CN", "en"] = "zh-CN"
+
+
+class ProjectLanguageInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    default_output_language: Literal["zh-CN", "en"]
 
 
 class Project(ProjectInput):
@@ -38,6 +44,7 @@ class ProjectPage(BaseModel):
 class FileError(BaseModel):
     code: str
     message: str
+    params: dict = Field(default_factory=dict)
 
 
 class ProjectFile(BaseModel):
@@ -88,6 +95,16 @@ def create_project(project: ProjectInput, store: Store):
 @router.get("/{project_id}", response_model=Project)
 def get_project(project_id: str, store: Store):
     return store.project(project_id)
+
+
+@router.get("/{project_id}/language", response_model=Project)
+def get_project_language(project_id: str, store: Store):
+    return store.project(project_id)
+
+
+@router.patch("/{project_id}/language", response_model=Project)
+def update_project_language(project_id: str, changes: ProjectLanguageInput, store: Store):
+    return store.update_project_language(project_id, changes.default_output_language)
 
 
 @router.get('/{project_id}/summary', response_model=ProjectSummary)
@@ -147,7 +164,7 @@ def get_preview(project_id: str, file_id: str, store: Store):
     store.original(record)
     if record["parse_status"] == "failed":
         error = json.loads(record["error_json"])
-        fail(error["code"], error["message"])
+        fail(error["code"], error["message"], params=error.get("params"))
     return WorkbookPreview.model_validate_json(record["preview_json"])
 
 

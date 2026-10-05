@@ -19,6 +19,8 @@ projects = Table(
     Column("created_at", Text, nullable=False),
     Column("updated_at", Text, nullable=False),
     Column("owner_id", Text, ForeignKey("users.id")),
+    Column("default_output_language", Text, nullable=False, server_default="zh-CN"),
+    CheckConstraint("default_output_language IN ('zh-CN', 'en')", name="projects_output_language_check"),
     CheckConstraint("project_type IN ('sci', 'thesis')", name="projects_project_type_check"),
 )
 
@@ -118,6 +120,8 @@ users = Table("users", metadata,
     Column("active", Boolean, nullable=False),
     Column("created_at", DOUBLE_PRECISION, nullable=False),
     Column("updated_at", DOUBLE_PRECISION, nullable=False),
+    Column("ui_language", Text, nullable=False, server_default="zh-CN"),
+    CheckConstraint("ui_language IN ('zh-CN', 'en')", name="users_ui_language_check"),
     CheckConstraint("role IN ('user','admin')", name="users_role_check"))
 sessions = Table("sessions", metadata,
     Column("token_hash", Text, primary_key=True),

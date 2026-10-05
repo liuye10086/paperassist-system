@@ -131,7 +131,8 @@ class SheetScan:
         if kind != 'number':
             return
         if self.values is not None and isinstance(value, int) and abs(value) > 2**53 - 1:
-            fail('numeric_precision', f'数值列 {self.selection.numeric_column}{row_index} 的整数超过安全精度范围（±9007199254740991）。请调整单位或核对数据后重新上传，避免计算时丢失精度。')
+            fail('numeric_precision', f'数值列 {self.selection.numeric_column}{row_index} 的整数超过安全精度范围（±9007199254740991）。请调整单位或核对数据后重新上传，避免计算时丢失精度。',
+                 params={'column': self.selection.numeric_column, 'row': row_index})
         if self.selection.group_column is not None:
             kind, group = selected(self.selection.group_column)
             if kind not in ('text', 'number', 'boolean'):

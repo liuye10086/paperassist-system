@@ -16,6 +16,7 @@ from .explanation_store import ExplanationStore
 from .openai_explanation import CloudExplanation
 from .openai_plot import PlotError, configuration
 from .storage import StorageError, get_project_store
+from .errors import job_message
 
 router = APIRouter(prefix='/api/v1/projects/{project_id}/files/{file_id}/analysis-runs/{run_id}', tags=['结果解释'])
 
@@ -42,9 +43,9 @@ def get_explanation(project_id: str, file_id: str, run_id: str, store: Store):
     repository = ExplanationStore(store)
     job = repository.job(figure['id']) if figure else None
     if job and state['explanation'] and job['status'] != 'completed':
-        job = repository.update_job(job['id'], status='completed', message='解释及事实引用已保存。')
+        job = repository.update_job(job['id'], status='completed', message='解释及事实引用已保存。', **job_message('task_completed'))
     if job and job['status'] == 'submitting' and (datetime.now(timezone.utc) - datetime.fromisoformat(job['created_at'])).total_seconds() > 180:
-        job = repository.update_job(job['id'], status='uncertain', message='提交中断，尚未获得云端任务编号。无法确认是否已收费；确认后可手动重试。')
+        job = repository.update_job(job['id'], status='uncertain', message='提交中断，尚未获得云端任务编号。无法确认是否已收费；确认后可手动重试。', **job_message('task_uncertain'))
     if job and job['status'] == 'running' and not state['explanation']:
         try:
             if not state['is_current']:
@@ -66,15 +67,15 @@ def get_explanation(project_id: str, file_id: str, run_id: str, store: Store):
                         'input_sha256': hashlib.sha256(json.dumps(payload, ensure_ascii=False, allow_nan=False,
                             sort_keys=True, separators=(',', ':')).encode('utf-8')).hexdigest()}}
                 state['explanation'] = repository.save(project_id, file_id, explanation)
-                job = repository.update_job(job['id'], status='completed', message='解释及事实引用已核对并保存，请人工审阅初稿。')
+                job = repository.update_job(job['id'], status='completed', message='解释及事实引用已核对并保存，请人工审阅初稿。', **job_message('task_completed'))
         except PlotError as exc:
             if exc.status == 503 or exc.code == 'openai_request_failed' and exc.status != 404:
-                fail(exc.code, exc.message, exc.status)
-            job = repository.update_job(job['id'], status='failed', message=exc.message)
+                fail(exc.code, exc.message, exc.status, params=exc.params)
+            job = repository.update_job(job['id'], status='failed', message=exc.message, **job_message(exc.code, exc.params))
         except StorageError as exc:
             if exc.status != 409:
                 raise
-            job = repository.update_job(job['id'], status='failed', message=exc.message)
+            job = repository.update_job(job['id'], status='failed', message=exc.message, **job_message(exc.code, exc.params))
     state['job'] = public_job(job)
     return state
 
@@ -99,9 +100,9 @@ def generate(project_id: str, file_id: str, run_id: str, request: ExplanationReq
     if created:
         try:
             response_id = CloudExplanation(config['model']).start(job['payload'])
-            job = repository.update_job(job['id'], response_id=response_id, status='running', message='OpenAI 正在根据统计汇总组织中文解释。')
+            job = repository.update_job(job['id'], response_id=response_id, status='running', message='OpenAI 正在根据统计汇总组织中文解释。', **job_message('task_running'))
         except PlotError as exc:
-            job = repository.update_job(job['id'], status='uncertain' if exc.uncertain else 'failed', message=exc.message)
+            job = repository.update_job(job['id'], status='uncertain' if exc.uncertain else 'failed', message=exc.message, **job_message(exc.code, exc.params))
     state['job'] = public_job(job)
     response.status_code = 202 if job['status'] in ('running', 'submitting') else 200
     return state
@@ -119,4 +120,4 @@ def poll_pending_explanations():
         except (HTTPException, StorageError) as exc:
             status = exc.status_code if isinstance(exc, HTTPException) else exc.status
             if status in (404, 409, 410, 422):
-                repository.update_job(pending['job_id'], status='failed', message='原文件、图表或配置已不可用，后台无法保存解释。请检查项目数据。')
+                repository.update_job(pending['job_id'], status='failed', message='原文件、图表或配置已不可用，后台无法保存解释。请检查项目数据。', **job_message('task_failed'))

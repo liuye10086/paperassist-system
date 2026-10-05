@@ -10,6 +10,8 @@
 - 后端：Python + FastAPI
 - 健康检查接口：GET /api/v1/health
 - 前端页面可展示后端连接状态
+- 界面支持简体中文与英语；登录后恢复并保存账号语言偏好，匿名切换仅保存在内存
+- 项目默认输出语言独立保存；当前生成引擎仍为中文，历史成果、用户内容和已提交任务保持原文
 - 网页选择一个 `.xlsx` 文件，后端使用 openpyxl 真实解析
 - 切换工作表，查看列名、数据行列数与前 20 行
 - 无效格式、零字节文件、损坏文件、空工作表和超限反馈
@@ -54,6 +56,7 @@
 - backend/app/projects.py、backend/app/storage.py：项目接口、用户归属、名称/主题更新、类型锁定与PostgreSQL持久化
 - backend/tests/test_project_updates.py：项目编辑字段/权限/事务、类型锁定、历史成果及首次报告导出的46项回归
 - backend/app/auth/、backend/app/manage_users.py：邮箱密码认证、会话与本机账号管理
+- backend/app/errors.py：统一错误码、兼容文案与安全参数；未知异常不作为界面文案
 - backend/app/analysis.py：字段概况、有效记录检查和分析配置接口
 - backend/app/descriptive.py：固定描述统计计算及结果接口
 - backend/app/boxplot.py、backend/app/openai_plot.py：云端绘图任务、官方 SDK 和结果核验
@@ -66,6 +69,7 @@
 - backend/backups：本地数据库及匹配资产备份、核验清单，不提交Git；不存放在文档目录
 - frontend：前端代码
 - frontend/src/auth/、frontend/src/api.ts：登录边界、会话同步与共享请求处理
+- frontend/src/i18n/、frontend/src/auth/LanguageControl.tsx、frontend/src/ProjectLanguage.tsx：中英文词典、账号界面语言与项目默认输出语言
 - frontend/src/ProjectWorkspace.tsx、frontend/src/ProjectWorkspace.test.tsx：项目创建、显式类型选择、项目列表更新、文件历史及回归
 - frontend/src/ProjectList.tsx、frontend/src/useProjectSelection.ts：受控分页列表、独立工作区详情与恢复空态
 - frontend/src/projectAccess.ts、frontend/src/ProjectDownloadLink.tsx：项目访问实例隔离、受控下载及失权通知
@@ -119,6 +123,16 @@ try {
 
 日常启动（已完成依赖、专用连接配置和迁移时）：
 
+Windows 本机验收可在项目根目录使用统一脚本，启动前后端并检查健康状态：
+
+```powershell
+.\script\dev.cmd start
+.\script\dev.cmd status
+.\script\dev.cmd stop
+```
+
+启动后打开 <http://127.0.0.1:5173>。验收完成后再停止；停止只处理脚本记录并核对身份的前后端及子进程。使用说明见 [script/README.md](script/README.md)。用户反馈验收完成后先停止服务，再按用户提供的提交信息提交推送。以下为分别手动启动的命令：
+
 ```powershell
 .\backend\.venv\Scripts\python.exe -m uvicorn app.main:app --app-dir backend --reload --host 127.0.0.1 --port 8000 --no-proxy-headers
 ```
@@ -133,7 +147,7 @@ try {
 
 ### 首个管理员与登录
 
-本机开发库已备份升级到 Alembic `0003_password_security`，原12张表及5份资产保持不变，详见[密码安全交付记录](docs/开发记录/阶段01/会话撤销审计与密码恢复交付记录.md)。2026-09-30用户已设置管理员密码；只读核对确认 `admin@paperassist.local` 已启用、角色为 `admin`，原来的1个历史项目已归该账号，无主项目为0。**本机无需再次初始化；以下命令仅供新环境首次初始化参考**：
+2026-10-05本机开发库已在一致快照备份后从 `0003_password_security` 显式升级到 `0004_language_preferences`。15张原表的原有列/行SHA256和5份资产SHA256保持一致，原1个用户和1个项目的新增语言列默认 `zh-CN`；启动及匿名健康/权限检查通过，未使用真实账号登录或调用云端。备份位于 `backend/backups/language-preferences-20261005T022851633831Z`，详见[双语交付记录](docs/开发记录/阶段01/双语界面与语言设置交付记录.md)。2026-09-30用户已设置管理员密码，当时已只读确认管理员启用、原历史项目归属及无主项目为0。**本机无需再次初始化；以下命令仅供新环境首次初始化参考**：
 
 ```powershell
 cd backend
@@ -207,11 +221,17 @@ python -m venv .\backend\.venv
 
 **此小闭环六步的开发和开发侧验证已完成，没有剩余功能开发步骤。**第六步从新建项目、浏览器选择并上传 Excel 到真实 API 绘图、解释和 Word 下载完整走通，检查了配置变更、刷新/重启、错误恢复和来源一致性。详见[完整闭环验收记录](docs/开发记录/历史小闭环/2026-09-29-workflow-acceptance.md)。
 
-用户已确认此前小闭环及项目任务/成果摘要验收通过。当前阶段01完成60/79项：本轮新增会话撤销审计、自行改密及管理员线下核验后的15分钟一次性恢复码。完整双语、语言偏好和项目默认输出语言、数据库运维及阶段验收仍待完成。
+用户已确认此前小闭环、项目任务/成果摘要及密码安全验收通过，第4项已提交 `6d22d1f`。2026-10-05第5项稳定错误码、全局双语、账号界面语言偏好和项目默认输出语言已完成开发验证，用户已确认本轮验收通过；阶段01仍为66/79项，整体阶段尚未完成。
 
-首个管理员及历史项目认领已完成；管理员完整历史资料逐项核对未单独确认。项目编辑、列表和摘要已按授权提交推送，摘要提交为 `35e5b50`。本轮密码安全后端全量419项及追加启动层1项、前端234项、build/lint/pip check通过，独立审查Approved；开发库已备份升级0003并核对原数据/资产不变。用户已启动前后端并确认本轮验收通过，授权先更新相关文档，再提交并推送；实际提交编号与远端同步状态以Git记录为准。提交推送后等待用户确认再开始下一步。证据见[密码安全交付记录](docs/开发记录/阶段01/会话撤销审计与密码恢复交付记录.md)及[实施计划](docs/开发记录/阶段01/2026-10-03-会话撤销审计与密码恢复-实施计划.md)；剩余步骤与下一项见[阶段清单§8](docs/开发阶段/阶段01-数据库迁移与用户项目基础.md#8-本阶段剩余步骤与建议下一步)。
+本轮后端全量474项、前端19文件256项、build/lint/pip check通过，独立审查Approved；开发库已备份升级0004，原数据与资产校验一致。隔离浏览器验证匿名切换、账号语言保存/恢复、项目语言保存、刷新、旧统计和用户内容保持、退出后清理。证据见[双语交付记录](docs/开发记录/阶段01/双语界面与语言设置交付记录.md)与[实施计划](docs/开发记录/阶段01/2026-10-05-双语与语言设置-实施计划.md)。用户已授权更新文档后以“开发阶段01：实现统一错误码、双语界面与语言设置”提交并推送；验收服务已通过 `script/dev.cmd stop` 停止，实际提交编号与远端同步以Git记录为准。下一步第6项①迁移目标摘要、约束/索引核查和运行/迁移权限分离等待用户确认。余13项为9项运维/阶段验收及4项条件性邮件/注册，详见[阶段清单§8](docs/开发阶段/阶段01-数据库迁移与用户项目基础.md#8-本阶段剩余步骤与建议下一步)。本次用户反馈不扩展为全部异常分支、管理员完整历史资料核对、真实云调用或恢复演练。
 
 当前仍限定一种明确分析任务。PDF 单独验证，自然语言规划、更多图型及 OpenAI 图片生成模型属于后续能力；图片生成模型与已实现的 Python 数据绘图分别接入，不改变完整产品范围。
+
+## 界面语言与项目默认输出语言
+
+页面可切换简体中文和英语。匿名选择仅保存在当前页面内存；登录后读取账号偏好，保存成功后在刷新和重新登录时恢复。账号语言与项目默认输出语言分别保存，失败或超时按页面提示重新读取确认。保存语言不重新建立会话，也不重发业务生成请求。
+
+项目默认输出语言只为未来生成任务提供默认值；当前图表、解释和Word引擎仍生成中文。用户名称、研究主题、文件名、工作表/字段/组名、历史成果正文及已提交任务快照保持原文。
 
 ## 使用与数据规则
 
@@ -235,7 +255,7 @@ python -m venv .\backend\.venv
 
 ## 第一步：选择分析任务与字段
 
-先按上方命令安装更新后的 `backend/requirements.txt` 并显式迁移 PostgreSQL。当前版本为 Alembic `0003_password_security`；旧 SQLite schema 1–5 自动升级至 schema 6 的说明属于历史实现，已被 PostgreSQL 统一方案替代。离线导入工具只接受 schema 6；更早的库需使用匹配的旧程序升级独立副本，不能让当前应用回退到 SQLite。
+先按上方命令安装更新后的 `backend/requirements.txt` 并显式迁移 PostgreSQL。当前版本为 Alembic `0004_language_preferences`；旧 SQLite schema 1–5 自动升级至 schema 6 的说明属于历史实现，已被 PostgreSQL 统一方案替代。离线导入工具只接受 schema 6；更早的库需使用匹配的旧程序升级独立副本，不能让当前应用回退到 SQLite。
 
 1. 进入已有项目，在页面下方找到“选择分析任务与字段”。
 2. 分析任务目前固定为“描述统计＋箱线图”；选择一份已保存且解析成功的 Excel。
@@ -422,11 +442,13 @@ $env:PAPERASSIST_DATA_DIR = 'D:\PaperAssistData'
 | 方法和路径 | 用途 |
 | --- | --- |
 | `GET /api/v1/health` | 保留 `{ "status": "ok", "service": "paperassist-system" }` |
+| `GET/PATCH /api/v1/auth/preferences` | 读取/更新当前账号 `ui_language`，仅 `zh-CN/en`；写入检查当前会话与CSRF |
+| `GET/PATCH /api/v1/projects/{project_id}/language` | 独立读取/更新项目 `default_output_language`，仅所有者可访问，返回完整Project |
 | `GET /api/v1/ai/config` | OpenAI 是否已配置、模型名及提示，不包含密钥 |
 | `GET /api/v1/excel/config` | 返回 `max_upload_bytes`、`preview_row_limit` |
 | `POST /api/v1/excel/preview` | 保留临时预览接口，multipart 字段 `file`；不保存项目文件 |
 | `GET /api/v1/projects` | 无列表参数时返回兼容数组；显式传入任一 `page/page_size/q/type` 时返回分页对象，仅含当前用户项目 |
-| `POST /api/v1/projects` | JSON 字段 `name`、`research_topic`、`project_type`（`sci` / `thesis`）；成功 `201` |
+| `POST /api/v1/projects` | JSON字段 `name`、`research_topic`、`project_type`；可选 `default_output_language`（`zh-CN/en`，默认中文）；成功201 |
 | `GET /api/v1/projects/{project_id}` | 单个项目的信息 |
 | `GET /api/v1/projects/{project_id}/summary` | 只读任务/成果摘要；`task_page/artifact_page`独立分页，`page_size`缺省10、最大50；明确后续模块空态 |
 | `GET /api/v1/projects/{project_id}/files/{file_id}/analysis-runs/{run_id}/figures/{figure_id}/download` | 下载指定历史PNG版本，检查归属、来源与完整性 |
@@ -503,6 +525,8 @@ $env:PAPERASSIST_DATA_DIR = 'D:\PaperAssistData'
 curl.exe -F 'file=@C:\path\to\example.xlsx' http://127.0.0.1:5173/api/v1/excel/preview
 ```
 
+HTTP错误统一为 `{detail:{code,message,params}}`，保留原状态码和兼容中文message，前端只按已知code与安全params翻译；未知异常显示本地通用提示。任务和AI配置响应提供 `message_code/message_params`，旧任务只读兼容，不回写历史JSON。
+
 ## 依赖文件说明
 
 后端统一使用 `backend/requirements.txt` 管理运行依赖和测试工具（`pytest`、`httpx2`）。第三步加入官方 `openai` SDK、`python-dotenv` 和用于校验 PNG 的 Pillow，以及 SDK 的必要依赖；第四步沿用这些依赖，没有新增依赖文件，也不需要本地安装 Matplotlib 来生成图。
@@ -512,6 +536,8 @@ curl.exe -F 'file=@C:\path\to\example.xlsx' http://127.0.0.1:5173/api/v1/excel/p
 PostgreSQL 统一在同一文件固定 `SQLAlchemy==2.1.1`、`psycopg[binary]==3.3.6` 和 `alembic==1.20.0`。SQLAlchemy Core 承接已有 SQL 与事务，不要求为所有未来模块预建 ORM 模型。
 
 ## 验证方法与结果
+
+2026-10-05双语交付的最终结果：后端全量 **474项通过（307.66秒）**，前端 **19文件256项通过（11.65秒）**，build/lint/pip check通过，独立审查Approved。首次全量的473通过/1失败来自旧SQLite导入测试遗漏新增语言默认字段的期望，修正后专项29项及最终全量通过；不将首次失败写为通过。隔离浏览器完成偏好保存/刷新恢复、项目输出语言保存、旧统计与中文字段保持、退出及重新登录验证。开发库0004升级、备份与原数据/资产保持证据见[双语交付记录](docs/开发记录/阶段01/双语界面与语言设置交付记录.md)。用户随后确认本轮验收通过；本次验收后仅同步文档，未重跑功能全量回归，未据用户反馈认定恢复演练或真实云端调用已验证。
 
 后端：先在本地配置可用的 `PAPERASSIST_TEST_DATABASE_URL`，目标必须为 `paperassist_system_test`。在项目根目录打开 PowerShell 执行，无需激活虚拟环境。
 
@@ -611,7 +637,7 @@ Word 导出手动验收路径：先安装更新后的后端依赖并启动前后
 
 - 项目与文件已持久化，已提供 schema 6 的离线 SQLite→PostgreSQL 导入工具和名称/主题编辑；尚未实现项目删除、文件删除、显式版本关联、后台重解析或自动备份；同名上传目前是独立记录。
 - 只支持 `.xlsx`；不支持 `.xls`、`.xlsm`、带密码文件、图表工作表预览或复杂多行表头识别。公式仅展示原文，不执行、不判断缓存新旧；合并布局不还原。
-- 目前是中文界面和固定描述统计/箱线图任务，已提供本任务的 AI 解释初稿与 Word 分析报告；自然语言规划、其他统计方法/图型、图片生成模型、研究背景补充、多轮解释编辑、完整论文、PDF 和英文界面待后续开发。云端绘图调用官方 Code Interpreter；本地配置检查和独立核算仍在线程池同步执行，不在宿主机执行模型返回代码。
+- 当前界面支持中英文，生成引擎仍为固定的中文描述统计/箱线图、AI解释与Word分析报告；项目默认输出语言仅供未来任务使用。英文成果生成、自然语言规划、其他统计方法/图型、图片生成模型、研究背景补充、多轮解释编辑、完整论文及PDF仍待后续开发。云端绘图调用官方Code Interpreter；本地配置检查和独立核算仍在线程池同步执行，不在宿主机执行模型返回代码。
 - Word 导出主流程及 Word/WPS 核对已通过用户手动验收；自动分页渲染仍不可用，更多数据规模与软件版本的排版兼容性尚未系统验证。报告尚无历史版本列表；旧版本文件保留，可通过保留的下载地址访问。崩溃时可能留下孤立报告文件，暂无清理/修复工具。
 - 解析在线程池内同步执行；尚无独立解析进程、服务端硬超时和多用户并发容量验证。前端等待上限 120 秒，超时不会强制终止已经开始的后端解析。
 - 列表尚未分页，未限制整个数据目录的累计大小；数据量增大后的查询性能、磁盘配额和崩溃恢复仍需完善。

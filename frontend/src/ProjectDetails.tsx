@@ -1,10 +1,13 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { apiFetch } from './api'
 import { typeNames, type Project } from './projectTypes'
+import { apiError, safeError, useI18n } from './i18n'
+import ProjectLanguage from './ProjectLanguage'
 
 type Request = { controller: AbortController; timeout: number }
 
 export default function ProjectDetails({ project, onUpdated }: { project: Project; onUpdated: (project: Project) => void }) {
+  const { t, locale } = useI18n()
   const [editing, setEditing] = useState(false)
   const [name, setName] = useState(project.name)
   const [topic, setTopic] = useState(project.research_topic)
@@ -12,6 +15,7 @@ export default function ProjectDetails({ project, onUpdated }: { project: Projec
   const [busy, setBusy] = useState<'save' | 'read' | null>(null)
   const [error, setError] = useState('')
   const [uncertain, setUncertain] = useState(false)
+  const [languageBusy, setLanguageBusy] = useState(false)
   const request = useRef<Request | null>(null)
 
   useEffect(() => () => {
@@ -23,6 +27,7 @@ export default function ProjectDetails({ project, onUpdated }: { project: Projec
   }, [])
 
   function startEditing() {
+    if (languageBusy) return
     baseline.current = { name: project.name, research_topic: project.research_topic }
     setName(project.name)
     setTopic(project.research_topic)
@@ -53,8 +58,7 @@ export default function ProjectDetails({ project, onUpdated }: { project: Projec
         ...(kind === 'save' ? { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(changes) } : {}),
       })
       const data = await response.json()
-      if (!response.ok) throw new Error(typeof data?.detail?.message === 'string' ? data.detail.message
-        : kind === 'save' ? '保存修改失败，请稍后重试。' : '项目读取失败，请稍后重试。')
+      if (!response.ok) throw new Error(apiError(data, kind === 'save' ? '保存修改失败，请稍后重试。' : '项目读取失败，请稍后重试。'))
       if (!data || data.id !== project.id || typeof data.name !== 'string' || typeof data.research_topic !== 'string') {
         throw new Error('项目响应格式不正确，请重新读取项目。')
       }
@@ -65,7 +69,7 @@ export default function ProjectDetails({ project, onUpdated }: { project: Projec
     } catch (cause) {
       if (request.current !== current || current.controller.signal.aborted) return
       setError(cause instanceof TypeError ? '无法连接后端，请稍后重试。'
-        : cause instanceof Error ? cause.message : '项目请求失败，请稍后重试。')
+        : safeError(cause, '项目请求失败，请稍后重试。'))
     } finally {
       window.clearTimeout(current.timeout)
       if (request.current === current) {
@@ -92,17 +96,18 @@ export default function ProjectDetails({ project, onUpdated }: { project: Projec
   return <div className="project-details">
     <h3>{project.name}</h3>
     <p>{project.research_topic}</p>
-    <p className="muted">{typeNames[project.project_type]}（创建后不可更改） · {project.file_count} 个文件 · 创建于 {new Date(project.created_at).toLocaleString('zh-CN')}</p>
-    <p className="muted">修改项目信息不会自动重新生成历史报告；已生成的 Word 保留生成时的项目名称和研究主题。</p>
+    <p className="muted">{t('{type}（创建后不可更改） · {count} 个文件 · 创建于 {date}', { type: t(typeNames[project.project_type]), count: project.file_count, date: new Date(project.created_at).toLocaleString(locale) })}</p>
+    <p className="muted">{t("修改项目信息不会自动重新生成历史报告；已生成的 Word 保留生成时的项目名称和研究主题。")}</p>
     {editing ? <form className="project-edit-form" onSubmit={save} aria-busy={busy !== null}>
-      <label>修改项目名称<input value={name} onChange={event => setName(event.target.value)} required maxLength={120} disabled={busy !== null} /></label>
-      <label>修改研究主题<textarea value={topic} onChange={event => setTopic(event.target.value)} required maxLength={500} rows={2} disabled={busy !== null} /></label>
+      <label>{t("修改项目名称")}<input value={name} onChange={event => setName(event.target.value)} required maxLength={120} disabled={busy !== null} /></label>
+      <label>{t("修改研究主题")}<textarea value={topic} onChange={event => setTopic(event.target.value)} required maxLength={500} rows={2} disabled={busy !== null} /></label>
       <div className="project-edit-actions">
-        <button type="submit" disabled={busy !== null || uncertain}>{busy === 'save' ? '正在保存……' : '保存修改'}</button>
-        <button type="button" disabled={busy !== null} onClick={() => { setEditing(false); setError(''); setUncertain(false) }}>取消修改</button>
-        {uncertain && <button type="button" disabled={busy !== null} onClick={() => void submit('read')}>{busy === 'read' ? '正在读取……' : '重新读取项目'}</button>}
+        <button type="submit" disabled={busy !== null || uncertain}>{busy === 'save' ? t("正在保存……") : t("保存修改")}</button>
+        <button type="button" disabled={busy !== null} onClick={() => { setEditing(false); setError(''); setUncertain(false) }}>{t("取消修改")}</button>
+        {uncertain && <button type="button" disabled={busy !== null} onClick={() => void submit('read')}>{busy === 'read' ? t("正在读取……") : t("重新读取项目")}</button>}
       </div>
-    </form> : <button type="button" onClick={startEditing}>编辑项目信息</button>}
-    {error && <p className="error-panel" role="alert">{error}</p>}
+    </form> : <button type="button" disabled={languageBusy} onClick={startEditing}>{t("编辑项目信息")}</button>}
+    {error && <p className="error-panel" role="alert">{t(error)}</p>}
+    <ProjectLanguage key={project.id} project={project} onUpdated={onUpdated} disabled={editing || busy !== null} onBusyChange={setLanguageBusy} />
   </div>
 }

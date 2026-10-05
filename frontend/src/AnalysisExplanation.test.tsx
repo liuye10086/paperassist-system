@@ -129,11 +129,11 @@ it('ignores a late generation response when the figure changes', async () => {
 })
 it('server revision conflict retains the draft and requires current state before generation', async () => {
   const fetch = vi.fn((url: string, init?: RequestInit) => init?.method === 'POST'
-    ? Promise.resolve({ ok: false, status: 409, json: async () => ({ detail: { message: '解释配置已变化' } }) })
+    ? Promise.resolve({ ok: false, status: 409, json: async () => ({ detail: { code: 'setup_conflict', params: {}, message: 'ignored legacy text' } }) })
     : json(url.endsWith('/report') ? reportState : url === '/api/v1/ai/config' ? { configured: true } : { ...empty, explanation }))
   vi.stubGlobal('fetch', fetch); render(<AnalysisExplanation {...props} />)
   await waitFor(() => expect(button().disabled).toBe(false)); fireEvent.click(button())
-  await screen.findByText('解释配置已变化'); expect(button().disabled).toBe(true)
+  await screen.findByText('分析配置已变化，请读取当前配置并重新执行统计。'); expect(button().disabled).toBe(true)
   expect(screen.getByText(explanation.sections[0].text)).toBeTruthy(); expect(screen.getByText(/以下解释对应旧配置或旧图表/)).toBeTruthy()
 })
 

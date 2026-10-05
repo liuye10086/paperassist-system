@@ -327,3 +327,8 @@
 .summary-future section { padding: 0 1rem .75rem; background: var(--social-bg); border-radius: 8px; }
 .summary-future p { margin: .5rem 0; }
 .visually-hidden { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.language-control { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; margin: 1rem 0; }
+.language-control label { display: flex; align-items: center; gap: 0.5rem; }
+.language-control select, .project-language select { min-width: 9rem; padding: 0.4rem; }
+.project-language { margin-top: 1rem; padding-top: 1rem; border-top: 1px solid #dce3ee; }
+.project-language label { display: inline-flex; gap: 0.5rem; align-items: center; margin-right: 0.75rem; }

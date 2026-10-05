@@ -33,7 +33,7 @@ it.each([401, 404, 410, 500])('does not download HTTP %s and allows retry for or
   expect(create).not.toHaveBeenCalled()
   expect(expired).toHaveBeenCalledTimes(status === 401 ? 1 : 0)
   expect(unavailable).toHaveBeenCalledTimes(status === 404 ? 1 : 0)
-  if (status >= 410) { expect(screen.getByRole('alert').textContent).toContain('下载失败'); fireEvent.click(link()); await waitFor(() => expect(create).toHaveBeenCalledTimes(1)) }
+  if (status >= 410) { expect(screen.getByRole('alert').textContent).toContain('原始文件已缺失'); fireEvent.click(link()); await waitFor(() => expect(create).toHaveBeenCalledTimes(1)) }
   stop(); off()
 })
 it.each(['unmount', 'href', 'session', 'scope'])('cancels late blob consumption after %s', async change => {

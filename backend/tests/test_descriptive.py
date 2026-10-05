@@ -101,6 +101,7 @@ def test_integer_precision_loss_is_rejected_with_no_saved_result(client):
     response = client.post(base + '/analysis-runs', json={'expected_revision': 1})
     assert response.status_code == 422
     assert response.json()['detail']['code'] == 'numeric_precision'
+    assert response.json()['detail']['params'] == {'column': 'A', 'row': 2}
     assert '整数' in response.json()['detail']['message']
     assert client.get(base + '/analysis-result').json()['result'] is None
 

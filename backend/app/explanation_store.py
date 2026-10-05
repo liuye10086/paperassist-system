@@ -51,6 +51,7 @@ class ExplanationStore:
                 return existing, False
             job = {'id': str(uuid4()), 'analysis_run_id': result['id'], 'figure_id': figure['id'],
                    'status': 'submitting', 'message': '正在向 OpenAI 提交统计汇总，请勿重复生成。',
+                   'message_code': 'task_submitting', 'message_params': {},
                    'response_id': None, 'created_at': datetime.now(timezone.utc).isoformat(),
                    'model': model, 'payload': payload}
             db.execute('INSERT INTO explanation_jobs (id, analysis_run_id, figure_id, engine_version, created_at, job_json) VALUES (%s, %s, %s, %s, %s, %s)',

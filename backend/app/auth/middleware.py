@@ -2,9 +2,9 @@
 
 import hmac
 from starlette.middleware.base import BaseHTTPMiddleware
-from starlette.responses import JSONResponse
 from starlette.concurrency import run_in_threadpool
 from app.storage import StorageError
+from app.errors import error_response as public_error_response, unexpected_error_response
 from .config import settings
 from .service import resolve_session
 
@@ -15,11 +15,7 @@ def error_response(exc):
     headers = {"Cache-Control": "no-store"}
     if exc.status == 429:
         headers["Retry-After"] = "900"
-    return JSONResponse(
-        {"detail": {"code": exc.code, "message": exc.message}},
-        status_code=exc.status,
-        headers=headers,
-    )
+    return public_error_response(exc.status, exc.code, exc.message, getattr(exc, 'params', None), headers)
 
 
 class AuthMiddleware(BaseHTTPMiddleware):
@@ -27,7 +23,10 @@ class AuthMiddleware(BaseHTTPMiddleware):
         if not request.url.path.startswith("/api/"):
             return await call_next(request)
         try:
-            config = settings()
+            try:
+                config = settings()
+            except ValueError:
+                raise StorageError('authentication_configuration', '认证配置无效，请检查受信源和会话期限。') from None
             public = request.url.path in ("/api/v1/health", "/api/v1/auth/login", "/api/v1/auth/reset-password")
             session = None
             if not public:
@@ -57,13 +56,8 @@ class AuthMiddleware(BaseHTTPMiddleware):
             response = await call_next(request)
         except StorageError as exc:
             response = error_response(exc)
-        except ValueError:
-            response = error_response(
-                StorageError(
-                    "authentication_configuration",
-                    "认证配置无效，请检查受信源和会话期限。",
-                )
-            )
+        except Exception as exc:
+            response = unexpected_error_response(exc)
         if response.status_code == 429:
             response.headers["Retry-After"] = "900"
         response.headers["Cache-Control"] = "no-store"

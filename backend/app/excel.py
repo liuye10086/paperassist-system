@@ -38,8 +38,9 @@ class PreviewConfig(BaseModel):
     preview_row_limit: int = PREVIEW_ROWS
 
 
-def fail(code: str, message: str, status: int = 422):
-    raise HTTPException(status_code=status, detail={"code": code, "message": message})
+def fail(code: str, message: str, status: int = 422, *, params=None):
+    from .errors import error_detail
+    raise HTTPException(status_code=status, detail=error_detail(code, message, params))
 
 
 def too_large():
@@ -218,7 +219,8 @@ def read_upload(file: UploadFile | None, settings: ExcelSettings) -> tuple[str, 
             fail("unsupported_file_type", "仅支持 .xlsx 文件，暂不支持 .xls、.xlsm 或其他格式。", 415)
         content = file.file.read(settings.max_upload_bytes + 1)
         if len(content) > settings.max_upload_bytes:
-            fail("file_too_large", f"文件超过大小限制（{settings.max_upload_bytes} 字节），请缩小文件后重试。", 413)
+            fail("file_too_large", f"文件超过大小限制（{settings.max_upload_bytes} 字节），请缩小文件后重试。", 413,
+                 params={'max_bytes': settings.max_upload_bytes})
         if not content:
             fail("empty_file", "上传的文件为空，请选择包含工作簿内容的 .xlsx 文件。")
         return filename, content

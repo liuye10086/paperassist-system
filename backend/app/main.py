@@ -3,7 +3,8 @@ from contextlib import asynccontextmanager, suppress
 import logging
 
 from fastapi import FastAPI
-from fastapi.responses import JSONResponse
+from fastapi.exceptions import RequestValidationError
+from starlette.exceptions import HTTPException
 
 from .config import get_excel_settings, local_config
 from .excel import router as excel_router
@@ -19,6 +20,7 @@ from .boxplot import router as boxplot_router, poll_pending_figures
 from .openai_plot import configuration
 from .explanations import router as explanations_router, poll_pending_explanations
 from .reports import router as reports_router
+from .errors import PUBLIC_CODES, error_response, fallback_error, unexpected_error_response
 
 # Fail early on invalid environment configuration.
 get_excel_settings()
@@ -69,7 +71,28 @@ def ai_config():
 
 @app.exception_handler(StorageError)
 async def storage_error_handler(request, exc: StorageError):
-    return JSONResponse(status_code=exc.status, content={"detail": {"code": exc.code, "message": exc.message}})
+    return error_response(exc.status, exc.code, exc.message, getattr(exc, 'params', None))
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_error_handler(request, exc):
+    # Pydantic errors can contain passwords, request input and arbitrary context.
+    return error_response(422, 'invalid_request', '请求格式无效，请检查填写的内容后重试。')
+
+
+@app.exception_handler(HTTPException)
+async def http_error_handler(request, exc):
+    detail = exc.detail
+    if (isinstance(detail, dict) and isinstance(detail.get('code'), str)
+            and detail['code'] in PUBLIC_CODES and isinstance(detail.get('message'), str)):
+        return error_response(exc.status_code, detail['code'], detail['message'], detail.get('params'), exc.headers)
+    code, message = fallback_error(exc.status_code)
+    return error_response(exc.status_code, code, message, headers=exc.headers)
+
+
+@app.exception_handler(Exception)
+async def unexpected_error_handler(request, exc):
+    return unexpected_error_response(exc)
 
 
 @app.get("/api/v1/health")

@@ -49,8 +49,9 @@ the data. In your final message provide download links to BOTH boxplot.png and r
 
 
 class PlotError(Exception):
-    def __init__(self, code, message, status=502, uncertain=False):
+    def __init__(self, code, message, status=502, uncertain=False, *, params=None):
         self.code, self.message, self.status, self.uncertain = code, message, status, uncertain
+        self.params = params or {}
         super().__init__(message)
 
 
@@ -59,6 +60,7 @@ def configuration():
     key, model = (str(values.get(name) or '').strip() for name in ('OPENAI_API_KEY', 'OPENAI_MODEL'))
     configured = bool(key and model)
     return {'configured': configured, 'model': model or None,
+            'message_code': 'ai_configured' if configured else 'openai_not_configured', 'message_params': {},
             'message': 'OpenAI 配置已填写；实际可用性将在调用时验证。' if configured else
             '请在 backend/.env 中填写 OPENAI_API_KEY 和支持 Code Interpreter 的 OPENAI_MODEL。'}
 

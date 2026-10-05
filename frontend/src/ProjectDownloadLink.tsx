@@ -1,3 +1,4 @@
+import { useI18n, apiError, safeError } from './i18n'
 import { useEffect, useRef, useState, type MouseEvent, type ReactNode } from 'react'
 import { apiFetch, captureApiSession, onApiSessionChanged } from './api'
 import { captureProjectAccess } from './projectAccess'
@@ -7,6 +8,7 @@ export default function ProjectDownloadLink(props: Props) {
 }
 
 function DownloadLink({ href, filename, children, ariaLabel }: Props) {
+  const { t } = useI18n()
   const [checkSession] = useState(captureApiSession)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
@@ -36,7 +38,7 @@ function DownloadLink({ href, filename, children, ariaLabel }: Props) {
         apiFetch(href, { signal: controller.signal }).then(async response => {
           if (!response.ok) {
             const body = await response.json().catch(() => null)
-            throw new Error(typeof body?.detail?.message === 'string' ? body.detail.message : '下载失败，请重试。')
+            throw new Error(apiError(body, '下载失败，请重试。'))
           }
           return response.blob()
         }),
@@ -57,7 +59,7 @@ function DownloadLink({ href, filename, children, ariaLabel }: Props) {
       } finally { URL.revokeObjectURL(url) }
     } catch (cause) {
       if (active.current && !(cause instanceof DOMException && cause.name === 'AbortError')) {
-        setError(cause instanceof Error ? cause.message : '下载失败，请重试。')
+        setError(safeError(cause, '下载失败，请重试。'))
       }
     } finally {
       window.clearTimeout(timer)
@@ -66,5 +68,5 @@ function DownloadLink({ href, filename, children, ariaLabel }: Props) {
     }
   }
   return <><a href={href} aria-label={ariaLabel} aria-busy={busy} aria-disabled={busy} onClick={event => void download(event)}>{children}</a>
-    {busy && <span role="status">正在下载……</span>}{error && <span role="alert" className="error-panel">{error}</span>}</>
+    {busy && <span role="status">{t("正在下载……")}</span>}{error && <span role="alert" className="error-panel">{t(error)}</span>}</>
 }

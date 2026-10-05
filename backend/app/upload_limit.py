@@ -1,9 +1,9 @@
 import re
 
-from starlette.responses import JSONResponse
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 from .config import get_excel_settings
+from .errors import error_response
 
 
 class UploadLimitMiddleware:
@@ -19,7 +19,8 @@ class UploadLimitMiddleware:
             return await self.app(scope, receive, send)
 
         # Small fixed allowance for the multipart boundary and file headers.
-        limit = get_excel_settings().max_upload_bytes + 64 * 1024
+        max_upload_bytes = get_excel_settings().max_upload_bytes
+        limit = max_upload_bytes + 64 * 1024
         body = bytearray()
         while True:
             message = await receive()
@@ -27,10 +28,8 @@ class UploadLimitMiddleware:
                 return
             chunk = message.get("body", b"")
             if len(body) + len(chunk) > limit:
-                response = JSONResponse(status_code=413, content={"detail": {
-                    "code": "file_too_large",
-                    "message": "上传请求超过大小限制，请缩小文件后重试。",
-                }})
+                response = error_response(413, 'file_too_large', '上传请求超过大小限制，请缩小文件后重试。',
+                                          {'max_bytes': max_upload_bytes})
                 return await response(scope, receive, send)
             body.extend(chunk)
             if not message.get("more_body", False):

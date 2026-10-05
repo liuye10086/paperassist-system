@@ -71,7 +71,7 @@ it('restores saved image without POST and keeps its provenance', async () => {
 it('missing configuration disables generation but permits restored image', async () => {
   vi.stubGlobal('fetch', api({ ...empty, figure }, false))
   render(<BoxplotFigure {...props} />)
-  await screen.findByText('请在 backend/.env 配置 API。')
+  await screen.findByText('云端模型尚未配置，请联系管理员配置后重试。')
   expect((screen.getByRole('button', { name: '使用 OpenAI 生成箱线图' }) as HTMLButtonElement).disabled).toBe(true)
   expect(screen.getByAltText(figure.title)).toBeTruthy()
 })
@@ -127,7 +127,12 @@ it('image failure provides explicit reload feedback', async () => {
 it('failed GET preserves an existing image and allows rereading without POST', async () => {
   const fetch = api({ ...empty, figure }); vi.stubGlobal('fetch', fetch)
   render(<BoxplotFigure {...props} />); await screen.findByAltText(figure.title)
-  fetch.mockRejectedValueOnce(new TypeError('offline'))
+  const original = fetch.getMockImplementation()!
+  let fail = true
+  fetch.mockImplementation((url: string, init?: RequestInit) => {
+    if (url.endsWith('/boxplot') && fail) { fail = false; return Promise.reject(new TypeError('offline')) }
+    return original(url, init)
+  })
   fireEvent.click(screen.getByRole('button', { name: '重新读取图表' }))
   await screen.findByRole('alert')
   expect(screen.getByAltText(figure.title)).toBeTruthy()
@@ -160,13 +165,13 @@ it('retries configuration loading independently without generation', async () =>
 
 it('server revision conflict marks the retained image as old and blocks generation', async () => {
   const fetch = vi.fn((url: string, init?: RequestInit) => init?.method === 'POST'
-    ? Promise.resolve({ ok: false, status: 409, json: async () => ({ detail: { code: 'revision_conflict', message: '配置已变化' } }) })
+    ? Promise.resolve({ ok: false, status: 409, json: async () => ({ detail: { code: 'setup_conflict', message: '配置已变化' } }) })
     : json(url === '/api/v1/ai/config' ? { configured: true, model: 'model', message: '' } : { ...empty, figure }))
   vi.stubGlobal('fetch', fetch); render(<BoxplotFigure {...props} />)
   await screen.findByAltText(figure.title)
   await waitFor(() => expect((screen.getByRole('button', { name: '使用 OpenAI 生成箱线图' }) as HTMLButtonElement).disabled).toBe(false))
   fireEvent.click(screen.getByRole('button', { name: '使用 OpenAI 生成箱线图' }))
-  await screen.findByText('配置已变化')
+  await screen.findByText('分析配置已变化，请读取当前配置并重新执行统计。')
   expect(screen.getByText(/以下图表对应旧配置/)).toBeTruthy()
   expect(screen.getByAltText(figure.title)).toBeTruthy()
 })
@@ -179,7 +184,7 @@ it('offers fourth-step explanation only after a saved figure and propagates its 
     : { ...empty, figure }))
   vi.stubGlobal('fetch', fetch); render(<BoxplotFigure {...props} onBusyChange={onBusyChange} />)
   expect(await screen.findByText('第四步 · AI 分析解释')).toBeTruthy()
-  await screen.findByText('解释生成中')
+  await screen.findByText('云端任务正在运行，请稍候。')
   await waitFor(() => expect(onBusyChange).toHaveBeenLastCalledWith(true))
   expect((screen.getByRole('button', { name: '使用 OpenAI 生成箱线图' }) as HTMLButtonElement).disabled).toBe(true)
 })

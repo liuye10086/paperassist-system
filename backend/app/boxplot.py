@@ -13,6 +13,7 @@ from .descriptive import ENGINE as STATISTICS_ENGINE, RunRequest, summarize
 from .excel import fail
 from .openai_plot import CloudPlot, PlotError, PROMPT_VERSION, configuration, validate_output
 from .storage import StorageError, get_project_store
+from .errors import PUBLIC_CODES, job_message, safe_params
 
 RENDERER = PROMPT_VERSION
 router = APIRouter(prefix='/api/v1/projects/{project_id}/files/{file_id}/analysis-runs/{run_id}', tags=['箱线图'])
@@ -75,9 +76,9 @@ def get_boxplot(project_id: str, file_id: str, run_id: str, store: Store):
         store.figure_png(state['figure'])
     job = store.figure_job(run_id, RENDERER)
     if job and state['figure'] and job['status'] != 'completed':
-        job = store.update_figure_job(job['id'], status='completed', message='云端图表已下载并保存。')
+        job = store.update_figure_job(job['id'], status='completed', message='云端图表已下载并保存。', **job_message('task_completed'))
     if job and job['status'] == 'submitting' and (datetime.now(timezone.utc) - datetime.fromisoformat(job['created_at'])).total_seconds() > 180:
-        job = store.update_figure_job(job['id'], status='uncertain', message='提交中断，尚未获得云端任务编号。无法确认是否已收费；确认后可手动重试。')
+        job = store.update_figure_job(job['id'], status='uncertain', message='提交中断，尚未获得云端任务编号。无法确认是否已收费；确认后可手动重试。', **job_message('task_uncertain'))
     if job and job['status'] == 'running' and not state['figure']:
         try:
             output = CloudPlot(job['model']).fetch(job)
@@ -90,22 +91,30 @@ def get_boxplot(project_id: str, file_id: str, run_id: str, store: Store):
                     'provenance': output['provenance'],
                     'verification': {'status': 'matched', 'note': '结构化数值、标签及图注已核对；图片视觉内容仍需人工确认。'}}
                 state['figure'] = store.save_figure(project_id, file_id, figure, output['png'])
-                job = store.update_figure_job(job['id'], status='completed', message='云端计算核对通过，图片已下载并保存。')
+                job = store.update_figure_job(job['id'], status='completed', message='云端计算核对通过，图片已下载并保存。', **job_message('task_completed'))
         except PlotError as exc:
             if exc.status == 503 or exc.code == 'openai_request_failed' and exc.status != 404:
                 # Keep the response ID for retrying retrieval without submitting another paid run.
-                fail(exc.code, exc.message, exc.status)
-            job = store.update_figure_job(job['id'], status='failed', message=exc.message)
+                fail(exc.code, exc.message, exc.status, params=exc.params)
+            job = store.update_figure_job(job['id'], status='failed', message=exc.message, **job_message(exc.code, exc.params))
         except StorageError as exc:
             if exc.status != 409:
                 raise
-            job = store.update_figure_job(job['id'], status='failed', message='执行期间配置已修改，云端图片未保存。请执行新配置后生成。')
+            job = store.update_figure_job(job['id'], status='failed', message='执行期间配置已修改，云端图片未保存。请执行新配置后生成。', **job_message('setup_conflict'))
     state['job'] = public_job(job)
     return state
 
 
 def public_job(job):
-    return {key: job.get(key) for key in ('id', 'status', 'message', 'response_id', 'created_at')} if job else None
+    if not job:
+        return None
+    result = {key: job.get(key) for key in ('id', 'status', 'message', 'response_id', 'created_at')}
+    code = job.get('message_code')
+    if not isinstance(code, str) or code not in PUBLIC_CODES:
+        status = job.get('status')
+        code = 'task_' + status if status in ('submitting', 'running', 'completed', 'uncertain', 'failed') else 'task_unknown'
+    result.update(message_code=code, message_params=safe_params(code, job.get('message_params')))
+    return result
 
 
 def poll_pending_figures():
@@ -119,7 +128,7 @@ def poll_pending_figures():
         except (HTTPException, StorageError) as exc:
             status = exc.status_code if isinstance(exc, HTTPException) else exc.status
             if status in (404, 409, 410, 422):
-                store.update_figure_job(pending['job_id'], status='failed', message='原文件或配置已不可用，后台无法保存图表。请检查项目数据。')
+                store.update_figure_job(pending['job_id'], status='failed', message='原文件或配置已不可用，后台无法保存图表。请检查项目数据。', **job_message('task_failed'))
             # Temporary network/storage errors keep the response ID for a later poll.
 
 
@@ -184,7 +193,7 @@ def generate(project_id: str, file_id: str, run_id: str, request: PlotRequest, s
     labels = {key: figure[key] for key in ('title', 'x_label', 'y_label', 'caption')}
     # Reject unbounded labels before sending data or creating a billable request.
     if any(len(value) > 160 for value in [result['numeric_name'], result['group_name'] or '', *[g['label'] for g in groups]]):
-        fail('plot_label_too_long', '字段名或分组名称超过 160 字符，请简化原文件中的标签后重新上传。')
+        fail('plot_label_too_long', '字段名或分组名称超过 160 字符，请简化原文件中的标签后重新上传。', params={'max_chars': 160})
     metrics = ('n', 'mean', 'std', 'min', 'q1', 'median', 'q3', 'max', 'iqr')
     expected = {'analysis_run_id': result['id'], 'source_sha256': result['source_sha256'], **labels,
         'overall': {k: result['overall'][k] for k in metrics},
@@ -198,9 +207,9 @@ def generate(project_id: str, file_id: str, run_id: str, request: PlotRequest, s
         try:
             response_id = CloudPlot(config['model']).start(payload, job['id'],
                 lambda container_id: store.update_figure_job(job['id'], container_id=container_id))
-            job = store.update_figure_job(job['id'], response_id=response_id, status='running', message='OpenAI 正在运行 Python 分析并生成箱线图。')
+            job = store.update_figure_job(job['id'], response_id=response_id, status='running', message='OpenAI 正在运行 Python 分析并生成箱线图。', **job_message('task_running'))
         except PlotError as exc:
-            job = store.update_figure_job(job['id'], status='uncertain' if exc.uncertain else 'failed', message=exc.message)
+            job = store.update_figure_job(job['id'], status='uncertain' if exc.uncertain else 'failed', message=exc.message, **job_message(exc.code, exc.params))
     state['job'] = public_job(job)
     response.status_code = 202 if job['status'] in ('running', 'submitting') else 200
     return state

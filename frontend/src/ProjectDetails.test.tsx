@@ -92,7 +92,8 @@ test('shows a locked project type and historical report snapshot notice', async 
   expect(screen.getByText(/创建后不可更改/)).toBeTruthy()
   expect(screen.getByText(/修改.*不会.*历史报告/)).toBeTruthy()
   const details = screen.getByRole('heading', { name: '药学项目' }).closest('.project-details')!
-  expect(within(details as HTMLElement).queryByRole('combobox')).toBeNull()
+  expect(within(details as HTMLElement).queryByRole('combobox', { name: '项目类型' })).toBeNull()
+  expect(within(details as HTMLElement).getByRole('combobox', { name: '项目默认输出语言' })).toBeTruthy()
 })
 
 test('patches only changed name and updates heading and selection without resetting file preview', async () => {
@@ -176,7 +177,8 @@ for (const failure of ['422', 'network']) {
     const user = await openProject()
     await editName(user)
     await user.click(screen.getByRole('button', { name: '保存修改' }))
-    expect((await screen.findByRole('alert')).textContent).toContain(failure === 'network' ? '无法连接后端' : '项目资料校验失败')
+    expect((await screen.findByRole('alert')).textContent).toContain(failure === 'network' ? '无法连接后端' : '请仅提交有效的项目名称或研究主题')
+    expect(screen.getByRole('alert').textContent).not.toContain('项目资料校验失败')
     expect((screen.getByLabelText('修改项目名称') as HTMLInputElement).value).toBe('新名称')
     await user.click(screen.getByRole('button', { name: '保存修改' }))
     expect(await screen.findByRole('heading', { name: '新名称' })).toBeTruthy()

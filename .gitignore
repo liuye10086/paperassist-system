@@ -16,6 +16,7 @@ dist/
 
 # Logs
 *.log
+/script/.runtime/
 
 # Local project database, original research files and partial uploads
 /backend/data/

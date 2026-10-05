@@ -1,3 +1,5 @@
+import { useI18n, apiError, safeError } from './i18n'
+import { workflowNotice } from './i18n/workflowMessages'
 import { apiFetch } from './api'
 import { useEffect, useRef, useState } from 'react'
 import StatisticsResults from './StatisticsResults'
@@ -20,20 +22,20 @@ const typeNames: Record<string, string> = { number: '数值', text: '文本', bo
 async function request<T>(url: string, signal: AbortSignal, init?: RequestInit): Promise<T> {
   const response = await apiFetch(url, { ...init, signal })
   const result = await response.json().catch(() => null)
-  if (!response.ok) throw new Error(typeof result?.detail?.message === 'string'
-    ? result.detail.message : '分析配置请求失败，请检查字段选择后重试。')
+  if (!response.ok) throw new Error(apiError(result, '分析配置请求失败，请检查字段选择后重试。'))
   return result
 }
 
 function errorMessage(cause: unknown, aborted: boolean) {
   return aborted ? '请求超时，请重新载入配置确认结果后重试。'
     : cause instanceof TypeError ? '无法连接后端，请确认服务正常后重试。'
-      : cause instanceof Error ? cause.message : '读取分析配置失败，请重试。'
+      : safeError(cause, '读取分析配置失败，请重试。')
 }
 
 function SheetAnalysis({ base, sheetName, saved, onSaved, onBusyChange }: {
   base: string; sheetName: string; saved: Saved | null; onSaved: (value: Saved) => void; onBusyChange: (value: boolean) => void
 }) {
+  const { t } = useI18n()
   const previous = saved?.selection.sheet_name === sheetName ? saved.selection : null
   const [profile, setProfile] = useState<Profile | null>(null)
   const [loading, setLoading] = useState(true)
@@ -99,63 +101,64 @@ function SheetAnalysis({ base, sheetName, saved, onSaved, onBusyChange }: {
     }
   }
 
-  if (loading) return <p role="status">正在检查整张工作表……</p>
-  if (loadError || !profile) return <div className="error-panel" role="alert">{loadError || '字段信息不可用。'}{' '}
-    <button type="button" onClick={() => { setLoading(true); setLoadError(''); setAttempt(value => value + 1) }}>重试字段检查</button>
+  if (loading) return <p role="status">{t("正在检查整张工作表……")}</p>
+  if (loadError || !profile) return <div className="error-panel" role="alert">{t(loadError || '字段信息不可用。')}{' '}
+    <button type="button" onClick={() => { setLoading(true); setLoadError(''); setAttempt(value => value + 1) }}>{t("重试字段检查")}</button>
   </div>
   const numericColumn = profile.columns.find(column => column.id === numeric)
   const fieldsMatch = !!previous && numeric === previous.numeric_column && (group || null) === previous.group_column && unit === previous.unit
   return <div className="analysis-fields" aria-busy={busy}>
-    <p className="data-count">整表检查：{profile.row_count} 行数据</p>
-    <p className="muted">使用完整工作表。空单元格、空字符串和纯空白字符串视为缺失；NA 等文本保持原义。</p>
-    {profile.row_count === 0 && <p className="warning-panel">当前工作表没有数据行，请选择其他工作表。</p>}
-    {profile.warnings.length > 0 && <ul className="warning-panel">{profile.warnings.map(note => <li key={note}>{note}</li>)}</ul>}
-    {profile.columns.length > 0 && <div className="field-table-scroll" tabIndex={0} role="region" aria-label="字段概况，可横向滚动">
-      <table className="field-table"><caption>字段概况（Excel 列字母用于区分同名字段）</caption>
-        <thead><tr><th scope="col">列</th><th scope="col">字段名称</th><th scope="col">类型</th><th scope="col">非缺失</th><th scope="col">缺失</th><th scope="col">实际数值</th></tr></thead>
+    <p className="data-count">{t('整表检查：{count} 行数据', { count: profile.row_count })}</p>
+    <p className="muted">{t("使用完整工作表。空单元格、空字符串和纯空白字符串视为缺失；NA 等文本保持原义。")}</p>
+    {profile.row_count === 0 && <p className="warning-panel">{t("当前工作表没有数据行，请选择其他工作表。")}</p>}
+    {profile.warnings.length > 0 && <ul className="warning-panel">{profile.warnings.map(note => <li key={note}>{workflowNotice(note, t)}</li>)}</ul>}
+    {profile.columns.length > 0 && <div className="field-table-scroll" tabIndex={0} role="region" aria-label={t("字段概况，可横向滚动")}>
+      <table className="field-table"><caption>{t("字段概况（Excel 列字母用于区分同名字段）")}</caption>
+        <thead><tr><th scope="col">{t("列")}</th><th scope="col">{t("字段名称")}</th><th scope="col">{t("类型")}</th><th scope="col">{t("非缺失")}</th><th scope="col">{t("缺失")}</th><th scope="col">{t("实际数值")}</th></tr></thead>
         <tbody>{profile.columns.map(column => <tr key={column.id}>
-          <th scope="row">{column.id}</th><td>{column.name}</td><td>{typeNames[column.type] ?? column.type}</td>
+          <th scope="row">{column.id}</th><td>{column.name}</td><td>{typeNames[column.type] ? t(typeNames[column.type]) : column.type}</td>
           <td>{column.non_missing_count}</td><td>{column.missing_count}</td><td>{column.numeric_count}</td>
         </tr>)}</tbody>
       </table>
     </div>}
     <div className="analysis-field-grid">
-      <label>数值列<select value={numeric} disabled={busy || running} onChange={event => {
+      <label>{t("数值列")}<select value={numeric} disabled={busy || running} onChange={event => {
         setNumeric(event.target.value); if (group === event.target.value) setGroup(''); changed()
       }}>
-        <option value="">请选择数值列</option>
+        <option value="">{t("请选择数值列")}</option>
         {profile.columns.map(column => <option key={column.id} value={column.id} disabled={!column.can_be_numeric}>
-          {column.id} · {column.name}（{typeNames[column.type]}）
+          {column.id} · {column.name}（{typeNames[column.type] ? t(typeNames[column.type]) : column.type}）
         </option>)}
       </select></label>
-      <label>分组列（可选）<select value={group} disabled={busy || running} onChange={event => { setGroup(event.target.value); changed() }}>
-        <option value="">不分组</option>
+      <label>{t("分组列（可选）")}<select value={group} disabled={busy || running} onChange={event => { setGroup(event.target.value); changed() }}>
+        <option value="">{t("不分组")}</option>
         {profile.columns.filter(column => column.can_be_group && column.id !== numeric).map(column =>
           <option key={column.id} value={column.id}>{column.id} · {column.name}</option>)}
       </select></label>
-      <label>数值单位（可选）<input value={unit} maxLength={80} disabled={busy || running} onChange={event => { setUnit(event.target.value); changed() }} /></label>
+      <label>{t("数值单位（可选）")}<input value={unit} maxLength={80} disabled={busy || running} onChange={event => { setUnit(event.target.value); changed() }} /></label>
     </div>
-    <p className="muted">数值列仅接受实际数值，文本数字、布尔、日期、公式、错误及混合类型需先在原文件中核对。分组最多 20 组。</p>
-    <p className="missing-policy">缺失值规则：后续计算只使用数值列及所选分组列均非缺失的行，原文件保持不变。</p>
+    <p className="muted">{t("数值列仅接受实际数值，文本数字、布尔、日期、公式、错误及混合类型需先在原文件中核对。分组最多 20 组。")}</p>
+    <p className="missing-policy">{t("缺失值规则：后续计算只使用数值列及所选分组列均非缺失的行，原文件保持不变。")}</p>
     <div className="analysis-actions">
-      <button type="button" disabled={busy || running || !numericColumn?.can_be_numeric || !profile.row_count} onClick={() => void perform(false)}>检查字段</button>
-      <button type="button" disabled={busy || running || !checked?.ready} onClick={() => void perform(true)}>保存分析配置</button>
+      <button type="button" disabled={busy || running || !numericColumn?.can_be_numeric || !profile.row_count} onClick={() => void perform(false)}>{t("检查字段")}</button>
+      <button type="button" disabled={busy || running || !checked?.ready} onClick={() => void perform(true)}>{t("保存分析配置")}</button>
     </div>
-    {busy && <p role="status">正在核对数据，请稍候……</p>}
-    {error && <p className="error-panel" role="alert">{error}</p>}
+    {busy && <p role="status">{t("正在核对数据，请稍候……")}</p>}
+    {error && <p className="error-panel" role="alert">{t(error)}</p>}
     {checked && <div className="selection-check" aria-live="polite">
-      {checked.ready ? <p>可用 {checked.valid_count} 行，排除 {checked.excluded_count} 行。</p>
-        : <ul className="error-panel">{checked.issues.map(issue => <li key={issue}>{issue}</li>)}</ul>}
-      {checked.ready && checked.groups.length > 0 && <ul>{checked.groups.map(group => <li key={group.label}>{group.label}：{group.count} 行</li>)}</ul>}
-      {checked.warnings.length > 0 && <ul className="warning-panel">{checked.warnings.map(note => <li key={note}>{note}</li>)}</ul>}
+      {checked.ready ? <p>{t('可用 {valid} 行，排除 {excluded} 行。', { valid: checked.valid_count, excluded: checked.excluded_count })}</p>
+        : <ul className="error-panel">{checked.issues.map(issue => <li key={issue}>{workflowNotice(issue, t)}</li>)}</ul>}
+      {checked.ready && checked.groups.length > 0 && <ul>{checked.groups.map(group => <li key={group.label}>{group.label}：{t('{count} 行', { count: group.count })}</li>)}</ul>}
+      {checked.warnings.length > 0 && <ul className="warning-panel">{checked.warnings.map(note => <li key={note}>{workflowNotice(note, t)}</li>)}</ul>}
     </div>}
-    {notice && <p className="saved-notice" role="status">{notice}</p>}
+    {notice && <p className="saved-notice" role="status">{t(notice)}</p>}
     <StatisticsResults key={`${base}:${saved?.revision ?? 0}`} base={base} savedRevision={saved?.revision ?? null}
       fieldsMatch={fieldsMatch} disabled={busy} onBusyChange={setRunning} />
   </div>
 }
 
 function FileAnalysis({ projectId, fileId }: { projectId: string; fileId: string }) {
+  const { t } = useI18n()
   const base = `/api/v1/projects/${projectId}/files/${fileId}`
   const [data, setData] = useState<{ sheets: string[]; saved: Saved | null } | null>(null)
   const [sheetName, setSheetName] = useState('')
@@ -183,11 +186,11 @@ function FileAnalysis({ projectId, fileId }: { projectId: string; fileId: string
   return <>
     <div className="analysis-actions"><button type="button" disabled={busy} onClick={() => {
       setData(null); setError(''); setAttempt(value => value + 1)
-    }}>重新载入分析配置</button></div>
-    {error && <p className="error-panel" role="alert">{error}</p>}
-    {!data && !error && <p role="status">正在载入工作表和已保存配置……</p>}
+    }}>{t("重新载入分析配置")}</button></div>
+    {error && <p className="error-panel" role="alert">{t(error)}</p>}
+    {!data && !error && <p role="status">{t("正在载入工作表和已保存配置……")}</p>}
     {data && <>
-      <label className="analysis-sheet-label">分析工作表<select value={sheetName} disabled={busy} onChange={event => setSheetName(event.target.value)}>
+      <label className="analysis-sheet-label">{t("分析工作表")}<select value={sheetName} disabled={busy} onChange={event => setSheetName(event.target.value)}>
         {data.sheets.map(name => <option key={name} value={name}>{name}</option>)}
       </select></label>
       {sheetName && <SheetAnalysis key={sheetName} base={base} sheetName={sheetName} saved={data.saved}
@@ -197,23 +200,24 @@ function FileAnalysis({ projectId, fileId }: { projectId: string; fileId: string
 }
 
 export default function AnalysisSetup({ projectId, files }: { projectId: string; files: FileSummary[] }) {
+  const { t, locale } = useI18n()
   const [selectedId, setSelectedId] = useState('')
   const available = files.filter(file => file.parse_status === 'parsed')
   const selected = available.find(file => file.id === selectedId)
   return <section className="analysis-setup" aria-labelledby="analysis-title">
-    <div className="section-heading"><span className="step-label">第一步 · 分析准备</span>
-      <h2 id="analysis-title">选择分析任务与字段</h2>
-      <p>保存字段选择和数据检查结果，后续步骤将据此计算、绘图和生成报告。</p>
-      <p className="muted">每个文件保存一份当前配置；保存新选择会更新该文件的配置。</p>
+    <div className="section-heading"><span className="step-label">{t("第一步 · 分析准备")}</span>
+      <h2 id="analysis-title">{t("选择分析任务与字段")}</h2>
+      <p>{t("保存字段选择和数据检查结果，后续步骤将据此计算、绘图和生成报告。")}</p>
+      <p className="muted">{t("每个文件保存一份当前配置；保存新选择会更新该文件的配置。")}</p>
     </div>
     <div className="analysis-field-grid">
-      <label>分析任务<select value="descriptive_boxplot" onChange={() => {}}><option value="descriptive_boxplot">描述统计＋箱线图</option></select></label>
-      <label>用于分析的文件<select value={selected?.id ?? ''} onChange={event => setSelectedId(event.target.value)}>
-        <option value="">请选择已保存文件</option>
-        {available.map(file => <option key={file.id} value={file.id}>{file.filename} · {new Date(file.uploaded_at).toLocaleString('zh-CN')} · {file.id.slice(0, 8)}</option>)}
+      <label>{t("分析任务")}<select value="descriptive_boxplot" onChange={() => {}}><option value="descriptive_boxplot">{t("描述统计＋箱线图")}</option></select></label>
+      <label>{t("用于分析的文件")}<select value={selected?.id ?? ''} onChange={event => setSelectedId(event.target.value)}>
+        <option value="">{t("请选择已保存文件")}</option>
+        {available.map(file => <option key={file.id} value={file.id}>{file.filename} · {new Date(file.uploaded_at).toLocaleString(locale)} · {file.id.slice(0, 8)}</option>)}
       </select></label>
     </div>
-    {!available.length && <p className="muted">请先在当前项目上传一份可预览的 Excel。</p>}
+    {!available.length && <p className="muted">{t("请先在当前项目上传一份可预览的 Excel。")}</p>}
     {selected && <FileAnalysis key={`${projectId}:${selected.id}`} projectId={projectId} fileId={selected.id} />}
   </section>
 }

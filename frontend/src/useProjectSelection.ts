@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { apiFetch } from './api'
 import { watchProjectAccess } from './projectAccess'
 import { isProject, type Project } from './projectTypes'
+import { apiError, safeError } from './i18n'
 
 type Instance = { id: string; key: number }
 type Request = { controller: AbortController; timeout: number }
@@ -72,13 +73,13 @@ export default function useProjectSelection(onUnavailable: (id: string) => void,
         const response = await apiFetch(`/api/v1/projects/${encodeURIComponent(instance!.id)}`, { signal: controller.signal })
         const result: unknown = await response.json()
         if (!isCurrent()) return
-        if (!response.ok) throw new Error('项目详情读取失败，请稍后重试。')
+        if (!response.ok) throw new Error(apiError(result, '项目详情读取失败，请稍后重试。'))
         if (!isProject(result) || result.id !== instance!.id) throw new Error('项目详情格式不正确，请重试。')
         setDetail({ instance: instance!, project: result })
         callbacks.current.onAvailable(instance!.id)
       } catch (cause) {
         if (isCurrent()) setFailure({ instance: instance!, message: cause instanceof TypeError
-          ? '无法连接后端，请稍后重试项目详情。' : cause instanceof Error ? cause.message : '项目详情读取失败。' })
+          ? '无法连接后端，请稍后重试项目详情。' : safeError(cause, '项目详情读取失败。') })
       } finally {
         window.clearTimeout(timeout)
         if (isCurrent()) setLoading(false)

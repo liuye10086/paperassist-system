@@ -105,6 +105,7 @@ def test_pending_resume_without_resubmission_and_keyless_saved_download(client, 
     cloud.pending = True
     assert client.post(url, json={'expected_revision': 1}).status_code == 202
     assert client.get(url).json()['job']['status'] == 'running'
+    assert client.get(url).json()['job']['message_code'] == 'task_running'
     assert client.post(url, json={'expected_revision': 1}).status_code == 202
     cloud.pending = False
     figure = client.get(url).json()['figure']
@@ -121,6 +122,11 @@ def test_cloud_mismatch_fails_and_only_explicit_retry_submits(client, cloud):
     state = client.get(url).json()
     assert state['figure'] is None and state['job']['status'] == 'failed'
     assert '核对' in state['job']['message']
+    assert state['job']['message_code'] == 'plot_result_mismatch'
+    assert state['job']['message_params'] == {}
+    with database_connection() as db:
+        persisted = json.loads(db.execute('SELECT job_json FROM figure_jobs WHERE id=%s', (state['job']['id'],)).fetchone()['job_json'])
+    assert persisted['message_code'] == 'plot_result_mismatch'
     client.post(url, json={'expected_revision': 1})
     assert len(cloud.calls) == 1
     cloud.corrupt = False
@@ -196,7 +202,32 @@ def test_persisted_cloud_chart_restores_in_a_fresh_process(client, cloud):
     code = 'from fastapi.testclient import TestClient; from app.main import app; import sys,json; print(json.dumps(TestClient(app, cookies={"paperassist_session": __import__("os").environ["PAPERASSIST_TEST_SESSION_COOKIE"]}).get(sys.argv[1]).json()))'
     process = subprocess.run([sys.executable, '-c', code, url], cwd=Path(__file__).resolve().parents[1],
                              env=session_subprocess_env(client), capture_output=True, text=True, check=True, timeout=30)
-    assert json.loads(process.stdout)['figure'] == expected
+    restored = json.loads(process.stdout)
+    assert restored['figure'] == expected
+    assert restored['job']['message_code'] == 'task_completed'
+    assert restored['job']['message_params'] == {}
+
+
+def test_legacy_failed_job_projection_does_not_rewrite_task_or_statistics(client, cloud):
+    base, _, result, url = prepared(client)
+    cloud.pending = True
+    client.post(url, json={'expected_revision': 1})
+    with database_connection(write=True) as db:
+        row = db.execute('SELECT id, job_json FROM figure_jobs').fetchone()
+        job = json.loads(row['job_json'])
+        job.pop('message_code')
+        job.pop('message_params')
+        job.update(status='failed', message='旧任务失败记录')
+        legacy = json.dumps(job, ensure_ascii=False)
+        db.execute('UPDATE figure_jobs SET job_json=%s WHERE id=%s', (legacy, row['id']))
+    response = client.get(url)
+    assert response.status_code == 200
+    assert response.json()['job']['message_code'] == 'task_failed'
+    assert response.json()['job']['message_params'] == {}
+    with database_connection() as db:
+        assert db.execute('SELECT job_json FROM figure_jobs WHERE id=%s', (row['id'],)).fetchone()['job_json'] == legacy
+    assert client.get(base + '/analysis-result').json()['result'] == result
+    assert len(cloud.calls) == 1
 
 
 def test_configuration_change_while_cloud_running_does_not_attach_old_chart(client, cloud):

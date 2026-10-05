@@ -129,12 +129,13 @@ test('uploads into selected project and refreshes file history', async () => {
   await waitFor(() => expect(screen.getAllByRole('button', { name: '预览 实验.xlsx' })).toHaveLength(2))
 })
 
-test('failed files show their saved reason and can download original', async () => {
+test('failed files show their localized error code and can download original', async () => {
   api({ failed: true })
   const user = userEvent.setup()
   render(<App />)
   await user.click(await screen.findByRole('button', { name: '打开项目 药学项目' }))
-  expect(await screen.findByText('文件损坏，请重新上传。')).toBeTruthy()
+  expect(await screen.findByText('Excel 解析失败，请用 Excel 打开并另存为 .xlsx 后重试。')).toBeTruthy()
+  expect(screen.queryByText('文件损坏，请重新上传。')).toBeNull()
   expect(screen.getByText('解析失败')).toBeTruthy()
   expect(screen.getByRole('link', { name: '下载 实验.xlsx' }).getAttribute('href')).toBe('/api/v1/projects/p1/files/f1/download')
   expect(screen.queryByRole('button', { name: '预览 实验.xlsx' })).toBeNull()

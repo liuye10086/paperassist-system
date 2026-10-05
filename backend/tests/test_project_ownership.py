@@ -52,7 +52,7 @@ def test_creation_uses_authenticated_owner_and_preserves_response_contract():
         assert response.status_code == 201
         project = response.json()
         assert set(project) == {'id', 'name', 'research_topic', 'project_type',
-                                'created_at', 'updated_at', 'file_count'}
+                                'default_output_language', 'created_at', 'updated_at', 'file_count'}
         with database_connection() as db:
             row = db.execute('SELECT owner_id FROM projects WHERE id = %s', (project['id'],)).fetchone()
         assert row['owner_id'] == identity['id']

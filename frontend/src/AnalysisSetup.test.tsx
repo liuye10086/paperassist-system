@@ -39,7 +39,7 @@ function api(options: { existing?: boolean; conflict?: boolean; invalid?: boolea
     if (url.endsWith('/analysis-runs')) {
       if (options.slowRun) return options.slowRun
       if (options.runFailOnce) { options.runFailOnce = false; throw new TypeError('offline') }
-      if (options.runConflict) return Response.json({ detail: { message: '分析配置已变化，请重新载入配置后再执行。' } }, { status: 409 })
+      if (options.runConflict) return Response.json({ detail: { code: 'setup_conflict', params: {}, message: 'ignored legacy text' } }, { status: 409 })
       result = { ...analysisResult, setup_revision: current!.revision, selection: current!.selection }
       return Response.json(result)
     }
@@ -53,7 +53,7 @@ function api(options: { existing?: boolean; conflict?: boolean; invalid?: boolea
       ? { ...check, ready: false, valid_count: 0, issues: ['选中字段没有完整记录。'] } : check)
     if (url.endsWith('/analysis-setup')) {
       if (init?.method === 'PUT') {
-        if (options.conflict) return Response.json({ detail: { message: '配置已在其他页面更新，请重新载入。' } }, { status: 409 })
+        if (options.conflict) return Response.json({ detail: { code: 'setup_conflict', params: {}, message: 'ignored legacy text' } }, { status: 409 })
         const body = JSON.parse(init.body as string)
         current = { ...saved, revision: body.expected_revision + 1, selection: { ...selection, ...body } }
       }
@@ -168,7 +168,7 @@ test('save conflict gives recovery action instead of claiming success', async ()
   await user.click(screen.getByRole('button', { name: '检查字段' }))
   await screen.findByText('可用 23 行，排除 2 行。')
   await user.click(screen.getByRole('button', { name: '保存分析配置' }))
-  expect((await screen.findByRole('alert')).textContent).toContain('其他页面更新')
+  expect((await screen.findByRole('alert')).textContent).toContain('分析配置已变化')
   expect(screen.getByRole('button', { name: '重新载入分析配置' })).toBeTruthy()
 })
 
@@ -281,7 +281,7 @@ test('configuration conflict tells the user to reload instead of claiming a resu
   render(<AnalysisSetup projectId="p1" files={files} />)
   await chooseFile(user)
   await user.click(await screen.findByRole('button', { name: '执行描述统计' }))
-  expect((await screen.findByRole('alert')).textContent).toContain('重新载入配置')
+  expect((await screen.findByRole('alert')).textContent).toContain('读取当前配置')
   expect(screen.queryByRole('table', { name: '描述统计结果' })).toBeNull()
 })
 

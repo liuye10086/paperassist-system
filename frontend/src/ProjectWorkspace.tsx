@@ -9,6 +9,7 @@ import ProjectDownloadLink from './ProjectDownloadLink'
 import ProjectList, { type ProjectListQuery } from './ProjectList'
 import useProjectSelection from './useProjectSelection'
 import { isProject, type Project, type ProjectPage } from './projectTypes'
+import { apiError, safeError, useI18n } from './i18n'
 type ProjectFile = {
   id: string; filename: string; size_bytes: number; uploaded_at: string
   parse_status: 'parsed' | 'failed'; error: { code: string; message: string } | null
@@ -16,11 +17,12 @@ type ProjectFile = {
 
 async function responseData(response: Response, fallback: string) {
   const data = await response.json().catch(() => null)
-  if (!response.ok) throw new Error(typeof data?.detail?.message === 'string' ? data.detail.message : fallback)
+  if (!response.ok) throw new Error(apiError(data, fallback))
   return data
 }
 
 function ProjectFiles({ projectId, onSaved }: { projectId: string; onSaved: () => void }) {
+  const { t, locale } = useI18n()
   const [files, setFiles] = useState<ProjectFile[]>([])
   const [attempt, setAttempt] = useState(0)
   const [loading, setLoading] = useState(true)
@@ -65,25 +67,25 @@ function ProjectFiles({ projectId, onSaved }: { projectId: string; onSaved: () =
   return <>
     <section className="file-history" aria-labelledby="files-title">
       <div className="preview-heading">
-        <h3 id="files-title">项目文件</h3>
-        <button type="button" disabled={loading || busy} onClick={refresh}>刷新文件列表</button>
+        <h3 id="files-title">{t("项目文件")}</h3>
+        <button type="button" disabled={loading || busy} onClick={refresh}>{t("刷新文件列表")}</button>
       </div>
-      {loading && <p role="status">正在读取文件列表……</p>}
-      {error && <p className="error-panel" role="alert">{error}</p>}
-      {!loading && !error && files.length === 0 && <p>此项目还没有文件。</p>}
+      {loading && <p role="status">{t("正在读取文件列表……")}</p>}
+      {error && <p className="error-panel" role="alert">{t(error)}</p>}
+      {!loading && !error && files.length === 0 && <p>{t("此项目还没有文件。")}</p>}
       <ul className="file-list">{files.map(file => <li key={file.id}>
         <div className="file-summary">
           <strong>{file.filename}</strong>
           <span className={file.parse_status === 'failed' ? 'file-failed' : 'file-parsed'}>
-            {file.parse_status === 'failed' ? '解析失败' : '可预览'}
+            {file.parse_status === 'failed' ? t("解析失败") : t("可预览")}
           </span>
-          <p className="muted">{file.size_bytes.toLocaleString()} 字节 · {new Date(file.uploaded_at).toLocaleString('zh-CN')}</p>
-          {file.error && <p className="file-failed">{file.error.message}</p>}
+          <p className="muted">{t('{bytes} 字节 · {date}', { bytes: file.size_bytes.toLocaleString(locale), date: new Date(file.uploaded_at).toLocaleString(locale) })}</p>
+          {file.error && <p className="file-failed">{t(apiError(file.error, '文件解析失败，请重新上传有效的工作簿。'))}</p>}
         </div>
         <div className="file-actions">
           {file.parse_status === 'parsed' && <button type="button" disabled={busy}
-            aria-label={`预览 ${file.filename}`} onClick={() => setOpened({ id: file.id, request: ++openSequence.current })}>预览</button>}
-          <ProjectDownloadLink href={`/api/v1/projects/${projectId}/files/${file.id}/download`} filename={file.filename} ariaLabel={`下载 ${file.filename}`}>下载原文件</ProjectDownloadLink>
+            aria-label={t('预览 {name}', { name: file.filename })} onClick={() => setOpened({ id: file.id, request: ++openSequence.current })}>{t("预览")}</button>}
+          <ProjectDownloadLink href={`/api/v1/projects/${projectId}/files/${file.id}/download`} filename={file.filename} ariaLabel={t('下载 {name}', { name: file.filename })}>{t("下载原文件")}</ProjectDownloadLink>
         </div>
       </li>)}</ul>
     </section>
@@ -93,6 +95,7 @@ function ProjectFiles({ projectId, onSaved }: { projectId: string; onSaved: () =
 }
 
 export default function ProjectWorkspace() {
+  const { t } = useI18n()
   const [projects, setProjects] = useState<Project[]>([])
   const [total, setTotal] = useState(0)
   const [query, setQuery] = useState<ProjectListQuery>({ page: 1, pageSize: 10, q: '', type: '' })
@@ -224,7 +227,7 @@ export default function ProjectWorkspace() {
     } catch (cause) {
       if (timedOut) setCreateError('创建请求超时，请先刷新项目列表确认是否已创建。')
       else if (!controller.signal.aborted) setCreateError(cause instanceof TypeError ? '无法连接后端，请稍后重试。'
-        : cause instanceof Error ? cause.message : '创建项目失败。')
+        : safeError(cause, '创建项目失败。'))
     } finally {
       window.clearTimeout(timeout)
       createController.current = null
@@ -233,31 +236,31 @@ export default function ProjectWorkspace() {
   }
 
   return <section className="project-workspace" aria-labelledby="projects-title">
-    <div className="section-heading"><h2 id="projects-title">项目中心</h2><p>按项目保存研究资料，继续查看已上传的数据。</p></div>
+    <div className="section-heading"><h2 id="projects-title">{t("项目中心")}</h2><p>{t("按项目保存研究资料，继续查看已上传的数据。")}</p></div>
     <form className="project-form" onSubmit={create} aria-busy={creating}>
-      <h3>新建项目</h3>
+      <h3>{t("新建项目")}</h3>
       <div className="project-fields">
-        <label>项目名称<input ref={nameInput} value={name} onChange={event => setName(event.target.value)} required maxLength={120} disabled={creating} /></label>
-        <label>项目类型<select value={projectType} onChange={event => setProjectType(event.target.value as '' | 'sci' | 'thesis')} required disabled={creating}>
-          <option value="">请选择项目类型</option><option value="sci">SCI 科研论文</option><option value="thesis">毕业论文</option>
+        <label>{t("项目名称")}<input ref={nameInput} value={name} onChange={event => setName(event.target.value)} required maxLength={120} disabled={creating} /></label>
+        <label>{t("项目类型")}<select value={projectType} onChange={event => setProjectType(event.target.value as '' | 'sci' | 'thesis')} required disabled={creating}>
+          <option value="">{t("请选择项目类型")}</option><option value="sci">{t("SCI 科研论文")}</option><option value="thesis">{t("毕业论文")}</option>
         </select></label>
       </div>
-      <label>研究主题<textarea value={topic} onChange={event => setTopic(event.target.value)} required maxLength={500} rows={2} disabled={creating} /></label>
-      <button type="submit" disabled={creating}>{creating ? '正在创建……' : '创建项目'}</button>
-      {createError && <p className="error-panel" role="alert">{createError}</p>}
+      <label>{t("研究主题")}<textarea value={topic} onChange={event => setTopic(event.target.value)} required maxLength={500} rows={2} disabled={creating} /></label>
+      <button type="submit" disabled={creating}>{creating ? t("正在创建……") : t("创建项目")}</button>
+      {createError && <p className="error-panel" role="alert">{t(createError)}</p>}
     </form>
     <ProjectList items={projects} total={total} query={query} searchDraft={searchDraft} loading={loading} error={loadError}
       onSearchDraftChange={setSearchDraft} onQueryChange={changeQuery} onOpen={selection.open} onRetry={refresh}
       onCreate={() => nameInput.current?.focus()} />
-    {selection.unavailableId && <div className="error-panel" role="alert">项目不存在或无权访问。{' '}
-      <button type="button" onClick={selection.close}>返回项目列表</button>{' '}
-      <button type="button" onClick={() => selection.open(selection.unavailableId)}>重试打开项目</button>
+    {selection.unavailableId && <div className="error-panel" role="alert">{t("项目不存在或无权访问。")}{' '}
+      <button type="button" onClick={selection.close}>{t("返回项目列表")}</button>{' '}
+      <button type="button" onClick={() => selection.open(selection.unavailableId)}>{t("重试打开项目")}</button>
     </div>}
-    {selection.instance && <section className="selected-project" aria-label="当前项目工作区">
-      <button type="button" onClick={selection.close}>返回项目列表</button>
-      {selection.loading && <p role="status">正在读取项目详情……</p>}
-      {selection.error && <div className="error-panel" role="alert">{selection.error}{' '}
-        <button type="button" onClick={selection.refresh}>重试项目详情</button>
+    {selection.instance && <section className="selected-project" aria-label={t("当前项目工作区")}>
+      <button type="button" onClick={selection.close}>{t("返回项目列表")}</button>
+      {selection.loading && <p role="status">{t("正在读取项目详情……")}</p>}
+      {selection.error && <div className="error-panel" role="alert">{t(selection.error)}{' '}
+        <button type="button" onClick={selection.refresh}>{t("重试项目详情")}</button>
       </div>}
       {project && <div key={selection.instance.key}>
         <ProjectDetails project={project} onUpdated={updated} />

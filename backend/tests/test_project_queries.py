@@ -16,7 +16,7 @@ from test_projects import client, create_project, upload  # noqa: F401
 
 
 PROJECT_FIELDS = {'id', 'name', 'research_topic', 'project_type',
-                  'created_at', 'updated_at', 'file_count'}
+                  'default_output_language', 'created_at', 'updated_at', 'file_count'}
 
 
 def scoped_store(client):

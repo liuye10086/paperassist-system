@@ -297,6 +297,7 @@ def test_upgrade_preserves_entire_legacy_resource_chain(postgres_schema):
             rows = [dict(row) for row in db.execute(f"SELECT * FROM {table}")]
             if table == "projects":
                 assert rows[0].pop("owner_id") is None
+                assert rows[0].pop("default_output_language") == "zh-CN"
             assert rows == original[table]
         assert (
             db.execute("SELECT count(*) AS total FROM users").fetchone()["total"] == 0

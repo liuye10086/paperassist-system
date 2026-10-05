@@ -1,6 +1,7 @@
 """Accounts and revocable opaque sessions backed exclusively by PostgreSQL."""
 
 import hashlib
+import hmac
 import re
 import secrets
 import time
@@ -51,7 +52,7 @@ def password_hash(password):
 
 
 def public_user(row):
-    return {key: row[key] for key in ("id", "email", "role")}
+    return {key: row[key] for key in ("id", "email", "role", "ui_language")}
 
 
 def _create(email, password, role, bootstrap):
@@ -59,7 +60,7 @@ def _create(email, password, role, bootstrap):
     if role not in ("user", "admin"):
         raise ValueError("无效账号角色。")
     hashed = password_hash(password)
-    result = dict(id=str(uuid4()), email=email, role=role)
+    result = dict(id=str(uuid4()), email=email, role=role, ui_language="zh-CN")
     with auth_connection(write=True) as db:
         ensure_schema_current(db)
         if bootstrap and db.execute("SELECT id FROM users LIMIT 1").fetchone():
@@ -189,7 +190,7 @@ def resolve_session(token):
         ensure_schema_current(db)
         now = time.time()
         row = db.execute(
-            "SELECT users.id,users.email,users.role,users.active,sessions.csrf_token,sessions.last_seen_at,sessions.expires_at FROM sessions JOIN users ON users.id=sessions.user_id WHERE token_hash = %s",
+            "SELECT users.id,users.email,users.role,users.ui_language,users.active,sessions.csrf_token,sessions.last_seen_at,sessions.expires_at FROM sessions JOIN users ON users.id=sessions.user_id WHERE token_hash = %s",
             (digest(token),),
         ).fetchone()
         if row is None:
@@ -209,3 +210,35 @@ def revoke_session(token):
     with auth_connection(write=True) as db:
         ensure_schema_current(db)
         revoke_sessions(db, token_hash=digest(token), reason="logout", source="web", revoked_at=time.time())
+
+
+def update_preferences(token, csrf_token, ui_language):
+    if ui_language not in ("zh-CN", "en"):
+        raise StorageError("invalid_request", "认证请求格式无效。", 422)
+    error, result = None, None
+    with auth_connection(write=True) as db:
+        ensure_schema_current(db)
+        now = time.time()
+        token_hash = digest(token)
+        row = db.execute(
+            """SELECT users.id,users.active,sessions.csrf_token,sessions.last_seen_at,sessions.expires_at
+            FROM sessions JOIN users ON users.id=sessions.user_id WHERE token_hash = %s
+            FOR UPDATE OF users, sessions""", (token_hash,),
+        ).fetchone()
+        reason = session_expiry_reason(row, now, settings().idle_seconds) if row else None
+        if row is None or reason:
+            if row:
+                revoke_sessions(db, token_hash=token_hash, reason=reason, source="session", revoked_at=now)
+            error = StorageError("authentication_required", "请登录后继续。", 401)
+        elif not hmac.compare_digest(csrf_token.encode("utf-8"), row["csrf_token"].encode("ascii")):
+            error = StorageError("csrf_invalid", "请求安全凭据无效，请重新登录。", 403)
+        else:
+            updated = db.execute(
+                "UPDATE users SET ui_language = %s, updated_at = %s WHERE id = %s RETURNING ui_language",
+                (ui_language, now, row["id"]),
+            ).fetchone()
+            result = dict(updated)
+    # Commit expiry revocation before raising the response error.
+    if error:
+        raise error
+    return result

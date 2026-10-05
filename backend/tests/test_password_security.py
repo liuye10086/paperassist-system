@@ -251,10 +251,15 @@ def test_migration_preserves_accounts_sessions_projects_and_matches_metadata(pos
         command.downgrade(config, "0002_auth_ownership")
         originals = {table: [dict(row) for row in db.execute(f"SELECT * FROM {table}")] for table in ("users", "sessions", "projects")}
     migrate_database(postgres_schema)
-    assert SCHEMA_HEAD == "0003_password_security"
+    assert SCHEMA_HEAD == "0004_language_preferences"
     with database_connection() as db:
         for table, original in originals.items():
-            assert [dict(row) for row in db.execute(f"SELECT * FROM {table}")] == original
+            actual = [dict(row) for row in db.execute(f"SELECT * FROM {table}")]
+            for row in actual:
+                if table in ("users", "projects"):
+                    column = "ui_language" if table == "users" else "default_output_language"
+                    assert row.pop(column) == "zh-CN"
+            assert actual == original
         inspector = inspect(db.raw_connection)
         assert set(inspector.get_table_names()) == set(metadata.tables) | {"alembic_version"}
         for table in ("session_revocations", "password_recovery_codes", "auth_password_attempts"):

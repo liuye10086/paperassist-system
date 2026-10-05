@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { apiFetch, captureApiSession, onApiSessionChanged } from '../api'
+import { message, useI18n } from '../i18n'
 
 type Props = { mode: 'change' | 'reset'; onCancel: () => void; onSuccess: () => void }
 const passwordRule = '新密码须为12–128个字符。'
@@ -7,7 +8,7 @@ const passwordRule = '新密码须为12–128个字符。'
 async function passwordError(response: Response) {
   if (response.status === 429) {
     const retry = response.headers.get('Retry-After')
-    return `密码操作尝试过多，请${retry && /^\d{1,6}$/.test(retry) ? ` ${retry} 秒后` : '稍后'}重试。`
+    return retry && /^\d{1,6}$/.test(retry) ? message('密码操作尝试过多，请 {seconds} 秒后重试。', { seconds: retry }) : '密码操作尝试过多，请稍后重试。'
   }
   const body = await response.json().catch(() => null)
   switch (body?.detail?.code) {
@@ -19,6 +20,7 @@ async function passwordError(response: Response) {
 }
 
 export default function PasswordForm({ mode, onCancel, onSuccess }: Props) {
+  const { t } = useI18n()
   const [credential, setCredential] = useState('')
   const [password, setPassword] = useState('')
   const [confirmation, setConfirmation] = useState('')
@@ -93,27 +95,25 @@ export default function PasswordForm({ mode, onCancel, onSuccess }: Props) {
   }
 
   return <section className="login-panel">
-    <h2>{mode === 'change' ? '修改密码' : '恢复密码'}</h2>
-    {mode === 'reset' && <p>请联系管理员线下核验身份，获取15分钟有效、仅可使用一次的恢复码，再在此设置新密码。</p>}
-    <p>{passwordRule}更新成功后全部旧会话失效，请重新登录。</p>
+    <h2>{mode === 'change' ? t("修改密码") : t("恢复密码")}</h2>
+    {mode === 'reset' && <p>{t("请联系管理员线下核验身份，获取15分钟有效、仅可使用一次的恢复码，再在此设置新密码。")}</p>}
+    <p>{t(passwordRule)}{t("更新成功后全部旧会话失效，请重新登录。")}</p>
     <form onSubmit={event => void submit(event)} aria-busy={busy}>
-      <label>{mode === 'change' ? '当前密码' : '恢复码'}
+      <label>{mode === 'change' ? t("当前密码") : t("恢复码")}
         <input type="password" autoComplete={mode === 'change' ? 'current-password' : 'off'} required
           value={credential} disabled={busy} onChange={event => setCredential(event.target.value)} />
       </label>
-      <label>新密码
-        <input type="password" autoComplete="new-password" required value={password} disabled={busy}
+      <label>{t("新密码")}<input type="password" autoComplete="new-password" required value={password} disabled={busy}
           onChange={event => setPassword(event.target.value)} />
       </label>
-      <label>确认新密码
-        <input type="password" autoComplete="new-password" required value={confirmation} disabled={busy}
+      <label>{t("确认新密码")}<input type="password" autoComplete="new-password" required value={confirmation} disabled={busy}
           onChange={event => setConfirmation(event.target.value)} />
       </label>
       <div className="password-actions">
-        <button type="submit" disabled={busy}>{busy ? '正在更新密码……' : mode === 'change' ? '确认修改密码' : '重置密码'}</button>
-        <button type="button" onClick={() => { abort(); clearSecrets(); onCancel() }}>{mode === 'change' ? '取消' : '返回登录'}</button>
+        <button type="submit" disabled={busy}>{busy ? t("正在更新密码……") : mode === 'change' ? t("确认修改密码") : t("重置密码")}</button>
+        <button type="button" onClick={() => { abort(); clearSecrets(); onCancel() }}>{mode === 'change' ? t("取消") : t("返回登录")}</button>
       </div>
-      {error && <p role="alert">{error}</p>}
+      {error && <p role="alert">{t(error)}</p>}
     </form>
   </section>
 }

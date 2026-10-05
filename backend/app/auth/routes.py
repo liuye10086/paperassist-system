@@ -1,8 +1,10 @@
 from fastapi import APIRouter, Request, Response
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
+from typing import Literal
 from fastapi.routing import APIRoute
 from fastapi.exceptions import RequestValidationError
 from starlette.responses import JSONResponse
+from app.errors import error_detail
 
 
 class AuthRoute(APIRoute):
@@ -15,10 +17,7 @@ class AuthRoute(APIRoute):
             except RequestValidationError:
                 return JSONResponse(
                     {
-                        "detail": {
-                            "code": "invalid_request",
-                            "message": "认证请求格式无效。",
-                        }
+                        "detail": error_detail("invalid_request", "认证请求格式无效。")
                     },
                     status_code=422,
                     headers={"Cache-Control": "no-store"},
@@ -27,7 +26,7 @@ class AuthRoute(APIRoute):
         return safe_handler
 
 
-from .service import authenticate, revoke_session
+from .service import authenticate, revoke_session, update_preferences
 from .config import settings
 from .middleware import COOKIE_NAME
 from .passwords import change_password, recover_password
@@ -38,6 +37,11 @@ router = APIRouter(prefix="/api/v1/auth", tags=["auth"], route_class=AuthRoute)
 class LoginInput(BaseModel):
     email: str = Field(max_length=254)
     password: str = Field(max_length=128)
+
+
+class PreferencesInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    ui_language: Literal["zh-CN", "en"]
 
 
 class ChangePasswordInput(BaseModel):
@@ -71,6 +75,16 @@ def login(body: LoginInput, request: Request, response: Response):
 @router.get("/me")
 def me(request: Request):
     return {"user": request.state.user, "csrf_token": request.state.csrf_token}
+
+
+@router.get("/preferences", response_model=PreferencesInput)
+def preferences(request: Request):
+    return {"ui_language": request.state.user["ui_language"]}
+
+
+@router.patch("/preferences", response_model=PreferencesInput)
+def save_preferences(body: PreferencesInput, request: Request):
+    return update_preferences(request.cookies[COOKIE_NAME], request.headers.get("X-CSRF-Token", ""), body.ui_language)
 
 
 @router.post("/logout", status_code=204)

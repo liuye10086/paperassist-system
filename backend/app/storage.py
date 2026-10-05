@@ -19,8 +19,9 @@ PROJECT_UPDATE_LIMITS = {'name': 120, 'research_topic': 500}
 
 
 class StorageError(Exception):
-    def __init__(self, code: str, message: str, status: int = 503):
+    def __init__(self, code: str, message: str, status: int = 503, *, params=None):
         self.code, self.message, self.status = code, message, status
+        self.params = params or {}
         super().__init__(message)
 
 
@@ -71,7 +72,7 @@ class ProjectStore:
         parameters = (self.owner_id,) if self.owner_id is not None else ()
         with self.connection() as db:
             return [dict(row) for row in db.execute("""
-                SELECT projects.id, name, research_topic, project_type, created_at, updated_at,
+                SELECT projects.id, name, research_topic, project_type, default_output_language, created_at, updated_at,
                     (SELECT count(*) FROM files WHERE project_id = projects.id) AS file_count
                 FROM projects
             """ + scope + ' ORDER BY updated_at DESC, id', parameters)]
@@ -99,7 +100,7 @@ class ProjectStore:
             parameters.append(q)
         where = ' WHERE ' + ' AND '.join(conditions) if conditions else ''
         parameters = tuple(parameters)
-        projection = '''SELECT projects.id, name, research_topic, project_type, created_at, updated_at,
+        projection = '''SELECT projects.id, name, research_topic, project_type, default_output_language, created_at, updated_at,
             (SELECT count(*) FROM files WHERE project_id = projects.id) AS file_count
             FROM projects'''
         # connection() opens one read-only REPEATABLE READ transaction; count
@@ -116,7 +117,7 @@ class ProjectStore:
         parameters = (project_id, self.owner_id) if self.owner_id is not None else (project_id,)
         with self.connection() as db:
             row = db.execute("""
-                SELECT projects.id, name, research_topic, project_type, created_at, updated_at,
+                SELECT projects.id, name, research_topic, project_type, default_output_language, created_at, updated_at,
                     (SELECT count(*) FROM files WHERE project_id = projects.id) AS file_count
                 FROM projects WHERE id = %s
             """ + scope, parameters).fetchone()
@@ -124,14 +125,16 @@ class ProjectStore:
             raise StorageError("project_not_found", "项目不存在，请刷新项目列表。", 404)
         return dict(row)
 
-    def create_project(self, name: str, research_topic: str, project_type: str):
+    def create_project(self, name: str, research_topic: str, project_type: str, default_output_language: str = 'zh-CN'):
+        if default_output_language not in ('zh-CN', 'en'):
+            raise StorageError('project_language_invalid', '项目默认输出语言仅支持中文或英文。', 422)
         project_id = str(uuid4())
         now = datetime.now(timezone.utc).isoformat()
         with self.connection(write=True) as db:
             db.execute("""INSERT INTO projects
-                (id, name, research_topic, project_type, created_at, updated_at, owner_id)
-                VALUES (%s, %s, %s, %s, %s, %s, %s)""",
-                       (project_id, name, research_topic, project_type, now, now, self.owner_id))
+                (id, name, research_topic, project_type, created_at, updated_at, owner_id, default_output_language)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)""",
+                       (project_id, name, research_topic, project_type, now, now, self.owner_id, default_output_language))
         return self.project(project_id)
 
     def update_project(self, project_id: str, changes: dict) -> dict:
@@ -152,7 +155,7 @@ class ProjectStore:
 
         scope = ' AND owner_id = %s' if self.owner_id is not None else ''
         parameters = (project_id, self.owner_id) if self.owner_id is not None else (project_id,)
-        projection = '''projects.id, name, research_topic, project_type, created_at, updated_at,
+        projection = '''projects.id, name, research_topic, project_type, default_output_language, created_at, updated_at,
             (SELECT count(*) FROM files WHERE project_id = projects.id) AS file_count'''
         with self.connection(write=True) as db:
             row = db.execute('SELECT ' + projection + ' FROM projects WHERE id = %s' + scope
@@ -171,6 +174,26 @@ class ProjectStore:
                                  + ', updated_at = GREATEST(updated_at, %s) WHERE id = %s'
                                  + scope + ' RETURNING ' + projection,
                                  tuple(normalized[field] for field in changed_fields) + (now,) + parameters).fetchone()
+            return dict(updated)
+
+    def update_project_language(self, project_id: str, default_output_language: str) -> dict:
+        if default_output_language not in ('zh-CN', 'en'):
+            raise StorageError('project_language_invalid', '项目默认输出语言仅支持中文或英文。', 422)
+        scope = ' AND owner_id = %s' if self.owner_id is not None else ''
+        parameters = (project_id, self.owner_id) if self.owner_id is not None else (project_id,)
+        projection = '''projects.id, name, research_topic, project_type, default_output_language, created_at, updated_at,
+            (SELECT count(*) FROM files WHERE project_id = projects.id) AS file_count'''
+        with self.connection(write=True) as db:
+            row = db.execute('SELECT ' + projection + ' FROM projects WHERE id = %s' + scope
+                             + ' FOR UPDATE OF projects', parameters).fetchone()
+            if row is None:
+                raise StorageError('project_not_found', '项目不存在，请刷新项目列表。', 404)
+            if row['default_output_language'] == default_output_language:
+                return dict(row)
+            now = datetime.now(timezone.utc).isoformat()
+            updated = db.execute('UPDATE projects SET default_output_language = %s, '
+                                 'updated_at = GREATEST(updated_at, %s) WHERE id = %s' + scope + ' RETURNING ' + projection,
+                                 (default_output_language, now, *parameters)).fetchone()
             return dict(updated)
 
     @staticmethod
@@ -349,6 +372,7 @@ class ProjectStore:
             if existing and (existing['status'] not in ('failed', 'uncertain') or not retry):
                 return existing, False
             job = {'id': str(uuid4()), 'analysis_run_id': result['id'], 'status': 'submitting',
+                   'message_code': 'task_submitting', 'message_params': {},
                    'message': '正在向 OpenAI 提交数据，请勿重复生成。', 'response_id': None, 'container_id': None,
                    'created_at': datetime.now(timezone.utc).isoformat(), 'model': model,
                    'payload': payload, 'expected': expected}
