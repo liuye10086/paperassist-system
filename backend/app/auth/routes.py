@@ -4,7 +4,7 @@ from typing import Literal
 from fastapi.routing import APIRoute
 from fastapi.exceptions import RequestValidationError
 from starlette.responses import JSONResponse
-from app.errors import error_detail
+from app.core.errors import error_detail
 
 
 class AuthRoute(APIRoute):
@@ -26,10 +26,10 @@ class AuthRoute(APIRoute):
         return safe_handler
 
 
-from .service import authenticate, revoke_session, update_preferences
-from .config import settings
-from .middleware import COOKIE_NAME
-from .passwords import change_password, recover_password
+from app.auth.service import authenticate, revoke_session, update_preferences
+from app.auth.config import settings
+from app.auth.middleware import COOKIE_NAME
+from app.auth.passwords import change_password, recover_password
 
 router = APIRouter(prefix="/api/v1/auth", tags=["auth"], route_class=AuthRoute)
 

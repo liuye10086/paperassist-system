@@ -4,14 +4,11 @@ import secrets
 import time
 from argon2.exceptions import VerificationError, InvalidHashError
 
-from app.database import ensure_schema_current
-from app.storage import StorageError
-from .config import settings
-from .service import (
-    AccountValidationError, auth_connection, digest, hasher, normalize_email,
-    password_hash, validate_password,
-)
-from .revocations import invalidate_recovery_codes, revoke_sessions, session_expiry_reason
+from app.db.database import ensure_schema_current
+from app.core.exceptions import StorageError
+from app.auth.config import settings
+from app.auth.service import AccountValidationError, auth_connection, digest, hasher, normalize_email, password_hash, validate_password
+from app.auth.revocations import invalidate_recovery_codes, revoke_sessions, session_expiry_reason
 
 WINDOW_SECONDS = 900
 

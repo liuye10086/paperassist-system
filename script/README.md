@@ -1,5 +1,31 @@
 # 本机验收启动脚本
 
+## 目录与入口
+
+```text
+script/
+  dev.cmd                         # 日常启动、停止和状态入口
+  setup-database-roles.cmd         # 本机数据库运行账号初始化入口
+  dev/
+    dev.ps1                       # 进程管理与健康检查
+    process-tree.cs               # Windows 受管进程树停止
+  database/
+    setup_database_roles.py       # 角色与配置初始化实现
+  tests/
+    test_setup_database_roles.py   # 配置处理与失败脱敏测试
+  .runtime/                       # 本地日志、状态与验证证据，Git 忽略
+```
+
+两个根 `.cmd` 入口保持不变，均按脚本自身位置定位项目，可从其他工作目录调用。实现目录调整不会移动 `backend/.env*`、`backend/data/`、`backend/backups/` 或 `script/.runtime/`。
+
+在项目根目录运行脚本单元测试：
+
+```powershell
+.\backend\.venv\Scripts\python.exe script/tests/test_setup_database_roles.py
+```
+
+也可用 `.\backend\.venv\Scripts\python.exe -m unittest discover -s script/tests -p "test_*.py"` 收集。测试定位 `database/` 中的实现，mock 掉数据库初始化入口，仅验证配置处理、文件原子替换、URL 校验与失败脱敏；不执行真实角色初始化。
+
 ## 数据库运行账号初始化（第6项①）
 
 `setup-database-roles.cmd` 用于已有本机数据库从 owner 运行账号切换为独立运行账号。在项目根目录运行或双击：
@@ -38,7 +64,7 @@
 
 日志和 PID/启动时间/可执行文件路径保存在被 Git 忽略的 `script/.runtime/`。查看 `backend.stderr.log`、`frontend.stderr.log` 可排查启动失败；新一轮启动覆盖这些日志。脚本仅监听本机回环地址。
 
-停止时先核对记录的进程身份，再结束该进程及其子进程；不按端口或进程名批量结束。`process-tree.cs` 使用 Windows 原生进程快照与进程句柄，不依赖本机可能挂起的 WMI 或 `taskkill`。这是强制停止，验收时有上传或生成任务正在执行，应等待完成后再停止。端口被其他程序占用时拒绝启动；状态异常时保留记录供排查，不接管其他终端启动的服务。
+停止时先核对记录的进程身份，再结束该进程及其子进程；不按端口或进程名批量结束。`dev/process-tree.cs` 使用 Windows 原生进程快照与进程句柄，不依赖本机可能挂起的 WMI 或 `taskkill`。这是强制停止，验收时有上传或生成任务正在执行，应等待完成后再停止。端口被其他程序占用时拒绝启动；状态异常时保留记录供排查，不接管其他终端启动的服务。
 
 协作顺序：完成开发 → 运行启动脚本 → 用户手动验收 → 用户反馈验收完成 → 停止前后端 → 用户提供提交信息 → 按授权提交推送。启动脚本本身不会提交或推送。
 

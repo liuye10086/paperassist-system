@@ -1,0 +1,171 @@
+.project-list {
+  min-width: 0;
+  color: var(--text);
+}
+
+.project-list .project-list-filters {
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 24px;
+}
+
+.project-list .project-list-filters label {
+  display: grid;
+  gap: 8px;
+  color: var(--text);
+  font-size: 12px;
+}
+
+.project-list .project-search-field {
+  flex: 1 1 240px;
+  max-width: 420px;
+}
+
+.project-list .project-list-filters input {
+  width: 100%;
+}
+
+.project-list .project-table-scroll {
+  width: 100%;
+  overflow-x: auto;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+
+.project-list .project-table {
+  width: 100%;
+  min-width: 860px;
+  border-collapse: collapse;
+  text-align: left;
+  font-size: 13px;
+}
+
+.project-list .project-table caption {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.project-list .project-table th {
+  padding: 15px 16px;
+  background: var(--surface);
+  color: var(--text);
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.project-list .project-table td {
+  padding: 22px 16px;
+  border-top: 1px solid var(--border);
+  vertical-align: middle;
+}
+
+.project-list .project-table tbody tr:hover {
+  background: var(--accent-bg);
+}
+
+.project-list .project-table td:first-child {
+  width: 28%;
+  min-width: 180px;
+}
+
+.project-list .project-name {
+  display: inline-block;
+  padding: 4px 0;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--text-h);
+  font-weight: 600;
+  text-align: left;
+  overflow-wrap: anywhere;
+  line-height: 1.6;
+}
+
+.project-list .project-name:hover {
+  color: var(--accent);
+  background: transparent;
+}
+
+.project-list .project-type-badge {
+  display: inline-block;
+  padding: 4px 9px;
+  border-radius: 5px;
+  background: var(--accent-bg);
+  color: var(--accent);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.project-list time {
+  white-space: nowrap;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.project-list .project-table th:last-child,
+.project-list .project-table td:last-child {
+  text-align: right;
+}
+
+.project-list .project-row-open {
+  padding: 6px 10px;
+  font-size: 20px;
+  color: var(--accent);
+}
+
+.project-list .empty-preview {
+  display: grid;
+  justify-items: center;
+  gap: 16px;
+  padding: 56px 20px;
+  text-align: center;
+  border-bottom: 1px solid var(--border);
+}
+
+.project-list .empty-preview p {
+  margin: 0;
+}
+
+.project-list > [role='status'] {
+  margin: 0 0 16px;
+  color: var(--text);
+  font-size: 13px;
+}
+
+.project-list .error-panel {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.project-list .project-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding-top: 20px;
+  font-size: 12px;
+}
+
+.project-list .project-pagination > span {
+  font-variant-numeric: tabular-nums;
+}
+
+@media (max-width: 640px) {
+  .project-list .project-search-field {
+    flex-basis: 100%;
+    max-width: none;
+  }
+}

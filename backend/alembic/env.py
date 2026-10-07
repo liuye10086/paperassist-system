@@ -2,10 +2,8 @@
 from contextlib import nullcontext
 
 from alembic import context
-from app.database import (get_migration_database_config, get_database_config,
-    migration_connection, validate_migration_connection, validate_database_pair,
-    migration_summary, grant_runtime_access)
-from app.db_schema import metadata
+from app.db.database import get_migration_database_config, get_database_config, migration_connection, validate_migration_connection, validate_database_pair, migration_summary, grant_runtime_access
+from app.db.schema import metadata
 
 config = context.config
 

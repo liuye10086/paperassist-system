@@ -1,7 +1,7 @@
 """Authentication settings, evaluated from project-local configuration."""
 
 from dataclasses import dataclass
-from app.config import local_config
+from app.core.config import local_config
 
 
 @dataclass(frozen=True)

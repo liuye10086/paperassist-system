@@ -7,7 +7,7 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from app.legacy_import import ImportError, import_sqlite, inspect_source, snapshot_source
+from app.maintenance.legacy_import import ImportError, import_sqlite, inspect_source, snapshot_source
 
 
 def _write_report(stream, result):
@@ -70,7 +70,7 @@ def main():
             result = {'status': 'validated', **inspect_source(args.source, args.data_dir).manifest()}
         else:
             if args.migrate:
-                from app.database import migrate_database
+                from app.db.database import migrate_database
                 database_started = True
                 migrate_database()
             database_started = True

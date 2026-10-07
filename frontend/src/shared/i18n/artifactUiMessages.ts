@@ -1,0 +1,16 @@
+export const artifactUiMessages: Record<string, string> = {
+  '图表': 'Chart',
+  '分析解释': 'Explanation',
+  'Word 报告': 'Word report',
+  '当前结果': 'Current result',
+  '历史结果': 'Historical result',
+  '以下图表对应旧配置，仍可查看和下载。': 'This chart belongs to an older setup and is available to view and download.',
+  '以下解释对应旧配置或旧图表，仅供查看，请使用当前结果重新生成。': 'This explanation belongs to an older setup or chart. Generate a new explanation from the current results.',
+  '以下报告对应旧配置或旧来源，可继续下载历史报告。': 'This report belongs to an older setup or source. The historical report remains available to download.',
+  '请先完成图表和分析解释，再生成 Word 报告。': 'Complete the chart and explanation before generating a Word report.',
+  '请先生成并保存分析解释，再生成 Word 报告。': 'Generate and save an explanation before generating a Word report.',
+  '内容来自已保存的描述统计、箱线图和分析解释。': 'The contents come from saved descriptive statistics, the boxplot, and the explanation.',
+  '尚未生成 Word 报告。完成当前结果后，可将统计、图表和解释整理为可编辑文档。': 'No Word report has been generated. Complete the current results to combine statistics, the chart, and the explanation into an editable document.',
+  '中文': 'Chinese',
+  '英文': 'English',
+}

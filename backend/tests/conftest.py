@@ -22,8 +22,8 @@ def postgres_schema(request, monkeypatch, tmp_path):
 
     from sqlalchemy import create_engine
     from sqlalchemy.pool import NullPool
-    from app.config import local_config
-    from app.database import DatabaseConfig, get_database_config, get_migration_database_config, migrate_database, validate_database_pair
+    from app.core.config import local_config
+    from app.db.database import DatabaseConfig, get_database_config, get_migration_database_config, migrate_database, validate_database_pair
 
     url = local_config().get('PAPERASSIST_TEST_DATABASE_URL')
     if not url:
@@ -62,7 +62,7 @@ def postgres_schema(request, monkeypatch, tmp_path):
 
 @pytest.fixture
 def postgres_migration_config(postgres_schema):
-    from app.database import get_migration_database_config
+    from app.db.database import get_migration_database_config
 
     config = get_migration_database_config()
     assert config.schema == postgres_schema.schema
@@ -72,7 +72,7 @@ def postgres_migration_config(postgres_schema):
 @pytest.fixture
 def reject_database_write(postgres_schema):
     """Inject a real PostgreSQL transaction failure, then restore normal writes."""
-    from app.database import migration_connection
+    from app.db.database import migration_connection
 
     @contextmanager
     def rejecting(table, event='INSERT'):

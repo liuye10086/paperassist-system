@@ -1,0 +1,13 @@
+.analysis-workflow-nav { display:flex; flex-wrap:wrap; gap:8px; margin:0 0 24px; border-bottom:1px solid #e5e3e9; padding-bottom:16px; }
+.analysis-workflow-nav button { background:transparent; color:#625c6d; border:1px solid transparent; }
+.analysis-workflow-nav button[aria-current="step"] { color:#4f286f; background:#eee9f5; border-color:#ded3eb; font-weight:600; }
+.workflow-stage[hidden] { display:none; }
+.analysis-config-layout { display:grid; grid-template-columns:minmax(280px, 0.85fr) minmax(0, 1.15fr); gap:28px; align-items:start; }
+.analysis-data-overview { min-width:0; border-left:1px solid #e5e3e9; padding-left:28px; }
+.analysis-data-overview .field-table-scroll { max-width:100%; }
+.workflow-empty { padding:28px 0; color:#716b7a; }
+.analysis-setup .section-heading { margin-bottom:20px; }
+.statistics-results .statistics-provenance { margin-top:20px; }
+@media (max-width:950px) { .analysis-config-layout { grid-template-columns:1fr; } .analysis-data-overview { border-left:0; padding-left:0; border-top:1px solid #e5e3e9; padding-top:20px; } }
+.workflow-read-status { margin-bottom: 20px; }
+.workflow-read-status > button { margin-top: 10px; }

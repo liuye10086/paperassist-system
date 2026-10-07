@@ -1,11 +1,13 @@
 # 阶段06：SCI初稿与文档导出
 
+当前代码已于2026-10-07按职责整理，目录职责及旧新路径映射见[项目结构](../项目结构.md)；本页拟新增项仍是后续计划。
+
 版本：V0.1\
 更新日期：2026-09-29\
 目标：建立两类论文共用写作引擎，交付 SCI 七部分初稿与公共 DOCX/PDF 导出。\
 依据章节：需求§2.4—2.5、§4.1—4.3、§6.1—6.4、§6.7、§8—9；技术方案§5、§8.1—8.2、§8.4、§12—14、§16。\
 前置依赖：阶段04已验证的核心分析结果与图表契约、阶段05文献核验；不等待全部高级统计方法上线。\
-涉及代码位置：现有 `backend/app/analysis.py`、`explanations.py`、`openai_explanation.py`、`reports.py`、`report_store.py`、`report_docx.py` 和 `frontend/src/WordReport.tsx`、`ProjectWorkspace.tsx` 可复用或扩展；`backend/app/writing/`、`backend/app/exports/`、`frontend/src/manuscripts/`、`backend/tests/test_manuscripts.py`、`backend/tests/test_exports.py` 均为拟新增。
+涉及代码位置：现有 `backend/app/domain/analysis.py`、`backend/app/domain/explanations.py`、`backend/app/adapters/openai_explanation.py`、`backend/app/domain/reports.py`、`backend/app/adapters/report_store.py`、`backend/app/adapters/report_docx.py` 和 `frontend/src/features/reports/WordReport.tsx`、`frontend/src/features/projects/ProjectWorkspace.tsx` 可复用或扩展；`backend/app/writing/`、`backend/app/exports/`、`frontend/src/manuscripts/`、`backend/tests/test_manuscripts.py`、`backend/tests/test_exports.py` 均为拟新增。
 
 复用现有分析、解释、Word 报告及阶段02模型适配层，提取共用写作与导出服务；SCI 与毕业论文通过项目类型、章节规则和模板配置分流。既有报告代码不等于已具备论文写作和 PDF 能力。新增在线富文本编辑器不属于本阶段默认要求。
 

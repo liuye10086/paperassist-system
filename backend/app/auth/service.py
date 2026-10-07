@@ -8,11 +8,12 @@ import time
 from uuid import uuid4
 from argon2 import PasswordHasher, Type
 from argon2.exceptions import VerificationError, InvalidHashError
-from app.storage import _storage_connection, StorageError
+from app.adapters.storage import _storage_connection
+from app.core.exceptions import StorageError
 from contextlib import contextmanager
-from app.database import ensure_schema_current
-from .config import settings
-from .revocations import invalidate_recovery_codes, revoke_sessions, session_expiry_reason
+from app.db.database import ensure_schema_current
+from app.auth.config import settings
+from app.auth.revocations import invalidate_recovery_codes, revoke_sessions, session_expiry_reason
 
 
 class AccountValidationError(ValueError):

@@ -3,13 +3,8 @@
 import argparse
 import getpass
 import sys
-from app.auth.service import (
-    bootstrap_admin,
-    create_user,
-    reset_password,
-    set_user_active,
-)
-from app.storage import StorageError
+from app.auth.service import bootstrap_admin, create_user, reset_password, set_user_active
+from app.core.exceptions import StorageError
 from app.auth.passwords import issue_recovery_code
 
 

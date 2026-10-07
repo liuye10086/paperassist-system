@@ -6,21 +6,24 @@ from fastapi import FastAPI
 from fastapi.exceptions import RequestValidationError
 from starlette.exceptions import HTTPException
 
-from .config import get_excel_settings, local_config
-from .excel import router as excel_router
-from .upload_limit import UploadLimitMiddleware
-from .auth.middleware import AuthMiddleware
-from .auth.routes import router as auth_router
-from .auth.config import settings as auth_settings
-from .projects import router as projects_router
-from .storage import StorageError, check_database_ready
-from .analysis import router as analysis_router
-from .descriptive import router as descriptive_router
-from .boxplot import router as boxplot_router, poll_pending_figures
-from .openai_plot import configuration
-from .explanations import router as explanations_router, poll_pending_explanations
-from .reports import router as reports_router
-from .errors import PUBLIC_CODES, error_response, fallback_error, unexpected_error_response
+from app.core.config import get_excel_settings, local_config
+from app.api.excel import router as excel_router
+from app.api.upload_limit import UploadLimitMiddleware
+from app.auth.middleware import AuthMiddleware
+from app.auth.routes import router as auth_router
+from app.auth.config import settings as auth_settings
+from app.api.projects import router as projects_router
+from app.core.exceptions import StorageError
+from app.adapters.storage import check_database_ready
+from app.api.analysis import router as analysis_router
+from app.api.descriptive import router as descriptive_router
+from app.api.boxplot import router as boxplot_router
+from app.domain.boxplot import poll_pending_figures
+from app.adapters.openai_plot import configuration
+from app.api.explanations import router as explanations_router
+from app.domain.explanations import poll_pending_explanations
+from app.api.reports import router as reports_router
+from app.core.errors import PUBLIC_CODES, error_response, fallback_error, unexpected_error_response
 
 # Fail early on invalid environment configuration.
 get_excel_settings()

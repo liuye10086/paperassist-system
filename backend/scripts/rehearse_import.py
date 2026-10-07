@@ -33,8 +33,8 @@ def validate_target(config):
 
 
 def read_target(config):
-    from app.database import migration_connection
-    from app.legacy_import import TABLE_COLUMNS, JOB_TABLES
+    from app.db.database import migration_connection
+    from app.maintenance.legacy_import import TABLE_COLUMNS, JOB_TABLES
     validate_target(config)
     with migration_connection(config=config) as db:
         if db.execute('SELECT current_database() AS name').fetchone()['name'] != 'paperassist_system_test':
@@ -45,7 +45,7 @@ def read_target(config):
 
 
 def sequence_state(config):
-    from app.database import migration_connection
+    from app.db.database import migration_connection
     validate_target(config)
     with migration_connection(config=config) as db:
         return [dict(row) for row in db.execute('''SELECT sequencename, start_value, increment_by, last_value
@@ -54,7 +54,7 @@ def sequence_state(config):
 
 def interrupt_child(source, directory, barrier, config):
     """Kill only the child created by this call, holding its process handle throughout."""
-    from app.database import get_database_config, validate_database_pair
+    from app.db.database import get_database_config, validate_database_pair
     validate_target(config)
     runtime = get_database_config()
     validate_database_pair(config, runtime)
@@ -92,8 +92,8 @@ def interrupt_child(source, directory, barrier, config):
 
 
 def child_import(source, directory, barrier, schema):
-    from app.database import get_migration_database_config
-    from app.legacy_import import import_sqlite
+    from app.db.database import get_migration_database_config
+    from app.maintenance.legacy_import import import_sqlite
     from sqlalchemy.engine import Connection
     config = get_migration_database_config()
     validate_target(config)
@@ -121,8 +121,8 @@ def child_import(source, directory, barrier, schema):
 
 def scan_pending_jobs(directory):
     """Only run the application's recovery discovery queries; never poll a provider."""
-    from app.storage import ProjectStore
-    from app.explanation_store import ExplanationStore
+    from app.adapters.storage import ProjectStore
+    from app.adapters.explanation_store import ExplanationStore
     store = ProjectStore(directory)
     return {'figure_jobs': sorted(row['job_id'] for row in store.pending_figures()),
             'explanation_jobs': sorted(row['job_id'] for row in ExplanationStore(store).pending())}
@@ -130,8 +130,8 @@ def scan_pending_jobs(directory):
 
 def rehearse_on_config(source, directory, evidence, config):
     """Caller owns a freshly migrated schema. All data remains synthetic."""
-    from app.database import migration_connection
-    from app.legacy_import import import_sqlite, inspect_source, JOB_TABLES
+    from app.db.database import migration_connection
+    from app.maintenance.legacy_import import import_sqlite, inspect_source, JOB_TABLES
     validate_target(config)
     if any(read_target(config).values()):
         raise ValueError('Rehearsal requires an empty isolated test schema.')
@@ -193,9 +193,9 @@ def isolated_environment(settings):
 
 
 def execute_new_schema(source, directory, evidence):
-    from app.config import local_config
+    from app.core.config import local_config
     from dotenv import dotenv_values
-    from app.database import DatabaseConfig, get_migration_database_config, migrate_database, validate_database_pair
+    from app.db.database import DatabaseConfig, get_migration_database_config, migrate_database, validate_database_pair
     from sqlalchemy import create_engine
     from sqlalchemy.pool import NullPool
     values = local_config()
@@ -258,7 +258,7 @@ def main(argv=None):
         evidence = BACKUPS / ('import-drill-' + stamp)
         evidence.mkdir(parents=True, exist_ok=False)
         source, directory = create_complex_source(evidence / 'synthetic')
-        from app.legacy_import import inspect_source, snapshot_source
+        from app.maintenance.legacy_import import inspect_source, snapshot_source
         before = file_hashes(directory)
         inspected = inspect_source(source, directory)
         write_json(evidence / 'dry-run.json', {'status': 'validated', **inspected.manifest()})

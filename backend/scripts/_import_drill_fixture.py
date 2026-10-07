@@ -45,7 +45,7 @@ def create_complex_source(directory):
     from openpyxl import Workbook
     from PIL import Image
     from docx import Document
-    from app.explanation_content import VERSION
+    from app.domain.explanation_content import VERSION
 
     directory = Path(directory)
     directory.mkdir(parents=True, exist_ok=False)

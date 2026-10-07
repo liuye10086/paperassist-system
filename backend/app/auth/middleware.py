@@ -3,10 +3,10 @@
 import hmac
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.concurrency import run_in_threadpool
-from app.storage import StorageError
-from app.errors import error_response as public_error_response, unexpected_error_response
-from .config import settings
-from .service import resolve_session
+from app.core.exceptions import StorageError
+from app.core.errors import error_response as public_error_response, unexpected_error_response
+from app.auth.config import settings
+from app.auth.service import resolve_session
 
 COOKIE_NAME = "paperassist_session"
 

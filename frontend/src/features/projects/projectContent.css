@@ -1,0 +1,60 @@
+.selected-project { margin: 0; padding: 0; border: 0; min-width: 0; }
+.project-back { margin: -8px 0 22px; padding-left: 0; color: var(--text); font-size: 12px; }
+.project-page-heading { padding-bottom: 26px; margin-bottom: 30px; border-bottom: 1px solid var(--border); }
+.project-page-heading h1 { margin: 10px 0 12px; font-size: 30px; font-weight: 600; line-height: 1.4; overflow-wrap: anywhere; }
+.project-page-heading p { margin: 0; max-width: 900px; line-height: 1.8; overflow-wrap: anywhere; }
+.project-overview-heading { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; margin-bottom: 18px; }
+.project-overview-heading h2 { margin: 0; font-size: 21px; font-weight: 600; }
+.project-details { padding: 22px 24px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); }
+.project-details > .muted { margin-top: 0; margin-bottom: 16px; }
+.project-details .project-language { border-color: var(--border); margin-top: 20px; padding-top: 18px; }
+.project-language label { flex-wrap: wrap; }
+.project-edit-form { max-width: 800px; }
+.project-edit-form input, .project-edit-form textarea { width: 100%; }
+.project-shortcuts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; margin: 24px 0 32px; }
+.project-shortcuts button { display: flex; align-items: center; gap: 16px; padding: 22px; text-align: left; border-color: var(--border); background: var(--bg); }
+.project-shortcuts button:hover { background: var(--surface); }
+.project-shortcuts button > .workspace-icon:first-child { color: var(--accent); }
+.project-shortcuts button > .workspace-icon:last-child { margin-left: auto; width: 17px; }
+.project-shortcuts strong, .project-shortcuts small { display: block; }
+.project-shortcuts strong { color: var(--text-h); font-weight: 600; font-size: 14px; }
+.project-shortcuts small { margin-top: 6px; color: var(--text); font-size: 12px; line-height: 1.6; }
+.project-section-nav { margin: 10px 0 0 10px; padding-left: 14px; border-left: 1px solid var(--border); }
+.project-section-nav .workspace-nav-item { font-size: 12px; padding: 12px; }
+.current-project-name { color: var(--text-h); font-weight: 500; }
+.project-files-page { display: flex; flex-direction: column; min-width: 0; }
+.project-files-page .file-history { margin: 0 0 28px; }
+.project-files-page .preview-heading h2 { margin: 8px 0; font-size: 22px; font-weight: 600; }
+.project-files-page .preview-heading p { margin-bottom: 0; }
+.project-files-page .file-list { border-top: 1px solid var(--border); }
+.project-files-page .file-list > li { padding: 20px 4px; }
+.project-files-page .file-list > li[aria-current='true'] { background: var(--accent-bg); box-shadow: inset 3px 0 var(--accent); padding-left: 14px; }
+.file-preview-status { color: var(--accent); font-size: 12px; }
+.file-summary strong { color: var(--text-h); font-size: 14px; font-weight: 600; }
+.file-summary > span { padding: 3px 8px; border-radius: 6px; background: var(--surface); font-size: 11px; }
+.file-summary p { margin: 9px 0 0; }
+.file-actions button, .file-actions a { font-size: 12px; }
+.project-files-page .excel-preview { margin-top: 0; }
+.project-files-page .excel-preview .section-heading h2 { font-size: 21px; }
+.project-files-page .upload-panel { border-style: dashed; background: var(--surface); }
+.project-files-page .excel-preview button { background: var(--accent); color: #fff; border-color: var(--accent); border-radius: 8px; }
+.project-files-page .excel-preview button:hover:not(:disabled) { background: var(--accent-hover); border-color: var(--accent-hover); }
+.project-files-page .preview-panel, .project-files-page .preview-feedback { scroll-margin-top: 104px; }
+.project-files-page .preview-panel { border-color: var(--border); }
+.project-files-page .excel-preview .data-count { font-size: 16px; }
+.project-files-page .table-scroll { max-width: 100%; }
+.project-analysis-page { min-width: 0; }
+.project-analysis-page .analysis-setup { margin: 0; padding: 0; border: 0; }
+.project-analysis-page .statistics-results { margin: 0; padding: 0; border: 0; }
+.project-analysis-page .section-heading h3 { font-size: 22px; font-weight: 600; }
+@media (max-width: 900px) {
+  .project-shortcuts { grid-template-columns: minmax(0, 1fr); gap: 12px; }
+}
+@media (max-width: 760px) {
+  .project-files-page .preview-panel, .project-files-page .preview-feedback { scroll-margin-top: 160px; }
+  .project-page-heading { margin-bottom: 24px; padding-bottom: 22px; }
+  .project-page-heading h1 { font-size: 25px; }
+  .project-details { padding: 18px; }
+  .project-section-nav { margin-left: 0; padding-left: 0; border-left: 0; }
+  .project-shortcuts button { padding: 18px; }
+}
