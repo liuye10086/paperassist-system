@@ -1,5 +1,6 @@
 """Exercise connection guarantees against an isolated real PostgreSQL schema."""
 
+from app.database import migration_connection
 from concurrent.futures import ThreadPoolExecutor
 from threading import Event
 
@@ -73,10 +74,10 @@ def test_waiting_writer_observes_previous_writer_commit(postgres_schema):
         assert acquired.is_set()
 
 
-def test_migration_is_idempotent_and_matches_core_metadata(postgres_schema):
+def test_migration_is_idempotent_and_matches_core_metadata(postgres_schema, postgres_migration_config):
     with database_connection(write=True) as writer:
         insert_project(writer)
-    migrate_database(postgres_schema)
+    migrate_database(postgres_migration_config)
     with database_connection() as reader:
         ensure_schema_current(reader)
         inspector = inspect(reader.raw_connection)
@@ -91,7 +92,7 @@ def test_migration_is_idempotent_and_matches_core_metadata(postgres_schema):
 
 
 def test_schema_version_check_never_repairs_wrong_revision(postgres_schema):
-    with database_connection(write=True) as writer:
+    with migration_connection(write=True) as writer:
         writer.execute("UPDATE alembic_version SET version_num = %s", ("unknown_revision",))
     with pytest.raises(SchemaVersionError):
         with database_connection() as reader:

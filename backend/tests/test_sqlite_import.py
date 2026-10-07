@@ -1,5 +1,6 @@
 """Offline legacy fixtures only; destination tests use the isolated PostgreSQL fixture."""
 
+from app.database import migration_connection
 import hashlib
 import importlib.util
 import json
@@ -185,7 +186,7 @@ def test_existing_unrelated_target_data_is_never_overwritten(legacy):
 def test_target_without_current_schema_version_is_rejected(legacy, version_state):
     module = importer()
     from app.database import database_connection
-    with database_connection(write=True) as db:
+    with migration_connection(write=True) as db:
         if version_state == 'wrong_head':
             db.execute("UPDATE alembic_version SET version_num='unsupported_version'")
         elif version_state == 'missing_head':
@@ -212,7 +213,7 @@ def test_matching_ids_with_changed_values_are_not_treated_as_same_import(legacy)
 def test_late_insert_failure_rolls_back_all_tables(legacy):
     module = importer()
     from app.database import database_connection
-    with database_connection(write=True) as db:
+    with migration_connection(write=True) as db:
         db.execute("ALTER TABLE reports ADD CONSTRAINT test_reject_report CHECK (id <> 'report-1')")
     with pytest.raises(module.ImportError, match='transaction'):
         module.import_sqlite(*legacy)

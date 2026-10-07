@@ -146,3 +146,86 @@ def test_alembic_has_one_known_head(database):
 
     script = ScriptDirectory.from_config(database.alembic_config())
     assert script.get_heads() == [database.SCHEMA_HEAD]
+
+def test_migration_config_never_falls_back_to_runtime(database, monkeypatch):
+    monkeypatch.setattr(database, 'local_config', lambda: {'PAPERASSIST_DATABASE_URL': DEV_URL})
+    monkeypatch.setattr(database, 'dotenv_values', lambda *a, **kw: {})
+    monkeypatch.delenv('PAPERASSIST_MIGRATION_DATABASE_URL', raising=False)
+    with pytest.raises(ValueError, match='PAPERASSIST_MIGRATION_DATABASE_URL'):
+        database.get_migration_database_config()
+
+
+def test_migration_config_separate_file_and_same_endpoint(database, monkeypatch):
+    monkeypatch.setattr(database, 'local_config', lambda: {'PAPERASSIST_DATABASE_URL': DEV_URL})
+    observed = {}
+    def values(path, **kwargs):
+        observed.update(path=str(path), **kwargs)
+        return {'PAPERASSIST_MIGRATION_DATABASE_URL': 'postgresql://owner:secret@LOCALHOST/paperassist_system'}
+    monkeypatch.setattr(database, 'dotenv_values', values)
+    monkeypatch.delenv('PAPERASSIST_MIGRATION_DATABASE_URL', raising=False)
+    config = database.get_migration_database_config()
+    assert config.purpose == 'migration'
+    assert observed['path'].endswith('.env.migrations')
+    assert observed['encoding'] == 'utf-8-sig' and observed['interpolate'] is False
+
+
+@pytest.mark.parametrize('url', [DEV_URL, 'postgresql://owner@other/paperassist_system'])
+def test_migration_identity_must_be_separate_and_same_endpoint(database, monkeypatch, url):
+    monkeypatch.setattr(database, 'local_config', lambda: {'PAPERASSIST_DATABASE_URL': DEV_URL})
+    monkeypatch.setattr(database, 'dotenv_values', lambda *a, **kw: {'PAPERASSIST_MIGRATION_DATABASE_URL': url})
+    monkeypatch.delenv('PAPERASSIST_MIGRATION_DATABASE_URL', raising=False)
+    with pytest.raises(ValueError):
+        database.get_migration_database_config()
+
+
+def test_runtime_entrypoint_rejects_migration_purpose(database):
+    config = database.DatabaseConfig('development', DEV_URL, purpose='migration')
+    with pytest.raises(ValueError, match='runtime'):
+        with database.database_connection(config=config):
+            pass
+
+
+def test_migrate_entrypoint_rejects_runtime_purpose_before_connect(database):
+    with pytest.raises(ValueError, match='migration'):
+        database.migrate_database(database.DatabaseConfig('development', DEV_URL))
+
+
+def test_external_migration_connection_checks_server_identity(database):
+    config = database.DatabaseConfig('development', DEV_URL, purpose='migration')
+    connection = SimpleNamespace(engine=SimpleNamespace(url=config.url),
+        exec_driver_sql=lambda *args: SimpleNamespace(one=lambda: ('paperassist_system', 'other', 'app')))
+    with pytest.raises(ValueError, match='identity'):
+        database.validate_migration_connection(connection, config)
+
+
+def test_external_migration_connection_checks_engine_endpoint_before_query(database):
+    config = database.DatabaseConfig('development', DEV_URL, purpose='migration')
+    connection = SimpleNamespace(engine=SimpleNamespace(url='postgresql://app@other/paperassist_system'))
+    with pytest.raises(ValueError, match='endpoint'):
+        database.validate_migration_connection(connection, config)
+
+
+def test_migration_summary_never_prints_unknown_revision_or_credentials(database, capsys):
+    config = database.DatabaseConfig('development', DEV_URL, purpose='migration')
+    values = iter(['alembic_version', 'secret-revision-do-not-print-me'])
+    connection = SimpleNamespace(exec_driver_sql=lambda *args: SimpleNamespace(
+        scalar_one=lambda: next(values), scalar_one_or_none=lambda: next(values)))
+    database.migration_summary(connection, config)
+    output = capsys.readouterr().err
+    assert 'do-not-print-me' not in output
+    assert 'postgresql://' not in output
+    assert 'target_revision' in output
+
+
+@pytest.mark.parametrize('target,expected', [('0003_project_ownership', '0003_project_ownership'), ('base', None), ('head', '0005_ownership_indexes')])
+def test_migration_summary_uses_actual_command_target(database, capsys, target, expected):
+    import json
+    from alembic.script import ScriptDirectory
+    script = ScriptDirectory.from_config(database.alembic_config())
+    revisions = {r.revision for r in script.walk_revisions()}
+    if target.startswith('0003'):
+        target = expected = next(r for r in revisions if r.startswith('0003'))
+    config = database.DatabaseConfig('development', DEV_URL, purpose='migration')
+    connection = SimpleNamespace(exec_driver_sql=lambda *args: SimpleNamespace(scalar_one=lambda: None))
+    database.migration_summary(connection, config, target_revision=target)
+    assert json.loads(capsys.readouterr().err)['target_revision'] == expected

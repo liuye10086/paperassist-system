@@ -1,5 +1,6 @@
 """Readiness must reflect the actual PostgreSQL schema, not just HTTP liveness."""
 
+from app.database import migration_connection
 import pytest
 from fastapi.testclient import TestClient
 
@@ -9,7 +10,7 @@ from app.storage import StorageError
 
 
 def remove_migration_version():
-    with database_connection(write=True) as db:
+    with migration_connection(write=True) as db:
         db.execute('DROP TABLE alembic_version')
 
 

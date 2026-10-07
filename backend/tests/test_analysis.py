@@ -1,3 +1,4 @@
+from app.database import migration_connection
 from datetime import datetime
 from io import BytesIO
 import json
@@ -166,7 +167,7 @@ def test_explicit_migration_preserves_project_and_uploaded_file(client):
 @pytest.mark.parametrize('revision_state', ['missing', 'unknown'])
 def test_schema_mismatch_is_rejected_without_implicit_migration(client, revision_state):
     base, record = add_file(client)
-    with database_connection(write=True) as db:
+    with migration_connection(write=True) as db:
         revision = db.execute('SELECT version_num FROM alembic_version').fetchone()['version_num']
         if revision_state == 'missing':
             db.execute('DELETE FROM alembic_version')
@@ -175,7 +176,7 @@ def test_schema_mismatch_is_rejected_without_implicit_migration(client, revision
     response = client.get(base + '/preview')
     assert response.status_code == 503
     assert response.json()['detail']['code'] == 'storage_version'
-    with database_connection(write=True) as db:
+    with migration_connection(write=True) as db:
         current = db.execute('SELECT version_num FROM alembic_version').fetchone()
         if revision_state == 'missing':
             assert current is None

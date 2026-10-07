@@ -13,6 +13,7 @@ dist/
 .env
 .env.*
 !.env.example
+!.env.migrations.example
 
 # Logs
 *.log

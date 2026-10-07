@@ -4,6 +4,8 @@
 
 ## 当前进度
 
+2026-10-05第6项③开发侧验证完成：PC键盘操作、焦点恢复、15秒认证请求与正文超时、同步重复提交保护及阶段验收记录已完成，FE12、QA13勾选，阶段01为75/79项；DB25、BE21、FE15、QA15四项条件性邮件/公开注册继续未勾选。①②已由用户验收通过；2026-10-07用户确认③最终验收通过。后端全量553项（330.17秒）、前端21文件271项（11.24秒）、脚本6项unittest及pip check通过；随后仅修正restore的显式AuthRequest参数以通过TypeScript构建，最终4文件57项专项（3.28秒）、build/lint和diff检查通过，独立前端与运维审查Approved。隔离浏览器已验证真实键盘交互和换账号隔离；18006服务与测试schema已清理，开发库16表及5资产原值/hash不变，测试schema/public表均为0。未调用云端或在UI提交改密。2026-10-07验收服务已停止，现有改动保留；用户已于2026-10-07提供提交信息并授权统一提交推送，结果以Git记录为准，不自动开始阶段02。 见[PC键盘操作与阶段验收记录](docs/开发记录/阶段01/PC键盘操作与阶段验收记录.md)。
+
 已实现前后端基础工程、Excel 上传预览、本地项目与文件持久化，以及最小分析闭环：字段配置、真实描述统计、云端箱线图、AI 分析解释和 Word 分析报告导出。前五步已分别通过用户手动验收；第六步整条流程的开发侧验收与收尾已完成，用户于 2026-09-29 手动进入系统测试并确认最终验收通过。验证范围与限制见下方记录。
 
 - 前端：React + TypeScript + Vite
@@ -41,7 +43,7 @@
 - [参考项目接收与复用清单](docs/开发记录/项目管理/参考项目接收与复用清单.md)
 - [需求覆盖与决策台账](docs/开发记录/项目管理/需求覆盖与决策台账.md)
 
-本机 PostgreSQL 18.1 的开发库为 `paperassist_system`（owner `paperassist_app`），测试库为 `paperassist_system_test`（owner `paperassist_test`）。两个角色均非超级用户且无 `CREATEDB`/`CREATEROLE`；各自拥有对应数据库，可在其中显式执行迁移，并非仅有业务 DML 权限。已撤销两库的 `PUBLIC CONNECT`，连接授权分别授予对应角色。应用使用项目专用连接变量，拒绝缺失或不匹配的配置；不读取通用 `DATABASE_URL` 或 `TEST_DATABASE_URL`，后者在本机属于其他项目。后续阶段仍按数据库、后端、前端逐模块完成全部功能点，登录与权限另按本次交付证据验收，不提前标记文献或论文能力完成。
+本机 PostgreSQL 18.1 的开发库为 `paperassist_system`，测试库为 `paperassist_system_test`。owner `paperassist_app`、`paperassist_test` 保留为迁移角色；应用分别使用 `paperassist_runtime`、`paperassist_test_runtime`。运行角色仅有业务DML、序列USAGE/SELECT和版本表SELECT，无owner、DDL、TEMP、TRUNCATE、TRIGGER及版本表写权限，且不能连接另一项目数据库；迁移角色仍非超级用户且无CREATEDB/CREATEROLE。应用使用项目专用连接变量，拒绝缺失或不匹配的配置；不读取通用 `DATABASE_URL` 或 `TEST_DATABASE_URL`，后者在本机属于其他项目。开发库已备份升级 `0005_ownership_indexes`，详见[本轮交付记录](docs/开发记录/阶段01/迁移核查与运行账号分权交付记录.md)。后续阶段仍按数据库、后端、前端逐模块完成全部功能点，不提前标记文献或论文能力完成。
 
 ## 项目目录
 
@@ -64,7 +66,8 @@
 - backend/app/openai_explanation.py、backend/app/explanation_content.py：官方解释 API、事实目录与引用核对
 - backend/app/reports.py、backend/app/report_store.py、backend/app/report_docx.py：报告接口、来源快照与持久化、Word 排版生成
 - backend/app/database.py、backend/alembic/：PostgreSQL 连接保护、事务及显式版本迁移
-- backend/scripts/migrate_sqlite.py：旧 schema 6 的离线备份、检查和导入工具
+- backend/scripts/migrate_sqlite.py：旧 schema 6 的离线备份、检查和导入工具；`--report`写入新建脱敏核验报告
+- backend/scripts/rehearse_import.py、rehearse_recovery.py：合成导入中断演练与独立PG实例恢复，默认仅准备，`--execute`显式执行；命令及限制见[交付记录](docs/开发记录/阶段01/导入与备份恢复演练交付记录.md)
 - backend/data：原文件、PNG、DOCX 资产目录，不提交 Git；业务元数据在 PostgreSQL
 - backend/backups：本地数据库及匹配资产备份、核验清单，不提交Git；不存放在文档目录
 - frontend：前端代码
@@ -105,6 +108,8 @@ python -m venv .\backend\.venv
 
 首次运行还需配置专用 PostgreSQL 连接。已有 `backend/.env` 时保留原内容；按 `backend/.env.example` 填写 `PAPERASSIST_ENV=development`、`PAPERASSIST_DATABASE_URL`、`PAPERASSIST_TEST_DATABASE_URL` 和 `PAPERASSIST_DB_SCHEMA=public`。本机已配置的 `.env` 不应被示例覆盖。密码仅存放在本地受 Git 忽略的文件中，连接串内的特殊字符需 URL 编码。
 
+第6项①已将运行和迁移配置分开：运行账号为 `paperassist_runtime`、`paperassist_test_runtime`；原 owner `paperassist_app`、`paperassist_test` 作为迁移账号。新环境按照 `backend/.env.migrations.example` 单独填写 Git 忽略的 `backend/.env.migrations`，应用正常配置不会加载它，迁移连接缺失时不会回退运行账号。本机已由用户完成[初始化脚本](script/README.md#数据库运行账号初始化第6项①)，真实权限、回归及0005升级通过，用户已确认第6项①验收通过；无需再次初始化。第6项②导入与隔离恢复已由用户验收通过；③已于2026-10-07通过用户最终验收。验收服务已停止，用户已于2026-10-07提供提交信息并授权统一提交推送，结果以Git记录为准，不自动开始阶段02。生产部署应对应用与迁移进程分别提供秘密。
+
 首次部署或数据库迁移版本变化时，在 `backend` 目录显式执行；完成后回到项目根目录启动服务：
 
 ```powershell
@@ -114,12 +119,16 @@ try {
   if ($LASTEXITCODE -ne 0) { throw '数据库迁移失败' }
   .\.venv\Scripts\python.exe -m app.database check
   if ($LASTEXITCODE -ne 0) { throw '数据库版本检查失败' }
+  .\.venv\Scripts\python.exe -m app.database_audit
+  if ($LASTEXITCODE -ne 0) { throw '数据库结构或数据格式核查失败' }
 } finally {
   Pop-Location
 }
 ```
 
 `upgrade` 只迁移已存在的指定 schema；它不创建数据库或账号。旧 SQLite 数据需按[离线迁移流程](docs/开发记录/阶段01/PostgreSQL统一与迁移记录.md)导入，启动应用不会自动读取或迁移旧库。
+
+显式迁移在 DDL 前向 stderr 输出环境、主机/端口、数据库、schema、迁移用户名、当前及目标版本，不输出密码或连接参数。每次迁移结束按 metadata 表名单重新授权业务 DML 和 sequence USAGE/SELECT，版本表只有 SELECT；不用全表默认 DML 授权。`check` 额外核查真实运行角色权限；`database_audit` 只读核对结构、索引、JSON、时间及成果来源链，输出汇总，不打印业务字段值。JSON/TEXT 时间及认证浮点秒保留原格式，审计不能代替数据库 JSON/时间 CHECK 或未来的数据类型迁移。
 
 日常启动（已完成依赖、专用连接配置和迁移时）：
 
@@ -223,7 +232,7 @@ python -m venv .\backend\.venv
 
 用户已确认此前小闭环、项目任务/成果摘要及密码安全验收通过，第4项已提交 `6d22d1f`。2026-10-05第5项稳定错误码、全局双语、账号界面语言偏好和项目默认输出语言已完成开发验证，用户已确认本轮验收通过；阶段01仍为66/79项，整体阶段尚未完成。
 
-本轮后端全量474项、前端19文件256项、build/lint/pip check通过，独立审查Approved；开发库已备份升级0004，原数据与资产校验一致。隔离浏览器验证匿名切换、账号语言保存/恢复、项目语言保存、刷新、旧统计和用户内容保持、退出后清理。证据见[双语交付记录](docs/开发记录/阶段01/双语界面与语言设置交付记录.md)与[实施计划](docs/开发记录/阶段01/2026-10-05-双语与语言设置-实施计划.md)。用户已授权更新文档后以“开发阶段01：实现统一错误码、双语界面与语言设置”提交并推送；验收服务已通过 `script/dev.cmd stop` 停止，实际提交编号与远端同步以Git记录为准。下一步第6项①迁移目标摘要、约束/索引核查和运行/迁移权限分离等待用户确认。余13项为9项运维/阶段验收及4项条件性邮件/注册，详见[阶段清单§8](docs/开发阶段/阶段01-数据库迁移与用户项目基础.md#8-本阶段剩余步骤与建议下一步)。本次用户反馈不扩展为全部异常分支、管理员完整历史资料核对、真实云调用或恢复演练。
+本轮后端全量474项、前端19文件256项、build/lint/pip check通过，独立审查Approved；开发库已备份升级0004，原数据与资产校验一致。隔离浏览器验证匿名切换、账号语言保存/恢复、项目语言保存、刷新、旧统计和用户内容保持、退出后清理。证据见[双语交付记录](docs/开发记录/阶段01/双语界面与语言设置交付记录.md)与[实施计划](docs/开发记录/阶段01/2026-10-05-双语与语言设置-实施计划.md)。用户已授权更新文档后以“开发阶段01：实现统一错误码、双语界面与语言设置”提交并推送；验收服务已通过 `script/dev.cmd stop` 停止，实际提交编号与远端同步以Git记录为准。上述为第5项历史交付；最新第6项状态和剩余4项条件性待办见本文顶部及阶段清单，详见[阶段清单§8](docs/开发阶段/阶段01-数据库迁移与用户项目基础.md#8-本阶段剩余步骤与建议下一步)。本次用户反馈不扩展为全部异常分支、管理员完整历史资料核对、真实云调用或恢复演练。
 
 当前仍限定一种明确分析任务。PDF 单独验证，自然语言规划、更多图型及 OpenAI 图片生成模型属于后续能力；图片生成模型与已实现的 Python 数据绘图分别接入，不改变完整产品范围。
 

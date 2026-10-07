@@ -23,7 +23,7 @@ def postgres_schema(request, monkeypatch, tmp_path):
     from sqlalchemy import create_engine
     from sqlalchemy.pool import NullPool
     from app.config import local_config
-    from app.database import DatabaseConfig, get_database_config, migrate_database
+    from app.database import DatabaseConfig, get_database_config, get_migration_database_config, migrate_database, validate_database_pair
 
     url = local_config().get('PAPERASSIST_TEST_DATABASE_URL')
     if not url:
@@ -36,8 +36,10 @@ def postgres_schema(request, monkeypatch, tmp_path):
     monkeypatch.setenv('PAPERASSIST_DB_SCHEMA', schema)
     monkeypatch.setenv('PAPERASSIST_DATA_DIR', str(tmp_path / 'data'))
     assert get_database_config() == config
+    migration_config = get_migration_database_config()
+    validate_database_pair(migration_config, config)
 
-    engine = create_engine(config.url, poolclass=NullPool)
+    engine = create_engine(migration_config.url, poolclass=NullPool)
     quoted_schema = engine.dialect.identifier_preparer.quote(schema)
     created = False
     try:
@@ -45,7 +47,7 @@ def postgres_schema(request, monkeypatch, tmp_path):
             assert connection.exec_driver_sql('SELECT current_database()').scalar_one() == 'paperassist_system_test'
             connection.exec_driver_sql(f'CREATE SCHEMA {quoted_schema}')
         created = True
-        migrate_database(config)
+        migrate_database(migration_config)
         yield config
     finally:
         try:
@@ -59,15 +61,24 @@ def postgres_schema(request, monkeypatch, tmp_path):
 
 
 @pytest.fixture
+def postgres_migration_config(postgres_schema):
+    from app.database import get_migration_database_config
+
+    config = get_migration_database_config()
+    assert config.schema == postgres_schema.schema
+    return config
+
+
+@pytest.fixture
 def reject_database_write(postgres_schema):
     """Inject a real PostgreSQL transaction failure, then restore normal writes."""
-    from app.database import database_connection
+    from app.database import migration_connection
 
     @contextmanager
     def rejecting(table, event='INSERT'):
         assert table in {'files', 'analysis_setups', 'analysis_runs', 'figures'}
         assert event in {'INSERT', 'UPDATE'}
-        with database_connection(write=True) as db:
+        with migration_connection(write=True) as db:
             db.execute("""CREATE FUNCTION reject_test_write() RETURNS trigger
                 LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'test write failure'; END $$""")
             db.execute(f'CREATE TRIGGER reject_test_write BEFORE {event} ON {table} '
@@ -75,7 +86,7 @@ def reject_database_write(postgres_schema):
         try:
             yield
         finally:
-            with database_connection(write=True) as db:
+            with migration_connection(write=True) as db:
                 db.execute(f'DROP TRIGGER reject_test_write ON {table}')
                 db.execute('DROP FUNCTION reject_test_write()')
 

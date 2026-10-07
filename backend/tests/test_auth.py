@@ -1,3 +1,4 @@
+from app.database import migration_connection
 import pytest
 from fastapi.testclient import TestClient
 from app.main import app
@@ -175,6 +176,7 @@ def test_bootstrap_claim_failure_rolls_back_account():
         db.execute(
             "INSERT INTO projects (id,name,research_topic,project_type,created_at,updated_at) VALUES ('legacy','name','topic','sci','now','now')"
         )
+    with migration_connection(write=True) as db:
         db.execute(
             "CREATE FUNCTION reject_claim() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'claim failure'; END $$"
         )
@@ -250,7 +252,7 @@ def test_non_ascii_csrf_header_rejected():
         assert response.status_code == 403
 
 
-def test_upgrade_preserves_entire_legacy_resource_chain(postgres_schema):
+def test_upgrade_preserves_entire_legacy_resource_chain(postgres_schema, postgres_migration_config):
     from alembic import command
     from app.database import database_connection, alembic_config, migrate_database
 
@@ -265,10 +267,10 @@ def test_upgrade_preserves_entire_legacy_resource_chain(postgres_schema):
         "explanation_jobs",
         "reports",
     )
-    with database_connection(write=True) as db:
+    with migration_connection(write=True) as db:
         config = alembic_config()
         config.attributes["connection"] = db.raw_connection
-        config.attributes["database_config"] = postgres_schema
+        config.attributes["database_config"] = postgres_migration_config
         command.downgrade(config, "0001_postgresql")
         db.execute(
             "INSERT INTO projects VALUES ('p','legacy','topic','sci','created','updated')"
@@ -291,7 +293,7 @@ def test_upgrade_preserves_entire_legacy_resource_chain(postgres_schema):
             table: [dict(row) for row in db.execute(f"SELECT * FROM {table}")]
             for table in tables
         }
-    migrate_database(postgres_schema)
+    migrate_database(postgres_migration_config)
     with database_connection() as db:
         for table in tables:
             rows = [dict(row) for row in db.execute(f"SELECT * FROM {table}")]

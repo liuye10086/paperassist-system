@@ -166,3 +166,7 @@ auth_password_attempts = Table("auth_password_attempts", metadata,
 Index("password_attempts_user_time", auth_password_attempts.c.user_id, auth_password_attempts.c.attempted_at)
 Index("password_attempts_code_time", auth_password_attempts.c.code_hash, auth_password_attempts.c.attempted_at)
 Index("password_attempts_ip_time", auth_password_attempts.c.client_ip, auth_password_attempts.c.attempted_at)
+Index("projects_owner_updated", projects.c.owner_id, projects.c.updated_at.desc(), projects.c.id.asc())
+Index("explanations_run", explanations.c.analysis_run_id)
+Index("explanation_jobs_run", explanation_jobs.c.analysis_run_id)
+Index("reports_run", reports.c.analysis_run_id)

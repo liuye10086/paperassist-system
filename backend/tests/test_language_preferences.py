@@ -1,4 +1,5 @@
 """Language settings persist independently without changing historical artifacts."""
+from app.database import migration_connection
 import os
 from pathlib import Path
 import time
@@ -161,7 +162,7 @@ def test_internal_language_validation_and_database_failure_are_atomic(client):
     assert rejected.value.code == 'project_language_invalid'
     with pytest.raises(StorageError):
         store.create_project('name', 'topic', 'sci', 'fr')
-    with database_connection(write=True) as db:
+    with migration_connection(write=True) as db:
         db.execute("CREATE FUNCTION reject_language() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'synthetic language failure'; END $$")
         for table in ('users', 'projects'):
             db.execute(f'CREATE TRIGGER reject_language BEFORE UPDATE ON {table} FOR EACH ROW EXECUTE FUNCTION reject_language()')
@@ -173,7 +174,7 @@ def test_internal_language_validation_and_database_failure_are_atomic(client):
         assert client.get('/api/v1/auth/preferences').json() == {'ui_language': 'zh-CN'}
         assert client.get(f'/api/v1/projects/{project["id"]}').json() == project
     finally:
-        with database_connection(write=True) as db:
+        with migration_connection(write=True) as db:
             for table in ('users', 'projects'):
                 db.execute(f'DROP TRIGGER reject_language ON {table}')
             db.execute('DROP FUNCTION reject_language()')
@@ -188,7 +189,7 @@ def test_database_language_constraints(client, table, column, value):
             db.execute(f'UPDATE {table} SET {column} = %s', (value,))
 
 
-def test_language_migration_roundtrip_preserves_legacy_columns_json_and_assets(client, postgres_schema):
+def test_language_migration_roundtrip_preserves_legacy_columns_json_and_assets(client, postgres_schema, postgres_migration_config):
     from alembic import command
     from sqlalchemy import inspect
     from app.database import alembic_config, migrate_database, SCHEMA_HEAD
@@ -197,17 +198,17 @@ def test_language_migration_roundtrip_preserves_legacy_columns_json_and_assets(c
     assert upload(client, project['id']).status_code == 201
     assets = {p: p.read_bytes() for p in Path(os.environ['PAPERASSIST_DATA_DIR']).rglob('*.xlsx')}
     tables = ('users', 'sessions', 'projects', 'files', 'analysis_setups', 'analysis_runs', 'figures', 'figure_jobs', 'explanations', 'explanation_jobs', 'reports')
-    with database_connection(write=True) as db:
+    with migration_connection(write=True) as db:
         config = alembic_config()
         config.attributes['connection'] = db.raw_connection
-        config.attributes['database_config'] = postgres_schema
+        config.attributes['database_config'] = postgres_migration_config
         command.downgrade(config, '0003_password_security')
         originals = {table: [dict(row) for row in db.execute(f'SELECT * FROM {table}')] for table in tables}
         assert 'ui_language' not in {col['name'] for col in inspect(db.raw_connection).get_columns('users')}
     for cycle in range(2):
-        migrate_database(postgres_schema)
-        assert SCHEMA_HEAD == '0004_language_preferences'
-        with database_connection(write=True) as db:
+        migrate_database(postgres_migration_config)
+        assert SCHEMA_HEAD == '0005_ownership_indexes'
+        with migration_connection(write=True) as db:
             for table, expected in originals.items():
                 actual = [dict(row) for row in db.execute(f'SELECT * FROM {table}')]
                 for row in actual:

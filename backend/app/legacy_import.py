@@ -194,10 +194,10 @@ def import_sqlite(source, data_dir, config=None):
     """
     snapshot = inspect_source(source, data_dir)
     from sqlalchemy import text
-    from app.database import database_connection, ensure_schema_current
+    from app.database import migration_connection, ensure_schema_current
 
     try:
-        with database_connection(write=True, config=config) as db:
+        with migration_connection(write=True, config=config) as db:
             ensure_schema_current(db)
             db.execute('LOCK TABLE ' + ','.join(TABLE_COLUMNS) + ' IN ACCESS EXCLUSIVE MODE')
             existing = _target_rows(db)
@@ -220,6 +220,10 @@ def import_sqlite(source, data_dir, config=None):
             latest = inspect_source(snapshot.source, snapshot.data_directory)
             if latest.rows != snapshot.rows or latest.assets != snapshot.assets:
                 raise ImportError('source or asset data changed during import; transaction rolled back')
+            from app.migration_report import build_import_verification
+            verification = build_import_verification(snapshot, actual)
+            if not verification['matches']:
+                raise ImportError('target relationship or asset verification failed; transaction rolled back')
             # Unlike setval(), RESTART is transactional and rolls back on failure.
             if status == 'imported':
                 for table in JOB_TABLES:
@@ -229,8 +233,8 @@ def import_sqlite(source, data_dir, config=None):
         raise
     except Exception as exc:
         # Do not print driver errors: they can include credentials or complete rows.
-        raise ImportError('PostgreSQL import transaction failed and was rolled back') from exc
-    return {'status': status, **snapshot.manifest()}
+        raise ImportError('PostgreSQL import transaction failed; commit outcome may be unknown; verify or retry the identical source') from exc
+    return {'status': status, **snapshot.manifest(), 'verification': verification}
 
 
 def snapshot_source(source, data_dir, backup_dir):

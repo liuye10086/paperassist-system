@@ -1,4 +1,5 @@
 """Password security uses only the fixture's disposable PostgreSQL schema."""
+from app.database import migration_connection
 import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -209,7 +210,7 @@ def test_audit_failure_rolls_back_password_sessions_and_recovery():
         login(client)
         code = issue()
         original = rows("users")[0]["password_hash"]
-        with database_connection(write=True) as db:
+        with migration_connection(write=True) as db:
             db.execute("CREATE FUNCTION reject_audit() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'audit failure'; END $$")
             db.execute("CREATE TRIGGER reject_audit BEFORE INSERT ON session_revocations FOR EACH ROW EXECUTE FUNCTION reject_audit()")
         result = reset(client, code)
@@ -236,22 +237,22 @@ def test_change_revalidates_session_after_middleware(monkeypatch):
         assert service.hasher.verify(rows("users")[0]["password_hash"], PASSWORD)
 
 
-def test_migration_preserves_accounts_sessions_projects_and_matches_metadata(postgres_schema):
+def test_migration_preserves_accounts_sessions_projects_and_matches_metadata(postgres_schema, postgres_migration_config):
     from alembic import command
     from sqlalchemy import inspect
     from app.database import alembic_config, migrate_database, SCHEMA_HEAD
     from app.db_schema import metadata
     account()
     service.authenticate(EMAIL, PASSWORD, "test")
-    with database_connection(write=True) as db:
+    with migration_connection(write=True) as db:
         db.execute("INSERT INTO projects (id,name,research_topic,project_type,created_at,updated_at,owner_id) SELECT 'legacy','name','topic','sci','now','now',id FROM users")
         config = alembic_config()
         config.attributes["connection"] = db.raw_connection
-        config.attributes["database_config"] = postgres_schema
+        config.attributes["database_config"] = postgres_migration_config
         command.downgrade(config, "0002_auth_ownership")
         originals = {table: [dict(row) for row in db.execute(f"SELECT * FROM {table}")] for table in ("users", "sessions", "projects")}
-    migrate_database(postgres_schema)
-    assert SCHEMA_HEAD == "0004_language_preferences"
+    migrate_database(postgres_migration_config)
+    assert SCHEMA_HEAD == "0005_ownership_indexes"
     with database_connection() as db:
         for table, original in originals.items():
             actual = [dict(row) for row in db.execute(f"SELECT * FROM {table}")]
@@ -300,7 +301,7 @@ def test_audit_failure_rolls_back_every_revocation_path(action):
         original_user = rows("users")
         original_sessions = rows("sessions")
         original_recovery = rows("password_recovery_codes")
-        with database_connection(write=True) as db:
+        with migration_connection(write=True) as db:
             db.execute("CREATE FUNCTION reject_audit() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'audit failure'; END $$")
             db.execute("CREATE TRIGGER reject_audit BEFORE INSERT ON session_revocations FOR EACH ROW EXECUTE FUNCTION reject_audit()")
         if action in ("logout", "admin_reset", "disable", "enable", "expiry"):
@@ -329,7 +330,7 @@ def test_reissue_failure_preserves_previous_usable_recovery_code():
     account()
     code = issue()
     original = rows("password_recovery_codes")
-    with database_connection(write=True) as db:
+    with migration_connection(write=True) as db:
         db.execute("CREATE FUNCTION reject_code() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'code failure'; END $$")
         db.execute("CREATE TRIGGER reject_code BEFORE INSERT ON password_recovery_codes FOR EACH ROW EXECUTE FUNCTION reject_code()")
     with pytest.raises(StorageError):

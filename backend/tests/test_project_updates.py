@@ -1,5 +1,6 @@
 """Project edits preserve ownership and every previously generated artifact."""
 
+from app.database import migration_connection
 from datetime import datetime, timedelta, timezone
 from io import BytesIO
 import os
@@ -148,7 +149,7 @@ def test_internal_update_keeps_future_timestamp_and_list_order(client):
 def test_update_database_failure_rolls_back_project(client):
     project = create_project(client)
     original = project_row(project['id'])
-    with database_connection(write=True) as db:
+    with migration_connection(write=True) as db:
         db.execute("""CREATE FUNCTION reject_project_edit() RETURNS trigger LANGUAGE plpgsql
             AS $$ BEGIN RAISE EXCEPTION 'synthetic edit failure'; END $$""")
         db.execute('CREATE TRIGGER reject_project_edit BEFORE UPDATE ON projects '
@@ -159,7 +160,7 @@ def test_update_database_failure_rolls_back_project(client):
         assert response.json()['detail']['code'] == 'storage_unavailable'
         assert project_row(project['id']) == original
     finally:
-        with database_connection(write=True) as db:
+        with migration_connection(write=True) as db:
             db.execute('DROP TRIGGER reject_project_edit ON projects')
             db.execute('DROP FUNCTION reject_project_edit()')
 

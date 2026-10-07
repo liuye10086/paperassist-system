@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type FormEvent } from 'react'
 import { apiFetch, captureApiSession, onApiSessionChanged } from '../api'
 import { message, useI18n } from '../i18n'
 
@@ -29,6 +29,8 @@ export default function PasswordForm({ mode, onCancel, onSuccess }: Props) {
   const active = useRef<AbortController | null>(null)
   const timeout = useRef<number | undefined>(undefined)
   const cancelCallback = useRef(onCancel)
+  const credentialInput = useRef<HTMLInputElement | null>(null)
+  useLayoutEffect(() => { credentialInput.current?.focus() }, [])
   useEffect(() => { cancelCallback.current = onCancel }, [onCancel])
 
   function clearSecrets() { setCredential(''); setPassword(''); setConfirmation('') }
@@ -100,7 +102,7 @@ export default function PasswordForm({ mode, onCancel, onSuccess }: Props) {
     <p>{t(passwordRule)}{t("更新成功后全部旧会话失效，请重新登录。")}</p>
     <form onSubmit={event => void submit(event)} aria-busy={busy}>
       <label>{mode === 'change' ? t("当前密码") : t("恢复码")}
-        <input type="password" autoComplete={mode === 'change' ? 'current-password' : 'off'} required
+        <input ref={credentialInput} type="password" autoComplete={mode === 'change' ? 'current-password' : 'off'} required
           value={credential} disabled={busy} onChange={event => setCredential(event.target.value)} />
       </label>
       <label>{t("新密码")}<input type="password" autoComplete="new-password" required value={password} disabled={busy}
