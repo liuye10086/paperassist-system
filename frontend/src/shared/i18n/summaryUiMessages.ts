@@ -1,4 +1,5 @@
 export const summaryUiMessages: Record<string, string> = {
+  '待执行': 'Queued',
   '项目任务概览': 'Project task overview',
   '图表与报告': 'Figures and reports',
   '当前结果': 'Current result',

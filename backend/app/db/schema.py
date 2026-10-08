@@ -170,3 +170,15 @@ Index("projects_owner_updated", projects.c.owner_id, projects.c.updated_at.desc(
 Index("explanations_run", explanations.c.analysis_run_id)
 Index("explanation_jobs_run", explanation_jobs.c.analysis_run_id)
 Index("reports_run", reports.c.analysis_run_id)
+
+from app.db.task_schema import define_task_tables
+
+tasks, task_attempts, task_events, task_outbox = define_task_tables(metadata)
+
+from app.db.model_usage_schema import define_model_usage_tables
+
+model_budgets, model_calls, usage_events, budget_reservations = define_model_usage_tables(metadata)
+
+from app.db.task_wait_schema import define_task_wait_tables
+
+task_waits, task_resume_requests = define_task_wait_tables(metadata)

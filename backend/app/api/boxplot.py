@@ -2,7 +2,7 @@
 from urllib.parse import quote
 import json
 
-from fastapi import APIRouter, Response
+from fastapi import APIRouter, Header, Response
 
 from app.api.dependencies import Store, Settings
 from app.domain import boxplot as operations
@@ -48,6 +48,8 @@ def download_saved_figure(project_id: str, file_id: str, run_id: str, figure_id:
 
 
 @router.post('/boxplot')
-def generate(project_id: str, file_id: str, run_id: str, request: PlotRequest, store: Store, settings: Settings, response: Response):
-    result, response.status_code = operations.generate(project_id, file_id, run_id, request, store, settings)
+def generate(project_id: str, file_id: str, run_id: str, request: PlotRequest, store: Store, settings: Settings,
+             response: Response, idempotency_key: str | None = Header(default=None)):
+    from app.domain.plot_tasks import submit_boxplot
+    result, response.status_code = submit_boxplot(project_id, file_id, run_id, request, store, idempotency_key)
     return result

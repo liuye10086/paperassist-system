@@ -5,6 +5,8 @@ import ProjectDetails from './ProjectDetails'
 import ProjectResources from './ProjectResources'
 import './projectContent.css'
 import ProjectSummary from './ProjectSummary'
+import ProjectModelUsage from '../model-usage/ProjectModelUsage'
+import ProjectTasks from '../tasks/ProjectTasks'
 import ProjectList, { type ProjectListQuery } from './ProjectList'
 import WorkspaceShell, { WorkspaceIcon, type WorkspaceView, type ProjectSection } from './WorkspaceShell'
 import ProjectCreateDialog from './ProjectCreateDialog'
@@ -20,7 +22,6 @@ async function responseData(response: Response, fallback: string) {
 export default function ProjectWorkspace() {
   const { t, locale } = useI18n()
   const [view, setView] = useState<WorkspaceView>(() => new URLSearchParams(window.location.hash.slice(1)).has('project') ? 'project' : 'home')
-  const [section, setSection] = useState<ProjectSection>('overview')
   const [navigationSequence, setNavigationSequence] = useState(0)
   const [showCreate, setShowCreate] = useState(false)
   const [projects, setProjects] = useState<Project[]>([])
@@ -50,6 +51,8 @@ export default function ProjectWorkspace() {
     if (unavailableIds.current.delete(id)) refresh()
   })
   const project = selection.project
+  const section = selection.section
+  const setSection = selection.changeSection
 
   const selectedKey = selection.instance?.key
   useLayoutEffect(() => {
@@ -263,6 +266,9 @@ export default function ProjectWorkspace() {
           <ProjectSummary projectId={project.id} projectType={project.project_type} view={section === 'artifacts' ? 'artifacts' : 'overview'}
             active={view === 'project' && (section === 'overview' || section === 'artifacts')} />
         </div>
+        <ProjectModelUsage projectId={project.id} active={view === 'project' && section === 'overview'} />
+        <ProjectTasks projectId={project.id} active={view === 'project' && section === 'tasks'}
+          selectedTaskId={selection.taskId} onSelectTask={selection.selectTask} />
         <ProjectResources projectId={project.id} section={section} onSectionChange={changeSection} onSaved={() => { refresh(); selection.refresh() }} />
       </div>}
     </section>}

@@ -4,6 +4,7 @@ from concurrent.futures import ThreadPoolExecutor
 from io import BytesIO
 import hashlib
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -15,19 +16,30 @@ from app.db.database import database_connection, ensure_schema_current, migrate_
 
 from tests.api.test_analysis import client  # noqa: F401
 from tests.api.test_boxplot import cloud, prepared, generate  # noqa: F401
-from tests.integration.test_explanations import writer, ready, submit  # noqa: F401
+from tests.integration.test_explanations import writer, ready, submit, seed_legacy, recover  # noqa: F401
 
 
 def report_ready(client):
     base, file, result, figure, url = ready(client)
-    submit(client, url, figure)
+    # Existing report tests consume a historical saved explanation, not a new
+    # unified task. New explanations are covered by explicit worker tests.
+    seed_legacy(client, url, figure)
+    recover()
     explanation = client.get(url).json()['explanation']
     return base, file, result, figure, explanation, url.replace('/explanation', '/report')
 
 
 def export(client, url, figure, explanation, **changes):
-    return client.post(url, json={'expected_revision': figure['setup_revision'], 'figure_id': figure['id'],
-                                  'explanation_id': explanation['id'], **changes})
+    response = client.post(url, json={'expected_revision': figure['setup_revision'], 'figure_id': figure['id'],
+                                     'explanation_id': explanation['id'], **changes})
+    if response.status_code != 202:
+        return response
+    # Business tests explicitly execute the queued task in the isolated schema;
+    # HTTP acceptance and actual broker behavior have separate tests.
+    from app.domain.tasks.execution import run_word_task
+    task = response.json()['task']
+    run_word_task(task['id'], task['revision'])
+    return client.get(url)
 
 
 def test_report_requires_complete_current_sources(client, cloud):
@@ -44,7 +56,7 @@ def test_export_reuses_saved_content_and_png_without_api(client, cloud, writer, 
     monkeypatch.setenv('OPENAI_API_KEY', '')
     calls = (len(cloud.calls), len(writer.calls))
     response = export(client, url, figure, explanation)
-    assert response.status_code == 201, response.text
+    assert response.status_code == 200, response.text
     report = response.json()['report']
     assert report['source_sha256'] == file['sha256']
     assert report['figure_sha256'] == figure['sha256'] and report['explanation_id'] == explanation['id']
@@ -100,30 +112,38 @@ def test_old_report_download_survives_config_change_and_new_export(client, cloud
     submit(client, current_url + '/explanation', new_figure)
     new_explanation = client.get(current_url + '/explanation').json()['explanation']
     new = export(client, current_url + '/report', new_figure, new_explanation)
-    assert new.status_code == 201 and new.json()['report']['id'] != old['id']
+    assert new.status_code == 200 and new.json()['report']['id'] != old['id']
     assert client.get(download).content == content
 
 
 def test_concurrent_export_saves_one_file(client, cloud, writer, tmp_path):
     *_, figure, explanation, url = report_ready(client)
     with ThreadPoolExecutor(max_workers=4) as pool:
-        responses = list(pool.map(lambda _: export(client, url, figure, explanation), range(4)))
-    assert sorted(item.status_code for item in responses) == [200, 200, 200, 201]
-    assert len({item.json()['report']['id'] for item in responses}) == 1
-    assert len(list((tmp_path / 'data' / 'reports').iterdir())) == 1
+        responses = list(pool.map(lambda _: client.post(url, json={'expected_revision': 1,
+            'figure_id': figure['id'], 'explanation_id': explanation['id']}), range(4)))
+    assert all(item.status_code == 202 for item in responses)
+    assert len({item.json()['task']['id'] for item in responses}) == 1
+    from app.domain.tasks.execution import run_word_task
+    task = responses[0].json()['task']
+    run_word_task(task['id'], task['revision'])
+    assert client.get(url).json()['report'] is not None
+    assert run_word_task(task['id'], task['revision']) is None
+    assert len([path for path in (tmp_path / 'data' / 'reports').rglob('*') if path.is_file()]) == 1
 
 
 def test_configuration_change_during_build_does_not_save(client, cloud, writer, monkeypatch, tmp_path):
-    from app.domain import reports
+    from app.domain.tasks import execution
     base, _, result, figure, explanation, url = report_ready(client)
-    original = reports.build_report
+    original = execution.build_report
     def changed(*args):
         content = original(*args)
         client.put(base + '/analysis-setup', json={**result['selection'], 'expected_revision': 1, 'unit': 'changed'})
         return content
-    monkeypatch.setattr(reports, 'build_report', changed)
-    assert export(client, url, figure, explanation).status_code == 409
-    assert not list((tmp_path / 'data' / 'reports').glob('*'))
+    monkeypatch.setattr(execution, 'build_report', changed)
+    response = export(client, url, figure, explanation)
+    assert response.json()['task']['status'] == 'failed'
+    assert response.json()['task']['error_code'] == 'task_source_conflict'
+    assert not [path for path in (tmp_path / 'data' / 'reports').rglob('*') if path.is_file()]
 
 
 @pytest.mark.parametrize('damage', ['missing', 'changed'])
@@ -175,29 +195,36 @@ def test_changed_explanation_evidence_is_rejected(client, cloud, writer, tmp_pat
 
 def test_write_failure_leaves_no_report_and_can_retry(client, cloud, writer, monkeypatch, tmp_path):
     *_, figure, explanation, url = report_ready(client)
-    original = Path.rename
-    def fail(self, target):
-        if self.suffix == '.part' and self.parent.name == 'reports':
+    original = os.replace
+    def fail(source, target):
+        if Path(source).suffix == '.part' and Path(target).parent.name == 'reports':
             raise OSError('disk failed')
-        return original(self, target)
+        return original(source, target)
     with monkeypatch.context() as patch:
-        patch.setattr(Path, 'rename', fail)
-        assert export(client, url, figure, explanation).status_code == 503
-    assert not list((tmp_path / 'data' / 'reports').glob('*'))
-    assert export(client, url, figure, explanation).status_code == 201
+        patch.setattr(os, 'replace', fail)
+        failed = export(client, url, figure, explanation).json()['task']
+        assert failed['status'] == 'failed' and failed['error_code'] == 'storage_unavailable'
+    assert not [path for path in (tmp_path / 'data' / 'reports').rglob('*') if path.is_file()]
+    retried = client.post('/api/v1/tasks/' + failed['id'] + '/retry', json={'expected_revision': failed['revision']})
+    assert retried.status_code == 202
+    from app.domain.tasks.execution import run_word_task
+    task = retried.json()
+    run_word_task(task['id'], task['revision'])
+    assert client.get(url).json()['report'] is not None
 
 
 def test_cached_report_survives_revision_race(client, cloud, writer, monkeypatch):
-    from app.adapters.report_store import ReportStore
+    from app.domain import reports
     base, _, result, figure, explanation, url = report_ready(client)
     report = export(client, url, figure, explanation).json()['report']
     download = url + '/' + report['id'] + '/download'
     content = client.get(download).content
-    save = ReportStore.save
-    def changed(self, *args):
+    context = reports.context
+    def changed(*args):
+        value = context(*args)
         client.put(base + '/analysis-setup', json={**result['selection'], 'expected_revision': 1, 'unit': 'changed'})
-        return save(self, *args)
-    monkeypatch.setattr(ReportStore, 'save', changed)
+        return value
+    monkeypatch.setattr(reports, 'context', changed)
     assert export(client, url, figure, explanation).status_code == 409
     assert client.get(download).content == content
 

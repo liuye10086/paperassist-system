@@ -16,6 +16,11 @@ $pythonPath = Join-Path $projectRoot 'backend\.venv\Scripts\python.exe'
 $vitePath = Join-Path $projectRoot 'frontend\node_modules\vite\bin\vite.js'
 $controlLock = $null
 
+function Invoke-WorkerStack([string]$Operation) {
+    & $pythonPath (Join-Path $PSScriptRoot 'worker_stack.py') $Operation
+    if ($LASTEXITCODE -ne 0) { throw "Worker stack $Operation failed. Check Docker Desktop and private runtime configuration." }
+}
+
 function Test-Port([int]$Port) {
     $client = New-Object Net.Sockets.TcpClient
     try {
@@ -104,11 +109,28 @@ function Start-ServiceProcess([string]$Name, [string]$Executable, [string[]]$Arg
         -RedirectStandardOutput (Join-Path $runtimeDir "$Name.stdout.log") `
         -RedirectStandardError (Join-Path $runtimeDir "$Name.stderr.log")
     try {
-        return [pscustomobject]@{
-            name = $Name
-            process_id = $process.Id
-            started_utc = $process.StartTime.ToUniversalTime().ToString('o')
-            executable = $process.Path
+        # Keep the fresh OS handle pinned while metadata becomes available.
+        # Path may initially be null; never persist that or substitute the requested path.
+        $null = $process.Handle
+        $identityWait = [Diagnostics.Stopwatch]::StartNew()
+        while ($true) {
+            $process.Refresh()
+            if ($process.HasExited) { throw "$Name exited before its process identity was available." }
+            $actualPath = $process.Path
+            if (-not [string]::IsNullOrWhiteSpace($actualPath)) {
+                $startedUtc = $process.StartTime.ToUniversalTime().ToString('o')
+                if ($process.HasExited) { throw "$Name exited before its process identity was available." }
+                return [pscustomobject]@{
+                    name = $Name
+                    process_id = $process.Id
+                    started_utc = $startedUtc
+                    executable = $actualPath
+                }
+            }
+            if ($identityWait.ElapsedMilliseconds -ge 2000) {
+                throw "Timed out reading $Name process identity. Check the logs in $runtimeDir"
+            }
+            Start-Sleep -Milliseconds 50
         }
     } catch {
         # This is the fresh process handle, not a PID loaded from disk.
@@ -151,9 +173,10 @@ try {
     $state = Read-State
 
     if ($Action -eq 'stop') {
-        if ($null -eq $state) { Write-Host 'Stopped (no managed services).'; exit 0 }
-        Stop-Services $state
-        Write-Host 'Stopped the managed frontend and backend.'
+        if ($null -ne $state) { Stop-Services $state }
+        Write-Host 'Managed frontend and backend are stopped.'
+        Invoke-WorkerStack 'stop'
+        Write-Host 'Stopped the managed frontend, backend and Worker services. Broker data is retained.'
         exit 0
     }
 
@@ -170,12 +193,14 @@ try {
             Write-Host "API proxy health: $(Test-Http "$frontendUrl/api/v1/health")"
             Show-Ready $state
         }
+        Invoke-WorkerStack 'status'
         exit 0
     }
 
     if ($null -ne $state) {
         $running = @($state.services | Where-Object { $null -ne (Get-OwnedProcess $_) })
         if ($running.Count -eq 2 -and @($state.services).Count -eq 2) {
+            Invoke-WorkerStack 'start'
             Wait-Ready $state
             Write-Host 'Already running; reusing the managed services.'
             Show-Ready $state
@@ -195,6 +220,8 @@ try {
     if (-not (Test-Path -LiteralPath (Join-Path $projectRoot 'backend\.env'))) { throw 'Missing backend/.env. Follow README setup first.' }
     $nodePath = (Get-Command node.exe -ErrorAction Stop).Source
 
+    Invoke-WorkerStack 'start'
+
     $state = [pscustomobject]@{ version = 1; project_root = $projectRoot; services = @() }
     Save-State $state
     try {
@@ -211,6 +238,7 @@ try {
     } catch {
         $startupFailure = $_
         try { Stop-Services $state } catch { Write-Warning 'Cleanup was incomplete; runtime state retained. Run dev.cmd stop.' }
+        try { Invoke-WorkerStack 'stop' } catch { Write-Warning 'Worker cleanup was incomplete. Run dev.cmd stop.' }
         throw $startupFailure
     }
     Write-Host 'Ready for manual acceptance testing.'

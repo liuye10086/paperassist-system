@@ -5,6 +5,7 @@ PostgreSQL errors can contain restored business values or credentials.
 """
 
 from app.core.paths import BACKEND_ROOT
+from app.db.database import SCHEMA_HEAD
 
 import argparse
 from datetime import datetime, timezone
@@ -87,8 +88,14 @@ def archive_sequences(data):
 
 
 def rows_fingerprint(rows):
+    def encode_native(value):
+        if isinstance(value, datetime):
+            return value.isoformat()
+        raise TypeError('Unsupported fingerprint value')
+
     values = sorted(json.dumps(dict(row), ensure_ascii=False, sort_keys=True,
-                              separators=(',', ':'), allow_nan=False) for row in rows)
+                              separators=(',', ':'), allow_nan=False,
+                              default=encode_native) for row in rows)
     return hashlib.sha256('\n'.join(values).encode('utf-8')).hexdigest()
 
 
@@ -351,7 +358,7 @@ except SchemaVersionError:
 raise SystemExit(0)
 """
         run([python, '-c', rejection], env=app_env, cwd=backend, expected=42)
-        mark('upgrade_0005')
+        mark('upgrade_current_head', target_revision=SCHEMA_HEAD)
         run([python, '-m', 'app.db.database', 'upgrade'], env=app_env, cwd=backend)
         app_validation(python, backend, app_env, folder, 'current')
         audit = json.loads(run([python, '-m', 'app.maintenance.database_audit'], env=app_env, cwd=backend))
@@ -361,7 +368,7 @@ raise SystemExit(0)
             preserved = fingerprints(owner, schema, before, upgraded=True)
             require(sequence_state(owner, schema) == expected_seq, 'sequence_changed')
             revision = owner.execute(sql.SQL('SELECT version_num FROM {}.alembic_version').format(sql.Identifier(schema))).fetchone()[0]
-            require(revision == '0005_ownership_indexes', 'unexpected_final_revision')
+            require(revision == SCHEMA_HEAD, 'unexpected_final_revision')
         verify_assets(folder / 'assets', manifest)
         verify_assets(source / 'assets', manifest)
         mark('final_values_verified', tables=preserved, assets=len(manifest), sequences=expected_seq)

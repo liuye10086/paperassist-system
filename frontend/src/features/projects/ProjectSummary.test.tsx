@@ -17,6 +17,19 @@ function deferred<T>() {
   return { promise, resolve }
 }
 
+test('shows queued Word tasks without inventing an artifact and translates their status', async () => {
+  const fixture = summaryFixture()
+  const fetch = vi.fn(async () => Response.json({ ...fixture,
+    tasks: { ...fixture.tasks, total: 1, items: [{ ...source, kind: 'report', status: 'queued' }] } }))
+  vi.stubGlobal('fetch', fetch)
+  render(<ProjectSummary projectId="p1" projectType="sci" />)
+  expect(await screen.findByText('待执行')).toBeTruthy()
+  expect(screen.getByText('Word 报告导出')).toBeTruthy()
+  expect(screen.queryByRole('link')).toBeNull()
+  act(() => setLocale('en'))
+  expect(screen.getByText('Queued')).toBeTruthy(); expect(fetch).toHaveBeenCalledTimes(1)
+})
+
 test.each(['sci', 'thesis'] as const)('shows honest empty states for %s without inferring progress', async kind => {
   vi.stubGlobal('fetch', vi.fn(async () => Response.json(summaryFixture('p1', kind))))
   render(<ProjectSummary projectId="p1" projectType={kind} />)

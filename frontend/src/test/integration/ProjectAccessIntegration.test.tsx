@@ -61,7 +61,7 @@ function api() {
       page: Number(path.searchParams.get('page')), page_size: Number(path.searchParams.get('page_size')) })
     if (url === base || url === '/api/v1/projects/p2') return Response.json(url === base ? project : other)
     if (url === '/api/v1/excel/config') return Response.json({ max_upload_bytes: 10485760, preview_row_limit: 20 })
-    if (url === '/api/v1/ai/config') return Response.json({ configured: false, model: null, message: '测试不调用模型' })
+    if (url === '/api/v1/ai/plot-config') return Response.json({ configured: false, model: null, message: '测试不调用模型' })
     if (url.endsWith('/files')) return Response.json(url.startsWith(base) ? [file] : [])
     if (url.endsWith('/preview')) return Response.json(preview)
     if (url.endsWith('/boxplot')) return Response.json({ current_revision: 1, is_current: true, figure, job: null })

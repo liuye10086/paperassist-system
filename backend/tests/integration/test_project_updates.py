@@ -203,7 +203,7 @@ def test_project_edit_preserves_artifacts_and_uses_project_at_first_report_expor
     for url, expected in content.items():
         assert client.get(url).content == expected
     exported = export(client, report_url, figure, explanation)
-    assert exported.status_code == (200 if export_before_edit else 201)
+    assert exported.status_code == 200
     if report:
         assert exported.json()['report'] == report
         assert business_snapshot() == after
@@ -216,4 +216,5 @@ def test_project_edit_preserves_artifacts_and_uses_project_at_first_report_expor
     assert expected['name'] in xml and expected['research_topic'] in xml
     assert export(client, report_url, figure, explanation).json()['report'] == report
     assert client.get(download).content == word
-    assert (len(cloud.calls), len(writer.calls)) == calls == (1, 1)
+    # The report fixture uses seeded historical figure and explanation; editing never submits it again.
+    assert (len(cloud.calls), len(writer.calls)) == calls == (0, 0)

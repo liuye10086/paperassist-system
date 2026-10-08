@@ -82,7 +82,8 @@ def test_migration_is_idempotent_and_matches_core_metadata(postgres_schema, post
         for name, table in metadata.tables.items():
             actual = inspector.get_columns(name, schema=postgres_schema.schema)
             assert [column["name"] for column in actual] == list(table.c.keys())
-            assert [str(column["type"]) for column in actual] == [str(column.type) for column in table.c]
+            dialect = reader.raw_connection.dialect
+            assert [str(column["type"].compile(dialect=dialect)) for column in actual] == [str(column.type.compile(dialect=dialect)) for column in table.c]
             assert [column["nullable"] for column in actual] == [column.nullable for column in table.c]
         assert reader.execute("SELECT name FROM projects").fetchone()["name"] == "before"
         assert reader.execute("SELECT version_num FROM alembic_version").fetchone()["version_num"] == SCHEMA_HEAD

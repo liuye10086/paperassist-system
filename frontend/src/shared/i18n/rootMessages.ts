@@ -4,6 +4,8 @@ import { projectContentMessages } from './projectContentMessages'
 import { analysisUiMessages } from './analysisUiMessages'
 import { artifactUiMessages } from './artifactUiMessages'
 import { summaryUiMessages } from './summaryUiMessages'
+import { modelUsageMessages } from './modelUsageMessages'
+import { taskMessages } from './taskMessages'
 
 export const rootMessages: Record<string, string> = {
   ...authUiMessages,
@@ -12,6 +14,8 @@ export const rootMessages: Record<string, string> = {
   ...analysisUiMessages,
   ...artifactUiMessages,
   ...summaryUiMessages,
+  ...modelUsageMessages,
+  ...taskMessages,
   '科研论文辅助系统': 'Research paper assistant',
   '请求失败，请重试。': 'Request failed. Please try again.',
   '项目中心': 'Projects',

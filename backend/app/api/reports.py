@@ -1,10 +1,11 @@
 """HTTP routes for reports; business operations live in domain."""
 from urllib.parse import quote
 
-from fastapi import APIRouter, Response
+from typing import Annotated
+from fastapi import APIRouter, Header, Response
 
 from app.api.dependencies import Store
-from app.domain import reports as operations
+from app.domain import report_tasks as operations
 from app.domain.reports import ReportRequest
 from app.adapters.report_store import ReportStore
 
@@ -16,8 +17,9 @@ def get_report(project_id: str, file_id: str, run_id: str, store: Store):
     return operations.get_report(project_id, file_id, run_id, store)
 
 @router.post('/report')
-def generate_report(project_id: str, file_id: str, run_id: str, request: ReportRequest, store: Store, response: Response):
-    result, response.status_code = operations.generate_report(project_id, file_id, run_id, request, store)
+def generate_report(project_id: str, file_id: str, run_id: str, request: ReportRequest, store: Store, response: Response,
+                    idempotency_key: Annotated[str | None, Header()] = None):
+    result, response.status_code = operations.submit_report(project_id, file_id, run_id, request, store, idempotency_key)
     return result
 
 @router.get('/report/{report_id}/download')

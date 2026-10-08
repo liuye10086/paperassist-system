@@ -33,6 +33,13 @@ function api(options: { patch?: (init: RequestInit) => Promise<Response> } = {})
   let projects = [project, secondProject]
   let currentSession: typeof session | null = session
   const mock = vi.fn(async (url: string, init?: RequestInit): Promise<Response> => {
+    if (new URL(url, 'http://localhost').pathname.endsWith('/model-usage')) {
+      const budget = { scope_type: 'user', limit_micro_usd: null, revision: 0, estimated_micro_usd: 0,
+        reserved_micro_usd: 0, available_micro_usd: null, exceeded: false }
+      return Response.json({ currency: 'USD', period: 'cumulative', enforcement_scope: 'unified_only',
+        user_budget: budget, project_budget: { ...budget, scope_type: 'project' }, estimated_micro_usd: 0,
+        reserved_micro_usd: 0, pending_count: 0, items: [], total: 0, page: 1, page_size: 10 })
+    }
     const summaryProject = projects.find(item => url.startsWith(`/api/v1/projects/${item.id}/summary?`))
     if (summaryProject) return Response.json(summaryFixture(summaryProject.id, summaryProject.project_type as 'sci' | 'thesis'))
     if (url.endsWith('/me')) return currentSession ? Response.json(currentSession) : new Response(null, { status: 401 })

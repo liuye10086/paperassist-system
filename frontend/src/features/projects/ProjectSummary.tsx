@@ -9,6 +9,8 @@ import './projectSummary.css'
 type Props = { projectId: string; projectType: 'sci' | 'thesis'; view?: 'overview' | 'artifacts' | 'all'; active?: boolean }
 const taskNames = { statistics: '描述统计', boxplot: '箱线图生成', explanation: 'AI 分析解释', report: 'Word 报告导出' }
 const statuses: Record<SummaryTask['status'], string> = {
+  queued: '待执行',
+  waiting_input: '等待资料', waiting_confirmation: '等待确认',
   submitting: '提交中', running: '运行中', completed: '已完成', failed: '失败', uncertain: '结果不确定', unknown: '状态未知',
 }
 

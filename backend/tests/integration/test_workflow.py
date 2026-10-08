@@ -150,7 +150,9 @@ def test_excel_to_word_versioned_workflow(client, cloud, writer, project_type):
     figure = generate(client, old_run + '/boxplot')
     assert [(item['n'], item['q1'], item['median'], item['q3']) for item in figure['series']] == [
         (24, 6.75, 12.5, 18.25), (1, 7, 7, 7)]
-    assert len(cloud.calls[0]['values']) == 25 and 999 not in cloud.calls[0]['values']
+    from app.adapters.storage import get_project_store
+    old_payload = get_project_store().figure_job(result['id'], 'openai_boxplot_v1')['payload']
+    assert len(old_payload['values']) == 25 and 999 not in old_payload['values']
     assert client.post(old_run + '/report', json={'expected_revision': 1, 'figure_id': figure['id'],
                                                'explanation_id': 'missing'}).status_code == 409
     assert submit(client, old_run + '/explanation', {**figure, 'id': 'wrong'}).status_code == 409
@@ -164,7 +166,7 @@ def test_excel_to_word_versioned_workflow(client, cloud, writer, project_type):
     for changes in ({'figure_id': 'wrong'}, {'explanation_id': 'wrong'}, {'expected_revision': 2}):
         assert export(client, old_run + '/report', figure, explanation, **changes).status_code == 409
     exported = export(client, old_run + '/report', figure, explanation)
-    assert exported.status_code == 201, exported.text
+    assert exported.status_code == 200, exported.text
     report = exported.json()['report']
     assert_bindings(project, file, result, figure, explanation, report, writer.calls[0])
     old_download = old_run + '/report/' + report['id'] + '/download'
@@ -194,14 +196,15 @@ def test_excel_to_word_versioned_workflow(client, cloud, writer, project_type):
     new_run = base + '/analysis-runs/' + new_result['id']
     new_figure = generate(client, new_run + '/boxplot', revision=2)
     assert new_figure['id'] != figure['id'] and new_figure['series'][0]['fliers'] == [999]
-    assert len(cloud.calls[1]['values']) == 26 and 999 in cloud.calls[1]['values']
+    new_payload = get_project_store().figure_job(new_result['id'], 'openai_boxplot_v1')['payload']
+    assert len(new_payload['values']) == 26 and 999 in new_payload['values']
     assert submit(client, new_run + '/explanation', figure).status_code == 409
     assert submit(client, new_run + '/explanation', new_figure).status_code == 202
     new_explanation = client.get(new_run + '/explanation').json()['explanation']
     assert new_explanation['id'] != explanation['id']
     assert export(client, new_run + '/report', figure, explanation).status_code == 409
     new_export = export(client, new_run + '/report', new_figure, new_explanation)
-    assert new_export.status_code == 201, new_export.text
+    assert new_export.status_code == 200, new_export.text
     new_report = new_export.json()['report']
     assert new_report['id'] != report['id']
     assert_bindings(project, file, new_result, new_figure, new_explanation, new_report, writer.calls[1])
@@ -234,4 +237,5 @@ def test_excel_to_word_versioned_workflow(client, cloud, writer, project_type):
                     new_download.replace(project['id'], other['id'])):
             assert reopened.get(url).status_code == 404
         assert reopened.get(new_run + '/report/' + report['id'] + '/download').status_code == 404
-    assert len(cloud.calls) == len(writer.calls) == 2
+    # Historical figures were seeded; only the two new explanations submit.
+    assert len(cloud.calls) == 0 and len(writer.calls) == 2

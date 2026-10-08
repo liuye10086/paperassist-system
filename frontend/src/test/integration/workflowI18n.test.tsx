@@ -50,7 +50,7 @@ it('translates analysis labels while preserving field values and a draft on lang
 
 it('translates statistics labels without translating groups or numeric values', async () => {
   locale('en')
-  vi.stubGlobal('fetch', vi.fn(async (url: string) => Response.json(url.endsWith('/analysis-result') ? { current_revision: 1, is_current: true, result: { id: 'run', filename: '研究数据.xlsx', source_sha256: 'source', setup_revision: 1, selection, check, numeric_name: '指标原文', group_name: '组名原文', started_at: '2026-10-05', completed_at: '2026-10-05', engine: { id: 'test', python_version: 'test', openpyxl_version: 'test' }, overall: stats, groups: [{ label: '总体（完整记录）', statistics: stats }] } } : url.endsWith('/config') ? { configured: false } : { current_revision: 1, is_current: true, figure: null, job: null })))
+  vi.stubGlobal('fetch', vi.fn(async (url: string) => Response.json(url.endsWith('/analysis-result') ? { current_revision: 1, is_current: true, result: { id: 'run', filename: '研究数据.xlsx', source_sha256: 'source', setup_revision: 1, selection, check, numeric_name: '指标原文', group_name: '组名原文', started_at: '2026-10-05', completed_at: '2026-10-05', engine: { id: 'test', python_version: 'test', openpyxl_version: 'test' }, overall: stats, groups: [{ label: '总体（完整记录）', statistics: stats }] } } : url.endsWith('config') ? { configured: false } : { current_revision: 1, is_current: true, figure: null, job: null })))
   render(<StatisticsResults base="/file" savedRevision={1} fieldsMatch={true} disabled={false} onBusyChange={() => {}} />)
   expect(await screen.findByRole('table', { name: 'Descriptive statistics results' })).toBeTruthy()
   expect(screen.getByRole('columnheader', { name: 'Mean' })).toBeTruthy()
@@ -60,7 +60,7 @@ it('translates statistics labels without translating groups or numeric values', 
 })
 
 it('translates figure and explanation controls while preserving historical artifacts and avoiding generation', async () => {
-  const fetch = vi.fn(async (url: string) => Response.json(url.endsWith('/config') ? { configured: true } : url.endsWith('/explanation') ? { current_revision: 1, is_current: true, figure_id: 'figure', explanation, job: null } : url.endsWith('/report') ? { current_revision: 1, is_current: true, ready: true, issues: [], report } : { current_revision: 1, is_current: true, figure, job: null }))
+  const fetch = vi.fn(async (url: string) => Response.json(url.endsWith('config') ? { configured: true } : url.endsWith('/explanation') ? { current_revision: 1, is_current: true, figure_id: 'figure', explanation, job: null } : url.endsWith('/report') ? { current_revision: 1, is_current: true, ready: true, issues: [], report } : { current_revision: 1, is_current: true, figure, job: null }))
   vi.stubGlobal('fetch', fetch); render(<BoxplotFigure base="/file" runId="run" revision={1} canGenerate disabled={false} onBusyChange={() => {}} />)
   await screen.findByRole('link', { name: '下载 Word 报告' }); const calls = fetch.mock.calls.length; locale('en')
   expect(screen.getByRole('button', { name: 'Generate a boxplot with OpenAI' })).toBeTruthy()
@@ -72,7 +72,7 @@ it('translates figure and explanation controls while preserving historical artif
 })
 
 it('does not expose arbitrary service messages and retranslates retained errors', async () => {
-  vi.stubGlobal('fetch', vi.fn(async (url: string) => url.endsWith('/config') ? Response.json({ configured: true }) : Response.json({ detail: { code: 'unknown_code', message: 'SECRET upstream raw error', params: {} } }, { status: 500 })))
+  vi.stubGlobal('fetch', vi.fn(async (url: string) => url.endsWith('config') ? Response.json({ configured: true }) : Response.json({ detail: { code: 'unknown_code', message: 'SECRET upstream raw error', params: {} } }, { status: 500 })))
   render(<AnalysisExplanation base="/file" runId="run" revision={1} figureId="figure" canGenerate disabled={false} onBusyChange={() => {}} />)
   await screen.findByRole('alert'); locale('en')
   expect(screen.getByRole('alert').textContent).toBe('Explanation request failed. Reload the explanation.')
@@ -92,7 +92,7 @@ it('translates only legacy system notice templates and leaves unfamiliar text un
 })
 
 it('switches historical artifact notices and download names without translating saved research', async () => {
-  const fetch = vi.fn(async (url: string) => Response.json(url.endsWith('/config') ? { configured: true }
+  const fetch = vi.fn(async (url: string) => Response.json(url.endsWith('config') ? { configured: true }
     : url.endsWith('/explanation') ? { current_revision: 2, is_current: false, figure_id: 'figure', explanation, job: null }
       : url.endsWith('/report') ? { current_revision: 2, is_current: false, ready: false, issues: ['当前结果属于旧配置，请先完成当前配置的统计、图表和解释。'], report }
         : { current_revision: 2, is_current: false, figure, job: null }))
@@ -118,7 +118,7 @@ it('switches historical artifact notices and download names without translating 
 
 it('translates saved Excel preview notices and captions without altering headers and cells', async () => {
   locale('en')
-  vi.stubGlobal('fetch', vi.fn(async (url: string) => Response.json(url.endsWith('/config') ? { max_upload_bytes: 1024 } : { filename: '研究数据.xlsx', sheets: [{ name: '工作表', columns: ['数据准备', '指标原文'], row_count: 1, column_count: 2, preview_rows: [['数值列', 0]], warnings: ['存在重复列名，已按原始列顺序保留。'] }] })))
+  vi.stubGlobal('fetch', vi.fn(async (url: string) => Response.json(url.endsWith('config') ? { max_upload_bytes: 1024 } : { filename: '研究数据.xlsx', sheets: [{ name: '工作表', columns: ['数据准备', '指标原文'], row_count: 1, column_count: 2, preview_rows: [['数值列', 0]], warnings: ['存在重复列名，已按原始列顺序保留。'] }] })))
   render(<ExcelPreview projectId="p" savedFile={{ id: 'f', request: 1 }} />)
   expect(await screen.findByRole('table', { name: '工作表 · Showing 1 / 1 rows (— indicates an empty value)' })).toBeTruthy()
   expect(screen.getByRole('columnheader', { name: '数据准备' })).toBeTruthy()
@@ -129,7 +129,7 @@ it('translates saved Excel preview notices and captions without altering headers
 
 it('translates running task status without restarting polling or submitting work', async () => {
   vi.useFakeTimers()
-  const fetch = vi.fn(async (url: string, _init?: RequestInit) => Response.json(url.endsWith('/config') ? { configured: true } : { current_revision: 1, is_current: true, figure: null, job: { id: 'j', status: 'running', message: 'SECRET legacy job text', message_code: 'task_running', message_params: {} } }))
+  const fetch = vi.fn(async (url: string, _init?: RequestInit) => Response.json(url.endsWith('config') ? { configured: true } : { current_revision: 1, is_current: true, figure: null, job: { id: 'j', status: 'running', message: 'SECRET legacy job text', message_code: 'task_running', message_params: {} } }))
   vi.stubGlobal('fetch', fetch); render(<BoxplotFigure base="/file" runId="run" revision={1} canGenerate disabled={false} onBusyChange={() => {}} />)
   await act(async () => {})
   const calls = fetch.mock.calls.length; locale('en')
@@ -142,7 +142,7 @@ it('translates running task status without restarting polling or submitting work
 
 it('clears the saved-upload failure context before opening another saved file', async () => {
   locale('en')
-  vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => url.endsWith('/config') ? Response.json({ max_upload_bytes: 1024 })
+  vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => url.endsWith('config') ? Response.json({ max_upload_bytes: 1024 })
     : init?.method === 'POST' ? Response.json({ file: { parse_status: 'failed', error: { code: 'unknown', message: 'SECRET' } } })
       : Response.json({ detail: { code: 'unknown', message: 'SECRET' } }, { status: 500 })))
   const view = render(<ExcelPreview projectId="p" />)

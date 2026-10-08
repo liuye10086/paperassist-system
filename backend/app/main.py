@@ -23,7 +23,10 @@ from app.adapters.openai_plot import configuration
 from app.api.explanations import router as explanations_router
 from app.domain.explanations import poll_pending_explanations
 from app.api.reports import router as reports_router
+from app.api.tasks import router as tasks_router, project_router as project_tasks_router
+from app.api.model_usage import router as model_usage_router
 from app.core.errors import PUBLIC_CODES, error_response, fallback_error, unexpected_error_response
+from app.core.request_id import RequestIdMiddleware
 
 # Fail early on invalid environment configuration.
 get_excel_settings()
@@ -57,6 +60,7 @@ async def lifespan(app):
 app = FastAPI(title="PaperAssist System", lifespan=lifespan)
 app.add_middleware(UploadLimitMiddleware)
 app.add_middleware(AuthMiddleware)
+app.add_middleware(RequestIdMiddleware)
 app.include_router(auth_router)
 app.include_router(excel_router)
 app.include_router(projects_router)
@@ -65,11 +69,26 @@ app.include_router(descriptive_router)
 app.include_router(boxplot_router)
 app.include_router(explanations_router)
 app.include_router(reports_router)
+app.include_router(tasks_router)
+app.include_router(project_tasks_router)
+app.include_router(model_usage_router)
 
 
 @app.get('/api/v1/ai/config')
 def ai_config():
     return configuration()
+
+
+@app.get('/api/v1/ai/explanation-config')
+def explanation_ai_config():
+    from app.domain.explanation_policy import configuration as explanation_configuration
+    return explanation_configuration()
+
+
+@app.get('/api/v1/ai/plot-config')
+def plot_ai_config():
+    from app.domain.plot_policy import configuration as plot_configuration
+    return plot_configuration()
 
 
 @app.exception_handler(StorageError)

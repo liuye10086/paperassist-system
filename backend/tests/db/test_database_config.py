@@ -133,6 +133,9 @@ def test_schema_preserves_business_tables_and_auth_tables_and_uses_job_sequences
         "explanations", "explanation_jobs", "reports",
         "users", "sessions", "auth_login_attempts",
         "session_revocations", "password_recovery_codes", "auth_password_attempts",
+        "tasks", "task_attempts", "task_events", "task_outbox",
+        "task_waits", "task_resume_requests",
+        "model_budgets", "model_calls", "usage_events", "budget_reservations",
     }
     for name in ("figure_jobs", "explanation_jobs"):
         table = schema.metadata.tables[name]
@@ -217,7 +220,7 @@ def test_migration_summary_never_prints_unknown_revision_or_credentials(database
     assert 'target_revision' in output
 
 
-@pytest.mark.parametrize('target,expected', [('0003_project_ownership', '0003_project_ownership'), ('base', None), ('head', '0005_ownership_indexes')])
+@pytest.mark.parametrize('target,expected', [('0003_project_ownership', '0003_project_ownership'), ('base', None), ('head', '0011_task_waits')])
 def test_migration_summary_uses_actual_command_target(database, capsys, target, expected):
     import json
     from alembic.script import ScriptDirectory

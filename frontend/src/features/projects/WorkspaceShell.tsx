@@ -3,10 +3,11 @@ import { useI18n } from '../../shared/i18n'
 import './workspace.css'
 
 export type WorkspaceView = 'home' | 'projects' | 'project'
-export type ProjectSection = 'overview' | 'files' | 'analysis' | 'artifacts'
+export type ProjectSection = 'overview' | 'files' | 'analysis' | 'artifacts' | 'tasks'
 const projectSections: { value: ProjectSection; label: string; icon: 'home' | 'folder' | 'chart' | 'files' }[] = [
   { value: 'overview', label: '项目概览', icon: 'home' }, { value: 'files', label: '项目文件', icon: 'folder' },
   { value: 'analysis', label: '数据分析', icon: 'chart' }, { value: 'artifacts', label: '图表与报告', icon: 'files' },
+  { value: 'tasks', label: '项目任务', icon: 'files' },
 ]
 
 export function WorkspaceIcon({ name }: { name: 'home' | 'folder' | 'plus' | 'arrow' | 'file' | 'menu' | 'chart' | 'files' | 'collapse' | 'expand' }) {

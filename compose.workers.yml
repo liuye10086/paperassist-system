@@ -1,0 +1,89 @@
+name: ${PAPERASSIST_STACK_PROJECT:?Run through script/dev.cmd or worker_stack.py}
+x-worker: &worker
+  image: ${PAPERASSIST_STACK_PROJECT}-worker:local
+  build:
+    context: .
+    dockerfile: infra/worker/Dockerfile
+  init: true
+  environment: &worker-environment
+    PAPERASSIST_ENV: ${PAPERASSIST_ENV}
+    PAPERASSIST_DB_SCHEMA: ${PAPERASSIST_DB_SCHEMA}
+    PAPERASSIST_DATA_DIR: /data
+    PAPERASSIST_BROKER_URL_FILE: /run/secrets/broker-url
+    PAPERASSIST_TASK_QUEUE: ${PAPERASSIST_TASK_QUEUE}
+    PAPERASSIST_QUEUE_TEST_ALLOWED: ${PAPERASSIST_QUEUE_TEST_ALLOWED}
+    PAPERASSIST_DATABASE_URL_FILE: /run/secrets/database-url
+    PAPERASSIST_TEST_DATABASE_URL_FILE: /run/secrets/database-url
+    PAPERASSIST_WORKER_HEALTH_FILE: /tmp/dispatcher-health
+  secrets:
+    - source: database-url
+      target: database-url
+    - source: broker-url
+      target: broker-url
+  volumes:
+    - type: bind
+      source: ${PAPERASSIST_STACK_DATA}
+      target: /data
+  labels:
+    io.paperassist.workspace: ${PAPERASSIST_STACK_ROOT}
+  depends_on:
+    rabbitmq:
+      condition: service_healthy
+  stop_grace_period: 45s
+services:
+  rabbitmq:
+    image: rabbitmq:4.3.6-alpine@sha256:2cb43283d8bbd3caa6c0f0dc00e96c8de772df33df7fd8af6aee4d605aeb8ada
+    hostname: rabbitmq
+    labels:
+      io.paperassist.workspace: ${PAPERASSIST_STACK_ROOT}
+    secrets:
+      - source: rabbitmq-config
+        target: /etc/rabbitmq/rabbitmq.conf
+    volumes:
+      - broker-data:/var/lib/rabbitmq
+    healthcheck:
+      test: [CMD, rabbitmq-diagnostics, -q, ping]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    stop_grace_period: 30s
+  worker:
+    <<: *worker
+    environment:
+      <<: *worker-environment
+      OPENAI_API_KEY_FILE: /run/secrets/model-api-key
+      PAPERASSIST_WORKER_CONFIG_REVISION: ${PAPERASSIST_WORKER_CONFIG_REVISION}
+    secrets:
+      - source: database-url
+        target: database-url
+      - source: broker-url
+        target: broker-url
+      - source: model-api-key
+        target: model-api-key
+    command: [python, -m, app.workers, worker]
+    healthcheck:
+      test: [CMD, python, -m, app.workers, health, worker]
+      interval: 10s
+      timeout: 8s
+      retries: 6
+      start_period: 10s
+  dispatcher:
+    <<: *worker
+    command: [python, -m, app.workers, dispatch]
+    healthcheck:
+      test: [CMD, python, -m, app.workers, health, dispatch]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 10s
+secrets:
+  model-api-key:
+    file: ${PAPERASSIST_STACK_PRIVATE}/model-api-key
+  database-url:
+    file: ${PAPERASSIST_STACK_PRIVATE}/database-url
+  broker-url:
+    file: ${PAPERASSIST_STACK_PRIVATE}/broker-url
+  rabbitmq-config:
+    file: ${PAPERASSIST_STACK_PRIVATE}/rabbitmq.conf
+volumes:
+  broker-data:

@@ -10,6 +10,9 @@ def isolate_cloud_worker(monkeypatch):
     # Tests control cloud completion explicitly; never touch a developer's live API.
     monkeypatch.setenv('PAPERASSIST_PLOT_WORKER_ENABLED', '0')
     monkeypatch.setenv('OPENAI_API_KEY', '')
+    monkeypatch.setenv('OPENAI_API_KEY_FILE', '')
+    monkeypatch.setenv('PAPERASSIST_EXPLANATION_POLICY_FILE', '')
+    monkeypatch.setenv('PAPERASSIST_PLOT_POLICY_FILE', '')
     monkeypatch.setenv('PAPERASSIST_AUTH_TRUSTED_ORIGINS', 'http://testserver')
 
 

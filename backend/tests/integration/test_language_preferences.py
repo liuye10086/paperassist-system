@@ -152,7 +152,8 @@ def test_language_change_preserves_complete_research_history_and_downloads(clien
         assert {table: [dict(row) for row in db.execute(f'SELECT * FROM {table}')] for table in tables} == history
     assert {p: p.read_bytes() for p in assets} == assets
     assert {url: client.get(url).content for url in downloads} == content
-    assert (len(cloud.calls), len(writer.calls)) == calls == (1, 1)
+    # The report fixture seeds a historical explanation and retrieves it only.
+    assert (len(cloud.calls), len(writer.calls)) == calls == (0, 0)
 
 
 def test_internal_language_validation_and_database_failure_are_atomic(client):
@@ -208,7 +209,7 @@ def test_language_migration_roundtrip_preserves_legacy_columns_json_and_assets(c
         assert 'ui_language' not in {col['name'] for col in inspect(db.raw_connection).get_columns('users')}
     for cycle in range(2):
         migrate_database(postgres_migration_config)
-        assert SCHEMA_HEAD == '0005_ownership_indexes'
+        assert SCHEMA_HEAD == '0011_task_waits'
         with migration_connection(write=True) as db:
             for table, expected in originals.items():
                 actual = [dict(row) for row in db.execute(f'SELECT * FROM {table}')]

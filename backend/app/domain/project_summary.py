@@ -22,7 +22,7 @@ class SourceSummary(BaseModel):
 
 class TaskSummary(SourceSummary):
     kind: Literal['statistics', 'boxplot', 'explanation', 'report']
-    status: Literal['submitting', 'running', 'completed', 'failed', 'uncertain', 'unknown']
+    status: Literal['queued', 'submitting', 'running', 'waiting_input', 'waiting_confirmation', 'completed', 'failed', 'uncertain', 'unknown']
 
 
 class ArtifactSummary(SourceSummary):
@@ -93,8 +93,9 @@ class ProjectSummary(BaseModel):
 
 
 RUNS = '''WITH runs AS (
-    SELECT r.*, f.filename, s.revision AS current_revision
+    SELECT r.*, f.filename, f.project_id, p.owner_id, s.revision AS current_revision
     FROM analysis_runs r JOIN files f ON f.id=r.file_id
+    JOIN projects p ON p.id=f.project_id
     LEFT JOIN analysis_setups s ON s.file_id=f.id
     WHERE f.project_id=%s
 ), events AS ('''
@@ -118,6 +119,29 @@ TASKS = '''
     FROM reports p JOIN runs r ON r.id=p.analysis_run_id
     JOIN explanations e ON e.id=p.explanation_id AND e.analysis_run_id=r.id
     JOIN figures f ON f.id=e.figure_id AND f.analysis_run_id=r.id
+    WHERE NOT EXISTS (SELECT 1 FROM tasks t WHERE t.result_report_id=p.id
+        AND t.task_type='word_report' AND t.project_id=r.project_id AND t.user_id=r.owner_id)
+    UNION ALL
+    SELECT t.id, 'report', CASE WHEN t.status='succeeded' THEN 'completed' ELSE t.status END,
+           r.id, t.input_snapshot->'versions'->>'report', t.updated_at::text,
+           t.input_snapshot->'figure'->>'id', t.input_snapshot->'explanation'->>'id'
+    FROM tasks t JOIN runs r ON r.id=t.input_snapshot->'result'->>'id'
+        AND r.project_id=t.project_id AND r.owner_id=t.user_id
+    WHERE t.task_type='word_report'
+    UNION ALL
+    SELECT t.id, 'explanation', CASE WHEN t.status='succeeded' THEN 'completed' ELSE t.status END,
+           r.id, t.input_snapshot->'versions'->>'explanation', t.updated_at::text,
+           t.input_snapshot->'figure'->>'id', t.result_explanation_id
+    FROM tasks t JOIN runs r ON r.id=t.input_snapshot->'result'->>'id'
+        AND r.project_id=t.project_id AND r.owner_id=t.user_id
+    WHERE t.task_type='explanation'
+    UNION ALL
+    SELECT t.id, 'boxplot', CASE WHEN t.status='succeeded' THEN 'completed' ELSE t.status END,
+           r.id, t.input_snapshot->'versions'->>'figure', t.updated_at::text,
+           t.result_figure_id, NULL::text
+    FROM tasks t JOIN runs r ON r.id=t.input_snapshot->'result'->>'id'
+        AND r.project_id=t.project_id AND r.owner_id=t.user_id
+    WHERE t.task_type='boxplot'
 '''
 
 ARTIFACTS = '''
@@ -162,7 +186,7 @@ def read_project_summary(store, project_id, *, task_page=1, artifact_page=1, pag
         tasks = _page(db, project_id, TASKS, task_page, page_size)
         artifacts = _page(db, project_id, ARTIFACTS, artifact_page, page_size)
     for task in tasks['items']:
-        if task['status'] not in ('submitting', 'running', 'completed', 'failed', 'uncertain'):
+        if task['status'] not in ('queued', 'submitting', 'running', 'waiting_input', 'waiting_confirmation', 'completed', 'failed', 'uncertain'):
             task['status'] = 'unknown'
     for artifact in artifacts['items']:
         path = '/api/v1/projects/{}/files/{}/analysis-runs/{}'.format(

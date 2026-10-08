@@ -1,6 +1,5 @@
-import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { ComponentProps } from 'react'
 import { apiError, setLocale, translate } from '../../shared/i18n'
 import { WorkflowNavigation, WorkflowProvider } from '../analysis/AnalysisWorkflow'
 import AnalysisExplanation from './AnalysisExplanation'
@@ -11,7 +10,7 @@ const job = (status: string) => ({ id: 'job', status, message: '解释任务处�
 const props = { base: '/file', runId: 'run', revision: 1, figureId: 'figure', canGenerate: true, disabled: false, onBusyChange: vi.fn() }
 const reportState = { current_revision: 1, is_current: true, ready: true, issues: [], report: null }
 const json = (value: unknown) => Promise.resolve({ ok: true, json: async () => value })
-function api(state: unknown = empty, configured = true) { return vi.fn((url: string, _init?: RequestInit) => json(url.endsWith('/report') ? reportState : url === '/api/v1/ai/config' ? { configured, model: 'model', message: '未配置 API' } : state)) }
+function api(state: unknown = empty, configured = true) { return vi.fn((url: string, _init?: RequestInit) => json(url.endsWith('/report') ? reportState : url === '/api/v1/ai/explanation-config' ? { configured, model: 'model', message: '未配置 API' } : state)) }
 const button = () => screen.getByRole('button', { name: '使用 OpenAI 生成解释' }) as HTMLButtonElement
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.useRealTimers(); setLocale('zh-CN') })
 
@@ -23,7 +22,7 @@ it('shows explanation loading and failure in Word report with read-only recovery
       initial = false
       return new Promise((_resolve, reject) => { rejectRead = reject })
     }
-    return json(url === '/api/v1/ai/config' ? { configured: true } : url.endsWith('/report') ? reportState : { ...empty, explanation })
+    return json(url === '/api/v1/ai/explanation-config' ? { configured: true } : url.endsWith('/report') ? reportState : { ...empty, explanation })
   })
   vi.stubGlobal('fetch', fetch)
   render(<WorkflowProvider><WorkflowNavigation /><AnalysisExplanation {...props} /></WorkflowProvider>)
@@ -38,38 +37,28 @@ it('shows explanation loading and failure in Word report with read-only recovery
   expect(fetch.mock.calls.every(([, init]) => !init?.method)).toBe(true)
 })
 
-describe.each(['zh-CN', 'en'] as const)('shared configuration in the explanation workflow (%s)', locale => {
-  it.each([
-    { name: 'loading', configuration: null, error: '', notice: '正在读取解释 OpenAI 配置……' },
-    { name: 'missing', configuration: { configured: false, model: null, message: '', message_code: 'openai_not_configured' }, error: '', notice: apiError({ code: 'openai_not_configured' }, '请联系管理员配置 OpenAI API。') },
-    { name: 'error', configuration: null, error: '无法连接后端，请确认服务正常后重新读取图表。', notice: '无法连接后端，请确认服务正常后重新读取图表。' },
-  ])('shows $name and recovers through the parent configuration callback', async ({ configuration, error, notice }) => {
+describe.each(['zh-CN', 'en'] as const)('independent explanation configuration (%s)', locale => {
+  it('shows missing explanation policy and reloads it independently', async () => {
     setLocale(locale)
-    const fetch = api(); vi.stubGlobal('fetch', fetch)
-    const onReloadConfiguration = vi.fn()
-    const workflow = (configurationProps: Pick<ComponentProps<typeof AnalysisExplanation>, 'configuration' | 'configurationError'>) =>
-      <WorkflowProvider><WorkflowNavigation /><AnalysisExplanation {...props} {...configurationProps} onReloadConfiguration={onReloadConfiguration} /></WorkflowProvider>
-    const view = render(workflow({ configuration, configurationError: translate(error) }))
-    fireEvent.click(screen.getByRole('button', { name: translate('分析解释') }))
-    const panel = within(screen.getByRole('region', { name: translate('AI 分析解释') }))
-    await panel.findByText(translate('尚未生成此图表的分析解释。'))
-    expect(panel.getByText(translate(notice)).closest('[hidden]')).toBeNull()
-    const generate = panel.getByRole('button', { name: translate('使用 OpenAI 生成解释') }) as HTMLButtonElement
+    let configured = false
+    const fetch = vi.fn((url: string) => json(url === '/api/v1/ai/explanation-config'
+      ? { configured, model: configured ? 'model' : null, message_code: 'explanation_not_configured' } : empty))
+    vi.stubGlobal('fetch', fetch)
+    render(<AnalysisExplanation {...props} />)
+    const generate = await screen.findByRole('button', { name: translate('使用 OpenAI 生成解释') }) as HTMLButtonElement
+    await screen.findByText(translate(apiError({ code: 'explanation_not_configured' }, '请联系管理员配置 OpenAI API。')))
     expect(generate.disabled).toBe(true)
-    fireEvent.click(panel.getByRole('button', { name: translate('重新读取解释 OpenAI 配置') }))
-    expect(onReloadConfiguration).toHaveBeenCalledOnce()
-    view.rerender(workflow({ configuration: { configured: true, model: 'model', message: '' }, configurationError: '' }))
+    configured = true
+    fireEvent.click(screen.getByRole('button', { name: translate('重新读取解释 OpenAI 配置') }))
     await waitFor(() => expect(generate.disabled).toBe(false))
-    expect(panel.queryByText(translate(notice))).toBeNull()
     expect(fetch.mock.calls.some(([url]) => url === '/api/v1/ai/config')).toBe(false)
-    expect(fetch.mock.calls.some(([, init]) => init?.method === 'POST')).toBe(false)
   })
 })
 
 it('generates six sections with evidence and safely renders AI draft and provenance', async () => {
   const fetch = api(); vi.stubGlobal('fetch', fetch); render(<AnalysisExplanation {...props} />)
   await waitFor(() => expect(button().disabled).toBe(false))
-  fetch.mockImplementation((url: string, init?: RequestInit) => json(url.endsWith('/report') ? reportState : init?.method === 'POST' ? { ...empty, explanation } : url === '/api/v1/ai/config' ? { configured: true } : empty))
+  fetch.mockImplementation((url: string, init?: RequestInit) => json(url.endsWith('/report') ? reportState : init?.method === 'POST' ? { ...empty, explanation } : url === '/api/v1/ai/explanation-config' ? { configured: true } : empty))
   fireEvent.click(button()); fireEvent.click(button())
   expect(await screen.findByText(explanation.sections[0].text)).toBeTruthy()
   for (const section of explanation.sections) expect(screen.getByRole('heading', { name: section.title })).toBeTruthy()
@@ -81,14 +70,14 @@ it('generates six sections with evidence and safely renders AI draft and provena
 })
 it('restores running work and polls without POST', async () => {
   vi.useFakeTimers(); let reads = 0
-  const fetch = vi.fn((url: string, _init?: RequestInit) => json(url.endsWith('/report') ? reportState : url === '/api/v1/ai/config' ? { configured: true } : reads++ === 0 ? { ...empty, job: job('running') } : { ...empty, explanation }))
+  const fetch = vi.fn((url: string, _init?: RequestInit) => json(url.endsWith('/report') ? reportState : url === '/api/v1/ai/explanation-config' ? { configured: true } : reads++ === 0 ? { ...empty, job: job('running') } : { ...empty, explanation }))
   vi.stubGlobal('fetch', fetch); render(<AnalysisExplanation {...props} />); await act(async () => {})
-  expect(props.onBusyChange).toHaveBeenLastCalledWith(true)
+  expect(props.onBusyChange).toHaveBeenLastCalledWith(false)
   await act(async () => { vi.advanceTimersByTime(3000) })
   expect(screen.getByText(explanation.sections[0].text)).toBeTruthy()
   expect(fetch.mock.calls.every(call => !call[1]?.method)).toBe(true)
 })
-it.each(['failed', 'uncertain'])('only explicit %s retry adds retry and warns about cost', async status => {
+it.each(['failed'])('only explicit %s retry adds retry and warns about cost', async status => {
   const fetch = api({ ...empty, job: job(status) }); vi.stubGlobal('fetch', fetch); render(<AnalysisExplanation {...props} />)
   const retry = await screen.findByRole('button', { name: '重试生成解释（再次调用 API）' })
   await waitFor(() => expect((retry as HTMLButtonElement).disabled).toBe(false))
@@ -99,7 +88,7 @@ it.each(['failed', 'uncertain'])('only explicit %s retry adds retry and warns ab
 it('missing key keeps cached explanation readable and configuration reload available', async () => {
   const fetch = api({ ...empty, explanation }, false); vi.stubGlobal('fetch', fetch); render(<AnalysisExplanation {...props} />)
   expect(await screen.findByText(explanation.sections[0].text)).toBeTruthy(); expect(button().disabled).toBe(true)
-  fetch.mockImplementation((url: string) => json(url.endsWith('/report') ? reportState : url === '/api/v1/ai/config' ? { configured: true } : { ...empty, explanation }))
+  fetch.mockImplementation((url: string) => json(url.endsWith('/report') ? reportState : url === '/api/v1/ai/explanation-config' ? { configured: true } : { ...empty, explanation }))
   fireEvent.click(screen.getByRole('button', { name: '重新读取解释 OpenAI 配置' }))
   await waitFor(() => expect(button().disabled).toBe(false))
 })
@@ -121,7 +110,7 @@ it('network failure preserves draft and manual reread clears error without POST'
   expect(fetch.mock.calls.every(call => !call[1]?.method)).toBe(true)
 })
 it('request timeout stops polling and enables manual reread', async () => {
-  vi.useFakeTimers(); const fetch = vi.fn((url: string) => url === '/api/v1/ai/config' ? json({ configured: true }) : new Promise(() => {}))
+  vi.useFakeTimers(); const fetch = vi.fn((url: string) => url === '/api/v1/ai/explanation-config' ? json({ configured: true }) : new Promise(() => {}))
   vi.stubGlobal('fetch', fetch); render(<AnalysisExplanation {...props} />); await act(async () => {})
   await act(async () => { vi.advanceTimersByTime(30_000) })
   expect(screen.getByRole('alert').textContent).toMatch(/超时/)
@@ -145,7 +134,7 @@ it('POST timeout requires reread before any further paid call', async () => {
   vi.useFakeTimers(); let posted = false
   const fetch = vi.fn((url: string, init?: RequestInit) => {
     if (url.endsWith('/report')) return json(reportState)
-    if (url === '/api/v1/ai/config') return json({ configured: true })
+    if (url === '/api/v1/ai/explanation-config') return json({ configured: true })
     if (init?.method === 'POST') { posted = true; return new Promise(() => {}) }
     return json(posted ? { ...empty, job: job('uncertain') } : empty)
   })
@@ -153,19 +142,20 @@ it('POST timeout requires reread before any further paid call', async () => {
   fireEvent.click(button()); await act(async () => { vi.advanceTimersByTime(30_000) })
   expect(screen.getByRole('alert').textContent).toMatch(/先重新读取解释/); expect(button().disabled).toBe(true)
   fireEvent.click(screen.getByRole('button', { name: '重新读取解释' })); await act(async () => {})
-  expect((screen.getByRole('button', { name: '重试生成解释（再次调用 API）' }) as HTMLButtonElement).disabled).toBe(false)
+  expect(button().disabled).toBe(true)
+  expect(screen.queryByRole('button', { name: '重试生成解释（再次调用 API）' })).toBeNull()
   expect(fetch.mock.calls.filter(call => call[1]?.method === 'POST')).toHaveLength(1)
 })
 it('polls a newly submitted task and releases busy state after completion', async () => {
   vi.useFakeTimers(); let posted = false; let polls = 0; const onBusyChange = vi.fn()
   const fetch = vi.fn((url: string, init?: RequestInit) => {
     if (url.endsWith('/report')) return json(reportState)
-    if (url === '/api/v1/ai/config') return json({ configured: true })
+    if (url === '/api/v1/ai/explanation-config') return json({ configured: true })
     if (init?.method === 'POST') { posted = true; return json({ ...empty, job: job('submitting') }) }
     return json(!posted ? empty : polls++ === 0 ? { ...empty, job: job('running') } : { ...empty, explanation })
   })
   vi.stubGlobal('fetch', fetch); render(<AnalysisExplanation {...props} onBusyChange={onBusyChange} />); await act(async () => {})
-  fireEvent.click(button()); await act(async () => {}); expect(onBusyChange).toHaveBeenLastCalledWith(true)
+  fireEvent.click(button()); await act(async () => {}); expect(onBusyChange).toHaveBeenLastCalledWith(false)
   await act(async () => { vi.advanceTimersByTime(3000) }); expect(screen.getByText(explanation.sections[0].text)).toBeTruthy()
   expect(onBusyChange).toHaveBeenLastCalledWith(false); expect(fetch.mock.calls.filter(call => call[1]?.method === 'POST')).toHaveLength(1)
 })
@@ -173,7 +163,7 @@ it('ignores a late generation response when the figure changes', async () => {
   let resolve!: (value: unknown) => void; let signal!: AbortSignal
   const fetch = vi.fn((url: string, init?: RequestInit) => {
     if (init?.method === 'POST') { signal = init.signal as AbortSignal; return new Promise(done => { resolve = done }) }
-    return json(url.endsWith('/report') ? reportState : url === '/api/v1/ai/config' ? { configured: true } : empty)
+    return json(url.endsWith('/report') ? reportState : url === '/api/v1/ai/explanation-config' ? { configured: true } : empty)
   })
   vi.stubGlobal('fetch', fetch); const view = render(<AnalysisExplanation {...props} />)
   await waitFor(() => expect(button().disabled).toBe(false)); fireEvent.click(button())
@@ -184,7 +174,7 @@ it('ignores a late generation response when the figure changes', async () => {
 it('server revision conflict retains the draft and requires current state before generation', async () => {
   const fetch = vi.fn((url: string, init?: RequestInit) => init?.method === 'POST'
     ? Promise.resolve({ ok: false, status: 409, json: async () => ({ detail: { code: 'setup_conflict', params: {}, message: 'ignored legacy text' } }) })
-    : json(url.endsWith('/report') ? reportState : url === '/api/v1/ai/config' ? { configured: true } : { ...empty, explanation }))
+    : json(url.endsWith('/report') ? reportState : url === '/api/v1/ai/explanation-config' ? { configured: true } : { ...empty, explanation }))
   vi.stubGlobal('fetch', fetch); render(<AnalysisExplanation {...props} />)
   await waitFor(() => expect(button().disabled).toBe(false)); fireEvent.click(button())
   await screen.findByText('分析配置已变化，请读取当前配置并重新执行统计。'); expect(button().disabled).toBe(true)
@@ -195,7 +185,7 @@ it('exports cached explanations without a key and locks AI actions while report 
   const onBusyChange = vi.fn(); let finish!: (value: unknown) => void
   const fetch = vi.fn((url: string, init?: RequestInit) => {
     if (url.endsWith('/report')) return init?.method === 'POST' ? new Promise(resolve => { finish = resolve }) : json({ current_revision: 1, is_current: true, ready: true, issues: [], report: null })
-    return json(url.endsWith('/report') ? reportState : url === '/api/v1/ai/config' ? { configured: false } : { ...empty, explanation })
+    return json(url.endsWith('/report') ? reportState : url === '/api/v1/ai/explanation-config' ? { configured: false } : { ...empty, explanation })
   })
   vi.stubGlobal('fetch', fetch); render(<AnalysisExplanation {...props} onBusyChange={onBusyChange} />)
   const reportButton = await screen.findByRole('button', { name: '生成 Word 报告' }) as HTMLButtonElement

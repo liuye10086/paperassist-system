@@ -29,7 +29,7 @@ function api(options: { existing?: boolean; conflict?: boolean; invalid?: boolea
   let current: typeof saved | null = options.existing ? saved : null
   let result: typeof analysisResult | null = options.existingResult ? analysisResult : null
   const mock = vi.fn(async (url: string, init?: RequestInit) => {
-    if (url === '/api/v1/ai/config') return Response.json({ configured: true, model: 'test-model', message: '' })
+    if (url === '/api/v1/ai/plot-config') return Response.json({ configured: true, model: 'test-model', message: '' })
     if (url.endsWith('/boxplot')) return Response.json({ current_revision: current?.revision ?? null,
       is_current: result?.setup_revision === current?.revision, figure: null, job: null })
     if (url.endsWith('/analysis-result')) {
@@ -139,16 +139,19 @@ test('restored statistics expose an explicit OpenAI generation action without su
   expect(mock.mock.calls.some(call => call[0].endsWith('/boxplot') && call[1]?.method === 'POST')).toBe(false)
 })
 
-test('OpenAI submission locks configuration and statistics but allows file switching', async () => {
+test('plot submission locks short actions then queued work releases the workspace', async () => {
   const mock = api({ existing: true, existingResult: true })
   const original = mock.getMockImplementation()!
   let submitted = false
+  let finishPost!: (response: Response) => void
+  const queued = { current_revision: 1, is_current: true, figure: null, job: null,
+    task: { id: 'task', status: 'queued', revision: 1, reason_code: null, error_code: null } }
   mock.mockImplementation(async (url: string, init?: RequestInit) => {
-    if (url.endsWith('/boxplot') && (init?.method === 'POST' || submitted)) {
+    if (url.endsWith('/boxplot') && init?.method === 'POST') {
       submitted = true
-      return Response.json({ current_revision: 1, is_current: true, figure: null,
-        job: { id: 'j', status: 'running', message: '处理中', response_id: 'r', created_at: '' } })
+      return new Promise<Response>(resolve => { finishPost = resolve })
     }
+    if (url.endsWith('/boxplot') && submitted) return Response.json(queued)
     return original(url, init)
   })
   const user = userEvent.setup()
@@ -164,6 +167,10 @@ test('OpenAI submission locks configuration and statistics but allows file switc
   expect((screen.getByRole('button', { name: '执行描述统计' }) as HTMLButtonElement).disabled).toBe(true)
   await user.click(screen.getByRole('button', { name: '字段配置' }))
   expect((screen.getByLabelText('用于分析的文件') as HTMLSelectElement).disabled).toBe(false)
+  await act(async () => { finishPost(Response.json(queued)) })
+  await waitFor(() => expect((screen.getByLabelText('数值列') as HTMLSelectElement).disabled).toBe(false))
+  await user.click(screen.getByRole('button', { name: '描述统计' }))
+  expect((screen.getByRole('button', { name: '执行描述统计' }) as HTMLButtonElement).disabled).toBe(false)
 })
 
 test('chooses fields, checks complete rows and saves configuration without running statistics', async () => {

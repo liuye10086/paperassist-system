@@ -5,7 +5,7 @@ export type SummarySource = {
 }
 export type SummaryTask = SummarySource & {
   kind: 'statistics' | 'boxplot' | 'explanation' | 'report'
-  status: 'submitting' | 'running' | 'completed' | 'failed' | 'uncertain' | 'unknown'
+  status: 'queued' | 'submitting' | 'running' | 'waiting_input' | 'waiting_confirmation' | 'completed' | 'failed' | 'uncertain' | 'unknown'
 }
 export type SummaryArtifact = SummarySource & {
   kind: 'figure' | 'report'; download_filename: string; size_bytes: number; sha256: string; download_url: string
@@ -52,7 +52,7 @@ export function isProjectSummary(value: unknown, projectId: string, projectType:
   const future = value.future
   return page(value.tasks, taskPage, task => source(task) && record(task)
     && ['statistics', 'boxplot', 'explanation', 'report'].includes(String(task.kind))
-    && ['submitting', 'running', 'completed', 'failed', 'uncertain', 'unknown'].includes(String(task.status)))
+    && ['queued', 'submitting', 'running', 'waiting_input', 'waiting_confirmation', 'completed', 'failed', 'uncertain', 'unknown'].includes(String(task.status)))
     && page(value.artifacts, artifactPage, artifact => {
       if (!source(artifact) || !record(artifact) || !['figure', 'report'].includes(String(artifact.kind))
         || typeof artifact.download_filename !== 'string' || !artifact.download_filename

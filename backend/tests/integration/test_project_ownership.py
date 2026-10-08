@@ -66,7 +66,7 @@ def test_all_research_resources_and_mutations_are_private(cloud, writer, other_r
     with account_client('alice@paperassist.local')[0] as owner:
         base, file, result, figure, explanation, report_url = report_ready(owner)
         exported = export(owner, report_url, figure, explanation)
-        assert exported.status_code == 201
+        assert exported.status_code == 200
         report = exported.json()['report']
         project_url = base.split('/files/')[0]
         run_url = base + '/analysis-runs/' + result['id']
@@ -107,7 +107,8 @@ def test_all_research_resources_and_mutations_are_private(cloud, writer, other_r
         assert owner.get(base + '/analysis-setup').json()['revision'] == 1
         assert owner.get(download).content == report_content
         assert len(owner.get(project_url + '/files').json()) == 1
-        assert len(cloud.calls) == len(writer.calls) == 1
+        # The report fixture retrieves seeded historical figure and explanation without a new paid request.
+        assert (len(cloud.calls), len(writer.calls)) == (0, 0)
         with TestClient(app) as anonymous:
             for url in reads:
                 assert anonymous.get(url).status_code == 401

@@ -1,4 +1,10 @@
 export const artifactUiMessages: Record<string, string> = {
+  '正在提交 Word 报告任务……': 'Submitting the Word report task…',
+  '等待生成 Word 报告……': 'Waiting to generate the Word report…',
+  '可以离开页面，回来后继续查看。': 'You can leave this page and return to check the result.',
+  'Word 报告生成失败。': 'Word report generation failed.',
+  '重试生成 Word 报告': 'Retry Word report generation',
+  '请重新读取报告，核对来源后重试。': 'Reload the report, check the sources, and try again.',
   '图表': 'Chart',
   '分析解释': 'Explanation',
   'Word 报告': 'Word report',

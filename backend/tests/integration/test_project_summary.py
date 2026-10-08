@@ -17,6 +17,20 @@ from tests.integration.test_project_ownership import account_client
 from tests.integration.test_reports import report_ready, export
 
 
+def test_queued_word_task_is_visible_without_artifact_or_read_side_effects(client, cloud, writer):
+    base, _, _, figure, explanation, url = report_ready(client)
+    response = client.post(url, json={'expected_revision': 1, 'figure_id': figure['id'], 'explanation_id': explanation['id']})
+    assert response.status_code == 202
+    task = response.json()['task']
+    endpoint = base.split('/files/')[0] + '/summary'
+    summary = client.get(endpoint).json()
+    words = [item for item in summary['tasks']['items'] if item['kind'] == 'report']
+    assert len(words) == 1 and words[0]['id'] == task['id'] and words[0]['status'] == 'queued'
+    assert not any(item['kind'] == 'report' for item in summary['artifacts']['items'])
+    assert client.get(endpoint).json() == summary
+    assert client.get('/api/v1/tasks/' + task['id']).json()['revision'] == 1
+
+
 @pytest.mark.parametrize('project_type', ['sci', 'thesis'])
 def test_empty_summary_has_explicit_type_specific_unavailable_contract(client, project_type):
     project = client.post('/api/v1/projects', json={
@@ -58,6 +72,8 @@ def test_success_history_links_sources_and_exact_downloads_without_cloud_or_writ
     summary = response.json()
     tasks = {item['kind']: item for item in summary['tasks']['items']}
     assert set(tasks) == {'statistics', 'boxplot', 'explanation', 'report'}
+    assert len([item for item in summary['tasks']['items'] if item['kind'] == 'report']) == 1
+    assert tasks['report']['id'] == client.get(report_url).json()['task']['id']
     assert tasks['boxplot']['status'] == 'running'
     for kind, task in tasks.items():
         assert task['status'] == ('running' if kind == 'boxplot' else 'completed')

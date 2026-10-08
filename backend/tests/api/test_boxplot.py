@@ -57,13 +57,42 @@ def prepared(client, rows=None, **changes):
 
 
 def generate(client, url, revision=1):
-    response = client.post(url, json={'expected_revision': revision})
-    assert response.status_code in (200, 202), response.text
+    # Shared business fixtures start from a saved historical figure, not a new
+    # unified task. Only this explicit legacy scanner performs retrieval.
+    from app.domain.boxplot import recover_legacy_boxplot
+    from app.adapters.storage import get_project_store
+    parts = url.split('/')
+    project_id, file_id, run_id = parts[4], parts[6], parts[8]
+    store = get_project_store()
+    result = store.analysis_result_by_id(project_id, file_id, run_id)
+    assert result['setup_revision'] == revision
+    if store.figure_state(result, 'openai_boxplot_v1', result['engine']['id'])['figure'] is None:
+        seed_legacy(client, url)
+        recover_legacy_boxplot(project_id, file_id, run_id, store)
     response = client.get(url)
     assert response.status_code == 200, response.text
     state = response.json()
     assert state['figure'] is not None, state
     return state['figure']
+
+
+def seed_legacy(client, url, *, status='running', response_id='resp_test', created_at=None):
+    from app.adapters.storage import get_project_store
+    from app.core.config import get_excel_settings
+    from app.domain.boxplot import RENDERER
+    from app.domain.boxplot_material import build_material
+    parts = url.split('/')
+    project_id, file_id, run_id = parts[4], parts[6], parts[8]
+    store = get_project_store()
+    result = store.analysis_result_by_id(project_id, file_id, run_id)
+    record = store.file(project_id, file_id)
+    payload, expected = build_material(result, record, store.original(record), get_excel_settings())
+    job, _ = store.begin_figure_job(result, RENDERER, payload, expected, 'test-model', True)
+    changes = dict(status=status, response_id=response_id, container_id='cntr_test',
+                   message_code='task_' + status, message_params={})
+    if created_at:
+        changes['created_at'] = created_at
+    return store.update_figure_job(job['id'], **changes)
 
 
 def test_missing_api_configuration_preserves_local_features(client, monkeypatch):
@@ -92,47 +121,51 @@ def test_cloud_chart_uses_complete_data_and_correct_box_parameters(client, cloud
     assert (first['whislo'], first['whishi'], first['fliers']) == (1, 24, [100])
     assert singleton['n'] == 1 and singleton['whislo'] == singleton['whishi'] == 7
     assert '排除 2 行' in figure['caption']
-    assert '秘密' not in json.dumps(cloud.calls, ensure_ascii=False)
-    assert len(cloud.calls[0]['values']) == 26
+    from app.adapters.storage import get_project_store
+    payload = get_project_store().figure_job(result['id'], 'openai_boxplot_v1')['payload']
+    assert '秘密' not in json.dumps(payload, ensure_ascii=False)
+    assert len(payload['values']) == 26
     image = client.get(url + '/image?download=true')
     assert image.headers['content-type'] == 'image/png' and 'attachment' in image.headers['content-disposition']
     assert hashlib.sha256(image.content).hexdigest() == figure['sha256']
     assert client.get(base + '/analysis-result').json()['result'] == result
-    assert generate(client, url) == figure and len(cloud.calls) == 1
+    assert generate(client, url) == figure and len(cloud.calls) == 0
 
 
 def test_pending_resume_without_resubmission_and_keyless_saved_download(client, cloud, monkeypatch):
     _, _, _, url = prepared(client)
     cloud.pending = True
-    assert client.post(url, json={'expected_revision': 1}).status_code == 202
-    assert client.get(url).json()['job']['status'] == 'running'
-    assert client.get(url).json()['job']['message_code'] == 'task_running'
+    seed_legacy(client, url)
+    before = client.get(url).json()
+    assert before['job']['status'] == 'running'
     assert client.post(url, json={'expected_revision': 1}).status_code == 202
     cloud.pending = False
+    # GET remains observational even when the remote result becomes available.
+    assert client.get(url).json() == before
+    from app.domain.boxplot import poll_pending_figures
+    poll_pending_figures()
     figure = client.get(url).json()['figure']
+    assert figure is not None
     monkeypatch.setenv('OPENAI_API_KEY', '')
     assert client.get(url).json()['figure'] == figure
     assert client.get(url + '/image').status_code == 200
-    assert len(cloud.calls) == 1
+    assert not cloud.calls
 
 
-def test_cloud_mismatch_fails_and_only_explicit_retry_submits(client, cloud):
+def test_legacy_mismatch_fails_without_automatic_submission(client, cloud):
     _, _, _, url = prepared(client)
     cloud.corrupt = True
-    client.post(url, json={'expected_revision': 1})
+    seed_legacy(client, url)
+    from app.domain.boxplot import poll_pending_figures
+    poll_pending_figures()
     state = client.get(url).json()
     assert state['figure'] is None and state['job']['status'] == 'failed'
-    assert '核对' in state['job']['message']
     assert state['job']['message_code'] == 'plot_result_mismatch'
-    assert state['job']['message_params'] == {}
     with database_connection() as db:
         persisted = json.loads(db.execute('SELECT job_json FROM figure_jobs WHERE id=%s', (state['job']['id'],)).fetchone()['job_json'])
     assert persisted['message_code'] == 'plot_result_mismatch'
-    client.post(url, json={'expected_revision': 1})
-    assert len(cloud.calls) == 1
-    cloud.corrupt = False
-    client.post(url, json={'expected_revision': 1, 'retry': True})
-    assert client.get(url).json()['figure'] is not None and len(cloud.calls) == 2
+    assert client.post(url, json={'expected_revision': 1}).json()['job'] == state['job']
+    assert not cloud.calls
 
 
 def test_old_chart_keeps_correct_revision_and_new_chart_is_separate(client, cloud):
@@ -170,24 +203,33 @@ def test_changed_png_and_failed_local_save_are_not_silently_regenerated(client, 
     assert client.get(url).status_code == 409
     path.unlink()
     assert client.get(url + '/image').status_code == 410
-    assert len(cloud.calls) == 1
+    assert len(cloud.calls) == 0
 
 
 def test_save_failure_leaves_cloud_job_resumable_without_another_charge(client, cloud, reject_database_write):
+    from app.domain.boxplot import poll_pending_figures
     _, _, _, url = prepared(client)
-    client.post(url, json={'expected_revision': 1})
+    seed_legacy(client, url)
     with reject_database_write('figures'):
-        assert client.get(url).status_code == 503
+        poll_pending_figures()
+    assert client.get(url).json()['figure'] is None
+    assert client.get(url).json()['job']['status'] == 'running'
+    poll_pending_figures()
     assert client.get(url).json()['figure'] is not None
-    assert len(cloud.calls) == 1
+    assert not cloud.calls
 
 
-def test_concurrent_submits_create_only_one_paid_job(client, cloud, monkeypatch):
+def test_concurrent_reads_do_not_retrieve_or_mutate_legacy_job(client, cloud, monkeypatch):
     _, _, _, url = prepared(client)
+    seed_legacy(client, url)
+    expected = client.get(url).json()
+    def forbidden(*args):
+        raise AssertionError('GET must not fetch cloud work')
+    monkeypatch.setattr(cloud, 'fetch', forbidden)
     with ThreadPoolExecutor(max_workers=2) as pool:
-        results = list(pool.map(lambda _: client.post(url, json={'expected_revision': 1}), range(2)))
-    assert all(r.status_code == 202 for r in results)
-    assert len(cloud.calls) == 1
+        results = list(pool.map(lambda _: client.get(url), range(2)))
+    assert all(r.status_code == 200 and r.json() == expected for r in results)
+    assert not cloud.calls
 
 
 def test_explicit_migration_preserves_analysis_result(client, cloud):
@@ -212,7 +254,7 @@ def test_persisted_cloud_chart_restores_in_a_fresh_process(client, cloud):
 def test_legacy_failed_job_projection_does_not_rewrite_task_or_statistics(client, cloud):
     base, _, result, url = prepared(client)
     cloud.pending = True
-    client.post(url, json={'expected_revision': 1})
+    seed_legacy(client, url)
     with database_connection(write=True) as db:
         row = db.execute('SELECT id, job_json FROM figure_jobs').fetchone()
         job = json.loads(row['job_json'])
@@ -228,40 +270,45 @@ def test_legacy_failed_job_projection_does_not_rewrite_task_or_statistics(client
     with database_connection() as db:
         assert db.execute('SELECT job_json FROM figure_jobs WHERE id=%s', (row['id'],)).fetchone()['job_json'] == legacy
     assert client.get(base + '/analysis-result').json()['result'] == result
-    assert len(cloud.calls) == 1
+    assert len(cloud.calls) == 0
 
 
 def test_configuration_change_while_cloud_running_does_not_attach_old_chart(client, cloud):
+    from app.domain.boxplot import poll_pending_figures
     base, _, _, url = prepared(client)
-    client.post(url, json={'expected_revision': 1})
+    seed_legacy(client, url)
     client.put(base + '/analysis-setup', json=selection(expected_revision=1, unit='changed'))
+    assert client.get(url).json()['job']['status'] == 'running'
+    poll_pending_figures()
     state = client.get(url).json()
     assert state['figure'] is None and state['job']['status'] == 'failed'
-    assert '配置已修改' in state['job']['message']
+    assert state['job']['message_code'] == 'setup_conflict'
     assert not list((Path(os.environ['PAPERASSIST_DATA_DIR']) / 'figures').glob('*'))
+    assert not cloud.calls
 
 
-def test_interrupted_submission_is_uncertain_and_never_reposts_automatically(client, cloud, monkeypatch):
-    from app.core.exceptions import PlotError
+def test_legacy_unknown_submission_blocks_even_explicit_paid_retry(client, cloud):
     _, _, _, url = prepared(client)
-    def interrupted(*args):
-        raise PlotError('openai_connection', '提交状态不确定，重试可能收费。', 503, uncertain=True)
-    monkeypatch.setattr(cloud, 'start', interrupted)
-    assert client.post(url, json={'expected_revision': 1}).json()['job']['status'] == 'uncertain'
-    assert client.get(url).json()['job']['status'] == 'uncertain'
-    assert client.post(url, json={'expected_revision': 1}).json()['job']['status'] == 'uncertain'
+    seed_legacy(client, url, status='uncertain', response_id=None)
+    expected = client.get(url).json()
+    for retry in (False, True):
+        assert client.post(url, json={'expected_revision': 1, 'retry': retry}).json() == expected
+    assert expected['job']['status'] == 'uncertain'
+    assert not cloud.calls
+    with database_connection() as db:
+        assert db.execute('SELECT count(*) AS n FROM tasks').fetchone()['n'] == 0
 
 
-def test_stale_submitting_job_is_exposed_for_explicit_recovery(client, cloud):
+def test_stale_legacy_submitting_becomes_unknown_only_in_scanner_without_key(client, cloud, monkeypatch):
+    from app.domain.boxplot import poll_pending_figures
     _, _, _, url = prepared(client)
-    client.post(url, json={'expected_revision': 1})
-    with database_connection(write=True) as db:
-        row = db.execute('SELECT id, job_json FROM figure_jobs').fetchone()
-        job = {**json.loads(row['job_json']), 'status': 'submitting', 'response_id': None, 'created_at': '2020-01-01T00:00:00+00:00'}
-        db.execute('UPDATE figure_jobs SET job_json = %s WHERE id = %s', (json.dumps(job), row['id']))
+    seed_legacy(client, url, status='submitting', response_id=None, created_at='2020-01-01T00:00:00+00:00')
+    monkeypatch.setenv('OPENAI_API_KEY', '')
+    assert client.get(url).json()['job']['status'] == 'submitting'
+    poll_pending_figures()
     state = client.get(url).json()
     assert state['job']['status'] == 'uncertain' and state['figure'] is None
-    assert len(cloud.calls) == 1
+    assert not cloud.calls
 
 
 @pytest.mark.parametrize('values', [[4], [2, 2, 2], [-5, -1, 0, 4, 30], [-1e308, 1e308], [1e308, 1e308], [1e-300, 2e-300]])
@@ -279,7 +326,7 @@ def test_backend_downloads_without_browser_get_and_resumes_existing_job(client, 
     from app.domain import boxplot
     from app.adapters.storage import get_project_store
     _, _, result, url = prepared(client)
-    client.post(url, json={'expected_revision': 1})
+    seed_legacy(client, url)
     cloud.pending = True
     boxplot.poll_pending_figures()
     assert get_project_store().figure_job(result['id'], boxplot.RENDERER)['status'] == 'running'
@@ -288,7 +335,7 @@ def test_backend_downloads_without_browser_get_and_resumes_existing_job(client, 
     job = get_project_store().figure_job(result['id'], boxplot.RENDERER)
     assert job['status'] == 'completed'
     assert len(list((Path(os.environ['PAPERASSIST_DATA_DIR']) / 'figures').glob('*.png'))) == 1
-    assert len(cloud.calls) == 1
+    assert len(cloud.calls) == 0
 
 
 def test_startup_worker_resumes_pending_job_without_new_cloud_submission(client, cloud, monkeypatch):
@@ -298,7 +345,7 @@ def test_startup_worker_resumes_pending_job_without_new_cloud_submission(client,
     from app.adapters.storage import get_project_store
     from app.domain.boxplot import RENDERER
     _, _, result, url = prepared(client)
-    client.post(url, json={'expected_revision': 1})
+    seed_legacy(client, url)
     monkeypatch.setenv('PAPERASSIST_PLOT_WORKER_ENABLED', '1')
     with TestClient(app):
         deadline = time.monotonic() + 5
@@ -307,7 +354,7 @@ def test_startup_worker_resumes_pending_job_without_new_cloud_submission(client,
                 break
             time.sleep(0.05)
         assert get_project_store().figure_job(result['id'], RENDERER)['status'] == 'completed'
-    assert len(cloud.calls) == 1
+    assert len(cloud.calls) == 0
 
 
 def test_worker_reaches_later_jobs_even_when_earliest_ten_remain_pending(client, cloud, monkeypatch):
@@ -316,11 +363,11 @@ def test_worker_reaches_later_jobs_even_when_earliest_ten_remain_pending(client,
     last_result = None
     for _ in range(11):
         _, _, last_result, url = prepared(client)
-        client.post(url, json={'expected_revision': 1})
+        seed_legacy(client, url)
     original = cloud.fetch
     def last_only(self, job):
         return original(self, job) if job['analysis_run_id'] == last_result['id'] else None
     monkeypatch.setattr(cloud, 'fetch', last_only)
     boxplot.poll_pending_figures()
     assert get_project_store().figure_job(last_result['id'], boxplot.RENDERER)['status'] == 'completed'
-    assert len(cloud.calls) == 11
+    assert len(cloud.calls) == 0

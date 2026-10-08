@@ -64,6 +64,7 @@ def test_external_connection_without_transaction_commits_migration(postgres_sche
             settings.attributes['connection'] = connection
             command.upgrade(settings, 'head')
         with migration_connection(write=False, config=config) as db:
-            assert db.execute('SELECT version_num FROM alembic_version').fetchone()['version_num'] == '0005_ownership_indexes'
+            from app.db.database import SCHEMA_HEAD
+            assert db.execute('SELECT version_num FROM alembic_version').fetchone()['version_num'] == SCHEMA_HEAD
     finally:
         engine.dispose()

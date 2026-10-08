@@ -9,7 +9,7 @@ import math
 import re
 import sys
 from datetime import datetime, timedelta
-from sqlalchemy import inspect, CheckConstraint, UniqueConstraint
+from sqlalchemy import inspect, CheckConstraint, DateTime, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import DOUBLE_PRECISION
 from app.db.schema import metadata
 from app.db.database import SCHEMA_HEAD, database_connection, get_database_config
@@ -42,6 +42,10 @@ def valid_timestamp(value):
 
 def valid_numeric_time(value):
     return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
+
+
+def valid_datetime(value):
+    return isinstance(value, datetime) and value.tzinfo is not None and value.utcoffset() is not None
 
 
 def _check_signature(value):
@@ -89,7 +93,7 @@ def audit_database(db):
             identities_match = bool(a.get('identity')) == (e.identity is not None)
             if identities_match and e.identity is not None:
                 identities_match = a['identity']['always'] == e.identity.always
-            if str(a['type']) != str(e.type.compile(dialect=db.raw_connection.dialect)) or a['nullable'] != e.nullable or not defaults_match or not identities_match:
+            if str(a['type'].compile(dialect=db.raw_connection.dialect)) != str(e.type.compile(dialect=db.raw_connection.dialect)) or a['nullable'] != e.nullable or not defaults_match or not identities_match:
                 issue(table.name, 'column:' + name)
         if inspector.get_pk_constraint(table.name, schema=schema)['constrained_columns'] != [c.name for c in table.primary_key]:
             issue(table.name, 'primary_key')
@@ -115,7 +119,12 @@ def audit_database(db):
             expected_columns = [e.split()[0] for e in expressions]
             expected_sort = {e.split()[0]: ('desc',) for e in expressions if e.endswith(' DESC')}
             actual_sort = {k: tuple(v) for k, v in ai[name].get('column_sorting', {}).items()}
-            if ai[name]['column_names'] != expected_columns or actual_sort != expected_sort or bool(ai[name]['unique']) != ei[name].unique or ai[name].get('dialect_options', {}).get('postgresql_where'):
+            actual_where = ai[name].get('dialect_options', {}).get('postgresql_where')
+            expected_where = ei[name].dialect_options['postgresql'].get('where')
+            where_matches = ((actual_where is None and expected_where is None) or
+                             (actual_where is not None and expected_where is not None and
+                              _check_signature(actual_where) == _check_signature(expected_where)))
+            if ai[name]['column_names'] != expected_columns or actual_sort != expected_sort or bool(ai[name]['unique']) != ei[name].unique or not where_matches:
                 issue(table.name, 'index:' + name)
     for row in db.execute('''SELECT t.relname AS table_name, i.relname AS index_name, x.indisvalid, x.indisready
         FROM pg_catalog.pg_index x JOIN pg_catalog.pg_class i ON i.oid=x.indexrelid
@@ -137,10 +146,12 @@ def audit_database(db):
         for table in metadata.sorted_tables:
             for column in table.columns:
                 validator = None
-                if column.name.endswith('_json'):
+                if column.name.endswith('_json') and isinstance(column.type, Text):
                     validator = valid_json
                 elif isinstance(column.type, DOUBLE_PRECISION):
                     validator = valid_numeric_time
+                elif isinstance(column.type, DateTime):
+                    validator = valid_datetime
                 elif column.name.endswith('_at'):
                     validator = valid_timestamp
                 if validator:
@@ -155,7 +166,7 @@ def audit_database(db):
                 WHERE t.id IS NULL OR r.analysis_run_id IS DISTINCT FROM t.analysis_run_id''').fetchone()['count']
             checks.append({'table': table, 'column': key, 'invalid': count})
     return {'schema': schema, 'ok': not issues and not any(c['invalid'] for c in checks), 'schema_issues': issues, 'data_checks': checks,
-            'compatibility': 'JSON/time validated in audit only; source chains use single-column foreign keys; values preserved.'}
+            'compatibility': 'Legacy JSON/time validated in audit only; task JSONB/time use native types; source chains use single-column foreign keys; values preserved.'}
 
 
 def main():

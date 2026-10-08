@@ -253,7 +253,7 @@ def test_migration_preserves_accounts_sessions_projects_and_matches_metadata(pos
         command.downgrade(config, "0002_auth_ownership")
         originals = {table: [dict(row) for row in db.execute(f"SELECT * FROM {table}")] for table in ("users", "sessions", "projects")}
     migrate_database(postgres_migration_config)
-    assert SCHEMA_HEAD == "0005_ownership_indexes"
+    assert SCHEMA_HEAD == "0011_task_waits"
     with database_connection() as db:
         for table, original in originals.items():
             actual = [dict(row) for row in db.execute(f"SELECT * FROM {table}")]

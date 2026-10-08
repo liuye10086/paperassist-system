@@ -1,0 +1,23 @@
+{
+  "policy": {
+    "model": "REPLACE_WITH_VERIFIED_MODEL",
+    "prompt_version": "openai_boxplot_v1",
+    "output_format": "text",
+    "max_output_tokens": 16000,
+    "timeout_seconds": 45,
+    "tools": ["code_interpreter"],
+    "price": {
+      "version": "REPLACE_WITH_VERIFIED_PRICE_VERSION",
+      "currency": "USD",
+      "model": "REPLACE_WITH_VERIFIED_MODEL",
+      "input_micro_usd_per_million": null,
+      "cached_input_micro_usd_per_million": null,
+      "output_micro_usd_per_million": null,
+      "cache_write_micro_usd_per_million": null
+    }
+  },
+  "input_token_allowance": null,
+  "task_limit_micro_usd": null,
+  "tool_reserve_micro_usd": null,
+  "tool_reserve_version": "REPLACE_WITH_VERIFIED_TOOL_ALLOWANCE_VERSION"
+}

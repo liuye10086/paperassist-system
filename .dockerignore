@@ -1,0 +1,11 @@
+**
+!backend/
+!backend/requirements.txt
+!backend/app/
+!backend/app/**
+!infra/
+!infra/worker/
+!infra/worker/Dockerfile
+!infra/worker/runtime_probe.py
+**/__pycache__/
+**/*.pyc

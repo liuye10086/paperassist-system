@@ -9,7 +9,7 @@ const empty = { current_revision: 1, is_current: true, figure: null, job: null }
 const props = { base: '/file', runId: 'run', revision: 1, canGenerate: true, disabled: false, onBusyChange: vi.fn() }
 const json = (value: unknown) => Promise.resolve({ ok: true, json: async () => value })
 function api(state: unknown = empty, configured = true) {
-  return vi.fn((url: string, _init?: RequestInit) => json(url === '/api/v1/ai/config' ? { configured, model: 'model', message: '请在 backend/.env 配置 API。' } : state))
+  return vi.fn((url: string, _init?: RequestInit) => json((url === '/api/v1/ai/plot-config' || url === '/api/v1/ai/explanation-config') ? { configured, model: 'model', message: '请在 backend/.env 配置 API。' } : state))
 }
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.useRealTimers() })
 
@@ -21,7 +21,7 @@ it.each(['分析解释', 'Word报告'])('surfaces figure read loading and errors
       initial = false
       return new Promise((_resolve, reject) => { rejectRead = reject })
     }
-    return json(url === '/api/v1/ai/config' ? { configured: true } : url.endsWith('/explanation') ? { explanation: null, job: null } : { ...empty, figure })
+    return json((url === '/api/v1/ai/plot-config' || url === '/api/v1/ai/explanation-config') ? { configured: true } : url.endsWith('/explanation') ? { explanation: null, job: null } : { ...empty, figure })
   })
   vi.stubGlobal('fetch', fetch)
   render(<WorkflowProvider><WorkflowNavigation /><BoxplotFigure {...props} /></WorkflowProvider>)
@@ -43,7 +43,7 @@ it.each([
   const base = '/api/v1/projects/p1/files/f1'; const unavailable = vi.fn(); const stop = watchProjectAccess('p1', unavailable)
   const fetch = vi.fn((url: string, _init?: RequestInit) => Promise.resolve(url === '/api/v1/projects/p1'
     ? Response.json({ detail: { code } }, { status })
-    : Response.json(url === '/api/v1/ai/config' ? { configured: true } : url.endsWith('/explanation') ? { explanation: null, job: null } : { ...empty, figure })))
+    : Response.json((url === '/api/v1/ai/plot-config' || url === '/api/v1/ai/explanation-config') ? { configured: true } : url.endsWith('/explanation') ? { explanation: null, job: null } : { ...empty, figure })))
   vi.stubGlobal('fetch', fetch); const view = render(<BoxplotFigure {...props} base={base} />)
   fireEvent.error(await screen.findByAltText(figure.title))
   expect(screen.getByRole('alert').textContent).toContain('图片读取失败')
@@ -59,7 +59,7 @@ it('aborts the 15 second image recheck and never infers project loss from timeou
   const unavailable = vi.fn(); const stop = watchProjectAccess('p1', unavailable)
   vi.stubGlobal('fetch', vi.fn((url: string, init?: RequestInit) => {
     if (url === '/api/v1/projects/p1') { signal = init?.signal as AbortSignal; return new Promise<Response>(() => {}) }
-    return Response.json(url === '/api/v1/ai/config' ? { configured: true } : url.endsWith('/explanation') ? { explanation: null, job: null } : { ...empty, figure })
+    return Response.json((url === '/api/v1/ai/plot-config' || url === '/api/v1/ai/explanation-config') ? { configured: true } : url.endsWith('/explanation') ? { explanation: null, job: null } : { ...empty, figure })
   }))
   const view = render(<BoxplotFigure {...props} base="/api/v1/projects/p1/files/f1" />); await act(async () => {})
   fireEvent.error(screen.getByAltText(figure.title)); await act(async () => { vi.advanceTimersByTime(15_000) })
@@ -70,7 +70,7 @@ it('aborts the image recheck when the figure panel unmounts', async () => {
   let signal!: AbortSignal
   vi.stubGlobal('fetch', vi.fn((url: string, init?: RequestInit) => {
     if (url === '/api/v1/projects/p1') { signal = init?.signal as AbortSignal; return new Promise<Response>(() => {}) }
-    return Response.json(url === '/api/v1/ai/config' ? { configured: true } : url.endsWith('/explanation') ? { explanation: null, job: null } : { ...empty, figure })
+    return Response.json((url === '/api/v1/ai/plot-config' || url === '/api/v1/ai/explanation-config') ? { configured: true } : url.endsWith('/explanation') ? { explanation: null, job: null } : { ...empty, figure })
   }))
   const view = render(<BoxplotFigure {...props} base="/api/v1/projects/p1/files/f1" />)
   fireEvent.error(await screen.findByAltText(figure.title)); view.unmount(); expect(signal.aborted).toBe(true)
@@ -79,7 +79,7 @@ it('downloads saved PNG bytes with a safe default filename without generation', 
   const create = vi.fn((_blob: Blob) => 'blob:png'); const revoke = vi.fn()
   vi.stubGlobal('URL', class extends URL { static createObjectURL = create; static revokeObjectURL = revoke })
   const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (this: HTMLAnchorElement) { expect(this.download).toBe('boxplot.png') })
-  const fetch = vi.fn((url: string, _init?: RequestInit) => Promise.resolve(url.endsWith('/image?download=true') ? new Response('png bytes') : Response.json(url === '/api/v1/ai/config' ? { configured: true } : url.endsWith('/explanation') ? { explanation: null, job: null } : { ...empty, figure })))
+  const fetch = vi.fn((url: string, _init?: RequestInit) => Promise.resolve(url.endsWith('/image?download=true') ? new Response('png bytes') : Response.json((url === '/api/v1/ai/plot-config' || url === '/api/v1/ai/explanation-config') ? { configured: true } : url.endsWith('/explanation') ? { explanation: null, job: null } : { ...empty, figure })))
   vi.stubGlobal('fetch', fetch); render(<BoxplotFigure {...props} />)
   fireEvent.click(await screen.findByRole('link', { name: '下载箱线图 PNG' }))
   await waitFor(() => expect(create).toHaveBeenCalledTimes(1)); expect(await create.mock.calls[0][0].text()).toBe('png bytes')
@@ -107,8 +107,8 @@ it('dirty or stale configuration disables generation and retains old image', asy
   expect((screen.getByRole('button', { name: '使用 OpenAI 生成箱线图' }) as HTMLButtonElement).disabled).toBe(true)
   expect(screen.getByText(/以下图表对应旧配置/)).toBeTruthy()
 })
-it.each(['failed', 'uncertain'])('explicit %s retry sends retry true and duplicate clicks submit once', async status => {
-  const fetch = vi.fn((url: string, init?: RequestInit) => init?.method === 'POST' ? new Promise(() => {}) : json(url === '/api/v1/ai/config' ? { configured: true, model: 'model', message: '' } : { ...empty, job: { id: 'job', status, message: '需要重试', response_id: null, created_at: '' } }))
+it.each(['failed'])('explicit %s retry sends retry true and duplicate clicks submit once', async status => {
+  const fetch = vi.fn((url: string, init?: RequestInit) => init?.method === 'POST' ? new Promise(() => {}) : json((url === '/api/v1/ai/plot-config' || url === '/api/v1/ai/explanation-config') ? { configured: true, model: 'model', message: '' } : { ...empty, job: { id: 'job', status, message: '需要重试', response_id: null, created_at: '' } }))
   vi.stubGlobal('fetch', fetch); render(<BoxplotFigure {...props} />)
   const button = await screen.findByRole('button', { name: '重试生成（再次调用 API）' })
   await waitFor(() => expect((button as HTMLButtonElement).disabled).toBe(false))
@@ -121,7 +121,7 @@ it('polls a submitted task to completion without another POST', async () => {
   let submitted = false
   let polls = 0
   const fetch = vi.fn((url: string, init?: RequestInit) => {
-    if (url === '/api/v1/ai/config') return json({ configured: true, model: 'model', message: '' })
+    if ((url === '/api/v1/ai/plot-config' || url === '/api/v1/ai/explanation-config')) return json({ configured: true, model: 'model', message: '' })
     if (init?.method === 'POST') { submitted = true; return json({ ...empty, job: { id: 'job', status: 'submitting', message: '正在提交', response_id: null, created_at: '' } }) }
     if (submitted && polls++ === 0) return json({ ...empty, job: { id: 'job', status: 'running', message: '处理中', response_id: 'response', created_at: '' } })
     return json(submitted ? { ...empty, figure } : empty)
@@ -136,7 +136,7 @@ it('polls a submitted task to completion without another POST', async () => {
 })
 it('ignores late responses after switching runs', async () => {
   let resolve!: (value: unknown) => void
-  vi.stubGlobal('fetch', vi.fn((url: string) => url.includes('/run/boxplot') ? new Promise(done => { resolve = done }) : json(url === '/api/v1/ai/config' ? { configured: true, model: '', message: '' } : empty)))
+  vi.stubGlobal('fetch', vi.fn((url: string) => url.includes('/run/boxplot') ? new Promise(done => { resolve = done }) : json((url === '/api/v1/ai/plot-config' || url === '/api/v1/ai/explanation-config') ? { configured: true, model: '', message: '' } : empty)))
   const view = render(<BoxplotFigure {...props} />)
   view.rerender(<BoxplotFigure {...props} runId="new" />)
   await act(async () => { resolve({ ok: true, json: async () => ({ ...empty, figure }) }) })
@@ -167,7 +167,7 @@ it('failed GET preserves an existing image and allows rereading without POST', a
 })
 it('GET timeout stops automatic polling and exposes reread action', async () => {
   vi.useFakeTimers()
-  const fetch = vi.fn((url: string) => url === '/api/v1/ai/config' ? json({ configured: true, model: 'model', message: '' }) : new Promise(() => {}))
+  const fetch = vi.fn((url: string) => (url === '/api/v1/ai/plot-config' || url === '/api/v1/ai/explanation-config') ? json({ configured: true, model: 'model', message: '' }) : new Promise(() => {}))
   vi.stubGlobal('fetch', fetch); render(<BoxplotFigure {...props} />)
   await act(async () => {})
   await act(async () => { vi.advanceTimersByTime(30_000) })
@@ -179,8 +179,8 @@ it('GET timeout stops automatic polling and exposes reread action', async () => 
 it('retries configuration loading independently without generation', async () => {
   let fail = true
   const fetch = vi.fn((url: string) => {
-    if (url === '/api/v1/ai/config' && fail) { fail = false; return Promise.reject(new TypeError('offline')) }
-    return json(url === '/api/v1/ai/config' ? { configured: true, model: 'model', message: '' } : empty)
+    if ((url === '/api/v1/ai/plot-config' || url === '/api/v1/ai/explanation-config') && fail) { fail = false; return Promise.reject(new TypeError('offline')) }
+    return json((url === '/api/v1/ai/plot-config' || url === '/api/v1/ai/explanation-config') ? { configured: true, model: 'model', message: '' } : empty)
   })
   vi.stubGlobal('fetch', fetch); render(<BoxplotFigure {...props} />)
   fireEvent.click(await screen.findByRole('button', { name: '重试读取 OpenAI 配置' }))
@@ -191,7 +191,7 @@ it('retries configuration loading independently without generation', async () =>
 it('server revision conflict marks the retained image as old and blocks generation', async () => {
   const fetch = vi.fn((url: string, init?: RequestInit) => init?.method === 'POST'
     ? Promise.resolve({ ok: false, status: 409, json: async () => ({ detail: { code: 'setup_conflict', message: '配置已变化' } }) })
-    : json(url === '/api/v1/ai/config' ? { configured: true, model: 'model', message: '' } : { ...empty, figure }))
+    : json((url === '/api/v1/ai/plot-config' || url === '/api/v1/ai/explanation-config') ? { configured: true, model: 'model', message: '' } : { ...empty, figure }))
   vi.stubGlobal('fetch', fetch); render(<BoxplotFigure {...props} />)
   await screen.findByAltText(figure.title)
   await waitFor(() => expect((screen.getByRole('button', { name: '使用 OpenAI 生成箱线图' }) as HTMLButtonElement).disabled).toBe(false))
@@ -201,27 +201,27 @@ it('server revision conflict marks the retained image as old and blocks generati
   expect(screen.getByAltText(figure.title)).toBeTruthy()
 })
 
-it('offers analysis explanation only after a saved figure and propagates its busy state', async () => {
+it('offers analysis explanation after a saved figure without locking on background work', async () => {
   const onBusyChange = vi.fn()
-  const fetch = vi.fn((url: string, _init?: RequestInit) => json(url === '/api/v1/ai/config'
+  const fetch = vi.fn((url: string, _init?: RequestInit) => json((url === '/api/v1/ai/plot-config' || url === '/api/v1/ai/explanation-config')
     ? { configured: true, model: 'model', message: '' }
     : url.endsWith('/explanation') ? { current_revision: 1, is_current: true, figure_id: 'figure', explanation: null, job: { id: 'job', status: 'running', message: '解释生成中', response_id: null, created_at: '' } }
     : { ...empty, figure }))
   vi.stubGlobal('fetch', fetch); render(<BoxplotFigure {...props} onBusyChange={onBusyChange} />)
   expect(await screen.findByText('分析解释')).toBeTruthy()
   await screen.findByText('云端任务正在运行，请稍候。')
-  await waitFor(() => expect(onBusyChange).toHaveBeenLastCalledWith(true))
-  expect((screen.getByRole('button', { name: '使用 OpenAI 生成箱线图' }) as HTMLButtonElement).disabled).toBe(true)
+  await waitFor(() => expect(onBusyChange).toHaveBeenLastCalledWith(false))
+  expect((screen.getByRole('button', { name: '使用 OpenAI 生成箱线图' }) as HTMLButtonElement).disabled).toBe(false)
 })
 
 it('releases plot controls when a restored explanation task completes without deadlock', async () => {
   vi.useFakeTimers(); let reads = 0; const onBusyChange = vi.fn()
-  const fetch = vi.fn((url: string, _init?: RequestInit) => json(url === '/api/v1/ai/config' ? { configured: true }
+  const fetch = vi.fn((url: string, _init?: RequestInit) => json((url === '/api/v1/ai/plot-config' || url === '/api/v1/ai/explanation-config') ? { configured: true }
     : url.endsWith('/explanation') ? { current_revision: 1, is_current: true, figure_id: 'figure', explanation: null,
       job: reads++ === 0 ? { id: 'job', status: 'running', message: '解释生成中', response_id: null, created_at: '' } : null }
     : { ...empty, figure }))
   vi.stubGlobal('fetch', fetch); render(<BoxplotFigure {...props} onBusyChange={onBusyChange} />); await act(async () => {})
-  expect((screen.getByRole('button', { name: '重新读取图表' }) as HTMLButtonElement).disabled).toBe(true)
+  expect((screen.getByRole('button', { name: '重新读取图表' }) as HTMLButtonElement).disabled).toBe(false)
   await act(async () => { vi.advanceTimersByTime(3000) })
   expect((screen.getByRole('button', { name: '使用 OpenAI 生成箱线图' }) as HTMLButtonElement).disabled).toBe(false)
   expect((screen.getByRole('button', { name: '使用 OpenAI 生成解释' }) as HTMLButtonElement).disabled).toBe(false)
@@ -250,13 +250,13 @@ it('keeps each later stage understandable when no chart has been saved', async (
 it('keeps explanation polling mounted while switching between workflow stages', async () => {
   vi.useFakeTimers(); let reads = 0; const onBusyChange = vi.fn()
   const saved = { id: 'exp', analysis_run_id: 'run', figure_id: 'figure', setup_revision: 1, language: 'zh-CN', created_at: 'today', sections: [{ key: 'results', title: '研究结果', text: '中位数为3。', evidence: [] }], limitations: [], verification: { note: '统计证据已核对' } }
-  const fetch = vi.fn((url: string) => json(url === '/api/v1/ai/config' ? { configured: true }
+  const fetch = vi.fn((url: string) => json((url === '/api/v1/ai/plot-config' || url === '/api/v1/ai/explanation-config') ? { configured: true }
     : url.endsWith('/explanation') ? { current_revision: 1, is_current: true, figure_id: 'figure', explanation: reads++ === 0 ? null : saved, job: reads === 1 ? { status: 'running' } : null }
     : url.endsWith('/report') ? { current_revision: 1, is_current: true, ready: true, issues: [], report: null } : { ...empty, figure }))
   vi.stubGlobal('fetch', fetch)
   render(<WorkflowProvider><WorkflowNavigation /><BoxplotFigure {...props} onBusyChange={onBusyChange} /></WorkflowProvider>); await act(async () => {})
   fireEvent.click(screen.getByRole('button', { name: '图表' }))
-  expect(onBusyChange).toHaveBeenLastCalledWith(true)
+  expect(onBusyChange).toHaveBeenLastCalledWith(false)
   fireEvent.click(screen.getByRole('button', { name: 'Word报告' }))
   await act(async () => { vi.advanceTimersByTime(3000) })
   expect(onBusyChange).toHaveBeenLastCalledWith(false)

@@ -5,10 +5,103 @@ import { setLocale } from '../../shared/i18n'
 const props = { base: '/file', runId: 'run', revision: 1, figureId: 'figure', explanationId: 'exp', canGenerate: true, disabled: false, onBusyChange: vi.fn() }
 const report = { id: 'report', analysis_run_id: 'run', figure_id: 'figure', explanation_id: 'exp', setup_revision: 1, source_sha256: 'source', figure_sha256: 'image', created_at: 'today', filename: '分析报告.docx', size_bytes: 2048, sha256: 'docx', language: 'zh-CN', engine: { id: 'word-v1', python_docx: '1' }, input_sha256: 'input' }
 const state = { current_revision: 1, is_current: true, ready: true, issues: [], report: null }
+const task = { id: 'word-task', project_id: 'project', task_type: 'word_report', status: 'queued', phase: 'export', display_status: 'queued', revision: 1, current_attempt: 0, reason_code: null, error_code: null, result_report_id: null }
 const json = (value: unknown) => Promise.resolve({ ok: true, json: async () => value })
 const generate = () => screen.getByRole('button', { name: '生成 Word 报告' }) as HTMLButtonElement
 const reload = () => screen.getByRole('button', { name: '重新读取报告' }) as HTMLButtonElement
 afterEach(() => { cleanup(); setLocale('zh-CN'); vi.unstubAllGlobals(); vi.useRealTimers() })
+it.each(['read', 'submit', 'retry'])('loads the artifact when %s already returns success without the report snapshot', async source => {
+  vi.useFakeTimers(); let reads = 0
+  const succeeded = { ...task, status: 'succeeded', revision: 5, result_report_id: report.id }
+  const fetch = vi.fn((_url: string, init?: RequestInit) => {
+    if (init?.method === 'POST') return json(source === 'retry' ? succeeded : { ...state, task: succeeded })
+    reads += 1
+    if (reads > 1) return json({ ...state, report, task: succeeded })
+    return json(source === 'read' ? { ...state, task: succeeded }
+      : source === 'retry' ? { ...state, task: { ...task, status: 'failed', revision: 3 } } : state)
+  })
+  vi.stubGlobal('fetch', fetch); render(<WordReport {...props} />)
+  await act(async () => {})
+  if (source === 'submit') fireEvent.click(generate())
+  if (source === 'retry') fireEvent.click(screen.getByRole('button', { name: '重试生成 Word 报告' }))
+  await act(async () => {})
+  await act(async () => { vi.advanceTimersByTime(3000) })
+  expect(screen.getByRole('link', { name: '下载 Word 报告' })).toBeTruthy()
+  expect(fetch.mock.calls.filter(([, init]) => init?.method === 'POST')).toHaveLength(source === 'read' ? 0 : 1)
+})
+
+it('submits once then polls unified state without blocking the workspace and loads completed bytes', async () => {
+  vi.useFakeTimers(); let finished = false; const busy = vi.fn()
+  const fetch = vi.fn((url: string, init?: RequestInit) => {
+    if (init?.method === 'POST') return json({ ...state, task })
+    if (url === '/api/v1/tasks/word-task') { finished = true; return json({ ...task, status: 'succeeded', revision: 3, result_report_id: 'report' }) }
+    return json(finished ? { ...state, report, task: { ...task, status: 'succeeded' } } : state)
+  })
+  vi.stubGlobal('fetch', fetch); render(<WordReport {...props} onBusyChange={busy} />)
+  await act(async () => {}); fireEvent.click(generate()); fireEvent.click(generate()); await act(async () => {})
+  expect(screen.getByText(/等待生成 Word 报告/)).toBeTruthy()
+  expect(generate().disabled).toBe(true); expect(busy).toHaveBeenLastCalledWith(false)
+  const posts = fetch.mock.calls.filter(call => call[1]?.method === 'POST'); expect(posts).toHaveLength(1)
+  expect(new Headers(posts[0][1]?.headers).get('Idempotency-Key')).toBe('word-report-v1:exp:1')
+  await act(async () => { vi.advanceTimersByTime(3000) })
+  expect(screen.getByRole('link', { name: '下载 Word 报告' })).toBeTruthy()
+})
+
+it('restores a pending task after remount and explicitly retries failure with its revision', async () => {
+  const failed = { ...task, status: 'failed', revision: 3, reason_code: 'execution_failed', error_code: 'storage_unavailable' }
+  const fetch = vi.fn((_url: string, init?: RequestInit) => json(init?.method === 'POST' ? { ...task, revision: 4 } : { ...state, task: failed }))
+  vi.stubGlobal('fetch', fetch); render(<WordReport {...props} />)
+  fireEvent.click(await screen.findByRole('button', { name: '重试生成 Word 报告' }))
+  await screen.findByText(/等待生成 Word 报告/)
+  const posts = fetch.mock.calls.filter(call => call[1]?.method === 'POST'); expect(posts).toHaveLength(1)
+  expect(posts[0][0]).toBe('/api/v1/tasks/word-task/retry')
+  expect(JSON.parse(posts[0][1]?.body as string)).toEqual({ expected_revision: 3 })
+})
+
+it('restores queued work by GET, keeps downloads on polling failure and never automatically posts', async () => {
+  vi.useFakeTimers()
+  const fetch = vi.fn((url: string) => url.startsWith('/api/v1/tasks/')
+    ? Promise.resolve({ ok: false, json: async () => ({ detail: { code: 'storage_unavailable' } }) })
+    : json({ ...state, report, task }))
+  vi.stubGlobal('fetch', fetch); render(<WordReport {...props} />)
+  await act(async () => {}); expect(screen.getByText(/等待生成 Word 报告/)).toBeTruthy()
+  await act(async () => { vi.advanceTimersByTime(3000) })
+  expect(screen.getByRole('alert')).toBeTruthy()
+  expect(screen.getByRole('link', { name: '下载 Word 报告' })).toBeTruthy()
+  const count = fetch.mock.calls.length
+  await act(async () => { vi.advanceTimersByTime(9000) })
+  expect(fetch).toHaveBeenCalledTimes(count)
+  expect(fetch.mock.calls.every(([url]) => !url.endsWith('/retry'))).toBe(true)
+})
+
+it('aborts a poll and ignores its late completion after switching projects', async () => {
+  vi.useFakeTimers(); let finish!: (value: unknown) => void; let signal!: AbortSignal
+  const fetch = vi.fn((url: string, init?: RequestInit) => {
+    if (url.startsWith('/api/v1/tasks/')) { signal = init?.signal as AbortSignal; return new Promise(resolve => { finish = resolve }) }
+    return json(url.startsWith('/new-file') ? state : { ...state, task })
+  })
+  vi.stubGlobal('fetch', fetch); const view = render(<WordReport {...props} />)
+  await act(async () => {}); await act(async () => { vi.advanceTimersByTime(3000) })
+  view.rerender(<WordReport {...props} base="/new-file" />); expect(signal.aborted).toBe(true)
+  await act(async () => { finish({ ok: true, json: async () => ({ ...task, status: 'succeeded' }) }) })
+  expect(screen.queryByRole('link', { name: '下载 Word 报告' })).toBeNull()
+  expect(fetch.mock.calls.filter(([, init]) => init?.method === 'POST')).toHaveLength(0)
+})
+
+it('rereads an accepted task after submit timeout without resubmitting or changing its key', async () => {
+  vi.useFakeTimers(); let accepted = false
+  const fetch = vi.fn((_url: string, init?: RequestInit) => {
+    if (init?.method === 'POST') { accepted = true; return new Promise(() => {}) }
+    return json(accepted ? { ...state, task } : state)
+  })
+  vi.stubGlobal('fetch', fetch); render(<WordReport {...props} />)
+  await act(async () => {}); fireEvent.click(generate())
+  await act(async () => { vi.advanceTimersByTime(30_000) })
+  expect(screen.getByRole('alert').textContent).toMatch(/超时/)
+  fireEvent.click(reload()); await act(async () => {})
+  expect(screen.getByText(/等待生成 Word 报告/)).toBeTruthy()
+  expect(fetch.mock.calls.filter(([, init]) => init?.method === 'POST')).toHaveLength(1)
+})
 it('downloads restored Word bytes using the saved report filename without POST', async () => {
   const create = vi.fn((_blob: Blob) => 'blob:word'); const revoke = vi.fn()
   vi.stubGlobal('URL', class extends URL { static createObjectURL = create; static revokeObjectURL = revoke })

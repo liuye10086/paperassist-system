@@ -10,7 +10,7 @@
 npm.cmd --prefix frontend ci
 ```
 
-本机验收可在根目录执行 `script/dev.cmd start` 后台启动前后端，使用 `script/dev.cmd status` 检查状态，验收完成后执行 `script/dev.cmd stop`；详见[统一启停说明](../script/README.md)。分别手动启动时，先按根README启动后端，再启动前端：
+本机验收可在根目录执行 `script/dev.cmd start` 后台启动前后端及绘图、解释、Word 异步任务所需的 RabbitMQ、Linux Worker 和 dispatcher，使用 `script/dev.cmd status` 检查状态，验收完成后执行 `script/dev.cmd stop`；详见[统一启停说明](../script/README.md)。分别手动启动时，先按根README准备后端和独立任务服务，再启动前端：
 
 ```powershell
 npm.cmd --prefix frontend run dev
@@ -39,18 +39,29 @@ npm.cmd --prefix frontend run lint
 | [useProjectSelection.ts](src/features/projects/useProjectSelection.ts) | 独立选中项目、hash恢复及项目失权空态 |
 | [ProjectDetails.tsx](src/features/projects/ProjectDetails.tsx)、[ProjectLanguage.tsx](src/features/projects/ProjectLanguage.tsx) | 名称/研究主题编辑、创建后类型只读与独立项目输出语言设置 |
 | [ProjectSummary.tsx](src/features/projects/ProjectSummary.tsx)、[projectSummaryTypes.ts](src/features/projects/projectSummaryTypes.ts) | 真实任务/成果摘要、独立分页、来源与类型空态及响应校验 |
+| [model-usage/ProjectModelUsage.tsx](src/features/model-usage/ProjectModelUsage.tsx)、[modelUsageMessages.ts](src/shared/i18n/modelUsageMessages.ts) | 概览中的累计美元预算、内部估算、预留、待核对与调用分页，只读且支持中英文 |
+| [tasks/ProjectTasks.tsx](src/features/tasks/ProjectTasks.tsx)、[TaskDetail.tsx](src/features/tasks/TaskDetail.tsx)、[TaskEvents.tsx](src/features/tasks/TaskEvents.tsx) | 项目任务筛选分页、工作区精确历史成果和增量事件 |
+| [tasks/TaskPendingAction.tsx](src/features/tasks/TaskPendingAction.tsx)、[TaskModelUsage.tsx](src/features/model-usage/TaskModelUsage.tsx)、[taskMessages.ts](src/shared/i18n/taskMessages.ts) | 服务端许可的幂等恢复、三级预算与任务页中英文 |
 | [shared/api/client.ts](src/shared/api/client.ts)、[projectAccess.ts](src/shared/api/projectAccess.ts) | 会话/CSRF请求及工作区实例有效性检查 |
 | [shared/i18n/index.ts](src/shared/i18n/index.ts)、[rootMessages.ts](src/shared/i18n/rootMessages.ts)、[errorMessages.ts](src/shared/i18n/errorMessages.ts)、[workflowMessages.ts](src/shared/i18n/workflowMessages.ts) | 全局中英文状态、稳定错误码翻译及分析流程文案；不翻译用户内容与历史成果 |
 | [shared/components/ProjectDownloadLink.tsx](src/shared/components/ProjectDownloadLink.tsx) | Excel、PNG和Word受控下载 |
 | [files/ExcelPreview.tsx](src/features/files/ExcelPreview.tsx)、[analysis/AnalysisSetup.tsx](src/features/analysis/AnalysisSetup.tsx) | Excel预览与分析字段配置 |
 | [analysis/StatisticsResults.tsx](src/features/analysis/StatisticsResults.tsx)、[figures/BoxplotFigure.tsx](src/features/figures/BoxplotFigure.tsx) | 描述统计与云端箱线图 |
-| [explanations/AnalysisExplanation.tsx](src/features/explanations/AnalysisExplanation.tsx)、[reports/WordReport.tsx](src/features/reports/WordReport.tsx) | AI解释与Word报告入口 |
+| [explanations/AnalysisExplanation.tsx](src/features/explanations/AnalysisExplanation.tsx)、[reports/WordReport.tsx](src/features/reports/WordReport.tsx) | AI解释与Word异步提交、状态轮询、失败重试及下载入口 |
 
 ## 当前进度
 
-截至2026-10-07，阶段01适用范围验收与收尾完成，共75/79项；第6项迁移与权限检查、导入与隔离恢复、PC键盘操作与阶段验收均已完成。剩余4项为邮件服务及公开注册相关条件项（DB25、BE21、FE15、QA15），按当前范围延期。阶段02具备启动条件，尚未开始开发。当前清单及验收证据见[阶段01清单](../docs/开发阶段/阶段01-数据库迁移与用户项目基础.md)和[PC键盘操作与阶段验收记录](../docs/开发记录/阶段01/PC键盘操作与阶段验收记录.md)。
+截至2026-10-08，阶段02第六步任务界面与等待恢复已通过用户验收，前六步均已验收。侧栏新增“项目任务”，提供统一任务分页/状态与类型筛选、来源和配置版本、详情、增量事件及待办；当前任务类型仅有箱线图、解释与Word。任务深链可刷新重开，跨项目、会话失效和失权清空旧内容；任务404不误移除项目。浏览器标签隐藏暂停读取，恢复可见后续读，进行中的恢复POST保持原请求，不因隐藏标签重复提交。
 
-当前图表、解释和Word生成引擎仍为中文，项目默认输出语言只为未来任务提供默认值；切换界面语言或保存偏好不翻译用户输入、不回写历史成果、不重发生成请求。
+任务详情只读显示任务、项目和用户三级累计美元预算、内部估算、预留、待核对及调用分页；预算未配置不显示为零，未知用量不显示免费。成果按该任务保存的引用展示精确历史PNG、解释与Word，不跳到最新分析；Word下载文案隐藏系统文件名中的哈希。恢复按钮仅由服务端`allowed_actions`提供，使用必填幂等键及任务/输入版本，成功或冲突后重新读取，响应未确认且输入未变时复用原键和请求体。预算/配置等待可显式继续，尚未提交的模型调用按原策略和预算执行，已有调用沿用结果；未知提交及无消费者的资料/研究计划待办只读。LangGraph、检查点和取消尚未实现。
+
+第六步验收前，前端全量385项（55.13秒）及build/lint通过；验收后`dev.cmd stop/status`均成功退出，前端、后端、Worker、dispatcher和RabbitMQ五项服务停止，broker卷保留。前六步作为本次阶段节点归档于 `feat/stage02-unified-tasks-models`，提交编号及远端同步状态以 Git 记录为准。此次收尾只停服和更新文档，未重跑功能回归，未调整本机模型配置、预算或预留。最新范围与证据见[阶段02清单](../docs/开发阶段/阶段02-统一任务与模型调用.md)和[第六步交付记录](../docs/开发记录/阶段02/任务界面与等待恢复交付记录.md)。验收后只读未发现新增Word或模型调用，等待/恢复记录为0；用户通过反馈不扩展为真实等待恢复或新增报告逐项手测。
+
+历史记录：2026-10-08第三步统一模型调用与预算验收时，阶段02保守完成10/57项，绘图和解释当时尚未迁入；第三步前端全量340项、build和lint通过，两处旧测试的act警告未产生失败。该次范围见[第三步交付记录](../docs/开发记录/阶段02/统一模型调用与预算交付记录.md)。
+
+阶段01适用范围已验收收尾，共75/79项并提交为 `4e0d139`；剩余4项为邮件服务及公开注册相关条件项（DB25、BE21、FE15、QA15），按当前范围延期。历史证据见[阶段01清单](../docs/开发阶段/阶段01-数据库迁移与用户项目基础.md)和[PC键盘操作与阶段验收记录](../docs/开发记录/阶段01/PC键盘操作与阶段验收记录.md)。
+
+当前图表、解释和Word生成引擎仍为中文，项目默认输出语言尚未接入这些生成流程；切换界面语言或保存偏好不翻译用户输入、不回写历史成果、不重发生成请求。
 
 2026-10-07项目结构整理、UI三步改版及分页、顶部栏和侧栏微调已通过用户手工验收。随后弹窗反向Tab焦点及分析解释页共享模型配置提示两项修复也已验收，交付时前端23文件299项测试、构建与lint通过，历史证据见[UI第三步交付记录](../docs/开发记录/项目维护/前端UI第三步交付记录.md)。
 

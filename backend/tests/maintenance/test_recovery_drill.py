@@ -1,8 +1,10 @@
 """Pure safety tests: intentionally bypass the shared database fixture."""
 import io
 import zipfile
+from datetime import datetime, timezone
 from pathlib import Path
 import pytest
+from app.db.database import SCHEMA_HEAD
 
 
 @pytest.fixture(autouse=True)
@@ -13,6 +15,73 @@ def postgres_schema():
 def module():
     from app.maintenance import recovery_drill
     return recovery_drill
+
+
+@pytest.mark.parametrize('revision,expected_code', [(SCHEMA_HEAD, 0), ('0005_ownership_indexes', 1)])
+def test_recovery_upgrade_targets_the_current_application_head(monkeypatch, tmp_path, revision, expected_code):
+    """Exercise the orchestration without creating a cluster or connecting anywhere."""
+    import json
+    from types import SimpleNamespace
+    import psycopg
+    from app.db.database import SCHEMA_HEAD
+    m = module()
+    folder, source = tmp_path / 'run', tmp_path / 'source'
+    folder.mkdir()
+    source.mkdir()
+    (source / 'assets').mkdir()
+    (source / 'before-fingerprints.json').write_text('{}')
+    (source / 'asset-manifest.json').write_text('[]')
+    calls = []
+
+    class Connection:
+        def __init__(self, database):
+            self.database = database
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            pass
+
+        def execute(self, statement, *args):
+            text = str(statement)
+            if 'current_database()' in text:
+                value = (self.database, 23456)
+            elif 'SHOW data_directory' in text:
+                value = (str(folder / 'cluster'),)
+            elif 'SHOW listen_addresses' in text:
+                value = ('127.0.0.1',)
+            elif 'SELECT version_num' in text:
+                value = (revision,)
+            else:
+                value = (0,)
+            return SimpleNamespace(fetchone=lambda: value)
+
+    def fake_run(args, **kwargs):
+        calls.append(args)
+        if str(args[0]).endswith('initdb.exe'):
+            (folder / 'cluster').mkdir()
+            (folder / 'cluster' / 'postgresql.conf').write_text('')
+        return b'{"ok":true}' if 'app.maintenance.database_audit' in args else b''
+
+    monkeypatch.setattr(psycopg, 'connect', lambda **kwargs: Connection(kwargs['dbname']))
+    monkeypatch.setattr(m, 'run', fake_run)
+    monkeypatch.setattr(m, 'run_pg_ctl', lambda *args, **kwargs: None)
+    monkeypatch.setattr(m, 'free_port', lambda: 23456)
+    monkeypatch.setattr(m, 'port_closed', lambda _: True)
+    monkeypatch.setattr(m, 'private_file', lambda path, contents: path.write_text(contents))
+    monkeypatch.setattr(m, 'safe_extract', lambda *args: None)
+    monkeypatch.setattr(m, 'app_validation', lambda *args: None)
+    monkeypatch.setattr(m, 'fingerprints', lambda *args, **kwargs: {})
+    monkeypatch.setattr(m, 'sequence_state', lambda *args: {})
+    args = SimpleNamespace(pg_bin=tmp_path, legacy_ref='a' * 40)
+    assert m.execute(args, folder, source, tmp_path, {}) == expected_code
+    target = json.loads((folder / 'upgrade_current_head.json').read_text())
+    assert target['target_revision'] == SCHEMA_HEAD
+    assert any(call[-3:] == ['-m', 'app.db.database', 'upgrade'] for call in calls)
+    result = json.loads((folder / 'result.json').read_text())
+    assert result['status'] == ('complete' if expected_code == 0 else 'failed')
+    assert result['failure'] == (None if expected_code == 0 else 'unexpected_final_revision')
 
 
 def test_prepare_rejects_existing_destination(tmp_path):
@@ -63,6 +132,29 @@ def test_fingerprint_preserves_json_original_text():
     m = module()
     assert m.rows_fingerprint([{'json': '{"a": 1}'}]) != m.rows_fingerprint([{'json': '{"a":1}'}])
     assert m.rows_fingerprint([{'id': 1}, {'id': 2}]) == m.rows_fingerprint([{'id': 2}, {'id': 1}])
+
+
+def test_fingerprint_supports_native_task_wait_times_and_jsonb():
+    """Match the migration backup encoding without rewriting legacy JSON text."""
+    import hashlib
+    import json
+    m = module()
+    timestamp = datetime(2026, 10, 8, 1, 2, 3, 456789, tzinfo=timezone.utc)
+    rows = [{'id': 'wait', 'created_at': timestamp, 'resolved_at': None,
+             'payload': {'values': [1, True, None]}, 'legacy_json': '{"a": 1}'}]
+    encoded = json.dumps({**rows[0], 'created_at': timestamp.isoformat()},
+                         ensure_ascii=False, sort_keys=True, separators=(',', ':'), allow_nan=False)
+    assert m.rows_fingerprint(rows) == hashlib.sha256(encoded.encode('utf-8')).hexdigest()
+    assert m.rows_fingerprint(rows) != m.rows_fingerprint([
+        {**rows[0], 'created_at': timestamp.replace(microsecond=456788)}])
+
+
+def test_fingerprint_rejects_unknown_objects_instead_of_stringifying_them():
+    class Unserializable:
+        def __str__(self):
+            return 'business-content'
+    with pytest.raises(TypeError):
+        module().rows_fingerprint([{'value': Unserializable()}])
 
 
 def test_prepare_does_not_execute_cluster(monkeypatch, tmp_path, capsys):

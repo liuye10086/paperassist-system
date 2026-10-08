@@ -3,11 +3,18 @@ import { apiFetch } from '../../shared/api/client'
 import { watchProjectAccess } from '../../shared/api/projectAccess'
 import { isProject, type Project } from './projectTypes'
 import { apiError, safeError } from '../../shared/i18n'
+import type { ProjectSection } from './WorkspaceShell'
 
 type Instance = { id: string; key: number }
 type Request = { controller: AbortController; timeout: number }
 
 export default function useProjectSelection(onUnavailable: (id: string) => void, onAvailable: (id: string) => void) {
+  const [section, setSection] = useState<ProjectSection>(() => new URLSearchParams(window.location.hash.slice(1)).get('section') === 'tasks' ? 'tasks' : 'overview')
+  const [taskId, setTaskId] = useState(() => {
+    const params = new URLSearchParams(window.location.hash.slice(1))
+    const id = params.get('task') ?? ''
+    return params.has('project') && params.get('section') === 'tasks' && /^\S{1,64}$/.test(id) ? id : ''
+  })
   const nextKey = useRef(1)
   const [instance, setInstance] = useState<Instance | null>(() => {
     const id = new URLSearchParams(window.location.hash.slice(1)).get('project')
@@ -46,6 +53,8 @@ export default function useProjectSelection(onUnavailable: (id: string) => void,
       setFailure(null)
       setLoading(false)
       setUnavailableId(instance.id)
+      setTaskId('')
+      setSection('overview')
       callbacks.current.onUnavailable(instance.id)
     })
     return () => { stop(); cancel(); if (current.current === instance) current.current = null }
@@ -53,8 +62,8 @@ export default function useProjectSelection(onUnavailable: (id: string) => void,
 
   useLayoutEffect(() => {
     window.history.replaceState(null, '', window.location.pathname + window.location.search
-      + (instance ? `#project=${encodeURIComponent(instance.id)}` : ''))
-  }, [instance])
+      + (instance ? `#project=${encodeURIComponent(instance.id)}${section === 'tasks' ? `&section=tasks${taskId ? `&task=${encodeURIComponent(taskId)}` : ''}` : ''}` : ''))
+  }, [instance, section, taskId])
 
   useEffect(() => {
     if (!instance) return
@@ -100,6 +109,8 @@ export default function useProjectSelection(onUnavailable: (id: string) => void,
   function open(id: string, seed?: Project) {
     setUnavailableId('')
     if (instance?.id === id && current.current === instance) { refresh(); return }
+    setTaskId('')
+    setSection('overview')
     cancel()
     const next = { id, key: ++nextKey.current }
     setInstance(next)
@@ -123,8 +134,20 @@ export default function useProjectSelection(onUnavailable: (id: string) => void,
     setFailure(null)
     setUnavailableId('')
     setLoading(false)
+    setTaskId('')
+    setSection('overview')
+  }
+
+  function changeSection(next: ProjectSection) {
+    setSection(next)
+  }
+
+  function selectTask(id: string) {
+    setSection('tasks')
+    setTaskId(id)
   }
 
   return { instance, project: detail?.instance === instance ? detail.project : null,
-    error: failure?.instance === instance ? failure.message : '', loading, unavailableId, open, refresh, update, close }
+    error: failure?.instance === instance ? failure.message : '', loading, unavailableId, open, refresh, update, close,
+    section, taskId, changeSection, selectTask }
 }

@@ -17,7 +17,6 @@ from app.domain.explanation_content import LIMITATIONS, VERSION, build_payload, 
 from app.adapters.explanation_store import ExplanationStore
 from app.adapters.openai_explanation import CloudExplanation
 from app.core.exceptions import PlotError
-from app.adapters.openai_plot import configuration
 from app.core.exceptions import StorageError
 from app.adapters.storage import get_project_store
 from app.core.errors import job_message
@@ -40,14 +39,14 @@ def context(store, project_id, file_id, run_id):
     return result, figure, state
 
 
-def get_explanation(project_id: str, file_id: str, run_id: str, store: ProjectStore):
+def recover_legacy_explanation(project_id: str, file_id: str, run_id: str, store: ProjectStore):
     result, figure, state = context(store, project_id, file_id, run_id)
     repository = ExplanationStore(store)
     job = repository.job(figure['id']) if figure else None
     if job and state['explanation'] and job['status'] != 'completed':
         job = repository.update_job(job['id'], status='completed', message='解释及事实引用已保存。', **job_message('task_completed'))
     if job and job['status'] == 'submitting' and (datetime.now(timezone.utc) - datetime.fromisoformat(job['created_at'])).total_seconds() > 180:
-        job = repository.update_job(job['id'], status='uncertain', message='提交中断，尚未获得云端任务编号。无法确认是否已收费；确认后可手动重试。', **job_message('task_uncertain'))
+        job = repository.update_job(job['id'], status='uncertain', message='提交中断，尚未获得云端任务编号。无法确认是否已收费，请联系管理员核对，不能再次自动调用。', **job_message('task_uncertain'))
     if job and job['status'] == 'running' and not state['explanation']:
         try:
             if not state['is_current']:
@@ -82,42 +81,24 @@ def get_explanation(project_id: str, file_id: str, run_id: str, store: ProjectSt
     return state
 
 
+def get_explanation(project_id: str, file_id: str, run_id: str, store: ProjectStore):
+    """Reading an explanation never contacts a model or advances a task."""
+    from app.domain.explanation_tasks import get_explanation as read
+    return read(project_id, file_id, run_id, store)
+
+
 def generate(project_id: str, file_id: str, run_id: str, request: ExplanationRequest, store: ProjectStore):
-    status_code = 200
-    result, figure, state = context(store, project_id, file_id, run_id)
-    if not state['is_current'] or request.expected_revision != result['setup_revision']:
-        fail('setup_conflict', '配置或统计结果已变化，请重新载入当前结果后生成解释。', 409)
-    if not figure or request.figure_id != figure['id']:
-        fail('figure_conflict', '请先生成并读取当前统计结果的图表。', 409)
-    repository = ExplanationStore(store)
-    job = repository.job(figure['id'])
-    if state['explanation'] or job and (job['status'] not in ('failed', 'uncertain') or not request.retry):
-        state['job'] = public_job(job)
-        status_code = 202 if job and job['status'] in ('running', 'submitting') and not state['explanation'] else 200
-        return state, status_code
-    config = configuration()
-    if not config['configured']:
-        fail('openai_not_configured', config['message'], 503)
-    job, created = repository.begin(result, figure, build_payload(result, figure), config['model'], request.retry)
-    if created:
-        try:
-            response_id = CloudExplanation(config['model']).start(job['payload'])
-            job = repository.update_job(job['id'], response_id=response_id, status='running', message='OpenAI 正在根据统计汇总组织中文解释。', **job_message('task_running'))
-        except PlotError as exc:
-            job = repository.update_job(job['id'], status='uncertain' if exc.uncertain else 'failed', message=exc.message, **job_message(exc.code, exc.params))
-    state['job'] = public_job(job)
-    status_code = 202 if job['status'] in ('running', 'submitting') else 200
-    return state, status_code
+    from app.domain.explanation_tasks import submit_explanation
+    return submit_explanation(project_id, file_id, run_id, request, store)
+
 
 def poll_pending_explanations():
     """Retrieve existing responses after restart; never start or retry a paid request."""
-    if not configuration()['configured']:
-        return
     store = get_project_store()
     repository = ExplanationStore(store)
     for pending in repository.pending():
         try:
-            get_explanation(pending['project_id'], pending['file_id'], pending['run_id'], store)
+            recover_legacy_explanation(pending['project_id'], pending['file_id'], pending['run_id'], store)
         except (HTTPException, StorageError) as exc:
             status = exc.status_code if isinstance(exc, HTTPException) else exc.status
             if status in (404, 409, 410, 422):

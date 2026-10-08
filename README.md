@@ -4,11 +4,17 @@
 
 ## 当前进度
 
-阶段01适用范围已完成验收与收尾，进度为 **75/79**；DB25、BE21、FE15、QA15四项条件性邮件/公开注册继续未勾选。阶段02已具备启动条件，尚未开始开发。第6项此前已提交推送为 `4428530`，验收与历史验证见[PC键盘操作与阶段验收记录](docs/开发记录/阶段01/PC键盘操作与阶段验收记录.md)。
+2026-10-08，[阶段02第六步：任务界面与等待恢复](docs/开发记录/阶段02/任务界面与等待恢复交付记录.md)已通过用户验收，前六步均已验收，阶段清单完成 **23/57** 项，阶段整体尚未完成。项目任务页、精确历史成果、增量事件、三级预算、持久等待记录及原子幂等恢复已实现。开发库已备份升级 `0011_task_waits`，现有25张业务表加版本表；迁移前23表的全部旧列值、索引及当时8个资产均保留。验收后前后端及本项目三个队列容器已停止，broker卷保留。前六步作为本次阶段节点归档于 `feat/stage02-unified-tasks-models`，提交编号及远端同步状态以 Git 记录为准。
+
+第六步验收前的后端全量结果为1168通过、4跳过、1失败；唯一失败为既有表名清单未包含新增两表，修正该测试集合后数据库专项152项通过（96.54秒），未第二次重跑整套后端。前端385项（55.13秒）、独立队列4项（327.14秒）、脚本21项及build/lint、Windows/Linux `pip check`通过。 用户已确认第六步验收通过；此次收尾仅停服、只读核对和更新文档，未重跑功能回归，未改模型策略、预算或预留。具体人工验收、持久化证据及费用核对边界见上方交付记录。
+
+验收后只读核查仍为既有2个成功的绘图/解释任务和2条完成的模型调用，PNG/解释/Word记录分别为4/2/1，磁盘资产8个；等待和恢复记录均为0，未发布outbox为0。未见本轮新增Word任务或模型调用记录，不据此推断用户未测试下载或界面，也不宣称真实等待恢复已逐项手测。两既有任务工作区均对应当前配置且成果引用正确，预算估算、预留与可用额保持不变；实际账单仍未核对。
+
+阶段01适用范围已完成验收与收尾，进度为 **75/79**；DB25、BE21、FE15、QA15四项条件性邮件/公开注册继续暂缓。阶段01收尾提交为 `4e0d139`；第6项此前提交为 `4428530`，历史验证见[PC键盘操作与阶段验收记录](docs/开发记录/阶段01/PC键盘操作与阶段验收记录.md)。
 
 2026-10-07项目结构整理、UI三步改版、后续微调、两项审查修复及6项体验修复与切页动效优化均已通过用户验收。本轮交付时前端24文件322项测试、构建与lint通过；验收后已停止服务，`status`确认无受管服务运行。用户已授权以“开发阶段01：收尾：验收项目阶段01，整理项目结构，修改前端UI”统一提交推送，实际提交及远端同步以Git记录为准。当前目录职责与入口见[项目结构](docs/项目结构.md)，本轮结果见[前端体验修复交付记录](docs/开发记录/项目维护/前端体验修复交付记录.md)，历史结果保留在[UI第三步交付记录](docs/开发记录/项目维护/前端UI第三步交付记录.md)及[整理交付记录](docs/开发记录/项目维护/项目结构整理交付记录.md)。
 
-已实现前后端基础工程、Excel 上传预览、本地项目与文件持久化，以及最小分析闭环：字段配置、真实描述统计、云端箱线图、AI 分析解释和 Word 分析报告导出。前五步已分别通过用户手动验收；第六步整条流程的开发侧验收与收尾已完成，用户于 2026-09-29 手动进入系统测试并确认最终验收通过。验证范围与限制见下方记录。
+已实现前后端基础工程、Excel 上传预览、本地项目与文件持久化，以及最小分析闭环：字段配置、真实描述统计、云端箱线图、AI 分析解释和 Word 分析报告导出。前五步已分别通过用户手动验收；早期小闭环第六步整条流程的开发侧验收与收尾已完成，用户于 2026-09-29 手动进入系统测试并确认最终验收通过。验证范围与限制见下方记录。
 
 - 前端：React + TypeScript + Vite
 - 后端：Python + FastAPI
@@ -33,7 +39,7 @@
 - 第四步调用 OpenAI 官方 Responses API，根据已保存的统计汇总与图表元数据生成六部分中文解释；程序填入事实引用并保存证据和版本，刷新/重启后恢复，内容仍需人工审核
 - 第五步将同一配置版本的数据检查、真实统计、原始 PNG、图注、解释和依据导出为可编辑 `.docx`；本地生成，不额外调用 API；报告持久化，支持重复下载和刷新/重启恢复
 
-当前按最小闭环逐步实现 V0.13 的文件管理、字段配置、真实计算、图表及报告能力，不代表整个 M1 已完成。应用与集成测试统一使用 PostgreSQL，磁盘保存原文件、PNG 和 DOCX；SQLite 仅保留为旧 schema 6 数据的离线导入来源。数据库层采用 SQLAlchemy Core + psycopg + Alembic，显式执行迁移，启动和健康检查只核对版本。根据用户确认，绘图采用 OpenAI 托管 Code Interpreter，保留本地描述统计用于独立核对。邮箱密码登录、服务端会话与项目归属隔离已实现；Celery 和完整多用户任务系统尚未引入；本轮迁移与验收证据见[PostgreSQL统一与迁移记录](docs/开发记录/阶段01/PostgreSQL统一与迁移记录.md)。
+当前按最小闭环逐步实现 V0.13 的文件管理、字段配置、真实计算、图表及报告能力，不代表整个 M1 已完成。应用与集成测试统一使用 PostgreSQL，磁盘保存原文件、PNG 和 DOCX；SQLite 仅保留为旧 schema 6 数据的离线导入来源。数据库层采用 SQLAlchemy Core + psycopg + Alembic，显式执行迁移，启动和健康检查只核对版本。根据用户确认，绘图采用 OpenAI 托管 Code Interpreter，保留本地描述统计用于独立核对。邮箱密码登录、服务端会话与项目归属隔离已实现；Word、新绘图和新解释已接入Celery/RabbitMQ，新绘图和解释使用统一模型调用与三级预算。项目任务页、持久等待与受限恢复已交付；资料补充与研究计划确认尚无业务消费者，只提供只读待办；LangGraph、工作流检查点、通用任务创建和取消仍未实现。历史数据库切换证据见[PostgreSQL统一与迁移记录](docs/开发记录/阶段01/PostgreSQL统一与迁移记录.md)。
 
 ## 后续开发文档
 
@@ -45,11 +51,11 @@
 - [参考项目接收与复用清单](docs/开发记录/项目管理/参考项目接收与复用清单.md)
 - [需求覆盖与决策台账](docs/开发记录/项目管理/需求覆盖与决策台账.md)
 
-本机 PostgreSQL 18.1 的开发库为 `paperassist_system`，测试库为 `paperassist_system_test`。owner `paperassist_app`、`paperassist_test` 保留为迁移角色；应用分别使用 `paperassist_runtime`、`paperassist_test_runtime`。运行角色仅有业务DML、序列USAGE/SELECT和版本表SELECT，无owner、DDL、TEMP、TRUNCATE、TRIGGER及版本表写权限，且不能连接另一项目数据库；迁移角色仍非超级用户且无CREATEDB/CREATEROLE。应用使用项目专用连接变量，拒绝缺失或不匹配的配置；不读取通用 `DATABASE_URL` 或 `TEST_DATABASE_URL`，后者在本机属于其他项目。开发库已备份升级 `0005_ownership_indexes`，详见[本轮交付记录](docs/开发记录/阶段01/迁移核查与运行账号分权交付记录.md)。后续阶段仍按数据库、后端、前端逐模块完成全部功能点，不提前标记文献或论文能力完成。
+本机 PostgreSQL 18.1 的开发库为 `paperassist_system`，测试库为 `paperassist_system_test`。owner `paperassist_app`、`paperassist_test` 保留为迁移角色；应用分别使用 `paperassist_runtime`、`paperassist_test_runtime`。运行角色仅有业务DML、序列USAGE/SELECT和版本表SELECT，无owner、DDL、TEMP、TRUNCATE、TRIGGER及版本表写权限，且不能连接另一项目数据库；迁移角色仍非超级用户且无CREATEDB/CREATEROLE。应用使用项目专用连接变量，拒绝缺失或不匹配的配置；不读取通用 `DATABASE_URL` 或 `TEST_DATABASE_URL`，后者在本机属于其他项目。开发库已备份升级 `0011_task_waits`，当前为25张业务表加版本表，详见[任务界面与等待恢复交付记录](docs/开发记录/阶段02/任务界面与等待恢复交付记录.md)；历史角色分权见[分权交付记录](docs/开发记录/阶段01/迁移核查与运行账号分权交付记录.md)。后续阶段仍按数据库、后端、前端逐模块完成全部功能点，不提前标记文献或论文能力完成。
 
 ## 项目目录
 
-前端UI改版沿用白灰底、深紫主色。项目分为概览、文件、数据分析和图表与报告，分析使用命名流程导航；前端不展示系统编号、哈希及内部版本，保留科研数据、方法与时间。第三步补齐系统报告文件名的界面语言切换，清理无引用旧文案与样式；本轮补齐切页定位与动效、预览反馈、成果刷新、错误恢复及账号菜单收起。见[设计方案](docs/设计/前端UI/2026-10-07-前端UI设计方案.md)、[可点击设计稿](docs/设计/前端UI/preview/index.html)和[体验修复交付记录](docs/开发记录/项目维护/前端体验修复交付记录.md)。
+前端UI改版沿用白灰底、深紫主色。项目分为概览、项目任务、文件、数据分析和图表与报告，分析使用命名流程导航；前端不展示系统编号和哈希；任务详情保留供核对的分析配置版本，其他界面保留科研数据、方法与时间。第三步补齐系统报告文件名的界面语言切换，清理无引用旧文案与样式；本轮补齐切页定位与动效、预览反馈、成果刷新、错误恢复及账号菜单收起。见[设计方案](docs/设计/前端UI/2026-10-07-前端UI设计方案.md)、[可点击设计稿](docs/设计/前端UI/preview/index.html)和[体验修复交付记录](docs/开发记录/项目维护/前端体验修复交付记录.md)。
 
 详细目录树、职责和旧新路径映射见[项目结构](docs/项目结构.md)。
 
@@ -61,21 +67,22 @@
 | `backend/app/auth/` | 认证、会话、密码和撤销审计 |
 | `backend/app/core/`、`db/` | 公共配置/错误/路径、数据库连接/权限/表结构 |
 | `backend/app/maintenance/` | 离线导入、审计、核验报告与恢复演练 |
+| `backend/app/workers/`、`infra/worker/`、`compose.workers.yml` | Celery执行、outbox分发、租约扫描及本机Linux容器 |
 | `backend/alembic/`、`backend/scripts/` | 数据库 revision 与维护 CLI 入口 |
 | `backend/tests/` | 按职责归组的回归测试与共享 fixture |
 | `frontend/src/app/` | 应用组合和样式 |
-| `frontend/src/features/` | auth、projects、files、analysis、figures、explanations、reports |
+| `frontend/src/features/` | auth、projects、tasks、model-usage、files、analysis、figures、explanations、reports |
 | `frontend/src/shared/` | 请求客户端、受控下载、语言与词典 |
 | `frontend/src/test/` | 集成测试与合成夹具；组件单测与功能同目录 |
-| `script/` | 保留两个 `.cmd` 入口，实现位于 `dev/`、`database/`，测试位于 `tests/` |
+| `script/` | `dev.cmd`、`setup-database-roles.cmd`、`test-queue.cmd` 三个入口；实现位于 `dev/`、`database/`，测试位于 `tests/` |
 | `docs/` | [文档导航](docs/README.md)、需求/方案、阶段清单及交付记录 |
 
-应用启动入口仍为 `backend/app/main.py`；账号管理仍为 `backend/app/manage_users.py`；前端入口仍为 `frontend/src/main.tsx`。`backend/data/`、`backend/backups/`、`script/.runtime/` 和 `reference-projects/` 是 Git 忽略的本地资料，保持原位置。
+应用启动入口仍为 `backend/app/main.py`；账号管理仍为 `backend/app/manage_users.py`，累计预算管理入口为 `backend/app/manage_model_budgets.py`；前端入口仍为 `frontend/src/main.tsx`。`backend/data/`、`backend/backups/`、`script/.runtime/` 和 `reference-projects/` 是 Git 忽略的本地资料，保持原位置。
 
 ## 本地运行
 
 以下步骤适用于 Windows PowerShell，所有命令均从项目根目录（包含 `backend`、`frontend` 和本 README 的目录）执行。若终端已经在该目录，无需再次切换目录。
-前端和后端分别使用一个终端运行。
+推荐使用 `script/dev.cmd` 统一管理前后端及队列服务；手动分别启动前后端只用于调试，执行新绘图、解释或Word任务还需要Worker栈。
 后端命令直接调用虚拟环境内的 Python，无需先激活环境；前端使用 `npm.cmd`。
 
 ### 后端
@@ -94,7 +101,7 @@ python -m venv .\backend\.venv
 
 首次运行还需配置专用 PostgreSQL 连接。已有 `backend/.env` 时保留原内容；按 `backend/.env.example` 填写 `PAPERASSIST_ENV=development`、`PAPERASSIST_DATABASE_URL`、`PAPERASSIST_TEST_DATABASE_URL` 和 `PAPERASSIST_DB_SCHEMA=public`。本机已配置的 `.env` 不应被示例覆盖。密码仅存放在本地受 Git 忽略的文件中，连接串内的特殊字符需 URL 编码。
 
-第6项①已将运行和迁移配置分开：运行账号为 `paperassist_runtime`、`paperassist_test_runtime`；原 owner `paperassist_app`、`paperassist_test` 作为迁移账号。新环境按照 `backend/.env.migrations.example` 单独填写 Git 忽略的 `backend/.env.migrations`，应用正常配置不会加载它，迁移连接缺失时不会回退运行账号。本机已由用户完成[初始化脚本](script/README.md#数据库运行账号初始化第6项①)，真实权限、回归及0005升级通过，用户已确认第6项①验收通过；无需再次初始化。第6项②导入与隔离恢复已由用户验收通过；③已于2026-10-07通过用户最终验收。第6项已提交推送为 `4428530`。后续结构整理、UI改版、微调及全部审查修复均已通过用户验收，阶段01适用范围收尾完成；阶段02具备启动条件，尚未开始开发。生产部署应对应用与迁移进程分别提供秘密。
+第6项①已将运行和迁移配置分开：运行账号为 `paperassist_runtime`、`paperassist_test_runtime`；原 owner `paperassist_app`、`paperassist_test` 作为迁移账号。新环境按照 `backend/.env.migrations.example` 单独填写 Git 忽略的 `backend/.env.migrations`，应用正常配置不会加载它，迁移连接缺失时不会回退运行账号。本机已由用户完成[初始化脚本](script/README.md#数据库运行账号初始化第6项①)，真实权限、回归及0005升级通过，用户已确认第6项①验收通过；无需再次初始化。第6项②导入与隔离恢复已由用户验收通过；③已于2026-10-07通过用户最终验收。第6项已提交推送为 `4428530`。后续结构整理、UI改版、微调及全部审查修复均已通过用户验收，阶段01适用范围收尾完成；阶段02前六步均已验收，项目任务页、持久等待及受限恢复已交付，后续未完成条目等待下一步授权。生产部署应对应用与迁移进程分别提供秘密。
 
 首次部署或数据库迁移版本变化时，在 `backend` 目录显式执行；完成后回到项目根目录启动服务：
 
@@ -118,7 +125,7 @@ try {
 
 日常启动（已完成依赖、专用连接配置和迁移时）：
 
-Windows 本机验收可在项目根目录使用统一脚本，启动前后端并检查健康状态：
+Windows 本机验收在项目根目录使用统一脚本，启动前后端及RabbitMQ、Worker、dispatcher并检查健康状态。需要已安装Docker Desktop并使用Linux容器；启动器可启动Docker Desktop，首次需构建镜像。配置及版本见[Worker说明](infra/worker/README.md)：
 
 ```powershell
 .\script\dev.cmd start
@@ -126,7 +133,7 @@ Windows 本机验收可在项目根目录使用统一脚本，启动前后端并
 .\script\dev.cmd stop
 ```
 
-启动后打开 <http://127.0.0.1:5173>。验收完成后再停止；停止只处理脚本记录并核对身份的前后端及子进程。使用说明见 [script/README.md](script/README.md)。用户反馈验收完成后先停止服务，再按用户提供的提交信息提交推送。以下为分别手动启动的命令：
+启动后打开 <http://127.0.0.1:5173>。验收完成后再停止；停止处理经身份核对的前后端及子进程、本项目三个容器，保留broker数据卷，不关闭全局Docker Desktop或PostgreSQL。使用说明见 [script/README.md](script/README.md)。用户反馈验收完成后先停止服务并更新文档，只有获得明确授权与提交信息才提交推送。以下为分别手动启动的命令：
 
 ```powershell
 .\backend\.venv\Scripts\python.exe -m uvicorn app.main:app --app-dir backend --reload --host 127.0.0.1 --port 8000 --no-proxy-headers
@@ -191,7 +198,7 @@ npm.cmd --prefix .\frontend run dev
 
 ### 停止服务
 
-在对应终端按 Ctrl+C。
+统一启动的服务使用 `.\script\dev.cmd stop` 并以 `status` 复核。手动运行的前后端在对应终端按 Ctrl+C；若另行启动Worker栈，还需运行 `.\backend\.venv\Scripts\python.exe script/dev/worker_stack.py stop`，仅关闭终端不会停止容器。
 
 ### 虚拟环境创建被中断
 
@@ -214,13 +221,21 @@ python -m venv .\backend\.venv
 
 ## 下一步
 
-阶段01适用范围与结构/UI收尾均已通过用户验收，验收服务已停止，本次按用户授权统一提交推送。四项条件性邮件/公开注册继续暂缓，不阻塞阶段02；阶段02具备启动条件，尚未开始开发。
+阶段02前六步已通过用户验收，当前23/57项完成。前后端及本项目队列服务已停止。前六步作为本次阶段节点归档于 `feat/stage02-unified-tasks-models`，提交编号及远端同步状态以 Git 记录为准。[第六步交付记录](docs/开发记录/阶段02/任务界面与等待恢复交付记录.md)说明项目任务页、精确成果读取、持久等待和原子幂等恢复的范围与验证证据。
 
-下一步先开展[阶段02：统一任务与模型调用](docs/开发阶段/阶段02-统一任务与模型调用.md)的实施前核查与首批计划，确认运行位置、兼容性、测试边界、预算控制及旧绘图/解释迁移契约，再按数据库→后端→前端→验收推进。推荐技术组合仍需实施前核实，当前没有接入Celery、RabbitMQ或LangGraph。
+后续按阶段02未完成条目另行确定下一项交付，须用户明确授权后开始；资料/研究计划业务消费者、LangGraph、工作流检查点及取消尚未实现。每次仅推进用户确认的一步，继续共用阶段02功能分支；后续节点的提交推送仍需相应授权与提交信息。
 
 阶段01完成范围及四项条件性待办见[阶段清单](docs/开发阶段/阶段01-数据库迁移与用户项目基础.md)。早期六步闭环和第5项双语交付的历史证据分别保留在[完整闭环验收记录](docs/开发记录/历史小闭环/2026-09-29-workflow-acceptance.md)与[双语交付记录](docs/开发记录/阶段01/双语界面与语言设置交付记录.md)，不作为本次收尾新增验证。
 
 当前仍限定一种明确分析任务。PDF 单独验证，自然语言规划、更多图型及 OpenAI 图片生成模型属于后续能力；图片生成模型与已实现的 Python 数据绘图分别接入，不改变完整产品范围。
+
+## 模型调用与预算
+
+项目概览的“模型调用与预算”面板只读显示用户/项目累计美元额度、内部估算、预留、待核对数量及近期调用，支持刷新和分页。预算未配置显示未配置，未知用量显示待核对；界面不提供预算编辑或任意模型调用入口。本机管理员命令及示例见[预算管理说明](script/README.md#本机模型预算管理)。
+
+`ModelUsageService`、统一文字 Responses 门面和绘图工具门面已交付，调用前必须满足用户、项目、任务三级预算及受信价格策略；缺少预算或价格时拒绝发送。预算按累计 USD 计算，不自动按日/月重置，没有自动默认额度或价格。未知提交保留预留且不自动重发；有已知响应时只续取。绘图还需明确工具费用预留，缺少实际费用证据时保持待核对。金额属于内部估算，不是收费账本，也不承诺远端账单绝对不超限。
+
+此面板仅统计经新统一门面的调用。项目任务详情另显示任务、项目和用户三级预算，并关联本任务已保存的精确历史成果。新绘图和解释可在预算或配置补足后显式恢复原任务，已有调用沿用保存结果，尚未提交的模型调用按原策略和预算执行。旧绘图和旧解释不补造统一历史账本；账单人工核对界面及完整历史映射仍未完成。本机项目“测试”已配置 `gpt-5.6-sol` 私有策略，所属用户和项目累计额度各5美元，单绘图任务1美元、单解释任务0.5美元；这些是获授权的测试配置，不是默认值，本轮收尾未调整。配置与历史真实调用证据见[第五步交付记录](docs/开发记录/阶段02/绘图任务迁移交付记录.md)，等待和恢复范围见[第六步交付记录](docs/开发记录/阶段02/任务界面与等待恢复交付记录.md)。
 
 ## 界面语言与项目默认输出语言
 
@@ -250,7 +265,7 @@ python -m venv .\backend\.venv
 
 ## 第一步：选择分析任务与字段
 
-先按上方命令安装更新后的 `backend/requirements.txt` 并显式迁移 PostgreSQL。当前版本为 Alembic `0005_ownership_indexes`；旧 SQLite schema 1–5 自动升级至 schema 6 的说明属于历史实现，已被 PostgreSQL 统一方案替代。离线导入工具只接受 schema 6；更早的库需使用匹配的旧程序升级独立副本，不能让当前应用回退到 SQLite。
+先按上方命令安装更新后的 `backend/requirements.txt` 并显式迁移 PostgreSQL。当前版本为 Alembic `0011_task_waits`；旧 SQLite schema 1–5 自动升级至 schema 6 的说明属于历史实现，已被 PostgreSQL 统一方案替代。离线导入工具只接受 schema 6；更早的库需使用匹配的旧程序升级独立副本，不能让当前应用回退到 SQLite。
 
 1. 进入已有项目，选择侧栏“数据分析”，在“字段配置”选择数据。上传与原文件预览位于侧栏“项目文件”。
 2. 分析任务目前固定为“描述统计＋箱线图”；选择一份已保存且解析成功的 Excel。
@@ -313,22 +328,24 @@ if (-not (Test-Path .\backend\.env)) { Copy-Item .\backend\.env.example .\backen
 notepad .\backend\.env
 ```
 
-在 `backend/.env` 填写真实密钥和账号可用模型：
+管理员参考 [plot-policy.example.json](backend/plot-policy.example.json) 创建 Git 忽略的 `backend/.env.plot-policy.json`，填写已核验的模型、价格快照、输入估算额度、输出上限、任务额度，以及显式工具费用预留和依据版本。在 `backend/.env` 设置策略路径和密钥：
 
 ```dotenv
 OPENAI_API_KEY=在本机填写你的API密钥
-OPENAI_MODEL=gpt-5.4
+PAPERASSIST_PLOT_POLICY_FILE=.env.plot-policy.json
 ```
 
-模型名可替换，要求支持 Responses、后台执行及 Code Interpreter；`gpt-5.4` 是官方列明支持该工具的示例，是否对你的账号可用须实际调用验证。[模型说明](https://developers.openai.com/api/docs/models/gpt-5.4)
+也可通过 `OPENAI_API_KEY_FILE` 指定密钥文件。新绘图使用独立策略中的模型，不从旧 `OPENAI_MODEL` 推导价格或预算。模型须支持 Responses、后台执行及 Code Interpreter；模板的必填金额为 `null`，不能直接启用。用户和项目累计预算还需通过[管理员命令](script/README.md#本机模型预算管理)明确设置；只有任务策略不足以准入。
 
-后端现在自动读取 `backend/.env`，PowerShell 环境变量优先；文件已被 Git 忽略。不要把密钥放入前端、`VITE_*` 变量或提交到 Git。配置接口只返回是否填写及模型名，不返回密钥。没有配置 API 仍可使用健康检查、上传、配置和本地统计，也能查看已保存图片。日常前后端启动命令仍为上方的 `uvicorn` 和 `npm.cmd --prefix .\frontend run dev`。
+后端读取 `backend/.env`，PowerShell 环境变量优先；文件已被 Git 忽略。API 创建任务时冻结策略，Worker 使用快照执行；密钥只单独挂载给 Worker，变更后重启项目服务。不要把密钥放入前端、`VITE_*` 变量或提交到 Git。`/api/v1/ai/plot-config` 只返回本地配置状态及模型名，不返回密钥，也不验证远端权限。缺配置仍能上传、执行本地统计及查看历史成果。用 `script/dev.cmd start` 同时启动前后端与Worker栈，配置细节见[Worker说明](infra/worker/README.md#绘图模型策略)。
+
+本机项目“测试”已按用户授权配置 `gpt-5.6-sol`，用户和项目累计额度各5美元、单绘图1美元、单解释0.5美元。原 `gpt-5.6` 别名查询返回404，完整名称查询成功；后续用户真实验收的新绘图与解释已持久化成功。这些配置不是其他环境的默认值，工具预留也不是实际账单。
 
 ### 使用与图表口径
 
 1. 选择已保存的字段配置，先完成第二步描述统计。
 2. 在流程导航“图表”点击“使用 OpenAI 生成箱线图”。只有本次点击会提交生成请求；打开页面不自动生成。
-3. 页面显示提交/运行状态，后端也会每轮间隔 5 秒扫描未完成请求。即使切换文件或关闭网页，只要后端继续运行，仍会查询并下载完成的图表。
+3. API只保存统一任务并返回排队状态，Linux Worker重算材料、检查预算，再分片创建容器、上传数据、提交与续取响应。页面GET只读本地保存状态；切换文件或关闭网页不影响Worker执行，等待期间可继续浏览工作台。
 4. 云端结构化结果与本地总体/分组统计、样本数、分位数、须端、离群点及标签图注核对通过后保存 PNG。浮点量使用相对容差 `1e-10`，计数、来源及文字精确匹配。
 5. 查看图及图注，点击“下载箱线图 PNG”。图号、标题、坐标轴字段/单位、分组和 n、完整图注均要求在 PNG 内；无分组绘制总体，有分组只绘制各组。图 1 是每次分析内的编号。
 6. 刷新/重启后选择同一文件，可恢复已保存图；修改配置并重新统计后生成新图，旧图和旧结果保留。未保存字段或旧配置不能触发新生成。
@@ -341,17 +358,19 @@ OPENAI_MODEL=gpt-5.4
 
 - 只上传所选数值/分组的完整有效记录、字段标签、单位、缺失计数和来源标识；不上传其他字段、整个 Excel 或项目研究主题。模型提示词把字段内容限定为数据。生成涉及 OpenAI API 与 Code Interpreter 费用。
 - 保存模型名、response/container ID、模型实际执行代码、token 用量、原文件哈希、统计结果版本、PNG 哈希及提示词版本。模型报告的 Python/Matplotlib/字体环境也作为来源记录保存。
-- 提交前建立持久化请求记录，相同结果重复点击复用进行中任务或已有图。SDK 关闭自动重试。失败或提交状态不确定时，只在用户点击“重试生成（再次调用 API）”后新建请求，可能再次收费。
-- 超时先点“重新读取图表”。已取得 response ID 的任务可继续查询，后端重启后自动扫描；暂时下载失败可再次读取，不重新调用生成。提交过程中被强制终止、未保存 response ID 的请求超过 180 秒后标记为状态不确定，无法保证找回该次产物或避免已发生费用。
+- 提交前建立统一任务并冻结来源和策略，相同结果重复点击复用进行中任务或已有图。SDK关闭自动重试；容器创建、文件上传、响应创建分别先记录开始标记，再保存回执。开始标记缺少回执时保留预算预留并等待核对，禁止通过重试盲目重发。
+- 超时先点“重新读取图表”。已有回执时继续原阶段；已有response ID时只续取原响应，预算补足后可显式继续原任务。终态内容失败或明确容器过期后，只有用户点击带额外费用提示的再次生成才创建新任务；未知提交不开放此入口。
 - 使用 OpenAI 后台响应模式，远端响应按其策略留存；每次创建独立容器并设置 20 分钟闲置过期。若后端停机过久，尚未下载的容器文件可能过期且不可恢复。已下载 PNG 不依赖远端容器；任务恢复不等于永久云端保存。[后台模式](https://developers.openai.com/api/docs/guides/background)、[容器生命周期](https://developers.openai.com/api/docs/guides/tools-code-interpreter)
-- 目前为本地单用户原型：后台扫描在 FastAPI 进程内串行运行，尚非完整任务队列；关闭后端期间不会下载。API 密钥失效、额度不足、模型不支持、结果不一致、图片损坏及存储失败均有反馈，失败不会覆盖旧图。
+- 新绘图由独立Worker执行，每片最多一个外部POST或一次响应续取，等待时释放租约。收到响应先记用量，再核对并下载成果；已验证的本地候选PNG可在租约恢复后发布，不必重做云端生成。来源变化、密钥失效、额度不足、模型不支持、结果不一致、图片损坏及存储失败均有反馈，失败不会覆盖旧图。旧绘图job仅兼容续取原响应，不补造统一调用或自动重新收费。
 
 ## 第四步：AI 分析解释
 
-对应需求 V0.13 §5.7。沿用 `backend/.env` 的 `OPENAI_API_KEY` / `OPENAI_MODEL` 和现有启动命令，模型须支持 Responses 后台模式与 Structured Outputs。此步由模型组织文字，不启用 Code Interpreter 或图片生成工具，也不重复计算统计量。[结构化输出官方说明](https://developers.openai.com/api/docs/guides/structured-outputs)
+对应需求 V0.13 §5.7。新解释已迁入统一队列，由独立策略指定支持 Responses 后台模式与 Structured Outputs 的模型，不采用旧 `OPENAI_MODEL`。此步由模型组织文字，不启用 Code Interpreter 或图片生成工具，也不重复计算统计量。[结构化输出官方说明](https://developers.openai.com/api/docs/guides/structured-outputs)
+
+管理员参考 [explanation-policy.example.json](backend/explanation-policy.example.json) 创建Git忽略的 `backend/.env.explanation-policy.json`，在 `.env` 设置 `PAPERASSIST_EXPLANATION_POLICY_FILE`，填入核实后的模型、价格、输入预留和任务额度；用户/项目累计额度用本机预算命令设置。密钥可用 `OPENAI_API_KEY_FILE`，否则使用 `OPENAI_API_KEY`；仅Worker挂载模型密钥，变更后须重启项目服务。示例必填金额为空，历史解释读取不依赖当前策略；本机项目“测试”的授权配置见上方绘图说明。单位和细节见[管理配置方式](docs/开发记录/阶段02/2026-10-08-解释任务迁移实施计划.md#管理配置方式)。
 
 1. 选择已有配置，完成描述统计并生成、保存当前箱线图。
-2. 切换流程导航“分析解释”，点击“使用 OpenAI 生成解释”。该操作调用收费 API。
+2. 切换流程导航“分析解释”，配置完整后点击“使用 OpenAI 生成解释”。API保存任务并返回排队状态，由Worker检查预算后调用收费API；缺策略/价格时不接受可收费新任务，缺用户/项目额度时进入等待。
 3. 成功后显示**分析目的、使用数据、分析方法、主要结果、结果解释、论文描述文字**，每段可展开查看所引用的事实。分析目的仅描述本次统计任务；研究设计、实验步骤和样本背景不足时不补写。
 4. 核对文字与表格/图片，再查看“解释限制”和“解释来源与核对记录”。页面只展示语言、保存时间及可读核对说明；模型、响应编号、用量、哈希和来源关联仍保存在后端，不渲染在工作区。
 5. 刷新页面或重启服务后选择同一文件，恢复相同解释；重复点击复用已保存内容。修改并保存配置后，需依次重新统计、绘图、生成解释，旧解释仍绑定旧版本。
@@ -360,16 +379,16 @@ OPENAI_MODEL=gpt-5.4
 
 **核验边界：**自动校验确认引用存在且数值来自已保存结果，不能证明整段语义、标签关联或比较方向正确，也不能覆盖所有变相推断。文字是 AI 初稿，须人工核对；不把引用核对标记等同于科学结论正确。未执行显著性检验，不生成 P 值、置信区间、因果/疗效结论或文献引用；本步没有对图片像素进行识别。
 
-**恢复和错误：**与图表一样，提交前保存任务、关闭 SDK 自动重试。失败/状态不确定只在明确点击重试后新建请求。超时先点“重新读取解释”；已保存 response ID 时继续查询同一任务，后台在没有网页的情况下也会恢复。暂时网络/存储失败保留编号，输出校验不通过不保存草稿，配置变化阻止挂接旧解释。没有 API 配置仍可读取已保存解释。远端响应超过留存期或未能保存 response ID 时，不能保证恢复；重新生成可能再次收费。
+**恢复和错误：**浏览器查询只读本地状态，Worker每片只做一次POST或GET，等待时释放租约并延迟续取。预算补足后显式恢复原任务；已有响应编号只GET。无编号的未知提交保留预留并等待核对，不允许盲目重试；已知响应404停止续取，不自动创建替代付费请求。坏输出先记用量再报失败，只有用户明确再次生成才创建可能收费的新任务。来源变化阻止挂接旧解释，但已知响应仍续取用量；历史已保存解释不依赖当前模型配置。
 
-图表和解释分别使用进程内恢复循环，扫描间隔为每轮完成后 5 秒，不是独立任务队列。沿用内部开关 `PAPERASSIST_PLOT_WORKER_ENABLED=0` 可同时停用两类后台恢复，默认启用；自动测试设为 `0` 并隔离真实密钥。
+旧绘图job和旧 `explanation_jobs` 保留每轮完成后5秒的进程内兼容扫描，只续取已有响应；新绘图和解释由独立Worker执行。`PAPERASSIST_PLOT_WORKER_ENABLED=0` 只关闭前述历史扫描，不是新统一任务的总开关。自动测试另使用独立数据库schema、资产和队列，清空真实密钥/策略，以模拟供应商验证。
 
 手动验收路径：**选择已有配置和图表 → 生成解释 → 核对六部分及每段依据 → 刷新/重启后确认恢复 → 修改并保存配置 → 重新统计和绘图 → 再生成解释，确认对应新版本。**Word 导出见第五步；解释编辑器和研究背景补充流程尚未实现。
 
 ## 第五步：Word 分析报告
 
 1. 进入项目，选择已有分析文件，确认当前保存配置对应的统计、箱线图和六段解释都已完成。
-2. 切换流程导航“Word报告”，点击“生成 Word 报告”，完成后点击“下载 Word 报告”。已保存的图表与报告也可从项目侧栏“图表与报告”下载。
+2. 切换流程导航“Word报告”，点击“生成 Word 报告”，页面显示排队或生成状态，完成后点击“下载 Word 报告”。已有完整报告直接复用；已保存的图表与报告也可从项目侧栏“图表与报告”下载。
 3. 用 Word 或 WPS 打开 `.docx`，检查数据概况、有效/排除行数、方法、两张统计表、原 PNG 与图注、六段解释、事实依据和来源记录。
 4. 刷新页面，或停止并重启前后端后重新选择同一文件；下载入口自动恢复。同一解释和模板版本重复生成复用同一文件与编号。
 5. 修改并保存配置后，先重新执行统计、绘图和解释，再导出新版本。未保存字段或旧结果不能生成新报告；旧报告不会覆盖，可保留其下载地址继续下载。
@@ -378,7 +397,7 @@ OPENAI_MODEL=gpt-5.4
 
 导出前核对原文件、PNG 哈希、统计/图表/解释来源以及关键引用，保存事务中再次核对配置版本和来源记录；报告同时保存输入快照与哈希。并发重复请求仅保留一份报告。磁盘错误可重试；文件缺失或被修改时返回明确错误，不静默覆盖原报告。下载已保存报告仅校验项目/文件/统计归属和 DOCX 完整性，不依赖原 Excel 或 PNG 仍在磁盘，但缺失源文件时网页的分析读取仍会提示错误，已有报告可用保留的下载地址取得。
 
-前端等待上限 30 秒；超时不代表后端失败，也不强制终止导出。先点击“重新读取报告”确认状态再操作，前端不会自动重复提交。报告生成期间锁定上层分析操作。
+阶段02第二步起，新报告由独立Worker后台生成，前端只读轮询状态，刷新或重新打开后继续读取已保存任务。短暂提交期间防止重复操作，排队/生成期间不锁定整个分析工作台；来源变更会在提交成果前再次核对。查询失败可重新读取，任务失败后可明确重试；页面不会因轮询错误自动新建任务。任务显示成功但报告快照暂未返回时，会继续读取报告。
 
 当前提供中文描述统计报告，包含 AI 初稿审核提示和研究背景待补充说明，不补写研究设计、显著性或因果结论；不包含完整论文、学校模板、英文报告或 PDF。版式为 Letter 纵向、2 cm 页边距，正文宋体/Arial 11 pt。用户已手动用 Word/WPS 核对并确认验收通过；本机自动渲染仍因缺少 LibreOffice 而不可用。该手动结果不代表所有数据和软件版本的排版均已验证。运行导出功能不需要 LibreOffice。
 
@@ -428,18 +447,30 @@ $env:PAPERASSIST_DATA_DIR = 'D:\PaperAssistData'
 
 该变量默认是 `data`，相对路径以 `backend` 为基准，也接受绝对路径。更换目录不会自动迁移资产或切换数据库；不要指向临时目录。本轮数据库统一保留原资产路径。默认 `backend/data`、旧 SQLite 文件及本地备份已被 Git 忽略；若自定义到仓库中的其他目录，需要同时忽略资产与备份。
 
-备份时先停止后端与恢复扫描，使用 PostgreSQL 的备份工具备份指定业务库，并复制同一静止时点的 `files`、`figures` 和 `reports`，保存大小及 SHA256 清单。只复制 `backend/data` 已不能备份数据库。恢复必须匹配数据库版本和同一份资产快照；自动备份与完整恢复演练仍待阶段10实现。旧库一次性切换的备份位置与恢复边界见[迁移记录](docs/开发记录/阶段01/PostgreSQL统一与迁移记录.md)。不要手工修改数据库或 UUID 文件。原文件/PNG/报告下载分别校验大小及 SHA256，文件缺失或内容改变时给出明确错误。历史预览使用上传时保存的结果，调整解析限制不会自动重新解析已有记录。
+备份时先通过 `script/dev.cmd stop` 停止后端及扫描器、Worker和dispatcher，确保没有业务写入，再使用 PostgreSQL 的备份工具备份指定业务库，并复制同一静止时点的 `files`、`figures` 和 `reports`，保存大小及 SHA256 清单。只复制 `backend/data` 已不能备份数据库。恢复必须匹配数据库版本和同一份资产快照；阶段01已有指定快照的隔离恢复演练，自动备份与完整运维策略仍待阶段10实现。第五步0010升级前的历史备份位于 `backend/backups/boxplot-tasks-20261008T074348950367Z`，归档清单可读，此次未另做还原演练。旧库一次性切换的备份位置与恢复边界见[迁移记录](docs/开发记录/阶段01/PostgreSQL统一与迁移记录.md)。不要手工修改数据库或 UUID 文件。原文件/PNG/报告下载分别校验大小及 SHA256，文件缺失或内容改变时给出明确错误。历史预览使用上传时保存的结果，调整解析限制不会自动重新解析已有记录。
 
-写入流程为原文件临时写入、重命名、数据库事务保存。普通磁盘或数据库写入失败会尝试清理本次文件；进程被强制终止或清理本身失败时，仍可能留下孤立文件，尚无自动恢复工具。
+文件写入采用临时写入、重命名和数据库事务保存。普通磁盘或数据库写入失败会尝试清理本次文件；Word和绘图任务使用固定成果候选及租约恢复，隔离真实队列验证了重命名后、提交前硬崩溃的恢复一致性。其他写入窗口仍可能留下未提交的 `.part` 等孤立文件，尚无批量清理工具。
 
 ## 接口
+
+统一任务已有项目分页查询、工作区详情、增量事件、三级预算、绘图/解释/Word异步创建及受限恢复。`POST /tasks/{id}/resume` 使用必填幂等键、任务版本与输入版本，在事务内完成等待消费、状态变更和排队；前端仅展示服务端允许的操作。资料补充/研究计划确认无业务消费者，只读展示；通用创建和取消未实现。旧任务详情响应及原Word GET/下载合同保持，新工作区按本任务成果引用读取精确历史PNG、解释和Word。任务及模型用量响应附服务器生成的 `X-Request-ID`，错误保留 `detail.code/message/params` 并增加 `request_id/details`。当前接口边界见[第六步交付记录](docs/开发记录/阶段02/任务界面与等待恢复交付记录.md)；业务创建合同保留于[第五步](docs/开发记录/阶段02/绘图任务迁移交付记录.md)、[第四步](docs/开发记录/阶段02/解释任务迁移交付记录.md)及[第二步](docs/开发记录/阶段02/独立任务执行与Word导出交付记录.md#http-与重试契约)。
 
 | 方法和路径 | 用途 |
 | --- | --- |
 | `GET /api/v1/health` | 保留 `{ "status": "ok", "service": "paperassist-system" }` |
+| `GET /api/v1/tasks/{task_id}` | 当前用户的统一任务公开详情，只读；未知/他人任务404，不暴露原始输入快照 |
+| `GET /api/v1/projects/{project_id}/tasks` | 项目统一任务分页；`page`从1、`page_size`缺省10且最大50，可按`status/task_type`筛选 |
+| `GET /api/v1/tasks/{task_id}/workspace` | 只读任务、来源/配置版本、等待、允许操作及此任务的精确历史成果 |
+| `POST /api/v1/tasks/{task_id}/resume` | 必填`Idempotency-Key`；请求含`operation`（resume/retry）、`wait_id`、`expected_task_revision`和`input_version`，成功202；冲突后重新读取 |
+| `GET /api/v1/tasks/{task_id}/events` | 每任务增量事件，`after`缺省0、`limit`缺省50且最大100；不推进任务 |
+| `GET /api/v1/projects/{project_id}/model-usage` | 本人项目的累计美元预算、内部估算、预留、待核对及调用分页，只读；`page`从1、`page_size`为1–50 |
+| `GET /api/v1/tasks/{task_id}/model-usage` | 本人任务的调用和三级预算，只读；分页规则同项目查询，不触发模型请求 |
+| `POST /api/v1/tasks/{task_id}/retry` | `{ "expected_revision": 当前任务修订号 }`；失败Word及允许恢复的绘图/解释，核对权限、来源、状态与版本；不允许未知提交盲目重发 |
 | `GET/PATCH /api/v1/auth/preferences` | 读取/更新当前账号 `ui_language`，仅 `zh-CN/en`；写入检查当前会话与CSRF |
 | `GET/PATCH /api/v1/projects/{project_id}/language` | 独立读取/更新项目 `default_output_language`，仅所有者可访问，返回完整Project |
-| `GET /api/v1/ai/config` | OpenAI 是否已配置、模型名及提示，不包含密钥 |
+| `GET /api/v1/ai/config` | 旧OpenAI配置兼容查询，不作为新绘图/解释准入依据 |
+| `GET /api/v1/ai/plot-config` | 需登录；绘图专用策略/密钥本地可用状态及模型，不返回密钥/路径，不验证远端权限 |
+| `GET /api/v1/ai/explanation-config` | 需登录；解释专用策略/密钥本地可用状态及模型，不返回密钥/路径，不验证远端权限 |
 | `GET /api/v1/excel/config` | 返回 `max_upload_bytes`、`preview_row_limit` |
 | `POST /api/v1/excel/preview` | 保留临时预览接口，multipart 字段 `file`；不保存项目文件 |
 | `GET /api/v1/projects` | 无列表参数时返回兼容数组；显式传入任一 `page/page_size/q/type` 时返回分页对象，仅含当前用户项目 |
@@ -458,13 +489,13 @@ $env:PAPERASSIST_DATA_DIR = 'D:\PaperAssistData'
 | `PUT /api/v1/projects/{project_id}/files/{file_id}/analysis-setup` | 重新校验并保存当前配置，返回递增修订号 |
 | `POST /api/v1/projects/{project_id}/files/{file_id}/analysis-runs` | JSON `{"expected_revision": 1}`；执行该已保存配置，或返回同配置/工具版本的已有结果 |
 | `GET /api/v1/projects/{project_id}/files/{file_id}/analysis-result` | 返回最新保存结果、当前配置修订号及结果是否匹配 |
-| `GET .../analysis-runs/{run_id}/boxplot` | 读取图及请求状态；进行中则查询云端并尝试保存完成结果，不新建生成请求 |
-| `POST .../analysis-runs/{run_id}/boxplot` | `{ "expected_revision": 1 }`；生成/复用请求，明确重试增加 `"retry": true` |
+| `GET .../analysis-runs/{run_id}/boxplot` | 只读本地图表、统一task和兼容旧job，不执行供应商请求 |
+| `POST .../analysis-runs/{run_id}/boxplot` | `{ "expected_revision": 1 }`；可选 `Idempotency-Key`；新任务202，已有图复用200，允许的明确重试增加 `"retry": true` |
 | `GET .../analysis-runs/{run_id}/boxplot/image` | 读取已保存 PNG；`?download=true` 作为附件下载 |
-| `GET .../analysis-runs/{run_id}/explanation` | 读取保存的解释或查询已有云端任务，不提交新生成请求 |
-| `POST .../analysis-runs/{run_id}/explanation` | `{ "expected_revision": 1, "figure_id": "当前图表编号" }`；明确重试增加 `"retry": true` |
-| `GET .../analysis-runs/{run_id}/report` | 读取报告与本地准备状态，不生成、不调用云端 |
-| `POST .../analysis-runs/{run_id}/report` | `{ "expected_revision": 1, "figure_id": "当前图表编号", "explanation_id": "当前解释编号" }`；生成 `201`、复用 `200` |
+| `GET .../analysis-runs/{run_id}/explanation` | 只读本地解释、统一task和兼容旧job，不执行供应商请求 |
+| `POST .../analysis-runs/{run_id}/explanation` | `{ "expected_revision": 1, "figure_id": "当前图表编号" }`；可选 `Idempotency-Key`；新任务202，完整解释复用200，允许的明确重试兼容 `"retry": true` |
+| `GET .../analysis-runs/{run_id}/report` | 只读报告、准备状态及对应 `task`，不生成、不推进执行 |
+| `POST .../analysis-runs/{run_id}/report` | `{ "expected_revision": 1, "figure_id": "当前图表编号", "explanation_id": "当前解释编号" }`；可选 `Idempotency-Key`；任务接受 `202`，已有完整报告复用 `200` |
 | `GET .../analysis-runs/{run_id}/report/{report_id}/download` | 下载 Word 附件，检查归属及报告大小/哈希；允许下载旧配置的报告 |
 
 项目列表分页对象为 `{items, total, page, page_size}`，默认页码1、每页10项；`page` 为1–1,000,000，`page_size` 为1–100，HTTP只接受ASCII十进制整数字符串。`q` 去首尾空白后最长120字符，按名称作不区分大小写的字面子串搜索；`type` 只接受 `sci/thesis`。分页按 `updated_at DESC, id ASC` 排序，当前用户的总数与条目读取同一只读快照。前端显式消费分页合约，详情从hash独立恢复；项目路径精确`project_not_found`清旧工作区，普通资源404/410不清项目。证据及边界见[列表交付记录](docs/开发记录/阶段01/项目列表分页与权限空态交付记录.md)。
@@ -488,9 +519,9 @@ $env:PAPERASSIST_DATA_DIR = 'D:\PaperAssistData'
 
 统计执行返回 `id`、`file_id`、`filename`、`source_sha256`、`setup_revision`、`selection`、`check`、`numeric_name`、`group_name`、`engine`、`started_at`、`completed_at`、`overall` 和 `groups`。`overall` 包含上述 9 个统计指标及 `warnings`；`groups` 每项包含 `label` 和相同结构的 `statistics`。读取结果返回 `{"current_revision": 1, "is_current": true, "result": {...}}`；未执行时 `result: null`、`is_current: false`。执行和复用结果均返回 `200`；未保存或配置过期返回 `409`，解析限制或精度不支持返回 `422`。所有结果接口仍校验项目归属和原文件完整性。复用已有结果时不重新计算，首次计算才重新应用当前解析限制。
 
-图表路径的 `...` 为 `/api/v1/projects/{project_id}/files/{file_id}`。GET/POST 返回 `{current_revision, is_current, figure, job}`，`is_current` 表示所绑定统计结果是否对应当前配置，即使尚无图也可为 `true`。`job` 状态为 `submitting/running/failed/uncertain/completed`；初次提交或仍运行返回 `202`，已有图及失败任务状态返回 `200`。失败状态不等于生成成功，应检查 `figure` 和 `job.status`。配置不足 `503`、配置变化 `409`、无结果/无图 `404`、图片缺失 `410`、图片篡改 `409`；云端读取错误使用 `502/503` 与可读原因。PNG 下载始终核对归属、原始文件和图片哈希。
+图表路径的 `...` 为 `/api/v1/projects/{project_id}/files/{file_id}`。GET/POST返回 `{current_revision,is_current,figure,job,task}`；新任务使用 `task`，`job`只兼容真实旧记录，不造旧job。GET只读且200；新任务POST接受202，已有图复用200。`is_current` 表示统计结果是否对应当前配置，即使尚无图也可为 `true`。新成果与模型调用关联，任务公开可空 `result_figure_id`；内部候选及provider状态不公开。缺策略/密钥503，配置版本或幂等冲突409，无结果/无图404，图片缺失410、篡改409；PNG下载始终核对归属、原始文件和图片哈希。
 
-解释接口使用相同路径前缀，返回 `{current_revision,is_current,figure_id,explanation,job}`。`is_current` 同样表示统计结果是否匹配当前配置；尚无图时 `figure_id: null`，此时 POST 返回 `409`。解释包含六段 `sections`（`key/title/text/evidence`）、固定 `limitations`、配置版本、来源哈希及 `engine/verification/provenance`。首次/运行中 `202`，已有解释/失败状态 `200`；未配置 API `503`，错误图号或旧版本 `409`。`verification.status=references_checked` 仅表示引用检查通过，不表示文字语义已自动审核。
+解释接口使用相同路径前缀，返回 `{current_revision,is_current,figure_id,explanation,job,task}`。新任务使用 `task`，`job`只兼容真实旧记录，不造旧job。GET只读且200；新任务POST接受202，已有解释复用200。`is_current` 表示统计是否匹配当前配置；尚无图时 `figure_id: null`，POST返回409。新任务缺模型策略/价格/密钥503，错误图号、旧版本或幂等冲突409。解释保留六段 `sections`（`key/title/text/evidence`）、`limitations`及来源；新产物的 `provenance` 增加模型调用关联，任务有可空 `result_explanation_id`。`verification.status=references_checked` 仅表示引用检查通过，不表示文字语义已自动审核。
 
 报告 GET/POST 返回 `{current_revision,is_current,ready,issues,report}`；缺少图表或解释时 GET 返回 `ready: false` 并说明原因。`report` 含报告、统计、图表和解释 ID、配置版本、来源/图片/报告/输入 SHA256、时间、文件名、大小、语言和模板引擎版本。错误来源或旧配置 `409`，缺少报告 `404`，报告文件缺失 `410`，报告被修改 `409`，文档内容无法生成 `422`，存储失败 `503`。报告文件不可变，输入快照仅存本地数据库，不通过状态接口返回。
 
@@ -530,7 +561,11 @@ HTTP错误统一为 `{detail:{code,message,params}}`，保留原状态码和兼�
 
 PostgreSQL 统一在同一文件固定 `SQLAlchemy==2.1.1`、`psycopg[binary]==3.3.6` 和 `alembic==1.20.0`。SQLAlchemy Core 承接已有 SQL 与事务，不要求为所有未来模块预建 ORM 模型。
 
+阶段02第二步固定 `celery==5.6.3`，使用普通AMQP依赖及Linux Worker；RabbitMQ和Python容器镜像固定digest。不使用SQLAlchemy extra或Celery结果后端；详细版本与运行边界见[Worker说明](infra/worker/README.md)。
+
 ## 验证方法与结果
+
+第六步验收前的后端全量结果为1168通过、4跳过、1失败；唯一失败为既有表名清单未包含新增两表，修正该测试集合后数据库专项152项通过（96.54秒），未第二次重跑整套后端。前端385项（55.13秒）、独立队列4项（327.14秒）、脚本21项及build/lint、Windows/Linux `pip check`通过。 用户已确认本步验收通过，收尾只停服、只读核对和更新文档，未重跑功能回归。完整证据见[第六步交付记录](docs/开发记录/阶段02/任务界面与等待恢复交付记录.md)。默认后端测试跳过真实队列项；准备Docker后可在根目录运行 `.\script\test-queue.cmd`，仅使用专用测试库UUID schema、临时资产、独立测试broker/队列及模拟供应商。以下日期段落保留当时测试计数。
 
 2026-10-05双语交付的最终结果：后端全量 **474项通过（307.66秒）**，前端 **19文件256项通过（11.65秒）**，build/lint/pip check通过，独立审查Approved。首次全量的473通过/1失败来自旧SQLite导入测试遗漏新增语言默认字段的期望，修正后专项29项及最终全量通过；不将首次失败写为通过。隔离浏览器完成偏好保存/刷新恢复、项目输出语言保存、旧统计与中文字段保持、退出及重新登录验证。开发库0004升级、备份与原数据/资产保持证据见[双语交付记录](docs/开发记录/阶段01/双语界面与语言设置交付记录.md)。用户随后确认本轮验收通过；本次验收后仅同步文档，未重跑功能全量回归，未据用户反馈认定恢复演练或真实云端调用已验证。
 
@@ -632,7 +667,7 @@ Word 导出手动验收路径：先安装更新后的后端依赖并启动前后
 
 - 项目与文件已持久化，已提供 schema 6 的离线 SQLite→PostgreSQL 导入工具和名称/主题编辑；尚未实现项目删除、文件删除、显式版本关联、后台重解析或自动备份；同名上传目前是独立记录。
 - 只支持 `.xlsx`；不支持 `.xls`、`.xlsm`、带密码文件、图表工作表预览或复杂多行表头识别。公式仅展示原文，不执行、不判断缓存新旧；合并布局不还原。
-- 当前界面支持中英文，生成引擎仍为固定的中文描述统计/箱线图、AI解释与Word分析报告；项目默认输出语言仅供未来任务使用。英文成果生成、自然语言规划、其他统计方法/图型、图片生成模型、研究背景补充、多轮解释编辑、完整论文及PDF仍待后续开发。云端绘图调用官方Code Interpreter；本地配置检查和独立核算仍在线程池同步执行，不在宿主机执行模型返回代码。
+- 当前界面支持中英文，生成引擎仍为固定的中文描述统计/箱线图、AI解释与Word分析报告；项目默认输出语言仅供未来任务使用。英文成果生成、自然语言规划、其他统计方法/图型、图片生成模型、研究背景补充、多轮解释编辑、完整论文及PDF仍待后续开发。云端绘图调用官方Code Interpreter；新绘图的材料复算与云端调用由Linux Worker执行，本地不执行模型返回代码。
 - Word 导出主流程及 Word/WPS 核对已通过用户手动验收；自动分页渲染仍不可用，更多数据规模与软件版本的排版兼容性尚未系统验证。报告尚无历史版本列表；旧版本文件保留，可通过保留的下载地址访问。崩溃时可能留下孤立报告文件，暂无清理/修复工具。
 - 解析在线程池内同步执行；尚无独立解析进程、服务端硬超时和多用户并发容量验证。前端等待上限 120 秒，超时不会强制终止已经开始的后端解析。
 - 列表尚未分页，未限制整个数据目录的累计大小；数据量增大后的查询性能、磁盘配额和崩溃恢复仍需完善。
