@@ -1,13 +1,42 @@
 """Persist model observations and cumulative budget admission separately from billing."""
 from sqlalchemy import (
     BigInteger, CheckConstraint, Column, DateTime, ForeignKey, Index, Integer,
-    Table, Text, UniqueConstraint,
+    Table, Text, UniqueConstraint, text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 
 
 CALL_STATUSES = "'reserved', 'submitting', 'submitted', 'submission_unknown', 'completed', 'failed', 'released'"
 USAGE_STATUSES = "'pending', 'estimated'"
+
+EVIDENCE_CHECK = """(event_type <> 'reconciliation') OR (reconciliation->'request' ?& ARRAY['event_key','expected_revision','component','amount_micro_usd','evidence_kind','evidence_reference','evidence_sha256','provider_object_id','operator']
+ AND (reconciliation->'request') - ARRAY['event_key','expected_revision','component','amount_micro_usd','evidence_kind','evidence_reference','evidence_sha256','provider_object_id','operator']='{}'::jsonb
+ AND reconciliation->'receipt' ?& ARRAY['call_id','revision','component','actual_micro_usd','reconciliation_status','accounted_before_micro_usd','accounted_after_micro_usd','delta_micro_usd','reserved_after_micro_usd']
+ AND reconciliation->'previous_actual_micro_usd' ?& ARRAY['token_micro_usd','tool_micro_usd']
+ AND reconciliation->'actual_micro_usd' ?& ARRAY['token_micro_usd','tool_micro_usd']
+ AND reconciliation->'request'->>'component' IN ('token','tool')
+ AND reconciliation->'request'->>'evidence_kind' IN ('provider_statement','provider_support')
+ AND jsonb_typeof(reconciliation->'request'->'amount_micro_usd')='number'
+ AND reconciliation->'request'->>'amount_micro_usd' ~ '^[0-9]+$'
+ AND jsonb_typeof(reconciliation->'request'->'expected_revision')='number'
+ AND reconciliation->'request'->>'expected_revision' ~ '^[0-9]+$'
+ AND reconciliation->'request'->>'evidence_sha256' ~ '^[0-9a-f]{64}$'
+ AND jsonb_typeof(reconciliation->'request'->'evidence_reference')='string'
+ AND length(reconciliation->'request'->>'evidence_reference') >= 1 AND length(reconciliation->'request'->>'evidence_reference') <= 256
+ AND jsonb_typeof(reconciliation->'request'->'provider_object_id')='string'
+ AND length(reconciliation->'request'->>'provider_object_id') >= 1 AND length(reconciliation->'request'->>'provider_object_id') <= 256
+ AND jsonb_typeof(reconciliation->'request'->'operator')='string'
+ AND length(reconciliation->'request'->>'operator') >= 1 AND length(reconciliation->'request'->>'operator') <= 128
+ AND jsonb_typeof(reconciliation->'revision')='number'
+ AND jsonb_typeof(reconciliation->'accounted_before_micro_usd')='number'
+ AND jsonb_typeof(reconciliation->'accounted_after_micro_usd')='number'
+ AND jsonb_typeof(reconciliation->'delta_micro_usd')='number'
+ AND reconciliation->'request'->>'operator'=reconciliation->>'operator'
+ AND reconciliation->'request'->>'event_key'=event_key
+ AND reconciliation->'receipt'->>'call_id'=call_id
+ AND reconciliation->'receipt'->>'revision'=reconciliation->>'revision'
+ AND reconciliation->'receipt'->>'component'=reconciliation->'request'->>'component'
+ AND reconciliation->'receipt'->>'reconciliation_status' IN ('partial','reconciled'))"""
 
 
 def define_model_usage_tables(metadata):
@@ -58,6 +87,9 @@ def define_model_usage_tables(metadata):
         Column('updated_at', DateTime(timezone=True), nullable=False),
         UniqueConstraint('task_id', 'call_key', name='model_calls_task_key'),
         Column('provider_state', JSONB(none_as_null=True)),
+        Column('actual_token_micro_usd', BigInteger),
+        Column('actual_tool_micro_usd', BigInteger),
+        Column('reconciliation_revision', Integer, nullable=False, server_default=text('0')),
         UniqueConstraint('provider', 'provider_response_id', name='model_calls_response_key'),
         CheckConstraint('attempt_no >= 1', name='model_calls_attempt_check'),
         CheckConstraint('length(call_key) >= 1 AND length(call_key) <= 128', name='model_calls_key_check'),
@@ -69,6 +101,9 @@ def define_model_usage_tables(metadata):
         CheckConstraint(f'status IN ({CALL_STATUSES})', name='model_calls_status_check'),
         CheckConstraint(f'usage_status IN ({USAGE_STATUSES})', name='model_calls_usage_check'),
         CheckConstraint('estimated_cost_micro_usd >= 0', name='model_calls_cost_check'),
+        CheckConstraint('actual_token_micro_usd >= 0', name='model_calls_actual_token_micro_usd_check'),
+        CheckConstraint('actual_tool_micro_usd >= 0', name='model_calls_actual_tool_micro_usd_check'),
+        CheckConstraint('reconciliation_revision >= 0', name='model_calls_reconciliation_revision_check'),
         CheckConstraint('updated_at >= created_at', name='model_calls_time_check'),
         CheckConstraint("provider_state IS NULL OR jsonb_typeof(provider_state) = 'object'",
                         name='model_calls_provider_state_check'),
@@ -89,10 +124,26 @@ def define_model_usage_tables(metadata):
         Column('usage_status', Text, nullable=False),
         Column('reason_code', Text),
         Column('created_at', DateTime(timezone=True), nullable=False),
+        Column('reconciliation', JSONB(none_as_null=True)),
         UniqueConstraint('call_id', 'event_key', name='usage_events_call_key'),
         CheckConstraint('length(event_key) >= 1 AND length(event_key) <= 128', name='usage_events_key_check'),
         CheckConstraint("event_digest ~ '^[0-9a-f]{64}$'", name='usage_events_digest_check'),
-        CheckConstraint("event_type IN ('observation', 'release')", name='usage_events_type_check'),
+        CheckConstraint("event_type IN ('observation', 'release', 'reconciliation')", name='usage_events_type_check'),
+        CheckConstraint("""(event_type <> 'reconciliation' AND reconciliation IS NULL) OR
+ (event_type = 'reconciliation' AND reconciliation IS NOT NULL
+ AND jsonb_typeof(reconciliation)='object'
+ AND reconciliation ?& ARRAY['request','operator','revision','previous_actual_micro_usd','actual_micro_usd',
+ 'accounted_before_micro_usd','accounted_after_micro_usd','delta_micro_usd','receipt']
+ AND jsonb_typeof(reconciliation->'request')='object'
+ AND jsonb_typeof(reconciliation->'receipt')='object'
+ AND jsonb_typeof(reconciliation->'previous_actual_micro_usd')='object'
+ AND jsonb_typeof(reconciliation->'actual_micro_usd')='object'
+ AND jsonb_typeof(reconciliation->'operator')='string'
+ AND (reconciliation->>'revision') ~ '^[1-9][0-9]*$'
+ AND (reconciliation->>'accounted_before_micro_usd') ~ '^[0-9]+$'
+ AND (reconciliation->>'accounted_after_micro_usd') ~ '^[0-9]+$'
+ AND (reconciliation->>'delta_micro_usd') ~ '^-?[0-9]+$')""", name='usage_events_reconciliation_check'),
+        CheckConstraint('(' + EVIDENCE_CHECK + ') IS TRUE', name='usage_events_reconciliation_evidence_check'),
         CheckConstraint("provider_usage IS NULL OR jsonb_typeof(provider_usage) = 'object'", name='usage_events_usage_object_check'),
         CheckConstraint("jsonb_typeof(price_snapshot) = 'object'", name='usage_events_price_check'),
         CheckConstraint(f'usage_status IN ({USAGE_STATUSES})', name='usage_events_status_check'),

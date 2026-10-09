@@ -102,7 +102,7 @@ def test_missing_api_configuration_preserves_local_features(client, monkeypatch)
     assert response.status_code == 200
     assert response.json()['configured'] is False
     base, _, result, url = prepared(client)
-    assert client.post(url, json={'expected_revision': 1}).status_code == 503
+    assert client.post(url, json={'expected_revision': 1}).status_code == 422
     assert client.get('/api/v1/health').json()['status'] == 'ok'
     assert client.get(base + '/analysis-result').json()['result'] == result
 

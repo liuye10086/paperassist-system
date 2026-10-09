@@ -2,6 +2,10 @@ import asyncio
 from contextlib import asynccontextmanager, suppress
 import logging
 
+from app.core.safe_logging import configure_safe_logging
+
+configure_safe_logging()
+
 from fastapi import FastAPI
 from fastapi.exceptions import RequestValidationError
 from starlette.exceptions import HTTPException
@@ -26,7 +30,9 @@ from app.api.reports import router as reports_router
 from app.api.tasks import router as tasks_router, project_router as project_tasks_router
 from app.api.model_usage import router as model_usage_router
 from app.core.errors import PUBLIC_CODES, error_response, fallback_error, unexpected_error_response
-from app.core.request_id import RequestIdMiddleware
+from app.core.request_id import RequestIdMiddleware, configure_request_logging
+
+configure_request_logging()
 
 # Fail early on invalid environment configuration.
 get_excel_settings()

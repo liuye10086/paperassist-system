@@ -12,6 +12,7 @@ from app.domain.model_usage.contracts import CallRequest, ModelPolicy
 from app.domain.model_usage.gateway import ModelGateway, ModelGatewayError, input_digest
 from app.domain.model_usage.service import ModelUsageService
 from app.domain.plot_response import download_plot, parse_plot_response
+from app.domain.tasks.errors import classify_read_error
 
 
 logger = logging.getLogger(__name__)
@@ -96,6 +97,9 @@ def run_boxplot_task(task_id, task_revision, *, config=None, directory=None, pro
 def _execute(repository, lease, config, provider_factory, providers):
     from app.domain.plot_policy import validate_execution_policy
     task = repository.load_boxplot_task(lease)
+    from app.domain.external_material import plot_instructions
+    external = task['input_snapshot'].get('external_processing')
+    instructions = plot_instructions(external)
     call = repository.boxplot_call(lease)
     if call and call['status'] == 'released':
         # A previous source failure may have released its reservation before
@@ -128,35 +132,44 @@ def _execute(repository, lease, config, provider_factory, providers):
             output = gateway.refresh(call['id'])
         else:
             request = CallRequest(task_id=task['id'], expected_task_revision=task['revision'],
-                call_key='boxplot:v1', input_digest=input_digest(instructions=INSTRUCTIONS, payload=payload),
+                call_key='boxplot:v1', input_digest=input_digest(instructions=instructions, payload=payload),
                 policy=ModelPolicy.model_validate(frozen['policy']),
                 input_token_allowance=frozen['input_token_allowance'],
                 tool_reserve_micro_usd=frozen['tool_reserve_micro_usd'],
                 tool_reserve_version=frozen['tool_reserve_version'])
-            output = gateway.submit_plot(request, instructions=INSTRUCTIONS, payload=payload, execution_lease=lease)
+            output = gateway.submit_plot(request, instructions=instructions, payload=payload, execution_lease=lease)
     except ModelGatewayError as exc:
+        if exc.code == 'model_receipt_persistence_failed':
+            # Leave receipt/database failures to lease recovery, preserving the
+            # saved response and every reservation rather than consuming retries.
+            raise
         call = repository.boxplot_call(lease)
         if exc.code in ('model_response_not_found', 'plot_container_expired'):
             return repository.fail(lease, exc.code)
         if unknown_submission(call):
             return repository.wait_explanation(lease, 'submission_unknown', 'model_submission_unknown')
         if call and call.get('provider_response_id'):
-            return repository.defer(lease, seconds=30)
-        raise
+            return repository.retry_failure(lease, classify_read_error(exc.code, exc.status_code))
+        return repository.retry_failure(lease, classify_read_error(exc.code, exc.status_code))
     call, response = output['call'], output.get('response')
     if (not call.get('provider_response_id') and call['status'] == 'failed'
             and call.get('error_code') == 'plot_container_expired'):
         return repository.fail(lease, 'plot_container_expired')
     if unknown_submission(call):
         return repository.wait_explanation(lease, 'submission_unknown', 'model_submission_unknown')
-    if response is None or isinstance(response, dict) and response.get('status') in ('queued', 'in_progress'):
+    if response is None:
+        if call.get('provider_response_id'):
+            return repository.fail(lease, 'model_response_invalid')
+        # Known container/upload receipts still prepare one remote write per slice.
+        return repository.defer(lease)
+    if isinstance(response, dict) and response.get('status') in ('queued', 'in_progress'):
         return repository.defer(lease)
     # Terminal usage has already reached the ledger. Source changes must block
     # publication, while preserving the paid call's response and usage evidence.
     task, snapshot, payload, expected = repository.load_boxplot(lease)
     parsed = parse_plot_response(response, (call.get('provider_state') or {}).get('container_id'))
     if parsed is None:
-        return repository.defer(lease)
+        return repository.fail(lease, 'model_response_invalid')
     policy = ModelPolicy.model_validate({key: call['policy_snapshot'][key]
         for key in ModelPolicy.model_fields if key in call['policy_snapshot']})
     try:
@@ -166,7 +179,13 @@ def _execute(repository, lease, config, provider_factory, providers):
             return repository.fail(lease, exc.code)
         if exc.code in ('plot_receipt_invalid', 'model_input_invalid'):
             return repository.fail(lease, 'plot_invalid_result')
-        return repository.defer(lease, seconds=30)
+        return repository.retry_failure(lease, classify_read_error(exc.code, exc.status_code))
+    except (LeaseLost, StorageError, PlotError):
+        raise
+    except Exception:
+        # Downloads contain no persistence operations. Unclassified provider or
+        # validation exceptions cannot become an unlimited network retry loop.
+        return repository.fail(lease, 'internal_error')
     figure = {**expected, 'file_id': snapshot['result']['file_id'],
         'setup_revision': snapshot['result']['setup_revision'], 'figure_number': 1, 'language': 'zh-CN',
         'created_at': datetime.now(timezone.utc).isoformat(),
@@ -176,6 +195,9 @@ def _execute(repository, lease, config, provider_factory, providers):
         'provenance': {**downloaded['provenance'], 'model_call_id': call['id'],
             'model_input_digest': call['input_digest'],
             'input_sha256': hashlib.sha256(canonical_payload(payload).encode('utf-8')).hexdigest()}}
+    if external is not None:
+        figure.update(analysis_run_id=snapshot['result']['id'], source_sha256=snapshot['result']['source_sha256'],
+                      external_processing=external)
     candidate = repository.register_figure_candidate(lease, snapshot, figure, downloaded['png'], expected, payload)
     repository.write_figure_candidate(lease, candidate, downloaded['png'])
     return repository.complete_boxplot(lease, snapshot, payload, expected)

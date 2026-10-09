@@ -6,6 +6,7 @@ from pathlib import Path
 import time
 
 import pytest
+from tests.queue.external_confirmation import confirm
 
 from app.db.database import database_connection
 from app.domain.model_usage.service import ModelUsageService
@@ -45,7 +46,12 @@ def test_plot_effect_boundaries_and_png_crash_recovery(client, cloud, writer, is
         if service.get_budget('user', owner_id)['limit_micro_usd'] is None:
             service.set_budget('user', owner_id, 10000000, 0)
         service.set_budget('project', project_id, 10000000, 0)
-        accepted = client.post(url, json={'expected_revision': result['setup_revision']},
+        confirmation = confirm(client, url)
+        confirmation['labels'] = {key: ('测量值' if key == 'numeric_name' else
+            '分组' if key == 'group_name' else '组' + key.split(':')[1] if key.startswith('group:') else value)
+            for key, value in confirmation['labels'].items()}
+        accepted = client.post(url, json={'expected_revision': result['setup_revision'],
+                               'external_processing': confirmation},
                                headers={'Idempotency-Key': 'plot-queue-' + mode})
         assert accepted.status_code == 202, accepted.text
         task = accepted.json()['task']
@@ -109,6 +115,13 @@ def test_plot_effect_boundaries_and_png_crash_recovery(client, cloud, writer, is
         with database_connection() as db:
             calls = db.execute('SELECT * FROM model_calls WHERE task_id=%s', (task_id,)).fetchall()
             assert len(calls) == 1
+            assert calls[0]['policy_snapshot']['external_processing_version'] == 1
+            if mode != 'container_unknown':
+                payload = json.loads((tmp_path / 'data' / ('.payload-' + task_id)).read_text(encoding='utf-8'))
+                assert set(payload) == {'labels', 'values', 'groups'}
+                assert payload['labels']['title'] == '图 1. 测量值箱线图'
+            if saved:
+                assert saved['title'] == '图 1. 测量值箱线图'
             reservations = db.execute('SELECT status FROM budget_reservations WHERE call_id=%s', (calls[0]['id'],)).fetchall()
             assert len(reservations) == 3 and {row['status'] for row in reservations} == {'held'}
             if mode in unknown:

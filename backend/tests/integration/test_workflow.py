@@ -49,7 +49,20 @@ def assert_bindings(project, file, result, figure, explanation, report, payload)
     assert explanation['figure_id'] == report['figure_id'] == figure['id']
     assert explanation['figure_sha256'] == report['figure_sha256'] == figure['sha256']
     assert report['explanation_id'] == explanation['id']
-    assert explanation['provenance']['input_sha256'] == digest(payload)
+    from app.domain.external_material import explanation_material
+    external = explanation['provenance']['external_processing']
+    assert external['version'] == 1 and external['task_type'] == 'explanation'
+    local_payload, outbound_payload = explanation_material(result, figure, external)
+    assert payload == outbound_payload
+    for material in (local_payload, outbound_payload):
+        assert 'sheet' not in material['facts']
+        assert 'sheet' not in material['required_references']['data']
+    local_sources = {'analysis_run_id': result['id'], 'figure_id': figure['id'],
+                     'source_sha256': file['sha256'], 'figure_sha256': figure['sha256']}
+    for key, value in local_sources.items():
+        assert local_payload[key] == value
+        assert key not in outbound_payload
+    assert explanation['provenance']['input_sha256'] == digest(local_payload)
     snapshot = {'project': {key: project[key] for key in ('id', 'name', 'research_topic', 'project_type', 'created_at')},
                 'result': result, 'figure': figure, 'explanation': explanation}
     assert report['input_sha256'] == digest(snapshot)
@@ -176,13 +189,15 @@ def test_excel_to_word_versioned_workflow(client, cloud, writer, project_type):
     assert 'attachment' in downloaded.headers['content-disposition']
     assert_docx(downloaded.content, project, file, result, figure, explanation, report, 1)
 
+    from tests.api.test_external_processing import confirmation
+    old_confirmation = confirmation(client, old_run + '/explanation')
     updated = client.put(base + '/analysis-setup', json={**selection, 'group_column': None, 'expected_revision': 1})
     assert updated.status_code == 200, updated.text
     new_setup = updated.json()
     assert new_setup['revision'] == 2 and new_setup['check']['valid_count'] == 26
     assert client.post(base + '/analysis-runs', json={'expected_revision': 1}).status_code == 409
     assert client.post(old_run + '/boxplot', json={'expected_revision': 1}).status_code == 409
-    assert submit(client, old_run + '/explanation', figure).status_code == 409
+    assert submit(client, old_run + '/explanation', figure, external_processing=old_confirmation).status_code == 409
     assert export(client, old_run + '/report', figure, explanation).status_code == 409
     assert client.get(old_run + '/report').json()['report'] == report
     assert client.get(old_download).content == downloaded.content

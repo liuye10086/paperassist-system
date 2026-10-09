@@ -1,9 +1,21 @@
 """Bounded tracing for the unified task API, preserving older API contracts."""
 import json
+import logging
 import re
 from uuid import uuid4
 
 from app.core.errors import INTERNAL_MESSAGE, error_detail
+
+logger = logging.getLogger(__name__)
+
+
+def configure_request_logging():
+    """Keep bounded request traces visible when Uvicorn access logging is off."""
+    logger.setLevel(logging.INFO)
+    if not logger.hasHandlers():
+        handler = logging.StreamHandler()
+        handler.setFormatter(logging.Formatter('%(levelname)s %(message)s'))
+        logger.addHandler(handler)
 
 
 class RequestIdMiddleware:
@@ -18,9 +30,11 @@ class RequestIdMiddleware:
         task_api = path == '/api/v1/tasks' or path.startswith('/api/v1/tasks/')
         model_usage_api = re.fullmatch(r'/api/v1/projects/[^/]+/model-usage/?', path)
         project_tasks_api = re.fullmatch(r'/api/v1/projects/[^/]+/tasks/?', path)
-        word_submission = scope.get('method') == 'POST' and re.fullmatch(
-            r'/api/v1/projects/[^/]+/files/[^/]+/analysis-runs/[^/]+/report/?', path)
-        if scope['type'] != 'http' or not (task_api or word_submission or model_usage_api or project_tasks_api):
+        task_submission = scope.get('method') == 'POST' and re.fullmatch(
+            r'/api/v1/projects/[^/]+/files/[^/]+/analysis-runs/[^/]+/(report|boxplot|explanation)/?', path)
+        disclosure_api = re.fullmatch(
+            r'/api/v1/projects/[^/]+/files/[^/]+/analysis-runs/[^/]+/(boxplot|explanation)/disclosure/?', path)
+        if scope['type'] != 'http' or not (task_api or task_submission or model_usage_api or project_tasks_api or disclosure_api):
             await self.app(scope, receive, send)
             return
 
@@ -29,6 +43,20 @@ class RequestIdMiddleware:
         start = None
         body = bytearray()
         discard_body = False
+        operation = (disclosure_api.group(1) + '_disclosure' if disclosure_api else
+                     task_submission.group(1) + '_submission' if task_submission else
+                     'model_usage' if model_usage_api else 'project_tasks' if project_tasks_api else 'task')
+        method = scope.get('method')
+        if method not in ('GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS'):
+            method = 'OTHER'
+
+        async def logged_send(message):
+            if message['type'] == 'http.response.start':
+                status = message['status']
+                logger.log(logging.WARNING if status >= 400 else logging.INFO,
+                           'task response request_id=%s operation=%s method=%s status=%s',
+                           request_id, operation, method, status)
+            await send(message)
 
         async def send_error(payload):
             nonlocal start
@@ -38,8 +66,8 @@ class RequestIdMiddleware:
             encoded = json.dumps(payload, ensure_ascii=False, separators=(',', ':')).encode('utf-8')
             headers = [(name, value) for name, value in start['headers'] if name.lower() != b'content-length']
             headers.append((b'content-length', str(len(encoded)).encode('ascii')))
-            await send({**start, 'headers': headers})
-            await send({'type': 'http.response.body', 'body': encoded})
+            await logged_send({**start, 'headers': headers})
+            await logged_send({'type': 'http.response.body', 'body': encoded})
             start = None
 
         async def traced_send(message):
@@ -79,6 +107,6 @@ class RequestIdMiddleware:
                         await send_error(payload)
                         body.clear()
                     return
-            await send(message)
+            await logged_send(message)
 
         await self.app(scope, receive, traced_send)

@@ -16,6 +16,7 @@ from app.core.config import get_data_dir
 from app.core.exceptions import StorageError
 from app.db.database import get_database_config, ensure_schema_current
 from app.domain.tasks.contracts import TaskCreateRequest
+from app.domain.tasks.errors import safe_error_code, error_category
 
 
 LEASE_SECONDS = 60
@@ -142,7 +143,7 @@ class TaskExecutionStore:
             if task['task_type'] not in ('explanation', 'boxplot'):
                 raise source_conflict()
             revision = task['revision']
-            task.update(revision=revision + 1, updated_at=max(self.now(db), task['updated_at']))
+            task.update(revision=revision + 1, updated_at=max(self.now(db), task['updated_at']), error_code=None)
             db.execute('''UPDATE task_attempts SET lease_owner=NULL,lease_expires_at=NULL,heartbeat_at=NULL
                 WHERE task_id=%s AND attempt_no=%s''', (lease.task_id, lease.attempt_no))
             TaskStore.update_task(db, task, revision)
@@ -150,6 +151,35 @@ class TaskExecutionStore:
             TaskStore.enqueue(db, task)
             db.execute('''UPDATE task_outbox SET available_at=%s
                 WHERE task_id=%s AND task_revision=%s AND event_type='task_ready' ''',
+                (task['updated_at'] + timedelta(seconds=seconds), task['id'], task['revision']))
+            return TaskStore.public_task(task)
+
+    def retry_failure(self, lease, error_code):
+        """Atomically record an observed failure and schedule at most three GET retries."""
+        with self.connection(write=True) as db:
+            task = self.require_lease(db, lease)
+            code = safe_error_code(error_code) or 'internal_error'
+            if code != 'model_provider_unavailable' or task['task_type'] not in ('explanation', 'boxplot'):
+                self._finish(db, task, 'failed', code)
+                return TaskStore.public_task(task)
+            task['_retry_reason'] = 'temporary_provider_error'
+            if task['retry_count'] >= 3:
+                self._finish(db, task, 'failed', code)
+                return TaskStore.public_task(task)
+            revision = task['revision']
+            task['retry_count'] += 1
+            seconds = (10, 30, 90)[task['retry_count'] - 1]
+            task.update(revision=revision + 1, updated_at=max(self.now(db), task['updated_at']), error_code=code,
+                        _retry_delay_seconds=seconds)
+            db.execute('''UPDATE task_attempts SET error_code=%s,error_category=%s,retry_reason=%s,
+                    lease_owner=NULL,lease_expires_at=NULL,heartbeat_at=NULL
+                WHERE task_id=%s AND attempt_no=%s''',
+                (code, error_category(code), task['_retry_reason'], task['id'], task['current_attempt']))
+            TaskStore.update_task(db, task, revision)
+            TaskStore.append_event(db, task, 'deferred')
+            TaskStore.enqueue(db, task)
+            db.execute('''UPDATE task_outbox SET available_at=%s WHERE task_id=%s AND task_revision=%s
+                AND event_type='task_ready' ''',
                 (task['updated_at'] + timedelta(seconds=seconds), task['id'], task['revision']))
             return TaskStore.public_task(task)
 
@@ -171,7 +201,10 @@ class TaskExecutionStore:
                 raise source_conflict()
         except (KeyError, TypeError, ValueError) as exc:
             raise source_conflict() from exc
-        return {key: snapshot[key] for key in ('project', 'result', 'figure', 'explanation')}
+        from app.domain.external_processing import validate_frozen
+        if snapshot.get('external_processing') is not None:
+            validate_frozen(snapshot, task['task_type'], task['user_id'], snapshot['external_processing'])
+        return {key: snapshot[key] for key in ('project', 'result', 'figure', 'explanation', 'external_processing') if key in snapshot}
 
     def load(self, lease):
         with self.connection() as db:
@@ -211,7 +244,8 @@ class TaskExecutionStore:
                 raise source_conflict()
             snapshot = self.sources(db, task)
         record = task['input_snapshot']['file']
-        payload, expected = build_material(snapshot['result'], record, self.assets.original(record), get_excel_settings())
+        payload, expected = build_material(snapshot['result'], record, self.assets.original(record), get_excel_settings(),
+                                           external=snapshot.get('external_processing'))
         return task, snapshot, payload, expected
 
     def boxplot_call(self, lease):
@@ -237,6 +271,8 @@ class TaskExecutionStore:
         from app.adapters.openai_plot import PROMPT_VERSION, validate_output
         result = snapshot['result']
         try:
+            if snapshot.get('external_processing') is not None and figure.get('external_processing') != snapshot['external_processing']:
+                raise source_conflict()
             if (figure['analysis_run_id'] != result['id'] or figure['file_id'] != result['file_id']
                     or figure['source_sha256'] != result['source_sha256']
                     or figure['setup_revision'] != result['setup_revision']
@@ -256,7 +292,8 @@ class TaskExecutionStore:
     @staticmethod
     def _require_boxplot_provenance(db, task, figure, payload):
         from app.adapters.models.openai_responses import canonical_payload
-        from app.adapters.openai_plot import INSTRUCTIONS
+        from app.domain.external_material import plot_instructions
+        instructions = plot_instructions(task['input_snapshot'].get('external_processing'))
         from app.domain.model_usage.gateway import input_digest
         call = db.execute("SELECT * FROM model_calls WHERE task_id=%s AND call_key='boxplot:v1'",
                           (task['id'],)).fetchone()
@@ -267,7 +304,7 @@ class TaskExecutionStore:
                     or provenance['response_id'] != call['provider_response_id']
                     or provenance['container_id'] != call['provider_state']['container_id']
                     or provenance['model_input_digest'] != call['input_digest']
-                    or input_digest(instructions=INSTRUCTIONS, payload=payload) != call['input_digest']
+                    or input_digest(instructions=instructions, payload=payload) != call['input_digest']
                     or provenance['input_sha256'] != hashlib.sha256(canonical_payload(payload).encode('utf-8')).hexdigest()
                     or provenance['model'] != call['model'] or figure['engine']['model'] != call['model']):
                 raise source_conflict()
@@ -377,7 +414,9 @@ class TaskExecutionStore:
             snapshot = self.sources(db, task)
         self.assets.original(task['input_snapshot']['file'])
         self.assets.figure_png(snapshot['figure'])
-        return task, snapshot, build_payload(snapshot['result'], snapshot['figure'])
+        from app.domain.external_material import explanation_material
+        local, _ = explanation_material(snapshot['result'], snapshot['figure'], snapshot.get('external_processing'))
+        return task, snapshot, local
 
     def explanation_call(self, lease):
         with self.connection() as db:
@@ -442,7 +481,7 @@ class TaskExecutionStore:
         revision = task['revision']
         task.update(status='waiting_confirmation', revision=revision + 1,
                     updated_at=max(self.now(db), task['updated_at']),
-                    reason_code=reason_code, error_code=error_code)
+                    reason_code=reason_code, error_code=safe_error_code(error_code))
         TaskStore.finish_attempt(db, task)
         TaskStore.update_task(db, task, revision)
         TaskStore.append_event(db, task, 'waiting')
@@ -511,7 +550,7 @@ class TaskExecutionStore:
     def _finish(self, db, task, status, error):
         revision = task['revision']
         task.update(status=status, revision=revision + 1, updated_at=max(self.now(db), task['updated_at']),
-                    reason_code='execution_failed' if status == 'failed' else None, error_code=error)
+                    reason_code='execution_failed' if status == 'failed' else None, error_code=safe_error_code(error))
         TaskStore.finish_attempt(db, task)
         TaskStore.update_task(db, task, revision)
         TaskStore.append_event(db, task, status)
@@ -564,7 +603,7 @@ class TaskExecutionStore:
                     continue
                 revision = task['revision']
                 task.update(status='queued', revision=revision + 1, updated_at=max(self.now(db), task['updated_at']),
-                            reason_code='retry_requested', error_code=None)
+                            reason_code='retry_requested', error_code=None, _retry_reason='worker_interrupted')
                 TaskStore.update_task(db, task, revision)
                 TaskStore.append_event(db, task, 'requeued')
                 TaskStore.enqueue(db, task)
@@ -595,7 +634,8 @@ class TaskExecutionStore:
                 # This attempt already ended as unknown. The late definitive
                 # receipt resolves its outcome without starting another attempt.
                 changed = db.execute('''UPDATE task_attempts SET status='failed',finished_at=%s,
-                        reason_code='execution_failed',lease_owner=NULL,lease_expires_at=NULL,heartbeat_at=NULL
+                        reason_code='execution_failed',lease_owner=NULL,lease_expires_at=NULL,heartbeat_at=NULL,
+                        error_code='plot_container_expired',error_category='source'
                     WHERE task_id=%s AND attempt_no=%s AND status='waiting_confirmation'
                       AND reason_code='submission_unknown' ''', (now, task['id'], task['current_attempt']))
                 if changed.rowcount != 1:

@@ -10,11 +10,19 @@ export const eventNames = { created: '任务已建立', started: '开始执行',
   succeeded: '成果已保存', failed: '本次执行失败', requeued: '任务已重新排队', deferred: '等待后续处理' }
 export type TaskType = keyof typeof taskNames
 export type TaskStatus = keyof typeof statusNames
+const errorCategories = ['temporary', 'authentication', 'permission', 'configuration', 'source', 'output',
+  'submission_unknown', 'budget', 'interrupted', 'internal'] as const
+const retryReasons = ['temporary_provider_error', 'worker_interrupted', 'manual_retry'] as const
+export type ErrorCategory = typeof errorCategories[number]
+export type RetryReason = typeof retryReasons[number]
+export type RetryCount = 0 | 1 | 2 | 3
 export type InputVersion = { setup_revision: number; output_language: 'zh-CN' }
 export type TaskView = { id: string; project_id: string; task_type: TaskType; status: TaskStatus; phase: keyof typeof phaseNames;
-  display_status: keyof typeof displayNames; revision: number; current_attempt: number; reason_code: string | null;
-  error_code: string | null; created_at: string; updated_at: string; input_version: InputVersion;
-  result_figure_id?: string | null; result_explanation_id?: string | null; result_report_id?: string | null }
+  display_status: keyof typeof displayNames; reason_code: string | null;
+  error_code: string | null; created_at: string; input_version: InputVersion;
+  result_figure_id?: string | null; result_explanation_id?: string | null; result_report_id?: string | null } & (
+  { origin?: 'unified'; revision: number; current_attempt: number; retry_count?: RetryCount | null; updated_at: string }
+  | { origin: 'legacy'; revision: null; current_attempt: null; retry_count: null; updated_at: null })
 export type TaskSource = { file_id: string; filename: string; analysis_run_id: string; is_current: boolean }
 export type TaskItem = { task: TaskView; source: TaskSource }
 export type TaskPage = { project_id: string; items: TaskItem[]; total: number; page: number; page_size: number }
@@ -27,25 +35,50 @@ export type TaskWorkspace = TaskItem & { wait: TaskWait | null; allowed_actions:
   explanation: { sections: { key: string; title: string; text: string }[]; limitations: string[] } | null;
   report: { filename: string; download_url: string } | null } }
 export type TaskEvent = { seq: number; task_revision: number; event_type: keyof typeof eventNames; status: TaskStatus;
-  phase: keyof typeof phaseNames; reason_code: string | null; created_at: string }
+  phase: keyof typeof phaseNames; reason_code: string | null; created_at: string;
+  error_code?: string | null; error_category?: ErrorCategory | null; retry_reason?: RetryReason | null;
+  retry_count?: RetryCount | null; retry_delay_seconds?: 10 | 30 | 90 | null }
 export type EventPage = { task_id: string; items: TaskEvent[]; next_cursor: number; has_more: boolean }
 
 const record = (value: unknown): value is Record<string, unknown> => !!value && typeof value === 'object' && !Array.isArray(value)
 const text = (value: unknown): value is string => typeof value === 'string'
 const id = (value: unknown): value is string => text(value) && value.length > 0 && value.length <= 64 && !/\s/.test(value)
 const integer = (value: unknown, min = 0): value is number => typeof value === 'number' && Number.isSafeInteger(value) && value >= min
+const retryCount = (value: unknown) => value == null || (integer(value) && value <= 3)
 const date = (value: unknown) => text(value) && Number.isFinite(Date.parse(value))
 const nullableText = (value: unknown) => value === null || text(value)
 const own = (map: object, value: unknown) => text(value) && Object.hasOwn(map, value)
+function legacyTaskId(value: string): boolean {
+  const match = /^legacy-(plot|explanation):([A-Za-z0-9_-]+)$/.exec(value)
+  if (!match) return false
+  try {
+    const encoded = match[2]
+    const bytes = atob(encoded.replace(/-/g, '+').replace(/_/g, '/'))
+    if (btoa(bytes).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '') !== encoded) return false
+    // Historical IDs are canonical base64url of a nonempty UTF-8 string.
+    new TextDecoder('utf-8', { fatal: true }).decode(Uint8Array.from(bytes, char => char.charCodeAt(0)))
+    return true
+  } catch { return false }
+}
+export function isTaskId(value: unknown): value is string {
+  return text(value) && (value.startsWith('legacy-') ? legacyTaskId(value) : id(value))
+}
 function version(value: unknown): value is InputVersion {
   return record(value) && integer(value.setup_revision, 1) && value.output_language === 'zh-CN'
 }
 export function isTask(value: unknown, projectId: string, taskId?: string): value is TaskView {
-  if (!record(value) || !id(value.id) || (taskId !== undefined && value.id !== taskId) || value.project_id !== projectId
+  if (!record(value) || !isTaskId(value.id) || (taskId !== undefined && value.id !== taskId) || value.project_id !== projectId
     || !own(taskNames, value.task_type) || !own(statusNames, value.status) || !own(phaseNames, value.phase)
-    || !own(displayNames, value.display_status) || !integer(value.revision, 1) || !integer(value.current_attempt)
-    || !nullableText(value.reason_code) || !nullableText(value.error_code) || !date(value.created_at) || !date(value.updated_at)
+    || !own(displayNames, value.display_status)
+    || !nullableText(value.reason_code) || !nullableText(value.error_code) || !date(value.created_at)
     || !version(value.input_version)) return false
+  if (value.origin === 'legacy') {
+    if (!legacyTaskId(value.id) || value.revision !== null || value.current_attempt !== null
+      || value.retry_count !== null || value.updated_at !== null
+      || value.task_type !== (value.id.startsWith('legacy-plot:') ? 'boxplot' : 'explanation')) return false
+  } else if ((value.origin !== undefined && value.origin !== 'unified') || value.id.startsWith('legacy-')
+    || !integer(value.revision, 1) || !integer(value.current_attempt) || !date(value.updated_at)
+    || !retryCount(value.retry_count)) return false
   return ['result_figure_id', 'result_explanation_id', 'result_report_id'].every(key => value[key] == null || id(value[key]))
 }
 function source(value: unknown): value is TaskSource {
@@ -68,7 +101,10 @@ export function isWorkspace(value: unknown, projectId: string, taskId: string): 
     || (value.wait !== null && !wait(value.wait)) || !Array.isArray(value.allowed_actions)
     || !value.allowed_actions.every(action => action === 'resume' || action === 'retry')
     || new Set(value.allowed_actions).size !== value.allowed_actions.length) return false
+  if (value.task.origin === 'legacy' && (value.wait !== null || value.allowed_actions.length !== 0)) return false
   const { figure, explanation, report } = value.artifacts
+  if (value.task.origin === 'legacy' && (report !== null
+    || (value.task.task_type === 'boxplot' ? explanation !== null : figure !== null))) return false
   const base = `/api/v1/projects/${encodeURIComponent(projectId)}/files/${encodeURIComponent(value.source.file_id)}/analysis-runs/${encodeURIComponent(value.source.analysis_run_id)}`
   return (figure === null || (record(figure) && text(figure.title) && text(figure.caption) && id(value.task.result_figure_id)
     && figure.download_url === `${base}/figures/${encodeURIComponent(value.task.result_figure_id)}/download`))
@@ -85,7 +121,12 @@ export function isEventPage(value: unknown, taskId: string, after: number): valu
   for (const event of value.items) {
     if (!record(event) || !integer(event.seq, previous + 1) || !integer(event.task_revision, 1)
       || !own(eventNames, event.event_type) || !own(statusNames, event.status) || !own(phaseNames, event.phase)
-      || !nullableText(event.reason_code) || !date(event.created_at)) return false
+      || !nullableText(event.reason_code) || !date(event.created_at)
+      || (event.error_code != null && !text(event.error_code))
+      || (event.error_category != null && !errorCategories.some(category => category === event.error_category))
+      || (event.retry_reason != null && !retryReasons.some(reason => reason === event.retry_reason))
+      || !retryCount(event.retry_count)
+      || (event.retry_delay_seconds != null && ![10, 30, 90].includes(event.retry_delay_seconds as number))) return false
     previous = event.seq
   }
   return value.next_cursor === previous && (!value.has_more || value.items.length > 0)

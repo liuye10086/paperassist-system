@@ -34,7 +34,9 @@ def validate_sources(result, figure, explanation):
                 or explanation['figure_sha256'] != figure['sha256'] or explanation['engine']['id'] != EXPLANATION_VERSION
                 or explanation['verification']['status'] != 'references_checked' or explanation['language'] != 'zh-CN'):
             invalid()
-        payload = build_payload(result, figure)
+        from app.domain.external_material import explanation_material
+        external = explanation['provenance'].get('external_processing')
+        payload, _ = explanation_material(result, figure, external)
         if explanation['provenance']['input_sha256'] != digest(payload):
             invalid()
         if [section['key'] for section in explanation['sections']] != list(SECTIONS):
@@ -49,7 +51,7 @@ def validate_sources(result, figure, explanation):
                 fact = payload['facts'][evidence['key']]
                 if evidence != {'key': evidence['key'], 'label': fact['label'], 'value': fact['value']}:
                     invalid()
-    except (KeyError, TypeError, ValueError):
+    except (KeyError, TypeError, ValueError, StorageError):
         invalid()
 
 

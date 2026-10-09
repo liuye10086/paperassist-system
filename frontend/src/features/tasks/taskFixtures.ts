@@ -10,6 +10,13 @@ export const workspaceFixture = { task: taskFixture, source: sourceFixture,
     input_version: taskFixture.input_version, reason_code: 'budget_exceeded', error_code: 'model_budget_missing',
     created_at: taskFixture.updated_at, resolved_at: null }, allowed_actions: ['resume'],
   artifacts: { figure: null, explanation: null, report: null } }
+export const legacyTaskFixture = { ...taskFixture, id: 'legacy-plot:b2xkLXBsb3Q', origin: 'legacy',
+  status: 'succeeded', display_status: 'succeeded', revision: null, current_attempt: null, retry_count: null,
+  updated_at: null, reason_code: null, error_code: null, result_figure_id: 'fig-old' }
+export const legacyWorkspaceFixture = { ...workspaceFixture, task: legacyTaskFixture,
+  source: { ...sourceFixture, is_current: false }, wait: null, allowed_actions: [],
+  artifacts: { figure: { title: '保存的历史图', caption: '原图注',
+    download_url: '/api/v1/projects/p1/files/f1/analysis-runs/r1/figures/fig-old/download' }, explanation: null, report: null } }
 export const pageFixture = { project_id: 'p1', items: [{ task: taskFixture, source: sourceFixture }], total: 1, page: 1, page_size: 10 }
 export const eventsFixture = { task_id: 't1', items: [{ seq: 1, task_revision: 1, event_type: 'created',
   status: 'queued', phase: 'compute', reason_code: null, created_at: taskFixture.created_at }], next_cursor: 1, has_more: false }

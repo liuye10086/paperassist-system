@@ -209,7 +209,7 @@ def test_language_migration_roundtrip_preserves_legacy_columns_json_and_assets(c
         assert 'ui_language' not in {col['name'] for col in inspect(db.raw_connection).get_columns('users')}
     for cycle in range(2):
         migrate_database(postgres_migration_config)
-        assert SCHEMA_HEAD == '0011_task_waits'
+        assert SCHEMA_HEAD == '0013_cost_reconciliation'
         with migration_connection(write=True) as db:
             for table, expected in originals.items():
                 actual = [dict(row) for row in db.execute(f'SELECT * FROM {table}')]

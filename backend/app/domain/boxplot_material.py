@@ -8,7 +8,7 @@ from app.domain.boxplot import plot_data
 from app.domain.descriptive import summarize
 
 
-def build_material(result, file_record, content, settings):
+def build_material(result, file_record, content, settings, *, external=None):
     try:
         selection = AnalysisSelection(**result['selection'])
         scan = SheetScan(selection.sheet_name, selection, collect_values=True)
@@ -29,7 +29,7 @@ def build_material(result, file_record, content, settings):
             or groups != result['groups']):
         raise StorageError('result_mismatch', '原始数据复算与已保存统计结果不一致。', 409)
     figure = plot_data(result, scan.values, scan.grouped_values)
-    if any(len(value) > 160 for value in [result['numeric_name'], result['group_name'] or '',
+    if external is None and any(len(value) > 160 for value in [result['numeric_name'], result['group_name'] or '',
                                          *[group['label'] for group in groups]]):
         raise StorageError('plot_label_too_long', '绘图字段或分组名称超过上限。', 422)
     labels = {key: figure[key] for key in ('title', 'x_label', 'y_label', 'caption')}
@@ -41,4 +41,5 @@ def build_material(result, file_record, content, settings):
     payload = {'analysis_run_id': result['id'], 'source_sha256': result['source_sha256'], 'labels': labels,
         'values': scan.values, 'groups': [{'label': group['label'], 'values': values}
                                         for group, values in zip(groups, scan.grouped_values.values())]}
-    return payload, expected
+    from app.domain.external_material import plot_material
+    return plot_material(result, payload, expected, external)

@@ -6,6 +6,8 @@ import { setLocale } from '../../shared/i18n'
 const props = { base: '/file', runId: 'run', revision: 1, canGenerate: true, disabled: false, onBusyChange: vi.fn() }
 const empty = { current_revision: 1, is_current: true, figure: null, job: null, task: null }
 const task = (status: string, extra = {}) => ({ id: 'task', status, revision: 3, reason_code: null, error_code: null, ...extra })
+const disclosure = { version: 1, provider: 'openai', task_type: 'boxplot', source_digest: 'source', has_saved_result: false, summary: { valid_count: 3, excluded_count: 0, group_count: 1 }, labels: [{ key: 'numeric_name', value: '测量值' }, { key: 'unit', value: '' }] }
+async function confirmSend() { await act(async () => {}); fireEvent.click(screen.getByRole('button', { name: '确认发送并生成' })); await act(async () => {}) }
 const json = (value: unknown) => Promise.resolve({ ok: true, status: 200, json: async () => value })
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.useRealTimers(); vi.clearAllMocks(); setLocale('zh-CN') })
 
@@ -19,7 +21,7 @@ it('requires independent plot policy configuration', async () => {
 
 it('polls queued tasks without locking workspace or submitting new paid work', async () => {
   vi.useFakeTimers()
-  const fetch = vi.fn((url: string, _init?: RequestInit) => json(url.includes('plot-config') ? { configured: true } : { ...empty, task: task('queued') }))
+  const fetch = vi.fn((url: string, _init?: RequestInit) => json(url.endsWith('/disclosure') ? disclosure : url.includes('plot-config') ? { configured: true } : { ...empty, task: task('queued') }))
   vi.stubGlobal('fetch', fetch); render(<BoxplotFigure {...props} />); await act(async () => {})
   expect(props.onBusyChange).toHaveBeenLastCalledWith(false)
   await act(async () => { vi.advanceTimersByTime(3000) })
@@ -28,7 +30,7 @@ it('polls queued tasks without locking workspace or submitting new paid work', a
 })
 
 it('resumes budget wait using the original task and revision', async () => {
-  const fetch = vi.fn((url: string, init?: RequestInit) => json(url.includes('plot-config') ? { configured: true }
+  const fetch = vi.fn((url: string, init?: RequestInit) => json(url.endsWith('/disclosure') ? disclosure : url.includes('plot-config') ? { configured: true }
     : init?.method === 'POST' ? task('queued', { revision: 4 }) : { ...empty, task: task('waiting_confirmation', { reason_code: 'budget_exceeded' }) }))
   vi.stubGlobal('fetch', fetch); render(<BoxplotFigure {...props} />)
   fireEvent.click(await screen.findByRole('button', { name: '预算已配置，继续生成图表' }))
@@ -41,7 +43,7 @@ it('resumes budget wait using the original task and revision', async () => {
 it.each(['legacy', 'unified'])('blocks blind paid retry for %s unknown submission', async kind => {
   const state = kind === 'legacy' ? { ...empty, job: { status: 'uncertain' } }
     : { ...empty, task: task('waiting_confirmation', { reason_code: 'submission_unknown' }) }
-  const fetch = vi.fn((url: string, _init?: RequestInit) => json(url.includes('plot-config') ? { configured: true } : state))
+  const fetch = vi.fn((url: string, _init?: RequestInit) => json(url.endsWith('/disclosure') ? disclosure : url.includes('plot-config') ? { configured: true } : state))
   vi.stubGlobal('fetch', fetch); render(<BoxplotFigure {...props} />)
   await screen.findByText('提交结果尚未核实，已停止再次调用。请联系管理员核对。')
   expect(screen.queryByRole('button', { name: /重试生成/ })).toBeNull()
@@ -50,20 +52,20 @@ it.each(['legacy', 'unified'])('blocks blind paid retry for %s unknown submissio
 })
 
 it('requires explicit paid regeneration after remote container expiration', async () => {
-  const fetch = vi.fn((url: string, init?: RequestInit) => json(url.includes('plot-config') ? { configured: true }
+  const fetch = vi.fn((url: string, init?: RequestInit) => json(url.endsWith('/disclosure') ? disclosure : url.includes('plot-config') ? { configured: true }
     : init?.method === 'POST' ? { ...empty, task: task('queued') } : { ...empty, task: task('failed', { error_code: 'plot_container_expired' }) }))
   vi.stubGlobal('fetch', fetch); render(<BoxplotFigure {...props} />)
   await screen.findByText('远端绘图文件已过期，无法继续下载。再次生成可能产生额外费用。')
   expect(fetch.mock.calls.every(([, init]) => !init?.method)).toBe(true)
-  fireEvent.click(screen.getByRole('button', { name: '重试生成（再次调用 API）' }))
+  fireEvent.click(screen.getByRole('button', { name: '重试生成（再次调用 API）' })); await confirmSend()
   await waitFor(() => expect(fetch.mock.calls.filter(([, init]) => init?.method === 'POST')).toHaveLength(1))
   const [url, init] = fetch.mock.calls.find(([, init]) => init?.method === 'POST')!
   expect(url).toBe('/file/analysis-runs/run/boxplot')
-  expect(JSON.parse(init!.body as string)).toEqual({ expected_revision: 1, retry: true })
+  expect(JSON.parse(init!.body as string)).toEqual({ expected_revision: 1, retry: true, expected_predecessor_id: 'task', expected_predecessor_revision: 3, external_processing: { version: 1, confirmed: true, source_digest: 'source', labels: { numeric_name: '测量值', unit: '' } } })
 })
 
 it('uses explicit new paid generation after the frozen input allowance fails', async () => {
-  const fetch = vi.fn((url: string, init?: RequestInit) => json(url.includes('plot-config') ? { configured: true }
+  const fetch = vi.fn((url: string, init?: RequestInit) => json(url.endsWith('/disclosure') ? disclosure : url.includes('plot-config') ? { configured: true }
     : init?.method === 'POST' ? { ...empty, task: task('queued', { id: 'new-task' }) }
       : { ...empty, task: task('failed', { error_code: 'plot_input_limit' }) }))
   vi.stubGlobal('fetch', fetch); render(<BoxplotFigure {...props} />)
@@ -71,11 +73,11 @@ it('uses explicit new paid generation after the frozen input allowance fails', a
   expect(screen.queryByRole('button', { name: '继续绘图任务' })).toBeNull()
   expect(screen.getByText(/再次调用 API 可能产生额外费用/)).toBeTruthy()
   expect(fetch.mock.calls.every(([, init]) => !init?.method)).toBe(true)
-  fireEvent.click(button)
+  fireEvent.click(button); await confirmSend()
   await waitFor(() => expect(fetch.mock.calls.filter(([, init]) => init?.method === 'POST')).toHaveLength(1))
   const [url, init] = fetch.mock.calls.find(([, init]) => init?.method === 'POST')!
   expect(url).toBe('/file/analysis-runs/run/boxplot')
-  expect(JSON.parse(init!.body as string)).toEqual({ expected_revision: 1, retry: true })
+  expect(JSON.parse(init!.body as string)).toEqual({ expected_revision: 1, retry: true, expected_predecessor_id: 'task', expected_predecessor_revision: 3, external_processing: { version: 1, confirmed: true, source_digest: 'source', labels: { numeric_name: '测量值', unit: '' } } })
 })
 
 it('keeps polling after success until the saved PNG is visible, without another POST', async () => {

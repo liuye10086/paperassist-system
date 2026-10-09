@@ -3,11 +3,12 @@ from concurrent.futures import ThreadPoolExecutor
 import json
 
 import pytest
+from tests.api.test_external_processing import confirmation
 
 from app.db.database import database_connection
 from tests.api.test_analysis import client  # noqa: F401
 from tests.api.test_boxplot import cloud, prepared, generate  # noqa: F401
-from tests.api.test_explanation_tasks import transition
+from tests.api.test_explanation_tasks import persistence_counts, transition
 
 
 def execution_policy():
@@ -25,8 +26,11 @@ def policy(tmp_path, monkeypatch, cloud):
     return execution_policy()
 
 
-def post(client, url, **changes):
-    return client.post(url, json={'expected_revision': 1, **changes})
+def post(client, url, *, idempotency_key=None, **changes):
+    from tests.api.test_external_processing import confirmation
+    external = confirmation(client, url)
+    return client.post(url, json={'external_processing': external, 'expected_revision': 1, **changes},
+                       headers={'Idempotency-Key': idempotency_key} if idempotency_key is not None else {})
 
 
 def test_post_only_saves_task_and_get_does_not_execute_or_write(client, cloud, policy, monkeypatch):
@@ -102,7 +106,7 @@ def test_different_headers_cannot_race_into_two_paid_tasks(client, policy, monke
     monkeypatch.setattr(plot_tasks, 'matching_task', synchronized)
     _, _, _, url = prepared(client)
     with ThreadPoolExecutor(max_workers=2) as pool:
-        responses = list(pool.map(lambda key: client.post(url, json={'expected_revision': 1},
+        responses = list(pool.map(lambda key: client.post(url, json={'expected_revision': 1, 'external_processing': confirmation(client, url)},
             headers={'Idempotency-Key': key}), ['plot-race-a', 'plot-race-b']))
     assert sorted(response.status_code for response in responses) == [202, 409]
     with database_connection() as db:
@@ -113,14 +117,107 @@ def test_different_headers_cannot_race_into_two_paid_tasks(client, policy, monke
 def test_existing_header_replays_original_failure_without_new_policy(client, policy, monkeypatch):
     _, _, _, url = prepared(client)
     headers = {'Idempotency-Key': 'plot-original'}
-    task = client.post(url, json={'expected_revision': 1}, headers=headers).json()['task']
+    task = client.post(url, json={'expected_revision': 1, 'external_processing': confirmation(client, url)}, headers=headers).json()['task']
     failed = transition(client, task, 'failed', 'execution_failed', 'plot_invalid_result')
     monkeypatch.setenv('PAPERASSIST_PLOT_POLICY_FILE', '')
-    response = client.post(url, json={'expected_revision': 1, 'retry': True}, headers=headers)
+    response = client.post(url, json={'expected_revision': 1, 'retry': True, 'external_processing': confirmation(client, url)}, headers=headers)
     assert response.status_code == 200 and response.json()['task'] == failed
     assert client.get(url).json()['task'] == failed
     with database_connection() as db:
         assert db.execute('SELECT count(*) AS n FROM tasks').fetchone()['n'] == 1
+
+
+@pytest.mark.parametrize('legacy', [False, True], ids=['failed-task', 'failed-legacy-job'])
+@pytest.mark.parametrize('policy_available', [True, False], ids=['configured', 'unconfigured'])
+def test_paid_successor_requires_request_key_before_loading_policy(client, cloud, policy, monkeypatch,
+        legacy, policy_available):
+    from app.core.exceptions import StorageError
+    from app.domain import plot_policy
+    from tests.api.test_boxplot import seed_legacy
+    _, _, _, url = prepared(client)
+    if legacy:
+        predecessor_id = seed_legacy(client, url, status='failed')['id']
+        predecessor_revision = None
+    else:
+        original = post(client, url).json()['task']
+        failed = transition(client, original, 'failed', 'execution_failed', 'plot_invalid_result')
+        predecessor_id = original['id']
+        predecessor_revision = failed['revision']
+    before = persistence_counts()
+    loaded = []
+    original_policy = plot_policy.get_execution_policy
+    def get_policy():
+        loaded.append(True)
+        if not policy_available:
+            raise StorageError('plot_not_configured', 'synthetic missing policy', 503)
+        return original_policy()
+    monkeypatch.setattr(plot_policy, 'get_execution_policy', get_policy)
+    response = post(client, url, retry=True)
+    assert response.status_code == 422, response.text
+    assert response.json()['detail']['code'] == 'task_input_invalid'
+    assert loaded == []
+    assert persistence_counts() == before
+    assert not cloud.calls
+    if policy_available:
+        accepted = post(client, url, retry=True, expected_predecessor_id=predecessor_id,
+            expected_predecessor_revision=predecessor_revision, idempotency_key='plot-explicit-paid-successor')
+        assert accepted.status_code == 202, accepted.text
+        after = persistence_counts()
+        assert after['tasks'] == before['tasks'] + 1
+        assert after['task_outbox'] == before['task_outbox'] + 1
+        assert after['model_budgets'] == before['model_budgets'] + 1
+        assert after['model_calls'] == before['model_calls']
+        assert after['budget_reservations'] == before['budget_reservations']
+        assert loaded == [True] and not cloud.calls
+
+
+def test_paid_successor_failure_replays_same_key_and_new_key_authorizes_next_task(client, cloud, policy, monkeypatch):
+    from app.domain import plot_policy
+    _, _, _, url = prepared(client)
+    initial = post(client, url).json()['task']
+    observed = transition(client, initial, 'failed', 'execution_failed', 'plot_invalid_result')
+    accepted = post(client, url, retry=True, expected_predecessor_id=initial['id'],
+        expected_predecessor_revision=observed['revision'], idempotency_key='plot-paid-intent-b')
+    assert accepted.status_code == 202, accepted.text
+    successor = accepted.json()['task']
+    assert successor['id'] != initial['id']
+    failed = transition(client, successor, 'failed', 'execution_failed', 'plot_invalid_result')
+    before = persistence_counts()
+    with monkeypatch.context() as patch:
+        patch.setattr(plot_policy, 'get_execution_policy', lambda: pytest.fail('Replay loaded a new policy'))
+        replay = post(client, url, retry=True, expected_predecessor_id=initial['id'],
+            expected_predecessor_revision=observed['revision'], idempotency_key='plot-paid-intent-b')
+        assert replay.status_code == 200 and replay.json()['task'] == failed
+        assert persistence_counts() == before
+    next_response = post(client, url, retry=True, expected_predecessor_id=successor['id'],
+        expected_predecessor_revision=failed['revision'], idempotency_key='plot-paid-intent-c')
+    assert next_response.status_code == 202, next_response.text
+    assert next_response.json()['task']['id'] not in (initial['id'], successor['id'])
+    after = persistence_counts()
+    assert after['tasks'] == after['task_outbox'] == 3
+    assert after['model_calls'] == after['budget_reservations'] == 0
+    assert not cloud.calls
+    with monkeypatch.context() as patch:
+        patch.setattr(plot_policy, 'get_execution_policy', lambda: pytest.fail('Old accepted request loaded a new policy'))
+        original = post(client, url, retry=True, expected_predecessor_id=initial['id'],
+            expected_predecessor_revision=observed['revision'], idempotency_key='plot-paid-intent-b')
+        assert original.status_code == 200 and original.json()['task'] == failed
+        assert persistence_counts() == after
+
+
+def test_keyless_failed_post_resumes_original_without_loading_new_policy(client, cloud, policy, monkeypatch):
+    from app.domain import plot_policy
+    _, _, _, url = prepared(client)
+    initial = post(client, url).json()['task']
+    transition(client, initial, 'failed', 'execution_failed', 'task_worker_interrupted')
+    monkeypatch.setattr(plot_policy, 'get_execution_policy', lambda: pytest.fail('Resume loaded a new policy'))
+    response = post(client, url, retry=True)
+    assert response.status_code == 202, response.text
+    assert response.json()['task']['id'] == initial['id']
+    assert response.json()['task']['status'] == 'queued'
+    counts = persistence_counts()
+    assert counts['tasks'] == 1 and counts['task_outbox'] == 2 and counts['model_calls'] == 0
+    assert not cloud.calls
 
 
 def test_missing_policy_can_be_frozen_on_budget_resume_before_any_call(client, policy, monkeypatch):
@@ -155,7 +252,8 @@ def test_input_limit_requires_explicit_new_task_with_new_frozen_policy(client, p
     assert post(client, url).json()['task'] == failed
     assert client.post('/api/v1/tasks/' + task['id'] + '/retry',
         json={'expected_revision': failed['revision']}).status_code == 409
-    response = post(client, url, retry=True)
+    response = post(client, url, retry=True, expected_predecessor_id=task['id'],
+        expected_predecessor_revision=failed['revision'], idempotency_key='plot-input-limit-new-policy')
     assert response.status_code == 202
     successor = response.json()['task']
     assert successor['id'] != task['id']
@@ -198,7 +296,9 @@ def test_terminal_output_needs_explicit_paid_retry_and_creates_only_one_successo
     assert post(client, url).json()['task'] == failed
     assert client.post('/api/v1/tasks/' + task['id'] + '/retry', json={'expected_revision': failed['revision']}).status_code == 409
     with ThreadPoolExecutor(max_workers=3) as pool:
-        responses = list(pool.map(lambda _: post(client, url, retry=True), range(3)))
+        responses = list(pool.map(lambda _: post(client, url, retry=True,
+            expected_predecessor_id=task['id'], expected_predecessor_revision=failed['revision'],
+            idempotency_key='one-plot-paid-retry'), range(3)))
     assert all(response.status_code == 202 for response in responses)
     ids = {response.json()['task']['id'] for response in responses}
     assert len(ids) == 1 and task['id'] not in ids
@@ -208,7 +308,7 @@ def test_terminal_output_needs_explicit_paid_retry_and_creates_only_one_successo
 @pytest.mark.parametrize('key', ['', 'bad key', 'x' * 129])
 def test_invalid_request_key_is_rejected(client, cloud, policy, key):
     _, _, _, url = prepared(client)
-    response = client.post(url, json={'expected_revision': 1}, headers={'Idempotency-Key': key})
+    response = client.post(url, json={'expected_revision': 1, 'external_processing': confirmation(client, url)}, headers={'Idempotency-Key': key})
     assert response.status_code == 422 and not cloud.calls
 
 
@@ -234,7 +334,8 @@ def test_expired_retry_requires_definite_call_evidence(client, cloud, policy,
     assert client.post('/api/v1/tasks/' + task['id'] + '/retry',
         json={'expected_revision': failed['revision']}).status_code == 409
     assert post(client, url).json()['task']['id'] == task['id']
-    response = post(client, url, retry=True)
+    response = post(client, url, retry=True, expected_predecessor_id=task['id'],
+        expected_predecessor_revision=failed['revision'], idempotency_key='plot-definite-expired-retry')
     assert response.status_code == (202 if replacement else 200), response.text
     assert (response.json()['task']['id'] != task['id']) == replacement
     assert post(client, url, retry=True).json()['task']['id'] == response.json()['task']['id']

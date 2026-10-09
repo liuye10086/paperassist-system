@@ -1,5 +1,10 @@
 // Public server codes only. Never render arbitrary server exception text.
 export const errorMessages: Record<string, { zh: string; en: string }> = {
+  model_provider_unavailable: { zh: '模型服务暂时不可用，请稍后重试。', en: 'The model service is temporarily unavailable. Please try again later.' },
+  model_authentication_failed: { zh: '模型服务身份验证失败，请联系管理员检查凭据。', en: 'Model service authentication failed. Contact the administrator to check the credentials.' },
+  model_permission_denied: { zh: '模型服务权限不足，请联系管理员检查权限。', en: 'Access to the model service was denied. Contact the administrator to check permissions.' },
+  model_request_rejected: { zh: '模型请求或配置不符合要求，请联系管理员核对。', en: 'The model request or configuration is invalid. Contact the administrator to review it.' },
+  model_response_invalid: { zh: '模型返回的内容未通过验证，请核对输入和配置后重试。', en: 'The model response failed validation. Review the input and configuration before retrying.' },
   plot_not_configured: { zh: '绘图模型策略和工具预算尚未配置，请联系管理员。', en: 'The plotting model policy and tool budget are not configured. Contact the administrator.' },
   plot_input_limit: { zh: '绘图材料超出模型输入额度，请联系管理员调整策略。', en: 'The plotting input exceeds the model allowance. Contact the administrator to adjust the policy.' },
   plot_container_expired: { zh: '远端绘图文件已过期，再次生成可能产生额外费用。', en: 'The remote plot files have expired. Generating again may incur additional charges.' },
@@ -17,7 +22,7 @@ export const errorMessages: Record<string, { zh: string; en: string }> = {
   model_usage_event_conflict: { zh: '用量回执与已有记录不一致，请核对状态。', en: 'The usage receipt does not match the existing record. Check its status.' },
   model_call_transition_invalid: { zh: '当前模型调用状态不支持此操作，请重新读取。', en: 'This operation is unavailable in the current model call state. Reload it.' },
   model_call_not_found: { zh: '模型调用不存在或无权访问，请重新读取。', en: 'The model call is unavailable or you do not have access. Reload it.' },
-  task_worker_interrupted: { zh: '报告生成中断，请重新读取状态后重试。', en: 'Report generation was interrupted. Reload its status and retry.' },
+  task_worker_interrupted: { zh: '任务执行中断，请重新读取状态后重试。', en: 'Task execution was interrupted. Reload its status and retry.' },
   task_execution_failed: { zh: '任务执行失败，请重新读取状态后重试。', en: 'The task failed. Reload its status and retry.' },
   task_owner_unavailable: { zh: '当前任务的访问权限已变化，请刷新项目列表。', en: 'Access to this task has changed. Refresh the project list.' },
   authentication_configuration: { zh: '认证配置无效，请联系管理员。', en: 'Authentication is not configured correctly. Contact the administrator.' },

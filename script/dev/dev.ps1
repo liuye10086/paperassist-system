@@ -227,7 +227,7 @@ try {
     try {
         $state.services += Start-ServiceProcess 'backend' $pythonPath @(
             '-m', 'uvicorn', 'app.main:app', '--app-dir', 'backend',
-            '--host', '127.0.0.1', '--port', '8000', '--no-proxy-headers'
+            '--host', '127.0.0.1', '--port', '8000', '--no-proxy-headers', '--no-access-log'
         ) $projectRoot
         Save-State $state
         $state.services += Start-ServiceProcess 'frontend' $nodePath @(

@@ -30,6 +30,7 @@ class RetryRequest(BaseModel):
 
 @router.post('/{task_id}/retry', response_model=TaskView, status_code=202)
 def retry_task(task_id: str, request: RetryRequest, store: Store):
+    store.require_mutable(task_id)
     task_type = store.get(task_id)['task_type']
     if task_type == 'boxplot':
         from app.domain.plot_tasks import retry_boxplot_task
@@ -74,6 +75,7 @@ def resume_task(
     task_id: str, request: ResumeRequest, store: Store,
     idempotency_key: Annotated[str, Header(min_length=1, max_length=128, pattern=r'^[\x21-\x7e]+$')],
 ):
+    store.require_mutable(task_id)
     return TaskResumeService(store.user_id).resume(task_id, request, idempotency_key=idempotency_key)
 
 

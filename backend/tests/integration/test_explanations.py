@@ -9,6 +9,7 @@ import sys
 import time
 
 import pytest
+from tests.api.test_external_processing import confirmation
 from app.db.database import database_connection, ensure_schema_current, migrate_database
 
 from tests.api.test_analysis import client  # noqa: F401
@@ -78,8 +79,11 @@ def ready(client):
     return base, file, result, figure, plot_url.replace('/boxplot', '/explanation')
 
 
-def submit(client, url, figure, **changes):
-    response = client.post(url, json={'expected_revision': figure['setup_revision'], 'figure_id': figure['id'], **changes})
+def submit(client, url, figure, *, idempotency_key=None, **changes):
+    from tests.api.test_external_processing import confirmation
+    external = changes.pop('external_processing') if 'external_processing' in changes else confirmation(client, url)
+    response = client.post(url, json={'external_processing': external, 'expected_revision': figure['setup_revision'], 'figure_id': figure['id'], **changes},
+        headers={'Idempotency-Key': idempotency_key} if idempotency_key is not None else {})
     if response.status_code == 202 and response.json().get('task'):
         # Shared business fixtures explicitly execute unified work in the isolated
         # test schema. HTTP and production GET never run this test helper.
@@ -152,7 +156,8 @@ def test_legacy_bad_output_is_failed_with_no_automatic_new_call(client, cloud, w
     assert submit(client, url, figure).json()['task'] is None
     assert not writer.calls
     writer.corrupt = False
-    response = submit(client, url, figure, retry=True)
+    response = submit(client, url, figure, retry=True, expected_predecessor_id=state['job']['id'],
+        idempotency_key='legacy-explanation-paid-retry')
     assert response.status_code == 202 and response.json()['task']['status'] == 'queued'
     assert client.get(url).json()['explanation']
     assert len(writer.calls) == 1
@@ -162,10 +167,11 @@ def test_legacy_old_explanation_remains_readable_but_cannot_generate_new_setup(c
     base, _, result, figure, url = ready(client)
     seed_legacy(client, url, figure); recover()
     saved = client.get(url).json()['explanation']
+    external = confirmation(client, url)
     client.put(base + '/analysis-setup', json={**result['selection'], 'expected_revision': 1, 'unit': 'new'})
     state = client.get(url).json()
     assert not state['is_current'] and state['explanation'] == saved
-    assert submit(client, url, figure).status_code == 409
+    assert submit(client, url, figure, external_processing=external).status_code == 409
 
 
 def test_legacy_configuration_changed_while_running_does_not_save(client, cloud, writer):
@@ -233,13 +239,14 @@ def test_source_and_image_integrity_checked_before_read_or_generation(client, cl
     from app.adapters.storage import get_project_store
     _, file, _, figure, url = ready(client)
     store = get_project_store()
+    external = confirmation(client, url)
     path = store.files_dir / (file['id'] + '.xlsx') if target == 'source' else store.figures_dir / (figure['id'] + '.png')
     if missing:
         path.unlink()
     else:
         path.write_bytes(b'changed')
     assert client.get(url).status_code == status
-    assert submit(client, url, figure).status_code == status
+    assert submit(client, url, figure, external_processing=external).status_code == status
     assert not writer.calls
 
 

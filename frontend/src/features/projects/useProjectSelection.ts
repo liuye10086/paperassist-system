@@ -4,6 +4,7 @@ import { watchProjectAccess } from '../../shared/api/projectAccess'
 import { isProject, type Project } from './projectTypes'
 import { apiError, safeError } from '../../shared/i18n'
 import type { ProjectSection } from './WorkspaceShell'
+import { isTaskId } from '../tasks/taskTypes'
 
 type Instance = { id: string; key: number }
 type Request = { controller: AbortController; timeout: number }
@@ -13,7 +14,7 @@ export default function useProjectSelection(onUnavailable: (id: string) => void,
   const [taskId, setTaskId] = useState(() => {
     const params = new URLSearchParams(window.location.hash.slice(1))
     const id = params.get('task') ?? ''
-    return params.has('project') && params.get('section') === 'tasks' && /^\S{1,64}$/.test(id) ? id : ''
+    return params.has('project') && params.get('section') === 'tasks' && isTaskId(id) ? id : ''
   })
   const nextKey = useRef(1)
   const [instance, setInstance] = useState<Instance | null>(() => {
@@ -143,6 +144,7 @@ export default function useProjectSelection(onUnavailable: (id: string) => void,
   }
 
   function selectTask(id: string) {
+    if (!isTaskId(id)) return
     setSection('tasks')
     setTaskId(id)
   }

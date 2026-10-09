@@ -43,7 +43,7 @@ def model_rows(postgres_schema):
 
 def test_model_usage_migration_has_native_snapshots_and_matches_audit(postgres_schema):
     assert TABLES <= metadata.tables.keys()
-    assert SCHEMA_HEAD == '0011_task_waits'
+    assert SCHEMA_HEAD == '0013_cost_reconciliation'
     with database_connection() as db:
         inspector = inspect(db.raw_connection)
         assert TABLES <= set(inspector.get_table_names(schema=postgres_schema.schema))

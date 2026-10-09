@@ -9,6 +9,7 @@ from openai import OpenAI, APIConnectionError, APIStatusError, APITimeoutError
 from PIL import Image, UnidentifiedImageError
 
 from app.core.config import local_config
+from app.core.safe_logging import configure_safe_logging
 
 PROMPT_VERSION = 'openai_boxplot_v1'
 INSTRUCTIONS = """You are a scientific plotting assistant. Use the python tool to actually read the uploaded
@@ -77,6 +78,7 @@ def api_error(exc, *, uncertain=False):
 
 class CloudPlot:
     def __init__(self, model=None):
+        configure_safe_logging()
         config = configuration()
         if not config['configured']:
             raise PlotError('openai_not_configured', config['message'], 503)

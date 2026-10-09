@@ -22,6 +22,12 @@
 .usage-call-status { display: inline-block; padding: 4px 9px; border-radius: 6px; color: var(--accent); background: var(--accent-bg); white-space: nowrap; font-size: 12px; }
 .usage-pending { display: block; margin-top: 5px; color: var(--text); }
 .usage-table-scroll time { color: var(--text); font-size: 12px; }
+.usage-reconciliation-summary { margin: 20px 0; padding: 0 18px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
+.usage-reconciliation-call { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; min-width: 200px; max-width: 300px; line-height: 1.6; }
+.usage-reconciliation-status { display: inline-block; color: var(--accent); font-size: 12px; font-weight: 600; }
+.usage-actual-amount { color: var(--text-h); font-weight: 600; font-variant-numeric: tabular-nums; }
+.usage-reconciliation-call small, .usage-unavailable { color: var(--text); font-size: 12px; }
+.usage-reconciled-time { overflow-wrap: anywhere; }
 .usage-pagination { display: flex; justify-content: flex-end; align-items: center; flex-wrap: wrap; gap: 10px; margin-top: 18px; font-size: 12px; }
 .usage-pagination > span { margin-right: auto; color: var(--text); }
 @media (max-width: 640px) { .model-usage-panel { padding: 18px; } .usage-budgets { grid-template-columns: minmax(0, 1fr); } .usage-heading { flex-wrap: wrap; } }

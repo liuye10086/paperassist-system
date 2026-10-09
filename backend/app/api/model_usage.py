@@ -26,9 +26,26 @@ class BudgetView(BaseModel):
     limit_micro_usd: Amount | None
     revision: Annotated[int, Field(strict=True, ge=0)]
     estimated_micro_usd: Amount
+    accounted_micro_usd: Amount
     reserved_micro_usd: Amount
     available_micro_usd: Annotated[int, Field(strict=True)] | None
     exceeded: bool
+
+
+class CallReconciliation(BaseModel):
+    status: Literal['pending', 'partial', 'reconciled', 'not_applicable']
+    token_micro_usd: Amount | None
+    tool_micro_usd: Amount | None
+    tool_applicable: bool
+    actual_micro_usd: Amount | None
+    reconciled_at: datetime | None
+
+
+class ReconciliationSummary(BaseModel):
+    actual_micro_usd: Amount
+    reconciled_count: Amount
+    partial_count: Amount
+    pending_count: Amount
 
 
 class PublicCall(BaseModel):
@@ -41,6 +58,7 @@ class PublicCall(BaseModel):
     estimated_cost_micro_usd: Amount | None
     created_at: datetime
     updated_at: datetime
+    reconciliation: CallReconciliation
 
 
 class ProjectUsageView(BaseModel):
@@ -50,6 +68,8 @@ class ProjectUsageView(BaseModel):
     user_budget: BudgetView
     project_budget: BudgetView
     estimated_micro_usd: Amount
+    accounted_micro_usd: Amount
+    reconciliation: ReconciliationSummary
     reserved_micro_usd: Amount
     pending_count: Annotated[int, Field(strict=True, ge=0)]
     items: list[PublicCall]

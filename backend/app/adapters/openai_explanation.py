@@ -5,6 +5,7 @@ import json
 from openai import OpenAI, APIConnectionError, APIStatusError
 
 from app.core.config import local_config
+from app.core.safe_logging import configure_safe_logging
 from app.domain.explanation_content import SECTIONS, VERSION
 from app.core.exceptions import PlotError
 from app.adapters.openai_plot import api_error, configuration
@@ -40,6 +41,7 @@ SCHEMA = {'type': 'object', 'properties': {key: {'type': 'string'} for key in SE
 
 class CloudExplanation:
     def __init__(self, model=None):
+        configure_safe_logging()
         config = configuration()
         if not config['configured']:
             raise PlotError('openai_not_configured', config['message'], 503)

@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from fractions import Fraction
 
 from fastapi import HTTPException
+from pydantic import Field
 
 from app.domain.analysis import AnalysisSelection, inspect_selection, source
 from app.domain.descriptive import ENGINE as STATISTICS_ENGINE, RunRequest, summarize
@@ -22,7 +23,10 @@ RENDERER = PROMPT_VERSION
 
 
 class PlotRequest(RunRequest):
+    external_processing: dict | None = None
     retry: bool = False
+    expected_predecessor_id: str | None = Field(default=None, min_length=1, max_length=64, pattern=r'^\S+$')
+    expected_predecessor_revision: int | None = Field(default=None, ge=1, le=2_147_483_647)
 
 
 def plot_data(result, values, grouped_values):

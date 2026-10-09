@@ -36,6 +36,7 @@
 .task-event-list { list-style: none; padding: 12px 0 0; margin: 0; }
 .task-event-list li { display: flex; gap: 12px; padding: 10px 0; font-size: 12px; }
 .task-event-list strong { color: var(--text-h); }
+.task-event-list .task-event-retry { color: var(--accent); font-weight: 600; }
 .task-event-list time { font-size: 11px; color: var(--text); }
 .task-event-dot { height: 8px; width: 8px; border-radius: 50%; margin-top: 6px; background: var(--accent); flex-shrink: 0; }
 .task-model-usage { margin-top: 24px; }

@@ -13,6 +13,12 @@ from app.domain.boxplot import result_source, RENDERER, STATISTICS_ENGINE
 router = APIRouter(prefix='/api/v1/projects/{project_id}/files/{file_id}/analysis-runs/{run_id}', tags=['箱线图'])
 
 
+@router.get('/boxplot/disclosure')
+def disclosure(project_id: str, file_id: str, run_id: str, store: Store):
+    from app.domain.external_processing import get_disclosure
+    return get_disclosure(project_id, file_id, run_id, store, 'boxplot')
+
+
 @router.get('/boxplot')
 def get_boxplot(project_id: str, file_id: str, run_id: str, store: Store):
     return operations.get_boxplot(project_id, file_id, run_id, store)

@@ -41,22 +41,23 @@ class ModelUsageStore(TaskStore):
 
     @staticmethod
     def budget_view(db, scope_type, budget):
-        estimates = reserved = 0
+        from app.domain.model_usage.accounting import accounting_projection
+        estimates = accounted = reserved = 0
         if budget:
-            sums = db.execute('''SELECT
-                COALESCE(SUM(r.accounted_micro_usd) FILTER (WHERE r.status <> 'released'),0) AS estimated,
-                COALESCE(SUM(GREATEST(r.reserved_micro_usd-r.accounted_micro_usd,0,
-                    CASE WHEN c.usage_status='pending' AND c.policy_snapshot->'tools'='["code_interpreter"]'::jsonb
-                         THEN COALESCE((c.policy_snapshot->>'tool_reserve_micro_usd')::bigint,0)
-                         ELSE 0 END)) FILTER (WHERE r.status='held'),0) AS reserved
+            rows = db.execute('''SELECT c.*,r.accounted_micro_usd,r.reserved_micro_usd,r.status AS reservation_status
                 FROM budget_reservations r JOIN model_calls c ON c.id=r.call_id
-                WHERE r.budget_id=%s''', (budget['id'],)).fetchone()
-            estimates, reserved = int(sums['estimated']), int(sums['reserved'])
+                WHERE r.budget_id=%s''', (budget['id'],)).fetchall()
+            for row in rows:
+                call = dict(row)
+                estimates += call['estimated_cost_micro_usd'] or 0
+                used, held = accounting_projection(call, {**call, 'status': call['reservation_status']})
+                accounted += used
+                reserved += held
         limit = budget['limit_micro_usd'] if budget else None
-        available = limit - estimates - reserved if limit is not None else None
+        available = limit - accounted - reserved if limit is not None else None
         return dict(scope_type=scope_type, limit_micro_usd=limit,
             revision=budget['revision'] if budget else 0, estimated_micro_usd=estimates,
-            reserved_micro_usd=reserved, available_micro_usd=available,
+            accounted_micro_usd=accounted, reserved_micro_usd=reserved, available_micro_usd=available,
             exceeded=available is not None and available < 0)
 
     @staticmethod
@@ -86,5 +87,5 @@ class ModelUsageStore(TaskStore):
         fields = tuple(event)
         db.execute('INSERT INTO usage_events (' + ','.join(fields) + ') VALUES ('
                    + ','.join(['%s'] * len(fields)) + ')',
-                   tuple(Jsonb(event[key]) if key in ('provider_usage', 'price_snapshot')
+                   tuple(Jsonb(event[key]) if key in ('provider_usage', 'price_snapshot', 'reconciliation')
                          and event[key] is not None else event[key] for key in fields))

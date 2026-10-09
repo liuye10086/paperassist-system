@@ -46,13 +46,17 @@ def test_usage_is_scoped_to_authenticated_user_and_projects_sensitive_fields(cli
     from app.api import model_usage
 
     budget = {'scope_type': 'user', 'limit_micro_usd': None, 'revision': 0, 'estimated_micro_usd': 0,
-              'reserved_micro_usd': 500, 'available_micro_usd': None, 'exceeded': False}
+              'accounted_micro_usd': 0, 'reserved_micro_usd': 500, 'available_micro_usd': None, 'exceeded': False}
     item = {'id': 'call-safe', 'task_type': 'explanation', 'model': 'test-model', 'status': 'submission_unknown',
             'provider_status': None, 'usage_status': 'pending', 'estimated_cost_micro_usd': None,
-            'created_at': '2026-10-08T01:00:00Z', 'updated_at': '2026-10-08T01:00:00Z'}
+            'created_at': '2026-10-08T01:00:00Z', 'updated_at': '2026-10-08T01:00:00Z',
+            'reconciliation': dict(status='pending', token_micro_usd=None, tool_micro_usd=None,
+                tool_applicable=False, actual_micro_usd=None, reconciled_at=None)}
     expected = {'currency': 'USD', 'period': 'cumulative', 'enforcement_scope': 'unified_only',
         'user_budget': budget, 'project_budget': {**budget, 'scope_type': 'project'},
-        'estimated_micro_usd': 0, 'reserved_micro_usd': 500, 'pending_count': 1,
+        'estimated_micro_usd': 0, 'accounted_micro_usd': 0,
+        'reconciliation': dict(actual_micro_usd=0, reconciled_count=0, partial_count=0, pending_count=1),
+        'reserved_micro_usd': 500, 'pending_count': 1,
         'items': [item], 'total': 1, 'page': 1, 'page_size': 10}
     if scope == 'tasks':
         expected['task_budget'] = {**budget, 'scope_type': 'task'}

@@ -220,7 +220,7 @@ def test_migration_summary_never_prints_unknown_revision_or_credentials(database
     assert 'target_revision' in output
 
 
-@pytest.mark.parametrize('target,expected', [('0003_project_ownership', '0003_project_ownership'), ('base', None), ('head', '0011_task_waits')])
+@pytest.mark.parametrize('target,expected', [('0003_project_ownership', '0003_project_ownership'), ('base', None), ('head', '0013_cost_reconciliation')])
 def test_migration_summary_uses_actual_command_target(database, capsys, target, expected):
     import json
     from alembic.script import ScriptDirectory

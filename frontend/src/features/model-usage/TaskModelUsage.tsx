@@ -4,6 +4,7 @@ import { safeError, useI18n } from '../../shared/i18n'
 import { taskRequest } from '../tasks/taskApi'
 import { useDocumentVisible } from '../tasks/useDocumentVisible'
 import { formatMicroUsd, isTaskUsage, type Budget, type TaskUsage } from './modelUsageTypes'
+import { AccountedAmount, CallReconciliationDisplay, ReconciliationTotals } from './ReconciliationDisplay'
 import './modelUsage.css'
 
 type Props = { taskId: string; active?: boolean; refreshKey?: number }
@@ -48,16 +49,22 @@ function Usage({ taskId, active = true, refreshKey = 0 }: Props) {
         <h4>{t(label)}</h4><dl>
           <div><dt>{t('累计上限')}</dt><dd>{budget.limit_micro_usd === null ? t('未配置') : formatMicroUsd(budget.limit_micro_usd)}</dd></div>
           <div><dt>{t('内部估算')}</dt><dd>{formatMicroUsd(budget.estimated_micro_usd)}</dd></div>
+          <div><dt>{t('预算已计金额')}</dt><dd><AccountedAmount amount={budget.accounted_micro_usd} /></dd></div>
           <div><dt>{t('预留金额')}</dt><dd>{formatMicroUsd(budget.reserved_micro_usd)}</dd></div>
           <div><dt>{t('可用额度')}</dt><dd>{budget.available_micro_usd === null ? t('未配置') : formatMicroUsd(budget.available_micro_usd)}</dd></div>
         </dl>{budget.exceeded && <p className="usage-exceeded">{t('已超出额度')}</p>}</div>)}</div>
-      <p className="usage-scope-note">{t('待核对调用：{count}', { count: data.pending_count })}</p>
+      <dl className="usage-totals"><div><dt>{t('任务内部估算')}</dt><dd>{formatMicroUsd(data.estimated_micro_usd)}</dd></div>
+        <div><dt>{t('任务预算已计金额')}</dt><dd><AccountedAmount amount={data.accounted_micro_usd} /></dd></div>
+        <div><dt>{t('任务预留')}</dt><dd>{formatMicroUsd(data.reserved_micro_usd)}</dd></div>
+        <div><dt>{t('估算待完善调用')}</dt><dd>{data.pending_count}</dd></div></dl>
+      <ReconciliationTotals summary={data.reconciliation} />
       {data.total === 0 ? <p className="usage-empty">{t('此任务尚无模型调用记录。')}</p> : <>
         <div className="usage-table-scroll"><table><caption className="visually-hidden">{t('本次任务模型调用')}</caption>
-          <thead><tr><th scope="col">{t('模型')}</th><th scope="col">{t('内部估算')}</th><th scope="col">{t('记录时间')}</th></tr></thead>
+          <thead><tr><th scope="col">{t('模型')}</th><th scope="col">{t('内部估算')}</th><th scope="col">{t('实际已核对部分')}</th><th scope="col">{t('记录时间')}</th></tr></thead>
           <tbody>{data.items.map(call => <tr key={call.id}><td>{call.model}</td>
             <td>{call.estimated_cost_micro_usd === null ? t('待核对') : <>{formatMicroUsd(call.estimated_cost_micro_usd)}
               {call.usage_status === 'pending' && <small className="usage-pending">{t('待核对')}</small>}</>}</td>
+            <td><CallReconciliationDisplay reconciliation={call.reconciliation} /></td>
             <td><time dateTime={call.created_at}>{new Date(call.created_at).toLocaleString(locale)}</time></td></tr>)}</tbody></table></div>
         <nav className="usage-pagination" aria-label={t('任务用量分页')}>
           <span>{t('共 {total} 项 · 第 {page} / {pages} 页', { total: data.total, page, pages: Math.max(1, Math.ceil(data.total / 10)) })}</span>

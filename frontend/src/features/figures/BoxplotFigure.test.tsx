@@ -7,9 +7,11 @@ import { captureProjectAccess, watchProjectAccess } from '../../shared/api/proje
 const figure = { id: 'figure', analysis_run_id: 'run', setup_revision: 1, title: '图 1 测量值箱线图', caption: '完整记录；n=3', x_label: '分组', y_label: '测量值', source_sha256: 'source', sha256: 'image', created_at: '2026-09-29', engine: { id: 'boxplot-v1', provider: 'openai_code_interpreter', model: 'model' }, verification: { status: 'matched', note: '统计核对一致' } }
 const empty = { current_revision: 1, is_current: true, figure: null, job: null }
 const props = { base: '/file', runId: 'run', revision: 1, canGenerate: true, disabled: false, onBusyChange: vi.fn() }
+const disclosure = { version: 1, provider: 'openai', task_type: 'boxplot', source_digest: 'source', has_saved_result: false, summary: { valid_count: 3, excluded_count: 0, group_count: 1 }, labels: [{ key: 'numeric_name', value: '测量值' }, { key: 'unit', value: '' }] }
+async function confirmSend() { await act(async () => {}); fireEvent.click(screen.getByRole('button', { name: '确认发送并生成' })); await act(async () => {}) }
 const json = (value: unknown) => Promise.resolve({ ok: true, json: async () => value })
 function api(state: unknown = empty, configured = true) {
-  return vi.fn((url: string, _init?: RequestInit) => json((url === '/api/v1/ai/plot-config' || url === '/api/v1/ai/explanation-config') ? { configured, model: 'model', message: '请在 backend/.env 配置 API。' } : state))
+  return vi.fn((url: string, _init?: RequestInit) => url.endsWith('/disclosure') ? json(disclosure) : json((url === '/api/v1/ai/plot-config' || url === '/api/v1/ai/explanation-config') ? { configured, model: 'model', message: '请在 backend/.env 配置 API。' } : state))
 }
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.useRealTimers() })
 
@@ -17,6 +19,7 @@ it.each(['分析解释', 'Word报告'])('surfaces figure read loading and errors
   let rejectRead!: (error: Error) => void
   let initial = true
   const fetch = vi.fn((url: string, _init?: RequestInit) => {
+    if (url.endsWith('/disclosure')) return json(disclosure)
     if (url.endsWith('/boxplot') && initial) {
       initial = false
       return new Promise((_resolve, reject) => { rejectRead = reject })
@@ -58,6 +61,7 @@ it('aborts the 15 second image recheck and never infers project loss from timeou
   vi.useFakeTimers(); let signal!: AbortSignal
   const unavailable = vi.fn(); const stop = watchProjectAccess('p1', unavailable)
   vi.stubGlobal('fetch', vi.fn((url: string, init?: RequestInit) => {
+    if (url.endsWith('/disclosure')) return json(disclosure)
     if (url === '/api/v1/projects/p1') { signal = init?.signal as AbortSignal; return new Promise<Response>(() => {}) }
     return Response.json((url === '/api/v1/ai/plot-config' || url === '/api/v1/ai/explanation-config') ? { configured: true } : url.endsWith('/explanation') ? { explanation: null, job: null } : { ...empty, figure })
   }))
@@ -69,6 +73,7 @@ it('aborts the 15 second image recheck and never infers project loss from timeou
 it('aborts the image recheck when the figure panel unmounts', async () => {
   let signal!: AbortSignal
   vi.stubGlobal('fetch', vi.fn((url: string, init?: RequestInit) => {
+    if (url.endsWith('/disclosure')) return json(disclosure)
     if (url === '/api/v1/projects/p1') { signal = init?.signal as AbortSignal; return new Promise<Response>(() => {}) }
     return Response.json((url === '/api/v1/ai/plot-config' || url === '/api/v1/ai/explanation-config') ? { configured: true } : url.endsWith('/explanation') ? { explanation: null, job: null } : { ...empty, figure })
   }))
@@ -108,19 +113,20 @@ it('dirty or stale configuration disables generation and retains old image', asy
   expect(screen.getByText(/以下图表对应旧配置/)).toBeTruthy()
 })
 it.each(['failed'])('explicit %s retry sends retry true and duplicate clicks submit once', async status => {
-  const fetch = vi.fn((url: string, init?: RequestInit) => init?.method === 'POST' ? new Promise(() => {}) : json((url === '/api/v1/ai/plot-config' || url === '/api/v1/ai/explanation-config') ? { configured: true, model: 'model', message: '' } : { ...empty, job: { id: 'job', status, message: '需要重试', response_id: null, created_at: '' } }))
+  const fetch = vi.fn((url: string, init?: RequestInit) => url.endsWith('/disclosure') ? json(disclosure) : init?.method === 'POST' ? new Promise(() => {}) : json((url === '/api/v1/ai/plot-config' || url === '/api/v1/ai/explanation-config') ? { configured: true, model: 'model', message: '' } : { ...empty, job: { id: 'job', status, message: '需要重试', response_id: null, created_at: '' } }))
   vi.stubGlobal('fetch', fetch); render(<BoxplotFigure {...props} />)
   const button = await screen.findByRole('button', { name: '重试生成（再次调用 API）' })
   await waitFor(() => expect((button as HTMLButtonElement).disabled).toBe(false))
-  fireEvent.click(button); fireEvent.click(button)
+  fireEvent.click(button); fireEvent.click(button); await confirmSend()
   const posts = fetch.mock.calls.filter(call => call[1]?.method === 'POST')
-  expect(posts).toHaveLength(1); expect(JSON.parse(posts[0][1]!.body as string)).toEqual({ expected_revision: 1, retry: true })
+  expect(posts).toHaveLength(1); expect(JSON.parse(posts[0][1]!.body as string)).toEqual({ expected_revision: 1, retry: true, expected_predecessor_id: 'job', external_processing: { version: 1, confirmed: true, source_digest: 'source', labels: Object.fromEntries(disclosure.labels.map(label => [label.key, label.value])) } })
 })
 it('polls a submitted task to completion without another POST', async () => {
   vi.useFakeTimers()
   let submitted = false
   let polls = 0
   const fetch = vi.fn((url: string, init?: RequestInit) => {
+    if (url.endsWith('/disclosure')) return json(disclosure)
     if ((url === '/api/v1/ai/plot-config' || url === '/api/v1/ai/explanation-config')) return json({ configured: true, model: 'model', message: '' })
     if (init?.method === 'POST') { submitted = true; return json({ ...empty, job: { id: 'job', status: 'submitting', message: '正在提交', response_id: null, created_at: '' } }) }
     if (submitted && polls++ === 0) return json({ ...empty, job: { id: 'job', status: 'running', message: '处理中', response_id: 'response', created_at: '' } })
@@ -128,7 +134,7 @@ it('polls a submitted task to completion without another POST', async () => {
   })
   vi.stubGlobal('fetch', fetch); render(<BoxplotFigure {...props} />)
   await act(async () => {})
-  fireEvent.click(screen.getByRole('button', { name: '使用 OpenAI 生成箱线图' }))
+  fireEvent.click(screen.getByRole('button', { name: '使用 OpenAI 生成箱线图' })); await confirmSend()
   await act(async () => {})
   await act(async () => { vi.advanceTimersByTime(3000) })
   expect(screen.getByAltText(figure.title)).toBeTruthy()
@@ -155,6 +161,7 @@ it('failed GET preserves an existing image and allows rereading without POST', a
   const original = fetch.getMockImplementation()!
   let fail = true
   fetch.mockImplementation((url: string, init?: RequestInit) => {
+    if (url.endsWith('/disclosure')) return json(disclosure)
     if (url.endsWith('/boxplot') && fail) { fail = false; return Promise.reject(new TypeError('offline')) }
     return original(url, init)
   })
@@ -179,6 +186,7 @@ it('GET timeout stops automatic polling and exposes reread action', async () => 
 it('retries configuration loading independently without generation', async () => {
   let fail = true
   const fetch = vi.fn((url: string) => {
+    if (url.endsWith('/disclosure')) return json(disclosure)
     if ((url === '/api/v1/ai/plot-config' || url === '/api/v1/ai/explanation-config') && fail) { fail = false; return Promise.reject(new TypeError('offline')) }
     return json((url === '/api/v1/ai/plot-config' || url === '/api/v1/ai/explanation-config') ? { configured: true, model: 'model', message: '' } : empty)
   })
@@ -188,22 +196,25 @@ it('retries configuration loading independently without generation', async () =>
   expect(screen.queryByRole('alert')).toBeNull()
 })
 
-it('server revision conflict marks the retained image as old and blocks generation', async () => {
-  const fetch = vi.fn((url: string, init?: RequestInit) => init?.method === 'POST'
-    ? Promise.resolve({ ok: false, status: 409, json: async () => ({ detail: { code: 'setup_conflict', message: '配置已变化' } }) })
-    : json((url === '/api/v1/ai/plot-config' || url === '/api/v1/ai/explanation-config') ? { configured: true, model: 'model', message: '' } : { ...empty, figure }))
+it('server read conflict marks a retained saved image as old without regenerating', async () => {
+  let reread = false
+  const fetch = vi.fn((url: string, _init?: RequestInit) => url.endsWith('/boxplot') && reread
+    ? Promise.resolve({ ok: false, status: 409, json: async () => ({ detail: { code: 'setup_conflict' } }) })
+    : json(url.endsWith('config') ? { configured: true } : { ...empty, figure }))
   vi.stubGlobal('fetch', fetch); render(<BoxplotFigure {...props} />)
   await screen.findByAltText(figure.title)
   await waitFor(() => expect((screen.getByRole('button', { name: '使用 OpenAI 生成箱线图' }) as HTMLButtonElement).disabled).toBe(false))
-  fireEvent.click(screen.getByRole('button', { name: '使用 OpenAI 生成箱线图' }))
+  reread = true; fireEvent.click(screen.getByRole('button', { name: '使用 OpenAI 生成箱线图' }))
   await screen.findByText('分析配置已变化，请读取当前配置并重新执行统计。')
   expect(screen.getByText(/以下图表对应旧配置/)).toBeTruthy()
   expect(screen.getByAltText(figure.title)).toBeTruthy()
+  expect(fetch.mock.calls.every(([, init]) => !init?.method)).toBe(true)
+  expect(fetch.mock.calls.some(([url]) => url.endsWith('/disclosure'))).toBe(false)
 })
 
 it('offers analysis explanation after a saved figure without locking on background work', async () => {
   const onBusyChange = vi.fn()
-  const fetch = vi.fn((url: string, _init?: RequestInit) => json((url === '/api/v1/ai/plot-config' || url === '/api/v1/ai/explanation-config')
+  const fetch = vi.fn((url: string, _init?: RequestInit) => url.endsWith('/disclosure') ? json(disclosure) : json((url === '/api/v1/ai/plot-config' || url === '/api/v1/ai/explanation-config')
     ? { configured: true, model: 'model', message: '' }
     : url.endsWith('/explanation') ? { current_revision: 1, is_current: true, figure_id: 'figure', explanation: null, job: { id: 'job', status: 'running', message: '解释生成中', response_id: null, created_at: '' } }
     : { ...empty, figure }))
@@ -216,7 +227,7 @@ it('offers analysis explanation after a saved figure without locking on backgrou
 
 it('releases plot controls when a restored explanation task completes without deadlock', async () => {
   vi.useFakeTimers(); let reads = 0; const onBusyChange = vi.fn()
-  const fetch = vi.fn((url: string, _init?: RequestInit) => json((url === '/api/v1/ai/plot-config' || url === '/api/v1/ai/explanation-config') ? { configured: true }
+  const fetch = vi.fn((url: string, _init?: RequestInit) => url.endsWith('/disclosure') ? json(disclosure) : json((url === '/api/v1/ai/plot-config' || url === '/api/v1/ai/explanation-config') ? { configured: true }
     : url.endsWith('/explanation') ? { current_revision: 1, is_current: true, figure_id: 'figure', explanation: null,
       job: reads++ === 0 ? { id: 'job', status: 'running', message: '解释生成中', response_id: null, created_at: '' } : null }
     : { ...empty, figure }))
@@ -250,7 +261,7 @@ it('keeps each later stage understandable when no chart has been saved', async (
 it('keeps explanation polling mounted while switching between workflow stages', async () => {
   vi.useFakeTimers(); let reads = 0; const onBusyChange = vi.fn()
   const saved = { id: 'exp', analysis_run_id: 'run', figure_id: 'figure', setup_revision: 1, language: 'zh-CN', created_at: 'today', sections: [{ key: 'results', title: '研究结果', text: '中位数为3。', evidence: [] }], limitations: [], verification: { note: '统计证据已核对' } }
-  const fetch = vi.fn((url: string) => json((url === '/api/v1/ai/plot-config' || url === '/api/v1/ai/explanation-config') ? { configured: true }
+  const fetch = vi.fn((url: string) => url.endsWith('/disclosure') ? json(disclosure) : json((url === '/api/v1/ai/plot-config' || url === '/api/v1/ai/explanation-config') ? { configured: true }
     : url.endsWith('/explanation') ? { current_revision: 1, is_current: true, figure_id: 'figure', explanation: reads++ === 0 ? null : saved, job: reads === 1 ? { status: 'running' } : null }
     : url.endsWith('/report') ? { current_revision: 1, is_current: true, ready: true, issues: [], report: null } : { ...empty, figure }))
   vi.stubGlobal('fetch', fetch)

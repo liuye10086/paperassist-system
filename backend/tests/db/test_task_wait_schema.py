@@ -10,7 +10,7 @@ from tests.db.test_task_schema import seed_owner, insert_row, task_row, task_sch
 
 
 def test_wait_tables_are_native_and_runtime_role_can_access(postgres_schema):
-    assert SCHEMA_HEAD == '0011_task_waits'
+    assert SCHEMA_HEAD == '0013_cost_reconciliation'
     assert {'task_waits', 'task_resume_requests'} <= metadata.tables.keys()
     with database_connection() as db:
         columns = {item['name']: item for item in inspect(db.raw_connection).get_columns('task_waits', schema=postgres_schema.schema)}
@@ -32,7 +32,9 @@ def test_migration_backfills_only_waiting_tasks_without_rewriting_history(postgr
                 input_snapshot={'result': {'setup_revision': 1}, 'output_language': 'zh-CN'}))
         before = [dict(row) for row in db.execute('SELECT * FROM tasks ORDER BY id')]
         command.upgrade(settings, 'head')
-        assert [dict(row) for row in db.execute('SELECT * FROM tasks ORDER BY id')] == before
+        upgraded = db.execute('SELECT * FROM tasks ORDER BY id').fetchall()
+        assert [{key: row[key] for key in before[0]} for row in upgraded] == before
+        assert all(row['retry_count'] == 0 for row in upgraded)
         rows = db.execute('SELECT kind,status FROM task_waits ORDER BY kind').fetchall()
         assert {row['kind'] for row in rows} == {'budget_confirmation', 'submission_unknown', 'unsupported_input', 'unsupported_confirmation'}
         assert all(row['status'] == 'open' for row in rows)

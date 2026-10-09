@@ -15,7 +15,7 @@ export default function TaskPendingAction({ workspace, blocked, onChanged }: {
   const { task, wait, allowed_actions: actions } = workspace
   useEffect(() => { active.current = true; return () => { active.current = false; request.current?.abort() } }, [])
   async function perform(operation: TaskOperation) {
-    if (blocked || request.current || !actions.includes(operation)) return
+    if (task.origin === 'legacy' || task.revision === null || blocked || request.current || !actions.includes(operation)) return
     const controller = new AbortController(); request.current = controller
     const body = { operation, wait_id: wait?.id ?? null, expected_task_revision: task.revision, input_version: task.input_version }
     const signature = JSON.stringify(body)
@@ -38,6 +38,7 @@ export default function TaskPendingAction({ workspace, blocked, onChanged }: {
     } finally { if (request.current === controller) request.current = null; if (active.current) setBusy(false) }
   }
   const currentWait = wait?.status === 'open' ? wait : null
+  if (task.origin === 'legacy') return null
   return <section className="task-pending" aria-label={t('任务处理')}>
     {currentWait?.kind === 'budget_confirmation' && <p className="warning-panel">{t('任务正在等待预算或模型配置，请联系管理员调整后继续。')}</p>}
     {currentWait?.kind === 'submission_unknown' && <p className="warning-panel">{t('提交结果尚未核实，请联系管理员核对；不能重新发送模型请求。')}</p>}

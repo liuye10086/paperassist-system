@@ -46,7 +46,7 @@ def task_schema(postgres_schema):
 
 def test_four_task_tables_have_current_head_and_native_types(postgres_schema):
     assert TASK_TABLES <= metadata.tables.keys()
-    assert SCHEMA_HEAD == '0011_task_waits'
+    assert SCHEMA_HEAD == '0013_cost_reconciliation'
     with database_connection() as db:
         inspector = inspect(db.raw_connection)
         assert TASK_TABLES <= set(inspector.get_table_names(schema=postgres_schema.schema))

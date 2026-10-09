@@ -6,6 +6,8 @@ from typing import TYPE_CHECKING
 
 from openai import APIConnectionError, APIStatusError, DefaultHttpxClient, OpenAI
 
+from app.core.safe_logging import configure_safe_logging
+
 if TYPE_CHECKING:
     from app.domain.model_usage.contracts import ModelPolicy
 
@@ -54,6 +56,7 @@ def canonical_payload(payload: dict) -> str:
 
 class OpenAIResponsesProvider:
     def __init__(self, *, api_key: str, http_client=None):
+        configure_safe_logging()
         # No arbitrary endpoint, SDK kwargs, tools, or environment-selected URL.
         if http_client is None:
             http_client = DefaultHttpxClient(follow_redirects=False)

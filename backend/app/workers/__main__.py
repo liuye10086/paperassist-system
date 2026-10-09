@@ -9,6 +9,10 @@ import sys
 from threading import Event
 import time
 
+from app.core.safe_logging import configure_safe_logging
+
+configure_safe_logging()
+
 from app.workers.config import load_secrets, queue_config
 
 
@@ -45,6 +49,7 @@ def run_dispatcher():
 
 
 def main(argv=None):
+    configure_safe_logging()
     parser = argparse.ArgumentParser(description='PaperAssist independent Word and explanation task execution')
     parser.add_argument('command', choices=['worker', 'dispatch', 'health'])
     parser.add_argument('service', nargs='?', choices=['worker', 'dispatch'])

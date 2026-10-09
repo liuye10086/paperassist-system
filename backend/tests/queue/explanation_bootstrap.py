@@ -6,6 +6,8 @@ import json
 import os
 from pathlib import Path
 import re
+from datetime import datetime, timezone
+from threading import local
 
 if (os.environ.get('PAPERASSIST_ENV') != 'test'
         or os.environ.get('PAPERASSIST_QUEUE_TEST_ALLOWED') != '1'
@@ -15,13 +17,14 @@ if (os.environ.get('PAPERASSIST_ENV') != 'test'
 import httpx2
 from app.adapters.models.openai_responses import OpenAIResponsesProvider
 from app.db.database import database_connection
-from app.domain.explanation_content import build_payload
+from app.domain.external_material import explanation_material
 from app.domain.model_usage.gateway import ModelGateway
 from app.domain.model_usage.service import ModelUsageService
 from app.domain.tasks import explanation_execution
 from app.workers.__main__ import main
 
 ROOT = Path('/data')
+ACTIVE_CALL = local()
 
 
 def call_task(call_id):
@@ -44,9 +47,9 @@ def transport(request):
         payload = json.loads(body['input'])
         assert body['background'] and body['store']
         assert body['text']['format']['strict']
-        with database_connection() as db:
-            task = dict(db.execute("""SELECT * FROM tasks WHERE task_type='explanation'
-                AND input_snapshot->'result'->>'id'=%s""", (payload['analysis_run_id'],)).fetchone())
+        # The production payload no longer contains internal source identifiers.
+        # Associate the synthetic receipt using this worker's local reserve hook.
+        task = call_task(ACTIVE_CALL.call_id)
         response_id = 'resp_' + task['id'].replace('-', '')
     else:
         assert request.method == 'GET'
@@ -55,12 +58,20 @@ def transport(request):
             task = dict(db.execute('SELECT t.* FROM tasks t JOIN model_calls c ON c.task_id=t.id '
                                    'WHERE c.provider_response_id=%s', (response_id,)).fetchone())
         snapshot = task['input_snapshot']
-        payload = build_payload(snapshot['result'], snapshot['figure'])
+        _, payload = explanation_material(snapshot['result'], snapshot['figure'],
+                                          snapshot.get('external_processing'))
     log = ROOT / ('.calls-' + task['id'])
     with log.open('a', encoding='ascii') as stream:
         stream.write(request.method + '\n')
         stream.flush()
         os.fsync(stream.fileno())
+    if task['idempotency_key'] == 'queue-finite-retry' and request.method == 'GET':
+        with (ROOT / ('.retry-times-' + task['id'])).open('a', encoding='ascii') as stream:
+            stream.write(datetime.now(timezone.utc).isoformat() + '\n')
+            stream.flush()
+            os.fsync(stream.fileno())
+        if not (ROOT / '.release-finite-retry').exists():
+            return httpx2.Response(503, json={'error': {'message': 'Synthetic temporary failure'}})
     # Keep the normal task pending so a queued Word export can prove fairness.
     pending = request.method == 'POST' or (task['idempotency_key'] == 'queue-normal'
                                           and not (ROOT / '.release-normal').exists())
@@ -90,6 +101,7 @@ record = ModelGateway._record
 
 def reserve_and_crash(self, request, **kwargs):
     call = reserve(self, request, **kwargs)
+    ACTIVE_CALL.call_id = call['id']
     once_crash(call_task(call['id']), 'reserved')
     return call
 

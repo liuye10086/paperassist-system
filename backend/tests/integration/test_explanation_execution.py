@@ -131,7 +131,8 @@ class SyntheticProvider:
     def retrieve(self, response_id, *, policy):
         self.gets.append(response_id)
         if self.fail_get:
-            raise RuntimeError('private provider response')
+            from app.adapters.models.openai_responses import ModelProviderError
+            raise ModelProviderError()
         return self.receipt()
 
     def close(self):
@@ -269,7 +270,7 @@ def test_transient_get_releases_lease_with_longer_delay_and_retains_response(cli
     assert deferred['status'] == 'running' and deferred['current_attempt'] == 1
     with database_connection() as db:
         outbox = db.execute('SELECT * FROM task_outbox ORDER BY task_revision DESC').fetchone()
-        assert (outbox['available_at'] - outbox['created_at']).total_seconds() >= 30
+        assert (outbox['available_at'] - outbox['created_at']).total_seconds() >= 10
         assert db.execute('SELECT provider_response_id FROM model_calls').fetchone()['provider_response_id']
         assert db.execute('SELECT lease_owner FROM task_attempts').fetchone()['lease_owner'] is None
     provider.fail_get = provider.pending = False

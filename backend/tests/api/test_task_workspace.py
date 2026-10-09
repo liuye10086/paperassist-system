@@ -49,6 +49,11 @@ def test_workspace_reads_current_source_without_private_snapshot_or_writes(clien
 def test_project_tasks_filter_and_page_stably(client):
     project, request, _, _, service, first = create_task(client, 'first')
     second, _ = service.create(project, request, idempotency_key='second')
+    # Exercise time ordering independently of the host clock's tick resolution.
+    # The equal-time UUID ordering is checked separately below.
+    with database_connection(write=True) as db:
+        db.execute("UPDATE tasks SET created_at=%s::timestamptz-interval '1 second' WHERE id=%s",
+                   (second['created_at'], first['id']))
     running = service.transition(first['id'], expected_revision=1, status='running')
     service.transition(first['id'], expected_revision=running['revision'], status='failed', reason_code='execution_failed')
     response = client.get(f'/api/v1/projects/{project}/tasks?page=1&page_size=1')

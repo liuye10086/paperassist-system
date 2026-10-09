@@ -1,7 +1,6 @@
 """Explanation acceptance and read-only compatibility with historical cloud jobs."""
 from datetime import datetime, timezone
 from hashlib import sha256
-import json
 import re
 from uuid import uuid4
 
@@ -64,21 +63,21 @@ def submit_explanation(project_id, file_id, run_id, request, project_store, idem
             or not re.fullmatch(r'[\x21-\x7e]{1,128}', idempotency_key)):
         raise StorageError('task_input_invalid', '任务请求标识无效，请重新提交。', 422)
     typed = TaskCreateRequest(task_type='explanation', file_id=file_id, analysis_run_id=run_id,
-                              expected_revision=request.expected_revision, figure_id=figure['id'])
+                              expected_revision=request.expected_revision, figure_id=figure['id'], external_processing=request.external_processing)
     service = TaskService(project_store.owner_id)
+    legacy = ExplanationStore(project_store).job(figure['id'])
+    task = matching_task(service.store, project_id, result, figure)
     # Recheck sources even for cached reads after the nontransactional context.
     previous = None
     with service.store.connection() as db:
         project = service.store.require_project(db, project_id)
-        service.store.source_snapshot(db, project, typed)
+        snapshot = service.store.source_snapshot(db, project, typed)
         if idempotency_key is not None:
             previous = service.store.find_request(db, project_id, 'explanation', idempotency_key)
-            digest = sha256(json.dumps(typed.model_dump(), ensure_ascii=False, allow_nan=False,
-                                      sort_keys=True, separators=(',', ':')).encode('utf-8')).hexdigest()
+            from app.domain.external_processing import request_digest
+            digest = request_digest(typed)
             if previous and previous['input_digest'] != digest:
                 raise StorageError('task_idempotency_conflict', '同一请求标识已用于不同输入。', 409)
-    legacy = ExplanationStore(project_store).job(figure['id'])
-    task = matching_task(service.store, project_id, result, figure)
     if previous:
         task = service.store.public_task(previous)
     state.update(job=public_job(legacy), task=task)
@@ -88,6 +87,13 @@ def submit_explanation(project_id, file_id, run_id, request, project_store, idem
         # A supplied request key always identifies its original accepted task,
         # including a failed one. Paying for a replacement needs a new key.
         return state, 202 if task['status'] in ('queued', 'running') else 200
+    observed = task or legacy
+    if request.retry and request.expected_predecessor_id is not None and (
+            observed is None or request.expected_predecessor_id != observed['id']):
+        raise source_conflict()
+    if request.retry and request.expected_predecessor_revision is not None and (
+            task is None or request.expected_predecessor_revision != task['revision']):
+        raise source_conflict()
     predecessor = None
     if task:
         if task['status'] != 'failed' or not request.retry:
@@ -108,12 +114,20 @@ def submit_explanation(project_id, file_id, run_id, request, project_store, idem
         if legacy['status'] != 'failed' or not request.retry:
             return state, 202 if legacy['status'] in ('running', 'submitting') else 200
         predecessor = legacy['id']
+    if predecessor is not None and (idempotency_key is None or request.expected_predecessor_id is None
+            or task is not None and request.expected_predecessor_revision is None):
+        raise StorageError('task_input_invalid', '重新生成需要明确的任务请求标识和失败来源版本，请重新提交。', 422)
+    from app.domain.external_processing import freeze_confirmation
+    external = freeze_confirmation(snapshot, typed.task_type, service.store.user_id, request.external_processing)
     from app.domain.explanation_policy import get_execution_policy
-    frozen_policy = get_execution_policy(build_payload(result, figure))
+    from app.domain.external_material import explanation_material
+    _, outbound = explanation_material(result, figure, external)
+    frozen_policy = get_execution_policy(outbound)
     source_key = f'{figure["id"]}:{request.expected_revision}:{predecessor or "initial"}'
     key = idempotency_key or 'explanation-v1:' + sha256(source_key.encode('utf-8')).hexdigest()
     task, _ = service.create(project_id, typed, idempotency_key=key, explanation_policy=frozen_policy,
-                             explanation_predecessor=task['id'] if task else None)
+                             explanation_predecessor=task['id'] if task else None,
+                             predecessor_revision=request.expected_predecessor_revision, require_external=True)
     state['task'] = task
     return state, 202 if task['status'] in ('queued', 'running') else 200
 
@@ -154,7 +168,9 @@ def retry_explanation_in_transaction(store, db, task, expected_revision):
         if call is not None:
             raise StorageError('task_transition_invalid', '已有模型调用不能替换策略，请联系管理员核对。', 409)
         from app.domain.explanation_policy import get_execution_policy
-        frozen = get_execution_policy(build_payload(original['result'], original['figure']))
+        from app.domain.external_material import explanation_material
+        _, outbound = explanation_material(original['result'], original['figure'], original.get('external_processing'))
+        frozen = get_execution_policy(outbound)
         task['input_snapshot'] = {**original, 'explanation_policy': frozen}
         db.execute('UPDATE tasks SET input_snapshot=%s WHERE id=%s', (Jsonb(task['input_snapshot']), task_id))
         budget = db.execute("SELECT id FROM model_budgets WHERE scope_type='task' AND scope_key=%s", (task_id,)).fetchone()
@@ -166,7 +182,7 @@ def retry_explanation_in_transaction(store, db, task, expected_revision):
                 (str(uuid4()), task['user_id'], task_id, task['project_id'], task_id,
                  frozen['task_limit_micro_usd'], now, now))
     task.update(status='queued', phase='interpret', revision=expected_revision + 1,
-        reason_code='confirmation_received' if budget_wait else 'retry_requested', error_code=None,
+        reason_code='confirmation_received' if budget_wait else 'retry_requested', error_code=None, retry_count=0, _retry_reason='manual_retry',
         updated_at=max(datetime.now(timezone.utc), task['updated_at']))
     store.update_task(db, task, expected_revision)
     store.append_event(db, task, 'requeued')

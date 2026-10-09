@@ -60,9 +60,9 @@ def test_task_response_projects_public_fields_and_scopes_store_to_authenticated_
     from app.api import tasks
 
     expected = {
-        'id': 'task-safe', 'project_id': 'project-safe', 'task_type': 'boxplot',
+        'id': 'task-safe', 'origin': 'unified', 'project_id': 'project-safe', 'task_type': 'boxplot',
         'status': 'queued', 'phase': 'parse', 'display_status': 'queued',
-        'revision': 1, 'current_attempt': 0, 'reason_code': None,
+        'revision': 1, 'current_attempt': 0, 'retry_count': 0, 'reason_code': None,
         'created_at': '2026-10-08T01:00:00Z', 'updated_at': '2026-10-08T01:00:00Z',
         'input_version': {'setup_revision': 3, 'output_language': 'zh-CN'},
         'result_report_id': None, 'result_explanation_id': None, 'result_figure_id': None, 'error_code': None,
@@ -103,7 +103,9 @@ def test_events_parse_valid_raw_query_and_project_event_fields(client, monkeypat
     from app.adapters.task_store import TaskStore
 
     event = {'seq': 2, 'task_revision': 2, 'event_type': 'started', 'status': 'running',
-             'phase': 'parse', 'reason_code': None, 'created_at': '2026-10-08T01:00:00Z'}
+             'phase': 'parse', 'reason_code': None, 'created_at': '2026-10-08T01:00:00Z',
+             'error_code': None, 'error_category': None, 'retry_reason': None,
+             'retry_count': None, 'retry_delay_seconds': None}
 
     def read_events(self, task_id, *, after, limit):
         assert (task_id, after, limit) == ('task-safe', expected_after, expected_limit)

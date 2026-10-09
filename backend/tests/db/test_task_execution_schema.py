@@ -11,7 +11,7 @@ from tests.db.test_task_schema import seed_owner, insert_row, task_row
 
 
 def test_execution_schema_has_report_reference_and_lease_index(postgres_schema):
-    assert SCHEMA_HEAD == '0011_task_waits'
+    assert SCHEMA_HEAD == '0013_cost_reconciliation'
     with database_connection() as db:
         inspector = inspect(db.raw_connection)
         columns = {column['name']: column for column in inspector.get_columns('tasks', schema=postgres_schema.schema)}

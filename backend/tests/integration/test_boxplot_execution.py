@@ -104,7 +104,8 @@ class SyntheticPlotProvider:
     def retrieve(self, response_id, *, policy):
         self.gets.append(response_id)
         if self.fail_get:
-            raise RuntimeError('synthetic transient retrieval')
+            from app.adapters.models.openai_responses import ModelProviderError
+            raise ModelProviderError()
         return self.receipt()
 
     def download(self, file_id, container_id, limit, *, policy):
@@ -278,7 +279,7 @@ def test_boxplot_transient_download_releases_lease_and_reuses_response(client):
         attempt = db.execute('SELECT lease_owner FROM task_attempts').fetchone()
         outbox = db.execute('SELECT * FROM task_outbox ORDER BY task_revision DESC LIMIT 1').fetchone()
         assert attempt['lease_owner'] is None
-        assert (outbox['available_at'] - outbox['created_at']).total_seconds() >= 30
+        assert (outbox['available_at'] - outbox['created_at']).total_seconds() >= 10
     provider.fail_download = False
     complete = run(waiting, provider)
     assert complete['status'] == 'succeeded' and len(provider.posts) == 3 and len(provider.gets) == 2

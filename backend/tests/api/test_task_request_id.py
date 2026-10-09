@@ -10,6 +10,92 @@ from app.main import app
 from tests.helpers.auth import login_test_client
 
 
+SUBMISSION_BASE = '/api/v1/projects/p/files/f/analysis-runs/r/'
+SUBMISSIONS = [
+    ('report', 'app.domain.report_tasks.submit_report',
+     {'expected_revision': 1, 'figure_id': 'figure', 'explanation_id': 'explanation'}),
+    ('boxplot', 'app.domain.plot_tasks.submit_boxplot', {'expected_revision': 1}),
+    ('explanation', 'app.domain.explanation_tasks.submit_explanation',
+     {'expected_revision': 1, 'figure_id': 'figure'}),
+]
+
+
+@pytest.mark.parametrize('suffix,operation,payload', SUBMISSIONS)
+def test_business_submission_authentication_and_validation_are_traced(suffix, operation, payload):
+    endpoint = SUBMISSION_BASE + suffix
+    marker = 'secret-untrusted-request-id'
+    with TestClient(app) as client:
+        unauthenticated = client.post(endpoint, json=payload, headers={'X-Request-ID': marker})
+        login_test_client(client)
+        invalid = client.post(endpoint, json={'expected_revision': marker}, headers={'X-Request-ID': marker})
+    assert unauthenticated.status_code == 401
+    assert invalid.status_code == 422
+    assert unauthenticated.json()['detail']['code'] == 'authentication_required'
+    assert invalid.json()['detail']['code'] == 'invalid_request'
+    assert assert_request_id(unauthenticated) != assert_request_id(invalid)
+    for response in (unauthenticated, invalid):
+        assert set(response.json()['detail']) == {'code', 'message', 'params', 'request_id', 'details'}
+        assert response.json()['detail']['params'] == {}
+        assert marker not in response.text
+
+
+@pytest.mark.parametrize('suffix,operation,payload', SUBMISSIONS)
+@pytest.mark.parametrize('status,code,message,params,expected_params', [
+    (409, 'task_source_conflict', '任务来源已发生变化。', {}, {}),
+    (422, 'numeric_precision', '数据精度超出范围。', {'row': 2, 'column': 'A'}, {'row': 2, 'column': 'A'}),
+    (503, 'storage_unavailable', '存储暂时不可用。', {}, {}),
+    (500, 'private-provider-error', 'secret-provider-body C:/private/research.xlsx', {}, {}),
+])
+def test_business_submission_storage_errors_keep_safe_contract(
+        monkeypatch, suffix, operation, payload, status, code, message, params, expected_params):
+    from app.core.errors import INTERNAL_MESSAGE
+    from app.core.exceptions import StorageError
+
+    # Exercise each registered POST and the real StorageError handler without
+    # running paid providers or manufacturing extra application routes.
+    def fail_submission(*args, **kwargs):
+        raise StorageError(code, message, status, params={**params, 'secret': 'secret-param'})
+
+    monkeypatch.setattr(operation, fail_submission)
+    with TestClient(app) as client:
+        login_test_client(client)
+        response = client.post(SUBMISSION_BASE + suffix, json=payload)
+    assert response.status_code == status
+    assert_request_id(response)
+    detail = response.json()['detail']
+    assert set(detail) == {'code', 'message', 'params', 'request_id', 'details'}
+    assert detail['code'] == ('internal_error' if status == 500 else code)
+    assert detail['message'] == (INTERNAL_MESSAGE if status == 500 else message)
+    assert detail['params'] == expected_params
+    for secret in ('secret-provider-body', 'research.xlsx', 'secret-param', 'private-provider-error'):
+        assert secret not in response.text
+
+
+@pytest.mark.parametrize('suffix,operation,payload', SUBMISSIONS)
+@pytest.mark.parametrize('method,extra', [
+    ('GET', ''), ('PUT', ''), ('PATCH', ''), ('DELETE', ''), ('HEAD', ''), ('OPTIONS', ''),
+    ('POST', '-other'), ('POST', '/extra'), ('POST', '/image'), ('GET', '/saved/download'),
+])
+def test_business_submission_tracing_does_not_expand_old_route_contracts(suffix, operation, payload, method, extra):
+    with TestClient(app) as client:
+        response = client.request(method, SUBMISSION_BASE + suffix + extra)
+    assert response.status_code == 401
+    assert 'X-Request-ID' not in response.headers
+    if method != 'HEAD':
+        assert response.json() == {'detail': {
+            'code': 'authentication_required', 'message': '请登录后继续。', 'params': {},
+        }}
+
+
+@pytest.mark.parametrize('suffix,operation,payload', SUBMISSIONS)
+def test_business_submission_tracing_includes_router_trailing_slash_redirect(suffix, operation, payload):
+    with TestClient(app) as client:
+        response = client.post(SUBMISSION_BASE + suffix + '/', json=payload, follow_redirects=False)
+    # Authentication runs before the router redirect for unauthenticated users.
+    assert response.status_code == 401
+    assert_request_id(response)
+
+
 def assert_request_id(response):
     request_id = response.headers.get('X-Request-ID')
     assert request_id is not None

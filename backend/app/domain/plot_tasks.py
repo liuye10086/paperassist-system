@@ -1,7 +1,6 @@
 """Local plot acceptance and explicit recovery; HTTP never executes cloud work."""
 from datetime import datetime, timezone
 from hashlib import sha256
-import json
 import re
 from uuid import uuid4
 
@@ -74,24 +73,32 @@ def submit_boxplot(project_id, file_id, run_id, request, store, idempotency_key=
             or not re.fullmatch(r'[\x21-\x7e]{1,128}', idempotency_key)):
         raise StorageError('task_input_invalid', '任务请求标识无效，请重新提交。', 422)
     typed = TaskCreateRequest(task_type='boxplot', file_id=file_id, analysis_run_id=run_id,
-                              expected_revision=request.expected_revision)
+                              expected_revision=request.expected_revision, external_processing=request.external_processing)
     service = TaskService(store.owner_id)
+    task = matching_task(service.store, project_id, result)
     previous = None
     with service.store.connection() as db:
         project = service.store.require_project(db, project_id)
-        service.store.source_snapshot(db, project, typed)
+        snapshot = service.store.source_snapshot(db, project, typed)
         if idempotency_key is not None:
             previous = service.store.find_request(db, project_id, 'boxplot', idempotency_key)
-            digest = sha256(json.dumps(typed.model_dump(), ensure_ascii=False, allow_nan=False,
-                                      sort_keys=True, separators=(',', ':')).encode('utf-8')).hexdigest()
+            from app.domain.external_processing import request_digest
+            digest = request_digest(typed)
             if previous and previous['input_digest'] != digest:
                 raise StorageError('task_idempotency_conflict', '同一请求标识已用于不同输入。', 409)
-    task = service.store.public_task(previous) if previous else matching_task(service.store, project_id, result)
+    task = service.store.public_task(previous) if previous else task
     state['task'] = task
     if state['figure']:
         return state, 200
     if previous:
         return state, 202 if task['status'] in ('queued', 'running') else 200
+    observed = task or state['job']
+    if request.retry and request.expected_predecessor_id is not None and (
+            observed is None or request.expected_predecessor_id != observed['id']):
+        raise source_conflict()
+    if request.retry and request.expected_predecessor_revision is not None and (
+            task is None or request.expected_predecessor_revision != task['revision']):
+        raise source_conflict()
     predecessor = None
     if task:
         if task['status'] != 'failed' or not request.retry:
@@ -115,12 +122,18 @@ def submit_boxplot(project_id, file_id, run_id, request, store, idempotency_key=
         if legacy['status'] != 'failed' or not request.retry:
             return state, 202 if legacy['status'] in ('running', 'submitting') else 200
         predecessor = legacy['id']
+    if predecessor is not None and (idempotency_key is None or request.expected_predecessor_id is None
+            or task is not None and request.expected_predecessor_revision is None):
+        raise StorageError('task_input_invalid', '重新生成需要明确的任务请求标识和失败来源版本，请重新提交。', 422)
+    from app.domain.external_processing import freeze_confirmation
+    freeze_confirmation(snapshot, typed.task_type, service.store.user_id, request.external_processing)
     from app.domain.plot_policy import get_execution_policy
     frozen = get_execution_policy()
     source_key = f'{result["id"]}:{request.expected_revision}:{RENDERER}:{predecessor or "initial"}'
     key = idempotency_key or 'boxplot-v1:' + sha256(source_key.encode('utf-8')).hexdigest()
     task, _ = service.create(project_id, typed, idempotency_key=key, boxplot_policy=frozen,
-                             plot_predecessor=task['id'] if task else None)
+                             plot_predecessor=task['id'] if task else None,
+                             predecessor_revision=request.expected_predecessor_revision, require_external=True)
     state['task'] = task
     return state, 202 if task['status'] in ('queued', 'running') else 200
 
@@ -170,7 +183,7 @@ def retry_boxplot_in_transaction(store, db, task, expected_revision):
                 (str(uuid4()), task['user_id'], task_id, task['project_id'], task_id,
                  frozen['task_limit_micro_usd'], now, now))
     task.update(status='queued', phase='compute', revision=expected_revision + 1,
-        reason_code='confirmation_received' if budget_wait else 'retry_requested', error_code=None,
+        reason_code='confirmation_received' if budget_wait else 'retry_requested', error_code=None, retry_count=0, _retry_reason='manual_retry',
         updated_at=max(datetime.now(timezone.utc), task['updated_at']))
     store.update_task(db, task, expected_revision)
     store.append_event(db, task, 'requeued')

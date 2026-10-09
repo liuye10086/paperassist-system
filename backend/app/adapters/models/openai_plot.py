@@ -44,7 +44,7 @@ class OpenAIPlotProvider(OpenAIResponsesProvider):
         if not isinstance(call_id, str) or not re.fullmatch(r'[A-Za-z0-9_-]{1,64}', call_id):
             raise ModelProviderError('model_input_invalid')
         try:
-            response = self.client.containers.create(name='paperassist-' + call_id, memory_limit='1g',
+            response = self.client.containers.create(name='paperassist-plot', memory_limit='1g',
                 expires_after={'anchor': 'last_active_at', 'minutes': 20},
                 network_policy={'type': 'disabled'}, timeout=policy.timeout_seconds)
             return {'container_id': _identifier(response.id, CONTAINER_ID),

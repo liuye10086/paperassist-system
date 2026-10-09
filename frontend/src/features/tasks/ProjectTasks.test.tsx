@@ -1,7 +1,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
 import ProjectTasks from './ProjectTasks'
-import { pageFixture } from './taskFixtures'
+import { legacyTaskFixture, legacyWorkspaceFixture, pageFixture } from './taskFixtures'
 import { clearApiSession } from '../../shared/api/client'
 import { setLocale } from '../../shared/i18n'
 
@@ -42,7 +42,7 @@ it('filters on the server and resets pagination without creating tasks', async (
     const q = new URL(url, 'http://local').searchParams
     return Response.json({ ...pageFixture, items: [], total: 0, page: Number(q.get('page')) })
   }); vi.stubGlobal('fetch', fetch); render(<ProjectTasks {...props} />)
-  await screen.findByText('此筛选下没有统一任务。')
+  await screen.findByText('此筛选下没有任务。')
   fireEvent.change(screen.getByLabelText('任务状态'), { target: { value: 'failed' } })
   fireEvent.change(screen.getByLabelText('任务类型'), { target: { value: 'explanation' } })
   await waitFor(() => expect(fetch.mock.calls.some(([url]) => url.includes('status=failed&task_type=explanation'))).toBe(true))
@@ -55,4 +55,17 @@ it('does not fetch hidden tasks and clears private content on session change', a
   view.rerender(<ProjectTasks {...props} />); await screen.findByText('实验.xlsx')
   act(() => clearApiSession())
   expect(screen.queryByText('实验.xlsx')).toBeNull()
+})
+it.each(['zh-CN', 'en'] as const)('displays mixed historical tasks with unknown updated time in %s', async locale => {
+  setLocale(locale)
+  vi.stubGlobal('fetch', vi.fn(async () => Response.json({ ...pageFixture, total: 2,
+    items: [...pageFixture.items, { task: legacyTaskFixture, source: { ...legacyWorkspaceFixture.source, filename: '历史来源.xlsx' } }] })))
+  render(<ProjectTasks {...props} />)
+  await screen.findByText('历史来源.xlsx')
+  expect(screen.getByText(locale === 'en' ? 'Historical task' : '历史任务')).toBeTruthy()
+  expect(screen.getByText(locale === 'en' ? 'Not recorded' : '未记录')).toBeTruthy()
+  expect(screen.queryByText(legacyTaskFixture.id)).toBeNull()
+  expect(document.body.textContent).not.toContain('1970')
+  fireEvent.click(screen.getAllByRole('button', { name: locale === 'en' ? 'View Boxplot generation task' : '查看箱线图生成任务' })[1])
+  expect(props.onSelectTask).toHaveBeenCalledWith(legacyTaskFixture.id)
 })

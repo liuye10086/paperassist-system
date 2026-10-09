@@ -33,8 +33,15 @@
 .artifact-panel .explanation-text { white-space: pre-wrap; font-size: 15px; }
 .artifact-panel .explanation-section details { background: #faf9fb; border-radius: 8px; padding: 12px 16px; font-size: 13px; }
 .artifact-panel .artifact-empty { color: #726c7c; padding-top: 12px; }
+.artifact-panel .external-send-review { margin: 20px 0; padding: 18px; background: #faf9fb; border: 1px solid #ded7e7; border-radius: 10px; }
+.artifact-panel .external-send-review h4 { margin-top: 0; }
+.external-send-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.external-send-fields label { display: flex; flex-direction: column; gap: 6px; min-width: 0; color: #4d306d; }
+.external-send-fields input { min-width: 0; padding: 10px; border: 1px solid #ded7e7; border-radius: 6px; background: #fff; color: #272431; font: inherit; }
+.external-send-fields input:focus-visible { outline: 3px solid #bda3da; outline-offset: 2px; }
 .artifact-panel .artifact-status { display: inline-block; margin: 0 0 8px; padding: 3px 10px; border-radius: 20px; background: #f1ecf7; color: #563577; font-size: 12px; }
 @media (max-width: 680px) {
+  .external-send-fields { grid-template-columns: 1fr; }
   .artifact-panel.boxplot-figure, .artifact-panel.analysis-explanation, .artifact-panel.word-report { padding: 18px; }
   .artifact-panel h3 { font-size: 20px; }
   .artifact-panel .analysis-actions { align-items: stretch; flex-direction: column; }

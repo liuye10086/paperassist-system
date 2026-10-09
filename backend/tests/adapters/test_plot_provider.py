@@ -49,6 +49,8 @@ def test_provider_writes_are_separate_fixed_and_use_actual_uploaded_path():
         instance.close()
     assert all(req.url.host == 'api.openai.com' for req in requests)
     body = json.loads(requests[0].content)
+    assert body['name'] == 'paperassist-plot'
+    assert 'test-call' not in requests[0].content.decode()
     assert body['memory_limit'] == '1g' and body['expires_after'] == {'anchor': 'last_active_at', 'minutes': 20}
     assert body['network_policy'] == {'type': 'disabled'}
     body = json.loads(requests[2].content)

@@ -182,3 +182,7 @@ model_budgets, model_calls, usage_events, budget_reservations = define_model_usa
 from app.db.task_wait_schema import define_task_wait_tables
 
 task_waits, task_resume_requests = define_task_wait_tables(metadata)
+
+from app.db.task_error_schema import add_task_error_columns
+
+add_task_error_columns(tasks, task_attempts, task_events)

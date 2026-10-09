@@ -38,20 +38,22 @@ class TaskWorkspaceService:
                 or status not in (None, 'queued', 'running', 'waiting_input', 'waiting_confirmation', 'succeeded', 'failed')
                 or task_type not in (None, 'boxplot', 'explanation', 'word_report')):
             raise StorageError('task_input_invalid', '任务列表查询参数无效。', 422)
-        conditions = ['project_id=%s', 'user_id=%s']
-        values = [project_id, self.store.user_id]
-        for field, value in [('status', status), ('task_type', task_type)]:
-            if value is not None:
-                conditions.append(field + '=%s')
-                values.append(value)
-        where = ' AND '.join(conditions)
+        from app.adapters.legacy_task_query import mixed_task_page, require_legacy_task
+        from app.domain.tasks.legacy import public_legacy_task, legacy_source
+        from app.domain.tasks.legacy_artifacts import exact_legacy_artifact
         with self.store.connection() as db:
             self.store.require_project(db, project_id)
-            total = db.execute('SELECT count(*) AS n FROM tasks WHERE ' + where, tuple(values)).fetchone()['n']
-            rows = db.execute('SELECT * FROM tasks WHERE ' + where
-                + ' ORDER BY created_at DESC,id DESC LIMIT %s OFFSET %s',
-                (*values, page_size, (page - 1) * page_size)).fetchall()
-            items = [{'task': self.store.public_task(dict(row)), 'source': self.source(db, row)} for row in rows]
+            total, rows = mixed_task_page(db, self.store.user_id, project_id, page=page, page_size=page_size,
+                                         status=status, task_type=task_type)
+            items = []
+            for candidate in rows:
+                if candidate['origin'] == 'legacy':
+                    row = require_legacy_task(db, self.store.user_id, candidate['id'])
+                    items.append({'task': public_legacy_task(row, exact_legacy_artifact(db, row)),
+                                  'source': legacy_source(row)})
+                else:
+                    row = self.store.require_task(db, candidate['id'])
+                    items.append({'task': self.store.public_task(row), 'source': self.source(db, row)})
         return dict(project_id=project_id, items=items, total=total, page=page, page_size=page_size)
 
     @staticmethod
@@ -120,6 +122,14 @@ class TaskWorkspaceService:
         from app.domain.tasks.waits import get_open_wait, allowed_recovery_actions
 
         with self.store.connection() as db:
+            from app.domain.tasks.legacy import is_legacy_id, public_legacy_task, legacy_source
+            if is_legacy_id(task_id):
+                from app.adapters.legacy_task_query import require_legacy_task
+                from app.domain.tasks.legacy_artifacts import exact_legacy_artifact, legacy_artifacts
+                row = require_legacy_task(db, self.store.user_id, task_id)
+                artifact = exact_legacy_artifact(db, row)
+                return {'task': public_legacy_task(row, artifact), 'source': legacy_source(row),
+                        'wait': None, 'allowed_actions': [], 'artifacts': legacy_artifacts(row, artifact)}
             task = self.store.require_task(db, task_id)
             source = self.source(db, task)
             return {'task': self.store.public_task(task), 'source': source, 'wait': get_open_wait(db, task),

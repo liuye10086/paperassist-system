@@ -1,7 +1,5 @@
 """Internal task operations. No provider, dispatcher, or HTTP write entry point."""
 from datetime import datetime, timezone
-import hashlib
-import json
 import re
 from uuid import uuid4
 
@@ -35,7 +33,7 @@ class TaskService:
 
     def create(self, project_id, request, *, idempotency_key, explanation_policy=None,
                explanation_predecessor=_UNSPECIFIED_PREDECESSOR, boxplot_policy=None,
-               plot_predecessor=_UNSPECIFIED_PREDECESSOR):
+               plot_predecessor=_UNSPECIFIED_PREDECESSOR, predecessor_revision: int | None = None, require_external=False):
         try:
             # Revalidate copied/model-constructed values at this internal boundary too.
             request = TaskCreateRequest.model_validate(
@@ -44,8 +42,8 @@ class TaskService:
             raise StorageError('task_input_invalid', '任务输入无效，请重新选择同一版本的资料。', 422) from exc
         if not isinstance(idempotency_key, str) or not re.fullmatch(r'[\x21-\x7e]{1,128}', idempotency_key):
             raise StorageError('task_input_invalid', '任务请求标识无效，请重新提交。', 422)
-        digest = hashlib.sha256(json.dumps(request.model_dump(), ensure_ascii=False, allow_nan=False,
-                                          sort_keys=True, separators=(',', ':')).encode('utf-8')).hexdigest()
+        from app.domain.external_processing import request_digest, freeze_confirmation, invalid
+        digest = request_digest(request)
         with self.store.connection(write=True) as db:
             project = self.store.require_project(db, project_id)
             existing = self.store.find_request(db, project_id, request.task_type, idempotency_key)
@@ -54,24 +52,30 @@ class TaskService:
                     raise StorageError('task_idempotency_conflict', '同一请求标识已用于不同输入，请重新读取任务。', 409)
                 return self.store.public_task(existing), False
             snapshot = self.store.source_snapshot(db, project, request)
+            if request.external_processing is not None:
+                snapshot['external_processing'] = freeze_confirmation(snapshot, request.task_type, self.store.user_id, request.external_processing)
+            elif require_external:
+                raise invalid()
             if plot_predecessor is not _UNSPECIFIED_PREDECESSOR:
                 if request.task_type != 'boxplot':
                     raise StorageError('task_input_invalid', '任务来源条件无效。', 422)
-                latest = db.execute('''SELECT id,status FROM tasks
+                latest = db.execute('''SELECT id,status,revision FROM tasks
                     WHERE project_id=%s AND user_id=%s AND task_type='boxplot'
                       AND workflow_version='boxplot_v1' AND input_snapshot->'result'->>'id'=%s
                       AND input_snapshot->'versions'->>'figure'=%s
                     ORDER BY created_at DESC,id DESC LIMIT 1''',
                     (project_id, self.store.user_id, request.analysis_run_id, snapshot['versions']['figure'])).fetchone()
                 if ((latest['id'] if latest else None) != plot_predecessor
-                        or (latest is not None and latest['status'] != 'failed')):
+                        or (latest is not None and latest['status'] != 'failed')
+                        or (predecessor_revision is not None and (
+                            latest is None or latest['revision'] != predecessor_revision))):
                     raise StorageError('task_revision_conflict', '此来源的绘图任务已变化，请重新读取后操作。', 409)
             if explanation_predecessor is not _UNSPECIFIED_PREDECESSOR:
                 if request.task_type != 'explanation':
                     raise StorageError('task_input_invalid', '任务来源条件无效。', 422)
                 # HTTP callers observe a source before obtaining this write lock.
                 # A second header must not authorize another paid task in that gap.
-                latest = db.execute('''SELECT id,status FROM tasks
+                latest = db.execute('''SELECT id,status,revision FROM tasks
                     WHERE project_id=%s AND user_id=%s AND task_type='explanation'
                       AND workflow_version='explanation_v1'
                       AND input_snapshot->'result'->>'id'=%s
@@ -81,12 +85,15 @@ class TaskService:
                     (project_id, self.store.user_id, request.analysis_run_id, request.figure_id,
                      snapshot['versions']['explanation'])).fetchone()
                 if ((latest['id'] if latest else None) != explanation_predecessor
-                        or (latest is not None and latest['status'] != 'failed')):
+                        or (latest is not None and latest['status'] != 'failed')
+                        or (predecessor_revision is not None and (
+                            latest is None or latest['revision'] != predecessor_revision))):
                     raise StorageError('task_revision_conflict', '此来源的解释任务已变化，请重新读取后操作。', 409)
             if request.task_type == 'explanation':
                 from app.domain.explanation_content import build_payload
                 from app.domain.explanation_policy import get_execution_policy, validate_execution_policy
-                payload = build_payload(snapshot['result'], snapshot['figure'])
+                from app.domain.external_material import explanation_material
+                _, payload = explanation_material(snapshot['result'], snapshot['figure'], snapshot.get('external_processing'))
                 if explanation_policy is not None:
                     frozen_policy = validate_execution_policy(explanation_policy, payload)
                 else:
@@ -156,6 +163,7 @@ class TaskService:
                 self.store.start_attempt(db, task)
                 event_type = 'started'
             elif status == 'queued':
+                task.update(retry_count=0, error_code=None, _retry_reason='manual_retry')
                 self.store.enqueue(db, task)
                 event_type = 'requeued'
             elif status == 'running':

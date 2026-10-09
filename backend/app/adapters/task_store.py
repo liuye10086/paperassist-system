@@ -10,6 +10,7 @@ from app.core.exceptions import StorageError
 from app.core.errors import PUBLIC_CODES
 from app.db.database import get_database_config
 from app.domain.tasks.contracts import TaskView, TaskEventView, display_status
+from app.domain.tasks.errors import safe_error_code, error_category
 
 
 def source_conflict():
@@ -132,24 +133,43 @@ class TaskStore:
             result_report_id=task.get('result_report_id'),
             result_explanation_id=task.get('result_explanation_id'),
             result_figure_id=task.get('result_figure_id'),
-            error_code=code if code in PUBLIC_CODES else ('internal_error' if code else None),
+            error_code=safe_error_code(code), retry_count=task.get('retry_count', 0),
             display_status=display_status(task['status'], task['phase']),
             input_version={'setup_revision': snapshot['result']['setup_revision'],
                            'output_language': snapshot['output_language']}).model_dump(mode='json')
 
     def get(self, task_id):
         with self.connection() as db:
+            from app.domain.tasks.legacy import is_legacy_id, public_legacy_task
+            if is_legacy_id(task_id):
+                from app.adapters.legacy_task_query import require_legacy_task
+                from app.domain.tasks.legacy_artifacts import exact_legacy_artifact
+                row = require_legacy_task(db, self.user_id, task_id)
+                return public_legacy_task(row, exact_legacy_artifact(db, row))
             return self.public_task(self.require_task(db, task_id))
+
+    def require_mutable(self, task_id):
+        from app.domain.tasks.legacy import is_legacy_id
+        if is_legacy_id(task_id):
+            from app.adapters.legacy_task_query import require_legacy_task
+            with self.connection() as db:
+                require_legacy_task(db, self.user_id, task_id)
+            raise StorageError('task_transition_invalid', '历史任务仅支持查看，无法重试或恢复。', 409)
 
     def events(self, task_id, *, after=0, limit=50):
         if (type(after) is not int or not 0 <= after <= 2_147_483_647
                 or type(limit) is not int or not 1 <= limit <= 100):
             raise StorageError('task_input_invalid', '任务事件查询参数无效。', 422)
         with self.connection() as db:
+            from app.domain.tasks.legacy import is_legacy_id
+            if is_legacy_id(task_id):
+                from app.adapters.legacy_task_query import require_legacy_task
+                require_legacy_task(db, self.user_id, task_id)
+                return {'task_id': task_id, 'items': [], 'next_cursor': after, 'has_more': False}
             self.require_task(db, task_id)
             rows = db.execute('''SELECT * FROM task_events WHERE task_id=%s AND seq>%s
                 ORDER BY seq LIMIT %s''', (task_id, after, limit + 1)).fetchall()
-            items = [TaskEventView.model_validate(dict(row)).model_dump(mode='json') for row in rows[:limit]]
+            items = [TaskEventView.model_validate({**dict(row), 'error_code': safe_error_code(row.get('error_code'))}).model_dump(mode='json') for row in rows[:limit]]
             return {'task_id': task_id, 'items': items, 'next_cursor': items[-1]['seq'] if items else after,
                     'has_more': len(rows) > limit}
 
@@ -163,11 +183,16 @@ class TaskStore:
 
     @staticmethod
     def append_event(db, task, event_type):
+        error = safe_error_code(task.get('error_code')) if event_type in ('failed', 'waiting', 'deferred') else None
+        retry_reason = task.get('_retry_reason')
+        retry_count = task.get('retry_count', 0) if retry_reason or error else None
         db.execute('''INSERT INTO task_events
-            (task_id,seq,task_revision,event_type,status,phase,reason_code,created_at)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s)''',
+            (task_id,seq,task_revision,event_type,status,phase,reason_code,created_at,
+             error_code,error_category,retry_reason,retry_count,retry_delay_seconds)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)''',
             (task['id'], task['revision'], task['revision'], event_type, task['status'],
-             task['phase'], task['reason_code'], task['updated_at']))
+             task['phase'], task['reason_code'], task['updated_at'], error, error_category(error),
+             retry_reason, retry_count, task.get('_retry_delay_seconds')))
 
     @staticmethod
     def enqueue(db, task):
@@ -185,20 +210,26 @@ class TaskStore:
 
     @staticmethod
     def finish_attempt(db, task):
-        updated = db.execute('''UPDATE task_attempts SET status=%s,finished_at=%s,reason_code=%s
+        error = safe_error_code(task.get('error_code'))
+        updated = db.execute('''UPDATE task_attempts SET status=%s,finished_at=%s,reason_code=%s,
+                error_code=COALESCE(%s,error_code),error_category=COALESCE(%s,error_category),
+                retry_reason=CASE WHEN %s::text IS NULL THEN retry_reason ELSE %s END,
+                lease_owner=NULL,lease_expires_at=NULL,heartbeat_at=NULL
             WHERE task_id=%s AND attempt_no=%s AND status='running' ''',
-            (task['status'], task['updated_at'], task['reason_code'], task['id'], task['current_attempt']))
+            (task['status'], task['updated_at'], task['reason_code'], error, error_category(error),
+             error, task.get('_retry_reason'), task['id'], task['current_attempt']))
         if updated.rowcount != 1:
             raise StorageError('task_transition_invalid', '当前任务执行记录不一致，请重新读取任务。', 409)
 
     @staticmethod
     def update_task(db, task, expected_revision):
+        task['error_code'] = safe_error_code(task.get('error_code'))
         updated = db.execute('''UPDATE tasks
             SET status=%s,phase=%s,revision=%s,current_attempt=%s,reason_code=%s,updated_at=%s,
-                result_report_id=%s,error_code=%s,result_explanation_id=%s,result_figure_id=%s
+                result_report_id=%s,error_code=%s,result_explanation_id=%s,result_figure_id=%s,retry_count=%s
             WHERE id=%s AND revision=%s''',
             (task['status'], task['phase'], task['revision'], task['current_attempt'], task['reason_code'],
              task['updated_at'], task.get('result_report_id'), task.get('error_code'),
-             task.get('result_explanation_id'), task.get('result_figure_id'), task['id'], expected_revision))
+             task.get('result_explanation_id'), task.get('result_figure_id'), task.get('retry_count', 0), task['id'], expected_revision))
         if updated.rowcount != 1:
             raise StorageError('task_revision_conflict', '任务已发生变化，请重新读取后再操作。', 409)

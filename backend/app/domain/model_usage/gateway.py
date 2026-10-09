@@ -4,17 +4,19 @@ from hashlib import sha256
 import json
 from typing import TYPE_CHECKING
 
-from app.adapters.models.openai_responses import canonical_payload, safe_request_id
+from app.adapters.models.openai_responses import ModelProviderError, canonical_payload, safe_request_id
+from app.core.exceptions import StorageError
 
 if TYPE_CHECKING:
     from app.domain.model_usage.contracts import CallRequest
 
 
 class ModelGatewayError(Exception):
-    def __init__(self, code, *, request_id=None):
+    def __init__(self, code, *, request_id=None, status_code=None):
         super().__init__('统一模型调用未能完成，请核对已保存的调用状态。')
         self.code = code
         self.request_id = safe_request_id(request_id)
+        self.status_code = status_code if type(status_code) is int and 100 <= status_code <= 599 else None
 
 
 def input_digest(*, instructions: str, payload: dict) -> str:
@@ -60,7 +62,8 @@ class ModelGateway:
         except Exception as exc:
             request_id = safe_request_id(getattr(exc, 'request_id', None))
             self._mark_unknown(call['id'], 'model_provider_request_failed', request_id)
-            raise ModelGatewayError('model_provider_request_failed', request_id=request_id) from None
+            raise ModelGatewayError('model_provider_request_failed', request_id=request_id,
+                                    status_code=getattr(exc, 'status_code', None)) from None
         return self._record(call['id'], receipt, submitted=True)
 
     def submit_plot(self, request: 'CallRequest', *, instructions: str, payload: dict, execution_lease) -> dict:
@@ -113,7 +116,8 @@ class ModelGateway:
                     raise ModelGatewayError('model_receipt_persistence_failed', request_id=request_id) from None
             else:
                 self._mark_unknown(call['id'], code, request_id)
-            raise ModelGatewayError(code, request_id=request_id) from None
+            raise ModelGatewayError(code, request_id=request_id,
+                                    status_code=getattr(exc, 'status_code', None)) from None
         if step == 'response':
             return self._record(call['id'], receipt, submitted=True)
         try:
@@ -142,9 +146,11 @@ class ModelGateway:
             receipt = self.provider.retrieve(response_id, policy=policy)
         except Exception as exc:
             # GET cannot invalidate the saved response or release its reservation.
-            code = 'model_response_not_found' if getattr(exc, 'status_code', None) == 404 else 'model_provider_request_failed'
+            status_code = getattr(exc, 'status_code', None)
+            code = ('model_response_not_found' if status_code == 404 else
+                    exc.code if isinstance(exc, ModelProviderError) else 'internal_error')
             raise ModelGatewayError(code,
-                                    request_id=getattr(exc, 'request_id', None)) from None
+                                    request_id=getattr(exc, 'request_id', None), status_code=status_code) from None
         if not isinstance(receipt, dict) or receipt.get('response_id') != response_id:
             raise ModelGatewayError('model_response_invalid',
                                     request_id=receipt.get('request_id') if isinstance(receipt, dict) else None)
@@ -160,12 +166,19 @@ class ModelGateway:
             observation = {key: receipt[key] for key in ('response_id', 'model', 'status', 'usage')}
             # Poll request IDs differ; accounting observations remain idempotent.
             event_key = 'response:' + sha256(canonical_payload(observation).encode('utf-8')).hexdigest()
+        except (KeyError, TypeError, ValueError, RecursionError):
+            if submitted:
+                self._mark_unknown(call_id, 'model_response_invalid', request_id)
+            raise ModelGatewayError('model_response_invalid', request_id=request_id) from None
+        try:
             call = self.service.record_response(call_id, event_key=event_key, request_id=request_id,
                                                 **observation)
-        except Exception:
+        except Exception as exc:
+            code = ('model_response_invalid' if isinstance(exc, StorageError)
+                    and exc.code == 'model_usage_input_invalid' else 'model_receipt_persistence_failed')
             if submitted:
-                self._mark_unknown(call_id, 'model_receipt_persistence_failed', request_id)
-            raise ModelGatewayError('model_receipt_persistence_failed', request_id=request_id) from None
+                self._mark_unknown(call_id, code, request_id)
+            raise ModelGatewayError(code, request_id=request_id) from None
         return {'call': call, 'response': receipt.get('response')}
 
     def _mark_unknown(self, call_id, code, request_id):

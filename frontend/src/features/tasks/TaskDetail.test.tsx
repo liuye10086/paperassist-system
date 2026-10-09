@@ -1,7 +1,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
 import TaskDetail from './TaskDetail'
-import { eventsFixture, taskFixture, usageFixture, workspaceFixture } from './taskFixtures'
+import { eventsFixture, legacyTaskFixture, legacyWorkspaceFixture, taskFixture, usageFixture, workspaceFixture } from './taskFixtures'
 import { setLocale } from '../../shared/i18n'
 import { clearApiSession } from '../../shared/api/client'
 import { watchProjectAccess } from '../../shared/api/projectAccess'
@@ -206,4 +206,111 @@ it('clears private task detail, events and usage after session invalidation', as
   expect(screen.queryByText('test-model')).toBeNull()
   expect(screen.queryByRole('region', { name: '执行记录' })).toBeNull()
   expect(screen.queryByRole('button', { name: '预算或配置已调整，继续任务' })).toBeNull()
+})
+it.each(['zh-CN', 'en'] as const)('shows exact historical figure with honest missing history and usage in %s', async locale => {
+  setLocale(locale)
+  const fetch = api({ ...legacyWorkspaceFixture, private_receipt: 'RECEIPT_SENTINEL', source_hash: 'HASH_SENTINEL' })
+  render(<TaskDetail {...props} taskId={legacyTaskFixture.id} />)
+  const link = await screen.findByRole('link', { name: locale === 'en' ? 'Download this task’s PNG' : '下载此任务的 PNG' })
+  expect(link.getAttribute('href')).toBe(legacyWorkspaceFixture.artifacts.figure.download_url)
+  expect(screen.getByText(locale === 'en' ? 'Historical task' : '历史任务')).toBeTruthy()
+  expect(screen.getByText(locale === 'en' ? 'The previous system did not record complete execution steps or model usage for this task.' : '旧系统未记录此任务的完整执行步骤和模型用量。')).toBeTruthy()
+  expect(screen.queryByRole('region', { name: locale === 'en' ? 'Execution history' : '执行记录' })).toBeNull()
+  expect(screen.queryByRole('region', { name: locale === 'en' ? 'Task usage' : '本次任务用量' })).toBeNull()
+  expect(screen.queryByRole('region', { name: locale === 'en' ? 'Task actions' : '任务处理' })).toBeNull()
+  for (const hidden of [legacyTaskFixture.id, 'RECEIPT_SENTINEL', 'HASH_SENTINEL', '$0', '仍可恢复', '当前执行次数']) expect(document.body.textContent).not.toContain(hidden)
+  fireEvent.click(screen.getByRole('button', { name: locale === 'en' ? 'Reload task' : '重新读取任务' }))
+  await waitFor(() => expect(fetch.mock.calls).toHaveLength(2))
+  expect(fetch.mock.calls.every(([url, init]) => url.endsWith('/workspace') && !init?.method)).toBe(true)
+})
+it('keeps the exact historical explanation and reports uncertainty when no artifact can be confirmed', async () => {
+  const legacy = { ...legacyWorkspaceFixture, task: { ...legacyTaskFixture, id: 'legacy-explanation:b2xk', task_type: 'explanation',
+    phase: 'interpret', result_figure_id: null, result_explanation_id: 'expl-old' },
+    artifacts: { figure: null, report: null, explanation: { sections: [{ key: 'summary', title: '原解释', text: '原研究文本' }], limitations: ['原限制'] } } }
+  api(legacy)
+  const view = render(<TaskDetail {...props} taskId={legacy.task.id} />)
+  await screen.findByText('原研究文本')
+  expect(screen.getByText('原限制')).toBeTruthy()
+  view.unmount()
+  api({ ...legacy, artifacts: { figure: null, report: null, explanation: null } })
+  render(<TaskDetail {...props} taskId={legacy.task.id} />)
+  await screen.findByText('无法确认此历史任务关联的成果。')
+  expect(screen.queryByText('此任务尚无已保存的成果。')).toBeNull()
+})
+it('polls a historical running job until its saved result arrives, then stops detail polling', async () => {
+  vi.useFakeTimers()
+  const fetch = vi.fn(async () => Response.json(fetch.mock.calls.length === 1 ? { ...legacyWorkspaceFixture,
+    task: { ...legacyTaskFixture, status: 'running', display_status: 'computing', result_figure_id: null },
+    artifacts: { figure: null, explanation: null, report: null } } : legacyWorkspaceFixture))
+  vi.stubGlobal('fetch', fetch)
+  const view = render(<TaskDetail {...props} taskId={legacyTaskFixture.id} />)
+  await act(async () => {})
+  expect(screen.getByText('数据计算中')).toBeTruthy()
+  expect(screen.getByText('无法确认此历史任务关联的成果。')).toBeTruthy()
+  await act(async () => { vi.advanceTimersByTime(5000) })
+  expect(screen.getByText('已完成')).toBeTruthy()
+  expect(screen.getByRole('link', { name: '下载此任务的 PNG' })).toBeTruthy()
+  expect(fetch).toHaveBeenCalledTimes(2)
+  await act(async () => { vi.advanceTimersByTime(20_000) })
+  expect(fetch).toHaveBeenCalledTimes(2)
+  view.unmount()
+})
+it.each([{ allowed_actions: ['retry'] }, { wait: workspaceFixture.wait }])('rejects historical workspace action contract violation %j', async invalid => {
+  const fetch = api({ ...legacyWorkspaceFixture, ...invalid })
+  render(<TaskDetail {...props} taskId={legacyTaskFixture.id} />)
+  await screen.findByText('任务详情读取失败，请重试。')
+  expect(screen.queryByText('保存的历史图')).toBeNull()
+  expect(fetch.mock.calls).toHaveLength(1)
+})
+it.each(['zh-CN', 'en'] as const)('displays a safe historical error without exposing the original error in %s', async locale => {
+  setLocale(locale)
+  const fetch = api({ ...legacyWorkspaceFixture, task: { ...legacyTaskFixture, status: 'failed', display_status: 'failed',
+    error_code: 'model_provider_unavailable', message: 'PRIVATE_ERROR_SENTINEL' } })
+  render(<TaskDetail {...props} taskId={legacyTaskFixture.id} />)
+  await screen.findByText(locale === 'en' ? 'The model service was unavailable when the historical task ran.' : '旧任务执行时模型服务不可用。')
+  expect(document.body.textContent).not.toContain('PRIVATE_ERROR_SENTINEL')
+  expect(fetch.mock.calls).toHaveLength(1)
+  expect(screen.queryByRole('button', { name: /重试原任务|Retry original task/ })).toBeNull()
+})
+it.each([
+  ['zh-CN', 'task_failed', '旧任务执行失败。'],
+  ['en', 'task_failed', 'The historical task failed.'],
+  ['zh-CN', 'explanation_invalid', '旧任务的解释未通过事实核验，未保存内容。'],
+  ['en', 'explanation_invalid', 'The historical explanation failed fact verification and was not saved.'],
+  ['zh-CN', 'model_submission_unknown', '旧任务的模型提交结果无法确认。'],
+  ['en', 'model_submission_unknown', 'The historical model submission outcome could not be confirmed.'],
+  ['zh-CN', 'PRIVATE_ERROR_SENTINEL', '旧系统记录了任务异常，具体原因无法确认。'],
+  ['en', 'PRIVATE_ERROR_SENTINEL', 'The previous system recorded a task problem; the specific cause could not be confirmed.'],
+] as const)('shows a safe readonly historical error for %s / %s', async (locale, error_code, reason) => {
+  setLocale(locale)
+  const fetch = api({ ...legacyWorkspaceFixture, task: { ...legacyTaskFixture, status: 'failed', display_status: 'failed',
+    error_code, message: 'PRIVATE_PROVIDER_SENTINEL' } })
+  render(<TaskDetail {...props} taskId={legacyTaskFixture.id} />)
+  await screen.findByText(reason)
+  expect(screen.getByText(locale === 'en' ? 'This historical task is available for viewing only; resume and retry are unavailable.' : '此历史任务仅供查看，不支持恢复或重试。')).toBeTruthy()
+  for (const hidden of ['请检查数据和配置后重试', '请重新生成', 'before retrying', 'Generate it again', 'PRIVATE_PROVIDER_SENTINEL', 'PRIVATE_ERROR_SENTINEL']) {
+    expect(document.body.textContent).not.toContain(hidden)
+  }
+  expect(screen.queryByRole('region', { name: locale === 'en' ? 'Task actions' : '任务处理' })).toBeNull()
+  expect(fetch.mock.calls.every(([url, init]) => url.endsWith('/workspace') && !init?.method)).toBe(true)
+})
+it.each([
+  ['zh-CN', 'task_failed', '任务执行失败，请检查数据和配置后重试。'],
+  ['en', 'task_failed', 'The task failed. Check the data and configuration before retrying.'],
+  ['zh-CN', 'explanation_invalid', '解释未通过事实核验，未保存内容，请重新生成。'],
+  ['en', 'explanation_invalid', 'The explanation failed fact verification and was not saved. Generate it again.'],
+] as const)('preserves existing unified task error prose for %s / %s', async (locale, error_code, reason) => {
+  setLocale(locale)
+  api({ ...workspaceFixture, task: { ...taskFixture, error_code } })
+  render(<TaskDetail {...props} />)
+  await screen.findByText(reason)
+  expect(screen.queryByText(locale === 'en' ? 'This historical task is available for viewing only; resume and retry are unavailable.' : '此历史任务仅供查看，不支持恢复或重试。')).toBeNull()
+})
+it('preserves the saved unified Word download route', async () => {
+  api({ ...workspaceFixture, wait: null, allowed_actions: [], task: { ...taskFixture, task_type: 'word_report',
+    phase: 'export', status: 'succeeded', display_status: 'succeeded', result_report_id: 'report-old' },
+    artifacts: { figure: null, explanation: null, report: { filename: '原报告.docx', download_url: '/api/v1/projects/p1/files/f1/analysis-runs/r1/report/report-old/download' } } })
+  render(<TaskDetail {...props} />)
+  const link = await screen.findByRole('link', { name: '下载此任务的 Word' })
+  expect(link.getAttribute('href')).toBe('/api/v1/projects/p1/files/f1/analysis-runs/r1/report/report-old/download')
 })

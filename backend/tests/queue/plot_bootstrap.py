@@ -70,12 +70,13 @@ def response(task, container_id, pending):
             'input_tokens_details': {'cached_tokens': 0, 'cache_write_tokens': 0}}}
 
 
-def transport(request):
+def transport(request, call_id=None):
     assert request.url.host == 'api.openai.com'
     path, method = request.url.path, request.method
     if method == 'POST' and path == '/v1/containers':
         body = json.loads(request.content)
-        task = call_task(body['name'].removeprefix('paperassist-'))
+        assert body['name'] == 'paperassist-plot'
+        task = call_task(call_id)
         assert body['network_policy'] == {'type': 'disabled'}
         container_id = 'cntr_' + task['id'].replace('-', '')
         data = {'id': container_id, 'object': 'container', 'created_at': 1, 'name': body['name'],
@@ -127,10 +128,13 @@ def transport(request):
         groups = {item['label']: item['values'] for item in payload['groups']}
         figure = plot_data(result, payload['values'], groups)
         metrics = ('n', 'mean', 'std', 'min', 'q1', 'median', 'q3', 'max', 'iqr')
-        manifest = {'analysis_run_id': result['id'], 'source_sha256': result['source_sha256'], **payload['labels'],
+        manifest = {**payload['labels'],
             'overall': {key: result['overall'][key] for key in metrics},
-            'groups': [{'label': group['label'], 'statistics': {key: group['statistics'][key] for key in metrics}}
-                       for group in result['groups']], 'series': figure['series']}
+            'groups': [{'label': payload['groups'][index]['label'],
+                        'statistics': {key: group['statistics'][key] for key in metrics}}
+                       for index, group in enumerate(result['groups'])], 'series': figure['series']}
+        if task['input_snapshot'].get('external_processing') is None:
+            manifest.update(analysis_run_id=result['id'], source_sha256=result['source_sha256'])
         return httpx2.Response(200, json=manifest)
     log_call(task, action)
     if crash:
@@ -139,8 +143,18 @@ def transport(request):
 
 
 def provider():
-    return OpenAIPlotProvider(api_key='isolated-test-key',
-                             http_client=httpx2.Client(transport=httpx2.MockTransport(transport)))
+    # Link synthetic responses using local test context, never outbound metadata.
+    context = {}
+    instance = OpenAIPlotProvider(api_key='isolated-test-key', http_client=httpx2.Client(
+        transport=httpx2.MockTransport(lambda request: transport(request, context.get('call_id')))))
+    create_container = instance.create_container
+
+    def create(*, policy, call_id):
+        context['call_id'] = call_id
+        return create_container(policy=policy, call_id=call_id)
+
+    instance.create_container = create
+    return instance
 
 
 reserve, record_step, record = ModelUsageService.reserve_call, ModelUsageService.record_plot_step, ModelGateway._record

@@ -9,8 +9,10 @@ const empty = { current_revision: 1, is_current: true, figure_id: 'figure', expl
 const job = (status: string) => ({ id: 'job', status, message: '解释任务处理中', response_id: null, created_at: '' })
 const props = { base: '/file', runId: 'run', revision: 1, figureId: 'figure', canGenerate: true, disabled: false, onBusyChange: vi.fn() }
 const reportState = { current_revision: 1, is_current: true, ready: true, issues: [], report: null }
+const disclosure = { version: 1, provider: 'openai', task_type: 'explanation', source_digest: 'source', has_saved_result: false, summary: { valid_count: 3, excluded_count: 0, group_count: 1 }, labels: [{ key: 'numeric_name', value: '测量值' }, { key: 'unit', value: '' }, { key: 'figure_title', value: '图表' }] }
+async function confirmSend() { await act(async () => {}); fireEvent.click(screen.getByRole('button', { name: '确认发送并生成' })); await act(async () => {}) }
 const json = (value: unknown) => Promise.resolve({ ok: true, json: async () => value })
-function api(state: unknown = empty, configured = true) { return vi.fn((url: string, _init?: RequestInit) => json(url.endsWith('/report') ? reportState : url === '/api/v1/ai/explanation-config' ? { configured, model: 'model', message: '未配置 API' } : state)) }
+function api(state: unknown = empty, configured = true) { return vi.fn((url: string, _init?: RequestInit) => url.endsWith('/disclosure') ? json(disclosure) : json(url.endsWith('/report') ? reportState : url === '/api/v1/ai/explanation-config' ? { configured, model: 'model', message: '未配置 API' } : state)) }
 const button = () => screen.getByRole('button', { name: '使用 OpenAI 生成解释' }) as HTMLButtonElement
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.useRealTimers(); setLocale('zh-CN') })
 
@@ -18,6 +20,7 @@ it('shows explanation loading and failure in Word report with read-only recovery
   let rejectRead!: (error: Error) => void
   let initial = true
   const fetch = vi.fn((url: string, _init?: RequestInit) => {
+    if (url.endsWith('/disclosure')) return json(disclosure)
     if (url.endsWith('/explanation') && initial) {
       initial = false
       return new Promise((_resolve, reject) => { rejectRead = reject })
@@ -41,7 +44,7 @@ describe.each(['zh-CN', 'en'] as const)('independent explanation configuration (
   it('shows missing explanation policy and reloads it independently', async () => {
     setLocale(locale)
     let configured = false
-    const fetch = vi.fn((url: string) => json(url === '/api/v1/ai/explanation-config'
+    const fetch = vi.fn((url: string) => url.endsWith('/disclosure') ? json(disclosure) : json(url === '/api/v1/ai/explanation-config'
       ? { configured, model: configured ? 'model' : null, message_code: 'explanation_not_configured' } : empty))
     vi.stubGlobal('fetch', fetch)
     render(<AnalysisExplanation {...props} />)
@@ -58,19 +61,19 @@ describe.each(['zh-CN', 'en'] as const)('independent explanation configuration (
 it('generates six sections with evidence and safely renders AI draft and provenance', async () => {
   const fetch = api(); vi.stubGlobal('fetch', fetch); render(<AnalysisExplanation {...props} />)
   await waitFor(() => expect(button().disabled).toBe(false))
-  fetch.mockImplementation((url: string, init?: RequestInit) => json(url.endsWith('/report') ? reportState : init?.method === 'POST' ? { ...empty, explanation } : url === '/api/v1/ai/explanation-config' ? { configured: true } : empty))
-  fireEvent.click(button()); fireEvent.click(button())
+  fetch.mockImplementation((url: string, init?: RequestInit) => url.endsWith('/disclosure') ? json(disclosure) : json(url.endsWith('/report') ? reportState : init?.method === 'POST' ? { ...empty, explanation } : url === '/api/v1/ai/explanation-config' ? { configured: true } : empty))
+  fireEvent.click(button()); fireEvent.click(button()); await confirmSend()
   expect(await screen.findByText(explanation.sections[0].text)).toBeTruthy()
   for (const section of explanation.sections) expect(screen.getByRole('heading', { name: section.title })).toBeTruthy()
   expect(screen.getAllByText('有效样本数：3')).toHaveLength(6)
   expect(screen.getByText(/AI 草稿/)).toBeTruthy(); expect(screen.getByText('未进行显著性检验')).toBeTruthy()
   expect(screen.queryAllByText(/SHA256|解释编号|配置版本|统计结果编号|图表编号|prompt_version|explanation-v1/)).toHaveLength(0); expect(screen.getByText('证据校验通过')).toBeTruthy(); expect(document.querySelector('script')).toBeNull()
   const posts = fetch.mock.calls.filter(call => call[1]?.method === 'POST')
-  expect(posts).toHaveLength(1); expect(JSON.parse(posts[0][1]!.body as string)).toEqual({ expected_revision: 1, figure_id: 'figure' })
+  expect(posts).toHaveLength(1); expect(JSON.parse(posts[0][1]!.body as string)).toEqual({ expected_revision: 1, figure_id: 'figure', external_processing: { version: 1, confirmed: true, source_digest: 'source', labels: Object.fromEntries(disclosure.labels.map(label => [label.key, label.value])) } })
 })
 it('restores running work and polls without POST', async () => {
   vi.useFakeTimers(); let reads = 0
-  const fetch = vi.fn((url: string, _init?: RequestInit) => json(url.endsWith('/report') ? reportState : url === '/api/v1/ai/explanation-config' ? { configured: true } : reads++ === 0 ? { ...empty, job: job('running') } : { ...empty, explanation }))
+  const fetch = vi.fn((url: string, _init?: RequestInit) => url.endsWith('/disclosure') ? json(disclosure) : json(url.endsWith('/report') ? reportState : url === '/api/v1/ai/explanation-config' ? { configured: true } : reads++ === 0 ? { ...empty, job: job('running') } : { ...empty, explanation }))
   vi.stubGlobal('fetch', fetch); render(<AnalysisExplanation {...props} />); await act(async () => {})
   expect(props.onBusyChange).toHaveBeenLastCalledWith(false)
   await act(async () => { vi.advanceTimersByTime(3000) })
@@ -82,13 +85,13 @@ it.each(['failed'])('only explicit %s retry adds retry and warns about cost', as
   const retry = await screen.findByRole('button', { name: '重试生成解释（再次调用 API）' })
   await waitFor(() => expect((retry as HTMLButtonElement).disabled).toBe(false))
   expect(screen.getByText(/额外费用/)).toBeTruthy(); expect(fetch.mock.calls.every(call => !call[1]?.method)).toBe(true)
-  fireEvent.click(retry)
-  expect(JSON.parse(fetch.mock.calls.find(call => call[1]?.method === 'POST')![1]!.body as string)).toEqual({ expected_revision: 1, figure_id: 'figure', retry: true })
+  fireEvent.click(retry); await confirmSend()
+  expect(JSON.parse(fetch.mock.calls.find(call => call[1]?.method === 'POST')![1]!.body as string)).toEqual({ expected_revision: 1, figure_id: 'figure', retry: true, expected_predecessor_id: 'job', external_processing: { version: 1, confirmed: true, source_digest: 'source', labels: Object.fromEntries(disclosure.labels.map(label => [label.key, label.value])) } })
 })
 it('missing key keeps cached explanation readable and configuration reload available', async () => {
   const fetch = api({ ...empty, explanation }, false); vi.stubGlobal('fetch', fetch); render(<AnalysisExplanation {...props} />)
   expect(await screen.findByText(explanation.sections[0].text)).toBeTruthy(); expect(button().disabled).toBe(true)
-  fetch.mockImplementation((url: string) => json(url.endsWith('/report') ? reportState : url === '/api/v1/ai/explanation-config' ? { configured: true } : { ...empty, explanation }))
+  fetch.mockImplementation((url: string) => url.endsWith('/disclosure') ? json(disclosure) : json(url.endsWith('/report') ? reportState : url === '/api/v1/ai/explanation-config' ? { configured: true } : { ...empty, explanation }))
   fireEvent.click(screen.getByRole('button', { name: '重新读取解释 OpenAI 配置' }))
   await waitFor(() => expect(button().disabled).toBe(false))
 })
@@ -133,13 +136,14 @@ it('ignores late reads after figure switching and aborts reads on unmount', asyn
 it('POST timeout requires reread before any further paid call', async () => {
   vi.useFakeTimers(); let posted = false
   const fetch = vi.fn((url: string, init?: RequestInit) => {
+    if (url.endsWith('/disclosure')) return json(disclosure)
     if (url.endsWith('/report')) return json(reportState)
     if (url === '/api/v1/ai/explanation-config') return json({ configured: true })
     if (init?.method === 'POST') { posted = true; return new Promise(() => {}) }
     return json(posted ? { ...empty, job: job('uncertain') } : empty)
   })
   vi.stubGlobal('fetch', fetch); render(<AnalysisExplanation {...props} />); await act(async () => {})
-  fireEvent.click(button()); await act(async () => { vi.advanceTimersByTime(30_000) })
+  fireEvent.click(button()); await confirmSend(); await act(async () => { vi.advanceTimersByTime(30_000) })
   expect(screen.getByRole('alert').textContent).toMatch(/先重新读取解释/); expect(button().disabled).toBe(true)
   fireEvent.click(screen.getByRole('button', { name: '重新读取解释' })); await act(async () => {})
   expect(button().disabled).toBe(true)
@@ -149,41 +153,47 @@ it('POST timeout requires reread before any further paid call', async () => {
 it('polls a newly submitted task and releases busy state after completion', async () => {
   vi.useFakeTimers(); let posted = false; let polls = 0; const onBusyChange = vi.fn()
   const fetch = vi.fn((url: string, init?: RequestInit) => {
+    if (url.endsWith('/disclosure')) return json(disclosure)
     if (url.endsWith('/report')) return json(reportState)
     if (url === '/api/v1/ai/explanation-config') return json({ configured: true })
     if (init?.method === 'POST') { posted = true; return json({ ...empty, job: job('submitting') }) }
     return json(!posted ? empty : polls++ === 0 ? { ...empty, job: job('running') } : { ...empty, explanation })
   })
   vi.stubGlobal('fetch', fetch); render(<AnalysisExplanation {...props} onBusyChange={onBusyChange} />); await act(async () => {})
-  fireEvent.click(button()); await act(async () => {}); expect(onBusyChange).toHaveBeenLastCalledWith(false)
+  fireEvent.click(button()); await confirmSend(); await act(async () => {}); expect(onBusyChange).toHaveBeenLastCalledWith(false)
   await act(async () => { vi.advanceTimersByTime(3000) }); expect(screen.getByText(explanation.sections[0].text)).toBeTruthy()
   expect(onBusyChange).toHaveBeenLastCalledWith(false); expect(fetch.mock.calls.filter(call => call[1]?.method === 'POST')).toHaveLength(1)
 })
 it('ignores a late generation response when the figure changes', async () => {
   let resolve!: (value: unknown) => void; let signal!: AbortSignal
   const fetch = vi.fn((url: string, init?: RequestInit) => {
+    if (url.endsWith('/disclosure')) return json(disclosure)
     if (init?.method === 'POST') { signal = init.signal as AbortSignal; return new Promise(done => { resolve = done }) }
     return json(url.endsWith('/report') ? reportState : url === '/api/v1/ai/explanation-config' ? { configured: true } : empty)
   })
   vi.stubGlobal('fetch', fetch); const view = render(<AnalysisExplanation {...props} />)
-  await waitFor(() => expect(button().disabled).toBe(false)); fireEvent.click(button())
+  await waitFor(() => expect(button().disabled).toBe(false)); fireEvent.click(button()); await confirmSend()
   view.rerender(<AnalysisExplanation {...props} figureId="replacement" />); expect(signal.aborted).toBe(true)
   await act(async () => { resolve({ ok: true, json: async () => ({ ...empty, explanation }) }) })
   expect(screen.queryByText(explanation.sections[0].text)).toBeNull()
 })
-it('server revision conflict retains the draft and requires current state before generation', async () => {
-  const fetch = vi.fn((url: string, init?: RequestInit) => init?.method === 'POST'
-    ? Promise.resolve({ ok: false, status: 409, json: async () => ({ detail: { code: 'setup_conflict', params: {}, message: 'ignored legacy text' } }) })
-    : json(url.endsWith('/report') ? reportState : url === '/api/v1/ai/explanation-config' ? { configured: true } : { ...empty, explanation }))
+it('server read conflict retains a saved draft and requires current state without regenerating', async () => {
+  let reread = false
+  const fetch = vi.fn((url: string, _init?: RequestInit) => url.endsWith('/explanation') && reread
+    ? Promise.resolve({ ok: false, status: 409, json: async () => ({ detail: { code: 'setup_conflict' } }) })
+    : json(url.endsWith('/report') ? reportState : url.endsWith('config') ? { configured: true } : { ...empty, explanation }))
   vi.stubGlobal('fetch', fetch); render(<AnalysisExplanation {...props} />)
-  await waitFor(() => expect(button().disabled).toBe(false)); fireEvent.click(button())
+  await waitFor(() => expect(button().disabled).toBe(false)); reread = true; fireEvent.click(button())
   await screen.findByText('分析配置已变化，请读取当前配置并重新执行统计。'); expect(button().disabled).toBe(true)
   expect(screen.getByText(explanation.sections[0].text)).toBeTruthy(); expect(screen.getByText(/以下解释对应旧配置或旧图表/)).toBeTruthy()
+  expect(fetch.mock.calls.every(([, init]) => !init?.method)).toBe(true)
+  expect(fetch.mock.calls.some(([url]) => url.endsWith('/disclosure'))).toBe(false)
 })
 
 it('exports cached explanations without a key and locks AI actions while report generation is busy', async () => {
   const onBusyChange = vi.fn(); let finish!: (value: unknown) => void
   const fetch = vi.fn((url: string, init?: RequestInit) => {
+    if (url.endsWith('/disclosure')) return json(disclosure)
     if (url.endsWith('/report')) return init?.method === 'POST' ? new Promise(resolve => { finish = resolve }) : json({ current_revision: 1, is_current: true, ready: true, issues: [], report: null })
     return json(url.endsWith('/report') ? reportState : url === '/api/v1/ai/explanation-config' ? { configured: false } : { ...empty, explanation })
   })

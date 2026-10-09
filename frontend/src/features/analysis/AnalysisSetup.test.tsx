@@ -147,6 +147,11 @@ test('plot submission locks short actions then queued work releases the workspac
   const queued = { current_revision: 1, is_current: true, figure: null, job: null,
     task: { id: 'task', status: 'queued', revision: 1, reason_code: null, error_code: null } }
   mock.mockImplementation(async (url: string, init?: RequestInit) => {
+    if (url.endsWith('/boxplot/disclosure')) return Response.json({ version: 1, provider: 'openai',
+      task_type: 'boxplot', source_digest: 'synthetic-source', has_saved_result: false,
+      summary: { valid_count: 23, excluded_count: 2, group_count: 1 }, labels: [
+        { key: 'numeric_name', value: '指标' }, { key: 'unit', value: 'mg/L' },
+        { key: 'group_name', value: '组别' }, { key: 'group:0', value: 'A组' }] })
     if (url.endsWith('/boxplot') && init?.method === 'POST') {
       submitted = true
       return new Promise<Response>(resolve => { finishPost = resolve })
@@ -161,6 +166,8 @@ test('plot submission locks short actions then queued work releases the workspac
   const generate = await screen.findByRole('button', { name: '使用 OpenAI 生成箱线图' })
   await waitFor(() => expect((generate as HTMLButtonElement).disabled).toBe(false))
   await user.click(generate)
+  expect(submitted).toBe(false)
+  await user.click(await screen.findByRole('button', { name: '确认发送并生成' }))
   await user.click(screen.getByRole('button', { name: '字段配置' }))
   await waitFor(() => expect((screen.getByLabelText('数值列') as HTMLSelectElement).disabled).toBe(true))
   await user.click(screen.getByRole('button', { name: '描述统计' }))

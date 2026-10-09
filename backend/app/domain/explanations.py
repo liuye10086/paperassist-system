@@ -24,8 +24,11 @@ from app.core.errors import job_message
 
 
 class ExplanationRequest(RunRequest):
+    external_processing: dict | None = None
     figure_id: str = Field(min_length=1, max_length=64)
     retry: bool = False
+    expected_predecessor_id: str | None = Field(default=None, min_length=1, max_length=64, pattern=r'^\S+$')
+    expected_predecessor_revision: int | None = Field(default=None, ge=1, le=2_147_483_647)
 
 
 def context(store, project_id, file_id, run_id):

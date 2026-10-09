@@ -5,6 +5,7 @@ from pathlib import Path
 import time
 
 import pytest
+from tests.queue.external_confirmation import confirm
 
 from app.db.database import database_connection
 from app.domain.explanation_content import VERSION
@@ -47,7 +48,8 @@ def test_explanation_slices_and_real_crash_recovery(client, cloud, writer, isola
         if budget['limit_micro_usd'] is None:
             service.set_budget('user', user_id, 10000000, 0)
         service.set_budget('project', project_id, 10000000, 0)
-        response = client.post(url, json={'expected_revision': figure['setup_revision'], 'figure_id': figure['id']},
+        response = client.post(url, json={'expected_revision': figure['setup_revision'], 'figure_id': figure['id'],
+                               'external_processing': confirm(client, url)},
                                headers={'Idempotency-Key': 'queue-' + mode})
         assert response.status_code == 202, response.text
         task = response.json()['task']
@@ -100,6 +102,7 @@ def test_explanation_slices_and_real_crash_recovery(client, cloud, writer, isola
         with database_connection() as db:
             calls = db.execute('SELECT * FROM model_calls WHERE task_id=%s', (task_id,)).fetchall()
             assert len(calls) == 1
+            assert calls[0]['policy_snapshot']['external_processing_version'] == 1
             reservations = db.execute('SELECT status FROM budget_reservations WHERE call_id=%s', (calls[0]['id'],)).fetchall()
             assert len(reservations) == 3
             assert {row['status'] for row in reservations} == ({'held'} if mode == 'unknown' else {'settled'})

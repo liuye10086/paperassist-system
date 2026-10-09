@@ -92,6 +92,9 @@ class ModelUsageService:
                   'tool_reserve_version': request.tool_reserve_version}
         with self.store.connection(write=True) as db:
             task = self.store.require_task(db, request.task_id)
+            external = task['input_snapshot'].get('external_processing')
+            if external is not None:
+                policy['external_processing_version'] = external['version']
             if execution_lease is not None:
                 self._require_execution_lease(db, task, execution_lease)
                 self._require_running(task, request.expected_task_revision)
@@ -287,7 +290,7 @@ class ModelUsageService:
             same_receipt = db.execute('''SELECT * FROM usage_events
                 WHERE call_id=%s AND event_type='observation' AND event_digest=%s''',
                 (call_id, digest)).fetchone()
-            if terminal_saved and call['usage_status'] == 'estimated':
+            if terminal_saved and call['usage_status'] == 'estimated' and not call.get('reconciliation_revision'):
                 if not same_receipt:
                     raise _error('model_usage_event_conflict', '已结算的供应商终态用量不能变更。')
                 # Bind the new audit key without reapplying historical pending evidence.
@@ -312,13 +315,29 @@ class ModelUsageService:
                 event_digest=digest, event_type='observation', provider_usage=measured['provider_usage'],
                 price_snapshot=call['price_snapshot'], estimated_cost_micro_usd=measured['estimated_cost_micro_usd'],
                 usage_status=measured['usage_status'], reason_code=measured['reason_code'], created_at=now))
+            if terminal_saved and call['usage_status'] == 'estimated' and call.get('reconciliation_revision'):
+                # Preserve the established original estimate contract. Later evidence
+                # is audited separately without rewriting a completed estimate.
+                return call
+            original_status = call['status']
             call.update(status=('completed' if status in ('completed', 'incomplete') else 'failed')
                 if status in TERMINAL else 'submitted', provider_status=status,
                 provider_request_id=request_id or call['provider_request_id'], provider_response_id=response_id,
                 estimated_cost_micro_usd=amount, usage_status=measured['usage_status'], error_code=None, updated_at=now)
             if call.get('provider_state'):
                 call['provider_state'] = {**call['provider_state'], 'phase': 'response_ready'}
+            if call.get('reconciliation_revision'):
+                call['status'] = original_status
             self.store.update_call(db, call)
+            if call.get('reconciliation_revision'):
+                from app.domain.model_usage.accounting import accounting_projection, reconciliation_status
+                if reconciliation_status(call) == 'reconciled':
+                    return call
+                row = db.execute('SELECT * FROM budget_reservations WHERE call_id=%s LIMIT 1', (call_id,)).fetchone()
+                accounted, _ = accounting_projection(call, dict(row))
+                db.execute('''UPDATE budget_reservations SET accounted_micro_usd=%s,status='held',updated_at=%s
+                    WHERE call_id=%s''', (accounted, now, call_id))
+                return call
             db.execute('''UPDATE budget_reservations SET accounted_micro_usd=%s,status=%s,updated_at=%s
                 WHERE call_id=%s''', (amount or 0, 'settled' if settled else 'held', now, call_id))
             return call
@@ -353,6 +372,7 @@ class ModelUsageService:
         return self._usage(None, task_id, page, page_size)
 
     def _usage(self, project_id, task_id, page, page_size):
+        from app.domain.model_usage.accounting import public_reconciliation
         if (type(page) is not int or not 1 <= page <= 1_000_000
                 or type(page_size) is not int or not 1 <= page_size <= 50):
             raise _error('model_usage_input_invalid', '模型用量分页参数无效。', 422)
@@ -368,16 +388,25 @@ class ModelUsageService:
             column, key = ('task_id', task_id) if task_id else ('project_id', project_id)
             where = ' WHERE c.user_id=%s AND c.' + column + '=%s'
             params = (self.store.user_id, key)
-            aggregate = db.execute('''SELECT COUNT(*) AS total,
-                COUNT(*) FILTER (WHERE c.usage_status='pending' AND c.status<>'released') AS pending
-                FROM model_calls c''' + where, params).fetchone()
-            rows = db.execute('''SELECT c.id,t.task_type,c.model,c.status,c.provider_status,c.usage_status,
-                c.estimated_cost_micro_usd,c.created_at,c.updated_at
+            all_calls = [dict(row) for row in db.execute('SELECT c.* FROM model_calls c' + where, params).fetchall()]
+            summary = dict(actual_micro_usd=0, reconciled_count=0, partial_count=0, pending_count=0)
+            for call in all_calls:
+                public = public_reconciliation(call)
+                summary['actual_micro_usd'] += public['actual_micro_usd'] or 0
+                if public['status'] in ('reconciled', 'partial', 'pending'):
+                    summary[public['status'] + '_count'] += 1
+            rows = db.execute('''SELECT c.*,t.task_type,
+                (SELECT MAX(e.created_at) FROM usage_events e WHERE e.call_id=c.id AND e.event_type='reconciliation') AS reconciled_at
                 FROM model_calls c JOIN tasks t ON t.id=c.task_id''' + where
                 + ' ORDER BY c.created_at DESC,c.id LIMIT %s OFFSET %s',
                 params + (page_size, (page - 1) * page_size)).fetchall()
             scope = views['task_budget' if task_id else 'project_budget']
+            public_fields = ('id', 'task_type', 'model', 'status', 'provider_status', 'usage_status',
+                             'estimated_cost_micro_usd', 'created_at', 'updated_at')
+            items = [{**{field: row[field] for field in public_fields},
+                'reconciliation': public_reconciliation(dict(row), row['reconciled_at'])} for row in rows]
             return dict(currency='USD', period='cumulative', enforcement_scope='unified_only', **views,
                 estimated_micro_usd=scope['estimated_micro_usd'], reserved_micro_usd=scope['reserved_micro_usd'],
-                pending_count=int(aggregate['pending']), items=[dict(row) for row in rows],
-                total=int(aggregate['total']), page=page, page_size=page_size)
+                accounted_micro_usd=scope['accounted_micro_usd'], reconciliation=summary,
+                pending_count=sum(call['usage_status'] == 'pending' and call['status'] != 'released' for call in all_calls),
+                items=items, total=len(all_calls), page=page, page_size=page_size)

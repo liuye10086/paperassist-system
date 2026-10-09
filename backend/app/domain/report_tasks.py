@@ -1,7 +1,5 @@
 """Word submission/retry adapters; rendering belongs to the independent worker."""
 from datetime import datetime, timezone
-import hashlib
-import json
 import re
 
 from app.adapters.task_store import TaskStore, source_conflict
@@ -53,8 +51,8 @@ def submit_report(project_id, file_id, run_id, request, project_store, idempoten
             project = service.store.require_project(db, project_id)
             service.store.source_snapshot(db, project, typed)
             existing = service.store.find_request(db, project_id, 'word_report', key)
-            digest = hashlib.sha256(json.dumps(typed.model_dump(), ensure_ascii=False, allow_nan=False,
-                sort_keys=True, separators=(',', ':')).encode('utf-8')).hexdigest()
+            from app.domain.external_processing import request_digest
+            digest = request_digest(typed)
             if existing and existing['input_digest'] != digest:
                 raise StorageError('task_idempotency_conflict', '同一请求标识已用于不同输入，请重新读取任务。', 409)
         return {**state, 'task': matching_task(service.store, project_id, snapshot)}, 200
@@ -89,7 +87,7 @@ def retry_word_in_transaction(store, db, task, expected_revision):
     if any(current[key] != original[key] for key in ('file', 'result', 'figure', 'explanation', 'versions', 'output_language')):
         raise source_conflict()
     task.update(status='queued', phase='export', revision=expected_revision + 1,
-        reason_code='retry_requested', error_code=None,
+        reason_code='retry_requested', error_code=None, retry_count=0, _retry_reason='manual_retry',
         updated_at=max(datetime.now(timezone.utc), task['updated_at']))
     store.update_task(db, task, expected_revision)
     store.append_event(db, task, 'requeued')

@@ -227,21 +227,31 @@ def test_failed_tasks_share_explicit_idempotent_safe_retry(client, policy, write
         task = post(client, url).json()['task']
     elif kind == 'explanation':
         from tests.integration.test_explanations import ready
+        from tests.api.test_external_processing import confirmation
         *_, figure, url = ready(client)
-        task = client.post(url, json={'expected_revision': 1, 'figure_id': figure['id']}).json()['task']
+        accepted = client.post(url, json={'expected_revision': 1, 'figure_id': figure['id'],
+                                         'external_processing': confirmation(client, url)})
+        assert accepted.status_code == 202, accepted.text
+        task = accepted.json()['task']
     else:
         from tests.integration.test_task_execution import queued
         task, *_ = queued(client)
     owner = client.get('/api/v1/auth/me').json()['user']['id']
     failed = transition(client, task, 'failed', 'execution_failed', 'task_worker_interrupted')
+    with database_connection(write=True) as db:
+        db.execute('UPDATE tasks SET retry_count=3 WHERE id=%s', (task['id'],))
     with database_connection() as db:
         assert allowed_recovery_actions(db, failed) == ['retry']
     request = dict(operation='retry', wait_id=None, expected_task_revision=failed['revision'], input_version=failed['input_version'])
     service = TaskResumeService(owner)
     accepted = service.resume(task['id'], request, idempotency_key='safe-retry')
     assert accepted['id'] == task['id'] and accepted['status'] == 'queued'
+    assert accepted['retry_count'] == 0
+    with database_connection(write=True) as db:
+        db.execute('UPDATE tasks SET retry_count=1 WHERE id=%s', (task['id'],))
     assert service.resume(task['id'], request, idempotency_key='safe-retry') == accepted
     with database_connection() as db:
+        assert db.execute('SELECT retry_count FROM tasks WHERE id=%s', (task['id'],)).fetchone()['retry_count'] == 1
         assert db.execute('SELECT count(*) AS n FROM task_waits').fetchone()['n'] == 0
         assert db.execute('SELECT wait_id FROM task_resume_requests').fetchone()['wait_id'] is None
 

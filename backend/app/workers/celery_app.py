@@ -3,6 +3,10 @@ from functools import lru_cache
 import logging
 import time
 
+from app.core.safe_logging import configure_safe_logging
+
+configure_safe_logging()
+
 from celery import Celery
 from celery.exceptions import Reject
 from kombu import Exchange, Queue
@@ -14,6 +18,7 @@ logger = logging.getLogger(__name__)
 
 
 def create_app():
+    configure_safe_logging()
     broker, queue_name = queue_config()
     queue = Queue(queue_name, Exchange(queue_name, type='direct', durable=True),
                   routing_key=queue_name, durable=True)

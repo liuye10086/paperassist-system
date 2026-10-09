@@ -75,6 +75,21 @@ def test_three_scopes_admission_rolls_back_if_any_budget_missing_or_insufficient
         assert db.execute('SELECT count(*) AS n FROM budget_reservations').fetchone()['n'] == 0
 
 
+def test_external_material_version_is_frozen_in_call_policy_and_replay(context):
+    service = configure(context)
+    task_id = context[3]
+    with database_connection(write=True) as db:
+        db.execute('UPDATE tasks SET input_snapshot=%s WHERE id=%s',
+                   (Jsonb({'external_processing': {'version': 1}}), task_id))
+    original = service.reserve_call(request(task_id))
+    assert original['policy_snapshot'].get('external_processing_version') == 1
+    repeated = service.reserve_call(request(task_id))
+    assert repeated['id'] == original['id']
+    with database_connection() as db:
+        assert db.execute('SELECT count(*) AS n FROM model_calls').fetchone()['n'] == 1
+        assert db.execute('SELECT count(*) AS n FROM budget_reservations').fetchone()['n'] == 3
+
+
 def test_actual_parallel_admission_can_only_consume_last_allowance_once(context):
     service = configure(context)
     ready = Barrier(3)
@@ -90,6 +105,133 @@ def test_actual_parallel_admission_can_only_consume_last_allowance_once(context)
     assert sum(result is not None for result in results) == 1
     usage = service.project_usage(context[2])
     assert usage['reserved_micro_usd'] == 120 and usage['total'] == 1
+
+
+def additional_task(context, *, project=None):
+    """Extend the fixture's synthetic admission subjects, never production tasks."""
+    _, user, original_project, _ = context
+    task = str(uuid4())
+    now = datetime.now(timezone.utc)
+    with database_connection(write=True) as db:
+        if project is None:
+            project = original_project
+        elif project != original_project:
+            db.execute('''INSERT INTO projects
+                (id,name,research_topic,project_type,created_at,updated_at,owner_id)
+                VALUES (%s,'budget race','synthetic','sci',%s,%s,%s)''',
+                (project, now.isoformat(), now.isoformat(), user))
+        db.execute('''INSERT INTO tasks
+            (id,project_id,user_id,task_type,idempotency_key,input_digest,input_snapshot,
+             workflow_version,status,phase,revision,current_attempt,created_at,updated_at)
+            VALUES (%s,%s,%s,'boxplot',%s,%s,%s,'test','running','compute',2,1,%s,%s)''',
+            (task, project, user, task, 'a' * 64, Jsonb({}), now, now))
+    return project, task
+
+
+def race_admission(context, subjects):
+    from app.domain.model_usage.service import ModelUsageService
+    config = context[0].store.config
+    ready = Barrier(len(subjects))
+
+    def reserve(subject):
+        project, task, call_key = subject
+        service = ModelUsageService(context[1], config)
+        # Synchronize before the transaction: its schema advisory lock serializes writes.
+        ready.wait(timeout=10)
+        try:
+            saved = service.reserve_call(request(task, call_key=call_key))
+            return project, task, saved['id']
+        except StorageError as error:
+            assert error.code == 'model_budget_exceeded'
+            return project, task, None
+
+    with ThreadPoolExecutor(max_workers=len(subjects)) as pool:
+        return list(pool.map(reserve, subjects))
+
+
+def assert_held_ledger(context, winners):
+    """Check committed call ownership and all scope rows, including loser rollback."""
+    service, user, _, _ = context
+    with database_connection() as db:
+        calls = db.execute('SELECT id,project_id,task_id FROM model_calls').fetchall()
+        rows = db.execute('''SELECT r.*,b.scope_type,b.scope_key FROM budget_reservations r
+            JOIN model_budgets b ON b.id=r.budget_id''').fetchall()
+    assert {(row['project_id'], row['task_id'], row['id']) for row in calls} == set(winners)
+    assert len(rows) == 3 * len(winners)
+    for project, task, call_id in winners:
+        held = [row for row in rows if row['call_id'] == call_id]
+        assert {(row['scope_type'], row['scope_key']) for row in held} == {
+            ('user', user), ('project', project), ('task', task)}
+        assert {(row['status'], row['reserved_micro_usd'], row['accounted_micro_usd'])
+                for row in held} == {('held', 120, 0)}
+    user_budget = service.get_budget('user', user)
+    assert user_budget['reserved_micro_usd'] == 120 * len(winners)
+    assert user_budget['accounted_micro_usd'] == user_budget['estimated_micro_usd'] == 0
+
+
+def test_different_tasks_compete_for_project_last_allowance(context):
+    service, user, project, task = context
+    subjects = [(project, task, 'project-race-0')]
+    subjects += [(*additional_task(context), f'project-race-{index}') for index in (1, 2)]
+    service.set_budget('user', user, 1000, 0)
+    service.set_budget('project', project, 120, 0)
+    for _, task_id, _ in subjects:
+        service.set_budget('task', task_id, 1000, 0)
+    results = race_admission(context, subjects)
+    winners = [result for result in results if result[2] is not None]
+    assert len(winners) == 1
+    assert_held_ledger(context, winners)
+    view = service.project_usage(project)
+    assert view['total'] == 1 and view['reserved_micro_usd'] == 120
+    assert view['project_budget']['available_micro_usd'] == 0
+    for _, task_id, call_id in results:
+        usage = service.task_usage(task_id)
+        assert usage['total'] == (1 if call_id else 0)
+        assert usage['task_budget']['reserved_micro_usd'] == (120 if call_id else 0)
+
+
+def test_different_projects_compete_for_user_last_allowance(context):
+    service, user, project, task = context
+    subjects = [(project, task, 'user-race-0')]
+    subjects += [(*additional_task(context, project=str(uuid4())), f'user-race-{index}')
+                 for index in (1, 2)]
+    service.set_budget('user', user, 120, 0)
+    for project_id, task_id, _ in subjects:
+        service.set_budget('project', project_id, 1000, 0)
+        service.set_budget('task', task_id, 1000, 0)
+    results = race_admission(context, subjects)
+    winners = [result for result in results if result[2] is not None]
+    assert len(winners) == 1
+    assert_held_ledger(context, winners)
+    assert service.get_budget('user', user)['available_micro_usd'] == 0
+    for project_id, task_id, call_id in results:
+        project_usage = service.project_usage(project_id)
+        task_usage = service.task_usage(task_id)
+        assert project_usage['total'] == task_usage['total'] == (1 if call_id else 0)
+        assert project_usage['project_budget']['reserved_micro_usd'] == (120 if call_id else 0)
+        assert task_usage['task_budget']['reserved_micro_usd'] == (120 if call_id else 0)
+
+
+def test_task_last_allowance_does_not_block_another_task(context):
+    service, user, project, task = context
+    _, other_task = additional_task(context)
+    service.set_budget('user', user, 1000, 0)
+    service.set_budget('project', project, 1000, 0)
+    service.set_budget('task', task, 120, 0)
+    service.set_budget('task', other_task, 120, 0)
+    results = race_admission(context, [(project, task, f'task-race-{index}') for index in range(3)])
+    winners = [result for result in results if result[2] is not None]
+    assert len(winners) == 1
+    assert_held_ledger(context, winners)
+    saved = service.reserve_call(request(other_task, call_key='independent-task'))
+    winners.append((project, other_task, saved['id']))
+    assert_held_ledger(context, winners)
+    view = service.project_usage(project)
+    assert view['total'] == 2 and view['reserved_micro_usd'] == 240
+    assert view['project_budget']['available_micro_usd'] == 760
+    for task_id in (task, other_task):
+        usage = service.task_usage(task_id)
+        assert usage['total'] == 1 and usage['task_budget']['available_micro_usd'] == 0
 
 
 def test_parallel_same_key_creates_one_call_and_fences_submission(context):
@@ -320,9 +462,9 @@ def test_budget_revision_missing_view_lowering_limit_and_public_projection(conte
     assert lowered['reserved_micro_usd'] == 120 and lowered['exceeded']
     page = service.task_usage(task)
     assert set(page) == {'currency','period','enforcement_scope','user_budget','project_budget','task_budget',
-        'estimated_micro_usd','reserved_micro_usd','pending_count','items','total','page','page_size'}
+        'estimated_micro_usd','accounted_micro_usd','reconciliation','reserved_micro_usd','pending_count','items','total','page','page_size'}
     assert set(page['items'][0]) == {'id','task_type','model','status','provider_status','usage_status',
-                                   'estimated_cost_micro_usd','created_at','updated_at'}
+                                   'estimated_cost_micro_usd','created_at','updated_at','reconciliation'}
     assert page['items'][0]['id'] == saved['id']
 
 

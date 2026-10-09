@@ -11,6 +11,12 @@ from app.domain.explanations import ExplanationRequest
 router = APIRouter(prefix='/api/v1/projects/{project_id}/files/{file_id}/analysis-runs/{run_id}', tags=['结果解释'])
 
 
+@router.get('/explanation/disclosure')
+def disclosure(project_id: str, file_id: str, run_id: str, store: Store):
+    from app.domain.external_processing import get_disclosure
+    return get_disclosure(project_id, file_id, run_id, store, 'explanation')
+
+
 @router.get('/explanation')
 def get_explanation(project_id: str, file_id: str, run_id: str, store: Store):
     return operations.get_explanation(project_id, file_id, run_id, store)
