@@ -157,7 +157,13 @@ def test_import_preserves_every_value_and_job_order_then_is_idempotent(legacy):
     # Offline imported projects remain unclaimed until first-admin bootstrap.
     expected_target["projects"] = [{**row, "owner_id": None, "default_output_language": "zh-CN"}
                                    for row in expected_target["projects"]]
+    expected_target['files'] = [{**row, 'uploader_id': None, 'storage_backend': 'local',
+                                 'object_key': None, 'metadata_revision': 1, 'parse_revision': 0, 'upload_item_id': None}
+                                for row in expected_target['files']]
     assert target_rows() == expected_target
+    from app.adapters.storage import ProjectStore
+    imported = ProjectStore(directory).file('project-1', 'file-1')
+    assert ProjectStore(directory).original(imported) == (directory / 'files/file-1.xlsx').read_bytes()
     again = module.import_sqlite(source, directory)
     assert again['status'] == 'already_imported'
     assert source.read_bytes() == before

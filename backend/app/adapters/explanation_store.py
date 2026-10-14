@@ -79,7 +79,7 @@ class ExplanationStore:
             if row:
                 return json.loads(row['explanation_json'])
             saved = {**explanation, 'id': str(uuid4())}
-            db.execute('INSERT INTO explanations VALUES (%s, %s, %s, %s, %s)',
+            db.execute('INSERT INTO explanations (id, analysis_run_id, figure_id, engine_version, explanation_json) VALUES (%s, %s, %s, %s, %s)',
                        (saved['id'], saved['analysis_run_id'], saved['figure_id'], VERSION,
                         json.dumps(saved, ensure_ascii=False, allow_nan=False)))
             db.execute('UPDATE projects SET updated_at = GREATEST(updated_at, %s) WHERE id = %s',

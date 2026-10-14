@@ -267,9 +267,9 @@ export default function ProjectWorkspace() {
             active={view === 'project' && (section === 'overview' || section === 'artifacts')} />
         </div>
         <ProjectModelUsage projectId={project.id} active={view === 'project' && section === 'overview'} />
-        <ProjectTasks projectId={project.id} active={view === 'project' && section === 'tasks'}
+        <ProjectTasks onOpenFiles={() => changeSection('files')} projectId={project.id} active={view === 'project' && section === 'tasks'}
           selectedTaskId={selection.taskId} onSelectTask={selection.selectTask} />
-        <ProjectResources projectId={project.id} section={section} onSectionChange={changeSection} onSaved={() => { refresh(); selection.refresh() }} />
+        <ProjectResources projectId={project.id} active={view === 'project'} section={section} onSectionChange={changeSection} onSaved={() => { refresh(); selection.refresh() }} />
       </div>}
     </section>}
   </div>

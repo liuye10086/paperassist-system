@@ -17,7 +17,7 @@ def define_task_wait_tables(metadata):
         Column('resolved_at', DateTime(timezone=True)), Column('resolved_task_revision', Integer),
         UniqueConstraint('task_id', 'task_revision', name='task_waits_generation_key'),
         UniqueConstraint('task_id', 'id', name='task_waits_task_id_key'),
-        CheckConstraint("kind IN ('budget_confirmation','submission_unknown','unsupported_input','unsupported_confirmation')", name='task_waits_kind_check'),
+        CheckConstraint("kind IN ('budget_confirmation','submission_unknown','unsupported_input','unsupported_confirmation','dataset_preparation_confirmation','ocr_review_confirmation','analysis_plan_confirmation')", name='task_waits_kind_check'),
         CheckConstraint("status IN ('open','resolved','superseded')", name='task_waits_status_check'),
         CheckConstraint('task_revision >= 1', name='task_waits_revision_check'),
         CheckConstraint("jsonb_typeof(input_version) = 'object'", name='task_waits_input_object_check'),

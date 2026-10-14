@@ -209,11 +209,18 @@ def test_language_migration_roundtrip_preserves_legacy_columns_json_and_assets(c
         assert 'ui_language' not in {col['name'] for col in inspect(db.raw_connection).get_columns('users')}
     for cycle in range(2):
         migrate_database(postgres_migration_config)
-        assert SCHEMA_HEAD == '0013_cost_reconciliation'
+        assert SCHEMA_HEAD == '0023_file_lifecycle'
         with migration_connection(write=True) as db:
             for table, expected in originals.items():
                 actual = [dict(row) for row in db.execute(f'SELECT * FROM {table}')]
                 for row in actual:
+                    if table == 'files':
+                        assert row.pop('uploader_id') is None
+                        assert row.pop('storage_backend') == 'local'
+                        assert row.pop('object_key') == f"files/{row['id']}.xlsx"
+                        assert row.pop('metadata_revision') == 1
+                        assert row.pop('parse_revision') == 0
+                        assert row.pop('upload_item_id') is None
                     if table in ('users', 'projects'):
                         column = 'ui_language' if table == 'users' else 'default_output_language'
                         assert row.pop(column) == 'zh-CN'

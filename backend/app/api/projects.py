@@ -9,6 +9,8 @@ from app.core.config import ExcelSettings, get_excel_settings
 from app.adapters.excel import WorkbookPreview, fail, parse_workbook, read_upload
 from app.adapters.storage import PROJECT_UPDATE_LIMITS, ProjectStore, get_request_project_store
 from app.domain.project_summary import ProjectSummary, read_project_summary
+from app.domain.files import (ProjectFile, FilePage, FileMetadata, FileDetails, FilePurposesInput,
+                              query_files, read_file_details, assign_file_purposes)
 
 router = APIRouter(prefix="/api/v1/projects", tags=["项目与文件"])
 Store = Annotated[ProjectStore, Depends(get_request_project_store)]
@@ -39,24 +41,6 @@ class ProjectPage(BaseModel):
     total: int
     page: int
     page_size: int
-
-
-class FileError(BaseModel):
-    code: str
-    message: str
-    params: dict = Field(default_factory=dict)
-
-
-class ProjectFile(BaseModel):
-    id: str
-    project_id: str
-    filename: str
-    file_type: Literal["xlsx"]
-    size_bytes: int
-    sha256: str
-    uploaded_at: str
-    parse_status: Literal["parsed", "failed"]
-    error: FileError | None
 
 
 class SavedUpload(BaseModel):
@@ -134,9 +118,26 @@ def update_project(project_id: str, store: Store, changes: Annotated[Any, Body(
     return store.update_project(project_id, changes)
 
 
-@router.get("/{project_id}/files", response_model=list[ProjectFile])
-def list_files(project_id: str, store: Store):
-    return store.files(project_id)
+@router.get("/{project_id}/files", response_model=list[ProjectFile] | FilePage)
+def list_files(
+    project_id: str, store: Store,
+    page: Annotated[int | None, Query(ge=1, le=1_000_000), BeforeValidator(decimal_query_integer)] = None,
+    page_size: Annotated[int | None, Query(ge=1, le=100), BeforeValidator(decimal_query_integer)] = None,
+):
+    if page is None and page_size is None:
+        return store.files(project_id)
+    return query_files(store, project_id, page=page if page is not None else 1,
+                       page_size=page_size if page_size is not None else 10)
+
+
+@router.get('/{project_id}/files/{file_id}/details', response_model=FileDetails)
+def file_details(project_id: str, file_id: str, store: Store):
+    return read_file_details(store, project_id, file_id)
+
+
+@router.put('/{project_id}/files/{file_id}/purposes', response_model=FileMetadata)
+def file_purposes(project_id: str, file_id: str, changes: FilePurposesInput, store: Store):
+    return assign_file_purposes(store, project_id, file_id, changes)
 
 
 @router.post("/{project_id}/files", status_code=201, response_model=SavedUpload)
@@ -161,7 +162,11 @@ def upload_file(
 @router.get("/{project_id}/files/{file_id}/preview", response_model=WorkbookPreview)
 def get_preview(project_id: str, file_id: str, store: Store):
     record = store.file(project_id, file_id)
+    if record['file_type'] != 'xlsx':
+        fail('unsupported_file_type', '此预览仅支持 Excel 工作簿。', 422)
     store.original(record)
+    if record['parse_status'] in ('queued', 'parsing'):
+        fail('file_parse_pending', '文件正在等待解析或解析中，请稍后刷新。', 409)
     if record["parse_status"] == "failed":
         error = json.loads(record["error_json"])
         fail(error["code"], error["message"], params=error.get("params"))
@@ -171,7 +176,7 @@ def get_preview(project_id: str, file_id: str, store: Store):
 @router.get("/{project_id}/files/{file_id}/download")
 def download_file(project_id: str, file_id: str, store: Store):
     record = store.file(project_id, file_id)
-    return Response(store.original(record), media_type="application/octet-stream", headers={
+    return Response(store.original(record), media_type={"png":"image/png","jpeg":"image/jpeg","pdf":"application/pdf","xlsx":"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet","docx":"application/vnd.openxmlformats-officedocument.wordprocessingml.document"}.get(record["file_type"], "application/octet-stream"), headers={
         "Content-Disposition": f"attachment; filename*=UTF-8''{quote(record['filename'], safe='')}",
         "X-Content-Type-Options": "nosniff",
     })

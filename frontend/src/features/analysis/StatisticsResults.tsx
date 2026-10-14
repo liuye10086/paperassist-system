@@ -1,3 +1,5 @@
+import SourceSummary from './SourceSummary'
+import { isDatasetSource, sameSource, validOptionalSource, type DatasetAnalysisSource } from './datasetSource'
 import { useI18n, apiError, safeError } from '../../shared/i18n'
 import { workflowNotice } from '../../shared/i18n/workflowMessages'
 import { apiFetch } from '../../shared/api/client'
@@ -9,9 +11,9 @@ import { useWorkflowNavigation } from './analysisWorkflowContext'
 
 type Summary = { n: number; mean: number; std: number | null; min: number; q1: number; median: number
   q3: number; max: number; iqr: number | null; warnings: string[] }
-type Result = { id: string; filename: string; source_sha256: string; setup_revision: number; selection: Selection
+type Result = { source?: DatasetAnalysisSource; id: string; filename: string; source_sha256: string; setup_revision: number; selection: Selection
   check: Check; numeric_name: string; group_name: string | null; started_at: string; completed_at: string
-  engine: { id: string; python_version: string; openpyxl_version: string }; overall: Summary
+  engine: { id: string; python_version: string; openpyxl_version?: string; parser_version?: string }; overall: Summary
   groups: { label: string; statistics: Summary }[] }
 type ResultState = { current_revision: number | null; is_current: boolean; result: Result | null }
 
@@ -35,8 +37,8 @@ function explain(cause: unknown, timedOut: boolean) {
   return safeError(cause, '统计请求失败，请重新读取结果后重试。')
 }
 
-export default function StatisticsResults({ base, savedRevision, fieldsMatch, disabled, onBusyChange }: {
-  base: string; savedRevision: number | null; fieldsMatch: boolean; disabled: boolean; onBusyChange: (value: boolean) => void
+export default function StatisticsResults({ base, savedRevision, savedSource, fieldsMatch, disabled, onBusyChange }: {
+  base: string; savedRevision: number | null; savedSource?: DatasetAnalysisSource; fieldsMatch: boolean; disabled: boolean; onBusyChange: (value: boolean) => void
 }) {
   const { t, locale } = useI18n()
   const navigation = useWorkflowNavigation()
@@ -57,11 +59,11 @@ export default function StatisticsResults({ base, savedRevision, fieldsMatch, di
     let active = true
     const timeout = window.setTimeout(() => controller.abort(), 30_000)
     request<ResultState>(`${base}/analysis-result`, controller.signal)
-      .then(value => { if (active && !controller.signal.aborted) setState(value) })
+      .then(value => { if (active && !controller.signal.aborted) { if (value.result && (Object.hasOwn(value.result, 'source') && (!isDatasetSource(value.result.source) || !validOptionalSource(value.result, value.result.source) || value.result.source.sheet_name !== value.result.selection.sheet_name) || value.is_current && !sameSource(value.result.source, savedSource))) throw new Error('数据来源或版本不一致，请重新载入配置。'); setState(value) } })
       .catch(cause => { if (active) setError(explain(cause, controller.signal.aborted)) })
       .finally(() => { window.clearTimeout(timeout); if (active) setLoading(false) })
     return () => { active = false; controller.abort(); window.clearTimeout(timeout) }
-  }, [base, savedRevision, attempt])
+  }, [base, savedRevision, savedSource, attempt])
   useEffect(() => () => action.current?.abort(), [])
   useEffect(() => { onBusyChange(running || plotBusy) }, [running, plotBusy, onBusyChange])
 
@@ -78,6 +80,7 @@ export default function StatisticsResults({ base, savedRevision, fieldsMatch, di
       const value = await request<Result>(`${base}/analysis-runs`, controller.signal, { method: 'POST',
         headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ expected_revision: savedRevision }) })
       if (!controller.signal.aborted) {
+        if (!validOptionalSource(value, savedSource) || value.setup_revision !== savedRevision) throw new Error('数据来源或版本不一致，请重新载入配置。')
         setState({ current_revision: savedRevision, is_current: true, result: value })
         setNotice('结果已保存，刷新或重启后可再次查看。重复执行同一配置会返回已保存结果。')
       }
@@ -101,7 +104,7 @@ export default function StatisticsResults({ base, savedRevision, fieldsMatch, di
     <WorkflowStage stage="statistics"><section className="statistics-results" aria-labelledby="statistics-title" aria-busy={loading || running}>
     <div className="section-heading">
       <h3 id="statistics-title">{t("描述统计")}</h3>
-      <p>{t("按已保存的字段配置读取整张工作表，计算总体和各分组的统计量。")}</p>
+      <p>{t("按已保存的字段配置，计算所选数据的总体和各分组统计量。")}</p>
     </div>
     {!savedRevision ? <p className="muted">{t("请先检查字段并保存分析配置。")}</p>
       : !fieldsMatch && <p className="warning-panel">{t("当前字段尚未保存，请先检查并保存，再执行统计。")}</p>}
@@ -117,9 +120,10 @@ export default function StatisticsResults({ base, savedRevision, fieldsMatch, di
     {state && !result && <p>{t("尚未执行当前配置的描述统计。")}</p>}
     {result && <>
       {!state.is_current && <p className="warning-panel">{t("以下为历史结果。设置已变更，请重新分析。")}</p>}
+      <SourceSummary source={result.source} filename={result.filename} />
       <p>{t("工作表：")}{result.selection.sheet_name}{t("；完成时间：")}{new Date(result.completed_at).toLocaleString(locale)}</p>
       <p>{t("数值：")}{result.selection.numeric_column} · {result.numeric_name}{t("；单位：")}{result.selection.unit || t("未填写")}{t("； 分组：")}{result.selection.group_column ? `${result.selection.group_column} · ${result.group_name}` : t("不分组")}</p>
-      <p>{t('本次使用 {valid} 行，排除 {excluded} 行；原始数据共 {total} 行。', { valid: result.check.valid_count, excluded: result.check.excluded_count, total: result.check.row_count })}</p>
+      <p>{t(result.source?.kind === 'prepared_dataset_version' ? '本次使用 {valid} 行，排除 {excluded} 行；所选整理区域共 {total} 行。' : '本次使用 {valid} 行，排除 {excluded} 行；原始数据共 {total} 行。', { valid: result.check.valid_count, excluded: result.check.excluded_count, total: result.check.row_count })}</p>
       <div className="field-table-scroll" role="region" aria-label={t("统计结果，可横向滚动")} tabIndex={0}>
         <table className="field-table statistics-table"><caption>{t("描述统计结果")}</caption>
           <thead><tr>{[t("范围 / 分组"), t("样本数 n"), t("均值"), t("样本标准差"), t("最小值"), 'Q1', t("中位数"), 'Q3', t("最大值"), t("四分位距")].map(label => <th key={label} scope="col">{label}</th>)}</tr></thead>
@@ -141,7 +145,7 @@ export default function StatisticsResults({ base, savedRevision, fieldsMatch, di
     </>}
   </section></WorkflowStage>
   {result && <>
-      <BoxplotFigure base={base} runId={result.id} revision={result.setup_revision}
+      <BoxplotFigure base={base} runId={result.id} revision={result.setup_revision} source={result.source} filename={result.filename}
         canGenerate={fieldsMatch && revisionMatches && state.is_current} disabled={disabled || loading || running || !!error} onBusyChange={setPlotBusy} />
   </>}
   {!result && !loading && !error && navigation && <WorkflowEmptyResults message="请先完成描述统计，再生成图表、解释和报告。" />}

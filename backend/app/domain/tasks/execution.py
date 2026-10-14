@@ -12,7 +12,7 @@ from app.core.exceptions import StorageError
 logger = logging.getLogger(__name__)
 SAFE_ERRORS = frozenset({'task_source_conflict', 'task_owner_unavailable', 'file_missing', 'file_changed',
     'figure_missing', 'figure_changed', 'report_missing', 'report_changed', 'storage_unavailable',
-    'report_render_failed', 'task_execution_failed'})
+    'report_render_failed', 'task_execution_failed', 'source_conflict', 'dataset_missing', 'dataset_changed'})
 
 
 def run_word_task(task_id, task_revision, *, config=None, directory=None):
@@ -71,6 +71,11 @@ def run_boxplot_task(task_id, task_revision, **kwargs):
 
 
 def run_task(task_id, task_revision, *, config=None, directory=None):
+    from app.domain.tasks.file_parse_execution import run_parse_file_task
+    from app.domain.tasks.dataset_execution import run_dataset_task
+    from app.domain.tasks.dataset_preparation_execution import run_preparation_task
+    from app.domain.tasks.ocr_review_execution import run_ocr_review_task
+    from app.domain.tasks.analysis_plan_execution import run_analysis_plan_task
     repository = TaskExecutionStore(config=config, directory=directory)
     if not isinstance(task_id, str) or type(task_revision) is not int:
         return None
@@ -80,5 +85,7 @@ def run_task(task_id, task_revision, *, config=None, directory=None):
     if not task:
         return None
     executor = {'word_report': run_word_task, 'explanation': run_explanation_task,
-                'boxplot': run_boxplot_task}.get(task['task_type'])
+                'boxplot': run_boxplot_task, 'parse_file': run_parse_file_task, 'extract_dataset': run_dataset_task,
+                'prepare_dataset': run_preparation_task, 'review_ocr': run_ocr_review_task,
+                'analysis_plan': run_analysis_plan_task}.get(task['task_type'])
     return executor(task_id, task_revision, config=config, directory=directory) if executor else None

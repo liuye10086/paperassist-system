@@ -1,15 +1,16 @@
+import SourceSummary from '../analysis/SourceSummary'
 import { useEffect, useRef, useState } from 'react'
 import { onApiSessionChanged } from '../../shared/api/client'
 import { safeError, useI18n } from '../../shared/i18n'
 import { taskRequest } from './taskApi'
-import { isTaskPage, phaseNames, statusNames, taskDisplayName, taskNames, type TaskPage } from './taskTypes'
+import { isTaskPage, statusNames, taskDisplayName, taskPhaseName, taskNames, type TaskPage } from './taskTypes'
 import TaskDetail from './TaskDetail'
 import { useDocumentVisible } from './useDocumentVisible'
 import './task.css'
 
-type Props = { projectId: string; active: boolean; selectedTaskId: string; onSelectTask: (id: string) => void }
+type Props = { projectId: string; active: boolean; selectedTaskId: string; onSelectTask: (id: string) => void; onOpenFiles?: () => void }
 export default function ProjectTasks(props: Props) { return props.active ? <Tasks key={props.projectId} {...props} /> : null }
-function Tasks({ projectId, active, selectedTaskId, onSelectTask }: Props) {
+function Tasks({ projectId, active, selectedTaskId, onSelectTask, onOpenFiles }: Props) {
   const { t, locale } = useI18n()
   const visible = useDocumentVisible()
   const [data, setData] = useState<TaskPage | null>(null)
@@ -68,9 +69,9 @@ function Tasks({ projectId, active, selectedTaskId, onSelectTask }: Props) {
           <tbody>{data.items.map(({ task, source }) => <tr key={task.id} aria-selected={selectedTaskId === task.id}>
             <td><button type="button" className="task-open button-quiet" aria-label={t('查看{type}任务', { type: t(taskNames[task.task_type]) })}
               onClick={() => onSelectTask(task.id)}>{t(taskNames[task.task_type])}</button>{task.origin === 'legacy' && <small>{t('历史任务')}</small>}</td>
-            <td><span className={`task-status task-status-${task.status}`}>{t(taskDisplayName(task))}</span><small>{t(phaseNames[task.phase])}</small></td>
-            <td><strong>{source.filename}</strong><small>{t('分析配置 v{revision}', { revision: task.input_version.setup_revision })}</small>
-              <small>{t(source.is_current ? '当前分析配置' : '历史分析配置')}</small></td>
+            <td><span className={`task-status task-status-${task.status}`}>{t(taskDisplayName(task))}</span><small>{t(taskPhaseName(task))}</small></td>
+            <td><strong>{source.filename}</strong>{source.dataset_source && <SourceSummary source={source.dataset_source} filename={source.filename} />}<small>{['parse_file', 'extract_dataset', 'review_ocr'].includes(task.task_type) ? t(task.task_type === 'review_ocr' ? '原图转录核对' : task.task_type === 'extract_dataset' ? '本地 Excel 结构提取' : '本地文件解析') : task.task_type === 'prepare_dataset' ? t('本地数据整理') : task.task_type === 'analysis_plan' ? t('整理数据分析计划') : t('分析配置 v{revision}', { revision: task.input_version.setup_revision ?? 0 })}</small>
+              {!['parse_file', 'extract_dataset', 'prepare_dataset', 'analysis_plan', 'review_ocr'].includes(task.task_type) && <small>{t(source.is_current ? '当前分析配置' : '历史分析配置')}</small>}</td>
             <td>{task.updated_at === null ? t('未记录') : <time dateTime={task.updated_at}>{new Date(task.updated_at).toLocaleString(locale)}</time>}</td></tr>)}</tbody></table></div>
         <nav className="task-pagination" aria-label={t('项目任务分页')}>
           <span>{t('共 {total} 项 · 第 {page} / {pages} 页', { total: data.total, page, pages: Math.max(1, Math.ceil(data.total / 10)) })}</span>
@@ -78,7 +79,7 @@ function Tasks({ projectId, active, selectedTaskId, onSelectTask }: Props) {
           <button type="button" disabled={loading || page >= Math.ceil(data.total / 10)} onClick={() => { setLoading(true); setError(''); setData(null); setPage(value => value + 1) }}>{t('下一页')}</button>
         </nav></>}
     </div>}
-    {active && sessionValid && selectedTaskId ? <TaskDetail projectId={projectId} taskId={selectedTaskId} onChanged={() => setAttempt(value => value + 1)} />
+    {active && sessionValid && selectedTaskId ? <TaskDetail projectId={projectId} taskId={selectedTaskId} onChanged={() => setAttempt(value => value + 1)} onOpenFiles={onOpenFiles} />
       : sessionValid && <p className="task-empty">{t('选择任务，查看详细记录。')}</p>}
   </section>
 }

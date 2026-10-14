@@ -49,8 +49,14 @@ class TaskResumeService:
             from app.domain.plot_tasks import retry_boxplot_in_transaction
             from app.domain.explanation_tasks import retry_explanation_in_transaction
             from app.domain.report_tasks import retry_word_in_transaction
+            from app.domain.tasks.file_parse_retry import retry_parse_in_transaction
+            from app.domain.tasks.dataset_retry import retry_dataset_in_transaction
+            from app.domain.dataset_preparation.service import retry_preparation_in_transaction
+            from app.domain.ocr_review.service import retry_ocr_review_in_transaction
+            from app.domain.analysis_plan.service import retry_plan_in_transaction
             retry = {'boxplot': retry_boxplot_in_transaction, 'explanation': retry_explanation_in_transaction,
-                     'word_report': retry_word_in_transaction}[task['task_type']]
+                     'word_report': retry_word_in_transaction, 'parse_file': retry_parse_in_transaction,
+                     'extract_dataset': retry_dataset_in_transaction, 'prepare_dataset': retry_preparation_in_transaction, 'review_ocr': retry_ocr_review_in_transaction, 'analysis_plan': retry_plan_in_transaction}[task['task_type']]
             result = retry(self.store, db, task, request.expected_task_revision)
             db.execute('''INSERT INTO task_resume_requests
                 (id,task_id,user_id,idempotency_key,operation,wait_id,request_digest,expected_task_revision,

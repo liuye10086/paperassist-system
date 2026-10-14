@@ -1,7 +1,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
 import ProjectTasks from './ProjectTasks'
-import { legacyTaskFixture, legacyWorkspaceFixture, pageFixture } from './taskFixtures'
+import { legacyTaskFixture, legacyWorkspaceFixture, pageFixture, preparationSourceFixture, preparationTaskFixture, sourceFixture } from './taskFixtures'
 import { clearApiSession } from '../../shared/api/client'
 import { setLocale } from '../../shared/i18n'
 
@@ -68,4 +68,14 @@ it.each(['zh-CN', 'en'] as const)('displays mixed historical tasks with unknown 
   expect(document.body.textContent).not.toContain('1970')
   fireEvent.click(screen.getAllByRole('button', { name: locale === 'en' ? 'View Boxplot generation task' : '查看箱线图生成任务' })[1])
   expect(props.onSelectTask).toHaveBeenCalledWith(legacyTaskFixture.id)
+})
+it.each(['zh-CN', 'en'] as const)('identifies local preparation in the task list without inventing an analysis setup in %s', async locale => {
+ setLocale(locale)
+ vi.stubGlobal('fetch', vi.fn(async () => Response.json({ ...pageFixture, items: [{ task: preparationTaskFixture, source: { ...sourceFixture, analysis_run_id: null, dataset_source: preparationSourceFixture } }] })))
+ render(<ProjectTasks {...props} />)
+ await screen.findByText('实验.xlsx')
+ expect(screen.getByText(locale === 'en' ? 'Local dataset preparation' : '本地数据整理')).toBeTruthy()
+ expect(screen.getByText(locale === 'en' ? 'Preparation preview' : '整理预览')).toBeTruthy()
+ expect(screen.queryByText(/分析配置 v|Analysis setup v/)).toBeNull()
+ expect(screen.queryByText(locale === 'en' ? 'Current analysis setup' : '当前分析配置')).toBeNull()
 })

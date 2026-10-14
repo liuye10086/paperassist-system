@@ -1,7 +1,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
 import TaskDetail from './TaskDetail'
-import { eventsFixture, legacyTaskFixture, legacyWorkspaceFixture, taskFixture, usageFixture, workspaceFixture } from './taskFixtures'
+import { eventsFixture, legacyTaskFixture, legacyWorkspaceFixture, preparationSourceFixture, preparationTaskFixture, taskFixture, usageFixture, workspaceFixture } from './taskFixtures'
 import { setLocale } from '../../shared/i18n'
 import { clearApiSession } from '../../shared/api/client'
 import { watchProjectAccess } from '../../shared/api/projectAccess'
@@ -313,4 +313,23 @@ it('preserves the saved unified Word download route', async () => {
   render(<TaskDetail {...props} />)
   const link = await screen.findByRole('link', { name: '下载此任务的 Word' })
   expect(link.getAttribute('href')).toBe('/api/v1/projects/p1/files/f1/analysis-runs/r1/report/report-old/download')
+})
+
+it('shows parsing success without analysis versions or model usage and opens project files',async()=>{
+ const task={...taskFixture,task_type:'parse_file',phase:'parse',status:'succeeded',display_status:'succeeded',input_version:{kind:'parse_file',parse_id:'parse1',source_sha256:'a'.repeat(64),parser_version:'openpyxl-3.1.5-preview-v1'}}
+ const fetch=api({task,source:{file_id:'f1',filename:'data.xlsx',analysis_run_id:null,is_current:true},wait:null,allowed_actions:[],artifacts:{figure:null,explanation:null,report:null}})
+ const onOpenFiles=vi.fn();render(<TaskDetail {...props} onOpenFiles={onOpenFiles}/>);await screen.findByText('文件已解析，请到项目文件区查看预览。');expect(screen.queryByText(/分析配置 v/)).toBeNull();expect(fetch.mock.calls.some(([url])=>url.includes('model-usage'))).toBe(false);fireEvent.click(screen.getByRole('button',{name:'查看项目文件'}));expect(onOpenFiles).toHaveBeenCalledOnce()
+})
+it('shows a preparation detail as a local preview without an analysis setup or model usage', async () => {
+ const task = preparationTaskFixture
+ const source = preparationSourceFixture
+ const workspace = { task, source: { file_id: 'f1', filename: 'data.xlsx', analysis_run_id: null, is_current: true, dataset_source: source }, wait: null, allowed_actions: [], artifacts: { figure: null, explanation: null, report: null } }
+ const review = { task, source, checkpoint_id: 'checkpoint1', recipe_revision: 1, recipe: { header_row: 1, data_range: 'A2:B3', fields: [] }, preview: null, changes: [], preview_download_url: null, result: null, wait: null }
+ const fetch = vi.fn(async (url: string) => Response.json(url.endsWith('/dataset-preparation') ? review : url.includes('/events') ? { ...eventsFixture, items: [], next_cursor: 0 } : workspace))
+ vi.stubGlobal('fetch', fetch); render(<TaskDetail {...props} />)
+ await screen.findByText('本地数据整理')
+ expect(screen.getByText('整理预览')).toBeTruthy()
+ expect(screen.queryByText(/分析配置 v/)).toBeNull()
+ expect(screen.queryByText('当前分析配置')).toBeNull()
+ expect(fetch.mock.calls.some(([url]) => url.includes('/model-usage'))).toBe(false)
 })

@@ -5,6 +5,8 @@ export const taskFixture = { id: 't1', project_id: 'p1', task_type: 'boxplot', s
   updated_at: '2026-10-08T01:01:00Z', input_version: { setup_revision: 1, output_language: 'zh-CN' },
   result_figure_id: null, result_explanation_id: null, result_report_id: null }
 export const sourceFixture = { file_id: 'f1', filename: '实验.xlsx', analysis_run_id: 'r1', is_current: true }
+export const preparationSourceFixture = { kind: 'dataset_version', schema_version: 1, dataset_id: 'd1', structure_id: 's1', dataset_version: 1, file_id: 'f1', source_sha256: 'a'.repeat(64), dataset_sha256: 'b'.repeat(64), dataset_size_bytes: 100, dataset_schema_version: 1, sheet_index: 0, sheet_name: 'Sheet1', parser_version: 'structure-v1' }
+export const preparationTaskFixture = { ...taskFixture, task_type: 'prepare_dataset', status: 'queued', display_status: 'queued', phase: 'plan', reason_code: null, error_code: null, input_version: { kind: 'dataset_preparation', source: preparationSourceFixture, workflow_version: 'dataset_preparation_v1' } }
 export const workspaceFixture = { task: taskFixture, source: sourceFixture,
   wait: { id: 'w1', kind: 'budget_confirmation', status: 'open', task_revision: 3,
     input_version: taskFixture.input_version, reason_code: 'budget_exceeded', error_code: 'model_budget_missing',

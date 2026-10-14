@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event'
 import { afterEach, expect, test, vi } from 'vitest'
 import ProjectWorkspace from '../../features/projects/ProjectWorkspace'
 import { summaryFixture } from '../fixtures/summaryFixture'
+import { filePageFixture } from '../fixtures/filePageFixture'
 
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); window.history.replaceState(null, '', '/') })
 
@@ -85,6 +86,7 @@ test('moves focus out of hidden project sections and retains an editing draft ac
   const fetcher = vi.fn(async (url: string) => {
     if (url.includes('/summary?')) return Response.json(summaryFixture(project.id))
     if (url.endsWith('/files')) return Response.json([])
+    if (url.includes('/files?page=')) return Response.json(filePageFixture(url, []))
     if (url.endsWith('/config')) return Response.json({ max_upload_bytes: 10485760, preview_row_limit: 20 })
     if (url === `/api/v1/projects/${project.id}`) return Response.json(project)
     return Response.json({ items: [project], total: 1, page: 1, page_size: 5 })

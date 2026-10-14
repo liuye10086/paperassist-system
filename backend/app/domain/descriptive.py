@@ -12,12 +12,15 @@ import statistics
 from typing import Literal
 
 import openpyxl
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_serializer
 
 from app.domain.analysis import AnalysisSelection, SelectionCheck, inspect_selection, source
 from app.adapters.excel import fail
 
-ENGINE = 'descriptive_statistics_v1'
+from app.domain.analysis_sources import ENGINE, DATASET_ENGINE, statistics_engine
+from app.domain.dataset_analysis import load_dataset, scan_dataset
+from app.domain.analysis_plan.references import PlannedAnalysisSource
+from app.domain.analysis_plan.service import validate_plan_reference
 
 
 class RunRequest(BaseModel):
@@ -46,12 +49,22 @@ class GroupSummary(BaseModel):
 class EngineInfo(BaseModel):
     id: str
     python_version: str
-    openpyxl_version: str
+    openpyxl_version: str | None = None
+    parser_version: str | None = None
     std_ddof: Literal[1]
     quantile_method: Literal['linear_inclusive']
 
 
-class AnalysisResult(BaseModel):
+    @model_serializer(mode='wrap')
+    def serialize_reader(self, handler):
+        value = handler(self)
+        for key in ('openpyxl_version', 'parser_version'):
+            if value[key] is None:
+                value.pop(key)
+        return value
+
+
+class AnalysisResult(PlannedAnalysisSource):
     id: str
     file_id: str
     filename: str
@@ -112,36 +125,67 @@ def summarize(values: list[float]) -> dict:
 
 
 def get_result(project_id: str, file_id: str, store: ProjectStore):
-    source(store, project_id, file_id)
-    return store.latest_analysis_result(project_id, file_id, ENGINE)
+    saved = store.analysis_setup(project_id, file_id)
+    engine = statistics_engine(saved or {})
+    if engine == DATASET_ENGINE:
+        load_dataset(store, project_id, file_id, saved['source']['dataset_id'], expected_source=saved['source'])
+    else:
+        source(store, project_id, file_id)
+    state = store.latest_analysis_result(project_id, file_id, engine)
+    result = state['result']
+    if result and statistics_engine(result) == DATASET_ENGINE:
+        load_dataset(store, project_id, file_id, result['source']['dataset_id'], expected_source=result['source'])
+    if state['is_current']:
+        state['is_current'] = (result.get('source') == (saved or {}).get('source'))
+    return state
 
 
 def execute(project_id: str, file_id: str, request: RunRequest, store: ProjectStore, settings: ExcelSettings):
-    record, _ = source(store, project_id, file_id)
     saved = store.analysis_setup(project_id, file_id)
     if saved is None or saved['revision'] != request.expected_revision:
         fail('setup_conflict', '分析配置已变化或尚未保存，请重新载入配置后再执行。', 409)
+    plan = validate_plan_reference(store, project_id, file_id, saved)
+    engine = statistics_engine(saved)
+    if engine == DATASET_ENGINE:
+        record, frozen_source, sheet = load_dataset(store, project_id, file_id, saved['source']['dataset_id'], expected_source=saved['source'])
+    else:
+        record, _ = source(store, project_id, file_id)
     if saved['source_sha256'] != record['sha256']:
         fail('source_conflict', '配置与原文件不一致，请重新保存分析配置。', 409)
-    cached = store.analysis_run(project_id, file_id, request.expected_revision, ENGINE)
+    cached = store.analysis_run(project_id, file_id, request.expected_revision, engine)
     if cached is not None:
+        validate_plan_reference(store, project_id, file_id, cached)
+        if statistics_engine(cached) != engine or cached.get('source') != saved.get('source'):
+            fail('source_conflict', '缓存统计与配置来源不一致。', 409)
         return cached
     started = datetime.now(timezone.utc).isoformat()
-    selection = AnalysisSelection(**saved['selection'])
-    record, profile, scan = inspect_selection(store, project_id, file_id, settings,
-        selection.sheet_name, selection, collect_values=True)
+    selection = AnalysisSelection(**(plan['selection'] if plan else saved['selection']))
+    if engine == DATASET_ENGINE:
+        profile, scan = scan_dataset(sheet, selection, collect_values=True)
+    else:
+        record, profile, scan = inspect_selection(store, project_id, file_id, settings,
+            selection.sheet_name, selection, collect_values=True)
     check = scan.check(profile)
+    if plan and check.model_dump(mode='json') != plan['check']['selection_check']:
+        fail('source_conflict', '计划与实际统计检查不一致。', 409)
     if not check.ready:
         fail('invalid_analysis_selection', ' '.join(check.issues))
     columns = {column.id: column.name for column in profile.columns}
     overall = summarize(scan.values)
     groups = [{'label': ('TRUE' if group else 'FALSE') if isinstance(group, bool) else str(group),
                'statistics': summarize(values)} for group, values in scan.grouped_values.items()]
+    reader = {'parser_version': frozen_source['parser_version']} if engine == DATASET_ENGINE else {'openpyxl_version': openpyxl.__version__}
+    frozen = {'source': frozen_source} if engine == DATASET_ENGINE else {}
+    if plan:
+        frozen['analysis_plan'] = saved['analysis_plan']
+    if engine == DATASET_ENGINE:
+        load_dataset(store, project_id, file_id, frozen_source['dataset_id'], expected_source=frozen_source)
     return store.save_analysis_run(project_id, file_id, {
+        **frozen,
         'file_id': file_id, 'filename': record['filename'], 'source_sha256': record['sha256'],
         'setup_revision': saved['revision'], 'selection': selection.model_dump(), 'check': check.model_dump(),
         'numeric_name': columns[selection.numeric_column], 'group_name': columns.get(selection.group_column),
-        'engine': {'id': ENGINE, 'python_version': platform.python_version(), 'openpyxl_version': openpyxl.__version__,
+        'engine': {'id': engine, 'python_version': platform.python_version(), **reader,
                    'std_ddof': 1, 'quantile_method': 'linear_inclusive'},
         'started_at': started, 'completed_at': datetime.now(timezone.utc).isoformat(),
         'overall': overall, 'groups': groups,

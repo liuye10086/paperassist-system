@@ -2,10 +2,12 @@
 import json
 import re
 from uuid import uuid4
+from pathlib import Path
+from app.core.config import get_data_dir
 
 from psycopg.types.json import Jsonb
 
-from app.adapters.storage import _storage_connection
+from app.adapters.storage import _storage_connection, ProjectStore
 from app.core.exceptions import StorageError
 from app.core.errors import PUBLIC_CODES
 from app.db.database import get_database_config
@@ -17,11 +19,51 @@ def source_conflict():
     return StorageError('task_source_conflict', '任务资料已变化或来源不一致，请重新读取当前版本。', 409)
 
 
+def workflow_version(task_type, value):
+    return task_type + ('_v2' if 'source' in value else '_v1')
+
+
+def task_source_matches(task, result):
+    snapshot = task['input_snapshot']
+    expected = result.get('source')
+    return snapshot.get('source') == expected and snapshot['result'].get('source') == expected
+
+
+def snapshots_match(current, original, *, explanation=True):
+    keys = ['file', 'result', 'figure', 'versions', 'output_language']
+    if explanation:
+        keys.append('explanation')
+    if 'source' in current or 'source' in original:
+        keys.extend(('source', 'schema_version'))
+    return all(key in current and key in original and current[key] == original[key] for key in keys)
+
+
 def _source_json(value):
     parsed = json.loads(value)
     # Legacy TEXT JSON must be representable as JSONB, including nested fields.
     json.dumps(parsed, allow_nan=False)
     return parsed
+
+
+class DatasetTaskAssets:
+    """Owner-scoped dataset reader with explicit database and asset roots."""
+    def __init__(self, owner_id, config, directory=None):
+        self.owner_id = owner_id
+        self.db_config = config
+        self.directory = Path(directory if directory is not None else get_data_dir())
+
+    def original(self, record):
+        from app.adapters.file_objects import LocalFileObjects
+        return LocalFileObjects(self.directory).original(record)
+
+    def file(self, project_id, file_id):
+        scoped = TaskStore(self.owner_id, self.db_config)
+        with scoped.connection() as db:
+            scoped.require_project(db, project_id)
+            row = db.execute('SELECT * FROM files WHERE id=%s AND project_id=%s', (file_id, project_id)).fetchone()
+            if row is None:
+                raise source_conflict()
+            return ProjectStore.file_record(row)
 
 
 class TaskStore:
@@ -56,12 +98,12 @@ class TaskStore:
             (self.user_id, project_id, task_type, key)).fetchone()
         return dict(row) if row else None
 
-    @staticmethod
-    def source_snapshot(db, project, request):
+    def source_snapshot(self, db, project, request, *, directory=None):
         # Only persisted records are accepted, inside the creation transaction.
-        # File bytes are deliberately checked by the eventual executor, outside
-        # this short metadata transaction; this step does not execute any task.
-        from app.domain.descriptive import AnalysisResult, ENGINE
+        # Legacy file bytes are checked by the executor; dataset objects are
+        # verified here and again at execution/publication boundaries.
+        from app.domain.descriptive import AnalysisResult
+        from app.domain.analysis_sources import statistics_engine, source_dict
         from app.domain.boxplot import RENDERER
         from app.domain.explanation_content import VERSION as EXPLANATION_VERSION, build_payload
         from app.domain.reports import validate_sources
@@ -78,7 +120,19 @@ class TaskStore:
             result = _source_json(run['result_json'])
             AnalysisResult.model_validate(result, strict=True)
             saved_setup = _source_json(setup['setup_json'])
-            if (run['engine_version'] != ENGINE or result['engine']['id'] != ENGINE
+            engine = statistics_engine(result)
+            if saved_setup.get('source') != result.get('source'):
+                raise source_conflict()
+            if 'source' in result:
+                source_dict(result['source'])
+                from app.domain.dataset_analysis import load_dataset
+                load_dataset(DatasetTaskAssets(self.user_id, self.config, directory), project['id'], file['id'],
+                             result['source']['dataset_id'], expected_source=result['source'])
+            from app.domain.analysis_plan.service import validate_plan_reference
+            assets = DatasetTaskAssets(self.user_id, self.config, directory)
+            validate_plan_reference(assets, project['id'], file['id'], saved_setup)
+            validate_plan_reference(assets, project['id'], file['id'], result)
+            if (run['engine_version'] != engine or result['engine']['id'] != engine
                     or run['setup_revision'] != request.expected_revision
                     or setup['revision'] != request.expected_revision
                     or saved_setup['revision'] != request.expected_revision
@@ -98,6 +152,7 @@ class TaskStore:
                 if (figure['id'] != row['id'] or figure['analysis_run_id'] != run['id']
                         or figure['file_id'] != file['id'] or figure['setup_revision'] != request.expected_revision
                         or figure['source_sha256'] != file['sha256'] or figure['engine']['id'] != RENDERER
+                        or figure.get('source') != result.get('source')
                         or figure['verification']['status'] != 'matched'
                         or not re.fullmatch(r'[0-9a-f]{64}', figure['sha256'])):
                     raise source_conflict()
@@ -116,11 +171,12 @@ class TaskStore:
                 validate_sources(result, figure, explanation)
         except (KeyError, TypeError, ValueError, StorageError) as exc:
             raise source_conflict() from exc
-        return {'schema_version': 1, 'output_language': 'zh-CN',
+        return {'schema_version': 2 if 'source' in result else 1, 'output_language': 'zh-CN',
+                **({'source': result['source']} if 'source' in result else {}),
                 'project': {key: project[key] for key in ('id', 'name', 'research_topic', 'project_type', 'created_at')},
                 'file': {key: file[key] for key in ('id', 'filename', 'sha256', 'size_bytes', 'file_type')},
                 'result': result, 'figure': figure, 'explanation': explanation,
-                'versions': {'statistics': ENGINE, 'figure': RENDERER,
+                'versions': {'statistics': engine, 'figure': RENDERER,
                              'explanation': EXPLANATION_VERSION, 'report': REPORT_VERSION}}
 
     @staticmethod
@@ -129,14 +185,14 @@ class TaskStore:
                   'reason_code', 'created_at', 'updated_at')
         snapshot = task['input_snapshot']
         code = task.get('error_code')
+        from app.domain.tasks.waits import input_version
         return TaskView(**{key: task[key] for key in fields},
             result_report_id=task.get('result_report_id'),
             result_explanation_id=task.get('result_explanation_id'),
             result_figure_id=task.get('result_figure_id'),
             error_code=safe_error_code(code), retry_count=task.get('retry_count', 0),
             display_status=display_status(task['status'], task['phase']),
-            input_version={'setup_revision': snapshot['result']['setup_revision'],
-                           'output_language': snapshot['output_language']}).model_dump(mode='json')
+            input_version=input_version(task)).model_dump(mode='json')
 
     def get(self, task_id):
         with self.connection() as db:

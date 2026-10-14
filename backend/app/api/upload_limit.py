@@ -14,7 +14,8 @@ class UploadLimitMiddleware:
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send):
         path = scope.get("path", "").rstrip("/")
-        is_upload = path == "/api/v1/excel/preview" or re.fullmatch(r"/api/v1/projects/[^/]+/files", path)
+        is_upload = (path == "/api/v1/excel/preview" or re.fullmatch(r"/api/v1/projects/[^/]+/files", path)
+                     or re.fullmatch(r"/api/v1/projects/[^/]+/file-batches/[^/]+/items/[^/]+", path))
         if scope["type"] != "http" or scope["method"] != "POST" or not is_upload:
             return await self.app(scope, receive, send)
 

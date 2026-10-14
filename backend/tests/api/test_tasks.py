@@ -44,16 +44,30 @@ def test_unified_task_codes_are_public():
     } <= PUBLIC_CODES
 
 
-def test_only_versioned_recovery_is_public_task_mutation_and_no_generic_collection_exists():
+def test_only_versioned_recovery_and_explicit_preparation_decisions_mutate_tasks():
     task_paths = {path: item for path, item in app.openapi()['paths'].items()
                   if path == '/api/v1/tasks' or path.startswith('/api/v1/tasks/')}
     assert set(task_paths) == {'/api/v1/tasks/{task_id}', '/api/v1/tasks/{task_id}/events',
                                '/api/v1/tasks/{task_id}/retry', '/api/v1/tasks/{task_id}/model-usage',
-                               '/api/v1/tasks/{task_id}/workspace', '/api/v1/tasks/{task_id}/resume'}
+                               '/api/v1/tasks/{task_id}/workspace', '/api/v1/tasks/{task_id}/resume',
+                               '/api/v1/tasks/{task_id}/analysis-plan',
+                               '/api/v1/tasks/{task_id}/analysis-plan/decisions',
+                               '/api/v1/tasks/{task_id}/dataset-preparation',
+                               '/api/v1/tasks/{task_id}/dataset-preparation/decision',
+                               '/api/v1/tasks/{task_id}/dataset-preparation/preview/download',
+                               '/api/v1/tasks/{task_id}/ocr-review',
+                               '/api/v1/tasks/{task_id}/ocr-review/decision',
+                               '/api/v1/tasks/{task_id}/ocr-review/preview/download'}
     assert set(task_paths['/api/v1/tasks/{task_id}/retry']) == {'post'}
     assert set(task_paths['/api/v1/tasks/{task_id}/resume']) == {'post'}
+    assert set(task_paths['/api/v1/tasks/{task_id}/analysis-plan/decisions']) == {'post'}
+    assert set(task_paths['/api/v1/tasks/{task_id}/dataset-preparation/decision']) == {'post'}
+    assert set(task_paths['/api/v1/tasks/{task_id}/ocr-review/decision']) == {'post'}
     assert all(set(task_paths[path]) == {'get'} for path in ('/api/v1/tasks/{task_id}',
-        '/api/v1/tasks/{task_id}/events', '/api/v1/tasks/{task_id}/model-usage', '/api/v1/tasks/{task_id}/workspace'))
+        '/api/v1/tasks/{task_id}/analysis-plan',
+        '/api/v1/tasks/{task_id}/events', '/api/v1/tasks/{task_id}/model-usage', '/api/v1/tasks/{task_id}/workspace',
+        '/api/v1/tasks/{task_id}/dataset-preparation', '/api/v1/tasks/{task_id}/dataset-preparation/preview/download',
+        '/api/v1/tasks/{task_id}/ocr-review', '/api/v1/tasks/{task_id}/ocr-review/preview/download'))
 
 
 def test_task_response_projects_public_fields_and_scopes_store_to_authenticated_user(client, monkeypatch):

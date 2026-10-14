@@ -102,6 +102,12 @@ def build_report(snapshot, report, png):
     paragraph(document, f"配置版本 {result['setup_revision']} · 导出时间 {report['created_at']}（UTC）")
     paragraph(document, '本报告整理已保存的数据检查、真实描述统计、图表与 AI 初稿。解释须由研究者审核后使用；本报告未执行推断检验。')
 
+    if 'source' in result:
+        filename = result['filename']
+        source = result['source']
+        versions = (f"原始数据版本 {source['parent_dataset_version']} · 整理数据版本 {source['dataset_version']}"
+            if source['kind'] == 'prepared_dataset_version' else f"原始数据版本 {source['dataset_version']}")
+        paragraph(document, f"数据来源：{filename} · Sheet：{source['sheet_name']} · {versions}")
     document.add_heading('1 数据概况', level=1)
     for label, value in [('项目类型', 'SCI 论文' if project['project_type'] == 'sci' else '毕业论文'),
                          ('研究主题（用户填写）', project['research_topic'] or '未填写'),
@@ -113,7 +119,8 @@ def build_report(snapshot, report, png):
 
     document.add_heading('2 数据质量与处理', level=1)
     check = result['check']
-    paragraph(document, f"原始数据 {check['row_count']} 行；有效完整记录 {check['valid_count']} 行；排除 {check['excluded_count']} 行。")
+    data_label = '所选整理区域' if result.get('source', {}).get('kind') == 'prepared_dataset_version' else '原始数据'
+    paragraph(document, f"{data_label} {check['row_count']} 行；有效完整记录 {check['valid_count']} 行；排除 {check['excluded_count']} 行。")
     paragraph(document, '排除规则：仅分析数值字段及所选分组字段均有效的完整记录。未插补缺失值，未自动去重，未删除离群观测；原始文件保持不变。')
     for note in check['issues'] + check['warnings']:
         paragraph(document, note)
@@ -169,7 +176,9 @@ def build_report(snapshot, report, png):
     records = [('项目编号', project['id']), ('文件编号', result['file_id']), ('原文件 SHA256', result['source_sha256']),
                ('统计结果编号', result['id']), ('统计完成时间', result['completed_at']),
                ('统计引擎', result['engine']['id']), ('Python', result['engine']['python_version']),
-               ('openpyxl', result['engine']['openpyxl_version']), ('图表编号', figure['id']), ('图表保存时间', figure['created_at']),
+               (('数据解析器', result['engine']['parser_version']) if 'source' in result
+                else ('openpyxl', result['engine']['openpyxl_version'])),
+               ('图表编号', figure['id']), ('图表保存时间', figure['created_at']),
                ('图片 SHA256', figure['sha256']), ('绘图引擎', figure['engine']['id']),
                ('绘图模型', figure['provenance'].get('model', '未记录')), ('绘图响应编号', figure['provenance'].get('response_id', '未记录')),
                ('解释编号', explanation['id']), ('解释保存时间', explanation['created_at']), ('解释模型', explanation['engine']['model']),

@@ -6,8 +6,15 @@ import { artifactUiMessages } from './artifactUiMessages'
 import { summaryUiMessages } from './summaryUiMessages'
 import { modelUsageMessages } from './modelUsageMessages'
 import { taskMessages } from './taskMessages'
+import { fileLibraryMessages } from './fileLibraryMessages'
+import { preparationMessages } from './preparationMessages'
+import { analysisPlanMessages } from './analysisPlanMessages'
+import { profileMessages } from './profileMessages'
 
 export const rootMessages: Record<string, string> = {
+  ...profileMessages,
+  ...preparationMessages,
+  ...analysisPlanMessages,
   ...authUiMessages,
   ...workspaceMessages,
   ...projectContentMessages,
@@ -16,6 +23,7 @@ export const rootMessages: Record<string, string> = {
   ...summaryUiMessages,
   ...modelUsageMessages,
   ...taskMessages,
+  ...fileLibraryMessages,
   '科研论文辅助系统': 'Research paper assistant',
   '请求失败，请重试。': 'Request failed. Please try again.',
   '项目中心': 'Projects',

@@ -1,5 +1,6 @@
 """Explain saved statistics and figure metadata without inventing new calculations."""
 
+from app.domain.analysis_sources import statistics_engine
 from app.adapters.storage import ProjectStore
 
 
@@ -33,12 +34,15 @@ class ExplanationRequest(RunRequest):
 
 def context(store, project_id, file_id, run_id):
     result = result_source(store, project_id, file_id, run_id)
-    state = store.figure_state(result, RENDERER, STATISTICS_ENGINE)
+    state = store.figure_state(result, RENDERER, statistics_engine(result))
     figure = state.pop('figure')
     if figure:
         store.figure_png(figure)
     state['figure_id'] = figure['id'] if figure else None
     state['explanation'] = ExplanationStore(store).saved(figure['id']) if figure else None
+    if 'source' in result and state['explanation']:
+        from app.domain.reports import validate_sources
+        validate_sources(result, figure, state['explanation'])
     return result, figure, state
 
 

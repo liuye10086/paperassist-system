@@ -1,6 +1,11 @@
+import { documentMessages } from './documentMessages'
+import { ocrReviewMessages } from './ocrReviewMessages'
+import { evidenceMessages } from '../../features/parsedEvidence/evidenceMessages'
+import { fileLifecycleMessages } from './fileLifecycleMessages'
 import { useSyncExternalStore } from 'react'
 import { rootMessages } from './rootMessages'
-import { workflowMessages } from './workflowMessages'
+import { workflowMessages as originalWorkflowMessages } from './workflowMessages'
+const workflowMessages = { ...originalWorkflowMessages, ...documentMessages, ...ocrReviewMessages, ...evidenceMessages, ...fileLifecycleMessages }
 import { errorMessages } from './errorMessages'
 
 export type Locale = 'zh-CN' | 'en'

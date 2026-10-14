@@ -9,7 +9,8 @@ from pathlib import Path
 from uuid import UUID, uuid4, uuid5
 
 from app.adapters.storage import _storage_connection, ProjectStore
-from app.adapters.task_store import TaskStore, source_conflict
+from app.adapters.file_objects import LocalFileObjects
+from app.adapters.task_store import TaskStore, DatasetTaskAssets, source_conflict, workflow_version, snapshots_match
 from app.adapters.report_store import ReportStore
 from app.adapters.report_docx import VERSION
 from app.core.config import get_data_dir
@@ -41,6 +42,7 @@ class ExecutionAssets:
     """Reuse byte-integrity readers without opening an unrelated DB connection."""
     def __init__(self, directory):
         self.directory = Path(directory)
+        self.objects = LocalFileObjects(self.directory)
         self.files_dir = self.directory / 'files'
         self.figures_dir = self.directory / 'figures'
 
@@ -74,7 +76,7 @@ class TaskExecutionStore:
         with self.connection(write=True) as db:
             ensure_schema_current(db)
             row = db.execute('SELECT * FROM tasks WHERE id=%s', (task_id,)).fetchone()
-            if (not row or row['task_type'] not in ('word_report', 'explanation', 'boxplot')
+            if (not row or row['task_type'] not in ('word_report', 'explanation', 'boxplot', 'parse_file', 'extract_dataset', 'prepare_dataset', 'review_ocr', 'analysis_plan')
                     or (task_type is not None and row['task_type'] != task_type)
                     or row['revision'] != task_revision):
                 return None
@@ -105,6 +107,9 @@ class TaskExecutionStore:
                 (str(uuid4()), task_id, task['current_attempt'], now, token, now + timedelta(seconds=LEASE_SECONDS), now))
             TaskStore.update_task(db, task, task_revision)
             TaskStore.append_event(db, task, 'started')
+            if task['task_type'] == 'parse_file':
+                from app.domain.file_parsing import sync_file_status
+                sync_file_status(db, task, 'parsing')
             lease = TaskLease(task_id, task['current_attempt'], token)
             try:
                 self.require_owner(db, task)
@@ -187,7 +192,7 @@ class TaskExecutionStore:
         self.require_owner(db, task)
         snapshot = task['input_snapshot']
         try:
-            if task['workflow_version'] != task['task_type'] + '_v1':
+            if task['workflow_version'] != workflow_version(task['task_type'], snapshot):
                 raise source_conflict()
             request = TaskCreateRequest(task_type=task['task_type'], file_id=snapshot['file']['id'],
                 analysis_run_id=snapshot['result']['id'], expected_revision=snapshot['result']['setup_revision'],
@@ -195,22 +200,54 @@ class TaskExecutionStore:
                 explanation_id=snapshot['explanation']['id'] if task['task_type'] == 'word_report' else None)
             scoped = TaskStore(task['user_id'], self.config)
             project = scoped.require_project(db, task['project_id'])
-            current = scoped.source_snapshot(db, project, request)
-            if any(current[key] != snapshot[key] for key in (
-                    'file', 'result', 'figure', 'explanation', 'versions', 'output_language')):
+            current = scoped.source_snapshot(db, project, request, directory=self.assets.directory)
+            if not snapshots_match(current, snapshot):
                 raise source_conflict()
         except (KeyError, TypeError, ValueError) as exc:
             raise source_conflict() from exc
         from app.domain.external_processing import validate_frozen
+        if 'source' in snapshot and task['task_type'] in ('boxplot', 'explanation') and snapshot.get('external_processing') is None:
+            raise source_conflict()
         if snapshot.get('external_processing') is not None:
             validate_frozen(snapshot, task['task_type'], task['user_id'], snapshot['external_processing'])
-        return {key: snapshot[key] for key in ('project', 'result', 'figure', 'explanation', 'external_processing') if key in snapshot}
+        return {key: snapshot[key] for key in ('project', 'result', 'figure', 'explanation', 'external_processing', 'source') if key in snapshot}
+
+    def source_file(self, db, task):
+        """Resolve current storage only after checking the immutable v1 identity.
+
+        Locator fields belong to the asset record, not the historical statistical
+        snapshot. Keep five-field snapshots unchanged so existing equality and
+        recovery contracts remain valid, including already queued batch tasks.
+        """
+        self.require_owner(db, task)
+        expected = task['input_snapshot']['file']
+        row = db.execute('SELECT * FROM files WHERE id=%s AND project_id=%s',
+                         (expected['id'], task['project_id'])).fetchone()
+        if (row is None or row['parse_status'] != 'parsed'
+                or any(row[key] != expected[key] for key in ('id', 'filename', 'sha256', 'size_bytes', 'file_type'))):
+            raise source_conflict()
+        return dict(row)
+
+    def dataset(self, task):
+        from app.domain.dataset_analysis import load_dataset
+        scoped = DatasetTaskAssets(task['user_id'], self.config, self.assets.directory)
+        source = task['input_snapshot']['source']
+        return load_dataset(scoped, task['project_id'], source['file_id'], source['dataset_id'], expected_source=source)
+
+    def verify_input_asset(self, db, task):
+        if 'source' in task['input_snapshot']:
+            return self.dataset(task)
+        return self.assets.original(self.source_file(db, task))
 
     def load(self, lease):
         with self.connection() as db:
             task = self.require_lease(db, lease)
             snapshot = self.sources(db, task)
-        self.assets.original(task['input_snapshot']['file'])
+            record = self.source_file(db, task)
+        if 'source' in task['input_snapshot']:
+            self.dataset(task)
+        else:
+            self.assets.original(record)
         png = self.assets.figure_png(snapshot['figure'])
         metadata = ReportStore.metadata(snapshot)
         report_id = str(uuid5(REPORT_NAMESPACE, lease.task_id))
@@ -243,9 +280,14 @@ class TaskExecutionStore:
             if task['task_type'] != 'boxplot':
                 raise source_conflict()
             snapshot = self.sources(db, task)
-        record = task['input_snapshot']['file']
-        payload, expected = build_material(snapshot['result'], record, self.assets.original(record), get_excel_settings(),
-                                           external=snapshot.get('external_processing'))
+            record = self.source_file(db, task)
+        if 'source' in task['input_snapshot']:
+            record, _, sheet = self.dataset(task)
+            payload, expected = build_material(snapshot['result'], record, None, get_excel_settings(),
+                external=snapshot.get('external_processing'), dataset_sheet=sheet)
+        else:
+            payload, expected = build_material(snapshot['result'], record, self.assets.original(record), get_excel_settings(),
+                                               external=snapshot.get('external_processing'))
         return task, snapshot, payload, expected
 
     def boxplot_call(self, lease):
@@ -275,6 +317,7 @@ class TaskExecutionStore:
                 raise source_conflict()
             if (figure['analysis_run_id'] != result['id'] or figure['file_id'] != result['file_id']
                     or figure['source_sha256'] != result['source_sha256']
+                    or figure.get('source') != result.get('source')
                     or figure['setup_revision'] != result['setup_revision']
                     or figure['language'] != 'zh-CN' or figure['figure_number'] != 1
                     or figure['engine']['id'] != PROMPT_VERSION
@@ -363,7 +406,7 @@ class TaskExecutionStore:
             task = self.require_lease(db, lease)
             if task['task_type'] != 'boxplot' or self.sources(db, task) != snapshot:
                 raise source_conflict()
-            self.assets.original(task['input_snapshot']['file'])
+            self.verify_input_asset(db, task)
             existing = db.execute('SELECT figure_json FROM figures WHERE analysis_run_id=%s AND renderer_version=%s',
                                   (snapshot['result']['id'], PROMPT_VERSION)).fetchone()
             if existing:
@@ -412,7 +455,11 @@ class TaskExecutionStore:
             if task['task_type'] != 'explanation':
                 raise source_conflict()
             snapshot = self.sources(db, task)
-        self.assets.original(task['input_snapshot']['file'])
+            record = self.source_file(db, task)
+        if 'source' in task['input_snapshot']:
+            self.dataset(task)
+        else:
+            self.assets.original(record)
         self.assets.figure_png(snapshot['figure'])
         from app.domain.external_material import explanation_material
         local, _ = explanation_material(snapshot['result'], snapshot['figure'], snapshot.get('external_processing'))
@@ -446,7 +493,7 @@ class TaskExecutionStore:
             task = self.require_lease(db, lease)
             if task['task_type'] != 'explanation' or self.sources(db, task) != snapshot:
                 raise source_conflict()
-            self.assets.original(task['input_snapshot']['file'])
+            self.verify_input_asset(db, task)
             self.assets.figure_png(snapshot['figure'])
             self.require_lease(db, lease)
             row = db.execute('''SELECT explanation_json FROM explanations
@@ -516,15 +563,17 @@ class TaskExecutionStore:
             if current != snapshot:
                 raise source_conflict()
             # These final reads close source races during rendering; no model or broker I/O.
-            self.assets.original(task['input_snapshot']['file'])
+            self.verify_input_asset(db, task)
             self.assets.figure_png(snapshot['figure'])
             existing = ReportStore.cached(db, snapshot['explanation']['id'])
             if existing:
                 self.reports.content(existing)
+                if existing.get('source') != snapshot['result'].get('source'):
+                    raise source_conflict()
                 saved = existing
             else:
                 expected_id = str(uuid5(REPORT_NAMESPACE, lease.task_id))
-                if report['id'] != expected_id:
+                if report['id'] != expected_id or report.get('source') != snapshot['result'].get('source'):
                     raise source_conflict()
                 target = self.reports.directory / (expected_id + '.docx')
                 if db.execute('SELECT id FROM reports WHERE id=%s', (expected_id,)).fetchone():
@@ -554,6 +603,15 @@ class TaskExecutionStore:
         TaskStore.finish_attempt(db, task)
         TaskStore.update_task(db, task, revision)
         TaskStore.append_event(db, task, status)
+        if task['task_type'] == 'parse_file':
+            from app.domain.file_parsing import sync_file_status
+            sync_file_status(db, task, 'parsed' if status == 'succeeded' else 'failed', task.get('error_code'))
+        if task['task_type'] == 'parse_file' and task['workflow_version'] in ('docx_document_v1', 'pdf_document_v1', 'ocr_document_v1') and status == 'failed':
+            db.execute('UPDATE file_parse_results SET completed_at=%s WHERE task_id=%s AND result_json IS NULL',
+                       (task['updated_at'],task['id']))
+        if task['task_type'] == 'extract_dataset' and status == 'failed':
+            db.execute('UPDATE file_structure_versions SET completed_at=%s WHERE task_id=%s AND manifest_json IS NULL',
+                       (task['updated_at'],task['id']))
         from app.domain.tasks.waits import resolve_open_wait
         resolve_open_wait(db, task, status='superseded')
 
@@ -567,7 +625,7 @@ class TaskExecutionStore:
         with self.connection(write=True) as db:
             rows = db.execute('''SELECT t.* FROM tasks t JOIN task_attempts a
                 ON a.task_id=t.id AND a.attempt_no=t.current_attempt
-                WHERE t.task_type IN ('word_report','explanation','boxplot') AND t.status='running' AND a.status='running'
+                WHERE t.task_type IN ('word_report','explanation','boxplot','parse_file','extract_dataset','prepare_dataset', 'review_ocr', 'analysis_plan') AND t.status='running' AND a.status='running'
                 AND a.lease_expires_at<=clock_timestamp()
                 ORDER BY a.lease_expires_at,t.id LIMIT %s''', (limit,)).fetchall()
             for row in rows:
@@ -595,17 +653,30 @@ class TaskExecutionStore:
                 self._finish(db, task, 'failed', 'task_worker_interrupted')
                 # Three automatic attempts total. A later explicit user retry still
                 # gets one execution, but a lost manual attempt does not restart a loop.
-                if task['current_attempt'] >= AUTO_ATTEMPTS:
+                # Human OCR review saves each start a fresh finite local node;
+                # lifetime attempt ordinals include successful human wait cycles.
+                if (task['task_type'] in ('review_ocr', 'analysis_plan') and task['retry_count'] >= AUTO_ATTEMPTS-1
+                        or task['task_type'] not in ('review_ocr', 'analysis_plan') and task['current_attempt'] >= AUTO_ATTEMPTS):
                     continue
                 try:
                     self.require_owner(db, task)
                 except StorageError:
                     continue
                 revision = task['revision']
+                if task['task_type'] in ('review_ocr', 'analysis_plan'):
+                    task['retry_count'] += 1
                 task.update(status='queued', revision=revision + 1, updated_at=max(self.now(db), task['updated_at']),
                             reason_code='retry_requested', error_code=None, _retry_reason='worker_interrupted')
                 TaskStore.update_task(db, task, revision)
                 TaskStore.append_event(db, task, 'requeued')
+                if task['task_type'] == 'extract_dataset':
+                    db.execute('UPDATE file_structure_versions SET completed_at=NULL WHERE task_id=%s AND manifest_json IS NULL',(task['id'],))
+                if task['task_type'] == 'parse_file':
+                    if task['workflow_version'] in ('docx_document_v1', 'pdf_document_v1', 'ocr_document_v1'):
+                        db.execute('UPDATE file_parse_results SET completed_at=NULL WHERE task_id=%s AND result_json IS NULL',
+                                   (task['id'],))
+                    from app.domain.file_parsing import sync_file_status
+                    sync_file_status(db, task, 'queued')
                 TaskStore.enqueue(db, task)
             return len(rows) + self._recover_boxplot_receipts(db, limit)
 

@@ -1,0 +1,25 @@
+.dataset-profile { margin-top: 1rem; padding: .85rem; border: 1px solid #e0dce8; border-radius: .65rem; background: #fff; color: #302a3b; min-width: 0; }
+.dataset-profile h3, .dataset-profile h4 { color: #43276b; margin: .4rem 0 .65rem; }
+.dataset-profile p, .dataset-profile li, .dataset-profile dd { overflow-wrap: anywhere; }
+.dataset-profile button { background: #f8f7fa; border: 1px solid #d8d1e3; color: #43276b; border-radius: .4rem; padding: .4rem .55rem; white-space: normal; text-align: left; }
+.dataset-profile button[aria-expanded="true"] { background: #43276b; color: #fff; }
+.dataset-profile button:disabled { opacity: .5; }
+.profile-field-picker { display: flex; flex-wrap: wrap; gap: .35rem; max-height: 9rem; overflow: auto; padding: .2rem; }
+.profile-field-detail, .profile-issues { border-top: 1px solid #e8e5ec; margin-top: .8rem; padding-top: .65rem; }
+.profile-metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(7rem, 1fr)); gap: .5rem; }
+.profile-metrics > div { background: #f5f4f7; padding: .45rem; border-radius: .4rem; }
+.profile-metrics dt { color: #686270; font-size: .85rem; }
+.profile-metrics dd, .profile-temporal dd { margin: .25rem 0; }
+.profile-actions { display: flex; flex-wrap: wrap; gap: .4rem; margin: .55rem 0; }
+.profile-issue-list { list-style: none; padding: 0; }
+.profile-issue-list li { display: flex; align-items: center; flex-wrap: wrap; gap: .4rem; padding: .35rem 0; border-bottom: 1px solid #efedf2; }
+.profile-categories { padding-left: 1.2rem; }
+.profile-table-scroll { max-height: 23rem; overflow: auto; border: 1px solid #e0dce8; }
+.profile-table-scroll table { border-collapse: collapse; min-width: 100%; font-size: .86rem; }
+.profile-table-scroll th, .profile-table-scroll td { padding: .35rem .5rem; border: 1px solid #e7e4eb; min-width: 5rem; max-width: 16rem; overflow-wrap: anywhere; }
+.profile-table-scroll caption { padding: .5rem; text-align: left; }
+.profile-table-scroll thead { background: #f3f1f6; }
+.profile-table-scroll small { display: block; color: #6d6378; }
+.profile-row-selected { background: #f5effc; }
+.profile-table-scroll td.profile-cell-selected { background: #e2d3f5; outline: 2px solid #593684; outline-offset: -2px; font-weight: 600; }
+@media (max-width: 600px) { .dataset-profile { padding: .65rem; } .profile-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); } .profile-field-picker { max-height: 7rem; } }

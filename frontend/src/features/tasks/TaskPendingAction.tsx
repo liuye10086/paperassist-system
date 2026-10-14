@@ -1,6 +1,9 @@
+import PreparationReview from '../datasetPreparation/PreparationReview'
+import AnalysisPlanReview from '../analysisPlan/AnalysisPlanReview'
+import OcrReviewWorkspace from '../documents/OcrReviewWorkspace'
 import { useEffect, useRef, useState } from 'react'
 import { safeError, useI18n } from '../../shared/i18n'
-import { isTask, type TaskOperation, type TaskView, type TaskWorkspace } from './taskTypes'
+import { isTask, sameInputVersion, type TaskOperation, type TaskView, type TaskWorkspace } from './taskTypes'
 import { taskRequest, TaskRequestError } from './taskApi'
 
 export default function TaskPendingAction({ workspace, blocked, onChanged }: {
@@ -23,7 +26,7 @@ export default function TaskPendingAction({ workspace, blocked, onChanged }: {
     setBusy(true); setError('')
     try {
       await taskRequest(`/api/v1/tasks/${encodeURIComponent(task.id)}/resume`, controller,
-        (value): value is TaskView => isTask(value, task.project_id, task.id), '恢复请求未确认，请先重新读取任务。', {
+        (value): value is TaskView => isTask(value, task.project_id, task.id) && sameInputVersion(value.input_version, task.input_version), '恢复请求未确认，请先重新读取任务。', {
           method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': replay.current.key }, body: signature,
         })
       if (!active.current || controller.signal.aborted) return
@@ -39,11 +42,18 @@ export default function TaskPendingAction({ workspace, blocked, onChanged }: {
   }
   const currentWait = wait?.status === 'open' ? wait : null
   if (task.origin === 'legacy') return null
+  if (task.task_type === 'review_ocr' && task.input_version.kind === 'ocr_review') return <OcrReviewWorkspace projectId={task.project_id} fileId={task.input_version.source.file_id} parseId={task.input_version.source.parse_id} taskId={task.id} filename={workspace.source.filename} onUnavailable={onChanged} onPublished={onChanged}/>
+  if (task.task_type === 'prepare_dataset') return <><PreparationReview projectId={task.project_id} taskId={task.id} blocked={blocked} onChanged={onChanged} refreshKey={task.revision ?? 0} />
+    {actions.includes('retry') && <button type="button" className="button-primary" disabled={blocked || busy} onClick={() => void perform('retry')}>{t('重试原任务')}</button>}
+    {error && <p role="alert" className="error-panel">{t(error)}</p>}</>
+  if (task.task_type === 'analysis_plan') return <><AnalysisPlanReview projectId={task.project_id} taskId={task.id} blocked={blocked} onChanged={onChanged} refreshKey={task.revision ?? 0} />
+    {actions.includes('retry') && <button type="button" className="button-primary" disabled={blocked || busy} onClick={() => void perform('retry')}>{t('重试原任务')}</button>}
+    {error && <p role="alert" className="error-panel">{t(error)}</p>}</>
   return <section className="task-pending" aria-label={t('任务处理')}>
     {currentWait?.kind === 'budget_confirmation' && <p className="warning-panel">{t('任务正在等待预算或模型配置，请联系管理员调整后继续。')}</p>}
     {currentWait?.kind === 'submission_unknown' && <p className="warning-panel">{t('提交结果尚未核实，请联系管理员核对；不能重新发送模型请求。')}</p>}
     {(currentWait?.kind === 'unsupported_input' || currentWait?.kind === 'unsupported_confirmation') && <p className="warning-panel">{t('此任务需要的资料或确认暂未提供处理入口，请联系管理员。')}</p>}
-    {actions.length > 0 && <><p className="task-scope-note">{t('继续此任务；尚未提交的模型调用会按原策略和预算执行，已有调用沿用已保存结果。')}</p>
+    {actions.length > 0 && <><p className="task-scope-note">{t(task.task_type === 'extract_dataset' ? '使用冻结的原文件输入重试本地结构提取。' : task.task_type === 'parse_file' ? '使用原文件重试本地解析。' : '继续此任务；尚未提交的模型调用会按原策略和预算执行，已有调用沿用已保存结果。')}</p>
       <div className="task-actions">{actions.map(operation => <button key={operation} type="button" className="button-primary" disabled={blocked || busy}
         onClick={() => void perform(operation)}>{t(operation === 'retry' ? '重试原任务'
           : currentWait?.kind === 'budget_confirmation' ? '预算或配置已调整，继续任务' : '继续原任务')}</button>)}</div></>}

@@ -46,7 +46,7 @@ def task_schema(postgres_schema):
 
 def test_four_task_tables_have_current_head_and_native_types(postgres_schema):
     assert TASK_TABLES <= metadata.tables.keys()
-    assert SCHEMA_HEAD == '0013_cost_reconciliation'
+    assert SCHEMA_HEAD == '0023_file_lifecycle'
     with database_connection() as db:
         inspector = inspect(db.raw_connection)
         assert TASK_TABLES <= set(inspector.get_table_names(schema=postgres_schema.schema))
@@ -157,7 +157,9 @@ def test_0005_0006_roundtrip_preserves_old_columns_and_values(postgres_schema, p
         command.downgrade(settings, '0005_ownership_indexes')
         seed_owner(db)
         db.execute("UPDATE projects SET created_at='legacy exact text', updated_at='2026-10-08T00:00:00.123456Z'")
-        db.execute("INSERT INTO files(id,project_id,filename,file_type,size_bytes,sha256,uploaded_at,parse_status) VALUES ('f','p','original.csv','csv',1,'hash','2026-10-08T00:00:00Z','parsed')")
+        # This roundtrip verifies preservation of old columns and values, not format support.
+        # The historical product upload contract only accepted xlsx.
+        db.execute("INSERT INTO files(id,project_id,filename,file_type,size_bytes,sha256,uploaded_at,parse_status) VALUES ('f','p','original.xlsx','xlsx',1,'hash','2026-10-08T00:00:00Z','parsed')")
         db.execute("INSERT INTO analysis_setups(file_id,revision,setup_json) VALUES ('f',1,'{\"spacing\":  true}')")
         db.execute("INSERT INTO analysis_runs(id,file_id,setup_revision,engine_version,completed_at,result_json) VALUES ('r','f',1,'original','2026-10-08T00:00:00Z','{}')")
         db.execute("INSERT INTO figures(id,analysis_run_id,renderer_version,figure_json) VALUES ('fig','r','original','{}')")

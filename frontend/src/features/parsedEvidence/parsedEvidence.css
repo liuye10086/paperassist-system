@@ -1,0 +1,8 @@
+.parsed-evidence { margin-block: 1rem; padding: 1rem; border: 1px solid var(--border-color, #d8dce5); border-radius: .5rem; }
+.parsed-evidence article { margin-block: .8rem; padding: .8rem; border: 1px solid var(--border-color, #d8dce5); border-radius: .35rem; }
+.parsed-evidence pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 24rem; overflow: auto; }
+.parsed-evidence aside { padding: .7rem; background: var(--panel-bg, #f5f6fa); }
+.parsed-evidence p, .parsed-evidence dd { overflow-wrap: anywhere; }
+.parsed-evidence dl { display: flex; flex-wrap: wrap; gap: .6rem 1.5rem; }
+.parsed-evidence dl div { min-width: 5rem; }
+.parsed-evidence nav { display: flex; gap: .6rem; margin-top: .8rem; }

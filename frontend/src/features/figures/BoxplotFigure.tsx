@@ -1,7 +1,9 @@
+import SourceSummary from '../analysis/SourceSummary'
+import { validAnalysisTaskSource, validOptionalSource, type DatasetAnalysisSource } from '../analysis/datasetSource'
 import { useI18n, apiError, safeError } from '../../shared/i18n'
 import { apiFetch, onApiSessionChanged } from '../../shared/api/client'
 import { ArtifactRequestError as RequestError, createArtifactSubmission, isArtifactState, isExplicitRejection, type ArtifactSubmission } from '../../shared/api/artifactSubmission'
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import ExternalSendReview from '../../shared/components/ExternalSendReview'
 import { isArtifactDisclosure, type ArtifactReviewDraft, type ExternalProcessingConfirmation } from '../../shared/api/artifactDisclosure'
 import { WorkflowStage, WorkflowReadStatus } from '../analysis/AnalysisWorkflow'
@@ -9,7 +11,7 @@ import './artifactPanels.css'
 import AnalysisExplanation from '../explanations/AnalysisExplanation'
 import ProjectDownloadLink from '../../shared/components/ProjectDownloadLink'
 
-type Figure = { id: string; analysis_run_id: string; setup_revision: number; title: string; caption: string
+type Figure = { source?: DatasetAnalysisSource; id: string; analysis_run_id: string; setup_revision: number; title: string; caption: string
   x_label: string; y_label: string; source_sha256: string; sha256: string; created_at: string
   engine: { id: string; provider: string; model: string }; verification: { status: string; note: string } }
 type Job = { id: string; status: 'submitting' | 'running' | 'failed' | 'uncertain' | 'completed'; message: string; message_code?: string; message_params?: Record<string, string | number>; response_id: string | null; created_at: string }
@@ -17,8 +19,8 @@ type Task = { id: string; status: 'queued' | 'running' | 'waiting_input' | 'wait
   revision: number; reason_code: string | null; error_code: string | null; result_figure_id?: string | null }
 type State = { current_revision: number | null; is_current: boolean; figure: Figure | null; job: Job | null; task?: Task | null }
 type Config = { configured: boolean; model: string | null; message: string; message_code?: string; message_params?: Record<string, string | number> }
-type Props = { base: string; runId: string; revision: number; canGenerate: boolean; disabled: boolean; onBusyChange: (busy: boolean) => void }
-async function request<T>(url: string, controller: AbortController, init?: RequestInit): Promise<T> {
+type Props = { source?: DatasetAnalysisSource; filename?: string; base: string; runId: string; revision: number; canGenerate: boolean; disabled: boolean; onBusyChange: (busy: boolean) => void }
+async function rawRequest<T>(url: string, controller: AbortController, init?: RequestInit): Promise<T> {
   let timer = 0
   try {
     return await Promise.race([apiFetch(url, { ...init, signal: controller.signal }).then(async response => {
@@ -44,8 +46,17 @@ function needsPoll(value: State) {
   return value.task ? ['queued', 'running'].includes(value.task.status) || value.task.status === 'succeeded'
     : value.job?.status === 'submitting' || value.job?.status === 'running'
 }
-function FigurePanel({ base, runId, revision, canGenerate, disabled, onBusyChange }: Props) {
+function FigurePanel({ base, runId, revision, canGenerate, disabled, onBusyChange, source, filename }: Props) {
   const { t } = useI18n()
+  const request = useCallback(async <T,>(url: string, controller: AbortController, init?: RequestInit): Promise<T> => {
+    const value = await rawRequest<T>(url, controller, init)
+    if (value && typeof value === 'object' && 'figure' in value) {
+      const item = (value as unknown as State).figure
+      if (item && !validOptionalSource(item, source)) throw new Error('数据来源或版本不一致，请重新载入配置。')
+    }
+    if (value && typeof value === 'object' && ('task' in value && value.task && !validAnalysisTaskSource(value.task, source, revision) || url.startsWith('/api/v1/tasks/') && !validAnalysisTaskSource(value, source, revision))) throw new Error('数据来源或版本不一致，请重新载入配置。')
+    return value
+  }, [source, revision])
   const endpoint = `${base}/analysis-runs/${runId}/boxplot`
   const [state, setState] = useState<State | null>(null)
   const [explanationBusy, setExplanationBusy] = useState(false)
@@ -118,7 +129,7 @@ function FigurePanel({ base, runId, revision, canGenerate, disabled, onBusyChang
     request<Config>('/api/v1/ai/plot-config', controller).then(value => { if (!disposed && !controller.signal.aborted) setConfig(value) })
       .catch(cause => { if (!disposed) setConfigError(message(cause)) })
     return () => { disposed = true; controller.abort() }
-  }, [configAttempt, sessionValid])
+  }, [configAttempt, sessionValid, request])
 
   useEffect(() => {
     if (!sessionValid) return
@@ -141,7 +152,7 @@ function FigurePanel({ base, runId, revision, canGenerate, disabled, onBusyChang
     }
     void read()
     return () => { disposed = true; window.clearTimeout(poll); reading.current?.abort(); reading.current = null }
-  }, [endpoint, attempt, revision, sessionValid])
+  }, [endpoint, attempt, revision, sessionValid, request])
 
   async function openReview() {
     if (!allowed || action.current || preview.current || review) return
@@ -154,7 +165,7 @@ function FigurePanel({ base, runId, revision, canGenerate, disabled, onBusyChang
     try {
       const value = await request<unknown>(`${endpoint}/disclosure`, controller)
       if (!active.current || controller.signal.aborted || preview.current !== controller) return
-      if (!isArtifactDisclosure(value, 'boxplot')) throw new Error('图表请求失败，请重新读取图表。')
+      if (!isArtifactDisclosure(value, 'boxplot') || (source ? value.version !== 2 || value.source?.sheet_name !== source.sheet_name || value.source.dataset_version !== source.dataset_version || !!filename && value.source.filename !== filename : value.version !== 1)) throw new Error('图表请求失败，请重新读取图表。')
       if (value.has_saved_result) { reload(); return }
       setReview({ disclosure: value, body })
     } catch (cause) { if (active.current && preview.current === controller) {
@@ -209,7 +220,7 @@ function FigurePanel({ base, runId, revision, canGenerate, disabled, onBusyChang
     {configError && <p role="alert" className="error-panel">{t(configError)}</p>}
     {(!config?.configured || configError) && <button type="button" onClick={() => { setConfig(null); setConfigError(''); setConfigAttempt(value => value + 1) }}>{t("重试读取 OpenAI 配置")}</button>}
     {!canGenerate && <p className="warning-panel">{t("请保存当前字段并执行对应配置的描述统计后，再生成图表。")}</p>}
-    {figure && (!canGenerate || !state.is_current || state.current_revision !== revision) && <p className="warning-panel">{t('以下图表对应旧配置，仍可查看和下载。')}</p>}
+    {figure && (!state.is_current || state.current_revision !== revision) && <p className="warning-panel">{t('以下图表对应旧配置，仍可查看和下载。')}</p>}
     {retry && !unconfirmed && <p className="warning-panel">{t("上次生成失败。")}{t("再次调用 API 可能产生额外费用，请确认后点击重试。")}</p>}
     {unknown && !unconfirmed && <p className="warning-panel">{t('提交结果尚未核实，已停止再次调用。请联系管理员核对。')}</p>}
     {unavailable && <p className="warning-panel">{t('已提交的绘图响应无法恢复，请联系管理员核对。')}</p>}
@@ -232,7 +243,8 @@ function FigurePanel({ base, runId, revision, canGenerate, disabled, onBusyChang
     {error && <p role="alert" className="error-panel">{t(error)}</p>}
     {imageError && <p role="alert" className="error-panel">{t("图片读取失败，请点击“重新读取图表”重试。")}</p>}
     {figure && <figure>
-      <p className="artifact-status">{t(canGenerate && state?.is_current && state.current_revision === revision ? "当前结果" : "历史结果")}</p>
+      <p className="artifact-status">{t(state?.is_current && state.current_revision === revision ? "当前结果" : "历史结果")}</p>
+      <SourceSummary source={figure.source} filename={filename} />
       <h4>{figure.title}</h4>
       {!imageError && <img key={`${figure.id}:${imageAttempt}`} src={`${endpoint}/image?v=${encodeURIComponent(figure.id)}&reload=${imageAttempt}`} alt={figure.title} onError={() => setImageError(true)} />}
       <figcaption>{figure.caption}</figcaption>
@@ -245,7 +257,7 @@ function FigurePanel({ base, runId, revision, canGenerate, disabled, onBusyChang
     </figure>}
     {state && !figure && !state.job && !task && <p>{t("尚未生成此统计结果的箱线图。")}</p>}
   </section></WorkflowStage>
-    {figure ? <AnalysisExplanation base={base} runId={runId} revision={revision} figureId={figure.id}
+    {figure ? <AnalysisExplanation base={base} runId={runId} revision={revision} figureId={figure.id} source={figure.source} filename={filename}
       canGenerate={canGenerate && !!state?.is_current && state.current_revision === revision && figure.setup_revision === revision}
       disabled={disabled || loading || busy || !!error} onBusyChange={setExplanationBusy} />
       : !loading && !error && <>

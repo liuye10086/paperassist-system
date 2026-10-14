@@ -116,4 +116,5 @@ def record_and_crash(self, call_id, receipt, *, submitted):
 explanation_execution.create_provider = provider
 ModelUsageService.reserve_call = reserve_and_crash
 ModelGateway._record = record_and_crash
-raise SystemExit(main())
+if __name__ == '__main__':
+    raise SystemExit(main())

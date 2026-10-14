@@ -16,8 +16,9 @@ export default function ExternalSendReview({ disclosure, disabled, onCancel, onC
   }
   return <form className="external-send-review" aria-labelledby={`${id}-title`} onSubmit={event => {
     event.preventDefault()
-    if (!disabled && !invalid) onConfirm({ version: 1, confirmed: true, source_digest: disclosure.source_digest, labels: { ...labels } })
+    if (!disabled && !invalid) onConfirm({ version: disclosure.version, confirmed: true, source_digest: disclosure.source_digest, labels: { ...labels } })
   }}>
+    {disclosure.source && <p>{disclosure.version === 3 ? t('来源：{filename}；工作表：{sheet}；原始数据 v{raw} · 整理数据 v{prepared}。', { filename: disclosure.source.filename, sheet: disclosure.source.sheet_name, raw: disclosure.source.parent_dataset_version ?? 0, prepared: disclosure.source.dataset_version }) : t('来源：{filename}；工作表：{sheet}；原始数据版本 v{version}。', { filename: disclosure.source.filename, sheet: disclosure.source.sheet_name, version: disclosure.source.dataset_version })}</p>}
     <h4 id={`${id}-title`}>{t('发送前检查')}</h4>
     <p>{t('有效记录：{valid_count}；排除记录：{excluded_count}；分组：{group_count}。', disclosure.summary)}</p>
     <p>{t(disclosure.task_type === 'boxplot' ? '将向 OpenAI 发送所选记录的真实数值、分组及以下绘图名称。' : '将向 OpenAI 发送统计汇总、以下名称及必要图表信息；不上传 Excel 文件或 PNG 图片。')}</p>

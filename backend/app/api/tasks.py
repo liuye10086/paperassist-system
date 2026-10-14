@@ -32,6 +32,21 @@ class RetryRequest(BaseModel):
 def retry_task(task_id: str, request: RetryRequest, store: Store):
     store.require_mutable(task_id)
     task_type = store.get(task_id)['task_type']
+    if task_type == 'analysis_plan':
+        from app.domain.analysis_plan.service import retry_plan_task
+        return retry_plan_task(store, task_id, request.expected_revision)
+    if task_type == 'review_ocr':
+        from app.domain.ocr_review.service import retry_ocr_review_task
+        return retry_ocr_review_task(store,task_id,request.expected_revision)
+    if task_type == 'prepare_dataset':
+        from app.domain.dataset_preparation.service import retry_preparation_task
+        return retry_preparation_task(store,task_id,request.expected_revision)
+    if task_type == 'extract_dataset':
+        from app.domain.tasks.dataset_retry import retry_dataset_task
+        return retry_dataset_task(store, task_id, request.expected_revision)
+    if task_type == 'parse_file':
+        from app.domain.tasks.file_parse_retry import retry_parse_task
+        return retry_parse_task(store, task_id, request.expected_revision)
     if task_type == 'boxplot':
         from app.domain.plot_tasks import retry_boxplot_task
         return retry_boxplot_task(store, task_id, request.expected_revision)

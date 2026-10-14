@@ -26,7 +26,8 @@ def test_0013_round_trip_preserves_old_columns_and_indexes(postgres_schema, post
         command.upgrade(settings, 'head')
         for table in tables:
             assert [dict(row) for row in db.execute('SELECT ' + ','.join('"' + col + '"' for col in columns[table]) + ' FROM "' + table + '" ORDER BY 1').fetchall()] == before[table]
-            assert inspect(db.raw_connection).get_indexes(table, schema=postgres_schema.schema) == indexes[table]
+            current_indexes = inspect(db.raw_connection).get_indexes(table, schema=postgres_schema.schema)
+            assert all(index in current_indexes for index in indexes[table])
         call = db.execute('SELECT * FROM model_calls').fetchone()
         assert call['actual_token_micro_usd'] is None and call['actual_tool_micro_usd'] is None and call['reconciliation_revision'] == 0
         audit = audit_database(db)

@@ -196,4 +196,5 @@ ModelUsageService.reserve_call = reserve_and_crash
 ModelUsageService.record_plot_step = step_and_crash
 ModelGateway._record = record_and_crash
 os.replace = replace_and_crash
-raise SystemExit(main())
+if __name__ == '__main__':
+    raise SystemExit(main())

@@ -3,7 +3,7 @@ from copy import deepcopy
 
 from app.core.exceptions import StorageError
 from app.domain.explanation_content import build_payload
-from app.domain.external_processing import normalize_confirmation, validate_labels, digest
+from app.domain.external_processing import normalize_confirmation, validate_labels, digest, disclosure_version
 
 
 PLOT_INSTRUCTIONS = """You are a scientific plotting assistant. Use the python tool to actually read uploaded
@@ -61,13 +61,15 @@ testing and manual review are displayed separately. Every string must be nonempt
 
 
 def require_contract(external, task_type):
-    if (not isinstance(external, dict) or external.get('version') != 1
+    if (not isinstance(external, dict) or type(external.get('version')) is not int or external.get('version') not in (1, 2, 3)
             or external.get('task_type') != task_type or external.get('provider') != 'openai'):
         raise StorageError('task_source_conflict', '已确认的外发资料合同无法通过检查。', 409)
 
 
 def contract_labels(result, figure, external, task_type):
     require_contract(external, task_type)
+    if external['version'] != disclosure_version(result):
+        raise StorageError('task_source_conflict', '外发确认与冻结来源版本不一致。', 409)
     try:
         normalized = normalize_confirmation({'version': external['version'], 'confirmed': True,
             'source_digest': external['source_digest'], 'labels': external['labels']})
@@ -109,6 +111,8 @@ def plot_labels(result, labels):
 
 
 def plot_material(result, original_payload, original_expected, external):
+    if external is None and 'source' in result:
+        raise StorageError('task_source_conflict', '新数据来源必须先完成本次外发确认。', 409)
     if external is None:
         return original_payload, original_expected
     labels = contract_labels(result, None, external, 'boxplot')
@@ -125,6 +129,8 @@ def plot_material(result, original_payload, original_expected, external):
 
 
 def explanation_material(result, figure, external):
+    if external is None and 'source' in result:
+        raise StorageError('task_source_conflict', '新数据来源必须先完成本次外发确认。', 409)
     if external is None:
         payload = build_payload(result, figure)
         return payload, payload

@@ -1,22 +1,39 @@
 """Safe task-center projections, separate from the existing task contract."""
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator, model_serializer
+from app.domain.analysis_sources import AnyDatasetAnalysisSource
 
 from app.domain.tasks.contracts import TaskView
 from app.domain.tasks.wait_contracts import WaitView
 
 
 class TaskSource(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    dataset_source: AnyDatasetAnalysisSource | None = None
+
+    @model_serializer(mode='wrap')
+    def serialize_source(self, handler):
+        value = handler(self)
+        if self.dataset_source is None:
+            value.pop('dataset_source', None)
+        return value
+
     file_id: str
     filename: str
-    analysis_run_id: str
+    analysis_run_id: str | None
     is_current: bool
 
 
 class TaskListItem(BaseModel):
     task: TaskView
     source: TaskSource
+
+    @model_validator(mode='after')
+    def source_matches_task(self):
+        if (self.task.task_type in ('parse_file','extract_dataset','prepare_dataset', 'review_ocr', 'analysis_plan')) != (self.source.analysis_run_id is None):
+            raise ValueError('Task source must match its input type.')
+        return self
 
 
 class TaskListPage(BaseModel):
@@ -53,11 +70,28 @@ class TaskArtifacts(BaseModel):
     figure: FigureArtifact | None = None
     explanation: ExplanationArtifact | None = None
     report: ReportArtifact | None = None
+    dataset: ReportArtifact | None = None
+    ocr_review: ReportArtifact | None = None
+
+    @model_serializer(mode='wrap')
+    def serialize_artifacts(self, handler):
+        value = handler(self)
+        if self.dataset is None:
+            value.pop('dataset', None)
+        if self.ocr_review is None:
+            value.pop('ocr_review', None)
+        return value
 
 
 class TaskWorkspace(BaseModel):
     task: TaskView
     source: TaskSource
     wait: WaitView | None
-    allowed_actions: list[Literal['resume', 'retry']]
+    allowed_actions: list[Literal['resume', 'retry', 'approve', 'revise']]
     artifacts: TaskArtifacts
+
+    @model_validator(mode='after')
+    def source_matches_task(self):
+        if (self.task.task_type in ('parse_file','extract_dataset','prepare_dataset', 'review_ocr', 'analysis_plan')) != (self.source.analysis_run_id is None):
+            raise ValueError('Task source must match its input type.')
+        return self

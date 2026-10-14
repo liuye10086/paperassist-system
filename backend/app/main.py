@@ -29,6 +29,12 @@ from app.domain.explanations import poll_pending_explanations
 from app.api.reports import router as reports_router
 from app.api.tasks import router as tasks_router, project_router as project_tasks_router
 from app.api.model_usage import router as model_usage_router
+from app.api.file_batches import router as file_batches_router
+from app.api.datasets import router as datasets_router
+from app.api.dataset_preparation import router as dataset_preparation_router
+from app.api.analysis_plans import router as analysis_plans_router
+from app.api.file_lifecycle import router as file_lifecycle_router
+from app.api.ocr_review import router as ocr_review_router
 from app.core.errors import PUBLIC_CODES, error_response, fallback_error, unexpected_error_response
 from app.core.request_id import RequestIdMiddleware, configure_request_logging
 
@@ -78,6 +84,16 @@ app.include_router(reports_router)
 app.include_router(tasks_router)
 app.include_router(project_tasks_router)
 app.include_router(model_usage_router)
+from app.api.documents import router as documents_router
+app.include_router(documents_router)
+app.include_router(file_batches_router)
+app.include_router(datasets_router)
+app.include_router(dataset_preparation_router)
+app.include_router(analysis_plans_router)
+app.include_router(file_lifecycle_router)
+app.include_router(ocr_review_router)
+from app.api.parsed_evidence import router as parsed_evidence_router
+app.include_router(parsed_evidence_router)
 
 
 @app.get('/api/v1/ai/config')
@@ -105,6 +121,10 @@ async def storage_error_handler(request, exc: StorageError):
 @app.exception_handler(RequestValidationError)
 async def validation_error_handler(request, exc):
     # Pydantic errors can contain passwords, request input and arbitrary context.
+    if request.url.path.endswith('/ocr-review/decision'):
+        message = '替换文字不能为空；无法辨认请使用 unreadable。'
+        if any(str(error.get('ctx', {}).get('error', '')) == message for error in exc.errors()):
+            return error_response(422, 'task_input_invalid', message)
     return error_response(422, 'invalid_request', '请求格式无效，请检查填写的内容后重试。')
 
 

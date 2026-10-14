@@ -35,6 +35,17 @@ def create_project(client, name="研究项目", project_type="sci"):
     return response.json()
 
 
+def legacy_project(client, identifier):
+    """Persist the Text project ID retained by the offline SQLite importer."""
+    from app.db.database import database_connection
+    project = create_project(client)
+    with database_connection(write=True) as db:
+        db.execute('UPDATE projects SET id=%s WHERE id=%s', (identifier, project['id']))
+    response = client.get('/api/v1/projects/' + identifier)
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
 def upload(client, project_id, content=None, filename="研究.xlsx"):
     return client.post(f"/api/v1/projects/{project_id}/files", files={
         "file": (filename, workbook_bytes() if content is None else content),
@@ -200,14 +211,17 @@ def test_changed_original_returns_clear_error(client):
         assert response.json()["detail"]["code"] == "file_changed"
 
 
-def test_database_write_failure_rolls_back_upload(client, reject_database_write):
+def test_database_write_failure_preserves_published_upload(client, reject_database_write):
     project = create_project(client)
     directory = Path(os.environ["PAPERASSIST_DATA_DIR"])
+    content = workbook_bytes()
     with reject_database_write('files'):
-        response = upload(client, project["id"])
+        response = upload(client, project["id"], content)
     assert response.status_code == 503
     assert response.json()["detail"]["code"] == "storage_unavailable"
-    assert list((directory / "files").iterdir()) == []
+    originals = list((directory / 'files').glob('*.xlsx'))
+    assert len(originals) == 1 and originals[0].read_bytes() == content
+    assert not list(directory.rglob('*.part'))
     assert client.get(f'/api/v1/projects/{project["id"]}').json() == project
     assert client.get(f'/api/v1/projects/{project["id"]}/files').json() == []
 
@@ -220,6 +234,70 @@ def test_store_uses_dedicated_postgresql_database_and_isolated_schema(client, po
     assert identity['database'] == 'paperassist_system_test'
     assert identity['schema'] == postgres_schema.schema
     assert not list(store.directory.rglob('*.sqlite3'))
+
+
+def test_sync_upload_unknown_commit_preserves_referenced_original(client, monkeypatch):
+    from contextlib import contextmanager
+    from app.core.exceptions import StorageError
+    project = create_project(client)
+    content = workbook_bytes()
+    original = ProjectStore.connection
+    @contextmanager
+    def after_commit(self, write=False):
+        with original(self, write=write) as db:
+            yield db
+        if write:
+            raise StorageError('storage_unavailable', 'test unknown commit')
+    monkeypatch.setattr(ProjectStore, 'connection', after_commit)
+    assert upload(client, project['id'], content).status_code == 503
+    monkeypatch.setattr(ProjectStore, 'connection', original)
+    files = client.get(f"/api/v1/projects/{project['id']}/files").json()
+    assert len(files) == 1
+    response = client.get(f"/api/v1/projects/{project['id']}/files/{files[0]['id']}/download")
+    assert response.status_code == 200 and response.content == content
+    directory = Path(os.environ['PAPERASSIST_DATA_DIR'])
+    assert len(list(directory.rglob('*.xlsx'))) == 1
+    assert not list(directory.rglob('*.part'))
+
+
+def test_sync_upload_ignores_extra_object_paths_and_keeps_operations_independent(client, tmp_path):
+    project = create_project(client)
+    other = create_project(client, 'another')
+    outside = tmp_path / 'outside.xlsx'
+    outside.write_bytes(b'preserved')
+    content = workbook_bytes()
+    records = []
+    for target in (project, project, other):
+        response = client.post(f"/api/v1/projects/{target['id']}/files",
+            files={'file': ('same.xlsx', content)},
+            data={'object_key': str(outside), 'server_path': str(outside)})
+        assert response.status_code == 201, response.text
+        records.append(response.json()['file'])
+    assert len({record['id'] for record in records}) == 3
+    assert len(list(Path(os.environ['PAPERASSIST_DATA_DIR']).rglob('*.xlsx'))) == 3
+    assert outside.read_bytes() == b'preserved'
+
+
+def test_legacy_text_project_sync_upload_keeps_ownership_and_objects_isolated(client):
+    from tests.integration.test_project_ownership import account_client
+    projects = [legacy_project(client, identifier) for identifier in ('project-1', 'project-2')]
+    content = workbook_bytes()
+    records = []
+    for project in projects:
+        response = upload(client, project['id'], content, 'same.xlsx')
+        assert response.status_code == 201, response.text
+        record = response.json()['file']
+        records.append(record)
+        download = client.get(f"/api/v1/projects/{project['id']}/files/{record['id']}/download")
+        assert download.status_code == 200 and download.content == content
+    assert records[0]['id'] != records[1]['id']
+    directory = Path(os.environ['PAPERASSIST_DATA_DIR'])
+    assert len(list(directory.rglob('*.xlsx'))) == 2
+    with account_client('legacy-other@example.test')[0] as other:
+        assert upload(other, 'project-1', content).status_code == 404
+        assert other.get(f"/api/v1/projects/project-1/files/{records[0]['id']}/download").status_code == 404
+    assert len(list(directory.rglob('*.xlsx'))) == 2
+    assert client.get(f"/api/v1/projects/project-2/files/{records[0]['id']}/download").status_code == 404
 
 
 def test_unavailable_directory_does_not_break_health(client, tmp_path, monkeypatch):

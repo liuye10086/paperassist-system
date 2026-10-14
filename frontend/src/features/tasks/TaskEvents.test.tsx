@@ -6,7 +6,7 @@ import { eventsFixture, taskFixture, usageFixture, workspaceFixture } from './ta
 import { setLocale } from '../../shared/i18n'
 
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.restoreAllMocks(); vi.useRealTimers(); setLocale('zh-CN') })
-const props = { taskId: 't1', live: false, refreshKey: 0 }
+const props = { taskId: 't1', taskType: 'boxplot' as const, live: false, refreshKey: 0 }
 const event = { ...eventsFixture.items[0], event_type: 'deferred', status: 'queued', error_code: 'model_provider_unavailable',
   error_category: 'temporary', retry_reason: 'temporary_provider_error', retry_count: 1, retry_delay_seconds: 10 }
 function api(items: unknown[]) {
@@ -14,6 +14,13 @@ function api(items: unknown[]) {
   vi.stubGlobal('fetch', fetch)
   return fetch
 }
+
+it('retains the analysis plan label for an ordinary task event in both languages', async () => {
+  api([{ ...eventsFixture.items[0], phase: 'plan' }]); render(<TaskEvents {...props} />)
+  await screen.findByText('分析计划')
+  act(() => setLocale('en')); expect(screen.getByText('Analysis plan')).toBeTruthy()
+  expect(screen.queryByText('Text review')).toBeNull()
+})
 
 it.each([[1, 10], [2, 30], [3, 90]])('shows the scheduled automatic retry %i with its %i second delay', async (count, delay) => {
   api([{ ...event, retry_count: count, retry_delay_seconds: delay }]); render(<TaskEvents {...props} />)

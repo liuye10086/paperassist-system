@@ -3,6 +3,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import userEvent from '@testing-library/user-event'
 import App from '../../app/App'
 import { summaryFixture } from '../fixtures/summaryFixture'
+import { filePageFixture } from '../fixtures/filePageFixture'
 
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); window.history.replaceState(null, '', '/') })
 
@@ -10,7 +11,7 @@ const project = { id: 'p1', name: '药学项目', research_topic: '分组比较'
   created_at: '2026-09-29T10:00:00Z', updated_at: '2026-09-29T10:00:00Z' }
 const record = { id: 'f1', project_id: 'p1', filename: '实验.xlsx', file_type: 'xlsx', size_bytes: 123,
   sha256: 'a'.repeat(64), uploaded_at: '2026-09-29T10:00:00Z', parse_status: 'parsed', error: null }
-const preview = { filename: '实验.xlsx', sheets: [
+const preview = { filename: '实验.xlsx', file_type: 'xlsx', sheets: [
   { name: '数据', columns: ['组别', '数值'], row_count: 1, column_count: 2, preview_rows: [['A', 10]], warnings: [] },
   { name: '空表', columns: [], row_count: 0, column_count: 0, preview_rows: [], warnings: ['这是空表，没有可预览的数据。'] },
 ] }
@@ -22,6 +23,7 @@ function api(options: { empty?: boolean; failed?: boolean; uploadFailed?: boolea
   const mock = vi.fn(async (url: string, init?: RequestInit) => {
     const summaryProject = projects.find(item => url.startsWith(`/api/v1/projects/${item.id}/summary?`))
     if (summaryProject) return Response.json(summaryFixture(summaryProject.id, summaryProject.project_type as 'sci' | 'thesis'))
+    if (url.includes('/file-batches?')) return Response.json({ items: [], total: 0, page: 1, page_size: 5 })
     if (url.endsWith('/me')) return Response.json({ user: { id: 'test-user', email: 'test@paperassist.local', role: 'user' }, csrf_token: 'test-csrf' })
     if (url.endsWith('/health')) return Response.json({ status: 'ok', service: 'paperassist-system' })
     if (url.endsWith('/config')) return Response.json({ max_upload_bytes: 10485760, preview_row_limit: 20 })
@@ -46,6 +48,7 @@ function api(options: { empty?: boolean; failed?: boolean; uploadFailed?: boolea
     }
     if (url === '/api/v1/projects/p1/files') return Response.json(files)
     if (url === '/api/v1/projects/p2/files') return Response.json([])
+    if (url.includes('/files?page=')) return Response.json(filePageFixture(url, url.includes('/p1/') ? files : []))
     if (url.endsWith('/preview')) return options.slowPreview ?? Response.json(preview)
     throw new Error(`Unexpected API: ${url}`)
   })

@@ -300,6 +300,13 @@ def test_upgrade_preserves_entire_legacy_resource_chain(postgres_schema, postgre
             if table == "projects":
                 assert rows[0].pop("owner_id") is None
                 assert rows[0].pop("default_output_language") == "zh-CN"
+            if table == "files":
+                assert rows[0].pop("uploader_id") is None
+                assert rows[0].pop("storage_backend") == "local"
+                assert rows[0].pop("object_key") == "files/f.xlsx"
+                assert rows[0].pop("metadata_revision") == 1
+                assert rows[0].pop("parse_revision") == 0
+                assert rows[0].pop("upload_item_id") is None
             assert rows == original[table]
         assert (
             db.execute("SELECT count(*) AS total FROM users").fetchone()["total"] == 0

@@ -1,4 +1,5 @@
 """Local plot acceptance and explicit recovery; HTTP never executes cloud work."""
+from app.domain.analysis_sources import statistics_engine
 from datetime import datetime, timezone
 from hashlib import sha256
 import re
@@ -6,7 +7,7 @@ from uuid import uuid4
 
 from psycopg.types.json import Jsonb
 
-from app.adapters.task_store import TaskStore, source_conflict
+from app.adapters.task_store import TaskStore, source_conflict, workflow_version, snapshots_match, task_source_matches
 from app.core.exceptions import StorageError
 from app.domain.boxplot import RENDERER, STATISTICS_ENGINE, public_job, result_source
 from app.domain.tasks.contracts import TaskCreateRequest
@@ -21,16 +22,18 @@ def matching_task(store, project_id, result):
     with store.connection() as db:
         store.require_project(db, project_id)
         row = db.execute('''SELECT * FROM tasks WHERE project_id=%s AND user_id=%s
-            AND task_type='boxplot' AND workflow_version='boxplot_v1'
+            AND task_type='boxplot' AND workflow_version=%s
             AND input_snapshot->'result'->>'id'=%s AND input_snapshot->'versions'->>'figure'=%s
             ORDER BY created_at DESC,id DESC LIMIT 1''',
-            (project_id, store.user_id, result['id'], RENDERER)).fetchone()
+            (project_id, store.user_id, workflow_version('boxplot', result), result['id'], RENDERER)).fetchone()
+        if row and not task_source_matches(row, result):
+            raise source_conflict()
         return store.public_task(dict(row)) if row else None
 
 
 def context(project_id, file_id, run_id, store):
     result = result_source(store, project_id, file_id, run_id)
-    state = store.figure_state(result, RENDERER, STATISTICS_ENGINE)
+    state = store.figure_state(result, RENDERER, statistics_engine(result))
     if state['figure']:
         store.figure_png(state['figure'])
     state['job'] = public_job(store.figure_job(run_id, RENDERER))
@@ -165,7 +168,7 @@ def retry_boxplot_in_transaction(store, db, task, expected_revision):
     request = TaskCreateRequest(task_type='boxplot', file_id=original['file']['id'],
         analysis_run_id=original['result']['id'], expected_revision=original['result']['setup_revision'])
     current = store.source_snapshot(db, store.require_project(db, task['project_id']), request)
-    if any(current[key] != original[key] for key in ('file', 'result', 'figure', 'versions', 'output_language')):
+    if not snapshots_match(current, original, explanation=False):
         raise source_conflict()
     if 'boxplot_policy' not in original:
         if call is not None:

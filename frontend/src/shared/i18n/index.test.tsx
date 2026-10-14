@@ -3,6 +3,30 @@ import { act, cleanup, render, screen } from '@testing-library/react'
 import { apiError, setLocale, translate, useI18n } from './index'
 
 afterEach(() => { cleanup(); setLocale('zh-CN') })
+it('unsupported type messages describe the current operation for mixed file formats',()=>{
+ const error=apiError({code:'unsupported_file_type'},'请求失败，请重试。')
+ expect(translate(error)).toBe('当前操作不支持此文件类型，请核对所选文件。')
+ setLocale('en');expect(translate(error)).toBe('This operation does not support this file type. Check the selected file.')
+})
+
+it('translates absent source evidence as None in English', () => {
+  expect(translate('无')).toBe('无')
+  setLocale('en')
+  expect(translate('无')).toBe('None')
+})
+
+it('describes invalid parsing output without suggesting retry of a deterministic failure', () => {
+  const error = apiError({ detail: { code: 'parse_output_invalid' } }, '请求失败，请重试。')
+  expect(translate(error)).toBe('解析输出超过限制或格式无效。原文件已保留；请检查或缩小文件后重新上传。')
+  setLocale('en')
+  expect(translate(error)).toBe('The parsing output exceeds limits or has an invalid format. The original file is retained. Check or reduce the file and upload it again.')
+})
+
+it('translates absent standalone shared formula text', () => {
+  expect(translate('无独立公式文本')).toBe('无独立公式文本')
+  setLocale('en')
+  expect(translate('无独立公式文本')).toBe('No standalone formula text')
+})
 
 it('updates mounted UI and document language without changing input values', () => {
   function View() { const { t } = useI18n(); return <><h1>{t('项目中心')}</h1><input defaultValue="我的研究" /></> }

@@ -36,7 +36,15 @@ def test_clean_schema(postgres_schema):
     with database_connection(config=postgres_schema) as db:
         result = audit_database(db)
     assert result['ok'], result
-    assert len(result['data_checks']) == 50
+    # Includes plan lineage, lifecycle receipts and scope-trigger integrity.
+    assert len(result['data_checks']) == 91
+    version_checks = {(check['table'], check['column']) for check in result['data_checks']
+                      if check['table'] in {'file_structure_versions', 'dataset_versions'}}
+    assert version_checks == {
+        ('file_structure_versions', 'created_at'),
+        ('file_structure_versions', 'completed_at'),
+        ('dataset_versions', 'created_at'),
+    }
 
 def test_cli_failure_is_safe(monkeypatch, capsys):
     import app.maintenance.database_audit as module
@@ -52,7 +60,7 @@ def test_audit_bad_values_and_readonly(postgres_schema):
     from sqlalchemy.exc import SQLAlchemyError
     with database_connection(write=True, config=postgres_schema) as db:
         db.execute("INSERT INTO projects(id,name,research_topic,project_type,created_at,updated_at) VALUES ('private-row','hidden business','topic','sci','invalid','2026-10-05T00:00:00Z')")
-        db.execute("INSERT INTO files(id,project_id,filename,file_type,size_bytes,sha256,uploaded_at,parse_status,error_json) VALUES ('f','private-row','hidden filename','csv',1,'hash','2026-10-05T00:00:00Z','parsed','NaN')")
+        db.execute("INSERT INTO files(id,project_id,filename,file_type,size_bytes,sha256,uploaded_at,parse_status,error_json) VALUES ('f','private-row','hidden filename','xlsx',1,'hash','2026-10-05T00:00:00Z','parsed','NaN')")
     with database_connection(config=postgres_schema) as db:
         result = audit_database(db)
     assert not result['ok']
@@ -155,7 +163,7 @@ def test_source_chain_mismatch(postgres_schema):
     from app.db.database import database_connection
     with database_connection(write=True, config=postgres_schema) as db:
         db.execute("INSERT INTO projects(id,name,research_topic,project_type,created_at,updated_at) VALUES ('p','n','t','sci','2026-10-05T00:00:00Z','2026-10-05T00:00:00Z')")
-        db.execute("INSERT INTO files(id,project_id,filename,file_type,size_bytes,sha256,uploaded_at,parse_status) VALUES ('f','p','n','csv',1,'h','2026-10-05T00:00:00Z','parsed')")
+        db.execute("INSERT INTO files(id,project_id,filename,file_type,size_bytes,sha256,uploaded_at,parse_status) VALUES ('f','p','n','xlsx',1,'h','2026-10-05T00:00:00Z','parsed')")
         for run, revision in [('r1',1), ('r2',2)]:
             db.execute("INSERT INTO analysis_runs(id,file_id,setup_revision,engine_version,completed_at,result_json) VALUES (%s,'f',%s,'v','2026-10-05T00:00:00Z','{}')", (run,revision))
         db.execute("INSERT INTO figures(id,analysis_run_id,renderer_version,figure_json) VALUES ('fig','r1','v','{}')")
@@ -189,7 +197,7 @@ def test_index_drift_still_audits_legacy_values(postgres_schema, postgres_migrat
         result = audit_database(db)
     assert not result['ok']
     assert {'table': 'reports', 'kind': 'index:reports_run'} in result['schema_issues']
-    assert len(result['data_checks']) == 50
+    assert len(result['data_checks']) == 91
     assert next(c for c in result['data_checks'] if c['table']=='projects' and c['column']=='created_at')['invalid'] == 1
 
 def test_version_drift_is_reported_without_hiding_data(postgres_schema, postgres_migration_config):
@@ -200,7 +208,7 @@ def test_version_drift_is_reported_without_hiding_data(postgres_schema, postgres
         result = audit_database(db)
     assert not result['ok']
     assert {'table': 'alembic_version', 'kind': 'version'} in result['schema_issues']
-    assert len(result['data_checks']) == 50
+    assert len(result['data_checks']) == 91
 
 import unittest
 
@@ -234,6 +242,6 @@ def test_not_valid_constraint_is_reported(postgres_schema, postgres_migration_co
         result = audit_database(db)
     assert not result['ok']
     assert {'table': 'users', 'kind': 'constraint_state:users_role_check'} in result['schema_issues']
-    assert len(result['data_checks']) == 50
+    assert len(result['data_checks']) == 91
     assert 'private@example.test' not in json.dumps(result)
     assert 'unexpected' not in json.dumps(result)

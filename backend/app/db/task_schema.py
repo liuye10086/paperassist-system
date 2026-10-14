@@ -7,7 +7,7 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import JSONB
 
 
-TASK_TYPES = "'boxplot', 'explanation', 'word_report'"
+TASK_TYPES = "'boxplot', 'explanation', 'word_report', 'parse_file', 'extract_dataset', 'prepare_dataset', 'review_ocr', 'analysis_plan'"
 STATUSES = "'queued', 'running', 'waiting_input', 'waiting_confirmation', 'succeeded', 'failed'"
 ATTEMPT_STATUSES = "'running', 'waiting_input', 'waiting_confirmation', 'succeeded', 'failed'"
 PHASES = "'parse', 'plan', 'compute', 'search', 'interpret', 'write', 'export', 'verify'"

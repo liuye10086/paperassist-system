@@ -7,7 +7,7 @@ from uuid import uuid4
 from psycopg.types.json import Jsonb
 
 from app.adapters.explanation_store import ExplanationStore
-from app.adapters.task_store import TaskStore, source_conflict
+from app.adapters.task_store import TaskStore, source_conflict, workflow_version, snapshots_match, task_source_matches
 from app.core.exceptions import StorageError
 from app.domain.boxplot import public_job
 from app.domain.explanation_content import VERSION, build_payload
@@ -25,11 +25,13 @@ def matching_task(store, project_id, result, figure):
     with store.connection() as db:
         store.require_project(db, project_id)
         row = db.execute('''SELECT * FROM tasks WHERE project_id=%s AND user_id=%s
-            AND task_type='explanation' AND workflow_version='explanation_v1'
+            AND task_type='explanation' AND workflow_version=%s
             AND input_snapshot->'result'->>'id'=%s AND input_snapshot->'figure'->>'id'=%s
             AND input_snapshot->'versions'->>'explanation'=%s
             ORDER BY created_at DESC,id DESC LIMIT 1''',
-            (project_id, store.user_id, result['id'], figure['id'], VERSION)).fetchone()
+            (project_id, store.user_id, workflow_version('explanation', result), result['id'], figure['id'], VERSION)).fetchone()
+        if row and not task_source_matches(row, result):
+            raise source_conflict()
         return store.public_task(dict(row)) if row else None
 
 
@@ -160,7 +162,7 @@ def retry_explanation_in_transaction(store, db, task, expected_revision):
         analysis_run_id=original['result']['id'], expected_revision=original['result']['setup_revision'],
         figure_id=original['figure']['id'])
     current = store.source_snapshot(db, store.require_project(db, task['project_id']), request)
-    if any(current[key] != original[key] for key in ('file', 'result', 'figure', 'versions', 'output_language')):
+    if not snapshots_match(current, original, explanation=False):
         raise source_conflict()
     if 'explanation_policy' not in original:
         # A generic task may have been accepted before local policy existed.

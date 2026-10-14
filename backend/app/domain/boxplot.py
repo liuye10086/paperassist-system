@@ -1,5 +1,6 @@
 """Versioned boxplots tied to verified, immutable descriptive-statistics results."""
 
+from app.domain.analysis_sources import statistics_engine
 from app.adapters.storage import ProjectStore
 from app.core.config import ExcelSettings
 
@@ -67,8 +68,12 @@ def plot_data(result, values, grouped_values):
 
 
 def result_source(store, project_id, file_id, run_id):
-    record, _ = source(store, project_id, file_id)
     result = store.analysis_result_by_id(project_id, file_id, run_id)
+    if 'source' in result:
+        from app.domain.dataset_analysis import load_dataset
+        record, _, _ = load_dataset(store, project_id, file_id, result['source']['dataset_id'], expected_source=result['source'])
+    else:
+        record, _ = source(store, project_id, file_id)
     if result['source_sha256'] != record['sha256']:
         fail('source_conflict', '统计结果与原文件不一致，请重新保存配置并执行统计。', 409)
     return result
@@ -76,7 +81,7 @@ def result_source(store, project_id, file_id, run_id):
 
 def recover_legacy_boxplot(project_id: str, file_id: str, run_id: str, store: ProjectStore):
     result = result_source(store, project_id, file_id, run_id)
-    state = store.figure_state(result, RENDERER, STATISTICS_ENGINE)
+    state = store.figure_state(result, RENDERER, statistics_engine(result))
     if state['figure']:
         store.figure_png(state['figure'])
     job = store.figure_job(run_id, RENDERER)

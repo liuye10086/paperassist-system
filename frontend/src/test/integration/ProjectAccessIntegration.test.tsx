@@ -4,6 +4,7 @@ import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import ProjectWorkspace from '../../features/projects/ProjectWorkspace'
 import { clearApiSession, setApiSession } from '../../shared/api/client'
 import { summaryFixture } from '../fixtures/summaryFixture'
+import { filePageFixture } from '../fixtures/filePageFixture'
 
 // Keep permission requests, saved previews and all three download components real.
 // Only replace the expensive configuration flow with saved-result assembly.
@@ -25,7 +26,7 @@ vi.mock('../../features/explanations/AnalysisExplanation', () => ({ default: () 
 const project = { id: 'p1', name: '药学项目', research_topic: '分组比较', project_type: 'sci' as const, file_count: 1,
   created_at: '2026-09-29T10:00:00Z', updated_at: '2026-09-29T10:00:00Z' }
 const other = { ...project, id: 'p2', name: '对照项目', file_count: 0 }
-const file = { id: 'f1', filename: '实验.xlsx', size_bytes: 123, uploaded_at: project.created_at, parse_status: 'parsed', error: null }
+const file = { id: 'f1', filename: '实验.xlsx', file_type: 'xlsx', size_bytes: 123, uploaded_at: project.created_at, parse_status: 'parsed', error: null }
 const preview = { filename: file.filename, sheets: [{ name: '数据', columns: ['组别', '数值'], row_count: 1,
   column_count: 2, preview_rows: [['A', 10]], warnings: [] }] }
 const figure = { id: 'figure', analysis_run_id: 'run', setup_revision: 1, title: '已保存箱线图', caption: '完整记录',
@@ -63,6 +64,7 @@ function api() {
     if (url === '/api/v1/excel/config') return Response.json({ max_upload_bytes: 10485760, preview_row_limit: 20 })
     if (url === '/api/v1/ai/plot-config') return Response.json({ configured: false, model: null, message: '测试不调用模型' })
     if (url.endsWith('/files')) return Response.json(url.startsWith(base) ? [file] : [])
+    if (url.includes('/files?page=')) return Response.json(filePageFixture(url, url.startsWith(base) ? [file] : []))
     if (url.endsWith('/preview')) return Response.json(preview)
     if (url.endsWith('/boxplot')) return Response.json({ current_revision: 1, is_current: true, figure, job: null })
     if (url.endsWith('/report')) return Response.json({ current_revision: 1, is_current: true, ready: true, issues: [], report })

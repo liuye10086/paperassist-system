@@ -1,0 +1,8 @@
+export const countKeys = ['parse_versions','structure_versions','dataset_versions','prepared_dataset_versions','ocr_review_versions','confirmed_plans','analysis_setups','analysis_runs','figures','explanations','reports','tasks','legacy_jobs','active_tasks','registered_candidates','model_calls','budget_reservations','task_outbox','task_checkpoints','task_events','task_attempts','task_waits','task_resume_requests','usage_events','dataset_preparation_decisions','ocr_review_decisions','analysis_plan_decisions']
+export const assessmentFixture = (fileId='f', action='delete') => ({policy_version:'internal_testing_keep_v1', action, assessment_revision:'a'.repeat(64),file_id:fileId,impact_scope:'file_wide',counts:Object.fromEntries(countKeys.map(k=>[k,0])),latest_versions:{parse_versions:1,structure_versions:0,confirmed_plans:0,dataset_versions:[],prepared_dataset_versions:[],ocr_review_versions:[]},reasons:[{code:'internal_testing_retention'}],original_integrity:'valid',original_available:true,physical_deletion_available:false,automatic_deletion:false,retained_original:true,history_downloads_preserved:true,operation_preserves_history:true,can_reparse:true,reparse_reason:null,deletion_status:'retained'})
+export function lifecycleResponse(url:string, fileId='f') {
+ if(url.includes('/lifecycle/assessment'))return Response.json(assessmentFixture(fileId,url.includes('reparse')?'reparse':'delete'))
+ if(url.includes('/lifecycle/tasks'))return Response.json({items:[],total:0,page:Number(new URL(url,'http://local').searchParams.get('page')),page_size:10,counts:assessmentFixture(fileId).counts})
+ if(url.includes('/lifecycle/deletion-requests'))return Response.json({items:[],total:0,page:1,page_size:10})
+ return null
+}

@@ -1,0 +1,15 @@
+import { dataset } from '../datasets/datasetFixtures'
+import type { FieldProfile, Profile } from './profileTypes'
+
+export const source = { kind: 'dataset_version' as const, schema_version: 1 as const, dataset_id: 'd1', structure_id: 's1', dataset_version: 1, file_id: 'f1', source_sha256: 'a'.repeat(64), dataset_sha256: 'b'.repeat(64), dataset_size_bytes: 100, dataset_schema_version: 1 as const, sheet_index: 0, sheet_name: 'Sheet1', parser_version: 'openpyxl-3.1.5-structure-v1' }
+export const binding = { ...source, source }
+const field: FieldProfile = { column: 3, letter: 'C', name: 'Measure', unit: { status: 'confirmed', value: 'kg' }, type_counts: { number: 5, text: 18, boolean: 1, date: 1, datetime: 1, time: 1, duration: 1 }, missing_count: 21, non_missing_count: 28, distinct_count: 10,
+ numeric: { status: 'ok', n: 5, mean: 22, std: 43.6, min: 1, max: 100, q1: 2, median: 3, q3: 4, iqr: 2, lower_fence: '-1', upper_fence: '7', outlier_count: 1, warnings: ['std_insufficient'] }, categories: { distinct_count: 2, top: [{ kind: 'text', value: 'NA', count: 1 }, { kind: 'boolean', value: true, count: 1 }], other_count: 0 },
+ temporal: [{ kind: 'date', count: 1, min: '2026-01-01', max: '2026-01-01' }, { kind: 'datetime', count: 1, min: '2026-01-01T12:00:00', max: '2026-01-01T12:00:00' }, { kind: 'time', count: 1, min: '12:00:00', max: '12:00:00' }, { kind: 'duration', count: 1, min: 'PT24H', max: 'PT24H' }], time_candidates: { valid_count: 1, invalid_count: 1, ambiguous_count: 1 }, issue_counts: { missing: 21, outlier: 1, mixed_type: 11, time_candidate: 1, time_invalid: 1, time_ambiguous: 1 } }
+export const profile: Profile = { schema_version: 1, rules_version: 'excel_profile_v1', source, filename: 'sample.xlsx', sheet_name: 'Sheet1', data_range: 'A2:C50', record_count: 49, blank_row_count: 1, duplicate_groups: 1, duplicate_rows: 2, duplicate_extra_rows: 1, fields: [field] }
+export const issue = { row: 27, column: 3, coordinate: 'C27', kind: 'number', value: '100', group_first_row: null, group_size: null }
+export function rowResponse(start: number, prepared = false) {
+ const rows = Array.from({ length: Math.min(20, 51 - start) }, (_, i) => ({ row: start + i, cells: [{ row: start + i, column: 3, coordinate: `C${start + i}`, kind: 'number', value: String(start + i === 27 ? 100 : start + i), raw_type: 'n', raw_value: String(start + i), number_format: 'General', formula: null }] }))
+ return { dataset: prepared ? { id: 'pd1', file_id: 'f1', parent_dataset_id: 'd1', parent_dataset_version: 1, version: 2, source: preparedSource, recipe: { header_row: 4, data_range: 'C5:C50', fields: [{ column: 3, name: 'Measure', unit: { status: 'confirmed', value: 'kg' }, trim_text: false, missing_markers: [] }] }, summary: {}, download_url: '/test' } : { ...dataset, column_count: 3, row_count: 50 }, start_row: start, limit: 20, total_rows: prepared ? 46 : 50, has_more: start + 19 < 50, rows }
+}
+export const preparedSource = { ...source, kind: 'prepared_dataset_version' as const, dataset_id: 'pd1', dataset_version: 2, parent_dataset_id: 'd1', parent_dataset_version: 1, transform_version: 'excel_prepare_v1' as const }

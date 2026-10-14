@@ -12,6 +12,7 @@ from fastapi import Request
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.core.config import get_data_dir
+from app.adapters.file_objects import LocalFileObjects
 from app.db.database import database_connection, ensure_schema_current, get_database_config, SchemaVersionError
 
 
@@ -46,6 +47,7 @@ class ProjectStore:
             raise ValueError('An owner scope must be non-empty.')
         self.owner_id = owner_id
         self.directory = directory
+        self.objects = LocalFileObjects(directory)
         self.files_dir = directory / "files"
         self.figures_dir = directory / "figures"
         try:
@@ -194,8 +196,9 @@ class ProjectStore:
 
     @staticmethod
     def file_record(row):
-        result = dict(row)
-        error = result.pop("error_json")
+        result = {key: row[key] for key in ('id', 'project_id', 'filename', 'file_type', 'size_bytes',
+                                          'sha256', 'uploaded_at', 'parse_status')}
+        error = row['error_json']
         result["error"] = json.loads(error) if error else None
         result.pop("preview_json", None)
         return result
@@ -219,65 +222,58 @@ class ProjectStore:
 
     def save_file(self, project_id: str, filename: str, content: bytes, preview: str | None, error: dict | None):
         self.project(project_id)
-        file_id = str(uuid4())
-        temporary = self.files_dir / f"{file_id}.part"
-        target = self.files_dir / f"{file_id}.xlsx"
+        operation_id = str(uuid4())
         now = datetime.now(timezone.utc).isoformat()
-        try:
-            with temporary.open("xb") as stream:
-                stream.write(content)
-                stream.flush()
-                os.fsync(stream.fileno())
-            temporary.rename(target)
-            with self.connection(write=True) as db:
-                db.execute("INSERT INTO files VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)", (
-                    file_id, project_id, filename, "xlsx", len(content), hashlib.sha256(content).hexdigest(),
-                    now, "failed" if error else "parsed", json.dumps(error, ensure_ascii=False) if error else None, preview,
-                ))
-                db.execute("UPDATE projects SET updated_at = GREATEST(updated_at, %s) WHERE id = %s", (now, project_id))
-        except (OSError, StorageError) as exc:
-            # Remove only the two UUID paths created for this failed upload.
-            for path in (temporary, target):
-                try:
-                    path.unlink(missing_ok=True)
-                except OSError:
-                    pass  # An orphan may require cleanup if the disk itself is unavailable.
-            if isinstance(exc, StorageError):
-                raise
-            raise StorageError("storage_unavailable", "文件保存失败，请检查目录权限和磁盘空间后重试。") from exc
+        descriptor = self.objects.put_original(project_id, operation_id, 'xlsx', content)
+        file_id = descriptor.id
+        # Published bytes survive rollback and unknown commit. Only the byte
+        # adapter may clean its own exact unpublished temporary name.
+        with self.connection(write=True) as db:
+            db.execute("""INSERT INTO files (id, project_id, filename, file_type, size_bytes, sha256,
+                uploaded_at, parse_status, error_json, preview_json, uploader_id, object_key, storage_backend)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""", (
+                file_id, project_id, filename, descriptor.file_type, descriptor.size_bytes, descriptor.sha256,
+                now, "failed" if error else "parsed", json.dumps(error, ensure_ascii=False) if error else None, preview,
+                self.owner_id, descriptor.object_key, descriptor.storage_backend,
+            ))
+            db.execute("UPDATE projects SET updated_at = GREATEST(updated_at, %s) WHERE id = %s", (now, project_id))
         return self.file_record(self.file(project_id, file_id))
 
     def original(self, record: dict) -> bytes:
-        path = self.files_dir / f'{record["id"]}.xlsx'
-        try:
-            with path.open("rb") as stream:
-                content = stream.read(record["size_bytes"] + 1)
-        except FileNotFoundError as exc:
-            raise StorageError("file_missing", "原始文件已缺失，请恢复数据目录或重新上传。", 410) from exc
-        except OSError as exc:
-            raise StorageError("storage_unavailable", "无法读取原始文件，请检查目录权限后重试。") from exc
-        if len(content) != record["size_bytes"] or hashlib.sha256(content).hexdigest() != record["sha256"]:
-            raise StorageError("file_changed", "原始文件已发生变化，请恢复原文件或重新上传。", 409)
-        return content
+        return self.objects.original(record)
 
     def analysis_setup(self, project_id: str, file_id: str):
         self.file(project_id, file_id)
         with self.connection() as db:
             row = db.execute('SELECT setup_json FROM analysis_setups WHERE file_id = %s', (file_id,)).fetchone()
-        return json.loads(row['setup_json']) if row else None
+        saved = json.loads(row['setup_json']) if row else None
+        if saved is not None:
+            from app.domain.analysis_plan.service import validate_plan_reference
+            validate_plan_reference(self, project_id, file_id, saved)
+        return saved
 
     def save_analysis_setup(self, project_id: str, file_id: str, expected_revision: int, setup: dict):
         self.file(project_id, file_id)
         with self.connection(write=True) as db:
-            row = db.execute('SELECT revision FROM analysis_setups WHERE file_id = %s', (file_id,)).fetchone()
-            revision = row['revision'] if row else 0
-            if revision != expected_revision:
-                raise StorageError('setup_conflict', '分析配置已在其他页面更新，请重新载入配置后再修改。', 409)
-            saved = {**setup, 'revision': revision + 1, 'updated_at': datetime.now(timezone.utc).isoformat()}
-            db.execute('''INSERT INTO analysis_setups VALUES (%s, %s, %s)
-                ON CONFLICT(file_id) DO UPDATE SET revision = excluded.revision, setup_json = excluded.setup_json''',
-                (file_id, saved['revision'], json.dumps(saved, ensure_ascii=False, allow_nan=False)))
-            db.execute('UPDATE projects SET updated_at = GREATEST(updated_at, %s) WHERE id = %s', (saved['updated_at'], project_id))
+            if setup.get('source') is not None:
+                from app.domain.dataset_analysis import load_dataset
+                load_dataset(self, project_id, file_id, setup['source']['dataset_id'], expected_source=setup['source'])
+            saved = self.save_analysis_setup_in_transaction(db, project_id, file_id, expected_revision, setup,
+                datetime.now(timezone.utc))
+        return saved
+
+    @staticmethod
+    def save_analysis_setup_in_transaction(db, project_id, file_id, expected_revision, setup, now):
+        """Caller holds the serialized write transaction; publication stays atomic."""
+        row = db.execute('SELECT revision FROM analysis_setups WHERE file_id=%s', (file_id,)).fetchone()
+        revision = row['revision'] if row else 0
+        if revision != expected_revision:
+            raise StorageError('setup_conflict', '分析配置已在其他页面更新，请重新载入配置后再修改。', 409)
+        saved = {**setup, 'revision': revision + 1, 'updated_at': now.isoformat()}
+        db.execute('''INSERT INTO analysis_setups(file_id,revision,setup_json) VALUES (%s,%s,%s)
+            ON CONFLICT(file_id) DO UPDATE SET revision=excluded.revision,setup_json=excluded.setup_json''',
+            (file_id,saved['revision'],json.dumps(saved,ensure_ascii=False,allow_nan=False)))
+        db.execute('UPDATE projects SET updated_at=GREATEST(updated_at,%s) WHERE id=%s',(saved['updated_at'],project_id))
         return saved
 
     def analysis_run(self, project_id: str, file_id: str, revision: int, engine: str):
@@ -288,7 +284,11 @@ class ProjectStore:
             row = db.execute('''SELECT result_json FROM analysis_runs
                 WHERE file_id = %s AND setup_revision = %s AND engine_version = %s''',
                 (file_id, revision, engine)).fetchone()
-        return json.loads(row['result_json']) if row else None
+        result = json.loads(row['result_json']) if row else None
+        if result is not None:
+            from app.domain.analysis_plan.service import validate_plan_reference
+            validate_plan_reference(self, project_id, file_id, result)
+        return result
 
     @staticmethod
     def require_analysis_revision(db, file_id, revision):
@@ -301,13 +301,28 @@ class ProjectStore:
         with self.connection(write=True) as db:
             revision, engine = result['setup_revision'], result['engine']['id']
             self.require_analysis_revision(db, file_id, revision)
+            current = json.loads(db.execute('SELECT setup_json FROM analysis_setups WHERE file_id=%s', (file_id,)).fetchone()['setup_json'])
+            from app.domain.analysis_plan.service import validate_plan_reference
+            validate_plan_reference(self, project_id, file_id, current)
+            validate_plan_reference(self, project_id, file_id, result)
+            if current.get('analysis_plan') != result.get('analysis_plan'):
+                raise StorageError('source_conflict', '统计计划与当前配置不一致。', 409)
+            if current.get('source') != result.get('source'):
+                raise StorageError('source_conflict', '分析配置与待发布统计来源不一致。', 409)
+            if result.get('source') is not None:
+                from app.domain.dataset_analysis import load_dataset
+                load_dataset(self, project_id, file_id, result['source']['dataset_id'], expected_source=result['source'])
             existing = db.execute('''SELECT result_json FROM analysis_runs
                 WHERE file_id = %s AND setup_revision = %s AND engine_version = %s''',
                 (file_id, revision, engine)).fetchone()
             if existing:
-                return json.loads(existing['result_json'])
+                cached = json.loads(existing['result_json'])
+                validate_plan_reference(self, project_id, file_id, cached)
+                if cached.get('source') != result.get('source'):
+                    raise StorageError('source_conflict', '缓存统计与配置来源不一致。', 409)
+                return cached
             saved = {**result, 'id': str(uuid4())}
-            db.execute('INSERT INTO analysis_runs VALUES (%s, %s, %s, %s, %s, %s)',
+            db.execute('INSERT INTO analysis_runs(id,file_id,setup_revision,engine_version,completed_at,result_json) VALUES (%s, %s, %s, %s, %s, %s)',
                 (saved['id'], file_id, revision, engine, saved['completed_at'],
                  json.dumps(saved, ensure_ascii=False, allow_nan=False)))
             db.execute('UPDATE projects SET updated_at = GREATEST(updated_at, %s) WHERE id = %s',
@@ -322,6 +337,9 @@ class ProjectStore:
                 ORDER BY setup_revision DESC, completed_at DESC, id DESC LIMIT 1''', (file_id,)).fetchone()
         revision = setup['revision'] if setup else None
         result = json.loads(row['result_json']) if row else None
+        if result is not None:
+            from app.domain.analysis_plan.service import validate_plan_reference
+            validate_plan_reference(self, project_id, file_id, result)
         return {'current_revision': revision, 'result': result,
                 'is_current': bool(result and result['setup_revision'] == revision and result['engine']['id'] == engine)}
 
@@ -332,17 +350,25 @@ class ProjectStore:
                              (run_id, file_id)).fetchone()
         if row is None:
             raise StorageError('result_not_found', '当前文件中没有此统计结果，请重新读取统计结果。', 404)
-        return json.loads(row['result_json'])
+        result = json.loads(row['result_json'])
+        from app.domain.analysis_plan.service import validate_plan_reference
+        validate_plan_reference(self, project_id, file_id, result)
+        return result
 
     def figure_state(self, result: dict, renderer: str, engine: str):
         with self.connection() as db:
-            setup = db.execute('SELECT revision FROM analysis_setups WHERE file_id = %s', (result['file_id'],)).fetchone()
+            setup = db.execute('SELECT revision,setup_json FROM analysis_setups WHERE file_id = %s', (result['file_id'],)).fetchone()
             row = db.execute('SELECT figure_json FROM figures WHERE analysis_run_id = %s AND renderer_version = %s',
                              (result['id'], renderer)).fetchone()
         revision = setup['revision'] if setup else None
+        current_source = json.loads(setup['setup_json']).get('source') if setup else None
+        figure = json.loads(row['figure_json']) if row else None
+        if figure is not None and figure.get('source') != result.get('source'):
+            raise StorageError('source_conflict', '图表与统计冻结来源不一致。', 409)
         return {'current_revision': revision,
-                'is_current': revision == result['setup_revision'] and result['engine']['id'] == engine,
-                'figure': json.loads(row['figure_json']) if row else None}
+                'is_current': revision == result['setup_revision'] and result['engine']['id'] == engine
+                    and current_source == result.get('source'),
+                'figure': figure}
 
     def figure_job(self, run_id: str, renderer: str):
         with self.connection() as db:
@@ -422,7 +448,7 @@ class ProjectStore:
                 temporary.rename(target)
                 saved = {**figure, 'id': figure_id, 'size_bytes': len(content),
                          'sha256': hashlib.sha256(content).hexdigest()}
-                db.execute('INSERT INTO figures VALUES (%s, %s, %s, %s)', (figure_id, figure['analysis_run_id'],
+                db.execute('INSERT INTO figures(id,analysis_run_id,renderer_version,figure_json) VALUES (%s, %s, %s, %s)', (figure_id, figure['analysis_run_id'],
                     figure['engine']['id'], json.dumps(saved, ensure_ascii=False, allow_nan=False)))
                 db.execute('UPDATE projects SET updated_at = GREATEST(updated_at, %s) WHERE id = %s',
                            (saved['created_at'], project_id))

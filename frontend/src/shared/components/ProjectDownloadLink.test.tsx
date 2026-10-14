@@ -14,6 +14,15 @@ beforeEach(() => {
 afterEach(() => { cleanup(); clearApiSession(); vi.unstubAllGlobals(); vi.restoreAllMocks(); vi.useRealTimers() })
 const link = () => screen.getByRole('link', { name: '下载原文件' })
 const mount = (filename = '实验.xlsx') => render(<ProjectDownloadLink href={href} filename={filename}>下载原文件</ProjectDownloadLink>)
+it('reports HTTP status and the complete error body to the optional context callback', async () => {
+  const onHttpError = vi.fn()
+  const body = { detail: { code: 'dataset_missing', message: 'missing', extra: 'evidence' } }
+  vi.stubGlobal('fetch', vi.fn(async () => Response.json(body, { status: 410 })))
+  render(<ProjectDownloadLink href={href} filename="data.json" onHttpError={onHttpError}>下载原文件</ProjectDownloadLink>)
+  fireEvent.click(link())
+  await waitFor(() => expect(onHttpError).toHaveBeenCalledWith(410, body))
+  expect(create).not.toHaveBeenCalled()
+})
 it('downloads exact successful bytes once and cleans the filename and object URL', async () => {
   let finish!: (response: Response) => void
   const fetch = vi.fn((_url: string, _init?: RequestInit) => new Promise<Response>(resolve => { finish = resolve })); vi.stubGlobal('fetch', fetch)

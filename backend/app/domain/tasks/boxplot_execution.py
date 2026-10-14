@@ -198,6 +198,8 @@ def _execute(repository, lease, config, provider_factory, providers):
     if external is not None:
         figure.update(analysis_run_id=snapshot['result']['id'], source_sha256=snapshot['result']['source_sha256'],
                       external_processing=external)
+    if 'source' in snapshot:
+        figure['source'] = snapshot['source']
     candidate = repository.register_figure_candidate(lease, snapshot, figure, downloaded['png'], expected, payload)
     repository.write_figure_candidate(lease, candidate, downloaded['png'])
     return repository.complete_boxplot(lease, snapshot, payload, expected)

@@ -16,9 +16,27 @@ def invalid():
     return StorageError('task_input_invalid', '请核对发送前检查并确认本次使用的完整名称。', 422)
 
 
+def disclosure_version(snapshot):
+    if snapshot.get('source', {}).get('kind') == 'prepared_dataset_version':
+        return 3
+    return 2 if 'source' in snapshot else 1
+
+
+def disclosed_source(snapshot):
+    source = snapshot['source']
+    result = dict(filename=snapshot['file']['filename'], sheet_name=source['sheet_name'],
+                  dataset_version=source['dataset_version'])
+    if source['kind'] == 'prepared_dataset_version':
+        result.update(parent_dataset_version=source['parent_dataset_version'], dataset_kind='prepared')
+    return result
+
+
 def source_digest(snapshot, task_type, user_id):
-    return digest({'version': 1, 'task_type': task_type, 'user_id': user_id,
-                   **{key: snapshot.get(key) for key in ('file', 'result', 'figure', 'versions', 'output_language')}})
+    material = {'version': disclosure_version(snapshot), 'task_type': task_type, 'user_id': user_id,
+                **{key: snapshot.get(key) for key in ('file', 'result', 'figure', 'versions', 'output_language')}}
+    if 'source' in snapshot:
+        material['source'] = snapshot['source']
+    return digest(material)
 
 
 def default_labels(snapshot, task_type):
@@ -38,7 +56,8 @@ def default_labels(snapshot, task_type):
 
 def disclosure(snapshot, task_type, user_id, *, has_saved_result=False):
     result = snapshot['result']
-    return {'version': 1, 'provider': 'openai', 'task_type': task_type,
+    return {'version': disclosure_version(snapshot), 'provider': 'openai', 'task_type': task_type,
+            **({'source': disclosed_source(snapshot)} if 'source' in snapshot else {}),
             'source_digest': source_digest(snapshot, task_type, user_id),
             'has_saved_result': has_saved_result,
             'summary': {'valid_count': result['check']['valid_count'],
@@ -48,7 +67,7 @@ def disclosure(snapshot, task_type, user_id, *, has_saved_result=False):
 
 def normalize_confirmation(confirmation):
     if (not isinstance(confirmation, dict) or set(confirmation) != {'version', 'confirmed', 'source_digest', 'labels'}
-            or type(confirmation['version']) is not int or confirmation['version'] != 1
+            or type(confirmation['version']) is not int or confirmation['version'] not in (1, 2, 3)
             or confirmation['confirmed'] is not True or not isinstance(confirmation['source_digest'], str)
             or not isinstance(confirmation['labels'], dict)):
         raise invalid()
@@ -66,10 +85,11 @@ def normalize_confirmation(confirmation):
 
 def freeze_confirmation(snapshot, task_type, user_id, confirmation):
     normalized = normalize_confirmation(confirmation)
-    if normalized['source_digest'] != source_digest(snapshot, task_type, user_id):
+    if (normalized['version'] != disclosure_version(snapshot)
+            or normalized['source_digest'] != source_digest(snapshot, task_type, user_id)):
         raise StorageError('task_source_conflict', '发送前检查的资料已变化，请重新读取并确认。', 409)
     labels = validate_labels(snapshot, task_type, normalized['labels'])
-    return {'version': 1, 'provider': 'openai', 'task_type': task_type, 'labels': labels,
+    return {'version': normalized['version'], 'provider': 'openai', 'task_type': task_type, 'labels': labels,
             'source_digest': normalized['source_digest'], 'confirmed_by': user_id,
             'confirmed_at': datetime.now(timezone.utc).isoformat(), 'confirmation_digest': digest(normalized)}
 

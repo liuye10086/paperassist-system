@@ -16,7 +16,8 @@ from app.domain.tasks.errors import classify_read_error
 
 logger = logging.getLogger(__name__)
 SOURCE_ERRORS = frozenset({'task_source_conflict', 'task_owner_unavailable', 'file_missing',
-    'file_changed', 'figure_missing', 'figure_changed', 'explanation_input_limit'})
+    'file_changed', 'figure_missing', 'figure_changed', 'explanation_input_limit',
+    'source_conflict', 'dataset_missing', 'dataset_changed'})
 OUTPUT_ERRORS = frozenset({'explanation_invalid', 'explanation_invalid_json', 'explanation_refused',
     'explanation_output_limit', 'explanation_incomplete', 'model_response_not_found'})
 BUDGET_ERRORS = frozenset({'model_budget_missing', 'model_budget_exceeded',
@@ -147,6 +148,8 @@ def _execute(repository, lease, config, provider_factory, remember_provider):
             'input_sha256': hashlib.sha256(json.dumps(payload, ensure_ascii=False, allow_nan=False,
                 sort_keys=True, separators=(',', ':')).encode('utf-8')).hexdigest(),
             'model_call_id': call['id'], 'model_input_digest': call['input_digest']}}
+    if 'source' in snapshot:
+        explanation['source'] = snapshot['source']
     if snapshot.get('external_processing') is not None:
         explanation['provenance']['external_processing'] = snapshot['external_processing']
     return repository.complete_explanation(lease, snapshot, explanation)

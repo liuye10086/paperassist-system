@@ -8,15 +8,22 @@ from app.domain.boxplot import plot_data
 from app.domain.descriptive import summarize
 
 
-def build_material(result, file_record, content, settings, *, external=None):
+def build_material(result, file_record, content, settings, *, external=None, dataset_sheet=None):
     try:
         selection = AnalysisSelection(**result['selection'])
-        scan = SheetScan(selection.sheet_name, selection, collect_values=True)
-        preview = parse_workbook(content, file_record['filename'], settings, observe_row=scan.observe)
-        sheet = next((item for item in preview.sheets if item.name == selection.sheet_name), None)
-        if sheet is None:
-            raise StorageError('sheet_not_found', '工作表不存在，请重新选择。', 422)
-        check = scan.check(scan.profile(sheet))
+        if 'source' in result:
+            if dataset_sheet is None:
+                raise StorageError('task_source_conflict', '绘图缺少冻结数据版本。', 409)
+            from app.domain.dataset_analysis import scan_dataset
+            profile, scan = scan_dataset(dataset_sheet, selection, collect_values=True)
+            check = scan.check(profile)
+        else:
+            scan = SheetScan(selection.sheet_name, selection, collect_values=True)
+            preview = parse_workbook(content, file_record['filename'], settings, observe_row=scan.observe)
+            sheet = next((item for item in preview.sheets if item.name == selection.sheet_name), None)
+            if sheet is None:
+                raise StorageError('sheet_not_found', '工作表不存在，请重新选择。', 422)
+            check = scan.check(scan.profile(sheet))
     except HTTPException as exc:
         detail = exc.detail if isinstance(exc.detail, dict) else {}
         raise StorageError(detail.get('code', 'task_source_conflict'), '绘图输入材料无法通过检查。',

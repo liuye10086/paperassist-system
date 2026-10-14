@@ -129,13 +129,19 @@ def test_schema_fixture_rejects_url_redirection_before_creating_engine(database,
 def test_schema_preserves_business_tables_and_auth_tables_and_uses_job_sequences(database):
     schema = importlib.import_module("app.db.schema")
     assert set(schema.metadata.tables) == {
-        "projects", "files", "analysis_setups", "analysis_runs", "figures", "figure_jobs",
+        "projects", "files", "file_purposes", "analysis_setups", "analysis_runs", "figures", "figure_jobs",
         "explanations", "explanation_jobs", "reports",
         "users", "sessions", "auth_login_attempts",
         "session_revocations", "password_recovery_codes", "auth_password_attempts",
         "tasks", "task_attempts", "task_events", "task_outbox",
         "task_waits", "task_resume_requests",
         "model_budgets", "model_calls", "usage_events", "budget_reservations",
+        "file_upload_batches", "file_upload_items", "file_parse_results",
+        "file_structure_versions", "dataset_versions",
+        "task_checkpoints", "dataset_preparation_decisions", "prepared_dataset_versions",
+        "ocr_review_decisions", "ocr_review_versions",
+        "analysis_plan_decisions", "confirmed_analysis_plans",
+        "file_deletion_requests", "file_reparse_assessments",
     }
     for name in ("figure_jobs", "explanation_jobs"):
         table = schema.metadata.tables[name]
@@ -220,7 +226,7 @@ def test_migration_summary_never_prints_unknown_revision_or_credentials(database
     assert 'target_revision' in output
 
 
-@pytest.mark.parametrize('target,expected', [('0003_project_ownership', '0003_project_ownership'), ('base', None), ('head', '0013_cost_reconciliation')])
+@pytest.mark.parametrize('target,expected', [('0003_project_ownership', '0003_project_ownership'), ('base', None), ('head', '0023_file_lifecycle')])
 def test_migration_summary_uses_actual_command_target(database, capsys, target, expected):
     import json
     from alembic.script import ScriptDirectory

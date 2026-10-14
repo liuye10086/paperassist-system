@@ -20,7 +20,14 @@ append_event = TaskStore.append_event
 
 def crash_first_publication(db, task, event_type):
     if event_type == 'succeeded' and task['current_attempt'] == 1:
-        Path('/data/.test-worker-crashed').write_text('before_commit', encoding='ascii')
+        marker = Path('/data/.test-worker-crashed')
+        temporary = marker.with_name(marker.name + '.writing')
+        # Publish complete evidence before the host observes marker.exists().
+        with temporary.open('w', encoding='ascii') as stream:
+            stream.write('before_commit')
+            stream.flush()
+            os.fsync(stream.fileno())
+        temporary.replace(marker)
         # Real process termination: no Python finally blocks or mocked rollback.
         os._exit(73)
     return append_event(db, task, event_type)

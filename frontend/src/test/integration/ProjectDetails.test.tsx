@@ -3,6 +3,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testi
 import userEvent from '@testing-library/user-event'
 import App from '../../app/App'
 import { summaryFixture } from '../fixtures/summaryFixture'
+import { filePageFixture } from '../fixtures/filePageFixture'
 
 afterEach(() => {
   cleanup()
@@ -18,7 +19,7 @@ const session = { user: { id: 'user-a', email: 'a@paperassist.local', role: 'use
 const otherSession = { user: { id: 'user-b', email: 'b@paperassist.local', role: 'user' }, csrf_token: 'csrf-b' }
 const record = { id: 'f1', project_id: 'p1', filename: '实验.xlsx', file_type: 'xlsx', size_bytes: 123,
   sha256: 'a'.repeat(64), uploaded_at: '2026-09-29T10:00:00Z', parse_status: 'parsed', error: null }
-const preview = { filename: '实验.xlsx', sheets: [
+const preview = { filename: '实验.xlsx', file_type: 'xlsx', sheets: [
   { name: '数据', columns: ['组别', '数值'], row_count: 1, column_count: 2, preview_rows: [['A', 10]], warnings: [] },
   { name: '空表', columns: [], row_count: 0, column_count: 0, preview_rows: [], warnings: ['空表预览仍保留。'] },
 ] }
@@ -68,6 +69,7 @@ function api(options: { patch?: (init: RequestInit) => Promise<Response> } = {})
     if (url.endsWith('/files') && init?.method === 'POST') return Response.json({ file: record, preview }, { status: 201 })
     if (url === '/api/v1/projects/p1/files') return Response.json([record])
     if (url === '/api/v1/projects/p2/files') return Response.json([])
+    if (url.includes('/files?page=')) return Response.json(filePageFixture(url, url.includes('/p1/') ? [record] : []))
     if (url.endsWith('/preview')) return Response.json(preview)
     throw new Error(`Unexpected API: ${url}`)
   })
@@ -75,7 +77,7 @@ function api(options: { patch?: (init: RequestInit) => Promise<Response> } = {})
   return mock
 }
 
-function navigate(name: string) { fireEvent.click(screen.getByRole('button', { name })) }
+async function navigate(name: string) { await act(async () => { fireEvent.click(screen.getByRole('button', { name })) }) }
 
 async function openProject() {
   const user = userEvent.setup()
@@ -86,7 +88,7 @@ async function openProject() {
 }
 
 async function editName(user: ReturnType<typeof userEvent.setup>, value = '新名称') {
-  navigate('项目概览')
+  await navigate('项目概览')
   await user.click(screen.getByRole('button', { name: '编辑项目信息' }))
   await user.clear(screen.getByLabelText('修改项目名称'))
   await user.type(screen.getByLabelText('修改项目名称'), value)
@@ -100,7 +102,7 @@ test('shows a locked project type and historical report snapshot notice', async 
   api()
   await openProject()
   expect(screen.getByText(/创建后不可更改/)).toBeTruthy()
-  navigate('编辑项目信息')
+  await navigate('编辑项目信息')
   expect(screen.getByText(/修改.*不会.*历史报告/)).toBeTruthy()
   const details = screen.getByLabelText('修改项目名称').closest('.project-details')!
   expect(within(details as HTMLElement).queryByRole('combobox', { name: '项目类型' })).toBeNull()
@@ -110,20 +112,20 @@ test('shows a locked project type and historical report snapshot notice', async 
 test('patches only changed name and updates heading and selection without resetting file preview', async () => {
   const mock = api()
   const user = await openProject()
-  navigate('项目文件')
-  await user.click(screen.getByRole('button', { name: '预览 实验.xlsx' }))
+  await navigate('项目文件')
+  await user.click(await screen.findByRole('button', { name: '预览 实验.xlsx' }))
   await screen.findByRole('cell', { name: '10' })
   await user.selectOptions(screen.getByLabelText('工作表'), '1')
   const fileReads = mock.mock.calls.filter(([url]) => url === '/api/v1/projects/p1/files').length
   await editName(user, '  新名称  ')
   await user.click(screen.getByRole('button', { name: '保存修改' }))
   expect(await screen.findByRole('heading', { name: '新名称' })).toBeTruthy()
-  navigate('我的项目')
+  await navigate('我的项目')
   expect(await screen.findByRole('button', { name: '打开项目 新名称' })).toBeTruthy()
   expect(JSON.parse(String(patchCalls(mock)[0][1]!.body))).toEqual({ name: '新名称' })
   expect(new Headers(patchCalls(mock)[0][1]!.headers).get('X-CSRF-Token')).toBe('csrf-a')
   expect(patchCalls(mock)[0][1]!.credentials).toBe('same-origin')
-  navigate('项目文件')
+  await navigate('项目文件')
   expect(screen.getByText('空表预览仍保留。')).toBeTruthy()
   expect((screen.getByLabelText('工作表') as HTMLSelectElement).value).toBe('1')
   expect(mock.mock.calls.filter(([url]) => url === '/api/v1/projects/p1/files')).toHaveLength(fileReads)
@@ -132,7 +134,7 @@ test('patches only changed name and updates heading and selection without resett
 test('patches only the changed research topic', async () => {
   const mock = api()
   const user = await openProject()
-  navigate('项目概览')
+  await navigate('项目概览')
   await user.click(screen.getByRole('button', { name: '编辑项目信息' }))
   await user.clear(screen.getByLabelText('修改研究主题'))
   await user.type(screen.getByLabelText('修改研究主题'), '  新研究主题  ')
@@ -144,16 +146,16 @@ test('patches only the changed research topic', async () => {
 test('cancels draft without a patch or clearing file preview', async () => {
   const mock = api()
   const user = await openProject()
-  navigate('项目文件')
-  await user.click(screen.getByRole('button', { name: '预览 实验.xlsx' }))
+  await navigate('项目文件')
+  await user.click(await screen.findByRole('button', { name: '预览 实验.xlsx' }))
   await screen.findByRole('cell', { name: '10' })
   await editName(user)
   await user.click(screen.getByRole('button', { name: '取消修改' }))
   expect(patchCalls(mock)).toHaveLength(0)
   expect(screen.getByRole('heading', { name: '药学项目' })).toBeTruthy()
-  navigate('项目文件')
+  await navigate('项目文件')
   expect(screen.getByRole('cell', { name: '10' })).toBeTruthy()
-  navigate('项目概览')
+  await navigate('项目概览')
   await user.click(screen.getByRole('button', { name: '编辑项目信息' }))
   expect((screen.getByLabelText('修改项目名称') as HTMLInputElement).value).toBe('药学项目')
 })
@@ -171,7 +173,7 @@ for (const field of ['修改项目名称', '修改研究主题']) {
   test(`rejects whitespace in ${field} before patching`, async () => {
     const mock = api()
     const user = await openProject()
-    navigate('项目概览')
+    await navigate('项目概览')
     await user.click(screen.getByRole('button', { name: '编辑项目信息' }))
     await user.clear(screen.getByLabelText(field))
     await user.type(screen.getByLabelText(field), '   ')
@@ -240,8 +242,8 @@ test('times out after fifteen seconds and rereads server result while preserving
     return response
   })
   const user = await openProject()
-  navigate('项目文件')
-  await user.click(screen.getByRole('button', { name: '预览 实验.xlsx' }))
+  await navigate('项目文件')
+  await user.click(await screen.findByRole('button', { name: '预览 实验.xlsx' }))
   await screen.findByRole('cell', { name: '10' })
   await editName(user)
   vi.useFakeTimers()
@@ -255,9 +257,9 @@ test('times out after fifteen seconds and rereads server result while preserving
   fireEvent.click(screen.getByRole('button', { name: '重新读取项目' }))
   await act(async () => {})
   expect(screen.getByRole('heading', { name: '服务端已保存' })).toBeTruthy()
-  navigate('我的项目')
+  await navigate('我的项目')
   expect(screen.getByRole('button', { name: '打开项目 服务端已保存' })).toBeTruthy()
-  navigate('项目文件')
+  await navigate('项目文件')
   expect(screen.getByRole('cell', { name: '10' })).toBeTruthy()
   expect(patchCalls(mock)).toHaveLength(1)
 })
@@ -277,7 +279,7 @@ for (const late of ['response', 'body']) {
     await editName(user)
     await user.click(screen.getByRole('button', { name: '保存修改' }))
     if (late === 'body') await waitFor(() => expect(bodyStarted).toBe(true))
-    navigate('我的项目')
+    await navigate('我的项目')
     await user.click(screen.getByRole('button', { name: '打开项目 毕业论文项目' }))
     await screen.findByRole('heading', { name: '毕业论文项目' })
     expect(patchCalls(mock)[0][1]!.signal!.aborted).toBe(true)
@@ -287,7 +289,7 @@ for (const late of ['response', 'body']) {
     })
     expect(screen.queryByText(/迟到名称/)).toBeNull()
     expect(screen.getByRole('heading', { name: '毕业论文项目' })).toBeTruthy()
-    navigate('项目概览')
+    await navigate('项目概览')
     await user.click(screen.getByRole('button', { name: '编辑项目信息' }))
     expect((screen.getByLabelText('修改项目名称') as HTMLInputElement).value).toBe('毕业论文项目')
   })
@@ -336,22 +338,22 @@ test('retains an editing draft during same-project refresh and ignores stale lis
   })
   const user = await openProject()
   await editName(user)
-  navigate('项目文件')
+  await navigate('项目文件')
   const input = await screen.findByLabelText('选择 Excel 文件')
   await waitFor(() => expect((input as HTMLInputElement).disabled).toBe(false))
   await user.upload(input, new File(['sample'], '实验.xlsx'))
   await user.click(screen.getByRole('button', { name: '上传并预览' }))
   await screen.findByRole('cell', { name: '10' })
-  navigate('项目概览')
+  await navigate('项目概览')
   expect((screen.getByLabelText('修改项目名称') as HTMLInputElement).value).toBe('新名称')
   await waitFor(() => expect(lists).toBe(2))
   await user.click(screen.getByRole('button', { name: '保存修改' }))
   await screen.findByRole('heading', { name: '新名称' })
   await act(async () => staleList.resolve(Response.json({ items: [project, secondProject], total: 2, page: 1, page_size: 5 })))
   expect(screen.getByRole('heading', { name: '新名称' })).toBeTruthy()
-  navigate('我的项目')
+  await navigate('我的项目')
   expect(await screen.findByRole('button', { name: '打开项目 新名称' })).toBeTruthy()
-  navigate('项目文件')
+  await navigate('项目文件')
   expect(screen.getByRole('cell', { name: '10' })).toBeTruthy()
 })
 
@@ -359,13 +361,13 @@ test('does not reset draft when a same-project list refresh completes', async ()
   const mock = api()
   const user = await openProject()
   await editName(user)
-  navigate('项目文件')
+  await navigate('项目文件')
   const input = await screen.findByLabelText('选择 Excel 文件')
   await waitFor(() => expect((input as HTMLInputElement).disabled).toBe(false))
   await user.upload(input, new File(['sample'], '实验.xlsx'))
   await user.click(screen.getByRole('button', { name: '上传并预览' }))
   await waitFor(() => expect(mock.mock.calls.filter(([url]) => url.startsWith('/api/v1/projects?'))).toHaveLength(2))
   await screen.findByRole('cell', { name: '10' })
-  navigate('项目概览')
+  await navigate('项目概览')
   expect((screen.getByLabelText('修改项目名称') as HTMLInputElement).value).toBe('新名称')
 })

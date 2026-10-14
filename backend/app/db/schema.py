@@ -4,7 +4,7 @@ from sqlalchemy.dialects.postgresql import DOUBLE_PRECISION
 
 from sqlalchemy import (
     Boolean, BigInteger, CheckConstraint, Column, ForeignKey, Identity, Index, Integer,
-    MetaData, Table, Text, UniqueConstraint,
+    MetaData, Table, Text, UniqueConstraint, text,
 )
 
 
@@ -30,15 +30,36 @@ files = Table(
     Column("project_id", Text, ForeignKey("projects.id"), nullable=False),
     Column("filename", Text, nullable=False),
     Column("file_type", Text, nullable=False),
+    CheckConstraint("file_type IN ('xlsx','docx','pdf','png','jpeg')", name="files_type_check"),
     Column("size_bytes", BigInteger, nullable=False),
     Column("sha256", Text, nullable=False),
     Column("uploaded_at", Text, nullable=False),
     Column("parse_status", Text, nullable=False),
     Column("error_json", Text),
     Column("preview_json", Text),
-    CheckConstraint("parse_status IN ('parsed', 'failed')", name="files_parse_status_check"),
+    Column("uploader_id", Text, ForeignKey("users.id")),
+    Column("storage_backend", Text, nullable=False, server_default="local"),
+    Column("object_key", Text),
+    Column("metadata_revision", Integer, nullable=False, server_default=text("1")),
+    Column("parse_revision", Integer, nullable=False, server_default=text("0")),
+    Column("upload_item_id", Text, ForeignKey("file_upload_items.id", name="files_upload_item_id_fkey")),
+    UniqueConstraint("upload_item_id", name="files_upload_item_key"),
+    CheckConstraint("parse_revision >= 0", name="files_parse_revision_check"),
+    CheckConstraint("storage_backend = 'local'", name="files_storage_backend_check"),
+    CheckConstraint("metadata_revision >= 1", name="files_metadata_revision_check"),
+    CheckConstraint("parse_status IN ('queued', 'parsing', 'parsed', 'failed')", name="files_parse_status_check"),
 )
 Index("files_project", files.c.project_id, files.c.uploaded_at.desc())
+Index("files_project_uploaded_id", files.c.project_id, files.c.uploaded_at.desc(), files.c.id.asc())
+
+file_purposes = Table(
+    "file_purposes", metadata,
+    Column("file_id", Text, ForeignKey("files.id"), primary_key=True),
+    Column("purpose", Text, primary_key=True),
+    Column("assigned_by", Text, ForeignKey("users.id")),
+    Column("assigned_at", Text, nullable=False),
+    CheckConstraint("purpose IN ('raw_data','figure','methods','school_template','paper','revision_material')", name="file_purposes_purpose_check"),
+)
 
 analysis_setups = Table(
     "analysis_setups", metadata,
@@ -186,3 +207,23 @@ task_waits, task_resume_requests = define_task_wait_tables(metadata)
 from app.db.task_error_schema import add_task_error_columns
 
 add_task_error_columns(tasks, task_attempts, task_events)
+
+from app.db.file_parsing_schema import define_file_parsing_tables
+file_upload_batches, file_upload_items, file_parse_results = define_file_parsing_tables(metadata)
+
+from app.db.dataset_schema import define_dataset_tables
+file_structure_versions, dataset_versions = define_dataset_tables(metadata)
+
+from app.db.dataset_preparation_schema import define_dataset_preparation_tables
+task_checkpoints, dataset_preparation_decisions, prepared_dataset_versions = define_dataset_preparation_tables(metadata)
+
+from app.db.analysis_plan_schema import define_analysis_plan_tables
+analysis_plan_decisions, confirmed_analysis_plans = define_analysis_plan_tables(metadata)
+
+from app.db.ocr_review_schema import define_ocr_review_tables
+ocr_review_decisions, ocr_review_versions = define_ocr_review_tables(metadata)
+
+from app.db.file_lifecycle_schema import define_file_lifecycle_tables
+file_deletion_requests, file_reparse_assessments = define_file_lifecycle_tables(metadata)
+Index('file_upload_batches_owner_created', file_upload_batches.c.project_id, file_upload_batches.c.user_id,
+      file_upload_batches.c.created_at.desc(), file_upload_batches.c.id)

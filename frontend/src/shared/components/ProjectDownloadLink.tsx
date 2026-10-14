@@ -2,12 +2,12 @@ import { useI18n, apiError, safeError } from '../i18n'
 import { useEffect, useRef, useState, type MouseEvent, type ReactNode } from 'react'
 import { apiFetch, captureApiSession, onApiSessionChanged } from '../api/client'
 import { captureProjectAccess } from '../api/projectAccess'
-type Props = { href: string; filename: string; children: ReactNode; ariaLabel?: string }
+type Props = { href: string; filename: string; children: ReactNode; ariaLabel?: string; onHttpError?: (status: number, body: unknown) => void }
 export default function ProjectDownloadLink(props: Props) {
   return <DownloadLink key={props.href} {...props} />
 }
 
-function DownloadLink({ href, filename, children, ariaLabel }: Props) {
+function DownloadLink({ href, filename, children, ariaLabel, onHttpError }: Props) {
   const { t } = useI18n()
   const [checkSession] = useState(captureApiSession)
   const [busy, setBusy] = useState(false)
@@ -38,6 +38,10 @@ function DownloadLink({ href, filename, children, ariaLabel }: Props) {
         apiFetch(href, { signal: controller.signal }).then(async response => {
           if (!response.ok) {
             const body = await response.json().catch(() => null)
+            // Reject stale responses before notifying the owning context. A 401 already
+            // clears that context through the API session change listener.
+            check()
+            onHttpError?.(response.status, body)
             throw new Error(apiError(body, '下载失败，请重试。'))
           }
           return response.blob()

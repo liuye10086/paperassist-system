@@ -2,6 +2,15 @@ import { expect, it } from 'vitest'
 import { displayNames, isEventPage, isTask, isTaskPage, isWorkspace, taskDisplayName, type TaskView } from './taskTypes'
 import { eventsFixture, legacyTaskFixture, legacyWorkspaceFixture, pageFixture, taskFixture } from './taskFixtures'
 
+it('accepts a prepared analysis plan task and its scoped confirmation workspace', () => {
+  const source = { kind: 'prepared_dataset_version', schema_version: 1, dataset_id: 'prepared1', structure_id: 's1', dataset_version: 1, file_id: 'f1', source_sha256: 'a'.repeat(64), dataset_sha256: 'b'.repeat(64), dataset_size_bytes: 100, dataset_schema_version: 1, sheet_index: 0, sheet_name: 'Sheet1', parser_version: 'structure-v1', parent_dataset_id: 'raw1', parent_dataset_version: 1, transform_version: 'excel_prepare_v1' }
+  const input = { kind: 'analysis_plan', workflow_version: 'analysis_plan_v1', source }
+  const task = { ...taskFixture, task_type: 'analysis_plan', phase: 'plan', error_code: null, reason_code: null, input_version: input }
+  const workspace = { task, source: { file_id: 'f1', filename: 'data.xlsx', analysis_run_id: null, is_current: true, dataset_source: source }, wait: { id: 'w1', kind: 'analysis_plan_confirmation', status: 'open', task_revision: 3, input_version: input, reason_code: 'confirmation_required', error_code: null, created_at: task.created_at, resolved_at: null }, allowed_actions: ['approve', 'revise'], artifacts: { figure: null, explanation: null, report: null } }
+  expect(isTask(task, 'p1', 't1')).toBe(true)
+  expect(isWorkspace(workspace, 'p1', 't1')).toBe(true)
+})
+
 it.each([
   ['queued', 'compute', 'queued', '待执行'], ['running', 'parse', 'parsing', '文件解析中'],
   ['running', 'plan', 'analyzing', 'AI 分析中'], ['running', 'compute', 'computing', '数据计算中'],
@@ -118,4 +127,17 @@ it.each([
   { error_category: 'interrupted', retry_reason: 'worker_interrupted', retry_count: 3, retry_delay_seconds: 90 },
 ])('accepts nullable legacy or supported event metadata %j', metadata => {
   expect(isEventPage({ ...eventsFixture, items: [{ ...eventsFixture.items[0], ...metadata }] }, 't1', 0)).toBe(true)
+})
+
+it('accepts parsing input and a file-only source without invented analysis configuration', () => {
+  const task = { ...taskFixture, task_type: 'parse_file', phase: 'parse', input_version: { kind: 'parse_file', parse_id: 'parse1', source_sha256: 'a'.repeat(64), parser_version: 'excel-v1' } }
+  expect(isTask(task, 'p1')).toBe(true)
+  expect(isWorkspace({ task, source: { file_id: 'f1', filename: 'book.xlsx', analysis_run_id: null, is_current: true }, wait: null, allowed_actions: ['retry'], artifacts: { figure: null, explanation: null, report: null } }, 'p1', task.id)).toBe(true)
+  expect(isTask({ ...task, input_version: taskFixture.input_version }, 'p1')).toBe(false)
+})
+
+it('rejects invented analysis results and a non-parse phase on parse tasks',()=>{
+ const task={...taskFixture,task_type:'parse_file',phase:'parse',input_version:{kind:'parse_file',parse_id:'p',source_sha256:'a'.repeat(64),parser_version:'v1'}}
+ expect(isTask({...task,result_figure_id:'invented'},'p1')).toBe(false)
+ expect(isTask({...task,phase:'compute'},'p1')).toBe(false)
 })

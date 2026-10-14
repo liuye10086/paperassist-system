@@ -6,11 +6,15 @@ from math import isfinite
 from typing import Annotated, Literal
 
 from openpyxl.utils.cell import column_index_from_string, get_column_letter
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_serializer
 
 from app.core.config import ExcelSettings
 from app.adapters.excel import fail, parse_workbook
 from app.adapters.storage import ProjectStore
+
+from app.domain.analysis_sources import DATASET_ENGINE, statistics_engine
+from app.domain.dataset_preparation.contracts import PreparationUnit
+from app.domain.analysis_plan.references import PlannedAnalysisSource
 
 ColumnId = Annotated[str, Field(pattern=r'^[A-Z]{1,3}$')]
 MAX_GROUPS = 20
@@ -26,7 +30,11 @@ class AnalysisSelection(BaseModel):
     missing_policy: Literal['exclude_selected_missing']
 
 
-class SaveSelection(AnalysisSelection):
+class CheckSelection(AnalysisSelection):
+    dataset_id: str | None = Field(default=None, min_length=1)
+
+
+class SaveSelection(CheckSelection):
     expected_revision: int = Field(ge=0)
 
 
@@ -40,6 +48,14 @@ class ColumnProfile(BaseModel):
     can_be_numeric: bool
     can_be_group: bool
     issue_cells: list[str]
+    unit: PreparationUnit | None = None
+
+    @model_serializer(mode='wrap')
+    def omit_raw_unit(self, handler):
+        value = handler(self)
+        if self.unit is None:
+            value.pop('unit', None)
+        return value
 
 
 class SheetProfile(BaseModel):
@@ -64,7 +80,7 @@ class SelectionCheck(BaseModel):
     warnings: list[str]
 
 
-class SavedSetup(BaseModel):
+class SavedSetup(PlannedAnalysisSource):
     file_id: str
     source_sha256: str
     status: Literal['configured']
@@ -188,13 +204,22 @@ class SheetScan:
 
 def source(store: ProjectStore, project_id: str, file_id: str):
     record = store.file(project_id, file_id)
+    if record['file_type'] != 'xlsx':
+        fail('unsupported_file_type', '统计分析仅支持 Excel 数据来源。', 422)
     content = store.original(record)
     if record['parse_status'] != 'parsed':
         fail('file_not_parsed', '该文件解析失败，请重新上传有效的 Excel 后配置分析。')
     return record, content
 
 
-def inspect_selection(store, project_id, file_id, settings, sheet_name, selection=None, *, collect_values=False):
+def inspect_selection(store, project_id, file_id, settings, sheet_name, selection=None, *, collect_values=False, dataset_id=None, expected_source=None):
+    if dataset_id is not None:
+        from app.domain.dataset_analysis import load_dataset, scan_dataset
+        record, _, sheet = load_dataset(store, project_id, file_id, dataset_id, expected_source=expected_source)
+        if sheet.name != sheet_name:
+            fail('sheet_not_found', '所选数据版本与工作表不一致，请重新选择。')
+        profile, scan = scan_dataset(sheet, selection, collect_values)
+        return record, profile, scan
     record, content = source(store, project_id, file_id)
     scan = SheetScan(sheet_name, selection, collect_values)
     preview = parse_workbook(content, record['filename'], settings, observe_row=scan.observe)
@@ -205,27 +230,44 @@ def inspect_selection(store, project_id, file_id, settings, sheet_name, selectio
 
 
 def get_profile(project_id: str, file_id: str, store: ProjectStore, settings: ExcelSettings,
-                sheet: str):
-    return inspect_selection(store, project_id, file_id, settings, sheet)[1]
+                sheet: str, dataset_id=None):
+    return inspect_selection(store, project_id, file_id, settings, sheet, dataset_id=dataset_id)[1]
 
 
 def check_selection(project_id: str, file_id: str, selection: AnalysisSelection, store: ProjectStore, settings: ExcelSettings):
-    _, profile, scan = inspect_selection(store, project_id, file_id, settings, selection.sheet_name, selection)
+    dataset_id = getattr(selection, 'dataset_id', None)
+    selection = AnalysisSelection(**selection.model_dump(exclude={'dataset_id'}))
+    _, profile, scan = inspect_selection(store, project_id, file_id, settings, selection.sheet_name, selection, dataset_id=dataset_id)
     return scan.check(profile)
 
 
 def get_setup(project_id: str, file_id: str, store: ProjectStore):
-    source(store, project_id, file_id)
-    return store.analysis_setup(project_id, file_id)
+    saved = store.analysis_setup(project_id, file_id)
+    if saved and statistics_engine(saved) == DATASET_ENGINE:
+        from app.domain.dataset_analysis import load_dataset
+        load_dataset(store, project_id, file_id, saved['source']['dataset_id'], expected_source=saved['source'])
+    else:
+        source(store, project_id, file_id)
+    return saved
 
 
 def save_setup(project_id: str, file_id: str, request: SaveSelection, store: ProjectStore, settings: ExcelSettings):
-    selection = AnalysisSelection(**request.model_dump(exclude={'expected_revision'}))
-    record, profile, scan = inspect_selection(store, project_id, file_id, settings, selection.sheet_name, selection)
+    selection = AnalysisSelection(**request.model_dump(exclude={'expected_revision', 'dataset_id'}))
+    frozen = {}
+    if request.dataset_id is not None:
+        from app.domain.dataset_analysis import load_dataset, scan_dataset
+        record, frozen_source, sheet = load_dataset(store, project_id, file_id, request.dataset_id)
+        profile, scan = scan_dataset(sheet, selection)
+        frozen = {'source': frozen_source}
+    else:
+        record, profile, scan = inspect_selection(store, project_id, file_id, settings, selection.sheet_name, selection)
     check = scan.check(profile)
     if not check.ready:
         fail('invalid_analysis_selection', ' '.join(check.issues))
+    if request.dataset_id is not None:
+        load_dataset(store, project_id, file_id, request.dataset_id, expected_source=frozen_source)
     return store.save_analysis_setup(project_id, file_id, request.expected_revision, {
+        **frozen,
         'file_id': file_id, 'source_sha256': record['sha256'], 'status': 'configured',
         'selection': selection.model_dump(), 'check': check.model_dump(),
     })

@@ -2,7 +2,7 @@
 from datetime import datetime, timezone
 import re
 
-from app.adapters.task_store import TaskStore, source_conflict
+from app.adapters.task_store import TaskStore, source_conflict, workflow_version, snapshots_match, task_source_matches
 from app.core.exceptions import StorageError
 from app.domain import reports
 from app.domain.tasks.contracts import TaskCreateRequest
@@ -17,13 +17,15 @@ def matching_task(store, project_id, snapshot):
     with store.connection() as db:
         store.require_project(db, project_id)
         row = db.execute('''SELECT * FROM tasks WHERE project_id=%s AND user_id=%s
-            AND task_type='word_report' AND workflow_version='word_report_v1'
+            AND task_type='word_report' AND workflow_version=%s
             AND input_snapshot->'result'->>'id'=%s
             AND input_snapshot->'figure'->>'id'=%s
             AND input_snapshot->'explanation'->>'id'=%s
             AND input_snapshot->'versions'->>'report'=%s
             ORDER BY created_at DESC,id DESC LIMIT 1''',
-            (project_id, store.user_id, snapshot['result']['id'], figure['id'], explanation['id'], VERSION)).fetchone()
+            (project_id, store.user_id, workflow_version('word_report', snapshot), snapshot['result']['id'], figure['id'], explanation['id'], VERSION)).fetchone()
+        if row and not task_source_matches(row, snapshot['result']):
+            raise source_conflict()
         return store.public_task(dict(row)) if row else None
 
 
@@ -84,7 +86,7 @@ def retry_word_in_transaction(store, db, task, expected_revision):
         analysis_run_id=original['result']['id'], expected_revision=original['result']['setup_revision'],
         figure_id=original['figure']['id'], explanation_id=original['explanation']['id'])
     current = store.source_snapshot(db, store.require_project(db, task['project_id']), request)
-    if any(current[key] != original[key] for key in ('file', 'result', 'figure', 'explanation', 'versions', 'output_language')):
+    if not snapshots_match(current, original, explanation=True):
         raise source_conflict()
     task.update(status='queued', phase='export', revision=expected_revision + 1,
         reason_code='retry_requested', error_code=None, retry_count=0, _retry_reason='manual_retry',

@@ -9,6 +9,7 @@ from app.domain import boxplot as operations
 from app.domain.boxplot import PlotRequest
 from app.adapters.excel import fail
 from app.domain.boxplot import result_source, RENDERER, STATISTICS_ENGINE
+from app.domain.analysis_sources import statistics_engine
 
 router = APIRouter(prefix='/api/v1/projects/{project_id}/files/{file_id}/analysis-runs/{run_id}', tags=['箱线图'])
 
@@ -26,7 +27,7 @@ def get_boxplot(project_id: str, file_id: str, run_id: str, store: Store):
 @router.get('/boxplot/image')
 def image(project_id: str, file_id: str, run_id: str, store: Store, download: bool = False):
     result = result_source(store, project_id, file_id, run_id)
-    state = store.figure_state(result, RENDERER, STATISTICS_ENGINE)
+    state = store.figure_state(result, RENDERER, statistics_engine(result))
     figure = state['figure']
     if figure is None:
         fail('figure_not_found', '此结果尚未生成箱线图。', 404)
@@ -46,7 +47,8 @@ def download_saved_figure(project_id: str, file_id: str, run_id: str, figure_id:
         fail('figure_not_found', '此统计结果中没有该图表。', 404)
     figure = json.loads(row['figure_json'])
     if (figure['id'] != figure_id or figure['analysis_run_id'] != run_id or figure['file_id'] != file_id
-            or figure['source_sha256'] != result['source_sha256']):
+            or figure['source_sha256'] != result['source_sha256']
+            or figure.get('source') != result.get('source')):
         fail('source_conflict', '图表与统计结果的来源不一致。', 409)
     return Response(store.figure_png(figure), media_type='image/png', headers={
         'Content-Disposition': "attachment; filename*=UTF-8''" + quote(f'boxplot-{figure_id}.png', safe=''),

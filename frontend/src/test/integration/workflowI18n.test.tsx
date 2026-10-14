@@ -1,3 +1,4 @@
+import { version, dataset, page } from '../../features/datasets/datasetFixtures'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
 import ExcelPreview from '../../features/files/ExcelPreview'
@@ -30,13 +31,18 @@ it('switches upload labels and preserves selected user filename without another 
 })
 
 it('translates analysis labels while preserving field values and a draft on language switches', async () => {
-  const fetch = vi.fn(async (url: string) => Response.json(url.endsWith('/preview') ? { sheets: [{ name: '研究数据' }] }
-    : url.endsWith('/analysis-setup') ? null : { sheet_name: '研究数据', row_count: 3, warnings: [], columns: [{ id: 'A', name: '指标原文', type: 'number', non_missing_count: 3, missing_count: 0, numeric_count: 3, can_be_numeric: true, can_be_group: true, issue_cells: [] }] }))
-  vi.stubGlobal('fetch', fetch); render(<AnalysisSetup projectId="p" files={[{ id: 'f', filename: '研究数据.xlsx', parse_status: 'parsed', uploaded_at: '2026-10-05' }]} />)
+  const fetch = vi.fn(async (url: string) => Response.json(url.includes('/structure-versions?') ? { ...page, items: [{ ...version, file_id: 'f', task: { ...version.task, project_id: 'p' }, datasets: [{ ...dataset, file_id: 'f', sheet_name: '研究数据' }] }] } : url.endsWith('/preview') ? { sheets: [{ name: '研究数据' }] }
+    : url.endsWith('/analysis-setup') ? null : { sheet_name: '研究数据', row_count: 3, warnings: ['第一行作为字段名；分析使用第2行至最后有值行的完整记录，不自动清洗；普通小数采用 binary64，可能存在浮点误差。', '存在合并单元格，覆盖格不自动补值。'], columns: [{ id: 'A', name: '指标原文', type: 'number', non_missing_count: 3, missing_count: 0, numeric_count: 3, can_be_numeric: true, can_be_group: true, issue_cells: [] }] }))
+  vi.stubGlobal('fetch', fetch); render(<AnalysisSetup projectId="p" files={[{ id: 'f', filename: '研究数据.xlsx', file_type: 'xlsx', parse_status: 'parsed', uploaded_at: '2026-10-05' }]} />)
   fireEvent.change(screen.getByLabelText('用于分析的文件'), { target: { value: 'f' } })
+  fireEvent.change(await screen.findByLabelText('原始数据版本'), { target: { value: 's1' } })
+  fireEvent.change(screen.getByLabelText('分析工作表'), { target: { value: 'd1' } })
   fireEvent.change(await screen.findByLabelText('数值单位（可选）'), { target: { value: '用户单位原文' } })
   const calls = fetch.mock.calls.length; locale('en')
   expect(screen.getByLabelText('Numeric column')).toBeTruthy()
+  expect(screen.getByText('Page 1')).toBeTruthy()
+  expect(screen.getByText('The first row supplies field names. Analysis uses complete records from row 2 through the last row containing a value, without automatic cleaning. Ordinary decimals use binary64 and may have floating-point error.')).toBeTruthy()
+  expect(screen.getByText('Merged cells are present. Covered cells are not filled automatically.')).toBeTruthy()
   expect((screen.getByLabelText('Unit (optional)') as HTMLInputElement).value).toBe('用户单位原文')
   expect(screen.getAllByText(/指标原文/).length).toBeGreaterThan(0)
   expect(fetch).toHaveBeenCalledTimes(calls)
@@ -50,13 +56,24 @@ it('translates analysis labels while preserving field values and a draft on lang
 
 it('translates statistics labels without translating groups or numeric values', async () => {
   locale('en')
-  vi.stubGlobal('fetch', vi.fn(async (url: string) => Response.json(url.endsWith('/analysis-result') ? { current_revision: 1, is_current: true, result: { id: 'run', filename: '研究数据.xlsx', source_sha256: 'source', setup_revision: 1, selection, check, numeric_name: '指标原文', group_name: '组名原文', started_at: '2026-10-05', completed_at: '2026-10-05', engine: { id: 'test', python_version: 'test', openpyxl_version: 'test' }, overall: stats, groups: [{ label: '总体（完整记录）', statistics: stats }] } } : url.endsWith('config') ? { configured: false } : { current_revision: 1, is_current: true, figure: null, job: null })))
+  vi.stubGlobal('fetch', vi.fn(async (url: string) => Response.json(url.endsWith('/analysis-result') ? { current_revision: 1, is_current: true, result: { id: 'run', filename: '研究数据.xlsx', file_type: 'xlsx', source_sha256: 'source', setup_revision: 1, selection, check, numeric_name: '指标原文', group_name: '组名原文', started_at: '2026-10-05', completed_at: '2026-10-05', engine: { id: 'test', python_version: 'test', openpyxl_version: 'test' }, overall: stats, groups: [{ label: '总体（完整记录）', statistics: stats }] } } : url.endsWith('config') ? { configured: false } : { current_revision: 1, is_current: true, figure: null, job: null })))
   render(<StatisticsResults base="/file" savedRevision={1} fieldsMatch={true} disabled={false} onBusyChange={() => {}} />)
   expect(await screen.findByRole('table', { name: 'Descriptive statistics results' })).toBeTruthy()
   expect(screen.getByRole('columnheader', { name: 'Mean' })).toBeTruthy()
   expect(screen.getByRole('rowheader', { name: 'Overall (complete records)' })).toBeTruthy()
   expect(screen.getByRole('rowheader', { name: '总体（完整记录）' })).toBeTruthy()
   expect(screen.queryByText(/Setup revision|SHA256|openpyxl|Result ID/)).toBeNull()
+})
+
+it.each(['prepared', 'raw', 'legacy'])('describes the row scope of %s statistics in both languages', async kind => {
+  const raw = { kind: 'dataset_version' as const, schema_version: 1 as const, dataset_id: 'd1', structure_id: 's1', dataset_version: 1, file_id: 'f1', source_sha256: 'a'.repeat(64), dataset_sha256: 'b'.repeat(64), dataset_size_bytes: 100, dataset_schema_version: 1 as const, sheet_index: 0, sheet_name: selection.sheet_name, parser_version: 'structure-v1' }
+  const source = kind === 'legacy' ? undefined : kind === 'raw' ? raw : { ...raw, kind: 'prepared_dataset_version' as const, dataset_id: 'pd1', dataset_version: 2, parent_dataset_id: 'd1', parent_dataset_version: 1, transform_version: 'excel_prepare_v1' as const }
+  vi.stubGlobal('fetch', vi.fn(async (url: string) => Response.json(url.endsWith('/analysis-result') ? { current_revision: 1, is_current: true, result: { ...(source ? { source } : {}), id: 'run', filename: '研究数据.xlsx', file_type: 'xlsx', source_sha256: raw.source_sha256, setup_revision: 1, selection, check: { ...check, row_count: 6, valid_count: 4, excluded_count: 2 }, numeric_name: '指标原文', group_name: null, started_at: '2026-10-05', completed_at: '2026-10-05', engine: { id: 'test', python_version: 'test' }, overall: stats, groups: [] } } : url.endsWith('config') ? { configured: false } : { current_revision: 1, is_current: true, figure: null, job: null })))
+  render(<StatisticsResults base="/file" savedRevision={1} savedSource={source} fieldsMatch={true} disabled={false} onBusyChange={() => {}} />)
+  await screen.findByRole('table', { name: '描述统计结果' })
+  expect(screen.getByText(kind === 'prepared' ? '本次使用 4 行，排除 2 行；所选整理区域共 6 行。' : '本次使用 4 行，排除 2 行；原始数据共 6 行。')).toBeTruthy()
+  locale('en')
+  expect(screen.getByText(kind === 'prepared' ? 'Used 4 rows and excluded 2 rows out of 6 rows in the selected prepared range.' : 'Used 4 rows and excluded 2 rows out of 6 original rows.')).toBeTruthy()
 })
 
 it('translates figure and explanation controls while preserving historical artifacts and avoiding generation', async () => {
@@ -118,7 +135,7 @@ it('switches historical artifact notices and download names without translating 
 
 it('translates saved Excel preview notices and captions without altering headers and cells', async () => {
   locale('en')
-  vi.stubGlobal('fetch', vi.fn(async (url: string) => Response.json(url.endsWith('config') ? { max_upload_bytes: 1024 } : { filename: '研究数据.xlsx', sheets: [{ name: '工作表', columns: ['数据准备', '指标原文'], row_count: 1, column_count: 2, preview_rows: [['数值列', 0]], warnings: ['存在重复列名，已按原始列顺序保留。'] }] })))
+  vi.stubGlobal('fetch', vi.fn(async (url: string) => Response.json(url.endsWith('config') ? { max_upload_bytes: 1024 } : { filename: '研究数据.xlsx', file_type: 'xlsx', sheets: [{ name: '工作表', columns: ['数据准备', '指标原文'], row_count: 1, column_count: 2, preview_rows: [['数值列', 0]], warnings: ['存在重复列名，已按原始列顺序保留。'] }] })))
   render(<ExcelPreview projectId="p" savedFile={{ id: 'f', request: 1 }} />)
   expect(await screen.findByRole('table', { name: '工作表 · Showing 1 / 1 rows (— indicates an empty value)' })).toBeTruthy()
   expect(screen.getByRole('columnheader', { name: '数据准备' })).toBeTruthy()

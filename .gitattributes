@@ -1,0 +1,3 @@
+# Preserve synthetic binary fixture bytes on every platform.
+backend/tests/fixtures/**/*.pdf binary
+backend/tests/fixtures/**/*.png binary

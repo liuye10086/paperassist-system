@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
 import { apiError, safeError, useI18n } from '../../shared/i18n'
 import { taskRequest } from './taskApi'
-import { eventNames, isEventPage, phaseNames, type ErrorCategory, type EventPage, type TaskEvent } from './taskTypes'
+import { eventNames, isEventPage, phaseNames, type ErrorCategory, type EventPage, type TaskEvent, type TaskType } from './taskTypes'
 import { useDocumentVisible } from './useDocumentVisible'
 
-export default function TaskEvents({ taskId, live, refreshKey }: { taskId: string; live: boolean; refreshKey: number }) {
+export default function TaskEvents({ taskId, taskType, live, refreshKey }: { taskId: string; taskType: TaskType; live: boolean; refreshKey: number }) {
   const { t } = useI18n()
   const visible = useDocumentVisible()
   const [events, setEvents] = useState<TaskEvent[]>([])
@@ -39,7 +39,7 @@ export default function TaskEvents({ taskId, live, refreshKey }: { taskId: strin
     {error && <p role="alert" className="error-panel">{t(error)}</p>}
     {loading && !events.length && <p role="status">{t('正在读取执行记录……')}</p>}
     {!loading && !events.length && !error && <p>{t('尚无已保存的执行记录。')}</p>}
-    <ol className="task-event-list">{events.map(event => <EventRecord key={event.seq} event={event} />)}</ol>
+    <ol className="task-event-list">{events.map(event => <EventRecord key={event.seq} event={event} taskType={taskType} />)}</ol>
     {hasMore && <button type="button" disabled={loading} onClick={() => { setLoading(true); setError(''); setAttempt(value => value + 1) }}>{t('继续加载执行记录')}</button>}
   </section>
 }
@@ -49,7 +49,7 @@ const categoryCodes: Record<Exclude<ErrorCategory, 'interrupted'>, string> = {
   configuration: 'model_request_rejected', source: 'task_source_conflict', output: 'model_response_invalid',
   submission_unknown: 'task_uncertain', budget: 'model_budget_missing', internal: 'internal_error',
 }
-function EventRecord({ event }: { event: TaskEvent }) {
+function EventRecord({ event, taskType }: { event: TaskEvent; taskType: TaskType }) {
   const { t, locale } = useI18n()
   const fallback = apiError({ code: 'internal_error' }, '本次执行遇到问题，请查看处理说明。')
   const summary = event.error_code != null ? apiError({ code: event.error_code }, fallback)
@@ -60,7 +60,8 @@ function EventRecord({ event }: { event: TaskEvent }) {
     && event.retry_count > 0 && event.retry_delay_seconds != null
   const exhausted = event.event_type === 'failed' && temporaryFailure && event.retry_count === 3
   return <li><span className="task-event-dot" aria-hidden="true" /><div><strong>{t(eventNames[event.event_type])}</strong>
-    <p>{t(phaseNames[event.phase])}</p>
+    <p>{t(taskType === 'review_ocr' && event.phase === 'plan' ? '文字核对'
+      : taskType === 'review_ocr' && event.phase === 'verify' ? '生成核对版本' : phaseNames[event.phase])}</p>
     {summary && <p className="task-event-error">{t(summary)}</p>}
     {scheduled && <p className="task-event-retry">{t('自动重试第 {count}/3 次，等待 {seconds} 秒后继续。',
       { count: event.retry_count!, seconds: event.retry_delay_seconds! })}</p>}

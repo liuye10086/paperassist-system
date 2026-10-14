@@ -2,7 +2,7 @@
 import json
 from urllib.parse import quote
 
-from app.adapters.task_store import TaskStore, source_conflict
+from app.adapters.task_store import DatasetTaskAssets, TaskStore, source_conflict, snapshots_match
 from app.core.exceptions import StorageError
 from app.domain.tasks.contracts import TaskCreateRequest
 
@@ -13,22 +13,78 @@ class TaskWorkspaceService:
 
     def source(self, db, task):
         snapshot = task['input_snapshot']
+        if task['task_type'] == 'analysis_plan':
+            from app.domain.analysis_plan.service import validate_snapshot, AnalysisPlanService
+            snapshot = validate_snapshot(task)
+            assets = DatasetTaskAssets(self.store.user_id, self.store.config)
+            AnalysisPlanService(assets).require_source(snapshot['source'], task['project_id'])
+            return dict(file_id=snapshot['source']['file_id'], filename=snapshot['filename'],
+                        analysis_run_id=None, is_current=True, dataset_source=snapshot['source'])
+        if task['task_type'] == 'review_ocr':
+            from app.domain.ocr_review.service import validate_snapshot, OcrReviewService
+            snapshot = validate_snapshot(task)
+            assets = DatasetTaskAssets(self.store.user_id,self.store.config)
+            OcrReviewService(assets).require_raw(snapshot['source'],task['project_id'])
+            return dict(file_id=snapshot['source']['file_id'],filename=snapshot['filename'],
+                        analysis_run_id=None,is_current=True)
+        if task['task_type'] == 'prepare_dataset':
+            from app.domain.dataset_preparation.service import validate_snapshot, DatasetPreparationService
+            snapshot = validate_snapshot(task)
+            assets = DatasetTaskAssets(self.store.user_id, self.store.config)
+            DatasetPreparationService(assets).require_raw(snapshot['source'], task['project_id'])
+            return dict(file_id=snapshot['source']['file_id'], filename=snapshot['filename'],
+                        analysis_run_id=None, is_current=True, dataset_source=snapshot['source'])
+        if task['task_type'] in ('parse_file','extract_dataset'):
+            if task['task_type'] == 'extract_dataset':
+                from app.domain.datasets.snapshots import require_structure_source as require_parse_source, validate_snapshot
+            else:
+                from app.domain.file_parsing import require_parse_source, validate_snapshot
+            snapshot = validate_snapshot(task)
+            self.store.require_project(db, task['project_id'])
+            try:
+                require_parse_source(db, task)
+                is_current = True
+            except StorageError:
+                is_current = False
+            return dict(file_id=snapshot['file']['id'], filename=snapshot['file']['filename'],
+                        analysis_run_id=None, is_current=is_current)
         try:
             request = TaskCreateRequest(task_type=task['task_type'], file_id=snapshot['file']['id'],
                 analysis_run_id=snapshot['result']['id'], expected_revision=snapshot['result']['setup_revision'],
                 figure_id=snapshot['figure']['id'] if task['task_type'] in ('explanation', 'word_report') else None,
                 explanation_id=snapshot['explanation']['id'] if task['task_type'] == 'word_report' else None)
             project = self.store.require_project(db, task['project_id'])
+            # Historical configuration changes do not invalidate an intact
+            # frozen source, but must never hide corruption of that source.
+            if ('source' in snapshot or 'source' in snapshot['result']
+                    or task['workflow_version'].endswith('_v2')):
+                from app.domain.analysis_sources import source_dict
+                from app.domain.dataset_analysis import load_dataset
+                frozen = source_dict(snapshot['source'])
+                if (snapshot['schema_version'] != 2 or type(snapshot['schema_version']) is not int
+                        or snapshot['result'].get('source') != frozen
+                        or frozen['file_id'] != request.file_id
+                        or frozen['source_sha256'] != snapshot['file']['sha256']
+                        or task['workflow_version'] != task['task_type'] + '_v2'):
+                    raise source_conflict()
+                try:
+                    load_dataset(DatasetTaskAssets(self.store.user_id, self.store.config), project['id'],
+                                 request.file_id, frozen['dataset_id'], expected_source=frozen)
+                except StorageError as exc:
+                    raise source_conflict() from exc
+            from app.domain.analysis_plan.service import validate_plan_reference
+            validate_plan_reference(DatasetTaskAssets(self.store.user_id, self.store.config),
+                                    project['id'], request.file_id, snapshot['result'])
             try:
                 current = self.store.source_snapshot(db, project, request)
-                is_current = all(current[key] == snapshot[key]
-                                 for key in ('file', 'result', 'figure', 'explanation', 'versions', 'output_language'))
+                is_current = snapshots_match(current, snapshot)
             except StorageError as exc:
                 if exc.code != 'task_source_conflict':
                     raise
                 is_current = False
             return dict(file_id=request.file_id, filename=snapshot['file']['filename'],
-                        analysis_run_id=request.analysis_run_id, is_current=is_current)
+                        analysis_run_id=request.analysis_run_id, is_current=is_current,
+                        **({'dataset_source': snapshot['source']} if 'source' in snapshot else {}))
         except (KeyError, TypeError, ValueError) as exc:
             raise source_conflict() from exc
 
@@ -36,7 +92,7 @@ class TaskWorkspaceService:
         if (type(page) is not int or not 1 <= page <= 1_000_000
                 or type(page_size) is not int or not 1 <= page_size <= 50
                 or status not in (None, 'queued', 'running', 'waiting_input', 'waiting_confirmation', 'succeeded', 'failed')
-                or task_type not in (None, 'boxplot', 'explanation', 'word_report')):
+                or task_type not in (None, 'boxplot', 'explanation', 'word_report', 'parse_file', 'extract_dataset', 'prepare_dataset', 'review_ocr', 'analysis_plan')):
             raise StorageError('task_input_invalid', '任务列表查询参数无效。', 422)
         from app.adapters.legacy_task_query import mixed_task_page, require_legacy_task
         from app.domain.tasks.legacy import public_legacy_task, legacy_source
@@ -72,7 +128,9 @@ class TaskWorkspaceService:
         try:
             value = json.loads(row[column])
             snapshot = task['input_snapshot']
-            if (value['id'] != reference or value['analysis_run_id'] != snapshot['result']['id']
+            if (value.get('source') != snapshot['result'].get('source')
+                    or snapshot.get('source') != snapshot['result'].get('source')
+                    or value['id'] != reference or value['analysis_run_id'] != snapshot['result']['id']
                     or row['source_file_id'] != snapshot['file']['id']
                     or value['source_sha256'] != snapshot['file']['sha256']
                     or value['setup_revision'] != snapshot['result']['setup_revision']):
@@ -85,7 +143,10 @@ class TaskWorkspaceService:
                 raise source_conflict()
             if kind == 'report':
                 saved_input = json.loads(row['input_json'])
-                if (row['explanation_id'] != snapshot['explanation']['id']
+                from app.adapters.report_store import digest
+                if (saved_input.get('source') != snapshot.get('source')
+                        or value['input_sha256'] != digest(saved_input)
+                        or row['explanation_id'] != snapshot['explanation']['id']
                         or value['explanation_id'] != snapshot['explanation']['id']
                         or value['figure_id'] != snapshot['figure']['id']
                         or value['figure_sha256'] != snapshot['figure']['sha256']
@@ -97,6 +158,26 @@ class TaskWorkspaceService:
 
     def artifacts(self, db, task):
         result = {'figure': None, 'explanation': None, 'report': None}
+        if task['task_type'] == 'analysis_plan':
+            return result
+        if task['task_type'] == 'review_ocr':
+            row = db.execute('SELECT id,version FROM ocr_review_versions WHERE task_id=%s',(task['id'],)).fetchone()
+            if row:
+                from app.domain.ocr_review.service import OcrReviewService
+                summary = OcrReviewService(DatasetTaskAssets(self.store.user_id,self.store.config)).get_version(
+                    task['project_id'],task['input_snapshot']['source']['file_id'],row['id'])
+                result['ocr_review'] = dict(filename=f"ocr-review-v{row['version']}.json",download_url=summary['download_url'])
+            return result
+        if task['task_type'] == 'prepare_dataset':
+            row = db.execute('SELECT id,version FROM prepared_dataset_versions WHERE task_id=%s',(task['id'],)).fetchone()
+            if row:
+                from app.domain.dataset_preparation.service import DatasetPreparationService
+                assets = DatasetTaskAssets(self.store.user_id, self.store.config)
+                summary = DatasetPreparationService(assets).get_version(task['project_id'], task['input_snapshot']['source']['file_id'], row['id'])
+                result['dataset'] = dict(filename=f"prepared-data-v{row['version']}.json",download_url=summary['download_url'])
+            return result
+        if task['task_type'] in ('parse_file','extract_dataset'):
+            return result
         snapshot = task['input_snapshot']
         prefix = '/api/v1/projects/{}/files/{}/analysis-runs/{}'.format(
             *[quote(value, safe='') for value in (task['project_id'], snapshot['file']['id'], snapshot['result']['id'])])

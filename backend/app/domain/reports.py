@@ -1,5 +1,6 @@
 """Local Word export of the version-bound analysis, figure and explanation."""
 
+from app.domain.analysis_sources import statistics_engine
 from app.adapters.storage import ProjectStore
 
 
@@ -26,7 +27,8 @@ def validate_sources(result, figure, explanation):
     def invalid():
         raise StorageError('report_source_changed', '图表、解释与统计结果的来源或核对记录不一致，请恢复数据或重新生成当前版本。', 409)
     try:
-        if (figure['analysis_run_id'] != result['id'] or figure['file_id'] != result['file_id']
+        if (figure.get('source') != result.get('source') or explanation.get('source') != result.get('source')
+                or figure['analysis_run_id'] != result['id'] or figure['file_id'] != result['file_id']
                 or figure['setup_revision'] != result['setup_revision'] or figure['source_sha256'] != result['source_sha256']
                 or figure['engine']['id'] != RENDERER or figure['verification']['status'] != 'matched'
                 or explanation['analysis_run_id'] != result['id'] or explanation['figure_id'] != figure['id']
@@ -57,7 +59,7 @@ def validate_sources(result, figure, explanation):
 
 def context(store, project_id, file_id, run_id):
     result = result_source(store, project_id, file_id, run_id)
-    state = store.figure_state(result, RENDERER, STATISTICS_ENGINE)
+    state = store.figure_state(result, RENDERER, statistics_engine(result))
     figure = state.pop('figure')
     explanation = ExplanationStore(store).saved(figure['id']) if figure else None
     issues = []
@@ -73,10 +75,13 @@ def context(store, project_id, file_id, run_id):
         validate_sources(result, figure, explanation)
     report = ReportStore(store).saved(explanation['id']) if explanation else None
     if report:
+        if 'source' in result:
+            report = ReportStore(store).by_id(project_id, file_id, run_id, report['id'])
         ReportStore(store).content(report)
     project = store.project(project_id)
     snapshot = {'project': {key: project[key] for key in ('id', 'name', 'research_topic', 'project_type', 'created_at')},
-                'result': result, 'figure': figure, 'explanation': explanation}
+                'result': result, 'figure': figure, 'explanation': explanation,
+                **({'source': result['source']} if 'source' in result else {})}
     return snapshot, {**state, 'ready': not issues, 'issues': issues, 'report': report}
 
 

@@ -195,6 +195,9 @@ def parse_workbook(content: bytes, filename: str, settings: ExcelSettings, *,
             return WorkbookPreview(filename=filename, sheets=sheets)
     except HTTPException:
         raise
+    except MemoryError:
+        # Resource exhaustion is handled by the isolated runner as retryable.
+        raise
     except Exception:
         # Third-party parser exceptions must not expose file content or host paths.
         fail("parse_failed", "Excel 解析失败，文件可能已损坏或包含不支持的内容。请用 Excel 打开并另存为 .xlsx 后重试。")

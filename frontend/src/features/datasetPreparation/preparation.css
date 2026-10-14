@@ -1,0 +1,9 @@
+.preparation-panel { margin-top: 1rem; padding: 1rem; background: #faf9fc; border: 1px solid #e4e0eb; border-radius: 10px; }
+.preparation-editor { border: 0; padding: 0; margin: 1rem 0; }
+.preparation-field { display: grid; grid-template-columns: 2rem repeat(2, minmax(100px, 1fr)); gap: .7rem; padding: .8rem 0; border-bottom: 1px solid #e4e0eb; align-items: start; }
+.preparation-field label { display: flex; gap: .3rem; flex-direction: column; }
+.preparation-field label:has(input[type=checkbox]) { flex-direction: row; align-items: center; }
+.preparation-panel table { width: 100%; border-collapse: collapse; margin: 1rem 0; }
+.preparation-panel td, .preparation-panel th { text-align: left; padding: .5rem; border-bottom: 1px solid #e4e0eb; }
+.preparation-panel pre { white-space: pre-wrap; word-break: break-word; }
+@media (max-width: 650px) { .preparation-field { grid-template-columns: 1fr; } }

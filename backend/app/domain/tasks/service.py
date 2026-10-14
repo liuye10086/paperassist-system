@@ -7,6 +7,7 @@ from pydantic import ValidationError
 
 from app.core.exceptions import StorageError
 from app.domain.tasks.contracts import TaskCreateRequest
+from app.adapters.task_store import workflow_version, task_source_matches
 
 
 _UNSPECIFIED_PREDECESSOR = object()
@@ -54,17 +55,20 @@ class TaskService:
             snapshot = self.store.source_snapshot(db, project, request)
             if request.external_processing is not None:
                 snapshot['external_processing'] = freeze_confirmation(snapshot, request.task_type, self.store.user_id, request.external_processing)
-            elif require_external:
+            elif require_external or ('source' in snapshot and request.task_type in ('boxplot', 'explanation')):
                 raise invalid()
             if plot_predecessor is not _UNSPECIFIED_PREDECESSOR:
                 if request.task_type != 'boxplot':
                     raise StorageError('task_input_invalid', '任务来源条件无效。', 422)
-                latest = db.execute('''SELECT id,status,revision FROM tasks
+                latest = db.execute('''SELECT id,status,revision,input_snapshot FROM tasks
                     WHERE project_id=%s AND user_id=%s AND task_type='boxplot'
-                      AND workflow_version='boxplot_v1' AND input_snapshot->'result'->>'id'=%s
+                      AND workflow_version=%s AND input_snapshot->'result'->>'id'=%s
                       AND input_snapshot->'versions'->>'figure'=%s
                     ORDER BY created_at DESC,id DESC LIMIT 1''',
-                    (project_id, self.store.user_id, request.analysis_run_id, snapshot['versions']['figure'])).fetchone()
+                    (project_id, self.store.user_id, workflow_version('boxplot', snapshot), request.analysis_run_id, snapshot['versions']['figure'])).fetchone()
+                if latest and not task_source_matches(latest, snapshot['result']):
+                    from app.adapters.task_store import source_conflict
+                    raise source_conflict()
                 if ((latest['id'] if latest else None) != plot_predecessor
                         or (latest is not None and latest['status'] != 'failed')
                         or (predecessor_revision is not None and (
@@ -75,15 +79,18 @@ class TaskService:
                     raise StorageError('task_input_invalid', '任务来源条件无效。', 422)
                 # HTTP callers observe a source before obtaining this write lock.
                 # A second header must not authorize another paid task in that gap.
-                latest = db.execute('''SELECT id,status,revision FROM tasks
+                latest = db.execute('''SELECT id,status,revision,input_snapshot FROM tasks
                     WHERE project_id=%s AND user_id=%s AND task_type='explanation'
-                      AND workflow_version='explanation_v1'
+                      AND workflow_version=%s
                       AND input_snapshot->'result'->>'id'=%s
                       AND input_snapshot->'figure'->>'id'=%s
                       AND input_snapshot->'versions'->>'explanation'=%s
                     ORDER BY created_at DESC,id DESC LIMIT 1''',
-                    (project_id, self.store.user_id, request.analysis_run_id, request.figure_id,
+                    (project_id, self.store.user_id, workflow_version('explanation', snapshot), request.analysis_run_id, request.figure_id,
                      snapshot['versions']['explanation'])).fetchone()
+                if latest and not task_source_matches(latest, snapshot['result']):
+                    from app.adapters.task_store import source_conflict
+                    raise source_conflict()
                 if ((latest['id'] if latest else None) != explanation_predecessor
                         or (latest is not None and latest['status'] != 'failed')
                         or (predecessor_revision is not None and (
@@ -122,7 +129,7 @@ class TaskService:
             now = datetime.now(timezone.utc)
             task = dict(id=str(uuid4()), project_id=project_id, user_id=self.store.user_id,
                         task_type=request.task_type, idempotency_key=idempotency_key, input_digest=digest,
-                        input_snapshot=snapshot, workflow_version=request.task_type + '_v1', status='queued',
+                        input_snapshot=snapshot, workflow_version=workflow_version(request.task_type, snapshot), status='queued',
                         phase={'boxplot': 'compute', 'explanation': 'interpret', 'word_report': 'export'}[request.task_type],
                         revision=1, current_attempt=0, reason_code=None, created_at=now, updated_at=now)
             self.store.insert_task(db, task)

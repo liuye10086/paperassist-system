@@ -1,3 +1,4 @@
+import { version as structureFixture, dataset as datasetFixture } from '../datasets/datasetFixtures'
 import { afterEach, expect, test, vi } from 'vitest'
 import { act, cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -5,12 +6,13 @@ import AnalysisSetup from './AnalysisSetup'
 
 afterEach(() => { cleanup(); vi.unstubAllGlobals() })
 
-const files = [{ id: 'f1', filename: '研究.xlsx', uploaded_at: '2026-09-29T01:00:00Z', parse_status: 'parsed' as const },
-  { id: 'f2', filename: '另一份.xlsx', uploaded_at: '2026-09-29T02:00:00Z', parse_status: 'parsed' as const }]
+const files = [{ id: 'f1', filename: '研究.xlsx', file_type: 'xlsx', uploaded_at: '2026-09-29T01:00:00Z', parse_status: 'parsed' as const },
+  { id: 'f2', filename: '另一份.xlsx', file_type: 'xlsx', uploaded_at: '2026-09-29T02:00:00Z', parse_status: 'parsed' as const }]
 const selection = { task_type: 'descriptive_boxplot', sheet_name: '数据 & 表', numeric_column: 'A', group_column: 'B',
   unit: 'mg/L', missing_policy: 'exclude_selected_missing' }
 const check = { ready: true, row_count: 25, valid_count: 23, excluded_count: 2, groups: [{ label: 'A组', count: 23 }], issues: [], warnings: ['有 2 行缺失。'] }
-const saved = { file_id: 'f1', source_sha256: 'a'.repeat(64), status: 'configured', revision: 1,
+const source = { kind: 'dataset_version', schema_version: 1, dataset_id: 'd1', structure_id: 's1', dataset_version: 1, file_id: 'f1', source_sha256: 'a'.repeat(64), dataset_sha256: 'b'.repeat(64), dataset_size_bytes: 100, dataset_schema_version: 1, sheet_index: 0, sheet_name: '数据 & 表', parser_version: 'openpyxl-3.1.5-structure-v1' }
+const saved = { source, file_id: 'f1', source_sha256: 'a'.repeat(64), status: 'configured', revision: 1,
   selection, check, updated_at: '2026-09-29T03:00:00Z' }
 const column = { id: 'A', name: '指标', type: 'number', non_missing_count: 24, missing_count: 1, numeric_count: 24,
   can_be_numeric: true, can_be_group: true, issue_cells: [] }
@@ -18,7 +20,7 @@ const profile = { sheet_name: '数据 & 表', row_count: 25, warnings: [], colum
   { ...column, id: 'B', name: '指标', type: 'text', numeric_count: 0, can_be_numeric: false },
   { ...column, id: 'C', name: '混合值', type: 'mixed', numeric_count: 23, can_be_numeric: false, can_be_group: false, issue_cells: ['C26'] }] }
 const stats = { n: 23, mean: 2.5, std: 1.25, min: 0, q1: 1.5, median: 2.5, q3: 3.5, max: 5, iqr: 2, warnings: [] }
-const analysisResult = { id: 'run-1', file_id: 'f1', filename: '研究.xlsx', source_sha256: 'a'.repeat(64),
+const analysisResult = { source, id: 'run-1', file_id: 'f1', filename: '研究.xlsx', file_type: 'xlsx', source_sha256: 'a'.repeat(64),
   setup_revision: 1, selection, check, numeric_name: '指标', group_name: '组别',
   engine: { id: 'descriptive_statistics_v1', python_version: '3.11.4', openpyxl_version: '3.1.5', std_ddof: 1, quantile_method: 'linear_inclusive' },
   started_at: '2026-09-29T03:00:00Z', completed_at: '2026-09-29T03:00:01Z', overall: stats,
@@ -29,6 +31,15 @@ function api(options: { existing?: boolean; conflict?: boolean; invalid?: boolea
   let current: typeof saved | null = options.existing ? saved : null
   let result: typeof analysisResult | null = options.existingResult ? analysisResult : null
   const mock = vi.fn(async (url: string, init?: RequestInit) => {
+    const fileId = url.includes('/f2/') ? 'f2' : 'f1'
+    const structure = { ...structureFixture, file_id: fileId, datasets: [{ ...datasetFixture, file_id: fileId, sheet_name: '数据 & 表' }, { ...datasetFixture, id: 'd-empty', file_id: fileId, sheet_index: 1, sheet_name: '空表' }] }
+    if (url.includes('/structure-versions?')) return Response.json({ items: [structure], total: 1, page: 1, page_size: 5, latest_version: 1 })
+    if (url.endsWith('/structure-versions/s1')) return Response.json(structure)
+    if (url.endsWith('/profile')) {
+      const empty = url.includes('/d-empty/')
+      const sheetName = empty ? '空表' : source.sheet_name
+      return Response.json({ schema_version: 1, rules_version: 'excel_profile_v1', source: { ...source, file_id: fileId, dataset_id: empty ? 'd-empty' : 'd1', sheet_index: empty ? 1 : 0, sheet_name: sheetName }, filename: fileId === 'f1' ? '研究.xlsx' : '另一份.xlsx', sheet_name: sheetName, data_range: empty ? null : 'A2:C26', record_count: empty ? 0 : 25, blank_row_count: 0, duplicate_groups: 0, duplicate_rows: 0, duplicate_extra_rows: 0, fields: [] })
+    }
     if (url === '/api/v1/ai/plot-config') return Response.json({ configured: true, model: 'test-model', message: '' })
     if (url.endsWith('/boxplot')) return Response.json({ current_revision: current?.revision ?? null,
       is_current: result?.setup_revision === current?.revision, figure: null, job: null })
@@ -55,9 +66,10 @@ function api(options: { existing?: boolean; conflict?: boolean; invalid?: boolea
       if (init?.method === 'PUT') {
         if (options.conflict) return Response.json({ detail: { code: 'setup_conflict', params: {}, message: 'ignored legacy text' } }, { status: 409 })
         const body = JSON.parse(init.body as string)
-        current = { ...saved, revision: body.expected_revision + 1, selection: { ...selection, ...body } }
+        const { dataset_id: _datasetId, expected_revision: _revision, ...submitted } = body
+        current = { ...saved, revision: body.expected_revision + 1, selection: submitted }
       }
-      return Response.json(current)
+      return Response.json(current ? { ...current, file_id: fileId, source: { ...current.source, file_id: fileId } } : null)
     }
     throw new Error(`Unexpected API: ${url}`)
   })
@@ -67,6 +79,8 @@ function api(options: { existing?: boolean; conflict?: boolean; invalid?: boolea
 
 async function chooseFile(user: ReturnType<typeof userEvent.setup>) {
   await user.selectOptions(screen.getByLabelText('用于分析的文件'), 'f1')
+  const versions = await screen.findByLabelText('原始数据版本') as HTMLSelectElement
+  if (!versions.value) { await user.selectOptions(versions, 's1'); await user.selectOptions(screen.getByLabelText('分析工作表'), 'd1') }
   await screen.findByLabelText('数值列')
 }
 
@@ -145,9 +159,9 @@ test('plot submission locks short actions then queued work releases the workspac
   let submitted = false
   let finishPost!: (response: Response) => void
   const queued = { current_revision: 1, is_current: true, figure: null, job: null,
-    task: { id: 'task', status: 'queued', revision: 1, reason_code: null, error_code: null } }
+    task: { input_version: { kind: 'dataset_analysis', setup_revision: 1, output_language: 'zh-CN', source }, id: 'task', status: 'queued', revision: 1, reason_code: null, error_code: null } }
   mock.mockImplementation(async (url: string, init?: RequestInit) => {
-    if (url.endsWith('/boxplot/disclosure')) return Response.json({ version: 1, provider: 'openai',
+    if (url.endsWith('/boxplot/disclosure')) return Response.json({ version: 2, source: { filename: '研究.xlsx', sheet_name: '数据 & 表', dataset_version: 1 }, provider: 'openai',
       task_type: 'boxplot', source_digest: 'synthetic-source', has_saved_result: false,
       summary: { valid_count: 23, excluded_count: 2, group_count: 1 }, labels: [
         { key: 'numeric_name', value: '指标' }, { key: 'unit', value: 'mg/L' },
@@ -197,7 +211,7 @@ test('chooses fields, checks complete rows and saves configuration without runni
   await user.click(screen.getByRole('button', { name: '保存分析配置' }))
   expect(await screen.findByText(/已保存分析配置/)).toBeTruthy()
   const call = mock.mock.calls.find(([, init]) => init?.method === 'PUT')!
-  expect(JSON.parse(call[1]!.body as string)).toEqual({ ...selection, expected_revision: 0 })
+  expect(JSON.parse(call[1]!.body as string)).toEqual({ ...selection, dataset_id: 'd1', expected_revision: 0 })
   expect(mock.mock.calls.every(([url]) => !url.includes('/run'))).toBe(true)
 })
 
@@ -221,7 +235,7 @@ test('empty sheet disables field checking and saving', async () => {
   const user = userEvent.setup()
   render(<AnalysisSetup projectId="p1" files={files} />)
   await chooseFile(user)
-  await user.selectOptions(screen.getByLabelText('分析工作表'), '空表')
+  await user.selectOptions(screen.getByLabelText('分析工作表'), 'd-empty')
   expect(await screen.findByText('当前工作表没有数据行，请选择其他工作表。')).toBeTruthy()
   expect((screen.getByRole('button', { name: '检查字段' }) as HTMLButtonElement).disabled).toBe(true)
 })
@@ -255,6 +269,8 @@ test('profile failure can be retried', async () => {
   const user = userEvent.setup()
   render(<AnalysisSetup projectId="p1" files={files} />)
   await user.selectOptions(screen.getByLabelText('用于分析的文件'), 'f1')
+  await user.selectOptions(await screen.findByLabelText('原始数据版本'), 's1')
+  await user.selectOptions(screen.getByLabelText('分析工作表'), 'd1')
   await screen.findByRole('alert')
   await user.click(screen.getByRole('button', { name: '重试字段检查' }))
   expect(await screen.findByLabelText('数值列')).toBeTruthy()
@@ -266,8 +282,12 @@ test('late profile response cannot replace another file', async () => {
   const user = userEvent.setup()
   render(<AnalysisSetup projectId="p1" files={files} />)
   await user.selectOptions(screen.getByLabelText('用于分析的文件'), 'f1')
+  await user.selectOptions(await screen.findByLabelText('原始数据版本'), 's1')
+  await user.selectOptions(screen.getByLabelText('分析工作表'), 'd1')
   await screen.findByText('正在检查整张工作表……')
   await user.selectOptions(screen.getByLabelText('用于分析的文件'), 'f2')
+  const secondVersion = await screen.findByLabelText('原始数据版本') as HTMLSelectElement
+  if (!secondVersion.value) { await user.selectOptions(secondVersion, 's1'); await user.selectOptions(screen.getByLabelText('分析工作表'), 'd1') }
   await screen.findByLabelText('数值列')
   finish(Response.json({ ...profile, row_count: 999 }))
   await waitFor(() => expect(screen.queryByText('整表检查：999 行数据')).toBeNull())
@@ -286,7 +306,7 @@ test('executes saved configuration and shows actual statistics, provenance and u
   expect(within(table).getByRole('row', { name: /A组/ }).textContent).toContain('—')
   expect(screen.getByText('有效记录不足 2 条，样本标准差无法计算。')).toBeTruthy()
   expect(screen.getByText(/结果已保存/)).toBeTruthy()
-  expect(screen.getByText(/工作表：数据 & 表/)).toBeTruthy()
+  expect(screen.getByText(/工作表：数据 & 表/, { selector: 'p:not(.analysis-source)' })).toBeTruthy()
   const call = mock.mock.calls.find(([url]) => url.endsWith('/analysis-runs'))!
   expect(JSON.parse(call[1]!.body as string)).toEqual({ expected_revision: 1 })
 })
@@ -332,7 +352,7 @@ test('new saved revision marks old result until new calculation succeeds', async
   await user.click(screen.getByRole('button', { name: '描述统计' }))
   await screen.findByText(/以下为历史结果/)
   await user.click(screen.getByRole('button', { name: '执行描述统计' }))
-  expect(await screen.findByText(/工作表：数据 & 表/)).toBeTruthy()
+  expect(await screen.findByText(/工作表：数据 & 表/, { selector: 'p:not(.analysis-source)' })).toBeTruthy()
   expect(screen.queryByText(/以下为历史结果/)).toBeNull()
 })
 
@@ -386,6 +406,8 @@ test('pending run disables inputs, prevents duplicate posts and cannot replace a
   expect((screen.getByLabelText('数值列') as HTMLSelectElement).disabled).toBe(true)
   expect(mock.mock.calls.filter(([url]) => url.endsWith('/analysis-runs'))).toHaveLength(1)
   await user.selectOptions(screen.getByLabelText('用于分析的文件'), 'f2')
+  const secondVersion = await screen.findByLabelText('原始数据版本') as HTMLSelectElement
+  if (!secondVersion.value) { await user.selectOptions(secondVersion, 's1'); await user.selectOptions(screen.getByLabelText('分析工作表'), 'd1') }
   await screen.findByLabelText('数值列')
   finish(Response.json(analysisResult))
   await waitFor(() => expect(screen.queryByRole('table', { name: '描述统计结果' })).toBeNull())

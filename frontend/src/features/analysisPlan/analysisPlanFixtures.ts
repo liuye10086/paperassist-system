@@ -1,0 +1,8 @@
+import { taskFixture } from '../tasks/taskFixtures'
+
+const source = { kind: 'prepared_dataset_version', schema_version: 1, dataset_id: 'prepared1', structure_id: 's1', dataset_version: 1, file_id: 'f1', source_sha256: 'a'.repeat(64), dataset_sha256: 'b'.repeat(64), dataset_size_bytes: 100, dataset_schema_version: 1, sheet_index: 0, sheet_name: 'Sheet1', parser_version: 'structure-v1', parent_dataset_id: 'raw1', parent_dataset_version: 1, transform_version: 'excel_prepare_v1' }
+const input = { kind: 'analysis_plan', source, workflow_version: 'analysis_plan_v1' }
+const task = { ...taskFixture, task_type: 'analysis_plan', phase: 'plan', input_version: input, error_code: null, reason_code: null }
+const selection = { task_type: 'descriptive_boxplot', sheet_name: 'Sheet1', numeric_column: 'C', group_column: null, unit: '', missing_policy: 'exclude_selected_missing' }
+const check = { rules_version: 'analysis_plan_rules_v1', data_range: 'C5:D10', row_count: 6, selected_fields: [{ letter: 'C', name: 'weight', type_counts: { number: 4, blank: 2 }, missing_count: 2, non_missing_count: 4, prepared_unit: { status: 'unconfirmed', value: null }, declared_unit: { status: 'unknown', value: null }, observed_min: 3, observed_max: 8 }], selection_check: { ready: true, row_count: 6, valid_count: 4, excluded_count: 2, groups: [], issues: [], warnings: [] }, issues: [{ id: 'missing:C', code: 'selected_missing', severity: 'warning', field: 'C', count: 2, coordinates: ['C5'], message: '2 missing', allowed_resolutions: ['exclude_selected_missing'] }], limitations: ['observed only'] }
+export const reviewFixture = { task, source, checkpoint_id: 'cp1', wait_id: 'w1', plan_revision: 1, input_version: input, selection, check, resolutions: {}, result: null }

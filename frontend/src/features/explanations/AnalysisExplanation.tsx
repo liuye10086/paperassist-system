@@ -1,7 +1,9 @@
+import SourceSummary from '../analysis/SourceSummary'
+import { validAnalysisTaskSource, validOptionalSource, type DatasetAnalysisSource } from '../analysis/datasetSource'
 import { useI18n, apiError, safeError } from '../../shared/i18n'
 import { apiFetch, onApiSessionChanged } from '../../shared/api/client'
 import { ArtifactRequestError as RequestError, createArtifactSubmission, isArtifactState, isExplicitRejection, type ArtifactSubmission } from '../../shared/api/artifactSubmission'
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import ExternalSendReview from '../../shared/components/ExternalSendReview'
 import { isArtifactDisclosure, type ArtifactReviewDraft, type ExternalProcessingConfirmation } from '../../shared/api/artifactDisclosure'
 import { WorkflowStage, WorkflowReadStatus } from '../analysis/AnalysisWorkflow'
@@ -9,7 +11,7 @@ import '../figures/artifactPanels.css'
 import WordReport from '../reports/WordReport'
 
 type Config = { configured: boolean; model: string | null; message: string; message_code?: string; message_params?: Record<string, string | number> }
-type Explanation = {
+type Explanation = { source?: DatasetAnalysisSource;
   id: string; analysis_run_id: string; figure_id: string; setup_revision: number; language: 'zh-CN' | 'en'
   figure_sha256: string; source_sha256: string; created_at: string
   sections: { key: string; title: string; text: string; evidence: { key: string; label: string; value: string }[] }[]
@@ -20,9 +22,9 @@ type Task = { id: string; status: 'queued' | 'running' | 'waiting_input' | 'wait
   revision: number; reason_code: string | null; error_code: string | null; result_explanation_id?: string | null }
 type State = { current_revision: number | null; is_current: boolean; figure_id: string | null; explanation: Explanation | null; task?: Task | null
   job: { id: string; status: 'submitting' | 'running' | 'failed' | 'uncertain' | 'completed'; message: string; message_code?: string; message_params?: Record<string, string | number>; response_id: string | null; created_at: string } | null }
-type Props = { base: string; runId: string; revision: number; figureId: string; canGenerate: boolean; disabled: boolean
+type Props = { source?: DatasetAnalysisSource; filename?: string; base: string; runId: string; revision: number; figureId: string; canGenerate: boolean; disabled: boolean
   onBusyChange: (busy: boolean) => void; configuration?: Config | null; configurationError?: string; onReloadConfiguration?: () => void }
-async function request<T>(url: string, controller: AbortController, init?: RequestInit): Promise<T> {
+async function rawRequest<T>(url: string, controller: AbortController, init?: RequestInit): Promise<T> {
   let timer = 0
   try {
     return await Promise.race([apiFetch(url, { ...init, signal: controller.signal }).then(async response => {
@@ -46,8 +48,17 @@ function needsPoll(value: State) {
   return value.task ? ['queued', 'running'].includes(value.task.status) || (value.task.status === 'succeeded' && !value.explanation)
     : value.job?.status === 'submitting' || value.job?.status === 'running'
 }
-function ExplanationPanel({ base, runId, revision, figureId, canGenerate, disabled, onBusyChange }: Props) {
+function ExplanationPanel({ base, runId, revision, figureId, canGenerate, disabled, onBusyChange, source, filename }: Props) {
   const { t } = useI18n()
+  const request = useCallback(async <T,>(url: string, controller: AbortController, init?: RequestInit): Promise<T> => {
+    const value = await rawRequest<T>(url, controller, init)
+    if (value && typeof value === 'object' && 'explanation' in value) {
+      const item = (value as unknown as State).explanation
+      if (item && !validOptionalSource(item, source)) throw new Error('数据来源或版本不一致，请重新载入配置。')
+    }
+    if (value && typeof value === 'object' && ('task' in value && value.task && !validAnalysisTaskSource(value.task, source, revision) || url.startsWith('/api/v1/tasks/') && !validAnalysisTaskSource(value, source, revision))) throw new Error('数据来源或版本不一致，请重新载入配置。')
+    return value
+  }, [source, revision])
   const endpoint = `${base}/analysis-runs/${runId}/explanation`
   const [state, setState] = useState<State | null>(null)
   const [localConfig, setLocalConfig] = useState<Config | null>(null)
@@ -111,7 +122,7 @@ function ExplanationPanel({ base, runId, revision, figureId, canGenerate, disabl
     request<Config>('/api/v1/ai/explanation-config', controller).then(value => { if (!disposed && !controller.signal.aborted) setLocalConfig(value) })
       .catch(cause => { if (!disposed) setLocalConfigError(message(cause)) })
     return () => { disposed = true; controller.abort() }
-  }, [configAttempt, sessionValid])
+  }, [configAttempt, sessionValid, request])
   useEffect(() => {
     if (!sessionValid) return
     let disposed = false; let poll = 0
@@ -131,7 +142,7 @@ function ExplanationPanel({ base, runId, revision, figureId, canGenerate, disabl
     }
     void read()
     return () => { disposed = true; window.clearTimeout(poll); reading.current?.abort(); reading.current = null }
-  }, [endpoint, attempt, revision, figureId, sessionValid])
+  }, [endpoint, attempt, revision, figureId, sessionValid, request])
   async function openReview() {
     if (!allowed || action.current || preview.current || review) return
     if (state?.explanation) { reload(); return }
@@ -143,7 +154,7 @@ function ExplanationPanel({ base, runId, revision, figureId, canGenerate, disabl
     try {
       const value = await request<unknown>(`${endpoint}/disclosure`, controller)
       if (!active.current || controller.signal.aborted || preview.current !== controller) return
-      if (!isArtifactDisclosure(value, 'explanation')) throw new Error('解释请求失败，请重新读取解释。')
+      if (!isArtifactDisclosure(value, 'explanation') || (source ? value.version !== 2 || value.source?.sheet_name !== source.sheet_name || value.source.dataset_version !== source.dataset_version || !!filename && value.source.filename !== filename : value.version !== 1)) throw new Error('解释请求失败，请重新读取解释。')
       if (value.has_saved_result) { reload(); return }
       setReview({ disclosure: value, body })
     } catch (cause) { if (active.current && preview.current === controller) {
@@ -201,7 +212,7 @@ function ExplanationPanel({ base, runId, revision, figureId, canGenerate, disabl
     {configError && <p role="alert" className="error-panel">{t(configError)}</p>}
     {(!config?.configured || configError) && <button type="button" onClick={reloadConfig}>{t("重新读取解释 OpenAI 配置")}</button>}
     {!canGenerate && <p className="warning-panel">{t("请保存当前字段并完成对应配置的描述统计和图表后，再生成解释。")}</p>}
-    {explanation && (!current || !canGenerate) && <p className="warning-panel">{t('以下解释对应旧配置或旧图表，仅供查看，请使用当前结果重新生成。')}</p>}
+    {explanation && (!current) && <p className="warning-panel">{t('以下解释对应旧配置或旧图表，仅供查看，请使用当前结果重新生成。')}</p>}
     {retry && !unconfirmed && <p className="warning-panel">{t("上次解释生成失败。")}{t("再次调用 API 可能产生额外费用，请确认后点击重试。")}</p>}
     {unknown && !unconfirmed && <p className="warning-panel">{t('提交结果尚未核实，已停止再次调用。请联系管理员核对。')}</p>}
     {unavailable && <p className="warning-panel">{t('已提交的解释无法恢复，请联系管理员核对。')}</p>}
@@ -222,13 +233,13 @@ function ExplanationPanel({ base, runId, revision, figureId, canGenerate, disabl
     {retry && !task && state?.job && <p role="status">{t(apiError({ code: state.job.message_code ?? `task_${state.job.status}`, params: state.job.message_params }, '任务状态暂不可用。'))}</p>}
     {error && <p role="alert" className="error-panel">{t(error)}</p>}
     {explanation && <>
-      <p className="artifact-status">{t(current && canGenerate ? "当前结果" : "历史结果")}</p>
+      <p className="artifact-status">{t(current ? "当前结果" : "历史结果")}</p>
       {explanation.sections.map(section => <section className="explanation-section" key={section.key}>
         <h4>{section.title}</h4><p className="explanation-text">{section.text}</p>
         <details><summary>{t("依据：已保存配置、统计结果与图表")}</summary><ul>{section.evidence.map(evidence => <li key={evidence.key}>{evidence.label}：{evidence.value}</li>)}</ul></details>
       </section>)}
       <h4>{t("解释限制")}</h4><ul>{explanation.limitations.map((limitation, index) => <li key={index}>{limitation}</li>)}</ul>
-      <details className="artifact-details"><summary>{t("解释来源与核对记录")}</summary>
+      <details className="artifact-details"><summary>{t("解释来源与核对记录")}</summary><SourceSummary source={explanation.source} filename={filename} />
         <p>{t("语言：")}{t(explanation.language === 'zh-CN' ? '中文' : '英文')}</p>
         <p>{explanation.verification.note}</p>
         <p>{t("保存时间：")}{explanation.created_at}</p>
@@ -236,7 +247,7 @@ function ExplanationPanel({ base, runId, revision, figureId, canGenerate, disabl
     </>}
     {state && !explanation && !state.job && !task && <p>{t("尚未生成此图表的分析解释。")}</p>}
   </section></WorkflowStage>
-    {explanation ? <WordReport key={explanation.id} base={base} runId={runId} revision={revision} figureId={figureId} explanationId={explanation.id}
+    {explanation ? <WordReport key={explanation.id} base={base} runId={runId} revision={revision} figureId={figureId} explanationId={explanation.id} source={explanation.source} filename={filename}
       canGenerate={canGenerate && current} disabled={disabled || loading || busy || !!error} onBusyChange={setReportBusy} />
       : !loading && !error && <WorkflowStage stage="report"><section className="word-report artifact-panel">
         <div className="section-heading"><span className="step-label">{t("Word 报告")}</span><h3>{t("Word 分析报告导出")}</h3></div>
