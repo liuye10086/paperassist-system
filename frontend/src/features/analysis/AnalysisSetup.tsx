@@ -1,3 +1,4 @@
+import {isAnalysisSelection, sameSelection as sameAnalysisSelection, type AnalysisSelection} from './analysisSelection'
 import { fileBase, isPreparedVersion, preparationRequest, type PreparedVersion, type PreparedPage } from '../datasetPreparation/preparationApi'
 import SourceSummary from './SourceSummary'
 import DatasetProfile from '../datasetProfile/DatasetProfile'
@@ -24,7 +25,7 @@ export type Check = { ready: boolean; row_count: number; valid_count: number; ex
   groups: { label: string; count: number }[]; issues: string[]; warnings: string[] }
 type Saved = { source?: DatasetAnalysisSource; file_id: string; source_sha256: string; status: 'configured'; revision: number
   analysis_plan?: { plan_id: string; sha256: string; resolutions: Record<string, string> }
-  updated_at: string; selection: Selection; check: Check }
+  updated_at: string; selection: AnalysisSelection; check: Check }
 const typeNames: Record<string, string> = { number: '数值', text: '文本', boolean: '布尔', datetime: '日期/时间',
   formula: '公式', error: 'Excel 错误', mixed: '混合类型', empty: '空列' }
 
@@ -33,9 +34,6 @@ function matchesStructureSource(source: DatasetAnalysisSource, structure: Struct
   return input.kind === 'excel_structure' && input.source_sha256 === source.source_sha256 && input.parser_version === source.parser_version
 }
 
-function sameSelection(a: Selection, b: Selection) {
-  return !!a && Object.keys(a).length === Object.keys(b).length && (Object.keys(b) as (keyof Selection)[]).every(key => a[key] === b[key])
-}
 
 async function request<T>(url: string, signal: AbortSignal, init?: RequestInit): Promise<T> {
   const response = await apiFetch(url, { ...init, signal })
@@ -55,7 +53,8 @@ function SheetAnalysis({ base, projectId, fileId, sheetName, dataset, structure,
   base: string; projectId: string; fileId: string; sheetName: string; dataset: AnalysisDataset; structure: StructureVersion | null; expectedSource?: DatasetAnalysisSource; running: boolean; onMatchChange: (match: boolean) => void; onConflict: (message: string) => void; onPlanPublished: (id: string, revision: number) => void; saved: Saved | null; onSaved: (value: Saved) => void; onBusyChange: (value: boolean) => void
 }) {
   const { t } = useI18n()
-  const previous = saved?.selection.sheet_name === sheetName && isDatasetSource(expectedSource) && sameSource(saved.source, expectedSource) ? saved.selection : null
+  const previous = saved?.selection.task_type==='descriptive_boxplot' && saved?.selection.sheet_name === sheetName && isDatasetSource(expectedSource) && sameSource(saved.source, expectedSource) ? saved.selection : null
+  const [planSelection,setPlanSelection]=useState<AnalysisSelection|null>(saved?.selection??null)
   const [profile, setProfile] = useState<Profile | null>(null)
   const [loading, setLoading] = useState(true)
   const [attempt, setAttempt] = useState(0)
@@ -102,7 +101,7 @@ function SheetAnalysis({ base, projectId, fileId, sheetName, dataset, structure,
           headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...selection, dataset_id: dataset.id, expected_revision: saved?.revision ?? 0 }) })
         if (!controller.signal.aborted) {
           if (!isDatasetSource(result.source) || result.source_sha256 !== result.source.source_sha256 || result.file_id !== dataset.file_id || result.source.dataset_id !== dataset.id || result.source.structure_id !== dataset.structure_id || result.source.file_id !== dataset.file_id || result.source.dataset_version !== dataset.version || result.source.sheet_index !== dataset.sheet_index || result.source.sheet_name !== sheetName || result.selection.sheet_name !== sheetName) throw new Error('数据来源或版本不一致，请重新载入配置。')
-          if (result.revision !== (saved?.revision ?? 0) + 1 || !sameSelection(result.selection, selection) || !(structure ? matchesStructureSource(result.source, structure) : sameSource(result.source, expectedSource))
+          if (result.revision !== (saved?.revision ?? 0) + 1 || !sameAnalysisSelection(result.selection, selection) || !(structure ? matchesStructureSource(result.source, structure) : sameSource(result.source, expectedSource))
             || saved?.source?.dataset_id === dataset.id && !sameSource(saved.source, result.source)) throw new Error('数据来源或版本不一致，请重新载入配置。')
           onSaved(result)
           setChecked(result.check)
@@ -123,7 +122,7 @@ function SheetAnalysis({ base, projectId, fileId, sheetName, dataset, structure,
     }
   }
 
-  const fieldsMatch = !!profile && !loading && !loadError && !!previous && saved?.source?.dataset_id === dataset.id && numeric === previous.numeric_column && (group || null) === previous.group_column && unit === previous.unit
+  const fieldsMatch = saved&&saved.selection.task_type!=='descriptive_boxplot'?!!profile&&!loading&&!loadError&&!!expectedSource&&sameSource(saved.source,expectedSource)&&sameAnalysisSelection(saved.selection,planSelection):!!profile && !loading && !loadError && !!previous && saved?.source?.dataset_id === dataset.id && numeric === previous.numeric_column && (group || null) === previous.group_column && unit === previous.unit
   useEffect(() => { onMatchChange(fieldsMatch); return () => onMatchChange(false) }, [fieldsMatch, onMatchChange])
   if (loading) return <p role="status">{t("正在检查整张工作表……")}</p>
   if (loadError || !profile) return <div className="error-panel" role="alert">{t(loadError || '字段信息不可用。')}{' '}
@@ -165,7 +164,7 @@ function SheetAnalysis({ base, projectId, fileId, sheetName, dataset, structure,
       {checked.warnings.length > 0 && <ul className="warning-panel">{checked.warnings.map(note => <li key={note}>{workflowNotice(note, t)}</li>)}</ul>}
     </div>}
     {notice && <p className="saved-notice" role="status">{t(notice)}</p>}
-    {expectedSource?.kind === 'prepared_dataset_version' && <AnalysisPlanLauncher projectId={projectId} fileId={fileId} source={expectedSource} selection={{ task_type: 'descriptive_boxplot', sheet_name: sheetName, numeric_column: numeric, group_column: group || null, unit, missing_policy: 'exclude_selected_missing' }} setupRevision={saved?.revision ?? 0} disabled={busy || running || !numericColumn?.can_be_numeric || !profile.row_count} onPublished={onPlanPublished} />}
+    {expectedSource?.kind === 'prepared_dataset_version' && <AnalysisPlanLauncher projectId={projectId} fileId={fileId} source={expectedSource} selection={{ task_type: 'descriptive_boxplot', sheet_name: sheetName, numeric_column: numeric, group_column: group || null, unit, missing_policy: 'exclude_selected_missing' }} initialSelection={saved?.selection} fields={profile.columns.map(c=>({column:c.id,name:c.name,numeric:c.can_be_numeric,unit:c.unit?.status==='confirmed'?c.unit.value??'':''}))} onSelectionChange={value=>{setPlanSelection(value);if(value.task_type==='descriptive_boxplot'){setNumeric(value.numeric_column);setGroup(value.group_column??'');setUnit(value.unit);changed()}}} setupRevision={saved?.revision ?? 0} disabled={busy || running || !profile.row_count} onPublished={onPlanPublished} />}
     {saved?.analysis_plan && <p className="saved-notice">{t('当前配置已关联已确认分析计划。')}</p>}
     </div><aside className="analysis-data-overview" aria-label={t("数据概况")}>
     <p className="data-count">{t('整表检查：{count} 行数据', { count: profile.row_count })}</p>
@@ -181,7 +180,7 @@ function SheetAnalysis({ base, projectId, fileId, sheetName, dataset, structure,
         </tr>)}</tbody>
       </table>
     </div>}
-    {(expectedSource || structureSource) && <DatasetProfile base={base} binding={{
+    {(expectedSource || structureSource) && <DatasetProfile base={base} projectId={projectId} binding={{
       kind: expectedSource?.kind ?? 'dataset_version', dataset_id: dataset.id, structure_id: dataset.structure_id,
       dataset_version: dataset.version, file_id: dataset.file_id, sheet_index: dataset.sheet_index, sheet_name: sheetName,
       source_sha256: expectedSource?.source_sha256 ?? String(structureSource?.source_sha256),
@@ -218,7 +217,7 @@ function FileAnalysis({ projectId, fileId, filename }: { projectId: string; file
     const controller = new AbortController(); let active = true
     const timeout = window.setTimeout(() => controller.abort(), 30_000)
     request<Saved | null>(`${base}/analysis-setup`, controller.signal).then(async value => {
-      if (value && (value.file_id !== fileId || Object.hasOwn(value, 'source') && (!isDatasetSource(value.source) || value.source_sha256 !== value.source.source_sha256 || value.source.file_id !== fileId || value.source.sheet_name !== value.selection.sheet_name))) throw new Error('数据来源或版本不一致，请重新载入配置。')
+      if (value && (!isAnalysisSelection(value.selection) || value.file_id !== fileId || Object.hasOwn(value, 'source') && (!isDatasetSource(value.source) || value.source_sha256 !== value.source.source_sha256 || value.source.file_id !== fileId || value.source.sheet_name !== value.selection.sheet_name))) throw new Error('数据来源或版本不一致，请重新载入配置。')
       let bound: StructureVersion | null = null
       let boundPrepared: PreparedVersion | null = null
       if (value?.source) {
@@ -264,7 +263,7 @@ function FileAnalysis({ projectId, fileId, filename }: { projectId: string; file
       {listError && <p className="error-panel" role="alert">{t(listError)}</p>}{preparedError && <p role="alert" className="error-panel">{t(preparedError)}</p>}
       {!ready && !error && <p role="status">{t('正在载入工作表和已保存配置……')}</p>}
       {ready && <>
-        {saved && <><SourceSummary source={saved.source} filename={filename} />{!saved.source && <p>{t('历史字段配置：工作表 {sheet}；数值列 {numeric}；分组列 {group}；单位 {unit}。', { sheet: saved.selection.sheet_name, numeric: saved.selection.numeric_column, group: saved.selection.group_column ?? t('不分组'), unit: saved.selection.unit || t('未填写') })}</p>}</>}
+        {saved && <><SourceSummary source={saved.source} filename={filename} />{!saved.source && saved.selection.task_type==='descriptive_boxplot' && <p>{t('历史字段配置：工作表 {sheet}；数值列 {numeric}；分组列 {group}；单位 {unit}。', { sheet: saved.selection.sheet_name, numeric: saved.selection.numeric_column, group: saved.selection.group_column ?? t('不分组'), unit: saved.selection.unit || t('未填写') })}</p>}</>}
         <div className="analysis-field-grid"><label>{t('数据来源类型')}<select value={sourceKind} disabled={busy || running} onChange={e => { setFieldsMatch(false); setSourceKind(e.target.value as 'raw' | 'prepared'); setPage(1) }}><option value="raw">{t('原始数据')}</option><option value="prepared">{t('整理数据')}</option></select></label></div>
         {sourceKind === 'prepared' ? <div className="analysis-field-grid"><label>{t('整理数据版本')}<select value={prepared?.id ?? ''} disabled={busy || running} onChange={e => { setFieldsMatch(false); setPrepared(preparedOptions.find(v => v.id === e.target.value) ?? null) }}><option value="">{t('请选择整理版本')}</option>{preparedOptions.map(v => <option key={v.id} value={v.id}>{t('原始数据 v{raw} · 整理数据 v{prepared}', { raw: v.parent_dataset_version, prepared: v.version })} · {v.source.sheet_name}</option>)}</select></label></div> : <div className="analysis-field-grid"><label>{t('原始数据版本')}<select value={selected?.id ?? ''} disabled={busy || running} onChange={event => {
           const value = options.find(v => v.id === event.target.value) ?? null
@@ -283,7 +282,7 @@ function FileAnalysis({ projectId, fileId, filename }: { projectId: string; file
         if ((saved?.revision ?? 0) >= revision || refreshedPlans.current.has(id)) return
         refreshedPlans.current.add(id); reload()
       }} />}
-    {ready && <StatisticsResults key={`${base}:${saved?.revision ?? 0}`} base={base} savedRevision={saved?.revision ?? null} savedSource={saved?.source}
+    {ready && <StatisticsResults key={`${base}:${saved?.revision ?? 0}`} base={base} savedRevision={saved?.revision ?? null} savedSelection={saved?.selection} savedSource={saved?.source} savedPlan={saved?.analysis_plan}
       fieldsMatch={fieldsMatch && !!saved?.source} disabled={busy} onBusyChange={setRunning} />}
   </>
 }
@@ -310,7 +309,7 @@ function AnalysisSetupContent({ projectId, files, onOpenFiles, filesLoading = fa
       <p className="muted">{t("每个文件保存一份当前配置；保存新选择会更新该文件的配置。")}</p>
     </div>
     <div className="analysis-field-grid">
-      <label>{t("分析任务")}<select value="descriptive_boxplot" onChange={() => {}}><option value="descriptive_boxplot">{t("描述统计＋箱线图")}</option></select></label>
+      <p>{t("描述统计、相关分析或组间比较：在所选整理版本的分析计划中选择方法与图型。")}</p>
       <label>{t("用于分析的文件")}<select value={selected?.id ?? ''} onChange={event => setSelectedId(event.target.value)}>
         <option value="">{t("请选择已保存文件")}</option>
         {available.map(file => <option key={file.id} value={file.id}>{file.filename} · {new Date(file.uploaded_at).toLocaleString(locale)}</option>)}

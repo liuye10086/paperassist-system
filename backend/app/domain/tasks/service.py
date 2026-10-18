@@ -18,7 +18,7 @@ def validate_transition(old, new, reason):
         ('queued', 'running'): {None}, ('running', 'running'): {None},
         ('running', 'succeeded'): {None}, ('running', 'failed'): {'execution_failed'},
         ('running', 'waiting_input'): {'input_required'},
-        ('running', 'waiting_confirmation'): {'confirmation_required', 'submission_unknown', 'budget_exceeded'},
+        ('running', 'waiting_confirmation'): {'confirmation_required', 'submission_unknown', 'budget_exceeded', 'observation_expired'},
         ('waiting_input', 'queued'): {'input_provided'},
         ('waiting_confirmation', 'queued'): {'confirmation_received'},
         ('failed', 'queued'): {'retry_requested'},
@@ -116,10 +116,10 @@ class TaskService:
             if request.task_type == 'boxplot':
                 from app.domain.plot_policy import get_execution_policy, validate_execution_policy
                 if boxplot_policy is not None:
-                    frozen_policy = validate_execution_policy(boxplot_policy)
+                    frozen_policy = validate_execution_policy(boxplot_policy,result=snapshot['result'])
                 else:
                     try:
-                        frozen_policy = get_execution_policy()
+                        frozen_policy = get_execution_policy(result=snapshot['result'])
                     except StorageError as exc:
                         if exc.code != 'plot_not_configured':
                             raise

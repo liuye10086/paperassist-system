@@ -32,14 +32,15 @@ class ExplanationRequest(RunRequest):
     expected_predecessor_revision: int | None = Field(default=None, ge=1, le=2_147_483_647)
 
 
-def context(store, project_id, file_id, run_id):
+def context(store, project_id, file_id, run_id, *, archive=False):
     result = result_source(store, project_id, file_id, run_id)
-    state = store.figure_state(result, RENDERER, statistics_engine(result))
+    from app.domain.artifact_contracts import read_figure_state, saved_explanation_version
+    state = read_figure_state(store,result,archive=archive)
     figure = state.pop('figure')
     if figure:
         store.figure_png(figure)
     state['figure_id'] = figure['id'] if figure else None
-    state['explanation'] = ExplanationStore(store).saved(figure['id']) if figure else None
+    state['explanation'] = ExplanationStore(store).saved(figure['id'],saved_explanation_version(figure)) if figure else None
     if 'source' in result and state['explanation']:
         from app.domain.reports import validate_sources
         validate_sources(result, figure, state['explanation'])
@@ -47,7 +48,7 @@ def context(store, project_id, file_id, run_id):
 
 
 def recover_legacy_explanation(project_id: str, file_id: str, run_id: str, store: ProjectStore):
-    result, figure, state = context(store, project_id, file_id, run_id)
+    result, figure, state = context(store, project_id, file_id, run_id,archive=True)
     repository = ExplanationStore(store)
     job = repository.job(figure['id']) if figure else None
     if job and state['explanation'] and job['status'] != 'completed':

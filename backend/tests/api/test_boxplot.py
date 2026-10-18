@@ -86,7 +86,12 @@ def seed_legacy(client, url, *, status='running', response_id='resp_test', creat
     store = get_project_store()
     result = store.analysis_result_by_id(project_id, file_id, run_id)
     record = store.file(project_id, file_id)
-    payload, expected = build_material(result, record, store.original(record), get_excel_settings())
+    from app.domain.fixed_statistics_runtime import numeric_execution_scope
+    from app.domain.statistics_execution.verification import verification_scope
+    # Reconstruct persisted historical projection material in the real bounded
+    # numeric runtime; ordinary HTTP reads must never enter this scope.
+    with numeric_execution_scope(timeout_seconds=60), verification_scope():
+        payload, expected = build_material(result, record, store.original(record), get_excel_settings())
     job, _ = store.begin_figure_job(result, RENDERER, payload, expected, 'test-model', True)
     changes = dict(status=status, response_id=response_id, container_id='cntr_test',
                    message_code='task_' + status, message_params={})

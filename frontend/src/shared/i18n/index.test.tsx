@@ -70,7 +70,7 @@ it.each([
   ['model_authentication_failed', '模型服务身份验证失败，请联系管理员检查凭据。', 'Model service authentication failed. Contact the administrator to check the credentials.'],
   ['model_permission_denied', '模型服务权限不足，请联系管理员检查权限。', 'Access to the model service was denied. Contact the administrator to check permissions.'],
   ['model_request_rejected', '模型请求或配置不符合要求，请联系管理员核对。', 'The model request or configuration is invalid. Contact the administrator to review it.'],
-  ['model_response_invalid', '模型返回的内容未通过验证，请核对输入和配置后重试。', 'The model response failed validation. Review the input and configuration before retrying.'],
+  ['model_response_invalid', '模型返回的内容未通过验证，未发布新成果。请核对原任务的来源和配置，联系管理员处理。', 'The model response failed validation; no new artifact was published. Review the original task source and configuration, then contact the administrator.'],
 ])('maps %s to fixed safe text in both languages', (code, zh, en) => {
   const error = apiError({ code, message: 'PRIVATE TRACE', response_id: 'resp-private', params: { secret: 'sk-secret' } }, '请求失败，请重试。')
   expect(translate(error)).toBe(zh)

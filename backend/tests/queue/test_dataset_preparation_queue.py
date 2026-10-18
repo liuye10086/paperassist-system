@@ -17,9 +17,12 @@ pytestmark = pytest.mark.skipif(os.environ.get('PAPERASSIST_RUN_QUEUE_TESTS') !=
     reason='Explicit isolated preparation queue test is disabled.')
 
 
-def bootstrap(stack,tmp_path):
+def bootstrap(stack,tmp_path,*,cpu=None):
+    if cpu is not None and cpu not in {str(value) for value in range(16)}:
+        raise ValueError('Explicit TEST Worker CPU must be 0 through 15')
     override = tmp_path/'preparation-worker.json'
     override.write_text(json.dumps({'services':{'worker':{
+        **({'cpuset':cpu} if cpu is not None else {}),
         'command':['python','/app/preparation_bootstrap.py','worker'],
         'volumes':[{'type':'bind','source':str(Path(__file__).with_name('preparation_bootstrap.py').resolve()),
             'target':'/app/preparation_bootstrap.py','read_only':True}]}}}),encoding='utf-8')

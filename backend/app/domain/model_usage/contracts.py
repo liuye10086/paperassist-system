@@ -31,7 +31,7 @@ class ModelPolicy(StrictContract):
     max_output_tokens: Annotated[int, Field(strict=True, ge=1, le=MAX_MICRO_USD)]
     timeout_seconds: Annotated[int, Field(strict=True, ge=1, le=3600)] = 45
     tools: list[Literal['code_interpreter']] = Field(default_factory=list, max_length=1)
-    output_format: Literal['text', 'analysis_explanation_v1'] = 'text'
+    output_format: Literal['text', 'analysis_explanation_v1', 'analysis_explanation_v2', 'analysis_explanation_v3', 'analysis_explanation_v4', 'analysis_recommendation_v1', 'analysis_recommendation_v2', 'analysis_recommendation_v3', 'analysis_recommendation_v4', 'analysis_recommendation_v5'] = 'text'
     price: PriceSnapshot
 
     @model_validator(mode='after')

@@ -4,8 +4,7 @@ from datetime import timezone
 from app.adapters.task_store import TaskStore,DatasetTaskAssets,source_conflict
 from app.adapters.storage import ProjectStore
 from app.domain.dataset_preparation.service import append_checkpoint,request_digest
-from app.domain.analysis_plan.service import (AnalysisPlanService,latest_checkpoint,validate_snapshot,require_approval,plan_id)
-from app.domain.analysis_plan.contracts import PlanContent,WORKFLOW_VERSION,RULES_VERSION
+from app.domain.analysis_plan.service import (AnalysisPlanService,latest_checkpoint,validate_snapshot,require_approval,plan_id,published_content)
 from app.domain.tasks.waits import persist_wait
 
 
@@ -31,9 +30,11 @@ class AnalysisPlanStore:
             state=dict(current['state_json']);state['check']=check
             self.service(task).require_check(task,state)
             previous=task['revision']
-            task.update(status='waiting_confirmation',phase='plan',revision=previous+1,
-                updated_at=max(self.repository.now(db),task['updated_at']),reason_code='confirmation_required',error_code=None)
-            append_checkpoint(db,task,'await_confirmation','await_confirmation',state,current)
+            needs_input=bool(check.get('research_missing'))
+            node='await_input' if needs_input else 'await_confirmation'
+            task.update(status='waiting_input' if needs_input else 'waiting_confirmation',phase='plan',revision=previous+1,
+                updated_at=max(self.repository.now(db),task['updated_at']),reason_code='input_required' if needs_input else 'confirmation_required',error_code=None)
+            append_checkpoint(db,task,node,node,state,current)
             TaskStore.finish_attempt(db,task);TaskStore.update_task(db,task,previous)
             TaskStore.append_event(db,task,'waiting');persist_wait(db,task)
             return TaskStore.public_task(task)
@@ -46,14 +47,10 @@ class AnalysisPlanStore:
             require_approval(db,task,state)
             self.service(task).require_check(task,state)
             now=max(self.repository.now(db),task['updated_at']).astimezone(timezone.utc);id=plan_id(task['id'])
-            content=PlanContent(schema_version=1,workflow_version=WORKFLOW_VERSION,rules_version=RULES_VERSION,
-                id=id,task_id=task['id'],decision_id=state['decision_id'],project_id=task['project_id'],
-                file_id=snapshot['source']['file_id'],source=snapshot['source'],selection=state['selection'],check=state['check'],
-                resolutions=state['resolutions'],plan_revision=state['plan_revision'],
-                setup_revision=snapshot['expected_setup_revision']+1,created_at=now.isoformat()).model_dump(mode='json')
+            content=published_content(task,snapshot,state,id,snapshot['expected_setup_revision']+1,now)
             digest=request_digest(content)
             setup=dict(file_id=content['file_id'],source_sha256=snapshot['source']['source_sha256'],status='configured',
-                source=snapshot['source'],selection=state['selection'],check=state['check']['selection_check'],
+                source=snapshot['source'],selection=state['selection'],check=(state['check']['data_check'] if snapshot['schema_version'] in (4,5) else state['check'])['selection_check'],
                 analysis_plan=dict(plan_id=id,sha256=digest,resolutions=state['resolutions']))
             ProjectStore.save_analysis_setup_in_transaction(db,task['project_id'],content['file_id'],
                 snapshot['expected_setup_revision'],setup,now)

@@ -5,14 +5,27 @@ from app.core.exceptions import StorageError
 from app.domain.analysis import MAX_GROUPS
 from app.domain.dataset_analysis import scan_dataset,kind_value,decimal_label
 from app.domain.dataset_preparation.contracts import PreparedSheet
-from app.domain.dataset_profile.scan import ProfileScan, missing
-from app.domain.analysis_plan.contracts import AnalysisPlanCheck, RULES_VERSION
+from app.domain.dataset_rows import source_rows
+from app.domain.dataset_profile.scan import missing
+from app.domain.analysis_plan.profile import PlanProfileScan as ProfileScan
+from app.domain.analysis_plan.contracts import AnalysisPlanCheck, ResearchPlanCheck, ModernPlanCheck, RULES_VERSION
+from app.domain.analysis_plan.research import missing_research, RESEARCH_RULES_VERSION
 
 
-def build_check(sheet,selection):
+def build_check(sheet,selection,research_request=None,*,schema_version=None):
+    if getattr(selection,'task_type',None) in ('regression','roc','survival'):
+        from app.domain.regression.checks import build_check as build_modeling_check
+        return build_modeling_check(sheet,selection,research_request)
+    if getattr(selection,'task_type',None)=='group_comparison':
+        from app.domain.comparison.checks import build_comparison_check
+        return build_comparison_check(sheet,selection,research_request)
+    if getattr(selection, "task_type", None)=="correlation":
+        from app.domain.correlation.checks import build_correlation_check
+        return build_correlation_check(sheet,selection,research_request)
     if not isinstance(sheet,PreparedSheet):
         raise StorageError('task_input_invalid','分析计划仅支持已确认整理数据。',422)
-    detailed=ProfileScan(sheet)
+    chosen=[selection.numeric_column]+([selection.group_column] if selection.group_column else [])
+    detailed=ProfileScan(sheet,selected_columns=chosen)
     issues=[]
     def issue(code,field,count,message,coordinates=(),resolution=None):
         issues.append(dict(id=code+':'+(field or 'all'),code=code,field=field,count=count,
@@ -73,7 +86,7 @@ def build_check(sheet,selection):
         if check['excluded_count']:
             coordinates=[]
             missing_count=0
-            for row in range(detailed.start,detailed.end+1):
+            for row in detailed.source_rows:
                 row_missing=False
                 for letter in chosen:
                     column=column_index_from_string(letter)
@@ -87,7 +100,10 @@ def build_check(sheet,selection):
         code=exc.detail.get('code','invalid_analysis_selection')
         if not any(i['code']==code for i in issues):
             issue(code,None,0,exc.detail.get('message','字段检查未通过，请修订字段后重审。'))
-    return AnalysisPlanCheck(rules_version=RULES_VERSION,data_range=sheet.data_range,row_count=sheet.row_count,
+    model=ModernPlanCheck if schema_version==3 else ResearchPlanCheck if research_request is not None else AnalysisPlanCheck
+    research=dict(research_missing=missing_research(research_request)) if research_request is not None else {}
+    return model(rules_version='analysis_plan_rules_v3' if schema_version==3 else RESEARCH_RULES_VERSION if research_request is not None else RULES_VERSION,
+        **research,data_range=sheet.data_range,row_count=sheet.row_count,
         selected_fields=fields,selection_check=check,issues=issues,limitations=[
             '数值最小值和最大值是观察范围，不是临床或业务合理范围。',
             '单位标签仅为声明，不转换数值，也不代表数据真实性已经核验。',
@@ -96,7 +112,10 @@ def build_check(sheet,selection):
 
 
 def validate_resolutions(check,resolutions):
-    check=AnalysisPlanCheck.model_validate(check,strict=True).model_dump(mode='json')
+    model=ModernPlanCheck if check.get('rules_version')=='analysis_plan_rules_v3' else ResearchPlanCheck if check.get('rules_version')==RESEARCH_RULES_VERSION else AnalysisPlanCheck
+    check=model.model_validate(check,strict=True).model_dump(mode='json')
+    if check.get('research_missing'):
+        raise StorageError('task_input_invalid','研究资料仍不完整，请补充后重新检查。',422)
     if check['selection_check'] is None or not check['selection_check']['ready'] or any(i['severity']=='blocking' for i in check['issues']):
         raise StorageError('invalid_analysis_selection','仍有阻断问题，请修订字段或重新整理后再确认。',422)
     expected={i['id']:i for i in check['issues']}

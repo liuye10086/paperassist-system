@@ -76,7 +76,7 @@ class ModelGateway:
         try:
             request = CallRequest.model_validate(deepcopy(request).model_dump())
             if (request.policy.tools != ['code_interpreter'] or request.policy.output_format != 'text'
-                    or request.policy.prompt_version != PROMPT_VERSION or request.tool_reserve_micro_usd <= 0
+                    or request.policy.prompt_version not in (PROMPT_VERSION,'openai_analysis_plot_v2','openai_comparison_plot_v3','openai_modeling_plot_v4','openai_figure_workbench_v1','openai_figure_workbench_v2','openai_figure_workbench_v3') or request.tool_reserve_micro_usd <= 0
                     or not request.tool_reserve_version):
                 raise ValueError('A fixed plot policy and positive tool reservation are required.')
             material = json.loads(canonical_payload(payload))
@@ -137,24 +137,43 @@ class ModelGateway:
         response_id = call.get('provider_response_id')
         if not response_id:
             return {'call': call, 'response': None}
+        from app.domain.model_usage.observation import expired
+        try:
+            continuation = expired(call)
+        except (KeyError, TypeError, ValueError):
+            raise ModelGatewayError('model_response_invalid') from None
         from app.domain.model_usage.contracts import ModelPolicy
         snapshot = call['policy_snapshot']
         policy = ModelPolicy.model_validate({key: snapshot[key] for key in ModelPolicy.model_fields if key in snapshot})
         if policy.tools and policy.tools != ['code_interpreter']:
             raise ModelGatewayError('model_tools_unsupported')
+        if continuation:
+            consume = getattr(self.service, 'consume_observation_grant', None)
+            if consume is None or not consume(call_id, response_id):
+                raise ModelGatewayError('model_observation_expired')
         try:
             receipt = self.provider.retrieve(response_id, policy=policy)
         except Exception as exc:
             # GET cannot invalidate the saved response or release its reservation.
             status_code = getattr(exc, 'status_code', None)
-            code = ('model_response_not_found' if status_code == 404 else
+            code = ('model_observation_expired' if continuation else
+                    'model_response_not_found' if status_code == 404 else
                     exc.code if isinstance(exc, ModelProviderError) else 'internal_error')
             raise ModelGatewayError(code,
                                     request_id=getattr(exc, 'request_id', None), status_code=status_code) from None
         if not isinstance(receipt, dict) or receipt.get('response_id') != response_id:
-            raise ModelGatewayError('model_response_invalid',
+            raise ModelGatewayError('model_observation_expired' if continuation else 'model_response_invalid',
                                     request_id=receipt.get('request_id') if isinstance(receipt, dict) else None)
-        return self._record(call_id, receipt, submitted=False)
+        try:
+            result = self._record(call_id, receipt, submitted=False)
+        except ModelGatewayError as exc:
+            if continuation:
+                raise ModelGatewayError('model_observation_expired', request_id=exc.request_id,
+                                        status_code=exc.status_code) from None
+            raise
+        if continuation and receipt.get('status') != 'completed':
+            raise ModelGatewayError('model_observation_expired')
+        return result
 
     def _record(self, call_id, receipt, *, submitted):
         if not isinstance(receipt, dict):

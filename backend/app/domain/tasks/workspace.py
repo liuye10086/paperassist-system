@@ -13,10 +13,34 @@ class TaskWorkspaceService:
 
     def source(self, db, task):
         snapshot = task['input_snapshot']
+        if task['task_type'] == 'statistics_compute':
+            from app.domain.statistics_execution.service import require_snapshot
+            snapshot = require_snapshot(task)
+            current = db.execute('SELECT setup_json FROM analysis_setups WHERE file_id=%s',(snapshot['file']['id'],)).fetchone()
+            return dict(file_id=snapshot['file']['id'],filename=snapshot['file']['filename'],analysis_run_id=None,
+                is_current=bool(current and json.loads(current['setup_json'])==snapshot['setup']),
+                **({'dataset_source':snapshot['setup']['source']} if snapshot['setup'].get('source') else {}))
+        if task['task_type'] in ('figure_projection','figure_workbench','figure_explanation'):
+            from app.domain.figure_workbench.tasks import task_source
+            return task_source(self.store, db, task)
+        if task['task_type'] == 'collection_word_report':
+            from app.domain.report_collections.service import collection_task_source
+            return collection_task_source(self.store, db, task)
+        if task['task_type'] == 'analysis_recommendation':
+            from app.domain.analysis_recommendation.service import RecommendationService
+            snapshot=RecommendationService(DatasetTaskAssets(self.store.user_id,self.store.config)).require_material(task)
+            return dict(file_id=snapshot['source']['file_id'],filename=snapshot['filename'],analysis_run_id=None,is_current=True,dataset_source=snapshot['source'])
         if task['task_type'] == 'analysis_plan':
             from app.domain.analysis_plan.service import validate_snapshot, AnalysisPlanService
             snapshot = validate_snapshot(task)
             assets = DatasetTaskAssets(self.store.user_id, self.store.config)
+            if task['workflow_version'] in ('analysis_plan_v4','analysis_plan_v5'):
+                view=AnalysisPlanService(assets).get_task(task['id'])
+                source=view['source']
+                return dict(file_id=source['file_id'] if source else None,filename=snapshot.get('filename') or '',
+                            analysis_run_id=None,is_current=True,**({'dataset_source':source} if source else {}),
+                            material_versions=view['evidence_versions'],
+                            **({'continuation_task_id':view['continuation']['task']['id']} if view.get('continuation') else {}))
             AnalysisPlanService(assets).require_source(snapshot['source'], task['project_id'])
             return dict(file_id=snapshot['source']['file_id'], filename=snapshot['filename'],
                         analysis_run_id=None, is_current=True, dataset_source=snapshot['source'])
@@ -31,7 +55,14 @@ class TaskWorkspaceService:
             from app.domain.dataset_preparation.service import validate_snapshot, DatasetPreparationService
             snapshot = validate_snapshot(task)
             assets = DatasetTaskAssets(self.store.user_id, self.store.config)
-            DatasetPreparationService(assets).require_raw(snapshot['source'], task['project_id'])
+            service = DatasetPreparationService
+            if task['workflow_version'] == 'dataset_preparation_v2':
+                from app.domain.dataset_preparation.quality_service import QualityPreparationService
+                service = QualityPreparationService
+            elif task['workflow_version']=='dataset_preparation_v3':
+                from app.domain.dataset_preparation.derivation_service import DerivationPreparationService
+                service=DerivationPreparationService
+            service(assets).require_raw(snapshot['source'], task['project_id'])
             return dict(file_id=snapshot['source']['file_id'], filename=snapshot['filename'],
                         analysis_run_id=None, is_current=True, dataset_source=snapshot['source'])
         if task['task_type'] in ('parse_file','extract_dataset'):
@@ -92,7 +123,7 @@ class TaskWorkspaceService:
         if (type(page) is not int or not 1 <= page <= 1_000_000
                 or type(page_size) is not int or not 1 <= page_size <= 50
                 or status not in (None, 'queued', 'running', 'waiting_input', 'waiting_confirmation', 'succeeded', 'failed')
-                or task_type not in (None, 'boxplot', 'explanation', 'word_report', 'parse_file', 'extract_dataset', 'prepare_dataset', 'review_ocr', 'analysis_plan')):
+                or task_type not in (None, 'boxplot', 'explanation', 'word_report', 'parse_file', 'extract_dataset', 'prepare_dataset', 'review_ocr', 'analysis_plan', 'analysis_recommendation', 'figure_projection', 'figure_workbench', 'figure_explanation', 'collection_word_report', 'statistics_compute')):
             raise StorageError('task_input_invalid', '任务列表查询参数无效。', 422)
         from app.adapters.legacy_task_query import mixed_task_page, require_legacy_task
         from app.domain.tasks.legacy import public_legacy_task, legacy_source
@@ -158,7 +189,22 @@ class TaskWorkspaceService:
 
     def artifacts(self, db, task):
         result = {'figure': None, 'explanation': None, 'report': None}
-        if task['task_type'] == 'analysis_plan':
+        if task['task_type'] in ('figure_projection','figure_workbench','figure_explanation'):
+            from app.domain.figure_workbench.tasks import task_artifacts
+            return task_artifacts(self.store, db, task)
+        if task['task_type'] == 'collection_word_report':
+            from app.domain.report_collections.service import collection_task_artifact
+            result['report'] = collection_task_artifact(self.store, db, task)
+            return result
+        if task['task_type'] == 'statistics_compute':
+            if task.get('result_analysis_run_id'):
+                from app.domain.statistics_execution.execution import assets_for
+                from app.adapters.task_execution_store import TaskExecutionStore
+                assets = assets_for(TaskExecutionStore(config=self.store.config), task)
+                value = assets.analysis_result_by_id(task['project_id'],task['input_snapshot']['file']['id'],task['result_analysis_run_id'])
+                result['analysis'] = value
+            return result
+        if task['task_type'] in ('analysis_plan','analysis_recommendation'):
             return result
         if task['task_type'] == 'review_ocr':
             row = db.execute('SELECT id,version FROM ocr_review_versions WHERE task_id=%s',(task['id'],)).fetchone()
@@ -215,4 +261,5 @@ class TaskWorkspaceService:
             source = self.source(db, task)
             return {'task': self.store.public_task(task), 'source': source, 'wait': get_open_wait(db, task),
                     'allowed_actions': allowed_recovery_actions(db, task) if source['is_current'] else [],
-                    'artifacts': self.artifacts(db, task)}
+                    'artifacts': self.artifacts(db, task),
+                    **({'verification_failure':task['verification_failure']} if task.get('verification_failure') else {})}

@@ -13,7 +13,7 @@ def matching_task(store, project_id, snapshot):
     figure, explanation = snapshot['figure'], snapshot['explanation']
     if not figure or not explanation:
         return None
-    from app.adapters.report_docx import VERSION
+    from app.domain.artifact_contracts import saved_report_version
     with store.connection() as db:
         store.require_project(db, project_id)
         row = db.execute('''SELECT * FROM tasks WHERE project_id=%s AND user_id=%s
@@ -23,14 +23,14 @@ def matching_task(store, project_id, snapshot):
             AND input_snapshot->'explanation'->>'id'=%s
             AND input_snapshot->'versions'->>'report'=%s
             ORDER BY created_at DESC,id DESC LIMIT 1''',
-            (project_id, store.user_id, workflow_version('word_report', snapshot), snapshot['result']['id'], figure['id'], explanation['id'], VERSION)).fetchone()
+            (project_id, store.user_id, workflow_version('word_report', snapshot), snapshot['result']['id'], figure['id'], explanation['id'], saved_report_version(explanation))).fetchone()
         if row and not task_source_matches(row, snapshot['result']):
             raise source_conflict()
         return store.public_task(dict(row)) if row else None
 
 
 def get_report(project_id, file_id, run_id, project_store):
-    snapshot, state = reports.context(project_store, project_id, file_id, run_id)
+    snapshot, state = reports.context(project_store, project_id, file_id, run_id,archive=True)
     return {**state, 'task': matching_task(TaskStore(project_store.owner_id), project_id, snapshot)}
 
 

@@ -1,0 +1,7 @@
+import {useI18n} from '../../shared/i18n'
+import {comparisonMethods,type ComparisonSelection} from './analysisSelection'
+export default function ComparisonSelectionSummary({value,fields=[],groups=[]}:{value:ComparisonSelection;fields?:{column:string;name:string}[];groups?:{label:string}[]}){
+ const {t}=useI18n(),name=(column:string|null)=>fields.find(f=>f.column===column)?.name??column??t('未填写')
+ return <div className="research-request-summary"><p><strong>{t(comparisonMethods[value.method])}</strong> · {t(value.design==='paired'?'配对观察':'独立观察')}</p>{value.design==='paired'?<><p>{t('配对 ID 列')}：{name(value.pair_id_column)}</p><p>{t('差值方向：{before} − {after}。',{before:name(value.before_column),after:name(value.after_column)})}</p><p>{t('每个来源行的 ID 必须存在且唯一；任一测量缺失时排除整对。')}</p></>:<><p>{t('结局数值列')}：{name(value.numeric_column)} · {t('分组列')}：{name(value.group_column)}</p><p>{t('参与组顺序：{groups}',{groups:(groups.length?groups.map(g=>g.label):value.groups.map(g=>g.value)).join(' → ')})}</p><p>{t('仅纳入已选组；未选组和缺失行将说明排除原因。')}</p></>}
+ <p>{t('测量单位')}：{value.unit||t('未知')} · <span>{t(value.posthoc==='all_pairs_holm'?'全部组对＋Holm 校正':value.design==='multiple'?'仅总体检验':'单次比较')}</span></p><p>{t('分布前提')}：{t(({unknown:'尚不确定',normal:value.design==='paired'?'差值近似正态':'各组结局近似正态',symmetric_differences:'非零差值分布对称',rank:'秩方法前提已核对'})[value.assumptions.distribution])}</p><p>{t('方法依据研究设计和前提确认；不按 P 值选择，也不自动按正态检验切换。')}</p></div>
+}

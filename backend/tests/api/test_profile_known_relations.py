@@ -1,4 +1,5 @@
 """Real saved-version API evidence for independently defined known relations."""
+from tests.helpers.statistics import statistics_post
 from hashlib import sha256
 from io import BytesIO
 from time import perf_counter
@@ -59,7 +60,7 @@ def test_known_relations_saved_profile_and_reads_preserve_all_business_state(cli
                      unit='未确认', missing_policy='exclude_selected_missing', dataset_id=raw['id'], expected_revision=0)
     saved = client.put(base + '/analysis-setup', json=selection)
     assert saved.status_code == 200, saved.text
-    run = client.post(base + '/analysis-runs', json={'expected_revision': 1})
+    run = statistics_post(client, base + '/analysis-runs', json={'expected_revision': 1})
     assert run.status_code == 200, run.text
     assert run.json()['overall']['n'] == 24
     assert run.json()['overall']['mean'] == pytest.approx(343/24)

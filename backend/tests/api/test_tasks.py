@@ -51,6 +51,7 @@ def test_only_versioned_recovery_and_explicit_preparation_decisions_mutate_tasks
                                '/api/v1/tasks/{task_id}/retry', '/api/v1/tasks/{task_id}/model-usage',
                                '/api/v1/tasks/{task_id}/workspace', '/api/v1/tasks/{task_id}/resume',
                                '/api/v1/tasks/{task_id}/analysis-plan',
+                               '/api/v1/tasks/{task_id}/analysis-recommendation',
                                '/api/v1/tasks/{task_id}/analysis-plan/decisions',
                                '/api/v1/tasks/{task_id}/dataset-preparation',
                                '/api/v1/tasks/{task_id}/dataset-preparation/decision',
@@ -65,6 +66,7 @@ def test_only_versioned_recovery_and_explicit_preparation_decisions_mutate_tasks
     assert set(task_paths['/api/v1/tasks/{task_id}/ocr-review/decision']) == {'post'}
     assert all(set(task_paths[path]) == {'get'} for path in ('/api/v1/tasks/{task_id}',
         '/api/v1/tasks/{task_id}/analysis-plan',
+        '/api/v1/tasks/{task_id}/analysis-recommendation',
         '/api/v1/tasks/{task_id}/events', '/api/v1/tasks/{task_id}/model-usage', '/api/v1/tasks/{task_id}/workspace',
         '/api/v1/tasks/{task_id}/dataset-preparation', '/api/v1/tasks/{task_id}/dataset-preparation/preview/download',
         '/api/v1/tasks/{task_id}/ocr-review', '/api/v1/tasks/{task_id}/ocr-review/preview/download'))

@@ -71,6 +71,15 @@ def table(document, headers, rows, widths):
 
 
 def build_report(snapshot, report, png):
+    if report.get('engine', {}).get('id') == 'word_analysis_report_v4':
+        from app.adapters.report_docx_modeling import build_report as modeling_report
+        return modeling_report(snapshot,report,png)
+    if report.get('engine', {}).get('id') == 'word_analysis_report_v3':
+        from app.adapters.report_docx_comparison import build_report as comparison_report
+        return comparison_report(snapshot,report,png)
+    if report.get('engine', {}).get('id') == 'word_analysis_report_v2':
+        from app.adapters.report_docx_modern import build_report as modern_report
+        return modern_report(snapshot,report,png)
     project, result, figure, explanation = (snapshot[key] for key in ('project', 'result', 'figure', 'explanation'))
     document = Document()
     page = document.sections[0]
@@ -121,7 +130,9 @@ def build_report(snapshot, report, png):
     check = result['check']
     data_label = '所选整理区域' if result.get('source', {}).get('kind') == 'prepared_dataset_version' else '原始数据'
     paragraph(document, f"{data_label} {check['row_count']} 行；有效完整记录 {check['valid_count']} 行；排除 {check['excluded_count']} 行。")
-    paragraph(document, '排除规则：仅分析数值字段及所选分组字段均有效的完整记录。未插补缺失值，未自动去重，未删除离群观测；原始文件保持不变。')
+    from app.domain.dataset_processing import append_quality
+    if not append_quality(document, snapshot, 'zh-CN'):
+        paragraph(document, '排除规则：仅分析数值字段及所选分组字段均有效的完整记录。未插补缺失值，未自动去重，未删除离群观测；原始文件保持不变。')
     for note in check['issues'] + check['warnings']:
         paragraph(document, note)
     paragraph(document, '质量检查限于已选字段及当前支持的类型、缺失和分组规则，不代表已确认实验设计、样本独立性或数据真实性。')

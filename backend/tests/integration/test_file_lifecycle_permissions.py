@@ -1,4 +1,5 @@
 """Two-account HTTP evidence for the file preparation and document routes."""
+from tests.helpers.legacy_plans import seed_legacy_plan
 from pathlib import Path
 import hashlib
 import os
@@ -67,7 +68,7 @@ def test_prepared_plan_raw_evidence_and_decisions_matrix(client):
         prepared=review(client,task)['result']
         from tests.api.test_analysis import selection
         plan_body=dict(dataset_id=prepared['id'],expected_setup_revision=0,selection=selection())
-        created_plan=client.post(base+'/analysis-plans',json=plan_body,headers={'Idempotency-Key':'plan'})
+        created_plan=seed_legacy_plan(client, base+'/analysis-plans',json=plan_body,headers={'Idempotency-Key':'plan'})
         assert created_plan.status_code==202,created_plan.text
         plan=created_plan.json()
         assert run_plan(plan)['status']=='waiting_confirmation'
@@ -78,7 +79,7 @@ def test_prepared_plan_raw_evidence_and_decisions_matrix(client):
             base+'/analysis-profile?sheet='+quote(prepared['source']['sheet_name'])+'&dataset_id='+prepared['id'],
             base+'/analysis-plans','/api/v1/tasks/'+plan['id']+'/analysis-plan',*task_urls(plan['id'])])
         before=fingerprint()
-        assert other.post(base+'/analysis-plans',json=plan_body,headers={'Idempotency-Key':'plan'}).status_code==404
+        assert seed_legacy_plan(other, base+'/analysis-plans',json=plan_body,headers={'Idempotency-Key':'plan'}).status_code==404
         assert decide_plan(other,plan,plan_input).status_code==404
         assert fingerprint()==before
         approved_plan=decide_plan(client,plan,plan_input)
@@ -101,7 +102,7 @@ def test_prepared_plan_raw_evidence_and_decisions_matrix(client):
                        '/analysis-plans/'+published['id']):
             assert client.get(other_base+suffix).status_code==404
         assert client.post(other_base+'/dataset-preparations',json=request,headers={'Idempotency-Key':'wrong-file'}).status_code==404
-        assert client.post(other_base+'/analysis-plans',json=plan_body,headers={'Idempotency-Key':'wrong-file'}).status_code==404
+        assert seed_legacy_plan(client, other_base+'/analysis-plans',json=plan_body,headers={'Idempotency-Key':'wrong-file'}).status_code==404
 
 
 @pytest.mark.parametrize('kind',['docx','pdf','ocr'])

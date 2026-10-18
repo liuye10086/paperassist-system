@@ -11,15 +11,15 @@ import './artifactPanels.css'
 import AnalysisExplanation from '../explanations/AnalysisExplanation'
 import ProjectDownloadLink from '../../shared/components/ProjectDownloadLink'
 
-type Figure = { source?: DatasetAnalysisSource; id: string; analysis_run_id: string; setup_revision: number; title: string; caption: string
+type Figure = { plan_sha256?:string; schema_version?:2|3|4;figure_kind?:'boxplot'|'scatter'|'correlation_heatmap'|'group_boxplot'|'paired_connected'|'forest'|'roc_curve'|'kaplan_meier';language?:'zh-CN'|'en'; source?: DatasetAnalysisSource; id: string; analysis_run_id: string; setup_revision: number; title: string; caption: string
   x_label: string; y_label: string; source_sha256: string; sha256: string; created_at: string
   engine: { id: string; provider: string; model: string }; verification: { status: string; note: string } }
 type Job = { id: string; status: 'submitting' | 'running' | 'failed' | 'uncertain' | 'completed'; message: string; message_code?: string; message_params?: Record<string, string | number>; response_id: string | null; created_at: string }
 type Task = { id: string; status: 'queued' | 'running' | 'waiting_input' | 'waiting_confirmation' | 'succeeded' | 'failed'
   revision: number; reason_code: string | null; error_code: string | null; result_figure_id?: string | null }
-type State = { current_revision: number | null; is_current: boolean; figure: Figure | null; job: Job | null; task?: Task | null }
+type State = {generation_compatible?:boolean; current_revision: number | null; is_current: boolean; figure: Figure | null; job: Job | null; task?: Task | null }
 type Config = { configured: boolean; model: string | null; message: string; message_code?: string; message_params?: Record<string, string | number> }
-type Props = { source?: DatasetAnalysisSource; filename?: string; base: string; runId: string; revision: number; canGenerate: boolean; disabled: boolean; onBusyChange: (busy: boolean) => void }
+type Props = {artifactVersion?:4;planSha?:string;comparison?:boolean;legacyFallbackAllowed?:boolean; figureKind?:'boxplot'|'scatter'|'correlation_heatmap'|'group_boxplot'|'paired_connected'|'forest'|'roc_curve'|'kaplan_meier';outputLanguage?:'zh-CN'|'en';modern?:boolean; source?: DatasetAnalysisSource; filename?: string; base: string; runId: string; revision: number; canGenerate: boolean; disabled: boolean; onBusyChange: (busy: boolean) => void }
 async function rawRequest<T>(url: string, controller: AbortController, init?: RequestInit): Promise<T> {
   let timer = 0
   try {
@@ -37,26 +37,28 @@ function message(cause: unknown) {
 }
 
 export default function BoxplotFigure(props: Props) {
-  return <FigurePanel key={`${props.base}:${props.runId}:${props.revision}`} {...props} />
+  return <FigurePanel key={`${props.base}:${props.runId}:${props.revision}:${props.figureKind}:${props.outputLanguage}:${props.modern}:${props.artifactVersion}:${props.comparison}:${props.planSha}`} {...props} />
 }
 const outputFailures = new Set(['plot_result_mismatch', 'plot_invalid_result', 'plot_invalid_image', 'plot_no_execution',
   'plot_files_missing', 'plot_output_limit', 'openai_incomplete', 'plot_container_expired', 'plot_input_limit'])
 function needsPoll(value: State) {
-  if (value.figure) return false
+  if (value.figure&&value.generation_compatible!==false) return false
   return value.task ? ['queued', 'running'].includes(value.task.status) || value.task.status === 'succeeded'
     : value.job?.status === 'submitting' || value.job?.status === 'running'
 }
-function FigurePanel({ base, runId, revision, canGenerate, disabled, onBusyChange, source, filename }: Props) {
+function FigurePanel({ base, runId, revision, canGenerate, disabled, onBusyChange, source, filename, figureKind='boxplot', outputLanguage='zh-CN', modern=false,comparison=false,artifactVersion,planSha,legacyFallbackAllowed=false }: Props) {
   const { t } = useI18n()
+  const figureLabel=figureKind==='paired_connected'?'配对连接图':figureKind==='group_boxplot'?'组间箱线图':figureKind==='forest'?'效应森林图':figureKind==='roc_curve'?'ROC 曲线':figureKind==='kaplan_meier'?'Kaplan–Meier 生存曲线':figureKind==='scatter'?'散点图':figureKind==='correlation_heatmap'?'相关热力图':'箱线图'
   const request = useCallback(async <T,>(url: string, controller: AbortController, init?: RequestInit): Promise<T> => {
     const value = await rawRequest<T>(url, controller, init)
     if (value && typeof value === 'object' && 'figure' in value) {
       const item = (value as unknown as State).figure
-      if (item && !validOptionalSource(item, source)) throw new Error('数据来源或版本不一致，请重新载入配置。')
+      if ((value as unknown as State).generation_compatible===false&&(!legacyFallbackAllowed||outputLanguage!=='en'||figureKind!=='boxplot'||item&&(item.language!=='zh-CN'||item.engine?.id!=='openai_boxplot_v1'))) throw new Error('数据来源或版本不一致，请重新载入配置。')
+      if (item && (!validOptionalSource(item, source) || modern&&(comparison||artifactVersion===4||(value as unknown as State).is_current)&&(value as unknown as State).generation_compatible!==false&&(item.schema_version!==(artifactVersion===4?4:comparison?3:2)||(comparison||artifactVersion===4)&&planSha!==undefined&&item.plan_sha256!==planSha||item.figure_kind!==figureKind||item.language!==outputLanguage||item.engine.id!==(artifactVersion===4?'openai_modeling_plot_v4':comparison?'openai_comparison_plot_v3':'openai_analysis_plot_v2')||item.verification.status!=='matched'||item.analysis_run_id!==runId||item.setup_revision!==revision))) throw new Error('数据来源或版本不一致，请重新载入配置。')
     }
-    if (value && typeof value === 'object' && ('task' in value && value.task && !validAnalysisTaskSource(value.task, source, revision) || url.startsWith('/api/v1/tasks/') && !validAnalysisTaskSource(value, source, revision))) throw new Error('数据来源或版本不一致，请重新载入配置。')
+    if (value && typeof value === 'object' && ('task' in value && value.task && !validAnalysisTaskSource(value.task, source, revision, outputLanguage) || url.startsWith('/api/v1/tasks/') && !validAnalysisTaskSource(value, source, revision, outputLanguage))) throw new Error('数据来源或版本不一致，请重新载入配置。')
     return value
-  }, [source, revision])
+  }, [source, revision, outputLanguage, modern, comparison, artifactVersion, planSha, figureKind, runId,legacyFallbackAllowed])
   const endpoint = `${base}/analysis-runs/${runId}/boxplot`
   const [state, setState] = useState<State | null>(null)
   const [explanationBusy, setExplanationBusy] = useState(false)
@@ -80,12 +82,13 @@ function FigurePanel({ base, runId, revision, canGenerate, disabled, onBusyChang
   const reading = useRef<AbortController | null>(null)
   const task = state?.task
   const running = !!state && needsPoll(state)
-  const unknown = !state?.figure && (task ? task.reason_code === 'submission_unknown' : state?.job?.status === 'uncertain')
-  const unavailable = !state?.figure && task?.error_code === 'model_response_not_found'
-  const expired = !state?.figure && task?.error_code === 'plot_container_expired'
-  const budgetWait = !state?.figure && task?.status === 'waiting_confirmation' && task.reason_code === 'budget_exceeded'
-  const resume = !state?.figure && !unavailable && (budgetWait || (task?.status === 'failed' && !!task.error_code && !outputFailures.has(task.error_code)))
-  const retry = !state?.figure && (task ? task.status === 'failed' && !resume && !unavailable : state?.job?.status === 'failed')
+  const hasCurrentFigure=!!state?.figure&&state.generation_compatible!==false
+  const unknown = !hasCurrentFigure && (task ? task.reason_code === 'submission_unknown' : state?.job?.status === 'uncertain')
+  const unavailable = !hasCurrentFigure && task?.error_code === 'model_response_not_found'
+  const expired = !hasCurrentFigure && task?.error_code === 'plot_container_expired'
+  const budgetWait = !hasCurrentFigure && task?.status === 'waiting_confirmation' && task.reason_code === 'budget_exceeded'
+  const resume = !hasCurrentFigure && !unavailable && (budgetWait || (task?.status === 'failed' && !!task.error_code && !outputFailures.has(task.error_code)))
+  const retry = !hasCurrentFigure && (task ? task.status === 'failed' && !resume && !unavailable : state?.job?.status === 'failed')
   const busy = submitting || previewing
   const ready = sessionValid && canGenerate && !disabled && !!state?.is_current && state.current_revision === revision && !loading && !busy && !explanationBusy && !error
   const allowed = !!config?.configured && ready && !running && !unknown && !resume && !unavailable
@@ -156,7 +159,7 @@ function FigurePanel({ base, runId, revision, canGenerate, disabled, onBusyChang
 
   async function openReview() {
     if (!allowed || action.current || preview.current || review) return
-    if (state?.figure) { reload(); return }
+    if (hasCurrentFigure) { reload(); return }
     // Freeze the selected predecessor and source revision before previewing.
     const body = { expected_revision: revision, ...(retry ? { retry: true, expected_predecessor_id: task?.id ?? state?.job?.id, ...(task ? { expected_predecessor_revision: task.revision } : {}) } : {}) }
     const controller = new AbortController(); preview.current = controller
@@ -165,7 +168,7 @@ function FigurePanel({ base, runId, revision, canGenerate, disabled, onBusyChang
     try {
       const value = await request<unknown>(`${endpoint}/disclosure`, controller)
       if (!active.current || controller.signal.aborted || preview.current !== controller) return
-      if (!isArtifactDisclosure(value, 'boxplot') || (source ? value.version !== 2 || value.source?.sheet_name !== source.sheet_name || value.source.dataset_version !== source.dataset_version || !!filename && value.source.filename !== filename : value.version !== 1)) throw new Error('图表请求失败，请重新读取图表。')
+      if (!isArtifactDisclosure(value, 'boxplot') || (source ? (modern ? value.version!==(artifactVersion===4?6:comparison?5:4)||value.summary.figure_kind!==figureKind||value.summary.output_language!==outputLanguage : ![2,3].includes(value.version)) || value.source?.sheet_name !== source.sheet_name || value.source.dataset_version !== source.dataset_version || !!filename && value.source.filename !== filename : value.version !== 1)) throw new Error('图表请求失败，请重新读取图表。')
       if (value.has_saved_result) { reload(); return }
       setReview({ disclosure: value, body })
     } catch (cause) { if (active.current && preview.current === controller) {
@@ -212,14 +215,15 @@ function FigurePanel({ base, runId, revision, canGenerate, disabled, onBusyChang
   return <>
     <WorkflowReadStatus stages={['explanation', 'report']} loading={loading} error={error}
       loadingMessage="正在读取图表……" reloadLabel="重新读取图表" onReload={reload} disabled={submitting || explanationBusy} />
-    <WorkflowStage stage="figure"><section className="boxplot-figure artifact-panel" aria-label={t("OpenAI 箱线图")} aria-busy={loading || busy}>
-    <div className="section-heading"><span className="step-label">{t("图表")}</span><h3>{t("箱线图")}</h3></div>
-    <p className="muted">{t("仅将所选数值列、分组列的完整记录及绘图标签发送给 OpenAI。生成会调用收费 API；读取已保存图表与下载不会重新生成。")}</p>
+    <WorkflowStage stage="figure"><section className="boxplot-figure artifact-panel" aria-label={t('OpenAI {figure}',{figure:t(figureLabel)})} aria-busy={loading || busy}>
+    <div className="section-heading"><span className="step-label">{t("图表")}</span><h3>{t(figureLabel)}</h3></div>
+    <p className="muted">{t(artifactVersion===4?figureKind==='forest'?'将发送本地系数与区间及确认名称；只核对来源与绘图，不独立重算回归。':'将发送必要匿名结局、评分或随访记录与确认编码，独立核对曲线；不发送 ID。':comparison?'只外发纳入组的必要数值与确认标签；配对连接采用匿名顺序，不发送 ID 名称或值。':figureKind==='boxplot'?'仅将所选数值列、分组列的完整记录及绘图标签发送给 OpenAI。生成会调用收费 API；读取已保存图表与下载不会重新生成。':'只发送已确认字段的共同完整数值、标签、单位和方法用于独立核对与绘图；生成调用收费 API，读取与下载不会重新生成。')}</p>
     {!config && !configError && <p role="status">{t("正在读取 OpenAI 配置……")}</p>}
     {config && !config.configured && <p className="warning-panel">{t(apiError({ code: config.message_code ?? 'openai_not_configured', params: config.message_params }, '请联系管理员配置 OpenAI API。'))}</p>}
     {configError && <p role="alert" className="error-panel">{t(configError)}</p>}
     {(!config?.configured || configError) && <button type="button" onClick={() => { setConfig(null); setConfigError(''); setConfigAttempt(value => value + 1) }}>{t("重试读取 OpenAI 配置")}</button>}
     {!canGenerate && <p className="warning-panel">{t("请保存当前字段并执行对应配置的描述统计后，再生成图表。")}</p>}
+    {state?.generation_compatible===false&&<p className="warning-panel">{t('已保存的旧中文成果仍可查看和下载；生成新成果将使用已确认的英文任务语言。')}</p>}
     {figure && (!state.is_current || state.current_revision !== revision) && <p className="warning-panel">{t('以下图表对应旧配置，仍可查看和下载。')}</p>}
     {retry && !unconfirmed && <p className="warning-panel">{t("上次生成失败。")}{t("再次调用 API 可能产生额外费用，请确认后点击重试。")}</p>}
     {unknown && !unconfirmed && <p className="warning-panel">{t('提交结果尚未核实，已停止再次调用。请联系管理员核对。')}</p>}
@@ -230,7 +234,7 @@ function FigurePanel({ base, runId, revision, canGenerate, disabled, onBusyChang
     <div className="analysis-actions">
       {unconfirmed && <button type="button" disabled={!ready} onClick={() => void generate()}>{t('确认上次提交')}</button>}
       {resume ? <button type="button" disabled={!ready || unknown || unconfirmed} onClick={() => void generate()}>{t(budgetWait ? '预算已配置，继续生成图表' : '继续绘图任务')}</button>
-        : <button type="button" disabled={!allowed || !!review} onClick={() => void generate()}>{retry ? t("重试生成（再次调用 API）") : t("使用 OpenAI 生成箱线图")}</button>}
+        : <button type="button" disabled={!allowed || !!review} onClick={() => void generate()}>{retry ? t("重试生成（再次调用 API）") : figureKind==='boxplot'?t('使用 OpenAI 生成箱线图'):t('使用 OpenAI 生成{figure}',{figure:t(figureLabel)})}</button>}
       <button type="button" disabled={loading || submitting || explanationBusy} onClick={reload}>{t("重新读取图表")}</button>
     </div>
     {previewing && <div className="external-send-review" aria-busy="true"><p role="status">{t('正在核对发送资料……')}</p><button type="button" onClick={clearReview}>{t('取消')}</button></div>}
@@ -248,22 +252,22 @@ function FigurePanel({ base, runId, revision, canGenerate, disabled, onBusyChang
       <h4>{figure.title}</h4>
       {!imageError && <img key={`${figure.id}:${imageAttempt}`} src={`${endpoint}/image?v=${encodeURIComponent(figure.id)}&reload=${imageAttempt}`} alt={figure.title} onError={() => setImageError(true)} />}
       <figcaption>{figure.caption}</figcaption>
-      <p><ProjectDownloadLink href={`${endpoint}/image?download=true`} filename="boxplot.png">{t("下载箱线图 PNG")}</ProjectDownloadLink></p>
+      <p><ProjectDownloadLink href={`${endpoint}/image?download=true`} filename={figureKind==='boxplot'?'boxplot.png':'figure.png'}>{figureKind==='boxplot'?t('下载箱线图 PNG'):t('下载{figure} PNG',{figure:t(figureLabel)})}</ProjectDownloadLink></p>
       <details className="artifact-details"><summary>{t("图表来源与核对记录")}</summary>
         <p>{t("横轴：")}{figure.x_label}{t("；纵轴：")}{figure.y_label}</p>
         <p>{figure.verification.note}{t("；请同时人工核对图像与标签。")}</p>
         <p>{t("保存时间：")}{figure.created_at}</p>
       </details>
     </figure>}
-    {state && !figure && !state.job && !task && <p>{t("尚未生成此统计结果的箱线图。")}</p>}
+    {state && !figure && !state.job && !task && <p>{t('尚未生成此统计结果的{figure}。',{figure:t(figureLabel)})}</p>}
   </section></WorkflowStage>
-    {figure ? <AnalysisExplanation base={base} runId={runId} revision={revision} figureId={figure.id} source={figure.source} filename={filename}
-      canGenerate={canGenerate && !!state?.is_current && state.current_revision === revision && figure.setup_revision === revision}
+    {figure ? <AnalysisExplanation base={base} runId={runId} revision={revision} figureId={figure.id} source={figure.source} filename={filename} outputLanguage={figure.language??'zh-CN'} comparison={comparison} artifactVersion={artifactVersion} planSha={planSha} figureSha={figure.sha256} modern={['openai_analysis_plot_v2','openai_comparison_plot_v3','openai_modeling_plot_v4'].includes(figure.engine?.id)}
+      canGenerate={canGenerate && state?.generation_compatible!==false && !!state?.is_current && state.current_revision === revision && figure.setup_revision === revision}
       disabled={disabled || loading || busy || !!error} onBusyChange={setExplanationBusy} />
       : !loading && !error && <>
         <WorkflowStage stage="explanation"><section className="analysis-explanation artifact-panel">
           <div className="section-heading"><span className="step-label">{t("分析解释")}</span><h3>{t("分析解释与论文表述")}</h3></div>
-          <p>{t("请先生成并保存箱线图，再生成分析解释。")}</p>
+          <p>{t('请先生成并保存{figure}，再生成分析解释。',{figure:t(figureLabel)})}</p>
         </section></WorkflowStage>
         <WorkflowStage stage="report"><section className="word-report artifact-panel">
           <div className="section-heading"><span className="step-label">{t("Word 报告")}</span><h3>{t("Word 分析报告导出")}</h3></div>

@@ -16,6 +16,12 @@ from app.domain.analysis_sources import DATASET_ENGINE, statistics_engine
 from app.domain.dataset_preparation.contracts import PreparationUnit
 from app.domain.analysis_plan.references import PlannedAnalysisSource
 
+from app.domain.correlation.contracts import CorrelationSelection
+from app.domain.comparison.contracts import ComparisonSelection
+from app.domain.regression.contracts import RegressionSelection
+from app.domain.roc.contracts import RocSelection
+from app.domain.survival.contracts import SurvivalSelection
+
 ColumnId = Annotated[str, Field(pattern=r'^[A-Z]{1,3}$')]
 MAX_GROUPS = 20
 
@@ -86,7 +92,7 @@ class SavedSetup(PlannedAnalysisSource):
     status: Literal['configured']
     revision: int
     updated_at: str
-    selection: AnalysisSelection
+    selection: RegressionSelection | RocSelection | SurvivalSelection | ComparisonSelection | CorrelationSelection | AnalysisSelection
     check: SelectionCheck
 
 
@@ -243,7 +249,7 @@ def check_selection(project_id: str, file_id: str, selection: AnalysisSelection,
 
 def get_setup(project_id: str, file_id: str, store: ProjectStore):
     saved = store.analysis_setup(project_id, file_id)
-    if saved and statistics_engine(saved) == DATASET_ENGINE:
+    if saved and statistics_engine(saved) != "descriptive_statistics_v1":
         from app.domain.dataset_analysis import load_dataset
         load_dataset(store, project_id, file_id, saved['source']['dataset_id'], expected_source=saved['source'])
     else:

@@ -14,7 +14,7 @@ it('reads only unified project tasks and exposes readable source without interna
   expect(screen.getByText('分析配置 v1')).toBeTruthy()
   expect(fetch.mock.calls[0][0]).toBe('/api/v1/projects/p1/tasks?page=1&page_size=10')
   expect(screen.queryByText('t1')).toBeNull()
-  fireEvent.click(screen.getByRole('button', { name: '查看箱线图生成任务' }))
+  fireEvent.click(screen.getByRole('button', { name: '查看图表生成任务' }))
   expect(props.onSelectTask).toHaveBeenCalledWith('t1')
 })
 it('pauses hidden-tab reads, aborts an in-flight poll, and resumes with only one timer', async () => {
@@ -66,7 +66,7 @@ it.each(['zh-CN', 'en'] as const)('displays mixed historical tasks with unknown 
   expect(screen.getByText(locale === 'en' ? 'Not recorded' : '未记录')).toBeTruthy()
   expect(screen.queryByText(legacyTaskFixture.id)).toBeNull()
   expect(document.body.textContent).not.toContain('1970')
-  fireEvent.click(screen.getAllByRole('button', { name: locale === 'en' ? 'View Boxplot generation task' : '查看箱线图生成任务' })[1])
+  fireEvent.click(screen.getAllByRole('button', { name: locale === 'en' ? 'View Chart generation task' : '查看图表生成任务' })[1])
   expect(props.onSelectTask).toHaveBeenCalledWith(legacyTaskFixture.id)
 })
 it.each(['zh-CN', 'en'] as const)('identifies local preparation in the task list without inventing an analysis setup in %s', async locale => {

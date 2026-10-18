@@ -1,0 +1,22 @@
+export const batch10SourceMessages:Record<string,string> = {
+ '本地投影任务':'Local projection task',
+ '请先提交本地计算并独立确认。':'Submit the local computation and approve it separately first.',
+ '请在任务中心完成已有投影确认。':'Complete the existing projection confirmation in the task center.' ,
+ '本地来源与外发代号对照':'Local source and outgoing alias mapping',
+ '摘要请用 F1/S1/D1 明确指向当前文件、工作表及整理版本；真实名称仅在本地对照。':'Use F1/S1/D1 in the summary to identify the current file, worksheet and prepared version. Real names stay in the local mapping.',
+ '来源识别候选':'Suggested source reference',
+ '来源引用已匹配，仍须人工确认':'Source reference matched; human confirmation is still required',
+ '未明确来源引用':'Source reference unspecified',
+ '来源引用存在歧义':'Source reference is ambiguous',
+ '引用指向其它材料':'Reference points to other materials',
+ '明确当前计算来源':'Clarify the current computational source',
+ '独立来源确认':'Independent source confirmation',
+ 'F1 当前文件 · S1 当前工作表 · D1 当前整理版本':'F1 Current file · S1 Current worksheet · D1 Current prepared version',
+ '已明确当前来源':'Current source clarified',
+ '请说明本次研究问题确实指向上方冻结来源；如需其它来源，请在下方补交新版本。':'Explain that this research question refers to the frozen source above. To use another source, supply a new version below.',
+ '来源澄清说明':'Source clarification',
+ '确认当前来源并重新检查':'Confirm current source and recheck',
+ '来源确认仅解决来源对应关系；重新检查通过后仍须独立批准分析计划。':'Source confirmation resolves the source reference only. After rechecking, the analysis plan still needs separate approval.',
+ '请选择明确来源后再确认。':'Select an explicit source before confirming.',
+ '规划外发材料已变更，请重新预览并确认。':'Outgoing planning material changed. Preview and confirm it again.'
+}

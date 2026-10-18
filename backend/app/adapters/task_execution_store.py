@@ -1,5 +1,6 @@
 """Short PostgreSQL transactions and fenced task execution/publication."""
 from dataclasses import dataclass
+from app.domain.statistics_execution.verification import local_numeric_node
 from datetime import timedelta, timezone
 import hashlib
 import json
@@ -76,14 +77,14 @@ class TaskExecutionStore:
         with self.connection(write=True) as db:
             ensure_schema_current(db)
             row = db.execute('SELECT * FROM tasks WHERE id=%s', (task_id,)).fetchone()
-            if (not row or row['task_type'] not in ('word_report', 'explanation', 'boxplot', 'parse_file', 'extract_dataset', 'prepare_dataset', 'review_ocr', 'analysis_plan')
+            if (not row or row['task_type'] not in ('word_report', 'explanation', 'boxplot', 'parse_file', 'extract_dataset', 'prepare_dataset', 'review_ocr', 'analysis_plan', 'analysis_recommendation', 'figure_projection', 'figure_workbench', 'figure_explanation', 'collection_word_report', 'statistics_compute')
                     or (task_type is not None and row['task_type'] != task_type)
                     or row['revision'] != task_revision):
                 return None
             task = dict(row)
             now = self.now(db)
             token = str(uuid4())
-            if task['status'] == 'running' and task['task_type'] in ('explanation', 'boxplot'):
+            if task['status'] == 'running' and task['task_type'] in ('explanation', 'boxplot', 'analysis_recommendation', 'figure_workbench', 'figure_explanation'):
                 updated = db.execute('''UPDATE task_attempts
                     SET lease_owner=%s,lease_expires_at=%s,heartbeat_at=%s
                     WHERE task_id=%s AND attempt_no=%s AND status='running' AND lease_owner IS NULL''',
@@ -145,7 +146,7 @@ class TaskExecutionStore:
             raise ValueError('Invalid task continuation delay.')
         with self.connection(write=True) as db:
             task = self.require_lease(db, lease)
-            if task['task_type'] not in ('explanation', 'boxplot'):
+            if task['task_type'] not in ('explanation', 'boxplot', 'analysis_recommendation', 'figure_workbench', 'figure_explanation'):
                 raise source_conflict()
             revision = task['revision']
             task.update(revision=revision + 1, updated_at=max(self.now(db), task['updated_at']), error_code=None)
@@ -164,7 +165,10 @@ class TaskExecutionStore:
         with self.connection(write=True) as db:
             task = self.require_lease(db, lease)
             code = safe_error_code(error_code) or 'internal_error'
-            if code != 'model_provider_unavailable' or task['task_type'] not in ('explanation', 'boxplot'):
+            if code == 'model_observation_expired':
+                self._wait_explanation(db, task, 'observation_expired', code)
+                return TaskStore.public_task(task)
+            if code != 'model_provider_unavailable' or task['task_type'] not in ('explanation', 'boxplot', 'analysis_recommendation', 'figure_workbench', 'figure_explanation'):
                 self._finish(db, task, 'failed', code)
                 return TaskStore.public_task(task)
             task['_retry_reason'] = 'temporary_provider_error'
@@ -190,6 +194,9 @@ class TaskExecutionStore:
 
     def sources(self, db, task):
         self.require_owner(db, task)
+        if task['task_type'] in ('figure_workbench','figure_explanation'):
+            from app.domain.figure_workbench.tasks import require_task_sources
+            return require_task_sources(self, db, task)
         snapshot = task['input_snapshot']
         try:
             if task['workflow_version'] != workflow_version(task['task_type'], snapshot):
@@ -203,6 +210,8 @@ class TaskExecutionStore:
             current = scoped.source_snapshot(db, project, request, directory=self.assets.directory)
             if not snapshots_match(current, snapshot):
                 raise source_conflict()
+            from app.domain.descriptive import verify_result
+            verify_result(DatasetTaskAssets(task['user_id'],self.config,self.assets.directory),task['project_id'],snapshot['file']['id'],snapshot['result'])
         except (KeyError, TypeError, ValueError) as exc:
             raise source_conflict() from exc
         from app.domain.external_processing import validate_frozen
@@ -210,7 +219,7 @@ class TaskExecutionStore:
             raise source_conflict()
         if snapshot.get('external_processing') is not None:
             validate_frozen(snapshot, task['task_type'], task['user_id'], snapshot['external_processing'])
-        return {key: snapshot[key] for key in ('project', 'result', 'figure', 'explanation', 'external_processing', 'source') if key in snapshot}
+        return {key: snapshot[key] for key in ('project', 'result', 'figure', 'explanation', 'external_processing', 'source', 'processing') if key in snapshot}
 
     def source_file(self, db, task):
         """Resolve current storage only after checking the immutable v1 identity.
@@ -239,6 +248,7 @@ class TaskExecutionStore:
             return self.dataset(task)
         return self.assets.original(self.source_file(db, task))
 
+    @local_numeric_node
     def load(self, lease):
         with self.connection() as db:
             task = self.require_lease(db, lease)
@@ -251,8 +261,10 @@ class TaskExecutionStore:
         png = self.assets.figure_png(snapshot['figure'])
         metadata = ReportStore.metadata(snapshot)
         report_id = str(uuid5(REPORT_NAMESPACE, lease.task_id))
+        from app.domain.artifact_contracts import artifact_language
+        title="analysis-report" if artifact_language(snapshot["result"])=="en" else "分析报告"
         metadata.update(id=report_id, created_at=task['created_at'].astimezone(timezone.utc).isoformat(),
-                        filename=f"分析报告-v{snapshot['result']['setup_revision']}-{report_id[:8]}.docx")
+                        filename=f"{title}-v{snapshot['result']['setup_revision']}-{report_id[:8]}.docx")
         return snapshot, metadata, png
 
     def load_explanation_task(self, lease):
@@ -272,6 +284,7 @@ class TaskExecutionStore:
             self.require_owner(db, task)
             return task
 
+    @local_numeric_node
     def load_boxplot(self, lease):
         from app.core.config import get_excel_settings
         from app.domain.boxplot_material import build_material
@@ -281,7 +294,21 @@ class TaskExecutionStore:
                 raise source_conflict()
             snapshot = self.sources(db, task)
             record = self.source_file(db, task)
-        if 'source' in task['input_snapshot']:
+        if snapshot['result'].get('result_type') in ('regression','roc','survival'):
+            from app.domain.modeling_material import load_input,build_material as modeling_material
+            data=load_input(DatasetTaskAssets(task['user_id'],self.config,self.assets.directory),task['project_id'],snapshot['result']['file_id'],snapshot['result'])
+            payload,expected=modeling_material(snapshot['result'],data['rows'],external=snapshot.get('external_processing'))
+        elif snapshot['result'].get('result_type')=='group_comparison':
+            from app.domain.comparison.service import load_comparison_input
+            from app.domain.comparison_material import build_material as comparison_material
+            data=load_comparison_input(DatasetTaskAssets(task['user_id'],self.config,self.assets.directory),task['project_id'],snapshot['result']['file_id'],snapshot['result'])
+            payload,expected=comparison_material(snapshot['result'],data['groups'],external=snapshot.get('external_processing'))
+        elif snapshot['result'].get('result_type')=='correlation':
+            from app.domain.correlation.service import load_correlation_input
+            from app.domain.correlation_material import build_material as correlation_material
+            data=load_correlation_input(DatasetTaskAssets(task['user_id'],self.config,self.assets.directory),task['project_id'],snapshot['result']['file_id'],snapshot['result'])
+            payload,expected=correlation_material(snapshot['result'],data['rows'],external=snapshot.get('external_processing'))
+        elif 'source' in task['input_snapshot']:
             record, _, sheet = self.dataset(task)
             payload, expected = build_material(snapshot['result'], record, None, get_excel_settings(),
                 external=snapshot.get('external_processing'), dataset_sheet=sheet)
@@ -301,8 +328,8 @@ class TaskExecutionStore:
         from app.adapters.openai_plot import PROMPT_VERSION
         with self.connection() as db:
             task = self.require_lease(db, lease)
-            row = db.execute('SELECT figure_json FROM figures WHERE analysis_run_id=%s AND renderer_version=%s',
-                             (task['input_snapshot']['result']['id'], PROMPT_VERSION)).fetchone()
+            row = db.execute('SELECT figure_json FROM figures WHERE analysis_run_id=%s AND renderer_version=%s AND figure_config_version_id IS NULL',
+                             (task['input_snapshot']['result']['id'], task['input_snapshot']['versions']['figure'])).fetchone()
             try:
                 return json.loads(row['figure_json']) if row else None
             except (TypeError, ValueError) as exc:
@@ -312,6 +339,8 @@ class TaskExecutionStore:
     def _validate_boxplot_figure(snapshot, figure, content, expected):
         from app.adapters.openai_plot import PROMPT_VERSION, validate_output
         result = snapshot['result']
+        from app.domain.artifact_contracts import artifact_language,figure_renderer
+        PROMPT_VERSION=figure_renderer(result)
         try:
             if snapshot.get('external_processing') is not None and figure.get('external_processing') != snapshot['external_processing']:
                 raise source_conflict()
@@ -319,7 +348,7 @@ class TaskExecutionStore:
                     or figure['source_sha256'] != result['source_sha256']
                     or figure.get('source') != result.get('source')
                     or figure['setup_revision'] != result['setup_revision']
-                    or figure['language'] != 'zh-CN' or figure['figure_number'] != 1
+                    or figure['language'] != artifact_language(result) or figure['figure_number'] != 1
                     or figure['engine']['id'] != PROMPT_VERSION
                     or figure['engine']['provider'] != 'openai_code_interpreter'
                     or figure['verification']['status'] != 'matched'
@@ -336,7 +365,8 @@ class TaskExecutionStore:
     def _require_boxplot_provenance(db, task, figure, payload):
         from app.adapters.models.openai_responses import canonical_payload
         from app.domain.external_material import plot_instructions
-        instructions = plot_instructions(task['input_snapshot'].get('external_processing'))
+        instructions = plot_instructions(task['input_snapshot'].get('external_processing'),
+                                         result=task['input_snapshot']['result'])
         from app.domain.model_usage.gateway import input_digest
         call = db.execute("SELECT * FROM model_calls WHERE task_id=%s AND call_key='boxplot:v1'",
                           (task['id'],)).fetchone()
@@ -368,6 +398,7 @@ class TaskExecutionStore:
         return (self.assets.figures_dir / (expected_id + '.png'),
                 directory / (basename + '.candidate'), directory / (basename + '.part'))
 
+    @local_numeric_node
     def register_figure_candidate(self, lease, snapshot, figure, content, expected, payload):
         saved = {**figure, 'id': str(uuid5(FIGURE_NAMESPACE, lease.task_id)),
                  'sha256': hashlib.sha256(content).hexdigest(), 'size_bytes': len(content)}
@@ -400,14 +431,16 @@ class TaskExecutionStore:
             os.fsync(stream.fileno())
         os.replace(partial, staged)
 
+    @local_numeric_node
     def complete_boxplot(self, lease, snapshot, payload, expected, *, cached=None):
-        from app.adapters.openai_plot import PROMPT_VERSION
+        from app.domain.artifact_contracts import figure_renderer
+        PROMPT_VERSION=figure_renderer(snapshot['result'])
         with self.connection(write=True) as db:
             task = self.require_lease(db, lease)
             if task['task_type'] != 'boxplot' or self.sources(db, task) != snapshot:
                 raise source_conflict()
             self.verify_input_asset(db, task)
-            existing = db.execute('SELECT figure_json FROM figures WHERE analysis_run_id=%s AND renderer_version=%s',
+            existing = db.execute('SELECT figure_json FROM figures WHERE analysis_run_id=%s AND renderer_version=%s AND figure_config_version_id IS NULL',
                                   (snapshot['result']['id'], PROMPT_VERSION)).fetchone()
             if existing:
                 saved = json.loads(existing['figure_json'])
@@ -448,6 +481,7 @@ class TaskExecutionStore:
             self._finish(db, task, 'succeeded', None)
             return TaskStore.public_task(task)
 
+    @local_numeric_node
     def load_explanation(self, lease):
         from app.domain.explanation_content import build_payload
         with self.connection() as db:
@@ -478,7 +512,7 @@ class TaskExecutionStore:
             task = self.require_lease(db, lease)
             row = db.execute('''SELECT explanation_json FROM explanations
                 WHERE figure_id=%s AND engine_version=%s''',
-                (task['input_snapshot']['figure']['id'], EXPLANATION_VERSION)).fetchone()
+                (task['input_snapshot']['figure']['id'], task['input_snapshot']['versions']['explanation'])).fetchone()
             if not row:
                 return None
             try:
@@ -486,8 +520,10 @@ class TaskExecutionStore:
             except (TypeError, ValueError) as exc:
                 raise source_conflict() from exc
 
+    @local_numeric_node
     def complete_explanation(self, lease, snapshot, explanation):
-        from app.domain.explanation_content import VERSION as EXPLANATION_VERSION
+        from app.domain.artifact_contracts import explanation_version
+        EXPLANATION_VERSION=explanation_version(snapshot['result'])
         from app.domain.reports import validate_sources
         with self.connection(write=True) as db:
             task = self.require_lease(db, lease)
@@ -517,7 +553,7 @@ class TaskExecutionStore:
             return TaskStore.public_task(task)
 
     def wait_explanation(self, lease, reason_code, error_code):
-        if reason_code not in ('submission_unknown', 'budget_exceeded'):
+        if reason_code not in ('submission_unknown', 'budget_exceeded', 'observation_expired'):
             raise ValueError('Invalid explanation waiting reason.')
         with self.connection(write=True) as db:
             task = self.require_lease(db, lease)
@@ -556,6 +592,7 @@ class TaskExecutionStore:
             raise
         return path
 
+    @local_numeric_node
     def complete(self, lease, snapshot, report, staged, content):
         with self.connection(write=True) as db:
             task = self.require_lease(db, lease)
@@ -565,7 +602,8 @@ class TaskExecutionStore:
             # These final reads close source races during rendering; no model or broker I/O.
             self.verify_input_asset(db, task)
             self.assets.figure_png(snapshot['figure'])
-            existing = ReportStore.cached(db, snapshot['explanation']['id'])
+            from app.domain.artifact_contracts import saved_report_version
+            existing = ReportStore.cached(db, snapshot['explanation']['id'], saved_report_version(snapshot['explanation']))
             if existing:
                 self.reports.content(existing)
                 if existing.get('source') != snapshot['result'].get('source'):
@@ -587,7 +625,7 @@ class TaskExecutionStore:
                 db.execute('''INSERT INTO reports
                     (id,analysis_run_id,explanation_id,renderer_version,report_json,input_json)
                     VALUES (%s,%s,%s,%s,%s,%s)''',
-                    (saved['id'], snapshot['result']['id'], snapshot['explanation']['id'], VERSION,
+                    (saved['id'], snapshot['result']['id'], snapshot['explanation']['id'], saved['engine']['id'],
                      json.dumps(saved, ensure_ascii=False, allow_nan=False),
                      json.dumps(snapshot, ensure_ascii=False, allow_nan=False)))
                 db.execute('UPDATE projects SET updated_at=GREATEST(updated_at,%s) WHERE id=%s',
@@ -615,24 +653,69 @@ class TaskExecutionStore:
         from app.domain.tasks.waits import resolve_open_wait
         resolve_open_wait(db, task, status='superseded')
 
-    def fail(self, lease, error_code):
+    def fail(self, lease, error_code, *, execution_receipt=None):
+        if execution_receipt is not None:
+            from app.domain.statistics_execution.verification import validate_statistics_receipt
+            validate_statistics_receipt(execution_receipt)
+            if execution_receipt['status'] != 'failed': raise source_conflict()
         with self.connection(write=True) as db:
             task = self.require_lease(db, lease)
+            if execution_receipt is not None: task['execution_receipt'] = execution_receipt
             self._finish(db, task, 'failed', error_code)
+            return TaskStore.public_task(task)
+
+    def record_plot_mismatch(self, lease, *, differences, manifest, provenance):
+        """Persist bounded numerical mismatch evidence and fail in the same transaction."""
+        from psycopg.types.json import Jsonb
+        def scalar(value):
+            if value is None or type(value) in (bool,int): return value
+            if type(value) is float:
+                from math import isfinite
+                return value if isfinite(value) else str(value)
+            if isinstance(value,str): return value[:500]
+            return '[structured value omitted]'
+        safe_differences=[]
+        for difference in list(differences)[:100]:
+            if not isinstance(difference,dict): continue
+            path=str(difference.get('path',''))[:200]
+            if any(word in path.lower() for word in ('rows','values','payload','input','research')): continue
+            safe_differences.append(dict(path=path,expected=scalar(difference.get('expected')),
+                actual=scalar(difference.get('actual')),reason=scalar(difference.get('reason'))))
+        manifest=manifest if isinstance(manifest,dict) else {}
+        summary={k:scalar(manifest[k]) for k in ('schema_version','task_type','language','method',
+            'figure_kind','correlation_method','mode') if k in manifest}
+        statistics=manifest.get('statistics')
+        if isinstance(statistics,dict):
+            summary['statistics']={k:scalar(statistics[k]) for k in ('n','coefficient') if k in statistics}
+        with self.connection(write=True) as db:
+            task=self.require_lease(db,lease);self.require_owner(db,task)
+            if task['task_type']!='boxplot': raise source_conflict()
+            call=db.execute("SELECT * FROM model_calls WHERE task_id=%s AND call_key='boxplot:v1'",(task['id'],)).fetchone()
+            if not call or not call['provider_response_id']: raise source_conflict()
+            evidence=dict(schema_version=1,status='mismatched',differences=safe_differences,manifest=summary,
+                provenance=dict(model_call_id=call['id'],response_id=call['provider_response_id'],
+                    model=call['model'],model_input_digest=call['input_digest'],
+                    container_id=(call.get('provider_state') or {}).get('container_id')),
+                recorded_at=self.now(db).astimezone(timezone.utc).isoformat())
+            if isinstance(provenance,dict):
+                evidence['provenance'].update({key:scalar(provenance[key])
+                    for key in ('png_file_id','result_file_id') if key in provenance})
+            db.execute('UPDATE tasks SET verification_failure=%s WHERE id=%s',(Jsonb(evidence),task['id']))
+            self._finish(db,task,'failed','plot_result_mismatch')
             return TaskStore.public_task(task)
 
     def recover_expired(self, limit=20):
         with self.connection(write=True) as db:
             rows = db.execute('''SELECT t.* FROM tasks t JOIN task_attempts a
                 ON a.task_id=t.id AND a.attempt_no=t.current_attempt
-                WHERE t.task_type IN ('word_report','explanation','boxplot','parse_file','extract_dataset','prepare_dataset', 'review_ocr', 'analysis_plan') AND t.status='running' AND a.status='running'
+                WHERE t.task_type IN ('word_report','explanation','boxplot','parse_file','extract_dataset','prepare_dataset', 'review_ocr', 'analysis_plan', 'analysis_recommendation', 'figure_projection', 'figure_workbench', 'figure_explanation', 'collection_word_report', 'statistics_compute') AND t.status='running' AND a.status='running'
                 AND a.lease_expires_at<=clock_timestamp()
                 ORDER BY a.lease_expires_at,t.id LIMIT %s''', (limit,)).fetchall()
             for row in rows:
                 task = dict(row)
-                if task['task_type'] == 'boxplot':
+                if task['task_type'] in ('boxplot','figure_workbench'):
                     call = db.execute("""SELECT status,provider_response_id,provider_state,error_code FROM model_calls
-                        WHERE task_id=%s AND call_key='boxplot:v1'""", (task['id'],)).fetchone()
+                        WHERE task_id=%s AND call_key=%s""", (task['id'], 'figure_workbench:v1' if task['task_type']=='figure_workbench' else 'boxplot:v1')).fetchone()
                     if call and not call['provider_response_id']:
                         if call['status'] == 'failed' and call['error_code'] == 'plot_container_expired':
                             self._finish(db, task, 'failed', 'plot_container_expired')
@@ -643,9 +726,9 @@ class TaskExecutionStore:
                         if uncertain:
                             self._wait_explanation(db, task, 'submission_unknown', 'model_submission_unknown')
                             continue
-                if task['task_type'] == 'explanation':
+                if task['task_type'] in ('explanation','analysis_recommendation','figure_explanation'):
                     call = db.execute("""SELECT status,provider_response_id FROM model_calls
-                        WHERE task_id=%s AND call_key='explanation:v1'""", (task['id'],)).fetchone()
+                        WHERE task_id=%s AND call_key=%s""", (task['id'],'analysis_recommendation:v1' if task['task_type']=='analysis_recommendation' else 'figure_explanation:v1' if task['task_type']=='figure_explanation' else 'explanation:v1')).fetchone()
                     if (call and not call['provider_response_id']
                             and call['status'] in ('submitting', 'submission_unknown')):
                         self._wait_explanation(db, task, 'submission_unknown', 'model_submission_unknown')
@@ -678,16 +761,33 @@ class TaskExecutionStore:
                     from app.domain.file_parsing import sync_file_status
                     sync_file_status(db, task, 'queued')
                 TaskStore.enqueue(db, task)
-            return len(rows) + self._recover_boxplot_receipts(db, limit)
+            return len(rows) + self._recover_boxplot_receipts(db, limit) + self._recover_recommendation_receipts(db, limit)
+
+    def _recover_recommendation_receipts(self, db, limit):
+        rows=db.execute("""SELECT t.* FROM tasks t JOIN model_calls c ON c.task_id=t.id
+            JOIN projects p ON p.id=t.project_id AND p.owner_id=t.user_id
+            JOIN users u ON u.id=t.user_id AND u.active
+            WHERE t.task_type IN ('analysis_recommendation','figure_explanation') AND t.status='waiting_confirmation'
+                AND t.reason_code='submission_unknown' AND c.call_key=CASE WHEN t.task_type='figure_explanation' THEN 'figure_explanation:v1' ELSE 'analysis_recommendation:v1' END
+                AND c.user_id=t.user_id AND c.project_id=t.project_id AND c.provider_response_id IS NOT NULL
+            ORDER BY t.updated_at,t.id LIMIT %s""",(limit,)).fetchall()
+        from app.domain.tasks.waits import resolve_open_wait
+        for row in rows:
+            task=dict(row);previous=task['revision']
+            task.update(status='queued',revision=previous+1,reason_code='confirmation_received',error_code=None,
+                updated_at=max(self.now(db),task['updated_at']))
+            TaskStore.update_task(db,task,previous);resolve_open_wait(db,task)
+            TaskStore.append_event(db,task,'requeued');TaskStore.enqueue(db,task)
+        return len(rows)
 
     def _recover_boxplot_receipts(self, db, limit):
         """Resume only when a late durable receipt has removed submission uncertainty."""
         rows = db.execute('''SELECT t.*,c.provider_response_id AS recovery_response_id,
                 c.status AS recovery_call_status,c.error_code AS recovery_error_code
-            FROM tasks t JOIN model_calls c ON c.task_id=t.id AND c.call_key='boxplot:v1'
+            FROM tasks t JOIN model_calls c ON c.task_id=t.id AND c.call_key=CASE WHEN t.task_type='figure_workbench' THEN 'figure_workbench:v1' ELSE 'boxplot:v1' END
             JOIN projects p ON p.id=t.project_id AND p.owner_id=t.user_id
             JOIN users u ON u.id=t.user_id AND u.active
-            WHERE t.task_type='boxplot' AND t.status='waiting_confirmation'
+            WHERE t.task_type IN ('boxplot','figure_workbench') AND t.status='waiting_confirmation'
               AND t.reason_code='submission_unknown' AND c.user_id=t.user_id AND c.project_id=t.project_id
               AND (c.provider_response_id IS NOT NULL
                    OR (c.status='submitting' AND c.provider_state->>'phase' IN ('container_ready','file_ready'))

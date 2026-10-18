@@ -94,6 +94,8 @@ app.include_router(file_lifecycle_router)
 app.include_router(ocr_review_router)
 from app.api.parsed_evidence import router as parsed_evidence_router
 app.include_router(parsed_evidence_router)
+from app.api.external_evidence import router as external_evidence_router
+app.include_router(external_evidence_router)
 
 
 @app.get('/api/v1/ai/config')
@@ -150,3 +152,12 @@ def health():
         "status": "ok",
         "service": "paperassist-system",
     }
+
+from app.api.analysis_recommendations import router as recommendation_router
+app.include_router(recommendation_router)
+
+from app.api.report_collections import router as report_collections_router
+app.include_router(report_collections_router)
+
+from app.api.figure_workbench import router as figure_workbench_router
+app.include_router(figure_workbench_router)

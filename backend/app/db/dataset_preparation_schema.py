@@ -15,8 +15,8 @@ def define_dataset_preparation_tables(metadata):
         sa.UniqueConstraint('task_id','seq',name='task_checkpoints_sequence_key'),
         sa.UniqueConstraint('task_id','id',name='task_checkpoints_identity_key'),
         sa.CheckConstraint('seq >= 1',name='task_checkpoints_sequence_check'),
-        sa.CheckConstraint("node IN ('prepare_preview','check','await_confirmation','approve','revise','publish','done')",name='task_checkpoints_node_check'),
-        sa.CheckConstraint("next_node IN ('prepare_preview','check','await_confirmation','publish','done')",name='task_checkpoints_next_check'),
+        sa.CheckConstraint("node IN ('prepare_preview','check','await_confirmation','approve','revise','publish','done','await_input')",name='task_checkpoints_node_check'),
+        sa.CheckConstraint("next_node IN ('prepare_preview','check','await_confirmation','publish','done','await_input')",name='task_checkpoints_next_check'),
         sa.CheckConstraint("jsonb_typeof(state_json)='object'",name='task_checkpoints_state_check'))
     decisions = sa.Table('dataset_preparation_decisions', metadata,
         sa.Column('id',sa.Text,primary_key=True),

@@ -9,6 +9,7 @@ from openpyxl.utils.cell import get_column_letter
 from app.domain.dataset_analysis import binary64, decimal_label
 from app.domain.dataset_preparation.contracts import PreparedSheet
 from app.domain.datasets.contracts import rectangle
+from app.domain.dataset_rows import source_rows
 from app.domain.dataset_profile.contracts import PAGE_SIZE
 from app.domain.dataset_profile.temporal import candidate_kind, temporal_key
 from fastapi import HTTPException
@@ -85,7 +86,7 @@ def numeric_profile(cells):
 
 
 class ProfileScan:
-    def __init__(self, sheet):
+    def __init__(self, sheet, *, numeric_calculator=None, selected_columns=None):
         self.sheet = sheet
         prepared = isinstance(sheet, PreparedSheet)
         if prepared:
@@ -100,11 +101,17 @@ class ProfileScan:
             headers = {c.column: c.value for c in sheet.cells if c.row == 1}
             fields = [(c, str(headers[c]) if headers.get(c) not in (None, '') else f'未命名列 {get_column_letter(c)}',
                 dict(status='unconfirmed', value=None)) for c in range(left, right + 1)]
-        self.record_count = max(0, self.end - self.start + 1)
+        if selected_columns is not None:
+            chosen=set(selected_columns)
+            fields=[field for field in fields if get_column_letter(field[0]) in chosen]
+        numeric_calculator=numeric_calculator or numeric_profile
+        self.source_rows = source_rows(sheet)
+        active = set(self.source_rows)
+        self.record_count = len(self.source_rows)
         self.columns = {c: {} for c, _, _ in fields}
         rows = defaultdict(list)
         for cell in sheet.cells:
-            if self.start <= cell.row <= self.end and cell.column in self.columns:
+            if cell.row in active and cell.column in self.columns:
                 self.columns[cell.column][cell.row] = cell
                 if not missing(cell):
                     rows[cell.row].append((cell.column, typed_key(cell)))
@@ -122,7 +129,7 @@ class ProfileScan:
         for column, name, unit in fields:
             cells = sorted((c for c in self.columns[column].values() if not missing(c)), key=lambda c: c.row)
             counts = Counter(c.kind for c in cells)
-            numeric, outliers, precision = numeric_profile([c for c in cells if c.kind == 'number'])
+            numeric, outliers, precision = numeric_calculator([c for c in cells if c.kind == 'number'])
             category_counts = Counter(typed_key(c) for c in cells if c.kind in ('text', 'boolean'))
             top = category_counts.most_common(10)
             categories = dict(distinct_count=len(category_counts), top=[dict(kind=k, value=v, count=n) for (k, v), n in top],
@@ -166,7 +173,7 @@ class ProfileScan:
             total = self.record_count - sum(not missing(cell) for cell in cells.values())
             items, seen = [], 0
             # Only the requested column is scanned, and only one page allocated.
-            for row in range(self.start, self.end + 1):
+            for row in self.source_rows:
                 if missing(cells.get(row)):
                     if offset <= seen < offset + PAGE_SIZE:
                         items.append(item(row, column, cells.get(row)))

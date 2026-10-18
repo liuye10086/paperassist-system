@@ -43,7 +43,7 @@ def exact_legacy_artifact(db, row):
         if not isinstance(response_id, str) or not response_id.strip():
             return None
         if row['kind'] == 'plot':
-            candidate = db.execute('SELECT * FROM figures WHERE analysis_run_id=%s AND renderer_version=%s',
+            candidate = db.execute('SELECT * FROM figures WHERE analysis_run_id=%s AND renderer_version=%s AND figure_config_version_id IS NULL',
                 (row['analysis_run_id'], row['renderer_version'])).fetchone()
             if not candidate:
                 return None

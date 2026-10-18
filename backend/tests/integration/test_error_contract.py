@@ -36,10 +36,10 @@ def test_frontend_catalog_covers_public_codes():
     for module in (root / 'backend/app').rglob('*.py'):
         for node in ast.walk(ast.parse(module.read_text(encoding='utf-8-sig'))):
             if (isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
-                    and node.func.id in {'fail', 'StorageError', 'PlotError'} and node.args
+                    and node.func.id in {'fail', 'StorageError', 'PlotError', 'NumericError', 'CorrelationError', 'ComparisonError'} and node.args
                     and isinstance(node.args[0], ast.Constant) and isinstance(node.args[0].value, str)):
                 codes.add(node.args[0].value)
-    entries = set(re.findall(r'^  ([a-z][a-z0-9_]+): \{', catalog, re.MULTILINE))
+    entries = set(re.findall(r'^[ \t]*([a-z][a-z0-9_]+):[ \t]*\{', catalog, re.MULTILINE))
     assert codes <= entries, f'Missing translations: {sorted(codes - entries)}'
     assert codes <= PUBLIC_CODES, f'Codes rejected by the public envelope: {sorted(codes - PUBLIC_CODES)}'
     assert PUBLIC_CODES <= entries

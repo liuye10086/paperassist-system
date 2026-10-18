@@ -29,7 +29,9 @@ def test_0015_preserves_every_old_file_value_and_task_snapshot(postgres_schema, 
         new_file = dict(db.execute('SELECT * FROM files').fetchone())
         assert {key: new_file[key] for key in old_file} == old_file
         assert new_file['parse_revision'] == 0 and new_file['upload_item_id'] is None
-        assert dict(db.execute('SELECT * FROM tasks').fetchone()) == old_task
+        current_task=dict(db.execute('SELECT * FROM tasks').fetchone())
+        assert current_task.pop('verification_failure') is None
+        assert current_task == old_task
         assert all(index in inspect(db.raw_connection).get_indexes('files', schema=postgres_schema.schema) for index in old_indexes)
         assert db.execute('SELECT count(*) AS n FROM file_parse_results').fetchone()['n'] == 0
         result = audit_database(db)

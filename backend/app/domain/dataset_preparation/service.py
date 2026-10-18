@@ -77,11 +77,15 @@ class PreparationState(BaseModel):
 
 def validate_snapshot(task):
     try:
-        snapshot = PreparationSnapshot.model_validate(task['input_snapshot']).model_dump(mode='json')
-        if (task['task_type'] != 'prepare_dataset' or task['workflow_version'] != WORKFLOW_VERSION
+        quality = task.get('workflow_version') in ('dataset_preparation_v2','dataset_preparation_v3')
+        from app.domain.dataset_preparation.derivation_workflow import DerivationSnapshot
+        from app.domain.dataset_preparation.quality_workflow import QualitySnapshot
+        snapshot = (DerivationSnapshot if task.get('workflow_version')=='dataset_preparation_v3' else QualitySnapshot if quality else PreparationSnapshot).model_validate(task['input_snapshot']).model_dump(mode='json')
+        material = dict(file_id=snapshot['source']['file_id'],recipe=snapshot['recipe'])
+        material['base_dataset_id' if quality else 'dataset_id'] = snapshot['source']['dataset_id']
+        if (task['task_type'] != 'prepare_dataset' or task['workflow_version'] != snapshot['workflow_version']
                 or snapshot['project_id'] != task['project_id'] or type(task['input_snapshot']['schema_version']) is not int
-                or task['input_digest'] != request_digest(dict(file_id=snapshot['source']['file_id'],
-                    dataset_id=snapshot['source']['dataset_id'],recipe=snapshot['recipe']))):
+                or task['input_digest'] != request_digest(material)):
             raise ValueError('Preparation identity changed.')
         return snapshot
     except (KeyError,TypeError,ValueError) as exc:
@@ -90,7 +94,27 @@ def validate_snapshot(task):
 
 def preparation_input_version(task):
     snapshot = validate_snapshot(task)
-    return dict(kind='dataset_preparation',source=snapshot['source'],workflow_version=WORKFLOW_VERSION)
+    return dict(kind='dataset_preparation',source=snapshot['source'],workflow_version=snapshot['workflow_version'])
+
+
+def state_model(task):
+    if task.get('workflow_version') == 'dataset_preparation_v3':
+        from app.domain.dataset_preparation.derivation_workflow import DerivationState
+        return DerivationState
+    if task.get('workflow_version') == 'dataset_preparation_v2':
+        from app.domain.dataset_preparation.quality_workflow import QualityState
+        return QualityState
+    return PreparationState
+
+
+def decision_model(task):
+    if task.get('workflow_version') == 'dataset_preparation_v3':
+        from app.domain.dataset_preparation.derivation_workflow import DerivationDecisionRequest
+        return DerivationDecisionRequest
+    if task.get('workflow_version') == 'dataset_preparation_v2':
+        from app.domain.dataset_preparation.quality_workflow import QualityDecisionRequest
+        return QualityDecisionRequest
+    return PreparationDecisionRequest
 
 
 def candidate_id(task_id):
@@ -110,7 +134,7 @@ def require_key(key):
 def latest_checkpoint(db,task):
     row = db.execute('SELECT * FROM task_checkpoints WHERE task_id=%s ORDER BY seq DESC LIMIT 1',(task['id'],)).fetchone()
     try:
-        state = PreparationState.model_validate(row['state_json']).model_dump(mode='json')
+        state = state_model(task).model_validate(row['state_json']).model_dump(mode='json')
         if state['input_version'] != preparation_input_version(task):
             raise ValueError('Checkpoint input changed.')
         if state['candidate'] and state['candidate']['id'] != candidate_id(task['id']):
@@ -134,12 +158,12 @@ def require_approval(db,task,state):
     decision = db.execute('SELECT * FROM dataset_preparation_decisions WHERE id=%s AND task_id=%s',
         (state['decision_id'],task['id'])).fetchone()
     try:
-        request = PreparationDecisionRequest.model_validate(decision['request_json']).model_dump(mode='json')
+        request = decision_model(task).model_validate(decision['request_json']).model_dump(mode='json')
         reviewed = db.execute('SELECT * FROM task_checkpoints WHERE id=%s AND task_id=%s',
             (decision['checkpoint_id'],task['id'])).fetchone()
         wait = db.execute('SELECT * FROM task_waits WHERE id=%s AND task_id=%s',
             (decision['wait_id'],task['id'])).fetchone()
-        reviewed_state = PreparationState.model_validate(reviewed['state_json']).model_dump(mode='json')
+        reviewed_state = state_model(task).model_validate(reviewed['state_json']).model_dump(mode='json')
         if (decision['operation'] != 'approve' or request['operation'] != 'approve'
                 or decision['user_id'] != task['user_id'] or decision['project_id'] != task['project_id']
                 or request['input_version'] != preparation_input_version(task)
@@ -232,6 +256,12 @@ class DatasetPreparationService:
             checkpoint = latest_checkpoint(db,task)
             wait = get_open_wait(db,task)
             result_row = db.execute('SELECT id FROM prepared_dataset_versions WHERE task_id=%s',(task_id,)).fetchone()
+        if task['workflow_version'] == 'dataset_preparation_v3':
+            from app.domain.dataset_preparation.derivation_service import DerivationPreparationService
+            return DerivationPreparationService(self.assets).get_task(task_id)
+        if task['workflow_version'] == 'dataset_preparation_v2':
+            from app.domain.dataset_preparation.quality_service import QualityPreparationService
+            return QualityPreparationService(self.assets).get_task(task_id)
         self.require_raw(snapshot['source'],task['project_id'])
         _,obj = self.read_candidate(task,checkpoint)
         result = self.get_version(task['project_id'],snapshot['source']['file_id'],result_row['id']) if result_row else None
@@ -244,7 +274,15 @@ class DatasetPreparationService:
 
     def decide(self,task_id,request,key):
         require_key(key)
-        request = PreparationDecisionRequest.model_validate(request.model_dump() if isinstance(request,PreparationDecisionRequest) else request)
+        with self.store.connection() as db:
+            task = self.store.require_task(db,task_id)
+        if task['workflow_version'] == 'dataset_preparation_v3' and type(self) is DatasetPreparationService:
+            from app.domain.dataset_preparation.derivation_service import DerivationPreparationService
+            return DerivationPreparationService(self.assets).decide(task_id,request,key)
+        if task['workflow_version'] == 'dataset_preparation_v2' and type(self) is DatasetPreparationService:
+            from app.domain.dataset_preparation.quality_service import QualityPreparationService
+            return QualityPreparationService(self.assets).decide(task_id,request,key)
+        request = decision_model(task).model_validate(request.model_dump() if isinstance(request,BaseModel) else request)
         material = request.model_dump(mode='json')
         digest = request_digest(material)
         with self.store.connection(write=True) as db:
@@ -268,14 +306,27 @@ class DatasetPreparationService:
                     or wait['input_version'] != material['input_version']):
                 raise StorageError('task_revision_conflict','待确认内容已更新，请重新读取。',409)
             _,sheet = self.require_raw(snapshot['source'],task['project_id'])
-            self.read_candidate(task,checkpoint)
+            _, candidate = self.read_candidate(task,checkpoint)
             state = dict(checkpoint['state_json'])
             decision_id = str(uuid4())
             if request.operation == 'revise':
-                validate_recipe(sheet,request.recipe)
+                if task['workflow_version'] == 'dataset_preparation_v3':
+                    from app.domain.dataset_preparation.filter_transform import validate_filter_recipe
+                    from app.domain.dataset_preparation.quality_transform import validate_quality_recipe
+                    from app.domain.dataset_preparation.filter_contracts import FilterRecipe
+                    if (snapshot['operation']=='population_filter') != isinstance(request.recipe,FilterRecipe):
+                        raise StorageError('preparation_invalid','修订不得更换操作类型。',422)
+                    (validate_filter_recipe if snapshot['operation']=='population_filter' else validate_quality_recipe)(sheet,request.recipe)
+                elif task['workflow_version'] == 'dataset_preparation_v2':
+                    from app.domain.dataset_preparation.quality_transform import validate_quality_recipe
+                    validate_quality_recipe(sheet,request.recipe)
+                else:
+                    validate_recipe(sheet,request.recipe)
                 state.update(recipe=material['recipe'],recipe_revision=state['recipe_revision']+1,candidate=None,decision_id=None)
                 next_node = 'prepare_preview'
             else:
+                if task['workflow_version'] in ('dataset_preparation_v2','dataset_preparation_v3') and (candidate is None or candidate.sheet.row_count == 0):
+                    raise StorageError('preparation_invalid','当前策略排除了全部记录，请修订后再确认。',422)
                 state['decision_id'] = decision_id
                 next_node = 'publish'
             previous_revision = task['revision']
@@ -300,6 +351,12 @@ class DatasetPreparationService:
             task = self.store.require_task(db,task_id)
             validate_snapshot(task)
             checkpoint = latest_checkpoint(db,task)
+        if task['workflow_version'] == 'dataset_preparation_v3' and type(self) is DatasetPreparationService:
+            from app.domain.dataset_preparation.derivation_service import DerivationPreparationService
+            return DerivationPreparationService(self.assets).preview_download(task_id)
+        if task['workflow_version'] == 'dataset_preparation_v2' and type(self) is DatasetPreparationService:
+            from app.domain.dataset_preparation.quality_service import QualityPreparationService
+            return QualityPreparationService(self.assets).preview_download(task_id)
         self.require_raw(preparation_input_version(task)['source'],task['project_id'])
         content,_ = self.read_candidate(task,checkpoint)
         if content is None:
@@ -318,6 +375,12 @@ class DatasetPreparationService:
             snapshot = validate_snapshot(task)
             checkpoint = latest_checkpoint(db,task)
             require_approval(db,task,checkpoint['state_json'])
+        if task['workflow_version'] == 'dataset_preparation_v3':
+            from app.domain.dataset_preparation.derivation_service import DerivationPreparationService
+            return DerivationPreparationService(self.assets).load_derivation_version(project,file,id)
+        if task['workflow_version'] == 'dataset_preparation_v2':
+            from app.domain.dataset_preparation.quality_service import QualityPreparationService
+            return QualityPreparationService(self.assets).load_quality_version(project,file,id)
         self.require_raw(snapshot['source'],project)
         state = checkpoint['state_json']
         content,obj = self.objects.read(row)
@@ -334,6 +397,12 @@ class DatasetPreparationService:
 
     @staticmethod
     def version_summary(project,row,obj):
+        if obj.schema_version == 3:
+            from app.domain.dataset_preparation.derivation_service import DerivationPreparationService
+            return DerivationPreparationService.version_summary(project,row,obj)
+        if obj.schema_version == 2:
+            from app.domain.dataset_preparation.quality_service import quality_version_summary
+            return quality_version_summary(project,row,obj)
         prefix = '/api/v1/projects/{}/files/{}/prepared-dataset-versions/{}'.format(*[quote(str(v),safe='') for v in (project,row['file_id'],row['id'])])
         parent_source = obj.parent_source.model_dump(mode='json')
         return dict(id=row['id'],file_id=row['file_id'],parent_dataset_id=row['parent_dataset_id'],
@@ -358,10 +427,19 @@ class DatasetPreparationService:
     def rows(self,project,file,id,start_row=None,limit=20):
         from openpyxl.utils.cell import range_boundaries
         row,_,obj = self.load_version(project,file,id)
-        _,first,_,last = range_boundaries(obj.recipe.data_range)
+        _,first,_,last = range_boundaries(obj.sheet.data_range)
         start = first if start_row is None else start_row
         if type(start) is not int or not first<=start<=100000 or type(limit) is not int or limit != 20:
             raise StorageError('task_input_invalid','整理数据行查询参数无效。',422)
+        if obj.schema_version in (2,3):
+            active = [r for r in obj.sheet.active_source_rows if r >= start]
+            selected = active[:limit]
+            cells = {}
+            for cell in obj.sheet.cells:
+                if cell.row in selected: cells.setdefault(cell.row,[]).append(cell.model_dump(mode='json'))
+            return dict(dataset=self.version_summary(project,row,obj),start_row=start,limit=limit,total_rows=obj.sheet.row_count,
+                has_more=len(active)>limit,next_start_row=active[limit] if len(active)>limit else None,
+                rows=[dict(row=r,cells=cells.get(r,[])) for r in selected])
         end = min(last,start+limit-1)
         cells = {}
         for cell in obj.sheet.cells:

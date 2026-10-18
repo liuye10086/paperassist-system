@@ -14,11 +14,14 @@ def changed(message='整理数据对象合同或完整性核验失败。'):
 
 
 class PreparedDatasetObjects:
+    prefix = 'prepared-datasets'
+    max_bytes = MAX_OBJECT_BYTES
+
     def __init__(self, directory):
         self.root = Path(directory).resolve()
 
     def path(self, key):
-        if not isinstance(key, str) or not re.fullmatch(r'prepared-datasets/[0-9a-f-]{36}/[0-9a-f]{64}\.json', key):
+        if not isinstance(key, str) or not re.fullmatch(re.escape(self.prefix)+r'/[0-9a-f-]{36}/[0-9a-f]{64}\.json', key):
             raise changed('整理数据对象引用无效。')
         try:
             if str(UUID(key.split('/')[1])) != key.split('/')[1]:
@@ -26,7 +29,7 @@ class PreparedDatasetObjects:
         except ValueError as exc:
             raise changed('整理数据对象引用无效。') from exc
         path = self.root / key
-        for candidate in [self.root, self.root / 'prepared-datasets', path.parent, path]:
+        for candidate in [self.root, self.root / self.prefix, path.parent, path]:
             if candidate.is_symlink() or (hasattr(candidate, 'is_junction') and candidate.is_junction()):
                 raise changed('整理数据对象引用无效。')
             if candidate.exists() and candidate.resolve() != candidate.absolute():
@@ -36,17 +39,24 @@ class PreparedDatasetObjects:
         return path
 
     def _validate_content(self, content):
-        if type(content) is not bytes or not 0 < len(content) <= MAX_OBJECT_BYTES:
+        if type(content) is not bytes or not 0 < len(content) <= self.max_bytes:
             raise changed('整理数据对象为空或超过大小限制。')
         try:
-            return PreparedDatasetObject.model_validate(json.loads(content))
+            value = json.loads(content)
+            if isinstance(value,dict) and value.get('schema_version') == 3:
+                from app.domain.dataset_preparation.derivation_contracts import PreparedDatasetObjectV3
+                return PreparedDatasetObjectV3.model_validate(value)
+            if isinstance(value,dict) and value.get('schema_version') == 2:
+                from app.domain.dataset_preparation.quality_contracts import PreparedDatasetObjectV2
+                return PreparedDatasetObjectV2.model_validate(value)
+            return PreparedDatasetObject.model_validate(value)
         except (ValueError, TypeError, RecursionError) as exc:
             raise changed() from exc
 
     def save(self, dataset_id, content):
         self._validate_content(content)
         digest = hashlib.sha256(content).hexdigest()
-        key = f'prepared-datasets/{dataset_id}/{digest}.json'
+        key = f'{self.prefix}/{dataset_id}/{digest}.json'
         record = dict(object_key=key, sha256=digest, size_bytes=len(content))
         target = self.path(key)
         partial = None
@@ -75,9 +85,9 @@ class PreparedDatasetObjects:
     def read(self, record):
         try:
             size, key, digest = record['size_bytes'], record['object_key'], record['sha256']
-            if type(size) is not int or not 0 < size <= MAX_OBJECT_BYTES or not isinstance(digest, str) or not re.fullmatch(r'[0-9a-f]{64}', digest):
+            if type(size) is not int or not 0 < size <= self.max_bytes or not isinstance(digest, str) or not re.fullmatch(r'[0-9a-f]{64}', digest):
                 raise ValueError('Invalid record size or hash')
-            if 'id' in record and key != f"prepared-datasets/{record['id']}/{digest}.json":
+            if 'id' in record and key != f"{self.prefix}/{record['id']}/{digest}.json":
                 raise ValueError('Object and version identities differ')
             if not isinstance(key, str) or key.rsplit('/', 1)[-1] != digest + '.json':
                 raise ValueError('Object key and digest differ')

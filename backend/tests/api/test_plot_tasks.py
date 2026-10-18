@@ -146,11 +146,11 @@ def test_paid_successor_requires_request_key_before_loading_policy(client, cloud
     before = persistence_counts()
     loaded = []
     original_policy = plot_policy.get_execution_policy
-    def get_policy():
+    def get_policy(payload=None, *, result=None):
         loaded.append(True)
         if not policy_available:
             raise StorageError('plot_not_configured', 'synthetic missing policy', 503)
-        return original_policy()
+        return original_policy(payload, result=result)
     monkeypatch.setattr(plot_policy, 'get_execution_policy', get_policy)
     response = post(client, url, retry=True)
     assert response.status_code == 422, response.text
@@ -248,7 +248,7 @@ def test_input_limit_requires_explicit_new_task_with_new_frozen_policy(client, p
     failed = transition(client, task, 'failed', 'execution_failed', 'plot_input_limit')
     updated = deepcopy(policy)
     updated['input_token_allowance'] += 1000
-    monkeypatch.setattr(plot_policy, 'get_execution_policy', lambda payload=None: updated)
+    monkeypatch.setattr(plot_policy, 'get_execution_policy', lambda payload=None, *, result=None: updated)
     assert post(client, url).json()['task'] == failed
     assert client.post('/api/v1/tasks/' + task['id'] + '/retry',
         json={'expected_revision': failed['revision']}).status_code == 409

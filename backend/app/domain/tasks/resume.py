@@ -46,18 +46,26 @@ class TaskResumeService:
                 wait = get_open_wait(db, task)
                 if wait is None or wait['id'] != request.wait_id or wait['input_version'] != material['input_version']:
                     raise StorageError('task_revision_conflict', '待办已变化，请重新读取后操作。', 409)
-            from app.domain.plot_tasks import retry_boxplot_in_transaction
-            from app.domain.explanation_tasks import retry_explanation_in_transaction
-            from app.domain.report_tasks import retry_word_in_transaction
-            from app.domain.tasks.file_parse_retry import retry_parse_in_transaction
-            from app.domain.tasks.dataset_retry import retry_dataset_in_transaction
-            from app.domain.dataset_preparation.service import retry_preparation_in_transaction
-            from app.domain.ocr_review.service import retry_ocr_review_in_transaction
-            from app.domain.analysis_plan.service import retry_plan_in_transaction
-            retry = {'boxplot': retry_boxplot_in_transaction, 'explanation': retry_explanation_in_transaction,
-                     'word_report': retry_word_in_transaction, 'parse_file': retry_parse_in_transaction,
-                     'extract_dataset': retry_dataset_in_transaction, 'prepare_dataset': retry_preparation_in_transaction, 'review_ocr': retry_ocr_review_in_transaction, 'analysis_plan': retry_plan_in_transaction}[task['task_type']]
-            result = retry(self.store, db, task, request.expected_task_revision)
+            if request.operation == 'resume' and wait['kind'] == 'remote_observation':
+                from app.domain.model_usage.observation import continue_original
+                result = continue_original(self.store, db, task, wait)
+            else:
+                from app.domain.plot_tasks import retry_boxplot_in_transaction
+                from app.domain.explanation_tasks import retry_explanation_in_transaction
+                from app.domain.report_tasks import retry_word_in_transaction
+                from app.domain.tasks.file_parse_retry import retry_parse_in_transaction
+                from app.domain.tasks.dataset_retry import retry_dataset_in_transaction
+                from app.domain.dataset_preparation.service import retry_preparation_in_transaction
+                from app.domain.ocr_review.service import retry_ocr_review_in_transaction
+                from app.domain.analysis_plan.service import retry_plan_in_transaction
+                from app.domain.analysis_recommendation.service import retry_in_transaction as retry_recommendation
+                from app.domain.report_collections.execution import retry_collection_in_transaction
+                from app.domain.figure_workbench.tasks import retry_in_transaction as retry_configured
+                from app.domain.statistics_execution.service import retry_in_transaction as retry_statistics
+                retry = {'statistics_compute':retry_statistics,'figure_projection':retry_configured,'figure_workbench':retry_configured,'figure_explanation':retry_configured,'collection_word_report': retry_collection_in_transaction, 'analysis_recommendation':retry_recommendation,'boxplot': retry_boxplot_in_transaction, 'explanation': retry_explanation_in_transaction,
+                         'word_report': retry_word_in_transaction, 'parse_file': retry_parse_in_transaction,
+                         'extract_dataset': retry_dataset_in_transaction, 'prepare_dataset': retry_preparation_in_transaction, 'review_ocr': retry_ocr_review_in_transaction, 'analysis_plan': retry_plan_in_transaction}[task['task_type']]
+                result = retry(self.store, db, task, request.expected_task_revision)
             db.execute('''INSERT INTO task_resume_requests
                 (id,task_id,user_id,idempotency_key,operation,wait_id,request_digest,expected_task_revision,
                  input_version,result_task_revision,response_json,created_at)

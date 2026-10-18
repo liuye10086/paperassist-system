@@ -25,8 +25,16 @@ def test_0017_preserves_original_tables_and_json(postgres_schema,postgres_migrat
         command.upgrade(settings,'head')
         inspector=inspect(db.raw_connection)
         for name in originals:
-            assert [dict(row) for row in db.execute('SELECT * FROM '+name)] == records[name]
-            assert columns(name) == old_columns[name]
+            actual=[dict(row) for row in db.execute('SELECT * FROM '+name)]
+            added={'tasks':'verification_failure','figures':'figure_config_version_id'}.get(name)
+            if added:
+                for row in actual: assert row.pop(added) is None
+            assert actual==records[name]
+            current=columns(name)
+            if added:
+                assert current[-1]['name']==added and current[-1]['nullable'] is True
+                current=current[:-1]
+            assert current==old_columns[name]
             assert_preserved_indexes(inspector,name,old_indexes[name])
         for name in ('task_checkpoints','dataset_preparation_decisions','prepared_dataset_versions'):
             assert db.execute('SELECT count(*) AS n FROM '+name).fetchone()['n'] == 0

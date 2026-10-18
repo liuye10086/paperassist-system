@@ -11,8 +11,10 @@ from app.core.exceptions import PlotError, StorageError
 from app.domain.model_usage.contracts import CallRequest, ModelPolicy
 from app.domain.model_usage.gateway import ModelGateway, ModelGatewayError, input_digest
 from app.domain.model_usage.service import ModelUsageService
-from app.domain.plot_response import download_plot, parse_plot_response
+from app.domain.plot_response import download_plot, parse_plot_response, PlotVerificationError
 from app.domain.tasks.errors import classify_read_error
+from app.domain.regression.common import NumericError
+from app.domain.tasks.numeric_failure import fail_numeric_task
 
 
 logger = logging.getLogger(__name__)
@@ -64,6 +66,8 @@ def run_boxplot_task(task_id, task_revision, *, config=None, directory=None, pro
         return _execute(repository, lease, config, provider_factory or create_provider, providers)
     except LeaseLost:
         return None
+    except NumericError as exc:
+        return fail_numeric_task(repository, lease, exc)
     except (StorageError, PlotError) as exc:
         try:
             if exc.code in BUDGET_ERRORS:
@@ -99,7 +103,7 @@ def _execute(repository, lease, config, provider_factory, providers):
     task = repository.load_boxplot_task(lease)
     from app.domain.external_material import plot_instructions
     external = task['input_snapshot'].get('external_processing')
-    instructions = plot_instructions(external)
+    instructions = plot_instructions(external, result=task['input_snapshot']['result'])
     call = repository.boxplot_call(lease)
     if call and call['status'] == 'released':
         # A previous source failure may have released its reservation before
@@ -167,13 +171,18 @@ def _execute(repository, lease, config, provider_factory, providers):
     # Terminal usage has already reached the ledger. Source changes must block
     # publication, while preserving the paid call's response and usage evidence.
     task, snapshot, payload, expected = repository.load_boxplot(lease)
-    parsed = parse_plot_response(response, (call.get('provider_state') or {}).get('container_id'))
+    parsed = parse_plot_response(response, (call.get('provider_state') or {}).get('container_id'), expected=expected)
     if parsed is None:
         return repository.fail(lease, 'model_response_invalid')
     policy = ModelPolicy.model_validate({key: call['policy_snapshot'][key]
         for key in ModelPolicy.model_fields if key in call['policy_snapshot']})
     try:
         downloaded = download_plot(parsed, provider, policy, expected)
+    except PlotVerificationError as exc:
+        # The lease-fenced repository commits evidence and terminal failure
+        # together. A persistence error leaves recovery to the existing lease.
+        return repository.record_plot_mismatch(lease, differences=exc.differences,
+            manifest=exc.manifest, provenance=exc.provenance)
     except ModelProviderError as exc:
         if exc.code in ('plot_container_expired', 'plot_output_limit'):
             return repository.fail(lease, exc.code)
@@ -186,15 +195,20 @@ def _execute(repository, lease, config, provider_factory, providers):
         # Downloads contain no persistence operations. Unclassified provider or
         # validation exceptions cannot become an unlimited network retry loop.
         return repository.fail(lease, 'internal_error')
-    figure = {**expected, 'file_id': snapshot['result']['file_id'],
-        'setup_revision': snapshot['result']['setup_revision'], 'figure_number': 1, 'language': 'zh-CN',
-        'created_at': datetime.now(timezone.utc).isoformat(),
-        'engine': {'id': PROMPT_VERSION, 'provider': 'openai_code_interpreter', 'model': parsed['provenance']['model']},
-        'method': {'whisker_iqr_multiplier': 1.5, 'quantile_method': 'linear_inclusive', 'outliers_removed': False},
-        'verification': {'status': 'matched', 'note': '结构化数值、标签及图注已核对；图片视觉内容仍需人工确认。'},
-        'provenance': {**downloaded['provenance'], 'model_call_id': call['id'],
+    from app.domain.artifact_contracts import modern_artifact, figure_metadata
+    provenance = {**downloaded['provenance'], 'model_call_id': call['id'],
             'model_input_digest': call['input_digest'],
-            'input_sha256': hashlib.sha256(canonical_payload(payload).encode('utf-8')).hexdigest()}}
+            'input_sha256': hashlib.sha256(canonical_payload(payload).encode('utf-8')).hexdigest()}
+    if modern_artifact(snapshot['result']):
+        figure = figure_metadata(snapshot['result'], expected, provenance, external=external)
+    else:
+        figure = {**expected, 'file_id': snapshot['result']['file_id'],
+            'setup_revision': snapshot['result']['setup_revision'], 'figure_number': 1, 'language': 'zh-CN',
+            'created_at': datetime.now(timezone.utc).isoformat(),
+            'engine': {'id': PROMPT_VERSION, 'provider': 'openai_code_interpreter', 'model': parsed['provenance']['model']},
+            'method': {'whisker_iqr_multiplier': 1.5, 'quantile_method': 'linear_inclusive', 'outliers_removed': False},
+            'verification': {'status': 'matched', 'note': '结构化数值、标签及图注已核对；图片视觉内容仍需人工确认。'},
+            'provenance': provenance}
     if external is not None:
         figure.update(analysis_run_id=snapshot['result']['id'], source_sha256=snapshot['result']['source_sha256'],
                       external_processing=external)

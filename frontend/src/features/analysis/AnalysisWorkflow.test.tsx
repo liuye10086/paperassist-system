@@ -18,7 +18,7 @@ test('stages stay mounted and retain drafts while navigation changes visibility'
   render(<WorkflowProvider><WorkflowNavigation /><WorkflowStage stage="setup"><Draft /></WorkflowStage><WorkflowStage stage="statistics"><p>stats</p></WorkflowStage></WorkflowProvider>)
   const draft = screen.getByLabelText('draft') as HTMLInputElement
   await user.type(draft, '研究数据')
-  await user.click(screen.getByRole('button', { name: '描述统计' }))
+  await user.click(screen.getByRole('button', { name: '统计结果' }))
   expect(draft.closest('[hidden]')).toBeTruthy()
   expect(screen.getByText('stats').closest('[hidden]')).toBeNull()
   await user.click(screen.getByRole('button', { name: '字段配置' }))

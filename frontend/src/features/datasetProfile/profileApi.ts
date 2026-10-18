@@ -2,6 +2,7 @@ import { apiFetch } from '../../shared/api/client'
 import { isDatasetSource, sameSource, type DatasetAnalysisSource } from '../analysis/datasetSource'
 import { isDataset, isRows } from '../datasets/datasetApi'
 import { columnLetter, isPreparedVersion } from '../datasetPreparation/preparationApi'
+import { isQualityVersion, preparedStructure } from '../datasetPreparation/qualityApi'
 import { issueKinds, type Profile, type ProfileBinding, type IssueKind, type IssuePage, type LocationRows } from './profileTypes'
 
 const object = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v)
@@ -40,18 +41,24 @@ export function isIssuePage(v: unknown, source: DatasetAnalysisSource, kind: Iss
   : item.column === column && item.coordinate === `${columnLetter(column!)}${item.row}` && (item.kind === null || kinds.includes(String(item.kind))) && cellValue(item.value) && item.group_first_row === null && item.group_size === null))
 }
 export function isLocationRows(v: unknown, source: DatasetAnalysisSource, start: number, target: number, fields: Profile['fields']): v is LocationRows {
+ let finalRow = 100000
  if (!object(v) || !object(v.dataset) || v.dataset.id !== source.dataset_id || v.start_row !== start || v.limit !== 20 || !count(v.total_rows) || typeof v.has_more !== 'boolean' || !Array.isArray(v.rows)) return false
  if (source.kind === 'dataset_version') {
   if (!isDataset(v.dataset, source.file_id, source.structure_id) || v.dataset.version !== source.dataset_version || v.dataset.sheet_index !== source.sheet_index || v.dataset.sheet_name !== source.sheet_name || !isRows(v, v.dataset, start)) return false
  } else {
   if (!isPreparedVersion(v.dataset, source.file_id) || !sameSource(v.dataset.source, source)) return false
-  const range = /^([A-Z]+)(\d+):([A-Z]+)(\d+)$/.exec(v.dataset.recipe.data_range)
+  const range = /^([A-Z]+)(\d+):([A-Z]+)(\d+)$/.exec(preparedStructure(v.dataset).data_range)
   if (!range) return false
   const first = Number(range[2]); const last = Number(range[4])
-  if (start < first || target > last || v.total_rows !== last - first + 1 || v.has_more !== (start + 19 < last) || v.rows.length !== Math.max(0, Math.min(20, last - start + 1))) return false
+  finalRow = last
+  if (start < first || target > last) return false
+  if (isQualityVersion(v.dataset)) {
+   if (v.total_rows !== v.dataset.summary.retained_record_count || v.rows.length > 20 || v.rows.length > v.total_rows || (v.has_more ? !count(v.next_start_row) || !v.rows.length || !object(v.rows[v.rows.length - 1]) || Number(v.next_start_row) <= Number(v.rows[v.rows.length - 1].row) : v.next_start_row !== null)) return false
+  } else if (v.total_rows !== last - first + 1 || v.has_more !== (start + 19 < last) || v.rows.length !== Math.max(0, Math.min(20, last - start + 1))) return false
  }
  const allowed = new Set(fields.map(f => f.column))
- return v.rows.length <= 20 && v.rows.some(r => object(r) && r.row === target) && v.rows.every((r, i) => object(r) && r.row === start + i && Array.isArray(r.cells) && new Set(r.cells.map(c => object(c) ? c.column : null)).size === r.cells.length
+ const rows = v.rows; const sparse = source.kind === 'prepared_dataset_version' && source.schema_version === 2
+ return rows.length <= 20 && rows.some(r => object(r) && r.row === target) && rows.every((r, i) => object(r) && (sparse ? count(r.row) && r.row >= start && r.row <= finalRow && (!i || r.row > rows[i - 1].row) : r.row === start + i) && Array.isArray(r.cells) && new Set(r.cells.map(c => object(c) ? c.column : null)).size === r.cells.length
   && r.cells.every(c => object(c) && c.row === r.row && count(c.column) && (source.kind === 'dataset_version' || allowed.has(c.column)) && c.coordinate === `${columnLetter(c.column)}${r.row}` && kinds.includes(String(c.kind)) && cellValue(c.value)))
 }
 export const profileBase = (base: string, id: string) => `${base}/dataset-versions/${encodeURIComponent(id)}`

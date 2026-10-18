@@ -1,10 +1,11 @@
+import {taskFixture} from '../tasks/taskFixtures'
 import { version as structureFixture, dataset as datasetFixture } from '../datasets/datasetFixtures'
 import { afterEach, expect, test, vi } from 'vitest'
 import { act, cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import AnalysisSetup from './AnalysisSetup'
 
-afterEach(() => { cleanup(); vi.unstubAllGlobals() })
+afterEach(() => { cleanup(); vi.unstubAllGlobals(); sessionStorage.clear() })
 
 const files = [{ id: 'f1', filename: '研究.xlsx', file_type: 'xlsx', uploaded_at: '2026-09-29T01:00:00Z', parse_status: 'parsed' as const },
   { id: 'f2', filename: '另一份.xlsx', file_type: 'xlsx', uploaded_at: '2026-09-29T02:00:00Z', parse_status: 'parsed' as const }]
@@ -25,6 +26,12 @@ const analysisResult = { source, id: 'run-1', file_id: 'f1', filename: '研究.x
   engine: { id: 'descriptive_statistics_v1', python_version: '3.11.4', openpyxl_version: '3.1.5', std_ddof: 1, quantile_method: 'linear_inclusive' },
   started_at: '2026-09-29T03:00:00Z', completed_at: '2026-09-29T03:00:01Z', overall: stats,
   groups: [{ label: 'A组', statistics: { ...stats, n: 1, std: null, warnings: ['有效记录不足 2 条，样本标准差无法计算。'] } }] }
+
+function statisticsTask(revision=1) {
+  return {...taskFixture,id:'statistics-1',task_type:'statistics_compute',status:'succeeded',display_status:'succeeded',reason_code:null,error_code:null,
+    input_version:{kind:'statistics_compute',setup_revision:revision,output_language:'zh-CN',source,analysis_plan_id:null,workflow_version:'statistics_compute_v1'},
+    result_analysis_run_id:'run-1',execution_receipt:{schema_version:1,status:'succeeded',nodes:[]}}
+}
 
 function api(options: { existing?: boolean; conflict?: boolean; invalid?: boolean; failOnce?: boolean; slowProfile?: Promise<Response>
   existingResult?: boolean; runFailOnce?: boolean; resultFailOnce?: boolean; runConflict?: boolean; slowRun?: Promise<Response> } = {}) {
@@ -48,12 +55,13 @@ function api(options: { existing?: boolean; conflict?: boolean; invalid?: boolea
       return Response.json({ current_revision: current?.revision ?? null, is_current: !!result && result.setup_revision === current?.revision, result })
     }
     if (url.endsWith('/analysis-runs')) {
-      if (options.slowRun) return options.slowRun
       if (options.runFailOnce) { options.runFailOnce = false; throw new TypeError('offline') }
       if (options.runConflict) return Response.json({ detail: { code: 'setup_conflict', params: {}, message: 'ignored legacy text' } }, { status: 409 })
       result = { ...analysisResult, setup_revision: current!.revision, selection: current!.selection }
-      return Response.json(result)
+      if(options.slowRun)return options.slowRun
+      return Response.json(statisticsTask(current!.revision),{status:202})
     }
+    if(url.endsWith('/analysis-runs/run-1'))return Response.json(result??analysisResult)
     if (url.endsWith('/preview')) return Response.json({ sheets: [{ name: '数据 & 表' }, { name: '空表' }] })
     if (url.includes('/analysis-profile?')) {
       if (options.failOnce) { options.failOnce = false; throw new TypeError('offline') }
@@ -124,7 +132,7 @@ test.each(['图表', '分析解释', 'Word报告'])('statistics loading and fail
   expect(screen.queryByText('请先完成描述统计，再生成图表、解释和报告。')).toBeNull()
   await user.click(screen.getByRole('button', { name: '重新读取统计结果' }))
   await waitFor(() => expect(screen.queryByRole('alert')).toBeNull())
-  await user.click(screen.getByRole('button', { name: '描述统计' }))
+  await user.click(screen.getByRole('button', { name: '统计结果' }))
   expect(await screen.findByRole('table', { name: '描述统计结果' })).toBeTruthy()
   expect(mock.mock.calls.every(([, init]) => !init?.method)).toBe(true)
 })
@@ -134,7 +142,7 @@ test('failed statistics reread keeps the saved result and blocks execution until
   const user = userEvent.setup()
   render(<AnalysisSetup projectId="p1" files={files} />)
   await chooseFile(user)
-  await user.click(screen.getByRole('button', { name: '描述统计' }))
+  await user.click(screen.getByRole('button', { name: '统计结果' }))
   const table = await screen.findByRole('table', { name: '描述统计结果' })
   mock.mockRejectedValueOnce(new TypeError('offline'))
   await user.click(screen.getByRole('button', { name: '重新读取统计结果' }))
@@ -184,13 +192,13 @@ test('plot submission locks short actions then queued work releases the workspac
   await user.click(await screen.findByRole('button', { name: '确认发送并生成' }))
   await user.click(screen.getByRole('button', { name: '字段配置' }))
   await waitFor(() => expect((screen.getByLabelText('数值列') as HTMLSelectElement).disabled).toBe(true))
-  await user.click(screen.getByRole('button', { name: '描述统计' }))
+  await user.click(screen.getByRole('button', { name: '统计结果' }))
   expect((screen.getByRole('button', { name: '执行描述统计' }) as HTMLButtonElement).disabled).toBe(true)
   await user.click(screen.getByRole('button', { name: '字段配置' }))
   expect((screen.getByLabelText('用于分析的文件') as HTMLSelectElement).disabled).toBe(false)
   await act(async () => { finishPost(Response.json(queued)) })
   await waitFor(() => expect((screen.getByLabelText('数值列') as HTMLSelectElement).disabled).toBe(false))
-  await user.click(screen.getByRole('button', { name: '描述统计' }))
+  await user.click(screen.getByRole('button', { name: '统计结果' }))
   expect((screen.getByRole('button', { name: '执行描述统计' }) as HTMLButtonElement).disabled).toBe(false)
 })
 
@@ -299,7 +307,7 @@ test('executes saved configuration and shows actual statistics, provenance and u
   const user = userEvent.setup()
   render(<AnalysisSetup projectId="p1" files={files} />)
   await chooseFile(user)
-  await user.click(screen.getByRole('button', { name: '描述统计' }))
+  await user.click(screen.getByRole('button', { name: '统计结果' }))
   await user.click(await screen.findByRole('button', { name: '执行描述统计' }))
   const table = await screen.findByRole('table', { name: '描述统计结果' })
   expect(within(table).getByRole('row', { name: /总体/ }).textContent).toContain('2.5')
@@ -308,7 +316,7 @@ test('executes saved configuration and shows actual statistics, provenance and u
   expect(screen.getByText(/结果已保存/)).toBeTruthy()
   expect(screen.getByText(/工作表：数据 & 表/, { selector: 'p:not(.analysis-source)' })).toBeTruthy()
   const call = mock.mock.calls.find(([url]) => url.endsWith('/analysis-runs'))!
-  expect(JSON.parse(call[1]!.body as string)).toEqual({ expected_revision: 1 })
+  expect(JSON.parse(call[1]!.body as string)).toEqual({ expected_revision: 1, idempotency_key: expect.any(String) })
 })
 
 test('restores persisted statistics without automatically executing', async () => {
@@ -316,7 +324,7 @@ test('restores persisted statistics without automatically executing', async () =
   const user = userEvent.setup()
   render(<AnalysisSetup projectId="p1" files={files} />)
   await chooseFile(user)
-  await user.click(screen.getByRole('button', { name: '描述统计' }))
+  await user.click(screen.getByRole('button', { name: '统计结果' }))
   await screen.findByRole('table', { name: '描述统计结果' })
   expect(mock.mock.calls.some(([url]) => url.endsWith('/analysis-runs'))).toBe(false)
 })
@@ -326,11 +334,11 @@ test('unsaved fields disable execution and label the previous result', async () 
   const user = userEvent.setup()
   render(<AnalysisSetup projectId="p1" files={files} />)
   await chooseFile(user)
-  await user.click(screen.getByRole('button', { name: '描述统计' }))
+  await user.click(screen.getByRole('button', { name: '统计结果' }))
   await screen.findByRole('table', { name: '描述统计结果' })
   await user.click(screen.getByRole('button', { name: '字段配置' }))
   await user.type(screen.getByLabelText('数值单位（可选）'), ' changed')
-  await user.click(screen.getByRole('button', { name: '描述统计' }))
+  await user.click(screen.getByRole('button', { name: '统计结果' }))
   expect((screen.getByRole('button', { name: '执行描述统计' }) as HTMLButtonElement).disabled).toBe(true)
   expect(screen.getByText(/当前字段尚未保存/)).toBeTruthy()
   expect(screen.getByText(/数值：A · 指标；单位：mg\/L/)).toBeTruthy()
@@ -341,7 +349,7 @@ test('new saved revision marks old result until new calculation succeeds', async
   const user = userEvent.setup()
   render(<AnalysisSetup projectId="p1" files={files} />)
   await chooseFile(user)
-  await user.click(screen.getByRole('button', { name: '描述统计' }))
+  await user.click(screen.getByRole('button', { name: '统计结果' }))
   await screen.findByRole('table', { name: '描述统计结果' })
   await user.click(screen.getByRole('button', { name: '字段配置' }))
   await user.clear(screen.getByLabelText('数值单位（可选）'))
@@ -349,7 +357,7 @@ test('new saved revision marks old result until new calculation succeeds', async
   await user.click(screen.getByRole('button', { name: '检查字段' }))
   await screen.findByText('可用 23 行，排除 2 行。')
   await user.click(screen.getByRole('button', { name: '保存分析配置' }))
-  await user.click(screen.getByRole('button', { name: '描述统计' }))
+  await user.click(screen.getByRole('button', { name: '统计结果' }))
   await screen.findByText(/以下为历史结果/)
   await user.click(screen.getByRole('button', { name: '执行描述统计' }))
   expect(await screen.findByText(/工作表：数据 & 表/, { selector: 'p:not(.analysis-source)' })).toBeTruthy()
@@ -361,13 +369,13 @@ test('failed execution can read results before retrying', async () => {
   const user = userEvent.setup()
   render(<AnalysisSetup projectId="p1" files={files} />)
   await chooseFile(user)
-  await user.click(screen.getByRole('button', { name: '描述统计' }))
+  await user.click(screen.getByRole('button', { name: '统计结果' }))
   await user.click(await screen.findByRole('button', { name: '执行描述统计' }))
   await screen.findByRole('alert')
   expect(screen.queryByText(/结果已保存/)).toBeNull()
   await user.click(screen.getByRole('button', { name: '重新读取统计结果' }))
   await screen.findByText('尚未执行当前配置的描述统计。')
-  await user.click(screen.getByRole('button', { name: '执行描述统计' }))
+  await user.click(screen.getByRole('button', { name: '核实并继续同一统计请求' }))
   await screen.findByRole('table', { name: '描述统计结果' })
 })
 
@@ -376,7 +384,7 @@ test('failed result loading has a retry and does not silently enable execution',
   const user = userEvent.setup()
   render(<AnalysisSetup projectId="p1" files={files} />)
   await chooseFile(user)
-  await user.click(screen.getByRole('button', { name: '描述统计' }))
+  await user.click(screen.getByRole('button', { name: '统计结果' }))
   await screen.findByRole('alert')
   expect((screen.getByRole('button', { name: '执行描述统计' }) as HTMLButtonElement).disabled).toBe(true)
   await user.click(screen.getByRole('button', { name: '重新读取统计结果' }))
@@ -388,7 +396,7 @@ test('configuration conflict tells the user to reload instead of claiming a resu
   const user = userEvent.setup()
   render(<AnalysisSetup projectId="p1" files={files} />)
   await chooseFile(user)
-  await user.click(screen.getByRole('button', { name: '描述统计' }))
+  await user.click(screen.getByRole('button', { name: '统计结果' }))
   await user.click(await screen.findByRole('button', { name: '执行描述统计' }))
   expect((await screen.findByRole('alert')).textContent).toContain('读取当前配置')
   expect(screen.queryByRole('table', { name: '描述统计结果' })).toBeNull()
@@ -400,7 +408,7 @@ test('pending run disables inputs, prevents duplicate posts and cannot replace a
   const user = userEvent.setup()
   render(<AnalysisSetup projectId="p1" files={files} />)
   await chooseFile(user)
-  await user.click(screen.getByRole('button', { name: '描述统计' }))
+  await user.click(screen.getByRole('button', { name: '统计结果' }))
   await user.dblClick(await screen.findByRole('button', { name: '执行描述统计' }))
   await user.click(screen.getByRole('button', { name: '字段配置' }))
   expect((screen.getByLabelText('数值列') as HTMLSelectElement).disabled).toBe(true)
@@ -409,7 +417,7 @@ test('pending run disables inputs, prevents duplicate posts and cannot replace a
   const secondVersion = await screen.findByLabelText('原始数据版本') as HTMLSelectElement
   if (!secondVersion.value) { await user.selectOptions(secondVersion, 's1'); await user.selectOptions(screen.getByLabelText('分析工作表'), 'd1') }
   await screen.findByLabelText('数值列')
-  finish(Response.json(analysisResult))
+  finish(Response.json(statisticsTask(),{status:202}))
   await waitFor(() => expect(screen.queryByRole('table', { name: '描述统计结果' })).toBeNull())
 })
 
@@ -420,7 +428,7 @@ test('workflow preserves selected fields across steps and exposes no technical m
   render(<AnalysisSetup projectId="p1" files={files} />)
   await chooseFile(user)
   const numeric = screen.getByLabelText('数值列') as HTMLSelectElement
-  await user.click(screen.getByRole('button', { name: '描述统计' }))
+  await user.click(screen.getByRole('button', { name: '统计结果' }))
   expect(await screen.findByRole('table', { name: '描述统计结果' })).toBeTruthy()
   expect(numeric.closest('[hidden]')).toBeTruthy()
   expect(screen.queryByText(/配置版本：/)).toBeNull()
@@ -453,7 +461,7 @@ test('workflow keeps a running statistics request alive when returning to setup'
   render(<AnalysisSetup projectId="p1" files={files} />)
   await chooseFile(user)
   expect(screen.getByLabelText('用于分析的文件').textContent).not.toContain('f1')
-  await user.click(screen.getByRole('button', { name: '描述统计' }))
+  await user.click(screen.getByRole('button', { name: '统计结果' }))
   const execute = await screen.findByRole('button', { name: '执行描述统计' })
   await waitFor(() => expect((execute as HTMLButtonElement).disabled).toBe(false))
   await user.click(execute)
@@ -461,9 +469,9 @@ test('workflow keeps a running statistics request alive when returning to setup'
   await user.click(screen.getByRole('button', { name: '字段配置' }))
   expect((screen.getByLabelText('数值列') as HTMLSelectElement).disabled).toBe(true)
   expect(request[1]?.signal?.aborted).toBe(false)
-  resolveRun(Response.json(analysisResult))
+  resolveRun(Response.json(statisticsTask(),{status:202}))
   await waitFor(() => expect((screen.getByLabelText('数值列') as HTMLSelectElement).disabled).toBe(false))
-  await user.click(screen.getByRole('button', { name: '描述统计' }))
+  await user.click(screen.getByRole('button', { name: '统计结果' }))
   expect(await screen.findByRole('table', { name: '描述统计结果' })).toBeTruthy()
   expect(mock.mock.calls.filter(([url]) => url.endsWith('/analysis-runs'))).toHaveLength(1)
 })

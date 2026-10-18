@@ -1,4 +1,5 @@
 """Offline acceptance of the complete, version-bound Excel-to-Word workflow."""
+from tests.helpers.statistics import statistics_post
 
 import hashlib
 from io import BytesIO
@@ -147,7 +148,7 @@ def test_excel_to_word_versioned_workflow(client, cloud, writer, project_type):
     setup = configured.json()
     assert setup['revision'] == 1 and setup['source_sha256'] == file['sha256']
     assert setup['selection'] == selection and setup['check'] == check
-    result_response = client.post(base + '/analysis-runs', json={'expected_revision': 1})
+    result_response = statistics_post(client, base + '/analysis-runs', json={'expected_revision': 1})
     assert result_response.status_code == 200, result_response.text
     result = result_response.json()
     overall = result['overall']
@@ -195,13 +196,13 @@ def test_excel_to_word_versioned_workflow(client, cloud, writer, project_type):
     assert updated.status_code == 200, updated.text
     new_setup = updated.json()
     assert new_setup['revision'] == 2 and new_setup['check']['valid_count'] == 26
-    assert client.post(base + '/analysis-runs', json={'expected_revision': 1}).status_code == 409
+    assert statistics_post(client, base + '/analysis-runs', json={'expected_revision': 1}).status_code == 409
     assert client.post(old_run + '/boxplot', json={'expected_revision': 1}).status_code == 409
     assert submit(client, old_run + '/explanation', figure, external_processing=old_confirmation).status_code == 409
     assert export(client, old_run + '/report', figure, explanation).status_code == 409
     assert client.get(old_run + '/report').json()['report'] == report
     assert client.get(old_download).content == downloaded.content
-    new_response = client.post(base + '/analysis-runs', json={'expected_revision': 2})
+    new_response = statistics_post(client, base + '/analysis-runs', json={'expected_revision': 2})
     assert new_response.status_code == 200, new_response.text
     new_result = new_response.json()
     assert new_result['id'] != result['id'] and new_result['overall']['n'] == 26

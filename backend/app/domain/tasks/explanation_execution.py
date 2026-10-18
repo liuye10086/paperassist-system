@@ -12,6 +12,8 @@ from app.domain.model_usage.contracts import CallRequest, ModelPolicy
 from app.domain.model_usage.gateway import ModelGateway, ModelGatewayError, input_digest
 from app.domain.model_usage.service import ModelUsageService
 from app.domain.tasks.errors import classify_read_error
+from app.domain.regression.common import NumericError
+from app.domain.tasks.numeric_failure import fail_numeric_task
 
 
 logger = logging.getLogger(__name__)
@@ -53,6 +55,8 @@ def run_explanation_task(task_id, task_revision, *, config=None, directory=None,
                         lambda value: providers.append(value))
     except LeaseLost:
         return None
+    except NumericError as exc:
+        return fail_numeric_task(repository, lease, exc)
     except (StorageError, PlotError) as exc:
         try:
             if exc.code in BUDGET_ERRORS:
@@ -84,7 +88,8 @@ def _execute(repository, lease, config, provider_factory, remember_provider):
     from app.domain.explanation_policy import validate_execution_policy
     from app.domain.explanation_response import parse_explanation_response
     task = repository.load_explanation_task(lease)
-    instructions = explanation_instructions(task['input_snapshot'].get('external_processing'))
+    instructions = explanation_instructions(task['input_snapshot'].get('external_processing'),
+                                           result=task['input_snapshot']['result'])
     call = repository.explanation_call(lease)
     if call and not call['provider_response_id'] and call['status'] in ('submitting', 'submission_unknown'):
         return repository.wait_explanation(lease, 'submission_unknown', 'model_submission_unknown')
@@ -136,18 +141,23 @@ def _execute(repository, lease, config, provider_factory, remember_provider):
     if parsed is None:
         return repository.fail(lease, 'model_response_invalid')
     sections = render_explanation(parsed['draft'], payload)
-    explanation = {
-        'analysis_run_id': snapshot['result']['id'], 'figure_id': snapshot['figure']['id'],
-        'figure_sha256': snapshot['figure']['sha256'], 'source_sha256': snapshot['result']['source_sha256'],
-        'setup_revision': snapshot['result']['setup_revision'], 'language': 'zh-CN',
-        'created_at': datetime.now(timezone.utc).isoformat(), 'sections': sections, 'limitations': LIMITATIONS,
-        'engine': {'id': VERSION, 'provider': 'openai', 'model': parsed['provenance']['model']},
-        'verification': {'status': 'references_checked',
-            'note': '数值与事实引用已由程序填入并核对；语义和研究适用性仍需人工审阅。'},
-        'provenance': {**parsed['provenance'], 'prompt_version': VERSION,
-            'input_sha256': hashlib.sha256(json.dumps(payload, ensure_ascii=False, allow_nan=False,
-                sort_keys=True, separators=(',', ':')).encode('utf-8')).hexdigest(),
-            'model_call_id': call['id'], 'model_input_digest': call['input_digest']}}
+    from app.domain.artifact_contracts import modern_artifact, explanation_metadata
+    if modern_artifact(snapshot['result']):
+        explanation = explanation_metadata(snapshot['result'], snapshot['figure'], sections, payload,
+            {**parsed['provenance'], 'model_call_id': call['id'], 'model_input_digest': call['input_digest']})
+    else:
+        explanation = {
+            'analysis_run_id': snapshot['result']['id'], 'figure_id': snapshot['figure']['id'],
+            'figure_sha256': snapshot['figure']['sha256'], 'source_sha256': snapshot['result']['source_sha256'],
+            'setup_revision': snapshot['result']['setup_revision'], 'language': 'zh-CN',
+            'created_at': datetime.now(timezone.utc).isoformat(), 'sections': sections, 'limitations': LIMITATIONS,
+            'engine': {'id': VERSION, 'provider': 'openai', 'model': parsed['provenance']['model']},
+            'verification': {'status': 'references_checked',
+                'note': '数值与事实引用已由程序填入并核对；语义和研究适用性仍需人工审阅。'},
+            'provenance': {**parsed['provenance'], 'prompt_version': VERSION,
+                'input_sha256': hashlib.sha256(json.dumps(payload, ensure_ascii=False, allow_nan=False,
+                    sort_keys=True, separators=(',', ':')).encode('utf-8')).hexdigest(),
+                'model_call_id': call['id'], 'model_input_digest': call['input_digest']}}
     if 'source' in snapshot:
         explanation['source'] = snapshot['source']
     if snapshot.get('external_processing') is not None:

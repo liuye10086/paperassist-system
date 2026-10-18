@@ -1,4 +1,5 @@
-"""Complete dataset artifact chain without original Excel reads or real providers."""
+"""Historical pre-plan dataset chain without original reads or real providers."""
+from tests.helpers.legacy_statistics import seed_legacy_statistics
 import json
 from io import BytesIO
 import pytest
@@ -22,9 +23,8 @@ def new_result(client):
     dataset = version(client, base)
     saved=client.put(base+'/analysis-setup',json=selection(dataset_id=dataset['id'],expected_revision=0))
     assert saved.status_code==200,saved.text
-    response=client.post(base+'/analysis-runs',json={'expected_revision':1})
-    assert response.status_code==200,response.text
-    return base,file,response.json()
+    # This suite retains the pre-plan dataset/boxplot_v2 historical contract.
+    return base,file,seed_legacy_statistics(client,base)
 
 
 def test_dataset_report_metadata_binds_source(client):

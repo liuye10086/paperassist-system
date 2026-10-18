@@ -1,4 +1,5 @@
 """Dataset references are audited read-only, without changing historical JSON."""
+from tests.helpers.statistics import statistics_post
 import json
 import pytest
 from psycopg.types.json import Jsonb
@@ -113,7 +114,7 @@ def test_prepared_sources_audit_checks_original_parent_and_prepared_object_ident
     # Persist the real equivalent raw result, then bind its JSON to the published
     # prepared source. The audit operates on stored metadata, independent of readers.
     assert client.put(base+'/analysis-setup', json=selection(dataset_id=raw['id'], expected_revision=0)).status_code == 200
-    assert client.post(base+'/analysis-runs', json={'expected_revision':1}).status_code == 200
+    assert statistics_post(client, base+'/analysis-runs', json={'expected_revision':1}).status_code == 200
     with database_connection(write=True) as db:
         for table, column in [('analysis_setups', 'setup_json'), ('analysis_runs', 'result_json')]:
             row = db.execute('SELECT * FROM '+table+' WHERE file_id=%s', (file['id'],)).fetchone()

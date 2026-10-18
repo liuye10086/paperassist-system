@@ -367,3 +367,20 @@ test('uses readable names for actual system artifacts while preserving source na
     expect(names).toEqual(['boxplot.png', '分析报告.docx', 'analysis-report.docx'])
   } finally { click.mockRestore() }
 })
+
+test('configured PNGs and collection exports have exact routes and readable multiple-result context', async()=>{
+ const fixture=summaryFixture()
+ const figure={...source,id:'new-line-id',kind:'figure',figure_kind:'line',figure_config_version_id:'config-version',download_filename:'line-new-line-id.png',size_bytes:120,sha256:'a'.repeat(64),download_url:'/api/v1/projects/p1/files/f1/analysis-runs/r1/figure-workbench/figures/new-line-id/png'}
+ const report={...source,id:'collection-report-id',kind:'report',analysis_run_id:null,setup_revision:null,current_revision:null,collection_id:'collection-id',collection_version_id:'collection-version-id',collection_revision:2,export_revision:3,collection_title:'Cohort overview',result_count:2,download_filename:'Analysis-report-v3-collecti.docx',size_bytes:220,sha256:'b'.repeat(64),download_url:'/api/v1/projects/p1/report-collections/collection-id/reports/collection-report-id/download'}
+ vi.stubGlobal('fetch',vi.fn(async()=>Response.json({...fixture,artifacts:{...fixture.artifacts,total:2,items:[figure,report]}})))
+ const {container}=render(<ProjectSummary projectId='p1' projectType='sci' view='artifacts'/>)
+ const line=await screen.findByRole('link',{name:'下载成果 line.png'})
+ expect(line.getAttribute('href')).toBe(figure.download_url)
+ expect(screen.getByText('Cohort overview')).toBeTruthy()
+ expect(screen.getByText('集合版本 2 · 导出版本 3 · 2 个分析结果')).toBeTruthy()
+ expect(screen.getByRole('link',{name:'下载成果 集合报告-v2-导出3.docx'}).getAttribute('href')).toBe(report.download_url)
+ expect(container.textContent).not.toMatch(/collection-id|collection-version-id|collection-report-id|new-line-id|config-version|collecti\.docx/)
+ act(()=>setLocale('en'))
+ expect(screen.getByText('Collection version 2 · Export 3 · 2 analysis results')).toBeTruthy()
+ expect(screen.getByRole('link',{name:'Download artifact collection-report-v2-export3.docx'})).toBeTruthy()
+})

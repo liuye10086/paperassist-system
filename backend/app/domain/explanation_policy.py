@@ -21,8 +21,8 @@ class ExplanationExecutionPolicy(StrictContract):
 
     @model_validator(mode='after')
     def fixed_explanation_contract(self):
-        if (self.policy.prompt_version != VERSION or self.policy.tools
-                or self.policy.output_format != 'analysis_explanation_v1'):
+        if (self.policy.prompt_version not in (VERSION, 'analysis_explanation_v2', 'analysis_explanation_v3', 'analysis_explanation_v4') or self.policy.tools
+                or self.policy.output_format != self.policy.prompt_version):
             raise ValueError('The configured policy must use the current explanation contract.')
         return self
 
@@ -58,15 +58,32 @@ def explanation_api_key():
         raise _not_configured() from None
 
 
-def validate_execution_policy(value, payload=None):
+def validate_execution_policy(value, payload=None, *, result=None):
     """Validate a frozen worker snapshot without reading secrets or local files."""
     try:
         parsed = ExplanationExecutionPolicy.model_validate(value)
     except (ValidationError, TypeError, ValueError):
         raise _not_configured() from None
+    if result is not None:
+        from app.domain.artifact_contracts import explanation_version
+        if parsed.policy.prompt_version != explanation_version(result):
+            raise _not_configured()
     if payload is not None:
         try:
-            minimum = len(INSTRUCTIONS.encode('utf-8')) + len(canonical_payload(payload).encode('utf-8')) + 4096
+            expected_version = {2:'analysis_explanation_v2',3:'analysis_explanation_v3',4:'analysis_explanation_v4'}.get(payload.get('schema_version'),VERSION)
+            if parsed.policy.prompt_version != expected_version:
+                raise ValueError('Frozen explanation policy does not match material.')
+            instructions=INSTRUCTIONS
+            if payload.get('schema_version')==4:
+                from app.domain.modeling_prompts import EXPLANATION_INSTRUCTIONS
+                instructions=EXPLANATION_INSTRUCTIONS
+            elif payload.get('schema_version')==3:
+                from app.domain.comparison_prompts import EXPLANATION_INSTRUCTIONS
+                instructions=EXPLANATION_INSTRUCTIONS
+            elif payload.get('schema_version')==2:
+                from app.domain.artifact_prompts import EXPLANATION_INSTRUCTIONS
+                instructions=EXPLANATION_INSTRUCTIONS
+            minimum = len(instructions.encode('utf-8')) + len(canonical_payload(payload).encode('utf-8')) + 4096
         except (TypeError, ValueError, RecursionError):
             raise StorageError('explanation_input_limit', '分析解释的输入材料无效或超出已配置的预算估算范围。', 422) from None
         if minimum > parsed.input_token_allowance:
@@ -75,13 +92,25 @@ def validate_execution_policy(value, payload=None):
     return parsed.model_dump(mode='json')
 
 
-def get_execution_policy(payload):
+def derive_execution_policy(value, payload=None):
+    from copy import deepcopy
+    value=deepcopy(value)
+    if payload and payload.get('schema_version') in (2,3,4):
+        validate_execution_policy(value)
+        version='analysis_explanation_v4' if payload['schema_version']==4 else 'analysis_explanation_v3' if payload['schema_version']==3 else 'analysis_explanation_v2'
+        value['policy'].update(prompt_version=version,output_format=version)
+    return validate_execution_policy(value,payload)
+
+
+def get_execution_policy(payload, *, result=None):
     try:
         config = local_config()
         value = json.loads(_small_text(config.get('PAPERASSIST_EXPLANATION_POLICY_FILE'), 64 * 1024))
     except (OSError, TypeError, ValueError, RecursionError):
         raise _not_configured() from None
-    frozen = validate_execution_policy(value, payload)
+    frozen = derive_execution_policy(value, payload)
+    if result is not None:
+        validate_execution_policy(frozen,payload,result=result)
     explanation_api_key()
     return frozen
 

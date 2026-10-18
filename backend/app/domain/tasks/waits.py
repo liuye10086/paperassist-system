@@ -8,8 +8,14 @@ from app.domain.tasks.wait_contracts import WaitView
 
 
 def input_version(task):
+    if task['task_type'] == 'statistics_compute':
+        from app.domain.statistics_execution.service import input_version as statistics_input_version
+        return statistics_input_version(task)
     if 'input_version' in task:
         return task['input_version']
+    if task['task_type'] == 'analysis_recommendation':
+        from app.domain.analysis_recommendation.service import input_version as recommendation_input_version
+        return recommendation_input_version(task)
     if task['task_type'] == 'review_ocr':
         from app.domain.ocr_review.service import review_input_version
         return review_input_version(task)
@@ -26,6 +32,20 @@ def input_version(task):
         from app.domain.file_parsing import parse_input_version
         return parse_input_version(task)
     snapshot = task['input_snapshot']
+    if task['task_type'] == 'collection_word_report':
+        from app.domain.report_collections.service import input_version as collection_input_version
+        return collection_input_version(task)
+    if task['task_type'] in ('figure_projection','figure_workbench','figure_explanation'):
+        from app.domain.tasks.contracts import DatasetAnalysisInputVersion
+        from app.adapters.task_store import source_conflict
+        try:
+            if snapshot['source'] != snapshot['result']['source']:
+                raise source_conflict()
+            return DatasetAnalysisInputVersion(kind='dataset_analysis',
+                setup_revision=snapshot['result']['setup_revision'], output_language=snapshot['output_language'],
+                source=snapshot['source']).model_dump(mode='json')
+        except (TypeError, ValueError, KeyError) as exc:
+            raise source_conflict() from exc
     if 'source' in snapshot or 'source' in snapshot['result']:
         if snapshot.get('source') != snapshot['result'].get('source') or snapshot.get('schema_version') != 2:
             from app.adapters.task_store import source_conflict
@@ -68,14 +88,18 @@ def persist_wait(db, task):
         return
     resolve_open_wait(db, task, status='superseded')
     kind = ('unsupported_input' if task['status'] == 'waiting_input' else
-        {'budget_exceeded': 'budget_confirmation', 'submission_unknown': 'submission_unknown'}.get(
+        {'budget_exceeded': 'budget_confirmation', 'submission_unknown': 'submission_unknown', 'observation_expired': 'remote_observation'}.get(
             task['reason_code'], 'unsupported_confirmation'))
     if task['task_type'] == 'prepare_dataset' and task['reason_code'] == 'confirmation_required':
         kind = 'dataset_preparation_confirmation'
     if task['task_type'] == 'review_ocr' and task['reason_code'] == 'confirmation_required':
         kind = 'ocr_review_confirmation'
+    if task['task_type'] == 'figure_projection' and task['reason_code'] == 'confirmation_required':
+        kind = 'figure_projection_confirmation'
     if task['task_type'] == 'analysis_plan' and task['reason_code'] == 'confirmation_required':
         kind = 'analysis_plan_confirmation'
+    if task['task_type'] == 'analysis_plan' and task['status'] == 'waiting_input' and task['reason_code'] == 'input_required':
+        kind = 'analysis_plan_input'
     db.execute('''INSERT INTO task_waits
         (id,task_id,user_id,project_id,kind,status,task_revision,input_version,reason_code,error_code,created_at)
         VALUES (%s,%s,%s,%s,%s,'open',%s,%s,%s,%s,%s)''',
@@ -84,7 +108,20 @@ def persist_wait(db, task):
 
 
 def allowed_recovery_actions(db, task):
+    if task.get('reason_code') == 'observation_expired':
+        from app.domain.model_usage.observation import resumable_call
+        wait = get_open_wait(db, task)
+        return ['resume'] if resumable_call(db, task) and wait and wait['kind'] == 'remote_observation' and wait['task_revision'] == task['revision'] else []
+    if task['task_type'] == 'statistics_compute':
+        return ['retry'] if task['status']=='failed' and task.get('error_code') in ('storage_unavailable','task_worker_interrupted') else []
+    if task['task_type'] in ('figure_projection','figure_workbench','figure_explanation'):
+        from app.domain.figure_workbench.tasks import allowed_recovery_actions as configured_actions
+        return configured_actions(db, task)
     if task['task_type'] in ('prepare_dataset','review_ocr','analysis_plan'):
+        if task['task_type']=='analysis_plan' and task['status']=='waiting_input':
+            wait=get_open_wait(db,task)
+            if wait and wait['kind']=='analysis_plan_input' and wait['task_revision']==task['revision']:
+                return ['revise']
         if task['status'] == 'waiting_confirmation':
             wait = get_open_wait(db, task)
             expected_kind = {'review_ocr': 'ocr_review_confirmation', 'prepare_dataset': 'dataset_preparation_confirmation', 'analysis_plan': 'analysis_plan_confirmation'}[task['task_type']]
@@ -115,7 +152,7 @@ def allowed_recovery_actions(db, task):
                 (snapshot['file']['id'],snapshot.get('parse_version',1))).fetchone():
                 return []
         return ['retry'] if not budget_wait and task.get('error_code') in RETRYABLE_CODES else []
-    if task['task_type'] == 'word_report':
+    if task['task_type'] in ('word_report','collection_word_report'):
         return ['retry'] if not budget_wait else []
     if task['task_type'] == 'boxplot':
         from app.domain.plot_tasks import _can_resume, _last_call, _unknown_submission
@@ -123,6 +160,12 @@ def allowed_recovery_actions(db, task):
         from app.domain.explanation_tasks import _can_resume, _last_call
         def _unknown_submission(call):
             return call and not call.get('provider_response_id') and call['status'] in ('submitting', 'submission_unknown')
+    elif task['task_type'] == 'analysis_recommendation':
+        from app.domain.analysis_recommendation.service import last_call as _last_call
+        def _unknown_submission(call):
+            return call and not call.get('provider_response_id') and call['status'] in ('submitting','submission_unknown')
+        def _can_resume(task,call):
+            return task.get('error_code') in ('model_provider_unavailable','storage_unavailable','task_worker_interrupted') and (not call or bool(call.get('provider_response_id')))
     else:
         return []
     call = _last_call(db, task['id'])

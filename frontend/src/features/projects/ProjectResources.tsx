@@ -8,6 +8,7 @@ import ProjectFileLibrary from '../files/ProjectFileLibrary'
 import { fileRequest } from '../files/fileLibraryApi'
 import type { ProjectFile } from '../files/fileLibraryApi'
 import AnalysisSetup from '../analysis/AnalysisSetup'
+import ProjectRequirements from '../analysisPlan/ProjectRequirements'
 import type { ProjectSection } from './WorkspaceShell'
 
 type Props = { projectId: string; onSaved: () => void; section: ProjectSection; onSectionChange: (section: ProjectSection) => void; active?: boolean }
@@ -62,6 +63,7 @@ function ResourceContent({ projectId, onSaved, section, onSectionChange, onUnava
       <ExcelPreview projectId={projectId} savedFile={opened} onSaved={uploaded} onBusyChange={setBusy} onSavedPreviewChange={setPreviewState} />
     </div>
     <div hidden={section !== 'analysis'} className="project-analysis-page">
+      <ProjectRequirements projectId={projectId} files={files}/>
       <AnalysisSetup projectId={projectId} files={files} filesLoading={loading} filesError={error} onReloadFiles={refresh}
         onOpenFiles={() => onSectionChange('files')} />
     </div>

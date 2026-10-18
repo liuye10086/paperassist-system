@@ -32,6 +32,10 @@ def _storage_connection(write=False, config=None):
     except SchemaVersionError as exc:
         raise StorageError("storage_version", "数据库结构未升级或版本不兼容，请先执行Alembic迁移。") from exc
     except SQLAlchemyError as exc:
+        from app.domain.fixed_statistics_runtime import scope_active
+        if scope_active() and getattr(getattr(exc,'orig',None),'sqlstate',None) in ('57014','55P03'):
+            from app.domain.regression.common import NumericError
+            raise NumericError('numeric_timeout','统计节点数据库等待超过期限。') from exc
         raise StorageError("storage_unavailable", "PostgreSQL暂不可用，请检查数据库连接和权限后重试。") from exc
 
 
@@ -281,14 +285,47 @@ class ProjectStore:
         with self.connection() as db:
             # Check the revision and cache together in one read snapshot.
             self.require_analysis_revision(db, file_id, revision)
-            row = db.execute('''SELECT result_json FROM analysis_runs
+            row = db.execute('''SELECT * FROM analysis_runs
                 WHERE file_id = %s AND setup_revision = %s AND engine_version = %s''',
                 (file_id, revision, engine)).fetchone()
-        result = json.loads(row['result_json']) if row else None
+        result = self.analysis_run_value(row) if row else None
         if result is not None:
+            self.validate_analysis_result(project_id, file_id, result)
+        return result
+
+    def validate_analysis_result(self, project_id, file_id, result):
+        """Validate provenance and any trusted receipt; reads never compute."""
+        from app.domain.statistics_execution.verification import require_receipt
+        require_receipt(self,project_id,file_id,result)
+        if result.get('result_type') in ('regression','roc','survival'):
+            from app.domain.modeling_material import load_input
+            load_input(self,project_id,file_id,result)
+        elif result.get('result_type') == 'correlation':
+            from app.domain.correlation.service import load_correlation_input
+            load_correlation_input(self, project_id, file_id, result)
+        elif result.get('result_type') == 'group_comparison':
+            from app.domain.comparison.service import load_comparison_input
+            load_comparison_input(self,project_id,file_id,result)
+        else:
             from app.domain.analysis_plan.service import validate_plan_reference
             validate_plan_reference(self, project_id, file_id, result)
-        return result
+            from app.domain.descriptive import verify_result
+            verify_result(self,project_id,file_id,result)
+
+    @staticmethod
+    def analysis_run_value(row):
+        """Bind JSON revision to its stored identity before any plan lookup."""
+        try:
+            value=json.loads(row['result_json'])
+            from app.domain.descriptive import result_model
+            result_model(value).model_validate(value,strict=True)
+            if (value['id']!=row['id'] or value['file_id']!=row['file_id']
+                    or type(value['setup_revision']) is not int or value['setup_revision']!=row['setup_revision']
+                    or value['engine']['id']!=row['engine_version']):
+                raise ValueError('Analysis result identity differs.')
+            return value
+        except (KeyError,TypeError,ValueError) as exc:
+            raise StorageError('task_source_conflict','统计结果与保存版本不一致，请重新读取。',409) from exc
 
     @staticmethod
     def require_analysis_revision(db, file_id, revision):
@@ -312,12 +349,12 @@ class ProjectStore:
             if result.get('source') is not None:
                 from app.domain.dataset_analysis import load_dataset
                 load_dataset(self, project_id, file_id, result['source']['dataset_id'], expected_source=result['source'])
-            existing = db.execute('''SELECT result_json FROM analysis_runs
+            existing = db.execute('''SELECT * FROM analysis_runs
                 WHERE file_id = %s AND setup_revision = %s AND engine_version = %s''',
                 (file_id, revision, engine)).fetchone()
             if existing:
-                cached = json.loads(existing['result_json'])
-                validate_plan_reference(self, project_id, file_id, cached)
+                cached = self.analysis_run_value(existing)
+                self.validate_analysis_result(project_id, file_id, cached)
                 if cached.get('source') != result.get('source'):
                     raise StorageError('source_conflict', '缓存统计与配置来源不一致。', 409)
                 return cached
@@ -333,38 +370,44 @@ class ProjectStore:
         self.file(project_id, file_id)
         with self.connection() as db:
             setup = db.execute('SELECT revision FROM analysis_setups WHERE file_id = %s', (file_id,)).fetchone()
-            row = db.execute('''SELECT result_json FROM analysis_runs WHERE file_id = %s
+            row = db.execute('''SELECT * FROM analysis_runs WHERE file_id = %s
                 ORDER BY setup_revision DESC, completed_at DESC, id DESC LIMIT 1''', (file_id,)).fetchone()
         revision = setup['revision'] if setup else None
-        result = json.loads(row['result_json']) if row else None
+        result = self.analysis_run_value(row) if row else None
         if result is not None:
-            from app.domain.analysis_plan.service import validate_plan_reference
-            validate_plan_reference(self, project_id, file_id, result)
+            self.validate_analysis_result(project_id, file_id, result)
         return {'current_revision': revision, 'result': result,
                 'is_current': bool(result and result['setup_revision'] == revision and result['engine']['id'] == engine)}
 
     def analysis_result_by_id(self, project_id: str, file_id: str, run_id: str):
         self.file(project_id, file_id)
         with self.connection() as db:
-            row = db.execute('SELECT result_json FROM analysis_runs WHERE id = %s AND file_id = %s',
+            row = db.execute('SELECT * FROM analysis_runs WHERE id = %s AND file_id = %s',
                              (run_id, file_id)).fetchone()
         if row is None:
             raise StorageError('result_not_found', '当前文件中没有此统计结果，请重新读取统计结果。', 404)
-        result = json.loads(row['result_json'])
-        from app.domain.analysis_plan.service import validate_plan_reference
-        validate_plan_reference(self, project_id, file_id, result)
+        result = self.analysis_run_value(row)
+        self.validate_analysis_result(project_id, file_id, result)
         return result
 
     def figure_state(self, result: dict, renderer: str, engine: str):
         with self.connection() as db:
             setup = db.execute('SELECT revision,setup_json FROM analysis_setups WHERE file_id = %s', (result['file_id'],)).fetchone()
-            row = db.execute('SELECT figure_json FROM figures WHERE analysis_run_id = %s AND renderer_version = %s',
+            row = db.execute('SELECT figure_json FROM figures WHERE analysis_run_id = %s AND renderer_version = %s AND figure_config_version_id IS NULL',
                              (result['id'], renderer)).fetchone()
         revision = setup['revision'] if setup else None
         current_source = json.loads(setup['setup_json']).get('source') if setup else None
         figure = json.loads(row['figure_json']) if row else None
         if figure is not None and figure.get('source') != result.get('source'):
             raise StorageError('source_conflict', '图表与统计冻结来源不一致。', 409)
+        if figure is not None and result.get('result_type') in ('group_comparison','regression','roc','survival'):
+            from app.domain.comparison_material import validate_figure_source
+            if result.get('result_type') in ('regression','roc','survival'):
+                from app.domain.modeling_material import validate_figure_source
+            with self.connection() as db:
+                file=db.execute('SELECT project_id FROM files WHERE id=%s',(result['file_id'],)).fetchone()
+            if file is None:raise StorageError('source_conflict','比较图表的文件来源不存在。',409)
+            validate_figure_source(self,file['project_id'],result['file_id'],result,figure)
         return {'current_revision': revision,
                 'is_current': revision == result['setup_revision'] and result['engine']['id'] == engine
                     and current_source == result.get('source'),
@@ -414,6 +457,37 @@ class ProjectStore:
                        (json.dumps(job, ensure_ascii=False, allow_nan=False), job_id))
         return job
 
+    def record_legacy_plot_mismatch(self,job_id,*,differences,manifest,provenance):
+        """Commit legacy failure and bounded evidence together; keep saved figures."""
+        from math import isfinite
+        from app.domain.plot_response import bounded_manifest
+        def scalar(value):
+            if value is None or type(value) in (bool,int):return value
+            if type(value) is float:return value if isfinite(value) else str(value)
+            if isinstance(value,str):return value[:500]
+            return '[structured value omitted]'
+        safe=[]
+        for item in list(differences)[:100]:
+            if not isinstance(item,dict):continue
+            path=str(item.get('path',''))[:200]
+            if any(word in path.lower() for word in ('rows','values','payload','input','research','id_column')):continue
+            safe.append(dict(path=path,expected=scalar(item.get('expected')),actual=scalar(item.get('actual')),reason=scalar(item.get('reason'))))
+        evidence=dict(schema_version=1,status='mismatched',differences=safe,manifest=bounded_manifest(manifest),
+            provenance={key:scalar(provenance[key]) for key in ('response_id','container_id','model','prompt_version','png_file_id','result_file_id')
+                if isinstance(provenance,dict) and key in provenance},recorded_at=datetime.now(timezone.utc).isoformat())
+        with self.connection(write=True) as db:
+            scope=' AND p.owner_id=%s' if self.owner_id is not None else ''
+            parameters=(job_id,self.owner_id) if self.owner_id is not None else (job_id,)
+            row=db.execute('''SELECT j.job_json FROM figure_jobs j JOIN analysis_runs r ON r.id=j.analysis_run_id
+                JOIN files f ON f.id=r.file_id JOIN projects p ON p.id=f.project_id WHERE j.id=%s'''+scope+' FOR UPDATE OF j',parameters).fetchone()
+            if row is None:raise StorageError('result_not_found','绘图任务不存在或不可访问。',404)
+            job=json.loads(row['job_json'])
+            if job['status']=='completed':return job
+            job.update(status='failed',message_code='plot_result_mismatch',message_params={},
+                message='云端计算结果、标签或图注与本地核对不一致，差异已保留，未发布图表。',differences=safe,output_json=evidence)
+            db.execute('UPDATE figure_jobs SET job_json=%s WHERE id=%s',(json.dumps(job,ensure_ascii=False,allow_nan=False),job_id))
+        return job
+
     def figure_png(self, figure: dict):
         path = self.figures_dir / (figure['id'] + '.png')
         try:
@@ -434,7 +508,7 @@ class ProjectStore:
         try:
             with self.connection(write=True) as db:
                 self.require_analysis_revision(db, file_id, figure['setup_revision'])
-                existing = db.execute('SELECT figure_json FROM figures WHERE analysis_run_id = %s AND renderer_version = %s',
+                existing = db.execute('SELECT figure_json FROM figures WHERE analysis_run_id = %s AND renderer_version = %s AND figure_config_version_id IS NULL',
                     (figure['analysis_run_id'], figure['engine']['id'])).fetchone()
                 if existing:
                     saved = json.loads(existing['figure_json'])

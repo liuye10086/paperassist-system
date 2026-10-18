@@ -1,11 +1,19 @@
+import {batch10StatisticsMessages} from './batch10StatisticsMessages'
+import {batch10SourceMessages} from './batch10SourceMessages'
+import {batch10ObservationMessages} from './batch10ObservationMessages'
+import {batch09Messages} from './batch09Messages'
+import {modelingMessages} from './modelingMessages'
+import { qualityMessages } from './qualityMessages'
+import {figureWorkbenchMessages} from './figureWorkbenchMessages'
 import { documentMessages } from './documentMessages'
+import { comparisonMessages } from './comparisonMessages'
 import { ocrReviewMessages } from './ocrReviewMessages'
 import { evidenceMessages } from '../../features/parsedEvidence/evidenceMessages'
 import { fileLifecycleMessages } from './fileLifecycleMessages'
 import { useSyncExternalStore } from 'react'
 import { rootMessages } from './rootMessages'
 import { workflowMessages as originalWorkflowMessages } from './workflowMessages'
-const workflowMessages = { ...originalWorkflowMessages, ...documentMessages, ...ocrReviewMessages, ...evidenceMessages, ...fileLifecycleMessages }
+const workflowMessages = { ...batch10StatisticsMessages, ...batch10SourceMessages, ...batch10ObservationMessages, ...batch09Messages, ...figureWorkbenchMessages, ...originalWorkflowMessages, ...documentMessages, ...ocrReviewMessages, ...evidenceMessages, ...fileLifecycleMessages, ...comparisonMessages, ...modelingMessages, ...qualityMessages }
 import { errorMessages } from './errorMessages'
 
 export type Locale = 'zh-CN' | 'en'
@@ -56,6 +64,10 @@ export function apiError(payload: unknown, fallback: string): string {
   if (!payload || typeof payload !== 'object') return fallback
   const outer = payload as Record<string, unknown>
   const detail = (outer.detail && typeof outer.detail === 'object' ? outer.detail : outer) as Record<string, unknown>
+  if(detail.code==='figure_projection_invalid'&&detail.params&&typeof detail.params==='object'&&'reason' in detail.params&&typeof detail.params.reason==='string'){
+    const code='figure_projection_'+detail.params.reason
+    if(Object.hasOwn(errorMessages,code))return errorPrefix+JSON.stringify({code,params:{},fallback})
+  }
   if (typeof detail.code !== 'string' || !Object.hasOwn(errorMessages, detail.code)) return fallback
   return errorPrefix + JSON.stringify({ code: detail.code, params: errorParams(detail.code, detail.params), fallback })
 }

@@ -158,6 +158,48 @@ class CloudPlot:
             self.client.close()
 
 
+def plot_differences(manifest, expected, *, legacy=False, strict_manifest=False):
+    """Bounded, deterministic differences; raw observation arrays are never retained."""
+    differences = []
+    def bounded(value):
+        if isinstance(value, str): return value[:500]
+        if isinstance(value, (dict,list)): return '[structured value omitted]'
+        if type(value) in (int,float,bool) or value is None: return value
+        return str(type(value).__name__)
+    def add(path,wanted,actual,reason):
+        if '.fliers' in path:
+            wanted = actual = '[observation values omitted]'
+        if len(differences)<100: differences.append({'path':path,'expected':bounded(wanted),'actual':bounded(actual),'reason':reason})
+    def compare(actual,wanted,path):
+        if isinstance(wanted,dict):
+            if not isinstance(actual,dict): add(path,wanted,actual,'type'); return
+            for key,value in wanted.items():
+                if key not in actual: add(path+'.'+key if path else key,value,None,'missing')
+                else: compare(actual[key],value,path+'.'+key if path else key)
+            if strict_manifest:
+                for key in actual.keys()-wanted.keys():
+                    if not path and key=='environment': continue
+                    add(path+'.'+key if path else key,None,actual[key],'unexpected_field')
+            elif path=='statistics' and not legacy:
+                for key in actual.keys()-wanted.keys(): add(path+'.'+key,None,actual[key],'unexpected_statistic')
+        elif isinstance(wanted,list):
+            if not isinstance(actual,list) or len(actual)!=len(wanted): add(path,wanted,actual,'shape'); return
+            for index,(a,b) in enumerate(zip(actual,wanted)): compare(a,b,path+'.'+str(index))
+        elif type(wanted) in (int,float):
+            ok=type(actual) in (int,float) and math.isfinite(actual)
+            if type(wanted) is int: ok=ok and type(actual) is int and actual==wanted
+            else:
+                modeling=expected.get('schema_version')==4
+                field=path.rsplit('.',1)[-1]
+                exact=modeling and (field in ('threshold','time','max_time','reference_line') or '.effects.' in path
+                    or wanted in (0.,1.) and field in ('auc','tpr','fpr','sensitivity','specificity','survival'))
+                ok=ok and (actual==wanted if exact else math.isclose(actual,wanted,rel_tol=1e-10,abs_tol=0 if legacy else 1e-12))
+            if not ok: add(path,wanted,actual,'number')
+        elif type(actual) is not type(wanted) or actual!=wanted: add(path,wanted,actual,'value')
+    compare(manifest,expected,'')
+    return differences
+
+
 def validate_output(output, expected):
     def same(actual, wanted):
         if isinstance(wanted, dict):
@@ -171,8 +213,12 @@ def validate_output(output, expected):
             except OverflowError:
                 return False
         return type(actual) is type(wanted) and actual == wanted
-    if not same(output['manifest'], expected):
-        raise PlotError('plot_result_mismatch', '云端计算结果、标签或图注与本地核对不一致，未保存图表。请重新生成并核查原始数据。')
+    modern = expected.get('schema_version') in (2,3,4)
+    mismatch = plot_differences(output['manifest'],expected) if modern else not same(output['manifest'], expected)
+    if mismatch:
+        from app.domain.plot_response import PlotVerificationError,bounded_manifest
+        raise PlotVerificationError(mismatch if modern else plot_differences(output['manifest'],expected,legacy=True),
+            bounded_manifest(output['manifest']),output.get('provenance',{}))
     try:
         with warnings.catch_warnings():
             warnings.simplefilter('error', Image.DecompressionBombWarning)

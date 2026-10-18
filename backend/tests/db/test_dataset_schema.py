@@ -9,6 +9,14 @@ from tests.db.test_task_schema import seed_owner, task_row, insert_row
 
 def assert_preserved_indexes(inspector,name,old_indexes):
     expected_indexes=list(old_indexes)
+    if name=='figures':
+        expected_indexes=[i for i in expected_indexes if i['name']!='figures_input_key']
+        expected_indexes.extend([
+            {'name':'figures_legacy_input_key','unique':True,'column_names':['analysis_run_id','renderer_version'],
+             'dialect_options':{'postgresql_where':'(figure_config_version_id IS NULL)','postgresql_include':[]}},
+            {'name':'figures_config_input_key','unique':True,'column_names':['figure_config_version_id','renderer_version'],
+             'dialect_options':{'postgresql_where':'(figure_config_version_id IS NOT NULL)','postgresql_include':[]}},
+        ])
     if name=='file_upload_batches':
         # 0023 adds exactly this frozen definition; historical indexes remain intact.
         expected_indexes.append({
@@ -43,8 +51,16 @@ def test_0016_preserves_old_tables_columns_json_and_indexes(postgres_schema,post
         command.upgrade(settings,'head')
         inspector=inspect(db.raw_connection)
         for name in tables:
-            assert [dict(row) for row in db.execute('SELECT * FROM '+name)]==rows[name]
-            assert normalized_columns(name)==columns[name]
+            actual=[dict(row) for row in db.execute('SELECT * FROM '+name)]
+            added={'tasks':'verification_failure','figures':'figure_config_version_id'}.get(name)
+            if added:
+                for row in actual: assert row.pop(added) is None
+            assert actual==rows[name]
+            current=normalized_columns(name)
+            if added:
+                assert current[-1]['name']==added and current[-1]['nullable'] is True
+                current=current[:-1]
+            assert current==columns[name]
             assert_preserved_indexes(inspector,name,indexes[name])
         assert db.execute('SELECT count(*) AS n FROM file_structure_versions').fetchone()['n']==0
         assert db.execute('SELECT count(*) AS n FROM dataset_versions').fetchone()['n']==0

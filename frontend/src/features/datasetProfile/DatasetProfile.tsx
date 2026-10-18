@@ -6,14 +6,16 @@ import { type IssueKind, type Profile, type ProfileBinding } from './profileType
 import FieldDetails from './FieldDetails'
 import IssuePanel from './IssuePanel'
 import './profile.css'
+import QualityPreparationPanel from '../datasetPreparation/QualityPreparationPanel'
 
 // Key the entire response/selection tree by all source identity metadata. This also
 // clears visible state synchronously before effects run on a version change.
-export default function DatasetProfile(props: { base: string; binding: ProfileBinding }) {
+export default function DatasetProfile(props: { base: string; binding: ProfileBinding; projectId?: string }) {
  return <BoundProfile key={`${props.base}:${JSON.stringify(props.binding)}`} {...props} />
 }
-function BoundProfile({ base, binding }: { base: string; binding: ProfileBinding }) {
+function BoundProfile({ base, binding, projectId }: { base: string; binding: ProfileBinding; projectId?: string }) {
  const [selectedBinding] = useState(binding)
+ const [quality, setQuality] = useState(0)
  const { t } = useI18n(); const [profile, setProfile] = useState<Profile | null>(null); const [error, setError] = useState(false); const [attempt, setAttempt] = useState(0); const [fieldColumn, setFieldColumn] = useState<number | null>(null); const [issue, setIssue] = useState<{ kind: IssueKind; column: number | null } | null>(null)
  useEffect(() => {
   const controller = new AbortController(); let active = true
@@ -33,5 +35,6 @@ function BoundProfile({ base, binding }: { base: string; binding: ProfileBinding
   <div className="profile-field-picker">{profile.fields.map(f => <button type="button" key={f.column} aria-expanded={fieldColumn === f.column} onClick={() => { setFieldColumn(fieldColumn === f.column ? null : f.column); setIssue(null) }}>{f.letter} · {f.name}</button>)}</div>
   {field && <FieldDetails field={field} onIssue={(kind, column) => setIssue({ kind, column })} />}
   {issue && <IssuePanel key={`${issue.kind}:${issue.column}`} base={base} profile={profile} {...issue} />}
+  {projectId && profile.source.kind === 'prepared_dataset_version' && <><button type="button" onClick={() => setQuality(n => n + 1)}>{t('按此版本处理质量问题')}</button>{quality > 0 && <QualityPreparationPanel key={quality} projectId={projectId} source={profile.source} />}</>}
  </section>
 }

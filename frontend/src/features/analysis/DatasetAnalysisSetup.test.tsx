@@ -84,11 +84,11 @@ test('pagination and refreshing a newer failed version preserve selected version
 })
 test('changing only dataset source leaves existing statistics and their frozen label but blocks new execution', async () => {
  mockApi({ saved, result }); const user = userEvent.setup(); await open(user); await screen.findByLabelText('数值列')
- await user.click(screen.getByRole('button', { name: '描述统计' }))
+ await user.click(screen.getByRole('button', { name: '统计结果' }))
  const table = await screen.findByRole('table', { name: '描述统计结果' })
  await user.click(screen.getByRole('button', { name: '字段配置' })); await pick(user, 's2', 'd2')
  expect((screen.getByLabelText('数值列') as HTMLSelectElement).value).toBe('')
- await user.click(screen.getByRole('button', { name: '描述统计' }))
+ await user.click(screen.getByRole('button', { name: '统计结果' }))
  expect(screen.getByRole('table', { name: '描述统计结果' })).toBe(table)
  expect((screen.getByRole('button', { name: '执行描述统计' }) as HTMLButtonElement).disabled).toBe(true)
  expect(screen.queryByText(/以下为历史结果/)).toBeNull()
@@ -98,7 +98,7 @@ test('legacy configuration and results remain readable while execution requires 
  const { source: _source, ...legacySaved } = saved; const { source: _resultSource, ...legacyResult } = result
  const fetch = mockApi({ saved: legacySaved, result: legacyResult }); const user = userEvent.setup(); const select = await open(user)
  expect(select.value).toBe(''); expect(screen.getAllByText('来源：历史 Excel 配置。')[0]).toBeTruthy()
- await user.click(screen.getByRole('button', { name: '描述统计' })); await screen.findByRole('table', { name: '描述统计结果' })
+ await user.click(screen.getByRole('button', { name: '统计结果' })); await screen.findByRole('table', { name: '描述统计结果' })
  expect((screen.getByRole('button', { name: '执行描述统计' }) as HTMLButtonElement).disabled).toBe(true)
  expect(fetch.mock.calls.some(([, init]) => init?.method === 'POST' || init?.method === 'PUT')).toBe(false)
 })
@@ -148,7 +148,7 @@ test('saved dataset execution waits for the dataset profile to load successfully
  fetch.mockImplementation((url, init) => url.includes('/analysis-profile?') ? new Promise<Response>(() => {}) : original(url, init))
  const user = userEvent.setup(); await open(user)
  await screen.findByText('正在检查整张工作表……')
- await user.click(screen.getByRole('button', { name: '描述统计' }))
+ await user.click(screen.getByRole('button', { name: '统计结果' }))
  expect((screen.getByRole('button', { name: '执行描述统计' }) as HTMLButtonElement).disabled).toBe(true)
 })
 
@@ -239,7 +239,7 @@ test.each([false,true])('parent setup stays mounted after published plan (initia
  await screen.findByText('当前配置已关联已确认分析计划。')
  await act(async()=>{await new Promise(resolve=>setTimeout(resolve,100))})
  expect(fetch.mock.calls.filter(([url])=>url.endsWith('/analysis-setup'))).toHaveLength(initiallyPublished?1:2)
- await user.click(screen.getByRole('button',{name:'描述统计'}))
+ await user.click(screen.getByRole('button',{name:'统计结果'}))
  await waitFor(()=>expect((screen.getByRole('button',{name:'执行描述统计'}) as HTMLButtonElement).disabled).toBe(false))
 })
 test('restores a prepared version outside page one and keeps draft and selection when newer version appears', async () => {

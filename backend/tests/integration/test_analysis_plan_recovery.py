@@ -1,4 +1,5 @@
 """Real database rollback/fencing and preserved published history audit."""
+from tests.helpers.statistics import statistics_post
 import pytest
 from app.adapters.task_execution_store import TaskExecutionStore,LeaseLost
 from app.adapters.analysis_plan_store import AnalysisPlanStore
@@ -63,7 +64,7 @@ def test_failed_transaction_keeps_checkpoint_and_retry_is_atomic(client,table):
 def test_read_only_audit_includes_approved_plan_and_detects_modified_decision(client):
     from app.maintenance.database_audit import audit_database
     base,_,_,view=confirmed_sample(client)
-    assert client.post(base+'/analysis-runs',json={'expected_revision':1}).status_code==200
+    assert statistics_post(client, base+'/analysis-runs',json={'expected_revision':1}).status_code==200
     with database_connection() as db:
         audit=audit_database(db)
     assert audit['ok'],audit

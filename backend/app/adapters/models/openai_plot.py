@@ -28,7 +28,7 @@ def _identifier(value, pattern):
 
 def _policy(policy):
     if (policy.tools != ['code_interpreter'] or policy.output_format != 'text'
-            or policy.prompt_version != PROMPT_VERSION):
+            or policy.prompt_version not in (PROMPT_VERSION, 'openai_analysis_plot_v2', 'openai_comparison_plot_v3','openai_modeling_plot_v4','openai_figure_workbench_v1','openai_figure_workbench_v2','openai_figure_workbench_v3')):
         raise ModelProviderError('model_tools_unsupported')
 
 

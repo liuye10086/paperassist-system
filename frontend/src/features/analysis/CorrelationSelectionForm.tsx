@@ -1,0 +1,16 @@
+import { useI18n } from '../../shared/i18n'
+import type { CorrelationSelection } from './analysisSelection'
+export type AnalysisField = { column: string; name: string; numeric?: boolean; unit?: string }
+
+export default function CorrelationSelectionForm({value,onChange,fields=[],disabled=false}:{value:CorrelationSelection;onChange:(v:CorrelationSelection)=>void;fields?:AnalysisField[];disabled?:boolean}) {
+ const {t}=useI18n()
+ function choose(columns:string[]) { onChange({...value,columns,units:Object.fromEntries(columns.map(c=>[c,value.units[c]??fields.find(f=>f.column===c)?.unit??'']))}) }
+ return <div className="analysis-field-grid"><label>{t('相关方法')}<select value={value.method} disabled={disabled} onChange={e=>onChange({...value,method:e.target.value as CorrelationSelection['method'],assumptions:{...value.assumptions,relationship_form:'unknown',inference_assumptions_confirmed:false}})}><option value="pearson">Pearson</option><option value="spearman">Spearman</option></select></label>
+ <label>{t('相关路径')}<select value={value.mode} disabled={disabled} onChange={e=>{const mode=e.target.value as CorrelationSelection['mode'];const columns=mode==='pair'?value.columns.slice(0,2):value.columns;onChange({...value,mode,columns,units:Object.fromEntries(columns.map(c=>[c,value.units[c]]))})}}><option value="pair">{t('单对相关 / 散点图')}</option><option value="matrix">{t('探索矩阵 / 热力图')}</option></select></label>
+ {fields.length ? <fieldset><legend>{t('相关数值字段')}</legend>{fields.map(f=><label key={f.column}><input type="checkbox" checked={value.columns.includes(f.column)} disabled={disabled||f.numeric===false||!value.columns.includes(f.column)&&value.columns.length>=(value.mode==='pair'?2:10)} onChange={e=>choose(e.target.checked?[...value.columns,f.column]:value.columns.filter(c=>c!==f.column))}/>{f.column} · {f.name}</label>)}</fieldset> : <label>{t('字段列字母（逗号分隔）')}<input value={value.columns.join(',')} disabled={disabled} onChange={e=>choose(e.target.value.toUpperCase().split(',').map(c=>c.trim()).filter(Boolean))}/></label>}
+ {value.columns.map(c=><label key={c}>{t('字段 {column} 单位',{column:c})}<input value={value.units[c]??''} maxLength={80} disabled={disabled} onChange={e=>onChange({...value,units:{...value.units,[c]:e.target.value}})}/></label>)}
+ <label><input type="checkbox" checked={value.assumptions.independent_observations} disabled={disabled} onChange={e=>onChange({...value,assumptions:{...value.assumptions,independent_observations:e.target.checked}})}/>{t('每行代表一个独立观察单位')}</label>
+ <label>{t('关系形态')}<select value={value.assumptions.relationship_form} disabled={disabled} onChange={e=>onChange({...value,assumptions:{...value.assumptions,relationship_form:e.target.value as CorrelationSelection['assumptions']['relationship_form']}})}><option value="unknown">{t('尚不确定')}</option><option value="linear">{t('线性关系')}</option><option value="monotonic">{t('单调关系')}</option></select></label>
+ {value.mode==='pair'&&<label><input type="checkbox" checked={value.assumptions.inference_assumptions_confirmed} disabled={disabled} onChange={e=>onChange({...value,assumptions:{...value.assumptions,inference_assumptions_confirmed:e.target.checked}})}/>{t('我已核对该方法的双侧推断前提')}</label>}
+ <p className="muted">{t('使用全部所选字段的共同完整记录；不插补、不去重、不自动删除异常值。矩阵只计算探索系数，不计算 P 值或区间。')}</p></div>
+}

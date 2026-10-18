@@ -1,5 +1,6 @@
 """Bounded rows preserving original lexical values and accepted recipe units."""
 from openpyxl.utils.cell import get_column_letter
+from app.domain.dataset_rows import source_rows
 from app.domain.parsed_evidence.contracts import Item, Location, Value, Unit, EvidenceCell, Scope, response
 
 
@@ -9,9 +10,9 @@ def project_sheet(sheet, origin, parser, page, *, prepared=None, raw_sheet=None)
     fields = sheet.fields
     items = []
     for field in fields:
-        header_row = prepared.recipe.header_row if prepared else 1
+        header_row = getattr(prepared.recipe, "header_row", None) if prepared else 1
         items.append(Item(id=f'field:{field.column}', kind='field',
-            location=loc(header_row, field.column, f'{get_column_letter(field.column)}{header_row}'),
+            location=loc(header_row, field.column, f'{get_column_letter(field.column)}{header_row}' if header_row is not None else None),
             value=Value(kind='field', typed=field.name if prepared else field.header_value,
                 unit=Unit(**field.unit.model_dump()))))
     first, last = (1, sheet.row_count)
@@ -32,7 +33,7 @@ def project_sheet(sheet, origin, parser, page, *, prepared=None, raw_sheet=None)
             number_format=getattr(lexical,'number_format',None), formula=getattr(lexical,'formula',None),
             unit=units[cell.column])
         grouped.setdefault(cell.row, []).append(EvidenceCell(location=loc(cell.row,cell.column,cell.coordinate), value=value))
-    for row in range(first,last+1):
+    for row in source_rows(sheet) if prepared else range(first,last+1):
         items.append(Item(id=f'row:{row}',kind='row',location=loc(row),cells=grouped.get(row,[]),
             uncertainties=['unstored_cells_not_materialized']))
     scope = Scope(kind='sheet',sheet_index=sheet.index,sheet_name=sheet.name,

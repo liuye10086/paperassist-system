@@ -20,6 +20,11 @@ async function component() {
 async function open() { const Component = await component(); const view = render(<Component base="/api/v1/projects/p1/files/f1" binding={binding} />); await screen.findByRole('heading', { name: '字段详细概况' }); return { Component, view } }
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); setLocale('zh-CN') })
 
+test('prepared quality profile exposes a parent-bound quality processing entry', async () => {
+ mockApi(); render(<DatasetProfile base="/api/v1/projects/p1/files/f1" projectId="p1" binding={{ ...preparedSource, source: preparedSource }} />)
+ expect(await screen.findByRole('button', { name: '按此版本处理质量问题' })).toBeTruthy()
+})
+
 test('selected source directly loads numeric, categorical and four temporal summaries without saving', async () => {
  const fetch = mockApi(); await open(); const user = userEvent.setup(); await user.click(screen.getByText('C · Measure'))
  expect(screen.getByText('Q1')).toBeTruthy(); expect(screen.getByText('NA')).toBeTruthy()

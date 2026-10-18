@@ -13,6 +13,7 @@ from app.domain.boxplot import public_job
 from app.domain.explanation_content import VERSION, build_payload
 from app.domain.tasks.contracts import TaskCreateRequest
 from app.domain.tasks.service import TaskService
+from app.domain.artifact_contracts import saved_explanation_version
 
 
 OUTPUT_FAILURES = frozenset({'explanation_invalid', 'explanation_invalid_json', 'explanation_refused',
@@ -29,7 +30,7 @@ def matching_task(store, project_id, result, figure):
             AND input_snapshot->'result'->>'id'=%s AND input_snapshot->'figure'->>'id'=%s
             AND input_snapshot->'versions'->>'explanation'=%s
             ORDER BY created_at DESC,id DESC LIMIT 1''',
-            (project_id, store.user_id, workflow_version('explanation', result), result['id'], figure['id'], VERSION)).fetchone()
+            (project_id, store.user_id, workflow_version('explanation', result), result['id'], figure['id'], saved_explanation_version(figure))).fetchone()
         if row and not task_source_matches(row, result):
             raise source_conflict()
         return store.public_task(dict(row)) if row else None
@@ -37,8 +38,8 @@ def matching_task(store, project_id, result, figure):
 
 def get_explanation(project_id, file_id, run_id, project_store):
     from app.domain.explanations import context
-    result, figure, state = context(project_store, project_id, file_id, run_id)
-    state['job'] = public_job(ExplanationStore(project_store).job(figure['id'])) if figure else None
+    result, figure, state = context(project_store, project_id, file_id, run_id,archive=True)
+    state['job'] = public_job(ExplanationStore(project_store).job(figure['id'],saved_explanation_version(figure))) if figure else None
     state['task'] = matching_task(TaskStore(project_store.owner_id), project_id, result, figure)
     return state
 
@@ -67,7 +68,7 @@ def submit_explanation(project_id, file_id, run_id, request, project_store, idem
     typed = TaskCreateRequest(task_type='explanation', file_id=file_id, analysis_run_id=run_id,
                               expected_revision=request.expected_revision, figure_id=figure['id'], external_processing=request.external_processing)
     service = TaskService(project_store.owner_id)
-    legacy = ExplanationStore(project_store).job(figure['id'])
+    legacy = ExplanationStore(project_store).job(figure['id'],saved_explanation_version(figure))
     task = matching_task(service.store, project_id, result, figure)
     # Recheck sources even for cached reads after the nontransactional context.
     previous = None

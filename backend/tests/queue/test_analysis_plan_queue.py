@@ -1,4 +1,5 @@
 """Opt-in real Linux worker restart, durable wait and crash-window recovery."""
+from tests.helpers.statistics import statistics_post
 import json
 import os
 from pathlib import Path
@@ -56,7 +57,7 @@ def test_plan_wait_releases_single_worker_and_survives_restart(client,isolated_w
     approved=decide_plan(client,first,plan_decision(next_view),'approve-after-restart')
     assert approved.status_code==202,approved.text
     assert wait_task(client,first['id'])['status']=='succeeded'
-    result=client.post(base+'/analysis-runs',json={'expected_revision':1})
+    result=statistics_post(client, base+'/analysis-runs',json={'expected_revision':1})
     assert result.status_code==200,result.text
     assert result.json()['overall']['n']==5 and result.json()['analysis_plan']['plan_id']==review_plan(client,first)['result']['id']
     assert not (tmp_path/'data'/'.unexpected-plan-network').exists()

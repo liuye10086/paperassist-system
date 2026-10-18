@@ -1,0 +1,2 @@
+from app.domain.regression.checks import selected_records,build_check
+build_survival_check=build_check

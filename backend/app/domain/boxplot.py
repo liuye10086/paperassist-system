@@ -30,25 +30,15 @@ class PlotRequest(RunRequest):
     expected_predecessor_revision: int | None = Field(default=None, ge=1, le=2_147_483_647)
 
 
-def plot_data(result, values, grouped_values):
+def plot_data(result, values, grouped_values, *, frozen_series=None):
     def series(label, observations):
-        ordered = sorted(observations)
-        def quantile(quarter):
-            index, remainder = divmod((len(ordered) - 1) * quarter, 4)
-            return ((4 - remainder) * Fraction(ordered[index]) + remainder * Fraction(ordered[min(index + 1, len(ordered) - 1)])) / 4
-        q1, median, q3 = (quantile(q) for q in (1, 2, 3))
-        lower, upper = q1 - (q3 - q1) * Fraction(3, 2), q3 + (q3 - q1) * Fraction(3, 2)
-        inside = [v for v in ordered if lower <= v <= upper]
-        outside = [v for v in ordered if v < lower or v > upper]
-        whislo, whishi = Fraction(inside[0]), Fraction(inside[-1])
-        points = sorted(set(outside))
-        metrics = {'q1': q1, 'median': median, 'q3': q3, 'whislo': whislo, 'whishi': whishi}
-        return {'label': label, 'n': len(ordered), **{k: float(v) for k, v in metrics.items()},
-                'fliers': points, 'outlier_count': len(outside)}
+        from app.domain.regression.bounded import compute_bounded
+        return {'label':label, **compute_bounded('boxplot_series',observations,{})}
 
     groups = [(('TRUE' if label else 'FALSE') if isinstance(label, bool) else str(label), data)
               for label, data in grouped_values.items()]
-    plotted = [series(label, data) for label, data in groups] if groups else [series('总体', values)]
+    from copy import deepcopy
+    plotted = deepcopy(frozen_series) if frozen_series is not None else ([series(label, data) for label, data in groups] if groups else [series('总体', values)])
     numeric = result['numeric_name']
     unit = result['selection']['unit'] or '单位未填写'
     x_label = f'{numeric}（{unit}）'
@@ -60,11 +50,19 @@ def plot_data(result, values, grouped_values):
         '须端为 Q1−1.5×IQR 至 Q3+1.5×IQR 范围内最远观测值，IQR = Q3−Q1。'
         '空心圆为范围外观测，重合点可能重叠；这些值仍参与统计，未剔除离群值。'
         '单条或常数数据呈重合线。未进行显著性检验。')
-    return {'analysis_run_id': result['id'], 'file_id': result['file_id'], 'source_sha256': result['source_sha256'],
+    figure = {'analysis_run_id': result['id'], 'file_id': result['file_id'], 'source_sha256': result['source_sha256'],
             'setup_revision': result['setup_revision'], 'figure_number': 1, 'language': 'zh-CN',
             'title': f'图 1. {numeric}箱线图', 'x_label': x_label, 'y_label': y_label, 'caption': caption,
             'series': plotted,
             'method': {'whisker_iqr_multiplier': 1.5, 'quantile_method': 'linear_inclusive', 'outliers_removed': False}}
+    from app.domain.artifact_contracts import artifact_language
+    if artifact_language(result) == 'en':
+        from app.domain.external_material import plot_labels
+        labels = {'numeric_name':result['numeric_name'], 'unit':result['selection']['unit'] or ''}
+        if result['group_name']: labels['group_name'] = result['group_name']
+        figure.update(plot_labels(result, labels), language='en')
+        if not result['groups']: figure['series'][0]['label'] = 'Overall'
+    return figure
 
 
 def result_source(store, project_id, file_id, run_id):
@@ -103,6 +101,11 @@ def recover_legacy_boxplot(project_id: str, file_id: str, run_id: str, store: Pr
                 state['figure'] = store.save_figure(project_id, file_id, figure, output['png'])
                 job = store.update_figure_job(job['id'], status='completed', message='云端计算核对通过，图片已下载并保存。', **job_message('task_completed'))
         except PlotError as exc:
+            from app.domain.plot_response import PlotVerificationError
+            if isinstance(exc,PlotVerificationError):
+                job=store.record_legacy_plot_mismatch(job['id'],differences=exc.differences,manifest=exc.manifest,provenance=exc.provenance)
+                state['job']=public_job(job)
+                return state
             if exc.status == 503 or exc.code == 'openai_request_failed' and exc.status != 404:
                 # Keep the response ID for retrying retrieval without submitting another paid run.
                 fail(exc.code, exc.message, exc.status, params=exc.params)
@@ -124,6 +127,7 @@ def public_job(job):
         status = job.get('status')
         code = 'task_' + status if status in ('submitting', 'running', 'completed', 'uncertain', 'failed') else 'task_unknown'
     result.update(message_code=code, message_params=safe_params(code, job.get('message_params')))
+    if isinstance(job.get('differences'),list): result['differences']=job['differences']
     return result
 
 

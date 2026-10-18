@@ -1,3 +1,4 @@
+import {correlationMessages} from './correlationMessages'
 import { authUiMessages } from './authUiMessages'
 import { workspaceMessages } from './workspaceMessages'
 import { projectContentMessages } from './projectContentMessages'
@@ -12,6 +13,7 @@ import { analysisPlanMessages } from './analysisPlanMessages'
 import { profileMessages } from './profileMessages'
 
 export const rootMessages: Record<string, string> = {
+  ...correlationMessages,
   ...profileMessages,
   ...preparationMessages,
   ...analysisPlanMessages,
@@ -84,7 +86,7 @@ export const rootMessages: Record<string, string> = {
   '返回登录': 'Back to sign in',
   '项目默认输出语言': 'Default project output language',
   '保存输出语言': 'Save output language',
-  '默认语言供后续生成任务使用；当前分析流程仍生成中文成果，历史成果及已提交任务保持原文。': 'This default is for future generation tasks. The current analysis workflow still produces Chinese content; existing artifacts and submitted tasks keep their original language.',
+  '项目默认语言供新任务参考；分析成果使用计划中独立确认的输出语言。修改默认语言不会改写历史成果或已提交任务。': 'The project default guides new tasks. Analysis artifacts use the output language separately approved in the plan. Changing the default does not rewrite historical artifacts or submitted tasks.',
   '输出语言保存失败，请重试。': 'Could not save the output language. Please try again.',
   '输出语言保存超时，请重新读取项目确认。': 'Output language saving timed out. Reload the project to check the saved value.',
   '项目名称': 'Project name',

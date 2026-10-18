@@ -61,19 +61,25 @@ testing and manual review are displayed separately. Every string must be nonempt
 
 
 def require_contract(external, task_type):
-    if (not isinstance(external, dict) or type(external.get('version')) is not int or external.get('version') not in (1, 2, 3)
+    if (not isinstance(external, dict) or type(external.get('version')) is not int or external.get('version') not in (1, 2, 3, 4, 5, 6)
             or external.get('task_type') != task_type or external.get('provider') != 'openai'):
         raise StorageError('task_source_conflict', '已确认的外发资料合同无法通过检查。', 409)
 
 
 def contract_labels(result, figure, external, task_type):
     require_contract(external, task_type)
-    if external['version'] != disclosure_version(result):
+    expected_version = disclosure_version(result)
+    if figure and figure.get('engine', {}).get('id') == 'openai_boxplot_v1':
+        expected_version = 3 if result.get('source', {}).get('kind') == 'prepared_dataset_version' else 2 if 'source' in result else 1
+    if external['version'] != expected_version:
         raise StorageError('task_source_conflict', '外发确认与冻结来源版本不一致。', 409)
     try:
         normalized = normalize_confirmation({'version': external['version'], 'confirmed': True,
             'source_digest': external['source_digest'], 'labels': external['labels']})
-        labels = validate_labels({'result': result, 'figure': figure}, task_type, normalized['labels'])
+        checked_result = result
+        if figure and figure.get('engine', {}).get('id') == 'openai_boxplot_v1':
+            checked_result = {key:value for key,value in result.items() if key not in ('schema_version','analysis_context')}
+        labels = validate_labels({'result': checked_result, 'figure': figure}, task_type, normalized['labels'])
         if external['confirmation_digest'] != digest(normalized) or labels != external['labels']:
             raise ValueError('Confirmation digest mismatch')
         return labels
@@ -81,7 +87,18 @@ def contract_labels(result, figure, external, task_type):
         raise StorageError('task_source_conflict', '已确认的标签无法通过核对。', 409) from exc
 
 
-def plot_instructions(external):
+def plot_instructions(external, result=None):
+    from app.domain.artifact_contracts import modern_artifact
+    if result is not None and modern_artifact(result):
+        require_contract(external, 'boxplot')
+        if result.get('result_type') in ('regression','roc','survival'):
+            from app.domain.modeling_prompts import PLOT_INSTRUCTIONS as modern
+            return modern
+        if result.get('result_type') == 'group_comparison':
+            from app.domain.comparison_prompts import PLOT_INSTRUCTIONS as modern
+            return modern
+        from app.domain.artifact_prompts import PLOT_INSTRUCTIONS as modern
+        return modern
     if external is None:
         from app.adapters.openai_plot import INSTRUCTIONS
         return INSTRUCTIONS
@@ -89,7 +106,18 @@ def plot_instructions(external):
     return PLOT_INSTRUCTIONS
 
 
-def explanation_instructions(external):
+def explanation_instructions(external, result=None):
+    from app.domain.artifact_contracts import modern_artifact
+    if result is not None and modern_artifact(result):
+        require_contract(external, 'explanation')
+        if result.get('result_type') in ('regression','roc','survival'):
+            from app.domain.modeling_prompts import EXPLANATION_INSTRUCTIONS as modern
+            return modern
+        if result.get('result_type') == 'group_comparison':
+            from app.domain.comparison_prompts import EXPLANATION_INSTRUCTIONS as modern
+            return modern
+        from app.domain.artifact_prompts import EXPLANATION_INSTRUCTIONS as modern
+        return modern
     if external is None:
         from app.adapters.openai_explanation import INSTRUCTIONS
         return INSTRUCTIONS
@@ -98,6 +126,18 @@ def explanation_instructions(external):
 
 
 def plot_labels(result, labels):
+    from app.domain.artifact_contracts import artifact_language
+    if artifact_language(result) == 'en':
+        numeric = labels['numeric_name']
+        check = result['check']
+        return {'title':f'Figure 1. {numeric} boxplot',
+            'x_label':f'{numeric} ({labels["unit"] or "unit not specified"})',
+            'y_label':labels.get('group_name','Analysis scope'),
+            'caption':f'Figure 1. {numeric} boxplot; {check["valid_count"]} complete records; {check["excluded_count"]} excluded records. '
+                'n denotes the number of complete records in each group. Boxes show Q1-Q3 and median; quantiles use (n-1)p linear interpolation. '
+                'Whiskers reach the most extreme observations within Q1-1.5*IQR to Q3+1.5*IQR, where IQR=Q3-Q1. '
+                'Hollow circles mark observations beyond the fences; coincident points may overlap. All observations remain in the statistics. '
+                'Singleton and constant data appear as coincident lines. No significance tests were performed.'}
     numeric = labels['numeric_name']
     check = result['check']
     caption = (f'图 1. {numeric}箱线图。使用 {check["valid_count"]} 行完整记录，排除 '
@@ -124,11 +164,21 @@ def plot_material(result, original_payload, original_expected, external):
     expected.update(text)
     for key in ('groups', 'series'):
         for index, group in enumerate(expected[key]):
-            group['label'] = labels[f'group:{index}'] if groups else '总体'
-    return {'labels': text, 'values': original_payload['values'], 'groups': groups}, expected
+            group['label'] = labels[f'group:{index}'] if groups else ('Overall' if result.get('analysis_context',{}).get('plan',{}).get('research_request',{}).get('output_language')=='en' else '总体')
+    payload = {'labels': text, 'values': original_payload['values'], 'groups': groups}
+    from app.domain.artifact_contracts import modern_artifact, artifact_language
+    if modern_artifact(result):
+        extra = {'schema_version':2,'figure_kind':'boxplot','language':artifact_language(result),
+                 'plot_config':{'whisker_iqr_multiplier':1.5,'quantile_method':'linear_inclusive','outliers_removed':False}}
+        payload.update(extra)
+        expected.update(extra)
+    return payload, expected
 
 
 def explanation_material(result, figure, external):
+    from app.domain.artifact_contracts import modern_artifact, PLOT_V2, PLOT_V3, PLOT_V4
+    if modern_artifact(result) and figure.get('engine',{}).get('id',PLOT_V2) in (PLOT_V2,PLOT_V3,PLOT_V4):
+        return modern_explanation_material(result, figure, external)
     if external is None and 'source' in result:
         raise StorageError('task_source_conflict', '新数据来源必须先完成本次外发确认。', 409)
     if external is None:
@@ -136,6 +186,9 @@ def explanation_material(result, figure, external):
         return payload, payload
     labels = contract_labels(result, figure, external, 'explanation')
     safe_result, safe_figure = deepcopy(result), deepcopy(figure)
+    if figure.get('engine', {}).get('id') == 'openai_boxplot_v1':
+        safe_result.pop('schema_version', None)
+        safe_result.pop('analysis_context', None)
     safe_result.update(numeric_name=labels['numeric_name'], group_name=labels.get('group_name'))
     safe_result['selection']['unit'] = labels['unit']
     # The legacy fact catalogue is local only; remove its sheet fact below.
@@ -151,3 +204,40 @@ def explanation_material(result, figure, external):
     outbound = {key: value for key, value in local.items()
                 if key not in ('analysis_run_id', 'figure_id', 'source_sha256', 'figure_sha256')}
     return local, outbound
+
+
+def modern_explanation_material(result, figure, external):
+    from app.domain.artifact_contracts import artifact_language
+    labels = contract_labels(result, figure, external, 'explanation')
+    safe_result, safe_figure = deepcopy(result), deepcopy(figure)
+    if result.get('result_type') in ('correlation','group_comparison','regression','roc','survival'):
+        if result.get('result_type') in ('regression','roc','survival'):
+            safe_result['variables']=[v for v in safe_result['variables'] if v['column']!=result['selection'].get('id_column')]
+        for variable in safe_result['variables']:
+            variable['name'] = labels['field:'+variable['column']]
+            variable['unit'] = labels['unit:'+variable['column']]
+        if result.get('result_type') == 'regression':
+            for i,c in enumerate(safe_result['statistics']['coefficients']):
+                c['term']=labels[f'effect:{i}'] if c['column'] is not None else ('截距' if artifact_language(result)=='zh-CN' else 'Intercept')
+                c['level']=None; c['reference']=None
+        if result.get('result_type') == 'survival':
+            safe_result['statistics']['time_unit']=labels['unit:'+result['selection']['time_column']]
+            for index,group in enumerate(safe_result['statistics']['groups']): group['label']=labels[f'group:{index}']
+        if result.get('result_type') == 'group_comparison':
+            safe_result['selection']['unit'] = labels['unit:'+safe_result['variables'][0]['column']]
+            for index,group in enumerate(safe_result['groups']): group['label']=labels[f'group:{index}']
+    else:
+        safe_result.update(numeric_name=labels['numeric_name'], group_name=labels.get('group_name'))
+        safe_result['selection']['unit'] = labels['unit']
+        safe_result['selection']['sheet_name'] = ''
+        for index,group in enumerate(safe_result['groups']): group['label'] = labels[f'group:{index}']
+        for index,series in enumerate(safe_figure['series']):
+            series['label'] = labels[f'group:{index}'] if safe_result['groups'] else ('Overall' if figure['language']=='en' else '总体')
+    safe_figure['title'] = labels['figure_title']
+    local = build_payload(safe_result,safe_figure)
+    local['facts'].pop('sheet',None)
+    if 'sheet' in local['required_references']['data']: local['required_references']['data'].remove('sheet')
+    local['research_summary'] = labels['research_summary']
+    outbound = {key:deepcopy(value) for key,value in local.items()
+                if key not in ('analysis_run_id','figure_id','source_sha256','figure_sha256')}
+    return local,outbound

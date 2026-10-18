@@ -15,7 +15,7 @@ export function WorkflowNavigation({ onOpenFiles }: { onOpenFiles?: () => void }
   const { t } = useI18n()
   const navigation = useWorkflowNavigation()
   if (!navigation) return null
-  const stages: [AnalysisStage, string][] = [['setup', '字段配置'], ['statistics', '描述统计'], ['figure', '图表'], ['explanation', '分析解释'], ['report', 'Word报告']]
+  const stages: [AnalysisStage, string][] = [['setup', '字段配置'], ['statistics', '统计结果'], ['figure', '图表'], ['explanation', '分析解释'], ['report', 'Word报告']]
   return <nav className="analysis-workflow-nav" aria-label={t('分析流程')}>
     <button type="button" disabled={!onOpenFiles} onClick={onOpenFiles}>{t('数据')}</button>
     {stages.map(([stage, label]) => <button type="button" key={stage} aria-current={navigation.stage === stage ? 'step' : undefined} onClick={() => navigation.setStage(stage)}>{t(label)}</button>)}

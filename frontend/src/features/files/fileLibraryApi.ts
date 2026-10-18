@@ -13,13 +13,14 @@ export type ProjectFile = {
 export type UploadBatchSummary = { created_at: string; item_count: number; item_position: number }
 export type LibraryFile = ProjectFile & { purposes: FilePurpose[]; metadata_revision: number; uploader_recorded: boolean; upload_batch?: UploadBatchSummary | null }
 export type FilePage = { items: LibraryFile[]; total: number; page: number; page_size: number }
-export const referenceLabels = {
+const originalReferenceLabels = {
   analysis_setups: '分析配置引用', analysis_runs: '统计分析引用', figures: '图表引用', explanations: '结果解释引用', reports: 'Word 报告引用',
   structure_versions: '结构版本记录', dataset_versions: '原始数据版本记录', prepared_dataset_versions: '整理数据版本记录', tasks: '任务引用', legacy_jobs: '历史作业', active_tasks: '在途任务', recovery_candidates: '恢复候选',
 } as const
+export const referenceLabels = { ...originalReferenceLabels, prepared_dataset_derivations: '质量派生与回执' } as const
 export type FileDetail = LibraryFile & {
   source: { kind: 'legacy_excel' | 'excel_parse' | 'docx_parse' | 'pdf_parse' | 'ocr_parse'; preview_available: boolean; preview_row_limit: 20 | null; parser_version: string | null }
-  references: Record<keyof typeof referenceLabels, number>
+  references: Record<keyof typeof originalReferenceLabels, number> & { prepared_dataset_derivations?: number }
   retention: { policy: 'internal_testing_keep'; automatic_deletion: false; deletion_available: false }
 }
 

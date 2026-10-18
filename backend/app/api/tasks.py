@@ -32,6 +32,22 @@ class RetryRequest(BaseModel):
 def retry_task(task_id: str, request: RetryRequest, store: Store):
     store.require_mutable(task_id)
     task_type = store.get(task_id)['task_type']
+    if task_type == 'statistics_compute':
+        from app.domain.statistics_execution.service import retry_in_transaction
+        with store.connection(write=True) as db:
+            return retry_in_transaction(store,db,store.require_task(db,task_id),request.expected_revision)
+    if task_type in ('figure_projection','figure_workbench','figure_explanation'):
+        from app.domain.figure_workbench.tasks import retry_in_transaction
+        with store.connection(write=True) as db:
+            return retry_in_transaction(store, db, store.require_task(db, task_id), request.expected_revision)
+    if task_type == 'collection_word_report':
+        from app.domain.report_collections.execution import retry_collection_in_transaction
+        with store.connection(write=True) as db:
+            return retry_collection_in_transaction(store, db, store.require_task(db, task_id), request.expected_revision)
+    if task_type == 'analysis_recommendation':
+        from app.domain.analysis_recommendation.service import retry_in_transaction
+        with store.connection(write=True) as db:
+            return retry_in_transaction(store,db,store.require_task(db,task_id),request.expected_revision)
     if task_type == 'analysis_plan':
         from app.domain.analysis_plan.service import retry_plan_task
         return retry_plan_task(store, task_id, request.expected_revision)

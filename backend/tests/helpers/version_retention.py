@@ -1,4 +1,5 @@
-"""Synthetic multiround retention scenario using real persisted API workflows."""
+"""Historical pre-plan multiround retention using real persisted workflows."""
+from tests.helpers.legacy_statistics import seed_legacy_statistics
 import argparse
 from datetime import datetime
 from hashlib import sha256
@@ -119,9 +120,7 @@ def create_retention_scenario(client, monkeypatch) -> dict:
     saved_initial = client.put(base+'/analysis-setup', json=selected)
     assert saved_initial.status_code == 200, saved_initial.text
     initial_setup = saved_initial.json()
-    response = client.post(base+'/analysis-runs', json={'expected_revision': 1})
-    assert response.status_code == 200, response.text
-    old = response.json()
+    old = seed_legacy_statistics(client, base, revision=1)
     with monkeypatch.context() as artifacts:
         artifacts.setattr(chain_helper, 'new_result', lambda _: (base, file, old))
         chain = chain_helper.complete_chain(client, artifacts)
@@ -180,9 +179,7 @@ def create_retention_scenario(client, monkeypatch) -> dict:
         expected_setup = dict(file_id=file['id'], revision=2,
             setup_json=json.dumps(saved_setup, ensure_ascii=False, allow_nan=False))
         assert client.get(base+'/analysis-setup').json() == saved_setup
-        response = client.post(base+'/analysis-runs', json={'expected_revision': 2})
-        assert response.status_code == 200, response.text
-        new = response.json()
+        new = seed_legacy_statistics(client, base, revision=2)
         current = retention_snapshot()
         _assert_retained(previous, current, project_id=project['id'], expected_setup=expected_setup)
         evidence.append(dict(stage='select-P2', retained_assets=len(previous[1])))

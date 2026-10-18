@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { apiFetch, onApiSessionChanged } from '../../shared/api/client'
 import { artifactFilename } from '../../shared/components/artifactFilename'
 import ProjectDownloadLink from '../../shared/components/ProjectDownloadLink'
-import { isProjectSummary, type ProjectSummaryData, type SummarySource, type SummaryTask } from './projectSummaryTypes'
+import { isProjectSummary, type ProjectSummaryData, type SummarySource, type SummaryTask, type SummaryArtifact } from './projectSummaryTypes'
 import { useI18n } from '../../shared/i18n'
 import './projectSummary.css'
 
@@ -14,9 +14,9 @@ const statuses: Record<SummaryTask['status'], string> = {
   submitting: '提交中', running: '运行中', completed: '已完成', failed: '失败', uncertain: '结果不确定', unknown: '状态未知',
 }
 
-function Source({ item }: { item: SummarySource }) {
+function Source({ item }: { item: SummarySource|SummaryArtifact }) {
   const { t } = useI18n()
-  const context = item.current_revision === null ? '当前设置未记录'
+  const context = 'collection_id' in item&&item.collection_id?'同源多结果集合':item.current_revision === null ? '当前设置未记录'
     : item.setup_revision === item.current_revision ? '当前结果' : '历史结果'
   return <div className="summary-readable-source"><strong>{item.filename}</strong>
     <span>{t(context)}</span></div>
@@ -139,10 +139,11 @@ function Summary({ projectId, projectType, view = 'all', active = true }: Props)
       <h4 className="summary-section-heading">{t("已生成文件")}<span>{data.artifacts.total}</span></h4>
       {data.artifacts.total === 0 ? <p className="summary-empty">{t("还没有已生成的 PNG 或 Word 文件。")}</p> : <>
         <ul className="summary-artifact-list">{data.artifacts.items.map(item => {
-        const filename = artifactFilename(item.download_filename, item.kind, item.id, item.setup_revision, locale)
+        const filename = item.collection_id?t('集合报告-v{version}-导出{export}.docx',{version:item.collection_revision!,export:item.export_revision!}):artifactFilename(item.download_filename, item.kind, item.id, item.setup_revision, locale)
           return <li key={`${item.kind}:${item.id}`}>
           <span className={`summary-artifact-symbol summary-artifact-${item.kind}`}><SummaryIcon kind={item.kind} /></span>
           <div className="summary-artifact-content"><strong className="summary-artifact-title">{filename}</strong><p className="summary-artifact-meta">{t('{type} · {bytes} 字节 · {date}', { type: t(item.kind === 'figure' ? 'PNG 图表' : 'Word 分析报告'), bytes: item.size_bytes.toLocaleString(locale), date: new Date(item.recorded_at).toLocaleString(locale) })}</p>
+            {item.collection_id&&<><p>{item.collection_title}</p><p>{t('集合版本 {version} · 导出版本 {export} · {count} 个分析结果',{version:item.collection_revision!,export:item.export_revision!,count:item.result_count!})}</p></>}
             <div className="summary-artifact-source"><span>{t('来源文件')}</span><Source item={item} /></div></div>
           <ProjectDownloadLink href={item.download_url} filename={filename} ariaLabel={t('下载成果 {name}', { name: filename })}>{t("下载文件")}</ProjectDownloadLink>
         </li>})}</ul>

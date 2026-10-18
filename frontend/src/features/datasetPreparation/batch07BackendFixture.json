@@ -1,0 +1,901 @@
+{
+  "defaults": {
+    "source": {
+      "kind": "prepared_dataset_version",
+      "schema_version": 1,
+      "dataset_id": "6689948e-b5dc-5ffe-ab77-4ccd9163f95f",
+      "structure_id": "b59bf3c9-f168-478c-b822-42573481fb2f",
+      "dataset_version": 1,
+      "file_id": "61a0fe16-fdb8-5baf-84b4-9191cdeda6d2",
+      "source_sha256": "f213d81515d02e01bf8f0097c2be92ae5b13ff5289e04a595730e90512869c9f",
+      "dataset_sha256": "4fb3b712c73c39fc55e02ecccc1cec345ecea09c1b3e9af6203ce488af5c2711",
+      "dataset_size_bytes": 4350,
+      "dataset_schema_version": 1,
+      "sheet_index": 0,
+      "sheet_name": "研究 & 数据",
+      "parser_version": "openpyxl-3.1.5-structure-v1",
+      "parent_dataset_id": "8bfa049d-bec6-5b95-af3a-b26721447a7c",
+      "parent_dataset_version": 1,
+      "transform_version": "excel_prepare_v1"
+    },
+    "recipe": {
+      "fields": [
+        {
+          "column": 1,
+          "trim_text": false,
+          "missing_markers": []
+        },
+        {
+          "column": 2,
+          "trim_text": false,
+          "missing_markers": []
+        },
+        {
+          "column": 3,
+          "trim_text": false,
+          "missing_markers": []
+        }
+      ],
+      "manual_exclusions": [],
+      "duplicate_policy": "retain",
+      "missing_policy": "retain",
+      "outlier_policy": "manual_only"
+    },
+    "summary": {
+      "record_count": 10,
+      "missing_cell_count": 1,
+      "missing_row_count": 1,
+      "blank_row_count": 0,
+      "duplicate_group_count": 2,
+      "duplicate_member_count": 4,
+      "duplicate_extra_row_count": 2,
+      "outlier_candidate_count": 2
+    },
+    "sheet": {
+      "index": 0,
+      "name": "研究 & 数据",
+      "data_range": "A2:C11",
+      "fields": [
+        {
+          "column": 1,
+          "name": "X",
+          "unit": {
+            "status": "unconfirmed",
+            "value": null
+          },
+          "trim_text": false,
+          "missing_markers": []
+        },
+        {
+          "column": 2,
+          "name": "Y",
+          "unit": {
+            "status": "unconfirmed",
+            "value": null
+          },
+          "trim_text": false,
+          "missing_markers": []
+        },
+        {
+          "column": 3,
+          "name": "Group",
+          "unit": {
+            "status": "unconfirmed",
+            "value": null
+          },
+          "trim_text": false,
+          "missing_markers": []
+        }
+      ]
+    }
+  },
+  "review": {
+    "task": {
+      "id": "9b464a64-8112-49f4-b856-6066825c0888",
+      "origin": "unified",
+      "project_id": "29cd104d-9477-43b8-88b5-22b55a3f3e80",
+      "task_type": "prepare_dataset",
+      "status": "waiting_confirmation",
+      "phase": "plan",
+      "display_status": "waiting_confirmation",
+      "revision": 3,
+      "current_attempt": 1,
+      "retry_count": 0,
+      "reason_code": "confirmation_required",
+      "created_at": "2026-10-15T09:25:25.135983Z",
+      "updated_at": "2026-10-15T09:25:25.199279Z",
+      "input_version": {
+        "kind": "dataset_preparation",
+        "source": {
+          "kind": "prepared_dataset_version",
+          "schema_version": 1,
+          "dataset_id": "6689948e-b5dc-5ffe-ab77-4ccd9163f95f",
+          "structure_id": "b59bf3c9-f168-478c-b822-42573481fb2f",
+          "dataset_version": 1,
+          "file_id": "61a0fe16-fdb8-5baf-84b4-9191cdeda6d2",
+          "source_sha256": "f213d81515d02e01bf8f0097c2be92ae5b13ff5289e04a595730e90512869c9f",
+          "dataset_sha256": "4fb3b712c73c39fc55e02ecccc1cec345ecea09c1b3e9af6203ce488af5c2711",
+          "dataset_size_bytes": 4350,
+          "dataset_schema_version": 1,
+          "sheet_index": 0,
+          "sheet_name": "研究 & 数据",
+          "parser_version": "openpyxl-3.1.5-structure-v1",
+          "parent_dataset_id": "8bfa049d-bec6-5b95-af3a-b26721447a7c",
+          "parent_dataset_version": 1,
+          "transform_version": "excel_prepare_v1"
+        },
+        "workflow_version": "dataset_preparation_v2"
+      },
+      "result_report_id": null,
+      "result_explanation_id": null,
+      "result_figure_id": null,
+      "error_code": null
+    },
+    "source": {
+      "kind": "prepared_dataset_version",
+      "schema_version": 1,
+      "dataset_id": "6689948e-b5dc-5ffe-ab77-4ccd9163f95f",
+      "structure_id": "b59bf3c9-f168-478c-b822-42573481fb2f",
+      "dataset_version": 1,
+      "file_id": "61a0fe16-fdb8-5baf-84b4-9191cdeda6d2",
+      "source_sha256": "f213d81515d02e01bf8f0097c2be92ae5b13ff5289e04a595730e90512869c9f",
+      "dataset_sha256": "4fb3b712c73c39fc55e02ecccc1cec345ecea09c1b3e9af6203ce488af5c2711",
+      "dataset_size_bytes": 4350,
+      "dataset_schema_version": 1,
+      "sheet_index": 0,
+      "sheet_name": "研究 & 数据",
+      "parser_version": "openpyxl-3.1.5-structure-v1",
+      "parent_dataset_id": "8bfa049d-bec6-5b95-af3a-b26721447a7c",
+      "parent_dataset_version": 1,
+      "transform_version": "excel_prepare_v1"
+    },
+    "root_source": {
+      "kind": "dataset_version",
+      "schema_version": 1,
+      "dataset_id": "8bfa049d-bec6-5b95-af3a-b26721447a7c",
+      "structure_id": "b59bf3c9-f168-478c-b822-42573481fb2f",
+      "dataset_version": 1,
+      "file_id": "61a0fe16-fdb8-5baf-84b4-9191cdeda6d2",
+      "source_sha256": "f213d81515d02e01bf8f0097c2be92ae5b13ff5289e04a595730e90512869c9f",
+      "dataset_sha256": "50986329a4d0c3957fe3a870048ce44f7b14e9e78cf93902d76f1a09d665396b",
+      "dataset_size_bytes": 5307,
+      "dataset_schema_version": 1,
+      "sheet_index": 0,
+      "sheet_name": "研究 & 数据",
+      "parser_version": "openpyxl-3.1.5-structure-v1"
+    },
+    "wait": {
+      "id": "8caf3f23-0aaf-4ba1-a474-7a3ecc3410dc",
+      "kind": "dataset_preparation_confirmation",
+      "status": "open",
+      "task_revision": 3,
+      "input_version": {
+        "kind": "dataset_preparation",
+        "source": {
+          "kind": "prepared_dataset_version",
+          "schema_version": 1,
+          "dataset_id": "6689948e-b5dc-5ffe-ab77-4ccd9163f95f",
+          "structure_id": "b59bf3c9-f168-478c-b822-42573481fb2f",
+          "dataset_version": 1,
+          "file_id": "61a0fe16-fdb8-5baf-84b4-9191cdeda6d2",
+          "source_sha256": "f213d81515d02e01bf8f0097c2be92ae5b13ff5289e04a595730e90512869c9f",
+          "dataset_sha256": "4fb3b712c73c39fc55e02ecccc1cec345ecea09c1b3e9af6203ce488af5c2711",
+          "dataset_size_bytes": 4350,
+          "dataset_schema_version": 1,
+          "sheet_index": 0,
+          "sheet_name": "研究 & 数据",
+          "parser_version": "openpyxl-3.1.5-structure-v1",
+          "parent_dataset_id": "8bfa049d-bec6-5b95-af3a-b26721447a7c",
+          "parent_dataset_version": 1,
+          "transform_version": "excel_prepare_v1"
+        },
+        "workflow_version": "dataset_preparation_v2"
+      },
+      "reason_code": "confirmation_required",
+      "error_code": null,
+      "created_at": "2026-10-15T09:25:25.199279Z",
+      "resolved_at": null
+    },
+    "checkpoint_id": "c09575a4-b406-4ff8-9343-b55a58224863",
+    "recipe_revision": 1,
+    "recipe": {
+      "fields": [
+        {
+          "column": 1,
+          "trim_text": true,
+          "missing_markers": [
+            "NA"
+          ]
+        },
+        {
+          "column": 2,
+          "trim_text": false,
+          "missing_markers": []
+        },
+        {
+          "column": 3,
+          "trim_text": false,
+          "missing_markers": []
+        }
+      ],
+      "manual_exclusions": [
+        {
+          "row": 9,
+          "reason": "explicit"
+        },
+        {
+          "row": 11,
+          "reason": "synthetic"
+        }
+      ],
+      "duplicate_policy": "exact",
+      "missing_policy": "retain",
+      "outlier_policy": "manual_only"
+    },
+    "preview": {
+      "root_record_count": 10,
+      "base_record_count": 10,
+      "retained_record_count": 7,
+      "inherited_excluded_row_count": 0,
+      "manual_excluded_row_count": 2,
+      "duplicate_excluded_row_count": 1,
+      "cumulative_excluded_row_count": 3,
+      "changed_cell_count": 1,
+      "retained_changed_cell_count": 1,
+      "excluded_changed_cell_count": 0,
+      "changed_row_count": 1,
+      "trimmed_cell_count": 1,
+      "missing_marker_cell_count": 1,
+      "impact_count": 4,
+      "before_quality": {
+        "record_count": 10,
+        "missing_cell_count": 1,
+        "missing_row_count": 1,
+        "blank_row_count": 0,
+        "duplicate_group_count": 2,
+        "duplicate_member_count": 4,
+        "duplicate_extra_row_count": 2,
+        "outlier_candidate_count": 2
+      },
+      "after_quality": {
+        "record_count": 7,
+        "missing_cell_count": 2,
+        "missing_row_count": 2,
+        "blank_row_count": 0,
+        "duplicate_group_count": 0,
+        "duplicate_member_count": 0,
+        "duplicate_extra_row_count": 0,
+        "outlier_candidate_count": 1
+      }
+    },
+    "changes": [
+      {
+        "row": 9,
+        "column": null,
+        "coordinate": null,
+        "operation": "manual_exclusion",
+        "reason": "explicit",
+        "reason_origin": "user",
+        "before": null,
+        "after": null,
+        "operations": [],
+        "retained_row": null,
+        "final_retained": false
+      },
+      {
+        "row": 11,
+        "column": null,
+        "coordinate": null,
+        "operation": "manual_exclusion",
+        "reason": "synthetic",
+        "reason_origin": "user",
+        "before": null,
+        "after": null,
+        "operations": [],
+        "retained_row": null,
+        "final_retained": false
+      },
+      {
+        "row": 5,
+        "column": 1,
+        "coordinate": "A5",
+        "operation": "cell_change",
+        "reason": null,
+        "reason_origin": "rule",
+        "before": {
+          "kind": "text",
+          "value": " NA "
+        },
+        "after": {
+          "kind": "blank",
+          "value": null
+        },
+        "operations": [
+          "trim_text",
+          "missing_marker"
+        ],
+        "retained_row": null,
+        "final_retained": true
+      },
+      {
+        "row": 4,
+        "column": null,
+        "coordinate": null,
+        "operation": "duplicate_exclusion",
+        "reason": "exact_duplicate",
+        "reason_origin": "rule",
+        "before": null,
+        "after": null,
+        "operations": [],
+        "retained_row": 3,
+        "final_retained": false
+      }
+    ],
+    "preview_download_url": "/api/v1/tasks/9b464a64-8112-49f4-b856-6066825c0888/dataset-preparation/preview/download",
+    "impact_url": "/api/v1/tasks/9b464a64-8112-49f4-b856-6066825c0888/dataset-preparation/impacts",
+    "impact_download_url": "/api/v1/tasks/9b464a64-8112-49f4-b856-6066825c0888/dataset-preparation/impacts/download?checkpoint_id=c09575a4-b406-4ff8-9343-b55a58224863",
+    "result": null
+  },
+  "published": {
+    "id": "42a9eb93-434b-5363-bf35-c6523307ef30",
+    "file_id": "61a0fe16-fdb8-5baf-84b4-9191cdeda6d2",
+    "parent_dataset_id": "8bfa049d-bec6-5b95-af3a-b26721447a7c",
+    "parent_dataset_version": 1,
+    "version": 2,
+    "created_at": "2026-10-15T17:25:25.417613+08:00",
+    "task_id": "9b464a64-8112-49f4-b856-6066825c0888",
+    "source": {
+      "kind": "prepared_dataset_version",
+      "schema_version": 2,
+      "dataset_id": "42a9eb93-434b-5363-bf35-c6523307ef30",
+      "structure_id": "b59bf3c9-f168-478c-b822-42573481fb2f",
+      "dataset_version": 2,
+      "file_id": "61a0fe16-fdb8-5baf-84b4-9191cdeda6d2",
+      "source_sha256": "f213d81515d02e01bf8f0097c2be92ae5b13ff5289e04a595730e90512869c9f",
+      "dataset_sha256": "c49cea05d4110ce246eac0d405af7f9da6980d941e5acbcce4e51814860879fc",
+      "dataset_size_bytes": 4536,
+      "dataset_schema_version": 2,
+      "sheet_index": 0,
+      "sheet_name": "研究 & 数据",
+      "parser_version": "openpyxl-3.1.5-structure-v1",
+      "parent_dataset_id": "8bfa049d-bec6-5b95-af3a-b26721447a7c",
+      "parent_dataset_version": 1,
+      "transform_version": "excel_prepare_v2"
+    },
+    "base_source": {
+      "kind": "prepared_dataset_version",
+      "schema_version": 1,
+      "dataset_id": "6689948e-b5dc-5ffe-ab77-4ccd9163f95f",
+      "structure_id": "b59bf3c9-f168-478c-b822-42573481fb2f",
+      "dataset_version": 1,
+      "file_id": "61a0fe16-fdb8-5baf-84b4-9191cdeda6d2",
+      "source_sha256": "f213d81515d02e01bf8f0097c2be92ae5b13ff5289e04a595730e90512869c9f",
+      "dataset_sha256": "4fb3b712c73c39fc55e02ecccc1cec345ecea09c1b3e9af6203ce488af5c2711",
+      "dataset_size_bytes": 4350,
+      "dataset_schema_version": 1,
+      "sheet_index": 0,
+      "sheet_name": "研究 & 数据",
+      "parser_version": "openpyxl-3.1.5-structure-v1",
+      "parent_dataset_id": "8bfa049d-bec6-5b95-af3a-b26721447a7c",
+      "parent_dataset_version": 1,
+      "transform_version": "excel_prepare_v1"
+    },
+    "recipe": {
+      "fields": [
+        {
+          "column": 1,
+          "trim_text": true,
+          "missing_markers": [
+            "NA"
+          ]
+        },
+        {
+          "column": 2,
+          "trim_text": false,
+          "missing_markers": []
+        },
+        {
+          "column": 3,
+          "trim_text": false,
+          "missing_markers": []
+        }
+      ],
+      "missing_policy": "retain",
+      "outlier_policy": "manual_only",
+      "duplicate_policy": "exact",
+      "manual_exclusions": [
+        {
+          "row": 9,
+          "reason": "explicit"
+        },
+        {
+          "row": 11,
+          "reason": "synthetic"
+        }
+      ]
+    },
+    "summary": {
+      "impact_count": 4,
+      "after_quality": {
+        "record_count": 7,
+        "blank_row_count": 0,
+        "missing_row_count": 2,
+        "missing_cell_count": 2,
+        "duplicate_group_count": 0,
+        "duplicate_member_count": 0,
+        "outlier_candidate_count": 1,
+        "duplicate_extra_row_count": 0
+      },
+      "before_quality": {
+        "record_count": 10,
+        "blank_row_count": 0,
+        "missing_row_count": 1,
+        "missing_cell_count": 1,
+        "duplicate_group_count": 2,
+        "duplicate_member_count": 4,
+        "outlier_candidate_count": 2,
+        "duplicate_extra_row_count": 2
+      },
+      "base_record_count": 10,
+      "changed_row_count": 1,
+      "root_record_count": 10,
+      "changed_cell_count": 1,
+      "trimmed_cell_count": 1,
+      "retained_record_count": 7,
+      "manual_excluded_row_count": 2,
+      "missing_marker_cell_count": 1,
+      "excluded_changed_cell_count": 0,
+      "retained_changed_cell_count": 1,
+      "duplicate_excluded_row_count": 1,
+      "inherited_excluded_row_count": 0,
+      "cumulative_excluded_row_count": 3
+    },
+    "sheet": {
+      "index": 0,
+      "name": "研究 & 数据",
+      "data_range": "A2:C11",
+      "fields": [
+        {
+          "column": 1,
+          "name": "X",
+          "unit": {
+            "status": "unconfirmed",
+            "value": null
+          },
+          "trim_text": false,
+          "missing_markers": []
+        },
+        {
+          "column": 2,
+          "name": "Y",
+          "unit": {
+            "status": "unconfirmed",
+            "value": null
+          },
+          "trim_text": false,
+          "missing_markers": []
+        },
+        {
+          "column": 3,
+          "name": "Group",
+          "unit": {
+            "status": "unconfirmed",
+            "value": null
+          },
+          "trim_text": false,
+          "missing_markers": []
+        }
+      ]
+    },
+    "download_url": "/api/v1/projects/29cd104d-9477-43b8-88b5-22b55a3f3e80/files/61a0fe16-fdb8-5baf-84b4-9191cdeda6d2/prepared-dataset-versions/42a9eb93-434b-5363-bf35-c6523307ef30/download",
+    "impact_url": "/api/v1/projects/29cd104d-9477-43b8-88b5-22b55a3f3e80/files/61a0fe16-fdb8-5baf-84b4-9191cdeda6d2/prepared-dataset-versions/42a9eb93-434b-5363-bf35-c6523307ef30/impacts",
+    "impact_download_url": "/api/v1/projects/29cd104d-9477-43b8-88b5-22b55a3f3e80/files/61a0fe16-fdb8-5baf-84b4-9191cdeda6d2/prepared-dataset-versions/42a9eb93-434b-5363-bf35-c6523307ef30/impacts/download"
+  },
+  "rows": {
+    "dataset": {
+      "id": "42a9eb93-434b-5363-bf35-c6523307ef30",
+      "file_id": "61a0fe16-fdb8-5baf-84b4-9191cdeda6d2",
+      "parent_dataset_id": "8bfa049d-bec6-5b95-af3a-b26721447a7c",
+      "parent_dataset_version": 1,
+      "version": 2,
+      "created_at": "2026-10-15T17:25:25.417613+08:00",
+      "task_id": "9b464a64-8112-49f4-b856-6066825c0888",
+      "source": {
+        "kind": "prepared_dataset_version",
+        "schema_version": 2,
+        "dataset_id": "42a9eb93-434b-5363-bf35-c6523307ef30",
+        "structure_id": "b59bf3c9-f168-478c-b822-42573481fb2f",
+        "dataset_version": 2,
+        "file_id": "61a0fe16-fdb8-5baf-84b4-9191cdeda6d2",
+        "source_sha256": "f213d81515d02e01bf8f0097c2be92ae5b13ff5289e04a595730e90512869c9f",
+        "dataset_sha256": "c49cea05d4110ce246eac0d405af7f9da6980d941e5acbcce4e51814860879fc",
+        "dataset_size_bytes": 4536,
+        "dataset_schema_version": 2,
+        "sheet_index": 0,
+        "sheet_name": "研究 & 数据",
+        "parser_version": "openpyxl-3.1.5-structure-v1",
+        "parent_dataset_id": "8bfa049d-bec6-5b95-af3a-b26721447a7c",
+        "parent_dataset_version": 1,
+        "transform_version": "excel_prepare_v2"
+      },
+      "base_source": {
+        "kind": "prepared_dataset_version",
+        "schema_version": 1,
+        "dataset_id": "6689948e-b5dc-5ffe-ab77-4ccd9163f95f",
+        "structure_id": "b59bf3c9-f168-478c-b822-42573481fb2f",
+        "dataset_version": 1,
+        "file_id": "61a0fe16-fdb8-5baf-84b4-9191cdeda6d2",
+        "source_sha256": "f213d81515d02e01bf8f0097c2be92ae5b13ff5289e04a595730e90512869c9f",
+        "dataset_sha256": "4fb3b712c73c39fc55e02ecccc1cec345ecea09c1b3e9af6203ce488af5c2711",
+        "dataset_size_bytes": 4350,
+        "dataset_schema_version": 1,
+        "sheet_index": 0,
+        "sheet_name": "研究 & 数据",
+        "parser_version": "openpyxl-3.1.5-structure-v1",
+        "parent_dataset_id": "8bfa049d-bec6-5b95-af3a-b26721447a7c",
+        "parent_dataset_version": 1,
+        "transform_version": "excel_prepare_v1"
+      },
+      "recipe": {
+        "fields": [
+          {
+            "column": 1,
+            "trim_text": true,
+            "missing_markers": [
+              "NA"
+            ]
+          },
+          {
+            "column": 2,
+            "trim_text": false,
+            "missing_markers": []
+          },
+          {
+            "column": 3,
+            "trim_text": false,
+            "missing_markers": []
+          }
+        ],
+        "missing_policy": "retain",
+        "outlier_policy": "manual_only",
+        "duplicate_policy": "exact",
+        "manual_exclusions": [
+          {
+            "row": 9,
+            "reason": "explicit"
+          },
+          {
+            "row": 11,
+            "reason": "synthetic"
+          }
+        ]
+      },
+      "summary": {
+        "impact_count": 4,
+        "after_quality": {
+          "record_count": 7,
+          "blank_row_count": 0,
+          "missing_row_count": 2,
+          "missing_cell_count": 2,
+          "duplicate_group_count": 0,
+          "duplicate_member_count": 0,
+          "outlier_candidate_count": 1,
+          "duplicate_extra_row_count": 0
+        },
+        "before_quality": {
+          "record_count": 10,
+          "blank_row_count": 0,
+          "missing_row_count": 1,
+          "missing_cell_count": 1,
+          "duplicate_group_count": 2,
+          "duplicate_member_count": 4,
+          "outlier_candidate_count": 2,
+          "duplicate_extra_row_count": 2
+        },
+        "base_record_count": 10,
+        "changed_row_count": 1,
+        "root_record_count": 10,
+        "changed_cell_count": 1,
+        "trimmed_cell_count": 1,
+        "retained_record_count": 7,
+        "manual_excluded_row_count": 2,
+        "missing_marker_cell_count": 1,
+        "excluded_changed_cell_count": 0,
+        "retained_changed_cell_count": 1,
+        "duplicate_excluded_row_count": 1,
+        "inherited_excluded_row_count": 0,
+        "cumulative_excluded_row_count": 3
+      },
+      "sheet": {
+        "index": 0,
+        "name": "研究 & 数据",
+        "data_range": "A2:C11",
+        "fields": [
+          {
+            "column": 1,
+            "name": "X",
+            "unit": {
+              "status": "unconfirmed",
+              "value": null
+            },
+            "trim_text": false,
+            "missing_markers": []
+          },
+          {
+            "column": 2,
+            "name": "Y",
+            "unit": {
+              "status": "unconfirmed",
+              "value": null
+            },
+            "trim_text": false,
+            "missing_markers": []
+          },
+          {
+            "column": 3,
+            "name": "Group",
+            "unit": {
+              "status": "unconfirmed",
+              "value": null
+            },
+            "trim_text": false,
+            "missing_markers": []
+          }
+        ]
+      },
+      "download_url": "/api/v1/projects/29cd104d-9477-43b8-88b5-22b55a3f3e80/files/61a0fe16-fdb8-5baf-84b4-9191cdeda6d2/prepared-dataset-versions/42a9eb93-434b-5363-bf35-c6523307ef30/download",
+      "impact_url": "/api/v1/projects/29cd104d-9477-43b8-88b5-22b55a3f3e80/files/61a0fe16-fdb8-5baf-84b4-9191cdeda6d2/prepared-dataset-versions/42a9eb93-434b-5363-bf35-c6523307ef30/impacts",
+      "impact_download_url": "/api/v1/projects/29cd104d-9477-43b8-88b5-22b55a3f3e80/files/61a0fe16-fdb8-5baf-84b4-9191cdeda6d2/prepared-dataset-versions/42a9eb93-434b-5363-bf35-c6523307ef30/impacts/download"
+    },
+    "start_row": 2,
+    "limit": 20,
+    "total_rows": 7,
+    "has_more": false,
+    "next_start_row": null,
+    "rows": [
+      {
+        "row": 2,
+        "cells": [
+          {
+            "row": 2,
+            "column": 1,
+            "coordinate": "A2",
+            "kind": "number",
+            "value": "10"
+          },
+          {
+            "row": 2,
+            "column": 2,
+            "coordinate": "B2",
+            "kind": "number",
+            "value": "1"
+          },
+          {
+            "row": 2,
+            "column": 3,
+            "coordinate": "C2",
+            "kind": "text",
+            "value": "A"
+          }
+        ]
+      },
+      {
+        "row": 3,
+        "cells": [
+          {
+            "row": 3,
+            "column": 1,
+            "coordinate": "A3",
+            "kind": "number",
+            "value": "20"
+          },
+          {
+            "row": 3,
+            "column": 2,
+            "coordinate": "B3",
+            "kind": "number",
+            "value": "2"
+          },
+          {
+            "row": 3,
+            "column": 3,
+            "coordinate": "C3",
+            "kind": "text",
+            "value": "A"
+          }
+        ]
+      },
+      {
+        "row": 5,
+        "cells": [
+          {
+            "row": 5,
+            "column": 1,
+            "coordinate": "A5",
+            "kind": "blank",
+            "value": null
+          },
+          {
+            "row": 5,
+            "column": 2,
+            "coordinate": "B5",
+            "kind": "number",
+            "value": "3"
+          },
+          {
+            "row": 5,
+            "column": 3,
+            "coordinate": "C5",
+            "kind": "text",
+            "value": "A"
+          }
+        ]
+      },
+      {
+        "row": 6,
+        "cells": [
+          {
+            "row": 6,
+            "column": 1,
+            "coordinate": "A6",
+            "kind": "number",
+            "value": "40"
+          },
+          {
+            "row": 6,
+            "column": 3,
+            "coordinate": "C6",
+            "kind": "text",
+            "value": "B"
+          }
+        ]
+      },
+      {
+        "row": 7,
+        "cells": [
+          {
+            "row": 7,
+            "column": 1,
+            "coordinate": "A7",
+            "kind": "number",
+            "value": "1000"
+          },
+          {
+            "row": 7,
+            "column": 2,
+            "coordinate": "B7",
+            "kind": "number",
+            "value": "10"
+          },
+          {
+            "row": 7,
+            "column": 3,
+            "coordinate": "C7",
+            "kind": "text",
+            "value": "B"
+          }
+        ]
+      },
+      {
+        "row": 8,
+        "cells": [
+          {
+            "row": 8,
+            "column": 1,
+            "coordinate": "A8",
+            "kind": "number",
+            "value": "50"
+          },
+          {
+            "row": 8,
+            "column": 2,
+            "coordinate": "B8",
+            "kind": "number",
+            "value": "5"
+          },
+          {
+            "row": 8,
+            "column": 3,
+            "coordinate": "C8",
+            "kind": "text",
+            "value": "B"
+          }
+        ]
+      },
+      {
+        "row": 10,
+        "cells": [
+          {
+            "row": 10,
+            "column": 1,
+            "coordinate": "A10",
+            "kind": "number",
+            "value": "60"
+          },
+          {
+            "row": 10,
+            "column": 2,
+            "coordinate": "B10",
+            "kind": "number",
+            "value": "6"
+          },
+          {
+            "row": 10,
+            "column": 3,
+            "coordinate": "C10",
+            "kind": "text",
+            "value": "B"
+          }
+        ]
+      }
+    ]
+  },
+  "impacts": {
+    "items": [
+      {
+        "row": 9,
+        "column": null,
+        "coordinate": null,
+        "operation": "manual_exclusion",
+        "reason": "explicit",
+        "reason_origin": "user",
+        "before": null,
+        "after": null,
+        "operations": [],
+        "retained_row": null,
+        "final_retained": false
+      },
+      {
+        "row": 11,
+        "column": null,
+        "coordinate": null,
+        "operation": "manual_exclusion",
+        "reason": "synthetic",
+        "reason_origin": "user",
+        "before": null,
+        "after": null,
+        "operations": [],
+        "retained_row": null,
+        "final_retained": false
+      },
+      {
+        "row": 5,
+        "column": 1,
+        "coordinate": "A5",
+        "operation": "cell_change",
+        "reason": null,
+        "reason_origin": "rule",
+        "before": {
+          "kind": "text",
+          "value": " NA "
+        },
+        "after": {
+          "kind": "blank",
+          "value": null
+        },
+        "operations": [
+          "trim_text",
+          "missing_marker"
+        ],
+        "retained_row": null,
+        "final_retained": true
+      },
+      {
+        "row": 4,
+        "column": null,
+        "coordinate": null,
+        "operation": "duplicate_exclusion",
+        "reason": "exact_duplicate",
+        "reason_origin": "rule",
+        "before": null,
+        "after": null,
+        "operations": [],
+        "retained_row": 3,
+        "final_retained": false
+      }
+    ],
+    "total": 4,
+    "page": 1,
+    "page_size": 20
+  }
+}

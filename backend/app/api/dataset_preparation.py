@@ -8,6 +8,11 @@ from app.api.tasks import decimal_query_integer
 from app.domain.dataset_preparation.service import (DatasetPreparationService,
     PreparationCreateRequest,PreparationDecisionRequest)
 from app.domain.tasks.contracts import TaskView
+from app.domain.dataset_preparation.quality_service import QualityPreparationService
+from app.domain.dataset_preparation.quality_workflow import QualityCreateRequest, QualityDecisionRequest
+
+from app.domain.dataset_preparation.derivation_service import DerivationPreparationService
+from app.domain.dataset_preparation.derivation_workflow import FilterCreateRequest, DerivationDecisionRequest
 
 router = APIRouter(prefix='/api/v1',tags=['整理数据'])
 Store = Annotated[ProjectStore,Depends(get_request_project_store)]
@@ -36,8 +41,46 @@ def review(task_id:str,store:Store):
 
 
 @router.post('/tasks/{task_id}/dataset-preparation/decision',response_model=TaskView,status_code=202)
-def decide(task_id:str,request:PreparationDecisionRequest,store:Store,idempotency_key:Key):
+def decide(task_id:str,request:DerivationDecisionRequest|QualityDecisionRequest|PreparationDecisionRequest,store:Store,idempotency_key:Key):
     return DatasetPreparationService(store).decide(task_id,request,idempotency_key)
+
+
+@router.get('/projects/{project_id}/files/{file_id}/prepared-dataset-versions/{dataset_id}/quality-defaults')
+def quality_defaults(project_id:str,file_id:str,dataset_id:str,store:Store):
+    return QualityPreparationService(store).defaults(project_id,file_id,dataset_id)
+
+
+@router.post('/projects/{project_id}/files/{file_id}/dataset-quality-preparations',response_model=TaskView,status_code=202)
+def quality_create(project_id:str,file_id:str,request:QualityCreateRequest,response:Response,store:Store,idempotency_key:Key):
+    task,status=QualityPreparationService(store).create(project_id,file_id,request,idempotency_key)
+    response.status_code=status
+    return task
+
+
+@router.get('/tasks/{task_id}/dataset-preparation/impacts')
+def task_impacts(task_id:str,store:Store,page:Page=1,page_size:Twenty=20,operation:str|None=None,reason:str|None=None,checkpoint_id:str|None=None):
+    service=DerivationPreparationService(store)
+    _,manifest=service.manifest_for_task(task_id,checkpoint_id)
+    return service.impact_page(manifest,page,page_size,operation,reason)
+
+
+@router.get('/tasks/{task_id}/dataset-preparation/impacts/download')
+def task_impacts_download(task_id:str,store:Store,checkpoint_id:str|None=None):
+    content,_=DerivationPreparationService(store).manifest_for_task(task_id,checkpoint_id)
+    return Response(content,media_type='application/json',headers={'Content-Disposition':'attachment; filename="quality-impacts.json"'})
+
+
+@router.get('/projects/{project_id}/files/{file_id}/prepared-dataset-versions/{dataset_id}/impacts')
+def version_impacts(project_id:str,file_id:str,dataset_id:str,store:Store,page:Page=1,page_size:Twenty=20,operation:str|None=None,reason:str|None=None):
+    service=DerivationPreparationService(store)
+    _,manifest=service.manifest_for_version(project_id,file_id,dataset_id)
+    return service.impact_page(manifest,page,page_size,operation,reason)
+
+
+@router.get('/projects/{project_id}/files/{file_id}/prepared-dataset-versions/{dataset_id}/impacts/download')
+def version_impacts_download(project_id:str,file_id:str,dataset_id:str,store:Store):
+    content,_=DerivationPreparationService(store).manifest_for_version(project_id,file_id,dataset_id)
+    return Response(content,media_type='application/json',headers={'Content-Disposition':'attachment; filename="quality-impacts.json"'})
 
 
 @router.get('/tasks/{task_id}/dataset-preparation/preview/download')
@@ -68,3 +111,15 @@ def download(project_id:str,file_id:str,dataset_id:str,store:Store):
     row,content,_ = DatasetPreparationService(store).load_version(project_id,file_id,dataset_id)
     filename = f"prepared-data-v{row['version']}.json"
     return Response(content,media_type='application/json',headers={'Content-Disposition':f'attachment; filename="{filename}"'})
+
+
+@router.get('/projects/{project_id}/files/{file_id}/prepared-dataset-versions/{dataset_id}/filter-defaults')
+def filter_defaults(project_id:str,file_id:str,dataset_id:str,store:Store):
+    return DerivationPreparationService(store).defaults(project_id,file_id,dataset_id)
+
+
+@router.post('/projects/{project_id}/files/{file_id}/dataset-population-filters',response_model=TaskView,status_code=202)
+def filter_create(project_id:str,file_id:str,request:FilterCreateRequest,response:Response,store:Store,idempotency_key:Key):
+    task,status=DerivationPreparationService(store).create(project_id,file_id,request,idempotency_key)
+    response.status_code=status
+    return task

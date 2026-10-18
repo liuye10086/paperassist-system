@@ -1,3 +1,4 @@
+from tests.helpers.statistics import statistics_post
 from app.core.paths import BACKEND_ROOT, PROJECT_ROOT
 from tests.helpers.auth import session_subprocess_env
 from concurrent.futures import ThreadPoolExecutor
@@ -25,7 +26,7 @@ def configured(client, rows=None, **changes):
 
 
 def run(client, base, revision=1):
-    response = client.post(base + '/analysis-runs', json={'expected_revision': revision})
+    response = statistics_post(client, base + '/analysis-runs', json={'expected_revision': revision})
     assert response.status_code == 200, response.text
     return response.json()
 
@@ -99,7 +100,7 @@ def test_integer_precision_loss_is_rejected_with_no_saved_result(client):
     record = client.post(base.rsplit('/', 1)[0], files={'file': ('large.xlsx', output.getvalue())}).json()['file']
     base = base.rsplit('/', 1)[0] + '/' + record['id']
     assert client.put(base + '/analysis-setup', json=selection(expected_revision=0, group_column=None)).status_code == 200
-    response = client.post(base + '/analysis-runs', json={'expected_revision': 1})
+    response = statistics_post(client, base + '/analysis-runs', json={'expected_revision': 1})
     assert response.status_code == 422
     assert response.json()['detail']['code'] == 'numeric_precision'
     assert response.json()['detail']['params'] == {'column': 'A', 'row': 2}
@@ -126,9 +127,9 @@ def test_boolean_group_labels_and_singleton_warning(client):
 def test_requires_saved_configuration_and_strict_revision(client):
     base, _ = add_file(client)
     assert client.get(base + '/analysis-result').json() == {'current_revision': None, 'is_current': False, 'result': None}
-    assert client.post(base + '/analysis-runs', json={'expected_revision': 1}).status_code == 409
+    assert statistics_post(client, base + '/analysis-runs', json={'expected_revision': 1}).status_code == 409
     for payload in [{}, {'expected_revision': 0}, {'expected_revision': True}, {'expected_revision': 1, 'values': [999]}]:
-        assert client.post(base + '/analysis-runs', json=payload).status_code == 422
+        assert statistics_post(client, base + '/analysis-runs', json=payload).status_code == 422
 
 
 def test_idempotent_retry_and_changed_configuration_keeps_old_result(client):
@@ -137,7 +138,7 @@ def test_idempotent_retry_and_changed_configuration_keeps_old_result(client):
     assert run(client, base) == first
     client.put(base + '/analysis-setup', json=selection(expected_revision=1, group_column=None, unit='new'))
     assert client.get(base + '/analysis-result').json() == {'current_revision': 2, 'is_current': False, 'result': first}
-    assert client.post(base + '/analysis-runs', json={'expected_revision': 1}).status_code == 409
+    assert statistics_post(client, base + '/analysis-runs', json={'expected_revision': 1}).status_code == 409
     second = run(client, base, 2)
     assert second['id'] != first['id'] and second['overall']['n'] == 4
     assert second['selection']['unit'] == 'new'
@@ -160,11 +161,11 @@ def test_ownership_and_original_integrity_guard_results(client):
     other, _ = add_file(client)
     wrong = other.rsplit('/', 1)[0] + '/' + record['id']
     assert client.get(wrong + '/analysis-result').status_code == 404
-    assert client.post(wrong + '/analysis-runs', json={'expected_revision': 1}).status_code == 404
+    assert statistics_post(client, wrong + '/analysis-runs', json={'expected_revision': 1}).status_code == 404
     path = Path(os.environ['PAPERASSIST_DATA_DIR']) / 'files' / (record['id'] + '.xlsx')
     path.write_bytes(b'changed')
     assert client.get(base + '/analysis-result').status_code == 409
-    assert client.post(base + '/analysis-runs', json={'expected_revision': 1}).status_code == 409
+    assert statistics_post(client, base + '/analysis-runs', json={'expected_revision': 1}).status_code == 409
     path.unlink()
     assert client.get(base + '/analysis-result').status_code == 410
 
@@ -181,7 +182,7 @@ def test_explicit_migration_preserves_configuration_and_file(client):
 def test_execution_rechecks_current_parse_limits(client, monkeypatch):
     base, _ = configured(client)
     monkeypatch.setenv('EXCEL_MAX_ROWS', '3')
-    response = client.post(base + '/analysis-runs', json={'expected_revision': 1})
+    response = statistics_post(client, base + '/analysis-runs', json={'expected_revision': 1})
     assert response.status_code == 422
     assert client.get(base + '/analysis-result').json()['result'] is None
 
@@ -196,7 +197,7 @@ def test_configuration_changed_during_calculation_is_not_saved(client, monkeypat
         return original(values)
 
     monkeypatch.setattr(descriptive, 'summarize', racing)
-    assert client.post(base + '/analysis-runs', json={'expected_revision': 1}).status_code == 409
+    assert statistics_post(client, base + '/analysis-runs', json={'expected_revision': 1}).status_code == 409
     assert client.get(base + '/analysis-result').json()['result'] is None
 
 
@@ -223,6 +224,6 @@ def test_failed_save_preserves_previous_result(client, reject_database_write):
     previous = run(client, base)
     client.put(base + '/analysis-setup', json=selection(expected_revision=1, unit='changed'))
     with reject_database_write('analysis_runs'):
-        response = client.post(base + '/analysis-runs', json={'expected_revision': 2})
+        response = statistics_post(client, base + '/analysis-runs', json={'expected_revision': 2})
     assert response.status_code == 503
     assert client.get(base + '/analysis-result').json()['result'] == previous

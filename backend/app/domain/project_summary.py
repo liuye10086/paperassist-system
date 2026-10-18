@@ -26,6 +26,16 @@ class TaskSummary(SourceSummary):
 
 
 class ArtifactSummary(SourceSummary):
+    analysis_run_id: str | None
+    setup_revision: int | None
+    figure_kind: str | None = None
+    figure_config_version_id: str | None = None
+    collection_id: str | None = None
+    collection_version_id: str | None = None
+    collection_revision: int | None = None
+    export_revision: int | None = None
+    collection_title: str | None = None
+    result_count: int | None = None
     kind: Literal['figure', 'report']
     download_filename: str
     size_bytes: int
@@ -147,28 +157,47 @@ TASKS = '''
 ARTIFACTS = '''
     SELECT f.id, 'figure' AS kind, f.analysis_run_id, f.renderer_version AS engine_version,
            f.figure_json::jsonb ->> 'created_at' AS recorded_at, f.id AS figure_id,
-           NULL::text AS explanation_id, 'boxplot-' || f.id || '.png' AS download_filename,
+           NULL::text AS explanation_id, COALESCE(f.figure_json::jsonb ->> 'figure_kind', 'boxplot') || '-' || f.id || '.png' AS download_filename,
            (f.figure_json::jsonb ->> 'size_bytes')::bigint AS size_bytes,
-           f.figure_json::jsonb ->> 'sha256' AS sha256
+           f.figure_json::jsonb ->> 'sha256' AS sha256,
+           r.file_id, r.filename, r.setup_revision, r.current_revision,
+           COALESCE(f.figure_json::jsonb ->> 'figure_kind', 'boxplot') AS figure_kind,
+           f.figure_json::jsonb ->> 'figure_config_version_id' AS figure_config_version_id,
+           NULL::text AS collection_id, NULL::text AS collection_version_id, NULL::integer AS collection_revision,
+           NULL::integer AS export_revision, NULL::text AS collection_title, NULL::integer AS result_count
     FROM figures f JOIN runs r ON r.id=f.analysis_run_id
     UNION ALL
     SELECT p.id, 'report', p.analysis_run_id, p.renderer_version,
            p.report_json::jsonb ->> 'created_at', e.figure_id, p.explanation_id,
            p.report_json::jsonb ->> 'filename', (p.report_json::jsonb ->> 'size_bytes')::bigint,
-           p.report_json::jsonb ->> 'sha256'
+           p.report_json::jsonb ->> 'sha256', r.file_id, r.filename, r.setup_revision, r.current_revision,
+           NULL::text, NULL::text, NULL::text, NULL::text, NULL::integer, NULL::integer, NULL::text, NULL::integer
     FROM reports p JOIN runs r ON r.id=p.analysis_run_id
     JOIN explanations e ON e.id=p.explanation_id AND e.analysis_run_id=r.id
     JOIN figures f ON f.id=e.figure_id AND f.analysis_run_id=r.id
+    UNION ALL
+    SELECT p.id, 'report', NULL::text, p.renderer_version, p.created_at::text,
+           NULL::text, NULL::text, p.report_json->>'filename', (p.report_json->>'size_bytes')::bigint, p.sha256,
+           f.id, f.filename, NULL::integer, NULL::integer, NULL::text, NULL::text,
+           c.id, v.id, v.revision, p.export_revision, v.content_json->>'title',
+           (SELECT count(DISTINCT i.analysis_run_id)::integer FROM report_collection_items i WHERE i.version_id=v.id)
+    FROM collection_reports p JOIN report_collection_versions v ON v.id=p.version_id
+    JOIN report_collections c ON c.id=v.collection_id
+    JOIN projects owner_project ON owner_project.id=c.project_id AND owner_project.owner_id=c.created_by
+    JOIN files f ON f.id=v.source_json->>'file_id' AND f.project_id=c.project_id
+    WHERE c.project_id=%s
 '''
 
 
-def _page(db, project_id, events, page, page_size):
+def _page(db, project_id, events, page, page_size, *, artifacts=False):
     cte = RUNS + events + ') '
-    total = db.execute(cte + 'SELECT count(*) AS total FROM events', (project_id,)).fetchone()['total']
-    rows = db.execute(cte + '''SELECT e.*, r.file_id, r.filename, r.setup_revision, r.current_revision
-        FROM events e JOIN runs r ON r.id=e.analysis_run_id
+    parameters = (project_id, project_id) if artifacts else (project_id,)
+    total = db.execute(cte + 'SELECT count(*) AS total FROM events', parameters).fetchone()['total']
+    selection = 'SELECT e.* FROM events e' if artifacts else '''SELECT e.*, r.file_id, r.filename, r.setup_revision, r.current_revision
+        FROM events e JOIN runs r ON r.id=e.analysis_run_id'''
+    rows = db.execute(cte + selection + '''
         ORDER BY e.recorded_at::timestamptz DESC, e.kind, e.id LIMIT %s OFFSET %s''',
-                      (project_id, page_size, (page - 1) * page_size))
+                      (*parameters, page_size, (page - 1) * page_size))
     return {'items': [dict(row) for row in rows], 'total': total, 'page': page, 'page_size': page_size}
 
 
@@ -184,15 +213,21 @@ def read_project_summary(store, project_id, *, task_page=1, artifact_page=1, pag
         if project is None:
             raise StorageError('project_not_found', '项目不存在，请刷新项目列表。', 404)
         tasks = _page(db, project_id, TASKS, task_page, page_size)
-        artifacts = _page(db, project_id, ARTIFACTS, artifact_page, page_size)
+        artifacts = _page(db, project_id, ARTIFACTS, artifact_page, page_size, artifacts=True)
     for task in tasks['items']:
         if task['status'] not in ('queued', 'submitting', 'running', 'waiting_input', 'waiting_confirmation', 'completed', 'failed', 'uncertain'):
             task['status'] = 'unknown'
     for artifact in artifacts['items']:
+        resource_id = quote(artifact['id'], safe='')
+        if artifact['collection_id']:
+            artifact['download_url'] = '/api/v1/projects/{}/report-collections/{}/reports/{}/download'.format(
+                quote(project_id, safe=''), quote(artifact['collection_id'], safe=''), resource_id)
+            continue
         path = '/api/v1/projects/{}/files/{}/analysis-runs/{}'.format(
             *(quote(value, safe='') for value in (project_id, artifact['file_id'], artifact['analysis_run_id'])))
-        resource_id = quote(artifact['id'], safe='')
-        artifact['download_url'] = (f'{path}/figures/{resource_id}/download' if artifact['kind'] == 'figure'
+        artifact['download_url'] = (f'{path}/figure-workbench/figures/{resource_id}/png'
+                                    if artifact['kind'] == 'figure' and artifact['figure_config_version_id'] else
+                                    f'{path}/figures/{resource_id}/download' if artifact['kind'] == 'figure'
                                     else f'{path}/report/{resource_id}/download')
     kind = project['project_type']
     return ProjectSummary(project_id=project_id, project_type=kind, tasks=tasks, artifacts=artifacts,

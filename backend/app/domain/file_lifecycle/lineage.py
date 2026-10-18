@@ -7,7 +7,7 @@ def task_sources(task, references):
     if not task['_integrity_valid']:
         return []
     indexes = references['public_indexes']
-    refs = set(frozen_references(task['input_snapshot']))
+    refs = set(frozen_references(task.get('_scoped_snapshot',task['input_snapshot'])))
     for kind in ('parse_versions', 'structure_versions', 'prepared_dataset_versions', 'ocr_review_versions', 'confirmed_plans'):
         refs.update((kind, row['id']) for row in references['public_groups'][kind] if row.get('task_id') == task['id'])
     result = []

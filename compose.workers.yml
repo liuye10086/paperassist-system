@@ -49,6 +49,7 @@ services:
     stop_grace_period: 30s
   worker:
     <<: *worker
+    mem_limit: 2g
     environment:
       <<: *worker-environment
       OPENAI_API_KEY_FILE: /run/secrets/model-api-key

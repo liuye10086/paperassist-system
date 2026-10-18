@@ -1,4 +1,5 @@
-"""Prepared ranges feed statistics and the existing independent artifact chain."""
+"""Historical pre-plan prepared results retain their independent artifact chain."""
+from tests.helpers.legacy_statistics import seed_legacy_statistics
 import copy
 from io import BytesIO
 from docx import Document
@@ -34,9 +35,8 @@ def prepared_result(client):
     saved=client.put(base+'/analysis-setup',json=selection(dataset_id=prepared['id'],expected_revision=0,
         numeric_column='D',group_column='C',unit='mg'))
     assert saved.status_code==200,saved.text
-    result=client.post(base+'/analysis-runs',json={'expected_revision':1})
-    assert result.status_code==200,result.text
-    result=result.json()
+    # Explicit old persisted result, with real bounded math and legacy_unverified.
+    result=seed_legacy_statistics(client,base,revision=1)
     assert result['source']==prepared['source']
     assert result['numeric_name']=='体重' and result['group_name']=='处理组'
     assert result['check']['row_count']==6 and result['check']['valid_count']==4 and result['check']['excluded_count']==2

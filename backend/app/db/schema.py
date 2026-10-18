@@ -1,6 +1,6 @@
 """SQLAlchemy Core metadata matching the persisted PaperAssist v6 contract."""
 
-from sqlalchemy.dialects.postgresql import DOUBLE_PRECISION
+from sqlalchemy.dialects.postgresql import DOUBLE_PRECISION, JSONB
 
 from sqlalchemy import (
     Boolean, BigInteger, CheckConstraint, Column, ForeignKey, Identity, Index, Integer,
@@ -85,7 +85,7 @@ figures = Table(
     Column("analysis_run_id", Text, ForeignKey("analysis_runs.id"), nullable=False),
     Column("renderer_version", Text, nullable=False),
     Column("figure_json", Text, nullable=False),
-    UniqueConstraint("analysis_run_id", "renderer_version", name="figures_input_key"),
+    Column("figure_config_version_id", Text, ForeignKey("figure_config_versions.id"), nullable=True),
 )
 
 figure_jobs = Table(
@@ -207,6 +207,7 @@ task_waits, task_resume_requests = define_task_wait_tables(metadata)
 from app.db.task_error_schema import add_task_error_columns
 
 add_task_error_columns(tasks, task_attempts, task_events)
+tasks.append_column(Column('verification_failure', JSONB(none_as_null=True)))
 
 from app.db.file_parsing_schema import define_file_parsing_tables
 file_upload_batches, file_upload_items, file_parse_results = define_file_parsing_tables(metadata)
@@ -216,6 +217,8 @@ file_structure_versions, dataset_versions = define_dataset_tables(metadata)
 
 from app.db.dataset_preparation_schema import define_dataset_preparation_tables
 task_checkpoints, dataset_preparation_decisions, prepared_dataset_versions = define_dataset_preparation_tables(metadata)
+from app.db.quality_derivations_schema import define_quality_derivations
+prepared_dataset_derivations = define_quality_derivations(metadata)
 
 from app.db.analysis_plan_schema import define_analysis_plan_tables
 analysis_plan_decisions, confirmed_analysis_plans = define_analysis_plan_tables(metadata)
@@ -227,3 +230,16 @@ from app.db.file_lifecycle_schema import define_file_lifecycle_tables
 file_deletion_requests, file_reparse_assessments = define_file_lifecycle_tables(metadata)
 Index('file_upload_batches_owner_created', file_upload_batches.c.project_id, file_upload_batches.c.user_id,
       file_upload_batches.c.created_at.desc(), file_upload_batches.c.id)
+
+from app.db.figure_workbench_schema import define_figure_workbench_tables
+figure_configurations, figure_config_versions, figure_projection_decisions, figure_projection_results = define_figure_workbench_tables(metadata)
+Index('figures_legacy_input_key', figures.c.analysis_run_id, figures.c.renderer_version,
+      unique=True, postgresql_where=text('figure_config_version_id IS NULL'))
+Index('figures_config_input_key', figures.c.figure_config_version_id, figures.c.renderer_version,
+      unique=True, postgresql_where=text('figure_config_version_id IS NOT NULL'))
+
+from app.db.report_collection_schema import define_report_collection_tables
+report_collections, report_collection_versions, report_collection_items, report_build_requests, collection_reports = define_report_collection_tables(metadata)
+
+from app.db.research_materials_schema import define_research_materials
+prepared_dataset_derivations_v3, external_evidence_versions = define_research_materials(metadata)

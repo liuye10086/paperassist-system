@@ -4,6 +4,7 @@ No lineage rows are backfilled or copied. All reads use the caller's transaction
 Only registered candidates are counted; storage directories are never scanned.
 """
 import json
+from datetime import datetime
 
 from app.domain.file_lifecycle.contracts import ACTIVE, digest
 from app.domain.tasks.legacy import job_data, mapped_status, public_legacy_task
@@ -18,8 +19,14 @@ DIRECT = {
 SOURCE_TABLES = {
     'parse_id': 'parse_versions', 'parent_parse_id': 'parse_versions',
     'structure_id': 'structure_versions', 'parent_dataset_id': 'dataset_versions',
+    'prepared_dataset_id': 'prepared_dataset_versions', 'base_prepared_dataset_id': 'prepared_dataset_versions',
     'plan_id': 'confirmed_plans', 'analysis_run_id': 'analysis_runs',
     'figure_id': 'figures', 'explanation_id': 'explanations', 'report_id': 'reports',
+    'configuration_id': 'figure_configurations', 'figure_config_version_id': 'figure_config_versions',
+    'config_version_id': 'figure_config_versions', 'projection_id': 'figure_projection_results',
+    'collection_id': 'report_collections', 'collection_version_id': 'report_collection_versions',
+    'build_request_id': 'report_build_requests',
+    'evidence_version_id': 'external_evidence_versions',
 }
 
 
@@ -139,7 +146,7 @@ def source_identity_valid(snapshot, indexes, file, producers):
     return all(identifier in indexes[kind] for kind, identifier in frozen_references(snapshot))
 
 
-def public_source_groups(groups, indexes, tasks, file, user_id, producers):
+def public_source_groups(groups, indexes, tasks, file, user_id, producers, proofs=None):
     """Keep internal rows intact; expose only proved producer/parent chains.
 
     Removing unsafe dependencies to a fixed point also handles consumers of an
@@ -149,13 +156,17 @@ def public_source_groups(groups, indexes, tasks, file, user_id, producers):
     rows, dependencies, safe = {}, {}, set()
     producer_types = dict(parse_versions='parse_file', structure_versions='extract_dataset',
         prepared_dataset_versions='prepare_dataset', ocr_review_versions='review_ocr',
-        confirmed_plans='analysis_plan')
+        confirmed_plans='analysis_plan', figure_projection_decisions='figure_projection',
+        report_build_requests='collection_word_report')
     for kind, members in groups.items():
         for row in members:
             key = (kind, row['id'] if 'id' in row else row['file_id'])
             rows[key] = row
             refs = set()
             valid = row.get('file_id', file['id']) == file['id'] and row.get('created_by', user_id) == user_id
+            valid &= row.get('project_id',file['project_id']) == file['project_id']
+            from app.domain.file_lifecycle.figure_report_references import parent_links
+            refs.update(parent_links(kind,row))
             if 'source_sha256' in row:
                 valid &= row['source_sha256'] == file['sha256']
             for column, target in SOURCE_TABLES.items():
@@ -164,11 +175,25 @@ def public_source_groups(groups, indexes, tasks, file, user_id, producers):
             if row.get('parent_id') is not None:
                 refs.add((kind, row['parent_id']))
             for column, target in (('figure_id','figures'), ('explanation_id','explanations')):
-                if column in row:
+                if row.get(column) is not None:
                     parent = indexes[target].get(row[column])
                     valid &= parent is not None and parent['analysis_run_id'] == row.get('analysis_run_id')
+            if kind == 'external_evidence_versions':
+                valid &= row.get('_integrity_valid',False)
+                if row.get('previous_version_id') is not None:
+                    refs.add((kind,row['previous_version_id']))
+                if row.get('document_version_id') is not None:
+                    refs.add(('parse_versions',row['document_version_id']))
+                if row.get('ocr_review_version_id') is not None:
+                    refs.add(('ocr_review_versions',row['ocr_review_version_id']))
+            if kind == 'prepared_dataset_derivations_v3':
+                from app.domain.file_lifecycle.quality_references import valid_derivation_v3
+                valid &= valid_derivation_v3(row,indexes)
+            if kind == 'prepared_dataset_derivations':
+                from app.domain.file_lifecycle.quality_references import valid_derivation
+                valid &= valid_derivation(row, indexes)
             producing = []
-            if 'task_id' in row:
+            if row.get('task_id') is not None:
                 producer = by_task.get(row['task_id'])
                 valid &= producer is not None and producer['_integrity_valid']
                 if producer is not None:
@@ -176,7 +201,15 @@ def public_source_groups(groups, indexes, tasks, file, user_id, producers):
                     valid &= producer['task_type'] == producer_types.get(kind)
                     source = object_value(producer['input_snapshot'].get('source'))
                     if kind == 'prepared_dataset_versions':
-                        valid &= source.get('dataset_id') == row['parent_dataset_id']
+                        if producer.get('workflow_version') in ('dataset_preparation_v2','dataset_preparation_v3'):
+                            relation_kind='prepared_dataset_derivations_v3' if producer['workflow_version']=='dataset_preparation_v3' else 'prepared_dataset_derivations'
+                            derivation = indexes[relation_kind].get(row['id'])
+                            valid &= derivation is not None
+                            refs.add((relation_kind, row['id']))
+                            if derivation is not None:
+                                valid &= source.get('dataset_id') == derivation['base_prepared_dataset_id']
+                        else:
+                            valid &= source.get('dataset_id') == row['parent_dataset_id']
                     if kind == 'ocr_review_versions':
                         valid &= source.get('parse_id') == row['parent_parse_id']
             if kind in ('figures', 'explanations', 'reports'):
@@ -184,11 +217,14 @@ def public_source_groups(groups, indexes, tasks, file, user_id, producers):
                 producing.extend(t for t in tasks if t.get('result_'+singular+'_id') == row['id'])
             for producer in producing:
                 valid &= producer['_integrity_valid']
-                refs.update(frozen_references(producer['input_snapshot']))
+                refs.update(frozen_references(producer.get('_scoped_snapshot',producer['input_snapshot'])))
             for column in ('setup_json', 'result_json', 'input_json', 'plan_json',
-                           'figure_json', 'explanation_json', 'report_json'):
+                           'figure_json', 'explanation_json', 'report_json', 'source_json',
+                           'content_json', 'item_json'):
                 if row.get(column) is not None:
                     source = object_value(row[column])
+                    from app.domain.file_lifecycle.research_references import scoped_snapshot
+                    source = scoped_snapshot(source,file['id'],proofs or {})
                     valid &= source_identity_valid(source, indexes, file, producers)
                     refs.update(frozen_references(source))
             dependencies[key] = refs
@@ -200,7 +236,7 @@ def public_source_groups(groups, indexes, tasks, file, user_id, producers):
             break
         safe = retained
     for task in tasks:
-        refs = set(frozen_references(task['input_snapshot']))
+        refs = set(frozen_references(task.get('_scoped_snapshot',task['input_snapshot'])))
         refs.update(key for key, row in rows.items() if row.get('task_id') == task['id'])
         task['_integrity_valid'] &= refs <= safe
     return {kind: [row for key, row in rows.items() if key[0] == kind and key in safe]
@@ -214,12 +250,14 @@ def facts(row):
         if key in ('created_at', 'completed_at', 'updated_at', 'uploaded_at', 'finished_at',
                    'heartbeat_at', 'lease_expires_at', 'available_at', 'publish_attempts'):
             continue
-        if key.endswith('_json') or key in ('input_snapshot', 'figure_candidate', 'object_key'):
+        if key.startswith('_'):
+            continue
+        if key.endswith('_json') or key.endswith('object_key') or key in ('input_snapshot', 'figure_candidate'):
             result[key + '_digest'] = digest(value) if value is not None else None
         elif key == 'published_at':
             result['published'] = value is not None
         else:
-            result[key] = value
+            result[key] = value.isoformat() if isinstance(value,datetime) else value
     return result
 
 
@@ -247,9 +285,21 @@ def read_references(db, file, user_id):
     file_id, project_id = file['id'], file['project_id']
     groups = {kind: [dict(row) for row in db.execute(f'SELECT * FROM {table} WHERE file_id=%s', (file_id,))]
               for kind, table in DIRECT.items()}
+    groups['prepared_dataset_derivations'] = [dict(row) for row in db.execute(
+        'SELECT d.*,d.prepared_dataset_id AS id,v.file_id FROM prepared_dataset_derivations d '
+        'JOIN prepared_dataset_versions v ON v.id=d.prepared_dataset_id WHERE v.file_id=%s', (file_id,))]
+    groups['prepared_dataset_derivations_v3']=[dict(row) for row in db.execute(
+        'SELECT d.*,d.prepared_dataset_id AS id,v.file_id FROM prepared_dataset_derivations_v3 d '
+        'JOIN prepared_dataset_versions v ON v.id=d.prepared_dataset_id WHERE v.file_id=%s',(file_id,))]
+    from app.domain.file_lifecycle.research_references import valid_evidence,research_proofs,scoped_snapshot
+    groups['external_evidence_versions']=[dict(row) for row in db.execute('SELECT * FROM external_evidence_versions WHERE file_id=%s',(file_id,))]
+    for evidence in groups['external_evidence_versions']:
+        evidence['_integrity_valid']=valid_evidence(db,evidence,file,user_id)
     runs = [row['id'] for row in groups['analysis_runs']]
     for kind in ('figures', 'explanations', 'reports'):
         groups[kind] = [dict(row) for row in db.execute(f'SELECT * FROM {kind} WHERE analysis_run_id=ANY(%s)', (runs,))]
+    from app.domain.file_lifecycle.figure_report_references import read_groups
+    groups.update(read_groups(db,file,runs))
     indexes = {kind: {row['id']: row for row in rows if 'id' in row} for kind, rows in groups.items()}
     output_tasks = {row['task_id'] for rows in groups.values() for row in rows if row.get('task_id')}
     project_files = {r['id'] for r in db.execute('SELECT id FROM files WHERE project_id=%s',(project_id,))}
@@ -263,11 +313,14 @@ def read_references(db, file, user_id):
         ORDER BY created_at DESC,id''', (project_id, list(output_tasks),
         list(indexes['figures']), list(indexes['explanations']), list(indexes['reports']))).fetchall()
     producers = {row['id']:row['input_snapshot'] for row in project_tasks}
+    proofs=research_proofs(db,project_tasks,user_id,project_id)
     for row in project_tasks:
         task = dict(row)
         snapshot = task['input_snapshot']
-        refs = set(frozen_references(snapshot))
+        scoped=scoped_snapshot(snapshot,file_id,proofs)
+        refs = set(frozen_references(scoped))
         ids = file_ids(snapshot)
+        scoped_ids=file_ids(scoped)
         linked = (file_id in ids or task['id'] in output_tasks
                   or any(identifier in indexes[kind] for kind, identifier in refs)
                   or any(task.get('result_'+kind+'_id') in indexes[kind+'s']
@@ -280,15 +333,16 @@ def read_references(db, file, user_id):
             linked = True
         if not linked:
             continue
-        valid = task['user_id'] == user_id and task['project_id'] == project_id and ids <= {file_id}
+        valid = task['user_id'] == user_id and task['project_id'] == project_id and scoped_ids <= {file_id}
         valid = valid and all(identifier in indexes[kind] for kind, identifier in refs)
         valid = valid and bool(ids or refs or task['id'] in output_tasks)
-        valid = valid and source_identity_valid(snapshot,indexes,file,producers)
+        valid = valid and source_identity_valid(scoped,indexes,file,producers)
         valid = valid and task_contract_valid(task)
         for key,kind in (('parse_id','parse_versions'),('structure_id','structure_versions')):
             if key in snapshot:
                 output = indexes[kind].get(snapshot[key]) if isinstance(snapshot[key], str) else None
                 valid = valid and output is not None and output['task_id']==task['id']
+        task['_scoped_snapshot']=scoped
         task['_integrity_valid'] = valid
         task['_public'] = task['user_id'] == user_id and task['project_id'] == project_id
         unknown |= not valid
@@ -296,7 +350,7 @@ def read_references(db, file, user_id):
     # Validate persisted output producer identities as well as snapshot consumers.
     task_ids = [task['id'] for task in tasks]
     unknown |= bool(output_tasks - set(task_ids))
-    public_groups = public_source_groups(groups, indexes, tasks, file, user_id, producers)
+    public_groups = public_source_groups(groups, indexes, tasks, file, user_id, producers, proofs)
     public_indexes = {kind: {row['id']: row for row in rows if 'id' in row}
                       for kind, rows in public_groups.items()}
     unknown |= any(len(public_groups[kind]) != len(rows) for kind, rows in groups.items())
@@ -336,6 +390,8 @@ def read_references(db, file, user_id):
     reasons = []
     if counts['active_tasks']:
         reasons.append('active_tasks')
+    if any(r['status'] in ('waiting','queued','failed','blocked') for r in groups['report_build_requests']):
+        reasons.append('report_build_pending')
     if unknown:
         reasons.append('integrity_unknown')
     if any(c['status'] in ('reserved', 'submitting', 'submitted', 'submission_unknown') for c in calls):

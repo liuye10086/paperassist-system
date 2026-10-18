@@ -8,7 +8,7 @@ from tests.db.test_task_schema import seed_owner, task_row, insert_row, NOW
 
 
 def test_incremental_upgrade_keeps_old_history_null_and_downgrades(postgres_schema, postgres_migration_config):
-    assert SCHEMA_HEAD == '0023_file_lifecycle'
+    assert SCHEMA_HEAD == '0029_statistics_execution'
     with migration_connection(write=True, config=postgres_migration_config) as db:
         settings = alembic_config()
         settings.attributes.update(connection=db.raw_connection, database_config=postgres_migration_config)

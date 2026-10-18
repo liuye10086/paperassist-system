@@ -13,19 +13,19 @@ class ExplanationStore:
         self.store = store
 
     @staticmethod
-    def latest_job(db, figure_id):
+    def latest_job(db, figure_id, version=None):
         row = db.execute('SELECT job_json FROM explanation_jobs WHERE figure_id = %s AND engine_version = %s '
-                         'ORDER BY created_at DESC, seq DESC LIMIT 1', (figure_id, VERSION)).fetchone()
+                         'ORDER BY created_at DESC, seq DESC LIMIT 1', (figure_id, version or VERSION)).fetchone()
         return json.loads(row['job_json']) if row else None
 
-    def job(self, figure_id):
+    def job(self, figure_id, version=None):
         with self.store.connection() as db:
-            return self.latest_job(db, figure_id)
+            return self.latest_job(db, figure_id, version)
 
-    def saved(self, figure_id):
+    def saved(self, figure_id, version=None):
         with self.store.connection() as db:
             row = db.execute('SELECT explanation_json FROM explanations WHERE figure_id = %s AND engine_version = %s',
-                             (figure_id, VERSION)).fetchone()
+                             (figure_id, version or VERSION)).fetchone()
         return json.loads(row['explanation_json']) if row else None
 
     def require_source(self, db, file_id, explanation):

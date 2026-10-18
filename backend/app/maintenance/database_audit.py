@@ -165,6 +165,8 @@ def audit_database(db):
             count = db.execute(f'''SELECT count(*) AS count FROM "{table}" r LEFT JOIN "{target}" t ON t.id=r."{key}"
                 WHERE t.id IS NULL OR r.analysis_run_id IS DISTINCT FROM t.analysis_run_id''').fetchone()['count']
             checks.append({'table': table, 'column': key, 'invalid': count})
+        from app.maintenance.statistics_execution_audit import audit_statistics_execution
+        checks.extend(audit_statistics_execution(db))
         from app.maintenance.dataset_source_audit import audit_dataset_sources
         checks.extend(audit_dataset_sources(db))
         from app.maintenance.document_source_audit import audit_documents
@@ -173,8 +175,12 @@ def audit_database(db):
         checks.extend(audit_ocr_reviews(db))
         from app.maintenance.analysis_plan_audit import audit_analysis_plans
         checks.extend(audit_analysis_plans(db))
+        from app.maintenance.external_evidence_audit import audit_external_evidence
+        checks.extend(audit_external_evidence(db))
         from app.maintenance.file_lifecycle_audit import audit_file_lifecycle
         checks.extend(audit_file_lifecycle(db))
+        from app.maintenance.figure_report_audit import audit_figure_reports
+        checks.extend(audit_figure_reports(db))
     return {'schema': schema, 'ok': not issues and not any(c['invalid'] for c in checks), 'schema_issues': issues, 'data_checks': checks,
             'compatibility': 'Legacy JSON/time validated in audit only; task JSONB/time use native types; source chains use single-column foreign keys; values preserved.'}
 

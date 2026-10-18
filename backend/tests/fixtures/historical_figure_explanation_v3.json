@@ -1,0 +1,1262 @@
+{
+  "figure": {
+    "title": "合成随访测量值（软件核验）箱线图",
+    "x_label": "合成随访测量值（软件核验）（mm）",
+    "y_label": "分组",
+    "caption": "合成随访测量值（软件核验）箱线图。使用 39 行完整记录，排除 1 行缺失记录。n 为各组有效记录数；箱体为 Q1–Q3，中线为中位数，分位数按 (n−1)p 线性插值。须端为 Q1−1.5×IQR 至 Q3+1.5×IQR 范围内最远观测值，IQR = Q3−Q1。空心圆为范围外观测，重合点可能重叠；这些值仍参与统计，未剔除离群值。单条或常数数据呈重合线。未进行显著性检验。 人工合成材料，仅作软件验证。 箱体和须不是置信区间。",
+    "overall": {
+      "n": 39,
+      "mean": 33.97435897435897,
+      "std": 11.701298127462024,
+      "min": 12.0,
+      "q1": 25.0,
+      "median": 35.0,
+      "q3": 44.0,
+      "max": 55.0,
+      "iqr": 19.0
+    },
+    "groups": [
+      {
+        "label": "Group 0",
+        "statistics": {
+          "n": 19,
+          "mean": 31.842105263157894,
+          "std": 11.504893441462864,
+          "min": 12.0,
+          "q1": 23.5,
+          "median": 32.0,
+          "q3": 41.0,
+          "max": 50.0,
+          "iqr": 17.5
+        }
+      },
+      {
+        "label": "Group 1",
+        "statistics": {
+          "n": 20,
+          "mean": 36.0,
+          "std": 11.814353446906058,
+          "min": 17.0,
+          "q1": 26.5,
+          "median": 36.0,
+          "q3": 45.5,
+          "max": 55.0,
+          "iqr": 19.0
+        }
+      }
+    ],
+    "series": [
+      {
+        "label": "Group 0",
+        "n": 19,
+        "q1": 23.5,
+        "median": 32.0,
+        "q3": 41.0,
+        "whislo": 12.0,
+        "whishi": 50.0,
+        "fliers": [],
+        "outlier_count": 0
+      },
+      {
+        "label": "Group 1",
+        "n": 20,
+        "q1": 26.5,
+        "median": 36.0,
+        "q3": 45.5,
+        "whislo": 17.0,
+        "whishi": 55.0,
+        "fliers": [],
+        "outlier_count": 0
+      }
+    ],
+    "schema_version": 5,
+    "figure_kind": "boxplot",
+    "language": "zh-CN",
+    "plot_config": {
+      "whisker_iqr_multiplier": 1.5,
+      "quantile_method": "linear_inclusive",
+      "outliers_removed": false,
+      "style": {
+        "palette": "colorblind",
+        "width": 2400,
+        "height": 1600,
+        "font_size": 12,
+        "display_order": []
+      },
+      "numbering_mode": "external"
+    },
+    "legacy_contract": 1,
+    "presentation": {
+      "schema_version": 2,
+      "axes": {
+        "x": {
+          "label": "合成随访测量值（软件核验）（mm）",
+          "unit": "mm"
+        },
+        "y": {
+          "label": "分组",
+          "unit": ""
+        }
+      },
+      "legend": {
+        "title": "分组",
+        "entries": [
+          {
+            "label": "Group 0",
+            "color": "#0072B2"
+          },
+          {
+            "label": "Group 1",
+            "color": "#E69F00"
+          }
+        ]
+      },
+      "color_scale": null,
+      "abbreviations": [
+        {
+          "term": "n",
+          "definition": "有效记录数；独立人数须由研究设计确认"
+        },
+        {
+          "term": "Q1",
+          "definition": "第一四分位数"
+        },
+        {
+          "term": "Q3",
+          "definition": "第三四分位数"
+        },
+        {
+          "term": "IQR",
+          "definition": "四分位距（Q3−Q1）"
+        }
+      ],
+      "statistical_notes": [
+        "箱体和须不是置信区间。"
+      ]
+    },
+    "id": "f5f2b3bc-477b-5773-bfd4-9ef6a97e10e4",
+    "analysis_run_id": "edcb1ae1-db74-49a7-ac69-4e836360494d",
+    "file_id": "38bf670e-653f-51e9-acf3-4742171080f3",
+    "source": {
+      "kind": "prepared_dataset_version",
+      "schema_version": 1,
+      "dataset_id": "8a337bd0-e2c7-50d7-bcb6-0ad9b3dd7d40",
+      "structure_id": "f95dd1bd-cdf1-400d-8e73-51cf92e953f0",
+      "dataset_version": 1,
+      "file_id": "38bf670e-653f-51e9-acf3-4742171080f3",
+      "source_sha256": "bbabd70ee37c66e3d1a5cf18295d40b66c4a6aac0ba13df19f532bde24069a29",
+      "dataset_sha256": "943a2cbc8a00d2bbec1e4daa89217bdd0ab31832fa47a43ead793cf1870cf58e",
+      "dataset_size_bytes": 29662,
+      "dataset_schema_version": 1,
+      "sheet_index": 0,
+      "sheet_name": "研究 & 数据",
+      "parser_version": "openpyxl-3.1.5-structure-v1",
+      "parent_dataset_id": "9c779547-5282-5632-a97f-034ccfdce8e5",
+      "parent_dataset_version": 1,
+      "transform_version": "excel_prepare_v1"
+    },
+    "source_sha256": "bbabd70ee37c66e3d1a5cf18295d40b66c4a6aac0ba13df19f532bde24069a29",
+    "setup_revision": 19,
+    "sha256": "cd157aa52952beba7f2f291776eb1b80e6fca89d5f5790f876a5b9929bad2d82",
+    "size_bytes": 284246,
+    "figure_config_version_id": "eeb4430a-e560-465f-87e6-aa37e113660d",
+    "configuration_sha256": "de615e9751490887325f4d65726bffb52daf3a2ada69ab7cc9a94fc5a0322252",
+    "projection_id": "f20703b4-5a2a-5cfc-8af3-2197839c2b83",
+    "projection_sha256": "f470d9367233a30294d8a1e0aee9a6805684a4c90398ab48f4c5202910367163",
+    "facts_sha256": "a6fb083172a711e85405eba36b8ad5cdaab5ad616a7861bed44d7de9990d3ad4",
+    "figure_number": null,
+    "numbering_mode": "external",
+    "method": {
+      "kind": "boxplot",
+      "basis": "original_statistical_valid_rows"
+    },
+    "created_at": "2026-10-18T01:19:00.558718+00:00",
+    "engine": {
+      "id": "openai_figure_workbench_v3",
+      "provider": "openai_code_interpreter",
+      "model": "gpt-5.6-sol"
+    },
+    "verification": {
+      "status": "matched",
+      "note": "结构化数值已核验；图像视觉仍需人工审阅。"
+    },
+    "provenance": {
+      "response_id": "resp_0b021100bca8fbeb006ad41e2a762c87d0af1a75a911b94952",
+      "container_id": "cntr_6ad41e14c2cc81988d391dea0ddd6b870dc434db143db199",
+      "model": "gpt-5.6-sol",
+      "code": [
+        "import json, os, sys, math, statistics, textwrap, platform\nfrom fractions import Fraction\npath=\"/mnt/data/09166bca59cd4da3d100cfa487a3f788-data.json\"\nwith open(path,\"r\",encoding=\"utf-8\") as f:\n    data=json.load(f)\ntype(data), data.keys()\n",
+        "import pprint, json, os, math\npprint.pp(data)\n",
+        "import matplotlib\nmatplotlib.use(\"Agg\")\nimport matplotlib.pyplot as plt\nfrom matplotlib import font_manager, ft2font\n# Find fonts with glyph support for all CJK chars in labels/presentation\nstrings = [\n data['labels']['title'], data['labels']['x_label'], data['labels']['y_label'], data['labels']['caption'],\n *[x['term']+x['definition'] for x in data['presentation']['abbreviations']],\n data['presentation']['legend']['title'],\n *[e['label'] for e in data['presentation']['legend']['entries']]\n]\nchars=set(''.join(strings))\n# only non-ascii relevant\nnonascii={c for c in chars if ord(c)>127}\ncandidates=[]\nfor fp in font_manager.findSystemFonts():\n    try:\n        ft=ft2font.FT2Font(fp)\n        cmap=ft.get_charmap()\n        missing=[c for c in nonascii if ord(c) not in cmap]\n        if not missing:\n            candidates.append((font_manager.FontProperties(fname=fp).get_name(), fp))\n    except Exception:\n        pass\nlen(candidates), candidates[:20]\n",
+        "from fractions import Fraction\nimport statistics, math, json, os, sys, platform\nfrom copy import deepcopy\n\ndef frac_num(x):\n    # Exact decimal interpretation of JSON numeric rendering\n    return Fraction(str(x))\n\ndef q_fraction(vals, p: Fraction):\n    s = sorted(frac_num(v) for v in vals)\n    n=len(s)\n    if n == 0:\n        return None\n    if n == 1:\n        return s[0]\n    pos = Fraction(n-1) * p\n    lo = pos.numerator // pos.denominator\n    hi = lo if pos.denominator == 1 else lo + 1\n    if lo == hi:\n        return s[lo]\n    w = pos - lo\n    return s[lo] + (s[hi]-s[lo])*w\n\ndef finite_float(fr):\n    if fr is None:\n        return None\n    try:\n        x=float(fr)\n        return x if math.isfinite(x) else None\n    except (OverflowError, ValueError):\n        return None\n\ndef stat_block(vals):\n    n=len(vals)\n    if n == 0:\n        # input contract likely doesn't request stats for empty groups; keep strict finite nulls\n        return dict(n=0, mean=None, std=None, min=None, q1=None, median=None, q3=None, max=None, iqr=None)\n    q1f=q_fraction(vals, Fraction(1,4))\n    medf=q_fraction(vals, Fraction(1,2))\n    q3f=q_fraction(vals, Fraction(3,4))\n    iqrf=q3f-q1f\n    mean=statistics.mean(vals)\n    std=statistics.stdev(vals) if n>1 else None\n    def safe_num(x):\n        if x is None: return None\n        try:\n            y=float(x)\n            return y if math.isfinite(y) else None\n        except (OverflowError, ValueError):\n            return None\n    return dict(\n        n=n, mean=safe_num(mean), std=safe_num(std),\n        min=safe_num(min(vals)), q1=finite_float(q1f), median=finite_float(medf),\n        q3=finite_float(q3f), max=safe_num(max(vals)), iqr=finite_float(iqrf)\n    )\n\ndef series_block(label, vals):\n    n=len(vals)\n    if n == 0:\n        return dict(label=label,n=0,q1=None,median=None,q3=None,whislo=None,whishi=None,fliers=[],outlier_count=0)\n    q1f=q_fraction(vals,Fraction(1,4)); medf=q_fraction(vals,Fraction(1,2)); q3f=q_fraction(vals,Fraction(3,4))\n    iqrf=q3f-q1f\n    lowf=q1f-Fraction(3,2)*iqrf\n    highf=q3f+Fraction(3,2)*iqrf\n    pairs=[(frac_num(v),v) for v in vals]\n    inside=[(f,v) for f,v in pairs if f>=lowf and f<=highf]\n    outside=[v for f,v in pairs if f<lowf or f>highf]\n    whislo=min(inside,key=lambda t:t[0])[1]\n    whishi=max(inside,key=lambda t:t[0])[1]\n    distinct=sorted(set(outside))\n    return dict(label=label,n=n,q1=finite_float(q1f),median=finite_float(medf),q3=finite_float(q3f),\n                whislo=float(whislo),whishi=float(whishi),\n                fliers=[float(v) for v in distinct],outlier_count=len(outside))\n\noverall=stat_block(data[\"values\"])\ngroup_results=[{\"label\":g[\"label\"],\"statistics\":stat_block(g[\"values\"])} for g in data[\"groups\"]]\nseries=[series_block(g[\"label\"],g[\"values\"]) for g in data[\"groups\"]]\noverall, group_results, series\n",
+        "import matplotlib\nmatplotlib.use(\"Agg\")\nimport matplotlib.pyplot as plt\nfrom matplotlib import font_manager\nfrom matplotlib.patches import Patch\nfrom PIL import Image\n\nfont_path=\"/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc\"\nfont_name=font_manager.FontProperties(fname=font_path).get_name()\nfont_manager.fontManager.addfont(font_path)\n\nstyle=data[\"plot_config\"][\"style\"]\nwidth_px=int(style[\"width\"]); height_px=int(style[\"height\"]); dpi=300\nbase_fs=float(style[\"font_size\"])\ncolors=[e[\"color\"] for e in data[\"presentation\"][\"legend\"][\"entries\"]]\n\nplt.rcParams.update({\n    \"font.family\": font_name,\n    \"font.size\": base_fs,\n    \"axes.unicode_minus\": False,\n    \"text.parse_math\": False,\n    \"figure.facecolor\": \"white\",\n    \"axes.facecolor\": \"white\",\n    \"savefig.facecolor\": \"white\",\n})\n\nfig=plt.figure(figsize=(width_px/dpi,height_px/dpi),dpi=dpi,facecolor=\"white\")\nax=fig.add_axes([0.14,0.39,0.67,0.45])\n\n# Actual bxp stats in input order\nbxpstats=[]\nfor g,s in zip(data[\"groups\"],series):\n    vals=g[\"values\"]\n    q1f=q_fraction(vals,Fraction(1,4)); q3f=q_fraction(vals,Fraction(3,4))\n    lowf=q1f-Fraction(3,2)*(q3f-q1f); highf=q3f+Fraction(3,2)*(q3f-q1f)\n    fliers_all=sorted(float(v) for v in vals if frac_num(v)<lowf or frac_num(v)>highf)\n    bxpstats.append({\n        \"label\": g[\"label\"],\n        \"q1\":s[\"q1\"],\"med\":s[\"median\"],\"q3\":s[\"q3\"],\n        \"whislo\":s[\"whislo\"],\"whishi\":s[\"whishi\"],\"fliers\":fliers_all\n    })\n\nartists=ax.bxp(\n    bxpstats, positions=list(range(1,len(bxpstats)+1)), vert=False, patch_artist=True,\n    showfliers=True, widths=0.52,\n    boxprops=dict(linewidth=1.4, edgecolor=\"#333333\"),\n    whiskerprops=dict(linewidth=1.4,color=\"#333333\"),\n    capprops=dict(linewidth=1.4,color=\"#333333\"),\n    medianprops=dict(linewidth=2.0,color=\"#111111\"),\n    flierprops=dict(marker=\"o\",markerfacecolor=\"none\",markeredgecolor=\"#333333\",\n                    markersize=5,linestyle=\"none\",markeredgewidth=1.1)\n)\nfor i,box in enumerate(artists[\"boxes\"]):\n    box.set_facecolor(colors[i % len(colors)])\n    box.set_alpha(0.78)\n\nax.set_yticks(range(1,len(series)+1))\nax.set_yticklabels([f'{s[\"label\"]}  (n={s[\"n\"]})' for s in series])\nax.invert_yaxis()\nax.set_xlabel(data[\"labels\"][\"x_label\"], labelpad=8)\nax.set_ylabel(data[\"labels\"][\"y_label\"], labelpad=8)\nax.grid(axis=\"x\",color=\"#D9D9D9\",linewidth=0.8,alpha=0.85)\nax.set_axisbelow(True)\nax.spines[\"top\"].set_visible(False)\nax.spines[\"right\"].set_visible(False)\n\nallvals=[v for g in data[\"groups\"] for v in g[\"values\"]]\nvmin,vmax=min(allvals),max(allvals)\nspan=vmax-vmin\npad=0.08*span if span else max(abs(vmin)*0.05,1.0)\nax.set_xlim(vmin-pad,vmax+pad)\nax.margins(y=0.25)\n\n# Title, exact text.\nfig.text(0.5,0.945,data[\"labels\"][\"title\"],ha=\"center\",va=\"top\",\n         fontsize=base_fs+3,fontweight=\"bold\",fontproperties=font_manager.FontProperties(fname=font_path),\n         parse_math=False)\n\n# Exact legend entries and colors.\nhandles=[Patch(facecolor=e[\"color\"],edgecolor=\"#333333\",alpha=.78,label=e[\"label\"])\n         for e in data[\"presentation\"][\"legend\"][\"entries\"]]\nleg=ax.legend(handles=handles,title=data[\"presentation\"][\"legend\"][\"title\"],\n              loc=\"upper left\",bbox_to_anchor=(1.01,1.0),frameon=False,\n              borderaxespad=0.0,handlelength=1.4)\nplt.setp(leg.get_title(),fontweight=\"bold\")\n\n# Caption once, wrapped without changing character sequence other than line breaks.\ndef wrap_cjk(text, width):\n    return \"\\n\".join(textwrap.wrap(text,width=width,break_long_words=True,break_on_hyphens=False,\n                                   replace_whitespace=False,drop_whitespace=False))\ncaption_wrapped=wrap_cjk(data[\"labels\"][\"caption\"], 82)\nabbr_text=\"缩写：\"+\"；\".join(f'{a[\"term\"]}={a[\"definition\"]}' for a in data[\"presentation\"][\"abbreviations\"])+\"。\"\nabbr_wrapped=wrap_cjk(abbr_text, 92)\nfig.text(0.06,0.315,caption_wrapped,ha=\"left\",va=\"top\",fontsize=8.7,\n         linespacing=1.26,parse_math=False)\nfig.text(0.06,0.105,abbr_wrapped,ha=\"left\",va=\"top\",fontsize=8.2,\n         linespacing=1.22,parse_math=False)\n\noutpng=\"/mnt/data/figure.png\"\nfig.savefig(outpng,dpi=dpi,facecolor=\"white\")\nplt.close(fig)\n\n# Create result contract\nresult={\n    \"schema_version\":5,\n    \"figure_kind\":data[\"figure_kind\"],\n    \"language\":data[\"language\"],\n    \"plot_config\":deepcopy(data[\"plot_config\"]),\n    \"title\":data[\"labels\"][\"title\"],\n    \"x_label\":data[\"labels\"][\"x_label\"],\n    \"y_label\":data[\"labels\"][\"y_label\"],\n    \"caption\":data[\"labels\"][\"caption\"],\n    \"legacy_contract\":deepcopy(data[\"legacy_contract\"]),\n    \"presentation\":deepcopy(data[\"presentation\"]),\n    \"overall\":overall,\n    \"groups\":group_results,\n    \"series\":series,\n    \"environment\":{\n        \"python_version\":platform.python_version(),\n        \"matplotlib_version\":matplotlib.__version__,\n        \"font\":font_name\n    }\n}\noutjson=\"/mnt/data/result.json\"\nwith open(outjson,\"w\",encoding=\"utf-8\") as f:\n    json.dump(result,f,ensure_ascii=False,allow_nan=False,indent=2)\n\nImage.open(outpng).size, os.path.getsize(outpng), os.path.getsize(outjson), font_name\n",
+        "from IPython.display import display\nimg=Image.open(\"/mnt/data/figure.png\")\ndisplay(img.resize((1200,800)))\n",
+        "# Regenerate with corrected layout after visual inspection.\nfig=plt.figure(figsize=(width_px/dpi,height_px/dpi),dpi=dpi,facecolor=\"white\")\nax=fig.add_axes([0.20,0.47,0.58,0.35])\n\nartists=ax.bxp(\n    bxpstats, positions=list(range(1,len(bxpstats)+1)), vert=False, patch_artist=True,\n    showfliers=True, widths=0.50,\n    boxprops=dict(linewidth=1.4, edgecolor=\"#333333\"),\n    whiskerprops=dict(linewidth=1.4,color=\"#333333\"),\n    capprops=dict(linewidth=1.4,color=\"#333333\"),\n    medianprops=dict(linewidth=2.0,color=\"#111111\"),\n    flierprops=dict(marker=\"o\",markerfacecolor=\"none\",markeredgecolor=\"#333333\",\n                    markersize=5,linestyle=\"none\",markeredgewidth=1.1)\n)\nfor i,box in enumerate(artists[\"boxes\"]):\n    box.set_facecolor(colors[i % len(colors)])\n    box.set_alpha(0.78)\nax.set_yticks(range(1,len(series)+1))\nax.set_yticklabels([f'{s[\"label\"]}  (n={s[\"n\"]})' for s in series])\nax.invert_yaxis()\nax.set_xlabel(data[\"labels\"][\"x_label\"], labelpad=7)\nax.set_ylabel(data[\"labels\"][\"y_label\"], labelpad=7)\nax.grid(axis=\"x\",color=\"#D9D9D9\",linewidth=0.8,alpha=0.85)\nax.set_axisbelow(True)\nax.spines[\"top\"].set_visible(False); ax.spines[\"right\"].set_visible(False)\nax.set_xlim(vmin-pad,vmax+pad); ax.margins(y=0.22)\n\nfig.text(0.5,0.94,data[\"labels\"][\"title\"],ha=\"center\",va=\"top\",\n         fontsize=base_fs+3,fontweight=\"bold\",parse_math=False)\nhandles=[Patch(facecolor=e[\"color\"],edgecolor=\"#333333\",alpha=.78,label=e[\"label\"])\n         for e in data[\"presentation\"][\"legend\"][\"entries\"]]\nleg=ax.legend(handles=handles,title=data[\"presentation\"][\"legend\"][\"title\"],\n              loc=\"upper left\",bbox_to_anchor=(1.015,1.0),frameon=False,\n              borderaxespad=0.0,handlelength=1.4)\nplt.setp(leg.get_title(),fontweight=\"bold\")\n\ncaption_wrapped=wrap_cjk(data[\"labels\"][\"caption\"], 63)\nabbr_wrapped=wrap_cjk(abbr_text, 76)\nfig.text(0.06,0.31,caption_wrapped,ha=\"left\",va=\"top\",fontsize=7.5,\n         linespacing=1.22,parse_math=False)\nfig.text(0.06,0.105,abbr_wrapped,ha=\"left\",va=\"top\",fontsize=7.3,\n         linespacing=1.20,parse_math=False)\nfig.savefig(outpng,dpi=dpi,facecolor=\"white\")\nplt.close(fig)\ndisplay(Image.open(outpng).resize((1200,800)))\n",
+        "# Final validation: strict JSON, exact dimensions, finite numeric leaves, expected keys, glyph coverage.\nwith open(outjson,\"r\",encoding=\"utf-8\") as f:\n    check=json.load(f)\n\ndef walk_finite(x):\n    if isinstance(x,float):\n        assert math.isfinite(x)\n    elif isinstance(x,dict):\n        for v in x.values(): walk_finite(v)\n    elif isinstance(x,list):\n        for v in x: walk_finite(v)\nwalk_finite(check)\n\nassert Image.open(outpng).size == (width_px,height_px)\nassert check[\"schema_version\"] == 5\nassert check[\"plot_config\"] == data[\"plot_config\"]\nassert check[\"presentation\"] == data[\"presentation\"]\nassert check[\"title\"] == data[\"labels\"][\"title\"]\nassert check[\"caption\"] == data[\"labels\"][\"caption\"]\n\nactual_text=\"\".join(strings)+abbr_text\nft=ft2font.FT2Font(font_path); cmap=ft.get_charmap()\nmissing=sorted({c for c in actual_text if ord(c)>127 and ord(c) not in cmap})\nos.path.exists(outpng), os.path.exists(outjson), missing, check[\"series\"]\n"
+      ],
+      "usage": {
+        "input_tokens": 12407,
+        "input_tokens_details": {
+          "cache_write_tokens": 2368,
+          "cached_tokens": 0
+        },
+        "output_tokens": 5651,
+        "output_tokens_details": {
+          "reasoning_tokens": 5616
+        },
+        "total_tokens": 18058
+      },
+      "prompt_version": "openai_figure_workbench_v3",
+      "png_file_id": "cfile_6ad41e7c06ac819186b1c4e71e1c0310",
+      "result_file_id": "cfile_6ad41e7c06c48191aa9e6a4178f6e563",
+      "model_call_id": "ec074eaf-f0e9-4dcc-b2f4-9766e0201126",
+      "model_input_digest": "4ed43ad9cb9eedb6536064962add43abdddd7c8b9f0902044b324dcaaecca7fd",
+      "input_sha256": "513bbdf48ebe374b3aa72931a0d24256d05e5cd9be0a1de80502f0966e91d867"
+    },
+    "text_authorship": {
+      "title": "program",
+      "additional_caption": "user",
+      "created_by": "b5f3083a-d1aa-4cbf-bc1e-63c04cdad931"
+    },
+    "external_processing": {
+      "version": 7,
+      "confirmed": true,
+      "version_id": "eeb4430a-e560-465f-87e6-aa37e113660d",
+      "confirmed_at": "2026-10-18T01:16:44.503140+00:00",
+      "confirmed_by": "b5f3083a-d1aa-4cbf-bc1e-63c04cdad931",
+      "payload_sha256": "513bbdf48ebe374b3aa72931a0d24256d05e5cd9be0a1de80502f0966e91d867"
+    }
+  },
+  "explanation": {
+    "schema_version": 5,
+    "id": "1846f682-3801-40ac-b411-be9bc7eca5d8",
+    "analysis_run_id": "edcb1ae1-db74-49a7-ac69-4e836360494d",
+    "file_id": "38bf670e-653f-51e9-acf3-4742171080f3",
+    "source": {
+      "kind": "prepared_dataset_version",
+      "schema_version": 1,
+      "dataset_id": "8a337bd0-e2c7-50d7-bcb6-0ad9b3dd7d40",
+      "structure_id": "f95dd1bd-cdf1-400d-8e73-51cf92e953f0",
+      "dataset_version": 1,
+      "file_id": "38bf670e-653f-51e9-acf3-4742171080f3",
+      "source_sha256": "bbabd70ee37c66e3d1a5cf18295d40b66c4a6aac0ba13df19f532bde24069a29",
+      "dataset_sha256": "943a2cbc8a00d2bbec1e4daa89217bdd0ab31832fa47a43ead793cf1870cf58e",
+      "dataset_size_bytes": 29662,
+      "dataset_schema_version": 1,
+      "sheet_index": 0,
+      "sheet_name": "研究 & 数据",
+      "parser_version": "openpyxl-3.1.5-structure-v1",
+      "parent_dataset_id": "9c779547-5282-5632-a97f-034ccfdce8e5",
+      "parent_dataset_version": 1,
+      "transform_version": "excel_prepare_v1"
+    },
+    "source_sha256": "bbabd70ee37c66e3d1a5cf18295d40b66c4a6aac0ba13df19f532bde24069a29",
+    "setup_revision": 19,
+    "figure_id": "f5f2b3bc-477b-5773-bfd4-9ef6a97e10e4",
+    "figure_sha256": "cd157aa52952beba7f2f291776eb1b80e6fca89d5f5790f876a5b9929bad2d82",
+    "facts_sha256": "a6fb083172a711e85405eba36b8ad5cdaab5ad616a7861bed44d7de9990d3ad4",
+    "language": "zh-CN",
+    "created_at": "2026-10-18T01:56:05.742568+00:00",
+    "sections": [
+      {
+        "key": "purpose",
+        "title": "分析目的",
+        "text": "本文描述字段Measurement的统计分布。",
+        "evidence": [
+          {
+            "key": "variable",
+            "label": "数值字段",
+            "value": "Measurement"
+          }
+        ]
+      },
+      {
+        "key": "data",
+        "title": "使用数据",
+        "text": "数据来源为研究 & 数据；记录情况为原始行数: 40、完整记录数: 39及排除行数: 1。坐标字段与单位为合成随访测量值（软件核验）（mm）、mm、分组及单位未提供。",
+        "evidence": [
+          {
+            "key": "sheet",
+            "label": "工作表",
+            "value": "研究 & 数据"
+          },
+          {
+            "key": "data.total",
+            "label": "原始行数",
+            "value": "40"
+          },
+          {
+            "key": "data.valid",
+            "label": "完整记录数",
+            "value": "39"
+          },
+          {
+            "key": "data.excluded",
+            "label": "排除行数",
+            "value": "1"
+          },
+          {
+            "key": "axis.x.label",
+            "label": "横轴字段",
+            "value": "合成随访测量值（软件核验）（mm）"
+          },
+          {
+            "key": "axis.x.unit",
+            "label": "横轴单位",
+            "value": "mm"
+          },
+          {
+            "key": "axis.y.label",
+            "label": "纵轴字段",
+            "value": "分组"
+          },
+          {
+            "key": "axis.y.unit",
+            "label": "纵轴单位",
+            "value": "单位未提供"
+          }
+        ]
+      },
+      {
+        "key": "methods",
+        "title": "分析方法",
+        "text": "计算与绘图采用使用所选字段的完整记录，未插补、去重或剔除离群值；样本标准差采用 n−1 分母，分位数按 (n−1)p 线性插值。箱体为 Q1–Q3，中线为中位数，须端到 Q1−1.5×IQR 至 Q3+1.5×IQR 范围内最远实际观测，空心点表示范围外观测。。观察结构为用户声明独立观察；程序未验证独立性；研究设计资料状态为用户提供研究设计文字，尚未经程序验证；未外发该原文。。",
+        "evidence": [
+          {
+            "key": "method.summary",
+            "label": "计算及绘图方法",
+            "value": "使用所选字段的完整记录，未插补、去重或剔除离群值；样本标准差采用 n−1 分母，分位数按 (n−1)p 线性插值。箱体为 Q1–Q3，中线为中位数，须端到 Q1−1.5×IQR 至 Q3+1.5×IQR 范围内最远实际观测，空心点表示范围外观测。"
+          },
+          {
+            "key": "design.structure",
+            "label": "观察结构及核查限制",
+            "value": "用户声明独立观察；程序未验证独立性"
+          },
+          {
+            "key": "design.status",
+            "label": "研究设计资料状态",
+            "value": "用户提供研究设计文字，尚未经程序验证；未外发该原文。"
+          }
+        ]
+      },
+      {
+        "key": "results",
+        "title": "主要结果",
+        "text": "总体汇总为：总体：样本数: 39；总体：均值: 33.9744；总体：样本标准差: 11.7013；总体：最小值: 12；总体：下四分位数: 25；总体：中位数: 35；总体：上四分位数: 44；总体：最大值: 55；总体：四分位距: 19。分组汇总为：Group 0，Group 0：样本数: 19，Group 0：中位数: 32；Group 1，Group 1：样本数: 20，Group 1：中位数: 36。范围外观测记录为：Group 0：离群观测数量: 0；Group 1：离群观测数量: 0。",
+        "evidence": [
+          {
+            "key": "overall.n",
+            "label": "总体：样本数",
+            "value": "39"
+          },
+          {
+            "key": "overall.mean",
+            "label": "总体：均值",
+            "value": "33.9744"
+          },
+          {
+            "key": "overall.std",
+            "label": "总体：样本标准差",
+            "value": "11.7013"
+          },
+          {
+            "key": "overall.min",
+            "label": "总体：最小值",
+            "value": "12"
+          },
+          {
+            "key": "overall.q1",
+            "label": "总体：下四分位数",
+            "value": "25"
+          },
+          {
+            "key": "overall.median",
+            "label": "总体：中位数",
+            "value": "35"
+          },
+          {
+            "key": "overall.q3",
+            "label": "总体：上四分位数",
+            "value": "44"
+          },
+          {
+            "key": "overall.max",
+            "label": "总体：最大值",
+            "value": "55"
+          },
+          {
+            "key": "overall.iqr",
+            "label": "总体：四分位距",
+            "value": "19"
+          },
+          {
+            "key": "groups.0.label",
+            "label": "分组名称",
+            "value": "Group 0"
+          },
+          {
+            "key": "groups.0.n",
+            "label": "Group 0：样本数",
+            "value": "19"
+          },
+          {
+            "key": "groups.0.median",
+            "label": "Group 0：中位数",
+            "value": "32"
+          },
+          {
+            "key": "groups.1.label",
+            "label": "分组名称",
+            "value": "Group 1"
+          },
+          {
+            "key": "groups.1.n",
+            "label": "Group 1：样本数",
+            "value": "20"
+          },
+          {
+            "key": "groups.1.median",
+            "label": "Group 1：中位数",
+            "value": "36"
+          },
+          {
+            "key": "series.0.outlier_count",
+            "label": "Group 0：离群观测数量",
+            "value": "0"
+          },
+          {
+            "key": "series.1.outlier_count",
+            "label": "Group 1：离群观测数量",
+            "value": "0"
+          }
+        ]
+      },
+      {
+        "key": "interpretation",
+        "title": "结果解释",
+        "text": "总体分布的中心位置可由总体：中位数: 35描述。观察结构为用户声明独立观察；程序未验证独立性，资料状态为用户提供研究设计文字，尚未经程序验证；未外发该原文。。解释时需注意：本步仅进行描述统计，未计算 P 值、置信区间或效应量，不能据此作显著性、因果或疗效判断。；研究设计、样本来源、实验步骤及测量背景尚未提供，具体研究目的与方法细节待补充。；解释依据已保存的统计汇总和图表元数据，不代表对图片像素的核验。AI 初稿仍需人工审阅。；文字中的数值最多显示 6 位有效数字；完整数值以保存的统计结果为准。；研究设计及观察独立性未由程序验证；设计缺失时不作假设，不能据此推断因果。；数值与事实引用已由程序填入并核对；语义和研究适用性仍需人工审阅。；用户声明独立观察；程序未验证独立性；本解释仅核对冻结统计与元数据，未验证图片像素、图中文字或视觉正确性；AI初稿仍需人工审阅。",
+        "evidence": [
+          {
+            "key": "overall.median",
+            "label": "总体：中位数",
+            "value": "35"
+          },
+          {
+            "key": "design.structure",
+            "label": "观察结构及核查限制",
+            "value": "用户声明独立观察；程序未验证独立性"
+          },
+          {
+            "key": "design.status",
+            "label": "研究设计资料状态",
+            "value": "用户提供研究设计文字，尚未经程序验证；未外发该原文。"
+          },
+          {
+            "key": "limitation.0",
+            "label": "适用限制",
+            "value": "本步仅进行描述统计，未计算 P 值、置信区间或效应量，不能据此作显著性、因果或疗效判断。"
+          },
+          {
+            "key": "limitation.1",
+            "label": "适用限制",
+            "value": "研究设计、样本来源、实验步骤及测量背景尚未提供，具体研究目的与方法细节待补充。"
+          },
+          {
+            "key": "limitation.2",
+            "label": "适用限制",
+            "value": "解释依据已保存的统计汇总和图表元数据，不代表对图片像素的核验。AI 初稿仍需人工审阅。"
+          },
+          {
+            "key": "limitation.3",
+            "label": "适用限制",
+            "value": "文字中的数值最多显示 6 位有效数字；完整数值以保存的统计结果为准。"
+          },
+          {
+            "key": "limitation.4",
+            "label": "适用限制",
+            "value": "研究设计及观察独立性未由程序验证；设计缺失时不作假设，不能据此推断因果。"
+          },
+          {
+            "key": "limitation.5",
+            "label": "适用限制",
+            "value": "数值与事实引用已由程序填入并核对；语义和研究适用性仍需人工审阅。"
+          },
+          {
+            "key": "limitation.6",
+            "label": "适用限制",
+            "value": "用户声明独立观察；程序未验证独立性"
+          },
+          {
+            "key": "limitation.7",
+            "label": "适用限制",
+            "value": "本解释仅核对冻结统计与元数据，未验证图片像素、图中文字或视觉正确性；AI初稿仍需人工审阅。"
+          }
+        ]
+      },
+      {
+        "key": "paper_text",
+        "title": "论文描述文字",
+        "text": "当前图展示完整记录的描述性汇总，其中总体：样本数: 39，总体：均值: 33.9744，数值单位为mm。",
+        "evidence": [
+          {
+            "key": "figure.number",
+            "label": "图号",
+            "value": "当前图"
+          },
+          {
+            "key": "overall.n",
+            "label": "总体：样本数",
+            "value": "39"
+          },
+          {
+            "key": "overall.mean",
+            "label": "总体：均值",
+            "value": "33.9744"
+          },
+          {
+            "key": "unit",
+            "label": "数值单位",
+            "value": "mm"
+          }
+        ]
+      }
+    ],
+    "draft": {
+      "purpose": "本文描述字段{{variable}}的统计分布。",
+      "interpretation": "总体分布的中心位置可由{{overall.median}}描述。观察结构为{{design.structure}}，资料状态为{{design.status}}。解释时需注意：{{limitation.0}}；{{limitation.1}}；{{limitation.2}}；{{limitation.3}}；{{limitation.4}}；{{limitation.5}}；{{limitation.6}}；{{limitation.7}}",
+      "results": "总体汇总为：{{overall.n}}；{{overall.mean}}；{{overall.std}}；{{overall.min}}；{{overall.q1}}；{{overall.median}}；{{overall.q3}}；{{overall.max}}；{{overall.iqr}}。分组汇总为：{{groups.0.label}}，{{groups.0.n}}，{{groups.0.median}}；{{groups.1.label}}，{{groups.1.n}}，{{groups.1.median}}。范围外观测记录为：{{series.0.outlier_count}}；{{series.1.outlier_count}}。",
+      "paper_text": "{{figure.number}}展示完整记录的描述性汇总，其中{{overall.n}}，{{overall.mean}}，数值单位为{{unit}}。",
+      "methods": "计算与绘图采用{{method.summary}}。观察结构为{{design.structure}}；研究设计资料状态为{{design.status}}。",
+      "data": "数据来源为{{sheet}}；记录情况为{{data.total}}、{{data.valid}}及{{data.excluded}}。坐标字段与单位为{{axis.x.label}}、{{axis.x.unit}}、{{axis.y.label}}及{{axis.y.unit}}。"
+    },
+    "payload_sha256": "19b2f0e7b2c300258226038e1788d4fe0282c332c367aa926a9b2f8ca3f03354",
+    "limitations": [
+      "本步仅进行描述统计，未计算 P 值、置信区间或效应量，不能据此作显著性、因果或疗效判断。",
+      "研究设计、样本来源、实验步骤及测量背景尚未提供，具体研究目的与方法细节待补充。",
+      "解释依据已保存的统计汇总和图表元数据，不代表对图片像素的核验。AI 初稿仍需人工审阅。",
+      "文字中的数值最多显示 6 位有效数字；完整数值以保存的统计结果为准。",
+      "研究设计及观察独立性未由程序验证；设计缺失时不作假设，不能据此推断因果。",
+      "数值与事实引用已由程序填入并核对；语义和研究适用性仍需人工审阅。",
+      "用户声明独立观察；程序未验证独立性",
+      "本解释仅核对冻结统计与元数据，未验证图片像素、图中文字或视觉正确性；AI初稿仍需人工审阅。"
+    ],
+    "verification": {
+      "status": "references_checked",
+      "note": "数值与事实引用已由程序填入并核对；语义和研究适用性仍需人工审阅。"
+    },
+    "engine": {
+      "id": "figure_explanation_v3",
+      "provider": "openai",
+      "model": "gpt-5.6-sol"
+    },
+    "provenance": {
+      "response_id": "resp_0bb1889cb93f22a4006ad42728ebec87d0af6b3d2ce7cba73e",
+      "model": "gpt-5.6-sol",
+      "usage": {
+        "input_tokens": 3202,
+        "input_tokens_details": {
+          "cache_write_tokens": 3199,
+          "cached_tokens": 0
+        },
+        "output_tokens": 376,
+        "output_tokens_details": {
+          "reasoning_tokens": 0
+        },
+        "total_tokens": 3578
+      },
+      "prompt_version": "figure_explanation_v3",
+      "model_call_id": "4c1a2adb-015f-49e1-bb1a-d780e53eaea2",
+      "model_input_digest": "b410ab155ce17730d043e4c484fbbad3944ec6ff3531d36395e333b829d5ae4b",
+      "input_sha256": "19b2f0e7b2c300258226038e1788d4fe0282c332c367aa926a9b2f8ca3f03354"
+    }
+  },
+  "result": {
+    "source": {
+      "kind": "prepared_dataset_version",
+      "schema_version": 1,
+      "dataset_id": "8a337bd0-e2c7-50d7-bcb6-0ad9b3dd7d40",
+      "structure_id": "f95dd1bd-cdf1-400d-8e73-51cf92e953f0",
+      "dataset_version": 1,
+      "file_id": "38bf670e-653f-51e9-acf3-4742171080f3",
+      "source_sha256": "bbabd70ee37c66e3d1a5cf18295d40b66c4a6aac0ba13df19f532bde24069a29",
+      "dataset_sha256": "943a2cbc8a00d2bbec1e4daa89217bdd0ab31832fa47a43ead793cf1870cf58e",
+      "dataset_size_bytes": 29662,
+      "dataset_schema_version": 1,
+      "sheet_index": 0,
+      "sheet_name": "研究 & 数据",
+      "parser_version": "openpyxl-3.1.5-structure-v1",
+      "parent_dataset_id": "9c779547-5282-5632-a97f-034ccfdce8e5",
+      "parent_dataset_version": 1,
+      "transform_version": "excel_prepare_v1"
+    },
+    "analysis_plan": {
+      "plan_id": "6c6d3119-d056-5e6a-a736-3d8735b026fd",
+      "sha256": "4eb4da04068da97a439a3636a38e810351b87b39a6ca8cf2c7e3482bc31834b1",
+      "resolutions": {
+        "selected_missing:all": "exclude_selected_missing"
+      }
+    },
+    "schema_version": 3,
+    "analysis_context": {
+      "plan": {
+        "schema_version": 5,
+        "workflow_version": "analysis_plan_v5",
+        "rules_version": "analysis_plan_rules_v5",
+        "id": "6c6d3119-d056-5e6a-a736-3d8735b026fd",
+        "task_id": "4e75e5f2-a9a6-46ed-b39a-f87af4f0445f",
+        "decision_id": "5131cf43-32f6-4b76-b422-4653011fa124",
+        "project_id": "be2353d5-a18f-4fa9-bc74-865a6bed9a8f",
+        "file_id": "38bf670e-653f-51e9-acf3-4742171080f3",
+        "source": {
+          "kind": "prepared_dataset_version",
+          "schema_version": 1,
+          "dataset_id": "8a337bd0-e2c7-50d7-bcb6-0ad9b3dd7d40",
+          "structure_id": "f95dd1bd-cdf1-400d-8e73-51cf92e953f0",
+          "dataset_version": 1,
+          "file_id": "38bf670e-653f-51e9-acf3-4742171080f3",
+          "source_sha256": "bbabd70ee37c66e3d1a5cf18295d40b66c4a6aac0ba13df19f532bde24069a29",
+          "dataset_sha256": "943a2cbc8a00d2bbec1e4daa89217bdd0ab31832fa47a43ead793cf1870cf58e",
+          "dataset_size_bytes": 29662,
+          "dataset_schema_version": 1,
+          "sheet_index": 0,
+          "sheet_name": "研究 & 数据",
+          "parser_version": "openpyxl-3.1.5-structure-v1",
+          "parent_dataset_id": "9c779547-5282-5632-a97f-034ccfdce8e5",
+          "parent_dataset_version": 1,
+          "transform_version": "excel_prepare_v1"
+        },
+        "selection": {
+          "task_type": "descriptive_boxplot",
+          "sheet_name": "研究 & 数据",
+          "numeric_column": "E",
+          "group_column": "I",
+          "unit": "mm",
+          "missing_policy": "exclude_selected_missing"
+        },
+        "check": {
+          "rules_version": "analysis_plan_rules_v5",
+          "research_missing": [],
+          "data_check": {
+            "rules_version": "analysis_plan_rules_v3",
+            "data_range": "A2:I41",
+            "row_count": 40,
+            "selected_fields": [
+              {
+                "letter": "E",
+                "name": "Measurement",
+                "type_counts": {
+                  "number": 39
+                },
+                "missing_count": 1,
+                "non_missing_count": 39,
+                "prepared_unit": {
+                  "status": "confirmed",
+                  "value": "mm"
+                },
+                "declared_unit": {
+                  "status": "label",
+                  "value": "mm"
+                },
+                "observed_min": 12.0,
+                "observed_max": 55.0
+              },
+              {
+                "letter": "I",
+                "name": "Group",
+                "type_counts": {
+                  "text": 40
+                },
+                "missing_count": 0,
+                "non_missing_count": 40,
+                "prepared_unit": {
+                  "status": "confirmed",
+                  "value": ""
+                },
+                "declared_unit": {
+                  "status": "unknown",
+                  "value": null
+                },
+                "observed_min": null,
+                "observed_max": null
+              }
+            ],
+            "selection_check": {
+              "ready": true,
+              "row_count": 40,
+              "valid_count": 39,
+              "excluded_count": 1,
+              "groups": [
+                {
+                  "label": "Group 0",
+                  "count": 19
+                },
+                {
+                  "label": "Group 1",
+                  "count": 20
+                }
+              ],
+              "issues": [],
+              "warnings": [
+                "采用选中字段的完整记录；数值或分组缺失的行将不参与后续计算，原文件保持不变。"
+              ]
+            },
+            "issues": [
+              {
+                "id": "selected_missing:all",
+                "code": "selected_missing",
+                "severity": "warning",
+                "field": null,
+                "count": 1,
+                "coordinates": [
+                  "E4"
+                ],
+                "message": "明确采用所选字段的完整记录；缺失行排除，原整理数据保留。",
+                "allowed_resolutions": [
+                  "exclude_selected_missing"
+                ]
+              }
+            ],
+            "limitations": [
+              "数值最小值和最大值是观察范围，不是临床或业务合理范围。",
+              "单位标签仅为声明，不转换数值，也不代表数据真实性已经核验。",
+              "采用既有完整记录、binary64和IQR规则；不计算公式、不自动剔除异常候选，不生成研究方法或P值。",
+              "分析使用已确认整理版本的 A2:I41 区域，保留区域内空行；普通小数采用 binary64，可能存在浮点误差。"
+            ],
+            "research_missing": []
+          },
+          "limitations": [
+            "外部材料仅为来源证据，未由本系统重新计算。",
+            "补充资料及采纳候选不等于批准分析计划。"
+          ]
+        },
+        "resolutions": {
+          "selected_missing:all": "exclude_selected_missing"
+        },
+        "plan_revision": 2,
+        "setup_revision": 19,
+        "created_at": "2026-10-18T00:37:49.080383+00:00",
+        "research_request": {
+          "question": "在合成材料中演示并核对descriptive，不推断真实人群。",
+          "output_language": "zh-CN",
+          "population": "40条人工合成记录",
+          "study_design": "合成独立观察；仅验证软件",
+          "observation_unit": "每行一个合成个体",
+          "observation_structure": "independent",
+          "relationship_description": "",
+          "output_requirements": "九类图型合成验收"
+        },
+        "recommendation_ref": null,
+        "evidence_versions": [],
+        "origin_recommendation_ref": null,
+        "source_reference": null,
+        "source_resolution": {
+          "confirmed": true,
+          "note": "This synthetic question explicitly refers to the selected synthetic file, worksheet and prepared dataset version."
+        },
+        "sha256": "4eb4da04068da97a439a3636a38e810351b87b39a6ca8cf2c7e3482bc31834b1"
+      },
+      "method": {
+        "id": "descriptive",
+        "parameters": {
+          "task_type": "descriptive_boxplot",
+          "sheet_name": "研究 & 数据",
+          "numeric_column": "E",
+          "group_column": "I",
+          "unit": "mm",
+          "missing_policy": "exclude_selected_missing"
+        },
+        "observation_basis": "rows"
+      },
+      "rounding": {
+        "display_significant_digits": 6,
+        "stored_values": "full_precision"
+      },
+      "not_computed": {
+        "p_value": {
+          "value": null,
+          "reason": "not_applicable_descriptive"
+        },
+        "effect_size": {
+          "value": null,
+          "reason": "not_applicable_descriptive"
+        },
+        "confidence_interval": {
+          "value": null,
+          "reason": "not_applicable_descriptive"
+        }
+      }
+    },
+    "file_id": "38bf670e-653f-51e9-acf3-4742171080f3",
+    "filename": "data.xlsx",
+    "source_sha256": "bbabd70ee37c66e3d1a5cf18295d40b66c4a6aac0ba13df19f532bde24069a29",
+    "setup_revision": 19,
+    "selection": {
+      "task_type": "descriptive_boxplot",
+      "sheet_name": "研究 & 数据",
+      "numeric_column": "E",
+      "group_column": "I",
+      "unit": "mm",
+      "missing_policy": "exclude_selected_missing"
+    },
+    "check": {
+      "ready": true,
+      "row_count": 40,
+      "valid_count": 39,
+      "excluded_count": 1,
+      "groups": [
+        {
+          "label": "Group 0",
+          "count": 19
+        },
+        {
+          "label": "Group 1",
+          "count": 20
+        }
+      ],
+      "issues": [],
+      "warnings": [
+        "采用选中字段的完整记录；数值或分组缺失的行将不参与后续计算，原文件保持不变。"
+      ]
+    },
+    "numeric_name": "Measurement",
+    "group_name": "Group",
+    "engine": {
+      "id": "descriptive_statistics_dataset_v1",
+      "python_version": "3.11.17",
+      "parser_version": "openpyxl-3.1.5-structure-v1",
+      "std_ddof": 1,
+      "quantile_method": "linear_inclusive",
+      "execution_contract": "fixed_statistics_v2"
+    },
+    "started_at": "2026-10-18T00:37:52.173684+00:00",
+    "completed_at": "2026-10-18T00:38:04.908908+00:00",
+    "overall": {
+      "n": 39,
+      "mean": 33.97435897435897,
+      "std": 11.701298127462024,
+      "min": 12.0,
+      "q1": 25.0,
+      "median": 35.0,
+      "q3": 44.0,
+      "max": 55.0,
+      "iqr": 19.0,
+      "warnings": []
+    },
+    "groups": [
+      {
+        "label": "Group 0",
+        "statistics": {
+          "n": 19,
+          "mean": 31.842105263157894,
+          "std": 11.504893441462864,
+          "min": 12.0,
+          "q1": 23.5,
+          "median": 32.0,
+          "q3": 41.0,
+          "max": 50.0,
+          "iqr": 17.5,
+          "warnings": []
+        }
+      },
+      {
+        "label": "Group 1",
+        "statistics": {
+          "n": 20,
+          "mean": 36.0,
+          "std": 11.814353446906058,
+          "min": 17.0,
+          "q1": 26.5,
+          "median": 36.0,
+          "q3": 45.5,
+          "max": 55.0,
+          "iqr": 19.0,
+          "warnings": []
+        }
+      }
+    ],
+    "id": "edcb1ae1-db74-49a7-ac69-4e836360494d"
+  },
+  "configuration": {
+    "id": "eeb4430a-e560-465f-87e6-aa37e113660d",
+    "configuration_id": "54497018-03ba-4666-8adc-33bbb10e0851",
+    "revision": 3,
+    "parent_version_id": "35f2d1d4-6019-4d30-a631-cf11b4d069ea",
+    "created_by": "b5f3083a-d1aa-4cbf-bc1e-63c04cdad931",
+    "created_at": "2026-10-18 09:13:03.040653+08:00",
+    "sha256": "de615e9751490887325f4d65726bffb52daf3a2ada69ab7cc9a94fc5a0322252",
+    "config": {
+      "style": {
+        "title": "",
+        "width": 2400,
+        "height": 1600,
+        "aliases": {
+          "A": "结局",
+          "B": "合成暴露分组（参考组为0）",
+          "C": "观察次序",
+          "D": "冻结评分",
+          "E": "合成随访测量值（软件核验）",
+          "F": "随访时间",
+          "G": "事件",
+          "H": "合成个体",
+          "I": "分组"
+        },
+        "caption": "人工合成材料，仅作软件验证。",
+        "palette": "colorblind",
+        "font_size": 12,
+        "display_order": []
+      },
+      "language": "zh-CN",
+      "projection": null,
+      "figure_kind": "boxplot"
+    },
+    "source": {
+      "kind": "prepared_dataset_version",
+      "file_id": "38bf670e-653f-51e9-acf3-4742171080f3",
+      "dataset_id": "8a337bd0-e2c7-50d7-bcb6-0ad9b3dd7d40",
+      "sheet_name": "研究 & 数据",
+      "sheet_index": 0,
+      "structure_id": "f95dd1bd-cdf1-400d-8e73-51cf92e953f0",
+      "source_sha256": "bbabd70ee37c66e3d1a5cf18295d40b66c4a6aac0ba13df19f532bde24069a29",
+      "dataset_sha256": "943a2cbc8a00d2bbec1e4daa89217bdd0ab31832fa47a43ead793cf1870cf58e",
+      "parser_version": "openpyxl-3.1.5-structure-v1",
+      "schema_version": 1,
+      "dataset_version": 1,
+      "parent_dataset_id": "9c779547-5282-5632-a97f-034ccfdce8e5",
+      "transform_version": "excel_prepare_v1",
+      "dataset_size_bytes": 29662,
+      "dataset_schema_version": 1,
+      "parent_dataset_version": 1
+    },
+    "figure_contract": 3
+  },
+  "projection": {
+    "id": "f20703b4-5a2a-5cfc-8af3-2197839c2b83",
+    "config_version_id": "eeb4430a-e560-465f-87e6-aa37e113660d",
+    "decision_id": "71cf51ae-3bb0-4e31-9f8a-79248f5297e8",
+    "tool_version": "figure_projection_v1",
+    "sha256": "f470d9367233a30294d8a1e0aee9a6805684a4c90398ab48f4c5202910367163",
+    "result": {
+      "audit": {
+        "valid_n": 39,
+        "excluded": [],
+        "excluded_n": 1,
+        "missing_y_n": 0,
+        "population_n": 40,
+        "included_rows": []
+      },
+      "method": {
+        "kind": "boxplot",
+        "basis": "original_statistical_valid_rows"
+      },
+      "series": [],
+      "_material": {
+        "sha256": "c9c3c65f22f8c72492454d30886b86c853f4058143fa751b4e9afec3d97fdc9d",
+        "payload": {
+          "groups": [
+            {
+              "label": "Group 0",
+              "values": [
+                12.0,
+                15.0,
+                20.0,
+                18.0,
+                22.0,
+                25.0,
+                25.0,
+                30.0,
+                28.0,
+                32.0,
+                35.0,
+                35.0,
+                40.0,
+                38.0,
+                42.0,
+                45.0,
+                45.0,
+                50.0,
+                48.0
+              ]
+            },
+            {
+              "label": "Group 1",
+              "values": [
+                17.0,
+                20.0,
+                20.0,
+                25.0,
+                23.0,
+                27.0,
+                30.0,
+                30.0,
+                35.0,
+                33.0,
+                37.0,
+                40.0,
+                40.0,
+                45.0,
+                43.0,
+                47.0,
+                50.0,
+                50.0,
+                55.0,
+                53.0
+              ]
+            }
+          ],
+          "labels": {
+            "title": "合成随访测量值（软件核验）箱线图",
+            "caption": "合成随访测量值（软件核验）箱线图。使用 39 行完整记录，排除 1 行缺失记录。n 为各组有效记录数；箱体为 Q1–Q3，中线为中位数，分位数按 (n−1)p 线性插值。须端为 Q1−1.5×IQR 至 Q3+1.5×IQR 范围内最远观测值，IQR = Q3−Q1。空心圆为范围外观测，重合点可能重叠；这些值仍参与统计，未剔除离群值。单条或常数数据呈重合线。未进行显著性检验。 人工合成材料，仅作软件验证。 箱体和须不是置信区间。",
+            "x_label": "合成随访测量值（软件核验）（mm）",
+            "y_label": "分组"
+          },
+          "values": [
+            12.0,
+            15.0,
+            20.0,
+            18.0,
+            22.0,
+            25.0,
+            25.0,
+            30.0,
+            28.0,
+            32.0,
+            35.0,
+            35.0,
+            40.0,
+            38.0,
+            42.0,
+            45.0,
+            45.0,
+            50.0,
+            48.0,
+            17.0,
+            20.0,
+            20.0,
+            25.0,
+            23.0,
+            27.0,
+            30.0,
+            30.0,
+            35.0,
+            33.0,
+            37.0,
+            40.0,
+            40.0,
+            45.0,
+            43.0,
+            47.0,
+            50.0,
+            50.0,
+            55.0,
+            53.0
+          ],
+          "language": "zh-CN",
+          "figure_kind": "boxplot",
+          "plot_config": {
+            "style": {
+              "width": 2400,
+              "height": 1600,
+              "palette": "colorblind",
+              "font_size": 12,
+              "display_order": []
+            },
+            "numbering_mode": "external",
+            "quantile_method": "linear_inclusive",
+            "outliers_removed": false,
+            "whisker_iqr_multiplier": 1.5
+          },
+          "presentation": {
+            "axes": {
+              "x": {
+                "unit": "mm",
+                "label": "合成随访测量值（软件核验）（mm）"
+              },
+              "y": {
+                "unit": "",
+                "label": "分组"
+              }
+            },
+            "legend": {
+              "title": "分组",
+              "entries": [
+                {
+                  "color": "#0072B2",
+                  "label": "Group 0"
+                },
+                {
+                  "color": "#E69F00",
+                  "label": "Group 1"
+                }
+              ]
+            },
+            "color_scale": null,
+            "abbreviations": [
+              {
+                "term": "n",
+                "definition": "有效记录数；独立人数须由研究设计确认"
+              },
+              {
+                "term": "Q1",
+                "definition": "第一四分位数"
+              },
+              {
+                "term": "Q3",
+                "definition": "第三四分位数"
+              },
+              {
+                "term": "IQR",
+                "definition": "四分位距（Q3−Q1）"
+              }
+            ],
+            "schema_version": 2,
+            "statistical_notes": [
+              "箱体和须不是置信区间。"
+            ]
+          },
+          "schema_version": 5,
+          "legacy_contract": 1
+        },
+        "expected": {
+          "title": "合成随访测量值（软件核验）箱线图",
+          "groups": [
+            {
+              "label": "Group 0",
+              "statistics": {
+                "n": 19,
+                "q1": 23.5,
+                "q3": 41.0,
+                "iqr": 17.5,
+                "max": 50.0,
+                "min": 12.0,
+                "std": 11.504893441462864,
+                "mean": 31.842105263157894,
+                "median": 32.0
+              }
+            },
+            {
+              "label": "Group 1",
+              "statistics": {
+                "n": 20,
+                "q1": 26.5,
+                "q3": 45.5,
+                "iqr": 19.0,
+                "max": 55.0,
+                "min": 17.0,
+                "std": 11.814353446906058,
+                "mean": 36.0,
+                "median": 36.0
+              }
+            }
+          ],
+          "series": [
+            {
+              "n": 19,
+              "q1": 23.5,
+              "q3": 41.0,
+              "label": "Group 0",
+              "fliers": [],
+              "median": 32.0,
+              "whishi": 50.0,
+              "whislo": 12.0,
+              "outlier_count": 0
+            },
+            {
+              "n": 20,
+              "q1": 26.5,
+              "q3": 45.5,
+              "label": "Group 1",
+              "fliers": [],
+              "median": 36.0,
+              "whishi": 55.0,
+              "whislo": 17.0,
+              "outlier_count": 0
+            }
+          ],
+          "caption": "合成随访测量值（软件核验）箱线图。使用 39 行完整记录，排除 1 行缺失记录。n 为各组有效记录数；箱体为 Q1–Q3，中线为中位数，分位数按 (n−1)p 线性插值。须端为 Q1−1.5×IQR 至 Q3+1.5×IQR 范围内最远观测值，IQR = Q3−Q1。空心圆为范围外观测，重合点可能重叠；这些值仍参与统计，未剔除离群值。单条或常数数据呈重合线。未进行显著性检验。 人工合成材料，仅作软件验证。 箱体和须不是置信区间。",
+          "overall": {
+            "n": 39,
+            "q1": 25.0,
+            "q3": 44.0,
+            "iqr": 19.0,
+            "max": 55.0,
+            "min": 12.0,
+            "std": 11.701298127462024,
+            "mean": 33.97435897435897,
+            "median": 35.0
+          },
+          "x_label": "合成随访测量值（软件核验）（mm）",
+          "y_label": "分组",
+          "language": "zh-CN",
+          "figure_kind": "boxplot",
+          "plot_config": {
+            "style": {
+              "width": 2400,
+              "height": 1600,
+              "palette": "colorblind",
+              "font_size": 12,
+              "display_order": []
+            },
+            "numbering_mode": "external",
+            "quantile_method": "linear_inclusive",
+            "outliers_removed": false,
+            "whisker_iqr_multiplier": 1.5
+          },
+          "presentation": {
+            "axes": {
+              "x": {
+                "unit": "mm",
+                "label": "合成随访测量值（软件核验）（mm）"
+              },
+              "y": {
+                "unit": "",
+                "label": "分组"
+              }
+            },
+            "legend": {
+              "title": "分组",
+              "entries": [
+                {
+                  "color": "#0072B2",
+                  "label": "Group 0"
+                },
+                {
+                  "color": "#E69F00",
+                  "label": "Group 1"
+                }
+              ]
+            },
+            "color_scale": null,
+            "abbreviations": [
+              {
+                "term": "n",
+                "definition": "有效记录数；独立人数须由研究设计确认"
+              },
+              {
+                "term": "Q1",
+                "definition": "第一四分位数"
+              },
+              {
+                "term": "Q3",
+                "definition": "第三四分位数"
+              },
+              {
+                "term": "IQR",
+                "definition": "四分位距（Q3−Q1）"
+              }
+            ],
+            "schema_version": 2,
+            "statistical_notes": [
+              "箱体和须不是置信区间。"
+            ]
+          },
+          "schema_version": 5,
+          "legacy_contract": 1
+        }
+      },
+      "input_sha256": "3e4b1e0ec9d5c0aaa59260c541849149099abd4adecf56abab7bbb5e27193e6c",
+      "tool_version": "figure_projection_v1",
+      "schema_version": 1,
+      "original_statistical_n": 39
+    }
+  }
+}

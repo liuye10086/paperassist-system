@@ -11,6 +11,7 @@ from app.domain.analysis_sources import raw_dataset_source, prepared_dataset_sou
 from app.domain.datasets.service import DatasetService
 from app.domain.analysis import SheetScan, ColumnProfile, SheetProfile, MAX_GROUPS
 from app.domain.dataset_preparation.contracts import PreparedSheet
+from app.domain.dataset_rows import source_rows
 
 
 def load_dataset(store, project_id, file_id, dataset_id, *, expected_source=None):
@@ -23,7 +24,7 @@ def load_dataset(store, project_id, file_id, dataset_id, *, expected_source=None
             raise
         from app.domain.dataset_preparation.service import DatasetPreparationService
         row, _, content = DatasetPreparationService(store).load_version(project_id, file_id, dataset_id)
-        source = prepared_dataset_source(row, content.parent_source.model_dump())
+        source = prepared_dataset_source(row, content.parent_source.model_dump(), schema_version=content.schema_version)
         sheet = content.sheet
     else:
         source = raw_dataset_source(row, sheet, file_id)
@@ -131,10 +132,12 @@ def scan_dataset(sheet, selection=None, collect_values=False):
 
 
 def scan_prepared(sheet, selection, collect_values):
+    active = set(source_rows(sheet))
     scan = DatasetScan(sheet.name, selection, collect_values)
     rows = {}
     for cell in sheet.cells:
-        rows.setdefault(cell.row, {})[cell.column - 1] = cell
+        if cell.row in active:
+            rows.setdefault(cell.row, {})[cell.column - 1] = cell
     for row, cells in rows.items():
         scan.observe_dataset(row, cells)
     columns = []
@@ -147,6 +150,8 @@ def scan_prepared(sheet, selection, collect_values):
             numeric_count=counts['number'], can_be_numeric=kind=='number', can_be_group=kind in ('number','text','boolean'),
             issue_cells=scan.issue_cells[index] if index < len(scan.issue_cells) else [], unit=field.unit))
     warnings = [f'分析使用已确认整理版本的 {sheet.data_range} 区域，保留区域内空行；普通小数采用 binary64，可能存在浮点误差。']
+    if getattr(sheet, 'active_source_rows', None) is not None:
+        warnings = [f'分析使用已确认整理版本的 {sheet.row_count} 条保留记录；源区域 {sheet.data_range} 仅表示坐标边界。普通小数采用 binary64，可能存在浮点误差。']
     if sheet.merged_ranges:
         warnings.append('存在合并单元格，覆盖格未自动补值。')
     if any(f.unit.status == 'unconfirmed' for f in sheet.fields):

@@ -12,6 +12,7 @@ def isolate_cloud_worker(monkeypatch):
     monkeypatch.setenv('OPENAI_API_KEY', '')
     monkeypatch.setenv('OPENAI_API_KEY_FILE', '')
     monkeypatch.setenv('PAPERASSIST_EXPLANATION_POLICY_FILE', '')
+    monkeypatch.setenv('PAPERASSIST_ANALYSIS_RECOMMENDATION_POLICY_FILE', '')
     monkeypatch.setenv('PAPERASSIST_PLOT_POLICY_FILE', '')
     monkeypatch.setenv('PAPERASSIST_AUTH_TRUSTED_ORIGINS', 'http://testserver')
 

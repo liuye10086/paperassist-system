@@ -42,7 +42,19 @@ class PreparedDatasetAnalysisSource(DatasetAnalysisSource):
     transform_version: Literal['excel_prepare_v1']
 
 
-AnyDatasetAnalysisSource = PreparedDatasetAnalysisSource | DatasetAnalysisSource
+class PreparedDatasetAnalysisSourceV2(PreparedDatasetAnalysisSource):
+    schema_version: Literal[2]
+    dataset_schema_version: Literal[2]
+    transform_version: Literal['excel_prepare_v2']
+
+
+class PreparedDatasetAnalysisSourceV3(PreparedDatasetAnalysisSource):
+    schema_version: Literal[3]
+    dataset_schema_version: Literal[3]
+    transform_version: Literal['excel_prepare_v3']
+
+
+AnyDatasetAnalysisSource = PreparedDatasetAnalysisSourceV3 | PreparedDatasetAnalysisSourceV2 | PreparedDatasetAnalysisSource | DatasetAnalysisSource
 
 
 class OptionalAnalysisSource(BaseModel):
@@ -60,7 +72,7 @@ def source_dict(value):
     if isinstance(value, DatasetAnalysisSource):
         value = value.model_dump()
     try:
-        model = PreparedDatasetAnalysisSource if isinstance(value, dict) and value.get('kind') == 'prepared_dataset_version' else DatasetAnalysisSource
+        model = ({3: PreparedDatasetAnalysisSourceV3, 2: PreparedDatasetAnalysisSourceV2}.get(value.get('schema_version'), PreparedDatasetAnalysisSource)) if isinstance(value, dict) and value.get('kind') == 'prepared_dataset_version' else DatasetAnalysisSource
         return model.model_validate(value).model_dump()
     except (ValueError, TypeError) as exc:
         raise StorageError('source_conflict', '分析数据来源合同无效。', 409) from exc
@@ -74,15 +86,19 @@ def raw_dataset_source(row, sheet, file_id):
         sheet_name=sheet.name, parser_version=row['parser_version']).model_dump()
 
 
-def prepared_dataset_source(row, parent_source):
+def prepared_dataset_source(row, parent_source, *, schema_version=1):
     parent = DatasetAnalysisSource.model_validate(parent_source).model_dump()
     if row['parent_dataset_id'] != parent['dataset_id']:
         raise StorageError('source_conflict', '整理数据的原始来源不一致。', 409)
-    return PreparedDatasetAnalysisSource.model_validate({**parent,
+    if type(schema_version) is not int or schema_version not in (1, 2, 3):
+        raise StorageError('source_conflict', '整理数据版本无效。', 409)
+    model = {3: PreparedDatasetAnalysisSourceV3, 2: PreparedDatasetAnalysisSourceV2}.get(schema_version, PreparedDatasetAnalysisSource)
+    return model.model_validate({**parent,
         'kind': 'prepared_dataset_version', 'dataset_id': row['id'], 'dataset_version': row['version'],
         'dataset_sha256': row['sha256'], 'dataset_size_bytes': row['size_bytes'],
         'parent_dataset_id': parent['dataset_id'], 'parent_dataset_version': parent['dataset_version'],
-        'transform_version': 'excel_prepare_v1'}).model_dump()
+        'schema_version': schema_version, 'dataset_schema_version': schema_version,
+        'transform_version': f'excel_prepare_v{schema_version}'}).model_dump()
 
 
 def statistics_engine(value):
@@ -97,4 +113,15 @@ def statistics_engine(value):
     selection = own.get('selection')
     if selection is not None and selection.get('sheet_name') != frozen['sheet_name']:
         raise StorageError('source_conflict', '分析工作表与冻结数据来源不一致。', 409)
+    if selection is not None and selection.get("task_type")=="correlation":
+        from app.domain.correlation.contracts import ENGINE as CORRELATION_ENGINE
+        return CORRELATION_ENGINE
+    if selection is not None and selection.get('task_type')=='group_comparison':
+        from app.domain.comparison.contracts import ENGINE as COMPARISON_ENGINE
+        return COMPARISON_ENGINE
+    if selection is not None and selection.get('task_type') in ('regression','roc','survival'):
+        from importlib import import_module
+        return import_module('app.domain.'+selection['task_type']+'.contracts').ENGINE
+    if selection is not None and selection.get('task_type')!='descriptive_boxplot':
+        raise StorageError('source_conflict','未知的分析类型不能执行描述统计。',409)
     return DATASET_ENGINE

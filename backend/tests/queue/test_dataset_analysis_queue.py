@@ -1,4 +1,5 @@
 """Full dataset lineage with real Linux leases and synthetic-only SDK transports."""
+from tests.helpers.statistics import statistics_post
 from hashlib import sha256
 from io import BytesIO
 import json
@@ -71,7 +72,7 @@ def saved_analysis(client, base, dataset_id, revision):
     assert response.status_code == 200, response.text
     saved = response.json()
     assert saved['source']['dataset_id'] == dataset_id
-    response = client.post(base + '/analysis-runs', json={'expected_revision': saved['revision']})
+    response = statistics_post(client, base + '/analysis-runs', json={'expected_revision': saved['revision']})
     assert response.status_code == 200, response.text
     result = response.json()
     assert result['source'] == saved['source']

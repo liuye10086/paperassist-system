@@ -1,4 +1,5 @@
 """Reusable real-upload preparation → local plan → approval → statistics scenario."""
+from tests.helpers.legacy_plans import seed_legacy_plan
 from tests.integration.test_dataset_preparation import create_preparation,run,review,decide,decision
 from tests.api.test_analysis import selection
 
@@ -22,7 +23,7 @@ def prepared_sample(client):
 def create_plan(client,base,prepared,expected=0,key='plan'):
     body=dict(dataset_id=prepared['id'],expected_setup_revision=expected,
         selection=selection(numeric_column='D',group_column='C',unit='mg'))
-    response=client.post(base+'/analysis-plans',json=body,headers={'Idempotency-Key':key})
+    response=seed_legacy_plan(client, base+'/analysis-plans',json=body,headers={'Idempotency-Key':key})
     assert response.status_code==202,response.text
     return response.json(),body
 

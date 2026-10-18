@@ -28,7 +28,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from app.core.config import local_config
 
 
-SCHEMA_HEAD = "0023_file_lifecycle"
+SCHEMA_HEAD = "0029_statistics_execution"
 _SCHEMA_NAME = re.compile(r"[a-z_][a-z0-9_]{0,62}\Z")
 _TEST_SCHEMA = re.compile(r"pa_test_[0-9a-f]{32}\Z")
 _CONNECTION_OPTIONS = frozenset({
@@ -145,6 +145,7 @@ class DatabaseConnection:
         self.config = config
 
     def execute(self, sql: str, parameters: tuple[Any, ...] = ()) -> DatabaseResult:
+        _set_numeric_timeout(self.raw_connection)
         return DatabaseResult(self.raw_connection.exec_driver_sql(sql, parameters))
 
 
@@ -166,6 +167,17 @@ def ensure_schema_current(connection: DatabaseConnection) -> None:
         raise SchemaVersionError("数据库版本不兼容，请先执行 python -m app.db.database upgrade。")
 
 
+def _set_numeric_timeout(connection: Connection) -> None:
+    from app.domain.fixed_statistics_runtime import scope_active, remaining_seconds
+    if not scope_active(): return
+    remaining = remaining_seconds()
+    if remaining <= 0:
+        from app.domain.regression.common import NumericError
+        raise NumericError('numeric_timeout', '统计节点期限已到。')
+    milliseconds = str(max(1, int(remaining * 1000)))
+    connection.exec_driver_sql("SELECT pg_catalog.set_config('statement_timeout', %s, true), pg_catalog.set_config('lock_timeout', %s, true)", (milliseconds,milliseconds))
+
+
 def _set_schema(connection: Connection, schema: str) -> None:
     exists = connection.exec_driver_sql(
         "SELECT 1 FROM pg_catalog.pg_namespace WHERE nspname = %s", (schema,),
@@ -177,6 +189,7 @@ def _set_schema(connection: Connection, schema: str) -> None:
 
 
 def _write_lock(connection: Connection, config: DatabaseConfig) -> None:
+    _set_numeric_timeout(connection)
     digest = hashlib.sha256(f"paperassist:{config.url.database}:{config.schema}".encode()).digest()
     key = int.from_bytes(digest[:8], byteorder="big", signed=True)
     connection.exec_driver_sql("SELECT pg_catalog.pg_advisory_xact_lock(%s)", (key,))
@@ -194,6 +207,7 @@ def database_connection(
         with connection.begin():
             if not write:
                 connection.exec_driver_sql("SET TRANSACTION READ ONLY")
+            _set_numeric_timeout(connection)
             _set_schema(connection, config.schema)
             if write:
                 # SQLite previously serialized writes with BEGIN IMMEDIATE.
@@ -201,6 +215,12 @@ def database_connection(
                 # a waiting writer observes the preceding writer's commit.
                 _write_lock(connection, config)
             yield DatabaseConnection(connection, config)
+            # Check immediately before transaction commit; no expired node may
+            # publish after its last business statement.
+            from app.domain.fixed_statistics_runtime import scope_active, remaining_seconds
+            if scope_active() and remaining_seconds() <= 0:
+                from app.domain.regression.common import NumericError
+                raise NumericError('numeric_timeout', '统计节点期限已到。')
 
 
 def alembic_config() -> Config:

@@ -76,10 +76,17 @@ class OpenAIResponsesProvider:
             raise ModelProviderError('model_input_invalid') from None
         try:
             options = {}
-            if getattr(policy, 'output_format', 'text') == 'analysis_explanation_v1':
+            if getattr(policy, 'output_format', 'text') in ('analysis_explanation_v1','analysis_explanation_v2','analysis_explanation_v3','analysis_explanation_v4'):
                 from app.adapters.openai_explanation import SCHEMA
                 options['text'] = {'format': {'type': 'json_schema', 'name': 'analysis_explanation',
                                              'strict': True, 'schema': SCHEMA}}
+            elif getattr(policy, 'output_format', 'text') in ('analysis_recommendation_v1','analysis_recommendation_v2','analysis_recommendation_v3','analysis_recommendation_v4','analysis_recommendation_v5'):
+                from app.domain.analysis_recommendation.contracts import RecommendationDraft, RecommendationDraftV2, RecommendationDraftV3, RecommendationDraftV4, RecommendationDraftV5
+                draft = {'analysis_recommendation_v1': RecommendationDraft,
+                         'analysis_recommendation_v2': RecommendationDraftV2,
+                         'analysis_recommendation_v3': RecommendationDraftV3,
+                         'analysis_recommendation_v4': RecommendationDraftV4,'analysis_recommendation_v5':RecommendationDraftV5}[policy.output_format]
+                options['text']={'format':{'type':'json_schema','name':'analysis_recommendation','strict':True,'schema':draft.model_json_schema()}}
             elif getattr(policy, 'output_format', 'text') != 'text':
                 raise ModelProviderError('model_input_invalid')
             response = self.client.responses.create(

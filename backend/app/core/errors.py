@@ -8,11 +8,13 @@ from starlette.responses import JSONResponse
 PUBLIC_CODES = frozenset('''
 authentication_configuration authentication_required csrf_invalid database_configuration
 empty_file explanation_input_limit explanation_not_configured explanation_incomplete explanation_invalid explanation_invalid_json
+figure_projection_invalid
 explanation_output_limit explanation_refused figure_changed figure_conflict figure_missing
 figure_not_found file_changed file_missing file_not_found file_not_parsed file_too_large file_metadata_conflict file_query_invalid
 image_not_found invalid_document encrypted_document document_too_large document_changed document_missing document_version_not_found
 document_idempotency_conflict document_version_conflict document_parse_active
 file_assessment_conflict file_deletion_idempotency_conflict
+external_evidence_not_found external_evidence_revision_conflict
 ocr_review_active
 invalid_analysis_selection invalid_column invalid_credentials invalid_current_password
 invalid_recovery_code invalid_request invalid_workbook login_rate_limited missing_file
@@ -34,8 +36,18 @@ dataset_missing dataset_changed structure_version_conflict structure_task_pendin
 parse_timeout parse_resource_limit parse_process_failed parse_environment_unavailable parse_output_invalid
 model_usage_input_invalid model_budget_missing model_budget_exceeded model_budget_revision_conflict
 model_call_idempotency_conflict model_usage_event_conflict model_call_transition_invalid model_call_not_found
-model_policy_not_configured model_policy_invalid model_submission_unknown model_response_not_found
+model_policy_not_configured model_policy_invalid model_submission_unknown model_response_not_found model_observation_expired
+numeric_type recommendation_not_configured recommendation_invalid correlation_invalid_input correlation_sample_size correlation_input_limit correlation_constant correlation_near_constant
+group_type unit_conflict pair_id_missing pair_id_duplicate pair_id_type groups_missing group_not_selected
+comparison_invalid_input comparison_sample_size comparison_input_limit comparison_constant comparison_near_constant
+numeric_input_limit numeric_invalid_input numeric_sample_size numeric_rank numeric_constant numeric_perfect_fit
+numeric_descriptive_limit numeric_row_limit numeric_effect_limit numeric_input_bytes_limit
+numeric_output_limit numeric_output_missing numeric_output_invalid numeric_timeout_invalid
+numeric_separation_check numeric_separation numeric_convergence numeric_unstable numeric_overflow numeric_failure
+numeric_timeout numeric_environment_unavailable numeric_resource_limit numeric_encoding numeric_id_missing numeric_id_duplicate numeric_roles_missing
 model_provider_unavailable model_authentication_failed model_permission_denied model_request_rejected model_response_invalid
+
+collection_dependencies_missing collection_duplicate_figure collection_explanation_conflict collection_idempotency_conflict collection_input_invalid collection_legacy_numbering collection_not_found collection_plan_required collection_revision_conflict collection_source_conflict figure_missing projection_limit violin_unsupported_group
 '''.split())
 
 INTERNAL_MESSAGE = '服务暂时无法完成请求，请稍后重试。'
@@ -46,6 +58,13 @@ def safe_params(code, params=None):
     if not isinstance(params, dict):
         return {}
     result = {}
+    if code == 'figure_projection_invalid':
+        reason = params.get('reason')
+        allowed = {'missing_fields','missing_group','invalid_group','duplicate_x','invalid_numeric',
+            'invalid_category','invalid_datetime','invalid_x_type','ordered_x_required','projection_empty',
+            'projection_limit','violin_unsupported_group','violin_numeric_range','invalid_rule','invalid_row',
+            'unsupported_projection'}
+        return {'reason':reason} if isinstance(reason,str) and reason in allowed else {}
     numeric = {
         'file_too_large': {'max_bytes': (1, 2**63 - 1)},
         'numeric_precision': {'row': (1, 1_048_576)},

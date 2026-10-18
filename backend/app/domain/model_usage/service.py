@@ -32,6 +32,10 @@ class ModelUsageService:
     def __init__(self, user_id, config=None):
         self.store = ModelUsageStore(user_id, config)
 
+    def consume_observation_grant(self, call_id, response_id):
+        from app.domain.model_usage.observation import consume_grant
+        return consume_grant(self.store, call_id, response_id)
+
     def get_budget(self, scope_type, scope_key):
         if scope_type not in ('user', 'project', 'task') or not _key(scope_key, 64):
             raise _error('model_usage_input_invalid', '预算查询参数无效。', 422)
@@ -65,7 +69,7 @@ class ModelUsageService:
     def _require_running(task, revision):
         if task['revision'] != revision:
             raise _error('task_revision_conflict', '任务版本已变化，请重新读取。')
-        if task['status'] != 'running' or task['task_type'] == 'word_report':
+        if task['status'] != 'running' or task['task_type'] in ('word_report','collection_word_report','figure_projection','statistics_compute'):
             raise _error('task_transition_invalid', '当前任务不能执行模型调用。')
 
     @staticmethod
@@ -145,7 +149,9 @@ class ModelUsageService:
                 if expected_task_revision is not None:
                     revision = expected_task_revision
             self._require_running(task, revision)
-            call.update(status='submitting', updated_at=datetime.now(timezone.utc))
+            from app.domain.model_usage.observation import start
+            now = datetime.now(timezone.utc)
+            call.update(status='submitting', provider_state=start(call.get('provider_state'), now), updated_at=now)
             self.store.update_call(db, call)
             return True
 
@@ -166,7 +172,7 @@ class ModelUsageService:
             self._require_execution_lease(db, task, execution_lease)
             self._require_running(task, expected_task_revision)
             policy = call['policy_snapshot']
-            if (task['task_type'] != 'boxplot' or policy.get('tools') != ['code_interpreter']
+            if (task['task_type'] not in ('boxplot','figure_workbench') or policy.get('tools') != ['code_interpreter']
                     or not policy.get('tool_reserve_version') or policy.get('tool_reserve_micro_usd', 0) <= 0):
                 raise _error('model_usage_input_invalid', '图表调用必须配置工具预算。', 422)
             state = dict(call.get('provider_state') or {})
@@ -179,7 +185,11 @@ class ModelUsageService:
             from app.adapters.task_execution_store import TaskExecutionStore
             TaskExecutionStore(config=self.store.config).sources(db, task)
             state.update(version=1, phase=following)
-            call.update(provider_state=state, status='submitting', updated_at=datetime.now(timezone.utc))
+            now = datetime.now(timezone.utc)
+            if step == 'response':
+                from app.domain.model_usage.observation import start
+                state = start(state, now)
+            call.update(provider_state=state, status='submitting', updated_at=now)
             self.store.update_call(db, call)
             return True
 

@@ -167,7 +167,7 @@ def test_configuration_budget_recovery_preserves_frozen_confirmation(client, mon
     provider = ConfirmedPlotProvider(result, pending=False)
     waiting = run(task, provider)
     assert waiting['status'] == 'waiting_confirmation' and not provider.posts
-    monkeypatch.setattr(plot_policy, 'get_execution_policy', lambda: frozen)
+    monkeypatch.setattr(plot_policy, 'get_execution_policy', lambda payload=None, *, result=None: frozen)
     response = client.post('/api/v1/tasks/' + task['id'] + '/retry', json={'expected_revision': waiting['revision']})
     assert response.status_code == 202, response.text
     current = response.json()

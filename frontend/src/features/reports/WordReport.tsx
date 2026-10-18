@@ -8,12 +8,12 @@ import { WorkflowStage } from '../analysis/AnalysisWorkflow'
 import '../figures/artifactPanels.css'
 import { artifactFilename } from '../../shared/components/artifactFilename'
 import ProjectDownloadLink from '../../shared/components/ProjectDownloadLink'
-type Report = { source?: DatasetAnalysisSource; id: string; analysis_run_id: string; figure_id: string; explanation_id: string; setup_revision: number; source_sha256: string; figure_sha256: string; created_at: string; filename: string; size_bytes: number; sha256: string; language: 'zh-CN' | 'en'; engine: { id: string; python_docx: string }; input_sha256: string }
+type Report = {schema_version?:3|4; source?: DatasetAnalysisSource; id: string; analysis_run_id: string; figure_id: string; explanation_id: string; setup_revision: number; source_sha256: string; figure_sha256: string; created_at: string; filename: string; size_bytes: number; sha256: string; language: 'zh-CN' | 'en'; engine: { id: string; python_docx: string }; input_sha256: string }
 type Task = { id: string; status: 'queued' | 'running' | 'succeeded' | 'failed' | 'waiting_input' | 'waiting_confirmation'; revision: number; error_code: string | null; result_report_id: string | null }
-type State = { current_revision: number | null; is_current: boolean; ready: boolean; issues: string[]; report: Report | null; task?: Task | null }
-type Props = { source?: DatasetAnalysisSource; filename?: string; base: string; runId: string; revision: number; figureId: string; explanationId: string; canGenerate: boolean; disabled: boolean; onBusyChange: (busy: boolean) => void }
-export default function WordReport(props: Props) { return <ReportPanel key={`${props.base}:${props.runId}:${props.figureId}:${props.explanationId}:${props.revision}`} {...props} /> }
-function ReportPanel({ base, runId, revision, figureId, explanationId, canGenerate, disabled, onBusyChange, source, filename: sourceFilename }: Props) {
+type State = {generation_compatible?:boolean; current_revision: number | null; is_current: boolean; ready: boolean; issues: string[]; report: Report | null; task?: Task | null }
+type Props = {artifactVersion?:4;figureSha?:string;comparison?:boolean;outputLanguage?:'zh-CN'|'en';modern?:boolean; source?: DatasetAnalysisSource; filename?: string; base: string; runId: string; revision: number; figureId: string; explanationId: string; canGenerate: boolean; disabled: boolean; onBusyChange: (busy: boolean) => void }
+export default function WordReport(props: Props) { return <ReportPanel key={`${props.base}:${props.runId}:${props.figureId}:${props.explanationId}:${props.revision}:${props.outputLanguage}:${props.modern}:${props.comparison}:${props.figureSha}`} {...props} /> }
+function ReportPanel({ base, runId, revision, figureId, explanationId, canGenerate, disabled, onBusyChange, source, filename: sourceFilename, outputLanguage='zh-CN',modern=false,comparison=false,artifactVersion,figureSha }: Props) {
   const { t, locale } = useI18n()
   const endpoint = `${base}/analysis-runs/${runId}/report`
   const [state, setState] = useState<State | null>(null)
@@ -39,8 +39,8 @@ function ReportPanel({ base, runId, revision, figureId, explanationId, canGenera
     try { return await Promise.race([apiFetch(url, { ...init, signal: controller.signal }).then(async response => {
       const body = await response.json().catch(() => null)
       if (!response.ok) throw new Error(apiError(body, '报告请求失败，请重新读取报告。'))
-      if (body && typeof body === 'object' && 'report' in body && body.report && !validOptionalSource(body.report, source)) throw new Error('数据来源或版本不一致，请重新载入配置。')
-      if (body && typeof body === 'object' && (body.task && !validAnalysisTaskSource(body.task, source, revision) || url.startsWith('/api/v1/tasks/') && !validAnalysisTaskSource(body, source, revision))) throw new Error('数据来源或版本不一致，请重新载入配置。')
+      if (body && typeof body === 'object' && 'report' in body && body.report && (!validOptionalSource(body.report, source)||modern&&(comparison||artifactVersion===4||body.is_current)&&((comparison||artifactVersion===4)&&(body.report.schema_version!==(artifactVersion===4?4:3)||figureSha!==undefined&&body.report.figure_sha256!==figureSha)||body.report.language!==outputLanguage||body.report.engine?.id!==(artifactVersion===4?'word_analysis_report_v4':comparison?'word_analysis_report_v3':'word_analysis_report_v2')||body.report.analysis_run_id!==runId||body.report.figure_id!==figureId||body.report.explanation_id!==explanationId||body.report.setup_revision!==revision))) throw new Error('数据来源或版本不一致，请重新载入配置。')
+      if (body && typeof body === 'object' && (body.task && !validAnalysisTaskSource(body.task, source, revision, outputLanguage) || url.startsWith('/api/v1/tasks/') && !validAnalysisTaskSource(body, source, revision, outputLanguage))) throw new Error('数据来源或版本不一致，请重新载入配置。')
       return body as T
     }), new Promise<never>((_, reject) => { timer = window.setTimeout(() => { controller.abort(); reject(new Error('报告请求超时，后端可能仍在保存。请先重新读取报告，确认状态。')) }, 30_000) })]) }
     finally { window.clearTimeout(timer) }
@@ -99,7 +99,7 @@ function ReportPanel({ base, runId, revision, figureId, explanationId, canGenera
     {error && <p role="alert" className="error-panel">{t(error)}</p>}
     {state?.issues?.length ? <ul>{state.issues.map((issue, index) => <li key={index}>{workflowNotice(issue, t)}</li>)}</ul> : null}
     {report && <><p className="artifact-status">{t(current ? "当前结果" : "历史结果")}</p><p><ProjectDownloadLink href={`${endpoint}/${encodeURIComponent(report.id)}/download`} filename={filename}>{t("下载 Word 报告")}</ProjectDownloadLink></p><p>{t("文件：")}{filename}{t("；生成时间：")}{report.created_at}{t("；文件大小：")}{t('{count} 字节', { count: report.size_bytes })}</p>
-      <details className="artifact-details"><summary>{t("报告来源记录")}</summary><SourceSummary source={report.source} filename={sourceFilename} /><p>{t("内容来自已保存的描述统计、箱线图和分析解释。")}</p><p>{t("语言：")}{t(report.language === 'zh-CN' ? '中文' : '英文')}</p></details></>}
+      <details className="artifact-details"><summary>{t("报告来源记录")}</summary><SourceSummary source={report.source} filename={sourceFilename} />{report.source?.schema_version === 2 && <p>{t('报告按该整理版本冻结质量策略、前后概况和处理摘要；完整明细请查看该版本质量回执，各计划有效记录数分别列出。')}</p>}<p>{t(modern?'内容来自同一已确认计划的统计结果、图表和分析解释。':'内容来自已保存的描述统计、箱线图和分析解释。')}</p><p>{t("语言：")}{t(report.language === 'zh-CN' ? '中文' : '英文')}</p></details></>}
     {state && !report && <p className="artifact-empty">{t("尚未生成 Word 报告。完成当前结果后，可将统计、图表和解释整理为可编辑文档。")}</p>}
   </section></WorkflowStage>
 }

@@ -27,7 +27,10 @@ def test_0013_round_trip_preserves_old_columns_and_indexes(postgres_schema, post
         for table in tables:
             assert [dict(row) for row in db.execute('SELECT ' + ','.join('"' + col + '"' for col in columns[table]) + ' FROM "' + table + '" ORDER BY 1').fetchall()] == before[table]
             current_indexes = inspect(db.raw_connection).get_indexes(table, schema=postgres_schema.schema)
-            assert all(index in current_indexes for index in indexes[table])
+            assert all(index in current_indexes for index in indexes[table] if not (table=='figures' and index['name']=='figures_input_key'))
+            if table=='figures':
+                from tests.db.test_dataset_schema import assert_preserved_indexes
+                assert_preserved_indexes(inspect(db.raw_connection),table,indexes[table])
         call = db.execute('SELECT * FROM model_calls').fetchone()
         assert call['actual_token_micro_usd'] is None and call['actual_tool_micro_usd'] is None and call['reconciliation_revision'] == 0
         audit = audit_database(db)

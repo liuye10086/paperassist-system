@@ -1,0 +1,5 @@
+.research-request-form label { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.research-request-form textarea, .research-request-form select { width: 100%; box-sizing: border-box; }
+.research-request-summary dl { display: grid; gap: 10px; }
+.research-request-summary dt { color: var(--text-h); font-weight: 600; }
+.research-request-summary dd { margin: 4px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; }

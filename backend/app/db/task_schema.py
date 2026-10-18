@@ -7,13 +7,13 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import JSONB
 
 
-TASK_TYPES = "'boxplot', 'explanation', 'word_report', 'parse_file', 'extract_dataset', 'prepare_dataset', 'review_ocr', 'analysis_plan'"
+TASK_TYPES = "'boxplot', 'explanation', 'word_report', 'parse_file', 'extract_dataset', 'prepare_dataset', 'review_ocr', 'analysis_plan', 'analysis_recommendation', 'figure_projection', 'figure_workbench', 'figure_explanation', 'collection_word_report', 'statistics_compute'"
 STATUSES = "'queued', 'running', 'waiting_input', 'waiting_confirmation', 'succeeded', 'failed'"
 ATTEMPT_STATUSES = "'running', 'waiting_input', 'waiting_confirmation', 'succeeded', 'failed'"
 PHASES = "'parse', 'plan', 'compute', 'search', 'interpret', 'write', 'export', 'verify'"
 REASONS = ("'input_required', 'confirmation_required', 'submission_unknown', "
            "'budget_exceeded', 'execution_failed', 'retry_requested', "
-           "'input_provided', 'confirmation_received'")
+           "'input_provided', 'confirmation_received', 'observation_expired'")
 
 
 def define_task_tables(metadata):
@@ -34,11 +34,15 @@ def define_task_tables(metadata):
         Column('reason_code', Text),
         Column('created_at', DateTime(timezone=True), nullable=False),
         Column('updated_at', DateTime(timezone=True), nullable=False),
+        Column('result_analysis_run_id', Text, ForeignKey('analysis_runs.id', name='tasks_result_analysis_run_id_fkey')),
+        Column('execution_receipt', JSONB(none_as_null=True)),
+        CheckConstraint("execution_receipt IS NULL OR ((jsonb_typeof(execution_receipt)='object' AND execution_receipt->'schema_version'='1'::jsonb AND jsonb_typeof(execution_receipt->'nodes')='array' AND execution_receipt->>'status' IN ('succeeded','failed')) IS TRUE)", name='tasks_execution_receipt_check'),
         Column('result_report_id', Text, ForeignKey('reports.id', name='tasks_result_report_id_fkey')),
         Column('error_code', Text),
         Column('result_explanation_id', Text, ForeignKey('explanations.id', name='tasks_result_explanation_id_fkey')),
         Column('result_figure_id', Text, ForeignKey('figures.id', name='tasks_result_figure_id_fkey')),
         Column('figure_candidate', JSONB(none_as_null=True)),
+        CheckConstraint("verification_failure IS NULL OR jsonb_typeof(verification_failure)='object'", name='tasks_verification_failure_check'),
         UniqueConstraint('user_id', 'project_id', 'task_type', 'idempotency_key', name='tasks_idempotency_key'),
         CheckConstraint(f'task_type IN ({TASK_TYPES})', name='tasks_type_check'),
         CheckConstraint(f'status IN ({STATUSES})', name='tasks_status_check'),
@@ -54,6 +58,7 @@ def define_task_tables(metadata):
                         name='tasks_figure_candidate_check'),
         CheckConstraint('updated_at >= created_at', name='tasks_time_order_check'),
     )
+    Index('tasks_result_analysis_run', tasks.c.result_analysis_run_id)
     Index('tasks_project_created', tasks.c.project_id, tasks.c.created_at.desc(), tasks.c.id)
     Index('tasks_user_status', tasks.c.user_id, tasks.c.status)
 

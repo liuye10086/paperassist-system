@@ -21,7 +21,13 @@ def test_0021_preserves_prior_rows_and_asset_references(postgres_schema,postgres
         old_tables=[r['table_name'] for r in db.execute("SELECT table_name FROM information_schema.tables WHERE table_schema=current_schema() AND table_name<>'alembic_version'")]
         original={name:[dict(r) for r in db.execute('SELECT * FROM '+name)] for name in old_tables}
         command.upgrade(config,'head')
-        assert {name:[dict(r) for r in db.execute('SELECT * FROM '+name)] for name in old_tables}==original
-        assert db.execute('SELECT version_num FROM alembic_version').fetchone()['version_num']=='0023_file_lifecycle'
+        upgraded={name:[dict(r) for r in db.execute('SELECT * FROM '+name)] for name in old_tables}
+        # 0025 adds nullable diagnostic evidence; every pre-existing value stays identical.
+        for row in upgraded['tasks']:
+            assert row.pop('verification_failure') is None
+        for row in upgraded['figures']:
+            assert row.pop('figure_config_version_id') is None
+        assert upgraded==original
+        assert db.execute('SELECT version_num FROM alembic_version').fetchone()['version_num']=='0029_statistics_execution'
     with database_connection() as db:
         verify_runtime_permissions(db.raw_connection,postgres_schema)

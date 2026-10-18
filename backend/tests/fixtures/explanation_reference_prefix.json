@@ -1,0 +1,370 @@
+{
+  "payload": {
+    "schema_version": 2,
+    "language": "zh-CN",
+    "facts": {
+      "variable": {
+        "label": "数值字段",
+        "value": "Measurement",
+        "raw": "Measurement"
+      },
+      "unit": {
+        "label": "数值单位",
+        "value": "mm",
+        "raw": "mm"
+      },
+      "grouping": {
+        "label": "分组字段",
+        "value": "Group",
+        "raw": "Group"
+      },
+      "sheet": {
+        "label": "工作表",
+        "value": "研究 & 数据",
+        "raw": "研究 & 数据"
+      },
+      "figure.number": {
+        "label": "图号",
+        "value": "当前图",
+        "raw": "当前图"
+      },
+      "figure.title": {
+        "label": "图标题",
+        "value": "合成随访测量值（软件核验）箱线图",
+        "raw": "合成随访测量值（软件核验）箱线图"
+      },
+      "method.summary": {
+        "label": "计算及绘图方法",
+        "value": "使用所选字段的完整记录，未插补、去重或剔除离群值；样本标准差采用 n−1 分母，分位数按 (n−1)p 线性插值。箱体为 Q1–Q3，中线为中位数，须端到 Q1−1.5×IQR 至 Q3+1.5×IQR 范围内最远实际观测，空心点表示范围外观测。",
+        "raw": "使用所选字段的完整记录，未插补、去重或剔除离群值；样本标准差采用 n−1 分母，分位数按 (n−1)p 线性插值。箱体为 Q1–Q3，中线为中位数，须端到 Q1−1.5×IQR 至 Q3+1.5×IQR 范围内最远实际观测，空心点表示范围外观测。"
+      },
+      "data.total": {
+        "label": "原始行数",
+        "value": "40",
+        "raw": 40
+      },
+      "data.valid": {
+        "label": "完整记录数",
+        "value": "39",
+        "raw": 39
+      },
+      "data.excluded": {
+        "label": "排除行数",
+        "value": "1",
+        "raw": 1
+      },
+      "overall.n": {
+        "label": "总体：样本数",
+        "value": "39",
+        "raw": 39
+      },
+      "overall.mean": {
+        "label": "总体：均值",
+        "value": "33.9744",
+        "raw": 33.97435897435897
+      },
+      "overall.std": {
+        "label": "总体：样本标准差",
+        "value": "11.7013",
+        "raw": 11.701298127462024
+      },
+      "overall.min": {
+        "label": "总体：最小值",
+        "value": "12",
+        "raw": 12.0
+      },
+      "overall.q1": {
+        "label": "总体：下四分位数",
+        "value": "25",
+        "raw": 25.0
+      },
+      "overall.median": {
+        "label": "总体：中位数",
+        "value": "35",
+        "raw": 35.0
+      },
+      "overall.q3": {
+        "label": "总体：上四分位数",
+        "value": "44",
+        "raw": 44.0
+      },
+      "overall.max": {
+        "label": "总体：最大值",
+        "value": "55",
+        "raw": 55.0
+      },
+      "overall.iqr": {
+        "label": "总体：四分位距",
+        "value": "19",
+        "raw": 19.0
+      },
+      "groups.0.label": {
+        "label": "分组名称",
+        "value": "Group 0",
+        "raw": "Group 0"
+      },
+      "groups.0.n": {
+        "label": "Group 0：样本数",
+        "value": "19",
+        "raw": 19
+      },
+      "groups.0.mean": {
+        "label": "Group 0：均值",
+        "value": "31.8421",
+        "raw": 31.842105263157894
+      },
+      "groups.0.std": {
+        "label": "Group 0：样本标准差",
+        "value": "11.5049",
+        "raw": 11.504893441462864
+      },
+      "groups.0.min": {
+        "label": "Group 0：最小值",
+        "value": "12",
+        "raw": 12.0
+      },
+      "groups.0.q1": {
+        "label": "Group 0：下四分位数",
+        "value": "23.5",
+        "raw": 23.5
+      },
+      "groups.0.median": {
+        "label": "Group 0：中位数",
+        "value": "32",
+        "raw": 32.0
+      },
+      "groups.0.q3": {
+        "label": "Group 0：上四分位数",
+        "value": "41",
+        "raw": 41.0
+      },
+      "groups.0.max": {
+        "label": "Group 0：最大值",
+        "value": "50",
+        "raw": 50.0
+      },
+      "groups.0.iqr": {
+        "label": "Group 0：四分位距",
+        "value": "17.5",
+        "raw": 17.5
+      },
+      "groups.1.label": {
+        "label": "分组名称",
+        "value": "Group 1",
+        "raw": "Group 1"
+      },
+      "groups.1.n": {
+        "label": "Group 1：样本数",
+        "value": "20",
+        "raw": 20
+      },
+      "groups.1.mean": {
+        "label": "Group 1：均值",
+        "value": "36",
+        "raw": 36.0
+      },
+      "groups.1.std": {
+        "label": "Group 1：样本标准差",
+        "value": "11.8144",
+        "raw": 11.814353446906058
+      },
+      "groups.1.min": {
+        "label": "Group 1：最小值",
+        "value": "17",
+        "raw": 17.0
+      },
+      "groups.1.q1": {
+        "label": "Group 1：下四分位数",
+        "value": "26.5",
+        "raw": 26.5
+      },
+      "groups.1.median": {
+        "label": "Group 1：中位数",
+        "value": "36",
+        "raw": 36.0
+      },
+      "groups.1.q3": {
+        "label": "Group 1：上四分位数",
+        "value": "45.5",
+        "raw": 45.5
+      },
+      "groups.1.max": {
+        "label": "Group 1：最大值",
+        "value": "55",
+        "raw": 55.0
+      },
+      "groups.1.iqr": {
+        "label": "Group 1：四分位距",
+        "value": "19",
+        "raw": 19.0
+      },
+      "series.0.outlier_count": {
+        "label": "Group 0：离群观测数量",
+        "value": "0",
+        "raw": 0
+      },
+      "series.0.whislo": {
+        "label": "Group 0：下须端",
+        "value": "12",
+        "raw": 12.0
+      },
+      "series.0.whishi": {
+        "label": "Group 0：上须端",
+        "value": "50",
+        "raw": 50.0
+      },
+      "series.1.outlier_count": {
+        "label": "Group 1：离群观测数量",
+        "value": "0",
+        "raw": 0
+      },
+      "series.1.whislo": {
+        "label": "Group 1：下须端",
+        "value": "17",
+        "raw": 17.0
+      },
+      "series.1.whishi": {
+        "label": "Group 1：上须端",
+        "value": "55",
+        "raw": 55.0
+      },
+      "axis.x.label": {
+        "label": "横轴字段",
+        "raw": "合成随访测量值（软件核验）（mm）",
+        "value": "合成随访测量值（软件核验）（mm）"
+      },
+      "axis.x.unit": {
+        "label": "横轴单位",
+        "raw": "mm",
+        "value": "mm"
+      },
+      "axis.y.label": {
+        "label": "纵轴字段",
+        "raw": "分组",
+        "value": "分组"
+      },
+      "axis.y.unit": {
+        "label": "纵轴单位",
+        "raw": "",
+        "value": "单位未提供"
+      },
+      "design.structure": {
+        "label": "观察结构及核查限制",
+        "raw": "independent",
+        "value": "用户声明独立观察；程序未验证独立性"
+      },
+      "design.status": {
+        "label": "研究设计资料状态",
+        "raw": true,
+        "value": "用户提供研究设计文字，尚未经程序验证；未外发该原文。"
+      },
+      "limitation.0": {
+        "label": "适用限制",
+        "raw": "本步仅进行描述统计，未计算 P 值、置信区间或效应量，不能据此作显著性、因果或疗效判断。",
+        "value": "本步仅进行描述统计，未计算 P 值、置信区间或效应量，不能据此作显著性、因果或疗效判断。"
+      },
+      "limitation.1": {
+        "label": "适用限制",
+        "raw": "研究设计、样本来源、实验步骤及测量背景尚未提供，具体研究目的与方法细节待补充。",
+        "value": "研究设计、样本来源、实验步骤及测量背景尚未提供，具体研究目的与方法细节待补充。"
+      },
+      "limitation.2": {
+        "label": "适用限制",
+        "raw": "解释依据已保存的统计汇总和图表元数据，不代表对图片像素的核验。AI 初稿仍需人工审阅。",
+        "value": "解释依据已保存的统计汇总和图表元数据，不代表对图片像素的核验。AI 初稿仍需人工审阅。"
+      },
+      "limitation.3": {
+        "label": "适用限制",
+        "raw": "文字中的数值最多显示 6 位有效数字；完整数值以保存的统计结果为准。",
+        "value": "文字中的数值最多显示 6 位有效数字；完整数值以保存的统计结果为准。"
+      },
+      "limitation.4": {
+        "label": "适用限制",
+        "raw": "研究设计及观察独立性未由程序验证；设计缺失时不作假设，不能据此推断因果。",
+        "value": "研究设计及观察独立性未由程序验证；设计缺失时不作假设，不能据此推断因果。"
+      },
+      "limitation.5": {
+        "label": "适用限制",
+        "raw": "数值与事实引用已由程序填入并核对；语义和研究适用性仍需人工审阅。",
+        "value": "数值与事实引用已由程序填入并核对；语义和研究适用性仍需人工审阅。"
+      },
+      "limitation.6": {
+        "label": "适用限制",
+        "raw": "用户声明独立观察；程序未验证独立性",
+        "value": "用户声明独立观察；程序未验证独立性"
+      },
+      "limitation.7": {
+        "label": "适用限制",
+        "raw": "本解释仅核对冻结统计与元数据，未验证图片像素、图中文字或视觉正确性；AI初稿仍需人工审阅。",
+        "value": "本解释仅核对冻结统计与元数据，未验证图片像素、图中文字或视觉正确性；AI初稿仍需人工审阅。"
+      }
+    },
+    "required_references": {
+      "purpose": [
+        "variable"
+      ],
+      "data": [
+        "sheet",
+        "data.total",
+        "data.valid",
+        "data.excluded",
+        "axis.x.label",
+        "axis.x.unit",
+        "axis.y.label",
+        "axis.y.unit"
+      ],
+      "methods": [
+        "method.summary",
+        "design.structure",
+        "design.status"
+      ],
+      "results": [
+        "overall.n",
+        "overall.mean",
+        "overall.std",
+        "overall.min",
+        "overall.q1",
+        "overall.median",
+        "overall.q3",
+        "overall.max",
+        "overall.iqr",
+        "groups.0.label",
+        "groups.0.n",
+        "groups.0.median",
+        "groups.1.label",
+        "groups.1.n",
+        "groups.1.median",
+        "series.0.outlier_count",
+        "series.1.outlier_count"
+      ],
+      "interpretation": [
+        "overall.median",
+        "design.structure",
+        "design.status",
+        "limitation.0",
+        "limitation.1",
+        "limitation.2",
+        "limitation.3",
+        "limitation.4",
+        "limitation.5",
+        "limitation.6",
+        "limitation.7"
+      ],
+      "paper_text": [
+        "figure.number",
+        "overall.n",
+        "overall.mean",
+        "unit"
+      ]
+    },
+    "figure_explanation_contract": 3
+  },
+  "draft": {
+    "purpose": "本说明围绕 {{fact.variable}} 进行描述性汇总。",
+    "interpretation": "总体分布的位置可由 {{fact.overall.median}} 概括。观察结构说明为 {{fact.design.structure}}，研究设计资料状态为 {{fact.design.status}}。解释时须遵守以下限制：{{fact.limitation.0}} {{fact.limitation.1}} {{fact.limitation.2}} {{fact.limitation.3}} {{fact.limitation.4}} {{fact.limitation.5}} {{fact.limitation.6}} {{fact.limitation.7}}",
+    "results": "总体汇总为 {{fact.overall.n}}、{{fact.overall.mean}}、{{fact.overall.std}}、{{fact.overall.min}}、{{fact.overall.q1}}、{{fact.overall.median}}、{{fact.overall.q3}}、{{fact.overall.max}}、{{fact.overall.iqr}}。分组描述为 {{fact.groups.0.label}}、{{fact.groups.0.n}}、{{fact.groups.0.median}}；以及 {{fact.groups.1.label}}、{{fact.groups.1.n}}、{{fact.groups.1.median}}。范围外观测汇总为 {{fact.series.0.outlier_count}} 和 {{fact.series.1.outlier_count}}。",
+    "paper_text": "{{fact.figure.number}} 展示了所选记录的描述性分布；汇总信息包括 {{fact.overall.n}} 和 {{fact.overall.mean}}，数值单位为 {{fact.unit}}。",
+    "methods": "计算及绘图依据 {{fact.method.summary}}。观察结构说明为 {{fact.design.structure}}，研究设计资料状态为 {{fact.design.status}}。",
+    "data": "数据来自 {{fact.sheet}}。记录情况为 {{fact.data.total}}、{{fact.data.valid}} 和 {{fact.data.excluded}}。坐标字段及单位为 {{fact.axis.x.label}}、{{fact.axis.x.unit}}、{{fact.axis.y.label}} 和 {{fact.axis.y.unit}}。"
+  }
+}

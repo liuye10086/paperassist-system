@@ -1,3 +1,4 @@
+from tests.helpers.statistics import statistics_post
 from tests.api.test_analysis import client, add_file, selection
 from tests.api.test_datasets import generate, structure_parser
 from app.domain.tasks.dataset_execution import run_dataset_task
@@ -39,14 +40,14 @@ def test_dataset_profile_save_run_cache_and_explicit_version_binding(client, mon
         extraction.setattr(ProjectStore, 'original', original_reader)
         second = version(client, base, 1)
     assert client.get(base+'/analysis-setup').json() == saved.json()
-    run = client.post(base+'/analysis-runs', json={'expected_revision':1})
+    run = statistics_post(client, base+'/analysis-runs', json={'expected_revision':1})
     assert run.status_code == 200, run.text
     assert run.json()['overall']['n'] == 31
     assert run.json()['overall']['mean'] == 16
     assert run.json()['source'] == saved.json()['source']
     assert run.json()['engine']['id'] == 'descriptive_statistics_dataset_v1'
     assert 'openpyxl_version' not in run.json()['engine']
-    assert client.post(base+'/analysis-runs', json={'expected_revision':1}).json() == run.json()
+    assert statistics_post(client, base+'/analysis-runs', json={'expected_revision':1}).json() == run.json()
     assert client.get(base+'/analysis-result').json()['is_current']
     saved2 = client.put(base+'/analysis-setup', json=selection(dataset_id=second['id'], expected_revision=1))
     assert saved2.status_code == 200 and saved2.json()['revision'] == 2
@@ -75,7 +76,7 @@ def test_legacy_serialization_has_no_new_source(client):
     saved=client.put(base+'/analysis-setup',json=selection(expected_revision=0))
     assert saved.status_code == 200
     assert 'source' not in saved.json()
-    run=client.post(base+'/analysis-runs',json={'expected_revision':1})
+    run=statistics_post(client, base+'/analysis-runs',json={'expected_revision':1})
     assert run.status_code == 200
     assert 'source' not in run.json()
     assert 'parser_version' not in run.json()['engine']
@@ -86,13 +87,13 @@ def test_cached_run_rejects_modified_frozen_source(client):
     base,_=add_file(client)
     first=version(client,base)
     saved=client.put(base+'/analysis-setup',json=selection(dataset_id=first['id'],expected_revision=0)).json()
-    assert client.post(base+'/analysis-runs',json={'expected_revision':1}).status_code==200
+    assert statistics_post(client, base+'/analysis-runs',json={'expected_revision':1}).status_code==200
     with database_connection(write=True) as db:
         row=db.execute('SELECT setup_json FROM analysis_setups').fetchone()
         changed=json.loads(row['setup_json'])
         changed['source']['dataset_version']=2
         db.execute('UPDATE analysis_setups SET setup_json=%s',(json.dumps(changed),))
-    response=client.post(base+'/analysis-runs',json={'expected_revision':1})
+    response=statistics_post(client, base+'/analysis-runs',json={'expected_revision':1})
     assert response.status_code==409 and response.json()['detail']['code']=='source_conflict'
 
 
@@ -111,7 +112,7 @@ def test_run_publication_rejects_same_revision_source_swap(client,monkeypatch):
             db.execute('UPDATE analysis_setups SET setup_json=%s',(json.dumps(changed),))
         return original(store,project_id,file_id,result)
     monkeypatch.setattr(ProjectStore,'save_analysis_run',swap_then_save)
-    response=client.post(base+'/analysis-runs',json={'expected_revision':1})
+    response=statistics_post(client, base+'/analysis-runs',json={'expected_revision':1})
     assert response.status_code==409, response.text
     with database_connection() as db:
         assert db.execute('SELECT count(*) AS n FROM analysis_runs').fetchone()['n']==0
@@ -142,7 +143,7 @@ def test_dataset_damage_is_rejected_even_on_cache_hit(client,monkeypatch,damage)
     first=version(client,base)
     saved=client.put(base+'/analysis-setup',json=selection(dataset_id=first['id'],expected_revision=0))
     assert saved.status_code==200
-    assert client.post(base+'/analysis-runs',json={'expected_revision':1}).status_code==200
+    assert statistics_post(client, base+'/analysis-runs',json={'expected_revision':1}).status_code==200
     with database_connection() as db:
         row=dict(db.execute('SELECT * FROM dataset_versions WHERE id=%s',(first['id'],)).fetchone())
     if damage=='missing':
@@ -169,7 +170,7 @@ def test_dataset_damage_is_rejected_even_on_cache_hit(client,monkeypatch,damage)
                 summary={**row['summary_json'],'row_count':999}
                 db.execute('UPDATE dataset_versions SET summary_json=%s WHERE id=%s',(Jsonb(summary),first['id']))
     monkeypatch.setattr(ProjectStore,'original',forbid_original)
-    response=client.post(base+'/analysis-runs',json={'expected_revision':1})
+    response=statistics_post(client, base+'/analysis-runs',json={'expected_revision':1})
     assert response.status_code in (404,409,410),response.text
     with database_connection() as db:
         assert db.execute('SELECT count(*) AS n FROM analysis_runs').fetchone()['n']==1
@@ -186,7 +187,7 @@ def test_cross_account_cannot_read_or_save_dataset_analysis(client):
     assert client.get(base+'/analysis-profile',params={'sheet':'研究 & 数据','dataset_id':first['id']}).status_code==404
     assert client.get(base+'/analysis-setup').status_code==404
     assert client.put(base+'/analysis-setup',json=selection(dataset_id=first['id'],expected_revision=1)).status_code==404
-    assert client.post(base+'/analysis-runs',json={'expected_revision':1}).status_code==404
+    assert statistics_post(client, base+'/analysis-runs',json={'expected_revision':1}).status_code==404
 
 
 def test_figure_state_compares_complete_frozen_source(client):
@@ -195,7 +196,7 @@ def test_figure_state_compares_complete_frozen_source(client):
     base,record=add_file(client)
     first=version(client,base)
     client.put(base+'/analysis-setup',json=selection(dataset_id=first['id'],expected_revision=0))
-    result=client.post(base+'/analysis-runs',json={'expected_revision':1}).json()
+    result=statistics_post(client, base+'/analysis-runs',json={'expected_revision':1}).json()
     with database_connection() as db:
         project=db.execute('SELECT owner_id,project_id FROM files JOIN projects ON projects.id=files.project_id WHERE files.id=%s',(record['id'],)).fetchone()
     store=ProjectStore(get_data_dir(),owner_id=project['owner_id'])
@@ -232,10 +233,10 @@ def test_cached_result_cannot_claim_another_file_with_same_source(client):
     base,_=add_file(client)
     first=version(client,base)
     client.put(base+'/analysis-setup',json=selection(dataset_id=first['id'],expected_revision=0))
-    client.post(base+'/analysis-runs',json={'expected_revision':1})
+    statistics_post(client, base+'/analysis-runs',json={'expected_revision':1})
     with database_connection(write=True) as db:
         cached=json.loads(db.execute('SELECT result_json FROM analysis_runs').fetchone()['result_json'])
         cached['file_id']='another-file'
         db.execute('UPDATE analysis_runs SET result_json=%s',(json.dumps(cached),))
-    response=client.post(base+'/analysis-runs',json={'expected_revision':1})
+    response=statistics_post(client, base+'/analysis-runs',json={'expected_revision':1})
     assert response.status_code==409,response.text

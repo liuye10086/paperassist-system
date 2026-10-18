@@ -7,8 +7,12 @@ export type SummaryTask = SummarySource & {
   kind: 'statistics' | 'boxplot' | 'explanation' | 'report'
   status: 'queued' | 'submitting' | 'running' | 'waiting_input' | 'waiting_confirmation' | 'completed' | 'failed' | 'uncertain' | 'unknown'
 }
-export type SummaryArtifact = SummarySource & {
+export type SummaryArtifact = Omit<SummarySource,'analysis_run_id'|'setup_revision'> & {
+  analysis_run_id:string|null;setup_revision:number|null
   kind: 'figure' | 'report'; download_filename: string; size_bytes: number; sha256: string; download_url: string
+  figure_kind?:string|null;figure_config_version_id?:string|null
+  collection_id?:string|null;collection_version_id?:string|null;collection_revision?:number|null
+  export_revision?:number|null;collection_title?:string|null;result_count?:number|null
 }
 export type SummaryPage<T> = { items: T[]; total: number; page: number; page_size: number }
 type Unavailable = { state: 'not_available'; tasks: never[] }
@@ -54,10 +58,16 @@ export function isProjectSummary(value: unknown, projectId: string, projectType:
     && ['statistics', 'boxplot', 'explanation', 'report'].includes(String(task.kind))
     && ['queued', 'submitting', 'running', 'waiting_input', 'waiting_confirmation', 'completed', 'failed', 'uncertain', 'unknown'].includes(String(task.status)))
     && page(value.artifacts, artifactPage, artifact => {
-      if (!source(artifact) || !record(artifact) || !['figure', 'report'].includes(String(artifact.kind))
+      if (!record(artifact) || !['figure', 'report'].includes(String(artifact.kind))
         || typeof artifact.download_filename !== 'string' || !artifact.download_filename
         || !integer(artifact.size_bytes) || typeof artifact.sha256 !== 'string' || !/^[a-f0-9]{64}$/.test(artifact.sha256)) return false
+      if(artifact.collection_id!=null){
+        if(artifact.kind!=='report'||!source({...artifact,analysis_run_id:'collection',setup_revision:1})||artifact.analysis_run_id!==null||artifact.setup_revision!==null||artifact.current_revision!==null||artifact.figure_id!==null||artifact.explanation_id!==null||artifact.figure_config_version_id!=null||!['collection_id','collection_version_id','collection_title'].every(key=>typeof artifact[key]==='string'&&artifact[key]!=='' )||!integer(artifact.collection_revision,1)||!integer(artifact.export_revision,1)||!integer(artifact.result_count,1))return false
+        return artifact.download_url===`/api/v1/projects/${encodeURIComponent(projectId)}/report-collections/${encodeURIComponent(String(artifact.collection_id))}/reports/${encodeURIComponent(String(artifact.id))}/download`
+      }
+      if(!source(artifact))return false
       const base = `/api/v1/projects/${encodeURIComponent(projectId)}/files/${encodeURIComponent(artifact.file_id)}/analysis-runs/${encodeURIComponent(artifact.analysis_run_id)}`
+      if(artifact.figure_config_version_id!=null)return artifact.kind==='figure'&&typeof artifact.figure_config_version_id==='string'&&!!artifact.figure_config_version_id&&['boxplot','group_boxplot','paired_connected','scatter','correlation_heatmap','line','bar','violin','forest','roc_curve','kaplan_meier'].includes(String(artifact.figure_kind))&&artifact.download_url===`${base}/figure-workbench/figures/${encodeURIComponent(artifact.id)}/png`
       return artifact.download_url === `${base}/${artifact.kind === 'figure' ? 'figures' : 'report'}/${encodeURIComponent(artifact.id)}/download`
     })
     && unavailable(future.writing, ['versions'], ['current_manuscript'])

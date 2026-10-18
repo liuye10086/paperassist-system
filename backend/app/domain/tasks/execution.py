@@ -7,6 +7,8 @@ from docx.image.exceptions import UnrecognizedImageError, UnexpectedEndOfFileErr
 from app.adapters.report_docx import build_report
 from app.adapters.task_execution_store import TaskExecutionStore, LeaseLost
 from app.core.exceptions import StorageError
+from app.domain.regression.common import NumericError
+from app.domain.tasks.numeric_failure import fail_numeric_task
 
 
 logger = logging.getLogger(__name__)
@@ -33,15 +35,22 @@ def run_word_task(task_id, task_revision, *, config=None, directory=None):
     thread.start()
     staged = None
     try:
-        snapshot, report, png = repository.load(lease)
-        try:
-            content = build_report(snapshot, report, png)
-        except (ValueError, UnrecognizedImageError, UnexpectedEndOfFileError) as exc:
-            raise StorageError('report_render_failed', '无法生成 Word 报告，请检查已保存的图片和文字内容后重试。', 422) from exc
-        staged = repository.stage(lease, content)
-        return repository.complete(lease, snapshot, report, staged, content)
+        from app.domain.fixed_statistics_runtime import numeric_execution_scope
+        from app.domain.statistics_execution.verification import verification_scope
+        with numeric_execution_scope(timeout_seconds=60), verification_scope():
+            snapshot, report, png = repository.load(lease)
+            try:
+                content = build_report(snapshot, report, png)
+            except NumericError:
+                raise
+            except (ValueError, UnrecognizedImageError, UnexpectedEndOfFileError) as exc:
+                raise StorageError('report_render_failed', '无法生成 Word 报告，请检查已保存的图片和文字内容后重试。', 422) from exc
+            staged = repository.stage(lease, content)
+            return repository.complete(lease, snapshot, report, staged, content)
     except LeaseLost:
         return None
+    except NumericError as exc:
+        return fail_numeric_task(repository, lease, exc)
     except Exception as exc:
         code = exc.code if isinstance(exc, StorageError) and exc.code in SAFE_ERRORS else (
             'storage_unavailable' if isinstance(exc, OSError) else 'task_execution_failed')
@@ -71,11 +80,18 @@ def run_boxplot_task(task_id, task_revision, **kwargs):
 
 
 def run_task(task_id, task_revision, *, config=None, directory=None):
+    from app.domain.statistics_execution.execution import run_statistics_task
+    def run_projection_task(*args, **kwargs):
+        from app.domain.figure_workbench.projection_execution import run_projection_task as execute
+        return execute(*args, **kwargs)
     from app.domain.tasks.file_parse_execution import run_parse_file_task
     from app.domain.tasks.dataset_execution import run_dataset_task
     from app.domain.tasks.dataset_preparation_execution import run_preparation_task
     from app.domain.tasks.ocr_review_execution import run_ocr_review_task
     from app.domain.tasks.analysis_plan_execution import run_analysis_plan_task
+    from app.domain.tasks.recommendation_execution import run_recommendation_task
+    from app.domain.report_collections.execution import run_collection_word_task
+    from app.domain.figure_workbench.execution import run_figure_workbench_task, run_figure_explanation_task
     repository = TaskExecutionStore(config=config, directory=directory)
     if not isinstance(task_id, str) or type(task_revision) is not int:
         return None
@@ -84,8 +100,8 @@ def run_task(task_id, task_revision, *, config=None, directory=None):
                           (task_id, task_revision)).fetchone()
     if not task:
         return None
-    executor = {'word_report': run_word_task, 'explanation': run_explanation_task,
+    executor = {'figure_projection':run_projection_task,'statistics_compute':run_statistics_task,'figure_workbench':run_figure_workbench_task,'figure_explanation':run_figure_explanation_task,'collection_word_report': run_collection_word_task, 'word_report': run_word_task, 'explanation': run_explanation_task,
                 'boxplot': run_boxplot_task, 'parse_file': run_parse_file_task, 'extract_dataset': run_dataset_task,
                 'prepare_dataset': run_preparation_task, 'review_ocr': run_ocr_review_task,
-                'analysis_plan': run_analysis_plan_task}.get(task['task_type'])
+                'analysis_plan': run_analysis_plan_task, 'analysis_recommendation':run_recommendation_task}.get(task['task_type'])
     return executor(task_id, task_revision, config=config, directory=directory) if executor else None

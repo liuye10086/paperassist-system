@@ -12,6 +12,7 @@ from app.core.exceptions import StorageError
 from app.domain.boxplot import RENDERER, STATISTICS_ENGINE, public_job, result_source
 from app.domain.tasks.contracts import TaskCreateRequest
 from app.domain.tasks.service import TaskService
+from app.domain.artifact_contracts import figure_renderer
 
 
 OUTPUT_FAILURES = frozenset({'plot_result_mismatch', 'plot_invalid_result', 'plot_invalid_image',
@@ -25,23 +26,24 @@ def matching_task(store, project_id, result):
             AND task_type='boxplot' AND workflow_version=%s
             AND input_snapshot->'result'->>'id'=%s AND input_snapshot->'versions'->>'figure'=%s
             ORDER BY created_at DESC,id DESC LIMIT 1''',
-            (project_id, store.user_id, workflow_version('boxplot', result), result['id'], RENDERER)).fetchone()
+            (project_id, store.user_id, workflow_version('boxplot', result), result['id'], figure_renderer(result))).fetchone()
         if row and not task_source_matches(row, result):
             raise source_conflict()
         return store.public_task(dict(row)) if row else None
 
 
-def context(project_id, file_id, run_id, store):
+def context(project_id, file_id, run_id, store, *, archive=False):
     result = result_source(store, project_id, file_id, run_id)
-    state = store.figure_state(result, RENDERER, statistics_engine(result))
+    from app.domain.artifact_contracts import read_figure_state
+    state = read_figure_state(store,result,archive=archive)
     if state['figure']:
         store.figure_png(state['figure'])
-    state['job'] = public_job(store.figure_job(run_id, RENDERER))
+    state['job'] = public_job(store.figure_job(run_id, figure_renderer(result)))
     return result, state
 
 
 def get_boxplot(project_id, file_id, run_id, store):
-    result, state = context(project_id, file_id, run_id, store)
+    result, state = context(project_id, file_id, run_id, store,archive=True)
     state['task'] = matching_task(TaskStore(store.owner_id), project_id, result)
     return state
 
@@ -131,8 +133,8 @@ def submit_boxplot(project_id, file_id, run_id, request, store, idempotency_key=
     from app.domain.external_processing import freeze_confirmation
     freeze_confirmation(snapshot, typed.task_type, service.store.user_id, request.external_processing)
     from app.domain.plot_policy import get_execution_policy
-    frozen = get_execution_policy()
-    source_key = f'{result["id"]}:{request.expected_revision}:{RENDERER}:{predecessor or "initial"}'
+    frozen = get_execution_policy(result=result)
+    source_key = f'{result["id"]}:{request.expected_revision}:{figure_renderer(result)}:{predecessor or "initial"}'
     key = idempotency_key or 'boxplot-v1:' + sha256(source_key.encode('utf-8')).hexdigest()
     task, _ = service.create(project_id, typed, idempotency_key=key, boxplot_policy=frozen,
                              plot_predecessor=task['id'] if task else None,
@@ -174,7 +176,7 @@ def retry_boxplot_in_transaction(store, db, task, expected_revision):
         if call is not None:
             raise StorageError('task_transition_invalid', '已有模型调用不能替换策略，请联系管理员核对。', 409)
         from app.domain.plot_policy import get_execution_policy
-        frozen = get_execution_policy()
+        frozen = get_execution_policy(result=original['result'])
         task['input_snapshot'] = {**original, 'boxplot_policy': frozen}
         db.execute('UPDATE tasks SET input_snapshot=%s WHERE id=%s', (Jsonb(task['input_snapshot']), task_id))
         budget = db.execute("SELECT id FROM model_budgets WHERE scope_type='task' AND scope_key=%s", (task_id,)).fetchone()

@@ -10,9 +10,15 @@ from app.domain.model_usage.gateway import ModelGateway, ModelGatewayError
 from tests.adapters.test_model_gateway import Service, Provider, policy, request, INSTRUCTIONS, PAYLOAD
 
 
-def test_policy_supports_only_trusted_output_format_and_sdk_uses_fixed_schema():
+@pytest.mark.parametrize('output_format', ['analysis_explanation_v1','analysis_explanation_v2','analysis_explanation_v3','analysis_recommendation_v1','analysis_recommendation_v2','analysis_recommendation_v3','analysis_recommendation_v4'])
+def test_policy_supports_only_trusted_output_format_and_sdk_uses_fixed_schema(output_format):
     from app.adapters.openai_explanation import SCHEMA
-    selected = ModelPolicy.model_validate(vars(policy()) | {'output_format': 'analysis_explanation_v1'})
+    from app.domain.analysis_recommendation.contracts import RecommendationDraft, RecommendationDraftV2, RecommendationDraftV3, RecommendationDraftV4
+    drafts={'analysis_recommendation_v1':RecommendationDraft,'analysis_recommendation_v2':RecommendationDraftV2,
+            'analysis_recommendation_v3':RecommendationDraftV3,'analysis_recommendation_v4':RecommendationDraftV4}
+    expected_schema = drafts[output_format].model_json_schema() if output_format in drafts else SCHEMA
+    name = 'analysis_recommendation' if output_format.startswith('analysis_recommendation_') else 'analysis_explanation'
+    selected = ModelPolicy.model_validate(vars(policy()) | {'output_format': output_format})
     requests = []
     def transport(req):
         requests.append(json.loads(req.content))
@@ -24,8 +30,9 @@ def test_policy_supports_only_trusted_output_format_and_sdk_uses_fixed_schema():
     finally:
         provider.close()
     assert requests[0]['text']['format'] == {
-        'type': 'json_schema', 'name': 'analysis_explanation', 'strict': True, 'schema': SCHEMA}
+        'type': 'json_schema', 'name': name, 'strict': True, 'schema': expected_schema}
     assert requests[0]['model'] == selected.model
+    assert 'tools' not in requests[0]
 
 
 def test_gateway_passes_lease_and_current_revision_only_when_present():

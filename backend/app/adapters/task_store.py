@@ -20,6 +20,8 @@ def source_conflict():
 
 
 def workflow_version(task_type, value):
+    if task_type in ('figure_projection','figure_workbench','figure_explanation','collection_word_report'):
+        return task_type + '_v1'
     return task_type + ('_v2' if 'source' in value else '_v1')
 
 
@@ -33,6 +35,8 @@ def snapshots_match(current, original, *, explanation=True):
     keys = ['file', 'result', 'figure', 'versions', 'output_language']
     if explanation:
         keys.append('explanation')
+    if 'processing' in current or 'processing' in original:
+        keys.append('processing')
     if 'source' in current or 'source' in original:
         keys.extend(('source', 'schema_version'))
     return all(key in current and key in original and current[key] == original[key] for key in keys)
@@ -102,7 +106,7 @@ class TaskStore:
         # Only persisted records are accepted, inside the creation transaction.
         # Legacy file bytes are checked by the executor; dataset objects are
         # verified here and again at execution/publication boundaries.
-        from app.domain.descriptive import AnalysisResult
+        from app.domain.descriptive import result_model
         from app.domain.analysis_sources import statistics_engine, source_dict
         from app.domain.boxplot import RENDERER
         from app.domain.explanation_content import VERSION as EXPLANATION_VERSION, build_payload
@@ -118,7 +122,9 @@ class TaskStore:
             raise source_conflict()
         try:
             result = _source_json(run['result_json'])
-            AnalysisResult.model_validate(result, strict=True)
+            result_model(result).model_validate(result, strict=True)
+            from app.domain.artifact_contracts import artifact_language, figure_renderer, explanation_version, report_version
+            RENDERER=figure_renderer(result); EXPLANATION_VERSION=explanation_version(result); REPORT_VERSION=report_version(result)
             saved_setup = _source_json(setup['setup_json'])
             engine = statistics_engine(result)
             if saved_setup.get('source') != result.get('source'):
@@ -132,6 +138,15 @@ class TaskStore:
             assets = DatasetTaskAssets(self.user_id, self.config, directory)
             validate_plan_reference(assets, project['id'], file['id'], saved_setup)
             validate_plan_reference(assets, project['id'], file['id'], result)
+            if result.get('result_type') in ('regression','roc','survival'):
+                from app.domain.modeling_material import load_input
+                load_input(assets,project['id'],file['id'],result)
+            elif result.get('result_type') == 'correlation':
+                from app.domain.correlation.service import load_correlation_input
+                load_correlation_input(assets, project['id'], file['id'], result)
+            elif result.get('result_type') == 'group_comparison':
+                from app.domain.comparison.service import load_comparison_input
+                load_comparison_input(assets,project['id'],file['id'],result)
             if (run['engine_version'] != engine or result['engine']['id'] != engine
                     or run['setup_revision'] != request.expected_revision
                     or setup['revision'] != request.expected_revision
@@ -158,6 +173,11 @@ class TaskStore:
                     raise source_conflict()
                 # Reuse the business input builder to require the metadata that
                 # explanation/report execution will actually consume.
+                if result.get('result_type') in ('group_comparison','regression','roc','survival'):
+                    from app.domain.comparison_material import validate_figure_source
+                    if result.get('result_type') in ('regression','roc','survival'):
+                        from app.domain.modeling_material import validate_figure_source
+                    validate_figure_source(assets,project['id'],file['id'],result,figure)
                 json.dumps(build_payload(result, figure), allow_nan=False)
             if request.explanation_id:
                 row = db.execute('''SELECT * FROM explanations
@@ -171,7 +191,12 @@ class TaskStore:
                 validate_sources(result, figure, explanation)
         except (KeyError, TypeError, ValueError, StorageError) as exc:
             raise source_conflict() from exc
-        return {'schema_version': 2 if 'source' in result else 1, 'output_language': 'zh-CN',
+        processing = None
+        if request.task_type == 'word_report':
+            from app.domain.dataset_processing import load_processing
+            processing = load_processing(assets, project['id'], result.get('source', {}))
+        return {**({'processing': processing} if processing is not None else {}),
+                'schema_version': 2 if 'source' in result else 1, 'output_language': artifact_language(result),
                 **({'source': result['source']} if 'source' in result else {}),
                 'project': {key: project[key] for key in ('id', 'name', 'research_topic', 'project_type', 'created_at')},
                 'file': {key: file[key] for key in ('id', 'filename', 'sha256', 'size_bytes', 'file_type')},
@@ -187,6 +212,8 @@ class TaskStore:
         code = task.get('error_code')
         from app.domain.tasks.waits import input_version
         return TaskView(**{key: task[key] for key in fields},
+            result_analysis_run_id=task.get('result_analysis_run_id'),
+            execution_receipt=task.get('execution_receipt'),
             result_report_id=task.get('result_report_id'),
             result_explanation_id=task.get('result_explanation_id'),
             result_figure_id=task.get('result_figure_id'),
@@ -282,10 +309,10 @@ class TaskStore:
         task['error_code'] = safe_error_code(task.get('error_code'))
         updated = db.execute('''UPDATE tasks
             SET status=%s,phase=%s,revision=%s,current_attempt=%s,reason_code=%s,updated_at=%s,
-                result_report_id=%s,error_code=%s,result_explanation_id=%s,result_figure_id=%s,retry_count=%s
+                result_report_id=%s,error_code=%s,result_explanation_id=%s,result_figure_id=%s,retry_count=%s,result_analysis_run_id=%s,execution_receipt=%s
             WHERE id=%s AND revision=%s''',
             (task['status'], task['phase'], task['revision'], task['current_attempt'], task['reason_code'],
              task['updated_at'], task.get('result_report_id'), task.get('error_code'),
-             task.get('result_explanation_id'), task.get('result_figure_id'), task.get('retry_count', 0), task['id'], expected_revision))
+             task.get('result_explanation_id'), task.get('result_figure_id'), task.get('retry_count', 0), task.get('result_analysis_run_id'), Jsonb(task['execution_receipt']) if task.get('execution_receipt') is not None else None, task['id'], expected_revision))
         if updated.rowcount != 1:
             raise StorageError('task_revision_conflict', '任务已发生变化，请重新读取后再操作。', 409)

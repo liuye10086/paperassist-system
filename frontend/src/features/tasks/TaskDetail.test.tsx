@@ -297,9 +297,9 @@ it.each([
 it.each([
   ['zh-CN', 'task_failed', '任务执行失败，请检查数据和配置后重试。'],
   ['en', 'task_failed', 'The task failed. Check the data and configuration before retrying.'],
-  ['zh-CN', 'explanation_invalid', '解释未通过事实核验，未保存内容，请重新生成。'],
-  ['en', 'explanation_invalid', 'The explanation failed fact verification and was not saved. Generate it again.'],
-] as const)('preserves existing unified task error prose for %s / %s', async (locale, error_code, reason) => {
+  ['zh-CN', 'explanation_invalid', '解释未通过事实核验，未发布新解释。请核对冻结的来源与统计结果，联系管理员处理；已有成果保留。'],
+  ['en', 'explanation_invalid', 'The explanation failed fact verification; no new explanation was published. Review the frozen source and statistics, then contact the administrator. Existing artifacts are retained.'],
+] as const)('shows current unified task guidance for %s / %s', async (locale, error_code, reason) => {
   setLocale(locale)
   api({ ...workspaceFixture, task: { ...taskFixture, error_code } })
   render(<TaskDetail {...props} />)

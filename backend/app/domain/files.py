@@ -61,6 +61,9 @@ class FileReferences(BaseModel):
     structure_versions: int = Field(ge=0)
     dataset_versions: int = Field(ge=0)
     prepared_dataset_versions: int = Field(default=0, ge=0)
+    prepared_dataset_derivations: int = Field(default=0, ge=0)
+    prepared_dataset_derivations_v3: int = Field(default=0, ge=0)
+    external_evidence_versions: int = Field(default=0, ge=0)
     analysis_setups: int = Field(ge=0)
     analysis_runs: int = Field(ge=0)
     figures: int = Field(ge=0)
@@ -189,6 +192,11 @@ def read_file_details(store, project_id, file_id):
         references['structure_versions'] = db.execute('SELECT count(*) AS n FROM file_structure_versions WHERE file_id=%s',(file_id,)).fetchone()['n']
         references['dataset_versions'] = db.execute('SELECT count(*) AS n FROM dataset_versions WHERE file_id=%s',(file_id,)).fetchone()['n']
         references['prepared_dataset_versions'] = db.execute('SELECT count(*) AS n FROM prepared_dataset_versions WHERE file_id=%s',(file_id,)).fetchone()['n']
+        references['prepared_dataset_derivations'] = db.execute('SELECT count(*) AS n FROM prepared_dataset_derivations d JOIN prepared_dataset_versions p ON p.id=d.prepared_dataset_id WHERE p.file_id=%s',(file_id,)).fetchone()['n']
+        from app.domain.file_lifecycle.references import read_references
+        lifecycle=read_references(db,row,store.owner_id)
+        for key in ('tasks','active_tasks','external_evidence_versions','prepared_dataset_derivations_v3'):
+            references[key]=lifecycle['counts'][key]
         parse = db.execute('SELECT parser_version FROM file_parse_results WHERE file_id=%s ORDER BY version DESC', (file_id,)).fetchone()
         return FileDetails(**result, source=FileSource(kind='ocr_parse' if row['file_type'] in ('png','jpeg') else 'pdf_parse' if row['file_type']=='pdf' else 'docx_parse' if row['file_type']=='docx' else 'excel_parse' if parse else 'legacy_excel',
             preview_row_limit=None if row['file_type'] in ('docx','pdf','png','jpeg') else 20,

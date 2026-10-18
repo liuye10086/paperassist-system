@@ -30,7 +30,7 @@ def test_lifecycle_migration_preserves_rows_and_old_indexes(postgres_schema,post
         tables=[r['table_name'] for r in db.execute("SELECT table_name FROM information_schema.tables WHERE table_schema=current_schema() AND table_name<>'alembic_version'")]
         before={name:[dict(r) for r in db.execute('SELECT * FROM '+name)] for name in tables}
         indexes={r['indexname'] for r in db.execute('SELECT indexname FROM pg_indexes WHERE schemaname=current_schema()')}
-        command.upgrade(config,'head')
+        command.upgrade(config,'0023_file_lifecycle')
         assert before=={name:[dict(r) for r in db.execute('SELECT * FROM '+name)] for name in tables}
         assert indexes <= {r['indexname'] for r in db.execute('SELECT indexname FROM pg_indexes WHERE schemaname=current_schema()')}
         assert db.execute('SELECT count(*) AS n FROM file_deletion_requests').fetchone()['n']==0

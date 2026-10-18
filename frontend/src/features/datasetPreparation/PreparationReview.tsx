@@ -9,11 +9,15 @@ import { useDocumentVisible } from '../tasks/useDocumentVisible'
 import PreparationEditor from './PreparationEditor'
 import { columnLetter, fileBase, isRecipe, isReview, preparationRequest, type Review, type PreparationRecipe, type PreparationSummary } from './preparationApi'
 import './preparation.css'
+import { isQualityReview, type QualityReview } from './qualityApi'
+import {isFilterReview,type FilterReview} from './populationFilterApi'
+import {PopulationFilterReview} from './PopulationFilter'
+import QualityPreparationReview from './QualityPreparationReview'
 type Props = { projectId: string; taskId: string; blocked?: boolean; onChanged?: () => void; refreshKey?: number }
 export default function PreparationReview(props: Props) { return <Panel key={`${props.projectId}:${props.taskId}`} {...props} /> }
 function Panel({ projectId, taskId, blocked = false, onChanged, refreshKey = 0 }: Props) {
  const { t } = useI18n(); const visible = useDocumentVisible()
- const [review, setReview] = useState<Review | null>(null); const [draft, setDraft] = useState<PreparationRecipe | null>(null)
+ const [review, setReview] = useState<Review | QualityReview | FilterReview | null>(null); const [draft, setDraft] = useState<PreparationRecipe | null>(null)
  const [editing, setEditing] = useState(false); const [busy, setBusy] = useState(false); const [error, setError] = useState(''); const [refresh, setRefresh] = useState(0)
  const action = useRef<AbortController | null>(null); const mounted = useRef(true); const replay = useRef<{ signature: string; key: string } | null>(null)
  useEffect(() => { mounted.current = true; return () => { mounted.current = false; action.current?.abort() } }, [])
@@ -21,7 +25,7 @@ function Panel({ projectId, taskId, blocked = false, onChanged, refreshKey = 0 }
   if (!visible) return
   const controller = new AbortController(); let active = true; let timer = 0
   async function load() { try {
-   const value = await preparationRequest(`/api/v1/tasks/${encodeURIComponent(taskId)}/dataset-preparation`, controller, (v): v is Review => isReview(v, projectId, taskId), '整理任务读取失败，请重试。')
+   const value = await preparationRequest(`/api/v1/tasks/${encodeURIComponent(taskId)}/dataset-preparation`, controller, (v): v is Review | QualityReview | FilterReview => isReview(v, projectId, taskId) || isQualityReview(v, projectId, taskId) || isFilterReview(v,projectId,taskId), '整理任务读取失败，请重试。')
    if (!active || controller.signal.aborted) return
    setReview(value)
    if (['queued', 'running'].includes(value.task.status)) timer = window.setTimeout(() => void load(), 5000)
@@ -29,7 +33,7 @@ function Panel({ projectId, taskId, blocked = false, onChanged, refreshKey = 0 }
   void load(); return () => { active = false; controller.abort(); window.clearTimeout(timer) }
  }, [projectId, taskId, refresh, refreshKey, visible])
  async function readFields() {
-  if (!review || !draft || action.current) return
+  if (!review || isQualityReview(review) || isFilterReview(review,projectId,taskId) || !draft || action.current) return
   const controller = new AbortController(); action.current = controller; setBusy(true); setError('')
   const params = new URLSearchParams({ header_row: String(draft.header_row), data_range: draft.data_range })
   try {
@@ -39,7 +43,7 @@ function Panel({ projectId, taskId, blocked = false, onChanged, refreshKey = 0 }
   finally { if (action.current === controller) action.current = null; if (mounted.current) setBusy(false) }
  }
  async function decide(operation: 'approve' | 'revise') {
-  if (!review || action.current || blocked || review.wait?.status !== 'open') return
+  if (!review || isQualityReview(review) || isFilterReview(review,projectId,taskId) || action.current || blocked || review.wait?.status !== 'open') return
   const body = { operation, wait_id: review.wait.id, checkpoint_id: review.checkpoint_id, expected_task_revision: review.task.revision, input_version: review.task.input_version, recipe: operation === 'revise' ? draft : null }
   const signature = JSON.stringify(body); if (replay.current?.signature !== signature) replay.current = { signature, key: crypto.randomUUID() }
   const controller = new AbortController(); action.current = controller; setBusy(true); setError('')
@@ -50,6 +54,8 @@ function Panel({ projectId, taskId, blocked = false, onChanged, refreshKey = 0 }
   } catch (cause) { if (mounted.current) { if (cause instanceof TaskRequestError && cause.status === 409) { replay.current = null; setEditing(false) } setError(cause instanceof TaskRequestError && cause.status === 409 ? '任务状态已更新，请核对重新读取的内容后再操作。' : safeError(cause, '整理决定尚未确认，请重新读取任务。')); setRefresh(n => n + 1); onChanged?.() } }
   finally { if (action.current === controller) action.current = null; if (mounted.current) setBusy(false) }
  }
+ if (review && isFilterReview(review,projectId,taskId)) return <PopulationFilterReview key={`${review.checkpoint_id}:${review.task.revision}`} projectId={projectId} review={review} blocked={blocked||!!error} onReload={()=>{setError('');setReview(null);setRefresh(n=>n+1);onChanged?.()}}/>
+ if (review && isQualityReview(review)) return <QualityPreparationReview key={`${review.checkpoint_id}:${review.task.revision}`} projectId={projectId} review={review} blocked={blocked || !!error} onReload={() => { setError(''); setReview(null); setRefresh(n => n + 1); onChanged?.() }} />
  return <section className="preparation-panel" aria-label={t('整理预览与确认')} aria-busy={busy}>
  <h4>{t('整理预览与确认')}</h4><button disabled={busy} onClick={() => { setError(''); setRefresh(n => n + 1) }}>{t('重新读取整理任务')}</button>
  {error && <p role="alert" className="error-panel">{t(error)}</p>}

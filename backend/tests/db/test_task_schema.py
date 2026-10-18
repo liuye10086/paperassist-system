@@ -46,7 +46,7 @@ def task_schema(postgres_schema):
 
 def test_four_task_tables_have_current_head_and_native_types(postgres_schema):
     assert TASK_TABLES <= metadata.tables.keys()
-    assert SCHEMA_HEAD == '0023_file_lifecycle'
+    assert SCHEMA_HEAD == '0029_statistics_execution'
     with database_connection() as db:
         inspector = inspect(db.raw_connection)
         assert TASK_TABLES <= set(inspector.get_table_names(schema=postgres_schema.schema))
@@ -55,7 +55,7 @@ def test_four_task_tables_have_current_head_and_native_types(postgres_schema):
         assert columns['created_at']['type'].timezone is True
         assert columns['updated_at']['type'].timezone is True
         result = audit_database(db)
-    assert result['ok'], result
+    assert result['ok'], (result['schema_issues'], [c for c in result['data_checks'] if c['invalid']])
 
 
 @pytest.mark.parametrize('changes', [
@@ -124,7 +124,7 @@ def test_task_children_unique_keys_and_foreign_keys(task_schema):
             db.execute("DELETE FROM tasks WHERE id='t'")
     with database_connection() as db:
         result = audit_database(db)
-    assert result['ok'], result
+    assert result['ok'], (result['schema_issues'], [c for c in result['data_checks'] if c['invalid']])
 
 
 def test_event_sequence_is_per_task_and_creates_no_global_sequence(task_schema):

@@ -11,7 +11,7 @@ import '../figures/artifactPanels.css'
 import WordReport from '../reports/WordReport'
 
 type Config = { configured: boolean; model: string | null; message: string; message_code?: string; message_params?: Record<string, string | number> }
-type Explanation = { source?: DatasetAnalysisSource;
+type Explanation = {schema_version?:2|3|4;plan_sha256?:string; source?: DatasetAnalysisSource;
   id: string; analysis_run_id: string; figure_id: string; setup_revision: number; language: 'zh-CN' | 'en'
   figure_sha256: string; source_sha256: string; created_at: string
   sections: { key: string; title: string; text: string; evidence: { key: string; label: string; value: string }[] }[]
@@ -20,9 +20,9 @@ type Explanation = { source?: DatasetAnalysisSource;
 }
 type Task = { id: string; status: 'queued' | 'running' | 'waiting_input' | 'waiting_confirmation' | 'succeeded' | 'failed'
   revision: number; reason_code: string | null; error_code: string | null; result_explanation_id?: string | null }
-type State = { current_revision: number | null; is_current: boolean; figure_id: string | null; explanation: Explanation | null; task?: Task | null
+type State = {generation_compatible?:boolean; current_revision: number | null; is_current: boolean; figure_id: string | null; explanation: Explanation | null; task?: Task | null
   job: { id: string; status: 'submitting' | 'running' | 'failed' | 'uncertain' | 'completed'; message: string; message_code?: string; message_params?: Record<string, string | number>; response_id: string | null; created_at: string } | null }
-type Props = { source?: DatasetAnalysisSource; filename?: string; base: string; runId: string; revision: number; figureId: string; canGenerate: boolean; disabled: boolean
+type Props = {artifactVersion?:4;planSha?:string;figureSha?:string;comparison?:boolean;outputLanguage?:'zh-CN'|'en';modern?:boolean; source?: DatasetAnalysisSource; filename?: string; base: string; runId: string; revision: number; figureId: string; canGenerate: boolean; disabled: boolean
   onBusyChange: (busy: boolean) => void; configuration?: Config | null; configurationError?: string; onReloadConfiguration?: () => void }
 async function rawRequest<T>(url: string, controller: AbortController, init?: RequestInit): Promise<T> {
   let timer = 0
@@ -40,7 +40,7 @@ function message(cause: unknown) {
   return cause instanceof TypeError ? '无法连接后端，请确认服务正常后重新读取解释。' : safeError(cause, '解释请求失败，请重新读取解释。')
 }
 export default function AnalysisExplanation(props: Props) {
-  return <ExplanationPanel key={`${props.base}:${props.runId}:${props.figureId}:${props.revision}`} {...props} />
+  return <ExplanationPanel key={`${props.base}:${props.runId}:${props.figureId}:${props.revision}:${props.outputLanguage}:${props.modern}:${props.comparison}:${props.planSha}:${props.figureSha}`} {...props} />
 }
 const outputFailures = new Set(['explanation_invalid', 'explanation_invalid_json', 'explanation_refused', 'explanation_output_limit', 'explanation_incomplete'])
 function needsPoll(value: State) {
@@ -48,17 +48,17 @@ function needsPoll(value: State) {
   return value.task ? ['queued', 'running'].includes(value.task.status) || (value.task.status === 'succeeded' && !value.explanation)
     : value.job?.status === 'submitting' || value.job?.status === 'running'
 }
-function ExplanationPanel({ base, runId, revision, figureId, canGenerate, disabled, onBusyChange, source, filename }: Props) {
+function ExplanationPanel({ base, runId, revision, figureId, canGenerate, disabled, onBusyChange, source, filename, outputLanguage='zh-CN', modern=false,comparison=false,artifactVersion,planSha,figureSha }: Props) {
   const { t } = useI18n()
   const request = useCallback(async <T,>(url: string, controller: AbortController, init?: RequestInit): Promise<T> => {
     const value = await rawRequest<T>(url, controller, init)
     if (value && typeof value === 'object' && 'explanation' in value) {
       const item = (value as unknown as State).explanation
-      if (item && !validOptionalSource(item, source)) throw new Error('数据来源或版本不一致，请重新载入配置。')
+      if (item && (!validOptionalSource(item, source)||modern&&(comparison||artifactVersion===4||(value as unknown as State).is_current)&&((comparison||artifactVersion===4)&&(item.schema_version!==(artifactVersion===4?4:3)||planSha!==undefined&&item.plan_sha256!==planSha||figureSha!==undefined&&item.figure_sha256!==figureSha||item.sections.length!==6||item.sections.some((s,i)=>s.key!==['purpose','data','methods','results','interpretation','paper_text'][i]))||item.language!==outputLanguage||item.engine.id!==(artifactVersion===4?'analysis_explanation_v4':comparison?'analysis_explanation_v3':'analysis_explanation_v2')||item.verification.status!=='references_checked'||item.analysis_run_id!==runId||item.figure_id!==figureId||item.setup_revision!==revision))) throw new Error('数据来源或版本不一致，请重新载入配置。')
     }
-    if (value && typeof value === 'object' && ('task' in value && value.task && !validAnalysisTaskSource(value.task, source, revision) || url.startsWith('/api/v1/tasks/') && !validAnalysisTaskSource(value, source, revision))) throw new Error('数据来源或版本不一致，请重新载入配置。')
+    if (value && typeof value === 'object' && ('task' in value && value.task && !validAnalysisTaskSource(value.task, source, revision, outputLanguage) || url.startsWith('/api/v1/tasks/') && !validAnalysisTaskSource(value, source, revision, outputLanguage))) throw new Error('数据来源或版本不一致，请重新载入配置。')
     return value
-  }, [source, revision])
+  }, [source, revision, outputLanguage, modern,comparison,artifactVersion,planSha,figureSha,runId,figureId])
   const endpoint = `${base}/analysis-runs/${runId}/explanation`
   const [state, setState] = useState<State | null>(null)
   const [localConfig, setLocalConfig] = useState<Config | null>(null)
@@ -154,7 +154,7 @@ function ExplanationPanel({ base, runId, revision, figureId, canGenerate, disabl
     try {
       const value = await request<unknown>(`${endpoint}/disclosure`, controller)
       if (!active.current || controller.signal.aborted || preview.current !== controller) return
-      if (!isArtifactDisclosure(value, 'explanation') || (source ? value.version !== 2 || value.source?.sheet_name !== source.sheet_name || value.source.dataset_version !== source.dataset_version || !!filename && value.source.filename !== filename : value.version !== 1)) throw new Error('解释请求失败，请重新读取解释。')
+      if (!isArtifactDisclosure(value, 'explanation') || (source ? (modern?value.version!==(artifactVersion===4?6:comparison?5:4)||value.summary.output_language!==outputLanguage:![2,3].includes(value.version)) || value.source?.sheet_name !== source.sheet_name || value.source.dataset_version !== source.dataset_version || !!filename && value.source.filename !== filename : value.version !== 1)) throw new Error('解释请求失败，请重新读取解释。')
       if (value.has_saved_result) { reload(); return }
       setReview({ disclosure: value, body })
     } catch (cause) { if (active.current && preview.current === controller) {
@@ -205,7 +205,7 @@ function ExplanationPanel({ base, runId, revision, figureId, canGenerate, disabl
       loadingMessage="正在读取解释……" reloadLabel="重新读取解释" onReload={reload} disabled={submitting || reportBusy} />
     <WorkflowStage stage="explanation"><section className="analysis-explanation artifact-panel" aria-label={t("AI 分析解释")} aria-busy={loading || busy}>
     <div className="section-heading"><span className="step-label">{t("分析解释")}</span><h3>{t("分析解释与论文表述")}</h3></div>
-    <p className="warning-panel">{t("AI 草稿，必须人工审核后使用。解释基于已保存的分析配置、描述统计与图表；不代表因果结论或显著性检验。")}</p>
+    <p className="warning-panel">{t(comparison||artifactVersion===4?'AI 草稿，必须人工审核后使用。解释依据已核验统计事实、图表及确认外发摘要；结果不证明因果关系。':modern?'AI 草稿，必须人工审核后使用。解释依据已核验统计事实、图表及确认外发摘要；相关不代表因果。':'AI 草稿，必须人工审核后使用。解释基于已保存的分析配置、描述统计与图表；不代表因果结论或显著性检验。')}</p>
     <p className="muted">{t("点击生成会调用收费 OpenAI API；重新读取已保存解释不会再次生成。")}</p>
     {!config && !configError && <p role="status">{t("正在读取解释 OpenAI 配置……")}</p>}
     {config && !config.configured && <p className="warning-panel">{t(apiError({ code: config.message_code ?? 'openai_not_configured', params: config.message_params }, '请联系管理员配置 OpenAI API。'))}</p>}
@@ -247,7 +247,7 @@ function ExplanationPanel({ base, runId, revision, figureId, canGenerate, disabl
     </>}
     {state && !explanation && !state.job && !task && <p>{t("尚未生成此图表的分析解释。")}</p>}
   </section></WorkflowStage>
-    {explanation ? <WordReport key={explanation.id} base={base} runId={runId} revision={revision} figureId={figureId} explanationId={explanation.id} source={explanation.source} filename={filename}
+    {explanation ? <WordReport key={explanation.id} base={base} runId={runId} revision={revision} figureId={figureId} explanationId={explanation.id} source={explanation.source} filename={filename} outputLanguage={explanation.language} comparison={comparison} artifactVersion={artifactVersion} figureSha={figureSha} modern={['analysis_explanation_v2','analysis_explanation_v3','analysis_explanation_v4'].includes(explanation.engine?.id)}
       canGenerate={canGenerate && current} disabled={disabled || loading || busy || !!error} onBusyChange={setReportBusy} />
       : !loading && !error && <WorkflowStage stage="report"><section className="word-report artifact-panel">
         <div className="section-heading"><span className="step-label">{t("Word 报告")}</span><h3>{t("Word 分析报告导出")}</h3></div>

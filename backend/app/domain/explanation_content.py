@@ -43,6 +43,16 @@ def unsafe_prose(prose):
 
 
 def build_payload(result, figure):
+    from app.domain.artifact_contracts import artifact_language, modern_artifact
+    if result.get('result_type') in ('regression','roc','survival'):
+        from app.domain.modeling_facts import build_payload as modeling_payload
+        return modeling_payload(result,figure)
+    if result.get('result_type') == 'group_comparison':
+        from app.domain.comparison_facts import build_payload as comparison_payload
+        return comparison_payload(result, figure)
+    if result.get('result_type') == 'correlation':
+        from app.domain.correlation_facts import build_payload as correlation_payload
+        return correlation_payload(result, figure)
     facts = {}
     def add(key, label, value):
         display = '无法计算' if value is None else format(value, '.6g') if isinstance(value, float) else str(value)
@@ -53,7 +63,8 @@ def build_payload(result, figure):
     add('sheet', '工作表', result['selection']['sheet_name'])
     add('figure.number', '图号', figure['figure_number'])
     add('figure.title', '图标题', figure['title'])
-    add('method.summary', '计算及绘图方法', METHOD)
+    from app.domain.dataset_processing import analysis_stage_text, retained_fact_labels
+    add('method.summary', '计算及绘图方法', analysis_stage_text(METHOD, result))
     for key, source, label in [('total', 'row_count', '原始行数'), ('valid', 'valid_count', '完整记录数'),
                                ('excluded', 'excluded_count', '排除行数')]:
         add('data.' + key, label, result['check'][source])
@@ -70,12 +81,38 @@ def build_payload(result, figure):
         for key, label in [('outlier_count', '离群观测数量'), ('whislo', '下须端'), ('whishi', '上须端')]:
             add(f'series.{index}.{key}', series['label'] + '：' + label, series[key])
         required_results.append(f'series.{index}.outlier_count')
-    return {'language': 'zh-CN', 'analysis_run_id': result['id'], 'figure_id': figure['id'],
+    payload = {'language': 'zh-CN', 'analysis_run_id': result['id'], 'figure_id': figure['id'],
             'source_sha256': result['source_sha256'], 'figure_sha256': figure['sha256'],
             'facts': facts, 'required_references': {
                 'purpose': ['variable'], 'data': ['sheet', 'data.total', 'data.valid', 'data.excluded'],
                 'methods': ['method.summary'], 'results': required_results,
                 'interpretation': ['overall.median'], 'paper_text': ['figure.number', 'overall.n', 'overall.mean', 'unit']}}
+    if modern_artifact(result):
+        payload['schema_version'] = 2
+        payload['language'] = artifact_language(result)
+        if payload['language'] == 'en':
+            from app.domain.descriptive_facts import english_facts
+            english_facts(payload, result)
+    retained_fact_labels(facts, result, payload["language"])
+    return payload
+
+
+def limitations_for(result, language):
+    if result.get('result_type') in ('regression','roc','survival'):
+        from app.domain.modeling_facts import limitations
+        return limitations(result,language)
+    if result.get('result_type') == 'group_comparison':
+        from app.domain.comparison_facts import limitations
+        return limitations(result, language)
+    if result.get('result_type') == 'correlation':
+        from app.domain.correlation_facts import limitations
+        return limitations(result, language)
+    if language == 'zh-CN':
+        return list(LIMITATIONS)
+    return ['Only descriptive statistics were computed; no P values, confidence intervals or effect sizes support significance, causation or effectiveness claims.',
+            'Research design and measurement details require researcher review; no unconfirmed research text was sent automatically.',
+            'Interpretation uses saved statistics and figure metadata; image pixels and AI wording require human review.',
+            'Numbers display at most 6 significant digits; saved statistical results retain full precision.']
 
 
 def render_explanation(draft, payload):
@@ -84,7 +121,9 @@ def render_explanation(draft, payload):
     if not isinstance(draft, dict) or set(draft) != set(SECTIONS):
         invalid('AI 未返回完整的六部分解释。')
     sections = []
-    for key, title in SECTIONS.items():
+    from app.domain.artifact_contracts import section_titles
+    titles = section_titles(payload.get('language', 'zh-CN')) if payload.get('schema_version') in (2,3,4) else SECTIONS
+    for key, title in titles.items():
         text = draft[key]
         if not isinstance(text, str) or not text.strip() or len(text) > 4000:
             invalid('AI 解释为空、格式错误或篇幅超限。')
@@ -96,8 +135,20 @@ def render_explanation(draft, payload):
         prose = TOKEN.sub('', text)
         if unsafe_prose(prose):
             invalid('AI 解释包含未绑定的数值、无效引用或不支持的推断性表述。')
+        if payload.get('schema_version') in (2,3,4):
+            from app.domain.explanation_guards import unsafe_modern_prose
+            if unsafe_modern_prose(prose):
+                invalid('AI 解释包含未绑定数值、自由统计指标断言或不支持的推断表述。')
+            if payload['language'] == 'en' and re.search(r'[\u4e00-\u9fff]', prose):
+                invalid('AI 解释与已确认输出语言不一致。')
+            if payload['language'] == 'zh-CN' and len(re.findall(r'[A-Za-z]',prose))>20 and not re.search(r'[\u4e00-\u9fff]',prose):
+                invalid('AI 解释与已确认输出语言不一致。')
         # One substitution pass: user labels are literal data, never another template.
-        rendered = TOKEN.sub(lambda match: payload['facts'][match[1]]['value'], text).strip()
+        if payload.get('schema_version') in (2,3,4):
+            from app.domain.explanation_guards import fact_span
+            rendered=TOKEN.sub(lambda match:fact_span(match[1],payload['facts'][match[1]]),text).strip()
+        else:
+            rendered = TOKEN.sub(lambda match: payload['facts'][match[1]]['value'], text).strip()
         sections.append({'key': key, 'title': title, 'text': rendered,
                          'evidence': [{'key': ref, 'label': payload['facts'][ref]['label'],
                                        'value': payload['facts'][ref]['value']} for ref in refs]})

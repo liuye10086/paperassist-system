@@ -138,10 +138,13 @@ def test_schema_preserves_business_tables_and_auth_tables_and_uses_job_sequences
         "model_budgets", "model_calls", "usage_events", "budget_reservations",
         "file_upload_batches", "file_upload_items", "file_parse_results",
         "file_structure_versions", "dataset_versions",
-        "task_checkpoints", "dataset_preparation_decisions", "prepared_dataset_versions",
+            "task_checkpoints", "dataset_preparation_decisions", "prepared_dataset_versions", "prepared_dataset_derivations",
+        "prepared_dataset_derivations_v3", "external_evidence_versions",
         "ocr_review_decisions", "ocr_review_versions",
         "analysis_plan_decisions", "confirmed_analysis_plans",
         "file_deletion_requests", "file_reparse_assessments",
+        "figure_configurations", "figure_config_versions", "figure_projection_decisions", "figure_projection_results",
+        "report_collections", "report_collection_versions", "report_collection_items", "report_build_requests", "collection_reports",
     }
     for name in ("figure_jobs", "explanation_jobs"):
         table = schema.metadata.tables[name]
@@ -226,7 +229,7 @@ def test_migration_summary_never_prints_unknown_revision_or_credentials(database
     assert 'target_revision' in output
 
 
-@pytest.mark.parametrize('target,expected', [('0003_project_ownership', '0003_project_ownership'), ('base', None), ('head', '0023_file_lifecycle')])
+@pytest.mark.parametrize('target,expected', [('0003_project_ownership', '0003_project_ownership'), ('base', None), ('head', '0029_statistics_execution')])
 def test_migration_summary_uses_actual_command_target(database, capsys, target, expected):
     import json
     from alembic.script import ScriptDirectory

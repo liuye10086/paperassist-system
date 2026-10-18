@@ -8,7 +8,10 @@ from app.domain.boxplot import plot_data
 from app.domain.descriptive import summarize
 
 
-def build_material(result, file_record, content, settings, *, external=None, dataset_sheet=None):
+def build_material(result, file_record, content, settings, *, external=None, dataset_sheet=None, saved_expected=None):
+    from app.domain.statistics_execution.verification import should_recompute
+    if not should_recompute() and saved_expected is None:
+        raise StorageError('task_source_conflict','数值投影必须由隔离 Worker 准备。',409)
     try:
         selection = AnalysisSelection(**result['selection'])
         if 'source' in result:
@@ -31,11 +34,11 @@ def build_material(result, file_record, content, settings, *, external=None, dat
     if not check.ready:
         raise StorageError('invalid_analysis_selection', '绘图所用字段未通过完整记录检查。', 422)
     groups = [{'label': ('TRUE' if label else 'FALSE') if isinstance(label, bool) else str(label),
-               'statistics': summarize(data)} for label, data in scan.grouped_values.items()]
-    if (check.model_dump() != result['check'] or summarize(scan.values) != result['overall']
+               'statistics': summarize(data)} for label, data in scan.grouped_values.items()] if should_recompute() else result['groups']
+    if (check.model_dump() != result['check'] or (summarize(scan.values) if should_recompute() else result['overall']) != result['overall']
             or groups != result['groups']):
         raise StorageError('result_mismatch', '原始数据复算与已保存统计结果不一致。', 409)
-    figure = plot_data(result, scan.values, scan.grouped_values)
+    figure = plot_data(result, scan.values, scan.grouped_values,frozen_series=saved_expected['series'] if not should_recompute() else None)
     if external is None and any(len(value) > 160 for value in [result['numeric_name'], result['group_name'] or '',
                                          *[group['label'] for group in groups]]):
         raise StorageError('plot_label_too_long', '绘图字段或分组名称超过上限。', 422)

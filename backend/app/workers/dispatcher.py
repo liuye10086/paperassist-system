@@ -10,13 +10,15 @@ logger = logging.getLogger(__name__)
 
 def dispatch_once(*, publish=None, config=None, limit=20):
     repository = TaskExecutionStore(config=config)
+    from app.domain.report_collections.service import advance_pending
+    advance_pending(config=repository.config, directory=repository.assets.directory, limit=limit)
     if publish is None:
         from app.workers.celery_app import publish_confirmed
         publish = publish_confirmed
     with repository.connection(write=True) as db:
         rows = db.execute('''SELECT o.id,o.task_id,o.task_revision,o.publish_attempts FROM task_outbox o
             JOIN tasks t ON t.id=o.task_id WHERE o.published_at IS NULL
-            AND o.available_at<=clock_timestamp() AND t.task_type IN ('word_report','explanation','boxplot','parse_file','extract_dataset','prepare_dataset', 'review_ocr', 'analysis_plan')
+            AND o.available_at<=clock_timestamp() AND t.task_type IN ('word_report','explanation','boxplot','parse_file','extract_dataset','prepare_dataset', 'review_ocr', 'analysis_plan', 'analysis_recommendation', 'figure_projection', 'figure_workbench', 'figure_explanation', 'collection_word_report', 'statistics_compute')
             ORDER BY o.available_at,o.id LIMIT %s''', (limit,)).fetchall()
         now = repository.now(db)
         for row in rows:

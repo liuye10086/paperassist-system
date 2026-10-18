@@ -6,4 +6,14 @@
 .preparation-panel table { width: 100%; border-collapse: collapse; margin: 1rem 0; }
 .preparation-panel td, .preparation-panel th { text-align: left; padding: .5rem; border-bottom: 1px solid #e4e0eb; }
 .preparation-panel pre { white-space: pre-wrap; word-break: break-word; }
+.quality-field, .quality-reason { display: flex; flex-wrap: wrap; gap: .7rem; align-items: start; padding: .7rem 0; border-bottom: 1px solid #e4e0eb; }
+.quality-reason label { flex: 1 1 18rem; display: flex; flex-direction: column; gap: .4rem; }
+.quality-impacts small { display: block; margin-top: .3rem; }
+.quality-impacts td, .quality-impacts th { overflow-wrap: anywhere; }
 @media (max-width: 650px) { .preparation-field { grid-template-columns: 1fr; } }
+
+.batch09-form { min-width: 0; padding: 1rem; margin-block: .75rem; border: 1px solid var(--border, #dde2ed); border-radius: 10px; }
+.batch09-form > label, .batch09-form .analysis-field-grid > label { display: flex; flex-direction: column; gap: .35rem; margin-block: .65rem; min-width: 0; }
+.batch09-form > label textarea, .batch09-form > label input:not([type="checkbox"]), .batch09-form > label select { width: 100%; }
+.batch09-form input[type="checkbox"] { width: auto; align-self: flex-start; }
+.batch09-form button { margin: .25rem .35rem .25rem 0; }

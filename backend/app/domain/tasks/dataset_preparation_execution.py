@@ -32,7 +32,21 @@ def run_preparation_task(task_id,task_revision,*,config=None,directory=None):
         task,checkpoint,sheet = store.load(lease)
         state = checkpoint['state_json']
         if checkpoint['next_node'] == 'prepare_preview':
-            obj = prepare_dataset(sheet,state['input_version']['source'],PreparationRecipe.model_validate(state['recipe']))
+            if task['workflow_version'] == 'dataset_preparation_v3':
+                obj=store.service(task).build_candidate(task,state)
+            elif task['workflow_version'] == 'dataset_preparation_v2':
+                import json
+                from app.domain.dataset_preparation.quality_transform import prepare_quality, build_quality_object
+                from app.domain.dataset_preparation.service import candidate_id
+                service=store.service(task)
+                _,base=service.base_object(task['project_id'],state['input_version']['source'])
+                sheet,summary,manifest=prepare_quality(base,state['input_version']['source'],state['recipe'])
+                content=json.dumps(manifest.model_dump(mode='json'),ensure_ascii=False,sort_keys=True,separators=(',',':'),allow_nan=False).encode('utf-8')
+                reference=service.manifests.save(candidate_id(task['id']),content)
+                reference['entry_count']=len(manifest.entries)
+                obj=build_quality_object(base,state['input_version']['source'],state['recipe'],sheet,summary,reference)
+            else:
+                obj = prepare_dataset(sheet,state['input_version']['source'],PreparationRecipe.model_validate(state['recipe']))
             return store.wait(lease,checkpoint,obj)
         if checkpoint['next_node'] == 'publish':
             return store.publish(lease,checkpoint)

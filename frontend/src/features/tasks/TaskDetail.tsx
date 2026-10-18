@@ -1,3 +1,5 @@
+import StatisticsTaskArtifact from '../analysis/StatisticsTaskArtifact'
+import StatisticsTaskRecovery from '../analysis/StatisticsTaskRecovery'
 import SourceSummary from '../analysis/SourceSummary'
 import { useEffect, useRef, useState } from 'react'
 import { onApiSessionChanged } from '../../shared/api/client'
@@ -69,31 +71,34 @@ function Detail({ projectId, taskId, onChanged, onOpenFiles }: Props) {
         <span className={`task-status task-status-${data.task.status}`}>{t(taskDisplayName(data.task))}</span></div>
       {data.task.origin === 'legacy' && <><p className="task-scope-note">{t('历史任务')}</p>
         <p className="task-scope-note">{t('旧系统未记录此任务的完整执行步骤和模型用量。')}</p></>}
-      {!['parse_file', 'extract_dataset', 'review_ocr'].includes(data.task.task_type) && <SourceSummary source={data.source.dataset_source} filename={data.source.filename} />}
-      <dl className="task-facts"><div><dt>{t('来源文件')}</dt><dd>{data.source.filename}</dd></div>
-        <div><dt>{t('输入版本')}</dt><dd><span>{['parse_file', 'extract_dataset', 'review_ocr'].includes(data.task.task_type) ? t(data.task.task_type === 'review_ocr' ? '原图转录核对' : data.task.task_type === 'extract_dataset' ? '本地 Excel 结构提取' : '本地文件解析') : data.task.task_type === 'prepare_dataset' ? t('本地数据整理') : data.task.task_type === 'analysis_plan' ? t('整理数据分析计划') : t('分析配置 v{revision}', { revision: data.task.input_version.setup_revision ?? 0 })}</span>
-          {!['parse_file', 'extract_dataset', 'prepare_dataset', 'analysis_plan', 'review_ocr'].includes(data.task.task_type) && <small>{t(data.source.is_current ? '当前分析配置' : '历史分析配置')}</small>}</dd></div>
+      {!['parse_file', 'extract_dataset', 'review_ocr'].includes(data.task.task_type) && data.task.input_version.kind==='analysis_plan'&&data.task.input_version.source===null?<p>{t('研究材料；尚无可计算数据。')}</p>:<SourceSummary source={data.source.dataset_source} filename={data.source.filename} />}
+      <dl className="task-facts"><div><dt>{t('来源文件')}</dt><dd>{data.source.filename||t('研究材料')}</dd></div>
+        <div><dt>{t('输入版本')}</dt><dd><span>{data.task.input_version.kind==='report_collection'?t('集合导出版本 {number}',{number:data.task.input_version.export_revision}):['figure_projection','figure_workbench','figure_explanation'].includes(data.task.task_type)?t('冻结的图表配置与来源'):['parse_file', 'extract_dataset', 'review_ocr'].includes(data.task.task_type) ? t(data.task.task_type === 'review_ocr' ? '原图转录核对' : data.task.task_type === 'extract_dataset' ? '本地 Excel 结构提取' : '本地文件解析') : data.task.task_type === 'prepare_dataset' ? t('本地数据整理') : data.task.task_type === 'analysis_recommendation'?t('受限分析建议'):data.task.task_type === 'analysis_plan' ? t('整理数据分析计划') : t('分析配置 v{revision}', { revision: data.task.input_version.setup_revision ?? 0 })}</span>
+          {!['figure_projection','figure_workbench','figure_explanation','collection_word_report','parse_file', 'extract_dataset', 'prepare_dataset', 'analysis_plan', 'analysis_recommendation', 'review_ocr'].includes(data.task.task_type) && <small>{t(data.source.is_current ? '当前分析配置' : '历史分析配置')}</small>}</dd></div>
         <div><dt>{t('处理阶段')}</dt><dd>{t(taskPhaseName(data.task))}</dd></div>
         <div><dt>{t('建立时间')}</dt><dd><time dateTime={data.task.created_at}>{new Date(data.task.created_at).toLocaleString(locale)}</time></dd></div></dl>
-      {['parse_file', 'extract_dataset', 'prepare_dataset', 'analysis_plan', 'review_ocr'].includes(data.task.task_type) && onOpenFiles && <button type="button" onClick={onOpenFiles}>{t('查看项目文件')}</button>}
+      {['figure_projection','figure_workbench','figure_explanation','collection_word_report','parse_file', 'extract_dataset', 'prepare_dataset', 'analysis_plan', 'analysis_recommendation', 'review_ocr'].includes(data.task.task_type) && onOpenFiles && <button type="button" onClick={onOpenFiles}>{t('查看项目文件')}</button>}
       {data.task.error_code && (data.task.origin === 'legacy' ? <div className="warning-panel">
         <p>{t(historicalErrorReason(data.task.error_code))}</p><p>{t('此历史任务仅供查看，不支持恢复或重试。')}</p>
       </div> : <p className="warning-panel">{t(apiError({ code: data.task.error_code }, '任务暂未完成，请查看处理说明。'))}</p>)}
-      {data.task.origin !== 'legacy' && <TaskPendingAction workspace={data} blocked={loading || !!error} onChanged={() => { refresh(); onChanged() }} />}
+      {data.verification_failure&&<div className="warning-panel"><p>{t('云端图表数值未通过独立核对，下游成果已停止。')}</p><div className="field-table-scroll"><table className="field-table"><caption>{t('图表数值核对差异')}</caption><thead><tr>{['核对项目','本地期望','云端返回','差异原因'].map(k=><th key={k} scope="col">{t(k)}</th>)}</tr></thead><tbody>{data.verification_failure.differences.filter(d=>!/(?:sha256|digest|provenance|response|container|model_call|\.id$)/i.test(d.path)).map((d,i)=><tr key={i}><th scope="row">{d.path}</th><td>{String(d.expected??'—')}</td><td>{String(d.actual??'—')}</td><td>{d.reason??'—'}</td></tr>)}</tbody></table></div><p>{t('记录时间：')}{new Date(data.verification_failure.recorded_at).toLocaleString(locale)}</p></div>}
+      {data.task.origin!=='legacy'&&data.task.task_type==='statistics_compute'&&<StatisticsTaskRecovery workspace={data} blocked={loading||!!error} onChanged={()=>{refresh();onChanged()}}/>}
+      {data.task.origin !== 'legacy' && data.task.task_type!=='statistics_compute' && <TaskPendingAction workspace={data} blocked={loading || !!error} onChanged={() => { refresh(); onChanged() }} />}
       {data.task.task_type!=='review_ocr'&&<section className="task-artifacts" aria-label={t('此任务的成果')}><h3>{t('此任务的成果')}</h3>
+        {data.artifacts.analysis&&<StatisticsTaskArtifact result={data.artifacts.analysis}/>}
         {data.artifacts.figure && <article><h4>{data.artifacts.figure.title}</h4><p>{data.artifacts.figure.caption}</p>
-          <ProjectDownloadLink href={data.artifacts.figure.download_url} filename="boxplot.png">{t('下载此任务的 PNG')}</ProjectDownloadLink></article>}
+          <ProjectDownloadLink href={data.artifacts.figure.download_url} filename={data.task.task_type==='figure_workbench'?'figure-package.zip':'boxplot.png'}>{t(data.task.task_type==='figure_workbench'?'下载图表与说明包':'下载此任务的 PNG')}</ProjectDownloadLink></article>}
         {data.artifacts.explanation && <article className="task-saved-explanation"><p className="warning-panel">{t('AI 草稿，需人工审核。')}</p>
           {data.artifacts.explanation.sections.map((section, index) => <section key={`${section.key}:${index}`}><h4>{section.title}</h4><p>{section.text}</p></section>)}
           {data.artifacts.explanation.limitations.length > 0 && <><h4>{t('解释限制')}</h4><ul>{data.artifacts.explanation.limitations.map((item, index) => <li key={index}>{item}</li>)}</ul></>}</article>}
         {data.artifacts.report && <article><h4>{t('Word 分析报告')}</h4>
           <ProjectDownloadLink href={data.artifacts.report.download_url} filename={data.artifacts.report.filename}>{t('下载此任务的 Word')}</ProjectDownloadLink></article>}
         {data.artifacts.dataset && <ProjectDownloadLink href={data.artifacts.dataset.download_url} filename={data.artifacts.dataset.filename}>{t('下载完整 JSON')}</ProjectDownloadLink>}
-        {!data.artifacts.dataset && !data.artifacts.figure && !data.artifacts.explanation && !data.artifacts.report && <p className="task-empty">{t(data.task.origin === 'legacy'
+        {!data.artifacts.analysis && !data.artifacts.dataset && !data.artifacts.figure && !data.artifacts.explanation && !data.artifacts.report && <p className="task-empty">{t(data.task.origin === 'legacy'
           ? '无法确认此历史任务关联的成果。' : ['parse_file', 'extract_dataset', 'review_ocr'].includes(data.task.task_type) && data.task.status === 'succeeded' ? (data.task.task_type === 'extract_dataset' ? '结构版本已保存，请到项目文件区查看。' : '文件已解析，请到项目文件区查看预览。') : '此任务尚无已保存的成果。')}</p>}
       </section>}
       {data.task.origin !== 'legacy' && <><TaskEvents taskId={taskId} taskType={data.task.task_type} live={live} refreshKey={attempt} />
-        {!['parse_file', 'extract_dataset', 'prepare_dataset', 'analysis_plan', 'review_ocr'].includes(data.task.task_type) && <TaskModelUsage taskId={taskId} refreshKey={attempt + data.task.revision} />}</>}
+        {!['statistics_compute','parse_file', 'extract_dataset', 'prepare_dataset', 'analysis_plan', 'analysis_recommendation', 'review_ocr'].includes(data.task.task_type) && <TaskModelUsage taskId={taskId} refreshKey={attempt + data.task.revision} />}</>}
     </>}
   </section>
 }

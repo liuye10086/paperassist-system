@@ -23,14 +23,14 @@ class ReportStore:
         self.directory = store.directory / 'reports'
 
     @staticmethod
-    def cached(db, explanation_id):
+    def cached(db, explanation_id, version=None):
         row = db.execute('SELECT report_json FROM reports WHERE explanation_id=%s AND renderer_version=%s',
-                         (explanation_id, VERSION)).fetchone()
+                         (explanation_id, version or VERSION)).fetchone()
         return json.loads(row['report_json']) if row else None
 
-    def saved(self, explanation_id):
+    def saved(self, explanation_id, version=None):
         with self.store.connection() as db:
-            return self.cached(db, explanation_id)
+            return self.cached(db, explanation_id, version)
 
     def by_id(self, project_id, file_id, run_id, report_id):
         result = self.store.analysis_result_by_id(project_id, file_id, run_id)
@@ -43,6 +43,14 @@ class ReportStore:
         if 'source' in result:
             from app.domain.dataset_analysis import load_dataset
             load_dataset(self.store, project_id, file_id, result['source']['dataset_id'], expected_source=result['source'])
+        if result.get('result_type') in ('group_comparison','regression','roc','survival'):
+            from app.domain.comparison_material import validate_figure_source
+            if result.get('result_type') in ('regression','roc','survival'):
+                from app.domain.modeling_material import validate_figure_source
+            snapshot=json.loads(row['input_json'])
+            validate_figure_source(self.store,project_id,file_id,result,snapshot['figure'])
+        from app.domain.dataset_processing import verify_processing
+        verify_processing(self.store, project_id, result, json.loads(row['input_json']).get('processing'))
         return json.loads(row['report_json'])
 
     @staticmethod
@@ -87,11 +95,15 @@ class ReportStore:
     @staticmethod
     def metadata(snapshot):
         result, figure, explanation = (snapshot[key] for key in ('result', 'figure', 'explanation'))
+        from app.domain.artifact_contracts import saved_report_version, REPORT_V2, REPORT_V3, REPORT_V4
+        version = saved_report_version(explanation)
+        language = explanation['language'] if version in (REPORT_V2,REPORT_V3,REPORT_V4) else 'zh-CN'
         report_id = str(uuid4())
         return {'id': report_id, 'analysis_run_id': result['id'], 'figure_id': figure['id'], 'explanation_id': explanation['id'],
                 'setup_revision': result['setup_revision'], 'source_sha256': result['source_sha256'], 'figure_sha256': figure['sha256'],
                 'created_at': datetime.now(timezone.utc).isoformat(), 'filename': f'分析报告-v{result["setup_revision"]}-{report_id[:8]}.docx',
-                'language': 'zh-CN', 'engine': {'id': VERSION, 'python_docx': docx.__version__}, 'input_sha256': digest(snapshot),
+                'language': language, 'engine': {'id': version, 'python_docx': docx.__version__}, 'input_sha256': digest(snapshot),
+                **({'schema_version':4} if version==REPORT_V4 else {'schema_version':3} if version==REPORT_V3 else {}),
                 **({'source': result['source']} if 'source' in result else {})}
 
     def save(self, snapshot, report, content):
@@ -99,6 +111,8 @@ class ReportStore:
         temporary = self.directory / (report['id'] + '.part')
         target = self.directory / (report['id'] + '.docx')
         owned_paths = []
+        from app.domain.dataset_processing import verify_processing
+        verify_processing(self.store, snapshot['project']['id'], result, snapshot.get('processing'))
         try:
             with self.store.connection(write=True) as db:
                 self.store.require_analysis_revision(db, result['file_id'], result['setup_revision'])
@@ -119,7 +133,7 @@ class ReportStore:
                 else:
                     self.store.original(dict(record))
                 self.store.figure_png(figure)
-                existing = self.cached(db, explanation['id'])
+                existing = self.cached(db, explanation['id'], report['engine']['id'])
                 if existing:
                     self.content(existing)
                     return existing, False
@@ -131,7 +145,7 @@ class ReportStore:
                 owned_paths.append(target)
                 saved = {**report, 'size_bytes': len(content), 'sha256': hashlib.sha256(content).hexdigest()}
                 db.execute('INSERT INTO reports (id, analysis_run_id, explanation_id, renderer_version, report_json, input_json) VALUES (%s, %s, %s, %s, %s, %s)',
-                           (report['id'], result['id'], explanation['id'], VERSION,
+                           (report['id'], result['id'], explanation['id'], report['engine']['id'],
                             json.dumps(saved, ensure_ascii=False, allow_nan=False), json.dumps(snapshot, ensure_ascii=False, allow_nan=False)))
                 db.execute('UPDATE projects SET updated_at=GREATEST(updated_at, %s) WHERE id=%s', (saved['created_at'], snapshot['project']['id']))
             return saved, True

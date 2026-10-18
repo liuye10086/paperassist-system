@@ -140,9 +140,9 @@ test('displays confirmed zero and keeps partial estimate pending while translati
   expect(within(screen.getByText('partial-model').closest('tr')!).getByText('USD 0.000005')).toBeTruthy()
   expect(within(screen.getByText('partial-model').closest('tr')!).getByText('待核对')).toBeTruthy()
   fireEvent.click(screen.getByRole('button', { name: '刷新模型用量' }))
-  expect((await screen.findByRole('alert')).textContent).toBe('尚未配置模型预算，请联系管理员。')
+  expect((await screen.findByRole('alert')).textContent).toBe('尚未配置模型预算，请联系管理员配置后通过原任务的预算恢复入口继续；已有调用和用量保留。')
   act(() => setLocale('en'))
-  expect(screen.getByRole('alert').textContent).toBe('The model budget is not configured. Contact the administrator.')
+  expect(screen.getByRole('alert').textContent).toBe('The model budget is not configured. Ask the administrator to configure it, then use budget recovery on the original task. Existing calls and usage are retained.')
   expect(screen.queryByText('private-provider-body')).toBeNull()
 })
 

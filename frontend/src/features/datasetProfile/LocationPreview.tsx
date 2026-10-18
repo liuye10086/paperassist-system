@@ -8,7 +8,7 @@ export default function LocationPreview({ base, profile, item }: { base: string;
  const { t } = useI18n(); const [rows, setRows] = useState<LocationRows | null>(null); const [error, setError] = useState(false); const [attempt, setAttempt] = useState(0)
  const targetCell = useRef<HTMLTableCellElement>(null)
  const firstRow = profile.source.kind === 'prepared_dataset_version' ? Number(/\d+$/.exec(profile.data_range?.split(':')[0] ?? '')?.[0] ?? 1) : 1
- const start = firstRow + Math.floor((item.row - firstRow) / 20) * 20
+ const start = profile.source.kind === 'prepared_dataset_version' && profile.source.schema_version === 2 ? item.row : firstRow + Math.floor((item.row - firstRow) / 20) * 20
  useEffect(() => {
   const controller = new AbortController(); let active = true
   const endpoint = profile.source.kind === 'prepared_dataset_version' ? 'prepared-dataset-versions' : 'dataset-versions'
