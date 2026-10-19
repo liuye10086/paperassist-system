@@ -13,6 +13,22 @@ class TaskWorkspaceService:
 
     def source(self, db, task):
         snapshot = task['input_snapshot']
+        if task['task_type'] == 'literature_assistance':
+            from app.domain.literature_assistance.service import require_snapshot
+            snapshot = require_snapshot(task)
+            current = True
+            if snapshot['input']['kind'] in ('evidence_review','evidence_comparison'):
+                from app.domain.literature_assistance.service import LiteratureAssistanceService
+                try:
+                    LiteratureAssistanceService(self.store).assert_current(task)
+                except StorageError as exc:
+                    if exc.status not in (404,409): raise
+                    current = False
+            return dict(file_id=None,filename=snapshot['input'].get('research_topic') or snapshot['material']['claim']['content'],analysis_run_id=None,is_current=current)
+        if task['task_type'] == 'literature_search':
+            from app.domain.literature.service import require_snapshot
+            snapshot = require_snapshot(task)
+            return dict(file_id=None, filename=snapshot['input']['research_topic'], analysis_run_id=None, is_current=True)
         if task['task_type'] == 'statistics_compute':
             from app.domain.statistics_execution.service import require_snapshot
             snapshot = require_snapshot(task)
@@ -123,7 +139,7 @@ class TaskWorkspaceService:
         if (type(page) is not int or not 1 <= page <= 1_000_000
                 or type(page_size) is not int or not 1 <= page_size <= 50
                 or status not in (None, 'queued', 'running', 'waiting_input', 'waiting_confirmation', 'succeeded', 'failed')
-                or task_type not in (None, 'boxplot', 'explanation', 'word_report', 'parse_file', 'extract_dataset', 'prepare_dataset', 'review_ocr', 'analysis_plan', 'analysis_recommendation', 'figure_projection', 'figure_workbench', 'figure_explanation', 'collection_word_report', 'statistics_compute')):
+                or task_type not in (None, 'boxplot', 'explanation', 'word_report', 'parse_file', 'extract_dataset', 'prepare_dataset', 'review_ocr', 'analysis_plan', 'analysis_recommendation', 'figure_projection', 'figure_workbench', 'figure_explanation', 'collection_word_report', 'statistics_compute', 'literature_search', 'literature_assistance')):
             raise StorageError('task_input_invalid', '任务列表查询参数无效。', 422)
         from app.adapters.legacy_task_query import mixed_task_page, require_legacy_task
         from app.domain.tasks.legacy import public_legacy_task, legacy_source
@@ -189,6 +205,18 @@ class TaskWorkspaceService:
 
     def artifacts(self, db, task):
         result = {'figure': None, 'explanation': None, 'report': None}
+        if task['task_type'] == 'literature_assistance':
+            from app.domain.literature_assistance.service import LiteratureAssistanceService
+            view = LiteratureAssistanceService(self.store).view(db,task['project_id'],task['id'])
+            result['literature_assistance'] = dict(kind=view['kind'],result=view['result'],real_calls_enabled=False)
+            return result
+        if task['task_type'] == 'literature_search':
+            from app.domain.literature.service import require_snapshot
+            require_snapshot(task)
+            row = db.execute('SELECT retrieved_count,matched_count FROM literature_searches WHERE task_id=%s', (task['id'],)).fetchone()
+            if not row: raise source_conflict()
+            result['literature'] = dict(search_id=task['id'], **dict(row))
+            return result
         if task['task_type'] in ('figure_projection','figure_workbench','figure_explanation'):
             from app.domain.figure_workbench.tasks import task_artifacts
             return task_artifacts(self.store, db, task)

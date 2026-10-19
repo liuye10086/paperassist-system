@@ -116,7 +116,15 @@ def prepare(root: Path, values: dict, *, test_id=None, assets: Path | None = Non
         if len(model_key.encode('utf-8')) > 8192 or any(char.isspace() for char in model_key):
             raise ValueError('Invalid private model key configuration.')
     private_write(directory / 'model-api-key', model_key)
-    fingerprint = hashlib.sha256((url.render_as_string(hide_password=False) + '\0' + model_key).encode()).hexdigest()
+    ncbi = dict(enabled=False,tool='PaperAssist',email='',api_key='')
+    if not test_id:
+        ncbi = dict(enabled=values.get('PAPERASSIST_NCBI_ENABLED')=='1',
+                    tool=values.get('PAPERASSIST_NCBI_TOOL') or 'PaperAssist',
+                    email=values.get('PAPERASSIST_NCBI_EMAIL') or '',api_key=values.get('PAPERASSIST_NCBI_API_KEY') or '')
+    ncbi_text = json.dumps(ncbi,ensure_ascii=True,sort_keys=True)
+    if len(ncbi_text.encode())>16384: raise ValueError('Invalid private NCBI configuration size.')
+    private_write(directory / 'ncbi-config',ncbi_text)
+    fingerprint = hashlib.sha256((url.render_as_string(hide_password=False) + '\0' + model_key + '\0' + ncbi_text).encode()).hexdigest()
     environment = {
         'PAPERASSIST_STACK_PROJECT': project,
         'PAPERASSIST_STACK_ROOT': str(root),

@@ -77,14 +77,14 @@ class TaskExecutionStore:
         with self.connection(write=True) as db:
             ensure_schema_current(db)
             row = db.execute('SELECT * FROM tasks WHERE id=%s', (task_id,)).fetchone()
-            if (not row or row['task_type'] not in ('word_report', 'explanation', 'boxplot', 'parse_file', 'extract_dataset', 'prepare_dataset', 'review_ocr', 'analysis_plan', 'analysis_recommendation', 'figure_projection', 'figure_workbench', 'figure_explanation', 'collection_word_report', 'statistics_compute')
+            if (not row or row['task_type'] not in ('word_report', 'explanation', 'boxplot', 'parse_file', 'extract_dataset', 'prepare_dataset', 'review_ocr', 'analysis_plan', 'analysis_recommendation', 'figure_projection', 'figure_workbench', 'figure_explanation', 'collection_word_report', 'statistics_compute', 'literature_search', 'literature_assistance')
                     or (task_type is not None and row['task_type'] != task_type)
                     or row['revision'] != task_revision):
                 return None
             task = dict(row)
             now = self.now(db)
             token = str(uuid4())
-            if task['status'] == 'running' and task['task_type'] in ('explanation', 'boxplot', 'analysis_recommendation', 'figure_workbench', 'figure_explanation'):
+            if task['status'] == 'running' and task['task_type'] in ('explanation', 'boxplot', 'analysis_recommendation', 'figure_workbench', 'figure_explanation', 'literature_search', 'literature_assistance'):
                 updated = db.execute('''UPDATE task_attempts
                     SET lease_owner=%s,lease_expires_at=%s,heartbeat_at=%s
                     WHERE task_id=%s AND attempt_no=%s AND status='running' AND lease_owner IS NULL''',
@@ -146,7 +146,7 @@ class TaskExecutionStore:
             raise ValueError('Invalid task continuation delay.')
         with self.connection(write=True) as db:
             task = self.require_lease(db, lease)
-            if task['task_type'] not in ('explanation', 'boxplot', 'analysis_recommendation', 'figure_workbench', 'figure_explanation'):
+            if task['task_type'] not in ('explanation', 'boxplot', 'analysis_recommendation', 'figure_workbench', 'figure_explanation', 'literature_search', 'literature_assistance'):
                 raise source_conflict()
             revision = task['revision']
             task.update(revision=revision + 1, updated_at=max(self.now(db), task['updated_at']), error_code=None)
@@ -168,7 +168,8 @@ class TaskExecutionStore:
             if code == 'model_observation_expired':
                 self._wait_explanation(db, task, 'observation_expired', code)
                 return TaskStore.public_task(task)
-            if code != 'model_provider_unavailable' or task['task_type'] not in ('explanation', 'boxplot', 'analysis_recommendation', 'figure_workbench', 'figure_explanation'):
+            literature_retry = task['task_type'] == 'literature_search' and code == 'ncbi_unavailable'
+            if not literature_retry and (code != 'model_provider_unavailable' or task['task_type'] not in ('explanation', 'boxplot', 'analysis_recommendation', 'figure_workbench', 'figure_explanation', 'literature_search', 'literature_assistance')):
                 self._finish(db, task, 'failed', code)
                 return TaskStore.public_task(task)
             task['_retry_reason'] = 'temporary_provider_error'
@@ -708,7 +709,7 @@ class TaskExecutionStore:
         with self.connection(write=True) as db:
             rows = db.execute('''SELECT t.* FROM tasks t JOIN task_attempts a
                 ON a.task_id=t.id AND a.attempt_no=t.current_attempt
-                WHERE t.task_type IN ('word_report','explanation','boxplot','parse_file','extract_dataset','prepare_dataset', 'review_ocr', 'analysis_plan', 'analysis_recommendation', 'figure_projection', 'figure_workbench', 'figure_explanation', 'collection_word_report', 'statistics_compute') AND t.status='running' AND a.status='running'
+                WHERE t.task_type IN ('word_report','explanation','boxplot','parse_file','extract_dataset','prepare_dataset', 'review_ocr', 'analysis_plan', 'analysis_recommendation', 'figure_projection', 'figure_workbench', 'figure_explanation', 'collection_word_report', 'statistics_compute', 'literature_search', 'literature_assistance') AND t.status='running' AND a.status='running'
                 AND a.lease_expires_at<=clock_timestamp()
                 ORDER BY a.lease_expires_at,t.id LIMIT %s''', (limit,)).fetchall()
             for row in rows:
@@ -726,9 +727,9 @@ class TaskExecutionStore:
                         if uncertain:
                             self._wait_explanation(db, task, 'submission_unknown', 'model_submission_unknown')
                             continue
-                if task['task_type'] in ('explanation','analysis_recommendation','figure_explanation'):
+                if task['task_type'] in ('explanation','analysis_recommendation','figure_explanation','literature_assistance'):
                     call = db.execute("""SELECT status,provider_response_id FROM model_calls
-                        WHERE task_id=%s AND call_key=%s""", (task['id'],'analysis_recommendation:v1' if task['task_type']=='analysis_recommendation' else 'figure_explanation:v1' if task['task_type']=='figure_explanation' else 'explanation:v1')).fetchone()
+                        WHERE task_id=%s AND call_key=%s""", (task['id'],'literature-assistance-v1' if task['task_type']=='literature_assistance' else 'analysis_recommendation:v1' if task['task_type']=='analysis_recommendation' else 'figure_explanation:v1' if task['task_type']=='figure_explanation' else 'explanation:v1')).fetchone()
                     if (call and not call['provider_response_id']
                             and call['status'] in ('submitting', 'submission_unknown')):
                         self._wait_explanation(db, task, 'submission_unknown', 'model_submission_unknown')
@@ -767,8 +768,8 @@ class TaskExecutionStore:
         rows=db.execute("""SELECT t.* FROM tasks t JOIN model_calls c ON c.task_id=t.id
             JOIN projects p ON p.id=t.project_id AND p.owner_id=t.user_id
             JOIN users u ON u.id=t.user_id AND u.active
-            WHERE t.task_type IN ('analysis_recommendation','figure_explanation') AND t.status='waiting_confirmation'
-                AND t.reason_code='submission_unknown' AND c.call_key=CASE WHEN t.task_type='figure_explanation' THEN 'figure_explanation:v1' ELSE 'analysis_recommendation:v1' END
+            WHERE t.task_type IN ('analysis_recommendation','figure_explanation','literature_assistance') AND t.status='waiting_confirmation'
+                AND t.reason_code='submission_unknown' AND c.call_key=CASE WHEN t.task_type='literature_assistance' THEN 'literature-assistance-v1' WHEN t.task_type='figure_explanation' THEN 'figure_explanation:v1' ELSE 'analysis_recommendation:v1' END
                 AND c.user_id=t.user_id AND c.project_id=t.project_id AND c.provider_response_id IS NOT NULL
             ORDER BY t.updated_at,t.id LIMIT %s""",(limit,)).fetchall()
         from app.domain.tasks.waits import resolve_open_wait

@@ -20,6 +20,7 @@ projects = Table(
     Column("updated_at", Text, nullable=False),
     Column("owner_id", Text, ForeignKey("users.id")),
     Column("default_output_language", Text, nullable=False, server_default="zh-CN"),
+    UniqueConstraint('id', 'owner_id', name='projects_owner_scope_key'),
     CheckConstraint("default_output_language IN ('zh-CN', 'en')", name="projects_output_language_check"),
     CheckConstraint("project_type IN ('sci', 'thesis')", name="projects_project_type_check"),
 )
@@ -243,3 +244,21 @@ report_collections, report_collection_versions, report_collection_items, report_
 
 from app.db.research_materials_schema import define_research_materials
 prepared_dataset_derivations_v3, external_evidence_versions = define_research_materials(metadata)
+
+from app.db.literature_schema import define_literature_tables
+literature_records, literature_searches, project_references, literature_fetch_receipts, literature_search_hits, ncbi_rate_limits = define_literature_tables(metadata)
+
+from app.db.literature_evidence_schema import define_literature_evidence_tables
+literature_materials, literature_claims, literature_claim_versions, literature_claim_evidence, literature_claim_reviews, literature_claim_supplements = define_literature_evidence_tables(metadata)
+
+from app.db.literature_assistance_schema import define_literature_assistance_tables
+literature_assistance_requests, = define_literature_assistance_tables(metadata)
+
+from app.db.literature_pmc_schema import define_literature_pmc_tables
+literature_pmc_receipts, = define_literature_pmc_tables(metadata)
+
+from app.db.literature_citation_schema import define_literature_citation_tables
+literature_citation_metadata_versions, literature_material_confirmations, literature_citation_drafts, literature_citation_versions = define_literature_citation_tables(metadata)
+
+from app.db.literature_check_schema import define_literature_check_tables
+literature_check_receipts, = define_literature_check_tables(metadata)

@@ -1,0 +1,139 @@
+"""Add project-scoped literature provenance; preserve every existing business row."""
+from alembic import op
+import sqlalchemy as sa
+from sqlalchemy.dialects.postgresql import JSONB
+
+revision = '0030_literature_search'
+down_revision = '0029_statistics_execution'
+branch_labels = None
+depends_on = None
+
+OLD_TYPES = "'boxplot', 'explanation', 'word_report', 'parse_file', 'extract_dataset', 'prepare_dataset', 'review_ocr', 'analysis_plan', 'analysis_recommendation', 'figure_projection', 'figure_workbench', 'figure_explanation', 'collection_word_report', 'statistics_compute'"
+OLD_KINDS = "'budget_confirmation','submission_unknown','unsupported_input','unsupported_confirmation','dataset_preparation_confirmation','ocr_review_confirmation','analysis_plan_confirmation','analysis_plan_input','figure_projection_confirmation','remote_observation'"
+OLD_NODES = "'prepare_preview','check','await_confirmation','approve','revise','publish','done','await_input'"
+OLD_NEXT = "'prepare_preview','check','await_confirmation','publish','done','await_input'"
+
+def define_literature_tables(metadata):
+    records = sa.Table('literature_records', metadata,
+        sa.Column('id', sa.Text, primary_key=True),
+        sa.Column('pmid', sa.Text, nullable=False),
+        sa.Column('created_at', sa.DateTime(timezone=True), nullable=False),
+        sa.UniqueConstraint('pmid', name='literature_records_pmid_key'),
+        sa.CheckConstraint("pmid ~ '^[1-9][0-9]{0,11}$'", name='literature_records_pmid_check'))
+    searches = sa.Table('literature_searches', metadata,
+        sa.Column('task_id', sa.Text, sa.ForeignKey('tasks.id'), primary_key=True),
+        sa.Column('project_id', sa.Text, sa.ForeignKey('projects.id'), nullable=False),
+        sa.Column('user_id', sa.Text, sa.ForeignKey('users.id'), nullable=False),
+        sa.Column('input_json', JSONB, nullable=False),
+        sa.Column('effective_query', sa.Text, nullable=False),
+        sa.Column('query_translation', sa.Text),
+        sa.Column('matched_count', sa.BigInteger),
+        sa.Column('pmids_json', JSONB, nullable=False),
+        sa.Column('missing_pmids_json', JSONB, nullable=False),
+        sa.Column('retrieved_count', sa.Integer, nullable=False),
+        sa.Column('created_at', sa.DateTime(timezone=True), nullable=False),
+        sa.Column('updated_at', sa.DateTime(timezone=True), nullable=False),
+        sa.UniqueConstraint('task_id', 'project_id', 'user_id', name='literature_searches_scope_key'),
+        sa.CheckConstraint("jsonb_typeof(input_json)='object' AND jsonb_typeof(pmids_json)='array' AND jsonb_typeof(missing_pmids_json)='array'", name='literature_searches_json_check'),
+        sa.CheckConstraint('retrieved_count>=0 AND retrieved_count<=100 AND (matched_count IS NULL OR matched_count>=0)', name='literature_searches_counts_check'),
+        sa.CheckConstraint('updated_at>=created_at', name='literature_searches_time_check'))
+    sa.Index('literature_searches_project_created', searches.c.project_id, searches.c.created_at.desc(), searches.c.task_id)
+    references = sa.Table('project_references', metadata,
+        sa.Column('id', sa.Text, primary_key=True),
+        sa.Column('project_id', sa.Text, sa.ForeignKey('projects.id'), nullable=False),
+        sa.Column('user_id', sa.Text, sa.ForeignKey('users.id'), nullable=False),
+        sa.Column('reference_id', sa.Text, sa.ForeignKey('literature_records.id'), nullable=False),
+        sa.Column('selection_status', sa.Text, nullable=False),
+        sa.Column('selection_note', sa.Text, nullable=False),
+        sa.Column('revision', sa.Integer, nullable=False),
+        sa.Column('decisions_json', JSONB, nullable=False),
+        sa.Column('created_at', sa.DateTime(timezone=True), nullable=False),
+        sa.Column('updated_at', sa.DateTime(timezone=True), nullable=False),
+        sa.UniqueConstraint('project_id', 'reference_id', name='project_references_project_record_key'),
+        sa.UniqueConstraint('id', 'project_id', 'user_id', 'reference_id', name='project_references_scope_key'),
+        sa.CheckConstraint("selection_status IN ('candidate','shortlisted','excluded')", name='project_references_selection_check'),
+        sa.CheckConstraint("revision>=1 AND jsonb_typeof(decisions_json)='array'", name='project_references_revision_check'),
+        sa.CheckConstraint('updated_at>=created_at', name='project_references_time_check'))
+    sa.Index('project_references_project_created', references.c.project_id, references.c.created_at.desc(), references.c.id)
+    receipts = sa.Table('literature_fetch_receipts', metadata,
+        sa.Column('id', sa.Text, primary_key=True),
+        sa.Column('task_id', sa.Text, nullable=False),
+        sa.Column('project_id', sa.Text, nullable=False),
+        sa.Column('user_id', sa.Text, nullable=False),
+        sa.Column('operation', sa.Text, nullable=False),
+        sa.Column('request_json', JSONB, nullable=False),
+        sa.Column('request_digest', sa.Text, nullable=False),
+        sa.Column('source_kind', sa.Text, nullable=False),
+        sa.Column('status', sa.Text, nullable=False),
+        sa.Column('error_code', sa.Text),
+        sa.Column('object_key', sa.Text),
+        sa.Column('sha256', sa.Text),
+        sa.Column('size_bytes', sa.Integer),
+        sa.Column('cached_from_id', sa.Text, sa.ForeignKey('literature_fetch_receipts.id')),
+        sa.Column('attempted_at', sa.DateTime(timezone=True), nullable=False),
+        sa.ForeignKeyConstraint(['task_id','project_id','user_id'], ['literature_searches.task_id','literature_searches.project_id','literature_searches.user_id'], name='literature_fetch_receipts_search_fkey'),
+        sa.UniqueConstraint('id','task_id','project_id','user_id', name='literature_fetch_receipts_scope_key'),
+        sa.CheckConstraint("operation IN ('esearch','efetch') AND status IN ('succeeded','failed')", name='literature_fetch_receipts_status_check'),
+        sa.CheckConstraint("source_kind IN ('ncbi_eutilities','synthetic_fixture')", name='literature_fetch_receipts_source_check'),
+        sa.CheckConstraint("jsonb_typeof(request_json)='object' AND request_digest ~ '^[0-9a-f]{64}$'", name='literature_fetch_receipts_request_check'),
+        sa.CheckConstraint("(status='failed' AND error_code IS NOT NULL AND object_key IS NULL AND sha256 IS NULL AND size_bytes IS NULL AND cached_from_id IS NULL) OR (status='succeeded' AND error_code IS NULL AND object_key IS NOT NULL AND sha256 ~ '^[0-9a-f]{64}$' AND size_bytes>=1 AND size_bytes<=8388608)", name='literature_fetch_receipts_object_check'))
+    sa.Index('literature_receipts_cache', receipts.c.project_id, receipts.c.source_kind, receipts.c.request_digest, receipts.c.attempted_at.desc())
+    hits = sa.Table('literature_search_hits', metadata,
+        sa.Column('id', sa.Text, primary_key=True),
+        sa.Column('task_id', sa.Text, nullable=False),
+        sa.Column('project_reference_id', sa.Text, nullable=False),
+        sa.Column('reference_id', sa.Text, nullable=False),
+        sa.Column('project_id', sa.Text, nullable=False),
+        sa.Column('user_id', sa.Text, nullable=False),
+        sa.Column('receipt_id', sa.Text, nullable=False),
+        sa.Column('ordinal', sa.Integer, nullable=False),
+        sa.Column('record_json', JSONB, nullable=False),
+        sa.Column('created_at', sa.DateTime(timezone=True), nullable=False),
+        sa.ForeignKeyConstraint(['task_id','project_id','user_id'], ['literature_searches.task_id','literature_searches.project_id','literature_searches.user_id'], name='literature_search_hits_search_fkey'),
+        sa.ForeignKeyConstraint(['project_reference_id','project_id','user_id','reference_id'], ['project_references.id','project_references.project_id','project_references.user_id','project_references.reference_id'], name='literature_search_hits_reference_fkey'),
+        sa.ForeignKeyConstraint(['receipt_id','task_id','project_id','user_id'], ['literature_fetch_receipts.id','literature_fetch_receipts.task_id','literature_fetch_receipts.project_id','literature_fetch_receipts.user_id'], name='literature_search_hits_receipt_fkey'),
+        sa.UniqueConstraint('task_id','reference_id', name='literature_search_hits_record_key'),
+        sa.UniqueConstraint('task_id','ordinal', name='literature_search_hits_order_key'),
+        sa.CheckConstraint("ordinal>=1 AND ordinal<=100 AND jsonb_typeof(record_json)='object'", name='literature_search_hits_record_check'))
+    sa.Index('literature_hits_reference_created', hits.c.project_reference_id, hits.c.created_at.desc(), hits.c.id)
+    limits = sa.Table('ncbi_rate_limits', metadata,
+        sa.Column('scope', sa.Text, primary_key=True),
+        sa.Column('next_allowed_at', sa.DateTime(timezone=True), nullable=False),
+        sa.CheckConstraint("scope='ncbi-eutilities'", name='ncbi_rate_limits_scope_check'))
+    return records, searches, references, receipts, hits, limits
+
+
+def frozen_tables():
+    metadata = sa.MetaData()
+    for name in ('tasks','projects','users'):
+        sa.Table(name, metadata, sa.Column('id', sa.Text, primary_key=True))
+    return define_literature_tables(metadata)
+
+
+def replace_check(table, name, expression):
+    op.drop_constraint(name, table, type_='check')
+    op.create_check_constraint(name, table, expression)
+
+
+def upgrade():
+    for table in frozen_tables():
+        table.create(op.get_bind())
+    replace_check('tasks', 'tasks_type_check', 'task_type IN (' + OLD_TYPES + ", 'literature_search')")
+    replace_check('task_waits', 'task_waits_kind_check', 'kind IN (' + OLD_KINDS + ", 'literature_configuration')")
+    replace_check('task_checkpoints','task_checkpoints_node_check','node IN (' + OLD_NODES + ",'search','fetch')")
+    replace_check('task_checkpoints','task_checkpoints_next_check','next_node IN (' + OLD_NEXT + ",'search','fetch')")
+
+
+def downgrade():
+    bind = op.get_bind()
+    tables = frozen_tables()
+    if any(bind.exec_driver_sql('SELECT EXISTS(SELECT 1 FROM "' + table.name + '")').scalar_one() for table in tables):
+        raise RuntimeError('Cannot remove literature retrieval history')
+    if bind.exec_driver_sql("SELECT EXISTS(SELECT 1 FROM tasks WHERE task_type='literature_search')").scalar_one():
+        raise RuntimeError('Cannot remove literature task history')
+    replace_check('task_checkpoints','task_checkpoints_next_check','next_node IN (' + OLD_NEXT + ')')
+    replace_check('task_checkpoints','task_checkpoints_node_check','node IN (' + OLD_NODES + ')')
+    replace_check('task_waits','task_waits_kind_check','kind IN (' + OLD_KINDS + ')')
+    replace_check('tasks','tasks_type_check','task_type IN (' + OLD_TYPES + ')')
+    for table in reversed(tables):
+        table.drop(bind)

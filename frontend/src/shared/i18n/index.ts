@@ -1,3 +1,8 @@
+import {literatureBatch06Messages} from './literatureBatch06Messages'
+import {literatureCheckMessages} from './literatureCheckMessages'
+import {literatureEvidenceMessages} from './literatureEvidenceMessages'
+import {literatureCitationMessages} from './literatureCitationMessages'
+import {literatureMessages} from './literatureMessages'
 import {batch10StatisticsMessages} from './batch10StatisticsMessages'
 import {batch10SourceMessages} from './batch10SourceMessages'
 import {batch10ObservationMessages} from './batch10ObservationMessages'
@@ -13,7 +18,7 @@ import { fileLifecycleMessages } from './fileLifecycleMessages'
 import { useSyncExternalStore } from 'react'
 import { rootMessages } from './rootMessages'
 import { workflowMessages as originalWorkflowMessages } from './workflowMessages'
-const workflowMessages = { ...batch10StatisticsMessages, ...batch10SourceMessages, ...batch10ObservationMessages, ...batch09Messages, ...figureWorkbenchMessages, ...originalWorkflowMessages, ...documentMessages, ...ocrReviewMessages, ...evidenceMessages, ...fileLifecycleMessages, ...comparisonMessages, ...modelingMessages, ...qualityMessages }
+const workflowMessages = { ...literatureBatch06Messages, ...literatureCheckMessages, ...literatureCitationMessages, ...literatureEvidenceMessages, ...literatureMessages, ...batch10StatisticsMessages, ...batch10SourceMessages, ...batch10ObservationMessages, ...batch09Messages, ...figureWorkbenchMessages, ...originalWorkflowMessages, ...documentMessages, ...ocrReviewMessages, ...evidenceMessages, ...fileLifecycleMessages, ...comparisonMessages, ...modelingMessages, ...qualityMessages }
 import { errorMessages } from './errorMessages'
 
 export type Locale = 'zh-CN' | 'en'
@@ -119,4 +124,14 @@ const snapshot = () => locale
 export function useI18n() {
   const current = useSyncExternalStore(subscribe, snapshot, snapshot)
   return { locale: current, t: translate }
+}
+
+/** Translate a saved artifact explanation without mutating the active UI locale. */
+export function translateForLocale(source: string, outputLocale: Locale, params: Params = {}): string {
+ const translated = outputLocale === 'en'
+  ? Object.hasOwn(literatureCheckMessages, source) ? literatureCheckMessages[source]
+   : Object.hasOwn(rootMessages, source) ? rootMessages[source]
+   : Object.hasOwn(workflowMessages, source) ? workflowMessages[source] : source
+  : source
+ return interpolate(translated, params)
 }

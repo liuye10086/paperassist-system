@@ -96,6 +96,16 @@ from app.api.parsed_evidence import router as parsed_evidence_router
 app.include_router(parsed_evidence_router)
 from app.api.external_evidence import router as external_evidence_router
 app.include_router(external_evidence_router)
+from app.api.literature import router as literature_router
+app.include_router(literature_router)
+from app.api.literature_evidence import router as literature_evidence_router
+app.include_router(literature_evidence_router)
+from app.api.literature_pmc import router as literature_pmc_router
+app.include_router(literature_pmc_router)
+from app.api.literature_assistance import router as literature_assistance_router
+app.include_router(literature_assistance_router)
+from app.api.literature_citations import router as literature_citations_router
+app.include_router(literature_citations_router)
 
 
 @app.get('/api/v1/ai/config')
@@ -161,3 +171,6 @@ app.include_router(report_collections_router)
 
 from app.api.figure_workbench import router as figure_workbench_router
 app.include_router(figure_workbench_router)
+
+from app.api.literature_checks import router as literature_checks_router
+app.include_router(literature_checks_router)

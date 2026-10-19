@@ -6,7 +6,7 @@ import { AccountedAmount, CallReconciliationDisplay, ReconciliationTotals } from
 import './modelUsage.css'
 
 type Props = { projectId: string; active?: boolean }
-const purposes = {figure_workbench:'配置图表生成',figure_explanation:'图表六节解释',analysis_recommendation:'受限分析建议', boxplot: '图表生成', explanation: 'AI 分析解释', word_report: 'Word 报告导出' }
+const purposes:Record<ModelCall['task_type'],string> = {literature_assistance:'文献模型建议',figure_workbench:'配置图表生成',figure_explanation:'图表六节解释',analysis_recommendation:'受限分析建议', boxplot: '图表生成', explanation: 'AI 分析解释', word_report: 'Word 报告导出' }
 const states: Record<ModelCall['status'], string> = { reserved: '已预留', submitting: '提交待确认', submitted: '运行中',
   submission_unknown: '提交结果未知', completed: '已完成', failed: '失败', released: '已释放' }
 

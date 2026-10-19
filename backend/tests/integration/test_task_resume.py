@@ -43,8 +43,8 @@ def test_wait_is_durable_read_only_and_budget_resume_is_atomic(client, cloud, po
     with database_connection() as db:
         wait = db.execute('SELECT * FROM task_waits').fetchone()
         assert wait['status'] == 'resolved' and wait['resolved_at'] is not None
-        assert db.execute('SELECT count(*) AS n FROM task_resume_requests').fetchone()['n'] == 1
-        assert db.execute('SELECT count(*) AS n FROM task_outbox').fetchone()['n'] == 2
+        assert db.execute('SELECT count(*) AS n FROM task_resume_requests WHERE task_id=%s', (task['id'],)).fetchone()['n'] == 1
+        assert db.execute('SELECT count(*) AS n FROM task_outbox WHERE task_id=%s', (task['id'],)).fetchone()['n'] == 2
         assert db.execute('SELECT count(*) AS n FROM model_calls').fetchone()['n'] == 0
     assert not cloud.calls
 
@@ -60,8 +60,8 @@ def test_same_resume_key_is_replayed_even_after_execution_advances(client, polic
     TaskService(owner).transition(task['id'], expected_revision=results[0]['revision'], status='running')
     assert service.resume(task['id'], request, idempotency_key='same') == results[0]
     with database_connection() as db:
-        assert db.execute('SELECT count(*) AS n FROM task_resume_requests').fetchone()['n'] == 1
-        assert db.execute('SELECT count(*) AS n FROM task_outbox').fetchone()['n'] == 2
+        assert db.execute('SELECT count(*) AS n FROM task_resume_requests WHERE task_id=%s', (task['id'],)).fetchone()['n'] == 1
+        assert db.execute('SELECT count(*) AS n FROM task_outbox WHERE task_id=%s', (task['id'],)).fetchone()['n'] == 2
 
 
 def test_competing_keys_or_changed_request_cannot_resolve_one_wait_twice(client, policy):
@@ -87,8 +87,8 @@ def test_unsupported_and_unknown_waits_are_read_only(client, policy, kind):
         TaskResumeService(owner).resume(task['id'], request_for(task), idempotency_key='forbidden')
     assert error.value.status == 409
     with database_connection() as db:
-        assert db.execute('SELECT count(*) AS n FROM task_resume_requests').fetchone()['n'] == 0
-        assert db.execute('SELECT count(*) AS n FROM task_outbox').fetchone()['n'] == 1
+        assert db.execute('SELECT count(*) AS n FROM task_resume_requests WHERE task_id=%s', (task['id'],)).fetchone()['n'] == 0
+        assert db.execute('SELECT count(*) AS n FROM task_outbox WHERE task_id=%s', (task['id'],)).fetchone()['n'] == 1
 
 
 def test_resume_failure_rolls_back_wait_receipt_event_and_outbox(client, policy, monkeypatch):
@@ -103,9 +103,9 @@ def test_resume_failure_rolls_back_wait_receipt_event_and_outbox(client, policy,
         TaskResumeService(owner).resume(task['id'], request, idempotency_key='rollback')
     with database_connection() as db:
         assert db.execute('SELECT status FROM task_waits').fetchone()['status'] == 'open'
-        assert db.execute('SELECT count(*) AS n FROM task_resume_requests').fetchone()['n'] == 0
-        assert db.execute('SELECT count(*) AS n FROM task_events').fetchone()['n'] == 3
-        assert db.execute('SELECT count(*) AS n FROM task_outbox').fetchone()['n'] == 1
+        assert db.execute('SELECT count(*) AS n FROM task_resume_requests WHERE task_id=%s', (task['id'],)).fetchone()['n'] == 0
+        assert db.execute('SELECT count(*) AS n FROM task_events WHERE task_id=%s', (task['id'],)).fetchone()['n'] == 3
+        assert db.execute('SELECT count(*) AS n FROM task_outbox WHERE task_id=%s', (task['id'],)).fetchone()['n'] == 1
 
 
 def test_legacy_retry_resolves_same_wait_and_new_wait_gets_new_identity(client, policy):
@@ -149,10 +149,10 @@ def test_receipt_insert_failure_rolls_back_all_preceding_recovery_writes(client,
     assert error.value.code == 'storage_unavailable'
     with database_connection() as db:
         assert db.execute('SELECT status FROM task_waits').fetchone()['status'] == 'open'
-        assert db.execute('SELECT revision,status FROM tasks').fetchone() == {'revision': task['revision'], 'status': task['status']}
-        assert db.execute('SELECT count(*) AS n FROM task_resume_requests').fetchone()['n'] == 0
-        assert db.execute('SELECT count(*) AS n FROM task_events').fetchone()['n'] == 3
-        assert db.execute('SELECT count(*) AS n FROM task_outbox').fetchone()['n'] == 1
+        assert db.execute('SELECT revision,status FROM tasks WHERE id=%s', (task['id'],)).fetchone() == {'revision': task['revision'], 'status': task['status']}
+        assert db.execute('SELECT count(*) AS n FROM task_resume_requests WHERE task_id=%s', (task['id'],)).fetchone()['n'] == 0
+        assert db.execute('SELECT count(*) AS n FROM task_events WHERE task_id=%s', (task['id'],)).fetchone()['n'] == 3
+        assert db.execute('SELECT count(*) AS n FROM task_outbox WHERE task_id=%s', (task['id'],)).fetchone()['n'] == 1
     with migration_connection(write=True) as db:
         db.execute('DROP TRIGGER reject_resume_test ON task_resume_requests')
         db.execute('DROP FUNCTION reject_resume_test()')
@@ -172,7 +172,7 @@ def test_concurrent_distinct_keys_only_one_can_consume_wait(client, policy):
         outcomes = list(pool.map(resume, ['one', 'two']))
     assert sorted(outcomes) == ['queued', 'task_revision_conflict']
     with database_connection() as db:
-        assert db.execute('SELECT count(*) AS n FROM task_resume_requests').fetchone()['n'] == 1
+        assert db.execute('SELECT count(*) AS n FROM task_resume_requests WHERE task_id=%s', (task['id'],)).fetchone()['n'] == 1
 
 
 @pytest.mark.parametrize('changes', [{'expected_task_revision': True}, {'expected_task_revision': '3'},

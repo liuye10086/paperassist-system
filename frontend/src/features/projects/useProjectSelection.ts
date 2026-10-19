@@ -10,12 +10,13 @@ type Instance = { id: string; key: number }
 type Request = { controller: AbortController; timeout: number }
 
 export default function useProjectSelection(onUnavailable: (id: string) => void, onAvailable: (id: string) => void) {
-  const [section, setSection] = useState<ProjectSection>(() => new URLSearchParams(window.location.hash.slice(1)).get('section') === 'tasks' ? 'tasks' : 'overview')
+  const [section, setSection] = useState<ProjectSection>(() => new URLSearchParams(window.location.hash.slice(1)).get('section') === 'tasks' ? 'tasks' : new URLSearchParams(window.location.hash.slice(1)).get('section')==='literature'?'literature':'overview')
   const [taskId, setTaskId] = useState(() => {
     const params = new URLSearchParams(window.location.hash.slice(1))
     const id = params.get('task') ?? ''
     return params.has('project') && params.get('section') === 'tasks' && isTaskId(id) ? id : ''
   })
+  const [literatureSearchId,setLiteratureSearchId]=useState(()=>{const params=new URLSearchParams(window.location.hash.slice(1));const id=params.get('search')??'';return params.get('section')==='literature'&&/^[A-Za-z0-9_-]{1,64}$/.test(id)?id:''})
   const nextKey = useRef(1)
   const [instance, setInstance] = useState<Instance | null>(() => {
     const id = new URLSearchParams(window.location.hash.slice(1)).get('project')
@@ -54,7 +55,7 @@ export default function useProjectSelection(onUnavailable: (id: string) => void,
       setFailure(null)
       setLoading(false)
       setUnavailableId(instance.id)
-      setTaskId('')
+      setTaskId('');setLiteratureSearchId('')
       setSection('overview')
       callbacks.current.onUnavailable(instance.id)
     })
@@ -63,8 +64,8 @@ export default function useProjectSelection(onUnavailable: (id: string) => void,
 
   useLayoutEffect(() => {
     window.history.replaceState(null, '', window.location.pathname + window.location.search
-      + (instance ? `#project=${encodeURIComponent(instance.id)}${section === 'tasks' ? `&section=tasks${taskId ? `&task=${encodeURIComponent(taskId)}` : ''}` : ''}` : ''))
-  }, [instance, section, taskId])
+      + (instance ? `#project=${encodeURIComponent(instance.id)}${section === 'tasks' ? `&section=tasks${taskId ? `&task=${encodeURIComponent(taskId)}` : ''}` : section==='literature'?`&section=literature${literatureSearchId?`&search=${encodeURIComponent(literatureSearchId)}`:''}`:''}` : ''))
+  }, [instance, section, taskId, literatureSearchId])
 
   useEffect(() => {
     if (!instance) return
@@ -110,7 +111,7 @@ export default function useProjectSelection(onUnavailable: (id: string) => void,
   function open(id: string, seed?: Project) {
     setUnavailableId('')
     if (instance?.id === id && current.current === instance) { refresh(); return }
-    setTaskId('')
+    setTaskId('');setLiteratureSearchId('')
     setSection('overview')
     cancel()
     const next = { id, key: ++nextKey.current }
@@ -135,7 +136,7 @@ export default function useProjectSelection(onUnavailable: (id: string) => void,
     setFailure(null)
     setUnavailableId('')
     setLoading(false)
-    setTaskId('')
+    setTaskId('');setLiteratureSearchId('')
     setSection('overview')
   }
 
@@ -151,5 +152,5 @@ export default function useProjectSelection(onUnavailable: (id: string) => void,
 
   return { instance, project: detail?.instance === instance ? detail.project : null,
     error: failure?.instance === instance ? failure.message : '', loading, unavailableId, open, refresh, update, close,
-    section, taskId, changeSection, selectTask }
+    section, taskId, literatureSearchId, selectLiterature:(id:string)=>{if(id&&!/^[A-Za-z0-9_-]{1,64}$/.test(id))return;setSection('literature');setLiteratureSearchId(id)}, changeSection, selectTask }
 }

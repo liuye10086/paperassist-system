@@ -12,6 +12,23 @@ import worker_stack
 
 
 class WorkerStackTests(unittest.TestCase):
+    def test_ncbi_identity_is_private_and_test_stack_always_disables_it(self):
+        with tempfile.TemporaryDirectory() as directory, patch.object(worker_stack,'protect_directory'):
+            root = Path(directory)
+            values = {**self.values(),'PAPERASSIST_NCBI_ENABLED':'1','PAPERASSIST_NCBI_EMAIL':'private@example.invalid',
+                      'PAPERASSIST_NCBI_API_KEY':'ncbi-secret-marker'}
+            dev = worker_stack.prepare(root,values)
+            bundle = json.loads((dev.directory/'ncbi-config').read_text())
+            self.assertTrue(bundle['enabled'])
+            self.assertEqual(bundle['api_key'],'ncbi-secret-marker')
+            self.assertNotIn('ncbi-secret-marker',(dev.directory/'stack.json').read_text())
+            self.assertNotIn('private@example.invalid',str(dev.environment))
+            ident = 'd'*32
+            test = worker_stack.prepare(root,{**values,'PAPERASSIST_ENV':'test','PAPERASSIST_DB_SCHEMA':'pa_test_'+ident},
+                test_id=ident,assets=root/'isolated-assets')
+            safe = json.loads((test.directory/'ncbi-config').read_text())
+            self.assertEqual(safe,{'enabled':False,'tool':'PaperAssist','email':'','api_key':''})
+
     def test_acl_identity_accepts_utf8_localized_account_name(self):
         whoami = subprocess.CompletedProcess([], 0, '"用户","S-1-5-21-123"\r\n'.encode('utf-8'), b'')
         with patch.object(worker_stack.os, 'name', 'nt'), patch.object(worker_stack.subprocess, 'run', return_value=whoami) as run:

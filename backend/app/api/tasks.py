@@ -32,6 +32,14 @@ class RetryRequest(BaseModel):
 def retry_task(task_id: str, request: RetryRequest, store: Store):
     store.require_mutable(task_id)
     task_type = store.get(task_id)['task_type']
+    if task_type == 'literature_assistance':
+        from app.domain.literature_assistance.service import retry_in_transaction
+        with store.connection(write=True) as db:
+            return retry_in_transaction(store,db,store.require_task(db,task_id),request.expected_revision)
+    if task_type == 'literature_search':
+        from app.domain.literature.service import retry_in_transaction
+        with store.connection(write=True) as db:
+            return retry_in_transaction(store,db,store.require_task(db,task_id),request.expected_revision)
     if task_type == 'statistics_compute':
         from app.domain.statistics_execution.service import retry_in_transaction
         with store.connection(write=True) as db:

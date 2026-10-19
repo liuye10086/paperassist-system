@@ -1,9 +1,21 @@
 from app.db.database import database_connection
-from tests.integration.test_task_execution import queued
+from tests.integration.test_task_execution import queued as prepare_queued
 from tests.api.test_analysis import client  # noqa: F401
 from tests.api.test_boxplot import cloud  # noqa: F401
 from tests.integration.test_explanations import writer  # noqa: F401
 import pytest
+
+
+def queued(client):
+    result = prepare_queued(client)
+    # The stage04 prerequisite executes statistics synchronously in this fixture.
+    # Model its already-consumed message, leaving only the queued Word task for
+    # the broker-confirmation failure under test; no production rows are touched.
+    with database_connection(write=True) as db:
+        db.execute("""UPDATE task_outbox AS o SET published_at=clock_timestamp()
+            FROM tasks AS t WHERE o.task_id=t.id AND t.status='succeeded'
+            AND o.published_at IS NULL""")
+    return result
 
 
 def test_dispatch_failure_keeps_outbox_and_later_confirmation_marks_it(client, cloud, writer):
@@ -15,16 +27,16 @@ def test_dispatch_failure_keeps_outbox_and_later_confirmation_marks_it(client, c
         raise OSError('broker down with private information')
     assert dispatch_once(publish=offline) == 0
     with database_connection(write=True) as db:
-        row = db.execute('SELECT * FROM task_outbox').fetchone()
+        row = db.execute('SELECT * FROM task_outbox WHERE task_id=%s', (task['id'],)).fetchone()
         assert row['published_at'] is None and row['publish_attempts'] == 1
         db.execute("UPDATE task_outbox SET available_at=clock_timestamp()-interval '1 second'")
     assert dispatch_once(publish=lambda message: calls.append(message)) == 1
     assert all(set(call) == {'id', 'task_id', 'task_revision'} for call in calls)
     assert calls[0]['task_id'] == task['id']
     with database_connection() as db:
-        row = db.execute('SELECT * FROM task_outbox').fetchone()
+        row = db.execute('SELECT * FROM task_outbox WHERE task_id=%s', (task['id'],)).fetchone()
         assert row['published_at'] is not None and row['publish_attempts'] == 2
-        assert db.execute('SELECT status FROM tasks').fetchone()['status'] == 'queued'
+        assert db.execute('SELECT status FROM tasks WHERE id=%s', (task['id'],)).fetchone()['status'] == 'queued'
 
 
 def test_confirmed_message_before_database_mark_can_be_replayed_safely(client, cloud, writer, monkeypatch):
@@ -44,7 +56,7 @@ def test_confirmed_message_before_database_mark_can_be_replayed_safely(client, c
             dispatch_once(publish=lambda message: calls.append(message))
     assert len(calls) == 1
     with database_connection(write=True) as db:
-        assert db.execute('SELECT published_at FROM task_outbox').fetchone()['published_at'] is None
+        assert db.execute('SELECT published_at FROM task_outbox WHERE task_id=%s', (task['id'],)).fetchone()['published_at'] is None
         db.execute("UPDATE task_outbox SET available_at=clock_timestamp()-interval '1 second'")
     assert dispatch_once(publish=lambda message: calls.append(message)) == 1
     assert calls[0] == calls[1]

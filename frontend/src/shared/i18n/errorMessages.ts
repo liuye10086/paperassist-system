@@ -1,5 +1,15 @@
 // Public server codes only. Never render arbitrary server exception text.
 export const errorMessages: Record<string, { zh: string; en: string }> = {
+  literature_supplement_limit:{zh:'该论述已使用一轮补搜（最多20篇），请继续已有任务。',en:'This claim already has one supplementary search (up to 20 candidates). Continue the existing task.'},
+  literature_assistance_not_authorized:{zh:'真实文献模型调用尚未授权；任务将持久等待。',en:'Real literature model calls are not authorized. The task waits persistently.'},
+  literature_assistance_invalid:{zh:'模型建议格式或证据约束无效，未发布建议。',en:'The model suggestion failed format or evidence checks and was not published.'},
+  ncbi_not_configured:{zh:'NCBI 配置尚未就绪，检索任务已保存，等待配置后继续。',en:'NCBI configuration is not ready. The search task is saved and waits for configuration.'},
+  ncbi_unavailable:{zh:'NCBI 暂时不可用，已保存的检索进度会保留。',en:'NCBI is temporarily unavailable. Saved search progress is retained.'},
+  ncbi_request_rejected:{zh:'NCBI 未接受检索请求，请核对检索条件与服务配置。',en:'NCBI rejected the search request. Check the query conditions and service configuration.'},
+  ncbi_response_invalid:{zh:'NCBI 返回内容未通过检查，未将无效内容保存为候选文献。',en:'The NCBI response failed validation. Invalid content was not saved as candidate references.'},
+  literature_not_found:{zh:'文献记录不存在或无权访问，请重新读取。',en:'This literature record is unavailable or inaccessible. Reload it.'},
+  literature_source_conflict:{zh:'文献来源与保存记录不一致，请重新读取并联系管理员核对。',en:'The literature source does not match its saved record. Reload and ask the administrator to investigate.'},
+  literature_revision_conflict:{zh:'候选筛选已被修改，请重新读取后再保存。',en:'The candidate selection changed. Reload it before saving again.'},
 numeric_environment_unavailable:{zh:'当前执行环境不支持安全固定统计，请联系管理员检查 Linux 隔离能力。',en:'The current runtime cannot safely execute fixed statistics. Ask the administrator to check Linux isolation support.'},
 numeric_process_terminated:{zh:'固定统计进程已中断，未发布结果；请检查运行环境或缩小输入。',en:'The fixed-statistics process was terminated without publishing a result. Check the runtime or reduce the input.'},
 model_observation_expired:{zh:'云端任务观察期限已到，请重新读取原任务；已有调用不会重新发送。',en:'The cloud observation deadline has elapsed. Reload the original task; the existing call will not be resubmitted.'},

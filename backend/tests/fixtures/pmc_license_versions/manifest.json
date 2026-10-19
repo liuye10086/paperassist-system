@@ -1,0 +1,20 @@
+[
+  {
+    "pmcid": "PMC12529328",
+    "pmid": "41091476",
+    "historical_status": "pmc_license_denied",
+    "sha256": "81cc37cc67dcaaeacd323ac583f4d4cdfcdbd49497eb7b658529cb65ef2ace75"
+  },
+  {
+    "pmcid": "PMC6827248",
+    "pmid": "31679516",
+    "historical_status": "pmc_license_denied",
+    "sha256": "bba7eeedfdbee1199403868f1046839021edf6135d8ea12ceb6b3ff42fa233ee"
+  },
+  {
+    "pmcid": "PMC12085591",
+    "pmid": "40382433",
+    "historical_status": "pmc_license_denied",
+    "sha256": "f0c7feff18741598daa097a042d373ae55faf2b9e3473e8c0049bcbc50aa0cd6"
+  }
+]

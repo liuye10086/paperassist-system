@@ -10,7 +10,7 @@ from tests.db.test_task_schema import seed_owner, insert_row, task_row, task_sch
 
 
 def test_wait_tables_are_native_and_runtime_role_can_access(postgres_schema):
-    assert SCHEMA_HEAD == '0029_statistics_execution'
+    assert SCHEMA_HEAD == '0034_literature_pmc'
     assert {'task_waits', 'task_resume_requests'} <= metadata.tables.keys()
     with database_connection() as db:
         columns = {item['name']: item for item in inspect(db.raw_connection).get_columns('task_waits', schema=postgres_schema.schema)}

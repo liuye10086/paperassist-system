@@ -1,3 +1,4 @@
+import ProjectLiterature from '../literature/ProjectLiterature'
 import { apiFetch } from '../../shared/api/client'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
@@ -268,7 +269,8 @@ export default function ProjectWorkspace() {
         </div>
         <ProjectModelUsage projectId={project.id} active={view === 'project' && section === 'overview'} />
         <ProjectTasks onOpenFiles={() => changeSection('files')} projectId={project.id} active={view === 'project' && section === 'tasks'}
-          selectedTaskId={selection.taskId} onSelectTask={selection.selectTask} />
+          selectedTaskId={selection.taskId} onSelectTask={selection.selectTask} onOpenLiterature={selection.selectLiterature} />
+        <ProjectLiterature projectId={project.id} researchTopic={project.research_topic} outputLanguage={project.default_output_language} active={view==='project'&&section==='literature'} initialSearchId={selection.literatureSearchId} onSearchChange={selection.selectLiterature} onOpenTask={selection.selectTask}/>
         <ProjectResources projectId={project.id} active={view === 'project'} section={section} onSectionChange={changeSection} onSaved={() => { refresh(); selection.refresh() }} />
       </div>}
     </section>}

@@ -1,3 +1,6 @@
 # Preserve synthetic binary fixture bytes on every platform.
 backend/tests/fixtures/**/*.pdf binary
 backend/tests/fixtures/**/*.png binary
+
+# Preserve raw PMC response hashes, including original line endings and spaces.
+backend/tests/fixtures/pmc_license_versions/*.xml -text -whitespace

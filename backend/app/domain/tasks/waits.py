@@ -8,6 +8,12 @@ from app.domain.tasks.wait_contracts import WaitView
 
 
 def input_version(task):
+    if task['task_type'] == 'literature_assistance':
+        from app.domain.literature_assistance.service import input_version as assistance_input_version
+        return assistance_input_version(task)
+    if task['task_type'] == 'literature_search':
+        from app.domain.literature.service import input_version as literature_input_version
+        return literature_input_version(task)
     if task['task_type'] == 'statistics_compute':
         from app.domain.statistics_execution.service import input_version as statistics_input_version
         return statistics_input_version(task)
@@ -90,6 +96,10 @@ def persist_wait(db, task):
     kind = ('unsupported_input' if task['status'] == 'waiting_input' else
         {'budget_exceeded': 'budget_confirmation', 'submission_unknown': 'submission_unknown', 'observation_expired': 'remote_observation'}.get(
             task['reason_code'], 'unsupported_confirmation'))
+    if task['task_type'] == 'literature_assistance' and task['reason_code'] == 'confirmation_required':
+        kind = 'literature_model_authorization'
+    if task['task_type'] == 'literature_search' and task['reason_code'] == 'confirmation_required':
+        kind = 'literature_configuration'
     if task['task_type'] == 'prepare_dataset' and task['reason_code'] == 'confirmation_required':
         kind = 'dataset_preparation_confirmation'
     if task['task_type'] == 'review_ocr' and task['reason_code'] == 'confirmation_required':
@@ -108,6 +118,16 @@ def persist_wait(db, task):
 
 
 def allowed_recovery_actions(db, task):
+    if task['task_type'] == 'literature_assistance' and task.get('reason_code') != 'observation_expired':
+        from app.domain.literature_assistance.service import recovery_actions
+        return recovery_actions(db,task)
+    if task['task_type'] == 'literature_search':
+        from app.domain.literature.service import configuration
+        if not configuration()['available']: return []
+        if task['status'] == 'waiting_confirmation':
+            wait = get_open_wait(db, task)
+            return ['resume'] if wait and wait['kind'] == 'literature_configuration' and wait['task_revision'] == task['revision'] else []
+        return ['retry'] if task['status'] == 'failed' and task.get('error_code') in ('ncbi_unavailable','storage_unavailable','task_worker_interrupted') else []
     if task.get('reason_code') == 'observation_expired':
         from app.domain.model_usage.observation import resumable_call
         wait = get_open_wait(db, task)

@@ -181,6 +181,18 @@ def audit_database(db):
         checks.extend(audit_file_lifecycle(db))
         from app.maintenance.figure_report_audit import audit_figure_reports
         checks.extend(audit_figure_reports(db))
+        from app.maintenance.literature_audit import audit_literature
+        checks.extend(audit_literature(db))
+        from app.maintenance.literature_evidence_audit import audit_literature_evidence
+        checks.extend(audit_literature_evidence(db))
+        from app.maintenance.literature_assistance_audit import audit_literature_assistance
+        checks.extend(audit_literature_assistance(db))
+        from app.maintenance.literature_citation_audit import audit_literature_citations
+        checks.extend(audit_literature_citations(db))
+        from app.maintenance.literature_check_audit import audit_literature_checks
+        checks.extend(audit_literature_checks(db))
+        from app.maintenance.literature_pmc_audit import audit_literature_pmc
+        checks.extend(audit_literature_pmc(db))
     return {'schema': schema, 'ok': not issues and not any(c['invalid'] for c in checks), 'schema_issues': issues, 'data_checks': checks,
             'compatibility': 'Legacy JSON/time validated in audit only; task JSONB/time use native types; source chains use single-column foreign keys; values preserved.'}
 

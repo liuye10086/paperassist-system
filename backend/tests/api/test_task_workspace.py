@@ -39,7 +39,7 @@ def test_workspace_reads_current_source_without_private_snapshot_or_writes(clien
     assert data['wait'] is None and data['allowed_actions'] == []
     assert data['artifacts'] == {'figure': None, 'explanation': None, 'report': None}
     assert_request_id(response)
-    page = client.get(f'/api/v1/projects/{project}/tasks').json()
+    page = client.get(f'/api/v1/projects/{project}/tasks?task_type=boxplot').json()
     assert page['items'] == [{'task': task, 'source': data['source']}]
     assert counts() == before and cloud.calls == []
     for secret in ('input_snapshot', 'input_digest', 'source_sha256', 'boxplot_policy', 'provider_state', 'idempotency_key'):
@@ -56,24 +56,24 @@ def test_project_tasks_filter_and_page_stably(client):
                    (second['created_at'], first['id']))
     running = service.transition(first['id'], expected_revision=1, status='running')
     service.transition(first['id'], expected_revision=running['revision'], status='failed', reason_code='execution_failed')
-    response = client.get(f'/api/v1/projects/{project}/tasks?page=1&page_size=1')
+    response = client.get(f'/api/v1/projects/{project}/tasks?task_type=boxplot&page=1&page_size=1')
     assert response.status_code == 200, response.text
     assert_request_id(response)
     page = response.json()
     assert page['total'] == 2 and page['page'] == 1 and page['page_size'] == 1
     assert page['items'][0]['task']['id'] == second['id']
-    assert client.get(f'/api/v1/projects/{project}/tasks?page=2&page_size=1').json()['items'][0]['task']['id'] == first['id']
+    assert client.get(f'/api/v1/projects/{project}/tasks?task_type=boxplot&page=2&page_size=1').json()['items'][0]['task']['id'] == first['id']
     filtered = client.get(f'/api/v1/projects/{project}/tasks?status=failed&task_type=boxplot').json()
     assert filtered['total'] == 1 and filtered['items'][0]['task']['id'] == first['id']
     assert client.get(f'/api/v1/projects/{project}/tasks?task_type=word_report').json()['items'] == []
     # Equal timestamps still give deterministic pagination.
     with database_connection(write=True) as db:
-        db.execute('UPDATE tasks SET created_at=%s WHERE project_id=%s', (first['created_at'], project))
-    tied = client.get(f'/api/v1/projects/{project}/tasks').json()['items']
+        db.execute("UPDATE tasks SET created_at=%s WHERE project_id=%s AND task_type='boxplot'", (first['created_at'], project))
+    tied = client.get(f'/api/v1/projects/{project}/tasks?task_type=boxplot').json()['items']
     assert [item['task']['id'] for item in tied] == sorted([first['id'], second['id']], reverse=True)
     other, *_ = create_task(client, 'other-project')
-    assert client.get(f'/api/v1/projects/{project}/tasks').json()['total'] == 2
-    assert client.get(f'/api/v1/projects/{other}/tasks').json()['total'] == 1
+    assert client.get(f'/api/v1/projects/{project}/tasks?task_type=boxplot').json()['total'] == 2
+    assert client.get(f'/api/v1/projects/{other}/tasks?task_type=boxplot').json()['total'] == 1
 
 
 def test_stale_source_is_readable_but_not_recoverable(client):
@@ -105,7 +105,7 @@ def test_reads_hide_other_owner_and_disabled_account(client):
     from fastapi.testclient import TestClient
     from app.main import app
     project, _, _, _, _, task = create_task(client)
-    endpoints = [f'/api/v1/projects/{project}/tasks', f'/api/v1/tasks/{task["id"]}/workspace']
+    endpoints = [f'/api/v1/projects/{project}/tasks?task_type=boxplot', f'/api/v1/tasks/{task["id"]}/workspace']
     stranger, _ = account_client('task-reader@example.test')
     try:
         with TestClient(app) as anonymous:

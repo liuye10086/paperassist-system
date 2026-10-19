@@ -53,6 +53,7 @@ services:
     environment:
       <<: *worker-environment
       OPENAI_API_KEY_FILE: /run/secrets/model-api-key
+      PAPERASSIST_NCBI_CONFIG_FILE: /run/secrets/ncbi-config
       PAPERASSIST_WORKER_CONFIG_REVISION: ${PAPERASSIST_WORKER_CONFIG_REVISION}
     secrets:
       - source: database-url
@@ -61,6 +62,8 @@ services:
         target: broker-url
       - source: model-api-key
         target: model-api-key
+      - source: ncbi-config
+        target: ncbi-config
     command: [python, -m, app.workers, worker]
     healthcheck:
       test: [CMD, python, -m, app.workers, health, worker]
@@ -78,6 +81,8 @@ services:
       retries: 6
       start_period: 10s
 secrets:
+  ncbi-config:
+    file: ${PAPERASSIST_STACK_PRIVATE}/ncbi-config
   model-api-key:
     file: ${PAPERASSIST_STACK_PRIVATE}/model-api-key
   database-url:

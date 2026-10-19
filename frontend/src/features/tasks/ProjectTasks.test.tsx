@@ -1,7 +1,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
 import ProjectTasks from './ProjectTasks'
-import { legacyTaskFixture, legacyWorkspaceFixture, pageFixture, preparationSourceFixture, preparationTaskFixture, sourceFixture } from './taskFixtures'
+import { legacyTaskFixture, legacyWorkspaceFixture, pageFixture, preparationSourceFixture, preparationTaskFixture, sourceFixture, taskFixture } from './taskFixtures'
 import { clearApiSession } from '../../shared/api/client'
 import { setLocale } from '../../shared/i18n'
 
@@ -78,4 +78,18 @@ it.each(['zh-CN', 'en'] as const)('identifies local preparation in the task list
  expect(screen.getByText(locale === 'en' ? 'Preparation preview' : '整理预览')).toBeTruthy()
  expect(screen.queryByText(/分析配置 v|Analysis setup v/)).toBeNull()
  expect(screen.queryByText(locale === 'en' ? 'Current analysis setup' : '当前分析配置')).toBeNull()
+})
+
+it.each([['zh-CN',true],['zh-CN',false],['en',true],['en',false]] as const)('shows frozen literature assistance source instead of statistical setup in %s (current=%s)',async(locale,current)=>{
+ setLocale(locale)
+ const task={...taskFixture,id:'assistance-list1',task_type:'literature_assistance',phase:current?'plan':'verify',input_version:{kind:'literature_assistance',workflow_version:'literature_assistance_v1',assistance_kind:current?'search_plan':'evidence_review',input_digest:'a'.repeat(64),output_language:'en'}}
+ const source={file_id:null,filename:'Synthetic bound research context',analysis_run_id:null,is_current:current}
+ vi.stubGlobal('fetch',vi.fn(async()=>Response.json({...pageFixture,total:1,items:[{task,source}]})))
+ render(<ProjectTasks {...props}/>)
+ await screen.findByText('Synthetic bound research context')
+ expect(screen.getByText(locale==='en'?'Frozen literature assistance input':'冻结的文献建议输入')).toBeTruthy()
+ expect(screen.getByText(locale==='en'?(current?'Bound to the input version at submission':'Bound to a historical claim revision'):(current?'绑定提交时的输入版本':'绑定历史论述版本'))).toBeTruthy()
+ expect(screen.queryByText(/分析配置 v|Analysis configuration v|Analysis setup v/)).toBeNull()
+ expect(screen.queryByText(/当前分析配置|历史分析配置|Current analysis setup|Historical analysis setup|Current analysis configuration|Historical analysis configuration/)).toBeNull()
+ expect(screen.queryByText('assistance-list1')).toBeNull()
 })

@@ -1,0 +1,59 @@
+{
+  "PMC12529328": {
+    "status": "pmc_license_denied",
+    "source_kind": "pmc_oai",
+    "responses": [
+      {
+        "metadata_prefix": "pmc_fm",
+        "http_status": 200,
+        "error": "pmc_license_denied",
+        "capture_status": "complete",
+        "byte_limit": 8388608,
+        "admission_code": null,
+        "received_bytes": 27724,
+        "attempted": true,
+        "retained_bytes": 27724
+      }
+    ],
+    "metadata": null,
+    "parsed": null
+  },
+  "PMC6827248": {
+    "status": "pmc_license_denied",
+    "source_kind": "pmc_oai",
+    "responses": [
+      {
+        "metadata_prefix": "pmc_fm",
+        "http_status": 200,
+        "error": "pmc_license_denied",
+        "capture_status": "complete",
+        "byte_limit": 8388608,
+        "admission_code": null,
+        "received_bytes": 14142,
+        "attempted": true,
+        "retained_bytes": 14142
+      }
+    ],
+    "metadata": null,
+    "parsed": null
+  },
+  "PMC12085591": {
+    "status": "pmc_license_denied",
+    "source_kind": "pmc_oai",
+    "responses": [
+      {
+        "metadata_prefix": "pmc_fm",
+        "http_status": 200,
+        "error": "pmc_license_denied",
+        "capture_status": "complete",
+        "byte_limit": 8388608,
+        "admission_code": null,
+        "received_bytes": 11901,
+        "attempted": true,
+        "retained_bytes": 11901
+      }
+    ],
+    "metadata": null,
+    "parsed": null
+  }
+}

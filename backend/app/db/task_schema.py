@@ -7,7 +7,7 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import JSONB
 
 
-TASK_TYPES = "'boxplot', 'explanation', 'word_report', 'parse_file', 'extract_dataset', 'prepare_dataset', 'review_ocr', 'analysis_plan', 'analysis_recommendation', 'figure_projection', 'figure_workbench', 'figure_explanation', 'collection_word_report', 'statistics_compute'"
+TASK_TYPES = "'boxplot', 'explanation', 'word_report', 'parse_file', 'extract_dataset', 'prepare_dataset', 'review_ocr', 'analysis_plan', 'analysis_recommendation', 'figure_projection', 'figure_workbench', 'figure_explanation', 'collection_word_report', 'statistics_compute', 'literature_search', 'literature_assistance'"
 STATUSES = "'queued', 'running', 'waiting_input', 'waiting_confirmation', 'succeeded', 'failed'"
 ATTEMPT_STATUSES = "'running', 'waiting_input', 'waiting_confirmation', 'succeeded', 'failed'"
 PHASES = "'parse', 'plan', 'compute', 'search', 'interpret', 'write', 'export', 'verify'"
@@ -43,6 +43,7 @@ def define_task_tables(metadata):
         Column('result_figure_id', Text, ForeignKey('figures.id', name='tasks_result_figure_id_fkey')),
         Column('figure_candidate', JSONB(none_as_null=True)),
         CheckConstraint("verification_failure IS NULL OR jsonb_typeof(verification_failure)='object'", name='tasks_verification_failure_check'),
+        UniqueConstraint('id','project_id','user_id', name='tasks_scope_key'),
         UniqueConstraint('user_id', 'project_id', 'task_type', 'idempotency_key', name='tasks_idempotency_key'),
         CheckConstraint(f'task_type IN ({TASK_TYPES})', name='tasks_type_check'),
         CheckConstraint(f'status IN ({STATUSES})', name='tasks_status_check'),

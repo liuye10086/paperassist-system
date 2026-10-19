@@ -4,12 +4,14 @@ from typing import Annotated, Literal
 
 from app.domain.analysis_sources import DatasetAnalysisSource, AnyDatasetAnalysisSource
 from app.domain.ocr_review.contracts import OcrReviewInputVersion
+from app.domain.literature.contracts import LiteratureInputVersion
+from app.domain.literature_assistance.contracts import AssistanceInputVersion
 from app.domain.tasks.errors import ErrorCategory, RetryReason
 
 from pydantic import AfterValidator, AwareDatetime, BaseModel, ConfigDict, Field, model_validator
 
 
-TaskType = Literal['boxplot', 'explanation', 'word_report', 'parse_file', 'extract_dataset', 'prepare_dataset', 'review_ocr', 'analysis_plan', 'analysis_recommendation', 'figure_projection', 'figure_workbench', 'figure_explanation', 'collection_word_report', 'statistics_compute']
+TaskType = Literal['boxplot', 'explanation', 'word_report', 'parse_file', 'extract_dataset', 'prepare_dataset', 'review_ocr', 'analysis_plan', 'analysis_recommendation', 'figure_projection', 'figure_workbench', 'figure_explanation', 'collection_word_report', 'statistics_compute', 'literature_search', 'literature_assistance']
 UTCDateTime = Annotated[AwareDatetime, AfterValidator(lambda value: value.astimezone(timezone.utc))]
 TaskStatus = Literal['queued', 'running', 'waiting_input', 'waiting_confirmation', 'succeeded', 'failed']
 TaskPhase = Literal['parse', 'plan', 'compute', 'search', 'interpret', 'write', 'export', 'verify']
@@ -143,7 +145,7 @@ class TaskView(BaseModel):
     reason_code: TaskReason | None
     created_at: UTCDateTime
     updated_at: UTCDateTime | None
-    input_version: StatisticsInputVersion | CollectionInputVersion | RecommendationInputVersion | AnalysisPlanInputVersion | OcrReviewInputVersion | PreparationInputVersion | DatasetAnalysisInputVersion | InputVersion | ParseInputVersion | StructureInputVersion
+    input_version: AssistanceInputVersion | LiteratureInputVersion | StatisticsInputVersion | CollectionInputVersion | RecommendationInputVersion | AnalysisPlanInputVersion | OcrReviewInputVersion | PreparationInputVersion | DatasetAnalysisInputVersion | InputVersion | ParseInputVersion | StructureInputVersion
     result_analysis_run_id: str | None = None
     execution_receipt: dict | None = None
     result_report_id: str | None = None
@@ -153,6 +155,10 @@ class TaskView(BaseModel):
 
     @model_validator(mode='after')
     def metadata_matches_origin(self):
+        if (self.task_type == 'literature_assistance') != isinstance(self.input_version, AssistanceInputVersion):
+            raise ValueError('Input version must match literature assistance task type.')
+        if (self.task_type == 'literature_search') != isinstance(self.input_version, LiteratureInputVersion):
+            raise ValueError('Input version must match literature task type.')
         if (self.task_type == 'statistics_compute') != isinstance(self.input_version, StatisticsInputVersion):
             raise ValueError('Input version must match statistics task type.')
         if (self.task_type == 'parse_file') != isinstance(self.input_version, ParseInputVersion):

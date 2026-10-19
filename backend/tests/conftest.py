@@ -9,6 +9,10 @@ import pytest
 def isolate_cloud_worker(monkeypatch):
     # Tests control cloud completion explicitly; never touch a developer's live API.
     monkeypatch.setenv('PAPERASSIST_PLOT_WORKER_ENABLED', '0')
+    monkeypatch.setenv('PAPERASSIST_NCBI_ENABLED', '0')
+    monkeypatch.setenv('PAPERASSIST_NCBI_CONFIG_FILE', '')
+    monkeypatch.setenv('PAPERASSIST_NCBI_EMAIL', '')
+    monkeypatch.setenv('PAPERASSIST_NCBI_API_KEY', '')
     monkeypatch.setenv('OPENAI_API_KEY', '')
     monkeypatch.setenv('OPENAI_API_KEY_FILE', '')
     monkeypatch.setenv('PAPERASSIST_EXPLANATION_POLICY_FILE', '')
