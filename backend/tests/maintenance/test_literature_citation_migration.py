@@ -13,7 +13,7 @@ def test_citation_upgrade_retains_existing_rows_indexes_and_sources(client):
     original_claim=claim(client,lit+'/evidence')
     source_url=refs[0]['source']['source_download_url'];source=client.get(source_url).content
     config=alembic_config()
-    assert ScriptDirectory.from_config(config).get_heads()==['0034_literature_pmc']
+    assert ScriptDirectory.from_config(config).get_heads()==['0040_manuscript_writing_live']
     with migration_connection(write=True) as db:
         config.attributes.update(connection=db.raw_connection,database_config=get_migration_database_config())
         command.downgrade(config,'0031_literature_evidence')

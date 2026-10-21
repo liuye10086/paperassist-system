@@ -24,7 +24,7 @@ def test_analysis_post_queues_without_computing(client, monkeypatch):
 
 def test_statistics_schema_is_exact_and_nullable():
     from app.db.schema import metadata
-    assert SCHEMA_HEAD == '0034_literature_pmc'
+    assert SCHEMA_HEAD == '0040_manuscript_writing_live'
     assert 'result_analysis_run_id' in metadata.tables['tasks'].c
     assert 'execution_receipt' in metadata.tables['tasks'].c
     with database_connection() as db:

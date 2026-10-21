@@ -1,0 +1,10 @@
+.layout-exports { margin-top: 12px; min-width: 0; }
+.layout-exports .layout-source { overflow-wrap: anywhere; font-size: .85rem; }
+.layout-form { display: grid; gap: 12px; min-width: 0; border: 1px solid #d7dee8; padding: 12px; }
+.layout-form label { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 8px 0; }
+.layout-form label:has(textarea), .layout-form label:has(input:not([type=checkbox])) { display: grid; }
+.layout-form select, .layout-form textarea, .layout-form input:not([type=checkbox]) { max-width: 100%; min-width: 0; padding: 6px; }
+.layout-form select { width: min(100%, 580px); }
+.layout-form fieldset { min-width: 0; margin: 10px 0; border: 1px solid #d7dee8; }
+.layout-exports code { white-space: pre-wrap; overflow-wrap: anywhere; }
+.layout-exports details { margin: 10px 0; }

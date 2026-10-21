@@ -1,3 +1,4 @@
+import ProjectManuscripts from '../manuscripts/ProjectManuscripts'
 import ProjectLiterature from '../literature/ProjectLiterature'
 import { apiFetch } from '../../shared/api/client'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
@@ -207,7 +208,7 @@ export default function ProjectWorkspace() {
 
   const recentProject = view === 'home' && !query.q && !query.type && query.page === 1 && !loadError ? projects[0] : undefined
 
-  return <WorkspaceShell view={view} onNavigate={navigate} onCreate={() => setShowCreate(true)} projectName={project?.name}
+  return <WorkspaceShell view={view} onNavigate={navigate} onCreate={() => setShowCreate(true)} projectName={project?.name} projectType={project?.project_type}
     section={section} onSectionChange={changeSection} onCurrentProject={() => navigate('project')}>
     <div ref={workspaceRegion} className="project-workspace">
     <section ref={listRegion} tabIndex={-1} hidden={view === 'project'} aria-labelledby="projects-title">
@@ -265,12 +266,13 @@ export default function ProjectWorkspace() {
         </div>
         <div hidden={section !== 'overview' && section !== 'artifacts'}>
           <ProjectSummary projectId={project.id} projectType={project.project_type} view={section === 'artifacts' ? 'artifacts' : 'overview'}
-            active={view === 'project' && (section === 'overview' || section === 'artifacts')} />
+            active={view === 'project' && (section === 'overview' || section === 'artifacts')} onOpenManuscripts={()=>changeSection('manuscripts')} />
         </div>
         <ProjectModelUsage projectId={project.id} active={view === 'project' && section === 'overview'} />
-        <ProjectTasks onOpenFiles={() => changeSection('files')} projectId={project.id} active={view === 'project' && section === 'tasks'}
+        <ProjectManuscripts projectId={project.id} researchTopic={project.research_topic} outputLanguage={project.default_output_language??'zh-CN'} active={view==='project'&&section==='manuscripts'&&project.project_type==='sci'} onOpenTask={selection.selectTask} onOpenLiterature={()=>selection.selectLiterature('')}/>
+        <ProjectTasks onOpenManuscripts={()=>changeSection('manuscripts')} onOpenFiles={() => changeSection('files')} projectId={project.id} active={view === 'project' && section === 'tasks'}
           selectedTaskId={selection.taskId} onSelectTask={selection.selectTask} onOpenLiterature={selection.selectLiterature} />
-        <ProjectLiterature projectId={project.id} researchTopic={project.research_topic} outputLanguage={project.default_output_language} active={view==='project'&&section==='literature'} initialSearchId={selection.literatureSearchId} onSearchChange={selection.selectLiterature} onOpenTask={selection.selectTask}/>
+        <ProjectLiterature projectId={project.id} researchTopic={project.research_topic} outputLanguage={project.default_output_language??'zh-CN'} active={view==='project'&&section==='literature'} initialSearchId={selection.literatureSearchId} onSearchChange={selection.selectLiterature} onOpenTask={selection.selectTask}/>
         <ProjectResources projectId={project.id} active={view === 'project'} section={section} onSectionChange={changeSection} onSaved={() => { refresh(); selection.refresh() }} />
       </div>}
     </section>}

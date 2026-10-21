@@ -28,7 +28,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from app.core.config import local_config
 
 
-SCHEMA_HEAD = "0034_literature_pmc"
+SCHEMA_HEAD = "0040_manuscript_writing_live"
 _SCHEMA_NAME = re.compile(r"[a-z_][a-z0-9_]{0,62}\Z")
 _TEST_SCHEMA = re.compile(r"pa_test_[0-9a-f]{32}\Z")
 _CONNECTION_OPTIONS = frozenset({
@@ -273,7 +273,7 @@ def grant_runtime_access(connection: Connection, migration_config: DatabaseConfi
             (f'"{runtime_config.schema}"."{name}"',)).scalar_one() is None:
             continue
         connection.exec_driver_sql(f"GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE {schema}.{quote(name)} TO {role}")
-        if name == 'literature_pmc_receipts':
+        if name in ('literature_pmc_receipts','manuscript_versions','manuscript_sources','manuscript_citations','manuscript_writing_bundles','manuscript_writing_authorized_tasks','manuscript_writing_reviews','manuscript_writing_language_reviews','manuscript_figure_language_versions'):
             connection.exec_driver_sql(f"REVOKE UPDATE, DELETE, TRUNCATE ON TABLE {schema}.{quote(name)} FROM {role}")
     connection.exec_driver_sql(f"GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA {schema} TO {role}")
     version = f"{schema}.alembic_version"
@@ -312,7 +312,7 @@ def verify_runtime_permissions(connection: Connection, runtime_config: DatabaseC
             allowed = connection.exec_driver_sql(
                 "SELECT has_table_privilege(current_user, %s, %s)",
                 (f'"{runtime_config.schema}"."{name}"', privilege)).scalar_one()
-            expected = not (name == 'literature_pmc_receipts' and privilege in ('UPDATE', 'DELETE'))
+            expected = not (name in ('literature_pmc_receipts','manuscript_versions','manuscript_sources','manuscript_citations','manuscript_writing_bundles','manuscript_writing_authorized_tasks','manuscript_writing_reviews','manuscript_writing_language_reviews','manuscript_figure_language_versions') and privilege in ('UPDATE', 'DELETE'))
             if allowed != expected:
                 raise ValueError("Runtime role is missing business table permissions.")
     if not connection.exec_driver_sql("SELECT has_schema_privilege(current_user, %s, 'USAGE')", (runtime_config.schema,)).scalar_one():

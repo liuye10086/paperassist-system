@@ -86,6 +86,7 @@ def define_model_usage_tables(metadata):
         Column('created_at', DateTime(timezone=True), nullable=False),
         Column('updated_at', DateTime(timezone=True), nullable=False),
         UniqueConstraint('task_id', 'call_key', name='model_calls_task_key'),
+        UniqueConstraint('id','project_id','user_id',name='model_calls_scope_key'),
         Column('provider_state', JSONB(none_as_null=True)),
         Column('actual_token_micro_usd', BigInteger),
         Column('actual_tool_micro_usd', BigInteger),

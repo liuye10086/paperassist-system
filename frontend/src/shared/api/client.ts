@@ -1,6 +1,8 @@
 import { captureProjectAccess, invalidateProjectAccess } from './projectAccess'
 
 let generation = 0
+let apiUserId: string | null = null
+export function getApiUserId() { return apiUserId }
 let csrfToken: string | null = null
 const listeners = new Set<() => void>()
 const cookieChangeListeners = new Set<() => void>()
@@ -23,9 +25,10 @@ export function onSessionCookieChanged(listener: () => void) {
   return () => { cookieChangeListeners.delete(listener) }
 }
 
-export function setApiSession(token: string) {
+export function setApiSession(token: string, userId?: string) {
   generation++
   invalidateProjectAccess()
+  apiUserId = userId ?? null
   csrfToken = token
   sessionChangeListeners.forEach(listener => listener())
 }
@@ -33,6 +36,7 @@ export function setApiSession(token: string) {
 export function clearApiSession() {
   generation++
   invalidateProjectAccess()
+  apiUserId = null
   csrfToken = null
   sessionChangeListeners.forEach(listener => listener())
 }

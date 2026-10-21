@@ -11,7 +11,8 @@ export type ReconciliationSummary = {
   actual_micro_usd: number; reconciled_count: number; partial_count: number; pending_count: number
 }
 export type ModelCall = {
-  id: string; task_type: 'literature_assistance' | 'figure_workbench' | 'figure_explanation' | 'boxplot' | 'explanation' | 'word_report' | 'analysis_recommendation'; model: string
+  provider_provenance?: 'synthetic_fixture' | 'openai_live' | null
+  id: string; task_type: 'manuscript_writing' | 'literature_assistance' | 'figure_workbench' | 'figure_explanation' | 'boxplot' | 'explanation' | 'word_report' | 'analysis_recommendation'; model: string
   status: 'reserved' | 'submitting' | 'submitted' | 'submission_unknown' | 'completed' | 'failed' | 'released'
   provider_status: string | null; usage_status: 'pending' | 'estimated'; estimated_cost_micro_usd: number | null
   created_at: string; updated_at: string; reconciliation?: CallReconciliation
@@ -60,11 +61,13 @@ function isReconciliationSummary(value: unknown, total: number): value is Reconc
 }
 function isCall(value: unknown): value is ModelCall {
   return record(value) && typeof value.id === 'string' && value.id.length > 0 && typeof value.model === 'string'
-    && value.model.length > 0 && ['literature_assistance','figure_workbench','figure_explanation','boxplot', 'explanation', 'word_report','analysis_recommendation'].includes(String(value.task_type))
+    && value.model.length > 0 && ['manuscript_writing','literature_assistance','figure_workbench','figure_explanation','boxplot', 'explanation', 'word_report','analysis_recommendation'].includes(String(value.task_type))
     && ['reserved', 'submitting', 'submitted', 'submission_unknown', 'completed', 'failed', 'released'].includes(String(value.status))
     && (value.provider_status === null || typeof value.provider_status === 'string')
     && ['pending', 'estimated'].includes(String(value.usage_status)) && nullableAmount(value.estimated_cost_micro_usd)
     && date(value.created_at) && date(value.updated_at)
+    && (!Object.hasOwn(value, 'provider_provenance') || value.provider_provenance === null
+      || value.provider_provenance === 'synthetic_fixture' || value.provider_provenance === 'openai_live')
     && (!Object.hasOwn(value, 'reconciliation') || isCallReconciliation(value.reconciliation, value.status))
 }
 export function isProjectUsage(value: unknown, page: number): value is ProjectUsage {

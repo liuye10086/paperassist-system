@@ -262,3 +262,29 @@ literature_citation_metadata_versions, literature_material_confirmations, litera
 
 from app.db.literature_check_schema import define_literature_check_tables
 literature_check_receipts, = define_literature_check_tables(metadata)
+
+from app.db.manuscript_schema import define_manuscript_tables
+manuscripts, manuscript_versions, manuscript_sources, manuscript_citations, manuscript_exports = define_manuscript_tables(metadata)
+
+from app.db.pdf_export_schema import define_pdf_export_tables
+pdf_exports, = define_pdf_export_tables(metadata)
+
+from app.db.manuscript_writing_schema import define_manuscript_writing_tables
+manuscript_writing_requests, = define_manuscript_writing_tables(metadata)
+from app.db.manuscript_review_schema import define_manuscript_review_tables
+manuscript_reviews, = define_manuscript_review_tables(metadata)
+
+from app.db.layout_export_schema import define_layout_export_tables
+layout_exports, = define_layout_export_tables(metadata)
+
+from app.db.manuscript_writing_live_schema import define_manuscript_writing_live_tables
+manuscript_writing_bundles, manuscript_writing_authorizations, manuscript_writing_authorized_tasks, manuscript_writing_call_admissions = define_manuscript_writing_live_tables(metadata)
+
+from app.db.manuscript_writing_review_schema import define_manuscript_writing_review_tables
+(manuscript_writing_reviews,) = define_manuscript_writing_review_tables(metadata)
+
+from app.db.manuscript_writing_language_schema import define_manuscript_writing_language_tables
+(manuscript_writing_language_reviews,) = define_manuscript_writing_language_tables(metadata)
+
+from app.db.manuscript_figure_language_schema import define_manuscript_figure_language_tables
+(manuscript_figure_language_versions,) = define_manuscript_figure_language_tables(metadata)

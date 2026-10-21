@@ -65,7 +65,7 @@ function EventRecord({ event, taskType }: { event: TaskEvent; taskType: TaskType
     {summary && <p className="task-event-error">{t(summary)}</p>}
     {scheduled && <p className="task-event-retry">{t('自动重试第 {count}/3 次，等待 {seconds} 秒后继续。',
       { count: event.retry_count!, seconds: event.retry_delay_seconds! })}</p>}
-    {exhausted && <p className="task-event-retry">{t('自动重试已用尽（3/3 次）。请核对问题后，通过任务处理手动继续原任务。')}</p>}
+    {exhausted && <p className="task-event-retry">{t(taskType==='layout_docx'?'自动恢复已用尽，请在排版与公式中查看末端导出的重试权限。':'自动重试已用尽（3/3 次）。请核对问题后，通过任务处理手动继续原任务。')}</p>}
     {event.retry_reason === 'worker_interrupted' && <p className="task-event-retry">{t('执行中断后已重新排队。')}</p>}
     {event.retry_reason === 'manual_retry' && <p className="task-event-retry">{t('已手动继续原任务。')}</p>}
     <time dateTime={event.created_at}>{new Date(event.created_at).toLocaleString(locale)}</time></div></li>

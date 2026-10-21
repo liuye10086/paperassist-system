@@ -9,6 +9,17 @@ const task = { id: 'word-task', project_id: 'project', task_type: 'word_report',
 const json = (value: unknown) => Promise.resolve({ ok: true, json: async () => value })
 const generate = () => screen.getByRole('button', { name: '生成 Word 报告' }) as HTMLButtonElement
 const reload = () => screen.getByRole('button', { name: '重新读取报告' }) as HTMLButtonElement
+it('exports PDF from the concrete saved historical report while Word remains downloadable after PDF failure',async()=>{
+ const base='/api/v1/projects/p1/files/f1';const saved={...report,sha256:'a'.repeat(64),setup_revision:1}
+ const fetcher=vi.fn(async(url:string,init?:RequestInit)=>{
+  if(url.includes('/pdf-exports'))return init?.method==='POST'?Response.json({detail:{code:'pdf_renderer_unavailable'}},{status:503}):Response.json({items:[]})
+  return Response.json({...state,current_revision:2,is_current:false,report:saved})
+ });vi.stubGlobal('fetch',fetcher);render(<WordReport {...props} base={base} revision={2}/>);await screen.findByRole('link',{name:'下载 Word 报告'})
+ const button=await screen.findByRole('button',{name:'生成 PDF'});await waitFor(()=>expect(button.hasAttribute('disabled')).toBe(false));fireEvent.click(button);await screen.findByRole('alert')
+ expect(screen.getByRole('button',{name:'排版与公式'})).toBeTruthy();expect(fetcher.mock.calls.some(([url])=>url.includes('/layout-exports'))).toBe(false);
+ expect(screen.getByRole('link',{name:'下载 Word 报告'})).toBeTruthy();expect(screen.getByText(/PDF 来源：分析配置 v1/)).toBeTruthy()
+ const post=fetcher.mock.calls.find(([,i])=>i?.method==='POST')!;expect(post[0]).toBe('/api/v1/projects/p1/pdf-exports');expect(JSON.parse(String(post[1]?.body))).toMatchObject({source_kind:'report',source_id:'report'})
+})
 afterEach(() => { cleanup(); setLocale('zh-CN'); vi.unstubAllGlobals(); vi.useRealTimers() })
 it.each(['read', 'submit', 'retry'])('loads the artifact when %s already returns success without the report snapshot', async source => {
   vi.useFakeTimers(); let reads = 0

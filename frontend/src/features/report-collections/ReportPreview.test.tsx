@@ -3,6 +3,10 @@ import {cleanup,render,screen} from '@testing-library/react'
 import ReportPreview from './ReportPreview'
 import {setLocale} from '../../shared/i18n'
 afterEach(()=>{cleanup();setLocale('zh-CN')})
+test('renders illustration labels without exposing stable reference IDs or check versions',()=>{
+ render(<ReportPreview ready sections={[{key:'figures',title:'图表',content:{illustration_check_version:1,origin:'image_observation',number:2,caption_status:'candidate',cross_references:[{kind:'figure',target_id:'private-image-id',number:2,panel_label:'A'}]}}]}/> )
+ expect(screen.getByText('图像观察，不作为统计结论')).toBeTruthy();expect(screen.getByText('候选图注，需人工补充与确认')).toBeTruthy();expect(screen.getByText('冻结图表引用')).toBeTruthy();expect(document.body.textContent).not.toMatch(/private-image-id|illustration_check_version|caption_status/)
+})
 
 test('English preview translates scientific enums, preserves author values and identifies unmapped facts honestly',()=>{
  setLocale('en')

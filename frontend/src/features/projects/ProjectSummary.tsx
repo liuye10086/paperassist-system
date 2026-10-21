@@ -6,7 +6,7 @@ import { isProjectSummary, type ProjectSummaryData, type SummarySource, type Sum
 import { useI18n } from '../../shared/i18n'
 import './projectSummary.css'
 
-type Props = { projectId: string; projectType: 'sci' | 'thesis'; view?: 'overview' | 'artifacts' | 'all'; active?: boolean }
+type Props = { projectId: string; projectType: 'sci' | 'thesis'; view?: 'overview' | 'artifacts' | 'all'; active?: boolean; onOpenManuscripts?:()=>void }
 const taskNames = { statistics: '描述统计', boxplot: '箱线图生成', explanation: 'AI 分析解释', report: 'Word 报告导出' }
 const statuses: Record<SummaryTask['status'], string> = {
   queued: '待执行',
@@ -43,7 +43,7 @@ export default function ProjectSummary(props: Props) {
   return <Summary key={`${props.projectId}:${props.projectType}`} {...props} />
 }
 
-function Summary({ projectId, projectType, view = 'all', active = true }: Props) {
+function Summary({ projectId, projectType, view = 'all', active = true, onOpenManuscripts }: Props) {
   const { t, locale } = useI18n()
   const [data, setData] = useState<ProjectSummaryData | null>(null)
   const [pages, setPages] = useState({ tasks: 1, artifacts: 1 })
@@ -131,11 +131,13 @@ function Summary({ projectId, projectType, view = 'all', active = true }: Props)
           </tr>)}</tbody></table></div>
         <Pagination label={t("任务")} page={data.tasks.page} total={data.tasks.total} onChange={tasks => refresh({ ...pages, tasks })} />
       </>}
-      <aside className="summary-upcoming" aria-label={t('后续研究工作')}><span>{t('写作与修改')}</span><span aria-hidden="true">·</span>
+      {projectType==='sci'&&onOpenManuscripts&&<div className="summary-upcoming"><strong>{t('SCI 事实稿与版本')}</strong><p>{t('查看稿件资料、版本和 DOCX 导出。')}</p><button type="button" onClick={onOpenManuscripts}>{t('打开 SCI 写作')}</button></div>}
+      <aside className="summary-upcoming" aria-label={t('后续研究工作')}><span>{t(data.future.writing.state==='available'?'修改与后续研究':'写作与修改')}</span><span aria-hidden="true">·</span>
         {data.future.sci && <span>{t('SCI 期刊与投稿')}</span>}{data.future.thesis && <span>{t('学校与毕业论文评审')}</span>}
         <span className="summary-unavailable">{t('功能未开放')}</span></aside>
       </div>
       <div className="summary-artifact-section" hidden={view === 'overview'}>
+      {!!data.layout_exports?.length&&<section aria-label={t('近期排版导出')}><h4>{t('近期排版导出')}</h4><p className="muted">{t('仅显示最近 20 条排版记录；完整历史请打开原稿的排版与公式。')}</p><ul className="summary-artifact-list">{data.layout_exports.map(item=><li key={item.id}><div className="summary-artifact-content"><strong>{item.filename??t('排版 DOCX 导出')}</strong><p>{t({queued:'待执行',running:'运行中',succeeded:'已完成',failed:'执行失败'}[item.status])} · <time dateTime={item.created_at}>{new Date(item.created_at).toLocaleString(locale)}</time></p><a href={`#project=${encodeURIComponent(projectId)}&section=tasks&task=${encodeURIComponent(item.task_id)}`}>{t('查看排版任务')}</a></div>{item.status==='succeeded'&&item.download_url&&<ProjectDownloadLink href={item.download_url} filename={item.filename??'layout.docx'}>{t('下载排版 DOCX')}</ProjectDownloadLink>}</li>)}</ul></section>}
       <h4 className="summary-section-heading">{t("已生成文件")}<span>{data.artifacts.total}</span></h4>
       {data.artifacts.total === 0 ? <p className="summary-empty">{t("还没有已生成的 PNG 或 Word 文件。")}</p> : <>
         <ul className="summary-artifact-list">{data.artifacts.items.map(item => {

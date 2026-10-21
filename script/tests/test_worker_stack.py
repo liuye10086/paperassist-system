@@ -12,6 +12,52 @@ import worker_stack
 
 
 class WorkerStackTests(unittest.TestCase):
+    def test_writing_live_switch_defaults_off_is_explicit_and_changes_worker_revision(self):
+        with tempfile.TemporaryDirectory() as directory, patch.object(worker_stack,'protect_directory'):
+            root=Path(directory)
+            first=worker_stack.prepare(root,self.values())
+            enabled=worker_stack.prepare(root,{**self.values(),'PAPERASSIST_WRITING_LIVE_ENABLED':'1'})
+            self.assertEqual(first.environment.get('PAPERASSIST_WRITING_LIVE_ENABLED'),'0')
+            self.assertEqual(enabled.environment.get('PAPERASSIST_WRITING_LIVE_ENABLED'),'1')
+            self.assertNotEqual(first.environment['PAPERASSIST_WORKER_CONFIG_REVISION'],enabled.environment['PAPERASSIST_WORKER_CONFIG_REVISION'])
+            ident='e'*32
+            test=worker_stack.prepare(root,{**self.values(),'PAPERASSIST_WRITING_LIVE_ENABLED':'1','PAPERASSIST_ENV':'test','PAPERASSIST_DB_SCHEMA':'pa_test_'+ident},test_id=ident,assets=root/'isolated')
+            self.assertEqual(test.environment['PAPERASSIST_WRITING_LIVE_ENABLED'],'0')
+            compose=(worker_stack.ROOT/'compose.workers.yml').read_text(encoding='utf-8')
+            self.assertIn('PAPERASSIST_WRITING_LIVE_ENABLED: ${PAPERASSIST_WRITING_LIVE_ENABLED:-0}',compose)
+
+    def test_field_update_script_changes_renderer_revision(self):
+        with tempfile.TemporaryDirectory() as directory, patch.object(worker_stack, 'protect_directory'):
+            root = Path(directory)
+            original = Path.read_bytes
+            def changed(path):
+                result = original(path)
+                return result + b'\n# changed UNO' if path.name == 'update_fields.py' else result
+            first = worker_stack.prepare(root, self.values())
+            with patch.object(Path, 'read_bytes', changed):
+                second = worker_stack.prepare(root, self.values())
+            self.assertNotEqual(first.environment['PAPERASSIST_WORKER_CONFIG_REVISION'],
+                                second.environment['PAPERASSIST_WORKER_CONFIG_REVISION'])
+
+    def test_converter_fonts_path_is_explicit_and_service_is_stopped_with_stack(self):
+        with tempfile.TemporaryDirectory() as directory, patch.object(worker_stack, 'protect_directory'):
+            root = Path(directory)
+            fonts = root / 'fixed-fonts'
+            stack = worker_stack.prepare(root, {**self.values(), 'PAPERASSIST_PDF_FONTS_DIR': str(fonts)})
+            self.assertEqual(stack.environment['PAPERASSIST_PDF_FONTS'], str(fonts.resolve()))
+            with patch.object(worker_stack, 'owned_containers', return_value=[
+                {'id': 'pdf-owned', 'service': 'pdf-renderer', 'status': 'running'}]), \
+                    patch.object(worker_stack, 'docker') as docker:
+                worker_stack.stop(stack)
+            self.assertEqual(docker.call_args.args[0], ['stop', '--time', '45', 'pdf-owned'])
+
+    def test_font_directory_change_invalidates_running_stack_revision(self):
+        with tempfile.TemporaryDirectory() as directory, patch.object(worker_stack, 'protect_directory'):
+            root = Path(directory)
+            first = worker_stack.prepare(root, {**self.values(), 'PAPERASSIST_PDF_FONTS_DIR': str(root/'fonts-a')})
+            second = worker_stack.prepare(root, {**self.values(), 'PAPERASSIST_PDF_FONTS_DIR': str(root/'fonts-b')})
+            self.assertNotEqual(first.environment['PAPERASSIST_WORKER_CONFIG_REVISION'], second.environment['PAPERASSIST_WORKER_CONFIG_REVISION'])
+
     def test_ncbi_identity_is_private_and_test_stack_always_disables_it(self):
         with tempfile.TemporaryDirectory() as directory, patch.object(worker_stack,'protect_directory'):
             root = Path(directory)

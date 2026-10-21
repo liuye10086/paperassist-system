@@ -10,7 +10,7 @@ type Instance = { id: string; key: number }
 type Request = { controller: AbortController; timeout: number }
 
 export default function useProjectSelection(onUnavailable: (id: string) => void, onAvailable: (id: string) => void) {
-  const [section, setSection] = useState<ProjectSection>(() => new URLSearchParams(window.location.hash.slice(1)).get('section') === 'tasks' ? 'tasks' : new URLSearchParams(window.location.hash.slice(1)).get('section')==='literature'?'literature':'overview')
+  const [section, setSection] = useState<ProjectSection>(() => new URLSearchParams(window.location.hash.slice(1)).get('section') === 'tasks' ? 'tasks' : new URLSearchParams(window.location.hash.slice(1)).get('section')==='literature'?'literature':new URLSearchParams(window.location.hash.slice(1)).get('section')==='manuscripts'?'manuscripts':'overview')
   const [taskId, setTaskId] = useState(() => {
     const params = new URLSearchParams(window.location.hash.slice(1))
     const id = params.get('task') ?? ''
@@ -64,8 +64,22 @@ export default function useProjectSelection(onUnavailable: (id: string) => void,
 
   useLayoutEffect(() => {
     window.history.replaceState(null, '', window.location.pathname + window.location.search
-      + (instance ? `#project=${encodeURIComponent(instance.id)}${section === 'tasks' ? `&section=tasks${taskId ? `&task=${encodeURIComponent(taskId)}` : ''}` : section==='literature'?`&section=literature${literatureSearchId?`&search=${encodeURIComponent(literatureSearchId)}`:''}`:''}` : ''))
+      + (instance ? `#project=${encodeURIComponent(instance.id)}${section === 'tasks' ? `&section=tasks${taskId ? `&task=${encodeURIComponent(taskId)}` : ''}` : section==='literature'?`&section=literature${literatureSearchId?`&search=${encodeURIComponent(literatureSearchId)}`:''}`:section==='manuscripts'?'&section=manuscripts':''}` : ''))
   }, [instance, section, taskId, literatureSearchId])
+
+  useEffect(() => {
+    const openTaskLink = () => {
+      const params = new URLSearchParams(window.location.hash.slice(1))
+      const id = params.get('task')
+      if (!instance || current.current !== instance || params.get('project') !== instance.id
+        || params.get('section') !== 'tasks' || !isTaskId(id) || !id.startsWith('legacy-') && !/^[A-Za-z0-9_-]{1,64}$/.test(id)
+        || [...params.keys()].some(key => !['project', 'section', 'task'].includes(key))
+        || ['project', 'section', 'task'].some(key => params.getAll(key).length !== 1)) return
+      setSection('tasks'); setTaskId(id)
+    }
+    window.addEventListener('hashchange', openTaskLink)
+    return () => window.removeEventListener('hashchange', openTaskLink)
+  }, [instance])
 
   useEffect(() => {
     if (!instance) return
@@ -87,6 +101,7 @@ export default function useProjectSelection(onUnavailable: (id: string) => void,
         if (!response.ok) throw new Error(apiError(result, '项目详情读取失败，请稍后重试。'))
         if (!isProject(result) || result.id !== instance!.id) throw new Error('项目详情格式不正确，请重试。')
         setDetail({ instance: instance!, project: result })
+        if(result.project_type==='thesis')setSection(previous=>previous==='manuscripts'?'overview':previous)
         callbacks.current.onAvailable(instance!.id)
       } catch (cause) {
         if (isCurrent()) setFailure({ instance: instance!, message: cause instanceof TypeError

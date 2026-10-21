@@ -74,3 +74,15 @@ test('keeps old responses compatible without inventing reconciliation fields', (
   expect(isProjectUsage(value, 1)).toBe(true)
   expect(isTaskUsage(value, 1)).toBe(true)
 })
+
+test('strictly validates optional provider provenance without relabeling legacy calls', () => {
+  for (const provider_provenance of ['synthetic_fixture', 'openai_live', null]) {
+    expect(isTaskUsage({ ...reconciliationFixture, items: [{ ...reconciliationCall, provider_provenance }] }, 1)).toBe(true)
+  }
+  for (const provider_provenance of [undefined, '', 'synthetic', 'OPENAI_LIVE', true, 1, {}]) {
+    const value = { ...reconciliationFixture, items: [{ ...reconciliationCall, provider_provenance }] }
+    expect(isProjectUsage(value, 1)).toBe(false)
+    expect(isTaskUsage(value, 1)).toBe(false)
+  }
+  expect(isTaskUsage(reconciliationFixture, 1)).toBe(true)
+})

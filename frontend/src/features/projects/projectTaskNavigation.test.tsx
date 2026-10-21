@@ -6,6 +6,16 @@ import useProjectSelection from './useProjectSelection'
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); window.history.replaceState(null, '', '/') })
 const project = { id: 'p1', name: '研究', research_topic: '主题', project_type: 'sci', file_count: 0,
   created_at: '2026-10-08T00:00:00Z', updated_at: '2026-10-08T00:00:00Z', default_output_language: 'zh-CN' }
+it('opens a PDF task hash link only within the currently selected project',async()=>{
+ window.history.replaceState(null,'','/#project=p1');vi.stubGlobal('fetch',vi.fn(async()=>Response.json(project)))
+ const {result}=renderHook(()=>useProjectSelection(vi.fn(),vi.fn()));await waitFor(()=>expect(result.current.project?.id).toBe('p1'))
+ act(()=>{window.history.replaceState(null,'','/#project=p1&section=tasks&task=pdf-task');window.dispatchEvent(new HashChangeEvent('hashchange'))})
+ expect(result.current.section).toBe('tasks');expect(result.current.taskId).toBe('pdf-task')
+ for(const hash of ['#project=p2&section=tasks&task=foreign','#project=p1&section=tasks&task=bad/id','#project=p1&section=unknown&task=other']){
+  act(()=>{window.history.replaceState(null,'','/'+hash);window.dispatchEvent(new HashChangeEvent('hashchange'))})
+  expect(result.current.taskId).toBe('pdf-task');expect(result.current.project?.id).toBe('p1')
+ }
+})
 it('adds project tasks to the existing sidebar', () => {
   render(<WorkspaceShell view="project" section="overview" projectName="研究" onNavigate={vi.fn()} onCreate={vi.fn()} onCurrentProject={vi.fn()}><div /></WorkspaceShell>)
   expect(screen.getByRole('button', { name: '项目任务' })).toBeTruthy()
@@ -49,4 +59,18 @@ it('preserves current selection when a malformed legacy ID is selected', async (
   act(() => result.current.selectTask('legacy-plot:abc/def'))
   expect(result.current.taskId).toBe('t1')
   expect(window.location.hash).toBe('#project=p1&section=tasks&task=t1')
+})
+
+it('offers SCI writing only to SCI projects and restores its deep link', async () => {
+  const shell = render(<WorkspaceShell projectType="sci" view="project" section="manuscripts" projectName="研究" onNavigate={vi.fn()} onCreate={vi.fn()} onCurrentProject={vi.fn()}><div /></WorkspaceShell>)
+  expect(screen.getByRole('button', { name: 'SCI 写作' }).getAttribute('aria-current')).toBe('page')
+  shell.rerender(<WorkspaceShell projectType="thesis" view="project" section="overview" projectName="研究" onNavigate={vi.fn()} onCreate={vi.fn()} onCurrentProject={vi.fn()}><div /></WorkspaceShell>)
+  expect(screen.queryByRole('button', { name: 'SCI 写作' })).toBeNull()
+  shell.unmount()
+  window.history.replaceState(null, '', '/#project=p1&section=manuscripts')
+  vi.stubGlobal('fetch', vi.fn(async () => Response.json(project)))
+  const { result } = renderHook(() => useProjectSelection(vi.fn(), vi.fn()))
+  await waitFor(() => expect(result.current.project?.id).toBe('p1'))
+  expect(result.current.section).toBe('manuscripts')
+  expect(window.location.hash).toBe('#project=p1&section=manuscripts')
 })

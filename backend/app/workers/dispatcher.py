@@ -18,7 +18,7 @@ def dispatch_once(*, publish=None, config=None, limit=20):
     with repository.connection(write=True) as db:
         rows = db.execute('''SELECT o.id,o.task_id,o.task_revision,o.publish_attempts FROM task_outbox o
             JOIN tasks t ON t.id=o.task_id WHERE o.published_at IS NULL
-            AND o.available_at<=clock_timestamp() AND t.task_type IN ('word_report','explanation','boxplot','parse_file','extract_dataset','prepare_dataset', 'review_ocr', 'analysis_plan', 'analysis_recommendation', 'figure_projection', 'figure_workbench', 'figure_explanation', 'collection_word_report', 'statistics_compute', 'literature_search', 'literature_assistance')
+            AND o.available_at<=clock_timestamp() AND t.task_type IN ('word_report','explanation','boxplot','parse_file','extract_dataset','prepare_dataset', 'review_ocr', 'analysis_plan', 'analysis_recommendation', 'figure_projection', 'figure_workbench', 'figure_explanation', 'collection_word_report', 'statistics_compute', 'literature_search', 'literature_assistance', 'manuscript_draft', 'manuscript_docx', 'pdf_export', 'layout_docx', 'manuscript_writing')
             ORDER BY o.available_at,o.id LIMIT %s''', (limit,)).fetchall()
         now = repository.now(db)
         for row in rows:

@@ -6,10 +6,15 @@ from starlette.responses import JSONResponse
 
 
 PUBLIC_CODES = frozenset('''
-literature_assistance_not_authorized literature_assistance_invalid
+layout_docx_not_found layout_docx_not_ready layout_retry_not_allowed layout_field_update_failed layout_source_invalid layout_source_mismatch layout_target_invalid layout_formula_invalid layout_formula_too_wide
+pdf_export_not_found pdf_source_not_found pdf_source_not_ready pdf_export_not_ready pdf_retry_not_allowed
+pdf_renderer_unavailable pdf_conversion_failed pdf_conversion_timeout pdf_renderer_busy pdf_input_invalid pdf_renderer_mismatch
+literature_assistance_not_authorized literature_assistance_invalid manuscript_writing_not_authorized manuscript_writing_invalid manuscript_writing_citation_scope manuscript_writing_base_incomplete
+figure_language_unsupported figure_language_invalid_image figure_language_not_found manuscript_writing_language_invalid manuscript_writing_language_required manuscript_writing_review_invalid manuscript_writing_review_required manuscript_writing_material_blocked manuscript_writing_selection_invalid manuscript_writing_input_limit
 ncbi_not_configured ncbi_unavailable ncbi_request_rejected ncbi_response_invalid
 literature_not_found literature_source_conflict literature_revision_conflict literature_supplement_limit
-literature_citation_conflict
+literature_citation_conflict manuscript_not_found manuscript_revision_conflict
+manuscript_review_input_invalid manuscript_review_not_found manuscript_review_blocked manuscript_review_v2_workflow_required
 authentication_configuration authentication_required csrf_invalid database_configuration
 empty_file explanation_input_limit explanation_not_configured explanation_incomplete explanation_invalid explanation_invalid_json
 figure_projection_invalid
@@ -56,12 +61,36 @@ collection_dependencies_missing collection_duplicate_figure collection_explanati
 
 INTERNAL_MESSAGE = '服务暂时无法完成请求，请稍后重试。'
 
+LAYOUT_EXPRESSION_PATHS = frozenset(f'formulas.{i}.expression' for i in range(40))
+LAYOUT_TARGET_PATHS = frozenset(
+    [f'formulas.{i}.anchor_id' for i in range(40)]
+    + [f'references.{i}.{field}' for i in range(60) for field in ('anchor_id', 'target_id', 'kind')]
+    + [f'headings.{i}.anchor_id' for i in range(100)]
+    + [f'landscape_anchor_ids.{i}' for i in range(16)]
+    + ['pagination.body_anchor_id', 'toc.depth']
+)
+
 
 def safe_params(code, params=None):
     """Each parameter has a code-specific type and bound; no catch-all strings."""
     if not isinstance(params, dict):
         return {}
     result = {}
+    if code in ('layout_formula_invalid', 'layout_formula_too_wide', 'layout_target_invalid'):
+        formula_error = code != 'layout_target_invalid'
+        path = params.get('path')
+        allowed_paths = LAYOUT_EXPRESSION_PATHS if formula_error else LAYOUT_TARGET_PATHS
+        if isinstance(path, str) and len(path) <= 64 and path in allowed_paths:
+            result['path'] = path
+        formula_id = params.get('formula_id')
+        if formula_error and isinstance(formula_id, str) and re.fullmatch(r'[A-Za-z][A-Za-z0-9_]{0,31}', formula_id):
+            result['formula_id'] = formula_id
+        position = params.get('position')
+        if code == 'layout_formula_invalid' and type(position) is int and 0 <= position <= 2000:
+            result['position'] = position
+        # Raw reasons, source anchor strings and exception text are not public
+        # location parameters. The UI uses the code plus these bounded fields.
+        return result
     if code == 'figure_projection_invalid':
         reason = params.get('reason')
         allowed = {'missing_fields','missing_group','invalid_group','duplicate_x','invalid_numeric',

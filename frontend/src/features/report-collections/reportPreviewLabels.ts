@@ -1,5 +1,6 @@
 // Business labels aligned with the local Word report; author-supplied text is never translated.
 export const readableLabels:Record<string,[string,string]>={
+ origin:["内容来源","Content origin"],caption_status:["图注状态","Caption status"],cross_references:["冻结图表引用","Frozen figure and table references"],panel_label:["分面标签","Panel label"],
  "sheet_name": [
   "工作表",
   "Worksheet"
@@ -594,6 +595,7 @@ export const readableLabels:Record<string,[string,string]>={
  ]
 }
 export const enumValues:Record<string,[string,string]>={
+ image_observation:["图像观察，不作为统计结论","Image observations, not statistical conclusions"],
  "prepared_dataset_version": [
   "已确认整理数据版本",
   "Confirmed prepared data"
@@ -775,4 +777,4 @@ export const enumValues:Record<string,[string,string]>={
   "Common complete cases among retained records may introduce selection bias; analysis adds no imputation or automatic outlier removal."
  ]
 }
-export const enumFields=new Set(["allowed_resolutions", "alternative", "code", "kind", "limitations", "message", "method", "missing_policy", "mode", "observation_structure", "observed_types", "output_language", "permutation_type", "rank_method", "reason", "relationship_form", "severity", "status", "study_design", "task_type", "type", "warnings"])
+export const enumFields=new Set(["origin","allowed_resolutions", "alternative", "code", "kind", "limitations", "message", "method", "missing_policy", "mode", "observation_structure", "observed_types", "output_language", "permutation_type", "rank_method", "reason", "relationship_form", "severity", "status", "study_design", "task_type", "type", "warnings"])

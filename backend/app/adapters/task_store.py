@@ -20,6 +20,8 @@ def source_conflict():
 
 
 def workflow_version(task_type, value):
+    if task_type=='manuscript_writing' and value.get('schema_version')==2:
+        return 'manuscript_writing_v2'
     if task_type in ('figure_projection','figure_workbench','figure_explanation','collection_word_report'):
         return task_type + '_v1'
     return task_type + ('_v2' if 'source' in value else '_v1')

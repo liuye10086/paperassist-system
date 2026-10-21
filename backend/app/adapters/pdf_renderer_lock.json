@@ -1,0 +1,28 @@
+{
+  "contract_version": "paperassist_pdf_v2_layout",
+  "libreoffice_package": "4:7.4.7-1+deb12u14",
+  "uno_package": "4:7.4.7-1+deb12u14",
+  "math_package": "4:7.4.7-1+deb12u14",
+  "system_fonts": {
+    "/usr/share/fonts/truetype/libreoffice/opens___.ttf": "4db4db8686f398ba630fcd3d726f61132a6bf08f35cbc2f9f1d250cafa136296"
+  },
+  "base_image": "python:3.11.17-slim-bookworm@sha256:0a310eeecf4e1f5a0743f9a6520c90c88d089c903ca5fd283f501e3a805f5f89",
+  "fonts": {
+    "arial.ttf": "b3658eadae55e682b5f69eb64c439c1ecc8f196c0bb8d4756d145d13bc86476a",
+    "arialbd.ttf": "e8f4e3baf6cc35fed6fcce3a540e8b39e8f6cda1d22a28f2ec8f526fef7a43f5",
+    "arialbi.ttf": "267a411525980d648f10a7222a6ff1ebe4d4feeefbf9b3100cae2b5cfab5594a",
+    "ariali.ttf": "86b32db9a06f9694e2a3760c42e5117bcdc5cc1255bb5186ca8ce0305e22f288",
+    "simsun.ttc": "1526ac24375f51f6eb73bc2d3f8072dbe4a80a3a65217677c9d9a84f67dab2ab",
+    "calibri.ttf": "57e93ff143572bcc092c1f56202d43ddc07bb119aa104c6d7af163470fb551f6",
+    "calibrib.ttf": "0a8296747536ead27d5f48f67e911cc3b207742b3f704e66995251d12fd422e5",
+    "calibrii.ttf": "7f150e9eabe5db3e1b0f9469dca5c96176bc2fbb306dc9d48b7029dc69c52763",
+    "calibriz.ttf": "760539bfedbe24e7853ca8a621d9cb1f3de52036c116e81aae36b33c4ab60a7c",
+    "calibril.ttf": "2db491080305b349588b9851fb6fe960eee04cd7c1097784a987287d782f0a54",
+    "calibrili.ttf": "64ca9b15ca79927c3c4c69094bb41f78e5f0d79e9501d9d381a8794b220eead1",
+    "msyh.ttc": "d79c55e68b1131eea0cc1c47be4f572d964f28c682e143db2ad09c1e4cb07a3f",
+    "msyhbd.ttc": "4508821b3dffe01f0ef5e5326a3e60df705a44633858811f67b6982dce3f6ee6",
+    "msyhl.ttc": "7e9bdf90bb5d3fe1b5975fc8ae31944b8fa674122261f92c28d4ec0b9c482fa1",
+    "cambria.ttc": "84e70ccc1664482f4a960442c7a166c91a1b2cf98ff88c33cb73f79403f66d7b"
+  },
+  "system_packages_sha256": "5fb67dffafb4dc35912634548152cbce46a991a77ba5c4987fab69de62c30f56"
+}

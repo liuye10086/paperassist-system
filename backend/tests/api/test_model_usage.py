@@ -48,6 +48,7 @@ def test_usage_is_scoped_to_authenticated_user_and_projects_sensitive_fields(cli
     budget = {'scope_type': 'user', 'limit_micro_usd': None, 'revision': 0, 'estimated_micro_usd': 0,
               'accounted_micro_usd': 0, 'reserved_micro_usd': 500, 'available_micro_usd': None, 'exceeded': False}
     item = {'id': 'call-safe', 'task_type': 'explanation', 'model': 'test-model', 'status': 'submission_unknown',
+            'provider_provenance': None,
             'provider_status': None, 'usage_status': 'pending', 'estimated_cost_micro_usd': None,
             'created_at': '2026-10-08T01:00:00Z', 'updated_at': '2026-10-08T01:00:00Z',
             'reconciliation': dict(status='pending', token_micro_usd=None, tool_micro_usd=None,
@@ -155,3 +156,32 @@ def test_other_owner_cannot_read_existing_usage(client, context, scope, code):
     assert response.status_code == 404
     assert response.json()['detail']['code'] == code
     assert_request_id(response)
+
+
+@pytest.mark.parametrize('scope',['projects','tasks'])
+@pytest.mark.parametrize('trusted',[None,'synthetic_fixture','openai_live','unrecognized'])
+def test_usage_provider_provenance_comes_only_from_trusted_writing_state(context,scope,trusted):
+    from psycopg.types.json import Jsonb
+    from app.db.database import database_connection
+    service=configure(context);saved=service.reserve_call(request(context[3]))
+    state={'provider_provenance':'openai_live','source_kind':'openai_live','private_marker':'never-public'}
+    if trusted is not None: state['writing_provider_provenance']=trusted
+    with database_connection(write=True) as db:
+        db.execute('UPDATE model_calls SET provider_state=%s WHERE id=%s',(Jsonb(state),saved['id']))
+    with TestClient(app) as instance:
+        instance.headers.update({'X-PaperAssist-Client':'web','Origin':'http://testserver'})
+        assert instance.post('/api/v1/auth/login',json={'email':'model-test@local.test','password':'safe-test-password-2026'}).status_code==200
+        identity=context[2] if scope=='projects' else context[3]
+        result=instance.get(f'/api/v1/{scope}/{identity}/model-usage')
+        assert result.status_code==200,result.text
+        assert result.json()['items'][0]['provider_provenance']==(trusted if trusted in ('synthetic_fixture','openai_live') else None)
+        assert 'never-public' not in result.text and 'provider_state' not in result.text
+
+
+def test_public_call_provenance_is_nullable_strict_enum():
+    from pydantic import TypeAdapter,ValidationError
+    from app.api.model_usage import PublicCall
+    adapter=TypeAdapter(PublicCall.model_fields['provider_provenance'].annotation)
+    for value in (None,'synthetic_fixture','openai_live'): assert adapter.validate_python(value)==value
+    for value in ('unrecognized',1,True):
+        with pytest.raises(ValidationError): adapter.validate_python(value)

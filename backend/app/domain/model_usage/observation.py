@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, timezone
 from psycopg.types.json import Jsonb
 
 WINDOW = timedelta(minutes=20)
-SUPPORTED_TASKS = frozenset({'boxplot', 'explanation', 'figure_workbench', 'figure_explanation', 'analysis_recommendation', 'literature_assistance'})
+SUPPORTED_TASKS = frozenset({'boxplot', 'explanation', 'figure_workbench', 'figure_explanation', 'analysis_recommendation', 'literature_assistance', 'manuscript_writing'})
 
 
 def _date(value):

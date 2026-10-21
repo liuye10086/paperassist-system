@@ -8,7 +8,7 @@ from tests.api.test_document_versions import uploaded_pdf
 
 
 def test_0020_preserves_pdf_history(client,postgres_migration_config):
-    assert SCHEMA_HEAD=='0029_statistics_execution'
+    assert SCHEMA_HEAD=='0040_manuscript_writing_live'
     uploaded_pdf(client)
     with migration_connection(config=postgres_migration_config) as db:
         settings=alembic_config();settings.attributes.update(connection=db.raw_connection,database_config=postgres_migration_config)

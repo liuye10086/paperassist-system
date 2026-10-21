@@ -8,9 +8,9 @@ import TaskDetail from './TaskDetail'
 import { useDocumentVisible } from './useDocumentVisible'
 import './task.css'
 
-type Props = { projectId: string; active: boolean; selectedTaskId: string; onSelectTask: (id: string) => void; onOpenFiles?: () => void; onOpenLiterature?: (searchId:string)=>void }
+type Props = { projectId: string; active: boolean; selectedTaskId: string; onSelectTask: (id: string) => void; onOpenFiles?: () => void; onOpenManuscripts?:()=>void; onOpenLiterature?: (searchId:string)=>void }
 export default function ProjectTasks(props: Props) { return props.active ? <Tasks key={props.projectId} {...props} /> : null }
-function Tasks({ projectId, active, selectedTaskId, onSelectTask, onOpenFiles, onOpenLiterature }: Props) {
+function Tasks({ projectId, active, selectedTaskId, onSelectTask, onOpenFiles, onOpenLiterature, onOpenManuscripts }: Props) {
   const { t, locale } = useI18n()
   const visible = useDocumentVisible()
   const [data, setData] = useState<TaskPage | null>(null)
@@ -70,9 +70,9 @@ function Tasks({ projectId, active, selectedTaskId, onSelectTask, onOpenFiles, o
             <td><button type="button" className="task-open button-quiet" aria-label={t('查看{type}任务', { type: t(taskNames[task.task_type]) })}
               onClick={() => onSelectTask(task.id)}>{t(taskNames[task.task_type])}</button>{task.origin === 'legacy' && <small>{t('历史任务')}</small>}</td>
             <td><span className={`task-status task-status-${task.status}`}>{t(taskDisplayName(task))}</span><small>{t(taskPhaseName(task))}</small></td>
-            <td><strong>{source.filename||t('研究材料')}</strong>{source.dataset_source && <SourceSummary source={source.dataset_source} filename={source.filename} />}<small>{task.task_type==='literature_assistance'?t('冻结的文献建议输入'):task.task_type==='literature_search'?t('已冻结的文献检索条件'):['parse_file', 'extract_dataset', 'review_ocr'].includes(task.task_type) ? t(task.task_type === 'review_ocr' ? '原图转录核对' : task.task_type === 'extract_dataset' ? '本地 Excel 结构提取' : '本地文件解析') : task.task_type === 'prepare_dataset' ? t('本地数据整理') : task.task_type === 'analysis_plan' ? t('整理数据分析计划') : t('分析配置 v{revision}', { revision: task.input_version.setup_revision ?? 0 })}</small>
+            <td><strong>{source.filename||t('研究材料')}</strong>{source.dataset_source && <SourceSummary source={source.dataset_source} filename={source.filename} />}<small>{task.input_version.kind==='pdf_export'?t('已冻结的 DOCX 来源'):task.input_version.kind==='manuscript'?t('已冻结的稿件资料'):task.task_type==='literature_assistance'?t('冻结的文献建议输入'):task.task_type==='literature_search'?t('已冻结的文献检索条件'):['parse_file', 'extract_dataset', 'review_ocr'].includes(task.task_type) ? t(task.task_type === 'review_ocr' ? '原图转录核对' : task.task_type === 'extract_dataset' ? '本地 Excel 结构提取' : '本地文件解析') : task.task_type === 'prepare_dataset' ? t('本地数据整理') : task.task_type === 'analysis_plan' ? t('整理数据分析计划') : t('分析配置 v{revision}', { revision: task.input_version.setup_revision ?? 0 })}</small>
               {task.task_type==='literature_assistance'&&<small>{t(source.is_current?'绑定提交时的输入版本':'绑定历史论述版本')}</small>}
-              {!['literature_assistance','literature_search','parse_file', 'extract_dataset', 'prepare_dataset', 'analysis_plan', 'review_ocr'].includes(task.task_type) && <small>{t(source.is_current ? '当前分析配置' : '历史分析配置')}</small>}</td>
+              {!['pdf_export','manuscript_draft','manuscript_docx','literature_assistance','literature_search','parse_file', 'extract_dataset', 'prepare_dataset', 'analysis_plan', 'review_ocr'].includes(task.task_type) && <small>{t(source.is_current ? '当前分析配置' : '历史分析配置')}</small>}</td>
             <td>{task.updated_at === null ? t('未记录') : <time dateTime={task.updated_at}>{new Date(task.updated_at).toLocaleString(locale)}</time>}</td></tr>)}</tbody></table></div>
         <nav className="task-pagination" aria-label={t('项目任务分页')}>
           <span>{t('共 {total} 项 · 第 {page} / {pages} 页', { total: data.total, page, pages: Math.max(1, Math.ceil(data.total / 10)) })}</span>
@@ -80,7 +80,7 @@ function Tasks({ projectId, active, selectedTaskId, onSelectTask, onOpenFiles, o
           <button type="button" disabled={loading || page >= Math.ceil(data.total / 10)} onClick={() => { setLoading(true); setError(''); setData(null); setPage(value => value + 1) }}>{t('下一页')}</button>
         </nav></>}
     </div>}
-    {active && sessionValid && selectedTaskId ? <TaskDetail projectId={projectId} taskId={selectedTaskId} onChanged={() => setAttempt(value => value + 1)} onOpenFiles={onOpenFiles} onOpenLiterature={onOpenLiterature} />
+    {active && sessionValid && selectedTaskId ? <TaskDetail onOpenManuscripts={onOpenManuscripts} projectId={projectId} taskId={selectedTaskId} onChanged={() => setAttempt(value => value + 1)} onOpenFiles={onOpenFiles} onOpenLiterature={onOpenLiterature} />
       : sessionValid && <p className="task-empty">{t('选择任务，查看详细记录。')}</p>}
   </section>
 }

@@ -3,11 +3,12 @@ import { useI18n } from '../../shared/i18n'
 import './workspace.css'
 
 export type WorkspaceView = 'home' | 'projects' | 'project'
-export type ProjectSection = 'overview' | 'files' | 'analysis' | 'artifacts' | 'tasks' | 'literature'
+export type ProjectSection = 'overview' | 'files' | 'analysis' | 'artifacts' | 'tasks' | 'literature' | 'manuscripts'
 const projectSections: { value: ProjectSection; label: string; icon: 'home' | 'folder' | 'chart' | 'files' }[] = [
   { value: 'overview', label: '项目概览', icon: 'home' }, { value: 'files', label: '项目文件', icon: 'folder' },
   { value: 'analysis', label: '数据分析', icon: 'chart' }, { value: 'artifacts', label: '图表与报告', icon: 'files' },
   { value: 'literature', label: '文献', icon: 'files' },
+  { value: 'manuscripts', label: 'SCI 写作', icon: 'files' },
   { value: 'tasks', label: '项目任务', icon: 'files' },
 ]
 
@@ -32,13 +33,14 @@ type Props = {
   onNavigate: (view: WorkspaceView) => void
   onCreate: () => void
   projectName?: string
+  projectType?: 'sci' | 'thesis'
   section?: ProjectSection
   onSectionChange?: (section: ProjectSection) => void
   onCurrentProject: () => void
   children: ReactNode
 }
 
-export default function WorkspaceShell({ view, onNavigate, onCreate, projectName, section, onSectionChange, onCurrentProject, children }: Props) {
+export default function WorkspaceShell({ view, onNavigate, onCreate, projectName, projectType, section, onSectionChange, onCurrentProject, children }: Props) {
   const { t } = useI18n()
   const [menuOpen, setMenuOpen] = useState(false)
   const [collapsed, setCollapsed] = useState(false)
@@ -68,7 +70,7 @@ export default function WorkspaceShell({ view, onNavigate, onCreate, projectName
           onClick={() => { setMenuOpen(false); onCurrentProject() }}>
           <WorkspaceIcon name="file" /><span className="sidebar-text">{projectName}</span>
         </button>
-        <nav className="project-section-nav" aria-label={t('项目导航')}>{projectSections.map(item =>
+        <nav className="project-section-nav" aria-label={t('项目导航')}>{projectSections.filter(item => item.value !== 'manuscripts' || projectType === 'sci').map(item =>
           <button key={item.value} type="button" className="workspace-nav-item"
             aria-label={t(item.label)} title={t(item.label)}
             aria-current={view === 'project' && section === item.value ? 'page' : undefined}

@@ -15,6 +15,13 @@ from app.domain.model_usage.pricing import estimate_usage, reserve_micro_usd
 TERMINAL = {'completed', 'incomplete', 'failed', 'cancelled'}
 
 
+def public_writing_provider_provenance(call):
+    """Only admission-owned state can label a writing call; legacy unknown stays null."""
+    state = call.get('provider_state')
+    value = state.get('writing_provider_provenance') if isinstance(state, dict) else None
+    return value if value in ('synthetic_fixture', 'openai_live') else None
+
+
 def _error(code, message, status=409):
     return StorageError(code, message, status)
 
@@ -114,6 +121,11 @@ class ModelUsageService:
                     raise _error('model_call_idempotency_conflict', '同一调用标识已用于不同输入或策略。')
                 return existing
             self._require_running(task, request.expected_task_revision)
+            admission = None
+            if task['workflow_version']=='manuscript_writing_v2':
+                self._require_execution_lease(db, task, execution_lease)
+                from app.domain.manuscript_writing.authorization import reserve_admission
+                admission = reserve_admission(self.store,db,task,request,reserved)
             budgets = []
             for scope, key in [('user', self.store.user_id), ('project', task['project_id']), ('task', task['id'])]:
                 budget = self.store.budget(db, scope, key)
@@ -135,6 +147,9 @@ class ModelUsageService:
                 db.execute('''INSERT INTO budget_reservations
                     (call_id,budget_id,reserved_micro_usd,accounted_micro_usd,status,updated_at)
                     VALUES (%s,%s,%s,0,'held',%s)''', (call['id'], budget['id'], reserved, now))
+            if admission is not None:
+                from app.domain.manuscript_writing.authorization import insert_admission
+                insert_admission(db,call,admission,reserved)
             return call
 
     def begin_submission(self, call_id, execution_lease=None, expected_task_revision=None):
@@ -149,6 +164,14 @@ class ModelUsageService:
                 if expected_task_revision is not None:
                     revision = expected_task_revision
             self._require_running(task, revision)
+            if task['workflow_version']=='manuscript_writing_v2':
+                self._require_execution_lease(db,task,execution_lease)
+                from app.domain.manuscript_writing.authorization import begin_admission
+                from app.domain.manuscript_writing.policy import capabilities
+                if self.store.config.environment!='test' and not capabilities()['real_calls_enabled']:
+                    raise _error('manuscript_writing_not_authorized','真实写作开关和密钥必须同时配置。')
+                begin_admission(self.store,db,task,call)
+                call['provider_state']={**(call.get('provider_state') or {}),'writing_provider_provenance':'synthetic_fixture' if self.store.config.environment=='test' else 'openai_live'}
             from app.domain.model_usage.observation import start
             now = datetime.now(timezone.utc)
             call.update(status='submitting', provider_state=start(call.get('provider_state'), now), updated_at=now)
@@ -373,6 +396,7 @@ class ModelUsageService:
             self.store.update_call(db, call)
             db.execute("UPDATE budget_reservations SET status='released',accounted_micro_usd=0,updated_at=%s WHERE call_id=%s",
                        (now, call_id))
+            db.execute("UPDATE manuscript_writing_call_admissions SET status='released' WHERE model_call_id=%s AND status='reserved'",(call_id,))
             return call
 
     def project_usage(self, project_id, *, page=1, page_size=10):
@@ -414,6 +438,7 @@ class ModelUsageService:
             public_fields = ('id', 'task_type', 'model', 'status', 'provider_status', 'usage_status',
                              'estimated_cost_micro_usd', 'created_at', 'updated_at')
             items = [{**{field: row[field] for field in public_fields},
+                'provider_provenance': public_writing_provider_provenance(row),
                 'reconciliation': public_reconciliation(dict(row), row['reconciled_at'])} for row in rows]
             return dict(currency='USD', period='cumulative', enforcement_scope='unified_only', **views,
                 estimated_micro_usd=scope['estimated_micro_usd'], reserved_micro_usd=scope['reserved_micro_usd'],

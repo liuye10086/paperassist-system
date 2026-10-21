@@ -24,7 +24,7 @@ def fingerprints(db, tables):
 
 def test_evidence_upgrade_preserves_existing_retrieval_rows_sources_and_indexes(client):
     config = alembic_config()
-    assert ScriptDirectory.from_config(config).get_heads() == ['0034_literature_pmc']
+    assert ScriptDirectory.from_config(config).get_heads() == ['0040_manuscript_writing_live']
     pid = project(client)
     task = create(client, pid).json()
     assert execute(task, SyntheticNcbi(2))['status'] == 'succeeded'

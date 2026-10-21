@@ -333,3 +333,9 @@ it('shows a preparation detail as a local preview without an analysis setup or m
  expect(screen.queryByText('当前分析配置')).toBeNull()
  expect(fetch.mock.calls.some(([url]) => url.includes('/model-usage'))).toBe(false)
 })
+it('opens frozen manuscript writing from task details without an analysis configuration or authorization button',async()=>{
+ const input={kind:'manuscript_writing',base_version_id:'v1',base_revision:1,output_language:'en',workflow_version:'manuscript_writing_v1'}
+ const task={...taskFixture,task_type:'manuscript_writing',phase:'write',input_version:input,error_code:'manuscript_writing_not_authorized',reason_code:'confirmation_required'}
+ api({...workspaceFixture,task,source:{file_id:null,analysis_run_id:null,filename:'Saved draft',is_current:true},wait:{...workspaceFixture.wait,kind:'unsupported_confirmation',input_version:input},allowed_actions:[]})
+ const open=vi.fn();render(<TaskDetail {...props} onOpenManuscripts={open}/>);fireEvent.click(await screen.findByRole('button',{name:'打开 SCI 写作'}));expect(open).toHaveBeenCalled();expect(screen.getByText('已冻结的写作基础版本 1')).toBeTruthy();expect(screen.queryByText('分析配置 v0')).toBeNull()
+})

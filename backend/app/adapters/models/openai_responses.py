@@ -98,6 +98,26 @@ class OpenAIResponsesProvider:
             raise ModelProviderError(request_id=getattr(exc, 'request_id', None),
                                      status_code=getattr(exc, 'status_code', None)) from None
 
+    def create_frozen(self, *, wire_json: str) -> dict:
+        """Transmit the canonical body verbatim; SDK rebuilding cannot change its bytes."""
+        from app.domain.manuscript_writing.policy import policy
+        from app.domain.manuscript_writing.bundle import INSTRUCTIONS
+        from app.domain.manuscript_writing.live_contracts import LiveOutput
+        try:
+            wire=json.loads(wire_json)
+            fixed=dict(model=policy().model,background=True,store=True,service_tier='default',
+                instructions=INSTRUCTIONS,input=wire['input'],max_output_tokens=policy().max_output_tokens,
+                text=dict(format=dict(type='json_schema',name='manuscript_writing_v2',strict=True,schema=LiveOutput.model_json_schema())))
+            if wire!=fixed or canonical_payload(wire)!=wire_json or not isinstance(wire['input'],str): raise ValueError()
+            from openai.types.responses import Response
+            response=self.client.post('/responses',cast_to=Response,content=wire_json.encode('utf-8'),options={
+                'headers':{'Content-Type':'application/json'},'timeout':policy().timeout_seconds})
+            return self._receipt(response)
+        except (KeyError,ValueError,TypeError):
+            raise ModelProviderError('model_input_invalid') from None
+        except (APIConnectionError, APIStatusError) as exc:
+            raise ModelProviderError(request_id=getattr(exc,'request_id',None),status_code=getattr(exc,'status_code',None)) from None
+
     def retrieve(self, response_id: str, *, policy: 'ModelPolicy') -> dict:
         if policy.tools:
             raise ModelProviderError('model_tools_unsupported')

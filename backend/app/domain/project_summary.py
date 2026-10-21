@@ -62,9 +62,11 @@ class UnavailableModule(BaseModel):
     tasks: EmptyHistory = Field(default_factory=list)
 
 
-class WritingSummary(UnavailableModule):
-    current_manuscript: None = None
-    versions: EmptyHistory = Field(default_factory=list)
+class WritingSummary(BaseModel):
+    state: Literal['available','not_available'] = 'not_available'
+    tasks: list[dict] = Field(default_factory=list)
+    current_manuscript: dict | None = None
+    versions: list[dict] = Field(default_factory=list)
 
 
 class RevisionSummary(UnavailableModule):
@@ -100,6 +102,7 @@ class ProjectSummary(BaseModel):
     tasks: SummaryPage[TaskSummary]
     artifacts: SummaryPage[ArtifactSummary]
     future: FutureSummary
+    layout_exports: list[dict] = Field(default_factory=list)
 
 
 RUNS = '''WITH runs AS (
@@ -209,11 +212,21 @@ def read_project_summary(store, project_id, *, task_page=1, artifact_page=1, pag
     parameters = (project_id, store.owner_id) if store.owner_id is not None else (project_id,)
     # Owner check, counts and lists observe one read-only REPEATABLE READ snapshot.
     with store.connection() as db:
-        project = db.execute('SELECT project_type FROM projects WHERE id=%s' + scope, parameters).fetchone()
+        project = db.execute('SELECT project_type,owner_id FROM projects WHERE id=%s' + scope, parameters).fetchone()
         if project is None:
             raise StorageError('project_not_found', '项目不存在，请刷新项目列表。', 404)
         tasks = _page(db, project_id, TASKS, task_page, page_size)
         artifacts = _page(db, project_id, ARTIFACTS, artifact_page, page_size, artifacts=True)
+        from app.domain.layout_exports.service import LayoutExportService
+        from app.domain.report_collections.service import scoped_store
+        layout_service=LayoutExportService(scoped_store(project['owner_id'],store.db_config,store.directory))
+        layout_rows=db.execute('SELECT * FROM layout_exports WHERE project_id=%s ORDER BY created_at DESC,id LIMIT 20',(project_id,)).fetchall()
+        layouts=[layout_service.view(db,row) for row in layout_rows]
+        writing=WritingSummary()
+        if project['project_type']=='sci':
+            latest=db.execute('SELECT id,title,current_revision FROM manuscripts WHERE project_id=%s ORDER BY updated_at DESC,id LIMIT 1',(project_id,)).fetchone()
+            versions=db.execute('SELECT id,manuscript_id,revision FROM manuscript_versions WHERE project_id=%s ORDER BY created_at DESC,id LIMIT 20',(project_id,)).fetchall()
+            writing=WritingSummary(state='available',current_manuscript=dict(latest) if latest else None,versions=[dict(v) for v in versions])
     for task in tasks['items']:
         if task['status'] not in ('queued', 'submitting', 'running', 'waiting_input', 'waiting_confirmation', 'completed', 'failed', 'uncertain'):
             task['status'] = 'unknown'
@@ -230,6 +243,6 @@ def read_project_summary(store, project_id, *, task_page=1, artifact_page=1, pag
                                     f'{path}/figures/{resource_id}/download' if artifact['kind'] == 'figure'
                                     else f'{path}/report/{resource_id}/download')
     kind = project['project_type']
-    return ProjectSummary(project_id=project_id, project_type=kind, tasks=tasks, artifacts=artifacts,
-                          future=FutureSummary(sci=SciSummary() if kind == 'sci' else None,
+    return ProjectSummary(project_id=project_id, project_type=kind, tasks=tasks, artifacts=artifacts,layout_exports=layouts,
+                          future=FutureSummary(writing=writing,sci=SciSummary() if kind == 'sci' else None,
                                                thesis=ThesisSummary() if kind == 'thesis' else None))

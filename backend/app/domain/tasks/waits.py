@@ -8,6 +8,18 @@ from app.domain.tasks.wait_contracts import WaitView
 
 
 def input_version(task):
+    if task['task_type']=='manuscript_writing':
+        from app.domain.manuscript_writing.service import input_version as writing_input_version
+        return writing_input_version(task)
+    if task['task_type']=='layout_docx':
+        from app.domain.layout_exports.service import input_version as layout_input_version
+        return layout_input_version(task)
+    if task['task_type']=='pdf_export':
+        from app.domain.pdf_exports.service import input_version as pdf_input_version
+        return pdf_input_version(task)
+    if task['task_type'] in ('manuscript_draft','manuscript_docx'):
+        from app.domain.manuscripts.service import input_version as manuscript_input_version
+        return manuscript_input_version(task)
     if task['task_type'] == 'literature_assistance':
         from app.domain.literature_assistance.service import input_version as assistance_input_version
         return assistance_input_version(task)
@@ -118,6 +130,9 @@ def persist_wait(db, task):
 
 
 def allowed_recovery_actions(db, task):
+    if task['task_type']=='manuscript_writing' and task.get('reason_code')!='observation_expired':
+        from app.domain.manuscript_writing.service import recovery_actions
+        return recovery_actions(db,task)
     if task['task_type'] == 'literature_assistance' and task.get('reason_code') != 'observation_expired':
         from app.domain.literature_assistance.service import recovery_actions
         return recovery_actions(db,task)
@@ -172,7 +187,7 @@ def allowed_recovery_actions(db, task):
                 (snapshot['file']['id'],snapshot.get('parse_version',1))).fetchone():
                 return []
         return ['retry'] if not budget_wait and task.get('error_code') in RETRYABLE_CODES else []
-    if task['task_type'] in ('word_report','collection_word_report'):
+    if task['task_type'] in ('word_report','collection_word_report','manuscript_draft','manuscript_docx'):
         return ['retry'] if not budget_wait else []
     if task['task_type'] == 'boxplot':
         from app.domain.plot_tasks import _can_resume, _last_call, _unknown_submission

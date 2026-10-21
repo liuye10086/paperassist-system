@@ -1,0 +1,30 @@
+import {useId} from 'react'
+import ReviewSnapshot from './ReviewSnapshot'
+import ManuscriptImage from './ManuscriptImage'
+import { useI18n, translateForLocale } from '../../shared/i18n'
+import ProjectDownloadLink from '../../shared/components/ProjectDownloadLink'
+import { methodLabels, sectionLabels, type MethodField, type Paragraph, type Snapshot } from './manuscriptTypes'
+type Props={snapshot:Snapshot;label?:string}
+export default function ManuscriptPreview({snapshot,label='事实稿预览'}:Props){
+ const {t}=useI18n();const referencePrefix=useId();const out=(s:string)=>translateForLocale(s,snapshot.output_language)
+ const origin=(p:Paragraph)=>out(p.origin==='model_generated'?(snapshot.writing_provenance?.schema_version===2&&p.verification_status==='scientific_reviewed'?'已记录新文本人工科学审核':'写作候选，尚未经研究人员核实'):p.origin==='image_observation'?'图像观察，不作为统计结论':p.origin==='computed_result'?'本研究固定统计结果':p.origin==='literature'?'外部文献发现':'用户提供资料')
+ const labels=new Map(snapshot.sources.map(s=>[s.id,s.label]))
+ const paragraph=(p:Paragraph)=><div key={p.id} className="manuscript-paragraph"><p>{p.text}{p.citations.length>0&&<small className="manuscript-reference-links"> {p.citations.map(c=>typeof c==='number'?c:snapshot.references.find(r=>r.project_reference_id===c.project_reference_id)?.number).filter((n):n is number=>typeof n==='number').map(n=><a key={n} href={`#${referencePrefix}-reference-${n}`}>{out('引用依据')} {n}</a>)}</small>}</p><small>{origin(p)}{p.source_ids.length>0&&<> · {p.source_ids.map(id=>labels.get(id)??out('已冻结来源')).join('; ')}</>}</small>{p.cross_references?.length? <p><small>{out('冻结图表引用')} · {p.cross_references.map((r,i)=><span key={i}>{i>0?'；':''}{out(r.kind==='figure'?'图':'表')} {r.number}{r.panel_label??''}</span>)}</small></p>:null}</div>
+ return <section className="manuscript-preview manuscript-panel" aria-label={t(label)} lang={snapshot.output_language}>
+ <h3>{snapshot.title}</h3><p className="warning-panel">{snapshot.notice}</p>
+ {snapshot.writing_provenance?.schema_version===2&&<div><p>{t(snapshot.writing_provenance.provider_provenance==='openai_live'?'真实 provider 回执':'离线模拟回执 / 演示用量')}</p><p>{t('研究数据属性须按冻结来源独立核对。')}</p><p>{t(snapshot.writing_provenance.verification_status==='scientific_and_language_reviewed'?'已记录人工科学与语言审核；不等同科学有效性证明。':snapshot.writing_provenance.verification_status==='scientific_reviewed_language_pending'?'已记录人工科学审核；完整语言审核待完成。':'科学审核待完成。')}</p></div>}
+ {snapshot.writing_provenance?.provider_provenance==='synthetic_fixture'&&<p className="warning-panel">{t('合成模拟材料，仅验证流程，不代表真实模型效果。')}</p>}
+ {snapshot.sections?.filter(s=>['title','abstract','introduction'].includes(s.id)).map(s=><section key={s.id}><h4>{out(sectionLabels[s.id])}</h4>{s.paragraphs.map(paragraph)}</section>)}
+ <h4>{out('结果')}</h4>{snapshot.sections?.find(s=>s.id==='results')?.paragraphs.map(paragraph)}{snapshot.results_groups.map(g=><section key={g.id} className="manuscript-results"><h5>{g.title}</h5>{!snapshot.sections&&g.paragraphs.map(paragraph)}
+ {g.tables.map(table=><div className="field-table-scroll" key={table.id}><table className="field-table"><caption>{table.number!==undefined&&!new RegExp(`^\\s*(?:表\\s*|Table\\s+)${table.number}(?=$|[\\s.．:：、])`,'i').test(table.title)?`${out('表')} ${table.number}. `:''}{table.title}</caption><thead><tr>{table.columns.map((c,i)=><th key={i} scope="col">{c}</th>)}</tr></thead><tbody>{table.rows.map((row,i)=><tr key={i}>{row.map((cell,j)=><td key={j}>{cell}</td>)}</tr>)}</tbody></table></div>)}
+ {g.figures.map(f=>{const source=snapshot.sources.find(s=>s.id===f.id||f.source_ids.includes(s.id));const imageUrl=f.preview_url??f.download_url??(source&&['original','figure','figure_language_version'].includes(source.kind)?source.download_url:null);return <figure key={f.id}>{imageUrl&&<ManuscriptImage key={imageUrl} url={imageUrl} title={f.title}/>}<figcaption><strong>{out('图')} {f.number}. {f.title}</strong><p>{f.caption}</p>{f.panels?.map((p,i)=><p key={i}><b>{p.label}</b> {p.description}</p>)}<small>{out(f.caption_status==='candidate'?'候选图注，需人工补充与确认':f.caption_status==='missing'?'图注缺失，待补充':f.caption_status==='supplied'||f.caption_origin==='user_provided'?'用户提供图注':'来源图注')}</small>{source?.download_url&&<p><ProjectDownloadLink href={source.download_url} filename={source.label}>{t('查看来源文件')}</ProjectDownloadLink></p>}</figcaption></figure>})}
+ </section>)}
+ {snapshot.sections?.filter(s=>s.id==='discussion').map(s=><section key={s.id}><h4>{out(sectionLabels[s.id])}</h4>{s.paragraphs.map(paragraph)}</section>)}
+ <h4>{out('材料与方法')}</h4>{(snapshot.sections?.find(s=>s.id==='materials_and_methods')?.paragraphs??snapshot.methods).map(paragraph)}
+ <h4>{out('资料问题与待办')}</h4>{snapshot.issues.length===0?<p>{out('未发现待补充项；仍需核对原始资料。')}</p>:<ul className="manuscript-issues">{snapshot.issues.map(issue=><li key={issue.id}><strong>{out(issue.kind==='conflict'?'待核实':issue.kind==='missing'?'待补充':'范围限制')}</strong>{' · '}{out(methodLabels[issue.field as MethodField]??'研究资料')}<p>{issue.message}</p>{issue.values.length>0&&<ul>{issue.values.map((v,i)=><li key={i}>{v}</li>)}</ul>}</li>)}</ul>}
+ {(snapshot.references.length>0||snapshot.sections)&&<><h4>{out('参考文献')}</h4><ol>{snapshot.references.map(r=><li key={r.number} id={`${referencePrefix}-reference-${r.number}`} value={r.number}>{r.text}</li>)}</ol></>}
+ {snapshot.keywords&&<><h4>{out('关键词')}</h4><p>{snapshot.keywords.join('; ')}</p></>}{snapshot.acknowledgements&&<><h4>{out('致谢')}</h4><p>{snapshot.acknowledgements}</p></>}
+ {snapshot.review&&<ReviewSnapshot review={snapshot.review}/>}{snapshot.review_history?.map((history,i)=><ReviewSnapshot key={i} review={history.review} historical/>)}
+ <details><summary>{t('冻结来源与依据')}</summary><ul>{snapshot.sources.map(s=><li key={`${s.kind}:${s.id}`}><strong>{s.label}</strong>{' · '}{out(s.role==='computed_results'?'本研究固定统计结果':s.role==='literature'?'外部文献发现':s.role==='image_observation'?'图像观察，不作为统计结果':'用户提供资料')}{s.download_url&&<> · <ProjectDownloadLink href={s.download_url} filename={s.label}>{t('查看来源文件')}</ProjectDownloadLink></>}</li>)}</ul></details>
+ </section>
+}

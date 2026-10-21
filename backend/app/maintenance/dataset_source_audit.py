@@ -205,7 +205,9 @@ def audit_dataset_sources(db):
                            ('reports', 'report_json'), ('tasks', 'input_snapshot')):
         total = invalid = 0
         for row in (tasks.values() if table == 'tasks' else db.execute('SELECT * FROM ' + table)):
-            if table == 'tasks' and row['task_type'] in ('review_ocr','analysis_plan'):
+            # These workflows use their own frozen artifact bindings, not dataset sources.
+            # Dedicated PDF/layout/writing audits check their persisted contracts.
+            if table == 'tasks' and row['task_type'] in ('review_ocr','analysis_plan','pdf_export','layout_docx','manuscript_writing'):
                 continue
             value = object_json(row[column])
             run_id = (value.get('result', {}).get('id') if isinstance(value.get('result'), dict) else None)

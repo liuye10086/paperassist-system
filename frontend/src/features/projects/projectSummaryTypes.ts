@@ -1,3 +1,4 @@
+import {validLayoutExport,type LayoutExport} from '../layout-exports/layoutApi'
 export type SummarySource = {
   id: string; file_id: string; filename: string; analysis_run_id: string
   setup_revision: number; current_revision: number | null; engine_version: string
@@ -17,10 +18,11 @@ export type SummaryArtifact = Omit<SummarySource,'analysis_run_id'|'setup_revisi
 export type SummaryPage<T> = { items: T[]; total: number; page: number; page_size: number }
 type Unavailable = { state: 'not_available'; tasks: never[] }
 export type ProjectSummaryData = {
+  layout_exports?:LayoutExport[]
   project_id: string; project_type: 'sci' | 'thesis'
   tasks: SummaryPage<SummaryTask>; artifacts: SummaryPage<SummaryArtifact>
   future: {
-    writing: Unavailable & { current_manuscript: null; versions: never[] }
+    writing: (Unavailable & { current_manuscript: null; versions: never[] }) | {state:'available';current_manuscript:{id:string;title:string;current_revision:number}|null;versions:{id:string;manuscript_id:string;revision:number}[];tasks:never[]}
     revision: Unavailable & { current_round: null; rounds: never[]; opinions: never[]; pending_materials: never[] }
     sci: (Unavailable & { target_journal: null; recommendations: never[]; submission_progress: null }) | null
     thesis: (Unavailable & { school: null; degree: null; template: null; review_progress: null }) | null
@@ -53,6 +55,7 @@ function unavailable(value: unknown, arrays: string[], nulls: string[]): boolean
 export function isProjectSummary(value: unknown, projectId: string, projectType: 'sci' | 'thesis',
   taskPage: number, artifactPage: number): value is ProjectSummaryData {
   if (!record(value) || value.project_id !== projectId || value.project_type !== projectType || !record(value.future)) return false
+  if(value.layout_exports!==undefined&&(!Array.isArray(value.layout_exports)||value.layout_exports.length>20||!value.layout_exports.every(x=>record(x)&&validLayoutExport(x,{projectId,sourceKind:x.source_kind as LayoutExport['source_kind'],sourceId:String(x.source_id)}))||new Set(value.layout_exports.map(x=>x.id)).size!==value.layout_exports.length))return false
   const future = value.future
   return page(value.tasks, taskPage, task => source(task) && record(task)
     && ['statistics', 'boxplot', 'explanation', 'report'].includes(String(task.kind))
@@ -70,7 +73,7 @@ export function isProjectSummary(value: unknown, projectId: string, projectType:
       if(artifact.figure_config_version_id!=null)return artifact.kind==='figure'&&typeof artifact.figure_config_version_id==='string'&&!!artifact.figure_config_version_id&&['boxplot','group_boxplot','paired_connected','scatter','correlation_heatmap','line','bar','violin','forest','roc_curve','kaplan_meier'].includes(String(artifact.figure_kind))&&artifact.download_url===`${base}/figure-workbench/figures/${encodeURIComponent(artifact.id)}/png`
       return artifact.download_url === `${base}/${artifact.kind === 'figure' ? 'figures' : 'report'}/${encodeURIComponent(artifact.id)}/download`
     })
-    && unavailable(future.writing, ['versions'], ['current_manuscript'])
+    && (unavailable(future.writing, ['versions'], ['current_manuscript']) || record(future.writing)&&future.writing.state==='available'&&Array.isArray(future.writing.tasks)&&future.writing.tasks.length===0&&(future.writing.current_manuscript===null||record(future.writing.current_manuscript)&&['id','title'].every(k=>typeof (future.writing as Record<string,unknown>).current_manuscript==='object'&&typeof ((future.writing as Record<string,unknown>).current_manuscript as Record<string,unknown>)[k]==='string')&&integer(future.writing.current_manuscript.current_revision,1))&&Array.isArray(future.writing.versions)&&future.writing.versions.every(v=>record(v)&&typeof v.id==='string'&&typeof v.manuscript_id==='string'&&integer(v.revision,1)))
     && unavailable(future.revision, ['rounds', 'opinions', 'pending_materials'], ['current_round'])
     && (projectType === 'sci'
       ? future.thesis === null && unavailable(future.sci, ['recommendations'], ['target_journal', 'submission_progress'])

@@ -47,7 +47,7 @@ export default function TaskPendingAction({ workspace, blocked, onChanged }: {
     } finally { if (request.current === controller) request.current = null; if (active.current) setBusy(false) }
   }
   const currentWait = wait?.status === 'open' ? wait : null
-  if (task.origin === 'legacy') return null
+  if (task.origin === 'legacy'||task.task_type==='pdf_export') return null
   if(task.task_type==='figure_projection')return <p className="warning-panel">{t('请返回来源文件的图表工作台，核对投影人数与规则后独立确认。')}</p>
   if (task.task_type === 'review_ocr' && task.input_version.kind === 'ocr_review') return <OcrReviewWorkspace projectId={task.project_id} fileId={task.input_version.source.file_id} parseId={task.input_version.source.parse_id} taskId={task.id} filename={workspace.source.filename} onUnavailable={onChanged} onPublished={onChanged}/>
   if (task.task_type === 'prepare_dataset') return <><PreparationReview projectId={task.project_id} taskId={task.id} blocked={blocked} onChanged={onChanged} refreshKey={task.revision ?? 0} />

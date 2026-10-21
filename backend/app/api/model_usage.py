@@ -50,8 +50,9 @@ class ReconciliationSummary(BaseModel):
 
 class PublicCall(BaseModel):
     id: str
-    task_type: Literal['boxplot', 'explanation', 'word_report', 'analysis_recommendation', 'figure_workbench', 'figure_explanation', 'literature_assistance']
+    task_type: Literal['boxplot', 'explanation', 'word_report', 'analysis_recommendation', 'figure_workbench', 'figure_explanation', 'literature_assistance', 'manuscript_writing']
     model: str
+    provider_provenance: Literal['synthetic_fixture', 'openai_live'] | None = None
     status: Literal['reserved', 'submitting', 'submitted', 'submission_unknown', 'completed', 'failed', 'released']
     provider_status: str | None
     usage_status: Literal['pending', 'estimated']

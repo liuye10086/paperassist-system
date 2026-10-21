@@ -35,9 +35,9 @@ class TaskListItem(BaseModel):
 
     @model_validator(mode='after')
     def source_matches_task(self):
-        if self.source.file_id is None and not (self.task.task_type in ('literature_search','literature_assistance') or self.task.task_type=='analysis_plan' and self.task.input_version.workflow_version in ('analysis_plan_v4','analysis_plan_v5') and self.task.input_version.source is None):
+        if self.source.file_id is None and not (self.task.task_type in ('literature_search','literature_assistance','manuscript_draft','manuscript_docx','pdf_export', 'layout_docx','manuscript_writing') or self.task.task_type=='analysis_plan' and self.task.input_version.workflow_version in ('analysis_plan_v4','analysis_plan_v5') and self.task.input_version.source is None):
             raise ValueError('Only a material requirement may lack a source file')
-        if (self.task.task_type in ('parse_file','extract_dataset','prepare_dataset', 'review_ocr', 'analysis_plan', 'analysis_recommendation', 'collection_word_report', 'statistics_compute', 'literature_search', 'literature_assistance')) != (self.source.analysis_run_id is None):
+        if (self.task.task_type in ('parse_file','extract_dataset','prepare_dataset', 'review_ocr', 'analysis_plan', 'analysis_recommendation', 'collection_word_report', 'statistics_compute', 'literature_search', 'literature_assistance', 'manuscript_draft', 'manuscript_docx', 'pdf_export', 'layout_docx', 'manuscript_writing')) != (self.source.analysis_run_id is None):
             raise ValueError('Task source must match its input type.')
         return self
 
@@ -73,6 +73,7 @@ class ReportArtifact(BaseModel):
 
 
 class TaskArtifacts(BaseModel):
+    manuscript: dict | None = None
     literature: dict | None = None
     literature_assistance: dict | None = None
     analysis: dict | None = None
@@ -85,6 +86,7 @@ class TaskArtifacts(BaseModel):
     @model_serializer(mode='wrap')
     def serialize_artifacts(self, handler):
         value = handler(self)
+        if self.manuscript is None:value.pop('manuscript',None)
         if self.literature_assistance is None:value.pop('literature_assistance',None)
         if self.literature is None:value.pop('literature',None)
         if self.analysis is None:value.pop('analysis',None)
@@ -111,8 +113,8 @@ class TaskWorkspace(BaseModel):
 
     @model_validator(mode='after')
     def source_matches_task(self):
-        if self.source.file_id is None and not (self.task.task_type in ('literature_search','literature_assistance') or self.task.task_type=='analysis_plan' and self.task.input_version.workflow_version in ('analysis_plan_v4','analysis_plan_v5') and self.task.input_version.source is None):
+        if self.source.file_id is None and not (self.task.task_type in ('literature_search','literature_assistance','manuscript_draft','manuscript_docx','pdf_export', 'layout_docx','manuscript_writing') or self.task.task_type=='analysis_plan' and self.task.input_version.workflow_version in ('analysis_plan_v4','analysis_plan_v5') and self.task.input_version.source is None):
             raise ValueError('Only a material requirement may lack a source file')
-        if (self.task.task_type in ('parse_file','extract_dataset','prepare_dataset', 'review_ocr', 'analysis_plan', 'analysis_recommendation', 'collection_word_report', 'statistics_compute', 'literature_search', 'literature_assistance')) != (self.source.analysis_run_id is None):
+        if (self.task.task_type in ('parse_file','extract_dataset','prepare_dataset', 'review_ocr', 'analysis_plan', 'analysis_recommendation', 'collection_word_report', 'statistics_compute', 'literature_search', 'literature_assistance', 'manuscript_draft', 'manuscript_docx', 'pdf_export', 'layout_docx', 'manuscript_writing')) != (self.source.analysis_run_id is None):
             raise ValueError('Task source must match its input type.')
         return self

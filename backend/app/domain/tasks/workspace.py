@@ -13,6 +13,26 @@ class TaskWorkspaceService:
 
     def source(self, db, task):
         snapshot = task['input_snapshot']
+        if task['task_type']=='manuscript_writing':
+            from app.domain.manuscript_writing.service import require_snapshot
+            snap=require_snapshot(task)
+            return dict(file_id=None,filename=snap['base_snapshot']['title'],analysis_run_id=None,is_current=True)
+        if task['task_type'] in ('pdf_export','layout_docx'):
+            if task['task_type']=='layout_docx':
+                from app.domain.layout_exports.service import LayoutExportService as PdfExportService
+            else:
+                from app.domain.pdf_exports.service import PdfExportService
+            from app.domain.report_collections.service import scoped_store
+            service=PdfExportService(scoped_store(task['user_id'],self.store.config))
+            row=service.row(db,task['project_id'],snapshot['export_id']);service.verify(db,row)
+            return dict(file_id=None,filename=row['input_json']['source']['metadata']['filename'],analysis_run_id=None,is_current=True)
+        if task['task_type'] in ('manuscript_draft','manuscript_docx'):
+            from app.domain.manuscripts.service import ManuscriptService
+            from app.domain.manuscripts.sources import changes
+            from app.domain.report_collections.service import scoped_store
+            service=ManuscriptService(scoped_store(task['user_id'],self.store.config))
+            version=service.verify_task(db,task)
+            return dict(file_id=None,filename=version['snapshot_json']['title'],analysis_run_id=None,is_current=not bool(changes(service,task['project_id'],version['snapshot_json'])))
         if task['task_type'] == 'literature_assistance':
             from app.domain.literature_assistance.service import require_snapshot
             snapshot = require_snapshot(task)
@@ -139,7 +159,7 @@ class TaskWorkspaceService:
         if (type(page) is not int or not 1 <= page <= 1_000_000
                 or type(page_size) is not int or not 1 <= page_size <= 50
                 or status not in (None, 'queued', 'running', 'waiting_input', 'waiting_confirmation', 'succeeded', 'failed')
-                or task_type not in (None, 'boxplot', 'explanation', 'word_report', 'parse_file', 'extract_dataset', 'prepare_dataset', 'review_ocr', 'analysis_plan', 'analysis_recommendation', 'figure_projection', 'figure_workbench', 'figure_explanation', 'collection_word_report', 'statistics_compute', 'literature_search', 'literature_assistance')):
+                or task_type not in (None, 'boxplot', 'explanation', 'word_report', 'parse_file', 'extract_dataset', 'prepare_dataset', 'review_ocr', 'analysis_plan', 'analysis_recommendation', 'figure_projection', 'figure_workbench', 'figure_explanation', 'collection_word_report', 'statistics_compute', 'literature_search', 'literature_assistance', 'manuscript_draft', 'manuscript_docx', 'pdf_export', 'layout_docx', 'manuscript_writing')):
             raise StorageError('task_input_invalid', '任务列表查询参数无效。', 422)
         from app.adapters.legacy_task_query import mixed_task_page, require_legacy_task
         from app.domain.tasks.legacy import public_legacy_task, legacy_source
@@ -205,6 +225,30 @@ class TaskWorkspaceService:
 
     def artifacts(self, db, task):
         result = {'figure': None, 'explanation': None, 'report': None}
+        if task['task_type']=='manuscript_writing':
+            from app.domain.manuscript_writing.service import require_snapshot
+            require_snapshot(task)
+            return result
+        if task['task_type'] in ('pdf_export','layout_docx'):
+            if task['task_type']=='layout_docx':
+                from app.domain.layout_exports.service import LayoutExportService as PdfExportService
+            else:
+                from app.domain.pdf_exports.service import PdfExportService
+            from app.domain.report_collections.service import scoped_store
+            service=PdfExportService(scoped_store(task['user_id'],self.store.config))
+            row=service.row(db,task['project_id'],task['input_snapshot']['export_id']);view=service.view(db,row)
+            if view['download_url']: result['report']=dict(filename=view['filename'],download_url=view['download_url'])
+            return result
+        if task['task_type'] in ('manuscript_draft','manuscript_docx'):
+            from app.domain.manuscripts.service import ManuscriptService
+            from app.domain.report_collections.service import scoped_store
+            service=ManuscriptService(scoped_store(task['user_id'],self.store.config))
+            version=service.verify_task(db,task)
+            result['manuscript']=dict(id=version['manuscript_id'],version_id=version['id'],revision=version['revision'],download_url=None)
+            if task['task_type']=='manuscript_docx':
+                view=service.export_view(db,version,task['input_snapshot']['export_id'])
+                if view['download_url']: result['report']=dict(filename=view['filename'],download_url=view['download_url'])
+            return result
         if task['task_type'] == 'literature_assistance':
             from app.domain.literature_assistance.service import LiteratureAssistanceService
             view = LiteratureAssistanceService(self.store).view(db,task['project_id'],task['id'])

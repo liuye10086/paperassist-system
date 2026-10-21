@@ -66,6 +66,28 @@ class ModelGateway:
                                     status_code=getattr(exc, 'status_code', None)) from None
         return self._record(call['id'], receipt, submitted=True)
 
+    def submit_frozen_writing(self, request, *, wire_json, execution_lease):
+        from app.domain.manuscript_writing.authorization import LiveWritingService
+        from app.domain.report_collections.service import scoped_store
+        from app.domain.manuscript_writing.live_execution import require_live_snapshot
+        with self.service.store.connection() as db:
+            task=self.service.store.require_task(db,request.task_id)
+            snap=require_live_snapshot(task)
+            bundle=LiveWritingService(scoped_store(task['user_id'],self.service.store.config)).bundle(db,task['project_id'],snap['execution']['bundle_id'])
+            if wire_json!=bundle['wire_json']: raise ModelGatewayError('model_input_digest_mismatch')
+        call=self.service.reserve_call(request,execution_lease=execution_lease)
+        if call.get('provider_response_id'): return self.refresh(call['id'])
+        if not self.service.begin_submission(call['id'],execution_lease=execution_lease,expected_task_revision=request.expected_task_revision):
+            current=self.service.get_call(call['id'])
+            return self.refresh(call['id']) if current.get('provider_response_id') else {'call':current,'response':None}
+        try:
+            receipt=self.provider.create_frozen(wire_json=bundle['wire_json'])
+        except Exception as exc:
+            request_id=safe_request_id(getattr(exc,'request_id',None))
+            self._mark_unknown(call['id'],'model_provider_request_failed',request_id)
+            raise ModelGatewayError('model_provider_request_failed',request_id=request_id,status_code=getattr(exc,'status_code',None)) from None
+        return self._record(call['id'],receipt,submitted=True)
+
     def submit_plot(self, request: 'CallRequest', *, instructions: str, payload: dict, execution_lease) -> dict:
         """At most one remote POST per slice, using persisted side-effect checkpoints."""
         from app.domain.model_usage.contracts import CallRequest

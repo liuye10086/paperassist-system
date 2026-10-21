@@ -1,3 +1,5 @@
+import LayoutExports from '../layout-exports/LayoutExports'
+import PdfExports from '../pdf-exports/PdfExports'
 import SourceSummary from '../analysis/SourceSummary'
 import { validAnalysisTaskSource, validOptionalSource, type DatasetAnalysisSource } from '../analysis/datasetSource'
 import { useI18n, apiError, safeError } from '../../shared/i18n'
@@ -24,6 +26,7 @@ function ReportPanel({ base, runId, revision, figureId, explanationId, canGenera
   const [pollTick, setPollTick] = useState(0)
   const active = useRef(true)
   const action = useRef<AbortController | null>(null)
+  const projectId = /^\/api\/v1\/projects\/([^/]+)\/files\//.exec(base)?.[1]
   const report = state?.report
   const task = state?.task
   const pending = task?.status === 'queued' || task?.status === 'running'
@@ -99,7 +102,7 @@ function ReportPanel({ base, runId, revision, figureId, explanationId, canGenera
     {error && <p role="alert" className="error-panel">{t(error)}</p>}
     {state?.issues?.length ? <ul>{state.issues.map((issue, index) => <li key={index}>{workflowNotice(issue, t)}</li>)}</ul> : null}
     {report && <><p className="artifact-status">{t(current ? "当前结果" : "历史结果")}</p><p><ProjectDownloadLink href={`${endpoint}/${encodeURIComponent(report.id)}/download`} filename={filename}>{t("下载 Word 报告")}</ProjectDownloadLink></p><p>{t("文件：")}{filename}{t("；生成时间：")}{report.created_at}{t("；文件大小：")}{t('{count} 字节', { count: report.size_bytes })}</p>
-      <details className="artifact-details"><summary>{t("报告来源记录")}</summary><SourceSummary source={report.source} filename={sourceFilename} />{report.source?.schema_version === 2 && <p>{t('报告按该整理版本冻结质量策略、前后概况和处理摘要；完整明细请查看该版本质量回执，各计划有效记录数分别列出。')}</p>}<p>{t(modern?'内容来自同一已确认计划的统计结果、图表和分析解释。':'内容来自已保存的描述统计、箱线图和分析解释。')}</p><p>{t("语言：")}{t(report.language === 'zh-CN' ? '中文' : '英文')}</p></details></>}
+      {projectId&&/^[a-f0-9]{64}$/.test(report.sha256)&&<><PdfExports projectId={decodeURIComponent(projectId)} sourceKind="report" sourceId={report.id} sourceSha256={report.sha256} sourceLabel={t('分析配置 v{revision}',{revision:report.setup_revision})} disabled={disabled}/><LayoutExports projectId={decodeURIComponent(projectId)} sourceKind="report" sourceId={report.id} sourceSha256={report.sha256} sourceLabel={t('分析配置 v{revision}',{revision:report.setup_revision})} disabled={disabled}/></>}<details className="artifact-details"><summary>{t("报告来源记录")}</summary><SourceSummary source={report.source} filename={sourceFilename} />{report.source?.schema_version === 2 && <p>{t('报告按该整理版本冻结质量策略、前后概况和处理摘要；完整明细请查看该版本质量回执，各计划有效记录数分别列出。')}</p>}<p>{t(modern?'内容来自同一已确认计划的统计结果、图表和分析解释。':'内容来自已保存的描述统计、箱线图和分析解释。')}</p><p>{t("语言：")}{t(report.language === 'zh-CN' ? '中文' : '英文')}</p></details></>}
     {state && !report && <p className="artifact-empty">{t("尚未生成 Word 报告。完成当前结果后，可将统计、图表和解释整理为可编辑文档。")}</p>}
   </section></WorkflowStage>
 }

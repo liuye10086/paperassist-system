@@ -1,0 +1,47 @@
+.manuscript-workspace { max-width: 1120px; }
+.manuscript-form > fieldset { border: 0; padding: 0; margin: 0; min-width: 0; }
+.manuscript-form > fieldset > label { display: grid; gap: .45rem; margin: .8rem 0 1rem; }
+.manuscript-form > fieldset > label > select,
+.manuscript-form > fieldset > label > textarea { width: 100%; max-width: 100%; box-sizing: border-box; }
+.manuscript-form > fieldset > label > textarea { min-height: 6rem; resize: vertical; }
+.manuscript-panel { margin: 1.25rem 0; padding: 1.35rem; border: 1px solid var(--border, #dedfd9); border-radius: 12px; background: var(--panel, #fff); }
+.manuscript-panel h3, .manuscript-panel h4 { margin-top: 0; }
+.manuscript-sources { display: grid; grid-template-columns: repeat(auto-fit,minmax(230px,1fr)); gap: 1rem; }
+.manuscript-source { display: grid; gap: .55rem; border: 1px solid var(--border, #dedfd9); border-radius: 8px; min-width: 0; }
+.manuscript-source > label:first-of-type, .manuscript-group-options label { display:flex; align-items:center; gap:.5rem; }
+.manuscript-source input[type=checkbox], .manuscript-group-options input[type=checkbox] { width:auto; }
+.manuscript-method { margin: 1rem 0 1.3rem; }
+.manuscript-method-source { max-width: 26rem; }
+.manuscript-method-source select { min-height: 2.5rem; }
+.manuscript-actions { display:flex; flex-wrap:wrap; gap:.6rem; margin: .8rem 0; }
+.manuscript-group { margin:1rem 0; padding:1rem; border:1px solid var(--border,#dedfd9); border-radius:8px; min-width:0; }
+.manuscript-group-options { display:grid; grid-template-columns:1fr 1fr; gap:1rem; margin:1rem 0; }
+.manuscript-history + .manuscript-history { border-top:1px solid var(--border,#dedfd9); padding-top:1rem; }
+.manuscript-version { display:grid; gap:.35rem; padding:.8rem 0; }
+.manuscript-export { display:flex; flex-wrap:wrap; align-items:center; gap:.7rem; padding:.8rem 0; }
+.manuscript-preview p { white-space:pre-wrap; overflow-wrap:anywhere; }
+.manuscript-paragraph { margin:1rem 0; }.manuscript-paragraph small { color:var(--muted,#68716e); }
+.manuscript-results h5 { font-size:1.05rem; }.manuscript-preview figure { margin:1.25rem 0; border-left:3px solid var(--border,#dedfd9); padding:.6rem 1rem; }
+.manuscript-issues > li { margin:.75rem 0; }.manuscript-issues p { margin:.35rem 0; }
+.manuscript-workspace summary { cursor:pointer; padding:.5rem 0; font-weight:600; }
+@media(max-width:650px) { .manuscript-panel { padding:1rem; }.manuscript-group-options { grid-template-columns:1fr; } }
+
+.manuscript-preview figure img { display:block; width:auto; max-width:100%; height:auto; max-height:70vh; object-fit:contain; margin:0 auto 1rem; }
+.manuscript-reference-links a { margin-right:.5rem; }
+
+.manuscript-review fieldset { min-width:0; border:1px solid var(--border,#dedfd9); border-radius:8px; padding:1rem; margin:1rem 0; }
+.manuscript-review label { display:grid; gap:.4rem; margin:.65rem 0; }
+.manuscript-review input,.manuscript-review select,.manuscript-review textarea { box-sizing:border-box; width:100%; max-width:100%; }
+.manuscript-review input[type=checkbox] { width:auto; }
+.manuscript-review select[multiple] { min-height:5rem; }
+.manuscript-review pre { white-space:pre-wrap; overflow-wrap:anywhere; max-height:20rem; overflow:auto; font-size:.85rem; }
+.manuscript-review article { margin:.8rem 0; padding:.7rem; border-bottom:1px solid var(--border,#dedfd9); overflow-wrap:anywhere; }
+.manuscript-review [tabindex]:focus { outline:3px solid var(--accent,#386a58); outline-offset:3px; }
+.review-editors>details,.review-frozen { margin:.8rem 0; }
+.review-binding { display:grid; grid-template-columns:2fr 1fr auto; gap:.6rem; align-items:end; }
+@media(max-width:650px) { .review-binding { grid-template-columns:1fr; } .manuscript-review fieldset { padding:.65rem; } }
+
+.writing-live code, .writing-live dd { overflow-wrap:anywhere; }
+.writing-live label:has(>input[type=checkbox]) { display:flex; align-items:flex-start; gap:.55rem; }
+.manuscript-review img { display:block; max-width:100%; max-height:70vh; object-fit:contain; margin:.8rem auto; }
+.writing-live textarea { min-height:5rem; resize:vertical; }

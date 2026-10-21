@@ -18,7 +18,7 @@ def error_category(code):
     code = safe_error_code(code)
     if code is None:
         return None
-    if code in ('ncbi_unavailable', 'model_provider_unavailable', 'parse_timeout', 'parse_resource_limit', 'parse_process_failed', 'storage_unavailable',
+    if code in ('pdf_conversion_timeout','pdf_renderer_busy','ncbi_unavailable', 'model_provider_unavailable', 'parse_timeout', 'parse_resource_limit', 'parse_process_failed', 'storage_unavailable',
             'numeric_timeout', 'numeric_failure'):
         return 'temporary'
     if code in ('model_authentication_failed', 'authentication_required', 'invalid_credentials'):
@@ -31,18 +31,18 @@ def error_category(code):
         return 'budget'
     if code == 'task_worker_interrupted':
         return 'interrupted'
-    if code in ('literature_assistance_not_authorized', 'ncbi_not_configured', 'ncbi_request_rejected', 'model_request_rejected', 'model_policy_not_configured', 'model_policy_invalid', 'numeric_timeout_invalid',
+    if code in ('pdf_renderer_unavailable','pdf_renderer_mismatch','literature_assistance_not_authorized', 'manuscript_writing_not_authorized', 'ncbi_not_configured', 'ncbi_request_rejected', 'model_request_rejected', 'model_policy_not_configured', 'model_policy_invalid', 'numeric_timeout_invalid',
             'openai_not_configured', 'explanation_not_configured', 'plot_not_configured', 'recommendation_not_configured',
             'authentication_configuration', 'database_configuration', 'parse_environment_unavailable', 'numeric_environment_unavailable'):
         return 'configuration'
-    if code in ('literature_source_conflict', 'literature_revision_conflict', 'model_response_not_found', 'plot_container_expired', 'task_source_conflict',
+    if code in ('layout_source_invalid','layout_source_mismatch','layout_target_invalid','layout_formula_invalid','layout_formula_too_wide','pdf_input_invalid','literature_source_conflict', 'literature_revision_conflict', 'model_response_not_found', 'plot_container_expired', 'task_source_conflict',
             'numeric_input_limit', 'numeric_descriptive_limit', 'numeric_row_limit', 'numeric_effect_limit', 'numeric_input_bytes_limit', 'numeric_sample_size',
             'source_conflict', 'dataset_missing', 'dataset_changed', 'structure_version_conflict', 'structure_task_pending', 'file_changed', 'file_missing', 'figure_changed', 'figure_missing',
             'report_changed', 'report_missing', 'report_source_changed', 'report_source_conflict',
             'invalid_workbook', 'workbook_too_large', 'parse_failed', 'encrypted_document',
             'invalid_document', 'document_too_large', 'document_changed', 'document_missing', 'file_too_large', 'empty_file'):
         return 'source'
-    if code in ('literature_assistance_invalid', 'ncbi_response_invalid', 'recommendation_invalid', 'model_response_invalid', 'explanation_incomplete', 'explanation_invalid',
+    if code in ('layout_field_update_failed','pdf_conversion_failed','literature_assistance_invalid', 'manuscript_writing_invalid', 'manuscript_writing_citation_scope', 'ncbi_response_invalid', 'recommendation_invalid', 'model_response_invalid', 'explanation_incomplete', 'explanation_invalid',
             'numeric_output_limit', 'numeric_output_missing', 'numeric_output_invalid', 'result_mismatch',
             'explanation_invalid_json', 'explanation_output_limit', 'explanation_refused',
             'plot_files_missing', 'plot_invalid_image', 'plot_invalid_result', 'plot_no_execution',

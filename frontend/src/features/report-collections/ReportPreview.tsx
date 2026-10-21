@@ -12,6 +12,7 @@ const statisticalLabels:Record<string,string>={mode:'分析模式',matrix:'相�
 const textValue=(v:unknown):v is string=>typeof v==='string'
 function ValueTree({value,field='',preparedQuality=false}:{value:unknown;field?:string;preparedQuality?:boolean}){
  const {t,locale}=useI18n(),language=locale==='en'?1:0
+ if(field==='caption_status'&&typeof value==='string'){const captions:Record<string,string>={supplied:'用户提供图注',source:'来源图注',candidate:'候选图注，需人工补充与确认',missing:'图注缺失，待补充'};if(captions[value])return <span>{t(captions[value])}</span>}
  if(value===null||value===undefined)return <span>{t('未提供或无法计算')}</span>
  if(Array.isArray(value))return value.length?<ol className="report-fact-list">{value.map((item,index)=><li key={index}><ValueTree value={item} field={field} preparedQuality={preparedQuality}/></li>)}</ol>:<span>{t('无已记录条目')}</span>
  if(object(value)){

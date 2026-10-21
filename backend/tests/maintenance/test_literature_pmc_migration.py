@@ -12,7 +12,7 @@ def test_pmc_upgrade_preserves_old_rows_indexes_assets_and_frozen_ddl(client):
     _,_,_,refs=seeded(client)
     url=refs[0]['source']['source_download_url'];raw=client.get(url).content
     cfg=alembic_config()
-    assert ScriptDirectory.from_config(cfg).get_heads()==['0034_literature_pmc']
+    assert ScriptDirectory.from_config(cfg).get_heads()==['0040_manuscript_writing_live']
     with migration_connection(write=True) as db:
         cfg.attributes.update(connection=db.raw_connection,database_config=get_migration_database_config())
         command.downgrade(cfg,'0033_literature_checks')
@@ -25,13 +25,14 @@ def test_pmc_upgrade_preserves_old_rows_indexes_assets_and_frozen_ddl(client):
         assert all(after.get(k)==v for k,v in indexes.items())
         now={r['tablename'] for r in db.execute('SELECT tablename FROM pg_tables WHERE schemaname=current_schema()') if r['tablename']!='alembic_version'}
         assert now-set(tables)=={'literature_pmc_receipts'}
+        command.upgrade(cfg,'head')
     assert client.get(url).content==raw
     with database_connection() as db:
         from app.maintenance.database_audit import audit_database
         audit=audit_database(db)
         assert audit['ok'],audit
     from pathlib import Path
-    source=Path('backend/alembic/versions/0034_literature_pmc.py').read_text()
+    source=(Path(__file__).resolve().parents[2]/'alembic/versions/0034_literature_pmc.py').read_text(encoding='utf-8')
     assert 'from app.db' not in source
 
 

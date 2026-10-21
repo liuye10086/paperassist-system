@@ -384,3 +384,8 @@ test('configured PNGs and collection exports have exact routes and readable mult
  expect(screen.getByText('Collection version 2 · Export 3 · 2 analysis results')).toBeTruthy()
  expect(screen.getByRole('link',{name:'Download artifact collection-report-v2-export3.docx'})).toBeTruthy()
 })
+
+test('shows the latest layout export records separately with exact DOCX and task links',async()=>{
+ const hash='a'.repeat(64),row={id:'layout1',project_id:'p1',source_kind:'report',source_id:'report1',source_sha256:hash,status:'succeeded',task_id:'layout-task',created_at:'2026-10-20T00:00:00Z',layout:{source_sha256:hash,formulas:[],references:[],headings:[],toc:null,pagination:null,landscape_anchor_ids:[]},layout_version:'document_layout_v1',output_language:'en',request_key:'key',can_retry:false,parent_export_id:null,filename:'layout.docx',error_code:null,renderer_manifest:{},sha256:'b'.repeat(64),size_bytes:100,download_url:'/api/v1/projects/p1/layout-exports/layout1/download'}
+ vi.stubGlobal('fetch',vi.fn(async()=>Response.json({...summaryFixture(),layout_exports:[row]})));render(<ProjectSummary projectId="p1" projectType="sci" view="artifacts"/>);const link=await screen.findByRole('link',{name:'下载排版 DOCX'});expect(link.getAttribute('href')).toBe(row.download_url);expect(screen.getByRole('link',{name:'查看排版任务'}).getAttribute('href')).toContain('task=layout-task')
+})

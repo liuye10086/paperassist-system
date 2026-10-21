@@ -330,36 +330,40 @@ class LiteratureCitationService:
             current_changes=self.current_changes(db,project,row['snapshot_json']),created_at=iso(row['created_at']))
 
     def create_draft(self,project,request,key,identity=None):
+        with self.store.connection(write=True) as db:
+            return self.create_draft_in_transaction(db,project,request,key,identity)
+
+    def create_draft_in_transaction(self,db,project,request,key,identity=None):
+        """Reuse the caller's write lock; never open a nested write connection."""
         require_key(key)
         body=request_data(DraftVersionRequest if identity else DraftRequest,request)
-        with self.store.connection(write=True) as db:
-            self.evidence.lock(db,project)
-            if identity:
-                root,_=self.draft_row(db,project,identity)
-                replay=self.replay(db,'literature_citation_versions',project,key,body,identity)
-                if replay:
-                    return self.draft_view(db,project,root,replay),200
-                if root['revision']!=body['expected_revision']:
-                    raise conflict('引用样稿已更新，请重新读取。')
-                revision=root['revision']+1
-            else:
-                replay=self.replay(db,'literature_citation_drafts',project,key,body)
-                if replay:
-                    root,version=self.draft_row(db,project,replay['id'],1)
-                    return self.draft_view(db,project,root,version),200
-                revision=1
-            snapshot=self.resolve(db,project,body)
-            if not identity:
-                now=datetime.now(timezone.utc)
-                root=self.insert(db,'literature_citation_drafts',project,key,body,revision=1,created_at=now,updated_at=now)
-                identity=root['id']
-            version_id=str(uuid4())
-            snapshot.update(draft_id=identity,revision=revision,version_id=version_id)
-            version=self.evidence.insert(db,'literature_citation_versions',project,key,body,id=version_id,
-                draft_id=identity,revision=revision,snapshot_json=snapshot,snapshot_sha256=digest(snapshot))
-            if revision>1:
-                root=db.execute('UPDATE literature_citation_drafts SET revision=%s,updated_at=clock_timestamp() WHERE id=%s RETURNING *',(revision,identity)).fetchone()
-            return self.draft_view(db,project,root,version),201
+        self.evidence.lock(db,project)
+        if identity:
+            root,_=self.draft_row(db,project,identity)
+            replay=self.replay(db,'literature_citation_versions',project,key,body,identity)
+            if replay:
+                return self.draft_view(db,project,root,replay),200
+            if root['revision']!=body['expected_revision']:
+                raise conflict('引用样稿已更新，请重新读取。')
+            revision=root['revision']+1
+        else:
+            replay=self.replay(db,'literature_citation_drafts',project,key,body)
+            if replay:
+                root,version=self.draft_row(db,project,replay['id'],1)
+                return self.draft_view(db,project,root,version),200
+            revision=1
+        snapshot=self.resolve(db,project,body)
+        if not identity:
+            now=datetime.now(timezone.utc)
+            root=self.insert(db,'literature_citation_drafts',project,key,body,revision=1,created_at=now,updated_at=now)
+            identity=root['id']
+        version_id=str(uuid4())
+        snapshot.update(draft_id=identity,revision=revision,version_id=version_id)
+        version=self.evidence.insert(db,'literature_citation_versions',project,key,body,id=version_id,
+            draft_id=identity,revision=revision,snapshot_json=snapshot,snapshot_sha256=digest(snapshot))
+        if revision>1:
+            root=db.execute('UPDATE literature_citation_drafts SET revision=%s,updated_at=clock_timestamp() WHERE id=%s RETURNING *',(revision,identity)).fetchone()
+        return self.draft_view(db,project,root,version),201
 
     def draft(self,project,identity,revision=None):
         with self.store.connection() as db:

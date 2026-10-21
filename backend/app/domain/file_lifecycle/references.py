@@ -163,6 +163,11 @@ def public_source_groups(groups, indexes, tasks, file, user_id, producers, proof
             key = (kind, row['id'] if 'id' in row else row['file_id'])
             rows[key] = row
             refs = set()
+            if kind=='manuscript_figure_language_versions':
+                if row.get('_integrity_valid') and row['project_id']==file['project_id'] and row['user_id']==user_id:
+                    safe.add(key)
+                dependencies[key]=set()
+                continue
             valid = row.get('file_id', file['id']) == file['id'] and row.get('created_by', user_id) == user_id
             valid &= row.get('project_id',file['project_id']) == file['project_id']
             from app.domain.file_lifecycle.figure_report_references import parent_links
@@ -300,6 +305,14 @@ def read_references(db, file, user_id):
         groups[kind] = [dict(row) for row in db.execute(f'SELECT * FROM {kind} WHERE analysis_run_id=ANY(%s)', (runs,))]
     from app.domain.file_lifecycle.figure_report_references import read_groups
     groups.update(read_groups(db,file,runs))
+    groups['manuscript_figure_language_versions']=[dict(r) for r in db.execute('SELECT * FROM manuscript_figure_language_versions WHERE file_id=%s OR replacement_file_id=%s',(file_id,file_id))]
+    for version in groups['manuscript_figure_language_versions']:
+        try:
+            from app.domain.manuscripts.figure_language import FigureLanguageService
+            from app.domain.report_collections.service import scoped_store
+            FigureLanguageService(scoped_store(user_id,db.config)).row(db,project_id,version['id'])
+            version['_integrity_valid']=version['user_id']==user_id
+        except Exception: version['_integrity_valid']=False
     indexes = {kind: {row['id']: row for row in rows if 'id' in row} for kind, rows in groups.items()}
     output_tasks = {row['task_id'] for rows in groups.values() for row in rows if row.get('task_id')}
     project_files = {r['id'] for r in db.execute('SELECT id FROM files WHERE project_id=%s',(project_id,))}

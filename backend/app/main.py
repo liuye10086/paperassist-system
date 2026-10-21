@@ -106,6 +106,8 @@ from app.api.literature_assistance import router as literature_assistance_router
 app.include_router(literature_assistance_router)
 from app.api.literature_citations import router as literature_citations_router
 app.include_router(literature_citations_router)
+from app.api.manuscripts import router as manuscripts_router
+app.include_router(manuscripts_router)
 
 
 @app.get('/api/v1/ai/config')
@@ -174,3 +176,21 @@ app.include_router(figure_workbench_router)
 
 from app.api.literature_checks import router as literature_checks_router
 app.include_router(literature_checks_router)
+
+from app.api.pdf_exports import router as pdf_exports_router
+app.include_router(pdf_exports_router)
+
+from app.api.manuscript_writing import router as manuscript_writing_router
+app.include_router(manuscript_writing_router)
+from app.api.manuscript_review import router as manuscript_review_router
+app.include_router(manuscript_review_router)
+
+from app.api.layout_exports import router as layout_exports_router
+app.include_router(layout_exports_router)
+
+from app.api.manuscript_writing import preview_router, authorization_router
+app.include_router(preview_router)
+app.include_router(authorization_router)
+
+from app.api.manuscript_figure_language import router as manuscript_figure_language_router
+app.include_router(manuscript_figure_language_router)

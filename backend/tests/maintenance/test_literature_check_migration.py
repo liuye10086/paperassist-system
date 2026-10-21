@@ -12,7 +12,7 @@ def test_check_upgrade_preserves_rows_indexes_assets_and_head(client):
     _,lit,_,refs=seeded(client)
     url=refs[0]['source']['source_download_url'];raw=client.get(url).content
     cfg=alembic_config()
-    assert ScriptDirectory.from_config(cfg).get_heads()==['0034_literature_pmc']
+    assert ScriptDirectory.from_config(cfg).get_heads()==['0040_manuscript_writing_live']
     with migration_connection(write=True) as db:
         cfg.attributes.update(connection=db.raw_connection,database_config=get_migration_database_config())
         command.downgrade(cfg,'0032_literature_citations')

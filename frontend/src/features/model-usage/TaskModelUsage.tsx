@@ -45,6 +45,7 @@ function Usage({ taskId, active = true, refreshKey = 0 }: Props) {
     {error && <p role="alert" className="error-panel">{t(error)}</p>}
     {!sessionValid && <p role="alert">{t('会话已失效，请重新登录。')}</p>}
     {data && <>
+      <p className="usage-scope-note">{t('账本可能包含离线模拟回执；演示用量与预算占用不代表实际付费。')}</p>
       <div className="usage-budgets">{budgets.map(([label, budget]) => <div className="usage-budget-card" key={label}>
         <h4>{t(label)}</h4><dl>
           <div><dt>{t('累计上限')}</dt><dd>{budget.limit_micro_usd === null ? t('未配置') : formatMicroUsd(budget.limit_micro_usd)}</dd></div>
@@ -60,11 +61,18 @@ function Usage({ taskId, active = true, refreshKey = 0 }: Props) {
       <ReconciliationTotals summary={data.reconciliation} />
       {data.total === 0 ? <p className="usage-empty">{t('此任务尚无模型调用记录。')}</p> : <>
         <div className="usage-table-scroll"><table><caption className="visually-hidden">{t('本次任务模型调用')}</caption>
-          <thead><tr><th scope="col">{t('模型')}</th><th scope="col">{t('内部估算')}</th><th scope="col">{t('实际已核对部分')}</th><th scope="col">{t('记录时间')}</th></tr></thead>
+          <thead><tr><th scope="col">{t('模型')}</th><th scope="col">{t('调用来源')}</th><th scope="col">{t('内部估算')}</th><th scope="col">{t('实际已核对部分')}</th><th scope="col">{t('记录时间')}</th></tr></thead>
           <tbody>{data.items.map(call => <tr key={call.id}><td>{call.model}</td>
-            <td>{call.estimated_cost_micro_usd === null ? t('待核对') : <>{formatMicroUsd(call.estimated_cost_micro_usd)}
+            <td>{t(call.provider_provenance === 'synthetic_fixture' ? '离线模拟回执' : call.provider_provenance === 'openai_live' ? '真实供应商调用' : '历史记录：来源未标注')}</td>
+            <td>{call.provider_provenance === 'synthetic_fixture' && <small>{t('演示用量')}</small>}
+              {call.estimated_cost_micro_usd === null ? t('待核对') : <>{formatMicroUsd(call.estimated_cost_micro_usd)}
               {call.usage_status === 'pending' && <small className="usage-pending">{t('待核对')}</small>}</>}</td>
-            <td><CallReconciliationDisplay reconciliation={call.reconciliation} /></td>
+            <td>{call.provider_provenance === 'synthetic_fixture' ? <span>{t('本地账本演示，不代表实际付费。')}</span> : <>
+              {call.provider_provenance === 'openai_live' && call.status !== 'released'
+                && (!call.reconciliation || call.reconciliation.actual_micro_usd === null) && <span>{t('实际费用未知')}</span>}
+              <CallReconciliationDisplay reconciliation={call.reconciliation} />
+              {(call.status === 'submitting' || call.status === 'submission_unknown') && <small>{t('仍占预留额度，等待核对。')}</small>}
+            </>}</td>
             <td><time dateTime={call.created_at}>{new Date(call.created_at).toLocaleString(locale)}</time></td></tr>)}</tbody></table></div>
         <nav className="usage-pagination" aria-label={t('任务用量分页')}>
           <span>{t('共 {total} 项 · 第 {page} / {pages} 页', { total: data.total, page, pages: Math.max(1, Math.ceil(data.total / 10)) })}</span>

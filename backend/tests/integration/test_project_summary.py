@@ -43,7 +43,7 @@ def test_empty_summary_has_explicit_type_specific_unavailable_contract(client, p
     for key in ('tasks', 'artifacts'):
         assert summary[key] == {'items': [], 'total': 0, 'page': 1, 'page_size': 10}
     future = summary['future']
-    assert future['writing'] == {'state': 'not_available', 'tasks': [], 'current_manuscript': None, 'versions': []}
+    assert future['writing'] == {'state': 'available' if project_type=='sci' else 'not_available', 'tasks': [], 'current_manuscript': None, 'versions': []}
     assert future['revision'] == {'state': 'not_available', 'tasks': [], 'current_round': None,
                                   'rounds': [], 'opinions': [], 'pending_materials': []}
     assert future[project_type]['state'] == 'not_available'

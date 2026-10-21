@@ -124,16 +124,25 @@ def prepare(root: Path, values: dict, *, test_id=None, assets: Path | None = Non
     ncbi_text = json.dumps(ncbi,ensure_ascii=True,sort_keys=True)
     if len(ncbi_text.encode())>16384: raise ValueError('Invalid private NCBI configuration size.')
     private_write(directory / 'ncbi-config',ncbi_text)
-    fingerprint = hashlib.sha256((url.render_as_string(hide_password=False) + '\0' + model_key + '\0' + ncbi_text).encode()).hexdigest()
+    default_fonts = str(Path(os.environ.get('WINDIR', 'C:/Windows')) / 'Fonts') if os.name == 'nt' else '/usr/local/share/fonts/paperassist'
+    fonts = str(Path(values.get('PAPERASSIST_PDF_FONTS_DIR') or default_fonts).expanduser().resolve())
+    renderer_inputs = hashlib.sha256()
+    for relative in ('backend/app/adapters/pdf_renderer_lock.json', 'infra/pdf/Dockerfile', 'infra/pdf/renderer.py', 'infra/pdf/update_fields.py', 'compose.workers.yml'):
+        renderer_inputs.update((ROOT / relative).read_bytes())
+    writing_live_enabled = '1' if not test_id and values.get('PAPERASSIST_WRITING_LIVE_ENABLED') == '1' else '0'
+    fingerprint = hashlib.sha256((url.render_as_string(hide_password=False) + '\0' + model_key + '\0' + ncbi_text + '\0' + writing_live_enabled
+                                  + '\0' + fonts + '\0' + renderer_inputs.hexdigest()).encode()).hexdigest()
     environment = {
         'PAPERASSIST_STACK_PROJECT': project,
         'PAPERASSIST_STACK_ROOT': str(root),
         'PAPERASSIST_STACK_PRIVATE': str(directory),
         'PAPERASSIST_STACK_DATA': str(data),
+        'PAPERASSIST_PDF_FONTS': fonts,
         'PAPERASSIST_ENV': mode,
         'PAPERASSIST_DB_SCHEMA': schema,
         'PAPERASSIST_TASK_QUEUE': 'paperassist.test.' + test_id if test_id else 'paperassist.word',
         'PAPERASSIST_QUEUE_TEST_ALLOWED': '1' if test_id else '0',
+        'PAPERASSIST_WRITING_LIVE_ENABLED': writing_live_enabled,
         'PAPERASSIST_DATABASE_SECRET_KEY': key + '_FILE',
         'PAPERASSIST_WORKER_CONFIG_REVISION': fingerprint,
     }
@@ -216,7 +225,7 @@ def stop(stack: Stack) -> None:
     containers = owned_containers(stack)
     if not containers:
         return
-    for name in ('dispatcher', 'worker', 'rabbitmq'):
+    for name in ('dispatcher', 'worker', 'pdf-renderer', 'rabbitmq'):
         for item in containers:
             if item['service'] == name and item['status'] == 'running':
                 docker(['stop', '--time', '45', item['id']], timeout=60)
@@ -228,13 +237,13 @@ def start(stack: Stack) -> None:
     revision = stack.environment.get('PAPERASSIST_WORKER_CONFIG_REVISION', '')
     applied_path = stack.directory / 'applied-config-revision'
     configuration_applied = applied_path.exists() and applied_path.read_text(encoding='utf-8') == revision
-    if (configuration_applied and len(before) == 3 and {item['service'] for item in before} == {'worker', 'dispatcher', 'rabbitmq'}
+    if (configuration_applied and len(before) == 4 and {item['service'] for item in before} == {'worker', 'dispatcher', 'rabbitmq', 'pdf-renderer'}
             and all(item['status'] == 'running' and item['health'] == 'healthy' for item in before)):
         return
     previously_running = {item['id'] for item in before if item['status'] == 'running'}
     compose(stack, ['config', '--quiet'])
     print('Building Linux Worker image...', flush=True)
-    compose(stack, ['build', 'worker'], timeout=1200)
+    compose(stack, ['build', 'worker', 'pdf-renderer'], timeout=1200)
     print('Starting project broker and Worker services...', flush=True)
     try:
         compose(stack, ['up', '-d', '--wait', '--wait-timeout', '90'], timeout=180)
@@ -262,11 +271,11 @@ def main() -> int:
             print('Private runtime-only configuration prepared.')
         elif args.action == 'build':
             ensure_docker()
-            compose(stack, ['build', 'worker'], timeout=1200)
+            compose(stack, ['build', 'worker', 'pdf-renderer'], timeout=1200)
             print('Linux Worker image built.')
         elif args.action == 'start':
             start(stack)
-            print('Worker, dispatcher and broker are ready.')
+            print('Worker, dispatcher, PDF renderer and broker are ready.')
         elif args.action == 'stop':
             stop(stack)
             print('Project Worker services stopped; broker volume retained.')

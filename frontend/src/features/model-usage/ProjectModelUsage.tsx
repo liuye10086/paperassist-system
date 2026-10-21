@@ -6,7 +6,7 @@ import { AccountedAmount, CallReconciliationDisplay, ReconciliationTotals } from
 import './modelUsage.css'
 
 type Props = { projectId: string; active?: boolean }
-const purposes:Record<ModelCall['task_type'],string> = {literature_assistance:'文献模型建议',figure_workbench:'配置图表生成',figure_explanation:'图表六节解释',analysis_recommendation:'受限分析建议', boxplot: '图表生成', explanation: 'AI 分析解释', word_report: 'Word 报告导出' }
+const purposes:Record<ModelCall['task_type'],string> = {manuscript_writing:'完整稿件写作',literature_assistance:'文献模型建议',figure_workbench:'配置图表生成',figure_explanation:'图表六节解释',analysis_recommendation:'受限分析建议', boxplot: '图表生成', explanation: 'AI 分析解释', word_report: 'Word 报告导出' }
 const states: Record<ModelCall['status'], string> = { reserved: '已预留', submitting: '提交待确认', submitted: '运行中',
   submission_unknown: '提交结果未知', completed: '已完成', failed: '失败', released: '已释放' }
 
@@ -91,6 +91,7 @@ function Usage({ projectId, active = true }: Props) {
     {error && <><p role="alert" className="error-panel">{t(error)}</p>
       <button type="button" onClick={() => refresh()}>{t('重试模型用量')}</button></>}
     {data && <>
+      <p className="usage-scope-note">{t('账本可能包含离线模拟回执；演示用量与预算占用不代表实际付费。')}</p>
       <div className="usage-budgets"><BudgetCard title="项目预算" budget={data.project_budget} /><BudgetCard title="用户预算" budget={data.user_budget} /></div>
       <dl className="usage-totals"><div><dt>{t('项目内部估算')}</dt><dd>{formatMicroUsd(data.estimated_micro_usd)}</dd></div>
         <div><dt>{t('项目预算已计金额')}</dt><dd><AccountedAmount amount={data.accounted_micro_usd} /></dd></div>
@@ -103,13 +104,20 @@ function Usage({ projectId, active = true }: Props) {
       <h4>{t('最近模型调用')}</h4>
       {data.total === 0 ? <p className="usage-empty">{t('尚无统一模型调用记录。')}</p> : <>
         <div className="usage-table-scroll"><table><caption className="visually-hidden">{t('最近模型调用')}</caption>
-          <thead><tr><th scope="col">{t('用途')}</th><th scope="col">{t('模型')}</th><th scope="col">{t('已记录状态')}</th>
+          <thead><tr><th scope="col">{t('用途')}</th><th scope="col">{t('模型')}</th><th scope="col">{t('调用来源')}</th><th scope="col">{t('已记录状态')}</th>
             <th scope="col">{t('内部估算')}</th><th scope="col">{t('实际已核对部分')}</th><th scope="col">{t('记录时间')}</th></tr></thead>
           <tbody>{data.items.map(item => <tr key={item.id}><td>{t(purposes[item.task_type])}</td><td>{item.model}</td>
+            <td>{t(item.provider_provenance === 'synthetic_fixture' ? '离线模拟回执' : item.provider_provenance === 'openai_live' ? '真实供应商调用' : '历史记录：来源未标注')}</td>
             <td><span className="usage-call-status">{t(states[item.status])}</span></td>
-            <td>{item.estimated_cost_micro_usd === null ? t('待核对') : <>{formatMicroUsd(item.estimated_cost_micro_usd)}
+            <td>{item.provider_provenance === 'synthetic_fixture' && <small>{t('演示用量')}</small>}
+              {item.estimated_cost_micro_usd === null ? t('待核对') : <>{formatMicroUsd(item.estimated_cost_micro_usd)}
               {item.usage_status === 'pending' && <small className="usage-pending">{t('待核对')}</small>}</>}</td>
-            <td><CallReconciliationDisplay reconciliation={item.reconciliation} /></td>
+            <td>{item.provider_provenance === 'synthetic_fixture' ? <span>{t('本地账本演示，不代表实际付费。')}</span> : <>
+              {item.provider_provenance === 'openai_live' && item.status !== 'released'
+                && (!item.reconciliation || item.reconciliation.actual_micro_usd === null) && <span>{t('实际费用未知')}</span>}
+              <CallReconciliationDisplay reconciliation={item.reconciliation} />
+              {(item.status === 'submitting' || item.status === 'submission_unknown') && <small>{t('仍占预留额度，等待核对。')}</small>}
+            </>}</td>
             <td><time dateTime={item.created_at}>{new Date(item.created_at).toLocaleString(locale)}</time></td></tr>)}</tbody>
         </table></div>
         <nav className="usage-pagination" aria-label={t('模型调用分页')}><span>{t('共 {total} 项 · 第 {page} / {pages} 页', { total: data.total, page, pages })}</span>
