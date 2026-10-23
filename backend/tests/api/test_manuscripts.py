@@ -45,10 +45,11 @@ def test_original_cannot_be_computed_result_and_foreign_sources_rejected(client)
     assert post(client,path+'/preview',body(sources=[source]),'missing').status_code in (404,409,422)
 
 
-def test_thesis_project_does_not_open_stage06_sci_workflow(client):
+def test_thesis_requires_explicit_school_binding_and_mapping(client):
     project=client.post('/api/v1/projects',json=dict(name='Synthetic thesis',research_topic='Synthetic materials',project_type='thesis')).json()
     path=f'/api/v1/projects/{project["id"]}/manuscripts'
-    assert client.get(path+'/config').status_code==422
+    config=client.get(path+'/config')
+    assert config.status_code==200 and config.json()['thesis']['ready'] is False
     assert post(client,path+'/preview',body(),'preview').status_code==422
     assert post(client,path,body(),'create').status_code==422
 
@@ -337,3 +338,32 @@ def test_historical_snapshot_and_export_survive_future_formatter_changes(client,
     downloaded=client.get(path+'/'+created['id']+'/exports/'+exported.json()['id']+'/download')
     assert downloaded.status_code==200
     assert client.get(path+'/'+created['id']).json()['versions'][0]['snapshot']==version['snapshot']
+
+def test_legacy_sci_request_digest_replays_without_adding_school_key(client):
+    from psycopg.types.json import Jsonb
+    from app.db.database import migration_connection
+    from app.domain.literature.service import digest
+    path,_,_=setup(client)
+    data=body()
+    created=post(client,path,data,'legacy-key').json()
+    version=created['versions'][0]
+    # Explicit pre-school request serialization, including the old nullable citation field.
+    legacy=dict(title=data['title'],output_language='en',expected_revision=0,sources=[],
+        methods=dict(research_question='',purpose='',hypothesis='',study_design='Synthetic laboratory comparison',population='',samples='',groups='',materials='',procedures='',conditions='',statistical_methods='',ethics=''),
+        method_source_ids={},method_conflicts=[],results_groups=[],figure_notes=[],citation_draft=None)
+    old_digest=digest(legacy)
+    with migration_connection(write=True) as db:
+        db.execute('UPDATE manuscripts SET request_json=%s,request_digest=%s WHERE id=%s',(Jsonb(legacy),old_digest,created['id']))
+        db.execute('UPDATE manuscript_versions SET request_json=%s,request_digest=%s WHERE id=%s',(Jsonb(legacy),old_digest,version['id']))
+    replay=post(client,path,data,'legacy-key')
+    assert replay.status_code==200,replay.text
+    assert replay.json()['versions'][0]['input']==legacy
+    assert 'thesis' not in replay.json()['versions'][0]['input']
+    assert replay.json()['versions'][0]['input']['citation_draft'] is None
+    fresh=post(client,path,data,'fresh-key')
+    assert fresh.status_code==201,fresh.text
+    assert fresh.json()['versions'][0]['input']==legacy
+    assert all('thesis' not in item['versions'][0]['input'] for item in client.get(path).json()['items'])
+    with database_connection() as db:
+        row=db.execute('SELECT request_json,request_digest FROM manuscripts WHERE id=%s',(fresh.json()['id'],)).fetchone()
+        assert row['request_json']==legacy and row['request_digest']==old_digest

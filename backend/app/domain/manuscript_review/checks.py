@@ -27,7 +27,10 @@ def check_snapshot(snapshot,metadata=(),strict_locations=(),*,writing_context=No
     if 'sections' in snapshot:
         from app.domain.manuscript_writing.contracts import SECTION_IDS
         actual=[s['id'] for s in snapshot['sections']]
-        if actual!=list(SECTION_IDS): issues.append(issue('structure','sections','Unexpected section structure.',severity='error',actual=actual,expected=list(SECTION_IDS)))
+        if snapshot.get('thesis_context'):
+            from app.domain.manuscripts.school import school_issues
+            issues.extend(school_issues(snapshot))
+        elif actual!=list(SECTION_IDS): issues.append(issue('structure','sections','Unexpected section structure.',severity='error',actual=actual,expected=list(SECTION_IDS)))
         for section in snapshot['sections']:
             if not section['paragraphs']:
                 issues.append(issue('structure','section:'+section['id'],'Section is empty; material requires human review.'))
@@ -148,8 +151,13 @@ def check_snapshot(snapshot,metadata=(),strict_locations=(),*,writing_context=No
     reference_texts=[]
     if 'sections' in snapshot:
         for section in snapshot['sections']:
-            if section['id']!='references': reference_texts.extend(section['paragraphs'])
-            if section['id']=='results': reference_texts.extend(figure_texts)
+            role=section.get('purpose',section['id'])
+            if role!='references': reference_texts.extend(section['paragraphs'])
+            if role=='results':
+                if snapshot.get('thesis_context'):
+                    selected={f['id'] for group in snapshot.get('results_groups',[]) if group['id'] in section['result_group_ids'] for f in group.get('figures',[])}
+                    reference_texts.extend(p for p in figure_texts if any(p['id']=='caption:'+identity or p['id'].startswith('panel:'+identity+':') for identity in selected))
+                else: reference_texts.extend(figure_texts)
     else:
         reference_texts=[p for section,p in paragraphs if section=='results']+figure_texts+[p for section,p in paragraphs if section!='results']
     for p in reference_texts:

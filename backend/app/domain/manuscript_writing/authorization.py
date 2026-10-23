@@ -42,6 +42,7 @@ class LiveWritingService:
         require_key(key);body=PreviewRequest.model_validate(request).model_dump(mode='json') if isinstance(request,dict) else request.model_dump(mode='json')
         with self.store.connection(write=True) as db:
             root=self.manuscripts.root(db,project,identity)
+            if self.store.require_project(db,project)['project_type']=='thesis': raise StorageError('manuscript_writing_not_authorized','学校稿本批仅支持受控等待；真实模型授权尚未开放。',422)
             old=db.execute('SELECT id,request_digest FROM manuscript_writing_bundles WHERE project_id=%s AND user_id=%s AND request_key=%s',(project,self.store.user_id,key)).fetchone()
             request_digest=digest(dict(manuscript_id=identity,input=body))
             if old:
@@ -80,7 +81,7 @@ class LiveWritingService:
     def authorize(self,project,request,key):
         require_key(key);body=AuthorizationRequest.model_validate(request).model_dump(mode='json') if isinstance(request,dict) else request.model_dump(mode='json')
         with self.store.connection(write=True) as db:
-            self.store.require_project(db,project)
+            if self.store.require_project(db,project)['project_type']=='thesis': raise StorageError('manuscript_writing_not_authorized','学校稿真实模型授权尚未开放。',422)
             old=db.execute('SELECT * FROM manuscript_writing_authorizations WHERE project_id=%s AND user_id=%s AND request_key=%s',(project,self.store.user_id,key)).fetchone()
             if old:
                 if old['request_digest']!=digest(body): raise StorageError('task_idempotency_conflict','授权标识已用于不同清单。',409)
@@ -111,7 +112,7 @@ class LiveWritingService:
 
     def list_authorizations(self,project):
         with self.store.connection() as db:
-            self.store.require_project(db,project)
+            if self.store.require_project(db,project)['project_type']=='thesis': raise StorageError('manuscript_writing_not_authorized','学校稿真实模型授权尚未开放。',422)
             return dict(items=[self.auth_view(db,r) for r in db.execute('SELECT * FROM manuscript_writing_authorizations WHERE project_id=%s AND user_id=%s ORDER BY created_at DESC,id',(project,self.store.user_id))])
 
     def get_authorization(self,project,identity):
@@ -137,6 +138,7 @@ class LiveWritingService:
         require_key(key);execution=LiveWritingRequest.model_validate(request).model_dump(mode='json') if isinstance(request,dict) else request.model_dump(mode='json')
         with self.store.connection(write=True) as db:
             self.manuscripts.root(db,project,identity)
+            if self.store.require_project(db,project)['project_type']=='thesis': raise StorageError('manuscript_writing_not_authorized','学校稿真实模型授权尚未开放。',422)
             old=self.store.find_request(db,project,'manuscript_writing',key)
             if old:
                 if old['input_snapshot'].get('execution')!=execution or old['input_snapshot']['manuscript_id']!=identity: raise StorageError('task_idempotency_conflict','写作标识冲突。',409)

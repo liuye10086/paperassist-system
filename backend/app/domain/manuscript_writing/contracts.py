@@ -16,7 +16,7 @@ class Strict(BaseModel):
 class WritingRequest(Strict):
     base_revision: int = Field(ge=1)
     mode: Literal['full_draft','rewrite_section']
-    target_section: SectionId | None = None
+    target_section: str | None = Field(default=None,min_length=1,max_length=200)
     instructions: str = Field(default='',max_length=10000)
     keywords: list[str] = Field(default_factory=list,max_length=30)
     acknowledgements: str = Field(default='',max_length=10000)
@@ -62,9 +62,9 @@ class OutputParagraph(Strict):
 
 
 class OutputSection(Strict):
-    id: SectionId
+    id: str = Field(min_length=1,max_length=200)
     paragraphs: list[OutputParagraph] = Field(max_length=200)
 
 
 class WritingOutput(Strict):
-    sections: list[OutputSection] = Field(min_length=1,max_length=7)
+    sections: list[OutputSection] = Field(min_length=1,max_length=300)

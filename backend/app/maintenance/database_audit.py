@@ -203,6 +203,10 @@ def audit_database(db):
         checks.extend(audit_pdf_exports(db))
         from app.maintenance.layout_export_audit import audit_layout_exports
         checks.extend(audit_layout_exports(db))
+        from app.maintenance.school_template_audit import audit_school_templates
+        checks.extend(audit_school_templates(db))
+        from app.maintenance.school_change_audit import audit_school_changes
+        checks.extend(audit_school_changes(db))
     return {'schema': schema, 'ok': not issues and not any(c['invalid'] for c in checks), 'schema_issues': issues, 'data_checks': checks,
             'compatibility': 'Legacy JSON/time validated in audit only; task JSONB/time use native types; source chains use single-column foreign keys; values preserved.'}
 

@@ -25,12 +25,15 @@ def extract_facts(snapshot):
 
 def displayed_paragraphs(snapshot):
     if 'sections' in snapshot:
-        return [(s['id'],p) for s in snapshot['sections'] if s['id']!='references' for p in s['paragraphs']]
+        return [(s.get('purpose',s['id']),p) for s in snapshot['sections'] if s.get('purpose',s['id'])!='references' for p in s['paragraphs']]
     return [('materials_and_methods',p) for p in snapshot.get('methods',[])]+[('results',p) for g in snapshot.get('results_groups',[]) for p in g.get('paragraphs',[])]
 
 def relationships(snapshot,associations=()):
-    paragraphs=[dict(id=p['id'],section_id=section,source_ids=deepcopy(p.get('source_ids',[])),figure_ids=[r['target_id'] for r in p.get('cross_references',[]) if r.get('kind')=='figure']) for section,p in displayed_paragraphs(snapshot)]
+    locations={p['id']:s for s in snapshot.get('sections',[]) for p in s.get('paragraphs',[])}
+    paragraphs=[dict(id=p['id'],section_id=locations[p['id']]['id'] if p['id'] in locations else section,
+        **(dict(purpose=section) if snapshot.get('thesis_context') else {}),
+        source_ids=deepcopy(p.get('source_ids',[])),figure_ids=[r['target_id'] for r in p.get('cross_references',[]) if r.get('kind')=='figure']) for section,p in displayed_paragraphs(snapshot)]
     figures=[dict(id=f['id'],source_ids=deepcopy(f.get('source_ids',[]))) for g in snapshot.get('results_groups',[]) for f in g.get('figures',[])]
-    methods=[p for p in paragraphs if p['section_id']=='materials_and_methods']
+    methods=[p for p in paragraphs if p.get('purpose',p['section_id'])=='materials_and_methods']
     question=next((p['text'] for _,p in displayed_paragraphs(snapshot) if p['id']=='methods:research_question'),'')
     return dict(paragraphs=paragraphs,figures=figures,methods=methods,research_question=question,associations=deepcopy(list(associations)))

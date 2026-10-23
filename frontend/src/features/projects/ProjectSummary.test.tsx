@@ -389,3 +389,10 @@ test('shows the latest layout export records separately with exact DOCX and task
  const hash='a'.repeat(64),row={id:'layout1',project_id:'p1',source_kind:'report',source_id:'report1',source_sha256:hash,status:'succeeded',task_id:'layout-task',created_at:'2026-10-20T00:00:00Z',layout:{source_sha256:hash,formulas:[],references:[],headings:[],toc:null,pagination:null,landscape_anchor_ids:[]},layout_version:'document_layout_v1',output_language:'en',request_key:'key',can_retry:false,parent_export_id:null,filename:'layout.docx',error_code:null,renderer_manifest:{},sha256:'b'.repeat(64),size_bytes:100,download_url:'/api/v1/projects/p1/layout-exports/layout1/download'}
  vi.stubGlobal('fetch',vi.fn(async()=>Response.json({...summaryFixture(),layout_exports:[row]})));render(<ProjectSummary projectId="p1" projectType="sci" view="artifacts"/>);const link=await screen.findByRole('link',{name:'下载排版 DOCX'});expect(link.getAttribute('href')).toBe(row.download_url);expect(screen.getByRole('link',{name:'查看排版任务'}).getAttribute('href')).toContain('task=layout-task')
 })
+
+test('shows the actual school manuscript title and saved versions in the overview',async()=>{
+ const fixture=summaryFixture('p1','thesis'),onOpen=vi.fn()
+ vi.stubGlobal('fetch',vi.fn(async()=>Response.json({...fixture,future:{...fixture.future,writing:{state:'available',current_manuscript:{id:'school1',title:'实际学校稿件',current_revision:2},versions:[{id:'v1',manuscript_id:'school1',revision:1},{id:'v2',manuscript_id:'school1',revision:2}],tasks:[]}}})))
+ render(<ProjectSummary projectId="p1" projectType="thesis" onOpenManuscripts={onOpen}/>)
+ expect(await screen.findByText('实际学校稿件')).toBeTruthy();expect(screen.getByText('已保存版本 2')).toBeTruthy();fireEvent.click(screen.getByRole('button',{name:'打开毕业论文写作'}));expect(onOpen).toHaveBeenCalledTimes(1)
+})

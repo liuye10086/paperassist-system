@@ -1,0 +1,67 @@
+.school-templates { max-width:1100px; display:grid; gap:1.3rem; }
+.school-templates fieldset { border:1px solid var(--border-color,#d8dee7); border-radius:12px; padding:1rem; min-width:0; }
+.school-templates legend { font-weight:650; padding:0 .4rem; }
+.school-templates select[multiple] { min-height:6rem; }
+.template-version { background:var(--surface,#fff); padding:1.4rem; border:1px solid var(--border-color,#d8dee7); border-radius:14px; overflow-wrap:anywhere; }
+.template-version h4 { margin:1.2rem 0 .5rem; }
+.template-provenance { color:var(--text-muted,#586475); font-size:.9rem; margin:.4rem 0; }
+.template-chapter { display:grid; grid-template-columns:minmax(0,1fr) 7rem auto; gap:.6rem; align-items:end; margin:.6rem 0; }
+.template-chapter details { grid-column:1/-1; }
+.template-text { white-space:pre-wrap; }
+.template-binding { margin-top:1rem; padding:1rem; background:var(--surface-muted,#f3f6fa); border-radius:8px; }
+@media(max-width:650px) { .template-chapter { grid-template-columns:1fr; } }
+/* Keep template intake controls within the project panel, including narrow views. */
+.school-templates,
+.school-templates form,
+.school-templates fieldset,
+.school-templates section,
+.school-templates article,
+.school-templates details,
+.school-templates .template-chapter,
+.school-templates .template-chapter > * {
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+.school-templates { width: 100%; }
+.school-templates fieldset { display: grid; gap: 1rem; }
+.school-templates label {
+  display: grid;
+  gap: .5rem;
+  min-width: 0;
+  max-width: 100%;
+  color: var(--text-h);
+  font-size: .9rem;
+}
+.school-templates .project-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+  min-width: 0;
+}
+.school-templates input,
+.school-templates select,
+.school-templates textarea {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+.school-templates select { text-overflow: ellipsis; }
+.school-templates textarea { resize: vertical; }
+.school-templates button {
+  max-width: 100%;
+  min-width: 0;
+  width: fit-content;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  box-sizing: border-box;
+}
+.school-templates summary,
+.school-templates p,
+.school-templates li { overflow-wrap: anywhere; }
+@media (max-width: 650px) {
+  .school-templates .project-fields { grid-template-columns: minmax(0, 1fr); }
+  .school-templates .template-chapter { grid-template-columns: minmax(0, 1fr); }
+  .school-templates .template-version { padding: 1rem; }
+}

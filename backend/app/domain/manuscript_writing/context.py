@@ -32,6 +32,13 @@ def literature_paragraphs(snapshot):
 
 
 def normalize_sections(snapshot):
+    if snapshot.get('thesis_context'):
+        from app.domain.manuscripts.school import CHAPTER_FIELDS, validate_chapters
+        expected=validate_chapters(snapshot['thesis_context'],{g['id'] for g in snapshot.get('results_groups',[])})
+        sections=deepcopy(snapshot['sections'])
+        if [{k:s.get(k) for k in CHAPTER_FIELDS} for s in sections] != [{k:s[k] for k in CHAPTER_FIELDS} for s in expected]:
+            raise ValueError('Invalid frozen school structure')
+        return sections
     if 'sections' in snapshot:
         sections=deepcopy(snapshot['sections'])
         if [s['id'] for s in sections] != list(SECTION_IDS):
@@ -89,7 +96,8 @@ def _validate_generated(paragraph,base,old,facts,section_id):
             # license to generate new text or transfer the old review.
             return
         raise ValueError('Reviewed fact bindings require an exact unchanged paragraph; changed text needs a new material review')
-    if section_id in ('introduction','discussion') and not paragraph['source_ids'] and not paragraph['citations'] and not MISSING.search(paragraph['text']):
+    needs_trace=section_id in ('introduction','discussion') or bool(base.get('thesis_context') and not unchanged)
+    if needs_trace and not paragraph['source_ids'] and not paragraph['citations'] and not MISSING.search(paragraph['text']):
         raise ValueError('Substantive prose requires frozen source trace')
     for binding in bindings:
         if binding['source_id'] not in paragraph['source_ids'] or binding['value'] not in facts.get(binding['source_id'],set()):
@@ -110,7 +118,10 @@ def _validate_generated(paragraph,base,old,facts,section_id):
 def compose_candidate(output,snapshot,model_call_id=None):
     parsed=WritingOutput.model_validate(output).model_dump(mode='json',exclude_none=True)
     base=snapshot['base_snapshot'];request=snapshot['input'];original=normalize_sections(base)
-    expected=[request['target_section']] if request['mode']=='rewrite_section' else list(SECTION_IDS)
+    school=bool(base.get('thesis_context'))
+    expected=[request['target_section']] if request['mode']=='rewrite_section' else [s['id'] for s in original]
+    if request['mode']=='rewrite_section' and request['target_section'] not in {s['id'] for s in original}:
+        raise ValueError('Rewrite target must be a frozen chapter')
     if [s['id'] for s in parsed['sections']]!=expected:
         raise ValueError('Unexpected or missing target sections')
     selected={s['id']:s for s in parsed['sections']};sections=deepcopy(original);facts=numeric_facts(base)
@@ -118,16 +129,28 @@ def compose_candidate(output,snapshot,model_call_id=None):
     for section in sections:
         if section['id'] not in selected: continue
         proposed=selected[section['id']]['paragraphs'];old=section['paragraphs']
+        role=section.get('purpose',section['id'])
+        if school and role=='manual':
+            def body(p): return {k:p.get(k,[]) for k in ('id','text','source_ids','citations','numeric_bindings')}
+            if [body(p) for p in proposed]!=[body(p) for p in old]:
+                raise ValueError('Manual identity/declaration chapters cannot be generated')
+            continue
+        if school and role=='acknowledgements':
+            if request['mode']=='full_draft':
+                from app.domain.manuscripts.school import pending
+                text=request.get('acknowledgements','').strip()
+                section['paragraphs']=[dict(id='school:'+section['id']+':user',text=text,origin='user_provided',source_ids=[],citations=[],numeric_bindings=[])] if text else [pending(section)]
+            continue
         if request['mode']=='rewrite_section' and len(proposed)==len(old) and [p['id'] for p in proposed]!=[p['id'] for p in old]:
             raise ValueError('Corresponding rewritten paragraphs must retain stable identities')
-        if section['id']=='title' and len(proposed)!=1:
+        if not school and role=='title' and len(proposed)!=1:
             raise ValueError('Title requires exactly one paragraph')
-        if section['id']=='references':
+        if role=='references':
             if any((p['id'],p['text']) not in [(p['id'],p['text']) for p in old] for p in proposed):
                 raise ValueError('Frozen references must remain exact')
             continue
         for paragraph in proposed:
-            _validate_generated(paragraph,base,old,facts,section['id'])
+            _validate_generated(paragraph,base,old,facts,role)
             previous=next((p for p in [*old,*literature_paragraphs(base)] if p['id']==paragraph['id'] and p['text']==paragraph['text']),None)
             if previous and paragraph['text']==previous['text']:
                 paragraph.clear();paragraph.update(deepcopy(previous))
@@ -137,17 +160,20 @@ def compose_candidate(output,snapshot,model_call_id=None):
         for p in section['paragraphs']:
             if p['id'] in all_ids: raise ValueError('Duplicate paragraph identity')
             all_ids.add(p['id'])
-    citation_order=list(dict.fromkeys(binding['project_reference_id'] for section in sections if section['id']!='references' for p in section['paragraphs'] for binding in p.get('citations',[]) if 'project_reference_id' in binding))
+    citation_order=list(dict.fromkeys(binding['project_reference_id'] for section in sections if section.get('purpose',section['id'])!='references' for p in section['paragraphs'] for binding in p.get('citations',[]) if 'project_reference_id' in binding))
     cited=set(citation_order)
     references=[deepcopy(r) for r in base.get('references',[]) if r['project_reference_id'] in cited]
     if cited!={r['project_reference_id'] for r in references}: raise ValueError('Citation lacks frozen reference metadata')
     if [r.get('number') for r in references]!=list(range(1,len(references)+1)) or citation_order!=[r['project_reference_id'] for r in references]:
         raise WritingCitationScopeError('Frozen citation numbering must remain contiguous and follow first appearance; a new reviewed citation draft is required')
-    frozen_reference_paragraphs=original[6]['paragraphs']
+    original_ref=next((s for s in original if s.get('purpose',s['id'])=='references'),None)
+    target_ref=next((s for s in sections if s.get('purpose',s['id'])=='references'),None)
+    if references and original_ref is None: raise WritingCitationScopeError('Map a references chapter before including cited literature')
+    frozen_reference_paragraphs=original_ref['paragraphs'] if original_ref else []
     reference_paragraphs=[deepcopy(p) for p in frozen_reference_paragraphs if p['text'] in {r['text'] for r in references}]
-    if request['mode']=='rewrite_section' and request['target_section']!='references' and reference_paragraphs!=sections[6]['paragraphs']:
+    if request['mode']=='rewrite_section' and target_ref and request['target_section']!=target_ref['id'] and reference_paragraphs!=target_ref['paragraphs']:
         raise WritingCitationScopeError('Changing citation coverage requires a full draft; non-target references cannot change')
-    sections[6]['paragraphs']=reference_paragraphs
+    if target_ref: target_ref['paragraphs']=reference_paragraphs
     candidate=deepcopy(base);candidate['sections']=sections;candidate['references']=references
     if candidate.get('review_provenance'):
         # A report about the base cannot certify newly written prose. Keep its
@@ -155,10 +181,13 @@ def compose_candidate(output,snapshot,model_call_id=None):
         candidate.setdefault('review_history',[]).append(dict(
             provenance=candidate.pop('review_provenance'),review=candidate.pop('review'),
             applies_to_current_text=False,status='historical_requires_recheck'))
-    candidate['title']=sections[0]['paragraphs'][0]['text']
+    candidate['title']=base['title'] if school else sections[0]['paragraphs'][0]['text']
     if request['mode']=='full_draft':
         candidate['keywords']=deepcopy(request.get('keywords',[]));candidate['acknowledgements']=request.get('acknowledgements','')
-    candidate['notice']='Synthetic model candidate; seven SCI sections; scientific content and real model writing remain unverified.' if base.get('output_language')=='en' else '合成模型候选，含SCI七部分；科研内容及真实模型写作效果未经验证。'
+    if school:
+        candidate['notice']='Synthetic school chapter candidate; scientific prose, bilingual quality and school export remain unverified.' if base.get('output_language')=='en' else '按冻结学校章节组织的合成候选；科研正文、双语质量及学校成品导出尚未验证。'
+    else:
+        candidate['notice']='Synthetic model candidate; seven SCI sections; scientific content and real model writing remain unverified.' if base.get('output_language')=='en' else '合成模型候选，含SCI七部分；科研内容及真实模型写作效果未经验证。'
     if request['mode']=='full_draft':
         candidate['issues']=[deepcopy(i) for i in base.get('issues',[]) if i.get('id')!='scope']
         if any(i.get('id')=='scope' for i in base.get('issues',[])):
@@ -167,11 +196,14 @@ def compose_candidate(output,snapshot,model_call_id=None):
         base_revision=request['base_revision'],mode=request['mode'],target_section=request.get('target_section'),
         prompt_version=snapshot.get('prompt_version',PROMPT_VERSION),policy_version=snapshot.get('policy_version',POLICY_VERSION),
         provider_provenance='synthetic_fixture',verification_status='not_verified',model_call_id=model_call_id,input_digest=digest(snapshot))
+    if school:
+        from app.domain.manuscripts.school import school_content_report
+        candidate['school_content_report']=school_content_report(candidate)
     return candidate
 
 
 def validate_candidate(candidate,frozen_snapshot):
-    request=frozen_snapshot['input'];targets=[request['target_section']] if request['mode']=='rewrite_section' else list(SECTION_IDS)
+    request=frozen_snapshot['input'];targets=[request['target_section']] if request['mode']=='rewrite_section' else [s['id'] for s in normalize_sections(frozen_snapshot['base_snapshot'])]
     output={'sections':[dict(id=s['id'],paragraphs=[{k:v for k,v in p.items() if k in ('id','text','source_ids','citations','numeric_bindings','origin')} for p in s['paragraphs']]) for s in candidate['sections'] if s['id'] in targets]}
     expected=compose_candidate(output,frozen_snapshot,candidate['writing_provenance'].get('model_call_id'))
     if candidate!=expected: raise ValueError('Candidate modified frozen material or provenance')

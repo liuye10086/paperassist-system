@@ -24,7 +24,7 @@ class FigureLanguageService:
 
     def require_project(self,db,project):
         row=self.store.require_project(db,project)
-        if row['project_type']!='sci': raise StorageError('task_input_invalid','图件语言版本仅支持SCI项目。',422)
+        if row['project_type'] not in ('sci','thesis'): raise StorageError('task_input_invalid','此项目不支持图件语言版本。',422)
 
     def original(self,db,project,source):
         self.require_project(db,project)

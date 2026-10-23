@@ -9,7 +9,7 @@ from app.core.exceptions import StorageError
 from app.domain.dataset_preparation.service import require_key
 from app.domain.literature.service import digest
 from app.domain.literature_citations.service import LiteratureCitationService
-from .contracts import ManuscriptRequest,METHOD_FIELDS,WORKFLOW
+from .contracts import ManuscriptRequest,METHOD_FIELDS,WORKFLOW,ExportRequest,SchoolExportOptions
 from .draft import freeze
 from .sources import changes,read_source
 
@@ -24,12 +24,14 @@ class ManuscriptService:
 
     def require_project(self,db,project):
         value=self.store.require_project(db,project)
-        if value['project_type']!='sci': raise StorageError('task_input_invalid','本批事实稿仅支持SCI项目；毕业论文写作尚未开放。',422)
         return value
 
     def config(self,project):
-        with self.store.connection() as db: self.require_project(db,project)
-        return dict(project_id=project,workflow_version=WORKFLOW,real_model_calls=False,pdf_status='not_requested',output_languages=['zh-CN','en'])
+        with self.store.connection() as db:
+            value=self.require_project(db,project)
+            from .school_binding import readiness
+            thesis=readiness(self,db,project) if value['project_type']=='thesis' else None
+        return dict(project_id=project,project_type=value['project_type'],thesis=thesis,workflow_version=WORKFLOW,real_model_calls=False,pdf_status='not_requested',output_languages=['zh-CN','en'])
 
     def candidates(self,project):
         items=[]
@@ -60,12 +62,28 @@ class ManuscriptService:
                 _,row=self.citations.draft_row(db,project,root['id'])
                 snap=row['snapshot_json']
                 drafts.append(dict(id=root['id'],revision=row['revision'],title=snap['title'],usable=not bool(self.citations.current_changes(db,project,snap))))
-        return dict(items=items,citation_drafts=drafts,methods_fields=list(METHOD_FIELDS))
+        config=self.config(project)
+        excluded=set((config['thesis'] or {}).get('template_source_file_ids',[]))
+        return dict(items=[s for s in items if s['file_id'] not in excluded],citation_drafts=drafts,methods_fields=list(METHOD_FIELDS),project_type=config['project_type'],thesis=config['thesis'])
 
     def preview(self,project,request):
         request=ManuscriptRequest.model_validate(request) if isinstance(request,dict) else request
-        with self.store.connection() as db: self.require_project(db,project)
+        self.validate_request_project(project,request)
         return freeze(self,project,request)
+
+    def freeze_school_context(self,project,request):
+        from .school_binding import freeze_context
+        return freeze_context(self,project,request)
+
+    def validate_request_project(self,project,request):
+        with self.store.connection() as db: value=self.require_project(db,project)
+        if (value['project_type']=='thesis') != (request.thesis is not None):
+            raise StorageError('task_input_invalid','毕业论文须选择学校配置，SCI不得混用学校配置。',422)
+        if request.thesis:self.freeze_school_context(project,request)
+
+    def source_changes(self,project,snapshot):
+        from .school_binding import current_changes
+        return changes(self,project,snapshot)+current_changes(self,project,snapshot)
 
     def root(self,db,project,identity):
         self.require_project(db,project)
@@ -83,6 +101,8 @@ class ManuscriptService:
 
     def validate_version(self,db,row):
         snap=row['snapshot_json']
+        from .school_binding import validate_frozen
+        validate_frozen(self,db,row)
         if digest(snap)!=row['snapshot_sha256'] or digest(row['request_json'])!=row['request_digest']: raise source_conflict()
         request=ManuscriptRequest.model_validate(row['request_json'])
         if snap['title']!=request.title or snap['output_language']!=request.output_language or request.expected_revision!=row['revision']-1: raise source_conflict()
@@ -100,7 +120,10 @@ class ManuscriptService:
         if snap.get('illustration_check_version') is not None:
             from .illustrations import check_bindings
             if snap['illustration_check_version']!=1 or check_bindings(snap['results_groups'],snap['output_language']): raise source_conflict()
-        if snap.get('review_provenance') is not None:
+        if snap.get('school_change_provenance') is not None:
+            from .school_changes import validate_school_change_version
+            validate_school_change_version(self,db,row)
+        elif snap.get('review_provenance') is not None:
             from app.domain.manuscript_review.service import validate_review_version
             validate_review_version(self,db,row)
         elif snap.get('writing_provenance') is not None:
@@ -127,7 +150,7 @@ class ManuscriptService:
             bound=by_id.get(source['id'])
             if not bound or bound['source_json']!=source or bound['sha256']!=digest(source) or any(bound[k]!=source[v] for k,v in (('kind','kind'),('file_id','file_id'),('role','role'))): raise source_conflict()
         parent=db.execute('SELECT revision FROM manuscript_versions WHERE id=%s AND manuscript_id=%s',(row['parent_version_id'],row['manuscript_id'])).fetchone() if row['parent_version_id'] else None
-        if row['revision']>1 and (not parent or parent['revision']!=row['revision']-1): raise source_conflict()
+        if row['revision']>1 and (not parent or (not 1<=parent['revision']<row['revision'] if snap.get('school_change_provenance') else parent['revision']!=row['revision']-1)): raise source_conflict()
         expected=[]
         citation=snap.get('citation_snapshot')
         if citation:
@@ -152,7 +175,9 @@ class ManuscriptService:
 
     def create(self,project,request,key,identity=None):
         require_key(key);request=ManuscriptRequest.model_validate(request) if isinstance(request,dict) else request
-        body=request.model_dump(mode='json');hashed=digest(body)
+        body=request.model_dump(mode='json')
+        if request.thesis is None: body.pop('thesis',None)
+        hashed=digest(body)
         with self.store.connection(write=True) as db:
             self.require_project(db,project)
             db.execute('SELECT id FROM projects WHERE id=%s FOR UPDATE',(project,)).fetchone()
@@ -168,6 +193,7 @@ class ManuscriptService:
                 revision=root['current_revision']+1 if identity else 1
                 if request.expected_revision!=(revision-1): raise StorageError('manuscript_revision_conflict','事实稿已有新版本，请刷新。',409)
                 parent=self.version(db,project,identity,revision-1)['id'] if identity else None
+                self.validate_request_project(project,request)
                 snapshot=freeze(self,project,request);timestamp=now()
                 if not identity:
                     identity=str(uuid4())
@@ -177,8 +203,8 @@ class ManuscriptService:
                 task_snapshot=dict(project_id=project,manuscript_id=identity,manuscript_version_id=version_id,revision=revision,
                     output_language=request.output_language,workflow_version=WORKFLOW,snapshot_sha256=digest(snapshot))
                 task=self.task(db,project,'manuscript_draft',task_snapshot,'manuscript:'+version_id)
-                db.execute('''INSERT INTO manuscript_versions(id,project_id,user_id,idempotency_key,request_json,request_digest,manuscript_id,revision,parent_version_id,task_id,snapshot_json,snapshot_sha256,created_at)
-                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)''',(version_id,project,self.store.user_id,key,Jsonb(body),hashed,identity,revision,parent,task['id'],Jsonb(snapshot),digest(snapshot),timestamp))
+                db.execute('''INSERT INTO manuscript_versions(id,project_id,user_id,idempotency_key,request_json,request_digest,manuscript_id,revision,parent_version_id,task_id,snapshot_json,snapshot_sha256,created_at,school_confirmation_id)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)''',(version_id,project,self.store.user_id,key,Jsonb(body),hashed,identity,revision,parent,task['id'],Jsonb(snapshot),digest(snapshot),timestamp,request.thesis.confirmation_id if request.thesis else None))
                 for source in snapshot['sources']:
                     foreign={'document_version':'document_version_id','ocr_review_version':'ocr_review_version_id','external_evidence_version':'external_evidence_version_id','analysis_run':'analysis_run_id','figure':'figure_id','figure_language_version':'figure_language_version_id'}.get(source['kind'])
                     fields=dict(id=str(uuid4()),version_id=version_id,file_id=source['file_id'],kind=source['kind'],source_id=source['id'],role=source['role'],source_json=Jsonb(source),sha256=digest(source))
@@ -202,7 +228,7 @@ class ManuscriptService:
         status='published' if task['status']=='succeeded' else 'failed' if task['status']=='failed' else 'pending'
         exports=db.execute('SELECT id FROM manuscript_exports WHERE version_id=%s ORDER BY created_at DESC,id',(row['id'],)).fetchall()
         return dict(id=row['id'],revision=row['revision'],parent_version_id=row['parent_version_id'],task_id=row['task_id'],status=status,
-            created_at=row['created_at'].isoformat(),input=row['request_json'],snapshot=row['snapshot_json'],current_changes=changes(self,row['project_id'],row['snapshot_json']),
+            created_at=row['created_at'].isoformat(),input=row['request_json'],snapshot=row['snapshot_json'],current_changes=self.source_changes(row['project_id'],row['snapshot_json']),
             exports=[self.export_view(db,row,r['id']) for r in exports])
 
     def get(self,project,identity,revision=None):
@@ -227,9 +253,14 @@ class ManuscriptService:
         if task['task_type']=='manuscript_docx':
             export=db.execute('SELECT * FROM manuscript_exports WHERE id=%s AND version_id=%s AND task_id=%s',(snap['export_id'],row['id'],task['id'])).fetchone()
             if not export: raise source_conflict()
+            self.verify_school_export(db,row,export,task,current=current)
             published=db.execute("SELECT status FROM tasks WHERE id=%s",(row['task_id'],)).fetchone()
             if published['status']!='succeeded': raise StorageError('task_revision_conflict','事实稿尚未发布。',409)
         if current:
+            if task['task_type']=='manuscript_draft' and row['snapshot_json'].get('school_change_provenance'):
+                from .school_changes import validate_school_change_version
+                validate_school_change_version(self,db,row,current=True)
+            if task['task_type']=='manuscript_draft' and not row['snapshot_json'].get('school_change_provenance') and row['snapshot_json'].get('thesis_context') and self.source_changes(row['project_id'],row['snapshot_json']): raise source_conflict()
             if task['task_type']=='manuscript_draft' and row['snapshot_json'].get('review_provenance'):
                 from app.domain.manuscript_review.service import ReviewService
                 reviews=ReviewService(self.assets)
@@ -246,28 +277,110 @@ class ManuscriptService:
                 if self.citations.current_changes(db,task['project_id'],citation) or any(citation[k]!=v for k,v in resolved.items()): raise source_conflict()
         return row
 
-    def create_export(self,project,identity,revision,key):
+    def school_options(self,version,request):
+        request=ExportRequest.model_validate(request) if isinstance(request,dict) else request
+        request=request or ExportRequest()
+        context=version['snapshot_json'].get('thesis_context')
+        if not context:
+            if 'school' in request.model_fields_set:
+                raise StorageError('task_input_invalid','SCI导出不得携带学校配置。',422)
+            return None
+        options=(request.school or SchoolExportOptions()).model_dump(mode='json')
+        chapters={c['id']:c for c in context['chapters']}
+        for field,purpose in (('manual_chapters','manual'),('keywords','abstract')):
+            if any(item['chapter_id'] not in chapters or chapters[item['chapter_id']]['purpose']!=purpose for item in options[field]):
+                raise StorageError('task_input_invalid','人工正文和关键词只能对应冻结版指定用途章节。',422)
+            # Ordering is semantic only through fixed chapter identities.
+            options[field].sort(key=lambda item:list(chapters).index(item['chapter_id']))
+        return options
+
+    def school_analysis(self,db,version,*,current=True):
+        from app.domain.school_templates.service import SchoolTemplateService
+        context=version['snapshot_json']['thesis_context']
+        schools=SchoolTemplateService(self.assets)
+        template=schools.row(db,version['project_id'],context['template_version_id'])
+        sources,task=schools.require_current(db,template) if current else schools.validate(db,template)
+        if (task['status']!='succeeded' or sources!=context['source_files']
+            or template['analysis_sha256']!=context['confirmation']['analysis_sha256']
+            or digest(template['analysis_json'])!=template['analysis_sha256']):raise source_conflict()
+        return template['analysis_json']
+
+    def compile_school_intent(self,db,version,options):
+        from .school_export import compile_school_export,validate_school_export
+        plan=compile_school_export(version['snapshot_json'],self.school_analysis(db,version),options)
+        validate_school_export(plan,version['snapshot_json'])
+        if plan.get('options')!=options:raise source_conflict()
+        return dict(schema_version=1,request=dict(school=options),plan=plan)
+
+    def verify_school_export(self,db,version,export,task,*,current=False):
+        intent=export.get('school_input_json');hashed=export.get('school_input_sha256')
+        if task['input_digest']!=digest(task['input_snapshot']):raise source_conflict()
+        if intent is None:
+            if hashed is not None or 'school_input_sha256' in task['input_snapshot'] or version['snapshot_json'].get('thesis_context'):raise source_conflict()
+            return None
+        if (not version['snapshot_json'].get('thesis_context') or intent.get('schema_version')!=1
+            or digest(intent)!=hashed or task['input_snapshot'].get('school_input_sha256')!=hashed):raise source_conflict()
+        from .school_export import validate_school_export
+        from pydantic import ValidationError
+        try:
+            options=self.school_options(version,ExportRequest.model_validate(intent['request']))
+            if intent['request']!={'school':options} or intent['plan']['options']!=options:raise source_conflict()
+            validate_school_export(intent['plan'],version['snapshot_json'])
+        except (ValidationError,ValueError,KeyError,TypeError) as exc:raise source_conflict() from exc
+        analysis=self.school_analysis(db,version,current=current)
+        if intent['plan']['analysis_sha256']!=digest(analysis):raise source_conflict()
+        if current:
+            for source in version['snapshot_json']['sources']:
+                if read_source(self,version['project_id'],{k:source[k] for k in ('kind','id','file_id','role')})!=source:raise source_conflict()
+        return intent
+
+    def preview_export(self,project,identity,revision,request=None):
+        with self.store.connection() as db:
+            version=self.version(db,project,identity,revision)
+            options=self.school_options(version,request)
+            if options is None:raise StorageError('task_input_invalid','此预览仅用于学校导出。',422)
+            intent=self.compile_school_intent(db,version,options)
+            return dict(schema_version=1,school=intent['plan'])
+
+    def create_export(self,project,identity,revision,key,request=None):
         require_key(key)
         with self.store.connection(write=True) as db:
-            root=self.root(db,project,identity);db.execute('SELECT id FROM manuscripts WHERE id=%s FOR UPDATE',(identity,)).fetchone()
+            self.root(db,project,identity);db.execute('SELECT id FROM manuscripts WHERE id=%s FOR UPDATE',(identity,)).fetchone()
             version=self.version(db,project,identity,revision)
-            existing=db.execute('SELECT id FROM manuscript_exports WHERE version_id=%s AND idempotency_key=%s',(version['id'],key)).fetchone()
-            if existing: export_id=existing['id'];status=200
+            options=self.school_options(version,request)
+            existing=db.execute('SELECT * FROM manuscript_exports WHERE version_id=%s AND idempotency_key=%s',(version['id'],key)).fetchone()
+            if existing:
+                sealed=existing.get('school_input_json')
+                if (sealed is None)!=(options is None) or sealed is not None and sealed['request']!={'school':options}:
+                    raise StorageError('task_idempotency_conflict','请求标识已用于不同导出输入。',409)
+                export_id=existing['id'];status=200
             else:
                 if self.store.require_task(db,version['task_id'])['status']!='succeeded': raise StorageError('task_revision_conflict','请等待事实稿发布后导出。',409)
+                intent=self.compile_school_intent(db,version,options) if options is not None else None
+                if intent is not None and not intent['plan']['report']['can_export']:
+                    raise StorageError('task_input_invalid','学校导出存在必须修正的问题，请检查预览。',422)
                 export_id=str(uuid4());snapshot=dict(project_id=project,manuscript_id=identity,manuscript_version_id=version['id'],revision=revision,
                     output_language=version['snapshot_json']['output_language'],workflow_version=WORKFLOW,snapshot_sha256=version['snapshot_sha256'],export_id=export_id)
+                if intent is not None:snapshot['school_input_sha256']=digest(intent)
                 task=self.task(db,project,'manuscript_docx',snapshot,'manuscript-export:'+export_id)
-                db.execute('INSERT INTO manuscript_exports(id,version_id,task_id,idempotency_key,created_at) VALUES (%s,%s,%s,%s,%s)',(export_id,version['id'],task['id'],key,now()));status=201
+                db.execute('INSERT INTO manuscript_exports(id,version_id,task_id,idempotency_key,created_at,school_input_json,school_input_sha256) VALUES (%s,%s,%s,%s,%s,%s,%s)',
+                    (export_id,version['id'],task['id'],key,now(),Jsonb(intent) if intent is not None else None,digest(intent) if intent is not None else None));status=201
             return self.export_view(db,version,export_id),status
 
     def export_view(self,db,version,export_id):
         row=db.execute('SELECT * FROM manuscript_exports WHERE id=%s AND version_id=%s',(export_id,version['id'])).fetchone()
         if not row: raise missing()
         task=self.store.require_task(db,row['task_id']);metadata=row['metadata_json'] or {}
+        intent=self.verify_school_export(db,version,row,task)
+        school={}
+        if intent is not None:
+            saved=metadata.get('school')
+            if task['status']=='succeeded' and (not saved or saved.get('plan')!=intent['plan'] or saved.get('report')!=intent['plan']['report']):raise source_conflict()
+            if saved and saved.get('field_update',{}).get('status')!=('updated' if intent['plan']['toc']['enabled'] else 'not_requested'):raise source_conflict()
+            school['school']=saved or dict(plan=intent['plan'],report=intent['plan']['report'],field_update=dict(status='pending'))
         return dict(id=row['id'],version_id=row['version_id'],task_id=row['task_id'],status=task['status'],pdf_status='not_requested',error_code=task.get('error_code'),
             filename=metadata.get('filename'),sha256=metadata.get('sha256'),size_bytes=metadata.get('size_bytes'),created_at=row['created_at'],
-            download_url=f"/api/v1/projects/{version['project_id']}/manuscripts/{version['manuscript_id']}/exports/{export_id}/download" if metadata and task['status']=='succeeded' else None)
+            download_url=f"/api/v1/projects/{version['project_id']}/manuscripts/{version['manuscript_id']}/exports/{export_id}/download" if metadata and task['status']=='succeeded' else None,**school)
 
     def exports(self,project,identity,revision):
         with self.store.connection() as db:
@@ -283,7 +396,7 @@ class ManuscriptService:
             self.validate_version(db,version);view=self.export_view(db,version,export_id)
             if not download: return view
             row=db.execute('SELECT * FROM manuscript_exports WHERE id=%s',(export_id,)).fetchone()
-            task=self.store.require_task(db,row['task_id']);self.verify_task(db,task)
+            task=self.store.require_task(db,row['task_id']);self.verify_task(db,task,current=bool(version['snapshot_json'].get('thesis_context')))
             metadata=row['metadata_json']
             if not metadata or task['status']!='succeeded': raise StorageError('task_revision_conflict','导出尚未成功。',409)
             if metadata.get('input_sha256')!=version['snapshot_sha256']: raise source_conflict()

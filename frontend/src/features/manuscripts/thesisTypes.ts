@@ -1,0 +1,24 @@
+import type {Locale} from '../../shared/i18n'
+import type {Profile,Chapter} from '../school-templates/contracts'
+import type {Issue} from './reviewTypes'
+export const schoolPurposes=['abstract','introduction','materials_and_methods','results','discussion','conclusion','references','acknowledgements','manual','other'] as const
+export type SchoolPurpose=typeof schoolPurposes[number]
+export const purposeLabels:Record<SchoolPurpose,string>={abstract:'摘要',introduction:'引言',materials_and_methods:'材料与方法',results:'结果',discussion:'讨论',conclusion:'结论',references:'参考文献',acknowledgements:'致谢',manual:'人工填写',other:'其他用途'}
+export type ChapterMapping={chapter_id:string;purpose:SchoolPurpose;output_language:Locale|'project';result_group_ids:string[]}
+export type ThesisInput={confirmation_id:string;profile_revision:number;chapter_mappings:ChapterMapping[]}
+export type SchoolChapter={id:string;title:string;level:number;purpose:SchoolPurpose;output_language:Locale;result_group_ids:string[]}
+export type ThesisContext={schema_version:1;profile:Profile;template_version_id:string;confirmation_id:string;confirmation_sha256:string;confirmation:Record<string,unknown>;source_files:Record<string,unknown>[];chapters:SchoolChapter[]}
+export type SchoolReport={rules_version:string;issues:Issue[];can_publish:boolean;scientifically_verified:false}
+export type ThesisReadiness={ready:boolean;blocking_reasons:string[];profile:Profile;confirmation_id:string|null;chapters:Chapter[];purposes:SchoolPurpose[];template_source_file_ids:string[]}
+const record=(v:unknown):v is Record<string,unknown>=>!!v&&typeof v==='object'&&!Array.isArray(v)
+const text=(v:unknown):v is string=>typeof v==='string'
+const nonempty=(v:unknown):v is string=>text(v)&&v.length>0&&v.length<=200
+const strings=(v:unknown):v is string[]=>Array.isArray(v)&&v.every(text)
+const unique=(v:string[])=>new Set(v).size===v.length
+const language=(v:unknown)=>v==='zh-CN'||v==='en'
+function profile(v:unknown):v is Profile{return record(v)&&Number.isSafeInteger(v.revision)&&Number(v.revision)>=0&&['school','department','major','degree_type','education_level','applicable_version'].every(k=>text(v[k]))&&(v.bound_confirmation_id===null||text(v.bound_confirmation_id))}
+function chapter(v:unknown):v is Chapter & Record<string,unknown>{return record(v)&&nonempty(v.id)&&text(v.title)&&Number.isSafeInteger(v.level)&&Number(v.level)>=1&&Number(v.level)<=9}
+export function validThesisInput(v:unknown):v is ThesisInput{return record(v)&&nonempty(v.confirmation_id)&&Number.isSafeInteger(v.profile_revision)&&Number(v.profile_revision)>=1&&Array.isArray(v.chapter_mappings)&&v.chapter_mappings.length>0&&v.chapter_mappings.every(c=>record(c)&&nonempty(c.chapter_id)&&schoolPurposes.includes(c.purpose as SchoolPurpose)&&(c.output_language==='project'||language(c.output_language))&&strings(c.result_group_ids)&&unique(c.result_group_ids)&&(c.purpose==='results'||c.result_group_ids.length===0))&&unique(v.chapter_mappings.map(c=>c.chapter_id as string))&&unique(v.chapter_mappings.flatMap(c=>c.result_group_ids as string[]))}
+export function validReadiness(v:unknown):v is ThesisReadiness{return record(v)&&typeof v.ready==='boolean'&&strings(v.blocking_reasons)&&profile(v.profile)&&(v.confirmation_id===null||nonempty(v.confirmation_id))&&Array.isArray(v.chapters)&&v.chapters.every(chapter)&&unique(v.chapters.map(c=>c.id))&&Array.isArray(v.purposes)&&v.purposes.every(p=>schoolPurposes.includes(p as SchoolPurpose))&&strings(v.template_source_file_ids)&&(!v.ready||!!v.confirmation_id&&v.profile.revision>=1&&v.chapters.length>0&&v.blocking_reasons.length===0)}
+export function validSchoolContext(v:unknown):v is ThesisContext{return record(v)&&v.schema_version===1&&profile(v.profile)&&nonempty(v.template_version_id)&&nonempty(v.confirmation_id)&&text(v.confirmation_sha256)&&/^[a-f0-9]{64}$/.test(v.confirmation_sha256)&&record(v.confirmation)&&Array.isArray(v.source_files)&&v.source_files.every(record)&&Array.isArray(v.chapters)&&v.chapters.length>0&&v.chapters.every(c=>record(c)&&chapter(c)&&schoolPurposes.includes(c.purpose as SchoolPurpose)&&language(c.output_language)&&strings(c.result_group_ids)&&(c.purpose==='results'||c.result_group_ids.length===0))&&unique(v.chapters.map(c=>c.id))&&unique(v.chapters.flatMap(c=>c.result_group_ids as string[]))}
+export function validSchoolReport(v:unknown):v is SchoolReport{return record(v)&&text(v.rules_version)&&v.scientifically_verified===false&&typeof v.can_publish==='boolean'&&Array.isArray(v.issues)&&v.issues.every(i=>record(i)&&nonempty(i.id)&&text(i.category)&&['error','warning','human_review'].includes(String(i.severity))&&text(i.location)&&text(i.message)&&'actual'in i&&'expected'in i&&Array.isArray(i.source_evidence)&&text(i.rules_version)&&i.rules_version.length>0)&&v.can_publish===!v.issues.some(i=>i.severity==='error')}

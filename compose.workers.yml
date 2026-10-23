@@ -124,6 +124,11 @@ services:
       - ${PAPERASSIST_PDF_FONTS}/msyhbd.ttc:/usr/local/share/fonts/paperassist/msyhbd.ttc:ro
       - ${PAPERASSIST_PDF_FONTS}/msyhl.ttc:/usr/local/share/fonts/paperassist/msyhl.ttc:ro
       - ${PAPERASSIST_PDF_FONTS}/cambria.ttc:/usr/local/share/fonts/paperassist/cambria.ttc:ro
+      - ${PAPERASSIST_PDF_FONTS}/simhei.ttf:/usr/local/share/fonts/paperassist/simhei.ttf:ro
+      - ${PAPERASSIST_PDF_FONTS}/times.ttf:/usr/local/share/fonts/paperassist/times.ttf:ro
+      - ${PAPERASSIST_PDF_FONTS}/timesbd.ttf:/usr/local/share/fonts/paperassist/timesbd.ttf:ro
+      - ${PAPERASSIST_PDF_FONTS}/timesbi.ttf:/usr/local/share/fonts/paperassist/timesbi.ttf:ro
+      - ${PAPERASSIST_PDF_FONTS}/timesi.ttf:/usr/local/share/fonts/paperassist/timesi.ttf:ro
     healthcheck:
       test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health',timeout=3).read()"]
       interval: 10s

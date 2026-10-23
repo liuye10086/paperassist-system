@@ -10,12 +10,13 @@ from app.domain.manuscripts.contracts import ManuscriptInputVersion
 from app.domain.manuscript_writing.contracts import WritingInputVersion
 from app.domain.pdf_exports.contracts import PdfInputVersion
 from app.domain.layout_exports.contracts import LayoutInputVersion
+from app.domain.school_templates.contracts import SchoolTemplateInputVersion
 from app.domain.tasks.errors import ErrorCategory, RetryReason
 
 from pydantic import AfterValidator, AwareDatetime, BaseModel, ConfigDict, Field, model_validator
 
 
-TaskType = Literal['boxplot', 'explanation', 'word_report', 'parse_file', 'extract_dataset', 'prepare_dataset', 'review_ocr', 'analysis_plan', 'analysis_recommendation', 'figure_projection', 'figure_workbench', 'figure_explanation', 'collection_word_report', 'statistics_compute', 'literature_search', 'literature_assistance', 'manuscript_draft', 'manuscript_docx', 'pdf_export', 'layout_docx', 'manuscript_writing']
+TaskType = Literal['boxplot', 'explanation', 'word_report', 'parse_file', 'extract_dataset', 'prepare_dataset', 'review_ocr', 'analysis_plan', 'analysis_recommendation', 'figure_projection', 'figure_workbench', 'figure_explanation', 'collection_word_report', 'statistics_compute', 'literature_search', 'literature_assistance', 'manuscript_draft', 'manuscript_docx', 'pdf_export', 'layout_docx', 'manuscript_writing', 'school_template_parse']
 UTCDateTime = Annotated[AwareDatetime, AfterValidator(lambda value: value.astimezone(timezone.utc))]
 TaskStatus = Literal['queued', 'running', 'waiting_input', 'waiting_confirmation', 'succeeded', 'failed']
 TaskPhase = Literal['parse', 'plan', 'compute', 'search', 'interpret', 'write', 'export', 'verify']
@@ -149,7 +150,7 @@ class TaskView(BaseModel):
     reason_code: TaskReason | None
     created_at: UTCDateTime
     updated_at: UTCDateTime | None
-    input_version: LayoutInputVersion | WritingInputVersion | PdfInputVersion | ManuscriptInputVersion | AssistanceInputVersion | LiteratureInputVersion | StatisticsInputVersion | CollectionInputVersion | RecommendationInputVersion | AnalysisPlanInputVersion | OcrReviewInputVersion | PreparationInputVersion | DatasetAnalysisInputVersion | InputVersion | ParseInputVersion | StructureInputVersion
+    input_version: SchoolTemplateInputVersion | LayoutInputVersion | WritingInputVersion | PdfInputVersion | ManuscriptInputVersion | AssistanceInputVersion | LiteratureInputVersion | StatisticsInputVersion | CollectionInputVersion | RecommendationInputVersion | AnalysisPlanInputVersion | OcrReviewInputVersion | PreparationInputVersion | DatasetAnalysisInputVersion | InputVersion | ParseInputVersion | StructureInputVersion
     result_analysis_run_id: str | None = None
     execution_receipt: dict | None = None
     result_report_id: str | None = None
@@ -159,6 +160,8 @@ class TaskView(BaseModel):
 
     @model_validator(mode='after')
     def metadata_matches_origin(self):
+        if (self.task_type=='school_template_parse') != isinstance(self.input_version,SchoolTemplateInputVersion):
+            raise ValueError('Input version must match school template task type.')
         if (self.task_type == 'manuscript_writing') != isinstance(self.input_version, WritingInputVersion):
             raise ValueError('Input version must match writing task type.')
         if (self.task_type == 'layout_docx') != isinstance(self.input_version, LayoutInputVersion):

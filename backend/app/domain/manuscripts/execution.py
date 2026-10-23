@@ -61,10 +61,22 @@ def run_manuscript_task(task_id,task_revision,*,config=None,directory=None):
                         file=service.assets.file(task['project_id'],source['file_id']);raw=service.assets.original(file)
                     if sha256(raw).hexdigest()!=figure['sha256']: raise source_conflict()
                     images[figure['id']]=raw
-            content=build_manuscript_docx(snapshot,images)
+            with service.store.connection() as export_db:
+                export_row=export_db.execute('SELECT * FROM manuscript_exports WHERE id=%s',(task['input_snapshot']['export_id'],)).fetchone()
+                school_intent=service.verify_school_export(export_db,version,export_row,task)
+            school_plan=school_intent['plan'] if school_intent is not None else None
+            if school_plan is not None:
+                content=build_manuscript_docx(snapshot,images,school_plan=school_plan)
+                from app.adapters.school_docx import complete_school_fields
+                content,field_update=complete_school_fields(content,school_plan)
+                expected='updated' if school_plan['toc']['enabled'] else 'not_requested'
+                if field_update.get('status')!=expected:
+                    raise StorageError('layout_field_update_failed','学校目录实际更新未完成。',422)
+            else:content=build_manuscript_docx(snapshot,images)
             export_id=task['input_snapshot']['export_id']
             metadata=dict(filename=f"{'Fact-draft' if snapshot['output_language']=='en' else '事实稿'}-v{version['revision']}-{export_id[:8]}.docx",
                 sha256=sha256(content).hexdigest(),size_bytes=len(content),input_sha256=version['snapshot_sha256'],renderer_version=RENDERER_VERSION)
+            if school_plan is not None:metadata['school']=dict(plan=school_plan,report=school_plan['report'],field_update=field_update)
             service.directory.mkdir(parents=True,exist_ok=True)
             staged=service.directory/(export_id+'-'+lease.lease_owner+'.part')
             with staged.open('xb') as stream: stream.write(content);stream.flush();os.fsync(stream.fileno())

@@ -10,7 +10,7 @@ type Instance = { id: string; key: number }
 type Request = { controller: AbortController; timeout: number }
 
 export default function useProjectSelection(onUnavailable: (id: string) => void, onAvailable: (id: string) => void) {
-  const [section, setSection] = useState<ProjectSection>(() => new URLSearchParams(window.location.hash.slice(1)).get('section') === 'tasks' ? 'tasks' : new URLSearchParams(window.location.hash.slice(1)).get('section')==='literature'?'literature':new URLSearchParams(window.location.hash.slice(1)).get('section')==='manuscripts'?'manuscripts':'overview')
+  const [section, setSection] = useState<ProjectSection>(() => new URLSearchParams(window.location.hash.slice(1)).get('section') === 'tasks' ? 'tasks' : new URLSearchParams(window.location.hash.slice(1)).get('section')==='literature'?'literature':new URLSearchParams(window.location.hash.slice(1)).get('section')==='manuscripts'?'manuscripts':new URLSearchParams(window.location.hash.slice(1)).get('section')==='school-templates'?'school-templates':'overview')
   const [taskId, setTaskId] = useState(() => {
     const params = new URLSearchParams(window.location.hash.slice(1))
     const id = params.get('task') ?? ''
@@ -64,7 +64,7 @@ export default function useProjectSelection(onUnavailable: (id: string) => void,
 
   useLayoutEffect(() => {
     window.history.replaceState(null, '', window.location.pathname + window.location.search
-      + (instance ? `#project=${encodeURIComponent(instance.id)}${section === 'tasks' ? `&section=tasks${taskId ? `&task=${encodeURIComponent(taskId)}` : ''}` : section==='literature'?`&section=literature${literatureSearchId?`&search=${encodeURIComponent(literatureSearchId)}`:''}`:section==='manuscripts'?'&section=manuscripts':''}` : ''))
+      + (instance ? `#project=${encodeURIComponent(instance.id)}${section === 'tasks' ? `&section=tasks${taskId ? `&task=${encodeURIComponent(taskId)}` : ''}` : section==='literature'?`&section=literature${literatureSearchId?`&search=${encodeURIComponent(literatureSearchId)}`:''}`:section==='manuscripts'?'&section=manuscripts':section==='school-templates'?'&section=school-templates':''}` : ''))
   }, [instance, section, taskId, literatureSearchId])
 
   useEffect(() => {
@@ -101,7 +101,7 @@ export default function useProjectSelection(onUnavailable: (id: string) => void,
         if (!response.ok) throw new Error(apiError(result, '项目详情读取失败，请稍后重试。'))
         if (!isProject(result) || result.id !== instance!.id) throw new Error('项目详情格式不正确，请重试。')
         setDetail({ instance: instance!, project: result })
-        if(result.project_type==='thesis')setSection(previous=>previous==='manuscripts'?'overview':previous)
+        if(result.project_type==='sci')setSection(previous=>previous==='school-templates'?'overview':previous)
         callbacks.current.onAvailable(instance!.id)
       } catch (cause) {
         if (isCurrent()) setFailure({ instance: instance!, message: cause instanceof TypeError

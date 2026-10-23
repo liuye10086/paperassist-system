@@ -32,6 +32,10 @@ class RetryRequest(BaseModel):
 def retry_task(task_id: str, request: RetryRequest, store: Store):
     store.require_mutable(task_id)
     task_type = store.get(task_id)['task_type']
+    if task_type=='school_template_parse':
+        from app.domain.school_templates.service import retry_in_transaction
+        with store.connection(write=True) as db:
+            return retry_in_transaction(store,db,store.require_task(db,task_id),request.expected_revision)
     if task_type in ('manuscript_draft','manuscript_docx'):
         from app.domain.manuscripts.execution import retry_in_transaction
         with store.connection(write=True) as db:

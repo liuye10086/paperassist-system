@@ -57,7 +57,10 @@ def compose(frozen,*,writing_context=None):
         field=target.split(':',1)[-1]
         if target.startswith(('missing:','conflict:')) and field in METHOD_FIELDS:
             p=dict(id='confirmed:'+frozen['review_id']+':'+field,text=('Confirmed material (user provided; not scientific verification): ' if base['output_language']=='en' else '确认资料（用户提供，未经科研验证）：')+field+' — '+decision['value'],origin='user_provided',source_ids=[],citations=[],numeric_bindings=[])
-            if 'sections' in candidate: next(s for s in candidate['sections'] if s['id']=='materials_and_methods')['paragraphs'].append(p)
+            if 'sections' in candidate:
+                method_section=next((s for s in candidate['sections'] if s.get('purpose',s['id'])=='materials_and_methods'),None)
+                if method_section is None: raise ValueError('Map a school methods chapter before supplying method content')
+                method_section['paragraphs'].append(p)
             else: candidate['methods'].append(p)
             # Explicit method records (approval IDs, dates, dosages, sample
             # declarations) remain user-provided, never computed facts. Their
@@ -92,4 +95,7 @@ def compose(frozen,*,writing_context=None):
     selected_sources=deepcopy(previous.get('selected_sources',[]))+deepcopy(frozen['selected_sources'])
     candidate['review']=dict(facts=facts,selected_facts=extract_facts(dict(sources=selected_sources)),relationships=relations,decisions=records,metadata=metadata,report=report,addendum=addendum,selected_sources=selected_sources)
     candidate['review_provenance']=dict(review_id=frozen['review_id'],base_version_id=frozen['base_version_id'],base_revision=request['base_revision'],input_sha256=digest(frozen),rules_version=RULES_VERSION,created_by=frozen['created_by'],created_at=frozen['created_at'],verification_status='not_verified')
+    if candidate.get('thesis_context'):
+        from app.domain.manuscripts.school import school_content_report
+        candidate['school_content_report']=school_content_report(candidate)
     return candidate,report

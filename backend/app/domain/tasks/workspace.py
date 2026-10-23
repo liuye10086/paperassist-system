@@ -13,6 +13,14 @@ class TaskWorkspaceService:
 
     def source(self, db, task):
         snapshot = task['input_snapshot']
+        if task['task_type']=='school_template_parse':
+            from app.domain.school_templates.service import SchoolTemplateService
+            from app.domain.report_collections.service import scoped_store
+            service=SchoolTemplateService(scoped_store(task['user_id'],self.store.config))
+            row=service.row(db,task['project_id'],snapshot['template_version_id'])
+            sources,_=service.validate(db,row)
+            source=next(s for s in sources if s['role']=='template')
+            return dict(file_id=source['file_id'],filename=source['filename'],analysis_run_id=None,is_current=not bool(service.current_changes(db,row,sources)))
         if task['task_type']=='manuscript_writing':
             from app.domain.manuscript_writing.service import require_snapshot
             snap=require_snapshot(task)
@@ -159,7 +167,7 @@ class TaskWorkspaceService:
         if (type(page) is not int or not 1 <= page <= 1_000_000
                 or type(page_size) is not int or not 1 <= page_size <= 50
                 or status not in (None, 'queued', 'running', 'waiting_input', 'waiting_confirmation', 'succeeded', 'failed')
-                or task_type not in (None, 'boxplot', 'explanation', 'word_report', 'parse_file', 'extract_dataset', 'prepare_dataset', 'review_ocr', 'analysis_plan', 'analysis_recommendation', 'figure_projection', 'figure_workbench', 'figure_explanation', 'collection_word_report', 'statistics_compute', 'literature_search', 'literature_assistance', 'manuscript_draft', 'manuscript_docx', 'pdf_export', 'layout_docx', 'manuscript_writing')):
+                or task_type not in (None, 'boxplot', 'explanation', 'word_report', 'parse_file', 'extract_dataset', 'prepare_dataset', 'review_ocr', 'analysis_plan', 'analysis_recommendation', 'figure_projection', 'figure_workbench', 'figure_explanation', 'collection_word_report', 'statistics_compute', 'literature_search', 'literature_assistance', 'manuscript_draft', 'manuscript_docx', 'pdf_export', 'layout_docx', 'manuscript_writing', 'school_template_parse')):
             raise StorageError('task_input_invalid', '任务列表查询参数无效。', 422)
         from app.adapters.legacy_task_query import mixed_task_page, require_legacy_task
         from app.domain.tasks.legacy import public_legacy_task, legacy_source
@@ -225,6 +233,7 @@ class TaskWorkspaceService:
 
     def artifacts(self, db, task):
         result = {'figure': None, 'explanation': None, 'report': None}
+        if task['task_type']=='school_template_parse': return result
         if task['task_type']=='manuscript_writing':
             from app.domain.manuscript_writing.service import require_snapshot
             require_snapshot(task)

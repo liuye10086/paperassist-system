@@ -2,7 +2,7 @@
 from fastapi import APIRouter,Response,Path
 from typing import Annotated
 from app.api.dataset_preparation import Store,Key
-from app.domain.manuscripts.contracts import ManuscriptRequest,EmptyRequest
+from app.domain.manuscripts.contracts import ManuscriptRequest,EmptyRequest,ExportRequest
 from app.domain.manuscripts.service import ManuscriptService
 from fastapi.responses import Response as RawResponse
 from urllib.parse import quote
@@ -39,8 +39,8 @@ def create_version(project_id:str,manuscript_id:str,request:ManuscriptRequest,re
 def version(project_id:str,manuscript_id:str,revision:Revision,store:Store): return ManuscriptService(store).get(project_id,manuscript_id,revision)
 
 @router.post('/{manuscript_id}/versions/{revision}/exports',status_code=201)
-def create_export(project_id:str,manuscript_id:str,revision:Revision,request:EmptyRequest,response:Response,store:Store,idempotency_key:Key):
-    result,response.status_code=ManuscriptService(store).create_export(project_id,manuscript_id,revision,idempotency_key)
+def create_export(project_id:str,manuscript_id:str,revision:Revision,request:ExportRequest,response:Response,store:Store,idempotency_key:Key):
+    result,response.status_code=ManuscriptService(store).create_export(project_id,manuscript_id,revision,idempotency_key,request)
     return result
 
 @router.get('/{manuscript_id}/versions/{revision}/exports')
@@ -57,3 +57,7 @@ def download(project_id:str,manuscript_id:str,export_id:str,store:Store):
 
 @router.post('/{manuscript_id}/recover')
 def recover(project_id:str,manuscript_id:str,request:EmptyRequest,store:Store): return ManuscriptService(store).recover(project_id,manuscript_id)
+
+@router.post('/{manuscript_id}/versions/{revision}/exports/preview')
+def preview_export(project_id:str,manuscript_id:str,revision:Revision,request:ExportRequest,store:Store):
+    return ManuscriptService(store).preview_export(project_id,manuscript_id,revision,request)

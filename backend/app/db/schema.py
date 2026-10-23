@@ -288,3 +288,12 @@ from app.db.manuscript_writing_language_schema import define_manuscript_writing_
 
 from app.db.manuscript_figure_language_schema import define_manuscript_figure_language_tables
 (manuscript_figure_language_versions,) = define_manuscript_figure_language_tables(metadata)
+
+# Scoped original/document references for school template snapshots.
+UniqueConstraint(files.c.id,files.c.project_id,name='files_project_scope_key')
+UniqueConstraint(file_parse_results.c.id,file_parse_results.c.file_id,name='fpr_file_scope_key')
+from app.db.school_template_schema import define_school_template_tables
+thesis_profiles,school_template_versions,school_template_sources,school_template_confirmations=define_school_template_tables(metadata)
+
+from app.db.school_change_schema import define_school_change_table
+manuscript_school_changes=define_school_change_table(metadata)

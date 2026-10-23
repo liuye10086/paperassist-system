@@ -185,7 +185,7 @@ def _full_body(document, snapshot, sections, images, en):
         document.add_paragraph(snapshot['acknowledgements'])
 
 
-def build_manuscript_docx(snapshot, images):
+def build_manuscript_docx(snapshot, images, *, school_plan=None):
     """Render only the frozen snapshot, retaining unresolved facts and original images."""
     if snapshot.get('schema_version') != 1 or snapshot.get('output_language') not in ('zh-CN', 'en'):
         raise StorageError('report_render_failed', '稿件版本格式不受支持。', 422)
@@ -197,13 +197,18 @@ def build_manuscript_docx(snapshot, images):
         from app.domain.manuscripts.illustrations import check_bindings
         if snapshot['illustration_check_version'] != 1 or check_bindings(snapshot['results_groups'], snapshot['output_language']):
             raise StorageError('report_render_failed', '正文图表引用与冻结编号或分面不一致，请核对后另存版本。', 422)
-    sections = _full_sections(snapshot) if 'sections' in snapshot else None
+    school=bool(snapshot.get('thesis_context'))
+    sections = snapshot['sections'] if school else _full_sections(snapshot) if 'sections' in snapshot else None
     if sections:
         from app.domain.manuscripts.illustrations import check_references, rendered_groups
         existing={(i['id'],tuple(i.get('values',[]))) for i in snapshot.get('issues',[])}
         unresolved=check_references(rendered_groups(snapshot),snapshot['output_language'])
         if any((i['id'],tuple(i['values'])) not in existing for i in unresolved):
             raise StorageError('report_render_failed', '完整稿正文出现未记录的图表或分面对应问题，请核对后另存版本。', 422)
+    if school:
+        if school_plan is None:raise StorageError('school_export_input_invalid','学校导出缺少固定排版配置。',422)
+        from .school_docx import build_school_docx
+        return build_school_docx(snapshot,images,school_plan)
     document = _document()
     en = snapshot['output_language'] == 'en'
     document.add_paragraph(snapshot['title'], style='Title')
@@ -288,6 +293,10 @@ def build_manuscript_docx(snapshot, images):
             for run in paragraph.runs:
                 run.font.size = Pt(10)
         description.paragraph_format.keep_with_next = True
+    return _save_document(document)
+
+
+def _save_document(document):
     stream = BytesIO()
     document.save(stream)
     stable = BytesIO()

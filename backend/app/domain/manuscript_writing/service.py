@@ -7,8 +7,7 @@ from app.core.exceptions import StorageError
 from app.domain.dataset_preparation.service import require_key,append_checkpoint
 from app.domain.literature.service import digest
 from app.domain.manuscripts.service import ManuscriptService,now
-from app.domain.manuscripts.sources import changes
-from .contracts import WritingRequest,WORKFLOW
+from .contracts import WritingRequest,WORKFLOW,SECTION_IDS
 
 
 def require_snapshot(task):
@@ -78,7 +77,7 @@ class WritingService:
         snap=require_snapshot(task);row,_=self.row(db,task['project_id'],snap['manuscript_id'],task['id'])
         version=self.manuscripts.version(db,task['project_id'],snap['manuscript_id'],snap['input']['base_revision'])
         root=self.manuscripts.root(db,task['project_id'],snap['manuscript_id'])
-        if version['id']!=snap['base_version_id'] or version['snapshot_json']!=snap['base_snapshot'] or root['current_revision']!=snap['input']['base_revision'] or changes(self.manuscripts,task['project_id'],snap['base_snapshot']): raise source_conflict()
+        if version['id']!=snap['base_version_id'] or version['snapshot_json']!=snap['base_snapshot'] or root['current_revision']!=snap['input']['base_revision'] or self.manuscripts.source_changes(task['project_id'],snap['base_snapshot']): raise source_conflict()
         return row
 
     def create(self,project,identity,request,key):
@@ -99,8 +98,10 @@ class WritingService:
             else:
                 version=self.manuscripts.version(db,project,identity,request.base_revision)
                 if root['current_revision']!=request.base_revision or self.store.require_task(db,version['task_id'])['status']!='succeeded': raise StorageError('manuscript_revision_conflict','请选择当前已发布基础版本。',409)
+                valid_ids=[c['id'] for c in version['snapshot_json'].get('thesis_context',{}).get('chapters',[])] or list(SECTION_IDS)
+                if request.mode=='rewrite_section' and request.target_section not in valid_ids: raise StorageError('task_input_invalid','重写目标不是当前冻结章节。',422)
                 if request.mode=='rewrite_section' and not version['snapshot_json'].get('sections'): raise StorageError('manuscript_writing_base_incomplete','请先完成并发布完整七部分写作，再指定章节重写。',409)
-                if changes(self.manuscripts,project,version['snapshot_json']): raise source_conflict()
+                if self.manuscripts.source_changes(project,version['snapshot_json']): raise source_conflict()
                 request_id=str(uuid4());timestamp=now()
                 snap=dict(schema_version=1,project_id=project,workflow_version=WORKFLOW,input=body,base_snapshot=version['snapshot_json'],base_version_id=version['id'],manuscript_id=identity,prompt_version='sci-writing-v1',policy_version='offline-only-v1',request_id=request_id)
                 task=dict(id=request_id,project_id=project,user_id=self.store.user_id,task_type='manuscript_writing',idempotency_key=key,input_digest=digest(snap),input_snapshot=snap,workflow_version=WORKFLOW,status='queued',phase='write',revision=1,current_attempt=0,reason_code=None,created_at=timestamp,updated_at=timestamp)
@@ -148,6 +149,7 @@ class WritingService:
                 status=200
             else:
                 self.assert_current(db,task)
+                if row['candidate_json'] and row['candidate_json'].get('school_content_report',{}).get('can_publish') is False: raise StorageError('manuscript_review_blocked','学校内容检查存在不可豁免问题。',409)
                 if task['status']!='succeeded' or row['candidate_json'] is None: raise StorageError('task_revision_conflict','写作候选尚未成功。',409)
                 if expected_revision!=row['request_json']['base_revision']: raise StorageError('manuscript_revision_conflict','基础版本已变化。',409)
                 base=self.manuscripts.version(db,project,identity,expected_revision);revision=expected_revision+1
@@ -155,7 +157,7 @@ class WritingService:
                 body=deepcopy(base['request_json']);body['expected_revision']=expected_revision;body['title']=candidate['title']
                 snap=dict(project_id=project,manuscript_id=identity,manuscript_version_id=version_id,revision=revision,output_language=candidate['output_language'],workflow_version=base['snapshot_json']['workflow_version'],snapshot_sha256=digest(candidate))
                 producer=self.manuscripts.task(db,project,'manuscript_draft',snap,'manuscript:'+version_id)
-                db.execute('INSERT INTO manuscript_versions(id,project_id,user_id,idempotency_key,request_json,request_digest,manuscript_id,revision,parent_version_id,task_id,snapshot_json,snapshot_sha256,created_at) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)',(version_id,project,self.store.user_id,'writing:'+request_id,Jsonb(body),digest(body),identity,revision,base['id'],producer['id'],Jsonb(candidate),digest(candidate),timestamp))
+                db.execute('INSERT INTO manuscript_versions(id,project_id,user_id,idempotency_key,request_json,request_digest,manuscript_id,revision,parent_version_id,task_id,snapshot_json,snapshot_sha256,created_at,school_confirmation_id) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)',(version_id,project,self.store.user_id,'writing:'+request_id,Jsonb(body),digest(body),identity,revision,base['id'],producer['id'],Jsonb(candidate),digest(candidate),timestamp,base.get('school_confirmation_id')))
                 for table in ('manuscript_sources','manuscript_citations'):
                     for original in db.execute('SELECT * FROM '+table+' WHERE version_id=%s',(base['id'],)).fetchall():
                         fields=dict(original);fields.update(id=str(uuid4()),version_id=version_id)

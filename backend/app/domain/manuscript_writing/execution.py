@@ -30,6 +30,17 @@ Keywords and acknowledgements are exclusively the explicit user values; never in
 REVIEW_BINDING_INSTRUCTIONS='''An exact unchanged paragraph from a material-reviewed base may retain its existing {"value":displayed_numeric_token,"fact_id":frozen_fact_id} bindings. Copy its id, text, source_ids, citations and numeric_bindings exactly, including reviewed display precision. Never reuse fact_id bindings for changed text or another paragraph; changed numerical prose requires renewed material review. Newly generated numerical text follows the original source_id/exact raw value contract.'''
 
 
+def writing_instructions(snapshot):
+    instructions=INSTRUCTIONS
+    if snapshot['base_snapshot'].get('thesis_context'):
+        old='Write a coherent SCI manuscript in the frozen output language. Full drafts require seven sections in exactly this order: title, abstract, introduction, results, discussion, materials_and_methods, references.'
+        instructions=instructions.replace(old,'Write only the confirmed school chapters in exactly the order and identities of normalized_sections and thesis_context.chapters. Respect each frozen purpose and output_language; never substitute the SCI seven-part structure.')
+        instructions=instructions.replace('Title must contain exactly one paragraph and may refine the supplied title without adding facts.','The manuscript title remains the explicit frozen user title. Copy manual chapters exactly; never invent identities, declarations, signatures or table-of-contents fields. Acknowledgements use only the explicit user input.')
+    if snapshot['base_snapshot'].get('review_provenance') or snapshot['base_snapshot'].get('review_history'):
+        instructions+='\n'+REVIEW_BINDING_INSTRUCTIONS
+    return instructions
+
+
 def parse_response(response,snapshot,model_call_id=None):
     if not isinstance(response,dict) or response.get('status')!='completed': raise ValueError('Incomplete response')
     outputs=response['output']
@@ -108,9 +119,7 @@ def execute(repository,lease,provider):
     policy=ModelPolicy.model_validate(provider.policy)
     if policy.tools or policy.output_format!='text' or policy.prompt_version!=PROMPT_VERSION: raise source_conflict()
     payload=dict(input=snapshot['input'],base_snapshot=snapshot['base_snapshot'],normalized_sections=normalize_sections(snapshot['base_snapshot']),reviewed_literature_paragraphs=literature_paragraphs(snapshot['base_snapshot']))
-    instructions=INSTRUCTIONS
-    if snapshot['base_snapshot'].get('review_provenance') or snapshot['base_snapshot'].get('review_history'):
-        instructions+='\n'+REVIEW_BINDING_INSTRUCTIONS
+    instructions=writing_instructions(snapshot)
     gateway=ModelGateway(ModelUsageService(task['user_id'],repository.config),provider)
     with repository.connection(write=True) as db:
         current=repository.require_lease(db,lease);previous=checkpoint(db,current)

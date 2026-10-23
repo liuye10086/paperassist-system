@@ -121,6 +121,7 @@ function Summary({ projectId, projectType, view = 'all', active = true, onOpenMa
     {error && <><p role="alert" className="error-panel">{t(error)}</p><button type="button" onClick={() => refresh()}>{t("重试项目摘要")}</button></>}
     {data && <>
       <div className="summary-task-section" hidden={view === 'artifacts'}>
+      {projectType==='thesis'&&data.thesis_profile&&<section aria-label={t('学校与模板摘要')}><h4>{t('学校与模板摘要')}</h4><dl><dt>{t('学校')}</dt><dd>{data.thesis_profile.school||t('未填写')}</dd><dt>{t('院系 / 专业')}</dt><dd>{[data.thesis_profile.department,data.thesis_profile.major].filter(Boolean).join(' / ')||t('未填写')}</dd><dt>{t('学位 / 层次')}</dt><dd>{[data.thesis_profile.degree_type,data.thesis_profile.education_level].filter(Boolean).join(' / ')||t('未填写')}</dd><dt>{t('已绑定学校模板')}</dt><dd>{data.thesis_profile.bound_confirmation_id?[data.thesis_profile.template_name,data.thesis_profile.template_version_label].filter(Boolean).join(' · '):t('尚未绑定确认版本')}</dd></dl></section>}
       <h4 className="summary-section-heading">{t("分析任务记录")}<span>{data.tasks.total}</span></h4>
       {data.tasks.total === 0 ? <p className="summary-empty">{t("还没有已保存的分析任务记录。")}</p> : <>
         <div className="summary-table-scroll"><table className="summary-task-table"><caption className="visually-hidden">{t("分析任务记录")}</caption>
@@ -131,6 +132,7 @@ function Summary({ projectId, projectType, view = 'all', active = true, onOpenMa
           </tr>)}</tbody></table></div>
         <Pagination label={t("任务")} page={data.tasks.page} total={data.tasks.total} onChange={tasks => refresh({ ...pages, tasks })} />
       </>}
+      {projectType==='thesis'&&onOpenManuscripts&&<section className="summary-upcoming" aria-label={t('毕业论文稿件与版本')}><strong>{t('毕业论文稿件与版本')}</strong>{data.future.writing.state==='available'&&<><p>{data.future.writing.current_manuscript?.title??t('尚无事实稿。')}</p><p>{t('已保存版本 {number}',{number:data.future.writing.versions.length})}</p></>}<button type="button" onClick={onOpenManuscripts}>{t('打开毕业论文写作')}</button></section>}
       {projectType==='sci'&&onOpenManuscripts&&<div className="summary-upcoming"><strong>{t('SCI 事实稿与版本')}</strong><p>{t('查看稿件资料、版本和 DOCX 导出。')}</p><button type="button" onClick={onOpenManuscripts}>{t('打开 SCI 写作')}</button></div>}
       <aside className="summary-upcoming" aria-label={t('后续研究工作')}><span>{t(data.future.writing.state==='available'?'修改与后续研究':'写作与修改')}</span><span aria-hidden="true">·</span>
         {data.future.sci && <span>{t('SCI 期刊与投稿')}</span>}{data.future.thesis && <span>{t('学校与毕业论文评审')}</span>}

@@ -163,7 +163,7 @@ def public_source_groups(groups, indexes, tasks, file, user_id, producers, proof
             key = (kind, row['id'] if 'id' in row else row['file_id'])
             rows[key] = row
             refs = set()
-            if kind=='manuscript_figure_language_versions':
+            if kind in ('manuscript_figure_language_versions','school_template_versions','manuscript_school_changes'):
                 if row.get('_integrity_valid') and row['project_id']==file['project_id'] and row['user_id']==user_id:
                     safe.add(key)
                 dependencies[key]=set()
@@ -313,6 +313,28 @@ def read_references(db, file, user_id):
             FigureLanguageService(scoped_store(user_id,db.config)).row(db,project_id,version['id'])
             version['_integrity_valid']=version['user_id']==user_id
         except Exception: version['_integrity_valid']=False
+    from app.domain.school_templates.service import SchoolTemplateService
+    from app.domain.report_collections.service import scoped_store
+    school_service=SchoolTemplateService(scoped_store(user_id,db.config))
+    groups['school_template_versions']=[dict(r) for r in db.execute("""SELECT v.*,s.file_id,s.source_json,
+        (SELECT to_jsonb(c) FROM school_template_confirmations c WHERE c.template_version_id=v.id) AS confirmation_json,
+        (SELECT to_jsonb(p) FROM thesis_profiles p JOIN school_template_confirmations c ON c.id=p.bound_confirmation_id WHERE c.template_version_id=v.id) AS binding_json
+        FROM school_template_versions v JOIN school_template_sources s ON s.template_version_id=v.id WHERE s.file_id=%s""",(file_id,))]
+    for version in groups['school_template_versions']:
+        try:
+            school_service.row(db,project_id,version['id'])
+            sources,_=school_service.validate(db,version)
+            school_service.confirmation(db,version)
+            version['_integrity_valid']=not bool(school_service.current_changes(db,version,sources))
+        except Exception:version['_integrity_valid']=False
+    from app.domain.manuscripts.school_changes import SchoolChangeService
+    change_service=SchoolChangeService(scoped_store(user_id,db.config))
+    groups['manuscript_school_changes']=[dict(r) for r in db.execute('SELECT * FROM manuscript_school_changes WHERE file_id=%s',(file_id,))]
+    for change in groups['manuscript_school_changes']:
+        try:
+            change_service.row(db,project_id,change['manuscript_id'],change['id']);change['_integrity_valid']=True
+        except Exception:change['_integrity_valid']=False
+    school_tasks={v['task_id']:v for v in groups['school_template_versions']}
     indexes = {kind: {row['id']: row for row in rows if 'id' in row} for kind, rows in groups.items()}
     output_tasks = {row['task_id'] for rows in groups.values() for row in rows if row.get('task_id')}
     project_files = {r['id'] for r in db.execute('SELECT id FROM files WHERE project_id=%s',(project_id,))}
@@ -330,9 +352,13 @@ def read_references(db, file, user_id):
     for row in project_tasks:
         task = dict(row)
         snapshot = task['input_snapshot']
-        scoped=scoped_snapshot(snapshot,file_id,proofs)
+        if task['task_type']=='school_template_parse':
+            version=school_tasks.get(task['id'])
+            if version is None:continue
+            scoped=dict(file=version['source_json']['file'])
+        else:scoped=scoped_snapshot(snapshot,file_id,proofs)
         refs = set(frozen_references(scoped))
-        ids = file_ids(snapshot)
+        ids = file_ids(scoped if task['task_type']=='school_template_parse' else snapshot)
         scoped_ids=file_ids(scoped)
         linked = (file_id in ids or task['id'] in output_tasks
                   or any(identifier in indexes[kind] for kind, identifier in refs)
@@ -351,6 +377,7 @@ def read_references(db, file, user_id):
         valid = valid and bool(ids or refs or task['id'] in output_tasks)
         valid = valid and source_identity_valid(scoped,indexes,file,producers)
         valid = valid and task_contract_valid(task)
+        if task['task_type']=='school_template_parse':valid = valid and school_tasks[task['id']]['_integrity_valid']
         for key,kind in (('parse_id','parse_versions'),('structure_id','structure_versions')):
             if key in snapshot:
                 output = indexes[kind].get(snapshot[key]) if isinstance(snapshot[key], str) else None
@@ -382,6 +409,9 @@ def read_references(db, file, user_id):
                         seq=c['seq'], node=c['node'], next_node=c['next_node'], identity_digest=digest(c['candidate']))
                    for c in checkpoints if c['candidate'] is not None]
     counts = {kind: len(rows) for kind, rows in groups.items()}
+    counts['school_template_sources']=len(groups['school_template_versions'])
+    counts['school_template_confirmations']=sum(v['confirmation_json'] is not None for v in groups['school_template_versions'])
+    counts['thesis_template_bindings']=sum(v['binding_json'] is not None for v in groups['school_template_versions'])
     counts.update(tasks=len(tasks), legacy_jobs=len(legacy),
                   active_tasks=sum(t['status'] in ACTIVE for t in tasks)+sum(mapped_status(job_data(j)) in ACTIVE for j in legacy),
                   registered_candidates=len(candidates), model_calls=len(calls), budget_reservations=len(reservations),
@@ -401,6 +431,8 @@ def read_references(db, file, user_id):
             latest_checkpoints[checkpoint['task_id']] = checkpoint
     by_task = {t['id']: t for t in tasks}
     reasons = []
+    if groups['school_template_versions']:reasons.append('school_template_history_retained')
+    if groups['manuscript_school_changes']:reasons.append('school_change_history_retained')
     if counts['active_tasks']:
         reasons.append('active_tasks')
     if any(r['status'] in ('waiting','queued','failed','blocked') for r in groups['report_build_requests']):

@@ -194,3 +194,9 @@ app.include_router(authorization_router)
 
 from app.api.manuscript_figure_language import router as manuscript_figure_language_router
 app.include_router(manuscript_figure_language_router)
+
+from app.api.school_templates import router as school_templates_router
+app.include_router(school_templates_router)
+
+from app.api.manuscript_school_changes import router as manuscript_school_changes_router
+app.include_router(manuscript_school_changes_router)

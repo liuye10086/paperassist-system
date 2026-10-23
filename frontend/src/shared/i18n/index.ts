@@ -1,3 +1,7 @@
+import {schoolChangeMessages} from './schoolChangeMessages'
+import {schoolExportMessages} from './schoolExportMessages'
+import {thesisManuscriptMessages} from './thesisManuscriptMessages'
+import {schoolTemplateMessages} from './schoolTemplateMessages'
 import {writingLiveMessages} from './writingLiveMessages'
 import {layoutExportMessages} from './layoutExportMessages'
 import {pdfExportMessages} from './pdfExportMessages'
@@ -23,7 +27,7 @@ import { fileLifecycleMessages } from './fileLifecycleMessages'
 import { useSyncExternalStore } from 'react'
 import { rootMessages } from './rootMessages'
 import { workflowMessages as originalWorkflowMessages } from './workflowMessages'
-const workflowMessages = { ...writingLiveMessages, ...layoutExportMessages, ...manuscriptReviewMessages, ...pdfExportMessages, ...manuscriptMessages, ...literatureBatch06Messages, ...literatureCheckMessages, ...literatureCitationMessages, ...literatureEvidenceMessages, ...literatureMessages, ...batch10StatisticsMessages, ...batch10SourceMessages, ...batch10ObservationMessages, ...batch09Messages, ...figureWorkbenchMessages, ...originalWorkflowMessages, ...documentMessages, ...ocrReviewMessages, ...evidenceMessages, ...fileLifecycleMessages, ...comparisonMessages, ...modelingMessages, ...qualityMessages }
+const workflowMessages = { ...schoolChangeMessages, ...schoolExportMessages, ...thesisManuscriptMessages, ...schoolTemplateMessages, ...writingLiveMessages, ...layoutExportMessages, ...manuscriptReviewMessages, ...pdfExportMessages, ...manuscriptMessages, ...literatureBatch06Messages, ...literatureCheckMessages, ...literatureCitationMessages, ...literatureEvidenceMessages, ...literatureMessages, ...batch10StatisticsMessages, ...batch10SourceMessages, ...batch10ObservationMessages, ...batch09Messages, ...figureWorkbenchMessages, ...originalWorkflowMessages, ...documentMessages, ...ocrReviewMessages, ...evidenceMessages, ...fileLifecycleMessages, ...comparisonMessages, ...modelingMessages, ...qualityMessages }
 import { errorMessages } from './errorMessages'
 
 export type Locale = 'zh-CN' | 'en'

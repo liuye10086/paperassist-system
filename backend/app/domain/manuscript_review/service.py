@@ -8,7 +8,8 @@ from app.core.exceptions import StorageError
 from app.domain.dataset_preparation.service import require_key
 from app.domain.literature.service import digest
 from app.domain.manuscripts.service import ManuscriptService,now
-from app.domain.manuscripts.sources import changes,read_source
+from app.domain.manuscripts.sources import read_source
+from app.domain.manuscripts.school_binding import current_changes as school_changes
 from .contracts import ReviewRequest,RULES_VERSION
 from .composition import compose
 from .facts import extract_facts,relationships
@@ -28,7 +29,7 @@ class ReviewService:
         previous_review=base.get('review') or (base.get('review_history') or [{}])[-1].get('review',{})
         sources=list({s['id']:s for s in [*base['sources'],*previous_review.get('selected_sources',[]),*selected]}.values())
         combined={**base,'sources':list({s['id']:s for s in sources}.values())}
-        changed=changes(self.manuscripts,project,combined)
+        changed=self.manuscripts.source_changes(project,combined)
         configurations=[];observations=[]
         for source in sources:
             selection={k:source[k] for k in ('kind','id','file_id','role')}
@@ -151,6 +152,9 @@ class ReviewService:
                 raise StorageError('manuscript_revision_conflict','请选择当前已发布基础版本。',409)
             if version['snapshot_json'].get('writing_provenance',{}).get('schema_version')==2 and has_review_edits(body):
                 raise StorageError('manuscript_review_v2_workflow_required',V2_WORKFLOW_MESSAGE,422)
+            if school_changes(self.manuscripts,project,version['snapshot_json']): raise source_conflict()
+            template_files={x['file_id'] for x in version['snapshot_json'].get('thesis_context',{}).get('source_files',[]) if x['role'] in ('template','supplement')}
+            if any(s.file_id in template_files for s in request.selected_sources): raise invalid('学校模板不能作为新增研究资料。')
             selected=[read_source(self.manuscripts,project,s) for s in request.selected_sources]
             old_sources=[*version['snapshot_json']['sources'],*version['snapshot_json'].get('review',{}).get('selected_sources',[])]
             if {s['id'] for s in selected}&{s['id'] for s in old_sources}: raise invalid('新资料必须与冻结基础资料具有不同标识。')
@@ -166,6 +170,7 @@ class ReviewService:
 
     def assert_source_state(self,db,row):
         frozen=row['input_snapshot']
+        if school_changes(self.manuscripts,row['project_id'],frozen['base_snapshot']): raise source_conflict()
         if self.source_state(db,row['project_id'],frozen['base_snapshot'],frozen['selected_sources'])!=frozen['source_state']: raise source_conflict()
 
     def publish(self,project,identity,review_id,expected_revision,key):
@@ -190,8 +195,8 @@ class ReviewService:
                 body=deepcopy(base['request_json']);body['expected_revision']=expected_revision
                 task_snapshot=dict(project_id=project,manuscript_id=identity,manuscript_version_id=version_id,revision=revision,output_language=candidate['output_language'],workflow_version=base['snapshot_json']['workflow_version'],snapshot_sha256=digest(candidate))
                 producer=self.manuscripts.task(db,project,'manuscript_draft',task_snapshot,'manuscript:'+version_id)
-                db.execute('''INSERT INTO manuscript_versions(id,project_id,user_id,idempotency_key,request_json,request_digest,manuscript_id,revision,parent_version_id,task_id,snapshot_json,snapshot_sha256,created_at)
-                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)''',(version_id,project,self.store.user_id,'review:'+review_id,Jsonb(body),digest(body),identity,revision,base['id'],producer['id'],Jsonb(candidate),digest(candidate),timestamp))
+                db.execute('''INSERT INTO manuscript_versions(id,project_id,user_id,idempotency_key,request_json,request_digest,manuscript_id,revision,parent_version_id,task_id,snapshot_json,snapshot_sha256,created_at,school_confirmation_id)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)''',(version_id,project,self.store.user_id,'review:'+review_id,Jsonb(body),digest(body),identity,revision,base['id'],producer['id'],Jsonb(candidate),digest(candidate),timestamp,base.get('school_confirmation_id')))
                 for table in ('manuscript_sources','manuscript_citations'):
                     for original in db.execute('SELECT * FROM '+table+' WHERE version_id=%s',(base['id'],)).fetchall():
                         fields=dict(original);fields.update(id=str(uuid4()),version_id=version_id)

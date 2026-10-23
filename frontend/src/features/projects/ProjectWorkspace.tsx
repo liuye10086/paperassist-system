@@ -1,3 +1,4 @@
+import SchoolTemplates from '../school-templates/SchoolTemplates'
 import ProjectManuscripts from '../manuscripts/ProjectManuscripts'
 import ProjectLiterature from '../literature/ProjectLiterature'
 import { apiFetch } from '../../shared/api/client'
@@ -23,6 +24,7 @@ async function responseData(response: Response, fallback: string) {
 
 export default function ProjectWorkspace() {
   const { t, locale } = useI18n()
+  const [schoolRevision,setSchoolRevision]=useState(0)
   const [view, setView] = useState<WorkspaceView>(() => new URLSearchParams(window.location.hash.slice(1)).has('project') ? 'project' : 'home')
   const [navigationSequence, setNavigationSequence] = useState(0)
   const [showCreate, setShowCreate] = useState(false)
@@ -265,11 +267,12 @@ export default function ProjectWorkspace() {
           </div>
         </div>
         <div hidden={section !== 'overview' && section !== 'artifacts'}>
-          <ProjectSummary projectId={project.id} projectType={project.project_type} view={section === 'artifacts' ? 'artifacts' : 'overview'}
+          <ProjectSummary key={`${project.id}:${schoolRevision}`} projectId={project.id} projectType={project.project_type} view={section === 'artifacts' ? 'artifacts' : 'overview'}
             active={view === 'project' && (section === 'overview' || section === 'artifacts')} onOpenManuscripts={()=>changeSection('manuscripts')} />
         </div>
+        {project.project_type === 'thesis' && <SchoolTemplates projectId={project.id} onChanged={()=>setSchoolRevision(value=>value+1)} active={view === 'project' && section === 'school-templates'} />}
         <ProjectModelUsage projectId={project.id} active={view === 'project' && section === 'overview'} />
-        <ProjectManuscripts projectId={project.id} researchTopic={project.research_topic} outputLanguage={project.default_output_language??'zh-CN'} active={view==='project'&&section==='manuscripts'&&project.project_type==='sci'} onOpenTask={selection.selectTask} onOpenLiterature={()=>selection.selectLiterature('')}/>
+        <ProjectManuscripts projectType={project.project_type} projectId={project.id} researchTopic={project.research_topic} outputLanguage={project.default_output_language??'zh-CN'} active={view==='project'&&section==='manuscripts'} onOpenTask={selection.selectTask} onOpenLiterature={()=>selection.selectLiterature('')}/>
         <ProjectTasks onOpenManuscripts={()=>changeSection('manuscripts')} onOpenFiles={() => changeSection('files')} projectId={project.id} active={view === 'project' && section === 'tasks'}
           selectedTaskId={selection.taskId} onSelectTask={selection.selectTask} onOpenLiterature={selection.selectLiterature} />
         <ProjectLiterature projectId={project.id} researchTopic={project.research_topic} outputLanguage={project.default_output_language??'zh-CN'} active={view==='project'&&section==='literature'} initialSearchId={selection.literatureSearchId} onSearchChange={selection.selectLiterature} onOpenTask={selection.selectTask}/>

@@ -8,6 +8,9 @@ from app.domain.tasks.wait_contracts import WaitView
 
 
 def input_version(task):
+    if task['task_type']=='school_template_parse':
+        from app.domain.school_templates.service import input_version as school_input_version
+        return school_input_version(task)
     if task['task_type']=='manuscript_writing':
         from app.domain.manuscript_writing.service import input_version as writing_input_version
         return writing_input_version(task)
@@ -187,7 +190,7 @@ def allowed_recovery_actions(db, task):
                 (snapshot['file']['id'],snapshot.get('parse_version',1))).fetchone():
                 return []
         return ['retry'] if not budget_wait and task.get('error_code') in RETRYABLE_CODES else []
-    if task['task_type'] in ('word_report','collection_word_report','manuscript_draft','manuscript_docx'):
+    if task['task_type'] in ('word_report','collection_word_report','manuscript_draft','manuscript_docx','school_template_parse'):
         return ['retry'] if not budget_wait else []
     if task['task_type'] == 'boxplot':
         from app.domain.plot_tasks import _can_resume, _last_call, _unknown_submission

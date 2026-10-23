@@ -18,6 +18,7 @@ export type SummaryArtifact = Omit<SummarySource,'analysis_run_id'|'setup_revisi
 export type SummaryPage<T> = { items: T[]; total: number; page: number; page_size: number }
 type Unavailable = { state: 'not_available'; tasks: never[] }
 export type ProjectSummaryData = {
+  thesis_profile?:{school:string;department:string;major:string;degree_type:string;education_level:string;applicable_version:string;bound_confirmation_id:string|null;template_name:string|null;template_version_label:string|null}|null
   layout_exports?:LayoutExport[]
   project_id: string; project_type: 'sci' | 'thesis'
   tasks: SummaryPage<SummaryTask>; artifacts: SummaryPage<SummaryArtifact>

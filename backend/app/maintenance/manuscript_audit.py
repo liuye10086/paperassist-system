@@ -32,6 +32,7 @@ def audit_manuscripts(db):
                             if not actual or any(actual[k]!=version[k] for k in ('project_id','user_id')): raise ValueError('Foreign citation')
                     elif table=='manuscript_exports':
                         export_task=svc.store.require_task(db,row['task_id']);svc.verify_task(db,export_task)
+                        svc.verify_school_export(db,version,row,export_task)
                         if export_task['status']=='succeeded':
                             metadata,raw=svc.export(version['project_id'],version['manuscript_id'],row['id'],True)
             except Exception:

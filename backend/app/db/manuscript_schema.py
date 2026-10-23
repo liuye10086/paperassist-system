@@ -20,6 +20,8 @@ def define_manuscript_tables(metadata):
         sa.Column('manuscript_id',sa.Text,nullable=False),sa.Column('revision',sa.Integer,nullable=False),
         sa.Column('parent_version_id',sa.Text),sa.Column('task_id',sa.Text,sa.ForeignKey('tasks.id'),nullable=False,unique=True),
         sa.Column('snapshot_json',JSONB,nullable=False),sa.Column('snapshot_sha256',sa.Text,nullable=False),
+        sa.Column('school_confirmation_id',sa.Text),
+        sa.ForeignKeyConstraint(['school_confirmation_id','project_id','user_id'],['school_template_confirmations.id','school_template_confirmations.project_id','school_template_confirmations.user_id'],name='mv_school_confirmation_scope_fk'),
         sa.Column('created_at',sa.DateTime(timezone=True),nullable=False),
         sa.ForeignKeyConstraint(['manuscript_id','project_id','user_id'],['manuscripts.id','manuscripts.project_id','manuscripts.user_id'],name='mv_root_fk'),
         sa.UniqueConstraint('id','manuscript_id',name='mv_parent_scope_key'),
@@ -54,6 +56,8 @@ def define_manuscript_tables(metadata):
     exports=sa.Table('manuscript_exports',metadata,sa.Column('id',sa.Text,primary_key=True),
         sa.Column('version_id',sa.Text,sa.ForeignKey('manuscript_versions.id'),nullable=False),
         sa.Column('task_id',sa.Text,sa.ForeignKey('tasks.id'),nullable=False,unique=True),sa.Column('idempotency_key',sa.Text,nullable=False),
+        sa.Column('school_input_json',JSONB(none_as_null=True)),sa.Column('school_input_sha256',sa.Text),
+        sa.CheckConstraint("(school_input_json IS NULL AND school_input_sha256 IS NULL) OR (school_input_json IS NOT NULL AND school_input_sha256 IS NOT NULL AND jsonb_typeof(school_input_json)='object' AND school_input_sha256 ~ '^[0-9a-f]{64}$')",name='me_school_input_check'),
         sa.Column('metadata_json',JSONB(none_as_null=True)),sa.Column('created_at',sa.DateTime(timezone=True),nullable=False),
         sa.UniqueConstraint('version_id','idempotency_key',name='me_request_key'))
     for table in (roots,versions): sa.Index(table.name+'_project_created',table.c.project_id,table.c.created_at.desc(),table.c.id)
