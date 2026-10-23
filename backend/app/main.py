@@ -203,3 +203,15 @@ app.include_router(manuscript_school_changes_router)
 
 from app.api.journals import router as journals_router
 app.include_router(journals_router)
+
+from app.api.review_rounds import router as review_rounds_router
+app.include_router(review_rounds_router)
+
+from app.api.review_documents import router as review_documents_router
+app.include_router(review_documents_router)
+
+from app.api.review_science import router as review_science_router
+app.include_router(review_science_router)
+
+from app.api.review_continuations import router as review_continuations_router
+app.include_router(review_continuations_router)

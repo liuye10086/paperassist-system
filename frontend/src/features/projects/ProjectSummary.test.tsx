@@ -405,3 +405,7 @@ test('shows the actual school manuscript title and saved versions in the overvie
  render(<ProjectSummary projectId="p1" projectType="thesis" onOpenManuscripts={onOpen}/>)
  expect(await screen.findByText('实际学校稿件')).toBeTruthy();expect(screen.getByText('已保存版本 2')).toBeTruthy();fireEvent.click(screen.getByRole('button',{name:'打开毕业论文写作'}));expect(onOpen).toHaveBeenCalledTimes(1)
 })
+
+test('distinguishes same-number opinions from different sources in the summary',async()=>{
+ const fixture=summaryFixture();vi.stubGlobal('fetch',vi.fn(async()=>Response.json({...fixture,future:{...fixture.future,revision:{state:'available',tasks:[],current_round:{id:'round1',title:'合成意见',round_number:1,revision:1,synthetic:true,manuscript:{id:'m1',revision:1,version_id:'v1',title:'固定稿'}},rounds:[],opinions:['Reviewer 1','Reviewer 2'].map((source_label,n)=>({id:'i'+n,source_id:'s'+n,source_label,number:1,category:'method',status:'pending',uncompleted_reason:''})),pending_materials:[]}}})));render(<ProjectSummary projectId="p1" projectType="sci"/>);expect(await screen.findByText('Reviewer 1 · 意见 1 · 待处理')).toBeTruthy();expect(screen.getByText('Reviewer 2 · 意见 1 · 待处理')).toBeTruthy()
+})

@@ -120,7 +120,13 @@ class ManuscriptService:
         if snap.get('illustration_check_version') is not None:
             from .illustrations import check_bindings
             if snap['illustration_check_version']!=1 or check_bindings(snap['results_groups'],snap['output_language']): raise source_conflict()
-        if snap.get('journal_adaptation_provenance') is not None:
+        if snap.get('user_return_provenance') is not None:
+            from app.domain.review_rounds.returns import validate_user_return_version
+            validate_user_return_version(self,db,row)
+        elif snap.get('review_revision_provenance') is not None:
+            from app.domain.review_rounds.revisions import validate_revised_version
+            validate_revised_version(self,db,row)
+        elif snap.get('journal_adaptation_provenance') is not None:
             from app.domain.journals.adaptation_service import validate_adapted_version
             validate_adapted_version(self,db,row)
         elif snap.get('school_change_provenance') is not None:
@@ -153,7 +159,7 @@ class ManuscriptService:
             bound=by_id.get(source['id'])
             if not bound or bound['source_json']!=source or bound['sha256']!=digest(source) or any(bound[k]!=source[v] for k,v in (('kind','kind'),('file_id','file_id'),('role','role'))): raise source_conflict()
         parent=db.execute('SELECT revision FROM manuscript_versions WHERE id=%s AND manuscript_id=%s',(row['parent_version_id'],row['manuscript_id'])).fetchone() if row['parent_version_id'] else None
-        if row['revision']>1 and (not parent or (not 1<=parent['revision']<row['revision'] if snap.get('school_change_provenance') or snap.get('journal_adaptation_provenance') else parent['revision']!=row['revision']-1)): raise source_conflict()
+        if row['revision']>1 and (not parent or (not 1<=parent['revision']<row['revision'] if snap.get('school_change_provenance') or snap.get('journal_adaptation_provenance') or snap.get('review_revision_provenance') or snap.get('user_return_provenance') else parent['revision']!=row['revision']-1)): raise source_conflict()
         expected=[]
         citation=snap.get('citation_snapshot')
         if citation:
@@ -251,6 +257,66 @@ class ManuscriptService:
         db.execute('UPDATE manuscripts SET current_revision=%s,title=%s,updated_at=%s WHERE id=%s',(revision,candidate['title'],timestamp,identity))
         return dict(manuscript_id=identity,version_id=version_id,revision=revision,parent_version_id=base['id'],task_id=producer['id'])
 
+    def publish_review_revision(self,db,base,candidate,adaptation):
+        """Narrow fixed-plan publication; old parent is allowed only for this provenance."""
+        frozen=adaptation['snapshot_json'];project=base['project_id'];identity=base['manuscript_id']
+        db.execute('SELECT id FROM manuscripts WHERE id=%s FOR UPDATE',(identity,)).fetchone()
+        root=self.root(db,project,identity)
+        if root['current_revision']!=frozen['expected_current_revision']:raise StorageError('manuscript_revision_conflict','稿件已有新版本，请刷新后重新采用固定父稿。',409)
+        if base['id']!=adaptation['manuscript_version_id'] or self.version(db,project,identity,base['revision'])!=base:raise source_conflict()
+        db.execute('SELECT id FROM review_rounds WHERE id=%s FOR UPDATE',(adaptation['round_id'],)).fetchone()
+        from app.domain.review_rounds.revisions import RevisionService
+        _,expected,result=RevisionService(self.assets).compute(db,adaptation)
+        if not result['actual_changes'] or any(i['severity']=='error' for i in result['public_issues']):raise source_conflict()
+        if candidate!=expected:raise source_conflict()
+        self.verify_task(db,self.store.require_task(db,base['task_id']),current=True,_review_candidate=candidate)
+        revision=root['current_revision']+1;version_id=str(uuid4());timestamp=now()
+        body=dict(base['request_json'],expected_revision=revision-1,sources=[{k:s[k] for k in ('kind','id','file_id','role')} for s in candidate['sources']])
+        producer=self.task(db,project,'manuscript_draft',dict(project_id=project,manuscript_id=identity,manuscript_version_id=version_id,revision=revision,output_language=candidate['output_language'],workflow_version=WORKFLOW,snapshot_sha256=digest(candidate)),'manuscript:'+version_id)
+        fields=dict(id=version_id,project_id=project,user_id=self.store.user_id,idempotency_key='review-revision:'+adaptation['id'],request_json=Jsonb(body),request_digest=digest(body),manuscript_id=identity,revision=revision,parent_version_id=base['id'],task_id=producer['id'],snapshot_json=Jsonb(candidate),snapshot_sha256=digest(candidate),created_at=timestamp,school_confirmation_id=base.get('school_confirmation_id'))
+        db.execute('INSERT INTO manuscript_versions('+','.join(fields)+') VALUES ('+','.join(['%s']*len(fields))+')',tuple(fields.values()))
+        for source in candidate['sources']:
+            foreign={'document_version':'document_version_id','ocr_review_version':'ocr_review_version_id','external_evidence_version':'external_evidence_version_id','analysis_run':'analysis_run_id','figure':'figure_id','figure_language_version':'figure_language_version_id'}.get(source['kind'])
+            fields=dict(id=str(uuid4()),version_id=version_id,file_id=source['file_id'],kind=source['kind'],source_id=source['id'],role=source['role'],source_json=Jsonb(source),sha256=digest(source))
+            if foreign:fields[foreign]=source['id']
+            db.execute('INSERT INTO manuscript_sources('+','.join(fields)+') VALUES ('+','.join(['%s']*len(fields))+')',tuple(fields.values()))
+        for table in ('manuscript_citations',):
+            for original in db.execute('SELECT * FROM '+table+' WHERE version_id=%s',(base['id'],)).fetchall():
+                values=dict(original);values.update(id=str(uuid4()),version_id=version_id)
+                values={k:Jsonb(v) if isinstance(v,(dict,list)) else v for k,v in values.items()}
+                db.execute('INSERT INTO '+table+'('+','.join(values)+') VALUES ('+','.join(['%s']*len(values))+')',tuple(values.values()))
+        db.execute('UPDATE manuscripts SET current_revision=%s,title=%s,updated_at=%s WHERE id=%s',(revision,candidate['title'],timestamp,identity))
+        return dict(manuscript_id=identity,version_id=version_id,revision=revision,parent_version_id=base['id'],task_id=producer['id'])
+
+    def publish_user_return(self,db,base,candidate,record,adoption,key):
+        """Publish exactly one verified return with a normal common producer."""
+        from app.domain.review_rounds.returns import ReviewReturnService,add_provenance
+        service=ReviewReturnService(self.assets)
+        project=base['project_id'];identity=base['manuscript_id']
+        db.execute('SELECT id FROM manuscripts WHERE id=%s FOR UPDATE',(identity,)).fetchone()
+        root=self.root(db,project,identity)
+        if root['current_revision']!=adoption['expected_current_revision']:
+            raise StorageError('manuscript_revision_conflict','稿件已有新版本，请刷新。',409)
+        fixed=service.return_row(db,project,record['id'],lock=True)
+        if fixed['output_version_id'] or service.validate_return(db,fixed,current=True)!=base:
+            raise source_conflict()
+        expected,_,issues,preview=service.preview_data(db,fixed,adoption['mappings'])
+        expected=add_provenance(expected,fixed,adoption,preview)
+        if expected!=candidate or preview!=adoption['preview_sha256'] or any(i['severity']=='error' for i in issues):
+            raise source_conflict()
+        revision=root['current_revision']+1;version_id=str(uuid4());timestamp=now()
+        body=dict(base['request_json'],expected_revision=revision-1)
+        producer=self.task(db,project,'manuscript_draft',dict(project_id=project,manuscript_id=identity,manuscript_version_id=version_id,revision=revision,output_language=candidate['output_language'],workflow_version=WORKFLOW,snapshot_sha256=digest(candidate)),'manuscript:'+version_id)
+        fields=dict(id=version_id,project_id=project,user_id=self.store.user_id,idempotency_key='review-return:'+record['id'],request_json=Jsonb(body),request_digest=digest(body),manuscript_id=identity,revision=revision,parent_version_id=base['id'],task_id=producer['id'],snapshot_json=Jsonb(candidate),snapshot_sha256=digest(candidate),created_at=timestamp,school_confirmation_id=base.get('school_confirmation_id'))
+        db.execute('INSERT INTO manuscript_versions('+','.join(fields)+') VALUES ('+','.join(['%s']*len(fields))+')',tuple(fields.values()))
+        for table in ('manuscript_sources','manuscript_citations'):
+            for original in db.execute('SELECT * FROM '+table+' WHERE version_id=%s',(base['id'],)).fetchall():
+                values=dict(original);values.update(id=str(uuid4()),version_id=version_id)
+                values={k:Jsonb(v) if isinstance(v,(dict,list)) else v for k,v in values.items()}
+                db.execute('INSERT INTO '+table+'('+','.join(values)+') VALUES ('+','.join(['%s']*len(values))+')',tuple(values.values()))
+        db.execute('UPDATE manuscripts SET current_revision=%s,title=%s,updated_at=%s WHERE id=%s',(revision,candidate['title'],timestamp,identity))
+        return dict(manuscript_id=identity,version_id=version_id,revision=revision,parent_version_id=base['id'],task_id=producer['id'])
+
     def version_view(self,db,row):
         self.validate_version(db,row)
         task=self.store.require_task(db,row['task_id'])
@@ -273,7 +339,24 @@ class ManuscriptService:
             ids=db.execute('SELECT id FROM manuscripts WHERE project_id=%s AND user_id=%s ORDER BY updated_at DESC,id',(project,self.store.user_id)).fetchall()
         return dict(items=[self.get(project,r['id']) for r in ids])
 
-    def verify_task(self,db,task,*,current=False):
+    def review_superseded_analyses(self,db,row,candidate=None):
+        """Receipt-backed history may retain an explicitly superseded setup."""
+        from app.domain.review_rounds.science import ScienceService
+        snapshot=candidate if candidate is not None else row['snapshot_json']
+        sources={s['id']:s for s in snapshot['sources']};allowed=set()
+        science=ScienceService(self.assets)
+        for provenance in snapshot.get('review_analysis_provenance',[]):
+            adoption=science.science_row(db,row['project_id'],provenance['adoption_id'],'review_analysis_adoptions')
+            science.validate_adoption(db,adoption)
+            frozen=adoption['snapshot_json'];source=frozen['source']
+            parent=db.execute('SELECT manuscript_id FROM manuscript_versions WHERE id=%s AND project_id=%s AND user_id=%s',(adoption['manuscript_version_id'],row['project_id'],row['user_id'])).fetchone()
+            if (not parent or parent['manuscript_id']!=row['manuscript_id'] or sources.get(source['id'])!=source
+                or provenance['source_id']!=source['id'] or provenance['source_sha256']!=source['sha256']
+                or provenance['supersedes_source_ids']!=frozen['supersedes_source_ids']):raise source_conflict()
+            allowed.update(frozen['supersedes_source_ids'])
+        return allowed
+
+    def verify_task(self,db,task,*,current=False,_review_candidate=None):
         snap=task['input_snapshot']
         if task['task_type'] not in ('manuscript_draft','manuscript_docx') or task['workflow_version']!=WORKFLOW or digest(snap)!=task['input_digest'] or snap['project_id']!=task['project_id']: raise source_conflict()
         row=self.version(db,task['project_id'],snap['manuscript_id'],snap['revision'])
@@ -286,10 +369,17 @@ class ManuscriptService:
             published=db.execute("SELECT status FROM tasks WHERE id=%s",(row['task_id'],)).fetchone()
             if published['status']!='succeeded': raise StorageError('task_revision_conflict','事实稿尚未发布。',409)
         if current:
+            if task['task_type']=='manuscript_draft' and row['snapshot_json'].get('user_return_provenance'):
+                from app.domain.review_rounds.returns import validate_user_return_version
+                validate_user_return_version(self,db,row,current=True,_review_candidate=_review_candidate)
             if task['task_type']=='manuscript_draft' and row['snapshot_json'].get('school_change_provenance'):
                 from .school_changes import validate_school_change_version
                 validate_school_change_version(self,db,row,current=True)
-            if task['task_type']=='manuscript_draft' and not row['snapshot_json'].get('school_change_provenance') and row['snapshot_json'].get('thesis_context') and self.source_changes(row['project_id'],row['snapshot_json']): raise source_conflict()
+            if task['task_type']=='manuscript_draft' and not row['snapshot_json'].get('school_change_provenance') and row['snapshot_json'].get('thesis_context'):
+                changed=self.source_changes(row['project_id'],row['snapshot_json'])
+                if changed:
+                    superseded=self.review_superseded_analyses(db,row,_review_candidate)
+                    if any(c['kind']!='analysis_run' or c['id'] not in superseded or set(c['reasons'])!={'analysis_configuration_changed'} for c in changed):raise source_conflict()
             if task['task_type']=='manuscript_draft' and row['snapshot_json'].get('review_provenance'):
                 from app.domain.manuscript_review.service import ReviewService
                 reviews=ReviewService(self.assets)

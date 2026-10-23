@@ -24,7 +24,14 @@ class PdfExportService:
 
     def source(self,db,project,kind,identity):
         self.store.require_project(db,project)
-        if kind=='layout_export':
+        if kind=='review_document_export':
+            from app.domain.review_rounds.document_exports import ReviewDocumentExportService
+            svc=ReviewDocumentExportService(self.assets)
+            row=svc.row(db,project,identity)
+            metadata,raw=svc.download(project,identity)
+            doc=svc.documents.row(db,project,row['document_id'])
+            version=dict(id=doc['id'],revision=doc['version'],kind=doc['kind'],language=doc['language'],document_sha256=doc['snapshot_sha256'])
+        elif kind=='layout_export':
             from app.domain.layout_exports.service import LayoutExportService
             svc=LayoutExportService(self.assets)
             row=svc.row(db,project,identity)
@@ -70,7 +77,7 @@ class PdfExportService:
             or task['task_type']!='pdf_export' or task['workflow_version']!=WORKFLOW or task['project_id']!=row['project_id']
             or task['user_id']!=row['user_id'] or snap.get('project_id')!=row['project_id'] or snap.get('source_kind')!=row['source_kind']
             or snap.get('workflow_version')!=WORKFLOW or snap.get('source_id')!=row['source_id'] or snap.get('source_sha256')!=row['source_sha256'] or snap.get('renderer_identity')!=row['renderer_identity']): raise source_conflict()
-        column={'report':'report_id','collection_report':'collection_report_id','manuscript_export':'manuscript_export_id','layout_export':'layout_export_id'}[row['source_kind']]
+        column={'report':'report_id','collection_report':'collection_report_id','manuscript_export':'manuscript_export_id','layout_export':'layout_export_id','review_document_export':'review_document_export_id'}[row['source_kind']]
         if row[column]!=row['source_id']: raise source_conflict()
         request=dict(source_kind=row['source_kind'],source_id=row['source_id'],parent_export_id=row['parent_export_id'])
         if digest(request)!=row['request_digest']: raise source_conflict()
@@ -118,7 +125,7 @@ class PdfExportService:
             task=dict(id=str(uuid4()),project_id=project,user_id=self.store.user_id,task_type='pdf_export',idempotency_key='pdf:'+export_id,input_snapshot=dict(export_id=export_id,**snapshot),workflow_version=WORKFLOW,status='queued',phase='export',revision=1,current_attempt=0,reason_code=None,created_at=timestamp,updated_at=timestamp)
             task['input_digest']=digest(task['input_snapshot'])
             self.store.insert_task(db,task);self.store.append_event(db,task,'created');self.store.enqueue(db,task)
-            column={'report':'report_id','collection_report':'collection_report_id','manuscript_export':'manuscript_export_id','layout_export':'layout_export_id'}[request.source_kind]
+            column={'report':'report_id','collection_report':'collection_report_id','manuscript_export':'manuscript_export_id','layout_export':'layout_export_id','review_document_export':'review_document_export_id'}[request.source_kind]
             fields=dict(id=export_id,project_id=project,user_id=self.store.user_id,source_kind=request.source_kind,source_id=request.source_id,task_id=task['id'],parent_export_id=parent,request_key=request.request_key,request_digest=hashed,input_json=Jsonb(snapshot),input_sha256=digest(snapshot),source_sha256=source_hash,renderer_identity=Jsonb(identity),created_at=timestamp)
             fields[column]=request.source_id
             db.execute('INSERT INTO pdf_exports('+','.join(fields)+') VALUES ('+','.join(['%s']*len(fields))+')',tuple(fields.values()))

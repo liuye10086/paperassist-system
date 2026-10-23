@@ -27,6 +27,8 @@ class WritingCheckContext:
         saved=self.paragraphs.get(paragraph['id'])
         if not saved or paragraph!=saved['paragraph'] or not self.exact_sources(paragraph.get('source_ids',[]),sources):
             raise ValueError('Paragraph differs from reconstructed scientific artifact')
+        if saved.get('review_revision'):
+            return paragraph['text'],deepcopy(paragraph.get('numeric_bindings',[])),[]
         projected=[];literature=[]
         signed=saved.get('numeric_version',1)==2
         from app.domain.manuscript_writing.numeric_review import value as numeric_value,checker_text
@@ -52,8 +54,14 @@ class WritingCheckContext:
 
 def load_writing_context(manuscripts,db,project,identity,snapshot,*,check_version=2):
     """Load owner-scoped authoritative artifacts, including retained rewrite prose."""
-    if snapshot.get('writing_provenance',{}).get('schema_version')!=2: return None
     if type(check_version) is not int or check_version not in (1,2):raise source_conflict()
+    if snapshot.get('user_return_provenance'):
+        from app.domain.review_rounds.returns import user_return_writing_context
+        return user_return_writing_context(manuscripts,db,project,identity,snapshot,check_version=check_version)
+    if snapshot.get('review_revision_provenance'):
+        from app.domain.review_rounds.revisions import revision_writing_context
+        return revision_writing_context(manuscripts,db,project,identity,snapshot,check_version=check_version)
+    if snapshot.get('writing_provenance',{}).get('schema_version')!=2: return None
     from app.domain.manuscript_writing.live_review import LiveReviewService
     from app.domain.manuscript_writing.language_service import LanguageReviewService
     from app.domain.manuscript_writing.authorization import LiveWritingService

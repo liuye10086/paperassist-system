@@ -35,7 +35,7 @@ def package_hints(raw):
 def normalize(text):return re.sub(r'\s+','',text)
 
 
-def extract(raw,filename,base,baseline_raw=None,*,document=None):
+def extract(raw,filename,base,baseline_raw=None,*,document=None,known_headings_only=False):
     document=document or parse_docx(raw,filename,DOCX_SETTINGS).document.model_dump()
     hints,protected,semantics,toc=package_hints(raw)
     original={};bookmark_sections={};by_title={}
@@ -62,7 +62,7 @@ def extract(raw,filename,base,baseline_raw=None,*,document=None):
         if block['kind']=='paragraph':return dict(text=block['text'],images=block['image_ids'],semantic=semantic_map.get(block['source']['path'],dict(references=[],fields=[])))
         return dict(rows=block['rows'],columns=block['columns'],cells=[dict(row=c['row'],column=c['column'],row_span=c['row_span'],column_span=c['column_span'],blocks=[visual(b,semantic_map) for b in c['blocks']]) for c in block['cells']])
     def is_heading(block,marks):
-        return block['kind']=='paragraph' and not any(m in original for m in marks) and bool(block.get('heading_level') or normalize(block['text']) in by_title or block.get('style_id') in ('SchoolChineseAbstract','SchoolEnglishAbstract','SchoolReferences','SchoolAcknowledgements'))
+        return block['kind']=='paragraph' and not any(m in original for m in marks) and bool(normalize(block['text']) in by_title or not known_headings_only and (block.get('heading_level') or block.get('style_id') in ('SchoolChineseAbstract','SchoolEnglishAbstract','SchoolReferences','SchoolAcknowledgements')))
     def chapter_scopes(doc,marks):
         # Chapter content/bookmark anchors survive inserted ordinary paragraphs.
         # No matching across chapter boundaries and no absolute XML row numbers.
@@ -111,7 +111,9 @@ def extract(raw,filename,base,baseline_raw=None,*,document=None):
             ignored.append(dict(path=path,original_path=old['source']['path'],text=text));continue
         if not text.strip() and not marks:continue
         candidates=by_title.get(normalize(text),[])
-        heading=bool(block.get('heading_level') or candidates or block.get('style_id') in ('SchoolChineseAbstract','SchoolEnglishAbstract','SchoolReferences','SchoolAcknowledgements')) and not marks
+        heading=is_heading(block,marks)
+        if known_headings_only and block.get('heading_level') and not heading and not marks:
+            problems.append(issue('unsupported_heading','回传含未匹配的额外标题；保留原件并须明确核对章节结构。',block['id']))
         if heading:
             current=dict(id=block['id'],title=text,paragraphs=[],paragraph_items=[],candidate_chapter_ids=candidates,match_method='title' if len(candidates)==1 else 'ambiguous' if candidates else 'none',suggested_chapter_id=candidates[0] if len(candidates)==1 else None)
             sections.append(current);continue

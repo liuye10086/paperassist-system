@@ -10,7 +10,7 @@ type Instance = { id: string; key: number }
 type Request = { controller: AbortController; timeout: number }
 
 export default function useProjectSelection(onUnavailable: (id: string) => void, onAvailable: (id: string) => void) {
-  const [section, setSection] = useState<ProjectSection>(() => new URLSearchParams(window.location.hash.slice(1)).get('section') === 'tasks' ? 'tasks' : new URLSearchParams(window.location.hash.slice(1)).get('section')==='literature'?'literature':new URLSearchParams(window.location.hash.slice(1)).get('section')==='manuscripts'?'manuscripts':new URLSearchParams(window.location.hash.slice(1)).get('section')==='school-templates'?'school-templates':new URLSearchParams(window.location.hash.slice(1)).get('section')==='journals'?'journals':'overview')
+  const [section, setSection] = useState<ProjectSection>(() => new URLSearchParams(window.location.hash.slice(1)).get('section') === 'reviews' ? 'reviews' : new URLSearchParams(window.location.hash.slice(1)).get('section') === 'tasks' ? 'tasks' : new URLSearchParams(window.location.hash.slice(1)).get('section')==='literature'?'literature':new URLSearchParams(window.location.hash.slice(1)).get('section')==='manuscripts'?'manuscripts':new URLSearchParams(window.location.hash.slice(1)).get('section')==='school-templates'?'school-templates':new URLSearchParams(window.location.hash.slice(1)).get('section')==='journals'?'journals':'overview')
   const [taskId, setTaskId] = useState(() => {
     const params = new URLSearchParams(window.location.hash.slice(1))
     const id = params.get('task') ?? ''
@@ -18,6 +18,8 @@ export default function useProjectSelection(onUnavailable: (id: string) => void,
   })
   const [literatureSearchId,setLiteratureSearchId]=useState(()=>{const params=new URLSearchParams(window.location.hash.slice(1));const id=params.get('search')??'';return params.get('section')==='literature'&&/^[A-Za-z0-9_-]{1,64}$/.test(id)?id:''})
   const [adaptationId,setAdaptationId]=useState(()=>{const p=new URLSearchParams(window.location.hash.slice(1)),id=p.get('adaptation')??'';return p.get('section')==='journals'&&/^[A-Za-z0-9_-]{1,64}$/.test(id)?id:''})
+  const [reviewLink,setReviewLink]=useState(()=>readReviewLink())
+  const [manuscriptLink,setManuscriptLink]=useState(()=>readManuscriptLink())
   const nextKey = useRef(1)
   const [instance, setInstance] = useState<Instance | null>(() => {
     const id = new URLSearchParams(window.location.hash.slice(1)).get('project')
@@ -56,7 +58,7 @@ export default function useProjectSelection(onUnavailable: (id: string) => void,
       setFailure(null)
       setLoading(false)
       setUnavailableId(instance.id)
-      setTaskId('');setLiteratureSearchId('');setAdaptationId('')
+      setTaskId('');setLiteratureSearchId('');setAdaptationId('');setManuscriptLink({id:'',revision:0});setReviewLink({round:'',manuscript:'',revision:0,run:'',document:''})
       setSection('overview')
       callbacks.current.onUnavailable(instance.id)
     })
@@ -65,13 +67,15 @@ export default function useProjectSelection(onUnavailable: (id: string) => void,
 
   useLayoutEffect(() => {
     window.history.replaceState(null, '', window.location.pathname + window.location.search
-      + (instance ? `#project=${encodeURIComponent(instance.id)}${section === 'tasks' ? `&section=tasks${taskId ? `&task=${encodeURIComponent(taskId)}` : ''}` : section==='literature'?`&section=literature${literatureSearchId?`&search=${encodeURIComponent(literatureSearchId)}`:''}`:section==='manuscripts'?'&section=manuscripts':section==='school-templates'?'&section=school-templates':section==='journals'?`&section=journals${adaptationId?`&adaptation=${encodeURIComponent(adaptationId)}`:''}`:''}` : ''))
-  }, [instance, section, taskId, literatureSearchId, adaptationId])
+      + (instance ? `#project=${encodeURIComponent(instance.id)}${section==='reviews'?`&section=reviews${reviewLink.round?`&round=${encodeURIComponent(reviewLink.round)}${reviewLink.run?`&reviewRun=${encodeURIComponent(reviewLink.run)}`:''}${reviewLink.document?`&reviewDocument=${encodeURIComponent(reviewLink.document)}`:''}`:reviewLink.manuscript?`&reviewManuscript=${encodeURIComponent(reviewLink.manuscript)}&reviewRevision=${reviewLink.revision}`:''}`:section === 'tasks' ? `&section=tasks${taskId ? `&task=${encodeURIComponent(taskId)}` : ''}` : section==='literature'?`&section=literature${literatureSearchId?`&search=${encodeURIComponent(literatureSearchId)}`:''}`:section==='manuscripts'?`&section=manuscripts${manuscriptLink.id?`&manuscript=${encodeURIComponent(manuscriptLink.id)}&revision=${manuscriptLink.revision}`:''}`:section==='school-templates'?'&section=school-templates':section==='journals'?`&section=journals${adaptationId?`&adaptation=${encodeURIComponent(adaptationId)}`:''}`:''}` : ''))
+  }, [instance, section, taskId, literatureSearchId, adaptationId, reviewLink, manuscriptLink])
 
   useEffect(() => {
     const openTaskLink = () => {
       const params = new URLSearchParams(window.location.hash.slice(1))
       if(instance&&current.current===instance&&params.get('project')===instance.id&&params.get('section')==='journals'&&params.getAll('project').length===1&&params.getAll('section').length===1&&params.getAll('adaptation').length<=1&&[...params.keys()].every(k=>['project','section','adaptation'].includes(k))&&(!params.has('adaptation')||/^[A-Za-z0-9_-]{1,64}$/.test(params.get('adaptation')??''))){setSection('journals');setAdaptationId(params.get('adaptation')??'');return}
+      if(instance&&current.current===instance&&params.get('project')===instance.id&&params.get('section')==='reviews'&&validReviewLink(params)){setSection('reviews');setReviewLink(readReviewLink());return}
+      if(instance&&current.current===instance&&params.get('project')===instance.id&&params.get('section')==='manuscripts'&&validManuscriptLink(params)){setSection('manuscripts');setManuscriptLink(readManuscriptLink());return}
       const id = params.get('task')
       if (!instance || current.current !== instance || params.get('project') !== instance.id
         || params.get('section') !== 'tasks' || !isTaskId(id) || !id.startsWith('legacy-') && !/^[A-Za-z0-9_-]{1,64}$/.test(id)
@@ -129,7 +133,7 @@ export default function useProjectSelection(onUnavailable: (id: string) => void,
   function open(id: string, seed?: Project) {
     setUnavailableId('')
     if (instance?.id === id && current.current === instance) { refresh(); return }
-    setTaskId('');setLiteratureSearchId('');setAdaptationId('')
+    setTaskId('');setLiteratureSearchId('');setAdaptationId('');setManuscriptLink({id:'',revision:0});setReviewLink({round:'',manuscript:'',revision:0,run:'',document:''})
     setSection('overview')
     cancel()
     const next = { id, key: ++nextKey.current }
@@ -154,7 +158,7 @@ export default function useProjectSelection(onUnavailable: (id: string) => void,
     setFailure(null)
     setUnavailableId('')
     setLoading(false)
-    setTaskId('');setLiteratureSearchId('');setAdaptationId('')
+    setTaskId('');setLiteratureSearchId('');setAdaptationId('');setManuscriptLink({id:'',revision:0});setReviewLink({round:'',manuscript:'',revision:0,run:'',document:''})
     setSection('overview')
   }
 
@@ -170,5 +174,11 @@ export default function useProjectSelection(onUnavailable: (id: string) => void,
 
   return { instance, project: detail?.instance === instance ? detail.project : null,
     error: failure?.instance === instance ? failure.message : '', loading, unavailableId, open, refresh, update, close,
-    section, taskId, literatureSearchId, selectLiterature:(id:string)=>{if(id&&!/^[A-Za-z0-9_-]{1,64}$/.test(id))return;setSection('literature');setLiteratureSearchId(id)}, changeSection, selectTask }
+    section, taskId, literatureSearchId, reviewLink, manuscriptLink, selectRound:(id:string)=>{if(id&&!/^[A-Za-z0-9_-]{1,64}$/.test(id))return;setSection('reviews');setReviewLink({round:id,manuscript:'',revision:0,run:'',document:''})}, selectLiterature:(id:string)=>{if(id&&!/^[A-Za-z0-9_-]{1,64}$/.test(id))return;setSection('literature');setLiteratureSearchId(id)}, changeSection, selectTask }
 }
+
+function validReviewLink(p:URLSearchParams){const ids=['round','reviewManuscript','reviewRun','reviewDocument'];return p.getAll('project').length===1&&p.getAll('section').length===1&&[...p.keys()].every(k=>['project','section',...ids,'reviewRevision'].includes(k))&&[...ids,'reviewRevision'].every(k=>p.getAll(k).length<=1)&&ids.every(k=>!p.has(k)||/^[A-Za-z0-9_-]{1,64}$/.test(p.get(k)??''))&&(!p.has('round')||!p.has('reviewManuscript')&&!p.has('reviewRevision'))&&(!p.has('reviewRun')||p.has('round'))&&(!p.has('reviewDocument')||p.has('reviewRun'))&&(!p.has('reviewManuscript')&&!p.has('reviewRevision')||p.has('reviewManuscript')&&/^[1-9][0-9]*$/.test(p.get('reviewRevision')??''))}
+function readReviewLink(){const p=new URLSearchParams(window.location.hash.slice(1));return p.get('section')==='reviews'&&validReviewLink(p)?{round:p.get('round')??'',manuscript:p.get('reviewManuscript')??'',revision:Number(p.get('reviewRevision')??0),run:p.get('reviewRun')??'',document:p.get('reviewDocument')??''}:{round:'',manuscript:'',revision:0,run:'',document:''}}
+
+function validManuscriptLink(p:URLSearchParams){return p.getAll('project').length===1&&p.getAll('section').length===1&&p.getAll('manuscript').length===1&&p.getAll('revision').length===1&&[...p.keys()].every(k=>['project','section','manuscript','revision'].includes(k))&&/^[A-Za-z0-9_-]{1,64}$/.test(p.get('manuscript')??'')&&/^[1-9][0-9]*$/.test(p.get('revision')??'')&&Number.isSafeInteger(Number(p.get('revision')))}
+function readManuscriptLink(){const p=new URLSearchParams(window.location.hash.slice(1));return p.get('section')==='manuscripts'&&validManuscriptLink(p)?{id:p.get('manuscript')!,revision:Number(p.get('revision'))}:{id:'',revision:0}}

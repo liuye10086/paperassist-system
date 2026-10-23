@@ -3,12 +3,13 @@ import { useI18n } from '../../shared/i18n'
 import './workspace.css'
 
 export type WorkspaceView = 'home' | 'projects' | 'project'
-export type ProjectSection = 'overview' | 'files' | 'analysis' | 'artifacts' | 'tasks' | 'literature' | 'manuscripts' | 'school-templates' | 'journals'
+export type ProjectSection = 'overview' | 'files' | 'analysis' | 'artifacts' | 'tasks' | 'literature' | 'manuscripts' | 'school-templates' | 'journals' | 'reviews'
 const projectSections: { value: ProjectSection; label: string; icon: 'home' | 'folder' | 'chart' | 'files' }[] = [
   { value: 'overview', label: '项目概览', icon: 'home' }, { value: 'files', label: '项目文件', icon: 'folder' },
   { value: 'analysis', label: '数据分析', icon: 'chart' }, { value: 'artifacts', label: '图表与报告', icon: 'files' },
   { value: 'literature', label: '文献', icon: 'files' },
   { value: 'manuscripts', label: 'SCI 写作', icon: 'files' },
+  { value: 'reviews', label: '意见修改', icon: 'files' },
   { value: 'journals', label: '期刊建议', icon: 'files' },
   { value: 'school-templates', label: '学校模板', icon: 'files' },
   { value: 'tasks', label: '项目任务', icon: 'files' },

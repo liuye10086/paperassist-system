@@ -105,7 +105,7 @@ class GuideService(JournalService):
 
     def target_row(self,db,project,identity):
         row=self.row(db,project,identity,'journal_targets');snap=row['snapshot_json']
-        recommendation=super().row(db,project,row['recommendation_id']);self.view(db,recommendation)
+        recommendation=super().row(db,project,row['recommendation_id']);JournalService.view(self,db,recommendation)
         if snap['guide']!=self.row(db,project,row['guide_id'])['snapshot_json'] or snap['recommendation_id']!=row['recommendation_id'] or snap['profile_id']!=row['profile_id']:raise source_conflict()
         for guide in snap.get('additional_guides',[]):
             if self.row(db,project,guide['id'])['snapshot_json']!=guide:raise source_conflict()
@@ -116,7 +116,7 @@ class GuideService(JournalService):
         with self.store.connection(write=True) as db:
             self.project(db,project,True);old=self.replay(db,'journal_targets',project,key,body)
             if old:return self.target_row(db,project,old['id'])['snapshot_json'],200
-            recommendation=super().row(db,project,request.recommendation_id);view=self.view(db,recommendation)
+            recommendation=super().row(db,project,request.recommendation_id);view=JournalService.view(self,db,recommendation)
             if view['task']['status']!='succeeded' or not view['result']:raise invalid('只能从已完成的固定建议批次确认目标。')
             candidates=view['result']['candidates']+view['result']['pending_verification']
             candidate=next((c for c in candidates if c['profile']['id']==request.profile_id),None)

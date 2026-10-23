@@ -9,6 +9,9 @@ from app.domain.tasks.execution import run_task
 @pytest.fixture(autouse=True)
 def fake_renderer(monkeypatch):
     monkeypatch.setattr('app.domain.pdf_exports.service.renderer_identity',lambda: {'contract':'test-v1'})
+    # Other local workers import the execution module before this fixture runs.
+    # Patch its imported binding too so test order cannot select a real identity.
+    monkeypatch.setattr('app.domain.pdf_exports.execution.renderer_identity',lambda: {'contract':'test-v1'})
 
 def successful_docx(client):
     path,_,_=setup(client)

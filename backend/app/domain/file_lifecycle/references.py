@@ -163,7 +163,7 @@ def public_source_groups(groups, indexes, tasks, file, user_id, producers, proof
             key = (kind, row['id'] if 'id' in row else row['file_id'])
             rows[key] = row
             refs = set()
-            if kind in ('manuscript_figure_language_versions','school_template_versions','manuscript_school_changes','journal_material_refs'):
+            if kind in ('manuscript_figure_language_versions','school_template_versions','manuscript_school_changes','journal_material_refs','review_round_refs'):
                 if row.get('_integrity_valid') and row['project_id']==file['project_id'] and row['user_id']==user_id:
                     safe.add(key)
                 dependencies[key]=set()
@@ -336,6 +336,8 @@ def read_references(db, file, user_id):
         except Exception:change['_integrity_valid']=False
     from app.domain.journals.retention import read_refs
     groups['journal_material_refs']=read_refs(db,file,user_id)
+    from app.domain.review_rounds.retention import read_refs as read_review_refs
+    groups['review_round_refs']=read_review_refs(db,file,user_id)
     school_tasks={v['task_id']:v for v in groups['school_template_versions']}
     indexes = {kind: {row['id']: row for row in rows if 'id' in row} for kind, rows in groups.items()}
     output_tasks = {row['task_id'] for rows in groups.values() for row in rows if row.get('task_id')}
@@ -354,7 +356,23 @@ def read_references(db, file, user_id):
     for row in project_tasks:
         task = dict(row)
         snapshot = task['input_snapshot']
-        if task['task_type'] in ('journal_recommendation','journal_format_check','journal_adaptation'):
+        from app.domain.file_lifecycle.manuscript_task_sources import TYPES, task_material
+        manuscript_valid = None
+        if task['task_type'] in TYPES:
+            try:
+                material = task_material(db, task, user_id, project_id)
+                manuscript_valid = True
+            except Exception:
+                material = snapshot
+                manuscript_valid = False
+            if manuscript_valid:
+                if file_id not in file_ids(material) and task['id'] not in output_tasks:
+                    continue
+                scoped = dict(materials=[n for n in nodes(material) if n.get('file_id') == file_id
+                                        or isinstance(n.get('file'), dict) and n['file'].get('id') == file_id])
+            else:
+                scoped = scoped_snapshot(snapshot, file_id, proofs)
+        elif task['task_type'] in ('journal_recommendation','journal_format_check','journal_adaptation'):
             if file_id not in file_ids(snapshot):continue
             scoped=dict(materials=[n for n in nodes(snapshot) if n.get('file_id')==file_id])
         elif task['task_type']=='school_template_parse':
@@ -363,7 +381,7 @@ def read_references(db, file, user_id):
             scoped=dict(file=version['source_json']['file'])
         else:scoped=scoped_snapshot(snapshot,file_id,proofs)
         refs = set(frozen_references(scoped))
-        ids = file_ids(scoped if task['task_type']=='school_template_parse' else snapshot)
+        ids = file_ids(material if manuscript_valid else scoped if task['task_type']=='school_template_parse' else snapshot)
         scoped_ids=file_ids(scoped)
         linked = (file_id in ids or task['id'] in output_tasks
                   or any(identifier in indexes[kind] for kind, identifier in refs)
@@ -382,6 +400,7 @@ def read_references(db, file, user_id):
         valid = valid and bool(ids or refs or task['id'] in output_tasks)
         valid = valid and source_identity_valid(scoped,indexes,file,producers)
         valid = valid and task_contract_valid(task)
+        if manuscript_valid is not None:valid = valid and manuscript_valid
         if task['task_type']=='school_template_parse':valid = valid and school_tasks[task['id']]['_integrity_valid']
         if task['task_type'] in ('journal_recommendation','journal_format_check','journal_adaptation'):
             try:
@@ -442,6 +461,7 @@ def read_references(db, file, user_id):
     by_task = {t['id']: t for t in tasks}
     reasons = []
     if groups['journal_material_refs']:reasons.append('journal_history_retained')
+    if groups['review_round_refs']:reasons.append('review_history_retained')
     if groups['school_template_versions']:reasons.append('school_template_history_retained')
     if groups['manuscript_school_changes']:reasons.append('school_change_history_retained')
     if counts['active_tasks']:

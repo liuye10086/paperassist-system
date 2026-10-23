@@ -7,7 +7,7 @@ from app.domain.pdf_exports.contracts import PdfCreateRequest,PdfRetryRequest
 from app.domain.pdf_exports.service import PdfExportService
 router=APIRouter(prefix='/api/v1/projects/{project_id}/pdf-exports',tags=['PDF导出'])
 @router.get('')
-def listing(project_id:str,store:Store,source_kind:Literal['report','collection_report','manuscript_export','layout_export']|None=None,source_id:str|None=None): return PdfExportService(store).list(project_id,source_kind,source_id)
+def listing(project_id:str,store:Store,source_kind:Literal['report','collection_report','manuscript_export','layout_export','review_document_export']|None=None,source_id:str|None=None): return PdfExportService(store).list(project_id,source_kind,source_id)
 @router.post('',status_code=201)
 def create(project_id:str,request:PdfCreateRequest,response:Response,store:Store):
     result,response.status_code=PdfExportService(store).create(project_id,request)

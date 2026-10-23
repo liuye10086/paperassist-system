@@ -126,11 +126,11 @@ function ChangePanel({projectId,manuscriptId,version,currentRevision,active,onAd
 
 export function SchoolVersionOrigin({version,versions}:{version:ManuscriptVersion;versions:ManuscriptVersion[]}){
  const {t}=useI18n();const provenance=version.snapshot.school_change_provenance
- const label=provenance?.kind==='template_migration'?'模板迁移':provenance?.kind==='docx_return'?'用户回传':version.snapshot.review_provenance?'检查修改':version.snapshot.writing_provenance?'写作发布':'系统生成'
+ const label=version.snapshot.user_return_provenance?'用户回传':provenance?.kind==='template_migration'?'模板迁移':provenance?.kind==='docx_return'?'用户回传':version.snapshot.review_provenance?'检查修改':version.snapshot.writing_provenance?'写作发布':'系统生成'
  const parent=versions.find(v=>v.id===version.parent_version_id)
  return <small>{t(label)}{parent&&` · ${t('父版本 {revision}',{revision:parent.revision})}`}</small>
 }
-export function SchoolOpinionHandoff({version}:{version:ManuscriptVersion}){
+export function SchoolOpinionHandoff({version,projectId,manuscriptId}:{version:ManuscriptVersion;projectId?:string;manuscriptId?:string}){
  const {t}=useI18n()
- return <aside className="manuscript-panel"><h4>{t('后续意见修改')}</h4><p>{t('已选固定版本 {revision}；意见修改功能稍后开放，不会自动切换到最新稿。',{revision:version.revision})}</p><button type="button" disabled>{t('以此版本处理意见（尚未开放）')}</button></aside>
+ return <aside className="manuscript-panel"><h4>{t('意见修改')}</h4><p>{t('已选固定版本 {revision}；创建意见轮次后不会自动切换到最新稿。',{revision:version.revision})}</p>{version.status==='published'&&projectId&&manuscriptId?<a href={`#project=${encodeURIComponent(projectId)}&section=reviews&reviewManuscript=${encodeURIComponent(manuscriptId)}&reviewRevision=${version.revision}`}>{t('以此版本处理意见')}</a>:<p>{t('请先选择已发布的固定稿件版本。')}</p>}</aside>
 }

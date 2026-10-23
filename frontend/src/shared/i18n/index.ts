@@ -1,3 +1,6 @@
+import {reviewContinuationMessages} from './reviewContinuationMessages'
+import {reviewRevisionMessages} from './reviewRevisionMessages'
+import {reviewRoundMessages} from './reviewRoundMessages'
 import {journalMessages} from './journalMessages'
 import {schoolChangeMessages} from './schoolChangeMessages'
 import {schoolExportMessages} from './schoolExportMessages'
@@ -28,7 +31,7 @@ import { fileLifecycleMessages } from './fileLifecycleMessages'
 import { useSyncExternalStore } from 'react'
 import { rootMessages } from './rootMessages'
 import { workflowMessages as originalWorkflowMessages } from './workflowMessages'
-const workflowMessages = { ...journalMessages, ...schoolChangeMessages, ...schoolExportMessages, ...thesisManuscriptMessages, ...schoolTemplateMessages, ...writingLiveMessages, ...layoutExportMessages, ...manuscriptReviewMessages, ...pdfExportMessages, ...manuscriptMessages, ...literatureBatch06Messages, ...literatureCheckMessages, ...literatureCitationMessages, ...literatureEvidenceMessages, ...literatureMessages, ...batch10StatisticsMessages, ...batch10SourceMessages, ...batch10ObservationMessages, ...batch09Messages, ...figureWorkbenchMessages, ...originalWorkflowMessages, ...documentMessages, ...ocrReviewMessages, ...evidenceMessages, ...fileLifecycleMessages, ...comparisonMessages, ...modelingMessages, ...qualityMessages }
+const workflowMessages = { ...reviewContinuationMessages, ...reviewRevisionMessages, ...reviewRoundMessages, ...journalMessages, ...schoolChangeMessages, ...schoolExportMessages, ...thesisManuscriptMessages, ...schoolTemplateMessages, ...writingLiveMessages, ...layoutExportMessages, ...manuscriptReviewMessages, ...pdfExportMessages, ...manuscriptMessages, ...literatureBatch06Messages, ...literatureCheckMessages, ...literatureCitationMessages, ...literatureEvidenceMessages, ...literatureMessages, ...batch10StatisticsMessages, ...batch10SourceMessages, ...batch10ObservationMessages, ...batch09Messages, ...figureWorkbenchMessages, ...originalWorkflowMessages, ...documentMessages, ...ocrReviewMessages, ...evidenceMessages, ...fileLifecycleMessages, ...comparisonMessages, ...modelingMessages, ...qualityMessages }
 import { errorMessages } from './errorMessages'
 
 export type Locale = 'zh-CN' | 'en'

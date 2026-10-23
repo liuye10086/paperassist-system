@@ -1,0 +1,20 @@
+import {isTask,type TaskView} from '../tasks/taskTypes'
+const object=(v:unknown):v is Record<string,unknown>=>!!v&&typeof v==='object'&&!Array.isArray(v)
+export type AnalysisFact={id:string;source_id:string;path:string;value:string;source_sha256:string}
+export type AnalysisImpact={section_id:string;locations:{kind:string;id:string}[];status:string;reason:string}
+export type AnalysisAdoption={id:string;round_id:string;item_id:string;plan_revision:number;input_snapshot:Record<string,unknown>;source:{id:string;kind:'analysis_run';label:string;sha256:string;content:unknown};impact:AnalysisImpact[];pending:string[];created_at:string}
+export type ScienceTaskLink={id:string;round_id:string;item_id:string;plan_revision:number;input_snapshot:Record<string,unknown>;task:TaskView;result:{result_analysis_run_id:string|null;result_figure_id:string|null;result_report_id:string|null;execution_receipt:unknown;available:boolean};created_at:string}
+export type ScienceView={round_id:string;plan_revision:number;task_links:ScienceTaskLink[];analysis_adoptions:AnalysisAdoption[];pending:string[]}
+export type AnalysisSetupChoice={file_id:string;revision:number;status:string;analysis_plan:{plan_id:string}|null;check:{ready:boolean}}
+export type ScienceFile={id:string;filename:string;file_type:string;parse_status:string}
+export type ScienceFiles={items:ScienceFile[];total:number;page:number;page_size:number}
+const text=(v:unknown):v is string=>typeof v==='string'
+const id=(v:unknown):v is string=>text(v)&&!!v
+const positive=(v:unknown)=>Number.isSafeInteger(v)&&Number(v)>0
+export function validFact(v:unknown):v is AnalysisFact{return object(v)&&id(v.id)&&id(v.source_id)&&text(v.path)&&text(v.value)&&text(v.source_sha256)&&/^[a-f0-9]{64}$/.test(v.source_sha256)}
+export function validImpact(v:unknown):v is AnalysisImpact{return object(v)&&text(v.section_id)&&text(v.status)&&text(v.reason)&&Array.isArray(v.locations)&&v.locations.every(l=>object(l)&&id(l.id)&&['section','paragraph','figure','table'].includes(String(l.kind)))}
+export function validAnalysisAdoption(v:unknown,roundId:string):v is AnalysisAdoption{return object(v)&&id(v.id)&&v.round_id===roundId&&id(v.item_id)&&positive(v.plan_revision)&&object(v.input_snapshot)&&object(v.source)&&id(v.source.id)&&v.source.kind==='analysis_run'&&text(v.source.label)&&text(v.source.sha256)&&/^[a-f0-9]{64}$/.test(v.source.sha256)&&Object.hasOwn(v.source,'content')&&Array.isArray(v.impact)&&v.impact.every(validImpact)&&Array.isArray(v.pending)&&v.pending.every(text)&&text(v.created_at)}
+export function validScienceLink(v:unknown,projectId:string,roundId:string):v is ScienceTaskLink{return object(v)&&id(v.id)&&v.round_id===roundId&&id(v.item_id)&&positive(v.plan_revision)&&object(v.input_snapshot)&&isTask(v.task,projectId)&&object(v.result)&&typeof v.result.available==='boolean'&&['result_analysis_run_id','result_figure_id','result_report_id'].every(k=>v.result&&object(v.result)&&(v.result[k]===null||id(v.result[k])))&&Object.hasOwn(v.result,'execution_receipt')&&text(v.created_at)}
+export function validScience(v:unknown,projectId:string,roundId:string):v is ScienceView{return object(v)&&v.round_id===roundId&&positive(v.plan_revision)&&Array.isArray(v.task_links)&&v.task_links.every(l=>validScienceLink(l,projectId,roundId))&&Array.isArray(v.analysis_adoptions)&&v.analysis_adoptions.every(a=>validAnalysisAdoption(a,roundId))&&Array.isArray(v.pending)&&v.pending.every(text)}
+export function validScienceFiles(v:unknown,page:number):v is ScienceFiles{return object(v)&&v.page===page&&positive(v.page_size)&&Number.isSafeInteger(v.total)&&Number(v.total)>=0&&Array.isArray(v.items)&&v.items.every(f=>object(f)&&id(f.id)&&text(f.filename)&&text(f.file_type)&&text(f.parse_status))}
+export function validSetupChoice(v:unknown,fileId:string):v is AnalysisSetupChoice|null{return v===null||object(v)&&v.file_id===fileId&&positive(v.revision)&&text(v.status)&&object(v.check)&&typeof v.check.ready==='boolean'&&(v.analysis_plan===undefined||v.analysis_plan===null||object(v.analysis_plan)&&id(v.analysis_plan.plan_id))}

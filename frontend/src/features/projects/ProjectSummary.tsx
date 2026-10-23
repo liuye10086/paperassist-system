@@ -1,3 +1,5 @@
+import ReviewResultsSummary from '../reviews/ReviewResultsSummary'
+import {reviewHash,reviewItemLabel} from '../reviews/reviewTypes'
 import {submissionStatuses} from '../journals/adaptationContracts'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { apiFetch, onApiSessionChanged } from '../../shared/api/client'
@@ -137,7 +139,8 @@ function Summary({ projectId, projectType, view = 'all', active = true, onOpenMa
       {projectType==='thesis'&&onOpenManuscripts&&<section className="summary-upcoming" aria-label={t('毕业论文稿件与版本')}><strong>{t('毕业论文稿件与版本')}</strong>{data.future.writing.state==='available'&&<><p>{data.future.writing.current_manuscript?.title??t('尚无事实稿。')}</p><p>{t('已保存版本 {number}',{number:data.future.writing.versions.length})}</p></>}<button type="button" onClick={onOpenManuscripts}>{t('打开毕业论文写作')}</button></section>}
       {projectType==='sci'&&onOpenManuscripts&&<div className="summary-upcoming"><strong>{t('SCI 事实稿与版本')}</strong><p>{t('查看稿件资料、版本和 DOCX 导出。')}</p><button type="button" onClick={onOpenManuscripts}>{t('打开 SCI 写作')}</button></div>}
       {projectType==='sci'&&onOpenJournals&&<div className="summary-upcoming"><strong>{t('期刊建议')}</strong><p>{t('依据研究信息与本地来源创建独立建议批次，保留历史。')}</p><button type="button" onClick={onOpenJournals}>{t('打开期刊建议')}</button></div>}
-      <aside className="summary-upcoming" aria-label={t('后续研究工作')}><span>{t(data.future.writing.state==='available'?'修改与后续研究':'写作与修改')}</span><span aria-hidden="true">·</span>
+      {data.future.revision.state==='available'&&<section className="summary-upcoming" aria-label={t('意见轮次与待补材料')}><h4>{t('意见轮次与待补材料')}</h4>{data.future.revision.current_round?<><p>{t('第 {number} 轮',{number:data.future.revision.current_round.round_number})} · {data.future.revision.current_round.title} · {t('固定版本 {number}',{number:data.future.revision.current_round.manuscript.revision})}</p><a href={reviewHash(projectId,data.future.revision.current_round.id)}>{t('查看本轮意见')}</a><p>{t('计划保存不代表意见处理完成或投稿进展。')}</p><ReviewResultsSummary projectId={projectId} summary={data.future.revision}/>{data.future.revision.opinions.map(i=><p key={i.id}>{reviewItemLabel(i.number,i.source_label,t)} · {t({pending:'待处理',waiting_confirmation:'待确认',waiting_material:'待补材料',not_adopted:'已记录不采纳',executing:'执行中',completed:'有实际修改'}[i.status])}</p>)}{data.future.revision.pending_materials.flatMap(m=>m.needs.map((n,i)=><p key={m.item_id+':'+i}>{n.description}</p>))}</>:<><p>{t('尚无意见轮次。')}</p><a href={`#project=${encodeURIComponent(projectId)}&section=reviews`}>{t('新建意见轮次')}</a></>}</section>}
+      <aside className="summary-upcoming" aria-label={t('后续研究工作')}><span>{t(data.future.revision.state==='available'?'后续改稿与回复':data.future.writing.state==='available'?'修改与后续研究':'写作与修改')}</span><span aria-hidden="true">·</span>
         {data.future.sci && <span>{t('期刊目标适配与投稿进展')}</span>}{data.future.thesis && <span>{t('学校与毕业论文评审')}</span>}
         <span className="summary-unavailable">{t('功能未开放')}</span></aside>
       </div>

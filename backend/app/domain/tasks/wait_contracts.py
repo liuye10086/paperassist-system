@@ -1,3 +1,6 @@
+from app.domain.review_rounds.document_contracts import ReviewDocumentInputVersion
+from app.domain.review_rounds.revision_contracts import RevisionInputVersion
+from app.domain.review_rounds.contracts import ReviewInputVersion
 """Safe waiting projections and explicit, versioned recovery input."""
 from app.domain.journals.contracts import JournalInputVersion
 from app.domain.journals.format_contracts import FormatInputVersion
@@ -22,10 +25,10 @@ class StrictInputVersion(InputVersion):
 
 class WaitView(BaseModel):
     id: str
-    kind: Literal['literature_model_authorization', 'literature_configuration', 'remote_observation', 'budget_confirmation', 'submission_unknown', 'unsupported_input', 'unsupported_confirmation', 'dataset_preparation_confirmation', 'ocr_review_confirmation', 'analysis_plan_confirmation', 'analysis_plan_input', 'figure_projection_confirmation', 'remote_observation']
+    kind: Literal['review_round_confirmation','review_round_input','literature_model_authorization', 'literature_configuration', 'remote_observation', 'budget_confirmation', 'submission_unknown', 'unsupported_input', 'unsupported_confirmation', 'dataset_preparation_confirmation', 'ocr_review_confirmation', 'analysis_plan_confirmation', 'analysis_plan_input', 'figure_projection_confirmation', 'remote_observation']
     status: Literal['open', 'resolved', 'superseded']
     task_revision: int
-    input_version: AdaptationInputVersion | FormatInputVersion | JournalInputVersion | SchoolTemplateInputVersion | WritingInputVersion | ManuscriptInputVersion | AssistanceInputVersion | LiteratureInputVersion | StatisticsInputVersion | CollectionInputVersion | RecommendationInputVersion | AnalysisPlanInputVersion | OcrReviewInputVersion | PreparationInputVersion | DatasetAnalysisInputVersion | InputVersion
+    input_version: ReviewDocumentInputVersion | RevisionInputVersion | ReviewInputVersion | AdaptationInputVersion | FormatInputVersion | JournalInputVersion | SchoolTemplateInputVersion | WritingInputVersion | ManuscriptInputVersion | AssistanceInputVersion | LiteratureInputVersion | StatisticsInputVersion | CollectionInputVersion | RecommendationInputVersion | AnalysisPlanInputVersion | OcrReviewInputVersion | PreparationInputVersion | DatasetAnalysisInputVersion | InputVersion
     reason_code: str | None
     error_code: str | None
     created_at: UTCDateTime
@@ -37,7 +40,7 @@ class ResumeRequest(BaseModel):
     operation: Literal['resume', 'retry']
     wait_id: str | None = Field(min_length=1, max_length=64, pattern=r'^\S+$')
     expected_task_revision: int = Field(strict=True, ge=1, lt=2_147_483_647)
-    input_version: AdaptationInputVersion | FormatInputVersion | JournalInputVersion | SchoolTemplateInputVersion | WritingInputVersion | ManuscriptInputVersion | AssistanceInputVersion | LiteratureInputVersion | StatisticsInputVersion | CollectionInputVersion | RecommendationInputVersion | AnalysisPlanInputVersion | OcrReviewInputVersion | PreparationInputVersion | DatasetAnalysisInputVersion | StrictInputVersion | ParseInputVersion | StructureInputVersion
+    input_version: ReviewDocumentInputVersion | RevisionInputVersion | ReviewInputVersion | AdaptationInputVersion | FormatInputVersion | JournalInputVersion | SchoolTemplateInputVersion | WritingInputVersion | ManuscriptInputVersion | AssistanceInputVersion | LiteratureInputVersion | StatisticsInputVersion | CollectionInputVersion | RecommendationInputVersion | AnalysisPlanInputVersion | OcrReviewInputVersion | PreparationInputVersion | DatasetAnalysisInputVersion | StrictInputVersion | ParseInputVersion | StructureInputVersion
 
     @model_validator(mode='after')
     def wait_matches_operation(self):

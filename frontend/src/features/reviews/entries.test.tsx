@@ -1,0 +1,10 @@
+import {cleanup,render,screen} from '@testing-library/react'
+import {afterEach,expect,it,vi} from 'vitest'
+import TaskPendingAction from '../tasks/TaskPendingAction'
+import {SchoolOpinionHandoff} from '../manuscripts/SchoolChanges'
+import {workspaceFixture,taskFixture} from '../tasks/taskFixtures'
+import ProjectTasks from '../tasks/ProjectTasks'
+afterEach(()=>{cleanup();vi.unstubAllGlobals()})
+it('shows fixed revision inputs in the task list without inventing an analysis configuration',async()=>{const task={...taskFixture,task_type:'review_revision',phase:'verify',input_version:{kind:'review_revision',revision_id:'run1',round_id:'round1',base_version_id:'v1',workflow_version:'review_revision_v1'}};vi.stubGlobal('fetch',vi.fn(async()=>Response.json({project_id:'p1',page:1,page_size:10,total:1,items:[{task,source:{file_id:null,filename:'固定旧稿',analysis_run_id:null,is_current:true}}]})));render(<ProjectTasks projectId="p1" active selectedTaskId="" onSelectTask={vi.fn()}/>);expect(await screen.findByText('固定的意见计划、父稿与具体修改')).toBeTruthy();expect(screen.queryByText('分析配置 v0')).toBeNull()})
+it('links common review waits back to their exact round and explains only local resume',()=>{const input={kind:'review_round_plan',round_id:'round1',base_version_id:'v1',workflow_version:'review_round_plan_v1'};render(<TaskPendingAction workspace={{...workspaceFixture,task:{...taskFixture,task_type:'review_round_plan',phase:'verify',input_version:input},wait:{...workspaceFixture.wait,kind:'review_round_confirmation',input_version:input}} as never} blocked={false} onChanged={vi.fn()}/>);expect(screen.getByRole('link',{name:'返回本轮意见计划'}).getAttribute('href')).toBe('#project=p1&section=reviews&round=round1');expect(screen.getByText('仅继续本地意见计划核查；不会调用模型、改稿或完成意见。')).toBeTruthy()})
+it('offers a published fixed manuscript as a review starting point',()=>{render(<SchoolOpinionHandoff projectId="p1" manuscriptId="m1" version={{revision:1,status:'published'} as never}/>);expect(screen.getByRole('link',{name:'以此版本处理意见'}).getAttribute('href')).toBe('#project=p1&section=reviews&reviewManuscript=m1&reviewRevision=1')})

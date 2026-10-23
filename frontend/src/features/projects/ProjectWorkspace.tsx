@@ -1,3 +1,4 @@
+import ReviewsWorkspace from '../reviews/ReviewsWorkspace'
 import JournalWorkspace from '../journals/JournalWorkspace'
 import SchoolTemplates from '../school-templates/SchoolTemplates'
 import ProjectManuscripts from '../manuscripts/ProjectManuscripts'
@@ -262,7 +263,7 @@ export default function ProjectWorkspace() {
         <div hidden={section !== 'overview'}>
           <div className="project-overview-heading"><h2>{t('项目概览')}</h2><span className="muted">{t('最近更新 {date}', { date: new Date(project.updated_at).toLocaleDateString(locale) })}</span></div>
           <ProjectDetails project={project} onUpdated={updated} showHeading={false} />
-          <div className="project-shortcuts">
+          <div className="project-shortcuts"><button type="button" onClick={()=>changeSection('reviews')}><WorkspaceIcon name="file"/><span><strong>{t('意见修改')}</strong><small>{t('整理固定版本的意见与计划')}</small></span><WorkspaceIcon name="arrow"/></button>
             <button type="button" onClick={() => changeSection('files')}><WorkspaceIcon name="file" /><span><strong>{t('整理研究资料')}</strong><small>{t('查看文件与上传数据')}</small></span><WorkspaceIcon name="arrow" /></button>
             <button type="button" onClick={() => changeSection('analysis')}><WorkspaceIcon name="folder" /><span><strong>{t('继续数据分析')}</strong><small>{t('配置字段，探索数据与结果')}</small></span><WorkspaceIcon name="arrow" /></button>
           </div>
@@ -273,7 +274,8 @@ export default function ProjectWorkspace() {
         </div>
         {project.project_type === 'thesis' && <SchoolTemplates projectId={project.id} onChanged={()=>setSchoolRevision(value=>value+1)} active={view === 'project' && section === 'school-templates'} />}
         <ProjectModelUsage projectId={project.id} active={view === 'project' && section === 'overview'} />
-        <ProjectManuscripts projectType={project.project_type} projectId={project.id} researchTopic={project.research_topic} outputLanguage={project.default_output_language??'zh-CN'} active={view==='project'&&section==='manuscripts'} onOpenTask={selection.selectTask} onOpenLiterature={()=>selection.selectLiterature('')}/>
+        <ReviewsWorkspace projectId={project.id} projectType={project.project_type} active={view==='project'&&section==='reviews'} roundId={selection.reviewLink.round} initialManuscript={selection.reviewLink.manuscript} initialRevision={selection.reviewLink.revision} initialRun={selection.reviewLink.run} initialDocument={selection.reviewLink.document} onSelectRound={selection.selectRound} onOpenTask={selection.selectTask}/>
+        <ProjectManuscripts initialManuscript={selection.manuscriptLink.id} initialRevision={selection.manuscriptLink.revision} projectType={project.project_type} projectId={project.id} researchTopic={project.research_topic} outputLanguage={project.default_output_language??'zh-CN'} active={view==='project'&&section==='manuscripts'} onOpenTask={selection.selectTask} onOpenLiterature={()=>selection.selectLiterature('')}/>
         {project.project_type === 'sci' && <JournalWorkspace projectId={project.id} active={view==='project'&&section==='journals'} onOpenTask={selection.selectTask}/>}
         <ProjectTasks onOpenJournals={()=>changeSection('journals')} onOpenManuscripts={()=>changeSection('manuscripts')} onOpenFiles={() => changeSection('files')} projectId={project.id} active={view === 'project' && section === 'tasks'}
           selectedTaskId={selection.taskId} onSelectTask={selection.selectTask} onOpenLiterature={selection.selectLiterature} />

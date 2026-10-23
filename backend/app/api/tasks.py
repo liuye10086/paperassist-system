@@ -32,6 +32,22 @@ class RetryRequest(BaseModel):
 def retry_task(task_id: str, request: RetryRequest, store: Store):
     store.require_mutable(task_id)
     task_type = store.get(task_id)['task_type']
+    if task_type=='review_document_export':
+        from app.domain.review_rounds.document_exports import retry_in_transaction
+        with store.connection(write=True) as db:
+            return retry_in_transaction(store,db,store.require_task(db,task_id),request.expected_revision)
+    if task_type=='review_revision':
+        from app.domain.review_rounds.revisions import retry_in_transaction
+        with store.connection(write=True) as db:
+            return retry_in_transaction(store,db,store.require_task(db,task_id),request.expected_revision)
+    if task_type=='review_round_plan':
+        from app.domain.review_rounds.execution import retry_in_transaction
+        with store.connection(write=True) as db:
+            task=store.require_task(db,task_id)
+            if task['status']!='failed':
+                from app.core.exceptions import StorageError
+                raise StorageError('task_transition_invalid','待办须使用共同恢复入口。',409)
+            return retry_in_transaction(store,db,task,request.expected_revision)
     if task_type=='journal_adaptation':
         from app.domain.journals.adaptation_service import retry_in_transaction
         with store.connection(write=True) as db:

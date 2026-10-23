@@ -1,3 +1,6 @@
+from app.domain.review_rounds.document_contracts import ReviewDocumentInputVersion
+from app.domain.review_rounds.revision_contracts import RevisionInputVersion
+from app.domain.review_rounds.contracts import ReviewInputVersion
 """Versioned inputs and safe task projections, independent of queue providers."""
 from app.domain.journals.contracts import JournalInputVersion
 from app.domain.journals.format_contracts import FormatInputVersion
@@ -19,7 +22,7 @@ from app.domain.tasks.errors import ErrorCategory, RetryReason
 from pydantic import AfterValidator, AwareDatetime, BaseModel, ConfigDict, Field, model_validator
 
 
-TaskType = Literal['boxplot', 'explanation', 'word_report', 'parse_file', 'extract_dataset', 'prepare_dataset', 'review_ocr', 'analysis_plan', 'analysis_recommendation', 'figure_projection', 'figure_workbench', 'figure_explanation', 'collection_word_report', 'statistics_compute', 'literature_search', 'literature_assistance', 'manuscript_draft', 'manuscript_docx', 'pdf_export', 'layout_docx', 'manuscript_writing', 'school_template_parse', 'journal_recommendation', 'journal_format_check', 'journal_adaptation']
+TaskType = Literal['boxplot', 'explanation', 'word_report', 'parse_file', 'extract_dataset', 'prepare_dataset', 'review_ocr', 'analysis_plan', 'analysis_recommendation', 'figure_projection', 'figure_workbench', 'figure_explanation', 'collection_word_report', 'statistics_compute', 'literature_search', 'literature_assistance', 'manuscript_draft', 'manuscript_docx', 'pdf_export', 'layout_docx', 'manuscript_writing', 'school_template_parse', 'journal_recommendation', 'journal_format_check', 'journal_adaptation', 'review_round_plan', 'review_revision', 'review_document_export']
 UTCDateTime = Annotated[AwareDatetime, AfterValidator(lambda value: value.astimezone(timezone.utc))]
 TaskStatus = Literal['queued', 'running', 'waiting_input', 'waiting_confirmation', 'succeeded', 'failed']
 TaskPhase = Literal['parse', 'plan', 'compute', 'search', 'interpret', 'write', 'export', 'verify']
@@ -153,7 +156,7 @@ class TaskView(BaseModel):
     reason_code: TaskReason | None
     created_at: UTCDateTime
     updated_at: UTCDateTime | None
-    input_version: AdaptationInputVersion | FormatInputVersion | JournalInputVersion | SchoolTemplateInputVersion | LayoutInputVersion | WritingInputVersion | PdfInputVersion | ManuscriptInputVersion | AssistanceInputVersion | LiteratureInputVersion | StatisticsInputVersion | CollectionInputVersion | RecommendationInputVersion | AnalysisPlanInputVersion | OcrReviewInputVersion | PreparationInputVersion | DatasetAnalysisInputVersion | InputVersion | ParseInputVersion | StructureInputVersion
+    input_version: ReviewDocumentInputVersion | RevisionInputVersion | ReviewInputVersion | AdaptationInputVersion | FormatInputVersion | JournalInputVersion | SchoolTemplateInputVersion | LayoutInputVersion | WritingInputVersion | PdfInputVersion | ManuscriptInputVersion | AssistanceInputVersion | LiteratureInputVersion | StatisticsInputVersion | CollectionInputVersion | RecommendationInputVersion | AnalysisPlanInputVersion | OcrReviewInputVersion | PreparationInputVersion | DatasetAnalysisInputVersion | InputVersion | ParseInputVersion | StructureInputVersion
     result_analysis_run_id: str | None = None
     execution_receipt: dict | None = None
     result_report_id: str | None = None

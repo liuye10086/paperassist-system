@@ -8,6 +8,15 @@ from app.domain.tasks.wait_contracts import WaitView
 
 
 def input_version(task):
+    if task['task_type']=='review_document_export':
+        from app.domain.review_rounds.document_exports import input_version as document_input
+        return document_input(task)
+    if task['task_type']=='review_revision':
+        from app.domain.review_rounds.revisions import input_version as revision_input
+        return revision_input(task)
+    if task['task_type']=='review_round_plan':
+        from app.domain.review_rounds.service import input_version as review_input_version
+        return review_input_version(task)
     if task['task_type']=='journal_adaptation':
         from app.domain.journals.adaptation_service import input_version as adaptation_input_version
         return adaptation_input_version(task)
@@ -134,6 +143,7 @@ def persist_wait(db, task):
         kind = 'analysis_plan_confirmation'
     if task['task_type'] == 'analysis_plan' and task['status'] == 'waiting_input' and task['reason_code'] == 'input_required':
         kind = 'analysis_plan_input'
+    if task['task_type']=='review_round_plan':kind='review_round_input' if task['status']=='waiting_input' else 'review_round_confirmation'
     db.execute('''INSERT INTO task_waits
         (id,task_id,user_id,project_id,kind,status,task_revision,input_version,reason_code,error_code,created_at)
         VALUES (%s,%s,%s,%s,%s,'open',%s,%s,%s,%s,%s)''',
@@ -142,6 +152,14 @@ def persist_wait(db, task):
 
 
 def allowed_recovery_actions(db, task):
+    if task['task_type'] in ('review_revision','review_document_export'):
+        retryable=('storage_unavailable','task_worker_interrupted','report_render_failed') if task['task_type']=='review_document_export' else ('storage_unavailable','task_worker_interrupted')
+        return ['retry'] if task['status']=='failed' and task.get('error_code') in retryable else []
+    if task['task_type']=='review_round_plan':
+        if task['status'] in ('waiting_input','waiting_confirmation'):
+            wait=get_open_wait(db,task)
+            return ['resume'] if wait and wait['task_revision']==task['revision'] else []
+        return ['retry'] if task['status']=='failed' and task.get('error_code') in ('storage_unavailable','task_worker_interrupted') else []
     if task['task_type']=='manuscript_writing' and task.get('reason_code')!='observation_expired':
         from app.domain.manuscript_writing.service import recovery_actions
         return recovery_actions(db,task)

@@ -211,6 +211,14 @@ def audit_database(db):
         checks.extend(audit_journal_formats(db))
         from app.maintenance.journal_adaptation_audit import audit_journal_adaptations
         checks.extend(audit_journal_adaptations(db))
+        from app.maintenance.review_round_audit import audit_review_rounds
+        checks.extend(audit_review_rounds(db))
+        from app.maintenance.review_revision_audit import audit_review_revisions
+        checks.extend(audit_review_revisions(db))
+        from app.maintenance.review_continuation_audit import audit_review_continuations
+        checks.extend(audit_review_continuations(db))
+        from app.maintenance.review_science_audit import audit_review_science
+        checks.extend(audit_review_science(db))
         from app.maintenance.school_change_audit import audit_school_changes
         checks.extend(audit_school_changes(db))
     return {'schema': schema, 'ok': not issues and not any(c['invalid'] for c in checks), 'schema_issues': issues, 'data_checks': checks,

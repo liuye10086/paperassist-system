@@ -1,3 +1,5 @@
+import {validRevision,type Revision} from '../reviews/revisionTypes'
+import {isTask,type TaskView} from '../tasks/taskTypes'
 import {isSubmissionEvent,type SubmissionEvent} from '../journals/adaptationContracts'
 import {validLayoutExport,type LayoutExport} from '../layout-exports/layoutApi'
 export type SummarySource = {
@@ -18,6 +20,8 @@ export type SummaryArtifact = Omit<SummarySource,'analysis_run_id'|'setup_revisi
 }
 export type SummaryPage<T> = { items: T[]; total: number; page: number; page_size: number }
 type Unavailable = { state: 'not_available'; tasks: never[] }
+type CompactRound={id:string;title:string;round_number:number;revision:number;synthetic:boolean;manuscript:{id:string;revision:number;version_id:string;title:string}}
+export type ReviewSummary={actual_revisions?:Revision[];documents?:{id:string;revision_id:string;kind:'comparison'|'reply';version:number;language:'zh-CN'|'en';confirmed_at:string|null}[];state:'available';tasks:TaskView[];current_round:CompactRound|null;rounds:CompactRound[];opinions:{id:string;source_id:string;source_label?:string;number:number;category:string;status:'pending'|'waiting_confirmation'|'waiting_material'|'not_adopted'|'completed'|'executing';uncompleted_reason:string}[];pending_materials:{item_id:string;needs:{kind:string;description:string}[]}[]}
 export type ProjectSummaryData = {
   journal?:{target_id:string;profile_name:string;recommendation_id:string;confirmed_at:string;progress:SubmissionEvent|null}|null
   thesis_profile?:{school:string;department:string;major:string;degree_type:string;education_level:string;applicable_version:string;bound_confirmation_id:string|null;template_name:string|null;template_version_label:string|null}|null
@@ -26,7 +30,7 @@ export type ProjectSummaryData = {
   tasks: SummaryPage<SummaryTask>; artifacts: SummaryPage<SummaryArtifact>
   future: {
     writing: (Unavailable & { current_manuscript: null; versions: never[] }) | {state:'available';current_manuscript:{id:string;title:string;current_revision:number}|null;versions:{id:string;manuscript_id:string;revision:number}[];tasks:never[]}
-    revision: Unavailable & { current_round: null; rounds: never[]; opinions: never[]; pending_materials: never[] }
+    revision: (Unavailable & { current_round: null; rounds: never[]; opinions: never[]; pending_materials: never[] }) | ReviewSummary
     sci: (Unavailable & { target_journal: null; recommendations: never[]; submission_progress: null }) | null
     thesis: (Unavailable & { school: null; degree: null; template: null; review_progress: null }) | null
   }
@@ -78,8 +82,11 @@ export function isProjectSummary(value: unknown, projectId: string, projectType:
       return artifact.download_url === `${base}/${artifact.kind === 'figure' ? 'figures' : 'report'}/${encodeURIComponent(artifact.id)}/download`
     })
     && (unavailable(future.writing, ['versions'], ['current_manuscript']) || record(future.writing)&&future.writing.state==='available'&&Array.isArray(future.writing.tasks)&&future.writing.tasks.length===0&&(future.writing.current_manuscript===null||record(future.writing.current_manuscript)&&['id','title'].every(k=>typeof (future.writing as Record<string,unknown>).current_manuscript==='object'&&typeof ((future.writing as Record<string,unknown>).current_manuscript as Record<string,unknown>)[k]==='string')&&integer(future.writing.current_manuscript.current_revision,1))&&Array.isArray(future.writing.versions)&&future.writing.versions.every(v=>record(v)&&typeof v.id==='string'&&typeof v.manuscript_id==='string'&&integer(v.revision,1)))
-    && unavailable(future.revision, ['rounds', 'opinions', 'pending_materials'], ['current_round'])
+    && (unavailable(future.revision, ['rounds', 'opinions', 'pending_materials'], ['current_round']) || reviewSummary(future.revision,projectId))
     && (projectType === 'sci'
       ? future.thesis === null && unavailable(future.sci, ['recommendations'], ['target_journal', 'submission_progress'])
       : future.sci === null && unavailable(future.thesis, [], ['school', 'degree', 'template', 'review_progress']))
 }
+
+function compactRound(v:unknown):v is CompactRound{return record(v)&&['id','title'].every(k=>typeof v[k]==='string'&&!!v[k])&&integer(v.round_number,1)&&integer(v.revision,1)&&typeof v.synthetic==='boolean'&&record(v.manuscript)&&['id','version_id','title'].every(k=>typeof (v.manuscript as Record<string,unknown>)[k]==='string')&&integer(v.manuscript.revision,1)}
+function reviewSummary(v:unknown,projectId:string):v is ReviewSummary{return record(v)&&v.state==='available'&&Array.isArray(v.tasks)&&v.tasks.every(t=>isTask(t,projectId)&&['review_round_plan','review_revision','review_document_export'].includes(t.task_type))&&(v.actual_revisions===undefined||Array.isArray(v.actual_revisions)&&v.actual_revisions.every(r=>record(r)&&typeof r.round_id==='string'&&validRevision(r,projectId,r.round_id)))&&(v.documents===undefined||Array.isArray(v.documents)&&v.documents.every(d=>record(d)&&typeof d.id==='string'&&typeof d.revision_id==='string'&&['comparison','reply'].includes(String(d.kind))&&['zh-CN','en'].includes(String(d.language))&&integer(d.version,1)&&(d.confirmed_at===null||typeof d.confirmed_at==='string')))&&(v.current_round===null||compactRound(v.current_round))&&Array.isArray(v.rounds)&&v.rounds.length<=20&&v.rounds.every(compactRound)&&Array.isArray(v.opinions)&&v.opinions.every(i=>record(i)&&['id','source_id','category','uncompleted_reason'].every(k=>typeof i[k]==='string')&&integer(i.number,1)&&(['pending','waiting_confirmation','waiting_material','not_adopted','executing'].includes(String(i.status))||i.status==='completed'&&Array.isArray(v.actual_revisions)&&v.actual_revisions.some(r=>record(r)&&r.output_status==='published'&&record(r.result)&&Array.isArray(r.result.actual_changes)&&r.result.actual_changes.some(c=>record(c)&&c.item_id===i.id))))&&Array.isArray(v.pending_materials)&&v.pending_materials.every(m=>record(m)&&typeof m.item_id==='string'&&Array.isArray(m.needs)&&m.needs.every(n=>record(n)&&['material','analysis','experiment','literature'].includes(String(n.kind))&&typeof n.description==='string'))}

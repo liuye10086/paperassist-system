@@ -69,11 +69,15 @@ class WritingSummary(BaseModel):
     versions: list[dict] = Field(default_factory=list)
 
 
-class RevisionSummary(UnavailableModule):
-    current_round: None = None
-    rounds: EmptyHistory = Field(default_factory=list)
-    opinions: EmptyHistory = Field(default_factory=list)
-    pending_materials: EmptyHistory = Field(default_factory=list)
+class RevisionSummary(BaseModel):
+    state: Literal['available','not_available'] = 'available'
+    tasks: list[dict] = Field(default_factory=list)
+    current_round: dict | None = None
+    rounds: list[dict] = Field(default_factory=list)
+    opinions: list[dict] = Field(default_factory=list)
+    pending_materials: list[dict] = Field(default_factory=list)
+    actual_revisions: list[dict] = Field(default_factory=list)
+    documents: list[dict] = Field(default_factory=list)
 
 
 class SciSummary(UnavailableModule):
@@ -235,6 +239,16 @@ def read_project_summary(store, project_id, *, task_page=1, artifact_page=1, pag
         if project['project_type']=='sci':
             from app.domain.journals.submissions import SubmissionService
             journal=SubmissionService(scoped_store(project['owner_id'],store.db_config,store.directory)).summary(db,project_id)
+        from app.domain.review_rounds.service import ReviewRoundService
+        review_service=ReviewRoundService(scoped_store(project['owner_id'],store.db_config,store.directory))
+        review_rows=db.execute('SELECT * FROM review_rounds WHERE project_id=%s AND user_id=%s ORDER BY round_number DESC LIMIT 20',(project_id,project['owner_id'])).fetchall()
+        review_views=[review_service.view(db,review_service.round_row(db,project_id,r['id'])) for r in review_rows]
+        current=review_views[0] if review_views else None
+        compact=lambda r:{k:r[k] for k in ('id','title','round_number','revision','synthetic','manuscript')}
+        revision=RevisionSummary(tasks=[r['task'] for r in review_views],rounds=[compact(r) for r in review_views],current_round=compact(current) if current else None,opinions=[dict({k:i[k] for k in ('id','source_id','number','category','status','uncompleted_reason')},source_label=next(s['label'] for s in current['sources'] if s['id']==i['source_id'])) for i in current['items']] if current else [],pending_materials=[dict(item_id=i['id'],needs=i['needs']) for i in current['items'] if i['status']=='waiting_material'] if current else [])
+        revision.actual_revisions=current.get('actual_revisions',[]) if current else []
+        revision.documents=current.get('documents',[]) if current else []
+        revision.tasks.extend(r['task'] for r in revision.actual_revisions)
         writing=WritingSummary()
         if project['project_type'] in ('sci','thesis'):
             latest=db.execute('SELECT id,title,current_revision FROM manuscripts WHERE project_id=%s ORDER BY updated_at DESC,id LIMIT 1',(project_id,)).fetchone()
@@ -257,5 +271,5 @@ def read_project_summary(store, project_id, *, task_page=1, artifact_page=1, pag
                                     else f'{path}/report/{resource_id}/download')
     kind = project['project_type']
     return ProjectSummary(project_id=project_id, project_type=kind, tasks=tasks, artifacts=artifacts,layout_exports=layouts,thesis_profile=thesis_profile,journal=journal,
-                          future=FutureSummary(writing=writing,sci=SciSummary() if kind == 'sci' else None,
+                          future=FutureSummary(writing=writing,revision=revision,sci=SciSummary() if kind == 'sci' else None,
                                                thesis=ThesisSummary() if kind == 'thesis' else None))

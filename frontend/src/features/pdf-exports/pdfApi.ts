@@ -1,6 +1,6 @@
 import {onApiSessionChanged} from '../../shared/api/client'
 import {taskRequest} from '../tasks/taskApi'
-export type PdfSourceKind='report'|'collection_report'|'manuscript_export'|'layout_export'
+export type PdfSourceKind='report'|'collection_report'|'manuscript_export'|'layout_export'|'review_document_export'
 export type PdfScope={projectId:string;sourceKind:PdfSourceKind;sourceId:string;sourceSha256?:string}
 export type PdfExport={id:string;project_id:string;source_kind:PdfSourceKind;source_id:string;source_sha256:string;status:'queued'|'running'|'succeeded'|'failed';task_id:string;created_at:string;filename:string|null;error_code:string|null;parent_export_id:string|null;renderer_manifest:Record<string,unknown>|null;sha256:string|null;size_bytes:number|null;download_url:string|null}
 const object=(v:unknown):v is Record<string,unknown>=>!!v&&typeof v==='object'&&!Array.isArray(v)
