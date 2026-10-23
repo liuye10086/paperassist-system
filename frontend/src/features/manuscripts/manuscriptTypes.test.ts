@@ -8,6 +8,7 @@ it('rejects cross-project snapshots and download URLs',()=>{
  expect(validSnapshot(snapshotFixture,'p2')).toBe(false)
  expect(validCandidates({...candidatesFixture,items:[{...candidatesFixture.items[0],download_url:'/api/v1/projects/p2/files/f/download'}]},'p1')).toBe(false)
  expect(validManuscript({...manuscriptFixture,versions:[{...manuscriptFixture.versions[0],exports:[{...manuscriptFixture.versions[0].exports[0],download_url:'https://example.com/private'}]}]},'p1')).toBe(false)
+ expect(validManuscript({...manuscriptFixture,versions:[{...manuscriptFixture.versions[0],exports:[{...manuscriptFixture.versions[0].exports[0],version_id:'another-version'}]}]},'p1')).toBe(false)
 })
 it('accepts optional illustration fields and image observations while preserving historical drafts',()=>{
  const observation={...snapshotFixture.methods[0],origin:'image_observation',cross_references:[{kind:'figure',target_id:'image1',number:1,panel_label:'A'}]}

@@ -104,6 +104,7 @@ class ProjectSummary(BaseModel):
     future: FutureSummary
     layout_exports: list[dict] = Field(default_factory=list)
     thesis_profile: dict | None = None
+    journal: dict | None = None
 
 
 RUNS = '''WITH runs AS (
@@ -230,6 +231,10 @@ def read_project_summary(store, project_id, *, task_page=1, artifact_page=1, pag
             thesis_profile=service.profile_view(db,project_id)
             bound=db.execute('SELECT v.name,v.version_label FROM school_template_confirmations c JOIN school_template_versions v ON v.id=c.template_version_id WHERE c.id=%s AND c.project_id=%s AND c.user_id=%s',(thesis_profile['bound_confirmation_id'],project_id,project['owner_id'])).fetchone()
             thesis_profile.update(template_name=bound['name'] if bound else None,template_version_label=bound['version_label'] if bound else None)
+        journal=None
+        if project['project_type']=='sci':
+            from app.domain.journals.submissions import SubmissionService
+            journal=SubmissionService(scoped_store(project['owner_id'],store.db_config,store.directory)).summary(db,project_id)
         writing=WritingSummary()
         if project['project_type'] in ('sci','thesis'):
             latest=db.execute('SELECT id,title,current_revision FROM manuscripts WHERE project_id=%s ORDER BY updated_at DESC,id LIMIT 1',(project_id,)).fetchone()
@@ -251,6 +256,6 @@ def read_project_summary(store, project_id, *, task_page=1, artifact_page=1, pag
                                     f'{path}/figures/{resource_id}/download' if artifact['kind'] == 'figure'
                                     else f'{path}/report/{resource_id}/download')
     kind = project['project_type']
-    return ProjectSummary(project_id=project_id, project_type=kind, tasks=tasks, artifacts=artifacts,layout_exports=layouts,thesis_profile=thesis_profile,
+    return ProjectSummary(project_id=project_id, project_type=kind, tasks=tasks, artifacts=artifacts,layout_exports=layouts,thesis_profile=thesis_profile,journal=journal,
                           future=FutureSummary(writing=writing,sci=SciSummary() if kind == 'sci' else None,
                                                thesis=ThesisSummary() if kind == 'thesis' else None))

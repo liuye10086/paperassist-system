@@ -13,6 +13,22 @@ class TaskWorkspaceService:
 
     def source(self, db, task):
         snapshot = task['input_snapshot']
+        if task['task_type']=='journal_adaptation':
+            from app.domain.journals.adaptation_service import AdaptationService
+            from app.domain.report_collections.service import scoped_store
+            service=AdaptationService(scoped_store(task['user_id'],self.store.config))
+            row=service.adaptation_row(db,task['project_id'],snapshot['id'])
+            return dict(file_id=None,filename='期刊显示适配',analysis_run_id=None,is_current=True)
+        if task['task_type']=='journal_format_check':
+            from app.domain.journals.format_service import FormatService
+            from app.domain.report_collections.service import scoped_store
+            service=FormatService(scoped_store(task['user_id'],self.store.config))
+            row=service.check_row(db,task['project_id'],snapshot['id'])
+            return dict(file_id=None,filename=row['snapshot_json']['manuscript']['snapshot']['title'],analysis_run_id=None,is_current=True)
+        if task['task_type']=='journal_recommendation':
+            from app.domain.journals.service import input_version
+            input_version(task)
+            return dict(file_id=None,filename=snapshot['research']['title'],analysis_run_id=None,is_current=True)
         if task['task_type']=='school_template_parse':
             from app.domain.school_templates.service import SchoolTemplateService
             from app.domain.report_collections.service import scoped_store
@@ -167,7 +183,7 @@ class TaskWorkspaceService:
         if (type(page) is not int or not 1 <= page <= 1_000_000
                 or type(page_size) is not int or not 1 <= page_size <= 50
                 or status not in (None, 'queued', 'running', 'waiting_input', 'waiting_confirmation', 'succeeded', 'failed')
-                or task_type not in (None, 'boxplot', 'explanation', 'word_report', 'parse_file', 'extract_dataset', 'prepare_dataset', 'review_ocr', 'analysis_plan', 'analysis_recommendation', 'figure_projection', 'figure_workbench', 'figure_explanation', 'collection_word_report', 'statistics_compute', 'literature_search', 'literature_assistance', 'manuscript_draft', 'manuscript_docx', 'pdf_export', 'layout_docx', 'manuscript_writing', 'school_template_parse')):
+                or task_type not in (None, 'boxplot', 'explanation', 'word_report', 'parse_file', 'extract_dataset', 'prepare_dataset', 'review_ocr', 'analysis_plan', 'analysis_recommendation', 'figure_projection', 'figure_workbench', 'figure_explanation', 'collection_word_report', 'statistics_compute', 'literature_search', 'literature_assistance', 'manuscript_draft', 'manuscript_docx', 'pdf_export', 'layout_docx', 'manuscript_writing', 'school_template_parse', 'journal_recommendation', 'journal_format_check', 'journal_adaptation')):
             raise StorageError('task_input_invalid', '任务列表查询参数无效。', 422)
         from app.adapters.legacy_task_query import mixed_task_page, require_legacy_task
         from app.domain.tasks.legacy import public_legacy_task, legacy_source
@@ -233,7 +249,7 @@ class TaskWorkspaceService:
 
     def artifacts(self, db, task):
         result = {'figure': None, 'explanation': None, 'report': None}
-        if task['task_type']=='school_template_parse': return result
+        if task['task_type'] in ('school_template_parse','journal_recommendation', 'journal_format_check', 'journal_adaptation'): return result
         if task['task_type']=='manuscript_writing':
             from app.domain.manuscript_writing.service import require_snapshot
             require_snapshot(task)

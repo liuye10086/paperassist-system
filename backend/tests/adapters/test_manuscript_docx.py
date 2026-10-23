@@ -42,6 +42,30 @@ def sample(language='en'):
 
 
 @pytest.mark.parametrize('language', ['zh-CN', 'en'])
+def test_synthetic_journal_adaptation_notice_is_export_only(language):
+    from app.adapters.manuscript_docx import build_manuscript_docx
+    snapshot, images = sample(language)
+    snapshot['title'] = 'Measured cohort' if language == 'en' else '实测队列'
+    original = deepcopy(snapshot)
+    notice = ('Synthetic journal adaptation: synthetic guide or manuscript inputs were used. '
+              'This export is offline engineering evidence, not verified real journal compliance.'
+              if language == 'en' else
+              '合成期刊适配：使用了合成指南或稿件输入。本导出仅为离线工程证据，不代表真实期刊要求已核验通过。')
+    ordinary = Document(BytesIO(build_manuscript_docx(snapshot, images)))
+    assert notice not in [p.text for p in ordinary.paragraphs]
+    snapshot['journal_adaptation_provenance'] = {'synthetic': True}
+    adapted = deepcopy(snapshot)
+    document = Document(BytesIO(build_manuscript_docx(snapshot, images)))
+    assert document.paragraphs[2].text == notice
+    assert document.paragraphs[2].runs[0].bold
+    assert snapshot == adapted
+    assert snapshot['notice'] == original['notice']
+    snapshot['journal_adaptation_provenance']['synthetic'] = False
+    regular = Document(BytesIO(build_manuscript_docx(snapshot, images)))
+    assert notice not in [p.text for p in regular.paragraphs]
+
+
+@pytest.mark.parametrize('language', ['zh-CN', 'en'])
 def test_fact_draft_docx_contains_editable_content_exact_images_and_pending_issues(language):
     from app.adapters.manuscript_docx import build_manuscript_docx
     snapshot, images = sample(language)
@@ -63,6 +87,27 @@ def test_fact_draft_docx_contains_editable_content_exact_images_and_pending_issu
         assert media == [images['figure-1']]
         assert b'bookmarkStart' in archive.read('word/document.xml')
     assert snapshot == original
+
+
+def test_journal_heading_style_changes_heading_one_and_preserves_paper_title():
+    from app.adapters.manuscript_docx import build_manuscript_docx
+    from app.domain.journals.display import plan
+    snapshot, images = sample()
+    rule=dict(id='heading',source_id='guide',key='heading_font_size_pt',value=16,status='known',quote='Heading font size: 16 pt',location='line:1')
+    from app.domain.manuscript_writing.contracts import SECTION_IDS
+    preview=plan(snapshot|{'sections':[{'id':sid} for sid in SECTION_IDS]},dict(selected_requirements=[rule],conflicts=[]),[])
+    snapshot['journal_display_context']=preview['display_context']
+    document=Document(BytesIO(build_manuscript_docx(snapshot,images)))
+    assert document.styles['Title'].font.size.pt==18
+    assert document.styles['Heading 1'].font.size.pt==16
+    ordinary,_=sample()
+    default=Document(BytesIO(build_manuscript_docx(ordinary,images)))
+    for name in ('Heading 2','Heading 3'):
+        assert document.styles[name].font.size==default.styles[name].font.size
+    title=next(s for s in preview['sections'] if s['section_id']=='title')
+    assert title['before']['styles']==title['after']['styles']=={}
+    assert not title['changed']
+    assert all(s['after']['styles']=={'heading_font_size_pt':16} for s in preview['sections'] if s['section_id']!='title')
 
 
 @pytest.mark.parametrize('change', ['missing', 'tampered'])

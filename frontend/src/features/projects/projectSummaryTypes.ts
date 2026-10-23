@@ -1,3 +1,4 @@
+import {isSubmissionEvent,type SubmissionEvent} from '../journals/adaptationContracts'
 import {validLayoutExport,type LayoutExport} from '../layout-exports/layoutApi'
 export type SummarySource = {
   id: string; file_id: string; filename: string; analysis_run_id: string
@@ -18,6 +19,7 @@ export type SummaryArtifact = Omit<SummarySource,'analysis_run_id'|'setup_revisi
 export type SummaryPage<T> = { items: T[]; total: number; page: number; page_size: number }
 type Unavailable = { state: 'not_available'; tasks: never[] }
 export type ProjectSummaryData = {
+  journal?:{target_id:string;profile_name:string;recommendation_id:string;confirmed_at:string;progress:SubmissionEvent|null}|null
   thesis_profile?:{school:string;department:string;major:string;degree_type:string;education_level:string;applicable_version:string;bound_confirmation_id:string|null;template_name:string|null;template_version_label:string|null}|null
   layout_exports?:LayoutExport[]
   project_id: string; project_type: 'sci' | 'thesis'
@@ -57,6 +59,7 @@ export function isProjectSummary(value: unknown, projectId: string, projectType:
   taskPage: number, artifactPage: number): value is ProjectSummaryData {
   if (!record(value) || value.project_id !== projectId || value.project_type !== projectType || !record(value.future)) return false
   if(value.layout_exports!==undefined&&(!Array.isArray(value.layout_exports)||value.layout_exports.length>20||!value.layout_exports.every(x=>record(x)&&validLayoutExport(x,{projectId,sourceKind:x.source_kind as LayoutExport['source_kind'],sourceId:String(x.source_id)}))||new Set(value.layout_exports.map(x=>x.id)).size!==value.layout_exports.length))return false
+  if(value.journal!=null){const j=value.journal;if(projectType!=='sci'||!record(j)||!['target_id','profile_name','recommendation_id','confirmed_at'].every(k=>typeof j[k]==='string'&&!!j[k])||j.progress!==null&&(!isSubmissionEvent(j.progress,projectId)||j.progress.target_id!==j.target_id))return false}
   const future = value.future
   return page(value.tasks, taskPage, task => source(task) && record(task)
     && ['statistics', 'boxplot', 'explanation', 'report'].includes(String(task.kind))

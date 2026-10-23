@@ -159,8 +159,12 @@ def _references(document, snapshot, en, *, required=False):
 
 def _full_body(document, snapshot, sections, images, en):
     bookmark_number = 0
-    for section, labels in zip(sections[1:], SECTION_LABELS[1:]):
-        document.add_heading(labels[1 if en else 2], 1)
+    if snapshot.get('journal_display_context'):
+        from app.domain.journals.display import display_sections
+        projected=display_sections(snapshot)[1:]
+    else:projected=[dict(section,display_name=labels[1 if en else 2]) for section,labels in zip(sections[1:],SECTION_LABELS[1:])]
+    for section in projected:
+        document.add_heading(section['display_name'], 1)
         if section['id'] == 'references':
             _references(document, snapshot, en, required=True)
             continue
@@ -210,9 +214,26 @@ def build_manuscript_docx(snapshot, images, *, school_plan=None):
         from .school_docx import build_school_docx
         return build_school_docx(snapshot,images,school_plan)
     document = _document()
+    if snapshot.get('journal_display_context'):
+        from app.domain.journals.display import context
+        styles=context(snapshot)['styles']
+        for scope,names in [('body',('Normal',)),('heading',('Heading 1',))]:
+            for name in names:
+                style=document.styles[name]
+                for field in ('font_size_pt','line_spacing','space_before_pt','space_after_pt'):
+                    value=styles.get(scope+'_'+field)
+                    if value is None:continue
+                    if field=='font_size_pt':style.font.size=Pt(value)
+                    else:setattr(style.paragraph_format,field.removesuffix('_pt'),Pt(value) if field.endswith('_pt') else value)
     en = snapshot['output_language'] == 'en'
     document.add_paragraph(snapshot['title'], style='Title')
     document.add_paragraph(snapshot['notice'])
+    if snapshot.get('journal_adaptation_provenance', {}).get('synthetic'):
+        notice = ('Synthetic journal adaptation: synthetic guide or manuscript inputs were used. '
+                  'This export is offline engineering evidence, not verified real journal compliance.'
+                  if en else
+                  '合成期刊适配：使用了合成指南或稿件输入。本导出仅为离线工程证据，不代表真实期刊要求已核验通过。')
+        document.add_paragraph().add_run(notice).bold = True
     document.sections[0].header.paragraphs[0].text = (
         ('SCI manuscript draft' if en else 'SCI论文初稿') if sections else
         ('Research fact draft' if en else '研究事实稿'))

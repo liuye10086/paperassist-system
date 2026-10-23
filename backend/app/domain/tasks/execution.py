@@ -107,7 +107,10 @@ def run_task(task_id, task_revision, *, config=None, directory=None):
     from app.domain.manuscripts.execution import run_manuscript_task
     from app.domain.manuscript_writing.execution import run_manuscript_writing_task
     from app.domain.school_templates.execution import run_school_template_task
-    executor = {'school_template_parse':run_school_template_task,'layout_docx':run_layout_task,'manuscript_writing':run_manuscript_writing_task,'pdf_export':run_pdf_task,'manuscript_draft':run_manuscript_task,'manuscript_docx':run_manuscript_task,'literature_assistance':run_assistance_task,'literature_search':run_literature_task,'figure_projection':run_projection_task,'statistics_compute':run_statistics_task,'figure_workbench':run_figure_workbench_task,'figure_explanation':run_figure_explanation_task,'collection_word_report': run_collection_word_task, 'word_report': run_word_task, 'explanation': run_explanation_task,
+    from app.domain.journals.execution import run_journal_task
+    from app.domain.journals.format_execution import run_format_task
+    from app.domain.journals.adaptation_execution import run_adaptation_task
+    executor = {'journal_adaptation':run_adaptation_task,'journal_format_check':run_format_task,'journal_recommendation':run_journal_task,'school_template_parse':run_school_template_task,'layout_docx':run_layout_task,'manuscript_writing':run_manuscript_writing_task,'pdf_export':run_pdf_task,'manuscript_draft':run_manuscript_task,'manuscript_docx':run_manuscript_task,'literature_assistance':run_assistance_task,'literature_search':run_literature_task,'figure_projection':run_projection_task,'statistics_compute':run_statistics_task,'figure_workbench':run_figure_workbench_task,'figure_explanation':run_figure_explanation_task,'collection_word_report': run_collection_word_task, 'word_report': run_word_task, 'explanation': run_explanation_task,
                 'boxplot': run_boxplot_task, 'parse_file': run_parse_file_task, 'extract_dataset': run_dataset_task,
                 'prepare_dataset': run_preparation_task, 'review_ocr': run_ocr_review_task,
                 'analysis_plan': run_analysis_plan_task, 'analysis_recommendation':run_recommendation_task}.get(task['task_type'])

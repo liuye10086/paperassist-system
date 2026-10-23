@@ -15,6 +15,11 @@ function server(history: unknown[] = []) {
   }); vi.stubGlobal('fetch', fetcher); return fetcher
 }
 const props={projectId:'p1',researchTopic:'示例研究',outputLanguage:'en' as const,active:true}
+it('keeps reviewed v2 scientific content out of ordinary edit and review publishing',async()=>{
+ const snapshot={...snapshotFixture,writing_provenance:{schema_version:2,provider_provenance:'synthetic_fixture',verification_status:'scientific_and_language_reviewed'}}
+ server([{...manuscriptFixture,versions:[{...manuscriptFixture.versions[0],snapshot}]}]);render(<ProjectManuscripts {...props}/>);const edit=await screen.findByRole('button',{name:'以此版本编辑新稿'});expect(edit.hasAttribute('disabled')).toBe(true)
+ fireEvent.click(screen.getByRole('button',{name:'查看版本 1'}));expect(await screen.findByText('v2 审核稿仅可查看公共检查；普通修改与发布入口关闭。')).toBeTruthy();expect(screen.getByRole('button',{name:'重新检查并保存候选'}).hasAttribute('disabled')).toBe(true)
+})
 it('collects editable inputs, true source roles and ordered Results groups while output language is independent', async () => {
   const fetcher=server(); render(<ProjectManuscripts {...props}/>)
   fireEvent.click(await screen.findByRole('checkbox',{name:'固定统计结果'}))

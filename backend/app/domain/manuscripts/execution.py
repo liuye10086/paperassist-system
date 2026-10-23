@@ -76,6 +76,7 @@ def run_manuscript_task(task_id,task_revision,*,config=None,directory=None):
             export_id=task['input_snapshot']['export_id']
             metadata=dict(filename=f"{'Fact-draft' if snapshot['output_language']=='en' else '事实稿'}-v{version['revision']}-{export_id[:8]}.docx",
                 sha256=sha256(content).hexdigest(),size_bytes=len(content),input_sha256=version['snapshot_sha256'],renderer_version=RENDERER_VERSION)
+            if snapshot.get('journal_display_context'):metadata['renderer_version']=RENDERER_VERSION+'+journal_display_v1'
             if school_plan is not None:metadata['school']=dict(plan=school_plan,report=school_plan['report'],field_update=field_update)
             service.directory.mkdir(parents=True,exist_ok=True)
             staged=service.directory/(export_id+'-'+lease.lease_owner+'.part')

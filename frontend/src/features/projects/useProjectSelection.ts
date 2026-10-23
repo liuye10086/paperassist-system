@@ -10,13 +10,14 @@ type Instance = { id: string; key: number }
 type Request = { controller: AbortController; timeout: number }
 
 export default function useProjectSelection(onUnavailable: (id: string) => void, onAvailable: (id: string) => void) {
-  const [section, setSection] = useState<ProjectSection>(() => new URLSearchParams(window.location.hash.slice(1)).get('section') === 'tasks' ? 'tasks' : new URLSearchParams(window.location.hash.slice(1)).get('section')==='literature'?'literature':new URLSearchParams(window.location.hash.slice(1)).get('section')==='manuscripts'?'manuscripts':new URLSearchParams(window.location.hash.slice(1)).get('section')==='school-templates'?'school-templates':'overview')
+  const [section, setSection] = useState<ProjectSection>(() => new URLSearchParams(window.location.hash.slice(1)).get('section') === 'tasks' ? 'tasks' : new URLSearchParams(window.location.hash.slice(1)).get('section')==='literature'?'literature':new URLSearchParams(window.location.hash.slice(1)).get('section')==='manuscripts'?'manuscripts':new URLSearchParams(window.location.hash.slice(1)).get('section')==='school-templates'?'school-templates':new URLSearchParams(window.location.hash.slice(1)).get('section')==='journals'?'journals':'overview')
   const [taskId, setTaskId] = useState(() => {
     const params = new URLSearchParams(window.location.hash.slice(1))
     const id = params.get('task') ?? ''
     return params.has('project') && params.get('section') === 'tasks' && isTaskId(id) ? id : ''
   })
   const [literatureSearchId,setLiteratureSearchId]=useState(()=>{const params=new URLSearchParams(window.location.hash.slice(1));const id=params.get('search')??'';return params.get('section')==='literature'&&/^[A-Za-z0-9_-]{1,64}$/.test(id)?id:''})
+  const [adaptationId,setAdaptationId]=useState(()=>{const p=new URLSearchParams(window.location.hash.slice(1)),id=p.get('adaptation')??'';return p.get('section')==='journals'&&/^[A-Za-z0-9_-]{1,64}$/.test(id)?id:''})
   const nextKey = useRef(1)
   const [instance, setInstance] = useState<Instance | null>(() => {
     const id = new URLSearchParams(window.location.hash.slice(1)).get('project')
@@ -55,7 +56,7 @@ export default function useProjectSelection(onUnavailable: (id: string) => void,
       setFailure(null)
       setLoading(false)
       setUnavailableId(instance.id)
-      setTaskId('');setLiteratureSearchId('')
+      setTaskId('');setLiteratureSearchId('');setAdaptationId('')
       setSection('overview')
       callbacks.current.onUnavailable(instance.id)
     })
@@ -64,12 +65,13 @@ export default function useProjectSelection(onUnavailable: (id: string) => void,
 
   useLayoutEffect(() => {
     window.history.replaceState(null, '', window.location.pathname + window.location.search
-      + (instance ? `#project=${encodeURIComponent(instance.id)}${section === 'tasks' ? `&section=tasks${taskId ? `&task=${encodeURIComponent(taskId)}` : ''}` : section==='literature'?`&section=literature${literatureSearchId?`&search=${encodeURIComponent(literatureSearchId)}`:''}`:section==='manuscripts'?'&section=manuscripts':section==='school-templates'?'&section=school-templates':''}` : ''))
-  }, [instance, section, taskId, literatureSearchId])
+      + (instance ? `#project=${encodeURIComponent(instance.id)}${section === 'tasks' ? `&section=tasks${taskId ? `&task=${encodeURIComponent(taskId)}` : ''}` : section==='literature'?`&section=literature${literatureSearchId?`&search=${encodeURIComponent(literatureSearchId)}`:''}`:section==='manuscripts'?'&section=manuscripts':section==='school-templates'?'&section=school-templates':section==='journals'?`&section=journals${adaptationId?`&adaptation=${encodeURIComponent(adaptationId)}`:''}`:''}` : ''))
+  }, [instance, section, taskId, literatureSearchId, adaptationId])
 
   useEffect(() => {
     const openTaskLink = () => {
       const params = new URLSearchParams(window.location.hash.slice(1))
+      if(instance&&current.current===instance&&params.get('project')===instance.id&&params.get('section')==='journals'&&params.getAll('project').length===1&&params.getAll('section').length===1&&params.getAll('adaptation').length<=1&&[...params.keys()].every(k=>['project','section','adaptation'].includes(k))&&(!params.has('adaptation')||/^[A-Za-z0-9_-]{1,64}$/.test(params.get('adaptation')??''))){setSection('journals');setAdaptationId(params.get('adaptation')??'');return}
       const id = params.get('task')
       if (!instance || current.current !== instance || params.get('project') !== instance.id
         || params.get('section') !== 'tasks' || !isTaskId(id) || !id.startsWith('legacy-') && !/^[A-Za-z0-9_-]{1,64}$/.test(id)
@@ -102,6 +104,7 @@ export default function useProjectSelection(onUnavailable: (id: string) => void,
         if (!isProject(result) || result.id !== instance!.id) throw new Error('项目详情格式不正确，请重试。')
         setDetail({ instance: instance!, project: result })
         if(result.project_type==='sci')setSection(previous=>previous==='school-templates'?'overview':previous)
+        if(result.project_type==='thesis')setSection(previous=>previous==='journals'?'overview':previous)
         callbacks.current.onAvailable(instance!.id)
       } catch (cause) {
         if (isCurrent()) setFailure({ instance: instance!, message: cause instanceof TypeError
@@ -126,7 +129,7 @@ export default function useProjectSelection(onUnavailable: (id: string) => void,
   function open(id: string, seed?: Project) {
     setUnavailableId('')
     if (instance?.id === id && current.current === instance) { refresh(); return }
-    setTaskId('');setLiteratureSearchId('')
+    setTaskId('');setLiteratureSearchId('');setAdaptationId('')
     setSection('overview')
     cancel()
     const next = { id, key: ++nextKey.current }
@@ -151,7 +154,7 @@ export default function useProjectSelection(onUnavailable: (id: string) => void,
     setFailure(null)
     setUnavailableId('')
     setLoading(false)
-    setTaskId('');setLiteratureSearchId('')
+    setTaskId('');setLiteratureSearchId('');setAdaptationId('')
     setSection('overview')
   }
 

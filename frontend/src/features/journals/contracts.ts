@@ -1,0 +1,32 @@
+import {isTask,type TaskView} from '../tasks/taskTypes'
+export const fieldLabels={topics:'主题',scope:'范围',article_types:'文章类型',languages:'语言',oa:'开放获取',fee:'费用',disciplines:'学科',unit_requirements:'单位要求',review_duration:'审稿时长原文'} as const
+export type Field=keyof typeof fieldLabels
+export type Material={kind:'original'|'document_version'|'ocr_review_version'|'external_evidence_version';id:string;file_id:string}
+export type MaterialCandidate=Material&{label:string;download_url?:string|null}
+export type Evidence={value:string[]|boolean|string|{amount:number;currency:string}|null;status:'verified'|'unknown'|'unavailable';location:string;quote:string;conditions?:string;verified_on?:string|null;applicability?:{unconditional?:boolean;article_types?:string[];oa?:boolean|null}|null;source_type?:string;source_url?:string;source_conditions?:string}
+export type ProfileRequest={name:string;source_type:'official_local'|'open_local'|'user_provided'|'synthetic';source_text:string;source_url:string;official_url:string;material?:Material|null;source_status:'available'|'unavailable'|'expired';verified_on:string;conditions:string;permission:string;fields:Partial<Record<Field,Evidence>>;previous_version_id?:string|null}
+export type Profile=ProfileRequest&{id:string;project_id:string;created_at:string;synthetic:boolean;verification_level:string;material?:Material&{label?:string;download_url?:string;content?:{items?:{id:string;text?:string;location?:unknown}[]}}|null}
+export type Research={title:string;abstract:string;main_results:string;domain:string;topics:string[];article_type:string;discipline:string;language:string;oa:boolean|null;budget:{amount:number;currency:string}|null;unit_requirements:string[];hard_filters:string[];materials:Material[];manuscript:{id:string;revision:number}|null;limit:number;profile_ids?:string[]}
+export type ManuscriptChoice={id:string;title:string;versions:{id:string;revision:number;status:string;snapshot?:{title?:string}}[]}
+export type Reason={field:string;message:string;state:'match'|'excluded'|'unknown'|'preference';evidence:Evidence|null}
+export type ResultItem={profile:Profile;reasons:Reason[];matched_tag_count:number;preference_match_count:number}
+export type Recommendation={id:string;created_at:string;input_snapshot:{project_id:string;kind:'journal_recommendation';recommendation_id:string;workflow_version:'journal_recommendation_v1';research:Research;materials:unknown[];profiles:Profile[];manuscript:{id:string;revision:number;version_id?:string}|null;real_model_calls:false;real_network_calls:false};task:TaskView;result:{candidates:ResultItem[];excluded:ResultItem[];pending_verification:ResultItem[];candidate_total:number;limitations:string[];real_model_calls:false;real_network_calls:false}|null}
+export const syntheticLabel='合成材料，仅验证离线工程'
+export const record=(v:unknown):v is Record<string,unknown>=>!!v&&typeof v==='object'&&!Array.isArray(v)
+const text=(v:unknown):v is string=>typeof v==='string'
+const texts=(v:unknown):v is string[]=>Array.isArray(v)&&v.every(text)
+export function isEvidence(v:unknown):v is Evidence{return record(v)&&['verified','unknown','unavailable'].includes(String(v.status))&&text(v.quote)&&text(v.location)&&(v.status==='verified'?v.value!==null&&v.value!==undefined&&!!v.quote.trim()&&!!v.location.trim():v.value===null)}
+export function isProfile(v:unknown,project:string):v is Profile{return record(v)&&v.project_id===project&&text(v.id)&&text(v.name)&&text(v.created_at)&&['official_local','open_local','user_provided','synthetic'].includes(String(v.source_type))&&['available','unavailable','expired'].includes(String(v.source_status))&&['source_text','source_url','official_url','verified_on','conditions','permission'].every(k=>text(v[k]))&&typeof v.synthetic==='boolean'&&v.synthetic===(v.source_type==='synthetic')&&(!v.synthetic||v.verification_level==='synthetic_material_only')&&record(v.fields)&&Object.entries(v.fields).every(([k,e])=>Object.hasOwn(fieldLabels,k)&&isEvidence(e))}
+export function isRecommendation(v:unknown,project:string):v is Recommendation{
+ if(!record(v)||!text(v.id)||!text(v.created_at)||!isTask(v.task,project)||v.task.task_type!=='journal_recommendation'||v.task.input_version.kind!=='journal_recommendation'||v.task.input_version.recommendation_id!==v.id||!record(v.input_snapshot))return false
+ const s=v.input_snapshot
+ if(s.project_id!==project||s.kind!=='journal_recommendation'||s.recommendation_id!==v.id||s.workflow_version!=='journal_recommendation_v1'||s.real_model_calls!==false||s.real_network_calls!==false||!Array.isArray(s.profiles)||!s.profiles.every(p=>isProfile(p,project))||!Array.isArray(s.materials)||!record(s.research)||!text(s.research.title)||!texts(s.research.topics)||!text(s.research.article_type)||(s.manuscript!==null&&(!record(s.manuscript)||!text(s.manuscript.id)||!Number.isSafeInteger(s.manuscript.revision)||Number(s.manuscript.revision)<1)))return false
+ if(v.result===null)return true
+ const r=v.result
+ const frozenProfileIds=(s.profiles as Profile[]).map(p=>p.id)
+ return v.task.status==='succeeded'&&record(r)&&r.real_model_calls===false&&r.real_network_calls===false&&texts(r.limitations)&&Number.isSafeInteger(r.candidate_total)&&Number(r.candidate_total)>=0&&['candidates','excluded','pending_verification'].every(k=>Array.isArray(r[k])&&r[k].every((i:unknown)=>record(i)&&isProfile(i.profile,project)&&frozenProfileIds.includes((i.profile as Profile).id)&&Array.isArray(i.reasons)&&i.reasons.every((x:unknown)=>record(x)&&text(x.field)&&text(x.message)&&['match','excluded','unknown','preference'].includes(String(x.state))&&(x.evidence===null||isEvidence(x.evidence)))))
+}
+export const splitTags=(value:string)=>value.split(/[,，\n]/).map(v=>v.trim()).filter(Boolean)
+export const materialKey=(m:Material)=>`${m.kind}:${m.id}`
+export function materialSelection(m:Material):Material{return {kind:m.kind,id:m.id,file_id:m.file_id}}
+export function readable(value:Evidence['value']){if(value===null)return '未知';if(Array.isArray(value))return value.join(' / ');if(typeof value==='object')return `${value.amount} ${value.currency}`;return String(value)}

@@ -18,6 +18,10 @@ def issue(category,location,message,*,severity='human_review',actual=None,expect
 
 def check_snapshot(snapshot,metadata=(),strict_locations=(),*,writing_context=None):
     issues=[];facts={f['id']:f for f in extract_facts(snapshot)}
+    if snapshot.get('journal_display_context'):
+        from app.domain.journals.display import context
+        try:context(snapshot)
+        except (ValueError,KeyError,TypeError):issues.append(issue('structure','journal_display_context','Invalid journal display configuration.',severity='error'))
     sources={s['id']:s for s in snapshot.get('sources',[])}
     meta={(m['target_id'],m['field']):m for m in metadata}
     paragraphs=displayed_paragraphs(snapshot)
@@ -150,7 +154,12 @@ def check_snapshot(snapshot,metadata=(),strict_locations=(),*,writing_context=No
     # after the results text, rather than treating them as non-prose metadata.
     reference_texts=[]
     if 'sections' in snapshot:
-        for section in snapshot['sections']:
+        sections=snapshot['sections']
+        if snapshot.get('journal_display_context'):
+            from app.domain.journals.display import display_sections
+            try:sections=display_sections(snapshot)
+            except (ValueError,KeyError,TypeError):pass
+        for section in sections:
             role=section.get('purpose',section['id'])
             if role!='references': reference_texts.extend(section['paragraphs'])
             if role=='results':

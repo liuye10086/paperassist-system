@@ -3,12 +3,13 @@ import { useI18n } from '../../shared/i18n'
 import './workspace.css'
 
 export type WorkspaceView = 'home' | 'projects' | 'project'
-export type ProjectSection = 'overview' | 'files' | 'analysis' | 'artifacts' | 'tasks' | 'literature' | 'manuscripts' | 'school-templates'
+export type ProjectSection = 'overview' | 'files' | 'analysis' | 'artifacts' | 'tasks' | 'literature' | 'manuscripts' | 'school-templates' | 'journals'
 const projectSections: { value: ProjectSection; label: string; icon: 'home' | 'folder' | 'chart' | 'files' }[] = [
   { value: 'overview', label: '项目概览', icon: 'home' }, { value: 'files', label: '项目文件', icon: 'folder' },
   { value: 'analysis', label: '数据分析', icon: 'chart' }, { value: 'artifacts', label: '图表与报告', icon: 'files' },
   { value: 'literature', label: '文献', icon: 'files' },
   { value: 'manuscripts', label: 'SCI 写作', icon: 'files' },
+  { value: 'journals', label: '期刊建议', icon: 'files' },
   { value: 'school-templates', label: '学校模板', icon: 'files' },
   { value: 'tasks', label: '项目任务', icon: 'files' },
 ]
@@ -71,7 +72,7 @@ export default function WorkspaceShell({ view, onNavigate, onCreate, projectName
           onClick={() => { setMenuOpen(false); onCurrentProject() }}>
           <WorkspaceIcon name="file" /><span className="sidebar-text">{projectName}</span>
         </button>
-        <nav className="project-section-nav" aria-label={t('项目导航')}>{projectSections.filter(item => (item.value !== 'school-templates' || projectType === 'thesis')).map(item =>
+        <nav className="project-section-nav" aria-label={t('项目导航')}>{projectSections.filter(item => (item.value !== 'school-templates' || projectType === 'thesis') && (item.value !== 'journals' || projectType === 'sci')).map(item =>
           <button key={item.value} type="button" className="workspace-nav-item"
             aria-label={t(item.value==='manuscripts'&&projectType==='thesis'?'毕业论文写作':item.label)} title={t(item.value==='manuscripts'&&projectType==='thesis'?'毕业论文写作':item.label)}
             aria-current={view === 'project' && section === item.value ? 'page' : undefined}

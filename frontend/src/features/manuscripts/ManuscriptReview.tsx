@@ -20,7 +20,7 @@ export default function ManuscriptReview(props:ReviewProps){return <ReviewWorkbe
 function ReviewWorkbench({projectId,manuscriptId,version,currentRevision,onPublished,active=true}:ReviewProps){
  const {t}=useI18n(),[context,setContext]=useState<ReviewContext|null>(null),[items,setItems]=useState<Review[]>([]),[selected,setSelected]=useState<Review|null>(null),[input,setInput]=useState(()=>initialInput(version.revision)),[error,setError]=useState(''),[loading,setLoading]=useState(false),[busy,setBusy]=useState(false),[validSession,setValidSession]=useState(true),[attempt,setAttempt]=useState(0),[uncertain,setUncertain]=useState(false),[stale,setStale]=useState(false),[category,setCategory]=useState('all'),[severity,setSeverity]=useState('all'),[readReady,setReadReady]=useState(false)
  const root=useRef<HTMLElement|null>(null),mounted=useRef(true),read=useRef<AbortController|null>(null),request=useRef<AbortController|null>(null),intent=useRef<Intent|null>(null)
- const base=`${manuscriptBase(projectId)}/${encodeURIComponent(manuscriptId)}/reviews`,historicalVersion=version.revision!==currentRevision||version.status!=='published'
+ const base=`${manuscriptBase(projectId)}/${encodeURIComponent(manuscriptId)}/reviews`,reviewedV2=version.snapshot.writing_provenance?.schema_version===2,historicalVersion=version.revision!==currentRevision||version.status!=='published'
  useEffect(()=>{mounted.current=true;return()=>{mounted.current=false;read.current?.abort();request.current?.abort();intent.current=null}},[])
  useEffect(()=>onApiSessionChanged(()=>{read.current?.abort();request.current?.abort();read.current=null;request.current=null;intent.current=null;setValidSession(false);setContext(null);setItems([]);setSelected(null);setInput(initialInput(version.revision));setError('');setUncertain(false);setBusy(false);setLoading(false);setReadReady(false)}),[version.revision])
  useEffect(()=>{if(!active){read.current?.abort();request.current?.abort();return}if(!validSession)return;let live=true;const controller=new AbortController();read.current=controller
@@ -76,7 +76,7 @@ function ReviewWorkbench({projectId,manuscriptId,version,currentRevision,onPubli
   return input.corrections.every(c=>c.text.trim()&&c.numeric_bindings.every(b=>context?.facts.some(f=>f.id===b.fact_id&&c.source_ids.includes(f.source_id))&&b.value.trim()))
  }
  async function send(next:Intent){
-  if(request.current||!active||!validSession)return
+  if(request.current||!active||!validSession||reviewedV2)return
   const controller=new AbortController();request.current=controller;intent.current=next;setBusy(true);setError('')
   const init={method:'POST',headers:{'Content-Type':'application/json','Idempotency-Key':next.key},body:next.body}
   try{
@@ -94,12 +94,13 @@ function ReviewWorkbench({projectId,manuscriptId,version,currentRevision,onPubli
    else{setUncertain(true);setError(unknownFailure)}
   }finally{if(request.current===controller)request.current=null;if(mounted.current)setBusy(false)}
  }
- function create(refresh=false){if(busy||uncertain||historicalVersion||stale||!readReady||!context)return;if(!refresh&&!validInput()){setError('请填写理由、证据和已知事实绑定；显示小数位须为 0–12。');return}void send({url:base,body:JSON.stringify(refresh?initialInput(version.revision):input),key:crypto.randomUUID(),kind:'create',preserveEdits:refresh})}
- const disabled=busy||uncertain||!validSession||!active||historicalVersion||stale||!readReady,report=selected?.report
+ function create(refresh=false){if(busy||uncertain||reviewedV2||historicalVersion||stale||!readReady||!context)return;if(!refresh&&!validInput()){setError('请填写理由、证据和已知事实绑定；显示小数位须为 0–12。');return}void send({url:base,body:JSON.stringify(refresh?initialInput(version.revision):input),key:crypto.randomUUID(),kind:'create',preserveEdits:refresh})}
+ const disabled=reviewedV2||busy||uncertain||!validSession||!active||historicalVersion||stale||!readReady,report=selected?.report
  const historyOnly=!!selected&&(selected.base_revision!==version.revision||selected.base_version_id!==version.id)
  const canPublish=selected&&selected.base_revision===version.revision&&selected.base_version_id===version.id&&selected.status==='candidate'&&report?.can_publish&&!historyOnly&&!disabled
  const issues=(report?.issues??context?.issues??[]).filter(i=>(category==='all'||i.category===category)&&(severity==='all'||i.severity===severity))
  return <section ref={root} className="manuscript-panel manuscript-review" data-review-location="manuscript" tabIndex={-1} aria-label={t('研究资料与检查')}><h3>{t('研究资料与检查')}</h3><p>{t('基础版本 {number}',{number:version.revision})} · {t('用户确认不代表科研验证；确定性检查无法判断自由文本的科学含义。')}</p>
+ {reviewedV2&&<p className="warning-panel">{t('v2 审核稿仅可查看公共检查；普通修改与发布入口关闭。')}</p>}
  {historicalVersion&&<p className="warning-panel">{t('历史版本只读，请选择当前已发布版本后创建检查。')}</p>}
  <div className="manuscript-actions"><button type="button" disabled={busy||!validSession||!active} onClick={()=>setAttempt(n=>n+1)}>{t('回读检查记录')}</button><button type="button" disabled={disabled} onClick={()=>create(true)}>{t('重新检查并保存候选')}</button></div><p className="muted">{t('回读仅读取；重新检查会显式保存新候选，发布需再次确认。')}</p>
  {loading&&<p role="status">{t('正在读取研究资料……')}</p>}{error&&<p role="alert">{t(error)}</p>}{!validSession&&<p role="alert">{t('会话已失效，请重新登录。')}</p>}{uncertain&&<button type="button" disabled={busy||!active||!validSession} onClick={()=>intent.current&&void send(intent.current)}>{t('使用原请求重试')}</button>}

@@ -7,7 +7,7 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import JSONB
 
 
-TASK_TYPES = "'boxplot', 'explanation', 'word_report', 'parse_file', 'extract_dataset', 'prepare_dataset', 'review_ocr', 'analysis_plan', 'analysis_recommendation', 'figure_projection', 'figure_workbench', 'figure_explanation', 'collection_word_report', 'statistics_compute', 'literature_search', 'literature_assistance', 'manuscript_draft', 'manuscript_docx', 'pdf_export', 'manuscript_writing', 'layout_docx', 'school_template_parse'"
+TASK_TYPES = "'boxplot', 'explanation', 'word_report', 'parse_file', 'extract_dataset', 'prepare_dataset', 'review_ocr', 'analysis_plan', 'analysis_recommendation', 'figure_projection', 'figure_workbench', 'figure_explanation', 'collection_word_report', 'statistics_compute', 'literature_search', 'literature_assistance', 'manuscript_draft', 'manuscript_docx', 'pdf_export', 'manuscript_writing', 'layout_docx', 'school_template_parse', 'journal_recommendation', 'journal_format_check', 'journal_adaptation'"
 STATUSES = "'queued', 'running', 'waiting_input', 'waiting_confirmation', 'succeeded', 'failed'"
 ATTEMPT_STATUSES = "'running', 'waiting_input', 'waiting_confirmation', 'succeeded', 'failed'"
 PHASES = "'parse', 'plan', 'compute', 'search', 'interpret', 'write', 'export', 'verify'"
@@ -46,6 +46,9 @@ def define_task_tables(metadata):
         UniqueConstraint('id','project_id','user_id', name='tasks_scope_key'),
         UniqueConstraint('user_id', 'project_id', 'task_type', 'idempotency_key', name='tasks_idempotency_key'),
         CheckConstraint(f'task_type IN ({TASK_TYPES})', name='tasks_type_check'),
+        CheckConstraint("task_type<>'journal_recommendation' OR ((input_snapshot->>'kind'='journal_recommendation' AND input_snapshot->>'workflow_version'='journal_recommendation_v1' AND jsonb_typeof(input_snapshot->'profiles')='array' AND jsonb_typeof(input_snapshot->'research')='object' AND input_snapshot->'real_model_calls'='false'::jsonb AND input_snapshot->'real_network_calls'='false'::jsonb) IS TRUE)",name='tasks_journal_snapshot_check'),
+        CheckConstraint("task_type<>'journal_format_check' OR ((input_snapshot->>'kind'='journal_format_check' AND input_snapshot->>'workflow_version'='journal_format_check_v1' AND jsonb_typeof(input_snapshot->'target')='object' AND jsonb_typeof(input_snapshot->'manuscript')='object' AND input_snapshot->>'check_version'='1' AND input_snapshot->'real_model_calls'='false'::jsonb AND input_snapshot->'real_network_calls'='false'::jsonb) IS TRUE)",name='tasks_journal_format_snapshot_check'),
+        CheckConstraint("task_type<>'journal_adaptation' OR ((input_snapshot->>'kind'='journal_adaptation' AND input_snapshot->>'workflow_version'='journal_adaptation_v1' AND jsonb_typeof(input_snapshot->'manuscript')='object' AND jsonb_typeof(input_snapshot->'selected_action_ids')='array' AND input_snapshot->'real_model_calls'='false'::jsonb AND input_snapshot->'real_network_calls'='false'::jsonb) IS TRUE)",name='tasks_journal_adaptation_snapshot_check'),
         CheckConstraint(f'status IN ({STATUSES})', name='tasks_status_check'),
         CheckConstraint(f'phase IN ({PHASES})', name='tasks_phase_check'),
         CheckConstraint(f'reason_code IN ({REASONS})', name='tasks_reason_check'),

@@ -1,0 +1,22 @@
+.journal-workspace {display:grid;gap:1.2rem;min-width:0}
+.journal-panel {background:var(--surface,#fff);border:1px solid var(--border,#dbe1e6);border-radius:14px;padding:1.2rem;min-width:0}
+.journal-panel>summary {cursor:pointer;font-weight:650;padding:.3rem}
+.journal-panel fieldset {min-width:0}
+.journal-panel label {display:grid;gap:.35rem;margin:.6rem 0}
+.journal-checks {display:flex;flex-wrap:wrap;gap:1rem}
+.journal-checks label {display:flex;align-items:center;gap:.5rem}
+.journal-panel input[type=checkbox] {width:auto}
+.journal-field-grid {display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:.7rem;margin:1rem 0}
+.journal-field-grid>details {padding:.8rem;border:1px solid var(--border,#dbe1e6);border-radius:8px}
+.journal-profile {border-top:1px solid var(--border,#dbe1e6);padding:1rem 0;overflow-wrap:anywhere}
+.journal-evidence {border-left:3px solid var(--border,#dbe1e6);padding-left:.8rem;margin:.6rem 0;overflow-wrap:anywhere}
+.journal-evidence blockquote,.journal-source-text {white-space:pre-wrap;overflow-wrap:anywhere}
+.journal-reason {margin:.8rem 0;padding:.6rem;background:var(--surface-muted,#f5f7f8);border-radius:8px}
+.journal-panel button {margin:.4rem .5rem .4rem 0}
+@media(max-width:600px){.journal-panel {padding:.8rem}.journal-field-grid {grid-template-columns:1fr}}
+
+.journal-format {display:grid;gap:1rem;min-width:0}
+.journal-format details {margin:.7rem 0;overflow-wrap:anywhere}
+.journal-format fieldset {border:1px solid var(--border,#dbe1e6);border-radius:8px;padding:.8rem;margin:.7rem 0}
+.journal-format h6 {font-size:1rem;margin:.4rem 0}
+.journal-format input,.journal-format select,.journal-format textarea {max-width:100%;min-width:0}

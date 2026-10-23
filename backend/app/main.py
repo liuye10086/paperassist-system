@@ -200,3 +200,6 @@ app.include_router(school_templates_router)
 
 from app.api.manuscript_school_changes import router as manuscript_school_changes_router
 app.include_router(manuscript_school_changes_router)
+
+from app.api.journals import router as journals_router
+app.include_router(journals_router)

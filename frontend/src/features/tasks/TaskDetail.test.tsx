@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
 import TaskDetail from './TaskDetail'
 import { eventsFixture, legacyTaskFixture, legacyWorkspaceFixture, preparationSourceFixture, preparationTaskFixture, taskFixture, usageFixture, workspaceFixture } from './taskFixtures'
@@ -16,6 +16,14 @@ function api(workspace: unknown = workspaceFixture) {
     return Response.json(workspace)
   }); vi.stubGlobal('fetch', fetch); return fetch
 }
+it('points a successful journal task to its saved suggestions and labels its events in both languages',async()=>{
+ const workspace={task:{...taskFixture,task_type:'journal_recommendation',status:'succeeded',display_status:'succeeded',phase:'plan',reason_code:null,error_code:null,input_version:{kind:'journal_recommendation',recommendation_id:'journal1',workflow_version:'journal_recommendation_v1'}},source:{file_id:null,filename:'Frozen journal research',analysis_run_id:null,is_current:true},wait:null,allowed_actions:[],artifacts:{figure:null,explanation:null,report:null}}
+ const open=vi.fn();vi.stubGlobal('fetch',vi.fn(async(url:string)=>Response.json(url.includes('/events')?{...eventsFixture,items:[{...eventsFixture.items[0],event_type:'succeeded',status:'succeeded',phase:'plan'}]}:workspace)))
+ render(<TaskDetail {...props} onOpenJournals={open}/>);await screen.findByText('成果已保存')
+ expect.soft(screen.queryByText('此任务尚无已保存的成果。')).toBeNull();expect.soft(screen.getByRole('region',{name:'执行记录'}).textContent).not.toContain('分析计划')
+ expect(within(screen.getByRole('region',{name:'此任务的成果'})).getByText('期刊建议已保存，请打开期刊建议查看本批结果与来源。')).toBeTruthy();expect(within(screen.getByRole('region',{name:'执行记录'})).getByText('期刊建议')).toBeTruthy();fireEvent.click(screen.getByRole('button',{name:'打开期刊建议'}));expect(open).toHaveBeenCalledTimes(1)
+ act(()=>setLocale('en'));expect(screen.getByText('Journal suggestions are saved. Open journal suggestions to view this batch and its sources.')).toBeTruthy();expect(within(screen.getByRole('region',{name:'Execution history'})).getByText('Journal suggestions')).toBeTruthy()
+})
 it('uses server resume permission with the exact wait, input version and one idempotency key', async () => {
   const fetch = api(); render(<TaskDetail {...props} />)
   const button = await screen.findByRole('button', { name: '预算或配置已调整，继续任务' })
@@ -338,4 +346,24 @@ it('opens frozen manuscript writing from task details without an analysis config
  const task={...taskFixture,task_type:'manuscript_writing',phase:'write',input_version:input,error_code:'manuscript_writing_not_authorized',reason_code:'confirmation_required'}
  api({...workspaceFixture,task,source:{file_id:null,analysis_run_id:null,filename:'Saved draft',is_current:true},wait:{...workspaceFixture.wait,kind:'unsupported_confirmation',input_version:input},allowed_actions:[]})
  const open=vi.fn();render(<TaskDetail {...props} onOpenManuscripts={open}/>);fireEvent.click(await screen.findByRole('button',{name:'打开 SCI 写作'}));expect(open).toHaveBeenCalled();expect(screen.getByText('已冻结的写作基础版本 1')).toBeTruthy();expect(screen.queryByText('分析配置 v0')).toBeNull()
+})
+
+it('links a successful format task back to frozen journal results without model usage and labels verify events',async()=>{
+ const input={kind:'journal_format_check',check_id:'c1',target_id:'target1',guide_id:'g1',requirements_version:'a'.repeat(64),manuscript_version_id:'v1',check_version:1,workflow_version:'journal_format_check_v1'}
+ const task={...taskFixture,task_type:'journal_format_check',status:'succeeded',display_status:'succeeded',phase:'verify',reason_code:null,error_code:null,input_version:input}
+ const fetch=vi.fn(async(url:string)=>Response.json(url.includes('/events')?{...eventsFixture,items:[{...eventsFixture.items[0],event_type:'succeeded',status:'succeeded',phase:'verify'}]}:{task,source:{file_id:null,filename:'Old manuscript',analysis_run_id:null,is_current:true},wait:null,allowed_actions:[],artifacts:{figure:null,explanation:null,report:null}}));vi.stubGlobal('fetch',fetch);const open=vi.fn();render(<TaskDetail {...props} onOpenJournals={open}/>);await screen.findByText('期刊格式检查结果已保存，请打开期刊建议查看固定版本与调整清单。')
+ expect(screen.queryByText('此任务尚无已保存的成果。')).toBeNull();expect(await within(screen.getByRole('region',{name:'执行记录'})).findByText('期刊格式检查')).toBeTruthy();expect(fetch.mock.calls.some(([url])=>url.includes('/model-usage'))).toBe(false);fireEvent.click(screen.getByRole('button',{name:'打开期刊建议'}));expect(open).toHaveBeenCalledOnce()
+})
+
+it('retries failed format tasks through public recovery with the complete frozen input version',async()=>{
+ const input={kind:'journal_format_check',check_id:'old-check',target_id:'old-target',guide_id:'old-guide',requirements_version:'a'.repeat(64),manuscript_version_id:'old-v1',check_version:1,workflow_version:'journal_format_check_v1'}
+ const task={...taskFixture,task_type:'journal_format_check',phase:'verify',status:'failed',display_status:'failed',error_code:'task_failed',reason_code:null,input_version:input}
+ const fetch=vi.fn(async(url:string,init?:RequestInit)=>Response.json(init?.method==='POST'?{...task,status:'queued',display_status:'queued',revision:4}:url.includes('/events')?{...eventsFixture,items:[],next_cursor:0}:{task,source:{file_id:null,filename:'Old manuscript',analysis_run_id:null,is_current:true},wait:null,allowed_actions:['retry'],artifacts:{figure:null,explanation:null,report:null}}));vi.stubGlobal('fetch',fetch);render(<TaskDetail {...props}/>);fireEvent.click(await screen.findByRole('button',{name:'重试原任务'}));await waitFor(()=>expect(fetch.mock.calls.some(([,init])=>init?.method==='POST')).toBe(true));const [url,init]=fetch.mock.calls.find(([,init])=>init?.method==='POST')!;expect(url).toBe('/api/v1/tasks/t1/resume');expect(JSON.parse(String(init!.body))).toEqual({operation:'retry',wait_id:null,expected_task_revision:3,input_version:input});expect(screen.getByText('使用冻结的目标、指南要求与稿件版本重试；不访问外网或调用模型。')).toBeTruthy()
+})
+it('recovers an independent adaptation task with its exact input and finite local wording',async()=>{
+ const input={kind:'journal_adaptation',adaptation_id:'a1',target_id:'target1',check_id:'c1',requirements_version:'a'.repeat(64),manuscript_version_id:'v1',workflow_version:'journal_adaptation_v1'}
+ const task={...taskFixture,task_type:'journal_adaptation',phase:'verify',status:'failed',display_status:'failed',error_code:'task_failed',reason_code:null,input_version:input}
+ const fetch=vi.fn(async(url:string,init?:RequestInit)=>Response.json(init?.method==='POST'?{...task,status:'queued',display_status:'queued',revision:4}:url.includes('/events')?{...eventsFixture,items:[{...eventsFixture.items[0],phase:'verify'}]}:{task,source:{file_id:null,filename:'Old manuscript',analysis_run_id:null,is_current:true},wait:null,allowed_actions:['retry'],artifacts:{figure:null,explanation:null,report:null}}));vi.stubGlobal('fetch',fetch);render(<TaskDetail {...props}/>);fireEvent.click(await screen.findByRole('button',{name:'重试原任务'}));await waitFor(()=>expect(fetch.mock.calls.some(([,init])=>init?.method==='POST')).toBe(true))
+ const [url,init]=fetch.mock.calls.find(([,init])=>init?.method==='POST')!;expect(url).toBe('/api/v1/tasks/t1/resume');expect(JSON.parse(String(init!.body))).toEqual({operation:'retry',wait_id:null,expected_task_revision:3,input_version:input})
+ expect(screen.getByText('使用冻结的期刊适配、所选动作与父稿重试；不访问外网或调用模型。')).toBeTruthy();expect(screen.queryByText(/尚未提交的模型调用/)).toBeNull();expect(fetch.mock.calls.some(([url])=>url.includes('/model-usage'))).toBe(false);expect(await within(screen.getByRole('region',{name:'执行记录'})).findByText('期刊指南适配')).toBeTruthy()
 })

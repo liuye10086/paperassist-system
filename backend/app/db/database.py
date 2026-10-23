@@ -28,7 +28,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from app.core.config import local_config
 
 
-SCHEMA_HEAD = "0044_school_changes"
+SCHEMA_HEAD = "0047_journal_adaptations"
 _SCHEMA_NAME = re.compile(r"[a-z_][a-z0-9_]{0,62}\Z")
 _TEST_SCHEMA = re.compile(r"pa_test_[0-9a-f]{32}\Z")
 _CONNECTION_OPTIONS = frozenset({

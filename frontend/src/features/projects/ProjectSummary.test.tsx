@@ -5,12 +5,21 @@ import ProjectSummary from './ProjectSummary'
 import { clearApiSession, setApiSession } from '../../shared/api/client'
 import { summaryFixture } from '../../test/fixtures/summaryFixture'
 import { setLocale } from '../../shared/i18n'
+import {isProjectSummary} from './projectSummaryTypes'
 
 beforeEach(() => { setApiSession('summary-test') })
 afterEach(() => { cleanup(); clearApiSession(); setLocale('zh-CN'); vi.useRealTimers(); vi.unstubAllGlobals() })
 const source = { id: 'job', file_id: 'f1', filename: '研究.xlsx', analysis_run_id: 'r1',
   setup_revision: 1, current_revision: 2, engine_version: 'test-v1', recorded_at: '2026-10-03T08:00:00Z',
   figure_id: null, explanation_id: null }
+test('shows only the latest confirmed target and its own independently recorded progress',async()=>{
+ const event={id:'e1',project_id:'p1',target_id:'target1',status:'submitted',event_date:'2026-10-23',note:'本人记录',manuscript:null,export_id:null,corrects_event_id:null,created_at:'2026-10-23T00:00:00Z',recorded_by:'me'}
+ const fixture={...summaryFixture(),journal:{target_id:'target1',profile_name:'Fixed Journal',recommendation_id:'rec1',confirmed_at:'2026-10-23T00:00:00Z',progress:event}}
+ expect(isProjectSummary({...fixture,journal:{...fixture.journal,progress:{...event,target_id:'other'}}},'p1','sci',1,1)).toBe(false)
+ vi.stubGlobal('fetch',vi.fn(async()=>Response.json(fixture)))
+ render(<ProjectSummary projectId="p1" projectType="sci"/>);const region=await screen.findByRole('region',{name:'目标期刊与实际进展'})
+ expect(region.textContent).toContain('Fixed Journal');expect(region.textContent).toContain('rec1');expect(region.textContent).toContain('已投稿');expect(region.textContent).toContain('本人记录')
+})
 function deferred<T>() {
   let resolve!: (value: T) => void
   const promise = new Promise<T>(done => { resolve = done })
@@ -35,8 +44,8 @@ test.each(['sci', 'thesis'] as const)('shows honest empty states for %s without 
   render(<ProjectSummary projectId="p1" projectType={kind} />)
   expect(await screen.findByText('还没有已保存的分析任务记录。')).toBeTruthy()
   expect(screen.getByText('还没有已生成的 PNG 或 Word 文件。')).toBeTruthy()
-  expect(screen.getByText(kind === 'sci' ? 'SCI 期刊与投稿' : '学校与毕业论文评审')).toBeTruthy()
-  expect(screen.queryByText(kind === 'thesis' ? 'SCI 期刊与投稿' : '学校与毕业论文评审')).toBeNull()
+  expect(screen.getByText(kind === 'sci' ? '期刊目标适配与投稿进展' : '学校与毕业论文评审')).toBeTruthy()
+  expect(screen.queryByText(kind === 'thesis' ? '期刊目标适配与投稿进展' : '学校与毕业论文评审')).toBeNull()
   expect(screen.getByText('写作与修改')).toBeTruthy()
   expect(screen.getAllByText('功能未开放').length).toBe(1)
   expect(screen.queryByText(/任务完成不代表/)).toBeNull()
@@ -60,7 +69,7 @@ test('shows each persisted task status, readable historical source and protected
   expect(screen.getAllByText('历史结果').length).toBe(8)
   expect(screen.getByRole('link', { name: '下载成果 图表.png' }).getAttribute('href')).toContain('/figures/figure/download')
   expect(screen.getByRole('link', { name: '下载成果 报告.docx' }).getAttribute('href')).toContain('/report/report/download')
-  expect(screen.getByText('SCI 期刊与投稿')).toBeTruthy()
+  expect(screen.getByText('期刊目标适配与投稿进展')).toBeTruthy()
 })
 
 test('renders readable source context without internal identifiers, versions or hidden source details', async () => {
@@ -268,7 +277,7 @@ test('ignores delayed response bodies after switching projects', async () => {
   view.rerender(<ProjectSummary projectId="p2" projectType="thesis" />)
   await screen.findByText('学校与毕业论文评审')
   await act(async () => { body.resolve(summaryFixture('p1')) })
-  expect(screen.queryByText('SCI 期刊与投稿')).toBeNull()
+  expect(screen.queryByText('期刊目标适配与投稿进展')).toBeNull()
 })
 
 test('times out even when fetch ignores abort and ignores a later response', async () => {
@@ -279,7 +288,7 @@ test('times out even when fetch ignores abort and ignores a later response', asy
   await act(async () => { await vi.advanceTimersByTimeAsync(15_000) })
   expect(screen.getByRole('alert').textContent).toBe('项目摘要读取超时，请重试。')
   await act(async () => { pending.resolve(Response.json(summaryFixture())) })
-  expect(screen.queryByText('SCI 期刊与投稿')).toBeNull()
+  expect(screen.queryByText('期刊目标适配与投稿进展')).toBeNull()
 })
 
 test('rejects malformed or mismatched response data without fabricating an empty summary', async () => {
@@ -294,11 +303,11 @@ test('clears saved summary when the session changes and ignores late responses',
   let calls = 0
   vi.stubGlobal('fetch', vi.fn(() => ++calls === 1 ? Promise.resolve(Response.json(summaryFixture())) : pending.promise))
   render(<ProjectSummary projectId="p1" projectType="sci" />)
-  await screen.findByText('SCI 期刊与投稿')
+  await screen.findByText('期刊目标适配与投稿进展')
   fireEvent.click(screen.getByRole('button', { name: '刷新项目摘要' }))
   act(() => { setApiSession('other-user') })
   await act(async () => { pending.resolve(Response.json(summaryFixture())) })
-  expect(screen.queryByText('SCI 期刊与投稿')).toBeNull()
+  expect(screen.queryByText('期刊目标适配与投稿进展')).toBeNull()
   expect(within(screen.getByRole('region', { name: '项目任务与成果' })).queryByRole('link')).toBeNull()
 })
 

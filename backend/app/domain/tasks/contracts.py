@@ -1,4 +1,7 @@
 """Versioned inputs and safe task projections, independent of queue providers."""
+from app.domain.journals.contracts import JournalInputVersion
+from app.domain.journals.format_contracts import FormatInputVersion
+from app.domain.journals.adaptation_contracts import AdaptationInputVersion
 from datetime import timezone
 from typing import Annotated, Literal
 
@@ -16,7 +19,7 @@ from app.domain.tasks.errors import ErrorCategory, RetryReason
 from pydantic import AfterValidator, AwareDatetime, BaseModel, ConfigDict, Field, model_validator
 
 
-TaskType = Literal['boxplot', 'explanation', 'word_report', 'parse_file', 'extract_dataset', 'prepare_dataset', 'review_ocr', 'analysis_plan', 'analysis_recommendation', 'figure_projection', 'figure_workbench', 'figure_explanation', 'collection_word_report', 'statistics_compute', 'literature_search', 'literature_assistance', 'manuscript_draft', 'manuscript_docx', 'pdf_export', 'layout_docx', 'manuscript_writing', 'school_template_parse']
+TaskType = Literal['boxplot', 'explanation', 'word_report', 'parse_file', 'extract_dataset', 'prepare_dataset', 'review_ocr', 'analysis_plan', 'analysis_recommendation', 'figure_projection', 'figure_workbench', 'figure_explanation', 'collection_word_report', 'statistics_compute', 'literature_search', 'literature_assistance', 'manuscript_draft', 'manuscript_docx', 'pdf_export', 'layout_docx', 'manuscript_writing', 'school_template_parse', 'journal_recommendation', 'journal_format_check', 'journal_adaptation']
 UTCDateTime = Annotated[AwareDatetime, AfterValidator(lambda value: value.astimezone(timezone.utc))]
 TaskStatus = Literal['queued', 'running', 'waiting_input', 'waiting_confirmation', 'succeeded', 'failed']
 TaskPhase = Literal['parse', 'plan', 'compute', 'search', 'interpret', 'write', 'export', 'verify']
@@ -150,7 +153,7 @@ class TaskView(BaseModel):
     reason_code: TaskReason | None
     created_at: UTCDateTime
     updated_at: UTCDateTime | None
-    input_version: SchoolTemplateInputVersion | LayoutInputVersion | WritingInputVersion | PdfInputVersion | ManuscriptInputVersion | AssistanceInputVersion | LiteratureInputVersion | StatisticsInputVersion | CollectionInputVersion | RecommendationInputVersion | AnalysisPlanInputVersion | OcrReviewInputVersion | PreparationInputVersion | DatasetAnalysisInputVersion | InputVersion | ParseInputVersion | StructureInputVersion
+    input_version: AdaptationInputVersion | FormatInputVersion | JournalInputVersion | SchoolTemplateInputVersion | LayoutInputVersion | WritingInputVersion | PdfInputVersion | ManuscriptInputVersion | AssistanceInputVersion | LiteratureInputVersion | StatisticsInputVersion | CollectionInputVersion | RecommendationInputVersion | AnalysisPlanInputVersion | OcrReviewInputVersion | PreparationInputVersion | DatasetAnalysisInputVersion | InputVersion | ParseInputVersion | StructureInputVersion
     result_analysis_run_id: str | None = None
     execution_receipt: dict | None = None
     result_report_id: str | None = None
@@ -160,6 +163,12 @@ class TaskView(BaseModel):
 
     @model_validator(mode='after')
     def metadata_matches_origin(self):
+        if (self.task_type=='journal_adaptation') != isinstance(self.input_version,AdaptationInputVersion):
+            raise ValueError('Input version must match journal adaptation task type.')
+        if (self.task_type=='journal_format_check') != isinstance(self.input_version,FormatInputVersion):
+            raise ValueError('Input version must match journal format task type.')
+        if (self.task_type=='journal_recommendation') != isinstance(self.input_version,JournalInputVersion):
+            raise ValueError('Input version must match journal task type.')
         if (self.task_type=='school_template_parse') != isinstance(self.input_version,SchoolTemplateInputVersion):
             raise ValueError('Input version must match school template task type.')
         if (self.task_type == 'manuscript_writing') != isinstance(self.input_version, WritingInputVersion):

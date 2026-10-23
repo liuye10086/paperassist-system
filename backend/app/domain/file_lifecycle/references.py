@@ -163,7 +163,7 @@ def public_source_groups(groups, indexes, tasks, file, user_id, producers, proof
             key = (kind, row['id'] if 'id' in row else row['file_id'])
             rows[key] = row
             refs = set()
-            if kind in ('manuscript_figure_language_versions','school_template_versions','manuscript_school_changes'):
+            if kind in ('manuscript_figure_language_versions','school_template_versions','manuscript_school_changes','journal_material_refs'):
                 if row.get('_integrity_valid') and row['project_id']==file['project_id'] and row['user_id']==user_id:
                     safe.add(key)
                 dependencies[key]=set()
@@ -334,6 +334,8 @@ def read_references(db, file, user_id):
         try:
             change_service.row(db,project_id,change['manuscript_id'],change['id']);change['_integrity_valid']=True
         except Exception:change['_integrity_valid']=False
+    from app.domain.journals.retention import read_refs
+    groups['journal_material_refs']=read_refs(db,file,user_id)
     school_tasks={v['task_id']:v for v in groups['school_template_versions']}
     indexes = {kind: {row['id']: row for row in rows if 'id' in row} for kind, rows in groups.items()}
     output_tasks = {row['task_id'] for rows in groups.values() for row in rows if row.get('task_id')}
@@ -352,7 +354,10 @@ def read_references(db, file, user_id):
     for row in project_tasks:
         task = dict(row)
         snapshot = task['input_snapshot']
-        if task['task_type']=='school_template_parse':
+        if task['task_type'] in ('journal_recommendation','journal_format_check','journal_adaptation'):
+            if file_id not in file_ids(snapshot):continue
+            scoped=dict(materials=[n for n in nodes(snapshot) if n.get('file_id')==file_id])
+        elif task['task_type']=='school_template_parse':
             version=school_tasks.get(task['id'])
             if version is None:continue
             scoped=dict(file=version['source_json']['file'])
@@ -378,6 +383,11 @@ def read_references(db, file, user_id):
         valid = valid and source_identity_valid(scoped,indexes,file,producers)
         valid = valid and task_contract_valid(task)
         if task['task_type']=='school_template_parse':valid = valid and school_tasks[task['id']]['_integrity_valid']
+        if task['task_type'] in ('journal_recommendation','journal_format_check','journal_adaptation'):
+            try:
+                from app.domain.journals.retention import validate_task
+                validate_task(db,task)
+            except Exception:valid=False
         for key,kind in (('parse_id','parse_versions'),('structure_id','structure_versions')):
             if key in snapshot:
                 output = indexes[kind].get(snapshot[key]) if isinstance(snapshot[key], str) else None
@@ -431,6 +441,7 @@ def read_references(db, file, user_id):
             latest_checkpoints[checkpoint['task_id']] = checkpoint
     by_task = {t['id']: t for t in tasks}
     reasons = []
+    if groups['journal_material_refs']:reasons.append('journal_history_retained')
     if groups['school_template_versions']:reasons.append('school_template_history_retained')
     if groups['manuscript_school_changes']:reasons.append('school_change_history_retained')
     if counts['active_tasks']:

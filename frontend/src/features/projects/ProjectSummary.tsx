@@ -1,3 +1,4 @@
+import {submissionStatuses} from '../journals/adaptationContracts'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { apiFetch, onApiSessionChanged } from '../../shared/api/client'
 import { artifactFilename } from '../../shared/components/artifactFilename'
@@ -6,7 +7,7 @@ import { isProjectSummary, type ProjectSummaryData, type SummarySource, type Sum
 import { useI18n } from '../../shared/i18n'
 import './projectSummary.css'
 
-type Props = { projectId: string; projectType: 'sci' | 'thesis'; view?: 'overview' | 'artifacts' | 'all'; active?: boolean; onOpenManuscripts?:()=>void }
+type Props = { projectId: string; projectType: 'sci' | 'thesis'; view?: 'overview' | 'artifacts' | 'all'; active?: boolean; onOpenManuscripts?:()=>void; onOpenJournals?:()=>void }
 const taskNames = { statistics: '描述统计', boxplot: '箱线图生成', explanation: 'AI 分析解释', report: 'Word 报告导出' }
 const statuses: Record<SummaryTask['status'], string> = {
   queued: '待执行',
@@ -43,7 +44,7 @@ export default function ProjectSummary(props: Props) {
   return <Summary key={`${props.projectId}:${props.projectType}`} {...props} />
 }
 
-function Summary({ projectId, projectType, view = 'all', active = true, onOpenManuscripts }: Props) {
+function Summary({ projectId, projectType, view = 'all', active = true, onOpenManuscripts, onOpenJournals }: Props) {
   const { t, locale } = useI18n()
   const [data, setData] = useState<ProjectSummaryData | null>(null)
   const [pages, setPages] = useState({ tasks: 1, artifacts: 1 })
@@ -122,6 +123,7 @@ function Summary({ projectId, projectType, view = 'all', active = true, onOpenMa
     {data && <>
       <div className="summary-task-section" hidden={view === 'artifacts'}>
       {projectType==='thesis'&&data.thesis_profile&&<section aria-label={t('学校与模板摘要')}><h4>{t('学校与模板摘要')}</h4><dl><dt>{t('学校')}</dt><dd>{data.thesis_profile.school||t('未填写')}</dd><dt>{t('院系 / 专业')}</dt><dd>{[data.thesis_profile.department,data.thesis_profile.major].filter(Boolean).join(' / ')||t('未填写')}</dd><dt>{t('学位 / 层次')}</dt><dd>{[data.thesis_profile.degree_type,data.thesis_profile.education_level].filter(Boolean).join(' / ')||t('未填写')}</dd><dt>{t('已绑定学校模板')}</dt><dd>{data.thesis_profile.bound_confirmation_id?[data.thesis_profile.template_name,data.thesis_profile.template_version_label].filter(Boolean).join(' · '):t('尚未绑定确认版本')}</dd></dl></section>}
+      {projectType==='sci'&&data.journal&&<section aria-label={t('目标期刊与实际进展')}><h4>{t('目标期刊与实际进展')}</h4><p>{data.journal.profile_name} · {data.journal.target_id}</p><p>{t('建议批次')} {data.journal.recommendation_id} · {data.journal.confirmed_at}</p><p>{t('实际进展')}：{data.journal.progress?<>{t(submissionStatuses[data.journal.progress.status])} · {data.journal.progress.event_date} · {data.journal.progress.note}</>:t('未记录')}</p><p>{t('用户本人记录；任务完成不改变投稿进度。')}</p></section>}
       <h4 className="summary-section-heading">{t("分析任务记录")}<span>{data.tasks.total}</span></h4>
       {data.tasks.total === 0 ? <p className="summary-empty">{t("还没有已保存的分析任务记录。")}</p> : <>
         <div className="summary-table-scroll"><table className="summary-task-table"><caption className="visually-hidden">{t("分析任务记录")}</caption>
@@ -134,8 +136,9 @@ function Summary({ projectId, projectType, view = 'all', active = true, onOpenMa
       </>}
       {projectType==='thesis'&&onOpenManuscripts&&<section className="summary-upcoming" aria-label={t('毕业论文稿件与版本')}><strong>{t('毕业论文稿件与版本')}</strong>{data.future.writing.state==='available'&&<><p>{data.future.writing.current_manuscript?.title??t('尚无事实稿。')}</p><p>{t('已保存版本 {number}',{number:data.future.writing.versions.length})}</p></>}<button type="button" onClick={onOpenManuscripts}>{t('打开毕业论文写作')}</button></section>}
       {projectType==='sci'&&onOpenManuscripts&&<div className="summary-upcoming"><strong>{t('SCI 事实稿与版本')}</strong><p>{t('查看稿件资料、版本和 DOCX 导出。')}</p><button type="button" onClick={onOpenManuscripts}>{t('打开 SCI 写作')}</button></div>}
+      {projectType==='sci'&&onOpenJournals&&<div className="summary-upcoming"><strong>{t('期刊建议')}</strong><p>{t('依据研究信息与本地来源创建独立建议批次，保留历史。')}</p><button type="button" onClick={onOpenJournals}>{t('打开期刊建议')}</button></div>}
       <aside className="summary-upcoming" aria-label={t('后续研究工作')}><span>{t(data.future.writing.state==='available'?'修改与后续研究':'写作与修改')}</span><span aria-hidden="true">·</span>
-        {data.future.sci && <span>{t('SCI 期刊与投稿')}</span>}{data.future.thesis && <span>{t('学校与毕业论文评审')}</span>}
+        {data.future.sci && <span>{t('期刊目标适配与投稿进展')}</span>}{data.future.thesis && <span>{t('学校与毕业论文评审')}</span>}
         <span className="summary-unavailable">{t('功能未开放')}</span></aside>
       </div>
       <div className="summary-artifact-section" hidden={view === 'overview'}>

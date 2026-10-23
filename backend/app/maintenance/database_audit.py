@@ -205,6 +205,12 @@ def audit_database(db):
         checks.extend(audit_layout_exports(db))
         from app.maintenance.school_template_audit import audit_school_templates
         checks.extend(audit_school_templates(db))
+        from app.maintenance.journal_audit import audit_journals
+        checks.extend(audit_journals(db))
+        from app.maintenance.journal_format_audit import audit_journal_formats
+        checks.extend(audit_journal_formats(db))
+        from app.maintenance.journal_adaptation_audit import audit_journal_adaptations
+        checks.extend(audit_journal_adaptations(db))
         from app.maintenance.school_change_audit import audit_school_changes
         checks.extend(audit_school_changes(db))
     return {'schema': schema, 'ok': not issues and not any(c['invalid'] for c in checks), 'schema_issues': issues, 'data_checks': checks,

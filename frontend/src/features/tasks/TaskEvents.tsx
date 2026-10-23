@@ -60,7 +60,7 @@ function EventRecord({ event, taskType }: { event: TaskEvent; taskType: TaskType
     && event.retry_count > 0 && event.retry_delay_seconds != null
   const exhausted = event.event_type === 'failed' && temporaryFailure && event.retry_count === 3
   return <li><span className="task-event-dot" aria-hidden="true" /><div><strong>{t(eventNames[event.event_type])}</strong>
-    <p>{t(taskType === 'review_ocr' && event.phase === 'plan' ? '文字核对'
+    <p>{t(taskType === 'journal_adaptation' ? '期刊指南适配' : taskType === 'journal_format_check' ? '期刊格式检查' : taskType === 'journal_recommendation' && event.phase === 'plan' ? '期刊建议' : taskType === 'review_ocr' && event.phase === 'plan' ? '文字核对'
       : taskType === 'review_ocr' && event.phase === 'verify' ? '生成核对版本' : phaseNames[event.phase])}</p>
     {summary && <p className="task-event-error">{t(summary)}</p>}
     {scheduled && <p className="task-event-retry">{t('自动重试第 {count}/3 次，等待 {seconds} 秒后继续。',

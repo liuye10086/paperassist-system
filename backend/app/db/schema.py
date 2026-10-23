@@ -297,3 +297,12 @@ thesis_profiles,school_template_versions,school_template_sources,school_template
 
 from app.db.school_change_schema import define_school_change_table
 manuscript_school_changes=define_school_change_table(metadata)
+
+from app.db.journal_schema import define_journal_tables
+journal_profiles,journal_recommendations,journal_material_refs=define_journal_tables(metadata)
+
+from app.db.journal_format_schema import define_journal_format_tables
+journal_guides,journal_targets,journal_format_checks=define_journal_format_tables(metadata)
+
+from .journal_adaptation_schema import define_journal_adaptation_tables
+journal_adaptations,journal_submission_events=define_journal_adaptation_tables(metadata)

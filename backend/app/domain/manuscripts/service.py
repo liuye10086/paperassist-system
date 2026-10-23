@@ -120,7 +120,10 @@ class ManuscriptService:
         if snap.get('illustration_check_version') is not None:
             from .illustrations import check_bindings
             if snap['illustration_check_version']!=1 or check_bindings(snap['results_groups'],snap['output_language']): raise source_conflict()
-        if snap.get('school_change_provenance') is not None:
+        if snap.get('journal_adaptation_provenance') is not None:
+            from app.domain.journals.adaptation_service import validate_adapted_version
+            validate_adapted_version(self,db,row)
+        elif snap.get('school_change_provenance') is not None:
             from .school_changes import validate_school_change_version
             validate_school_change_version(self,db,row)
         elif snap.get('review_provenance') is not None:
@@ -150,7 +153,7 @@ class ManuscriptService:
             bound=by_id.get(source['id'])
             if not bound or bound['source_json']!=source or bound['sha256']!=digest(source) or any(bound[k]!=source[v] for k,v in (('kind','kind'),('file_id','file_id'),('role','role'))): raise source_conflict()
         parent=db.execute('SELECT revision FROM manuscript_versions WHERE id=%s AND manuscript_id=%s',(row['parent_version_id'],row['manuscript_id'])).fetchone() if row['parent_version_id'] else None
-        if row['revision']>1 and (not parent or (not 1<=parent['revision']<row['revision'] if snap.get('school_change_provenance') else parent['revision']!=row['revision']-1)): raise source_conflict()
+        if row['revision']>1 and (not parent or (not 1<=parent['revision']<row['revision'] if snap.get('school_change_provenance') or snap.get('journal_adaptation_provenance') else parent['revision']!=row['revision']-1)): raise source_conflict()
         expected=[]
         citation=snap.get('citation_snapshot')
         if citation:
@@ -221,6 +224,32 @@ class ManuscriptService:
                 if revision>1: db.execute('UPDATE manuscripts SET current_revision=%s,title=%s,updated_at=%s WHERE id=%s',(revision,request.title,timestamp,identity))
                 status=201
         return self.get(project,identity),status
+
+    def publish_journal_adaptation(self,db,base,candidate,adaptation):
+        """Narrow publication capability: exact display delta and verified provenance."""
+        from app.domain.journals.display import apply,DISPLAY_VERSION
+        frozen=adaptation['snapshot_json'];project=base['project_id'];identity=base['manuscript_id']
+        db.execute('SELECT id FROM manuscripts WHERE id=%s FOR UPDATE',(identity,)).fetchone()
+        root=self.root(db,project,identity)
+        if root['current_revision']!=frozen['expected_current_revision']:raise StorageError('manuscript_revision_conflict','稿件已有新版本，请刷新后重新采用固定父稿。',409)
+        if base['id']!=adaptation['manuscript_version_id'] or self.version(db,project,identity,base['revision'])!=base:raise source_conflict()
+        self.verify_task(db,self.store.require_task(db,base['task_id']),current=True)
+        actions=[a for a in frozen['preview']['actions'] if a['id'] in frozen['selected_action_ids']]
+        expected=apply(base['snapshot_json'],actions)
+        expected['journal_adaptation_provenance']=dict(adaptation_id=adaptation['id'],base_version_id=base['id'],input_sha256=adaptation['snapshot_sha256'],display_version=DISPLAY_VERSION,synthetic=frozen['synthetic'])
+        if candidate!=expected:raise source_conflict()
+        revision=root['current_revision']+1;version_id=str(uuid4());timestamp=now()
+        body=dict(base['request_json'],expected_revision=revision-1)
+        producer=self.task(db,project,'manuscript_draft',dict(project_id=project,manuscript_id=identity,manuscript_version_id=version_id,revision=revision,output_language=candidate['output_language'],workflow_version=WORKFLOW,snapshot_sha256=digest(candidate)),'manuscript:'+version_id)
+        fields=dict(id=version_id,project_id=project,user_id=self.store.user_id,idempotency_key='journal:'+adaptation['id'],request_json=Jsonb(body),request_digest=digest(body),manuscript_id=identity,revision=revision,parent_version_id=base['id'],task_id=producer['id'],snapshot_json=Jsonb(candidate),snapshot_sha256=digest(candidate),created_at=timestamp,school_confirmation_id=None)
+        db.execute('INSERT INTO manuscript_versions('+','.join(fields)+') VALUES ('+','.join(['%s']*len(fields))+')',tuple(fields.values()))
+        for table in ('manuscript_sources','manuscript_citations'):
+            for original in db.execute('SELECT * FROM '+table+' WHERE version_id=%s',(base['id'],)).fetchall():
+                values=dict(original);values.update(id=str(uuid4()),version_id=version_id)
+                values={k:Jsonb(v) if isinstance(v,(dict,list)) else v for k,v in values.items()}
+                db.execute('INSERT INTO '+table+'('+','.join(values)+') VALUES ('+','.join(['%s']*len(values))+')',tuple(values.values()))
+        db.execute('UPDATE manuscripts SET current_revision=%s,title=%s,updated_at=%s WHERE id=%s',(revision,candidate['title'],timestamp,identity))
+        return dict(manuscript_id=identity,version_id=version_id,revision=revision,parent_version_id=base['id'],task_id=producer['id'])
 
     def version_view(self,db,row):
         self.validate_version(db,row)

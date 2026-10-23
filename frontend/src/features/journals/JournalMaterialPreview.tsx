@@ -1,0 +1,13 @@
+import {useEffect,useState} from 'react'
+import {useI18n} from '../../shared/i18n'
+import {taskRequest,TaskRequestError} from '../tasks/taskApi'
+import {record,type Material} from './contracts'
+type Page={items:{id:string;text?:string|null;location?:unknown}[];total?:number}
+export default function JournalMaterialPreview({projectId,material,onUnavailable}:{projectId:string;material:Material;onUnavailable?:()=>void}){
+ const {t}=useI18n();const [page,setPage]=useState(1);const [attempt,setAttempt]=useState(0);const [data,setData]=useState<Page|null>(null);const [error,setError]=useState('');const [loading,setLoading]=useState(true)
+ useEffect(()=>{let current=true;const controller=new AbortController();const base=`/api/v1/projects/${encodeURIComponent(projectId)}`;const path=material.kind==='external_evidence_version'?`external-evidence/${encodeURIComponent(material.id)}`:`files/${encodeURIComponent(material.file_id)}/external-evidence-source?${new URLSearchParams({source_kind:material.kind,...(material.kind!=='original'?{version_id:material.id}:{}),page:String(page)})}`
+  void taskRequest(`${base}/${path}`,controller,(v):v is Page=>record(v)&&Array.isArray(v.items)&&v.items.every(i=>record(i)&&typeof i.id==='string'&&(i.text==null||typeof i.text==='string')),'材料来源读取失败，请重试。').then(result=>{if(current&&!controller.signal.aborted)setData(result)}).catch(cause=>{if(current){setError('材料来源读取失败，请重试。');if(cause instanceof TaskRequestError&&[401,403].includes(cause.status))onUnavailable?.()}}).finally(()=>{if(current)setLoading(false)})
+  return()=>{current=false;controller.abort()}
+ },[projectId,material.id,material.kind,material.file_id,page,attempt,onUnavailable])
+ return <section aria-label={t('来源材料原文定位')}><h4>{t('来源材料原文定位')}</h4>{loading&&<p role="status">{t('正在读取来源材料……')}</p>}{error&&<><p role="alert">{t(error)}</p><button type="button" disabled={loading} onClick={()=>{setLoading(true);setError('');setData(null);setAttempt(v=>v+1)}}>{t('重试读取来源材料')}</button></>}{data?.items.map(i=><article key={i.id}><code>{i.id}</code><p className="journal-source-text">{i.text||t('此条目没有可用原文。')}</p></article>)}{data&&!data.items.length&&<p>{t('此材料没有可定位原文；已核对字段仍须提供来源原文。')}</p>}{material.kind!=='external_evidence_version'&&<div><button type="button" disabled={loading||page===1} onClick={()=>{setLoading(true);setData(null);setError('');setPage(p=>p-1)}}>{t('上一页材料片段')}</button><button type="button" disabled={loading||!data||page*20>=(data.total??data.items.length)} onClick={()=>{setLoading(true);setData(null);setError('');setPage(p=>p+1)}}>{t('下一页材料片段')}</button></div>}</section>
+}
