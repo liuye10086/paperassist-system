@@ -86,7 +86,7 @@ class LiveFixture:
     source_kind = 'synthetic_fixture'
     def __init__(self, pending=False, unknown=False, model=None, usage=True):
         self.posts=[]; self.gets=[]; self.pending=pending; self.unknown=unknown; self.model=model; self.usage=usage
-    def create_frozen(self, *, wire_json):
+    def create_frozen(self, *, wire_json, execution_contract=None):
         self.posts.append(wire_json)
         if self.unknown: raise TimeoutError()
         return self.receipt()
@@ -191,6 +191,48 @@ def test_source_revision_changed_after_preview_rejects_before_call(client):
     provider=LiveFixture();result=run_manuscript_writing_task(task['id'],task['revision'],provider=provider)
     assert result['status']=='failed' and not provider.posts
     with database_connection() as db: assert db.execute('SELECT count(*) AS n FROM model_calls').fetchone()['n']==0
+
+
+def test_source_changed_between_slices_retrieves_and_accounts_original_response(client):
+    root,bundle,path,auth,task=create_live(client);provider=LiveFixture(pending=True)
+    original=provider.receipt
+    def complete_usage():
+        receipt=original();receipt['usage']['input_tokens_details']['cache_write_tokens']=0
+        return receipt
+    provider.receipt=complete_usage
+    pending=run_manuscript_writing_task(task['id'],task['revision'],provider=provider)
+    assert pending['status']=='running'
+    changed=post(client,root+'/versions',body(expected_revision=1),'change-after-post')
+    assert changed.status_code==201,changed.text
+    still_pending=run_manuscript_writing_task(task['id'],pending['revision'],provider=provider)
+    assert still_pending['status']=='running' and len(provider.gets)==1
+    provider.pending=False
+    failed=run_manuscript_writing_task(task['id'],still_pending['revision'],provider=provider)
+    assert failed['status']=='failed' and failed['error_code']=='task_source_conflict'
+    assert len(provider.posts)==1 and len(provider.gets)==2
+    with database_connection() as db:
+        call=db.execute('SELECT * FROM model_calls WHERE task_id=%s',(task['id'],)).fetchone()
+        assert provider.gets==[call['provider_response_id']]*2
+        assert call['status']=='completed' and call['usage_status']=='estimated'
+        assert {r['status'] for r in db.execute('SELECT status FROM budget_reservations WHERE call_id=%s',(call['id'],))}=={'settled'}
+        assert db.execute('SELECT candidate_json FROM manuscript_writing_requests WHERE task_id=%s',(task['id'],)).fetchone()['candidate_json'] is None
+
+
+def test_source_changed_after_submission_started_keeps_unknown_wait_without_post(client):
+    from tests.integration.test_writing_live_admission import prepare,reserve
+    from app.adapters.task_execution_store import TaskExecutionStore
+    from app.domain.manuscript_writing.live_execution import execute_live
+    root,bundle,path,auth,task=create_live(client)
+    args=prepare(client,bundle,task);service,request,lease=args
+    call=reserve(args)
+    assert service.begin_submission(call['id'],execution_lease=lease,expected_task_revision=request.expected_task_revision)
+    assert post(client,root+'/versions',body(expected_revision=1),'change-without-receipt').status_code==201
+    provider=LiveFixture()
+    waiting=execute_live(TaskExecutionStore(),lease,provider)
+    assert waiting['status']=='waiting_confirmation' and waiting['reason_code']=='submission_unknown'
+    assert not provider.posts and not provider.gets
+    with database_connection() as db:
+        assert {r['status'] for r in db.execute('SELECT status FROM budget_reservations WHERE call_id=%s',(call['id'],))}=={'held'}
 
 
 def test_cross_project_and_user_bundle_authorizations_are_denied(client,postgres_schema):

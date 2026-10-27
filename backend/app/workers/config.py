@@ -7,6 +7,31 @@ from urllib.parse import urlsplit
 from app.db.database import get_database_config
 
 
+def concurrency_ceiling():
+    """Deployment must explicitly allow a second process; old environments keep one."""
+    from app.core.config import local_config
+    value = local_config().get('PAPERASSIST_WORKER_CONCURRENCY_CEILING', '1')
+    if value not in ('1', '2'):
+        raise ValueError('Worker concurrency ceiling must be 1 or 2.')
+    return int(value)
+
+
+def startup_configuration(db=None):
+    from uuid import uuid4
+    from app.db.database import database_connection
+    from app.domain.admin_configuration.bindings import current
+    if db is None:
+        with database_connection() as connection:
+            return startup_configuration(connection)
+    version = current(db)
+    desired = version['bundle']['basic'].get('worker_concurrency', 1) if version else 1
+    if type(desired) is not int or desired not in (1, 2):
+        raise ValueError('Worker concurrency configuration is invalid.')
+    return dict(concurrency=min(desired, concurrency_ceiling()), startup_id=str(uuid4()),
+                configuration_id=version['id'] if version else None,
+                configuration_sha256=version['sha256'] if version else None)
+
+
 def load_secrets():
     for key in ('PAPERASSIST_BROKER_URL', 'PAPERASSIST_DATABASE_URL', 'PAPERASSIST_TEST_DATABASE_URL'):
         path = os.environ.get(key + '_FILE')

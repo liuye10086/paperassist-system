@@ -1,0 +1,31 @@
+import {configurationDiffValue} from './configurationDiffValues'
+import {useEffect,useRef,useState} from 'react'
+import {safeError,useI18n} from '../../shared/i18n'
+import {configurationRequest} from './configurationApi'
+import {OperationsError} from './operationsApi'
+import {Table} from './OperationsCommon'
+import {basicFields,configurationFieldNames,businessNames,domainNames,object,validationMatches,type ConfigBinding,type ConfigCatalog,type ConfigDiff,type ConfigurationValidation,type ConfigurationVersion} from './configurationTypes'
+function validationErrorName(code:string){
+ if(code==='max_rows_exceeds_deployment')return '最大行数超过部署上限。'
+ if(code==='default_count_exceeds_max_count')return '默认建议数不能超过最大建议数。'
+ if(code==='duplicate_heading_alias')return '标题映射存在重复。'
+ if(code.endsWith('exceeds_deployment'))return '参数超过部署上限。'
+ if(code.includes('price_')||code.includes('unverified_price'))return '价格来源与核实状态不一致。'
+ if(code.includes('not_registered'))return '身份引用尚未登记。'
+ if(code.includes('incompatible_policy')||code.includes('fixed_provider_policy')||code.includes('model_not_installed')||code.includes('deployment_policy_missing'))return '政策与已安装业务不兼容。'
+ return '验证问题待核对。'
+}
+export function VersionEvidence({version,revision}:{version:ConfigurationVersion;revision?:number}){const{t}=useI18n();const copy=(value:string)=>{void navigator.clipboard?.writeText(value).catch(()=>{})};return <details><summary>{t('版本依据')}</summary><dl className="operations-facts"><div><dt>{t('配置标识')}</dt><dd>{version.id}<button type="button" onClick={()=>copy(version.id)}>{t('复制标识')}</button></dd></div><div><dt>{t('配置内容 SHA256')}</dt><dd>{version.sha256}<button type="button" onClick={()=>copy(version.sha256)}>{t('复制内容摘要')}</button></dd></div>{revision!==undefined&&<div><dt>{t('有效指针修订')}</dt><dd>{revision}</dd></div>}<div><dt>{t('父版本')}</dt><dd>{version.parent_id??t('无父版本')}</dd></div></dl><dl className="operations-facts">{Object.entries(version.sources).map(([domain,source])=><div key={domain}><dt>{t(domainNames[domain as keyof typeof domainNames]??'未知')}</dt><dd>{t(({installed_code:'已安装代码',deployment_policy:'部署政策',synthetic_fixture:'合成验收样例',administrator_revision:'管理员修订',filtered_deployment:'经过过滤的部署设置',installed_code_and_filtered_deployment:'安装代码与过滤后的部署设置'} as Record<string,string>)[source]??'来源尚未核实')}</dd></div>)}</dl></details>}
+export function ValidationEvidence({value,version,catalog,dirty}:{value:ConfigurationValidation|undefined;version:ConfigurationVersion;catalog:ConfigCatalog;dirty:boolean}){const{t}=useI18n();const stale=!!value&&(dirty||!validationMatches(value,version,catalog)&&value.status==='passed');return <section aria-label={t('离线验证')}><h3>{t(!value?'尚未离线验证':stale?'验证依据已过期':value.status==='passed'?'离线验证通过':'离线验证失败')}</h3><p>{t('真实连通未测试')}</p><p>{t('未检查网络、供应商输出、官方价格或真实材料。')}</p>{value&&Object.entries(value.domains).map(([domain,result])=>result&&<section key={domain}><h4>{t(domainNames[domain as keyof typeof domainNames]??'未知')} · {t(result.mode==='reused'?'复用域验证':'已验证此域')}</h4>{result.errors.map(code=><p role="alert" key={code}>{t(validationErrorName(code))}<small><code>{code}</code></small></p>)}</section>)}</section>}
+export function DiffEvidence({diff}:{diff:ConfigDiff}){const{t}=useI18n();function field(path:string){const basic=basicFields.find(([key])=>path==='basic.'+key);const parts=path.split('.'),label=configurationFieldNames[parts.at(-1)??''];const operation=businessNames[parts[1] as keyof typeof businessNames];return basic?t(basic[1]):(operation?t(operation)+' · ':'')+t(label??domainNames[parts[0] as keyof typeof domainNames]??'字段')}
+ return <section aria-label={t('查看配置差异')}><h3>{t('查看配置差异')}</h3>{diff.changes.length===0?<p>{t('没有字段差异。')}</p>:<Table headers={['字段','变更前','变更后']}>{diff.changes.map(row=><tr key={row.path}><th>{field(row.path)}<small><code>{row.path}</code></small></th><td>{configurationDiffValue(row.path,row.before,t)}</td><td>{configurationDiffValue(row.path,row.after,t)}</td></tr>)}</Table>}</section>
+}
+const kinds=[['task','任务绑定'],['writing_bundle','外发预览包绑定'],['review_round','审稿轮次绑定'],['school_confirmation','学校确认绑定'],['journal_confirmation','期刊确认绑定']] as const
+export function BindingEvidence({onForbidden,active=true}:{onForbidden:()=>void;active?:boolean}){
+ const{t}=useI18n(),[kind,setKind]=useState<string>('task'),[id,setId]=useState(''),[result,setResult]=useState<ConfigBinding|null>(null),[error,setError]=useState(''),[busy,setBusy]=useState(false),request=useRef<AbortController|null>(null)
+ useEffect(()=>()=>{request.current?.abort()},[])
+ // eslint-disable-next-line react/set-state-in-effect
+ useEffect(()=>{if(!active){request.current?.abort();request.current=null;setBusy(false)}},[active])
+ async function read(){if(!active||request.current||!id.trim())return;const controller=new AbortController();request.current=controller;setBusy(true);setError('');setResult(null);try{const value=await configurationRequest<ConfigBinding>('/bindings/'+kind+'/'+encodeURIComponent(id.trim()),controller.signal);if(!object(value)||!['bound','legacy_unbound'].includes(value.status))throw new Error();if(!controller.signal.aborted)setResult(value)}catch(cause){if(!controller.signal.aborted){if(cause instanceof OperationsError&&cause.status===403)onForbidden();else setError(safeError(cause,'运营信息读取失败，请重试。'))}}finally{if(request.current===controller)request.current=null;if(!controller.signal.aborted)setBusy(false)}}
+ return <section aria-label={t('安全配置绑定')}><h3>{t('安全配置绑定')}</h3><p>{t('只提供配置依据，不授予跨账号研究内容或下载权限。')}</p><form className="configuration-fields" onSubmit={e=>{e.preventDefault();void read()}}><label>{t('绑定对象类型')}<select disabled={busy} value={kind} onChange={e=>{setKind(e.target.value);setResult(null)}}>{kinds.map(([key,label])=><option key={key} value={key}>{t(label)}</option>)}</select></label><label>{t('绑定对象标识')}<input disabled={busy} required maxLength={128} value={id} onChange={e=>{setId(e.target.value);setResult(null)}}/></label><button disabled={!active||busy||!id.trim()}>{t('查询安全绑定')}</button></form>{error&&<p role="alert">{t(error)}</p>}{result&&<><p>{t(result.status==='bound'?'已绑定':'历史对象缺少配置绑定依据')}</p>{result.status==='bound'&&<details><summary>{t('版本依据')}</summary><p>{result.version_id}</p><p>{result.sha256}</p></details>}</>}</section>
+}

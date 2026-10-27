@@ -125,7 +125,7 @@ def submit_explanation(project_id, file_id, run_id, request, project_store, idem
     from app.domain.explanation_policy import get_execution_policy
     from app.domain.external_material import explanation_material
     _, outbound = explanation_material(result, figure, external)
-    frozen_policy = get_execution_policy(outbound)
+    frozen_policy = None  # Authoritative policy selection occurs in the task write transaction.
     source_key = f'{figure["id"]}:{request.expected_revision}:{predecessor or "initial"}'
     key = idempotency_key or 'explanation-v1:' + sha256(source_key.encode('utf-8')).hexdigest()
     task, _ = service.create(project_id, typed, idempotency_key=key, explanation_policy=frozen_policy,
@@ -173,7 +173,10 @@ def retry_explanation_in_transaction(store, db, task, expected_revision):
         from app.domain.explanation_policy import get_execution_policy
         from app.domain.external_material import explanation_material
         _, outbound = explanation_material(original['result'], original['figure'], original.get('external_processing'))
-        frozen = get_execution_policy(outbound)
+        from app.domain.admin_configuration.model_consumption import task_version,execution
+        configuration=task_version(db,task)
+        frozen=execution(configuration,'explanation',outbound) if configuration else get_execution_policy(outbound)
+        if frozen is None:raise StorageError('explanation_not_configured','原任务模型策略未配置。',503)
         task['input_snapshot'] = {**original, 'explanation_policy': frozen}
         db.execute('UPDATE tasks SET input_snapshot=%s WHERE id=%s', (Jsonb(task['input_snapshot']), task_id))
         budget = db.execute("SELECT id FROM model_budgets WHERE scope_type='task' AND scope_key=%s", (task_id,)).fetchone()

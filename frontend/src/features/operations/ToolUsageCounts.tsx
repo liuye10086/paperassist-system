@@ -1,0 +1,3 @@
+import {useI18n} from '../../shared/i18n'
+export type ToolUsage={configured_tool_call_count?:number;observed_actual_tool_uses?:number;actual_tool_usage_known_calls?:number;actual_tool_usage_unknown_calls?:number}
+export default function ToolUsageCounts({value}:{value:ToolUsage}){const{t}=useI18n();return <>{([['configured_tool_call_count','配置允许工具的模型调用数'],['observed_actual_tool_uses','已观测实际工具使用'],['actual_tool_usage_unknown_calls','实际工具使用未知的调用数'],['actual_tool_usage_known_calls','已完整确定工具使用的调用数']] as const).map(([key,label])=><div key={key}><dt>{t(label)}</dt><dd>{value[key]??t('未知')}</dd></div>)}</>}

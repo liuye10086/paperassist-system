@@ -69,12 +69,19 @@ def read_source(service,project,selection):
     return dict(**selected,label=label,sha256=sha,download_url=download,content=content)
 
 
-def changes(service,project,snapshot):
+def changes(service,project,snapshot,*,current_sources=None):
     changed=[]
     for frozen in snapshot['sources']:
         reasons=[]
         try:
-            current=read_source(service,project,{k:frozen[k] for k in ('kind','id','file_id','role')})
+            selection={k:frozen[k] for k in ('kind','id','file_id','role')}
+            identity=(project,*(selection[k] for k in ('kind','id','file_id','role')))
+            # The task list owns this dictionary for one request only. Every
+            # frozen snapshot is still compared and current-version checks run.
+            if current_sources is None or identity not in current_sources:
+                current=read_source(service,project,selection)
+                if current_sources is not None: current_sources[identity]=current
+            else: current=current_sources[identity]
             if current!=frozen: reasons.append('source_changed')
             with service.store.connection() as db:
                 if frozen['kind']=='analysis_run':

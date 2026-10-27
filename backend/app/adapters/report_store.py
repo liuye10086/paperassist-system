@@ -106,6 +106,25 @@ class ReportStore:
                 **({'schema_version':4} if version==REPORT_V4 else {'schema_version':3} if version==REPORT_V3 else {}),
                 **({'source': result['source']} if 'source' in result else {})}
 
+    @staticmethod
+    def operation(snapshot):
+        from app.domain.artifact_contracts import saved_report_version
+        return 'report-sync:v1:'+digest([snapshot['project']['id'], snapshot['result']['id'],
+            snapshot['explanation']['id'], saved_report_version(snapshot['explanation'])])
+
+    def pending(self, snapshot):
+        from app.domain.storage_governance import local_candidates as local
+        from app.domain.storage_governance.service import invalid
+        with self.store.connection(write=True) as db:
+            row = local.lookup(db, self.store.directory, snapshot['project']['id'],
+                self.operation(snapshot), kind='report')
+            if row is None:
+                return None
+            value, raw = local.read(self.store.directory, row, digest(snapshot))
+            if value['snapshot'] != snapshot or row['object_key'] != 'reports/'+value['report']['id']+'.docx':
+                raise invalid()
+            return value['report'], raw
+
     def save(self, snapshot, report, content):
         result, figure, explanation = (snapshot[key] for key in ('result', 'figure', 'explanation'))
         temporary = self.directory / (report['id'] + '.part')
@@ -137,20 +156,41 @@ class ReportStore:
                 if existing:
                     self.content(existing)
                     return existing, False
-                self.directory.mkdir(parents=True, exist_ok=True)
-                with temporary.open('xb') as stream:
-                    owned_paths.append(temporary)
-                    stream.write(content); stream.flush(); os.fsync(stream.fileno())
-                temporary.rename(target)
-                owned_paths.append(target)
+                from app.domain.storage_governance.guards import require_scope_open
+                require_scope_open(db,snapshot['project']['id'],file_ids=(result['file_id'],))
+                from app.domain.storage_governance import local_candidates as local
+                from app.domain.storage_governance.service import publish_candidate, recover_reservation, invalid, NAMESPACE
+                operation = self.operation(snapshot)
+                hold = local.lookup(db, self.store.directory, snapshot['project']['id'], operation, kind='report')
                 saved = {**report, 'size_bytes': len(content), 'sha256': hashlib.sha256(content).hexdigest()}
+                legacy = db.execute('SELECT * FROM storage_reservations WHERE namespace=%s AND project_id=%s AND operation_key=%s',
+                    (NAMESPACE,snapshot['project']['id'],'report:'+report['id'])).fetchone() if hold is None else None
+                if legacy:
+                    if (legacy['capacity_bytes'] is not None or legacy['kind']!='report' or legacy['task_id'] is not None
+                            or legacy['object_key']!='reports/'+report['id']+'.docx'
+                            or legacy['size_bytes']!=len(content) or legacy['sha256']!=saved['sha256']
+                            or report['input_sha256']!=digest(snapshot)):
+                        raise invalid()
+                    # Only this trusted caller still holds the original metadata.
+                    # No guessed UUID/time and no replacement bytes for legacy v1.
+                    recover_reservation(db,self.store.directory,legacy['id'])
+                elif hold:
+                    value, retained = local.read(self.store.directory, hold, digest(snapshot))
+                    if value != {'report': saved, 'snapshot': snapshot} or retained != content or hold['object_key'] != 'reports/'+report['id']+'.docx':
+                        raise invalid()
+                else:
+                    hold = local.capture(db, self.store.directory, snapshot['project']['id'], operation, target,
+                        content, {'report': saved, 'snapshot': snapshot}, source_identity=digest(snapshot), kind='report')
+                if not legacy:
+                    publish_candidate(db, self.store.directory, hold['id'], explicit_recovery=True)
                 db.execute('INSERT INTO reports (id, analysis_run_id, explanation_id, renderer_version, report_json, input_json) VALUES (%s, %s, %s, %s, %s, %s)',
                            (report['id'], result['id'], explanation['id'], report['engine']['id'],
                             json.dumps(saved, ensure_ascii=False, allow_nan=False), json.dumps(snapshot, ensure_ascii=False, allow_nan=False)))
                 db.execute('UPDATE projects SET updated_at=GREATEST(updated_at, %s) WHERE id=%s', (saved['created_at'], snapshot['project']['id']))
             return saved, True
         except (OSError, StorageError) as exc:
-            # Only this attempt's UUID files can be removed; existing reports stay intact.
+            # Only the incomplete temporary file is disposable. The target may
+            # already be committed; its intent survives an uncertain outcome.
             for path in owned_paths:
                 try:
                     path.unlink(missing_ok=True)

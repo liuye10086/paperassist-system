@@ -196,3 +196,79 @@ test('a persisted worker candidate can be independently approved after refresh w
  expect(fetch.mock.calls.filter(([url])=>url.endsWith('/confirm'))).toHaveLength(1)
  expect(fetch.mock.calls.some(([url])=>url.endsWith('/generate'))).toBe(false)
 })
+
+test('task views keep an unsaved figure draft while moving between list and explanation without creating work',async()=>{
+ const fetcher=vi.fn(async()=>Response.json({...state,configurations:[versionEntry()]}));vi.stubGlobal('fetch',fetcher)
+ const view=render(<FigureWorkbench {...props} view="figure"/>)
+ fireEvent.click(await screen.findByRole('button',{name:'新建独立图表'}))
+ fireEvent.change(screen.getByLabelText('图标题'),{target:{value:'Unsaved local title'}})
+ fireEvent.click(screen.getByRole('button',{name:'返回图表列表'}))
+ expect(screen.queryByRole('textbox',{name:'图标题'})).toBeNull()
+ view.rerender(<FigureWorkbench {...props} view="explanation"/>)
+ expect(await screen.findByRole('button',{name:'打开图表 散点图'})).toBeTruthy()
+ expect(screen.queryByRole('button',{name:'新建独立图表'})).toBeNull()
+ fireEvent.click(screen.getByRole('button',{name:'打开图表 散点图'}))
+ expect(screen.getByText('请先在图表任务中生成所选版本的图表。')).toBeTruthy()
+ expect(screen.queryByRole('button',{name:'检查计算与缺项'})).toBeNull()
+ view.rerender(<FigureWorkbench {...props} view="figure"/>)
+ fireEvent.click(screen.getByRole('button',{name:'继续编辑图表草稿'}))
+ expect((screen.getByLabelText('图标题') as HTMLInputElement).value).toBe('Unsaved local title')
+ expect(fetcher.mock.calls).toHaveLength(1)
+})
+
+test('task detail keeps the chosen configuration version after a newer configuration arrives',async()=>{
+ let updated=false
+ const old=versionEntry(),latest=versionEntry('v2',2)
+ const fetcher=vi.fn(async()=>Response.json({...state,configurations:[updated?{...latest,versions:[latest,old]}:old]}));vi.stubGlobal('fetch',fetcher)
+ render(<FigureWorkbench {...props} view="figure"/>)
+ fireEvent.click(await screen.findByRole('button',{name:'打开图表 散点图'}))
+ updated=true;fireEvent.click(screen.getByRole('button',{name:'重新读取图表版本'}))
+ await screen.findByText('当前操作绑定所选历史版本，不会更换报告集合已冻结的引用。')
+ expect((screen.getByLabelText('查看配置版本') as HTMLSelectElement).value).toBe('v1')
+ fireEvent.click(screen.getByRole('button',{name:'返回图表列表'}))
+ fireEvent.click(screen.getByRole('button',{name:'打开图表 散点图'}))
+ expect((screen.getByLabelText('查看配置版本') as HTMLSelectElement).value).toBe('v1')
+})
+
+test('draft guard cancels replacement of an unsaved figure configuration',async()=>{
+ const guardSet=new Set<()=>boolean>()
+ const register=(guard:()=>boolean)=>{guardSet.add(guard);return()=>guardSet.delete(guard)}
+ const confirm=vi.spyOn(window,'confirm').mockReturnValue(false)
+ vi.stubGlobal('fetch',vi.fn(async()=>Response.json({...state,configurations:[versionEntry()]})))
+ render(<FigureWorkbench {...props} view="figure" registerLeaveGuard={register}/>)
+ fireEvent.click(await screen.findByRole('button',{name:'新建独立图表'}))
+ fireEvent.change(screen.getByLabelText('图标题'),{target:{value:'Unpublished draft'}})
+ expect([...guardSet][0]()).toBe(false)
+ fireEvent.click(screen.getByRole('button',{name:'新建独立图表'}))
+ expect((screen.getByLabelText('图标题') as HTMLInputElement).value).toBe('Unpublished draft')
+ confirm.mockRestore()
+})
+
+test('reopening the same figure editor resumes its unsaved configuration instead of replacing it',async()=>{
+ vi.stubGlobal('fetch',vi.fn(async()=>Response.json({...state,configurations:[versionEntry()]})))
+ render(<FigureWorkbench {...props} view="figure"/>)
+ fireEvent.click(await screen.findByRole('button',{name:'打开图表 散点图'}))
+ fireEvent.click(screen.getByRole('button',{name:'编辑为新配置版本'}))
+ fireEvent.change(screen.getByLabelText('图标题'),{target:{value:'Keep my figure title'}})
+ fireEvent.click(screen.getByRole('button',{name:'返回图表列表'}))
+ fireEvent.click(screen.getByRole('button',{name:'打开图表 散点图'}))
+ fireEvent.click(screen.getByRole('button',{name:'编辑为新配置版本'}))
+ expect((screen.getByLabelText('图标题') as HTMLInputElement).value).toBe('Keep my figure title')
+})
+
+test('an uncertain figure request allows explicitly confirmed navigation and keeps its retry identity',async()=>{
+ let guard=()=>true
+ const register=(next:()=>boolean)=>{guard=next;return()=>{}}
+ const confirm=vi.spyOn(window,'confirm').mockReturnValue(true),alert=vi.spyOn(window,'alert').mockImplementation(()=>{})
+ const keys:string[]=[]
+ vi.stubGlobal('fetch',vi.fn(async(url:string,init?:RequestInit)=>{
+  if(url.endsWith('/external-preview'))return Response.json({payload_sha256:'b'.repeat(64),payload:{title:'Same materials'},requires_confirmation:true})
+  if(url.endsWith('/generate')){keys.push(JSON.parse(String(init?.body)).idempotency_key);throw new TypeError('offline')}
+  return Response.json({...state,configurations:[versionEntry()]})
+ }))
+ render(<FigureWorkbench {...props} registerLeaveGuard={register}/>);await approveFigure();await screen.findByRole('alert')
+ expect(guard()).toBe(true);expect(confirm).toHaveBeenCalledTimes(1);expect(alert).not.toHaveBeenCalled()
+ fireEvent.click(screen.getByRole('button',{name:'确认外发并生成新图'}))
+ await waitFor(()=>expect(keys).toHaveLength(2));expect(keys[1]).toBe(keys[0])
+ confirm.mockRestore();alert.mockRestore()
+})

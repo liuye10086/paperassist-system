@@ -1,3 +1,4 @@
+import {useReviewDraftGuard} from './reviewActivityContext'
 import {useEffect,useRef,useState} from 'react'
 import ProjectDownloadLink from '../../shared/components/ProjectDownloadLink'
 import {safeError,useI18n} from '../../shared/i18n'
@@ -7,23 +8,24 @@ import {reviewHash} from './reviewTypes'
 import {reviewBase,revisionHash,contentText} from './revisionTypes'
 import {manuscriptHash,validContinuation,validReturn,type ContinuationContext,type NextRoundInput,type UserReturn,type ReturnMapping} from './continuationTypes'
 import {useReviewRequest} from './useReviewRequest'
-type Props={projectId:string;round:Round;documents:Inputs['documents'];active:boolean;onPrepareNext:(input:NextRoundInput)=>void;onOpenTask:(id:string)=>void}
+type Props={expanded?:boolean;projectId:string;round:Round;documents:Inputs['documents'];active:boolean;onPrepareNext:(input:NextRoundInput)=>void;onOpenTask:(id:string)=>void}
 export default function ReturnContinuationPanel(props:Props){return <Panel key={`${props.projectId}:${props.round.id}`} {...props}/>}
-function Panel({projectId,round,documents,active,onPrepareNext,onOpenTask}:Props){
+function Panel({expanded,projectId,round,documents,active,onPrepareNext,onOpenTask}:Props){
  const {t}=useI18n(),visible=useDocumentVisible(),{request,run,available,busy,error,setError}=useReviewRequest(),base=reviewBase(projectId)
  const mappingDirty=useRef(false)
- const [open,setOpen]=useState(false),[context,setContext]=useState<ContinuationContext|null>(null),[refresh,setRefresh]=useState(0)
+ const [open,setOpen]=useState(!!expanded),[context,setContext]=useState<ContinuationContext|null>(null),[refresh,setRefresh]=useState(0)
  const [versionId,setVersionId]=useState(''),[sourceRun,setSourceRun]=useState(''),[exportId,setExportId]=useState(''),[parseId,setParseId]=useState(''),[selectedId,setSelectedId]=useState(''),[returned,setReturned]=useState<UserReturn|null>(null),[mappings,setMappings]=useState<ReturnMapping[]>([])
- useEffect(()=>{if(!open||!active||!visible||!available)return;const c=new AbortController();void request(base+'/rounds/'+encodeURIComponent(round.id)+'/continuation-context',(v):v is ContinuationContext=>validContinuation(v,projectId,round.id),undefined,c.signal).then(v=>{if(!c.signal.aborted)setContext(v)}).catch(cause=>{if(!c.signal.aborted)setError(safeError(cause,'回传上下文读取失败。'))});return()=>c.abort()},[open,active,visible,available,base,round.id,projectId,refresh,request,setError])
- useEffect(()=>{if(!selectedId||!open||!active||!visible||!available)return;const c=new AbortController();let timer=0;async function load(){try{const v=await request(base+'/returns/'+encodeURIComponent(selectedId),(v):v is UserReturn=>validReturn(v,projectId,round.id)&&v.id===selectedId,undefined,c.signal);if(c.signal.aborted)return;if(!mappingDirty.current){setReturned(v);setMappings(v.mappings)}if(v.output?.status==='pending')timer=window.setTimeout(()=>void load(),2500)}catch(cause){if(!c.signal.aborted)setError(safeError(cause,'回传状态读取失败。'))}}void load();return()=>{c.abort();window.clearTimeout(timer)}},[selectedId,open,active,visible,available,refresh,base,round.id,projectId,request,setError])
+ useEffect(()=>{if(!(expanded||open)||!active||!visible||!available)return;const c=new AbortController();void request(base+'/rounds/'+encodeURIComponent(round.id)+'/continuation-context',(v):v is ContinuationContext=>validContinuation(v,projectId,round.id),undefined,c.signal).then(v=>{if(!c.signal.aborted)setContext(v)}).catch(cause=>{if(!c.signal.aborted)setError(safeError(cause,'回传上下文读取失败。'))});return()=>c.abort()},[expanded,open,active,visible,available,base,round.id,projectId,refresh,request,setError])
+ useEffect(()=>{if(!selectedId||!(expanded||open)||!active||!visible||!available)return;const c=new AbortController();let timer=0;async function load(){try{const v=await request(base+'/returns/'+encodeURIComponent(selectedId),(v):v is UserReturn=>validReturn(v,projectId,round.id)&&v.id===selectedId,undefined,c.signal);if(c.signal.aborted)return;if(!mappingDirty.current){setReturned(v);setMappings(v.mappings)}if(v.output?.status==='pending')timer=window.setTimeout(()=>void load(),2500)}catch(cause){if(!c.signal.aborted)setError(safeError(cause,'回传状态读取失败。'))}}void load();return()=>{c.abort();window.clearTimeout(timer)}},[selectedId,expanded,open,active,visible,available,refresh,base,round.id,projectId,request,setError])
  const input=context?.eligible_inputs.find(i=>i.version_id===versionId),doc=documents.find(d=>d.document_version_id===parseId&&d.kind==='docx_document')
  const runs=context?.successful_revisions.filter(r=>r.output.version_id===versionId)??[]
  const valid=(v:unknown):v is UserReturn=>validReturn(v,projectId,round.id)
  function choose(v:UserReturn){mappingDirty.current=false;setReturned(v);setMappings(v.mappings);setSelectedId(v.id);setContext(old=>old?{...old,returns:[v,...old.returns.filter(r=>r.id!==v.id)]}:old)}
  function mapSection(inputSectionId:string,chapterId:string){mappingDirty.current=true;setMappings(old=>[...old.filter(m=>m.input_section_id!==inputSectionId),...(chapterId?[{input_section_id:inputSectionId,chapter_id:chapterId}]:[])]);setReturned(old=>old?{...old,can_adopt:false,preview_sha256:null,differences:[]}:old)}
  const mapped=!!returned&&mappings.length===returned.input_sections.length&&mappings.length===returned.target_chapters.length&&new Set(mappings.map(m=>m.chapter_id)).size===mappings.length
+ useReviewDraftGuard(!!(versionId||parseId||returned&&JSON.stringify(mappings)!==JSON.stringify(returned.mappings)))
  if(!available)return <p role="status">{t('会话或项目不可用，请重新打开项目。')}</p>
- return <section className="review-continuation manuscript-panel" aria-label={t('回传与下一轮')}><button type="button" onClick={()=>setOpen(v=>!v)} aria-expanded={open}>{t('回传与下一轮')}</button>{open&&<>
+ return <section className="review-continuation manuscript-panel" aria-label={t('回传与下一轮')}><button type="button" onClick={()=>setOpen(v=>!v)} aria-expanded={expanded||open}>{t('回传与下一轮')}</button>{(expanded||open)&&<>
   <p>{t('先选定公共父稿，再登记清洁 DOCX；逐章核对差异后另存新稿，公共稿件任务成功后才可开始下一轮。')}</p>{round.synthetic&&<p className="warning-panel">{t('本轮和回传使用合成材料。')}</p>}{error&&<p role="alert" className="error-panel">{t(error)}</p>}
   <a href={reviewHash(projectId,round.id)}>{t('当前固定意见轮次')}</a>{round.continuation&&<a href={reviewHash(projectId,round.continuation.previous_round_id)}>{t('查看上一轮原稿、系统修改与回复')}</a>}{round.next_round_ids?.map(id=><a key={id} href={reviewHash(projectId,id)}>{t('查看关联下一轮')}</a>)}
   <fieldset disabled={busy||!context}><legend>{t('登记清洁回传')}</legend><label>{t('回传依据的公共稿件版本')}<select value={versionId} onChange={e=>{setVersionId(e.target.value);setSourceRun('');setExportId('')}}><option value="">{t('请明确选择公共版本')}</option>{context?.eligible_inputs.map(i=><option key={i.version_id} value={i.version_id}>{i.title} · {t('版本 {number}',{number:i.revision})}</option>)}</select></label>

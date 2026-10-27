@@ -194,7 +194,7 @@ class ReviewService:
                 candidate=row['candidate_json'];version_id=str(uuid4());timestamp=now()
                 body=deepcopy(base['request_json']);body['expected_revision']=expected_revision
                 task_snapshot=dict(project_id=project,manuscript_id=identity,manuscript_version_id=version_id,revision=revision,output_language=candidate['output_language'],workflow_version=base['snapshot_json']['workflow_version'],snapshot_sha256=digest(candidate))
-                producer=self.manuscripts.task(db,project,'manuscript_draft',task_snapshot,'manuscript:'+version_id)
+                producer=self.manuscripts.task(db,project,'manuscript_draft',task_snapshot,'manuscript:'+version_id,validated_sources=candidate['sources'])
                 db.execute('''INSERT INTO manuscript_versions(id,project_id,user_id,idempotency_key,request_json,request_digest,manuscript_id,revision,parent_version_id,task_id,snapshot_json,snapshot_sha256,created_at,school_confirmation_id)
                     VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)''',(version_id,project,self.store.user_id,'review:'+review_id,Jsonb(body),digest(body),identity,revision,base['id'],producer['id'],Jsonb(candidate),digest(candidate),timestamp,base.get('school_confirmation_id')))
                 for table in ('manuscript_sources','manuscript_citations'):

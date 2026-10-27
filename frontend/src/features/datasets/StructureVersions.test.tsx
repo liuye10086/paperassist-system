@@ -204,3 +204,16 @@ it('a missing dataset clears its cells but preserves other file content and does
     expect(screen.queryByRole('link', { name: '下载完整 JSON' })).toBeNull();
     expect(screen.getByRole('button', { name: '结构版本 1 · 已完成' })).toBeTruthy();
 });
+
+it('keeps preparation rules mounted when structure task becomes inactive', async () => {
+ const fetch = vi.fn(async (url: string) => Response.json(url.includes('/rows?') ? rowPage() : page))
+ vi.stubGlobal('fetch', fetch)
+ const props = {projectId:'p1',fileId:'f1',filename:'data.xlsx',onUnavailable:()=>{}}
+ const view = render(<StructureVersions {...props} active />)
+ fireEvent.click(await screen.findByRole('button', { name: '整理数据' }))
+ fireEvent.change(screen.getByLabelText('数据区域'), { target: { value:'A2:B19' } })
+ view.rerender(<StructureVersions {...props} active={false} />)
+ view.rerender(<StructureVersions {...props} active />)
+ expect((await screen.findByLabelText('数据区域') as HTMLInputElement).value).toBe('A2:B19')
+ expect(fetch.mock.calls.filter(([url])=>url.includes('/dataset-preparations'))).toHaveLength(0)
+})

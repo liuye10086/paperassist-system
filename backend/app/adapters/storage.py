@@ -6,7 +6,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
-from uuid import uuid4
+from uuid import uuid4, UUID
 
 from fastapi import Request
 from sqlalchemy.exc import SQLAlchemyError
@@ -137,6 +137,8 @@ class ProjectStore:
                 (id, name, research_topic, project_type, created_at, updated_at, owner_id, default_output_language)
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s)""",
                        (project_id, name, research_topic, project_type, now, now, self.owner_id, default_output_language))
+            from app.domain.storage_governance.service import initialize_policy
+            initialize_policy(db,'project',project_id)
         return self.project(project_id)
 
     def update_project(self, project_id: str, changes: dict) -> dict:
@@ -224,15 +226,51 @@ class ProjectStore:
             raise StorageError("file_not_found", "当前项目中没有此文件。", 404)
         return dict(row)
 
-    def save_file(self, project_id: str, filename: str, content: bytes, preview: str | None, error: dict | None):
+    def save_file(self, project_id: str, filename: str, content: bytes, preview: str | None, error: dict | None, *, operation_id: str | None = None):
         self.project(project_id)
-        operation_id = str(uuid4())
+        if operation_id is not None:
+            try:
+                if str(UUID(operation_id))!=operation_id:raise ValueError()
+            except (ValueError,TypeError,AttributeError):
+                raise StorageError('invalid_request','上传幂等身份必须为规范 UUID。',422) from None
+        fingerprint=hashlib.sha256(json.dumps([filename,hashlib.sha256(content).hexdigest()],
+            ensure_ascii=False,separators=(',',':')).encode()).hexdigest()
         now = datetime.now(timezone.utc).isoformat()
-        descriptor = self.objects.put_original(project_id, operation_id, 'xlsx', content)
-        file_id = descriptor.id
         # Published bytes survive rollback and unknown commit. Only the byte
         # adapter may clean its own exact unpublished temporary name.
         with self.connection(write=True) as db:
+            from app.domain.storage_governance.service import reconcile_intents,invalid,NAMESPACE
+            current=db.execute('SELECT owner_id FROM projects WHERE id=%s',(project_id,)).fetchone()
+            if not current or (self.owner_id is not None and current['owner_id']!=self.owner_id):
+                raise StorageError('project_not_found','项目不存在。',404)
+            if reconcile_intents(db,self.directory):raise invalid()
+            if operation_id is None:
+                # Old clients do not send an idempotency key. Only a unique,
+                # unfinished, exact filename/content identity may be recovered;
+                # an already successful upload still permits an independent copy.
+                pending=list(db.execute("SELECT operation_key FROM storage_reservations WHERE namespace=%s AND project_id=%s AND kind='original' AND state IN ('reserved','unknown') AND operation_key LIKE %s",
+                    (NAMESPACE,project_id,'sync:%:'+fingerprint)))
+                if len(pending)>1:
+                    raise StorageError('storage_reservation_conflict','存在多个相同上传候选，请使用明确的原操作身份恢复。',409)
+                operation_id=pending[0]['operation_key'].split(':')[1] if pending else str(uuid4())
+            operation_key='sync:'+operation_id+':'+fingerprint
+            prior=list(db.execute('SELECT operation_key FROM storage_reservations WHERE namespace=%s AND project_id=%s AND operation_key LIKE %s',
+                (NAMESPACE,project_id,'sync:'+operation_id+':%')))
+            if any(row['operation_key']!=operation_key for row in prior):
+                raise StorageError('storage_reservation_conflict','上传幂等身份已绑定不同文件名或内容。',409)
+            existing=db.execute('''SELECT f.* FROM files f JOIN storage_reservations r
+                ON f.project_id=r.project_id AND f.object_key=r.object_key
+                WHERE r.namespace=%s AND r.project_id=%s AND r.operation_key=%s''',
+                (NAMESPACE,project_id,operation_key)).fetchone()
+            if existing:
+                if existing['filename']!=filename or existing['sha256']!=hashlib.sha256(content).hexdigest():raise invalid()
+                # A published replay is a read, never an implicit repair.
+                # Verify before invoking any byte writer, including when the
+                # old reservation is settled and current quota/disk is lower.
+                self.original(dict(existing))
+                return self.file_record(existing)
+            descriptor = self.objects.put_original(project_id, operation_id, 'xlsx', content, db=db,operation_key=operation_key)
+            file_id = descriptor.id
             db.execute("""INSERT INTO files (id, project_id, filename, file_type, size_bytes, sha256,
                 uploaded_at, parse_status, error_json, preview_json, uploader_id, object_key, storage_backend)
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""", (
@@ -501,25 +539,42 @@ class ProjectStore:
             raise StorageError('figure_changed', '已保存的图片内容发生变化，请恢复原图或另存配置生成新图。', 409)
         return content
 
-    def save_figure(self, project_id: str, file_id: str, figure: dict, content: bytes):
-        self.analysis_result_by_id(project_id, file_id, figure['analysis_run_id'])
-        figure_id = str(uuid4())
+    def save_figure(self, project_id: str, file_id: str, figure: dict, content: bytes, *, storage_candidate=None, explicit_recovery=False):
+        result=self.analysis_result_by_id(project_id, file_id, figure['analysis_run_id'])
+        figure_id = figure['id'] if storage_candidate is not None else str(uuid4())
         temporary, target = (self.figures_dir / (figure_id + suffix) for suffix in ('.part', '.png'))
         try:
             with self.connection(write=True) as db:
                 self.require_analysis_revision(db, file_id, figure['setup_revision'])
+                if storage_candidate is not None:
+                    from app.domain.storage_governance.service import invalid
+                    hold=db.execute('SELECT * FROM storage_reservations WHERE id=%s',(storage_candidate,)).fetchone()
+                    if not hold or hold['project_id']!=project_id or hold['object_key']!=target.relative_to(self.directory).as_posix() or hold['size_bytes']!=len(content) or hold['sha256']!=hashlib.sha256(content).hexdigest():raise invalid()
+                    if hold['operation_key']=='legacy-figure:'+hold['task_id']:
+                        from app.domain.boxplot import require_legacy_predecessor
+                        original=db.execute('SELECT job_json FROM figure_jobs WHERE id=%s',(hold['task_id'],)).fetchone()
+                        if not original:raise invalid()
+                        require_legacy_predecessor(self,project_id,result,json.loads(original['job_json']),db=db)
                 existing = db.execute('SELECT figure_json FROM figures WHERE analysis_run_id = %s AND renderer_version = %s AND figure_config_version_id IS NULL',
                     (figure['analysis_run_id'], figure['engine']['id'])).fetchone()
                 if existing:
                     saved = json.loads(existing['figure_json'])
                     self.figure_png(saved)
                     return saved
-                self.figures_dir.mkdir(parents=True, exist_ok=True)
-                with temporary.open('xb') as stream:
-                    stream.write(content)
-                    stream.flush()
-                    os.fsync(stream.fileno())
-                temporary.rename(target)
+                from app.domain.storage_governance.guards import require_scope_open
+                require_scope_open(db,project_id,file_ids=(file_id,))
+                from app.domain.storage_governance.service import publication,publish_candidate,invalid
+                if storage_candidate is not None:
+                    publish_candidate(db,self.directory,storage_candidate,explicit_recovery=explicit_recovery)
+                else:
+                  with publication(db, self.directory, project_id, 'figure:'+figure_id,
+                                   target, content, kind='figure'):
+                    self.figures_dir.mkdir(parents=True, exist_ok=True)
+                    with temporary.open('xb') as stream:
+                        stream.write(content)
+                        stream.flush()
+                        os.fsync(stream.fileno())
+                    temporary.rename(target)
                 saved = {**figure, 'id': figure_id, 'size_bytes': len(content),
                          'sha256': hashlib.sha256(content).hexdigest()}
                 db.execute('INSERT INTO figures(id,analysis_run_id,renderer_version,figure_json) VALUES (%s, %s, %s, %s)', (figure_id, figure['analysis_run_id'],
@@ -528,8 +583,9 @@ class ProjectStore:
                            (saved['created_at'], project_id))
             return saved
         except (OSError, StorageError) as exc:
-            # Only clean up this attempt's new UUID paths, never existing artifacts.
-            for path in (temporary, target):
+            # A transaction failure may mean COMMIT succeeded but its reply was
+            # lost. Keep the immutable target and intent for reconciliation.
+            for path in (() if storage_candidate is not None else (temporary,)):
                 try:
                     path.unlink(missing_ok=True)
                 except OSError:

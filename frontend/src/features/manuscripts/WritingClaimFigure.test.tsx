@@ -3,6 +3,7 @@ import {cleanup,fireEvent,render,screen} from '@testing-library/react'
 import {afterEach,beforeEach,expect,it,vi} from 'vitest'
 import WritingClaimReview from './WritingClaimReview'
 import FigureLanguagePanel from './FigureLanguagePanel'
+import {ManuscriptDraftProvider} from './ManuscriptDraftProvider'
 import ManuscriptPreview from './ManuscriptPreview'
 import type {LocalManifest} from './writingLiveTypes'
 import type {Snapshot} from './manuscriptTypes'
@@ -20,6 +21,18 @@ it('creates exact new claim, explicit evidence and a new human decision, never c
 })
 const figureSource={kind:'figure',id:'fig1',file_id:'file1',role:'image_observation',label:'Source figure',sha256:'a'.repeat(64),download_url:null,content:{title:'图 1. 实验',x_label:'Value (mg/L)',y_label:'Group',caption:'图 1. 8 observations; Q1−1.5×IQR to Q3+1.5×IQR',series:[{label:'组 A'},{label:'组 B'}]}}
 const figureSnapshot={...rawSnapshot,sources:[figureSource],results_groups:[{id:'g1',title:'Result',paragraphs:[],tables:[],figures:[{id:'fig1',number:1,title:'图 1. 实验',caption:figureSource.content.caption,sha256:'a'.repeat(64),source_ids:['fig1']}]}]} as Snapshot
+it('retains figure language draft and exact original URL/body/key after a storage failure and collapse',async()=>{const fetcher=vi.fn(async(_url:string,init?:RequestInit)=>init?.method==='POST'?Response.json({detail:{code:'storage_quota_exceeded'}},{status:409}):Response.json({items:[]}));vi.stubGlobal('fetch',fetcher);render(<FigureLanguagePanel projectId="p1" snapshot={figureSnapshot}/>);fireEvent.click(screen.getByRole('button',{name:'独立图语言版本'}));await screen.findByText('原图 SHA '+figureSource.sha256);fireEvent.change(screen.getByLabelText('图版本修改或无字检查理由'),{target:{value:'Retained storage recovery draft'}});fireEvent.click(screen.getByRole('button',{name:'创建独立图语言版本'}));await screen.findByRole('alert');fireEvent.click(screen.getByRole('button',{name:'独立图语言版本'}));fireEvent.click(screen.getByRole('button',{name:'独立图语言版本'}));expect(screen.getByLabelText('图版本修改或无字检查理由')).toHaveProperty('value','Retained storage recovery draft');fireEvent.click(screen.getByRole('button',{name:'创建独立图语言版本'}));await screen.findByRole('alert');const posts=fetcher.mock.calls.filter(([,init])=>init?.method==='POST');expect(posts).toHaveLength(2);expect(posts[1][0]).toBe(posts[0][0]);expect(posts[1][1]?.body).toBe(posts[0][1]?.body);expect(posts[1][1]?.headers).toEqual(posts[0][1]?.headers)})
+it('keeps figure language drafts and leave protection while the figure task is collapsed',async()=>{
+ const guards=new Map<()=>boolean,()=>boolean>();const register=(guard:()=>boolean,dirty?:()=>boolean)=>{guards.set(guard,dirty??(()=>false));return ()=>{guards.delete(guard)}}
+ vi.stubGlobal('fetch',vi.fn(async()=>Response.json({items:[]})))
+ render(<ManuscriptDraftProvider register={register}><FigureLanguagePanel projectId="p1" snapshot={figureSnapshot}/></ManuscriptDraftProvider>)
+ fireEvent.click(screen.getByRole('button',{name:'独立图语言版本'}));await screen.findByText('原图 SHA '+figureSource.sha256)
+ fireEvent.change(screen.getByLabelText('图版本修改或无字检查理由'),{target:{value:'Unsaved figure review'}})
+ fireEvent.click(screen.getByRole('button',{name:'独立图语言版本'}))
+ expect([...guards.values()].some(dirty=>dirty())).toBe(true)
+ fireEvent.click(screen.getByRole('button',{name:'独立图语言版本'}))
+ expect(screen.getByLabelText('图版本修改或无字检查理由')).toHaveProperty('value','Unsaved figure review')
+})
 it('initializes every local redraw field from exact original labels including numbers and signs, keeping original SHA',async()=>{
  const fetcher=vi.fn(async(_url:string,init?:RequestInit)=>init?.method==='POST'?Response.json({error:{code:'figure_language_unsupported'}},{status:422}):Response.json({items:[]}));vi.stubGlobal('fetch',fetcher);render(<FigureLanguagePanel projectId="p1" snapshot={figureSnapshot}/>);fireEvent.click(screen.getByRole('button',{name:'独立图语言版本'}));await screen.findByText('原图 SHA '+figureSource.sha256);const values=screen.getAllByRole('textbox').map(e=>(e as HTMLInputElement).value);expect(values).toEqual(expect.arrayContaining([figureSource.content.title,figureSource.content.x_label,figureSource.content.y_label,figureSource.content.caption,'组 A','组 B']));fireEvent.change(screen.getByLabelText('图版本修改或无字检查理由'),{target:{value:'Check exact label translation'}});fireEvent.click(screen.getByRole('button',{name:'创建独立图语言版本'}));await screen.findByRole('alert');const body=JSON.parse(String(fetcher.mock.calls.find(([,init])=>init?.method==='POST')![1]?.body));expect(body.texts.caption).toBe(figureSource.content.caption);expect(body.texts.series).toEqual(['组 A','组 B']);expect(body.original_sha256).toBe(figureSource.sha256)
 })

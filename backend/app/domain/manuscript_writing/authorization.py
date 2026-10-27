@@ -10,6 +10,8 @@ from app.domain.dataset_preparation.service import require_key, append_checkpoin
 from .bundle import build_bundle, validate_bundle
 from .live_contracts import PreviewRequest, AuthorizationRequest, LiveWritingRequest, WORKFLOW
 from .policy import MAX_POSTS, MAX_CORRECTIONS, TASK_CAP, BATCH_CAP, POLICY_VERSION, capabilities
+from .frozen import contract,bundle_contract
+from app.domain.admin_configuration.bindings import resolve,bind
 
 def denied():
     return StorageError('manuscript_writing_not_authorized','外发包、逻辑任务或有效授权不匹配。',409)
@@ -24,7 +26,11 @@ class LiveWritingService:
         row=db.execute('SELECT * FROM manuscript_writing_bundles WHERE id=%s AND project_id=%s AND user_id=%s',(bundle_id,project,self.store.user_id)).fetchone()
         if not row: raise denied()
         result={**row['bundle_json'],**{k:v for k,v in row.items() if k!='bundle_json'}}
-        try: validate_bundle(result)
+        try:
+            validate_bundle(result)
+            configuration=resolve(db,kind='writing_bundle',object_id=bundle_id)
+            if configuration is not None or 'execution_contract' in result:
+                if configuration is None or result.get('execution_contract')!=contract(configuration):raise ValueError('Bundle binding mismatch')
         except (ValueError,KeyError,TypeError): raise source_conflict() from None
         return result
 
@@ -52,11 +58,13 @@ class LiveWritingService:
             if root['current_revision']!=body['base_revision'] or self.store.require_task(db,version['task_id'])['status']!='succeeded': raise source_conflict()
             if changes(self.manuscripts,project,version['snapshot_json']): raise source_conflict()
             if body['mode']=='rewrite_section' and not version['snapshot_json'].get('sections'): raise StorageError('manuscript_writing_base_incomplete','重写需要已发布完整稿。',409)
-            data=build_bundle(version['snapshot_json'],body)
+            configuration=resolve(db)
+            data=build_bundle(version['snapshot_json'],body,execution_contract=contract(configuration) if configuration else None)
             data.update(base_snapshot=version['snapshot_json'],request_json=body)
             identity_id=str(uuid4());timestamp=now()
             db.execute('INSERT INTO manuscript_writing_bundles(id,project_id,user_id,manuscript_id,base_version_id,request_key,request_digest,bundle_sha256,bundle_json,created_at) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)',
                 (identity_id,project,self.store.user_id,identity,version['id'],key,request_digest,data['bundle_sha256'],Jsonb(data),timestamp))
+            bind(db,kind='writing_bundle',object_id=identity_id,version=configuration)
             return self.bundle_view(self.bundle(db,project,identity_id)),201
 
     def get_preview(self,project,identity,bundle_id):
@@ -69,7 +77,7 @@ class LiveWritingService:
         with self.store.connection() as db:
             self.manuscripts.root(db,project,identity)
             rows=db.execute('SELECT id FROM manuscript_writing_bundles WHERE project_id=%s AND user_id=%s AND manuscript_id=%s ORDER BY created_at DESC,id',(project,self.store.user_id,identity)).fetchall()
-            return dict(items=[self.bundle_view(self.bundle(db,project,r['id'])) for r in rows],capabilities=capabilities())
+            return dict(items=[self.bundle_view(self.bundle(db,project,r['id'])) for r in rows],capabilities=capabilities(resolve(db)))
 
     def authorization(self,db,project,identity):
         self.store.require_project(db,project)
@@ -86,22 +94,24 @@ class LiveWritingService:
             if old:
                 if old['request_digest']!=digest(body): raise StorageError('task_idempotency_conflict','授权标识已用于不同清单。',409)
                 return self.auth_view(db,old),200
-            materials=[]
+            materials=[];limits=[]
             for task in body['tasks']:
                 for ref in task['bundles']:
                     bundle=self.bundle(db,project,ref['bundle_id']);self.current(db,bundle)
                     if bundle['bundle_sha256']!=ref['bundle_sha256']: raise denied()
+                    limits.append(bundle_contract(bundle))
                     materials.append(dict(logical_task_id=task['logical_task_id'],bundle_id=bundle['id'],bundle_sha256=bundle['bundle_sha256'],
                         wire_bytes=bundle['wire_bytes'],input_token_allowance=bundle['input_token_allowance'],reserved_micro_usd=bundle['reserved_micro_usd'],policy=bundle['policy_json']))
+            caps={key:min(value[key] for value in limits) for key in ('batch_max_posts','max_corrections','batch_cap_micro_usd','task_limit_micro_usd')}
             manifest=dict(schema_version=2,confirmed=True,tasks=body['tasks'],materials=materials,
                 endpoint='https://api.openai.com/v1/responses',background=True,store=True,service_tier='default',
                 external_storage_notice='OpenAI stores background responses; selected material is transmitted externally.',
-                max_posts=MAX_POSTS,max_corrections=MAX_CORRECTIONS,cap_micro_usd=BATCH_CAP,logical_task_cap_micro_usd=TASK_CAP)
+                max_posts=caps['batch_max_posts'],max_corrections=caps['max_corrections'],cap_micro_usd=caps['batch_cap_micro_usd'],logical_task_cap_micro_usd=caps['task_limit_micro_usd'])
             identity=str(uuid4());timestamp=now()
             db.execute('INSERT INTO manuscript_writing_authorizations(id,project_id,user_id,request_key,request_digest,manifest_json,manifest_sha256,status,revision,max_posts,cap_micro_usd,created_at) VALUES (%s,%s,%s,%s,%s,%s,%s,\'active\',1,%s,%s,%s)',
-                (identity,project,self.store.user_id,key,digest(body),Jsonb(manifest),digest(manifest),MAX_POSTS,BATCH_CAP,timestamp))
+                (identity,project,self.store.user_id,key,digest(body),Jsonb(manifest),digest(manifest),manifest['max_posts'],manifest['cap_micro_usd'],timestamp))
             for task in body['tasks']:
-                db.execute('INSERT INTO manuscript_writing_authorized_tasks(authorization_id,logical_task_id,project_id,user_id,bundles_json,cap_micro_usd) VALUES (%s,%s,%s,%s,%s,%s)',(identity,task['logical_task_id'],project,self.store.user_id,Jsonb(task['bundles']),TASK_CAP))
+                db.execute('INSERT INTO manuscript_writing_authorized_tasks(authorization_id,logical_task_id,project_id,user_id,bundles_json,cap_micro_usd) VALUES (%s,%s,%s,%s,%s,%s)',(identity,task['logical_task_id'],project,self.store.user_id,Jsonb(task['bundles']),manifest['logical_task_cap_micro_usd']))
             return self.auth_view(db,self.authorization(db,project,identity)),201
 
     def auth_view(self,db,row):
@@ -130,7 +140,9 @@ class LiveWritingService:
         ref=dict(bundle_id=bundle['id'],bundle_sha256=bundle['bundle_sha256'])
         if auth['status']!='active' or not grant or ref not in grant['bundles_json'] or request['bundle_sha256']!=bundle['bundle_sha256']: raise denied()
         expected=next((t for t in auth['manifest_json']['tasks'] if t['logical_task_id']==request['logical_task_id']),None)
-        if not expected or expected['bundles']!=grant['bundles_json'] or grant['cap_micro_usd']!=TASK_CAP: raise source_conflict()
+        manifest=auth['manifest_json']
+        if (not expected or expected['bundles']!=grant['bundles_json'] or grant['cap_micro_usd']!=manifest['logical_task_cap_micro_usd']
+            or auth['max_posts']!=manifest['max_posts'] or auth['cap_micro_usd']!=manifest['cap_micro_usd']): raise source_conflict()
         if current: self.current(db,bundle)
         return auth,grant
 
@@ -153,6 +165,11 @@ class LiveWritingService:
                     prompt_version='sci-writing-v2',policy_version=POLICY_VERSION,request_id=request_id)
                 task=dict(id=request_id,project_id=project,user_id=self.store.user_id,task_type='manuscript_writing',idempotency_key=key,input_digest=digest(snap),input_snapshot=snap,workflow_version=WORKFLOW,status='queued',phase='write',revision=1,current_attempt=0,reason_code=None,created_at=timestamp,updated_at=timestamp)
                 self.store.insert_task(db,task)
+                configuration=resolve(db,kind='writing_bundle',object_id=bundle['id'])
+                bind(db,kind='task',object_id=request_id,version=configuration)
+                if configuration:
+                    db.execute("INSERT INTO model_budgets(id,user_id,scope_type,scope_key,project_id,task_id,limit_micro_usd,revision,created_at,updated_at) VALUES (%s,%s,'task',%s,%s,%s,%s,1,%s,%s)",
+                        (str(uuid4()),self.store.user_id,request_id,project,request_id,bundle_contract(bundle)['task_limit_micro_usd'],timestamp,timestamp))
                 db.execute('INSERT INTO manuscript_writing_requests(task_id,project_id,user_id,manuscript_id,base_version_id,request_json,input_snapshot,input_digest,created_at,updated_at) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)',(request_id,project,self.store.user_id,identity,bundle['base_version_id'],Jsonb(bundle['request_json']),Jsonb(snap),digest(snap),timestamp,timestamp))
                 append_checkpoint(db,task,'check','check',dict(schema_version=2,input_digest=task['input_digest']))
                 self.store.append_event(db,task,'created');self.store.enqueue(db,task);status=202
@@ -184,7 +201,7 @@ def reserve_admission(store,db,task,request,reserved):
     if request.policy.model_dump(mode='json')!=expected or request.input_digest!=bundle['gateway_digest'] or request.input_token_allowance!=bundle['input_token_allowance'] or reserved!=bundle['reserved_micro_usd'] or request.tool_reserve_micro_usd!=0: raise denied()
     counts,occupied=usage(db,auth['id']);logical=grant['logical_task_id']
     next_counts={**counts,logical:counts.get(logical,0)+1}
-    if (sum(next_counts.values())>auth['max_posts'] or sum(max(n-1,0) for n in next_counts.values())>MAX_CORRECTIONS
+    if (sum(next_counts.values())>auth['max_posts'] or sum(max(n-1,0) for n in next_counts.values())>auth['manifest_json']['max_corrections']
         or sum(occupied.values())+reserved>auth['cap_micro_usd'] or occupied.get(logical,0)+reserved>grant['cap_micro_usd']):
         raise StorageError('model_budget_exceeded','本批授权次数、修正次数或逻辑任务累计预算不足。',409)
     return bundle,auth,grant

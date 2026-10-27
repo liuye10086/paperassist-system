@@ -1,3 +1,4 @@
+import {useReviewDraftGuard} from './reviewActivityContext'
 import {useEffect,useState} from 'react'
 import ProjectDownloadLink from '../../shared/components/ProjectDownloadLink'
 import {safeError,useI18n} from '../../shared/i18n'
@@ -7,23 +8,24 @@ import {reviewHash,type Inputs,type Round} from './reviewTypes'
 import {object,reviewBase} from './revisionTypes'
 import {manuscriptHash,progressStatuses,schoolProgressStatuses,validProgress,validProgressHistory,type ProgressStatus,type ProgressEvent,type ProgressHistory} from './continuationTypes'
 import {useReviewRequest} from './useReviewRequest'
-type Props={projectId:string;projectType:'sci'|'thesis';inputs:Inputs|null;rounds:Round[];active:boolean}
+type Props={expanded?:boolean;projectId:string;projectType:'sci'|'thesis';inputs:Inputs|null;rounds:Round[];active:boolean}
 function today(){const d=new Date();return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`}
 export default function ReviewProgressPanel(props:Props){return <Panel key={props.projectId} {...props}/>}
-function Panel({projectId,projectType,inputs,rounds,active}:Props){
+function Panel({expanded,projectId,projectType,inputs,rounds,active}:Props){
  const {t}=useI18n(),visible=useDocumentVisible(),{request,run,available,busy,error,setError}=useReviewRequest(),base=reviewBase(projectId)
- const [open,setOpen]=useState(false),[history,setHistory]=useState<ProgressHistory|null>(null),[manuscripts,setManuscripts]=useState<Manuscript[]>([]),[refresh,setRefresh]=useState(0),[notice,setNotice]=useState('')
+ const [open,setOpen]=useState(!!expanded),[history,setHistory]=useState<ProgressHistory|null>(null),[manuscripts,setManuscripts]=useState<Manuscript[]>([]),[refresh,setRefresh]=useState(0),[notice,setNotice]=useState('')
  const [status,setStatus]=useState<ProgressStatus>('not_recorded'),[date,setDate]=useState(today),[note,setNote]=useState(''),[targetId,setTargetId]=useState(''),[roundId,setRoundId]=useState(''),[versionId,setVersionId]=useState(''),[exportId,setExportId]=useState(''),[correction,setCorrection]=useState<ProgressEvent|null>(null)
  const names=projectType==='thesis'?schoolProgressStatuses:progressStatuses
- useEffect(()=>{if(!open||!active||!visible||!available)return;const c=new AbortController();void Promise.all([request(base+'/progress',(v):v is ProgressHistory=>validProgressHistory(v,projectId),undefined,c.signal),request(manuscriptBase(projectId),(v):v is {items:Manuscript[]}=>object(v)&&Array.isArray(v.items)&&v.items.every(m=>validManuscript(m,projectId)),undefined,c.signal)]).then(([h,m])=>{if(!c.signal.aborted){setHistory(h);setManuscripts(m.items)}}).catch(cause=>{if(!c.signal.aborted)setError(safeError(cause,'独立进展读取失败。'))});return()=>c.abort()},[open,active,visible,available,base,projectId,request,setError,refresh])
+ useEffect(()=>{if(!(expanded||open)||!active||!visible||!available)return;const c=new AbortController();void Promise.all([request(base+'/progress',(v):v is ProgressHistory=>validProgressHistory(v,projectId),undefined,c.signal),request(manuscriptBase(projectId),(v):v is {items:Manuscript[]}=>object(v)&&Array.isArray(v.items)&&v.items.every(m=>validManuscript(m,projectId)),undefined,c.signal)]).then(([h,m])=>{if(!c.signal.aborted){setHistory(h);setManuscripts(m.items)}}).catch(cause=>{if(!c.signal.aborted)setError(safeError(cause,'独立进展读取失败。'))});return()=>c.abort()},[expanded,open,active,visible,available,base,projectId,request,setError,refresh])
  const selectedInput=inputs?.manuscripts.flatMap(m=>m.versions.filter(v=>v.status==='published').map(v=>({id:m.id,revision:v.revision,version_id:v.id}))).find(v=>v.version_id===versionId)??(correction?.manuscript?.version_id===versionId?correction.manuscript:null)
  const exports=manuscripts.flatMap(m=>m.versions.filter(v=>v.id===versionId).flatMap(v=>v.exports)).filter(e=>e.status==='succeeded')
  const requireTarget=projectType==='sci'&&!!inputs?.journal_targets.length&&!correction&&!targetId
  const current=targetId?history?.journal_current_by_target[targetId]:history?.current
  function correct(e:ProgressEvent){setCorrection(e);setStatus(e.status);setDate(e.event_date);setNote(e.note);setTargetId(e.target_id??'');setRoundId(e.round_id??'');setVersionId(e.manuscript?.version_id??'');setExportId(e.export_id??'');setNotice('')}
  function latest(e:ProgressEvent){return e.id===(e.source_kind==='journal'&&e.target_id?history?.journal_current_by_target[e.target_id]?.id:history?.current?.id)}
+ useReviewDraftGuard(!!(note||versionId||roundId||exportId||correction))
  if(!available)return <p role="status">{t('会话或项目不可用，请重新打开项目。')}</p>
- return <section className="review-progress manuscript-panel" aria-label={t('独立用户进展')}><button type="button" onClick={()=>setOpen(v=>!v)} aria-expanded={open}>{t('记录实际进展')}</button>{open&&<>
+ return <section className="review-progress manuscript-panel" aria-label={t('独立用户进展')}><button type="button" onClick={()=>setOpen(v=>!v)} aria-expanded={expanded||open}>{t('记录实际进展')}</button>{(expanded||open)&&<>
  <p>{t('用户独立记录实际阶段与说明。任务成功、补料、继续任务、打开和下载均不会写入进展。')}</p><p className="warning-panel">{t(projectType==='thesis'?'合成记录，不代表真实送审或评审结论。':'合成记录，不代表真实投稿、录用或发表。')}</p>{error&&<p role="alert" className="error-panel">{t(error)}</p>}{notice&&<p role="status">{t(notice)}</p>}
  {projectType==='thesis'&&<p>{t('送审指提交学校评审；评审通过指学校评审结论。请在说明中记录具体环节。')}</p>}{requireTarget&&<p>{t('SCI 已有期刊目标，请明确选择对应目标记录进展。')}</p>}{current&&<p>{t('此范围当前记录')}：{t(names[current.status])} · {current.event_date} · {current.note}</p>}
  <fieldset disabled={busy||!history}><legend>{t(correction?'追加更正记录':'新增独立进展记录')}</legend>{projectType==='sci'&&<label>{t('进展所属期刊目标')}<select value={targetId} disabled={!!correction} onChange={e=>setTargetId(e.target.value)}><option value="">{t('项目整体进展（不指定期刊）')}</option>{inputs?.journal_targets.map(j=><option key={j.id} value={j.id}>{j.label}</option>)}</select></label>}

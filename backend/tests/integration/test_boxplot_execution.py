@@ -419,7 +419,7 @@ def test_boxplot_candidate_cannot_change_storage_path_or_call_identity(client, m
     provider = SyntheticPlotProvider(result, pending=False)
     task = run(run(task, provider), provider)
     def interrupted(*args, **kwargs):
-        raise SystemExit('candidate intent exists before any file write')
+        raise SystemExit('captured candidate exists before promotion')
     with monkeypatch.context() as patch:
         patch.setattr(TaskExecutionStore, 'write_figure_candidate', interrupted)
         with pytest.raises(SystemExit):
@@ -427,12 +427,12 @@ def test_boxplot_candidate_cannot_change_storage_path_or_call_identity(client, m
     sentinel = tmp_path / 'do-not-touch.png'
     sentinel.write_bytes(b'protected local content')
     with database_connection(write=True) as db:
-        candidate = db.execute('SELECT figure_candidate FROM tasks').fetchone()['figure_candidate']
+        candidate = db.execute('SELECT figure_candidate FROM tasks WHERE id=%s',(task['id'],)).fetchone()['figure_candidate']
         if tamper == 'path':
             candidate['path'] = str(sentinel)
         else:
             candidate['figure']['provenance']['model_input_digest'] = '0' * 64
-        db.execute('UPDATE tasks SET figure_candidate=%s', (Jsonb(candidate),))
+        db.execute('UPDATE tasks SET figure_candidate=%s WHERE id=%s', (Jsonb(candidate),task['id']))
     expired(lease_for(task))
     assert TaskExecutionStore().recover_expired() == 1
     failed = run(TaskStore(owner).get(task['id']), provider)

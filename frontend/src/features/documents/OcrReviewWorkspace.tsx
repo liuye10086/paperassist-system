@@ -8,10 +8,11 @@ import { documentRequest } from './documentApi'
 import { isReviewEdits, isReviewWorkspace, isReviewTask, reviewTaskBase, type ReviewWorkspace, type ReviewEdit } from './ocrReviewApi'
 import OcrReviewDocument from './OcrReviewDocument'
 import './documents.css'
+import useDraftLeaveGuard, {type RegisterLeaveGuard} from '../projects/useDraftLeaveGuard'
 
-type Props={projectId:string;fileId:string;parseId:string;taskId:string;filename:string;onUnavailable:()=>void;onPublished?:()=>void}
+type Props={projectId:string;fileId:string;parseId:string;taskId:string;filename:string;onUnavailable:()=>void;onPublished?:()=>void;active?:boolean;registerLeaveGuard?:RegisterLeaveGuard}
 export default function OcrReviewWorkspace(props:Props){return <Workspace key={`${props.projectId}:${props.fileId}:${props.parseId}:${props.taskId}`} {...props}/>}
-function Workspace({projectId,fileId,parseId,taskId,onUnavailable,onPublished}:Props) {
+function Workspace({projectId,fileId,parseId,taskId,onUnavailable,onPublished,active=true,registerLeaveGuard}:Props) {
  const {t}=useI18n(),visible=useDocumentVisible()
  const [data,setData]=useState<ReviewWorkspace|null>(null),[edits,setEdits]=useState<ReviewEdit[]>([]),[dirty,setDirty]=useState(false)
  const [refresh,setRefresh]=useState(0),[loading,setLoading]=useState(true),[busy,setBusy]=useState(false),[error,setError]=useState(''),[feedback,setFeedback]=useState(''),[sessionValid,setSessionValid]=useState(true)
@@ -19,10 +20,11 @@ function Workspace({projectId,fileId,parseId,taskId,onUnavailable,onPublished}:P
  const dirtyRef=useRef(false),draftBase=useRef<ReviewWorkspace|null>(null),latest=useRef<ReviewWorkspace|null>(null),action=useRef<AbortController|null>(null),read=useRef<AbortController|null>(null)
  const alive=useRef(true),notified=useRef(''),replay=useRef<{body:string;key:string}|null>(null)
  const base=reviewTaskBase(taskId)
+ useDraftLeaveGuard(registerLeaveGuard, dirty, busy || Boolean(actionError && !conflict))
  useEffect(()=>{alive.current=true;return()=>{alive.current=false;action.current?.abort();read.current?.abort()}},[])
  useEffect(()=>onApiSessionChanged(()=>{alive.current=false;action.current?.abort();read.current?.abort();setSessionValid(false);setData(null);setEdits([]);draftBase.current=null;replay.current=null}),[])
  useEffect(()=>{
-  if(!sessionValid||!visible)return
+  if(!sessionValid||!visible||!active)return
   const controller=new AbortController();read.current=controller;let mounted=true,timer=0
   const load=async()=>{
    try {
@@ -42,7 +44,7 @@ function Workspace({projectId,fileId,parseId,taskId,onUnavailable,onPublished}:P
    finally{if(mounted&&!controller.signal.aborted)setLoading(false)}
   }
   void load();return()=>{mounted=false;controller.abort();window.clearTimeout(timer)}
- },[base,projectId,fileId,parseId,taskId,sessionValid,visible,refresh,onUnavailable,onPublished])
+ },[base,projectId,fileId,parseId,taskId,sessionValid,visible,active,refresh,onUnavailable,onPublished])
  function change(block:string,edit:ReviewEdit|null) {
   if(!data||busy||data.task.status!=='waiting_confirmation'||data.wait?.status!=='open')return
   if(!dirtyRef.current)draftBase.current=data

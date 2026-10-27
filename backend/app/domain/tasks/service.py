@@ -53,6 +53,9 @@ class TaskService:
                     raise StorageError('task_idempotency_conflict', '同一请求标识已用于不同输入，请重新读取任务。', 409)
                 return self.store.public_task(existing), False
             snapshot = self.store.source_snapshot(db, project, request)
+            from app.domain.admin_configuration.bindings import resolve,bind
+            from app.domain.admin_configuration.model_consumption import execution,instructions,check_input
+            configuration=resolve(db) if request.task_type in ('explanation','boxplot') else None
             if request.external_processing is not None:
                 snapshot['external_processing'] = freeze_confirmation(snapshot, request.task_type, self.store.user_id, request.external_processing)
             elif require_external or ('source' in snapshot and request.task_type in ('boxplot', 'explanation')):
@@ -101,7 +104,9 @@ class TaskService:
                 from app.domain.explanation_policy import get_execution_policy, validate_execution_policy
                 from app.domain.external_material import explanation_material
                 _, payload = explanation_material(snapshot['result'], snapshot['figure'], snapshot.get('external_processing'))
-                if explanation_policy is not None:
+                if configuration:
+                    frozen_policy=execution(configuration,'explanation',payload)
+                elif explanation_policy is not None:
                     frozen_policy = validate_execution_policy(explanation_policy, payload)
                 else:
                     try:
@@ -112,10 +117,16 @@ class TaskService:
                         # The generic task contract may persist work before configuration.
                         frozen_policy = None
                 if frozen_policy is not None:
+                    from app.domain.external_material import explanation_instructions
+                    check_input(frozen_policy,instructions(explanation_instructions(snapshot.get('external_processing'),snapshot['result']),configuration,'explanation'),payload,code='explanation_input_limit')
                     snapshot['explanation_policy'] = frozen_policy
+                elif require_external:
+                    raise StorageError('explanation_not_configured','分析解释的模型策略尚未配置。',503)
             if request.task_type == 'boxplot':
                 from app.domain.plot_policy import get_execution_policy, validate_execution_policy
-                if boxplot_policy is not None:
+                if configuration:
+                    frozen_policy=execution(configuration,'plot',result=snapshot['result'])
+                elif boxplot_policy is not None:
                     frozen_policy = validate_execution_policy(boxplot_policy,result=snapshot['result'])
                 else:
                     try:
@@ -126,6 +137,8 @@ class TaskService:
                         frozen_policy = None
                 if frozen_policy is not None:
                     snapshot['boxplot_policy'] = frozen_policy
+                elif require_external:
+                    raise StorageError('plot_not_configured','绘图的模型策略尚未配置。',503)
             now = datetime.now(timezone.utc)
             task = dict(id=str(uuid4()), project_id=project_id, user_id=self.store.user_id,
                         task_type=request.task_type, idempotency_key=idempotency_key, input_digest=digest,
@@ -133,6 +146,7 @@ class TaskService:
                         phase={'boxplot': 'compute', 'explanation': 'interpret', 'word_report': 'export'}[request.task_type],
                         revision=1, current_attempt=0, reason_code=None, created_at=now, updated_at=now)
             self.store.insert_task(db, task)
+            bind(db,kind='task',object_id=task['id'],version=configuration)
             frozen_budget = snapshot.get('explanation_policy') or snapshot.get('boxplot_policy')
             if frozen_budget is not None:
                 db.execute('''INSERT INTO model_budgets

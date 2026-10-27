@@ -1,4 +1,5 @@
 """Lease-fenced, checkpointed local publication. No remote/model clients."""
+from app.domain.storage_governance import export_candidates as candidates
 from hashlib import sha256
 import os
 from threading import Event,Thread
@@ -39,8 +40,11 @@ def run_manuscript_task(task_id,task_revision,*,config=None,directory=None):
             version=service.verify_task(db,task,current=True);snapshot=version['snapshot_json']
             state=dict(version_id=version['id'],input_sha256=version['snapshot_sha256'],workflow_version=WORKFLOW)
             checkpoint(db,task,'check','publish',state)
+            restored=candidates.restore(db,execution.assets.directory,task,lease) if task['task_type']=='manuscript_docx' else None
         content=metadata=None
-        if task['task_type']=='manuscript_docx':
+        if restored:
+            metadata,content,target=restored
+        elif task['task_type']=='manuscript_docx':
             from app.adapters.manuscript_docx import build_manuscript_docx,RENDERER_VERSION
             images={}
             for group in snapshot['results_groups']:
@@ -80,16 +84,15 @@ def run_manuscript_task(task_id,task_revision,*,config=None,directory=None):
             if school_plan is not None:metadata['school']=dict(plan=school_plan,report=school_plan['report'],field_update=field_update)
             service.directory.mkdir(parents=True,exist_ok=True)
             staged=service.directory/(export_id+'-'+lease.lease_owner+'.part')
-            with staged.open('xb') as stream: stream.write(content);stream.flush();os.fsync(stream.fileno())
         with execution.connection(write=True) as db:
             task=execution.require_lease(db,lease);execution.require_owner(db,task)
             fresh=service.verify_task(db,task,current=True)
             if fresh['snapshot_json']!=snapshot: raise source_conflict()
             if task['task_type']=='manuscript_docx':
                 target=service.directory/(task['input_snapshot']['export_id']+'.docx')
-                if target.exists():
-                    if target.read_bytes()!=content: raise StorageError('report_changed','导出候选文件不一致。',409)
-                else: staged.rename(target)
+                if not restored:
+                    candidates.capture(db,execution.assets.directory,task,lease,target,staged,content,metadata)
+                candidates.publish(db,execution.assets.directory,task,lease,metadata)
                 db.execute('UPDATE manuscript_exports SET metadata_json=%s WHERE id=%s AND task_id=%s',(Jsonb(metadata),task['input_snapshot']['export_id'],task['id']))
             checkpoint(db,task,'publish','done',state)
             execution.require_lease(db,lease);execution._finish(db,task,'succeeded',None)
@@ -104,9 +107,7 @@ def run_manuscript_task(task_id,task_revision,*,config=None,directory=None):
             except LeaseLost: return None
     finally:
         stop.set();thread.join(timeout=1)
-        if staged is not None:
-            try: staged.unlink(missing_ok=True)
-            except OSError: pass
+        # Candidate ownership survives rollback; cleanup is never inferred from metadata.
 
 
 def retry_in_transaction(store,db,task,expected_revision,*,assets=None):
@@ -114,6 +115,7 @@ def retry_in_transaction(store,db,task,expected_revision,*,assets=None):
         raise StorageError('task_revision_conflict','仅能恢复当前失败事实稿任务。',409)
     assets=assets or scoped_store(task['user_id'],store.config)
     ManuscriptService(assets).verify_task(db,task,current=True)
+    if task['task_type']=='manuscript_docx': candidates.authorize(db,assets.directory,task)
     task.update(status='queued',revision=expected_revision+1,reason_code='retry_requested',error_code=None,retry_count=0,
         updated_at=max(now(),task['updated_at']),_retry_reason='manual_retry')
     store.update_task(db,task,expected_revision);store.append_event(db,task,'requeued');store.enqueue(db,task)

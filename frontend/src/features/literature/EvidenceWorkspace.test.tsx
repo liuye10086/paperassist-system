@@ -30,17 +30,17 @@ it('rejects absent source scope and malformed choices instead of inventing missi
 })
 it('shows named files, claim history, reading scope and exhausted supplement',async()=>{
  setup();render(<EvidenceWorkspace projectId="p1" researchTopic="Synthetic topic" outputLanguage="en"/>);
- expect(await screen.findByRole('option',{name:'Synthetic paper.pdf'})).toBeTruthy()
- fireEvent.change(screen.getByLabelText('选择论述'),{target:{value:'claim1'}})
+ fireEvent.click(screen.getByRole('button',{name:'全文与解析材料'}));expect(await screen.findByRole('option',{name:'Synthetic paper.pdf'})).toBeTruthy()
+ fireEvent.click(screen.getByRole('button',{name:'论述核验'}));await screen.findByRole('option',{name:'Synthetic claim'});fireEvent.change(screen.getByLabelText('选择论述'),{target:{value:'claim1'}})
  expect(await screen.findByRole('option',{name:/Synthetic old claim/})).toBeTruthy()
  expect(screen.getByText('Abstract evidence cannot establish full text details. Successful parsing does not establish claim support.')).toBeTruthy()
  expect((screen.getByRole('button',{name:'创建补搜任务'}) as HTMLButtonElement).disabled).toBe(true)
- fireEvent.change(screen.getByLabelText('查看论述版本'),{target:{value:'1'}})
+ await waitFor(()=>expect((screen.getByLabelText('论述文本') as HTMLTextAreaElement).value).toBe('Synthetic claim'));fireEvent.change(screen.getByLabelText('查看论述版本'),{target:{value:'1'}})
  await waitFor(()=>expect((screen.getByRole('button',{name:'保存人工核验'}) as HTMLButtonElement).disabled).toBe(true))
 })
 it('uses English controls independently from task output language',async()=>{
  setLocale('en');setup();render(<EvidenceWorkspace projectId="p1" researchTopic="Synthetic topic" outputLanguage="zh-CN"/>);
- expect(await screen.findByRole('option',{name:'Synthetic paper.pdf'})).toBeTruthy()
+ fireEvent.click(screen.getByRole('button',{name:'Full text and parsed materials'}));expect(await screen.findByRole('option',{name:'Synthetic paper.pdf'})).toBeTruthy();fireEvent.click(screen.getByRole('button',{name:'Claim verification'}))
  expect(screen.getByRole('button',{name:'Create claim'})).toBeTruthy()
  expect((screen.getByLabelText('Claim output language') as HTMLSelectElement).value).toBe('zh-CN')
 })

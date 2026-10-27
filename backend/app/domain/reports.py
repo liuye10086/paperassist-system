@@ -161,6 +161,8 @@ def generate_report(project_id: str, file_id: str, run_id: str, request: ReportR
     if state['report']:
         metadata = state['report']
         content = repository.content(metadata)
+    elif pending := repository.pending(snapshot):
+        metadata, content = pending
     else:
         metadata = repository.metadata(snapshot)
         try:

@@ -37,13 +37,18 @@ class DatasetObjects:
             raise invalid
         return path
 
-    def save(self, dataset_id, content):
+    @staticmethod
+    def describe(dataset_id, content):
         digest = hashlib.sha256(content).hexdigest()
         key = f'datasets/{dataset_id}/{digest}.json'
+        return dict(object_key=key,size_bytes=len(content),sha256=digest)
+
+    def save(self, dataset_id, content):
+        record = self.describe(dataset_id, content)
+        key = record['object_key']
         target = self.path(key)
         target.parent.mkdir(parents=True,exist_ok=True)
         target = self.path(key)
-        record = dict(object_key=key,size_bytes=len(content),sha256=digest)
         if target.exists():
             self.read(record)
             return record

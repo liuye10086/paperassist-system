@@ -7,6 +7,8 @@ from app.core.exceptions import StorageError
 from app.domain.dataset_preparation.service import require_key
 from app.domain.literature.service import digest
 from .contracts import WORKFLOW,FIELDS,SOURCE_TYPES
+from app.domain.admin_configuration.bindings import resolve,bind,projection
+from app.domain.admin_configuration.rule_consumption import rules
 
 
 def now():return datetime.now(timezone.utc)
@@ -29,7 +31,7 @@ class JournalService:
         with self.store.connection() as db:
             self.project(db,project);policy=configuration(db,project,self.store.user_id)
         from .format_contracts import FORMAT_WORKFLOW,CHECK_VERSION,RULE_KEYS,COUNT_METHODS,STATUSES
-        return dict(format_check=dict(workflow_version=FORMAT_WORKFLOW,check_version=CHECK_VERSION,rule_keys=list(RULE_KEYS),count_methods=list(COUNT_METHODS),statuses=list(STATUSES),extraction='finite_explicit_lines_v1'),workflow_version=WORKFLOW,real_model_calls=False,real_network_calls=False,fields=list(FIELDS),source_types=list(SOURCE_TYPES),default_limit=3,max_limit=5,metrics_enabled=False,material_kinds=['original','document_version','ocr_review_version','external_evidence_version'],**policy)
+        return dict(format_check=dict(workflow_version=FORMAT_WORKFLOW,check_version=CHECK_VERSION,rule_keys=list(RULE_KEYS),count_methods=list(COUNT_METHODS),statuses=list(STATUSES),extraction='finite_explicit_lines_v1'),workflow_version=WORKFLOW,real_model_calls=False,real_network_calls=False,fields=list(FIELDS),source_types=list(SOURCE_TYPES),material_kinds=['original','document_version','ocr_review_version','external_evidence_version'],**policy)
     def row(self,db,project,identity,table='journal_recommendations'):
         assert table in ('journal_profiles','journal_recommendations')
         self.project(db,project)
@@ -83,9 +85,18 @@ class JournalService:
         with self.store.connection() as db:return self.row(db,project,identity,'journal_profiles')['snapshot_json']
     def create(self,project,request,key):
         require_key(key);body=request.model_dump(mode='json')
+        legacy_body=dict(body)
+        if 'limit' not in request.model_fields_set:body.pop('limit',None)
         with self.store.connection(write=True) as db:
-            self.project(db,project,True);old=self.replay(db,'journal_recommendations',project,key,body)
-            if old:return self.view(db,old),200
+            self.project(db,project,True)
+            old=db.execute('SELECT * FROM journal_recommendations WHERE project_id=%s AND user_id=%s AND idempotency_key=%s',(project,self.store.user_id,key)).fetchone()
+            if old:
+                compatible=(body!=legacy_body and projection(db,'task',old['task_id'])['status']=='legacy_unbound' and old['request_digest']==digest(legacy_body))
+                if old['request_digest']!=digest(body) and not compatible:raise StorageError('task_idempotency_conflict','请求标识已用于不同输入。',409)
+                return self.view(db,old),200
+            version=resolve(db);policy=rules(version,'journals')
+            effective=dict(body,limit=request.limit if 'limit' in request.model_fields_set else policy['default_count'])
+            if effective['limit']>policy['max_count']:raise invalid('建议数量超过本次配置上限。',422)
             if request.profile_ids is None:
                 rows=db.execute('''SELECT p.* FROM journal_profiles p WHERE p.project_id=%s AND p.user_id=%s AND NOT EXISTS(SELECT 1 FROM journal_profiles n WHERE n.previous_version_id=p.id) ORDER BY p.id''',(project,self.store.user_id)).fetchall()
             else:
@@ -103,9 +114,10 @@ class JournalService:
                 manuscripts.verify_task(db,producer,current=True)
                 manuscript=dict(id=m.id,revision=m.revision,version_id=row['id'],snapshot=row['snapshot_json'],sha256=row['snapshot_sha256'])
             identity=str(uuid4());timestamp=now()
-            snap=dict(id=identity,kind='journal_recommendation',recommendation_id=identity,project_id=project,workflow_version=WORKFLOW,research=body,materials=materials,manuscript=manuscript,profiles=[r['snapshot_json'] for r in rows],real_model_calls=False,real_network_calls=False)
+            snap=dict(id=identity,kind='journal_recommendation',recommendation_id=identity,project_id=project,workflow_version=WORKFLOW,research=effective,materials=materials,manuscript=manuscript,profiles=[r['snapshot_json'] for r in rows],real_model_calls=False,real_network_calls=False)
             task=dict(id=str(uuid4()),project_id=project,user_id=self.store.user_id,task_type='journal_recommendation',idempotency_key='journal:'+identity,input_digest=digest(snap),input_snapshot=snap,workflow_version=WORKFLOW,status='queued',phase='plan',revision=1,current_attempt=0,reason_code=None,created_at=timestamp,updated_at=timestamp)
             self.store.insert_task(db,task);self.store.append_event(db,task,'created');self.store.enqueue(db,task)
+            bind(db,kind='task',object_id=task['id'],version=version)
             db.execute('''INSERT INTO journal_recommendations(id,project_id,user_id,idempotency_key,request_json,request_digest,snapshot_json,snapshot_sha256,created_at,task_id,manuscript_id,manuscript_revision) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)''',(identity,project,self.store.user_id,key,Jsonb(body),digest(body),Jsonb(snap),digest(snap),timestamp,task['id'],request.manuscript.id if request.manuscript else None,request.manuscript.revision if request.manuscript else None))
             self.references(db,project,identity,materials)
             return self.view(db,self.row(db,project,identity)),202

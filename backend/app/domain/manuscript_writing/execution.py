@@ -112,7 +112,10 @@ def execute(repository,lease,provider):
         task=repository.require_lease(db,lease);repository.require_owner(db,task)
         snapshot=require_snapshot(task);checkpoint(db,task)
         service=WritingService(scoped_store(task['user_id'],repository.config,repository.assets.directory))
-        service.assert_current(db,task);call=last_call(db,task['id'])
+        call=last_call(db,task['id'])
+        if call and (call.get('provider_response_id') or call['status'] in ('submitting','submission_unknown')):
+            service.row(db,task['project_id'],snapshot['manuscript_id'],task['id'])
+        else: service.assert_current(db,task)
     if provider is None: return wait(repository,lease,'confirmation_required','manuscript_writing_not_authorized')
     if call and not call.get('provider_response_id') and call['status'] in ('submitting','submission_unknown'):
         return wait(repository,lease,'submission_unknown','model_submission_unknown')

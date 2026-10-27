@@ -223,7 +223,7 @@ def test_pdf_input_version_cannot_be_used_by_other_task_type(client):
     with pytest.raises(ValidationError): TaskView.model_validate(dict(task,task_type='word_report'))
 
 
-def test_publish_transaction_failure_cleans_unpublished_pdf(client,monkeypatch):
+def test_publish_transaction_failure_retains_metered_unpublished_pdf(client,monkeypatch):
     from types import SimpleNamespace
     from app.adapters.task_execution_store import TaskExecutionStore
     from app.core.config import get_data_dir
@@ -237,8 +237,15 @@ def test_publish_transaction_failure_cleans_unpublished_pdf(client,monkeypatch):
         return original(self,db,task,status,code)
     monkeypatch.setattr(TaskExecutionStore,'_finish',fail_publish)
     assert run_task(saved['task_id'],1)['status']=='failed'
-    assert client.get(path+'/'+saved['id']).json()['sha256'] is None
-    assert not list((Path(get_data_dir())/'pdf_exports').glob('*'))
+    failed=client.get(path+'/'+saved['id']).json()
+    assert failed['sha256'] is None and failed['download_url'] is None
+    assert failed['error_code']=='storage_accounting_unknown' and failed['recovery_mode']=='local_candidate'
+    retained=list((Path(get_data_dir())/'pdf_exports').glob('*'))
+    assert len(retained)==1 and retained[0].read_bytes()==b'%PDF-1.7\ntransaction'
+    from app.db.database import database_connection
+    with database_connection() as db:
+        hold=db.execute("SELECT * FROM storage_reservations WHERE task_id=%s AND kind='pdf_export'",(saved['task_id'],)).fetchone()
+        assert hold['state']=='unknown' and hold['size_bytes']==len(retained[0].read_bytes())
     assert (Path(get_data_dir())/'manuscript_exports'/(source['id']+'.docx')).read_bytes().startswith(b'PK')
 
 

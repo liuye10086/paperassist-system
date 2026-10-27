@@ -289,7 +289,7 @@ class ModelUsageService:
             return call
 
     def record_response(self, call_id, *, event_key, response_id, request_id, model,
-                        status, usage, tool_cost_micro_usd=None):
+                        status, usage, tool_cost_micro_usd=None, response=None):
         if (not _key(event_key) or not _key(response_id, 256) or not _key(model)
                 or (request_id is not None and not _key(request_id, 256))
                 or not isinstance(status, str) or status not in TERMINAL | {'queued', 'in_progress'}
@@ -315,6 +315,17 @@ class ModelUsageService:
             if other:
                 raise _error('model_usage_event_conflict', '供应商响应已属于其他模型调用。')
             terminal_saved = call['provider_status'] in TERMINAL
+            from app.domain.model_usage.tool_evidence import merge_tool_evidence, response_tool_evidence
+            trusted=(isinstance(response,dict) and response.get('status')==status
+                     and response.get('model',model)==model and model==call['model'])
+            evidence = response_tool_evidence(response, response_id) if trusted else None
+            state = call.get('provider_state') or {}
+            previous = state.get('tool_execution_evidence') or {}
+            # A repeated/older pending receipt cannot downgrade a complete response.
+            if evidence is not None and previous.get('complete') is not True:
+                evidence = merge_tool_evidence(previous, evidence)
+                call['provider_state'] = {**state, 'tool_execution_evidence': evidence}
+                self.store.update_call(db, call)
             if event or (terminal_saved and status not in TERMINAL):
                 if request_id is not None:
                     call.update(provider_request_id=request_id, updated_at=datetime.now(timezone.utc))

@@ -9,7 +9,7 @@ import math
 import re
 import sys
 from datetime import datetime, timedelta
-from sqlalchemy import inspect, CheckConstraint, DateTime, Text, UniqueConstraint
+from sqlalchemy import inspect, CheckConstraint, DateTime, Text, UniqueConstraint, Integer, Float
 from sqlalchemy.dialects.postgresql import DOUBLE_PRECISION
 from app.db.schema import metadata
 from app.db.database import SCHEMA_HEAD, database_connection, get_database_config
@@ -54,9 +54,97 @@ def _check_signature(value):
     for index in range(0, len(parts), 2):
         syntax = parts[index].lower()
         syntax = re.sub(r'::(?:text|character varying|integer|bigint|double precision)', '', syntax)
-        syntax = re.sub(r'=\s*any\s*\(\s*array\[', ' in (', syntax)
-        parts[index] = re.sub(r'[\s()\[\]]', '', syntax)
-    return ''.join(parts)
+        # PostgreSQL expands these simple integer BETWEEN predicates into two
+        # inclusive comparisons. Keep both expressions/operators/bounds exact.
+        syntax = re.sub(r'\b(length\s*\(\s*[a-z_][a-z_0-9]*\s*\)|[a-z_][a-z_0-9]*)\s+between\s+(-?\d+)\s+and\s+(-?\d+)\b',
+            lambda m: f'({m[1]}>={m[2]} and {m[1]}<={m[3]})', syntax)
+        parts[index] = syntax
+    return _boolean_check_signature(''.join(parts).strip())
+
+
+def _boolean_check_signature(expression):
+    """Preserve AND/OR precedence while ignoring redundant same-operator groups.
+
+    This compares local CHECK text; it never evaluates SQL. Literal contents
+    and scalar leaves retain the existing normalization. Boolean text inside
+    an opaque function/CASE leaf keeps its parentheses conservatively.
+    """
+    token_pattern=r"'(?:''|[^'])*'|[()\[\]]|\b(?:and|or)\b"
+    def tokens(value):
+        return re.finditer(token_pattern,value)
+    # Only a pair enclosing the entire expression is redundant here.
+    while expression.startswith('('):
+        depth=0;closing=None
+        for token in tokens(expression):
+            word=token.group()
+            if word=='(':depth+=1
+            elif word==')':
+                depth-=1
+                if depth==0:
+                    closing=token.end();break
+        if closing!=len(expression):break
+        expression=expression[1:-1].strip()
+    # OR has lower precedence. Splitting only at depth zero preserves mixed
+    # groups; flattening the same operator accepts PostgreSQL's associative form.
+    for operator in ('or','and'):
+        depth=0;start=0;children=[]
+        for token in tokens(expression):
+            word=token.group()
+            if word in ('(','['):depth+=1
+            elif word in (')',']'):depth-=1
+            elif depth==0 and word==operator:
+                children.append(expression[start:token.start()].strip());start=token.end()
+        if children:
+            children.append(expression[start:].strip())
+            result=[]
+            for child in children:
+                node=_boolean_check_signature(child)
+                result.extend(node[1:] if node[0]==operator else [node])
+            return (operator,*result)
+    # IS TRUE changes nullable CHECK behavior. Keep it as a semantic wrapper,
+    # recursively normalizing only the grouping of the wrapped boolean operand.
+    truth_test=re.fullmatch(r'(.+)\s+is\s+true',expression,re.DOTALL)
+    if truth_test:
+        return ('is_true',_boolean_check_signature(truth_test[1].strip()))
+    opaque_boolean=any(token.group() in ('and','or') for token in tokens(expression))
+    parts=re.split(r"('(?:''|[^'])*')",expression)
+    for index in range(0,len(parts),2):
+        syntax=parts[index]
+        if not opaque_boolean:
+            syntax=re.sub(r'=\s*any\s*\(\s*array\[',' in (',syntax)
+        parts[index]=re.sub(r'\s+' if opaque_boolean else r'[\s()\[\]]','',syntax)
+    return ('atom', ''.join(parts))
+
+
+def _defaults_match(db, table, expected, actual, expected_default):
+    actual_default=actual.get('default')
+    if actual_default is None and expected_default is None:
+        return True
+    if actual_default is not None and expected_default is not None:
+        if _check_signature(actual_default)==_check_signature(expected_default):
+            return True
+        # PG folds quoted integer defaults to the same typed numeric constant.
+        # Do not normalize expressions, strings on text columns, or other values.
+        if isinstance(expected.type,Integer):
+            def integer_constant(value):
+                match=re.fullmatch(r"\s*(?:'(-?\d+)'|(-?\d+))(?:::(?:integer|bigint|smallint))?\s*",str(value))
+                return int(match[1] or match[2]) if match else None
+            left,right=integer_constant(actual_default),integer_constant(expected_default)
+            return left is not None and right is not None and left==right
+        return False
+    # SERIAL is SQLAlchemy's implicit integer primary-key default. Verify the
+    # reflected nextval names the sequence actually owned by this exact column;
+    # another table's sequence or an arbitrary numeric default is real drift.
+    if (expected_default is None and table._autoincrement_column is expected
+            and expected.identity is None and isinstance(expected.type,Integer) and actual.get('autoincrement')):
+        match=re.fullmatch(r"nextval\('([^']+)'::regclass\)",actual_default or '')
+        if match:
+            quote=db.raw_connection.dialect.identifier_preparer.quote
+            qualified=quote(db.config.schema)+'.'+quote(table.name)
+            owned=db.execute('SELECT pg_catalog.pg_get_serial_sequence(%s,%s) AS name',(qualified,expected.name)).fetchone()['name']
+            return bool(owned and db.execute('SELECT pg_catalog.to_regclass(%s)=pg_catalog.to_regclass(%s) AS same',
+                (owned,match[1])).fetchone()['same'])
+    return False
 
 
 def audit_database(db):
@@ -89,7 +177,7 @@ def audit_database(db):
             if expected_default is not None and isinstance(e.server_default.arg, str):
                 expected_default = "'" + expected_default.replace("'", "''") + "'"
             actual_default = a.get('default')
-            defaults_match = (actual_default is None and expected_default is None) or (actual_default is not None and expected_default is not None and _check_signature(actual_default) == _check_signature(expected_default))
+            defaults_match = _defaults_match(db,table,e,a,expected_default)
             identities_match = bool(a.get('identity')) == (e.identity is not None)
             if identities_match and e.identity is not None:
                 identities_match = a['identity']['always'] == e.identity.always
@@ -148,7 +236,7 @@ def audit_database(db):
                 validator = None
                 if column.name.endswith('_json') and isinstance(column.type, Text):
                     validator = valid_json
-                elif isinstance(column.type, DOUBLE_PRECISION):
+                elif isinstance(column.type, (DOUBLE_PRECISION,Float)):
                     validator = valid_numeric_time
                 elif isinstance(column.type, DateTime):
                     validator = valid_datetime

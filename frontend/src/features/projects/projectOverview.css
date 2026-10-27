@@ -1,0 +1,19 @@
+.overview-view-switcher { display: flex; flex-wrap: wrap; gap: 4px; width: fit-content; max-width: 100%; margin: 12px 0 16px; padding: 4px; background: var(--social-bg); border: 1px solid var(--border); border-radius: 10px; }
+.overview-view-switcher button { min-height: 36px; padding: 7px 16px; background: transparent; border-color: transparent; color: var(--text); }
+.overview-view-switcher button[aria-pressed='true'] { background: var(--surface); color: var(--accent); border-color: var(--border); box-shadow: 0 1px 3px #18251b0a; font-weight: 600; }
+.overview-intro { margin-bottom: 18px; color: var(--text); font-size: 13px; }
+.project-task-grid { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 16px; }
+.project-task-card { padding: 22px 20px 14px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; min-width: 0; }
+.task-card-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; }
+.task-card-icon { display: grid; place-items: center; height: 38px; width: 38px; border-radius: 9px; color: var(--accent); background: var(--accent-bg); }
+.task-card-number { color: var(--text); font-size: 11px; font-variant-numeric: tabular-nums; }
+.project-task-card h3 { font-size: 17px; }
+.project-task-card > p { min-height: 64px; margin-top: 10px; font-size: 13px; line-height: 1.8; overflow-wrap: anywhere; }
+.task-card-actions { border-top: 1px solid var(--border); margin-top: 12px; padding-top: 10px; display: grid; gap: 4px; }
+.task-card-actions button { width: 100%; justify-content: space-between; padding: 9px 0; color: var(--accent); font-size: 13px; text-align: left; }
+.task-card-actions .workspace-icon { width: 16px; height: 16px; }
+.project-overview-panel { background: var(--surface); padding: 24px; border: 1px solid var(--border); border-radius: 12px; }
+.project-overview-panel .project-details { padding: 0; background: transparent; }
+.project-overview-panel .project-details > .muted { margin-bottom: 16px; }
+@media (max-width: 1200px) { .project-task-grid { grid-template-columns: repeat(2,minmax(0,1fr)); } .project-task-card > p { min-height: 0; } }
+@media (max-width: 520px) { .project-task-grid { grid-template-columns: 1fr; } .overview-view-switcher { width: 100%; } .overview-view-switcher button { flex: 1 1 40%; padding-inline: 8px; } .project-overview-panel { padding: 18px; } }

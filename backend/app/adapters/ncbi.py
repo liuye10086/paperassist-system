@@ -1,5 +1,5 @@
 """Bounded, single-attempt NCBI transport and deterministic offline parsers."""
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 import json
 import re
 from pathlib import Path
@@ -28,7 +28,7 @@ def _identity(settings):
     if not settings.enabled or not isinstance(settings.tool, str) or not re.fullmatch(r'[A-Za-z0-9_.-]{1,100}', settings.tool) or not isinstance(settings.email, str) or not re.fullmatch(r'[^\s@]+@[^\s@]+\.[^\s@]+', settings.email):
         raise NcbiError('ncbi_not_configured')
 
-def get_ncbi_settings():
+def get_ncbi_settings(*, version=None):
     config = local_config()
     if config.get('PAPERASSIST_NCBI_CONFIG_FILE'):
         from app.core.paths import BACKEND_ROOT
@@ -45,8 +45,20 @@ def get_ncbi_settings():
             raise NcbiError('ncbi_not_configured') from None
     else:
         settings = NcbiSettings(config.get('PAPERASSIST_NCBI_ENABLED') == '1', config.get('PAPERASSIST_NCBI_TOOL') or 'PaperAssist', config.get('PAPERASSIST_NCBI_EMAIL') or '', config.get('PAPERASSIST_NCBI_API_KEY') or '')
+    # An explicit deployment disable overrides even an enabled private identity
+    # file. Absence of this env flag preserves the old private-file contract.
+    if 'PAPERASSIST_NCBI_ENABLED' in config and config['PAPERASSIST_NCBI_ENABLED'] != '1':
+        settings = replace(settings, enabled=False)
+    settings = replace(settings, tool='PaperAssist')
     if settings.enabled:
         _identity(settings)
+    if version is not None:
+        parameters = version['bundle']['ncbi']
+        if parameters['identity'] not in (None, {'alias':'ncbi-default','revision':'deployment-v1'}):
+            raise NcbiError('ncbi_not_configured')
+        # The registered revision resolves only here, to deployment-owned secrets.
+        # The backend bundle cannot grant transport access over either gate.
+        settings = replace(settings, enabled=bool(settings.enabled and parameters['enabled'] and parameters['identity']))
     return settings
 
 @dataclass(frozen=True)
@@ -199,18 +211,21 @@ def parse_fetch(data: bytes, pmids: list[str]):
         raise NcbiError('ncbi_response_invalid') from None
 
 class NcbiClient:
-    def __init__(self, settings=None, *, session=None):
+    def __init__(self, settings=None, *, session=None, timeout_seconds=30):
+        if type(timeout_seconds) is not int or not 1 <= timeout_seconds <= 30:
+            raise NcbiError('ncbi_request_rejected')
         self.settings = settings if settings is not None else get_ncbi_settings()
         self.session = session if session is not None else requests.Session()
+        self.timeout = (min(10, timeout_seconds), timeout_seconds)
 
     def _get(self, endpoint, params):
         _identity(self.settings)
-        params = {**params, 'tool': self.settings.tool, 'email': self.settings.email}
+        params = {**params, 'tool': 'PaperAssist', 'email': self.settings.email}
         if self.settings.api_key:
             params['api_key'] = self.settings.api_key
         response = None
         try:
-            response = self.session.get(BASE_URL + endpoint, params=params, timeout=(10, 30), allow_redirects=False, stream=True)
+            response = self.session.get(BASE_URL + endpoint, params=params, timeout=self.timeout, allow_redirects=False, stream=True)
             status = response.status_code
             if status == 429 or 500 <= status <= 599:
                 raise NcbiError('ncbi_unavailable')

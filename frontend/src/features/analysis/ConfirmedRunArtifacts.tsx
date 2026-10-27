@@ -1,3 +1,4 @@
+import {useAnalysisRegisterLeaveGuard} from './analysisActivityContext'
 import {useEffect,useRef,useState} from 'react'
 import {onApiSessionChanged} from '../../shared/api/client'
 import {safeError,useI18n} from '../../shared/i18n'
@@ -23,10 +24,15 @@ const methodLabels:Record<string,string>={correlation:'相关分析',group_compa
 export default function ConfirmedRunArtifacts(props:Props){return <Artifacts key={props.base} {...props}/>}
 function Artifacts({base,current,disabled,onHistoricalSelection}:Props){
  const {t,locale}=useI18n(),navigation=useWorkflowNavigation()
+ const registerLeaveGuard=useAnalysisRegisterLeaveGuard()
  const [items,setItems]=useState<Result[]|null>(null),[selectedId,setSelectedId]=useState<string|null>(null),[loading,setLoading]=useState(false),[error,setError]=useState(''),[session,setSession]=useState(true),[refresh,setRefresh]=useState(0)
  const active=useRef<AbortController|null>(null)
  const currentAvailable=current&&validHistoricalResult(current,base)?current:null
- const selected=selectedId===null?currentAvailable:items?.find(item=>item.id===selectedId)
+ const [openedCurrent,setOpenedCurrent]=useState<Result|null>(null)
+ if(!openedCurrent&&currentAvailable)setOpenedCurrent(currentAvailable)
+ const selected=selectedId===null?(openedCurrent??currentAvailable):items?.find(item=>item.id===selectedId)??(currentAvailable?.id===selectedId?currentAvailable:undefined)
+ const [visitedRuns,setVisitedRuns]=useState<Result[]>([])
+ if(selected&&!visitedRuns.some(item=>item.id===selected.id))setVisitedRuns(previous=>[...previous,selected])
  useEffect(()=>{const stop=onApiSessionChanged(()=>{active.current?.abort();setSession(false);setItems(null)});return()=>{active.current?.abort();stop()}},[])
  async function read(){
   if(active.current||!session)return
@@ -37,14 +43,16 @@ function Artifacts({base,current,disabled,onHistoricalSelection}:Props){
   }catch(cause){if(!controller.signal.aborted)setError(safeError(cause,'图表与报告请求失败，请重新读取后重试。'))}
   finally{if(active.current===controller)active.current=null;if(!controller.signal.aborted)setLoading(false)}
  }
- const options=items&&currentAvailable&&!items.some(item=>item.id===currentAvailable.id)?[currentAvailable,...items]:items
+ const options=items?[...items]:null
+ if(options&&currentAvailable&&!options.some(item=>item.id===currentAvailable.id))options.unshift(currentAvailable)
+ if(options&&openedCurrent&&!options.some(item=>item.id===openedCurrent.id))options.unshift(openedCurrent)
  return <div hidden={!!navigation&&!['figure','explanation','report'].includes(navigation.stage)}>
   <section className="statistics-results" aria-label={t('选择已确认结果')}>
    <button type="button" disabled={loading||disabled||!session} onClick={()=>void read()}>{t(items?'重新读取历史已确认结果':'查看历史已确认结果')}</button>
    <p className="muted">{t('仅列出已确认且来源完整的整理数据结果，可继续为历史结果补齐图表和解释。')}</p>
    {loading&&<p role="status">{t('正在读取历史已确认结果……')}</p>}
    {error&&<p role="alert" className="error-panel">{t(error)}</p>}
-   {options&&session&&<label>{t('图表与报告所用结果')}<select disabled={loading||disabled} value={selectedId??currentAvailable?.id??''} onChange={event=>{const id=event.target.value;setSelectedId(id===currentAvailable?.id?null:id);onHistoricalSelection(!!id&&id!==currentAvailable?.id)}}>
+   {options&&session&&<label>{t('图表与报告所用结果')}<select disabled={loading||disabled} value={selectedId??selected?.id??''} onChange={event=>{const id=event.target.value;setSelectedId(id);onHistoricalSelection(!!id&&id!==currentAvailable?.id)}}>
     <option value="">{t('请选择已确认结果')}</option>
     {options.map(item=><option key={item.id} value={item.id}>{t(methodLabels[item.result_type??'']??'描述统计')} · {t('配置修订 {number}',{number:item.setup_revision})} · {item.source?.sheet_name} · {new Date(item.completed_at).toLocaleString(locale)} · {item.analysis_context?.plan.research_request?.output_language==='en'?'English':t('中文')}</option>)}
    </select></label>}
@@ -52,9 +60,9 @@ function Artifacts({base,current,disabled,onHistoricalSelection}:Props){
    {selectedId&&!selected&&<p role="alert">{t('所选历史结果当前不可用，请重新读取；不会自动替换为最新结果。')}</p>}
    {selected&&session&&<><p>{t('所选结果的图表、解释与报告保持原来源和语言，不替换集合冻结引用。')}</p><SourceSummary source={selected.source} filename={selected.filename}/><QualityProvenance projectId={decodeURIComponent(base.split('/')[4])} source={selected.source}/></>}
   </section>
-  {selected?.source&&session&&<>
-   <div hidden={!!navigation&&!['figure','explanation'].includes(navigation.stage)}><FigureWorkbench base={base} runId={selected.id} source={selected.source} language={selected.analysis_context?.plan.research_request?.output_language??'zh-CN'} resultType={selected.result_type} mode={selected.result_type==='correlation'?selected.selection.mode:selected.result_type==='group_comparison'?selected.selection.design:undefined} disabled={disabled} onChanged={()=>setRefresh(n=>n+1)}/></div>
-   <WorkflowStage stage="report"><ReportCollections currentRunId={selected.id} projectId={decodeURIComponent(base.split('/')[4])} fileId={selected.source.file_id} source={selected.source} language={selected.analysis_context?.plan.research_request?.output_language??'zh-CN'} refreshKey={refresh} disabled={disabled}/></WorkflowStage>
-  </>}
+  {session&&visitedRuns.map(run=>run.source&&<div key={run.id} hidden={selected?.id!==run.id}>
+   <div hidden={!!navigation&&!['figure','explanation'].includes(navigation.stage)}><FigureWorkbench view={navigation?(navigation.stage==='explanation'?'explanation':'figure'):undefined} registerLeaveGuard={registerLeaveGuard} base={base} runId={run.id} source={run.source} language={run.analysis_context?.plan.research_request?.output_language??'zh-CN'} resultType={run.result_type} mode={run.result_type==='correlation'?run.selection.mode:run.result_type==='group_comparison'?run.selection.design:undefined} disabled={disabled} onChanged={()=>setRefresh(n=>n+1)}/></div>
+   <WorkflowStage stage="report"><ReportCollections taskLayout={!!navigation} registerLeaveGuard={registerLeaveGuard} currentRunId={run.id} projectId={decodeURIComponent(base.split('/')[4])} fileId={run.source.file_id} source={run.source} language={run.analysis_context?.plan.research_request?.output_language??'zh-CN'} refreshKey={refresh} disabled={disabled}/></WorkflowStage>
+  </div>)}
  </div>
 }

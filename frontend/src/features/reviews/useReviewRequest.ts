@@ -1,9 +1,11 @@
+import {useReviewDraftGuard} from './reviewActivityContext'
 import {useCallback,useEffect,useRef,useState} from 'react'
 import {onApiSessionChanged} from '../../shared/api/client'
 import {safeError} from '../../shared/i18n'
 import {taskRequest,TaskRequestError} from '../tasks/taskApi'
 export function useReviewRequest(){
  const [available,setAvailable]=useState(true),[busy,setBusy]=useState(false),[error,setError]=useState('')
+ useReviewDraftGuard(false,busy)
  const alive=useRef(true),controller=useRef(new AbortController()),lock=useRef(false),attempts=useRef(new Map<string,{body:string;key:string}>())
  useEffect(()=>{alive.current=true;controller.current=new AbortController();const current=controller.current;const stop=onApiSessionChanged(()=>{current.abort();setAvailable(false);setError('')});return()=>{alive.current=false;current.abort();stop()}},[])
  const request=useCallback(async<T,>(url:string,valid:(v:unknown)=>v is T,body?:unknown,signal?:AbortSignal):Promise<T>=>{

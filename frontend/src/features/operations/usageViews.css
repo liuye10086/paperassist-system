@@ -1,0 +1,30 @@
+/* Scoped to usage views so scientific/export assets remain untouched. */
+.usage-view-tabs { display:flex; flex-wrap:wrap; gap:.45rem; margin:1rem 0; padding:.55rem; background:var(--surface-subtle,#f2f5f3); border-radius:.75rem; }
+.usage-view-tabs button { background:transparent; color:var(--text-secondary,#50645b); border:1px solid transparent; border-radius:.5rem; padding:.55rem .85rem; cursor:pointer; }
+.usage-view-tabs button[aria-pressed="true"] { background:var(--surface,#fff); border-color:var(--border,#d5e1d9); color:var(--accent,#25674a); font-weight:650; }
+.usage-view-tabs button:focus-visible { outline:2px solid var(--accent,#25674a); outline-offset:2px; }
+.usage-layer[hidden] { display:none; }
+.usage-layered-panel > .usage-layer { margin-block:1rem; }
+.usage-generation-filters { display:grid; gap:.5rem; grid-template-columns:repeat(auto-fit,minmax(12rem,1fr)); }
+.usage-generation-filters > div { padding:.6rem; background:var(--surface-subtle,#f2f5f3); border-radius:.5rem; overflow-wrap:anywhere; }
+.usage-generation-filters dd { margin:.25rem 0 0; }
+
+/* Collapsed controls keep the summary amounts near the workspace heading. */
+.usage-layered-panel .usage-filter-details,
+.usage-layered-panel .usage-scope-details { margin:.5rem 0; padding:.65rem .85rem; }
+.usage-layered-panel .usage-filter-details > summary,
+.usage-layered-panel .usage-scope-details > summary { cursor:pointer; font-size:.875rem; font-weight:600; }
+.usage-layered-panel .usage-filter-details .operations-filters { margin:.65rem 0 0; padding:.75rem; }
+.usage-layered-panel .usage-scope-details p { margin:.4rem 0; }
+.usage-layered-panel > .usage-layer { margin-block:.6rem; }
+.usage-layered-panel > .usage-layer > h3 { margin-block:.5rem; }
+.usage-layered-panel .operations-facts { grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); gap:.75rem; margin-block:.75rem; }
+.usage-layered-panel .operations-facts > div { padding:.6rem .7rem; border:1px solid var(--border,#d5e1d9); border-radius:.55rem; }
+.usage-layered-panel .operations-facts dt { margin-bottom:.25rem; }
+.usage-layered-panel .operations-facts dd { line-height:1.45; }
+.usage-layered-panel .operations-facts > div:nth-child(-n+4) { background:var(--surface-subtle,#f2f5f3); }
+.operations-provenance.usage-provenance-layered { margin:.6rem 0; gap:.65rem; }
+.usage-provenance-layered > .usage-view-tabs { margin:0; }
+.operations-provenance.usage-provenance-layered > section { padding:.85rem; }
+.usage-provenance-layered > section > h4 { margin:.25rem 0 .5rem; }
+.usage-provenance-layered > section > p { margin:.4rem 0; }

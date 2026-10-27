@@ -12,6 +12,8 @@ from app.domain.literature.service import digest
 from .contracts import WORKFLOW,ReviewInputVersion,ItemEdit
 from .planning import invalid,propose,update_status
 from .extraction import preview
+from app.domain.admin_configuration.bindings import resolve,bind,projection
+from app.domain.admin_configuration.rule_consumption import rules,round_version,document_defaults
 
 def input_version(task):
     snap=task['input_snapshot']
@@ -66,6 +68,8 @@ class ReviewRoundService(FormatService):
         from .lineage import round_continuation
         result['continuation']=round_continuation(self,db,row)
         result['next_round_ids']=[r['round_id'] for r in db.execute('SELECT round_id FROM review_round_continuations WHERE previous_round_id=%s ORDER BY created_at,id',(row['id'],)).fetchall()]
+        result['document_defaults']=document_defaults(db,row['id'])
+        result['configuration']=projection(db,'review_round',row['id'])
         return result
     def get(self,project,identity):
         with self.store.connection() as db:return self.view(db,self.round_row(db,project,identity))
@@ -94,6 +98,7 @@ class ReviewRoundService(FormatService):
             if old:
                 if old['request_digest']!=digest(body):raise StorageError('task_idempotency_conflict','标识已用于不同输入。',409)
                 return self.view(db,self.round_row(db,project,old['id'])),200
+            configuration_version=resolve(db);rules(configuration_version,'review')
             if request.project_type!=p['project_type']:raise invalid('项目类型不一致。')
             m=request.manuscript;base=self.manuscript(db,project,m.id,m.revision)
             if base['id']!=m.version_id:raise source_conflict()
@@ -126,7 +131,9 @@ class ReviewRoundService(FormatService):
             snap['continuation']=relation
             task=dict(id=str(uuid4()),project_id=project,user_id=self.store.user_id,task_type='review_round_plan',idempotency_key='review-round:'+identity,input_digest=digest(snap),input_snapshot=snap,workflow_version=WORKFLOW,status='queued',phase='verify',revision=1,current_attempt=0,reason_code=None,created_at=timestamp,updated_at=timestamp)
             self.store.insert_task(db,task);self.store.append_event(db,task,'created');self.store.enqueue(db,task)
+            bind(db,kind='task',object_id=task['id'],version=configuration_version)
             db.execute('INSERT INTO review_rounds(id,project_id,user_id,task_id,round_number,idempotency_key,request_json,request_digest,snapshot_json,snapshot_sha256,created_at) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)',(identity,project,self.store.user_id,task['id'],number,key,Jsonb(body),digest(body),Jsonb(snap),digest(snap),timestamp))
+            bind(db,kind='review_round',object_id=identity,version=configuration_version)
             save_continuation(self,db,dict(id=identity,project_id=project),relation)
             return self.view(db,self.round_row(db,project,identity)),202
     def mutate(self,project,identity,request,key,kind):
@@ -178,6 +185,9 @@ class ReviewRoundService(FormatService):
                     prior=item.get('decision')
                     if prior and prior['action']==choice.action and prior['reason']==choice.reason:continue
                     decision=dict(id=str(uuid4()),item_id=item['id'],item_revision=item['revision'],action=choice.action,reason=choice.reason,created_at=now().isoformat());item['decision']=decision;state['decisions'].append(decision)
+            if round_version(db,row['id']) is not None:
+                from .planning import enforce_safety
+                enforce_safety(items)
             update_status(items);self.append(db,row,events[-1]['revision']+1,kind,key,body,state)
             needs=any(i['status']=='waiting_material' for i in items);confirmation=any(i['status']=='waiting_confirmation' for i in items)
             if task['status']=='succeeded' and (needs or confirmation):

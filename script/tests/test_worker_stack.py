@@ -12,6 +12,60 @@ import worker_stack
 
 
 class WorkerStackTests(unittest.TestCase):
+    def source_tree(self, root):
+        for relative in ('backend/app/worker.py', 'backend/app/adapters/pdf_renderer_lock.json',
+                         'backend/requirements.txt', '.dockerignore', 'infra/worker/Dockerfile',
+                         'infra/worker/runtime_probe.py', 'infra/pdf/Dockerfile',
+                         'infra/pdf/renderer.py', 'infra/pdf/update_fields.py', 'compose.workers.yml'):
+            path = root / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(relative, encoding='utf-8')
+
+    def test_changed_assets_are_applied_to_healthy_services(self):
+        with tempfile.TemporaryDirectory() as directory, patch.object(worker_stack, 'protect_directory'):
+            root = Path(directory)
+            self.source_tree(root)
+            with patch.object(worker_stack, 'ROOT', root):
+                first = worker_stack.prepare(root, {**self.values(), 'PAPERASSIST_DATA_DIR': str(root/'assets-a')})
+                second = worker_stack.prepare(root, {**self.values(), 'PAPERASSIST_DATA_DIR': str(root/'assets-b')})
+            revision = 'PAPERASSIST_WORKER_CONFIG_REVISION'
+            (first.directory / 'applied-config-revision').write_text(first.environment[revision])
+            healthy = [{'id': name, 'service': name, 'status': 'running', 'health': 'healthy'}
+                       for name in ('worker', 'dispatcher', 'rabbitmq', 'pdf-renderer')]
+            with patch.object(worker_stack, 'ensure_docker'), patch.object(worker_stack, 'owned_containers', return_value=healthy), \
+                    patch.object(worker_stack, 'compose') as compose:
+                worker_stack.start(second)
+                self.assertTrue(any(call.args[1][0] == 'up' for call in compose.call_args_list))
+                self.assertEqual((first.directory / 'applied-config-revision').read_text(), second.environment[revision])
+                compose.reset_mock()
+                worker_stack.start(second)
+                compose.assert_not_called()
+
+    def test_worker_build_inputs_change_revision_but_python_cache_does_not(self):
+        with tempfile.TemporaryDirectory() as directory, patch.object(worker_stack, 'protect_directory'):
+            root = Path(directory)
+            self.source_tree(root)
+            with patch.object(worker_stack, 'ROOT', root):
+                revision = lambda: worker_stack.prepare(root, self.values()).environment['PAPERASSIST_WORKER_CONFIG_REVISION']
+                previous = revision()
+                for relative in ('backend/app/worker.py', 'backend/requirements.txt', '.dockerignore',
+                                 'infra/worker/Dockerfile', 'infra/worker/runtime_probe.py'):
+                    with self.subTest(relative=relative):
+                        path = root / relative
+                        path.write_text(path.read_text() + '\nchanged', encoding='utf-8')
+                        changed = revision()
+                        self.assertNotEqual(previous, changed)
+                        previous = changed
+                added = root / 'backend/app/new_module.py'
+                added.write_text('new module', encoding='utf-8')
+                self.assertNotEqual(previous, revision())
+                added.unlink()
+                self.assertEqual(previous, revision())
+                cached = root / 'backend/app/__pycache__/worker.pyc'
+                cached.parent.mkdir()
+                cached.write_bytes(b'generated cache')
+                self.assertEqual(previous, revision())
+
     def test_writing_live_switch_defaults_off_is_explicit_and_changes_worker_revision(self):
         with tempfile.TemporaryDirectory() as directory, patch.object(worker_stack,'protect_directory'):
             root=Path(directory)
@@ -133,9 +187,11 @@ class WorkerStackTests(unittest.TestCase):
     def test_prepared_key_rotation_changes_worker_config_revision(self):
         with tempfile.TemporaryDirectory() as directory, patch.object(worker_stack, 'protect_directory'):
             root = Path(directory)
-            first = worker_stack.prepare(root, self.values())
-            again = worker_stack.prepare(root, self.values())
-            changed = worker_stack.prepare(root, {**self.values(), 'OPENAI_API_KEY': 'changed-test-key'})
+            self.source_tree(root)
+            with patch.object(worker_stack, 'ROOT', root):
+                first = worker_stack.prepare(root, self.values())
+                again = worker_stack.prepare(root, self.values())
+                changed = worker_stack.prepare(root, {**self.values(), 'OPENAI_API_KEY': 'changed-test-key'})
             key = 'PAPERASSIST_WORKER_CONFIG_REVISION'
             self.assertEqual(first.environment[key], again.environment[key])
             self.assertNotEqual(first.environment[key], changed.environment[key])

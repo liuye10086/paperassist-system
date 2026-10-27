@@ -1,4 +1,4 @@
-import {act,cleanup,render,screen,within} from '@testing-library/react'
+import {act,cleanup,fireEvent,render,screen,within} from '@testing-library/react'
 import {afterEach,expect,it,vi} from 'vitest'
 import ManuscriptPreview from './ManuscriptPreview'
 import {snapshotFixture} from './manuscriptFixtures'
@@ -6,6 +6,34 @@ import {validSnapshot,type Snapshot} from './manuscriptTypes'
 import {setLocale} from '../../shared/i18n'
 import {actualSections,type AdaptationPreview} from '../journals/adaptationContracts'
 afterEach(()=>{cleanup();vi.unstubAllGlobals();setLocale('zh-CN')})
+it('shows one frozen chapter at a time in body view and offers explicit full reading',()=>{
+ const snapshot={...snapshotFixture,sections:['title','abstract','introduction','results','discussion','materials_and_methods','references'].map(id=>({id,paragraphs:[{id:`${id}:1`,text:`Content ${id}`,origin:'model_generated',source_ids:[],citations:[]}]}))} as Snapshot
+ render(<ManuscriptPreview snapshot={snapshot} presentation="body"/>)
+ expect(screen.getByText('Content abstract')).toBeTruthy();expect(screen.queryByText('Content introduction')).toBeNull()
+ fireEvent.change(screen.getByLabelText('正文章节'),{target:{value:'introduction'}})
+ expect(screen.getByText('Content introduction')).toBeTruthy();expect(screen.queryByText('Content abstract')).toBeNull()
+ fireEvent.change(screen.getByLabelText('正文章节'),{target:{value:'all'}})
+ expect(screen.getByText('Content abstract')).toBeTruthy();expect(screen.getByText('Content introduction')).toBeTruthy()
+})
+it.each([false,true])('opens the frozen reference chapter from a citation without changing workspace hash (school: %s)',school=>{
+ const referenceChapter=school?'school-references':'references'
+ const snapshot={...snapshotFixture,references:[{number:1,text:'Frozen reference',project_reference_id:'ref1'}],sections:[{id:'abstract',purpose:'abstract',title:'Abstract',paragraphs:[{id:'a:1',text:'Abstract claim',origin:'user_provided',source_ids:[],citations:[1]}]},{id:referenceChapter,purpose:'references',title:'References',paragraphs:[]}],...(school?{thesis_context:{profile:{school:'School',applicable_version:'2026'},confirmation_id:'confirmation'}}:{})} as unknown as Snapshot
+ window.history.replaceState(null,'','#project=p1&section=manuscripts&view=body')
+ const hash=window.location.hash;render(<ManuscriptPreview snapshot={snapshot} presentation="body"/>)
+ expect(screen.queryByText('Frozen reference')).toBeNull()
+ fireEvent.click(screen.getByRole('link',{name:/1$/}))
+ expect(screen.getByLabelText('正文章节')).toHaveProperty('value',referenceChapter)
+ expect(screen.getByText('Frozen reference')).toBeTruthy()
+ expect(document.activeElement?.textContent).toBe('Frozen reference');expect(window.location.hash).toBe(hash)
+})
+it('offers the reference chapter for older two-section fact drafts',()=>{
+ const snapshot={...snapshotFixture,methods:[{...snapshotFixture.methods[0],citations:[1]}],references:[{number:1,text:'Legacy reference',project_reference_id:'ref1'}]} as Snapshot
+ render(<ManuscriptPreview snapshot={snapshot} presentation="body"/>)
+ expect(screen.getByRole('option',{name:'References'})).toHaveProperty('value','references')
+ fireEvent.click(screen.getByRole('link',{name:/1$/}))
+ expect(screen.getByLabelText('正文章节')).toHaveProperty('value','references')
+ expect(document.activeElement?.textContent).toBe('Legacy reference')
+})
 it('labels synthetic journal adaptation on an ordinary draft independently of scientific writing provenance',()=>{
  const snapshot={...snapshotFixture,journal_adaptation_provenance:{adaptation_id:'a1',base_version_id:'v1',input_sha256:'a'.repeat(64),display_version:'journal_display_v1',synthetic:true}} as Snapshot
  const original=JSON.stringify(snapshot);expect(validSnapshot(snapshot,'p1')).toBe(true)

@@ -6,7 +6,7 @@ from app.adapters.task_store import TaskStore, source_conflict
 from app.core.exceptions import StorageError
 from app.domain.dataset_preparation.service import append_checkpoint
 from app.domain.literature.service import digest
-from app.domain.model_usage.contracts import CallRequest
+from app.domain.model_usage.contracts import CallRequest, ModelPolicy
 from app.domain.model_usage.gateway import ModelGateway, ModelGatewayError
 from app.domain.model_usage.service import ModelUsageService
 from app.domain.report_collections.service import scoped_store
@@ -116,8 +116,13 @@ def execute_live(repository,lease,provider):
     with repository.connection() as db:
         task=repository.require_lease(db,lease);repository.require_owner(db,task);snapshot=require_live_snapshot(task)
         service=LiveWritingService(scoped_store(task['user_id'],repository.config,repository.assets.directory))
-        service.writing.assert_current(db,task);checkpoint(db,task)
-        bundle=service.bundle(db,task['project_id'],snapshot['execution']['bundle_id']);call=last_call(db,task['id'])
+        checkpoint(db,task);call=last_call(db,task['id'])
+        if call and (call.get('provider_response_id') or call['status'] in ('submitting','submission_unknown')):
+            # A changed base blocks publication, but cannot strand an already
+            # submitted response or its held budget. Keep the original identity.
+            service.writing.row(db,task['project_id'],snapshot['manuscript_id'],task['id'])
+        else: service.writing.assert_current(db,task)
+        bundle=service.bundle(db,task['project_id'],snapshot['execution']['bundle_id'])
     if call and not call.get('provider_response_id') and call['status'] in ('submitting','submission_unknown'):
         return wait(repository,lease,'submission_unknown','model_submission_unknown')
     provenance='synthetic_fixture' if repository.config.environment=='test' else 'openai_live'
@@ -130,7 +135,7 @@ def execute_live(repository,lease,provider):
     try:
         if call and call.get('provider_response_id'): output=gateway.refresh(call['id'])
         else:
-            request=CallRequest(task_id=task['id'],expected_task_revision=task['revision'],call_key='manuscript-writing-v2',input_digest=bundle['gateway_digest'],policy=policy(),input_token_allowance=bundle['input_token_allowance'])
+            request=CallRequest(task_id=task['id'],expected_task_revision=task['revision'],call_key='manuscript-writing-v2',input_digest=bundle['gateway_digest'],policy=ModelPolicy.model_validate(bundle['policy_json']),input_token_allowance=bundle['input_token_allowance'])
             output=gateway.submit_frozen_writing(request,wire_json=bundle['wire_json'],execution_lease=lease)
     except ModelGatewayError as exc:
         with repository.connection() as db: call=last_call(db,task['id'])

@@ -6,10 +6,13 @@ import { fileRequest, mergeFileMetadata, parseStatusLabels, purposeLabels } from
 import type { FilePage, LibraryFile } from './fileLibraryApi'
 import type { SavedPreviewState } from './ExcelPreview'
 import './fileLibrary.css'
+import type { ResourceNavigation } from '../projects/resourceViews'
+import type { RegisterLeaveGuard } from '../projects/useDraftLeaveGuard'
 
-export default function ProjectFileLibrary({ projectId, active, uploadVersion, busy, previewState, onPreview, onUnavailable }: {
+export default function ProjectFileLibrary({ projectId, active, uploadVersion, busy, previewState, onPreview, onUnavailable, resourceNavigation, onResourceNavigate, registerLeaveGuard }: {
   projectId: string; active: boolean; uploadVersion: number; busy: boolean; previewState: SavedPreviewState | null
   onPreview: (id: string) => void; onUnavailable: () => void
+  resourceNavigation?: ResourceNavigation; onResourceNavigate?: (next: ResourceNavigation) => void; registerLeaveGuard?: RegisterLeaveGuard
 }) {
   const { t, locale } = useI18n()
   const [page, setPage] = useState(1)
@@ -18,14 +21,24 @@ export default function ProjectFileLibrary({ projectId, active, uploadVersion, b
   const [error, setError] = useState('')
   const [attempt, setAttempt] = useState(0)
   const [seenUpload, setSeenUpload] = useState(uploadVersion)
-  const [selected, setSelected] = useState<string | null>(null)
-  const [visited, setVisited] = useState<string[]>([])
+  const [localNavigation, setLocalNavigation] = useState<ResourceNavigation>({ view: 'list', fileId: '' })
+  const navigation = resourceNavigation ?? localNavigation
+  const selected = navigation.view === 'detail' ? navigation.fileId : null
+  const [visited, setVisited] = useState<string[]>(selected ? [selected] : [])
+  const [documentPreview, setDocumentPreview] = useState<string | null>(null)
+  if (selected && !visited.includes(selected)) setVisited(current => [...current, selected])
+  function openDetails(id: string, preview = false) {
+    setDocumentPreview(preview ? id : null)
+    const next = { view: 'detail' as const, fileId: id }
+    if (onResourceNavigate) onResourceNavigate(next); else setLocalNavigation(next)
+  }
+  const listActive = active && navigation.view === 'list'
   const confirmedMetadata = useRef(new Map<string, LibraryFile>())
-  const requestKey = `${projectId}:${active}:${page}:${attempt}:${uploadVersion}`
+  const requestKey = `${projectId}:${listActive}:${page}:${attempt}:${uploadVersion}`
   const [previousRequest, setPreviousRequest] = useState(requestKey)
   if (previousRequest !== requestKey) {
     setPreviousRequest(requestKey)
-    if (active) { setLoading(true); setError('') }
+    if (listActive) { setLoading(true); setError('') }
   }
   if (seenUpload !== uploadVersion) { setSeenUpload(uploadVersion); setPage(1) }
   const updated = useCallback((file: LibraryFile) => {
@@ -35,7 +48,7 @@ export default function ProjectFileLibrary({ projectId, active, uploadVersion, b
   }, [])
 
   useEffect(() => {
-    if (!active) return
+    if (!listActive) return
     const controller = new AbortController()
     let current = true
     const timeout = window.setTimeout(() => controller.abort(), 15_000)
@@ -58,10 +71,11 @@ export default function ProjectFileLibrary({ projectId, active, uploadVersion, b
       })
       .finally(() => { window.clearTimeout(timeout); if (current) setLoading(false) })
     return () => { current = false; controller.abort(); window.clearTimeout(timeout) }
-  }, [projectId, page, attempt, active, uploadVersion, onUnavailable])
+  }, [projectId, page, attempt, listActive, uploadVersion, onUnavailable])
 
   return <>
-    <section className="file-history" aria-labelledby="files-title">
+    {!resourceNavigation && navigation.view === 'detail' && <button onClick={() => setLocalNavigation({ view: 'list', fileId: '' })}>{t('返回文件列表')}</button>}
+    <section hidden={navigation.view !== 'list'} className="file-history" aria-labelledby="files-title">
       <div className="preview-heading"><div><span className="workspace-eyebrow">{t('研究资料')}</span><h2 id="files-title">{t('项目文件')}</h2>
         <p className="muted">{t('上传数据，查看工作表，保留研究的原始资料。')}</p></div>
         <button type="button" disabled={loading || busy} onClick={() => setAttempt(value => value + 1)}>{t('刷新文件列表')}</button></div>
@@ -74,20 +88,18 @@ export default function ProjectFileLibrary({ projectId, active, uploadVersion, b
           <div className="file-summary"><strong>{file.filename}</strong> · <span>{file.file_type?.toUpperCase()}</span>{' '}<span className={file.parse_status === 'failed' ? 'file-failed' : 'file-parsed'}>
             {t(parseStatusLabels[file.parse_status])}</span>
             <p className="muted">{t('{bytes} 字节 · {date}', { bytes: file.size_bytes.toLocaleString(locale), date: new Date(file.uploaded_at).toLocaleString(locale) })}</p>
-            <p className="muted">{file.upload_batch ? t('上传批次：{date} · 本批登记 {count} 项 · 第 {position} 项', {
+            <details className="file-upload-source"><summary>{t('上传记录')}</summary><p className="muted">{file.upload_batch ? t('上传批次：{date} · 本批登记 {count} 项 · 第 {position} 项', {
               date: new Date(file.upload_batch.created_at).toLocaleString(locale), count: file.upload_batch.item_count,
               position: file.upload_batch.item_position,
-            }) : t('未记录上传批次')}</p>
+            }) : t('未记录上传批次')}</p></details>
             <p className="muted">{file.purposes?.length ? file.purposes.map(purpose => t(purposeLabels[purpose])).join(' · ') : t('未指定用途')}</p>
             {file.error && <p className="file-failed">{t(apiError(file.error, '文件解析失败，请重新上传有效的工作簿。'))}</p>}
             {previewState?.id === file.id && <p className="file-preview-status" role="status">{t(previewState.status === 'loading'
               ? '正在读取预览……' : previewState.status === 'ready' ? '当前预览' : '读取预览失败。')}</p>}
           </div><div className="file-actions">
-            <button type="button" aria-label={t('文件详情 {name}', { name: file.filename })} onClick={() => {
-              setSelected(file.id); setVisited(current => current.includes(file.id) ? current : [...current, file.id])
-            }}>{t('文件详情')}</button>
+            <button type="button" aria-label={t('文件详情 {name}', { name: file.filename })} onClick={() => openDetails(file.id)}>{t('文件详情')}</button>
             {file.parse_status === 'parsed' && <button type="button" disabled={busy} aria-label={t('预览 {name}', { name: file.filename })}
-              onClick={() => { if (file.file_type === 'xlsx') onPreview(file.id); else if (['docx','pdf','png','jpeg'].includes(file.file_type)) {setSelected(file.id);setVisited(current => current.includes(file.id) ? current : [...current, file.id])} }}>{t('预览')}</button>}
+              onClick={() => { if (file.file_type === 'xlsx') onPreview(file.id); else if (['docx','pdf','png','jpeg'].includes(file.file_type)) openDetails(file.id, true) }}>{t('预览')}</button>}
             <ProjectDownloadLink href={`/api/v1/projects/${projectId}/files/${file.id}/download`} filename={file.filename}
               ariaLabel={t('下载 {name}', { name: file.filename })}>{t('下载原文件')}</ProjectDownloadLink>
           </div>
@@ -100,6 +112,6 @@ export default function ProjectFileLibrary({ projectId, active, uploadVersion, b
         </nav>}
     </section>
     {visited.map(id => <div key={id} hidden={selected !== id}><FileDetails projectId={projectId} fileId={id}
-      active={active && selected === id} onUnavailable={onUnavailable} onUpdated={updated} /></div>)}
+      active={active && selected === id} initialTask={documentPreview === id ? 'document' : undefined} registerLeaveGuard={registerLeaveGuard} onUnavailable={onUnavailable} onUpdated={updated} /></div>)}
   </>
 }

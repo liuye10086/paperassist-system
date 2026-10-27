@@ -7,5 +7,9 @@
 !infra/worker/
 !infra/worker/Dockerfile
 !infra/worker/runtime_probe.py
+!infra/pdf/
+!infra/pdf/Dockerfile
+!infra/pdf/renderer.py
+!infra/pdf/update_fields.py
 **/__pycache__/
 **/*.pyc

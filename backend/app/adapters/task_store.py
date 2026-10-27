@@ -259,7 +259,9 @@ class TaskStore:
                     'has_more': len(rows) > limit}
 
     @staticmethod
-    def insert_task(db, task):
+    def insert_task(db, task, *, validated_file_ids=None):
+        from app.domain.storage_governance.guards import require_task_open
+        require_task_open(db,task,validated_file_ids=validated_file_ids)
         fields = ('id', 'project_id', 'user_id', 'task_type', 'idempotency_key', 'input_digest', 'input_snapshot',
                   'workflow_version', 'status', 'phase', 'revision', 'current_attempt', 'reason_code',
                   'created_at', 'updated_at')
@@ -280,7 +282,9 @@ class TaskStore:
              retry_reason, retry_count, task.get('_retry_delay_seconds')))
 
     @staticmethod
-    def enqueue(db, task):
+    def enqueue(db, task, *, validated_file_ids=None):
+        from app.domain.storage_governance.guards import require_task_open
+        require_task_open(db,task,validated_file_ids=validated_file_ids)
         db.execute('''INSERT INTO task_outbox
             (id,task_id,task_revision,event_type,available_at,created_at,published_at,publish_attempts)
             VALUES (%s,%s,%s,'task_ready',%s,%s,NULL,0)''',
@@ -288,6 +292,8 @@ class TaskStore:
 
     @staticmethod
     def start_attempt(db, task):
+        from app.domain.storage_governance.guards import require_task_open
+        require_task_open(db,task)
         db.execute('''INSERT INTO task_attempts
             (id,task_id,attempt_no,status,started_at,finished_at,reason_code,lease_owner,lease_expires_at,heartbeat_at)
             VALUES (%s,%s,%s,'running',%s,NULL,NULL,NULL,NULL,NULL)''',

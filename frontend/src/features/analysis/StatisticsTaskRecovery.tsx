@@ -1,13 +1,15 @@
+import useDraftLeaveGuard, {type RegisterLeaveGuard} from '../projects/useDraftLeaveGuard'
 import {useEffect,useRef,useState} from 'react'
 import {safeError,useI18n} from '../../shared/i18n'
 import {taskRequest} from '../tasks/taskApi'
 import {isTask,sameInputVersion,type TaskView,type TaskWorkspace} from '../tasks/taskTypes'
 
-export default function StatisticsTaskRecovery({workspace,blocked,onChanged}:{workspace:TaskWorkspace;blocked:boolean;onChanged:()=>void}){
+export default function StatisticsTaskRecovery({workspace,blocked,onChanged,registerLeaveGuard}:{registerLeaveGuard?:RegisterLeaveGuard;workspace:TaskWorkspace;blocked:boolean;onChanged:()=>void}){
  const {t}=useI18n(),{task}=workspace
  const [busy,setBusy]=useState(false),[error,setError]=useState('')
+ useDraftLeaveGuard(registerLeaveGuard,!!error,busy)
  const active=useRef(true),request=useRef<AbortController|null>(null),identity=useRef<{body:string;key:string}|null>(null)
- useEffect(()=>()=>{active.current=false;request.current?.abort()},[])
+ useEffect(()=>{active.current=true;return()=>{active.current=false;request.current?.abort()}},[])
  async function retry(){
   if(blocked||request.current||task.origin==='legacy'||!workspace.allowed_actions.includes('retry'))return
   const body=JSON.stringify({operation:'retry',wait_id:null,expected_task_revision:task.revision,input_version:task.input_version})

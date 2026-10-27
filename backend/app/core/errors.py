@@ -6,6 +6,12 @@ from starlette.responses import JSONResponse
 
 
 PUBLIC_CODES = frozenset('''
+service_maintenance service_unavailable
+storage_quota_exceeded storage_disk_insufficient storage_accounting_unknown storage_policy_invalid storage_reservation_conflict storage_policy_revision_conflict
+storage_deletion_pending storage_deletion_scope_unknown storage_deletion_not_authorized storage_deletion_plan_changed storage_deletion_blocked storage_deletion_identity_changed storage_deletion_idempotency_conflict storage_deletion_input_invalid storage_deletion_io_failed
+configuration_invalid configuration_not_found configuration_binding_conflict configuration_revision_conflict
+configuration_idempotency_conflict configuration_no_change configuration_rollback_invalid configuration_validation_required configuration_legacy_inflight
+admin_query_invalid admin_user_not_found admin_self_change admin_last_active admin_revision_conflict admin_change_invalid
 school_change_invalid school_change_preview_conflict school_change_blocked
 school_export_input_invalid
 layout_docx_not_found layout_docx_not_ready layout_retry_not_allowed layout_field_update_failed layout_source_invalid layout_source_mismatch layout_target_invalid layout_formula_invalid layout_formula_too_wide
@@ -79,6 +85,10 @@ def safe_params(code, params=None):
     if not isinstance(params, dict):
         return {}
     result = {}
+    if code == 'configuration_legacy_inflight':
+        task_id=params.get('task_id')
+        if isinstance(task_id,str) and re.fullmatch(r'[0-9a-f-]{36}',task_id):result['task_id']=task_id
+        return result
     if code in ('layout_formula_invalid', 'layout_formula_too_wide', 'layout_target_invalid'):
         formula_error = code != 'layout_target_invalid'
         path = params.get('path')
@@ -102,6 +112,7 @@ def safe_params(code, params=None):
             'unsupported_projection'}
         return {'reason':reason} if isinstance(reason,str) and reason in allowed else {}
     numeric = {
+        'storage_disk_insufficient': {'free_bytes': (0,2**63-1), 'threshold_bytes': (0,2**63-1), 'total_bytes': (0,2**63-1)},
         'file_too_large': {'max_bytes': (1, 2**63 - 1)},
         'numeric_precision': {'row': (1, 1_048_576)},
         'plot_label_too_long': {'max_chars': (1, 10000)},

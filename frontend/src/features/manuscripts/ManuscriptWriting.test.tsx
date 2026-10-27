@@ -25,6 +25,21 @@ it('invalidates task candidates on session changes',async()=>{
 const sections=['title','abstract','introduction','results','discussion','materials_and_methods','references'].map(id=>({id,paragraphs:[{id:`${id}:1`,text:`Saved ${id}`,origin:'model_generated',source_ids:[],citations:[],numeric_bindings:[]}]}))
 const complete={...manuscriptFixture.versions[0].snapshot,sections,keywords:['explicit keyword'],acknowledgements:'',writing_provenance:{provider_provenance:'synthetic_fixture',verification_status:'not_verified'}}
 const writing={id:'w1',project_id:'p1',manuscript_id:'m1',base_revision:1,input:{base_revision:1,mode:'full_draft',target_section:null,instructions:'',keywords:['explicit keyword'],acknowledgements:''},task:{...taskFixture,id:'w1',project_id:'p1',task_type:'manuscript_writing',phase:'write',status:'succeeded',display_status:'succeeded',input_version:{kind:'manuscript_writing',base_version_id:'v1',base_revision:1,output_language:'en',workflow_version:'manuscript_writing_v1'}},candidate:complete,published_revision:null,real_calls_enabled:false,preservation_check:{non_target_sections_preserved:true}}
+it('preserves independent full-draft and chapter requirements when switching chapters',async()=>{
+ vi.stubGlobal('fetch',vi.fn(async()=>Response.json({items:[]})))
+ render(<ManuscriptWriting {...props} version={{...props.version,snapshot:complete} as unknown as ManuscriptVersion}/>)
+ await screen.findByText('暂无写作任务。')
+ fireEvent.change(screen.getByLabelText('自由写作要求'),{target:{value:'Full instructions'}})
+ fireEvent.change(screen.getByLabelText('写作方式'),{target:{value:'rewrite_section'}})
+ fireEvent.change(screen.getByLabelText('自由写作要求'),{target:{value:'Discussion instructions'}})
+ fireEvent.change(screen.getByLabelText('目标章节'),{target:{value:'abstract'}})
+ expect(screen.getByLabelText('自由写作要求')).toHaveProperty('value','')
+ fireEvent.change(screen.getByLabelText('自由写作要求'),{target:{value:'Abstract instructions'}})
+ fireEvent.change(screen.getByLabelText('目标章节'),{target:{value:'discussion'}})
+ expect(screen.getByLabelText('自由写作要求')).toHaveProperty('value','Discussion instructions')
+ fireEvent.change(screen.getByLabelText('写作方式'),{target:{value:'full_draft'}})
+ expect(screen.getByLabelText('自由写作要求')).toHaveProperty('value','Full instructions')
+})
 it('previews candidate without publishing, then explicitly creates an immutable version',async()=>{
  const result={...manuscriptFixture,current_revision:2,versions:[...manuscriptFixture.versions,{...manuscriptFixture.versions[0],id:'v2',revision:2,parent_version_id:'v1',snapshot:complete,exports:[]}]}
  const fetcher=vi.fn(async(_url:string,init?:RequestInit)=>Response.json(init?.method==='POST'?result:{items:[writing]}));vi.stubGlobal('fetch',fetcher)
@@ -32,6 +47,14 @@ it('previews candidate without publishing, then explicitly creates an immutable 
  expect(fetcher.mock.calls.every(([,i])=>!i?.method)).toBe(true)
  fireEvent.click(screen.getByRole('button',{name:'确认发布为不可变新版本'}));await waitFor(()=>expect(props.onPublished).toHaveBeenCalledWith(result))
  const post=fetcher.mock.calls.find(([,i])=>i?.method==='POST')!;expect(post[0]).toContain('/writing-requests/w1/publish');expect(JSON.parse(String(post[1]?.body))).toEqual({expected_revision:1})
+})
+it('opens the fixed original through its task navigation without discarding the writing candidate',async()=>{
+ vi.stubGlobal('fetch',vi.fn(async()=>Response.json({items:[writing]})))
+ const original=vi.fn();render(<ManuscriptWriting {...props} onShowOriginal={original}/>)
+ fireEvent.click(await screen.findByRole('button',{name:'预览写作候选'}));await screen.findByText('Saved abstract')
+ fireEvent.click(screen.getByRole('button',{name:'查看冻结原稿'}))
+ expect(original).toHaveBeenCalledTimes(1)
+ expect(screen.getByRole('region',{name:'待研究人员审核的写作候选'})).toBeTruthy()
 })
 it('blocks publication when a non-target section was modified despite server preservation claim',async()=>{
  const rewrite={...writing,input:{...writing.input,mode:'rewrite_section',target_section:'discussion'},candidate:{...complete,sections:sections.map(s=>s.id==='abstract'?{...s,paragraphs:[{...s.paragraphs[0],text:'Tampered abstract'}]}:s)}}

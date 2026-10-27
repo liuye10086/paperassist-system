@@ -10,6 +10,17 @@ const base='/api/v1/projects/p1/pdf-exports'
 const row={id:'pdf1',project_id:'p1',source_kind:'report',source_id:'report1',status:'queued',task_id:'pdf-task',created_at:'2026-10-20T00:00:00Z',filename:null,error_code:null,source_sha256:hash,parent_export_id:null,renderer_manifest:null,sha256:null,size_bytes:null,download_url:null}
 beforeEach(()=>{sessionStorage.clear();setApiSession('pdf-test-session')})
 afterEach(()=>{cleanup();vi.useRealTimers();vi.unstubAllGlobals();setLocale('zh-CN');sessionStorage.clear()})
+it('labels local candidate recovery separately and keeps the original visible export/task',async()=>{let recovered=false;const fetcher=vi.fn(async(_url:string,init?:RequestInit)=>{const original={...row,status:recovered?'queued':'failed',error_code:recovered?null:'storage_quota_exceeded',recovery_mode:'local_candidate'};if(init?.method==='POST'){recovered=true;return Response.json({...original,status:'queued',error_code:null,recovery_request_key:JSON.parse(String(init.body)).request_key})}return Response.json({items:[original]})});vi.stubGlobal('fetch',fetcher);render(<PdfExports {...props}/>);fireEvent.click(await screen.findByRole('button',{name:'恢复原导出候选'}));await waitFor(()=>expect(screen.getByText('待执行')).toBeTruthy());expect(screen.getAllByText(/PDF 导出 1/)).toHaveLength(1);expect(fetcher.mock.calls.find(([,init])=>init?.method==='POST')?.[0]).toBe(base+'/pdf1/retry')})
+it('registers a pending PDF request and allows explicit leave after its result becomes unknown',async()=>{
+ let guard=()=>true,dirty=()=>false;const register=(next:()=>boolean,isDirty?:()=>boolean)=>{guard=next;dirty=isDirty??(()=>false);return ()=>{}}
+ let reject!:(error:Error)=>void
+ vi.stubGlobal('alert',vi.fn());vi.stubGlobal('confirm',vi.fn(()=>true))
+ vi.stubGlobal('fetch',vi.fn((_url:string,init?:RequestInit)=>init?.method==='POST'?new Promise<Response>((_resolve,rejectRequest)=>{reject=rejectRequest}):Promise.resolve(Response.json({items:[]}))))
+ render(<PdfExports {...props} registerLeaveGuard={register}/>);await waitFor(()=>expect(screen.getByRole('button',{name:'生成 PDF'}).matches(':disabled')).toBe(false))
+ expect(dirty()).toBe(false);fireEvent.click(screen.getByRole('button',{name:'生成 PDF'}));expect(guard()).toBe(false);expect(window.alert).toHaveBeenCalledTimes(1)
+ await act(async()=>reject(Error('Unknown')))
+ expect(dirty()).toBe(true);expect(guard()).toBe(true);expect(window.confirm).toHaveBeenCalledTimes(1)
+})
 it.each(['succeeded','failed'])('confirms a lost accepted POST using its original key before offering a new export after GET reads %s',async status=>{
  const terminal={...row,status,...(status==='succeeded'?{filename:'saved.pdf',sha256:'b'.repeat(64),size_bytes:100,renderer_manifest:{id:'renderer'},download_url:`${base}/pdf1/download`}:{error_code:'pdf_conversion_timeout'})}
  let accepted=false;const submittedKeys:string[]=[]

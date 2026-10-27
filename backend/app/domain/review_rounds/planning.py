@@ -26,7 +26,7 @@ def split_text(text,explicit=None,locations=None):
     if any(not c.isspace() and i not in covered for i,c in enumerate(text)) or not result:raise invalid('分段必须完整覆盖非空白原文且不得重复。')
     return result
 
-def propose(source,index,segment):
+def _installed_propose(source,index,segment):
     text=segment['text'];lower=text.lower();category='uncategorized'
     for name,words in [('experiment',['experiment','实验','试验']),('statistics',['statistic','统计','p value','sample size']),('figure',['figure','table','图','表']),('method',['method','方法']),('literature',['reference','citation','文献','引用']),('format',['format','格式']),('structure',['structure','结构','section order','before results']),('expression',['wording','grammar','措辞','语法','压缩','局限性'])]:
         if any(w in lower for w in words):category=name;break
@@ -37,6 +37,49 @@ def propose(source,index,segment):
     plans={'expression':'在固定目标段落核对措辞与冗余，保留事实、数值和局限性；修改后复核语义。','structure':'核对固定章节顺序及所选学校/期刊约束，列出调整前后顺序；冲突意见交用户选择。','literature':'定位需支持的具体陈述，核对已有引用和证据；缺失文献列为待核验，不插入虚构引用。','statistics':'对照固定稿件和既有统计核对样本量、口径、单位；需要重分析时关联已确认计划的本地统计任务，取得并采用实际结果后再提交具体改文。','figure':'定位固定图表及图注，核对已有单位、编号和来源；未知内容需补充原图或依据。','method':'定位固定方法段落，按已有材料补充方法说明并核对与结果的一致性。','format':'对照选定固定学校确认/期刊指南列出格式差异，仅提出已支持范围的检查计划。','experiment':'明确独立验证实验的目的、所需数据和证明标准；等待用户提供材料，本批不执行实验。','uncategorized':'请用户澄清意见含义和固定目标位置，再补充处理计划。'}
     if category=='literature':needs=[dict(kind='literature',description='核验已有或补充文献对陈述的支持；新检索与模型核验仍须授权，未核验资料不能作为已完成引用。')]
     return dict(id=source['id']+':'+str(index),source_id=source['id'],number=index,original_number=segment['original_number'],original_text=text,source_location=segment['location'],revision=1,category=category,locations=[],translation=None,plan=plans[category],evidence_ids=[],needs=needs,flags=flags,conflicting_item_ids=[],proposed_action='modify',not_adopt_reason='',status='pending',uncompleted_reason='返修计划尚未执行具体改文；关联任务或材料到达不能单独代表意见已完成。',decision=None)
+
+
+def installed_rules():
+    names=('experiment','statistics','figure','method','literature','format','structure','expression','uncategorized')
+    words=[['experiment','实验','试验'],['statistic','统计','p value','sample size'],['figure','table','图','表'],
+        ['method','方法'],['reference','citation','文献','引用'],['format','格式'],
+        ['structure','结构','section order','before results'],['wording','grammar','措辞','语法','压缩','局限性'],[]]
+    notes={key:_installed_propose({'id':'installed'},1,{'text':(terms[0] if terms else 'unknown'),'original_number':'','location':{}})['plan']
+           for key,terms in zip(names,words)}
+    return dict(category_order=list(names),keywords=dict(zip(names,words)),handling_notes=notes,
+                default_language='zh-CN',document_version='review-documents-v1',require_confirmation=True)
+
+
+def safety(text):
+    """Non-configurable risk detection, independent of the chosen display category."""
+    original=_installed_propose({'id':'safety'},1,{'text':text,'original_number':'','location':{}})
+    lower=text.lower();needs=[]
+    if any(w in lower for w in ('experiment','实验','试验')):
+        needs.append(dict(kind='experiment',description='需要用户提供实验材料；本批不执行实验。'))
+    if any(w in lower for w in ('reference','citation','文献','引用')):
+        needs.append(dict(kind='literature',description='核验已有或补充文献对陈述的支持；新检索与模型核验仍须授权，未核验资料不能作为已完成引用。'))
+    return dict(flags=original['flags'],needs=needs)
+
+
+def enforce_safety(items):
+    for item in items:
+        fixed=safety(item['original_text'])
+        item['flags']=list(dict.fromkeys(item['flags']+fixed['flags']))
+        existing={n['kind'] for n in item['needs']}
+        item['needs'].extend(n for n in fixed['needs'] if n['kind'] not in existing)
+    detect_conflicts(items)
+    return items
+
+
+def propose(source,index,segment,*,rules=None):
+    item=_installed_propose(source,index,segment)
+    if rules is None:return item  # Exact installed legacy behavior.
+    lower=segment['text'].casefold()
+    item['category']=next((name for name in rules['category_order']
+        if any(word.casefold() in lower for word in rules['keywords'][name])), 'uncategorized')
+    if item['category']=='uncategorized' and 'ambiguous' not in item['flags']:item['flags'].append('ambiguous')
+    enforce_safety([item])
+    return item
 
 def update_status(items):
     for item in items:
@@ -61,5 +104,5 @@ def detect_conflicts(items):
             if limitation and opposite or order and opposite_order:
                 for item,other in ((left,right),(right,left)):
                     if 'conflict' not in item['flags']:item['flags'].append('conflict')
-                    item['conflicting_item_ids'].append(other['id'])
+                    if other['id'] not in item['conflicting_item_ids']:item['conflicting_item_ids'].append(other['id'])
     return items

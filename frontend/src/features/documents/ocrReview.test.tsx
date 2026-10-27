@@ -230,3 +230,41 @@ test('refreshing the workspace retries source content and retains local edits af
  expect(editor.value).toBe('原文乙 保留本地草稿')
  expect((screen.getByRole('button',{name:'确认生成核对版本'}) as HTMLButtonElement).disabled).toBe(true)
 })
+
+test('returning to OCR preview keeps the current unsaved review task and edits',async()=>{
+ const user=userEvent.setup();const {posts}=mockApi(true)
+ render(<OcrReview projectId="p" fileId="f" filename="scan.pdf" parent={parent as never} onUnavailable={()=>{}}><p>识别预览内容</p></OcrReview>)
+ await user.click(await screen.findByRole('button',{name:'继续人工核对'}))
+ const blocks=await screen.findAllByRole('group',{name:/文字核对/})
+ await user.click(within(blocks[0]).getByRole('radio',{name:'确认原文'}))
+ await user.click(screen.getByRole('button',{name:'返回识别预览'}))
+ expect(screen.getByText('识别预览内容')).toBeTruthy()
+ expect(screen.queryByRole('button',{name:'保存核对进度'})).toBeNull()
+ await user.click(screen.getByRole('button',{name:'继续人工核对'}))
+ expect((within((await screen.findAllByRole('group',{name:/文字核对/}))[0]).getByRole('radio',{name:'确认原文'}) as HTMLInputElement).checked).toBe(true)
+ expect(posts).toHaveLength(0)
+})
+
+test('switching parsed versions preserves unsaved OCR review edits for the original version',async()=>{
+ const {default:DocumentVersions}=await import('./DocumentVersions')
+ const {fetch,posts}=mockApi(true);const original=fetch.getMockImplementation()!
+ const other={...parent,id:'other',kind:'docx_document',version:3,selected_pages:undefined,blocks_url:'blocks',summary:{counts:{paragraphs:0,tables:0,cells:0,images:0},warnings:[]}}
+ fetch.mockImplementation(async(url:string,init?:RequestInit)=>{
+  if(url.includes('/document-versions?page='))return Response.json({items:[parent,other],total:2,page:1,page_size:5,latest_version:3})
+  if(url.endsWith('/document-versions/other'))return Response.json(other)
+  if(url.includes('/other/blocks?'))return Response.json({items:[],total:0,page:1,page_size:20})
+  return original(url,init)
+ })
+ const user=userEvent.setup()
+ render(<DocumentVersions projectId="p" fileId="f" filename="scan.pdf" fileType="pdf" active onUnavailable={()=>{}} />)
+ await user.click(await screen.findByRole('button',{name:'PDF 版本 v2 · 已完成'}))
+ await user.click(await screen.findByRole('button',{name:'继续人工核对'}))
+ const blocks=await screen.findAllByRole('group',{name:/文字核对/})
+ await user.click(within(blocks[0]).getByRole('radio',{name:'确认原文'}))
+ await user.click(screen.getByRole('button',{name:'PDF 版本 v3 · 已完成'}))
+ await waitFor(()=>expect(screen.getByRole('button',{name:'PDF 版本 v2 · 已完成'}).hasAttribute('disabled')).toBe(false))
+ expect(screen.queryByRole('button',{name:'保存核对进度'})).toBeNull()
+ await user.click(screen.getByRole('button',{name:'PDF 版本 v2 · 已完成'}))
+ expect((within((await screen.findAllByRole('group',{name:/文字核对/}))[0]).getByRole('radio',{name:'确认原文'}) as HTMLInputElement).checked).toBe(true)
+ expect(posts).toHaveLength(0)
+})

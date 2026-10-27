@@ -57,7 +57,7 @@ def test_post_only_saves_task_and_get_does_not_execute_or_write(client, cloud, p
     with database_connection() as db:
         assert db.execute('SELECT count(*) AS n FROM figure_jobs').fetchone()['n'] == 0
         assert db.execute('SELECT count(*) AS n FROM model_calls').fetchone()['n'] == 0
-        row = db.execute('SELECT input_snapshot FROM tasks').fetchone()
+        row = db.execute('SELECT input_snapshot FROM tasks WHERE id=%s',(state['task']['id'],)).fetchone()
         assert row['input_snapshot']['boxplot_policy'] == policy
         assert db.execute("SELECT count(*) AS n FROM model_budgets WHERE scope_type='task'").fetchone()['n'] == 1
 

@@ -80,6 +80,16 @@ class QualityPreparationService(DatasetPreparationService):
         super().__init__(project_store)
         self.manifests=QualityManifestObjects(project_store.directory)
 
+    def build_candidate(self,task,state):
+        """Build both local objects in memory; wait() owns durable admission."""
+        import json
+        from app.domain.dataset_preparation.quality_transform import build_quality_object
+        _,base=self.base_object(task['project_id'],state['input_version']['source'])
+        sheet,summary,manifest=prepare_quality(base,state['input_version']['source'],state['recipe'])
+        content=json.dumps(manifest.model_dump(mode='json'),ensure_ascii=False,sort_keys=True,separators=(',',':'),allow_nan=False).encode('utf-8')
+        reference=dict(**self.manifests.describe(candidate_id(task['id']),content),entry_count=len(manifest.entries))
+        return build_quality_object(base,state['input_version']['source'],state['recipe'],sheet,summary,reference),content
+
     def require_raw(self,source,project_id):
         if source['kind']=='dataset_version': return super().require_raw(source,project_id)
         row,_,obj=DatasetPreparationService(self.assets).load_version(project_id,source['file_id'],source['dataset_id'])

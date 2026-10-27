@@ -7,8 +7,21 @@ import {setApiSession} from '../../shared/api/client'
 import {webcrypto} from 'node:crypto'
 import {authFixture,bundleFixture,liveRequest,unsubmittedRequest} from './writingLiveFixtures'
 import WritingLive from './WritingLive'
+import {ManuscriptDraftProvider} from './ManuscriptDraftProvider'
 const props={projectId:'p1',manuscriptId:'m1',version:manuscriptFixture.versions[0] as unknown as ManuscriptVersion,onPublished:vi.fn()}
 afterEach(()=>{cleanup();vi.unstubAllGlobals()})
+it.each(['受控写作关键词（每行一项）','受控写作致谢'])('keeps cached %s dirty after switching to a section rewrite',async label=>{
+ const guards=new Map<()=>boolean,()=>boolean>();const register=(guard:()=>boolean,dirty?:()=>boolean)=>{guards.set(guard,dirty??(()=>false));return ()=>{guards.delete(guard)}}
+ vi.stubGlobal('fetch',vi.fn(async(url:string)=>Response.json(url.endsWith('/writing-previews')?{items:[],capabilities:{real_calls_enabled:false}}:{items:[]})))
+ render(<ManuscriptDraftProvider register={register}><WritingLive {...props} version={{...props.version,snapshot:{...props.version.snapshot,sections:[]}}}/></ManuscriptDraftProvider>)
+ await waitFor(()=>expect(screen.getByLabelText('受控写作方式').matches(':disabled')).toBe(false))
+ expect([...guards.values()].some(dirty=>dirty())).toBe(false)
+ fireEvent.change(screen.getByLabelText(label),{target:{value:'Keep full draft field'}})
+ fireEvent.change(screen.getByLabelText('受控写作方式'),{target:{value:'rewrite_section'}})
+ expect([...guards.values()].some(dirty=>dirty())).toBe(true)
+ fireEvent.change(screen.getByLabelText('受控写作方式'),{target:{value:'full_draft'}})
+ expect(screen.getByLabelText(label)).toHaveProperty('value','Keep full draft field')
+})
 it('opens controlled writing without authorizing or executing, and invalidates it on a session change',async()=>{
  const fetcher=vi.fn(async(url:string,_init?:RequestInit)=>Response.json(url.endsWith('/manuscripts')?{items:[manuscriptFixture]}:url.endsWith('/writing-previews')?{items:[],capabilities:{real_calls_enabled:false,credential_status:'missing'}}:{items:[]}));vi.stubGlobal('fetch',fetcher)
  render(<ManuscriptWriting {...props}/>);fireEvent.click(screen.getByRole('button',{name:'受控写作与人工审核'}))

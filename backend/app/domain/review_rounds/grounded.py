@@ -55,7 +55,7 @@ def evidence_summary(entry):
     return '；'.join(parts)[:3000] if parts else '固定资料未提供可用于本项的明确文本/统计字段；需人工核对原材料。'
 
 
-def grounded_plans(snapshot,items,materials):
+def grounded_plans(snapshot,items,materials,*,rules=None):
     locations=locations_for(snapshot);evidence=evidence_for(snapshot,materials);result=[]
     sections=normalize_sections(snapshot)
     roles={'method':'materials_and_methods','statistics':'results','expression':'discussion','structure':'materials_and_methods'}
@@ -86,11 +86,16 @@ def grounded_plans(snapshot,items,materials):
         elif item['category']=='experiment':specific='独立实验没有在本批执行。列明原意见中的实验要求并等待可验证材料；不能生成实验完成或新增结果表述。'
         elif item['category']=='format':specific='保留固定章节与身份映射，使用本轮选定学校确认/期刊指南检查上述实际候选；只执行明确支持的章名显示调整。'
         plan=f"意见：{item['original_text'].strip()}\n固定位置：{positions}\n固定现文：{existing}\n已读取具体资料：{summary}\n具体处理：{specific}\n缺口：{'；'.join(missing) if missing else '尚需用户提供具体改文；语义与科研合理性仍需人工核验。'}"
+        if rules is not None and rules['handling_notes'][item['category']]:
+            plan+='\n配置处理说明（不代表执行或确认）：'+rules['handling_notes'][item['category']]
         result.append(dict(item_id=item['id'],original_text=item['original_text'],existing_content=existing,locations=selected,evidence=excerpts,plan=plan,missing=missing))
     return result
 
 
-def apply_operations(snapshot,items,materials,operations,*,writing_context=None,target=None):
+def apply_operations(snapshot,items,materials,operations,*,writing_context=None,target=None,fixed_safety=False):
+    if fixed_safety:
+        from .planning import enforce_safety
+        items=enforce_safety(deepcopy(items))
     candidate=deepcopy(snapshot);candidate['sections']=normalize_sections(snapshot)
     candidate.pop('user_return_provenance',None)
     if candidate.get('review_provenance'):
@@ -105,8 +110,14 @@ def apply_operations(snapshot,items,materials,operations,*,writing_context=None,
         seen.add(op['location_id'])
         if not set(op['evidence_ids'])<=set(evidence):raise invalid('依据必须来自固定资料版本。')
         reason=None
+        exact_citation=False
+        if fixed_safety and op['kind']=='bind_citation' and loc['kind']=='paragraph':
+            chosen=(op.get('text') or '').strip()
+            saved=next((p for p in literature_paragraphs(snapshot) if p['id'] in (chosen,'literature:'+chosen)),None)
+            exact_citation=bool(saved and saved['citations'] and loc['text']==saved['text'])
+        needs=[need for need in item['needs'] if not (exact_citation and need['kind']=='literature')]
         if item['category']=='experiment' or re.search(r'\bexperiments?\b|实验|试验',item['original_text'],re.I):reason='实验事项需提供真实独立实验材料，不能用文字采用完成。'
-        elif item['needs']:reason='；'.join(n['description'] for n in item['needs'])
+        elif needs:reason='；'.join(n['description'] for n in needs)
         elif item.get('decision',{} ) and item['decision']['action'] in ('not_adopt','defer'):reason=item['decision']['reason'] or '用户未采纳/延期。'
         elif item['flags'] and (not item.get('decision') or item['decision']['action'] not in ('accept','clarify')):reason='重要决定尚未确认。'
         elif 'conclusion_change' in item['flags']:reason='结论变化须提供可核验科学审核；本批具体改文不能把相关改为因果。'

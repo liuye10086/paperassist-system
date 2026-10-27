@@ -67,3 +67,24 @@ test('reloading a missing selected historical run does not substitute the newest
  expect(screen.queryByRole('button',{name:'保存配置草稿'})).toBeNull()
  expect(fetch.mock.calls.some(([url])=>url.endsWith('/analysis-runs/run3/figure-workbench'))).toBe(false)
 })
+
+test('changing selected historical runs retains each figure draft and does not reread the first controller',async()=>{
+ const fetch=vi.fn(async(url:string)=>{
+  if(url.endsWith('/analysis-runs'))return Response.json({items:[correlationResult,old]})
+  if(url.includes('/figure-workbench'))return Response.json({...workbench,language:'en'})
+  return Response.json({items:[]})
+ });vi.stubGlobal('fetch',fetch)
+ render(<StatisticsResults {...props}/>)
+ fireEvent.click(screen.getByRole('button',{name:'查看历史已确认结果'}))
+ const picker=await screen.findByLabelText('图表与报告所用结果')
+ fireEvent.change(picker,{target:{value:'historical-run'}})
+ const title=await screen.findByRole('textbox',{name:'图标题'}) as HTMLInputElement
+ fireEvent.change(title,{target:{value:'Historical draft A'}})
+ fireEvent.change(picker,{target:{value:correlationResult.id}})
+ await waitFor(()=>expect(screen.getByRole('textbox',{name:'图标题'})).not.toBe(title))
+ fireEvent.change(screen.getByRole('textbox',{name:'图标题'}),{target:{value:'Draft B'}})
+ fireEvent.change(picker,{target:{value:'historical-run'}})
+ expect(screen.getByRole('textbox',{name:'图标题'})).toBe(title)
+ expect(title.value).toBe('Historical draft A')
+ expect(fetch.mock.calls.filter(([url])=>url.endsWith('/analysis-runs/historical-run/figure-workbench'))).toHaveLength(1)
+})

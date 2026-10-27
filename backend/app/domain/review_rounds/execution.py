@@ -17,10 +17,12 @@ def run_review_round_task(task_id,task_revision,*,config=None,directory=None):
             service=ReviewRoundService(scoped_store(task['user_id'],execution.config,execution.assets.directory))
             row=service.round_row(db,task['project_id'],input_version(task)['round_id'],True);base=service.fixed(db,row)
             state,events=service.state(db,row)
+            from app.domain.admin_configuration.rule_consumption import rules,round_version
+            version=round_version(db,row['id']);policy=rules(version,'review') if version else None
             if not events:
-                state['items']=[propose(source,n,segment) for source in row['snapshot_json']['sources'] for n,segment in enumerate(source['segments'],1)]
+                state['items']=[propose(source,n,segment,rules=policy) for source in row['snapshot_json']['sources'] for n,segment in enumerate(source['segments'],1)]
                 from .grounded import grounded_plans
-                for item,grounded in zip(state['items'],grounded_plans(base['snapshot_json'],state['items'],state['materials'])):
+                for item,grounded in zip(state['items'],grounded_plans(base['snapshot_json'],state['items'],state['materials'],rules=policy)):
                     item['plan']=grounded['plan'];item['locations']=[{k:loc[k] for k in ('kind','id')} for loc in grounded['locations']]
                     item['evidence_ids']=[e['id'] for e in grounded['evidence']]
                 detect_conflicts(state['items']);update_status(state['items']);service.append(db,row,1,'initial','worker-initial',{},state)

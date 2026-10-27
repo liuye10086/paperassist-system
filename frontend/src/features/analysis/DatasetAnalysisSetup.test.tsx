@@ -5,6 +5,7 @@ import AnalysisSetup from './AnalysisSetup'
 import { version, dataset, page } from '../datasets/datasetFixtures'
 import type { StructureVersion } from '../datasets/datasetApi'
 import { reviewFixture } from '../analysisPlan/analysisPlanFixtures'
+import { correlationResult } from './correlationFixtures'
 afterEach(() => { cleanup(); vi.unstubAllGlobals() })
 const source = { kind: 'dataset_version', schema_version: 1, dataset_id: 'd1', structure_id: 's1', dataset_version: 1, file_id: 'f1', source_sha256: 'a'.repeat(64), dataset_sha256: 'b'.repeat(64), dataset_size_bytes: 100, dataset_schema_version: 1, sheet_index: 0, sheet_name: 'Sheet1', parser_version: 'openpyxl-3.1.5-structure-v1' }
 const selection = { task_type: 'descriptive_boxplot', sheet_name: 'Sheet1', numeric_column: 'A', group_column: null, unit: '', missing_policy: 'exclude_selected_missing' }
@@ -56,11 +57,140 @@ test('requires explicit version and sheet before loading a dataset profile or po
  expect(fetch.mock.calls.some(([url]) => url.includes('/analysis-profile?'))).toBe(false)
  await user.selectOptions(screen.getByLabelText('分析工作表'), dataset.id)
  await screen.findByLabelText('数值列')
+ await user.click(screen.getByRole('button', { name: '数据概况' }))
  await screen.findByRole('heading', { name: '字段详细概况' })
  expect(fetch.mock.calls.some(([url]) => url.includes('dataset_id=d1'))).toBe(true)
  expect(fetch.mock.calls.some(([url]) => url.endsWith('/dataset-versions/d1/profile'))).toBe(true)
  expect(fetch.mock.calls.some(([, init]) => init?.method === 'POST')).toBe(false)
  expect(fetch.mock.calls.some(([url]) => url.includes('/preview'))).toBe(false)
+})
+
+test('setup, profile and plan are separate views and keep the same field draft and request identity', async () => {
+ const fetch = mockApi({ saved }); const user = userEvent.setup(); await open(user)
+ const unit = await screen.findByLabelText('数值单位（可选）') as HTMLInputElement
+ await user.type(unit, 'draft')
+ expect(screen.queryByRole('heading', { name: '字段详细概况' })).toBeNull()
+ await user.click(screen.getByRole('button', { name: '数据概况' }))
+ await screen.findByRole('heading', { name: '字段详细概况' })
+ expect(unit.closest('[hidden]')).toBeTruthy()
+ expect(screen.getByLabelText('用于分析的文件').closest('[hidden]')).toBeNull()
+ await user.click(screen.getByRole('button', { name: '分析方案' }))
+ expect(screen.queryByRole('heading', { name: '字段详细概况' })).toBeNull()
+ await user.click(screen.getByRole('button', { name: '字段配置' }))
+ expect(screen.getByLabelText('数值单位（可选）')).toBe(unit)
+ expect(unit.value).toBe('draft')
+ expect(fetch.mock.calls.filter(([url]) => url.includes('/analysis-profile?'))).toHaveLength(1)
+ expect(fetch.mock.calls.some(([, init]) => init?.method === 'POST')).toBe(false)
+})
+
+test('switching files keeps the prior draft mounted and file selection is available in statistics', async () => {
+ const fetch = mockApi({ saved }); const original = fetch.getMockImplementation()!
+ fetch.mockImplementation((url, init) => url.includes('/files/f2/analysis-setup') ? Promise.resolve(Response.json(null)) : original(url, init))
+ const user = userEvent.setup(); await open(user)
+ const unit = await screen.findByLabelText('数值单位（可选）') as HTMLInputElement
+ await user.type(unit, 'draft')
+ await user.click(screen.getByRole('button', { name: '统计结果' }))
+ const picker = screen.getByLabelText('用于分析的文件')
+ expect(picker.closest('[hidden]')).toBeNull()
+ await user.selectOptions(picker, 'f2')
+ expect(unit.isConnected).toBe(true)
+ await user.selectOptions(picker, 'f1')
+ await user.click(screen.getByRole('button', { name: '字段配置' }))
+ expect(screen.getByLabelText('数值单位（可选）')).toBe(unit)
+ expect(unit.value).toBe('draft')
+ expect(fetch.mock.calls.filter(([url]) => url.endsWith('/files/f1/analysis-setup'))).toHaveLength(1)
+})
+
+test('changing source cannot silently discard a dirty field draft and registers project leave protection', async () => {
+ mockApi({ saved }); const user = userEvent.setup(); const guards = new Set<() => boolean>()
+ const register = vi.fn((guard: () => boolean) => { guards.add(guard); return () => { guards.delete(guard) } })
+ const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
+ try {
+  render(<AnalysisSetup projectId="p1" files={files} registerLeaveGuard={register} />)
+  await user.selectOptions(screen.getByLabelText('用于分析的文件'), 'f1')
+  const unit = await screen.findByLabelText('数值单位（可选）') as HTMLInputElement
+  await user.type(unit, 'draft')
+  await user.selectOptions(screen.getByLabelText('原始数据版本'), 's2')
+  expect((screen.getByLabelText('原始数据版本') as HTMLSelectElement).value).toBe('s1')
+  expect(screen.getByLabelText('数值单位（可选）')).toBe(unit)
+  expect(confirm).toHaveBeenCalledOnce()
+  expect([...guards].every(guard => guard())).toBe(false)
+ } finally { confirm.mockRestore() }
+})
+
+test('research plan draft stays mounted across profile and file changes without submitting', async () => {
+ const fetch = mockApi({ saved: { ...saved, source: preparedSource } }); const original = fetch.getMockImplementation()!
+ fetch.mockImplementation((url, init) => {
+  if (url.endsWith('/files/f2/analysis-setup')) return Promise.resolve(Response.json(null))
+  if (url.endsWith('/prepared-dataset-versions/pd1')) return Promise.resolve(Response.json(preparedVersion))
+  if (url.includes('/prepared-dataset-versions?')) return Promise.resolve(Response.json({ items: [preparedVersion], total: 1, page: 1, page_size: 5 }))
+  if (url.includes('/analysis-plans?') || url.includes('task_type=analysis_recommendation')) return Promise.resolve(Response.json({ items: [], total: 0, page: 1, page_size: url.includes('/analysis-plans?') ? 5 : 10 }))
+  return original(url, init)
+ })
+ const user = userEvent.setup(); render(<AnalysisSetup projectId="p1" files={files} />)
+ await user.selectOptions(screen.getByLabelText('用于分析的文件'), 'f1'); await screen.findByLabelText('数值列')
+ await user.click(screen.getByRole('button', { name: '分析方案' }))
+ const question = screen.getByLabelText('研究问题') as HTMLTextAreaElement
+ await user.type(question, 'synthetic research draft')
+ await user.click(screen.getByRole('button', { name: '数据概况' }))
+ expect(question.closest('[hidden]')).toBeTruthy()
+ await user.selectOptions(screen.getByLabelText('用于分析的文件'), 'f2')
+ expect(question.isConnected).toBe(true)
+ await user.selectOptions(screen.getByLabelText('用于分析的文件'), 'f1')
+ await user.click(screen.getByRole('button', { name: '分析方案' }))
+ expect(screen.getByLabelText('研究问题')).toBe(question)
+ expect(question.value).toBe('synthetic research draft')
+ expect(fetch.mock.calls.some(([, init]) => init?.method === 'POST')).toBe(false)
+})
+
+test('a controlled plan deep link exposes initial configuration failure and read-only recovery', async () => {
+ const fetch=mockApi(); const original=fetch.getMockImplementation()!; let failed=true
+ fetch.mockImplementation((url,init)=>failed&&url.endsWith('/analysis-setup')?Promise.reject(new TypeError('offline')):original(url,init))
+ render(<AnalysisSetup projectId="p1" files={files} fileId="f1" stage="plan" />)
+ expect((await screen.findByRole('alert')).textContent).toContain('无法连接后端')
+ failed=false
+ await userEvent.click(screen.getByRole('button',{name:'重新载入分析配置'}))
+ await waitFor(()=>expect(screen.queryByRole('alert')).toBeNull())
+ expect((screen.getByLabelText('用于分析的文件') as HTMLSelectElement).value).toBe('f1')
+ expect(fetch.mock.calls.some(([,init])=>init?.method==='POST')).toBe(false)
+})
+
+test('a selected file without a dataset guides profile and plan back to explicit source selection',async()=>{
+ mockApi();const user=userEvent.setup();await open(user)
+ await user.click(screen.getByRole('button',{name:'数据概况'}))
+ expect(screen.getByText('请先在字段配置中明确选择数据版本与工作表。')).toBeTruthy()
+ await user.click(screen.getByRole('button',{name:'前往字段配置'}))
+ expect(screen.getByRole('combobox',{name:'原始数据版本'})).toBeTruthy()
+ await user.click(screen.getByRole('button',{name:'分析方案'}))
+ expect(screen.getByRole('button',{name:'前往字段配置'})).toBeTruthy()
+})
+
+test('saving field configuration checks the real figure draft scope before replacing statistics controllers', async () => {
+ const fetch=mockApi({saved,result}); const original=fetch.getMockImplementation()!
+ fetch.mockImplementation((url,init)=>{
+  if(url.endsWith('/analysis-runs'))return Promise.resolve(Response.json({items:[correlationResult]}))
+  if(url.endsWith('/figure-workbench'))return Promise.resolve(Response.json({configurations:[],fields:[],language:'en',available_kinds:['scatter','line','bar','violin']}))
+  return original(url,init)
+ })
+ const confirm=vi.spyOn(window,'confirm').mockReturnValue(false)
+ try{
+  const user=userEvent.setup();await open(user);await screen.findByLabelText('数值列')
+  await user.click(screen.getByRole('button',{name:'图表'}))
+  await user.click(screen.getByRole('button',{name:'图表工作台与集合'}))
+  await user.click(screen.getByRole('button',{name:'查看历史已确认结果'}))
+  await user.selectOptions(await screen.findByLabelText('图表与报告所用结果'),correlationResult.id)
+  await user.click(await screen.findByRole('button',{name:'继续编辑图表草稿'}))
+  const title=await screen.findByRole('textbox',{name:'图标题'}) as HTMLInputElement
+  await user.type(title,'Synthetic unsaved figure title')
+  await user.click(screen.getByRole('button',{name:'字段配置'}))
+  await user.click(screen.getByRole('button',{name:'检查字段'}));await screen.findByText('可用 30 行，排除 0 行。')
+  await user.click(screen.getByRole('button',{name:'保存分析配置'}))
+  expect(confirm).toHaveBeenCalledOnce()
+  expect(fetch.mock.calls.some(([,init])=>init?.method==='PUT')).toBe(false)
+  await user.click(screen.getByRole('button',{name:'图表'}))
+  expect(screen.getByRole('textbox',{name:'图标题'})).toBe(title)
+  expect(title.value).toBe('Synthetic unsaved figure title')
+ }finally{confirm.mockRestore()}
 })
 test('only successful versions are selectable and the restored bound version is fetched outside page one', async () => {
  const failed = { ...newer, task: { ...newer.task, status: 'failed' as const }, datasets: [] }
@@ -235,7 +365,8 @@ test.each([false,true])('parent setup stays mounted after published plan (initia
   return original(url,init)
  })
  const user=userEvent.setup();render(<AnalysisSetup projectId="p1" files={files}/>);await user.selectOptions(screen.getByLabelText('用于分析的文件'),'f1')
- if(!initiallyPublished)await user.click(await screen.findByRole('button',{name:'确认并发布分析计划'}))
+ await user.click(screen.getByRole('button',{name:'分析方案'}))
+ if(!initiallyPublished){await user.click(screen.getByRole('button',{name:'方案历史'}));await user.click(await screen.findByRole('button',{name:/分析计划第 1 版/}));await user.click(await screen.findByRole('button',{name:'确认并发布分析计划'}));await screen.findByRole('button',{name:'载入已发布分析计划'});expect(fetch.mock.calls.filter(([url])=>url.endsWith('/analysis-setup'))).toHaveLength(1);await user.click(screen.getByRole('button',{name:'载入已发布分析计划'}))}
  await screen.findByText('当前配置已关联已确认分析计划。')
  await act(async()=>{await new Promise(resolve=>setTimeout(resolve,100))})
  expect(fetch.mock.calls.filter(([url])=>url.endsWith('/analysis-setup'))).toHaveLength(initiallyPublished?1:2)

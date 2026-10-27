@@ -131,7 +131,7 @@ it('identifies every result source separately from the next selected check sourc
 })
 it.each([['zh-CN','en'],['en','zh-CN']] as const)('uses the merged citation support basis in saved claim language (%s UI / %s claim)',async(ui,language)=>{
  setLocale(ui);setup({citationClaims:[{id:'claim1',revision:1,content:'Original claim 原文',latest_review:review,review_source_current:false,citation_eligible:false,supplement_rounds_used:1}],candidate:{content_support:[{...checkCandidate.content_support[0],output_language:language,source_current:false}]}})
- render(<ProjectLiterature projectId="p1" researchTopic="Synthetic topic" active/>);fireEvent.click(screen.getByRole('button',{name:ui==='en'?'Citation workbench':'引用工作台'}));await screen.findByText('Synthetic original title')
+ render(<ProjectLiterature projectId="p1" researchTopic="Synthetic topic" active/>);fireEvent.click(screen.getByRole('button',{name:ui==='en'?'Citation workbench':'引用工作台'}));await within(screen.getByRole('region',{name:ui==='en'?'Citation candidates and to-dos':'引用候选与待办'})).findByText('Synthetic original title')
  expect(screen.queryByText(ui==='en'?'View support basis per claim':'按论述查看支持依据')).toBeNull()
  fireEvent.click(screen.getByRole('button',{name:ui==='en'?'View checks and history':'查看三项核验与历史'}))
  const region=await screen.findByRole('region',{name:ui==='en'?'Three independent literature checks':'文献三项核验'}),status=language==='en'?'Partially supported':'部分支持',limitation=language==='en'?'Current source differs or is unavailable; the historical result is unchanged.':'当前来源已变化或不可用；历史结果保留原样。'

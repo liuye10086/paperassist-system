@@ -1,3 +1,4 @@
+import {useLiteratureActive,useLiteratureLeaveGuard} from './literatureActivityContext'
 import {useEffect,useRef,useState} from 'react'
 import {translateForLocale,useI18n,type Locale} from '../../shared/i18n'
 import ProjectDownloadLink from '../../shared/components/ProjectDownloadLink'
@@ -9,18 +10,20 @@ import {canSimulateDoi,checkBase,checkStatusLabel,safeLandingTarget,validCheckCa
 type Props={projectId:string;referenceId:string;initialSearchId?:string;onDenied:()=>void;onClose?:()=>void;onVerify?:()=>void}
 const readError='核验资料读取失败，已读历史仍保留。'
 function useCheckResource<T>(url:string,guard:(v:unknown)=>v is T,revision:number,onDenied:()=>void,retainPage=false){
+ const enabled=useLiteratureActive(),loaded=useRef<string|null>(null),key=JSON.stringify([url,revision]);
  const callbacks=useRef({guard,onDenied});useEffect(()=>{callbacks.current={guard,onDenied}})
  const [state,setState]=useState<{url:string;data:T|null;error:string;revision:number}>({url:'',data:null,error:'',revision:-1})
- useEffect(()=>{let alive=true;const controller=new AbortController()
-  void taskRequest(url,controller,v=>callbacks.current.guard(v),readError).then(data=>{if(alive)setState({url,data,error:'',revision})}).catch(cause=>{if(alive){if(cause instanceof TaskRequestError&&[403,404].includes(cause.status))callbacks.current.onDenied();setState(old=>({url,data:retainPage||old.url===url?old.data:null,error:readError,revision}))}})
+ useEffect(()=>{if(!enabled||loaded.current===key)return;loaded.current=null;let alive=true;const controller=new AbortController()
+  void taskRequest(url,controller,v=>callbacks.current.guard(v),readError).then(data=>{if(alive){loaded.current=key;setState({url,data,error:'',revision})}}).catch(cause=>{if(alive){if(cause instanceof TaskRequestError&&[403,404].includes(cause.status))callbacks.current.onDenied();setState(old=>({url,data:retainPage||old.url===url?old.data:null,error:readError,revision}))}})
   return()=>{alive=false;controller.abort()}
- },[url,revision,retainPage])
+ },[url,revision,retainPage,enabled,key])
  return state.url===url?{data:state.data,error:state.error,loading:state.revision!==revision}:{data:retainPage?state.data:null,error:'',loading:true}
 }
 export default function LiteratureChecks(props:Props){return <ChecksScope key={`${props.projectId}:${props.referenceId}:${props.initialSearchId??''}`} {...props}/>}
 function ChecksScope({projectId,referenceId,initialSearchId,onDenied,onClose,onVerify}:Props){
  const {t}=useI18n(),base=checkBase(projectId),referenceUrl=`${base}/references/${encodeURIComponent(referenceId)}`
  const [revision,setRevision]=useState(0),[page,setPage]=useState(1),[selected,setSelected]=useState(initialSearchId??''),[busy,setBusy]=useState(false),[error,setError]=useState('')
+ useLiteratureLeaveGuard(!!error,busy)
  const active=useRef<AbortController|null>(null),alive=useRef(true),retry=useRef<{signature:string;key:string}|null>(null)
  useEffect(()=>{alive.current=true;return()=>{alive.current=false;active.current?.abort()}},[])
  const config=useCheckResource(`${base}/config`,v=>validCheckConfig(v,projectId),revision,onDenied)

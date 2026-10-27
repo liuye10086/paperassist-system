@@ -142,6 +142,8 @@ users = Table("users", metadata,
     Column("active", Boolean, nullable=False),
     Column("created_at", DOUBLE_PRECISION, nullable=False),
     Column("updated_at", DOUBLE_PRECISION, nullable=False),
+    Column("admin_revision", Integer, nullable=False, server_default=text('1')),
+    CheckConstraint('admin_revision>=1', name='users_admin_revision_check'),
     Column("ui_language", Text, nullable=False, server_default="zh-CN"),
     CheckConstraint("ui_language IN ('zh-CN', 'en')", name="users_ui_language_check"),
     CheckConstraint("role IN ('user','admin')", name="users_role_check"))
@@ -318,3 +320,14 @@ review_round_user_returns,review_round_continuations,project_review_progress_eve
 
 from app.db.review_science_schema import define_review_science_tables
 review_opinion_task_links,review_analysis_adoptions=define_review_science_tables(metadata)
+
+from app.db.admin_operations_schema import define_admin_operations_tables
+admin_audit_events,operational_request_events,operational_collection=define_admin_operations_tables(metadata)
+
+from app.db.admin_configuration_schema import define_admin_configuration_tables
+admin_configuration_versions,admin_configuration_validations,admin_configuration_pointer,admin_configuration_events,admin_configuration_bindings,admin_usage_summaries=define_admin_configuration_tables(metadata)
+
+from app.db.storage_governance_schema import define_storage_governance_tables
+storage_policies,storage_objects,storage_references,storage_reservations,storage_inventory_scans,storage_policy_events=define_storage_governance_tables(metadata)
+from app.db.storage_deletion_schema import define_storage_deletion_tables
+storage_disposable_fixtures,storage_deletion_operations,storage_deletion_items,storage_deletion_events=define_storage_deletion_tables(metadata)

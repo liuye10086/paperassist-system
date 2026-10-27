@@ -1,4 +1,13 @@
 .school-templates { max-width:1100px; display:grid; gap:1.3rem; }
+.school-view-nav { display:flex; flex-wrap:wrap; gap:.5rem; padding-bottom:.85rem; border-bottom:1px solid var(--border); }
+.school-view-nav button[aria-current="page"] { background:var(--accent-bg); color:var(--accent); border-color:var(--accent); }
+.school-list-heading { display:flex; align-items:center; justify-content:space-between; gap:1rem; margin-bottom:1rem; }
+.school-list-heading h3 { margin:0; }
+.school-template-list { display:grid; gap:.75rem; }
+.school-template-list article { display:flex; align-items:center; justify-content:space-between; gap:1rem; padding:1.1rem; border:1px solid var(--border); border-radius:12px; background:var(--surface); }
+.school-template-list p { margin:.35rem 0; }
+.school-template-list strong { color:var(--text-h); }
+@media(max-width:650px) { .school-template-list article,.school-list-heading { align-items:flex-start; flex-direction:column; } }
 .school-templates fieldset { border:1px solid var(--border-color,#d8dee7); border-radius:12px; padding:1rem; min-width:0; }
 .school-templates legend { font-weight:650; padding:0 .4rem; }
 .school-templates select[multiple] { min-height:6rem; }

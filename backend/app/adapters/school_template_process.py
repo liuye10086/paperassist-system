@@ -10,12 +10,14 @@ from app.adapters.school_template_parser import PARSER_VERSION, MAX_RESULT_BYTES
 from app.core.exceptions import StorageError
 
 
-def inspect_school_template_isolated(content, filename):
+def inspect_school_template_isolated(content, filename, *, heading_aliases=()):
     if sys.platform != 'linux':
         raise StorageError('parse_environment_unavailable', '学校模板解析需要现有Linux Worker。', 503)
     if not isinstance(content, bytes) or not content or len(content) > 10485760 or not isinstance(filename, str) or not 0 < len(filename) <= 255:
         raise StorageError('invalid_document', '模板为空或超过上传限制。', 422)
-    header = json.dumps({'size': len(content), 'filename': filename}, ensure_ascii=False).encode()
+    from app.domain.admin_configuration.contracts import Schools
+    aliases=Schools(heading_aliases=list(heading_aliases)).model_dump()['heading_aliases']
+    header = json.dumps({'size': len(content), 'filename': filename, 'heading_aliases':aliases}, ensure_ascii=False).encode()
     command = [sys.executable, '-I', '-B', str(Path(__file__).with_name('school_template_process_child.py')), str(os.getpid())]
     result = _run_child(command, struct.pack('!I', len(header)) + header + content,
                         timeout_seconds=60, max_output_bytes=MAX_RESULT_BYTES)

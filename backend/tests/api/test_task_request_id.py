@@ -1,4 +1,4 @@
-"""Task request tracing must cover errors without changing older API envelopes."""
+"""All API tracing uses bounded server IDs and preserves safe business messages."""
 import asyncio
 import json
 import re
@@ -76,15 +76,15 @@ def test_business_submission_storage_errors_keep_safe_contract(
     ('GET', ''), ('PUT', ''), ('PATCH', ''), ('DELETE', ''), ('HEAD', ''), ('OPTIONS', ''),
     ('POST', '-other'), ('POST', '/extra'), ('POST', '/image'), ('GET', '/saved/download'),
 ])
-def test_business_submission_tracing_does_not_expand_old_route_contracts(suffix, operation, payload, method, extra):
+def test_all_api_paths_and_methods_have_safe_authentication_tracing(suffix, operation, payload, method, extra):
     with TestClient(app) as client:
         response = client.request(method, SUBMISSION_BASE + suffix + extra)
     assert response.status_code == 401
-    assert 'X-Request-ID' not in response.headers
+    assert response.headers.get('X-Request-ID')
     if method != 'HEAD':
-        assert response.json() == {'detail': {
-            'code': 'authentication_required', 'message': '请登录后继续。', 'params': {},
-        }}
+        assert_request_id(response)
+        assert response.json()['detail']['code']=='authentication_required'
+        assert response.json()['detail']['params']=={}
 
 
 @pytest.mark.parametrize('suffix,operation,payload', SUBMISSIONS)
@@ -106,7 +106,7 @@ def assert_request_id(response):
     return request_id
 
 
-def test_word_submission_errors_are_traced_but_old_reads_and_downloads_are_unchanged():
+def test_word_reads_and_download_errors_are_also_traced():
     endpoint = '/api/v1/projects/p/files/f/analysis-runs/r/report'
     with TestClient(app) as client:
         submission = client.post(endpoint, json={})
@@ -115,8 +115,8 @@ def test_word_submission_errors_are_traced_but_old_reads_and_downloads_are_uncha
     assert submission.status_code == read.status_code == download.status_code == 401
     assert_request_id(submission)
     for response in (read, download):
-        assert 'X-Request-ID' not in response.headers
-        assert set(response.json()['detail']) == {'code', 'message', 'params'}
+        assert_request_id(response)
+        assert set(response.json()['detail']) == {'code', 'message', 'params','request_id','details'}
 
 
 @pytest.mark.parametrize('path', ['/api/v1/tasks', '/api/v1/tasks/missing', '/api/v1/tasks/missing/events'])
@@ -155,30 +155,29 @@ def test_authentication_failure_remains_sanitized_with_request_id(monkeypatch):
 
 
 @pytest.mark.parametrize('path', ['/api/v1/projects', '/api/v1/tasksgiving', '/api/v1/tasks-other'])
-def test_old_unauthenticated_error_envelope_is_exactly_unchanged(path):
+def test_other_api_authentication_errors_now_include_safe_trace(path):
     with TestClient(app) as client:
         response = client.get(path, headers={'X-Request-ID': 'untrusted-client-marker'})
     assert response.status_code == 401
-    assert response.json() == {'detail': {
-        'code': 'authentication_required', 'message': '请登录后继续。', 'params': {},
-    }}
-    assert 'X-Request-ID' not in response.headers
+    assert_request_id(response)
+    assert response.json()['detail']['code']=='authentication_required'
+    assert response.json()['detail']['params']=={}
+    assert 'untrusted-client-marker' not in response.text
 
 
-def test_old_authorized_validation_error_envelope_is_exactly_unchanged():
+def test_other_api_validation_errors_now_include_safe_trace():
     with TestClient(app) as client:
         login_test_client(client)
         response = client.post('/api/v1/projects', json={})
     assert response.status_code == 422
-    assert response.json() == {'detail': {
-        'code': 'invalid_request', 'message': '请求格式无效，请检查填写的内容后重试。', 'params': {},
-    }}
-    assert 'X-Request-ID' not in response.headers
+    assert_request_id(response)
+    assert response.json()['detail']['code']=='invalid_request'
+    assert response.json()['detail']['params']=={}
 
 
 @pytest.mark.parametrize('path,status,headers', [
     ('/api/v1/tasks/one', 200, [(b'content-type', b'application/json')]),
-    ('/api/v1/projects/file', 404, [(b'content-type', b'application/json')]),
+    ('/api/v1/projects/file', 200, [(b'content-type', b'application/json')]),
     ('/api/v1/tasks/one', 404, [(b'content-type', b'application/octet-stream')]),
     ('/api/v1/tasks/one', 404, [(b'content-type', b'application/json'), (b'content-disposition', b'attachment')]),
 ])
@@ -199,7 +198,7 @@ def test_success_files_and_old_paths_are_forwarded_without_buffering(path, statu
 
     asyncio.run(RequestIdMiddleware(downstream)({'type': 'http', 'path': path}, None, send))
     assert [message.get('body') for message in sent[1:]] == [b'first', b'second']
-    assert (b'x-request-id' in dict(sent[0]['headers'])) == path.startswith('/api/v1/tasks/')
+    assert b'x-request-id' in dict(sent[0]['headers'])
 
 
 @pytest.mark.parametrize('chunks', [[b'{"detail":', b'invalid}'], [b'x' * 65536, b'secret-over-limit']])

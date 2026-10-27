@@ -1,0 +1,9 @@
+.storage-panel { margin-block:1.5rem; padding:1.25rem; border:1px solid var(--border-color,#d8ded7); border-radius:16px; background:var(--surface-color,#fff); }
+.storage-panel h2,.storage-panel h3 { margin-block:1rem .7rem; }
+.storage-panel form,.storage-deletion fieldset { display:flex; flex-wrap:wrap; align-items:end; gap:1rem; }
+.storage-panel label { display:flex; flex-direction:column; gap:.35rem; }
+.storage-panel input,.storage-panel textarea,.storage-panel select { padding:.55rem; border:1px solid #bdc8c0; border-radius:6px; }
+.storage-panel p,.storage-panel small { overflow-wrap:anywhere; }
+.storage-panel small { display:block; }
+.storage-summary { display:grid; grid-template-columns:max-content 1fr; gap:.5rem 1rem; }.storage-summary dd {margin:0;}
+.storage-deletion {border-top:1px solid #d8ded7;margin-top:1.5rem;padding-top:.5rem;}.storage-deletion fieldset {border:0;padding:0;}.storage-panel [hidden] {display:none;}

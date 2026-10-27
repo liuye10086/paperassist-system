@@ -71,6 +71,30 @@ def test_synthetic_async_writer_uses_one_submission_and_persists_traceable_candi
         assert db.execute('SELECT count(*) AS n FROM usage_events').fetchone()['n']>0
 
 
+def test_source_changed_between_slices_retrieves_and_accounts_original_response(client):
+    task,endpoint=create(client);budgets(client,task);provider=WritingProvider(pending=True)
+    original=provider.receipt
+    def complete_usage():
+        receipt=original();receipt['usage']['input_tokens_details']['cache_write_tokens']=0
+        return receipt
+    provider.receipt=complete_usage
+    pending=run_manuscript_writing_task(task['id'],task['revision'],provider=provider)
+    changed=post(client,endpoint.rsplit('/writing-requests',1)[0]+'/versions',body(expected_revision=1),'change-after-post')
+    assert changed.status_code==201,changed.text
+    still_pending=run_manuscript_writing_task(task['id'],pending['revision'],provider=provider)
+    assert still_pending['status']=='running' and len(provider.gets)==1
+    provider.pending=False
+    failed=run_manuscript_writing_task(task['id'],still_pending['revision'],provider=provider)
+    assert failed['status']=='failed' and failed['error_code']=='task_source_conflict'
+    assert len(provider.posts)==1 and len(provider.gets)==2
+    with database_connection() as db:
+        call=db.execute('SELECT * FROM model_calls WHERE task_id=%s',(task['id'],)).fetchone()
+        assert provider.gets==[call['provider_response_id']]*2
+        assert call['status']=='completed' and call['usage_status']=='estimated'
+        assert {r['status'] for r in db.execute('SELECT status FROM budget_reservations WHERE call_id=%s',(call['id'],))}=={'settled'}
+        assert db.execute('SELECT candidate_json FROM manuscript_writing_requests WHERE task_id=%s',(task['id'],)).fetchone()['candidate_json'] is None
+
+
 @pytest.mark.parametrize('mode',['invalid','unknown','no_budget'])
 def test_invalid_unknown_and_no_budget_never_publish(client,mode):
     task,endpoint=create(client)

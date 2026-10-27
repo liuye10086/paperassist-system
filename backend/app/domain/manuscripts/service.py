@@ -173,13 +173,18 @@ class ManuscriptService:
         actual=[(r['paragraph_id'],r['claim_id'],r['claim_revision'],r['review_id'],r['metadata_version_id'],r['project_reference_id'],r['binding_json']) for r in actual]
         if sorted(actual,key=str)!=sorted(expected,key=str): raise source_conflict()
 
-    def task(self,db,project,task_type,snapshot,key):
+    def task(self,db,project,task_type,snapshot,key,*,validated_sources):
         timestamp=now()
         task=dict(id=str(uuid4()),project_id=project,user_id=self.store.user_id,task_type=task_type,
             idempotency_key=key,input_digest=digest(snapshot),input_snapshot=snapshot,workflow_version=WORKFLOW,
             status='queued',phase='write' if task_type=='manuscript_draft' else 'export',revision=1,current_attempt=0,
             reason_code=None,created_at=timestamp,updated_at=timestamp)
-        self.store.insert_task(db,task);self.store.append_event(db,task,'created');self.store.enqueue(db,task)
+        # Version/source rows are written later in this same transaction. Use
+        # the already validated frozen sources only for this first admission.
+        file_ids=tuple(source['file_id'] for source in validated_sources)
+        self.store.insert_task(db,task,validated_file_ids=file_ids)
+        self.store.append_event(db,task,'created')
+        self.store.enqueue(db,task,validated_file_ids=file_ids)
         return task
 
     def create(self,project,request,key,identity=None):
@@ -211,7 +216,10 @@ class ManuscriptService:
                 version_id=str(uuid4())
                 task_snapshot=dict(project_id=project,manuscript_id=identity,manuscript_version_id=version_id,revision=revision,
                     output_language=request.output_language,workflow_version=WORKFLOW,snapshot_sha256=digest(snapshot))
-                task=self.task(db,project,'manuscript_draft',task_snapshot,'manuscript:'+version_id)
+                task=self.task(db,project,'manuscript_draft',task_snapshot,'manuscript:'+version_id,validated_sources=snapshot['sources'])
+                if request.thesis:
+                    from app.domain.admin_configuration.rule_consumption import inherit_task
+                    inherit_task(db,task,confirmation_id=request.thesis.confirmation_id)
                 db.execute('''INSERT INTO manuscript_versions(id,project_id,user_id,idempotency_key,request_json,request_digest,manuscript_id,revision,parent_version_id,task_id,snapshot_json,snapshot_sha256,created_at,school_confirmation_id)
                     VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)''',(version_id,project,self.store.user_id,key,Jsonb(body),hashed,identity,revision,parent,task['id'],Jsonb(snapshot),digest(snapshot),timestamp,request.thesis.confirmation_id if request.thesis else None))
                 for source in snapshot['sources']:
@@ -246,7 +254,9 @@ class ManuscriptService:
         if candidate!=expected:raise source_conflict()
         revision=root['current_revision']+1;version_id=str(uuid4());timestamp=now()
         body=dict(base['request_json'],expected_revision=revision-1)
-        producer=self.task(db,project,'manuscript_draft',dict(project_id=project,manuscript_id=identity,manuscript_version_id=version_id,revision=revision,output_language=candidate['output_language'],workflow_version=WORKFLOW,snapshot_sha256=digest(candidate)),'manuscript:'+version_id)
+        producer=self.task(db,project,'manuscript_draft',dict(project_id=project,manuscript_id=identity,manuscript_version_id=version_id,revision=revision,output_language=candidate['output_language'],workflow_version=WORKFLOW,snapshot_sha256=digest(candidate)),'manuscript:'+version_id,validated_sources=candidate['sources'])
+        from app.domain.admin_configuration.rule_consumption import inherit_task
+        inherit_task(db,producer,parent_task=adaptation['task_id'])
         fields=dict(id=version_id,project_id=project,user_id=self.store.user_id,idempotency_key='journal:'+adaptation['id'],request_json=Jsonb(body),request_digest=digest(body),manuscript_id=identity,revision=revision,parent_version_id=base['id'],task_id=producer['id'],snapshot_json=Jsonb(candidate),snapshot_sha256=digest(candidate),created_at=timestamp,school_confirmation_id=None)
         db.execute('INSERT INTO manuscript_versions('+','.join(fields)+') VALUES ('+','.join(['%s']*len(fields))+')',tuple(fields.values()))
         for table in ('manuscript_sources','manuscript_citations'):
@@ -272,7 +282,9 @@ class ManuscriptService:
         self.verify_task(db,self.store.require_task(db,base['task_id']),current=True,_review_candidate=candidate)
         revision=root['current_revision']+1;version_id=str(uuid4());timestamp=now()
         body=dict(base['request_json'],expected_revision=revision-1,sources=[{k:s[k] for k in ('kind','id','file_id','role')} for s in candidate['sources']])
-        producer=self.task(db,project,'manuscript_draft',dict(project_id=project,manuscript_id=identity,manuscript_version_id=version_id,revision=revision,output_language=candidate['output_language'],workflow_version=WORKFLOW,snapshot_sha256=digest(candidate)),'manuscript:'+version_id)
+        producer=self.task(db,project,'manuscript_draft',dict(project_id=project,manuscript_id=identity,manuscript_version_id=version_id,revision=revision,output_language=candidate['output_language'],workflow_version=WORKFLOW,snapshot_sha256=digest(candidate)),'manuscript:'+version_id,validated_sources=candidate['sources'])
+        from app.domain.admin_configuration.rule_consumption import inherit_task
+        inherit_task(db,producer,parent_task=adaptation['task_id'])
         fields=dict(id=version_id,project_id=project,user_id=self.store.user_id,idempotency_key='review-revision:'+adaptation['id'],request_json=Jsonb(body),request_digest=digest(body),manuscript_id=identity,revision=revision,parent_version_id=base['id'],task_id=producer['id'],snapshot_json=Jsonb(candidate),snapshot_sha256=digest(candidate),created_at=timestamp,school_confirmation_id=base.get('school_confirmation_id'))
         db.execute('INSERT INTO manuscript_versions('+','.join(fields)+') VALUES ('+','.join(['%s']*len(fields))+')',tuple(fields.values()))
         for source in candidate['sources']:
@@ -306,7 +318,9 @@ class ManuscriptService:
             raise source_conflict()
         revision=root['current_revision']+1;version_id=str(uuid4());timestamp=now()
         body=dict(base['request_json'],expected_revision=revision-1)
-        producer=self.task(db,project,'manuscript_draft',dict(project_id=project,manuscript_id=identity,manuscript_version_id=version_id,revision=revision,output_language=candidate['output_language'],workflow_version=WORKFLOW,snapshot_sha256=digest(candidate)),'manuscript:'+version_id)
+        producer=self.task(db,project,'manuscript_draft',dict(project_id=project,manuscript_id=identity,manuscript_version_id=version_id,revision=revision,output_language=candidate['output_language'],workflow_version=WORKFLOW,snapshot_sha256=digest(candidate)),'manuscript:'+version_id,validated_sources=candidate['sources'])
+        from app.domain.admin_configuration.rule_consumption import inherit_task
+        inherit_task(db,producer,round_id=record['previous_round_id'])
         fields=dict(id=version_id,project_id=project,user_id=self.store.user_id,idempotency_key='review-return:'+record['id'],request_json=Jsonb(body),request_digest=digest(body),manuscript_id=identity,revision=revision,parent_version_id=base['id'],task_id=producer['id'],snapshot_json=Jsonb(candidate),snapshot_sha256=digest(candidate),created_at=timestamp,school_confirmation_id=base.get('school_confirmation_id'))
         db.execute('INSERT INTO manuscript_versions('+','.join(fields)+') VALUES ('+','.join(['%s']*len(fields))+')',tuple(fields.values()))
         for table in ('manuscript_sources','manuscript_citations'):
@@ -481,7 +495,9 @@ class ManuscriptService:
                 export_id=str(uuid4());snapshot=dict(project_id=project,manuscript_id=identity,manuscript_version_id=version['id'],revision=revision,
                     output_language=version['snapshot_json']['output_language'],workflow_version=WORKFLOW,snapshot_sha256=version['snapshot_sha256'],export_id=export_id)
                 if intent is not None:snapshot['school_input_sha256']=digest(intent)
-                task=self.task(db,project,'manuscript_docx',snapshot,'manuscript-export:'+export_id)
+                task=self.task(db,project,'manuscript_docx',snapshot,'manuscript-export:'+export_id,validated_sources=version['snapshot_json']['sources'])
+                from app.domain.admin_configuration.rule_consumption import inherit_task
+                inherit_task(db,task,parent_task=version['task_id'])
                 db.execute('INSERT INTO manuscript_exports(id,version_id,task_id,idempotency_key,created_at,school_input_json,school_input_sha256) VALUES (%s,%s,%s,%s,%s,%s,%s)',
                     (export_id,version['id'],task['id'],key,now(),Jsonb(intent) if intent is not None else None,digest(intent) if intent is not None else None));status=201
             return self.export_view(db,version,export_id),status

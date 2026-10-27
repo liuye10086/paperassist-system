@@ -53,9 +53,9 @@ it('does not treat uncertain relevance as support and rejects evidence without p
 it('uses actual abstract and search snapshot, then requires partial boundary before saving manual history',async()=>{
  const fetch=fixture();render(<EvidenceWorkspace projectId="p1" researchTopic="Synthetic topic"/>);
  fireEvent.change(await screen.findByLabelText('选择项目文献'),{target:{value:'ref1'}})
- fireEvent.change(screen.getByLabelText('选择论述'),{target:{value:'claim1'}})
+ fireEvent.click(screen.getByRole('button',{name:'论述核验'}));await screen.findByRole('option',{name:'Synthetic claim'});fireEvent.change(screen.getByLabelText('选择论述'),{target:{value:'claim1'}})
  await screen.findByRole('option',{name:/版本 1/})
- fireEvent.click(await screen.findByRole('button',{name:'从此摘要段摘录'}))
+ fireEvent.click(screen.getByRole('button',{name:'摘要与 PMC'}));fireEvent.click(await screen.findByRole('button',{name:'从此摘要段摘录'}))
  fireEvent.change(screen.getByLabelText('精确摘录'),{target:{value:'fabricated text'}})
  expect((screen.getByRole('button',{name:'保存来源证据'}) as HTMLButtonElement).disabled).toBe(true)
  fireEvent.change(screen.getByLabelText('精确摘录'),{target:{value:'actual saved abstract'}})
@@ -79,7 +79,7 @@ it('uses actual abstract and search snapshot, then requires partial boundary bef
 it('links named material versions and exposes actual text with its saved location',async()=>{
  const fetch=fixture();render(<EvidenceWorkspace projectId="p1" researchTopic="Synthetic topic"/>);
  fireEvent.change(await screen.findByLabelText('选择项目文献'),{target:{value:'ref1'}})
- fireEvent.change(await screen.findByLabelText('项目文件'),{target:{value:'file1'}})
+ fireEvent.click(screen.getByRole('button',{name:'全文与解析材料'}));await screen.findByRole('option',{name:'Synthetic paper.pdf'});fireEvent.change(await screen.findByLabelText('项目文件'),{target:{value:'file1'}})
  fireEvent.change(screen.getByLabelText('解析或 OCR 核对版本'),{target:{value:'v1'}})
  fireEvent.change(screen.getByLabelText('书目对应确认'),{target:{value:'Synthetic checked match'}})
  expect((screen.getByRole('button',{name:'关联所选材料'}) as HTMLButtonElement).disabled).toBe(true)
@@ -88,7 +88,7 @@ it('links named material versions and exposes actual text with its saved locatio
  expect(await screen.findByText('Synthetic actual saved material.')).toBeTruthy()
  expect(screen.getByText('page_number: 3 · path: Synthetic paragraph')).toBeTruthy()
  fireEvent.click(screen.getByRole('button',{name:'从此条目摘录'}))
- expect(screen.getByText('当前读取范围：用户材料条目')).toBeTruthy()
+ fireEvent.click(screen.getByRole('button',{name:'论述核验'}));expect(screen.getByText('当前读取范围：用户材料条目')).toBeTruthy()
  const post=fetch.mock.calls.find(([url,init])=>url.endsWith('/materials')&&init?.method==='POST')!
  expect(JSON.parse(post[1]!.body as string)).toMatchObject({project_reference_id:'ref1',file_id:'file1',source_kind:'document_version',version_id:'v1'})
 })
@@ -97,7 +97,7 @@ it('prevents unreadable OCR blocks from becoming quotable text',()=>{
 })
 it('records model planning as an authorization wait and never posts a manual review',async()=>{
  const fetch=fixture();render(<EvidenceWorkspace projectId="p1" researchTopic="Synthetic topic"/>);
- fireEvent.click(await screen.findByRole('button',{name:'保存检索方案建议任务'}))
+ fireEvent.click(screen.getByRole('button',{name:'辅助任务'}));fireEvent.click(await screen.findByRole('button',{name:'保存检索方案建议任务'}))
  expect(await screen.findByText('模型任务已保存，人工决定未改变。')).toBeTruthy()
  expect(await screen.findByText('当前任务尚无模型建议，请查看等待或失败状态。')).toBeTruthy()
  await waitFor(()=>expect(fetch.mock.calls.filter(([,init])=>init?.method==='POST')).toHaveLength(1))
@@ -109,13 +109,13 @@ it('records model planning as an authorization wait and never posts a manual rev
 it('accepts an actual verify-phase evidence review task in POST, list and saved details',async()=>{
  const fetch=fixture();render(<EvidenceWorkspace projectId="p1" researchTopic="Synthetic topic"/>);
  fireEvent.change(await screen.findByLabelText('选择项目文献'),{target:{value:'ref1'}})
- fireEvent.change(screen.getByLabelText('选择论述'),{target:{value:'claim1'}})
+ fireEvent.click(screen.getByRole('button',{name:'论述核验'}));await screen.findByRole('option',{name:'Synthetic claim'});fireEvent.change(screen.getByLabelText('选择论述'),{target:{value:'claim1'}})
  await screen.findByRole('option',{name:/版本 1/})
- fireEvent.click(await screen.findByRole('button',{name:'从此摘要段摘录'}))
+ fireEvent.click(screen.getByRole('button',{name:'摘要与 PMC'}));fireEvent.click(await screen.findByRole('button',{name:'从此摘要段摘录'}))
  fireEvent.change(screen.getByLabelText('精确摘录'),{target:{value:'actual saved abstract'}})
  fireEvent.click(screen.getByRole('button',{name:'保存来源证据'}))
  fireEvent.click(await screen.findByLabelText('读取范围：摘要'))
- fireEvent.click(screen.getByRole('button',{name:'保存所选证据的核验建议任务'}))
+ fireEvent.click(screen.getByRole('button',{name:'辅助任务'}));fireEvent.click(screen.getByRole('button',{name:'保存所选证据的核验建议任务'}))
  expect(await screen.findByText('模型任务已保存，人工决定未改变。')).toBeTruthy()
  expect(await screen.findByRole('region',{name:'模型建议详情'})).toBeTruthy()
  expect(screen.getByRole('button',{name:'查看建议与等待状态'})).toBeTruthy()
@@ -123,3 +123,10 @@ it('accepts an actual verify-phase evidence review task in POST, list and saved 
  expect(JSON.parse(post[1]!.body as string)).toMatchObject({kind:'evidence_review',claim_id:'claim1',claim_revision:1,project_reference_id:'ref1',evidence_ids:['e1']})
  expect(fetch.mock.calls.some(([url,init])=>url.endsWith('/reviews')&&init?.method==='POST')).toBe(false)
 })
+
+it('allows an explicitly confirmed evidence refresh after an unknown settled submission',async()=>{
+ const fetch=fixture(),original=fetch.getMockImplementation()!;fetch.mockImplementation((u,i)=>u.endsWith('/assistance/tasks')&&i?.method==='POST'?Promise.reject(new Error('Synthetic response lost')):original(u,i));
+ const confirm=vi.spyOn(window,'confirm').mockReturnValue(true),alert=vi.spyOn(window,'alert').mockImplementation(()=>{});
+ render(<EvidenceWorkspace projectId="p1" researchTopic="Synthetic topic"/>);fireEvent.click(screen.getByRole('button',{name:'辅助任务'}));fireEvent.click(screen.getByRole('button',{name:'保存检索方案建议任务'}));await screen.findByText('保存结果未确认，请刷新记录；相同输入重试沿用请求标识。');
+ await waitFor(()=>expect((screen.getByRole('button',{name:'保存检索方案建议任务'}) as HTMLButtonElement).disabled).toBe(false));fireEvent.click(screen.getByRole('button',{name:'刷新证据记录'}));expect(confirm).toHaveBeenCalled();expect(alert).not.toHaveBeenCalled();await waitFor(()=>expect(screen.queryByText('保存结果未确认，请刷新记录；相同输入重试沿用请求标识。')).toBeNull());confirm.mockRestore();alert.mockRestore();
+});

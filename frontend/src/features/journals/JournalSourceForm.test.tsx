@@ -21,3 +21,13 @@ it('sends structured numeric fee applicability and rejects non-verbatim quotatio
 it('recovers a failed public material preview without changing the selected frozen version',async()=>{
  const fetch=vi.fn().mockResolvedValueOnce(Response.json({}, {status:503})).mockResolvedValueOnce(Response.json({items:[{id:'fixed-item',text:'Recovered fixed original'}],total:1}));vi.stubGlobal('fetch',fetch);render(<JournalSourceForm projectId="p1" profiles={[]} materials={[{kind:'document_version',id:'d1',file_id:'f1',label:'Public source'}]} busy={false} onSave={vi.fn()}/>);fireEvent.change(screen.getByLabelText('来源公共资料（可选）'),{target:{value:'document_version:d1'}});await screen.findByRole('alert');fireEvent.click(screen.getByRole('button',{name:'重试读取来源材料'}));await screen.findByText('Recovered fixed original');expect(fetch.mock.calls[1][0]).toBe(fetch.mock.calls[0][0]);expect(screen.queryByRole('alert')).toBeNull()
 })
+
+it('keeps edited source fields when replacement by another immutable version is cancelled',()=>{
+ render(<JournalSourceForm projectId="p1" profiles={[profile]} materials={[]} busy={false} onSave={vi.fn()} registerLeaveGuard={()=>()=>{}}/>)
+ fireEvent.change(screen.getByLabelText('期刊及来源名称'),{target:{value:'Unsaved source'}})
+ const confirm=vi.spyOn(window,'confirm').mockReturnValue(false)
+ fireEvent.change(screen.getByLabelText('以已有资料另存新版本'),{target:{value:'p-old'}})
+ expect((screen.getByLabelText('期刊及来源名称') as HTMLInputElement).value).toBe('Unsaved source')
+ expect((screen.getByLabelText('以已有资料另存新版本') as HTMLSelectElement).value).toBe('')
+ confirm.mockRestore()
+})

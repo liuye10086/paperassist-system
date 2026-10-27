@@ -1,3 +1,5 @@
+import type { TaskDetailView } from '../projects/reviewViews'
+import type { RegisterLeaveGuard } from '../projects/useDraftLeaveGuard'
 import SourceSummary from '../analysis/SourceSummary'
 import { useEffect, useRef, useState } from 'react'
 import { onApiSessionChanged } from '../../shared/api/client'
@@ -8,11 +10,20 @@ import TaskDetail from './TaskDetail'
 import { useDocumentVisible } from './useDocumentVisible'
 import './task.css'
 
-type Props = { projectId: string; active: boolean; selectedTaskId: string; onSelectTask: (id: string) => void; onOpenFiles?: () => void; onOpenManuscripts?:()=>void; onOpenJournals?:()=>void; onOpenLiterature?: (searchId:string)=>void }
-export default function ProjectTasks(props: Props) { return props.active ? <Tasks key={props.projectId} {...props} /> : null }
-function Tasks({ projectId, active, selectedTaskId, onSelectTask, onOpenFiles, onOpenLiterature, onOpenManuscripts, onOpenJournals }: Props) {
+type Props = { detailView?: TaskDetailView; onDetailViewChange?: (view: TaskDetailView) => void; registerLeaveGuard?: RegisterLeaveGuard; projectId: string; active: boolean; selectedTaskId: string; onSelectTask: (id: string) => void; onOpenFiles?: () => void; onOpenManuscripts?:()=>void; onOpenJournals?:()=>void; onOpenLiterature?: (searchId:string)=>void }
+export default function ProjectTasks(props: Props) {
+  const [visited, setVisited] = useState(props.active)
+  if (props.active && !visited) setVisited(true)
+  return visited || props.active ? <Tasks key={props.projectId} {...props} /> : null
+}
+function Tasks({ projectId, active, selectedTaskId, onSelectTask, onOpenFiles, onOpenLiterature, onOpenManuscripts, onOpenJournals, detailView, onDetailViewChange, registerLeaveGuard }: Props) {
   const { t, locale } = useI18n()
   const visible = useDocumentVisible()
+  const layered = detailView !== undefined && onDetailViewChange !== undefined
+  const listActive = active && (!layered || !selectedTaskId)
+  const [visitedTasks, setVisitedTasks] = useState<string[]>([])
+  if (selectedTaskId && !visitedTasks.includes(selectedTaskId)) setVisitedTasks([...visitedTasks, selectedTaskId])
+  const detailIds = selectedTaskId && !visitedTasks.includes(selectedTaskId) ? [...visitedTasks, selectedTaskId] : visitedTasks
   const [data, setData] = useState<TaskPage | null>(null)
   const [page, setPage] = useState(1)
   const [status, setStatus] = useState('')
@@ -26,7 +37,7 @@ function Tasks({ projectId, active, selectedTaskId, onSelectTask, onOpenFiles, o
     request.current?.abort(); setSessionValid(false); setData(null); setError(''); setLoading(false)
   }), [])
   useEffect(() => {
-    if (!active || !sessionValid || !visible) return
+    if (!listActive || !sessionValid || !visible) return
     let mounted = true; let timer = 0
     const controller = new AbortController(); request.current = controller
     const params = new URLSearchParams({ page: String(page), page_size: '10' })
@@ -46,12 +57,13 @@ function Tasks({ projectId, active, selectedTaskId, onSelectTask, onOpenFiles, o
     }
     void load()
     return () => { mounted = false; controller.abort(); window.clearTimeout(timer) }
-  }, [projectId, active, sessionValid, visible, page, status, kind, attempt])
+  }, [projectId, listActive, sessionValid, visible, page, status, kind, attempt])
   function filters(next: string, type: 'status' | 'kind') {
     request.current?.abort(); setData(null); setPage(1); setLoading(true); setError('')
     if (type === 'status') setStatus(next); else setKind(next)
   }
   return <section className="project-tasks" hidden={!active} aria-label={t('项目任务')}>
+    <div hidden={layered && !!selectedTaskId} className="task-list-view">
     <div className="task-page-heading"><div><h2>{t('项目任务')}</h2><p>{t('查看保存的执行状态、待办和成果。')}</p></div>
       <button type="button" disabled={loading || !sessionValid} onClick={() => { setLoading(true); setError(''); setAttempt(value => value + 1) }}>{t('刷新任务列表')}</button></div>
     <p className="task-scope-note">{t('这里展示统一任务及历史绘图、解释任务。')}</p>
@@ -80,7 +92,13 @@ function Tasks({ projectId, active, selectedTaskId, onSelectTask, onOpenFiles, o
           <button type="button" disabled={loading || page >= Math.ceil(data.total / 10)} onClick={() => { setLoading(true); setError(''); setData(null); setPage(value => value + 1) }}>{t('下一页')}</button>
         </nav></>}
     </div>}
-    {active && sessionValid && selectedTaskId ? <TaskDetail onOpenJournals={onOpenJournals} onOpenManuscripts={onOpenManuscripts} projectId={projectId} taskId={selectedTaskId} onChanged={() => setAttempt(value => value + 1)} onOpenFiles={onOpenFiles} onOpenLiterature={onOpenLiterature} />
-      : sessionValid && <p className="task-empty">{t('选择任务，查看详细记录。')}</p>}
+    </div>
+    {layered && selectedTaskId && <div className="task-detail-back"><button type="button" className="button-quiet" onClick={() => onSelectTask('')}>{t('返回任务列表')}</button></div>}
+    {sessionValid && detailIds.map(id => <div key={id} hidden={!active || id !== selectedTaskId}>
+      <TaskDetail onOpenJournals={onOpenJournals} onOpenManuscripts={onOpenManuscripts} projectId={projectId} taskId={id}
+        active={active && id === selectedTaskId} view={layered ? detailView : undefined} onViewChange={onDetailViewChange} registerLeaveGuard={registerLeaveGuard}
+        onChanged={() => setAttempt(value => value + 1)} onOpenFiles={onOpenFiles} onOpenLiterature={onOpenLiterature} />
+    </div>)}
+    {!layered && sessionValid && !selectedTaskId && <p className="task-empty">{t('选择任务，查看详细记录。')}</p>}
   </section>
 }

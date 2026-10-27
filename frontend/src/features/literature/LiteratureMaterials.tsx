@@ -1,3 +1,4 @@
+import {useLiteratureLeaveGuard} from './literatureActivityContext'
 import ProjectDownloadLink from '../../shared/components/ProjectDownloadLink'
 import {useState} from 'react'
 import {useI18n} from '../../shared/i18n'
@@ -9,6 +10,7 @@ export function EvidencePagination({page,total,size=10,onPage,label}:{page:numbe
 export default function LiteratureMaterials({projectId,referenceId,onSource,onDenied}:{projectId:string;referenceId:string;onSource:(v:SelectedSource|null)=>void;onDenied:()=>void}){
  const {t}=useI18n(),base=evidenceBase(projectId);const [revision,setRevision]=useState(0),[optionPage,setOptionPage]=useState(1),[page,setPage]=useState(1),[sourcePage,setSourcePage]=useState(1)
  const [fileId,setFileId]=useState(''),[versionId,setVersionId]=useState(''),[description,setDescription]=useState(''),[note,setNote]=useState(''),[materialId,setMaterialId]=useState('')
+ const formSignature=JSON.stringify([fileId,versionId,description,note]),[savedForm,setSavedForm]=useState(JSON.stringify(['','','','']));useLiteratureLeaveGuard(formSignature!==savedForm,false)
  const options=useEvidenceResource(`${base}/material-options?page=${optionPage}`,v=>validMaterialOptions(v,projectId,optionPage),revision,onDenied)
  const materials=useEvidenceResource<Page<Material>>(referenceId?`${base}/materials?project_reference_id=${encodeURIComponent(referenceId)}&page=${page}`:null,v=>evidencePage(v,projectId,page,validMaterial),revision,onDenied)
  const material=materials.data?.items.find(m=>m.id===materialId)
@@ -16,7 +18,7 @@ export default function LiteratureMaterials({projectId,referenceId,onSource,onDe
  const mutate=useEvidenceMutation(onDenied),file=options.data?.items.find(f=>f.file_id===fileId),version=file?.versions.find(v=>v.version_id===versionId)
  async function link(){if(!referenceId||!file||!version||!description.trim()||!note.trim())return
  const saved=await mutate.post(`${base}/materials`,{project_reference_id:referenceId,file_id:file.file_id,source_kind:version.kind as MaterialKind,version_id:version.version_id,source_description:description,match_note:note},validMaterial)
- if(saved){setRevision(r=>r+1);setMaterialId(saved.id);setSourcePage(1);onSource(null)}
+ if(saved){setSavedForm(formSignature);setRevision(r=>r+1);setMaterialId(saved.id);setSourcePage(1);onSource(null)}
  }
  return <section className="literature-panel" aria-label={t('用户全文与解析材料')}><h4>{t('用户全文与解析材料')}</h4><p className="muted">{t('选择项目已有文件版本，并人工确认与书目对应；文件和用户原文保持原样。')}</p>
  {options.error&&<p role="alert">{t(options.error)}</p>}{materials.error&&<p role="alert">{t(materials.error)}</p>}{mutate.error&&<p role="alert">{t(mutate.error)}</p>}

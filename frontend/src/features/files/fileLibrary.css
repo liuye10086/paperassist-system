@@ -11,6 +11,26 @@
 .file-purpose-options input { width: auto; accent-color: var(--accent); }
 .file-retention { border-left: 3px solid var(--accent); padding: 12px; background: var(--accent-bg); }
 .file-actions { flex-wrap: wrap; }
+.material-view-actions, .material-task-nav { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin: 0 0 20px; }
+.material-view-actions { justify-content: flex-end; }
+.material-view-actions:has(button + button) { justify-content: flex-start; }
+.material-task-nav { padding-bottom: 12px; border-bottom: 1px solid var(--border); }
+.material-task-nav button[aria-pressed="true"] { background: var(--accent-bg); border-color: var(--primary); color: var(--primary); }
+.material-back { margin-bottom: 16px; }
+.project-files-page .file-list { margin: 0; padding: 0; list-style: none; }
+.project-files-page .file-list > li { display: flex; align-items: center; gap: 24px; padding: 16px 0; border: 0; border-bottom: 1px solid var(--border); border-radius: 0; background: transparent; }
+.project-files-page .file-list .file-summary { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.project-files-page .file-list .file-summary p { margin: 4px 0; }
+.project-files-page .file-list .file-actions { display: flex; flex: 0 0 auto; gap: 8px; }
+.file-upload-source summary { width: fit-content; color: var(--text); font-size: 13px; cursor: pointer; }
+.file-upload-source p { font-size: 13px; }
+.project-files-page [hidden], .file-details [hidden], .structure-versions [hidden] { display: none !important; }
+@media (max-width: 767px) {
+  .project-files-page .file-list > li { align-items: stretch; flex-direction: column; gap: 12px; }
+  .material-view-actions, .project-files-page .file-list .file-actions { justify-content: flex-start; }
+  .file-details { padding: 16px; }
+  .material-task-nav button { flex: 1 1 auto; }
+}
 .file-lifecycle, .file-impact-review { margin-top: 20px; padding: 18px; border: 1px solid var(--border-color, #ddd); border-radius: 10px; background: #fff; }
 .file-impact-review { border-left: 4px solid #6151a3; background: #faf9fc; }
 .file-lifecycle textarea { display: block; width: min(100%, 640px); min-height: 80px; margin: 8px 0; padding: 10px; border: 1px solid #ccc; border-radius: 6px; }

@@ -1,3 +1,4 @@
+import { useAnalysisLeaveGuard } from '../analysis/analysisActivityContext'
 import LayoutExports from '../layout-exports/LayoutExports'
 import PdfExports from '../pdf-exports/PdfExports'
 import SourceSummary from '../analysis/SourceSummary'
@@ -22,6 +23,7 @@ function ReportPanel({ base, runId, revision, figureId, explanationId, canGenera
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
+  const [unconfirmed, setUnconfirmed] = useState(false)
   const [attempt, setAttempt] = useState(0)
   const [pollTick, setPollTick] = useState(0)
   const active = useRef(true)
@@ -35,6 +37,7 @@ function ReportPanel({ base, runId, revision, figureId, explanationId, canGenera
   const filename = report ? artifactFilename(report.filename, 'report', report.id, report.setup_revision, locale) : ''
   const current = !!state?.is_current && state.current_revision === revision && (!report || (report.setup_revision === revision && report.analysis_run_id === runId && report.figure_id === figureId && report.explanation_id === explanationId))
   const allowed = !!state?.ready && current && !!figureId && !!explanationId && canGenerate && !disabled && !loading && !submitting && !pending && !needsReport && !error
+  useAnalysisLeaveGuard(unconfirmed, submitting)
   useEffect(() => { active.current = true; return () => { active.current = false; action.current?.abort() } }, [])
   useEffect(() => { onBusyChange(submitting); return () => onBusyChange(false) }, [submitting, onBusyChange])
   async function request<T>(controller: AbortController, url = endpoint, init?: RequestInit): Promise<T> {
@@ -50,7 +53,7 @@ function ReportPanel({ base, runId, revision, figureId, explanationId, canGenera
   }
   useEffect(() => {
     const controller = new AbortController(); let disposed = false; action.current = controller
-    request<State>(controller).then(value => { if (!disposed && !controller.signal.aborted) { setState(value); setError('') } }).catch(cause => { if (!disposed) setError(cause instanceof TypeError ? '无法连接后端，请重新读取报告。' : safeError(cause, '报告读取失败。')) }).finally(() => { if (action.current === controller) action.current = null; if (!disposed) setLoading(false) })
+    request<State>(controller).then(value => { if (!disposed && !controller.signal.aborted) { setState(value); setError(''); setUnconfirmed(false) } }).catch(cause => { if (!disposed) setError(cause instanceof TypeError ? '无法连接后端，请重新读取报告。' : safeError(cause, '报告读取失败。')) }).finally(() => { if (action.current === controller) action.current = null; if (!disposed) setLoading(false) })
     return () => { disposed = true; controller.abort(); if (action.current === controller) action.current = null }
     // The panel key fixes source IDs and endpoint for its lifetime.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -84,9 +87,9 @@ function ReportPanel({ base, runId, revision, figureId, explanationId, canGenera
         : await request<State>(controller, endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json',
           'Idempotency-Key': `word-report-v1:${explanationId}:${revision}` },
           body: JSON.stringify({ expected_revision: revision, figure_id: figureId, explanation_id: explanationId }) })
-      if (active.current && !controller.signal.aborted) { setState(value); setError('') }
+      if (active.current && !controller.signal.aborted) { setState(value); setError(''); setUnconfirmed(false) }
     }
-    catch (cause) { if (active.current) setError(cause instanceof TypeError ? '无法连接后端，请重新读取报告。' : safeError(cause, '报告生成失败。')) }
+    catch (cause) { if (active.current) { setUnconfirmed(true); setError(cause instanceof TypeError ? '无法连接后端，请重新读取报告。' : safeError(cause, '报告生成失败。')) } }
     finally { if (action.current === controller) action.current = null; if (active.current) setSubmitting(false) }
   }
   return <WorkflowStage stage="report"><section className="word-report artifact-panel" aria-label={t("Word 分析报告")} aria-busy={loading || submitting || ((pending || needsReport) && !error)}>

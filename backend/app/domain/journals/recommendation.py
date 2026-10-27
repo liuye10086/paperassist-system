@@ -7,7 +7,11 @@ LIMITATIONS=['离线规则建议；不代表真实推荐质量或用户验收。
 
 def normalized(value):return str(value).strip().casefold()
 
-def recommend(snapshot):
+def recommend(snapshot,*,rules=None):
+    if rules is not None:
+        if (rules['recommendation_version']!='journal_recommendation_v1' or rules['source_mode']!='local_only'
+            or rules['metrics_enabled'] is not False or rules['require_verification'] is not True):
+            raise ValueError('Unsupported installed journal policy')
     request=snapshot['research'];buckets=dict(candidates=[],excluded=[],pending_verification=[])
     for profile in snapshot['profiles']:
         reasons=[];unknown=[];fail=[];matches=0;preferences=0

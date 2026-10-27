@@ -1,0 +1,18 @@
+export const analysisOutputsMessages: Record<string,string> = {
+ '返回图表列表': 'Back to figure list',
+ '打开图表': 'Open figure',
+ '继续编辑图表草稿': 'Continue editing figure draft',
+ '请先在图表任务中生成所选版本的图表。': 'Generate the selected figure version in the figure task first.',
+ '下载': 'Download',
+ '返回集合列表': 'Back to collection list',
+ '打开报告集合': 'Open report collection',
+ '继续编辑集合草稿': 'Continue editing collection draft',
+ '暂无报告集合，先选择同源图表创建集合。': 'No report collections yet. Select figures from the same source to create one.',
+ '查看集合版本': 'View collection version',
+ '所选集合版本当前不可用，请重新读取；不会自动替换为最新版本。': 'The selected collection version is unavailable. Reload to check; it will not be replaced by the latest version.',
+ '报告集合任务': 'Report collection tasks',
+ '报告内容': 'Report contents',
+ '导出与下载': 'Export and download',
+ '返回集合详情': 'Back to collection details',
+ '正在读取报告内容……': 'Loading report contents…',
+}

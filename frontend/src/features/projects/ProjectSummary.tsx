@@ -1,7 +1,9 @@
+import ArtifactLibrary from './ArtifactLibrary'
+import type { ArtifactNavigation } from './analysisViews'
 import ReviewResultsSummary from '../reviews/ReviewResultsSummary'
 import {reviewHash,reviewItemLabel} from '../reviews/reviewTypes'
 import {submissionStatuses} from '../journals/adaptationContracts'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { apiFetch, onApiSessionChanged } from '../../shared/api/client'
 import { artifactFilename } from '../../shared/components/artifactFilename'
 import ProjectDownloadLink from '../../shared/components/ProjectDownloadLink'
@@ -9,7 +11,7 @@ import { isProjectSummary, type ProjectSummaryData, type SummarySource, type Sum
 import { useI18n } from '../../shared/i18n'
 import './projectSummary.css'
 
-type Props = { projectId: string; projectType: 'sci' | 'thesis'; view?: 'overview' | 'artifacts' | 'all'; active?: boolean; onOpenManuscripts?:()=>void; onOpenJournals?:()=>void }
+type Props = { artifactNavigation?:ArtifactNavigation; onArtifactNavigate?:(next:ArtifactNavigation)=>void; projectId: string; projectType: 'sci' | 'thesis'; view?: 'overview' | 'artifacts' | 'all'; active?: boolean; onOpenManuscripts?:()=>void; onOpenJournals?:()=>void }
 const taskNames = { statistics: '描述统计', boxplot: '箱线图生成', explanation: 'AI 分析解释', report: 'Word 报告导出' }
 const statuses: Record<SummaryTask['status'], string> = {
   queued: '待执行',
@@ -46,10 +48,15 @@ export default function ProjectSummary(props: Props) {
   return <Summary key={`${props.projectId}:${props.projectType}`} {...props} />
 }
 
-function Summary({ projectId, projectType, view = 'all', active = true, onOpenManuscripts, onOpenJournals }: Props) {
+function Summary({ projectId, projectType, view = 'all', active = true, onOpenManuscripts, onOpenJournals, artifactNavigation, onArtifactNavigate }: Props) {
   const { t, locale } = useI18n()
+  const viewRef=useRef(view)
+  useLayoutEffect(()=>{viewRef.current=view},[view])
   const [data, setData] = useState<ProjectSummaryData | null>(null)
-  const [pages, setPages] = useState({ tasks: 1, artifacts: 1 })
+  const [localNavigation,setLocalNavigation]=useState<ArtifactNavigation>({view:'list',artifactId:'',kind:'',page:1})
+  const navigation=artifactNavigation??localNavigation
+  const navigate=onArtifactNavigate??setLocalNavigation
+  const [pages, setPages] = useState({ tasks: 1, artifacts: navigation.page })
   const [attempt, setAttempt] = useState(0)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -85,7 +92,7 @@ function Summary({ projectId, projectType, view = 'all', active = true, onOpenMa
         if (!valid()) return
         if (!isProjectSummary(result, projectId, projectType, pages.tasks, pages.artifacts)) throw new Error('summary_invalid')
         const next = { tasks: Math.min(pages.tasks, Math.max(1, Math.ceil(result.tasks.total / 10))),
-          artifacts: Math.min(pages.artifacts, Math.max(1, Math.ceil(result.artifacts.total / 10))) }
+          artifacts: viewRef.current === 'artifacts' ? pages.artifacts : Math.min(pages.artifacts, Math.max(1, Math.ceil(result.artifacts.total / 10))) }
         if (next.tasks !== pages.tasks || next.artifacts !== pages.artifacts) {
           setPages(next)
           return
@@ -112,6 +119,8 @@ function Summary({ projectId, projectType, view = 'all', active = true, onOpenMa
     previouslyArtifactsActive.current = artifactsActive
     if (enteringArtifacts) refresh()
   }, [artifactsActive, refresh])
+
+  useEffect(()=>{ if(view==='artifacts' && pages.artifacts!==navigation.page) refresh({...pages,artifacts:navigation.page}) },[view,navigation.page,pages,refresh])
 
   const title = view === 'overview' ? '项目任务概览' : view === 'artifacts' ? '图表与报告' : '项目任务与成果'
   const description = view === 'overview' ? '查看已保存的分析进展与任务状态。'
@@ -144,7 +153,8 @@ function Summary({ projectId, projectType, view = 'all', active = true, onOpenMa
         {data.future.sci && <span>{t('期刊目标适配与投稿进展')}</span>}{data.future.thesis && <span>{t('学校与毕业论文评审')}</span>}
         <span className="summary-unavailable">{t('功能未开放')}</span></aside>
       </div>
-      <div className="summary-artifact-section" hidden={view === 'overview'}>
+      {view === 'artifacts' && data.artifacts.page===navigation.page && <ArtifactLibrary projectId={projectId} data={data} navigation={navigation} onNavigate={navigate}/>}
+      {view !== 'artifacts' && <div className="summary-artifact-section" hidden={view === 'overview'}>
       {!!data.layout_exports?.length&&<section aria-label={t('近期排版导出')}><h4>{t('近期排版导出')}</h4><p className="muted">{t('仅显示最近 20 条排版记录；完整历史请打开原稿的排版与公式。')}</p><ul className="summary-artifact-list">{data.layout_exports.map(item=><li key={item.id}><div className="summary-artifact-content"><strong>{item.filename??t('排版 DOCX 导出')}</strong><p>{t({queued:'待执行',running:'运行中',succeeded:'已完成',failed:'执行失败'}[item.status])} · <time dateTime={item.created_at}>{new Date(item.created_at).toLocaleString(locale)}</time></p><a href={`#project=${encodeURIComponent(projectId)}&section=tasks&task=${encodeURIComponent(item.task_id)}`}>{t('查看排版任务')}</a></div>{item.status==='succeeded'&&item.download_url&&<ProjectDownloadLink href={item.download_url} filename={item.filename??'layout.docx'}>{t('下载排版 DOCX')}</ProjectDownloadLink>}</li>)}</ul></section>}
       <h4 className="summary-section-heading">{t("已生成文件")}<span>{data.artifacts.total}</span></h4>
       {data.artifacts.total === 0 ? <p className="summary-empty">{t("还没有已生成的 PNG 或 Word 文件。")}</p> : <>
@@ -159,7 +169,7 @@ function Summary({ projectId, projectType, view = 'all', active = true, onOpenMa
         </li>})}</ul>
         <Pagination label={t("成果")} page={data.artifacts.page} total={data.artifacts.total} onChange={artifacts => refresh({ ...pages, artifacts })} />
       </>}
-      </div>
+      </div>}
     </>}
   </section>
 }

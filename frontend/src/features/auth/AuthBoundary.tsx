@@ -1,6 +1,9 @@
+import RuntimeNotice from '../operations/RuntimeNotice'
+import { AuthIdentityContext } from './AuthIdentityContext'
 import { useEffect, useId, useLayoutEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { apiFetch, clearApiSession, onApiSessionChanged, onSessionCookieChanged, onSessionExpired, setApiSession } from '../../shared/api/client'
 import './auth.css'
+import Brand from '../../shared/components/Brand'
 import PasswordForm from './PasswordForm'
 import LanguageControl from './LanguageControl'
 import { apiError, isLocale, message, setLocale, useI18n, type Locale } from '../../shared/i18n'
@@ -286,7 +289,7 @@ export default function AuthBoundary({ children }: { children: ReactNode }) {
 
   const languageControl = <LanguageControl key={session?.user.id ?? status} userId={status === 'authenticated' ? session?.user.id : undefined} disabled={status === 'restoring'} />
   const brand = <aside className="auth-brand">
-    <div className="auth-brand-name"><span className="auth-brand-mark" aria-hidden="true"><i /><i /><i /></span>PaperAssist</div>
+    <div className="auth-brand-name"><Brand />PaperAssist</div>
     <div className="auth-brand-copy"><p className="auth-eyebrow">{t('科研，从容开始')}</p>
       <h1>{t('让研究更有条理，')}<br />{t('让写作更进一步。')}</h1>
       <p>{t('从文献、数据到论文，把研究中的每一步汇聚在一个清晰的工作空间。')}</p>
@@ -296,7 +299,7 @@ export default function AuthBoundary({ children }: { children: ReactNode }) {
   </aside>
   function anonymousShell(content: ReactNode) {
     return <div className="auth-page">{brand}<main className="auth-form-area">
-      <div className="auth-language">{languageControl}</div><div className="auth-form-wrap">{content}</div>
+      <div className="auth-language">{languageControl}</div><RuntimeNotice/><div className="auth-form-wrap" id="paperassist-login">{content}</div>
       <p className="auth-copyright">PaperAssist · {t('科研论文辅助系统')}</p>
     </main></div>
   }
@@ -325,7 +328,7 @@ export default function AuthBoundary({ children }: { children: ReactNode }) {
       {error && <p className="auth-session-error" role="alert">{t(error)}</p>}
       {passwordMode === 'change' && <div className="auth-password-region"><PasswordForm mode="change"
         onCancel={() => { setFocusTarget('change'); setPasswordMode(null) }} onSuccess={passwordUpdated} /></div>}
-      <div className="auth-workspace" ref={workspace} tabIndex={-1}>{children}</div>
+      <div className="auth-workspace" ref={workspace} tabIndex={-1}><AuthIdentityContext.Provider value={session?.user ?? null}>{children}</AuthIdentityContext.Provider></div>
     </div>
   }
   if (passwordMode === 'reset') return anonymousShell(<PasswordForm mode="reset" onCancel={() => { setFocusTarget('forgot'); setPasswordMode(null) }} onSuccess={passwordUpdated} />)

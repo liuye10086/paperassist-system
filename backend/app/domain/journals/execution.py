@@ -19,7 +19,9 @@ def run_journal_task(task_id,task_revision,*,config=None,directory=None,recommen
             service=JournalService(scoped_store(task['user_id'],execution.config,execution.assets.directory))
             row=service.row(db,task['project_id'],input_version(task)['recommendation_id']);service.view(db,row)
             snapshot=row['snapshot_json']
-        result=(recommender or recommend)(snapshot)
+            from app.domain.admin_configuration.rule_consumption import rules,task_version
+            policy=rules(task_version(db,task),'journals')
+        result=recommender(snapshot) if recommender else recommend(snapshot,rules=policy)
         with execution.connection(write=True) as db:
             task=execution.require_lease(db,lease);execution.require_owner(db,task)
             row=service.row(db,task['project_id'],row['id']);service.view(db,row)

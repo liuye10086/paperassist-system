@@ -104,7 +104,12 @@ def execute(repository, lease, provider_factory, providers):
     assets = DatasetTaskAssets(task['user_id'],repository.config,repository.assets.directory)
     service = LiteratureAssistanceService(assets)
     snapshot = service.assert_current(task)
-    instructions = instructions_for(snapshot)
+    from app.domain.admin_configuration.model_consumption import task_version,task_instructions,selected,check_input
+    with repository.connection() as db:
+        configuration=task_version(db,task)
+        instructions=task_instructions(db,task,instructions_for(snapshot),'literature')
+    frozen=selected(configuration,'literature')
+    if configuration and frozen is None:return wait(repository,lease,'confirmation_required','literature_assistance_not_authorized')
     if provider_factory is None:
         return wait(repository,lease,'confirmation_required','literature_assistance_not_authorized')
     with repository.connection(write=True) as db:
@@ -120,11 +125,14 @@ def execute(repository, lease, provider_factory, providers):
     from app.adapters.models.openai_responses import OpenAIResponsesProvider
     if not authorized_batch and (isinstance(provider,OpenAIResponsesProvider) or getattr(provider,'source_kind',None) != 'synthetic_fixture'):
         raise StorageError('literature_assistance_not_authorized','测试只允许注入合成模型。',409)
-    policy = ModelPolicy.model_validate(provider.policy)
+    policy = ModelPolicy.model_validate(frozen['policy'] if frozen else provider.policy)
     if policy.tools or policy.output_format!='text' or policy.prompt_version!='literature_assistance_v1':
         raise source_conflict()
     gateway = ModelGateway(ModelUsageService(task['user_id'],repository.config),provider)
     payload = dict(kind=snapshot['input']['kind'],output_language=snapshot['input']['output_language'],material=snapshot['material'])
+    allowance=frozen['input_token_allowance'] if frozen else 12000 if authorized_batch else 100000
+    if frozen and not (call and call.get('provider_response_id')):
+        check_input(dict(input_token_allowance=allowance),instructions,payload)
     if authorized_batch:
         provider.authorize_task(task,config=repository.config,instructions=instructions,payload=payload)
     try:
@@ -132,7 +140,7 @@ def execute(repository, lease, provider_factory, providers):
             output = gateway.refresh(call['id'])
         else:
             request = CallRequest(task_id=task['id'],expected_task_revision=task['revision'],call_key='literature-assistance-v1',
-                input_digest=input_digest(instructions=instructions,payload=payload),policy=policy,input_token_allowance=12000 if authorized_batch else 100000)
+                input_digest=input_digest(instructions=instructions,payload=payload),policy=policy,input_token_allowance=allowance)
             output = gateway.submit(request,instructions=instructions,payload=payload,execution_lease=lease)
     except ModelGatewayError as exc:
         with repository.connection() as db: call = last_call(db,task['id'])

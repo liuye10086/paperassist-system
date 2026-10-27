@@ -42,7 +42,7 @@ test('analysis shows file loading and failure with a read-only recovery instead 
   let rejectFiles!: (error: Error) => void
   const fetch = api(() => new Promise((_resolve, reject) => { rejectFiles = reject }))
   const user = userEvent.setup()
-  render(<ProjectResources {...props} section="analysis" />)
+  render(<ProjectResources {...props} section="analysis" analysisNavigation={{view:'setup',fileId:''}} />)
   expect(screen.getByRole('status').textContent).toContain('正在读取文件列表')
   expect(screen.queryByText('请先在当前项目上传一份可预览的 Excel。')).toBeNull()
   await act(async () => { rejectFiles(new TypeError('offline')) })
@@ -85,10 +85,11 @@ test('file pagination preserves preview, the full analysis selection and page ac
   const view = render(<ProjectResources {...props} section="files" />)
   await user.click(await screen.findByRole('button', { name: `预览 ${files[0].filename}` }))
   await screen.findByRole('table')
-  await user.click(screen.getByRole('button', { name: '下一页' }))
+  await user.click(screen.getByRole('button', { name: '返回文件列表' }))
+  await user.click(await screen.findByRole('button', { name: '下一页' }))
   await screen.findByRole('button', { name: `预览 ${files[5].filename}` })
   expect(screen.queryByRole('button', { name: `预览 ${files[0].filename}` })).toBeNull()
-  expect(screen.getByRole('table')).toBeTruthy()
+  expect(screen.getByRole('table', { hidden: true })).toBeTruthy()
   view.rerender(<ProjectResources {...props} section="analysis" />)
   await user.selectOptions(screen.getByLabelText('用于分析的文件'), files[11].id)
   const pageReads = fetch.mock.calls.filter(([url]) => url.includes('/files?page=')).length
@@ -109,10 +110,14 @@ test('upload refreshes the first page without removing a purpose draft', async (
   render(<ProjectResources {...props} section="files" />)
   await user.click(await screen.findByRole('button', { name: `文件详情 ${files[0].filename}` }))
   await user.click(await screen.findByLabelText('原始数据'))
-  await user.click(screen.getByRole('button', { name: '下一页' }))
+  await user.click(screen.getByRole('button', { name: '返回文件列表' }))
+  await user.click(await screen.findByRole('button', { name: '下一页' }))
   await screen.findByRole('button', { name: `预览 ${files[5].filename}` })
+  await user.click(screen.getByRole('button', { name: '上传文件' }))
   await user.upload(screen.getByLabelText('选择 Excel 文件'), new File(['xlsx'], 'new.xlsx'))
   await user.click(screen.getByRole('button', { name: '上传并预览' }))
+  await screen.findByText('文件已保存到当前项目，可从项目文件列表再次打开。')
+  await user.click(screen.getByRole('button', { name: '返回文件列表' }))
   await screen.findByRole('button', { name: `预览 ${files[0].filename}` })
   expect((screen.getByLabelText('原始数据') as HTMLInputElement).checked).toBe(true)
   expect(fetch.mock.calls.filter(([url]) => url.endsWith('/files')).length).toBeGreaterThan(1)
@@ -170,6 +175,7 @@ test('English details show all reference counts and retention without internal m
   for (const label of ['Analysis setups', 'Analysis runs', 'Figures', 'Explanations', 'Reports', 'Tasks', 'Legacy jobs', 'Active tasks', 'Recovery candidates']) {
     expect(details.getByText(label).nextElementSibling?.textContent).toMatch(/^\d$/)
   }
+  await user.click(screen.getByRole('button', { name: 'Lifecycle' }))
   const lifecycle = within(details.getByRole('region', { name: 'File retention and deletion requests' }))
   expect(lifecycle.getByText('You may submit a deletion request. Its retained or blocked outcome is recorded immediately; no future automatic deletion is scheduled.')).toBeTruthy()
   expect(lifecycle.getByText('This operation preserves originals, historical versions and backups without deleting or hiding files. Historical artifact availability requires separate verification.')).toBeTruthy()
@@ -318,14 +324,15 @@ test('late page GET cannot roll back saved purposes when the file was on another
   const fetch = libraryApi(async () => new Promise(resolve => { finishSave = resolve }))
   const original = fetch.getMockImplementation()!
   let firstPageReads = 0
-  fetch.mockImplementation(async (url, init) => url.includes('/files?page=1&') && ++firstPageReads > 1
+  fetch.mockImplementation(async (url, init) => url.includes('/files?page=1&') && ++firstPageReads > 2
     ? new Promise(resolve => { finishPage = resolve }) : original(url, init))
   const user = userEvent.setup()
   render(<ProjectResources {...props} section="files" />)
   await user.click(await screen.findByRole('button', { name: `文件详情 ${files[0].filename}` }))
   await user.click(await screen.findByLabelText('原始数据'))
   await user.click(screen.getByRole('button', { name: '保存用途' }))
-  await user.click(screen.getByRole('button', { name: '下一页' }))
+  await user.click(screen.getByRole('button', { name: '返回文件列表' }))
+  await user.click(await screen.findByRole('button', { name: '下一页' }))
   await screen.findByRole('button', { name: `文件详情 ${files[5].filename}` })
   await user.click(screen.getByRole('button', { name: '上一页' }))
   await act(async () => { finishSave(Response.json({ ...detail, metadata_revision: 2, purposes: ['raw_data'] })) })
@@ -345,10 +352,10 @@ test('saved preview gives feedback beside the clicked file and scrolls to the co
   const preview = await screen.findByRole('button', { name: `预览 ${files[0].filename}` })
   const row = preview.closest('li')!
   await user.click(preview)
-  expect(within(row).getByRole('status').textContent).toContain('正在读取预览')
+  expect(within(row).getByRole('status', { hidden: true }).textContent).toContain('正在读取预览')
   await act(async () => { finish(Response.json(workbook)) })
   expect(row.getAttribute('aria-current')).toBe('true')
-  expect(within(row).getByRole('status').textContent).toContain('当前预览')
+  expect(within(row).getByRole('status', { hidden: true }).textContent).toContain('当前预览')
   expect(scroll).toHaveBeenCalledWith({ block: 'start', behavior: 'auto' })
   expect(scroll.mock.instances.at(-1)).toBe(screen.getByRole('table').closest('.preview-panel'))
 })
@@ -380,11 +387,11 @@ test('saved preview failure gives a short row status, one detailed alert and a w
   const preview = await screen.findByRole('button', { name: `预览 ${files[0].filename}` })
   const row = preview.closest('li')!
   await user.click(preview)
-  expect((await within(row).findByRole('status')).textContent).toBe('读取预览失败。')
+  expect((await within(row).findByRole('status', { hidden: true })).textContent).toBe('读取预览失败。')
   expect(screen.getAllByRole('alert')).toHaveLength(1)
   expect(screen.getByRole('alert').textContent).toContain('无法连接后端')
   expect(row.getAttribute('aria-current')).toBeNull()
-  await user.click(preview)
+  await user.click(screen.getByRole('button', { name: '重新读取预览' }))
   await screen.findByRole('table')
   expect(within(row).queryByRole('alert')).toBeNull()
   expect(row.getAttribute('aria-current')).toBe('true')
@@ -400,9 +407,11 @@ test('choosing a new local file clears the current saved preview without scrolli
   await user.click(preview)
   await screen.findByRole('table')
   expect(scroll).toHaveBeenCalledOnce()
+  await user.click(screen.getByRole('button', { name: '返回文件列表' }))
+  await user.click(screen.getByRole('button', { name: '上传文件' }))
   await user.upload(screen.getByLabelText('选择 Excel 文件'), new File(['bad'], 'invalid.xls'))
   expect((await screen.findByRole('alert')).textContent).toContain('仅支持 .xlsx')
-  expect(preview.closest('li')!.getAttribute('aria-current')).toBeNull()
+  expect(screen.getByRole('button', { name: `预览 ${files[0].filename}`, hidden: true }).closest('li')!.getAttribute('aria-current')).toBeNull()
   expect(scroll).toHaveBeenCalledOnce()
 })
 
@@ -417,5 +426,56 @@ test('batch completion preserves the opened sheet and purpose draft without open
   if(url.endsWith('/file-batches/b1'))return Response.json(snapshot)
   if(url.includes('/file-batches?'))return Response.json({items:snapshot?[snapshot]:[],total:snapshot?1:0,page:1,page_size:5})
   return original(url,init)
- });const user=userEvent.setup();render(<ProjectResources {...props} section="files"/>);await user.click(await screen.findByRole('button',{name:`预览 ${files[0].filename}`}));await screen.findByRole('table');await user.selectOptions(screen.getByLabelText('工作表'),'1');await user.click(screen.getByRole('button',{name:`文件详情 ${files[0].filename}`}));await user.click(await screen.findByRole('checkbox',{name:'原始数据'}));await user.upload(screen.getByLabelText('批量选择 Excel / Word / PDF / 图片 文件'),new File(['a'],'new.xlsx'));await user.click(screen.getByRole('button',{name:'开始上传'}));await screen.findByText(/解析完成/);expect((screen.getByLabelText('工作表') as HTMLSelectElement).value).toBe('1');expect(screen.getByRole('table').textContent).toContain('42');expect((screen.getByRole('checkbox',{name:'原始数据'}) as HTMLInputElement).checked).toBe(true);expect(fetch.mock.calls.filter(([url])=>url.endsWith('/preview'))).toHaveLength(1)
+ });const user=userEvent.setup();render(<ProjectResources {...props} section="files"/>);
+ await user.click(await screen.findByRole('button',{name:`预览 ${files[0].filename}`}));await screen.findByRole('table');await user.selectOptions(screen.getByLabelText('工作表'),'1');
+ await user.click(screen.getByRole('button',{name:'文件详情'}));await user.click(await screen.findByRole('checkbox',{name:'原始数据'}));
+ await user.click(screen.getByRole('button',{name:'返回文件列表'}));await user.click(screen.getByRole('button',{name:'上传文件'}));
+ await user.upload(screen.getByLabelText('批量选择 Excel / Word / PDF / 图片 文件'),new File(['a'],'new.xlsx'));await user.click(screen.getByRole('button',{name:'开始上传'}));await screen.findByText(/解析完成/);
+ expect((screen.getByLabelText('工作表') as HTMLSelectElement).value).toBe('1');expect(screen.getByRole('table').textContent).toContain('42');
+ await user.click(screen.getByRole('button',{name:'返回文件列表'}));await user.click(await screen.findByRole('button',{name:`文件详情 ${files[0].filename}`}));
+ expect((await screen.findByRole('checkbox',{name:'原始数据'}) as HTMLInputElement).checked).toBe(true);expect(fetch.mock.calls.filter(([url])=>url.endsWith('/preview'))).toHaveLength(1)
+})
+
+test('materials list separates uploads and retains the selected local file on return', async () => {
+  libraryApi()
+  const user = userEvent.setup()
+  render(<ProjectResources {...props} section="files" />)
+  await screen.findByRole('button', { name: `文件详情 ${files[0].filename}` })
+  expect(screen.queryByLabelText('批量选择 Excel / Word / PDF / 图片 文件')).toBeNull()
+  await user.click(screen.getByRole('button', { name: '上传文件' }))
+  await user.upload(screen.getByLabelText('批量选择 Excel / Word / PDF / 图片 文件'), new File(['a'], 'draft.xlsx'))
+  await user.click(screen.getByRole('button', { name: '返回文件列表' }))
+  expect(screen.queryByRole('button', { name: '开始上传' })).toBeNull()
+  await user.click(screen.getByRole('button', { name: '上传文件' }))
+  expect((screen.getByLabelText('批量选择 Excel / Word / PDF / 图片 文件') as HTMLInputElement).files?.[0].name).toBe('draft.xlsx')
+})
+
+test('material details replace the list and preserve page and purpose draft through task views', async () => {
+  libraryApi()
+  const user = userEvent.setup()
+  render(<ProjectResources {...props} section="files" />)
+  await user.click(await screen.findByRole('button', { name: '下一页' }))
+  await user.click(await screen.findByRole('button', { name: `文件详情 ${files[5].filename}` }))
+  await user.click(await screen.findByRole('checkbox', { name: '原始数据' }))
+  expect(screen.queryByRole('button', { name: '下一页' })).toBeNull()
+  await user.click(screen.getByRole('button', { name: '生命周期' }))
+  expect(screen.queryByRole('button', { name: '保存用途' })).toBeNull()
+  await user.click(screen.getByRole('button', { name: '返回文件信息' }))
+  expect((screen.getByRole('checkbox', { name: '原始数据' }) as HTMLInputElement).checked).toBe(true)
+  await user.click(screen.getByRole('button', { name: '返回文件列表' }))
+  await screen.findByRole('button', { name: `文件详情 ${files[5].filename}` })
+  expect(screen.queryByRole('button', { name: `文件详情 ${files[0].filename}` })).toBeNull()
+  await user.click(screen.getByRole('button', { name: `文件详情 ${files[5].filename}` }))
+  expect((await screen.findByRole('checkbox', { name: '原始数据' }) as HTMLInputElement).checked).toBe(true)
+})
+
+test('direct material detail is checked by the backend and clears the whole resource scope on denial', async () => {
+  const fetch = libraryApi()
+  const original = fetch.getMockImplementation()!
+  fetch.mockImplementation(async (url, init) => url.endsWith('/files/forbidden/details')
+    ? Response.json({ detail: 'Forbidden' }, { status: 403 }) : original(url, init))
+  render(<ProjectResources {...props} section="files" resourceNavigation={{ view: 'detail', fileId: 'forbidden' }} />)
+  expect((await screen.findByRole('alert')).textContent).toContain('项目不存在或无权访问')
+  expect(screen.queryByRole('button', { name: '上传文件' })).toBeNull()
+  expect(screen.queryByRole('checkbox', { name: '原始数据' })).toBeNull()
 })

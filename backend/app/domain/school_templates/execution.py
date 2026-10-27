@@ -50,10 +50,12 @@ def run_school_template_task(task_id,task_revision,*,config=None,directory=None,
             if row['analysis_json'] is not None:raise source_conflict()
             source=next(s for s in sources if s['role']=='template')
             raw=service.assets.original(source['file'])
+            from app.domain.admin_configuration.rule_consumption import rules,task_version
+            policy=rules(task_version(db,task),'schools')
         if parser is None:
             from app.adapters.school_template_process import inspect_school_template_isolated
             parser=inspect_school_template_isolated
-        analysis=parser(raw,source['filename'])
+        analysis=parser(raw,source['filename'],heading_aliases=policy['heading_aliases']) if policy['heading_aliases'] else parser(raw,source['filename'])
         keys=('raw_styles','sections','chapters','rules','notes','conflicts','missing','unsupported','identity_fields')
         if analysis.get('parser_version')!=PARSER_VERSION or not isinstance(analysis.get('defaults'),dict) or any(not isinstance(analysis.get(k),list) for k in keys):
             raise StorageError('parse_output_invalid','学校模板解析结果无效。',422)

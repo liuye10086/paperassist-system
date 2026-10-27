@@ -11,6 +11,7 @@ from app.domain.regression.common import NumericError
 from app.domain.tasks.numeric_failure import fail_numeric_task
 
 
+from app.domain.storage_governance import export_candidates as candidates
 logger = logging.getLogger(__name__)
 SAFE_ERRORS = frozenset({'task_source_conflict', 'task_owner_unavailable', 'file_missing', 'file_changed',
     'figure_missing', 'figure_changed', 'report_missing', 'report_changed', 'storage_unavailable',
@@ -39,20 +40,28 @@ def run_word_task(task_id, task_revision, *, config=None, directory=None):
         from app.domain.statistics_execution.verification import verification_scope
         with numeric_execution_scope(timeout_seconds=60), verification_scope():
             snapshot, report, png = repository.load(lease)
-            try:
-                content = build_report(snapshot, report, png)
-            except NumericError:
-                raise
-            except (ValueError, UnrecognizedImageError, UnexpectedEndOfFileError) as exc:
-                raise StorageError('report_render_failed', '无法生成 Word 报告，请检查已保存的图片和文字内容后重试。', 422) from exc
-            staged = repository.stage(lease, content)
+            from app.domain.artifact_contracts import saved_report_version
+            with repository.connection() as cache_db:
+                cached = repository.reports.cached(cache_db,snapshot['explanation']['id'],saved_report_version(snapshot['explanation']))
+            if cached:
+                report,content = cached,repository.reports.content(cached)
+            elif restored := repository.restore_report(lease,snapshot):
+                report,content,staged = restored
+            else:
+                try:
+                    content = build_report(snapshot, report, png)
+                except NumericError:
+                    raise
+                except (ValueError, UnrecognizedImageError, UnexpectedEndOfFileError) as exc:
+                    raise StorageError('report_render_failed', '无法生成 Word 报告，请检查已保存的图片和文字内容后重试。', 422) from exc
+                staged = repository.stage(lease, content, snapshot, report)
             return repository.complete(lease, snapshot, report, staged, content)
     except LeaseLost:
         return None
     except NumericError as exc:
         return fail_numeric_task(repository, lease, exc)
     except Exception as exc:
-        code = exc.code if isinstance(exc, StorageError) and exc.code in SAFE_ERRORS else (
+        code = exc.code if isinstance(exc, StorageError) and exc.code in SAFE_ERRORS | candidates.STORAGE_ERRORS else (
             'storage_unavailable' if isinstance(exc, OSError) else 'task_execution_failed')
         logger.warning('task execution failed task_id=%s attempt=%s code=%s', task_id, lease.attempt_no, code)
         try:
@@ -62,11 +71,7 @@ def run_word_task(task_id, task_revision, *, config=None, directory=None):
     finally:
         stop.set()
         thread.join(timeout=1)
-        if staged is not None:
-            try:
-                staged.unlink(missing_ok=True)
-            except OSError:
-                logger.warning('task temporary cleanup pending task_id=%s attempt=%s', task_id, lease.attempt_no)
+        # Durable export candidates are retained across uncertain commits.
 
 
 def run_explanation_task(task_id, task_revision, **kwargs):

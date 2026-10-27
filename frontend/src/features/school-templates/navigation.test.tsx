@@ -7,7 +7,7 @@ afterEach(()=>{cleanup();vi.unstubAllGlobals();setLocale('zh-CN');window.history
 it('offers school templates only for thesis projects and translates navigation',()=>{
  const props={view:'project' as const,projectName:'研究',section:'school-templates' as const,onNavigate:vi.fn(),onCreate:vi.fn(),onCurrentProject:vi.fn(),children:<div/>}
  const view=render(<WorkspaceShell {...props} projectType="thesis"/>);expect(screen.getByRole('button',{name:'学校模板'}).getAttribute('aria-current')).toBe('page');expect(screen.queryByRole('button',{name:'SCI 写作'})).toBeNull()
- view.rerender(<WorkspaceShell {...props} projectType="sci"/>);expect(screen.queryByRole('button',{name:'学校模板'})).toBeNull();expect(screen.getByRole('button',{name:'SCI 写作'})).toBeTruthy()
+ view.rerender(<WorkspaceShell {...props} section="manuscripts" projectType="sci"/>);expect(screen.queryByRole('button',{name:'学校模板'})).toBeNull();expect(screen.getByRole('button',{name:'SCI 写作'})).toBeTruthy()
  setLocale('en');view.rerender(<WorkspaceShell {...props} projectType="thesis"/>);expect(screen.getByRole('button',{name:'School template'})).toBeTruthy()
 })
 it('restores the school template section from its project deep link',async()=>{

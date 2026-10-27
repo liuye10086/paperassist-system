@@ -1,7 +1,7 @@
 .selected-project { margin: 0; padding: 0; border: 0; min-width: 0; }
-.project-back { margin: -8px 0 22px; padding-left: 0; color: var(--text); font-size: 12px; }
-.project-page-heading { padding-bottom: 26px; margin-bottom: 30px; border-bottom: 1px solid var(--border); }
-.project-page-heading h1 { margin: 10px 0 12px; font-size: 30px; font-weight: 600; line-height: 1.4; overflow-wrap: anywhere; }
+.project-back { margin: 0 0 8px; padding-left: 0; color: var(--text); font-size: 12px; }
+.project-page-heading { padding-bottom: 16px; margin-bottom: 18px; border-bottom: 1px solid var(--border); }
+.project-page-heading h1 { margin: 6px 0 8px; font-size: 26px; font-weight: 600; line-height: 1.4; overflow-wrap: anywhere; }
 .project-page-heading p { margin: 0; max-width: 900px; line-height: 1.8; overflow-wrap: anywhere; }
 .project-overview-heading { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; margin-bottom: 18px; }
 .project-overview-heading h2 { margin: 0; font-size: 21px; font-weight: 600; }
@@ -58,3 +58,17 @@
   .project-section-nav { margin-left: 0; padding-left: 0; border-left: 0; }
   .project-shortcuts button { padding: 18px; }
 }
+
+/* Task-oriented analysis entry: each card opens one retained workspace. */
+.analysis-overview-nav, .artifact-view-nav { display:flex; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:20px; }
+.analysis-overview-nav [aria-current="page"], .artifact-view-nav [aria-current="page"] { background:var(--accent-bg); color:var(--accent); border-color:var(--accent); }
+.analysis-overview-heading h2 { margin:8px 0; font-size:25px; letter-spacing:-.5px; }
+.analysis-overview-heading p { color:var(--text); margin-bottom:22px; }
+.analysis-entry-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:14px; margin-bottom:26px; }
+.analysis-entry-grid > button { display:flex; flex-direction:column; align-items:flex-start; gap:10px; text-align:left; padding:20px; background:var(--surface); border:1px solid var(--border); border-radius:12px; min-width:0; }
+.analysis-entry-grid > button:hover { border-color:var(--accent); background:var(--accent-bg); }
+.analysis-entry-grid strong { font-size:16px; color:var(--text-h); }
+.analysis-entry-grid > button > span:last-child { font-size:13px; line-height:1.6; color:var(--text); font-weight:400; }
+.analysis-entry-number { font-size:12px; letter-spacing:.08em; color:var(--accent); font-weight:600; }
+@media(max-width:1000px) { .analysis-entry-grid { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+@media(max-width:560px) { .analysis-entry-grid { grid-template-columns:1fr; } .analysis-entry-grid > button { padding:16px; } }

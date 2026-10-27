@@ -11,7 +11,10 @@ import { useEffect, useRef, useState } from 'react'
 import StatisticsResults from './StatisticsResults'
 import AnalysisPlanLauncher from '../analysisPlan/AnalysisPlanLauncher'
 import { WorkflowProvider, WorkflowStage, WorkflowNavigation, WorkflowEmptyResults } from './AnalysisWorkflow'
-import { useWorkflowNavigation } from './analysisWorkflowContext'
+import { useWorkflowNavigation, type AnalysisStage } from './analysisWorkflowContext'
+import type { RegisterLeaveGuard } from '../projects/useDraftLeaveGuard'
+import { AnalysisActivity } from './AnalysisActivity'
+import { useAnalysisCanLeave, useAnalysisLeaveGuard } from './analysisActivityContext'
 
 type FileSummary = { id: string; filename: string; file_type: string; uploaded_at: string; parse_status: 'queued' | 'parsing' | 'parsed' | 'failed' }
 type Column = {
@@ -49,8 +52,8 @@ function errorMessage(cause: unknown, aborted: boolean) {
 }
 
 type AnalysisDataset = Pick<DatasetSummary, 'id' | 'file_id' | 'structure_id' | 'version' | 'sheet_index' | 'sheet_name'>
-function SheetAnalysis({ base, projectId, fileId, sheetName, dataset, structure, expectedSource, saved, onSaved, onBusyChange, onMatchChange, onConflict, onPlanPublished, running }: {
-  base: string; projectId: string; fileId: string; sheetName: string; dataset: AnalysisDataset; structure: StructureVersion | null; expectedSource?: DatasetAnalysisSource; running: boolean; onMatchChange: (match: boolean) => void; onConflict: (message: string) => void; onPlanPublished: (id: string, revision: number) => void; saved: Saved | null; onSaved: (value: Saved) => void; onBusyChange: (value: boolean) => void
+function SheetAnalysis({ base, projectId, fileId, sheetName, dataset, structure, expectedSource, saved, onSaved, onBusyChange, onMatchChange, onConflict, onPlanPublished, running, beforeSave }: {
+  beforeSave: () => boolean; base: string; projectId: string; fileId: string; sheetName: string; dataset: AnalysisDataset; structure: StructureVersion | null; expectedSource?: DatasetAnalysisSource; running: boolean; onMatchChange: (match: boolean) => void; onConflict: (message: string) => void; onPlanPublished: (id: string, revision: number) => void; saved: Saved | null; onSaved: (value: Saved) => void; onBusyChange: (value: boolean) => void
 }) {
   const { t } = useI18n()
   const previous = saved?.selection.task_type==='descriptive_boxplot' && saved?.selection.sheet_name === sheetName && isDatasetSource(expectedSource) && sameSource(saved.source, expectedSource) ? saved.selection : null
@@ -67,6 +70,7 @@ function SheetAnalysis({ base, projectId, fileId, sheetName, dataset, structure,
   const [checked, setChecked] = useState<Check | null>(null)
   const [busy, setBusy] = useState(false)
   const actionController = useRef<AbortController | null>(null)
+  useAnalysisLeaveGuard(numeric !== (previous?.numeric_column ?? '') || group !== (previous?.group_column ?? '') || unit !== (previous?.unit ?? ''), busy)
 
   useEffect(() => {
     const controller = new AbortController()
@@ -85,6 +89,7 @@ function SheetAnalysis({ base, projectId, fileId, sheetName, dataset, structure,
 
   async function perform(save: boolean) {
     if (actionController.current || running || !numeric) return
+    if (save && !beforeSave()) return
     const controller = new AbortController()
     actionController.current = controller
     let timedOut = false
@@ -132,7 +137,7 @@ function SheetAnalysis({ base, projectId, fileId, sheetName, dataset, structure,
   const structureSource = structure?.task.input_version.kind === 'excel_structure' ? structure.task.input_version : null
   return <div className="analysis-fields" aria-busy={busy}>
     <WorkflowStage stage="setup">
-    <div className="analysis-config-layout"><div className="analysis-config-form">
+    <div className="analysis-config-form">
     <div className="analysis-field-grid">
       <label>{t("数值列")}<select value={numeric} disabled={busy || running} onChange={event => {
         setNumeric(event.target.value); const metadata = profile.columns.find(c => c.id === event.target.value)?.unit; setUnit(metadata?.status === 'confirmed' ? metadata.value ?? '' : ''); if (group === event.target.value) setGroup(''); changed()
@@ -164,9 +169,13 @@ function SheetAnalysis({ base, projectId, fileId, sheetName, dataset, structure,
       {checked.warnings.length > 0 && <ul className="warning-panel">{checked.warnings.map(note => <li key={note}>{workflowNotice(note, t)}</li>)}</ul>}
     </div>}
     {notice && <p className="saved-notice" role="status">{t(notice)}</p>}
+    </div></WorkflowStage>
+    <WorkflowStage stage="plan">
+    {expectedSource?.kind !== 'prepared_dataset_version' && <p className="workflow-empty">{t('选择整理数据版本后可生成并确认分析方案；原始数据可保存字段配置后直接执行描述统计。')}</p>}
     {expectedSource?.kind === 'prepared_dataset_version' && <AnalysisPlanLauncher projectId={projectId} fileId={fileId} source={expectedSource} selection={{ task_type: 'descriptive_boxplot', sheet_name: sheetName, numeric_column: numeric, group_column: group || null, unit, missing_policy: 'exclude_selected_missing' }} initialSelection={saved?.selection} fields={profile.columns.map(c=>({column:c.id,name:c.name,numeric:c.can_be_numeric,unit:c.unit?.status==='confirmed'?c.unit.value??'':''}))} onSelectionChange={value=>{setPlanSelection(value);if(value.task_type==='descriptive_boxplot'){setNumeric(value.numeric_column);setGroup(value.group_column??'');setUnit(value.unit);changed()}}} setupRevision={saved?.revision ?? 0} disabled={busy || running || !profile.row_count} onPublished={onPlanPublished} />}
     {saved?.analysis_plan && <p className="saved-notice">{t('当前配置已关联已确认分析计划。')}</p>}
-    </div><aside className="analysis-data-overview" aria-label={t("数据概况")}>
+    </WorkflowStage>
+    <WorkflowStage stage="profile"><section className="analysis-data-overview" aria-label={t("数据概况")}>
     <p className="data-count">{t('整表检查：{count} 行数据', { count: profile.row_count })}</p>
     <p className="muted">{t(expectedSource?.kind === 'prepared_dataset_version' ? '使用已确认的数据区域。单位是可编辑的分析标签，不会转换数值。' : "使用完整工作表。空单元格、空字符串和纯空白字符串视为缺失；NA 等文本保持原义。")}</p>
     {profile.row_count === 0 && <p className="warning-panel">{t("当前工作表没有数据行，请选择其他工作表。")}</p>}
@@ -186,16 +195,23 @@ function SheetAnalysis({ base, projectId, fileId, sheetName, dataset, structure,
       source_sha256: expectedSource?.source_sha256 ?? String(structureSource?.source_sha256),
       parser_version: expectedSource?.parser_version ?? String(structureSource?.parser_version), source: expectedSource,
     }} />}
-    </aside></div>
-    </WorkflowStage>
+    </section></WorkflowStage>
   </div>
 }
 
-function FileAnalysis({ projectId, fileId, filename }: { projectId: string; fileId: string; filename: string }) {
+function FileAnalysis(props: { projectId: string; fileId: string; filename: string }) {
+  return <AnalysisActivity><FileAnalysisContent {...props} /></AnalysisActivity>
+}
+function FileAnalysisContent({ projectId, fileId, filename }: { projectId: string; fileId: string; filename: string }) {
+  const canLeave = useAnalysisCanLeave()
+  const navigation = useWorkflowNavigation()
+  const resultCanLeave = useRef<() => boolean>(() => true)
   const { t } = useI18n()
   const base = `/api/v1/projects/${projectId}/files/${fileId}`
   const [saved, setSaved] = useState<Saved | null>(null)
   const [ready, setReady] = useState(false)
+  const [initialized,setInitialized]=useState(false)
+  const [publishedPlan,setPublishedPlan]=useState(false)
   const [list, setList] = useState<StructurePage | null>(null)
   const [selected, setSelected] = useState<StructureVersion | null>(null)
   const [datasetId, setDatasetId] = useState('')
@@ -228,7 +244,7 @@ function FileAnalysis({ projectId, fileId, filename }: { projectId: string; file
           (v): v is StructureVersion => isStructure(v, projectId, fileId) && v.id === source.structure_id && v.task.status === 'succeeded' && matchesStructureSource(source, v) && v.datasets.some(d => d.id === source.dataset_id && d.version === source.dataset_version && d.sheet_name === source.sheet_name && d.sheet_index === source.sheet_index), () => {})
       }
       if (!active || controller.signal.aborted) return
-      setSaved(value); setSelected(bound); setPrepared(boundPrepared); setSourceKind(boundPrepared ? 'prepared' : 'raw'); setDatasetId(value?.source?.dataset_id ?? ''); setReady(true)
+      setSaved(value); setSelected(bound); setPrepared(boundPrepared); setSourceKind(boundPrepared ? 'prepared' : 'raw'); setDatasetId(value?.source?.dataset_id ?? ''); setReady(true); setInitialized(true); setPublishedPlan(false)
     }).catch(cause => { if (active) setError(errorMessage(cause, controller.signal.aborted)) })
       .finally(() => window.clearTimeout(timeout))
     return () => { active = false; controller.abort(); window.clearTimeout(timeout) }
@@ -250,26 +266,31 @@ function FileAnalysis({ projectId, fileId, filename }: { projectId: string; file
       }).catch(cause => { if (active) setPreparedError(safeError(cause, '整理版本读取失败，请重试。')) })
     return () => { active = false; controller.abort() }
   }, [sourceKind, projectId, fileId, page, refresh])
-  function reload() { setReady(false); setError(''); setFieldsMatch(false); setAttempt(n => n + 1) }
+  function reload() { setReady(false); setError(''); setAttempt(n => n + 1) }
   const options = list?.items.filter(v => v.task.status === 'succeeded' && v.datasets.length > 0) ?? []
   if (selected && !options.some(v => v.id === selected.id)) options.push(selected)
   const preparedOptions = [...(preparedList?.items ?? [])]
   if (prepared && !preparedOptions.some(v => v.id === prepared.id)) preparedOptions.push(prepared)
   return <>
+    {navigation && navigation.stage !== 'setup' && (!ready || error) && <div className="workflow-read-status">
+      {error ? <p role="alert" className="error-panel">{t(error)}</p> : <p role="status">{t('正在载入工作表和已保存配置……')}</p>}
+      <button type="button" disabled={busy || running || !error} onClick={() => { if (canLeave()) reload() }}>{t('重新载入分析配置')}</button>
+    </div>}
     <WorkflowStage stage="setup">
-      <div className="analysis-actions"><button type="button" disabled={busy || running} onClick={reload}>{t('重新载入分析配置')}</button>
+      <div className="analysis-actions"><button type="button" disabled={busy || running} onClick={() => { if (canLeave()) reload() }}>{t('重新载入分析配置')}</button>
         <button type="button" disabled={busy || running} onClick={() => setRefresh(n => n + 1)}>{t('刷新数据版本')}</button></div>
       {error && <p className="error-panel" role="alert">{t(error)}</p>}
       {listError && <p className="error-panel" role="alert">{t(listError)}</p>}{preparedError && <p role="alert" className="error-panel">{t(preparedError)}</p>}
       {!ready && !error && <p role="status">{t('正在载入工作表和已保存配置……')}</p>}
       {ready && <>
         {saved && <><SourceSummary source={saved.source} filename={filename} />{!saved.source && saved.selection.task_type==='descriptive_boxplot' && <p>{t('历史字段配置：工作表 {sheet}；数值列 {numeric}；分组列 {group}；单位 {unit}。', { sheet: saved.selection.sheet_name, numeric: saved.selection.numeric_column, group: saved.selection.group_column ?? t('不分组'), unit: saved.selection.unit || t('未填写') })}</p>}</>}
-        <div className="analysis-field-grid"><label>{t('数据来源类型')}<select value={sourceKind} disabled={busy || running} onChange={e => { setFieldsMatch(false); setSourceKind(e.target.value as 'raw' | 'prepared'); setPage(1) }}><option value="raw">{t('原始数据')}</option><option value="prepared">{t('整理数据')}</option></select></label></div>
-        {sourceKind === 'prepared' ? <div className="analysis-field-grid"><label>{t('整理数据版本')}<select value={prepared?.id ?? ''} disabled={busy || running} onChange={e => { setFieldsMatch(false); setPrepared(preparedOptions.find(v => v.id === e.target.value) ?? null) }}><option value="">{t('请选择整理版本')}</option>{preparedOptions.map(v => <option key={v.id} value={v.id}>{t('原始数据 v{raw} · 整理数据 v{prepared}', { raw: v.parent_dataset_version, prepared: v.version })} · {v.source.sheet_name}</option>)}</select></label></div> : <div className="analysis-field-grid"><label>{t('原始数据版本')}<select value={selected?.id ?? ''} disabled={busy || running} onChange={event => {
+        <div className="analysis-field-grid"><label>{t('数据来源类型')}<select value={sourceKind} disabled={busy || running} onChange={e => { if (!canLeave()) return; setFieldsMatch(false); setSourceKind(e.target.value as 'raw' | 'prepared'); setPage(1) }}><option value="raw">{t('原始数据')}</option><option value="prepared">{t('整理数据')}</option></select></label></div>
+        {sourceKind === 'prepared' ? <div className="analysis-field-grid"><label>{t('整理数据版本')}<select value={prepared?.id ?? ''} disabled={busy || running} onChange={e => { if (!canLeave()) return; setFieldsMatch(false); setPrepared(preparedOptions.find(v => v.id === e.target.value) ?? null) }}><option value="">{t('请选择整理版本')}</option>{preparedOptions.map(v => <option key={v.id} value={v.id}>{t('原始数据 v{raw} · 整理数据 v{prepared}', { raw: v.parent_dataset_version, prepared: v.version })} · {v.source.sheet_name}</option>)}</select></label></div> : <div className="analysis-field-grid"><label>{t('原始数据版本')}<select value={selected?.id ?? ''} disabled={busy || running} onChange={event => {
+          if (!canLeave()) return
           const value = options.find(v => v.id === event.target.value) ?? null
           setFieldsMatch(false); setSelected(value); setDatasetId('')
         }}><option value="">{t('请选择成功的数据版本')}</option>{options.map(v => <option key={v.id} value={v.id}>{t('原始数据版本 v{version}', { version: v.version })}</option>)}</select></label>
-        <label>{t('分析工作表')}<select value={datasetId} disabled={!selected || busy || running} onChange={event => { setFieldsMatch(false); setDatasetId(event.target.value) }}>
+        <label>{t('分析工作表')}<select value={datasetId} disabled={!selected || busy || running} onChange={event => { if (!canLeave()) return; setFieldsMatch(false); setDatasetId(event.target.value) }}>
           <option value="">{t(selected ? '请选择工作表' : '请先选择数据版本')}</option>{selected?.datasets.map(d => <option key={d.id} value={d.id}>{d.sheet_name}</option>)}</select></label></div>}
         <p className="muted">{t(sourceKind === 'prepared' ? '使用已确认的数据区域。单位是可编辑的分析标签，不会转换数值。' : '第一行用作字段名；从第 2 行至最后含值行分析完整数据，保留中间空行，不自动清洗。')}</p>
         {!dataset && <p className="warning-panel">{t(sourceKind === 'prepared' ? '新分析需明确选择整理数据版本，检查并保存配置。' : '新分析需明确选择原始数据版本，检查并保存配置。')}</p>}
@@ -277,51 +298,62 @@ function FileAnalysis({ projectId, fileId, filename }: { projectId: string; file
       <div className="analysis-actions"><button type="button" disabled={page <= 1 || busy || running} onClick={() => { setList(null); setPage(n => n - 1) }}>{t('上一页数据版本')}</button>
         <span>{t('第 {page} 页', { page })}</span><button type="button" disabled={sourceKind === 'prepared' ? !preparedList || page * 5 >= preparedList.total || busy || running : !list || page * 5 >= list.total || busy || running} onClick={() => { setList(null); setPage(n => n + 1) }}>{t('下一页数据版本')}</button></div>
     </WorkflowStage>
-    {ready && dataset && (selected || prepared) && <SheetAnalysis key={dataset.id} base={base} projectId={projectId} fileId={fileId} sheetName={dataset.sheet_name} dataset={dataset} structure={sourceKind === 'raw' ? selected : null} expectedSource={sourceKind === 'prepared' ? prepared?.source : saved?.source?.kind === 'dataset_version' && saved.source.dataset_id === dataset.id ? saved.source : undefined} saved={saved}
-      running={running} onSaved={setSaved} onBusyChange={setBusy} onMatchChange={setFieldsMatch} onConflict={message => { reload(); setError(message) }} onPlanPublished={(id, revision) => {
+    {ready && !dataset && navigation && ['profile','plan'].includes(navigation.stage) && <div className="workflow-empty"><p>{t('请先在字段配置中明确选择数据版本与工作表。')}</p><button type="button" onClick={()=>navigation.setStage('setup')}>{t('前往字段配置')}</button></div>}
+    {dataset && (selected || prepared) && <SheetAnalysis beforeSave={() => resultCanLeave.current()} key={dataset.id} base={base} projectId={projectId} fileId={fileId} sheetName={dataset.sheet_name} dataset={dataset} structure={sourceKind === 'raw' ? selected : null} expectedSource={sourceKind === 'prepared' ? prepared?.source : saved?.source?.kind === 'dataset_version' && saved.source.dataset_id === dataset.id ? saved.source : undefined} saved={saved}
+      running={running || !ready} onSaved={setSaved} onBusyChange={setBusy} onMatchChange={setFieldsMatch} onConflict={message => { reload(); setError(message) }} onPlanPublished={(id, revision) => {
         if ((saved?.revision ?? 0) >= revision || refreshedPlans.current.has(id)) return
-        refreshedPlans.current.add(id); reload()
+        refreshedPlans.current.add(id); setPublishedPlan(true)
       }} />}
-    {ready && <StatisticsResults key={`${base}:${saved?.revision ?? 0}`} base={base} savedRevision={saved?.revision ?? null} savedSelection={saved?.selection} savedSource={saved?.source} savedPlan={saved?.analysis_plan}
-      fieldsMatch={fieldsMatch && !!saved?.source} disabled={busy} onBusyChange={setRunning} />}
+    {publishedPlan&&<div className="workflow-read-status"><p role="status">{t('分析计划已发布，重新载入分析配置后继续。')}</p><button type="button" disabled={busy||running} onClick={()=>{if(canLeave())reload()}}>{t('载入已发布分析计划')}</button></div>}
+    <AnalysisActivity onCanLeave={guard => { resultCanLeave.current = guard }}>{initialized && <StatisticsResults key={`${base}:${saved?.revision ?? 0}`} base={base} savedRevision={saved?.revision ?? null} savedSelection={saved?.selection} savedSource={saved?.source} savedPlan={saved?.analysis_plan}
+      fieldsMatch={ready && fieldsMatch && !!saved?.source} disabled={busy || !ready} onBusyChange={setRunning} />}</AnalysisActivity>
   </>
 }
 
-function AnalysisSetupContent({ projectId, files, onOpenFiles, filesLoading = false, filesError = '', onReloadFiles }: {
+type AnalysisSetupProps = {
   projectId: string; files: FileSummary[]; onOpenFiles?: () => void
   filesLoading?: boolean; filesError?: string; onReloadFiles?: () => void
-}) {
+  stage?: AnalysisStage; onStageChange?: (stage: AnalysisStage) => void
+  fileId?: string; onFileChange?: (id: string) => void; registerLeaveGuard?: RegisterLeaveGuard
+}
+function AnalysisSetupContent({ projectId, files, onOpenFiles, filesLoading = false, filesError = '', onReloadFiles, fileId, onFileChange }: AnalysisSetupProps) {
   const { t, locale } = useI18n()
   const navigation = useWorkflowNavigation()
-  const [selectedId, setSelectedId] = useState('')
+  const [localId, setLocalId] = useState('')
+  const selectedId = fileId ?? localId
   const available = files.filter(file => file.file_type === 'xlsx' && file.parse_status === 'parsed')
   const selected = available.find(file => file.id === selectedId)
+  const [visitedIds, setVisitedIds] = useState<string[]>([])
+  if (selected && !visitedIds.includes(selected.id)) setVisitedIds(ids => [...ids, selected.id])
   return <section className="analysis-setup" aria-label={t('数据分析')}>
     <WorkflowNavigation onOpenFiles={onOpenFiles} />
+    <div className="analysis-source-toolbar">
+      <label>{t("用于分析的文件")}<select value={selected?.id ?? ''} onChange={event => { if (fileId === undefined) setLocalId(event.target.value); onFileChange?.(event.target.value) }}>
+        <option value="">{t("请选择已保存文件")}</option>
+        {available.map(file => <option key={file.id} value={file.id}>{file.filename} · {new Date(file.uploaded_at).toLocaleString(locale)}</option>)}
+      </select></label>
+    </div>
     {(filesLoading || filesError) && <div className="analysis-file-status">
       {filesLoading ? <p role="status">{t('正在读取文件列表……')}</p> : <p role="alert" className="error-panel">{t(filesError)}</p>}
       {onReloadFiles && <button type="button" disabled={filesLoading} onClick={onReloadFiles}>{t('刷新文件列表')}</button>}
     </div>}
     <WorkflowStage stage="setup">
-    <div className="section-heading">
-      <h2 id="analysis-title">{t("字段配置")}</h2>
-      <p>{t("保存字段选择和数据检查结果，后续步骤将据此计算、绘图和生成报告。")}</p>
-      <p className="muted">{t("每个文件保存一份当前配置；保存新选择会更新该文件的配置。")}</p>
-    </div>
-    <div className="analysis-field-grid">
+      <div className="section-heading">
+        <h2>{t("字段配置")}</h2>
+        <p>{t("保存字段选择和数据检查结果，后续步骤将据此计算、绘图和生成报告。")}</p>
+        <p className="muted">{t("每个文件保存一份当前配置；保存新选择会更新该文件的配置。")}</p>
+      </div>
       <p>{t("描述统计、相关分析或组间比较：在所选整理版本的分析计划中选择方法与图型。")}</p>
-      <label>{t("用于分析的文件")}<select value={selected?.id ?? ''} onChange={event => setSelectedId(event.target.value)}>
-        <option value="">{t("请选择已保存文件")}</option>
-        {available.map(file => <option key={file.id} value={file.id}>{file.filename} · {new Date(file.uploaded_at).toLocaleString(locale)}</option>)}
-      </select></label>
-    </div>
-    {!filesLoading && !filesError && !available.length && <p className="muted">{t("请先在当前项目上传一份可预览的 Excel。")}</p>}
     </WorkflowStage>
-    {!selected && !filesLoading && !filesError && navigation && <><WorkflowStage stage="statistics"><p className="workflow-empty">{t("请先选择文件并保存字段配置。")}</p></WorkflowStage><WorkflowEmptyResults message="请先选择文件并完成描述统计。" /></>}
-    {selected && <FileAnalysis key={`${projectId}:${selected.id}`} projectId={projectId} fileId={selected.id} filename={selected.filename} />}
+    {!filesLoading && !filesError && !available.length && <p className="muted">{t("请先在当前项目上传一份可预览的 Excel。")}</p>}
+    {!selected && !filesLoading && !filesError && navigation && <>
+      {(['profile', 'plan', 'statistics'] as const).map(stage => <WorkflowStage key={stage} stage={stage}><p className="workflow-empty">{t("请先选择文件并保存字段配置。")}</p></WorkflowStage>)}
+      <WorkflowEmptyResults message="请先选择文件并完成描述统计。" />
+    </>}
+    {available.filter(file => visitedIds.includes(file.id)).map(file => <div key={`${projectId}:${file.id}`} hidden={selected?.id !== file.id}><FileAnalysis projectId={projectId} fileId={file.id} filename={file.filename} /></div>)}
   </section>
 }
 
-export default function AnalysisSetup(props: Parameters<typeof AnalysisSetupContent>[0]) {
-  return <WorkflowProvider><AnalysisSetupContent {...props} /></WorkflowProvider>
+export default function AnalysisSetup(props: AnalysisSetupProps) {
+  return <WorkflowProvider stage={props.stage} onStageChange={props.onStageChange}><AnalysisActivity registerLeaveGuard={props.registerLeaveGuard}><AnalysisSetupContent key={props.projectId} {...props} /></AnalysisActivity></WorkflowProvider>
 }

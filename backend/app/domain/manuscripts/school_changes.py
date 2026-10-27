@@ -209,7 +209,9 @@ class SchoolChangeService:
                 snapshot['school_change_provenance']=provenance
                 request_json=deepcopy(base['request_json']);request_json['expected_revision']=revision-1
                 request_json['thesis']=dict(confirmation_id=context['confirmation_id'],profile_revision=context['profile']['revision'],chapter_mappings=[dict(chapter_id=c['id'],purpose=c['purpose'],output_language=c['output_language'],result_group_ids=c['result_group_ids']) for c in context['chapters']])
-                task=self.manuscripts.task(db,project,'manuscript_draft',dict(project_id=project,manuscript_id=identity,manuscript_version_id=version_id,revision=revision,output_language=snapshot['output_language'],workflow_version=WORKFLOW,snapshot_sha256=digest(snapshot)),'manuscript:'+version_id)
+                task=self.manuscripts.task(db,project,'manuscript_draft',dict(project_id=project,manuscript_id=identity,manuscript_version_id=version_id,revision=revision,output_language=snapshot['output_language'],workflow_version=WORKFLOW,snapshot_sha256=digest(snapshot)),'manuscript:'+version_id,validated_sources=snapshot['sources'])
+                from app.domain.admin_configuration.rule_consumption import inherit_task
+                inherit_task(db,task,confirmation_id=context['confirmation_id'])
                 fields=dict(id=version_id,project_id=project,user_id=self.store.user_id,idempotency_key=key,request_json=Jsonb(request_json),request_digest=digest(request_json),manuscript_id=identity,revision=revision,parent_version_id=base['id'],task_id=task['id'],snapshot_json=Jsonb(snapshot),snapshot_sha256=digest(snapshot),created_at=timestamp,school_confirmation_id=context['confirmation_id'])
                 db.execute('INSERT INTO manuscript_versions('+','.join(fields)+') VALUES ('+','.join(['%s']*len(fields))+')',tuple(fields.values()))
                 for table in ('manuscript_sources','manuscript_citations'):

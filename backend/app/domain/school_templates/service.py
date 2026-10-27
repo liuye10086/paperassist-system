@@ -86,8 +86,12 @@ class SchoolTemplateService:
             if replay:
                 if replay['request_digest']!=hashed: raise StorageError('task_idempotency_conflict','请求标识已用于不同输入。',409)
                 return self.view(db,replay),200
+            from app.domain.admin_configuration.bindings import resolve,bind
+            from app.domain.admin_configuration.rule_consumption import rules
+            version=resolve(db);policy=rules(version,'schools')
             if request.previous_version_id:self.validate(db,self.row(db,project,request.previous_version_id))
             sources=[self.freeze_source(db,project,request.template_file_id,'template')]
+            if sources[0]['file']['file_type'] not in policy['formats']:raise invalid('模板格式不在已安装支持清单。',422)
             sources.extend(self.freeze_source(db,project,f,'supplement') for f in request.supplement_file_ids)
             sources.extend(self.freeze_source(db,project,f,'manuscript') for f in request.manuscript_file_ids)
             identity=str(uuid4());timestamp=now();sources_sha=digest(sources)
@@ -96,6 +100,7 @@ class SchoolTemplateService:
                 input_digest=digest(snapshot),input_snapshot=snapshot,workflow_version=WORKFLOW,status='queued',phase='parse',revision=1,current_attempt=0,
                 reason_code=None,created_at=timestamp,updated_at=timestamp)
             self.store.insert_task(db,task);self.store.append_event(db,task,'created');self.store.enqueue(db,task)
+            bind(db,kind='task',object_id=task['id'],version=version)
             db.execute('''INSERT INTO school_template_versions(id,project_id,user_id,idempotency_key,request_json,request_digest,name,school,version_label,task_id,sources_sha256,created_at,previous_version_id)
                 VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)''',(identity,project,self.store.user_id,key,Jsonb(body),hashed,request.name,request.school,request.version_label,task['id'],sources_sha,timestamp,request.previous_version_id))
             for source in sources:
@@ -171,7 +176,12 @@ class SchoolTemplateService:
 
     def view(self,db,row):
         sources,task=self.validate(db,row)
+        from app.domain.admin_configuration.bindings import projection
+        from app.domain.admin_configuration.rule_consumption import rules,task_version
+        policy=rules(task_version(db,task),'schools')
         return {k:row[k] for k in ('id','name','school','version_label','created_at','analysis_sha256')} | dict(task=self.store.public_task(task),
+            configuration=projection(db,'task',task['id']),
+            installed_rules={key:policy[key] for key in ('parser_version','quality_version','formats','conflict_policy')},
             previous_version_id=row.get('previous_version_id'),text_decision_options=self.text_options(db,row),analysis=row['analysis_json'],confirmation=self.confirmation(db,row),sources=[{k:v for k,v in source.items() if k!='file'} for source in sources],
             supplement_text=row['request_json']['supplement_text'],current_changes=self.current_changes(db,row,sources))
 
@@ -207,12 +217,25 @@ class SchoolTemplateService:
                 matches=[r for r in rules if r['id']==conflict['rule_id']]
                 if len(matches)!=1: raise source_conflict()
                 matches[0].update(value=option['value'],source=option['source'])
+                if conflict.get('kind')=='heading_mapping':
+                    mapping=matches[0]['mapping'];chapter=next((c for c in body['chapters'] if c['id']==mapping['chapter_id']),None)
+                    if option['value']=='body':
+                        if chapter:raise invalid('正文角色不能同时保留为映射章节。',422)
+                    elif option['value'].startswith('heading'):
+                        if not chapter or chapter['level']!=int(option['value'][7:]):raise invalid('确认章节须与所选标题映射角色一致。',422)
+                    elif mapping.get('observed_level') is not None:
+                        if not chapter or chapter['level']!=mapping['observed_level']:raise invalid('确认章节须保留所选原章节角色。',422)
+                    elif chapter:raise invalid('所选原角色不是章节，不能同时采用映射章节。',422)
+            selected_roles={r['id']:r['value'] for r in rules if r['category']=='heading_mapping'}
+            rules=[r for r in rules if not r.get('alias_rule_id') or selected_roles.get(r['alias_rule_id'])==r['category']]
             timestamp=now();cid=str(uuid4())
             snap=dict(id=cid,template_version_id=identity,analysis_sha256=row['analysis_sha256'],decisions=body['decisions'],chapters=body['chapters'],rules=rules,
                 missing=deepcopy(analysis['missing']),unsupported=deepcopy(analysis['unsupported']),created_at=timestamp.isoformat())
             if request.text_decisions:snap['text_decisions']=[d.model_dump()|dict(evidence=text_options[d.id]) for d in request.text_decisions]
             db.execute('''INSERT INTO school_template_confirmations(id,project_id,user_id,idempotency_key,request_json,request_digest,template_version_id,analysis_sha256,snapshot_json,snapshot_sha256,created_at)
                 VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)''',(cid,project,self.store.user_id,key,Jsonb(body),digest(body),identity,row['analysis_sha256'],Jsonb(snap),digest(snap),timestamp))
+            from app.domain.admin_configuration.bindings import bind,resolve
+            bind(db,kind='school_confirmation',object_id=cid,version=resolve(db,kind='task',object_id=task['id']))
             return snap,201
 
     def bind(self,project,request):

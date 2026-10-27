@@ -3,16 +3,18 @@ import {onApiSessionChanged} from '../../shared/api/client'
 import {safeError,useI18n} from '../../shared/i18n'
 import FileImpactReview,{retentionText} from './FileImpactReview'
 import useLifecycleSubmission from './useLifecycleSubmission'
+import useDraftLeaveGuard, {type RegisterLeaveGuard} from '../projects/useDraftLeaveGuard'
 import {isPage,isReceipt,lifecycleBase,lifecycleRequest,reasonLabels,type Page,type Receipt} from './fileLifecycleApi'
-type Props={projectId:string;fileId:string;active:boolean;observedVersion?:number;onUnavailable:()=>void}
+type Props={projectId:string;fileId:string;active:boolean;observedVersion?:number;onUnavailable:()=>void;registerLeaveGuard?:RegisterLeaveGuard}
 export default function FileLifecyclePanel(props:Props){return <Panel key={JSON.stringify([props.projectId,props.fileId])} {...props}/>}
-function Panel({projectId,fileId,active,observedVersion,onUnavailable}:Props){
+function Panel({projectId,fileId,active,observedVersion,onUnavailable,registerLeaveGuard}:Props){
  const {t,locale}=useI18n(),[review,setReview]=useState(false),[reason,setReason]=useState(''),[history,setHistory]=useState<Page<Receipt>|null>(null),[receipt,setReceipt]=useState<Receipt|null>(null),[page,setPage]=useState(1),[refresh,setRefresh]=useState(0),[loading,setLoading]=useState(false),[error,setError]=useState(''),[valid,setValid]=useState(true)
  const base=lifecycleBase(projectId,fileId),generation=useRef(0),unavailable=useRef(onUnavailable)
  useEffect(()=>{unavailable.current=onUnavailable},[onUnavailable])
  const lost=useCallback(()=>{generation.current++;setValid(false);setReview(false);setReason('');setReceipt(null);setHistory(null);unavailable.current()},[])
  // send only the frozen payload retained by the submission hook.
  const send=useLifecycleSubmission<Receipt>((r,signal)=>lifecycleRequest(r.url,signal,lost,(v):v is Receipt=>isReceipt(v,fileId)&&v.reason===JSON.parse(r.body).reason&&v.assessment_revision===JSON.parse(r.body).expected_assessment_revision,{method:'POST',headers:{'Content-Type':'application/json','Idempotency-Key':r.key},body:r.body}),v=>{setReceipt(v);setReason('');setReview(false);setPage(1);setRefresh(n=>n+1)},()=>{setReview(false);setRefresh(n=>n+1)})
+ useDraftLeaveGuard(registerLeaveGuard, Boolean(reason), send.busy || send.unknown)
  useEffect(()=>onApiSessionChanged(()=>{generation.current++;setValid(false);setReview(false);setReason('');setReceipt(null);setHistory(null);setError('')}),[])
  useEffect(()=>{
   if(!active||!valid)return

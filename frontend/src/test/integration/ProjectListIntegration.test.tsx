@@ -53,11 +53,17 @@ function api() {
   return fetchMock
 }
 function listCalls(mock: ReturnType<typeof api>) { return mock.mock.calls.filter(([url]) => url.startsWith('/api/v1/projects?')) }
-async function navigate(name: string) { await act(async () => { fireEvent.click(screen.getByRole('button', { name })) }) }
+async function navigate(name: string) {
+  if (name === '项目文件' && !screen.queryByRole('button', { name })) {
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: '材料准备' })) })
+  }
+  await act(async () => { fireEvent.click(screen.getByRole('button', { name })) })
+  if (name === '项目概览') await act(async () => { fireEvent.click(screen.getByRole('button', { name: '项目资料' })) })
+}
 async function openAndPreview() {
   const user = userEvent.setup(); render(<App />)
   await user.click(await screen.findByRole('button', { name: '打开项目 药学项目' }))
-  await user.click(await screen.findByRole('button', { name: '项目文件' }))
+  await navigate('项目文件')
   await user.click(await screen.findByRole('button', { name: '预览 实验.xlsx' }))
   await screen.findByRole('cell', { name: '777' }); return user
 }
@@ -99,7 +105,7 @@ test('paginates five projects per page and retains preview and edit draft after 
   expect((screen.getByLabelText('修改项目名称') as HTMLInputElement).value).toBe('未保存草稿')
   await navigate('项目文件')
   expect(screen.getByRole('cell', { name: '777' })).toBeTruthy()
-  expect(window.location.hash).toBe('#project=p1')
+  expect(window.location.hash).toBe('#project=p1&section=files')
   expect(mock.mock.calls.filter(([url]) => url === '/api/v1/projects/p1/files')).toHaveLength(1)
 })
 

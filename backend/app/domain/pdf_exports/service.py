@@ -1,4 +1,5 @@
 """Seal exact successful DOCX objects; never select a newer upstream version."""
+from app.domain.storage_governance import export_candidates as candidates
 from hashlib import sha256
 from pathlib import Path
 from uuid import uuid4
@@ -96,7 +97,8 @@ class PdfExportService:
         task=self.verify(db,row);meta=row['metadata_json'] or {}
         if bool(meta)!=(task['status']=='succeeded'): raise source_conflict()
         if meta and (meta.get('source_sha256')!=row['source_sha256'] or meta.get('input_sha256')!=row['input_sha256'] or meta.get('renderer_manifest')!=row['renderer_identity']): raise source_conflict()
-        return dict(id=row['id'],project_id=row['project_id'],source_kind=row['source_kind'],source_id=row['source_id'],status=task['status'],task_id=row['task_id'],created_at=row['created_at'].isoformat(),
+        mode=candidates.recovery_mode(db,self.assets.directory,task)
+        return dict(recovery_mode=mode,id=row['id'],project_id=row['project_id'],source_kind=row['source_kind'],source_id=row['source_id'],status=task['status'],task_id=row['task_id'],created_at=row['created_at'].isoformat(),
             filename=meta.get('filename'),error_code=task.get('error_code'),source_sha256=row['source_sha256'],parent_export_id=row['parent_export_id'],renderer_manifest=meta.get('renderer_manifest'),sha256=meta.get('sha256'),size_bytes=meta.get('size_bytes'),
             download_url=f"/api/v1/projects/{row['project_id']}/pdf-exports/{row['id']}/download" if meta else None)
 
@@ -112,6 +114,7 @@ class PdfExportService:
             previous=None
             if parent:
                 previous=self.row(db,project,parent);task=self.verify(db,previous)
+                if candidates.hold(db,task): raise StorageError('storage_accounting_unknown','请恢复原导出候选。',409)
                 depth=0;ancestor=previous
                 while ancestor['parent_export_id']:
                     depth+=1;ancestor=self.row(db,project,ancestor['parent_export_id'])
@@ -125,6 +128,13 @@ class PdfExportService:
             task=dict(id=str(uuid4()),project_id=project,user_id=self.store.user_id,task_type='pdf_export',idempotency_key='pdf:'+export_id,input_snapshot=dict(export_id=export_id,**snapshot),workflow_version=WORKFLOW,status='queued',phase='export',revision=1,current_attempt=0,reason_code=None,created_at=timestamp,updated_at=timestamp)
             task['input_digest']=digest(task['input_snapshot'])
             self.store.insert_task(db,task);self.store.append_event(db,task,'created');self.store.enqueue(db,task)
+            from app.domain.admin_configuration.rule_consumption import inherit_task
+            if previous:
+                inherit_task(db,task,parent_task=previous['task_id'])
+            elif request.source_kind in ('review_document_export','manuscript_export'):
+                table={'review_document_export':'review_document_exports','manuscript_export':'manuscript_exports'}[request.source_kind]
+                producer=db.execute('SELECT task_id FROM '+table+' WHERE id=%s',(request.source_id,)).fetchone()
+                inherit_task(db,task,parent_task=producer['task_id'])
             column={'report':'report_id','collection_report':'collection_report_id','manuscript_export':'manuscript_export_id','layout_export':'layout_export_id','review_document_export':'review_document_export_id'}[request.source_kind]
             fields=dict(id=export_id,project_id=project,user_id=self.store.user_id,source_kind=request.source_kind,source_id=request.source_id,task_id=task['id'],parent_export_id=parent,request_key=request.request_key,request_digest=hashed,input_json=Jsonb(snapshot),input_sha256=digest(snapshot),source_sha256=source_hash,renderer_identity=Jsonb(identity),created_at=timestamp)
             fields[column]=request.source_id
@@ -132,7 +142,12 @@ class PdfExportService:
             return self.view(db,self.row(db,project,export_id)),201
 
     def retry(self,project,identity,key):
-        with self.store.connection() as db: row=self.row(db,project,identity)
+        with self.store.connection(write=True) as db:
+            self.store.require_project(db,project)
+            db.execute('SELECT id FROM projects WHERE id=%s FOR UPDATE',(project,)).fetchone()
+            row=self.row(db,project,identity)
+            recovered=candidates.retry_conversion(self,db,row,key,'pdf_exports')
+            if recovered is not None: return recovered
         return self.create(project,dict(source_kind=row['source_kind'],source_id=row['source_id'],request_key=key),identity)
 
     def get(self,project,identity):

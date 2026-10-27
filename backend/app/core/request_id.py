@@ -1,7 +1,9 @@
-"""Bounded tracing for the unified task API, preserving older API contracts."""
+"""Bounded tracing and fail-open safe operational events for all API requests."""
+from datetime import datetime, timezone
 import json
 import logging
 import re
+import time
 from uuid import uuid4
 
 from app.core.errors import INTERNAL_MESSAGE, error_detail
@@ -27,18 +29,19 @@ class RequestIdMiddleware:
 
     async def __call__(self, scope, receive, send):
         path = scope.get('path', '')
-        task_api = path == '/api/v1/tasks' or path.startswith('/api/v1/tasks/')
         model_usage_api = re.fullmatch(r'/api/v1/projects/[^/]+/model-usage/?', path)
         project_tasks_api = re.fullmatch(r'/api/v1/projects/[^/]+/tasks/?', path)
         task_submission = scope.get('method') == 'POST' and re.fullmatch(
             r'/api/v1/projects/[^/]+/files/[^/]+/analysis-runs/[^/]+/(report|boxplot|explanation)/?', path)
         disclosure_api = re.fullmatch(
             r'/api/v1/projects/[^/]+/files/[^/]+/analysis-runs/[^/]+/(boxplot|explanation)/disclosure/?', path)
-        if scope['type'] != 'http' or not (task_api or task_submission or model_usage_api or project_tasks_api or disclosure_api):
+        if scope['type'] != 'http' or not path.startswith('/api/'):
             await self.app(scope, receive, send)
             return
 
         request_id = uuid4().hex
+        began=time.monotonic()
+        created_at=datetime.now(timezone.utc)
         scope.setdefault('state', {})['request_id'] = request_id
         start = None
         body = bytearray()
@@ -49,18 +52,36 @@ class RequestIdMiddleware:
         method = scope.get('method')
         if method not in ('GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS'):
             method = 'OTHER'
+        response_status=500
+        error_code=None
+        candidate_body=bytearray()
+        candidate_overflow=False
+        candidate_json=False
+        task_candidate=None
 
         async def logged_send(message):
+            nonlocal response_status,candidate_overflow,candidate_json
             if message['type'] == 'http.response.start':
                 status = message['status']
+                response_status=status
+                headers={key.lower():value.lower() for key,value in message.get('headers',[])}
+                candidate_json=(status<400 and method=='POST' and
+                    headers.get(b'content-type',b'').split(b';',1)[0].strip()==b'application/json')
                 logger.log(logging.WARNING if status >= 400 else logging.INFO,
                            'task response request_id=%s operation=%s method=%s status=%s',
                            request_id, operation, method, status)
+            elif message['type']=='http.response.body' and candidate_json and not candidate_overflow:
+                chunk=message.get('body',b'')
+                if len(candidate_body)+len(chunk)>self.MAX_ERROR_BYTES:
+                    candidate_body.clear();candidate_overflow=True
+                else:candidate_body.extend(chunk)
             await send(message)
 
         async def send_error(payload):
-            nonlocal start
+            nonlocal start,error_code
             detail = payload['detail']
+            from app.core.errors import PUBLIC_CODES
+            error_code=detail.get('code') if detail.get('code') in PUBLIC_CODES else 'internal_error'
             detail['request_id'] = request_id
             detail['details'] = {}
             encoded = json.dumps(payload, ensure_ascii=False, separators=(',', ':')).encode('utf-8')
@@ -109,4 +130,41 @@ class RequestIdMiddleware:
                     return
             await logged_send(message)
 
-        await self.app(scope, receive, traced_send)
+        try:
+            await self.app(scope, receive, traced_send)
+        finally:
+            # Capture has its own DB acquisition/statement limits. These do not
+            # bound business execution or thread-pool scheduling time.
+            try:
+                from starlette.concurrency import run_in_threadpool
+                from starlette.routing import Match
+                from app.domain import admin_operations
+                route_template=None
+                route=scope.get('route')
+                if route is not None:route_template=getattr(route,'path',None)
+                if route_template is None:
+                    for candidate in getattr(scope.get('app'),'routes',[]):
+                        match,_=candidate.matches(scope)
+                        if match in (Match.FULL,Match.PARTIAL):
+                            route_template=getattr(candidate,'path',None)
+                            if match==Match.FULL:break
+                if route_template is not None and len(route_template)>512:route_template=None
+                state=scope.get('state',{})
+                user=state.get('user') or {}
+                task_candidate=scope.get('path_params',{}).get('task_id')
+                if not task_candidate and candidate_body:
+                    try:
+                        candidate_payload=json.loads(candidate_body)
+                        if isinstance(candidate_payload,dict):
+                            candidate_task=candidate_payload.get('task',candidate_payload)
+                            if isinstance(candidate_task,dict):task_candidate=candidate_task.get('id')
+                    except (ValueError,UnicodeDecodeError):pass
+                if not isinstance(task_candidate,str) or len(task_candidate)>128:task_candidate=None
+                event=dict(request_id=request_id,route_template=route_template,method=method,
+                    status=response_status,elapsed_ms=max(0,int((time.monotonic()-began)*1000)),
+                    user_id=user.get('id'),error_code=error_code,created_at=created_at)
+                await run_in_threadpool(admin_operations.record_request,event,task_candidate)
+            except Exception:
+                # Never change the response, recurse into API logging, or emit
+                # exception text that could contain SQL, paths or credentials.
+                logger.warning('code=operational_capture_unavailable request_id=%s',request_id)

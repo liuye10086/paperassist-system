@@ -5,12 +5,19 @@ import { taskRequest } from '../tasks/taskApi'
 import { useDocumentVisible } from '../tasks/useDocumentVisible'
 import { formatMicroUsd, isTaskUsage, type Budget, type TaskUsage } from './modelUsageTypes'
 import { AccountedAmount, CallReconciliationDisplay, ReconciliationTotals } from './ReconciliationDisplay'
+import { UsageViewTabs } from '../operations/UsageSummaryView'
+import '../operations/usageViews.css'
 import './modelUsage.css'
 
-type Props = { taskId: string; active?: boolean; refreshKey?: number }
-export default function TaskModelUsage(props: Props) { return props.active === false ? null : <Usage key={props.taskId} {...props} /> }
-function Usage({ taskId, active = true, refreshKey = 0 }: Props) {
+type Props = { taskId: string; active?: boolean; layered?: boolean; refreshKey?: number }
+export default function TaskModelUsage(props: Props) {
+  const [visited, setVisited] = useState(props.active !== false)
+  if (props.active !== false && !visited) setVisited(true)
+  return visited || props.active !== false ? <Usage key={props.taskId} {...props} /> : null
+}
+function Usage({ taskId, active = true, layered = false, refreshKey = 0 }: Props) {
   const { t, locale } = useI18n()
+  const [view, setView] = useState('summary')
   const visible = useDocumentVisible()
   const [data, setData] = useState<TaskUsage | null>(null)
   const [page, setPage] = useState(1)
@@ -44,9 +51,10 @@ function Usage({ taskId, active = true, refreshKey = 0 }: Props) {
     {loading && <p role="status">{t('正在读取模型用量……')}</p>}
     {error && <p role="alert" className="error-panel">{t(error)}</p>}
     {!sessionValid && <p role="alert">{t('会话已失效，请重新登录。')}</p>}
+    {layered && <UsageViewTabs label="任务用量工作视图" items={[['summary','综合汇总'],['budgets','预算额度'],['reconciliation','费用核对'],['calls','逐次调用']]} selected={view} onChange={setView}/>}
     {data && <>
       <p className="usage-scope-note">{t('账本可能包含离线模拟回执；演示用量与预算占用不代表实际付费。')}</p>
-      <div className="usage-budgets">{budgets.map(([label, budget]) => <div className="usage-budget-card" key={label}>
+      <div className="usage-budgets usage-layer" hidden={layered && view !== 'budgets'}>{budgets.map(([label, budget]) => <div className="usage-budget-card" key={label}>
         <h4>{t(label)}</h4><dl>
           <div><dt>{t('累计上限')}</dt><dd>{budget.limit_micro_usd === null ? t('未配置') : formatMicroUsd(budget.limit_micro_usd)}</dd></div>
           <div><dt>{t('内部估算')}</dt><dd>{formatMicroUsd(budget.estimated_micro_usd)}</dd></div>
@@ -54,11 +62,12 @@ function Usage({ taskId, active = true, refreshKey = 0 }: Props) {
           <div><dt>{t('预留金额')}</dt><dd>{formatMicroUsd(budget.reserved_micro_usd)}</dd></div>
           <div><dt>{t('可用额度')}</dt><dd>{budget.available_micro_usd === null ? t('未配置') : formatMicroUsd(budget.available_micro_usd)}</dd></div>
         </dl>{budget.exceeded && <p className="usage-exceeded">{t('已超出额度')}</p>}</div>)}</div>
-      <dl className="usage-totals"><div><dt>{t('任务内部估算')}</dt><dd>{formatMicroUsd(data.estimated_micro_usd)}</dd></div>
+      <dl className="usage-totals usage-layer" hidden={layered && view !== 'summary'}><div><dt>{t('任务内部估算')}</dt><dd>{formatMicroUsd(data.estimated_micro_usd)}</dd></div>
         <div><dt>{t('任务预算已计金额')}</dt><dd><AccountedAmount amount={data.accounted_micro_usd} /></dd></div>
         <div><dt>{t('任务预留')}</dt><dd>{formatMicroUsd(data.reserved_micro_usd)}</dd></div>
         <div><dt>{t('估算待完善调用')}</dt><dd>{data.pending_count}</dd></div></dl>
-      <ReconciliationTotals summary={data.reconciliation} />
+      <div className="usage-layer" hidden={layered && view !== 'reconciliation'}><ReconciliationTotals summary={data.reconciliation} /></div>
+      <div className="usage-layer" hidden={layered && view !== 'calls'}>
       {data.total === 0 ? <p className="usage-empty">{t('此任务尚无模型调用记录。')}</p> : <>
         <div className="usage-table-scroll"><table><caption className="visually-hidden">{t('本次任务模型调用')}</caption>
           <thead><tr><th scope="col">{t('模型')}</th><th scope="col">{t('调用来源')}</th><th scope="col">{t('内部估算')}</th><th scope="col">{t('实际已核对部分')}</th><th scope="col">{t('记录时间')}</th></tr></thead>
@@ -79,6 +88,7 @@ function Usage({ taskId, active = true, refreshKey = 0 }: Props) {
           <button type="button" disabled={loading || page <= 1} onClick={() => { setLoading(true); setError(''); setPage(value => value - 1) }}>{t('上一页')}</button>
           <button type="button" disabled={loading || page >= Math.ceil(data.total / 10)} onClick={() => { setLoading(true); setError(''); setPage(value => value + 1) }}>{t('下一页')}</button>
         </nav></>}
+      </div>
     </>}
   </section>
 }

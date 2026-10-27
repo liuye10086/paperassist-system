@@ -1,5 +1,4 @@
 """Checkpointed PubMed reads; every publication is fenced by the existing lease."""
-from datetime import timedelta
 import logging
 from threading import Event, Thread
 import time
@@ -7,29 +6,30 @@ from uuid import uuid4
 
 from psycopg.types.json import Jsonb
 
-from app.adapters.ncbi import NcbiClient, NcbiError, parse_search, parse_fetch
+from app.adapters.ncbi import NcbiClient, NcbiError, get_ncbi_settings, parse_search, parse_fetch
 from app.adapters.task_execution_store import TaskExecutionStore, LeaseLost
 from app.adapters.task_store import TaskStore, source_conflict
 from app.core.exceptions import StorageError
 from app.domain.dataset_preparation.service import append_checkpoint
 from app.domain.literature.objects import LiteratureObjects
-from app.domain.literature.service import digest, require_snapshot, latest_checkpoint
+from app.domain.literature.service import digest, require_snapshot, latest_checkpoint, task_configuration
 from app.domain.tasks.waits import persist_wait
 
 logger = logging.getLogger(__name__)
 
 
 def reserve_request(repository, lease):
-    """Shared 2/s budget across workers; never hold a transaction during HTTP."""
+    """One shared bucket across versions; never hold a transaction during HTTP."""
     with repository.connection(write=True) as db:
         task = repository.require_lease(db, lease)
         repository.require_owner(db, task)
+        interval = task_configuration(db, task)[0]['interval_seconds']
         now = repository.now(db)
         row = db.execute("""INSERT INTO ncbi_rate_limits(scope,next_allowed_at)
-            VALUES ('ncbi-eutilities',%s + interval '0.5 second')
+            VALUES ('ncbi-eutilities',%s + %s * interval '1 second')
             ON CONFLICT(scope) DO UPDATE SET next_allowed_at=
-                GREATEST(ncbi_rate_limits.next_allowed_at,%s)+interval '0.5 second'
-            RETURNING next_allowed_at-interval '0.5 second' AS slot""", (now, now)).fetchone()
+                GREATEST(ncbi_rate_limits.next_allowed_at,%s)+%s * interval '1 second'
+            RETURNING next_allowed_at-%s * interval '1 second' AS slot""", (now, interval, now, interval, interval)).fetchone()
         return max(0.0, (row['slot'] - now).total_seconds())
 
 
@@ -42,6 +42,12 @@ class Retrieval:
             raise source_conflict()
         if self.source_kind == 'synthetic_fixture' and repository.config.environment != 'test':
             raise source_conflict()
+        if client is not None and repository.config.environment != 'test' and not isinstance(client, NcbiClient):
+            raise source_conflict()
+        with repository.connection() as db:
+            task = repository.require_lease(db, lease)
+            repository.require_owner(db, task)
+            self.parameters, self.version = task_configuration(db, task)
 
     def load(self, db):
         task = self.repository.require_lease(db, self.lease)
@@ -53,6 +59,9 @@ class Retrieval:
     def receipt(self, db, task, operation, request, *, evidence=None, error=None):
         identity = str(uuid4())
         evidence = evidence or {}
+        if not error and evidence.get('object_key'):
+            from .storage import publish
+            publish(db,self.repository.assets.directory,task,self.lease,evidence)
         db.execute('''INSERT INTO literature_fetch_receipts
             (id,task_id,project_id,user_id,operation,request_json,request_digest,source_kind,status,error_code,
              object_key,sha256,size_bytes,cached_from_id,attempted_at)
@@ -65,16 +74,25 @@ class Retrieval:
     def obtain(self, operation, request):
         with self.repository.connection() as db:
             task, _, _ = self.load(db)
+            ttl = self.parameters['cache_ttl_seconds']
             cached = db.execute('''SELECT * FROM literature_fetch_receipts
                 WHERE project_id=%s AND user_id=%s AND source_kind=%s AND operation=%s
                   AND request_digest=%s AND status='succeeded' AND cached_from_id IS NULL
-                  AND attempted_at>=clock_timestamp()-interval '24 hours'
+                  AND attempted_at>=clock_timestamp()-%s * interval '1 second'
                 ORDER BY attempted_at DESC,id LIMIT 1''',
-                (task['project_id'],task['user_id'],self.source_kind,operation,digest(request))).fetchone()
+                (task['project_id'],task['user_id'],self.source_kind,operation,digest(request),ttl)).fetchone() if ttl else None
         if cached:
             raw = self.objects.read(cached)
             result = parse_search(raw, request['limit']) if operation == 'esearch' else parse_fetch(raw, request['pmids'])
             return result, {**dict(cached), 'cached_from_id': cached['id']}
+        from . import storage
+        with self.repository.connection(write=True) as db:
+            task,_,_=self.load(db)
+            hold,restored=storage.admit(db,self.repository.assets.directory,task,self.lease,operation,request,self.source_kind)
+        if restored:
+            raw,evidence=restored
+            result=parse_search(raw,request['limit']) if operation=='esearch' else parse_fetch(raw,request['pmids'])
+            return result,evidence
         if self.source_kind == 'ncbi_eutilities':
             time.sleep(reserve_request(self.repository, self.lease))
         with self.repository.connection() as db:
@@ -88,7 +106,10 @@ class Retrieval:
                 task, _, _ = self.load(db)
                 self.receipt(db, task, operation, request, error=exc.code)
             raise
-        return result, {**self.objects.save(result.raw, operation), 'attempted_at': attempted_at}
+        with self.repository.connection(write=True) as db:
+            task,_,_=self.load(db)
+            evidence=storage.capture(db,self.repository.assets.directory,task,self.lease,hold,result.raw,operation,request,self.source_kind,attempted_at)
+        return result,evidence
 
     def wait_configuration(self):
         with self.repository.connection(write=True) as db:
@@ -175,6 +196,8 @@ class Retrieval:
 
 def run_literature_task(task_id, task_revision, *, config=None, directory=None, client=None):
     repository = TaskExecutionStore(config=config,directory=directory)
+    if client is not None and repository.config.environment != 'test':
+        raise source_conflict()
     lease = repository.claim(task_id,task_revision,task_type='literature_search')
     if lease is None: return None
     stop = Event()
@@ -189,7 +212,11 @@ def run_literature_task(task_id, task_revision, *, config=None, directory=None, 
     try:
         if client is None:
             try:
-                client = NcbiClient()
+                with repository.connection() as db:
+                    task = repository.require_lease(db, lease)
+                    repository.require_owner(db, task)
+                    parameters, version = task_configuration(db, task)
+                client = NcbiClient(get_ncbi_settings(version=version), timeout_seconds=parameters['timeout_seconds'])
                 if not client.settings.enabled: raise NcbiError('ncbi_not_configured')
             except NcbiError:
                 return Retrieval(repository,lease,None).wait_configuration()

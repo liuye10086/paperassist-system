@@ -92,11 +92,14 @@ def test_legacy_cached_report_rechecks_revision_after_context_and_keeps_download
         reports.ReportRequest(expected_revision=1, figure_id=figure['id'], explanation_id=explanation['id']), get_project_store())
     download = url + '/' + state['report']['id'] + '/download'
     original_bytes = client.get(download).content
+    with database_connection() as db:
+        predecessor_tasks = {(row['id'],row['task_type']) for row in db.execute('SELECT id,task_type FROM tasks')}
     cached = submit(client, url, figure, explanation)
     assert cached.status_code == 200 and cached.json()['task'] is None
     assert cached.json()['report'] == state['report']
     with database_connection() as db:
-        assert db.execute('SELECT count(*) AS n FROM tasks').fetchone()['n'] == 0
+        assert {(row['id'],row['task_type']) for row in db.execute('SELECT id,task_type FROM tasks')} == predecessor_tasks
+        assert db.execute("SELECT count(*) AS n FROM tasks WHERE task_type='word_report'").fetchone()['n'] == 0
     original_context = reports.context
     def changed(*args):
         value = original_context(*args)

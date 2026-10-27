@@ -131,8 +131,8 @@ class DerivationPreparationService(QualityPreparationService):
         snapshot=validate_snapshot(task);_,base=self.base_object(task['project_id'],snapshot['source'])
         sheet,summary,manifest=self.transform(base,snapshot['source'],state['recipe'],snapshot['operation'])
         content=manifest.model_dump_json().encode('utf-8')
-        ref=dict(**self.manifests.save(candidate_id(task['id']),content),entry_count=len(manifest.entries))
-        return PreparedDatasetObjectV3(parent_source=base.parent_source,base_source=snapshot['source'],operation=snapshot['operation'],recipe=state['recipe'],sheet=sheet,summary=summary,manifest=ref)
+        ref=dict(**self.manifests.describe(candidate_id(task['id']),content),entry_count=len(manifest.entries))
+        return PreparedDatasetObjectV3(parent_source=base.parent_source,base_source=snapshot['source'],operation=snapshot['operation'],recipe=state['recipe'],sheet=sheet,summary=summary,manifest=ref),content
 
     def read_candidate(self,task,checkpoint,*,verified_base=None):
         snapshot=validate_snapshot(task);state=checkpoint['state_json']

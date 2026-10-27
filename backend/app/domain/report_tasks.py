@@ -88,6 +88,9 @@ def retry_word_in_transaction(store, db, task, expected_revision):
     current = store.source_snapshot(db, store.require_project(db, task['project_id']), request)
     if not snapshots_match(current, original, explanation=True):
         raise source_conflict()
+    from app.domain.storage_governance import export_candidates
+    from app.core.config import get_data_dir
+    export_candidates.authorize(db,get_data_dir(),task)
     task.update(status='queued', phase='export', revision=expected_revision + 1,
         reason_code='retry_requested', error_code=None, retry_count=0, _retry_reason='manual_retry',
         updated_at=max(datetime.now(timezone.utc), task['updated_at']))

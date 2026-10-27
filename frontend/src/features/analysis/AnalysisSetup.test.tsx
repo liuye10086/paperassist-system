@@ -161,7 +161,7 @@ test('restored statistics expose an explicit OpenAI generation action without su
   expect(mock.mock.calls.some(call => call[0].endsWith('/boxplot') && call[1]?.method === 'POST')).toBe(false)
 })
 
-test('plot submission locks short actions then queued work releases the workspace', async () => {
+test('real plot submission stays stable across views while busy and queued work releases the workspace', async () => {
   const mock = api({ existing: true, existingResult: true })
   const original = mock.getMockImplementation()!
   let submitted = false
@@ -194,7 +194,9 @@ test('plot submission locks short actions then queued work releases the workspac
   await waitFor(() => expect((screen.getByLabelText('数值列') as HTMLSelectElement).disabled).toBe(true))
   await user.click(screen.getByRole('button', { name: '统计结果' }))
   expect((screen.getByRole('button', { name: '执行描述统计' }) as HTMLButtonElement).disabled).toBe(true)
+  await user.click(screen.getByRole('button', { name: '图表' }))
   await user.click(screen.getByRole('button', { name: '字段配置' }))
+  expect(mock.mock.calls.filter(([url, init]) => url.endsWith('/boxplot') && init?.method === 'POST')).toHaveLength(1)
   expect((screen.getByLabelText('用于分析的文件') as HTMLSelectElement).disabled).toBe(false)
   await act(async () => { finishPost(Response.json(queued)) })
   await waitFor(() => expect((screen.getByLabelText('数值列') as HTMLSelectElement).disabled).toBe(false))
@@ -284,7 +286,7 @@ test('profile failure can be retried', async () => {
   expect(await screen.findByLabelText('数值列')).toBeTruthy()
 })
 
-test('late profile response cannot replace another file', async () => {
+test('late profile response stays bound to its hidden file and cannot replace another file', async () => {
   let finish: (response: Response) => void = () => {}
   api({ slowProfile: new Promise(resolve => { finish = resolve }) })
   const user = userEvent.setup()
@@ -294,11 +296,13 @@ test('late profile response cannot replace another file', async () => {
   await user.selectOptions(screen.getByLabelText('分析工作表'), 'd1')
   await screen.findByText('正在检查整张工作表……')
   await user.selectOptions(screen.getByLabelText('用于分析的文件'), 'f2')
-  const secondVersion = await screen.findByLabelText('原始数据版本') as HTMLSelectElement
-  if (!secondVersion.value) { await user.selectOptions(secondVersion, 's1'); await user.selectOptions(screen.getByLabelText('分析工作表'), 'd1') }
-  await screen.findByLabelText('数值列')
-  finish(Response.json({ ...profile, row_count: 999 }))
-  await waitFor(() => expect(screen.queryByText('整表检查：999 行数据')).toBeNull())
+  const secondVersion = await screen.findByRole('combobox', { name: '原始数据版本' }) as HTMLSelectElement
+  if (!secondVersion.value) { await user.selectOptions(secondVersion, 's1'); await user.selectOptions(screen.getByRole('combobox', { name: '分析工作表' }), 'd1') }
+  await screen.findByRole('combobox', { name: '数值列' })
+  await act(async () => { finish(Response.json({ ...profile, row_count: 999 })) })
+  await user.click(screen.getByRole('button', { name: '数据概况' }))
+  expect(screen.getByText('整表检查：999 行数据').closest('[hidden]')).toBeTruthy()
+  expect(screen.getByText('整表检查：25 行数据').closest('[hidden]')).toBeNull()
   expect((screen.getByLabelText('用于分析的文件') as HTMLSelectElement).value).toBe('f2')
 })
 
@@ -414,10 +418,10 @@ test('pending run disables inputs, prevents duplicate posts and cannot replace a
   expect((screen.getByLabelText('数值列') as HTMLSelectElement).disabled).toBe(true)
   expect(mock.mock.calls.filter(([url]) => url.endsWith('/analysis-runs'))).toHaveLength(1)
   await user.selectOptions(screen.getByLabelText('用于分析的文件'), 'f2')
-  const secondVersion = await screen.findByLabelText('原始数据版本') as HTMLSelectElement
-  if (!secondVersion.value) { await user.selectOptions(secondVersion, 's1'); await user.selectOptions(screen.getByLabelText('分析工作表'), 'd1') }
-  await screen.findByLabelText('数值列')
-  finish(Response.json(statisticsTask(),{status:202}))
+  const secondVersion = await screen.findByRole('combobox', { name: '原始数据版本' }) as HTMLSelectElement
+  if (!secondVersion.value) { await user.selectOptions(secondVersion, 's1'); await user.selectOptions(screen.getByRole('combobox', { name: '分析工作表' }), 'd1') }
+  await screen.findByRole('combobox', { name: '数值列' })
+  await act(async () => { finish(Response.json(statisticsTask(),{status:202})) })
   await waitFor(() => expect(screen.queryByRole('table', { name: '描述统计结果' })).toBeNull())
 })
 

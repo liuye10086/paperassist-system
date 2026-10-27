@@ -15,6 +15,18 @@ beforeEach(()=>{sessionStorage.clear();setApiSession('layout-session','user1')})
 afterEach(()=>{cleanup();vi.useRealTimers();vi.unstubAllGlobals();setLocale('zh-CN')})
 function mock(history:unknown[]=[],catalogValue:unknown=catalog){const bodies:string[]=[];const fetcher=vi.fn(async(url:string,init?:RequestInit)=>{if(init?.method==='POST'){bodies.push(String(init.body));const body=JSON.parse(String(init.body));return Response.json({...row,request_key:body.request_key,layout:body.layout??layout,parent_export_id:url.endsWith('/retry')?'l1':null})}return Response.json(url.endsWith('/catalog')?catalogValue:{items:history})});vi.stubGlobal('fetch',fetcher);return {fetcher,bodies}}
 async function open(){fireEvent.click(screen.getByRole('button',{name:'排版与公式'}));return screen.findByRole('button',{name:'生成排版 DOCX'})}
+it('labels original layout candidate recovery and keeps the original creation identity',async()=>{let recovered=false;vi.stubGlobal('fetch',vi.fn(async(url:string,init?:RequestInit)=>{if(url.endsWith('/catalog'))return Response.json(catalog);const original={...row,status:recovered?'queued':'failed',error_code:recovered?null:'storage_quota_exceeded',can_retry:!recovered,recovery_mode:'local_candidate'};if(init?.method==='POST'){recovered=true;return Response.json({...original,status:'queued',error_code:null,can_retry:false,recovery_request_key:JSON.parse(String(init.body)).request_key})}return Response.json({items:[original]})}));render(<LayoutExports {...props}/>);await open();fireEvent.click(await screen.findByRole('button',{name:'恢复原导出候选'}));await waitFor(()=>expect(screen.getByRole('heading',{name:'排版导出 1 · 待执行'})).toBeTruthy());expect(screen.queryByRole('heading',{name:/排版导出 2/})).toBeNull()})
+it('protects layout options and only blocks leave while the POST is executing',async()=>{
+ let guard=()=>true,dirty=()=>false;const register=(next:()=>boolean,isDirty?:()=>boolean)=>{guard=next;dirty=isDirty??(()=>false);return ()=>{}}
+ let reject!:(error:Error)=>void
+ vi.stubGlobal('alert',vi.fn());vi.stubGlobal('confirm',vi.fn(()=>true))
+ vi.stubGlobal('fetch',vi.fn((url:string,init?:RequestInit)=>init?.method==='POST'?new Promise<Response>((_resolve,rejectRequest)=>{reject=rejectRequest}):Promise.resolve(Response.json(url.endsWith('/catalog')?catalog:{items:[]}))))
+ render(<LayoutExports {...props} registerLeaveGuard={register}/>);await open();expect(dirty()).toBe(false)
+ fireEvent.click(screen.getByRole('checkbox',{name:'添加目录'}));expect(dirty()).toBe(true)
+ fireEvent.click(screen.getByRole('button',{name:'生成排版 DOCX'}));expect(guard()).toBe(false);expect(window.alert).toHaveBeenCalledTimes(1)
+ await act(async()=>reject(Error('Unknown')))
+ expect(dirty()).toBe(true);expect(guard()).toBe(true);expect(window.confirm).toHaveBeenCalledTimes(1)
+})
 it('loads catalog only on opening, submits usable TOC, page, wide object, user formula and reference controls',async()=>{
  const {fetcher,bodies}=mock();render(<LayoutExports {...props}/>);expect(fetcher).not.toHaveBeenCalled();await open()
  fireEvent.click(screen.getByRole('checkbox',{name:'添加目录'}));fireEvent.change(screen.getByLabelText('目录深度'),{target:{value:'2'}})

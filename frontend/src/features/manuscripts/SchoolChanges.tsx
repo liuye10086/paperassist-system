@@ -1,3 +1,4 @@
+import {useManuscriptDraft} from './useManuscriptDraft'
 import {useCallback,useEffect,useRef,useState} from 'react'
 import {apiFetch,onApiSessionChanged} from '../../shared/api/client'
 import {apiError,safeError,useI18n} from '../../shared/i18n'
@@ -22,6 +23,7 @@ function ChangePanel({projectId,manuscriptId,version,currentRevision,active,onAd
  const [upload,setUpload]=useState(false),[items,setItems]=useState<SchoolChange[]>([]),[selected,setSelected]=useState<SchoolChange|null>(null)
  const [mappings,setMappings]=useState<Mapping[]>([]),[preview,setPreview]=useState<SchoolChange|null>(null)
  const [busy,setBusy]=useState(false),[error,setError]=useState(''),[blocked,setBlocked]=useState(false),[refresh,setRefresh]=useState(0)
+ useManuscriptDraft(!!target||!!fileId||!!exportId||JSON.stringify(mappings)!==JSON.stringify(selected?.mappings??[])||!!error,busy)
  const lifetime=useRef(new AbortController()),alive=useRef(true),lock=useRef(false)
  const attempts=useRef(new Map<string,{body:string;key:string}>())
  const clear=useCallback(()=>{
@@ -89,8 +91,7 @@ function ChangePanel({projectId,manuscriptId,version,currentRevision,active,onAd
   if(!validManuscript(result,projectId))throw new Error('学校版本请求失败，请刷新后重试。')
   onAdopted(result);setRefresh(n=>n+1)
  }
- if(!active)return null
- return <section className="manuscript-panel school-changes" aria-label={t('学校版本与回传稿')}>
+ return <section hidden={!active} className="manuscript-panel school-changes" aria-label={t('学校版本与回传稿')}>
   <header><h3>{t('学校版本与回传稿')}</h3><p>{t('基于固定版本 {revision}；另存新版本，保留原稿与原导出。',{revision:version.revision})}</p><button type="button" disabled={busy||blocked} onClick={()=>setRefresh(n=>n+1)}>{t('刷新版本输入')}</button></header>
   {error&&<p role="alert" className="error-panel">{t(error)}</p>}
   {blocked?<p role="alert">{t('会话或项目访问已变化，请重新打开项目。')}</p>:<>

@@ -11,21 +11,25 @@ import './structureVersions.css';
 import ParsedEvidencePanel from '../parsedEvidence/ParsedEvidencePanel';
 import FileImpactReview from '../files/FileImpactReview';
 import useLifecycleSubmission from '../files/useLifecycleSubmission';
+import type { RegisterLeaveGuard } from '../projects/useDraftLeaveGuard';
 type Props = {
     projectId: string;
     fileId: string;
     filename: string;
     active: boolean;
     onUnavailable: () => void;
+    registerLeaveGuard?: RegisterLeaveGuard;
 };
 const live = (v: StructureVersion) => ['queued', 'running'].includes(v.task.status);
 function letter(column: number) { let result = ''; for (let n = column; n > 0; n = Math.floor((n - 1) / 26))
     result = String.fromCharCode(65 + (n - 1) % 26) + result; return result; }
 export default function StructureVersions(props: Props) { return <Panel key={JSON.stringify([props.projectId,props.fileId])} {...props}/>; }
-function Panel({ projectId, fileId, filename, active, onUnavailable }: Props) {
+function Panel({ projectId, fileId, filename, active, onUnavailable, registerLeaveGuard }: Props) {
     const { t, locale } = useI18n();
     const visible = useDocumentVisible();
-    const [preparing, setPreparing] = useState(false);
+    const [preparing, setPreparing] = useState<DatasetSummary[]>([]);
+    const [preparingId, setPreparingId] = useState('');
+    const [view, setView] = useState<'structure' | 'prepare' | 'history'>('structure');
     const [history, setHistory] = useState(false);
     const [page, setPage] = useState(1);
     const [list, setList] = useState<StructurePage | null>(null);
@@ -50,7 +54,7 @@ function Panel({ projectId, fileId, filename, active, onUnavailable }: Props) {
     const mounted = useRef(true);
     const [pending, setPending] = useState(false);
     const base = `/api/v1/projects/${encodeURIComponent(projectId)}/files/${encodeURIComponent(fileId)}`;
-    const clear = () => { submission.invalidate();setReview(false);requests.current.forEach(c => c.abort()); post.current?.abort(); setValid(false); setList(null); setSelected(null); setRows(null); setCell(null); setError(''); setRowError(''); };
+    const clear = () => { submission.invalidate();setPreparing([]);setHistory(false);setReview(false);requests.current.forEach(c => c.abort()); post.current?.abort(); setValid(false); setList(null); setSelected(null); setRows(null); setCell(null); setError(''); setRowError(''); };
     const unavailable = useRef(onUnavailable);
     useEffect(() => { unavailable.current = onUnavailable; }, [onUnavailable]);
     useEffect(() => { mounted.current = true; const tracked = requests.current; const unsubscribe = onApiSessionChanged(clear); return () => { mounted.current = false; unsubscribe(); tracked.forEach(c => c.abort()); post.current?.abort(); }; }, []);
@@ -71,7 +75,7 @@ function Panel({ projectId, fileId, filename, active, onUnavailable }: Props) {
         }
     }
     useEffect(() => {
-        if (!active || !visible || !valid)
+        if (!active || view !== 'structure' || !visible || !valid)
             return;
         let current = true;
         let timer = 0;
@@ -117,11 +121,11 @@ function Panel({ projectId, fileId, filename, active, onUnavailable }: Props) {
         }
         void load();
         return () => { current = false; controller.abort(); tracked.delete(controller); window.clearTimeout(timer); };
-    }, [base, projectId, fileId, page, refresh, active, visible, valid]);
+    }, [base, projectId, fileId, page, refresh, active, view, visible, valid]);
     const dataset = selected?.datasets[sheet];
     const visibleRows = !sourceUnavailable && !rowError && rows?.dataset.id === dataset?.id && rows?.start_row === start ? rows : null;
     useEffect(() => {
-        if (!dataset || !active || !visible || !valid)
+        if (!dataset || !active || view !== 'structure' || !visible || !valid)
             return;
         let current = true;
         const controller = new AbortController();
@@ -145,7 +149,7 @@ function Panel({ projectId, fileId, filename, active, onUnavailable }: Props) {
         return () => { current = false; controller.abort(); tracked.delete(controller); if (rowRequest.current === controller) rowRequest.current = null; };
         // The immutable dataset ID, rather than refreshed summary identity, controls row reads.
         // oxlint-disable-next-line react-hooks/exhaustive-deps
-    }, [base, dataset?.id, start, active, visible, valid, refresh]);
+    }, [base, dataset?.id, start, active, view, visible, valid, refresh]);
     function choose(v: StructureVersion) { selectedId.current = v.id; setSelected(v); setSheet(0); setStart(1); setRows(null); setRowError(''); setSourceUnavailable(false); setCell(null); }
     function generate() { if (list && !loading && valid && !pending && !submission.unknown && !submission.busy) setReview(true); }
     const submission = useLifecycleSubmission<StructureVersion>((r, signal) => {
@@ -158,8 +162,14 @@ function Panel({ projectId, fileId, filename, active, onUnavailable }: Props) {
     const busy=submission.busy, unknown=submission.unknown;
     return <section className="structure-versions" aria-label={t('原始结构与版本')} aria-busy={loading || busy}>
   <h3>{t('原始结构与版本')}</h3>
-  <button onClick={() => setHistory(true)}>{t('整理版本历史')}</button>
-  {history && active && valid && <PreparedHistory projectId={projectId} fileId={fileId} rawDataset={dataset} />}
+  <nav className="material-task-nav" aria-label={t('数据材料任务')}>
+    <button aria-pressed={view === 'structure'} onClick={() => setView('structure')}>{t('原始结构')}</button>
+    <button aria-pressed={view === 'history'} onClick={() => { setHistory(true); setView('history') }}>{t('整理版本历史')}</button>
+  </nav>
+  {view !== 'structure' && <button className="material-back" onClick={() => setView('structure')}>{t('返回原始结构')}</button>}
+  {history && valid && <div hidden={view !== 'history'}><PreparedHistory projectId={projectId} fileId={fileId} rawDataset={dataset} active={active && view === 'history'} registerLeaveGuard={registerLeaveGuard} /></div>}
+  {valid && !sourceUnavailable && preparing.map(source => <div key={source.id} hidden={view !== 'prepare' || preparingId !== source.id}><PreparationPanel projectId={projectId} fileId={fileId} dataset={source} viewActive={active && view === 'prepare' && preparingId === source.id} registerLeaveGuard={registerLeaveGuard} /></div>)}
+  <div hidden={view !== 'structure'}>
   <p className="muted">{t('原始结构只读；新分析需在字段配置中明确选择数据版本。完整输出上限为 4 MiB；超过额度整次失败，不保存截断版本。')}</p>
   <div className="structure-actions"><button className="button-primary" disabled={!list || loading || busy || pending || !valid || !submission.valid || unknown} onClick={() => void generate()}>{t(list?.latest_version ? '生成新版本' : '生成结构版本')}</button>
    <button disabled={loading || busy || !valid} onClick={() => { setLoading(true); setError(''); setRefresh(n => n + 1); }}>{t('重新读取版本')}</button>
@@ -171,14 +181,14 @@ function Panel({ projectId, fileId, filename, active, onUnavailable }: Props) {
    {!list.total && <p>{t('尚未生成结构版本。')}</p>}<div className="structure-pagination"><button disabled={page === 1 || loading} onClick={() => setPage(n => n - 1)}>{t('上一页版本')}</button><span>{t('版本页 {page}', { page })}</span><button disabled={page * 5 >= list.total || loading} onClick={() => setPage(n => n + 1)}>{t('下一页版本')}</button></div></>}
   {selected && valid && <><h4>{t('结构版本 {version}', { version: selected.version })}</h4><p>{t(statusNames[selected.task.status])}</p>
    {!!selected.datasets.length && <><label>{t('工作表')} <select aria-label={t('结构工作表')} value={sheet} onChange={event => { setSheet(Number(event.target.value)); setStart(1); setRows(null); setRowError(''); setSourceUnavailable(false); setCell(null); }}>{selected.datasets.map((d, i) => <option key={d.id} value={i}>{d.sheet_name}</option>)}</select></label>
-    {dataset && <>{active&&!sourceUnavailable&&<ParsedEvidencePanel projectId={projectId} fileId={fileId} versionId={dataset.id} kind="dataset_version" onUnavailable={lost}/>}<button disabled={sourceUnavailable} onClick={() => setPreparing(true)}>{t('整理数据')}</button>
-     {preparing && active && !sourceUnavailable && <PreparationPanel projectId={projectId} fileId={fileId} dataset={dataset} />}
+    {dataset && <>{active&&view==='structure'&&!sourceUnavailable&&<ParsedEvidencePanel projectId={projectId} fileId={fileId} versionId={dataset.id} kind="dataset_version" onUnavailable={lost}/>}<button disabled={sourceUnavailable} onClick={() => { setPreparing(current => current.some(d => d.id === dataset.id) ? current : [...current, dataset]); setPreparingId(dataset.id); setView('prepare') }}>{t('整理数据')}</button>
      <DatasetFacts dataset={dataset}/>{!sourceUnavailable && <ProjectDownloadLink href={`${base}/dataset-versions/${encodeURIComponent(dataset.id)}/download`} filename={`structure-v${dataset.version}-sheet${dataset.sheet_index + 1}.json`} onHttpError={downloadRejected}>{t('下载完整 JSON')}</ProjectDownloadLink>}
      {rowError && <p role="alert">{t(rowError)}</p>}{!rows && !rowError && <p role="status">{t('正在读取原始行……')}</p>}
      {visibleRows && <><div className="structure-table-scroll"><table><caption>{filename} · {dataset.sheet_name} · {t('原始数据版本 {version}', { version: dataset.version })}</caption><thead><tr><th>{t('原始行')}</th>{Array.from({ length: dataset.column_count }, (_, i) => <th key={i}>{letter(i + 1)}</th>)}</tr></thead><tbody>{visibleRows.rows.map(r => <tr key={r.row}><th scope="row">{r.row}</th>{Array.from({ length: dataset.column_count }, (_, i) => { const c = r.cells.find(v => v.column === i + 1); return <td key={i}><button aria-label={t('查看单元格 {coordinate} 来源', { coordinate: `${letter(i + 1)}${r.row}` })} onClick={() => setCell(c ?? { row: r.row, column: i + 1, coordinate: `${letter(i + 1)}${r.row}`, kind: 'blank', value: null, raw_type: null, raw_value: null, number_format: '', formula: null })}>{c?.value === null || c?.value === undefined ? t('空值') : String(c.value) === '' ? t('空字符串') : String(c.value)}</button></td>; })}</tr>)}</tbody></table></div><div className="structure-pagination"><button disabled={start === 1} onClick={() => { setCell(null); setStart(n => Math.max(1, n - 20)); }}>{t('上一页原始行')}</button><span>{t('原始行 {start}–{end} / {total}', { start: dataset.row_count ? start : 0, end: Math.min(start + 19, dataset.row_count), total: dataset.row_count })}</span><button disabled={!visibleRows.has_more} onClick={() => { setCell(null); setStart(n => n + 20); }}>{t('下一页原始行')}</button></div></>}
      {cell && <CellDetails cell={cell} dataset={dataset} filename={filename} stored={!!rows?.rows.find(r => r.row === cell.row)?.cells.some(c => c.column === cell.column)} onClose={() => setCell(null)}/>}</>}
    </>}
   </>}
+  </div>
  </section>;
 }
 function DatasetFacts({ dataset: d }: {

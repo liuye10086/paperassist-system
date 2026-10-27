@@ -214,13 +214,16 @@ def test_changed_png_and_failed_local_save_are_not_silently_regenerated(client, 
 def test_save_failure_leaves_cloud_job_resumable_without_another_charge(client, cloud, reject_database_write):
     from app.domain.boxplot import poll_pending_figures
     _, _, _, url = prepared(client)
-    seed_legacy(client, url)
+    job=seed_legacy(client, url)
     with reject_database_write('figures'):
         poll_pending_figures()
     assert client.get(url).json()['figure'] is None
-    assert client.get(url).json()['job']['status'] == 'running'
+    assert client.get(url).json()['job']['status'] == 'failed'
     poll_pending_figures()
-    assert client.get(url).json()['figure'] is not None
+    assert client.get(url).json()['figure'] is None
+    response=client.post(url,json={'expected_revision':1,'retry':True,'expected_predecessor_id':job['id']})
+    assert response.status_code==200,response.text
+    assert response.json()['figure'] is not None and response.json()['job']['id']==job['id']
     assert not cloud.calls
 
 
@@ -296,12 +299,16 @@ def test_legacy_unknown_submission_blocks_even_explicit_paid_retry(client, cloud
     _, _, _, url = prepared(client)
     seed_legacy(client, url, status='uncertain', response_id=None)
     expected = client.get(url).json()
+    with database_connection() as db:
+        original_ids={table:[row['id'] for row in db.execute('SELECT id FROM '+table+' ORDER BY id')]
+                      for table in ('tasks','model_calls','figure_jobs')}
     for retry in (False, True):
         assert client.post(url, json={'expected_revision': 1, 'retry': retry}).json() == expected
     assert expected['job']['status'] == 'uncertain'
     assert not cloud.calls
     with database_connection() as db:
-        assert db.execute('SELECT count(*) AS n FROM tasks').fetchone()['n'] == 0
+        assert {table:[row['id'] for row in db.execute('SELECT id FROM '+table+' ORDER BY id')]
+                for table in original_ids}==original_ids
 
 
 def test_stale_legacy_submitting_becomes_unknown_only_in_scanner_without_key(client, cloud, monkeypatch):

@@ -6,6 +6,9 @@ import {summaryFixture} from '../../test/fixtures/summaryFixture'
 const hash='a'.repeat(64),scope={projectId:'p1',sourceKind:'report' as const,sourceId:'r1',sourceSha256:hash}
 const layout=emptyLayout(hash)
 const row={id:'l1',project_id:'p1',source_kind:'report',source_id:'r1',source_sha256:hash,status:'queued',task_id:'lt1',created_at:'2026-10-20T00:00:00Z',layout,layout_version:'document_layout_v1',output_language:'en',request_key:'key',can_retry:false,parent_export_id:null,filename:null,error_code:null,renderer_manifest:null,sha256:null,size_bytes:null,download_url:null}
+
+it('recovers the original layout/task with a recovery key while retaining the original creation key',async()=>{const original={...row,status:'failed',can_retry:true,error_code:'storage_quota_exceeded',recovery_mode:'local_candidate'} as import('./layoutApi').LayoutExport;vi.stubGlobal('fetch',vi.fn(async(_url,init)=>Response.json({...original,status:'queued',can_retry:false,recovery_request_key:JSON.parse(init.body).request_key})));const result=await submitLayout(scope,undefined,new AbortController(),original.id,original);expect(result.id).toBe('l1');expect(result.task_id).toBe('lt1');expect(result.request_key).toBe('key')})
+it('does not accept a substituted task in original layout recovery',async()=>{const original={...row,status:'failed',can_retry:true,error_code:'storage_quota_exceeded',recovery_mode:'local_candidate'} as import('./layoutApi').LayoutExport;vi.stubGlobal('fetch',vi.fn(async(_url,init)=>Response.json({...original,task_id:'other',status:'queued',can_retry:false,recovery_request_key:JSON.parse(init.body).request_key})));await expect(submitLayout(scope,undefined,new AbortController(),original.id,original)).rejects.toThrow()})
 afterEach(()=>vi.unstubAllGlobals())
 beforeEach(()=>{sessionStorage.clear();setApiSession('session','owner1');vi.unstubAllGlobals()})
 it('strictly validates normalized fields and forbids source or artifact substitution',()=>{

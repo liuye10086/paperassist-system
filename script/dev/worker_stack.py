@@ -61,6 +61,21 @@ def _identity(root: Path, test_id: str | None = None):
     return root, root / 'script' / '.runtime' / 'workers' / name, project
 
 
+def build_fingerprint() -> str:
+    """Bind reuse to the source files copied into the two local images."""
+    inputs = [ROOT / relative for relative in (
+        '.dockerignore', 'backend/requirements.txt', 'infra/worker/Dockerfile',
+        'infra/worker/runtime_probe.py', 'infra/pdf/Dockerfile',
+        'infra/pdf/renderer.py', 'infra/pdf/update_fields.py', 'compose.workers.yml')]
+    inputs.extend(path for path in (ROOT / 'backend/app').rglob('*')
+                  if path.is_file() and '__pycache__' not in path.parts and path.suffix != '.pyc')
+    fingerprint = hashlib.sha256()
+    for path in sorted(inputs):
+        fingerprint.update(path.relative_to(ROOT).as_posix().encode('utf-8') + b'\0')
+        fingerprint.update(hashlib.sha256(path.read_bytes()).digest())
+    return fingerprint.hexdigest()
+
+
 def prepare(root: Path, values: dict, *, test_id=None, assets: Path | None = None) -> Stack:
     root, directory, project = _identity(root, test_id)
     mode = 'test' if test_id else 'development'
@@ -126,12 +141,9 @@ def prepare(root: Path, values: dict, *, test_id=None, assets: Path | None = Non
     private_write(directory / 'ncbi-config',ncbi_text)
     default_fonts = str(Path(os.environ.get('WINDIR', 'C:/Windows')) / 'Fonts') if os.name == 'nt' else '/usr/local/share/fonts/paperassist'
     fonts = str(Path(values.get('PAPERASSIST_PDF_FONTS_DIR') or default_fonts).expanduser().resolve())
-    renderer_inputs = hashlib.sha256()
-    for relative in ('backend/app/adapters/pdf_renderer_lock.json', 'infra/pdf/Dockerfile', 'infra/pdf/renderer.py', 'infra/pdf/update_fields.py', 'compose.workers.yml'):
-        renderer_inputs.update((ROOT / relative).read_bytes())
     writing_live_enabled = '1' if not test_id and values.get('PAPERASSIST_WRITING_LIVE_ENABLED') == '1' else '0'
     fingerprint = hashlib.sha256((url.render_as_string(hide_password=False) + '\0' + model_key + '\0' + ncbi_text + '\0' + writing_live_enabled
-                                  + '\0' + fonts + '\0' + renderer_inputs.hexdigest()).encode()).hexdigest()
+                                  + '\0' + fonts + '\0' + str(data) + '\0' + build_fingerprint()).encode()).hexdigest()
     environment = {
         'PAPERASSIST_STACK_PROJECT': project,
         'PAPERASSIST_STACK_ROOT': str(root),

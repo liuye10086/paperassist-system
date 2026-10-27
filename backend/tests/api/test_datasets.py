@@ -205,7 +205,13 @@ def test_database_publication_failure_and_recovery(client):
         with migration_connection() as db:
             db.execute('DROP TRIGGER reject_dataset_test ON dataset_versions')
             db.execute('DROP FUNCTION reject_dataset_test()')
-    assert store.complete(lease,snapshot,result)['status']=='succeeded'
+    # Unknown durable bytes are recovered only through the explicit business
+    # retry action, retaining this task and its immutable structure version.
+    from app.domain.tasks.dataset_execution import run_dataset_task
+    failed=repo.fail(lease,'storage_unavailable')
+    retried=client.post('/api/v1/tasks/'+lease.task_id+'/retry',json={'expected_revision':failed['revision']})
+    assert retried.status_code==202,retried.text
+    assert run_dataset_task(lease.task_id,retried.json()['revision'],parser=structure_parser)['status']=='succeeded'
 
 
 def test_concurrent_creations_register_single_attempt(client):

@@ -197,6 +197,57 @@ def test_malformed_provider_pmids_rejected_before_consumer_sql(pmid):
     with pytest.raises(ncbi.NcbiError): c.fetch([pmid])
     assert not s.calls
 
+
+def test_version_timeout_is_consumed_by_fixed_transport():
+    session = Session(Response(search_data()))
+    c = ncbi.NcbiClient(ncbi.NcbiSettings(True,'PaperAssist','synthetic@example.invalid','secret'),
+        session=session, timeout_seconds=3)
+    assert c.search('synthetic',20,'relevance').count == 2
+    assert session.calls[0][1]['timeout'] == (3,3)
+    assert session.calls[0][1]['params']['tool'] == 'PaperAssist'
+    for value in (0,31,True,'3'):
+        with pytest.raises(ncbi.NcbiError):
+            ncbi.NcbiClient(session=session, timeout_seconds=value)
+
+
+def test_explicit_deployment_disable_wins_over_private_identity_file(tmp_path,monkeypatch):
+    path = tmp_path/'synthetic-identity'
+    path.write_text(json.dumps({'enabled':True,'tool':'PaperAssist','email':'synthetic@example.invalid','api_key':'secret'}))
+    monkeypatch.setattr(ncbi,'local_config',lambda:{'PAPERASSIST_NCBI_CONFIG_FILE':str(path),'PAPERASSIST_NCBI_ENABLED':'0'})
+    settings = ncbi.get_ncbi_settings()
+    assert settings.enabled is False
+    session = Session(Response(search_data()))
+    with pytest.raises(ncbi.NcbiError):
+        ncbi.NcbiClient(settings,session=session).search('synthetic',20,'relevance')
+    assert session.calls == []
+
+
+def test_bound_version_disabled_and_identity_revision_cannot_open_transport(monkeypatch):
+    monkeypatch.setattr(ncbi,'local_config',lambda:{'PAPERASSIST_NCBI_ENABLED':'1','PAPERASSIST_NCBI_EMAIL':'synthetic@example.invalid'})
+    version = {'bundle': {'ncbi': {'enabled':False,'identity':{'alias':'ncbi-default','revision':'deployment-v1'}}}}
+    session = Session(Response(search_data()))
+    settings = ncbi.get_ncbi_settings(version=version)
+    assert settings.enabled is False
+    with pytest.raises(ncbi.NcbiError):
+        ncbi.NcbiClient(settings,session=session).search('synthetic',20,'relevance')
+    assert session.calls == []
+    for alias, revision in [('openai-default','deployment-v1'),('ncbi-default','unknown')]:
+        version['bundle']['ncbi']['identity'] = {'alias':alias,'revision':revision}
+        with pytest.raises(ncbi.NcbiError,match='ncbi_not_configured'):
+            ncbi.get_ncbi_settings(version=version)
+
+
+def test_worker_client_injection_is_only_available_in_test_environment(monkeypatch):
+    from types import SimpleNamespace
+    from app.domain.literature import execution
+    from app.core.exceptions import StorageError
+    from tests.helpers.literature import SyntheticNcbi
+    repository = SimpleNamespace(config=SimpleNamespace(environment='production'))
+    monkeypatch.setattr(execution,'TaskExecutionStore',lambda **kwargs:repository)
+    with pytest.raises(StorageError) as error:
+        execution.run_literature_task('synthetic-task',1,client=SyntheticNcbi(0))
+    assert error.value.code == 'task_source_conflict'
+
 def test_twelve_digit_pmid_is_accepted():
     assert ncbi.parse_search(search_data(idlist=['123456789012'],count='1'),20).pmids==['123456789012']
 

@@ -117,13 +117,15 @@ class WritingService:
         calls=saved_calls(db,task);live=task['input_snapshot']['schema_version']==2
         if live:
             from .policy import capabilities
+            from app.domain.admin_configuration.bindings import resolve
+            live_enabled=capabilities(resolve(db,kind='task',object_id=task['id']))['real_calls_enabled']
             rows=db.execute('SELECT c.id,c.provider_state,a.bundle_id,a.authorization_id,a.logical_task_id FROM model_calls c JOIN manuscript_writing_call_admissions a ON a.model_call_id=c.id WHERE c.task_id=%s ORDER BY c.created_at,c.id',(task['id'],)).fetchall()
             if len(rows)!=len(calls): raise source_conflict()
             for call,saved in zip(calls,rows):
                 provenance=(saved['provider_state'] or {}).get('writing_provider_provenance','not_submitted')
                 call.update(id=saved['id'],provider_provenance=provenance,provenance=provenance,
                     bundle_id=saved['bundle_id'],authorization_id=saved['authorization_id'],logical_task_id=saved['logical_task_id'])
-        return dict(id=request_id,project_id=project,manuscript_id=identity,base_revision=row['request_json']['base_revision'],task=self.store.public_task(task),input=row['request_json'],candidate=row['candidate_json'],published_revision=row['published_revision'],model_calls=calls,schema_version=task['input_snapshot']['schema_version'],real_calls_enabled=capabilities()['real_calls_enabled'] if live else False,preservation_check=dict(non_target_sections_preserved=True) if row['candidate_json'] else None)
+        return dict(id=request_id,project_id=project,manuscript_id=identity,base_revision=row['request_json']['base_revision'],task=self.store.public_task(task),input=row['request_json'],candidate=row['candidate_json'],published_revision=row['published_revision'],model_calls=calls,schema_version=task['input_snapshot']['schema_version'],real_calls_enabled=live_enabled if live else False,preservation_check=dict(non_target_sections_preserved=True) if row['candidate_json'] else None)
 
     def get(self,project,identity,request_id):
         with self.store.connection() as db: return self.view(db,project,identity,request_id)
@@ -156,7 +158,7 @@ class WritingService:
                 candidate=deepcopy(row['candidate_json']);version_id=str(uuid4());timestamp=now()
                 body=deepcopy(base['request_json']);body['expected_revision']=expected_revision;body['title']=candidate['title']
                 snap=dict(project_id=project,manuscript_id=identity,manuscript_version_id=version_id,revision=revision,output_language=candidate['output_language'],workflow_version=base['snapshot_json']['workflow_version'],snapshot_sha256=digest(candidate))
-                producer=self.manuscripts.task(db,project,'manuscript_draft',snap,'manuscript:'+version_id)
+                producer=self.manuscripts.task(db,project,'manuscript_draft',snap,'manuscript:'+version_id,validated_sources=candidate['sources'])
                 db.execute('INSERT INTO manuscript_versions(id,project_id,user_id,idempotency_key,request_json,request_digest,manuscript_id,revision,parent_version_id,task_id,snapshot_json,snapshot_sha256,created_at,school_confirmation_id) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)',(version_id,project,self.store.user_id,'writing:'+request_id,Jsonb(body),digest(body),identity,revision,base['id'],producer['id'],Jsonb(candidate),digest(candidate),timestamp,base.get('school_confirmation_id')))
                 for table in ('manuscript_sources','manuscript_citations'):
                     for original in db.execute('SELECT * FROM '+table+' WHERE version_id=%s',(base['id'],)).fetchall():

@@ -57,6 +57,8 @@ def postgres_schema(request, monkeypatch, tmp_path):
             connection.exec_driver_sql(f'CREATE SCHEMA {quoted_schema}')
         created = True
         migrate_database(migration_config)
+        from app.domain.storage_governance.deletion import register_new_test_schema
+        register_new_test_schema(schema)
         yield config
     finally:
         try:

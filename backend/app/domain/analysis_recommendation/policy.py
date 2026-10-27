@@ -31,23 +31,30 @@ class RecommendationPolicy(StrictContract):
     @model_validator(mode='after')
     def fixed(self):
         if (self.policy.model!='gpt-5.6-sol' or self.policy.tools or self.policy.prompt_version not in (VERSION,VERSION_V2,VERSION_V3,VERSION_V4,VERSION_V5)
-                or self.policy.output_format!=self.policy.prompt_version or self.task_limit_micro_usd!=500000
+                or self.policy.output_format!=self.policy.prompt_version or not 0<=self.task_limit_micro_usd<=500000
                 or self.input_token_allowance<1):
             raise ValueError('A bounded no-tool recommendation policy is required.')
         return self
 
 
-def validate_execution_policy(value, payload=None):
+def validate_execution_policy(value, payload=None, *, instructions=None):
     from app.adapters.models.openai_responses import canonical_payload
     try:
         parsed=RecommendationPolicy.model_validate(value)
         if payload is not None:
             version={1:VERSION,2:VERSION_V2,3:VERSION_V3,4:VERSION_V4,5:VERSION_V5}[payload.get('schema_version',1)]
-            if parsed.policy.prompt_version!=version or len(instructions_for(payload).encode())+len(canonical_payload(payload).encode())+4096>parsed.input_token_allowance:
+            if parsed.policy.prompt_version!=version or len((instructions if instructions is not None else instructions_for(payload)).encode())+len(canonical_payload(payload).encode())+4096>parsed.input_token_allowance:
                 raise ValueError('Planning input exceeds its frozen version or allowance.')
         return parsed.model_dump(mode='json')
     except (ValueError,TypeError):
         raise StorageError('recommendation_not_configured','模型规划策略未配置或输入超出限额。',503) from None
+
+
+def derive_execution_policy(value,payload,*,instructions=None):
+    validate_execution_policy(value)
+    version={1:VERSION,2:VERSION_V2,3:VERSION_V3,4:VERSION_V4,5:VERSION_V5}[payload.get('schema_version',1)]
+    value={**value,'policy':{**value['policy'],'prompt_version':version,'output_format':version}}
+    return validate_execution_policy(value,payload,instructions=instructions)
 
 
 def get_execution_policy(payload):

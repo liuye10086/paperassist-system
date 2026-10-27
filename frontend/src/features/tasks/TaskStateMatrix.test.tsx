@@ -149,11 +149,12 @@ it('shows bilingual unknown submission and pending cost without inventing a free
     const usagePanel = screen.getByRole('region', { name: english ? 'Task usage' : '本次任务用量' })
     const row = within(usagePanel).getByText('test-model', { exact: true }).closest('tr')!
     const cells = within(row).getAllByRole('cell')
-    expect(cells[1].textContent).toBe(english ? 'Awaiting reconciliation' : '待核对')
-    expect(within(cells[2]).getByText(english ? 'Awaiting actual reconciliation' : '尚未核对', { exact: true })).toBeTruthy()
-    expect(within(cells[2]).getByText(english ? 'Model cost: Awaiting reconciliation' : '模型费用：待核对', { exact: true })).toBeTruthy()
-    expect(within(cells[2]).getByText(english ? 'Tool cost: Awaiting reconciliation' : '工具费用：待核对', { exact: true })).toBeTruthy()
-    for (const cell of [cells[1], cells[2]]) expect(cell.textContent).not.toMatch(/USD|\$0|免费|free/i)
+    expect(cells[1].textContent).toBe(english ? 'Historical record: provenance not recorded' : '历史记录：来源未标注')
+    expect(cells[2].textContent).toBe(english ? 'Awaiting reconciliation' : '待核对')
+    expect(within(cells[3]).getByText(english ? 'Awaiting actual reconciliation' : '尚未核对', { exact: true })).toBeTruthy()
+    expect(within(cells[3]).getByText(english ? 'Model cost: Awaiting reconciliation' : '模型费用：待核对', { exact: true })).toBeTruthy()
+    expect(within(cells[3]).getByText(english ? 'Tool cost: Awaiting reconciliation' : '工具费用：待核对', { exact: true })).toBeTruthy()
+    for (const cell of [cells[2], cells[3]]) expect(cell.textContent).not.toMatch(/USD|\$0|免费|free/i)
   }
   expect(fetch.mock.calls.filter(([, init]) => init?.method && init.method !== 'GET')).toHaveLength(0)
 })

@@ -25,7 +25,7 @@ test.each(['history','profile'])('%s allows a fresh quality draft from the same 
  await user.click(await screen.findByRole('button',{name:'按此版本处理质量问题'}))
  await user.click(await screen.findByRole('button',{name:'生成质量预览'}))
  await screen.findByText('已发布：原始数据 v1 · 整理数据 v2')
- await user.click(screen.getByRole('button',{name:'按此版本处理质量问题'}))
+ await user.click(screen.getByRole('button',{name:entry==='history'?'按原规则新建整理任务':'按此版本处理质量问题'}))
  await waitFor(()=>expect(screen.getByRole('button',{name:'生成质量预览'})).toBeTruthy())
  expect(screen.queryByText('已发布：原始数据 v1 · 整理数据 v2')).toBeNull()
  expect(fetch.mock.calls.filter(([url])=>url.endsWith('/dataset-quality-preparations'))).toHaveLength(1)

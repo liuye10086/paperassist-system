@@ -1,6 +1,7 @@
 """Ordinary authenticated DOCX exports, bound to one immutable document."""
 from hashlib import sha256
 from pathlib import Path
+from app.domain.storage_governance import export_candidates as candidates
 from uuid import UUID, uuid4
 from psycopg.types.json import Jsonb
 from app.adapters.task_store import TaskStore, source_conflict
@@ -68,6 +69,8 @@ class ReviewDocumentExportService:
             task=dict(id=str(uuid4()),project_id=project,user_id=self.store.user_id,task_type='review_document_export',idempotency_key='review-document:'+identity,input_snapshot=dict(export_id=identity,**snap),workflow_version=WORKFLOW,status='queued',phase='export',revision=1,current_attempt=0,reason_code=None,created_at=timestamp,updated_at=timestamp)
             task['input_digest']=digest(task['input_snapshot'])
             self.store.insert_task(db,task);self.store.append_event(db,task,'created');self.store.enqueue(db,task)
+            from app.domain.admin_configuration.rule_consumption import inherit_task
+            inherit_task(db,task,round_id=doc['round_id'])
             db.execute('INSERT INTO review_document_exports(id,project_id,user_id,document_id,task_id,idempotency_key,request_json,request_digest,snapshot_json,snapshot_sha256,created_at) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)',
                 (identity,project,self.store.user_id,document_id,task['id'],key,Jsonb(body),digest(body),Jsonb(snap),digest(snap),timestamp))
             return self.view(db,self.row(db,project,identity)),202
@@ -101,10 +104,12 @@ class ReviewDocumentExportService:
         return metadata,raw
 
 def retry_in_transaction(store,db,task,expected_revision):
-    if task['revision']!=expected_revision or task['status']!='failed' or task.get('error_code') not in RETRYABLE:raise invalid('此独立文档任务不能恢复。',409)
+    if task['revision']!=expected_revision or task['status']!='failed' or task.get('error_code') not in RETRYABLE | candidates.STORAGE_ERRORS:raise invalid('此独立文档任务不能恢复。',409)
     from app.domain.report_collections.service import scoped_store
     service=ReviewDocumentExportService(scoped_store(task['user_id'],store.config))
-    service.row(db,task['project_id'],input_version(task)['export_id'])
+    row=service.row(db,task['project_id'],input_version(task)['export_id'])
+    service.verify(db,row)
+    candidates.authorize(db,service.assets.directory,task)
     task.update(status='queued',revision=expected_revision+1,reason_code='retry_requested',error_code=None,updated_at=max(now(),task['updated_at']),_retry_reason='manual_retry')
     store.update_task(db,task,expected_revision);store.append_event(db,task,'requeued');store.enqueue(db,task)
     return store.public_task(task)

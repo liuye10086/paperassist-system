@@ -5,12 +5,14 @@ import { useDocumentVisible } from '../tasks/useDocumentVisible';
 import ProjectDownloadLink from '../../shared/components/ProjectDownloadLink';
 import { batchRequest, isBatch, mergeBatch, uploadQueue, validateFile, validateSelection, type UploadBatch, type BatchPage } from './batchUploadApi';
 import './batchUpload.css';
+import useDraftLeaveGuard, { type RegisterLeaveGuard } from '../projects/useDraftLeaveGuard';
 const statusLabels = { pending: '等待上传', rejected: '上传被拒绝', queued: '已保存，等待解析', parsing: '文件解析中', parsed: '解析完成', failed: '解析失败' };
-export default function BatchUpload({ projectId, active, onUnavailable, onChanged }: {
+export default function BatchUpload({ projectId, active, onUnavailable, onChanged, registerLeaveGuard }: {
     projectId: string;
     active: boolean;
     onUnavailable: () => void;
     onChanged: () => void;
+    registerLeaveGuard?: RegisterLeaveGuard;
 }) {
     const { t } = useI18n();
     const visible = useDocumentVisible();
@@ -23,6 +25,7 @@ export default function BatchUpload({ projectId, active, onUnavailable, onChange
     const [refresh, setRefresh] = useState(0);
     const [page, setPage] = useState(1);
     const [total, setTotal] = useState(0);
+    useDraftLeaveGuard(registerLeaveGuard, selection.length > 0, busy);
     const mounted = useRef(true);
     const controllers = useRef(new Set<AbortController>());
     const files = useRef(new Map<string, File>());

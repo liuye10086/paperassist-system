@@ -56,7 +56,7 @@ def public_user(row):
     return {key: row[key] for key in ("id", "email", "role", "ui_language")}
 
 
-def _create(email, password, role, bootstrap):
+def _create(email, password, role, bootstrap, operator=None):
     email = normalize_email(email)
     if role not in ("user", "admin"):
         raise ValueError("无效账号角色。")
@@ -73,6 +73,11 @@ def _create(email, password, role, bootstrap):
             "INSERT INTO users (id,email,password_hash,role,active,created_at,updated_at) VALUES (%s,%s,%s,%s,true,%s,%s)",
             (result["id"], email, hashed, role, now, now),
         )
+        from app.domain.admin_operations import audit_account
+        from app.domain.storage_governance.service import initialize_policy
+        initialize_policy(db,'user',result['id'])
+        audit_account(db,None,{**result,'active':True,'updated_at':now},
+                      'CLI bootstrap account' if bootstrap else 'CLI create account',operator=operator)
         if bootstrap:
             ids = [
                 row["id"]
@@ -87,38 +92,43 @@ def _create(email, password, role, bootstrap):
     return result
 
 
-def create_user(email, password, role="user", claim_legacy=False):
+def create_user(email, password, role="user", claim_legacy=False, *, operator=None):
     if claim_legacy:
         raise ValueError("历史项目只能通过 bootstrap_admin 认领。")
-    return _create(email, password, role, False)
+    return _create(email, password, role, False,operator)
 
 
-def bootstrap_admin(email, password):
-    return _create(email, password, "admin", True)
+def bootstrap_admin(email, password, *, operator=None):
+    return _create(email, password, "admin", True,operator)
 
 
-def _change(email, field, value, reason):
+def _change(email, field, value, reason, operator=None):
     email = normalize_email(email)
     with auth_connection(write=True) as db:
         ensure_schema_current(db)
-        row = db.execute("SELECT id FROM users WHERE email = %s", (email,)).fetchone()
+        row = db.execute("SELECT id,role,active FROM users WHERE email = %s", (email,)).fetchone()
         if not row:
             raise AccountValidationError("账号不存在。")
+        from app.domain.admin_operations import audit_account, guard_last_admin
+        if field=='active':
+            guard_last_admin(db,row,row['role'],value)
         now = time.time()
         db.execute(
-            f"UPDATE users SET {field} = %s, updated_at = %s WHERE id = %s",
+            f"UPDATE users SET {field} = %s, updated_at = %s,admin_revision=admin_revision+1 WHERE id = %s",
             (value, now, row["id"]),
         )
+        audit_account(db,row,{**dict(row),'active':value if field=='active' else row['active'],'updated_at':now},
+                      'CLI '+reason,operator=operator)
         invalidate_recovery_codes(db, row["id"], now)
         revoke_sessions(db, user_id=row["id"], reason=reason, source="cli", revoked_at=now)
 
 
-def reset_password(email, password):
-    _change(email, "password_hash", password_hash(password), "admin_password_reset")
+def reset_password(email, password, operator=None):
+    _change(email, "password_hash", password_hash(password), "admin_password_reset",operator)
 
 
-def set_user_active(email, active):
-    _change(email, "active", bool(active), "account_enabled" if active else "account_disabled")
+def set_user_active(email, active, operator=None):
+    _change(email, "active", bool(active), "account_enabled" if active else "account_disabled",operator)
 
 
 def digest(token):

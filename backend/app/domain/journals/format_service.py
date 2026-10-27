@@ -40,6 +40,9 @@ class FormatService(GuideService):
         with self.store.connection(write=True) as db:
             self.project(db,project,True);old=self.replay(db,'journal_format_checks',project,key,body)
             if old:return self.check_view(db,self.check_row(db,project,old['id'])),200
+            from app.domain.admin_configuration.bindings import bind,resolve
+            from app.domain.admin_configuration.rule_consumption import rules
+            version=resolve(db);rules(version,'journals')
             target=self.target_row(db,project,request.target_id)['snapshot_json']
             m=request.manuscript;row=self.manuscript(db,project,m.id,m.revision)
             identity=str(uuid4());timestamp=now();warnings=list(target['warnings'])
@@ -59,6 +62,7 @@ class FormatService(GuideService):
             snapshot['synthetic']=bool(target['synthetic'] or synthetic_input(row['snapshot_json']))
             task=dict(id=str(uuid4()),project_id=project,user_id=self.store.user_id,task_type='journal_format_check',idempotency_key='journal-format:'+identity,input_digest=digest(snapshot),input_snapshot=snapshot,workflow_version=FORMAT_WORKFLOW,status='queued',phase='verify',revision=1,current_attempt=0,reason_code=None,created_at=timestamp,updated_at=timestamp)
             self.store.insert_task(db,task);self.store.append_event(db,task,'created');self.store.enqueue(db,task)
+            bind(db,kind='task',object_id=task['id'],version=version)
             self.insert(db,'journal_format_checks',project,key,body,snapshot,target_id=target['id'],guide_id=target['guide']['id'],task_id=task['id'],manuscript_id=m.id,manuscript_revision=m.revision,manuscript_version_id=row['id'])
             return self.check_view(db,self.check_row(db,project,identity)),202
 
@@ -77,12 +81,12 @@ class FormatService(GuideService):
         from app.domain.manuscripts.service import ManuscriptService
         from app.domain.manuscript_review.checks import check_snapshot
         from app.domain.manuscript_review.writing_context import load_writing_context
-        from .format_rules import check_format
+        from app.domain.admin_configuration.rule_consumption import check_format
         frozen=row['snapshot_json'];manuscript=frozen['manuscript'];target=frozen['target']
         manuscripts=ManuscriptService(self.assets)
         context=load_writing_context(manuscripts,db,row['project_id'],manuscript['id'],manuscript['snapshot'],check_version=frozen['public_check_version'])
         public=check_snapshot(manuscript['snapshot'],writing_context=context)
-        result=check_format(manuscript['snapshot'],target['selected_requirements'],target['conflicts'],public_issues=public,warnings=frozen['warnings'])
+        result=check_format(db,row['task_id'],manuscript['snapshot'],target['selected_requirements'],target['conflicts'],public_issues=public,warnings=frozen['warnings'])
         result.update(synthetic=frozen.get('synthetic',target['synthetic']),target_id=target['id'],guide_id=target['guide']['id'],requirements_version=target['guide']['requirements_version'],manuscript_version_id=manuscript['version_id'],public_check_version=frozen['public_check_version'])
         return result
 

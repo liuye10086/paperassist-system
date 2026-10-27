@@ -3,9 +3,10 @@ import { useI18n } from '../../shared/i18n'
 import { WorkflowContext, useWorkflowNavigation, type AnalysisStage } from './analysisWorkflowContext'
 import './analysisWorkflow.css'
 
-export function WorkflowProvider({ children }: { children: ReactNode }) {
-  const [stage, setStage] = useState<AnalysisStage>('setup')
-  return <WorkflowContext.Provider value={{ stage, setStage }}>{children}</WorkflowContext.Provider>
+export function WorkflowProvider({ children, stage, onStageChange }: { children: ReactNode; stage?: AnalysisStage; onStageChange?: (stage: AnalysisStage) => void }) {
+  const [localStage, setLocalStage] = useState<AnalysisStage>('setup')
+  function setStage(next: AnalysisStage) { if (stage === undefined) setLocalStage(next); onStageChange?.(next) }
+  return <WorkflowContext.Provider value={{ stage: stage ?? localStage, setStage }}>{children}</WorkflowContext.Provider>
 }
 export function WorkflowStage({ stage, children }: { stage: AnalysisStage; children: ReactNode }) {
   const navigation = useWorkflowNavigation()
@@ -15,7 +16,7 @@ export function WorkflowNavigation({ onOpenFiles }: { onOpenFiles?: () => void }
   const { t } = useI18n()
   const navigation = useWorkflowNavigation()
   if (!navigation) return null
-  const stages: [AnalysisStage, string][] = [['setup', '字段配置'], ['statistics', '统计结果'], ['figure', '图表'], ['explanation', '分析解释'], ['report', 'Word报告']]
+  const stages: [AnalysisStage, string][] = [['setup', '字段配置'], ['profile', '数据概况'], ['plan', '分析方案'], ['statistics', '统计结果'], ['figure', '图表'], ['explanation', '分析解释'], ['report', 'Word报告']]
   return <nav className="analysis-workflow-nav" aria-label={t('分析流程')}>
     <button type="button" disabled={!onOpenFiles} onClick={onOpenFiles}>{t('数据')}</button>
     {stages.map(([stage, label]) => <button type="button" key={stage} aria-current={navigation.stage === stage ? 'step' : undefined} onClick={() => navigation.setStage(stage)}>{t(label)}</button>)}

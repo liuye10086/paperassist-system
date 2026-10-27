@@ -6,6 +6,7 @@ from pydantic import BeforeValidator
 
 from app.adapters.storage import ProjectStore, get_request_project_store
 from app.core.exceptions import StorageError
+from app.core.config import get_request_excel_settings
 from app.domain.file_batches import BatchInput, BatchItem, BatchPage, BatchView, FileBatchService
 from app.api.tasks import decimal_query_integer
 
@@ -39,7 +40,8 @@ def upload_item(project_id: str, batch_id: str, item_id: str, store: Store,
     if file is None or not file.filename:
         raise StorageError('missing_file', '请选择登记的文件。', 422)
     # No ZIP/XML expansion in this process. The body middleware bounds multipart.
-    content = file.file.read(10485760 + 1)
-    if len(content) > 10485760:
-        raise StorageError('file_too_large', '文件超过上传大小限制。', 413, params={'max_bytes': 10485760})
+    maximum = get_request_excel_settings().max_upload_bytes
+    content = file.file.read(maximum + 1)
+    if len(content) > maximum:
+        raise StorageError('file_too_large', '文件超过上传大小限制。', 413, params={'max_bytes': maximum})
     return FileBatchService(store).upload(project_id, batch_id, item_id, file.filename, content)

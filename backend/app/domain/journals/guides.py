@@ -140,4 +140,6 @@ class GuideService(JournalService):
             identity=str(uuid4());timestamp=now().isoformat()
             snapshot=body|dict(id=identity,project_id=project,candidate=candidate,guide=guide,additional_guides=extras,selected_requirements=selected,conflicts=conflicts,decisions=decisions,warnings=warnings,synthetic=bool(candidate['profile']['synthetic'] or any(g['synthetic'] for g in [guide,*extras])),confirmed_by=self.store.user_id,confirmed_at=timestamp)
             self.insert(db,'journal_targets',project,key,body,snapshot,recommendation_id=request.recommendation_id,profile_id=request.profile_id,guide_id=request.guide_id)
+            from app.domain.admin_configuration.bindings import bind,resolve
+            bind(db,kind='journal_confirmation',object_id=identity,version=resolve(db,kind='task',object_id=recommendation['task_id']))
             return snapshot,201

@@ -9,6 +9,7 @@ from app.adapters.task_store import TaskStore, source_conflict
 from app.core.exceptions import StorageError
 from app.domain.datasets.contracts import ExcelStructure
 from app.domain.datasets.snapshots import require_structure_source
+from app.domain.storage_governance.service import publication, reconcile_intents, reserve, invalid
 
 NAMESPACE = UUID('70e3e76d-c7d4-45bd-8eba-02b1b693171a')
 
@@ -54,11 +55,24 @@ class DatasetStore:
             version = db.execute('SELECT * FROM file_structure_versions WHERE id=%s',(snapshot['structure_id'],)).fetchone()
             if version['manifest_json'] is not None:
                 raise source_conflict()
+            # Admission covers the complete manifest before any object/intent
+            # is written. The caller's writer holds the global admission lock.
+            if reconcile_intents(db, repo.assets.directory):
+                raise invalid()
+            for _, identifier, content in candidates:
+                descriptor = self.objects.describe(identifier, content)
+                reserve(db, repo.assets.directory, task['project_id'], 'dataset:'+identifier,
+                        self.objects.path(descriptor['object_key']), descriptor['size_bytes'],
+                        sha256=descriptor['sha256'], kind='dataset', task_id=task['id'])
             now=repo.now(db)
             dataset_ids=[]
             for sheet,identifier,content in candidates:
                 repo.require_lease(db,lease)
-                saved = self.objects.save(identifier,content)
+                descriptor = self.objects.describe(identifier, content)
+                with publication(db, repo.assets.directory, task['project_id'], 'dataset:'+identifier,
+                                 self.objects.path(descriptor['object_key']), content,
+                                 kind='dataset', task_id=task['id']):
+                    saved = self.objects.save(identifier,content)
                 parent = db.execute('''SELECT id FROM dataset_versions WHERE file_id=%s AND sheet_index=%s AND version<%s
                     ORDER BY version DESC LIMIT 1''',(version['file_id'],sheet.index,version['version'])).fetchone()
                 summary={**sheet.model_dump(exclude={'index','name','cells'}),'epoch':structure.epoch}

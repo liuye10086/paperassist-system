@@ -6,9 +6,13 @@ import { fileRequest, mergeFileMetadata, parseStatusLabels, purposeLabels, refer
 import type { FileDetail, FilePurpose, LibraryFile } from './fileLibraryApi'
 import FileLifecyclePanel from './FileLifecyclePanel'
 import {onApiSessionChanged} from '../../shared/api/client'
+import useDraftLeaveGuard, { type RegisterLeaveGuard } from '../projects/useDraftLeaveGuard'
 
-function FileDetailsContent({ projectId, fileId, active, onUnavailable, onUpdated }: {
+type DetailTask = 'info' | 'lifecycle' | 'structure' | 'document'
+
+function FileDetailsContent({ projectId, fileId, active, onUnavailable, onUpdated, initialTask = 'info', registerLeaveGuard }: {
   projectId: string; fileId: string; active: boolean; onUnavailable: () => void; onUpdated: (file: LibraryFile) => void
+  initialTask?: DetailTask; registerLeaveGuard?: RegisterLeaveGuard
 }) {
   const { t, locale } = useI18n()
   const [detail, setDetail] = useState<FileDetail | null>(null)
@@ -20,10 +24,19 @@ function FileDetailsContent({ projectId, fileId, active, onUnavailable, onUpdate
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
+  const [task, setTask] = useState<DetailTask>(initialTask)
+  const [visitedTasks, setVisitedTasks] = useState<DetailTask[]>([initialTask])
+  function showTask(next: DetailTask) { setTask(next); setVisitedTasks(current => current.includes(next) ? current : [...current, next]) }
+  const [previousInitialTask, setPreviousInitialTask] = useState(initialTask)
+  if (previousInitialTask !== initialTask) {
+    setPreviousInitialTask(initialTask)
+    if (initialTask === 'document') { setTask('document'); setVisitedTasks(current => current.includes('document') ? current : [...current, 'document']) }
+  }
   const mounted = useRef(true)
   const saveController = useRef<AbortController | null>(null)
   const generation = useRef(0)
   const [scopeValid,setScopeValid] = useState(true)
+  useDraftLeaveGuard(registerLeaveGuard, detail !== null && JSON.stringify([...draft].sort()) !== JSON.stringify([...detail.purposes].sort()), busy)
   const base = `/api/v1/projects/${encodeURIComponent(projectId)}/files/${encodeURIComponent(fileId)}`
   const requestKey = `${base}:${active}:${attempt}`
   const [previousRequest, setPreviousRequest] = useState(requestKey)
@@ -97,6 +110,14 @@ function FileDetailsContent({ projectId, fileId, active, onUnavailable, onUpdate
     {loading && <p role="status">{t('正在读取文件详情……')}</p>}
     {error && <p className="error-panel" role="alert">{t(error)}</p>}
     {detail && <>
+      <nav className="material-task-nav" aria-label={t('文件任务')}>
+        <button type="button" aria-pressed={task === 'info'} onClick={() => showTask('info')}>{t('文件信息与用途')}</button>
+        <button type="button" aria-pressed={task === 'lifecycle'} onClick={() => showTask('lifecycle')}>{t('生命周期')}</button>
+        {detail.file_type === 'xlsx' && detail.parse_status === 'parsed' && <button type="button" aria-pressed={task === 'structure'} onClick={() => showTask('structure')}>{t('结构与数据整理')}</button>}
+        {['docx','pdf','png','jpeg'].includes(detail.file_type) && <button type="button" aria-pressed={task === 'document'} onClick={() => showTask('document')}>{t('解析与文字核对')}</button>}
+      </nav>
+      {task !== 'info' && <button type="button" className="material-back" onClick={() => showTask('info')}>{t('返回文件信息')}</button>}
+      <div hidden={task !== 'info'}>
       <dl className="file-metadata">
         <div><dt>{t('文件大小')}</dt><dd>{t('{count} 字节', { count: detail.size_bytes.toLocaleString(locale) })}</dd></div>
         <div><dt>{t('文件类型')}</dt><dd>{detail.file_type === 'xlsx' ? 'Excel (.xlsx)' : detail.file_type === 'docx' ? 'Word (.docx)' : detail.file_type === 'pdf' ? 'PDF (.pdf)' : detail.file_type === 'png' ? 'PNG (.png)' : detail.file_type === 'jpeg' ? 'JPEG (.jpg / .jpeg)' : t('未知类型')}</dd></div>
@@ -119,15 +140,16 @@ function FileDetailsContent({ projectId, fileId, active, onUnavailable, onUpdate
         <p className="muted">{t('用途用于整理资料，不会更改分析配置或已有成果。')}</p>
         <button type="submit" className="button-primary" disabled={loading || busy}>{t(busy ? '正在保存用途……' : '保存用途')}</button>
       </form>
-      <h4>{t('文件引用汇总')}</h4><dl className="file-reference-counts">
+      <details className="file-reference-summary"><summary>{t('文件引用汇总')}</summary><dl className="file-reference-counts">
         {(Object.keys(referenceLabels) as (keyof typeof referenceLabels)[]).map(key =>
           <div key={key}><dt>{t(referenceLabels[key])}</dt><dd>{(detail.references[key] ?? 0).toLocaleString(locale)}</dd></div>)}
       </dl>
-      <p className="muted">{t('引用数量描述当前依赖，不代表可以删除文件。')}</p>
-      <FileLifecyclePanel projectId={projectId} fileId={fileId} active={active} observedVersion={detail.parse_revision} onUnavailable={onUnavailable}/>
+      <p className="muted">{t('引用数量描述当前依赖，不代表可以删除文件。')}</p></details>
+      </div>
+      {visitedTasks.includes('lifecycle') && <div hidden={task !== 'lifecycle'}><FileLifecyclePanel projectId={projectId} fileId={fileId} active={active && task === 'lifecycle'} observedVersion={detail.parse_revision} registerLeaveGuard={registerLeaveGuard} onUnavailable={onUnavailable}/></div>}
     </>}
-    {detail?.file_type === 'xlsx' && detail.parse_status === 'parsed' && <StructureVersions projectId={projectId} fileId={fileId} filename={detail.filename} active={active} onUnavailable={onUnavailable} />}
-    {detail && ['docx','pdf','png','jpeg'].includes(detail.file_type) && <DocumentVersions fileType={detail.file_type as 'docx' | 'pdf' | 'png' | 'jpeg'} projectId={projectId} fileId={fileId} filename={detail.filename} active={active} onUnavailable={onUnavailable} />}
+    {visitedTasks.includes('structure') && detail?.file_type === 'xlsx' && detail.parse_status === 'parsed' && <div hidden={task !== 'structure'}><StructureVersions projectId={projectId} fileId={fileId} filename={detail.filename} active={active && task === 'structure'} registerLeaveGuard={registerLeaveGuard} onUnavailable={onUnavailable} /></div>}
+    {visitedTasks.includes('document') && detail && ['docx','pdf','png','jpeg'].includes(detail.file_type) && <div hidden={task !== 'document'}><DocumentVersions fileType={detail.file_type as 'docx' | 'pdf' | 'png' | 'jpeg'} projectId={projectId} fileId={fileId} filename={detail.filename} active={active && task === 'document'} registerLeaveGuard={registerLeaveGuard} onUnavailable={onUnavailable} /></div>}
     {notice && <p className="saved-notice" role="status">{t(notice)}</p>}
   </section>
 }

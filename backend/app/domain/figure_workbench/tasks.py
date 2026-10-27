@@ -55,13 +55,14 @@ def prompt_version(payload,*,explanation=False):
     return LATEST_RENDERER if version==2 else V2_RENDERER
 
 
-def validate_policy(value,payload,*,explanation=False):
+def validate_policy(value,payload,*,explanation=False,instructions=None):
     from app.domain.model_usage.contracts import ModelPolicy
     from app.domain.figure_workbench.prompts import instructions_for
     from app.domain.figure_workbench.explanations import instructions_for as explanation_instructions
     policy=ModelPolicy.model_validate(value['policy'])
     if policy.tools!=([] if explanation else ['code_interpreter']) or policy.prompt_version!=prompt_version(payload,explanation=explanation):raise source_conflict()
-    minimum=len((explanation_instructions(payload) if explanation else instructions_for(payload)).encode())+len(__import__('json').dumps(payload,ensure_ascii=False).encode())+4096
+    from app.adapters.models.openai_responses import canonical_payload
+    minimum=len((instructions if instructions is not None else explanation_instructions(payload) if explanation else instructions_for(payload)).encode())+len(canonical_payload(payload).encode())+4096
     if minimum>value['input_token_allowance']:raise StorageError('explanation_input_limit' if explanation else 'plot_input_limit','材料超过已配置输入预算范围。',422)
     return value
 
@@ -94,7 +95,7 @@ def submit(workbench,project_id,file_id,run_id,version_id,request,*,figure_id=No
         if bundle['figure']['figure_config_version_id']!=version_id:raise source_conflict()
     external=request.external_processing
     if set(external)!={'confirmed','payload_sha256'} or external.get('confirmed') is not True or external.get('payload_sha256')!=digest(payload):raise source_conflict()
-    frozen=policy_for(payload,explanation=explanation);kind='figure_explanation' if explanation else 'figure_workbench'
+    kind='figure_explanation' if explanation else 'figure_workbench'
     with workbench.tasks.connection(write=True) as db:
         row=workbench._version(db,project_id,file_id,run_id,version_id,lock=True);projection=workbench._projection(db,row)
         if not projection or projection['result']!=computed:raise source_conflict()
@@ -103,6 +104,11 @@ def submit(workbench,project_id,file_id,run_id,version_id,request,*,figure_id=No
         if old:
             if old['input_digest']!=input_hash:raise StorageError('task_idempotency_conflict','请求标识已用于不同输入。',409)
             return {'task':workbench.tasks.public_task(old),'explanation':None}
+        from app.domain.admin_configuration.bindings import resolve,bind
+        from app.domain.admin_configuration.model_consumption import execution
+        configuration=resolve(db)
+        frozen=execution(configuration,'explanation' if explanation else 'plot',payload,figure=True) if configuration else policy_for(payload,explanation=explanation)
+        if frozen is None:raise StorageError('explanation_not_configured' if explanation else 'plot_not_configured','模型策略尚未配置。',503)
         active=db.execute('''SELECT * FROM tasks WHERE project_id=%s AND task_type=%s AND input_snapshot->'figure_workbench'->>'version_id'=%s ORDER BY created_at DESC,id DESC LIMIT 1''',(project_id,kind,version_id)).fetchone()
         same_contract=not explanation or not active or active['input_snapshot']['explanation_policy']['policy']['prompt_version']==frozen['policy']['prompt_version']
         if active and not same_contract and active['status'] not in ('succeeded','failed','cancelled'):
@@ -122,6 +128,7 @@ def submit(workbench,project_id,file_id,run_id,version_id,request,*,figure_id=No
         if bundle:snapshot['figure']=bundle['figure']
         task={'id':str(uuid4()),'project_id':project_id,'user_id':workbench.tasks.user_id,'task_type':kind,'idempotency_key':request.idempotency_key,'input_digest':input_hash,'input_snapshot':snapshot,'workflow_version':kind+'_v1','status':'queued','phase':'interpret' if explanation else 'compute','revision':1,'current_attempt':0,'reason_code':None,'created_at':now,'updated_at':now}
         workbench.tasks.insert_task(db,task)
+        bind(db,kind='task',object_id=task['id'],version=configuration)
         db.execute('''INSERT INTO model_budgets(id,user_id,scope_type,scope_key,project_id,task_id,limit_micro_usd,revision,created_at,updated_at) VALUES (%s,%s,'task',%s,%s,%s,%s,1,%s,%s)''',(str(uuid4()),task['user_id'],task['id'],project_id,task['id'],frozen['task_limit_micro_usd'],now,now))
         workbench.tasks.append_event(db,task,'created');workbench.tasks.enqueue(db,task)
         return {'task':workbench.tasks.public_task(task),'explanation':None}
@@ -146,6 +153,9 @@ def retry_in_transaction(store,db,task,expected_revision):
     if task['revision']!=expected_revision or not allowed_recovery_actions(db,task):raise StorageError('task_transition_invalid','此任务不能安全恢复。',409)
     from app.adapters.task_execution_store import TaskExecutionStore
     require_task_sources(TaskExecutionStore(config=store.config),db,task)
+    if task['task_type']=='figure_workbench':
+        from app.domain.storage_governance.candidates import authorize_task_recovery
+        authorize_task_recovery(db,assets_for(store,task['user_id']).directory,task)
     waiting=task['status']=='waiting_confirmation';task.update(status='queued',revision=expected_revision+1,error_code=None,reason_code='confirmation_received' if waiting else 'retry_requested',retry_count=0,_retry_reason='manual_retry',updated_at=datetime.now(timezone.utc))
     store.update_task(db,task,expected_revision);store.append_event(db,task,'requeued');store.enqueue(db,task)
     from app.domain.tasks.waits import resolve_open_wait

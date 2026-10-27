@@ -385,13 +385,18 @@ class OcrReviewService:
 
 
 def retry_ocr_review_in_transaction(store,db,task,expected_revision):
+    from app.domain.storage_governance.deterministic import STORAGE_RETRY_CODES, authorize_checkpoint_rebuild
     if (task['task_type'] != 'review_ocr' or task['status'] != 'failed'
-            or task.get('error_code') not in ('storage_unavailable','task_worker_interrupted')):
+            or task.get('error_code') not in STORAGE_RETRY_CODES):
         raise StorageError('task_transition_invalid','当前OCR 核对任务不能安全重试。',409)
     if task['revision'] != expected_revision:
         raise StorageError('task_revision_conflict','任务已更新，请重新读取。',409)
     store.require_project(db,task['project_id'])
-    latest_checkpoint(db,task)  # Retry keeps the persisted node and revised edits.
+    checkpoint=latest_checkpoint(db,task)  # Retry keeps the persisted node and revised edits.
+    from app.adapters.task_store import DatasetTaskAssets
+    from app.core.config import get_data_dir
+    service=OcrReviewService(DatasetTaskAssets(task['user_id'],store.config,get_data_dir()))
+    authorize_checkpoint_rebuild(db,get_data_dir(),task,checkpoint,service,ocr=True)
     task.update(status='queued',revision=expected_revision+1,error_code=None,reason_code='retry_requested',
         _retry_reason='manual_retry',retry_count=0,updated_at=max(datetime.now(timezone.utc),task['updated_at']))
     store.update_task(db,task,expected_revision)

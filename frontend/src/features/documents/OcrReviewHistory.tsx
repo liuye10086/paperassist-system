@@ -6,24 +6,24 @@ import { documentRequest } from './documentApi'
 import { isReviewDetail, isReviewPage, reviewVersionsBase, type ReviewDetail, type ReviewPage } from './ocrReviewApi'
 import OcrReviewDocument from './OcrReviewDocument'
 
-export default function OcrReviewHistory({projectId,fileId,parseId,filename,refreshKey,onUnavailable}:{projectId:string;fileId:string;parseId:string;filename:string;refreshKey:number;onUnavailable:()=>void}) {
+export default function OcrReviewHistory({projectId,fileId,parseId,filename,refreshKey,onUnavailable,active=true}:{projectId:string;fileId:string;parseId:string;filename:string;refreshKey:number;onUnavailable:()=>void;active?:boolean}) {
  const {t}=useI18n()
  const [list,setList]=useState<ReviewPage|null>(null),[page,setPage]=useState(1),[selected,setSelected]=useState(''),[detail,setDetail]=useState<ReviewDetail|null>(null),[error,setError]=useState(''),[sessionValid,setSessionValid]=useState(true)
  const [detailAttempt,setDetailAttempt]=useState(0)
  const base=reviewVersionsBase(projectId,fileId)
  useEffect(()=>onApiSessionChanged(()=>{setSessionValid(false);setList(null);setDetail(null);setSelected('')}),[])
  useEffect(()=>{
-  if(!sessionValid)return
+  if(!sessionValid||!active)return
   const controller=new AbortController()
   void documentRequest(`${base}?parse_id=${encodeURIComponent(parseId)}&page=${page}&page_size=5`,controller.signal,onUnavailable,(v):v is ReviewPage=>isReviewPage(v,projectId,fileId,parseId,page)).then(value=>{if(!controller.signal.aborted){const last=Math.max(1,Math.ceil(value.total/5));if(page>last){setPage(last);return}setList(value);setError('')}}).catch(cause=>{if(!controller.signal.aborted)setError(safeError(cause,'核对历史读取失败，请重试。'))})
   return()=>controller.abort()
- },[base,projectId,fileId,parseId,page,refreshKey,sessionValid,onUnavailable])
+ },[base,projectId,fileId,parseId,page,refreshKey,sessionValid,active,onUnavailable])
  useEffect(()=>{
-  if(!selected||!sessionValid)return
+  if(!selected||!sessionValid||!active)return
   const controller=new AbortController()
   void documentRequest(`${base}/${encodeURIComponent(selected)}`,controller.signal,onUnavailable,(v):v is ReviewDetail=>isReviewDetail(v,projectId,fileId,parseId,selected)).then(value=>{if(!controller.signal.aborted){setDetail(value);setError('')}}).catch(cause=>{if(!controller.signal.aborted)setError(safeError(cause,'核对历史读取失败，请重试。'))})
   return()=>controller.abort()
- },[base,projectId,fileId,parseId,selected,detailAttempt,sessionValid,onUnavailable])
+ },[base,projectId,fileId,parseId,selected,detailAttempt,sessionValid,active,onUnavailable])
  if(!sessionValid)return null
  return <section className="ocr-review-history" aria-label={t('核对历史版本')}><h4>{t('核对历史版本')}</h4>
   {error&&<p role="alert" className="error-panel">{t(error)}</p>}

@@ -35,7 +35,7 @@ class FileObjects:
         self.port = port
 
     def put_original(self, project_id: str, operation_id: str, file_type: str,
-                     content: bytes, *, item_id: str | None = None) -> OriginalDescriptor:
+                     content: bytes, *, item_id: str | None = None, db=None, operation_key=None) -> OriginalDescriptor:
         # Ownership is checked by services before supplying these identities.
         # Only the adapter constructs an object key and file identity.
         try:
@@ -64,7 +64,12 @@ class FileObjects:
                f'files/upload-{project_identity}-{operation_id}-{item_id}-{digest}.{file_type}')
         descriptor = OriginalDescriptor(identifier, file_type, self.port.backend_name, key, len(content), digest)
         try:
-            self.port.put_immutable(key, content)
+            if db is None:
+                self.port.put_immutable(key, content)
+            else:
+                from app.domain.storage_governance.service import publication
+                with publication(db,self.port.root,project_id,operation_key or 'original:'+identifier,self.port.root/key,content,kind='original',recover=True):
+                    self.port.put_immutable(key, content)
         except (OSError, RuntimeError) as exc:
             raise StorageError('storage_unavailable', '无法保存文件原件，请稍后重试。') from exc
         return descriptor

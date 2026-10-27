@@ -8,7 +8,7 @@ export type Formula={id:string;anchor_id:string;expression:string;placement:'aft
 export type Reference={anchor_id:string;target_id:string;kind:'text'|'page'|'number';prefix:string}
 export type Layout={source_sha256:string;formulas:Formula[];references:Reference[];headings:{anchor_id:string;level:number}[];toc:{depth:number}|null;pagination:{mode:'continuous'|'roman_front';body_anchor_id?:string|null}|null;landscape_anchor_ids:string[]}
 export type Catalog={source_kind:LayoutSourceKind;source_id:string;source_sha256:string;source_size:number;filename:string;version:Record<string,unknown>;output_language:'zh-CN'|'en';anchors:Anchor[];limits:Record<string,unknown>}
-export type LayoutExport={id:string;project_id:string;source_kind:LayoutSourceKind;source_id:string;source_sha256:string;status:'queued'|'running'|'succeeded'|'failed';task_id:string;created_at:string;layout:Layout;layout_version:'document_layout_v1';output_language:'zh-CN'|'en';request_key:string;can_retry:boolean;parent_export_id:string|null;filename:string|null;error_code:string|null;renderer_manifest:Record<string,unknown>|null;sha256:string|null;size_bytes:number|null;download_url:string|null}
+export type LayoutExport={recovery_mode?:'local_candidate'|'blocked'|null;recovery_request_key?:string;id:string;project_id:string;source_kind:LayoutSourceKind;source_id:string;source_sha256:string;status:'queued'|'running'|'succeeded'|'failed';task_id:string;created_at:string;layout:Layout;layout_version:'document_layout_v1';output_language:'zh-CN'|'en';request_key:string;can_retry:boolean;parent_export_id:string|null;filename:string|null;error_code:string|null;renderer_manifest:Record<string,unknown>|null;sha256:string|null;size_bytes:number|null;download_url:string|null}
 export const object=(v:unknown):v is Record<string,unknown>=>!!v&&typeof v==='object'&&!Array.isArray(v)
 const text=(v:unknown):v is string=>typeof v==='string'
 const id=(v:unknown):v is string=>text(v)&&/^[A-Za-z0-9_-]{1,128}$/.test(v)
@@ -59,11 +59,11 @@ export function pendingLayout(s:LayoutScope,parent?:string):Pending|null{
  try{const b:unknown=JSON.parse(value.body);if(!object(b)||!text(b.request_key)||!/^[!-~]{1,128}$/.test(b.request_key)||(!parent&&(b.source_kind!==s.sourceKind||b.source_id!==s.sourceId||!object(b.layout)||!hash(b.layout.source_sha256)||s.sourceSha256!==undefined&&b.layout.source_sha256!==s.sourceSha256||!validLayout(b.layout,b.layout.source_sha256))))return null}catch{return null}
  return value
 }
-export async function submitLayout(s:LayoutScope,layout:Layout|undefined,c:AbortController,parent?:string){
+export async function submitLayout(s:LayoutScope,layout:Layout|undefined,c:AbortController,parent?:string,original?:LayoutExport){
  const key=signature(s,parent),check=captureApiSession();let saved=pendingLayout(s,parent)
  if(!saved){if(!parent&&!layout)throw new Error('排版设置尚未就绪。');saved={parent:parent??null,body:JSON.stringify(parent?{request_key:crypto.randomUUID()}:{source_kind:s.sourceKind,source_id:s.sourceId,layout,request_key:crypto.randomUUID()})};pending.set(key,saved);try{sessionStorage.setItem(key,JSON.stringify(saved))}catch{/* The current page still retains the exact request. */}}
  const body=JSON.parse(saved.body) as {request_key:string}
  const clear=()=>{pending.delete(key);try{sessionStorage.removeItem(key)}catch{/* No stored request remains in memory. */}}
- try{const result=await request(parent?`${layoutBase(s.projectId)}/${encodeURIComponent(parent)}/retry`:layoutBase(s.projectId),c,(v):v is LayoutExport=>validLayoutExport(v,s)&&v.parent_export_id===(parent??null)&&v.request_key===body.request_key,{method:'POST',headers:{'Content-Type':'application/json'},body:saved.body});check();clear();return result}
+ try{const result=await request(parent?`${layoutBase(s.projectId)}/${encodeURIComponent(parent)}/retry`:layoutBase(s.projectId),c,(v):v is LayoutExport=>validLayoutExport(v,s)&&(parent&&v.recovery_mode==='local_candidate'?v.id===parent&&!!original&&v.source_sha256===original.source_sha256&&v.task_id===original.task_id&&v.parent_export_id===original.parent_export_id&&v.request_key===original.request_key&&v.recovery_request_key===body.request_key:v.parent_export_id===(parent??null)&&v.id!==parent&&v.request_key===body.request_key),{method:'POST',headers:{'Content-Type':'application/json'},body:saved.body});check();clear();return result}
  catch(cause){check();if(cause instanceof LayoutRequestError&&cause.status>=400&&cause.status<500&&cause.status!==408)clear();throw cause}
 }

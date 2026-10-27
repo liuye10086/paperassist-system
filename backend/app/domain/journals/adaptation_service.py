@@ -22,6 +22,9 @@ def input_version(task):
 class AdaptationService(FormatService):
     def fixed(self,db,project,request):
         check=self.check_row(db,project,request.check_id)
+        from app.domain.admin_configuration.rule_consumption import rules
+        from app.domain.admin_configuration.bindings import resolve
+        rules(resolve(db,kind='task',object_id=check['task_id']),'journals')
         if check['target_id']!=request.target_id or self.store.require_task(db,check['task_id'])['status']!='succeeded' or check['result_json'] is None:raise invalid('需要相同目标的已完成固定检查。')
         base=self.manuscript(db,project,request.manuscript.id,request.manuscript.revision)
         if base['id']!=request.manuscript.version_id or check['manuscript_version_id']!=base['id']:raise invalid('检查输入与选定稿件不同，请为该组合新建检查。')
@@ -68,6 +71,8 @@ class AdaptationService(FormatService):
             snap=dict(id=identity,kind='journal_adaptation',project_id=project,workflow_version=WORKFLOW,target_id=request.target_id,check_id=request.check_id,manuscript=request.manuscript.model_dump(),base_sha256=base['snapshot_sha256'],requirements_version=target['guide']['requirements_version'],expected_current_revision=request.expected_current_revision,preview_sha256=request.preview_sha256,preview=preview,selected_action_ids=request.selected_action_ids,synthetic=preview['synthetic'],real_model_calls=False,real_network_calls=False)
             task=dict(id=str(uuid4()),project_id=project,user_id=self.store.user_id,task_type='journal_adaptation',idempotency_key='journal-adapt:'+identity,input_digest=digest(snap),input_snapshot=snap,workflow_version=WORKFLOW,status='queued',phase='verify',revision=1,current_attempt=0,reason_code=None,created_at=timestamp,updated_at=timestamp)
             self.store.insert_task(db,task);self.store.append_event(db,task,'created');self.store.enqueue(db,task)
+            from app.domain.admin_configuration.rule_consumption import inherit_task
+            inherit_task(db,task,parent_task=check['task_id'])
             self.insert(db,'journal_adaptations',project,key,body,snap,target_id=request.target_id,check_id=request.check_id,task_id=task['id'],manuscript_id=base['manuscript_id'],manuscript_version_id=base['id'])
             return self.view_adaptation(db,self.adaptation_row(db,project,identity)),202
 

@@ -49,3 +49,17 @@
 .literature-checks details{margin:.6rem 0}
 .literature-checks .warning-panel{padding:.55rem;margin:.6rem 0}
 .pmc-source-text { white-space: pre-wrap; overflow-wrap: anywhere; }
+
+.literature-workspace [hidden] { display: none !important; }
+.literature-task-view { display: grid; gap: 24px; min-width: 0; }
+.literature-view-switcher { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; padding: 6px; border: 1px solid var(--border); border-radius: 10px; background: var(--secondary, #f2f5ef); }
+.literature-view-switcher button { border-color: transparent; background: transparent; min-height: 36px; }
+.literature-view-switcher button[aria-pressed="true"] { background: var(--card, #fff); color: var(--primary, #35613c); border-color: var(--border); font-weight: 600; }
+.literature-workspace > .workspace-page-heading { margin: 0; }
+.literature-workspace .literature-candidates { gap: 0; }
+.literature-workspace .literature-candidates > li { padding-block: 16px; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: 8px 16px; }
+.literature-workspace .literature-candidates > li > h4 { grid-column: 1 / -1; }
+.literature-workspace .literature-candidates > li > p { margin: 0; }
+.literature-workspace .literature-candidates > li > button { margin: 0; }
+.literature-workspace .literature-candidates > li:last-child { border-bottom: 0; }
+@media (max-width: 600px) { .literature-view-switcher button { flex: 1 1 auto; min-height: 44px; } .literature-workspace .literature-candidates > li { grid-template-columns: minmax(0,1fr); } }

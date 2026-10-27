@@ -1,3 +1,4 @@
+import {useAnalysisLeaveGuard} from './analysisActivityContext'
 import StatisticsTaskObserver from './StatisticsTaskObserver'
 import {pendingStatisticsKey,saveStatisticsKey} from './statisticsRequestIdentity'
 import {taskMatchesStatisticsContext,type StatisticsTaskContext} from './statisticsTaskContracts'
@@ -19,7 +20,7 @@ import { isDatasetSource, sameSource, validOptionalSource, type DatasetAnalysisS
 import { useI18n, apiError, safeError } from '../../shared/i18n'
 import { workflowNotice } from '../../shared/i18n/workflowMessages'
 import { apiFetch } from '../../shared/api/client'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { Check, Selection } from './AnalysisSetup'
 import BoxplotFigure from '../figures/BoxplotFigure'
 import { WorkflowStage, WorkflowEmptyResults, WorkflowReadStatus } from './AnalysisWorkflow'
@@ -56,6 +57,14 @@ function explain(cause: unknown, timedOut: boolean) {
 }
 
 type Props={base: string; savedRevision: number | null; savedSelection?:AnalysisSelection; savedPlan?:{plan_id:string;sha256:string}; savedSource?: DatasetAnalysisSource; fieldsMatch: boolean; disabled: boolean; onBusyChange: (value: boolean) => void}
+function ResearchBasis(props: Parameters<typeof ResearchRequestSummary>[0]) {
+  const {t}=useI18n()
+  return <details className="statistics-provenance"><summary>{t('研究需求与分析依据')}</summary><ResearchRequestSummary {...props}/></details>
+}
+function RunFigure({ onRunBusyChange, ...props }: Omit<Parameters<typeof BoxplotFigure>[0], 'onBusyChange'> & { onRunBusyChange: (id: string, busy: boolean) => void }) {
+  const change = useCallback((busy: boolean) => onRunBusyChange(props.runId, busy), [onRunBusyChange, props.runId])
+  return <BoxplotFigure {...props} onBusyChange={change}/>
+}
 export default function StatisticsResults(props:Props){return <Results key={JSON.stringify([props.base,props.savedRevision,props.savedSource,props.savedPlan])} {...props}/>}
 function Results({ base, savedRevision, savedSelection, savedSource, savedPlan, fieldsMatch, disabled, onBusyChange }:Props) {
   const { t, locale } = useI18n()
@@ -71,13 +80,20 @@ function Results({ base, savedRevision, savedSelection, savedSource, savedPlan, 
   const replay=useRef<string|null>(initialKey)
   const [unconfirmed,setUnconfirmed]=useState(!!initialKey)
   const running=submitting||!!activeTask&&['queued','running'].includes(activeTask.status)
-  const [plotBusy, setPlotBusy] = useState(false)
+  const [plotActivity, setPlotActivity] = useState<Record<string,boolean>>({})
+  const plotBusy=Object.values(plotActivity).some(Boolean)
+  const onRunBusyChange=useCallback((id:string,busy:boolean)=>setPlotActivity(previous=>previous[id]===busy?previous:{...previous,[id]:busy}),[])
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
   const [attempt, setAttempt] = useState(0)
   const [historicalSelection,setHistoricalSelection]=useState(false)
+  useAnalysisLeaveGuard(false, submitting || unconfirmed)
   const action = useRef<AbortController | null>(null)
   const result = state?.result
+  const [artifactMode,setArtifactMode]=useState<'current'|'workbench'>('current')
+  const [legacyRuns,setLegacyRuns]=useState<Result[]>([])
+  const [legacyRunId,setLegacyRunId]=useState('')
+  if(result&&!legacyRuns.some(run=>run.id===result.id)) { setLegacyRuns(runs=>[...runs,result]); if(!legacyRunId)setLegacyRunId(result.id) }
   const descriptive=result&&result.result_type===undefined?result:undefined
   const correlation=result?.result_type==='correlation'?result:undefined
   const comparison=result?.result_type==='group_comparison'?result:undefined
@@ -157,7 +173,7 @@ function Results({ base, savedRevision, savedSelection, savedSource, savedPlan, 
     {descriptive && <>
       {!state?.is_current && <p className="warning-panel">{t("以下为历史结果。设置已变更，请重新分析。")}</p>}
       <SourceSummary source={descriptive.source} filename={descriptive.filename} />
-      {descriptive.analysis_context?.plan.research_request&&<><ResearchRequestSummary selection={descriptive.selection} value={descriptive.analysis_context.plan.research_request}/><p className="muted">{t(['paired','repeated'].includes(descriptive.analysis_context.plan.research_request.observation_structure)?'统计按行描述，未进行配对或重复测量推断，也未作相关性调整。':'统计按行描述，仅计算总体与分组数据分布。')}</p><p className="muted">{t('P 值、效应量和置信区间未计算，因为本次为描述统计。')}</p></>}
+      {descriptive.analysis_context?.plan.research_request&&<><ResearchBasis selection={descriptive.selection} value={descriptive.analysis_context.plan.research_request}/><p className="muted">{t(['paired','repeated'].includes(descriptive.analysis_context.plan.research_request.observation_structure)?'统计按行描述，未进行配对或重复测量推断，也未作相关性调整。':'统计按行描述，仅计算总体与分组数据分布。')}</p><p className="muted">{t('P 值、效应量和置信区间未计算，因为本次为描述统计。')}</p></>}
       <p>{t("工作表：")}{descriptive.selection.sheet_name}{t("；完成时间：")}{new Date(descriptive.completed_at).toLocaleString(locale)}</p>
       <p>{t("数值：")}{descriptive.selection.numeric_column} · {descriptive.numeric_name}{t("；单位：")}{descriptive.selection.unit || t("未填写")}{t("； 分组：")}{descriptive.selection.group_column ? `${descriptive.selection.group_column} · ${descriptive.group_name}` : t("不分组")}</p>
       <p>{t((descriptive.source?.schema_version??0) >= 2 ? '当前整理保留 {total} 行 − 本分析排除 {excluded} 行 = 本分析有效 {valid} 行。' : descriptive.source?.kind === 'prepared_dataset_version' ? '本次使用 {valid} 行，排除 {excluded} 行；所选整理区域共 {total} 行。' : '本次使用 {valid} 行，排除 {excluded} 行；原始数据共 {total} 行。', { valid: descriptive.check.valid_count, excluded: descriptive.check.excluded_count, total: descriptive.check.row_count })}</p>
@@ -180,16 +196,20 @@ function Results({ base, savedRevision, savedSelection, savedSource, savedPlan, 
         <p>{t("开始时间：")}{descriptive.started_at}{t("；完成时间：")}{descriptive.completed_at}</p>
       </details>
     </>}
-    {correlation&&<><SourceSummary source={correlation.source} filename={correlation.filename}/>{!state?.is_current&&<p className="warning-panel">{t('以下为历史结果。设置已变更，请重新分析。')}</p>}<ResearchRequestSummary selection={correlation.selection} value={correlation.analysis_context.plan.research_request!}/><CorrelationResults result={correlation}/></>}
-    {modeling&&<><SourceSummary source={modeling.source} filename={modeling.filename}/>{!state?.is_current&&<p className="warning-panel">{t('以下为历史结果。设置已变更，请重新分析。')}</p>}<ResearchRequestSummary selection={modeling.selection} value={modeling.analysis_context.plan.research_request!}/><ModelResults result={modeling}/></>}
-    {comparison&&<><SourceSummary source={comparison.source} filename={comparison.filename}/>{!state?.is_current&&<p className="warning-panel">{t('以下为历史结果。设置已变更，请重新分析。')}</p>}<ResearchRequestSummary selection={comparison.selection} value={comparison.analysis_context.plan.research_request!}/><ComparisonResults result={comparison}/></>}
+    {correlation&&<><SourceSummary source={correlation.source} filename={correlation.filename}/>{!state?.is_current&&<p className="warning-panel">{t('以下为历史结果。设置已变更，请重新分析。')}</p>}<ResearchBasis selection={correlation.selection} value={correlation.analysis_context.plan.research_request!}/><CorrelationResults result={correlation}/></>}
+    {modeling&&<><SourceSummary source={modeling.source} filename={modeling.filename}/>{!state?.is_current&&<p className="warning-panel">{t('以下为历史结果。设置已变更，请重新分析。')}</p>}<ResearchBasis selection={modeling.selection} value={modeling.analysis_context.plan.research_request!}/><ModelResults result={modeling}/></>}
+    {comparison&&<><SourceSummary source={comparison.source} filename={comparison.filename}/>{!state?.is_current&&<p className="warning-panel">{t('以下为历史结果。设置已变更，请重新分析。')}</p>}<ResearchBasis selection={comparison.selection} value={comparison.analysis_context.plan.research_request!}/><ComparisonResults result={comparison}/></>}
   </section></WorkflowStage>
-  {result && <>
-      <BoxplotFigure base={base} runId={result.id} revision={result.setup_revision} source={result.source} filename={result.filename}
-        legacyFallbackAllowed={result.schema_version===2&&result.analysis_context?.plan.research_request?.output_language==='en'} artifactVersion={modeling?4:undefined} figureKind={modeling?(modeling.result_type==='regression'?'forest':modeling.result_type==='roc'?'roc_curve':'kaplan_meier'):comparison?(comparison.selection.design==='paired'?'paired_connected':'group_boxplot'):correlation?(correlation.selection.mode==='pair'?'scatter':'correlation_heatmap'):'boxplot'} outputLanguage={result.analysis_context?.plan.research_request?.output_language??'zh-CN'} comparison={!!comparison} planSha={result.analysis_context?.plan.sha256} modern={result.schema_version===5||result.schema_version===4||result.schema_version===3||result.schema_version===2&&result.analysis_context?.plan.research_request?.output_language==='en'}
-        canGenerate={fieldsMatch && revisionMatches && state.is_current} disabled={disabled || loading || running || !!error} onBusyChange={setPlotBusy} />
-  </>}
-  <ConfirmedRunArtifacts base={base} current={result} disabled={disabled||running} onHistoricalSelection={setHistoricalSelection}/>
+  {navigation&&['figure','explanation','report'].includes(navigation.stage)&&<nav className="analysis-workflow-nav" aria-label={t('成果任务')}><button type="button" aria-current={artifactMode==='current'?'step':undefined} onClick={()=>setArtifactMode('current')}>{t('当前结果成果')}</button><button type="button" aria-current={artifactMode==='workbench'?'step':undefined} onClick={()=>setArtifactMode('workbench')}>{t('图表工作台与集合')}</button></nav>}
+  <div hidden={!!navigation&&artifactMode!=='current'}>
+   {legacyRuns.length>1&&(!navigation||['figure','explanation','report'].includes(navigation.stage))&&<label>{t('单次运行成果')}<select value={legacyRunId} onChange={e=>setLegacyRunId(e.target.value)}>{legacyRuns.map(run=><option key={run.id} value={run.id}>{t('配置修订 {number}',{number:run.setup_revision})} · {run.source?.sheet_name??run.selection.sheet_name} · {new Date(run.completed_at).toLocaleString(locale)}</option>)}</select></label>}
+   {legacyRuns.map(run=><div key={run.id} hidden={legacyRunId!==run.id}>
+      <RunFigure base={base} runId={run.id} revision={run.setup_revision} source={run.source} filename={run.filename}
+        legacyFallbackAllowed={run.schema_version===2&&run.analysis_context?.plan.research_request?.output_language==='en'} artifactVersion={run.result_type==='regression'||run.result_type==='roc'||run.result_type==='survival'?4:undefined} figureKind={run.result_type==='regression'?'forest':run.result_type==='roc'?'roc_curve':run.result_type==='survival'?'kaplan_meier':run.result_type==='group_comparison'?(run.selection.design==='paired'?'paired_connected':'group_boxplot'):run.result_type==='correlation'?(run.selection.mode==='pair'?'scatter':'correlation_heatmap'):'boxplot'} outputLanguage={run.analysis_context?.plan.research_request?.output_language??'zh-CN'} comparison={run.result_type==='group_comparison'} planSha={run.analysis_context?.plan.sha256} modern={run.schema_version===5||run.schema_version===4||run.schema_version===3||run.schema_version===2&&run.analysis_context?.plan.research_request?.output_language==='en'}
+        canGenerate={run.id===result?.id&&fieldsMatch && revisionMatches && !!state?.is_current} disabled={disabled || loading || running || !!error} onRunBusyChange={onRunBusyChange} />
+   </div>)}
+  </div>
+  <div hidden={!!navigation&&artifactMode!=='workbench'}><ConfirmedRunArtifacts base={base} current={result} disabled={disabled||running} onHistoricalSelection={setHistoricalSelection}/></div>
   {!result && !historicalSelection && !loading && !error && navigation && <WorkflowEmptyResults message={modelMethod?'请先完成已确认分析，再生成图表、解释和报告。':isComparison?'请先完成组间比较，再生成图表、解释和报告。':isCorrelation?'请先完成相关分析，再生成图表、解释和报告。':'请先完成描述统计，再生成图表、解释和报告。'} />}
   </>
 }

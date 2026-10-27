@@ -4,3 +4,15 @@
 .figure-workbench input[type=checkbox],.report-collections input[type=checkbox]{width:1rem;height:1rem;min-width:1rem;min-height:1rem;max-height:1rem;padding:0;margin:0 .5rem 0 0;flex:0 0 1rem;vertical-align:middle;accent-color:var(--accent,#67518b)}
 .report-collections label:has(>input[type=checkbox]),.figure-workbench label:has(>input[type=checkbox]){display:flex;flex-direction:row;align-items:center;gap:.25rem;margin-block:.75rem}
 .report-preview>details{border-top:1px solid var(--border,#dce3e8);padding:.8rem 0}.report-preview>details>summary{display:flex;justify-content:space-between;gap:1rem;cursor:pointer}.report-preview>details>summary span{font-size:.85em;color:var(--text-muted,#6d6877)}.report-preview dl{margin:.5rem 0}.report-preview dl>div{display:grid;grid-template-columns:minmax(120px,1fr) minmax(0,3fr);gap:1rem;padding:.25rem 0}.report-preview dt{font-weight:500;color:var(--text-muted,#6d6877)}.report-preview dd{margin:0;overflow-wrap:anywhere;white-space:pre-wrap}.report-fact-list{margin:.5rem 0;padding-left:1.4rem}.report-fact-list>li{padding:.35rem 0}.report-preview dd dl>div{display:block}.report-preview dd dl dt{font-size:.9em}@media(max-width:640px){.report-preview dl>div{display:block}.report-preview>details>summary{align-items:flex-start}}
+
+/* Task views keep controllers mounted while presenting one output task at a time. */
+.figure-workbench [hidden],.report-collections [hidden]{display:none!important}
+.output-task-toolbar{display:flex;flex-wrap:wrap;align-items:center;gap:.5rem;margin-block:1rem}
+.output-task-toolbar button[aria-current=page]{background:var(--accent-bg,#edf5e5);border-color:var(--accent,#35613c);color:var(--accent,#35613c)}
+.output-result-list{display:grid;gap:.5rem;margin-block:1rem}
+.output-result-row{display:flex;align-items:center;justify-content:space-between;gap:1rem;width:100%;padding:.9rem 1rem;text-align:start;background:var(--surface,#fff);border:1px solid var(--border,#dde4d8);border-radius:8px;white-space:normal;overflow-wrap:anywhere}
+.output-result-row:hover{background:var(--accent-bg,#edf5e5)}
+.output-result-row span{font-size:.9rem;color:var(--text,#626c60)}
+.report-collections>div>label:has(input:not([type=checkbox])),.report-collections .collection-items label{display:flex;flex-direction:column;gap:.5rem;max-width:760px;margin-block:1rem}
+.figure-workbench details[open]>section{max-width:880px;font-size:1rem;line-height:1.75}
+@media(max-width:640px){.output-result-row{align-items:flex-start;flex-direction:column;gap:.4rem}.output-task-toolbar button{min-height:44px}.figure-workbench,.report-collections{padding:1rem}.collection-items{padding-left:1rem}}

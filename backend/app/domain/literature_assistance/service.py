@@ -172,6 +172,14 @@ class LiteratureAssistanceService:
                 status='queued',phase='plan' if material['kind']=='search_plan' else 'verify',revision=1,current_attempt=0,
                 reason_code=None,created_at=now,updated_at=now)
             self.store.insert_task(db,task)
+            from app.domain.admin_configuration.bindings import resolve,bind
+            from app.domain.admin_configuration.model_consumption import selected
+            configuration=resolve(db)
+            bind(db,kind='task',object_id=task['id'],version=configuration)
+            frozen_policy=selected(configuration,'literature')
+            if frozen_policy:
+                db.execute("INSERT INTO model_budgets(id,user_id,scope_type,scope_key,project_id,task_id,limit_micro_usd,revision,created_at,updated_at) VALUES (%s,%s,'task',%s,%s,%s,%s,1,%s,%s)",
+                    (str(uuid4()),task['user_id'],task['id'],project_id,task['id'],frozen_policy['task_limit_micro_usd'],now,now))
             db.execute('''INSERT INTO literature_assistance_requests(task_id,project_id,user_id,kind,created_at,updated_at)
                 VALUES (%s,%s,%s,%s,%s,%s)''',(task['id'],project_id,task['user_id'],material['kind'],now,now))
             append_checkpoint(db,task,'check','check',dict(schema_version=1,input_digest=task['input_digest']))

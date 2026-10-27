@@ -1,3 +1,4 @@
+import { useAnalysisLeaveGuard } from '../analysis/analysisActivityContext'
 import SourceSummary from '../analysis/SourceSummary'
 import { validAnalysisTaskSource, validOptionalSource, type DatasetAnalysisSource } from '../analysis/datasetSource'
 import { useI18n, apiError, safeError } from '../../shared/i18n'
@@ -94,6 +95,8 @@ function ExplanationPanel({ base, runId, revision, figureId, canGenerate, disabl
   const ready = sessionValid && current && canGenerate && !disabled && !loading && !busy && !reportBusy && !error
   const allowed = !!config?.configured && ready && !running && !unknown && !resume && !unavailable
     && !unconfirmed && (!task || task.status === 'failed' || task.status === 'succeeded')
+
+  useAnalysisLeaveGuard(sessionValid && (!!review || unconfirmed || unknown), () => sessionValid && !!(action.current || preview.current))
 
   function clearReview() { preview.current?.abort(); preview.current = null; setPreviewing(false); setReview(null) }
   function clearSubmission() { submission.current = null; setUnconfirmed(false) }

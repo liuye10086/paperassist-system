@@ -7,7 +7,7 @@ import ProjectSummary from '../projects/ProjectSummary'
 import {summaryFixture} from '../../test/fixtures/summaryFixture'
 afterEach(()=>{cleanup();vi.unstubAllGlobals();setLocale('zh-CN');window.history.replaceState(null,'','/')})
 it('offers journal advice only in SCI and translates its label',()=>{
- const props={view:'project' as const,projectName:'Research',onNavigate:vi.fn(),onCreate:vi.fn(),onCurrentProject:vi.fn(),children:<div/>}
+ const props={view:'project' as const,projectName:'Research',section:'manuscripts' as const,onNavigate:vi.fn(),onCreate:vi.fn(),onCurrentProject:vi.fn(),children:<div/>}
  const view=render(<WorkspaceShell {...props} projectType="sci"/>);expect(screen.getByRole('button',{name:'期刊建议'})).toBeTruthy()
  view.rerender(<WorkspaceShell {...props} projectType="thesis"/>);expect(screen.queryByRole('button',{name:'期刊建议'})).toBeNull()
  setLocale('en');view.rerender(<WorkspaceShell {...props} projectType="sci"/>);expect(screen.getByRole('button',{name:'Journal suggestions'})).toBeTruthy()

@@ -13,7 +13,8 @@ from app.core.safe_logging import configure_safe_logging
 
 configure_safe_logging()
 
-from app.workers.config import load_secrets, queue_config
+from app.workers.config import load_secrets, queue_config, startup_configuration
+from app.domain.runtime_status import record_worker_startup
 
 
 def health_path():
@@ -71,10 +72,12 @@ def main(argv=None):
             return 0 if app.control.inspect(destination=[node], timeout=3).ping() else 1
         logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(name)s %(message)s')
         if arguments.command == 'worker':
+            startup = startup_configuration()
+            record_worker_startup(startup)
             # Dispose the startup-check connection before forking child processes.
             from app.db.database import get_engine
             get_engine().dispose()
-            app.worker_main(['worker', '--loglevel=WARNING', '--concurrency=1', '--pool=prefork', '--hostname=' + node])
+            app.worker_main(['worker', '--loglevel=WARNING', '--concurrency=' + str(startup['concurrency']), '--pool=prefork', '--hostname=' + node])
         else:
             run_dispatcher()
         return 0

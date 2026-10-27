@@ -53,11 +53,17 @@ class PreparedDatasetObjects:
         except (ValueError, TypeError, RecursionError) as exc:
             raise changed() from exc
 
-    def save(self, dataset_id, content):
+    def describe(self, dataset_id, content):
         self._validate_content(content)
         digest = hashlib.sha256(content).hexdigest()
         key = f'{self.prefix}/{dataset_id}/{digest}.json'
         record = dict(object_key=key, sha256=digest, size_bytes=len(content))
+        self.path(key)
+        return record
+
+    def save(self, dataset_id, content):
+        record = self.describe(dataset_id, content)
+        key = record['object_key']
         target = self.path(key)
         partial = None
         try:

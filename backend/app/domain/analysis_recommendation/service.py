@@ -97,16 +97,19 @@ class RecommendationService:
                 return self.store.public_task(existing),200
         preview,payload,external=self.material(project,file,request)
         from app.domain.analysis_recommendation.policy import get_execution_policy
-        try: policy=get_execution_policy(payload)
-        except StorageError as exc:
-            if exc.code not in ('recommendation_not_configured','explanation_not_configured'): raise
-            policy=None
         with self.store.connection(write=True) as db:
             self.store.require_project(db,project);existing=self.store.find_request(db,project,'analysis_recommendation',key)
             if existing:
                 if existing['input_digest']!=digest: raise StorageError('task_idempotency_conflict','请求标识已用于其他资料。',409)
                 return self.store.public_task(existing),200
             record,_,_=load_dataset(self.assets,project,file,request.dataset_id,expected_source=preview['source'])
+            from app.domain.admin_configuration.bindings import resolve,bind
+            from app.domain.admin_configuration.model_consumption import execution
+            configuration=resolve(db)
+            try:policy=execution(configuration,'recommendation',payload) if configuration else get_execution_policy(payload)
+            except StorageError as exc:
+                if exc.code not in ('recommendation_not_configured','explanation_not_configured'):raise
+                policy=None
             now=datetime.now(timezone.utc)
             snapshot=dict(schema_version=raw.get('schema_version',1),project_id=project,filename=record['filename'],source=preview['source'],
                 request=raw,payload=payload,external_processing=external,recommendation_policy=policy,require_explanation=True)
@@ -114,9 +117,10 @@ class RecommendationService:
                 idempotency_key=key,input_digest=digest,input_snapshot=snapshot,workflow_version=request_version(raw),status='queued',
                 phase='plan',revision=1,current_attempt=0,reason_code=None,created_at=now,updated_at=now)
             self.store.insert_task(db,task)
+            bind(db,kind='task',object_id=task['id'],version=configuration)
             db.execute("""INSERT INTO model_budgets (id,user_id,scope_type,scope_key,project_id,task_id,
-                limit_micro_usd,revision,created_at,updated_at) VALUES (%s,%s,'task',%s,%s,%s,500000,1,%s,%s)""",
-                (str(uuid4()),task['user_id'],task['id'],project,task['id'],now,now))
+                limit_micro_usd,revision,created_at,updated_at) VALUES (%s,%s,'task',%s,%s,%s,%s,1,%s,%s)""",
+                (str(uuid4()),task['user_id'],task['id'],project,task['id'],policy['task_limit_micro_usd'] if policy else 500000,now,now))
             append_checkpoint(db,task,'check','check',dict(input_version=input_version(task),recommendation=None))
             self.store.append_event(db,task,'created');self.store.enqueue(db,task)
             return self.store.public_task(task),202
@@ -137,6 +141,7 @@ class RecommendationService:
             result=row['state_json'].get('recommendation') if row else None
             if result:
                 from app.domain.analysis_recommendation.policy import instructions_for
+                from app.domain.admin_configuration.model_consumption import task_instructions
                 from app.domain.model_usage.gateway import input_digest
                 try:
                     fields=set(draft_model(snapshot['request']).model_fields)
@@ -151,7 +156,7 @@ class RecommendationService:
                 if (task['status']!='succeeded' or row['node']!='done' or result['sha256']!=request_digest(material)
                         or not call or call['provider_status']!='completed'
                         or call['call_key']!=call_key(snapshot['request'])
-                        or call['input_digest']!=input_digest(instructions=instructions_for(snapshot['payload']),payload=snapshot['payload'])
+                        or call['input_digest']!=input_digest(instructions=task_instructions(db,task,instructions_for(snapshot['payload']),'recommendation'),payload=snapshot['payload'])
                         or result['task_id']!=task_id or result['model_call_id']!=call['id'] or not call['provider_response_id']):
                     raise source_conflict()
         return dict(task=self.store.public_task(task),source=snapshot['source'],input_version=input_version(task),
@@ -182,7 +187,11 @@ def retry_in_transaction(store,db,task,expected_revision):
     service=RecommendationService(DatasetTaskAssets(store.user_id,store.config));snapshot=service.require_material(task)
     if snapshot.get('recommendation_policy') is None:
         from app.domain.analysis_recommendation.policy import get_execution_policy
-        snapshot={**snapshot,'recommendation_policy':get_execution_policy(snapshot['payload'])}
+        from app.domain.admin_configuration.model_consumption import task_version,execution
+        configuration=task_version(db,task)
+        frozen=execution(configuration,'recommendation',snapshot['payload']) if configuration else get_execution_policy(snapshot['payload'])
+        if frozen is None:raise StorageError('recommendation_not_configured','原任务策略未配置。',503)
+        snapshot={**snapshot,'recommendation_policy':frozen}
         db.execute('UPDATE tasks SET input_snapshot=%s WHERE id=%s',(Jsonb(snapshot),task['id']))
         task['input_snapshot']=snapshot
     task.update(status='queued',revision=expected_revision+1,reason_code='confirmation_received' if task['status']=='waiting_confirmation' else 'retry_requested',

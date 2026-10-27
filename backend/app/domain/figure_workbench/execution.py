@@ -45,15 +45,27 @@ def _context(repository,lease):
 @local_numeric_node
 def _publish_figure(repository,lease,store,figure):
     # Existing immutable bytes and all source/config/facts are rechecked before publication.
-    store.assets.figure_png(figure)
     with repository.connection(write=True) as db:
         task=repository.require_lease(db,lease);require_task_sources(repository,db,task)
+        call=db.execute('SELECT * FROM model_calls WHERE task_id=%s AND call_key=%s',(task['id'],PLOT_KEY)).fetchone()
+        provenance=figure.get('provenance') or {}
+        if (not call or call['provider_status']!='completed' or provenance.get('model_call_id')!=call['id']
+                or provenance.get('model_input_digest')!=call['input_digest'] or provenance.get('response_id')!=call['provider_response_id']
+                or provenance.get('container_id')!=(call['provider_state'] or {}).get('container_id')
+                or provenance.get('model')!=call['model']):raise source_conflict()
         current=db.execute('SELECT figure_json FROM figures WHERE figure_config_version_id=%s',(figure['figure_config_version_id'],)).fetchone()
         if current:
             saved=json.loads(current['figure_json'])
             if saved['sha256']!=figure['sha256'] or saved['facts_sha256']!=figure['facts_sha256']:raise source_conflict()
             figure=saved
-        else:db.execute('INSERT INTO figures(id,analysis_run_id,renderer_version,figure_config_version_id,figure_json) VALUES (%s,%s,%s,%s,%s)',(figure['id'],figure['analysis_run_id'],figure['engine']['id'],figure['figure_config_version_id'],json.dumps(figure,ensure_ascii=False,allow_nan=False)))
+        else:
+            from app.domain.storage_governance.candidates import task_hold,task_recovery_authorized
+            from app.domain.storage_governance.service import publish_candidate,invalid
+            hold=task_hold(db,task)
+            if not hold:raise invalid()
+            publish_candidate(db,store.assets.directory,hold['id'],explicit_recovery=task_recovery_authorized(hold,task,lease))
+            db.execute('INSERT INTO figures(id,analysis_run_id,renderer_version,figure_config_version_id,figure_json) VALUES (%s,%s,%s,%s,%s)',(figure['id'],figure['analysis_run_id'],figure['engine']['id'],figure['figure_config_version_id'],json.dumps(figure,ensure_ascii=False,allow_nan=False)))
+        store.assets.figure_png(figure)
         task['result_figure_id']=figure['id'];db.execute('UPDATE tasks SET figure_candidate=NULL WHERE id=%s',(task['id'],))
         repository.require_lease(db,lease)
         repository._finish(db,task,'succeeded',None)
@@ -91,14 +103,16 @@ def _execute(repository,lease,provider_factory,providers,explanation):
         task,store,row,result,projection,payload,expected=_context(repository,lease)
         candidate=task['figure_candidate']
         if (candidate.get('facts_sha256')!=digest(expected) or any(candidate.get(k)!=v for k,v in expected.items()) or candidate.get('figure_config_version_id')!=row['id'] or candidate.get('configuration_sha256')!=row['sha256'] or candidate.get('projection_id')!=projection['id'] or candidate.get('projection_sha256')!=projection['sha256'] or candidate.get('source')!=result['source'] or candidate.get('analysis_run_id')!=result['id']):raise source_conflict()
-        path=store.assets.figures_dir/(candidate['id']+'.png')
-        if path.exists():return _publish_figure(repository,lease,store,candidate)
+        return _publish_figure(repository,lease,store,candidate)
     if not call or not call.get('provider_response_id'):
         task,store,row,result,projection,payload,expected=_context(repository,lease)
         if explanation:
             bundle=read_bundle(store.assets,task['project_id'],task['input_snapshot']['figure']['id']);payload=build_payload(bundle,version=task_version(task['input_snapshot']));instructions=explanation_instructions(payload)
         else:instructions=instructions_for(payload)
-        frozen=validate_policy(task['input_snapshot']['explanation_policy' if explanation else 'boxplot_policy'],payload,explanation=explanation)
+        from app.domain.admin_configuration.model_consumption import task_instructions
+        with repository.connection() as db:instructions=task_instructions(db,task,instructions,'explanation' if explanation else 'plot')
+        frozen=validate_policy(task['input_snapshot']['explanation_policy' if explanation else 'boxplot_policy'],payload,explanation=explanation,instructions=instructions)
+    if not explanation:repository.admit_figure_storage(lease)
     provider=provider_factory();providers.append(provider);gateway=ModelGateway(ModelUsageService(task['user_id'],repository.config),provider)
     try:
         if call and call.get('provider_response_id'):output=gateway.refresh(call['id'])
@@ -160,6 +174,18 @@ def _execute(repository,lease,provider_factory,providers,explanation):
     figure={**expected,'id':str(uuid5(NAMESPACE_URL,'paperassist:figure:'+task['id'])),'analysis_run_id':result['id'],'file_id':result['file_id'],'source':result['source'],'source_sha256':result['source_sha256'],'setup_revision':result['setup_revision'],'sha256':sha256(png).hexdigest(),'size_bytes':len(png),'figure_config_version_id':row['id'],'configuration_sha256':row['sha256'],'projection_id':projection['id'],'projection_sha256':projection['sha256'],'facts_sha256':digest(expected),'figure_number':None,'numbering_mode':'external','method':projection['result']['method'],'created_at':datetime.now(timezone.utc).isoformat(),'engine':{'id':renderer_for(row['source_json']),'provider':'openai_code_interpreter','model':call['model']},'verification':{'status':'matched','note':'Structured values verified; image pixels require human review.' if row['config_json']['language']=='en' else '结构化数值已核验；图像视觉仍需人工审阅。'},'provenance':{**parsed['provenance'],'prompt_version':renderer_for(row['source_json']),'model_call_id':call['id'],'model_input_digest':call['input_digest'],'input_sha256':digest(payload)},'text_authorship':{'title':'user' if style['title'] else 'program','additional_caption':'user','created_by':row['created_by']},'external_processing':task['input_snapshot']['external_processing']}
     with repository.connection(write=True) as db:
         task=repository.require_lease(db,lease);require_task_sources(repository,db,task)
+        from app.domain.storage_governance.candidates import task_hold,FIGURE_DESCRIPTOR_FORMAT
+        from app.domain.storage_governance.service import capture_candidate,invalid
+        hold=task_hold(db,task)
+        if not hold:raise invalid()
+        figure['created_at']=task['created_at'].isoformat()
+        document={k:task[k] for k in ('id','project_id','user_id','input_digest','task_type')}
+        document['candidate']=figure
+        capture_candidate(db,store.assets.directory,hold['id'],png,
+            [store.assets.figures_dir/(figure['id']+'.png'),store.assets.directory/'task-staging'/(figure['id']+'.candidate')],source_identity=task['input_digest'],
+            descriptor=json.dumps(document,ensure_ascii=False,allow_nan=False,sort_keys=True).encode(),
+            descriptor_path=store.assets.directory/'task-staging'/(figure['id']+'.json'),
+            write_path=store.assets.directory/'task-staging'/(figure['id']+'.candidate'),descriptor_format=FIGURE_DESCRIPTOR_FORMAT)
         db.execute('UPDATE tasks SET figure_candidate=%s WHERE id=%s',(Jsonb(figure),task['id']))
     store.assets.figures_dir.mkdir(parents=True,exist_ok=True)
     write_candidate(repository,lease,store,figure,png)
@@ -190,7 +216,7 @@ def _run(task_id,task_revision,*,config=None,directory=None,provider_factory=Non
         return repository.retry_failure(lease,code)
     except (StorageError,PlotError) as exc:
         if exc.code in ('model_budget_missing','model_budget_exceeded','plot_not_configured','explanation_not_configured','openai_not_configured'):return repository.wait_explanation(lease,'budget_exceeded',exc.code)
-        if isinstance(exc,PlotError) or exc.status<500:
+        if isinstance(exc,PlotError) or exc.status<500 or exc.code.startswith('storage_'):
             call=_call(repository,lease)
             if call and call['status']=='reserved' and not call.get('provider_state') and not call.get('provider_response_id'):
                 ModelUsageService(call['user_id'],repository.config).release_unsubmitted(call['id'],event_key='figure:unsubmitted_failure:v1',reason_code=exc.code)
@@ -210,20 +236,18 @@ def run_figure_explanation_task(task_id,task_revision,**kwargs):return _run(task
 
 
 def write_candidate(repository,lease,store,figure,png):
-    """Unique attempt temp plus atomic no-replace publication under the writer fence."""
+    """Consume the committed bounded hold; preserve the sole complete staging file."""
     import os
-    from uuid import uuid4
+    from app.domain.storage_governance.candidates import task_hold
+    from app.domain.storage_governance.service import require_publication_allowed,invalid
     if sha256(png).hexdigest()!=figure['sha256'] or len(png)!=figure['size_bytes']:raise source_conflict()
-    store.assets.figures_dir.mkdir(parents=True,exist_ok=True)
-    temporary=store.assets.figures_dir/(figure['id']+'.'+str(lease.attempt_no)+'.'+uuid4().hex+'.part')
-    target=store.assets.figures_dir/(figure['id']+'.png')
-    try:
-        with temporary.open('xb') as stream:
-            stream.write(png);stream.flush();os.fsync(stream.fileno())
-        with repository.connection(write=True) as db:
-            task=repository.require_lease(db,lease);require_task_sources(repository,db,task)
-            try:os.link(temporary,target)
-            except FileExistsError:
-                existing=target.read_bytes()
-                if len(existing)!=figure['size_bytes'] or sha256(existing).hexdigest()!=figure['sha256']:raise source_conflict()
-    finally:temporary.unlink(missing_ok=True)
+    with repository.connection(write=True) as db:
+        task=repository.require_lease(db,lease);require_task_sources(repository,db,task)
+        hold=task_hold(db,task)
+        if not hold or hold['sha256']!=figure['sha256'] or hold['size_bytes']!=len(png):raise invalid()
+        temporary=store.assets.directory/'task-staging'/(figure['id']+'.candidate')
+        if temporary.relative_to(store.assets.directory).as_posix() not in hold['candidate_json']['locations']:raise invalid()
+        for key in hold['candidate_json']['locations']:require_publication_allowed(db,task['project_id'],key)
+        temporary.parent.mkdir(parents=True,exist_ok=True)
+        from app.domain.storage_governance.candidates import _write_immutable
+        _write_immutable(temporary,png)

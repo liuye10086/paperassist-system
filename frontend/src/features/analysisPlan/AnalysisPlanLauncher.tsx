@@ -1,3 +1,5 @@
+import {useWorkflowNavigation} from '../analysis/analysisWorkflowContext'
+import {useAnalysisLeaveGuard} from '../analysis/analysisActivityContext'
 import OriginRecommendation from './OriginRecommendation'
 import type {Recommendation} from './recommendationApi'
 import RequirementReview from './RequirementReview'
@@ -24,6 +26,8 @@ export default function AnalysisPlanLauncher(props: Props) { return <Launcher ke
 
 function Launcher({ projectId, fileId, source, selection, initialSelection, fields=[], onSelectionChange, setupRevision, disabled, onPublished }: Props) {
   const { t } = useI18n()
+  const taskLayout=!!useWorkflowNavigation()
+  const [view,setView]=useState<'create'|'recommendations'|'history'|'review'>('create')
   const [recommendationBusy,setRecommendationBusy]=useState(false)
   const [originRef,setOriginRef]=useState<{task_id:string;sha256:string}|null>(null)
   const [recommendationRef,setRecommendationRef]=useState<{task_id:string;sha256:string}|null>(null)
@@ -42,6 +46,9 @@ function Launcher({ projectId, fileId, source, selection, initialSelection, fiel
   const [listError,setListError]=useState('')
   const action = useRef<AbortController | null>(null)
   const replay = useRef<{ signature: string; key: string } | null>(null)
+  useAnalysisLeaveGuard(() => !!replay.current || JSON.stringify(research) !== JSON.stringify(emptyResearchRequest()) || JSON.stringify(candidate) !== JSON.stringify(initialSelection ?? selection) || !!originRef || !!recommendationRef, busy || recommendationBusy)
+  const [visitedReviews, setVisitedReviews] = useState<NonNullable<typeof selected>[]>([])
+  if (selected && !visitedReviews.some(item => item.taskId === selected.taskId)) setVisitedReviews(items => [...items, selected])
   const base = `/api/v1/projects/${encodeURIComponent(projectId)}/files/${encodeURIComponent(fileId)}/analysis-plans`
   useEffect(() => () => action.current?.abort(), [])
   useEffect(() => {
@@ -82,6 +89,10 @@ function Launcher({ projectId, fileId, source, selection, initialSelection, fiel
   const visible = list?.items.filter(item => sameSource(item.source, source)) ?? []
   return <section className="preparation-panel" aria-label={t('分析计划')}>
     <h4>{t('分析计划')}</h4><p className="muted">{t('生成后须逐项处理检查问题并确认发布，才能将该计划用于统计分析。')}</p>
+    {taskLayout&&<nav className="analysis-workflow-nav" aria-label={t('方案任务')}>
+      {([['create','编写方案'],['recommendations','方案建议'],['history','方案历史'],['review','审核所选方案']] as const).map(([key,label])=><button type="button" key={key} aria-current={view===key?'step':undefined} disabled={key==='review'&&!selected} onClick={()=>setView(key)}>{t(label)}</button>)}
+    </nav>}
+    <div hidden={taskLayout&&view!=='create'}>
     {source.schema_version >= 2 && <p>{t(independentPlanMessage)}</p>}
     <label>{t('计划方法')}<select value={method} disabled={disabled||busy||recommendationBusy} onChange={e=>{const m=e.target.value;setMethod(m);change(Object.hasOwn(modelMethods,m)?initialModelSelection(source.sheet_name,m as ModelMethod):m==='descriptive'?selection:Object.hasOwn(comparisonMethods,m)?initialComparison(source.sheet_name,m as ComparisonMethod):{...initialCorrelation(source.sheet_name),method:m as 'pearson'|'spearman'})}}><option value="descriptive">{t('描述统计＋箱线图')}</option><option value="pearson">Pearson</option><option value="spearman">Spearman</option>{Object.entries(comparisonMethods).map(([key,label])=><option key={key} value={key}>{t(label)}</option>)}{Object.entries(modelMethods).map(([key,label])=><option key={key} value={key}>{t(label)}</option>)}</select></label>
     {method!=='descriptive'&&candidate.task_type==='correlation'&&<CorrelationSelectionForm value={candidate} fields={fields} onChange={change} disabled={disabled||busy||recommendationBusy}/>}
@@ -89,12 +100,19 @@ function Launcher({ projectId, fileId, source, selection, initialSelection, fiel
     {['regression','roc','survival'].includes(candidate.task_type)&&candidate.task_type!=='correlation'&&candidate.task_type!=='group_comparison'&&candidate.task_type!=='descriptive_boxplot'&&<ModelSelectionForm value={candidate} fields={fields} onChange={change} disabled={disabled||busy||recommendationBusy}/>}
     <ResearchRequestForm selection={method==='descriptive'&&!recommendationRef?selection:candidate} value={research} onChange={setResearch} disabled={disabled || busy || recommendationBusy} />
     <div className="analysis-actions"><button type="button" className="button-primary" disabled={disabled || busy || recommendationBusy || !isResearchRequest(research)||method!=='descriptive'&&!isAnalysisSelection(candidate)} onClick={() => void create()}>{t('生成分析计划')}</button><button type="button" disabled={busy} onClick={() => { setListError(''); setRefresh(n => n + 1) }}>{t('刷新分析计划列表')}</button></div>
+    </div>
     {actionError && <p role="alert" className="error-panel">{t(actionError)}</p>}
     {listError && <p role="alert" className="error-panel">{t(listError)}</p>}
+    <div hidden={taskLayout&&view!=='history'}>
     {list && <><div className="analysis-actions"><button type="button" disabled={page <= 1} onClick={() => setPage(n => n - 1)}>{t('上一页')}</button><span>{t('共 {total} 项 · 第 {page} / {pages} 页', { total: list.total, page, pages: Math.max(1, Math.ceil(list.total / 5)) })}</span><button type="button" disabled={page * 5 >= list.total} onClick={() => setPage(n => n + 1)}>{t('下一页')}</button></div>
-      {visible.map(item => <button type="button" key={item.task.id} onClick={() => setSelected({ taskId: item.task.id, inputVersion: item.input_version })} aria-pressed={selected?.taskId === item.task.id}>{t('分析计划第 {revision} 版 · {status}', { revision: item.plan_revision, status: t(statusNames[item.task.status]) })}</button>)}</>}
+      {visible.map(item => <button type="button" key={item.task.id} onClick={() => { setSelected({ taskId: item.task.id, inputVersion: item.input_version }); setView('review') }} aria-pressed={selected?.taskId === item.task.id}>{t('分析计划第 {revision} 版 · {status}', { revision: item.plan_revision, status: t(statusNames[item.task.status]) })}</button>)}</>}
+    </div>
+    <div hidden={taskLayout&&view!=='recommendations'}>
     {source.schema_version===3&&<OriginRecommendation projectId={projectId} source={source} value={originRef} onChange={v=>{setOriginRef(v);setRecommendationRef(null)}} disabled={disabled||busy||recommendationBusy}/>}
     <AnalysisRecommendation schemaVersion={5} onAdoptRequirement={r=>void adoptMissing(r)} projectId={projectId} fileId={fileId} source={source} fields={fields} language={research.output_language} onBusyChange={setRecommendationBusy} disabled={disabled||busy||recommendationBusy} descriptiveSelection={selection} onAdopt={(v,ref,language)=>{change(v);setMethod(v.task_type!=='descriptive_boxplot'?v.method:'descriptive');setRecommendationRef(ref);setOriginRef(null);setResearch({...research,output_language:language})}}/>
-    {selected&&['analysis_plan_v4','analysis_plan_v5'].includes(selected.inputVersion.workflow_version)?<RequirementReview projectId={projectId} taskId={selected.taskId} onChanged={()=>setRefresh(n=>n+1)} onPublished={onPublished}/>:selected && <AnalysisPlanReview key={selected.taskId} projectId={projectId} taskId={selected.taskId} expectedSource={source} expectedInputVersion={selected.inputVersion} onChanged={() => setRefresh(n => n + 1)} onPublished={onPublished} />}
+    </div>
+    <div hidden={taskLayout&&view!=='review'}>
+    {visitedReviews.map(item => <div key={item.taskId} hidden={selected?.taskId !== item.taskId}>{['analysis_plan_v4','analysis_plan_v5'].includes(item.inputVersion.workflow_version) ? <RequirementReview projectId={projectId} taskId={item.taskId} onChanged={()=>setRefresh(n=>n+1)} onPublished={onPublished}/> : <AnalysisPlanReview projectId={projectId} taskId={item.taskId} expectedSource={source} expectedInputVersion={item.inputVersion} onChanged={() => setRefresh(n => n + 1)} onPublished={onPublished} />}</div>)}
+    </div>
   </section>
 }

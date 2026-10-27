@@ -17,12 +17,22 @@ def policy():
         input_micro_usd_per_million=2500000,cached_input_micro_usd_per_million=250000,
         output_micro_usd_per_million=15000000))
 
-def capabilities():
+def installed_policy():
+    return policy()
+
+
+def capabilities(version=None):
     from app.core.config import local_config
     config=local_config()
     configured=bool(config.get('OPENAI_API_KEY_FILE') or config.get('OPENAI_API_KEY'))
-    return dict(real_calls_enabled=config.get('PAPERASSIST_ENV')!='test' and config.get('PAPERASSIST_WRITING_LIVE_ENABLED')=='1' and configured,
+    execution=version['bundle']['models']['writing']['execution'] if version else None
+    models=version['bundle']['models'] if version else None
+    return dict(real_calls_enabled=config.get('PAPERASSIST_ENV')!='test' and config.get('PAPERASSIST_WRITING_LIVE_ENABLED')=='1' and configured and (models is None or models['real_calls_enabled']),
                 credential_status='configured_unverified' if configured else 'missing',
-                model=MODEL, price_version=PRICE_VERSION, max_input_tokens=MAX_INPUT,
-                max_output_tokens=MAX_OUTPUT, batch_max_posts=MAX_POSTS, batch_cap_micro_usd=BATCH_CAP,
-                logical_task_cap_micro_usd=TASK_CAP, publish_requires_review=True)
+                model=execution['policy']['model'] if execution else MODEL,
+                price_version=execution['policy']['price']['version'] if execution else PRICE_VERSION,
+                max_input_tokens=execution['input_token_allowance'] if execution else MAX_INPUT,
+                max_output_tokens=execution['policy']['max_output_tokens'] if execution else MAX_OUTPUT,
+                batch_max_posts=models['batch_max_posts'] if models else MAX_POSTS,
+                batch_cap_micro_usd=models['batch_cap_micro_usd'] if models else BATCH_CAP,
+                logical_task_cap_micro_usd=execution['task_limit_micro_usd'] if execution else TASK_CAP,publish_requires_review=True)

@@ -10,6 +10,7 @@ from lxml import etree as E
 
 from app.adapters.docx_parser import parse_docx, props, DOCX_SETTINGS, W, NS
 from app.core.exceptions import StorageError
+from app.domain.admin_configuration.contracts import Schools
 
 PARSER_VERSION = 'school-template-openxml-v1'
 Q = '{' + W + '}'
@@ -112,13 +113,16 @@ def merge_template_notes(analysis: dict, notes: list) -> dict:
         if key not in seen:
             result['notes'].append(deepcopy(note))
             seen.add(key)
-    result['conflicts'] = _interpret_requirements(result['sections'], result['rules'], result['notes'])
+    mapping_conflicts = [c for c in result['conflicts'] if c.get('kind') == 'heading_mapping']
+    result['conflicts'] = _interpret_requirements(result['sections'], result['rules'], result['notes']) + mapping_conflicts
     if len(json.dumps(result, ensure_ascii=False).encode()) > MAX_RESULT_BYTES:
         raise StorageError('parse_output_invalid', '模板及补充规范解析结果超过限制。', 422)
     return result
 
 
-def inspect_school_template(content: bytes, filename: str) -> dict:
+def inspect_school_template(content: bytes, filename: str, *, heading_aliases=()) -> dict:
+    aliases = Schools(heading_aliases=list(heading_aliases)).heading_aliases
+    aliases = {alias.text.strip(): alias.role for alias in aliases}
     # Reuse bounded DOCX package/structure validation, without altering its old output contract.
     base = parse_docx(content, filename, DOCX_SETTINGS).document
     with ZipFile(BytesIO(content)) as package:
@@ -247,9 +251,9 @@ def inspect_school_template(content: bytes, filename: str) -> dict:
         if text and text not in seen_notes:
             notes.append({'id': f'note-{len(notes)+1}', 'text': text, 'source': _source(box, text=text)})
             seen_notes.add(text)
-    chapters, exemplars = [], {}
+    chapters, exemplars, alias_examples = [], {}, {}
     after_heading = False
-    for node, text in paragraphs:
+    for paragraph_index, (node, text) in enumerate(paragraphs, 1):
         paragraph = node.find('w:pPr', NS)
         identity = _value(paragraph, 'pStyle') or default_style
         effective = {**{'pPr.' + k: v for k, v in defaults['paragraph'].items()},
@@ -275,7 +279,7 @@ def inspect_school_template(content: bytes, filename: str) -> dict:
         named_part = compact in ('摘要', 'Abstract', 'ABSTRACT', '参考文献', '目录', '致谢', '学位论文独创性声明', '学位论文版权使用授权书') or bool(re.match(r'^附录[A-ZＡ-Ｚ][:：]', compact))
         guide = text.startswith(('自绘图', '截图、照片', '注意：', '一级标题：', '二级标题：', '三级标题：'))
         if (level or named_part) and not is_toc and not guide:
-            chapters.append({'id': 'chapter-' + str(len(chapters)+1), 'title': text, 'level': level or 1, 'source': _source(node)})
+            chapters.append({'id': 'chapter-' + str(paragraph_index if aliases else len(chapters)+1), 'title': text, 'level': level or 1, 'source': _source(node)})
         if level and not is_toc and not guide:
             role = f'heading{level}'
             after_heading = True
@@ -292,6 +296,27 @@ def inspect_school_template(content: bytes, filename: str) -> dict:
             role = 'keywords_en'
         elif after_heading and not level and len(text) > 30 and not re.match(r'^(?:注意|正文[：:]|一级标题|二级标题|三级标题|图的题注|表的标题)', text):
             role = 'body'
+        alias = aliases.get(text.strip()) if not is_toc and not guide else None
+        if alias:
+            original_chapter = next((c for c in chapters if c['source']['path'] == node.getroottree().getpath(node)), None)
+            # Named declarations/appendices are chapters even without a style role.
+            observed_role = role or ('heading' + str(original_chapter['level']) if original_chapter else None)
+            if role:exemplars.setdefault(role, (node, effective))
+            chapters = [c for c in chapters if c is not original_chapter]
+            chapter_id = original_chapter['id'] if original_chapter else 'mapped-chapter-' + str(paragraph_index)
+            if alias != 'body':
+                chapters.append(dict(id=chapter_id,title=text,level=int(alias[-1]),source=_source(node)))
+                after_heading = True
+            mapping_id = 'heading-mapping-' + str(len(rules)+1)
+            rules.append(dict(id=mapping_id,category='heading_mapping',label='有限标题映射',value=alias,
+                source=_source(node),origin='configuration_literal',mapping=dict(observed_role=observed_role,
+                alias_role=alias,chapter_id=chapter_id,title=text,observed_level=original_chapter['level'] if original_chapter else None)))
+            if observed_role != alias:alias_examples[(alias,node.getroottree().getpath(node))]=mapping_id
+            if observed_role and observed_role != alias:
+                conflicts.append(dict(id='heading-conflict-'+mapping_id,kind='heading_mapping',rule_id=mapping_id,
+                    label='标题映射与原角色不同',message='原始属性或明确章节与有限映射不同，须确认角色及章节。',
+                    options=[dict(id='original',value=observed_role,source=_source(node)),dict(id='alias',value=alias,source=_source(node))]))
+            role = alias
         if role:
             exemplars.setdefault(role, (node, effective))
     # The paragraph immediately before an abstract is a title example, not a research requirement.
@@ -326,7 +351,9 @@ def inspect_school_template(content: bytes, filename: str) -> dict:
                 source, origin = property_source(node, prop)
                 rules.append({'id': role + '.' + key, 'category': role, 'label': labels.get(role, role) + ' ' + label,
                               'value': value, 'source': source, 'origin': origin, 'example_source': _source(node)})
-    conflicts = _interpret_requirements(sections, rules, notes)
+                mapped=alias_examples.get((role,node.getroottree().getpath(node)))
+                if mapped:rules[-1]['alias_rule_id']=mapped
+    conflicts = _interpret_requirements(sections, rules, notes) + conflicts
     if has_ole:
         unsupported.append({'id': 'embedded_objects', 'message': '模板含OLE嵌入对象（如公式）；仅保留原件，不执行或承诺转换还原。'})
     if any('脚注' in n['text'] for n in notes):

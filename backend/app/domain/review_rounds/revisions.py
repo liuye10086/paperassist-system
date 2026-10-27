@@ -12,6 +12,7 @@ from .service import ReviewRoundService
 from .planning import invalid
 from .revision_contracts import WORKFLOW,RevisionInputVersion,RevisionPreview
 from .grounded import evidence_for,locations_for,grounded_plans,apply_operations
+from app.domain.admin_configuration.rule_consumption import rules,round_version,inherit_task
 
 
 def input_version(task):
@@ -23,6 +24,7 @@ def input_version(task):
 class RevisionService(ReviewRoundService):
     def fixed_context(self,db,project,identity):
         row=self.round_row(db,project,identity);base=self.fixed(db,row);state,events=self.state(db,row)
+        version=round_version(db,identity);policy=rules(version,'review') if version else None
         if not events:raise invalid('请先等待轮次计划保存。',409)
         current=ManuscriptService(self.assets).root(db,project,base['manuscript_id'])['current_revision']
         context=dict(round_id=identity,plan_revision=events[-1]['revision'],manuscript={k:row['snapshot_json']['manuscript'][k] for k in ('id','revision','version_id')},expected_current_revision=current,project_type=row['snapshot_json']['project_type'],output_language=base['snapshot_json']['output_language'],locations=locations_for(base['snapshot_json']),evidence=evidence_for(base['snapshot_json'],state['materials']),grounded_plans=grounded_plans(base['snapshot_json'],state['items'],state['materials']),constraints=row['snapshot_json']['constraints'])
@@ -46,7 +48,7 @@ class RevisionService(ReviewRoundService):
             item=next(i for i in planning_items if i['id']==adopted['item_id'])
             source_id=adopted['snapshot_json']['source']['id']
             if source_id not in item['evidence_ids']:item['evidence_ids'].append(source_id)
-        context['grounded_plans']=grounded_plans(augmented,planning_items,state['materials'])
+        context['grounded_plans']=grounded_plans(augmented,planning_items,state['materials'],rules=policy)
         return row,base,state,context
     def revision_context(self,project,identity):
         with self.store.connection() as db:return self.fixed_context(db,project,identity)[3]
@@ -63,7 +65,7 @@ class RevisionService(ReviewRoundService):
         adoptions=ScienceService(self.assets).selected_adoptions(db,project,identity,request.analysis_adoption_ids,request.plan_revision,require_current=True)
         augmented,authority,table_changes=apply_analysis_sources(base['snapshot_json'],adoptions,authority)
         active_items=analysis_items(state['items'],adoptions)
-        candidate,changes,unexecuted,strict,issues=apply_operations(augmented,active_items,state['materials'],request.operations,writing_context=authority,target=target)
+        candidate,changes,unexecuted,strict,issues=apply_operations(augmented,active_items,state['materials'],request.operations,writing_context=authority,target=target,fixed_safety=round_version(db,identity) is not None)
         changes=table_changes+changes
         unexecuted+=science_unexecuted(state['items'],adoptions)
         issues+=analysis_consistency_issues(candidate,adoptions)
@@ -121,6 +123,7 @@ class RevisionService(ReviewRoundService):
             if request.analysis_adoption_ids:snap['analysis_adoption_ids']=list(request.analysis_adoption_ids)
             task=dict(id=str(uuid4()),project_id=project,user_id=self.store.user_id,task_type='review_revision',idempotency_key='review-revision:'+identity,input_digest=digest(snap),input_snapshot=snap,workflow_version=WORKFLOW,status='queued',phase='verify',revision=1,current_attempt=0,reason_code=None,created_at=timestamp,updated_at=timestamp)
             self.store.insert_task(db,task);self.store.append_event(db,task,'created');self.store.enqueue(db,task)
+            inherit_task(db,task,round_id=row['id'])
             self.insert(db,'review_revision_runs',project,key,body,snap,round_id=row['id'],task_id=task['id'],manuscript_id=base['manuscript_id'],manuscript_version_id=base['id'])
             return self.view_revision(db,self.revision_row(db,project,identity)),202
     def compute(self,db,row):

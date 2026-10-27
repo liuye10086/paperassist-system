@@ -2,7 +2,7 @@ import re
 
 from starlette.types import ASGIApp, Receive, Scope, Send
 
-from app.core.config import get_excel_settings
+from app.core.config import get_request_excel_settings
 from app.core.errors import error_response
 
 
@@ -20,7 +20,7 @@ class UploadLimitMiddleware:
             return await self.app(scope, receive, send)
 
         # Small fixed allowance for the multipart boundary and file headers.
-        max_upload_bytes = get_excel_settings().max_upload_bytes
+        max_upload_bytes = get_request_excel_settings().max_upload_bytes
         limit = max_upload_bytes + 64 * 1024
         body = bytearray()
         while True:

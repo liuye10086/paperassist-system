@@ -90,6 +90,8 @@ def _execute(repository, lease, config, provider_factory, remember_provider):
     task = repository.load_explanation_task(lease)
     instructions = explanation_instructions(task['input_snapshot'].get('external_processing'),
                                            result=task['input_snapshot']['result'])
+    from app.domain.admin_configuration.model_consumption import task_instructions,check_input
+    with repository.connection() as db:instructions=task_instructions(db,task,instructions,'explanation')
     call = repository.explanation_call(lease)
     if call and not call['provider_response_id'] and call['status'] in ('submitting', 'submission_unknown'):
         return repository.wait_explanation(lease, 'submission_unknown', 'model_submission_unknown')
@@ -101,6 +103,7 @@ def _execute(repository, lease, config, provider_factory, remember_provider):
         from app.domain.external_material import explanation_material
         _, outbound = explanation_material(snapshot['result'], snapshot['figure'], snapshot.get('external_processing'))
         frozen = validate_execution_policy(task['input_snapshot'].get('explanation_policy'), payload=outbound)
+        check_input(frozen,instructions,outbound,code='explanation_input_limit')
     service = ModelUsageService(task['user_id'], config)
     provider = provider_factory()
     remember_provider(provider)

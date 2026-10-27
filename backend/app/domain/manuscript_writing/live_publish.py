@@ -31,7 +31,7 @@ def publish(service,project,identity,request_id,request,key):
             body['citation_draft']=dict(id=citation['draft_id'],revision=citation['revision']) if citation else None
             snapshot=dict(project_id=project,manuscript_id=identity,manuscript_version_id=version_id,revision=revision,
                 output_language=candidate['output_language'],workflow_version=candidate['workflow_version'],snapshot_sha256=digest(candidate))
-            producer=service.manuscripts.task(db,project,'manuscript_draft',snapshot,'manuscript:'+version_id)
+            producer=service.manuscripts.task(db,project,'manuscript_draft',snapshot,'manuscript:'+version_id,validated_sources=candidate['sources'])
             db.execute('''INSERT INTO manuscript_versions(id,project_id,user_id,idempotency_key,request_json,request_digest,manuscript_id,revision,parent_version_id,task_id,snapshot_json,snapshot_sha256,created_at)
                 VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)''',(version_id,project,service.store.user_id,'writing:'+request_id,Jsonb(body),digest(body),identity,revision,base['id'],producer['id'],Jsonb(candidate),digest(candidate),timestamp))
             for original in db.execute('SELECT * FROM manuscript_sources WHERE version_id=%s',(base['id'],)).fetchall():

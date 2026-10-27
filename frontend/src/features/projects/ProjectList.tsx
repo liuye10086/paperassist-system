@@ -20,10 +20,11 @@ type ProjectListProps = {
   onOpen: (projectId: string) => void
   onRetry: () => void
   onCreate: () => void
+  presentation?: 'cards' | 'table'
 }
 
 export default function ProjectList({ items, total, query, searchDraft, loading, error,
-  onSearchDraftChange, onQueryChange, onOpen, onRetry, onCreate }: ProjectListProps) {
+  onSearchDraftChange, onQueryChange, onOpen, onRetry, onCreate, presentation = 'table' }: ProjectListProps) {
   const { t, locale } = useI18n()
   const pages = Math.max(1, Math.ceil(total / PROJECT_PAGE_SIZE))
   const filtered = Boolean(query.q || query.type)
@@ -51,7 +52,16 @@ export default function ProjectList({ items, total, query, searchDraft, loading,
     {error && <div className="error-panel" role="alert">{t(error)}{' '}
       <button type="button" onClick={onRetry} disabled={loading}>{t("重试项目列表")}</button>
     </div>}
-    <div className="project-table-scroll">
+    {presentation === 'cards' ? <div className="project-card-list" aria-label={t('项目列表')}>
+      {items.map(project => <article key={project.id} className="research-project-card">
+        <span className="project-type-badge">{t(typeNames[project.project_type])}</span>
+        <h3><button type="button" className="project-name" onClick={() => onOpen(project.id)}>{project.name}</button></h3>
+        <p>{project.research_topic}</p>
+        <div className="research-project-meta"><span>{t('{count} 个文件', { count: project.file_count })}</span>
+          <time dateTime={project.updated_at}>{t('最近更新 {date}', { date: new Date(project.updated_at).toLocaleDateString(locale) })}</time></div>
+        <button type="button" className="project-row-open button-quiet" aria-label={t('打开项目 {name}', { name: project.name })} onClick={() => onOpen(project.id)}>{t('打开项目')}<span aria-hidden="true">→</span></button>
+      </article>)}
+    </div> : <div className="project-table-scroll">
       <table className="project-table">
         <caption>{t("项目列表")}</caption>
         <thead><tr><th scope="col">{t("项目名称")}</th><th scope="col">{t("项目类型")}</th><th scope="col">{t("创建时间")}</th>
@@ -64,7 +74,7 @@ export default function ProjectList({ items, total, query, searchDraft, loading,
           <td><button type="button" className="project-row-open button-quiet" aria-label={t('打开项目 {name}', { name: project.name })} onClick={() => onOpen(project.id)}><span aria-hidden="true">→</span></button></td>
         </tr>)}</tbody>
       </table>
-    </div>
+    </div>}
     {!loading && !error && total === 0 && <div className="empty-preview">
       {filtered ? <p>{t("没有匹配的项目。")}</p> : <><p>{t("还没有项目，请先创建一个项目。")}</p>
         <button type="button" className="button-primary" onClick={onCreate}>{t("新建项目")}</button></>}

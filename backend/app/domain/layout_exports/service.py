@@ -1,4 +1,5 @@
 """Seal exact successful DOCX objects; never select a newer upstream version."""
+from app.domain.storage_governance import export_candidates as candidates
 from hashlib import sha256
 from pathlib import Path
 from uuid import uuid4
@@ -56,6 +57,8 @@ class LayoutExportService:
 
     def can_retry(self,db,row,task):
         chain=self.retry_chain(db,row)
+        mode=candidates.recovery_mode(db,self.assets.directory,task)
+        if mode is not None: return mode=='local_candidate' and chain[-1]==row['id']
         return (task['status']=='failed' and task.get('error_code') in RETRYABLE
             and len(chain)<4 and chain[-1]==row['id'])
 
@@ -132,7 +135,8 @@ class LayoutExportService:
         task=self.verify(db,row);meta=row['metadata_json'] or {}
         if bool(meta)!=(task['status']=='succeeded'): raise source_conflict()
         if meta and (meta.get('source_sha256')!=row['source_sha256'] or meta.get('input_sha256')!=row['input_sha256'] or meta.get('renderer_manifest')!=row['renderer_identity']): raise source_conflict()
-        return dict(id=row['id'],project_id=row['project_id'],source_kind=row['source_kind'],source_id=row['source_id'],status=task['status'],task_id=row['task_id'],created_at=row['created_at'].isoformat(),
+        mode=candidates.recovery_mode(db,self.assets.directory,task)
+        return dict(recovery_mode=mode,id=row['id'],project_id=row['project_id'],source_kind=row['source_kind'],source_id=row['source_id'],status=task['status'],task_id=row['task_id'],created_at=row['created_at'].isoformat(),
             layout=row['input_json']['layout'],output_language=row['input_json']['output_language'],layout_version=row['layout_version'],request_key=row['request_key'],can_retry=self.can_retry(db,row,task),filename=meta.get('filename'),error_code=task.get('error_code'),source_sha256=row['source_sha256'],parent_export_id=row['parent_export_id'],renderer_manifest=meta.get('renderer_manifest'),sha256=meta.get('sha256'),size_bytes=meta.get('size_bytes'),
             download_url=f"/api/v1/projects/{row['project_id']}/layout-exports/{row['id']}/download" if meta else None)
 
@@ -148,6 +152,7 @@ class LayoutExportService:
             previous=None
             if parent:
                 previous=self.row(db,project,parent);task=self.verify(db,previous)
+                if candidates.hold(db,task): raise StorageError('storage_accounting_unknown','请恢复原导出候选。',409)
                 if not self.can_retry(db,previous,task):
                     raise StorageError('layout_retry_not_allowed','此排版DOCX任务不可重试。',409)
             source,raw=self.source(db,project,request.source_kind,request.source_id)
@@ -168,7 +173,12 @@ class LayoutExportService:
             return self.view(db,self.row(db,project,export_id)),201
 
     def retry(self,project,identity,key):
-        with self.store.connection() as db: row=self.row(db,project,identity)
+        with self.store.connection(write=True) as db:
+            self.store.require_project(db,project)
+            db.execute('SELECT id FROM projects WHERE id=%s FOR UPDATE',(project,)).fetchone()
+            row=self.row(db,project,identity)
+            recovered=candidates.retry_conversion(self,db,row,key,'layout_exports')
+            if recovered is not None: return recovered
         return self.create(project,dict(source_kind=row['source_kind'],source_id=row['source_id'],request_key=key,layout=row['input_json']['layout']),identity)
 
     def get(self,project,identity):

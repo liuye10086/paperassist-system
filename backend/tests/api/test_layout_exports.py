@@ -8,6 +8,7 @@ from app.domain.tasks.execution import run_task
 @pytest.fixture(autouse=True)
 def layout_renderer(monkeypatch):
     monkeypatch.setattr('app.domain.layout_exports.service.renderer_identity', lambda: {'contract':'test-v1'})
+    monkeypatch.setattr('app.domain.layout_exports.execution.renderer_identity', lambda: {'contract':'test-v1'})
 
 
 def prepared(client):
@@ -263,7 +264,14 @@ def test_layout_failed_publication_never_exposes_candidate(client,monkeypatch,fa
     state=client.get(path+'/'+saved['id']).json()
     assert state['status']==('queued' if failure=='lease_lost' else 'failed')
     assert state['download_url'] is None
-    assert not list((Path(get_data_dir())/'layout_exports').glob('*'))
+    retained=list((Path(get_data_dir())/'layout_exports').glob('*'))
+    if failure=='lease_lost':
+        assert not retained
+    else:
+        assert len(retained)==1 and retained[0].read_bytes()==original
+        assert state['error_code']=='storage_accounting_unknown' and state['recovery_mode']=='local_candidate'
+        with database_connection() as db:
+            assert db.execute("SELECT state FROM storage_reservations WHERE task_id=%s AND kind='layout_docx'",(saved['task_id'],)).fetchone()['state']=='unknown'
     assert client.get(source['download_url']).content==original
 
 

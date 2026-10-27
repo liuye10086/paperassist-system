@@ -4,7 +4,7 @@ import { taskRequest } from './taskApi'
 import { eventNames, isEventPage, phaseNames, type ErrorCategory, type EventPage, type TaskEvent, type TaskType } from './taskTypes'
 import { useDocumentVisible } from './useDocumentVisible'
 
-export default function TaskEvents({ taskId, taskType, live, refreshKey }: { taskId: string; taskType: TaskType; live: boolean; refreshKey: number }) {
+export default function TaskEvents({ taskId, taskType, live, refreshKey, active = true }: { active?: boolean; taskId: string; taskType: TaskType; live: boolean; refreshKey: number }) {
   const { t } = useI18n()
   const visible = useDocumentVisible()
   const [events, setEvents] = useState<TaskEvent[]>([])
@@ -14,7 +14,7 @@ export default function TaskEvents({ taskId, taskType, live, refreshKey }: { tas
   const [attempt, setAttempt] = useState(0)
   const cursor = useRef(0)
   useEffect(() => {
-    if (!visible) return
+    if (!active || !visible) return
     let mounted = true; let timer = 0
     const controller = new AbortController()
     async function load() {
@@ -33,8 +33,8 @@ export default function TaskEvents({ taskId, taskType, live, refreshKey }: { tas
     }
     void load()
     return () => { mounted = false; controller.abort(); window.clearTimeout(timer) }
-  }, [taskId, live, refreshKey, visible, attempt])
-  return <section className="task-events" aria-label={t('执行记录')} aria-busy={loading}>
+  }, [taskId, live, refreshKey, visible, active, attempt])
+  return <section className="task-events" hidden={!active} aria-label={t('执行记录')} aria-busy={loading}>
     <div className="task-section-heading"><h3>{t('执行记录')}</h3><button type="button" disabled={loading} onClick={() => { setLoading(true); setError(''); setAttempt(value => value + 1) }}>{t('刷新执行记录')}</button></div>
     {error && <p role="alert" className="error-panel">{t(error)}</p>}
     {loading && !events.length && <p role="status">{t('正在读取执行记录……')}</p>}

@@ -9,7 +9,7 @@ class Request(BaseModel):
 
 class DocumentCreate(Request):
     kind: Literal['comparison', 'reply']
-    language: Literal['zh-CN', 'en']
+    language: Literal['zh-CN', 'en'] | None = None
 
 class TextEdit(Request):
     item_id: str = Field(min_length=1, max_length=256)

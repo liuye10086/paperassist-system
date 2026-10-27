@@ -74,3 +74,65 @@ test('nine-section preview uses readable facts and scoped enum labels while pres
  expect(preview.textContent).toContain('confirmed');expect(preview.textContent).toContain('0.2')
  expect(preview.textContent).not.toMatch(/资料|prepared_dataset_version|excel_profile_v1|analysis_plan_rules_v3|pearson_beta_two_sided|internal-engine/)
 })
+
+test('task layout opens a fixed collection version and retains its editor draft behind list navigation',async()=>{
+ const fetcher=vi.fn(async(url:string,_init?:RequestInit)=>Response.json(url.includes('/candidates')?{items:[pending]}:{items:[collection]}));vi.stubGlobal('fetch',fetcher)
+ render(<ReportCollections {...props} taskLayout/>)
+ fireEvent.click(await screen.findByRole('button',{name:'打开报告集合 Study report'}))
+ fireEvent.click(screen.getByRole('button',{name:'调整内容与顺序'}))
+ fireEvent.change(screen.getByLabelText('集合标题'),{target:{value:'Unsaved collection'}})
+ fireEvent.click(screen.getByRole('button',{name:'返回集合列表'}))
+ expect(screen.queryByRole('textbox',{name:'集合标题'})).toBeNull()
+ fireEvent.click(screen.getByRole('button',{name:'继续编辑集合草稿'}))
+ expect((screen.getByLabelText('集合标题') as HTMLInputElement).value).toBe('Unsaved collection')
+ expect(fetcher.mock.calls.filter(([,init])=>(init as RequestInit|undefined)?.method==='POST')).toHaveLength(0)
+})
+
+test('collection selection stays on its fixed version after reload and returning through the list',async()=>{
+ let updated=false
+ const latest={...version,id:'cv2',revision:2,title:'New report',requests:[]}
+ vi.stubGlobal('fetch',vi.fn(async(url:string)=>Response.json(url.includes('/candidates')?{items:[pending]}:{items:[updated?{...collection,current_version_id:'cv2',versions:[latest,version]}:collection]})))
+ render(<ReportCollections {...props} taskLayout/>)
+ fireEvent.click(await screen.findByRole('button',{name:'打开报告集合 Study report'}))
+ updated=true;fireEvent.click(screen.getByRole('button',{name:'重新读取集合与成果'}))
+ await screen.findByText('集合版本 1 · 历史版本')
+ expect((screen.getByLabelText('查看集合版本') as HTMLSelectElement).value).toBe('cv1')
+ fireEvent.click(screen.getByRole('button',{name:'返回集合列表'}))
+ fireEvent.click(screen.getByRole('button',{name:'打开报告集合 Study report'}))
+ expect((screen.getByLabelText('查看集合版本') as HTMLSelectElement).value).toBe('cv1')
+})
+
+test('finishing a requested collection preview never takes the user back from the list',async()=>{
+ let finish!:(r:Response)=>void
+ vi.stubGlobal('fetch',vi.fn(async(url:string)=>url.endsWith('/preview')?new Promise<Response>(r=>{finish=r}):Response.json(url.includes('/candidates')?{items:[pending]}:{items:[collection]})))
+ render(<ReportCollections {...props} taskLayout/>)
+ fireEvent.click(await screen.findByRole('button',{name:'打开报告集合 Study report'}))
+ fireEvent.click(screen.getByRole('button',{name:'预览九类报告内容'}))
+ await waitFor(()=>expect(finish).toBeTruthy())
+ fireEvent.click(screen.getByRole('button',{name:'返回集合列表'}))
+ finish(Response.json({schema_version:1,language:'zh-CN',items:[pending],ready:false,missing:[],sections:['overview','quality','processing','methods','statistics','figures','explanations','findings','summary'].map(key=>({key,title:key,content:[]}))}))
+ await waitFor(()=>expect(screen.getByRole('button',{name:'打开报告集合 Study report'})).toBeTruthy())
+ expect(screen.queryByRole('heading',{name:'九类报告内容预览'})).toBeNull()
+})
+
+test('an uncertain collection export permits explicit navigation confirmation instead of permanently blocking the project',async()=>{
+ let guard=()=>true
+ const register=(next:()=>boolean)=>{guard=next;return()=>{}}
+ const confirm=vi.spyOn(window,'confirm').mockReturnValue(true),alert=vi.spyOn(window,'alert').mockImplementation(()=>{})
+ vi.stubGlobal('fetch',vi.fn(async(url:string,init?:RequestInit)=>{if(init?.method==='POST')throw new TypeError('offline');return Response.json(url.includes('/candidates')?{items:[pending]}:{items:[collection]})}))
+ render(<ReportCollections {...props} registerLeaveGuard={register}/>)
+ fireEvent.click(await screen.findByRole('button',{name:'生成新版报告'}));await screen.findByRole('alert')
+ expect(guard()).toBe(true);expect(confirm).toHaveBeenCalledTimes(1);expect(alert).not.toHaveBeenCalled()
+ confirm.mockRestore();alert.mockRestore()
+})
+
+test('a collection whose current version has another language initially opens its matching frozen historical version',async()=>{
+ const englishItem={...pending,configuration:{...config,config:{...config.config,language:'en'}}}
+ const otherLanguage={...version,id:'cv2',revision:2,language:'en',items:[englishItem],requests:[]}
+ vi.stubGlobal('fetch',vi.fn(async(url:string)=>Response.json(url.includes('/candidates')?{items:[pending]}:{items:[{...collection,current_version_id:'cv2',versions:[otherLanguage,version]}]})))
+ render(<ReportCollections {...props} taskLayout/>)
+ fireEvent.click(await screen.findByRole('button',{name:'打开报告集合 Study report'}))
+ expect((screen.getByLabelText('查看集合版本') as HTMLSelectElement).value).toBe('cv1')
+ expect(screen.getByText('集合版本 1 · 历史版本')).toBeTruthy()
+ expect(screen.getByRole('button',{name:'调整内容与顺序'})).toBeTruthy()
+})

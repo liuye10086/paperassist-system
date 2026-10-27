@@ -1,16 +1,16 @@
 :root {
   color-scheme: light;
-  --text: #555561;
-  --text-h: #24232d;
-  --bg: #fff;
-  --surface: #f8f9fb;
-  --border: #e9e9ef;
+  --text: #63705C;
+  --text-h: #263322;
+  --bg: #F7F9F5;
+  --surface: #fff;
+  --border: #E2E8DC;
   --code-bg: #f7f7fa;
-  --accent: #5b3cc4;
-  --accent-hover: #49309d;
-  --accent-bg: #f1edf9;
-  --social-bg: #f8f9fb;
-  --sidebar-width: 230px;
+  --accent: #35613C;
+  --accent-hover: #294D2F;
+  --accent-bg: #EDF3E8;
+  --social-bg: #F3F6F0;
+  --sidebar-width: 248px;
   --motion-fast: 140ms;
   --motion-panel: 200ms;
   --motion-ease: cubic-bezier(.2, .7, .2, 1);
@@ -27,9 +27,9 @@
 body { margin: 0; min-width: 320px; }
 #root { min-height: 100vh; }
 button, input, select, textarea { font: inherit; }
-button, input, select, textarea { border: 1px solid #dcdbe4; border-radius: 8px; color: var(--text-h); background: var(--bg); }
+button, input, select, textarea { border: 1px solid #D8E0D2; border-radius: 8px; color: var(--text-h); background: var(--surface); }
 button { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 40px; padding: 9px 15px; line-height: 1.4; cursor: pointer; transition: background-color var(--motion-fast) ease, border-color var(--motion-fast) ease, color var(--motion-fast) ease, box-shadow var(--motion-fast) ease, transform var(--motion-fast) ease; }
-button:hover:not(:disabled) { background: #f8f6fc; border-color: #bfb2df; }
+button:hover:not(:disabled) { background: #F1F5ED; border-color: #A8BC97; }
 button:active:not(:disabled) { transform: translateY(1px); }
 button:disabled { cursor: not-allowed; opacity: .55; }
 .button-primary { background: var(--accent); border-color: var(--accent); color: #fff; }
@@ -39,7 +39,7 @@ input, select, textarea { min-height: 42px; padding: 9px 12px; min-width: 0; }
 textarea { resize: vertical; line-height: 1.7; }
 input:disabled, select:disabled, textarea:disabled { background: var(--surface); }
 input::placeholder, textarea::placeholder { color: #8a8494; }
-:focus-visible { outline: 3px solid #ae99e2; outline-offset: 3px; }
+:focus-visible { outline: 3px solid #72966A; outline-offset: 3px; }
 input:focus, select:focus, textarea:focus { border-color: var(--accent); }
 h1, h2, h3, h4 { color: var(--text-h); line-height: 1.4; font-weight: 600; margin: 0; }
 h1 { font-size: 32px; letter-spacing: -.6px; }

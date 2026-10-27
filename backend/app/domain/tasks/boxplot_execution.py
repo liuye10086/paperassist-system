@@ -72,7 +72,7 @@ def run_boxplot_task(task_id, task_revision, *, config=None, directory=None, pro
         try:
             if exc.code in BUDGET_ERRORS:
                 return repository.wait_explanation(lease, 'budget_exceeded', exc.code)
-            if isinstance(exc, PlotError) or exc.status < 500 or exc.code == 'plot_input_limit':
+            if isinstance(exc, PlotError) or exc.status < 500 or exc.code == 'plot_input_limit' or exc.code.startswith('storage_'):
                 # Finish only after a safe release has persisted. A failed or
                 # unknown release commit leaves the lease recoverable.
                 release_unused_reservation(repository, lease, config, exc.code)
@@ -104,6 +104,8 @@ def _execute(repository, lease, config, provider_factory, providers):
     from app.domain.external_material import plot_instructions
     external = task['input_snapshot'].get('external_processing')
     instructions = plot_instructions(external, result=task['input_snapshot']['result'])
+    from app.domain.admin_configuration.model_consumption import task_instructions,check_input
+    with repository.connection() as db:instructions=task_instructions(db,task,instructions,'plot')
     call = repository.boxplot_call(lease)
     if call and call['status'] == 'released':
         # A previous source failure may have released its reservation before
@@ -127,6 +129,8 @@ def _execute(repository, lease, config, provider_factory, providers):
         if cached is not None and call is None:
             return repository.complete_boxplot(lease, snapshot, payload, expected, cached=cached)
         frozen = validate_execution_policy(task['input_snapshot'].get('boxplot_policy'), payload=payload)
+        check_input(frozen,instructions,payload,code='plot_input_limit')
+    repository.admit_figure_storage(lease)
     service = ModelUsageService(task['user_id'], config)
     provider = provider_factory()
     providers.append(provider)

@@ -27,6 +27,21 @@ REPORT_NAMESPACE = UUID('b699a78d-78b0-43cf-9e1c-297d17186642')
 EXPLANATION_NAMESPACE = UUID('067a7749-a01d-4751-b7b5-a6060956c58f')
 FIGURE_NAMESPACE = UUID('03015332-5b69-49ea-a3b6-93b7f88030c7')
 
+# Both lost-lease and late-receipt recovery must address the original workflow's
+# one model call. Unknown versions deliberately have no fallback to a v1 POST.
+RECOVERY_CALL_KEY_SQL = """CASE t.task_type
+    WHEN 'analysis_recommendation' THEN CASE t.workflow_version
+        WHEN 'analysis_recommendation_v1' THEN 'analysis_recommendation:v1'
+        WHEN 'analysis_recommendation_v2' THEN 'analysis_recommendation:v2'
+        WHEN 'analysis_recommendation_v3' THEN 'analysis_recommendation:v3'
+        WHEN 'analysis_recommendation_v4' THEN 'analysis_recommendation:v4'
+        WHEN 'analysis_recommendation_v5' THEN 'analysis_recommendation:v5' END
+    WHEN 'manuscript_writing' THEN CASE WHEN t.workflow_version='manuscript_writing_v2'
+        THEN 'manuscript-writing-v2' ELSE 'manuscript-writing-v1' END
+    WHEN 'literature_assistance' THEN 'literature-assistance-v1'
+    WHEN 'figure_explanation' THEN 'figure_explanation:v1'
+    WHEN 'explanation' THEN 'explanation:v1' END"""
+
 
 class LeaseLost(Exception):
     """This attempt can no longer write task state or publish its artifact."""
@@ -82,6 +97,8 @@ class TaskExecutionStore:
                     or row['revision'] != task_revision):
                 return None
             task = dict(row)
+            from app.domain.storage_governance.guards import require_task_open
+            require_task_open(db,task)
             now = self.now(db)
             token = str(uuid4())
             if task['status'] == 'running' and task['task_type'] in ('explanation', 'boxplot', 'analysis_recommendation', 'figure_workbench', 'figure_explanation', 'literature_search', 'literature_assistance', 'manuscript_writing'):
@@ -332,7 +349,11 @@ class TaskExecutionStore:
             row = db.execute('SELECT figure_json FROM figures WHERE analysis_run_id=%s AND renderer_version=%s AND figure_config_version_id IS NULL',
                              (task['input_snapshot']['result']['id'], task['input_snapshot']['versions']['figure'])).fetchone()
             try:
-                return json.loads(row['figure_json']) if row else None
+                saved=json.loads(row['figure_json']) if row else None
+                if saved:
+                    from app.domain.admin_configuration.model_consumption import require_cached_configuration
+                    require_cached_configuration(db,task,saved,'plot')
+                return saved
             except (TypeError, ValueError) as exc:
                 raise source_conflict() from exc
 
@@ -368,6 +389,8 @@ class TaskExecutionStore:
         from app.domain.external_material import plot_instructions
         instructions = plot_instructions(task['input_snapshot'].get('external_processing'),
                                          result=task['input_snapshot']['result'])
+        from app.domain.admin_configuration.model_consumption import task_instructions
+        instructions=task_instructions(db,task,instructions,'plot')
         from app.domain.model_usage.gateway import input_digest
         call = db.execute("SELECT * FROM model_calls WHERE task_id=%s AND call_key='boxplot:v1'",
                           (task['id'],)).fetchone()
@@ -400,6 +423,30 @@ class TaskExecutionStore:
                 directory / (basename + '.candidate'), directory / (basename + '.part'))
 
     @local_numeric_node
+    def admit_figure_storage(self, lease):
+        from uuid import NAMESPACE_URL
+        from app.domain.storage_governance.service import admit_candidate
+        from app.domain.storage_governance.candidates import FIGURE_CAPACITY,task_hold,task_recovery_authorized,task_recovery_mode
+        with self.connection(write=True) as db:
+            task=self.require_lease(db,lease);self.require_owner(db,task)
+            if task['task_type']=='boxplot':
+                self.sources(db,task)
+                identifier=str(uuid5(FIGURE_NAMESPACE,task['id']))
+            elif task['task_type']=='figure_workbench':
+                from app.domain.figure_workbench.tasks import require_task_sources
+                require_task_sources(self,db,task)
+                identifier=str(uuid5(NAMESPACE_URL,'paperassist:figure:'+task['id']))
+            else:raise source_conflict()
+            hold=task_hold(db,task)
+            if hold and hold['state']=='unknown' and task_recovery_authorized(hold,task,lease):
+                if task_recovery_mode(db,self.assets.directory,task)!='original_response':
+                    from app.domain.storage_governance.service import invalid
+                    raise invalid()
+                return hold
+            return admit_candidate(db,self.assets.directory,task['project_id'],'figure-task:'+task['id'],
+                self.assets.figures_dir/(identifier+'.png'),FIGURE_CAPACITY,task_id=task['id'],source_identity=task['input_digest'])
+
+    @local_numeric_node
     def register_figure_candidate(self, lease, snapshot, figure, content, expected, payload):
         saved = {**figure, 'id': str(uuid5(FIGURE_NAMESPACE, lease.task_id)),
                  'sha256': hashlib.sha256(content).hexdigest(), 'size_bytes': len(content)}
@@ -410,7 +457,22 @@ class TaskExecutionStore:
             if task['task_type'] != 'boxplot' or self.sources(db, task) != snapshot:
                 raise source_conflict()
             self._require_boxplot_provenance(db, task, saved, payload)
-            self._figure_candidate_paths(task, candidate)
+            from app.domain.storage_governance.candidates import task_hold,FIGURE_DESCRIPTOR_FORMAT
+            from app.domain.storage_governance.service import capture_candidate,invalid
+            hold=task_hold(db,task)
+            if not hold:raise invalid()
+            saved['created_at']=task['created_at'].isoformat()
+            if hold['sha256']:
+                partials=[key for key in hold['candidate_json']['locations'] if key.endswith('.part')]
+                if len(partials)!=1:raise invalid()
+                candidate['path']=Path(partials[0]).stem
+            target,staged,partial=self._figure_candidate_paths(task, candidate)
+            document={k:task[k] for k in ('id','project_id','user_id','input_digest','task_type')}
+            document['candidate']=candidate
+            capture_candidate(db,self.assets.directory,hold['id'],content,[target,staged,partial],source_identity=task['input_digest'],
+                descriptor=json.dumps(document,ensure_ascii=False,allow_nan=False,sort_keys=True).encode(),
+                descriptor_path=self.assets.directory/'task-staging'/(saved['id']+'.json'),write_path=partial,
+                descriptor_format=FIGURE_DESCRIPTOR_FORMAT)
             db.execute('UPDATE tasks SET figure_candidate=%s::jsonb WHERE id=%s',
                        (json.dumps(candidate, ensure_ascii=False, allow_nan=False), task['id']))
         return candidate
@@ -426,11 +488,16 @@ class TaskExecutionStore:
         staged.parent.mkdir(parents=True, exist_ok=True)
         # The durable intent precedes the bytes. A complete .part is recoverable
         # too; an expired writer never removes a registered successor's input.
-        with partial.open('xb') as stream:
-            stream.write(content)
-            stream.flush()
-            os.fsync(stream.fileno())
-        os.replace(partial, staged)
+        with self.connection(write=True) as db:
+            task=self.require_lease(db,lease)
+            from app.domain.storage_governance.candidates import task_hold
+            from app.domain.storage_governance.service import require_publication_allowed,invalid
+            hold=task_hold(db,task)
+            if not hold or hold['sha256']!=figure['sha256'] or hold['size_bytes']!=len(content):raise invalid()
+            for key in hold['candidate_json']['locations']:require_publication_allowed(db,task['project_id'],key)
+            from app.domain.storage_governance.candidates import _write_immutable
+            _write_immutable(partial,content)
+            os.replace(partial, staged)
 
     @local_numeric_node
     def complete_boxplot(self, lease, snapshot, payload, expected, *, cached=None):
@@ -445,6 +512,8 @@ class TaskExecutionStore:
                                   (snapshot['result']['id'], PROMPT_VERSION)).fetchone()
             if existing:
                 saved = json.loads(existing['figure_json'])
+                from app.domain.admin_configuration.model_consumption import require_cached_configuration
+                require_cached_configuration(db,task,saved,'plot')
                 self._validate_boxplot_figure(snapshot, saved, self.assets.figure_png(saved), expected)
             else:
                 candidate = task.get('figure_candidate')
@@ -464,12 +533,16 @@ class TaskExecutionStore:
                         path = candidate_path
                         break
                 if path is None:
-                    return None
+                    from app.domain.storage_governance.service import invalid
+                    raise invalid()
                 self._validate_boxplot_figure(snapshot, saved, content, expected)
                 self.assets.figures_dir.mkdir(parents=True, exist_ok=True)
                 self.require_lease(db, lease)
-                if path != target:
-                    os.replace(path, target)
+                from app.domain.storage_governance.candidates import task_hold,task_recovery_authorized
+                from app.domain.storage_governance.service import publish_candidate,invalid
+                hold=task_hold(db,task)
+                if not hold:raise invalid()
+                publish_candidate(db,self.assets.directory,hold['id'],explicit_recovery=task_recovery_authorized(hold,task,lease))
                 # Commit failures leave this task's stable target recoverable.
                 db.execute('INSERT INTO figures (id,analysis_run_id,renderer_version,figure_json) VALUES (%s,%s,%s,%s)',
                            (saved['id'], snapshot['result']['id'], PROMPT_VERSION,
@@ -517,7 +590,10 @@ class TaskExecutionStore:
             if not row:
                 return None
             try:
-                return json.loads(row['explanation_json'])
+                saved=json.loads(row['explanation_json'])
+                from app.domain.admin_configuration.model_consumption import require_cached_configuration
+                require_cached_configuration(db,task,saved,'explanation')
+                return saved
             except (TypeError, ValueError) as exc:
                 raise source_conflict() from exc
 
@@ -539,6 +615,9 @@ class TaskExecutionStore:
             try:
                 saved = (json.loads(row['explanation_json']) if row else
                          {**explanation, 'id': str(uuid5(EXPLANATION_NAMESPACE, lease.task_id))})
+                if row:
+                    from app.domain.admin_configuration.model_consumption import require_cached_configuration
+                    require_cached_configuration(db,task,saved,'explanation')
                 validate_sources(snapshot['result'], snapshot['figure'], saved)
             except (TypeError, ValueError, StorageError) as exc:
                 raise source_conflict() from exc
@@ -572,25 +651,26 @@ class TaskExecutionStore:
         from app.domain.tasks.waits import persist_wait
         persist_wait(db, task)
 
-    def stage(self, lease, content):
-        # Attempt-specific paths prevent a stale worker from deleting a successor's file.
-        directory = self.assets.directory / 'task-staging'
-        directory.mkdir(parents=True, exist_ok=True)
-        path = directory / f'{lease.task_id}-{lease.attempt_no}-{lease.lease_owner}.part'
-        created = False
-        try:
-            with path.open('xb') as stream:
-                created = True
-                stream.write(content)
-                stream.flush()
-                os.fsync(stream.fileno())
-        except OSError:
-            if created:
-                try:
-                    path.unlink(missing_ok=True)
-                except OSError:
-                    pass
-            raise
+    def restore_report(self, lease, snapshot):
+        from app.domain.storage_governance import export_candidates as candidates
+        with self.connection(write=True) as db:
+            task = self.require_lease(db,lease); self.require_owner(db,task)
+            if self.sources(db,task)!=snapshot: raise source_conflict()
+            self.verify_input_asset(db,task); self.assets.figure_png(snapshot['figure'])
+            return candidates.restore(db,self.assets.directory,task,lease)
+
+    def stage(self, lease, content, snapshot=None, report=None):
+        from app.domain.storage_governance import export_candidates as candidates
+        if snapshot is None or report is None:
+            snapshot,report,_ = self.load(lease)
+        path = self.assets.directory/'task-staging'/f'{lease.task_id}-{lease.attempt_no}-{lease.lease_owner}.part'
+        target = self.reports.directory/(report['id']+'.docx')
+        saved = {**report,'sha256':hashlib.sha256(content).hexdigest(),'size_bytes':len(content)}
+        with self.connection(write=True) as db:
+            task = self.require_lease(db,lease); self.require_owner(db,task)
+            if self.sources(db,task)!=snapshot: raise source_conflict()
+            self.verify_input_asset(db,task); self.assets.figure_png(snapshot['figure'])
+            candidates.capture(db,self.assets.directory,task,lease,target,path,content,saved)
         return path
 
     @local_numeric_node
@@ -621,8 +701,9 @@ class TaskExecutionStore:
                 # Never delete the target on commit failure: commit outcome may be unknown.
                 self.reports.directory.mkdir(parents=True, exist_ok=True)
                 self.require_lease(db, lease)
-                os.replace(staged, target)
+                from app.domain.storage_governance import export_candidates as candidates
                 saved = {**report, 'size_bytes': len(content), 'sha256': hashlib.sha256(content).hexdigest()}
+                candidates.publish(db,self.assets.directory,task,lease,saved)
                 db.execute('''INSERT INTO reports
                     (id,analysis_run_id,explanation_id,renderer_version,report_json,input_json)
                     VALUES (%s,%s,%s,%s,%s,%s)''',
@@ -661,6 +742,10 @@ class TaskExecutionStore:
             if execution_receipt['status'] != 'failed': raise source_conflict()
         with self.connection(write=True) as db:
             task = self.require_lease(db, lease)
+            if error_code and error_code.startswith('storage_'):
+                from app.domain.storage_governance.service import reconcile_intents
+                reconcile_intents(db,self.assets.directory)
+                db.execute("UPDATE storage_reservations SET state='unknown' WHERE task_id=%s AND capacity_bytes IS NOT NULL AND state='reserved'",(task['id'],))
             if execution_receipt is not None: task['execution_receipt'] = execution_receipt
             self._finish(db, task, 'failed', error_code)
             return TaskStore.public_task(task)
@@ -707,6 +792,8 @@ class TaskExecutionStore:
 
     def recover_expired(self, limit=20):
         with self.connection(write=True) as db:
+            from app.domain.storage_governance.service import reconcile_intents
+            reconcile_intents(db,self.assets.directory)
             rows = db.execute('''SELECT t.* FROM tasks t JOIN task_attempts a
                 ON a.task_id=t.id AND a.attempt_no=t.current_attempt
                 WHERE t.task_type IN ('word_report','explanation','boxplot','parse_file','extract_dataset','prepare_dataset', 'review_ocr', 'analysis_plan', 'analysis_recommendation', 'figure_projection', 'figure_workbench', 'figure_explanation', 'collection_word_report', 'statistics_compute', 'literature_search', 'literature_assistance', 'manuscript_draft', 'manuscript_docx', 'pdf_export', 'layout_docx', 'manuscript_writing', 'school_template_parse', 'journal_recommendation', 'journal_format_check', 'journal_adaptation', 'review_round_plan', 'review_revision', 'review_document_export') AND t.status='running' AND a.status='running'
@@ -714,7 +801,18 @@ class TaskExecutionStore:
                 ORDER BY a.lease_expires_at,t.id LIMIT %s''', (limit,)).fetchall()
             for row in rows:
                 task = dict(row)
+                from app.domain.storage_governance import export_candidates as export_candidates
+                if task['task_type'] in export_candidates.TYPES and export_candidates.hold(db,task):
+                    self._finish(db,task,'failed','storage_accounting_unknown')
+                    continue
+                if task['task_type']=='literature_search' and db.execute("SELECT 1 FROM storage_reservations WHERE task_id=%s AND kind='literature' AND state IN ('reserved','unknown')",(task['id'],)).fetchone():
+                    self._finish(db,task,'failed','storage_accounting_unknown')
+                    continue
                 if task['task_type'] in ('boxplot','figure_workbench'):
+                    blocked=db.execute("SELECT 1 FROM storage_reservations WHERE task_id=%s AND capacity_bytes IS NOT NULL AND state='unknown'",(task['id'],)).fetchone()
+                    if blocked:
+                        self._finish(db,task,'failed','storage_accounting_unknown')
+                        continue
                     call = db.execute("""SELECT status,provider_response_id,provider_state,error_code FROM model_calls
                         WHERE task_id=%s AND call_key=%s""", (task['id'], 'figure_workbench:v1' if task['task_type']=='figure_workbench' else 'boxplot:v1')).fetchone()
                     if call and not call['provider_response_id']:
@@ -728,8 +826,10 @@ class TaskExecutionStore:
                             self._wait_explanation(db, task, 'submission_unknown', 'model_submission_unknown')
                             continue
                 if task['task_type'] in ('explanation','analysis_recommendation','figure_explanation','literature_assistance','manuscript_writing'):
-                    call = db.execute("""SELECT status,provider_response_id FROM model_calls
-                        WHERE task_id=%s AND call_key=%s""", (task['id'],('manuscript-writing-v2' if task['workflow_version']=='manuscript_writing_v2' else 'manuscript-writing-v1') if task['task_type']=='manuscript_writing' else 'literature-assistance-v1' if task['task_type']=='literature_assistance' else 'analysis_recommendation:v1' if task['task_type']=='analysis_recommendation' else 'figure_explanation:v1' if task['task_type']=='figure_explanation' else 'explanation:v1')).fetchone()
+                    call = db.execute(f"""SELECT c.status,c.provider_response_id FROM model_calls c
+                        JOIN tasks t ON t.id=c.task_id
+                        WHERE t.id=%s AND c.call_key=({RECOVERY_CALL_KEY_SQL})
+                          AND c.user_id=t.user_id AND c.project_id=t.project_id""", (task['id'],)).fetchone()
                     if (call and not call['provider_response_id']
                             and call['status'] in ('submitting', 'submission_unknown')):
                         self._wait_explanation(db, task, 'submission_unknown', 'model_submission_unknown')
@@ -779,11 +879,11 @@ class TaskExecutionStore:
             return len(rows) + self._recover_boxplot_receipts(db, limit) + self._recover_recommendation_receipts(db, limit)
 
     def _recover_recommendation_receipts(self, db, limit):
-        rows=db.execute("""SELECT t.* FROM tasks t JOIN model_calls c ON c.task_id=t.id
+        rows=db.execute(f"""SELECT t.* FROM tasks t JOIN model_calls c ON c.task_id=t.id
             JOIN projects p ON p.id=t.project_id AND p.owner_id=t.user_id
             JOIN users u ON u.id=t.user_id AND u.active
-            WHERE t.task_type IN ('analysis_recommendation','figure_explanation','literature_assistance','manuscript_writing') AND t.status='waiting_confirmation'
-                AND t.reason_code='submission_unknown' AND c.call_key=CASE WHEN t.task_type='manuscript_writing' THEN CASE WHEN t.workflow_version='manuscript_writing_v2' THEN 'manuscript-writing-v2' ELSE 'manuscript-writing-v1' END WHEN t.task_type='literature_assistance' THEN 'literature-assistance-v1' WHEN t.task_type='figure_explanation' THEN 'figure_explanation:v1' ELSE 'analysis_recommendation:v1' END
+            WHERE t.task_type IN ('explanation','analysis_recommendation','figure_explanation','literature_assistance','manuscript_writing') AND t.status='waiting_confirmation'
+                AND t.reason_code='submission_unknown' AND c.call_key=({RECOVERY_CALL_KEY_SQL})
                 AND c.user_id=t.user_id AND c.project_id=t.project_id AND c.provider_response_id IS NOT NULL
             ORDER BY t.updated_at,t.id LIMIT %s""",(limit,)).fetchall()
         from app.domain.tasks.waits import resolve_open_wait

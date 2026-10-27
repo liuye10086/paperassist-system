@@ -22,3 +22,14 @@ def test_unknown_codes_are_safe_and_categories_are_fixed():
     assert error_category('model_provider_unavailable') == 'temporary'
     assert error_category('plot_container_expired') == 'source'
     assert error_category('plot_invalid_result') == 'output'
+
+
+@pytest.mark.parametrize('code,category', [
+    ('storage_quota_exceeded', 'configuration'),
+    ('storage_disk_insufficient', 'configuration'),
+    ('storage_accounting_unknown', 'source'),
+])
+def test_storage_admission_requires_manual_resolution(code, category):
+    from app.domain.tasks.errors import error_category
+    assert error_category(code) == category
+    assert error_category(code) != 'temporary'

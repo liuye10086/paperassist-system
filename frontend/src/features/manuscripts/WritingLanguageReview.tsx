@@ -1,3 +1,4 @@
+import {useManuscriptDraft} from './useManuscriptDraft'
 import {useState} from 'react'
 import {useI18n} from '../../shared/i18n'
 import {manuscriptBase,validManuscript,type Manuscript} from './manuscriptTypes'
@@ -12,6 +13,7 @@ function LanguageItem({item,value,onChange}:{item:InventoryItem;value:ItemDecisi
 }
 export default function WritingLanguageReview({projectId,manuscriptId,baseRevision,review,onPublished}:{projectId:string;manuscriptId:string;baseRevision:number;review:ScienceReview;onPublished:(v:Manuscript)=>void}){
  const {t}=useI18n(),op=useWritingOperation(),base=`${manuscriptBase(projectId)}/${encodeURIComponent(manuscriptId)}/writing-requests/${encodeURIComponent(review.request_id)}`,[context,setContext]=useState<LanguageContext|null>(null),[preparation,setPreparation]=useState<LanguagePreparation>({schema_version:2,review_id:review.id,review_sha256:review.review_sha256,edits:[],figure_versions:[]}),[dirty,setDirty]=useState(true),[decisions,setDecisions]=useState<Record<string,ItemDecision>>({}),[versions,setVersions]=useState<FigureVersion[]>([]),[artifacts,setArtifacts]=useState<LanguageArtifact[]>([]),[selected,setSelected]=useState<LanguageArtifact|null>(null),[artifactId,setArtifactId]=useState(''),[confirmed,setConfirmed]=useState(false)
+ useManuscriptDraft(preparation.edits.length>0||preparation.figure_versions.length>0||Object.keys(decisions).length>0||confirmed)
  function invalidate(){setDirty(true);setDecisions({});setSelected(null);setConfirmed(false)}
  async function load(preview=false){setSelected(null);setConfirmed(false);const result=await op.run(`${base}/reviews/${encodeURIComponent(review.id)}/language-context`,(v):v is LanguageContext=>validLanguageContext(v,projectId,review),preview?preparation:undefined);if(!result)return;if(result){setContext(result);setDirty(false);setDecisions({});if(!preview)setPreparation({schema_version:2,review_id:review.id,review_sha256:review.review_sha256,edits:[],figure_versions:[]})}const figs=await op.run(`/api/v1/projects/${encodeURIComponent(projectId)}/manuscript-figure-language-versions`,listOf((v):v is FigureVersion=>validFigureVersion(v,projectId)));if(figs)setVersions(figs.items)}
  const ready=context&&!dirty&&context.inventory.length>0&&context.inventory.every(i=>decisions[i.location]?.decision&&decisions[i.location]?.reason.trim())

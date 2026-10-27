@@ -33,7 +33,18 @@ class ModelGateway:
         self.service = service
         self.provider = provider
 
+    def _configuration_gate(self,request):
+        from app.adapters.models.openai_responses import OpenAIResponsesProvider
+        if not isinstance(self.provider,OpenAIResponsesProvider):return
+        from app.domain.admin_configuration.bindings import resolve
+        with self.service.store.connection() as db:
+            task=self.service.store.require_task(db,request.task_id)
+            version=resolve(db,kind='task',object_id=task['id'])
+            if version and not version['bundle']['models']['real_calls_enabled']:
+                raise ModelGatewayError('model_configuration_disabled')
+
     def submit(self, request: 'CallRequest', *, instructions: str, payload: dict, execution_lease=None) -> dict:
+        self._configuration_gate(request)
         # Freeze the material before any service callback or network operation.
         request = deepcopy(request)
         if request.policy.tools:
@@ -67,6 +78,7 @@ class ModelGateway:
         return self._record(call['id'], receipt, submitted=True)
 
     def submit_frozen_writing(self, request, *, wire_json, execution_lease):
+        self._configuration_gate(request)
         from app.domain.manuscript_writing.authorization import LiveWritingService
         from app.domain.report_collections.service import scoped_store
         from app.domain.manuscript_writing.live_execution import require_live_snapshot
@@ -81,7 +93,8 @@ class ModelGateway:
             current=self.service.get_call(call['id'])
             return self.refresh(call['id']) if current.get('provider_response_id') else {'call':current,'response':None}
         try:
-            receipt=self.provider.create_frozen(wire_json=bundle['wire_json'])
+            from app.domain.manuscript_writing.frozen import bundle_contract
+            receipt=self.provider.create_frozen(wire_json=bundle['wire_json'],execution_contract=bundle_contract(bundle))
         except Exception as exc:
             request_id=safe_request_id(getattr(exc,'request_id',None))
             self._mark_unknown(call['id'],'model_provider_request_failed',request_id)
@@ -90,6 +103,7 @@ class ModelGateway:
 
     def submit_plot(self, request: 'CallRequest', *, instructions: str, payload: dict, execution_lease) -> dict:
         """At most one remote POST per slice, using persisted side-effect checkpoints."""
+        self._configuration_gate(request)
         from app.domain.model_usage.contracts import CallRequest
         from app.adapters.openai_plot import PROMPT_VERSION
         from app.adapters.task_execution_store import LeaseLost
@@ -213,6 +227,7 @@ class ModelGateway:
             raise ModelGatewayError('model_response_invalid', request_id=request_id) from None
         try:
             call = self.service.record_response(call_id, event_key=event_key, request_id=request_id,
+                                                response=receipt.get('response'),
                                                 **observation)
         except Exception as exc:
             code = ('model_response_invalid' if isinstance(exc, StorageError)

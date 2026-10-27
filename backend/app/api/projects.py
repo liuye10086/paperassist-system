@@ -2,10 +2,10 @@ import json
 from typing import Annotated, Any, Literal
 from urllib.parse import quote
 
-from fastapi import APIRouter, Body, Depends, File, HTTPException, Query, Response, UploadFile
+from fastapi import APIRouter, Body, Depends, File, Header, HTTPException, Query, Response, UploadFile
 from pydantic import BaseModel, BeforeValidator, ConfigDict, Field
 
-from app.core.config import ExcelSettings, get_excel_settings
+from app.core.config import ExcelSettings, get_request_excel_settings
 from app.adapters.excel import WorkbookPreview, fail, parse_workbook, read_upload
 from app.adapters.storage import PROJECT_UPDATE_LIMITS, ProjectStore, get_request_project_store
 from app.domain.project_summary import ProjectSummary, read_project_summary
@@ -143,8 +143,9 @@ def file_purposes(project_id: str, file_id: str, changes: FilePurposesInput, sto
 @router.post("/{project_id}/files", status_code=201, response_model=SavedUpload)
 def upload_file(
     project_id: str, store: Store,
-    settings: Annotated[ExcelSettings, Depends(get_excel_settings)],
+    settings: Annotated[ExcelSettings, Depends(get_request_excel_settings)],
     file: Annotated[UploadFile | None, File(description="一个 .xlsx 工作簿")] = None,
+    idempotency_key: Annotated[str | None, Header(alias='Idempotency-Key')] = None,
 ):
     store.project(project_id)
     filename, content = read_upload(file, settings)
@@ -155,8 +156,10 @@ def upload_file(
         if exc.status_code != 422:
             raise
         error = exc.detail
-    record = store.save_file(project_id, filename, content, preview.model_dump_json() if preview else None, error)
-    return SavedUpload(file=record, preview=preview)
+    record = store.save_file(project_id, filename, content, preview.model_dump_json() if preview else None, error,operation_id=idempotency_key)
+    saved=store.file(project_id,record['id'])
+    persisted_preview=WorkbookPreview.model_validate_json(saved['preview_json']) if saved['preview_json'] else None
+    return SavedUpload(file=record, preview=persisted_preview)
 
 
 @router.get("/{project_id}/files/{file_id}/preview", response_model=WorkbookPreview)

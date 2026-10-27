@@ -27,7 +27,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
                 config = settings()
             except ValueError:
                 raise StorageError('authentication_configuration', '认证配置无效，请检查受信源和会话期限。') from None
-            public = request.url.path in ("/api/v1/health", "/api/v1/auth/login", "/api/v1/auth/reset-password")
+            public = request.url.path in ("/api/v1/health", "/api/v1/runtime/status", "/api/v1/auth/login", "/api/v1/auth/reset-password")
             session = None
             if not public:
                 token = request.cookies.get(COOKIE_NAME)
@@ -53,7 +53,10 @@ class AuthMiddleware(BaseHTTPMiddleware):
                     raise StorageError(
                         "csrf_invalid", "请求安全凭据无效，请重新登录。", 403
                     )
-            response = await call_next(request)
+            from app.domain.runtime_status import admission_error
+            response = admission_error(request.method, request.url.path)
+            if response is None:
+                response = await call_next(request)
         except StorageError as exc:
             response = error_response(exc)
         except Exception as exc:

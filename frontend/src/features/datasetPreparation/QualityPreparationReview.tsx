@@ -1,3 +1,4 @@
+import useDraftLeaveGuard, {type RegisterLeaveGuard} from '../projects/useDraftLeaveGuard'
 import { useEffect, useRef, useState } from 'react'
 import { safeError, useI18n } from '../../shared/i18n'
 import { onApiSessionChanged } from '../../shared/api/client'
@@ -10,8 +11,9 @@ import QualityEditor from './QualityEditor'
 import QualityImpacts from './QualityImpacts'
 import QualitySummary, { independentPlanMessage, QualityPolicyView } from './QualitySummary'
 
-export default function QualityPreparationReview({ projectId, review, blocked, onReload }: { projectId: string; review: QualityReview; blocked: boolean; onReload: () => void }) {
+export default function QualityPreparationReview({ projectId, review, blocked, onReload, registerLeaveGuard }: { projectId: string; review: QualityReview; blocked: boolean; onReload: () => void; registerLeaveGuard?: RegisterLeaveGuard }) {
  const { t } = useI18n(); const [draft, setDraft] = useState(review.recipe); const [editing, setEditing] = useState(false); const [busy, setBusy] = useState(false); const [error, setError] = useState(''); const [submitted, setSubmitted] = useState(false); const [sessionValid, setSessionValid] = useState(true); const action = useRef<AbortController | null>(null); const replay = useRef<{ signature: string; key: string } | null>(null)
+ useDraftLeaveGuard(registerLeaveGuard, editing && JSON.stringify(draft) !== JSON.stringify(review.recipe), busy)
  useEffect(() => () => action.current?.abort(), [])
  useEffect(() => onApiSessionChanged(() => { action.current?.abort(); setSessionValid(false) }), [])
  const waiting = !blocked && sessionValid && !submitted && review.task.status === 'waiting_confirmation' && review.wait?.status === 'open' && review.wait.task_revision === review.task.revision

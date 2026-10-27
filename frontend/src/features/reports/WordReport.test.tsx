@@ -1,3 +1,4 @@
+import { AnalysisActivityContext } from '../analysis/analysisActivityContext'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
 import WordReport from './WordReport'
@@ -204,4 +205,19 @@ it('hides revision and UUID in actual report filenames and saves a readable file
   expect(screen.getByText(/File: analysis-report.docx/)).toBeTruthy()
   expect(fetcher).toHaveBeenCalledTimes(1)
   try { fireEvent.click(screen.getByRole('link', { name: 'Download Word report' })); await waitFor(() => expect(click).toHaveBeenCalledTimes(1)) } finally { click.mockRestore() }
+})
+
+it('protects an unresolved Word submission and permits explicit confirmation after its response is unknown',async()=>{
+ const guards=new Set<()=>boolean>()
+ const register=(guard:()=>boolean)=>{guards.add(guard);return()=>guards.delete(guard)}
+ const confirm=vi.spyOn(window,'confirm').mockReturnValue(false),alert=vi.spyOn(window,'alert').mockImplementation(()=>{})
+ let reject!:(e:Error)=>void
+ vi.stubGlobal('fetch',vi.fn((_url:string,init?:RequestInit)=>init?.method==='POST'?new Promise<Response>((_resolve,r)=>{reject=r}):Promise.resolve(Response.json(state))))
+ render(<AnalysisActivityContext.Provider value={{register,canLeave:()=>[...guards].every(g=>g())}}><WordReport {...props}/></AnalysisActivityContext.Provider>)
+ await act(async()=>{});fireEvent.click(generate());await act(async()=>{})
+ expect([...guards].every(g=>g())).toBe(false);expect(alert).toHaveBeenCalled()
+ await act(async()=>{reject(new TypeError('offline'))})
+ expect([...guards].every(g=>g())).toBe(false);expect(confirm).toHaveBeenCalled()
+ confirm.mockReturnValue(true);expect([...guards].every(g=>g())).toBe(true)
+ confirm.mockRestore();alert.mockRestore()
 })

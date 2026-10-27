@@ -7,6 +7,7 @@ import { apiFetch } from '../../shared/api/client'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import ProjectDetails from './ProjectDetails'
+import ProjectOverview from './ProjectOverview'
 import ProjectResources from './ProjectResources'
 import './projectContent.css'
 import ProjectSummary from './ProjectSummary'
@@ -27,7 +28,6 @@ async function responseData(response: Response, fallback: string) {
 export default function ProjectWorkspace() {
   const { t, locale } = useI18n()
   const [schoolRevision,setSchoolRevision]=useState(0)
-  const [view, setView] = useState<WorkspaceView>(() => new URLSearchParams(window.location.hash.slice(1)).has('project') ? 'project' : 'home')
   const [navigationSequence, setNavigationSequence] = useState(0)
   const [showCreate, setShowCreate] = useState(false)
   const [projects, setProjects] = useState<Project[]>([])
@@ -55,10 +55,11 @@ export default function ProjectWorkspace() {
     refresh()
   }, id => {
     if (unavailableIds.current.delete(id)) refresh()
-  })
+  }, () => setNavigationSequence(value => value + 1))
   const project = selection.project
   const section = selection.section
-  const setSection = selection.changeSection
+  const view = selection.workspaceView
+  const overviewView = selection.overviewView
 
   const selectedKey = selection.instance?.key
   useLayoutEffect(() => {
@@ -71,26 +72,21 @@ export default function ProjectWorkspace() {
       { opacity: 1, transform: 'translateY(0)' },
     ], { duration: 180, easing: 'cubic-bezier(.2,.7,.2,1)' })
     return () => animation?.cancel()
-  }, [selectedKey, view, section, navigationSequence])
+  }, [selectedKey, view, section, overviewView, navigationSequence])
 
   function navigate(next: WorkspaceView) {
-    setView(next)
-    setNavigationSequence(value => value + 1)
+    selection.navigateWorkspace(next)
   }
 
   function openProject(id: string) {
-    navigate('project')
-    setSection('overview')
     selection.open(id)
   }
 
   function changeSection(next: ProjectSection) {
-    setSection(next)
-    navigate('project')
+    selection.changeSection(next)
   }
 
   function closeProject() {
-    selection.close()
     navigate('projects')
   }
 
@@ -190,8 +186,6 @@ export default function ProjectWorkspace() {
         if (!isProject(created)) throw new Error('项目响应格式不正确，请刷新项目列表。')
         setProjects([created])
         selection.open(created.id, created)
-        setView('project')
-        setSection('overview')
         setSearchDraft('')
         changeQuery({ ...query, page: 1, q: '', type: '' })
         setName('')
@@ -229,7 +223,7 @@ export default function ProjectWorkspace() {
     <div className="workspace-list-heading"><h2>{t('项目记录')}</h2><p>{t('按项目保存研究资料，继续查看已上传的数据。')}</p></div>
     <ProjectList items={projects} total={total} query={query} searchDraft={searchDraft} loading={loading} error={loadError}
       onSearchDraftChange={setSearchDraft} onQueryChange={changeQuery} onOpen={openProject} onRetry={refresh}
-      onCreate={() => setShowCreate(true)} />
+      onCreate={() => setShowCreate(true)} presentation={view === 'home' ? 'cards' : 'table'} />
     </section>
     {showCreate && <ProjectCreateDialog busy={creating} onClose={() => setShowCreate(false)}>
     <form className="project-form" onSubmit={create} aria-busy={creating}>
@@ -257,30 +251,28 @@ export default function ProjectWorkspace() {
         <button type="button" onClick={selection.refresh}>{t("重试项目详情")}</button>
       </div>}
       {project && <div key={selection.instance.key}>
-        <header className="project-page-heading"><span className="workspace-eyebrow">{t('当前研究')}</span>
+        <header className="project-page-heading">
           <h1>{project.name}</h1><p>{project.research_topic}</p>
         </header>
         <div hidden={section !== 'overview'}>
-          <div className="project-overview-heading"><h2>{t('项目概览')}</h2><span className="muted">{t('最近更新 {date}', { date: new Date(project.updated_at).toLocaleDateString(locale) })}</span></div>
-          <ProjectDetails project={project} onUpdated={updated} showHeading={false} />
-          <div className="project-shortcuts"><button type="button" onClick={()=>changeSection('reviews')}><WorkspaceIcon name="file"/><span><strong>{t('意见修改')}</strong><small>{t('整理固定版本的意见与计划')}</small></span><WorkspaceIcon name="arrow"/></button>
-            <button type="button" onClick={() => changeSection('files')}><WorkspaceIcon name="file" /><span><strong>{t('整理研究资料')}</strong><small>{t('查看文件与上传数据')}</small></span><WorkspaceIcon name="arrow" /></button>
-            <button type="button" onClick={() => changeSection('analysis')}><WorkspaceIcon name="folder" /><span><strong>{t('继续数据分析')}</strong><small>{t('配置字段，探索数据与结果')}</small></span><WorkspaceIcon name="arrow" /></button>
+          <ProjectOverview project={project} view={overviewView} onViewChange={selection.changeOverviewView} onNavigate={changeSection} />
+          <div className="project-overview-panel" hidden={overviewView !== 'settings'}>
+            <ProjectDetails project={project} onUpdated={updated} showHeading={false} registerLeaveGuard={selection.registerLeaveGuard} />
           </div>
         </div>
-        <div hidden={section !== 'overview' && section !== 'artifacts'}>
-          <ProjectSummary key={`${project.id}:${schoolRevision}`} projectId={project.id} projectType={project.project_type} view={section === 'artifacts' ? 'artifacts' : 'overview'}
-            active={view === 'project' && (section === 'overview' || section === 'artifacts')} onOpenJournals={()=>changeSection('journals')} onOpenManuscripts={()=>changeSection('manuscripts')} />
+        <div hidden={!(section === 'overview' && overviewView === 'activity') && section !== 'artifacts'}>
+          <ProjectSummary artifactNavigation={selection.artifactNavigation} onArtifactNavigate={selection.selectArtifact} key={`${project.id}:${schoolRevision}`} projectId={project.id} projectType={project.project_type} view={section === 'artifacts' ? 'artifacts' : 'overview'}
+            active={view === 'project' && (section === 'overview' && overviewView === 'activity' || section === 'artifacts')} onOpenJournals={()=>changeSection('journals')} onOpenManuscripts={()=>changeSection('manuscripts')} />
         </div>
-        {project.project_type === 'thesis' && <SchoolTemplates projectId={project.id} onChanged={()=>setSchoolRevision(value=>value+1)} active={view === 'project' && section === 'school-templates'} />}
-        <ProjectModelUsage projectId={project.id} active={view === 'project' && section === 'overview'} />
-        <ReviewsWorkspace projectId={project.id} projectType={project.project_type} active={view==='project'&&section==='reviews'} roundId={selection.reviewLink.round} initialManuscript={selection.reviewLink.manuscript} initialRevision={selection.reviewLink.revision} initialRun={selection.reviewLink.run} initialDocument={selection.reviewLink.document} onSelectRound={selection.selectRound} onOpenTask={selection.selectTask}/>
-        <ProjectManuscripts initialManuscript={selection.manuscriptLink.id} initialRevision={selection.manuscriptLink.revision} projectType={project.project_type} projectId={project.id} researchTopic={project.research_topic} outputLanguage={project.default_output_language??'zh-CN'} active={view==='project'&&section==='manuscripts'} onOpenTask={selection.selectTask} onOpenLiterature={()=>selection.selectLiterature('')}/>
-        {project.project_type === 'sci' && <JournalWorkspace projectId={project.id} active={view==='project'&&section==='journals'} onOpenTask={selection.selectTask}/>}
-        <ProjectTasks onOpenJournals={()=>changeSection('journals')} onOpenManuscripts={()=>changeSection('manuscripts')} onOpenFiles={() => changeSection('files')} projectId={project.id} active={view === 'project' && section === 'tasks'}
+        {project.project_type === 'thesis' && <SchoolTemplates navigation={selection.schoolTemplateNavigation} onNavigate={selection.selectSchoolTemplate} registerLeaveGuard={selection.registerLeaveGuard} projectId={project.id} onChanged={()=>setSchoolRevision(value=>value+1)} active={view === 'project' && section === 'school-templates'} />}
+        <ProjectModelUsage layered projectId={project.id} active={view === 'project' && section === 'overview' && overviewView === 'usage'} />
+        <ReviewsWorkspace view={selection.reviewView} selectedItemId={selection.reviewItemId} onViewChange={selection.selectReviewView} onSelectItem={selection.selectReviewItem} onSelectRun={selection.selectReviewRun} onSelectDocument={selection.selectReviewDocument} registerLeaveGuard={selection.registerLeaveGuard} projectId={project.id} projectType={project.project_type} active={view==='project'&&section==='reviews'} roundId={selection.reviewLink.round} initialManuscript={selection.reviewLink.manuscript} initialRevision={selection.reviewLink.revision} initialRun={selection.reviewLink.run} initialDocument={selection.reviewLink.document} onSelectRound={selection.selectRound} onOpenTask={selection.selectTask}/>
+        <ProjectManuscripts view={selection.manuscriptView} onViewChange={selection.selectManuscriptView} onSelectVersion={selection.selectManuscriptVersion} registerLeaveGuard={selection.registerLeaveGuard} initialManuscript={selection.manuscriptLink.id} initialRevision={selection.manuscriptLink.revision} projectType={project.project_type} projectId={project.id} researchTopic={project.research_topic} outputLanguage={project.default_output_language??'zh-CN'} active={view==='project'&&section==='manuscripts'} onOpenTask={selection.selectTask} onOpenLiterature={()=>selection.selectLiterature('')}/>
+        {project.project_type === 'sci' && <JournalWorkspace view={selection.journalView} onViewChange={selection.selectJournalView} initialAdaptation={selection.adaptationId} onSelectAdaptation={selection.selectJournalAdaptation} registerLeaveGuard={selection.registerLeaveGuard} projectId={project.id} active={view==='project'&&section==='journals'} onOpenTask={selection.selectTask}/>}
+        <ProjectTasks detailView={selection.taskDetailView} onDetailViewChange={selection.selectTaskDetailView} registerLeaveGuard={selection.registerLeaveGuard} onOpenJournals={()=>changeSection('journals')} onOpenManuscripts={()=>changeSection('manuscripts')} onOpenFiles={() => changeSection('files')} projectId={project.id} active={view === 'project' && section === 'tasks'}
           selectedTaskId={selection.taskId} onSelectTask={selection.selectTask} onOpenLiterature={selection.selectLiterature} />
-        <ProjectLiterature projectId={project.id} researchTopic={project.research_topic} outputLanguage={project.default_output_language??'zh-CN'} active={view==='project'&&section==='literature'} initialSearchId={selection.literatureSearchId} onSearchChange={selection.selectLiterature} onOpenTask={selection.selectTask}/>
-        <ProjectResources projectId={project.id} active={view === 'project'} section={section} onSectionChange={changeSection} onSaved={() => { refresh(); selection.refresh() }} />
+        <ProjectLiterature projectId={project.id} researchTopic={project.research_topic} outputLanguage={project.default_output_language??'zh-CN'} active={view==='project'&&section==='literature'} initialSearchId={selection.literatureSearchId} onSearchChange={selection.selectLiterature} onOpenTask={selection.selectTask} literatureNavigation={selection.literatureNavigation} onLiteratureNavigate={selection.selectLiteratureView} registerLeaveGuard={selection.registerLeaveGuard}/>
+        <ProjectResources analysisNavigation={selection.analysisNavigation} onAnalysisNavigate={selection.selectAnalysis} projectId={project.id} active={view === 'project'} section={section} onSectionChange={changeSection} onSaved={() => { refresh(); selection.refresh() }} resourceNavigation={selection.resourceNavigation} onResourceNavigate={selection.selectResource} registerLeaveGuard={selection.registerLeaveGuard} />
       </div>}
     </section>}
   </div>

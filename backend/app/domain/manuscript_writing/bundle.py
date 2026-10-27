@@ -101,7 +101,11 @@ def evidence_catalog(base):
                     result[evidence['id']]=(evidence,binding)
     return result
 
-def build_bundle(base, request):
+def build_bundle(base, request, *, execution_contract=None):
+    from .frozen import contract,validate
+    from app.domain.model_usage.contracts import ModelPolicy
+    from app.domain.admin_configuration.model_consumption import combine
+    frozen=validate(execution_contract) if execution_contract is not None else contract()
     sources={s['id']:s for s in base.get('sources',[])}; catalog=evidence_catalog(base)
     if not set(request['selected_source_ids'])<=sources.keys() or not set(request['selected_evidence_ids'])<=catalog.keys():
         raise StorageError('manuscript_writing_selection_invalid','只能选择当前冻结版本中的来源和证据。',422)
@@ -157,19 +161,20 @@ def build_bundle(base, request):
         context=context,sources=selected,evidence=evidence_wire,illustrations=illustrations)
     # User prose/metadata is checked at projection sites. Only facts()/labels() create
     # JSON pointers, from checked key components; arbitrary text cannot claim this exemption.
-    p=policy();wire=dict(model=p.model,background=True,store=True,service_tier='default',instructions=INSTRUCTIONS,
+    instruction=combine(INSTRUCTIONS,frozen['instruction'])
+    p=ModelPolicy.model_validate(frozen['policy']);wire=dict(model=p.model,background=True,store=True,service_tier='default',instructions=instruction,
         input=canonical_payload(payload),max_output_tokens=p.max_output_tokens,
         text=dict(format=dict(type='json_schema',name='manuscript_writing_v2',strict=True,schema=LiveOutput.model_json_schema())))
-    wire_json=canonical_payload(wire);byte_count=len(wire_json.encode('utf-8'));allowance=byte_count+PROTOCOL_ALLOWANCE
-    if allowance>MAX_INPUT: raise StorageError('manuscript_writing_input_limit','完整外发包超过输入上限，请减少所选材料并重新预览；未作截断。',422)
+    wire_json=canonical_payload(wire);byte_count=len(wire_json.encode('utf-8'));allowance=byte_count+frozen['protocol_allowance']
+    if allowance>frozen['max_input_allowance']: raise StorageError('manuscript_writing_input_limit','完整外发包超过输入上限，请减少所选材料并重新预览；未作截断。',422)
     sha=hashlib.sha256(wire_json.encode()).hexdigest()
-    return dict(wire_json=wire_json,wire_sha256=sha,bundle_sha256=sha,wire_bytes=byte_count,
-        gateway_digest=input_digest(instructions=INSTRUCTIONS,payload=payload),input_token_allowance=allowance,
+    return dict(**({'execution_contract':frozen} if execution_contract is not None else {}),wire_json=wire_json,wire_sha256=sha,bundle_sha256=sha,wire_bytes=byte_count,
+        gateway_digest=input_digest(instructions=instruction,payload=payload),input_token_allowance=allowance,
         reserved_micro_usd=reserve_micro_usd(p,allowance,0),policy_json=p.model_dump(mode='json'),
         local_manifest=local,omitted_manifest=['attachments','binary_images','local_paths','private_configuration','unselected_sources','prior_reviews'],
         policy_version=POLICY_VERSION)
 
 def validate_bundle(row):
-    rebuilt=build_bundle(row['base_snapshot'],row['request_json'])
+    rebuilt=build_bundle(row['base_snapshot'],row['request_json'],execution_contract=row.get('execution_contract'))
     if any(row[k]!=v for k,v in rebuilt.items()): raise ValueError('Frozen bundle mismatch')
     return row

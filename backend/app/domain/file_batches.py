@@ -11,7 +11,8 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from app.adapters.task_store import TaskStore
 from app.adapters.file_objects import original_digest
-from app.core.config import get_excel_settings
+from app.core.config import effective_excel_settings
+from app.domain.admin_configuration.bindings import resolve, bind
 from app.core.exceptions import StorageError
 from app.core.errors import error_detail
 from app.domain.file_parsing import PARSER_VERSION, PROCESS_SETTINGS, ParseFileSnapshot
@@ -123,7 +124,7 @@ class FileBatchService:
             batch = {'id': str(uuid4()), 'project_id': project_id, 'created_at': datetime.now(timezone.utc)}
             db.execute('''INSERT INTO file_upload_batches(id,project_id,user_id,idempotency_key,request_digest,created_at)
                 VALUES (%s,%s,%s,%s,%s,%s)''', (batch['id'], project_id, self.store.user_id, key, digest, batch['created_at']))
-            maximum = min(get_excel_settings().max_upload_bytes, 10485760)
+            maximum = effective_excel_settings(resolve(db)).max_upload_bytes
             for ordinal, item in enumerate(request.items):
                 code = ('unsupported_file_type' if not item.filename.lower().endswith(('.xlsx', '.docx', '.pdf', '.png', '.jpg', '.jpeg')) else
                         'empty_file' if item.size_bytes == 0 else 'file_too_large' if item.size_bytes > maximum else None)
@@ -153,6 +154,11 @@ class FileBatchService:
         # rollback or unknown commit; deterministic item paths allow safe retransmission.
         with self.store.connection(write=True) as db:
             batch = self.require_batch(db, project_id, batch_id)
+            version = resolve(db)
+            excel = effective_excel_settings(version)
+            if len(content) > excel.max_upload_bytes:
+                raise StorageError('file_too_large', '文件超过上传大小限制。', 413,
+                    params={'max_bytes': excel.max_upload_bytes})
             item = db.execute('SELECT * FROM file_upload_items WHERE id=%s AND batch_id=%s', (item_id, batch_id)).fetchone()
             if not item:
                 raise StorageError('file_batch_item_not_found', '上传文件项不存在。', 404)
@@ -172,11 +178,11 @@ class FileBatchService:
             if file_type == 'jpg':
                 file_type = 'jpeg'
             descriptor = self.assets.objects.put_original(
-                project_id, batch['id'], file_type, content, item_id=item['id'])
+                project_id, batch['id'], file_type, content, item_id=item['id'], db=db)
             file_id = descriptor.id
             now = datetime.now(timezone.utc)
             file = {'filename': filename, **asdict(descriptor)}
-            settings = {'excel': get_excel_settings().model_dump(), 'process': PROCESS_SETTINGS.copy()}
+            settings = {'excel': excel.model_dump(), 'process': PROCESS_SETTINGS.copy()}
             snapshot = ParseFileSnapshot.model_validate({'schema_version': 1, 'kind': 'parse_file',
                 'project': {'id': project_id}, 'file': file, 'parse_id': parse_id,
                 'parser_version': PARSER_VERSION, 'settings': settings}).model_dump() if file_type == 'xlsx' else None
@@ -197,6 +203,7 @@ class FileBatchService:
                 'phase': 'parse', 'revision': 1, 'current_attempt': 0, 'reason_code': None,
                 'created_at': now, 'updated_at': now}
             self.store.insert_task(db, task)
+            bind(db, kind='task', object_id=task_id, version=version)
             db.execute('''INSERT INTO file_parse_results(id,file_id,task_id,version,source_sha256,parser_version,
                 settings_json,created_at,completed_at,result_json) VALUES (%s,%s,%s,1,%s,%s,%s,%s,NULL,NULL)''',
                 (parse_id, file_id, task_id, sha, parser_version, Jsonb(settings), now))

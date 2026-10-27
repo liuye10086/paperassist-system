@@ -3,9 +3,11 @@ import { apiFetch, onApiSessionChanged } from '../../shared/api/client'
 import { apiError, safeError, useI18n } from '../../shared/i18n'
 import { formatMicroUsd, isProjectUsage, type Budget, type ModelCall, type ProjectUsage } from './modelUsageTypes'
 import { AccountedAmount, CallReconciliationDisplay, ReconciliationTotals } from './ReconciliationDisplay'
+import { UsageViewTabs } from '../operations/UsageSummaryView'
+import '../operations/usageViews.css'
 import './modelUsage.css'
 
-type Props = { projectId: string; active?: boolean }
+type Props = { projectId: string; active?: boolean; layered?: boolean }
 const purposes:Record<ModelCall['task_type'],string> = {manuscript_writing:'完整稿件写作',literature_assistance:'文献模型建议',figure_workbench:'配置图表生成',figure_explanation:'图表六节解释',analysis_recommendation:'受限分析建议', boxplot: '图表生成', explanation: 'AI 分析解释', word_report: 'Word 报告导出' }
 const states: Record<ModelCall['status'], string> = { reserved: '已预留', submitting: '提交待确认', submitted: '运行中',
   submission_unknown: '提交结果未知', completed: '已完成', failed: '失败', released: '已释放' }
@@ -26,8 +28,9 @@ export default function ProjectModelUsage(props: Props) {
   return <Usage key={props.projectId} {...props} />
 }
 
-function Usage({ projectId, active = true }: Props) {
+function Usage({ projectId, active = true, layered = false }: Props) {
   const { t, locale } = useI18n()
+  const [view, setView] = useState('summary')
   const [data, setData] = useState<ProjectUsage | null>(null)
   const [page, setPage] = useState(1)
   const [attempt, setAttempt] = useState(0)
@@ -90,15 +93,17 @@ function Usage({ projectId, active = true }: Props) {
     {loading && <p role="status" className="usage-empty">{t('正在读取模型用量……')}</p>}
     {error && <><p role="alert" className="error-panel">{t(error)}</p>
       <button type="button" onClick={() => refresh()}>{t('重试模型用量')}</button></>}
+    {layered && <UsageViewTabs label="项目用量工作视图" items={[['summary','综合汇总'],['budgets','预算额度'],['reconciliation','费用核对'],['calls','逐次调用']]} selected={view} onChange={setView}/>}
     {data && <>
       <p className="usage-scope-note">{t('账本可能包含离线模拟回执；演示用量与预算占用不代表实际付费。')}</p>
-      <div className="usage-budgets"><BudgetCard title="项目预算" budget={data.project_budget} /><BudgetCard title="用户预算" budget={data.user_budget} /></div>
-      <dl className="usage-totals"><div><dt>{t('项目内部估算')}</dt><dd>{formatMicroUsd(data.estimated_micro_usd)}</dd></div>
+      <div className="usage-budgets usage-layer" hidden={layered && view !== 'budgets'}><BudgetCard title="项目预算" budget={data.project_budget} /><BudgetCard title="用户预算" budget={data.user_budget} /></div>
+      <dl className="usage-totals usage-layer" hidden={layered && view !== 'summary'}><div><dt>{t('项目内部估算')}</dt><dd>{formatMicroUsd(data.estimated_micro_usd)}</dd></div>
         <div><dt>{t('项目预算已计金额')}</dt><dd><AccountedAmount amount={data.accounted_micro_usd} /></dd></div>
         <div><dt>{t('项目预留')}</dt><dd>{formatMicroUsd(data.reserved_micro_usd)}</dd></div>
         <div><dt>{t('估算待完善调用')}</dt><dd>{data.pending_count}</dd></div></dl>
       <p className="usage-scope-note">{t('内部估算，不是供应商账单。')}</p>
-      <ReconciliationTotals summary={data.reconciliation} />
+      <div className="usage-layer" hidden={layered && view !== 'reconciliation'}><ReconciliationTotals summary={data.reconciliation} /></div>
+      <div className="usage-layer" hidden={layered && view !== 'calls'}>
       {data.items.some(item => item.status === 'submitting' || item.status === 'submission_unknown')
         && <p className="usage-scope-note">{t('提交待确认或结果未知的调用保留预留预算，等待核对。')}</p>}
       <h4>{t('最近模型调用')}</h4>
@@ -124,6 +129,7 @@ function Usage({ projectId, active = true }: Props) {
           <button type="button" aria-label={t('模型调用上一页')} disabled={page <= 1} onClick={() => refresh(page - 1)}>{t('上一页')}</button>
           <button type="button" aria-label={t('模型调用下一页')} disabled={page >= pages} onClick={() => refresh(page + 1)}>{t('下一页')}</button></nav>
       </>}
+      </div>
     </>}
   </section>
 }

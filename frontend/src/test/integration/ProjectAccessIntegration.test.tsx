@@ -85,12 +85,20 @@ async function open(name = project.name) {
   await screen.findByRole('heading', { name })
   return user
 }
+async function navigateSection(user: ReturnType<typeof userEvent.setup>, label: '项目文件' | '数据分析') {
+  if (!screen.queryByRole('button', { name: label })) {
+    await user.click(screen.getByRole('button', { name: label === '项目文件' ? '材料准备' : '分析与成果' }))
+  }
+  await user.click(screen.getByRole('button', { name: label }))
+  if (label === '数据分析' && screen.queryByRole('button', { name: '进入分析工作台' })) await user.click(screen.getByRole('button', { name: '进入分析工作台' }))
+  if (label === '项目文件' && screen.queryByRole('button', { name: '返回文件列表' })) await user.click(screen.getByRole('button', { name: '返回文件列表' }))
+}
 async function savedWorkspace() {
   const user = await open()
-  await user.click(screen.getByRole('button', { name: '项目文件' }))
+  await navigateSection(user, '项目文件')
   await user.click(await screen.findByRole('button', { name: `预览 ${file.filename}` }))
   await screen.findByRole('cell', { name: '10' })
-  await user.click(screen.getByRole('button', { name: '数据分析' }))
+  await navigateSection(user, '数据分析')
   await screen.findByRole('link', { name: '下载 Word 报告' })
   await screen.findByAltText(figure.title)
   await user.clear(screen.getByLabelText('分析草稿'))
@@ -98,7 +106,7 @@ async function savedWorkspace() {
   return user
 }
 async function showDownload(user: ReturnType<typeof userEvent.setup>, download: typeof downloads[number]) {
-  await user.click(screen.getByRole('button', { name: download.endpoint === downloads[0].endpoint ? '项目文件' : '数据分析' }))
+  await navigateSection(user, download.endpoint === downloads[0].endpoint ? '项目文件' : '数据分析')
 }
 async function expectCleared() {
   await screen.findByRole('button', { name: '重试打开项目' })
@@ -114,7 +122,7 @@ async function expectCleared() {
   expect(screen.queryByRole('region', { name: '图表与报告' })).toBeNull()
   expect(screen.queryByAltText(figure.title)).toBeNull()
   for (const download of downloads) expect(screen.queryByRole('link', { name: download.label })).toBeNull()
-  expect(window.location.hash).toBe('')
+  expect(window.location.hash).toBe('#workspace=home')
   expect(screen.queryByRole('button', { name: `打开项目 ${project.name}` })).toBeNull()
 }
 
@@ -123,6 +131,7 @@ test('summary project 404 clears the whole workspace and file preview', async ()
   render(<ProjectWorkspace />)
   const user = await savedWorkspace()
   await user.click(screen.getByRole('button', { name: '项目概览' }))
+  await user.click(screen.getByRole('button', { name: '进展记录' }))
   await screen.findByText('期刊目标适配与投稿进展')
   mock.removeProject()
   mock.override(url => url.includes('/p1/summary?') ? missing() : undefined)
@@ -135,16 +144,16 @@ test.each([404, 410])('ordinary resource %s preserves the selected project, draf
   const user = await savedWorkspace()
   mock.override(url => url.endsWith('/preview')
     ? Response.json({ detail: { code: status === 404 ? 'file_not_found' : 'file_missing', message: '普通资源不可用' } }, { status }) : undefined)
-  await user.click(screen.getByRole('button', { name: '项目文件' }))
+  await navigateSection(user, '项目文件')
   await user.click(screen.getByRole('button', { name: `预览 ${file.filename}` }))
   await screen.findByText(status === 404 ? '当前项目中没有此文件。' : '原始文件已缺失，请恢复数据目录或重新上传。')
   expect(screen.queryByText('普通资源不可用')).toBeNull()
   expect(screen.getByRole('heading', { name: project.name })).toBeTruthy()
-  await user.click(screen.getByRole('button', { name: '数据分析' }))
+  await navigateSection(user, '数据分析')
   expect((screen.getByLabelText('分析草稿') as HTMLInputElement).value).toBe('不能泄露的草稿')
   expect(screen.getByAltText(figure.title)).toBeTruthy()
   expect(screen.getByRole('link', { name: '下载 Word 报告' })).toBeTruthy()
-  expect(window.location.hash).toBe('#project=p1')
+  expect(new URLSearchParams(window.location.hash.slice(1)).get('project')).toBe('p1')
   expect(screen.queryByRole('button', { name: '重试打开项目' })).toBeNull()
 })
 
@@ -209,8 +218,9 @@ test('successful preview body consumed before loss cannot revive cleared private
   const response = Response.json(preview)
   vi.spyOn(response, 'json').mockImplementation(() => { started.resolve(undefined); return body.promise })
   mock.override(url => url.endsWith('/preview') ? response : url === downloads[0].endpoint ? missing() : undefined)
-  await user.click(screen.getByRole('button', { name: '项目文件' }))
+  await navigateSection(user, '项目文件')
   await user.click(screen.getByRole('button', { name: `预览 ${file.filename}` })); await started.promise
+  await user.click(screen.getByRole('button', { name: '返回文件列表' }))
   mock.removeProject(); await user.click(screen.getByRole('link', { name: downloads[0].label })); await expectCleared()
   await act(async () => { body.resolve(preview) }); await expectCleared()
 })
@@ -223,12 +233,12 @@ test('A to B to A rejects the first A detail body instead of overwriting fresh m
   render(<ProjectWorkspace />); const user = userEvent.setup()
   await user.click(await screen.findByRole('button', { name: `打开项目 ${project.name}` })); await started.promise
   await open(other.name); await open()
-  await user.click(screen.getByRole('button', { name: '数据分析' }))
+  await navigateSection(user, '数据分析')
   await screen.findByLabelText('分析草稿')
   await act(async () => { body.resolve({ ...project, name: '迟到旧项目名称' }) })
   expect(screen.queryByRole('heading', { name: '迟到旧项目名称' })).toBeNull()
   expect(screen.getByRole('heading', { name: project.name })).toBeTruthy()
-  expect(window.location.hash).toBe('#project=p1')
+  expect(new URLSearchParams(window.location.hash.slice(1)).get('project')).toBe('p1')
 })
 
 test('A to B to A ignores a first-instance project 404 whose clone body arrives late', async () => {
@@ -238,14 +248,14 @@ test('A to B to A ignores a first-instance project 404 whose clone body arrives 
   vi.spyOn(old, 'clone').mockReturnValue(clone)
   render(<ProjectWorkspace />); const user = await savedWorkspace()
   mock.override(url => url.endsWith('/preview') ? old : undefined)
-  await user.click(screen.getByRole('button', { name: '项目文件' }))
+  await navigateSection(user, '项目文件')
   await user.click(screen.getByRole('button', { name: `预览 ${file.filename}` })); await started.promise
   await open(other.name); mock.override(() => undefined); await open()
-  await user.click(screen.getByRole('button', { name: '项目文件' }))
+  await navigateSection(user, '项目文件')
   await user.click(await screen.findByRole('button', { name: `预览 ${file.filename}` })); await screen.findByRole('cell', { name: '10' })
   await act(async () => { cloneBody.resolve({ detail: { code: 'project_not_found' } }) })
   expect(screen.getByRole('heading', { name: project.name })).toBeTruthy()
   expect(screen.getByRole('cell', { name: '10' })).toBeTruthy()
-  expect(window.location.hash).toBe('#project=p1')
+  expect(new URLSearchParams(window.location.hash.slice(1)).get('project')).toBe('p1')
   expect(screen.queryByRole('button', { name: '重试打开项目' })).toBeNull()
 })

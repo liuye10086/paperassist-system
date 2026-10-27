@@ -2,9 +2,11 @@ import { useEffect, useRef, useState } from 'react'
 import { apiFetch, captureApiSession } from '../../shared/api/client'
 import { apiError, isLocale, safeError, useI18n, type Locale } from '../../shared/i18n'
 import { isProject, type Project } from './projectTypes'
+import useDraftLeaveGuard, { type RegisterLeaveGuard } from './useDraftLeaveGuard'
 
-export default function ProjectLanguage({ project, onUpdated, disabled, onBusyChange }: {
+export default function ProjectLanguage({ project, onUpdated, disabled, onBusyChange, registerLeaveGuard }: {
   project: Project; onUpdated: (value: Project) => void; disabled: boolean; onBusyChange: (value: boolean) => void
+  registerLeaveGuard?: RegisterLeaveGuard
 }) {
   const { t } = useI18n()
   const saved = project.default_output_language ?? 'zh-CN'
@@ -13,6 +15,7 @@ export default function ProjectLanguage({ project, onUpdated, disabled, onBusyCh
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [uncertain, setUncertain] = useState(false)
+  useDraftLeaveGuard(registerLeaveGuard, draft !== saved, busy || uncertain)
   const active = useRef<{ controller: AbortController; timeout: number } | null>(null)
   useEffect(() => () => {
     active.current?.controller.abort(); window.clearTimeout(active.current?.timeout); active.current = null

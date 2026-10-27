@@ -6,8 +6,28 @@ import { reviewFixture } from './analysisPlanFixtures'
 import { type PreparedDatasetAnalysisSource } from '../analysis/datasetSource'
 import { type Selection } from '../analysis/AnalysisSetup'
 import { setLocale } from '../../shared/i18n'
+import { WorkflowProvider } from '../analysis/AnalysisWorkflow'
 
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); setLocale('zh-CN') })
+
+test('formal plan tasks separate creation, recommendations, history and review while preserving research draft', async () => {
+ vi.stubGlobal('fetch',vi.fn(async(url:string)=>Response.json(url.includes('/analysis-plans?')?{items:[reviewFixture],total:1,page:1,page_size:5}:reviewFixture)))
+ const user=userEvent.setup()
+ render(<WorkflowProvider stage="plan"><AnalysisPlanLauncher projectId="p1" fileId="f1" source={reviewFixture.source as PreparedDatasetAnalysisSource} selection={reviewFixture.selection as Selection} setupRevision={0} disabled={false} onPublished={()=>{}}/></WorkflowProvider>)
+ const question=screen.getByLabelText('研究问题') as HTMLTextAreaElement
+ await user.type(question,'Synthetic plan draft')
+ expect(screen.queryByRole('heading',{name:'受限模型建议'})).toBeNull()
+ expect(screen.queryByRole('heading',{name:'分析计划审核'})).toBeNull()
+ await user.click(screen.getByRole('button',{name:'方案建议'}))
+ expect(screen.getByRole('heading',{name:'受限模型建议'})).toBeTruthy()
+ expect(question.closest('[hidden]')).toBeTruthy()
+ await user.click(screen.getByRole('button',{name:'方案历史'}))
+ await user.click(await screen.findByRole('button',{name:/分析计划第 1 版/}))
+ await screen.findByRole('heading',{name:'分析计划审核'})
+ await user.click(screen.getByRole('button',{name:'编写方案'}))
+ expect(screen.getByLabelText('研究问题')).toBe(question)
+ expect(question.value).toBe('Synthetic plan draft')
+})
 
 test.each(['zh-CN','en'] as const)('list uses failed and queued status labels in %s',async(locale)=>{
  setLocale(locale)

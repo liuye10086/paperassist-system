@@ -7,6 +7,7 @@ from app.adapters.task_store import TaskStore, DatasetTaskAssets, source_conflic
 from app.domain.ocr_review.service import (OcrReviewService, validate_snapshot,
     review_input_version, candidate_id, latest_checkpoint, append_checkpoint, require_approval)
 from app.domain.tasks.waits import persist_wait
+from app.domain.storage_governance.deterministic import admit_manifest, settle_manifest
 
 
 class OcrReviewStore:
@@ -27,23 +28,27 @@ class OcrReviewStore:
         return task,checkpoint,sheet
 
     def wait(self,lease,checkpoint,obj):
-        # Content is durable before its DB reference; a rollback leaves a safe,
-        # content-addressed orphan for the next attempt to reuse.
         with self.repository.connection() as db:
             task = self.repository.require_lease(db,lease)
         service = self.service(task)
         content = json.dumps(obj.json_material(),ensure_ascii=False,sort_keys=True,
             separators=(',',':'),allow_nan=False).encode('utf-8')
-        reference = dict(id=candidate_id(task['id']),**service.objects.save(candidate_id(task['id']),content))
+        reference = dict(id=candidate_id(task['id']),**service.objects.describe(candidate_id(task['id']),content))
+        with self.repository.connection(write=True) as db:
+            task=self.repository.require_lease(db,lease);self.repository.require_owner(db,task)
+            current=latest_checkpoint(db,task)
+            self._require_preview(current,checkpoint,obj)
+            service.require_raw(review_input_version(task)['source'],task['project_id'])
+            rows=admit_manifest(db,self.repository.assets.directory,task,[('ocr_review','ocr_review:'+checkpoint['id'],reference)])
+        service.objects.save(candidate_id(task['id']),content)
         with self.repository.connection(write=True) as db:
             task = self.repository.require_lease(db,lease)
             self.repository.require_owner(db,task)
             current = latest_checkpoint(db,task)
             state = dict(current['state_json'])
-            if (current['id'] != checkpoint['id'] or current['next_node'] != 'prepare_preview'
-                    or obj.parent_source.model_dump(mode='json') != state['input_version']['source']
-                    or [e.model_dump(mode='json') for e in obj.edits] != state['edits']):
-                raise source_conflict()
+            self._require_preview(current,checkpoint,obj)
+            service.require_raw(review_input_version(task)['source'],task['project_id'])
+            settle_manifest(db,self.repository.assets.directory,task,rows)
             previous_revision = task['revision']
             task.update(status='waiting_confirmation',phase='plan',revision=previous_revision+1,
                 updated_at=max(self.repository.now(db),task['updated_at']),reason_code='confirmation_required',error_code=None)
@@ -54,6 +59,14 @@ class OcrReviewStore:
             TaskStore.append_event(db,task,'waiting')
             persist_wait(db,task)
             return TaskStore.public_task(task)
+
+    @staticmethod
+    def _require_preview(current,checkpoint,obj):
+        state=current['state_json']
+        if (current['id'] != checkpoint['id'] or current['next_node'] != 'prepare_preview'
+                or obj.parent_source.model_dump(mode='json') != state['input_version']['source']
+                or [e.model_dump(mode='json') for e in obj.edits] != state['edits']):
+            raise source_conflict()
 
     def publish(self,lease,checkpoint):
         with self.repository.connection() as db:
@@ -73,6 +86,8 @@ class OcrReviewStore:
             require_approval(db,task,state)
             # Verify the exact accepted object inside the publication transaction.
             service.read_candidate(task,current)
+            rows=admit_manifest(db,self.repository.assets.directory,task,[('ocr_review','ocr_review_publish:'+current['id'],state['candidate'])])
+            settle_manifest(db,self.repository.assets.directory,task,rows)
             existing = db.execute('SELECT * FROM ocr_review_versions WHERE task_id=%s',(task['id'],)).fetchone()
             if existing:
                 raise source_conflict()  # Publication and done are one transaction.

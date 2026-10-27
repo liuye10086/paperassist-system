@@ -13,16 +13,18 @@ import { isQualityReview, type QualityReview } from './qualityApi'
 import {isFilterReview,type FilterReview} from './populationFilterApi'
 import {PopulationFilterReview} from './PopulationFilter'
 import QualityPreparationReview from './QualityPreparationReview'
-type Props = { projectId: string; taskId: string; blocked?: boolean; onChanged?: () => void; refreshKey?: number }
+import useDraftLeaveGuard, { type RegisterLeaveGuard } from '../projects/useDraftLeaveGuard'
+type Props = { projectId: string; taskId: string; blocked?: boolean; onChanged?: () => void; refreshKey?: number; active?: boolean; registerLeaveGuard?: RegisterLeaveGuard; onRestart?: () => void }
 export default function PreparationReview(props: Props) { return <Panel key={`${props.projectId}:${props.taskId}`} {...props} /> }
-function Panel({ projectId, taskId, blocked = false, onChanged, refreshKey = 0 }: Props) {
+function Panel({ projectId, taskId, blocked = false, onChanged, refreshKey = 0, active: viewActive = true, registerLeaveGuard, onRestart }: Props) {
  const { t } = useI18n(); const visible = useDocumentVisible()
  const [review, setReview] = useState<Review | QualityReview | FilterReview | null>(null); const [draft, setDraft] = useState<PreparationRecipe | null>(null)
  const [editing, setEditing] = useState(false); const [busy, setBusy] = useState(false); const [error, setError] = useState(''); const [refresh, setRefresh] = useState(0)
  const action = useRef<AbortController | null>(null); const mounted = useRef(true); const replay = useRef<{ signature: string; key: string } | null>(null)
+ useDraftLeaveGuard(registerLeaveGuard, editing && Boolean(draft), busy)
  useEffect(() => { mounted.current = true; return () => { mounted.current = false; action.current?.abort() } }, [])
  useEffect(() => {
-  if (!visible) return
+  if (!visible || !viewActive) return
   const controller = new AbortController(); let active = true; let timer = 0
   async function load() { try {
    const value = await preparationRequest(`/api/v1/tasks/${encodeURIComponent(taskId)}/dataset-preparation`, controller, (v): v is Review | QualityReview | FilterReview => isReview(v, projectId, taskId) || isQualityReview(v, projectId, taskId) || isFilterReview(v,projectId,taskId), '整理任务读取失败，请重试。')
@@ -31,7 +33,7 @@ function Panel({ projectId, taskId, blocked = false, onChanged, refreshKey = 0 }
    if (['queued', 'running'].includes(value.task.status)) timer = window.setTimeout(() => void load(), 5000)
   } catch (cause) { if (active) setError(safeError(cause, '整理任务读取失败，请重试。')) } }
   void load(); return () => { active = false; controller.abort(); window.clearTimeout(timer) }
- }, [projectId, taskId, refresh, refreshKey, visible])
+ }, [projectId, taskId, refresh, refreshKey, visible, viewActive])
  async function readFields() {
   if (!review || isQualityReview(review) || isFilterReview(review,projectId,taskId) || !draft || action.current) return
   const controller = new AbortController(); action.current = controller; setBusy(true); setError('')
@@ -54,12 +56,14 @@ function Panel({ projectId, taskId, blocked = false, onChanged, refreshKey = 0 }
   } catch (cause) { if (mounted.current) { if (cause instanceof TaskRequestError && cause.status === 409) { replay.current = null; setEditing(false) } setError(cause instanceof TaskRequestError && cause.status === 409 ? '任务状态已更新，请核对重新读取的内容后再操作。' : safeError(cause, '整理决定尚未确认，请重新读取任务。')); setRefresh(n => n + 1); onChanged?.() } }
   finally { if (action.current === controller) action.current = null; if (mounted.current) setBusy(false) }
  }
- if (review && isFilterReview(review,projectId,taskId)) return <PopulationFilterReview key={`${review.checkpoint_id}:${review.task.revision}`} projectId={projectId} review={review} blocked={blocked||!!error} onReload={()=>{setError('');setReview(null);setRefresh(n=>n+1);onChanged?.()}}/>
- if (review && isQualityReview(review)) return <QualityPreparationReview key={`${review.checkpoint_id}:${review.task.revision}`} projectId={projectId} review={review} blocked={blocked || !!error} onReload={() => { setError(''); setReview(null); setRefresh(n => n + 1); onChanged?.() }} />
+ const restart = review?.task.status === 'succeeded' && onRestart ? <button onClick={onRestart}>{t('按原规则新建整理任务')}</button> : null
+ if (review && isFilterReview(review,projectId,taskId)) return <>{restart}<PopulationFilterReview registerLeaveGuard={registerLeaveGuard} key={`${review.checkpoint_id}:${review.task.revision}`} projectId={projectId} review={review} blocked={blocked||!!error} onReload={()=>{setError('');setReview(null);setRefresh(n=>n+1);onChanged?.()}}/></>
+ if (review && isQualityReview(review)) return <>{restart}<QualityPreparationReview registerLeaveGuard={registerLeaveGuard} key={`${review.checkpoint_id}:${review.task.revision}`} projectId={projectId} review={review} blocked={blocked || !!error} onReload={() => { setError(''); setReview(null); setRefresh(n => n + 1); onChanged?.() }} /></>
  return <section className="preparation-panel" aria-label={t('整理预览与确认')} aria-busy={busy}>
  <h4>{t('整理预览与确认')}</h4><button disabled={busy} onClick={() => { setError(''); setRefresh(n => n + 1) }}>{t('重新读取整理任务')}</button>
  {error && <p role="alert" className="error-panel">{t(error)}</p>}
  {!review && !error && <p role="status">{t('正在读取整理任务……')}</p>}
+ {restart}
  {review && <><SourceSummary source={review.source} /><p role="status">{t(statusNames[review.task.status])}</p><p>{t('表头行 {row}；数据区域 {range}', { row: review.recipe.header_row, range: review.recipe.data_range })}</p>
  <PreparationRulesView recipe={review.recipe} />
  {review.preview && <PreparationSummaryView summary={review.preview} />}

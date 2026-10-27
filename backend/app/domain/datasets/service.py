@@ -8,7 +8,8 @@ from psycopg.types.json import Jsonb
 from pydantic import BaseModel, ConfigDict, Field
 from app.adapters.task_store import TaskStore
 from app.adapters.dataset_objects import DatasetObjects
-from app.core.config import get_excel_settings
+from app.core.config import effective_excel_settings
+from app.domain.admin_configuration.bindings import resolve, bind
 from app.core.exceptions import StorageError
 from app.domain.file_parsing import PROCESS_SETTINGS
 from app.domain.datasets.snapshots import StructureSnapshot
@@ -100,7 +101,8 @@ class DatasetService:
             frozen_file = {name: file[name] for name in ('id','filename','sha256','size_bytes','file_type','storage_backend','object_key')}
             if frozen_file['object_key'] is None:
                 frozen_file['object_key'] = f'files/{file_id}.xlsx'
-            settings = dict(excel=get_excel_settings().model_dump(), process=PROCESS_SETTINGS.copy())
+            version = resolve(db)
+            settings = dict(excel=effective_excel_settings(version).model_dump(), process=PROCESS_SETTINGS.copy())
             snapshot = StructureSnapshot.model_validate(dict(schema_version=1,kind='excel_structure',project={'id':project_id},
                 file=frozen_file,structure_id=structure_id,parser_version=STRUCTURE_PARSER_VERSION,settings=settings)).model_dump()
             now = datetime.now(timezone.utc)
@@ -108,6 +110,7 @@ class DatasetService:
                 idempotency_key=structure_id,input_digest=digest,input_snapshot=snapshot,workflow_version='excel_structure_v1',
                 status='queued',phase='parse',revision=1,current_attempt=0,reason_code=None,created_at=now,updated_at=now)
             self.store.insert_task(db, task)
+            bind(db, kind='task', object_id=task_id, version=version)
             db.execute('''INSERT INTO file_structure_versions(id,file_id,task_id,version,parent_id,created_by,idempotency_key,
                 request_digest,source_sha256,parser_version,settings_json,created_at) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)''',
                 (structure_id,file_id,task_id,latest+1,parent['id'] if parent else None,self.store.user_id,key,digest,

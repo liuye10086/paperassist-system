@@ -2,7 +2,7 @@ import {onApiSessionChanged} from '../../shared/api/client'
 import {taskRequest} from '../tasks/taskApi'
 export type PdfSourceKind='report'|'collection_report'|'manuscript_export'|'layout_export'|'review_document_export'
 export type PdfScope={projectId:string;sourceKind:PdfSourceKind;sourceId:string;sourceSha256?:string}
-export type PdfExport={id:string;project_id:string;source_kind:PdfSourceKind;source_id:string;source_sha256:string;status:'queued'|'running'|'succeeded'|'failed';task_id:string;created_at:string;filename:string|null;error_code:string|null;parent_export_id:string|null;renderer_manifest:Record<string,unknown>|null;sha256:string|null;size_bytes:number|null;download_url:string|null}
+export type PdfExport={recovery_mode?:'local_candidate'|'blocked'|null;recovery_request_key?:string;id:string;project_id:string;source_kind:PdfSourceKind;source_id:string;source_sha256:string;status:'queued'|'running'|'succeeded'|'failed';task_id:string;created_at:string;filename:string|null;error_code:string|null;parent_export_id:string|null;renderer_manifest:Record<string,unknown>|null;sha256:string|null;size_bytes:number|null;download_url:string|null}
 const object=(v:unknown):v is Record<string,unknown>=>!!v&&typeof v==='object'&&!Array.isArray(v)
 const text=(v:unknown):v is string=>typeof v==='string'
 const id=(v:unknown):v is string=>text(v)&&/^[A-Za-z0-9_-]{1,128}$/.test(v)
@@ -14,10 +14,10 @@ export function validPdfExport(v:unknown,scope:PdfScope):v is PdfExport{
 export async function listPdfExports(scope:PdfScope,controller:AbortController){
  return taskRequest(`${pdfBase(scope.projectId)}?source_kind=${scope.sourceKind}&source_id=${encodeURIComponent(scope.sourceId)}`,controller,(v):v is {items:PdfExport[]}=>object(v)&&Array.isArray(v.items)&&v.items.every(item=>validPdfExport(item,scope))&&new Set(v.items.map(item=>item.id)).size===v.items.length,'PDF 状态读取失败，请刷新。')
 }
-export async function submitPdfExport(scope:PdfScope,controller:AbortController,parent?:string){
+export async function submitPdfExport(scope:PdfScope,controller:AbortController,parent?:string,original?:PdfExport){
  const url=parent?`${pdfBase(scope.projectId)}/${encodeURIComponent(parent)}/retry`:pdfBase(scope.projectId)
  const pendingKey=requestKey(scope,parent)
- const result=await taskRequest(url,controller,(v):v is PdfExport=>validPdfExport(v,scope)&&v.parent_export_id===(parent??null),'PDF 请求未确认，请刷新状态后重试。',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...(parent?{}:{source_kind:scope.sourceKind,source_id:scope.sourceId}),request_key:pendingKey})})
+ const result=await taskRequest(url,controller,(v):v is PdfExport=>validPdfExport(v,scope)&&(parent&&v.recovery_mode==='local_candidate'?v.id===parent&&!!original&&v.source_sha256===original.source_sha256&&v.task_id===original.task_id&&v.parent_export_id===original.parent_export_id&&v.recovery_request_key===pendingKey:v.parent_export_id===(parent??null)&&v.id!==parent),'PDF 请求未确认，请刷新状态后重试。',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...(parent?{}:{source_kind:scope.sourceKind,source_id:scope.sourceId}),request_key:pendingKey})})
  const signature=keySignature(scope,parent)
  if(keys.get(signature)===pendingKey)keys.delete(signature)
  try{if(sessionStorage.getItem(signature)===pendingKey)sessionStorage.removeItem(signature)}catch{/* Memory still tracks uncertain requests if tab storage is unavailable. */}
@@ -46,8 +46,8 @@ function requestKey(scope:PdfScope,parent?:string){
 function keySignature(scope:PdfScope,parent?:string){return prefix+JSON.stringify([scope.projectId,scope.sourceKind,scope.sourceId,parent??null])}
 const retryable=new Set(['pdf_renderer_unavailable','pdf_conversion_timeout','pdf_renderer_busy','storage_unavailable','task_worker_interrupted','pdf_conversion_failed'])
 export function canRetryPdf(item:PdfExport,items:PdfExport[]){
- if(item.status!=='failed'||!retryable.has(item.error_code??'')||items.some(row=>row.parent_export_id===item.id))return false
+ if(item.status!=='failed'||item.recovery_mode==='blocked'||item.recovery_mode!=='local_candidate'&&!retryable.has(item.error_code??'')||items.some(row=>row.parent_export_id===item.id))return false
  let depth=0,current=item;const seen=new Set([item.id])
  while(current.parent_export_id){const parent=items.find(row=>row.id===current.parent_export_id);if(!parent||seen.has(parent.id))return false;seen.add(parent.id);depth++;current=parent}
- return depth<3
+ return item.recovery_mode==='local_candidate'||depth<3
 }

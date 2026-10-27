@@ -53,3 +53,17 @@
   .summary-artifact-list > li > a { margin-left: 60px; padding-left: 0; }
   .summary-upcoming { row-gap: 12px; }
 }
+
+.artifact-list-heading,.artifact-detail-heading { display:flex; align-items:flex-start; justify-content:space-between; gap:20px; margin:18px 0; }
+.artifact-list-heading h4,.artifact-detail-heading h4 { font-size:20px; color:var(--text-h); margin:0 0 8px; overflow-wrap:anywhere; }
+.artifact-list-heading p,.artifact-detail-heading p { color:var(--text); font-size:13px; margin:0; }
+.artifact-view-nav > span { padding:8px 14px; border-radius:7px; font-size:13px; }
+.artifact-detail-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:0 28px; margin:24px 0; }
+.artifact-detail-grid > div { padding:16px 0; border-bottom:1px solid var(--border); min-width:0; }
+.artifact-detail-grid dt { font-size:12px; color:var(--text); margin-bottom:6px; }
+.artifact-detail-grid dd { color:var(--text-h); font-size:14px; margin:0; overflow-wrap:anywhere; }
+.artifact-source-identifiers { padding:16px; border:1px solid var(--border); border-radius:8px; font-size:13px; }
+.artifact-source-identifiers summary { cursor:pointer; color:var(--accent); }
+.artifact-source-identifiers dd { overflow-wrap:anywhere; margin:6px 0 16px; }
+.artifact-library .summary-artifact-symbol { font-size:10px; font-weight:650; }
+@media(max-width:600px) { .artifact-detail-grid { grid-template-columns:1fr; } .artifact-list-heading,.artifact-detail-heading { flex-direction:column; gap:12px; } }

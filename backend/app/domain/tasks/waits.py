@@ -152,6 +152,21 @@ def persist_wait(db, task):
 
 
 def allowed_recovery_actions(db, task):
+    from app.domain.storage_governance import export_candidates
+    if task['task_type'] in export_candidates.TYPES and task['status']=='failed':
+        from app.core.config import get_data_dir
+        mode=export_candidates.recovery_mode(db,get_data_dir(),task)
+        if mode=='blocked': return []
+        # PDF/layout keep their existing typed export retry endpoint.
+        if task['task_type'] in ('pdf_export','layout_docx'): return []
+        if task.get('error_code') in export_candidates.STORAGE_ERRORS: return ['retry']
+    if task['task_type'] in ('boxplot','figure_workbench') and task['status']=='failed' and (task.get('error_code') or '').startswith('storage_'):
+        from app.core.config import get_data_dir
+        from app.core.exceptions import StorageError
+        from app.domain.storage_governance.candidates import task_recovery_mode
+        try:
+            if task_recovery_mode(db,get_data_dir(),task)=='blocked':return []
+        except StorageError:return []
     if task['task_type'] in ('review_revision','review_document_export'):
         retryable=('storage_unavailable','task_worker_interrupted','report_render_failed') if task['task_type']=='review_document_export' else ('storage_unavailable','task_worker_interrupted')
         return ['retry'] if task['status']=='failed' and task.get('error_code') in retryable else []
@@ -168,11 +183,11 @@ def allowed_recovery_actions(db, task):
         return recovery_actions(db,task)
     if task['task_type'] == 'literature_search':
         from app.domain.literature.service import configuration
-        if not configuration()['available']: return []
+        if not configuration(db, task)['available']: return []
         if task['status'] == 'waiting_confirmation':
             wait = get_open_wait(db, task)
             return ['resume'] if wait and wait['kind'] == 'literature_configuration' and wait['task_revision'] == task['revision'] else []
-        return ['retry'] if task['status'] == 'failed' and task.get('error_code') in ('ncbi_unavailable','storage_unavailable','task_worker_interrupted') else []
+        return ['retry'] if task['status'] == 'failed' and task.get('error_code') in ({'ncbi_unavailable'} | export_candidates.STORAGE_ERRORS) else []
     if task.get('reason_code') == 'observation_expired':
         from app.domain.model_usage.observation import resumable_call
         wait = get_open_wait(db, task)
@@ -192,7 +207,9 @@ def allowed_recovery_actions(db, task):
             expected_kind = {'review_ocr': 'ocr_review_confirmation', 'prepare_dataset': 'dataset_preparation_confirmation', 'analysis_plan': 'analysis_plan_confirmation'}[task['task_type']]
             if wait and wait['kind'] == expected_kind and wait['task_revision'] == task['revision']:
                 return ['approve', 'revise']
-        return ['retry'] if task['status'] == 'failed' and task.get('error_code') in ('storage_unavailable','task_worker_interrupted') else []
+        from app.domain.storage_governance.deterministic import STORAGE_RETRY_CODES
+        retryable=STORAGE_RETRY_CODES if task['task_type'] in ('prepare_dataset','review_ocr') else ('storage_unavailable','task_worker_interrupted')
+        return ['retry'] if task['status'] == 'failed' and task.get('error_code') in retryable else []
     if task['status'] not in ('failed', 'waiting_confirmation'):
         return []
     if task['status'] == 'waiting_confirmation':
@@ -204,6 +221,7 @@ def allowed_recovery_actions(db, task):
     if task['task_type'] in ('parse_file','extract_dataset'):
         from app.domain.file_parsing import RETRYABLE_CODES
         if task['task_type'] == 'extract_dataset':
+            from app.domain.tasks.dataset_retry import RETRYABLE_CODES
             from app.domain.datasets.snapshots import validate_snapshot
             snapshot = validate_snapshot(task)
             if db.execute('''SELECT id FROM file_structure_versions WHERE file_id=%s AND version>
@@ -211,6 +229,8 @@ def allowed_recovery_actions(db, task):
                 (snapshot['file']['id'],snapshot['structure_id'])).fetchone():
                 return []
         if task['task_type'] == 'parse_file':
+            from app.domain.tasks.file_parse_retry import retryable_codes
+            RETRYABLE_CODES=retryable_codes(task)
             from app.domain.file_parsing import validate_snapshot
             snapshot = validate_snapshot(task)
             if db.execute('SELECT id FROM file_parse_results WHERE file_id=%s AND version>%s',

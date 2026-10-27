@@ -1,0 +1,67 @@
+.operations-nav { display:flex; flex-wrap:wrap; gap:10px; padding:14px 24px; border-bottom:1px solid var(--border); background:var(--social-bg); }
+.operations-nav button, .operations-workspace button { font:inherit; border:1px solid var(--border); border-radius:7px; background:var(--bg); color:var(--text-h); padding:8px 13px; cursor:pointer; }
+.operations-nav button[aria-pressed=true], .operations-tabs button[aria-pressed=true] { background:var(--accent-bg); border-color:var(--accent); color:var(--accent); }
+.operations-workspace { max-width:1480px; margin:0 auto; padding:30px; color:var(--text-h); }
+.operations-workspace h1 { font-size:28px; margin:0 0 12px; }.operations-workspace h2 { font-size:22px; margin:22px 0 16px; }.operations-workspace h3 { font-size:18px; margin:24px 0 14px; }.operations-workspace h4 { margin:0 0 10px; }
+.operations-workspace section { min-width:0; }.operations-workspace p { line-height:1.6; }.operations-workspace button:disabled { cursor:not-allowed; opacity:.55; }.operations-workspace a { color:var(--accent); margin:0 12px; }
+.operations-tabs { display:flex; flex-wrap:wrap; gap:10px; margin:22px 0; }.operations-filters { display:flex; align-items:flex-end; flex-wrap:wrap; gap:14px; padding:18px; margin:18px 0; background:var(--social-bg); border-radius:10px; }
+.operations-filters label,.operations-editor label { display:flex; flex-direction:column; gap:7px; font-size:14px; }.operations-filters input,.operations-filters select,.operations-editor select,.operations-editor textarea { font:inherit; padding:9px; background:var(--bg); color:var(--text-h); border:1px solid var(--border); border-radius:6px; max-width:100%; }.operations-filters input { width:175px; }.operations-filters select { max-width:230px; }
+.operations-table-scroll { overflow:auto; border:1px solid var(--border); border-radius:9px; margin:18px 0; }.operations-table-scroll table { width:100%; border-collapse:collapse; font-size:14px; min-width:720px; }.operations-table-scroll th,.operations-table-scroll td { padding:12px 14px; text-align:left; vertical-align:top; border-bottom:1px solid var(--border); overflow-wrap:anywhere; max-width:340px; }.operations-table-scroll th { background:var(--social-bg); }.operations-workspace small { display:block; font-size:12px; line-height:1.7; color:var(--text); }.operations-pagination { display:flex; align-items:center; flex-wrap:wrap; gap:14px; margin:18px 0 30px; }
+.operations-facts { display:grid; grid-template-columns:repeat(auto-fit,minmax(190px,1fr)); gap:16px; }.operations-facts div { min-width:0; }.operations-facts dt { font-size:12px; color:var(--text); margin-bottom:6px; }.operations-facts dd { margin:0; overflow-wrap:anywhere; font-variant-numeric:tabular-nums; font-size:14px; line-height:1.7; }
+.operations-detail,.operations-editor { border:1px solid var(--border); border-radius:10px; padding:22px; margin:22px 0; }.operations-editor { display:grid; gap:16px; max-width:650px; }.operations-editor textarea { min-height:100px; }.operations-editor button { justify-self:start; }.operations-note { background:var(--social-bg); border-left:3px solid var(--accent); padding:10px 18px; margin:18px 0; font-size:13px; }
+.operations-provenance { display:grid; gap:20px; margin:26px 0; }.operations-provenance>section { border:1px solid var(--border); border-left:4px solid var(--accent); padding:20px; border-radius:9px; }.operations-provenance>.operations-provenance-synthetic_fixture { border-left-color:#b7771b; }.operations-provenance>.operations-provenance-unknown { border-left-color:#7b7c89; }.operations-workspace details { border:1px solid var(--border); border-radius:8px; padding:16px; margin:12px 0; }.operations-workspace summary { cursor:pointer; overflow-wrap:anywhere; }.operations-reason { white-space:pre-wrap; }
+@media(max-width:640px){.operations-nav {padding:12px;}.operations-workspace{padding:18px 12px;}.operations-filters{padding:14px;}.operations-filters label{width:100%;}.operations-filters input,.operations-filters select{width:100%;max-width:100%;}.operations-facts{grid-template-columns:1fr 1fr;}.operations-detail{padding:14px;}}
+.configuration-panel { --configuration-border:#DDE4D8; --configuration-ink:#20271F; --configuration-muted:#626C60; --configuration-green:#35613C; color:var(--configuration-ink); background:#fff; padding:24px; border:1px solid var(--configuration-border); border-radius:12px; }
+.configuration-panel>section,.configuration-panel>form,.configuration-switch { margin:24px 0; }
+.configuration-panel label { display:flex; flex-direction:column; gap:8px; font-size:14px; line-height:1.6; margin:12px 0; min-width:0; }
+.configuration-panel input:not([type=checkbox]),.configuration-panel select,.configuration-panel textarea { box-sizing:border-box; width:100%; min-height:40px; font:inherit; color:var(--configuration-ink); background:#fff; border:1px solid #7F8B79; border-radius:8px; padding:8px 10px; }
+.configuration-panel textarea { min-height:100px; resize:vertical; }
+.configuration-panel fieldset { min-width:0; border:1px solid var(--configuration-border); border-radius:10px; padding:16px; margin:16px 0; }
+.configuration-panel legend { font-weight:600; padding:0 8px; }
+.configuration-panel form,.configuration-switch { max-width:880px; }
+.configuration-fields { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:16px; align-items:start; }
+.configuration-fields>label { margin:0; }
+.configuration-panel small { color:var(--configuration-muted); font-size:13px; }
+.configuration-panel button { min-height:40px; border-color:var(--configuration-border); color:var(--configuration-green); background:#fff; border-radius:8px; }
+.configuration-panel button:hover:not(:disabled) { background:#EDF5E5; }
+.configuration-panel button:focus-visible,.configuration-panel input:focus-visible,.configuration-panel textarea:focus-visible,.configuration-panel select:focus-visible { outline:2px solid #477D32; outline-offset:2px; }
+.configuration-panel button[aria-pressed=true] { color:#fff; background:var(--configuration-green); border-color:var(--configuration-green); }
+.configuration-domain-nav,.configuration-actions { display:flex; flex-wrap:wrap; align-items:center; gap:12px; margin:16px 0; }
+.configuration-domain-nav { border-bottom:1px solid var(--configuration-border); padding:0 0 16px; }
+.configuration-panel .configuration-check { flex-direction:row; flex-wrap:wrap; align-items:center; gap:8px; }
+.configuration-check small { flex-basis:100%; }
+.configuration-readonly { display:flex; flex-direction:column; gap:8px; padding:10px 0; font-size:14px; overflow-wrap:anywhere; }
+.configuration-category { padding:16px 0; border-bottom:1px solid var(--configuration-border); }
+.configuration-panel pre { white-space:pre-wrap; overflow-wrap:anywhere; max-height:420px; overflow:auto; font-size:13px; }
+.configuration-history { display:flex; flex-wrap:wrap; align-items:center; gap:16px; padding:12px 0; border-bottom:1px solid var(--configuration-border); }
+.configuration-panel .operations-table-scroll td { white-space:pre-wrap; }
+@media(max-width:767px){.configuration-panel{padding:16px;}.configuration-fields{grid-template-columns:1fr;}.configuration-panel button{min-height:44px;}.configuration-domain-nav{gap:8px;}.configuration-panel .operations-facts{grid-template-columns:1fr;}}
+
+/* Keep all existing operations business panels; align only the application entry bar. */
+.operations-nav { position: relative; z-index: 21; margin-left: var(--sidebar-width); padding: 9px 32px; gap: 6px; background: var(--surface); }
+.operations-nav button { min-height: 36px; background: transparent; border-color: transparent; color: var(--text); font-size: 12px; }
+.operations-nav button[aria-pressed=true] { border-color: #D9E5D0; background: #EDF3E8; }
+.operations-workspace { background: var(--bg); }
+.authenticated-app:has(.operations-workspace:not([hidden])) .auth-topbar,
+.authenticated-app:has(.operations-workspace:not([hidden])) .operations-nav { margin-left: 0; }
+@media (max-width:760px) { .operations-nav { margin-left: 0; padding: 9px 16px; } }
+
+/* Batch 6: scoped workbench surfaces; exported charts and documents keep their styles. */
+.operations-workspace { box-sizing:border-box; width:100%; max-width:1440px; padding:28px 36px 48px; }
+.operations-workspace[hidden],.operations-workspace [hidden] { display:none !important; }
+.operations-workspace > header { border-bottom:1px solid var(--border); padding-bottom:18px; }
+.operations-workspace > header p { color:var(--text); margin:6px 0 0; font-size:13px; }
+.operations-workspace > header .step-label { color:var(--accent); letter-spacing:.08em; font-size:11px; font-weight:700; text-transform:uppercase; }
+.operations-workspace > .operations-tabs { padding:6px; background:var(--surface,#fff); border:1px solid var(--border); border-radius:12px; gap:4px; }
+.operations-workspace > .operations-tabs button { flex:1 1 auto; border-color:transparent; }
+.operations-workspace > .operations-tabs button[aria-pressed=true] { background:#edf3e8; border-color:#d9e5d0; color:#35613c; font-weight:600; }
+.operations-workspace > div > section { background:var(--surface,#fff); border:1px solid var(--border); border-radius:12px; padding:24px; }
+.operations-workspace h2 { margin-top:0; font-size:20px; }
+.operations-workspace input,.operations-workspace textarea,.operations-workspace select { max-width:100%; box-sizing:border-box; }
+.operations-workspace button,.operations-workspace a { min-height:40px; overflow-wrap:anywhere; }
+.operations-workspace button:focus-visible,.operations-workspace a:focus-visible,.operations-workspace input:focus-visible,.operations-workspace select:focus-visible,.operations-workspace textarea:focus-visible,.operations-table-scroll:focus-visible { outline:2px solid #477d32; outline-offset:3px; }
+.operations-workspace .operations-editor { box-sizing:border-box; width:100%; margin-top:16px; }
+.operations-workspace .operations-filters { gap:12px; }
+.operations-workspace code { overflow-wrap:anywhere; }
+@media(max-width:767px){.operations-workspace{padding:20px 16px 32px;}.operations-workspace > div > section{padding:16px;}.operations-workspace button{min-height:44px;}.operations-workspace .operations-tabs{gap:6px;}.operations-workspace .operations-facts{grid-template-columns:1fr;}}
+@media(max-width:380px){.operations-workspace{padding:16px 10px;}.operations-workspace > div > section{padding:12px;}.operations-workspace .operations-editor{padding:12px;}}

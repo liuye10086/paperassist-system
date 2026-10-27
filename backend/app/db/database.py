@@ -24,11 +24,12 @@ from alembic.config import Config
 from sqlalchemy import create_engine
 from sqlalchemy.engine import Connection, CursorResult, Engine, URL, make_url
 from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.pool import NullPool
 
 from app.core.config import local_config
 
 
-SCHEMA_HEAD = "0050_review_round_returns"
+SCHEMA_HEAD = "0053_storage_governance"
 _SCHEMA_NAME = re.compile(r"[a-z_][a-z0-9_]{0,62}\Z")
 _TEST_SCHEMA = re.compile(r"pa_test_[0-9a-f]{32}\Z")
 _CONNECTION_OPTIONS = frozenset({
@@ -118,6 +119,17 @@ def _engine_for_url(url: URL) -> Engine:
     )
 
 
+@lru_cache(maxsize=8)
+def _capture_engine_for_url(url: URL) -> Engine:
+    # A fresh connection avoids ordinary pool checkout and pre-ping waits.
+    # Startup limits also cover dialect initialization before the transaction.
+    return create_engine(
+        url, poolclass=NullPool, hide_parameters=True,
+        connect_args={"connect_timeout": 2,
+                      "options": "-c statement_timeout=1000 -c lock_timeout=200"},
+    )
+
+
 def get_engine(config: DatabaseConfig | None = None) -> Engine:
     return _engine_for_url((config or get_database_config()).url)
 
@@ -140,13 +152,20 @@ class DatabaseResult:
 
 
 class DatabaseConnection:
-    def __init__(self, connection: Connection, config: DatabaseConfig):
+    def __init__(self, connection: Connection, config: DatabaseConfig, *, capture: bool = False):
         self.raw_connection = connection
         self.config = config
+        self.capture = capture
 
     def execute(self, sql: str, parameters: tuple[Any, ...] = ()) -> DatabaseResult:
-        _set_numeric_timeout(self.raw_connection)
-        return DatabaseResult(self.raw_connection.exec_driver_sql(sql, parameters))
+        _set_numeric_timeout(self.raw_connection, capture=self.capture)
+        try:
+            return DatabaseResult(self.raw_connection.exec_driver_sql(sql, parameters))
+        except SQLAlchemyError as exc:
+            if getattr(getattr(exc,'orig',None),'sqlstate',None)=='P7501':
+                from app.core.exceptions import StorageError
+                raise StorageError('storage_deletion_pending','该资料范围已进入受控处置，不能新增任务、引用或产物。',409) from exc
+            raise
 
 
 class SchemaVersionError(SQLAlchemyError):
@@ -167,15 +186,20 @@ def ensure_schema_current(connection: DatabaseConnection) -> None:
         raise SchemaVersionError("数据库版本不兼容，请先执行 python -m app.db.database upgrade。")
 
 
-def _set_numeric_timeout(connection: Connection) -> None:
+def _set_numeric_timeout(connection: Connection, *, capture: bool = False) -> None:
     from app.domain.fixed_statistics_runtime import scope_active, remaining_seconds
-    if not scope_active(): return
-    remaining = remaining_seconds()
-    if remaining <= 0:
-        from app.domain.regression.common import NumericError
-        raise NumericError('numeric_timeout', '统计节点期限已到。')
-    milliseconds = str(max(1, int(remaining * 1000)))
-    connection.exec_driver_sql("SELECT pg_catalog.set_config('statement_timeout', %s, true), pg_catalog.set_config('lock_timeout', %s, true)", (milliseconds,milliseconds))
+    numeric = scope_active()
+    if not numeric and not capture: return
+    statement_ms, lock_ms = 1000, 200
+    if numeric:
+        remaining = remaining_seconds()
+        if remaining <= 0:
+            from app.domain.regression.common import NumericError
+            raise NumericError('numeric_timeout', '统计节点期限已到。')
+        milliseconds = max(1, int(remaining * 1000))
+        statement_ms = min(statement_ms, milliseconds) if capture else milliseconds
+        lock_ms = min(lock_ms, milliseconds) if capture else milliseconds
+    connection.exec_driver_sql("SELECT pg_catalog.set_config('statement_timeout', %s, true), pg_catalog.set_config('lock_timeout', %s, true)", (str(statement_ms), str(lock_ms)))
 
 
 def _set_schema(connection: Connection, schema: str) -> None:
@@ -188,8 +212,8 @@ def _set_schema(connection: Connection, schema: str) -> None:
     connection.exec_driver_sql("SELECT pg_catalog.set_config('search_path', %s, true)", (schema,))
 
 
-def _write_lock(connection: Connection, config: DatabaseConfig) -> None:
-    _set_numeric_timeout(connection)
+def _write_lock(connection: Connection, config: DatabaseConfig, *, capture: bool = False) -> None:
+    _set_numeric_timeout(connection, capture=capture)
     digest = hashlib.sha256(f"paperassist:{config.url.database}:{config.schema}".encode()).digest()
     key = int.from_bytes(digest[:8], byteorder="big", signed=True)
     connection.exec_driver_sql("SELECT pg_catalog.pg_advisory_xact_lock(%s)", (key,))
@@ -198,23 +222,25 @@ def _write_lock(connection: Connection, config: DatabaseConfig) -> None:
 @contextmanager
 def database_connection(
     write: bool = False, config: DatabaseConfig | None = None,
+    *, capture: bool = False,
 ) -> Iterator[DatabaseConnection]:
     config = config or get_database_config()
     if config.purpose != "runtime":
         raise ValueError("Business connections require runtime purpose.")
     isolation = "READ COMMITTED" if write else "REPEATABLE READ"
-    with get_engine(config).connect().execution_options(isolation_level=isolation) as connection:
+    engine = _capture_engine_for_url(config.url) if capture else get_engine(config)
+    with engine.connect().execution_options(isolation_level=isolation) as connection:
         with connection.begin():
             if not write:
                 connection.exec_driver_sql("SET TRANSACTION READ ONLY")
-            _set_numeric_timeout(connection)
+            _set_numeric_timeout(connection, capture=capture)
             _set_schema(connection, config.schema)
             if write:
                 # SQLite previously serialized writes with BEGIN IMMEDIATE.
                 # Take the lock before any business reads at READ COMMITTED so
                 # a waiting writer observes the preceding writer's commit.
-                _write_lock(connection, config)
-            yield DatabaseConnection(connection, config)
+                _write_lock(connection, config, capture=capture)
+            yield DatabaseConnection(connection, config, capture=capture)
             # Check immediately before transaction commit; no expired node may
             # publish after its last business statement.
             from app.domain.fixed_statistics_runtime import scope_active, remaining_seconds
@@ -273,7 +299,7 @@ def grant_runtime_access(connection: Connection, migration_config: DatabaseConfi
             (f'"{runtime_config.schema}"."{name}"',)).scalar_one() is None:
             continue
         connection.exec_driver_sql(f"GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE {schema}.{quote(name)} TO {role}")
-        if name in ('literature_pmc_receipts','manuscript_versions','manuscript_sources','manuscript_citations','manuscript_writing_bundles','manuscript_writing_authorized_tasks','manuscript_writing_reviews','manuscript_writing_language_reviews','manuscript_figure_language_versions'):
+        if name in ('storage_disposable_fixtures','storage_deletion_events','storage_policy_events','admin_usage_summaries','admin_configuration_versions','admin_configuration_validations','admin_configuration_events','admin_configuration_bindings','literature_pmc_receipts','manuscript_versions','manuscript_sources','manuscript_citations','manuscript_writing_bundles','manuscript_writing_authorized_tasks','manuscript_writing_reviews','manuscript_writing_language_reviews','manuscript_figure_language_versions','admin_audit_events','operational_request_events','operational_collection'):
             connection.exec_driver_sql(f"REVOKE UPDATE, DELETE, TRUNCATE ON TABLE {schema}.{quote(name)} FROM {role}")
     connection.exec_driver_sql(f"GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA {schema} TO {role}")
     version = f"{schema}.alembic_version"
@@ -312,7 +338,7 @@ def verify_runtime_permissions(connection: Connection, runtime_config: DatabaseC
             allowed = connection.exec_driver_sql(
                 "SELECT has_table_privilege(current_user, %s, %s)",
                 (f'"{runtime_config.schema}"."{name}"', privilege)).scalar_one()
-            expected = not (name in ('literature_pmc_receipts','manuscript_versions','manuscript_sources','manuscript_citations','manuscript_writing_bundles','manuscript_writing_authorized_tasks','manuscript_writing_reviews','manuscript_writing_language_reviews','manuscript_figure_language_versions') and privilege in ('UPDATE', 'DELETE'))
+            expected = not (name in ('storage_disposable_fixtures','storage_deletion_events','storage_policy_events','admin_usage_summaries','admin_configuration_versions','admin_configuration_validations','admin_configuration_events','admin_configuration_bindings','literature_pmc_receipts','manuscript_versions','manuscript_sources','manuscript_citations','manuscript_writing_bundles','manuscript_writing_authorized_tasks','manuscript_writing_reviews','manuscript_writing_language_reviews','manuscript_figure_language_versions','admin_audit_events','operational_request_events','operational_collection') and privilege in ('UPDATE', 'DELETE'))
             if allowed != expected:
                 raise ValueError("Runtime role is missing business table permissions.")
     if not connection.exec_driver_sql("SELECT has_schema_privilege(current_user, %s, 'USAGE')", (runtime_config.schema,)).scalar_one():

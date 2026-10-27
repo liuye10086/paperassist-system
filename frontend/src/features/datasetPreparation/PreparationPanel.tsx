@@ -7,13 +7,15 @@ import PreparationEditor from './PreparationEditor'
 import PreparationReview from './PreparationReview'
 import { fileBase, isRecipe, preparationRequest, type PreparationRecipe } from './preparationApi'
 import './preparation.css'
-type Props = { projectId: string; fileId: string; dataset: DatasetSummary; initialRecipe?: PreparationRecipe; onCreated?: () => void }
+import useDraftLeaveGuard, { type RegisterLeaveGuard } from '../projects/useDraftLeaveGuard'
+type Props = { projectId: string; fileId: string; dataset: DatasetSummary; initialRecipe?: PreparationRecipe; onCreated?: () => void; viewActive?: boolean; registerLeaveGuard?: RegisterLeaveGuard }
 export default function PreparationPanel(props: Props) { return <Panel key={`${props.projectId}:${props.fileId}:${props.dataset.id}`} {...props} /> }
-function Panel({ projectId, fileId, dataset, initialRecipe, onCreated }: Props) {
+function Panel({ projectId, fileId, dataset, initialRecipe, onCreated, viewActive = true, registerLeaveGuard }: Props) {
  const { t } = useI18n(); const base = fileBase(projectId, fileId)
  const [header, setHeader] = useState(initialRecipe?.header_row ?? 1); const [range, setRange] = useState(initialRecipe?.data_range ?? '')
  const [recipe, setRecipe] = useState<PreparationRecipe | null>(initialRecipe ?? null); const [busy, setBusy] = useState(false); const [error, setError] = useState(''); const [taskId, setTaskId] = useState('')
  const request = useRef<AbortController | null>(null); const active = useRef(true); const replay = useRef<{ signature: string; key: string } | null>(null)
+ useDraftLeaveGuard(registerLeaveGuard, !taskId && (header !== (initialRecipe?.header_row ?? 1) || range !== (initialRecipe?.data_range ?? '') || JSON.stringify(recipe) !== JSON.stringify(initialRecipe ?? null)), busy)
  useEffect(() => { active.current = true; return () => { active.current = false; request.current?.abort() } }, [])
  async function perform(create: boolean) {
   if (request.current || create && !recipe) return
@@ -31,7 +33,7 @@ function Panel({ projectId, fileId, dataset, initialRecipe, onCreated }: Props) 
   } catch (cause) { if (active.current) setError(safeError(cause, create ? '整理请求尚未确认，请使用同一请求重试。' : '整理字段读取失败，请重试。')) }
   finally { if (request.current === controller) request.current = null; if (active.current) setBusy(false) }
  }
- if (taskId) return <PreparationReview projectId={projectId} taskId={taskId} />
+ if (taskId) return <PreparationReview projectId={projectId} taskId={taskId} onRestart={() => { setTaskId(''); replay.current = null }} active={viewActive} registerLeaveGuard={registerLeaveGuard} />
  return <section className="preparation-panel" aria-label={t('整理数据')} aria-busy={busy}><h4>{t('整理数据')}</h4><p>{dataset.sheet_name} · {t('原始数据版本 v{version}', { version: dataset.version })}</p>
  <div className="analysis-field-grid"><label>{t('表头行')}<input type="number" min={1} max={100000} value={header} disabled={busy} onChange={e => { setHeader(Number(e.target.value)); setRecipe(null) }} /></label><label>{t('数据区域')}<input value={range} placeholder="A2:D35" disabled={busy} onChange={e => { setRange(e.target.value); setRecipe(null) }} /></label></div>
  <button disabled={busy} onClick={() => void perform(false)}>{t('读取建议字段')}</button>

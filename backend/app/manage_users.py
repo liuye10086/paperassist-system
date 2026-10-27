@@ -26,18 +26,21 @@ def main():
     )
     parser.add_argument("--email", required=True)
     parser.add_argument("--role", choices=["user", "admin"], default="user")
+    parser.add_argument("--operator", help="可选本机操作者标识（不代表已认证HTTP身份）")
     args = parser.parse_args()
     try:
+        if args.operator is not None and (not 1<=len(args.operator)<=128 or any(ord(c)<32 for c in args.operator)):
+            raise ValueError('操作者标识须为1至128个可见字符。')
         if args.command == "bootstrap":
-            result = bootstrap_admin(args.email, read_password())
+            result = bootstrap_admin(args.email, read_password(),operator=args.operator)
             print(f"管理员已创建；认领 {result['claimed_project_count']} 个历史项目。")
             for project_id in result["claimed_project_ids"]:
                 print(project_id)
         elif args.command == "create":
-            create_user(args.email, read_password(), args.role)
+            create_user(args.email, read_password(), args.role,operator=args.operator)
             print("账号已创建。")
         elif args.command == "reset-password":
-            reset_password(args.email, read_password())
+            reset_password(args.email, read_password(),operator=args.operator)
             print("密码已重置，旧会话已撤销。")
         elif args.command == "issue-recovery":
             if not all(stream.isatty() for stream in (sys.stdin, sys.stdout, sys.stderr)):
@@ -48,7 +51,7 @@ def main():
             print("恢复码仅显示一次，15分钟内有效；请安全交给已核验的账号持有人。")
             print(code)
         else:
-            set_user_active(args.email, args.command == "enable")
+            set_user_active(args.email, args.command == "enable",operator=args.operator)
             print("账号状态已更新，旧会话已撤销。")
     except (ValueError, StorageError) as exc:
         print(str(exc), file=sys.stderr)

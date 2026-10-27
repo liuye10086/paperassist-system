@@ -41,6 +41,13 @@ it('clears session inputs and ignores late version reads',async()=>{
 it('filters issues and focuses the actual paragraph when locating a numeric issue',async()=>{
  server([],undefined,{...reviewContext,issues:[...reviewContext.issues,{...reviewContext.issues[0],id:'numeric:result:1',location:'result:1',category:'numeric',severity:'error',message:'Number mismatch'}]});render(<ManuscriptReview {...props}/>);await screen.findByText('27.555');fireEvent.change(screen.getByLabelText('问题类别'),{target:{value:'numeric'}});expect(screen.queryByText('Ethics missing')).toBeNull();fireEvent.click(screen.getByRole('button',{name:'定位资料'}));expect(document.activeElement?.textContent).toContain('Mean = 27.555')
 })
+it('keeps actual-paragraph location available for read-only historical checks',async()=>{
+ server([],undefined,{...reviewContext,issues:[{...reviewContext.issues[0],id:'numeric:result:1',location:'result:1',category:'numeric',severity:'error',message:'Number mismatch'}]})
+ render(<ManuscriptReview {...props} currentRevision={2}/>);await screen.findByText('27.555')
+ const locate=screen.getByRole('button',{name:'定位资料'});expect(locate.matches(':disabled')).toBe(false)
+ fireEvent.click(locate);expect(document.activeElement?.textContent).toContain('Mean = 27.555')
+ expect(screen.getByRole('button',{name:'生成检查候选'}).matches(':disabled')).toBe(true)
+})
 it('offers English UI while preserving exact source text',async()=>{
  setLocale('en');server();render(<ManuscriptReview {...props}/>);expect(await screen.findByRole('region',{name:'Research materials and checks'})).toBeTruthy();expect(await screen.findByText('27.555')).toBeTruthy();expect(screen.getByRole('button',{name:'Create check candidate'})).toBeTruthy();expect(screen.getAllByText('Mean = 27.555').length).toBeGreaterThan(0)
 })

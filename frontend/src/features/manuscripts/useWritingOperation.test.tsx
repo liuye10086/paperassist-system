@@ -1,11 +1,12 @@
 import {StrictMode,useEffect} from 'react'
-import {act,cleanup,render,screen,waitFor} from '@testing-library/react'
+import {act,cleanup,fireEvent,render,screen,waitFor} from '@testing-library/react'
 import {afterEach,expect,it,vi} from 'vitest'
 import WritingLive from './WritingLive'
 import {useWritingOperation} from './useWritingOperation'
 import {bundleFixture,liveRequest} from './writingLiveFixtures'
 import {manuscriptFixture} from './manuscriptFixtures'
 import type {ManuscriptVersion} from './manuscriptTypes'
+import {ManuscriptDraftProvider} from './ManuscriptDraftProvider'
 afterEach(()=>{cleanup();vi.unstubAllGlobals()})
 it('loads previews, capabilities and request history automatically on StrictMode mount',async()=>{
  const bundle=bundleFixture();const fetcher=vi.fn(async(url:string)=>Response.json(url.endsWith('/writing-previews')?{items:[bundle],capabilities:{real_calls_enabled:true}}:{items:[liveRequest]}));vi.stubGlobal('fetch',fetcher)
@@ -24,4 +25,21 @@ it('ignores old aborted catch and finally while the replacement lifecycle reques
  render(<StrictMode><AutomaticRead/></StrictMode>);await waitFor(()=>expect(pending).toHaveLength(2));expect(pending[0].signal.aborted).toBe(true);expect(pending[1].signal.aborted).toBe(false)
  await act(async()=>pending[0].reject(new DOMException('Old mount aborted','AbortError')));expect(screen.getByRole('status').textContent).toBe('busy');expect(screen.queryByRole('alert')).toBeNull()
  await act(async()=>pending[1].reject(Error('Current request failed')));expect(screen.getByRole('status').textContent).toBe('idle');expect(screen.getByRole('alert').textContent).toContain('请求未确认')
+})
+function Mutation(){const op=useWritingOperation();return <button onClick={()=>void op.run('/write',(value):value is {ok:true}=>!!value&&typeof value==='object'&&'ok'in value,{instructions:'fixed'})}>Send</button>}
+it('blocks leaving only while sending, then allows explicit discard of an unknown result and reuses its request key',async()=>{
+ const registrations=new Map<()=>boolean,()=>boolean>();const register=(guard:()=>boolean,dirty?:()=>boolean)=>{registrations.set(guard,dirty??(()=>false));return ()=>{registrations.delete(guard)}}
+ let reject!:(cause:Error)=>void
+ const fetcher=vi.fn((_url:string,_init?:RequestInit)=>new Promise<Response>((_resolve,rejectRequest)=>{reject=rejectRequest}));vi.stubGlobal('fetch',fetcher)
+ vi.stubGlobal('alert',vi.fn());vi.stubGlobal('confirm',vi.fn(()=>true))
+ render(<ManuscriptDraftProvider register={register}><Mutation/></ManuscriptDraftProvider>)
+ expect([...registrations.values()].some(dirty=>dirty())).toBe(false)
+ fireEvent.click(screen.getByText('Send'))
+ expect([...registrations.keys()][0]()).toBe(false);expect(window.alert).toHaveBeenCalledTimes(1)
+ await act(async()=>reject(Error('Unknown')))
+ expect([...registrations.values()].some(dirty=>dirty())).toBe(true)
+ expect([...registrations.keys()][0]()).toBe(true);expect(window.confirm).toHaveBeenCalledTimes(1)
+ fireEvent.click(screen.getByText('Send'))
+ expect(new Headers(fetcher.mock.calls[0][1]?.headers).get('Idempotency-Key')).toBe(new Headers(fetcher.mock.calls[1][1]?.headers).get('Idempotency-Key'))
+ await act(async()=>reject(Error('Still unknown')))
 })

@@ -137,23 +137,27 @@ class LiteraturePmcService:
             if previous:
                 if previous['request_digest']!=digest(body): raise StorageError('task_idempotency_conflict','请求标识已用于不同输入。',409)
                 return self.view(db,project,previous),200
-            if (type(adapter) is not PmcAdapter or self.store.config.environment!='test'
-                or self.store.config.url.database!='paperassist_system_test'
-                or adapter.ledger.policy['schema']!=self.store.config.schema):
-                raise StorageError('literature_pmc_not_authorized','尚未授权PMC获取。',409)
             reference,view=self.bibliography(db,project,project_reference_id)
             if not self.has_pmcid(view['record'],pmcid): raise StorageError('task_input_invalid','PMCID必须来自此项目已取得的书目。',422)
-            result=adapter.fetch(pmcid,view['pmid'])
-            for response in result['responses']:
-                raw=response.pop('raw')
-                response['object']=self.objects.save(raw,'pmc_oai') if raw is not None else None
-            now=datetime.now(timezone.utc)
-            row=db.execute('''INSERT INTO literature_pmc_receipts
-                (id,project_id,user_id,project_reference_id,reference_id,pmcid,pmid,source_kind,status,idempotency_key,
-                request_digest,request_json,snapshot_json,snapshot_sha256,created_at)
-                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *''',
-                (str(uuid4()),project,self.store.user_id,reference['id'],reference['reference_id'],pmcid,view['pmid'],
-                result['source_kind'],result['status'],key,digest(body),Jsonb(body),Jsonb(result),digest(result),now)).fetchone()
+            from . import storage
+            from app.domain.storage_governance import local_candidates
+            prior=local_candidates.lookup(db,self.assets.directory,project,storage.operation(project,self.store.user_id,key)+':receipt',kind='literature_pmc')
+            if not prior or not prior['sha256']:
+                if (type(adapter) is not PmcAdapter or self.store.config.environment!='test'
+                    or self.store.config.url.database!='paperassist_system_test'
+                    or adapter.ledger.policy['schema']!=self.store.config.schema):
+                    raise StorageError('literature_pmc_not_authorized','尚未授权PMC获取。',409)
+            rows,fields=storage.admit(db,self.assets.directory,project,self.store.user_id,key,digest(body))
+            if fields is None:
+                result=adapter.fetch(pmcid,view['pmid'])
+                raws=[response.pop('raw') for response in result['responses']]
+                fields=storage.fields(rows,project,self.store.user_id,reference,view,pmcid,key,body,digest(body),result)
+                storage.capture(db,self.assets.directory,rows,fields,raws)
+            if (fields['request_json']!=body or fields['idempotency_key']!=key or fields['reference_id']!=reference['reference_id']
+                    or fields['pmid']!=view['pmid'] or fields['pmcid']!=pmcid):raise source_conflict()
+            storage.publish(db,self.assets.directory,rows,fields)
+            values={k:Jsonb(v) if k in ('request_json','snapshot_json') else datetime.fromisoformat(v) if k=='created_at' else v for k,v in fields.items()}
+            row=db.execute('INSERT INTO literature_pmc_receipts('+','.join(values)+') VALUES ('+','.join(['%s']*len(values))+') RETURNING *',tuple(values.values())).fetchone()
             return self.view(db,project,row),201
 
     @staticmethod

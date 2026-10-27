@@ -32,3 +32,14 @@ test('independent panels display children without a workflow provider', () => {
   render(<WorkflowStage stage="report"><p>independent report</p></WorkflowStage>)
   expect(screen.getByText('independent report').closest('[hidden]')).toBeNull()
 })
+
+test('controlled stage follows the parent and requests navigation without taking over', async () => {
+  const change = vi.fn()
+  const view = render(<WorkflowProvider stage="profile" onStageChange={change}><WorkflowNavigation /><WorkflowStage stage="profile"><p>profile content</p></WorkflowStage><WorkflowStage stage="plan"><p>plan content</p></WorkflowStage></WorkflowProvider>)
+  expect(screen.getByText('profile content').closest('[hidden]')).toBeNull()
+  await userEvent.click(screen.getByRole('button', { name: '分析方案' }))
+  expect(change).toHaveBeenCalledWith('plan')
+  expect(screen.getByText('plan content').closest('[hidden]')).toBeTruthy()
+  view.rerender(<WorkflowProvider stage="plan" onStageChange={change}><WorkflowNavigation /><WorkflowStage stage="profile"><p>profile content</p></WorkflowStage><WorkflowStage stage="plan"><p>plan content</p></WorkflowStage></WorkflowProvider>)
+  expect(screen.getByText('plan content').closest('[hidden]')).toBeNull()
+})

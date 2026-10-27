@@ -13,6 +13,7 @@ from app.core.exceptions import StorageError
 from app.domain.dataset_preparation.service import append_checkpoint
 from app.domain.literature.contracts import SearchRequest, WORKFLOW, effective_query
 from app.domain.literature.objects import LiteratureObjects
+from app.domain.admin_configuration.bindings import resolve, bind
 
 
 def digest(value):
@@ -41,10 +42,22 @@ def input_version(task):
                 input_digest=task['input_digest'], output_language=snapshot['input']['output_language'])
 
 
-def configuration():
+def task_configuration(db, task):
+    """Legacy numeric defaults are known; never invent a historical identity."""
+    from app.domain.admin_configuration.contracts import Ncbi
+    version = resolve(db, kind='task', object_id=task['id'])
+    return (version['bundle']['ncbi'] if version else Ncbi().model_dump()), version
+
+
+def configuration(db=None, task=None):
     from app.adapters.ncbi import get_ncbi_settings, NcbiError
+    if db is None:
+        from app.db.database import database_connection
+        with database_connection() as connection:
+            return configuration(connection, task)
+    version = task_configuration(db, task)[1] if task is not None else resolve(db)
     try:
-        settings = get_ncbi_settings()
+        settings = get_ncbi_settings(version=version)
         available = settings.enabled
     except NcbiError:
         available = False
@@ -103,6 +116,9 @@ def retry_in_transaction(store, db, task, expected_revision):
     if operation not in actions:
         raise StorageError('task_transition_invalid', '当前检索任务尚不能恢复。', 409)
     checkpoint = latest_checkpoint(db, task)
+    from .storage import authorize
+    from app.core.config import get_data_dir
+    authorize(db,get_data_dir(),task)
     now = db.execute('SELECT clock_timestamp() AS now').fetchone()['now']
     task.update(status='queued', revision=expected_revision + 1, retry_count=0,
                 reason_code='confirmation_received' if operation == 'resume' else 'retry_requested',
@@ -138,11 +154,13 @@ class LiteratureService:
             if existing['input_digest'] != fingerprint:
                 raise StorageError('task_idempotency_conflict', '同一检索请求标识已用于不同输入。', 409)
             return self.store.public_task(existing), 200
+        version = resolve(db)
         now = db.execute('SELECT clock_timestamp() AS now').fetchone()['now']
         task = dict(id=str(uuid4()), project_id=project_id, user_id=self.store.user_id, task_type='literature_search',
             idempotency_key=key, input_digest=fingerprint, input_snapshot=snapshot, workflow_version=WORKFLOW,
             status='queued', phase='search', revision=1, current_attempt=0, reason_code=None, created_at=now, updated_at=now)
         self.store.insert_task(db, task)
+        bind(db, kind='task', object_id=task['id'], version=version)
         db.execute('''INSERT INTO literature_searches
             (task_id,project_id,user_id,input_json,effective_query,pmids_json,missing_pmids_json,retrieved_count,created_at,updated_at)
             VALUES (%s,%s,%s,%s,%s,%s,%s,0,%s,%s)''',

@@ -3,6 +3,7 @@ import { workflowNotice } from '../../shared/i18n/workflowMessages'
 import { apiFetch } from '../../shared/api/client'
 import { useEffect, useRef, useState } from 'react'
 import type { ChangeEvent, FormEvent } from 'react'
+import useDraftLeaveGuard, { type RegisterLeaveGuard } from '../projects/useDraftLeaveGuard'
 
 type CellValue = string | number | boolean | null
 type SheetPreview = {
@@ -29,14 +30,18 @@ type PreviewProps = {
   onSaved?: () => void
   onBusyChange?: (busy: boolean) => void
   onSavedPreviewChange?: (state: SavedPreviewState | null) => void
+  uploadVisible?: boolean
+  onUnavailable?: () => void
+  registerLeaveGuard?: RegisterLeaveGuard
 }
 
-export default function ExcelPreview({ projectId, savedFile, onSaved, onBusyChange, onSavedPreviewChange }: PreviewProps) {
+export default function ExcelPreview({ projectId, savedFile, onSaved, onBusyChange, onSavedPreviewChange, uploadVisible = true, onUnavailable, registerLeaveGuard }: PreviewProps) {
   const { t } = useI18n()
   const [config, setConfig] = useState<PreviewConfig | null>(null)
   const [configError, setConfigError] = useState('')
   const [configAttempt, setConfigAttempt] = useState(0)
   const [file, setFile] = useState<File | null>(null)
+  const [fileSaved,setFileSaved] = useState(false)
   const [workbook, setWorkbook] = useState<WorkbookPreview | null>(null)
   const [sheetIndex, setSheetIndex] = useState(0)
   const [error, setError] = useState('')
@@ -49,6 +54,7 @@ export default function ExcelPreview({ projectId, savedFile, onSaved, onBusyChan
   const previewPanel = useRef<HTMLDivElement | null>(null)
   const previewFeedback = useRef<HTMLParagraphElement | null>(null)
   const sheet = workbook?.sheets[sheetIndex]
+  useDraftLeaveGuard(registerLeaveGuard, Boolean(file) && !fileSaved, busy && !viewingSavedFile)
 
   // Clear the previous result before rendering a newly selected remote file.
   if (savedFile !== requestedFile) {
@@ -105,6 +111,7 @@ export default function ExcelPreview({ projectId, savedFile, onSaved, onBusyChan
       try {
         const response = await apiFetch(`/api/v1/projects/${projectId}/files/${savedFile!.id}/preview`, { signal: controller.signal })
         const result = await response.json().catch(() => null)
+        if (response.status === 403 || result?.detail?.code === 'project_not_found') { onUnavailable?.(); return }
         if (!response.ok) throw new Error(apiError(result, '读取已保存文件失败，请刷新后重试。'))
         if (active && !controller.signal.aborted) {
           setWorkbook(result); setSheetIndex(0)
@@ -125,7 +132,7 @@ export default function ExcelPreview({ projectId, savedFile, onSaved, onBusyChan
     }
     void loadSaved()
     return () => { active = false; controller.abort(); window.clearTimeout(timeout) }
-  }, [projectId, savedFile, onSavedPreviewChange])
+  }, [projectId, savedFile, onSavedPreviewChange, onUnavailable])
 
   function chooseFile(event: ChangeEvent<HTMLInputElement>) {
     const selected = event.target.files?.[0] ?? null
@@ -135,6 +142,7 @@ export default function ExcelPreview({ projectId, savedFile, onSaved, onBusyChan
     setSavedFailure(false)
     setNotice('')
     setFile(null)
+    setFileSaved(false)
     setViewingSavedFile(false)
     onSavedPreviewChange?.(null)
     if (!selected) return
@@ -175,6 +183,7 @@ export default function ExcelPreview({ projectId, savedFile, onSaved, onBusyChan
       }
       if (controller.signal.aborted) return
       if (projectId) {
+        setFileSaved(true)
         onSaved?.()
         if (result?.file?.parse_status === 'failed') {
           setSavedFailure(true)
@@ -209,10 +218,10 @@ export default function ExcelPreview({ projectId, savedFile, onSaved, onBusyChan
     <section className="excel-preview" aria-labelledby="excel-title">
       <div className="section-heading">
         <span className="step-label">{t("数据准备")}</span>
-        <h2 id="excel-title">{t("Excel 上传与预览")}</h2>
+        <h2 id="excel-title">{t(uploadVisible ? 'Excel 上传与预览' : 'Excel 工作表预览')}</h2>
         <p>{t("上传研究数据，检查工作表、字段与原始记录。")}</p>
       </div>
-      <form onSubmit={upload} className="upload-panel" aria-busy={busy}>
+      <form hidden={!uploadVisible} onSubmit={upload} className="upload-panel" aria-busy={busy}>
         <label htmlFor="excel-file">{t("选择 Excel 文件")}</label>
         <p id="upload-help" className="muted">
           {config ? t('支持 .xlsx · 单文件上限 {limit}', { limit: fileSize(config.max_upload_bytes, t) }) : t("正在读取上传配置……")}

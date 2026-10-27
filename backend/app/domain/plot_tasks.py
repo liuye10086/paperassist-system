@@ -1,6 +1,7 @@
 """Local plot acceptance and explicit recovery; HTTP never executes cloud work."""
 from app.domain.analysis_sources import statistics_engine
 from datetime import datetime, timezone
+from contextlib import nullcontext
 from hashlib import sha256
 import re
 from uuid import uuid4
@@ -19,8 +20,8 @@ OUTPUT_FAILURES = frozenset({'plot_result_mismatch', 'plot_invalid_result', 'plo
     'plot_no_execution', 'plot_files_missing', 'plot_output_limit', 'openai_incomplete', 'plot_container_expired', 'plot_input_limit'})
 
 
-def matching_task(store, project_id, result):
-    with store.connection() as db:
+def matching_task(store, project_id, result, *, db=None):
+    with (nullcontext(db) if db is not None else store.connection()) as db:
         store.require_project(db, project_id)
         row = db.execute('''SELECT * FROM tasks WHERE project_id=%s AND user_id=%s
             AND task_type='boxplot' AND workflow_version=%s
@@ -38,7 +39,7 @@ def context(project_id, file_id, run_id, store, *, archive=False):
     state = read_figure_state(store,result,archive=archive)
     if state['figure']:
         store.figure_png(state['figure'])
-    state['job'] = public_job(store.figure_job(run_id, figure_renderer(result)))
+    state['job'] = public_job(store.figure_job(run_id, figure_renderer(result)),store=store)
     return result, state
 
 
@@ -74,6 +75,17 @@ def submit_boxplot(project_id, file_id, run_id, request, store, idempotency_key=
     result, state = context(project_id, file_id, run_id, store)
     if not state['is_current'] or request.expected_revision != result['setup_revision']:
         raise StorageError('setup_conflict', '配置或统计结果已变化，请重新读取当前结果。', 409)
+    legacy=state.get('job')
+    if legacy and legacy.get('recovery_mode')=='blocked':
+        from app.domain.storage_governance.service import invalid
+        raise invalid()
+    if legacy and request.retry and (legacy.get('recovery_mode') in ('local_candidate','original_response') or state['figure'] and request.expected_predecessor_id==legacy['id']):
+        if request.expected_predecessor_id!=legacy['id']:raise source_conflict()
+        from app.domain.boxplot import recover_legacy_boxplot,require_legacy_predecessor
+        require_legacy_predecessor(store,project_id,result,legacy)
+        recovered=recover_legacy_boxplot(project_id,file_id,run_id,store,explicit_recovery=True)
+        recovered['task']=None
+        return recovered,200 if recovered['figure'] else 202
     if idempotency_key is not None and (not isinstance(idempotency_key, str)
             or not re.fullmatch(r'[\x21-\x7e]{1,128}', idempotency_key)):
         raise StorageError('task_input_invalid', '任务请求标识无效，请重新提交。', 422)
@@ -133,7 +145,7 @@ def submit_boxplot(project_id, file_id, run_id, request, store, idempotency_key=
     from app.domain.external_processing import freeze_confirmation
     freeze_confirmation(snapshot, typed.task_type, service.store.user_id, request.external_processing)
     from app.domain.plot_policy import get_execution_policy
-    frozen = get_execution_policy(result=result)
+    frozen = None  # Select the actual configuration in TaskService.create's write transaction.
     source_key = f'{result["id"]}:{request.expected_revision}:{figure_renderer(result)}:{predecessor or "initial"}'
     key = idempotency_key or 'boxplot-v1:' + sha256(source_key.encode('utf-8')).hexdigest()
     task, _ = service.create(project_id, typed, idempotency_key=key, boxplot_policy=frozen,
@@ -176,7 +188,10 @@ def retry_boxplot_in_transaction(store, db, task, expected_revision):
         if call is not None:
             raise StorageError('task_transition_invalid', '已有模型调用不能替换策略，请联系管理员核对。', 409)
         from app.domain.plot_policy import get_execution_policy
-        frozen = get_execution_policy(result=original['result'])
+        from app.domain.admin_configuration.model_consumption import task_version,execution
+        configuration=task_version(db,task)
+        frozen=execution(configuration,'plot',result=original['result']) if configuration else get_execution_policy(result=original['result'])
+        if frozen is None:raise StorageError('plot_not_configured','原任务模型策略未配置。',503)
         task['input_snapshot'] = {**original, 'boxplot_policy': frozen}
         db.execute('UPDATE tasks SET input_snapshot=%s WHERE id=%s', (Jsonb(task['input_snapshot']), task_id))
         budget = db.execute("SELECT id FROM model_budgets WHERE scope_type='task' AND scope_key=%s", (task_id,)).fetchone()
@@ -187,6 +202,9 @@ def retry_boxplot_in_transaction(store, db, task, expected_revision):
                 VALUES (%s,%s,'task',%s,%s,%s,%s,1,%s,%s)''',
                 (str(uuid4()), task['user_id'], task_id, task['project_id'], task_id,
                  frozen['task_limit_micro_usd'], now, now))
+    from app.domain.storage_governance.candidates import authorize_task_recovery
+    from app.core.config import get_data_dir
+    authorize_task_recovery(db,get_data_dir(),task)
     task.update(status='queued', phase='compute', revision=expected_revision + 1,
         reason_code='confirmation_received' if budget_wait else 'retry_requested', error_code=None, retry_count=0, _retry_reason='manual_retry',
         updated_at=max(datetime.now(timezone.utc), task['updated_at']))

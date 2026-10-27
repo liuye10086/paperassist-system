@@ -70,7 +70,10 @@ class FigureLanguageService:
         self.require_project(db,project)
         row=db.execute('SELECT * FROM manuscript_figure_language_versions WHERE id=%s AND project_id=%s AND user_id=%s',(identity,project,self.store.user_id)).fetchone()
         if not row: raise StorageError('figure_language_not_found','图件语言版本不存在。',404)
-        row=dict(row);snap=row['snapshot_json'];body=row['request_json']
+        return self.validate_row(db, project, dict(row))
+
+    def validate_row(self,db,project,row):
+        snap=row['snapshot_json'];body=row['request_json']
         if digest(snap)!=row['snapshot_sha256'] or digest(body)!=row['request_digest']: raise source_conflict()
         request=FigureLanguageRequest.model_validate(body)
         original,source=self.original(db,project,body['source'])
@@ -122,6 +125,25 @@ class FigureLanguageService:
                 if replay:
                     if replay['request_digest']!=hashed: raise StorageError('task_idempotency_conflict','请求标识已用于不同输入。',409)
                     return self.view(self.row(db,project,replay['id'])),200
+                from app.domain.storage_governance.guards import require_scope_open
+                require_scope_open(db,project,file_ids=tuple(f for f in (request.source.file_id,request.replacement_file_id) if f))
+                from app.domain.storage_governance import local_candidates as local
+                from app.domain.storage_governance.service import publish_candidate, invalid
+                operation='figure-language-sync:v1:'+digest([project,self.store.user_id,key])
+                hold=local.lookup(db,self.assets.directory,project,operation,kind='figure_language')
+                if hold:
+                    if hold['candidate_json']['source_identity']!=hashed:
+                        raise StorageError('task_idempotency_conflict','请求标识已用于不同输入。',409)
+                    fields,raw=local.read(self.assets.directory,hold,hashed)
+                    if (fields['project_id']!=project or fields['user_id']!=self.store.user_id or
+                            fields['idempotency_key']!=key or fields['request_json']!=body or
+                            hold['object_key']!='manuscript_figure_language_versions/'+fields['id']+'.png'):
+                        raise invalid()
+                    fields['created_at']=datetime.fromisoformat(fields['created_at'])
+                    self.validate_row(db,project,fields)
+                    publish_candidate(db,self.assets.directory,hold['id'],explicit_recovery=True)
+                    self.insert(db,fields)
+                    return self.view(fields),201
                 original,source=self.original(db,project,body['source'])
                 if sha256(original).hexdigest()!=request.original_sha256: raise source_conflict()
                 self.verify_image(original)
@@ -141,16 +163,24 @@ class FigureLanguageService:
                         data_fingerprint=None,geometry_fingerprint=None,renderer_version=None,font_hashes={},
                         support_scope='User supplied image inventory or explicit no-text inspection; numerical/geometry equivalence is not claimed.')
                 snapshot.update(sha256=sha256(raw).hexdigest(),size_bytes=len(raw))
-                self.directory.mkdir(parents=True,exist_ok=True);target=self.directory/(identity+'.png')
-                with target.open('xb') as stream: stream.write(raw);stream.flush();os.fsync(stream.fileno())
+                target=self.directory/(identity+'.png')
                 fields=dict(id=identity,project_id=project,user_id=self.store.user_id,file_id=request.source.file_id,
                     figure_id=request.source.id if request.source.kind=='figure' else None,
                     document_version_id=request.source.id if request.source.kind=='document_version' else None,
-                    replacement_file_id=request.replacement_file_id,idempotency_key=key,request_digest=hashed,request_json=Jsonb(body),
-                    snapshot_json=Jsonb(snapshot),snapshot_sha256=digest(snapshot),created_at=datetime.now(timezone.utc))
-                db.execute('INSERT INTO manuscript_figure_language_versions('+','.join(fields)+') VALUES ('+','.join(['%s']*len(fields))+')',tuple(fields.values()))
-                result=self.view(dict(fields,snapshot_json=snapshot))
+                    replacement_file_id=request.replacement_file_id,idempotency_key=key,request_digest=hashed,request_json=body,
+                    snapshot_json=snapshot,snapshot_sha256=digest(snapshot),created_at=datetime.now(timezone.utc))
+                hold=local.capture(db,self.assets.directory,project,operation,target,raw,
+                    fields|{'created_at':fields['created_at'].isoformat()},source_identity=hashed,kind='figure_language')
+                publish_candidate(db,self.assets.directory,hold['id'])
+                self.insert(db,fields)
+                result=self.view(fields)
             return result,201
         except Exception:
-            if target is not None: target.unlink(missing_ok=True)
+            # Never remove the immutable target on an unknown commit result.
+            # The storage intent retains its exact scope, identity and charge.
             raise
+
+    @staticmethod
+    def insert(db,fields):
+        values={k:Jsonb(v) if k in ('request_json','snapshot_json') else v for k,v in fields.items()}
+        db.execute('INSERT INTO manuscript_figure_language_versions('+','.join(values)+') VALUES ('+','.join(['%s']*len(values))+')',tuple(values.values()))

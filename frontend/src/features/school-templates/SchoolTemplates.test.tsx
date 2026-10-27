@@ -3,6 +3,8 @@ import userEvent from '@testing-library/user-event'
 import { afterEach, expect, it, vi } from 'vitest'
 import SchoolTemplates from './SchoolTemplates'
 import { clearApiSession } from '../../shared/api/client'
+import {useState} from 'react'
+import type {SchoolTemplateNavigation} from '../projects/manuscriptViews'
 const profile = { revision:0,school:'示例学校',department:'',major:'',degree_type:'',education_level:'',applicable_version:'',bound_confirmation_id:null }
 const analysis = {rules:[{id:'r1',label:'正文字体',value:'宋体',source:{part:'word/document.xml',path:'/p[2]',text:'正文宋体'}}],chapters:[{id:'c1',title:'绪论',level:1}],sections:[],notes:[],missing:['发布日期未注明'],unsupported:['文字规则仅引用'],identity_fields:[{label:'作者签名',required:true}],conflicts:[{id:'x1',label:'字号冲突',options:[{id:'o1',value:'小四',source:{part:'word/document.xml',path:'/p[4]',text:'小四'}},{id:'o2',value:'五号'}]}]}
 afterEach(()=>{cleanup();vi.unstubAllGlobals()})
@@ -18,6 +20,44 @@ function server(){
   return Response.json({items:[item]})
  });vi.stubGlobal('fetch',fetch);return {fetch,complete:()=>{queued=false}}
 }
+function LayeredSchool(){
+ const [navigation,onNavigate]=useState<SchoolTemplateNavigation>({view:'list',templateId:''})
+ const [active,setActive]=useState(true)
+ return <><button onClick={()=>setActive(value=>!value)}>toggle section</button><SchoolTemplates projectId="p1" active={active} navigation={navigation} onNavigate={onNavigate}/></>
+}
+it('keeps applicability and confirmation drafts across list, task and inactive views',async()=>{
+ server();const user=userEvent.setup();render(<LayeredSchool/>);
+ await user.click(await screen.findByRole('button',{name:'学校资料'}))
+ await screen.findByDisplayValue('示例学校');await user.type(screen.getByLabelText('院系'),'药学院草稿')
+ await user.click(screen.getByRole('button',{name:'模板列表'}));
+ expect(screen.queryByRole('textbox',{name:'院系'})).toBeNull()
+ await user.click(await screen.findByRole('button',{name:'查看模板 学校论文模板'}))
+ await user.click(screen.getByRole('button',{name:'规则确认'}))
+ await user.clear(screen.getByLabelText('章节标题 1'));await user.type(screen.getByLabelText('章节标题 1'),'草稿引言')
+ await user.selectOptions(screen.getByLabelText('字号冲突'),'o1')
+ await user.click(screen.getByRole('button',{name:'toggle section'}));await user.click(screen.getByRole('button',{name:'toggle section'}))
+ expect((screen.getByLabelText('章节标题 1') as HTMLInputElement).value).toBe('草稿引言')
+ await user.click(screen.getByRole('button',{name:'模板列表'}));await user.click(screen.getByRole('button',{name:'学校资料'}))
+ expect((screen.getByLabelText('院系') as HTMLInputElement).value).toBe('药学院草稿')
+ await user.click(screen.getByRole('button',{name:'模板列表'}));await user.click(screen.getByRole('button',{name:'查看模板 学校论文模板'}));await user.click(screen.getByRole('button',{name:'规则确认'}))
+ expect((screen.getByLabelText('章节标题 1') as HTMLInputElement).value).toBe('草稿引言')
+ expect((screen.getByLabelText('字号冲突') as HTMLSelectElement).value).toBe('o1')
+})
+it('guards hidden confirmation drafts and releases the pending guard after a failed request',async()=>{
+ const {fetch}=server();let reject!:(reason:Error)=>void
+ vi.stubGlobal('fetch',vi.fn(async(url:string,init?:RequestInit)=>url.endsWith('/confirm')?new Promise<Response>((_,fail)=>{reject=fail}):fetch(url,init)))
+ const guards=new Set<()=>boolean>();const dirty=new Set<()=>boolean>()
+ const register=(guard:()=>boolean,check?:()=>boolean)=>{guards.add(guard);if(check)dirty.add(check);return()=>{guards.delete(guard);if(check)dirty.delete(check)}}
+ const ask=vi.fn(()=>false),alert=vi.fn();vi.stubGlobal('confirm',ask);vi.stubGlobal('alert',alert)
+ const user=userEvent.setup();const view=render(<SchoolTemplates projectId="p1" active navigation={{view:'confirm',templateId:'v1'}} registerLeaveGuard={register}/>);
+ await screen.findByDisplayValue('绪论');await user.selectOptions(screen.getByLabelText('字号冲突'),'o1')
+ expect([...dirty].some(check=>check())).toBe(true);ask.mockReturnValue(true)
+ await user.click(screen.getByRole('button',{name:'确认模板规则'}))
+ expect([...guards].every(guard=>guard())).toBe(false);expect(alert).toHaveBeenCalled()
+ await act(async()=>reject(new TypeError('network')));await screen.findByRole('alert');alert.mockClear();ask.mockClear();ask.mockReturnValue(false)
+ view.rerender(<SchoolTemplates projectId="p1" active={false} navigation={{view:'list',templateId:''}} registerLeaveGuard={register}/>);
+ expect([...guards].every(guard=>guard())).toBe(false);expect(ask).toHaveBeenCalled();expect(alert).not.toHaveBeenCalled()
+})
 it('requires conflict decisions, preserves chapter edits, explicitly binds and restores',async()=>{
  const {fetch}=server();const user=userEvent.setup();render(<SchoolTemplates projectId="p1" active />)
  await screen.findByText('正文字体');expect((screen.getByRole('button',{name:'确认模板规则'}) as HTMLButtonElement).disabled).toBe(true)

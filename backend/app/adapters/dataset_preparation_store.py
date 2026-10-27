@@ -7,6 +7,7 @@ from app.adapters.task_store import TaskStore, DatasetTaskAssets, source_conflic
 from app.domain.dataset_preparation.service import (DatasetPreparationService, validate_snapshot,
     preparation_input_version, candidate_id, latest_checkpoint, append_checkpoint, require_approval)
 from app.domain.tasks.waits import persist_wait
+from app.domain.storage_governance.deterministic import admit_manifest, settle_manifest
 
 
 class DatasetPreparationStore:
@@ -33,24 +34,37 @@ class DatasetPreparationStore:
         _,sheet = service.require_raw(preparation_input_version(task)['source'],task['project_id'])
         return task,checkpoint,sheet
 
-    def wait(self,lease,checkpoint,obj):
-        # Content is durable before its DB reference; a rollback leaves a safe,
-        # content-addressed orphan for the next attempt to reuse.
+    def wait(self,lease,checkpoint,obj,*,manifest_content=None):
         with self.repository.connection() as db:
             task = self.repository.require_lease(db,lease)
         service = self.service(task)
         content = json.dumps(obj.model_dump(mode='json'),ensure_ascii=False,sort_keys=True,
             separators=(',',':'),allow_nan=False).encode('utf-8')
-        reference = dict(id=candidate_id(task['id']),**service.objects.save(candidate_id(task['id']),content))
+        reference = dict(id=candidate_id(task['id']),**service.objects.describe(candidate_id(task['id']),content))
+        entries=[('prepared_dataset','prepared:'+checkpoint['id'],reference)]
+        if obj.schema_version in (2,3):
+            if manifest_content is None or service.manifests.describe(candidate_id(task['id']),manifest_content)!={
+                    key:getattr(obj.manifest,key) for key in ('object_key','sha256','size_bytes')}:
+                raise source_conflict()
+            entries.append(('quality_manifest','quality_manifest:'+checkpoint['id'],obj.manifest.model_dump()))
+        with self.repository.connection(write=True) as db:
+            task=self.repository.require_lease(db,lease);self.repository.require_owner(db,task)
+            current=latest_checkpoint(db,task)
+            self._require_preview(task,current,checkpoint,obj)
+            service.require_raw(preparation_input_version(task)['source'],task['project_id'])
+            rows=admit_manifest(db,self.repository.assets.directory,task,entries)
+        # Both objects are covered by the committed complete-manifest hold.
+        if manifest_content is not None:
+            service.manifests.save(candidate_id(task['id']),manifest_content)
+        service.objects.save(candidate_id(task['id']),content)
         with self.repository.connection(write=True) as db:
             task = self.repository.require_lease(db,lease)
             self.repository.require_owner(db,task)
             current = latest_checkpoint(db,task)
             state = dict(current['state_json'])
-            if (current['id'] != checkpoint['id'] or current['next_node'] != 'prepare_preview'
-                    or (obj.base_source if obj.schema_version in (2,3) else obj.parent_source).model_dump(mode='json') != state['input_version']['source']
-                    or obj.recipe.model_dump(mode='json') != state['recipe']):
-                raise source_conflict()
+            self._require_preview(task,current,checkpoint,obj)
+            service.require_raw(preparation_input_version(task)['source'],task['project_id'])
+            settle_manifest(db,self.repository.assets.directory,task,rows)
             previous_revision = task['revision']
             task.update(status='waiting_confirmation',phase='plan',revision=previous_revision+1,
                 updated_at=max(self.repository.now(db),task['updated_at']),reason_code='confirmation_required',error_code=None)
@@ -61,6 +75,14 @@ class DatasetPreparationStore:
             TaskStore.append_event(db,task,'waiting')
             persist_wait(db,task)
             return TaskStore.public_task(task)
+
+    @staticmethod
+    def _require_preview(task,current,checkpoint,obj):
+        state=current['state_json']
+        if (current['id'] != checkpoint['id'] or current['next_node'] != 'prepare_preview'
+                or (obj.base_source if obj.schema_version in (2,3) else obj.parent_source).model_dump(mode='json') != state['input_version']['source']
+                or obj.recipe.model_dump(mode='json') != state['recipe']):
+            raise source_conflict()
 
     def publish(self,lease,checkpoint):
         with self.repository.connection() as db:
@@ -82,6 +104,13 @@ class DatasetPreparationStore:
             service.read_candidate(task,current)
             if obj.schema_version in (2,3):
                 service.verify_publication(task,current)
+            # Candidate and accepted version reference the same physical keys.
+            # This also accounts a pre-governance persisted candidate safely.
+            entries=[('prepared_dataset','prepared_publish:'+current['id'],state['candidate'])]
+            if obj.schema_version in (2,3):
+                entries.append(('quality_manifest','quality_manifest_publish:'+current['id'],obj.manifest.model_dump()))
+            rows=admit_manifest(db,self.repository.assets.directory,task,entries)
+            settle_manifest(db,self.repository.assets.directory,task,rows)
             root_source = snapshot.get('root_source',snapshot['source'])
             # All v1/v2 publishers serialize allocation under the unchanged raw root.
             root = db.execute('SELECT id FROM dataset_versions WHERE id=%s FOR UPDATE',(root_source['dataset_id'],)).fetchone()

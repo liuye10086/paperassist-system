@@ -74,6 +74,8 @@ app.add_middleware(UploadLimitMiddleware)
 app.add_middleware(AuthMiddleware)
 app.add_middleware(RequestIdMiddleware)
 app.include_router(auth_router)
+from app.api.runtime_status import router as runtime_status_router
+app.include_router(runtime_status_router)
 app.include_router(excel_router)
 app.include_router(projects_router)
 app.include_router(analysis_router)
@@ -84,6 +86,10 @@ app.include_router(reports_router)
 app.include_router(tasks_router)
 app.include_router(project_tasks_router)
 app.include_router(model_usage_router)
+from app.api.storage_governance import router as storage_governance_router
+app.include_router(storage_governance_router)
+from app.api.storage_deletion import router as storage_deletion_router
+app.include_router(storage_deletion_router)
 from app.api.documents import router as documents_router
 app.include_router(documents_router)
 app.include_router(file_batches_router)
@@ -215,3 +221,9 @@ app.include_router(review_science_router)
 
 from app.api.review_continuations import router as review_continuations_router
 app.include_router(review_continuations_router)
+
+from app.api.admin import router as admin_router
+app.include_router(admin_router)
+
+from app.api.admin_configurations import router as admin_configurations_router
+app.include_router(admin_configurations_router)

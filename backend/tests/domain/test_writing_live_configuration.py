@@ -50,8 +50,10 @@ def test_unknown_without_response_does_not_construct_or_call_provider(monkeypatc
     from contextlib import nullcontext
     from types import SimpleNamespace
     task=dict(user_id='owner',project_id='project',id='task')
-    snapshot=dict(execution=dict(bundle_id='bundle'))
-    service=SimpleNamespace(writing=SimpleNamespace(assert_current=lambda *a: None),bundle=lambda *a: {})
+    snapshot=dict(manuscript_id='manuscript',execution=dict(bundle_id='bundle'))
+    checked=[]
+    def forbidden_source_check(*args): raise AssertionError('Started submissions must preserve recovery despite source changes')
+    service=SimpleNamespace(writing=SimpleNamespace(assert_current=forbidden_source_check,row=lambda *a: checked.append(a[1:])),bundle=lambda *a: {})
     repository=SimpleNamespace(connection=lambda: nullcontext(object()),require_lease=lambda *a: task,
         require_owner=lambda *a: None,config=SimpleNamespace(environment='development'),assets=SimpleNamespace(directory=None))
     monkeypatch.setattr(live_execution,'LiveWritingService',lambda *a: service)
@@ -65,3 +67,4 @@ def test_unknown_without_response_does_not_construct_or_call_provider(monkeypatc
     monkeypatch.setattr(live_execution,'create_production_provider',forbidden)
     monkeypatch.setattr(live_execution,'ModelGateway',forbidden)
     assert live_execution.execute_live(repository,object(),None)==('submission_unknown','model_submission_unknown')
+    assert checked==[('project','manuscript','task')]

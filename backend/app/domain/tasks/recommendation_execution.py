@@ -60,9 +60,11 @@ def execute(repository,lease,provider_factory,providers):
         return repository.wait_explanation(lease,'submission_unknown','model_submission_unknown')
     snapshot=validate_snapshot(task) if call and call.get('provider_response_id') else service.require_material(task)
     instructions=instructions_for(snapshot['payload'])
+    from app.domain.admin_configuration.model_consumption import task_instructions
+    with repository.connection() as db:instructions=task_instructions(db,task,instructions,'recommendation')
     call_key=recommendation_call_key(snapshot['request'])
     if not call or not call['provider_response_id']:
-        frozen=validate_execution_policy(snapshot['recommendation_policy'],snapshot['payload'])
+        frozen=validate_execution_policy(snapshot['recommendation_policy'],snapshot['payload'],instructions=instructions)
     provider=provider_factory();providers.append(provider)
     gateway=ModelGateway(ModelUsageService(task['user_id'],repository.config),provider)
     try:

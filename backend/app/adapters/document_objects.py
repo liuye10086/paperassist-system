@@ -67,13 +67,25 @@ class DocumentObjects:
             except FileExistsError:self._read(record,max(len(raw),1))
         finally:temp.unlink(missing_ok=True)
         return record
-    def save(self,parse_id,result):
+    def plan(self,parse_id,result):
         try:identifier=str(UUID(str(parse_id)))
         except ValueError:invalid()
         result,decoded=validate_result(result)
         raw=result.document.model_dump_json().encode()
-        images=[{**i.model_dump(),**self._save(identifier,decoded[i.id],'bin')} for i in getattr(result.document,'images',[])]
-        return dict(kind=result.document.kind,object=self._save(identifier,raw,'json'),images=images,summary=dict(counts=result.document.counts.model_dump(),warnings=[w.model_dump() for w in result.document.warnings]))
+        objects=[]
+        def describe(content,suffix):
+            digest=hashlib.sha256(content).hexdigest()
+            record=dict(object_key=f'documents/{identifier}/{digest}.{suffix}',size_bytes=len(content),sha256=digest)
+            self.path(record['object_key']);objects.append((record,content))
+            return record
+        images=[{**i.model_dump(),**describe(decoded[i.id],'bin')} for i in getattr(result.document,'images',[])]
+        manifest=dict(kind=result.document.kind,object=describe(raw,'json'),images=images,summary=dict(counts=result.document.counts.model_dump(),warnings=[w.model_dump() for w in result.document.warnings]))
+        return manifest,objects
+    def save(self,parse_id,result):
+        manifest,objects=self.plan(parse_id,result)
+        for record,content in objects:
+            self._save(str(UUID(str(parse_id))),content,record['object_key'].rsplit('.',1)[1])
+        return manifest
     def read(self,manifest):
         raw=self._read(manifest['object'],4194304)
         try:

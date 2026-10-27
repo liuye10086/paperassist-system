@@ -3,6 +3,15 @@
   color: var(--text);
 }
 
+.project-card-list { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+.research-project-card { min-width: 0; padding: 22px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); }
+.research-project-card h3 { margin: 14px 0 8px; }
+.research-project-card > p { font-size: 13px; line-height: 1.8; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.research-project-meta { display: flex; flex-wrap: wrap; gap: 8px 12px; margin: 20px 0 12px; font-size: 12px; }
+.project-list .research-project-card .project-row-open { width: 100%; justify-content: space-between; padding: 10px 0 0; border-radius: 0; border-top: 1px solid var(--border); font-size: 13px; }
+@media (max-width: 1100px) { .project-card-list { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 640px) { .project-card-list { grid-template-columns: 1fr; } }
+
 .project-list .project-list-filters {
   display: flex;
   align-items: flex-end;

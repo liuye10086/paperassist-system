@@ -150,3 +150,16 @@ test('renders null, zero, false and header-only sheet without losing values', as
   expect(screen.getByText('此工作表只有表头，没有数据行。')).toBeTruthy()
   expect(screen.getByRole('columnheader', { name: '字段' })).toBeTruthy()
 })
+
+test('successful project upload clears the selected file leave warning', async () => {
+ mockApi(async () => Response.json({file:{id:'f',parse_status:'parsed'},preview:workbook}))
+ let dirty = () => false
+ const register = (_guard: () => boolean, isDirty?: () => boolean) => { dirty = isDirty ?? (()=>false); return ()=>{} }
+ const user=userEvent.setup()
+ render(<ExcelPreview projectId="p" registerLeaveGuard={register}/>)
+ await user.upload(await screen.findByLabelText('选择 Excel 文件'),new File(['xlsx'],'saved.xlsx'))
+ expect(dirty()).toBe(true)
+ await user.click(screen.getByRole('button',{name:'上传并预览'}))
+ await screen.findByText('文件已保存到当前项目，可从项目文件列表再次打开。')
+ expect(dirty()).toBe(false)
+})

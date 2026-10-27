@@ -18,6 +18,10 @@ def error_category(code):
     code = safe_error_code(code)
     if code is None:
         return None
+    if code in ('storage_quota_exceeded', 'storage_disk_insufficient'):
+        return 'configuration'
+    if code in ('storage_accounting_unknown','storage_deletion_pending','storage_deletion_scope_unknown'):
+        return 'source'
     if code in ('pdf_conversion_timeout','pdf_renderer_busy','ncbi_unavailable', 'model_provider_unavailable', 'parse_timeout', 'parse_resource_limit', 'parse_process_failed', 'storage_unavailable',
             'numeric_timeout', 'numeric_failure'):
         return 'temporary'

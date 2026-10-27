@@ -40,7 +40,8 @@ def main():
         content = sys.stdin.buffer.read(size + 1)
         if len(content) != size:
             raise ValueError()
-        emit({'result': inspect_school_template(content, header['filename'])})
+        if set(header)-{'size','filename','heading_aliases'}:raise ValueError()
+        emit({'result': inspect_school_template(content, header['filename'], heading_aliases=header.get('heading_aliases',[]))})
     except StorageError as exc:
         emit({'error': {'code': exc.code}})
     except MemoryError:

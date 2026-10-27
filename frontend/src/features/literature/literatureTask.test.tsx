@@ -11,6 +11,6 @@ it('decodes literature task and null-file source without requiring manuscript ev
  expect(isWorkspace({ ...literatureWorkspace, artifacts: { ...literatureWorkspace.artifacts, literature: { search_id: 'other', retrieved_count: 0, matched_count: null } } }, 'p1', 'search1')).toBe(false)
 })
 it('adds literature navigation for a project', () => {
- render(<WorkspaceShell view="project" section="overview" projectName="Synthetic project" onNavigate={vi.fn()} onCreate={vi.fn()} onCurrentProject={vi.fn()}><div /></WorkspaceShell>)
+ render(<WorkspaceShell view="project" section="literature" projectName="Synthetic project" onNavigate={vi.fn()} onCreate={vi.fn()} onCurrentProject={vi.fn()}><div /></WorkspaceShell>)
  expect(screen.getByRole('button', { name: '文献' })).toBeTruthy()
 })

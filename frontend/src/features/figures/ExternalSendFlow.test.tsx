@@ -1,3 +1,4 @@
+import { AnalysisActivityContext } from '../analysis/analysisActivityContext'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import BoxplotFigure from './BoxplotFigure'
@@ -123,4 +124,26 @@ describe.each(cases)('$kind external send review', item => {
     expect(screen.queryByRole('heading', { name: '发送前检查' })).toBeNull()
     expect(fetch.mock.calls.filter(([, init]) => init?.method === 'POST')).toHaveLength(0)
   })
+})
+
+describe.each(cases)('$kind analysis leave protection',item=>{
+ it('guards the preview request, edited disclosure and unknown submission without resending it',async()=>{
+  const guards=new Set<()=>boolean>()
+  const register=(guard:()=>boolean)=>{guards.add(guard);return()=>guards.delete(guard)}
+  const confirm=vi.spyOn(window,'confirm').mockReturnValue(false),alert=vi.spyOn(window,'alert').mockImplementation(()=>{})
+  let finish!:(r:Response)=>void
+  const fetcher=vi.fn((url:string,init?:RequestInit):Promise<Response>=>url.endsWith('/disclosure')?new Promise(r=>{finish=r}):init?.method==='POST'?Promise.reject(new TypeError('offline')):Promise.resolve(Response.json(url.endsWith('config')?{configured:true}:item.empty)))
+  vi.stubGlobal('fetch',fetcher)
+  render(<AnalysisActivityContext.Provider value={{register,canLeave:()=>[...guards].every(g=>g())}}>{item.panel()}</AnalysisActivityContext.Provider>);await act(async()=>{})
+  fireEvent.click(screen.getByRole('button',{name:item.generate}));await act(async()=>{})
+  expect([...guards].every(g=>g())).toBe(false);expect(alert).toHaveBeenCalled()
+  await act(async()=>{finish(Response.json(disclosure(item.kind)))})
+  fireEvent.change(screen.getByRole('textbox',{name:'数值名称'}),{target:{value:'Keep edited disclosure'}})
+  expect([...guards].every(g=>g())).toBe(false);expect(confirm).toHaveBeenCalled()
+  expect((screen.getByRole('textbox',{name:'数值名称'}) as HTMLInputElement).value).toBe('Keep edited disclosure')
+  fireEvent.click(screen.getByRole('button',{name:'确认发送并生成'}));await act(async()=>{})
+  expect([...guards].every(g=>g())).toBe(false)
+  confirm.mockReturnValue(true);expect([...guards].every(g=>g())).toBe(true)
+  expect(fetcher.mock.calls.filter(([,init])=>init?.method==='POST')).toHaveLength(1)
+ })
 })

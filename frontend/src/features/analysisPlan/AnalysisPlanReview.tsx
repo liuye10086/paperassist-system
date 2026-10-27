@@ -1,3 +1,4 @@
+import {useAnalysisLeaveGuard} from '../analysis/analysisActivityContext'
 import ModelSelectionSummary from '../analysis/ModelSelectionSummary'
 import ModelSelectionForm from '../analysis/ModelSelectionForm'
 import {initialModelSelection,modelMethods,type ModelMethod} from '../analysis/modelSelection'
@@ -21,12 +22,12 @@ import { isPlanReview, type PlanReview } from './analysisPlanApi'
 import { issueDescription, resolutionDescription, limitationDescription,numericIssues } from './diagnostics'
 import { sameSource, type PreparedDatasetAnalysisSource } from '../analysis/datasetSource'
 
-type Props = { projectId: string; taskId: string; expectedSource?: PreparedDatasetAnalysisSource; expectedInputVersion?: AnalysisPlanInputVersion; blocked?: boolean; onChanged?: () => void; onPublished?: (id: string, revision: number) => void; refreshKey?: number }
+type Props = { active?: boolean; projectId: string; taskId: string; expectedSource?: PreparedDatasetAnalysisSource; expectedInputVersion?: AnalysisPlanInputVersion; blocked?: boolean; onChanged?: () => void; onPublished?: (id: string, revision: number) => void; refreshKey?: number }
 const issueLabels: Record<string, string> = { comparison_sample_size:'比较样本量不足',comparison_input_limit:'比较输入超过规模限制',comparison_constant:'比较输入为常量',comparison_near_constant:'比较输入近常量',comparison_invalid_input:'比较输入无效',pair_id_missing:'配对 ID 缺失',pair_id_duplicate:'配对 ID 重复',pair_id_type:'配对 ID 类型无效',groups_missing:'参与组缺失',group_not_selected:'部分组未纳入', correlation_sample_size:'相关有效记录不足',correlation_input_limit:'相关输入超过规模限制',correlation_constant:'相关字段为常量',correlation_near_constant:'相关字段近常量',correlation_invalid_input:'相关输入无效', unit_conflict: '单位冲突', unit_unconfirmed: '单位未确认', numeric_precision: '数值精度不安全', outlier: '观察到异常值', partial_metrics: '部分指标不可计算', numeric_type: '数值列类型无效', group_type: '分组列类型无效', no_complete_records: '没有完整记录', too_many_groups: '分组过多', small_sample: '样本量较小', selected_missing: '所选字段存在缺失值', invalid_column: '字段无效', sheet_not_found: '工作表不存在', invalid_analysis_selection: '分析字段选择无效' }
 const typeLabels: Record<string, string> = { number: '数值', text: '文本', boolean: '布尔', datetime: '日期/时间', formula: '公式', error: 'Excel 错误', blank: '空白', missing: '缺失', mixed: '混合类型' }
 export default function AnalysisPlanReview(props: Props) { return <Review key={`${props.projectId}:${props.taskId}:${JSON.stringify(props.expectedSource)}`} {...props} /> }
 
-function Review({ projectId, taskId, expectedSource, expectedInputVersion, blocked = false, onChanged, onPublished, refreshKey = 0 }: Props) {
+function Review({ projectId, taskId, expectedSource, expectedInputVersion, blocked = false, onChanged, onPublished, refreshKey = 0, active: viewActive = true }: Props) {
   const { t } = useI18n()
   const [review, setReview] = useState<PlanReview | null>(null)
   const [resolutions, setResolutions] = useState<Record<string, string>>({})
@@ -39,6 +40,7 @@ function Review({ projectId, taskId, expectedSource, expectedInputVersion, block
   const [sessionValid, setSessionValid] = useState(true)
   const action = useRef<AbortController | null>(null)
   const replay = useRef<{ signature: string; key: string } | null>(null)
+  useAnalysisLeaveGuard(() => !!replay.current || !!review && (JSON.stringify(resolutions) !== JSON.stringify(review.resolutions) || (editing || review.task.status === 'waiting_input') && (draft !== null && JSON.stringify(draft) !== JSON.stringify(review.selection) || JSON.stringify(researchDraft) !== JSON.stringify(review.research_request ?? null))), busy)
   const published = useRef<string | null>(null)
   const publishedCallback = useRef(onPublished)
   const generation = useRef('')
@@ -50,7 +52,7 @@ function Review({ projectId, taskId, expectedSource, expectedInputVersion, block
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; action.current?.abort() } }, [])
   useEffect(() => onApiSessionChanged(() => { action.current?.abort(); setSessionValid(false); setReview(null); setError('') }), [])
   useEffect(() => {
-    if (!sessionValid) return
+    if (!viewActive || !sessionValid) return
     const controller = new AbortController(); let active = true; let timer = 0
     const read = ++readGeneration.current
     async function load() {
@@ -71,7 +73,7 @@ function Review({ projectId, taskId, expectedSource, expectedInputVersion, block
     }
     void load()
     return () => { active = false; controller.abort(); window.clearTimeout(timer) }
-  }, [projectId, taskId, expectedSource, expectedInputVersion, refreshKey, refresh, sessionValid])
+  }, [projectId, taskId, expectedSource, expectedInputVersion, refreshKey, refresh, sessionValid, viewActive])
 
   async function decide(operation: 'approve' | 'revise') {
     if (!review || action.current || blocked || !review.wait_id || !['waiting_confirmation', 'waiting_input'].includes(review.task.status) || !review.check || expectedSource && !sameSource(review.source, expectedSource)) return

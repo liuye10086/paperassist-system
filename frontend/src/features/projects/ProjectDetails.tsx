@@ -3,15 +3,16 @@ import { apiFetch } from '../../shared/api/client'
 import { typeNames, type Project } from './projectTypes'
 import { apiError, safeError, useI18n } from '../../shared/i18n'
 import ProjectLanguage from './ProjectLanguage'
+import useDraftLeaveGuard, { type RegisterLeaveGuard } from './useDraftLeaveGuard'
 
 type Request = { controller: AbortController; timeout: number }
 
-export default function ProjectDetails({ project, onUpdated, showHeading = true }: { project: Project; onUpdated: (project: Project) => void; showHeading?: boolean }) {
+export default function ProjectDetails({ project, onUpdated, showHeading = true, registerLeaveGuard }: { project: Project; onUpdated: (project: Project) => void; showHeading?: boolean; registerLeaveGuard?: RegisterLeaveGuard }) {
   const { t, locale } = useI18n()
   const [editing, setEditing] = useState(false)
   const [name, setName] = useState(project.name)
   const [topic, setTopic] = useState(project.research_topic)
-  const baseline = useRef({ name: project.name, research_topic: project.research_topic })
+  const [baseline, setBaseline] = useState({ name: project.name, research_topic: project.research_topic })
   const [busy, setBusy] = useState<'save' | 'read' | null>(null)
   const [error, setError] = useState('')
   const [uncertain, setUncertain] = useState(false)
@@ -20,6 +21,7 @@ export default function ProjectDetails({ project, onUpdated, showHeading = true 
   const editButton = useRef<HTMLButtonElement | null>(null)
   const nameInput = useRef<HTMLInputElement | null>(null)
   const wasEditing = useRef(false)
+  useDraftLeaveGuard(registerLeaveGuard, editing && (name !== baseline.name || topic !== baseline.research_topic), busy !== null || uncertain)
   useLayoutEffect(() => {
     if (editing) { wasEditing.current = true; nameInput.current?.focus() }
     else if (wasEditing.current) { wasEditing.current = false; editButton.current?.focus() }
@@ -35,7 +37,7 @@ export default function ProjectDetails({ project, onUpdated, showHeading = true 
 
   function startEditing() {
     if (languageBusy) return
-    baseline.current = { name: project.name, research_topic: project.research_topic }
+    setBaseline({ name: project.name, research_topic: project.research_topic })
     setName(project.name)
     setTopic(project.research_topic)
     setEditing(true)
@@ -94,8 +96,8 @@ export default function ProjectDetails({ project, onUpdated, showHeading = true 
     if (!nextName || !nextTopic) { setError('请填写项目名称和研究主题。'); return }
     if (nextName.length > 120 || nextTopic.length > 500) { setError('项目名称最多 120 字，研究主题最多 500 字。'); return }
     const changes: Partial<Pick<Project, 'name' | 'research_topic'>> = {}
-    if (nextName !== baseline.current.name) changes.name = nextName
-    if (nextTopic !== baseline.current.research_topic) changes.research_topic = nextTopic
+    if (nextName !== baseline.name) changes.name = nextName
+    if (nextTopic !== baseline.research_topic) changes.research_topic = nextTopic
     if (Object.keys(changes).length === 0) { setEditing(false); setError(''); return }
     void submit('save', changes)
   }
@@ -114,6 +116,6 @@ export default function ProjectDetails({ project, onUpdated, showHeading = true 
       </div>
     </form> : <button ref={editButton} type="button" disabled={languageBusy} onClick={startEditing}>{t("编辑项目信息")}</button>}
     {error && <p className="error-panel" role="alert">{t(error)}</p>}
-    <ProjectLanguage key={project.id} project={project} onUpdated={onUpdated} disabled={editing || busy !== null} onBusyChange={setLanguageBusy} />
+    <ProjectLanguage key={project.id} project={project} onUpdated={onUpdated} disabled={editing || busy !== null} onBusyChange={setLanguageBusy} registerLeaveGuard={registerLeaveGuard} />
   </div>
 }

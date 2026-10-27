@@ -11,7 +11,7 @@ class TaskWorkspaceService:
     def __init__(self, user_id, config=None):
         self.store = TaskStore(user_id, config)
 
-    def source(self, db, task):
+    def source(self, db, task, *, manuscript_sources=None):
         snapshot = task['input_snapshot']
         if task['task_type']=='review_document_export':
             from app.domain.review_rounds.document_exports import workspace
@@ -67,7 +67,7 @@ class TaskWorkspaceService:
             from app.domain.report_collections.service import scoped_store
             service=ManuscriptService(scoped_store(task['user_id'],self.store.config))
             version=service.verify_task(db,task)
-            return dict(file_id=None,filename=version['snapshot_json']['title'],analysis_run_id=None,is_current=not bool(changes(service,task['project_id'],version['snapshot_json'])))
+            return dict(file_id=None,filename=version['snapshot_json']['title'],analysis_run_id=None,is_current=not bool(changes(service,task['project_id'],version['snapshot_json'],current_sources=manuscript_sources)))
         if task['task_type'] == 'literature_assistance':
             from app.domain.literature_assistance.service import require_snapshot
             snapshot = require_snapshot(task)
@@ -204,6 +204,7 @@ class TaskWorkspaceService:
             total, rows = mixed_task_page(db, self.store.user_id, project_id, page=page, page_size=page_size,
                                          status=status, task_type=task_type)
             items = []
+            manuscript_sources = {}
             for candidate in rows:
                 if candidate['origin'] == 'legacy':
                     row = require_legacy_task(db, self.store.user_id, candidate['id'])
@@ -211,7 +212,7 @@ class TaskWorkspaceService:
                                   'source': legacy_source(row)})
                 else:
                     row = self.store.require_task(db, candidate['id'])
-                    items.append({'task': self.store.public_task(row), 'source': self.source(db, row)})
+                    items.append({'task': self.store.public_task(row), 'source': self.source(db, row, manuscript_sources=manuscript_sources)})
         return dict(project_id=project_id, items=items, total=total, page=page, page_size=page_size)
 
     @staticmethod

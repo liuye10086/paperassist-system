@@ -1,3 +1,4 @@
+import { useAnalysisLeaveGuard } from '../analysis/analysisActivityContext'
 import SourceSummary from '../analysis/SourceSummary'
 import { validAnalysisTaskSource, validOptionalSource, type DatasetAnalysisSource } from '../analysis/datasetSource'
 import { useI18n, apiError, safeError } from '../../shared/i18n'
@@ -14,7 +15,7 @@ import ProjectDownloadLink from '../../shared/components/ProjectDownloadLink'
 type Figure = { plan_sha256?:string; schema_version?:2|3|4;figure_kind?:'boxplot'|'scatter'|'correlation_heatmap'|'group_boxplot'|'paired_connected'|'forest'|'roc_curve'|'kaplan_meier';language?:'zh-CN'|'en'; source?: DatasetAnalysisSource; id: string; analysis_run_id: string; setup_revision: number; title: string; caption: string
   x_label: string; y_label: string; source_sha256: string; sha256: string; created_at: string
   engine: { id: string; provider: string; model: string }; verification: { status: string; note: string } }
-type Job = { id: string; status: 'submitting' | 'running' | 'failed' | 'uncertain' | 'completed'; message: string; message_code?: string; message_params?: Record<string, string | number>; response_id: string | null; created_at: string }
+type Job = { recovery_mode?:'local_candidate'|'original_response'|'blocked'|null;recovery_requires_provider?:boolean; id: string; status: 'submitting' | 'running' | 'failed' | 'uncertain' | 'completed'; message: string; message_code?: string; message_params?: Record<string, string | number>; response_id: string | null; created_at: string }
 type Task = { id: string; status: 'queued' | 'running' | 'waiting_input' | 'waiting_confirmation' | 'succeeded' | 'failed'
   revision: number; reason_code: string | null; error_code: string | null; result_figure_id?: string | null }
 type State = {generation_compatible?:boolean; current_revision: number | null; is_current: boolean; figure: Figure | null; job: Job | null; task?: Task | null }
@@ -77,22 +78,34 @@ function FigurePanel({ base, runId, revision, canGenerate, disabled, onBusyChang
   const [imageError, setImageError] = useState(false)
   const [imageAttempt, setImageAttempt] = useState(0)
   const [attempt, setAttempt] = useState(0)
+  const [storageCapability,setStorageCapability]=useState<{id:string;revision:number;retry:boolean}|null>(null)
   const active = useRef(true)
   const action = useRef<AbortController | null>(null)
   const reading = useRef<AbortController | null>(null)
   const task = state?.task
+  const storageFailure=task?.status==='failed'&&task.error_code?.startsWith('storage_')
+  const storageRetry=storageCapability?.id===task?.id&&storageCapability?.revision===task?.revision&&storageCapability?.retry
+  const legacyMode=!task&&state?.job?.status==='failed'?state.job.recovery_mode:null
+  const legacyRecover=legacyMode==='local_candidate'||legacyMode==='original_response'
+  const legacyBlocked=legacyMode==='blocked'
+  const originalRecovery=legacyRecover||!!(storageFailure&&storageRetry)
   const running = !!state && needsPoll(state)
   const hasCurrentFigure=!!state?.figure&&state.generation_compatible!==false
   const unknown = !hasCurrentFigure && (task ? task.reason_code === 'submission_unknown' : state?.job?.status === 'uncertain')
   const unavailable = !hasCurrentFigure && task?.error_code === 'model_response_not_found'
   const expired = !hasCurrentFigure && task?.error_code === 'plot_container_expired'
   const budgetWait = !hasCurrentFigure && task?.status === 'waiting_confirmation' && task.reason_code === 'budget_exceeded'
-  const resume = !hasCurrentFigure && !unavailable && (budgetWait || (task?.status === 'failed' && !!task.error_code && !outputFailures.has(task.error_code)))
-  const retry = !hasCurrentFigure && (task ? task.status === 'failed' && !resume && !unavailable : state?.job?.status === 'failed')
+  const resume = !hasCurrentFigure && !unavailable && (!storageFailure||storageRetry) && (budgetWait || (task?.status === 'failed' && !!task.error_code && !outputFailures.has(task.error_code)))
+  const retry = !hasCurrentFigure && !storageFailure && !legacyRecover && !legacyBlocked && (task ? task.status === 'failed' && !resume && !unavailable : state?.job?.status === 'failed')
   const busy = submitting || previewing
-  const ready = sessionValid && canGenerate && !disabled && !!state?.is_current && state.current_revision === revision && !loading && !busy && !explanationBusy && !error
-  const allowed = !!config?.configured && ready && !running && !unknown && !resume && !unavailable
+  const ready = sessionValid && (canGenerate || originalRecovery) && !disabled && !!state?.is_current && state.current_revision === revision && !loading && !busy && !explanationBusy && !error
+  const allowed = (!!config?.configured || legacyRecover) && !legacyBlocked && !storageFailure && ready && !running && !unknown && !resume && !unavailable
     && !unconfirmed && (!task || task.status === 'failed' || task.status === 'succeeded')
+
+  useAnalysisLeaveGuard(sessionValid && (!!review || unconfirmed || unknown), () => sessionValid && !!(action.current || preview.current))
+
+  const storageTaskId=storageFailure?task?.id:null,storageTaskRevision=storageFailure?task?.revision:null
+  useEffect(()=>{if(!sessionValid||!storageTaskId||storageTaskRevision==null)return;const controller=new AbortController();void rawRequest<{task:{id:string;revision:number};allowed_actions:string[]}>(`/api/v1/tasks/${encodeURIComponent(storageTaskId)}/workspace`,controller).then(value=>{if(!controller.signal.aborted&&value.task?.id===storageTaskId&&value.task.revision===storageTaskRevision)setStorageCapability({id:storageTaskId,revision:storageTaskRevision,retry:Array.isArray(value.allowed_actions)&&value.allowed_actions.includes('retry')})}).catch(()=>{});return()=>controller.abort()},[sessionValid,storageTaskId,storageTaskRevision,attempt])
 
   function clearReview() { preview.current?.abort(); preview.current = null; setPreviewing(false); setReview(null) }
   function clearSubmission() { submission.current = null; setUnconfirmed(false) }
@@ -106,14 +119,14 @@ function FigurePanel({ base, runId, revision, canGenerate, disabled, onBusyChang
     return () => { active.current = false; preview.current?.abort(); preview.current = null; submission.current = null; action.current?.abort(); reading.current?.abort(); stop() }
   }, [])
   useEffect(() => {
-    if (!canGenerate) {
+    if (!canGenerate && !originalRecovery) {
       // Cancel the external request and reset its local UI when its source is invalidated.
       // oxlint-disable-next-line react/set-state-in-effect
       clearReview(); submission.current = null; setUnconfirmed(false)
       // oxlint-disable-next-line react/set-state-in-effect
       action.current?.abort(); action.current = null; setSubmitting(false)
     }
-  }, [canGenerate])
+  }, [canGenerate, originalRecovery])
   useEffect(() => {
     if (!imageError) return
     const projectPath = /^\/api\/v1\/projects\/[^/?#]+/.exec(base)?.[0]
@@ -179,9 +192,9 @@ function FigurePanel({ base, runId, revision, canGenerate, disabled, onBusyChang
   async function generate(confirmation?: ExternalProcessingConfirmation) {
     const confirming = unconfirmed && submission.current !== null
     if (!(confirming ? ready : resume ? ready && !unknown && !unconfirmed : allowed) || action.current || preview.current) return
-    if (!confirming && !resume && !confirmation) { await openReview(); return }
+    if (!confirming && !resume && !legacyRecover && !confirmation) { await openReview(); return }
     if (confirmation && !review) return
-    const identity = confirming ? submission.current : resume ? null : createArtifactSubmission({ ...review!.body, external_processing: confirmation! })
+    const identity = confirming ? submission.current : resume ? null : legacyRecover ? createArtifactSubmission({expected_revision:revision,retry:true,expected_predecessor_id:state!.job!.id}) : createArtifactSubmission({ ...review!.body, external_processing: confirmation! })
     setReview(null)
     if (identity) submission.current = identity
     const controller = new AbortController(); action.current = controller
@@ -222,9 +235,11 @@ function FigurePanel({ base, runId, revision, canGenerate, disabled, onBusyChang
     {config && !config.configured && <p className="warning-panel">{t(apiError({ code: config.message_code ?? 'openai_not_configured', params: config.message_params }, '请联系管理员配置 OpenAI API。'))}</p>}
     {configError && <p role="alert" className="error-panel">{t(configError)}</p>}
     {(!config?.configured || configError) && <button type="button" onClick={() => { setConfig(null); setConfigError(''); setConfigAttempt(value => value + 1) }}>{t("重试读取 OpenAI 配置")}</button>}
-    {!canGenerate && <p className="warning-panel">{t("请保存当前字段并执行对应配置的描述统计后，再生成图表。")}</p>}
+    {!canGenerate && !originalRecovery && <p className="warning-panel">{t("请保存当前字段并执行对应配置的描述统计后，再生成图表。")}</p>}
     {state?.generation_compatible===false&&<p className="warning-panel">{t('已保存的旧中文成果仍可查看和下载；生成新成果将使用已确认的英文任务语言。')}</p>}
     {figure && (!state.is_current || state.current_revision !== revision) && <p className="warning-panel">{t('以下图表对应旧配置，仍可查看和下载。')}</p>}
+    {legacyRecover&&<p className="warning-panel">{t(legacyMode==='local_candidate'?'原候选已保留；仅本地恢复，不新建收费调用。':'恢复需读取原远端响应，不会新建生成调用。')}</p>}
+    {legacyBlocked&&<p className="warning-panel">{t('原候选无法安全恢复，请联系管理员核对。')}</p>}
     {retry && !unconfirmed && <p className="warning-panel">{t("上次生成失败。")}{t("再次调用 API 可能产生额外费用，请确认后点击重试。")}</p>}
     {unknown && !unconfirmed && <p className="warning-panel">{t('提交结果尚未核实，已停止再次调用。请联系管理员核对。')}</p>}
     {unavailable && <p className="warning-panel">{t('已提交的绘图响应无法恢复，请联系管理员核对。')}</p>}
@@ -234,7 +249,7 @@ function FigurePanel({ base, runId, revision, canGenerate, disabled, onBusyChang
     <div className="analysis-actions">
       {unconfirmed && <button type="button" disabled={!ready} onClick={() => void generate()}>{t('确认上次提交')}</button>}
       {resume ? <button type="button" disabled={!ready || unknown || unconfirmed} onClick={() => void generate()}>{t(budgetWait ? '预算已配置，继续生成图表' : '继续绘图任务')}</button>
-        : <button type="button" disabled={!allowed || !!review} onClick={() => void generate()}>{retry ? t("重试生成（再次调用 API）") : figureKind==='boxplot'?t('使用 OpenAI 生成箱线图'):t('使用 OpenAI 生成{figure}',{figure:t(figureLabel)})}</button>}
+        : legacyBlocked || storageFailure ? null : <button type="button" disabled={!allowed || !!review} onClick={() => void generate()}>{legacyRecover ? t(legacyMode==='local_candidate'?'恢复原绘图候选':'读取原远端响应恢复') : retry ? t("重试生成（再次调用 API）") : figureKind==='boxplot'?t('使用 OpenAI 生成箱线图'):t('使用 OpenAI 生成{figure}',{figure:t(figureLabel)})}</button>}
       <button type="button" disabled={loading || submitting || explanationBusy} onClick={reload}>{t("重新读取图表")}</button>
     </div>
     {previewing && <div className="external-send-review" aria-busy="true"><p role="status">{t('正在核对发送资料……')}</p><button type="button" onClick={clearReview}>{t('取消')}</button></div>}
@@ -242,7 +257,7 @@ function FigurePanel({ base, runId, revision, canGenerate, disabled, onBusyChang
     {loading && <p role="status">{t("正在读取图表……")}</p>}
     {(submitting || running) && <p role="status">{task ? t(task.status === 'queued' ? '绘图任务已排队，可继续浏览工作台。' : task.status === 'succeeded' ? '正在读取已保存的图表……' : '正在生成图表，可继续浏览工作台。')
       : state?.job ? t(apiError({ code: state.job.message_code ?? `task_${state.job.status}`, params: state.job.message_params }, '任务状态暂不可用。')) : t("正在提交 OpenAI 绘图任务，请稍候……")}</p>}
-    {(retry || resume) && task?.error_code && <p role="status">{t(apiError({ code: task.error_code }, '任务状态暂不可用。'))}</p>}
+    {(retry || resume || storageFailure) && task?.error_code && <p role="status">{t(apiError({ code: task.error_code }, '任务状态暂不可用。'))}</p>}
     {retry && !task && state?.job && <p role="status">{t(apiError({ code: state.job.message_code ?? `task_${state.job.status}`, params: state.job.message_params }, '任务状态暂不可用。'))}</p>}
     {error && <p role="alert" className="error-panel">{t(error)}</p>}
     {imageError && <p role="alert" className="error-panel">{t("图片读取失败，请点击“重新读取图表”重试。")}</p>}

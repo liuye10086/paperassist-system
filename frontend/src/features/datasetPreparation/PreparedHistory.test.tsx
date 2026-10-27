@@ -18,6 +18,7 @@ test('prepared history reads actual Excel row coordinates and copies recipe from
  await user.click(await screen.findByRole('button', { name: '查看整理版本' }))
  await screen.findByRole('table', { name: '整理后的数据行' })
  expect(fetch.mock.calls.some(([url]) => url.includes('start_row=5&limit=20'))).toBe(true)
+ await user.click(screen.getByRole('button', { name: '返回整理版本列表' }))
  await user.click(screen.getByRole('button', { name: '复制规则到新任务' }))
  expect((screen.getByLabelText('字段名称 C') as HTMLInputElement).value).toBe('Value')
  expect((screen.getByLabelText('去除首尾空白 C') as HTMLInputElement).checked).toBe(true)
@@ -25,8 +26,9 @@ test('prepared history reads actual Excel row coordinates and copies recipe from
  expect(fetch.mock.calls.some(([url]) => url.includes('preparation-defaults'))).toBe(false)
  await user.type(screen.getByLabelText('字段名称 C'), ' edited')
  expect((screen.getByLabelText('字段名称 C') as HTMLInputElement).value).toBe('Value edited')
+ await user.click(screen.getByRole('button', { name: '返回整理版本列表' }))
  await user.click(screen.getByRole('button', { name: '复制规则到新任务' }))
- await waitFor(() => expect((screen.getByLabelText('字段名称 C') as HTMLInputElement).value).toBe('Value'))
+ await waitFor(() => expect((screen.getByLabelText('字段名称 C') as HTMLInputElement).value).toBe('Value edited'))
 })
 
 const laterVersion = { ...version, id: 'pd2', version: 3, source: { ...source, dataset_id: 'pd2', dataset_version: 3 }, recipe: { ...recipe, fields: [{ ...recipe.fields[0], name: 'Latest value' }, recipe.fields[1]] }, download_url: '/api/v1/projects/p1/files/f1/prepared-dataset-versions/pd2/download' }

@@ -139,12 +139,15 @@ class ReviewDocumentService:
 
     def create(self, project, identity, request, key):
         require_key(key);body=dict(revision_id=identity,**request.model_dump())
+        if request.language is None:body.pop('language',None)
         with self.store.connection(write=True) as db:
             self.store.require_project(db,project);db.execute('SELECT id FROM projects WHERE id=%s FOR UPDATE',(project,)).fetchone()
             old=self.existing(db,project,key,body)
             if old:return self.view(db,self.row(db,project,old['id'])),200
             revision=self.published_revision(db,project,identity)
-            snapshot=build_snapshot(revision,request.kind,request.language)
+            from app.domain.admin_configuration.rule_consumption import document_defaults
+            defaults=document_defaults(db,revision['round_id'])
+            snapshot=build_snapshot(revision,request.kind,request.language or defaults['language'])
             return self.insert(db,project,revision,snapshot,body,key)
 
     def version(self,project,identity,request,key):

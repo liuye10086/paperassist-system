@@ -77,12 +77,19 @@ function api(options: { patch?: (init: RequestInit) => Promise<Response> } = {})
   return mock
 }
 
-async function navigate(name: string) { await act(async () => { fireEvent.click(screen.getByRole('button', { name })) }) }
+async function navigate(name: string) {
+  if (name === '项目文件' && !screen.queryByRole('button', { name })) {
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: '材料准备' })) })
+  }
+  await act(async () => { fireEvent.click(screen.getByRole('button', { name })) })
+  if (name === '项目概览') await act(async () => { fireEvent.click(screen.getByRole('button', { name: '项目资料' })) })
+}
 
 async function openProject() {
   const user = userEvent.setup()
   render(<App />)
   await user.click(await screen.findByRole('button', { name: '打开项目 药学项目' }))
+  await user.click(await screen.findByRole('button', { name: '项目资料' }))
   await screen.findByRole('button', { name: '编辑项目信息' })
   return user
 }
@@ -265,7 +272,7 @@ test('times out after fifteen seconds and rereads server result while preserving
 })
 
 for (const late of ['response', 'body']) {
-  test(`ignores a late patch ${late} after switching projects`, async () => {
+  test(`protects a pending save and ignores a late patch ${late} after access revocation and switching projects`, async () => {
     const pending = deferred<Response>()
     const body = deferred<unknown>()
     let bodyStarted = false
@@ -279,10 +286,23 @@ for (const late of ['response', 'body']) {
     await editName(user)
     await user.click(screen.getByRole('button', { name: '保存修改' }))
     if (late === 'body') await waitFor(() => expect(bodyStarted).toBe(true))
+    const alert = vi.spyOn(window, 'alert').mockImplementation(() => {})
+    await navigate('我的项目')
+    await user.click(screen.getByRole('button', { name: '打开项目 毕业论文项目' }))
+    expect(alert).toHaveBeenCalledWith('当前保存请求尚未完成或结果待确认，请先核对保存结果。')
+    expect(patchCalls(mock)[0][1]!.signal!.aborted).toBe(false)
+    // A server-reported access loss must still clear pending state. Preserve the
+    // late-response isolation check after that forced lifecycle transition.
+    const normal = mock.getMockImplementation()!
+    mock.mockImplementation((url, init) => url.startsWith('/api/v1/projects/p1/files')
+      ? Promise.resolve(Response.json({ detail: { code: 'project_not_found', message: '项目不存在或无权访问。' } }, { status: 404 }))
+      : normal(url, init))
+    await user.click(screen.getByRole('button', { name: '材料准备' }))
+    await waitFor(() => expect(patchCalls(mock)[0][1]!.signal!.aborted).toBe(true))
     await navigate('我的项目')
     await user.click(screen.getByRole('button', { name: '打开项目 毕业论文项目' }))
     await screen.findByRole('heading', { name: '毕业论文项目' })
-    expect(patchCalls(mock)[0][1]!.signal!.aborted).toBe(true)
+    alert.mockRestore()
     await act(async () => {
       if (late === 'response') pending.resolve(Response.json({ ...project, name: '迟到名称' }))
       else body.resolve({ ...project, name: '迟到名称' })
