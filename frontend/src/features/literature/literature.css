@@ -37,8 +37,6 @@
 .citation-editor { display: grid; gap: .85rem; min-width: 0; border: 1px solid var(--border, #d9dee7); border-radius: .5rem; padding: 1rem; }
 .citation-choice { display: flex; align-items: flex-start; gap: .6rem; margin-block: .6rem; }
 .citation-choice small { display: block; color: var(--muted, #59667a); }
-.citation-checks { display: flex; flex-wrap: wrap; gap: .5rem 1.25rem; }
-.citation-checks p { margin-block: .35rem; }
 .citation-output { white-space: pre-wrap; overflow-wrap: anywhere; border-left: 3px solid var(--accent, #416bb7); padding: 1rem; background: var(--panel, #f5f7fb); }
 .citation-metadata label { display: grid; gap: .35rem; margin-block: .5rem; }
 .citation-metadata input[type="checkbox"], .citation-choice input { width: auto; }

@@ -10,18 +10,18 @@ import StorageDeletion from './StorageDeletion'
 import {storageNames,type StoragePolicy,type StorageUsage,type RecoveryReceipt,type StorageInventory} from './storageTypes'
 import './storage.css'
 type PolicyEvent={id:string;scope_type:string;scope_id:string;revision:number;actor_user_id:string|null;reason:string;created_at:string;before_limit_bytes:number;after_limit_bytes:number;before_mode:string;after_mode:string}
-export default function StoragePanel({admin,onForbidden,active=true,layered=false,registerLeaveGuard}:{admin:boolean;onForbidden:()=>void;active?:boolean;layered?:boolean;registerLeaveGuard?:RegisterLeaveGuard}){
+export default function StoragePanel({admin,onForbidden,active=true,registerLeaveGuard}:{admin:boolean;onForbidden:()=>void;active?:boolean;registerLeaveGuard?:RegisterLeaveGuard}){
  const{t}=useI18n(),[valid,setValid]=useState(true),[projectDraft,setProjectDraft]=useState(''),[project,setProject]=useState(''),[editor,setEditor]=useState<StoragePolicy|null>(null),[limit,setLimit]=useState(''),[mode,setMode]=useState('observe_only'),[reason,setReason]=useState(''),[error,setError]=useState(''),[pending,setPending]=useState(false),[uncertain,setUncertain]=useState(false),[scanReceipt,setScanReceipt]=useState<StorageInventory|null>(null)
  const[view,setView]=useState('overview'),[visited,setVisited]=useState<string[]>([])
- const show=(key:string)=>!layered||view===key
+ const show=(key:string)=>(view===key)
  const select=(key:string)=>{setView(key);setVisited(values=>values.includes(key)?values:[...values,key])}
  const dirty=valid&&!!editor&&(limit!==String(editor.limit_bytes)||mode!==editor.mode||!!reason)
  useDraftLeaveGuard(registerLeaveGuard,dirty,valid&&pending)
  const mutation=useRef<AbortController|null>(null)
  const forbidden=useCallback(()=>{mutation.current?.abort();setValid(false);setPending(false);setScanReceipt(null);setEditor(null);setReason('');setLimit('');setError('');onForbidden()},[onForbidden])
- const dataRead=useOperationsRead<StorageUsage>(admin?'/api/v1/admin/storage':'/api/v1/me/storage'+(project?'?project_id='+encodeURIComponent(project):''),forbidden,active&&valid&&(!layered||['overview','quota','inventory'].includes(view)))
- const events=useOperationsRead<{items:PolicyEvent[]}>('/api/v1/admin/storage/policy-events',forbidden,admin&&active&&valid&&(!layered||view==='audit'||view==='quota'&&uncertain))
- const recovery=useOperationsRead<RecoveryReceipt>('/api/v1/admin/storage/recovery',forbidden,admin&&active&&valid&&(!layered||view==='recovery'))
+ const dataRead=useOperationsRead<StorageUsage>(admin?'/api/v1/admin/storage':'/api/v1/me/storage'+(project?'?project_id='+encodeURIComponent(project):''),forbidden,active&&valid&&((['overview','quota','inventory'].includes(view))))
+ const events=useOperationsRead<{items:PolicyEvent[]}>('/api/v1/admin/storage/policy-events',forbidden,admin&&active&&valid&&((view==='audit')||view==='quota'&&uncertain))
+ const recovery=useOperationsRead<RecoveryReceipt>('/api/v1/admin/storage/recovery',forbidden,admin&&active&&valid&&((view==='recovery')))
  useEffect(()=>{const stop=onApiSessionChanged(()=>{mutation.current?.abort();setValid(false);setPending(false);setScanReceipt(null);setEditor(null);setReason('');setLimit('');setProject('');setProjectDraft('');setError('');setUncertain(false)});return()=>{stop();mutation.current?.abort()}},[])
  const inventory=dataRead.data?.inventory??scanReceipt
  const data=dataRead.data, policy=editor&&data?.policies?.find(p=>p.scope_type===editor.scope_type&&p.scope_id===editor.scope_id)
@@ -39,13 +39,13 @@ export default function StoragePanel({admin,onForbidden,active=true,layered=fals
   <h2>{t(admin?'存储治理':'本人存储')}</h2>
   <p>{t('统计范围为应用资产文件；数据库正文不计入资产配额。')}</p>
   <p>{t('资产、备份和历史记录默认持续保留，不自动删除。')}</p>
-  {layered&&<UsageViewTabs label="存储工作视图" items={admin?[['overview','存储概览'],['quota','配额政策'],['inventory','资产盘点'],['audit','配额审计'],['recovery','恢复回执']]:[['overview','存储概览'],['deletion','受控处置']]} selected={view} onChange={select}/>}
+  {(<UsageViewTabs label="存储工作视图" items={admin?[['overview','存储概览'],['quota','配额政策'],['inventory','资产盘点'],['audit','配额审计'],['recovery','恢复回执']]:[['overview','存储概览'],['deletion','受控处置']]} selected={view} onChange={select}/>)}
   <div className="usage-layer" hidden={!show('overview')}>
    {!admin&&<form onSubmit={e=>{e.preventDefault();setProject(projectDraft.trim())}}><label>{t('本人项目标识（可选）')}<input value={projectDraft} onChange={e=>setProjectDraft(e.target.value)}/></label><button>{t('读取本人存储')}</button></form>}
   </div>
   {(show('overview')||show('quota')||show('inventory')||show('audit')||show('recovery'))&&<button disabled={dataRead.loading||pending} onClick={refresh}>{t('刷新存储状态')}</button>}
   {admin&&<div className="usage-layer" hidden={!show('inventory')}><button disabled={pending} onClick={()=>void mutate(true)}>{t('盘点资产（不删除）')}</button></div>}
-  <div className="usage-layer" hidden={layered&&!['overview','quota','inventory'].includes(view)}><ReadState {...dataRead}/></div>
+  <div className="usage-layer" hidden={(!['overview','quota','inventory'].includes(view))}><ReadState {...dataRead}/></div>
   {error&&<p role="alert">{t(error)}</p>}
   {data&&<>
    <div className="usage-layer" hidden={!show('overview')}>
@@ -79,6 +79,6 @@ export default function StoragePanel({admin,onForbidden,active=true,layered=fals
    <div className="usage-layer" hidden={!show('audit')}><h3>{t('配额变更审计（最近 100 条）')}</h3><ReadState {...events}/>{events.data?.items.length===0&&<p>{t('暂无配额变更记录。')}</p>}{events.data?.items.map(e=><p key={e.id}>{e.scope_type} / {e.scope_id} · {e.actor_user_id??t('未知')} · {e.before_limit_bytes} → {e.after_limit_bytes} · {name(e.before_mode)} → {name(e.after_mode)} · {e.reason} · <DateValue value={e.created_at}/></p>)}</div>
    <div className="usage-layer" hidden={!show('recovery')}><h3>{t('备份与实际恢复结果')}</h3><ReadState {...recovery}/>{recovery.data&&<><p>{t(recovery.data.status==='available'?'恢复回执可用':'恢复回执不可用')}</p><p>{t('备份无限期保留。')}</p>{recovery.data.status==='unavailable'&&<p>{t('备份点')}：{t('未知')} · {t('实际恢复')}：{t('未知')}</p>}{recovery.data.status==='available'&&<><p>{t(recovery.data.synthetic_only?'仅合成夹具验证范围':'回执声明的验证范围')} · {recovery.data.source_schema}</p><p>{t('备份点')}：{recovery.data.backup.consistency_id??t('未知')} · {name(recovery.data.backup.status)} · <DateValue value={recovery.data.backup.finished_at}/></p><p>{t('实际恢复')}：{name(recovery.data.restore.status)} · <DateValue value={recovery.data.restore.finished_at}/> · {t('耗时（秒）')} {recovery.data.restore.duration_seconds??t('未知')} · {t('验证结果')} {name(recovery.data.restore.verification)}</p></>}</>}</div>
   </>}
-  {!admin&&(!layered||visited.includes('deletion'))&&<div className="usage-layer" hidden={!show('deletion')}><StorageDeletion onForbidden={onForbidden} active={active&&show('deletion')} registerLeaveGuard={registerLeaveGuard}/></div>}
+  {!admin&&((visited.includes('deletion')))&&<div className="usage-layer" hidden={!show('deletion')}><StorageDeletion onForbidden={onForbidden} active={active&&show('deletion')} registerLeaveGuard={registerLeaveGuard}/></div>}
  </section>
 }

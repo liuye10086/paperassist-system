@@ -15,7 +15,7 @@ vi.mock('./operationsApi',async original=>{
 })
 afterEach(()=>{cleanup();reads.mockClear();vi.unstubAllGlobals()})
 it('layers ordinary usage, preserves filter drafts, and gates inactive reads',()=>{
- const view=render(<UsagePanel admin={false} layered onForbidden={()=>{}} />)
+ const view=render(<UsagePanel admin={false} onForbidden={()=>{}} />)
  expect(screen.getByRole('navigation',{name:'用量工作视图'})).toBeTruthy()
  expect(screen.queryByRole('region',{name:'逐次调用'})).toBeNull()
  fireEvent.click(screen.getByText('筛选条件'));fireEvent.change(screen.getByLabelText('精确模型'),{target:{value:'exact-model'}})
@@ -23,11 +23,11 @@ it('layers ordinary usage, preserves filter drafts, and gates inactive reads',()
  expect(screen.getByRole('region',{name:'逐次调用'})).toBeTruthy()
  expect(screen.getByLabelText('精确模型')).toHaveProperty('value','exact-model')
  expect(screen.queryByRole('button',{name:'已保存的用量汇总'})).toBeNull()
- view.rerender(<UsagePanel admin={false} layered active={false} onForbidden={()=>{}} />)
+ view.rerender(<UsagePanel admin={false} active={false} onForbidden={()=>{}} />)
  expect(reads.mock.calls.at(-1)?.[1]).toBe(false)
 })
 it('admin saved summaries and request metrics load only when visited and stop when hidden',()=>{
- render(<UsagePanel admin layered onForbidden={()=>{}} />)
+ render(<UsagePanel admin onForbidden={()=>{}} />)
  expect(reads.mock.calls.some(([url])=>url.includes('/metrics')||url.includes('/summaries'))).toBe(false)
  fireEvent.click(screen.getByRole('button',{name:'已保存的用量汇总'}))
  expect(reads.mock.calls.some(([url,active])=>url.includes('/summaries')&&active)).toBe(true)
@@ -55,7 +55,7 @@ it('layers project and task budgets and calls without changing call sources',asy
 })
 
 it('retains independent group and call pages and applies the exact model and UTC range together',()=>{
- render(<UsagePanel admin layered onForbidden={()=>{}} />)
+ render(<UsagePanel admin onForbidden={()=>{}} />)
  fireEvent.click(screen.getByText('筛选条件'))
  fireEvent.change(screen.getByLabelText('精确模型'),{target:{value:' exact-model '}})
  fireEvent.change(screen.getByLabelText('起始时间'),{target:{value:'2026-10-01T08:00'}})
@@ -79,7 +79,7 @@ it('retains independent group and call pages and applies the exact model and UTC
  expect(getUsage().searchParams.get('group_page')).toBe('1')
 })
 it('keeps storage in its own visited view, retaining its draft and gating hidden reads',()=>{
- render(<UsagePanel admin={false} layered onForbidden={()=>{}} />)
+ render(<UsagePanel admin={false} onForbidden={()=>{}} />)
  expect(screen.queryByRole('region',{name:'本人存储'})).toBeNull()
  expect(reads.mock.calls.some(([url,active])=>url.includes('/storage')&&active)).toBe(false)
  fireEvent.click(screen.getByRole('button',{name:'本人存储'}))
@@ -92,7 +92,7 @@ it('keeps storage in its own visited view, retaining its draft and gating hidden
 })
 
 it('starts with collapsed filters and keeps an unsubmitted draft through close and view changes',()=>{
- render(<UsagePanel admin layered onForbidden={()=>{}} />)
+ render(<UsagePanel admin onForbidden={()=>{}} />)
  const filters=screen.getByText('筛选条件').closest('details')!
  expect(filters.open).toBe(false)
  expect(screen.getByRole('region',{name:'综合汇总'})).toBeTruthy()

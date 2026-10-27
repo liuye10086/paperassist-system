@@ -6,7 +6,7 @@ const summary:Summary={call_count:1,estimated_micro_usd:10,estimated_unknown_cou
 const sources:Provenance={openai_live:summary,synthetic_fixture:{...summary,call_count:2},unknown:{...summary,call_count:3}}
 afterEach(cleanup)
 it('shows one source at a time while retaining unknown and synthetic disclosures',()=>{
- render(<ProvenanceView value={sources} layered/>)
+ render(<ProvenanceView value={sources}/>)
  expect(screen.getByRole('region',{name:'已证实真实调用'})).toBeTruthy()
  expect(screen.queryByRole('region',{name:'合成验收样例'})).toBeNull()
  fireEvent.click(screen.getByRole('button',{name:'来源未知'}))
@@ -21,9 +21,4 @@ it('shows one source at a time while retaining unknown and synthetic disclosures
  expect(within(fixture).getByText('调用次数').nextElementSibling?.textContent).toBe('2')
  fireEvent.click(screen.getByRole('button',{name:'已证实真实调用'}))
  expect(within(screen.getByRole('region',{name:'已证实真实调用'})).getByText('调用次数').nextElementSibling?.textContent).toBe('1')
-})
-it('retains all three source sections in the legacy layout',()=>{
- render(<ProvenanceView value={sources}/>)
- expect(screen.getAllByRole('region')).toHaveLength(3)
- expect(screen.queryByRole('navigation')).toBeNull()
 })

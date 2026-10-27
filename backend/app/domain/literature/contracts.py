@@ -66,23 +66,3 @@ class SelectionRequest(StrictModel):
     expected_revision: int = Field(ge=1, lt=2147483647)
     status: Literal['candidate', 'shortlisted', 'excluded']
     note: str = Field(default='', max_length=2000)
-
-
-class EvidenceBindingContract(StrictModel):
-    """Reserved business contract; not a claim-verification implementation."""
-    schema_version: Literal[1] = 1
-    project_reference_id: str
-    reference_id: str
-    claim_id: str
-    source_receipt_id: str
-    reading_scope: Literal['abstract', 'full_text', 'user_material']
-    status: Literal['supported', 'partial', 'unsupported', 'needs_review']
-
-
-class CitationBindingContract(StrictModel):
-    schema_version: Literal[1] = 1
-    project_reference_id: str
-    reference_id: str
-    paragraph_id: str
-    manuscript_version_key: str
-    evidence_id: str

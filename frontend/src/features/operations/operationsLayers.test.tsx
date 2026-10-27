@@ -13,7 +13,7 @@ const baseFetch=async(url:string)=>Response.json(url==='/api/v1/auth/me'?{user:{
 const fetch=vi.fn(baseFetch)
 beforeEach(()=>{role='admin';setApiSession('csrf','self');fetch.mockReset();fetch.mockImplementation(baseFetch);vi.stubGlobal('fetch',fetch)})
 afterEach(()=>{cleanup();vi.unstubAllGlobals();vi.restoreAllMocks();window.history.replaceState(null,'','/')})
-async function start(){render(<OperationsWorkspace layered><p>Project remains</p></OperationsWorkspace>);fireEvent.click(await screen.findByRole('button',{name:'管理员'}));await screen.findByText('other@example.test')}
+async function start(){render(<OperationsWorkspace><p>Project remains</p></OperationsWorkspace>);fireEvent.click(await screen.findByRole('button',{name:'管理员'}));await screen.findByText('other@example.test')}
 it.each([['账号管理','账号搜索','unapplied-account'],['系统任务','任务状态','failed'],['运行日志','请求标识','unapplied-request']])('starts %s filters collapsed and preserves unapplied input when reopening',async(tab,label,value)=>{
  await start();if(tab!=='账号管理')fireEvent.click(screen.getByRole('button',{name:tab}))
  const input=screen.getByLabelText(label),disclosure=input.closest('details')!;expect(disclosure).not.toBeNull();expect(disclosure.open).toBe(false)
@@ -72,10 +72,10 @@ it('clears hidden account drafts and leave guards after session invalidation',as
 })
 it('revokes cached administrator content on confirmed identity context changes',async()=>{
  const identity={id:'self',email:'self@example.test',role:'admin'}
- const {rerender}=render(<AuthIdentityContext.Provider value={identity}><OperationsWorkspace layered><p>Project</p></OperationsWorkspace></AuthIdentityContext.Provider>)
+ const {rerender}=render(<AuthIdentityContext.Provider value={identity}><OperationsWorkspace><p>Project</p></OperationsWorkspace></AuthIdentityContext.Provider>)
  fireEvent.click(screen.getByRole('button',{name:'管理员'}));await screen.findByText('other@example.test')
  fireEvent.click(screen.getByRole('button',{name:'项目工作区'}))
- rerender(<AuthIdentityContext.Provider value={{...identity,role:'user'}}><OperationsWorkspace layered><p>Project</p></OperationsWorkspace></AuthIdentityContext.Provider>)
+ rerender(<AuthIdentityContext.Provider value={{...identity,role:'user'}}><OperationsWorkspace><p>Project</p></OperationsWorkspace></AuthIdentityContext.Provider>)
  expect(document.body.textContent).not.toContain('other@example.test')
 })
 it('retains independent log filter drafts and applies explicit task links',async()=>{

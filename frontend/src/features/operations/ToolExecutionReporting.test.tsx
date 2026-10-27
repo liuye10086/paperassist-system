@@ -1,4 +1,4 @@
-import {cleanup,render,screen,within} from '@testing-library/react'
+import {cleanup,fireEvent,render,screen,within} from '@testing-library/react'
 import {afterEach,expect,it,vi} from 'vitest'
 import {setLocale} from '../../shared/i18n'
 import UsagePanel from './UsagePanel'
@@ -12,7 +12,7 @@ it('separates configured tool calls, observed uses and unknown calls in admin us
  render(<UsagePanel admin onForbidden={()=>{}} />)
  const combined=screen.getByRole('region',{name:'综合汇总'})
  for(const [label,value] of [['配置允许工具的模型调用数','3'],['已观测实际工具使用','2'],['实际工具使用未知的调用数','1']])expect(within(combined).getByText(label).nextElementSibling?.textContent).toBe(value)
- expect(screen.getByText('全站请求指标使用独立时间筛选，不随模型用量筛选变化。')).toBeTruthy()
+ fireEvent.click(screen.getByRole('button',{name:'运行指标'}));expect(screen.getByText('全站请求指标使用独立时间筛选，不随模型用量筛选变化。')).toBeTruthy()
 })
 it('does not offer saved summaries or site-wide request metrics to ordinary usage readers',()=>{
  render(<UsagePanel admin={false} onForbidden={()=>{}} />)
@@ -26,5 +26,6 @@ it.each(['zh-CN','en'] as const)('shows known tool executions and unknown calls 
  expect(within(screen.getByRole('region',{name:locale==='en'?'Combined summary':'综合汇总'})).getByText(expected)).toBeTruthy()
  cleanup()
  render(<LogsPanel onForbidden={()=>{}} auditTarget="" taskId="" />)
+ fireEvent.click(screen.getByRole('button',{name:locale==='en'?'Request metrics':'请求指标'}))
  expect(screen.getByText(expected)).toBeTruthy()
 })

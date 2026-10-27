@@ -1,14 +1,6 @@
 """Installed field-level compatibility classifiers; no research content in errors."""
 from app.core.exceptions import StorageError
 
-_classifiers={}
-
-
-def register_classifier(task_type,classifier):
-    if not callable(classifier):raise TypeError('Classifier must be installed code.')
-    _classifiers[task_type]=classifier
-
-
 def changed_paths(before,after,prefix=''):
     paths=[]
     if isinstance(before,dict) and isinstance(after,dict):
@@ -95,7 +87,6 @@ def check(db,paths):
         LEFT JOIN admin_configuration_bindings b ON b.kind='task' AND b.object_id=t.id
         WHERE b.version_id IS NULL AND t.status IN ('queued','running','waiting_input','waiting_confirmation')''').fetchall()
     for task in rows:
-        classifier=_classifiers.get(task['task_type'],_affected)
-        if classifier(dict(task),paths):
+        if _affected(dict(task),paths):
             raise StorageError('configuration_legacy_inflight','存在受本次字段变更影响且缺少冻结依据的旧任务，请先处理该任务。',409,
                 params={'task_id':task['id'],'task_type':task['task_type']})

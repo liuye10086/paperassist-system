@@ -86,7 +86,7 @@ it('integrates the admin runtime tab with active polling and immediate role revo
   if(url==='/api/v1/auth/me')return Response.json({user:{id:'admin',email:'admin@example.test',role}})
   return Response.json({items:[],total:0,page:1,page_size:10})
  })
- render(<AuthIdentityContext.Provider value={{id:'admin',email:'admin@example.test',role:'admin'}}><OperationsWorkspace layered><input aria-label="Retained project draft" defaultValue="text"/></OperationsWorkspace></AuthIdentityContext.Provider>)
+ render(<AuthIdentityContext.Provider value={{id:'admin',email:'admin@example.test',role:'admin'}}><OperationsWorkspace><input aria-label="Retained project draft" defaultValue="text"/></OperationsWorkspace></AuthIdentityContext.Provider>)
  expect(mock.mock.calls.some(([url])=>url==='/api/v1/admin/runtime/status')).toBe(false)
  fireEvent.click(screen.getByRole('button',{name:'管理员'}));fireEvent.click(screen.getByRole('button',{name:'运行状态'}));await flush()
  expect(screen.getByText('desired-config')).toBeTruthy()
@@ -142,7 +142,7 @@ it.each(['maintenance','service_unavailable'] as const)('public %s preserves mou
  let mounts=0
  function Draft(){const[value,setValue]=useState('');useEffect(()=>{mounts++},[]);return <input aria-label="Existing draft" value={value} onChange={e=>setValue(e.target.value)}/>}
  mock.mockImplementation(async(url:string)=>Response.json(url==='/api/v1/runtime/status'?{status,reason:status==='maintenance'?'operator_maintenance':'service_observation_unavailable',observed_at:now.toISOString()}:{user:{id:'admin',email:'admin@example.test',role:'admin'}}))
- render(<AuthIdentityContext.Provider value={{id:'admin',email:'admin@example.test',role:'admin'}}><OperationsWorkspace layered><Draft/></OperationsWorkspace></AuthIdentityContext.Provider>);await flush()
+ render(<AuthIdentityContext.Provider value={{id:'admin',email:'admin@example.test',role:'admin'}}><OperationsWorkspace><Draft/></OperationsWorkspace></AuthIdentityContext.Provider>);await flush()
  fireEvent.change(screen.getByLabelText('Existing draft'),{target:{value:'Keep research text'}})
  expect(screen.getByText('已保存成果的读取或下载取决于依赖可用性，当前可能受限。')).toBeTruthy()
  fireEvent.click(screen.getByRole('button',{name:'本人用量'}));fireEvent.click(screen.getByRole('button',{name:'查看已有项目与成果'}))

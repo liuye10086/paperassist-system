@@ -9,7 +9,7 @@ let fetcher:ReturnType<typeof vi.fn>
 beforeEach(()=>{setApiSession('csrf','self');fetcher=vi.fn(async(url:string)=>Response.json(url.endsWith('/policy-events')?{items:[]}:url.endsWith('/recovery')?{status:'unavailable'}:storage));vi.stubGlobal('fetch',fetcher)})
 afterEach(()=>{cleanup();vi.unstubAllGlobals()})
 it('layers admin storage and only requests audit and recovery when selected',async()=>{
- render(<StoragePanel admin layered onForbidden={()=>{}} />)
+ render(<StoragePanel admin onForbidden={()=>{}} />)
  await screen.findByText('85 bytes / 100 bytes')
  expect(screen.getByRole('navigation',{name:'存储工作视图'})).toBeTruthy()
  expect(fetcher.mock.calls.some(([url])=>url.endsWith('/policy-events')||url.endsWith('/recovery'))).toBe(false)
@@ -25,7 +25,7 @@ it('guards quota drafts and preserves a submitted mutation when switching storag
  let finish!:(value:Response)=>void
  fetcher.mockImplementation(async(url:string,init?:RequestInit)=>init?.method==='PUT'?new Promise<Response>(resolve=>{finish=resolve}):Response.json(url.endsWith('/policy-events')?{items:[]}:storage))
  const register=vi.fn((_guard:()=>boolean,_dirty?:()=>boolean)=>()=>{})
- render(<StoragePanel admin layered registerLeaveGuard={register} onForbidden={()=>{}} />)
+ render(<StoragePanel admin registerLeaveGuard={register} onForbidden={()=>{}} />)
  await screen.findByText('85 bytes / 100 bytes')
  expect(register.mock.calls.at(-1)?.[1]?.()).toBe(false)
  fireEvent.click(screen.getByRole('button',{name:'配额政策'}))
@@ -42,7 +42,7 @@ it('guards quota drafts and preserves a submitted mutation when switching storag
 })
 it('lazily mounts own controlled disposal and retains required input when hidden',async()=>{
  const register=vi.fn((_guard:()=>boolean,_dirty?:()=>boolean)=>()=>{})
- render(<StoragePanel admin={false} layered registerLeaveGuard={register} onForbidden={()=>{}} />)
+ render(<StoragePanel admin={false} registerLeaveGuard={register} onForbidden={()=>{}} />)
  expect(screen.queryByLabelText('删除项目标识')).toBeNull()
  fireEvent.click(screen.getByRole('button',{name:'受控处置'}))
  fireEvent.change(screen.getByLabelText('删除项目标识'),{target:{value:'p1'}})

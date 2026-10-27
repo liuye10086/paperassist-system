@@ -99,9 +99,3 @@ def retry_collection_in_transaction(store,db,task,expected_revision):
     store.update_task(db,task,expected_revision); store.append_event(db,task,'requeued'); store.enqueue(db,task)
     db.execute("UPDATE report_build_requests SET status='queued',error_code=NULL,updated_at=clock_timestamp() WHERE task_id=%s",(task['id'],))
     return store.public_task(task)
-
-
-def retry_collection_word_task(store,task_id,expected_revision):
-    with store.connection(write=True) as db:
-        task=store.require_task(db,task_id)
-        return retry_collection_in_transaction(store,db,task,expected_revision)

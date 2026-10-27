@@ -10,9 +10,9 @@ beforeEach(()=>{verified=true;denied=false;setApiSession('csrf','admin');mock=vi
 afterEach(()=>{cleanup();vi.unstubAllGlobals();setLocale('zh-CN')})
 it('saves applied filters, displays cutoff and unknown costs, pages independently and verifies sources',async()=>{
  render(<SavedUsageSummaries filters={{model:'exact',from:'2026-10-01T00:00:00Z',group_by:'model',page:'9'}} onForbidden={()=>{}}/>)
- await screen.findByRole('button',{name:'查看保存汇总'});fireEvent.click(screen.getByRole('button',{name:'保存用量汇总'}));await screen.findByText('用量汇总已保存。')
+ await screen.findByRole('button',{name:'查看保存汇总'});fireEvent.click(screen.getByRole('button',{name:'生成参数'}));fireEvent.click(screen.getByRole('button',{name:'保存用量汇总'}));await screen.findByText('用量汇总已保存。')
  const saved=mock.mock.calls.find(([,init])=>init?.method==='POST')!;expect(JSON.parse(saved[1].body)).toEqual({model:'exact',from:'2026-10-01T00:00:00Z',group_by:'model'})
- fireEvent.click((await screen.findAllByRole('button',{name:'查看保存汇总'}))[0]);await screen.findByText('admin-usage-capture-v1');expect(screen.getAllByText('未知（尚未完整核对）').length).toBeGreaterThan(0)
+ fireEvent.click(screen.getByRole('button',{name:'汇总列表'}));fireEvent.click((await screen.findAllByRole('button',{name:'查看保存汇总'}))[0]);await screen.findByText('admin-usage-capture-v1');expect(screen.getAllByText('未知（尚未完整核对）').length).toBeGreaterThan(0)
  fireEvent.click(screen.getByRole('button',{name:'下一页保存调用'}));await waitFor(()=>expect(mock.mock.calls.some(([u])=>u.includes('/s1?')&&u.includes('page=2')&&u.includes('group_page=1'))).toBe(true))
  fireEvent.click(screen.getByRole('button',{name:'核对保存汇总'}));await screen.findByText('保存汇总核对一致。');expect(screen.getByText('汇总与原来源核对不代表费用已结算。')).toBeTruthy()
 })
@@ -28,7 +28,7 @@ it('layers list, detail and generation while retaining a pending save across hid
   return Response.json({items:[capture],total:12})
  })
  const register=vi.fn((_guard:()=>boolean,_isDirty?:()=>boolean)=>()=>{})
- const view=render(<SavedUsageSummaries filters={{model:'exact'}} layered registerLeaveGuard={register} onForbidden={()=>{}} />)
+ const view=render(<SavedUsageSummaries filters={{model:'exact'}} registerLeaveGuard={register} onForbidden={()=>{}} />)
  fireEvent.click((await screen.findAllByRole('button',{name:'查看保存汇总'}))[0])
  await screen.findByText('admin-usage-capture-v1')
  expect(screen.queryByRole('button',{name:'查看保存汇总'})).toBeNull()
@@ -38,14 +38,14 @@ it('layers list, detail and generation while retaining a pending save across hid
  await waitFor(()=>expect(finish).toBeTruthy())
  const save=mock.mock.calls.find(([,init])=>init?.method==='POST')!
  expect(register.mock.calls.at(-1)?.[1]?.()).toBe(true)
- view.rerender(<SavedUsageSummaries filters={{model:'exact'}} active={false} layered registerLeaveGuard={register} onForbidden={()=>{}} />)
+ view.rerender(<SavedUsageSummaries filters={{model:'exact'}} active={false} registerLeaveGuard={register} onForbidden={()=>{}} />)
  expect(save[1].signal.aborted).toBe(false)
  await act(async()=>finish(Response.json(capture)))
  expect(register.mock.calls.at(-1)?.[1]?.()).toBe(false)
 })
 it('aborts an unfinished detail GET when moving to another saved-summary view',async()=>{
  mock.mockImplementation(async(url:string)=>url.includes('/s1?')?new Promise<Response>(()=>{}):Response.json({items:[capture],total:12}))
- render(<SavedUsageSummaries filters={{}} layered onForbidden={()=>{}} />)
+ render(<SavedUsageSummaries filters={{}} onForbidden={()=>{}} />)
  fireEvent.click((await screen.findAllByRole('button',{name:'查看保存汇总'}))[0])
  const detail=mock.mock.calls.find(([url])=>url.includes('/s1?'))!
  expect(detail[1].signal.aborted).toBe(false)
