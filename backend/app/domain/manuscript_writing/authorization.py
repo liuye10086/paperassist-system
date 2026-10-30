@@ -5,10 +5,10 @@ from app.core.exceptions import StorageError
 from app.adapters.task_store import source_conflict
 from app.domain.literature.service import digest
 from app.domain.manuscripts.service import now
-from app.domain.manuscripts.sources import changes
+from app.domain.manuscripts.sources import writing_changes as changes
 from app.domain.dataset_preparation.service import require_key, append_checkpoint
 from .bundle import build_bundle, validate_bundle
-from .live_contracts import PreviewRequest, AuthorizationRequest, LiveWritingRequest, WORKFLOW
+from .live_contracts import PreviewRequest, AuthorizationRequest, LiveWritingRequest, WORKFLOW,preview_data
 from .policy import MAX_POSTS, MAX_CORRECTIONS, TASK_CAP, BATCH_CAP, POLICY_VERSION, capabilities
 from .frozen import contract,bundle_contract
 from app.domain.admin_configuration.bindings import resolve,bind
@@ -29,8 +29,11 @@ class LiveWritingService:
         try:
             validate_bundle(result)
             configuration=resolve(db,kind='writing_bundle',object_id=bundle_id)
-            if configuration is not None or 'execution_contract' in result:
-                if configuration is None or result.get('execution_contract')!=contract(configuration):raise ValueError('Bundle binding mismatch')
+            frozen=result.get('execution_contract')
+            if configuration is not None:
+                if frozen is None or frozen!=contract(configuration,schema_version=frozen['schema_version'],instruction_revision=frozen.get('instruction_revision')):raise ValueError('Bundle binding mismatch')
+            elif frozen is not None:
+                if frozen.get('schema_version') not in (2,3) or frozen.get('origin')!='installed':raise ValueError('Bundle binding mismatch')
         except (ValueError,KeyError,TypeError): raise source_conflict() from None
         return result
 
@@ -45,10 +48,11 @@ class LiveWritingService:
         return {k:v for k,v in bundle.items() if k not in ('base_snapshot','request_key','request_digest','user_id')}
 
     def preview(self,project,identity,request,key):
-        require_key(key);body=PreviewRequest.model_validate(request).model_dump(mode='json') if isinstance(request,dict) else request.model_dump(mode='json')
+        require_key(key);body=preview_data(request)
         with self.store.connection(write=True) as db:
             root=self.manuscripts.root(db,project,identity)
-            if self.store.require_project(db,project)['project_type']=='thesis': raise StorageError('manuscript_writing_not_authorized','学校稿本批仅支持受控等待；真实模型授权尚未开放。',422)
+            school=self.store.require_project(db,project)['project_type']=='thesis'
+            if school!=(body['schema_version']==3):raise StorageError('manuscript_writing_not_authorized','学校须使用冻结学校章节协议；SCI继续使用原协议。',422)
             old=db.execute('SELECT id,request_digest FROM manuscript_writing_bundles WHERE project_id=%s AND user_id=%s AND request_key=%s',(project,self.store.user_id,key)).fetchone()
             request_digest=digest(dict(manuscript_id=identity,input=body))
             if old:
@@ -59,7 +63,10 @@ class LiveWritingService:
             if changes(self.manuscripts,project,version['snapshot_json']): raise source_conflict()
             if body['mode']=='rewrite_section' and not version['snapshot_json'].get('sections'): raise StorageError('manuscript_writing_base_incomplete','重写需要已发布完整稿。',409)
             configuration=resolve(db)
-            data=build_bundle(version['snapshot_json'],body,execution_contract=contract(configuration) if configuration else None)
+            try:data=build_bundle(version['snapshot_json'],body,execution_contract=contract(configuration,schema_version=3 if school else 2))
+            except (ValueError,KeyError,TypeError) as exc:
+                if not school:raise
+                raise StorageError('manuscript_writing_selection_invalid','学校章节、语言或所选用途与冻结确认不匹配；受保护章节不能请求模型生成。',422) from exc
             data.update(base_snapshot=version['snapshot_json'],request_json=body)
             identity_id=str(uuid4());timestamp=now()
             db.execute('INSERT INTO manuscript_writing_bundles(id,project_id,user_id,manuscript_id,base_version_id,request_key,request_digest,bundle_sha256,bundle_json,created_at) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)',
@@ -89,7 +96,6 @@ class LiveWritingService:
     def authorize(self,project,request,key):
         require_key(key);body=AuthorizationRequest.model_validate(request).model_dump(mode='json') if isinstance(request,dict) else request.model_dump(mode='json')
         with self.store.connection(write=True) as db:
-            if self.store.require_project(db,project)['project_type']=='thesis': raise StorageError('manuscript_writing_not_authorized','学校稿真实模型授权尚未开放。',422)
             old=db.execute('SELECT * FROM manuscript_writing_authorizations WHERE project_id=%s AND user_id=%s AND request_key=%s',(project,self.store.user_id,key)).fetchone()
             if old:
                 if old['request_digest']!=digest(body): raise StorageError('task_idempotency_conflict','授权标识已用于不同清单。',409)
@@ -99,9 +105,13 @@ class LiveWritingService:
                 for ref in task['bundles']:
                     bundle=self.bundle(db,project,ref['bundle_id']);self.current(db,bundle)
                     if bundle['bundle_sha256']!=ref['bundle_sha256']: raise denied()
-                    limits.append(bundle_contract(bundle))
+                    frozen=bundle_contract(bundle)
+                    if (self.store.require_project(db,project)['project_type']=='thesis')!=(frozen['schema_version']==3):raise denied()
+                    limits.append(frozen)
                     materials.append(dict(logical_task_id=task['logical_task_id'],bundle_id=bundle['id'],bundle_sha256=bundle['bundle_sha256'],
                         wire_bytes=bundle['wire_bytes'],input_token_allowance=bundle['input_token_allowance'],reserved_micro_usd=bundle['reserved_micro_usd'],policy=bundle['policy_json']))
+            if len(body['tasks'])!=4 and any(value['schema_version']==1 for value in limits):
+                raise StorageError('manuscript_writing_not_authorized','包含旧协议请求包时仍需四个明确逻辑任务；新数值协议可只选择实际需要的任务。',422)
             caps={key:min(value[key] for value in limits) for key in ('batch_max_posts','max_corrections','batch_cap_micro_usd','task_limit_micro_usd')}
             manifest=dict(schema_version=2,confirmed=True,tasks=body['tasks'],materials=materials,
                 endpoint='https://api.openai.com/v1/responses',background=True,store=True,service_tier='default',
@@ -122,7 +132,6 @@ class LiveWritingService:
 
     def list_authorizations(self,project):
         with self.store.connection() as db:
-            if self.store.require_project(db,project)['project_type']=='thesis': raise StorageError('manuscript_writing_not_authorized','学校稿真实模型授权尚未开放。',422)
             return dict(items=[self.auth_view(db,r) for r in db.execute('SELECT * FROM manuscript_writing_authorizations WHERE project_id=%s AND user_id=%s ORDER BY created_at DESC,id',(project,self.store.user_id))])
 
     def get_authorization(self,project,identity):
@@ -150,7 +159,6 @@ class LiveWritingService:
         require_key(key);execution=LiveWritingRequest.model_validate(request).model_dump(mode='json') if isinstance(request,dict) else request.model_dump(mode='json')
         with self.store.connection(write=True) as db:
             self.manuscripts.root(db,project,identity)
-            if self.store.require_project(db,project)['project_type']=='thesis': raise StorageError('manuscript_writing_not_authorized','学校稿真实模型授权尚未开放。',422)
             old=self.store.find_request(db,project,'manuscript_writing',key)
             if old:
                 if old['input_snapshot'].get('execution')!=execution or old['input_snapshot']['manuscript_id']!=identity: raise StorageError('task_idempotency_conflict','写作标识冲突。',409)
@@ -158,6 +166,7 @@ class LiveWritingService:
             else:
                 bundle=self.bundle(db,project,execution['bundle_id'])
                 if bundle['manuscript_id']!=identity: raise denied()
+                if (self.store.require_project(db,project)['project_type']=='thesis')!=(bundle_contract(bundle)['schema_version']==3):raise denied()
                 self.require_authorized(db,project,execution,bundle)
                 request_id=str(uuid4());timestamp=now()
                 snap=dict(schema_version=2,project_id=project,workflow_version=WORKFLOW,input=bundle['request_json'],execution=execution,

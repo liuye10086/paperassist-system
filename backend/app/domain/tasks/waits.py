@@ -8,6 +8,9 @@ from app.domain.tasks.wait_contracts import WaitView
 
 
 def input_version(task):
+    if task['task_type']=='school_rule_suggestion':
+        from app.domain.school_templates.suggestion_service import input_version as suggestion_input_version
+        return suggestion_input_version(task)
     if task['task_type']=='review_document_export':
         from app.domain.review_rounds.document_exports import input_version as document_input
         return document_input(task)
@@ -152,6 +155,11 @@ def persist_wait(db, task):
 
 
 def allowed_recovery_actions(db, task):
+    if task['task_type']=='school_rule_suggestion' and task.get('reason_code')!='observation_expired':
+        if task['status']=='waiting_confirmation':
+            wait=get_open_wait(db,task)
+            return ['resume'] if task.get('reason_code')!='submission_unknown' and wait and wait['task_revision']==task['revision'] else []
+        return ['retry'] if task['status']=='failed' and task.get('error_code') in ('storage_unavailable','task_worker_interrupted') else []
     from app.domain.storage_governance import export_candidates
     if task['task_type'] in export_candidates.TYPES and task['status']=='failed':
         from app.core.config import get_data_dir

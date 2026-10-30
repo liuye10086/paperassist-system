@@ -1,0 +1,971 @@
+{
+  "key": "forest:logistic:en",
+  "source_task_id": "cf0386a4-5128-4902-bb45-fd39139c317d",
+  "bundle": {
+    "result": {
+      "schema_version": 5,
+      "result_type": "regression",
+      "file_id": "1cbb410e-241f-5cc5-a9b9-b57e3c9b1d89",
+      "filename": "forest_logistic.xlsx",
+      "source_sha256": "8d42b71800d4a8dc264bf654a15282005399f1546afbc3092ddd0c0f413a91c9",
+      "source": {
+        "kind": "prepared_dataset_version",
+        "schema_version": 1,
+        "dataset_id": "1e539c56-9493-5ea1-83d0-b7fef2e32467",
+        "structure_id": "bd9cca65-2dd8-4ae6-9eab-42d5df71b851",
+        "dataset_version": 1,
+        "file_id": "1cbb410e-241f-5cc5-a9b9-b57e3c9b1d89",
+        "source_sha256": "8d42b71800d4a8dc264bf654a15282005399f1546afbc3092ddd0c0f413a91c9",
+        "dataset_sha256": "34aa36264aefbb008afb5ebbdb625c76d2e3f802800bb6f58ae7e15ebca5ddcc",
+        "dataset_size_bytes": 7277,
+        "dataset_schema_version": 1,
+        "sheet_index": 0,
+        "sheet_name": "Synthetic",
+        "parser_version": "openpyxl-3.1.5-structure-v1",
+        "parent_dataset_id": "1f8221ef-fdbd-53a8-83d0-6558d4f0eac1",
+        "parent_dataset_version": 1,
+        "transform_version": "excel_prepare_v1"
+      },
+      "setup_revision": 2,
+      "selection": {
+        "task_type": "regression",
+        "method": "logistic",
+        "sheet_name": "Synthetic",
+        "outcome_column": "A",
+        "covariates": [
+          {
+            "column": "B",
+            "type": "continuous",
+            "unit": "",
+            "levels": [],
+            "reference": null
+          }
+        ],
+        "outcome_unit": "",
+        "positive": {
+          "kind": "number",
+          "value": "1"
+        },
+        "negative": {
+          "kind": "number",
+          "value": "0"
+        },
+        "id_column": null,
+        "missing_policy": "complete_cases",
+        "assumptions": {
+          "independent_units": true,
+          "inference_confirmed": true
+        }
+      },
+      "check": {
+        "ready": true,
+        "row_count": 40,
+        "valid_count": 40,
+        "excluded_count": 0,
+        "groups": [],
+        "issues": [],
+        "warnings": []
+      },
+      "analysis_plan": {
+        "plan_id": "07af24e3-9143-564d-8111-631121eef1e7",
+        "sha256": "dc49821e714c0aabcfd3b40d1087784d78a2af2476d22b276b1fb6a882c39901",
+        "resolutions": {}
+      },
+      "analysis_context": {
+        "plan": {
+          "schema_version": 5,
+          "workflow_version": "analysis_plan_v5",
+          "rules_version": "analysis_plan_rules_v5",
+          "id": "07af24e3-9143-564d-8111-631121eef1e7",
+          "task_id": "f0389bc0-ee49-425f-a329-e379d1b9810d",
+          "decision_id": "12b6f4bf-50bc-4c1b-a1d0-b8b13c6c4278",
+          "project_id": "123cbf9f-fd5a-4704-b4d1-af97dea0bad1",
+          "file_id": "1cbb410e-241f-5cc5-a9b9-b57e3c9b1d89",
+          "source": {
+            "kind": "prepared_dataset_version",
+            "schema_version": 1,
+            "dataset_id": "1e539c56-9493-5ea1-83d0-b7fef2e32467",
+            "structure_id": "bd9cca65-2dd8-4ae6-9eab-42d5df71b851",
+            "dataset_version": 1,
+            "file_id": "1cbb410e-241f-5cc5-a9b9-b57e3c9b1d89",
+            "source_sha256": "8d42b71800d4a8dc264bf654a15282005399f1546afbc3092ddd0c0f413a91c9",
+            "dataset_sha256": "34aa36264aefbb008afb5ebbdb625c76d2e3f802800bb6f58ae7e15ebca5ddcc",
+            "dataset_size_bytes": 7277,
+            "dataset_schema_version": 1,
+            "sheet_index": 0,
+            "sheet_name": "Synthetic",
+            "parser_version": "openpyxl-3.1.5-structure-v1",
+            "parent_dataset_id": "1f8221ef-fdbd-53a8-83d0-6558d4f0eac1",
+            "parent_dataset_version": 1,
+            "transform_version": "excel_prepare_v1"
+          },
+          "selection": {
+            "task_type": "regression",
+            "method": "logistic",
+            "sheet_name": "Synthetic",
+            "outcome_column": "A",
+            "covariates": [
+              {
+                "column": "B",
+                "type": "continuous",
+                "unit": "",
+                "levels": [],
+                "reference": null
+              }
+            ],
+            "outcome_unit": "",
+            "positive": {
+              "kind": "number",
+              "value": "1"
+            },
+            "negative": {
+              "kind": "number",
+              "value": "0"
+            },
+            "id_column": null,
+            "missing_policy": "complete_cases",
+            "assumptions": {
+              "independent_units": true,
+              "inference_confirmed": true
+            }
+          },
+          "check": {
+            "rules_version": "analysis_plan_rules_v5",
+            "research_missing": [],
+            "data_check": {
+              "rules_version": "analysis_plan_rules_v3",
+              "data_range": "A2:B41",
+              "row_count": 40,
+              "selected_fields": [
+                {
+                  "letter": "A",
+                  "name": "Outcome",
+                  "type_counts": {
+                    "number": 40
+                  },
+                  "missing_count": 0,
+                  "non_missing_count": 40,
+                  "prepared_unit": {
+                    "status": "confirmed",
+                    "value": ""
+                  },
+                  "declared_unit": {
+                    "status": "unknown",
+                    "value": null
+                  },
+                  "observed_min": 0.0,
+                  "observed_max": 1.0
+                },
+                {
+                  "letter": "B",
+                  "name": "Exposure",
+                  "type_counts": {
+                    "number": 40
+                  },
+                  "missing_count": 0,
+                  "non_missing_count": 40,
+                  "prepared_unit": {
+                    "status": "confirmed",
+                    "value": ""
+                  },
+                  "declared_unit": {
+                    "status": "unknown",
+                    "value": null
+                  },
+                  "observed_min": 0.0,
+                  "observed_max": 1.0
+                }
+              ],
+              "selection_check": {
+                "ready": true,
+                "row_count": 40,
+                "valid_count": 40,
+                "excluded_count": 0,
+                "groups": [],
+                "issues": [],
+                "warnings": []
+              },
+              "issues": [],
+              "limitations": [
+                "前提由用户声明，不证明独立性、因果或模型正确。",
+                "共同完整记录可能产生选择偏差；不插补、不删异常。"
+              ],
+              "research_missing": []
+            },
+            "limitations": [
+              "外部材料仅为来源证据，未由本系统重新计算。",
+              "补充资料及采纳候选不等于批准分析计划。"
+            ]
+          },
+          "resolutions": {},
+          "plan_revision": 2,
+          "setup_revision": 2,
+          "created_at": "2026-10-28T04:54:22.152554+00:00",
+          "research_request": {
+            "question": "Prespecified synthetic engineering verification: forest_logistic",
+            "output_language": "en",
+            "population": "Explicit synthetic study records only",
+            "study_design": "Fixed synthetic demonstration; no real research inference",
+            "observation_unit": "One synthetic record per row",
+            "observation_structure": "independent",
+            "relationship_description": "",
+            "output_requirements": "Preserve source units and all missingness, methods and non-causal limitations; "
+          },
+          "recommendation_ref": null,
+          "evidence_versions": [],
+          "origin_recommendation_ref": null,
+          "source_reference": null,
+          "source_resolution": {
+            "confirmed": true,
+            "note": "Exact authorized B07 synthetic file SHA, prepared version and cohort confirmed; no real participant claims."
+          },
+          "sha256": "dc49821e714c0aabcfd3b40d1087784d78a2af2476d22b276b1fb6a882c39901"
+        },
+        "method": {
+          "id": "logistic",
+          "parameters": {
+            "task_type": "regression",
+            "method": "logistic",
+            "sheet_name": "Synthetic",
+            "outcome_column": "A",
+            "covariates": [
+              {
+                "column": "B",
+                "type": "continuous",
+                "unit": "",
+                "levels": [],
+                "reference": null
+              }
+            ],
+            "outcome_unit": "",
+            "positive": {
+              "kind": "number",
+              "value": "1"
+            },
+            "negative": {
+              "kind": "number",
+              "value": "0"
+            },
+            "id_column": null,
+            "missing_policy": "complete_cases",
+            "assumptions": {
+              "independent_units": true,
+              "inference_confirmed": true
+            }
+          },
+          "observation_basis": "independent_rows"
+        },
+        "rounding": {
+          "display_significant_digits": 6,
+          "stored_values": "full_precision"
+        }
+      },
+      "variables": [
+        {
+          "column": "A",
+          "name": "Outcome",
+          "unit": ""
+        },
+        {
+          "column": "B",
+          "name": "Exposure",
+          "unit": ""
+        }
+      ],
+      "statistics": {
+        "method": "logistic",
+        "n": 40,
+        "p": 2,
+        "df_residual": 38,
+        "coefficients": [
+          {
+            "term": "intercept",
+            "column": null,
+            "level": null,
+            "reference": null,
+            "unit": "",
+            "beta": -1.09861228866811,
+            "se": 0.5163977794943222,
+            "statistic": -2.1274535489752027,
+            "p_value": 0.03338241692099198,
+            "ci_low": -2.110733338173438,
+            "ci_high": -0.08649123916278212,
+            "or_value": 0.3333333333333332,
+            "or_ci_low": 0.12114909059653102,
+            "or_ci_high": 0.9171435836951515
+          },
+          {
+            "term": "B",
+            "column": "B",
+            "level": null,
+            "reference": null,
+            "unit": "",
+            "beta": 2.19722457733622,
+            "se": 0.7302967433402214,
+            "statistic": 3.0086736622795054,
+            "p_value": 0.0026239079320912106,
+            "ci_low": 0.7658692623624945,
+            "ci_high": 3.6285798923099453,
+            "or_value": 9.000000000000005,
+            "or_ci_low": 2.1508632267260257,
+            "or_ci_high": 37.65929836612422
+          }
+        ],
+        "covariance": [
+          [
+            0.26666666666666666,
+            -0.26666666666666666
+          ],
+          [
+            -0.26666666666666666,
+            0.5333333333333333
+          ]
+        ],
+        "r_squared": null,
+        "adjusted_r_squared": null,
+        "residual_sd": null,
+        "log_likelihood": -22.493405784752333,
+        "deviance": 44.98681156950467,
+        "aic": 48.98681156950467,
+        "diagnostics": {
+          "rank": 2,
+          "centers": [
+            0.5
+          ],
+          "scales": [
+            0.5
+          ],
+          "condition_number": 1.0,
+          "converged": true,
+          "gradient_max": 0.0,
+          "residuals": [
+            0.75,
+            0.75,
+            0.75,
+            0.75,
+            0.75,
+            -0.24999999999999994,
+            -0.24999999999999994,
+            -0.24999999999999994,
+            -0.24999999999999994,
+            -0.24999999999999994,
+            -0.24999999999999994,
+            -0.24999999999999994,
+            -0.24999999999999994,
+            -0.24999999999999994,
+            -0.24999999999999994,
+            -0.24999999999999994,
+            -0.24999999999999994,
+            -0.24999999999999994,
+            -0.24999999999999994,
+            -0.24999999999999994,
+            0.25,
+            0.25,
+            0.25,
+            0.25,
+            0.25,
+            0.25,
+            0.25,
+            0.25,
+            0.25,
+            0.25,
+            0.25,
+            0.25,
+            0.25,
+            0.25,
+            0.25,
+            -0.75,
+            -0.75,
+            -0.75,
+            -0.75,
+            -0.75
+          ],
+          "fitted": [
+            0.24999999999999994,
+            0.24999999999999994,
+            0.24999999999999994,
+            0.24999999999999994,
+            0.24999999999999994,
+            0.24999999999999994,
+            0.24999999999999994,
+            0.24999999999999994,
+            0.24999999999999994,
+            0.24999999999999994,
+            0.24999999999999994,
+            0.24999999999999994,
+            0.24999999999999994,
+            0.24999999999999994,
+            0.24999999999999994,
+            0.24999999999999994,
+            0.24999999999999994,
+            0.24999999999999994,
+            0.24999999999999994,
+            0.24999999999999994,
+            0.75,
+            0.75,
+            0.75,
+            0.75,
+            0.75,
+            0.75,
+            0.75,
+            0.75,
+            0.75,
+            0.75,
+            0.75,
+            0.75,
+            0.75,
+            0.75,
+            0.75,
+            0.75,
+            0.75,
+            0.75,
+            0.75,
+            0.75
+          ],
+          "leverage": [],
+          "cooks_distance": []
+        },
+        "warnings": [
+          "complete_case_selection_bias",
+          "association_not_causation",
+          "unadjusted_coefficient_inference"
+        ]
+      },
+      "row_audit": {
+        "included_rows": [
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          19,
+          20,
+          21,
+          22,
+          23,
+          24,
+          25,
+          26,
+          27,
+          28,
+          29,
+          30,
+          31,
+          32,
+          33,
+          34,
+          35,
+          36,
+          37,
+          38,
+          39,
+          40,
+          41
+        ],
+        "excluded_rows": [],
+        "missing_policy": "complete_cases",
+        "encoding_counts": {}
+      },
+      "started_at": "2026-10-28T04:54:23.606713+00:00",
+      "completed_at": "2026-10-28T04:54:28.357270+00:00",
+      "engine": {
+        "id": "regression_statistics_dataset_v1",
+        "python_version": "3.11.17",
+        "scipy_version": "1.17.1",
+        "numpy_version": "2.4.6",
+        "parser_version": "openpyxl-3.1.5-structure-v1",
+        "encoding_version": "typed_reference_dummy_v1",
+        "timeout_seconds": 30,
+        "statsmodels_version": "0.15.0",
+        "solver": "newton",
+        "max_iterations": 100,
+        "tolerance": 1e-10,
+        "scale": "center_scale_restored_original_units",
+        "separation_solver": "highs",
+        "separation_timeout_seconds": 5,
+        "execution_contract": "fixed_statistics_v2"
+      },
+      "id": "8c104169-4199-4a24-9b82-ab5fc4374e54"
+    },
+    "figure": {
+      "schema_version": 5,
+      "figure_kind": "forest",
+      "language": "en",
+      "variables": [
+        {
+          "column": "A",
+          "name": "Outcome",
+          "unit": ""
+        },
+        {
+          "column": "B",
+          "name": "Exposure",
+          "unit": ""
+        }
+      ],
+      "plot_config": {
+        "verification_scope": "local_effect_projection",
+        "outliers_removed": false,
+        "inference_displayed": true,
+        "scale": "log",
+        "reference_line": 1.0,
+        "style": {
+          "palette": "colorblind",
+          "width": 2400,
+          "height": 1600,
+          "font_size": 12,
+          "display_order": []
+        },
+        "numbering_mode": "external"
+      },
+      "title": "Synthetic logistic odds ratios",
+      "x_label": "Odds ratio (log scale)",
+      "y_label": "Variable",
+      "caption": "40 complete observations; 0 excluded rows. Forest verification covers local effect projection and rendering; regression is not independently refitted. Synthetic data engineering verification only. Displays frozen local effects and available intervals without independent refitting; unavailable intervals are not zero-width. Predictor units are given in term labels.",
+      "statistics": {
+        "n": 40,
+        "effects": [
+          {
+            "term": "effect:1",
+            "label": "Exposure",
+            "unit": "",
+            "estimate": 9.000000000000005,
+            "ci_low": 2.1508632267260257,
+            "ci_high": 37.65929836612422,
+            "interval_reason": null
+          }
+        ]
+      },
+      "legacy_contract": 4,
+      "presentation": {
+        "schema_version": 2,
+        "axes": {
+          "x": {
+            "label": "Odds ratio (log scale)",
+            "unit": ""
+          },
+          "y": {
+            "label": "Variable",
+            "unit": ""
+          }
+        },
+        "legend": {
+          "title": "Group",
+          "entries": []
+        },
+        "color_scale": null,
+        "abbreviations": [
+          {
+            "term": "n",
+            "definition": "Valid record count; independent participant count requires the study design"
+          },
+          {
+            "term": "OR",
+            "definition": "Odds ratio"
+          },
+          {
+            "term": "CI",
+            "definition": "Confidence interval (only intervals present in the frozen result)"
+          }
+        ],
+        "statistical_notes": [
+          "Displays frozen local effects and available intervals without independent refitting; unavailable intervals are not zero-width. Predictor units are given in term labels."
+        ]
+      },
+      "id": "fa00f790-5099-5c2b-97a5-587d19ce276f",
+      "analysis_run_id": "8c104169-4199-4a24-9b82-ab5fc4374e54",
+      "file_id": "1cbb410e-241f-5cc5-a9b9-b57e3c9b1d89",
+      "source": {
+        "kind": "prepared_dataset_version",
+        "schema_version": 1,
+        "dataset_id": "1e539c56-9493-5ea1-83d0-b7fef2e32467",
+        "structure_id": "bd9cca65-2dd8-4ae6-9eab-42d5df71b851",
+        "dataset_version": 1,
+        "file_id": "1cbb410e-241f-5cc5-a9b9-b57e3c9b1d89",
+        "source_sha256": "8d42b71800d4a8dc264bf654a15282005399f1546afbc3092ddd0c0f413a91c9",
+        "dataset_sha256": "34aa36264aefbb008afb5ebbdb625c76d2e3f802800bb6f58ae7e15ebca5ddcc",
+        "dataset_size_bytes": 7277,
+        "dataset_schema_version": 1,
+        "sheet_index": 0,
+        "sheet_name": "Synthetic",
+        "parser_version": "openpyxl-3.1.5-structure-v1",
+        "parent_dataset_id": "1f8221ef-fdbd-53a8-83d0-6558d4f0eac1",
+        "parent_dataset_version": 1,
+        "transform_version": "excel_prepare_v1"
+      },
+      "source_sha256": "8d42b71800d4a8dc264bf654a15282005399f1546afbc3092ddd0c0f413a91c9",
+      "setup_revision": 2,
+      "sha256": "f725c725b4caa5156692d5bdb0ecfd928a721f885f11c386d5d870adf91e16f3",
+      "size_bytes": 275346,
+      "figure_config_version_id": "9daee07a-b664-4d58-861b-591b5170d8bd",
+      "configuration_sha256": "196db82ad64821aaab05d49c4bd68c33c92afa67c4f063a547f4b12391c13a0d",
+      "projection_id": "b080b5ea-f1d2-569e-9d54-ba4f223cb92f",
+      "projection_sha256": "3abba1f7afb8f1fc1d3b20c5bfc22dc1db30b9b8b5ccb55669bc066024b40339",
+      "facts_sha256": "5ef1565bde4e213ea14cfea3e885b6997912be99bcf0e1d502eaf4a6ee4de982",
+      "figure_number": null,
+      "numbering_mode": "external",
+      "method": {
+        "kind": "forest",
+        "basis": "original_statistical_valid_rows"
+      },
+      "created_at": "2026-10-28T05:03:03.269470+00:00",
+      "engine": {
+        "id": "openai_figure_workbench_v3",
+        "provider": "openai_code_interpreter",
+        "model": "gpt-5.6-sol"
+      },
+      "verification": {
+        "status": "matched",
+        "note": "Structured values verified; image pixels require human review."
+      },
+      "provenance": {
+        "response_id": "resp_05999133ccecc761006ae1a73374a487d19d84b55b99e924b6",
+        "container_id": "cntr_6ae1a65794248193b0a20b92aafb1fe00d845788058d4ad8",
+        "model": "gpt-5.6-sol",
+        "code": [
+          "import json, os, sys, math, textwrap, platform\npath=\"/mnt/data/c46cebbf428ef5b556ac406d20f31c24-data.json\"\nwith open(path,\"r\",encoding=\"utf-8\") as f:\n    data=json.load(f)\ntype(data), data.keys()\n",
+          "import pprint, json\npprint.pp(data, width=140, sort_dicts=False)\n",
+          "import matplotlib\nmatplotlib.use(\"Agg\")\nimport matplotlib.pyplot as plt\nfrom matplotlib.ticker import FixedLocator, FuncFormatter, NullLocator\nfrom matplotlib.font_manager import FontProperties, findfont\nimport numpy as np, json, os, textwrap, platform, math\n\n# Input fields\nwidth_px = data[\"plot_config\"][\"style\"][\"width\"]\nheight_px = data[\"plot_config\"][\"style\"][\"height\"]\ndpi = 300\nfont_size = data[\"plot_config\"][\"style\"][\"font_size\"]\nfont_name = \"DejaVu Sans\"\nfont_path = findfont(FontProperties(family=font_name))\nfont_path\n",
+          "# Create strict result JSON\nresult = {\n    \"schema_version\": 5,\n    \"figure_kind\": data[\"figure_kind\"],\n    \"language\": data[\"language\"],\n    \"variables\": data[\"variables\"],\n    \"plot_config\": data[\"plot_config\"],\n    \"title\": data[\"labels\"][\"title\"],\n    \"x_label\": data[\"labels\"][\"x_label\"],\n    \"y_label\": data[\"labels\"][\"y_label\"],\n    \"caption\": data[\"labels\"][\"caption\"],\n    \"statistics\": {\n        \"n\": data[\"sample_count\"],\n        \"effects\": data[\"effects\"],\n    },\n    \"legacy_contract\": data[\"legacy_contract\"],\n    \"presentation\": data[\"presentation\"],\n    \"environment\": {\n        \"python_version\": platform.python_version(),\n        \"matplotlib_version\": matplotlib.__version__,\n        \"font\": font_name,\n    },\n}\n\n# Validate finite values recursively\ndef assert_finite_json(x, path=\"root\"):\n    if isinstance(x, dict):\n        for k,v in x.items(): assert_finite_json(v, f\"{path}.{k}\")\n    elif isinstance(x, list):\n        for i,v in enumerate(x): assert_finite_json(v, f\"{path}[{i}]\")\n    elif isinstance(x, float):\n        if not math.isfinite(x):\n            raise ValueError(f\"Non-finite at {path}\")\nassert_finite_json(result)\n\nout_json=\"/mnt/data/result.json\"\nwith open(out_json,\"w\",encoding=\"utf-8\") as f:\n    json.dump(result,f,ensure_ascii=False,allow_nan=False,indent=2)\n\n# Plot configuration\nplt.rcParams.update({\n    \"font.family\": font_name,\n    \"font.size\": font_size,\n    \"text.usetex\": False,\n    \"mathtext.default\": \"regular\",\n    \"axes.unicode_minus\": False,\n    \"figure.facecolor\": \"white\",\n    \"axes.facecolor\": \"white\",\n    \"savefig.facecolor\": \"white\",\n})\n\nfig = plt.figure(figsize=(width_px/dpi, height_px/dpi), dpi=dpi, facecolor=\"white\")\n\n# Dedicated regions: title, data axes, interval annotation, caption, abbreviations\nax = fig.add_axes([0.13, 0.48, 0.82, 0.34])\n\neffect = data[\"effects\"][0]\nestimate = effect[\"estimate\"]\nci_low = effect[\"ci_low\"]\nci_high = effect[\"ci_high\"]\nref = data[\"plot_config\"][\"reference_line\"]\n\n# Colorblind palette first blue\nmain_color = \"#0173B2\"\nref_color = \"#666666\"\n\nax.set_xscale(\"log\")\nax.axvline(ref, color=ref_color, linestyle=\"--\", linewidth=1.4, zorder=1)\nif ci_low is not None and ci_high is not None:\n    ax.hlines(0, ci_low, ci_high, color=main_color, linewidth=3.0, zorder=2)\n    ax.plot([ci_low, ci_high], [0,0], linestyle=\"None\", marker=\"|\",\n            markersize=12, markeredgewidth=2.0, color=main_color, zorder=3)\nax.scatter([estimate], [0], s=95, color=main_color, edgecolor=\"white\", linewidth=1.0, zorder=4)\n\nax.set_yticks([0], labels=[effect[\"label\"]])\nax.set_ylim(-0.65, 0.65)\nax.set_ylabel(data[\"presentation\"][\"axes\"][\"y\"][\"label\"], labelpad=12)\nax.set_xlabel(data[\"presentation\"][\"axes\"][\"x\"][\"label\"], labelpad=10)\n\n# Log limits with margin around the fixed interval and reference\nax.set_xlim(0.8, 50)\nticks=[1,2,5,10,20,50]\nax.xaxis.set_major_locator(FixedLocator(ticks))\nax.xaxis.set_major_formatter(FuncFormatter(lambda x,pos: f\"{x:g}\" if x in ticks else \"\"))\nax.xaxis.set_minor_locator(NullLocator())\nax.grid(axis=\"x\", color=\"#D9D9D9\", linewidth=0.8, alpha=0.7)\nax.grid(axis=\"y\", visible=False)\nax.spines[\"top\"].set_visible(False)\nax.spines[\"right\"].set_visible(False)\nax.text(0.985, 0.91, f\"n = {data['sample_count']}\", transform=ax.transAxes,\n        ha=\"right\", va=\"top\", fontsize=font_size, color=\"#333333\")\n\nfig.suptitle(data[\"labels\"][\"title\"], fontsize=font_size+3, fontweight=\"bold\", y=0.94)\n\n# Required fixed forest interval label in a dedicated region\ninterval_note = \"95% confidence interval\"\nfig.text(0.13, 0.405, interval_note, ha=\"left\", va=\"top\", fontsize=font_size, color=\"#333333\")\n\ncaption = data[\"labels\"][\"caption\"]\ncaption_wrapped = textwrap.fill(caption, width=105, break_long_words=False, break_on_hyphens=False)\nfig.text(0.06, 0.315, caption_wrapped, ha=\"left\", va=\"top\", fontsize=font_size, linespacing=1.18)\n\nabbr_items = data[\"presentation\"][\"abbreviations\"]\nabbr_text = \"Abbreviations: \" + \"; \".join(f\"{a['term']} = {a['definition']}\" for a in abbr_items)\nabbr_wrapped = textwrap.fill(abbr_text, width=105, break_long_words=False, break_on_hyphens=False)\nfig.text(0.06, 0.135, abbr_wrapped, ha=\"left\", va=\"top\", fontsize=font_size, linespacing=1.18)\n\n# Draw and inspect text bounds\nfig.canvas.draw()\nrenderer=fig.canvas.get_renderer()\ntexts = [t for t in fig.findobj(match=lambda a: hasattr(a, \"get_window_extent\") and a.__class__.__name__==\"Text\") if t.get_text()]\nbounds=[]\nfor t in texts:\n    try:\n        bb=t.get_window_extent(renderer=renderer)\n        bounds.append((t.get_text()[:50], bb.x0,bb.y0,bb.x1,bb.y1))\n    except Exception:\n        pass\nmin_x=min(b[1] for b in bounds); min_y=min(b[2] for b in bounds)\nmax_x=max(b[3] for b in bounds); max_y=max(b[4] for b in bounds)\n(min_x,min_y,max_x,max_y,width_px,height_px,len(bounds))\n",
+          "sorted(bounds, key=lambda b:b[3], reverse=True)[:10], sorted(bounds, key=lambda b:b[1])[:5]\n",
+          "plt.close(fig)\n\nfig = plt.figure(figsize=(width_px/dpi, height_px/dpi), dpi=dpi, facecolor=\"white\")\nax = fig.add_axes([0.17, 0.49, 0.78, 0.33])\n\nax.set_xscale(\"log\")\nax.axvline(ref, color=ref_color, linestyle=\"--\", linewidth=1.4, zorder=1)\nif ci_low is not None and ci_high is not None:\n    ax.hlines(0, ci_low, ci_high, color=main_color, linewidth=3.0, zorder=2)\n    ax.plot([ci_low, ci_high], [0,0], linestyle=\"None\", marker=\"|\",\n            markersize=12, markeredgewidth=2.0, color=main_color, zorder=3)\nax.scatter([estimate], [0], s=95, color=main_color, edgecolor=\"white\", linewidth=1.0, zorder=4)\nax.set_yticks([0], labels=[effect[\"label\"]])\nax.set_ylim(-0.65,0.65)\nax.set_ylabel(data[\"presentation\"][\"axes\"][\"y\"][\"label\"], labelpad=12)\nax.set_xlabel(data[\"presentation\"][\"axes\"][\"x\"][\"label\"], labelpad=10)\nax.set_xlim(0.8,50)\nax.xaxis.set_major_locator(FixedLocator(ticks))\nax.xaxis.set_major_formatter(FuncFormatter(lambda x,pos: f\"{x:g}\" if x in ticks else \"\"))\nax.xaxis.set_minor_locator(NullLocator())\nax.grid(axis=\"x\", color=\"#D9D9D9\", linewidth=0.8, alpha=0.7)\nax.spines[\"top\"].set_visible(False)\nax.spines[\"right\"].set_visible(False)\nax.text(0.985,0.91,f\"n = {data['sample_count']}\",transform=ax.transAxes,\n        ha=\"right\",va=\"top\",fontsize=font_size,color=\"#333333\")\n\nfig.suptitle(data[\"labels\"][\"title\"],fontsize=font_size+3,fontweight=\"bold\",y=0.94)\nfig.text(0.17,0.405,\"95% confidence interval\",ha=\"left\",va=\"top\",fontsize=font_size,color=\"#333333\")\n\ncaption_wrapped=textwrap.fill(caption,width=76,break_long_words=False,break_on_hyphens=False)\nfig.text(0.06,0.315,caption_wrapped,ha=\"left\",va=\"top\",fontsize=font_size,linespacing=1.16)\n\nabbr_wrapped=textwrap.fill(abbr_text,width=76,break_long_words=False,break_on_hyphens=False)\nfig.text(0.06,0.145,abbr_wrapped,ha=\"left\",va=\"top\",fontsize=font_size,linespacing=1.16)\n\nfig.canvas.draw()\nrenderer=fig.canvas.get_renderer()\nbounds=[]\nfor t in fig.findobj(match=lambda a: a.__class__.__name__==\"Text\"):\n    if t.get_text():\n        bb=t.get_window_extent(renderer=renderer)\n        # ignore Matplotlib's dummy 1px texts at origin\n        if bb.width > 2 or bb.height > 2:\n            bounds.append((t.get_text(),bb.x0,bb.y0,bb.x1,bb.y1))\n(min(b[1] for b in bounds),min(b[2] for b in bounds),max(b[3] for b in bounds),max(b[4] for b in bounds)), [(b[0][:35],b[1],b[3]) for b in bounds if b[1]<0 or b[3]>width_px or b[2]<0 or b[4]>height_px]\n",
+          "for b in bounds:\n    txt=b[0]\n    if txt.startswith(\"40 complete\") or txt.startswith(\"Abbreviations\") or txt==\"95% confidence interval\" or txt==data[\"labels\"][\"x_label\"]:\n        print(txt[:40], b[1:])\n",
+          "# Adjust text positions for clearer dedicated spacing\n# Locate figure-level texts by content\nfor t in fig.texts:\n    if t.get_text()==\"95% confidence interval\":\n        t.set_position((0.17,0.38))\n    elif t.get_text().startswith(\"Abbreviations:\"):\n        t.set_position((0.06,0.135))\n\nfig.canvas.draw()\nrenderer=fig.canvas.get_renderer()\n\n# Validate required text bounding boxes are in canvas and key blocks do not overlap\nnamed={}\nfor t in fig.findobj(match=lambda a: a.__class__.__name__==\"Text\"):\n    if t.get_text():\n        bb=t.get_window_extent(renderer=renderer)\n        if bb.width>2 or bb.height>2:\n            if bb.x0 < -0.5 or bb.y0 < -0.5 or bb.x1 > width_px+0.5 or bb.y1 > height_px+0.5:\n                raise RuntimeError(f\"Clipped text: {t.get_text()[:60]} {bb.bounds}\")\n            named[t.get_text()] = bb\n\ncap_bb = next(bb for txt,bb in named.items() if txt.startswith(\"40 complete observations\"))\nabbr_bb = next(bb for txt,bb in named.items() if txt.startswith(\"Abbreviations:\"))\nint_bb = named[\"95% confidence interval\"]\nxlabel_bb = named[data[\"labels\"][\"x_label\"]]\nassert abbr_bb.y1 < cap_bb.y0\nassert int_bb.y1 < xlabel_bb.y0\nassert cap_bb.y1 < int_bb.y0\n\nout_png=\"/mnt/data/figure.png\"\nfig.savefig(out_png, dpi=dpi, facecolor=\"white\", edgecolor=\"white\")\nplt.close(fig)\n\nfrom PIL import Image\nim=Image.open(out_png)\nim.size, im.mode, os.path.getsize(out_png), os.path.getsize(out_json)\n",
+          "display(im.resize((1200,800)))\n",
+          "# Final strict re-read validation\nwith open(out_json,encoding=\"utf-8\") as f:\n    check=json.load(f)\nassert check[\"schema_version\"]==5\nassert check[\"statistics\"][\"n\"]==40\nassert check[\"statistics\"][\"effects\"]==data[\"effects\"]\nassert check[\"plot_config\"]==data[\"plot_config\"]\nassert check[\"presentation\"]==data[\"presentation\"]\nassert check[\"legacy_contract\"]==data[\"legacy_contract\"]\nassert set(check.keys())=={\"schema_version\",\"figure_kind\",\"language\",\"variables\",\"plot_config\",\"title\",\"x_label\",\"y_label\",\"caption\",\"statistics\",\"legacy_contract\",\"presentation\",\"environment\"}\nprint(\"validated\", out_png, out_json)\n"
+        ],
+        "usage": {
+          "input_tokens": 10838,
+          "input_tokens_details": {
+            "cache_write_tokens": 54,
+            "cached_tokens": 2893
+          },
+          "output_tokens": 4886,
+          "output_tokens_details": {
+            "reasoning_tokens": 4855
+          },
+          "total_tokens": 15724
+        },
+        "prompt_version": "openai_figure_workbench_v3",
+        "png_file_id": "cfile_6ae1a77e14f481918eed90aaa18c60dd",
+        "result_file_id": "cfile_6ae1a77e14d8819183529f1b8f8c26a4",
+        "model_call_id": "420b7e17-e281-4cb1-88f9-1ee291dbc866",
+        "model_input_digest": "82686d705cd20fb777f21177ed26040f96a8609761eb0e63fe75c6f68970d87a",
+        "input_sha256": "0c5b4222654febae630e8f089ae25430a7c13c5022838570a5ac191182718965"
+      },
+      "text_authorship": {
+        "title": "user",
+        "additional_caption": "user",
+        "created_by": "96da5ede-f336-4136-99a7-d3f3069f7a97"
+      },
+      "external_processing": {
+        "version": 7,
+        "confirmed": true,
+        "version_id": "9daee07a-b664-4d58-861b-591b5170d8bd",
+        "confirmed_at": "2026-10-28T05:03:03.269470+00:00",
+        "confirmed_by": "96da5ede-f336-4136-99a7-d3f3069f7a97",
+        "payload_sha256": "0c5b4222654febae630e8f089ae25430a7c13c5022838570a5ac191182718965"
+      }
+    },
+    "configuration": {
+      "id": "9daee07a-b664-4d58-861b-591b5170d8bd",
+      "configuration_id": "f0deacda-2870-467e-953d-a2946a1054b8",
+      "revision": 1,
+      "parent_version_id": null,
+      "created_by": "96da5ede-f336-4136-99a7-d3f3069f7a97",
+      "created_at": "2026-10-28 04:54:29.751594+00:00",
+      "sha256": "196db82ad64821aaab05d49c4bd68c33c92afa67c4f063a547f4b12391c13a0d",
+      "config": {
+        "style": {
+          "title": "Synthetic logistic odds ratios",
+          "width": 2400,
+          "height": 1600,
+          "aliases": {
+            "A": "Outcome",
+            "B": "Exposure"
+          },
+          "caption": "Synthetic data engineering verification only.",
+          "palette": "colorblind",
+          "font_size": 12,
+          "display_order": []
+        },
+        "language": "en",
+        "projection": null,
+        "figure_kind": "forest"
+      },
+      "source": {
+        "kind": "prepared_dataset_version",
+        "file_id": "1cbb410e-241f-5cc5-a9b9-b57e3c9b1d89",
+        "dataset_id": "1e539c56-9493-5ea1-83d0-b7fef2e32467",
+        "sheet_name": "Synthetic",
+        "sheet_index": 0,
+        "structure_id": "bd9cca65-2dd8-4ae6-9eab-42d5df71b851",
+        "source_sha256": "8d42b71800d4a8dc264bf654a15282005399f1546afbc3092ddd0c0f413a91c9",
+        "dataset_sha256": "34aa36264aefbb008afb5ebbdb625c76d2e3f802800bb6f58ae7e15ebca5ddcc",
+        "parser_version": "openpyxl-3.1.5-structure-v1",
+        "schema_version": 1,
+        "dataset_version": 1,
+        "parent_dataset_id": "1f8221ef-fdbd-53a8-83d0-6558d4f0eac1",
+        "transform_version": "excel_prepare_v1",
+        "dataset_size_bytes": 7277,
+        "dataset_schema_version": 1,
+        "parent_dataset_version": 1
+      },
+      "figure_contract": 3
+    },
+    "projection": {
+      "id": "b080b5ea-f1d2-569e-9d54-ba4f223cb92f",
+      "config_version_id": "9daee07a-b664-4d58-861b-591b5170d8bd",
+      "sha256": "3abba1f7afb8f1fc1d3b20c5bfc22dc1db30b9b8b5ccb55669bc066024b40339",
+      "result": {
+        "audit": {
+          "valid_n": 40,
+          "excluded": [],
+          "excluded_n": 0,
+          "missing_y_n": 0,
+          "population_n": 40,
+          "included_rows": [
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10,
+            11,
+            12,
+            13,
+            14,
+            15,
+            16,
+            17,
+            18,
+            19,
+            20,
+            21,
+            22,
+            23,
+            24,
+            25,
+            26,
+            27,
+            28,
+            29,
+            30,
+            31,
+            32,
+            33,
+            34,
+            35,
+            36,
+            37,
+            38,
+            39,
+            40,
+            41
+          ]
+        },
+        "method": {
+          "kind": "forest",
+          "basis": "original_statistical_valid_rows"
+        },
+        "series": [],
+        "_material": {
+          "sha256": "c50403dea258150be81d83e667ee3e1643e3196652d3eeaba8dc8924db4bde68",
+          "payload": {
+            "labels": {
+              "title": "Synthetic logistic odds ratios",
+              "caption": "40 complete observations; 0 excluded rows. Forest verification covers local effect projection and rendering; regression is not independently refitted. Synthetic data engineering verification only. Displays frozen local effects and available intervals without independent refitting; unavailable intervals are not zero-width. Predictor units are given in term labels.",
+              "x_label": "Odds ratio (log scale)",
+              "y_label": "Variable"
+            },
+            "method": "logistic",
+            "effects": [
+              {
+                "term": "effect:1",
+                "unit": "",
+                "label": "Exposure",
+                "ci_low": 2.1508632267260257,
+                "ci_high": 37.65929836612422,
+                "estimate": 9.000000000000005,
+                "interval_reason": null
+              }
+            ],
+            "language": "en",
+            "variables": [
+              {
+                "name": "Outcome",
+                "unit": "",
+                "column": "A"
+              },
+              {
+                "name": "Exposure",
+                "unit": "",
+                "column": "B"
+              }
+            ],
+            "figure_kind": "forest",
+            "plot_config": {
+              "scale": "log",
+              "style": {
+                "width": 2400,
+                "height": 1600,
+                "palette": "colorblind",
+                "font_size": 12,
+                "display_order": []
+              },
+              "numbering_mode": "external",
+              "reference_line": 1.0,
+              "outliers_removed": false,
+              "verification_scope": "local_effect_projection",
+              "inference_displayed": true
+            },
+            "presentation": {
+              "axes": {
+                "x": {
+                  "unit": "",
+                  "label": "Odds ratio (log scale)"
+                },
+                "y": {
+                  "unit": "",
+                  "label": "Variable"
+                }
+              },
+              "legend": {
+                "title": "Group",
+                "entries": []
+              },
+              "color_scale": null,
+              "abbreviations": [
+                {
+                  "term": "n",
+                  "definition": "Valid record count; independent participant count requires the study design"
+                },
+                {
+                  "term": "OR",
+                  "definition": "Odds ratio"
+                },
+                {
+                  "term": "CI",
+                  "definition": "Confidence interval (only intervals present in the frozen result)"
+                }
+              ],
+              "schema_version": 2,
+              "statistical_notes": [
+                "Displays frozen local effects and available intervals without independent refitting; unavailable intervals are not zero-width. Predictor units are given in term labels."
+              ]
+            },
+            "sample_count": 40,
+            "schema_version": 5,
+            "legacy_contract": 4
+          },
+          "expected": {
+            "title": "Synthetic logistic odds ratios",
+            "caption": "40 complete observations; 0 excluded rows. Forest verification covers local effect projection and rendering; regression is not independently refitted. Synthetic data engineering verification only. Displays frozen local effects and available intervals without independent refitting; unavailable intervals are not zero-width. Predictor units are given in term labels.",
+            "x_label": "Odds ratio (log scale)",
+            "y_label": "Variable",
+            "language": "en",
+            "variables": [
+              {
+                "name": "Outcome",
+                "unit": "",
+                "column": "A"
+              },
+              {
+                "name": "Exposure",
+                "unit": "",
+                "column": "B"
+              }
+            ],
+            "statistics": {
+              "n": 40,
+              "effects": [
+                {
+                  "term": "effect:1",
+                  "unit": "",
+                  "label": "Exposure",
+                  "ci_low": 2.1508632267260257,
+                  "ci_high": 37.65929836612422,
+                  "estimate": 9.000000000000005,
+                  "interval_reason": null
+                }
+              ]
+            },
+            "figure_kind": "forest",
+            "plot_config": {
+              "scale": "log",
+              "style": {
+                "width": 2400,
+                "height": 1600,
+                "palette": "colorblind",
+                "font_size": 12,
+                "display_order": []
+              },
+              "numbering_mode": "external",
+              "reference_line": 1.0,
+              "outliers_removed": false,
+              "verification_scope": "local_effect_projection",
+              "inference_displayed": true
+            },
+            "presentation": {
+              "axes": {
+                "x": {
+                  "unit": "",
+                  "label": "Odds ratio (log scale)"
+                },
+                "y": {
+                  "unit": "",
+                  "label": "Variable"
+                }
+              },
+              "legend": {
+                "title": "Group",
+                "entries": []
+              },
+              "color_scale": null,
+              "abbreviations": [
+                {
+                  "term": "n",
+                  "definition": "Valid record count; independent participant count requires the study design"
+                },
+                {
+                  "term": "OR",
+                  "definition": "Odds ratio"
+                },
+                {
+                  "term": "CI",
+                  "definition": "Confidence interval (only intervals present in the frozen result)"
+                }
+              ],
+              "schema_version": 2,
+              "statistical_notes": [
+                "Displays frozen local effects and available intervals without independent refitting; unavailable intervals are not zero-width. Predictor units are given in term labels."
+              ]
+            },
+            "schema_version": 5,
+            "legacy_contract": 4
+          }
+        },
+        "input_sha256": "21f5fa2ba615498834cf66f19d43b59ab9ec9ee54d13a66e3581c68c227875d8",
+        "tool_version": "figure_projection_v1",
+        "schema_version": 1,
+        "original_statistical_n": 40
+      }
+    }
+  },
+  "saved_explanation_included": false
+}

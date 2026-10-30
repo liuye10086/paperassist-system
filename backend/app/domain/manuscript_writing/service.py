@@ -7,6 +7,7 @@ from app.core.exceptions import StorageError
 from app.domain.dataset_preparation.service import require_key,append_checkpoint
 from app.domain.literature.service import digest
 from app.domain.manuscripts.service import ManuscriptService,now
+from app.domain.manuscripts.sources import writing_changes
 from .contracts import WritingRequest,WORKFLOW,SECTION_IDS
 
 
@@ -77,7 +78,7 @@ class WritingService:
         snap=require_snapshot(task);row,_=self.row(db,task['project_id'],snap['manuscript_id'],task['id'])
         version=self.manuscripts.version(db,task['project_id'],snap['manuscript_id'],snap['input']['base_revision'])
         root=self.manuscripts.root(db,task['project_id'],snap['manuscript_id'])
-        if version['id']!=snap['base_version_id'] or version['snapshot_json']!=snap['base_snapshot'] or root['current_revision']!=snap['input']['base_revision'] or self.manuscripts.source_changes(task['project_id'],snap['base_snapshot']): raise source_conflict()
+        if version['id']!=snap['base_version_id'] or version['snapshot_json']!=snap['base_snapshot'] or root['current_revision']!=snap['input']['base_revision'] or writing_changes(self.manuscripts,task['project_id'],snap['base_snapshot']): raise source_conflict()
         return row
 
     def create(self,project,identity,request,key):
@@ -101,7 +102,7 @@ class WritingService:
                 valid_ids=[c['id'] for c in version['snapshot_json'].get('thesis_context',{}).get('chapters',[])] or list(SECTION_IDS)
                 if request.mode=='rewrite_section' and request.target_section not in valid_ids: raise StorageError('task_input_invalid','重写目标不是当前冻结章节。',422)
                 if request.mode=='rewrite_section' and not version['snapshot_json'].get('sections'): raise StorageError('manuscript_writing_base_incomplete','请先完成并发布完整七部分写作，再指定章节重写。',409)
-                if self.manuscripts.source_changes(project,version['snapshot_json']): raise source_conflict()
+                if writing_changes(self.manuscripts,project,version['snapshot_json']): raise source_conflict()
                 request_id=str(uuid4());timestamp=now()
                 snap=dict(schema_version=1,project_id=project,workflow_version=WORKFLOW,input=body,base_snapshot=version['snapshot_json'],base_version_id=version['id'],manuscript_id=identity,prompt_version='sci-writing-v1',policy_version='offline-only-v1',request_id=request_id)
                 task=dict(id=request_id,project_id=project,user_id=self.store.user_id,task_type='manuscript_writing',idempotency_key=key,input_digest=digest(snap),input_snapshot=snap,workflow_version=WORKFLOW,status='queued',phase='write',revision=1,current_attempt=0,reason_code=None,created_at=timestamp,updated_at=timestamp)
@@ -119,10 +120,11 @@ class WritingService:
             from .policy import capabilities
             from app.domain.admin_configuration.bindings import resolve
             live_enabled=capabilities(resolve(db,kind='task',object_id=task['id']))['real_calls_enabled']
-            rows=db.execute('SELECT c.id,c.provider_state,a.bundle_id,a.authorization_id,a.logical_task_id FROM model_calls c JOIN manuscript_writing_call_admissions a ON a.model_call_id=c.id WHERE c.task_id=%s ORDER BY c.created_at,c.id',(task['id'],)).fetchall()
+            rows=db.execute('SELECT c.id,c.task_id,c.input_digest,c.provider_state,c.policy_snapshot,a.bundle_id,a.authorization_id,a.logical_task_id FROM model_calls c JOIN manuscript_writing_call_admissions a ON a.model_call_id=c.id WHERE c.task_id=%s ORDER BY c.created_at,c.id',(task['id'],)).fetchall()
             if len(rows)!=len(calls): raise source_conflict()
             for call,saved in zip(calls,rows):
-                provenance=(saved['provider_state'] or {}).get('writing_provider_provenance','not_submitted')
+                from app.domain.model_usage.provenance import public_provider_provenance
+                provenance=public_provider_provenance(saved,task) or 'not_recorded'
                 call.update(id=saved['id'],provider_provenance=provenance,provenance=provenance,
                     bundle_id=saved['bundle_id'],authorization_id=saved['authorization_id'],logical_task_id=saved['logical_task_id'])
         return dict(id=request_id,project_id=project,manuscript_id=identity,base_revision=row['request_json']['base_revision'],task=self.store.public_task(task),input=row['request_json'],candidate=row['candidate_json'],published_revision=row['published_revision'],model_calls=calls,schema_version=task['input_snapshot']['schema_version'],real_calls_enabled=live_enabled if live else False,preservation_check=dict(non_target_sections_preserved=True) if row['candidate_json'] else None)

@@ -69,7 +69,7 @@ def calculate(store,project_id,file_id,result,sheet,config,*,frozen=None,saved_e
         try: computed=deepcopy(frozen) if frozen is not None else compute_bounded('figure_projection',rows,{'figure_kind':config['figure_kind'],'projection':config['projection']})
         except NumericError as exc:raise StorageError(exc.code,str(exc),422,params={'reason':getattr(exc,'reason','invalid_selection')}) from exc
         computed['audit'].update(source_n=sheet.row_count,population_excluded_n=len(population_excluded),population_excluded=population_excluded)
-        payload,expected=projection_material(config,rows,computed,{f['column']:f for f in fields_for(sheet)})
+        payload,expected=projection_material(config,rows,computed,{f['column']:f for f in fields_for(sheet)},figure_contract=figure_contract)
     else:
         payload,expected=legacy_material(store,project_id,file_id,result,sheet,config,saved_expected=saved_expected,figure_contract=figure_contract)
         audit=result.get('row_audit',{'included_rows':[],'excluded_rows':[]})

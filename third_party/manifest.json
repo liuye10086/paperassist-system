@@ -1,0 +1,117 @@
+{
+  "schema_version": 1,
+  "status": "local_materials_partial",
+  "s10_be46_satisfied": false,
+  "requirements_sha256": "20be688eef1908563da6844f1ecc2f8e080e5afd38c0e0f7c237782cd660ca48",
+  "pinned_python_components": 79,
+  "frontend_lock_sha256": "e2846ee27a2ccaa771ffd60e2a5d864e9d9fdbcbaa4a3c980116c207bbec76eb",
+  "contexts": [
+    {
+      "context": "frontend",
+      "index": "third_party/frontend/index.json",
+      "index_sha256": "170c6b76994d044e25415a9b0c5d7652498b3f7efa06095453d77fc95b34789b",
+      "components": 219,
+      "references": 123,
+      "unique_texts": 87,
+      "source": {
+        "lock_sha256": "e2846ee27a2ccaa771ffd60e2a5d864e9d9fdbcbaa4a3c980116c207bbec76eb"
+      }
+    },
+    {
+      "context": "python-linux",
+      "index": "third_party/python-linux/index.json",
+      "index_sha256": "e35606f1d0ce03fae1500ed214d3540de7c99363e377449dc694ca306c271298",
+      "components": 91,
+      "references": 184,
+      "unique_texts": 160,
+      "source": {
+        "image_requested": "sha256:299060c24730e5d7aeebab34b7f960ee5548e4ed2a76454a38eac80f78f3c10b",
+        "image_id": "sha256:299060c24730e5d7aeebab34b7f960ee5548e4ed2a76454a38eac80f78f3c10b",
+        "retained_container": "pa-notices-99364e5827744d68",
+        "state": "exited",
+        "exit_code": 0
+      }
+    },
+    {
+      "context": "python-windows",
+      "index": "third_party/python-windows/index.json",
+      "index_sha256": "ecd4a8cd69dd40038abc745a748b9584c31daf5c32e097d74d17d50dfa33fe2c",
+      "components": 102,
+      "references": 177,
+      "unique_texts": 171,
+      "source": {
+        "python": "3.11.4 (tags/v3.11.4:d2340ef, Jun  7 2023, 05:45:37) [MSC v.1934 64 bit (AMD64)]",
+        "executable": "C:\\Users\\86182\\Desktop\\paperassist-system\\backend\\.venv\\Scripts\\python.exe"
+      }
+    },
+    {
+      "context": "system-app",
+      "index": "third_party/system-app/index.json",
+      "index_sha256": "f623e5f8beede8a273d502f5e007eafb9ddaf62f644460a89b929e62337047e8",
+      "components": 1,
+      "references": 259,
+      "unique_texts": 206,
+      "source": {
+        "image_requested": "sha256:299060c24730e5d7aeebab34b7f960ee5548e4ed2a76454a38eac80f78f3c10b",
+        "image_id": "sha256:299060c24730e5d7aeebab34b7f960ee5548e4ed2a76454a38eac80f78f3c10b",
+        "retained_container": "pa-notices-415c266a68924855",
+        "state": "exited",
+        "exit_code": 0
+      }
+    },
+    {
+      "context": "system-broker",
+      "index": "third_party/system-broker/index.json",
+      "index_sha256": "9769d50fdc3171bd9795c7c00407d1fc403e76160806b8588b1662d84434bd45",
+      "components": 1,
+      "references": 25,
+      "unique_texts": 23,
+      "source": {
+        "image_requested": "sha256:2cb43283d8bbd3caa6c0f0dc00e96c8de772df33df7fd8af6aee4d605aeb8ada",
+        "image_id": "sha256:2cb43283d8bbd3caa6c0f0dc00e96c8de772df33df7fd8af6aee4d605aeb8ada",
+        "retained_container": "pa-notices-22136ab6ba3b40f5",
+        "state": "exited",
+        "exit_code": 0
+      }
+    },
+    {
+      "context": "system-postgres",
+      "index": "third_party/system-postgres/index.json",
+      "index_sha256": "3ddd4e64b92895114cd9ce5f8c2a5e219a32c31bb976eaf8f5fd618fad4fddd7",
+      "components": 1,
+      "references": 142,
+      "unique_texts": 96,
+      "source": {
+        "image_requested": "sha256:edb0c08dc33befd0262ab3b5cf1c4f3f8cfd8b09e88c05b45adee29d6761ddb6",
+        "image_id": "sha256:edb0c08dc33befd0262ab3b5cf1c4f3f8cfd8b09e88c05b45adee29d6761ddb6",
+        "retained_container": "pa-notices-c9ed594697ac4f26",
+        "state": "exited",
+        "exit_code": 0
+      }
+    },
+    {
+      "context": "system-renderer",
+      "index": "third_party/system-renderer/index.json",
+      "index_sha256": "8cfd4469b504a698fb9d387c65dea7fd409962b19782e2cff661ac4259d3dda8",
+      "components": 1,
+      "references": 279,
+      "unique_texts": 185,
+      "source": {
+        "image_requested": "sha256:8b341880cc1533d0a301e7c9ec60493aba67f1464e1efc00820db9044b15bfde",
+        "image_id": "sha256:8b341880cc1533d0a301e7c9ec60493aba67f1464e1efc00820db9044b15bfde",
+        "retained_container": "pa-notices-0fbf4a97046544b6",
+        "state": "exited",
+        "exit_code": 0
+      }
+    }
+  ],
+  "unresolved": [
+    "flatbuffers complete version-bound license and applicable NOTICE",
+    "tqdm full MPL-2.0 text and provenance binding",
+    "OCR embedded character dictionary explicit attribution/applicability",
+    "seven installed frontend build/test packages without separate local license text",
+    "mounted Windows fonts and local assets redistribution conditions",
+    "system/binary embedded notices applicability and source obligations not fully reconciled"
+  ],
+  "network_requests": 0
+}

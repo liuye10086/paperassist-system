@@ -102,10 +102,13 @@ def evidence_catalog(base):
     return result
 
 def build_bundle(base, request, *, execution_contract=None):
-    from .frozen import contract,validate
+    from .frozen import contract,validate,wire_parts
     from app.domain.model_usage.contracts import ModelPolicy
     from app.domain.admin_configuration.model_consumption import combine
     frozen=validate(execution_contract) if execution_contract is not None else contract()
+    if frozen['schema_version']==3:
+        from .school_live import build_bundle as school_bundle
+        return school_bundle(base,request,frozen)
     sources={s['id']:s for s in base.get('sources',[])}; catalog=evidence_catalog(base)
     if not set(request['selected_source_ids'])<=sources.keys() or not set(request['selected_evidence_ids'])<=catalog.keys():
         raise StorageError('manuscript_writing_selection_invalid','只能选择当前冻结版本中的来源和证据。',422)
@@ -119,7 +122,11 @@ def build_bundle(base, request, *, execution_contract=None):
                 if key in source.get('content',{}):
                     numeric.extend(facts(source['content'][key],'/'+key))
                     descriptions.extend(labels(source['content'][key],'/'+key))
-        selected.append(dict(alias=alias,kind=safe_text(source['kind']),role=safe_text(source['role']),facts=numeric,labels=descriptions))
+        entry=dict(alias=alias,kind=safe_text(source['kind']),role=safe_text(source['role']),facts=numeric,labels=descriptions)
+        if source.get('kind') in ('analysis_report','collection_report'):
+            entry.update(report_text=safe_text(source['content']['text']),report_text_truncated=source['content']['text_truncated'],
+                scope='Supporting saved report prose; statistical facts come only from analysis_run sources. Researcher verification required.')
+        selected.append(entry)
     for i,identity in enumerate(request['selected_evidence_ids']):
         evidence,binding=catalog[identity];alias='e'+str(i+1)
         local['evidence'][alias]=dict(evidence_id=identity,binding=binding)
@@ -159,12 +166,17 @@ def build_bundle(base, request, *, execution_contract=None):
         output_language=request['output_language'],instructions=safe_text(request['instructions']),
         keywords=[safe_text(v) for v in request['keywords']],acknowledgements=safe_text(request['acknowledgements']),
         context=context,sources=selected,evidence=evidence_wire,illustrations=illustrations)
+    if frozen['schema_version']==2:
+        from .numeric_contract import add_catalogs
+        try:add_catalogs(base,request,payload,local,safe_text)
+        except ValueError as exc:
+            raise StorageError('manuscript_writing_selection_invalid','已提供方法或图示中的数字含不明确符号，不能自动形成数字依据；请明确原文后重新预览。',422) from exc
     # User prose/metadata is checked at projection sites. Only facts()/labels() create
     # JSON pointers, from checked key components; arbitrary text cannot claim this exemption.
-    instruction=combine(INSTRUCTIONS,frozen['instruction'])
+    parts=wire_parts(frozen,payload);instruction=parts['instructions']
     p=ModelPolicy.model_validate(frozen['policy']);wire=dict(model=p.model,background=True,store=True,service_tier='default',instructions=instruction,
         input=canonical_payload(payload),max_output_tokens=p.max_output_tokens,
-        text=dict(format=dict(type='json_schema',name='manuscript_writing_v2',strict=True,schema=LiveOutput.model_json_schema())))
+        text=parts['text'])
     wire_json=canonical_payload(wire);byte_count=len(wire_json.encode('utf-8'));allowance=byte_count+frozen['protocol_allowance']
     if allowance>frozen['max_input_allowance']: raise StorageError('manuscript_writing_input_limit','完整外发包超过输入上限，请减少所选材料并重新预览；未作截断。',422)
     sha=hashlib.sha256(wire_json.encode()).hexdigest()

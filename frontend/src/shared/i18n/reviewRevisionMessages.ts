@@ -1,4 +1,9 @@
 export const reviewRevisionMessages:Record<string,string>={
+ '新图采用需要外置编号和固定配置/投影；请使用图表工作台的新图，旧箱线图仍可关联及历史读取。':'New figure adoption needs external numbering and frozen configuration/projection. Use a saved figure from the figure workbench; legacy boxplots remain linkable and readable in history.',
+ '采用成功的新图':'Adopt a successful saved figure','采用的成功绘图任务':'Successful plot task to adopt','明确替代的固定旧图':'Fixed old figure to replace','采用新图的理由':'Reason for figure adoption','保存新图采用关系':'Save figure adoption','本批采用的新图':'Figures adopted in this batch','本批采用新图':'Adopt this new figure','新图已固定；需在具体修改中选择采用并另存新稿。':'The new figure is fixed. Explicitly select it in the revision and save a new manuscript.',
+
+ '固定分析结果版本':'Fixed analysis result version','固定图表配置版本':'Fixed figure configuration version','创建关联的本地投影任务':'Create linked local projection task','固定分析版本读取失败。':'Unable to load fixed analysis versions.','固定图表配置读取失败。':'Unable to load fixed figure configurations.','本地投影不产生PNG，也不授权外部绘图。请在原图表工作台核对并确认投影。':'Local projection creates no PNG and does not authorize external plotting. Review and confirm the projection in the existing figure workbench.','固定的意见任务输入':'Fixed comment task input',
+
  '固定证据正文':'Fixed evidence content','展开固定结构化内容':'Expand fixed structured content','{number} 项':'{number} entries',
  '有依据修改与成果':'Evidence-based changes and outputs','执行本批修改':'Execute this revision batch','收起本批修改':'Hide revision batch','本批仅使用合成材料与本地具体改文；未调用模型或业务外网，不代表真实科学验收。':'Synthetic materials and local explicit edits only; no model or external business calls. Real scientific acceptance remains unverified.',
  '本批使用固定材料和具体改文；未完成实验、文献与分析继续待补。任务成功和下载不会改变投稿或评审进展。':'This batch uses fixed materials and explicit edits. Outstanding experiments, literature and analyses remain pending. Task success and downloads do not change submission or review progress.',

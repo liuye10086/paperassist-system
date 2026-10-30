@@ -1,0 +1,876 @@
+{
+  "key": "line:en",
+  "source_task_id": "3be278aa-3ea5-4af9-b98e-4257c30f15fd",
+  "bundle": {
+    "result": {
+      "schema_version": 3,
+      "result_type": "correlation",
+      "file_id": "1feb7890-d946-59ab-a59e-0ffa9c9a5e35",
+      "filename": "B.xlsx",
+      "source_sha256": "89c36dc063327e544146c29cc6fe3656c51d8a97623f46beaa3f498329588447",
+      "source": {
+        "kind": "prepared_dataset_version",
+        "schema_version": 1,
+        "dataset_id": "9274939b-f49b-5b1f-9291-e4841da12d74",
+        "structure_id": "019dde9c-8fd8-4805-8a38-f73414ffa58a",
+        "dataset_version": 1,
+        "file_id": "1feb7890-d946-59ab-a59e-0ffa9c9a5e35",
+        "source_sha256": "89c36dc063327e544146c29cc6fe3656c51d8a97623f46beaa3f498329588447",
+        "dataset_sha256": "9a834760ec29fadff9e62732500382258896966996727dca8e674354a268d5c7",
+        "dataset_size_bytes": 3121,
+        "dataset_schema_version": 1,
+        "sheet_index": 0,
+        "sheet_name": "研究 & 数据",
+        "parser_version": "openpyxl-3.1.5-structure-v1",
+        "parent_dataset_id": "d2e30af4-2a56-5192-9d5a-c53a2ee15ffc",
+        "parent_dataset_version": 1,
+        "transform_version": "excel_prepare_v1"
+      },
+      "setup_revision": 1,
+      "selection": {
+        "task_type": "correlation",
+        "sheet_name": "研究 & 数据",
+        "method": "pearson",
+        "mode": "pair",
+        "columns": [
+          "A",
+          "B"
+        ],
+        "units": {
+          "A": "",
+          "B": ""
+        },
+        "missing_policy": "complete_cases",
+        "assumptions": {
+          "independent_observations": true,
+          "relationship_form": "linear",
+          "inference_assumptions_confirmed": true
+        }
+      },
+      "check": {
+        "ready": true,
+        "row_count": 5,
+        "valid_count": 4,
+        "excluded_count": 1,
+        "groups": [],
+        "issues": [],
+        "warnings": [
+          "样本量较小，结果可能不稳定。",
+          "缺失行按共同完整记录规则排除，原数据保留。"
+        ]
+      },
+      "analysis_plan": {
+        "plan_id": "56ce894b-e5aa-5cda-a4ee-166c0812689e",
+        "sha256": "9c161bad80187dd61454eaf5f21a43a40a8db15ceb2c54b1293e689d0c92419b",
+        "resolutions": {
+          "small_sample:all": "accept_partial_metrics",
+          "selected_missing:all": "exclude_selected_missing"
+        }
+      },
+      "analysis_context": {
+        "plan": {
+          "schema_version": 5,
+          "workflow_version": "analysis_plan_v5",
+          "rules_version": "analysis_plan_rules_v5",
+          "id": "56ce894b-e5aa-5cda-a4ee-166c0812689e",
+          "task_id": "0cf33c95-4d35-469c-a2fe-e9808bc1328d",
+          "decision_id": "4e2fa094-182f-46f4-8c44-a5e24c96a099",
+          "project_id": "9141e669-1c76-423f-b176-6204afdfb168",
+          "file_id": "1feb7890-d946-59ab-a59e-0ffa9c9a5e35",
+          "source": {
+            "kind": "prepared_dataset_version",
+            "schema_version": 1,
+            "dataset_id": "9274939b-f49b-5b1f-9291-e4841da12d74",
+            "structure_id": "019dde9c-8fd8-4805-8a38-f73414ffa58a",
+            "dataset_version": 1,
+            "file_id": "1feb7890-d946-59ab-a59e-0ffa9c9a5e35",
+            "source_sha256": "89c36dc063327e544146c29cc6fe3656c51d8a97623f46beaa3f498329588447",
+            "dataset_sha256": "9a834760ec29fadff9e62732500382258896966996727dca8e674354a268d5c7",
+            "dataset_size_bytes": 3121,
+            "dataset_schema_version": 1,
+            "sheet_index": 0,
+            "sheet_name": "研究 & 数据",
+            "parser_version": "openpyxl-3.1.5-structure-v1",
+            "parent_dataset_id": "d2e30af4-2a56-5192-9d5a-c53a2ee15ffc",
+            "parent_dataset_version": 1,
+            "transform_version": "excel_prepare_v1"
+          },
+          "selection": {
+            "task_type": "correlation",
+            "sheet_name": "研究 & 数据",
+            "method": "pearson",
+            "mode": "pair",
+            "columns": [
+              "A",
+              "B"
+            ],
+            "units": {
+              "A": "",
+              "B": ""
+            },
+            "missing_policy": "complete_cases",
+            "assumptions": {
+              "independent_observations": true,
+              "relationship_form": "linear",
+              "inference_assumptions_confirmed": true
+            }
+          },
+          "check": {
+            "rules_version": "analysis_plan_rules_v5",
+            "research_missing": [],
+            "data_check": {
+              "rules_version": "analysis_plan_rules_v3",
+              "data_range": "A2:C6",
+              "row_count": 5,
+              "selected_fields": [
+                {
+                  "letter": "A",
+                  "name": "X",
+                  "type_counts": {
+                    "number": 5
+                  },
+                  "missing_count": 0,
+                  "non_missing_count": 5,
+                  "prepared_unit": {
+                    "status": "confirmed",
+                    "value": ""
+                  },
+                  "declared_unit": {
+                    "status": "unknown",
+                    "value": null
+                  },
+                  "observed_min": 1.0,
+                  "observed_max": 5.0
+                },
+                {
+                  "letter": "B",
+                  "name": "Y",
+                  "type_counts": {
+                    "number": 4
+                  },
+                  "missing_count": 1,
+                  "non_missing_count": 4,
+                  "prepared_unit": {
+                    "status": "confirmed",
+                    "value": ""
+                  },
+                  "declared_unit": {
+                    "status": "unknown",
+                    "value": null
+                  },
+                  "observed_min": 3.0,
+                  "observed_max": 9.0
+                }
+              ],
+              "selection_check": {
+                "ready": true,
+                "row_count": 5,
+                "valid_count": 4,
+                "excluded_count": 1,
+                "groups": [],
+                "issues": [],
+                "warnings": [
+                  "样本量较小，结果可能不稳定。",
+                  "缺失行按共同完整记录规则排除，原数据保留。"
+                ]
+              },
+              "issues": [
+                {
+                  "id": "small_sample:all",
+                  "code": "small_sample",
+                  "severity": "warning",
+                  "field": null,
+                  "count": 4,
+                  "coordinates": [],
+                  "message": "样本量较小，结果可能不稳定。",
+                  "allowed_resolutions": [
+                    "accept_partial_metrics"
+                  ]
+                },
+                {
+                  "id": "selected_missing:all",
+                  "code": "selected_missing",
+                  "severity": "warning",
+                  "field": null,
+                  "count": 1,
+                  "coordinates": [
+                    "B6"
+                  ],
+                  "message": "缺失行按共同完整记录规则排除，原数据保留。",
+                  "allowed_resolutions": [
+                    "exclude_selected_missing"
+                  ]
+                }
+              ],
+              "limitations": [
+                "相关不代表因果；前提由用户声明，不是程序证明。",
+                "共同完整记录，不填补、不去重、不自动剔除异常值。",
+                "双侧推断；小样本结果可能不稳定。"
+              ],
+              "research_missing": []
+            },
+            "limitations": [
+              "外部材料仅为来源证据，未由本系统重新计算。",
+              "补充资料及采纳候选不等于批准分析计划。"
+            ]
+          },
+          "resolutions": {
+            "small_sample:all": "accept_partial_metrics",
+            "selected_missing:all": "exclude_selected_missing"
+          },
+          "plan_revision": 2,
+          "setup_revision": 1,
+          "created_at": "2026-10-27T23:37:28.117637+00:00",
+          "research_request": {
+            "question": "Association in explicitly synthetic demonstration rows",
+            "output_language": "en",
+            "population": "Synthetic demonstration only",
+            "study_design": "Cross-sectional demonstration",
+            "observation_unit": "One synthetic observation per row",
+            "observation_structure": "independent",
+            "relationship_description": "",
+            "output_requirements": ""
+          },
+          "recommendation_ref": null,
+          "evidence_versions": [],
+          "origin_recommendation_ref": null,
+          "source_reference": null,
+          "source_resolution": {
+            "confirmed": true,
+            "note": "Exact public synthetic workbook and prepared sheet confirmed."
+          },
+          "sha256": "9c161bad80187dd61454eaf5f21a43a40a8db15ceb2c54b1293e689d0c92419b"
+        },
+        "method": {
+          "id": "pearson",
+          "parameters": {
+            "task_type": "correlation",
+            "sheet_name": "研究 & 数据",
+            "method": "pearson",
+            "mode": "pair",
+            "columns": [
+              "A",
+              "B"
+            ],
+            "units": {
+              "A": "",
+              "B": ""
+            },
+            "missing_policy": "complete_cases",
+            "assumptions": {
+              "independent_observations": true,
+              "relationship_form": "linear",
+              "inference_assumptions_confirmed": true
+            }
+          },
+          "observation_basis": "independent_rows"
+        },
+        "rounding": {
+          "display_significant_digits": 6,
+          "stored_values": "full_precision"
+        }
+      },
+      "variables": [
+        {
+          "column": "A",
+          "name": "X",
+          "unit": ""
+        },
+        {
+          "column": "B",
+          "name": "Y",
+          "unit": ""
+        }
+      ],
+      "statistics": {
+        "method": "pearson",
+        "mode": "pair",
+        "n": 4,
+        "coefficient": 0.6139406135149204,
+        "matrix": null,
+        "p_value": {
+          "value": 0.38605938648507965,
+          "method": "pearson_beta_two_sided",
+          "reason": null
+        },
+        "confidence_interval": {
+          "low": -0.846802785537655,
+          "high": 0.990552062313191,
+          "level": 0.95,
+          "method": "fisher_z",
+          "reason": null
+        },
+        "inference": {
+          "alternative": "two-sided",
+          "rank_method": null,
+          "permutation_type": null,
+          "n_resamples": null,
+          "seed": null,
+          "exact": null
+        },
+        "warnings": [
+          "correlation_not_causation",
+          "small_sample"
+        ]
+      },
+      "row_audit": {
+        "included_rows": [
+          2,
+          3,
+          4,
+          5
+        ],
+        "excluded_rows": [
+          {
+            "row": 6,
+            "coordinates": [
+              "B6"
+            ],
+            "reason": "selected_missing"
+          }
+        ],
+        "missing_policy": "complete_cases"
+      },
+      "started_at": "2026-10-27T23:37:29.556057+00:00",
+      "completed_at": "2026-10-27T23:37:33.945373+00:00",
+      "engine": {
+        "id": "correlation_statistics_dataset_v1",
+        "python_version": "3.11.17",
+        "scipy_version": "1.17.1",
+        "numpy_version": "2.4.6",
+        "parser_version": "openpyxl-3.1.5-structure-v1",
+        "execution_contract": "fixed_statistics_v2"
+      },
+      "id": "77a6a071-7386-4611-84fd-f04ccb231e80"
+    },
+    "figure": {
+      "schema_version": 5,
+      "figure_kind": "line",
+      "language": "en",
+      "plot_config": {
+        "rules": {
+          "x_type": "numeric",
+          "x_order": [],
+          "expected_x": [],
+          "aggregation": "unique",
+          "bar_stat": "count",
+          "error_bars": "none",
+          "missing_group": "block",
+          "included_categories": [],
+          "grouped": false
+        },
+        "style": {
+          "palette": "colorblind",
+          "width": 2400,
+          "height": 1600,
+          "font_size": 12,
+          "display_order": []
+        },
+        "numbering_mode": "external"
+      },
+      "title": "Synthetic B",
+      "x_label": "X",
+      "y_label": "Observation",
+      "caption": "Descriptive projection: 5 valid records, 0 excluded; records need not be independent participants. Known missing values break lines; no interpolation. Duplicate rule: unique Descriptive projection; valid records need not be independent participants. An unspecified study design does not establish independence or causality. Same-group X values must be unique; known missing values break lines; no interpolation.",
+      "statistics": {
+        "series": [
+          {
+            "group": null,
+            "points": [
+              {
+                "n": 1,
+                "x": 1.0,
+                "y": 2.0,
+                "missing": 0
+              },
+              {
+                "n": 1,
+                "x": 2.0,
+                "y": 5.0,
+                "missing": 0
+              },
+              {
+                "n": 1,
+                "x": 3.0,
+                "y": 11.0,
+                "missing": 0
+              },
+              {
+                "n": 1,
+                "x": 4.0,
+                "y": 18.0,
+                "missing": 0
+              },
+              {
+                "n": 1,
+                "x": 5.0,
+                "y": 20.0,
+                "missing": 0
+              }
+            ]
+          }
+        ]
+      },
+      "presentation": {
+        "schema_version": 2,
+        "axes": {
+          "x": {
+            "label": "X",
+            "unit": ""
+          },
+          "y": {
+            "label": "Observation",
+            "unit": ""
+          }
+        },
+        "legend": {
+          "title": "Group",
+          "entries": []
+        },
+        "color_scale": null,
+        "abbreviations": [
+          {
+            "term": "n",
+            "definition": "Valid record count; independent participant count requires the study design"
+          }
+        ],
+        "statistical_notes": [
+          "Descriptive projection; valid records need not be independent participants. An unspecified study design does not establish independence or causality.",
+          "Same-group X values must be unique; known missing values break lines; no interpolation."
+        ]
+      },
+      "id": "632b8edc-bc01-5b93-b006-4cdb7d2c5ebb",
+      "analysis_run_id": "77a6a071-7386-4611-84fd-f04ccb231e80",
+      "file_id": "1feb7890-d946-59ab-a59e-0ffa9c9a5e35",
+      "source": {
+        "kind": "prepared_dataset_version",
+        "schema_version": 1,
+        "dataset_id": "9274939b-f49b-5b1f-9291-e4841da12d74",
+        "structure_id": "019dde9c-8fd8-4805-8a38-f73414ffa58a",
+        "dataset_version": 1,
+        "file_id": "1feb7890-d946-59ab-a59e-0ffa9c9a5e35",
+        "source_sha256": "89c36dc063327e544146c29cc6fe3656c51d8a97623f46beaa3f498329588447",
+        "dataset_sha256": "9a834760ec29fadff9e62732500382258896966996727dca8e674354a268d5c7",
+        "dataset_size_bytes": 3121,
+        "dataset_schema_version": 1,
+        "sheet_index": 0,
+        "sheet_name": "研究 & 数据",
+        "parser_version": "openpyxl-3.1.5-structure-v1",
+        "parent_dataset_id": "d2e30af4-2a56-5192-9d5a-c53a2ee15ffc",
+        "parent_dataset_version": 1,
+        "transform_version": "excel_prepare_v1"
+      },
+      "source_sha256": "89c36dc063327e544146c29cc6fe3656c51d8a97623f46beaa3f498329588447",
+      "setup_revision": 1,
+      "sha256": "fcd2c5925f7bc16828c62b354942864234e29ba4a77a2b0d8370426fbe84930d",
+      "size_bytes": 257017,
+      "figure_config_version_id": "76843c4d-83ac-416b-9b2b-0880caf04839",
+      "configuration_sha256": "44d0ebaf97010f94e9490e0f4f7812995cc041deb815b5a41f532c935fa9c387",
+      "projection_id": "fdd336c0-9a1d-5e7b-b4d4-2e12bd5e00ed",
+      "projection_sha256": "0b50ee6d12719d9f0f630336a347bc92e90d7d94e293e62d12615958ebf0f8dc",
+      "facts_sha256": "2486d28631aa3c261d372cbf6a77ddc85d8d47eae7b2a85ced856d1ab19a224d",
+      "figure_number": null,
+      "numbering_mode": "external",
+      "method": {
+        "id": "figure_projection_v1",
+        "kind": "line",
+        "x_type": "numeric",
+        "x_order": [],
+        "bar_stat": "count",
+        "x_column": "A",
+        "y_column": "C",
+        "error_bars": "none",
+        "expected_x": [],
+        "aggregation": "unique",
+        "inferential": false,
+        "record_unit": "included_record",
+        "group_column": null,
+        "missing_group": "block",
+        "category_column": null,
+        "included_categories": []
+      },
+      "created_at": "2026-10-27T23:37:45.181348+00:00",
+      "engine": {
+        "id": "openai_figure_workbench_v3",
+        "provider": "openai_code_interpreter",
+        "model": "gpt-5.6-sol"
+      },
+      "verification": {
+        "status": "matched",
+        "note": "Structured values verified; image pixels require human review."
+      },
+      "provenance": {
+        "response_id": "resp_05af549fd9a1d129006ae141ca4c7487d0b29c0e28fc748453",
+        "container_id": "cntr_6ae1410ef1e081989f9892b31ba7854805f5855b8010325b",
+        "model": "gpt-5.6-sol",
+        "code": [
+          "import json, os, sys, math, statistics, textwrap, platform\npath=\"/mnt/data/76c4f6760f4fe71cd67c616641354408-data.json\"\nwith open(path,\"r\",encoding=\"utf-8\") as f:\n    data=json.load(f)\ntype(data), data.keys()\n",
+          "import pprint, json\npprint.pp(data, width=120, sort_dicts=False)\n",
+          "import matplotlib\nmatplotlib.use(\"Agg\")\nimport matplotlib.pyplot as plt\nfrom matplotlib import font_manager\nfrom matplotlib.transforms import Bbox\nimport numpy as np, os, json, math, platform, textwrap\n\n# Select a font that covers all supplied characters (there are no CJK glyphs here, but verify all characters).\nall_text = []\nall_text.extend([data[\"labels\"][k] for k in (\"title\",\"x_label\",\"y_label\",\"caption\")])\npres = data[\"presentation\"]\nall_text.extend([pres[\"axes\"][\"x\"][\"label\"], pres[\"axes\"][\"x\"][\"unit\"],\n                 pres[\"axes\"][\"y\"][\"label\"], pres[\"axes\"][\"y\"][\"unit\"],\n                 pres[\"legend\"][\"title\"]])\nfor e in pres[\"legend\"][\"entries\"]:\n    all_text.append(e.get(\"label\",\"\"))\nfor a in pres[\"abbreviations\"]:\n    all_text.extend([a[\"term\"], a[\"definition\"]])\nall_text.extend(pres[\"statistical_notes\"])\n\nchars = sorted(set(\"\".join(all_text)))\nfont_candidates = [\"DejaVu Sans\", \"Liberation Sans\", \"Noto Sans CJK SC\", \"Arial Unicode MS\"]\nchosen_font = None\nfont_path = None\nfor name in font_candidates:\n    try:\n        p = font_manager.findfont(name, fallback_to_default=False)\n    except Exception:\n        continue\n    ft = matplotlib.ft2font.FT2Font(p)\n    cmap = ft.get_charmap()\n    if all(ord(c) in cmap or c in \"\\n\\r\\t\" for c in chars):\n        chosen_font = name\n        font_path = p\n        break\nchosen_font, font_path, [c for c in chars if ord(c)>127][:20]\n",
+          "# Compute statistics independently\nobs = data[\"observations\"]\nrules = data[\"plot_config\"][\"rules\"]\nassert data[\"figure_kind\"] == \"line\"\nassert rules[\"x_type\"] == \"numeric\"\nassert rules[\"aggregation\"] == \"unique\"\n\n# Ungrouped because grouped is false; missing group is accepted as the single ungrouped series.\nvalid_rows = [r for r in obs if r.get(\"x\") is not None]\n# detect duplicate numeric x\nxs = [float(r[\"x\"]) for r in valid_rows]\nif len(set(xs)) != len(xs):\n    raise ValueError(\"Duplicate X under unique aggregation\")\npoints=[]\nfor r in sorted(valid_rows, key=lambda r: float(r[\"x\"])):\n    y=r.get(\"y\")\n    points.append({\n        \"x\": float(r[\"x\"]),\n        \"y\": None if y is None else float(y),\n        \"n\": 0 if y is None else 1,\n        \"missing\": 1 if y is None else 0\n    })\nstatistics={\"series\":[{\"group\": None, \"points\": points}]}\n\nresult = {\n    \"schema_version\": data[\"schema_version\"],\n    \"figure_kind\": data[\"figure_kind\"],\n    \"language\": data[\"language\"],\n    \"plot_config\": data[\"plot_config\"],\n    \"title\": data[\"labels\"][\"title\"],\n    \"x_label\": data[\"labels\"][\"x_label\"],\n    \"y_label\": data[\"labels\"][\"y_label\"],\n    \"caption\": data[\"labels\"][\"caption\"],\n    \"presentation\": data[\"presentation\"],\n    \"statistics\": statistics,\n    \"environment\": {\n        \"python_version\": platform.python_version(),\n        \"matplotlib_version\": matplotlib.__version__,\n        \"font\": chosen_font\n    }\n}\nout_json=\"/mnt/data/result.json\"\nwith open(out_json,\"w\",encoding=\"utf-8\") as f:\n    json.dump(result,f,ensure_ascii=False,indent=2,allow_nan=False)\nprint(json.dumps(result, ensure_ascii=False, indent=2)[:2000])\n",
+          "from PIL import Image\n\nstyle=data[\"plot_config\"][\"style\"]\nW,H,DPI=style[\"width\"],style[\"height\"],300\nfs=style[\"font_size\"]\n\nmatplotlib.rcParams.update({\n    \"font.family\": chosen_font,\n    \"font.size\": fs,\n    \"axes.titlesize\": fs,\n    \"axes.labelsize\": fs,\n    \"xtick.labelsize\": fs,\n    \"ytick.labelsize\": fs,\n    \"legend.fontsize\": fs,\n    \"figure.facecolor\": \"white\",\n    \"axes.facecolor\": \"white\",\n    \"savefig.facecolor\": \"white\",\n    \"text.parse_math\": False,\n})\n\nfig=plt.figure(figsize=(W/DPI,H/DPI), dpi=DPI, facecolor=\"white\")\n# Dedicated regions: title 0.93-0.99, plot 0.32-0.89, caption/abbr below.\nax=fig.add_axes([0.105,0.335,0.86,0.54])\n\nx=np.array([p[\"x\"] for p in points], dtype=float)\ny=np.array([np.nan if p[\"y\"] is None else p[\"y\"] for p in points], dtype=float)\nline_color=\"#0173B2\"  # colorblind palette\nax.plot(x,y,color=line_color,linewidth=2.2,marker=\"o\",markersize=6.5,\n        markerfacecolor=line_color,markeredgecolor=\"white\",markeredgewidth=0.8,\n        solid_capstyle=\"round\", zorder=3)\n\nax.set_xlim(0.8,5.2)\nax.set_ylim(0,22)\nax.set_xticks(x)\nax.set_yticks([0,5,10,15,20])\nax.set_xlabel(pres[\"axes\"][\"x\"][\"label\"] if not pres[\"axes\"][\"x\"][\"unit\"] else f'{pres[\"axes\"][\"x\"][\"label\"]} ({pres[\"axes\"][\"x\"][\"unit\"]})',\n              labelpad=10)\nax.set_ylabel(pres[\"axes\"][\"y\"][\"label\"] if not pres[\"axes\"][\"y\"][\"unit\"] else f'{pres[\"axes\"][\"y\"][\"label\"]} ({pres[\"axes\"][\"y\"][\"unit\"]})',\n              labelpad=12)\nax.grid(axis=\"y\",color=\"#D9D9D9\",linewidth=0.8)\nax.grid(axis=\"x\",visible=False)\nax.spines[\"top\"].set_visible(False)\nax.spines[\"right\"].set_visible(False)\nax.spines[\"left\"].set_color(\"#444444\")\nax.spines[\"bottom\"].set_color(\"#444444\")\nax.tick_params(colors=\"#333333\", length=4)\n\ntitle_obj=fig.text(0.535,0.955,data[\"labels\"][\"title\"],ha=\"center\",va=\"center\",\n                   fontsize=fs,fontweight=\"bold\",color=\"#111111\")\n\ncaption_obj=fig.text(0.06,0.205,data[\"labels\"][\"caption\"],ha=\"left\",va=\"top\",\n                     fontsize=fs,color=\"#222222\",wrap=True,linespacing=1.25)\n\nabbr_text = \"Abbreviations: \" + \"; \".join(f'{a[\"term\"]} = {a[\"definition\"]}' for a in pres[\"abbreviations\"])\nabbr_obj=fig.text(0.06,0.062,abbr_text,ha=\"left\",va=\"bottom\",\n                  fontsize=fs,color=\"#333333\",wrap=True,linespacing=1.2)\n\n# draw and inspect\nfig.canvas.draw()\nrenderer=fig.canvas.get_renderer()\nobjs={\"title\":title_obj,\"caption\":caption_obj,\"abbr\":abbr_obj,\n      \"xlabel\":ax.xaxis.label,\"ylabel\":ax.yaxis.label}\nbboxes={k:o.get_window_extent(renderer=renderer) for k,o in objs.items()}\n{k:(round(v.x0,1),round(v.y0,1),round(v.x1,1),round(v.y1,1)) for k,v in bboxes.items()}\n",
+          "# Reposition data axes and explanatory text to remove overlap.\nax.set_position([0.105,0.42,0.86,0.455])\ncaption_obj.set_position((0.06,0.29))\nabbr_obj.set_position((0.06,0.018))\nfig.canvas.draw()\nrenderer=fig.canvas.get_renderer()\nbboxes={k:o.get_window_extent(renderer=renderer) for k,o in objs.items()}\n{k:(round(v.x0,1),round(v.y0,1),round(v.x1,1),round(v.y1,1)) for k,v in bboxes.items()}\n",
+          "out_png=\"/mnt/data/figure.png\"\nfig.savefig(out_png,dpi=DPI,facecolor=\"white\",edgecolor=\"white\",bbox_inches=None,pad_inches=0)\nplt.close(fig)\n\nim=Image.open(out_png)\nim.size, im.mode, os.path.getsize(out_png), os.path.getsize(out_json)\n"
+        ],
+        "usage": {
+          "input_tokens": 8186,
+          "input_tokens_details": {
+            "cache_write_tokens": 2580,
+            "cached_tokens": 0
+          },
+          "output_tokens": 3947,
+          "output_tokens_details": {
+            "reasoning_tokens": 3914
+          },
+          "total_tokens": 12133
+        },
+        "prompt_version": "openai_figure_workbench_v3",
+        "png_file_id": "cfile_6ae1421d75088191ac3d363339231152",
+        "result_file_id": "cfile_6ae1421d75308191a97781a2d65521dd",
+        "model_call_id": "85a303be-4c4d-4eca-a2e5-8b3f4a461c69",
+        "model_input_digest": "007197841f3f57ce0c0c7b2599d303165718620e49dcfff30f7ed5c823048499",
+        "input_sha256": "aff9d26699e86188311009a1c76104bbdfcebd2f3b9f45d477cfd02920723873"
+      },
+      "text_authorship": {
+        "title": "user",
+        "additional_caption": "user",
+        "created_by": "fa444473-7099-4c3c-aeb6-5eb0a5e089d2"
+      },
+      "external_processing": {
+        "version": 7,
+        "confirmed": true,
+        "version_id": "76843c4d-83ac-416b-9b2b-0880caf04839",
+        "confirmed_at": "2026-10-27T23:37:45.181348+00:00",
+        "confirmed_by": "fa444473-7099-4c3c-aeb6-5eb0a5e089d2",
+        "payload_sha256": "aff9d26699e86188311009a1c76104bbdfcebd2f3b9f45d477cfd02920723873"
+      }
+    },
+    "configuration": {
+      "id": "76843c4d-83ac-416b-9b2b-0880caf04839",
+      "configuration_id": "ded6eb31-e604-4c99-8f4f-bc680e5f3d07",
+      "revision": 1,
+      "parent_version_id": null,
+      "created_by": "fa444473-7099-4c3c-aeb6-5eb0a5e089d2",
+      "created_at": "2026-10-27 23:37:35.144922+00:00",
+      "sha256": "44d0ebaf97010f94e9490e0f4f7812995cc041deb815b5a41f532c935fa9c387",
+      "config": {
+        "style": {
+          "title": "Synthetic B",
+          "width": 2400,
+          "height": 1600,
+          "aliases": {},
+          "caption": "",
+          "palette": "colorblind",
+          "font_size": 12,
+          "display_order": []
+        },
+        "language": "en",
+        "projection": {
+          "x_type": "numeric",
+          "x_order": [],
+          "bar_stat": "count",
+          "x_column": "A",
+          "y_column": "C",
+          "error_bars": "none",
+          "expected_x": [],
+          "aggregation": "unique",
+          "group_column": null,
+          "missing_group": "block",
+          "category_column": null,
+          "included_categories": []
+        },
+        "figure_kind": "line"
+      },
+      "source": {
+        "kind": "prepared_dataset_version",
+        "file_id": "1feb7890-d946-59ab-a59e-0ffa9c9a5e35",
+        "dataset_id": "9274939b-f49b-5b1f-9291-e4841da12d74",
+        "sheet_name": "研究 & 数据",
+        "sheet_index": 0,
+        "structure_id": "019dde9c-8fd8-4805-8a38-f73414ffa58a",
+        "source_sha256": "89c36dc063327e544146c29cc6fe3656c51d8a97623f46beaa3f498329588447",
+        "dataset_sha256": "9a834760ec29fadff9e62732500382258896966996727dca8e674354a268d5c7",
+        "parser_version": "openpyxl-3.1.5-structure-v1",
+        "schema_version": 1,
+        "dataset_version": 1,
+        "parent_dataset_id": "d2e30af4-2a56-5192-9d5a-c53a2ee15ffc",
+        "transform_version": "excel_prepare_v1",
+        "dataset_size_bytes": 3121,
+        "dataset_schema_version": 1,
+        "parent_dataset_version": 1
+      },
+      "figure_contract": 3
+    },
+    "projection": {
+      "id": "fdd336c0-9a1d-5e7b-b4d4-2e12bd5e00ed",
+      "config_version_id": "76843c4d-83ac-416b-9b2b-0880caf04839",
+      "sha256": "0b50ee6d12719d9f0f630336a347bc92e90d7d94e293e62d12615958ebf0f8dc",
+      "result": {
+        "audit": {
+          "valid_n": 5,
+          "excluded": [],
+          "source_n": 5,
+          "excluded_n": 0,
+          "missing_y_n": 0,
+          "population_n": 5,
+          "included_rows": [
+            2,
+            3,
+            4,
+            5,
+            6
+          ],
+          "population_excluded": [],
+          "population_excluded_n": 0
+        },
+        "method": {
+          "id": "figure_projection_v1",
+          "kind": "line",
+          "x_type": "numeric",
+          "x_order": [],
+          "bar_stat": "count",
+          "x_column": "A",
+          "y_column": "C",
+          "error_bars": "none",
+          "expected_x": [],
+          "aggregation": "unique",
+          "inferential": false,
+          "record_unit": "included_record",
+          "group_column": null,
+          "missing_group": "block",
+          "category_column": null,
+          "included_categories": []
+        },
+        "series": [
+          {
+            "group": null,
+            "points": [
+              {
+                "n": 1,
+                "x": 1.0,
+                "y": 2.0,
+                "missing": 0
+              },
+              {
+                "n": 1,
+                "x": 2.0,
+                "y": 5.0,
+                "missing": 0
+              },
+              {
+                "n": 1,
+                "x": 3.0,
+                "y": 11.0,
+                "missing": 0
+              },
+              {
+                "n": 1,
+                "x": 4.0,
+                "y": 18.0,
+                "missing": 0
+              },
+              {
+                "n": 1,
+                "x": 5.0,
+                "y": 20.0,
+                "missing": 0
+              }
+            ]
+          }
+        ],
+        "_material": {
+          "sha256": "1b48438a5da01818cfe3e51a825ade777437b8dae92fb8afdd18151c96e79468",
+          "payload": {
+            "labels": {
+              "title": "Synthetic B",
+              "caption": "Descriptive projection: 5 valid records, 0 excluded; records need not be independent participants. Known missing values break lines; no interpolation. Duplicate rule: unique Descriptive projection; valid records need not be independent participants. An unspecified study design does not establish independence or causality. Same-group X values must be unique; known missing values break lines; no interpolation.",
+              "x_label": "X",
+              "y_label": "Observation"
+            },
+            "language": "en",
+            "figure_kind": "line",
+            "plot_config": {
+              "rules": {
+                "x_type": "numeric",
+                "grouped": false,
+                "x_order": [],
+                "bar_stat": "count",
+                "error_bars": "none",
+                "expected_x": [],
+                "aggregation": "unique",
+                "missing_group": "block",
+                "included_categories": []
+              },
+              "style": {
+                "width": 2400,
+                "height": 1600,
+                "palette": "colorblind",
+                "font_size": 12,
+                "display_order": []
+              },
+              "numbering_mode": "external"
+            },
+            "observations": [
+              {
+                "x": 1.0,
+                "y": 2.0,
+                "group": null
+              },
+              {
+                "x": 2.0,
+                "y": 5.0,
+                "group": null
+              },
+              {
+                "x": 3.0,
+                "y": 11.0,
+                "group": null
+              },
+              {
+                "x": 4.0,
+                "y": 18.0,
+                "group": null
+              },
+              {
+                "x": 5.0,
+                "y": 20.0,
+                "group": null
+              }
+            ],
+            "presentation": {
+              "axes": {
+                "x": {
+                  "unit": "",
+                  "label": "X"
+                },
+                "y": {
+                  "unit": "",
+                  "label": "Observation"
+                }
+              },
+              "legend": {
+                "title": "Group",
+                "entries": []
+              },
+              "color_scale": null,
+              "abbreviations": [
+                {
+                  "term": "n",
+                  "definition": "Valid record count; independent participant count requires the study design"
+                }
+              ],
+              "schema_version": 2,
+              "statistical_notes": [
+                "Descriptive projection; valid records need not be independent participants. An unspecified study design does not establish independence or causality.",
+                "Same-group X values must be unique; known missing values break lines; no interpolation."
+              ]
+            },
+            "schema_version": 5
+          },
+          "expected": {
+            "title": "Synthetic B",
+            "caption": "Descriptive projection: 5 valid records, 0 excluded; records need not be independent participants. Known missing values break lines; no interpolation. Duplicate rule: unique Descriptive projection; valid records need not be independent participants. An unspecified study design does not establish independence or causality. Same-group X values must be unique; known missing values break lines; no interpolation.",
+            "x_label": "X",
+            "y_label": "Observation",
+            "language": "en",
+            "statistics": {
+              "series": [
+                {
+                  "group": null,
+                  "points": [
+                    {
+                      "n": 1,
+                      "x": 1.0,
+                      "y": 2.0,
+                      "missing": 0
+                    },
+                    {
+                      "n": 1,
+                      "x": 2.0,
+                      "y": 5.0,
+                      "missing": 0
+                    },
+                    {
+                      "n": 1,
+                      "x": 3.0,
+                      "y": 11.0,
+                      "missing": 0
+                    },
+                    {
+                      "n": 1,
+                      "x": 4.0,
+                      "y": 18.0,
+                      "missing": 0
+                    },
+                    {
+                      "n": 1,
+                      "x": 5.0,
+                      "y": 20.0,
+                      "missing": 0
+                    }
+                  ]
+                }
+              ]
+            },
+            "figure_kind": "line",
+            "plot_config": {
+              "rules": {
+                "x_type": "numeric",
+                "grouped": false,
+                "x_order": [],
+                "bar_stat": "count",
+                "error_bars": "none",
+                "expected_x": [],
+                "aggregation": "unique",
+                "missing_group": "block",
+                "included_categories": []
+              },
+              "style": {
+                "width": 2400,
+                "height": 1600,
+                "palette": "colorblind",
+                "font_size": 12,
+                "display_order": []
+              },
+              "numbering_mode": "external"
+            },
+            "presentation": {
+              "axes": {
+                "x": {
+                  "unit": "",
+                  "label": "X"
+                },
+                "y": {
+                  "unit": "",
+                  "label": "Observation"
+                }
+              },
+              "legend": {
+                "title": "Group",
+                "entries": []
+              },
+              "color_scale": null,
+              "abbreviations": [
+                {
+                  "term": "n",
+                  "definition": "Valid record count; independent participant count requires the study design"
+                }
+              ],
+              "schema_version": 2,
+              "statistical_notes": [
+                "Descriptive projection; valid records need not be independent participants. An unspecified study design does not establish independence or causality.",
+                "Same-group X values must be unique; known missing values break lines; no interpolation."
+              ]
+            },
+            "schema_version": 5
+          }
+        },
+        "input_sha256": "08df977769c55bb189e0259801a196010e001d46a2783aa398a4caed615093a4",
+        "tool_version": "figure_projection_v1",
+        "schema_version": 1,
+        "original_statistical_n": 4
+      }
+    }
+  },
+  "saved_explanation_included": false
+}

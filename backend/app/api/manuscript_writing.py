@@ -1,6 +1,6 @@
-from app.domain.manuscript_writing.live_review_contracts import ScientificReviewRequest, ReviewedPublishRequest
+from app.domain.manuscript_writing.live_review_contracts import ScientificReviewRequest, ReviewedPublishRequest,SchoolScientificReviewRequest
 from app.domain.manuscript_writing.live_review import LiveReviewService
-from app.domain.manuscript_writing.live_contracts import LiveWritingRequest, PreviewRequest, AuthorizationRequest
+from app.domain.manuscript_writing.live_contracts import LiveWritingRequest, PreviewRequest, AuthorizationRequest,SchoolPreviewRequest
 from app.domain.manuscript_writing.authorization import LiveWritingService
 from fastapi import APIRouter,Response
 from app.api.dataset_preparation import Store,Key
@@ -28,7 +28,7 @@ preview_router=APIRouter(prefix='/api/v1/projects/{project_id}/manuscripts/{manu
 authorization_router=APIRouter(prefix='/api/v1/projects/{project_id}/writing-authorizations',tags=['SCI写作'])
 
 @preview_router.post('',status_code=201)
-def preview(project_id:str,manuscript_id:str,request:PreviewRequest,response:Response,store:Store,idempotency_key:Key):
+def preview(project_id:str,manuscript_id:str,request:PreviewRequest | SchoolPreviewRequest,response:Response,store:Store,idempotency_key:Key):
     result,response.status_code=LiveWritingService(store).preview(project_id,manuscript_id,request,idempotency_key)
     return result
 
@@ -59,7 +59,7 @@ def review_context(project_id:str,manuscript_id:str,request_id:str,store:Store):
     return LiveReviewService(store).context(project_id,manuscript_id,request_id)
 
 @router.post('/{request_id}/reviews',status_code=201)
-def review_create(project_id:str,manuscript_id:str,request_id:str,request:ScientificReviewRequest,response:Response,store:Store,idempotency_key:Key):
+def review_create(project_id:str,manuscript_id:str,request_id:str,request:ScientificReviewRequest | SchoolScientificReviewRequest,response:Response,store:Store,idempotency_key:Key):
     result,response.status_code=LiveReviewService(store).create(project_id,manuscript_id,request_id,request,idempotency_key)
     return result
 
@@ -68,7 +68,7 @@ def review_get(project_id:str,manuscript_id:str,request_id:str,review_id:str,sto
     return LiveReviewService(store).get(project_id,manuscript_id,request_id,review_id)
 
 
-from app.domain.manuscript_writing.language_contracts import LanguagePreparation,LanguageReviewRequest
+from app.domain.manuscript_writing.language_contracts import LanguagePreparation,LanguageReviewRequest,SchoolLanguagePreparation,SchoolLanguageReviewRequest
 from app.domain.manuscript_writing.language_service import LanguageReviewService
 
 @router.get('/{request_id}/reviews/{review_id}/language-context')
@@ -76,11 +76,11 @@ def language_context(project_id:str,manuscript_id:str,request_id:str,review_id:s
     return LanguageReviewService(store).context(project_id,manuscript_id,request_id,review_id)
 
 @router.post('/{request_id}/reviews/{review_id}/language-context')
-def language_preview(project_id:str,manuscript_id:str,request_id:str,review_id:str,request:LanguagePreparation,store:Store):
+def language_preview(project_id:str,manuscript_id:str,request_id:str,review_id:str,request:LanguagePreparation | SchoolLanguagePreparation,store:Store):
     return LanguageReviewService(store).context(project_id,manuscript_id,request_id,review_id,request)
 
 @router.post('/{request_id}/language-reviews',status_code=201)
-def language_create(project_id:str,manuscript_id:str,request_id:str,request:LanguageReviewRequest,response:Response,store:Store,idempotency_key:Key):
+def language_create(project_id:str,manuscript_id:str,request_id:str,request:LanguageReviewRequest | SchoolLanguageReviewRequest,response:Response,store:Store,idempotency_key:Key):
     result,response.status_code=LanguageReviewService(store).create_language(project_id,manuscript_id,request_id,request,idempotency_key)
     return result
 

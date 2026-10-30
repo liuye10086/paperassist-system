@@ -8,9 +8,16 @@ from app.domain.literature.service import digest
 from app.domain.literature_evidence.service import request_data
 from app.domain.manuscripts.service import now
 from .live_review import LiveReviewService
-from .language_contracts import LanguagePreparation,LanguageReviewRequest
-from .language import prepare_candidate,editable_fields,figure_materials,inventory,validate_decisions,RENDERER_VERSION
+from .language_contracts import LanguagePreparation,LanguageReviewRequest,language_request_model
+from .language import prepare_candidate,editable_fields,figure_materials,inventory,validate_decisions,RENDERER_VERSION,figure_language
 from .numeric_review import NUMERIC_VERSION,validation_version
+
+
+def validate_language(items,body,candidate):
+    if candidate.get('thesis_context'):
+        from .school_language import validate_decisions as school_decisions
+        return school_decisions(items,body)
+    return validate_decisions(items,body,candidate['output_language'])
 
 
 def invalid(exc):
@@ -22,7 +29,7 @@ def artifact_sha(row):
 
 
 class LanguageReviewService(LiveReviewService):
-    def prepare(self,db,project,review,body,*,numeric_version=NUMERIC_VERSION):
+    def prepare(self,db,project,review,body,*,numeric_version=NUMERIC_VERSION,frozen_render=None):
         if body['review_id']!=review['id'] or body['review_sha256']!=review['review_sha256']: raise source_conflict()
         try:
             candidate=prepare_candidate(review['reviewed_candidate_json'],body,numeric_version=numeric_version);seen=set()
@@ -35,35 +42,58 @@ class LanguageReviewService(LiveReviewService):
                 from app.domain.manuscripts.figure_language import FigureLanguageService
                 service=FigureLanguageService(self.assets);version=service.row(db,project,replacement['version_id']);snap=version['snapshot_json']
                 source=next(s for s in candidate['sources'] if s['id']==figure['source_ids'][0]);original=snap['original']
-                if (original['sha256']!=figure['sha256'] or original['file_id']!=source['file_id'] or original['id']!=source['id'] or original['kind']!=source['kind'] or original.get('image_id')!=figure.get('image_id') or snap['output_language']!=candidate['output_language']): raise ValueError('Replacement is not bound to this original')
+                if (original['sha256']!=figure['sha256'] or original['file_id']!=source['file_id'] or original['id']!=source['id'] or original['kind']!=source['kind'] or original.get('image_id')!=figure.get('image_id') or snap['output_language']!=figure_language(candidate,identity)): raise ValueError('Replacement is not bound to this original')
                 figure.update(language_version_id=version['id'],sha256=snap['sha256'],preview_url=f'/api/v1/projects/{project}/manuscript-figure-language-versions/{version["id"]}/download')
             images,image_items=figure_materials(self.assets,db,project,candidate)
-            items=inventory(candidate,images,image_items)
-        except (ValueError,KeyError,TypeError,StopIteration) as exc: raise invalid(exc) from exc
+            if candidate.get('thesis_context'):
+                if body['schema_version']!=3:raise ValueError('School language needs frozen school export options')
+                from .school_language import inventory as school_inventory
+                version=dict(project_id=project,snapshot_json=candidate)
+                options=self.manuscripts.school_options(version,dict(school=body['school']))
+                analysis=self.manuscripts.school_analysis(db,version,current=False)
+                items,_=school_inventory(candidate,images,image_items,analysis,options,cache=dict(root=self.assets.directory,owner=self.store.user_id,project=project,db=db),frozen=frozen_render)
+            else:
+                if body['schema_version']!=2:raise ValueError('SCI language request version mismatch')
+                items=inventory(candidate,images,image_items)
+        except (ValueError,KeyError,TypeError,StopIteration,OSError) as exc: raise invalid(exc) from exc
         return candidate,items
 
     def context(self,project,identity,request_id,review_id,request=None):
         with self.store.connection() as db:
             review=super().row(db,project,identity,request_id,review_id)
-            self.validate_frozen(db,project,identity,request_id,review)
-            body=request_data(LanguagePreparation,request or dict(schema_version=2,review_id=review_id,review_sha256=review['review_sha256']))
-            candidate,items=self.prepare(db,project,review,body)
-            return dict(schema_version=2,review_id=review_id,review_sha256=review['review_sha256'],output_language=candidate['output_language'],candidate=candidate,inventory=items,inventory_sha256=digest(items),editable_fields=editable_fields(review['reviewed_candidate_json']),renderer_version=RENDERER_VERSION)
+            if not review['reviewed_candidate_json'].get('thesis_context'):
+                return self.context_in_transaction(db,project,identity,request_id,review_id,request,review)
+        # Only the school path publishes immutable local render-cache assets.
+        # Re-read beneath the existing writer lock before preparing that cache.
+        with self.store.connection(write=True) as db:
+            review=super().row(db,project,identity,request_id,review_id)
+            return self.context_in_transaction(db,project,identity,request_id,review_id,request,review)
+
+    def context_in_transaction(self,db,project,identity,request_id,review_id,request,review):
+        self.validate_frozen(db,project,identity,request_id,review)
+        default=dict(schema_version=3 if review['reviewed_candidate_json'].get('thesis_context') else 2,review_id=review_id,review_sha256=review['review_sha256'])
+        if default['schema_version']==3:default['school']={}
+        supplied=request or default
+        body=request_data(language_request_model(supplied),supplied)
+        candidate,items=self.prepare(db,project,review,body)
+        return dict(schema_version=body['schema_version'],review_id=review_id,review_sha256=review['review_sha256'],output_language=candidate['output_language'],candidate=candidate,inventory=items,inventory_sha256=digest(items),editable_fields=editable_fields(review['reviewed_candidate_json']),renderer_version=RENDERER_VERSION)
 
     def language_row(self,db,project,identity,request_id,language_id,*,for_admission=False,seen=None):
         self.manuscripts.root(db,project,identity)
         row=db.execute('SELECT * FROM manuscript_writing_language_reviews WHERE id=%s AND request_id=%s AND manuscript_id=%s AND project_id=%s AND user_id=%s',(language_id,request_id,identity,project,self.store.user_id)).fetchone()
         if not row: raise StorageError('task_not_found','语言审核版本不存在。',404)
-        body=request_data(LanguageReviewRequest,row['request_json'])
+        body=request_data(language_request_model(row['request_json'],review=True),row['request_json'])
         if body!=row['request_json'] or digest(body)!=row['request_digest'] or digest(row['candidate_json'])!=row['candidate_sha256'] or digest(row['inventory_json'])!=row['inventory_sha256'] or artifact_sha(row)!=row['artifact_sha256']: raise source_conflict()
         review=super().row(db,project,identity,request_id,row['review_id'])
         if review['review_sha256']!=row['review_sha256'] or review['base_version_id']!=row['base_version_id']: raise source_conflict()
         try:version=validation_version(row['candidate_json']['writing_provenance'].get('language_numeric_validation_version',1))
         except ValueError as exc:raise source_conflict() from exc
-        candidate,items=self.prepare(db,project,review,body,numeric_version=version)
+        frozen_render=row['candidate_json']['writing_provenance'].get('school_final_render')
+        if row['candidate_json'].get('thesis_context') and frozen_render is None:raise source_conflict()
+        candidate,items=self.prepare(db,project,review,body,numeric_version=version,frozen_render=frozen_render)
         self.finish(candidate,row['id'],row['review_sha256'],numeric_version=version)
         if candidate!=row['candidate_json'] or items!=row['inventory_json']: raise source_conflict()
-        try: validate_decisions(items,body,candidate['output_language'])
+        try: validate_language(items,body,candidate)
         except ValueError as exc: raise source_conflict() from exc
         if for_admission:
             self.validate_frozen(db,project,identity,request_id,review,strict_numeric=True,seen=seen)
@@ -83,7 +113,7 @@ class LanguageReviewService(LiveReviewService):
         with self.store.connection() as db: return self.view_language(self.language_row(db,project,identity,request_id,language_id))
 
     def create_language(self,project,identity,request_id,request,key):
-        require_key(key);body=request_data(LanguageReviewRequest,request)
+        require_key(key);body=request_data(language_request_model(request,review=True),request)
         with self.store.connection(write=True) as db:
             self.citations.evidence.lock(db,project)
             review=super().row(db,project,identity,request_id,body['review_id'])
@@ -93,7 +123,7 @@ class LanguageReviewService(LiveReviewService):
                 return self.view_language(self.language_row(db,project,identity,request_id,old['id'])),200
             self.assert_current(db,project,identity,request_id,review)
             candidate,items=self.prepare(db,project,review,body)
-            try: validate_decisions(items,body,candidate['output_language'])
+            try: validate_language(items,body,candidate)
             except ValueError as exc: raise invalid(exc) from exc
             language_id=str(uuid4());self.finish(candidate,language_id,review['review_sha256'])
             row=dict(id=language_id,request_id=request_id,manuscript_id=identity,base_version_id=review['base_version_id'],project_id=project,user_id=self.store.user_id,review_id=review['id'],review_sha256=review['review_sha256'],request_key=key,request_json=body,request_digest=digest(body),candidate_json=candidate,candidate_sha256=digest(candidate),inventory_json=items,inventory_sha256=digest(items),created_at=now())

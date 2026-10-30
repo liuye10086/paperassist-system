@@ -29,7 +29,7 @@ class WritingCheckContext:
             raise ValueError('Paragraph differs from reconstructed scientific artifact')
         if saved.get('review_revision'):
             return paragraph['text'],deepcopy(paragraph.get('numeric_bindings',[])),[]
-        projected=[];literature=[]
+        projected=[];reviewed_nonstudy=[]
         signed=saved.get('numeric_version',1)==2
         from app.domain.manuscript_writing.numeric_review import value as numeric_value,checker_text
         for binding in sorted(paragraph.get('numeric_bindings',[]),key=lambda b:b['occurrence']):
@@ -39,11 +39,22 @@ class WritingCheckContext:
                 sid=saved['aliases'].get(binding['source_alias'])
                 if sid not in paragraph['source_ids'] or not self.exact_sources([sid],sources): raise ValueError('Study alias/source mismatch')
                 projected.append(dict(fact_id='analysis_run:'+sid+':'+binding['fact_path'],value=binding['value']))
-            else:
+            elif binding['kind']=='literature':
                 # The loader reconstructs these exact new-claim evidence bindings
                 # with LiveReviewService.validate_frozen; do not invent study facts.
-                projected.append(deepcopy(binding));literature.append(deepcopy(binding))
-        return checker_text(saved['text']) if signed else saved['text'],projected,literature
+                projected.append(deepcopy(binding));reviewed_nonstudy.append(deepcopy(binding))
+            elif binding['kind']=='context':
+                context=saved.get('numeric_context',{}).get(binding['source_alias'],{})
+                allowed={(item['fact_path'],numeric_value(item['value']) if signed else item['value']) for item in context.get('values',[])}
+                if (saved.get('numeric_contract_version')!=2 or context.get('kind')!='provided_context'
+                    or context.get('origin') not in ('user_provided','frozen_illustration') or binding.get('evidence_id') is not None
+                    or (binding['fact_path'],binding['value']) not in allowed):raise ValueError('Context differs from its original frozen science catalog')
+                # Typed authority comes from the exact scientific artifact, not a
+                # statistical fact or a literature-support decision.
+                projected.append(deepcopy(binding));reviewed_nonstudy.append(deepcopy(binding))
+            else:
+                raise ValueError('Unknown reconstructed numeric decision kind')
+        return checker_text(saved['text']) if signed else saved['text'],projected,reviewed_nonstudy
 
     def table(self,path,table,sources):
         saved=self.tables.get(path)
@@ -65,6 +76,7 @@ def load_writing_context(manuscripts,db,project,identity,snapshot,*,check_versio
     from app.domain.manuscript_writing.live_review import LiveReviewService
     from app.domain.manuscript_writing.language_service import LanguageReviewService
     from app.domain.manuscript_writing.authorization import LiveWritingService
+    from app.domain.manuscript_writing.numeric_contract import is_numeric_v2
     reviews=LiveReviewService(manuscripts.assets);paragraphs={};seen=set();current=snapshot;approved=None
     while current.get('writing_provenance',{}).get('schema_version')==2:
         provenance=current['writing_provenance'];request_id=provenance['request_id']
@@ -86,7 +98,8 @@ def load_writing_context(manuscripts,db,project,identity,snapshot,*,check_versio
             pid=decision['paragraph_id']
             paragraphs.setdefault(pid,dict(paragraph=deepcopy(saved[pid]),aliases=deepcopy(bundle['local_manifest']['sources']),
                 text=decision['corrected_text'] if decision['corrected_text'] is not None else original[pid]['text'],
-                numeric_version=review['report_json'].get('numeric_validation_version',1) if check_version==2 else 1))
+                numeric_version=review['report_json'].get('numeric_validation_version',1) if check_version==2 else 1,
+                **(dict(numeric_contract_version=2,numeric_context=deepcopy(bundle['local_manifest'].get('numeric_context',{}))) if is_numeric_v2(bundle) else {})))
         current=frozen['base_snapshot']
     # T2 preserves all frozen result groups. T3 reconstructs only explicit bound
     # display edits. Compare the original source rows before applying that view.

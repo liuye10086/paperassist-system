@@ -14,22 +14,24 @@ def read_source(service,project,selection):
         file=db.execute('SELECT * FROM files WHERE id=%s AND project_id=%s',(file_id,project)).fetchone()
         if not file: raise source_conflict()
         file=dict(file)
-    service.assets.original(file)
+    # These evidence readers verify the original themselves. Other source kinds
+    # still need the original-file check here, with no cache across calls.
+    if kind not in ('original','document_version','ocr_review_version','external_evidence_version'):
+        service.assets.original(file)
     download=f'/api/v1/projects/{project}/files/{file_id}/download'
     label=file['filename'];content={};sha=file['sha256']
     if kind in ('original','document_version','ocr_review_version'):
         if kind=='original' and identity!=file_id: raise source_conflict()
-        source,items=ExternalEvidenceService(service.assets).source(project,file_id,kind,None if kind=='original' else identity)
+        source,items,row,document=ExternalEvidenceService(service.assets)._source(project,file_id,kind,None if kind=='original' else identity)
         content=dict(source=source,items=items);sha=source['sha256']
         download=source['object_download_url'] or source['original_download_url']
         if kind=='document_version':
             from app.domain.documents.service import DocumentService
-            documents=DocumentService(service.assets);row=documents.load(project,file_id,identity,True)
-            _,document=documents.read(row)
+            documents=DocumentService(service.assets)
             images=[]
             for image in getattr(document,'images',[]):
                 if image.mime not in ('image/png','image/jpeg'): continue
-                raw,_=documents.objects().image(row['result_json'],image.id)
+                documents.objects()._image_from_document(row['result_json'],image.id,document)
                 associations=[a for item in items if item.get('image_id')==image.id for a in item.get('associations',[])]
                 images.append(dict(id=image.id,sha256=image.sha256,caption_candidates=[a['caption_text'] for a in associations],
                     preview_url=f'/api/v1/projects/{project}/files/{file_id}/document-versions/{identity}/images/{image.id}'))
@@ -39,6 +41,16 @@ def read_source(service,project,selection):
         if content['file_id']!=file_id: raise source_conflict()
         sha=content['sha256'];label=content['title']
         download=content['source']['object_download_url'] or content['source']['original_download_url']
+    elif kind=='collection_report':
+        from .collection_selection import report_source
+        content=report_source(service,project,file_id,identity)
+        report=content['report'];sha=report['sha256'];label=report['filename']
+        download=f'/api/v1/projects/{project}/report-collections/{content["collection_id"]}/reports/{identity}/download'
+    elif kind=='analysis_report':
+        from .analysis_selection import report_source
+        content=report_source(service,project,file_id,identity)
+        report=content['report'];sha=report['sha256'];label=report['filename']
+        download=f'/api/v1/projects/{project}/files/{file_id}/analysis-runs/{report["analysis_run_id"]}/report/{identity}/download'
     elif kind=='analysis_run':
         content=service.assets.analysis_result_by_id(project,file_id,identity)
         sha=digest(content);label=file['filename']+' — '+(content.get('numeric_name') or ('Statistical result' if content.get('analysis_context',{}).get('plan',{}).get('research_request',{}).get('output_language')=='en' else '统计结果'))
@@ -105,3 +117,11 @@ def changes(service,project,snapshot,*,current_sources=None):
         if reasons or not root or root['revision']!=citation['revision']:
             changed.append(dict(kind='citation_draft',id=citation['draft_id'],reasons=['citation_current_changed']))
     return changed
+
+
+def writing_changes(service,project,snapshot):
+    """Explicit historical intent accepts only a later setup, never changed bytes."""
+    selected={s['id'] for s in snapshot.get('sources',[]) if s['kind']=='analysis_run'}
+    allowed=set(snapshot.get('analysis_handoff_run_ids',[]))&selected
+    return [c for c in service.source_changes(project,snapshot)
+        if not (c['kind']=='analysis_run' and c['id'] in allowed and c['reasons']==['analysis_configuration_changed'])]

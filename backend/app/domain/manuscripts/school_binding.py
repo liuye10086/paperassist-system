@@ -52,6 +52,9 @@ def freeze_context(service,project,request):
         saved=db.execute('SELECT * FROM school_template_confirmations WHERE id=%s AND project_id=%s AND user_id=%s',(selected.confirmation_id,project,service.store.user_id)).fetchone()
         schools=SchoolTemplateService(service.assets);row=schools.row(db,project,saved['template_version_id'])
         sources,_=schools.require_current(db,row);confirmation=schools.confirmation(db,row)
+        from app.domain.school_templates.front_matter import validate_content_purposes
+        try:validate_content_purposes(confirmation.get('front_matter'),chapters)
+        except ValueError as exc:raise StorageError('task_input_invalid','前置内容要求须对应声明人工章节或致谢用途。',422) from exc
         return deepcopy(dict(schema_version=1,profile=current['profile'],template_version_id=row['id'],confirmation_id=saved['id'],confirmation_sha256=saved['snapshot_sha256'],confirmation=confirmation,source_files=sources,chapters=chapters))
 
 

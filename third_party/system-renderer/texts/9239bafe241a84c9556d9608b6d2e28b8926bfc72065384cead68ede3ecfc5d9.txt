@@ -1,0 +1,32 @@
+Format: http://dep.debian.net/deps/dep5
+Upstream-Name: libepubgen
+Source: http://http://sourceforge.net/p/libepubgen/code/ci/master/tree/
+
+Files: *
+Copyright: Copyright (C) 2014 David Tardon <dtardon@redhat.com>, other contributors
+License: MPL-2.0
+ On Debian systems you can find the full text of the MPL 2.0 in 
+ /usr/share/common-licenses/MPL-2.0
+
+Files: m4/ax_cxx_compile_stdcxx*m4
+Copyright:
+   Copyright (c) 2008 Benjamin Kosnik <bkoz@redhat.com>
+   Copyright (c) 2012 Zack Weinberg <zackw@panix.com>
+   Copyright (c) 2013 Roy Stogner <roystgnr@ices.utexas.edu>
+   Copyright (c) 2014, 2015 Google Inc.; contributed by Alexey Sokolov <sokolov@google.com>
+   Copyright (c) 2015 Paul Norman <penorman@mac.com>
+   Copyright (c) 2015 Moritz Klammler <moritz@klammler.eu>
+   Copyright (c) 2016 Krzesimir Nowak <qdlacz@gmail.com>
+License: other
+
+Files: m4/ax_gcc_func_attribute.m4
+Copyright: Copyright (c) 2013 Gabriele Svelto <gabriele.svelto@gmail.com>
+License: other
+
+License: other
+   Copying and distribution of this file, with or without modification, are
+   permitted in any medium without royalty provided the copyright notice
+   and this notice are preserved.  This file is offered as-is, without any
+   warranty.
+
+

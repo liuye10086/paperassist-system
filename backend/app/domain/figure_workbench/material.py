@@ -8,7 +8,9 @@ from app.core.exceptions import StorageError
 
 NAMES={'zh-CN':{'line':'折线图','bar':'柱状图','violin':'小提琴图'},'en':{'line':'Line plot','bar':'Bar chart','violin':'Violin plot'}}
 
-def projection_material(config,rows,projection,fields=None):
+def projection_material(config,rows,projection,fields=None,*,figure_contract=1):
+    from app.domain.figure_workbench.presentation import contract_version
+    contract_version({'figure_contract':figure_contract})
     config=FigureConfig.model_validate(config).model_dump(); kind=config['figure_kind'];style=config['style']; rules=config['projection']; zh=config['language']=='zh-CN'
     fields=fields or {};aliases=style['aliases']
     def field(column):
@@ -22,6 +24,10 @@ def projection_material(config,rows,projection,fields=None):
     if kind=='line': caption+=('已知时点缺失值断线，不插值；重复值规则：'+rules['aggregation'] if zh else 'Known missing values break lines; no interpolation. Duplicate rule: '+rules['aggregation'])
     elif kind=='bar': caption+=('比例分母为确认类别范围内的组内有效记录；均值误差线仅为样本SD。' if zh else 'Proportions use valid within-group records in confirmed categories; mean error bars only show sample SD.')
     else: caption+=('等权高斯核密度、Scott带宽；截于观测范围且不重归一，各组共用密度宽度比例。' if zh else 'Equal-weight Gaussian KDE, Scott bandwidth; truncated to observed range without renormalization; shared density-to-width scale.')
+    if figure_contract == 4:
+        # The audit clause belongs to material; method/limitation clauses belong
+        # to presentation v3. Historical captions above remain byte-for-byte.
+        caption=(f'描述性投影：有效记录 {n}，排除 {excluded}。' if zh else f'Descriptive projection: {n} valid records, {excluded} excluded.')
     labels={'title':style['title'] or NAMES[config['language']][kind],'x_label':field(rules['x_column'] or rules['category_column'] or rules['group_column']),'y_label':field(rules['y_column']),'caption':caption+(' '+style['caption'] if style['caption'] else '')}
     # Local source row identity and local computed answers are deliberately absent.
     observations=[]

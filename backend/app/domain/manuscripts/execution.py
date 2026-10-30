@@ -70,9 +70,16 @@ def run_manuscript_task(task_id,task_revision,*,config=None,directory=None):
                 school_intent=service.verify_school_export(export_db,version,export_row,task)
             school_plan=school_intent['plan'] if school_intent is not None else None
             if school_plan is not None:
-                content=build_manuscript_docx(snapshot,images,school_plan=school_plan)
-                from app.adapters.school_docx import complete_school_fields
-                content,field_update=complete_school_fields(content,school_plan)
+                provenance=snapshot.get('writing_provenance',{})
+                if provenance.get('school_content_version')=='school-live-v1' and provenance.get('language_review_id'):
+                    from app.domain.manuscript_writing.school_render_cache import read
+                    content,receipt=read(service.assets.directory,task['user_id'],task['project_id'],provenance['school_final_render'],candidate=snapshot,images=images,plan=school_plan)
+                    if sha256(content).hexdigest()!=provenance['school_docx_sha256']:raise source_conflict()
+                    field_update=receipt['field_update']
+                else:
+                    content=build_manuscript_docx(snapshot,images,school_plan=school_plan)
+                    from app.adapters.school_docx import complete_school_fields
+                    content,field_update=complete_school_fields(content,school_plan)
                 expected='updated' if school_plan['toc']['enabled'] else 'not_requested'
                 if field_update.get('status')!=expected:
                     raise StorageError('layout_field_update_failed','学校目录实际更新未完成。',422)

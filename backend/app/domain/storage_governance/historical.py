@@ -122,6 +122,19 @@ def references(db,root,failed,coverage):
         JOIN projects p ON p.id=a.project_id AND p.owner_id=a.user_id''')
     yield from emit(language,'figure_language',lambda r:[_metadata(r,'snapshot_json','manuscript_figure_language_versions','.png')])
 
+    def school_language(row):
+        from app.domain.literature.service import digest
+        from app.domain.manuscript_writing.language_service import artifact_sha
+        from app.domain.manuscript_writing.school_render_cache import read,descriptors
+        candidate=mapping(row['candidate_json']);proof=candidate['writing_provenance']['school_final_render']
+        if digest(candidate)!=row['candidate_sha256'] or digest(row['inventory_json'])!=row['inventory_sha256'] or artifact_sha(row)!=row['artifact_sha256']:raise s.invalid()
+        read(root,row['user_id'],row['project_id'],proof)
+        return descriptors(proof,row['user_id'],row['project_id'])
+    reviewed_school=db.execute('''SELECT to_jsonb(a) AS record,p.id AS project_id,p.owner_id FROM manuscript_writing_language_reviews a
+        JOIN projects p ON p.id=a.project_id AND p.owner_id=a.user_id
+        WHERE a.candidate_json->'writing_provenance' ? 'school_final_render' ''')
+    yield from emit(reviewed_school,'school_language_artifact',school_language)
+
     def export(row,column,prefix):
         value=mapping(row[column]);name=value['object_name']
         if not isinstance(name,str) or '/' in name or '\\' in name:raise s.invalid()

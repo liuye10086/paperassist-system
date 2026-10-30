@@ -17,7 +17,7 @@ Q = '{' + W + '}'
 REL = '{http://schemas.openxmlformats.org/officeDocument/2006/relationships}'
 MAX_RESULT_BYTES = 4194304
 RESULT_KEYS = frozenset(('parser_version', 'raw_styles', 'defaults', 'sections', 'chapters',
-                         'rules', 'notes', 'conflicts', 'missing', 'unsupported', 'identity_fields'))
+                         'rules', 'notes', 'conflicts', 'missing', 'unsupported', 'identity_fields', 'front_matter_sources'))
 
 
 def _xml(raw):
@@ -252,6 +252,7 @@ def inspect_school_template(content: bytes, filename: str, *, heading_aliases=()
             notes.append({'id': f'note-{len(notes)+1}', 'text': text, 'source': _source(box, text=text)})
             seen_notes.add(text)
     chapters, exemplars, alias_examples = [], {}, {}
+    front_sources=[]
     after_heading = False
     for paragraph_index, (node, text) in enumerate(paragraphs, 1):
         paragraph = node.find('w:pPr', NS)
@@ -265,6 +266,24 @@ def inspect_school_template(content: bytes, filename: str, *, heading_aliases=()
             run_style = _value(run.find('w:rPr', NS), 'rStyle')
             effective.update(style_properties(run_style))
             effective.update({'rPr.' + k: v for k, v in props(run.find('w:rPr', NS)).items()})
+        if len(front_sources)<1000:
+            position=1+sum(sibling.tag==Q+'p' for sibling in node.itersiblings(preceding=True))
+            section=next((s for s in sections if not re.search(r'/w:p\[(\d+)\]',s['source']['path']) or position<=int(re.search(r'/w:p\[(\d+)\]',s['source']['path'])[1])),None)
+            style={};style_sources={}
+            for key,prop in [('font_east_asia','rPr.rFonts.eastAsia'),('font_latin','rPr.rFonts.ascii'),('font_size_pt','rPr.sz.val'),('alignment','pPr.jc.val'),('space_before','pPr.spacing.before'),('space_after','pPr.spacing.after'),('line_spacing','pPr.spacing.line'),('line_rule','pPr.spacing.lineRule')]:
+                value=effective.get(prop)
+                if value is None:continue
+                if key=='font_size_pt':
+                    if not str(value).isdigit() or not 2<=int(value)<=200:continue
+                    value=int(value)/2
+                elif key in ('space_before','space_after','line_spacing'):
+                    if not re.fullmatch(r'\d{1,5}',str(value)):continue
+                elif key=='alignment' and value not in ('left','center','right','both','justify'):continue
+                elif key=='line_rule' and value not in ('auto','exact','atLeast'):continue
+                style[key]=value;style_sources[key]=property_source(node,prop)[0]
+            label=re.match(r'^([^：:\n]{1,80})[：:]',text)
+            front_sources.append(dict(id='paragraph-'+str(position),source=_source(node),section_id=section['id'] if section else None,
+                suggested_label=label[1].strip() if label else None,style=style,style_sources=style_sources))
         level = effective.get('pPr.outlineLvl.val')
         level = int(level) + 1 if level is not None and str(level).isdigit() and int(level) < 9 else None
         if level is None and identity:
@@ -364,15 +383,16 @@ def inspect_school_template(content: bytes, filename: str, *, heading_aliases=()
     missing = []
     if not chapters:
         missing.append({'id': 'chapters', 'message': '未识别到可靠的标题层级，请在确认前补充学校章节与顺序。'})
-    if not any(re.sub(r'\s', '', t).startswith('封面') for _, t in paragraphs):
-        missing.append({'id': 'cover_rules', 'message': '未确定完整封面字段和版式；本批不能宣称封面已支持。'})
+    missing.append({'id': 'cover_rules', 'message': '未确认完整封面字段和版式；请按固定来源确认前置规则。'})
+    if root.findall('.//' + Q + 'txbxContent') or root.findall('.//' + Q + 'tbl') or root.xpath('//*[local-name()="anchor"]'):
+        unsupported.append({'id':'front_matter_complex_layout','message':'表格、浮动对象和文本框封面不作精确重建；前置规则仅支持有来源的普通段落。'})
     if not notes:
         missing.append({'id': 'text_specifications', 'message': '未发现可定位的文字规范；请补充学校要求或保留未知状态。'})
     all_text = '\n'.join(t for _, t in paragraphs)
     identity = [name for name in ('作者姓名', '学号', '作者签名', '指导教师签名', '签字日期') if name in all_text]
     result = dict(parser_version=PARSER_VERSION, raw_styles=raw_styles, defaults=defaults, sections=sections,
                   chapters=chapters, rules=rules, notes=notes, conflicts=conflicts, missing=missing,
-                  unsupported=unsupported, identity_fields=identity)
+                  unsupported=unsupported, identity_fields=identity,front_matter_sources=front_sources)
     if len(json.dumps(result, ensure_ascii=False).encode()) > MAX_RESULT_BYTES:
         raise StorageError('parse_output_invalid', '模板结构超出解析结果大小限制。', 422)
     return result

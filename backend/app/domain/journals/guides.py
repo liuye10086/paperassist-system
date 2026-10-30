@@ -1,5 +1,7 @@
 """Immutable local author-guide versions and ordinary target confirmation."""
 import re
+import hashlib
+from contextlib import nullcontext
 from uuid import uuid4
 from psycopg.types.json import Jsonb
 from app.adapters.task_store import source_conflict
@@ -40,10 +42,40 @@ class GuideService(JournalService):
     def get_target(self,project,identity):
         with self.store.connection() as db:return self.target_row(db,project,identity)['snapshot_json']
 
-    def create_guide(self,project,request,key):
-        require_key(key);body=request.model_dump(mode='json')
+    def fetch_guide(self,project,identity,key):
+        """Acquire only a saved, owned and explicitly permitted guide source."""
+        from .configuration import configured_web_adapter
+        from .web import guide_text
+        require_key(key);replay_body=dict(fetch_guide_id=identity)
         with self.store.connection(write=True) as db:
-            self.project(db,project,True);old=self.replay(db,'journal_guides',project,key,body)
+            self.project(db,project,True)
+            old=self.replay(db,'journal_guides',project,key,replay_body)
+            if old:return old['snapshot_json'],200
+            parent=self.row(db,project,identity)['snapshot_json']
+            if parent['synthetic'] or parent['permission_status']!='allowed' or parent['source_status']!='available' or not parent['source_url']:
+                raise invalid('仅允许读取本项目已登记且许可允许、状态可用的非合成指南来源。',422)
+            if db.execute('SELECT id FROM journal_guides WHERE previous_version_id=%s',(identity,)).fetchone():
+                raise invalid('指南已有后续版本，请从后续版本继续更新。')
+            try:
+                result=configured_web_adapter().fetch_result(parent['source_url'])
+                text=guide_text(result['body'],result['content_type'])
+            except (ValueError,UnicodeError,OSError) as exc:
+                raise invalid('受控指南获取失败：'+str(exc),409 if 'disabled' in str(exc) else 422) from exc
+            checksum=hashlib.sha256(result['body']).hexdigest()
+            data={field:parent[field] for field in GuideRequest.model_fields}
+            data.update(previous_version_id=identity,source_text=text,source_url=result['final_url'],
+                source_version='web-sha256:'+checksum,acquired_on=now().date(),requirements=[],material=None)
+            request=GuideRequest.model_validate(data)
+            retrieval={key:result[key] for key in ('final_url','content_type','etag','last_modified')}
+            retrieval.update(requested_url=parent['source_url'],body_sha256=checksum,bytes=len(result['body']),
+                fetched_at=now().isoformat(),official_verification='not_established')
+            return self.create_guide(project,request,key,_db=db,_replay_body=replay_body,_retrieval=retrieval)
+
+    def create_guide(self,project,request,key,*,_db=None,_replay_body=None,_retrieval=None):
+        require_key(key);body=request.model_dump(mode='json')
+        replay_body=body if _replay_body is None else _replay_body
+        with (nullcontext(_db) if _db is not None else self.store.connection(write=True)) as db:
+            self.project(db,project,True);old=self.replay(db,'journal_guides',project,key,replay_body)
             if old:return old['snapshot_json'],200
             profile=self.row(db,project,request.profile_id,'journal_profiles')['snapshot_json']
             parent=self.row(db,project,request.previous_version_id)['snapshot_json'] if request.previous_version_id else None
@@ -96,7 +128,8 @@ class GuideService(JournalService):
             identity=str(uuid4());synthetic=request.source_type=='synthetic'
             version=digest(dict(requirements=requirements,source_version=request.source_version,article_types=request.article_types))
             snapshot=body|dict(id=identity,project_id=project,material=material,requirements=requirements,extracted_requirements=extracted,requirements_version=version,synthetic=synthetic,verification_level='synthetic_material_only' if synthetic else 'user_material_only',created_at=now().isoformat())
-            self.insert(db,'journal_guides',project,key,body,snapshot,profile_id=request.profile_id,previous_version_id=request.previous_version_id,requirements_version=version)
+            if _retrieval is not None:snapshot.update(retrieval=_retrieval,verification_level='web_fetch_unverified')
+            self.insert(db,'journal_guides',project,key,replay_body,snapshot,profile_id=request.profile_id,previous_version_id=request.previous_version_id,requirements_version=version)
             if material:
                 columns={k:None for k in ('document_version_id','ocr_review_version_id','external_evidence_version_id')}
                 if material['kind']!='original':columns[material['kind']+'_id']=material['id']

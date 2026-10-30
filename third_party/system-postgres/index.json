@@ -1,0 +1,876 @@
+{
+  "schema_version": 1,
+  "kind": "system-image",
+  "captured_at": "2026-10-27T05:55:33.544952+00:00",
+  "source": {
+    "image_requested": "sha256:edb0c08dc33befd0262ab3b5cf1c4f3f8cfd8b09e88c05b45adee29d6761ddb6",
+    "image_id": "sha256:edb0c08dc33befd0262ab3b5cf1c4f3f8cfd8b09e88c05b45adee29d6761ddb6",
+    "retained_container": "pa-notices-c9ed594697ac4f26",
+    "state": "exited",
+    "exit_code": 0
+  },
+  "network_requests": 0,
+  "components": [
+    {
+      "name": "image-system-and-embedded-notices",
+      "version": "sha256:edb0c08dc33befd0262ab3b5cf1c4f3f8cfd8b09e88c05b45adee29d6761ddb6",
+      "package_database": {
+        "DPKG": "adduser\t3.152\napt\t3.0.3\nbase-files\t13.8+deb13u7\nbase-passwd\t3.6.7\nbash\t5.2.37-2+b10\nbsdutils\t1:2.41.5-0+deb13u1\ncoreutils\t9.7-3\ndash\t0.5.12-12\ndebconf\t1.5.91\ndebian-archive-keyring\t2025.1\ndebianutils\t5.23.2\ndiffutils\t1:3.10-4\ndirmngr\t2.4.7-21+deb13u1+b5\ndpkg\t1.22.22\nfindutils\t4.10.0-3\ngcc-14-base\t14.2.0-19\ngnupg\t2.4.7-21+deb13u1\ngnupg-l10n\t2.4.7-21+deb13u1\ngpg\t2.4.7-21+deb13u1+b5\ngpg-agent\t2.4.7-21+deb13u1+b5\ngpgconf\t2.4.7-21+deb13u1+b5\ngpgsm\t2.4.7-21+deb13u1+b5\ngrep\t3.11-4\ngzip\t1.13-1+deb13u1\nhostname\t3.25\ninit-system-helpers\t1.69~deb13u1\nless\t668-1\nlibacl1\t2.3.2-2+b1\nlibapt-pkg7.0\t3.0.3\nlibassuan9\t3.0.2-2\nlibattr1\t1:2.5.2-3\nlibaudit-common\t1:4.0.2-2+deb13u1\nlibaudit1\t1:4.0.2-2+deb13u1\nlibblkid1\t2.41.5-0+deb13u1\nlibbsd0\t0.12.2-2\nlibbz2-1.0\t1.0.8-6\nlibc-bin\t2.41-12+deb13u4\nlibc-l10n\t2.41-12+deb13u4\nlibc6\t2.41-12+deb13u4\nlibcap-ng0\t0.8.5-4+b1\nlibcap2\t1:2.75-10+deb13u1+b3\nlibcom-err2\t1.47.2-3+b12\nlibcrypt1\t1:4.4.38-1\nlibdb5.3t64\t5.3.28+dfsg2-9\nlibdebconfclient0\t0.280\nlibedit2\t3.1-20250104-1\nlibffi8\t3.4.8-2\nlibgcc-s1\t14.2.0-19\nlibgcrypt20\t1.11.0-7+deb13u1\nlibgdbm-compat4t64\t1.24-2\nlibgdbm6t64\t1.24-2\nlibgmp10\t2:6.3.0+dfsg-3\nlibgnutls30t64\t3.8.9-3+deb13u4\nlibgpg-error0\t1.51-4\nlibgssapi-krb5-2\t1.21.3-5+deb13u1\nlibhogweed6t64\t3.10.1-1\nlibicu76\t76.1-4\nlibidn2-0\t2.3.8-2\nlibjson-perl\t4.10000-1\nlibk5crypto3\t1.21.3-5+deb13u1\nlibkeyutils1\t1.6.3-6\nlibkrb5-3\t1.21.3-5+deb13u1\nlibkrb5support0\t1.21.3-5+deb13u1\nlibksba8\t1.6.7-2+b1\nliblastlog2-2\t2.41.5-0+deb13u1\nlibldap2\t2.6.10+dfsg-1\nlibllvm19\t1:19.1.7-3+b1\nliblz4-1\t1.10.0-4\nliblzma5\t5.8.1-1+deb13u2\nlibmd0\t1.1.0-2+b1\nlibmount1\t2.41.5-0+deb13u1\nlibncursesw6\t6.5+20250216-2\nlibnettle8t64\t3.10.1-1\nlibnpth0t64\t1.8-3\nlibnss-wrapper\t1.1.16-1\nlibnuma1\t2.0.19-1\nlibp11-kit0\t0.25.5-3\nlibpam-modules\t1.7.0-5\nlibpam-modules-bin\t1.7.0-5\nlibpam-runtime\t1.7.0-5\nlibpam0g\t1.7.0-5\nlibpcre2-8-0\t10.46-1~deb13u3\nlibperl5.40\t5.40.1-6+deb13u1\nlibpq5\t18.6-1.pgdg13+2\nlibproc2-0\t2:4.0.4-9\nlibreadline8t64\t8.2-6\nlibsasl2-2\t2.1.28+dfsg1-9\nlibsasl2-modules-db\t2.1.28+dfsg1-9\nlibseccomp2\t2.6.0-2\nlibselinux1\t3.8.1-1\nlibsemanage-common\t3.8.1-1\nlibsemanage2\t3.8.1-1\nlibsepol2\t3.8.1-1\nlibsmartcols1\t2.41.5-0+deb13u1\nlibsqlite3-0\t3.46.1-7+deb13u2\nlibssl3t64\t3.5.7-1~deb13u3\nlibstdc++6\t14.2.0-19\nlibsystemd0\t257.13-1~deb13u1\nlibtasn1-6\t4.20.0-2+deb13u1\nlibtext-charwidth-perl\t0.04-11+b4\nlibtext-wrapi18n-perl\t0.06-10\nlibtinfo6\t6.5+20250216-2\nlibudev1\t257.13-1~deb13u1\nlibunistring5\t1.3-2\nliburing2\t2.9-1\nlibuuid1\t2.41.5-0+deb13u1\nlibxml2\t2.12.7+dfsg+really2.9.14-2.1+deb13u3\nlibxslt1.1\t1.1.35-1.2+deb13u3\nlibxxhash0\t0.8.3-2\nlibz3-4\t4.13.3-1\nlibzstd1\t1.5.7+dfsg-1\nlocales\t2.41-12+deb13u4\nlogin\t1:4.16.0-2+really2.41.5-0+deb13u1\nlogin.defs\t1:4.17.4-2\nmawk\t1.3.4.20250131-1\nmount\t2.41.5-0+deb13u1\nncurses-base\t6.5+20250216-2\nncurses-bin\t6.5+20250216-2\nnetbase\t6.5\nopenssl\t3.5.7-1~deb13u3\nopenssl-provider-legacy\t3.5.7-1~deb13u3\npasswd\t1:4.17.4-2\nperl\t5.40.1-6+deb13u1\nperl-base\t5.40.1-6+deb13u1\nperl-modules-5.40\t5.40.1-6+deb13u1\npinentry-curses\t1.3.1-2\npostgresql-18\t18.6-1.pgdg13+2\npostgresql-18-jit\t18.6-1.pgdg13+2\npostgresql-client-18\t18.6-1.pgdg13+2\npostgresql-client-common\t293.pgdg13+1\npostgresql-common\t293.pgdg13+1\nprocps\t2:4.0.4-9\nreadline-common\t8.2-6\nsed\t4.9-2+deb13u1\nsensible-utils\t0.0.25\nsqv\t1.3.0-3+b2\nssl-cert\t1.1.3\nsysvinit-utils\t3.14-4\ntar\t1.35+dfsg-3.1\ntzdata\t2026c-0+deb13u1\nucf\t3.0052\nutil-linux\t2.41.5-0+deb13u1\nxz-utils\t5.8.1-1+deb13u2\nzlib1g\t1:1.3.dfsg+really1.3.1-1+b1\nzstd\t1.5.7+dfsg-1\n"
+      },
+      "files": [
+        {
+          "source": "/usr/share/doc/libc6/copyright",
+          "bytes": 51200,
+          "sha256": "f5788886720a2605a946e81d571e6c8162b09f58d2e2ceb8d36e5768fccd850d",
+          "text": "texts/f5788886720a2605a946e81d571e6c8162b09f58d2e2ceb8d36e5768fccd850d.txt"
+        },
+        {
+          "source": "/usr/share/doc/libzstd1/copyright",
+          "bytes": 5332,
+          "sha256": "5cec9fef4d3fa7e0371fbef4ec3fc416e0105dc2a9922117f84e825cb11f50f8",
+          "text": "texts/5cec9fef4d3fa7e0371fbef4ec3fc416e0105dc2a9922117f84e825cb11f50f8.txt"
+        },
+        {
+          "source": "/usr/share/doc/ncurses-base/copyright",
+          "bytes": 4670,
+          "sha256": "f838d6048fbc59356b7e56c207a7cb32dc6bf4adea95514a002596bde8f6e1e7",
+          "text": "texts/f838d6048fbc59356b7e56c207a7cb32dc6bf4adea95514a002596bde8f6e1e7.txt"
+        },
+        {
+          "source": "/usr/share/doc/bash/copyright",
+          "bytes": 9764,
+          "sha256": "06319d84c3e5ed096036f6a9310a030c7e84e50dff2b8a6792285c83ec0ada73",
+          "text": "texts/06319d84c3e5ed096036f6a9310a030c7e84e50dff2b8a6792285c83ec0ada73.txt"
+        },
+        {
+          "source": "/usr/share/doc/liblastlog2-2/copyright",
+          "bytes": 30341,
+          "sha256": "56b67e2eb8bac5a15d91e261d558d73f1f029113cced229753138194997366b6",
+          "text": "texts/56b67e2eb8bac5a15d91e261d558d73f1f029113cced229753138194997366b6.txt"
+        },
+        {
+          "source": "/usr/share/doc/login/copyright",
+          "bytes": 30341,
+          "sha256": "56b67e2eb8bac5a15d91e261d558d73f1f029113cced229753138194997366b6",
+          "text": "texts/56b67e2eb8bac5a15d91e261d558d73f1f029113cced229753138194997366b6.txt"
+        },
+        {
+          "source": "/usr/share/doc/login.defs/copyright",
+          "bytes": 5869,
+          "sha256": "305494b6f5f6bb65ead9160077d4fdf45ccdf06de7c958ff96f27a632b8729a3",
+          "text": "texts/305494b6f5f6bb65ead9160077d4fdf45ccdf06de7c958ff96f27a632b8729a3.txt"
+        },
+        {
+          "source": "/usr/share/doc/coreutils/copyright",
+          "bytes": 5572,
+          "sha256": "3a63d4b11a7ba4c1c17175072ea28e07b0f80c7bc1ca042b27431fe65a14755b",
+          "text": "texts/3a63d4b11a7ba4c1c17175072ea28e07b0f80c7bc1ca042b27431fe65a14755b.txt"
+        },
+        {
+          "source": "/usr/share/doc/libc-bin/copyright",
+          "bytes": 51200,
+          "sha256": "f5788886720a2605a946e81d571e6c8162b09f58d2e2ceb8d36e5768fccd850d",
+          "text": "texts/f5788886720a2605a946e81d571e6c8162b09f58d2e2ceb8d36e5768fccd850d.txt"
+        },
+        {
+          "source": "/usr/share/doc/libsystemd0/copyright",
+          "bytes": 12521,
+          "sha256": "a79e4b379cabbd960bb44f6cc1a069081a3778c59a25ee529b68df5a2cb7d27d",
+          "text": "texts/a79e4b379cabbd960bb44f6cc1a069081a3778c59a25ee529b68df5a2cb7d27d.txt"
+        },
+        {
+          "source": "/usr/share/doc/libcap-ng0/copyright",
+          "bytes": 1621,
+          "sha256": "567997de097e3738564c90e6fe13343b2daae21a7926d6fb161df41322c1840b",
+          "text": "texts/567997de097e3738564c90e6fe13343b2daae21a7926d6fb161df41322c1840b.txt"
+        },
+        {
+          "source": "/usr/share/doc/libsemanage2/copyright",
+          "bytes": 1921,
+          "sha256": "fe5876a94047cafbeb8b164fd98304912d94b6028e19415f08b7a8a2f90645fe",
+          "text": "texts/fe5876a94047cafbeb8b164fd98304912d94b6028e19415f08b7a8a2f90645fe.txt"
+        },
+        {
+          "source": "/usr/share/doc/libapt-pkg7.0/copyright",
+          "bytes": 8011,
+          "sha256": "77ab918ade9bce20b07524572fc8eab3f8c0cab4d246f282043892aaa9538803",
+          "text": "texts/77ab918ade9bce20b07524572fc8eab3f8c0cab4d246f282043892aaa9538803.txt"
+        },
+        {
+          "source": "/usr/share/doc/gzip/copyright",
+          "bytes": 2895,
+          "sha256": "02c197fa26ad056ed2382bb8c3e6323d47edfda4539f727b4ab3f4dbf64ac413",
+          "text": "texts/02c197fa26ad056ed2382bb8c3e6323d47edfda4539f727b4ab3f4dbf64ac413.txt"
+        },
+        {
+          "source": "/usr/share/doc/tzdata/copyright",
+          "bytes": 375,
+          "sha256": "cb61132bc0fc7b26ef5a82ee18b2fb644a1362f4f286ed980ff22e408471f59a",
+          "text": "texts/cb61132bc0fc7b26ef5a82ee18b2fb644a1362f4f286ed980ff22e408471f59a.txt"
+        },
+        {
+          "source": "/usr/share/doc/libtinfo6/copyright",
+          "bytes": 4670,
+          "sha256": "f838d6048fbc59356b7e56c207a7cb32dc6bf4adea95514a002596bde8f6e1e7",
+          "text": "texts/f838d6048fbc59356b7e56c207a7cb32dc6bf4adea95514a002596bde8f6e1e7.txt"
+        },
+        {
+          "source": "/usr/share/doc/gcc-14-base/copyright",
+          "bytes": 69004,
+          "sha256": "20390f8a6f3b1e4d7cb45dd8652dabb259bbef688cbad839bcdb0b9ba7252f79",
+          "text": "texts/20390f8a6f3b1e4d7cb45dd8652dabb259bbef688cbad839bcdb0b9ba7252f79.txt"
+        },
+        {
+          "source": "/usr/share/doc/debianutils/copyright",
+          "bytes": 9062,
+          "sha256": "aeb68ea374f488431b8963df24f05482692edfa70d7556d7e528dd06d255461c",
+          "text": "texts/aeb68ea374f488431b8963df24f05482692edfa70d7556d7e528dd06d255461c.txt"
+        },
+        {
+          "source": "/usr/share/doc/debconf/copyright",
+          "bytes": 2764,
+          "sha256": "57163c71bd8a5289660892827dd0dfaa7fef47f89deedc9dc6711ced7d0a28d7",
+          "text": "texts/57163c71bd8a5289660892827dd0dfaa7fef47f89deedc9dc6711ced7d0a28d7.txt"
+        },
+        {
+          "source": "/usr/share/doc/libpam-modules/copyright",
+          "bytes": 9727,
+          "sha256": "6b11ef9ab5429d9618cc72e8dfd4efefde363165ef174be0549918e0c44f5dcb",
+          "text": "texts/6b11ef9ab5429d9618cc72e8dfd4efefde363165ef174be0549918e0c44f5dcb.txt"
+        },
+        {
+          "source": "/usr/share/doc/dash/copyright",
+          "bytes": 3878,
+          "sha256": "d98c53f281321baad38164aa9ae6e368a9253be6ec51bd26a759b5e72b326f4a",
+          "text": "texts/d98c53f281321baad38164aa9ae6e368a9253be6ec51bd26a759b5e72b326f4a.txt"
+        },
+        {
+          "source": "/usr/share/doc/util-linux/copyright",
+          "bytes": 30341,
+          "sha256": "56b67e2eb8bac5a15d91e261d558d73f1f029113cced229753138194997366b6",
+          "text": "texts/56b67e2eb8bac5a15d91e261d558d73f1f029113cced229753138194997366b6.txt"
+        },
+        {
+          "source": "/usr/share/doc/perl-base/copyright",
+          "bytes": 109644,
+          "sha256": "8adf04cb72ca0719dee8fdb8d711768548d10373905eac21e8a640881c230257",
+          "text": "texts/8adf04cb72ca0719dee8fdb8d711768548d10373905eac21e8a640881c230257.txt"
+        },
+        {
+          "source": "/usr/share/doc/libsqlite3-0/copyright",
+          "bytes": 1770,
+          "sha256": "7b1679aaa97e6e49ec12460eefa85a82b432053bc468dd89dbdb50f2326589f3",
+          "text": "texts/7b1679aaa97e6e49ec12460eefa85a82b432053bc468dd89dbdb50f2326589f3.txt"
+        },
+        {
+          "source": "/usr/share/doc/libpcre2-8-0/copyright",
+          "bytes": 6627,
+          "sha256": "e915cde4251f96ec6af107ecd2e194440a4e69440893b0c982802f8a1e4ae40a",
+          "text": "texts/e915cde4251f96ec6af107ecd2e194440a4e69440893b0c982802f8a1e4ae40a.txt"
+        },
+        {
+          "source": "/usr/share/doc/libgmp10/copyright",
+          "bytes": 4153,
+          "sha256": "7d366aef5ba325150246de1d7820c4c9926cd27ca61a69948492b26cd3b61601",
+          "text": "texts/7d366aef5ba325150246de1d7820c4c9926cd27ca61a69948492b26cd3b61601.txt"
+        },
+        {
+          "source": "/usr/share/doc/ncurses-bin/copyright",
+          "bytes": 4670,
+          "sha256": "f838d6048fbc59356b7e56c207a7cb32dc6bf4adea95514a002596bde8f6e1e7",
+          "text": "texts/f838d6048fbc59356b7e56c207a7cb32dc6bf4adea95514a002596bde8f6e1e7.txt"
+        },
+        {
+          "source": "/usr/share/doc/libpam-modules-bin/copyright",
+          "bytes": 9727,
+          "sha256": "6b11ef9ab5429d9618cc72e8dfd4efefde363165ef174be0549918e0c44f5dcb",
+          "text": "texts/6b11ef9ab5429d9618cc72e8dfd4efefde363165ef174be0549918e0c44f5dcb.txt"
+        },
+        {
+          "source": "/usr/share/doc/sqv/copyright",
+          "bytes": 957,
+          "sha256": "b7ae2cde83ad585eae83cded853d125b034fcef480f6c4cee6d9ddd63327181a",
+          "text": "texts/b7ae2cde83ad585eae83cded853d125b034fcef480f6c4cee6d9ddd63327181a.txt"
+        },
+        {
+          "source": "/usr/share/doc/libsemanage-common/copyright",
+          "bytes": 1921,
+          "sha256": "fe5876a94047cafbeb8b164fd98304912d94b6028e19415f08b7a8a2f90645fe",
+          "text": "texts/fe5876a94047cafbeb8b164fd98304912d94b6028e19415f08b7a8a2f90645fe.txt"
+        },
+        {
+          "source": "/usr/share/doc/tar/copyright",
+          "bytes": 6560,
+          "sha256": "a0a44d41b2a045eb5946a8952487151cfa6ff0cd080bbf4b2eec220751d23024",
+          "text": "texts/a0a44d41b2a045eb5946a8952487151cfa6ff0cd080bbf4b2eec220751d23024.txt"
+        },
+        {
+          "source": "/usr/share/doc/mount/copyright",
+          "bytes": 30341,
+          "sha256": "56b67e2eb8bac5a15d91e261d558d73f1f029113cced229753138194997366b6",
+          "text": "texts/56b67e2eb8bac5a15d91e261d558d73f1f029113cced229753138194997366b6.txt"
+        },
+        {
+          "source": "/usr/share/doc/libsepol2/copyright",
+          "bytes": 3750,
+          "sha256": "78d2a34606a0302057ec499a3b3c07bcbc43ca334064ce4c80891a0f69c8f6c6",
+          "text": "texts/78d2a34606a0302057ec499a3b3c07bcbc43ca334064ce4c80891a0f69c8f6c6.txt"
+        },
+        {
+          "source": "/usr/share/doc/base-files/copyright",
+          "bytes": 1696,
+          "sha256": "c84c664bce3a83eaa327bb9e354c0df588bc535b5e95474aab7ca3cce74937cd",
+          "text": "texts/c84c664bce3a83eaa327bb9e354c0df588bc535b5e95474aab7ca3cce74937cd.txt"
+        },
+        {
+          "source": "/usr/share/doc/base-passwd/copyright",
+          "bytes": 798,
+          "sha256": "0f1cde79bd80a75f9029ae9a8c252b642223027ef36f6989c63a8230aae576a7",
+          "text": "texts/0f1cde79bd80a75f9029ae9a8c252b642223027ef36f6989c63a8230aae576a7.txt"
+        },
+        {
+          "source": "/usr/share/doc/libacl1/copyright",
+          "bytes": 2048,
+          "sha256": "9a2dfb4a5abc7e84be2cc41f1089be665519c9409549296f6c19de57ab1d37c2",
+          "text": "texts/9a2dfb4a5abc7e84be2cc41f1089be665519c9409549296f6c19de57ab1d37c2.txt"
+        },
+        {
+          "source": "/usr/share/doc/zlib1g/copyright",
+          "bytes": 2927,
+          "sha256": "9e5b96d63773a5d177ba264254390f792be07e41748ebd94730981c6cac31cc6",
+          "text": "texts/9e5b96d63773a5d177ba264254390f792be07e41748ebd94730981c6cac31cc6.txt"
+        },
+        {
+          "source": "/usr/share/doc/libaudit1/copyright",
+          "bytes": 1596,
+          "sha256": "6c7011e93f643b112c4cc3622131e28a30477afad6c4f5efe466b13aa7f603cc",
+          "text": "texts/6c7011e93f643b112c4cc3622131e28a30477afad6c4f5efe466b13aa7f603cc.txt"
+        },
+        {
+          "source": "/usr/share/doc/openssl-provider-legacy/copyright",
+          "bytes": 2543,
+          "sha256": "6a7da622fe0637a334d2a8fc470852d2ffb77d9a2b2f930f854e32a41ad6ef35",
+          "text": "texts/6a7da622fe0637a334d2a8fc470852d2ffb77d9a2b2f930f854e32a41ad6ef35.txt"
+        },
+        {
+          "source": "/usr/share/doc/libdb5.3t64/copyright",
+          "bytes": 17177,
+          "sha256": "8b53da37d73289d9df7317b3a2dbe16491f1fa9fec8b77b86d69704b40ce2c26",
+          "text": "texts/8b53da37d73289d9df7317b3a2dbe16491f1fa9fec8b77b86d69704b40ce2c26.txt"
+        },
+        {
+          "source": "/usr/share/doc/diffutils/copyright",
+          "bytes": 16445,
+          "sha256": "ac6fcf18142bab7569188ae75b204a9e1c73c050c0f9467adaf080759e516123",
+          "text": "texts/ac6fcf18142bab7569188ae75b204a9e1c73c050c0f9467adaf080759e516123.txt"
+        },
+        {
+          "source": "/usr/share/doc/bsdutils/copyright",
+          "bytes": 30341,
+          "sha256": "56b67e2eb8bac5a15d91e261d558d73f1f029113cced229753138194997366b6",
+          "text": "texts/56b67e2eb8bac5a15d91e261d558d73f1f029113cced229753138194997366b6.txt"
+        },
+        {
+          "source": "/usr/share/doc/sysvinit-utils/copyright",
+          "bytes": 5881,
+          "sha256": "53c7ef3839f64b24cc25a0937d11ce228517a48be0cc794f0d67b7e209b2a9ba",
+          "text": "texts/53c7ef3839f64b24cc25a0937d11ce228517a48be0cc794f0d67b7e209b2a9ba.txt"
+        },
+        {
+          "source": "/usr/share/doc/libnettle8t64/copyright",
+          "bytes": 24407,
+          "sha256": "344396197142cd506468b20029ea5722d507c980129bb3db4af02424ed6f39c6",
+          "text": "texts/344396197142cd506468b20029ea5722d507c980129bb3db4af02424ed6f39c6.txt"
+        },
+        {
+          "source": "/usr/share/doc/liblz4-1/copyright",
+          "bytes": 3737,
+          "sha256": "8dce0cb8c5a4486e4aac00466e4dd4b0b5b28d70efe3b3256ea4594099a8509c",
+          "text": "texts/8dce0cb8c5a4486e4aac00466e4dd4b0b5b28d70efe3b3256ea4594099a8509c.txt"
+        },
+        {
+          "source": "/usr/share/doc/libpam-runtime/copyright",
+          "bytes": 9727,
+          "sha256": "6b11ef9ab5429d9618cc72e8dfd4efefde363165ef174be0549918e0c44f5dcb",
+          "text": "texts/6b11ef9ab5429d9618cc72e8dfd4efefde363165ef174be0549918e0c44f5dcb.txt"
+        },
+        {
+          "source": "/usr/share/doc/libcrypt1/copyright",
+          "bytes": 6010,
+          "sha256": "5a5e7ca0e9f3f9679977e3a3e9ede45ad92885a3297ea78e766979f9866c5a16",
+          "text": "texts/5a5e7ca0e9f3f9679977e3a3e9ede45ad92885a3297ea78e766979f9866c5a16.txt"
+        },
+        {
+          "source": "/usr/share/doc/libsmartcols1/copyright",
+          "bytes": 30341,
+          "sha256": "56b67e2eb8bac5a15d91e261d558d73f1f029113cced229753138194997366b6",
+          "text": "texts/56b67e2eb8bac5a15d91e261d558d73f1f029113cced229753138194997366b6.txt"
+        },
+        {
+          "source": "/usr/share/doc/apt/copyright",
+          "bytes": 8011,
+          "sha256": "77ab918ade9bce20b07524572fc8eab3f8c0cab4d246f282043892aaa9538803",
+          "text": "texts/77ab918ade9bce20b07524572fc8eab3f8c0cab4d246f282043892aaa9538803.txt"
+        },
+        {
+          "source": "/usr/share/doc/libbsd0/copyright",
+          "bytes": 22378,
+          "sha256": "47eaa031b1741a33a93e7cc8909bfe153acaec7ddff12e4dc7377d0e2ec10e91",
+          "text": "texts/47eaa031b1741a33a93e7cc8909bfe153acaec7ddff12e4dc7377d0e2ec10e91.txt"
+        },
+        {
+          "source": "/usr/share/doc/libmd0/copyright",
+          "bytes": 8018,
+          "sha256": "4365ef6255ad553fce69dd4bc0e093472c5d0e41b8ea493a545cc926ce171aa6",
+          "text": "texts/4365ef6255ad553fce69dd4bc0e093472c5d0e41b8ea493a545cc926ce171aa6.txt"
+        },
+        {
+          "source": "/usr/share/doc/liblzma5/copyright",
+          "bytes": 11875,
+          "sha256": "d755588e2d89d7845d0d4e718ac45d49ae9fc53cec4540af105963c20598f9d7",
+          "text": "texts/d755588e2d89d7845d0d4e718ac45d49ae9fc53cec4540af105963c20598f9d7.txt"
+        },
+        {
+          "source": "/usr/share/doc/libdebconfclient0/copyright",
+          "bytes": 5856,
+          "sha256": "cf63099896d1c0f6529c41b8d95738e6fea342ffba609187d339c4f38ce36ecc",
+          "text": "texts/cf63099896d1c0f6529c41b8d95738e6fea342ffba609187d339c4f38ce36ecc.txt"
+        },
+        {
+          "source": "/usr/share/doc/libseccomp2/copyright",
+          "bytes": 1429,
+          "sha256": "6da0653a365b80ab31478dbfe9e7c358e80d58b6d2b52b4e16b4dbb42d7d9f5c",
+          "text": "texts/6da0653a365b80ab31478dbfe9e7c358e80d58b6d2b52b4e16b4dbb42d7d9f5c.txt"
+        },
+        {
+          "source": "/usr/share/doc/libaudit-common/copyright",
+          "bytes": 1596,
+          "sha256": "6c7011e93f643b112c4cc3622131e28a30477afad6c4f5efe466b13aa7f603cc",
+          "text": "texts/6c7011e93f643b112c4cc3622131e28a30477afad6c4f5efe466b13aa7f603cc.txt"
+        },
+        {
+          "source": "/usr/share/doc/libuuid1/copyright",
+          "bytes": 30341,
+          "sha256": "56b67e2eb8bac5a15d91e261d558d73f1f029113cced229753138194997366b6",
+          "text": "texts/56b67e2eb8bac5a15d91e261d558d73f1f029113cced229753138194997366b6.txt"
+        },
+        {
+          "source": "/usr/share/doc/libssl3t64/copyright",
+          "bytes": 2543,
+          "sha256": "6a7da622fe0637a334d2a8fc470852d2ffb77d9a2b2f930f854e32a41ad6ef35",
+          "text": "texts/6a7da622fe0637a334d2a8fc470852d2ffb77d9a2b2f930f854e32a41ad6ef35.txt"
+        },
+        {
+          "source": "/usr/share/doc/libcap2/copyright",
+          "bytes": 4496,
+          "sha256": "04f9fb974e10f6ca0cd226811f72b3855f8383daad0e5de7adac8d5b0b7796c3",
+          "text": "texts/04f9fb974e10f6ca0cd226811f72b3855f8383daad0e5de7adac8d5b0b7796c3.txt"
+        },
+        {
+          "source": "/usr/share/doc/libblkid1/copyright",
+          "bytes": 30341,
+          "sha256": "56b67e2eb8bac5a15d91e261d558d73f1f029113cced229753138194997366b6",
+          "text": "texts/56b67e2eb8bac5a15d91e261d558d73f1f029113cced229753138194997366b6.txt"
+        },
+        {
+          "source": "/usr/share/doc/sed/copyright",
+          "bytes": 8618,
+          "sha256": "719320e425e8e6da53a55e0fcfa2f2ed9b1332cea16abd65321bd651b2a88568",
+          "text": "texts/719320e425e8e6da53a55e0fcfa2f2ed9b1332cea16abd65321bd651b2a88568.txt"
+        },
+        {
+          "source": "/usr/share/doc/libselinux1/copyright",
+          "bytes": 1957,
+          "sha256": "864f1bb189f609075d580b8c4aada16d85a44546884f1687989e1cacc8c56751",
+          "text": "texts/864f1bb189f609075d580b8c4aada16d85a44546884f1687989e1cacc8c56751.txt"
+        },
+        {
+          "source": "/usr/share/doc/libbz2-1.0/copyright",
+          "bytes": 2228,
+          "sha256": "832ed535ff3c3d025a8d2348eb1b697b89addcf2eaadbc17650262040b9145e2",
+          "text": "texts/832ed535ff3c3d025a8d2348eb1b697b89addcf2eaadbc17650262040b9145e2.txt"
+        },
+        {
+          "source": "/usr/share/doc/dpkg/copyright",
+          "bytes": 5661,
+          "sha256": "3376ec6f7bebf6b1e55da9d5dc591c73e752b45dccb0488e8365d2cf216a1746",
+          "text": "texts/3376ec6f7bebf6b1e55da9d5dc591c73e752b45dccb0488e8365d2cf216a1746.txt"
+        },
+        {
+          "source": "/usr/share/doc/mawk/copyright",
+          "bytes": 22806,
+          "sha256": "f6b94f461b09398ef192207356d89d7bf59833fe03082a14b910b3c740f2a318",
+          "text": "texts/f6b94f461b09398ef192207356d89d7bf59833fe03082a14b910b3c740f2a318.txt"
+        },
+        {
+          "source": "/usr/share/doc/grep/copyright",
+          "bytes": 1807,
+          "sha256": "42d9b4d610396b1e8d1303dcb9487af3f5a2d2709623cf03a04cf76acdf6c5e3",
+          "text": "texts/42d9b4d610396b1e8d1303dcb9487af3f5a2d2709623cf03a04cf76acdf6c5e3.txt"
+        },
+        {
+          "source": "/usr/share/doc/libmount1/copyright",
+          "bytes": 30341,
+          "sha256": "56b67e2eb8bac5a15d91e261d558d73f1f029113cced229753138194997366b6",
+          "text": "texts/56b67e2eb8bac5a15d91e261d558d73f1f029113cced229753138194997366b6.txt"
+        },
+        {
+          "source": "/usr/share/doc/libpam0g/copyright",
+          "bytes": 9727,
+          "sha256": "6b11ef9ab5429d9618cc72e8dfd4efefde363165ef174be0549918e0c44f5dcb",
+          "text": "texts/6b11ef9ab5429d9618cc72e8dfd4efefde363165ef174be0549918e0c44f5dcb.txt"
+        },
+        {
+          "source": "/usr/share/doc/passwd/copyright",
+          "bytes": 5869,
+          "sha256": "305494b6f5f6bb65ead9160077d4fdf45ccdf06de7c958ff96f27a632b8729a3",
+          "text": "texts/305494b6f5f6bb65ead9160077d4fdf45ccdf06de7c958ff96f27a632b8729a3.txt"
+        },
+        {
+          "source": "/usr/share/doc/libhogweed6t64/copyright",
+          "bytes": 24407,
+          "sha256": "344396197142cd506468b20029ea5722d507c980129bb3db4af02424ed6f39c6",
+          "text": "texts/344396197142cd506468b20029ea5722d507c980129bb3db4af02424ed6f39c6.txt"
+        },
+        {
+          "source": "/usr/share/doc/libattr1/copyright",
+          "bytes": 1947,
+          "sha256": "0cbec745d85ea775450b2d54fac55277197f429e52d611f72852ed420450620e",
+          "text": "texts/0cbec745d85ea775450b2d54fac55277197f429e52d611f72852ed420450620e.txt"
+        },
+        {
+          "source": "/usr/share/doc/libxxhash0/copyright",
+          "bytes": 3213,
+          "sha256": "81affefe3047c8a88a9e4c94c8c698f51a7e0787e75b58e901bf1f8fcd433f58",
+          "text": "texts/81affefe3047c8a88a9e4c94c8c698f51a7e0787e75b58e901bf1f8fcd433f58.txt"
+        },
+        {
+          "source": "/usr/share/doc/hostname/copyright",
+          "bytes": 1273,
+          "sha256": "94189fc5a9a7b7224d96e1a0cfdfe9be0df2018b04bf21d591627ab96b30cad1",
+          "text": "texts/94189fc5a9a7b7224d96e1a0cfdfe9be0df2018b04bf21d591627ab96b30cad1.txt"
+        },
+        {
+          "source": "/usr/share/doc/libudev1/copyright",
+          "bytes": 12521,
+          "sha256": "a79e4b379cabbd960bb44f6cc1a069081a3778c59a25ee529b68df5a2cb7d27d",
+          "text": "texts/a79e4b379cabbd960bb44f6cc1a069081a3778c59a25ee529b68df5a2cb7d27d.txt"
+        },
+        {
+          "source": "/usr/share/doc/debian-archive-keyring/copyright",
+          "bytes": 1243,
+          "sha256": "8f918c0bebd1454a084698a95c09d9a03cec8453dad1fc6eab9e6427da9d33a9",
+          "text": "texts/8f918c0bebd1454a084698a95c09d9a03cec8453dad1fc6eab9e6427da9d33a9.txt"
+        },
+        {
+          "source": "/usr/share/doc/findutils/copyright",
+          "bytes": 24411,
+          "sha256": "f51541fbdfe15c01cd3fd3a06ad3b74478902d36a958d95b1756434979d97ed5",
+          "text": "texts/f51541fbdfe15c01cd3fd3a06ad3b74478902d36a958d95b1756434979d97ed5.txt"
+        },
+        {
+          "source": "/usr/share/doc/init-system-helpers/copyright",
+          "bytes": 3133,
+          "sha256": "7534601cc4fa513804d16490359f5831e7b6a1212da3bbf948bebdd4c8799783",
+          "text": "texts/7534601cc4fa513804d16490359f5831e7b6a1212da3bbf948bebdd4c8799783.txt"
+        },
+        {
+          "source": "/usr/share/doc/netbase/copyright",
+          "bytes": 1234,
+          "sha256": "795b66147ea5ad692991caa7008ece551fb0fa88b9c53656223bd1518dc58ab2",
+          "text": "texts/795b66147ea5ad692991caa7008ece551fb0fa88b9c53656223bd1518dc58ab2.txt"
+        },
+        {
+          "source": "/usr/share/doc/libz3-4/copyright",
+          "bytes": 2283,
+          "sha256": "807f874c81a0dbce7d4e32b1a4e1ef1e094b9a3fe8579f34e60fda4f2077289c",
+          "text": "texts/807f874c81a0dbce7d4e32b1a4e1ef1e094b9a3fe8579f34e60fda4f2077289c.txt"
+        },
+        {
+          "source": "/usr/share/doc/libpq5/copyright",
+          "bytes": 12934,
+          "sha256": "afcc052a946b4117667527211b4ca303f07044f5585222f4c8f577e0764b2123",
+          "text": "texts/afcc052a946b4117667527211b4ca303f07044f5585222f4c8f577e0764b2123.txt"
+        },
+        {
+          "source": "/usr/share/doc/liburing2/copyright",
+          "bytes": 4950,
+          "sha256": "c1c394745e57257f5a7fc2f652e0e5f5ece08f6dc979f395b7216cb62b1e98ec",
+          "text": "texts/c1c394745e57257f5a7fc2f652e0e5f5ece08f6dc979f395b7216cb62b1e98ec.txt"
+        },
+        {
+          "source": "/usr/share/doc/libk5crypto3/copyright",
+          "bytes": 63047,
+          "sha256": "936728f4181718f42951b881c1e8f1386bf6b2723c4fbc533c374d6f42c71816",
+          "text": "texts/936728f4181718f42951b881c1e8f1386bf6b2723c4fbc533c374d6f42c71816.txt"
+        },
+        {
+          "source": "/usr/share/doc/perl-modules-5.40/copyright",
+          "bytes": 109644,
+          "sha256": "8adf04cb72ca0719dee8fdb8d711768548d10373905eac21e8a640881c230257",
+          "text": "texts/8adf04cb72ca0719dee8fdb8d711768548d10373905eac21e8a640881c230257.txt"
+        },
+        {
+          "source": "/usr/share/doc/postgresql-18-jit/copyright",
+          "bytes": 12934,
+          "sha256": "afcc052a946b4117667527211b4ca303f07044f5585222f4c8f577e0764b2123",
+          "text": "texts/afcc052a946b4117667527211b4ca303f07044f5585222f4c8f577e0764b2123.txt"
+        },
+        {
+          "source": "/usr/share/doc/libgdbm6t64/copyright",
+          "bytes": 2701,
+          "sha256": "c68f7e6c9b84dd360916a21c951a11829cc55b8793d66094dbfc39eba1618696",
+          "text": "texts/c68f7e6c9b84dd360916a21c951a11829cc55b8793d66094dbfc39eba1618696.txt"
+        },
+        {
+          "source": "/usr/share/doc/postgresql-client-18/copyright",
+          "bytes": 12934,
+          "sha256": "afcc052a946b4117667527211b4ca303f07044f5585222f4c8f577e0764b2123",
+          "text": "texts/afcc052a946b4117667527211b4ca303f07044f5585222f4c8f577e0764b2123.txt"
+        },
+        {
+          "source": "/usr/share/doc/libllvm19/copyright",
+          "bytes": 6967,
+          "sha256": "4c22cf66ddd6dfae2ac4e034342f93a9c96581d5e88c7bb700a125a71cf66cd7",
+          "text": "texts/4c22cf66ddd6dfae2ac4e034342f93a9c96581d5e88c7bb700a125a71cf66cd7.txt"
+        },
+        {
+          "source": "/usr/share/doc/libedit2/copyright",
+          "bytes": 1840,
+          "sha256": "2b53671050f6319be6fcdcafa434e8ccb8af629359b4afc83185867204f3927d",
+          "text": "texts/2b53671050f6319be6fcdcafa434e8ccb8af629359b4afc83185867204f3927d.txt"
+        },
+        {
+          "source": "/usr/share/doc/libtext-wrapi18n-perl/copyright",
+          "bytes": 1181,
+          "sha256": "04670c33e3250932ba698b12e609fe6a7c7eb847c2fa5d05baaf2782e5935375",
+          "text": "texts/04670c33e3250932ba698b12e609fe6a7c7eb847c2fa5d05baaf2782e5935375.txt"
+        },
+        {
+          "source": "/usr/share/doc/libxslt1.1/copyright",
+          "bytes": 3282,
+          "sha256": "4b82c8dd6e55001a5921bea1d6db20be5c51e5976d892e870324026c23f37b6f",
+          "text": "texts/4b82c8dd6e55001a5921bea1d6db20be5c51e5976d892e870324026c23f37b6f.txt"
+        },
+        {
+          "source": "/usr/share/doc/libnuma1/copyright",
+          "bytes": 1357,
+          "sha256": "179c34f5e56cd0b6b73dd7970a97357ee784e2236e8293826656c7ebb3bface7",
+          "text": "texts/179c34f5e56cd0b6b73dd7970a97357ee784e2236e8293826656c7ebb3bface7.txt"
+        },
+        {
+          "source": "/usr/share/doc/sensible-utils/copyright",
+          "bytes": 5465,
+          "sha256": "cedd6fcbc166321e6792b0161dd387d9ad4de72aa1e8fd4ec6da9f252dba2543",
+          "text": "texts/cedd6fcbc166321e6792b0161dd387d9ad4de72aa1e8fd4ec6da9f252dba2543.txt"
+        },
+        {
+          "source": "/usr/share/doc/libkeyutils1/copyright",
+          "bytes": 2148,
+          "sha256": "73f5682b0466f41cea2b9b7f1ff8a8052464f6c09fb29eeac4490512af09bd50",
+          "text": "texts/73f5682b0466f41cea2b9b7f1ff8a8052464f6c09fb29eeac4490512af09bd50.txt"
+        },
+        {
+          "source": "/usr/share/doc/libgdbm-compat4t64/copyright",
+          "bytes": 2701,
+          "sha256": "c68f7e6c9b84dd360916a21c951a11829cc55b8793d66094dbfc39eba1618696",
+          "text": "texts/c68f7e6c9b84dd360916a21c951a11829cc55b8793d66094dbfc39eba1618696.txt"
+        },
+        {
+          "source": "/usr/share/doc/openssl/copyright",
+          "bytes": 2543,
+          "sha256": "6a7da622fe0637a334d2a8fc470852d2ffb77d9a2b2f930f854e32a41ad6ef35",
+          "text": "texts/6a7da622fe0637a334d2a8fc470852d2ffb77d9a2b2f930f854e32a41ad6ef35.txt"
+        },
+        {
+          "source": "/usr/share/doc/perl/copyright",
+          "bytes": 109644,
+          "sha256": "8adf04cb72ca0719dee8fdb8d711768548d10373905eac21e8a640881c230257",
+          "text": "texts/8adf04cb72ca0719dee8fdb8d711768548d10373905eac21e8a640881c230257.txt"
+        },
+        {
+          "source": "/usr/share/doc/libkrb5support0/copyright",
+          "bytes": 63047,
+          "sha256": "936728f4181718f42951b881c1e8f1386bf6b2723c4fbc533c374d6f42c71816",
+          "text": "texts/936728f4181718f42951b881c1e8f1386bf6b2723c4fbc533c374d6f42c71816.txt"
+        },
+        {
+          "source": "/usr/share/doc/postgresql-18/copyright",
+          "bytes": 12934,
+          "sha256": "afcc052a946b4117667527211b4ca303f07044f5585222f4c8f577e0764b2123",
+          "text": "texts/afcc052a946b4117667527211b4ca303f07044f5585222f4c8f577e0764b2123.txt"
+        },
+        {
+          "source": "/usr/share/doc/ucf/copyright",
+          "bytes": 4237,
+          "sha256": "b14f660653d37c8bf828ded913e517e2833e4e3d4dc3ae39d4e31038656040cd",
+          "text": "texts/b14f660653d37c8bf828ded913e517e2833e4e3d4dc3ae39d4e31038656040cd.txt"
+        },
+        {
+          "source": "/usr/share/doc/ssl-cert/copyright",
+          "bytes": 1867,
+          "sha256": "b99b8bf533b7f509c0087da904b7c5a35373cf2cf5691c274368520318500a12",
+          "text": "texts/b99b8bf533b7f509c0087da904b7c5a35373cf2cf5691c274368520318500a12.txt"
+        },
+        {
+          "source": "/usr/share/doc/libperl5.40/copyright",
+          "bytes": 109644,
+          "sha256": "8adf04cb72ca0719dee8fdb8d711768548d10373905eac21e8a640881c230257",
+          "text": "texts/8adf04cb72ca0719dee8fdb8d711768548d10373905eac21e8a640881c230257.txt"
+        },
+        {
+          "source": "/usr/share/doc/libicu76/copyright",
+          "bytes": 2214,
+          "sha256": "5bbff5f646ce750ac0a347e7f91793279b7422a1119820b5f75d98879c201c68",
+          "text": "texts/5bbff5f646ce750ac0a347e7f91793279b7422a1119820b5f75d98879c201c68.txt"
+        },
+        {
+          "source": "/usr/share/doc/libkrb5-3/copyright",
+          "bytes": 63047,
+          "sha256": "936728f4181718f42951b881c1e8f1386bf6b2723c4fbc533c374d6f42c71816",
+          "text": "texts/936728f4181718f42951b881c1e8f1386bf6b2723c4fbc533c374d6f42c71816.txt"
+        },
+        {
+          "source": "/usr/share/doc/libtext-charwidth-perl/copyright",
+          "bytes": 1210,
+          "sha256": "a8b977da6e759fe80e5669f3624394b989f5693976a44c71d661ff00de081885",
+          "text": "texts/a8b977da6e759fe80e5669f3624394b989f5693976a44c71d661ff00de081885.txt"
+        },
+        {
+          "source": "/usr/share/doc/procps/copyright",
+          "bytes": 3974,
+          "sha256": "90a66617c36d83068b52bbb77cbfef1234f526bfa287156d9d05f7df4d339539",
+          "text": "texts/90a66617c36d83068b52bbb77cbfef1234f526bfa287156d9d05f7df4d339539.txt"
+        },
+        {
+          "source": "/usr/share/doc/libxml2/copyright",
+          "bytes": 3067,
+          "sha256": "ee746b96cfa5be73c3ea3e4cfb1285e9b315d4c9267f99b2ee9c5d911d9fe3f4",
+          "text": "texts/ee746b96cfa5be73c3ea3e4cfb1285e9b315d4c9267f99b2ee9c5d911d9fe3f4.txt"
+        },
+        {
+          "source": "/usr/share/doc/libjson-perl/copyright",
+          "bytes": 1391,
+          "sha256": "a386cd51aa512e321a9e132b0db989d19c43b090029f33f554f1c98785992584",
+          "text": "texts/a386cd51aa512e321a9e132b0db989d19c43b090029f33f554f1c98785992584.txt"
+        },
+        {
+          "source": "/usr/share/doc/postgresql-client-common/copyright",
+          "bytes": 812,
+          "sha256": "292dcc67fc22ad11156da2b7a154da74b65e63e0f673f3d301a5ed6df85327fe",
+          "text": "texts/292dcc67fc22ad11156da2b7a154da74b65e63e0f673f3d301a5ed6df85327fe.txt"
+        },
+        {
+          "source": "/usr/share/doc/libproc2-0/copyright",
+          "bytes": 3974,
+          "sha256": "90a66617c36d83068b52bbb77cbfef1234f526bfa287156d9d05f7df4d339539",
+          "text": "texts/90a66617c36d83068b52bbb77cbfef1234f526bfa287156d9d05f7df4d339539.txt"
+        },
+        {
+          "source": "/usr/share/doc/libgssapi-krb5-2/copyright",
+          "bytes": 63047,
+          "sha256": "936728f4181718f42951b881c1e8f1386bf6b2723c4fbc533c374d6f42c71816",
+          "text": "texts/936728f4181718f42951b881c1e8f1386bf6b2723c4fbc533c374d6f42c71816.txt"
+        },
+        {
+          "source": "/usr/share/doc/postgresql-common/copyright",
+          "bytes": 812,
+          "sha256": "292dcc67fc22ad11156da2b7a154da74b65e63e0f673f3d301a5ed6df85327fe",
+          "text": "texts/292dcc67fc22ad11156da2b7a154da74b65e63e0f673f3d301a5ed6df85327fe.txt"
+        },
+        {
+          "source": "/usr/share/doc/libcom-err2/copyright",
+          "bytes": 20459,
+          "sha256": "2041b5febdc110151ca3372d01b16b85dda1888e33f3f60fce0f59940eed7d19",
+          "text": "texts/2041b5febdc110151ca3372d01b16b85dda1888e33f3f60fce0f59940eed7d19.txt"
+        },
+        {
+          "source": "/usr/share/doc/zstd/copyright",
+          "bytes": 5332,
+          "sha256": "5cec9fef4d3fa7e0371fbef4ec3fc416e0105dc2a9922117f84e825cb11f50f8",
+          "text": "texts/5cec9fef4d3fa7e0371fbef4ec3fc416e0105dc2a9922117f84e825cb11f50f8.txt"
+        },
+        {
+          "source": "/usr/share/doc/xz-utils/copyright",
+          "bytes": 11875,
+          "sha256": "d755588e2d89d7845d0d4e718ac45d49ae9fc53cec4540af105963c20598f9d7",
+          "text": "texts/d755588e2d89d7845d0d4e718ac45d49ae9fc53cec4540af105963c20598f9d7.txt"
+        },
+        {
+          "source": "/usr/share/doc/libnss-wrapper/copyright",
+          "bytes": 2414,
+          "sha256": "83feb9114f7114d4970a1090df6faecd5f6c3eab0c4c6aafd8cc5bb4090c7287",
+          "text": "texts/83feb9114f7114d4970a1090df6faecd5f6c3eab0c4c6aafd8cc5bb4090c7287.txt"
+        },
+        {
+          "source": "/usr/share/doc/libc-l10n/copyright",
+          "bytes": 51200,
+          "sha256": "f5788886720a2605a946e81d571e6c8162b09f58d2e2ceb8d36e5768fccd850d",
+          "text": "texts/f5788886720a2605a946e81d571e6c8162b09f58d2e2ceb8d36e5768fccd850d.txt"
+        },
+        {
+          "source": "/usr/share/doc/locales/copyright",
+          "bytes": 51200,
+          "sha256": "f5788886720a2605a946e81d571e6c8162b09f58d2e2ceb8d36e5768fccd850d",
+          "text": "texts/f5788886720a2605a946e81d571e6c8162b09f58d2e2ceb8d36e5768fccd850d.txt"
+        },
+        {
+          "source": "/usr/share/doc/gpgconf/copyright",
+          "bytes": 13143,
+          "sha256": "c19276de1952e4d3926c293ac598065e2abcb5b9543600cf941d53fb3c6e41a8",
+          "text": "texts/c19276de1952e4d3926c293ac598065e2abcb5b9543600cf941d53fb3c6e41a8.txt"
+        },
+        {
+          "source": "/usr/share/doc/libtasn1-6/copyright",
+          "bytes": 3359,
+          "sha256": "5f9f7b538d221104bdb561ae80fd794ec5f813eb8fd04650293bddcc0f856e7d",
+          "text": "texts/5f9f7b538d221104bdb561ae80fd794ec5f813eb8fd04650293bddcc0f856e7d.txt"
+        },
+        {
+          "source": "/usr/share/doc/gnupg-l10n/copyright",
+          "bytes": 13143,
+          "sha256": "c19276de1952e4d3926c293ac598065e2abcb5b9543600cf941d53fb3c6e41a8",
+          "text": "texts/c19276de1952e4d3926c293ac598065e2abcb5b9543600cf941d53fb3c6e41a8.txt"
+        },
+        {
+          "source": "/usr/share/doc/libgcrypt20/copyright",
+          "bytes": 26983,
+          "sha256": "4feae258cab1ad4743fb569a77e0b2a5b7a0199520bdbc0a613916291b9aa8a8",
+          "text": "texts/4feae258cab1ad4743fb569a77e0b2a5b7a0199520bdbc0a613916291b9aa8a8.txt"
+        },
+        {
+          "source": "/usr/share/doc/gnupg/copyright",
+          "bytes": 13143,
+          "sha256": "c19276de1952e4d3926c293ac598065e2abcb5b9543600cf941d53fb3c6e41a8",
+          "text": "texts/c19276de1952e4d3926c293ac598065e2abcb5b9543600cf941d53fb3c6e41a8.txt"
+        },
+        {
+          "source": "/usr/share/doc/libksba8/copyright",
+          "bytes": 4718,
+          "sha256": "62f4bbaeb37f9e2c0795dd3ea7b1bfcf34fc9fef7a680bd863ee50fae0b4cf12",
+          "text": "texts/62f4bbaeb37f9e2c0795dd3ea7b1bfcf34fc9fef7a680bd863ee50fae0b4cf12.txt"
+        },
+        {
+          "source": "/usr/share/doc/readline-common/copyright",
+          "bytes": 4314,
+          "sha256": "854c6f5f249a109a913e1e58528445c4fec96f063ae8ba496bfb2b460bcc6866",
+          "text": "texts/854c6f5f249a109a913e1e58528445c4fec96f063ae8ba496bfb2b460bcc6866.txt"
+        },
+        {
+          "source": "/usr/share/doc/gpg/copyright",
+          "bytes": 13143,
+          "sha256": "c19276de1952e4d3926c293ac598065e2abcb5b9543600cf941d53fb3c6e41a8",
+          "text": "texts/c19276de1952e4d3926c293ac598065e2abcb5b9543600cf941d53fb3c6e41a8.txt"
+        },
+        {
+          "source": "/usr/share/doc/libunistring5/copyright",
+          "bytes": 103761,
+          "sha256": "a585cd2cc2a5fcb8e58f12c7a710a35e06e5b897c59cd5ae4a7d835f0b49eae3",
+          "text": "texts/a585cd2cc2a5fcb8e58f12c7a710a35e06e5b897c59cd5ae4a7d835f0b49eae3.txt"
+        },
+        {
+          "source": "/usr/share/doc/libgpg-error0/copyright",
+          "bytes": 5301,
+          "sha256": "1edb3be55cf9371e8e7a71e53fadc2a3d33b44d7d7f15c78a7669c92ce0fade2",
+          "text": "texts/1edb3be55cf9371e8e7a71e53fadc2a3d33b44d7d7f15c78a7669c92ce0fade2.txt"
+        },
+        {
+          "source": "/usr/share/doc/adduser/copyright",
+          "bytes": 14636,
+          "sha256": "46a62796c410dd88c0df99066519127a29ddca803078f7a8554fc779c30101bb",
+          "text": "texts/46a62796c410dd88c0df99066519127a29ddca803078f7a8554fc779c30101bb.txt"
+        },
+        {
+          "source": "/usr/share/doc/gpgsm/copyright",
+          "bytes": 13143,
+          "sha256": "c19276de1952e4d3926c293ac598065e2abcb5b9543600cf941d53fb3c6e41a8",
+          "text": "texts/c19276de1952e4d3926c293ac598065e2abcb5b9543600cf941d53fb3c6e41a8.txt"
+        },
+        {
+          "source": "/usr/share/doc/libp11-kit0/copyright",
+          "bytes": 15605,
+          "sha256": "008107de203c9f89a6c71b625fb47e10074c6b7ccb0e310694014d4551f67b2b",
+          "text": "texts/008107de203c9f89a6c71b625fb47e10074c6b7ccb0e310694014d4551f67b2b.txt"
+        },
+        {
+          "source": "/usr/share/doc/libsasl2-2/copyright",
+          "bytes": 24643,
+          "sha256": "ddb128a81d3a140ef5b3574ae000a1a50d0cb9a2ec59917121a155f91b670166",
+          "text": "texts/ddb128a81d3a140ef5b3574ae000a1a50d0cb9a2ec59917121a155f91b670166.txt"
+        },
+        {
+          "source": "/usr/share/doc/less/copyright",
+          "bytes": 5431,
+          "sha256": "e6ff1fff1cfd66ccd4d9a4179f3f4d945fd5827ad8bb6425dd1a430f9ca308fc",
+          "text": "texts/e6ff1fff1cfd66ccd4d9a4179f3f4d945fd5827ad8bb6425dd1a430f9ca308fc.txt"
+        },
+        {
+          "source": "/usr/share/doc/dirmngr/copyright",
+          "bytes": 13143,
+          "sha256": "c19276de1952e4d3926c293ac598065e2abcb5b9543600cf941d53fb3c6e41a8",
+          "text": "texts/c19276de1952e4d3926c293ac598065e2abcb5b9543600cf941d53fb3c6e41a8.txt"
+        },
+        {
+          "source": "/usr/share/doc/libnpth0t64/copyright",
+          "bytes": 1164,
+          "sha256": "df6909abb38f4e84d237d8617e948bdbb391b2004ecf573863011d54a88ccf22",
+          "text": "texts/df6909abb38f4e84d237d8617e948bdbb391b2004ecf573863011d54a88ccf22.txt"
+        },
+        {
+          "source": "/usr/share/doc/libsasl2-modules-db/copyright",
+          "bytes": 24643,
+          "sha256": "ddb128a81d3a140ef5b3574ae000a1a50d0cb9a2ec59917121a155f91b670166",
+          "text": "texts/ddb128a81d3a140ef5b3574ae000a1a50d0cb9a2ec59917121a155f91b670166.txt"
+        },
+        {
+          "source": "/usr/share/doc/libgnutls30t64/copyright",
+          "bytes": 57443,
+          "sha256": "a07e99815cf1998f1dabbc21fe199460bfa09b85ead0d56b49a32cac3d1791b5",
+          "text": "texts/a07e99815cf1998f1dabbc21fe199460bfa09b85ead0d56b49a32cac3d1791b5.txt"
+        },
+        {
+          "source": "/usr/share/doc/libassuan9/copyright",
+          "bytes": 12055,
+          "sha256": "77098ae4bd20a17039c27a742aaec873c0317793a2867332b3083509c16cfb9a",
+          "text": "texts/77098ae4bd20a17039c27a742aaec873c0317793a2867332b3083509c16cfb9a.txt"
+        },
+        {
+          "source": "/usr/share/doc/libreadline8t64/copyright",
+          "bytes": 4314,
+          "sha256": "854c6f5f249a109a913e1e58528445c4fec96f063ae8ba496bfb2b460bcc6866",
+          "text": "texts/854c6f5f249a109a913e1e58528445c4fec96f063ae8ba496bfb2b460bcc6866.txt"
+        },
+        {
+          "source": "/usr/share/doc/libidn2-0/copyright",
+          "bytes": 6566,
+          "sha256": "32df8170a3c5e55c553f684576a2911e6a0611320ccd7fd65f7dceae26be61ee",
+          "text": "texts/32df8170a3c5e55c553f684576a2911e6a0611320ccd7fd65f7dceae26be61ee.txt"
+        },
+        {
+          "source": "/usr/share/doc/libffi8/copyright",
+          "bytes": 10164,
+          "sha256": "25ee86cfccc2b7eb9a156a127f1e1b38c46c231f516ff201912223eaf62ee186",
+          "text": "texts/25ee86cfccc2b7eb9a156a127f1e1b38c46c231f516ff201912223eaf62ee186.txt"
+        },
+        {
+          "source": "/usr/share/doc/pinentry-curses/copyright",
+          "bytes": 6437,
+          "sha256": "21126014091396a9a25b5095466b609de0e6502969a416018405946e40cc9d79",
+          "text": "texts/21126014091396a9a25b5095466b609de0e6502969a416018405946e40cc9d79.txt"
+        },
+        {
+          "source": "/usr/share/doc/libldap2/copyright",
+          "bytes": 62859,
+          "sha256": "2656a8ac4f2fda614be8fe6fd7f649665a6ca3abcf19f6ac125e2ff165b60939",
+          "text": "texts/2656a8ac4f2fda614be8fe6fd7f649665a6ca3abcf19f6ac125e2ff165b60939.txt"
+        },
+        {
+          "source": "/usr/share/doc/gpg-agent/copyright",
+          "bytes": 13143,
+          "sha256": "c19276de1952e4d3926c293ac598065e2abcb5b9543600cf941d53fb3c6e41a8",
+          "text": "texts/c19276de1952e4d3926c293ac598065e2abcb5b9543600cf941d53fb3c6e41a8.txt"
+        }
+      ]
+    }
+  ]
+}

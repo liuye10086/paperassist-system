@@ -100,7 +100,12 @@ class DocumentObjects:
         if [i.model_dump() for i in getattr(document,'images',[])]!=[{k:v for k,v in i.items() if k!='object_key'} for i in manifest['images']]:invalid()
         return raw,document
     def image(self,manifest,image_id):
-        self.read(manifest)
+        _,document=self.read(manifest)
+        return self._image_from_document(manifest,image_id,document)
+    def _image_from_document(self,manifest,image_id,document):
+        # Only for a document already verified in this call. Retain the exact
+        # manifest/image binding and read/check the actual image bytes every time.
+        if document.kind!=manifest['kind'] or [i.model_dump() for i in getattr(document,'images',[])]!=[{k:v for k,v in i.items() if k!='object_key'} for i in manifest['images']]:invalid()
         matches=[i for i in manifest['images'] if i['id']==image_id]
         if len(matches)!=1:raise StorageError('image_not_found','图片不存在。',404)
         i=matches[0];return self._read(i,16777216),i['mime']

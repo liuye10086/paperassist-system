@@ -15,6 +15,13 @@ from .grounded import evidence_for,locations_for,grounded_plans,apply_operations
 from app.domain.admin_configuration.rule_consumption import rules,round_version,inherit_task
 
 
+def revision_request_body(request):
+    body=request.model_dump(mode='json')
+    # Only this new optional field is canonicalized; sealed old fields stay exact.
+    if not body.get('figure_adoption_ids'):body.pop('figure_adoption_ids',None)
+    return body
+
+
 def input_version(task):
     snap=task['input_snapshot']
     if task['task_type']!='review_revision' or task['workflow_version']!=WORKFLOW or digest(snap)!=task['input_digest'] or snap.get('project_id')!=task['project_id'] or snap.get('real_model_calls') is not False or snap.get('real_network_calls') is not False:raise source_conflict()
@@ -36,9 +43,23 @@ class RevisionService(ReviewRoundService):
         science=ScienceService(self.assets)
         adopted=db.execute('SELECT * FROM review_analysis_adoptions WHERE round_id=%s ORDER BY created_at,id',(identity,)).fetchall()
         context['analysis_adoptions']=[science.adoption_view(science.validate_adoption(db,r)) for r in adopted]
+        figures=db.execute('SELECT * FROM review_figure_adoptions WHERE round_id=%s ORDER BY created_at,id',(identity,)).fetchall()
+        context['figure_adoptions']=[science.figure_adoption_view(science.validate_figure_adoption(db,r)) for r in figures]
         current_items={i['id']:i for i in state['items']}
         selected=[r for r in adopted if r['item_id'] in current_items]
         augmented,_,_=apply_analysis_sources(base['snapshot_json'],selected)
+        from .figure_candidates import apply_figure_sources
+        current_figures=[r for r in figures if r['item_id'] in current_items and r['snapshot_json']['item_revision']==current_items[r['item_id']]['revision']]
+        augmented=deepcopy(augmented)
+        for adopted in current_figures:
+            for source in (adopted['snapshot_json']['analysis_source'],adopted['snapshot_json']['source']):
+                previous=next((s for s in augmented['sources'] if s['id']==source['id']),None)
+                if previous is not None and previous!=source:raise source_conflict()
+                if previous is None:augmented['sources'].append(deepcopy(source))
+            source=adopted['snapshot_json']['source']
+            if not any(loc['id']==source['id'] for loc in context['locations']):
+                old=next(loc for loc in context['locations'] if loc['kind']=='figure' and loc['id']==adopted['snapshot_json']['supersedes_figure_id'])
+                context['locations'].append(dict(old,id=source['id'],text=source['content']['caption']))
         new_ids={r['snapshot_json']['source']['id'] for r in selected}
         context['analysis_facts']=[f for f in extract_facts(augmented) if f['source_id'] in new_ids]
         context['analysis_impacts']=[dict(adoption_id=r['id'],impact=r['snapshot_json']['impact'],pending=r['snapshot_json']['pending']) for r in selected]
@@ -64,11 +85,17 @@ class RevisionService(ReviewRoundService):
         from .science_candidates import apply_analysis_sources,analysis_consistency_issues,science_unexecuted
         adoptions=ScienceService(self.assets).selected_adoptions(db,project,identity,request.analysis_adoption_ids,request.plan_revision,require_current=True)
         augmented,authority,table_changes=apply_analysis_sources(base['snapshot_json'],adoptions,authority)
+        from .figure_candidates import apply_figure_sources,figure_consistency_issues
+        figures=ScienceService(self.assets).selected_figure_adoptions(db,project,identity,request.figure_adoption_ids,request.plan_revision,require_current=True)
+        augmented,authority,figure_changes=apply_figure_sources(augmented,figures,adoptions,authority)
         active_items=analysis_items(state['items'],adoptions)
         candidate,changes,unexecuted,strict,issues=apply_operations(augmented,active_items,state['materials'],request.operations,writing_context=authority,target=target,fixed_safety=round_version(db,identity) is not None)
-        changes=table_changes+changes
-        unexecuted+=science_unexecuted(state['items'],adoptions)
+        changes=table_changes+figure_changes+changes
+        explicitly_changed={c['item_id'] for c in figure_changes}
+        unexecuted=[u for u in unexecuted if not (u['item_id'] in explicitly_changed and u['reason']=='本次未选择具体修改。')]
+        unexecuted+=science_unexecuted(state['items'],adoptions,figures,candidate)
         issues+=analysis_consistency_issues(candidate,adoptions)
+        issues+=figure_consistency_issues(candidate,figures)
         previous=base['snapshot_json'].get('review') or (base['snapshot_json'].get('review_history') or [{}])[-1].get('review',{})
         issues+=check_snapshot(candidate,metadata=previous.get('metadata',[]),strict_locations=strict,writing_context=authority)
         for check in issues:
@@ -109,7 +136,7 @@ class RevisionService(ReviewRoundService):
             self.round_row(db,project,round_id)
             return dict(items=[self.view_revision(db,self.revision_row(db,project,r['id'])) for r in db.execute('SELECT id FROM review_revision_runs WHERE round_id=%s ORDER BY created_at DESC,id',(round_id,)).fetchall()])
     def adopt(self,project,identity,request,key):
-        require_key(key);body=request.model_dump(mode='json')
+        require_key(key);body=revision_request_body(request)
         with self.store.connection(write=True) as db:
             self.project(db,project,True)
             old=db.execute('SELECT * FROM review_revision_runs WHERE project_id=%s AND user_id=%s AND idempotency_key=%s',(project,self.store.user_id,key)).fetchone()
@@ -121,6 +148,7 @@ class RevisionService(ReviewRoundService):
             if not preview['can_adopt']:raise invalid('没有有效实际差异或公共检查存在硬错误，不能采用。',409)
             identity=str(uuid4());timestamp=now();snap=dict(id=identity,kind='review_revision',project_id=project,round_id=row['id'],workflow_version=WORKFLOW,project_type=row['snapshot_json']['project_type'],sources=[{k:v[k] for k in ('id','role','label')} for v in row['snapshot_json']['sources']],output_language=base['snapshot_json']['output_language'],manuscript=preview['manuscript'],base_sha256=base['snapshot_sha256'],plan_revision=request.plan_revision,plan_state=state,operations=body['operations'],expected_current_revision=request.expected_current_revision,preview=preview,synthetic=preview['synthetic'],real_model_calls=False,real_network_calls=False)
             if request.analysis_adoption_ids:snap['analysis_adoption_ids']=list(request.analysis_adoption_ids)
+            if request.figure_adoption_ids:snap['figure_adoption_ids']=list(request.figure_adoption_ids)
             task=dict(id=str(uuid4()),project_id=project,user_id=self.store.user_id,task_type='review_revision',idempotency_key='review-revision:'+identity,input_digest=digest(snap),input_snapshot=snap,workflow_version=WORKFLOW,status='queued',phase='verify',revision=1,current_attempt=0,reason_code=None,created_at=timestamp,updated_at=timestamp)
             self.store.insert_task(db,task);self.store.append_event(db,task,'created');self.store.enqueue(db,task)
             inherit_task(db,task,round_id=row['id'])
@@ -168,9 +196,13 @@ def validate_revised_version(manuscripts,db,version):
     from .science_candidates import apply_analysis_sources,analysis_consistency_issues
     adoptions=ScienceService(manuscripts.assets).selected_adoptions(db,version['project_id'],row['round_id'],frozen.get('analysis_adoption_ids',[]))
     augmented,authority,table_changes=apply_analysis_sources(base['snapshot_json'],adoptions,authority)
+    from .figure_candidates import apply_figure_sources,figure_consistency_issues
+    figures=ScienceService(manuscripts.assets).selected_figure_adoptions(db,version['project_id'],row['round_id'],frozen.get('figure_adoption_ids',[]))
+    augmented,authority,figure_changes=apply_figure_sources(augmented,figures,adoptions,authority)
     expected,changes,_,_,_=apply_operations(augmented,analysis_items(frozen['plan_state']['items'],adoptions),frozen['plan_state']['materials'],frozen['operations'],writing_context=authority,target=target)
-    changes=table_changes+changes
+    changes=table_changes+figure_changes+changes
     if any(i['severity']=='error' for i in analysis_consistency_issues(expected,adoptions)):raise source_conflict()
+    if any(i['severity']=='error' for i in figure_consistency_issues(expected,figures)):raise source_conflict()
     expected['review_revision_provenance']=dict(revision_id=row['id'],round_id=row['round_id'],base_version_id=base['id'],input_sha256=row['snapshot_sha256'],synthetic=frozen['synthetic'])
     if expected!=version['snapshot_json'] or changes!=result['actual_changes'] or base['id']!=version['parent_version_id'] or result['output']!=dict(manuscript_id=version['manuscript_id'],version_id=version['id'],revision=version['revision'],parent_version_id=version['parent_version_id'],task_id=version['task_id']):raise source_conflict()
 
@@ -193,6 +225,10 @@ def revision_writing_context(manuscripts,db,project,identity,snapshot,*,check_ve
     from .science_candidates import apply_analysis_sources
     adoptions=ScienceService(manuscripts.assets).selected_adoptions(db,project,row['round_id'],row['snapshot_json'].get('analysis_adoption_ids',[]))
     _,authority,_=apply_analysis_sources(base['snapshot_json'],adoptions,authority)
+    from .figure_candidates import apply_figure_sources
+    figures=ScienceService(manuscripts.assets).selected_figure_adoptions(db,project,row['round_id'],row['snapshot_json'].get('figure_adoption_ids',[]))
+    augmented,_,_=apply_analysis_sources(base['snapshot_json'],adoptions)
+    _,authority,_=apply_figure_sources(augmented,figures,adoptions,authority)
     paragraphs=deepcopy(authority.paragraphs)
     for section in normalize_sections(snapshot):
         for paragraph in section['paragraphs']:

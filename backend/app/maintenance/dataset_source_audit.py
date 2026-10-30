@@ -32,7 +32,7 @@ def validate_projection_v2_source(db, task, snapshot, result):
         raise ValueError('Projection configuration missing')
     expected_source = dict(source=result['source'], result_sha256=digest(result), analysis_plan=result['analysis_plan'])
     if 'figure_contract' in config['source_json']:
-        if type(config['source_json']['figure_contract']) is not int or config['source_json']['figure_contract'] not in (2,3):
+        if type(config['source_json']['figure_contract']) is not int or config['source_json']['figure_contract'] not in (2,3,4):
             raise ValueError('Projection contract differs')
         expected_source['figure_contract'] = config['source_json']['figure_contract']
     if (type(snapshot.get('projection_execution')) is not int or snapshot['projection_execution'] != 2

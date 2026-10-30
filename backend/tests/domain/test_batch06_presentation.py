@@ -28,7 +28,7 @@ def test_versions_fail_closed():
     assert p.contract_version({})==1
     assert p.renderer_for({})=='openai_figure_workbench_v1'
     assert p.renderer_for({'figure_contract':2})=='openai_figure_workbench_v2'
-    for invalid in (None,True,0,4,'2',2.0):
+    for invalid in (None,True,0,5,'2',2.0):
         with pytest.raises(StorageError): p.contract_version({'figure_contract':invalid})
 
 

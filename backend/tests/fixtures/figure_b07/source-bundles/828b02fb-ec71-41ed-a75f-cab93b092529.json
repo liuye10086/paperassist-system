@@ -1,0 +1,1088 @@
+{
+  "key": "kaplan_meier:en",
+  "source_task_id": "828b02fb-ec71-41ed-a75f-cab93b092529",
+  "bundle": {
+    "result": {
+      "schema_version": 5,
+      "result_type": "survival",
+      "file_id": "3f3d1586-79e5-56f4-a8cf-7474663ac3b1",
+      "filename": "kaplan_meier.xlsx",
+      "source_sha256": "00a8269a2a95dc93bb567ada160f2328c8f02520e2e3b6d3763578ebabd39a1f",
+      "source": {
+        "kind": "prepared_dataset_version",
+        "schema_version": 1,
+        "dataset_id": "1e156ea1-e4a3-5341-847b-94d80d0aab8f",
+        "structure_id": "213b779b-0f63-4f17-9810-ef1add3b73c8",
+        "dataset_version": 1,
+        "file_id": "3f3d1586-79e5-56f4-a8cf-7474663ac3b1",
+        "source_sha256": "00a8269a2a95dc93bb567ada160f2328c8f02520e2e3b6d3763578ebabd39a1f",
+        "dataset_sha256": "bdd94b6f52e710d5fb78d6229b2d9e0cd513084f5a518df189a420e6592a633e",
+        "dataset_size_bytes": 3426,
+        "dataset_schema_version": 1,
+        "sheet_index": 0,
+        "sheet_name": "Synthetic",
+        "parser_version": "openpyxl-3.1.5-structure-v1",
+        "parent_dataset_id": "cdc6fd7d-9485-55e1-a6ac-d5967a3d7942",
+        "parent_dataset_version": 1,
+        "transform_version": "excel_prepare_v1"
+      },
+      "setup_revision": 2,
+      "selection": {
+        "task_type": "survival",
+        "method": "kaplan_meier",
+        "sheet_name": "Synthetic",
+        "id_column": "A",
+        "time_column": "B",
+        "status_column": "C",
+        "group_column": null,
+        "event": {
+          "kind": "number",
+          "value": "1"
+        },
+        "censored": {
+          "kind": "number",
+          "value": "0"
+        },
+        "groups": [],
+        "time_unit": "day",
+        "time_origin": "synthetic entry",
+        "noninformative_censoring": true,
+        "missing_policy": "complete_cases",
+        "assumptions": {
+          "independent_units": true,
+          "inference_confirmed": true
+        }
+      },
+      "check": {
+        "ready": true,
+        "row_count": 6,
+        "valid_count": 6,
+        "excluded_count": 0,
+        "groups": [],
+        "issues": [],
+        "warnings": []
+      },
+      "analysis_plan": {
+        "plan_id": "16de2a5c-f225-521f-b8c7-d624380ccdcb",
+        "sha256": "f4f7771bf869d74204fdbb4338525cf173d165fe527f4bb5c4cbd006f1ad5444",
+        "resolutions": {}
+      },
+      "analysis_context": {
+        "plan": {
+          "schema_version": 5,
+          "workflow_version": "analysis_plan_v5",
+          "rules_version": "analysis_plan_rules_v5",
+          "id": "16de2a5c-f225-521f-b8c7-d624380ccdcb",
+          "task_id": "8a29c488-b4cc-4183-9531-2decc0f13de4",
+          "decision_id": "10d78ee2-afeb-41c2-9184-0244ec494d81",
+          "project_id": "123cbf9f-fd5a-4704-b4d1-af97dea0bad1",
+          "file_id": "3f3d1586-79e5-56f4-a8cf-7474663ac3b1",
+          "source": {
+            "kind": "prepared_dataset_version",
+            "schema_version": 1,
+            "dataset_id": "1e156ea1-e4a3-5341-847b-94d80d0aab8f",
+            "structure_id": "213b779b-0f63-4f17-9810-ef1add3b73c8",
+            "dataset_version": 1,
+            "file_id": "3f3d1586-79e5-56f4-a8cf-7474663ac3b1",
+            "source_sha256": "00a8269a2a95dc93bb567ada160f2328c8f02520e2e3b6d3763578ebabd39a1f",
+            "dataset_sha256": "bdd94b6f52e710d5fb78d6229b2d9e0cd513084f5a518df189a420e6592a633e",
+            "dataset_size_bytes": 3426,
+            "dataset_schema_version": 1,
+            "sheet_index": 0,
+            "sheet_name": "Synthetic",
+            "parser_version": "openpyxl-3.1.5-structure-v1",
+            "parent_dataset_id": "cdc6fd7d-9485-55e1-a6ac-d5967a3d7942",
+            "parent_dataset_version": 1,
+            "transform_version": "excel_prepare_v1"
+          },
+          "selection": {
+            "task_type": "survival",
+            "method": "kaplan_meier",
+            "sheet_name": "Synthetic",
+            "id_column": "A",
+            "time_column": "B",
+            "status_column": "C",
+            "group_column": null,
+            "event": {
+              "kind": "number",
+              "value": "1"
+            },
+            "censored": {
+              "kind": "number",
+              "value": "0"
+            },
+            "groups": [],
+            "time_unit": "day",
+            "time_origin": "synthetic entry",
+            "noninformative_censoring": true,
+            "missing_policy": "complete_cases",
+            "assumptions": {
+              "independent_units": true,
+              "inference_confirmed": true
+            }
+          },
+          "check": {
+            "rules_version": "analysis_plan_rules_v5",
+            "research_missing": [],
+            "data_check": {
+              "rules_version": "analysis_plan_rules_v3",
+              "data_range": "A2:C7",
+              "row_count": 6,
+              "selected_fields": [
+                {
+                  "letter": "A",
+                  "name": "ID",
+                  "type_counts": {
+                    "text": 6
+                  },
+                  "missing_count": 0,
+                  "non_missing_count": 6,
+                  "prepared_unit": {
+                    "status": "confirmed",
+                    "value": ""
+                  },
+                  "declared_unit": {
+                    "status": "unknown",
+                    "value": null
+                  },
+                  "observed_min": null,
+                  "observed_max": null
+                },
+                {
+                  "letter": "B",
+                  "name": "Time",
+                  "type_counts": {
+                    "number": 6
+                  },
+                  "missing_count": 0,
+                  "non_missing_count": 6,
+                  "prepared_unit": {
+                    "status": "confirmed",
+                    "value": "day"
+                  },
+                  "declared_unit": {
+                    "status": "label",
+                    "value": "day"
+                  },
+                  "observed_min": 0.0,
+                  "observed_max": 4.0
+                },
+                {
+                  "letter": "C",
+                  "name": "Status",
+                  "type_counts": {
+                    "number": 6
+                  },
+                  "missing_count": 0,
+                  "non_missing_count": 6,
+                  "prepared_unit": {
+                    "status": "confirmed",
+                    "value": ""
+                  },
+                  "declared_unit": {
+                    "status": "unknown",
+                    "value": null
+                  },
+                  "observed_min": 0.0,
+                  "observed_max": 1.0
+                }
+              ],
+              "selection_check": {
+                "ready": true,
+                "row_count": 6,
+                "valid_count": 6,
+                "excluded_count": 0,
+                "groups": [],
+                "issues": [],
+                "warnings": []
+              },
+              "issues": [],
+              "limitations": [
+                "前提由用户声明，不证明独立性、因果或模型正确。",
+                "共同完整记录可能产生选择偏差；不插补、不删异常。"
+              ],
+              "research_missing": []
+            },
+            "limitations": [
+              "外部材料仅为来源证据，未由本系统重新计算。",
+              "补充资料及采纳候选不等于批准分析计划。"
+            ]
+          },
+          "resolutions": {},
+          "plan_revision": 2,
+          "setup_revision": 2,
+          "created_at": "2026-10-28T04:53:25.624664+00:00",
+          "research_request": {
+            "question": "Prespecified synthetic engineering verification: kaplan_meier",
+            "output_language": "en",
+            "population": "Explicit synthetic study records only",
+            "study_design": "Fixed synthetic demonstration; no real research inference",
+            "observation_unit": "One synthetic record per row",
+            "observation_structure": "independent",
+            "relationship_description": "",
+            "output_requirements": "Preserve source units and all missingness, methods and non-causal limitations; day from synthetic entry; event=1/censor=0; noninformative censoring declared."
+          },
+          "recommendation_ref": null,
+          "evidence_versions": [],
+          "origin_recommendation_ref": null,
+          "source_reference": null,
+          "source_resolution": {
+            "confirmed": true,
+            "note": "Exact authorized B07 synthetic file SHA, prepared version and cohort confirmed; no real participant claims."
+          },
+          "sha256": "f4f7771bf869d74204fdbb4338525cf173d165fe527f4bb5c4cbd006f1ad5444"
+        },
+        "method": {
+          "id": "kaplan_meier",
+          "parameters": {
+            "task_type": "survival",
+            "method": "kaplan_meier",
+            "sheet_name": "Synthetic",
+            "id_column": "A",
+            "time_column": "B",
+            "status_column": "C",
+            "group_column": null,
+            "event": {
+              "kind": "number",
+              "value": "1"
+            },
+            "censored": {
+              "kind": "number",
+              "value": "0"
+            },
+            "groups": [],
+            "time_unit": "day",
+            "time_origin": "synthetic entry",
+            "noninformative_censoring": true,
+            "missing_policy": "complete_cases",
+            "assumptions": {
+              "independent_units": true,
+              "inference_confirmed": true
+            }
+          },
+          "observation_basis": "independent_rows"
+        },
+        "rounding": {
+          "display_significant_digits": 6,
+          "stored_values": "full_precision"
+        }
+      },
+      "variables": [
+        {
+          "column": "A",
+          "name": "ID",
+          "unit": ""
+        },
+        {
+          "column": "B",
+          "name": "Time",
+          "unit": "day"
+        },
+        {
+          "column": "C",
+          "name": "Status",
+          "unit": ""
+        }
+      ],
+      "statistics": {
+        "method": "kaplan_meier",
+        "n": 6,
+        "groups": [
+          {
+            "identity": null,
+            "label": "Overall",
+            "n": 6,
+            "event_n": 3,
+            "censored_n": 3,
+            "max_time": 4.0,
+            "median": 3.0,
+            "median_reason": null,
+            "points": [
+              {
+                "time": 0.0,
+                "n_at_risk": 6,
+                "n_event": 0,
+                "n_censored": 1,
+                "survival": 1.0,
+                "greenwood_variance": null,
+                "ci_low": null,
+                "ci_high": null,
+                "ci_reason": "boundary_survival_interval_unavailable"
+              },
+              {
+                "time": 1.0,
+                "n_at_risk": 5,
+                "n_event": 1,
+                "n_censored": 0,
+                "survival": 0.8,
+                "greenwood_variance": 0.03200000000000001,
+                "ci_low": 0.20380926326763904,
+                "ci_high": 0.9691797888667427,
+                "ci_reason": null
+              },
+              {
+                "time": 2.0,
+                "n_at_risk": 4,
+                "n_event": 1,
+                "n_censored": 1,
+                "survival": 0.6000000000000001,
+                "greenwood_variance": 0.048000000000000015,
+                "ci_low": 0.1257301829944313,
+                "ci_high": 0.8817564073935323,
+                "ci_reason": null
+              },
+              {
+                "time": 3.0,
+                "n_at_risk": 2,
+                "n_event": 1,
+                "n_censored": 0,
+                "survival": 0.30000000000000004,
+                "greenwood_variance": 0.057000000000000016,
+                "ci_low": 0.012301529425416074,
+                "ci_high": 0.719218020810415,
+                "ci_reason": null
+              },
+              {
+                "time": 4.0,
+                "n_at_risk": 1,
+                "n_event": 0,
+                "n_censored": 1,
+                "survival": 0.30000000000000004,
+                "greenwood_variance": 0.057000000000000016,
+                "ci_low": 0.012301529425416074,
+                "ci_high": 0.719218020810415,
+                "ci_reason": null
+              }
+            ],
+            "risk_table": [
+              {
+                "time": 0.0,
+                "n_at_risk": 6,
+                "events_before": 0,
+                "censored_before": 0
+              },
+              {
+                "time": 1.0,
+                "n_at_risk": 5,
+                "events_before": 0,
+                "censored_before": 1
+              },
+              {
+                "time": 2.0,
+                "n_at_risk": 4,
+                "events_before": 1,
+                "censored_before": 1
+              },
+              {
+                "time": 3.0,
+                "n_at_risk": 2,
+                "events_before": 2,
+                "censored_before": 2
+              },
+              {
+                "time": 4.0,
+                "n_at_risk": 1,
+                "events_before": 3,
+                "censored_before": 2
+              }
+            ]
+          }
+        ],
+        "time_unit": "day",
+        "warnings": [
+          "pointwise_intervals",
+          "no_between_group_test",
+          "zero_time"
+        ]
+      },
+      "row_audit": {
+        "included_rows": [
+          2,
+          3,
+          4,
+          5,
+          6,
+          7
+        ],
+        "excluded_rows": [],
+        "missing_policy": "complete_cases",
+        "encoding_counts": {}
+      },
+      "started_at": "2026-10-28T04:53:27.045145+00:00",
+      "completed_at": "2026-10-28T04:53:27.045416+00:00",
+      "engine": {
+        "id": "survival_statistics_dataset_v1",
+        "python_version": "3.11.17",
+        "scipy_version": "1.17.1",
+        "numpy_version": "2.4.6",
+        "parser_version": "openpyxl-3.1.5-structure-v1",
+        "encoding_version": "typed_reference_dummy_v1",
+        "timeout_seconds": 30,
+        "statsmodels_version": null,
+        "solver": null,
+        "max_iterations": null,
+        "tolerance": null,
+        "scale": null,
+        "separation_solver": null,
+        "separation_timeout_seconds": null,
+        "execution_contract": "fixed_statistics_v2"
+      },
+      "id": "f3df65b8-cdd8-42be-a4b4-e0ef4cd72f2a"
+    },
+    "figure": {
+      "schema_version": 5,
+      "figure_kind": "kaplan_meier",
+      "language": "en",
+      "variables": [
+        {
+          "column": "B",
+          "name": "Follow-up time",
+          "unit": "day"
+        },
+        {
+          "column": "C",
+          "name": "Status",
+          "unit": ""
+        }
+      ],
+      "plot_config": {
+        "verification_scope": "independent_curve_calculation",
+        "outliers_removed": false,
+        "inference_displayed": false,
+        "time_unit": "day",
+        "ties": "events_before_censoring",
+        "interval": "greenwood_loglog_95",
+        "origin": "survival_one_at_zero",
+        "style": {
+          "palette": "colorblind",
+          "width": 2400,
+          "height": 1600,
+          "font_size": 12,
+          "display_order": []
+        },
+        "numbering_mode": "external"
+      },
+      "title": "Synthetic Kaplan–Meier curve",
+      "x_label": "Follow-up time (day)",
+      "y_label": "Survival probability (0–1)",
+      "caption": "6 complete observations; 0 excluded rows. Cloud curves are independently computed from necessary anonymous observations; expected curves remain local. Synthetic data engineering verification only. Tied events precede censoring; available 95% intervals use Greenwood variance and log–log transformation; censoring does not mean event-free completed follow-up.",
+      "statistics": {
+        "n": 6,
+        "groups": [
+          {
+            "label": "All synthetic records",
+            "n": 6,
+            "event_n": 3,
+            "censored_n": 3,
+            "max_time": 4.0,
+            "points": [
+              {
+                "time": 0.0,
+                "n_at_risk": 6,
+                "n_event": 0,
+                "n_censored": 1,
+                "survival": 1.0,
+                "greenwood_variance": null,
+                "ci_low": null,
+                "ci_high": null,
+                "ci_reason": "boundary_survival_interval_unavailable"
+              },
+              {
+                "time": 1.0,
+                "n_at_risk": 5,
+                "n_event": 1,
+                "n_censored": 0,
+                "survival": 0.8,
+                "greenwood_variance": 0.03200000000000001,
+                "ci_low": 0.20380926326763904,
+                "ci_high": 0.9691797888667427,
+                "ci_reason": null
+              },
+              {
+                "time": 2.0,
+                "n_at_risk": 4,
+                "n_event": 1,
+                "n_censored": 1,
+                "survival": 0.6000000000000001,
+                "greenwood_variance": 0.048000000000000015,
+                "ci_low": 0.1257301829944313,
+                "ci_high": 0.8817564073935323,
+                "ci_reason": null
+              },
+              {
+                "time": 3.0,
+                "n_at_risk": 2,
+                "n_event": 1,
+                "n_censored": 0,
+                "survival": 0.30000000000000004,
+                "greenwood_variance": 0.057000000000000016,
+                "ci_low": 0.012301529425416074,
+                "ci_high": 0.719218020810415,
+                "ci_reason": null
+              },
+              {
+                "time": 4.0,
+                "n_at_risk": 1,
+                "n_event": 0,
+                "n_censored": 1,
+                "survival": 0.30000000000000004,
+                "greenwood_variance": 0.057000000000000016,
+                "ci_low": 0.012301529425416074,
+                "ci_high": 0.719218020810415,
+                "ci_reason": null
+              }
+            ],
+            "risk_table": [
+              {
+                "time": 0.0,
+                "n_at_risk": 6,
+                "events_before": 0,
+                "censored_before": 0
+              },
+              {
+                "time": 1.0,
+                "n_at_risk": 5,
+                "events_before": 0,
+                "censored_before": 1
+              },
+              {
+                "time": 2.0,
+                "n_at_risk": 4,
+                "events_before": 1,
+                "censored_before": 1
+              },
+              {
+                "time": 3.0,
+                "n_at_risk": 2,
+                "events_before": 2,
+                "censored_before": 2
+              },
+              {
+                "time": 4.0,
+                "n_at_risk": 1,
+                "events_before": 3,
+                "censored_before": 2
+              }
+            ]
+          }
+        ]
+      },
+      "legacy_contract": 4,
+      "presentation": {
+        "schema_version": 2,
+        "axes": {
+          "x": {
+            "label": "Follow-up time (day)",
+            "unit": "day"
+          },
+          "y": {
+            "label": "Survival probability (0–1)",
+            "unit": "0–1"
+          }
+        },
+        "legend": {
+          "title": "Group",
+          "entries": [
+            {
+              "label": "All synthetic records",
+              "color": "#0072B2"
+            }
+          ]
+        },
+        "color_scale": null,
+        "abbreviations": [
+          {
+            "term": "n",
+            "definition": "Valid record count; independent participant count requires the study design"
+          },
+          {
+            "term": "KM",
+            "definition": "Kaplan–Meier product-limit estimate"
+          },
+          {
+            "term": "CI",
+            "definition": "Confidence interval"
+          }
+        ],
+        "statistical_notes": [
+          "Tied events precede censoring; available 95% intervals use Greenwood variance and log–log transformation; censoring does not mean event-free completed follow-up."
+        ]
+      },
+      "id": "e01ab1e5-a257-526e-9d26-031ea11b3e6a",
+      "analysis_run_id": "f3df65b8-cdd8-42be-a4b4-e0ef4cd72f2a",
+      "file_id": "3f3d1586-79e5-56f4-a8cf-7474663ac3b1",
+      "source": {
+        "kind": "prepared_dataset_version",
+        "schema_version": 1,
+        "dataset_id": "1e156ea1-e4a3-5341-847b-94d80d0aab8f",
+        "structure_id": "213b779b-0f63-4f17-9810-ef1add3b73c8",
+        "dataset_version": 1,
+        "file_id": "3f3d1586-79e5-56f4-a8cf-7474663ac3b1",
+        "source_sha256": "00a8269a2a95dc93bb567ada160f2328c8f02520e2e3b6d3763578ebabd39a1f",
+        "dataset_sha256": "bdd94b6f52e710d5fb78d6229b2d9e0cd513084f5a518df189a420e6592a633e",
+        "dataset_size_bytes": 3426,
+        "dataset_schema_version": 1,
+        "sheet_index": 0,
+        "sheet_name": "Synthetic",
+        "parser_version": "openpyxl-3.1.5-structure-v1",
+        "parent_dataset_id": "cdc6fd7d-9485-55e1-a6ac-d5967a3d7942",
+        "parent_dataset_version": 1,
+        "transform_version": "excel_prepare_v1"
+      },
+      "source_sha256": "00a8269a2a95dc93bb567ada160f2328c8f02520e2e3b6d3763578ebabd39a1f",
+      "setup_revision": 2,
+      "sha256": "2c6e284df8c89302d12de3ef6c2b3ee691e845dfc7fe3481de8225d0a82019c0",
+      "size_bytes": 319977,
+      "figure_config_version_id": "590c50c4-9d7d-4d10-b9e2-1b6bdbd05a99",
+      "configuration_sha256": "2556afb979e6b3fc410173028329c4ba3b4dbd0c368b9b6370c972c3dca18b55",
+      "projection_id": "57bbfe3c-8305-5db0-9fef-5da82ff8f19e",
+      "projection_sha256": "23f3046b7975d1ffb6a78c33f27ab0f8dc5fa160fafb194f5c011464db2ef934",
+      "facts_sha256": "3d3b93b6aa7a54d2aad77e68dcc42badf9dc190b8536c82fa03d5f26d81ee92f",
+      "figure_number": null,
+      "numbering_mode": "external",
+      "method": {
+        "kind": "kaplan_meier",
+        "basis": "original_statistical_valid_rows"
+      },
+      "created_at": "2026-10-28T05:03:00.121752+00:00",
+      "engine": {
+        "id": "openai_figure_workbench_v3",
+        "provider": "openai_code_interpreter",
+        "model": "gpt-5.6-sol"
+      },
+      "verification": {
+        "status": "matched",
+        "note": "Structured values verified; image pixels require human review."
+      },
+      "provenance": {
+        "response_id": "resp_042f420def680923006ae1a24dd75887d1bde3e44d68dcc85f",
+        "container_id": "cntr_6ae1a1698aac8193b43dd8e88830b3f00557a03270ed7c43",
+        "model": "gpt-5.6-sol",
+        "code": [
+          "import json, os, sys, math, textwrap, platform\npath=\"/mnt/data/2ddcec838f5b089c92c538bc02f011f7-data.json\"\nwith open(path,\"r\",encoding=\"utf-8\") as f:\n    data=json.load(f)\ntype(data), data.keys()\n",
+          "import pprint, json, os, math\npprint.pp(data, width=140, sort_dicts=False)\n",
+          "import matplotlib\nmatplotlib.use(\"Agg\")\nimport matplotlib.pyplot as plt\nfrom matplotlib import font_manager\nmatplotlib.__version__, platform.python_version(), font_manager.findfont(\"DejaVu Sans\")\n",
+          "import json, math, os, platform, textwrap\nfrom collections import Counter\nimport numpy as np\nimport matplotlib\nmatplotlib.use(\"Agg\")\nimport matplotlib.pyplot as plt\nfrom matplotlib.lines import Line2D\nfrom matplotlib.patches import Patch\nfrom matplotlib import font_manager\nfrom PIL import Image\n\ninput_path=\"/mnt/data/2ddcec838f5b089c92c538bc02f011f7-data.json\"\nwith open(input_path, encoding=\"utf-8\") as f:\n    d=json.load(f)\n\n# Validate method.\nassert d[\"schema_version\"] == 5\nassert d[\"figure_kind\"] == \"kaplan_meier\"\nassert d[\"method\"] == \"kaplan_meier\"\n\nobs=d[\"observations\"]\ngroup_labels=d[\"group_labels\"]\nz=1.959963984540054\nall_max=max(float(o[\"time\"]) for o in obs)\nrisk_times=[]\nfor x in np.linspace(0.0, all_max, 5):\n    x=float(x)\n    if not any(abs(x-y)<1e-12 for y in risk_times):\n        risk_times.append(x)\n\ngroups=[]\nplot_groups=[]\ntotal_n=0\nfor gi,label in enumerate(group_labels):\n    rows=[o for o in obs if o[\"group\"] == gi]\n    n=len(rows); total_n+=n\n    event_n=sum(bool(o[\"event\"]) for o in rows)\n    censored_n=n-event_n\n    times=sorted(set(float(o[\"time\"]) for o in rows))\n    S=1.0\n    greenwood_sum=0.0\n    points=[]\n    for t in times:\n        r=sum(float(o[\"time\"]) >= t for o in rows)\n        de=sum(float(o[\"time\"]) == t and bool(o[\"event\"]) for o in rows)\n        cc=sum(float(o[\"time\"]) == t and not bool(o[\"event\"]) for o in rows)\n        if de:\n            S *= (1.0 - de/r)\n            if r-de > 0:\n                greenwood_sum += de/(r*(r-de))\n            # If r-d == 0, S becomes 0 boundary; variance unavailable by contract.\n        if S == 1.0 or S == 0.0:\n            var=lo=hi=None\n            reason=\"boundary_survival_interval_unavailable\"\n        else:\n            var=(S*S)*greenwood_sum\n            se_g=math.sqrt(greenwood_sum)/abs(math.log(S))\n            g=math.log(-math.log(S))\n            lo=math.exp(-math.exp(g + z*se_g))\n            hi=math.exp(-math.exp(g - z*se_g))\n            reason=None\n        points.append({\n            \"time\":t,\n            \"n_at_risk\":r,\n            \"n_event\":de,\n            \"n_censored\":cc,\n            \"survival\":S,\n            \"greenwood_variance\":var,\n            \"ci_low\":lo,\n            \"ci_high\":hi,\n            \"ci_reason\":reason\n        })\n    rt=[]\n    for t in risk_times:\n        rt.append({\n            \"time\":t,\n            \"n_at_risk\":sum(float(o[\"time\"]) >= t for o in rows),\n            \"events_before\":sum(float(o[\"time\"]) < t and bool(o[\"event\"]) for o in rows),\n            \"censored_before\":sum(float(o[\"time\"]) < t and not bool(o[\"event\"]) for o in rows)\n        })\n    gobj={\n        \"label\":label, \"n\":n, \"event_n\":event_n, \"censored_n\":censored_n,\n        \"max_time\":max(float(o[\"time\"]) for o in rows) if rows else None,\n        \"points\":points, \"risk_table\":rt\n    }\n    groups.append(gobj)\n    plot_groups.append((rows, points))\n\nresult={\n    \"schema_version\":5,\n    \"figure_kind\":d[\"figure_kind\"],\n    \"language\":d[\"language\"],\n    \"variables\":d[\"variables\"],\n    \"plot_config\":d[\"plot_config\"],\n    \"title\":d[\"labels\"][\"title\"],\n    \"x_label\":d[\"labels\"][\"x_label\"],\n    \"y_label\":d[\"labels\"][\"y_label\"],\n    \"caption\":d[\"labels\"][\"caption\"],\n    \"statistics\":{\"n\":total_n,\"groups\":groups},\n    \"legacy_contract\":d[\"legacy_contract\"],\n    \"presentation\":d[\"presentation\"],\n    \"environment\":{\n        \"python_version\":platform.python_version(),\n        \"matplotlib_version\":matplotlib.__version__,\n        \"font\":\"DejaVu Sans\"\n    }\n}\n\n# Strict finite JSON check.\ndef check_finite(x):\n    if isinstance(x, dict):\n        for v in x.values(): check_finite(v)\n    elif isinstance(x, list):\n        for v in x: check_finite(v)\n    elif isinstance(x, float):\n        if not math.isfinite(x):\n            raise ValueError(\"non-finite\")\ncheck_finite(result)\n\nresult_path=\"/mnt/data/result.json\"\nwith open(result_path,\"w\",encoding=\"utf-8\") as f:\n    json.dump(result,f,ensure_ascii=False,allow_nan=False,separators=(\",\",\":\"))\n\n# Plot setup.\nstyle=d[\"plot_config\"][\"style\"]\nW,H=style[\"width\"],style[\"height\"]\ndpi=300\nfig=plt.figure(figsize=(W/dpi,H/dpi), dpi=dpi, facecolor=\"white\")\nfont_size=style[\"font_size\"]\nplt.rcParams.update({\n    \"font.family\":\"DejaVu Sans\",\n    \"font.size\":font_size,\n    \"text.usetex\":False,\n    \"axes.unicode_minus\":False,\n    \"mathtext.default\":\"regular\",\n})\nif \"text.parse_math\" in plt.rcParams:\n    plt.rcParams[\"text.parse_math\"]=False\n\n# Regions: main data, dedicated legend, dedicated risk table, caption, abbreviations.\nax=fig.add_axes([0.105,0.505,0.61,0.365])\nrax=fig.add_axes([0.105,0.275,0.61,0.105], facecolor=\"white\")\nlax=fig.add_axes([0.755,0.505,0.225,0.365], facecolor=\"white\")\nlax.axis(\"off\")\n\nfig.suptitle(d[\"labels\"][\"title\"], x=0.5, y=0.965, fontsize=font_size+3, fontweight=\"bold\")\nax.set_ylabel(d[\"presentation\"][\"axes\"][\"y\"][\"label\"], labelpad=8)\n# Put exact x label in a dedicated gap between main axes and risk table.\nxlab=fig.text(0.41,0.445,d[\"presentation\"][\"axes\"][\"x\"][\"label\"],\n              ha=\"center\",va=\"center\",fontsize=font_size)\n\nlegend_entries=d[\"presentation\"][\"legend\"][\"entries\"]\nline_styles=[\"-\",\"--\",\":\",\"-.\"]\ncensor_markers=[\"+\",\"o\",\"|\",\"x\"]\nall_handles=[]\nall_labels=[]\nfor i,((rows,points), entry) in enumerate(zip(plot_groups,legend_entries)):\n    color=entry[\"color\"]\n    ls=line_styles[i % len(line_styles)]\n    marker=censor_markers[i % len(censor_markers)]\n    # Step coordinates: origin at (0,1), then each observed time with post steps.\n    xs=[0.0]+[p[\"time\"] for p in points]\n    ys=[1.0]+[p[\"survival\"] for p in points]\n    ax.step(xs,ys,where=\"post\",color=color,linestyle=ls,linewidth=2.0,zorder=3)\n    # Confidence band where available; post-step.\n    valid=[p for p in points if p[\"ci_low\"] is not None]\n    if valid:\n        bx=[valid[0][\"time\"]]+[p[\"time\"] for p in valid]\n        blo=[valid[0][\"ci_low\"]]+[p[\"ci_low\"] for p in valid]\n        bhi=[valid[0][\"ci_high\"]]+[p[\"ci_high\"] for p in valid]\n        # Extend to max follow-up using final point.\n        if bx[-1] < all_max:\n            bx.append(all_max); blo.append(blo[-1]); bhi.append(bhi[-1])\n        ax.fill_between(bx,blo,bhi,step=\"post\",color=color,alpha=0.17,linewidth=0,zorder=1)\n    # censor marks at exact event-first survival.\n    surv_at={p[\"time\"]:p[\"survival\"] for p in points}\n    cx=[float(o[\"time\"]) for o in rows if not bool(o[\"event\"])]\n    cy=[surv_at[float(o[\"time\"])] for o in rows if not bool(o[\"event\"])]\n    ax.plot(cx,cy,linestyle=\"None\",marker=marker,markersize=8,\n            markeredgewidth=1.6,color=color,clip_on=False,zorder=5)\n    all_handles.append(Line2D([0],[0],color=color,linestyle=ls,linewidth=2.0))\n    all_labels.append(entry[\"label\"])\n\nax.set_xlim(0, all_max)\nax.set_ylim(0,1.04)\nax.set_xticks(risk_times)\nax.set_yticks(np.linspace(0,1,6))\nax.grid(axis=\"y\",color=\"#D9D9D9\",linewidth=0.7)\nax.spines[\"top\"].set_visible(False)\nax.spines[\"right\"].set_visible(False)\nax.tick_params(labelsize=font_size-1)\nax.set_xlabel(\"\")  # dedicated exact label above\n\n# Dedicated legend, exact title and labels.\nleg=lax.legend(all_handles,all_labels,title=d[\"presentation\"][\"legend\"][\"title\"],\n               loc=\"upper left\",bbox_to_anchor=(0,1),frameon=True,facecolor=\"white\",\n               edgecolor=\"#BFBFBF\",fontsize=font_size,title_fontsize=font_size,\n               borderaxespad=0.0,handlelength=2.4)\n# Dedicated censor key below legend.\nlax.text(0.0,0.61,\"Censor mark\",fontsize=font_size,fontweight=\"bold\",\n         ha=\"left\",va=\"top\",transform=lax.transAxes)\nlax.plot([0.04],[0.49],marker=\"+\",markersize=9,markeredgewidth=1.7,\n         color=legend_entries[0][\"color\"],linestyle=\"None\",transform=lax.transAxes)\nlax.text(0.11,0.49,\"Censored observation\",fontsize=font_size,\n         ha=\"left\",va=\"center\",transform=lax.transAxes)\nlax.text(0.0,0.31,\"Shaded area\",fontsize=font_size,fontweight=\"bold\",\n         ha=\"left\",va=\"top\",transform=lax.transAxes)\nlax.add_patch(plt.Rectangle((0.01,0.17),0.07,0.07,transform=lax.transAxes,\n                            facecolor=legend_entries[0][\"color\"],alpha=0.17,\n                            edgecolor=\"none\"))\nlax.text(0.11,0.205,\"Available 95% CI\",fontsize=font_size,\n         ha=\"left\",va=\"center\",transform=lax.transAxes)\n\n# Risk table.\nrax.set_xlim(-0.95, all_max+0.05)\nrax.set_ylim(0,1)\nrax.axis(\"off\")\nrisk_title=fig.text(0.105,0.399,\"Number at risk\",ha=\"left\",va=\"center\",\n                    fontsize=font_size,fontweight=\"bold\")\nfor i,g in enumerate(groups):\n    y=0.53 - i*0.32\n    rax.text(-0.92,y,g[\"label\"],ha=\"left\",va=\"center\",fontsize=font_size-1)\n    for item in g[\"risk_table\"]:\n        rax.text(item[\"time\"],y,str(item[\"n_at_risk\"]),ha=\"center\",va=\"center\",\n                 fontsize=font_size-1)\nfor t in risk_times:\n    label=f\"{t:g}\"\n    rax.text(t,0.04,label,ha=\"center\",va=\"bottom\",fontsize=font_size-1)\nrax.plot([0,all_max],[0.29,0.29],color=\"#D9D9D9\",linewidth=0.7,clip_on=False)\n\n# Caption and abbreviations in separate regions.\ncaption=d[\"labels\"][\"caption\"]\ncaption_wrapped=\"\\n\".join(textwrap.wrap(caption,width=126,break_long_words=False,break_on_hyphens=False))\ncap_text=fig.text(0.04,0.205,caption_wrapped,ha=\"left\",va=\"top\",\n                  fontsize=font_size-1,linespacing=1.18)\n\nabbr_parts=[f'{a[\"term\"]} = {a[\"definition\"]}' for a in d[\"presentation\"][\"abbreviations\"]]\nabbr=\"Abbreviations: \"+\"; \".join(abbr_parts)+\".\"\nabbr_wrapped=\"\\n\".join(textwrap.wrap(abbr,width=140,break_long_words=False,break_on_hyphens=False))\nabbr_text=fig.text(0.04,0.066,abbr_wrapped,ha=\"left\",va=\"top\",\n                   fontsize=font_size-2,linespacing=1.16)\n\n# Draw and inspect required text bboxes.\nfig.canvas.draw()\nrenderer=fig.canvas.get_renderer()\ncanvas=fig.bbox\ntext_artists=[fig._suptitle,xlab,risk_title,cap_text,abbr_text]\ntext_artists += [ax.yaxis.label]\nfor a in [ax,rax,lax]:\n    text_artists.extend([t for t in a.texts if t.get_visible()])\n# Include tick labels and legend texts/title.\ntext_artists += list(ax.get_xticklabels())+list(ax.get_yticklabels())\ntext_artists += leg.get_texts()+[leg.get_title()]\n\noutside=[]\nfor art in text_artists:\n    bb=art.get_window_extent(renderer=renderer)\n    if bb.x0 < -1 or bb.y0 < -1 or bb.x1 > W+1 or bb.y1 > H+1:\n        outside.append((art.get_text(),tuple(bb.bounds)))\noutside[:10], len(outside)\n",
+          "# Adjust layout and wrapping, then save.\nax.set_position([0.105,0.505,0.55,0.365])\nrax.set_position([0.105,0.275,0.55,0.105])\nlax.set_position([0.695,0.505,0.285,0.365])\nxlab.set_position((0.38,0.445))\n\ncaption_wrapped=\"\\n\".join(textwrap.wrap(caption,width=90,break_long_words=False,break_on_hyphens=False))\ncap_text.set_text(caption_wrapped)\nabbr_wrapped=\"\\n\".join(textwrap.wrap(abbr,width=100,break_long_words=False,break_on_hyphens=False))\nabbr_text.set_text(abbr_wrapped)\n\nfig.canvas.draw()\nrenderer=fig.canvas.get_renderer()\noutside=[]\nfor art in text_artists:\n    bb=art.get_window_extent(renderer=renderer)\n    if bb.x0 < -1 or bb.y0 < -1 or bb.x1 > W+1 or bb.y1 > H+1:\n        outside.append((art.get_text(),tuple(float(v) for v in bb.bounds)))\noutside, cap_text.get_window_extent(renderer).bounds, abbr_text.get_window_extent(renderer).bounds\n",
+          "cap_text.set_position((0.04,0.245))\nfig.canvas.draw()\nrenderer=fig.canvas.get_renderer()\n# Check key vertical region bboxes\nfor name,art in [(\"title\",fig._suptitle),(\"xlabel\",xlab),(\"risk_title\",risk_title),(\"caption\",cap_text),(\"abbr\",abbr_text)]:\n    print(name, tuple(round(float(v),1) for v in art.get_window_extent(renderer).bounds))\n",
+          "figure_path=\"/mnt/data/figure.png\"\nfig.savefig(figure_path,dpi=dpi,facecolor=\"white\",bbox_inches=None,pad_inches=0)\nplt.close(fig)\n\nim=Image.open(figure_path)\nim.size, im.mode, os.path.getsize(figure_path), os.path.getsize(result_path)\n",
+          "from IPython.display import display\ndisplay(im.resize((1200,800)))\n",
+          "# Recreate entire figure from saved? Current fig closed but object may still exist; use it and save again.\n# Clear risk table and use axes-relative layout with dedicated row-label column.\nrax.cla()\nrax.set_xlim(0,1); rax.set_ylim(0,1); rax.axis(\"off\")\ncol_x=np.linspace(0.42,0.98,len(risk_times))\nfor i,g in enumerate(groups):\n    y=0.58 - i*0.32\n    rax.text(0.0,y,g[\"label\"],ha=\"left\",va=\"center\",fontsize=font_size-1,\n             transform=rax.transAxes)\n    for x,item in zip(col_x,g[\"risk_table\"]):\n        rax.text(float(x),y,str(item[\"n_at_risk\"]),ha=\"center\",va=\"center\",\n                 fontsize=font_size-1,transform=rax.transAxes)\nfor x,t in zip(col_x,risk_times):\n    rax.text(float(x),0.05,f\"{t:g}\",ha=\"center\",va=\"bottom\",\n             fontsize=font_size-1,transform=rax.transAxes)\nrax.plot([col_x[0],col_x[-1]],[0.30,0.30],color=\"#D9D9D9\",linewidth=0.7,\n         transform=rax.transAxes,clip_on=False)\n\nfig.canvas.draw()\nrenderer=fig.canvas.get_renderer()\n# Check row label vs count bboxes\nrisk_texts=rax.texts\nfor t in risk_texts:\n    print(t.get_text(), tuple(round(float(v),1) for v in t.get_window_extent(renderer).bounds))\n",
+          "fig.savefig(figure_path,dpi=dpi,facecolor=\"white\",bbox_inches=None,pad_inches=0)\nplt.close(fig)\nim=Image.open(figure_path)\ndisplay(im.resize((1200,800)))\n",
+          "with open(result_path,encoding=\"utf-8\") as f: rr=json.load(f)\npprint.pp(rr[\"statistics\"], width=160)\nprint(Image.open(figure_path).size)\n"
+        ],
+        "usage": {
+          "input_tokens": 14126,
+          "input_tokens_details": {
+            "cache_write_tokens": 2956,
+            "cached_tokens": 0
+          },
+          "output_tokens": 6425,
+          "output_tokens_details": {
+            "reasoning_tokens": 6394
+          },
+          "total_tokens": 20551
+        },
+        "prompt_version": "openai_figure_workbench_v3",
+        "png_file_id": "cfile_6ae1a2ad059c819191f108ab24d10ffe",
+        "result_file_id": "cfile_6ae1a2ad056c81918352d0cdbbeef054",
+        "model_call_id": "a460ae6a-8be0-4d66-8077-0045548e022c",
+        "model_input_digest": "fc14557e9fabe012af9e39a50a0301566b78c46f43441f087de2f88957691dfc",
+        "input_sha256": "c356e7ffeb215eb13e15d5fd1e1611a7ce00fadda44a42763cee07c7ab84d619"
+      },
+      "text_authorship": {
+        "title": "user",
+        "additional_caption": "user",
+        "created_by": "96da5ede-f336-4136-99a7-d3f3069f7a97"
+      },
+      "external_processing": {
+        "version": 7,
+        "confirmed": true,
+        "version_id": "590c50c4-9d7d-4d10-b9e2-1b6bdbd05a99",
+        "confirmed_at": "2026-10-28T05:03:00.121752+00:00",
+        "confirmed_by": "96da5ede-f336-4136-99a7-d3f3069f7a97",
+        "payload_sha256": "c356e7ffeb215eb13e15d5fd1e1611a7ce00fadda44a42763cee07c7ab84d619"
+      }
+    },
+    "configuration": {
+      "id": "590c50c4-9d7d-4d10-b9e2-1b6bdbd05a99",
+      "configuration_id": "36657596-9f33-41e6-b911-466cd64003ac",
+      "revision": 1,
+      "parent_version_id": null,
+      "created_by": "96da5ede-f336-4136-99a7-d3f3069f7a97",
+      "created_at": "2026-10-28 04:53:28.419582+00:00",
+      "sha256": "2556afb979e6b3fc410173028329c4ba3b4dbd0c368b9b6370c972c3dca18b55",
+      "config": {
+        "style": {
+          "title": "Synthetic Kaplan–Meier curve",
+          "width": 2400,
+          "height": 1600,
+          "aliases": {
+            "A": "Anonymous record",
+            "B": "Follow-up time",
+            "C": "Status",
+            "group:0": "All synthetic records"
+          },
+          "caption": "Synthetic data engineering verification only.",
+          "palette": "colorblind",
+          "font_size": 12,
+          "display_order": []
+        },
+        "language": "en",
+        "projection": null,
+        "figure_kind": "kaplan_meier"
+      },
+      "source": {
+        "kind": "prepared_dataset_version",
+        "file_id": "3f3d1586-79e5-56f4-a8cf-7474663ac3b1",
+        "dataset_id": "1e156ea1-e4a3-5341-847b-94d80d0aab8f",
+        "sheet_name": "Synthetic",
+        "sheet_index": 0,
+        "structure_id": "213b779b-0f63-4f17-9810-ef1add3b73c8",
+        "source_sha256": "00a8269a2a95dc93bb567ada160f2328c8f02520e2e3b6d3763578ebabd39a1f",
+        "dataset_sha256": "bdd94b6f52e710d5fb78d6229b2d9e0cd513084f5a518df189a420e6592a633e",
+        "parser_version": "openpyxl-3.1.5-structure-v1",
+        "schema_version": 1,
+        "dataset_version": 1,
+        "parent_dataset_id": "cdc6fd7d-9485-55e1-a6ac-d5967a3d7942",
+        "transform_version": "excel_prepare_v1",
+        "dataset_size_bytes": 3426,
+        "dataset_schema_version": 1,
+        "parent_dataset_version": 1
+      },
+      "figure_contract": 3
+    },
+    "projection": {
+      "id": "57bbfe3c-8305-5db0-9fef-5da82ff8f19e",
+      "config_version_id": "590c50c4-9d7d-4d10-b9e2-1b6bdbd05a99",
+      "sha256": "23f3046b7975d1ffb6a78c33f27ab0f8dc5fa160fafb194f5c011464db2ef934",
+      "result": {
+        "audit": {
+          "valid_n": 6,
+          "excluded": [],
+          "excluded_n": 0,
+          "missing_y_n": 0,
+          "population_n": 6,
+          "included_rows": [
+            2,
+            3,
+            4,
+            5,
+            6,
+            7
+          ]
+        },
+        "method": {
+          "kind": "kaplan_meier",
+          "basis": "original_statistical_valid_rows"
+        },
+        "series": [],
+        "_material": {
+          "sha256": "6d54bfa3ae0b61cf89b1469e23227918eeaf61bce9942018fe2d15916c589620",
+          "payload": {
+            "labels": {
+              "title": "Synthetic Kaplan–Meier curve",
+              "caption": "6 complete observations; 0 excluded rows. Cloud curves are independently computed from necessary anonymous observations; expected curves remain local. Synthetic data engineering verification only. Tied events precede censoring; available 95% intervals use Greenwood variance and log–log transformation; censoring does not mean event-free completed follow-up.",
+              "x_label": "Follow-up time (day)",
+              "y_label": "Survival probability (0–1)"
+            },
+            "method": "kaplan_meier",
+            "language": "en",
+            "variables": [
+              {
+                "name": "Follow-up time",
+                "unit": "day",
+                "column": "B"
+              },
+              {
+                "name": "Status",
+                "unit": "",
+                "column": "C"
+              }
+            ],
+            "figure_kind": "kaplan_meier",
+            "plot_config": {
+              "ties": "events_before_censoring",
+              "style": {
+                "width": 2400,
+                "height": 1600,
+                "palette": "colorblind",
+                "font_size": 12,
+                "display_order": []
+              },
+              "origin": "survival_one_at_zero",
+              "interval": "greenwood_loglog_95",
+              "time_unit": "day",
+              "numbering_mode": "external",
+              "outliers_removed": false,
+              "verification_scope": "independent_curve_calculation",
+              "inference_displayed": false
+            },
+            "group_labels": [
+              "All synthetic records"
+            ],
+            "observations": [
+              {
+                "time": 0.0,
+                "event": false,
+                "group": 0
+              },
+              {
+                "time": 1.0,
+                "event": true,
+                "group": 0
+              },
+              {
+                "time": 2.0,
+                "event": true,
+                "group": 0
+              },
+              {
+                "time": 2.0,
+                "event": false,
+                "group": 0
+              },
+              {
+                "time": 3.0,
+                "event": true,
+                "group": 0
+              },
+              {
+                "time": 4.0,
+                "event": false,
+                "group": 0
+              }
+            ],
+            "presentation": {
+              "axes": {
+                "x": {
+                  "unit": "day",
+                  "label": "Follow-up time (day)"
+                },
+                "y": {
+                  "unit": "0–1",
+                  "label": "Survival probability (0–1)"
+                }
+              },
+              "legend": {
+                "title": "Group",
+                "entries": [
+                  {
+                    "color": "#0072B2",
+                    "label": "All synthetic records"
+                  }
+                ]
+              },
+              "color_scale": null,
+              "abbreviations": [
+                {
+                  "term": "n",
+                  "definition": "Valid record count; independent participant count requires the study design"
+                },
+                {
+                  "term": "KM",
+                  "definition": "Kaplan–Meier product-limit estimate"
+                },
+                {
+                  "term": "CI",
+                  "definition": "Confidence interval"
+                }
+              ],
+              "schema_version": 2,
+              "statistical_notes": [
+                "Tied events precede censoring; available 95% intervals use Greenwood variance and log–log transformation; censoring does not mean event-free completed follow-up."
+              ]
+            },
+            "schema_version": 5,
+            "legacy_contract": 4
+          },
+          "expected": {
+            "title": "Synthetic Kaplan–Meier curve",
+            "caption": "6 complete observations; 0 excluded rows. Cloud curves are independently computed from necessary anonymous observations; expected curves remain local. Synthetic data engineering verification only. Tied events precede censoring; available 95% intervals use Greenwood variance and log–log transformation; censoring does not mean event-free completed follow-up.",
+            "x_label": "Follow-up time (day)",
+            "y_label": "Survival probability (0–1)",
+            "language": "en",
+            "variables": [
+              {
+                "name": "Follow-up time",
+                "unit": "day",
+                "column": "B"
+              },
+              {
+                "name": "Status",
+                "unit": "",
+                "column": "C"
+              }
+            ],
+            "statistics": {
+              "n": 6,
+              "groups": [
+                {
+                  "n": 6,
+                  "label": "All synthetic records",
+                  "points": [
+                    {
+                      "time": 0.0,
+                      "ci_low": null,
+                      "ci_high": null,
+                      "n_event": 0,
+                      "survival": 1.0,
+                      "ci_reason": "boundary_survival_interval_unavailable",
+                      "n_at_risk": 6,
+                      "n_censored": 1,
+                      "greenwood_variance": null
+                    },
+                    {
+                      "time": 1.0,
+                      "ci_low": 0.20380926326763904,
+                      "ci_high": 0.9691797888667427,
+                      "n_event": 1,
+                      "survival": 0.8,
+                      "ci_reason": null,
+                      "n_at_risk": 5,
+                      "n_censored": 0,
+                      "greenwood_variance": 0.03200000000000001
+                    },
+                    {
+                      "time": 2.0,
+                      "ci_low": 0.1257301829944313,
+                      "ci_high": 0.8817564073935323,
+                      "n_event": 1,
+                      "survival": 0.6000000000000001,
+                      "ci_reason": null,
+                      "n_at_risk": 4,
+                      "n_censored": 1,
+                      "greenwood_variance": 0.048000000000000015
+                    },
+                    {
+                      "time": 3.0,
+                      "ci_low": 0.012301529425416074,
+                      "ci_high": 0.719218020810415,
+                      "n_event": 1,
+                      "survival": 0.30000000000000004,
+                      "ci_reason": null,
+                      "n_at_risk": 2,
+                      "n_censored": 0,
+                      "greenwood_variance": 0.057000000000000016
+                    },
+                    {
+                      "time": 4.0,
+                      "ci_low": 0.012301529425416074,
+                      "ci_high": 0.719218020810415,
+                      "n_event": 0,
+                      "survival": 0.30000000000000004,
+                      "ci_reason": null,
+                      "n_at_risk": 1,
+                      "n_censored": 1,
+                      "greenwood_variance": 0.057000000000000016
+                    }
+                  ],
+                  "event_n": 3,
+                  "max_time": 4.0,
+                  "censored_n": 3,
+                  "risk_table": [
+                    {
+                      "time": 0.0,
+                      "n_at_risk": 6,
+                      "events_before": 0,
+                      "censored_before": 0
+                    },
+                    {
+                      "time": 1.0,
+                      "n_at_risk": 5,
+                      "events_before": 0,
+                      "censored_before": 1
+                    },
+                    {
+                      "time": 2.0,
+                      "n_at_risk": 4,
+                      "events_before": 1,
+                      "censored_before": 1
+                    },
+                    {
+                      "time": 3.0,
+                      "n_at_risk": 2,
+                      "events_before": 2,
+                      "censored_before": 2
+                    },
+                    {
+                      "time": 4.0,
+                      "n_at_risk": 1,
+                      "events_before": 3,
+                      "censored_before": 2
+                    }
+                  ]
+                }
+              ]
+            },
+            "figure_kind": "kaplan_meier",
+            "plot_config": {
+              "ties": "events_before_censoring",
+              "style": {
+                "width": 2400,
+                "height": 1600,
+                "palette": "colorblind",
+                "font_size": 12,
+                "display_order": []
+              },
+              "origin": "survival_one_at_zero",
+              "interval": "greenwood_loglog_95",
+              "time_unit": "day",
+              "numbering_mode": "external",
+              "outliers_removed": false,
+              "verification_scope": "independent_curve_calculation",
+              "inference_displayed": false
+            },
+            "presentation": {
+              "axes": {
+                "x": {
+                  "unit": "day",
+                  "label": "Follow-up time (day)"
+                },
+                "y": {
+                  "unit": "0–1",
+                  "label": "Survival probability (0–1)"
+                }
+              },
+              "legend": {
+                "title": "Group",
+                "entries": [
+                  {
+                    "color": "#0072B2",
+                    "label": "All synthetic records"
+                  }
+                ]
+              },
+              "color_scale": null,
+              "abbreviations": [
+                {
+                  "term": "n",
+                  "definition": "Valid record count; independent participant count requires the study design"
+                },
+                {
+                  "term": "KM",
+                  "definition": "Kaplan–Meier product-limit estimate"
+                },
+                {
+                  "term": "CI",
+                  "definition": "Confidence interval"
+                }
+              ],
+              "schema_version": 2,
+              "statistical_notes": [
+                "Tied events precede censoring; available 95% intervals use Greenwood variance and log–log transformation; censoring does not mean event-free completed follow-up."
+              ]
+            },
+            "schema_version": 5,
+            "legacy_contract": 4
+          }
+        },
+        "input_sha256": "5f900291c0db181eb6c5f6f9fe9c12acf2d4723c25e61a10648bba0b34f254b6",
+        "tool_version": "figure_projection_v1",
+        "schema_version": 1,
+        "original_statistical_n": 6
+      }
+    }
+  },
+  "saved_explanation_included": false
+}

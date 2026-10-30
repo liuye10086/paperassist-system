@@ -85,8 +85,9 @@ def saved_calls(db, task):
             usage={key:raw.get(key) for key in ('input_tokens','output_tokens','total_tokens')}
             usage['cached_input_tokens']=details.get('cached_tokens') if isinstance(details,dict) else None
             usage={key:value if type(value) is int and value>=0 else None for key,value in usage.items()}
+        from app.domain.model_usage.provenance import public_provider_provenance
         result.append(dict(model=row['model'],status=row['status'],provider_status=row['provider_status'],
-            error_code=row['error_code'],provenance='not_recorded',usage_status=row['usage_status'],usage=usage,
+            error_code=row['error_code'],provenance=public_provider_provenance(row,task) or 'not_recorded',usage_status=row['usage_status'],usage=usage,
             estimated_cost_micro_usd=row['estimated_cost_micro_usd'],created_at=row['created_at'].isoformat()))
     return result
 

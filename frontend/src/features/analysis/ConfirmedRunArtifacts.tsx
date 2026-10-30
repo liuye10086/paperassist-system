@@ -10,6 +10,7 @@ import {WorkflowStage} from './AnalysisWorkflow'
 import {useWorkflowNavigation} from './analysisWorkflowContext'
 import {isDatasetSource} from './datasetSource'
 import SourceSummary from './SourceSummary'
+import SendAnalysisToWriting from '../manuscripts/SendAnalysisToWriting'
 import QualityProvenance from '../datasetPreparation/QualityProvenance'
 import {validStatisticsContext} from './statisticsContext'
 import type {Result} from './StatisticsResults'
@@ -61,6 +62,7 @@ function Artifacts({base,current,disabled,onHistoricalSelection}:Props){
    {selected&&session&&<><p>{t('所选结果的图表、解释与报告保持原来源和语言，不替换集合冻结引用。')}</p><SourceSummary source={selected.source} filename={selected.filename}/><QualityProvenance projectId={decodeURIComponent(base.split('/')[4])} source={selected.source}/></>}
   </section>
   {session&&visitedRuns.map(run=>run.source&&<div key={run.id} hidden={selected?.id!==run.id}>
+   <SendAnalysisToWriting fileId={run.source.file_id} runId={run.id} disabled={disabled||selected?.id!==run.id}/>
    <div hidden={!!navigation&&!['figure','explanation'].includes(navigation.stage)}><FigureWorkbench view={navigation?(navigation.stage==='explanation'?'explanation':'figure'):undefined} registerLeaveGuard={registerLeaveGuard} base={base} runId={run.id} source={run.source} language={run.analysis_context?.plan.research_request?.output_language??'zh-CN'} resultType={run.result_type} mode={run.result_type==='correlation'?run.selection.mode:run.result_type==='group_comparison'?run.selection.design:undefined} disabled={disabled} onChanged={()=>setRefresh(n=>n+1)}/></div>
    <WorkflowStage stage="report"><ReportCollections taskLayout={!!navigation} registerLeaveGuard={registerLeaveGuard} currentRunId={run.id} projectId={decodeURIComponent(base.split('/')[4])} fileId={run.source.file_id} source={run.source} language={run.analysis_context?.plan.research_request?.output_language??'zh-CN'} refreshKey={refresh} disabled={disabled}/></WorkflowStage>
   </div>)}

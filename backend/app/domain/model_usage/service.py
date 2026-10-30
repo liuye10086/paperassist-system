@@ -16,10 +16,9 @@ TERMINAL = {'completed', 'incomplete', 'failed', 'cancelled'}
 
 
 def public_writing_provider_provenance(call):
-    """Only admission-owned state can label a writing call; legacy unknown stays null."""
-    state = call.get('provider_state')
-    value = state.get('writing_provider_provenance') if isinstance(state, dict) else None
-    return value if value in ('synthetic_fixture', 'openai_live') else None
+    """Compatibility name; all new admissions use the common trusted reader."""
+    from app.domain.model_usage.provenance import public_provider_provenance
+    return public_provider_provenance(call)
 
 
 def _error(code, message, status=409):
@@ -152,7 +151,7 @@ class ModelUsageService:
                 insert_admission(db,call,admission,reserved)
             return call
 
-    def begin_submission(self, call_id, execution_lease=None, expected_task_revision=None):
+    def begin_submission(self, call_id, execution_lease=None, expected_task_revision=None, *, provenance_context=None):
         with self.store.connection(write=True) as db:
             call = self.store.require_call(db, call_id)
             if call['status'] != 'reserved':
@@ -172,6 +171,9 @@ class ModelUsageService:
                     raise _error('manuscript_writing_not_authorized','真实写作开关和密钥必须同时配置。')
                 begin_admission(self.store,db,task,call)
                 call['provider_state']={**(call.get('provider_state') or {}),'writing_provider_provenance':'synthetic_fixture' if self.store.config.environment=='test' else 'openai_live'}
+            if provenance_context is not None:
+                from app.domain.model_usage.provenance import apply_admission_provenance
+                call['provider_state']=apply_admission_provenance(call,task,provenance_context)
             from app.domain.model_usage.observation import start
             now = datetime.now(timezone.utc)
             call.update(status='submitting', provider_state=start(call.get('provider_state'), now), updated_at=now)
@@ -182,7 +184,7 @@ class ModelUsageService:
         with self.store.connection() as db:
             return self.store.require_call(db, call_id)
 
-    def begin_plot_step(self, call_id, step, *, execution_lease, expected_task_revision):
+    def begin_plot_step(self, call_id, step, *, execution_lease, expected_task_revision, provenance_context=None):
         """Commit a single POST fence before returning permission to use the network."""
         phases = {'container': (None, 'container_creating'),
                   'upload': ('container_ready', 'file_uploading'),
@@ -207,6 +209,9 @@ class ModelUsageService:
             # its frozen sources under the same lock that authorizes this POST.
             from app.adapters.task_execution_store import TaskExecutionStore
             TaskExecutionStore(config=self.store.config).sources(db, task)
+            if step=='container' and provenance_context is not None:
+                from app.domain.model_usage.provenance import apply_admission_provenance
+                state=apply_admission_provenance(call,task,provenance_context)
             state.update(version=1, phase=following)
             now = datetime.now(timezone.utc)
             if step == 'response':
@@ -440,7 +445,7 @@ class ModelUsageService:
                 summary['actual_micro_usd'] += public['actual_micro_usd'] or 0
                 if public['status'] in ('reconciled', 'partial', 'pending'):
                     summary[public['status'] + '_count'] += 1
-            rows = db.execute('''SELECT c.*,t.task_type,
+            rows = db.execute('''SELECT c.*,t.task_type,t.workflow_version,
                 (SELECT MAX(e.created_at) FROM usage_events e WHERE e.call_id=c.id AND e.event_type='reconciliation') AS reconciled_at
                 FROM model_calls c JOIN tasks t ON t.id=c.task_id''' + where
                 + ' ORDER BY c.created_at DESC,c.id LIMIT %s OFFSET %s',

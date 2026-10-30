@@ -1,4 +1,7 @@
 export const operationsMessages: Record<string, string> = {
+  "恢复操作未知的请求": "Recovery requests with unknown operation",
+  "HTTP 请求包含被拒绝请求和幂等重放；重试、继续按已验证操作统计，不代表任务失败数或执行尝试数。": "HTTP requests include rejected requests and idempotent replays; retry and resume counts describe validated intent, not task failures or execution attempts.",
+  "历史未记录或未通过校验的恢复操作保留未知，缺失不按零。": "Historical or unvalidated recovery operations remain unknown; missing evidence is not zero.",
   "已知执行 {known} 次；{count} 次调用的执行次数未知": "Known executions {known}; unknown for {count} calls",
   "项目工作区": "Project workspace",
   "本人用量": "My usage",

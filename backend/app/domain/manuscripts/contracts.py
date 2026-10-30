@@ -4,7 +4,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 WORKFLOW='manuscript_fact_draft_v1'
 METHOD_FIELDS=('research_question','purpose','hypothesis','study_design','population','samples','groups','materials','procedures','conditions','statistical_methods','ethics')
 MethodField=Literal['research_question','purpose','hypothesis','study_design','population','samples','groups','materials','procedures','conditions','statistical_methods','ethics']
-SourceKind=Literal['original','document_version','ocr_review_version','external_evidence_version','analysis_run','figure','figure_language_version']
+SourceKind=Literal['original','document_version','ocr_review_version','external_evidence_version','analysis_run','figure','figure_language_version','analysis_report','collection_report']
 Role=Literal['methods','user_results','literature','image_observation','computed_results']
 
 class Strict(BaseModel):
@@ -22,6 +22,8 @@ class SourceSelection(Strict):
             raise ValueError('Only saved computation can be computed results.')
         if self.kind in ('figure','figure_language_version') and self.role!='image_observation':
             raise ValueError('Figures are observations only.')
+        if self.kind in ('analysis_report','collection_report') and self.role!='user_results':
+            raise ValueError('Saved reports are supporting material, never computed results.')
         return self
 
 class Methods(Strict):
@@ -87,6 +89,7 @@ class ManuscriptRequest(Strict):
     figure_notes:list[FigureNote]=Field(default_factory=list,max_length=50)
     citation_draft:CitationDraft|None=None
     thesis:ThesisSelection|None=None
+    analysis_handoff_run_ids:list[str]=Field(default_factory=list,max_length=30)
 
     @model_validator(mode='after')
     def unique_inputs(self):
@@ -94,6 +97,9 @@ class ManuscriptRequest(Strict):
                     [f.figure_id for f in self.figure_notes],[c.field for c in self.method_conflicts]):
             if len(ids)!=len(set(ids)): raise ValueError('Duplicate input identities.')
         selected={s.id for s in self.sources}
+        if (len(self.analysis_handoff_run_ids)!=len(set(self.analysis_handoff_run_ids))
+            or not set(self.analysis_handoff_run_ids)<={s.id for s in self.sources if s.kind=='analysis_run'}):
+            raise ValueError('Historical handoff runs must be selected analysis sources.')
         if any(g.id=='source-observations' for g in self.results_groups): raise ValueError('Reserved observation group identity.')
         if any(not set(ids)<=selected for ids in self.method_source_ids.values()):
             raise ValueError('Method sources must be selected.')
@@ -132,6 +138,7 @@ class SchoolKeywords(Strict):
         return self
 
 class SchoolExportOptions(Strict):
+    field_values:dict[str,str]=Field(default_factory=dict,max_length=100)
     manual_fields:SchoolManualFields=Field(default_factory=SchoolManualFields)
     manual_chapters:list[SchoolManualChapter]=Field(default_factory=list,max_length=300)
     english_title:str=Field(default='',max_length=1000)
@@ -141,6 +148,7 @@ class SchoolExportOptions(Strict):
 
     @model_validator(mode='after')
     def unique_chapters(self):
+        if any(not key or len(key)>100 or len(value)>2000 for key,value in self.field_values.items()):raise ValueError('Invalid manual front matter value.')
         for items in (self.manual_chapters,self.keywords):
             ids=[item.chapter_id for item in items]
             if len(ids)!=len(set(ids)):raise ValueError('Duplicate school chapter options.')

@@ -10,7 +10,10 @@ export default function ModelConfigurationForm({bundle,catalog,onChange}:{bundle
  const setPolicy=(change:Partial<NonNullable<typeof policy>>)=>{if(entry&&policy)update({...entry,execution:{...entry.execution,policy:{...policy,...change}}})}
  const setExecution=(change:Partial<ModelEntry['execution']>)=>{if(entry)update({...entry,execution:{...entry.execution,...change}})}
  const sourceNames={installed_code:'已安装代码',deployment_policy:'部署政策',synthetic_fixture:'合成验收样例'}
- return <section><p>{t('部署限制与用户授权继续优先，后台配置不能解除。')}</p><p>{t('真实调用关闭')} · {t('真实连通未测试')}</p><label>{t('配置业务')}<select value={business} onChange={e=>setBusiness(e.target.value as ModelBusiness)}>{modelBusinesses.map(key=><option key={key} value={key}>{t(businessNames[key])}</option>)}</select></label>
+ return <section><p>{t('部署限制与用户授权继续优先，后台配置不能解除。')}</p>
+ <label className="configuration-check"><input type="checkbox" disabled={catalog.field_readonly['models.real_calls_enabled']!==false} checked={bundle.models.real_calls_enabled} onChange={e=>onChange({...bundle,models:{...bundle.models,real_calls_enabled:e.target.checked}})}/>{t('允许真实模型调用')}</label>
+ <p><span>{t('对新任务生效')}</span> · {t('真实连通未测试')}</p><p>{t('启用后仍须单独确认外发，并满足部署凭据、预算与任务授权要求。')}</p>
+ <label>{t('配置业务')}<select value={business} onChange={e=>setBusiness(e.target.value as ModelBusiness)}>{modelBusinesses.map(key=><option key={key} value={key}>{t(businessNames[key])}</option>)}</select></label>
  {!entry?<><p>{t('此业务尚未配置。')}</p>{installed?<button type="button" onClick={()=>update(structuredClone(installed))}>{t('使用已安装部署基线')}</button>:<p>{t('尚无已登记部署基线，不能创建执行政策。')}</p>}</>:<>
  {business!=='writing'&&<button type="button" onClick={()=>update(null)}>{t('清除此业务配置')}</button>}
  {readonly&&<p>{t('文献供应商政策固定，只允许收紧输入与任务预算。')}</p>}

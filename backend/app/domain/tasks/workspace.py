@@ -40,6 +40,13 @@ class TaskWorkspaceService:
             from app.domain.journals.service import input_version
             input_version(task)
             return dict(file_id=None,filename=snapshot['research']['title'],analysis_run_id=None,is_current=True)
+        if task['task_type']=='school_rule_suggestion':
+            from app.domain.school_templates.suggestion_service import SuggestionService
+            from app.domain.report_collections.service import scoped_store
+            service=SuggestionService(scoped_store(task['user_id'],self.store.config))
+            row=service.row(db,task['project_id'],snapshot['template_version_id']);sources,_=service.validate(db,row)
+            source=next(s for s in sources if s['role']=='template')
+            return dict(file_id=source['file_id'],filename=row['name'],analysis_run_id=None,is_current=not service.current_changes(db,row,sources))
         if task['task_type']=='school_template_parse':
             from app.domain.school_templates.service import SchoolTemplateService
             from app.domain.report_collections.service import scoped_store
@@ -66,8 +73,15 @@ class TaskWorkspaceService:
             from app.domain.manuscripts.sources import changes
             from app.domain.report_collections.service import scoped_store
             service=ManuscriptService(scoped_store(task['user_id'],self.store.config))
-            version=service.verify_task(db,task)
-            return dict(file_id=None,filename=version['snapshot_json']['title'],analysis_run_id=None,is_current=not bool(changes(service,task['project_id'],version['snapshot_json'],current_sources=manuscript_sources)))
+            version=service.verify_task(db,task,read_versions=manuscript_sources)
+            key=('manuscript-current',id(db),task['user_id'],task['project_id'],version['id'],version['snapshot_sha256'])
+            # The verified frozen version has identical source/citation checks
+            # for every export on this page. Never retain these across requests.
+            if manuscript_sources is None or key not in manuscript_sources:
+                is_current=not bool(changes(service,task['project_id'],version['snapshot_json'],current_sources=manuscript_sources))
+                if manuscript_sources is not None:manuscript_sources[key]=is_current
+            else:is_current=manuscript_sources[key]
+            return dict(file_id=None,filename=version['snapshot_json']['title'],analysis_run_id=None,is_current=is_current)
         if task['task_type'] == 'literature_assistance':
             from app.domain.literature_assistance.service import require_snapshot
             snapshot = require_snapshot(task)
@@ -194,7 +208,7 @@ class TaskWorkspaceService:
         if (type(page) is not int or not 1 <= page <= 1_000_000
                 or type(page_size) is not int or not 1 <= page_size <= 50
                 or status not in (None, 'queued', 'running', 'waiting_input', 'waiting_confirmation', 'succeeded', 'failed')
-                or task_type not in (None, 'boxplot', 'explanation', 'word_report', 'parse_file', 'extract_dataset', 'prepare_dataset', 'review_ocr', 'analysis_plan', 'analysis_recommendation', 'figure_projection', 'figure_workbench', 'figure_explanation', 'collection_word_report', 'statistics_compute', 'literature_search', 'literature_assistance', 'manuscript_draft', 'manuscript_docx', 'pdf_export', 'layout_docx', 'manuscript_writing', 'school_template_parse', 'journal_recommendation', 'journal_format_check', 'journal_adaptation', 'review_round_plan', 'review_revision', 'review_document_export')):
+                or task_type not in (None, 'boxplot', 'explanation', 'word_report', 'parse_file', 'extract_dataset', 'prepare_dataset', 'review_ocr', 'analysis_plan', 'analysis_recommendation', 'figure_projection', 'figure_workbench', 'figure_explanation', 'collection_word_report', 'statistics_compute', 'literature_search', 'literature_assistance', 'manuscript_draft', 'manuscript_docx', 'pdf_export', 'layout_docx', 'manuscript_writing', 'school_template_parse', 'school_rule_suggestion', 'journal_recommendation', 'journal_format_check', 'journal_adaptation', 'review_round_plan', 'review_revision', 'review_document_export')):
             raise StorageError('task_input_invalid', '任务列表查询参数无效。', 422)
         from app.adapters.legacy_task_query import mixed_task_page, require_legacy_task
         from app.domain.tasks.legacy import public_legacy_task, legacy_source
@@ -261,6 +275,11 @@ class TaskWorkspaceService:
 
     def artifacts(self, db, task):
         result = {'figure': None, 'explanation': None, 'report': None}
+        if task['task_type']=='school_rule_suggestion':
+            from app.domain.school_templates.suggestion_service import SuggestionService
+            from app.domain.report_collections.service import scoped_store
+            value=SuggestionService(scoped_store(task['user_id'],self.store.config)).get_suggestion(task['project_id'],task['input_snapshot']['suggestion_id'])
+            return result|dict(school_rule_suggestion=value)
         if task['task_type']=='review_document_export':
             from app.domain.review_rounds.document_exports import workspace
             result['review']=workspace(db,task)['results'];return result
@@ -269,7 +288,7 @@ class TaskWorkspaceService:
             from app.domain.report_collections.service import scoped_store
             service=RevisionService(scoped_store(task['user_id'],self.store.config))
             result['review']=service.view_revision(db,service.revision_row(db,task['project_id'],task['input_snapshot']['id']));return result
-        if task['task_type'] in ('school_template_parse','journal_recommendation', 'journal_format_check', 'journal_adaptation', 'review_round_plan', 'review_revision', 'review_document_export'): return result
+        if task['task_type'] in ('school_template_parse', 'school_rule_suggestion','journal_recommendation', 'journal_format_check', 'journal_adaptation', 'review_round_plan', 'review_revision', 'review_document_export'): return result
         if task['task_type']=='manuscript_writing':
             from app.domain.manuscript_writing.service import require_snapshot
             require_snapshot(task)

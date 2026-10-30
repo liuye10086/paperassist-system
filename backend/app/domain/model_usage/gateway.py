@@ -63,6 +63,8 @@ class ModelGateway:
             return self.refresh(call['id'])
         # The service transaction commits before this function receives True.
         begin_options = {**lease_options, 'expected_task_revision': request.expected_task_revision} if lease_options else {}
+        from app.domain.model_usage.provenance import admission_context
+        begin_options['provenance_context']=admission_context(self.provider,request=request,operation='text')
         if not self.service.begin_submission(call['id'], **begin_options):
             current = self.service.get_call(call['id'])
             if current.get('provider_response_id'):
@@ -89,7 +91,9 @@ class ModelGateway:
             if wire_json!=bundle['wire_json']: raise ModelGatewayError('model_input_digest_mismatch')
         call=self.service.reserve_call(request,execution_lease=execution_lease)
         if call.get('provider_response_id'): return self.refresh(call['id'])
-        if not self.service.begin_submission(call['id'],execution_lease=execution_lease,expected_task_revision=request.expected_task_revision):
+        from app.domain.model_usage.provenance import admission_context
+        context=admission_context(self.provider,request=request,operation='frozen_writing')
+        if not self.service.begin_submission(call['id'],execution_lease=execution_lease,expected_task_revision=request.expected_task_revision,provenance_context=context):
             current=self.service.get_call(call['id'])
             return self.refresh(call['id']) if current.get('provider_response_id') else {'call':current,'response':None}
         try:
@@ -112,7 +116,7 @@ class ModelGateway:
         try:
             request = CallRequest.model_validate(deepcopy(request).model_dump())
             if (request.policy.tools != ['code_interpreter'] or request.policy.output_format != 'text'
-                    or request.policy.prompt_version not in (PROMPT_VERSION,'openai_analysis_plot_v2','openai_comparison_plot_v3','openai_modeling_plot_v4','openai_figure_workbench_v1','openai_figure_workbench_v2','openai_figure_workbench_v3') or request.tool_reserve_micro_usd <= 0
+                    or request.policy.prompt_version not in (PROMPT_VERSION,'openai_analysis_plot_v2','openai_comparison_plot_v3','openai_modeling_plot_v4','openai_figure_workbench_v1','openai_figure_workbench_v2','openai_figure_workbench_v3','openai_figure_workbench_v4') or request.tool_reserve_micro_usd <= 0
                     or not request.tool_reserve_version):
                 raise ValueError('A fixed plot policy and positive tool reservation are required.')
             material = json.loads(canonical_payload(payload))
@@ -127,8 +131,10 @@ class ModelGateway:
         step = {None: 'container', 'container_ready': 'upload', 'file_ready': 'response'}.get(state.get('phase'))
         if step is None or call['status'] in ('submission_unknown', 'released', 'failed', 'completed'):
             return {'call': call, 'response': None}
+        from app.domain.model_usage.provenance import admission_context
+        context=admission_context(self.provider,request=request,operation='plot') if step=='container' else None
         if not self.service.begin_plot_step(call['id'], step, execution_lease=execution_lease,
-                                             expected_task_revision=request.expected_task_revision):
+                                             expected_task_revision=request.expected_task_revision,provenance_context=context):
             return {'call': self.service.get_call(call['id']), 'response': None}
         try:
             if step == 'container':

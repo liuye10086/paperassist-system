@@ -35,7 +35,7 @@ def error_category(code):
         return 'budget'
     if code == 'task_worker_interrupted':
         return 'interrupted'
-    if code in ('pdf_renderer_unavailable','pdf_renderer_mismatch','literature_assistance_not_authorized', 'manuscript_writing_not_authorized', 'ncbi_not_configured', 'ncbi_request_rejected', 'model_request_rejected', 'model_policy_not_configured', 'model_policy_invalid', 'numeric_timeout_invalid',
+    if code in ('model_configuration_disabled','pdf_renderer_unavailable','pdf_renderer_mismatch','literature_assistance_not_authorized', 'manuscript_writing_not_authorized', 'ncbi_not_configured', 'ncbi_request_rejected', 'model_request_rejected', 'model_policy_not_configured', 'model_policy_invalid', 'numeric_timeout_invalid',
             'openai_not_configured', 'explanation_not_configured', 'plot_not_configured', 'recommendation_not_configured',
             'authentication_configuration', 'database_configuration', 'parse_environment_unavailable', 'numeric_environment_unavailable'):
         return 'configuration'

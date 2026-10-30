@@ -151,7 +151,7 @@ class AdminOperations:
         filtered_time(clauses,values,'created_at',start,end)
         with database_connection() as db:
             require_identity(db,self.user_id)
-            return {**page_query(db,'request_id,route_template,method,status,elapsed_ms,user_id,task_id,error_code,created_at',
+            return {**page_query(db,'request_id,route_template,method,status,elapsed_ms,user_id,task_id,task_operation,error_code,created_at',
                 'operational_request_events',clauses,values,page,page_size,'created_at DESC,request_id DESC'),'coverage':coverage(db)}
 
     def audits(self, *, page=1,page_size=10,target_user_id=None,actor_user_id=None,start=None,end=None):
@@ -172,8 +172,12 @@ class AdminOperations:
             require_identity(db,self.user_id)
             counts=db.execute('''SELECT count(*) AS requests,count(*) FILTER(WHERE status>=400) AS errors,
                 count(*) FILTER(WHERE status=429) AS rate_limited,
-                count(*) FILTER(WHERE method='POST' AND route_template='/api/v1/tasks/{task_id}/retry') AS retry_requests,
-                count(*) FILTER(WHERE method='POST' AND route_template='/api/v1/tasks/{task_id}/resume') AS resume_requests
+                count(*) FILTER(WHERE method='POST' AND (route_template='/api/v1/tasks/{task_id}/retry'
+                    OR (route_template='/api/v1/tasks/{task_id}/resume' AND task_operation='retry'))) AS retry_requests,
+                count(*) FILTER(WHERE method='POST' AND route_template='/api/v1/tasks/{task_id}/resume'
+                    AND task_operation='resume') AS resume_requests,
+                count(*) FILTER(WHERE method='POST' AND route_template='/api/v1/tasks/{task_id}/resume'
+                    AND task_operation IS NULL) AS recovery_operation_unknown_requests
                 FROM operational_request_events'''+condition,tuple(values)).fetchone()
             from app.domain.admin_usage import usage_summary
             usage=usage_summary(db,{'start':start,'end':end})
@@ -200,7 +204,7 @@ def record_request(event,task_candidate=None):
                 WHERE t.id=%s AND u.active AND (t.user_id=u.id OR (u.role='admin' AND %s))''',
                 (user_id,task_candidate,bool(event.get('route_template','') and event['route_template'].startswith('/api/v1/admin/tasks')))).fetchone()
             task_id=row['id'] if row else None
-        fields=('request_id','route_template','method','status','elapsed_ms','user_id','task_id','error_code','created_at')
+        fields=('request_id','route_template','method','status','elapsed_ms','user_id','task_id','task_operation','error_code','created_at')
         event['task_id']=task_id
         db.execute('INSERT INTO operational_request_events('+','.join(fields)+') VALUES('+','.join(['%s']*len(fields))+')',
                    tuple(event.get(key) for key in fields))

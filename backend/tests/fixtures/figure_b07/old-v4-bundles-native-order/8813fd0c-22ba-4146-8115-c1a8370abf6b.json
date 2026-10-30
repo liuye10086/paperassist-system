@@ -1,0 +1,1101 @@
+{
+  "key": "scatter:en",
+  "task_id": "8813fd0c-22ba-4146-8115-c1a8370abf6b",
+  "bundle": {
+    "result": {
+      "schema_version": 3,
+      "result_type": "correlation",
+      "file_id": "c24f97bc-bddf-55de-96a8-f7793b5f0a86",
+      "filename": "correlation_heatmap.xlsx",
+      "source_sha256": "7a0b416ef376573f038f8e481709b07f939ded7cd65ec812a9d8bc717788e254",
+      "source": {
+        "kind": "prepared_dataset_version",
+        "schema_version": 1,
+        "dataset_id": "184a1535-eb8f-5137-b599-c299a32edff1",
+        "structure_id": "755a3a0e-bb8d-4319-8862-fcf9ed85657f",
+        "dataset_version": 1,
+        "file_id": "c24f97bc-bddf-55de-96a8-f7793b5f0a86",
+        "source_sha256": "7a0b416ef376573f038f8e481709b07f939ded7cd65ec812a9d8bc717788e254",
+        "dataset_sha256": "f81d9184efc16439e7736cf9a8cb841c578f7842ddfdf141483444e14f3f0b63",
+        "dataset_size_bytes": 3536,
+        "dataset_schema_version": 1,
+        "sheet_index": 0,
+        "sheet_name": "Pair",
+        "parser_version": "openpyxl-3.1.5-structure-v1",
+        "parent_dataset_id": "0a55c7c3-b003-556c-b494-5b93fae62445",
+        "parent_dataset_version": 1,
+        "transform_version": "excel_prepare_v1"
+      },
+      "setup_revision": 4,
+      "selection": {
+        "task_type": "correlation",
+        "sheet_name": "Pair",
+        "method": "pearson",
+        "mode": "pair",
+        "columns": [
+          "A",
+          "B"
+        ],
+        "units": {
+          "A": "",
+          "B": ""
+        },
+        "missing_policy": "complete_cases",
+        "assumptions": {
+          "independent_observations": true,
+          "relationship_form": "linear",
+          "inference_assumptions_confirmed": true
+        }
+      },
+      "check": {
+        "ready": true,
+        "row_count": 7,
+        "valid_count": 5,
+        "excluded_count": 2,
+        "groups": [],
+        "issues": [],
+        "warnings": [
+          "样本量较小，结果可能不稳定。",
+          "缺失行按共同完整记录规则排除，原数据保留。"
+        ]
+      },
+      "analysis_plan": {
+        "plan_id": "305dbd9a-2e89-5b6e-9160-356720fe12c7",
+        "sha256": "d42fe633845efaf5bf43b0d291b3f74503e0c885a2ff86173e1497888a1728e4",
+        "resolutions": {
+          "small_sample:all": "accept_partial_metrics",
+          "selected_missing:all": "exclude_selected_missing"
+        }
+      },
+      "analysis_context": {
+        "plan": {
+          "schema_version": 5,
+          "workflow_version": "analysis_plan_v5",
+          "rules_version": "analysis_plan_rules_v5",
+          "id": "305dbd9a-2e89-5b6e-9160-356720fe12c7",
+          "task_id": "9015cb90-c4e0-4231-bbbe-5c42d11f78fa",
+          "decision_id": "1ea41155-4eed-4440-828c-adcab57d7bb0",
+          "project_id": "123cbf9f-fd5a-4704-b4d1-af97dea0bad1",
+          "file_id": "c24f97bc-bddf-55de-96a8-f7793b5f0a86",
+          "source": {
+            "kind": "prepared_dataset_version",
+            "schema_version": 1,
+            "dataset_id": "184a1535-eb8f-5137-b599-c299a32edff1",
+            "structure_id": "755a3a0e-bb8d-4319-8862-fcf9ed85657f",
+            "dataset_version": 1,
+            "file_id": "c24f97bc-bddf-55de-96a8-f7793b5f0a86",
+            "source_sha256": "7a0b416ef376573f038f8e481709b07f939ded7cd65ec812a9d8bc717788e254",
+            "dataset_sha256": "f81d9184efc16439e7736cf9a8cb841c578f7842ddfdf141483444e14f3f0b63",
+            "dataset_size_bytes": 3536,
+            "dataset_schema_version": 1,
+            "sheet_index": 0,
+            "sheet_name": "Pair",
+            "parser_version": "openpyxl-3.1.5-structure-v1",
+            "parent_dataset_id": "0a55c7c3-b003-556c-b494-5b93fae62445",
+            "parent_dataset_version": 1,
+            "transform_version": "excel_prepare_v1"
+          },
+          "selection": {
+            "task_type": "correlation",
+            "sheet_name": "Pair",
+            "method": "pearson",
+            "mode": "pair",
+            "columns": [
+              "A",
+              "B"
+            ],
+            "units": {
+              "A": "",
+              "B": ""
+            },
+            "missing_policy": "complete_cases",
+            "assumptions": {
+              "independent_observations": true,
+              "relationship_form": "linear",
+              "inference_assumptions_confirmed": true
+            }
+          },
+          "check": {
+            "rules_version": "analysis_plan_rules_v5",
+            "research_missing": [],
+            "data_check": {
+              "rules_version": "analysis_plan_rules_v3",
+              "data_range": "A2:C8",
+              "row_count": 7,
+              "selected_fields": [
+                {
+                  "letter": "A",
+                  "name": "X",
+                  "type_counts": {
+                    "number": 6
+                  },
+                  "missing_count": 1,
+                  "non_missing_count": 6,
+                  "prepared_unit": {
+                    "status": "confirmed",
+                    "value": ""
+                  },
+                  "declared_unit": {
+                    "status": "unknown",
+                    "value": null
+                  },
+                  "observed_min": 1.0,
+                  "observed_max": 6.0
+                },
+                {
+                  "letter": "B",
+                  "name": "Y",
+                  "type_counts": {
+                    "number": 6
+                  },
+                  "missing_count": 1,
+                  "non_missing_count": 6,
+                  "prepared_unit": {
+                    "status": "confirmed",
+                    "value": ""
+                  },
+                  "declared_unit": {
+                    "status": "unknown",
+                    "value": null
+                  },
+                  "observed_min": 1.0,
+                  "observed_max": 7.0
+                }
+              ],
+              "selection_check": {
+                "ready": true,
+                "row_count": 7,
+                "valid_count": 5,
+                "excluded_count": 2,
+                "groups": [],
+                "issues": [],
+                "warnings": [
+                  "样本量较小，结果可能不稳定。",
+                  "缺失行按共同完整记录规则排除，原数据保留。"
+                ]
+              },
+              "issues": [
+                {
+                  "id": "small_sample:all",
+                  "code": "small_sample",
+                  "severity": "warning",
+                  "field": null,
+                  "count": 5,
+                  "coordinates": [],
+                  "message": "样本量较小，结果可能不稳定。",
+                  "allowed_resolutions": [
+                    "accept_partial_metrics"
+                  ]
+                },
+                {
+                  "id": "selected_missing:all",
+                  "code": "selected_missing",
+                  "severity": "warning",
+                  "field": null,
+                  "count": 2,
+                  "coordinates": [
+                    "B7",
+                    "A8"
+                  ],
+                  "message": "缺失行按共同完整记录规则排除，原数据保留。",
+                  "allowed_resolutions": [
+                    "exclude_selected_missing"
+                  ]
+                }
+              ],
+              "limitations": [
+                "相关不代表因果；前提由用户声明，不是程序证明。",
+                "共同完整记录，不填补、不去重、不自动剔除异常值。",
+                "双侧推断；小样本结果可能不稳定。"
+              ],
+              "research_missing": []
+            },
+            "limitations": [
+              "外部材料仅为来源证据，未由本系统重新计算。",
+              "补充资料及采纳候选不等于批准分析计划。"
+            ]
+          },
+          "resolutions": {
+            "small_sample:all": "accept_partial_metrics",
+            "selected_missing:all": "exclude_selected_missing"
+          },
+          "plan_revision": 2,
+          "setup_revision": 4,
+          "created_at": "2026-10-28T04:48:51.820153+00:00",
+          "research_request": {
+            "question": "Prespecified synthetic engineering verification: scatter",
+            "output_language": "en",
+            "population": "Explicit synthetic study records only",
+            "study_design": "Fixed synthetic demonstration; no real research inference",
+            "observation_unit": "One synthetic record per row",
+            "observation_structure": "independent",
+            "relationship_description": "",
+            "output_requirements": "Preserve source units and all missingness, methods and non-causal limitations; "
+          },
+          "recommendation_ref": null,
+          "evidence_versions": [],
+          "origin_recommendation_ref": null,
+          "source_reference": null,
+          "source_resolution": {
+            "confirmed": true,
+            "note": "Exact authorized B07 synthetic file SHA, prepared version and cohort confirmed; no real participant claims."
+          },
+          "sha256": "d42fe633845efaf5bf43b0d291b3f74503e0c885a2ff86173e1497888a1728e4"
+        },
+        "method": {
+          "id": "pearson",
+          "parameters": {
+            "task_type": "correlation",
+            "sheet_name": "Pair",
+            "method": "pearson",
+            "mode": "pair",
+            "columns": [
+              "A",
+              "B"
+            ],
+            "units": {
+              "A": "",
+              "B": ""
+            },
+            "missing_policy": "complete_cases",
+            "assumptions": {
+              "independent_observations": true,
+              "relationship_form": "linear",
+              "inference_assumptions_confirmed": true
+            }
+          },
+          "observation_basis": "independent_rows"
+        },
+        "rounding": {
+          "display_significant_digits": 6,
+          "stored_values": "full_precision"
+        }
+      },
+      "variables": [
+        {
+          "column": "A",
+          "name": "X",
+          "unit": ""
+        },
+        {
+          "column": "B",
+          "name": "Y",
+          "unit": ""
+        }
+      ],
+      "statistics": {
+        "method": "pearson",
+        "mode": "pair",
+        "n": 5,
+        "coefficient": 0.7999999999999998,
+        "matrix": null,
+        "p_value": {
+          "value": 0.10408803866182799,
+          "method": "pearson_beta_two_sided",
+          "reason": null
+        },
+        "confidence_interval": {
+          "low": -0.2796400419693556,
+          "high": 0.9861961933012714,
+          "level": 0.95,
+          "method": "fisher_z",
+          "reason": null
+        },
+        "inference": {
+          "alternative": "two-sided",
+          "rank_method": null,
+          "permutation_type": null,
+          "n_resamples": null,
+          "seed": null,
+          "exact": null
+        },
+        "warnings": [
+          "correlation_not_causation",
+          "small_sample"
+        ]
+      },
+      "row_audit": {
+        "included_rows": [
+          2,
+          3,
+          4,
+          5,
+          6
+        ],
+        "excluded_rows": [
+          {
+            "row": 7,
+            "coordinates": [
+              "B7"
+            ],
+            "reason": "selected_missing"
+          },
+          {
+            "row": 8,
+            "coordinates": [
+              "A8"
+            ],
+            "reason": "selected_missing"
+          }
+        ],
+        "missing_policy": "complete_cases"
+      },
+      "started_at": "2026-10-28T04:48:53.505165+00:00",
+      "completed_at": "2026-10-28T04:48:53.505285+00:00",
+      "engine": {
+        "id": "correlation_statistics_dataset_v1",
+        "python_version": "3.11.17",
+        "scipy_version": "1.17.1",
+        "numpy_version": "2.4.6",
+        "parser_version": "openpyxl-3.1.5-structure-v1",
+        "execution_contract": "fixed_statistics_v2"
+      },
+      "id": "15ba4fcf-d5ba-4ccd-9a96-cc572a6a6801"
+    },
+    "figure": {
+      "schema_version": 5,
+      "figure_kind": "scatter",
+      "language": "en",
+      "correlation_method": "pearson",
+      "mode": "pair",
+      "title": "Synthetic scatter plot",
+      "x_label": "X (unit not specified)",
+      "y_label": "Y (unit not specified)",
+      "caption": "Pearson correlation; 5 complete records; 2 excluded records. Each point retains its original row pairing. No regression line or inferential markers are displayed. No imputation, deduplication or outlier removal. Correlation does not establish causation. Synthetic data engineering verification only. Correlation does not establish causation; show only computed coefficients and valid record counts, without additional P values, confidence intervals or significance stars.",
+      "variables": [
+        {
+          "column": "A",
+          "name": "X",
+          "unit": ""
+        },
+        {
+          "column": "B",
+          "name": "Y",
+          "unit": ""
+        }
+      ],
+      "plot_config": {
+        "regression_line": false,
+        "inference_displayed": false,
+        "complete_case_basis": "common_rows",
+        "style": {
+          "palette": "colorblind",
+          "width": 2400,
+          "height": 1600,
+          "font_size": 12,
+          "display_order": []
+        },
+        "numbering_mode": "external"
+      },
+      "statistics": {
+        "n": 5,
+        "coefficient": 0.7999999999999998
+      },
+      "legacy_contract": 2,
+      "presentation": {
+        "schema_version": 2,
+        "axes": {
+          "x": {
+            "label": "X (unit not specified)",
+            "unit": ""
+          },
+          "y": {
+            "label": "Y (unit not specified)",
+            "unit": ""
+          }
+        },
+        "legend": {
+          "title": "Group",
+          "entries": []
+        },
+        "color_scale": null,
+        "abbreviations": [
+          {
+            "term": "n",
+            "definition": "Valid record count; independent participant count requires the study design"
+          },
+          {
+            "term": "r",
+            "definition": "Pearson linear correlation coefficient"
+          }
+        ],
+        "statistical_notes": [
+          "Correlation does not establish causation; show only computed coefficients and valid record counts, without additional P values, confidence intervals or significance stars."
+        ]
+      },
+      "id": "eb6fd0d6-37d2-59b4-a4df-428885474f74",
+      "analysis_run_id": "15ba4fcf-d5ba-4ccd-9a96-cc572a6a6801",
+      "file_id": "c24f97bc-bddf-55de-96a8-f7793b5f0a86",
+      "source": {
+        "kind": "prepared_dataset_version",
+        "schema_version": 1,
+        "dataset_id": "184a1535-eb8f-5137-b599-c299a32edff1",
+        "structure_id": "755a3a0e-bb8d-4319-8862-fcf9ed85657f",
+        "dataset_version": 1,
+        "file_id": "c24f97bc-bddf-55de-96a8-f7793b5f0a86",
+        "source_sha256": "7a0b416ef376573f038f8e481709b07f939ded7cd65ec812a9d8bc717788e254",
+        "dataset_sha256": "f81d9184efc16439e7736cf9a8cb841c578f7842ddfdf141483444e14f3f0b63",
+        "dataset_size_bytes": 3536,
+        "dataset_schema_version": 1,
+        "sheet_index": 0,
+        "sheet_name": "Pair",
+        "parser_version": "openpyxl-3.1.5-structure-v1",
+        "parent_dataset_id": "0a55c7c3-b003-556c-b494-5b93fae62445",
+        "parent_dataset_version": 1,
+        "transform_version": "excel_prepare_v1"
+      },
+      "source_sha256": "7a0b416ef376573f038f8e481709b07f939ded7cd65ec812a9d8bc717788e254",
+      "setup_revision": 4,
+      "sha256": "3cddeb701c8fda64226752ad813ae6045fa9abf20c1195a698f1ac77633a06bf",
+      "size_bytes": 247336,
+      "figure_config_version_id": "e63adbff-6f79-4baa-9280-28f77111b74f",
+      "configuration_sha256": "eb362671d344723575db66f12e734a14e1938c7e32dde2c44fef6b227f0b3763",
+      "projection_id": "d73a5303-864a-50a7-ae03-6f0838a9f1ed",
+      "projection_sha256": "a5ba7618167379a891375029be660d394e38de4bda1cbc4e80982697671c3416",
+      "facts_sha256": "241fa5dcf22d4a259c22fae928e8b9c50c08654e637350e2dc688a50e7337e12",
+      "figure_number": null,
+      "numbering_mode": "external",
+      "method": {
+        "kind": "scatter",
+        "basis": "original_statistical_valid_rows"
+      },
+      "created_at": "2026-10-28T05:02:45.486435+00:00",
+      "engine": {
+        "id": "openai_figure_workbench_v3",
+        "provider": "openai_code_interpreter",
+        "model": "gpt-5.6-sol"
+      },
+      "verification": {
+        "status": "matched",
+        "note": "Structured values verified; image pixels require human review."
+      },
+      "provenance": {
+        "response_id": "resp_01e6590221d23726006ae18c564f7c87d0ad363f253c620289",
+        "container_id": "cntr_6ae18bdd0c588198a6c9d4d4245bc8470e1f223c9a8713ba",
+        "model": "gpt-5.6-sol",
+        "code": [
+          "import json, os, sys, math, statistics, textwrap, platform, warnings, re\nfrom pathlib import Path\n\ninput_path = Path(\"/mnt/data/f67b1f5414e5c9a9fad69312f4acd72c-data.json\")\nwith input_path.open(\"r\", encoding=\"utf-8\") as f:\n    data = json.load(f)\n\nprint(\"Loaded input JSON.\")\nprint(\"schema_version:\", data.get(\"schema_version\"))\nprint(\"figure_kind:\", data.get(\"figure_kind\"))\nprint(\"language:\", data.get(\"language\"))\nprint(\"top-level keys:\", list(data.keys()))\n",
+          "# Inspect the complete input structure and basic dimensions before independent calculation.\nprint(json.dumps(data, ensure_ascii=False, indent=2))\n",
+          "import matplotlib\nmatplotlib.use(\"Agg\")\nimport matplotlib.pyplot as plt\nfrom matplotlib import font_manager\nfrom PIL import Image\nfrom fractions import Fraction\n\n# ---------- Independent numerical calculation ----------\nvalues = data[\"values\"]\nif data[\"figure_kind\"] != \"scatter\" or len(data[\"variables\"]) != 2:\n    raise ValueError(\"Input is not the required two-variable scatter format.\")\n\npairs = []\nfor row in values:\n    if not isinstance(row, list) or len(row) != 2:\n        raise ValueError(\"Each scatter observation must contain exactly two values.\")\n    x, y = row\n    if isinstance(x, bool) or isinstance(y, bool):\n        raise ValueError(\"Boolean values are not valid numerical observations here.\")\n    x, y = float(x), float(y)\n    if not (math.isfinite(x) and math.isfinite(y)):\n        raise ValueError(\"All plotted values must be finite.\")\n    pairs.append((x, y))\n\nn = len(pairs)\nif n < 2:\n    coefficient = None\nelse:\n    xs = [p[0] for p in pairs]\n    ys = [p[1] for p in pairs]\n    mx = math.fsum(xs) / n\n    my = math.fsum(ys) / n\n    sxx = math.fsum((x - mx) ** 2 for x in xs)\n    syy = math.fsum((y - my) ** 2 for y in ys)\n    sxy = math.fsum((x - mx) * (y - my) for x, y in pairs)\n    coefficient = None if sxx == 0 or syy == 0 else sxy / math.sqrt(sxx * syy)\n    if coefficient is not None and not math.isfinite(coefficient):\n        coefficient = None\n\nprint(f\"Independent Pearson result: n={n}, r={coefficient}\")\n\n# ---------- Font inspection ----------\nrequired_text = \" \".join([\n    data[\"labels\"][\"title\"], data[\"labels\"][\"x_label\"], data[\"labels\"][\"y_label\"],\n    data[\"labels\"][\"caption\"],\n    *[v.get(\"name\", \"\") + \" \" + v.get(\"unit\", \"\") for v in data[\"variables\"]],\n    *[a[\"term\"] + \" \" + a[\"definition\"] for a in data[\"presentation\"][\"abbreviations\"]],\n])\nfont_candidates = [\"DejaVu Sans\", \"Liberation Sans\", \"Noto Sans\", \"Arial\"]\nfont_name = None\nfor candidate in font_candidates:\n    try:\n        path = font_manager.findfont(candidate, fallback_to_default=False)\n        if path and os.path.exists(path):\n            font_name = candidate\n            break\n    except Exception:\n        pass\nif font_name is None:\n    font_name = font_manager.FontProperties().get_name()\n\nmatplotlib.rcParams[\"font.family\"] = font_name\nmatplotlib.rcParams[\"font.size\"] = data[\"plot_config\"][\"style\"][\"font_size\"]\nif \"text.parse_math\" in matplotlib.rcParams:\n    matplotlib.rcParams[\"text.parse_math\"] = False\nmatplotlib.rcParams[\"axes.unicode_minus\"] = False\n\n# ---------- Exact-canvas plotting ----------\nstyle = data[\"plot_config\"][\"style\"]\nwidth_px, height_px = int(style[\"width\"]), int(style[\"height\"])\ndpi = 300\nfig = plt.figure(figsize=(width_px / dpi, height_px / dpi), dpi=dpi, facecolor=\"white\")\n\n# Regions are deliberately separate: title, computed summary, axes, x label, caption, abbreviations.\nax = fig.add_axes([0.105, 0.43, 0.86, 0.40], facecolor=\"white\")\n\npalette_name = style.get(\"palette\")\n# First color of the standard colorblind-friendly palette.\npoint_color = \"#0173B2\" if palette_name == \"colorblind\" else \"#1f77b4\"\n\nax.scatter(\n    [p[0] for p in pairs], [p[1] for p in pairs],\n    s=54, color=point_color, edgecolor=\"white\", linewidth=0.8, alpha=0.95, zorder=3\n)\nax.grid(True, color=\"#D9D9D9\", linewidth=0.7, alpha=0.8, zorder=0)\nfor spine in ax.spines.values():\n    spine.set_color(\"#555555\")\n    spine.set_linewidth(0.8)\n\n# Add modest padding without changing tick-value meaning.\nxmin, xmax = min(xs), max(xs)\nymin, ymax = min(ys), max(ys)\nxpad = (xmax - xmin) * 0.08 if xmax != xmin else max(abs(xmin) * 0.08, 0.5)\nypad = (ymax - ymin) * 0.08 if ymax != ymin else max(abs(ymin) * 0.08, 0.5)\nax.set_xlim(xmin - xpad, xmax + xpad)\nax.set_ylim(ymin - ypad, ymax + ypad)\n\nlabels = data[\"labels\"]\npresentation = data[\"presentation\"]\nx_axis_label = presentation[\"axes\"][\"x\"][\"label\"]\ny_axis_label = presentation[\"axes\"][\"y\"][\"label\"]\n\nax.set_xlabel(x_axis_label, labelpad=10)\nax.set_ylabel(y_axis_label, labelpad=10)\nfig.suptitle(labels[\"title\"], x=0.535, y=0.965, fontsize=15, fontweight=\"bold\")\nsummary = f\"n = {n}; r = {coefficient:.3f}\" if coefficient is not None else f\"n = {n}; r = null\"\nfig.text(0.535, 0.885, summary, ha=\"center\", va=\"center\", fontsize=12, color=\"#222222\")\n\n# Wrap by measured character budget appropriate to this exact canvas.\ncaption_wrapped = textwrap.fill(\n    labels[\"caption\"], width=116, break_long_words=False, break_on_hyphens=False\n)\nabbr_lines = [\n    f'{item[\"term\"]}: {item[\"definition\"]}'\n    for item in presentation[\"abbreviations\"]\n]\nabbreviations_text = textwrap.fill(\n    \"   \".join(abbr_lines), width=116, break_long_words=False, break_on_hyphens=False\n)\n\ncaption_artist = fig.text(\n    0.105, 0.275, caption_wrapped, ha=\"left\", va=\"top\",\n    fontsize=10.2, linespacing=1.22, color=\"#222222\"\n)\nabbr_artist = fig.text(\n    0.105, 0.075, abbreviations_text, ha=\"left\", va=\"bottom\",\n    fontsize=9.5, linespacing=1.18, color=\"#333333\"\n)\n\n# Draw and inspect all required text bounding boxes.\nfig.canvas.draw()\nrenderer = fig.canvas.get_renderer()\ncanvas_bbox = fig.bbox\nrequired_artists = [fig._suptitle, ax.xaxis.label, ax.yaxis.label, caption_artist, abbr_artist]\nfor artist in required_artists:\n    bbox = artist.get_window_extent(renderer=renderer)\n    if bbox.x0 < -1 or bbox.y0 < -1 or bbox.x1 > canvas_bbox.width + 1 or bbox.y1 > canvas_bbox.height + 1:\n        raise RuntimeError(f\"Required text is outside the canvas: {artist.get_text()[:40]}\")\n\n# Confirm caption and abbreviations do not overlap each other or the x-axis label.\ncap_box = caption_artist.get_window_extent(renderer=renderer)\nabbr_box = abbr_artist.get_window_extent(renderer=renderer)\nxlabel_box = ax.xaxis.label.get_window_extent(renderer=renderer)\ndef overlaps(a, b, pad=4):\n    return not (a.x1 + pad < b.x0 or b.x1 + pad < a.x0 or a.y1 + pad < b.y0 or b.y1 + pad < a.y0)\nif overlaps(cap_box, abbr_box) or overlaps(cap_box, xlabel_box):\n    raise RuntimeError(\"Caption/abbreviation/x-label layout overlap detected.\")\n\nfigure_path = Path(\"/mnt/data/figure.png\")\nfig.savefig(figure_path, dpi=dpi, facecolor=\"white\", edgecolor=\"none\")\nplt.close(fig)\n\n# Verify exact pixel dimensions.\nwith Image.open(figure_path) as im:\n    if im.size != (width_px, height_px):\n        raise RuntimeError(f\"Unexpected image dimensions: {im.size}\")\n    print(\"Saved figure:\", figure_path, \"dimensions:\", im.size)\n\n# ---------- Strict result JSON ----------\nresult = {\n    \"schema_version\": 5,\n    \"figure_kind\": data[\"figure_kind\"],\n    \"language\": data[\"language\"],\n    \"plot_config\": data[\"plot_config\"],\n    \"title\": labels[\"title\"],\n    \"x_label\": labels[\"x_label\"],\n    \"y_label\": labels[\"y_label\"],\n    \"caption\": labels[\"caption\"],\n    \"correlation_method\": data[\"correlation_method\"],\n    \"mode\": data[\"mode\"],\n    \"variables\": data[\"variables\"],\n    \"statistics\": {\n        \"n\": n,\n        \"coefficient\": coefficient\n    },\n    \"legacy_contract\": data[\"legacy_contract\"],\n    \"presentation\": data[\"presentation\"],\n    \"environment\": {\n        \"python_version\": platform.python_version(),\n        \"matplotlib_version\": matplotlib.__version__,\n        \"font\": font_name\n    }\n}\n\n# Recursively reject NaN and Infinity; then save strict JSON.\ndef assert_finite_json(obj):\n    if isinstance(obj, dict):\n        for v in obj.values():\n            assert_finite_json(v)\n    elif isinstance(obj, list):\n        for v in obj:\n            assert_finite_json(v)\n    elif isinstance(obj, float) and not math.isfinite(obj):\n        raise ValueError(\"Non-finite value in result JSON.\")\n\nassert_finite_json(result)\nresult_path = Path(\"/mnt/data/result.json\")\nwith result_path.open(\"w\", encoding=\"utf-8\") as f:\n    json.dump(result, f, ensure_ascii=False, indent=2, allow_nan=False)\n\nprint(\"Saved result:\", result_path)\nprint(json.dumps(result[\"statistics\"], indent=2))\n",
+          "# Diagnose the failed layout using the still-open figure.\nrenderer = fig.canvas.get_renderer()\nfor name, artist in [\n    (\"title\", fig._suptitle), (\"x_label\", ax.xaxis.label), (\"y_label\", ax.yaxis.label),\n    (\"caption\", caption_artist), (\"abbreviations\", abbr_artist)\n]:\n    b = artist.get_window_extent(renderer=renderer)\n    print(name, (b.x0, b.y0, b.x1, b.y1), \"canvas\", (fig.bbox.width, fig.bbox.height))\n",
+          "# Rewrap and reposition based on measured renderer bounds, then export.\ncaption_wrapped = textwrap.fill(\n    labels[\"caption\"], width=96, break_long_words=False, break_on_hyphens=False\n)\nabbreviations_text = textwrap.fill(\n    \"   \".join(abbr_lines), width=100, break_long_words=False, break_on_hyphens=False\n)\ncaption_artist.set_text(caption_wrapped)\ncaption_artist.set_position((0.105, 0.29))\nabbr_artist.set_text(abbreviations_text)\nabbr_artist.set_position((0.105, 0.025))\n\nfig.canvas.draw()\nrenderer = fig.canvas.get_renderer()\ncanvas_bbox = fig.bbox\n\nfor name, artist in [\n    (\"title\", fig._suptitle), (\"x_label\", ax.xaxis.label), (\"y_label\", ax.yaxis.label),\n    (\"caption\", caption_artist), (\"abbreviations\", abbr_artist)\n]:\n    b = artist.get_window_extent(renderer=renderer)\n    print(name, tuple(round(float(v), 2) for v in (b.x0, b.y0, b.x1, b.y1)))\n    if b.x0 < -1 or b.y0 < -1 or b.x1 > canvas_bbox.width + 1 or b.y1 > canvas_bbox.height + 1:\n        raise RuntimeError(f\"Required text is outside the canvas: {name}\")\n\ncap_box = caption_artist.get_window_extent(renderer=renderer)\nabbr_box = abbr_artist.get_window_extent(renderer=renderer)\nxlabel_box = ax.xaxis.label.get_window_extent(renderer=renderer)\nif overlaps(cap_box, abbr_box) or overlaps(cap_box, xlabel_box):\n    raise RuntimeError(\"Caption/abbreviation/x-label layout overlap detected.\")\n\nfigure_path = Path(\"/mnt/data/figure.png\")\nfig.savefig(figure_path, dpi=dpi, facecolor=\"white\", edgecolor=\"none\")\nplt.close(fig)\n\nwith Image.open(figure_path) as im:\n    if im.size != (width_px, height_px):\n        raise RuntimeError(f\"Unexpected image dimensions: {im.size}\")\n    print(\"Saved figure:\", figure_path, \"dimensions:\", im.size)\n\nresult = {\n    \"schema_version\": 5,\n    \"figure_kind\": data[\"figure_kind\"],\n    \"language\": data[\"language\"],\n    \"plot_config\": data[\"plot_config\"],\n    \"title\": labels[\"title\"],\n    \"x_label\": labels[\"x_label\"],\n    \"y_label\": labels[\"y_label\"],\n    \"caption\": labels[\"caption\"],\n    \"correlation_method\": data[\"correlation_method\"],\n    \"mode\": data[\"mode\"],\n    \"variables\": data[\"variables\"],\n    \"statistics\": {\"n\": n, \"coefficient\": coefficient},\n    \"legacy_contract\": data[\"legacy_contract\"],\n    \"presentation\": data[\"presentation\"],\n    \"environment\": {\n        \"python_version\": platform.python_version(),\n        \"matplotlib_version\": matplotlib.__version__,\n        \"font\": font_name\n    }\n}\nassert_finite_json(result)\nresult_path = Path(\"/mnt/data/result.json\")\nwith result_path.open(\"w\", encoding=\"utf-8\") as f:\n    json.dump(result, f, ensure_ascii=False, indent=2, allow_nan=False)\n\n# Validate round-trip and strict required values.\nwith result_path.open(\"r\", encoding=\"utf-8\") as f:\n    validated = json.load(f)\nassert validated[\"statistics\"] == {\"n\": 5, \"coefficient\": 0.8}\nassert validated[\"presentation\"] == data[\"presentation\"]\nassert validated[\"plot_config\"] == data[\"plot_config\"]\nprint(\"Saved and validated result:\", result_path)\n",
+          "def overlaps(a, b, pad=4):\n    return not (a.x1 + pad < b.x0 or b.x1 + pad < a.x0 or a.y1 + pad < b.y0 or b.y1 + pad < a.y0)\n\nfig.canvas.draw()\nrenderer = fig.canvas.get_renderer()\ncap_box = caption_artist.get_window_extent(renderer=renderer)\nabbr_box = abbr_artist.get_window_extent(renderer=renderer)\nxlabel_box = ax.xaxis.label.get_window_extent(renderer=renderer)\nassert not overlaps(cap_box, abbr_box)\nassert not overlaps(cap_box, xlabel_box)\n\nfigure_path = Path(\"/mnt/data/figure.png\")\nfig.savefig(figure_path, dpi=dpi, facecolor=\"white\", edgecolor=\"none\")\nplt.close(fig)\n\nwith Image.open(figure_path) as im:\n    assert im.size == (width_px, height_px)\n    print(\"Saved figure:\", figure_path, \"dimensions:\", im.size)\n\ndef assert_finite_json(obj):\n    if isinstance(obj, dict):\n        for v in obj.values():\n            assert_finite_json(v)\n    elif isinstance(obj, list):\n        for v in obj:\n            assert_finite_json(v)\n    elif isinstance(obj, float) and not math.isfinite(obj):\n        raise ValueError(\"Non-finite value in result JSON.\")\n\nresult = {\n    \"schema_version\": 5,\n    \"figure_kind\": data[\"figure_kind\"],\n    \"language\": data[\"language\"],\n    \"plot_config\": data[\"plot_config\"],\n    \"title\": labels[\"title\"],\n    \"x_label\": labels[\"x_label\"],\n    \"y_label\": labels[\"y_label\"],\n    \"caption\": labels[\"caption\"],\n    \"correlation_method\": data[\"correlation_method\"],\n    \"mode\": data[\"mode\"],\n    \"variables\": data[\"variables\"],\n    \"statistics\": {\"n\": n, \"coefficient\": coefficient},\n    \"legacy_contract\": data[\"legacy_contract\"],\n    \"presentation\": data[\"presentation\"],\n    \"environment\": {\n        \"python_version\": platform.python_version(),\n        \"matplotlib_version\": matplotlib.__version__,\n        \"font\": font_name\n    }\n}\nassert_finite_json(result)\nresult_path = Path(\"/mnt/data/result.json\")\nwith result_path.open(\"w\", encoding=\"utf-8\") as f:\n    json.dump(result, f, ensure_ascii=False, indent=2, allow_nan=False)\n\nwith result_path.open(\"r\", encoding=\"utf-8\") as f:\n    validated = json.load(f)\nassert validated[\"statistics\"] == {\"n\": 5, \"coefficient\": 0.8}\nassert validated[\"presentation\"] == data[\"presentation\"]\nassert validated[\"plot_config\"] == data[\"plot_config\"]\nprint(\"Saved and validated result:\", result_path)\n"
+        ],
+        "usage": {
+          "input_tokens": 9276,
+          "input_tokens_details": {
+            "cache_write_tokens": 57,
+            "cached_tokens": 2639
+          },
+          "output_tokens": 4993,
+          "output_tokens_details": {
+            "reasoning_tokens": 1151
+          },
+          "total_tokens": 14269
+        },
+        "prompt_version": "openai_figure_workbench_v3",
+        "png_file_id": "cfile_6ae18c8ce1e481918c48fcdfd509ee09",
+        "result_file_id": "cfile_6ae18c8ce20481919fdef40f2ebc146b",
+        "model_call_id": "dba575fd-be76-48f7-8f01-7b481f65aae5",
+        "model_input_digest": "f959adfc741fa19ddcf447aaee0125f0c6be9ed8b637f6de7459ee67c90f5b63",
+        "input_sha256": "4e6fef6c86e349761b1ddcfbd9b74f7a56ebbc55adc9b5336d39f5dab1aa28f7"
+      },
+      "text_authorship": {
+        "title": "user",
+        "additional_caption": "user",
+        "created_by": "96da5ede-f336-4136-99a7-d3f3069f7a97"
+      },
+      "external_processing": {
+        "version": 7,
+        "confirmed": true,
+        "version_id": "e63adbff-6f79-4baa-9280-28f77111b74f",
+        "confirmed_at": "2026-10-28T05:02:45.486435+00:00",
+        "confirmed_by": "96da5ede-f336-4136-99a7-d3f3069f7a97",
+        "payload_sha256": "4e6fef6c86e349761b1ddcfbd9b74f7a56ebbc55adc9b5336d39f5dab1aa28f7"
+      }
+    },
+    "configuration": {
+      "id": "e63adbff-6f79-4baa-9280-28f77111b74f",
+      "configuration_id": "2d7f6ab1-c451-4b89-a9a0-2e6fb7dc8213",
+      "revision": 1,
+      "parent_version_id": null,
+      "created_by": "96da5ede-f336-4136-99a7-d3f3069f7a97",
+      "created_at": "2026-10-28 04:48:54.560642+00:00",
+      "sha256": "eb362671d344723575db66f12e734a14e1938c7e32dde2c44fef6b227f0b3763",
+      "config": {
+        "style": {
+          "title": "Synthetic scatter plot",
+          "width": 2400,
+          "height": 1600,
+          "aliases": {
+            "A": "X",
+            "B": "Y",
+            "C": "Z"
+          },
+          "caption": "Synthetic data engineering verification only.",
+          "palette": "colorblind",
+          "font_size": 12,
+          "display_order": []
+        },
+        "language": "en",
+        "projection": null,
+        "figure_kind": "scatter"
+      },
+      "source": {
+        "kind": "prepared_dataset_version",
+        "file_id": "c24f97bc-bddf-55de-96a8-f7793b5f0a86",
+        "dataset_id": "184a1535-eb8f-5137-b599-c299a32edff1",
+        "sheet_name": "Pair",
+        "sheet_index": 0,
+        "structure_id": "755a3a0e-bb8d-4319-8862-fcf9ed85657f",
+        "source_sha256": "7a0b416ef376573f038f8e481709b07f939ded7cd65ec812a9d8bc717788e254",
+        "dataset_sha256": "f81d9184efc16439e7736cf9a8cb841c578f7842ddfdf141483444e14f3f0b63",
+        "parser_version": "openpyxl-3.1.5-structure-v1",
+        "schema_version": 1,
+        "dataset_version": 1,
+        "parent_dataset_id": "0a55c7c3-b003-556c-b494-5b93fae62445",
+        "transform_version": "excel_prepare_v1",
+        "dataset_size_bytes": 3536,
+        "dataset_schema_version": 1,
+        "parent_dataset_version": 1
+      },
+      "figure_contract": 3
+    },
+    "projection": {
+      "id": "d73a5303-864a-50a7-ae03-6f0838a9f1ed",
+      "config_version_id": "e63adbff-6f79-4baa-9280-28f77111b74f",
+      "sha256": "a5ba7618167379a891375029be660d394e38de4bda1cbc4e80982697671c3416",
+      "result": {
+        "audit": {
+          "valid_n": 5,
+          "excluded": [
+            {
+              "row": 7,
+              "reason": "selected_missing",
+              "coordinates": [
+                "B7"
+              ]
+            },
+            {
+              "row": 8,
+              "reason": "selected_missing",
+              "coordinates": [
+                "A8"
+              ]
+            }
+          ],
+          "excluded_n": 2,
+          "missing_y_n": 0,
+          "population_n": 7,
+          "included_rows": [
+            2,
+            3,
+            4,
+            5,
+            6
+          ]
+        },
+        "method": {
+          "kind": "scatter",
+          "basis": "original_statistical_valid_rows"
+        },
+        "series": [],
+        "_material": {
+          "sha256": "fce773f89cd309643c62bd4c9f7515b3f61a80586e99fc62bb1f25ed7edbb42e",
+          "payload": {
+            "mode": "pair",
+            "labels": {
+              "title": "Synthetic scatter plot",
+              "caption": "Pearson correlation; 5 complete records; 2 excluded records. Each point retains its original row pairing. No regression line or inferential markers are displayed. No imputation, deduplication or outlier removal. Correlation does not establish causation. Synthetic data engineering verification only. Correlation does not establish causation; show only computed coefficients and valid record counts, without additional P values, confidence intervals or significance stars.",
+              "x_label": "X (unit not specified)",
+              "y_label": "Y (unit not specified)"
+            },
+            "values": [
+              [
+                1.0,
+                2.0
+              ],
+              [
+                2.0,
+                1.0
+              ],
+              [
+                3.0,
+                4.0
+              ],
+              [
+                4.0,
+                3.0
+              ],
+              [
+                5.0,
+                5.0
+              ]
+            ],
+            "language": "en",
+            "variables": [
+              {
+                "name": "X",
+                "unit": "",
+                "column": "A"
+              },
+              {
+                "name": "Y",
+                "unit": "",
+                "column": "B"
+              }
+            ],
+            "figure_kind": "scatter",
+            "plot_config": {
+              "style": {
+                "width": 2400,
+                "height": 1600,
+                "palette": "colorblind",
+                "font_size": 12,
+                "display_order": []
+              },
+              "numbering_mode": "external",
+              "regression_line": false,
+              "complete_case_basis": "common_rows",
+              "inference_displayed": false
+            },
+            "presentation": {
+              "axes": {
+                "x": {
+                  "unit": "",
+                  "label": "X (unit not specified)"
+                },
+                "y": {
+                  "unit": "",
+                  "label": "Y (unit not specified)"
+                }
+              },
+              "legend": {
+                "title": "Group",
+                "entries": []
+              },
+              "color_scale": null,
+              "abbreviations": [
+                {
+                  "term": "n",
+                  "definition": "Valid record count; independent participant count requires the study design"
+                },
+                {
+                  "term": "r",
+                  "definition": "Pearson linear correlation coefficient"
+                }
+              ],
+              "schema_version": 2,
+              "statistical_notes": [
+                "Correlation does not establish causation; show only computed coefficients and valid record counts, without additional P values, confidence intervals or significance stars."
+              ]
+            },
+            "schema_version": 5,
+            "legacy_contract": 2,
+            "correlation_method": "pearson"
+          },
+          "expected": {
+            "mode": "pair",
+            "title": "Synthetic scatter plot",
+            "caption": "Pearson correlation; 5 complete records; 2 excluded records. Each point retains its original row pairing. No regression line or inferential markers are displayed. No imputation, deduplication or outlier removal. Correlation does not establish causation. Synthetic data engineering verification only. Correlation does not establish causation; show only computed coefficients and valid record counts, without additional P values, confidence intervals or significance stars.",
+            "x_label": "X (unit not specified)",
+            "y_label": "Y (unit not specified)",
+            "language": "en",
+            "variables": [
+              {
+                "name": "X",
+                "unit": "",
+                "column": "A"
+              },
+              {
+                "name": "Y",
+                "unit": "",
+                "column": "B"
+              }
+            ],
+            "statistics": {
+              "n": 5,
+              "coefficient": 0.7999999999999998
+            },
+            "figure_kind": "scatter",
+            "plot_config": {
+              "style": {
+                "width": 2400,
+                "height": 1600,
+                "palette": "colorblind",
+                "font_size": 12,
+                "display_order": []
+              },
+              "numbering_mode": "external",
+              "regression_line": false,
+              "complete_case_basis": "common_rows",
+              "inference_displayed": false
+            },
+            "presentation": {
+              "axes": {
+                "x": {
+                  "unit": "",
+                  "label": "X (unit not specified)"
+                },
+                "y": {
+                  "unit": "",
+                  "label": "Y (unit not specified)"
+                }
+              },
+              "legend": {
+                "title": "Group",
+                "entries": []
+              },
+              "color_scale": null,
+              "abbreviations": [
+                {
+                  "term": "n",
+                  "definition": "Valid record count; independent participant count requires the study design"
+                },
+                {
+                  "term": "r",
+                  "definition": "Pearson linear correlation coefficient"
+                }
+              ],
+              "schema_version": 2,
+              "statistical_notes": [
+                "Correlation does not establish causation; show only computed coefficients and valid record counts, without additional P values, confidence intervals or significance stars."
+              ]
+            },
+            "schema_version": 5,
+            "legacy_contract": 2,
+            "correlation_method": "pearson"
+          }
+        },
+        "input_sha256": "68e809c85464669cd352f37686406a0ee3d13c12df0c3fb0fc4802650db13c4f",
+        "tool_version": "figure_projection_v1",
+        "schema_version": 1,
+        "original_statistical_n": 5
+      }
+    }
+  },
+  "saved_explanation": {
+    "schema_version": 5,
+    "id": "34ad7ce5-9a68-4b23-bb29-fabab2c90b29",
+    "analysis_run_id": "15ba4fcf-d5ba-4ccd-9a96-cc572a6a6801",
+    "file_id": "c24f97bc-bddf-55de-96a8-f7793b5f0a86",
+    "source": {
+      "kind": "prepared_dataset_version",
+      "schema_version": 1,
+      "dataset_id": "184a1535-eb8f-5137-b599-c299a32edff1",
+      "structure_id": "755a3a0e-bb8d-4319-8862-fcf9ed85657f",
+      "dataset_version": 1,
+      "file_id": "c24f97bc-bddf-55de-96a8-f7793b5f0a86",
+      "source_sha256": "7a0b416ef376573f038f8e481709b07f939ded7cd65ec812a9d8bc717788e254",
+      "dataset_sha256": "f81d9184efc16439e7736cf9a8cb841c578f7842ddfdf141483444e14f3f0b63",
+      "dataset_size_bytes": 3536,
+      "dataset_schema_version": 1,
+      "sheet_index": 0,
+      "sheet_name": "Pair",
+      "parser_version": "openpyxl-3.1.5-structure-v1",
+      "parent_dataset_id": "0a55c7c3-b003-556c-b494-5b93fae62445",
+      "parent_dataset_version": 1,
+      "transform_version": "excel_prepare_v1"
+    },
+    "source_sha256": "7a0b416ef376573f038f8e481709b07f939ded7cd65ec812a9d8bc717788e254",
+    "setup_revision": 4,
+    "figure_id": "eb6fd0d6-37d2-59b4-a4df-428885474f74",
+    "figure_sha256": "3cddeb701c8fda64226752ad813ae6045fa9abf20c1195a698f1ac77633a06bf",
+    "facts_sha256": "241fa5dcf22d4a259c22fae928e8b9c50c08654e637350e2dc688a50e7337e12",
+    "language": "en",
+    "created_at": "2026-10-28T08:26:17.311517+00:00",
+    "sections": [
+      {
+        "key": "purpose",
+        "title": "Analysis purpose",
+        "text": "Describe the association between X and Y.",
+        "evidence": [
+          {
+            "key": "variables.0.name",
+            "label": "Variable",
+            "value": "X"
+          },
+          {
+            "key": "variables.1.name",
+            "label": "Variable",
+            "value": "Y"
+          }
+        ]
+      },
+      {
+        "key": "data",
+        "title": "Data used",
+        "text": "Source row count: 7; Complete record count: 5; Excluded row count: 2; X (unit not specified); Unit not specified; Y (unit not specified); Unit not specified",
+        "evidence": [
+          {
+            "key": "data.total",
+            "label": "Source row count",
+            "value": "7"
+          },
+          {
+            "key": "data.valid",
+            "label": "Complete record count",
+            "value": "5"
+          },
+          {
+            "key": "data.excluded",
+            "label": "Excluded row count",
+            "value": "2"
+          },
+          {
+            "key": "axis.x.label",
+            "label": "Horizontal field",
+            "value": "X (unit not specified)"
+          },
+          {
+            "key": "axis.x.unit",
+            "label": "Horizontal unit",
+            "value": "Unit not specified"
+          },
+          {
+            "key": "axis.y.label",
+            "label": "Vertical field",
+            "value": "Y (unit not specified)"
+          },
+          {
+            "key": "axis.y.unit",
+            "label": "Vertical unit",
+            "value": "Unit not specified"
+          }
+        ]
+      },
+      {
+        "key": "methods",
+        "title": "Analysis methods",
+        "text": "Pearson correlation uses complete observations across all selected variables, retaining original row correspondence; no imputation, deduplication or outlier removal. Pearson measures linear association; its inferential assumptions are declared by the user, not proven by this program. Pearson two-sided beta-distribution test. 95% Fisher z interval. ; User-declared independent observations; independence was not verified; Research design text was supplied but was not programmatically verified or forwarded.",
+        "evidence": [
+          {
+            "key": "method.summary",
+            "label": "Analysis method",
+            "value": "Pearson correlation uses complete observations across all selected variables, retaining original row correspondence; no imputation, deduplication or outlier removal. Pearson measures linear association; its inferential assumptions are declared by the user, not proven by this program. Pearson two-sided beta-distribution test. 95% Fisher z interval. "
+          },
+          {
+            "key": "design.structure",
+            "label": "Observation structure and verification limits",
+            "value": "User-declared independent observations; independence was not verified"
+          },
+          {
+            "key": "design.status",
+            "label": "Research design information status",
+            "value": "Research design text was supplied but was not programmatically verified or forwarded."
+          }
+        ]
+      },
+      {
+        "key": "results",
+        "title": "Main results",
+        "text": "X; Y; unit not specified; unit not specified; Common effective n: 5; Correlation coefficient: 0.8; Two-sided P value: 0.104088; Confidence interval: -0.27964 to 0.986196",
+        "evidence": [
+          {
+            "key": "variables.0.name",
+            "label": "Variable",
+            "value": "X"
+          },
+          {
+            "key": "variables.1.name",
+            "label": "Variable",
+            "value": "Y"
+          },
+          {
+            "key": "variables.0.unit",
+            "label": "Unit",
+            "value": "unit not specified"
+          },
+          {
+            "key": "variables.1.unit",
+            "label": "Unit",
+            "value": "unit not specified"
+          },
+          {
+            "key": "correlation.n",
+            "label": "Common effective n",
+            "value": "5"
+          },
+          {
+            "key": "correlation.coefficient",
+            "label": "Correlation coefficient",
+            "value": "0.8"
+          },
+          {
+            "key": "correlation.p_value",
+            "label": "Two-sided P value",
+            "value": "0.104088"
+          },
+          {
+            "key": "correlation.confidence_interval",
+            "label": "Confidence interval",
+            "value": "-0.27964 to 0.986196"
+          }
+        ]
+      },
+      {
+        "key": "interpretation",
+        "title": "Interpretation",
+        "text": "Correlation coefficient: 0.8; User-declared independent observations; independence was not verified; Research design text was supplied but was not programmatically verified or forwarded.; Correlation describes association and does not establish causation or treatment effectiveness.; Independent observations and the required relationship/inferential assumptions were declared by the user; the program does not prove them.; Small samples and missing-record exclusions can make conclusions unstable; only the selected complete records were analysed.; Interpretation uses saved statistics and verified figure metadata; image pixels and AI wording require human review.; Displayed numbers use at most 6 significant digits; saved results preserve full precision.; Research design and observation independence were not programmatically verified; absent design is not assumed and causation cannot be inferred.; Values and fact references were inserted and checked locally; meaning and research applicability require review.; User-declared independent observations; independence was not verified; This explanation checks frozen statistics and metadata only; image pixels, in-image text and visual correctness were not verified. The AI draft requires human review.",
+        "evidence": [
+          {
+            "key": "correlation.coefficient",
+            "label": "Correlation coefficient",
+            "value": "0.8"
+          },
+          {
+            "key": "design.structure",
+            "label": "Observation structure and verification limits",
+            "value": "User-declared independent observations; independence was not verified"
+          },
+          {
+            "key": "design.status",
+            "label": "Research design information status",
+            "value": "Research design text was supplied but was not programmatically verified or forwarded."
+          },
+          {
+            "key": "limitation.0",
+            "label": "Applicable limitation",
+            "value": "Correlation describes association and does not establish causation or treatment effectiveness."
+          },
+          {
+            "key": "limitation.1",
+            "label": "Applicable limitation",
+            "value": "Independent observations and the required relationship/inferential assumptions were declared by the user; the program does not prove them."
+          },
+          {
+            "key": "limitation.2",
+            "label": "Applicable limitation",
+            "value": "Small samples and missing-record exclusions can make conclusions unstable; only the selected complete records were analysed."
+          },
+          {
+            "key": "limitation.3",
+            "label": "Applicable limitation",
+            "value": "Interpretation uses saved statistics and verified figure metadata; image pixels and AI wording require human review."
+          },
+          {
+            "key": "limitation.4",
+            "label": "Applicable limitation",
+            "value": "Displayed numbers use at most 6 significant digits; saved results preserve full precision."
+          },
+          {
+            "key": "limitation.5",
+            "label": "Applicable limitation",
+            "value": "Research design and observation independence were not programmatically verified; absent design is not assumed and causation cannot be inferred."
+          },
+          {
+            "key": "limitation.6",
+            "label": "Applicable limitation",
+            "value": "Values and fact references were inserted and checked locally; meaning and research applicability require review."
+          },
+          {
+            "key": "limitation.7",
+            "label": "Applicable limitation",
+            "value": "User-declared independent observations; independence was not verified"
+          },
+          {
+            "key": "limitation.8",
+            "label": "Applicable limitation",
+            "value": "This explanation checks frozen statistics and metadata only; image pixels, in-image text and visual correctness were not verified. The AI draft requires human review."
+          }
+        ]
+      },
+      {
+        "key": "paper_text",
+        "title": "Manuscript wording",
+        "text": "this figure presents the association between X and Y: Pearson; Common effective n: 5; Correlation coefficient: 0.8; Two-sided P value: 0.104088; Confidence interval: -0.27964 to 0.986196.",
+        "evidence": [
+          {
+            "key": "figure.number",
+            "label": "Figure number",
+            "value": "this figure"
+          },
+          {
+            "key": "variables.0.name",
+            "label": "Variable",
+            "value": "X"
+          },
+          {
+            "key": "variables.1.name",
+            "label": "Variable",
+            "value": "Y"
+          },
+          {
+            "key": "correlation.method",
+            "label": "Correlation method",
+            "value": "Pearson"
+          },
+          {
+            "key": "correlation.n",
+            "label": "Common effective n",
+            "value": "5"
+          },
+          {
+            "key": "correlation.coefficient",
+            "label": "Correlation coefficient",
+            "value": "0.8"
+          },
+          {
+            "key": "correlation.p_value",
+            "label": "Two-sided P value",
+            "value": "0.104088"
+          },
+          {
+            "key": "correlation.confidence_interval",
+            "label": "Confidence interval",
+            "value": "-0.27964 to 0.986196"
+          }
+        ]
+      }
+    ],
+    "draft": {
+      "purpose": "Describe the association between {{variables.0.name}} and {{variables.1.name}}.",
+      "interpretation": "{{correlation.coefficient}}; {{design.structure}}; {{design.status}}; {{limitation.0}}; {{limitation.1}}; {{limitation.2}}; {{limitation.3}}; {{limitation.4}}; {{limitation.5}}; {{limitation.6}}; {{limitation.7}}; {{limitation.8}}",
+      "results": "{{variables.0.name}}; {{variables.1.name}}; {{variables.0.unit}}; {{variables.1.unit}}; {{correlation.n}}; {{correlation.coefficient}}; {{correlation.p_value}}; {{correlation.confidence_interval}}",
+      "paper_text": "{{figure.number}} presents the association between {{variables.0.name}} and {{variables.1.name}}: {{correlation.method}}; {{correlation.n}}; {{correlation.coefficient}}; {{correlation.p_value}}; {{correlation.confidence_interval}}.",
+      "methods": "{{method.summary}}; {{design.structure}}; {{design.status}}",
+      "data": "{{data.total}}; {{data.valid}}; {{data.excluded}}; {{axis.x.label}}; {{axis.x.unit}}; {{axis.y.label}}; {{axis.y.unit}}"
+    },
+    "payload_sha256": "c5b42399996737927375c6aa2562c3b0d31f8919ae7083c5a9f4df31932bb090",
+    "limitations": [
+      "Correlation describes association and does not establish causation or treatment effectiveness.",
+      "Independent observations and the required relationship/inferential assumptions were declared by the user; the program does not prove them.",
+      "Small samples and missing-record exclusions can make conclusions unstable; only the selected complete records were analysed.",
+      "Interpretation uses saved statistics and verified figure metadata; image pixels and AI wording require human review.",
+      "Displayed numbers use at most 6 significant digits; saved results preserve full precision.",
+      "Research design and observation independence were not programmatically verified; absent design is not assumed and causation cannot be inferred.",
+      "Values and fact references were inserted and checked locally; meaning and research applicability require review.",
+      "User-declared independent observations; independence was not verified",
+      "This explanation checks frozen statistics and metadata only; image pixels, in-image text and visual correctness were not verified. The AI draft requires human review."
+    ],
+    "verification": {
+      "status": "references_checked",
+      "note": "Values and fact references were inserted and checked locally; meaning and research applicability require review."
+    },
+    "engine": {
+      "id": "figure_explanation_v4",
+      "provider": "openai",
+      "model": "gpt-6.1-sol"
+    },
+    "provenance": {
+      "response_id": "resp_0afeb35c4b5fa820006ae1b10ebc3c87d1929e25fcc54de9d8",
+      "model": "gpt-6.1-sol",
+      "usage": {
+        "input_tokens": 2159,
+        "input_tokens_details": {
+          "cache_write_tokens": 2156,
+          "cached_tokens": 0
+        },
+        "output_tokens": 303,
+        "output_tokens_details": {
+          "reasoning_tokens": 0
+        },
+        "total_tokens": 2462
+      },
+      "prompt_version": "figure_explanation_v4",
+      "model_call_id": "ee1b8a49-8553-49e1-ab1a-d113409b48e4",
+      "model_input_digest": "34790b1b7d2f708565eae06932f01b78ea48b5b1fbf6e1aa0bffa3ddd4232d0d",
+      "input_sha256": "c5b42399996737927375c6aa2562c3b0d31f8919ae7083c5a9f4df31932bb090"
+    }
+  }
+}

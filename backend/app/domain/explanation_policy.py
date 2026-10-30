@@ -21,8 +21,9 @@ class ExplanationExecutionPolicy(StrictContract):
 
     @model_validator(mode='after')
     def fixed_explanation_contract(self):
-        if (self.policy.prompt_version not in (VERSION, 'analysis_explanation_v2', 'analysis_explanation_v3', 'analysis_explanation_v4') or self.policy.tools
-                or self.policy.output_format != self.policy.prompt_version):
+        output = 'analysis_explanation_v2' if self.policy.prompt_version == 'figure_explanation_v5' else self.policy.prompt_version
+        if (self.policy.prompt_version not in (VERSION, 'analysis_explanation_v2', 'analysis_explanation_v3', 'analysis_explanation_v4', 'figure_explanation_v5') or self.policy.tools
+                or self.policy.output_format != output):
             raise ValueError('The configured policy must use the current explanation contract.')
         return self
 
@@ -71,10 +72,15 @@ def validate_execution_policy(value, payload=None, *, result=None):
     if payload is not None:
         try:
             expected_version = {2:'analysis_explanation_v2',3:'analysis_explanation_v3',4:'analysis_explanation_v4'}.get(payload.get('schema_version'),VERSION)
+            if payload.get('figure_explanation_contract') == 5:
+                expected_version = 'figure_explanation_v5'
             if parsed.policy.prompt_version != expected_version:
                 raise ValueError('Frozen explanation policy does not match material.')
             instructions=INSTRUCTIONS
-            if payload.get('schema_version')==4:
+            if payload.get('figure_explanation_contract') == 5:
+                from app.domain.figure_workbench.explanation_v5 import instructions_v5
+                instructions=instructions_v5(payload)
+            elif payload.get('schema_version')==4:
                 from app.domain.modeling_prompts import EXPLANATION_INSTRUCTIONS
                 instructions=EXPLANATION_INSTRUCTIONS
             elif payload.get('schema_version')==3:
@@ -99,6 +105,8 @@ def derive_execution_policy(value, payload=None):
         validate_execution_policy(value)
         version='analysis_explanation_v4' if payload['schema_version']==4 else 'analysis_explanation_v3' if payload['schema_version']==3 else 'analysis_explanation_v2'
         value['policy'].update(prompt_version=version,output_format=version)
+        if payload.get('figure_explanation_contract') == 5:
+            value['policy'].update(prompt_version='figure_explanation_v5',output_format='analysis_explanation_v2')
     return validate_execution_policy(value,payload)
 
 

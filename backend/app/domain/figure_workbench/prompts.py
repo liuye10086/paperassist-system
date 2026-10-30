@@ -166,9 +166,59 @@ def _scientific_annotations_v3(payload):
     return ''
 
 
+PRESENTATION_V4 = PRESENTATION_V3.replace('VERSION 3', 'VERSION 4')
+
+ROC_GEOMETRY_V4 = """
+VERSION 4 ROC SAVED-POINT GEOMETRY:
+Connect the complete ordered computed threshold (fpr, tpr) points with straight line segments,
+preserving vertical segments at repeated FPR. When a tied threshold jointly changes FPR and TPR,
+connect its adjacent threshold points with a diagonal segment; do not impose an ordering within ties.
+Do not use step, pre, post or midpoint stairs, or add corners absent from the threshold points.
+The plotted curve's trapezoidal area must match the displayed and returned AUC at saved precision.
+Preserve all observations, threshold points, counts, statistics, labels and presentation metadata.
+"""
+
+HEATMAP_READABILITY_V4 = """
+VERSION 4 HEATMAP TEXT GEOMETRY:
+Before placing axes, measure the longest formatted cell label including minus signs,
+decimal points and all decimal digits with the supplied font_size. Allocate cell bounding boxes
+and padding around that full text; minus signs must remain visibly separated from cell edges.
+Use the longest formatted cell label to plan cell widths, cell heights and colorbar tick margins.
+After the final canvas draw, verify every full signed decimal label fits inside its cell bounding boxes
+with visible whitespace and cannot touch another label, grid line, colorbar or tick label.
+Reallocate canvas margins and axes space if necessary; keep supplied dimensions, font_size,
+palette, all matrix entries and exact labels. Preserve the -1..1 color range and zero-centered scale.
+Never drop minus signs, decimal digits or labels, change numbers, or reduce text to unreadable size.
+"""
+
+KM_READABILITY_V4 = """
+VERSION 4 KM TEXT GEOMETRY:
+Plan dedicated, separate areas for the data axes, legend, explanatory notes and risk table.
+Use at least 1.25 times the supplied font_size as the baseline-to-baseline line height for
+all wrapped legend labels, legend entries, censor explanations, full caption and abbreviations.
+Measure the final rendered glyphs and require non-overlapping text bounding boxes, including
+across adjacent lines and between the legend and explanatory notes; increase spacing when needed.
+The risk table has its own region with its title, row labels, every supplied count and all time ticks;
+it cannot share space with the legend, caption, explanatory notes or main-axis tick labels.
+Keep the exact requested dimensions, supplied font_size, palette, all labels, complete risk data,
+events, censoring marks and available intervals. Reallocate blank canvas and wrap text before
+reducing the data-axes area; do not shrink text to unreadable size or delete notes or observations.
+"""
+
+
 def instructions_for(payload):
     original = _legacy_instructions_for(payload)
     if 'presentation' not in payload: return original
-    if payload['presentation'].get('schema_version') == 2:
+    metadata = payload['presentation']
+    schema = metadata.get('schema_version') if isinstance(metadata, dict) else None
+    if type(schema) is not int or schema not in (1, 2, 3):
+        from app.core.exceptions import StorageError
+        raise StorageError('task_source_conflict', '图表展示契约版本无效。', 409)
+    if schema == 3:
+        extra = HEATMAP_READABILITY_V4 if payload['figure_kind'] == 'correlation_heatmap' else KM_READABILITY_V4 if payload['figure_kind'] == 'kaplan_meier' else ''
+        if payload['figure_kind'] == 'roc_curve' and payload.get('legacy_contract') == 4 and payload.get('method') == 'roc_auc':
+            extra += ROC_GEOMETRY_V4
+        return original + PRESENTATION_V4 + _scientific_annotations_v3(payload) + extra
+    if schema == 2:
         return original + PRESENTATION_V3 + _scientific_annotations_v3(payload)
     return original + PRESENTATION

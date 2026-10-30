@@ -14,7 +14,7 @@ from docx.shared import Cm, Inches, Pt, RGBColor
 from app.core.exceptions import StorageError
 
 
-RENDERER_VERSION = 'manuscript_docx_v5'
+RENDERER_VERSION = 'manuscript_docx_v7'
 
 SECTION_LABELS = (
     ('title', 'Title', '标题'),
@@ -102,9 +102,17 @@ def _table(document, item):
             run.bold = True
     for values in item['rows']:
         row = table.add_row()
-        row._tr.get_or_add_trPr().append(OxmlElement('w:cantSplit'))
+        # Allow continuation: the pinned PDF converter can otherwise discard
+        # remaining rows when a table starts near the bottom of a page.
         for cell, value in zip(row.cells, values):
             cell.text = str(value)
+    # Body paragraph spacing can continue alone onto the next page in the
+    # pinned converter, creating an empty grid row under the repeated header.
+    # Keep cell text splittable (including taller-than-page rows), but do not
+    # carry the ordinary prose's trailing gap across a table page boundary.
+    for row in table.rows:
+        for cell in row.cells:
+            cell.paragraphs[0].paragraph_format.space_after = Pt(0)
     document.add_paragraph().paragraph_format.space_after = Pt(0)
 
 

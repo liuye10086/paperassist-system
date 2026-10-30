@@ -1,5 +1,6 @@
 """Link public work without claiming completion; adopt only verified CPU output."""
 from copy import deepcopy
+from contextlib import nullcontext
 import json
 from uuid import uuid4
 
@@ -9,6 +10,7 @@ from app.domain.dataset_preparation.service import require_key
 from app.domain.literature.service import digest
 from .service import ReviewRoundService
 from .planning import invalid
+from .figure_adoptions import FigureAdoptions
 
 
 PURPOSE_TYPES = {
@@ -21,7 +23,59 @@ PURPOSE_TYPES = {
 }
 
 
-class ScienceService(ReviewRoundService):
+class ScienceService(FigureAdoptions, ReviewRoundService):
+    def validate_link_task(self, db, task):
+        """Keep the public request digest separate from a full snapshot hash."""
+        from app.domain.tasks.workspace import TaskWorkspaceService
+        kind, snapshot = task['task_type'], task['input_snapshot']
+        try:
+            if kind in ('figure_projection', 'figure_workbench'):
+                from app.adapters.figure_workbench_store import FigureWorkbenchStore, projection_request_digest, validate_projection_checkpoint
+                from app.domain.figure_workbench.tasks import task_source
+                task_source(self.store, db, task)
+                workbench = FigureWorkbenchStore(self.assets)
+                result = snapshot['result']
+                row = workbench._version(db, task['project_id'], result['file_id'], result['id'], snapshot['figure_workbench']['version_id'])
+                if snapshot['output_language'] != row['config_json']['language']:
+                    raise source_conflict()
+                if kind == 'figure_projection':
+                    if task['workflow_version'] not in ('figure_projection_v1', 'figure_projection_v2'):
+                        raise source_conflict()
+                    checkpoint = db.execute('SELECT * FROM task_checkpoints WHERE task_id=%s ORDER BY seq DESC LIMIT 1', (task['id'],)).fetchone()
+                    validate_projection_checkpoint(task, checkpoint)
+                    expected = (projection_request_digest(row) if task['workflow_version'] == 'figure_projection_v2'
+                        else workbench.material(task['project_id'], result['file_id'], result['id'], row['id'])[2]['input_sha256'])
+                else:
+                    if task['workflow_version'] != 'figure_workbench_v1':
+                        raise source_conflict()
+                    external = snapshot['external_processing']
+                    expected = digest(dict(version_id=row['id'], figure_id=None,
+                        external={k: external[k] for k in ('confirmed', 'payload_sha256')}))
+                if task['input_digest'] != expected:
+                    raise source_conflict()
+            elif kind == 'boxplot':
+                from app.domain.tasks.contracts import TaskCreateRequest
+                from app.domain.external_processing import request_digest, validate_frozen
+                external = snapshot.get('external_processing')
+                confirmation = None
+                if external is not None:
+                    validate_frozen(snapshot, kind, task['user_id'], external)
+                    confirmation = dict(version=external['version'], confirmed=True,
+                        source_digest=external['source_digest'], labels=external['labels'])
+                request = TaskCreateRequest(task_type=kind, file_id=snapshot['file']['id'],
+                    analysis_run_id=snapshot['result']['id'], expected_revision=snapshot['result']['setup_revision'],
+                    external_processing=confirmation)
+                if task['input_digest'] != request_digest(request):
+                    raise source_conflict()
+                TaskWorkspaceService(self.store.user_id, self.store.config).source(db, task)
+            elif kind in set().union(*PURPOSE_TYPES.values()):
+                if digest(snapshot) != task['input_digest']:
+                    raise source_conflict()
+            else:
+                raise source_conflict()
+        except (KeyError, TypeError, ValueError):
+            raise source_conflict() from None
+
     def current_item(self, db, project, round_id, plan_revision, item_id, *, lock=False):
         row = self.round_row(db, project, round_id, lock)
         state, events = self.state(db, row)
@@ -33,7 +87,7 @@ class ScienceService(ReviewRoundService):
         return row, state, item
 
     def science_row(self, db, project, identity, table):
-        assert table in ('review_opinion_task_links', 'review_analysis_adoptions')
+        assert table in ('review_opinion_task_links', 'review_analysis_adoptions', 'review_figure_adoptions')
         self.project(db, project)
         row = db.execute('SELECT * FROM ' + table + ' WHERE id=%s AND project_id=%s AND user_id=%s',
                          (identity, project, self.store.user_id)).fetchone()
@@ -55,8 +109,9 @@ class ScienceService(ReviewRoundService):
         if (not item or snap['item_revision']!=item['revision'] or snap['manuscript_version_id']!=round['snapshot_json']['manuscript']['version_id']
                 or snap['task_id']!=row['task_id'] or task['task_type'] not in PURPOSE_TYPES.get(snap['purpose'],set())
                 or task['project_id'] != row['project_id'] or task['input_digest'] != snap['task_input_digest']
-                or digest(task['input_snapshot']) != task['input_digest']):
+                or ('task_snapshot_sha256' in snap and digest(task['input_snapshot']) != snap['task_snapshot_sha256'])):
             raise source_conflict()
+        self.validate_link_task(db, task)
         public = self.store.public_task(task)
         if public['input_version']!=snap['input_version']:raise source_conflict()
         result = {k: deepcopy(public.get(k)) for k in ('result_analysis_run_id', 'result_figure_id', 'result_report_id', 'execution_receipt')}
@@ -98,12 +153,13 @@ class ScienceService(ReviewRoundService):
             return dict(round_id=round_id, plan_revision=events[-1]['revision'] if events else 1,
                         task_links=[self.link_view(db, r) for r in links],
                         analysis_adoptions=[self.adoption_view(self.validate_adoption(db, r)) for r in adoptions],
+                        figure_adoptions=[self.figure_adoption_view(self.validate_figure_adoption(db,r)) for r in db.execute('SELECT * FROM review_figure_adoptions WHERE round_id=%s ORDER BY created_at,id',(round_id,)).fetchall()],
                         pending=['新增外部检索和模型绘图等待独立授权；任务关联不代表意见已完成。'])
 
-    def create_link(self, project, round_id, request, key, *, request_body=None):
+    def create_link(self, project, round_id, request, key, *, request_body=None, creation_kind=None, db=None):
         require_key(key)
         body = request.model_dump(mode='json') if request_body is None else request_body
-        with self.store.connection(write=True) as db:
+        with (nullcontext(db) if db is not None else self.store.connection(write=True)) as db:
             self.project(db, project, True)
             old = self.replay(db, 'review_opinion_task_links', project, key, body)
             if old:
@@ -120,10 +176,13 @@ class ScienceService(ReviewRoundService):
             snap = dict(id=str(uuid4()), project_id=project, round_id=round_id, item_id=item['id'],
                         item_revision=item['revision'], plan_revision=request.plan_revision, purpose=request.purpose,
                         manuscript_version_id=row['snapshot_json']['manuscript']['version_id'], task_id=task['id'],
-                        task_input_digest=task['input_digest'], input_version=public['input_version'],
+                        task_input_digest=task['input_digest'], task_snapshot_sha256=digest(task['input_snapshot']), input_version=public['input_version'],
                         synthetic=bool(row['snapshot_json']['synthetic']))
             if request_body is not None:
-                snap['statistics_request'] = deepcopy(request_body)
+                if creation_kind is None:
+                    snap['statistics_request'] = deepcopy(request_body)
+                else:
+                    snap.update(creation_kind=creation_kind, creation_request=deepcopy(request_body))
             self.insert(db, 'review_opinion_task_links', project, key, body, snap,
                         round_id=round_id, item_id=item['id'], plan_revision=request.plan_revision, task_id=task['id'])
             return self.link_view(db, self.science_row(db, project, snap['id'], 'review_opinion_task_links')), 201
@@ -142,14 +201,15 @@ class ScienceService(ReviewRoundService):
         from .science_contracts import TaskLinkRequest
         require_key(key)
         body = request.model_dump(mode='json')
-        with self.store.connection() as db:
+        with self.store.connection(write=True) as db:
+            self.project(db, project, True)
             self.round_row(db, project, round_id)
             old = self.replay(db, 'review_opinion_task_links', project, key, body)
             if old:
                 if old['round_id'] != round_id or old['snapshot_json'].get('statistics_request') != body:
                     raise StorageError('task_idempotency_conflict', '标识已用于其他轮次或关联。', 409)
                 return self.link_view(db, old), 200
-            self.current_item(db, project, round_id, request.plan_revision, request.item_id)
+            self.current_item(db, project, round_id, request.plan_revision, request.item_id, lock=True)
             self.assets.file(project, request.file_id)
             saved = db.execute('SELECT setup_json FROM analysis_setups WHERE file_id=%s', (request.file_id,)).fetchone()
             if not saved:
@@ -159,13 +219,59 @@ class ScienceService(ReviewRoundService):
                 raise StorageError('setup_conflict', '分析配置已变化，请刷新。', 409)
             if not setup.get('source') or not setup.get('analysis_plan') or not validate_setup(self.assets, project, request.file_id, setup):
                 raise invalid('仅能复用已确认整理数据及分析计划创建本地统计任务。', 409)
-        # A deterministic public task key recovers a crash between queue and link.
-        # The link transaction rechecks the exact round/item revision afterwards.
-        task = create(project, request.file_id, RunRequest(expected_revision=request.expected_setup_revision,
-            idempotency_key='review-statistics:' + digest(dict(round_id=round_id, key=key))), self.assets)
-        link_request = TaskLinkRequest(plan_revision=request.plan_revision, item_id=request.item_id, task_id=task['id'], purpose='statistics')
-        result, status = self.create_link(project, round_id, link_request, key, request_body=body)
-        return result, 202 if status == 201 else status
+            # The public queue and full review request commit together.
+            # An interrupted link rolls back the task and outbox as well.
+            task = create(project, request.file_id, RunRequest(expected_revision=request.expected_setup_revision,
+                idempotency_key='review-statistics:' + digest(dict(round_id=round_id, key=key))), self.assets, db=db)
+            link_request = TaskLinkRequest(plan_revision=request.plan_revision, item_id=request.item_id, task_id=task['id'], purpose='statistics')
+            result, status = self.create_link(project, round_id, link_request, key, request_body=body, db=db)
+            return result, 202 if status == 201 else status
+
+    def create_figure_task(self, project, round_id, request, key, *, plot=False):
+        """Commit the full review request and public queue as one transaction."""
+        from app.adapters.figure_workbench_store import FigureWorkbenchStore
+        from .science_contracts import TaskLinkRequest
+        require_key(key)
+        body = request.model_dump(mode='json')
+        kind = 'plot' if plot else 'projection'
+        workbench = FigureWorkbenchStore(self.assets)
+        with self.store.connection(write=True) as db:
+            self.project(db, project, True)
+            self.round_row(db, project, round_id)
+            old = self.replay(db, 'review_opinion_task_links', project, key, body)
+            if old:
+                snap = old['snapshot_json']
+                if old['round_id'] != round_id or snap.get('creation_kind') != kind or snap.get('creation_request') != body:
+                    raise StorageError('task_idempotency_conflict', '标识已用于其他轮次或关联。', 409)
+                return self.link_view(db, old), 200
+            self.current_item(db, project, round_id, request.plan_revision, request.item_id, lock=True)
+            row = workbench._version(db, project, request.file_id, request.analysis_run_id, request.figure_config_version_id)
+            if plot:
+                projection = workbench._projection(db, row)
+                if (not projection or projection['id'] != request.projection_id
+                        or projection['result']['input_sha256'] != request.projection_input_sha256):
+                    raise source_conflict()
+            args = (project, request.file_id, request.analysis_run_id, request.figure_config_version_id)
+            if plot:
+                from app.domain.figure_workbench.contracts import GenerateFigure
+                from app.domain.figure_workbench.tasks import submit
+                task = submit(workbench, *args, GenerateFigure(idempotency_key='review-plot:' + digest(dict(round_id=round_id, key=key)),
+                    external_processing=request.external_processing), db=db)['task']
+            else:
+                checked = workbench.check(*args, db=db)
+                task = checked.get('task')
+                if task is None:
+                    # A style-only version reuses the real parent projection task.
+                    # The selected version remains fixed in creation_request.
+                    row = workbench._version(db, *args)
+                    projection = workbench._projection(db, row)
+                    decision = db.execute('SELECT task_id FROM figure_projection_decisions WHERE id=%s', (projection['decision_id'],)).fetchone() if projection else None
+                    if not decision:
+                        raise source_conflict()
+                    task = self.store.public_task(self.store.require_task(db, decision['task_id']))
+            link = TaskLinkRequest(plan_revision=request.plan_revision, item_id=request.item_id, task_id=task['id'], purpose=kind)
+            result, status = self.create_link(project, round_id, link, key, request_body=body, creation_kind=kind, db=db)
+            return result, 202 if status == 201 else status
 
     def validated_analysis(self, db, project, task, *, require_current):
         from app.domain.statistics_execution.service import require_snapshot, validate_setup

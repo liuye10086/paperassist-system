@@ -1,0 +1,185 @@
+Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Upstream-Name: ZXing-C++
+Source: https://github.com/nu-book/zxing-cpp
+Files-Excluded:
+ test/samples/*
+ wrappers/android/*
+ wrappers/winrt/*
+
+Files: *
+Copyright:
+ 2007-2016 ZXing authors
+ 2019-2022 Nu-book Inc.
+License: Apache-2.0
+Comment:
+ The full ZXing authors list can be found in the AUTHORS.ZXing file as
+ distributed in the docs.
+
+Files: debian/*
+Copyright: 2020-2022, Boyuan Yang <byang@debian.org>
+License: CC0-1.0
+
+Files: core/*
+Copyright:
+ 2016 ZXing authors
+ 2016-2021 Nu-book Inc.
+ 2017-2022 Axel Waggershauser
+ 2016 Huy Cuong Nguyen
+ 2006 Jeremias Maerki
+License: Apache-2.0
+
+Files: example/*
+Copyright:
+ 2016 Nu-book Inc.
+ 2020-2022 Axel Waggershauser
+License: Apache-2.0
+
+Files:
+ test/blackbox/*
+Copyright:
+ 2016 Nu-book Inc.
+ 2019 Axel Waggershauser
+License: Apache-2.0
+
+Files:
+ test/unit/*
+Copyright:
+ 2016 Jeremias Maerki
+ 2017-2022 Axel Waggershauser
+ 2017 Huy Cuong Nguyen
+ 2008-2017 ZXing authors
+ 2021-2022 gitlost
+License: Apache-2.0
+
+Files:
+ wrappers/wasm/base64ArrayBuffer.js
+Copyright:
+ 2011 Jon Leighton
+License: Expat
+
+Files:
+ core/src/textcodec/Big5TextDecoder.cpp
+ core/src/textcodec/KRTextDecoder.h
+ core/src/textcodec/KRTextEncoder.h
+ core/src/textcodec/Big5TextDecoder.h
+ core/src/textcodec/Big5MapTable.h
+ core/src/textcodec/KRHangulMapping.cpp
+ core/src/textcodec/JPTextEncoder.h
+ core/src/textcodec/KRHangulMapping.h
+ core/src/textcodec/Big5TextEncoder.h
+ core/src/textcodec/KRTextDecoder.cpp
+ core/src/textcodec/JPTextEncoder.cpp
+ core/src/textcodec/GBTextEncoder.cpp
+ core/src/textcodec/JPTextDecoder.cpp
+ core/src/textcodec/Big5TextEncoder.cpp
+ core/src/textcodec/GBTextDecoder.h
+ core/src/textcodec/KRTextEncoder.cpp
+ core/src/textcodec/JPTextDecoder.h
+ core/src/textcodec/GBTextEncoder.h
+ core/src/textcodec/Big5MapTable.cpp
+ core/src/textcodec/GBTextDecoder.cpp
+Copyright: 2015 The Qt Company Ltd.
+License: LGPL-2.1 with Qt-LGPL-exception-1.1 or LGPL-3.0 with Qt-LGPL-exception-1.1
+
+License: LGPL-2.1 with Qt-LGPL-exception-1.1
+ This library is free software; you can redistribute it and/or
+ modify it under the terms of the GNU Lesser General Public
+ License version 2.1 as published by the Free Software Foundation.
+ .
+ This library is distributed in the hope that it will be useful,
+ but WITHOUT ANY WARRANTY; without even the implied warranty of
+ MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ Lesser General Public License for more details.
+ .
+ You should have received a copy of the GNU Lesser General Public
+ License along with this library; if not, see
+ <https://www.gnu.org/licenses/>.
+ .
+ On Debian systems, the complete text of the GNU Lesser General Public
+ License can be found in /usr/share/common-licenses/LGPL-2.1 file.
+ .
+ As an additional permission to the GNU Lesser General Public License version
+ 2.1, the object code form of a "work that uses the Library" may incorporate
+ material from a header file that is part of the Library.  You may distribute
+ such object code under terms of your choice, provided that:
+     (i)   the header files of the Library have not been modified; and
+     (ii)  the incorporated material is limited to numerical parameters, data
+           structure layouts, accessors, macros, inline functions and
+           templates; and
+     (iii) you comply with the terms of Section 6 of the GNU Lesser General
+           Public License version 2.1.
+ .
+ Moreover, you may apply this exception to a modified version of the Library,
+ provided that such modification does not involve copying material from the
+ Library into the modified Library's header files unless such material is
+ limited to (i) numerical parameters; (ii) data structure layouts;
+ (iii) accessors; and (iv) small macros, templates and inline functions of
+ five lines or less in length.
+ .
+ Furthermore, you are not required to apply this additional permission to a
+ modified version of the Library.
+
+License: LGPL-3.0 with Qt-LGPL-exception-1.1
+ This library is free software; you can redistribute it and/or
+ modify it under the terms of the GNU Lesser General Public
+ License version 3 as published by the Free Software Foundation.
+ .
+ This library is distributed in the hope that it will be useful,
+ but WITHOUT ANY WARRANTY; without even the implied warranty of
+ MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ Lesser General Public License for more details.
+ .
+ You should have received a copy of the GNU Lesser General Public
+ License along with this library; if not, see
+ <https://www.gnu.org/licenses/>.
+ .
+ On Debian systems, the complete text of the GNU Lesser General Public
+ License can be found in /usr/share/common-licenses/LGPL-3 file.
+ .
+ As an additional permission to the GNU Lesser General Public License version
+ 2.1, the object code form of a "work that uses the Library" may incorporate
+ material from a header file that is part of the Library.  You may distribute
+ such object code under terms of your choice, provided that:
+     (i)   the header files of the Library have not been modified; and
+     (ii)  the incorporated material is limited to numerical parameters, data
+           structure layouts, accessors, macros, inline functions and
+           templates; and
+     (iii) you comply with the terms of Section 6 of the GNU Lesser General
+           Public License version 2.1.
+ .
+ Moreover, you may apply this exception to a modified version of the Library,
+ provided that such modification does not involve copying material from the
+ Library into the modified Library's header files unless such material is
+ limited to (i) numerical parameters; (ii) data structure layouts;
+ (iii) accessors; and (iv) small macros, templates and inline functions of
+ five lines or less in length.
+ .
+ Furthermore, you are not required to apply this additional permission to a
+ modified version of the Library.
+
+License: CC0-1.0
+ On Debian systems, the complete text of the Creative Commons Zero v1.0
+ Universal License can be found in "/usr/share/common-licenses/CC0-1.0".
+
+License: Apache-2.0
+ On Debian systems, the complete text of the Apache License Version 2.0
+ can be found in "/usr/share/common-licenses/Apache-2.0".
+
+License: Expat
+ Permission is hereby granted, free of charge, to any person obtaining a copy
+ of this software and associated documentation files (the "Software"), to
+ deal in the Software without restriction, including without limitation
+ the rights to use, copy, modify, merge, publish, distribute, sublicense,
+ and/or sell copies of the Software, and to permit persons to whom the
+ Software is furnished to do so, subject to the following conditions:
+ .
+ The above copyright notice and this permission notice shall be included
+ in all copies or substantial portions of the Software.
+ .
+ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+ EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+ MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+ IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
+ DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
+ OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR
+ THE USE OR OTHER DEALINGS IN THE SOFTWARE.

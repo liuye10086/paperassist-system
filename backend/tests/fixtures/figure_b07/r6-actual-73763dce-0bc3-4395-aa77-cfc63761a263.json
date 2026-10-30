@@ -1,0 +1,259 @@
+{
+  "task_id": "73763dce-0bc3-4395-aa77-cfc63761a263",
+  "response_id": "resp_0c9ba16bb9fbffab006ae28e64bc5487d0a2ab0dbe9bfd6972",
+  "raw_file": "raw/000107-retrieve.response.body",
+  "raw_sha256": "fe8bdd4333c71f51e3af0dca442286580f8b44442d59d4f4bcba8571f30d419a",
+  "receipt_seq": 109,
+  "payload": {
+    "facts": {
+      "axis.x.label": {
+        "label": "Horizontal field",
+        "raw": "Group",
+        "value": "Group"
+      },
+      "axis.x.unit": {
+        "label": "Horizontal unit",
+        "raw": "",
+        "value": "Unit not specified"
+      },
+      "axis.y.label": {
+        "label": "Vertical field",
+        "raw": "Record count",
+        "value": "Record count"
+      },
+      "axis.y.unit": {
+        "label": "Vertical unit",
+        "raw": "records",
+        "value": "records"
+      },
+      "data.excluded": {
+        "label": "Projection excluded records",
+        "raw": 2,
+        "value": "2"
+      },
+      "data.original_n": {
+        "label": "Original statistical records",
+        "raw": 4,
+        "value": "4"
+      },
+      "data.total": {
+        "label": "Projection population records",
+        "raw": 6,
+        "value": "6"
+      },
+      "data.valid": {
+        "label": "Projection valid records",
+        "raw": 4,
+        "value": "4"
+      },
+      "design.status": {
+        "label": "Research design information status",
+        "raw": true,
+        "value": "Research design text was supplied but was not programmatically verified or forwarded"
+      },
+      "design.structure": {
+        "label": "Observation structure and verification limits",
+        "raw": "independent",
+        "value": "User-declared independent observations; independence was not verified"
+      },
+      "figure.title": {
+        "label": "Figure title",
+        "raw": "Synthetic category counts",
+        "value": "Synthetic category counts"
+      },
+      "limitation.0": {
+        "label": "Applicable limitation",
+        "raw": "Projection is descriptive; it supplies no additional P values or confidence intervals.",
+        "value": "Projection is descriptive; it supplies no additional P values or confidence intervals"
+      },
+      "limitation.1": {
+        "label": "Applicable limitation",
+        "raw": "Original statistical records and projection records use different population definitions; record counts need not equal independent participant counts.",
+        "value": "Original statistical records and projection records use different population definitions; record counts need not equal independent participant counts"
+      },
+      "limitation.2": {
+        "label": "Applicable limitation",
+        "raw": "Research design text was supplied but was not verified or forwarded; sample provenance, procedures and measurement context require review.",
+        "value": "Research design text was supplied but was not verified or forwarded; sample provenance, procedures and measurement context require review"
+      },
+      "limitation.3": {
+        "label": "Applicable limitation",
+        "raw": "User-declared independent observations; independence was not verified",
+        "value": "User-declared independent observations; independence was not verified"
+      },
+      "limitation.4": {
+        "label": "Applicable limitation",
+        "raw": "Causation cannot be inferred from these results.",
+        "value": "Causation cannot be inferred from these results"
+      },
+      "limitation.5": {
+        "label": "Applicable limitation",
+        "raw": "Complete ordered coordinates retain saved precision; other projection summaries display at most 8 significant digits and original statistical summaries at most 6 significant digits. Saved results retain full precision.",
+        "value": "Complete ordered coordinates retain saved precision; other projection summaries display at most 8 significant digits and original statistical summaries at most 6 significant digits. Saved results retain full precision"
+      },
+      "limitation.6": {
+        "label": "Applicable limitation",
+        "raw": "Values and fact references were inserted and checked locally; meaning and research applicability require review.",
+        "value": "Values and fact references were inserted and checked locally; meaning and research applicability require review"
+      },
+      "limitation.7": {
+        "label": "Applicable limitation",
+        "raw": "This explanation checks frozen statistics and metadata only; image pixels, in-image text and visual correctness were not verified. The AI draft requires human review.",
+        "value": "This explanation checks frozen statistics and metadata only; image pixels, in-image text and visual correctness were not verified. The AI draft requires human review"
+      },
+      "method.rule.bar_stat": {
+        "label": "Bar statistic rule",
+        "raw": "count",
+        "value": "Included record count"
+      },
+      "method.rule.error_bars": {
+        "label": "Error bar rule",
+        "raw": "none",
+        "value": "No error bars"
+      },
+      "method.rule.missing_group": {
+        "label": "Missing group rule",
+        "raw": "exclude",
+        "value": "Exclude missing-group records"
+      },
+      "method.summary": {
+        "label": "Computation method",
+        "raw": "Included records are counted by category; counts need not equal unique participants",
+        "value": "Included records are counted by category; counts need not equal unique participants"
+      },
+      "projection.0.point.0.category": {
+        "label": "Category label",
+        "raw": "A",
+        "value": "A"
+      },
+      "projection.0.point.0.n": {
+        "label": "Projection records",
+        "raw": 2,
+        "value": "2"
+      },
+      "projection.0.point.0.value": {
+        "label": "Plotted statistic",
+        "raw": 2,
+        "value": "2"
+      },
+      "projection.0.point.1.category": {
+        "label": "Category label",
+        "raw": "B",
+        "value": "B"
+      },
+      "projection.0.point.1.n": {
+        "label": "Projection records",
+        "raw": 2,
+        "value": "2"
+      },
+      "projection.0.point.1.value": {
+        "label": "Plotted statistic",
+        "raw": 2,
+        "value": "2"
+      },
+      "purpose.kind": {
+        "label": "Figure type",
+        "raw": "bar",
+        "value": "a descriptive bar plot"
+      },
+      "scope.variables": {
+        "label": "Variable scope",
+        "raw": [
+          {
+            "column": "C",
+            "label": "Group",
+            "role": "category",
+            "unit": ""
+          },
+          {
+            "column": null,
+            "label": "Record count",
+            "role": "statistic",
+            "unit": "records"
+          }
+        ],
+        "value": "Category field: Group [C] (unit not specified), Plotted statistic: Record count (records)"
+      }
+    },
+    "figure_explanation_contract": 5,
+    "language": "en",
+    "required_references": {
+      "data": [
+        "data.valid",
+        "data.total",
+        "data.excluded",
+        "data.original_n",
+        "axis.x.label",
+        "axis.x.unit",
+        "axis.y.label",
+        "axis.y.unit"
+      ],
+      "interpretation": [
+        "limitation.0",
+        "limitation.1",
+        "limitation.2",
+        "limitation.3",
+        "limitation.4",
+        "limitation.5",
+        "limitation.6",
+        "limitation.7"
+      ],
+      "methods": [
+        "method.summary",
+        "method.rule.bar_stat",
+        "method.rule.error_bars",
+        "method.rule.missing_group",
+        "design.structure",
+        "design.status"
+      ],
+      "paper_text": [
+        "scope.variables",
+        "purpose.kind",
+        "data.valid",
+        "method.summary",
+        "projection.0.point.0.n",
+        "projection.0.point.0.value",
+        "projection.0.point.0.category",
+        "projection.0.point.1.n",
+        "projection.0.point.1.value",
+        "projection.0.point.1.category",
+        "limitation.0",
+        "limitation.1",
+        "limitation.2",
+        "limitation.3",
+        "limitation.4",
+        "limitation.5",
+        "limitation.6",
+        "limitation.7"
+      ],
+      "purpose": [
+        "scope.variables",
+        "purpose.kind"
+      ],
+      "results": [
+        "projection.0.point.0.n",
+        "projection.0.point.0.value",
+        "projection.0.point.0.category",
+        "projection.0.point.1.n",
+        "projection.0.point.1.value",
+        "projection.0.point.1.category"
+      ]
+    },
+    "schema_version": 2
+  },
+  "draft": {
+    "purpose": "This figure describes {{scope.variables}} using {{purpose.kind}}.",
+    "interpretation": "The descriptive statistical boundary is stated as follows: {{limitation.0}}. The distinction between record populations and independent participants is stated as follows: {{limitation.1}}. Research-context review is required as follows: {{limitation.2}}. The observation-independence boundary is stated as follows: {{limitation.3}}. The causal boundary is stated as follows: {{limitation.4}}. Precision and display limits are stated as follows: {{limitation.5}}. Local checking and applicability limits are stated as follows: {{limitation.6}}. Visual verification and human-review limits are stated as follows: {{limitation.7}}.",
+    "results": "The saved projection reports category {{projection.0.point.0.category}} with {{projection.0.point.0.n}} projection records and a plotted value of {{projection.0.point.0.value}}. The saved projection reports category {{projection.0.point.1.category}} with {{projection.0.point.1.n}} projection records and a plotted value of {{projection.0.point.1.value}}.",
+    "paper_text": "This figure describes {{scope.variables}} using {{purpose.kind}}. The projection includes {{data.valid}} valid records. The saved computation method is described as follows: {{method.summary}}. The saved projection reports category {{projection.0.point.0.category}} with {{projection.0.point.0.n}} projection records and a plotted value of {{projection.0.point.0.value}}. The saved projection reports category {{projection.0.point.1.category}} with {{projection.0.point.1.n}} projection records and a plotted value of {{projection.0.point.1.value}}. The descriptive statistical boundary is stated as follows: {{limitation.0}}. The distinction between record populations and independent participants is stated as follows: {{limitation.1}}. Research-context review is required as follows: {{limitation.2}}. The observation-independence boundary is stated as follows: {{limitation.3}}. The causal boundary is stated as follows: {{limitation.4}}. Precision and display limits are stated as follows: {{limitation.5}}. Local checking and applicability limits are stated as follows: {{limitation.6}}. Visual verification and human-review limits are stated as follows: {{limitation.7}}.",
+    "methods": "The saved computation method is described as follows: {{method.summary}}. The figure uses the saved bar-statistic rule described as {{method.rule.bar_stat}}. The saved error-bar rule is described as {{method.rule.error_bars}}. The saved missing-group rule is described as {{method.rule.missing_group}}. The declared observation structure and its verification boundary are described as follows: {{design.structure}}. The research-design information status is described as follows: {{design.status}}.",
+    "data": "The projection contains {{data.valid}} valid records from {{data.total}} population records and excludes {{data.excluded}} records. The original statistical dataset contains {{data.original_n}} records, distinct from the projection population. The horizontal field is labeled {{axis.x.label}}, with its unit specified as {{axis.x.unit}}. The vertical field is labeled {{axis.y.label}}, with its unit specified as {{axis.y.unit}}."
+  },
+  "source_pins": {
+    "frozen/73763dce-0bc3-4395-aa77-cfc63761a263/data.json": "8f1a812c5f402b5f72ac7a9a8b64bb87f3bb4a1c5086652fb0f92c5d02baf58c",
+    "frozen/73763dce-0bc3-4395-aa77-cfc63761a263/expected.json": "cdfd37ba7f9129c539d79ebc8caf47ab599f655c509f2d2165a81b869be6dbb4",
+    "frozen/73763dce-0bc3-4395-aa77-cfc63761a263/instructions.txt": "63d04bdaf4638672a3b8b8303745f9827d50866f8a96694dbe9f79dae1ecd972",
+    "frozen/73763dce-0bc3-4395-aa77-cfc63761a263/policy-snapshot.json": "58e72f61953721f22abfe1edd107fbf9e08c967627d1e781e1b4f199b962ee39",
+    "frozen/73763dce-0bc3-4395-aa77-cfc63761a263/task-snapshot.json": "5f5baef226539e255eeb71963a31835f0bc7a80f047857121f8f6f13c597285b"
+  }
+}

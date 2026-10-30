@@ -1,0 +1,1350 @@
+{
+  "key": "roc_curve:zh-CN",
+  "task_id": "ef3611e3-298d-48a7-92fc-cf41045a58dc",
+  "bundle": {
+    "result": {
+      "schema_version": 5,
+      "result_type": "roc",
+      "file_id": "a2f2ecf0-27fa-50ab-ae02-d62f0bf1cbdf",
+      "filename": "roc_curve.xlsx",
+      "source_sha256": "d195a0e4c21553e8562e479a4d3a48ff14a5ab149f439d556b1225e9558cf476",
+      "source": {
+        "kind": "prepared_dataset_version",
+        "schema_version": 1,
+        "dataset_id": "b530c15c-17ca-52eb-aa9f-7b07412ff566",
+        "structure_id": "a43c75a7-4554-43a0-8bb2-0ca696a60840",
+        "dataset_version": 1,
+        "file_id": "a2f2ecf0-27fa-50ab-ae02-d62f0bf1cbdf",
+        "source_sha256": "d195a0e4c21553e8562e479a4d3a48ff14a5ab149f439d556b1225e9558cf476",
+        "dataset_sha256": "7f0599f629c1774e53d9c83af41162bc45a2ff5d51b9d0a7ac61b223c280ffc3",
+        "dataset_size_bytes": 3427,
+        "dataset_schema_version": 1,
+        "sheet_index": 0,
+        "sheet_name": "Synthetic",
+        "parser_version": "openpyxl-3.1.5-structure-v1",
+        "parent_dataset_id": "907d60b7-fe49-5430-9e08-5eaa5f1085cc",
+        "parent_dataset_version": 1,
+        "transform_version": "excel_prepare_v1"
+      },
+      "setup_revision": 1,
+      "selection": {
+        "task_type": "roc",
+        "method": "roc_auc",
+        "sheet_name": "Synthetic",
+        "outcome_column": "A",
+        "score_column": "B",
+        "positive": {
+          "kind": "number",
+          "value": "1"
+        },
+        "negative": {
+          "kind": "number",
+          "value": "0"
+        },
+        "direction": "higher_is_positive",
+        "score_kind": "probability",
+        "score_source": "Prespecified explicitly synthetic fixture scores",
+        "score_version": "sha256:d195a0e4c21553e8562e479a4d3a48ff14a5ab149f439d556b1225e9558cf476",
+        "formation": "Fixed synthetic demonstration scores; no model fitting or threshold optimization.",
+        "evaluation_role": "apparent_exploratory",
+        "independence_confirmed": false,
+        "outcome_time": "Synthetic baseline",
+        "missing_policy": "complete_cases",
+        "assumptions": {
+          "independent_units": true,
+          "inference_confirmed": true
+        }
+      },
+      "check": {
+        "ready": true,
+        "row_count": 12,
+        "valid_count": 12,
+        "excluded_count": 0,
+        "groups": [],
+        "issues": [],
+        "warnings": []
+      },
+      "analysis_plan": {
+        "plan_id": "168cce28-23c1-5096-bfe6-620394b1e07e",
+        "sha256": "387ab8aebf9619711aeae9b25d0ebf295617f12a6be1afef1f318d2ee27bf234",
+        "resolutions": {}
+      },
+      "analysis_context": {
+        "plan": {
+          "schema_version": 5,
+          "workflow_version": "analysis_plan_v5",
+          "rules_version": "analysis_plan_rules_v5",
+          "id": "168cce28-23c1-5096-bfe6-620394b1e07e",
+          "task_id": "34737ae4-b34b-4d10-ab13-648bf13f3e3c",
+          "decision_id": "2666816b-20d1-42a1-98ee-a41db6309c17",
+          "project_id": "123cbf9f-fd5a-4704-b4d1-af97dea0bad1",
+          "file_id": "a2f2ecf0-27fa-50ab-ae02-d62f0bf1cbdf",
+          "source": {
+            "kind": "prepared_dataset_version",
+            "schema_version": 1,
+            "dataset_id": "b530c15c-17ca-52eb-aa9f-7b07412ff566",
+            "structure_id": "a43c75a7-4554-43a0-8bb2-0ca696a60840",
+            "dataset_version": 1,
+            "file_id": "a2f2ecf0-27fa-50ab-ae02-d62f0bf1cbdf",
+            "source_sha256": "d195a0e4c21553e8562e479a4d3a48ff14a5ab149f439d556b1225e9558cf476",
+            "dataset_sha256": "7f0599f629c1774e53d9c83af41162bc45a2ff5d51b9d0a7ac61b223c280ffc3",
+            "dataset_size_bytes": 3427,
+            "dataset_schema_version": 1,
+            "sheet_index": 0,
+            "sheet_name": "Synthetic",
+            "parser_version": "openpyxl-3.1.5-structure-v1",
+            "parent_dataset_id": "907d60b7-fe49-5430-9e08-5eaa5f1085cc",
+            "parent_dataset_version": 1,
+            "transform_version": "excel_prepare_v1"
+          },
+          "selection": {
+            "task_type": "roc",
+            "method": "roc_auc",
+            "sheet_name": "Synthetic",
+            "outcome_column": "A",
+            "score_column": "B",
+            "positive": {
+              "kind": "number",
+              "value": "1"
+            },
+            "negative": {
+              "kind": "number",
+              "value": "0"
+            },
+            "direction": "higher_is_positive",
+            "score_kind": "probability",
+            "score_source": "Prespecified explicitly synthetic fixture scores",
+            "score_version": "sha256:d195a0e4c21553e8562e479a4d3a48ff14a5ab149f439d556b1225e9558cf476",
+            "formation": "Fixed synthetic demonstration scores; no model fitting or threshold optimization.",
+            "evaluation_role": "apparent_exploratory",
+            "independence_confirmed": false,
+            "outcome_time": "Synthetic baseline",
+            "missing_policy": "complete_cases",
+            "assumptions": {
+              "independent_units": true,
+              "inference_confirmed": true
+            }
+          },
+          "check": {
+            "rules_version": "analysis_plan_rules_v5",
+            "research_missing": [],
+            "data_check": {
+              "rules_version": "analysis_plan_rules_v3",
+              "data_range": "A2:B13",
+              "row_count": 12,
+              "selected_fields": [
+                {
+                  "letter": "A",
+                  "name": "Outcome",
+                  "type_counts": {
+                    "number": 12
+                  },
+                  "missing_count": 0,
+                  "non_missing_count": 12,
+                  "prepared_unit": {
+                    "status": "confirmed",
+                    "value": ""
+                  },
+                  "declared_unit": {
+                    "status": "unknown",
+                    "value": null
+                  },
+                  "observed_min": 0.0,
+                  "observed_max": 1.0
+                },
+                {
+                  "letter": "B",
+                  "name": "Score",
+                  "type_counts": {
+                    "number": 12
+                  },
+                  "missing_count": 0,
+                  "non_missing_count": 12,
+                  "prepared_unit": {
+                    "status": "confirmed",
+                    "value": ""
+                  },
+                  "declared_unit": {
+                    "status": "unknown",
+                    "value": null
+                  },
+                  "observed_min": 0.1,
+                  "observed_max": 0.9
+                }
+              ],
+              "selection_check": {
+                "ready": true,
+                "row_count": 12,
+                "valid_count": 12,
+                "excluded_count": 0,
+                "groups": [],
+                "issues": [],
+                "warnings": []
+              },
+              "issues": [],
+              "limitations": [
+                "前提由用户声明，不证明独立性、因果或模型正确。",
+                "共同完整记录可能产生选择偏差；不插补、不删异常。"
+              ],
+              "research_missing": []
+            },
+            "limitations": [
+              "外部材料仅为来源证据，未由本系统重新计算。",
+              "补充资料及采纳候选不等于批准分析计划。"
+            ]
+          },
+          "resolutions": {},
+          "plan_revision": 2,
+          "setup_revision": 1,
+          "created_at": "2026-10-28T04:52:26.673365+00:00",
+          "research_request": {
+            "question": "Prespecified synthetic engineering verification: roc_curve",
+            "output_language": "zh-CN",
+            "population": "Explicit synthetic study records only",
+            "study_design": "Fixed synthetic demonstration; no real research inference",
+            "observation_unit": "One synthetic record per row",
+            "observation_structure": "independent",
+            "relationship_description": "",
+            "output_requirements": "Preserve source units and all missingness, methods and non-causal limitations; "
+          },
+          "recommendation_ref": null,
+          "evidence_versions": [],
+          "origin_recommendation_ref": null,
+          "source_reference": null,
+          "source_resolution": {
+            "confirmed": true,
+            "note": "Exact authorized B07 synthetic file SHA, prepared version and cohort confirmed; no real participant claims."
+          },
+          "sha256": "387ab8aebf9619711aeae9b25d0ebf295617f12a6be1afef1f318d2ee27bf234"
+        },
+        "method": {
+          "id": "roc_auc",
+          "parameters": {
+            "task_type": "roc",
+            "method": "roc_auc",
+            "sheet_name": "Synthetic",
+            "outcome_column": "A",
+            "score_column": "B",
+            "positive": {
+              "kind": "number",
+              "value": "1"
+            },
+            "negative": {
+              "kind": "number",
+              "value": "0"
+            },
+            "direction": "higher_is_positive",
+            "score_kind": "probability",
+            "score_source": "Prespecified explicitly synthetic fixture scores",
+            "score_version": "sha256:d195a0e4c21553e8562e479a4d3a48ff14a5ab149f439d556b1225e9558cf476",
+            "formation": "Fixed synthetic demonstration scores; no model fitting or threshold optimization.",
+            "evaluation_role": "apparent_exploratory",
+            "independence_confirmed": false,
+            "outcome_time": "Synthetic baseline",
+            "missing_policy": "complete_cases",
+            "assumptions": {
+              "independent_units": true,
+              "inference_confirmed": true
+            }
+          },
+          "observation_basis": "independent_rows"
+        },
+        "rounding": {
+          "display_significant_digits": 6,
+          "stored_values": "full_precision"
+        }
+      },
+      "variables": [
+        {
+          "column": "A",
+          "name": "Outcome",
+          "unit": ""
+        },
+        {
+          "column": "B",
+          "name": "Score",
+          "unit": ""
+        }
+      ],
+      "statistics": {
+        "method": "roc_auc",
+        "n": 12,
+        "positive_n": 6,
+        "negative_n": 6,
+        "auc": 0.8194444444444443,
+        "variance": 0.016126543209876543,
+        "confidence_interval": {
+          "low": null,
+          "high": null,
+          "level": 0.95,
+          "method": "delong_normal_clipped",
+          "reason": "evaluation_role_not_independent"
+        },
+        "points": [
+          {
+            "threshold_kind": "above_all",
+            "threshold": null,
+            "tpr": 0.0,
+            "fpr": 0.0,
+            "sensitivity": 0.0,
+            "specificity": 1.0
+          },
+          {
+            "threshold_kind": "value",
+            "threshold": 0.9,
+            "tpr": 0.16666666666666666,
+            "fpr": 0.0,
+            "sensitivity": 0.16666666666666666,
+            "specificity": 1.0
+          },
+          {
+            "threshold_kind": "value",
+            "threshold": 0.8,
+            "tpr": 0.3333333333333333,
+            "fpr": 0.0,
+            "sensitivity": 0.3333333333333333,
+            "specificity": 1.0
+          },
+          {
+            "threshold_kind": "value",
+            "threshold": 0.7,
+            "tpr": 0.5,
+            "fpr": 0.16666666666666666,
+            "sensitivity": 0.5,
+            "specificity": 0.8333333333333334
+          },
+          {
+            "threshold_kind": "value",
+            "threshold": 0.6,
+            "tpr": 0.6666666666666666,
+            "fpr": 0.3333333333333333,
+            "sensitivity": 0.6666666666666666,
+            "specificity": 0.6666666666666667
+          },
+          {
+            "threshold_kind": "value",
+            "threshold": 0.5,
+            "tpr": 0.8333333333333334,
+            "fpr": 0.3333333333333333,
+            "sensitivity": 0.8333333333333334,
+            "specificity": 0.6666666666666667
+          },
+          {
+            "threshold_kind": "value",
+            "threshold": 0.4,
+            "tpr": 1.0,
+            "fpr": 0.5,
+            "sensitivity": 1.0,
+            "specificity": 0.5
+          },
+          {
+            "threshold_kind": "value",
+            "threshold": 0.3,
+            "tpr": 1.0,
+            "fpr": 0.6666666666666666,
+            "sensitivity": 1.0,
+            "specificity": 0.33333333333333337
+          },
+          {
+            "threshold_kind": "value",
+            "threshold": 0.2,
+            "tpr": 1.0,
+            "fpr": 0.8333333333333334,
+            "sensitivity": 1.0,
+            "specificity": 0.16666666666666663
+          },
+          {
+            "threshold_kind": "value",
+            "threshold": 0.1,
+            "tpr": 1.0,
+            "fpr": 1.0,
+            "sensitivity": 1.0,
+            "specificity": 0.0
+          }
+        ],
+        "direction": "higher_is_positive",
+        "evaluation_role": "apparent_exploratory",
+        "warnings": [
+          "auc_not_clinical_utility",
+          "small_sample"
+        ]
+      },
+      "row_audit": {
+        "included_rows": [
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13
+        ],
+        "excluded_rows": [],
+        "missing_policy": "complete_cases",
+        "encoding_counts": {}
+      },
+      "started_at": "2026-10-28T04:52:28.188654+00:00",
+      "completed_at": "2026-10-28T04:52:32.776644+00:00",
+      "engine": {
+        "id": "roc_statistics_dataset_v1",
+        "python_version": "3.11.17",
+        "scipy_version": "1.17.1",
+        "numpy_version": "2.4.6",
+        "parser_version": "openpyxl-3.1.5-structure-v1",
+        "encoding_version": "typed_reference_dummy_v1",
+        "timeout_seconds": 30,
+        "statsmodels_version": null,
+        "solver": null,
+        "max_iterations": null,
+        "tolerance": null,
+        "scale": null,
+        "separation_solver": null,
+        "separation_timeout_seconds": null,
+        "execution_contract": "fixed_statistics_v2"
+      },
+      "id": "f3f40ca8-59e3-4ad6-93e8-3e3f4a9d3706"
+    },
+    "figure": {
+      "schema_version": 5,
+      "figure_kind": "roc_curve",
+      "language": "zh-CN",
+      "variables": [
+        {
+          "column": "A",
+          "name": "结局",
+          "unit": ""
+        },
+        {
+          "column": "B",
+          "name": "评分",
+          "unit": ""
+        }
+      ],
+      "plot_config": {
+        "verification_scope": "independent_curve_calculation",
+        "outliers_removed": false,
+        "inference_displayed": false,
+        "direction": "higher_is_positive",
+        "threshold_endpoints": "null_with_threshold_kind",
+        "ties": "joint_threshold",
+        "style": {
+          "palette": "colorblind",
+          "width": 2400,
+          "height": 1600,
+          "font_size": 12,
+          "display_order": []
+        },
+        "numbering_mode": "external"
+      },
+      "title": "合成评分 ROC 曲线",
+      "x_label": "假阳性率（0–1）",
+      "y_label": "真阳性率（0–1）",
+      "caption": "纳入 12 条完整记录；排除 0 行。云端根据匿名必要数值独立计算曲线；期望曲线仅保留本地。 评估角色：表观探索性评估 仅供合成数据工程验证。 ROC展示已确认评估资料中的区分能力；不能据此声称外部验证或校准良好，不新增AUC区间。",
+      "statistics": {
+        "n": 12,
+        "positive_n": 6,
+        "negative_n": 6,
+        "auc": 0.8194444444444443,
+        "points": [
+          {
+            "threshold_kind": "above_all",
+            "threshold": null,
+            "tpr": 0.0,
+            "fpr": 0.0,
+            "sensitivity": 0.0,
+            "specificity": 1.0
+          },
+          {
+            "threshold_kind": "value",
+            "threshold": 0.9,
+            "tpr": 0.16666666666666666,
+            "fpr": 0.0,
+            "sensitivity": 0.16666666666666666,
+            "specificity": 1.0
+          },
+          {
+            "threshold_kind": "value",
+            "threshold": 0.8,
+            "tpr": 0.3333333333333333,
+            "fpr": 0.0,
+            "sensitivity": 0.3333333333333333,
+            "specificity": 1.0
+          },
+          {
+            "threshold_kind": "value",
+            "threshold": 0.7,
+            "tpr": 0.5,
+            "fpr": 0.16666666666666666,
+            "sensitivity": 0.5,
+            "specificity": 0.8333333333333334
+          },
+          {
+            "threshold_kind": "value",
+            "threshold": 0.6,
+            "tpr": 0.6666666666666666,
+            "fpr": 0.3333333333333333,
+            "sensitivity": 0.6666666666666666,
+            "specificity": 0.6666666666666667
+          },
+          {
+            "threshold_kind": "value",
+            "threshold": 0.5,
+            "tpr": 0.8333333333333334,
+            "fpr": 0.3333333333333333,
+            "sensitivity": 0.8333333333333334,
+            "specificity": 0.6666666666666667
+          },
+          {
+            "threshold_kind": "value",
+            "threshold": 0.4,
+            "tpr": 1.0,
+            "fpr": 0.5,
+            "sensitivity": 1.0,
+            "specificity": 0.5
+          },
+          {
+            "threshold_kind": "value",
+            "threshold": 0.3,
+            "tpr": 1.0,
+            "fpr": 0.6666666666666666,
+            "sensitivity": 1.0,
+            "specificity": 0.33333333333333337
+          },
+          {
+            "threshold_kind": "value",
+            "threshold": 0.2,
+            "tpr": 1.0,
+            "fpr": 0.8333333333333334,
+            "sensitivity": 1.0,
+            "specificity": 0.16666666666666663
+          },
+          {
+            "threshold_kind": "value",
+            "threshold": 0.1,
+            "tpr": 1.0,
+            "fpr": 1.0,
+            "sensitivity": 1.0,
+            "specificity": 0.0
+          }
+        ]
+      },
+      "legacy_contract": 4,
+      "presentation": {
+        "schema_version": 2,
+        "axes": {
+          "x": {
+            "label": "假阳性率（0–1）",
+            "unit": "0–1"
+          },
+          "y": {
+            "label": "真阳性率（0–1）",
+            "unit": "0–1"
+          }
+        },
+        "legend": {
+          "title": "分组",
+          "entries": []
+        },
+        "color_scale": null,
+        "abbreviations": [
+          {
+            "term": "n",
+            "definition": "有效记录数；独立人数须由研究设计确认"
+          },
+          {
+            "term": "ROC",
+            "definition": "受试者工作特征曲线"
+          },
+          {
+            "term": "AUC",
+            "definition": "ROC曲线下面积"
+          }
+        ],
+        "statistical_notes": [
+          "ROC展示已确认评估资料中的区分能力；不能据此声称外部验证或校准良好，不新增AUC区间。"
+        ]
+      },
+      "id": "725f8526-1805-55ba-8260-3e9922022a28",
+      "analysis_run_id": "f3f40ca8-59e3-4ad6-93e8-3e3f4a9d3706",
+      "file_id": "a2f2ecf0-27fa-50ab-ae02-d62f0bf1cbdf",
+      "source": {
+        "kind": "prepared_dataset_version",
+        "schema_version": 1,
+        "dataset_id": "b530c15c-17ca-52eb-aa9f-7b07412ff566",
+        "structure_id": "a43c75a7-4554-43a0-8bb2-0ca696a60840",
+        "dataset_version": 1,
+        "file_id": "a2f2ecf0-27fa-50ab-ae02-d62f0bf1cbdf",
+        "source_sha256": "d195a0e4c21553e8562e479a4d3a48ff14a5ab149f439d556b1225e9558cf476",
+        "dataset_sha256": "7f0599f629c1774e53d9c83af41162bc45a2ff5d51b9d0a7ac61b223c280ffc3",
+        "dataset_size_bytes": 3427,
+        "dataset_schema_version": 1,
+        "sheet_index": 0,
+        "sheet_name": "Synthetic",
+        "parser_version": "openpyxl-3.1.5-structure-v1",
+        "parent_dataset_id": "907d60b7-fe49-5430-9e08-5eaa5f1085cc",
+        "parent_dataset_version": 1,
+        "transform_version": "excel_prepare_v1"
+      },
+      "source_sha256": "d195a0e4c21553e8562e479a4d3a48ff14a5ab149f439d556b1225e9558cf476",
+      "setup_revision": 1,
+      "sha256": "b484859b239d2ade21f8a794c4d337fecb1fe5c68dec958540647e4bc91e6935",
+      "size_bytes": 357578,
+      "figure_config_version_id": "4f027383-ca91-4bf1-8489-eec654cb9f08",
+      "configuration_sha256": "bf2fb88bdf0bd987c9ac4b1f97da307f7f4445e2fbc9aa1b80b7fe1628b20c21",
+      "projection_id": "a69efb0d-a247-50fb-b2b9-39252a8ab822",
+      "projection_sha256": "96e6012a70b3171ea3d5fd35033f8cb692e154d30972734ede3c7aa1789673e6",
+      "facts_sha256": "4db3c9b50426711c83f92e7d6346f6112333cf8becf990b28f34a8e4df849a05",
+      "figure_number": null,
+      "numbering_mode": "external",
+      "method": {
+        "kind": "roc_curve",
+        "basis": "original_statistical_valid_rows"
+      },
+      "created_at": "2026-10-28T05:02:55.270529+00:00",
+      "engine": {
+        "id": "openai_figure_workbench_v3",
+        "provider": "openai_code_interpreter",
+        "model": "gpt-5.6-sol"
+      },
+      "verification": {
+        "status": "matched",
+        "note": "结构化数值已核验；图像视觉仍需人工审阅。"
+      },
+      "provenance": {
+        "response_id": "resp_0ffe923ea952422e006ae19ad631f487d18ecb898585838a80",
+        "container_id": "cntr_6ae19a1947b48190882916c375398a1d0c03cf24d5138154",
+        "model": "gpt-5.6-sol",
+        "code": [
+          "import json, os, math, textwrap, sys, platform\npath=\"/mnt/data/b10209737666d6c6bdca1d721a6fe4d9-data.json\"\nwith open(path,\"r\",encoding=\"utf-8\") as f:\n    data=json.load(f)\ntype(data), data.keys()\n",
+          "import pprint, json\npprint.pp(data)\n",
+          "import matplotlib\nmatplotlib.use(\"Agg\")\nimport matplotlib.pyplot as plt\nfrom matplotlib import font_manager, ft2font\nfonts = font_manager.findSystemFonts()\ncandidates=[]\nsample=\"合成评分曲线假阳性率真受试者工作特征下面积纳入条完整记录排除行云端根据匿名必要数值独立计算期望仅保留本地评估角色表观探索性供数据工程验证展示已确认资料中的区分能力不能据此声称外部或校准良好不新增区间分数越高越倾向阳性程序未核验真实性阈值\"\nfor fp in fonts:\n    try:\n        ft=ft2font.FT2Font(fp)\n        cmap=ft.get_charmap()\n        if all(ord(ch) in cmap for ch in set(sample) if ch.strip()):\n            candidates.append(fp)\n    except: pass\nlen(candidates), candidates[:20]\n",
+          "obs=data[\"observations\"]\nP=sum(o[\"outcome\"]==1 for o in obs); N=sum(o[\"outcome\"]==0 for o in obs)\nthresholds=sorted({o[\"score\"] for o in obs}, reverse=True)\npts=[{\"threshold_kind\":\"above_all\",\"threshold\":None,\"tpr\":0.0,\"fpr\":0.0,\"sensitivity\":0.0,\"specificity\":1.0}]\nfor t in thresholds:\n    tp=sum(o[\"outcome\"]==1 and o[\"score\"]>=t for o in obs)\n    fp=sum(o[\"outcome\"]==0 and o[\"score\"]>=t for o in obs)\n    tpr=tp/P; fpr=fp/N\n    pts.append({\"threshold_kind\":\"value\",\"threshold\":t,\"tpr\":tpr,\"fpr\":fpr,\"sensitivity\":tpr,\"specificity\":1-fpr})\nauc=sum((pts[i][\"tpr\"]+pts[i-1][\"tpr\"])/2*(pts[i][\"fpr\"]-pts[i-1][\"fpr\"]) for i in range(1,len(pts)))\nP,N,thresholds,auc,pts\n",
+          "import json, math, os, textwrap, copy, sys\nimport matplotlib\nmatplotlib.use(\"Agg\")\nimport matplotlib.pyplot as plt\nfrom matplotlib import font_manager\nfrom PIL import Image\n\n# Re-read input from the specified path\ninput_path=\"/mnt/data/b10209737666d6c6bdca1d721a6fe4d9-data.json\"\nwith open(input_path, \"r\", encoding=\"utf-8\") as f:\n    inp=json.load(f)\n\n# Independently compute ROC statistics\nobservations=inp[\"observations\"]\npositive_n=sum(1 for row in observations if row[\"outcome\"] == 1)\nnegative_n=sum(1 for row in observations if row[\"outcome\"] == 0)\nn=len(observations)\ndirection=inp[\"plot_config\"][\"direction\"]\nif direction != \"higher_is_positive\":\n    raise ValueError(\"This input is not higher_is_positive as required by its declared configuration.\")\n\nthresholds=sorted({row[\"score\"] for row in observations}, reverse=True)\npoints=[{\n    \"threshold_kind\":\"above_all\",\n    \"threshold\":None,\n    \"tpr\":0.0,\n    \"fpr\":0.0,\n    \"sensitivity\":0.0,\n    \"specificity\":1.0\n}]\nfor threshold in thresholds:\n    tp=sum(1 for row in observations if row[\"outcome\"] == 1 and row[\"score\"] >= threshold)\n    fp=sum(1 for row in observations if row[\"outcome\"] == 0 and row[\"score\"] >= threshold)\n    tpr=tp/positive_n\n    fpr=fp/negative_n\n    points.append({\n        \"threshold_kind\":\"value\",\n        \"threshold\":threshold,\n        \"tpr\":tpr,\n        \"fpr\":fpr,\n        \"sensitivity\":tpr,\n        \"specificity\":1.0-fpr\n    })\nauc=sum(\n    (points[i-1][\"tpr\"]+points[i][\"tpr\"])*0.5*\n    (points[i][\"fpr\"]-points[i-1][\"fpr\"])\n    for i in range(1, len(points))\n)\n\n# Output JSON, exact contract keys only\nresult={\n    \"schema_version\":5,\n    \"figure_kind\":inp[\"figure_kind\"],\n    \"language\":inp[\"language\"],\n    \"variables\":copy.deepcopy(inp[\"variables\"]),\n    \"plot_config\":copy.deepcopy(inp[\"plot_config\"]),\n    \"title\":inp[\"labels\"][\"title\"],\n    \"x_label\":inp[\"labels\"][\"x_label\"],\n    \"y_label\":inp[\"labels\"][\"y_label\"],\n    \"caption\":inp[\"labels\"][\"caption\"],\n    \"statistics\":{\n        \"n\":n,\n        \"positive_n\":positive_n,\n        \"negative_n\":negative_n,\n        \"auc\":auc,\n        \"points\":points\n    },\n    \"legacy_contract\":copy.deepcopy(inp[\"legacy_contract\"]),\n    \"presentation\":copy.deepcopy(inp[\"presentation\"])\n}\nout_json=\"/mnt/data/result.json\"\nwith open(out_json, \"w\", encoding=\"utf-8\") as f:\n    json.dump(result, f, ensure_ascii=False, allow_nan=False, separators=(\",\",\":\"))\n\n# Plot configuration\nstyle=inp[\"plot_config\"][\"style\"]\nwidth_px=int(style[\"width\"])\nheight_px=int(style[\"height\"])\ndpi=300\nfont_size=float(style[\"font_size\"])\nfont_path=\"/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc\"\nfont_prop=font_manager.FontProperties(fname=font_path)\nfont_bold=font_manager.FontProperties(fname=\"/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc\")\nfont_name=font_prop.get_name()\n\nmatplotlib.rcParams.update({\n    \"font.family\": font_name,\n    \"font.size\": font_size,\n    \"axes.unicode_minus\": False,\n    \"text.parse_math\": False,\n    \"figure.facecolor\":\"white\",\n    \"axes.facecolor\":\"white\",\n    \"savefig.facecolor\":\"white\"\n})\n\nfig=plt.figure(figsize=(width_px/dpi, height_px/dpi), dpi=dpi, facecolor=\"white\")\n# Dedicated regions: title; data axes; interpretation; caption; abbreviations.\nax=fig.add_axes([0.105, 0.39, 0.84, 0.43])\n\nfpr=[p[\"fpr\"] for p in points]\ntpr=[p[\"tpr\"] for p in points]\ncurve_color=\"#0173B2\"  # colorblind palette blue\nax.step(fpr, tpr, where=\"post\", color=curve_color, linewidth=2.2)\nax.scatter(fpr, tpr, color=curve_color, s=28, zorder=3, edgecolor=\"white\", linewidth=0.6)\nax.plot([0,1],[0,1], linestyle=\"--\", color=\"#777777\", linewidth=1.2)\nax.set_xlim(0,1)\nax.set_ylim(0,1)\nax.set_xticks([0,0.2,0.4,0.6,0.8,1.0])\nax.set_yticks([0,0.2,0.4,0.6,0.8,1.0])\nax.set_xlabel(inp[\"presentation\"][\"axes\"][\"x\"][\"label\"], fontproperties=font_prop, labelpad=8)\nax.set_ylabel(inp[\"presentation\"][\"axes\"][\"y\"][\"label\"], fontproperties=font_prop, labelpad=8)\nax.grid(True, color=\"#D9D9D9\", linewidth=0.7, alpha=0.8)\nfor spine in ax.spines.values():\n    spine.set_color(\"#555555\")\nfor lab in ax.get_xticklabels()+ax.get_yticklabels():\n    lab.set_fontproperties(font_prop)\nax.text(\n    0.97, 0.05, f\"AUC = {auc:.3f}\\n阳性 n = {positive_n}；阴性 n = {negative_n}\",\n    transform=ax.transAxes, ha=\"right\", va=\"bottom\", fontproperties=font_prop,\n    fontsize=font_size, bbox=dict(boxstyle=\"square,pad=0.35\", facecolor=\"white\",\n                                  edgecolor=curve_color, linewidth=1.0)\n)\n\nfig.text(0.5, 0.94, inp[\"labels\"][\"title\"], ha=\"center\", va=\"center\",\n         fontproperties=font_bold, fontsize=font_size+4)\n\ninterpretation_lines=[\n    \"匿名绘图编码1为阳性，0为阴性\",\n    \"评估角色为用户声明，程序未独立核验其真实性\",\n    \"分数越高越倾向阳性；规则：score >= threshold\"\n]\nfig.text(0.105, 0.325, \"\\n\".join(interpretation_lines), ha=\"left\", va=\"top\",\n         fontproperties=font_prop, fontsize=font_size, linespacing=1.35)\n\ndef wrap_cjk(s, width):\n    # Preserve every character; line breaks are layout-only.\n    return \"\\n\".join(s[i:i+width] for i in range(0, len(s), width))\n\ncaption_wrapped=wrap_cjk(inp[\"labels\"][\"caption\"], 50)\nfig.text(0.105, 0.195, caption_wrapped, ha=\"left\", va=\"top\",\n         fontproperties=font_prop, fontsize=font_size, linespacing=1.32)\n\nabbr_text=\"缩写：\"+\"；\".join(\n    f'{item[\"term\"]}，{item[\"definition\"]}' for item in inp[\"presentation\"][\"abbreviations\"]\n)\nfig.text(0.105, 0.045, wrap_cjk(abbr_text, 56), ha=\"left\", va=\"bottom\",\n         fontproperties=font_prop, fontsize=font_size-0.5, linespacing=1.25)\n\n# Draw and inspect all text bounding boxes against canvas and for pairwise overlaps among figure text.\nfig.canvas.draw()\nrenderer=fig.canvas.get_renderer()\ncanvas_w,canvas_h=fig.canvas.get_width_height()\ntext_artists=[a for a in fig.findobj(match=lambda x: isinstance(x, matplotlib.text.Text)) if a.get_visible() and a.get_text()]\noutside=[]\nfor a in text_artists:\n    bb=a.get_window_extent(renderer=renderer)\n    if bb.x0 < -1 or bb.y0 < -1 or bb.x1 > canvas_w+1 or bb.y1 > canvas_h+1:\n        outside.append((a.get_text(), tuple(bb.bounds)))\noutside[:5], len(outside), (canvas_w,canvas_h)\n",
+          "# Adjust wrapping to stay within the fixed canvas.\n# Identify figure-level caption and abbreviation artists by exact content prefixes.\nfor a in fig.texts:\n    txt=a.get_text()\n    if txt.startswith(\"纳入 12 条完整记录\"):\n        a.set_text(wrap_cjk(inp[\"labels\"][\"caption\"], 44))\n    elif txt.startswith(\"缩写：\"):\n        a.set_text(wrap_cjk(abbr_text, 45))\nfig.canvas.draw()\nrenderer=fig.canvas.get_renderer()\noutside=[]\nfor a in [x for x in fig.findobj(match=lambda x: isinstance(x, matplotlib.text.Text)) if x.get_visible() and x.get_text()]:\n    bb=a.get_window_extent(renderer=renderer)\n    if bb.x0 < -1 or bb.y0 < -1 or bb.x1 > canvas_w+1 or bb.y1 > canvas_h+1:\n        outside.append((a.get_text(), tuple(bb.bounds)))\noutside\n",
+          "out_png=\"/mnt/data/figure.png\"\nfig.savefig(out_png, dpi=dpi, facecolor=\"white\", bbox_inches=None, pad_inches=0)\nplt.close(fig)\n\nim=Image.open(out_png)\nim.size, im.mode, os.path.getsize(out_png), os.path.getsize(out_json)\n",
+          "# Rebuild with the supplied font_size used for all text.\nmatplotlib.rcParams.update({\n    \"font.family\": font_name,\n    \"font.size\": font_size,\n    \"axes.unicode_minus\": False,\n    \"text.parse_math\": False,\n    \"figure.facecolor\":\"white\",\n    \"axes.facecolor\":\"white\",\n    \"savefig.facecolor\":\"white\"\n})\nfig=plt.figure(figsize=(width_px/dpi, height_px/dpi), dpi=dpi, facecolor=\"white\")\nax=fig.add_axes([0.105, 0.39, 0.84, 0.43])\nax.step(fpr, tpr, where=\"post\", color=curve_color, linewidth=2.2)\nax.scatter(fpr, tpr, color=curve_color, s=28, zorder=3, edgecolor=\"white\", linewidth=0.6)\nax.plot([0,1],[0,1], linestyle=\"--\", color=\"#777777\", linewidth=1.2)\nax.set(xlim=(0,1), ylim=(0,1))\nax.set_xticks([0,0.2,0.4,0.6,0.8,1.0]); ax.set_yticks([0,0.2,0.4,0.6,0.8,1.0])\nax.set_xlabel(inp[\"presentation\"][\"axes\"][\"x\"][\"label\"], fontproperties=font_prop, fontsize=font_size, labelpad=8)\nax.set_ylabel(inp[\"presentation\"][\"axes\"][\"y\"][\"label\"], fontproperties=font_prop, fontsize=font_size, labelpad=8)\nax.grid(True, color=\"#D9D9D9\", linewidth=0.7, alpha=0.8)\nfor spine in ax.spines.values(): spine.set_color(\"#555555\")\nfor lab in ax.get_xticklabels()+ax.get_yticklabels():\n    lab.set_fontproperties(font_prop); lab.set_fontsize(font_size)\nax.text(0.97, 0.05, f\"AUC = {auc:.3f}\\n阳性 n = {positive_n}；阴性 n = {negative_n}\",\n        transform=ax.transAxes, ha=\"right\", va=\"bottom\", fontproperties=font_prop,\n        fontsize=font_size, bbox=dict(boxstyle=\"square,pad=0.35\", facecolor=\"white\",\n        edgecolor=curve_color, linewidth=1.0))\nfig.text(0.5,0.94,inp[\"labels\"][\"title\"],ha=\"center\",va=\"center\",\n         fontproperties=font_bold,fontsize=font_size)\nfig.text(0.105,0.325,\"\\n\".join(interpretation_lines),ha=\"left\",va=\"top\",\n         fontproperties=font_prop,fontsize=font_size,linespacing=1.35)\nfig.text(0.105,0.195,wrap_cjk(inp[\"labels\"][\"caption\"],44),ha=\"left\",va=\"top\",\n         fontproperties=font_prop,fontsize=font_size,linespacing=1.32)\nfig.text(0.105,0.045,wrap_cjk(abbr_text,45),ha=\"left\",va=\"bottom\",\n         fontproperties=font_prop,fontsize=font_size,linespacing=1.25)\n\nfig.canvas.draw()\nrenderer=fig.canvas.get_renderer()\ncanvas_w,canvas_h=fig.canvas.get_width_height()\noutside=[]\nfor a in [x for x in fig.findobj(match=lambda x:isinstance(x,matplotlib.text.Text)) if x.get_visible() and x.get_text()]:\n    bb=a.get_window_extent(renderer=renderer)\n    if bb.x0 < -1 or bb.y0 < -1 or bb.x1 > canvas_w+1 or bb.y1 > canvas_h+1:\n        outside.append((a.get_text(),tuple(bb.bounds)))\n# Check dedicated figure text boxes for overlap.\nfig_texts=fig.texts\nboxes=[(a.get_text(), a.get_window_extent(renderer=renderer)) for a in fig_texts]\npairs=[]\nfor i in range(len(boxes)):\n    for j in range(i+1,len(boxes)):\n        if boxes[i][1].overlaps(boxes[j][1]):\n            pairs.append((boxes[i][0][:20],boxes[j][0][:20]))\noutside,pairs\n",
+          "[(t[:25], tuple(bb.bounds)) for t,bb in boxes]\n",
+          "for a in fig.texts:\n    if a.get_text().startswith(\"纳入 12\"):\n        a.set_linespacing(1.05)\n    elif a.get_text().startswith(\"缩写：\"):\n        a.set_linespacing(1.05)\n        a.set_position((0.105,0.015))\nfig.canvas.draw()\nrenderer=fig.canvas.get_renderer()\nboxes=[(a.get_text(), a.get_window_extent(renderer=renderer)) for a in fig.texts]\n[(t[:20],tuple(bb.bounds)) for t,bb in boxes], [(i,j) for i,(ti,bi) in enumerate(boxes) for j,(tj,bj) in enumerate(boxes) if j>i and bi.overlaps(bj)]\n",
+          "xlabel_bb=ax.xaxis.label.get_window_extent(renderer=renderer)\ninterp_bb=boxes[1][1]\ntuple(xlabel_bb.bounds), tuple(interp_bb.bounds), xlabel_bb.overlaps(interp_bb)\n",
+          "plt.close(fig)\nfig=plt.figure(figsize=(width_px/dpi, height_px/dpi), dpi=dpi, facecolor=\"white\")\nax=fig.add_axes([0.10, 0.34, 0.58, 0.49])\nax.step(fpr, tpr, where=\"post\", color=curve_color, linewidth=2.2)\nax.scatter(fpr, tpr, color=curve_color, s=28, zorder=3, edgecolor=\"white\", linewidth=0.6)\nax.plot([0,1],[0,1], linestyle=\"--\", color=\"#777777\", linewidth=1.2)\nax.set(xlim=(0,1), ylim=(0,1))\nax.set_xticks([0,0.2,0.4,0.6,0.8,1.0]); ax.set_yticks([0,0.2,0.4,0.6,0.8,1.0])\nax.set_xlabel(inp[\"presentation\"][\"axes\"][\"x\"][\"label\"], fontproperties=font_prop, fontsize=font_size, labelpad=8)\nax.set_ylabel(inp[\"presentation\"][\"axes\"][\"y\"][\"label\"], fontproperties=font_prop, fontsize=font_size, labelpad=8)\nax.grid(True, color=\"#D9D9D9\", linewidth=0.7, alpha=0.8)\nfor spine in ax.spines.values(): spine.set_color(\"#555555\")\nfor lab in ax.get_xticklabels()+ax.get_yticklabels():\n    lab.set_fontproperties(font_prop); lab.set_fontsize(font_size)\n\nfig.text(0.5,0.94,inp[\"labels\"][\"title\"],ha=\"center\",va=\"center\",\n         fontproperties=font_bold,fontsize=font_size)\n\n# Dedicated right-side information region, outside the data axes.\nfig.text(0.73,0.79,\"\\n\".join(interpretation_lines),ha=\"left\",va=\"top\",\n         fontproperties=font_prop,fontsize=font_size,linespacing=1.35)\nfig.text(0.73,0.61,f\"AUC = {auc:.3f}\\n阳性 n = {positive_n}；阴性 n = {negative_n}\",\n         ha=\"left\",va=\"top\",fontproperties=font_prop,fontsize=font_size,linespacing=1.35,\n         bbox=dict(boxstyle=\"square,pad=0.35\", facecolor=\"white\", edgecolor=curve_color, linewidth=1.0))\n\nfig.text(0.10,0.20,wrap_cjk(inp[\"labels\"][\"caption\"],44),ha=\"left\",va=\"top\",\n         fontproperties=font_prop,fontsize=font_size,linespacing=1.05)\nfig.text(0.10,0.015,wrap_cjk(abbr_text,45),ha=\"left\",va=\"bottom\",\n         fontproperties=font_prop,fontsize=font_size,linespacing=1.05)\n\nfig.canvas.draw()\nrenderer=fig.canvas.get_renderer()\ncanvas_w,canvas_h=fig.canvas.get_width_height()\nall_text=[x for x in fig.findobj(match=lambda x:isinstance(x,matplotlib.text.Text)) if x.get_visible() and x.get_text()]\noutside=[]\nfor a in all_text:\n    bb=a.get_window_extent(renderer=renderer)\n    if bb.x0 < -1 or bb.y0 < -1 or bb.x1 > canvas_w+1 or bb.y1 > canvas_h+1:\n        outside.append((a.get_text(),tuple(bb.bounds)))\nfigboxes=[(a.get_text(),a.get_window_extent(renderer=renderer)) for a in fig.texts]\noverlaps=[(ti[:25],tj[:25]) for i,(ti,bi) in enumerate(figboxes) for j,(tj,bj) in enumerate(figboxes) if j>i and bi.overlaps(bj)]\n# Check xlabel against caption, right notes against axes rectangle in pixels.\naxbb=ax.get_window_extent(renderer=renderer)\ndiagnostics={\n    \"outside\":outside,\n    \"figure_text_overlaps\":overlaps,\n    \"xlabel\":tuple(ax.xaxis.label.get_window_extent(renderer=renderer).bounds),\n    \"caption\":tuple(figboxes[-2][1].bounds),\n    \"axes\":tuple(axbb.bounds),\n    \"right_note\":tuple(figboxes[1][1].bounds),\n    \"metrics\":tuple(figboxes[2][1].bounds)\n}\ndiagnostics\n",
+          "right_note = (\n    \"匿名绘图编码1为阳性，\\n0为阴性\\n\"\n    \"评估角色为用户声明，\\n程序未独立核验其真实性\\n\"\n    \"分数越高越倾向阳性\\n规则：score >= threshold\"\n)\n# Update right-region texts\nfig.texts[1].set_text(right_note)\nfig.texts[1].set_position((0.71,0.81))\nfig.texts[1].set_linespacing(1.18)\nfig.texts[2].set_position((0.71,0.55))\nfig.canvas.draw()\nrenderer=fig.canvas.get_renderer()\noutside=[]\nfor a in [x for x in fig.findobj(match=lambda x:isinstance(x,matplotlib.text.Text)) if x.get_visible() and x.get_text()]:\n    bb=a.get_window_extent(renderer=renderer)\n    if bb.x0 < -1 or bb.y0 < -1 or bb.x1 > canvas_w+1 or bb.y1 > canvas_h+1:\n        outside.append((a.get_text(),tuple(bb.bounds)))\nfigboxes=[(a.get_text(),a.get_window_extent(renderer=renderer)) for a in fig.texts]\noverlaps=[(ti[:25],tj[:25]) for i,(ti,bi) in enumerate(figboxes) for j,(tj,bj) in enumerate(figboxes) if j>i and bi.overlaps(bj)]\noutside, overlaps, [(t[:20],tuple(bb.bounds)) for t,bb in figboxes]\n",
+          "fig.savefig(out_png, dpi=dpi, facecolor=\"white\", bbox_inches=None, pad_inches=0)\nplt.close(fig)\nim=Image.open(out_png)\n# strict JSON reload and finite check\nwith open(out_json,\"r\",encoding=\"utf-8\") as f:\n    check=json.load(f)\ndef assert_finite(x):\n    if isinstance(x,float):\n        assert math.isfinite(x)\n    elif isinstance(x,dict):\n        for v in x.values(): assert_finite(v)\n    elif isinstance(x,list):\n        for v in x: assert_finite(v)\nassert_finite(check)\n(im.size, im.mode, check[\"schema_version\"], check[\"statistics\"][\"auc\"], len(check[\"statistics\"][\"points\"]))\n",
+          "import numpy as np, os\narr=np.array(im)\nalpha_ok = (arr[:,:,3] == 255).all() if arr.shape[2]==4 else True\nos.path.exists(out_png), os.path.exists(out_json), alpha_ok, os.path.getsize(out_png), os.path.getsize(out_json)\n"
+        ],
+        "usage": {
+          "input_tokens": 14145,
+          "input_tokens_details": {
+            "cache_write_tokens": 3028,
+            "cached_tokens": 0
+          },
+          "output_tokens": 7734,
+          "output_tokens_details": {
+            "reasoning_tokens": 7703
+          },
+          "total_tokens": 21879
+        },
+        "prompt_version": "openai_figure_workbench_v3",
+        "png_file_id": "cfile_6ae19b43d11c81918908ca0768c88446",
+        "result_file_id": "cfile_6ae19b43d0fc8191bf98470f50a9419a",
+        "model_call_id": "61befd1a-fc9b-4610-b943-14b2e737ff43",
+        "model_input_digest": "c156110133447ebb77c0bd8bd39798b7643ead887dbdd8a3325e6ece8c5ce328",
+        "input_sha256": "b18802a7b4b4d30d606456ccebd8024e0fd4de89d0d610d8d552b4dfb501c228"
+      },
+      "text_authorship": {
+        "title": "user",
+        "additional_caption": "user",
+        "created_by": "96da5ede-f336-4136-99a7-d3f3069f7a97"
+      },
+      "external_processing": {
+        "version": 7,
+        "confirmed": true,
+        "version_id": "4f027383-ca91-4bf1-8489-eec654cb9f08",
+        "confirmed_at": "2026-10-28T05:02:55.270529+00:00",
+        "confirmed_by": "96da5ede-f336-4136-99a7-d3f3069f7a97",
+        "payload_sha256": "b18802a7b4b4d30d606456ccebd8024e0fd4de89d0d610d8d552b4dfb501c228"
+      }
+    },
+    "configuration": {
+      "id": "4f027383-ca91-4bf1-8489-eec654cb9f08",
+      "configuration_id": "9056f257-55f4-4dd1-887a-ec660060a731",
+      "revision": 1,
+      "parent_version_id": null,
+      "created_by": "96da5ede-f336-4136-99a7-d3f3069f7a97",
+      "created_at": "2026-10-28 04:52:34.018331+00:00",
+      "sha256": "bf2fb88bdf0bd987c9ac4b1f97da307f7f4445e2fbc9aa1b80b7fe1628b20c21",
+      "config": {
+        "style": {
+          "title": "合成评分 ROC 曲线",
+          "width": 2400,
+          "height": 1600,
+          "aliases": {
+            "A": "结局",
+            "B": "评分"
+          },
+          "caption": "仅供合成数据工程验证。",
+          "palette": "colorblind",
+          "font_size": 12,
+          "display_order": []
+        },
+        "language": "zh-CN",
+        "projection": null,
+        "figure_kind": "roc_curve"
+      },
+      "source": {
+        "kind": "prepared_dataset_version",
+        "file_id": "a2f2ecf0-27fa-50ab-ae02-d62f0bf1cbdf",
+        "dataset_id": "b530c15c-17ca-52eb-aa9f-7b07412ff566",
+        "sheet_name": "Synthetic",
+        "sheet_index": 0,
+        "structure_id": "a43c75a7-4554-43a0-8bb2-0ca696a60840",
+        "source_sha256": "d195a0e4c21553e8562e479a4d3a48ff14a5ab149f439d556b1225e9558cf476",
+        "dataset_sha256": "7f0599f629c1774e53d9c83af41162bc45a2ff5d51b9d0a7ac61b223c280ffc3",
+        "parser_version": "openpyxl-3.1.5-structure-v1",
+        "schema_version": 1,
+        "dataset_version": 1,
+        "parent_dataset_id": "907d60b7-fe49-5430-9e08-5eaa5f1085cc",
+        "transform_version": "excel_prepare_v1",
+        "dataset_size_bytes": 3427,
+        "dataset_schema_version": 1,
+        "parent_dataset_version": 1
+      },
+      "figure_contract": 3
+    },
+    "projection": {
+      "id": "a69efb0d-a247-50fb-b2b9-39252a8ab822",
+      "config_version_id": "4f027383-ca91-4bf1-8489-eec654cb9f08",
+      "sha256": "96e6012a70b3171ea3d5fd35033f8cb692e154d30972734ede3c7aa1789673e6",
+      "result": {
+        "audit": {
+          "valid_n": 12,
+          "excluded": [],
+          "excluded_n": 0,
+          "missing_y_n": 0,
+          "population_n": 12,
+          "included_rows": [
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10,
+            11,
+            12,
+            13
+          ]
+        },
+        "method": {
+          "kind": "roc_curve",
+          "basis": "original_statistical_valid_rows"
+        },
+        "series": [],
+        "_material": {
+          "sha256": "95eb5fa20a46fea298a283fbf73371c812303f4273fe77c61ce9635f0bf5a7cf",
+          "payload": {
+            "labels": {
+              "title": "合成评分 ROC 曲线",
+              "caption": "纳入 12 条完整记录；排除 0 行。云端根据匿名必要数值独立计算曲线；期望曲线仅保留本地。 评估角色：表观探索性评估 仅供合成数据工程验证。 ROC展示已确认评估资料中的区分能力；不能据此声称外部验证或校准良好，不新增AUC区间。",
+              "x_label": "假阳性率（0–1）",
+              "y_label": "真阳性率（0–1）"
+            },
+            "method": "roc_auc",
+            "language": "zh-CN",
+            "variables": [
+              {
+                "name": "结局",
+                "unit": "",
+                "column": "A"
+              },
+              {
+                "name": "评分",
+                "unit": "",
+                "column": "B"
+              }
+            ],
+            "figure_kind": "roc_curve",
+            "plot_config": {
+              "ties": "joint_threshold",
+              "style": {
+                "width": 2400,
+                "height": 1600,
+                "palette": "colorblind",
+                "font_size": 12,
+                "display_order": []
+              },
+              "direction": "higher_is_positive",
+              "numbering_mode": "external",
+              "outliers_removed": false,
+              "verification_scope": "independent_curve_calculation",
+              "inference_displayed": false,
+              "threshold_endpoints": "null_with_threshold_kind"
+            },
+            "observations": [
+              {
+                "score": 0.4,
+                "outcome": 1
+              },
+              {
+                "score": 0.5,
+                "outcome": 1
+              },
+              {
+                "score": 0.6,
+                "outcome": 1
+              },
+              {
+                "score": 0.7,
+                "outcome": 1
+              },
+              {
+                "score": 0.8,
+                "outcome": 1
+              },
+              {
+                "score": 0.9,
+                "outcome": 1
+              },
+              {
+                "score": 0.1,
+                "outcome": 0
+              },
+              {
+                "score": 0.2,
+                "outcome": 0
+              },
+              {
+                "score": 0.3,
+                "outcome": 0
+              },
+              {
+                "score": 0.4,
+                "outcome": 0
+              },
+              {
+                "score": 0.6,
+                "outcome": 0
+              },
+              {
+                "score": 0.7,
+                "outcome": 0
+              }
+            ],
+            "presentation": {
+              "axes": {
+                "x": {
+                  "unit": "0–1",
+                  "label": "假阳性率（0–1）"
+                },
+                "y": {
+                  "unit": "0–1",
+                  "label": "真阳性率（0–1）"
+                }
+              },
+              "legend": {
+                "title": "分组",
+                "entries": []
+              },
+              "color_scale": null,
+              "abbreviations": [
+                {
+                  "term": "n",
+                  "definition": "有效记录数；独立人数须由研究设计确认"
+                },
+                {
+                  "term": "ROC",
+                  "definition": "受试者工作特征曲线"
+                },
+                {
+                  "term": "AUC",
+                  "definition": "ROC曲线下面积"
+                }
+              ],
+              "schema_version": 2,
+              "statistical_notes": [
+                "ROC展示已确认评估资料中的区分能力；不能据此声称外部验证或校准良好，不新增AUC区间。"
+              ]
+            },
+            "schema_version": 5,
+            "legacy_contract": 4
+          },
+          "expected": {
+            "title": "合成评分 ROC 曲线",
+            "caption": "纳入 12 条完整记录；排除 0 行。云端根据匿名必要数值独立计算曲线；期望曲线仅保留本地。 评估角色：表观探索性评估 仅供合成数据工程验证。 ROC展示已确认评估资料中的区分能力；不能据此声称外部验证或校准良好，不新增AUC区间。",
+            "x_label": "假阳性率（0–1）",
+            "y_label": "真阳性率（0–1）",
+            "language": "zh-CN",
+            "variables": [
+              {
+                "name": "结局",
+                "unit": "",
+                "column": "A"
+              },
+              {
+                "name": "评分",
+                "unit": "",
+                "column": "B"
+              }
+            ],
+            "statistics": {
+              "n": 12,
+              "auc": 0.8194444444444443,
+              "points": [
+                {
+                  "fpr": 0.0,
+                  "tpr": 0.0,
+                  "threshold": null,
+                  "sensitivity": 0.0,
+                  "specificity": 1.0,
+                  "threshold_kind": "above_all"
+                },
+                {
+                  "fpr": 0.0,
+                  "tpr": 0.16666666666666666,
+                  "threshold": 0.9,
+                  "sensitivity": 0.16666666666666666,
+                  "specificity": 1.0,
+                  "threshold_kind": "value"
+                },
+                {
+                  "fpr": 0.0,
+                  "tpr": 0.3333333333333333,
+                  "threshold": 0.8,
+                  "sensitivity": 0.3333333333333333,
+                  "specificity": 1.0,
+                  "threshold_kind": "value"
+                },
+                {
+                  "fpr": 0.16666666666666666,
+                  "tpr": 0.5,
+                  "threshold": 0.7,
+                  "sensitivity": 0.5,
+                  "specificity": 0.8333333333333334,
+                  "threshold_kind": "value"
+                },
+                {
+                  "fpr": 0.3333333333333333,
+                  "tpr": 0.6666666666666666,
+                  "threshold": 0.6,
+                  "sensitivity": 0.6666666666666666,
+                  "specificity": 0.6666666666666667,
+                  "threshold_kind": "value"
+                },
+                {
+                  "fpr": 0.3333333333333333,
+                  "tpr": 0.8333333333333334,
+                  "threshold": 0.5,
+                  "sensitivity": 0.8333333333333334,
+                  "specificity": 0.6666666666666667,
+                  "threshold_kind": "value"
+                },
+                {
+                  "fpr": 0.5,
+                  "tpr": 1.0,
+                  "threshold": 0.4,
+                  "sensitivity": 1.0,
+                  "specificity": 0.5,
+                  "threshold_kind": "value"
+                },
+                {
+                  "fpr": 0.6666666666666666,
+                  "tpr": 1.0,
+                  "threshold": 0.3,
+                  "sensitivity": 1.0,
+                  "specificity": 0.33333333333333337,
+                  "threshold_kind": "value"
+                },
+                {
+                  "fpr": 0.8333333333333334,
+                  "tpr": 1.0,
+                  "threshold": 0.2,
+                  "sensitivity": 1.0,
+                  "specificity": 0.16666666666666663,
+                  "threshold_kind": "value"
+                },
+                {
+                  "fpr": 1.0,
+                  "tpr": 1.0,
+                  "threshold": 0.1,
+                  "sensitivity": 1.0,
+                  "specificity": 0.0,
+                  "threshold_kind": "value"
+                }
+              ],
+              "negative_n": 6,
+              "positive_n": 6
+            },
+            "figure_kind": "roc_curve",
+            "plot_config": {
+              "ties": "joint_threshold",
+              "style": {
+                "width": 2400,
+                "height": 1600,
+                "palette": "colorblind",
+                "font_size": 12,
+                "display_order": []
+              },
+              "direction": "higher_is_positive",
+              "numbering_mode": "external",
+              "outliers_removed": false,
+              "verification_scope": "independent_curve_calculation",
+              "inference_displayed": false,
+              "threshold_endpoints": "null_with_threshold_kind"
+            },
+            "presentation": {
+              "axes": {
+                "x": {
+                  "unit": "0–1",
+                  "label": "假阳性率（0–1）"
+                },
+                "y": {
+                  "unit": "0–1",
+                  "label": "真阳性率（0–1）"
+                }
+              },
+              "legend": {
+                "title": "分组",
+                "entries": []
+              },
+              "color_scale": null,
+              "abbreviations": [
+                {
+                  "term": "n",
+                  "definition": "有效记录数；独立人数须由研究设计确认"
+                },
+                {
+                  "term": "ROC",
+                  "definition": "受试者工作特征曲线"
+                },
+                {
+                  "term": "AUC",
+                  "definition": "ROC曲线下面积"
+                }
+              ],
+              "schema_version": 2,
+              "statistical_notes": [
+                "ROC展示已确认评估资料中的区分能力；不能据此声称外部验证或校准良好，不新增AUC区间。"
+              ]
+            },
+            "schema_version": 5,
+            "legacy_contract": 4
+          }
+        },
+        "input_sha256": "1297c8bffa52ec4f57274e4306992e1a1741060198e324620c00c0d65a024173",
+        "tool_version": "figure_projection_v1",
+        "schema_version": 1,
+        "original_statistical_n": 12
+      }
+    }
+  },
+  "saved_explanation": {
+    "schema_version": 5,
+    "id": "59f94edd-8f29-4268-832b-78a6107991db",
+    "analysis_run_id": "f3f40ca8-59e3-4ad6-93e8-3e3f4a9d3706",
+    "file_id": "a2f2ecf0-27fa-50ab-ae02-d62f0bf1cbdf",
+    "source": {
+      "kind": "prepared_dataset_version",
+      "schema_version": 1,
+      "dataset_id": "b530c15c-17ca-52eb-aa9f-7b07412ff566",
+      "structure_id": "a43c75a7-4554-43a0-8bb2-0ca696a60840",
+      "dataset_version": 1,
+      "file_id": "a2f2ecf0-27fa-50ab-ae02-d62f0bf1cbdf",
+      "source_sha256": "d195a0e4c21553e8562e479a4d3a48ff14a5ab149f439d556b1225e9558cf476",
+      "dataset_sha256": "7f0599f629c1774e53d9c83af41162bc45a2ff5d51b9d0a7ac61b223c280ffc3",
+      "dataset_size_bytes": 3427,
+      "dataset_schema_version": 1,
+      "sheet_index": 0,
+      "sheet_name": "Synthetic",
+      "parser_version": "openpyxl-3.1.5-structure-v1",
+      "parent_dataset_id": "907d60b7-fe49-5430-9e08-5eaa5f1085cc",
+      "parent_dataset_version": 1,
+      "transform_version": "excel_prepare_v1"
+    },
+    "source_sha256": "d195a0e4c21553e8562e479a4d3a48ff14a5ab149f439d556b1225e9558cf476",
+    "setup_revision": 1,
+    "figure_id": "725f8526-1805-55ba-8260-3e9922022a28",
+    "figure_sha256": "b484859b239d2ade21f8a794c4d337fecb1fe5c68dec958540647e4bc91e6935",
+    "facts_sha256": "4db3c9b50426711c83f92e7d6346f6112333cf8becf990b28f34a8e4df849a05",
+    "language": "zh-CN",
+    "created_at": "2026-10-28T09:06:07.285957+00:00",
+    "sections": [
+      {
+        "key": "purpose",
+        "title": "分析目的",
+        "text": "变量: Outcome (); Score ()",
+        "evidence": [
+          {
+            "key": "modeling.variables",
+            "label": "变量",
+            "value": "Outcome (); Score ()"
+          }
+        ]
+      },
+      {
+        "key": "data",
+        "title": "使用数据",
+        "text": "数据记录 total: 12；数据记录 valid: 12；数据记录 excluded: 0；假阳性率（0–1）；0–1；真阳性率（0–1）；0–1",
+        "evidence": [
+          {
+            "key": "data.total",
+            "label": "数据记录 total",
+            "value": "12"
+          },
+          {
+            "key": "data.valid",
+            "label": "数据记录 valid",
+            "value": "12"
+          },
+          {
+            "key": "data.excluded",
+            "label": "数据记录 excluded",
+            "value": "0"
+          },
+          {
+            "key": "axis.x.label",
+            "label": "横轴字段",
+            "value": "假阳性率（0–1）"
+          },
+          {
+            "key": "axis.x.unit",
+            "label": "横轴单位",
+            "value": "0–1"
+          },
+          {
+            "key": "axis.y.label",
+            "label": "纵轴字段",
+            "value": "真阳性率（0–1）"
+          },
+          {
+            "key": "axis.y.unit",
+            "label": "纵轴单位",
+            "value": "0–1"
+          }
+        ]
+      },
+      {
+        "key": "methods",
+        "title": "分析方法",
+        "text": "冻结分数 ROC；并列分数共同跨阈值，梯形 AUC；本次不提供AUC区间，原因见统计结果。未优化阈值或训练模型。；确认的角色、编码及声明: 分析任务类型: ROC分析; 分析方法: ROC曲线下面积; 分数方向: 较高分数为阳性; 分数类型: 概率分数; 用户声明的评估角色（未经程序核验）: 表观探索评估; 独立性已声明确认: 否; 缺失处理: 完整记录; 假设声明 / 独立观察单位声明: 是; 假设声明 / 推断前提已声明确认: 是；用户声明独立观察；程序未验证独立性；用户提供研究设计文字，尚未经程序验证；未外发该原文。",
+        "evidence": [
+          {
+            "key": "method.summary",
+            "label": "分析方法",
+            "value": "冻结分数 ROC；并列分数共同跨阈值，梯形 AUC；本次不提供AUC区间，原因见统计结果。未优化阈值或训练模型。"
+          },
+          {
+            "key": "modeling.coding",
+            "label": "确认的角色、编码及声明",
+            "value": "分析任务类型: ROC分析; 分析方法: ROC曲线下面积; 分数方向: 较高分数为阳性; 分数类型: 概率分数; 用户声明的评估角色（未经程序核验）: 表观探索评估; 独立性已声明确认: 否; 缺失处理: 完整记录; 假设声明 / 独立观察单位声明: 是; 假设声明 / 推断前提已声明确认: 是"
+          },
+          {
+            "key": "design.structure",
+            "label": "观察结构及核查限制",
+            "value": "用户声明独立观察；程序未验证独立性"
+          },
+          {
+            "key": "design.status",
+            "label": "研究设计资料状态",
+            "value": "用户提供研究设计文字，尚未经程序验证；未外发该原文。"
+          }
+        ]
+      },
+      {
+        "key": "results",
+        "title": "主要结果",
+        "text": "有效记录数: 12；阳性记录数: 6；阴性记录数: 6；曲线下面积: 0.819444；分数方向: 较高分数为阳性；用户声明的评估角色（未经程序核验）: 表观探索评估；置信区间: 下限: 未提供或无法计算; 上限: 未提供或无法计算; 置信水平: 0.95; 分析方法: DeLong正态区间并裁剪至零一范围; 原因: 评估角色不支持独立验证区间；局限与警告: AUC不等于临床实用性; 样本量较小，解释需谨慎",
+        "evidence": [
+          {
+            "key": "modeling.n",
+            "label": "有效记录数",
+            "value": "12"
+          },
+          {
+            "key": "modeling.positive_n",
+            "label": "阳性记录数",
+            "value": "6"
+          },
+          {
+            "key": "modeling.negative_n",
+            "label": "阴性记录数",
+            "value": "6"
+          },
+          {
+            "key": "modeling.auc",
+            "label": "曲线下面积",
+            "value": "0.819444"
+          },
+          {
+            "key": "modeling.direction",
+            "label": "分数方向",
+            "value": "较高分数为阳性"
+          },
+          {
+            "key": "modeling.evaluation_role",
+            "label": "用户声明的评估角色（未经程序核验）",
+            "value": "表观探索评估"
+          },
+          {
+            "key": "modeling.confidence_interval",
+            "label": "置信区间",
+            "value": "下限: 未提供或无法计算; 上限: 未提供或无法计算; 置信水平: 0.95; 分析方法: DeLong正态区间并裁剪至零一范围; 原因: 评估角色不支持独立验证区间"
+          },
+          {
+            "key": "modeling.warnings",
+            "label": "局限与警告",
+            "value": "AUC不等于临床实用性; 样本量较小，解释需谨慎"
+          }
+        ]
+      },
+      {
+        "key": "interpretation",
+        "title": "结果解释",
+        "text": "局限与警告: AUC不等于临床实用性; 样本量较小，解释需谨慎；用户声明独立观察；程序未验证独立性；用户提供研究设计文字，尚未经程序验证；未外发该原文。；研究声明为用户提供；程序不证明研究设计或样本真实性。；完整记录分析可能产生选择偏倚；未插补、去重或删除离群值。；数值显示最多六位有效数字；完整值以保存统计为准。；解释为初稿；图片像素与语义须人工审阅。；ROC 仅评估已冻结分数；区间和评估声明不证明独立外部验证，未优化阈值。；研究设计及观察独立性未由程序验证；设计缺失时不作假设，不能据此推断因果。；数值与事实引用已由程序填入并核对；语义和研究适用性仍需人工审阅。；用户声明独立观察；程序未验证独立性；本解释仅核对冻结统计与元数据，未验证图片像素、图中文字或视觉正确性；AI初稿仍需人工审阅。",
+        "evidence": [
+          {
+            "key": "modeling.warnings",
+            "label": "局限与警告",
+            "value": "AUC不等于临床实用性; 样本量较小，解释需谨慎"
+          },
+          {
+            "key": "design.structure",
+            "label": "观察结构及核查限制",
+            "value": "用户声明独立观察；程序未验证独立性"
+          },
+          {
+            "key": "design.status",
+            "label": "研究设计资料状态",
+            "value": "用户提供研究设计文字，尚未经程序验证；未外发该原文。"
+          },
+          {
+            "key": "limitation.0",
+            "label": "适用限制",
+            "value": "研究声明为用户提供；程序不证明研究设计或样本真实性。"
+          },
+          {
+            "key": "limitation.1",
+            "label": "适用限制",
+            "value": "完整记录分析可能产生选择偏倚；未插补、去重或删除离群值。"
+          },
+          {
+            "key": "limitation.2",
+            "label": "适用限制",
+            "value": "数值显示最多六位有效数字；完整值以保存统计为准。"
+          },
+          {
+            "key": "limitation.3",
+            "label": "适用限制",
+            "value": "解释为初稿；图片像素与语义须人工审阅。"
+          },
+          {
+            "key": "limitation.4",
+            "label": "适用限制",
+            "value": "ROC 仅评估已冻结分数；区间和评估声明不证明独立外部验证，未优化阈值。"
+          },
+          {
+            "key": "limitation.5",
+            "label": "适用限制",
+            "value": "研究设计及观察独立性未由程序验证；设计缺失时不作假设，不能据此推断因果。"
+          },
+          {
+            "key": "limitation.6",
+            "label": "适用限制",
+            "value": "数值与事实引用已由程序填入并核对；语义和研究适用性仍需人工审阅。"
+          },
+          {
+            "key": "limitation.7",
+            "label": "适用限制",
+            "value": "用户声明独立观察；程序未验证独立性"
+          },
+          {
+            "key": "limitation.8",
+            "label": "适用限制",
+            "value": "本解释仅核对冻结统计与元数据，未验证图片像素、图中文字或视觉正确性；AI初稿仍需人工审阅。"
+          }
+        ]
+      },
+      {
+        "key": "paper_text",
+        "title": "论文描述文字",
+        "text": "当前图；合成评分 ROC 曲线；冻结分数 ROC；并列分数共同跨阈值，梯形 AUC；本次不提供AUC区间，原因见统计结果。未优化阈值或训练模型。；数据记录 valid: 12",
+        "evidence": [
+          {
+            "key": "figure.number",
+            "label": "图号",
+            "value": "当前图"
+          },
+          {
+            "key": "figure.title",
+            "label": "图标题",
+            "value": "合成评分 ROC 曲线"
+          },
+          {
+            "key": "method.summary",
+            "label": "分析方法",
+            "value": "冻结分数 ROC；并列分数共同跨阈值，梯形 AUC；本次不提供AUC区间，原因见统计结果。未优化阈值或训练模型。"
+          },
+          {
+            "key": "data.valid",
+            "label": "数据记录 valid",
+            "value": "12"
+          }
+        ]
+      }
+    ],
+    "draft": {
+      "purpose": "{{modeling.variables}}",
+      "interpretation": "{{modeling.warnings}}；{{design.structure}}；{{design.status}}；{{limitation.0}}；{{limitation.1}}；{{limitation.2}}；{{limitation.3}}；{{limitation.4}}；{{limitation.5}}；{{limitation.6}}；{{limitation.7}}；{{limitation.8}}",
+      "results": "{{modeling.n}}；{{modeling.positive_n}}；{{modeling.negative_n}}；{{modeling.auc}}；{{modeling.direction}}；{{modeling.evaluation_role}}；{{modeling.confidence_interval}}；{{modeling.warnings}}",
+      "paper_text": "{{figure.number}}；{{figure.title}}；{{method.summary}}；{{data.valid}}",
+      "methods": "{{method.summary}}；{{modeling.coding}}；{{design.structure}}；{{design.status}}",
+      "data": "{{data.total}}；{{data.valid}}；{{data.excluded}}；{{axis.x.label}}；{{axis.x.unit}}；{{axis.y.label}}；{{axis.y.unit}}"
+    },
+    "payload_sha256": "c3487ef374b87eb687c49aa9fa57747c267ba42383fedce106524aa4ff1266b7",
+    "limitations": [
+      "研究声明为用户提供；程序不证明研究设计或样本真实性。",
+      "完整记录分析可能产生选择偏倚；未插补、去重或删除离群值。",
+      "数值显示最多六位有效数字；完整值以保存统计为准。",
+      "解释为初稿；图片像素与语义须人工审阅。",
+      "ROC 仅评估已冻结分数；区间和评估声明不证明独立外部验证，未优化阈值。",
+      "研究设计及观察独立性未由程序验证；设计缺失时不作假设，不能据此推断因果。",
+      "数值与事实引用已由程序填入并核对；语义和研究适用性仍需人工审阅。",
+      "用户声明独立观察；程序未验证独立性",
+      "本解释仅核对冻结统计与元数据，未验证图片像素、图中文字或视觉正确性；AI初稿仍需人工审阅。"
+    ],
+    "verification": {
+      "status": "references_checked",
+      "note": "数值与事实引用已由程序填入并核对；语义和研究适用性仍需人工审阅。"
+    },
+    "engine": {
+      "id": "figure_explanation_v4",
+      "provider": "openai",
+      "model": "gpt-6.1-sol"
+    },
+    "provenance": {
+      "response_id": "resp_0f8b75beeb463dd8006ae1ba5d18c087d18ad8f2c8dd8958b8",
+      "model": "gpt-6.1-sol",
+      "usage": {
+        "input_tokens": 2511,
+        "input_tokens_details": {
+          "cache_write_tokens": 2508,
+          "cached_tokens": 0
+        },
+        "output_tokens": 263,
+        "output_tokens_details": {
+          "reasoning_tokens": 0
+        },
+        "total_tokens": 2774
+      },
+      "prompt_version": "figure_explanation_v4",
+      "model_call_id": "1e9e62b3-3fab-4b64-a931-a6e2d0d9c3ec",
+      "model_input_digest": "70bfe62684c2643214bdad505f5c204bd0b334beef369a4237eb2ead7923f0cd",
+      "input_sha256": "c3487ef374b87eb687c49aa9fa57747c267ba42383fedce106524aa4ff1266b7"
+    }
+  }
+}

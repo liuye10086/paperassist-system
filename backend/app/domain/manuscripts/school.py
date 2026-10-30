@@ -41,6 +41,8 @@ def validate_chapters(context, groups):
         assigned.update(ids)
     if sum(c['purpose'] == 'references' for c in chapters) > 1:
         raise ValueError('A common reference list requires one explicit references chapter')
+    from app.domain.school_templates.front_matter import validate_content_purposes
+    validate_content_purposes(context['confirmation'].get('front_matter'),chapters)
     return chapters
 
 

@@ -90,6 +90,11 @@ class ExternalEvidenceService:
         self.store=TaskStore(assets.owner_id,assets.db_config)
 
     def source(self,project,file_id,kind,version_id=None):
+        source,items,_,_=self._source(project,file_id,kind,version_id)
+        return source,items
+
+    def _source(self,project,file_id,kind,version_id=None):
+        """Keep verified document material local to this source projection."""
         with self.store.connection() as db:
             self.store.require_project(db,project)
             file=dict(require_file(db,project,file_id))
@@ -98,7 +103,7 @@ class ExternalEvidenceService:
         source=dict(kind=kind,file_id=file_id,filename=file['filename'],file_type=file['file_type'],
                     source_sha256=file['sha256'],size_bytes=file['size_bytes'],original_download_url=prefix+'/download',
                     version_id=None,version=None,sha256=file['sha256'],object_download_url=None,review_status='not_reviewed')
-        items=[]
+        items=[];row=None;document=None
         if kind=='original':
             if version_id is not None:raise StorageError('task_input_invalid','原件不接受解析版本。',422)
         elif kind=='document_version' and version_id:
@@ -120,7 +125,7 @@ class ExternalEvidenceService:
             source.update(version_id=version_id,version=row['version'],sha256=row['sha256'],
                           object_download_url=prefix+'/ocr-review-versions/'+quote(version_id,safe='')+'/download',review_status='human_reviewed')
         else:raise StorageError('task_input_invalid','请选择明确的原件、文档版本或OCR核对版本。',422)
-        return source,items
+        return source,items,row,document
 
     def preview(self,project,file,kind,version_id=None,page=1):
         if type(page) is not int or not 1<=page<=1000000:raise StorageError('task_input_invalid','页码无效。',422)

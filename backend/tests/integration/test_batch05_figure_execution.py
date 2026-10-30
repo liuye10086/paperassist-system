@@ -40,7 +40,7 @@ class IndependentLineProvider(SyntheticPlotProvider):
 def queued_figure(client,monkeypatch,config=None,*,contract_version=1):
     store,project,result=source(client);args=(project,result['file_id'],result['id'])
     saved=store.save(*args,SaveConfiguration(config=config or {'figure_kind':'line','language':'en','projection':{'x_column':'A','y_column':'C'}}));vid=saved['version']['id']
-    if contract_version in (1,2):
+    if contract_version in (1,2,3):
         # Freeze a genuine pre-batch06 configuration before any decision/task.
         # These regression tests retain v1 recovery and old provider receipt coverage.
         from app.db.database import database_connection
@@ -49,7 +49,7 @@ def queued_figure(client,monkeypatch,config=None,*,contract_version=1):
         with database_connection(write=True) as db:
             row=db.execute('SELECT * FROM figure_config_versions WHERE id=%s',(vid,)).fetchone()
             provenance={k:v for k,v in row['source_json'].items() if k!='figure_contract'}
-            if contract_version==2:provenance['figure_contract']=2
+            if contract_version>=2:provenance['figure_contract']=contract_version
             db.execute('UPDATE figure_config_versions SET source_json=%s,sha256=%s WHERE id=%s',(Jsonb(provenance),digest({'config':row['config_json'],'source':provenance}),vid))
     check=check_projection(store,*args,vid);confirm_projection(store,*args,vid,ConfirmProjection(input_sha256=check['input_sha256'],approved=True))
     preview=store.external_preview(*args,vid)

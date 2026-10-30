@@ -103,6 +103,9 @@ def file_object_keys(db,refs):
     """Physical members of the existing validated file lineage, never a path scan."""
     from .historical import mapping
     keys=set();groups=refs['public_groups']
+    from app.domain.manuscript_writing.school_render_cache import descriptors
+    for row in groups.get('manuscript_school_language_artifacts',[]):
+        keys.update(item['object_key'] for item in descriptors(row['candidate_json']['writing_provenance']['school_final_render'],row['user_id'],row['project_id']))
     for kind in ('dataset_versions','prepared_dataset_versions','ocr_review_versions'):
         keys.update(r['object_key'] for r in groups[kind])
     for kind in ('prepared_dataset_derivations','prepared_dataset_derivations_v3'):

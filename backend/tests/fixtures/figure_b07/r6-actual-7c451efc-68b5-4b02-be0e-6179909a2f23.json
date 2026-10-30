@@ -1,0 +1,297 @@
+{
+  "task_id": "7c451efc-68b5-4b02-be0e-6179909a2f23",
+  "response_id": "resp_09107cff23cbe94f006ae28f42f4b887d0948eacb66b71e738",
+  "raw_file": "raw/000121-retrieve.response.body",
+  "raw_sha256": "90be3abf49bbec5ccea106b3eb6df5fbd2dd01691b091f0a4281c2e5a39cf50f",
+  "receipt_seq": 123,
+  "payload": {
+    "facts": {
+      "axis.x.label": {
+        "label": "Horizontal field",
+        "raw": "Variables",
+        "value": "Variables"
+      },
+      "axis.x.unit": {
+        "label": "Horizontal unit",
+        "raw": "",
+        "value": "Unit not specified"
+      },
+      "axis.y.label": {
+        "label": "Vertical field",
+        "raw": "Variables",
+        "value": "Variables"
+      },
+      "axis.y.unit": {
+        "label": "Vertical unit",
+        "raw": "",
+        "value": "Unit not specified"
+      },
+      "correlation.method": {
+        "label": "Correlation method",
+        "raw": "Pearson",
+        "value": "Pearson"
+      },
+      "correlation.n": {
+        "label": "Common effective n",
+        "raw": 5,
+        "value": "5"
+      },
+      "data.excluded": {
+        "label": "Excluded row count",
+        "raw": 2,
+        "value": "2"
+      },
+      "data.total": {
+        "label": "Source row count",
+        "raw": 7,
+        "value": "7"
+      },
+      "data.valid": {
+        "label": "Complete record count",
+        "raw": 5,
+        "value": "5"
+      },
+      "design.status": {
+        "label": "Research design information status",
+        "raw": true,
+        "value": "Research design text was supplied but was not programmatically verified or forwarded"
+      },
+      "design.structure": {
+        "label": "Observation structure and verification limits",
+        "raw": "independent",
+        "value": "User-declared independent observations; independence was not verified"
+      },
+      "figure.title": {
+        "label": "Figure title",
+        "raw": "Synthetic correlation matrix",
+        "value": "Synthetic correlation matrix"
+      },
+      "limitation.0": {
+        "label": "Applicable limitation",
+        "raw": "Correlation describes association and does not establish causation or treatment effectiveness.",
+        "value": "Correlation describes association and does not establish causation or treatment effectiveness"
+      },
+      "limitation.1": {
+        "label": "Applicable limitation",
+        "raw": "The matrix is exploratory: no P values, confidence intervals, significance stars or multiple-testing inference.",
+        "value": "The matrix is exploratory: no P values, confidence intervals, significance stars or multiple-testing inference"
+      },
+      "limitation.2": {
+        "label": "Applicable limitation",
+        "raw": "Independent observations and the required relationship/inferential assumptions were declared by the user; the program does not prove them.",
+        "value": "Independent observations and the required relationship/inferential assumptions were declared by the user; the program does not prove them"
+      },
+      "limitation.3": {
+        "label": "Applicable limitation",
+        "raw": "Small samples and missing-record exclusions can make conclusions unstable; only the selected complete records were analysed.",
+        "value": "Small samples and missing-record exclusions can make conclusions unstable; only the selected complete records were analysed"
+      },
+      "limitation.4": {
+        "label": "Applicable limitation",
+        "raw": "Research design text was supplied but was not verified or forwarded; sample provenance, procedures and measurement context require review.",
+        "value": "Research design text was supplied but was not verified or forwarded; sample provenance, procedures and measurement context require review"
+      },
+      "limitation.5": {
+        "label": "Applicable limitation",
+        "raw": "Complete ordered coordinates retain saved precision; other projection summaries display at most 8 significant digits and original statistical summaries at most 6 significant digits. Saved results retain full precision.",
+        "value": "Complete ordered coordinates retain saved precision; other projection summaries display at most 8 significant digits and original statistical summaries at most 6 significant digits. Saved results retain full precision"
+      },
+      "limitation.6": {
+        "label": "Applicable limitation",
+        "raw": "Values and fact references were inserted and checked locally; meaning and research applicability require review.",
+        "value": "Values and fact references were inserted and checked locally; meaning and research applicability require review"
+      },
+      "limitation.7": {
+        "label": "Applicable limitation",
+        "raw": "This explanation checks frozen statistics and metadata only; image pixels, in-image text and visual correctness were not verified. The AI draft requires human review.",
+        "value": "This explanation checks frozen statistics and metadata only; image pixels, in-image text and visual correctness were not verified. The AI draft requires human review"
+      },
+      "matrix.0.0": {
+        "label": "X / X: coefficient",
+        "raw": 1.0,
+        "value": "1"
+      },
+      "matrix.0.1": {
+        "label": "X / Y: coefficient",
+        "raw": 0.7999999999999997,
+        "value": "0.8"
+      },
+      "matrix.0.2": {
+        "label": "X / Z: coefficient",
+        "raw": -1.0,
+        "value": "-1"
+      },
+      "matrix.1.0": {
+        "label": "Y / X: coefficient",
+        "raw": 0.7999999999999997,
+        "value": "0.8"
+      },
+      "matrix.1.1": {
+        "label": "Y / Y: coefficient",
+        "raw": 1.0,
+        "value": "1"
+      },
+      "matrix.1.2": {
+        "label": "Y / Z: coefficient",
+        "raw": -0.7999999999999999,
+        "value": "-0.8"
+      },
+      "matrix.2.0": {
+        "label": "Z / X: coefficient",
+        "raw": -1.0,
+        "value": "-1"
+      },
+      "matrix.2.1": {
+        "label": "Z / Y: coefficient",
+        "raw": -0.7999999999999999,
+        "value": "-0.8"
+      },
+      "matrix.2.2": {
+        "label": "Z / Z: coefficient",
+        "raw": 1.0,
+        "value": "1"
+      },
+      "method.summary": {
+        "label": "Analysis method",
+        "raw": "Pearson correlation uses complete observations across all selected variables, retaining original row correspondence; no imputation, deduplication or outlier removal. Pearson measures linear association; its inferential assumptions are declared by the user, not proven by this program. This exploratory matrix reports coefficients and common n only, without P values, intervals or multiple-testing claims.",
+        "value": "Pearson correlation uses complete observations across all selected variables, retaining original row correspondence; no imputation, deduplication or outlier removal. Pearson measures linear association; its inferential assumptions are declared by the user, not proven by this program. This exploratory matrix reports coefficients and common n only, without P values, intervals or multiple-testing claims"
+      },
+      "purpose.kind": {
+        "label": "Figure type",
+        "raw": "correlation_heatmap",
+        "value": "a correlation heatmap"
+      },
+      "scope.variables": {
+        "label": "Variable scope",
+        "raw": "X (unit not specified), Y (unit not specified), Z (unit not specified)",
+        "value": "X (unit not specified), Y (unit not specified), Z (unit not specified)"
+      },
+      "variables.0.name": {
+        "label": "Variable",
+        "raw": "X",
+        "value": "X"
+      },
+      "variables.0.unit": {
+        "label": "Unit",
+        "raw": "unit not specified",
+        "value": "unit not specified"
+      },
+      "variables.1.name": {
+        "label": "Variable",
+        "raw": "Y",
+        "value": "Y"
+      },
+      "variables.1.unit": {
+        "label": "Unit",
+        "raw": "unit not specified",
+        "value": "unit not specified"
+      },
+      "variables.2.name": {
+        "label": "Variable",
+        "raw": "Z",
+        "value": "Z"
+      },
+      "variables.2.unit": {
+        "label": "Unit",
+        "raw": "unit not specified",
+        "value": "unit not specified"
+      }
+    },
+    "figure_explanation_contract": 5,
+    "language": "en",
+    "required_references": {
+      "data": [
+        "data.total",
+        "data.valid",
+        "data.excluded",
+        "axis.x.label",
+        "axis.x.unit",
+        "axis.y.label",
+        "axis.y.unit"
+      ],
+      "interpretation": [
+        "limitation.0",
+        "limitation.1",
+        "limitation.2",
+        "limitation.3",
+        "limitation.4",
+        "limitation.5",
+        "limitation.6",
+        "limitation.7"
+      ],
+      "methods": [
+        "method.summary",
+        "design.structure",
+        "design.status"
+      ],
+      "paper_text": [
+        "scope.variables",
+        "purpose.kind",
+        "data.valid",
+        "method.summary",
+        "variables.0.name",
+        "variables.1.name",
+        "variables.2.name",
+        "variables.0.unit",
+        "variables.1.unit",
+        "variables.2.unit",
+        "correlation.n",
+        "matrix.0.0",
+        "matrix.0.1",
+        "matrix.0.2",
+        "matrix.1.0",
+        "matrix.1.1",
+        "matrix.1.2",
+        "matrix.2.0",
+        "matrix.2.1",
+        "matrix.2.2",
+        "limitation.0",
+        "limitation.1",
+        "limitation.2",
+        "limitation.3",
+        "limitation.4",
+        "limitation.5",
+        "limitation.6",
+        "limitation.7"
+      ],
+      "purpose": [
+        "scope.variables",
+        "purpose.kind"
+      ],
+      "results": [
+        "variables.0.name",
+        "variables.1.name",
+        "variables.2.name",
+        "variables.0.unit",
+        "variables.1.unit",
+        "variables.2.unit",
+        "correlation.n",
+        "matrix.0.0",
+        "matrix.0.1",
+        "matrix.0.2",
+        "matrix.1.0",
+        "matrix.1.1",
+        "matrix.1.2",
+        "matrix.2.0",
+        "matrix.2.1",
+        "matrix.2.2"
+      ]
+    },
+    "schema_version": 2
+  },
+  "draft": {
+    "purpose": "This figure describes {{scope.variables}} using {{purpose.kind}}.",
+    "interpretation": "Interpreting the associations requires considering {{limitation.0}}. Interpreting the inferential scope requires considering {{limitation.1}}. Assessing the observation structure and assumptions requires considering {{limitation.2}}. Assessing the stability and record selection requires considering {{limitation.3}}. Reviewing the research context requires considering {{limitation.4}}. Reading the saved precision and distinguishing statistical records from projection summaries requires considering {{limitation.5}}. Evaluating the explanation's applicability requires considering {{limitation.6}}. Evaluating the verification boundaries requires considering {{limitation.7}}.",
+    "results": "The saved results describe {{variables.0.name}} with units recorded as {{variables.0.unit}}, {{variables.1.name}} with units recorded as {{variables.1.unit}}, and {{variables.2.name}} with units recorded as {{variables.2.unit}}. The saved common effective record count is {{correlation.n}}. The saved coefficient pairing {{variables.0.name}} with {{variables.0.name}} is {{matrix.0.0}}. The saved coefficient pairing {{variables.0.name}} with {{variables.1.name}} is {{matrix.0.1}}. The saved coefficient pairing {{variables.0.name}} with {{variables.2.name}} is {{matrix.0.2}}. The saved coefficient pairing {{variables.1.name}} with {{variables.0.name}} is {{matrix.1.0}}. The saved coefficient pairing {{variables.1.name}} with {{variables.1.name}} is {{matrix.1.1}}. The saved coefficient pairing {{variables.1.name}} with {{variables.2.name}} is {{matrix.1.2}}. The saved coefficient pairing {{variables.2.name}} with {{variables.0.name}} is {{matrix.2.0}}. The saved coefficient pairing {{variables.2.name}} with {{variables.1.name}} is {{matrix.2.1}}. The saved coefficient pairing {{variables.2.name}} with {{variables.2.name}} is {{matrix.2.2}}.",
+    "paper_text": "This figure describes {{scope.variables}} using {{purpose.kind}}. The analysis retains {{data.valid}} complete original records, without identifying them as independent participants. The saved analysis method states: {{method.summary}}. The saved results describe {{variables.0.name}} with units recorded as {{variables.0.unit}}, {{variables.1.name}} with units recorded as {{variables.1.unit}}, and {{variables.2.name}} with units recorded as {{variables.2.unit}}. The saved common effective record count is {{correlation.n}}. The saved coefficient pairing {{variables.0.name}} with {{variables.0.name}} is {{matrix.0.0}}. The saved coefficient pairing {{variables.0.name}} with {{variables.1.name}} is {{matrix.0.1}}. The saved coefficient pairing {{variables.0.name}} with {{variables.2.name}} is {{matrix.0.2}}. The saved coefficient pairing {{variables.1.name}} with {{variables.0.name}} is {{matrix.1.0}}. The saved coefficient pairing {{variables.1.name}} with {{variables.1.name}} is {{matrix.1.1}}. The saved coefficient pairing {{variables.1.name}} with {{variables.2.name}} is {{matrix.1.2}}. The saved coefficient pairing {{variables.2.name}} with {{variables.0.name}} is {{matrix.2.0}}. The saved coefficient pairing {{variables.2.name}} with {{variables.1.name}} is {{matrix.2.1}}. The saved coefficient pairing {{variables.2.name}} with {{variables.2.name}} is {{matrix.2.2}}. Interpreting the associations requires considering {{limitation.0}}. Interpreting the inferential scope requires considering {{limitation.1}}. Assessing the observation structure and assumptions requires considering {{limitation.2}}. Assessing the stability and record selection requires considering {{limitation.3}}. Reviewing the research context requires considering {{limitation.4}}. Reading the saved precision and distinguishing statistical records from projection summaries requires considering {{limitation.5}}. Evaluating the explanation's applicability requires considering {{limitation.6}}. Evaluating the verification boundaries requires considering {{limitation.7}}.",
+    "methods": "This figure uses the saved analysis method described as follows: {{method.summary}}. The saved observation-structure statement specifies {{design.structure}}. The saved research-design verification status states: {{design.status}}.",
+    "data": "The source data contain {{data.total}} original rows. The analysis retains {{data.valid}} complete original records and excludes {{data.excluded}} rows. The horizontal field is recorded as {{axis.x.label}}, with its unit recorded as {{axis.x.unit}}. The vertical field is recorded as {{axis.y.label}}, with its unit recorded as {{axis.y.unit}}."
+  },
+  "source_pins": {
+    "frozen/7c451efc-68b5-4b02-be0e-6179909a2f23/data.json": "04c8f06b951aac323ba0734fd32a4ca61d763d53892ca73ffed8b36f007d6ae4",
+    "frozen/7c451efc-68b5-4b02-be0e-6179909a2f23/expected.json": "0d4c765460311d2eea57b17b842ea0a7868be006b7df5c0d9c84985825b87983",
+    "frozen/7c451efc-68b5-4b02-be0e-6179909a2f23/instructions.txt": "348aa275e5c95b55a2d2b1ae2e6faaaf19571c040ae60d09d8a23090eae1aa5c",
+    "frozen/7c451efc-68b5-4b02-be0e-6179909a2f23/policy-snapshot.json": "58e72f61953721f22abfe1edd107fbf9e08c967627d1e781e1b4f199b962ee39",
+    "frozen/7c451efc-68b5-4b02-be0e-6179909a2f23/task-snapshot.json": "898424f6f14f9828784fb713c3109a874efeb35831ae97c71daa2db0bff2cd95"
+  }
+}

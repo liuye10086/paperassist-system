@@ -103,10 +103,19 @@ def test_tool_execution_counts_preserve_evidence_and_unknowns(admin,accounts):
     for summary in (data['summary'],data['by_provenance']['unknown'],data['groups'][0]['summary']):
         assert summary['tool_call_count']==2
         assert summary['tool_call_unknown_count']==1
+        assert summary['configured_tool_call_count']==3
+        assert summary['observed_actual_tool_uses']==2
+        assert summary['actual_tool_usage_known_calls']==2
+        assert summary['actual_tool_usage_unknown_calls']==1
+        assert summary['actual_micro_usd'] is None
     counts={row['id']:row['tool_call_count'] for row in data['items']}
     assert counts=={known:2,unknown:None,released:0}
+    known_call=next(row for row in data['items'] if row['id']==known)
+    assert known_call['estimated_cost_micro_usd'] is None
+    assert known_call['reconciliation']['actual_micro_usd'] is None
     metrics=admin.get('/api/v1/admin/metrics').json()
     assert metrics['tool_calls']==2 and metrics['tool_calls_unknown_count']==1
+    assert metrics['actual_tool_usage_known_calls']==2 and metrics['actual_tool_usage_unknown_calls']==1
 
 
 def test_gateway_persists_tool_evidence_without_body_and_does_not_regress(admin,context):

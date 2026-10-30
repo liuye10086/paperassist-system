@@ -1,0 +1,234 @@
+{
+  "task_id": "7a2bd90e-98fd-4281-b668-d285d7fdea2a",
+  "response_id": "resp_03722b635ef613a1006ae28ec6a9b487d0a4009527a129dde4",
+  "raw_file": "raw/000114-retrieve.response.body",
+  "raw_sha256": "91bbc8ca6f57287108aef9be21da9044865173cfc38bd9bf353b4e12d39349b6",
+  "receipt_seq": 116,
+  "payload": {
+    "facts": {
+      "axis.x.label": {
+        "label": "横轴字段",
+        "raw": "X (单位未填写)",
+        "value": "X (单位未填写)"
+      },
+      "axis.x.unit": {
+        "label": "横轴单位",
+        "raw": "",
+        "value": "单位未提供"
+      },
+      "axis.y.label": {
+        "label": "纵轴字段",
+        "raw": "Y (单位未填写)",
+        "value": "Y (单位未填写)"
+      },
+      "axis.y.unit": {
+        "label": "纵轴单位",
+        "raw": "",
+        "value": "单位未提供"
+      },
+      "correlation.coefficient": {
+        "label": "相关系数",
+        "raw": 0.7999999999999998,
+        "value": "0.8"
+      },
+      "correlation.confidence_interval": {
+        "label": "置信区间",
+        "raw": "-0.27964 至 0.986196",
+        "value": "-0.27964 至 0.986196"
+      },
+      "correlation.method": {
+        "label": "相关方法",
+        "raw": "Pearson",
+        "value": "Pearson"
+      },
+      "correlation.n": {
+        "label": "共同有效样本数",
+        "raw": 5,
+        "value": "5"
+      },
+      "correlation.p_value": {
+        "label": "双侧 P 值",
+        "raw": 0.10408803866182799,
+        "value": "0.104088"
+      },
+      "data.excluded": {
+        "label": "排除行数",
+        "raw": 2,
+        "value": "2"
+      },
+      "data.total": {
+        "label": "原始行数",
+        "raw": 7,
+        "value": "7"
+      },
+      "data.valid": {
+        "label": "完整记录数",
+        "raw": 5,
+        "value": "5"
+      },
+      "design.status": {
+        "label": "研究设计资料状态",
+        "raw": true,
+        "value": "用户提供研究设计文字，尚未经程序验证；未外发该原文"
+      },
+      "design.structure": {
+        "label": "观察结构及核查限制",
+        "raw": "independent",
+        "value": "用户声明独立观察；程序未验证独立性"
+      },
+      "figure.title": {
+        "label": "图标题",
+        "raw": "合成数据散点图",
+        "value": "合成数据散点图"
+      },
+      "limitation.0": {
+        "label": "适用限制",
+        "raw": "相关描述关联程度，不等于因果，也不能证明疗效。",
+        "value": "相关描述关联程度，不等于因果，也不能证明疗效"
+      },
+      "limitation.1": {
+        "label": "适用限制",
+        "raw": "独立观察及关系形态、推断前提由用户声明，程序不能证明这些前提。",
+        "value": "独立观察及关系形态、推断前提由用户声明，程序不能证明这些前提"
+      },
+      "limitation.2": {
+        "label": "适用限制",
+        "raw": "小样本及缺失记录排除可能使结论不稳定，本次只分析所选完整记录。",
+        "value": "小样本及缺失记录排除可能使结论不稳定，本次只分析所选完整记录"
+      },
+      "limitation.3": {
+        "label": "适用限制",
+        "raw": "研究设计文字已提供但未经程序验证且未外发；样本来源、实验步骤及测量背景仍需核查。",
+        "value": "研究设计文字已提供但未经程序验证且未外发；样本来源、实验步骤及测量背景仍需核查"
+      },
+      "limitation.4": {
+        "label": "适用限制",
+        "raw": "完整有序坐标保留保存精度；其它投影摘要最多显示8位有效数字，原统计摘要最多显示6位有效数字，完整数值以保存结果为准。",
+        "value": "完整有序坐标保留保存精度；其它投影摘要最多显示8位有效数字，原统计摘要最多显示6位有效数字，完整数值以保存结果为准"
+      },
+      "limitation.5": {
+        "label": "适用限制",
+        "raw": "数值与事实引用已由程序填入并核对；语义和研究适用性仍需人工审阅。",
+        "value": "数值与事实引用已由程序填入并核对；语义和研究适用性仍需人工审阅"
+      },
+      "limitation.6": {
+        "label": "适用限制",
+        "raw": "本解释仅核对冻结统计与元数据，未验证图片像素、图中文字或视觉正确性；AI初稿仍需人工审阅。",
+        "value": "本解释仅核对冻结统计与元数据，未验证图片像素、图中文字或视觉正确性；AI初稿仍需人工审阅"
+      },
+      "method.summary": {
+        "label": "分析方法",
+        "raw": "Pearson相关采用全部所选变量共同完整记录，保持原始行对应；未插补、去重或剔除离群值。Pearson度量线性关联；推断前提由用户声明，程序不能证明这些前提。Pearson 双侧 beta 分布检验. 95% Fisher z 区间。",
+        "value": "Pearson相关采用全部所选变量共同完整记录，保持原始行对应；未插补、去重或剔除离群值。Pearson度量线性关联；推断前提由用户声明，程序不能证明这些前提。Pearson 双侧 beta 分布检验. 95% Fisher z 区间"
+      },
+      "purpose.kind": {
+        "label": "图形类型",
+        "raw": "scatter",
+        "value": "散点图"
+      },
+      "scope.variables": {
+        "label": "变量范围",
+        "raw": "X（单位未提供）, Y（单位未提供）",
+        "value": "X（单位未提供）, Y（单位未提供）"
+      },
+      "variables.0.name": {
+        "label": "变量",
+        "raw": "X",
+        "value": "X"
+      },
+      "variables.0.unit": {
+        "label": "单位",
+        "raw": "单位未填写",
+        "value": "单位未填写"
+      },
+      "variables.1.name": {
+        "label": "变量",
+        "raw": "Y",
+        "value": "Y"
+      },
+      "variables.1.unit": {
+        "label": "单位",
+        "raw": "单位未填写",
+        "value": "单位未填写"
+      }
+    },
+    "figure_explanation_contract": 5,
+    "language": "zh-CN",
+    "required_references": {
+      "data": [
+        "data.total",
+        "data.valid",
+        "data.excluded",
+        "axis.x.label",
+        "axis.x.unit",
+        "axis.y.label",
+        "axis.y.unit"
+      ],
+      "interpretation": [
+        "limitation.0",
+        "limitation.1",
+        "limitation.2",
+        "limitation.3",
+        "limitation.4",
+        "limitation.5",
+        "limitation.6"
+      ],
+      "methods": [
+        "method.summary",
+        "design.structure",
+        "design.status"
+      ],
+      "paper_text": [
+        "scope.variables",
+        "purpose.kind",
+        "data.valid",
+        "method.summary",
+        "variables.0.name",
+        "variables.1.name",
+        "variables.0.unit",
+        "variables.1.unit",
+        "correlation.n",
+        "correlation.coefficient",
+        "correlation.p_value",
+        "correlation.confidence_interval",
+        "limitation.0",
+        "limitation.1",
+        "limitation.2",
+        "limitation.3",
+        "limitation.4",
+        "limitation.5",
+        "limitation.6"
+      ],
+      "purpose": [
+        "scope.variables",
+        "purpose.kind"
+      ],
+      "results": [
+        "variables.0.name",
+        "variables.1.name",
+        "variables.0.unit",
+        "variables.1.unit",
+        "correlation.n",
+        "correlation.coefficient",
+        "correlation.p_value",
+        "correlation.confidence_interval"
+      ]
+    },
+    "schema_version": 2
+  },
+  "draft": {
+    "purpose": "本图用于描述{{scope.variables}}之间的关联，采用的图形类型为{{purpose.kind}}。",
+    "interpretation": "解释这些结果时应考虑以下科学边界：{{limitation.0}}。关于观察结构和推断前提，应注意{{limitation.1}}。关于记录选择与稳定性，应注意{{limitation.2}}。关于研究背景核查，应注意{{limitation.3}}。阅读保存数值时，应注意{{limitation.4}}。使用本解释时，应注意{{limitation.5}}。关于图像核验与人工审阅，应注意{{limitation.6}}。",
+    "results": "保存结果所涉及的变量为{{variables.0.name}}和{{variables.1.name}}，其单位分别记录为{{variables.0.unit}}和{{variables.1.unit}}。保存的共同有效记录数为{{correlation.n}}，该记录数不应直接视为已核实的独立参与者人数。保存的相关系数为{{correlation.coefficient}}，双侧检验的概率值为{{correlation.p_value}}，置信区间为{{correlation.confidence_interval}}。",
+    "paper_text": "本图描述{{scope.variables}}之间的关联，图形类型为{{purpose.kind}}，分析使用的完整记录数为{{data.valid}}。已保存的分析方法为{{method.summary}}。分析涉及{{variables.0.name}}和{{variables.1.name}}，其单位分别记录为{{variables.0.unit}}和{{variables.1.unit}}。保存的共同有效记录数为{{correlation.n}}，该记录数不应直接视为已核实的独立参与者人数。保存的相关系数为{{correlation.coefficient}}，双侧检验的概率值为{{correlation.p_value}}，置信区间为{{correlation.confidence_interval}}。解释关联的科学边界为{{limitation.0}}。关于观察结构和推断前提，应注意{{limitation.1}}。关于记录选择与稳定性，应注意{{limitation.2}}。关于研究背景核查，应注意{{limitation.3}}。保存数值的精度与原统计摘要、投影摘要的区别应按以下说明理解：{{limitation.4}}。使用本解释时，应注意{{limitation.5}}。关于图像核验与人工审阅，应注意{{limitation.6}}。",
+    "methods": "本图采用的已保存分析方法为{{method.summary}}。观察结构及其核查限制记录为{{design.structure}}。研究设计资料的状态记录为{{design.status}}。",
+    "data": "本图的原始数据行数为{{data.total}}，其中完整记录数为{{data.valid}}，排除行数为{{data.excluded}}；这些数量描述数据记录，不代表已经核实的独立参与者人数。横轴字段记录为{{axis.x.label}}，横轴单位状态为{{axis.x.unit}}。纵轴字段记录为{{axis.y.label}}，纵轴单位状态为{{axis.y.unit}}。"
+  },
+  "source_pins": {
+    "frozen/7a2bd90e-98fd-4281-b668-d285d7fdea2a/data.json": "505debf382b145105e074410e9b4299b79ebb57904e013a380802a810b09d156",
+    "frozen/7a2bd90e-98fd-4281-b668-d285d7fdea2a/expected.json": "e9b730e689d6dfc5e76fe554b13d751dfe02a473e62e789253ca3b53a7a385a7",
+    "frozen/7a2bd90e-98fd-4281-b668-d285d7fdea2a/instructions.txt": "9a77c70dd6bb6858a7ba3efe8e7a5264caef6fc7065c0c46e063cf6ab40ae532",
+    "frozen/7a2bd90e-98fd-4281-b668-d285d7fdea2a/policy-snapshot.json": "58e72f61953721f22abfe1edd107fbf9e08c967627d1e781e1b4f199b962ee39",
+    "frozen/7a2bd90e-98fd-4281-b668-d285d7fdea2a/task-snapshot.json": "b623f0c8a7209feb1e40fcd3f91104043fb55409403a3dad439eba19af2e2218"
+  }
+}

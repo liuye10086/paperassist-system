@@ -149,8 +149,8 @@ def apply_operations(snapshot,items,materials,operations,*,writing_context=None,
                     if any(b['fact_id'] not in known or known[b['fact_id']]['source_id'] not in op['evidence_ids'] for b in bound):raise invalid('逐值绑定必须来自所选固定统计证据。')
                     paragraph['numeric_bindings']=deepcopy(bound)
                 elif writing_context and paragraph['id'] in writing_context.paragraphs:
-                    _,bindings,literature=writing_context.paragraph(paragraph,{s['id']:s for s in snapshot['sources']})
-                    if literature:raise invalid('文献数值陈述需新的支持核验，本批不可沿用旧审核改写。')
+                    _,bindings,reviewed_nonstudy=writing_context.paragraph(paragraph,{s['id']:s for s in snapshot['sources']})
+                    if reviewed_nonstudy:raise invalid('文献或上下文数值陈述需重新科学核验，本批不可沿用旧审核改写。')
                     paragraph['numeric_bindings']=bindings
                 adopted=[p for p in snapshot.get('review_analysis_provenance',[]) if p['source_id'] in op['evidence_ids']]
                 if adopted:
@@ -176,6 +176,12 @@ def apply_operations(snapshot,items,materials,operations,*,writing_context=None,
             before=figure.get('caption','');after=text
             if before!=after:
                 figure.update(caption=text,caption_status='supplied',caption_origin='user_provided')
+                if op.get('numeric_bindings') is not None:
+                    from app.domain.manuscript_review.facts import extract_facts
+                    known={f['id']:f for f in extract_facts(snapshot)}
+                    if any(b['fact_id'] not in known or known[b['fact_id']]['source_id'] not in op['evidence_ids'] or known[b['fact_id']]['source_id'] not in figure['source_ids'] for b in op['numeric_bindings']):
+                        raise invalid('图注逐值绑定必须来自新图对应的所选统计证据。')
+                    figure['numeric_bindings']=deepcopy(op['numeric_bindings'])
                 strict.append('caption:'+figure['id'])
         elif op['kind']=='remove_figure':
             group=next((g for g in candidate['results_groups'] if any(f['id']==loc['id'] for f in g.get('figures',[]))),None)
@@ -208,6 +214,26 @@ def apply_operations(snapshot,items,materials,operations,*,writing_context=None,
                 paragraph['cross_references']=kept
                 for group in candidate.get('results_groups',[]):
                     group['paragraphs']=[deepcopy(paragraph) if p['id']==paragraph['id'] else p for p in group.get('paragraphs',[])]
+    replacement_ids={p['source_id'] for p in candidate.get('review_figure_provenance',[])}
+    if replacement_ids:
+        from app.domain.manuscripts.illustrations import BODY_REFERENCE,panel_labels
+        targets={f['id']:f for group in candidate.get('results_groups',[]) for f in group.get('figures',[])}
+        for section in candidate['sections']:
+            for paragraph in section['paragraphs']:
+                if paragraph['id'] not in strict:continue
+                mentioned={(int(m['number']),(m['panel'] or '').upper() or None) for m in BODY_REFERENCE.finditer(paragraph['text']) if m['kind'].lower() not in ('table','表')}
+                refs=paragraph.get('cross_references',[]);kept=[]
+                for ref in refs:
+                    target=targets.get(ref.get('target_id'));label=ref.get('panel_label')
+                    stale=(ref.get('kind')=='figure' and ref.get('target_id') in replacement_ids and target and label and label not in (panel_labels(target) or []))
+                    if stale and (ref['number'],label) not in mentioned:
+                        if (ref['number'],None) in mentioned and not any(r.get('kind')=='figure' and r.get('target_id')==ref['target_id'] and not r.get('panel_label') for r in refs):
+                            kept.append(dict(ref,panel_label=None))
+                    else:kept.append(ref)
+                if kept!=refs:
+                    paragraph['cross_references']=kept
+                    for group in candidate.get('results_groups',[]):
+                        group['paragraphs']=[deepcopy(paragraph) if p['id']==paragraph['id'] else p for p in group.get('paragraphs',[])]
     changed={a['item_id'] for a in changes};skipped={a['item_id'] for a in unexecuted}
     for item in items:
         if item['id'] not in changed|skipped:unexecuted.append(dict(item_id=item['id'],reason=item['uncompleted_reason'] or '本次未选择具体修改。',status=item['status']))

@@ -3,10 +3,11 @@ import userEvent from '@testing-library/user-event'
 import { afterEach, expect, it, vi } from 'vitest'
 import AuthBoundary from './AuthBoundary'
 import { apiFetch, clearApiSession, setApiSession } from '../../shared/api/client'
+import { setLocale } from '../../shared/i18n'
 
 const session = { user: { id: 'a', email: 'a@example.com', role: 'user' }, csrf_token: 'a-csrf' }
 const newPassword = 'new-password-123'
-afterEach(() => { cleanup(); clearApiSession(); vi.unstubAllGlobals(); vi.useRealTimers(); window.location.hash = '' })
+afterEach(() => { cleanup(); clearApiSession(); vi.unstubAllGlobals(); vi.useRealTimers(); window.location.hash = ''; setLocale('zh-CN') })
 async function open(mode: 'change' | 'reset', mutation: (init: RequestInit) => Promise<Response> = async () => new Response(null, { status: 204 })) {
   const send = vi.fn()
   class Channel { onmessage = null; postMessage = send; close() {} }
@@ -35,7 +36,7 @@ it.each(['change', 'reset'] as const)('completes %s, clears workspace/hash/secre
   window.location.hash = '#private-project'
   fill(mode); submit()
   await screen.findByLabelText('邮箱')
-  expect(screen.getByRole('status').textContent).toContain('密码已更新，请重新登录')
+  expect(screen.getByText('密码已更新，请重新登录。').getAttribute('role')).toBe('status')
   expect(screen.queryByText('私有工作区')).toBeNull()
   expect((screen.getByLabelText('密码') as HTMLInputElement).value).toBe('')
   expect(window.location.hash).toBe('')
@@ -64,6 +65,31 @@ it.each([
   expect(screen.queryByText(/server leaked/)).toBeNull()
   expect((screen.getByLabelText('新密码') as HTMLInputElement).value).toBe('')
   expect((screen.getByLabelText(mode === 'change' ? '当前密码' : '恢复码') as HTMLInputElement).value).toBe('')
+})
+it.each([
+  ['change', 503, 'service_maintenance', '系统维护中', 'The system is under maintenance'],
+  ['reset', 403, 'csrf_invalid', '请求安全验证失败', 'The request could not be verified'],
+] as const)('translates the stored %s password error %s when locale changes', async (mode, status, code, zh, en) => {
+  await open(mode, async () => Response.json({ detail: { code, message: 'PRIVATE TRACE one-use-code' } }, { status }))
+  fill(mode); submit()
+  expect((await screen.findByRole('alert')).textContent).toContain(zh)
+  const credential = screen.getByLabelText(mode === 'change' ? '当前密码' : '恢复码') as HTMLInputElement
+  fireEvent.change(credential, { target: { value: 'new-unsent-credential' } })
+  act(() => setLocale('en'))
+  expect(screen.getByRole('alert').textContent?.toLowerCase()).toContain(en.toLowerCase())
+  expect(screen.getByRole('alert').textContent).not.toContain('PRIVATE TRACE')
+  expect(credential.value).toBe('new-unsent-credential')
+})
+it.each([
+  [null, '密码操作尝试过多，请稍后重试。'],
+  ['PRIVATE TRACE', '密码操作尝试过多，请稍后重试。'],
+  ['9999999', '密码操作尝试过多，请稍后重试。'],
+] as const)('retains the bounded 429 branch for Retry-After=%s', async (retry, expected) => {
+  await open('reset', async () => Response.json({ detail: { code: 'service_maintenance', message: 'PRIVATE TRACE' } }, {
+    status: 429, headers: retry === null ? {} : { 'Retry-After': retry },
+  }))
+  fill('reset'); submit()
+  expect((await screen.findByRole('alert')).textContent).toBe(expected)
 })
 it('shows connection failure and allows retry without claiming success', async () => {
   await open('reset', async () => { throw new Error('offline') }); fill('reset'); submit()

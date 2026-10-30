@@ -218,3 +218,85 @@ def test_journal_science_unit_requirement_is_not_a_metric_abbreviation(client):
         p['fields']['unit_requirements']['value']=[term]
         result=recommend(dict(research=research,profiles=[p]))
         assert not result['candidates'] and result['pending_verification'],term
+
+
+def web_source_guide(client, **changes):
+    from tests.api.test_journal_format import guide
+    base=setup(client)
+    p=post(client,base+'/profiles',profile(source_type='official_local'),'web-profile').json()
+    data=guide(p,source_type='official_local',name='Recorded guide',permission='offline test source',**changes)
+    response=post(client,base+'/guides',data,'web-source')
+    assert response.status_code==201,response.text
+    return base,response.json()
+
+
+def test_controlled_web_guide_endpoint_disabled_and_project_permissions(client,monkeypatch):
+    from tests.integration.test_project_ownership import account_client
+    base,g=web_source_guide(client)
+    monkeypatch.setenv('PAPERASSIST_JOURNAL_WEB_ENABLED','0')
+    monkeypatch.setattr('app.domain.journals.web.resolve_public_candidates',lambda *a: (_ for _ in ()).throw(AssertionError('network while disabled')))
+    endpoint=base+'/guides/'+g['id']+'/fetch'
+    response=post(client,endpoint,{},'disabled')
+    assert response.status_code==409,response.text
+    assert client.get(base+'/config').json()['web_acquisition']['enabled'] is False
+    other=setup(client)
+    assert post(client,other+'/guides/'+g['id']+'/fetch',{},'foreign').status_code==404
+    with account_client('web-other@example.test')[0] as other_user:
+        assert post(other_user,endpoint,{},'other-user').status_code==404
+    assert len(client.get(base+'/guides').json()['items'])==1
+
+
+def test_controlled_web_guide_fixed_transport_creates_version_and_replay_is_offline(client,monkeypatch):
+    from app.domain.journals.web import ControlledWebAdapter
+    base,g=web_source_guide(client)
+    calls=[]
+    def transport(url,*args):
+        calls.append(url)
+        if url.endswith('/guide'):return dict(status=302,headers={'Location':'/authors'},body=b'')
+        return dict(status=200,headers={'Content-Type':'text/plain','ETag':'offline-v2'},body=b'Maximum body words: 2500; count: en_whitespace_body')
+    controlled=ControlledWebAdapter(enabled=True,allowed_origins=['https://journal.example.test'],resolver=lambda h:['93.184.216.34'],transport=transport)
+    monkeypatch.setattr('app.domain.journals.configuration.configured_web_adapter',lambda:controlled)
+    endpoint=base+'/guides/'+g['id']+'/fetch'
+    result=post(client,endpoint,{},'fetch-v2')
+    assert result.status_code==201,result.text
+    saved=result.json()
+    assert saved['previous_version_id']==g['id'] and saved['source_url'].endswith('/authors')
+    assert saved['retrieval']['requested_url']==g['source_url']
+    assert saved['retrieval']['etag']=='offline-v2' and len(saved['retrieval']['body_sha256'])==64
+    assert saved['verification_level']=='web_fetch_unverified'
+    assert saved['source_version'].startswith('web-sha256:')
+    assert saved['requirements'][0]['value']==2500
+    assert client.get(base+'/guides/'+g['id']).json()==g
+    assert post(client,endpoint,{},'fetch-v2').json()==saved
+    assert len(calls)==2
+    assert post(client,endpoint,{},'another-successor').status_code==409
+    assert len(calls)==2
+    assert post(client,endpoint,{'url':'https://other.test'},'arbitrary').status_code==422
+
+
+def test_controlled_web_guide_permission_and_failure_keep_history(client,monkeypatch):
+    from app.domain.journals.web import ControlledWebAdapter
+    calls=[]
+    controlled=ControlledWebAdapter(enabled=True,allowed_origins=['https://journal.example.test'],resolver=lambda h:['93.184.216.34'],transport=lambda *a:calls.append(a) or dict(status=503,headers={},body=b''))
+    monkeypatch.setattr('app.domain.journals.configuration.configured_web_adapter',lambda:controlled)
+    base,g=web_source_guide(client,permission_status='unknown')
+    assert post(client,base+'/guides/'+g['id']+'/fetch',{},'permission').status_code==422
+    assert calls==[]
+    base,g=web_source_guide(client)
+    failed=post(client,base+'/guides/'+g['id']+'/fetch',{},'failure')
+    assert failed.status_code==422,failed.text
+    assert 'Unavailable' in failed.json()['detail']['message']
+    assert len(client.get(base+'/guides').json()['items'])==1
+
+
+def test_controlled_web_guide_incomplete_response_preserves_source_version(client,monkeypatch):
+    from app.domain.journals.web import ControlledWebAdapter
+    def incomplete(*args): raise ValueError('Incomplete HTTP response')
+    controlled=ControlledWebAdapter(enabled=True,allowed_origins=['https://journal.example.test'],
+        resolver=lambda h:['93.184.216.34'],transport=incomplete)
+    monkeypatch.setattr('app.domain.journals.configuration.configured_web_adapter',lambda:controlled)
+    base,g=web_source_guide(client)
+    failed=post(client,base+'/guides/'+g['id']+'/fetch',{},'incomplete-response')
+    assert failed.status_code==422,failed.text
+    assert 'Incomplete HTTP response' in failed.json()['detail']['message']
+    assert client.get(base+'/guides').json()['items']==[g]

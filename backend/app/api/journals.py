@@ -31,6 +31,9 @@ def retry(project_id:str,identity:str,request:EmptyRequest,store:Store):return J
 def guides(project_id:str,store:Store):return GuideService(store).guides(project_id)
 @router.get('/guides/{identity}')
 def guide(project_id:str,identity:str,store:Store):return GuideService(store).get_guide(project_id,identity)
+@router.post('/guides/{identity}/fetch',status_code=201)
+def fetch_guide(project_id:str,identity:str,request:EmptyRequest,response:Response,store:Store,idempotency_key:Key):
+    result,response.status_code=GuideService(store).fetch_guide(project_id,identity,idempotency_key);return result
 @router.post('/guides',status_code=201)
 def create_guide(project_id:str,request:GuideRequest,response:Response,store:Store,idempotency_key:Key):
     result,response.status_code=GuideService(store).create_guide(project_id,request,idempotency_key);return result

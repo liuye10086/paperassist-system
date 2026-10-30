@@ -1,5 +1,6 @@
 """Durable task intents, immutable source guards and receipt-aware recovery."""
 from copy import deepcopy
+from contextlib import nullcontext
 from datetime import datetime,timezone
 from uuid import uuid4
 from pathlib import Path
@@ -44,15 +45,15 @@ def policy_for(payload,explanation=False):
 
 def prompt_version(payload,*,explanation=False):
     if explanation:
-        from app.domain.figure_workbench.explanations import VERSION,V2_VERSION,V3_VERSION,LATEST_VERSION
+        from app.domain.figure_workbench.explanations import VERSION,V2_VERSION,V3_VERSION,V4_VERSION,LATEST_VERSION
         version=payload.get('figure_explanation_contract',1)
-        if type(version) is not int or version not in (1,2,3,4):raise source_conflict()
-        return {1:VERSION,2:V2_VERSION,3:V3_VERSION,4:LATEST_VERSION}[version]
-    from app.domain.figure_workbench.presentation import LATEST_RENDERER,V2_RENDERER
+        if type(version) is not int or version not in (1,2,3,4,5):raise source_conflict()
+        return {1:VERSION,2:V2_VERSION,3:V3_VERSION,4:V4_VERSION,5:LATEST_VERSION}[version]
+    from app.domain.figure_workbench.presentation import LATEST_RENDERER,V2_RENDERER,V3_RENDERER
     if 'presentation' not in payload:return RENDERER
     version=payload['presentation'].get('schema_version')
-    if type(version) is not int or version not in (1,2):raise source_conflict()
-    return LATEST_RENDERER if version==2 else V2_RENDERER
+    if type(version) is not int or version not in (1,2,3):raise source_conflict()
+    return {1:V2_RENDERER,2:V3_RENDERER,3:LATEST_RENDERER}[version]
 
 
 def validate_policy(value,payload,*,explanation=False,instructions=None):
@@ -86,7 +87,8 @@ def require_task_sources(repository,db,task):
     return snapshot
 
 
-def submit(workbench,project_id,file_id,run_id,version_id,request,*,figure_id=None):
+def submit(workbench,project_id,file_id,run_id,version_id,request,*,figure_id=None,db=None):
+    """Use one transaction for the public queue and any caller-owned intent."""
     row,result,computed,payload,expected=workbench.material(project_id,file_id,run_id,version_id)
     explanation=figure_id is not None;bundle=None
     if explanation:
@@ -96,7 +98,7 @@ def submit(workbench,project_id,file_id,run_id,version_id,request,*,figure_id=No
     external=request.external_processing
     if set(external)!={'confirmed','payload_sha256'} or external.get('confirmed') is not True or external.get('payload_sha256')!=digest(payload):raise source_conflict()
     kind='figure_explanation' if explanation else 'figure_workbench'
-    with workbench.tasks.connection(write=True) as db:
+    with (nullcontext(db) if db is not None else workbench.tasks.connection(write=True)) as db:
         row=workbench._version(db,project_id,file_id,run_id,version_id,lock=True);projection=workbench._projection(db,row)
         if not projection or projection['result']!=computed:raise source_conflict()
         input_hash=digest({'version_id':version_id,'figure_id':figure_id,'external':external})
@@ -145,7 +147,19 @@ def allowed_recovery_actions(db,task):
     from app.domain.plot_tasks import _can_resume,_unknown_submission
     call=_call(db,task)
     if _unknown_submission(call):return []
-    if task.get('error_code') in OUTPUT_FAILURES:return []
+    if task.get('error_code') in OUTPUT_FAILURES:
+        # A v5 validator rejection can be rechecked against the same completed
+        # receipt after a local guard repair. No other output failure or version
+        # is recoverable here, and an unknown/incomplete submission stays blocked.
+        if (task['task_type']=='figure_explanation' and task['status']=='failed'
+            and task.get('error_code')=='explanation_invalid' and call
+            and call['status']=='completed' and call.get('provider_status')=='completed'
+            and call.get('provider_response_id')):
+            from app.domain.figure_workbench.explanations import task_version
+            try:version=task_version(task['input_snapshot'])
+            except (KeyError,TypeError,StorageError):return []
+            if version=='figure_explanation_v5':return ['retry']
+        return []
     return ['resume' if task['status']=='waiting_confirmation' else 'retry'] if task['status']=='waiting_confirmation' or _can_resume(task,call) else []
 
 

@@ -36,7 +36,7 @@ class IndependentV2LineProvider(IndependentLineProvider):
 def checked_policy(payload, explanation=False):
     value = frozen_policy(payload)
     if explanation:
-        version = {1:'figure_explanation_v1',2:'figure_explanation_v2',3:'figure_explanation_v3',4:'figure_explanation_v4'}[payload.get('figure_explanation_contract',1)]
+        version = {1:'figure_explanation_v1',2:'figure_explanation_v2',3:'figure_explanation_v3',4:'figure_explanation_v4',5:'figure_explanation_v5'}[payload.get('figure_explanation_contract',1)]
         value['policy'].update(prompt_version=version, tools=[], output_format='analysis_explanation_v2')
         value.pop('tool_reserve_micro_usd')
         value.pop('tool_reserve_version')

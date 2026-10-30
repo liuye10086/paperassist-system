@@ -188,35 +188,82 @@ def _add_toc(content,plan,language):
     return write_package(parts)
 
 
-def build_school_docx(snapshot,images,plan):
+class _SchoolPagination2:
+    """Consume a real source section's restart only on its first use."""
+    def __init__(self,document):
+        self.document=document;self.seen=set();self.active_spec=None
+
+    def apply(self,section,spec):
+        applied=deepcopy(spec)
+        if spec['id'] in self.seen:
+            applied['page_number']=dict(applied.get('page_number',{}),start=None,mode='continue_or_default')
+        _section_settings(self.document,section,applied)
+        self.seen.add(spec['id']);self.active_spec=spec
+
+    def new_section(self,spec):
+        self.apply(self.document.add_section(WD_SECTION_START.NEW_PAGE),spec)
+
+
+def build_school_docx(snapshot,images,plan,*,source_map=None):
     from .manuscript_docx import _document,_table,_figure,_save_document
     validate_school_export(plan,snapshot)
     if not plan['report']['can_export']:raise StorageError('manuscript_review_blocked','学校导出存在一致性硬错误。',409)
     document=_document()
+    language_nodes={}
+    mapping=source_map is not None or plan.get('language_mapping_version')==1
+    def mark(paragraph,chapter=None,identity=False):
+        if not mapping:return
+        node=getattr(paragraph,'_p',paragraph)
+        language_nodes[node]=dict(chapter_id=chapter['id'] if chapter else None,target_language=chapter['output_language'] if chapter else snapshot['output_language'],protected_identity=identity,scope='reference_metadata' if chapter and chapter['purpose']=='references' else 'narrative')
+    def capture(chapter=None):
+        if not mapping:return
+        for part in document.part.package.parts:
+            if str(part.partname)!='' and (str(part.partname)=='/word/document.xml' or re.fullmatch(r'/word/(?:header|footer)\d+\.xml',str(part.partname))):
+                for node in part.element.iter(qn('w:p')):
+                    if node not in language_nodes:mark(node,chapter)
     # Preserve supplied soft breaks and the source paragraph bookmark, while
     # keeping short lines from stretching under the school's justified body.
     _prop(_prop(document.settings.element,'compat'),'doNotExpandShiftReturn')
     for category in STYLE_NAMES:_style(document,category,plan)
     sections={s['chapter_id']:s for s in plan['sections']}
-    _section_settings(document,document.sections[0],sections['__cover__'])
-    document.add_paragraph(snapshot['thesis_context']['profile']['school'],style='Title')
-    document.add_paragraph(snapshot['title'],style='Title')
-    document.add_paragraph('学校论文工程稿  合成资料及缺失信息须核对')
-    fields=plan['options'].get('manual_fields',{});profile=snapshot['thesis_context']['profile']
-    for key,label in MANUAL_LABELS.items():document.add_paragraph(label+'：'+(fields.get(key) or profile.get(key) or '待填写'))
-    document.add_paragraph('封面仅应用可确定规则；原模板未确定的正式封面、身份和签名须人工补齐。')
+    pagination=_SchoolPagination2(document) if plan.get('pagination_version')==2 else None
+    if pagination:pagination.apply(document.sections[0],sections['__cover__'])
+    else:_section_settings(document,document.sections[0],sections['__cover__'])
+    front=plan.get('front_matter')
+    if front is None:
+        paragraph=document.add_paragraph(snapshot['thesis_context']['profile']['school'],style='Title')
+        mark(paragraph,identity=True)
+        document.add_paragraph(snapshot['title'],style='Title')
+        document.add_paragraph('School thesis engineering draft; verify synthetic materials and missing details.' if mapping and snapshot['output_language']=='en' else '学校论文工程稿  合成资料及缺失信息须核对')
+        fields=plan['options'].get('manual_fields',{});profile=snapshot['thesis_context']['profile']
+        for key,label in MANUAL_LABELS.items():
+            paragraph=document.add_paragraph(label+'：'+(fields.get(key) or profile.get(key) or '待填写'))
+            mark(paragraph,identity=True)
+        document.add_paragraph('Only determined cover rules are applied; formal cover, identity and signatures require explicit user material.' if mapping and snapshot['output_language']=='en' else '封面仅应用可确定规则；原模板未确定的正式封面、身份和签名须人工补齐。')
+    else:
+        document.add_paragraph(snapshot['title'],style='Title')
+        _front_fields(document,plan,None,sections['__cover__']['id'],mark=mark,section_settings=pagination.apply if pagination else None)
+    capture()
     manual={i['chapter_id']:i['text'] for i in plan['options'].get('manual_chapters',[])}
     keywords={i['chapter_id']:i['values'] for i in plan['options'].get('keywords',[])}
     notes=Footnotes(document,snapshot,plan.get('citation_footnotes',False))
     bookmark=0;toc_inserted=False;previous_spec=None
-    for chapter in snapshot['sections']:
+    for chapter_index,chapter in enumerate(snapshot['sections']):
         role=chapter['purpose'];en=chapter['output_language']=='en'
+        toc_just_inserted=False
         if plan['toc']['enabled'] and not toc_inserted and role not in ('manual','abstract','references','acknowledgements'):
-            section=document.add_section(WD_SECTION_START.NEW_PAGE);_section_settings(document,section,sections['__toc__'])
+            if pagination:pagination.new_section(sections['__toc__'])
+            else:
+                section=document.add_section(WD_SECTION_START.NEW_PAGE);_section_settings(document,section,sections['__toc__'])
             paragraph=document.add_paragraph();start=OxmlElement('w:bookmarkStart');start.set(qn('w:id'),'500000');start.set(qn('w:name'),'PA_SCHOOL_TOC')
             end=OxmlElement('w:bookmarkEnd');end.set(qn('w:id'),'500000');paragraph._p.append(start);paragraph._p.append(end);toc_inserted=True
+            toc_just_inserted=True
         current_spec=sections[chapter['id']]
-        if chapter['level']==1 or previous_spec is None or current_spec['id']!=previous_spec['id']:
+        chapter_page_break=False
+        if pagination:
+            if pagination.active_spec['id']!=current_spec['id']:pagination.new_section(current_spec)
+            else:chapter_page_break=chapter['level']==1 or chapter_index==0 or toc_just_inserted
+        elif chapter['level']==1 or previous_spec is None or current_spec['id']!=previous_spec['id']:
             section=document.add_section(WD_SECTION_START.NEW_PAGE);_section_settings(document,section,current_spec)
         previous_spec=current_spec
         if role=='abstract':category='abstract_heading_en' if en else 'abstract_heading_zh'
@@ -225,12 +272,17 @@ def build_school_docx(snapshot,images,plan):
         elif role=='manual':category='abstract_heading_zh'
         else:category='heading'+str(min(3,chapter['level']))
         heading=document.add_paragraph(chapter['title'],style=STYLE_NAMES[category])
+        if chapter_page_break:heading.paragraph_format.page_break_before=True
         # References/acknowledgements enter the TOC; front matter and manual
         # declarations retain their school heading appearance without outline.
         if role in ('references','acknowledgements'):_prop(heading._p.get_or_add_pPr(),'outlineLvl').set(qn('w:val'),str(min(3,chapter['level'])-1))
         if role=='references':
             for reference in snapshot['references']:document.add_paragraph('['+str(reference['number'])+'] '+reference['text'])
             if not snapshot['references']:document.add_paragraph('No verified references selected.' if en else '尚未选择已核实参考文献，待补充。')
+            if front is not None:
+                last=_front_fields(document,plan,chapter['id'],current_spec['id'],mark=lambda p,identity=False:mark(p,chapter,identity),section_settings=pagination.apply if pagination else None)
+                previous_spec=plan['front_matter_sections'][last]
+            capture(chapter)
             continue
         if role=='abstract':
             title=plan['options'].get('english_title') or (snapshot['title'] if snapshot['output_language']=='en' else '英文题名待填写') if en else snapshot['title']
@@ -238,6 +290,9 @@ def build_school_docx(snapshot,images,plan):
         paragraphs=[dict(id='manual:'+chapter['id']+':'+str(index),text=line,citations=[],source_ids=[]) for index,line in enumerate(manual[chapter['id']].splitlines())] if role=='manual' and manual.get(chapter['id']) else chapter['paragraphs']
         for item in paragraphs:
             bookmark+=1;notes.paragraph(item,bookmark,plan)
+        if front is not None:
+            last=_front_fields(document,plan,chapter['id'],current_spec['id'],mark=lambda p,identity=False:mark(p,chapter,identity),section_settings=pagination.apply if pagination else None)
+            previous_spec=plan['front_matter_sections'][last]
         if role=='abstract':
             values=keywords.get(chapter['id'],snapshot.get('keywords',[]) if chapter['output_language']==snapshot['output_language'] else [])
             paragraph=document.add_paragraph(style=STYLE_NAMES['keywords_en' if en else 'keywords_zh'])
@@ -265,11 +320,90 @@ def build_school_docx(snapshot,images,plan):
                 # line height clips the bitmap in Word, WPS and LibreOffice.
                 document.paragraphs[before].paragraph_format.line_spacing=1
                 for paragraph in document.paragraphs[before+1:]:paragraph.style=STYLE_NAMES['figure_caption']
+        capture(chapter)
     if plan['toc']['enabled'] and not toc_inserted:
         # All remaining eligible headings are references/acknowledgements.
         raise StorageError('school_export_input_invalid','当前章节没有可放置目录的正文入口。',422)
+    if mapping:
+        for index,(node,metadata) in enumerate(language_nodes.items()):
+            start=OxmlElement('w:bookmarkStart');start.set(qn('w:id'),str(700000+index));start.set(qn('w:name'),'PA_LANGUAGE_'+str(index))
+            end=OxmlElement('w:bookmarkEnd');end.set(qn('w:id'),str(700000+index));node.append(start);node.append(end)
     content=notes.finish(_save_document(document))
-    return _add_toc(content,plan,snapshot['output_language']) if plan['toc']['enabled'] else content
+    content=_add_toc(content,plan,snapshot['output_language']) if plan['toc']['enabled'] else content
+    if source_map is not None:
+        from io import BytesIO
+        from zipfile import ZipFile
+        from lxml import etree
+        with ZipFile(BytesIO(content)) as archive:
+            by_name={'PA_LANGUAGE_'+str(i):m for i,m in enumerate(language_nodes.values())}
+            for name in sorted(archive.namelist()):
+                if name not in ('word/document.xml','word/footnotes.xml') and not re.fullmatch(r'word/(?:header|footer)\d+\.xml',name):continue
+                root=etree.fromstring(archive.read(name))
+                for index,node in enumerate(root.iter(qn('w:p'))):
+                    text=''.join(t.text or '' for t in node.iter(qn('w:t')))
+                    if not text:continue
+                    bookmark=next((b.get(qn('w:name')) for b in node.iter(qn('w:bookmarkStart')) if b.get(qn('w:name')) in by_name),None)
+                    if bookmark:metadata=by_name[bookmark]
+                    elif name=='word/footnotes.xml':
+                        reference=next((c for c in snapshot['sections'] if c['purpose']=='references'),None)
+                        metadata=dict(chapter_id=reference['id'] if reference else None,target_language=reference['output_language'] if reference else snapshot['output_language'],protected_identity=False,scope='reference_metadata')
+                    else:
+                        # The only text introduced after capture is the renderer's
+                        # own TOC heading/cache. Never infer chapter ownership by text.
+                        style=node.find(qn('w:pPr')+'/'+qn('w:pStyle'))
+                        fields=[f.get(qn('w:instr'),'') for f in node.iter(qn('w:fldSimple'))]
+                        if not (style is not None and style.get(qn('w:val'))==STYLE_NAMES['toc_heading'].replace(' ','') or any('TOC' in f for f in fields)):raise ValueError('Unmapped school export text')
+                        metadata=dict(chapter_id=None,target_language=snapshot['output_language'],protected_identity=False,generated_field=True,scope='label')
+                    source_map.append(dict(location=name+':paragraph:'+str(index),text=text,**metadata,**({'source_bookmark':bookmark} if bookmark else {})))
+    return content
+
+
+def final_school_source_map(pending,content,source_map,language):
+    """Rebase exact paragraph ownership after field-cache insertion by anchors.
+
+    TOC labels belong to the explicitly linked heading. Untouched auxiliary
+    parts retain their exact XML positions; ordinary text is never guessed.
+    """
+    from io import BytesIO
+    from zipfile import ZipFile
+    from lxml import etree
+    import json
+    by_mark={r['source_bookmark']:r for r in source_map if r.get('source_bookmark')}
+    by_location={r['location']:r for r in source_map}
+    result=[]
+    with ZipFile(BytesIO(pending)) as before,ZipFile(BytesIO(content)) as after:
+        targets={}
+        if 'customXml/paperassist-layout.xml' in after.namelist():
+            manifest=json.loads(etree.fromstring(after.read('customXml/paperassist-layout.xml')).text)
+            root=etree.fromstring(after.read('word/document.xml'))
+            for target in manifest['toc_targets']:
+                nodes=root.xpath('//w:bookmarkStart[@w:name=$name]',namespaces={'w':qn('w:p').split('}')[0][1:]},name=target['bookmark'])
+                if len(nodes)!=1:raise ValueError('School TOC target is not unique')
+                paragraph=nodes[0]
+                while paragraph is not None and paragraph.tag!=qn('w:p'):paragraph=paragraph.getparent()
+                marks=[b.get(qn('w:name')) for b in paragraph.iter(qn('w:bookmarkStart')) if b.get(qn('w:name')) in by_mark] if paragraph is not None else []
+                if len(marks)!=1:raise ValueError('School TOC target has no exact source chapter')
+                targets[target['bookmark']]=by_mark[marks[0]]
+        for name in sorted(after.namelist()):
+            if name not in ('word/document.xml','word/footnotes.xml') and not re.fullmatch(r'word/(?:header|footer)\d+\.xml',name):continue
+            raw=after.read(name);root=etree.fromstring(raw)
+            for index,node in enumerate(root.iter(qn('w:p'))):
+                text=''.join(t.text or '' for t in node.iter(qn('w:t')))
+                if not text:continue
+                location=name+':paragraph:'+str(index)
+                marks=[b.get(qn('w:name')) for b in node.iter(qn('w:bookmarkStart')) if b.get(qn('w:name')) in by_mark]
+                links=[h.get(qn('w:anchor')) for h in node.iter(qn('w:hyperlink')) if h.get(qn('w:anchor')) in targets]
+                if len(marks)==1:metadata=by_mark[marks[0]]
+                elif not marks and len(links)==1:
+                    metadata=dict(targets[links[0]],protected_identity=False,generated_field=True,scope='label',toc_target=links[0])
+                    metadata.pop('source_bookmark',None)
+                elif name!='word/document.xml' and name in before.namelist() and raw==before.read(name) and location in by_location:metadata=by_location[location]
+                else:
+                    style=node.find(qn('w:pPr')+'/'+qn('w:pStyle'))
+                    if marks or links or style is None or style.get(qn('w:val'))!=STYLE_NAMES['toc_heading'].replace(' ',''):raise ValueError('Final school export text is not mapped')
+                    metadata=dict(chapter_id=None,target_language=language,protected_identity=False,generated_field=True,scope='label')
+                result.append(dict({k:v for k,v in metadata.items() if k not in ('location','text')},location=location,text=text))
+    return result
 
 
 def complete_school_fields(content,plan):
@@ -279,3 +413,28 @@ def complete_school_fields(content,plan):
     cache=update_layout_fields(content)
     result=merge_field_cache(content,cache)
     return result,dict(status='updated',software='LibreOffice',renderer_identity=renderer_identity(),toc_entries=len(cache['toc_lines']),field_count=len(cache['fields']),source_sha256=sha256(content).hexdigest(),page_count=None,word_verified=False)
+
+
+def _front_fields(document,plan,chapter_id,section_id,mark=None,section_settings=None):
+    """Apply only the confirmed paragraph source's finite passive attributes."""
+    for field in plan['front_matter']['fields']:
+        if field['chapter_id']!=chapter_id:continue
+        if field['section_id']!=section_id:
+            section=document.add_section(WD_SECTION_START.NEW_PAGE)
+            if section_settings:section_settings(section,plan['front_matter_sections'][field['section_id']])
+            else:_section_settings(document,section,plan['front_matter_sections'][field['section_id']])
+            section_id=field['section_id']
+        value=plan['options'].get('field_values',{}).get(field['id'],'').strip()
+        paragraph=document.add_paragraph(field['label']+'：'+(value or '待填写'))
+        if mark:mark(paragraph,identity=field['kind'] in ('identity','signature','date'))
+        spec=plan['front_matter_sources'][field['style_source_id']]['style'] if field['style_source_id'] else {}
+        ppr=paragraph._p.get_or_add_pPr()
+        if 'alignment' in spec:_prop(ppr,'jc').set(qn('w:val'),spec['alignment'])
+        for key,attribute in [('space_before','before'),('space_after','after'),('line_spacing','line'),('line_rule','lineRule')]:
+            if key in spec:_prop(ppr,'spacing').set(qn('w:'+attribute),str(spec[key]))
+        for run in paragraph.runs:
+            if 'font_size_pt' in spec:run.font.size=Pt(spec['font_size_pt'])
+            fonts=run._r.get_or_add_rPr().get_or_add_rFonts()
+            for key,attr in [('font_east_asia','eastAsia'),('font_latin','ascii'),('font_latin','hAnsi')]:
+                if key in spec:fonts.set(qn('w:'+attr),spec[key])
+    return section_id

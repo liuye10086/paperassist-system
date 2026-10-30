@@ -1,0 +1,1205 @@
+{
+  "key": "forest:ols:en",
+  "task_id": "12b65c96-ab37-44aa-b49c-4a97057b9415",
+  "bundle": {
+    "result": {
+      "schema_version": 5,
+      "result_type": "regression",
+      "file_id": "f8eef114-5c37-55b8-bdd7-96f11b310b25",
+      "filename": "forest_ols.xlsx",
+      "source_sha256": "51094a76952881922b1eab3d008ed53b03ec2d9fd7328257807034e07df39549",
+      "source": {
+        "kind": "prepared_dataset_version",
+        "schema_version": 1,
+        "dataset_id": "0b6b787c-bd1c-5a8f-b412-37a1f7fe6347",
+        "structure_id": "8935b7fe-8da5-41f0-9d4b-cd36951b0a33",
+        "dataset_version": 1,
+        "file_id": "f8eef114-5c37-55b8-bdd7-96f11b310b25",
+        "source_sha256": "51094a76952881922b1eab3d008ed53b03ec2d9fd7328257807034e07df39549",
+        "dataset_sha256": "6d9ba2d11c13809755db8c6bd9610539daf1ebca7ecc3655f7f2ea527adaf683",
+        "dataset_size_bytes": 3728,
+        "dataset_schema_version": 1,
+        "sheet_index": 0,
+        "sheet_name": "Synthetic",
+        "parser_version": "openpyxl-3.1.5-structure-v1",
+        "parent_dataset_id": "ddb2f42c-595c-558f-aa25-fb11b6e8c4a9",
+        "parent_dataset_version": 1,
+        "transform_version": "excel_prepare_v1"
+      },
+      "setup_revision": 1,
+      "selection": {
+        "task_type": "regression",
+        "method": "ols",
+        "sheet_name": "Synthetic",
+        "outcome_column": "A",
+        "covariates": [
+          {
+            "column": "B",
+            "type": "continuous",
+            "unit": "",
+            "levels": [],
+            "reference": null
+          }
+        ],
+        "outcome_unit": "",
+        "positive": null,
+        "negative": null,
+        "id_column": null,
+        "missing_policy": "complete_cases",
+        "assumptions": {
+          "independent_units": true,
+          "inference_confirmed": true
+        }
+      },
+      "check": {
+        "ready": true,
+        "row_count": 14,
+        "valid_count": 14,
+        "excluded_count": 0,
+        "groups": [],
+        "issues": [],
+        "warnings": []
+      },
+      "analysis_plan": {
+        "plan_id": "c92c0a43-908e-55c3-a385-c03eb1af3055",
+        "sha256": "ece918c65fbfc6eb3e2913e1116bbfa9f0a28f4a4ab8e0cca82850c331204ae6",
+        "resolutions": {}
+      },
+      "analysis_context": {
+        "plan": {
+          "schema_version": 5,
+          "workflow_version": "analysis_plan_v5",
+          "rules_version": "analysis_plan_rules_v5",
+          "id": "c92c0a43-908e-55c3-a385-c03eb1af3055",
+          "task_id": "432fae68-fc8b-4b65-925b-95a5a28d2915",
+          "decision_id": "46f982ed-e33b-4818-a54f-ad41c9c0f0d4",
+          "project_id": "123cbf9f-fd5a-4704-b4d1-af97dea0bad1",
+          "file_id": "f8eef114-5c37-55b8-bdd7-96f11b310b25",
+          "source": {
+            "kind": "prepared_dataset_version",
+            "schema_version": 1,
+            "dataset_id": "0b6b787c-bd1c-5a8f-b412-37a1f7fe6347",
+            "structure_id": "8935b7fe-8da5-41f0-9d4b-cd36951b0a33",
+            "dataset_version": 1,
+            "file_id": "f8eef114-5c37-55b8-bdd7-96f11b310b25",
+            "source_sha256": "51094a76952881922b1eab3d008ed53b03ec2d9fd7328257807034e07df39549",
+            "dataset_sha256": "6d9ba2d11c13809755db8c6bd9610539daf1ebca7ecc3655f7f2ea527adaf683",
+            "dataset_size_bytes": 3728,
+            "dataset_schema_version": 1,
+            "sheet_index": 0,
+            "sheet_name": "Synthetic",
+            "parser_version": "openpyxl-3.1.5-structure-v1",
+            "parent_dataset_id": "ddb2f42c-595c-558f-aa25-fb11b6e8c4a9",
+            "parent_dataset_version": 1,
+            "transform_version": "excel_prepare_v1"
+          },
+          "selection": {
+            "task_type": "regression",
+            "method": "ols",
+            "sheet_name": "Synthetic",
+            "outcome_column": "A",
+            "covariates": [
+              {
+                "column": "B",
+                "type": "continuous",
+                "unit": "",
+                "levels": [],
+                "reference": null
+              }
+            ],
+            "outcome_unit": "",
+            "positive": null,
+            "negative": null,
+            "id_column": null,
+            "missing_policy": "complete_cases",
+            "assumptions": {
+              "independent_units": true,
+              "inference_confirmed": true
+            }
+          },
+          "check": {
+            "rules_version": "analysis_plan_rules_v5",
+            "research_missing": [],
+            "data_check": {
+              "rules_version": "analysis_plan_rules_v3",
+              "data_range": "A2:B15",
+              "row_count": 14,
+              "selected_fields": [
+                {
+                  "letter": "A",
+                  "name": "Outcome",
+                  "type_counts": {
+                    "number": 14
+                  },
+                  "missing_count": 0,
+                  "non_missing_count": 14,
+                  "prepared_unit": {
+                    "status": "confirmed",
+                    "value": ""
+                  },
+                  "declared_unit": {
+                    "status": "unknown",
+                    "value": null
+                  },
+                  "observed_min": -5.5,
+                  "observed_max": 7.5
+                },
+                {
+                  "letter": "B",
+                  "name": "Exposure",
+                  "type_counts": {
+                    "number": 14
+                  },
+                  "missing_count": 0,
+                  "non_missing_count": 14,
+                  "prepared_unit": {
+                    "status": "confirmed",
+                    "value": ""
+                  },
+                  "declared_unit": {
+                    "status": "unknown",
+                    "value": null
+                  },
+                  "observed_min": -3.0,
+                  "observed_max": 3.0
+                }
+              ],
+              "selection_check": {
+                "ready": true,
+                "row_count": 14,
+                "valid_count": 14,
+                "excluded_count": 0,
+                "groups": [],
+                "issues": [],
+                "warnings": []
+              },
+              "issues": [],
+              "limitations": [
+                "前提由用户声明，不证明独立性、因果或模型正确。",
+                "共同完整记录可能产生选择偏差；不插补、不删异常。"
+              ],
+              "research_missing": []
+            },
+            "limitations": [
+              "外部材料仅为来源证据，未由本系统重新计算。",
+              "补充资料及采纳候选不等于批准分析计划。"
+            ]
+          },
+          "resolutions": {},
+          "plan_revision": 2,
+          "setup_revision": 1,
+          "created_at": "2026-10-28T04:51:55.101120+00:00",
+          "research_request": {
+            "question": "Prespecified synthetic engineering verification: forest_ols",
+            "output_language": "en",
+            "population": "Explicit synthetic study records only",
+            "study_design": "Fixed synthetic demonstration; no real research inference",
+            "observation_unit": "One synthetic record per row",
+            "observation_structure": "independent",
+            "relationship_description": "",
+            "output_requirements": "Preserve source units and all missingness, methods and non-causal limitations; "
+          },
+          "recommendation_ref": null,
+          "evidence_versions": [],
+          "origin_recommendation_ref": null,
+          "source_reference": null,
+          "source_resolution": {
+            "confirmed": true,
+            "note": "Exact authorized B07 synthetic file SHA, prepared version and cohort confirmed; no real participant claims."
+          },
+          "sha256": "ece918c65fbfc6eb3e2913e1116bbfa9f0a28f4a4ab8e0cca82850c331204ae6"
+        },
+        "method": {
+          "id": "ols",
+          "parameters": {
+            "task_type": "regression",
+            "method": "ols",
+            "sheet_name": "Synthetic",
+            "outcome_column": "A",
+            "covariates": [
+              {
+                "column": "B",
+                "type": "continuous",
+                "unit": "",
+                "levels": [],
+                "reference": null
+              }
+            ],
+            "outcome_unit": "",
+            "positive": null,
+            "negative": null,
+            "id_column": null,
+            "missing_policy": "complete_cases",
+            "assumptions": {
+              "independent_units": true,
+              "inference_confirmed": true
+            }
+          },
+          "observation_basis": "independent_rows"
+        },
+        "rounding": {
+          "display_significant_digits": 6,
+          "stored_values": "full_precision"
+        }
+      },
+      "variables": [
+        {
+          "column": "A",
+          "name": "Outcome",
+          "unit": ""
+        },
+        {
+          "column": "B",
+          "name": "Exposure",
+          "unit": ""
+        }
+      ],
+      "statistics": {
+        "method": "ols",
+        "n": 14,
+        "p": 2,
+        "df_residual": 12,
+        "coefficients": [
+          {
+            "term": "intercept",
+            "column": null,
+            "level": null,
+            "reference": null,
+            "unit": "",
+            "beta": 1.0,
+            "se": 0.14433756729740643,
+            "statistic": 6.92820323027551,
+            "p_value": 1.586602024029914e-05,
+            "ci_low": 0.6855154565694539,
+            "ci_high": 1.314484543430546,
+            "or_value": null,
+            "or_ci_low": null,
+            "or_ci_high": null
+          },
+          {
+            "term": "B",
+            "column": "B",
+            "level": null,
+            "reference": null,
+            "unit": "",
+            "beta": 2.0000000000000004,
+            "se": 0.07216878364870322,
+            "statistic": 27.712812921102046,
+            "p_value": 3.0110295374637645e-12,
+            "ci_low": 1.8427577282847274,
+            "ci_high": 2.1572422717152735,
+            "or_value": null,
+            "or_ci_low": null,
+            "or_ci_high": null
+          }
+        ],
+        "covariance": [
+          [
+            0.020833333333333332,
+            -6.181658007522654e-19
+          ],
+          [
+            -6.181658007522654e-19,
+            0.005208333333333333
+          ]
+        ],
+        "r_squared": 0.9846153846153847,
+        "adjusted_r_squared": 0.9833333333333334,
+        "residual_sd": 0.5400617248673217,
+        "log_likelihood": null,
+        "deviance": null,
+        "aic": null,
+        "diagnostics": {
+          "rank": 2,
+          "centers": [
+            0.0
+          ],
+          "scales": [
+            2.0
+          ],
+          "condition_number": 1.0,
+          "converged": true,
+          "gradient_max": null,
+          "residuals": [
+            -0.4999999999999982,
+            0.5000000000000018,
+            -0.4999999999999991,
+            0.5000000000000009,
+            -0.49999999999999956,
+            0.5000000000000004,
+            -0.5,
+            0.5,
+            -0.5000000000000004,
+            0.49999999999999956,
+            -0.5000000000000009,
+            0.4999999999999991,
+            -0.5000000000000018,
+            0.4999999999999982
+          ],
+          "fitted": [
+            -5.000000000000002,
+            -5.000000000000002,
+            -3.000000000000001,
+            -3.000000000000001,
+            -1.0000000000000004,
+            -1.0000000000000004,
+            1.0,
+            1.0,
+            3.0000000000000004,
+            3.0000000000000004,
+            5.000000000000001,
+            5.000000000000001,
+            7.000000000000002,
+            7.000000000000002
+          ],
+          "leverage": [
+            0.23214285714285715,
+            0.23214285714285715,
+            0.14285714285714288,
+            0.14285714285714288,
+            0.0892857142857143,
+            0.0892857142857143,
+            0.07142857142857144,
+            0.07142857142857144,
+            0.0892857142857143,
+            0.0892857142857143,
+            0.14285714285714285,
+            0.14285714285714285,
+            0.23214285714285715,
+            0.23214285714285715
+          ],
+          "cooks_distance": [
+            0.16873985938344932,
+            0.16873985938345173,
+            0.08333333333333307,
+            0.08333333333333365,
+            0.0461361014994232,
+            0.046136101499423376,
+            0.03550295857988165,
+            0.03550295857988165,
+            0.046136101499423376,
+            0.0461361014994232,
+            0.08333333333333359,
+            0.08333333333333301,
+            0.16873985938345173,
+            0.16873985938344932
+          ]
+        },
+        "warnings": [
+          "complete_case_selection_bias",
+          "association_not_causation",
+          "unadjusted_coefficient_inference"
+        ]
+      },
+      "row_audit": {
+        "included_rows": [
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15
+        ],
+        "excluded_rows": [],
+        "missing_policy": "complete_cases",
+        "encoding_counts": {}
+      },
+      "started_at": "2026-10-28T04:51:56.681386+00:00",
+      "completed_at": "2026-10-28T04:52:01.699158+00:00",
+      "engine": {
+        "id": "regression_statistics_dataset_v1",
+        "python_version": "3.11.17",
+        "scipy_version": "1.17.1",
+        "numpy_version": "2.4.6",
+        "parser_version": "openpyxl-3.1.5-structure-v1",
+        "encoding_version": "typed_reference_dummy_v1",
+        "timeout_seconds": 30,
+        "statsmodels_version": "0.15.0",
+        "solver": "qr",
+        "max_iterations": null,
+        "tolerance": null,
+        "scale": "center_scale_restored_original_units",
+        "separation_solver": "highs",
+        "separation_timeout_seconds": 5,
+        "execution_contract": "fixed_statistics_v2"
+      },
+      "id": "c7f69c36-9010-4690-913c-cb7519f86f09"
+    },
+    "figure": {
+      "schema_version": 5,
+      "figure_kind": "forest",
+      "language": "en",
+      "variables": [
+        {
+          "column": "A",
+          "name": "Outcome",
+          "unit": ""
+        },
+        {
+          "column": "B",
+          "name": "Exposure",
+          "unit": ""
+        }
+      ],
+      "plot_config": {
+        "verification_scope": "local_effect_projection",
+        "outliers_removed": false,
+        "inference_displayed": true,
+        "scale": "linear",
+        "reference_line": 0.0,
+        "style": {
+          "palette": "colorblind",
+          "width": 2400,
+          "height": 1600,
+          "font_size": 12,
+          "display_order": []
+        },
+        "numbering_mode": "external"
+      },
+      "title": "Synthetic OLS effects",
+      "x_label": "Regression coefficient",
+      "y_label": "Variable",
+      "caption": "14 complete observations; 0 excluded rows. Forest verification covers local effect projection and rendering; regression is not independently refitted. Synthetic data engineering verification only. Displays frozen local effects and available intervals without independent refitting; unavailable intervals are not zero-width. Predictor units are given in term labels.",
+      "statistics": {
+        "n": 14,
+        "effects": [
+          {
+            "term": "effect:1",
+            "label": "Exposure",
+            "unit": "",
+            "estimate": 2.0000000000000004,
+            "ci_low": 1.8427577282847274,
+            "ci_high": 2.1572422717152735,
+            "interval_reason": null
+          }
+        ]
+      },
+      "legacy_contract": 4,
+      "presentation": {
+        "schema_version": 2,
+        "axes": {
+          "x": {
+            "label": "Regression coefficient",
+            "unit": ""
+          },
+          "y": {
+            "label": "Variable",
+            "unit": ""
+          }
+        },
+        "legend": {
+          "title": "Group",
+          "entries": []
+        },
+        "color_scale": null,
+        "abbreviations": [
+          {
+            "term": "n",
+            "definition": "Valid record count; independent participant count requires the study design"
+          },
+          {
+            "term": "β",
+            "definition": "Regression coefficient"
+          },
+          {
+            "term": "CI",
+            "definition": "Confidence interval (only intervals present in the frozen result)"
+          }
+        ],
+        "statistical_notes": [
+          "Displays frozen local effects and available intervals without independent refitting; unavailable intervals are not zero-width. Predictor units are given in term labels."
+        ]
+      },
+      "id": "3bd16901-7152-5b7f-b2f1-bac8647fbdac",
+      "analysis_run_id": "c7f69c36-9010-4690-913c-cb7519f86f09",
+      "file_id": "f8eef114-5c37-55b8-bdd7-96f11b310b25",
+      "source": {
+        "kind": "prepared_dataset_version",
+        "schema_version": 1,
+        "dataset_id": "0b6b787c-bd1c-5a8f-b412-37a1f7fe6347",
+        "structure_id": "8935b7fe-8da5-41f0-9d4b-cd36951b0a33",
+        "dataset_version": 1,
+        "file_id": "f8eef114-5c37-55b8-bdd7-96f11b310b25",
+        "source_sha256": "51094a76952881922b1eab3d008ed53b03ec2d9fd7328257807034e07df39549",
+        "dataset_sha256": "6d9ba2d11c13809755db8c6bd9610539daf1ebca7ecc3655f7f2ea527adaf683",
+        "dataset_size_bytes": 3728,
+        "dataset_schema_version": 1,
+        "sheet_index": 0,
+        "sheet_name": "Synthetic",
+        "parser_version": "openpyxl-3.1.5-structure-v1",
+        "parent_dataset_id": "ddb2f42c-595c-558f-aa25-fb11b6e8c4a9",
+        "parent_dataset_version": 1,
+        "transform_version": "excel_prepare_v1"
+      },
+      "source_sha256": "51094a76952881922b1eab3d008ed53b03ec2d9fd7328257807034e07df39549",
+      "setup_revision": 1,
+      "sha256": "5d0bf4da9f612fd911ee2cb381d5a7193f3c8e6dee43d12057a8d697ef9f7e3a",
+      "size_bytes": 265293,
+      "figure_config_version_id": "e7010886-ba58-4ca8-b119-aa185151c17c",
+      "configuration_sha256": "e1c185d5bfc0d30505c85effee7bf7fa23f3fd94bf5ee32db501d3eb883e2502",
+      "projection_id": "72052771-a5cc-5b85-a7bf-bca4fe08750d",
+      "projection_sha256": "91d8d7268f76e8ae6e3b91c17a997664568ac24a4e883e281433dcac885a0a15",
+      "facts_sha256": "7e7491a6302aa0463a7305ee6bd301283d47818550d33ed42b12c9d06a1ce573",
+      "figure_number": null,
+      "numbering_mode": "external",
+      "method": {
+        "kind": "forest",
+        "basis": "original_statistical_valid_rows"
+      },
+      "created_at": "2026-10-28T05:02:53.737918+00:00",
+      "engine": {
+        "id": "openai_figure_workbench_v3",
+        "provider": "openai_code_interpreter",
+        "model": "gpt-5.6-sol"
+      },
+      "verification": {
+        "status": "matched",
+        "note": "Structured values verified; image pixels require human review."
+      },
+      "provenance": {
+        "response_id": "resp_03455a2b25d3f4c1006ae1988d345487d19645d61e701d0430",
+        "container_id": "cntr_6ae197f40de48190a9d02ea89d195b490385ba5124424847",
+        "model": "gpt-5.6-sol",
+        "code": [
+          "import json, os, sys, math, textwrap, platform\npath=\"/mnt/data/fb4e21821ede90e489c14d78acfd4e93-data.json\"\nwith open(path,\"r\",encoding=\"utf-8\") as f:\n    data=json.load(f)\ntype(data), data.keys()\n",
+          "import pprint, json\npprint.pp(data, width=140, sort_dicts=False)\n",
+          "import matplotlib\nmatplotlib.use(\"Agg\")\nimport matplotlib.pyplot as plt\nfrom matplotlib import font_manager, ft2font\nfrom matplotlib.lines import Line2D\nfrom matplotlib.patches import Rectangle\nfrom PIL import Image\nimport warnings, os, json, math, platform, textwrap\n\n# Input values\nstyle = data[\"plot_config\"][\"style\"]\nwidth_px, height_px = style[\"width\"], style[\"height\"]\ndpi = 300\nfigsize = (width_px/dpi, height_px/dpi)\nfont_size = style[\"font_size\"]\n\n# Font inspection for all supplied glyphs\nall_strings = []\ndef collect_strings(obj):\n    if isinstance(obj, str):\n        all_strings.append(obj)\n    elif isinstance(obj, dict):\n        for v in obj.values(): collect_strings(v)\n    elif isinstance(obj, list):\n        for v in obj: collect_strings(v)\ncollect_strings(data)\nrequired_chars = set(\"\".join(all_strings))\nfont_path = font_manager.findfont(\"DejaVu Sans\", fallback_to_default=True)\nft = ft2font.FT2Font(font_path)\ncmap = ft.get_charmap()\nmissing_chars = sorted(ch for ch in required_chars if not ch.isspace() and ord(ch) not in cmap)\nfont_name = ft.family_name\nfont_name, font_path, missing_chars[:20], len(missing_chars)\n",
+          "from matplotlib.font_manager import FontProperties\n\nmatplotlib.rcParams.update({\n    \"font.family\": font_name,\n    \"font.size\": font_size,\n    \"figure.facecolor\": \"white\",\n    \"axes.facecolor\": \"white\",\n    \"savefig.facecolor\": \"white\",\n    \"text.usetex\": False,\n    \"axes.unicode_minus\": True,\n})\nif \"text.parse_math\" in matplotlib.rcParams:\n    matplotlib.rcParams[\"text.parse_math\"] = False\n\nfig = plt.figure(figsize=figsize, dpi=dpi, facecolor=\"white\")\nfig.canvas.draw()\nrenderer = fig.canvas.get_renderer()\nfp = FontProperties(family=font_name, size=font_size)\n\ndef wrap_by_pixels(text, max_width_px, fontprops=fp):\n    words = text.split(\" \")\n    lines, current = [], \"\"\n    for word in words:\n        candidate = word if not current else current + \" \" + word\n        w, h, d = renderer.get_text_width_height_descent(candidate, fontprops, ismath=False)\n        if w <= max_width_px or not current:\n            current = candidate\n        else:\n            lines.append(current)\n            current = word\n    if current:\n        lines.append(current)\n    return \"\\n\".join(lines)\n\n# Layout regions\nax = fig.add_axes([0.14, 0.53, 0.80, 0.29])\n\n# Title\ntitle_artist = fig.text(0.54, 0.945, data[\"labels\"][\"title\"], ha=\"center\", va=\"top\",\n                        fontsize=font_size+2, fontweight=\"bold\")\n\n# Plot\neffects = data[\"effects\"]\nlabels = [e[\"label\"] for e in effects]\nypos = list(range(len(effects)))[::-1]\nall_x = [data[\"plot_config\"][\"reference_line\"]]\nfor e in effects:\n    all_x.append(e[\"estimate\"])\n    if e[\"ci_low\"] is not None: all_x.append(e[\"ci_low\"])\n    if e[\"ci_high\"] is not None: all_x.append(e[\"ci_high\"])\nxmin, xmax = min(all_x), max(all_x)\nspan = xmax - xmin\nif span == 0: span = 1\npad = 0.12*span\nax.set_xlim(xmin-pad, xmax+pad)\nax.axvline(data[\"plot_config\"][\"reference_line\"], color=\"#666666\", linestyle=\"--\", linewidth=1.5, zorder=1)\n\ncolor = \"#0173B2\"\nfor y,e in zip(ypos,effects):\n    if e[\"ci_low\"] is not None and e[\"ci_high\"] is not None:\n        ax.hlines(y, e[\"ci_low\"], e[\"ci_high\"], color=color, linewidth=3, zorder=3)\n        ax.vlines([e[\"ci_low\"], e[\"ci_high\"]], y-0.075, y+0.075, color=color, linewidth=2, zorder=3)\n    ax.plot(e[\"estimate\"], y, marker=\"s\", color=color, markeredgecolor=\"white\",\n            markeredgewidth=0.8, markersize=8, zorder=4)\nax.set_yticks(ypos, labels=labels)\nax.set_ylim(-0.5, len(effects)-0.5)\nax.set_xlabel(data[\"presentation\"][\"axes\"][\"x\"][\"label\"], labelpad=10)\nax.set_ylabel(data[\"presentation\"][\"axes\"][\"y\"][\"label\"], labelpad=12)\nax.grid(axis=\"x\", color=\"#D9D9D9\", linewidth=0.8, alpha=0.8)\nax.set_axisbelow(True)\nax.spines[\"top\"].set_visible(False)\nax.spines[\"right\"].set_visible(False)\nax.tick_params(labelsize=font_size)\n\n# Dedicated CI annotation region below x-axis label\nann_y = 0.425\nfig.add_artist(Line2D([0.15, 0.23], [ann_y, ann_y], transform=fig.transFigure,\n                      color=color, linewidth=3))\nfig.add_artist(Line2D([0.19], [ann_y], transform=fig.transFigure,\n                      color=color, marker=\"s\", markeredgecolor=\"white\", markeredgewidth=0.8,\n                      markersize=8, linewidth=0))\nann_artist = fig.text(0.25, ann_y, \"95% confidence interval\", ha=\"left\", va=\"center\",\n                      fontsize=font_size)\n\n# Abbreviations, exactly once\nabbr_parts = [f'{a[\"term\"]} — {a[\"definition\"]}' for a in data[\"presentation\"][\"abbreviations\"]]\nabbr_text = \"Abbreviations: \" + \"; \".join(abbr_parts)\nabbr_wrapped = wrap_by_pixels(abbr_text, width_px*0.88)\nabbr_artist = fig.text(0.06, 0.355, abbr_wrapped, ha=\"left\", va=\"top\",\n                       fontsize=font_size, linespacing=1.25)\n\n# Caption, exactly once\ncaption = data[\"labels\"][\"caption\"]\ncaption_wrapped = wrap_by_pixels(caption, width_px*0.88)\ncaption_artist = fig.text(0.06, 0.225, caption_wrapped, ha=\"left\", va=\"top\",\n                          fontsize=font_size, linespacing=1.25)\n\n# save initial\nout_png=\"/mnt/data/figure.png\"\nwith warnings.catch_warnings(record=True) as caught:\n    warnings.simplefilter(\"always\")\n    fig.savefig(out_png, dpi=dpi, facecolor=\"white\", edgecolor=\"white\")\nwarns=[str(w.message) for w in caught]\nplt.close(fig)\n\nimg=Image.open(out_png)\nimg.size, warns[:10], caption_wrapped, abbr_wrapped\n",
+          "from IPython.display import display\ndisplay(Image.open(out_png).resize((1200,800)))\n",
+          "def make_figure():\n    matplotlib.rcParams.update({\n        \"font.family\": font_name,\n        \"font.size\": font_size,\n        \"figure.facecolor\": \"white\",\n        \"axes.facecolor\": \"white\",\n        \"savefig.facecolor\": \"white\",\n        \"text.usetex\": False,\n        \"axes.unicode_minus\": True,\n    })\n    if \"text.parse_math\" in matplotlib.rcParams:\n        matplotlib.rcParams[\"text.parse_math\"] = False\n\n    fig = plt.figure(figsize=figsize, dpi=dpi, facecolor=\"white\")\n    fig.canvas.draw()\n    renderer = fig.canvas.get_renderer()\n    fp = FontProperties(family=font_name, size=font_size)\n    \n    def wrap_local(text, max_width_px):\n        words = text.split(\" \")\n        lines, current = [], \"\"\n        for word in words:\n            cand = word if not current else current + \" \" + word\n            w, h, d = renderer.get_text_width_height_descent(cand, fp, ismath=False)\n            if w <= max_width_px or not current:\n                current = cand\n            else:\n                lines.append(current); current = word\n        if current: lines.append(current)\n        return \"\\n\".join(lines)\n\n    ax = fig.add_axes([0.18, 0.59, 0.76, 0.23])\n    artists={}\n    artists[\"title\"] = fig.text(0.56, 0.945, data[\"labels\"][\"title\"], ha=\"center\", va=\"top\",\n                                fontsize=font_size+2, fontweight=\"bold\")\n    ax.set_xlim(xmin-pad, xmax+pad)\n    ax.axvline(data[\"plot_config\"][\"reference_line\"], color=\"#666666\", linestyle=\"--\", linewidth=1.5, zorder=1)\n    for y,e in zip(ypos,effects):\n        if e[\"ci_low\"] is not None and e[\"ci_high\"] is not None:\n            ax.hlines(y, e[\"ci_low\"], e[\"ci_high\"], color=color, linewidth=3, zorder=3)\n            ax.vlines([e[\"ci_low\"], e[\"ci_high\"]], y-0.075, y+0.075, color=color, linewidth=2, zorder=3)\n        ax.plot(e[\"estimate\"], y, marker=\"s\", color=color, markeredgecolor=\"white\",\n                markeredgewidth=0.8, markersize=8, zorder=4)\n    ax.set_yticks(ypos, labels=labels)\n    ax.set_ylim(-0.5, len(effects)-0.5)\n    ax.set_xlabel(data[\"presentation\"][\"axes\"][\"x\"][\"label\"], labelpad=10)\n    ax.set_ylabel(data[\"presentation\"][\"axes\"][\"y\"][\"label\"], labelpad=12)\n    ax.grid(axis=\"x\", color=\"#D9D9D9\", linewidth=0.8, alpha=0.8)\n    ax.set_axisbelow(True)\n    ax.spines[\"top\"].set_visible(False)\n    ax.spines[\"right\"].set_visible(False)\n    ax.tick_params(labelsize=font_size)\n    \n    ann_y=0.445\n    line1=Line2D([0.18,0.26],[ann_y,ann_y],transform=fig.transFigure,color=color,linewidth=3)\n    line2=Line2D([0.22],[ann_y],transform=fig.transFigure,color=color,marker=\"s\",\n                 markeredgecolor=\"white\",markeredgewidth=0.8,markersize=8,linewidth=0)\n    fig.add_artist(line1); fig.add_artist(line2)\n    artists[\"annotation\"]=fig.text(0.28,ann_y,\"95% confidence interval\",ha=\"left\",va=\"center\",fontsize=font_size)\n    \n    abbr_parts=[f'{a[\"term\"]} — {a[\"definition\"]}' for a in data[\"presentation\"][\"abbreviations\"]]\n    abbr_text=\"Abbreviations: \"+\"; \".join(abbr_parts)\n    artists[\"abbr\"]=fig.text(0.06,0.355,wrap_local(abbr_text,width_px*0.88),\n                             ha=\"left\",va=\"top\",fontsize=font_size,linespacing=1.25)\n    artists[\"caption\"]=fig.text(0.06,0.225,wrap_local(caption,width_px*0.88),\n                                ha=\"left\",va=\"top\",fontsize=font_size,linespacing=1.25)\n    return fig, ax, artists\n\nfig, ax, artists=make_figure()\nfig.canvas.draw()\nrenderer=fig.canvas.get_renderer()\n# collect key bboxes normalized\nbboxes={k: tuple(v/ [width_px,height_px,width_px,height_px] for v in []) for k in []}\ndef norm_bbox(bb):\n    return (bb.x0/width_px, bb.y0/height_px, bb.x1/width_px, bb.y1/height_px)\nchecks={}\nfor k,a in artists.items():\n    checks[k]=norm_bbox(a.get_window_extent(renderer))\nchecks[\"xlabel\"]=norm_bbox(ax.xaxis.label.get_window_extent(renderer))\nchecks[\"ylabel\"]=norm_bbox(ax.yaxis.label.get_window_extent(renderer))\nchecks\n",
+          "fig, ax, artists=make_figure()\nwith warnings.catch_warnings(record=True) as caught:\n    warnings.simplefilter(\"always\")\n    fig.savefig(out_png,dpi=dpi,facecolor=\"white\",edgecolor=\"white\")\nwarns=[str(w.message) for w in caught]\nplt.close(fig)\ndisplay(Image.open(out_png).resize((1200,800)))\nprint(warns, Image.open(out_png).size)\n",
+          "result = {\n    \"schema_version\": 5,\n    \"figure_kind\": data[\"figure_kind\"],\n    \"language\": data[\"language\"],\n    \"variables\": data[\"variables\"],\n    \"plot_config\": data[\"plot_config\"],\n    \"title\": data[\"labels\"][\"title\"],\n    \"x_label\": data[\"labels\"][\"x_label\"],\n    \"y_label\": data[\"labels\"][\"y_label\"],\n    \"caption\": data[\"labels\"][\"caption\"],\n    \"statistics\": {\n        \"n\": data[\"sample_count\"],\n        \"effects\": data[\"effects\"],\n    },\n    \"legacy_contract\": data[\"legacy_contract\"],\n    \"presentation\": data[\"presentation\"],\n    \"environment\": {\n        \"python_version\": platform.python_version(),\n        \"matplotlib_version\": matplotlib.__version__,\n        \"font\": font_name,\n    },\n}\nout_json=\"/mnt/data/result.json\"\nwith open(out_json,\"w\",encoding=\"utf-8\") as f:\n    json.dump(result,f,ensure_ascii=False,indent=2,allow_nan=False)\n\n# Validate strict JSON, keys and files\nwith open(out_json,\"r\",encoding=\"utf-8\") as f:\n    loaded=json.load(f, parse_constant=lambda x: (_ for _ in ()).throw(ValueError(x)))\nprint(os.path.getsize(out_json), os.path.getsize(out_png))\nprint(loaded.keys())\nprint(loaded[\"statistics\"])\n"
+        ],
+        "usage": {
+          "input_tokens": 12051,
+          "input_tokens_details": {
+            "cache_write_tokens": 55,
+            "cached_tokens": 2893
+          },
+          "output_tokens": 5463,
+          "output_tokens_details": {
+            "reasoning_tokens": 5432
+          },
+          "total_tokens": 17514
+        },
+        "prompt_version": "openai_figure_workbench_v3",
+        "png_file_id": "cfile_6ae198df0330819188636f723af8f565",
+        "result_file_id": "cfile_6ae198df02bc81919f98f20e25078707",
+        "model_call_id": "1e241d33-a8fc-435c-b9a4-672939c0aef1",
+        "model_input_digest": "398bdd5eb638b3657625597c9054a80ab079d527504059fa8872efcefa3c93a8",
+        "input_sha256": "30039417492ae70637422cf5946fffa6e9e186d67b487324cb0c7f63068f0e92"
+      },
+      "text_authorship": {
+        "title": "user",
+        "additional_caption": "user",
+        "created_by": "96da5ede-f336-4136-99a7-d3f3069f7a97"
+      },
+      "external_processing": {
+        "version": 7,
+        "confirmed": true,
+        "version_id": "e7010886-ba58-4ca8-b119-aa185151c17c",
+        "confirmed_at": "2026-10-28T05:02:53.737918+00:00",
+        "confirmed_by": "96da5ede-f336-4136-99a7-d3f3069f7a97",
+        "payload_sha256": "30039417492ae70637422cf5946fffa6e9e186d67b487324cb0c7f63068f0e92"
+      }
+    },
+    "configuration": {
+      "id": "e7010886-ba58-4ca8-b119-aa185151c17c",
+      "configuration_id": "cde47d29-5847-4287-903b-13d7807a0e84",
+      "revision": 1,
+      "parent_version_id": null,
+      "created_by": "96da5ede-f336-4136-99a7-d3f3069f7a97",
+      "created_at": "2026-10-28 04:52:03.196701+00:00",
+      "sha256": "e1c185d5bfc0d30505c85effee7bf7fa23f3fd94bf5ee32db501d3eb883e2502",
+      "config": {
+        "style": {
+          "title": "Synthetic OLS effects",
+          "width": 2400,
+          "height": 1600,
+          "aliases": {
+            "A": "Outcome",
+            "B": "Exposure"
+          },
+          "caption": "Synthetic data engineering verification only.",
+          "palette": "colorblind",
+          "font_size": 12,
+          "display_order": []
+        },
+        "language": "en",
+        "projection": null,
+        "figure_kind": "forest"
+      },
+      "source": {
+        "kind": "prepared_dataset_version",
+        "file_id": "f8eef114-5c37-55b8-bdd7-96f11b310b25",
+        "dataset_id": "0b6b787c-bd1c-5a8f-b412-37a1f7fe6347",
+        "sheet_name": "Synthetic",
+        "sheet_index": 0,
+        "structure_id": "8935b7fe-8da5-41f0-9d4b-cd36951b0a33",
+        "source_sha256": "51094a76952881922b1eab3d008ed53b03ec2d9fd7328257807034e07df39549",
+        "dataset_sha256": "6d9ba2d11c13809755db8c6bd9610539daf1ebca7ecc3655f7f2ea527adaf683",
+        "parser_version": "openpyxl-3.1.5-structure-v1",
+        "schema_version": 1,
+        "dataset_version": 1,
+        "parent_dataset_id": "ddb2f42c-595c-558f-aa25-fb11b6e8c4a9",
+        "transform_version": "excel_prepare_v1",
+        "dataset_size_bytes": 3728,
+        "dataset_schema_version": 1,
+        "parent_dataset_version": 1
+      },
+      "figure_contract": 3
+    },
+    "projection": {
+      "id": "72052771-a5cc-5b85-a7bf-bca4fe08750d",
+      "config_version_id": "e7010886-ba58-4ca8-b119-aa185151c17c",
+      "sha256": "91d8d7268f76e8ae6e3b91c17a997664568ac24a4e883e281433dcac885a0a15",
+      "result": {
+        "audit": {
+          "valid_n": 14,
+          "excluded": [],
+          "excluded_n": 0,
+          "missing_y_n": 0,
+          "population_n": 14,
+          "included_rows": [
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10,
+            11,
+            12,
+            13,
+            14,
+            15
+          ]
+        },
+        "method": {
+          "kind": "forest",
+          "basis": "original_statistical_valid_rows"
+        },
+        "series": [],
+        "_material": {
+          "sha256": "9411394f934042c1e4dcbab213bcd4d19bed868100177b731cc3890e5e11891b",
+          "payload": {
+            "labels": {
+              "title": "Synthetic OLS effects",
+              "caption": "14 complete observations; 0 excluded rows. Forest verification covers local effect projection and rendering; regression is not independently refitted. Synthetic data engineering verification only. Displays frozen local effects and available intervals without independent refitting; unavailable intervals are not zero-width. Predictor units are given in term labels.",
+              "x_label": "Regression coefficient",
+              "y_label": "Variable"
+            },
+            "method": "ols",
+            "effects": [
+              {
+                "term": "effect:1",
+                "unit": "",
+                "label": "Exposure",
+                "ci_low": 1.8427577282847274,
+                "ci_high": 2.1572422717152735,
+                "estimate": 2.0000000000000004,
+                "interval_reason": null
+              }
+            ],
+            "language": "en",
+            "variables": [
+              {
+                "name": "Outcome",
+                "unit": "",
+                "column": "A"
+              },
+              {
+                "name": "Exposure",
+                "unit": "",
+                "column": "B"
+              }
+            ],
+            "figure_kind": "forest",
+            "plot_config": {
+              "scale": "linear",
+              "style": {
+                "width": 2400,
+                "height": 1600,
+                "palette": "colorblind",
+                "font_size": 12,
+                "display_order": []
+              },
+              "numbering_mode": "external",
+              "reference_line": 0.0,
+              "outliers_removed": false,
+              "verification_scope": "local_effect_projection",
+              "inference_displayed": true
+            },
+            "presentation": {
+              "axes": {
+                "x": {
+                  "unit": "",
+                  "label": "Regression coefficient"
+                },
+                "y": {
+                  "unit": "",
+                  "label": "Variable"
+                }
+              },
+              "legend": {
+                "title": "Group",
+                "entries": []
+              },
+              "color_scale": null,
+              "abbreviations": [
+                {
+                  "term": "n",
+                  "definition": "Valid record count; independent participant count requires the study design"
+                },
+                {
+                  "term": "β",
+                  "definition": "Regression coefficient"
+                },
+                {
+                  "term": "CI",
+                  "definition": "Confidence interval (only intervals present in the frozen result)"
+                }
+              ],
+              "schema_version": 2,
+              "statistical_notes": [
+                "Displays frozen local effects and available intervals without independent refitting; unavailable intervals are not zero-width. Predictor units are given in term labels."
+              ]
+            },
+            "sample_count": 14,
+            "schema_version": 5,
+            "legacy_contract": 4
+          },
+          "expected": {
+            "title": "Synthetic OLS effects",
+            "caption": "14 complete observations; 0 excluded rows. Forest verification covers local effect projection and rendering; regression is not independently refitted. Synthetic data engineering verification only. Displays frozen local effects and available intervals without independent refitting; unavailable intervals are not zero-width. Predictor units are given in term labels.",
+            "x_label": "Regression coefficient",
+            "y_label": "Variable",
+            "language": "en",
+            "variables": [
+              {
+                "name": "Outcome",
+                "unit": "",
+                "column": "A"
+              },
+              {
+                "name": "Exposure",
+                "unit": "",
+                "column": "B"
+              }
+            ],
+            "statistics": {
+              "n": 14,
+              "effects": [
+                {
+                  "term": "effect:1",
+                  "unit": "",
+                  "label": "Exposure",
+                  "ci_low": 1.8427577282847274,
+                  "ci_high": 2.1572422717152735,
+                  "estimate": 2.0000000000000004,
+                  "interval_reason": null
+                }
+              ]
+            },
+            "figure_kind": "forest",
+            "plot_config": {
+              "scale": "linear",
+              "style": {
+                "width": 2400,
+                "height": 1600,
+                "palette": "colorblind",
+                "font_size": 12,
+                "display_order": []
+              },
+              "numbering_mode": "external",
+              "reference_line": 0.0,
+              "outliers_removed": false,
+              "verification_scope": "local_effect_projection",
+              "inference_displayed": true
+            },
+            "presentation": {
+              "axes": {
+                "x": {
+                  "unit": "",
+                  "label": "Regression coefficient"
+                },
+                "y": {
+                  "unit": "",
+                  "label": "Variable"
+                }
+              },
+              "legend": {
+                "title": "Group",
+                "entries": []
+              },
+              "color_scale": null,
+              "abbreviations": [
+                {
+                  "term": "n",
+                  "definition": "Valid record count; independent participant count requires the study design"
+                },
+                {
+                  "term": "β",
+                  "definition": "Regression coefficient"
+                },
+                {
+                  "term": "CI",
+                  "definition": "Confidence interval (only intervals present in the frozen result)"
+                }
+              ],
+              "schema_version": 2,
+              "statistical_notes": [
+                "Displays frozen local effects and available intervals without independent refitting; unavailable intervals are not zero-width. Predictor units are given in term labels."
+              ]
+            },
+            "schema_version": 5,
+            "legacy_contract": 4
+          }
+        },
+        "input_sha256": "da4332839e9dc9fa2b775e019849adb7fa3ff54f8e3df572cd0ea292fcce6607",
+        "tool_version": "figure_projection_v1",
+        "schema_version": 1,
+        "original_statistical_n": 14
+      }
+    }
+  },
+  "saved_explanation": {
+    "schema_version": 5,
+    "id": "06c56a5d-a6dc-4a4b-baff-a935a77c22c9",
+    "analysis_run_id": "c7f69c36-9010-4690-913c-cb7519f86f09",
+    "file_id": "f8eef114-5c37-55b8-bdd7-96f11b310b25",
+    "source": {
+      "kind": "prepared_dataset_version",
+      "schema_version": 1,
+      "dataset_id": "0b6b787c-bd1c-5a8f-b412-37a1f7fe6347",
+      "structure_id": "8935b7fe-8da5-41f0-9d4b-cd36951b0a33",
+      "dataset_version": 1,
+      "file_id": "f8eef114-5c37-55b8-bdd7-96f11b310b25",
+      "source_sha256": "51094a76952881922b1eab3d008ed53b03ec2d9fd7328257807034e07df39549",
+      "dataset_sha256": "6d9ba2d11c13809755db8c6bd9610539daf1ebca7ecc3655f7f2ea527adaf683",
+      "dataset_size_bytes": 3728,
+      "dataset_schema_version": 1,
+      "sheet_index": 0,
+      "sheet_name": "Synthetic",
+      "parser_version": "openpyxl-3.1.5-structure-v1",
+      "parent_dataset_id": "ddb2f42c-595c-558f-aa25-fb11b6e8c4a9",
+      "parent_dataset_version": 1,
+      "transform_version": "excel_prepare_v1"
+    },
+    "source_sha256": "51094a76952881922b1eab3d008ed53b03ec2d9fd7328257807034e07df39549",
+    "setup_revision": 1,
+    "figure_id": "3bd16901-7152-5b7f-b2f1-bac8647fbdac",
+    "figure_sha256": "5d0bf4da9f612fd911ee2cb381d5a7193f3c8e6dee43d12057a8d697ef9f7e3a",
+    "facts_sha256": "7e7491a6302aa0463a7305ee6bd301283d47818550d33ed42b12c9d06a1ce573",
+    "language": "en",
+    "created_at": "2026-10-28T09:01:21.857492+00:00",
+    "sections": [
+      {
+        "key": "purpose",
+        "title": "Analysis purpose",
+        "text": "Variables: Outcome (); Exposure ()",
+        "evidence": [
+          {
+            "key": "modeling.variables",
+            "label": "Variables",
+            "value": "Outcome (); Exposure ()"
+          }
+        ]
+      },
+      {
+        "key": "data",
+        "title": "Data used",
+        "text": "Data records total: 14; Data records valid: 14; Data records excluded: 0; Regression coefficient; Unit not specified; Variable; Unit not specified",
+        "evidence": [
+          {
+            "key": "data.total",
+            "label": "Data records total",
+            "value": "14"
+          },
+          {
+            "key": "data.valid",
+            "label": "Data records valid",
+            "value": "14"
+          },
+          {
+            "key": "data.excluded",
+            "label": "Data records excluded",
+            "value": "0"
+          },
+          {
+            "key": "axis.x.label",
+            "label": "Horizontal field",
+            "value": "Regression coefficient"
+          },
+          {
+            "key": "axis.x.unit",
+            "label": "Horizontal unit",
+            "value": "Unit not specified"
+          },
+          {
+            "key": "axis.y.label",
+            "label": "Vertical field",
+            "value": "Variable"
+          },
+          {
+            "key": "axis.y.unit",
+            "label": "Vertical unit",
+            "value": "Unit not specified"
+          }
+        ]
+      },
+      {
+        "key": "methods",
+        "title": "Analysis methods",
+        "text": "Ordinary least squares with intercept, original continuous scales and confirmed categorical references; two-sided t inference and ordinary covariance.; Confirmed roles, coding and declarations: Analysis task type: Regression analysis; Method: Ordinary least-squares regression; Missing-data policy: Complete cases; Assumptions / Independent-unit declaration: Yes; Assumptions / Inference-assumption declaration: Yes; Covariate types 1: Continuous variable; User-declared independent observations; independence was not verified; Research design text was supplied but was not programmatically verified or forwarded.",
+        "evidence": [
+          {
+            "key": "method.summary",
+            "label": "Analysis method",
+            "value": "Ordinary least squares with intercept, original continuous scales and confirmed categorical references; two-sided t inference and ordinary covariance."
+          },
+          {
+            "key": "modeling.coding",
+            "label": "Confirmed roles, coding and declarations",
+            "value": "Analysis task type: Regression analysis; Method: Ordinary least-squares regression; Missing-data policy: Complete cases; Assumptions / Independent-unit declaration: Yes; Assumptions / Inference-assumption declaration: Yes; Covariate types 1: Continuous variable"
+          },
+          {
+            "key": "design.structure",
+            "label": "Observation structure and verification limits",
+            "value": "User-declared independent observations; independence was not verified"
+          },
+          {
+            "key": "design.status",
+            "label": "Research design information status",
+            "value": "Research design text was supplied but was not programmatically verified or forwarded."
+          }
+        ]
+      },
+      {
+        "key": "results",
+        "title": "Main results",
+        "text": "Inference: Regression coefficient: 1; Standard error: 0.144338; Test statistic: 6.9282; P value: 1.5866e-05; Confidence lower bound: 0.685515; Confidence upper bound: 1.31448; Odds ratio: Unavailable or not supplied; Odds-ratio confidence lower bound: Unavailable or not supplied; Odds-ratio confidence upper bound: Unavailable or not supplied; Inference: Regression coefficient: 2; Standard error: 0.0721688; Test statistic: 27.7128; P value: 3.01103e-12; Confidence lower bound: 1.84276; Confidence upper bound: 2.15724; Odds ratio: Unavailable or not supplied; Odds-ratio confidence lower bound: Unavailable or not supplied; Odds-ratio confidence upper bound: Unavailable or not supplied; Valid records: 14; Model parameter count: 2; Residual degrees of freedom: 12; R squared: 0.984615; Adjusted R squared: 0.983333; Residual standard deviation: 0.540062; Log likelihood: Unavailable or not supplied; Deviance: Unavailable or not supplied; Akaike information criterion: Unavailable or not supplied; Model diagnostics: Matrix rank: 2; Centering constants 1: 0; Scaling constants 1: 2; Condition number: 1; Converged: Yes; Maximum gradient: Unavailable or not supplied; Limitations and warnings: Complete-case analysis may introduce selection bias; Association does not establish causation; Coefficient inference has no multiple-comparison adjustment",
+        "evidence": [
+          {
+            "key": "modeling.coefficients.0.inference",
+            "label": "Inference",
+            "value": "Regression coefficient: 1; Standard error: 0.144338; Test statistic: 6.9282; P value: 1.5866e-05; Confidence lower bound: 0.685515; Confidence upper bound: 1.31448; Odds ratio: Unavailable or not supplied; Odds-ratio confidence lower bound: Unavailable or not supplied; Odds-ratio confidence upper bound: Unavailable or not supplied"
+          },
+          {
+            "key": "modeling.coefficients.1.inference",
+            "label": "Inference",
+            "value": "Regression coefficient: 2; Standard error: 0.0721688; Test statistic: 27.7128; P value: 3.01103e-12; Confidence lower bound: 1.84276; Confidence upper bound: 2.15724; Odds ratio: Unavailable or not supplied; Odds-ratio confidence lower bound: Unavailable or not supplied; Odds-ratio confidence upper bound: Unavailable or not supplied"
+          },
+          {
+            "key": "modeling.n",
+            "label": "Valid records",
+            "value": "14"
+          },
+          {
+            "key": "modeling.p",
+            "label": "Model parameter count",
+            "value": "2"
+          },
+          {
+            "key": "modeling.df_residual",
+            "label": "Residual degrees of freedom",
+            "value": "12"
+          },
+          {
+            "key": "modeling.r_squared",
+            "label": "R squared",
+            "value": "0.984615"
+          },
+          {
+            "key": "modeling.adjusted_r_squared",
+            "label": "Adjusted R squared",
+            "value": "0.983333"
+          },
+          {
+            "key": "modeling.residual_sd",
+            "label": "Residual standard deviation",
+            "value": "0.540062"
+          },
+          {
+            "key": "modeling.log_likelihood",
+            "label": "Log likelihood",
+            "value": "Unavailable or not supplied"
+          },
+          {
+            "key": "modeling.deviance",
+            "label": "Deviance",
+            "value": "Unavailable or not supplied"
+          },
+          {
+            "key": "modeling.aic",
+            "label": "Akaike information criterion",
+            "value": "Unavailable or not supplied"
+          },
+          {
+            "key": "modeling.diagnostics",
+            "label": "Model diagnostics",
+            "value": "Matrix rank: 2; Centering constants 1: 0; Scaling constants 1: 2; Condition number: 1; Converged: Yes; Maximum gradient: Unavailable or not supplied"
+          },
+          {
+            "key": "modeling.warnings",
+            "label": "Limitations and warnings",
+            "value": "Complete-case analysis may introduce selection bias; Association does not establish causation; Coefficient inference has no multiple-comparison adjustment"
+          }
+        ]
+      },
+      {
+        "key": "interpretation",
+        "title": "Interpretation",
+        "text": "Limitations and warnings: Complete-case analysis may introduce selection bias; Association does not establish causation; Coefficient inference has no multiple-comparison adjustment; User-declared independent observations; independence was not verified; Research design text was supplied but was not programmatically verified or forwarded.; Research declarations are supplied by the user; the program does not establish design or sample authenticity.; Complete-case analysis may introduce selection bias; no imputation, deduplication or outlier removal.; Display uses at most six significant digits; saved statistics retain full precision.; Interpretation is a draft; image pixels and wording require review.; Forest verification covers local effects and rendering, without an independent cloud model refit; association does not establish causation.; Research design and observation independence were not programmatically verified; absent design is not assumed and causation cannot be inferred.; Values and fact references were inserted and checked locally; meaning and research applicability require review.; User-declared independent observations; independence was not verified; This explanation checks frozen statistics and metadata only; image pixels, in-image text and visual correctness were not verified. The AI draft requires human review.",
+        "evidence": [
+          {
+            "key": "modeling.warnings",
+            "label": "Limitations and warnings",
+            "value": "Complete-case analysis may introduce selection bias; Association does not establish causation; Coefficient inference has no multiple-comparison adjustment"
+          },
+          {
+            "key": "design.structure",
+            "label": "Observation structure and verification limits",
+            "value": "User-declared independent observations; independence was not verified"
+          },
+          {
+            "key": "design.status",
+            "label": "Research design information status",
+            "value": "Research design text was supplied but was not programmatically verified or forwarded."
+          },
+          {
+            "key": "limitation.0",
+            "label": "Applicable limitation",
+            "value": "Research declarations are supplied by the user; the program does not establish design or sample authenticity."
+          },
+          {
+            "key": "limitation.1",
+            "label": "Applicable limitation",
+            "value": "Complete-case analysis may introduce selection bias; no imputation, deduplication or outlier removal."
+          },
+          {
+            "key": "limitation.2",
+            "label": "Applicable limitation",
+            "value": "Display uses at most six significant digits; saved statistics retain full precision."
+          },
+          {
+            "key": "limitation.3",
+            "label": "Applicable limitation",
+            "value": "Interpretation is a draft; image pixels and wording require review."
+          },
+          {
+            "key": "limitation.4",
+            "label": "Applicable limitation",
+            "value": "Forest verification covers local effects and rendering, without an independent cloud model refit; association does not establish causation."
+          },
+          {
+            "key": "limitation.5",
+            "label": "Applicable limitation",
+            "value": "Research design and observation independence were not programmatically verified; absent design is not assumed and causation cannot be inferred."
+          },
+          {
+            "key": "limitation.6",
+            "label": "Applicable limitation",
+            "value": "Values and fact references were inserted and checked locally; meaning and research applicability require review."
+          },
+          {
+            "key": "limitation.7",
+            "label": "Applicable limitation",
+            "value": "User-declared independent observations; independence was not verified"
+          },
+          {
+            "key": "limitation.8",
+            "label": "Applicable limitation",
+            "value": "This explanation checks frozen statistics and metadata only; image pixels, in-image text and visual correctness were not verified. The AI draft requires human review."
+          }
+        ]
+      },
+      {
+        "key": "paper_text",
+        "title": "Manuscript wording",
+        "text": "this figure; Synthetic OLS effects; Ordinary least squares with intercept, original continuous scales and confirmed categorical references; two-sided t inference and ordinary covariance.; Data records valid: 14",
+        "evidence": [
+          {
+            "key": "figure.number",
+            "label": "Figure number",
+            "value": "this figure"
+          },
+          {
+            "key": "figure.title",
+            "label": "Figure title",
+            "value": "Synthetic OLS effects"
+          },
+          {
+            "key": "method.summary",
+            "label": "Analysis method",
+            "value": "Ordinary least squares with intercept, original continuous scales and confirmed categorical references; two-sided t inference and ordinary covariance."
+          },
+          {
+            "key": "data.valid",
+            "label": "Data records valid",
+            "value": "14"
+          }
+        ]
+      }
+    ],
+    "draft": {
+      "purpose": "{{modeling.variables}}",
+      "interpretation": "{{modeling.warnings}}; {{design.structure}}; {{design.status}}; {{limitation.0}}; {{limitation.1}}; {{limitation.2}}; {{limitation.3}}; {{limitation.4}}; {{limitation.5}}; {{limitation.6}}; {{limitation.7}}; {{limitation.8}}",
+      "results": "{{modeling.coefficients.0.inference}}; {{modeling.coefficients.1.inference}}; {{modeling.n}}; {{modeling.p}}; {{modeling.df_residual}}; {{modeling.r_squared}}; {{modeling.adjusted_r_squared}}; {{modeling.residual_sd}}; {{modeling.log_likelihood}}; {{modeling.deviance}}; {{modeling.aic}}; {{modeling.diagnostics}}; {{modeling.warnings}}",
+      "paper_text": "{{figure.number}}; {{figure.title}}; {{method.summary}}; {{data.valid}}",
+      "methods": "{{method.summary}}; {{modeling.coding}}; {{design.structure}}; {{design.status}}",
+      "data": "{{data.total}}; {{data.valid}}; {{data.excluded}}; {{axis.x.label}}; {{axis.x.unit}}; {{axis.y.label}}; {{axis.y.unit}}"
+    },
+    "payload_sha256": "3915c36d303e08ee360cbef491b772c694bbbe9d1098da7c156606fc948d22b6",
+    "limitations": [
+      "Research declarations are supplied by the user; the program does not establish design or sample authenticity.",
+      "Complete-case analysis may introduce selection bias; no imputation, deduplication or outlier removal.",
+      "Display uses at most six significant digits; saved statistics retain full precision.",
+      "Interpretation is a draft; image pixels and wording require review.",
+      "Forest verification covers local effects and rendering, without an independent cloud model refit; association does not establish causation.",
+      "Research design and observation independence were not programmatically verified; absent design is not assumed and causation cannot be inferred.",
+      "Values and fact references were inserted and checked locally; meaning and research applicability require review.",
+      "User-declared independent observations; independence was not verified",
+      "This explanation checks frozen statistics and metadata only; image pixels, in-image text and visual correctness were not verified. The AI draft requires human review."
+    ],
+    "verification": {
+      "status": "references_checked",
+      "note": "Values and fact references were inserted and checked locally; meaning and research applicability require review."
+    },
+    "engine": {
+      "id": "figure_explanation_v4",
+      "provider": "openai",
+      "model": "gpt-6.1-sol"
+    },
+    "provenance": {
+      "response_id": "resp_02df8133047e348e006ae1b93c8d0487d1a24139b3c9042a39",
+      "model": "gpt-6.1-sol",
+      "usage": {
+        "input_tokens": 2769,
+        "input_tokens_details": {
+          "cache_write_tokens": 2766,
+          "cached_tokens": 0
+        },
+        "output_tokens": 308,
+        "output_tokens_details": {
+          "reasoning_tokens": 0
+        },
+        "total_tokens": 3077
+      },
+      "prompt_version": "figure_explanation_v4",
+      "model_call_id": "5bf29dfe-89fe-4cef-b461-21281c116bd7",
+      "model_input_digest": "df90b1ad19190e5de4607102515cb911ad8e820ddadc1effe879b74e45ec14fd",
+      "input_sha256": "3915c36d303e08ee360cbef491b772c694bbbe9d1098da7c156606fc948d22b6"
+    }
+  }
+}

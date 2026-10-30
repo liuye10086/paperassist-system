@@ -25,6 +25,12 @@ def publish(service,project,identity,request_id,request,key):
             status=200
         else:
             base=service.manuscripts.version(db,project,identity,request.expected_revision)
+            if candidate.get('thesis_context'):
+                from .school_live import validate_preservation
+                from .authorization import LiveWritingService
+                bundle=LiveWritingService(service.assets).bundle(db,project,task['input_snapshot']['execution']['bundle_id'])
+                validate_preservation(candidate,base['snapshot_json'],bundle)
+                if candidate.get('school_content_report',{}).get('can_publish') is not True:raise StorageError('manuscript_review_blocked','学校内容检查存在必须修正的问题。',409)
             version_id=str(uuid4());timestamp=now();revision=request.expected_revision+1
             body=deepcopy(base['request_json']);body.update(expected_revision=request.expected_revision,title=candidate['title'],output_language=candidate['output_language'])
             citation=candidate['citation_snapshot']
@@ -32,8 +38,11 @@ def publish(service,project,identity,request_id,request,key):
             snapshot=dict(project_id=project,manuscript_id=identity,manuscript_version_id=version_id,revision=revision,
                 output_language=candidate['output_language'],workflow_version=candidate['workflow_version'],snapshot_sha256=digest(candidate))
             producer=service.manuscripts.task(db,project,'manuscript_draft',snapshot,'manuscript:'+version_id,validated_sources=candidate['sources'])
-            db.execute('''INSERT INTO manuscript_versions(id,project_id,user_id,idempotency_key,request_json,request_digest,manuscript_id,revision,parent_version_id,task_id,snapshot_json,snapshot_sha256,created_at)
-                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)''',(version_id,project,service.store.user_id,'writing:'+request_id,Jsonb(body),digest(body),identity,revision,base['id'],producer['id'],Jsonb(candidate),digest(candidate),timestamp))
+            if candidate.get('thesis_context'):
+                from app.domain.admin_configuration.rule_consumption import inherit_task
+                inherit_task(db,producer,confirmation_id=base['school_confirmation_id'])
+            db.execute('''INSERT INTO manuscript_versions(id,project_id,user_id,idempotency_key,request_json,request_digest,manuscript_id,revision,parent_version_id,task_id,snapshot_json,snapshot_sha256,created_at,school_confirmation_id)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)''',(version_id,project,service.store.user_id,'writing:'+request_id,Jsonb(body),digest(body),identity,revision,base['id'],producer['id'],Jsonb(candidate),digest(candidate),timestamp,base.get('school_confirmation_id')))
             for original in db.execute('SELECT * FROM manuscript_sources WHERE version_id=%s',(base['id'],)).fetchall():
                 fields=dict(original);fields.update(id=str(uuid4()),version_id=version_id)
                 fields={k:Jsonb(v) if isinstance(v,(dict,list)) else v for k,v in fields.items()}

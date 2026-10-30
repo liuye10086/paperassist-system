@@ -13,7 +13,7 @@ from app.domain.report_collections.service import scoped_store
 from .authorization import LiveWritingService
 from .bundle import validate_bundle
 from .context import normalize_sections, NUMBER
-from .live_contracts import PreviewRequest, LiveWritingRequest, LiveOutput, WORKFLOW
+from .live_contracts import PreviewRequest, LiveWritingRequest, LiveOutput, WORKFLOW,preview_data
 from .policy import POLICY_VERSION, policy, capabilities
 from .live_notice import COMPOSITION_VERSION, update_notice
 
@@ -24,7 +24,7 @@ def require_live_snapshot(task):
             or task['task_type']!='manuscript_writing' or task['workflow_version']!=WORKFLOW or snap['workflow_version']!=WORKFLOW
             or type(snap['schema_version']) is not int or snap['schema_version']!=2 or digest(snap)!=task['input_digest']
             or snap['project_id']!=task['project_id'] or snap['request_id']!=task['id'] or snap['policy_version']!=POLICY_VERSION or snap['prompt_version']!='sci-writing-v2'
-            or PreviewRequest.model_validate(snap['input']).model_dump(mode='json')!=snap['input']
+            or preview_data(snap['input'])!=snap['input']
             or LiveWritingRequest.model_validate(snap['execution']).model_dump(mode='json')!=snap['execution']): raise ValueError()
     except (ValueError,TypeError,KeyError): raise source_conflict() from None
     return snap
@@ -32,10 +32,15 @@ def require_live_snapshot(task):
 def compose_live_candidate(output,snapshot,bundle,call_id,provenance,*,composition_version=COMPOSITION_VERSION):
     if type(composition_version) is not int or composition_version not in (1,COMPOSITION_VERSION):
         raise ValueError('Unsupported candidate composition version')
+    if bundle.get('execution_contract',{}).get('schema_version')==3:
+        from .school_live import compose
+        return compose(output,snapshot,bundle,call_id,provenance,composition_version)
     output=LiveOutput.model_validate(output).model_dump(mode='json')
     expected=[snapshot['input']['target_section']] if snapshot['input']['mode']=='rewrite_section' else ['title','abstract','introduction','results','discussion','materials_and_methods']
     if [s['id'] for s in output['sections']]!=expected: raise ValueError('Wrong output sections')
     local=bundle['local_manifest'];payload=json.loads(json.loads(bundle['wire_json'])['input'])
+    from .numeric_contract import is_numeric_v2,validate_bindings
+    numeric_v2=is_numeric_v2(bundle)
     facts={s['alias']:{(f['fact_path'],f['value']) for f in s['facts']} for s in payload['sources']}
     candidate=deepcopy(snapshot['base_snapshot']);sections=normalize_sections(candidate);new={};seen=set()
     for section in output['sections']:
@@ -46,16 +51,20 @@ def compose_live_candidate(output,snapshot,bundle,call_id,provenance,*,compositi
             seen.add(p['id'])
             if (len(set(p['source_aliases']))!=len(p['source_aliases']) or not set(p['source_aliases'])<=local['sources'].keys()
                 or len(set(p['evidence_aliases']))!=len(p['evidence_aliases']) or not set(p['evidence_aliases'])<=local['evidence'].keys()): raise ValueError('Unknown alias')
-            for b in p['study_numeric_bindings']:
-                if b['source_alias'] not in p['source_aliases'] or (b['fact_path'],b['value']) not in facts[b['source_alias']]: raise ValueError('Unknown exact study fact')
+            if not numeric_v2:
+                for b in p['study_numeric_bindings']:
+                    if b['source_alias'] not in p['source_aliases'] or (b['fact_path'],b['value']) not in facts[b['source_alias']]: raise ValueError('Unknown exact study fact')
             from app.domain.manuscripts.illustrations import BODY_REFERENCE, check_references, rendered_groups
             reference_issues=check_references(rendered_groups(snapshot['base_snapshot'],[dict(id=p['id'],text=p['text'],origin='model_generated')]),snapshot['input']['output_language'])
             if any(issue['field']==p['id'] for issue in reference_issues): raise ValueError('Unknown figure or table identity')
             # Literature numbers are deliberately pending until exact new-claim evidence review.
-            if not p['evidence_aliases']:
+            if not numeric_v2 and not p['evidence_aliases']:
                 if set(NUMBER.findall(BODY_REFERENCE.sub('',p['text'])))!={b['value'] for b in p['study_numeric_bindings']}: raise ValueError('Unbound study number')
+            bindings=validate_bindings(p,payload) if numeric_v2 else None
             paragraphs.append(dict(id=p['id'],text=p['text'],origin='model_generated',source_ids=[local['sources'][a] for a in p['source_aliases']],
-                citations=[],numeric_bindings=[],suggested_source_aliases=p['source_aliases'],suggested_evidence_aliases=p['evidence_aliases'],study_numeric_bindings=p['study_numeric_bindings'],verification_status='pending'))
+                citations=[],numeric_bindings=[],suggested_source_aliases=p['source_aliases'],suggested_evidence_aliases=p['evidence_aliases'],study_numeric_bindings=bindings['study'] if bindings else p['study_numeric_bindings'],verification_status='pending'))
+            if numeric_v2:
+                paragraphs[-1].update(context_numeric_bindings=bindings['context'],literature_numeric_bindings=bindings['literature'])
         new[section['id']]=dict(id=section['id'],paragraphs=paragraphs)
     candidate['sections']=[new.get(s['id'],s) for s in sections]
     paragraph_ids=[p['id'] for s in candidate['sections'] for p in s['paragraphs']]
@@ -71,6 +80,7 @@ def compose_live_candidate(output,snapshot,bundle,call_id,provenance,*,compositi
     candidate['writing_provenance']=dict(schema_version=2,request_id=snapshot['request_id'],bundle_id=bundle['id'],bundle_sha256=bundle['bundle_sha256'],
         model_call_id=call_id,provider_provenance=provenance,verification_status='pending',raw_output=output,raw_output_sha256=digest(output),
         required_reviews=['scientific_claims','study_numeric_facts','complete_language'],base_version_id=snapshot['base_version_id'])
+    if numeric_v2:candidate['writing_provenance']['numeric_contract_version']=2
     if composition_version==COMPOSITION_VERSION:
         candidate['writing_provenance']['composition_version']=COMPOSITION_VERSION
         update_notice(candidate,snapshot['input'])

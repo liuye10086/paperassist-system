@@ -1,0 +1,2284 @@
+{
+  "explanation:roc_curve:zh-CN": {
+    "source_task_id": "139aff4e-3c52-4bf2-a715-8376bc61b89a",
+    "model_input_digest": "8af9c7d64c3bbe08f5c5e8c82f4142c8935cfe565dcdfc85e80ce86a0c3cef67",
+    "payload": {
+      "facts": {
+        "axis.x.label": {
+          "label": "横轴字段",
+          "raw": "假阳性率（0–1）",
+          "value": "假阳性率（0–1）"
+        },
+        "axis.x.unit": {
+          "label": "横轴单位",
+          "raw": "0–1",
+          "value": "0–1"
+        },
+        "axis.y.label": {
+          "label": "纵轴字段",
+          "raw": "真阳性率（0–1）",
+          "value": "真阳性率（0–1）"
+        },
+        "axis.y.unit": {
+          "label": "纵轴单位",
+          "raw": "0–1",
+          "value": "0–1"
+        },
+        "data.excluded": {
+          "label": "数据记录 excluded",
+          "raw": 0,
+          "value": "0"
+        },
+        "data.total": {
+          "label": "数据记录 total",
+          "raw": 12,
+          "value": "12"
+        },
+        "data.valid": {
+          "label": "数据记录 valid",
+          "raw": 12,
+          "value": "12"
+        },
+        "design.status": {
+          "label": "研究设计资料状态",
+          "raw": true,
+          "value": "用户提供研究设计文字，尚未经程序验证；未外发该原文"
+        },
+        "design.structure": {
+          "label": "观察结构及核查限制",
+          "raw": "independent",
+          "value": "用户声明独立观察；程序未验证独立性"
+        },
+        "figure.title": {
+          "label": "图标题",
+          "raw": "合成评分 ROC 曲线",
+          "value": "合成评分 ROC 曲线"
+        },
+        "limitation.0": {
+          "label": "适用限制",
+          "raw": "研究声明为用户提供；程序不证明研究设计或样本真实性。",
+          "value": "研究声明为用户提供；程序不证明研究设计或样本真实性"
+        },
+        "limitation.1": {
+          "label": "适用限制",
+          "raw": "完整记录分析可能产生选择偏倚；未插补、去重或删除离群值。",
+          "value": "完整记录分析可能产生选择偏倚；未插补、去重或删除离群值"
+        },
+        "limitation.2": {
+          "label": "适用限制",
+          "raw": "ROC 仅评估已冻结分数；区间和评估声明不证明独立外部验证，未优化阈值。",
+          "value": "ROC 仅评估已冻结分数；区间和评估声明不证明独立外部验证，未优化阈值"
+        },
+        "limitation.3": {
+          "label": "适用限制",
+          "raw": "研究设计文字已提供但未经程序验证且未外发；样本来源、实验步骤及测量背景仍需核查。",
+          "value": "研究设计文字已提供但未经程序验证且未外发；样本来源、实验步骤及测量背景仍需核查"
+        },
+        "limitation.4": {
+          "label": "适用限制",
+          "raw": "用户声明独立观察；程序未验证独立性",
+          "value": "用户声明独立观察；程序未验证独立性"
+        },
+        "limitation.5": {
+          "label": "适用限制",
+          "raw": "不能据此推断因果。",
+          "value": "不能据此推断因果"
+        },
+        "limitation.6": {
+          "label": "适用限制",
+          "raw": "完整有序坐标保留保存精度；其它投影摘要最多显示8位有效数字，原统计摘要最多显示6位有效数字，完整数值以保存结果为准。",
+          "value": "完整有序坐标保留保存精度；其它投影摘要最多显示8位有效数字，原统计摘要最多显示6位有效数字，完整数值以保存结果为准"
+        },
+        "limitation.7": {
+          "label": "适用限制",
+          "raw": "数值与事实引用已由程序填入并核对；语义和研究适用性仍需人工审阅。",
+          "value": "数值与事实引用已由程序填入并核对；语义和研究适用性仍需人工审阅"
+        },
+        "limitation.8": {
+          "label": "适用限制",
+          "raw": "本解释仅核对冻结统计与元数据，未验证图片像素、图中文字或视觉正确性；AI初稿仍需人工审阅。",
+          "value": "本解释仅核对冻结统计与元数据，未验证图片像素、图中文字或视觉正确性；AI初稿仍需人工审阅"
+        },
+        "method.summary": {
+          "label": "分析方法",
+          "raw": "冻结分数 ROC；并列分数共同跨阈值，梯形 AUC；本次不提供AUC区间，原因见统计结果。未优化阈值或训练模型。",
+          "value": "冻结分数 ROC；并列分数共同跨阈值，梯形 AUC；本次不提供AUC区间，原因见统计结果。未优化阈值或训练模型"
+        },
+        "modeling.auc": {
+          "label": "曲线下面积",
+          "raw": 0.8194444444444443,
+          "value": "0.819444"
+        },
+        "modeling.coding": {
+          "label": "确认的角色、编码及声明",
+          "raw": {
+            "assumptions": {
+              "independent_units": true,
+              "inference_confirmed": true
+            },
+            "direction": "higher_is_positive",
+            "evaluation_role": "apparent_exploratory",
+            "independence_confirmed": false,
+            "method": "roc_auc",
+            "missing_policy": "complete_cases",
+            "score_kind": "probability",
+            "task_type": "roc"
+          },
+          "value": "分析任务类型: ROC分析; 分析方法: ROC曲线下面积; 分数方向: 较高分数为阳性; 分数类型: 概率分数; 用户声明的评估角色（未经程序核验）: 表观探索评估; 独立性已声明确认: 否; 缺失处理: 完整记录; 假设声明 / 独立观察单位声明: 是; 假设声明 / 推断前提已声明确认: 是"
+        },
+        "modeling.confidence_interval": {
+          "label": "置信区间",
+          "raw": {
+            "high": null,
+            "level": 0.95,
+            "low": null,
+            "method": "delong_normal_clipped",
+            "reason": "evaluation_role_not_independent"
+          },
+          "value": "下限: 未提供或无法计算; 上限: 未提供或无法计算; 置信水平: 0.95; 分析方法: DeLong正态区间并裁剪至零一范围; 原因: 评估角色不支持独立验证区间"
+        },
+        "modeling.direction": {
+          "label": "分数方向",
+          "raw": "higher_is_positive",
+          "value": "较高分数为阳性"
+        },
+        "modeling.evaluation_role": {
+          "label": "用户声明的评估角色（未经程序核验）",
+          "raw": "apparent_exploratory",
+          "value": "表观探索评估"
+        },
+        "modeling.n": {
+          "label": "有效记录数",
+          "raw": 12,
+          "value": "12"
+        },
+        "modeling.negative_n": {
+          "label": "阴性记录数",
+          "raw": 6,
+          "value": "6"
+        },
+        "modeling.positive_n": {
+          "label": "阳性记录数",
+          "raw": 6,
+          "value": "6"
+        },
+        "modeling.warnings": {
+          "label": "局限与警告",
+          "raw": "auc_not_clinical_utility; small_sample",
+          "value": "AUC不等于临床实用性; 样本量较小，解释需谨慎"
+        },
+        "purpose.kind": {
+          "label": "图形类型",
+          "raw": "roc_curve",
+          "value": "ROC曲线图"
+        },
+        "scope.variables": {
+          "label": "变量范围",
+          "raw": "Outcome（单位未提供）, Score（单位未提供）",
+          "value": "Outcome（单位未提供）, Score（单位未提供）"
+        }
+      },
+      "figure_explanation_contract": 5,
+      "language": "zh-CN",
+      "required_references": {
+        "data": [
+          "data.total",
+          "data.valid",
+          "data.excluded",
+          "axis.x.label",
+          "axis.x.unit",
+          "axis.y.label",
+          "axis.y.unit"
+        ],
+        "interpretation": [
+          "limitation.0",
+          "limitation.1",
+          "limitation.2",
+          "limitation.3",
+          "limitation.4",
+          "limitation.5",
+          "limitation.6",
+          "limitation.7",
+          "limitation.8"
+        ],
+        "methods": [
+          "method.summary",
+          "modeling.coding",
+          "design.structure",
+          "design.status"
+        ],
+        "paper_text": [
+          "scope.variables",
+          "purpose.kind",
+          "data.valid",
+          "method.summary",
+          "modeling.n",
+          "modeling.positive_n",
+          "modeling.negative_n",
+          "modeling.auc",
+          "modeling.direction",
+          "modeling.evaluation_role",
+          "modeling.confidence_interval",
+          "modeling.warnings",
+          "limitation.0",
+          "limitation.1",
+          "limitation.2",
+          "limitation.3",
+          "limitation.4",
+          "limitation.5",
+          "limitation.6",
+          "limitation.7",
+          "limitation.8"
+        ],
+        "purpose": [
+          "scope.variables",
+          "purpose.kind"
+        ],
+        "results": [
+          "modeling.n",
+          "modeling.positive_n",
+          "modeling.negative_n",
+          "modeling.auc",
+          "modeling.direction",
+          "modeling.evaluation_role",
+          "modeling.confidence_interval",
+          "modeling.warnings"
+        ]
+      },
+      "schema_version": 2
+    }
+  },
+  "explanation:line:zh-CN": {
+    "source_task_id": "1ad7cfb6-c54b-44fb-89a6-596d7d8eb3ae",
+    "model_input_digest": "1ced27e814daaac81af2408f100d78b88ef8d2dd0e62bf46a6b3e7a6802579f6",
+    "payload": {
+      "facts": {
+        "axis.x.label": {
+          "label": "横轴字段",
+          "raw": "X",
+          "value": "X"
+        },
+        "axis.x.unit": {
+          "label": "横轴单位",
+          "raw": "",
+          "value": "单位未提供"
+        },
+        "axis.y.label": {
+          "label": "纵轴字段",
+          "raw": "观测值",
+          "value": "观测值"
+        },
+        "axis.y.unit": {
+          "label": "纵轴单位",
+          "raw": "",
+          "value": "单位未提供"
+        },
+        "data.excluded": {
+          "label": "投影排除记录",
+          "raw": 0,
+          "value": "0"
+        },
+        "data.original_n": {
+          "label": "原统计有效记录",
+          "raw": 5,
+          "value": "5"
+        },
+        "data.total": {
+          "label": "投影人群记录",
+          "raw": 5,
+          "value": "5"
+        },
+        "data.valid": {
+          "label": "投影有效记录",
+          "raw": 5,
+          "value": "5"
+        },
+        "design.status": {
+          "label": "研究设计资料状态",
+          "raw": true,
+          "value": "用户提供研究设计文字，尚未经程序验证；未外发该原文"
+        },
+        "design.structure": {
+          "label": "观察结构及核查限制",
+          "raw": "independent",
+          "value": "用户声明独立观察；程序未验证独立性"
+        },
+        "figure.title": {
+          "label": "图标题",
+          "raw": "合成数据折线图",
+          "value": "合成数据折线图"
+        },
+        "limitation.0": {
+          "label": "适用限制",
+          "raw": "绘图投影仅为描述统计，不提供新增P值或置信区间。",
+          "value": "绘图投影仅为描述统计，不提供新增P值或置信区间"
+        },
+        "limitation.1": {
+          "label": "适用限制",
+          "raw": "原统计有效记录数与投影有效记录数属于不同人群口径；记录数不等于独立受试者人数。",
+          "value": "原统计有效记录数与投影有效记录数属于不同人群口径；记录数不等于独立受试者人数"
+        },
+        "limitation.2": {
+          "label": "适用限制",
+          "raw": "缺失值保留断线，不插值；折线不提供重复测量模型，连线不证明时间效应。",
+          "value": "缺失值保留断线，不插值；折线不提供重复测量模型，连线不证明时间效应"
+        },
+        "limitation.3": {
+          "label": "适用限制",
+          "raw": "研究设计文字已提供但未经程序验证且未外发；样本来源、实验步骤及测量背景仍需核查。",
+          "value": "研究设计文字已提供但未经程序验证且未外发；样本来源、实验步骤及测量背景仍需核查"
+        },
+        "limitation.4": {
+          "label": "适用限制",
+          "raw": "用户声明独立观察；程序未验证独立性",
+          "value": "用户声明独立观察；程序未验证独立性"
+        },
+        "limitation.5": {
+          "label": "适用限制",
+          "raw": "不能据此推断因果。",
+          "value": "不能据此推断因果"
+        },
+        "limitation.6": {
+          "label": "适用限制",
+          "raw": "完整有序坐标保留保存精度；其它投影摘要最多显示8位有效数字，原统计摘要最多显示6位有效数字，完整数值以保存结果为准。",
+          "value": "完整有序坐标保留保存精度；其它投影摘要最多显示8位有效数字，原统计摘要最多显示6位有效数字，完整数值以保存结果为准"
+        },
+        "limitation.7": {
+          "label": "适用限制",
+          "raw": "数值与事实引用已由程序填入并核对；语义和研究适用性仍需人工审阅。",
+          "value": "数值与事实引用已由程序填入并核对；语义和研究适用性仍需人工审阅"
+        },
+        "limitation.8": {
+          "label": "适用限制",
+          "raw": "本解释仅核对冻结统计与元数据，未验证图片像素、图中文字或视觉正确性；AI初稿仍需人工审阅。",
+          "value": "本解释仅核对冻结统计与元数据，未验证图片像素、图中文字或视觉正确性；AI初稿仍需人工审阅"
+        },
+        "method.rule.aggregation": {
+          "label": "横坐标聚合规则",
+          "raw": "unique",
+          "value": "每组横坐标唯一"
+        },
+        "method.rule.missing_group": {
+          "label": "缺组处理规则",
+          "raw": "block",
+          "value": "缺组时阻断"
+        },
+        "method.rule.x_type": {
+          "label": "横坐标类型",
+          "raw": "numeric",
+          "value": "数值坐标"
+        },
+        "method.summary": {
+          "label": "投影计算方法与限制",
+          "raw": "按确认横轴顺序绘制；每个分组横坐标要求唯一。缺失值保留断线；不进行重复测量推断。绘图投影为描述性结果，不增加统计检验或因果证据。",
+          "value": "按确认横轴顺序绘制；每个分组横坐标要求唯一。缺失值保留断线；不进行重复测量推断。绘图投影为描述性结果，不增加统计检验或因果证据"
+        },
+        "projection.0.coordinates": {
+          "label": "完整分组坐标事实",
+          "raw": {
+            "group": null,
+            "points": [
+              {
+                "missing": 0,
+                "n": 1,
+                "x": 1.0,
+                "y": 2.0
+              },
+              {
+                "missing": 0,
+                "n": 1,
+                "x": 2.0,
+                "y": 5.0
+              },
+              {
+                "missing": 0,
+                "n": 1,
+                "x": 3.0,
+                "y": 11.0
+              },
+              {
+                "missing": 0,
+                "n": 1,
+                "x": 4.0,
+                "y": 18.0
+              },
+              {
+                "missing": 0,
+                "n": 1,
+                "x": 5.0,
+                "y": 20.0
+              }
+            ]
+          },
+          "value": "分组：未分组；完整有序记录（X；观测值；有效记录数；缺失记录数）：(1.0；2.0；1；0) (2.0；5.0；1；0) (3.0；11.0；1；0) (4.0；18.0；1；0) (5.0；20.0；1；0)"
+        },
+        "purpose.kind": {
+          "label": "图形类型",
+          "raw": "line",
+          "value": "描述性折线图"
+        },
+        "scope.variables": {
+          "label": "变量范围",
+          "raw": [
+            {
+              "column": "A",
+              "label": "X",
+              "role": "x",
+              "unit": ""
+            },
+            {
+              "column": "B",
+              "label": "观测值",
+              "role": "y",
+              "unit": ""
+            }
+          ],
+          "value": "横轴字段: X [A] (单位未提供), 纵轴字段: 观测值 [B] (单位未提供)"
+        }
+      },
+      "figure_explanation_contract": 5,
+      "language": "zh-CN",
+      "required_references": {
+        "data": [
+          "data.total",
+          "data.valid",
+          "data.excluded",
+          "data.original_n",
+          "axis.x.label",
+          "axis.x.unit",
+          "axis.y.label",
+          "axis.y.unit"
+        ],
+        "interpretation": [
+          "limitation.0",
+          "limitation.1",
+          "limitation.2",
+          "limitation.3",
+          "limitation.4",
+          "limitation.5",
+          "limitation.6",
+          "limitation.7",
+          "limitation.8"
+        ],
+        "methods": [
+          "method.summary",
+          "method.rule.aggregation",
+          "method.rule.missing_group",
+          "method.rule.x_type",
+          "design.structure",
+          "design.status"
+        ],
+        "paper_text": [
+          "scope.variables",
+          "purpose.kind",
+          "data.valid",
+          "method.summary",
+          "projection.0.coordinates",
+          "limitation.0",
+          "limitation.1",
+          "limitation.2",
+          "limitation.3",
+          "limitation.4",
+          "limitation.5",
+          "limitation.6",
+          "limitation.7",
+          "limitation.8"
+        ],
+        "purpose": [
+          "scope.variables",
+          "purpose.kind"
+        ],
+        "results": [
+          "projection.0.coordinates"
+        ]
+      },
+      "schema_version": 2
+    }
+  },
+  "explanation:kaplan_meier:zh-CN": {
+    "source_task_id": "511f2d78-3b17-4485-9bc0-6e2e471d0900",
+    "model_input_digest": "09aa84dc12259d7f5c5c13e25b1c2e73aa26ef98d62f1d30dad6972f9c051361",
+    "payload": {
+      "facts": {
+        "axis.x.label": {
+          "label": "横轴字段",
+          "raw": "随访时间 (day)",
+          "value": "随访时间 (day)"
+        },
+        "axis.x.unit": {
+          "label": "横轴单位",
+          "raw": "day",
+          "value": "day"
+        },
+        "axis.y.label": {
+          "label": "纵轴字段",
+          "raw": "生存概率（0–1）",
+          "value": "生存概率（0–1）"
+        },
+        "axis.y.unit": {
+          "label": "纵轴单位",
+          "raw": "0–1",
+          "value": "0–1"
+        },
+        "data.excluded": {
+          "label": "数据记录 excluded",
+          "raw": 0,
+          "value": "0"
+        },
+        "data.total": {
+          "label": "数据记录 total",
+          "raw": 6,
+          "value": "6"
+        },
+        "data.valid": {
+          "label": "数据记录 valid",
+          "raw": 6,
+          "value": "6"
+        },
+        "design.status": {
+          "label": "研究设计资料状态",
+          "raw": true,
+          "value": "用户提供研究设计文字，尚未经程序验证；未外发该原文"
+        },
+        "design.structure": {
+          "label": "观察结构及核查限制",
+          "raw": "independent",
+          "value": "用户声明独立观察；程序未验证独立性"
+        },
+        "figure.title": {
+          "label": "图标题",
+          "raw": "合成数据 Kaplan–Meier 曲线",
+          "value": "合成数据 Kaplan–Meier 曲线"
+        },
+        "limitation.0": {
+          "label": "适用限制",
+          "raw": "研究声明为用户提供；程序不证明研究设计或样本真实性。",
+          "value": "研究声明为用户提供；程序不证明研究设计或样本真实性"
+        },
+        "limitation.1": {
+          "label": "适用限制",
+          "raw": "完整记录分析可能产生选择偏倚；未插补、去重或删除离群值。",
+          "value": "完整记录分析可能产生选择偏倚；未插补、去重或删除离群值"
+        },
+        "limitation.2": {
+          "label": "适用限制",
+          "raw": "右删失 KM 依赖非信息删失声明；未进行 log-rank、Cox 或竞争风险分析。",
+          "value": "右删失 KM 依赖非信息删失声明；未进行 log-rank、Cox 或竞争风险分析"
+        },
+        "limitation.3": {
+          "label": "适用限制",
+          "raw": "研究设计文字已提供但未经程序验证且未外发；样本来源、实验步骤及测量背景仍需核查。",
+          "value": "研究设计文字已提供但未经程序验证且未外发；样本来源、实验步骤及测量背景仍需核查"
+        },
+        "limitation.4": {
+          "label": "适用限制",
+          "raw": "用户声明独立观察；程序未验证独立性",
+          "value": "用户声明独立观察；程序未验证独立性"
+        },
+        "limitation.5": {
+          "label": "适用限制",
+          "raw": "不能据此推断因果。",
+          "value": "不能据此推断因果"
+        },
+        "limitation.6": {
+          "label": "适用限制",
+          "raw": "完整有序坐标保留保存精度；其它投影摘要最多显示8位有效数字，原统计摘要最多显示6位有效数字，完整数值以保存结果为准。",
+          "value": "完整有序坐标保留保存精度；其它投影摘要最多显示8位有效数字，原统计摘要最多显示6位有效数字，完整数值以保存结果为准"
+        },
+        "limitation.7": {
+          "label": "适用限制",
+          "raw": "数值与事实引用已由程序填入并核对；语义和研究适用性仍需人工审阅。",
+          "value": "数值与事实引用已由程序填入并核对；语义和研究适用性仍需人工审阅"
+        },
+        "limitation.8": {
+          "label": "适用限制",
+          "raw": "本解释仅核对冻结统计与元数据，未验证图片像素、图中文字或视觉正确性；AI初稿仍需人工审阅。",
+          "value": "本解释仅核对冻结统计与元数据，未验证图片像素、图中文字或视觉正确性；AI初稿仍需人工审阅"
+        },
+        "method.summary": {
+          "label": "分析方法",
+          "raw": "右删失 Kaplan–Meier；同一时点先处理事件再撤出删失；Greenwood 方差及对数对数区间；不进行组间检验。",
+          "value": "右删失 Kaplan–Meier；同一时点先处理事件再撤出删失；Greenwood 方差及对数对数区间；不进行组间检验"
+        },
+        "modeling.coding": {
+          "label": "确认的角色、编码及声明",
+          "raw": {
+            "assumptions": {
+              "independent_units": true,
+              "inference_confirmed": true
+            },
+            "method": "kaplan_meier",
+            "missing_policy": "complete_cases",
+            "noninformative_censoring": true,
+            "task_type": "survival"
+          },
+          "value": "分析任务类型: 生存分析; 分析方法: Kaplan–Meier生存估计; 非信息删失声明: 是; 缺失处理: 完整记录; 假设声明 / 独立观察单位声明: 是; 假设声明 / 推断前提已声明确认: 是"
+        },
+        "modeling.groups.0.censored_n": {
+          "label": "组 1: 删失记录数",
+          "raw": 3,
+          "value": "3"
+        },
+        "modeling.groups.0.event_n": {
+          "label": "组 1: 事件记录数",
+          "raw": 3,
+          "value": "3"
+        },
+        "modeling.groups.0.label": {
+          "label": "组 1: 标签",
+          "raw": "Overall",
+          "value": "Overall"
+        },
+        "modeling.groups.0.max_time": {
+          "label": "组 1: 最长观察时间",
+          "raw": 4.0,
+          "value": "4"
+        },
+        "modeling.groups.0.median": {
+          "label": "组 1: 中位数",
+          "raw": 3.0,
+          "value": "3"
+        },
+        "modeling.groups.0.n": {
+          "label": "组 1: 有效记录数",
+          "raw": 6,
+          "value": "6"
+        },
+        "modeling.time_unit": {
+          "label": "时间单位",
+          "raw": "day",
+          "value": "day"
+        },
+        "modeling.warnings": {
+          "label": "局限与警告",
+          "raw": "pointwise_intervals; no_between_group_test; zero_time",
+          "value": "区间为逐时点区间，不是同时置信带; 未进行组间生存检验; 包含零时点记录"
+        },
+        "purpose.kind": {
+          "label": "图形类型",
+          "raw": "kaplan_meier",
+          "value": "Kaplan–Meier生存曲线"
+        },
+        "scope.variables": {
+          "label": "变量范围",
+          "raw": "ID（单位未提供）, Time (day), Status（单位未提供）",
+          "value": "ID（单位未提供）, Time (day), Status（单位未提供）"
+        }
+      },
+      "figure_explanation_contract": 5,
+      "language": "zh-CN",
+      "required_references": {
+        "data": [
+          "data.total",
+          "data.valid",
+          "data.excluded",
+          "axis.x.label",
+          "axis.x.unit",
+          "axis.y.label",
+          "axis.y.unit"
+        ],
+        "interpretation": [
+          "limitation.0",
+          "limitation.1",
+          "limitation.2",
+          "limitation.3",
+          "limitation.4",
+          "limitation.5",
+          "limitation.6",
+          "limitation.7",
+          "limitation.8"
+        ],
+        "methods": [
+          "method.summary",
+          "modeling.coding",
+          "design.structure",
+          "design.status"
+        ],
+        "paper_text": [
+          "scope.variables",
+          "purpose.kind",
+          "data.valid",
+          "method.summary",
+          "modeling.time_unit",
+          "modeling.groups.0.label",
+          "modeling.groups.0.n",
+          "modeling.groups.0.event_n",
+          "modeling.groups.0.censored_n",
+          "modeling.groups.0.max_time",
+          "modeling.groups.0.median",
+          "modeling.warnings",
+          "limitation.0",
+          "limitation.1",
+          "limitation.2",
+          "limitation.3",
+          "limitation.4",
+          "limitation.5",
+          "limitation.6",
+          "limitation.7",
+          "limitation.8"
+        ],
+        "purpose": [
+          "scope.variables",
+          "purpose.kind"
+        ],
+        "results": [
+          "modeling.time_unit",
+          "modeling.groups.0.label",
+          "modeling.groups.0.n",
+          "modeling.groups.0.event_n",
+          "modeling.groups.0.censored_n",
+          "modeling.groups.0.max_time",
+          "modeling.groups.0.median",
+          "modeling.warnings"
+        ]
+      },
+      "schema_version": 2
+    }
+  },
+  "explanation:forest:ols:zh-CN": {
+    "source_task_id": "5a819c97-6e0f-40e3-ace4-649c216b34e4",
+    "model_input_digest": "74e022b77b150c014d3870d2cbc72f9ab331ccebe615d302d351f600f76606b4",
+    "payload": {
+      "facts": {
+        "axis.x.label": {
+          "label": "横轴字段",
+          "raw": "回归系数",
+          "value": "回归系数"
+        },
+        "axis.x.unit": {
+          "label": "横轴单位",
+          "raw": "",
+          "value": "单位未提供"
+        },
+        "axis.y.label": {
+          "label": "纵轴字段",
+          "raw": "变量",
+          "value": "变量"
+        },
+        "axis.y.unit": {
+          "label": "纵轴单位",
+          "raw": "",
+          "value": "单位未提供"
+        },
+        "data.excluded": {
+          "label": "数据记录 excluded",
+          "raw": 0,
+          "value": "0"
+        },
+        "data.total": {
+          "label": "数据记录 total",
+          "raw": 14,
+          "value": "14"
+        },
+        "data.valid": {
+          "label": "数据记录 valid",
+          "raw": 14,
+          "value": "14"
+        },
+        "design.status": {
+          "label": "研究设计资料状态",
+          "raw": true,
+          "value": "用户提供研究设计文字，尚未经程序验证；未外发该原文"
+        },
+        "design.structure": {
+          "label": "观察结构及核查限制",
+          "raw": "independent",
+          "value": "用户声明独立观察；程序未验证独立性"
+        },
+        "figure.title": {
+          "label": "图标题",
+          "raw": "合成数据 OLS 效应",
+          "value": "合成数据 OLS 效应"
+        },
+        "limitation.0": {
+          "label": "适用限制",
+          "raw": "研究声明为用户提供；程序不证明研究设计或样本真实性。",
+          "value": "研究声明为用户提供；程序不证明研究设计或样本真实性"
+        },
+        "limitation.1": {
+          "label": "适用限制",
+          "raw": "完整记录分析可能产生选择偏倚；未插补、去重或删除离群值。",
+          "value": "完整记录分析可能产生选择偏倚；未插补、去重或删除离群值"
+        },
+        "limitation.2": {
+          "label": "适用限制",
+          "raw": "森林图核对仅为本地效应投影与渲染，并未云端独立重拟合；关联不能证明因果。",
+          "value": "森林图核对仅为本地效应投影与渲染，并未云端独立重拟合；关联不能证明因果"
+        },
+        "limitation.3": {
+          "label": "适用限制",
+          "raw": "研究设计文字已提供但未经程序验证且未外发；样本来源、实验步骤及测量背景仍需核查。",
+          "value": "研究设计文字已提供但未经程序验证且未外发；样本来源、实验步骤及测量背景仍需核查"
+        },
+        "limitation.4": {
+          "label": "适用限制",
+          "raw": "用户声明独立观察；程序未验证独立性",
+          "value": "用户声明独立观察；程序未验证独立性"
+        },
+        "limitation.5": {
+          "label": "适用限制",
+          "raw": "完整有序坐标保留保存精度；其它投影摘要最多显示8位有效数字，原统计摘要最多显示6位有效数字，完整数值以保存结果为准。",
+          "value": "完整有序坐标保留保存精度；其它投影摘要最多显示8位有效数字，原统计摘要最多显示6位有效数字，完整数值以保存结果为准"
+        },
+        "limitation.6": {
+          "label": "适用限制",
+          "raw": "数值与事实引用已由程序填入并核对；语义和研究适用性仍需人工审阅。",
+          "value": "数值与事实引用已由程序填入并核对；语义和研究适用性仍需人工审阅"
+        },
+        "limitation.7": {
+          "label": "适用限制",
+          "raw": "本解释仅核对冻结统计与元数据，未验证图片像素、图中文字或视觉正确性；AI初稿仍需人工审阅。",
+          "value": "本解释仅核对冻结统计与元数据，未验证图片像素、图中文字或视觉正确性；AI初稿仍需人工审阅"
+        },
+        "method.summary": {
+          "label": "分析方法",
+          "raw": "含截距普通最小二乘；连续变量按原尺度、分类变量按已确认参照水平编码；双侧 t 推断和普通协方差。",
+          "value": "含截距普通最小二乘；连续变量按原尺度、分类变量按已确认参照水平编码；双侧 t 推断和普通协方差"
+        },
+        "modeling.adjusted_r_squared": {
+          "label": "调整决定系数",
+          "raw": 0.9833333333333334,
+          "value": "0.983333"
+        },
+        "modeling.coding": {
+          "label": "确认的角色、编码及声明",
+          "raw": {
+            "assumptions": {
+              "independent_units": true,
+              "inference_confirmed": true
+            },
+            "covariate_types": [
+              "continuous"
+            ],
+            "method": "ols",
+            "missing_policy": "complete_cases",
+            "task_type": "regression"
+          },
+          "value": "分析任务类型: 回归分析; 分析方法: 普通最小二乘回归; 缺失处理: 完整记录; 假设声明 / 独立观察单位声明: 是; 假设声明 / 推断前提已声明确认: 是; 协变量类型 1: 连续变量"
+        },
+        "modeling.coefficients.0.inference": {
+          "label": "参数及推断 — 截距",
+          "raw": {
+            "beta": 1.0,
+            "ci_high": 1.314484543430546,
+            "ci_low": 0.6855154565694539,
+            "column": null,
+            "level": null,
+            "p_value": 1.586602024029914e-05,
+            "reference": null,
+            "se": 0.14433756729740643,
+            "statistic": 6.92820323027551,
+            "term": "intercept",
+            "unit": ""
+          },
+          "value": "截距 — beta: 1, SE: 0.144338, t: 6.9282, P: 1.5866e-05, beta CI lower: 0.685515, beta CI upper: 1.31448"
+        },
+        "modeling.coefficients.1.inference": {
+          "label": "参数及推断 — Exposure (B)，显示名称：暴露，参数：B，单位：单位未提供",
+          "raw": {
+            "beta": 2.0000000000000004,
+            "ci_high": 2.1572422717152735,
+            "ci_low": 1.8427577282847274,
+            "column": "B",
+            "level": null,
+            "p_value": 3.0110295374637645e-12,
+            "reference": null,
+            "se": 0.07216878364870322,
+            "statistic": 27.712812921102046,
+            "term": "B",
+            "unit": ""
+          },
+          "value": "Exposure (B)，显示名称：暴露，参数：B，单位：单位未提供 — beta: 2, SE: 0.0721688, t: 27.7128, P: 3.01103e-12, beta CI lower: 1.84276, beta CI upper: 2.15724"
+        },
+        "modeling.df_residual": {
+          "label": "残差自由度",
+          "raw": 12,
+          "value": "12"
+        },
+        "modeling.diagnostics": {
+          "label": "模型诊断",
+          "raw": {
+            "centers": [
+              0.0
+            ],
+            "condition_number": 1.0,
+            "converged": true,
+            "rank": 2,
+            "scales": [
+              2.0
+            ]
+          },
+          "value": "矩阵秩: 2, 中心化常数: 0, 缩放常数: 2, 条件数: 1, 已收敛: 是"
+        },
+        "modeling.n": {
+          "label": "有效记录数",
+          "raw": 14,
+          "value": "14"
+        },
+        "modeling.p": {
+          "label": "模型参数数",
+          "raw": 2,
+          "value": "2"
+        },
+        "modeling.r_squared": {
+          "label": "决定系数",
+          "raw": 0.9846153846153847,
+          "value": "0.984615"
+        },
+        "modeling.residual_sd": {
+          "label": "残差标准差",
+          "raw": 0.5400617248673217,
+          "value": "0.540062"
+        },
+        "modeling.warnings": {
+          "label": "局限与警告",
+          "raw": "complete_case_selection_bias; association_not_causation; unadjusted_coefficient_inference",
+          "value": "完整记录分析可能存在选择偏倚; 关联不证明因果; 系数推断未作多重比较校正"
+        },
+        "purpose.kind": {
+          "label": "图形类型",
+          "raw": "forest",
+          "value": "森林图"
+        },
+        "scope.variables": {
+          "label": "变量范围",
+          "raw": "Outcome（单位未提供）, Exposure（单位未提供）",
+          "value": "Outcome（单位未提供）, Exposure（单位未提供）"
+        }
+      },
+      "figure_explanation_contract": 5,
+      "language": "zh-CN",
+      "required_references": {
+        "data": [
+          "data.total",
+          "data.valid",
+          "data.excluded",
+          "axis.x.label",
+          "axis.x.unit",
+          "axis.y.label",
+          "axis.y.unit"
+        ],
+        "interpretation": [
+          "limitation.0",
+          "limitation.1",
+          "limitation.2",
+          "limitation.3",
+          "limitation.4",
+          "limitation.5",
+          "limitation.6",
+          "limitation.7"
+        ],
+        "methods": [
+          "method.summary",
+          "modeling.coding",
+          "design.structure",
+          "design.status"
+        ],
+        "paper_text": [
+          "scope.variables",
+          "purpose.kind",
+          "data.valid",
+          "method.summary",
+          "modeling.coefficients.0.inference",
+          "modeling.coefficients.1.inference",
+          "modeling.n",
+          "modeling.p",
+          "modeling.df_residual",
+          "modeling.r_squared",
+          "modeling.adjusted_r_squared",
+          "modeling.residual_sd",
+          "modeling.diagnostics",
+          "modeling.warnings",
+          "limitation.0",
+          "limitation.1",
+          "limitation.2",
+          "limitation.3",
+          "limitation.4",
+          "limitation.5",
+          "limitation.6",
+          "limitation.7"
+        ],
+        "purpose": [
+          "scope.variables",
+          "purpose.kind"
+        ],
+        "results": [
+          "modeling.coefficients.0.inference",
+          "modeling.coefficients.1.inference",
+          "modeling.n",
+          "modeling.p",
+          "modeling.df_residual",
+          "modeling.r_squared",
+          "modeling.adjusted_r_squared",
+          "modeling.residual_sd",
+          "modeling.diagnostics",
+          "modeling.warnings"
+        ]
+      },
+      "schema_version": 2
+    }
+  },
+  "explanation:scatter:zh-CN": {
+    "source_task_id": "7a2bd90e-98fd-4281-b668-d285d7fdea2a",
+    "model_input_digest": "d8c1c0b26b2418d0b0a35b18e65f4f911374c916c3039030a2205d3aefe03d80",
+    "payload": {
+      "facts": {
+        "axis.x.label": {
+          "label": "横轴字段",
+          "raw": "X (单位未填写)",
+          "value": "X (单位未填写)"
+        },
+        "axis.x.unit": {
+          "label": "横轴单位",
+          "raw": "",
+          "value": "单位未提供"
+        },
+        "axis.y.label": {
+          "label": "纵轴字段",
+          "raw": "Y (单位未填写)",
+          "value": "Y (单位未填写)"
+        },
+        "axis.y.unit": {
+          "label": "纵轴单位",
+          "raw": "",
+          "value": "单位未提供"
+        },
+        "correlation.coefficient": {
+          "label": "相关系数",
+          "raw": 0.7999999999999998,
+          "value": "0.8"
+        },
+        "correlation.confidence_interval": {
+          "label": "置信区间",
+          "raw": "-0.27964 至 0.986196",
+          "value": "-0.27964 至 0.986196"
+        },
+        "correlation.method": {
+          "label": "相关方法",
+          "raw": "Pearson",
+          "value": "Pearson"
+        },
+        "correlation.n": {
+          "label": "共同有效样本数",
+          "raw": 5,
+          "value": "5"
+        },
+        "correlation.p_value": {
+          "label": "双侧 P 值",
+          "raw": 0.10408803866182799,
+          "value": "0.104088"
+        },
+        "data.excluded": {
+          "label": "排除行数",
+          "raw": 2,
+          "value": "2"
+        },
+        "data.total": {
+          "label": "原始行数",
+          "raw": 7,
+          "value": "7"
+        },
+        "data.valid": {
+          "label": "完整记录数",
+          "raw": 5,
+          "value": "5"
+        },
+        "design.status": {
+          "label": "研究设计资料状态",
+          "raw": true,
+          "value": "用户提供研究设计文字，尚未经程序验证；未外发该原文"
+        },
+        "design.structure": {
+          "label": "观察结构及核查限制",
+          "raw": "independent",
+          "value": "用户声明独立观察；程序未验证独立性"
+        },
+        "figure.title": {
+          "label": "图标题",
+          "raw": "合成数据散点图",
+          "value": "合成数据散点图"
+        },
+        "limitation.0": {
+          "label": "适用限制",
+          "raw": "相关描述关联程度，不等于因果，也不能证明疗效。",
+          "value": "相关描述关联程度，不等于因果，也不能证明疗效"
+        },
+        "limitation.1": {
+          "label": "适用限制",
+          "raw": "独立观察及关系形态、推断前提由用户声明，程序不能证明这些前提。",
+          "value": "独立观察及关系形态、推断前提由用户声明，程序不能证明这些前提"
+        },
+        "limitation.2": {
+          "label": "适用限制",
+          "raw": "小样本及缺失记录排除可能使结论不稳定，本次只分析所选完整记录。",
+          "value": "小样本及缺失记录排除可能使结论不稳定，本次只分析所选完整记录"
+        },
+        "limitation.3": {
+          "label": "适用限制",
+          "raw": "研究设计文字已提供但未经程序验证且未外发；样本来源、实验步骤及测量背景仍需核查。",
+          "value": "研究设计文字已提供但未经程序验证且未外发；样本来源、实验步骤及测量背景仍需核查"
+        },
+        "limitation.4": {
+          "label": "适用限制",
+          "raw": "完整有序坐标保留保存精度；其它投影摘要最多显示8位有效数字，原统计摘要最多显示6位有效数字，完整数值以保存结果为准。",
+          "value": "完整有序坐标保留保存精度；其它投影摘要最多显示8位有效数字，原统计摘要最多显示6位有效数字，完整数值以保存结果为准"
+        },
+        "limitation.5": {
+          "label": "适用限制",
+          "raw": "数值与事实引用已由程序填入并核对；语义和研究适用性仍需人工审阅。",
+          "value": "数值与事实引用已由程序填入并核对；语义和研究适用性仍需人工审阅"
+        },
+        "limitation.6": {
+          "label": "适用限制",
+          "raw": "本解释仅核对冻结统计与元数据，未验证图片像素、图中文字或视觉正确性；AI初稿仍需人工审阅。",
+          "value": "本解释仅核对冻结统计与元数据，未验证图片像素、图中文字或视觉正确性；AI初稿仍需人工审阅"
+        },
+        "method.summary": {
+          "label": "分析方法",
+          "raw": "Pearson相关采用全部所选变量共同完整记录，保持原始行对应；未插补、去重或剔除离群值。Pearson度量线性关联；推断前提由用户声明，程序不能证明这些前提。Pearson 双侧 beta 分布检验. 95% Fisher z 区间。",
+          "value": "Pearson相关采用全部所选变量共同完整记录，保持原始行对应；未插补、去重或剔除离群值。Pearson度量线性关联；推断前提由用户声明，程序不能证明这些前提。Pearson 双侧 beta 分布检验. 95% Fisher z 区间"
+        },
+        "purpose.kind": {
+          "label": "图形类型",
+          "raw": "scatter",
+          "value": "散点图"
+        },
+        "scope.variables": {
+          "label": "变量范围",
+          "raw": "X（单位未提供）, Y（单位未提供）",
+          "value": "X（单位未提供）, Y（单位未提供）"
+        },
+        "variables.0.name": {
+          "label": "变量",
+          "raw": "X",
+          "value": "X"
+        },
+        "variables.0.unit": {
+          "label": "单位",
+          "raw": "单位未填写",
+          "value": "单位未填写"
+        },
+        "variables.1.name": {
+          "label": "变量",
+          "raw": "Y",
+          "value": "Y"
+        },
+        "variables.1.unit": {
+          "label": "单位",
+          "raw": "单位未填写",
+          "value": "单位未填写"
+        }
+      },
+      "figure_explanation_contract": 5,
+      "language": "zh-CN",
+      "required_references": {
+        "data": [
+          "data.total",
+          "data.valid",
+          "data.excluded",
+          "axis.x.label",
+          "axis.x.unit",
+          "axis.y.label",
+          "axis.y.unit"
+        ],
+        "interpretation": [
+          "limitation.0",
+          "limitation.1",
+          "limitation.2",
+          "limitation.3",
+          "limitation.4",
+          "limitation.5",
+          "limitation.6"
+        ],
+        "methods": [
+          "method.summary",
+          "design.structure",
+          "design.status"
+        ],
+        "paper_text": [
+          "scope.variables",
+          "purpose.kind",
+          "data.valid",
+          "method.summary",
+          "variables.0.name",
+          "variables.1.name",
+          "variables.0.unit",
+          "variables.1.unit",
+          "correlation.n",
+          "correlation.coefficient",
+          "correlation.p_value",
+          "correlation.confidence_interval",
+          "limitation.0",
+          "limitation.1",
+          "limitation.2",
+          "limitation.3",
+          "limitation.4",
+          "limitation.5",
+          "limitation.6"
+        ],
+        "purpose": [
+          "scope.variables",
+          "purpose.kind"
+        ],
+        "results": [
+          "variables.0.name",
+          "variables.1.name",
+          "variables.0.unit",
+          "variables.1.unit",
+          "correlation.n",
+          "correlation.coefficient",
+          "correlation.p_value",
+          "correlation.confidence_interval"
+        ]
+      },
+      "schema_version": 2
+    }
+  },
+  "explanation:correlation_heatmap:zh-CN": {
+    "source_task_id": "9cf30791-d128-444d-9e66-7be223231f94",
+    "model_input_digest": "6a22ce0e2735fdf0d57e7531889a3cfe6dcb43a79e0646fa718be3e42ae514a5",
+    "payload": {
+      "facts": {
+        "axis.x.label": {
+          "label": "横轴字段",
+          "raw": "变量",
+          "value": "变量"
+        },
+        "axis.x.unit": {
+          "label": "横轴单位",
+          "raw": "",
+          "value": "单位未提供"
+        },
+        "axis.y.label": {
+          "label": "纵轴字段",
+          "raw": "变量",
+          "value": "变量"
+        },
+        "axis.y.unit": {
+          "label": "纵轴单位",
+          "raw": "",
+          "value": "单位未提供"
+        },
+        "correlation.method": {
+          "label": "相关方法",
+          "raw": "Pearson",
+          "value": "Pearson"
+        },
+        "correlation.n": {
+          "label": "共同有效样本数",
+          "raw": 5,
+          "value": "5"
+        },
+        "data.excluded": {
+          "label": "排除行数",
+          "raw": 2,
+          "value": "2"
+        },
+        "data.total": {
+          "label": "原始行数",
+          "raw": 7,
+          "value": "7"
+        },
+        "data.valid": {
+          "label": "完整记录数",
+          "raw": 5,
+          "value": "5"
+        },
+        "design.status": {
+          "label": "研究设计资料状态",
+          "raw": true,
+          "value": "用户提供研究设计文字，尚未经程序验证；未外发该原文"
+        },
+        "design.structure": {
+          "label": "观察结构及核查限制",
+          "raw": "independent",
+          "value": "用户声明独立观察；程序未验证独立性"
+        },
+        "figure.title": {
+          "label": "图标题",
+          "raw": "合成数据相关矩阵",
+          "value": "合成数据相关矩阵"
+        },
+        "limitation.0": {
+          "label": "适用限制",
+          "raw": "相关描述关联程度，不等于因果，也不能证明疗效。",
+          "value": "相关描述关联程度，不等于因果，也不能证明疗效"
+        },
+        "limitation.1": {
+          "label": "适用限制",
+          "raw": "矩阵仅作探索，不包含 P 值、置信区间、显著性星号或多重检验结论。",
+          "value": "矩阵仅作探索，不包含 P 值、置信区间、显著性星号或多重检验结论"
+        },
+        "limitation.2": {
+          "label": "适用限制",
+          "raw": "独立观察及关系形态、推断前提由用户声明，程序不能证明这些前提。",
+          "value": "独立观察及关系形态、推断前提由用户声明，程序不能证明这些前提"
+        },
+        "limitation.3": {
+          "label": "适用限制",
+          "raw": "小样本及缺失记录排除可能使结论不稳定，本次只分析所选完整记录。",
+          "value": "小样本及缺失记录排除可能使结论不稳定，本次只分析所选完整记录"
+        },
+        "limitation.4": {
+          "label": "适用限制",
+          "raw": "研究设计文字已提供但未经程序验证且未外发；样本来源、实验步骤及测量背景仍需核查。",
+          "value": "研究设计文字已提供但未经程序验证且未外发；样本来源、实验步骤及测量背景仍需核查"
+        },
+        "limitation.5": {
+          "label": "适用限制",
+          "raw": "完整有序坐标保留保存精度；其它投影摘要最多显示8位有效数字，原统计摘要最多显示6位有效数字，完整数值以保存结果为准。",
+          "value": "完整有序坐标保留保存精度；其它投影摘要最多显示8位有效数字，原统计摘要最多显示6位有效数字，完整数值以保存结果为准"
+        },
+        "limitation.6": {
+          "label": "适用限制",
+          "raw": "数值与事实引用已由程序填入并核对；语义和研究适用性仍需人工审阅。",
+          "value": "数值与事实引用已由程序填入并核对；语义和研究适用性仍需人工审阅"
+        },
+        "limitation.7": {
+          "label": "适用限制",
+          "raw": "本解释仅核对冻结统计与元数据，未验证图片像素、图中文字或视觉正确性；AI初稿仍需人工审阅。",
+          "value": "本解释仅核对冻结统计与元数据，未验证图片像素、图中文字或视觉正确性；AI初稿仍需人工审阅"
+        },
+        "matrix.0.0": {
+          "label": "X 与 X：系数",
+          "raw": 1.0,
+          "value": "1"
+        },
+        "matrix.0.1": {
+          "label": "X 与 Y：系数",
+          "raw": 0.7999999999999997,
+          "value": "0.8"
+        },
+        "matrix.0.2": {
+          "label": "X 与 Z：系数",
+          "raw": -1.0,
+          "value": "-1"
+        },
+        "matrix.1.0": {
+          "label": "Y 与 X：系数",
+          "raw": 0.7999999999999997,
+          "value": "0.8"
+        },
+        "matrix.1.1": {
+          "label": "Y 与 Y：系数",
+          "raw": 1.0,
+          "value": "1"
+        },
+        "matrix.1.2": {
+          "label": "Y 与 Z：系数",
+          "raw": -0.7999999999999999,
+          "value": "-0.8"
+        },
+        "matrix.2.0": {
+          "label": "Z 与 X：系数",
+          "raw": -1.0,
+          "value": "-1"
+        },
+        "matrix.2.1": {
+          "label": "Z 与 Y：系数",
+          "raw": -0.7999999999999999,
+          "value": "-0.8"
+        },
+        "matrix.2.2": {
+          "label": "Z 与 Z：系数",
+          "raw": 1.0,
+          "value": "1"
+        },
+        "method.summary": {
+          "label": "分析方法",
+          "raw": "Pearson相关采用全部所选变量共同完整记录，保持原始行对应；未插补、去重或剔除离群值。Pearson度量线性关联；推断前提由用户声明，程序不能证明这些前提。探索矩阵只报告系数及共同有效 n，不提供 P 值、区间或多重检验结论。",
+          "value": "Pearson相关采用全部所选变量共同完整记录，保持原始行对应；未插补、去重或剔除离群值。Pearson度量线性关联；推断前提由用户声明，程序不能证明这些前提。探索矩阵只报告系数及共同有效 n，不提供 P 值、区间或多重检验结论"
+        },
+        "purpose.kind": {
+          "label": "图形类型",
+          "raw": "correlation_heatmap",
+          "value": "相关热图"
+        },
+        "scope.variables": {
+          "label": "变量范围",
+          "raw": "X（单位未提供）, Y（单位未提供）, Z（单位未提供）",
+          "value": "X（单位未提供）, Y（单位未提供）, Z（单位未提供）"
+        },
+        "variables.0.name": {
+          "label": "变量",
+          "raw": "X",
+          "value": "X"
+        },
+        "variables.0.unit": {
+          "label": "单位",
+          "raw": "单位未填写",
+          "value": "单位未填写"
+        },
+        "variables.1.name": {
+          "label": "变量",
+          "raw": "Y",
+          "value": "Y"
+        },
+        "variables.1.unit": {
+          "label": "单位",
+          "raw": "单位未填写",
+          "value": "单位未填写"
+        },
+        "variables.2.name": {
+          "label": "变量",
+          "raw": "Z",
+          "value": "Z"
+        },
+        "variables.2.unit": {
+          "label": "单位",
+          "raw": "单位未填写",
+          "value": "单位未填写"
+        }
+      },
+      "figure_explanation_contract": 5,
+      "language": "zh-CN",
+      "required_references": {
+        "data": [
+          "data.total",
+          "data.valid",
+          "data.excluded",
+          "axis.x.label",
+          "axis.x.unit",
+          "axis.y.label",
+          "axis.y.unit"
+        ],
+        "interpretation": [
+          "limitation.0",
+          "limitation.1",
+          "limitation.2",
+          "limitation.3",
+          "limitation.4",
+          "limitation.5",
+          "limitation.6",
+          "limitation.7"
+        ],
+        "methods": [
+          "method.summary",
+          "design.structure",
+          "design.status"
+        ],
+        "paper_text": [
+          "scope.variables",
+          "purpose.kind",
+          "data.valid",
+          "method.summary",
+          "variables.0.name",
+          "variables.1.name",
+          "variables.2.name",
+          "variables.0.unit",
+          "variables.1.unit",
+          "variables.2.unit",
+          "correlation.n",
+          "matrix.0.0",
+          "matrix.0.1",
+          "matrix.0.2",
+          "matrix.1.0",
+          "matrix.1.1",
+          "matrix.1.2",
+          "matrix.2.0",
+          "matrix.2.1",
+          "matrix.2.2",
+          "limitation.0",
+          "limitation.1",
+          "limitation.2",
+          "limitation.3",
+          "limitation.4",
+          "limitation.5",
+          "limitation.6",
+          "limitation.7"
+        ],
+        "purpose": [
+          "scope.variables",
+          "purpose.kind"
+        ],
+        "results": [
+          "variables.0.name",
+          "variables.1.name",
+          "variables.2.name",
+          "variables.0.unit",
+          "variables.1.unit",
+          "variables.2.unit",
+          "correlation.n",
+          "matrix.0.0",
+          "matrix.0.1",
+          "matrix.0.2",
+          "matrix.1.0",
+          "matrix.1.1",
+          "matrix.1.2",
+          "matrix.2.0",
+          "matrix.2.1",
+          "matrix.2.2"
+        ]
+      },
+      "schema_version": 2
+    }
+  },
+  "explanation:bar:zh-CN": {
+    "source_task_id": "b5452d1e-00f8-44c3-b01a-105d4372770e",
+    "model_input_digest": "8c301d5d178d272463e0868c397ac15ea6447066f08db6e97e337418143b3391",
+    "payload": {
+      "facts": {
+        "axis.x.label": {
+          "label": "横轴字段",
+          "raw": "组别",
+          "value": "组别"
+        },
+        "axis.x.unit": {
+          "label": "横轴单位",
+          "raw": "",
+          "value": "单位未提供"
+        },
+        "axis.y.label": {
+          "label": "纵轴字段",
+          "raw": "记录数",
+          "value": "记录数"
+        },
+        "axis.y.unit": {
+          "label": "纵轴单位",
+          "raw": "条记录",
+          "value": "条记录"
+        },
+        "data.excluded": {
+          "label": "投影排除记录",
+          "raw": 2,
+          "value": "2"
+        },
+        "data.original_n": {
+          "label": "原统计有效记录",
+          "raw": 4,
+          "value": "4"
+        },
+        "data.total": {
+          "label": "投影人群记录",
+          "raw": 6,
+          "value": "6"
+        },
+        "data.valid": {
+          "label": "投影有效记录",
+          "raw": 4,
+          "value": "4"
+        },
+        "design.status": {
+          "label": "研究设计资料状态",
+          "raw": true,
+          "value": "用户提供研究设计文字，尚未经程序验证；未外发该原文"
+        },
+        "design.structure": {
+          "label": "观察结构及核查限制",
+          "raw": "independent",
+          "value": "用户声明独立观察；程序未验证独立性"
+        },
+        "figure.title": {
+          "label": "图标题",
+          "raw": "合成类别记录数",
+          "value": "合成类别记录数"
+        },
+        "limitation.0": {
+          "label": "适用限制",
+          "raw": "绘图投影仅为描述统计，不提供新增P值或置信区间。",
+          "value": "绘图投影仅为描述统计，不提供新增P值或置信区间"
+        },
+        "limitation.1": {
+          "label": "适用限制",
+          "raw": "原统计有效记录数与投影有效记录数属于不同人群口径；记录数不等于独立受试者人数。",
+          "value": "原统计有效记录数与投影有效记录数属于不同人群口径；记录数不等于独立受试者人数"
+        },
+        "limitation.2": {
+          "label": "适用限制",
+          "raw": "研究设计文字已提供但未经程序验证且未外发；样本来源、实验步骤及测量背景仍需核查。",
+          "value": "研究设计文字已提供但未经程序验证且未外发；样本来源、实验步骤及测量背景仍需核查"
+        },
+        "limitation.3": {
+          "label": "适用限制",
+          "raw": "用户声明独立观察；程序未验证独立性",
+          "value": "用户声明独立观察；程序未验证独立性"
+        },
+        "limitation.4": {
+          "label": "适用限制",
+          "raw": "不能据此推断因果。",
+          "value": "不能据此推断因果"
+        },
+        "limitation.5": {
+          "label": "适用限制",
+          "raw": "完整有序坐标保留保存精度；其它投影摘要最多显示8位有效数字，原统计摘要最多显示6位有效数字，完整数值以保存结果为准。",
+          "value": "完整有序坐标保留保存精度；其它投影摘要最多显示8位有效数字，原统计摘要最多显示6位有效数字，完整数值以保存结果为准"
+        },
+        "limitation.6": {
+          "label": "适用限制",
+          "raw": "数值与事实引用已由程序填入并核对；语义和研究适用性仍需人工审阅。",
+          "value": "数值与事实引用已由程序填入并核对；语义和研究适用性仍需人工审阅"
+        },
+        "limitation.7": {
+          "label": "适用限制",
+          "raw": "本解释仅核对冻结统计与元数据，未验证图片像素、图中文字或视觉正确性；AI初稿仍需人工审阅。",
+          "value": "本解释仅核对冻结统计与元数据，未验证图片像素、图中文字或视觉正确性；AI初稿仍需人工审阅"
+        },
+        "method.rule.bar_stat": {
+          "label": "柱状统计规则",
+          "raw": "count",
+          "value": "纳入记录计数"
+        },
+        "method.rule.error_bars": {
+          "label": "误差线规则",
+          "raw": "none",
+          "value": "无误差线"
+        },
+        "method.rule.missing_group": {
+          "label": "缺组处理规则",
+          "raw": "exclude",
+          "value": "排除缺组记录"
+        },
+        "method.summary": {
+          "label": "计算方法",
+          "raw": "按类别汇总纳入记录计数，计数不代表唯一受试者人数",
+          "value": "按类别汇总纳入记录计数，计数不代表唯一受试者人数"
+        },
+        "projection.0.point.0.category": {
+          "label": "类别",
+          "raw": "A",
+          "value": "A"
+        },
+        "projection.0.point.0.n": {
+          "label": "投影记录数",
+          "raw": 2,
+          "value": "2"
+        },
+        "projection.0.point.0.value": {
+          "label": "绘图统计值",
+          "raw": 2,
+          "value": "2"
+        },
+        "projection.0.point.1.category": {
+          "label": "类别",
+          "raw": "B",
+          "value": "B"
+        },
+        "projection.0.point.1.n": {
+          "label": "投影记录数",
+          "raw": 2,
+          "value": "2"
+        },
+        "projection.0.point.1.value": {
+          "label": "绘图统计值",
+          "raw": 2,
+          "value": "2"
+        },
+        "purpose.kind": {
+          "label": "图形类型",
+          "raw": "bar",
+          "value": "描述性柱状图"
+        },
+        "scope.variables": {
+          "label": "变量范围",
+          "raw": [
+            {
+              "column": "C",
+              "label": "组别",
+              "role": "category",
+              "unit": ""
+            },
+            {
+              "column": null,
+              "label": "记录数",
+              "role": "statistic",
+              "unit": "条记录"
+            }
+          ],
+          "value": "类别字段: 组别 [C] (单位未提供), 绘图统计量: 记录数 (条记录)"
+        }
+      },
+      "figure_explanation_contract": 5,
+      "language": "zh-CN",
+      "required_references": {
+        "data": [
+          "data.valid",
+          "data.total",
+          "data.excluded",
+          "data.original_n",
+          "axis.x.label",
+          "axis.x.unit",
+          "axis.y.label",
+          "axis.y.unit"
+        ],
+        "interpretation": [
+          "limitation.0",
+          "limitation.1",
+          "limitation.2",
+          "limitation.3",
+          "limitation.4",
+          "limitation.5",
+          "limitation.6",
+          "limitation.7"
+        ],
+        "methods": [
+          "method.summary",
+          "method.rule.bar_stat",
+          "method.rule.error_bars",
+          "method.rule.missing_group",
+          "design.structure",
+          "design.status"
+        ],
+        "paper_text": [
+          "scope.variables",
+          "purpose.kind",
+          "data.valid",
+          "method.summary",
+          "projection.0.point.0.n",
+          "projection.0.point.0.value",
+          "projection.0.point.0.category",
+          "projection.0.point.1.n",
+          "projection.0.point.1.value",
+          "projection.0.point.1.category",
+          "limitation.0",
+          "limitation.1",
+          "limitation.2",
+          "limitation.3",
+          "limitation.4",
+          "limitation.5",
+          "limitation.6",
+          "limitation.7"
+        ],
+        "purpose": [
+          "scope.variables",
+          "purpose.kind"
+        ],
+        "results": [
+          "projection.0.point.0.n",
+          "projection.0.point.0.value",
+          "projection.0.point.0.category",
+          "projection.0.point.1.n",
+          "projection.0.point.1.value",
+          "projection.0.point.1.category"
+        ]
+      },
+      "schema_version": 2
+    }
+  },
+  "explanation:violin:zh-CN": {
+    "source_task_id": "e1d281ae-ab76-4ed1-b535-a2761603f321",
+    "model_input_digest": "fcdae50f59a76d1c5d49ffabbff44f5cf89ba9596be80393e1f8226be6f1b2e6",
+    "payload": {
+      "facts": {
+        "axis.x.label": {
+          "label": "横轴字段",
+          "raw": "",
+          "value": "不适用（未分组）"
+        },
+        "axis.x.unit": {
+          "label": "横轴单位",
+          "raw": "",
+          "value": "单位未提供"
+        },
+        "axis.y.label": {
+          "label": "纵轴字段",
+          "raw": "X",
+          "value": "X"
+        },
+        "axis.y.unit": {
+          "label": "纵轴单位",
+          "raw": "",
+          "value": "单位未提供"
+        },
+        "data.excluded": {
+          "label": "投影排除记录",
+          "raw": 1,
+          "value": "1"
+        },
+        "data.original_n": {
+          "label": "原统计有效记录",
+          "raw": 6,
+          "value": "6"
+        },
+        "data.total": {
+          "label": "投影人群记录",
+          "raw": 7,
+          "value": "7"
+        },
+        "data.valid": {
+          "label": "投影有效记录",
+          "raw": 6,
+          "value": "6"
+        },
+        "design.status": {
+          "label": "研究设计资料状态",
+          "raw": true,
+          "value": "用户提供研究设计文字，尚未经程序验证；未外发该原文"
+        },
+        "design.structure": {
+          "label": "观察结构及核查限制",
+          "raw": "independent",
+          "value": "用户声明独立观察；程序未验证独立性"
+        },
+        "figure.title": {
+          "label": "图标题",
+          "raw": "合成数值分布",
+          "value": "合成数值分布"
+        },
+        "limitation.0": {
+          "label": "适用限制",
+          "raw": "绘图投影仅为描述统计，不提供新增P值或置信区间。",
+          "value": "绘图投影仅为描述统计，不提供新增P值或置信区间"
+        },
+        "limitation.1": {
+          "label": "适用限制",
+          "raw": "原统计有效记录数与投影有效记录数属于不同人群口径；记录数不等于独立受试者人数。",
+          "value": "原统计有效记录数与投影有效记录数属于不同人群口径；记录数不等于独立受试者人数"
+        },
+        "limitation.2": {
+          "label": "适用限制",
+          "raw": "核密度受带宽与观察范围截断影响，不是推断检验或发生概率。",
+          "value": "核密度受带宽与观察范围截断影响，不是推断检验或发生概率"
+        },
+        "limitation.3": {
+          "label": "适用限制",
+          "raw": "研究设计文字已提供但未经程序验证且未外发；样本来源、实验步骤及测量背景仍需核查。",
+          "value": "研究设计文字已提供但未经程序验证且未外发；样本来源、实验步骤及测量背景仍需核查"
+        },
+        "limitation.4": {
+          "label": "适用限制",
+          "raw": "用户声明独立观察；程序未验证独立性",
+          "value": "用户声明独立观察；程序未验证独立性"
+        },
+        "limitation.5": {
+          "label": "适用限制",
+          "raw": "不能据此推断因果。",
+          "value": "不能据此推断因果"
+        },
+        "limitation.6": {
+          "label": "适用限制",
+          "raw": "完整有序坐标保留保存精度；其它投影摘要最多显示8位有效数字，原统计摘要最多显示6位有效数字，完整数值以保存结果为准。",
+          "value": "完整有序坐标保留保存精度；其它投影摘要最多显示8位有效数字，原统计摘要最多显示6位有效数字，完整数值以保存结果为准"
+        },
+        "limitation.7": {
+          "label": "适用限制",
+          "raw": "数值与事实引用已由程序填入并核对；语义和研究适用性仍需人工审阅。",
+          "value": "数值与事实引用已由程序填入并核对；语义和研究适用性仍需人工审阅"
+        },
+        "limitation.8": {
+          "label": "适用限制",
+          "raw": "本解释仅核对冻结统计与元数据，未验证图片像素、图中文字或视觉正确性；AI初稿仍需人工审阅。",
+          "value": "本解释仅核对冻结统计与元数据，未验证图片像素、图中文字或视觉正确性；AI初稿仍需人工审阅"
+        },
+        "method.rule.missing_group": {
+          "label": "缺组处理规则",
+          "raw": "block",
+          "value": "缺组时阻断"
+        },
+        "method.summary": {
+          "label": "投影计算方法与限制",
+          "raw": "等权Gaussian核密度，Scott带宽，256点网格，在观察范围截断，采用共用密度宽度；叠加线性插值四分位数，密度不是发生概率。绘图投影为描述性结果，不增加统计检验或因果证据。",
+          "value": "等权Gaussian核密度，Scott带宽，256点网格，在观察范围截断，采用共用密度宽度；叠加线性插值四分位数，密度不是发生概率。绘图投影为描述性结果，不增加统计检验或因果证据"
+        },
+        "projection.0.bandwidth": {
+          "label": "核密度带宽",
+          "raw": 1.307385825514815,
+          "value": "1.3073858"
+        },
+        "projection.0.max": {
+          "label": "观察最大值",
+          "raw": 6.0,
+          "value": "6"
+        },
+        "projection.0.median": {
+          "label": "中位数",
+          "raw": 3.5,
+          "value": "3.5"
+        },
+        "projection.0.min": {
+          "label": "观察最小值",
+          "raw": 1.0,
+          "value": "1"
+        },
+        "projection.0.n": {
+          "label": "投影记录数",
+          "raw": 6,
+          "value": "6"
+        },
+        "projection.0.q1": {
+          "label": "下四分位数",
+          "raw": 2.25,
+          "value": "2.25"
+        },
+        "projection.0.q3": {
+          "label": "上四分位数",
+          "raw": 4.75,
+          "value": "4.75"
+        },
+        "purpose.kind": {
+          "label": "图形类型",
+          "raw": "violin",
+          "value": "描述性小提琴图"
+        },
+        "scope.variables": {
+          "label": "变量范围",
+          "raw": [
+            {
+              "column": "A",
+              "label": "X",
+              "role": "y",
+              "unit": ""
+            }
+          ],
+          "value": "纵轴字段: X [A] (单位未提供)"
+        }
+      },
+      "figure_explanation_contract": 5,
+      "language": "zh-CN",
+      "required_references": {
+        "data": [
+          "data.valid",
+          "data.total",
+          "data.excluded",
+          "data.original_n",
+          "axis.x.label",
+          "axis.x.unit",
+          "axis.y.label",
+          "axis.y.unit"
+        ],
+        "interpretation": [
+          "limitation.0",
+          "limitation.1",
+          "limitation.2",
+          "limitation.3",
+          "limitation.4",
+          "limitation.5",
+          "limitation.6",
+          "limitation.7",
+          "limitation.8"
+        ],
+        "methods": [
+          "method.summary",
+          "method.rule.missing_group",
+          "design.structure",
+          "design.status"
+        ],
+        "paper_text": [
+          "scope.variables",
+          "purpose.kind",
+          "data.valid",
+          "method.summary",
+          "projection.0.n",
+          "projection.0.q1",
+          "projection.0.q3",
+          "projection.0.max",
+          "projection.0.min",
+          "projection.0.median",
+          "projection.0.bandwidth",
+          "limitation.0",
+          "limitation.1",
+          "limitation.2",
+          "limitation.3",
+          "limitation.4",
+          "limitation.5",
+          "limitation.6",
+          "limitation.7",
+          "limitation.8"
+        ],
+        "purpose": [
+          "scope.variables",
+          "purpose.kind"
+        ],
+        "results": [
+          "projection.0.n",
+          "projection.0.q1",
+          "projection.0.q3",
+          "projection.0.max",
+          "projection.0.min",
+          "projection.0.median",
+          "projection.0.bandwidth"
+        ]
+      },
+      "schema_version": 2
+    }
+  },
+  "explanation:forest:logistic:zh-CN": {
+    "source_task_id": "f4f02c4e-5fc9-45c9-997f-62fdfbc2cd00",
+    "model_input_digest": "a61f20c7ddd9a0309d2f7fb4d7409749d2af9be2debab2dab6c98beb008ab0c4",
+    "payload": {
+      "facts": {
+        "axis.x.label": {
+          "label": "横轴字段",
+          "raw": "比值比（对数坐标）",
+          "value": "比值比（对数坐标）"
+        },
+        "axis.x.unit": {
+          "label": "横轴单位",
+          "raw": "",
+          "value": "单位未提供"
+        },
+        "axis.y.label": {
+          "label": "纵轴字段",
+          "raw": "变量",
+          "value": "变量"
+        },
+        "axis.y.unit": {
+          "label": "纵轴单位",
+          "raw": "",
+          "value": "单位未提供"
+        },
+        "data.excluded": {
+          "label": "数据记录 excluded",
+          "raw": 0,
+          "value": "0"
+        },
+        "data.total": {
+          "label": "数据记录 total",
+          "raw": 40,
+          "value": "40"
+        },
+        "data.valid": {
+          "label": "数据记录 valid",
+          "raw": 40,
+          "value": "40"
+        },
+        "design.status": {
+          "label": "研究设计资料状态",
+          "raw": true,
+          "value": "用户提供研究设计文字，尚未经程序验证；未外发该原文"
+        },
+        "design.structure": {
+          "label": "观察结构及核查限制",
+          "raw": "independent",
+          "value": "用户声明独立观察；程序未验证独立性"
+        },
+        "figure.title": {
+          "label": "图标题",
+          "raw": "合成数据 Logistic 优势比",
+          "value": "合成数据 Logistic 优势比"
+        },
+        "limitation.0": {
+          "label": "适用限制",
+          "raw": "研究声明为用户提供；程序不证明研究设计或样本真实性。",
+          "value": "研究声明为用户提供；程序不证明研究设计或样本真实性"
+        },
+        "limitation.1": {
+          "label": "适用限制",
+          "raw": "完整记录分析可能产生选择偏倚；未插补、去重或删除离群值。",
+          "value": "完整记录分析可能产生选择偏倚；未插补、去重或删除离群值"
+        },
+        "limitation.2": {
+          "label": "适用限制",
+          "raw": "森林图核对仅为本地效应投影与渲染，并未云端独立重拟合；关联不能证明因果。",
+          "value": "森林图核对仅为本地效应投影与渲染，并未云端独立重拟合；关联不能证明因果"
+        },
+        "limitation.3": {
+          "label": "适用限制",
+          "raw": "研究设计文字已提供但未经程序验证且未外发；样本来源、实验步骤及测量背景仍需核查。",
+          "value": "研究设计文字已提供但未经程序验证且未外发；样本来源、实验步骤及测量背景仍需核查"
+        },
+        "limitation.4": {
+          "label": "适用限制",
+          "raw": "用户声明独立观察；程序未验证独立性",
+          "value": "用户声明独立观察；程序未验证独立性"
+        },
+        "limitation.5": {
+          "label": "适用限制",
+          "raw": "完整有序坐标保留保存精度；其它投影摘要最多显示8位有效数字，原统计摘要最多显示6位有效数字，完整数值以保存结果为准。",
+          "value": "完整有序坐标保留保存精度；其它投影摘要最多显示8位有效数字，原统计摘要最多显示6位有效数字，完整数值以保存结果为准"
+        },
+        "limitation.6": {
+          "label": "适用限制",
+          "raw": "数值与事实引用已由程序填入并核对；语义和研究适用性仍需人工审阅。",
+          "value": "数值与事实引用已由程序填入并核对；语义和研究适用性仍需人工审阅"
+        },
+        "limitation.7": {
+          "label": "适用限制",
+          "raw": "本解释仅核对冻结统计与元数据，未验证图片像素、图中文字或视觉正确性；AI初稿仍需人工审阅。",
+          "value": "本解释仅核对冻结统计与元数据，未验证图片像素、图中文字或视觉正确性；AI初稿仍需人工审阅"
+        },
+        "method.summary": {
+          "label": "分析方法",
+          "raw": "含截距二元 Logistic；按已确认阳性结局编码；最大似然、普通协方差与双侧 Wald 推断；优势比为系数指数变换。",
+          "value": "含截距二元 Logistic；按已确认阳性结局编码；最大似然、普通协方差与双侧 Wald 推断；优势比为系数指数变换"
+        },
+        "modeling.aic": {
+          "label": "Akaike信息准则",
+          "raw": 48.98681156950467,
+          "value": "48.9868"
+        },
+        "modeling.coding": {
+          "label": "确认的角色、编码及声明",
+          "raw": {
+            "assumptions": {
+              "independent_units": true,
+              "inference_confirmed": true
+            },
+            "covariate_types": [
+              "continuous"
+            ],
+            "method": "logistic",
+            "missing_policy": "complete_cases",
+            "task_type": "regression"
+          },
+          "value": "分析任务类型: 回归分析; 分析方法: Logistic回归; 缺失处理: 完整记录; 假设声明 / 独立观察单位声明: 是; 假设声明 / 推断前提已声明确认: 是; 协变量类型 1: 连续变量"
+        },
+        "modeling.coefficients.0.inference": {
+          "label": "参数及推断 — 截距",
+          "raw": {
+            "beta": -1.09861228866811,
+            "ci_high": -0.08649123916278212,
+            "ci_low": -2.110733338173438,
+            "column": null,
+            "level": null,
+            "or_ci_high": 0.9171435836951515,
+            "or_ci_low": 0.12114909059653102,
+            "or_value": 0.3333333333333332,
+            "p_value": 0.03338241692099198,
+            "reference": null,
+            "se": 0.5163977794943222,
+            "statistic": -2.1274535489752027,
+            "term": "intercept",
+            "unit": ""
+          },
+          "value": "截距 — beta: -1.09861, SE: 0.516398, Wald z: -2.12745, P: 0.0333824, beta CI lower: -2.11073, beta CI upper: -0.0864912, OR: 0.333333, OR CI lower: 0.121149, OR CI upper: 0.917144"
+        },
+        "modeling.coefficients.1.inference": {
+          "label": "参数及推断 — Exposure (B)，显示名称：暴露，参数：B，单位：单位未提供",
+          "raw": {
+            "beta": 2.19722457733622,
+            "ci_high": 3.6285798923099453,
+            "ci_low": 0.7658692623624945,
+            "column": "B",
+            "level": null,
+            "or_ci_high": 37.65929836612422,
+            "or_ci_low": 2.1508632267260257,
+            "or_value": 9.000000000000005,
+            "p_value": 0.0026239079320912106,
+            "reference": null,
+            "se": 0.7302967433402214,
+            "statistic": 3.0086736622795054,
+            "term": "B",
+            "unit": ""
+          },
+          "value": "Exposure (B)，显示名称：暴露，参数：B，单位：单位未提供 — beta: 2.19722, SE: 0.730297, Wald z: 3.00867, P: 0.00262391, beta CI lower: 0.765869, beta CI upper: 3.62858, OR: 9, OR CI lower: 2.15086, OR CI upper: 37.6593"
+        },
+        "modeling.deviance": {
+          "label": "偏差",
+          "raw": 44.98681156950467,
+          "value": "44.9868"
+        },
+        "modeling.df_residual": {
+          "label": "残差自由度",
+          "raw": 38,
+          "value": "38"
+        },
+        "modeling.diagnostics": {
+          "label": "模型诊断",
+          "raw": {
+            "centers": [
+              0.5
+            ],
+            "condition_number": 1.0,
+            "converged": true,
+            "gradient_max": 0.0,
+            "rank": 2,
+            "scales": [
+              0.5
+            ]
+          },
+          "value": "矩阵秩: 2, 中心化常数: 0.5, 缩放常数: 0.5, 条件数: 1, 已收敛: 是, 最大梯度: 0"
+        },
+        "modeling.log_likelihood": {
+          "label": "对数似然",
+          "raw": -22.493405784752333,
+          "value": "-22.4934"
+        },
+        "modeling.n": {
+          "label": "有效记录数",
+          "raw": 40,
+          "value": "40"
+        },
+        "modeling.p": {
+          "label": "模型参数数",
+          "raw": 2,
+          "value": "2"
+        },
+        "modeling.warnings": {
+          "label": "局限与警告",
+          "raw": "complete_case_selection_bias; association_not_causation; unadjusted_coefficient_inference",
+          "value": "完整记录分析可能存在选择偏倚; 关联不证明因果; 系数推断未作多重比较校正"
+        },
+        "purpose.kind": {
+          "label": "图形类型",
+          "raw": "forest",
+          "value": "森林图"
+        },
+        "scope.variables": {
+          "label": "变量范围",
+          "raw": "Outcome（单位未提供）, Exposure（单位未提供）",
+          "value": "Outcome（单位未提供）, Exposure（单位未提供）"
+        }
+      },
+      "figure_explanation_contract": 5,
+      "language": "zh-CN",
+      "required_references": {
+        "data": [
+          "data.total",
+          "data.valid",
+          "data.excluded",
+          "axis.x.label",
+          "axis.x.unit",
+          "axis.y.label",
+          "axis.y.unit"
+        ],
+        "interpretation": [
+          "limitation.0",
+          "limitation.1",
+          "limitation.2",
+          "limitation.3",
+          "limitation.4",
+          "limitation.5",
+          "limitation.6",
+          "limitation.7"
+        ],
+        "methods": [
+          "method.summary",
+          "modeling.coding",
+          "design.structure",
+          "design.status"
+        ],
+        "paper_text": [
+          "scope.variables",
+          "purpose.kind",
+          "data.valid",
+          "method.summary",
+          "modeling.coefficients.0.inference",
+          "modeling.coefficients.1.inference",
+          "modeling.n",
+          "modeling.p",
+          "modeling.df_residual",
+          "modeling.log_likelihood",
+          "modeling.deviance",
+          "modeling.aic",
+          "modeling.diagnostics",
+          "modeling.warnings",
+          "limitation.0",
+          "limitation.1",
+          "limitation.2",
+          "limitation.3",
+          "limitation.4",
+          "limitation.5",
+          "limitation.6",
+          "limitation.7"
+        ],
+        "purpose": [
+          "scope.variables",
+          "purpose.kind"
+        ],
+        "results": [
+          "modeling.coefficients.0.inference",
+          "modeling.coefficients.1.inference",
+          "modeling.n",
+          "modeling.p",
+          "modeling.df_residual",
+          "modeling.log_likelihood",
+          "modeling.deviance",
+          "modeling.aic",
+          "modeling.diagnostics",
+          "modeling.warnings"
+        ]
+      },
+      "schema_version": 2
+    }
+  }
+}

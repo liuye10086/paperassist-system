@@ -40,7 +40,7 @@ def test_gateway_passes_lease_and_current_revision_only_when_present():
         def reserve_call(self, req, execution_lease=None):
             assert execution_lease is lease
             return super().reserve_call(req)
-        def begin_submission(self, call_id, execution_lease=None, expected_task_revision=None):
+        def begin_submission(self, call_id, execution_lease=None, expected_task_revision=None, *, provenance_context=None):
             assert execution_lease is lease and expected_task_revision == 2
             return super().begin_submission(call_id)
     lease = object()

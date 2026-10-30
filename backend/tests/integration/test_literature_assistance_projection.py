@@ -16,7 +16,7 @@ def test_saved_usage_projection_never_infers_live_source_or_exposes_internal_ide
     value=detail(client,task)
     assert len(value['model_calls'])==1
     call=value['model_calls'][0]
-    assert call['provenance']=='not_recorded'
+    assert call['provenance']=='synthetic_fixture'
     assert call['model']=='gpt-5.6-sol' and call['status']=='completed'
     assert call['usage']==dict(input_tokens=100,output_tokens=50,total_tokens=150,cached_input_tokens=0)
     assert call['estimated_cost_micro_usd'] is not None
@@ -30,7 +30,7 @@ def test_no_call_and_failed_unknown_call_do_not_invent_zero_usage_or_cost(client
     provider=SyntheticProvider(unknown=True)
     run_assistance_task(task['id'],task['revision'],provider_factory=lambda:provider)
     call=detail(client,task)['model_calls'][0]
-    assert call['status']=='submission_unknown' and call['provenance']=='not_recorded'
+    assert call['status']=='submission_unknown' and call['provenance']=='synthetic_fixture'
     assert call['usage'] is None and call['estimated_cost_micro_usd'] is None
 
 

@@ -1,3 +1,4 @@
+import {validFrontMatter} from '../school-templates/contracts'
 import {ManuscriptDraftContext} from './manuscriptDraftContext'
 import type {RegisterLeaveGuard} from '../projects/useDraftLeaveGuard'
 import {useManuscriptDraft} from './useManuscriptDraft'
@@ -19,13 +20,14 @@ function Exports({projectId,manuscriptId,version,onOpenTask,active=true,register
  const contextRegister=useContext(ManuscriptDraftContext),leaveRegister=registerLeaveGuard??contextRegister
  const {t}=useI18n(),visible=useDocumentVisible();const [items,setItems]=useState(version.exports),[error,setError]=useState(''),[actionError,setActionError]=useState(''),[busy,setBusy]=useState(false),[attempt,setAttempt]=useState(0),[sessionValid,setSessionValid]=useState(true)
  const school=!!version.snapshot.thesis_context
- const [schoolOptions,setSchoolOptions]=useState<SchoolExportOptions>({manual_fields:{author:'',student_id:'',department:'',major:'',class_name:'',supervisor:'',submission_date:''},manual_chapters:[],english_title:'',keywords:[],include_toc:true,toc_depth:3}),[schoolPlan,setSchoolPlan]=useState<SchoolExportPlan|null>(null)
+ const hasFront=validFrontMatter(version.snapshot.thesis_context?.confirmation?.front_matter)
+ const [schoolOptions,setSchoolOptions]=useState<SchoolExportOptions>({manual_fields:{author:'',student_id:'',department:'',major:'',class_name:'',supervisor:'',submission_date:''},manual_chapters:[],english_title:'',keywords:[],include_toc:true,toc_depth:3,...(hasFront?{field_values:{}}:{})}),[schoolPlan,setSchoolPlan]=useState<SchoolExportPlan|null>(null)
  const [cleanOptions,setCleanOptions]=useState(()=>JSON.stringify(schoolOptions))
  useManuscriptDraft(school&&JSON.stringify(schoolOptions)!==cleanOptions||!!actionError,busy,registerLeaveGuard)
  const request=useRef<AbortController|null>(null),mounted=useRef(true),key=useRef(crypto.randomUUID())
  const base=`${manuscriptBase(projectId)}/${encodeURIComponent(manuscriptId)}/versions/${version.revision}/exports`
  useEffect(()=>{mounted.current=true;return()=>{mounted.current=false;request.current?.abort()}},[])
- useEffect(()=>onApiSessionChanged(()=>{request.current?.abort();setSessionValid(false);setItems([]);setSchoolPlan(null);setSchoolOptions({manual_fields:{author:'',student_id:'',department:'',major:'',class_name:'',supervisor:'',submission_date:''},manual_chapters:[],english_title:'',keywords:[],include_toc:true,toc_depth:3});setError('');setActionError('')}),[])
+ useEffect(()=>onApiSessionChanged(()=>{request.current?.abort();setSessionValid(false);setItems([]);setSchoolPlan(null);setSchoolOptions({manual_fields:{author:'',student_id:'',department:'',major:'',class_name:'',supervisor:'',submission_date:''},manual_chapters:[],english_title:'',keywords:[],include_toc:true,toc_depth:3,...(hasFront?{field_values:{}}:{})});setError('');setActionError('')}),[hasFront])
  useEffect(()=>{if(!active||!visible||!sessionValid)return;let live=true,timer=0;const controller=new AbortController()
  async function load(){try{const data=await taskRequest(base,controller,(v):v is {items:ManuscriptExport[];pdf_status:'not_requested'}=>!!v&&typeof v==='object'&&'items'in v&&Array.isArray(v.items)&&v.items.every(e=>validExport(e,projectId,manuscriptId)&&e.version_id===version.id)&&'pdf_status'in v&&v.pdf_status==='not_requested','DOCX 状态读取失败，请刷新。');if(!live||controller.signal.aborted)return;setItems(old=>data.items.length?data.items:old);setError('');if(data.items.some(e=>e.status==='queued'||e.status==='running'))timer=window.setTimeout(()=>void load(),3000)}catch(cause){if(live)setError(safeError(cause,'DOCX 状态读取失败，请刷新。'))}}
  void load();return()=>{live=false;controller.abort();window.clearTimeout(timer)}},[base,projectId,manuscriptId,attempt,visible,sessionValid,active,version.id])

@@ -40,7 +40,7 @@ def check_snapshot(snapshot,metadata=(),strict_locations=(),*,writing_context=No
                 issues.append(issue('structure','section:'+section['id'],'Section is empty; material requires human review.'))
     else: issues.append(issue('structure','sections','Historical two-section fact draft; complete manuscript structure has not been supplied.'))
 
-    def numbers(location,text,bindings,source_ids,strict=False,literature=()):
+    def numbers(location,text,bindings,source_ids,strict=False,reviewed_nonstudy=()):
         clean=BODY_REFERENCE.sub('',text)
         # Reference markers are checked independently; never treat them as facts.
         clean=re.sub(r'\[\d+(?:\s*[,–-]\s*\d+)*\]','',clean)
@@ -48,7 +48,7 @@ def check_snapshot(snapshot,metadata=(),strict_locations=(),*,writing_context=No
         occurrences=list(NUMBER.finditer(clean))
         bound=[]
         for index,binding in enumerate(bindings):
-            if binding in literature:
+            if binding in reviewed_nonstudy:
                 bound.append(binding['value'])
                 continue
             fact=facts.get(binding.get('fact_id'));value=binding.get('value')
@@ -101,8 +101,8 @@ def check_snapshot(snapshot,metadata=(),strict_locations=(),*,writing_context=No
         if unknown: issues.append(issue('source',p['id'],'Paragraph references unknown frozen sources.',severity='error',actual=sorted(unknown)))
         if writing_context and p['id'] in writing_context.paragraphs and p['id'] not in strict_locations:
             try:
-                text,bindings,literature=writing_context.paragraph(p,sources)
-                numbers(p['id'],text,bindings,p.get('source_ids',[]),True,literature)
+                text,bindings,reviewed_nonstudy=writing_context.paragraph(p,sources)
+                numbers(p['id'],text,bindings,p.get('source_ids',[]),True,reviewed_nonstudy)
             except (ValueError,KeyError,TypeError):
                 issues.append(issue('numeric',p['id'],'Displayed v2 paragraph, occurrence order or source differs from its exact reconstructed scientific artifact.',severity='error'))
         else:

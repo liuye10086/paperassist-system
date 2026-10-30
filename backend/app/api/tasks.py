@@ -60,6 +60,14 @@ def retry_task(task_id: str, request: RetryRequest, store: Store):
         from app.domain.journals.service import retry_in_transaction
         with store.connection(write=True) as db:
             return retry_in_transaction(store,db,store.require_task(db,task_id),request.expected_revision)
+    if task_type=='school_rule_suggestion':
+        from app.domain.school_templates.suggestion_execution import retry_in_transaction
+        with store.connection(write=True) as db:
+            task=store.require_task(db,task_id)
+            if task['status']!='failed':
+                from app.core.exceptions import StorageError
+                raise StorageError('task_transition_invalid','待办须使用共同恢复入口。',409)
+            return retry_in_transaction(store,db,task,request.expected_revision)
     if task_type=='school_template_parse':
         from app.domain.school_templates.service import retry_in_transaction
         with store.connection(write=True) as db:
@@ -152,9 +160,11 @@ def get_task_workspace(task_id: str, store: Store):
 
 @router.post('/{task_id}/resume', response_model=TaskView, status_code=202)
 def resume_task(
-    task_id: str, request: ResumeRequest, store: Store,
+    task_id: str, request: ResumeRequest, store: Store, http_request: Request,
     idempotency_key: Annotated[str, Header(min_length=1, max_length=128, pattern=r'^[\x21-\x7e]+$')],
 ):
+    # Validated, allowlisted intent only; includes business rejection and replay.
+    http_request.state.task_operation = request.operation
     store.require_mutable(task_id)
     return TaskResumeService(store.user_id).resume(task_id, request, idempotency_key=idempotency_key)
 

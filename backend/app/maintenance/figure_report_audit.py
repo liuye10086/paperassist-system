@@ -39,7 +39,7 @@ def audit_figure_reports(db):
         result=json.loads(runs[config(r)['analysis_run_id']]['result_json'])
         expected={'source':result['source'],'result_sha256':digest(result),'analysis_plan':result['analysis_plan']}
         if 'figure_contract' in r['source_json']:
-            if type(r['source_json']['figure_contract']) is not int or r['source_json']['figure_contract'] not in (2,3):return False
+            if type(r['source_json']['figure_contract']) is not int or r['source_json']['figure_contract'] not in (2,3,4):return False
             expected['figure_contract']=r['source_json']['figure_contract']
         return (r['created_by']==config(r)['created_by'] and r['source_json']==expected
             and r['sha256']==digest({'config':r['config_json'],'source':r['source_json']})

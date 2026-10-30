@@ -22,6 +22,7 @@ SOURCE_TABLES = {
     'prepared_dataset_id': 'prepared_dataset_versions', 'base_prepared_dataset_id': 'prepared_dataset_versions',
     'plan_id': 'confirmed_plans', 'analysis_run_id': 'analysis_runs',
     'figure_id': 'figures', 'explanation_id': 'explanations', 'report_id': 'reports',
+    'collection_report_id':'collection_reports',
     'configuration_id': 'figure_configurations', 'figure_config_version_id': 'figure_config_versions',
     'config_version_id': 'figure_config_versions', 'projection_id': 'figure_projection_results',
     'collection_id': 'report_collections', 'collection_version_id': 'report_collection_versions',
@@ -52,7 +53,12 @@ def nodes(value):
 def frozen_references(snapshot):
     """Enumerate typed source identities, including nested result/artifact sources."""
     for node in nodes(snapshot):
+        if node.get('kind')=='analysis_report' and isinstance(node.get('id'),str):
+            yield 'reports',node['id']
+        if node.get('kind')=='collection_report' and isinstance(node.get('id'),str):
+            yield 'collection_reports',node['id']
         for key, group in SOURCE_TABLES.items():
+            if key=='report_id' and ('collection_report_id' in node or node.get('kind')=='collection_report'):continue
             if isinstance(node.get(key), str):
                 yield group, node[key]
         if isinstance(node.get('dataset_id'), str):
@@ -163,7 +169,7 @@ def public_source_groups(groups, indexes, tasks, file, user_id, producers, proof
             key = (kind, row['id'] if 'id' in row else row['file_id'])
             rows[key] = row
             refs = set()
-            if kind in ('manuscript_figure_language_versions','school_template_versions','manuscript_school_changes','journal_material_refs','review_round_refs'):
+            if kind in ('manuscript_figure_language_versions','school_template_versions','school_rule_suggestions','manuscript_school_changes','manuscript_school_language_artifacts','journal_material_refs','review_round_refs'):
                 if row.get('_integrity_valid') and row['project_id']==file['project_id'] and row['user_id']==user_id:
                     safe.add(key)
                 dependencies[key]=set()
@@ -327,6 +333,14 @@ def read_references(db, file, user_id):
             school_service.confirmation(db,version)
             version['_integrity_valid']=not bool(school_service.current_changes(db,version,sources))
         except Exception:version['_integrity_valid']=False
+    from app.domain.school_templates.suggestion_service import SuggestionService
+    advice_service=SuggestionService(scoped_store(user_id,db.config))
+    groups['school_rule_suggestions']=[dict(r) for r in db.execute('''SELECT a.id,a.project_id,a.user_id,a.task_id,a.template_version_id,a.input_digest,a.artifact_sha256,s.file_id,s.source_json
+        FROM school_rule_suggestions a JOIN school_template_sources s ON s.template_version_id=a.template_version_id WHERE s.file_id=%s''',(file_id,))]
+    for advice in groups['school_rule_suggestions']:
+        try:
+            advice_service.suggestion_row(db,project_id,advice['id']);advice['_integrity_valid']=True
+        except Exception:advice['_integrity_valid']=False
     from app.domain.manuscripts.school_changes import SchoolChangeService
     change_service=SchoolChangeService(scoped_store(user_id,db.config))
     groups['manuscript_school_changes']=[dict(r) for r in db.execute('SELECT * FROM manuscript_school_changes WHERE file_id=%s',(file_id,))]
@@ -334,11 +348,23 @@ def read_references(db, file, user_id):
         try:
             change_service.row(db,project_id,change['manuscript_id'],change['id']);change['_integrity_valid']=True
         except Exception:change['_integrity_valid']=False
+    from psycopg.types.json import Jsonb
+    from app.domain.manuscript_writing.language_service import LanguageReviewService
+    language_service=LanguageReviewService(scoped_store(user_id,db.config))
+    groups['manuscript_school_language_artifacts']=[dict(r) for r in db.execute('''SELECT * FROM manuscript_writing_language_reviews
+        WHERE project_id=%s AND user_id=%s AND candidate_json->'writing_provenance' ? 'school_final_render'
+        AND (candidate_json->'thesis_context'->'source_files' @> %s OR candidate_json->'sources' @> %s)''',
+        (project_id,user_id,Jsonb([dict(file_id=file_id)]),Jsonb([dict(file_id=file_id)])))]
+    for artifact in groups['manuscript_school_language_artifacts']:
+        try:
+            language_service.language_row(db,project_id,artifact['manuscript_id'],artifact['request_id'],artifact['id']);artifact['_integrity_valid']=True
+        except Exception:artifact['_integrity_valid']=False
     from app.domain.journals.retention import read_refs
     groups['journal_material_refs']=read_refs(db,file,user_id)
     from app.domain.review_rounds.retention import read_refs as read_review_refs
     groups['review_round_refs']=read_review_refs(db,file,user_id)
     school_tasks={v['task_id']:v for v in groups['school_template_versions']}
+    school_tasks.update({v['task_id']:v for v in groups['school_rule_suggestions']})
     indexes = {kind: {row['id']: row for row in rows if 'id' in row} for kind, rows in groups.items()}
     output_tasks = {row['task_id'] for rows in groups.values() for row in rows if row.get('task_id')}
     project_files = {r['id'] for r in db.execute('SELECT id FROM files WHERE project_id=%s',(project_id,))}
@@ -375,13 +401,13 @@ def read_references(db, file, user_id):
         elif task['task_type'] in ('journal_recommendation','journal_format_check','journal_adaptation'):
             if file_id not in file_ids(snapshot):continue
             scoped=dict(materials=[n for n in nodes(snapshot) if n.get('file_id')==file_id])
-        elif task['task_type']=='school_template_parse':
+        elif task['task_type'] in ('school_template_parse','school_rule_suggestion'):
             version=school_tasks.get(task['id'])
             if version is None:continue
             scoped=dict(file=version['source_json']['file'])
         else:scoped=scoped_snapshot(snapshot,file_id,proofs)
         refs = set(frozen_references(scoped))
-        ids = file_ids(material if manuscript_valid else scoped if task['task_type']=='school_template_parse' else snapshot)
+        ids = file_ids(material if manuscript_valid else scoped if task['task_type'] in ('school_template_parse','school_rule_suggestion') else snapshot)
         scoped_ids=file_ids(scoped)
         linked = (file_id in ids or task['id'] in output_tasks
                   or any(identifier in indexes[kind] for kind, identifier in refs)
@@ -401,7 +427,7 @@ def read_references(db, file, user_id):
         valid = valid and source_identity_valid(scoped,indexes,file,producers)
         valid = valid and task_contract_valid(task)
         if manuscript_valid is not None:valid = valid and manuscript_valid
-        if task['task_type']=='school_template_parse':valid = valid and school_tasks[task['id']]['_integrity_valid']
+        if task['task_type'] in ('school_template_parse','school_rule_suggestion'):valid = valid and school_tasks[task['id']]['_integrity_valid']
         if task['task_type'] in ('journal_recommendation','journal_format_check','journal_adaptation'):
             try:
                 from app.domain.journals.retention import validate_task
@@ -463,6 +489,7 @@ def read_references(db, file, user_id):
     if groups['journal_material_refs']:reasons.append('journal_history_retained')
     if groups['review_round_refs']:reasons.append('review_history_retained')
     if groups['school_template_versions']:reasons.append('school_template_history_retained')
+    if groups['manuscript_school_language_artifacts']:reasons.append('school_template_history_retained')
     if groups['manuscript_school_changes']:reasons.append('school_change_history_retained')
     if counts['active_tasks']:
         reasons.append('active_tasks')

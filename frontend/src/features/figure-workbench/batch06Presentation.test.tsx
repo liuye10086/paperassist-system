@@ -8,7 +8,7 @@ export const presentation={schema_version:1 as const,axes:{x:{label:'类别原�
 afterEach(()=>{cleanup();setLocale('zh-CN')})
 test('presentation rejects unknown versions, unsafe colors, nonfinite scales and metadata additions',()=>{
  expect(isPresentation(presentation)).toBe(true)
- for(const changed of [{schema_version:3},{legend:{...presentation.legend,entries:[{label:'A',color:'url(secret)'}]}},{color_scale:{...presentation.color_scale,max:Infinity}},{internal_id:'secret'},{axes:{...presentation.axes,y:{label:'Y',unit:42}}}])expect(isPresentation({...presentation,...changed})).toBe(false)
+ for(const changed of [{schema_version:4},{legend:{...presentation.legend,entries:[{label:'A',color:'url(secret)'}]}},{color_scale:{...presentation.color_scale,max:Infinity}},{internal_id:'secret'},{axes:{...presentation.axes,y:{label:'Y',unit:42}}}])expect(isPresentation({...presentation,...changed})).toBe(false)
 })
 test.each(['zh-CN','en'] as const)('description renders author text, number and scientific metadata in %s',locale=>{
  setLocale(locale);render(<FigureDescription title="Author title" caption="Author caption" presentation={presentation} number={7}/>);

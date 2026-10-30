@@ -40,6 +40,21 @@ class ReleaseTests(unittest.TestCase):
             self.assertIn('backend/app/ok.py',paths)
             self.assertFalse(any('.env' in p or '__pycache__' in p or 'private' in p for p in paths))
 
+    def test_candidate_retains_notice_index_and_original_bytes(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            original = b'Copyright example\r\n\xff\n'
+            notice = root / 'third_party/python-linux/texts/example.txt'
+            notice.parent.mkdir(parents=True)
+            notice.write_bytes(original)
+            (root / 'third_party/python-linux/index.json').write_text('{}')
+            paths = self.release.source_files(root)
+            self.assertIn(Path('third_party/python-linux/texts/example.txt'), paths)
+            self.assertIn(Path('third_party/python-linux/index.json'), paths)
+            self.assertEqual(notice.read_bytes(), original)
+        dockerfile = (ROOT / 'infra/api/Dockerfile').read_text()
+        self.assertIn('COPY third_party ./third_party', dockerfile)
+
     def test_maintenance_binding_and_atomic_replacement(self):
         if not hasattr(self, 'release'): self.skipTest('operator missing')
         with tempfile.TemporaryDirectory() as d:

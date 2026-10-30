@@ -34,7 +34,8 @@ class TaskService:
 
     def create(self, project_id, request, *, idempotency_key, explanation_policy=None,
                explanation_predecessor=_UNSPECIFIED_PREDECESSOR, boxplot_policy=None,
-               plot_predecessor=_UNSPECIFIED_PREDECESSOR, predecessor_revision: int | None = None, require_external=False):
+               plot_predecessor=_UNSPECIFIED_PREDECESSOR, predecessor_revision: int | None = None, require_external=False,
+               expected_configuration_id: str | None = None):
         try:
             # Revalidate copied/model-constructed values at this internal boundary too.
             request = TaskCreateRequest.model_validate(
@@ -56,6 +57,9 @@ class TaskService:
             from app.domain.admin_configuration.bindings import resolve,bind
             from app.domain.admin_configuration.model_consumption import execution,instructions,check_input
             configuration=resolve(db) if request.task_type in ('explanation','boxplot') else None
+            if expected_configuration_id is not None and (
+                    configuration is None or configuration['id'] != expected_configuration_id):
+                raise StorageError('configuration_revision_conflict','有效配置已变化，请重新读取并确认新任务。',409)
             if request.external_processing is not None:
                 snapshot['external_processing'] = freeze_confirmation(snapshot, request.task_type, self.store.user_id, request.external_processing)
             elif require_external or ('source' in snapshot and request.task_type in ('boxplot', 'explanation')):

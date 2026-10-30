@@ -167,6 +167,7 @@ def test_usage_provider_provenance_comes_only_from_trusted_writing_state(context
     state={'provider_provenance':'openai_live','source_kind':'openai_live','private_marker':'never-public'}
     if trusted is not None: state['writing_provider_provenance']=trusted
     with database_connection(write=True) as db:
+        db.execute("UPDATE tasks SET task_type='manuscript_writing',workflow_version='manuscript_writing_v2' WHERE id=%s",(context[3],))
         db.execute('UPDATE model_calls SET provider_state=%s WHERE id=%s',(Jsonb(state),saved['id']))
     with TestClient(app) as instance:
         instance.headers.update({'X-PaperAssist-Client':'web','Origin':'http://testserver'})

@@ -38,7 +38,7 @@ def read_refs(db,file,user):
     from .lineage import round_continuation
     from .science import ScienceService
     for table in ('review_round_user_returns','review_round_continuations','project_review_progress_events',
-                  'review_opinion_task_links','review_analysis_adoptions'):
+                  'review_opinion_task_links','review_analysis_adoptions','review_figure_adoptions'):
         for row in db.execute('SELECT * FROM '+table+' WHERE project_id=%s',(file['project_id'],)).fetchall():
             if file['id'] not in file_ids(row['snapshot_json']) and row.get('file_id')!=file['id']:
                 continue
@@ -56,6 +56,7 @@ def read_refs(db,file,user):
                     science=ScienceService(assets)
                     saved=science.science_row(db,row['project_id'],row['id'],table)
                     if table=='review_opinion_task_links':science.link_view(db,saved)
+                    elif table=='review_figure_adoptions':science.validate_figure_adoption(db,saved)
                     else:science.validate_adoption(db,saved)
                 record['_integrity_valid']=row['user_id']==user
             except Exception:record['_integrity_valid']=False

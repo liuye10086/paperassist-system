@@ -7,7 +7,7 @@ from app.domain.literature_citations.contracts import ClaimFragment
 class NumericDecision(Strict):
     occurrence: int = Field(ge=0)
     value: str = Field(min_length=1,max_length=100)
-    kind: Literal['study','literature']
+    kind: Literal['study','literature','context']
     source_alias: str | None = None
     fact_path: str | None = None
     evidence_id: str | None = None
@@ -19,7 +19,7 @@ class ParagraphDecision(Strict):
     paragraph_id: str = Field(min_length=1,max_length=200)
     text_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
     corrected_text: str | None = Field(default=None,min_length=1,max_length=10000)
-    classification: Literal['non_claim','study_claim','literature_claim','mixed_claim']
+    classification: Literal['non_claim','study_claim','literature_claim','mixed_claim','context_claim']
     scientific_basis: str = Field(min_length=1,max_length=4000)
     claim: ClaimBinding | None = None
     numeric_bindings: list[NumericDecision] = Field(max_length=1000)
@@ -53,6 +53,18 @@ class ScientificReviewRequest(Strict):
     candidate_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
     paragraphs: list[ParagraphDecision] = Field(min_length=1,max_length=1200)
     consistency: ConsistencyDecision
+
+class SchoolConsistencyDecision(Strict):
+    body_sha256:str=Field(pattern=r'^[0-9a-f]{64}$')
+    title:TitleDecision
+    abstracts:dict[str,AbstractDecision]
+
+class SchoolScientificReviewRequest(ScientificReviewRequest):
+    schema_version:Literal[3]
+    consistency:SchoolConsistencyDecision
+
+def scientific_request_model(value):
+    return SchoolScientificReviewRequest if isinstance(value,dict) and value.get('schema_version')==3 else ScientificReviewRequest
 
 class ReviewedPublishRequest(Strict):
     schema_version: Literal[2]

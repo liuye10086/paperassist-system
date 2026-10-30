@@ -1,6 +1,6 @@
 import {useCallback,useEffect,useRef,useState} from 'react'
 import {onApiSessionChanged} from '../../shared/api/client'
-import {safeError,useI18n} from '../../shared/i18n'
+import {safeError,useI18n,message} from '../../shared/i18n'
 import {taskRequest,TaskRequestError} from '../tasks/taskApi'
 import {useDocumentVisible} from '../tasks/useDocumentVisible'
 import JournalFormatPanel from './JournalFormatPanel'
@@ -92,7 +92,7 @@ function JournalPanel({projectId,active,onOpenTask,view,onViewChange,initialAdap
  },[base,active,visible,blocked,attempt])
  async function mutate<T>(path:string,body:unknown,valid:(v:unknown)=>v is T):Promise<T|null>{
   if(writing.current||blocked||!ready)return null;writing.current=true;setBusy(true);setError('');const controller=new AbortController();controllers.current.add(controller);const serialized=JSON.stringify(body);let operation=replay.current.get(path);if(operation?.body!==serialized){operation={body:serialized,key:crypto.randomUUID()};replay.current.set(path,operation)}
-  try{const value=await request(path,valid,controller,{method:'POST',headers:{'Content-Type':'application/json','Idempotency-Key':operation.key},body:serialized});if(!alive.current||controller.signal.aborted)return null;replay.current.delete(path);setUnconfirmed(replay.current.size>0);return value}catch(cause){if(alive.current)setUnconfirmed(true);if(alive.current)setError(cause instanceof TaskRequestError&&cause.status===409?'资料、预览或稿件 revision 已变化，请刷新核对；固定父稿保持原版本。':safeError(cause,mutationFailure));return null}finally{writing.current=false;controllers.current.delete(controller);if(alive.current)setBusy(false)}
+  try{const value=await request(path,valid,controller,{method:'POST',headers:{'Content-Type':'application/json','Idempotency-Key':operation.key},body:serialized});if(!alive.current||controller.signal.aborted)return null;replay.current.delete(path);setUnconfirmed(replay.current.size>0);return value}catch(cause){if(alive.current)setUnconfirmed(true);if(alive.current)setError(cause instanceof TaskRequestError&&cause.status===409?message('资料、预览或稿件 revision 已变化，请刷新核对；固定父稿保持原版本。',{}):safeError(cause,mutationFailure));return null}finally{writing.current=false;controllers.current.delete(controller);if(alive.current)setBusy(false)}
  }
  async function save(p:ProfileRequest){const result=await mutate('journals/profiles',p,(v):v is Profile=>isProfile(v,projectId));if(!result)return false;setProfiles(old=>[result,...old.filter(p=>p.id!==result.id)]);setAttempt(v=>v+1);return true}
  async function create(r:ResearchRequest){const result=await mutate('journals/recommendations',r,(v):v is Recommendation=>isRecommendation(v,projectId));if(!result)return false;setHistory(old=>[result,...old.filter(v=>v.id!==result.id)]);setSelected(old=>old||result.id);setAttempt(v=>v+1);return true}

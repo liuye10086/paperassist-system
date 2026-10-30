@@ -220,6 +220,8 @@ def freeze(service,project,request,*,frozen_sources=None,frozen_citation=None):
         issue(item['id'],item['kind'],item['field'],item['message'],item['values'])
     snapshot = dict(schema_version=1,illustration_check_version=1,workflow_version=WORKFLOW,project_id=project,title=request.title,output_language=request.output_language,
         notice=notice,methods=methods,results_groups=groups,references=references,issues=issues,sources=sources,citation_snapshot=citation)
+    if request.analysis_handoff_run_ids:
+        snapshot['analysis_handoff_run_ids']=request.analysis_handoff_run_ids
     if getattr(request, 'thesis', None) is not None:
         from .school import seed_school_snapshot
         snapshot = seed_school_snapshot(snapshot, service.freeze_school_context(project, request))

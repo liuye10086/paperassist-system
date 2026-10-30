@@ -1,4 +1,6 @@
 export const literatureBatch06Messages:Record<string,string>={
+  "OpenAI真实调用": "OpenAI live call",
+  "合成调用替身": "Synthetic fixture",
   "章节": "Section",
   "从已保存摘要、用户材料或 PMC 正文片段，按论述版本保存人工核验。": "Save manual verification for each claim revision using saved abstracts, user materials or PMC body excerpts.",
   "可读取用户材料与已保存 PMC 来源；新模型调用默认关闭；补搜最多 1 轮、20 篇。": "User materials and saved PMC sources are available; new model calls are disabled by default; supplementary search is limited to one round and 20 candidates.",

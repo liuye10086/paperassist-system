@@ -77,7 +77,7 @@ class Models(Strict):
     writing: Entry
     literature: Entry | None = None
     credential: Credential | None = None
-    real_calls_enabled: Literal[False] = False
+    real_calls_enabled: bool = False
     batch_max_posts: Annotated[int, Field(ge=1, le=6)] = 6
     max_corrections: Annotated[int, Field(ge=0, le=2)] = 2
     batch_cap_micro_usd: Annotated[int, Field(ge=1, le=12000000)] = 12000000

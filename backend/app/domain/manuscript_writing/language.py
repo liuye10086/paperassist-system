@@ -57,7 +57,7 @@ def figure_materials(assets,db,project,candidate):
             if version_id:
                 from app.domain.manuscripts.figure_language import FigureLanguageService
                 service=FigureLanguageService(assets);row=service.row(db,project,version_id);snap=row['snapshot_json'];raw=service.png(row)
-                if snap['output_language']!=candidate['output_language']: raise ValueError('Figure language mismatch')
+                if snap['output_language']!=figure_language(candidate,figure['id']): raise ValueError('Figure language mismatch')
                 manifest=snap['text_manifest']
                 if not manifest and snap['mode']!='no_text_confirmation': raise ValueError('Unknown image text')
             elif source['kind']=='figure': raw=assets.figure_png(source['content'])
@@ -70,9 +70,18 @@ def figure_materials(assets,db,project,candidate):
             images[figure['id']]=raw
             prefix='image:'+figure['id']
             items.append(dict(location=prefix,kind='image',asset_sha256=figure['sha256'],content_sha256=digest(dict(asset_sha256=figure['sha256'],manifest=manifest)),text='',language_known=manifest is not None,no_text=manifest==[]))
+            school=candidate.get('writing_provenance',{}).get('school_content_version')=='school-live-v1'
+            if school:items[-1]['figure_id']=figure['id']
             for entry in manifest or []:
                 items.append(dict(location=prefix+':'+entry['location'],kind='figure_text',scope='label' if entry['location'] in ('x_label','y_label') or entry['location'].startswith(('series.','tick.','sample_count.')) else 'narrative',text=entry['text'],asset_sha256=figure['sha256'],content_sha256=digest(dict(text=entry['text'],asset_sha256=figure['sha256']))))
+                if school:items[-1]['figure_id']=figure['id']
     return images,items
+
+def figure_language(candidate,identity):
+    if not candidate.get('thesis_context'):return candidate['output_language']
+    owners=[s for s in candidate['sections'] if any(g['id'] in s['result_group_ids'] and any(f['id']==identity for f in g['figures']) for g in candidate['results_groups'])]
+    if len(owners)!=1:raise ValueError('School figure needs one frozen chapter language')
+    return owners[0]['output_language']
 
 
 def export_semantics(candidate):

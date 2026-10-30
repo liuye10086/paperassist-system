@@ -37,3 +37,21 @@ class LanguagePreparation(Strict):
 class LanguageReviewRequest(LanguagePreparation):
     inventory_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
     decisions: list[LanguageDecision] = Field(min_length=1,max_length=10000)
+
+from app.domain.manuscripts.contracts import SchoolExportOptions
+
+class SchoolLanguageDecision(LanguageDecision):
+    decision:Literal['target_language','no_text','provided_literal']
+
+class SchoolLanguagePreparation(LanguagePreparation):
+    schema_version:Literal[3]
+    school:SchoolExportOptions
+
+class SchoolLanguageReviewRequest(SchoolLanguagePreparation):
+    inventory_sha256:str=Field(pattern=r'^[0-9a-f]{64}$')
+    decisions:list[SchoolLanguageDecision]=Field(min_length=1,max_length=10000)
+
+def language_request_model(value,*,review=False):
+    value=value.model_dump(mode='json') if hasattr(value,'model_dump') else value
+    if isinstance(value,dict) and value.get('schema_version')==3:return SchoolLanguageReviewRequest if review else SchoolLanguagePreparation
+    return LanguageReviewRequest if review else LanguagePreparation

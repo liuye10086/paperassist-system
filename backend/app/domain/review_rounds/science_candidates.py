@@ -131,7 +131,7 @@ def analysis_consistency_issues(candidate, adoptions):
     return issues
 
 
-def science_unexecuted(items, adoptions):
+def science_unexecuted(items, adoptions, figures=(), candidate=None):
     """Finite explicit redraw requests need actual pixels, never a caption edit."""
     result=[]
     pattern=r'\b(?:redraw|replot|regenerate)\b|\bnew\s+(?:figure|plot|boxplot)\b|\bupdate\s+(?:the\s+)?(?:figure|plot|boxplot)\b|重[新绘].{0,8}(?:绘图|图表|作图)|更新.{0,4}(?:图表|数值图)|新图'
@@ -139,5 +139,9 @@ def science_unexecuted(items, adoptions):
         text=item['original_text']
         if not re.search(pattern,text,re.I):continue
         if re.search(r'caption|图注',text,re.I) and not re.search(r'redraw|replot|regenerate|new\s+(?:figure|plot)|新图|重绘',text,re.I):continue
+        selected=[r for r in figures if r['snapshot_json']['item_id']==item['id'] and r['snapshot_json']['item_revision']==item.get('revision')]
+        if selected and candidate is not None:
+            from .figure_candidates import figure_consistency_issues
+            if not any(i['category']=='illustration' for i in figure_consistency_issues(candidate,selected)):continue
         result.append(dict(item_id=item['id'],status='waiting_material',reason='本次只采用实际统计和具体文字；新的数值图尚未实际生成，继续等待实际图件及所需授权。'))
     return result

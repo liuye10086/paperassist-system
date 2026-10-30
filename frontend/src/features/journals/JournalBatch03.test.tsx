@@ -112,7 +112,7 @@ it('shows failed public validation and retries only the frozen adaptation, keepi
  const posts=setup();const original=vi.mocked(fetch).getMockImplementation()!
  const failed={...adaptation,task:{...task,status:'failed',display_status:'failed',error_code:'manuscript_review_blocked'},validation:{public_issues:[{id:'numeric-error',message:'固定数值绑定错误',severity:'error'}],public_check_version:3,candidate_sha256:sha,can_publish:false}}
  vi.mocked(fetch).mockImplementation(async(...args)=>{const url=String(args[0]);if(url.endsWith('/adaptations')&&!args[1]?.method)return Response.json({items:[failed]});if(url.endsWith('/adaptations/a1/retry')){posts.push({url,body:JSON.parse(String(args[1]?.body))});return Response.json({...failed,task:{...task,status:'queued',display_status:'queued'}})}return original(...args)})
- fireEvent.click(screen.getByRole('button',{name:'刷新期刊资料'}));await screen.findByText(/固定数值绑定错误/);expect(screen.getByText('公共检查阻止发布；旧稿保留，不存在可导出的新稿。')).toBeTruthy();expect(screen.queryByLabelText('固定公共新稿与导出')).toBeNull()
+ fireEvent.click(screen.getByRole('button',{name:'刷新期刊资料'}));await screen.findByText('固定数值绑定错误',{selector:'summary'});expect(screen.getByText('公共检查阻止发布；旧稿保留，不存在可导出的新稿。')).toBeTruthy();expect(screen.queryByLabelText('固定公共新稿与导出')).toBeNull()
  fireEvent.click(screen.getByRole('button',{name:'重试固定适配'}));await waitFor(()=>expect(posts.some(p=>p.url.endsWith('/adaptations/a1/retry'))).toBe(true));expect(posts.at(-1)?.body).toEqual({});expect(posts.some(p=>p.url.endsWith('/submission-events'))).toBe(false)
 })
 it('reports actual seven-part changes from adopted actions instead of showing all proposed changes as executed',async()=>{

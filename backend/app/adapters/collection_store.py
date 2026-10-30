@@ -70,8 +70,11 @@ class CollectionStore:
         if source.get('schema_version') in (2,3):
             from app.domain.dataset_processing import load_processing
             value['processing'] = load_processing(self.store,project_id,source)
-        if value['configuration'].get('figure_contract') in (2,3):
-            value['dependency_engine']='figure_explanation_v4' if value['configuration']['figure_contract']==3 else 'figure_explanation_v2'
+        contract=value['configuration'].get('figure_contract')
+        if contract in (2,3,4):
+            # New freezes follow normal generation; resolution retains the row's
+            # already frozen dependency_engine for every historical version.
+            value['dependency_engine']={2:'figure_explanation_v2',3:'figure_explanation_v5',4:'figure_explanation_v5'}[contract]
         return json_value(value)
 
     def candidates(self,project_id,file_id=None):

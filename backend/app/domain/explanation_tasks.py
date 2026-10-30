@@ -98,6 +98,7 @@ def submit_explanation(project_id, file_id, run_id, request, project_store, idem
             task is None or request.expected_predecessor_revision != task['revision']):
         raise source_conflict()
     predecessor = None
+    replacement_configuration_id = None
     if task:
         if task['status'] != 'failed' or not request.retry:
             return state, 202 if task['status'] in ('queued', 'running') else 200
@@ -105,7 +106,24 @@ def submit_explanation(project_id, file_id, run_id, request, project_store, idem
             return state, 200
         with service.store.connection() as db:
             call = _last_call(db, task['id'])
-        if _can_resume(task, call):
+            if call is None:
+                from app.domain.admin_configuration.bindings import resolve
+                bound = resolve(db, kind='task', object_id=task['id'])
+                # Explicitly enabling NEW tasks never rebinds or retries the old
+                # disabled task. A new request key and exact failed predecessor
+                # identify a separate, newly confirmed outbound request.
+                if bound and not bound['bundle']['models']['real_calls_enabled']:
+                    if (idempotency_key is not None
+                            and request.expected_predecessor_id == task['id']
+                            and request.expected_predecessor_revision == task['revision']):
+                        current = resolve(db)
+                        if (current and current['id'] != bound['id']
+                                and current['bundle']['models']['real_calls_enabled']):
+                            replacement_configuration_id = current['id']
+                    if replacement_configuration_id is None and _can_resume(task, call):
+                        raise StorageError('model_configuration_disabled',
+                            '原任务的配置关闭了真实模型调用；请明确启用新配置，并重新确认外发以创建新任务。',409)
+        if _can_resume(task, call) and replacement_configuration_id is None:
             state['task'] = retry_explanation_task(service.store, task['id'], task['revision'])
             return state, 202
         if call and not call.get('provider_response_id') and call['status'] in ('submitting', 'submission_unknown'):
@@ -128,9 +146,12 @@ def submit_explanation(project_id, file_id, run_id, request, project_store, idem
     frozen_policy = None  # Authoritative policy selection occurs in the task write transaction.
     source_key = f'{figure["id"]}:{request.expected_revision}:{predecessor or "initial"}'
     key = idempotency_key or 'explanation-v1:' + sha256(source_key.encode('utf-8')).hexdigest()
+    configuration_options = ({'expected_configuration_id': replacement_configuration_id}
+                             if replacement_configuration_id is not None else {})
     task, _ = service.create(project_id, typed, idempotency_key=key, explanation_policy=frozen_policy,
                              explanation_predecessor=task['id'] if task else None,
-                             predecessor_revision=request.expected_predecessor_revision, require_external=True)
+                             predecessor_revision=request.expected_predecessor_revision, require_external=True,
+                             **configuration_options)
     state['task'] = task
     return state, 202 if task['status'] in ('queued', 'running') else 200
 

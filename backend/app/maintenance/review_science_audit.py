@@ -5,7 +5,7 @@ from app.domain.review_rounds.science import ScienceService
 
 def audit_review_science(db, *, limit=200):
     checks = []
-    for table in ('review_opinion_task_links', 'review_analysis_adoptions'):
+    for table in ('review_opinion_task_links', 'review_analysis_adoptions', 'review_figure_adoptions'):
         rows = db.execute('SELECT * FROM ' + table + ' ORDER BY id LIMIT %s', (limit,)).fetchall()
         invalid = 0
         for row in rows:
@@ -14,6 +14,8 @@ def audit_review_science(db, *, limit=200):
                 scoped = service.science_row(db, row['project_id'], row['id'], table)
                 if table == 'review_opinion_task_links':
                     service.link_view(db, scoped)
+                elif table == 'review_figure_adoptions':
+                    service.validate_figure_adoption(db,scoped)
                 else:
                     service.validate_adoption(db, scoped)
             except Exception:

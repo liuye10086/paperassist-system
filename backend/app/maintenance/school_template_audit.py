@@ -28,4 +28,14 @@ def audit_school_templates(db,*,limit=200):
                     if (task['status']=='succeeded')!=(version['analysis_json'] is not None):raise ValueError('Publication differs')
             except Exception:invalid+=1
         checks.append(dict(table=table,column='owner_frozen_sources_confirmation',rows=len(rows),total=total,truncated=total>len(rows),invalid=invalid))
+    from app.domain.school_templates.suggestion_service import SuggestionService
+    total=db.execute('SELECT count(*) AS n FROM school_rule_suggestions').fetchone()['n']
+    rows=db.execute('SELECT id,project_id,user_id FROM school_rule_suggestions ORDER BY id LIMIT %s',(limit,)).fetchall();invalid=0
+    for row in rows:
+        try:
+            advice=SuggestionService(scoped_store(row['user_id'],db.config));saved=advice.suggestion_row(db,row['project_id'],row['id'])
+            task=advice.store.require_task(db,saved['task_id']);result=saved['result_json']
+            if (task['status']=='succeeded')!=(result is not None and result.get('validation_status')!='invalid'):raise ValueError('School advice publication differs')
+        except Exception:invalid+=1
+    checks.append(dict(table='school_rule_suggestions',column='owner_frozen_notes_artifact',rows=len(rows),total=total,truncated=total>len(rows),invalid=invalid))
     return checks

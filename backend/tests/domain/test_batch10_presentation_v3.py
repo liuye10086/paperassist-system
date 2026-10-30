@@ -131,12 +131,12 @@ def test_projection_family_axes_and_legend_use_column_aliases(kind):
 def test_explanation_version_upgrade_keeps_historical_v2_binding():
     from app.domain.figure_workbench.explanations import version_for
     assert version_for({'engine': {'id': 'openai_figure_workbench_v2'}, 'presentation': {'schema_version': 1}}) == 'figure_explanation_v2'
-    assert version_for({'engine': {'id': 'openai_figure_workbench_v3'}, 'presentation': {'schema_version': 2}}) == 'figure_explanation_v4'
+    assert version_for({'engine': {'id': 'openai_figure_workbench_v3'}, 'presentation': {'schema_version': 2}}) == 'figure_explanation_v5'
 
 
 def test_prompt_rejects_noninteger_or_unknown_presentation_version():
     from app.core.exceptions import StorageError
-    for version in (True, 1.0, '2', 3):
+    for version in (True, 1.0, '2', 4):
         with pytest.raises(StorageError):
             tasks.prompt_version({'presentation': {'schema_version': version}})
 

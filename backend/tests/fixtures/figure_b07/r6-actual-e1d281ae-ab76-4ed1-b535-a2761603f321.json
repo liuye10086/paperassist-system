@@ -1,0 +1,255 @@
+{
+  "task_id": "e1d281ae-ab76-4ed1-b535-a2761603f321",
+  "response_id": "resp_0130513e1e9acb38006ae2911f327887d0bfbc7b8c84071712",
+  "raw_file": "raw/000142-retrieve.response.body",
+  "raw_sha256": "9d68c0fae1ef6f3f5dd3b3093e8933b8094df511941f5e6f0e4a05bc4fbe2aec",
+  "receipt_seq": 144,
+  "payload": {
+    "facts": {
+      "axis.x.label": {
+        "label": "横轴字段",
+        "raw": "",
+        "value": "不适用（未分组）"
+      },
+      "axis.x.unit": {
+        "label": "横轴单位",
+        "raw": "",
+        "value": "单位未提供"
+      },
+      "axis.y.label": {
+        "label": "纵轴字段",
+        "raw": "X",
+        "value": "X"
+      },
+      "axis.y.unit": {
+        "label": "纵轴单位",
+        "raw": "",
+        "value": "单位未提供"
+      },
+      "data.excluded": {
+        "label": "投影排除记录",
+        "raw": 1,
+        "value": "1"
+      },
+      "data.original_n": {
+        "label": "原统计有效记录",
+        "raw": 6,
+        "value": "6"
+      },
+      "data.total": {
+        "label": "投影人群记录",
+        "raw": 7,
+        "value": "7"
+      },
+      "data.valid": {
+        "label": "投影有效记录",
+        "raw": 6,
+        "value": "6"
+      },
+      "design.status": {
+        "label": "研究设计资料状态",
+        "raw": true,
+        "value": "用户提供研究设计文字，尚未经程序验证；未外发该原文"
+      },
+      "design.structure": {
+        "label": "观察结构及核查限制",
+        "raw": "independent",
+        "value": "用户声明独立观察；程序未验证独立性"
+      },
+      "figure.title": {
+        "label": "图标题",
+        "raw": "合成数值分布",
+        "value": "合成数值分布"
+      },
+      "limitation.0": {
+        "label": "适用限制",
+        "raw": "绘图投影仅为描述统计，不提供新增P值或置信区间。",
+        "value": "绘图投影仅为描述统计，不提供新增P值或置信区间"
+      },
+      "limitation.1": {
+        "label": "适用限制",
+        "raw": "原统计有效记录数与投影有效记录数属于不同人群口径；记录数不等于独立受试者人数。",
+        "value": "原统计有效记录数与投影有效记录数属于不同人群口径；记录数不等于独立受试者人数"
+      },
+      "limitation.2": {
+        "label": "适用限制",
+        "raw": "核密度受带宽与观察范围截断影响，不是推断检验或发生概率。",
+        "value": "核密度受带宽与观察范围截断影响，不是推断检验或发生概率"
+      },
+      "limitation.3": {
+        "label": "适用限制",
+        "raw": "研究设计文字已提供但未经程序验证且未外发；样本来源、实验步骤及测量背景仍需核查。",
+        "value": "研究设计文字已提供但未经程序验证且未外发；样本来源、实验步骤及测量背景仍需核查"
+      },
+      "limitation.4": {
+        "label": "适用限制",
+        "raw": "用户声明独立观察；程序未验证独立性",
+        "value": "用户声明独立观察；程序未验证独立性"
+      },
+      "limitation.5": {
+        "label": "适用限制",
+        "raw": "不能据此推断因果。",
+        "value": "不能据此推断因果"
+      },
+      "limitation.6": {
+        "label": "适用限制",
+        "raw": "完整有序坐标保留保存精度；其它投影摘要最多显示8位有效数字，原统计摘要最多显示6位有效数字，完整数值以保存结果为准。",
+        "value": "完整有序坐标保留保存精度；其它投影摘要最多显示8位有效数字，原统计摘要最多显示6位有效数字，完整数值以保存结果为准"
+      },
+      "limitation.7": {
+        "label": "适用限制",
+        "raw": "数值与事实引用已由程序填入并核对；语义和研究适用性仍需人工审阅。",
+        "value": "数值与事实引用已由程序填入并核对；语义和研究适用性仍需人工审阅"
+      },
+      "limitation.8": {
+        "label": "适用限制",
+        "raw": "本解释仅核对冻结统计与元数据，未验证图片像素、图中文字或视觉正确性；AI初稿仍需人工审阅。",
+        "value": "本解释仅核对冻结统计与元数据，未验证图片像素、图中文字或视觉正确性；AI初稿仍需人工审阅"
+      },
+      "method.rule.missing_group": {
+        "label": "缺组处理规则",
+        "raw": "block",
+        "value": "缺组时阻断"
+      },
+      "method.summary": {
+        "label": "投影计算方法与限制",
+        "raw": "等权Gaussian核密度，Scott带宽，256点网格，在观察范围截断，采用共用密度宽度；叠加线性插值四分位数，密度不是发生概率。绘图投影为描述性结果，不增加统计检验或因果证据。",
+        "value": "等权Gaussian核密度，Scott带宽，256点网格，在观察范围截断，采用共用密度宽度；叠加线性插值四分位数，密度不是发生概率。绘图投影为描述性结果，不增加统计检验或因果证据"
+      },
+      "projection.0.bandwidth": {
+        "label": "核密度带宽",
+        "raw": 1.307385825514815,
+        "value": "1.3073858"
+      },
+      "projection.0.max": {
+        "label": "观察最大值",
+        "raw": 6.0,
+        "value": "6"
+      },
+      "projection.0.median": {
+        "label": "中位数",
+        "raw": 3.5,
+        "value": "3.5"
+      },
+      "projection.0.min": {
+        "label": "观察最小值",
+        "raw": 1.0,
+        "value": "1"
+      },
+      "projection.0.n": {
+        "label": "投影记录数",
+        "raw": 6,
+        "value": "6"
+      },
+      "projection.0.q1": {
+        "label": "下四分位数",
+        "raw": 2.25,
+        "value": "2.25"
+      },
+      "projection.0.q3": {
+        "label": "上四分位数",
+        "raw": 4.75,
+        "value": "4.75"
+      },
+      "purpose.kind": {
+        "label": "图形类型",
+        "raw": "violin",
+        "value": "描述性小提琴图"
+      },
+      "scope.variables": {
+        "label": "变量范围",
+        "raw": [
+          {
+            "column": "A",
+            "label": "X",
+            "role": "y",
+            "unit": ""
+          }
+        ],
+        "value": "纵轴字段: X [A] (单位未提供)"
+      }
+    },
+    "figure_explanation_contract": 5,
+    "language": "zh-CN",
+    "required_references": {
+      "data": [
+        "data.valid",
+        "data.total",
+        "data.excluded",
+        "data.original_n",
+        "axis.x.label",
+        "axis.x.unit",
+        "axis.y.label",
+        "axis.y.unit"
+      ],
+      "interpretation": [
+        "limitation.0",
+        "limitation.1",
+        "limitation.2",
+        "limitation.3",
+        "limitation.4",
+        "limitation.5",
+        "limitation.6",
+        "limitation.7",
+        "limitation.8"
+      ],
+      "methods": [
+        "method.summary",
+        "method.rule.missing_group",
+        "design.structure",
+        "design.status"
+      ],
+      "paper_text": [
+        "scope.variables",
+        "purpose.kind",
+        "data.valid",
+        "method.summary",
+        "projection.0.n",
+        "projection.0.q1",
+        "projection.0.q3",
+        "projection.0.max",
+        "projection.0.min",
+        "projection.0.median",
+        "projection.0.bandwidth",
+        "limitation.0",
+        "limitation.1",
+        "limitation.2",
+        "limitation.3",
+        "limitation.4",
+        "limitation.5",
+        "limitation.6",
+        "limitation.7",
+        "limitation.8"
+      ],
+      "purpose": [
+        "scope.variables",
+        "purpose.kind"
+      ],
+      "results": [
+        "projection.0.n",
+        "projection.0.q1",
+        "projection.0.q3",
+        "projection.0.max",
+        "projection.0.min",
+        "projection.0.median",
+        "projection.0.bandwidth"
+      ]
+    },
+    "schema_version": 2
+  },
+  "draft": {
+    "purpose": "本图用于描述{{scope.variables}}，采用的图形类型为{{purpose.kind}}。",
+    "interpretation": "解释这些结果时应考虑{{limitation.0}}。记录口径的解释须遵循{{limitation.1}}。密度形态的解释须考虑{{limitation.2}}。研究背景的核查须考虑{{limitation.3}}。观察结构的解释须考虑{{limitation.4}}。科学结论的边界为{{limitation.5}}。数值精度的使用须遵循{{limitation.6}}。事实核对与语义审阅的边界为{{limitation.7}}。图像核查与初稿使用的边界为{{limitation.8}}。",
+    "results": "保存的投影记录数为{{projection.0.n}}。保存的下四分位数为{{projection.0.q1}}，上四分位数为{{projection.0.q3}}。保存的观察最大值为{{projection.0.max}}，观察最小值为{{projection.0.min}}。保存的中位数为{{projection.0.median}}。保存的核密度带宽为{{projection.0.bandwidth}}。",
+    "paper_text": "本图描述{{scope.variables}}，采用{{purpose.kind}}，投影有效记录数为{{data.valid}}。保存的计算方法为{{method.summary}}。保存的投影记录数为{{projection.0.n}}，下四分位数为{{projection.0.q1}}，上四分位数为{{projection.0.q3}}，观察最大值为{{projection.0.max}}，观察最小值为{{projection.0.min}}，中位数为{{projection.0.median}}，核密度带宽为{{projection.0.bandwidth}}。使用这些描述性结果时须考虑{{limitation.0}}。记录口径的解释须遵循{{limitation.1}}。密度形态的解释须考虑{{limitation.2}}。研究背景的核查须考虑{{limitation.3}}。观察结构的解释须考虑{{limitation.4}}。科学结论的边界为{{limitation.5}}。数值精度的使用须遵循{{limitation.6}}。事实核对与语义审阅的边界为{{limitation.7}}。图像核查与初稿使用的边界为{{limitation.8}}。",
+    "methods": "本图采用的已保存计算方法为{{method.summary}}。缺组处理遵循{{method.rule.missing_group}}。观察结构及核查限制为{{design.structure}}。研究设计资料状态为{{design.status}}。",
+    "data": "本图使用的投影有效记录数为{{data.valid}}，投影人群记录数为{{data.total}}，投影排除记录数为{{data.excluded}}。原统计有效记录数另记为{{data.original_n}}。横轴字段标注为{{axis.x.label}}，横轴单位标注为{{axis.x.unit}}。纵轴字段标注为{{axis.y.label}}，纵轴单位标注为{{axis.y.unit}}。"
+  },
+  "source_pins": {
+    "frozen/e1d281ae-ab76-4ed1-b535-a2761603f321/data.json": "5b8811742f54dee980e52d5a306879674af3ef27ef738b308ac5986a1312d60e",
+    "frozen/e1d281ae-ab76-4ed1-b535-a2761603f321/expected.json": "cc5d09574550adfe0403c08065b85fe23488f75c27e7007bdc0772ff4b6038dc",
+    "frozen/e1d281ae-ab76-4ed1-b535-a2761603f321/instructions.txt": "afbf757ca55cc65d8b5dfffa1f57cee3c8ee478827507f56bac93f9e861d6a3b",
+    "frozen/e1d281ae-ab76-4ed1-b535-a2761603f321/policy-snapshot.json": "58e72f61953721f22abfe1edd107fbf9e08c967627d1e781e1b4f199b962ee39",
+    "frozen/e1d281ae-ab76-4ed1-b535-a2761603f321/task-snapshot.json": "f84666568ac56bae8fe4e0aa7c05ff6c28b092163be574a23c69d94b2612f0cf"
+  }
+}

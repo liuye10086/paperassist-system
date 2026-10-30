@@ -3,6 +3,7 @@ import json
 import math
 import re
 from typing import TYPE_CHECKING
+from weakref import WeakKeyDictionary
 
 from openai import APIConnectionError, APIStatusError, DefaultHttpxClient, OpenAI
 
@@ -14,6 +15,12 @@ if TYPE_CHECKING:
 
 OFFICIAL_BASE_URL = 'https://api.openai.com/v1'
 RESPONSE_ID = re.compile(r'resp_[A-Za-z0-9_-]{1,200}\Z')
+_TRANSPORT_ORIGINS = WeakKeyDictionary()
+
+
+def provider_transport_origin(provider):
+    """Constructor-owned evidence; an adapter attribute or payload cannot set it."""
+    return _TRANSPORT_ORIGINS.get(provider, 'unverified_injected')
 
 
 class ModelProviderError(Exception):
@@ -55,15 +62,21 @@ def canonical_payload(payload: dict) -> str:
 
 
 class OpenAIResponsesProvider:
+    def _default_http_client(self):
+        return DefaultHttpxClient(follow_redirects=False)
+
     def __init__(self, *, api_key: str, http_client=None):
         configure_safe_logging()
         # No arbitrary endpoint, SDK kwargs, tools, or environment-selected URL.
         if http_client is None:
-            http_client = DefaultHttpxClient(follow_redirects=False)
+            http_client = self._default_http_client()
+            origin = 'official_default'
         else:
             http_client.follow_redirects = False
+            origin = 'unverified_injected'
         self.client = OpenAI(api_key=api_key, base_url=OFFICIAL_BASE_URL,
                              max_retries=0, timeout=45, http_client=http_client)
+        _TRANSPORT_ORIGINS[self] = origin
 
     def create(self, *, policy: 'ModelPolicy', instructions: str, payload: dict) -> dict:
         if policy.tools:
@@ -87,6 +100,9 @@ class OpenAIResponsesProvider:
                          'analysis_recommendation_v3': RecommendationDraftV3,
                          'analysis_recommendation_v4': RecommendationDraftV4,'analysis_recommendation_v5':RecommendationDraftV5}[policy.output_format]
                 options['text']={'format':{'type':'json_schema','name':'analysis_recommendation','strict':True,'schema':draft.model_json_schema()}}
+            elif getattr(policy, 'output_format', 'text') == 'school_rule_suggestions_v1':
+                from app.domain.school_templates.suggestion_contracts import SuggestionDraft
+                options['text']={'format':{'type':'json_schema','name':'school_rule_suggestions_v1','strict':True,'schema':SuggestionDraft.model_json_schema()}}
             elif getattr(policy, 'output_format', 'text') != 'text':
                 raise ModelProviderError('model_input_invalid')
             response = self.client.responses.create(

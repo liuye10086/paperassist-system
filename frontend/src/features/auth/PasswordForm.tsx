@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState, type FormEvent } from 'react'
 import { apiFetch, captureApiSession, onApiSessionChanged } from '../../shared/api/client'
-import { message, useI18n } from '../../shared/i18n'
+import { apiError, message, useI18n } from '../../shared/i18n'
 
 type Props = { mode: 'change' | 'reset'; onCancel: () => void; onSuccess: () => void }
 const passwordRule = '新密码须为12–128个字符。'
@@ -15,7 +15,7 @@ async function passwordError(response: Response) {
     case 'invalid_current_password': return '当前密码不正确。'
     case 'invalid_recovery_code': return '恢复码无效或已过期，请联系管理员重新核验并签发。'
     case 'invalid_request': return `输入格式有误，${passwordRule}`
-    default: return '密码更新失败，请稍后重试。'
+    default: return apiError(body, '密码更新失败，请稍后重试。')
   }
 }
 

@@ -1,5 +1,6 @@
 """Owner-scoped immutable figure configurations and independent projection receipts."""
 from copy import deepcopy
+from contextlib import nullcontext
 from datetime import datetime,timezone
 from hashlib import sha256
 from uuid import uuid4
@@ -113,7 +114,7 @@ class FigureWorkbenchStore:
         from app.domain.artifact_contracts import artifact_language,figure_kind
         primary=figure_kind(result)
         if config['language']!=artifact_language(result) or config['figure_kind'] not in (primary,'line','bar','violin') and not (config['figure_kind']=='boxplot' and primary in ('group_boxplot','paired_connected')):raise StorageError('task_input_invalid','图型或语言与已确认结果不匹配。',422)
-        provenance={'source':result['source'],'result_sha256':digest(result),'analysis_plan':result['analysis_plan'],'figure_contract':3}
+        provenance={'source':result['source'],'result_sha256':digest(result),'analysis_plan':result['analysis_plan'],'figure_contract':4}
         with self.tasks.connection(write=True) as db:
             self.tasks.require_project(db,project_id);now=datetime.now(timezone.utc);parent=None
             if request.configuration_id:
@@ -176,9 +177,10 @@ class FigureWorkbenchStore:
             payload,expected=enrich_material(payload,expected,config=row['config_json'],result=result,projection=computed,fields={f['column']:f for f in fields_for(sheet)},contract=contract_version(row['source_json']))
         return row,result,computed,payload,expected
 
-    def check(self,project_id,file_id,run_id,version_id):
+    def check(self,project_id,file_id,run_id,version_id,*,db=None):
+        """Join a caller's transaction when its intent must commit with the queue."""
         result,_=load_source(self.assets,project_id,file_id,run_id)
-        with self.tasks.connection(write=True) as db:
+        with (nullcontext(db) if db is not None else self.tasks.connection(write=True)) as db:
             row=self._version(db,project_id,file_id,run_id,version_id,lock=True)
             if row['source_json']['result_sha256']!=digest(result):raise source_conflict()
             projection=self._projection(db,row)

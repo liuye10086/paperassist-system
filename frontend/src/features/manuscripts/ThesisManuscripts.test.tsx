@@ -48,10 +48,10 @@ it('keeps missing school binding visible and blocks submission with a school tem
  vi.stubGlobal('fetch',vi.fn(async(url:string)=>Response.json(url.endsWith('/candidates')?{...candidatesFixture,project_type:'thesis',thesis:{...readiness,ready:false,confirmation_id:null,blocking_reasons:['请先绑定学校模板'],chapters:[]}}:{items:[]})))
  render(<ProjectManuscripts {...props}/>);expect(await screen.findByText('请先绑定学校模板')).toBeTruthy();expect(screen.getByRole('link',{name:'配置学校模板'}).getAttribute('href')).toContain('section=school-templates');expect(screen.getByRole('button',{name:'预览事实稿'}).matches(':disabled')).toBe(true)
 })
-it('uses actual school rewrite ids and hides the SCI live authorization entry',async()=>{
+it('uses actual school rewrite ids and exposes controlled writing for the school contract',async()=>{
  const fetcher=vi.fn(async(_url:string,init?:RequestInit)=>{if(init?.method)throw Error('network');return Response.json({items:[]})});vi.stubGlobal('fetch',fetcher)
  render(<ManuscriptWriting projectId="p1" manuscriptId="m1" version={{...manuscriptFixture.versions[0],snapshot} as unknown as ManuscriptVersion} onPublished={vi.fn()}/>);
- expect(screen.queryByRole('button',{name:'受控写作与人工审核'})).toBeNull()
+ expect(screen.getByRole('button',{name:'受控写作与人工审核'})).toBeTruthy()
  fireEvent.change(screen.getByLabelText('写作方式'),{target:{value:'rewrite_section'}})
  fireEvent.change(screen.getByLabelText('目标章节'),{target:{value:'chapter-method'}})
  fireEvent.change(screen.getByLabelText('自由写作要求'),{target:{value:'核对方法'}})
@@ -59,12 +59,12 @@ it('uses actual school rewrite ids and hides the SCI live authorization entry',a
  expect(JSON.parse(String(fetcher.mock.calls.find(([,init])=>init?.method)?.[1]?.body)).target_section).toBe('chapter-method')
 })
 
-it('opens fixed school export while keeping live authorization hidden',async()=>{
+it('opens fixed school export while keeping controlled writing available',async()=>{
  const version={...manuscriptFixture.versions[0],snapshot,input:{...manuscriptFixture.versions[0].input,thesis:{confirmation_id:'confirm1',profile_revision:2,chapter_mappings:chapters.map(c=>({chapter_id:c.id,purpose:c.purpose,output_language:c.output_language,result_group_ids:c.result_group_ids}))}}}
  vi.stubGlobal('fetch',vi.fn(async(url:string)=>Response.json(url.endsWith('/candidates')?{...candidatesFixture,project_type:'thesis',thesis:readiness}:url.endsWith('/manuscripts')?{items:[{...manuscriptFixture,versions:[version]}]}:url.includes('/context?')?reviewContext:{items:[]})))
  render(<ProjectManuscripts {...props}/>);fireEvent.click(await screen.findByRole('button',{name:'查看版本 1'}))
  expect(await screen.findByRole('heading',{name:'学校固定版本导出'})).toBeTruthy()
- expect(screen.getByRole('link',{name:'下载 DOCX'})).toBeTruthy();expect(screen.queryByRole('button',{name:'受控写作与人工审核'})).toBeNull()
+ expect(screen.getByRole('link',{name:'下载 DOCX'})).toBeTruthy();expect(screen.getByRole('button',{name:'受控写作与人工审核'})).toBeTruthy()
 })
 it('shows actual chapter titles in review and finds methods by purpose',async()=>{
  vi.stubGlobal('fetch',vi.fn(async(url:string)=>Response.json(url.includes('/context?')?{...reviewContext,facts:[],relationships:{...reviewContext.relationships,paragraphs:snapshot.sections!.map(s=>({id:s.paragraphs[0].id,section_id:s.id,purpose:s.purpose,source_ids:[],figure_ids:[]})),methods:[{id:'p0',section_id:'chapter-method',purpose:'materials_and_methods',source_ids:[],figure_ids:[]}],figures:[]}}:{items:[]})))

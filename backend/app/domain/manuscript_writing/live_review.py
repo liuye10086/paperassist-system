@@ -9,10 +9,23 @@ from app.domain.literature_evidence.service import request_data
 from app.domain.manuscripts.service import now
 from .service import WritingService
 from .authorization import LiveWritingService
-from .live_review_contracts import ScientificReviewRequest
+from .live_review_contracts import ScientificReviewRequest,scientific_request_model
 from .live_review_candidate import body_digest,claim_context,prepare,citation_body,finish,target_ids
 from .context import WritingCitationScopeError
 from .numeric_review import NUMERIC_VERSION,validation_version
+
+def school_inherited(service,db,project,identity,snapshot):
+    if not snapshot['base_snapshot'].get('thesis_context') or snapshot['base_snapshot'].get('writing_provenance',{}).get('schema_version')!=2:return None
+    from app.domain.manuscript_review.writing_context import load_writing_context
+    return load_writing_context(service.manuscripts,db,project,identity,snapshot['base_snapshot'])
+
+
+def claim_language(candidate,paragraph_id):
+    if candidate.get('thesis_context'):
+        from .school_live import chapter_language
+        return chapter_language(candidate,paragraph_id)
+    return candidate['output_language']
+
 
 def require_language_review(db,service,project,review,request=None,*,for_admission=False):
     from .language_service import LanguageReviewService
@@ -46,11 +59,14 @@ class LiveReviewService:
             row,task=self.raw(db,project,identity,request_id);snap=task['input_snapshot']
             bundle=LiveWritingService(self.assets).bundle(db,project,snap['execution']['bundle_id'])
             reviews=db.execute('SELECT id FROM manuscript_writing_reviews WHERE request_id=%s ORDER BY created_at,id',(request_id,)).fetchall()
-            return dict(schema_version=2,request_id=request_id,candidate=row['candidate_json'],candidate_sha256=row['candidate_sha256'],
+            result=dict(schema_version=2,request_id=request_id,candidate=row['candidate_json'],candidate_sha256=row['candidate_sha256'],
                 body_sha256=body_digest(row['candidate_json']),required_paragraph_ids=sorted(target_ids(row['candidate_json'],snap)),
                 claim_contexts={pid:claim_context(request_id,row['candidate_sha256'],pid) for pid in target_ids(row['candidate_json'],snap)},
                 local_manifest=bundle['local_manifest'],base_revision=snap['input']['base_revision'],
                 reviews=[self.view(self.row(db,project,identity,request_id,r['id'])) for r in reviews],language_status='pending')
+            if row['candidate_json'].get('thesis_context'):
+                result.update(paragraph_languages={p['id']:s['output_language'] for s in row['candidate_json']['sections'] for p in s['paragraphs']},abstract_chapter_ids=[s['id'] for s in row['candidate_json']['sections'] if s['purpose']=='abstract'])
+            return result
 
     def resolve_claim(self,db,project,request_id,raw_sha,decision,text,language):
         claim=decision['claim'];_,version=self.citations.evidence.claim_row(db,project,claim['claim_id'],claim['claim_revision'],current=True)
@@ -66,7 +82,7 @@ class LiveReviewService:
         row=db.execute('SELECT * FROM manuscript_writing_reviews WHERE id=%s AND request_id=%s AND manuscript_id=%s AND project_id=%s AND user_id=%s',
             (review_id,request_id,identity,project,self.store.user_id)).fetchone()
         if not row: raise StorageError('task_not_found','审后版本不存在。',404)
-        body=request_data(ScientificReviewRequest,row['request_json'])
+        body=request_data(scientific_request_model(row['request_json']),row['request_json'])
         if (body!=row['request_json'] or digest(body)!=row['request_digest'] or row['candidate_sha256']!=body['candidate_sha256']
             or digest(row['reviewed_candidate_json'])!=row['reviewed_candidate_sha256']
             or row['review_sha256']!=artifact_sha(request_id,row['candidate_sha256'],body,row['reviewed_candidate_json'],row['report_json'])
@@ -100,13 +116,13 @@ class LiveReviewService:
             part=parts[0];claim=decision['claim']
             if any(part[k]!=claim[k] for k in ('claim_id','claim_revision')) or [{k:b[k] for k in ('review_id','metadata_version_id')} for b in part['bindings']]!=claim['bindings']: raise source_conflict()
             _,version=self.citations.evidence.claim_row(db,project,claim['claim_id'],claim['claim_revision'])
-            if version['content']!=text or version['output_language']!=raw['candidate_json']['output_language'] or version['context']!=claim_context(request_id,raw['candidate_sha256'],decision['paragraph_id']): raise source_conflict()
+            if version['content']!=text or version['output_language']!=claim_language(raw['candidate_json'],decision['paragraph_id']) or version['context']!=claim_context(request_id,raw['candidate_sha256'],decision['paragraph_id']): raise source_conflict()
             return part
         try:
             version=validation_version(review['report_json'].get('numeric_validation_version',1))
             candidate,parts=prepare(raw['candidate_json'],snap,bundle,review['request_json'],frozen_claim,numeric_version=NUMERIC_VERSION if strict_numeric else version)
             _,mapping=citation_body(candidate,parts)
-            rebuilt,report=finish(candidate,raw['candidate_json'],snap,review['request_json'],citation,mapping,review['id'],numeric_version=version)
+            rebuilt,report=finish(candidate,raw['candidate_json'],snap,review['request_json'],citation,mapping,review['id'],numeric_version=version,school_bundle=bundle,inherited_context=school_inherited(self,db,project,identity,snap))
             if rebuilt!=review['reviewed_candidate_json'] or report!=review['report_json']: raise source_conflict()
             if strict_numeric:
                 seen=set(seen or ())
@@ -135,7 +151,7 @@ class LiveReviewService:
             if row['reviewed_candidate_json']!=base:raise source_conflict()
 
     def create(self,project,identity,request_id,request,key):
-        require_key(key);body=request_data(ScientificReviewRequest,request)
+        require_key(key);body=request_data(scientific_request_model(request.model_dump(mode='json') if hasattr(request,'model_dump') else request),request)
         with self.store.connection(write=True) as db:
             self.citations.evidence.lock(db,project)
             raw,task=self.raw(db,project,identity,request_id)
@@ -148,11 +164,11 @@ class LiveReviewService:
             try:
                 self.assert_inherited_numeric_safe(db,project,identity,snap,{request_id})
                 candidate,fragments=prepare(raw['candidate_json'],snap,bundle,body,
-                    lambda decision,text:self.resolve_claim(db,project,request_id,raw['candidate_sha256'],decision,text,raw['candidate_json']['output_language']))
+                    lambda decision,text:self.resolve_claim(db,project,request_id,raw['candidate_sha256'],decision,text,claim_language(raw['candidate_json'],decision['paragraph_id'])))
                 citation_input,mapping=citation_body(candidate,fragments)
                 citation=self.citations.create_draft_in_transaction(db,project,citation_input,'writing-review:'+review_id)[0]['snapshot'] if citation_input['paragraphs'] else None
                 if citation and self.citations.current_changes(db,project,citation): raise source_conflict()
-                candidate,report=finish(candidate,raw['candidate_json'],snap,body,citation,mapping,review_id)
+                candidate,report=finish(candidate,raw['candidate_json'],snap,body,citation,mapping,review_id,school_bundle=bundle,inherited_context=school_inherited(self,db,project,identity,snap))
             except WritingCitationScopeError as exc:
                 raise StorageError('manuscript_writing_citation_scope','单章重写不能更改非目标章节或引用表；请改为全稿处理并重新审核。',409) from exc
             except (ValueError,KeyError,TypeError) as exc: raise invalid(exc) from exc
@@ -169,7 +185,7 @@ class LiveReviewService:
         snap=task['input_snapshot'];bundle=LiveWritingService(self.assets).bundle(db,project,snap['execution']['bundle_id'])
         try:
             candidate,fragments=prepare(raw['candidate_json'],snap,bundle,review['request_json'],
-                lambda decision,text:self.resolve_claim(db,project,request_id,raw['candidate_sha256'],decision,text,raw['candidate_json']['output_language']))
+                lambda decision,text:self.resolve_claim(db,project,request_id,raw['candidate_sha256'],decision,text,claim_language(raw['candidate_json'],decision['paragraph_id'])))
             citation_input,mapping=citation_body(candidate,fragments);citation=review['reviewed_candidate_json']['citation_snapshot']
             if citation:
                 root,saved=self.citations.draft_row(db,project,citation['draft_id'],citation['revision'])
@@ -178,7 +194,7 @@ class LiveReviewService:
                 rebuilt.update(**{k:citation[k] for k in ('draft_id','version_id','revision')})
                 if rebuilt!=citation: raise source_conflict()
             elif citation_input['paragraphs']: raise source_conflict()
-            rebuilt,report=finish(candidate,raw['candidate_json'],snap,review['request_json'],citation,mapping,review['id'],numeric_version=validation_version(review['report_json'].get('numeric_validation_version',1)))
+            rebuilt,report=finish(candidate,raw['candidate_json'],snap,review['request_json'],citation,mapping,review['id'],numeric_version=validation_version(review['report_json'].get('numeric_validation_version',1)),school_bundle=bundle,inherited_context=school_inherited(self,db,project,identity,snap))
             if rebuilt!=review['reviewed_candidate_json'] or report!=review['report_json']: raise source_conflict()
             self.assert_inherited_numeric_safe(db,project,identity,snap,{request_id})
         except (ValueError,KeyError,TypeError) as exc: raise invalid(exc) from exc

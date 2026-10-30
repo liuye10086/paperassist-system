@@ -1,5 +1,6 @@
 from typing import Literal
 from pydantic import BaseModel,ConfigDict,Field,model_validator
+from .front_matter import FrontMatter
 
 WORKFLOW='school_template_v1'
 PARSER_VERSION='school-template-openxml-v1'
@@ -49,6 +50,7 @@ class TextDecision(StrictModel):
     source_sha256:str=Field(pattern=r'^[0-9a-f]{64}$')
 
 class ConfirmRequest(StrictModel):
+    front_matter:FrontMatter|None=None
     text_decisions:list[TextDecision]=Field(default_factory=list,max_length=2)
     analysis_sha256:str=Field(pattern=r'^[0-9a-f]{64}$')
     decisions:list[Decision]=Field(max_length=500)
@@ -64,6 +66,17 @@ class ConfirmRequest(StrictModel):
 class BindingRequest(StrictModel):
     confirmation_id:str=Field(min_length=1,max_length=64)
     expected_revision:int=Field(ge=0,le=2147483646)
+
+class SuggestionDecision(StrictModel):
+    candidate_id:str=Field(min_length=1,max_length=100)
+    action:Literal['accept','reject','defer']
+    reason:str=Field(min_length=1,max_length=2000)
+
+class ConfirmRequestV2(ConfirmRequest):
+    schema_version:Literal[2]
+    suggestion_id:str=Field(min_length=1,max_length=64)
+    suggestion_artifact_sha256:str=Field(pattern=r'^[0-9a-f]{64}$')
+    suggestion_decisions:list[SuggestionDecision]=Field(min_length=1,max_length=300)
 
 class SchoolTemplateInputVersion(StrictModel):
     kind:Literal['school_template']='school_template'

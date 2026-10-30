@@ -10,6 +10,21 @@ from urllib.parse import quote
 router=APIRouter(prefix='/api/v1/projects/{project_id}/manuscripts',tags=['SCI事实稿'])
 Revision=Annotated[int,Path(ge=1,le=2147483647)]
 
+from app.domain.manuscripts.analysis_selection import AnalysisSelectionRequest,select,options
+from app.domain.manuscripts.collection_selection import CollectionSelectionRequest,select as select_collection
+
+@router.post('/collection-report-selection')
+def collection_report_selection(project_id:str,request:CollectionSelectionRequest,store:Store):
+    return select_collection(ManuscriptService(store),project_id,request)
+
+@router.get('/analysis-options')
+def analysis_options(project_id:str,file_id:str,analysis_run_id:str,store:Store):
+    return options(ManuscriptService(store),project_id,file_id,analysis_run_id)
+
+@router.post('/analysis-selection')
+def analysis_selection(project_id:str,request:AnalysisSelectionRequest,store:Store):
+    return select(ManuscriptService(store),project_id,request)
+
 @router.get('/config')
 def config(project_id:str,store:Store): return ManuscriptService(store).config(project_id)
 
@@ -37,6 +52,10 @@ def create_version(project_id:str,manuscript_id:str,request:ManuscriptRequest,re
 
 @router.get('/{manuscript_id}/versions/{revision}')
 def version(project_id:str,manuscript_id:str,revision:Revision,store:Store): return ManuscriptService(store).get(project_id,manuscript_id,revision)
+
+@router.get('/{manuscript_id}/versions/{revision}/writing-materials')
+def writing_materials(project_id:str,manuscript_id:str,revision:Revision,store:Store):
+    return ManuscriptService(store).writing_materials(project_id,manuscript_id,revision)
 
 @router.post('/{manuscript_id}/versions/{revision}/exports',status_code=201)
 def create_export(project_id:str,manuscript_id:str,revision:Revision,request:ExportRequest,response:Response,store:Store,idempotency_key:Key):

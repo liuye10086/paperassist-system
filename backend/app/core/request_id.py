@@ -143,7 +143,13 @@ class RequestIdMiddleware:
                 route=scope.get('route')
                 if route is not None:route_template=getattr(route,'path',None)
                 if route_template is None:
-                    for candidate in getattr(scope.get('app'),'routes',[]):
+                    candidates=[]
+                    for branch in getattr(scope.get('app'),'routes',[]):
+                        # FastAPI may retain included routers as wrappers without
+                        # a path. Match their registered effective route contexts.
+                        contexts=getattr(branch,'effective_route_contexts',None)
+                        candidates.extend(contexts() if callable(contexts) else [branch])
+                    for candidate in candidates:
                         match,_=candidate.matches(scope)
                         if match in (Match.FULL,Match.PARTIAL):
                             route_template=getattr(candidate,'path',None)
@@ -163,6 +169,11 @@ class RequestIdMiddleware:
                 event=dict(request_id=request_id,route_template=route_template,method=method,
                     status=response_status,elapsed_ms=max(0,int((time.monotonic()-began)*1000)),
                     user_id=user.get('id'),error_code=error_code,created_at=created_at)
+                # Never inspect a request body for telemetry. Only the validated
+                # recovery endpoint may supply this bounded intent.
+                intent=state.get('task_operation')
+                event['task_operation']=(intent if method=='POST' and
+                    route_template=='/api/v1/tasks/{task_id}/resume' and intent in ('retry','resume') else None)
                 await run_in_threadpool(admin_operations.record_request,event,task_candidate)
             except Exception:
                 # Never change the response, recurse into API logging, or emit

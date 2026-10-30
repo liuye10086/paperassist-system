@@ -8,6 +8,7 @@ COPY backend/app ./app
 COPY backend/alembic ./alembic
 COPY backend/alembic.ini backend/requirements.txt ./
 COPY frontend/dist ./static
+COPY third_party ./third_party
 COPY infra/api/release_web.py infra/api/release_entry.py ./
 COPY source-manifest.json ./source-manifest.json
 RUN python release_entry.py requirements

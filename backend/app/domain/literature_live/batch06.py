@@ -172,12 +172,14 @@ def input_allowance(instructions,payload,*,text=None):
 class Batch06ModelProvider(OpenAIResponsesProvider):
     source_kind='stage05_batch06_public'
 
+    def _default_http_client(self):
+        return DefaultHttpxClient(trust_env=False,follow_redirects=False)
+
     def __init__(self,ledger,*,task_id,snapshot_digest,api_key,http_client=None):
         if type(ledger) is not Batch06Ledger:raise LivePolicyError('batch06_manifest_invalid')
         self.ledger,self.task_id,self.snapshot_digest=ledger,task_id,snapshot_digest
         self._authorization=None
         self.policy=ModelPolicy.model_validate(MODEL_POLICY)
-        if http_client is None:http_client=DefaultHttpxClient(trust_env=False,follow_redirects=False)
         super().__init__(api_key=api_key,http_client=http_client)
 
     def authorize_task(self,task,*,config,instructions,payload):

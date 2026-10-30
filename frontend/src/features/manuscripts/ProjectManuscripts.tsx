@@ -11,25 +11,31 @@ import ManuscriptPreview from './ManuscriptPreview'
 import ManuscriptExports from './ManuscriptExports'
 import FigureLanguagePanel from './FigureLanguagePanel'
 import ManuscriptWriting from './ManuscriptWriting'
+import WritingMaterialsPreview from './WritingMaterialsPreview'
 import ManuscriptReview from './ManuscriptReview'
 import { emptyInput, manuscriptBase, methodFields, methodLabels, roleLabels, sourceKey, validCandidates, validInput, validManuscript, validSnapshot, type Candidates, type Manuscript, type ManuscriptInput, type MethodField, type Snapshot, type SourceCandidate, type SourceRole } from './manuscriptTypes'
 import type {ManuscriptView} from '../projects/manuscriptViews'
 import {ManuscriptDraftProvider} from './ManuscriptDraftProvider'
 import useDraftLeaveGuard, {type RegisterLeaveGuard} from '../projects/useDraftLeaveGuard'
 import './manuscripts.css'
+import {useAnalysisWritingTransfer} from './analysisWritingTransfer'
+import {mergeAnalysisSelection,type AnalysisSelection} from './manuscriptTypes'
 function snapshotFigures(snapshot:Snapshot){return snapshot.results_groups.flatMap(g=>g.figures.map(f=>({id:f.id,label:f.title,parents:f.source_ids})))}
-type Props={view?:ManuscriptView;onViewChange?:(view:ManuscriptView)=>void;onSelectVersion?:(id:string,revision:number)=>void;registerLeaveGuard?:RegisterLeaveGuard;initialManuscript?:string;initialRevision?:number;projectType?:'sci'|'thesis';projectId:string;researchTopic:string;outputLanguage:Locale;active:boolean;onOpenTask?:(id:string)=>void;onOpenLiterature?:()=>void}
+type Props={analysisSelection?:AnalysisSelection;view?:ManuscriptView;onViewChange?:(view:ManuscriptView)=>void;onSelectVersion?:(id:string,revision:number)=>void;registerLeaveGuard?:RegisterLeaveGuard;initialManuscript?:string;initialRevision?:number;projectType?:'sci'|'thesis';projectId:string;researchTopic:string;outputLanguage:Locale;active:boolean;onOpenTask?:(id:string)=>void;onOpenLiterature?:()=>void}
 export default function ProjectManuscripts(props:Props){
  const [visited,setVisited]=useState(props.active)
  if(props.active&&!visited)setVisited(true)
  return <div hidden={!props.active}>{(visited||props.active)&&<Workbench key={props.projectId} {...props}/>}</div>
 }
-function Workbench({initialManuscript,initialRevision,projectType='sci',projectId,researchTopic,outputLanguage,onOpenTask,onOpenLiterature,active,view,onViewChange,onSelectVersion,registerLeaveGuard}:Props){
+function Workbench({analysisSelection,initialManuscript,initialRevision,projectType='sci',projectId,researchTopic,outputLanguage,onOpenTask,onOpenLiterature,active,view,onViewChange,onSelectVersion,registerLeaveGuard}:Props){
  const {t,locale}=useI18n(),visible=useDocumentVisible();const [input,setInput]=useState(()=>emptyInput(researchTopic,outputLanguage))
  const [candidates,setCandidates]=useState<Candidates|null>(null),[history,setHistory]=useState<Manuscript[]>([]),[preview,setPreview]=useState<Snapshot|null>(null),[discoveredFigures,setDiscoveredFigures]=useState<{id:string;label:string;parents:string[]}[]>([])
  const [selected,setSelected]=useState<{id:string;revision:number}|null>(()=>initialManuscript&&initialRevision?{id:initialManuscript,revision:initialRevision}:null),[editing,setEditing]=useState<string|null>(null),[conflictField,setConflictField]=useState<MethodField>('procedures'),[conflictValues,setConflictValues]=useState(''),[conflictNote,setConflictNote]=useState('')
  const [error,setError]=useState(''),[loadError,setLoadError]=useState(''),[busy,setBusy]=useState(false),[loading,setLoading]=useState(true),[attempt,setAttempt]=useState(0),[sessionValid,setSessionValid]=useState(true)
  const [materialsPage,setMaterialsPage]=useState('sources'),[visitedVersions,setVisitedVersions]=useState<string[]>([]),[visitedTasks,setVisitedTasks]=useState<string[]>([]),[cleanInput,setCleanInput]=useState(()=>JSON.stringify(emptyInput(researchTopic,outputLanguage))),[uncertain,setUncertain]=useState(false)
+ const transfer=useAnalysisWritingTransfer(),incomingAnalysis=analysisSelection??transfer?.pending
+ const [analysisReceived,setAnalysisReceived]=useState<AnalysisSelection|null>(null)
+ const appliedAnalysis=useRef<AnalysisSelection|null>(null)
  const layered=view!==undefined
  const materialDirty=JSON.stringify(input)!==cleanInput||!!conflictValues||!!conflictNote
  useDraftLeaveGuard(registerLeaveGuard,materialDirty||uncertain,busy)
@@ -54,11 +60,12 @@ function Workbench({initialManuscript,initialRevision,projectType='sci',projectI
  const failed=results.find(r=>r.status==='rejected');setLoadError(failed&&failed.status==='rejected'?safeError(failed.reason,'稿件资料读取失败，请刷新。'):'')
  }finally{if(live&&!controller.signal.aborted)setLoading(false)}}
  void load();return()=>{live=false;controller.abort();window.clearTimeout(timer)}},[base,projectId,visible,sessionValid,attempt,active])
+ useEffect(()=>{if(!active||busy||!sessionValid||!incomingAnalysis||incomingAnalysis.project_id!==projectId||incomingAnalysis.project_type!==projectType||appliedAnalysis.current===incomingAnalysis)return;appliedAnalysis.current=incomingAnalysis;setInput(old=>mergeAnalysisSelection(old,incomingAnalysis));setPreview(null);setAnalysisReceived(incomingAnalysis)},[active,busy,sessionValid,incomingAnalysis,projectId,projectType])
  function edit(update:(previous:ManuscriptInput)=>ManuscriptInput){setInput(update);setPreview(null);setError('')}
  function sourceFigureIds(sourceId:string){return new Set([sourceId,...discoveredFigures.filter(figure=>figure.parents.includes(sourceId)).map(figure=>figure.id)])}
  function toggleSource(item:SourceCandidate,checked:boolean){
   const removedFigures=checked?new Set<string>():sourceFigureIds(item.id)
-  edit(old=>{const sources=checked?[...old.sources,{kind:item.kind,id:item.id,file_id:item.file_id,role:item.allowed_roles[0]}]:old.sources.filter(s=>sourceKey(s)!==sourceKey(item));return{...old,sources,results_groups:old.results_groups.map(g=>({...g,analysis_run_ids:g.analysis_run_ids.filter(id=>checked||id!==item.id),figure_ids:g.figure_ids.filter(id=>!removedFigures.has(id))})),method_source_ids:Object.fromEntries(Object.entries(old.method_source_ids).map(([k,ids])=>[k,ids?.filter(id=>checked||id!==item.id)])),figure_notes:old.figure_notes.filter(n=>!removedFigures.has(n.figure_id))}})
+  edit(old=>{const sources=checked?[...old.sources,{kind:item.kind,id:item.id,file_id:item.file_id,role:item.allowed_roles[0]}]:old.sources.filter(s=>sourceKey(s)!==sourceKey(item));return{...old,sources,analysis_handoff_run_ids:old.analysis_handoff_run_ids?.filter(id=>sources.some(s=>s.kind==='analysis_run'&&s.id===id)),results_groups:old.results_groups.map(g=>({...g,analysis_run_ids:g.analysis_run_ids.filter(id=>checked||id!==item.id),figure_ids:g.figure_ids.filter(id=>!removedFigures.has(id))})),method_source_ids:Object.fromEntries(Object.entries(old.method_source_ids).map(([k,ids])=>[k,ids?.filter(id=>checked||id!==item.id)])),figure_notes:old.figure_notes.filter(n=>!removedFigures.has(n.figure_id))}})
  }
  function changeRole(item:SourceCandidate,role:SourceRole){
   const removedFigures=role==='image_observation'?new Set<string>():sourceFigureIds(item.id)
@@ -96,6 +103,7 @@ function Workbench({initialManuscript,initialRevision,projectType='sci',projectI
  <div className="workspace-page-heading"><div><span className="workspace-eyebrow">{school?'THESIS':'SCI'}</span><h2>{t(school?'毕业论文写作':'SCI 写作')}</h2><p>{t(school?'按已确认学校章节组织研究资料，核对候选后显式发布新版本。':'整理来源与事实稿，生成完整七部分候选或重写指定章节，经审核后显式发布新版本。')}</p></div><button type="button" disabled={busy||!sessionValid} onClick={()=>setAttempt(a=>a+1)}>{t('刷新稿件资料')}</button></div>
  <p className="warning-panel">{t(school?'学校事实稿只整理已选研究资料；正式模型写作无授权时保持等待，离线样例不代表真实写作质量。':'事实稿由本地生成；受控模型写作须另行明确授权。科研内容、来源、数值、引用及待办仍须研究人员核实。')}</p>
  {loading&&<p role="status">{t('正在读取稿件资料……')}</p>}{loadError&&<p role="alert" className="error-panel">{t(loadError)}</p>}{error&&<p role="alert" className="error-panel">{t(error)}</p>}{!sessionValid&&<p role="alert">{t('会话已失效，请重新登录。')}</p>}
+ {analysisReceived&&<p role="status">{t('已合并固定分析资料')} · {analysisReceived.analysis_run_id} · {t('配置修订 {number}',{number:analysisReceived.setup_revision})} · {t(analysisReceived.report_status==='selected'?'含已保存分析报告':'未附带分析报告')}</p>}
  <ManuscriptDraftProvider register={registerLeaveGuard}>
  {layered&&<><nav className="manuscript-view-nav" aria-label={t('稿件任务视图')}>{(['list','materials',...(chosen?['body','evidence','checks','versions','writing','exports',...(school?['school']:[])]:[])] as ManuscriptView[]).map(item=><button key={item} type="button" aria-pressed={view===item} onClick={()=>onViewChange?.(item)}>{t(({list:'稿件列表',materials:'事实稿资料',body:'正文',evidence:'依据',checks:'检查',versions:'版本',writing:'写作',exports:'导出',school:'学校修订'})[item])}</button>)}</nav>{view!=='list'&&chosen&&version&&<div className="manuscript-fixed-context"><strong>{chosen.title}</strong><span>{t('固定版本 {number}',{number:version.revision})}</span></div>}{view==='list'&&<section className="manuscript-list" aria-label={t('稿件列表')}>{!history.length&&!loading&&<p>{t('尚无事实稿。')}</p>}{history.map(m=><article key={m.id}><h3>{m.title}</h3><p>{t('当前版本 {number}',{number:m.current_revision})}</p><button type="button" onClick={()=>openVersion(m.id,m.current_revision)}>{t('打开稿件')}</button></article>)}<button type="button" className="button-primary" onClick={()=>onViewChange?.('materials')}>{t('整理事实稿资料')}</button></section>}{view!=='list'&&view!=='materials'&&!version&&!loading&&<p role="status">{t('请先从稿件列表选择固定版本。')}</p>}</>}
  <div hidden={layered&&view!=='materials'}>
@@ -127,7 +135,7 @@ function Workbench({initialManuscript,initialRevision,projectType='sci',projectI
  <div hidden={!show('body')} id={`manuscript-original-${chosen.id}-${version.revision}`}>{taskVisited(key,'body')&&<ManuscriptPreview snapshot={version.snapshot} presentation={layered?'body':'full'} label={version.snapshot.sections?'已保存的完整稿':'已保存的事实稿'}/>}</div>
  <div hidden={!show('evidence')}>{layered&&taskVisited(key,'evidence')&&<ManuscriptPreview snapshot={version.snapshot} presentation="evidence" label="固定稿件依据"/>}</div>
  <div hidden={!show('checks')}>{taskVisited(key,'checks')&&<ManuscriptReview projectId={projectId} manuscriptId={chosen.id} version={version} currentRevision={chosen.current_revision} active={versionActive&&show('checks')} onPublished={refreshHistory}/>}</div>
- <div hidden={!show('writing')}>{version.status==='published'&&taskVisited(key,'writing')&&<ManuscriptWriting projectId={projectId} manuscriptId={chosen.id} version={version} active={versionActive&&show('writing')} onShowOriginal={layered?()=>onViewChange?.('body'):undefined} onOpenTask={onOpenTask} onPublished={refreshHistory}/>}</div>
+ <div hidden={!show('writing')}>{version.status==='published'&&taskVisited(key,'writing')&&<WritingMaterialsPreview projectId={projectId} manuscriptId={chosen.id} revision={version.revision} active={versionActive&&show('writing')}/ >}{version.status==='published'&&taskVisited(key,'writing')&&<ManuscriptWriting projectId={projectId} manuscriptId={chosen.id} version={version} active={versionActive&&show('writing')} onShowOriginal={layered?()=>onViewChange?.('body'):undefined} onOpenTask={onOpenTask} onPublished={refreshHistory}/>}</div>
  <div hidden={!show('school')}>{school&&version.status==='published'&&taskVisited(key,'school')&&<SchoolChanges projectId={projectId} manuscriptId={chosen.id} version={version} currentRevision={chosen.current_revision} active={versionActive&&show('school')} onAdopted={refreshHistory}/>}</div>
  <div hidden={!show('exports')}>{taskVisited(key,'exports')&&<><SchoolOpinionHandoff projectId={projectId} manuscriptId={chosen.id} version={version}/><FigureLanguagePanel projectId={projectId} snapshot={version.snapshot} onCreated={()=>setAttempt(a=>a+1)}/><ManuscriptExports projectId={projectId} manuscriptId={chosen.id} version={version} onOpenTask={onOpenTask} active={versionActive&&show('exports')}/></>}</div>
  </div>})}

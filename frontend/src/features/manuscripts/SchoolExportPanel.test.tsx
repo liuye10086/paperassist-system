@@ -3,7 +3,29 @@ import {afterEach,expect,it,vi} from 'vitest'
 import ManuscriptExports from './ManuscriptExports'
 import {manuscriptFixture,exportFixture} from './manuscriptFixtures'
 import type {ManuscriptVersion} from './manuscriptTypes'
-afterEach(()=>{cleanup();vi.unstubAllGlobals()})
+import {act} from '@testing-library/react'
+import {setLocale} from '../../shared/i18n'
+import {SchoolExportDetails} from './SchoolExportPanel'
+afterEach(()=>{cleanup();vi.unstubAllGlobals();setLocale('zh-CN')})
+it('translates new front matter missing and signature review issues when the UI language changes',()=>{
+ const front={schema_version:1 as const,cover_section_id:'s1',fields:[{id:'signature',label:'用户签名',kind:'signature' as const,required:true,source_id:'p1',style_source_id:null,section_id:'s1',chapter_id:null}],content_requirements:[]}
+ const details={...plan,schema_version:2 as const,front_matter:front,report:{...report,issues:[{id:'school:field:signature',kind:'manual' as const,severity:'human_review' as const,location:'signature',message:'用户签名未提供，保留待填写。',source_evidence:[]}]}}
+ render(<SchoolExportDetails plan={details}/>);act(()=>setLocale('en'))
+ expect(screen.getByText(/用户签名 is missing/)).toBeTruthy()
+})
+it('collects only frozen dynamic fields for v2 and keeps user values across hidden views',async()=>{
+ const front={schema_version:1,cover_section_id:'s1',fields:[{id:'degree',label:'培养类型',kind:'text',required:true,source_id:'p1',style_source_id:null,section_id:'s1',chapter_id:null},{id:'signature',label:'作者签名',kind:'signature',required:true,source_id:'p2',style_source_id:null,section_id:'s1',chapter_id:'manual1'}],content_requirements:[]}
+ const v={...manuscriptFixture.versions[0],exports:[],snapshot:{...manuscriptFixture.versions[0].snapshot,thesis_context:{confirmation:{front_matter:front},confirmation_id:'cf',chapters:[{id:'manual1',title:'声明',purpose:'manual'}]}}} as unknown as ManuscriptVersion
+ const fetcher=vi.fn(async()=>Response.json({items:[],pdf_status:'not_requested'}));vi.stubGlobal('fetch',fetcher)
+ const view=render(<ManuscriptExports projectId="p1" manuscriptId="m1" version={v}/>);
+ expect(screen.queryByLabelText('学号')).toBeNull()
+ fireEvent.change(screen.getByLabelText('培养类型 · 必填'),{target:{value:'用户填写'}})
+ view.rerender(<ManuscriptExports projectId="p1" manuscriptId="m1" version={v} active={false}/>);view.rerender(<ManuscriptExports projectId="p1" manuscriptId="m1" version={v}/>);
+ expect((screen.getByLabelText('培养类型 · 必填') as HTMLInputElement).value).toBe('用户填写')
+ fireEvent.click(screen.getByRole('button',{name:'预览学校排版'}));await screen.findByRole('alert')
+ const call=(fetcher.mock.calls as unknown as [string,RequestInit][]).find(([,init])=>init?.method==='POST')!
+ expect(JSON.parse(String(call[1].body)).school.field_values).toEqual({degree:'用户填写'})
+})
 it('collects explicit school fields and previews the request without submitting a task',async()=>{
  const version={...manuscriptFixture.versions[0],exports:[],snapshot:{...manuscriptFixture.versions[0].snapshot,thesis_context:{confirmation_id:'confirm1',chapters:[{id:'manual1',title:'声明',purpose:'manual'},{id:'abstract1',title:'英文摘要',purpose:'abstract'}]}}} as unknown as ManuscriptVersion
  const fetcher=vi.fn(async(_url:string,_init?:RequestInit)=>Response.json({items:[],pdf_status:'not_requested'}));vi.stubGlobal('fetch',fetcher)

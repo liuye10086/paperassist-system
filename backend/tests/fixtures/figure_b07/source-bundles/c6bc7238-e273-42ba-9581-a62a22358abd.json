@@ -1,0 +1,876 @@
+{
+  "key": "forest:ols:zh-CN",
+  "source_task_id": "c6bc7238-e273-42ba-9581-a62a22358abd",
+  "bundle": {
+    "result": {
+      "schema_version": 5,
+      "result_type": "regression",
+      "file_id": "f8eef114-5c37-55b8-bdd7-96f11b310b25",
+      "filename": "forest_ols.xlsx",
+      "source_sha256": "51094a76952881922b1eab3d008ed53b03ec2d9fd7328257807034e07df39549",
+      "source": {
+        "kind": "prepared_dataset_version",
+        "schema_version": 1,
+        "dataset_id": "0b6b787c-bd1c-5a8f-b412-37a1f7fe6347",
+        "structure_id": "8935b7fe-8da5-41f0-9d4b-cd36951b0a33",
+        "dataset_version": 1,
+        "file_id": "f8eef114-5c37-55b8-bdd7-96f11b310b25",
+        "source_sha256": "51094a76952881922b1eab3d008ed53b03ec2d9fd7328257807034e07df39549",
+        "dataset_sha256": "6d9ba2d11c13809755db8c6bd9610539daf1ebca7ecc3655f7f2ea527adaf683",
+        "dataset_size_bytes": 3728,
+        "dataset_schema_version": 1,
+        "sheet_index": 0,
+        "sheet_name": "Synthetic",
+        "parser_version": "openpyxl-3.1.5-structure-v1",
+        "parent_dataset_id": "ddb2f42c-595c-558f-aa25-fb11b6e8c4a9",
+        "parent_dataset_version": 1,
+        "transform_version": "excel_prepare_v1"
+      },
+      "setup_revision": 2,
+      "selection": {
+        "task_type": "regression",
+        "method": "ols",
+        "sheet_name": "Synthetic",
+        "outcome_column": "A",
+        "covariates": [
+          {
+            "column": "B",
+            "type": "continuous",
+            "unit": "",
+            "levels": [],
+            "reference": null
+          }
+        ],
+        "outcome_unit": "",
+        "positive": null,
+        "negative": null,
+        "id_column": null,
+        "missing_policy": "complete_cases",
+        "assumptions": {
+          "independent_units": true,
+          "inference_confirmed": true
+        }
+      },
+      "check": {
+        "ready": true,
+        "row_count": 14,
+        "valid_count": 14,
+        "excluded_count": 0,
+        "groups": [],
+        "issues": [],
+        "warnings": []
+      },
+      "analysis_plan": {
+        "plan_id": "6b3bd1a9-1936-5000-ac0d-c2f3aeeb3113",
+        "sha256": "6dc734c75a07f0d46cb6f944fb316a2e0fed0fec30a50d925c68d5430040c98e",
+        "resolutions": {}
+      },
+      "analysis_context": {
+        "plan": {
+          "schema_version": 5,
+          "workflow_version": "analysis_plan_v5",
+          "rules_version": "analysis_plan_rules_v5",
+          "id": "6b3bd1a9-1936-5000-ac0d-c2f3aeeb3113",
+          "task_id": "cd164d1b-6d9a-4f31-b82b-91db1f9125fe",
+          "decision_id": "ff4e4463-9f40-4868-adc5-26e62b354e4c",
+          "project_id": "123cbf9f-fd5a-4704-b4d1-af97dea0bad1",
+          "file_id": "f8eef114-5c37-55b8-bdd7-96f11b310b25",
+          "source": {
+            "kind": "prepared_dataset_version",
+            "schema_version": 1,
+            "dataset_id": "0b6b787c-bd1c-5a8f-b412-37a1f7fe6347",
+            "structure_id": "8935b7fe-8da5-41f0-9d4b-cd36951b0a33",
+            "dataset_version": 1,
+            "file_id": "f8eef114-5c37-55b8-bdd7-96f11b310b25",
+            "source_sha256": "51094a76952881922b1eab3d008ed53b03ec2d9fd7328257807034e07df39549",
+            "dataset_sha256": "6d9ba2d11c13809755db8c6bd9610539daf1ebca7ecc3655f7f2ea527adaf683",
+            "dataset_size_bytes": 3728,
+            "dataset_schema_version": 1,
+            "sheet_index": 0,
+            "sheet_name": "Synthetic",
+            "parser_version": "openpyxl-3.1.5-structure-v1",
+            "parent_dataset_id": "ddb2f42c-595c-558f-aa25-fb11b6e8c4a9",
+            "parent_dataset_version": 1,
+            "transform_version": "excel_prepare_v1"
+          },
+          "selection": {
+            "task_type": "regression",
+            "method": "ols",
+            "sheet_name": "Synthetic",
+            "outcome_column": "A",
+            "covariates": [
+              {
+                "column": "B",
+                "type": "continuous",
+                "unit": "",
+                "levels": [],
+                "reference": null
+              }
+            ],
+            "outcome_unit": "",
+            "positive": null,
+            "negative": null,
+            "id_column": null,
+            "missing_policy": "complete_cases",
+            "assumptions": {
+              "independent_units": true,
+              "inference_confirmed": true
+            }
+          },
+          "check": {
+            "rules_version": "analysis_plan_rules_v5",
+            "research_missing": [],
+            "data_check": {
+              "rules_version": "analysis_plan_rules_v3",
+              "data_range": "A2:B15",
+              "row_count": 14,
+              "selected_fields": [
+                {
+                  "letter": "A",
+                  "name": "Outcome",
+                  "type_counts": {
+                    "number": 14
+                  },
+                  "missing_count": 0,
+                  "non_missing_count": 14,
+                  "prepared_unit": {
+                    "status": "confirmed",
+                    "value": ""
+                  },
+                  "declared_unit": {
+                    "status": "unknown",
+                    "value": null
+                  },
+                  "observed_min": -5.5,
+                  "observed_max": 7.5
+                },
+                {
+                  "letter": "B",
+                  "name": "Exposure",
+                  "type_counts": {
+                    "number": 14
+                  },
+                  "missing_count": 0,
+                  "non_missing_count": 14,
+                  "prepared_unit": {
+                    "status": "confirmed",
+                    "value": ""
+                  },
+                  "declared_unit": {
+                    "status": "unknown",
+                    "value": null
+                  },
+                  "observed_min": -3.0,
+                  "observed_max": 3.0
+                }
+              ],
+              "selection_check": {
+                "ready": true,
+                "row_count": 14,
+                "valid_count": 14,
+                "excluded_count": 0,
+                "groups": [],
+                "issues": [],
+                "warnings": []
+              },
+              "issues": [],
+              "limitations": [
+                "前提由用户声明，不证明独立性、因果或模型正确。",
+                "共同完整记录可能产生选择偏差；不插补、不删异常。"
+              ],
+              "research_missing": []
+            },
+            "limitations": [
+              "外部材料仅为来源证据，未由本系统重新计算。",
+              "补充资料及采纳候选不等于批准分析计划。"
+            ]
+          },
+          "resolutions": {},
+          "plan_revision": 2,
+          "setup_revision": 2,
+          "created_at": "2026-10-28T04:53:51.203518+00:00",
+          "research_request": {
+            "question": "Prespecified synthetic engineering verification: forest_ols",
+            "output_language": "zh-CN",
+            "population": "Explicit synthetic study records only",
+            "study_design": "Fixed synthetic demonstration; no real research inference",
+            "observation_unit": "One synthetic record per row",
+            "observation_structure": "independent",
+            "relationship_description": "",
+            "output_requirements": "Preserve source units and all missingness, methods and non-causal limitations; "
+          },
+          "recommendation_ref": null,
+          "evidence_versions": [],
+          "origin_recommendation_ref": null,
+          "source_reference": null,
+          "source_resolution": {
+            "confirmed": true,
+            "note": "Exact authorized B07 synthetic file SHA, prepared version and cohort confirmed; no real participant claims."
+          },
+          "sha256": "6dc734c75a07f0d46cb6f944fb316a2e0fed0fec30a50d925c68d5430040c98e"
+        },
+        "method": {
+          "id": "ols",
+          "parameters": {
+            "task_type": "regression",
+            "method": "ols",
+            "sheet_name": "Synthetic",
+            "outcome_column": "A",
+            "covariates": [
+              {
+                "column": "B",
+                "type": "continuous",
+                "unit": "",
+                "levels": [],
+                "reference": null
+              }
+            ],
+            "outcome_unit": "",
+            "positive": null,
+            "negative": null,
+            "id_column": null,
+            "missing_policy": "complete_cases",
+            "assumptions": {
+              "independent_units": true,
+              "inference_confirmed": true
+            }
+          },
+          "observation_basis": "independent_rows"
+        },
+        "rounding": {
+          "display_significant_digits": 6,
+          "stored_values": "full_precision"
+        }
+      },
+      "variables": [
+        {
+          "column": "A",
+          "name": "Outcome",
+          "unit": ""
+        },
+        {
+          "column": "B",
+          "name": "Exposure",
+          "unit": ""
+        }
+      ],
+      "statistics": {
+        "method": "ols",
+        "n": 14,
+        "p": 2,
+        "df_residual": 12,
+        "coefficients": [
+          {
+            "term": "intercept",
+            "column": null,
+            "level": null,
+            "reference": null,
+            "unit": "",
+            "beta": 1.0,
+            "se": 0.14433756729740643,
+            "statistic": 6.92820323027551,
+            "p_value": 1.586602024029914e-05,
+            "ci_low": 0.6855154565694539,
+            "ci_high": 1.314484543430546,
+            "or_value": null,
+            "or_ci_low": null,
+            "or_ci_high": null
+          },
+          {
+            "term": "B",
+            "column": "B",
+            "level": null,
+            "reference": null,
+            "unit": "",
+            "beta": 2.0000000000000004,
+            "se": 0.07216878364870322,
+            "statistic": 27.712812921102046,
+            "p_value": 3.0110295374637645e-12,
+            "ci_low": 1.8427577282847274,
+            "ci_high": 2.1572422717152735,
+            "or_value": null,
+            "or_ci_low": null,
+            "or_ci_high": null
+          }
+        ],
+        "covariance": [
+          [
+            0.020833333333333332,
+            -6.181658007522654e-19
+          ],
+          [
+            -6.181658007522654e-19,
+            0.005208333333333333
+          ]
+        ],
+        "r_squared": 0.9846153846153847,
+        "adjusted_r_squared": 0.9833333333333334,
+        "residual_sd": 0.5400617248673217,
+        "log_likelihood": null,
+        "deviance": null,
+        "aic": null,
+        "diagnostics": {
+          "rank": 2,
+          "centers": [
+            0.0
+          ],
+          "scales": [
+            2.0
+          ],
+          "condition_number": 1.0,
+          "converged": true,
+          "gradient_max": null,
+          "residuals": [
+            -0.4999999999999982,
+            0.5000000000000018,
+            -0.4999999999999991,
+            0.5000000000000009,
+            -0.49999999999999956,
+            0.5000000000000004,
+            -0.5,
+            0.5,
+            -0.5000000000000004,
+            0.49999999999999956,
+            -0.5000000000000009,
+            0.4999999999999991,
+            -0.5000000000000018,
+            0.4999999999999982
+          ],
+          "fitted": [
+            -5.000000000000002,
+            -5.000000000000002,
+            -3.000000000000001,
+            -3.000000000000001,
+            -1.0000000000000004,
+            -1.0000000000000004,
+            1.0,
+            1.0,
+            3.0000000000000004,
+            3.0000000000000004,
+            5.000000000000001,
+            5.000000000000001,
+            7.000000000000002,
+            7.000000000000002
+          ],
+          "leverage": [
+            0.23214285714285715,
+            0.23214285714285715,
+            0.14285714285714288,
+            0.14285714285714288,
+            0.0892857142857143,
+            0.0892857142857143,
+            0.07142857142857144,
+            0.07142857142857144,
+            0.0892857142857143,
+            0.0892857142857143,
+            0.14285714285714285,
+            0.14285714285714285,
+            0.23214285714285715,
+            0.23214285714285715
+          ],
+          "cooks_distance": [
+            0.16873985938344932,
+            0.16873985938345173,
+            0.08333333333333307,
+            0.08333333333333365,
+            0.0461361014994232,
+            0.046136101499423376,
+            0.03550295857988165,
+            0.03550295857988165,
+            0.046136101499423376,
+            0.0461361014994232,
+            0.08333333333333359,
+            0.08333333333333301,
+            0.16873985938345173,
+            0.16873985938344932
+          ]
+        },
+        "warnings": [
+          "complete_case_selection_bias",
+          "association_not_causation",
+          "unadjusted_coefficient_inference"
+        ]
+      },
+      "row_audit": {
+        "included_rows": [
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15
+        ],
+        "excluded_rows": [],
+        "missing_policy": "complete_cases",
+        "encoding_counts": {}
+      },
+      "started_at": "2026-10-28T04:53:52.664588+00:00",
+      "completed_at": "2026-10-28T04:53:57.467444+00:00",
+      "engine": {
+        "id": "regression_statistics_dataset_v1",
+        "python_version": "3.11.17",
+        "scipy_version": "1.17.1",
+        "numpy_version": "2.4.6",
+        "parser_version": "openpyxl-3.1.5-structure-v1",
+        "encoding_version": "typed_reference_dummy_v1",
+        "timeout_seconds": 30,
+        "statsmodels_version": "0.15.0",
+        "solver": "qr",
+        "max_iterations": null,
+        "tolerance": null,
+        "scale": "center_scale_restored_original_units",
+        "separation_solver": "highs",
+        "separation_timeout_seconds": 5,
+        "execution_contract": "fixed_statistics_v2"
+      },
+      "id": "8632e650-3201-47b8-8dd2-c8f94cd4ce72"
+    },
+    "figure": {
+      "schema_version": 5,
+      "figure_kind": "forest",
+      "language": "zh-CN",
+      "variables": [
+        {
+          "column": "A",
+          "name": "结局",
+          "unit": ""
+        },
+        {
+          "column": "B",
+          "name": "暴露",
+          "unit": ""
+        }
+      ],
+      "plot_config": {
+        "verification_scope": "local_effect_projection",
+        "outliers_removed": false,
+        "inference_displayed": true,
+        "scale": "linear",
+        "reference_line": 0.0,
+        "style": {
+          "palette": "colorblind",
+          "width": 2400,
+          "height": 1600,
+          "font_size": 12,
+          "display_order": []
+        },
+        "numbering_mode": "external"
+      },
+      "title": "合成数据 OLS 效应",
+      "x_label": "回归系数",
+      "y_label": "变量",
+      "caption": "纳入 14 条完整记录；排除 0 行。森林图仅核对本地效应投影与绘图，不独立重新拟合回归。 仅供合成数据工程验证。 仅展示本地冻结效应与已有区间，不独立重新拟合；区间缺失不表示零宽度。不同预测变量单位见各项标签。",
+      "statistics": {
+        "n": 14,
+        "effects": [
+          {
+            "term": "effect:1",
+            "label": "暴露",
+            "unit": "",
+            "estimate": 2.0000000000000004,
+            "ci_low": 1.8427577282847274,
+            "ci_high": 2.1572422717152735,
+            "interval_reason": null
+          }
+        ]
+      },
+      "legacy_contract": 4,
+      "presentation": {
+        "schema_version": 2,
+        "axes": {
+          "x": {
+            "label": "回归系数",
+            "unit": ""
+          },
+          "y": {
+            "label": "变量",
+            "unit": ""
+          }
+        },
+        "legend": {
+          "title": "分组",
+          "entries": []
+        },
+        "color_scale": null,
+        "abbreviations": [
+          {
+            "term": "n",
+            "definition": "有效记录数；独立人数须由研究设计确认"
+          },
+          {
+            "term": "β",
+            "definition": "回归系数"
+          },
+          {
+            "term": "CI",
+            "definition": "置信区间（仅展示冻结结果中已有区间）"
+          }
+        ],
+        "statistical_notes": [
+          "仅展示本地冻结效应与已有区间，不独立重新拟合；区间缺失不表示零宽度。不同预测变量单位见各项标签。"
+        ]
+      },
+      "id": "1df6c600-f54a-590e-a05e-34717832d04e",
+      "analysis_run_id": "8632e650-3201-47b8-8dd2-c8f94cd4ce72",
+      "file_id": "f8eef114-5c37-55b8-bdd7-96f11b310b25",
+      "source": {
+        "kind": "prepared_dataset_version",
+        "schema_version": 1,
+        "dataset_id": "0b6b787c-bd1c-5a8f-b412-37a1f7fe6347",
+        "structure_id": "8935b7fe-8da5-41f0-9d4b-cd36951b0a33",
+        "dataset_version": 1,
+        "file_id": "f8eef114-5c37-55b8-bdd7-96f11b310b25",
+        "source_sha256": "51094a76952881922b1eab3d008ed53b03ec2d9fd7328257807034e07df39549",
+        "dataset_sha256": "6d9ba2d11c13809755db8c6bd9610539daf1ebca7ecc3655f7f2ea527adaf683",
+        "dataset_size_bytes": 3728,
+        "dataset_schema_version": 1,
+        "sheet_index": 0,
+        "sheet_name": "Synthetic",
+        "parser_version": "openpyxl-3.1.5-structure-v1",
+        "parent_dataset_id": "ddb2f42c-595c-558f-aa25-fb11b6e8c4a9",
+        "parent_dataset_version": 1,
+        "transform_version": "excel_prepare_v1"
+      },
+      "source_sha256": "51094a76952881922b1eab3d008ed53b03ec2d9fd7328257807034e07df39549",
+      "setup_revision": 2,
+      "sha256": "657c0c5c4ca367d15b153039876c651009fb01fb2cba631449cd2c6e7a691b09",
+      "size_bytes": 232272,
+      "figure_config_version_id": "7161d4cb-82e0-4f4b-927d-66127a7e82b7",
+      "configuration_sha256": "f6a72eeaa9c5be64c2c106ccaa0e27c8a62875807f9ea8458e5a3d28f25c1c96",
+      "projection_id": "6775608c-2d2b-5338-815e-17845811bdd8",
+      "projection_sha256": "3e4abaeb24e89ce222d78d144a098652431aa7042b4ff4af1e7b49ec4716e76b",
+      "facts_sha256": "6752641343b0462df57f5df93bc753dca3e157f362c329668a52beca59aed05b",
+      "figure_number": null,
+      "numbering_mode": "external",
+      "method": {
+        "kind": "forest",
+        "basis": "original_statistical_valid_rows"
+      },
+      "created_at": "2026-10-28T05:03:01.763341+00:00",
+      "engine": {
+        "id": "openai_figure_workbench_v3",
+        "provider": "openai_code_interpreter",
+        "model": "gpt-5.6-sol"
+      },
+      "verification": {
+        "status": "matched",
+        "note": "结构化数值已核验；图像视觉仍需人工审阅。"
+      },
+      "provenance": {
+        "response_id": "resp_0156f0fc34481f39006ae1a4ea492887d1bf5f5635f3221a6e",
+        "container_id": "cntr_6ae1a3f053788193922d73308ecfc36f05a9f9d7b7539177",
+        "model": "gpt-5.6-sol",
+        "code": [
+          "import json, os, sys, math, textwrap, platform\npath=\"/mnt/data/e3f48ff7f9bd98204430f8cafb5463a6-data.json\"\nwith open(path,\"r\",encoding=\"utf-8\") as f:\n    data=json.load(f)\ntype(data), data.keys()\n",
+          "import pprint, json, os\npprint.pp(data, width=140, sort_dicts=False)\n",
+          "import matplotlib\nmatplotlib.use(\"Agg\")\nfrom matplotlib import font_manager\nfonts = font_manager.fontManager.ttflist\ncandidates=[]\nfor f in fonts:\n    name=f.name.lower()\n    if any(k in name for k in ['noto sans cjk','source han','simhei','microsoft yahei','wenquanyi','sarasa','noto serif cjk','droid sans fallback']):\n        candidates.append((f.name,f.fname))\ncandidates[:30], len(candidates)\n",
+          "import json, math, os, sys, platform, textwrap\nimport matplotlib\nmatplotlib.use(\"Agg\")\nimport matplotlib.pyplot as plt\nfrom matplotlib import font_manager\nfrom matplotlib.lines import Line2D\nfrom PIL import Image\n\n# Input\nsrc=\"/mnt/data/e3f48ff7f9bd98204430f8cafb5463a6-data.json\"\nwith open(src, encoding=\"utf-8\") as f:\n    d=json.load(f)\n\n# Exact metadata / numerical contract\nresult = {\n    \"schema_version\": 5,\n    \"figure_kind\": d[\"figure_kind\"],\n    \"language\": d[\"language\"],\n    \"variables\": d[\"variables\"],\n    \"plot_config\": d[\"plot_config\"],\n    \"title\": d[\"labels\"][\"title\"],\n    \"x_label\": d[\"labels\"][\"x_label\"],\n    \"y_label\": d[\"labels\"][\"y_label\"],\n    \"caption\": d[\"labels\"][\"caption\"],\n    \"statistics\": {\n        \"n\": d[\"sample_count\"],\n        \"effects\": d[\"effects\"]\n    },\n    \"legacy_contract\": d[\"legacy_contract\"],\n    \"presentation\": d[\"presentation\"]\n}\n\n# Font with Chinese glyph support\nfont_path=\"/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc\"\nbold_path=\"/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc\"\nfont_name=font_manager.FontProperties(fname=font_path).get_name()\nfont_manager.fontManager.addfont(font_path)\nfont_manager.fontManager.addfont(bold_path)\nmatplotlib.rcParams.update({\n    \"font.family\": font_name,\n    \"font.size\": d[\"plot_config\"][\"style\"][\"font_size\"],\n    \"axes.unicode_minus\": False,\n    \"mathtext.default\": \"regular\",\n    \"figure.facecolor\": \"white\",\n    \"axes.facecolor\": \"white\",\n    \"savefig.facecolor\": \"white\",\n})\n\nwidth_px=d[\"plot_config\"][\"style\"][\"width\"]\nheight_px=d[\"plot_config\"][\"style\"][\"height\"]\ndpi=300\nfig=plt.figure(figsize=(width_px/dpi, height_px/dpi), dpi=dpi, facecolor=\"white\")\n\n# Carefully separated regions\nax=fig.add_axes([0.15, 0.49, 0.78, 0.31])\n\n# Effects in declared order\neffects=d[\"effects\"]\ny=list(range(len(effects)))[::-1]\ncolor=\"#0173B2\"  # colorblind palette first color\n\n# Reference line\nref=d[\"plot_config\"][\"reference_line\"]\nax.axvline(ref, color=\"#666666\", linestyle=\"--\", linewidth=1.2, zorder=1)\n\nfor yi,e in zip(y,effects):\n    est=e[\"estimate\"]\n    lo=e.get(\"ci_low\")\n    hi=e.get(\"ci_high\")\n    if lo is not None and hi is not None:\n        ax.errorbar(est, yi, xerr=[[est-lo],[hi-est]], fmt=\"o\",\n                    color=color, ecolor=color, elinewidth=2.0, capsize=5,\n                    markersize=7, markeredgecolor=\"white\", markeredgewidth=0.8,\n                    zorder=3)\n    else:\n        ax.plot(est, yi, \"o\", color=color, markersize=7, zorder=3)\n\nlabels=[e[\"label\"] + (f\" ({e['unit']})\" if e.get(\"unit\") else \"\") for e in effects]\nax.set_yticks(y)\nax.set_yticklabels(labels)\nax.set_ylabel(d[\"presentation\"][\"axes\"][\"y\"][\"label\"] + \n              (f\" ({d['presentation']['axes']['y']['unit']})\" if d[\"presentation\"][\"axes\"][\"y\"][\"unit\"] else \"\"),\n              labelpad=18)\nax.set_xlabel(d[\"presentation\"][\"axes\"][\"x\"][\"label\"] + \n              (f\" ({d['presentation']['axes']['x']['unit']})\" if d[\"presentation\"][\"axes\"][\"x\"][\"unit\"] else \"\"),\n              labelpad=9)\n\n# Linear scale and robust limits including reference and intervals\nvals=[ref]\nfor e in effects:\n    vals.append(e[\"estimate\"])\n    if e.get(\"ci_low\") is not None: vals.append(e[\"ci_low\"])\n    if e.get(\"ci_high\") is not None: vals.append(e[\"ci_high\"])\nvmin,vmax=min(vals),max(vals)\nspan=vmax-vmin\npad=max(span*0.12, 0.2)\nax.set_xlim(vmin-pad, vmax+pad)\nax.set_ylim(-0.65, max(y)+0.65)\nax.grid(axis=\"x\", color=\"#D9D9D9\", linewidth=0.8, alpha=0.8)\nax.grid(axis=\"y\", visible=False)\nax.spines[\"top\"].set_visible(False)\nax.spines[\"right\"].set_visible(False)\n\n# Exact title\nfig.text(0.5, 0.925, d[\"labels\"][\"title\"], ha=\"center\", va=\"center\",\n         fontproperties=font_manager.FontProperties(fname=bold_path, size=12))\n\n# Supplied sample count, with abbreviation defined below\nfig.text(0.15, 0.835, f\"n = {d['sample_count']}\", ha=\"left\", va=\"center\")\n\n# Required dedicated interval annotation\nfig.text(0.15, 0.405, \"95%置信区间\", ha=\"left\", va=\"center\", color=color,\n         bbox=dict(boxstyle=\"square,pad=0.25\", facecolor=\"white\", edgecolor=color, linewidth=1.0))\n\n# Caption exactly once, wrapped\ncaption=d[\"labels\"][\"caption\"]\ncaption_wrapped=textwrap.fill(caption, width=84, break_long_words=False, break_on_hyphens=False)\ncaption_text=fig.text(0.08, 0.315, caption_wrapped, ha=\"left\", va=\"top\", linespacing=1.35)\n\n# Abbreviations exactly once as one readable block\nabbr_parts=[f\"{x['term']}：{x['definition']}\" for x in d[\"presentation\"][\"abbreviations\"]]\nabbr=\"；\".join(abbr_parts)\nabbr_wrapped=textwrap.fill(abbr, width=88, break_long_words=False, break_on_hyphens=False)\nabbr_text=fig.text(0.08, 0.135, abbr_wrapped, ha=\"left\", va=\"top\", linespacing=1.35)\n\n# Draw and inspect\nfig.canvas.draw()\nrenderer=fig.canvas.get_renderer()\ncanvas_bbox=fig.bbox\n\ntexts=[t for t in fig.findobj(match=lambda a: hasattr(a,\"get_text\") and callable(a.get_text) and a.get_text())]\nissues=[]\nfor t in texts:\n    try:\n        bb=t.get_window_extent(renderer=renderer)\n        if bb.x0 < -1 or bb.y0 < -1 or bb.x1 > width_px+1 or bb.y1 > height_px+1:\n            issues.append((\"out_of_bounds\", t.get_text(), tuple(round(x,1) for x in bb.bounds)))\n    except Exception:\n        pass\n\nout_png=\"/mnt/data/figure.png\"\nfig.savefig(out_png, dpi=dpi, facecolor=\"white\", edgecolor=\"none\")\nplt.close(fig)\n\n# Add allowed environment metadata\nresult[\"environment\"]={\n    \"python_version\": platform.python_version(),\n    \"matplotlib_version\": matplotlib.__version__,\n    \"font\": font_name\n}\n\nout_json=\"/mnt/data/result.json\"\nwith open(out_json,\"w\",encoding=\"utf-8\") as f:\n    json.dump(result,f,ensure_ascii=False,allow_nan=False,indent=2)\n\nimg=Image.open(out_png)\n(img.size, os.path.getsize(out_png), os.path.getsize(out_json), issues[:10])\n",
+          "import json, os, platform, math\nimport matplotlib\nmatplotlib.use(\"Agg\")\nimport matplotlib.pyplot as plt\nfrom matplotlib import font_manager\nfrom PIL import Image\n\nwith open(src, encoding=\"utf-8\") as f:\n    d=json.load(f)\n\nfont_path=\"/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc\"\nbold_path=\"/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc\"\nfont_name=font_manager.FontProperties(fname=font_path).get_name()\nmatplotlib.rcParams.update({\n    \"font.family\": font_name, \"font.size\": 12, \"axes.unicode_minus\": False,\n    \"mathtext.default\":\"regular\", \"figure.facecolor\":\"white\", \"axes.facecolor\":\"white\",\n    \"savefig.facecolor\":\"white\"\n})\nW,H=2400,1600; dpi=300\nfig=plt.figure(figsize=(W/dpi,H/dpi),dpi=dpi,facecolor=\"white\")\nfig.canvas.draw()\nrenderer=fig.canvas.get_renderer()\nfp=font_manager.FontProperties(fname=font_path,size=12)\nbfp=font_manager.FontProperties(fname=bold_path,size=12)\n\ndef wrap_by_pixels(s, max_px, renderer, prop):\n    lines=[]\n    current=\"\"\n    for ch in s:\n        if ch == \"\\n\":\n            lines.append(current); current=\"\"; continue\n        trial=current+ch\n        w,_,_=renderer.get_text_width_height_descent(trial,prop,ismath=False)\n        if current and w > max_px:\n            lines.append(current)\n            current=ch\n        else:\n            current=trial\n    lines.append(current)\n    return \"\\n\".join(lines)\n\nax=fig.add_axes([0.15,0.49,0.78,0.31])\neffects=d[\"effects\"]; ys=list(range(len(effects)))[::-1]; color=\"#0173B2\"\nref=d[\"plot_config\"][\"reference_line\"]\nax.axvline(ref,color=\"#666666\",ls=\"--\",lw=1.2,zorder=1)\nfor yi,e in zip(ys,effects):\n    est=e[\"estimate\"]; lo=e.get(\"ci_low\"); hi=e.get(\"ci_high\")\n    if lo is not None and hi is not None:\n        ax.errorbar(est,yi,xerr=[[est-lo],[hi-est]],fmt=\"o\",color=color,ecolor=color,\n                    elinewidth=2,capsize=5,markersize=7,markeredgecolor=\"white\",markeredgewidth=.8,zorder=3)\n    else:\n        ax.plot(est,yi,\"o\",color=color,markersize=7,zorder=3)\nylabs=[e[\"label\"]+(f\" ({e['unit']})\" if e.get(\"unit\") else \"\") for e in effects]\nax.set_yticks(ys); ax.set_yticklabels(ylabs)\npx=d[\"presentation\"][\"axes\"][\"x\"]; py=d[\"presentation\"][\"axes\"][\"y\"]\nxlab=px[\"label\"]+(f\" ({px['unit']})\" if px[\"unit\"] else \"\")\nylab=py[\"label\"]+(f\" ({py['unit']})\" if py[\"unit\"] else \"\")\nax.set_xlabel(xlab,labelpad=9); ax.set_ylabel(ylab,labelpad=18)\nvals=[ref]+[v for e in effects for v in [e.get(\"estimate\"),e.get(\"ci_low\"),e.get(\"ci_high\")] if v is not None]\nvmin,vmax=min(vals),max(vals); span=vmax-vmin; pad=max(span*.12,.2)\nax.set_xlim(vmin-pad,vmax+pad); ax.set_ylim(-.65,max(ys)+.65)\nax.grid(axis=\"x\",color=\"#D9D9D9\",lw=.8,alpha=.8)\nax.spines[\"top\"].set_visible(False); ax.spines[\"right\"].set_visible(False)\n\ntitle_t=fig.text(.5,.925,d[\"labels\"][\"title\"],ha=\"center\",va=\"center\",fontproperties=bfp)\nn_t=fig.text(.15,.835,f\"n = {d['sample_count']}\",ha=\"left\",va=\"center\",fontproperties=fp)\nci_t=fig.text(.15,.405,\"95%置信区间\",ha=\"left\",va=\"center\",color=color,fontproperties=fp,\n              bbox=dict(boxstyle=\"square,pad=0.25\",facecolor=\"white\",edgecolor=color,lw=1))\n\ncap_wrapped=wrap_by_pixels(d[\"labels\"][\"caption\"], W*.84, renderer, fp)\ncap_t=fig.text(.08,.315,cap_wrapped,ha=\"left\",va=\"top\",linespacing=1.35,fontproperties=fp)\nabbr=\"；\".join(f\"{x['term']}：{x['definition']}\" for x in d[\"presentation\"][\"abbreviations\"])\nabbr_wrapped=wrap_by_pixels(abbr,W*.84,renderer,fp)\nabbr_t=fig.text(.08,.135,abbr_wrapped,ha=\"left\",va=\"top\",linespacing=1.35,fontproperties=fp)\n\nfig.canvas.draw(); renderer=fig.canvas.get_renderer()\n# bounds and pairwise overlaps among key explanatory regions\nkey=[(\"title\",title_t),(\"n\",n_t),(\"ci\",ci_t),(\"caption\",cap_t),(\"abbr\",abbr_t),\n     (\"xlabel\",ax.xaxis.label),(\"ylabel\",ax.yaxis.label)]\nbounds={name:t.get_window_extent(renderer) for name,t in key}\nissues=[]\nfor name,bb in bounds.items():\n    if bb.x0<0 or bb.y0<0 or bb.x1>W or bb.y1>H:\n        issues.append((\"bounds\",name,tuple(map(float,bb.bounds))))\nfor i in range(len(key)):\n    for j in range(i+1,len(key)):\n        n1,t1=key[i]; n2,t2=key[j]\n        if bounds[n1].overlaps(bounds[n2]):\n            issues.append((\"overlap\",n1,n2))\n            \nfig.savefig(out_png,dpi=dpi,facecolor=\"white\",edgecolor=\"none\")\nplt.close(fig)\nimg=Image.open(out_png)\nimg.size, issues, cap_wrapped, abbr_wrapped\n",
+          "from IPython.display import display\ndisplay(Image.open(\"/mnt/data/figure.png\").resize((1200,800)))\n",
+          "# Final validation\nwith open(\"/mnt/data/result.json\",encoding=\"utf-8\") as f:\n    r=json.load(f, parse_constant=lambda x: (_ for _ in ()).throw(ValueError(x)))\nassert r[\"schema_version\"]==5\nassert r[\"figure_kind\"]==\"forest\"\nassert r[\"statistics\"][\"n\"]==14\nassert r[\"statistics\"][\"effects\"]==d[\"effects\"]\nassert r[\"plot_config\"]==d[\"plot_config\"]\nassert r[\"presentation\"]==d[\"presentation\"]\nassert r[\"legacy_contract\"]==d[\"legacy_contract\"]\nassert Image.open(\"/mnt/data/figure.png\").size==(2400,1600)\nprint(\"validated\")\n"
+        ],
+        "usage": {
+          "input_tokens": 9974,
+          "input_tokens_details": {
+            "cache_write_tokens": 2949,
+            "cached_tokens": 0
+          },
+          "output_tokens": 4579,
+          "output_tokens_details": {
+            "reasoning_tokens": 4548
+          },
+          "total_tokens": 14553
+        },
+        "prompt_version": "openai_figure_workbench_v3",
+        "png_file_id": "cfile_6ae1a52641288191b193e457ac7c1664",
+        "result_file_id": "cfile_6ae1a5264148819181dff206cf78072f",
+        "model_call_id": "c13b0b72-09fc-44ff-9a73-ec5b21cce476",
+        "model_input_digest": "d35c0dc6eb6e0d0d4edcde5c0c11c8fedb29907d0184339b7200d91747f5508a",
+        "input_sha256": "2dea14c663131bcb603631ae211f842a22ade8c95c3fce16996023aa7fbbbfba"
+      },
+      "text_authorship": {
+        "title": "user",
+        "additional_caption": "user",
+        "created_by": "96da5ede-f336-4136-99a7-d3f3069f7a97"
+      },
+      "external_processing": {
+        "version": 7,
+        "confirmed": true,
+        "version_id": "7161d4cb-82e0-4f4b-927d-66127a7e82b7",
+        "confirmed_at": "2026-10-28T05:03:01.763341+00:00",
+        "confirmed_by": "96da5ede-f336-4136-99a7-d3f3069f7a97",
+        "payload_sha256": "2dea14c663131bcb603631ae211f842a22ade8c95c3fce16996023aa7fbbbfba"
+      }
+    },
+    "configuration": {
+      "id": "7161d4cb-82e0-4f4b-927d-66127a7e82b7",
+      "configuration_id": "2226384e-83a7-45fa-90fc-6502739f2ade",
+      "revision": 1,
+      "parent_version_id": null,
+      "created_by": "96da5ede-f336-4136-99a7-d3f3069f7a97",
+      "created_at": "2026-10-28 04:53:58.965990+00:00",
+      "sha256": "f6a72eeaa9c5be64c2c106ccaa0e27c8a62875807f9ea8458e5a3d28f25c1c96",
+      "config": {
+        "style": {
+          "title": "合成数据 OLS 效应",
+          "width": 2400,
+          "height": 1600,
+          "aliases": {
+            "A": "结局",
+            "B": "暴露"
+          },
+          "caption": "仅供合成数据工程验证。",
+          "palette": "colorblind",
+          "font_size": 12,
+          "display_order": []
+        },
+        "language": "zh-CN",
+        "projection": null,
+        "figure_kind": "forest"
+      },
+      "source": {
+        "kind": "prepared_dataset_version",
+        "file_id": "f8eef114-5c37-55b8-bdd7-96f11b310b25",
+        "dataset_id": "0b6b787c-bd1c-5a8f-b412-37a1f7fe6347",
+        "sheet_name": "Synthetic",
+        "sheet_index": 0,
+        "structure_id": "8935b7fe-8da5-41f0-9d4b-cd36951b0a33",
+        "source_sha256": "51094a76952881922b1eab3d008ed53b03ec2d9fd7328257807034e07df39549",
+        "dataset_sha256": "6d9ba2d11c13809755db8c6bd9610539daf1ebca7ecc3655f7f2ea527adaf683",
+        "parser_version": "openpyxl-3.1.5-structure-v1",
+        "schema_version": 1,
+        "dataset_version": 1,
+        "parent_dataset_id": "ddb2f42c-595c-558f-aa25-fb11b6e8c4a9",
+        "transform_version": "excel_prepare_v1",
+        "dataset_size_bytes": 3728,
+        "dataset_schema_version": 1,
+        "parent_dataset_version": 1
+      },
+      "figure_contract": 3
+    },
+    "projection": {
+      "id": "6775608c-2d2b-5338-815e-17845811bdd8",
+      "config_version_id": "7161d4cb-82e0-4f4b-927d-66127a7e82b7",
+      "sha256": "3e4abaeb24e89ce222d78d144a098652431aa7042b4ff4af1e7b49ec4716e76b",
+      "result": {
+        "audit": {
+          "valid_n": 14,
+          "excluded": [],
+          "excluded_n": 0,
+          "missing_y_n": 0,
+          "population_n": 14,
+          "included_rows": [
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10,
+            11,
+            12,
+            13,
+            14,
+            15
+          ]
+        },
+        "method": {
+          "kind": "forest",
+          "basis": "original_statistical_valid_rows"
+        },
+        "series": [],
+        "_material": {
+          "sha256": "d3010f34935c6764ac5bc49f060fbc054f56119ccd51a7e44594f0ac4caa8a7b",
+          "payload": {
+            "labels": {
+              "title": "合成数据 OLS 效应",
+              "caption": "纳入 14 条完整记录；排除 0 行。森林图仅核对本地效应投影与绘图，不独立重新拟合回归。 仅供合成数据工程验证。 仅展示本地冻结效应与已有区间，不独立重新拟合；区间缺失不表示零宽度。不同预测变量单位见各项标签。",
+              "x_label": "回归系数",
+              "y_label": "变量"
+            },
+            "method": "ols",
+            "effects": [
+              {
+                "term": "effect:1",
+                "unit": "",
+                "label": "暴露",
+                "ci_low": 1.8427577282847274,
+                "ci_high": 2.1572422717152735,
+                "estimate": 2.0000000000000004,
+                "interval_reason": null
+              }
+            ],
+            "language": "zh-CN",
+            "variables": [
+              {
+                "name": "结局",
+                "unit": "",
+                "column": "A"
+              },
+              {
+                "name": "暴露",
+                "unit": "",
+                "column": "B"
+              }
+            ],
+            "figure_kind": "forest",
+            "plot_config": {
+              "scale": "linear",
+              "style": {
+                "width": 2400,
+                "height": 1600,
+                "palette": "colorblind",
+                "font_size": 12,
+                "display_order": []
+              },
+              "numbering_mode": "external",
+              "reference_line": 0.0,
+              "outliers_removed": false,
+              "verification_scope": "local_effect_projection",
+              "inference_displayed": true
+            },
+            "presentation": {
+              "axes": {
+                "x": {
+                  "unit": "",
+                  "label": "回归系数"
+                },
+                "y": {
+                  "unit": "",
+                  "label": "变量"
+                }
+              },
+              "legend": {
+                "title": "分组",
+                "entries": []
+              },
+              "color_scale": null,
+              "abbreviations": [
+                {
+                  "term": "n",
+                  "definition": "有效记录数；独立人数须由研究设计确认"
+                },
+                {
+                  "term": "β",
+                  "definition": "回归系数"
+                },
+                {
+                  "term": "CI",
+                  "definition": "置信区间（仅展示冻结结果中已有区间）"
+                }
+              ],
+              "schema_version": 2,
+              "statistical_notes": [
+                "仅展示本地冻结效应与已有区间，不独立重新拟合；区间缺失不表示零宽度。不同预测变量单位见各项标签。"
+              ]
+            },
+            "sample_count": 14,
+            "schema_version": 5,
+            "legacy_contract": 4
+          },
+          "expected": {
+            "title": "合成数据 OLS 效应",
+            "caption": "纳入 14 条完整记录；排除 0 行。森林图仅核对本地效应投影与绘图，不独立重新拟合回归。 仅供合成数据工程验证。 仅展示本地冻结效应与已有区间，不独立重新拟合；区间缺失不表示零宽度。不同预测变量单位见各项标签。",
+            "x_label": "回归系数",
+            "y_label": "变量",
+            "language": "zh-CN",
+            "variables": [
+              {
+                "name": "结局",
+                "unit": "",
+                "column": "A"
+              },
+              {
+                "name": "暴露",
+                "unit": "",
+                "column": "B"
+              }
+            ],
+            "statistics": {
+              "n": 14,
+              "effects": [
+                {
+                  "term": "effect:1",
+                  "unit": "",
+                  "label": "暴露",
+                  "ci_low": 1.8427577282847274,
+                  "ci_high": 2.1572422717152735,
+                  "estimate": 2.0000000000000004,
+                  "interval_reason": null
+                }
+              ]
+            },
+            "figure_kind": "forest",
+            "plot_config": {
+              "scale": "linear",
+              "style": {
+                "width": 2400,
+                "height": 1600,
+                "palette": "colorblind",
+                "font_size": 12,
+                "display_order": []
+              },
+              "numbering_mode": "external",
+              "reference_line": 0.0,
+              "outliers_removed": false,
+              "verification_scope": "local_effect_projection",
+              "inference_displayed": true
+            },
+            "presentation": {
+              "axes": {
+                "x": {
+                  "unit": "",
+                  "label": "回归系数"
+                },
+                "y": {
+                  "unit": "",
+                  "label": "变量"
+                }
+              },
+              "legend": {
+                "title": "分组",
+                "entries": []
+              },
+              "color_scale": null,
+              "abbreviations": [
+                {
+                  "term": "n",
+                  "definition": "有效记录数；独立人数须由研究设计确认"
+                },
+                {
+                  "term": "β",
+                  "definition": "回归系数"
+                },
+                {
+                  "term": "CI",
+                  "definition": "置信区间（仅展示冻结结果中已有区间）"
+                }
+              ],
+              "schema_version": 2,
+              "statistical_notes": [
+                "仅展示本地冻结效应与已有区间，不独立重新拟合；区间缺失不表示零宽度。不同预测变量单位见各项标签。"
+              ]
+            },
+            "schema_version": 5,
+            "legacy_contract": 4
+          }
+        },
+        "input_sha256": "d6966d619d192249d82b8dea14d4e4a932a9f3a1cef4475d6400b57a50af1583",
+        "tool_version": "figure_projection_v1",
+        "schema_version": 1,
+        "original_statistical_n": 14
+      }
+    }
+  },
+  "saved_explanation_included": false
+}

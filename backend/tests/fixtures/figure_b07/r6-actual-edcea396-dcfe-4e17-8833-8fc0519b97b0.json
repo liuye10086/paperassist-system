@@ -1,0 +1,301 @@
+{
+  "task_id": "edcea396-dcfe-4e17-8833-8fc0519b97b0",
+  "response_id": "resp_034f425f18d54f03006ae291c0d57487d0bd98b2a5f6b491d7",
+  "raw_file": "raw/000149-retrieve.response.body",
+  "raw_sha256": "8a802f05985ec4c9c3f99d5c400198dbecb4a7f77058c72647a2cccb3a0bd4fa",
+  "receipt_seq": 151,
+  "payload": {
+    "facts": {
+      "axis.x.label": {
+        "label": "Horizontal field",
+        "raw": "Regression coefficient",
+        "value": "Regression coefficient"
+      },
+      "axis.x.unit": {
+        "label": "Horizontal unit",
+        "raw": "",
+        "value": "Unit not specified"
+      },
+      "axis.y.label": {
+        "label": "Vertical field",
+        "raw": "Variable",
+        "value": "Variable"
+      },
+      "axis.y.unit": {
+        "label": "Vertical unit",
+        "raw": "",
+        "value": "Unit not specified"
+      },
+      "data.excluded": {
+        "label": "Data records excluded",
+        "raw": 0,
+        "value": "0"
+      },
+      "data.total": {
+        "label": "Data records total",
+        "raw": 14,
+        "value": "14"
+      },
+      "data.valid": {
+        "label": "Data records valid",
+        "raw": 14,
+        "value": "14"
+      },
+      "design.status": {
+        "label": "Research design information status",
+        "raw": true,
+        "value": "Research design text was supplied but was not programmatically verified or forwarded"
+      },
+      "design.structure": {
+        "label": "Observation structure and verification limits",
+        "raw": "independent",
+        "value": "User-declared independent observations; independence was not verified"
+      },
+      "figure.title": {
+        "label": "Figure title",
+        "raw": "Synthetic OLS effects",
+        "value": "Synthetic OLS effects"
+      },
+      "limitation.0": {
+        "label": "Applicable limitation",
+        "raw": "Research declarations are supplied by the user; the program does not establish design or sample authenticity.",
+        "value": "Research declarations are supplied by the user; the program does not establish design or sample authenticity"
+      },
+      "limitation.1": {
+        "label": "Applicable limitation",
+        "raw": "Complete-case analysis may introduce selection bias; no imputation, deduplication or outlier removal.",
+        "value": "Complete-case analysis may introduce selection bias; no imputation, deduplication or outlier removal"
+      },
+      "limitation.2": {
+        "label": "Applicable limitation",
+        "raw": "Forest verification covers local effects and rendering, without an independent cloud model refit; association does not establish causation.",
+        "value": "Forest verification covers local effects and rendering, without an independent cloud model refit; association does not establish causation"
+      },
+      "limitation.3": {
+        "label": "Applicable limitation",
+        "raw": "Research design text was supplied but was not verified or forwarded; sample provenance, procedures and measurement context require review.",
+        "value": "Research design text was supplied but was not verified or forwarded; sample provenance, procedures and measurement context require review"
+      },
+      "limitation.4": {
+        "label": "Applicable limitation",
+        "raw": "User-declared independent observations; independence was not verified",
+        "value": "User-declared independent observations; independence was not verified"
+      },
+      "limitation.5": {
+        "label": "Applicable limitation",
+        "raw": "Complete ordered coordinates retain saved precision; other projection summaries display at most 8 significant digits and original statistical summaries at most 6 significant digits. Saved results retain full precision.",
+        "value": "Complete ordered coordinates retain saved precision; other projection summaries display at most 8 significant digits and original statistical summaries at most 6 significant digits. Saved results retain full precision"
+      },
+      "limitation.6": {
+        "label": "Applicable limitation",
+        "raw": "Values and fact references were inserted and checked locally; meaning and research applicability require review.",
+        "value": "Values and fact references were inserted and checked locally; meaning and research applicability require review"
+      },
+      "limitation.7": {
+        "label": "Applicable limitation",
+        "raw": "This explanation checks frozen statistics and metadata only; image pixels, in-image text and visual correctness were not verified. The AI draft requires human review.",
+        "value": "This explanation checks frozen statistics and metadata only; image pixels, in-image text and visual correctness were not verified. The AI draft requires human review"
+      },
+      "method.summary": {
+        "label": "Analysis method",
+        "raw": "Ordinary least squares with intercept, original continuous scales and confirmed categorical references; two-sided t inference and ordinary covariance.",
+        "value": "Ordinary least squares with intercept, original continuous scales and confirmed categorical references; two-sided t inference and ordinary covariance"
+      },
+      "modeling.adjusted_r_squared": {
+        "label": "Adjusted R squared",
+        "raw": 0.9833333333333334,
+        "value": "0.983333"
+      },
+      "modeling.coding": {
+        "label": "Confirmed roles, coding and declarations",
+        "raw": {
+          "assumptions": {
+            "independent_units": true,
+            "inference_confirmed": true
+          },
+          "covariate_types": [
+            "continuous"
+          ],
+          "method": "ols",
+          "missing_policy": "complete_cases",
+          "task_type": "regression"
+        },
+        "value": "Analysis task type: Regression analysis; Method: Ordinary least-squares regression; Missing-data policy: Complete cases; Assumptions / Independent-unit declaration: Yes; Assumptions / Inference-assumption declaration: Yes; Covariate types 1: Continuous variable"
+      },
+      "modeling.coefficients.0.inference": {
+        "label": "Parameter and inference — Intercept",
+        "raw": {
+          "beta": 1.0,
+          "ci_high": 1.314484543430546,
+          "ci_low": 0.6855154565694539,
+          "column": null,
+          "level": null,
+          "p_value": 1.586602024029914e-05,
+          "reference": null,
+          "se": 0.14433756729740643,
+          "statistic": 6.92820323027551,
+          "term": "intercept",
+          "unit": ""
+        },
+        "value": "Intercept — beta: 1, SE: 0.144338, t: 6.9282, P: 1.5866e-05, beta CI lower: 0.685515, beta CI upper: 1.31448"
+      },
+      "modeling.coefficients.1.inference": {
+        "label": "Parameter and inference — Exposure (B), term: B, unit: Unit not specified",
+        "raw": {
+          "beta": 2.0000000000000004,
+          "ci_high": 2.1572422717152735,
+          "ci_low": 1.8427577282847274,
+          "column": "B",
+          "level": null,
+          "p_value": 3.0110295374637645e-12,
+          "reference": null,
+          "se": 0.07216878364870322,
+          "statistic": 27.712812921102046,
+          "term": "B",
+          "unit": ""
+        },
+        "value": "Exposure (B), term: B, unit: Unit not specified — beta: 2, SE: 0.0721688, t: 27.7128, P: 3.01103e-12, beta CI lower: 1.84276, beta CI upper: 2.15724"
+      },
+      "modeling.df_residual": {
+        "label": "Residual degrees of freedom",
+        "raw": 12,
+        "value": "12"
+      },
+      "modeling.diagnostics": {
+        "label": "Model diagnostics",
+        "raw": {
+          "centers": [
+            0.0
+          ],
+          "condition_number": 1.0,
+          "converged": true,
+          "rank": 2,
+          "scales": [
+            2.0
+          ]
+        },
+        "value": "Matrix rank: 2, Centering constants: 0, Scaling constants: 2, Condition number: 1, Converged: Yes"
+      },
+      "modeling.n": {
+        "label": "Valid records",
+        "raw": 14,
+        "value": "14"
+      },
+      "modeling.p": {
+        "label": "Model parameter count",
+        "raw": 2,
+        "value": "2"
+      },
+      "modeling.r_squared": {
+        "label": "R squared",
+        "raw": 0.9846153846153847,
+        "value": "0.984615"
+      },
+      "modeling.residual_sd": {
+        "label": "Residual standard deviation",
+        "raw": 0.5400617248673217,
+        "value": "0.540062"
+      },
+      "modeling.warnings": {
+        "label": "Limitations and warnings",
+        "raw": "complete_case_selection_bias; association_not_causation; unadjusted_coefficient_inference",
+        "value": "Complete-case analysis may introduce selection bias; Association does not establish causation; Coefficient inference has no multiple-comparison adjustment"
+      },
+      "purpose.kind": {
+        "label": "Figure type",
+        "raw": "forest",
+        "value": "a forest plot of saved model estimates"
+      },
+      "scope.variables": {
+        "label": "Variable scope",
+        "raw": "Outcome (unit not specified), Exposure (unit not specified)",
+        "value": "Outcome (unit not specified), Exposure (unit not specified)"
+      }
+    },
+    "figure_explanation_contract": 5,
+    "language": "en",
+    "required_references": {
+      "data": [
+        "data.total",
+        "data.valid",
+        "data.excluded",
+        "axis.x.label",
+        "axis.x.unit",
+        "axis.y.label",
+        "axis.y.unit"
+      ],
+      "interpretation": [
+        "limitation.0",
+        "limitation.1",
+        "limitation.2",
+        "limitation.3",
+        "limitation.4",
+        "limitation.5",
+        "limitation.6",
+        "limitation.7"
+      ],
+      "methods": [
+        "method.summary",
+        "modeling.coding",
+        "design.structure",
+        "design.status"
+      ],
+      "paper_text": [
+        "scope.variables",
+        "purpose.kind",
+        "data.valid",
+        "method.summary",
+        "modeling.coefficients.0.inference",
+        "modeling.coefficients.1.inference",
+        "modeling.n",
+        "modeling.p",
+        "modeling.df_residual",
+        "modeling.r_squared",
+        "modeling.adjusted_r_squared",
+        "modeling.residual_sd",
+        "modeling.diagnostics",
+        "modeling.warnings",
+        "limitation.0",
+        "limitation.1",
+        "limitation.2",
+        "limitation.3",
+        "limitation.4",
+        "limitation.5",
+        "limitation.6",
+        "limitation.7"
+      ],
+      "purpose": [
+        "scope.variables",
+        "purpose.kind"
+      ],
+      "results": [
+        "modeling.coefficients.0.inference",
+        "modeling.coefficients.1.inference",
+        "modeling.n",
+        "modeling.p",
+        "modeling.df_residual",
+        "modeling.r_squared",
+        "modeling.adjusted_r_squared",
+        "modeling.residual_sd",
+        "modeling.diagnostics",
+        "modeling.warnings"
+      ]
+    },
+    "schema_version": 2
+  },
+  "draft": {
+    "purpose": "This figure describes {{scope.variables}}. This figure presents {{purpose.kind}}.",
+    "interpretation": "Interpreting these results requires considering {{limitation.0}}. Interpreting these results requires considering {{limitation.1}}. Interpreting these results requires considering {{limitation.2}}. Interpreting these results requires considering {{limitation.3}}. Interpreting these results requires considering {{limitation.4}}. Interpreting these results requires considering {{limitation.5}}. Interpreting these results requires considering {{limitation.6}}. Interpreting these results requires considering {{limitation.7}}.",
+    "results": "The saved results show {{modeling.coefficients.0.inference}}. The saved results show {{modeling.coefficients.1.inference}}. The saved results show {{modeling.n}}. The saved results show {{modeling.p}}. The saved results show {{modeling.df_residual}}. The saved results show {{modeling.r_squared}}. The saved results show {{modeling.adjusted_r_squared}}. The saved results show {{modeling.residual_sd}}. The saved results show {{modeling.diagnostics}}. The saved results show {{modeling.warnings}}.",
+    "paper_text": "This figure describes {{scope.variables}}. This figure presents {{purpose.kind}}. The data used in this figure are characterized by {{data.valid}}. This figure uses the saved methods described as {{method.summary}}. The saved results show {{modeling.coefficients.0.inference}}. The saved results show {{modeling.coefficients.1.inference}}. The saved results show {{modeling.n}}. The saved results show {{modeling.p}}. The saved results show {{modeling.df_residual}}. The saved results show {{modeling.r_squared}}. The saved results show {{modeling.adjusted_r_squared}}. The saved results show {{modeling.residual_sd}}. The saved results show {{modeling.diagnostics}}. The saved results show {{modeling.warnings}}. Interpreting these findings requires considering {{limitation.0}}. Interpreting these findings requires considering {{limitation.1}}. Interpreting these findings requires considering {{limitation.2}}. Interpreting these findings requires considering {{limitation.3}}. Interpreting these findings requires considering {{limitation.4}}. Interpreting these findings requires considering {{limitation.5}}. Interpreting these findings requires considering {{limitation.6}}. Interpreting these findings requires considering {{limitation.7}}.",
+    "methods": "This figure uses the saved methods described as {{method.summary}}. This figure uses the saved methods described as {{modeling.coding}}. The supplied observation structure is described as {{design.structure}}. The status of the supplied research design information is described as {{design.status}}.",
+    "data": "The data used in this figure are characterized by {{data.total}}. The data used in this figure are characterized by {{data.valid}}. The data used in this figure are characterized by {{data.excluded}}. The data used in this figure are characterized by {{axis.x.label}}. The data used in this figure are characterized by {{axis.x.unit}}. The data used in this figure are characterized by {{axis.y.label}}. The data used in this figure are characterized by {{axis.y.unit}}."
+  },
+  "source_pins": {
+    "frozen/edcea396-dcfe-4e17-8833-8fc0519b97b0/data.json": "9087a1687e17ba38def6186a222b820298c3be31f50b6035a684f5bed38e3731",
+    "frozen/edcea396-dcfe-4e17-8833-8fc0519b97b0/expected.json": "7e7491a6302aa0463a7305ee6bd301283d47818550d33ed42b12c9d06a1ce573",
+    "frozen/edcea396-dcfe-4e17-8833-8fc0519b97b0/instructions.txt": "e24241e2682ddcefa4737255b40144b444ffd76c43eb7a647250d9ec86b2b4a0",
+    "frozen/edcea396-dcfe-4e17-8833-8fc0519b97b0/policy-snapshot.json": "58e72f61953721f22abfe1edd107fbf9e08c967627d1e781e1b4f199b962ee39",
+    "frozen/edcea396-dcfe-4e17-8833-8fc0519b97b0/task-snapshot.json": "767eb7452ccfac21ae178c685a1280a361588ede10ec7f684f7780c2e947c8cd"
+  }
+}

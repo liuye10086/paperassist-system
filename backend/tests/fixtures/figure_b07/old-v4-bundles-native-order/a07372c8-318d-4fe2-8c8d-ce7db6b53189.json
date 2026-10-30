@@ -1,0 +1,1345 @@
+{
+  "key": "roc_curve:en",
+  "task_id": "a07372c8-318d-4fe2-8c8d-ce7db6b53189",
+  "bundle": {
+    "result": {
+      "schema_version": 5,
+      "result_type": "roc",
+      "file_id": "a2f2ecf0-27fa-50ab-ae02-d62f0bf1cbdf",
+      "filename": "roc_curve.xlsx",
+      "source_sha256": "d195a0e4c21553e8562e479a4d3a48ff14a5ab149f439d556b1225e9558cf476",
+      "source": {
+        "kind": "prepared_dataset_version",
+        "schema_version": 1,
+        "dataset_id": "b530c15c-17ca-52eb-aa9f-7b07412ff566",
+        "structure_id": "a43c75a7-4554-43a0-8bb2-0ca696a60840",
+        "dataset_version": 1,
+        "file_id": "a2f2ecf0-27fa-50ab-ae02-d62f0bf1cbdf",
+        "source_sha256": "d195a0e4c21553e8562e479a4d3a48ff14a5ab149f439d556b1225e9558cf476",
+        "dataset_sha256": "7f0599f629c1774e53d9c83af41162bc45a2ff5d51b9d0a7ac61b223c280ffc3",
+        "dataset_size_bytes": 3427,
+        "dataset_schema_version": 1,
+        "sheet_index": 0,
+        "sheet_name": "Synthetic",
+        "parser_version": "openpyxl-3.1.5-structure-v1",
+        "parent_dataset_id": "907d60b7-fe49-5430-9e08-5eaa5f1085cc",
+        "parent_dataset_version": 1,
+        "transform_version": "excel_prepare_v1"
+      },
+      "setup_revision": 2,
+      "selection": {
+        "task_type": "roc",
+        "method": "roc_auc",
+        "sheet_name": "Synthetic",
+        "outcome_column": "A",
+        "score_column": "B",
+        "positive": {
+          "kind": "number",
+          "value": "1"
+        },
+        "negative": {
+          "kind": "number",
+          "value": "0"
+        },
+        "direction": "higher_is_positive",
+        "score_kind": "probability",
+        "score_source": "Prespecified explicitly synthetic fixture scores",
+        "score_version": "sha256:d195a0e4c21553e8562e479a4d3a48ff14a5ab149f439d556b1225e9558cf476",
+        "formation": "Fixed synthetic demonstration scores; no model fitting or threshold optimization.",
+        "evaluation_role": "apparent_exploratory",
+        "independence_confirmed": false,
+        "outcome_time": "Synthetic baseline",
+        "missing_policy": "complete_cases",
+        "assumptions": {
+          "independent_units": true,
+          "inference_confirmed": true
+        }
+      },
+      "check": {
+        "ready": true,
+        "row_count": 12,
+        "valid_count": 12,
+        "excluded_count": 0,
+        "groups": [],
+        "issues": [],
+        "warnings": []
+      },
+      "analysis_plan": {
+        "plan_id": "61ad0213-ccba-56db-9c5f-5dca5690acd8",
+        "sha256": "19c0854f7f9ffbf4316132c0333bad75b055138a1a24f998dc791bb8b90eed3f",
+        "resolutions": {}
+      },
+      "analysis_context": {
+        "plan": {
+          "schema_version": 5,
+          "workflow_version": "analysis_plan_v5",
+          "rules_version": "analysis_plan_rules_v5",
+          "id": "61ad0213-ccba-56db-9c5f-5dca5690acd8",
+          "task_id": "06c404ab-7afe-4ad1-88c0-d9b07eb01ab2",
+          "decision_id": "c8ee89d1-35fb-4e99-be4a-38520f7cc2d1",
+          "project_id": "123cbf9f-fd5a-4704-b4d1-af97dea0bad1",
+          "file_id": "a2f2ecf0-27fa-50ab-ae02-d62f0bf1cbdf",
+          "source": {
+            "kind": "prepared_dataset_version",
+            "schema_version": 1,
+            "dataset_id": "b530c15c-17ca-52eb-aa9f-7b07412ff566",
+            "structure_id": "a43c75a7-4554-43a0-8bb2-0ca696a60840",
+            "dataset_version": 1,
+            "file_id": "a2f2ecf0-27fa-50ab-ae02-d62f0bf1cbdf",
+            "source_sha256": "d195a0e4c21553e8562e479a4d3a48ff14a5ab149f439d556b1225e9558cf476",
+            "dataset_sha256": "7f0599f629c1774e53d9c83af41162bc45a2ff5d51b9d0a7ac61b223c280ffc3",
+            "dataset_size_bytes": 3427,
+            "dataset_schema_version": 1,
+            "sheet_index": 0,
+            "sheet_name": "Synthetic",
+            "parser_version": "openpyxl-3.1.5-structure-v1",
+            "parent_dataset_id": "907d60b7-fe49-5430-9e08-5eaa5f1085cc",
+            "parent_dataset_version": 1,
+            "transform_version": "excel_prepare_v1"
+          },
+          "selection": {
+            "task_type": "roc",
+            "method": "roc_auc",
+            "sheet_name": "Synthetic",
+            "outcome_column": "A",
+            "score_column": "B",
+            "positive": {
+              "kind": "number",
+              "value": "1"
+            },
+            "negative": {
+              "kind": "number",
+              "value": "0"
+            },
+            "direction": "higher_is_positive",
+            "score_kind": "probability",
+            "score_source": "Prespecified explicitly synthetic fixture scores",
+            "score_version": "sha256:d195a0e4c21553e8562e479a4d3a48ff14a5ab149f439d556b1225e9558cf476",
+            "formation": "Fixed synthetic demonstration scores; no model fitting or threshold optimization.",
+            "evaluation_role": "apparent_exploratory",
+            "independence_confirmed": false,
+            "outcome_time": "Synthetic baseline",
+            "missing_policy": "complete_cases",
+            "assumptions": {
+              "independent_units": true,
+              "inference_confirmed": true
+            }
+          },
+          "check": {
+            "rules_version": "analysis_plan_rules_v5",
+            "research_missing": [],
+            "data_check": {
+              "rules_version": "analysis_plan_rules_v3",
+              "data_range": "A2:B13",
+              "row_count": 12,
+              "selected_fields": [
+                {
+                  "letter": "A",
+                  "name": "Outcome",
+                  "type_counts": {
+                    "number": 12
+                  },
+                  "missing_count": 0,
+                  "non_missing_count": 12,
+                  "prepared_unit": {
+                    "status": "confirmed",
+                    "value": ""
+                  },
+                  "declared_unit": {
+                    "status": "unknown",
+                    "value": null
+                  },
+                  "observed_min": 0.0,
+                  "observed_max": 1.0
+                },
+                {
+                  "letter": "B",
+                  "name": "Score",
+                  "type_counts": {
+                    "number": 12
+                  },
+                  "missing_count": 0,
+                  "non_missing_count": 12,
+                  "prepared_unit": {
+                    "status": "confirmed",
+                    "value": ""
+                  },
+                  "declared_unit": {
+                    "status": "unknown",
+                    "value": null
+                  },
+                  "observed_min": 0.1,
+                  "observed_max": 0.9
+                }
+              ],
+              "selection_check": {
+                "ready": true,
+                "row_count": 12,
+                "valid_count": 12,
+                "excluded_count": 0,
+                "groups": [],
+                "issues": [],
+                "warnings": []
+              },
+              "issues": [],
+              "limitations": [
+                "前提由用户声明，不证明独立性、因果或模型正确。",
+                "共同完整记录可能产生选择偏差；不插补、不删异常。"
+              ],
+              "research_missing": []
+            },
+            "limitations": [
+              "外部材料仅为来源证据，未由本系统重新计算。",
+              "补充资料及采纳候选不等于批准分析计划。"
+            ]
+          },
+          "resolutions": {},
+          "plan_revision": 2,
+          "setup_revision": 2,
+          "created_at": "2026-10-28T04:52:41.856210+00:00",
+          "research_request": {
+            "question": "Prespecified synthetic engineering verification: roc_curve",
+            "output_language": "en",
+            "population": "Explicit synthetic study records only",
+            "study_design": "Fixed synthetic demonstration; no real research inference",
+            "observation_unit": "One synthetic record per row",
+            "observation_structure": "independent",
+            "relationship_description": "",
+            "output_requirements": "Preserve source units and all missingness, methods and non-causal limitations; "
+          },
+          "recommendation_ref": null,
+          "evidence_versions": [],
+          "origin_recommendation_ref": null,
+          "source_reference": null,
+          "source_resolution": {
+            "confirmed": true,
+            "note": "Exact authorized B07 synthetic file SHA, prepared version and cohort confirmed; no real participant claims."
+          },
+          "sha256": "19c0854f7f9ffbf4316132c0333bad75b055138a1a24f998dc791bb8b90eed3f"
+        },
+        "method": {
+          "id": "roc_auc",
+          "parameters": {
+            "task_type": "roc",
+            "method": "roc_auc",
+            "sheet_name": "Synthetic",
+            "outcome_column": "A",
+            "score_column": "B",
+            "positive": {
+              "kind": "number",
+              "value": "1"
+            },
+            "negative": {
+              "kind": "number",
+              "value": "0"
+            },
+            "direction": "higher_is_positive",
+            "score_kind": "probability",
+            "score_source": "Prespecified explicitly synthetic fixture scores",
+            "score_version": "sha256:d195a0e4c21553e8562e479a4d3a48ff14a5ab149f439d556b1225e9558cf476",
+            "formation": "Fixed synthetic demonstration scores; no model fitting or threshold optimization.",
+            "evaluation_role": "apparent_exploratory",
+            "independence_confirmed": false,
+            "outcome_time": "Synthetic baseline",
+            "missing_policy": "complete_cases",
+            "assumptions": {
+              "independent_units": true,
+              "inference_confirmed": true
+            }
+          },
+          "observation_basis": "independent_rows"
+        },
+        "rounding": {
+          "display_significant_digits": 6,
+          "stored_values": "full_precision"
+        }
+      },
+      "variables": [
+        {
+          "column": "A",
+          "name": "Outcome",
+          "unit": ""
+        },
+        {
+          "column": "B",
+          "name": "Score",
+          "unit": ""
+        }
+      ],
+      "statistics": {
+        "method": "roc_auc",
+        "n": 12,
+        "positive_n": 6,
+        "negative_n": 6,
+        "auc": 0.8194444444444443,
+        "variance": 0.016126543209876543,
+        "confidence_interval": {
+          "low": null,
+          "high": null,
+          "level": 0.95,
+          "method": "delong_normal_clipped",
+          "reason": "evaluation_role_not_independent"
+        },
+        "points": [
+          {
+            "threshold_kind": "above_all",
+            "threshold": null,
+            "tpr": 0.0,
+            "fpr": 0.0,
+            "sensitivity": 0.0,
+            "specificity": 1.0
+          },
+          {
+            "threshold_kind": "value",
+            "threshold": 0.9,
+            "tpr": 0.16666666666666666,
+            "fpr": 0.0,
+            "sensitivity": 0.16666666666666666,
+            "specificity": 1.0
+          },
+          {
+            "threshold_kind": "value",
+            "threshold": 0.8,
+            "tpr": 0.3333333333333333,
+            "fpr": 0.0,
+            "sensitivity": 0.3333333333333333,
+            "specificity": 1.0
+          },
+          {
+            "threshold_kind": "value",
+            "threshold": 0.7,
+            "tpr": 0.5,
+            "fpr": 0.16666666666666666,
+            "sensitivity": 0.5,
+            "specificity": 0.8333333333333334
+          },
+          {
+            "threshold_kind": "value",
+            "threshold": 0.6,
+            "tpr": 0.6666666666666666,
+            "fpr": 0.3333333333333333,
+            "sensitivity": 0.6666666666666666,
+            "specificity": 0.6666666666666667
+          },
+          {
+            "threshold_kind": "value",
+            "threshold": 0.5,
+            "tpr": 0.8333333333333334,
+            "fpr": 0.3333333333333333,
+            "sensitivity": 0.8333333333333334,
+            "specificity": 0.6666666666666667
+          },
+          {
+            "threshold_kind": "value",
+            "threshold": 0.4,
+            "tpr": 1.0,
+            "fpr": 0.5,
+            "sensitivity": 1.0,
+            "specificity": 0.5
+          },
+          {
+            "threshold_kind": "value",
+            "threshold": 0.3,
+            "tpr": 1.0,
+            "fpr": 0.6666666666666666,
+            "sensitivity": 1.0,
+            "specificity": 0.33333333333333337
+          },
+          {
+            "threshold_kind": "value",
+            "threshold": 0.2,
+            "tpr": 1.0,
+            "fpr": 0.8333333333333334,
+            "sensitivity": 1.0,
+            "specificity": 0.16666666666666663
+          },
+          {
+            "threshold_kind": "value",
+            "threshold": 0.1,
+            "tpr": 1.0,
+            "fpr": 1.0,
+            "sensitivity": 1.0,
+            "specificity": 0.0
+          }
+        ],
+        "direction": "higher_is_positive",
+        "evaluation_role": "apparent_exploratory",
+        "warnings": [
+          "auc_not_clinical_utility",
+          "small_sample"
+        ]
+      },
+      "row_audit": {
+        "included_rows": [
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13
+        ],
+        "excluded_rows": [],
+        "missing_policy": "complete_cases",
+        "encoding_counts": {}
+      },
+      "started_at": "2026-10-28T04:52:43.482054+00:00",
+      "completed_at": "2026-10-28T04:52:43.482275+00:00",
+      "engine": {
+        "id": "roc_statistics_dataset_v1",
+        "python_version": "3.11.17",
+        "scipy_version": "1.17.1",
+        "numpy_version": "2.4.6",
+        "parser_version": "openpyxl-3.1.5-structure-v1",
+        "encoding_version": "typed_reference_dummy_v1",
+        "timeout_seconds": 30,
+        "statsmodels_version": null,
+        "solver": null,
+        "max_iterations": null,
+        "tolerance": null,
+        "scale": null,
+        "separation_solver": null,
+        "separation_timeout_seconds": null,
+        "execution_contract": "fixed_statistics_v2"
+      },
+      "id": "804e6c52-215a-40c8-b312-fff62b0ff94a"
+    },
+    "figure": {
+      "schema_version": 5,
+      "figure_kind": "roc_curve",
+      "language": "en",
+      "variables": [
+        {
+          "column": "A",
+          "name": "Outcome",
+          "unit": ""
+        },
+        {
+          "column": "B",
+          "name": "Score",
+          "unit": ""
+        }
+      ],
+      "plot_config": {
+        "verification_scope": "independent_curve_calculation",
+        "outliers_removed": false,
+        "inference_displayed": false,
+        "direction": "higher_is_positive",
+        "threshold_endpoints": "null_with_threshold_kind",
+        "ties": "joint_threshold",
+        "style": {
+          "palette": "colorblind",
+          "width": 2400,
+          "height": 1600,
+          "font_size": 12,
+          "display_order": []
+        },
+        "numbering_mode": "external"
+      },
+      "title": "Synthetic score ROC curve",
+      "x_label": "False positive rate (0–1)",
+      "y_label": "True positive rate (0–1)",
+      "caption": "12 complete observations; 0 excluded rows. Cloud curves are independently computed from necessary anonymous observations; expected curves remain local. Evaluation role: apparent_exploratory Synthetic data engineering verification only. ROC describes discrimination in the confirmed evaluation data; it does not establish external validation or calibration; no additional AUC interval is computed.",
+      "statistics": {
+        "n": 12,
+        "positive_n": 6,
+        "negative_n": 6,
+        "auc": 0.8194444444444443,
+        "points": [
+          {
+            "threshold_kind": "above_all",
+            "threshold": null,
+            "tpr": 0.0,
+            "fpr": 0.0,
+            "sensitivity": 0.0,
+            "specificity": 1.0
+          },
+          {
+            "threshold_kind": "value",
+            "threshold": 0.9,
+            "tpr": 0.16666666666666666,
+            "fpr": 0.0,
+            "sensitivity": 0.16666666666666666,
+            "specificity": 1.0
+          },
+          {
+            "threshold_kind": "value",
+            "threshold": 0.8,
+            "tpr": 0.3333333333333333,
+            "fpr": 0.0,
+            "sensitivity": 0.3333333333333333,
+            "specificity": 1.0
+          },
+          {
+            "threshold_kind": "value",
+            "threshold": 0.7,
+            "tpr": 0.5,
+            "fpr": 0.16666666666666666,
+            "sensitivity": 0.5,
+            "specificity": 0.8333333333333334
+          },
+          {
+            "threshold_kind": "value",
+            "threshold": 0.6,
+            "tpr": 0.6666666666666666,
+            "fpr": 0.3333333333333333,
+            "sensitivity": 0.6666666666666666,
+            "specificity": 0.6666666666666667
+          },
+          {
+            "threshold_kind": "value",
+            "threshold": 0.5,
+            "tpr": 0.8333333333333334,
+            "fpr": 0.3333333333333333,
+            "sensitivity": 0.8333333333333334,
+            "specificity": 0.6666666666666667
+          },
+          {
+            "threshold_kind": "value",
+            "threshold": 0.4,
+            "tpr": 1.0,
+            "fpr": 0.5,
+            "sensitivity": 1.0,
+            "specificity": 0.5
+          },
+          {
+            "threshold_kind": "value",
+            "threshold": 0.3,
+            "tpr": 1.0,
+            "fpr": 0.6666666666666666,
+            "sensitivity": 1.0,
+            "specificity": 0.33333333333333337
+          },
+          {
+            "threshold_kind": "value",
+            "threshold": 0.2,
+            "tpr": 1.0,
+            "fpr": 0.8333333333333334,
+            "sensitivity": 1.0,
+            "specificity": 0.16666666666666663
+          },
+          {
+            "threshold_kind": "value",
+            "threshold": 0.1,
+            "tpr": 1.0,
+            "fpr": 1.0,
+            "sensitivity": 1.0,
+            "specificity": 0.0
+          }
+        ]
+      },
+      "legacy_contract": 4,
+      "presentation": {
+        "schema_version": 2,
+        "axes": {
+          "x": {
+            "label": "False positive rate (0–1)",
+            "unit": "0–1"
+          },
+          "y": {
+            "label": "True positive rate (0–1)",
+            "unit": "0–1"
+          }
+        },
+        "legend": {
+          "title": "Group",
+          "entries": []
+        },
+        "color_scale": null,
+        "abbreviations": [
+          {
+            "term": "n",
+            "definition": "Valid record count; independent participant count requires the study design"
+          },
+          {
+            "term": "ROC",
+            "definition": "Receiver operating characteristic curve"
+          },
+          {
+            "term": "AUC",
+            "definition": "Area under the ROC curve"
+          }
+        ],
+        "statistical_notes": [
+          "ROC describes discrimination in the confirmed evaluation data; it does not establish external validation or calibration; no additional AUC interval is computed."
+        ]
+      },
+      "id": "2f429fad-a12b-5faf-bdef-a664b591e185",
+      "analysis_run_id": "804e6c52-215a-40c8-b312-fff62b0ff94a",
+      "file_id": "a2f2ecf0-27fa-50ab-ae02-d62f0bf1cbdf",
+      "source": {
+        "kind": "prepared_dataset_version",
+        "schema_version": 1,
+        "dataset_id": "b530c15c-17ca-52eb-aa9f-7b07412ff566",
+        "structure_id": "a43c75a7-4554-43a0-8bb2-0ca696a60840",
+        "dataset_version": 1,
+        "file_id": "a2f2ecf0-27fa-50ab-ae02-d62f0bf1cbdf",
+        "source_sha256": "d195a0e4c21553e8562e479a4d3a48ff14a5ab149f439d556b1225e9558cf476",
+        "dataset_sha256": "7f0599f629c1774e53d9c83af41162bc45a2ff5d51b9d0a7ac61b223c280ffc3",
+        "dataset_size_bytes": 3427,
+        "dataset_schema_version": 1,
+        "sheet_index": 0,
+        "sheet_name": "Synthetic",
+        "parser_version": "openpyxl-3.1.5-structure-v1",
+        "parent_dataset_id": "907d60b7-fe49-5430-9e08-5eaa5f1085cc",
+        "parent_dataset_version": 1,
+        "transform_version": "excel_prepare_v1"
+      },
+      "source_sha256": "d195a0e4c21553e8562e479a4d3a48ff14a5ab149f439d556b1225e9558cf476",
+      "setup_revision": 2,
+      "sha256": "af2013c5f0ac9a3240f4dd490d7aa23b7f568f7e2bb74c3dd21a0f4055ab33eb",
+      "size_bytes": 398410,
+      "figure_config_version_id": "3b639a5d-ecd0-499e-bf7d-0c3e49d331bb",
+      "configuration_sha256": "695215ba2a0149513a67a7b6e01ab5cf9e1b16a1254e8f0561a88e39d29e6bfb",
+      "projection_id": "0a1bb4d1-c013-5f7a-852d-9384e81da0bf",
+      "projection_sha256": "116f16eb6288968c96016d0479acf89132cb4f331171dd225be248083aff0783",
+      "facts_sha256": "ce7eb032a240082428146cbc8e7f27512924dc28ec2a5fa7533f3ead70812183",
+      "figure_number": null,
+      "numbering_mode": "external",
+      "method": {
+        "kind": "roc_curve",
+        "basis": "original_statistical_valid_rows"
+      },
+      "created_at": "2026-10-28T05:02:56.994270+00:00",
+      "engine": {
+        "id": "openai_figure_workbench_v3",
+        "provider": "openai_code_interpreter",
+        "model": "gpt-5.6-sol"
+      },
+      "verification": {
+        "status": "matched",
+        "note": "Structured values verified; image pixels require human review."
+      },
+      "provenance": {
+        "response_id": "resp_0c4ddb1061177d15006ae19d53bfa887d1a604aff4d8ab55c1",
+        "container_id": "cntr_6ae19c83ea5c8190944737ad2059bb21072c486fd085a359",
+        "model": "gpt-5.6-sol",
+        "code": [
+          "import json, os, sys, math, textwrap, platform\npath=\"/mnt/data/3c55a398e2feab527c42c741cdadd91a-data.json\"\nwith open(path,\"r\",encoding=\"utf-8\") as f:\n    data=json.load(f)\ntype(data), data.keys()\n",
+          "import pprint, json\npprint.pp(data)\n",
+          "obs=data[\"observations\"]\nP=sum(1 for r in obs if r[\"outcome\"]==1)\nN=sum(1 for r in obs if r[\"outcome\"]==0)\nscores=sorted({r[\"score\"] for r in obs}, reverse=True)\npoints=[{\"threshold_kind\":\"above_all\",\"threshold\":None,\"tpr\":0.0,\"fpr\":0.0,\"sensitivity\":0.0,\"specificity\":1.0}]\nfor t in scores:\n    tp=sum(1 for r in obs if r[\"outcome\"]==1 and r[\"score\"]>=t)\n    fp=sum(1 for r in obs if r[\"outcome\"]==0 and r[\"score\"]>=t)\n    tpr=tp/P; fpr=fp/N\n    points.append({\"threshold_kind\":\"value\",\"threshold\":t,\"tpr\":tpr,\"fpr\":fpr,\"sensitivity\":tpr,\"specificity\":1-fpr})\nauc=sum((points[i][\"fpr\"]-points[i-1][\"fpr\"])*(points[i][\"tpr\"]+points[i-1][\"tpr\"])/2 for i in range(1,len(points)))\nP,N,scores,auc,points\n",
+          "import matplotlib\nmatplotlib.use(\"Agg\")\nimport matplotlib.pyplot as plt\nfrom matplotlib import font_manager, ft2font\nfrom PIL import Image\nfrom copy import deepcopy\nimport numpy as np, os, json, platform, textwrap, math\n\n# Configuration\nW = int(data[\"plot_config\"][\"style\"][\"width\"])\nH = int(data[\"plot_config\"][\"style\"][\"height\"])\nDPI = 300\nfont_size = float(data[\"plot_config\"][\"style\"][\"font_size\"])\nfont_name = \"DejaVu Sans\"\nfont_path = font_manager.findfont(font_name, fallback_to_default=True)\n\n# Verify glyph coverage for all supplied strings.\ndef collect_strings(x):\n    out=[]\n    if isinstance(x, str): out.append(x)\n    elif isinstance(x, dict):\n        for v in x.values(): out += collect_strings(v)\n    elif isinstance(x, list):\n        for v in x: out += collect_strings(v)\n    return out\nchars=set(\"\".join(collect_strings(data)))\ncmap=ft2font.FT2Font(font_path).get_charmap()\nmissing=sorted(ch for ch in chars if (ord(ch) not in cmap and ch not in \"\\n\\t\\r\"))\nmissing[:20], len(missing), font_path\n",
+          "# Construct result JSON\nstatistics = {\n    \"n\": len(obs),\n    \"positive_n\": P,\n    \"negative_n\": N,\n    \"auc\": auc,\n    \"points\": points\n}\nresult = {\n    \"schema_version\": 5,\n    \"figure_kind\": data[\"figure_kind\"],\n    \"language\": data[\"language\"],\n    \"variables\": deepcopy(data[\"variables\"]),\n    \"plot_config\": deepcopy(data[\"plot_config\"]),\n    \"title\": data[\"labels\"][\"title\"],\n    \"x_label\": data[\"labels\"][\"x_label\"],\n    \"y_label\": data[\"labels\"][\"y_label\"],\n    \"caption\": data[\"labels\"][\"caption\"],\n    \"statistics\": statistics,\n    \"legacy_contract\": deepcopy(data[\"legacy_contract\"]),\n    \"presentation\": deepcopy(data[\"presentation\"])\n}\n\nplt.rcParams.update({\n    \"font.family\": font_name,\n    \"font.size\": font_size,\n    \"axes.titlesize\": font_size,\n    \"axes.labelsize\": font_size,\n    \"xtick.labelsize\": font_size-1,\n    \"ytick.labelsize\": font_size-1,\n    \"text.usetex\": False,\n    \"mathtext.default\": \"regular\",\n})\nif \"text.parse_math\" in plt.rcParams:\n    plt.rcParams[\"text.parse_math\"] = False\n\nfig = plt.figure(figsize=(W/DPI, H/DPI), dpi=DPI, facecolor=\"white\")\n\n# Dedicated regions: title, data axes, information panel, annotations, caption, abbreviations.\nax = fig.add_axes([0.09, 0.405, 0.52, 0.45], facecolor=\"white\")\n\nfprs=[p[\"fpr\"] for p in points]\ntprs=[p[\"tpr\"] for p in points]\ncurve_color=\"#0173B2\"  # first color of the requested colorblind palette\nax.step(fprs, tprs, where=\"post\", color=curve_color, linewidth=2.4)\nax.scatter(fprs, tprs, color=curve_color, s=24, zorder=3, edgecolor=\"white\", linewidth=0.6)\nax.set_xlim(0,1)\nax.set_ylim(0,1)\nax.set_xticks(np.linspace(0,1,6))\nax.set_yticks(np.linspace(0,1,6))\nax.grid(True, color=\"#D9D9D9\", linewidth=0.65, alpha=0.85)\nax.set_axisbelow(True)\nax.set_xlabel(data[\"labels\"][\"x_label\"], labelpad=9)\nax.set_ylabel(data[\"labels\"][\"y_label\"], labelpad=9)\nfor spine in ax.spines.values():\n    spine.set_color(\"#555555\")\n    spine.set_linewidth(0.8)\n\ntitle_obj = fig.text(0.5, 0.945, data[\"labels\"][\"title\"], ha=\"center\", va=\"center\",\n                     fontsize=font_size+3, weight=\"bold\")\n\n# Right-side summary, outside plotting axes\nsummary = f\"AUC = {auc:.3f}\\nPositive observations = {P}\\nNegative observations = {N}\"\nsummary_obj = fig.text(0.665, 0.805, summary, ha=\"left\", va=\"top\",\n                       fontsize=font_size+0.5, linespacing=1.55,\n                       bbox=dict(boxstyle=\"square,pad=0.55\", facecolor=\"#F4F7FA\",\n                                 edgecolor=\"#AEB8C2\", linewidth=0.8))\n\nrequired_notes = (\n    \"Anonymous plotting code 1 is positive and 0 is negative\\n\"\n    \"The evaluation role is user-declared and has not been independently verified by the program\\n\"\n    \"Higher scores indicate positive outcomes; rule: score >= threshold\"\n)\nnotes_obj = fig.text(0.665, 0.655, textwrap.fill(required_notes.split(\"\\n\")[0], 47) + \"\\n\\n\" +\n                    textwrap.fill(required_notes.split(\"\\n\")[1], 47) + \"\\n\\n\" +\n                    textwrap.fill(required_notes.split(\"\\n\")[2], 47),\n                    ha=\"left\", va=\"top\", fontsize=font_size-0.5, linespacing=1.25)\n\n# Exact caption text once, line-wrapped without changing its characters.\ncaption = data[\"labels\"][\"caption\"]\ncaption_wrapped = \"\\n\".join(textwrap.wrap(caption, width=145, break_long_words=False, break_on_hyphens=False))\ncaption_obj = fig.text(0.055, 0.245, caption_wrapped, ha=\"left\", va=\"top\",\n                       fontsize=font_size-1, linespacing=1.22)\n\nabbr_parts = [f\"{a['term']} = {a['definition']}\" for a in data[\"presentation\"][\"abbreviations\"]]\nabbr_text = \"Abbreviations: \" + \"; \".join(abbr_parts)\nabbr_wrapped = \"\\n\".join(textwrap.wrap(abbr_text, width=150, break_long_words=False, break_on_hyphens=False))\nabbr_obj = fig.text(0.055, 0.095, abbr_wrapped, ha=\"left\", va=\"top\",\n                    fontsize=font_size-1, linespacing=1.22)\n\nfig.canvas.draw()\n\n# Inspect required text boxes for canvas containment and pairwise overlap.\nrenderer=fig.canvas.get_renderer()\nobjs=[title_obj, summary_obj, notes_obj, caption_obj, abbr_obj, ax.xaxis.label, ax.yaxis.label]\nbboxes=[o.get_window_extent(renderer=renderer) for o in objs]\ncanvas=fig.bbox\ncontainment=[(bb.x0>=canvas.x0-1 and bb.y0>=canvas.y0-1 and bb.x1<=canvas.x1+1 and bb.y1<=canvas.y1+1) for bb in bboxes]\ncontainment, [(round(bb.x0),round(bb.y0),round(bb.x1),round(bb.y1)) for bb in bboxes], (W,H)\n",
+          "plt.close(fig)\nfig = plt.figure(figsize=(W/DPI, H/DPI), dpi=DPI, facecolor=\"white\")\nax = fig.add_axes([0.09, 0.48, 0.52, 0.38], facecolor=\"white\")\nax.step(fprs, tprs, where=\"post\", color=curve_color, linewidth=2.4)\nax.scatter(fprs, tprs, color=curve_color, s=24, zorder=3, edgecolor=\"white\", linewidth=0.6)\nax.set_xlim(0,1); ax.set_ylim(0,1)\nax.set_xticks(np.linspace(0,1,6)); ax.set_yticks(np.linspace(0,1,6))\nax.grid(True, color=\"#D9D9D9\", linewidth=0.65, alpha=0.85); ax.set_axisbelow(True)\nax.set_xlabel(data[\"labels\"][\"x_label\"], labelpad=9)\nax.set_ylabel(data[\"labels\"][\"y_label\"], labelpad=9)\nfor spine in ax.spines.values():\n    spine.set_color(\"#555555\"); spine.set_linewidth(0.8)\n\ntitle_obj = fig.text(0.5, 0.945, data[\"labels\"][\"title\"], ha=\"center\", va=\"center\",\n                     fontsize=font_size+3, weight=\"bold\")\nsummary_obj = fig.text(0.665, 0.82, summary, ha=\"left\", va=\"top\",\n                       fontsize=font_size+0.5, linespacing=1.55,\n                       bbox=dict(boxstyle=\"square,pad=0.55\", facecolor=\"#F4F7FA\",\n                                 edgecolor=\"#AEB8C2\", linewidth=0.8))\nnote_lines=[\n    \"Anonymous plotting code 1 is positive and 0 is negative\",\n    \"The evaluation role is user-declared and has not been independently verified by the program\",\n    \"Higher scores indicate positive outcomes\",\n    \"Rule: score >= threshold\"\n]\nnotes_wrapped=\"\\n\\n\".join(\"\\n\".join(textwrap.wrap(s, width=29, break_long_words=False, break_on_hyphens=False)) for s in note_lines)\nnotes_obj=fig.text(0.665,0.66,notes_wrapped,ha=\"left\",va=\"top\",fontsize=font_size-0.5,linespacing=1.2)\n\ncaption_wrapped=\"\\n\".join(textwrap.wrap(caption,width=88,break_long_words=False,break_on_hyphens=False))\ncaption_obj=fig.text(0.055,0.35,caption_wrapped,ha=\"left\",va=\"top\",fontsize=font_size-1,linespacing=1.2)\n\nabbr_wrapped=\"\\n\".join(textwrap.wrap(abbr_text,width=88,break_long_words=False,break_on_hyphens=False))\nabbr_obj=fig.text(0.055,0.15,abbr_wrapped,ha=\"left\",va=\"top\",fontsize=font_size-1,linespacing=1.2)\n\nfig.canvas.draw()\nrenderer=fig.canvas.get_renderer()\nobjs=[title_obj,summary_obj,notes_obj,caption_obj,abbr_obj,ax.xaxis.label,ax.yaxis.label]\nnames=[\"title\",\"summary\",\"notes\",\"caption\",\"abbr\",\"xlabel\",\"ylabel\"]\nbbs={n:o.get_window_extent(renderer=renderer) for n,o in zip(names,objs)}\n[(n, tuple(round(v) for v in (bb.x0,bb.y0,bb.x1,bb.y1))) for n,bb in bbs.items()]\n",
+          "print(notes_wrapped)\nprint(\"lines\", notes_wrapped.count(\"\\n\")+1)\n",
+          "# Update notes to compact dedicated block.\nfor o in [notes_obj, caption_obj, abbr_obj]:\n    o.remove()\nnotes_wrapped=\"\\n\".join(\"\\n\".join(textwrap.wrap(s,width=34,break_long_words=False,break_on_hyphens=False)) for s in note_lines)\nnotes_obj=fig.text(0.665,0.66,notes_wrapped,ha=\"left\",va=\"top\",fontsize=font_size-0.5,linespacing=1.12)\ncaption_obj=fig.text(0.055,0.35,caption_wrapped,ha=\"left\",va=\"top\",fontsize=font_size-1,linespacing=1.2)\nabbr_obj=fig.text(0.055,0.15,abbr_wrapped,ha=\"left\",va=\"top\",fontsize=font_size-1,linespacing=1.2)\nfig.canvas.draw()\nrenderer=fig.canvas.get_renderer()\nobjs=[title_obj,summary_obj,notes_obj,caption_obj,abbr_obj,ax.xaxis.label,ax.yaxis.label]\nnames=[\"title\",\"summary\",\"notes\",\"caption\",\"abbr\",\"xlabel\",\"ylabel\"]\nbbs={n:o.get_window_extent(renderer=renderer) for n,o in zip(names,objs)}\nprint(notes_wrapped, \"\\nlines\",notes_wrapped.count(\"\\n\")+1)\n[(n, tuple(round(v) for v in (bb.x0,bb.y0,bb.x1,bb.y1))) for n,bb in bbs.items()]\n",
+          "figure_path=\"/mnt/data/figure.png\"\nresult_path=\"/mnt/data/result.json\"\nfig.savefig(figure_path, dpi=DPI, facecolor=\"white\", bbox_inches=None, pad_inches=0)\nplt.close(fig)\n\nwith open(result_path,\"w\",encoding=\"utf-8\") as f:\n    json.dump(result,f,ensure_ascii=False,indent=2,allow_nan=False)\n\n# Validation\nim=Image.open(figure_path)\nimg_info=(im.size, im.mode, os.path.getsize(figure_path))\nwith open(result_path,\"r\",encoding=\"utf-8\") as f:\n    reloaded=json.load(f)\nassert reloaded==result\nassert im.size==(W,H)\nassert reloaded[\"schema_version\"]==5\nassert reloaded[\"statistics\"][\"n\"]==12\nassert reloaded[\"statistics\"][\"positive_n\"]==6 and reloaded[\"statistics\"][\"negative_n\"]==6\nassert math.isclose(reloaded[\"statistics\"][\"auc\"],59/72,rel_tol=0,abs_tol=1e-15)\nimg_info, os.path.getsize(result_path)\n",
+          "im.info\n"
+        ],
+        "usage": {
+          "input_tokens": 10776,
+          "input_tokens_details": {
+            "cache_write_tokens": 55,
+            "cached_tokens": 2972
+          },
+          "output_tokens": 5451,
+          "output_tokens_details": {
+            "reasoning_tokens": 5420
+          },
+          "total_tokens": 16227
+        },
+        "prompt_version": "openai_figure_workbench_v3",
+        "png_file_id": "cfile_6ae19daca7508191a86cd0d00eb9c3e9",
+        "result_file_id": "cfile_6ae19daca72881918ac81a8dcc0771ba",
+        "model_call_id": "75916762-8bc2-4867-8543-2053c5faadf6",
+        "model_input_digest": "c1f290339d4fdcf3ca3196ee28c841b3ba4295ee0aaae006605b0a5c13acb81c",
+        "input_sha256": "7c06f8a2ffc88aea76849d08e8d991dcfe5a10e6c41435a8e29dafc4d8e6b8b9"
+      },
+      "text_authorship": {
+        "title": "user",
+        "additional_caption": "user",
+        "created_by": "96da5ede-f336-4136-99a7-d3f3069f7a97"
+      },
+      "external_processing": {
+        "version": 7,
+        "confirmed": true,
+        "version_id": "3b639a5d-ecd0-499e-bf7d-0c3e49d331bb",
+        "confirmed_at": "2026-10-28T05:02:56.994270+00:00",
+        "confirmed_by": "96da5ede-f336-4136-99a7-d3f3069f7a97",
+        "payload_sha256": "7c06f8a2ffc88aea76849d08e8d991dcfe5a10e6c41435a8e29dafc4d8e6b8b9"
+      }
+    },
+    "configuration": {
+      "id": "3b639a5d-ecd0-499e-bf7d-0c3e49d331bb",
+      "configuration_id": "bb869903-e746-41f9-a09d-7a4ce1c90161",
+      "revision": 1,
+      "parent_version_id": null,
+      "created_by": "96da5ede-f336-4136-99a7-d3f3069f7a97",
+      "created_at": "2026-10-28 04:52:44.626242+00:00",
+      "sha256": "695215ba2a0149513a67a7b6e01ab5cf9e1b16a1254e8f0561a88e39d29e6bfb",
+      "config": {
+        "style": {
+          "title": "Synthetic score ROC curve",
+          "width": 2400,
+          "height": 1600,
+          "aliases": {
+            "A": "Outcome",
+            "B": "Score"
+          },
+          "caption": "Synthetic data engineering verification only.",
+          "palette": "colorblind",
+          "font_size": 12,
+          "display_order": []
+        },
+        "language": "en",
+        "projection": null,
+        "figure_kind": "roc_curve"
+      },
+      "source": {
+        "kind": "prepared_dataset_version",
+        "file_id": "a2f2ecf0-27fa-50ab-ae02-d62f0bf1cbdf",
+        "dataset_id": "b530c15c-17ca-52eb-aa9f-7b07412ff566",
+        "sheet_name": "Synthetic",
+        "sheet_index": 0,
+        "structure_id": "a43c75a7-4554-43a0-8bb2-0ca696a60840",
+        "source_sha256": "d195a0e4c21553e8562e479a4d3a48ff14a5ab149f439d556b1225e9558cf476",
+        "dataset_sha256": "7f0599f629c1774e53d9c83af41162bc45a2ff5d51b9d0a7ac61b223c280ffc3",
+        "parser_version": "openpyxl-3.1.5-structure-v1",
+        "schema_version": 1,
+        "dataset_version": 1,
+        "parent_dataset_id": "907d60b7-fe49-5430-9e08-5eaa5f1085cc",
+        "transform_version": "excel_prepare_v1",
+        "dataset_size_bytes": 3427,
+        "dataset_schema_version": 1,
+        "parent_dataset_version": 1
+      },
+      "figure_contract": 3
+    },
+    "projection": {
+      "id": "0a1bb4d1-c013-5f7a-852d-9384e81da0bf",
+      "config_version_id": "3b639a5d-ecd0-499e-bf7d-0c3e49d331bb",
+      "sha256": "116f16eb6288968c96016d0479acf89132cb4f331171dd225be248083aff0783",
+      "result": {
+        "audit": {
+          "valid_n": 12,
+          "excluded": [],
+          "excluded_n": 0,
+          "missing_y_n": 0,
+          "population_n": 12,
+          "included_rows": [
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10,
+            11,
+            12,
+            13
+          ]
+        },
+        "method": {
+          "kind": "roc_curve",
+          "basis": "original_statistical_valid_rows"
+        },
+        "series": [],
+        "_material": {
+          "sha256": "d9d6faae9c4911f439efe7cc00d660ead1f0ab842fcdac45dc314ec5604214f6",
+          "payload": {
+            "labels": {
+              "title": "Synthetic score ROC curve",
+              "caption": "12 complete observations; 0 excluded rows. Cloud curves are independently computed from necessary anonymous observations; expected curves remain local. Evaluation role: apparent_exploratory Synthetic data engineering verification only. ROC describes discrimination in the confirmed evaluation data; it does not establish external validation or calibration; no additional AUC interval is computed.",
+              "x_label": "False positive rate (0–1)",
+              "y_label": "True positive rate (0–1)"
+            },
+            "method": "roc_auc",
+            "language": "en",
+            "variables": [
+              {
+                "name": "Outcome",
+                "unit": "",
+                "column": "A"
+              },
+              {
+                "name": "Score",
+                "unit": "",
+                "column": "B"
+              }
+            ],
+            "figure_kind": "roc_curve",
+            "plot_config": {
+              "ties": "joint_threshold",
+              "style": {
+                "width": 2400,
+                "height": 1600,
+                "palette": "colorblind",
+                "font_size": 12,
+                "display_order": []
+              },
+              "direction": "higher_is_positive",
+              "numbering_mode": "external",
+              "outliers_removed": false,
+              "verification_scope": "independent_curve_calculation",
+              "inference_displayed": false,
+              "threshold_endpoints": "null_with_threshold_kind"
+            },
+            "observations": [
+              {
+                "score": 0.4,
+                "outcome": 1
+              },
+              {
+                "score": 0.5,
+                "outcome": 1
+              },
+              {
+                "score": 0.6,
+                "outcome": 1
+              },
+              {
+                "score": 0.7,
+                "outcome": 1
+              },
+              {
+                "score": 0.8,
+                "outcome": 1
+              },
+              {
+                "score": 0.9,
+                "outcome": 1
+              },
+              {
+                "score": 0.1,
+                "outcome": 0
+              },
+              {
+                "score": 0.2,
+                "outcome": 0
+              },
+              {
+                "score": 0.3,
+                "outcome": 0
+              },
+              {
+                "score": 0.4,
+                "outcome": 0
+              },
+              {
+                "score": 0.6,
+                "outcome": 0
+              },
+              {
+                "score": 0.7,
+                "outcome": 0
+              }
+            ],
+            "presentation": {
+              "axes": {
+                "x": {
+                  "unit": "0–1",
+                  "label": "False positive rate (0–1)"
+                },
+                "y": {
+                  "unit": "0–1",
+                  "label": "True positive rate (0–1)"
+                }
+              },
+              "legend": {
+                "title": "Group",
+                "entries": []
+              },
+              "color_scale": null,
+              "abbreviations": [
+                {
+                  "term": "n",
+                  "definition": "Valid record count; independent participant count requires the study design"
+                },
+                {
+                  "term": "ROC",
+                  "definition": "Receiver operating characteristic curve"
+                },
+                {
+                  "term": "AUC",
+                  "definition": "Area under the ROC curve"
+                }
+              ],
+              "schema_version": 2,
+              "statistical_notes": [
+                "ROC describes discrimination in the confirmed evaluation data; it does not establish external validation or calibration; no additional AUC interval is computed."
+              ]
+            },
+            "schema_version": 5,
+            "legacy_contract": 4
+          },
+          "expected": {
+            "title": "Synthetic score ROC curve",
+            "caption": "12 complete observations; 0 excluded rows. Cloud curves are independently computed from necessary anonymous observations; expected curves remain local. Evaluation role: apparent_exploratory Synthetic data engineering verification only. ROC describes discrimination in the confirmed evaluation data; it does not establish external validation or calibration; no additional AUC interval is computed.",
+            "x_label": "False positive rate (0–1)",
+            "y_label": "True positive rate (0–1)",
+            "language": "en",
+            "variables": [
+              {
+                "name": "Outcome",
+                "unit": "",
+                "column": "A"
+              },
+              {
+                "name": "Score",
+                "unit": "",
+                "column": "B"
+              }
+            ],
+            "statistics": {
+              "n": 12,
+              "auc": 0.8194444444444443,
+              "points": [
+                {
+                  "fpr": 0.0,
+                  "tpr": 0.0,
+                  "threshold": null,
+                  "sensitivity": 0.0,
+                  "specificity": 1.0,
+                  "threshold_kind": "above_all"
+                },
+                {
+                  "fpr": 0.0,
+                  "tpr": 0.16666666666666666,
+                  "threshold": 0.9,
+                  "sensitivity": 0.16666666666666666,
+                  "specificity": 1.0,
+                  "threshold_kind": "value"
+                },
+                {
+                  "fpr": 0.0,
+                  "tpr": 0.3333333333333333,
+                  "threshold": 0.8,
+                  "sensitivity": 0.3333333333333333,
+                  "specificity": 1.0,
+                  "threshold_kind": "value"
+                },
+                {
+                  "fpr": 0.16666666666666666,
+                  "tpr": 0.5,
+                  "threshold": 0.7,
+                  "sensitivity": 0.5,
+                  "specificity": 0.8333333333333334,
+                  "threshold_kind": "value"
+                },
+                {
+                  "fpr": 0.3333333333333333,
+                  "tpr": 0.6666666666666666,
+                  "threshold": 0.6,
+                  "sensitivity": 0.6666666666666666,
+                  "specificity": 0.6666666666666667,
+                  "threshold_kind": "value"
+                },
+                {
+                  "fpr": 0.3333333333333333,
+                  "tpr": 0.8333333333333334,
+                  "threshold": 0.5,
+                  "sensitivity": 0.8333333333333334,
+                  "specificity": 0.6666666666666667,
+                  "threshold_kind": "value"
+                },
+                {
+                  "fpr": 0.5,
+                  "tpr": 1.0,
+                  "threshold": 0.4,
+                  "sensitivity": 1.0,
+                  "specificity": 0.5,
+                  "threshold_kind": "value"
+                },
+                {
+                  "fpr": 0.6666666666666666,
+                  "tpr": 1.0,
+                  "threshold": 0.3,
+                  "sensitivity": 1.0,
+                  "specificity": 0.33333333333333337,
+                  "threshold_kind": "value"
+                },
+                {
+                  "fpr": 0.8333333333333334,
+                  "tpr": 1.0,
+                  "threshold": 0.2,
+                  "sensitivity": 1.0,
+                  "specificity": 0.16666666666666663,
+                  "threshold_kind": "value"
+                },
+                {
+                  "fpr": 1.0,
+                  "tpr": 1.0,
+                  "threshold": 0.1,
+                  "sensitivity": 1.0,
+                  "specificity": 0.0,
+                  "threshold_kind": "value"
+                }
+              ],
+              "negative_n": 6,
+              "positive_n": 6
+            },
+            "figure_kind": "roc_curve",
+            "plot_config": {
+              "ties": "joint_threshold",
+              "style": {
+                "width": 2400,
+                "height": 1600,
+                "palette": "colorblind",
+                "font_size": 12,
+                "display_order": []
+              },
+              "direction": "higher_is_positive",
+              "numbering_mode": "external",
+              "outliers_removed": false,
+              "verification_scope": "independent_curve_calculation",
+              "inference_displayed": false,
+              "threshold_endpoints": "null_with_threshold_kind"
+            },
+            "presentation": {
+              "axes": {
+                "x": {
+                  "unit": "0–1",
+                  "label": "False positive rate (0–1)"
+                },
+                "y": {
+                  "unit": "0–1",
+                  "label": "True positive rate (0–1)"
+                }
+              },
+              "legend": {
+                "title": "Group",
+                "entries": []
+              },
+              "color_scale": null,
+              "abbreviations": [
+                {
+                  "term": "n",
+                  "definition": "Valid record count; independent participant count requires the study design"
+                },
+                {
+                  "term": "ROC",
+                  "definition": "Receiver operating characteristic curve"
+                },
+                {
+                  "term": "AUC",
+                  "definition": "Area under the ROC curve"
+                }
+              ],
+              "schema_version": 2,
+              "statistical_notes": [
+                "ROC describes discrimination in the confirmed evaluation data; it does not establish external validation or calibration; no additional AUC interval is computed."
+              ]
+            },
+            "schema_version": 5,
+            "legacy_contract": 4
+          }
+        },
+        "input_sha256": "f62f7f22106fe0a2c966f87ce30c18921d78eabe1ab6fd4d17ec97d504181333",
+        "tool_version": "figure_projection_v1",
+        "schema_version": 1,
+        "original_statistical_n": 12
+      }
+    }
+  },
+  "saved_explanation": {
+    "schema_version": 5,
+    "id": "d74e5fa6-ab5b-4e5d-82bb-76ed440898da",
+    "analysis_run_id": "804e6c52-215a-40c8-b312-fff62b0ff94a",
+    "file_id": "a2f2ecf0-27fa-50ab-ae02-d62f0bf1cbdf",
+    "source": {
+      "kind": "prepared_dataset_version",
+      "schema_version": 1,
+      "dataset_id": "b530c15c-17ca-52eb-aa9f-7b07412ff566",
+      "structure_id": "a43c75a7-4554-43a0-8bb2-0ca696a60840",
+      "dataset_version": 1,
+      "file_id": "a2f2ecf0-27fa-50ab-ae02-d62f0bf1cbdf",
+      "source_sha256": "d195a0e4c21553e8562e479a4d3a48ff14a5ab149f439d556b1225e9558cf476",
+      "dataset_sha256": "7f0599f629c1774e53d9c83af41162bc45a2ff5d51b9d0a7ac61b223c280ffc3",
+      "dataset_size_bytes": 3427,
+      "dataset_schema_version": 1,
+      "sheet_index": 0,
+      "sheet_name": "Synthetic",
+      "parser_version": "openpyxl-3.1.5-structure-v1",
+      "parent_dataset_id": "907d60b7-fe49-5430-9e08-5eaa5f1085cc",
+      "parent_dataset_version": 1,
+      "transform_version": "excel_prepare_v1"
+    },
+    "source_sha256": "d195a0e4c21553e8562e479a4d3a48ff14a5ab149f439d556b1225e9558cf476",
+    "setup_revision": 2,
+    "figure_id": "2f429fad-a12b-5faf-bdef-a664b591e185",
+    "figure_sha256": "af2013c5f0ac9a3240f4dd490d7aa23b7f568f7e2bb74c3dd21a0f4055ab33eb",
+    "facts_sha256": "ce7eb032a240082428146cbc8e7f27512924dc28ec2a5fa7533f3ead70812183",
+    "language": "en",
+    "created_at": "2026-10-28T09:11:19.807386+00:00",
+    "sections": [
+      {
+        "key": "purpose",
+        "title": "Analysis purpose",
+        "text": "Variables: Outcome (); Score ()",
+        "evidence": [
+          {
+            "key": "modeling.variables",
+            "label": "Variables",
+            "value": "Outcome (); Score ()"
+          }
+        ]
+      },
+      {
+        "key": "data",
+        "title": "Data used",
+        "text": "Data records total: 12; Data records valid: 12; Data records excluded: 0; False positive rate (0–1); 0–1; True positive rate (0–1); 0–1",
+        "evidence": [
+          {
+            "key": "data.total",
+            "label": "Data records total",
+            "value": "12"
+          },
+          {
+            "key": "data.valid",
+            "label": "Data records valid",
+            "value": "12"
+          },
+          {
+            "key": "data.excluded",
+            "label": "Data records excluded",
+            "value": "0"
+          },
+          {
+            "key": "axis.x.label",
+            "label": "Horizontal field",
+            "value": "False positive rate (0–1)"
+          },
+          {
+            "key": "axis.x.unit",
+            "label": "Horizontal unit",
+            "value": "0–1"
+          },
+          {
+            "key": "axis.y.label",
+            "label": "Vertical field",
+            "value": "True positive rate (0–1)"
+          },
+          {
+            "key": "axis.y.unit",
+            "label": "Vertical unit",
+            "value": "0–1"
+          }
+        ]
+      },
+      {
+        "key": "methods",
+        "title": "Analysis methods",
+        "text": "Frozen-score ROC with tied scores crossing thresholds together and trapezoidal AUC. No AUC interval is supplied; the reason is recorded with the result. No threshold optimization or model training.; Confirmed roles, coding and declarations: Analysis task type: ROC analysis; Method: ROC area under the curve; Score direction: Higher scores indicate positive outcomes; Score type: Probability score; User-declared evaluation role (not programmatically verified): Apparent exploratory evaluation; Independence confirmed: No; Missing-data policy: Complete cases; Assumptions / Independent-unit declaration: Yes; Assumptions / Inference-assumption declaration: Yes; User-declared independent observations; independence was not verified; Research design text was supplied but was not programmatically verified or forwarded.",
+        "evidence": [
+          {
+            "key": "method.summary",
+            "label": "Analysis method",
+            "value": "Frozen-score ROC with tied scores crossing thresholds together and trapezoidal AUC. No AUC interval is supplied; the reason is recorded with the result. No threshold optimization or model training."
+          },
+          {
+            "key": "modeling.coding",
+            "label": "Confirmed roles, coding and declarations",
+            "value": "Analysis task type: ROC analysis; Method: ROC area under the curve; Score direction: Higher scores indicate positive outcomes; Score type: Probability score; User-declared evaluation role (not programmatically verified): Apparent exploratory evaluation; Independence confirmed: No; Missing-data policy: Complete cases; Assumptions / Independent-unit declaration: Yes; Assumptions / Inference-assumption declaration: Yes"
+          },
+          {
+            "key": "design.structure",
+            "label": "Observation structure and verification limits",
+            "value": "User-declared independent observations; independence was not verified"
+          },
+          {
+            "key": "design.status",
+            "label": "Research design information status",
+            "value": "Research design text was supplied but was not programmatically verified or forwarded."
+          }
+        ]
+      },
+      {
+        "key": "results",
+        "title": "Main results",
+        "text": "Valid records: 12; Positive records: 6; Negative records: 6; AUC: 0.819444; Score direction: Higher scores indicate positive outcomes; User-declared evaluation role (not programmatically verified): Apparent exploratory evaluation; Confidence interval: Lower bound: Unavailable or not supplied; Upper bound: Unavailable or not supplied; Confidence level: 0.95; Method: DeLong normal interval clipped to the unit range; Reason: Evaluation role does not support an independent-validation interval; Limitations and warnings: AUC does not establish clinical utility; Small sample; interpret cautiously",
+        "evidence": [
+          {
+            "key": "modeling.n",
+            "label": "Valid records",
+            "value": "12"
+          },
+          {
+            "key": "modeling.positive_n",
+            "label": "Positive records",
+            "value": "6"
+          },
+          {
+            "key": "modeling.negative_n",
+            "label": "Negative records",
+            "value": "6"
+          },
+          {
+            "key": "modeling.auc",
+            "label": "AUC",
+            "value": "0.819444"
+          },
+          {
+            "key": "modeling.direction",
+            "label": "Score direction",
+            "value": "Higher scores indicate positive outcomes"
+          },
+          {
+            "key": "modeling.evaluation_role",
+            "label": "User-declared evaluation role (not programmatically verified)",
+            "value": "Apparent exploratory evaluation"
+          },
+          {
+            "key": "modeling.confidence_interval",
+            "label": "Confidence interval",
+            "value": "Lower bound: Unavailable or not supplied; Upper bound: Unavailable or not supplied; Confidence level: 0.95; Method: DeLong normal interval clipped to the unit range; Reason: Evaluation role does not support an independent-validation interval"
+          },
+          {
+            "key": "modeling.warnings",
+            "label": "Limitations and warnings",
+            "value": "AUC does not establish clinical utility; Small sample; interpret cautiously"
+          }
+        ]
+      },
+      {
+        "key": "interpretation",
+        "title": "Interpretation",
+        "text": "Limitations and warnings: AUC does not establish clinical utility; Small sample; interpret cautiously; User-declared independent observations; independence was not verified; Research design text was supplied but was not programmatically verified or forwarded.; Research declarations are supplied by the user; the program does not establish design or sample authenticity.; Complete-case analysis may introduce selection bias; no imputation, deduplication or outlier removal.; Display uses at most six significant digits; saved statistics retain full precision.; Interpretation is a draft; image pixels and wording require review.; ROC evaluates frozen scores only; intervals and evaluation declarations do not establish independent external validation. No threshold optimization.; Research design and observation independence were not programmatically verified; absent design is not assumed and causation cannot be inferred.; Values and fact references were inserted and checked locally; meaning and research applicability require review.; User-declared independent observations; independence was not verified; This explanation checks frozen statistics and metadata only; image pixels, in-image text and visual correctness were not verified. The AI draft requires human review.",
+        "evidence": [
+          {
+            "key": "modeling.warnings",
+            "label": "Limitations and warnings",
+            "value": "AUC does not establish clinical utility; Small sample; interpret cautiously"
+          },
+          {
+            "key": "design.structure",
+            "label": "Observation structure and verification limits",
+            "value": "User-declared independent observations; independence was not verified"
+          },
+          {
+            "key": "design.status",
+            "label": "Research design information status",
+            "value": "Research design text was supplied but was not programmatically verified or forwarded."
+          },
+          {
+            "key": "limitation.0",
+            "label": "Applicable limitation",
+            "value": "Research declarations are supplied by the user; the program does not establish design or sample authenticity."
+          },
+          {
+            "key": "limitation.1",
+            "label": "Applicable limitation",
+            "value": "Complete-case analysis may introduce selection bias; no imputation, deduplication or outlier removal."
+          },
+          {
+            "key": "limitation.2",
+            "label": "Applicable limitation",
+            "value": "Display uses at most six significant digits; saved statistics retain full precision."
+          },
+          {
+            "key": "limitation.3",
+            "label": "Applicable limitation",
+            "value": "Interpretation is a draft; image pixels and wording require review."
+          },
+          {
+            "key": "limitation.4",
+            "label": "Applicable limitation",
+            "value": "ROC evaluates frozen scores only; intervals and evaluation declarations do not establish independent external validation. No threshold optimization."
+          },
+          {
+            "key": "limitation.5",
+            "label": "Applicable limitation",
+            "value": "Research design and observation independence were not programmatically verified; absent design is not assumed and causation cannot be inferred."
+          },
+          {
+            "key": "limitation.6",
+            "label": "Applicable limitation",
+            "value": "Values and fact references were inserted and checked locally; meaning and research applicability require review."
+          },
+          {
+            "key": "limitation.7",
+            "label": "Applicable limitation",
+            "value": "User-declared independent observations; independence was not verified"
+          },
+          {
+            "key": "limitation.8",
+            "label": "Applicable limitation",
+            "value": "This explanation checks frozen statistics and metadata only; image pixels, in-image text and visual correctness were not verified. The AI draft requires human review."
+          }
+        ]
+      },
+      {
+        "key": "paper_text",
+        "title": "Manuscript wording",
+        "text": "this figure; Synthetic score ROC curve; Frozen-score ROC with tied scores crossing thresholds together and trapezoidal AUC. No AUC interval is supplied; the reason is recorded with the result. No threshold optimization or model training.; Data records valid: 12",
+        "evidence": [
+          {
+            "key": "figure.number",
+            "label": "Figure number",
+            "value": "this figure"
+          },
+          {
+            "key": "figure.title",
+            "label": "Figure title",
+            "value": "Synthetic score ROC curve"
+          },
+          {
+            "key": "method.summary",
+            "label": "Analysis method",
+            "value": "Frozen-score ROC with tied scores crossing thresholds together and trapezoidal AUC. No AUC interval is supplied; the reason is recorded with the result. No threshold optimization or model training."
+          },
+          {
+            "key": "data.valid",
+            "label": "Data records valid",
+            "value": "12"
+          }
+        ]
+      }
+    ],
+    "draft": {
+      "purpose": "{{modeling.variables}}",
+      "interpretation": "{{modeling.warnings}}; {{design.structure}}; {{design.status}}; {{limitation.0}}; {{limitation.1}}; {{limitation.2}}; {{limitation.3}}; {{limitation.4}}; {{limitation.5}}; {{limitation.6}}; {{limitation.7}}; {{limitation.8}}",
+      "results": "{{modeling.n}}; {{modeling.positive_n}}; {{modeling.negative_n}}; {{modeling.auc}}; {{modeling.direction}}; {{modeling.evaluation_role}}; {{modeling.confidence_interval}}; {{modeling.warnings}}",
+      "paper_text": "{{figure.number}}; {{figure.title}}; {{method.summary}}; {{data.valid}}",
+      "methods": "{{method.summary}}; {{modeling.coding}}; {{design.structure}}; {{design.status}}",
+      "data": "{{data.total}}; {{data.valid}}; {{data.excluded}}; {{axis.x.label}}; {{axis.x.unit}}; {{axis.y.label}}; {{axis.y.unit}}"
+    },
+    "payload_sha256": "8febd9507702eb31de64fe0f2e28f49423b26a8eb3336897d5210089337caa42",
+    "limitations": [
+      "Research declarations are supplied by the user; the program does not establish design or sample authenticity.",
+      "Complete-case analysis may introduce selection bias; no imputation, deduplication or outlier removal.",
+      "Display uses at most six significant digits; saved statistics retain full precision.",
+      "Interpretation is a draft; image pixels and wording require review.",
+      "ROC evaluates frozen scores only; intervals and evaluation declarations do not establish independent external validation. No threshold optimization.",
+      "Research design and observation independence were not programmatically verified; absent design is not assumed and causation cannot be inferred.",
+      "Values and fact references were inserted and checked locally; meaning and research applicability require review.",
+      "User-declared independent observations; independence was not verified",
+      "This explanation checks frozen statistics and metadata only; image pixels, in-image text and visual correctness were not verified. The AI draft requires human review."
+    ],
+    "verification": {
+      "status": "references_checked",
+      "note": "Values and fact references were inserted and checked locally; meaning and research applicability require review."
+    },
+    "engine": {
+      "id": "figure_explanation_v4",
+      "provider": "openai",
+      "model": "gpt-6.1-sol"
+    },
+    "provenance": {
+      "response_id": "resp_08e51924bd7fa5fa006ae1bb831ff087d1b054f7cfae4d1421",
+      "model": "gpt-6.1-sol",
+      "usage": {
+        "input_tokens": 2315,
+        "input_tokens_details": {
+          "cache_write_tokens": 2312,
+          "cached_tokens": 0
+        },
+        "output_tokens": 263,
+        "output_tokens_details": {
+          "reasoning_tokens": 0
+        },
+        "total_tokens": 2578
+      },
+      "prompt_version": "figure_explanation_v4",
+      "model_call_id": "75cc55a4-e723-424f-ab47-f7821630261e",
+      "model_input_digest": "056e3d45317c7f7e21bcca4e7e3109771bfa3ff945b2e2e583876cfd067a67ad",
+      "input_sha256": "8febd9507702eb31de64fe0f2e28f49423b26a8eb3336897d5210089337caa42"
+    }
+  }
+}

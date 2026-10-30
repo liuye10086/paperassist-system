@@ -13,18 +13,8 @@ TOKEN_FIELDS=('input_tokens','output_tokens','total_tokens')
 
 
 def provider_provenance(call):
-    """Synthetic evidence wins. Arbitrary provider IDs or environments prove no live spend."""
-    for container in (call.get('input_snapshot'),call.get('provider_state'),call.get('policy_snapshot')):
-        if not isinstance(container,dict):continue
-        if any(container.get(key) is True for key in ('synthetic_fixture','synthetic','fixture','synthetic_scope')):
-            return 'synthetic_fixture'
-        if any(container.get(key)=='synthetic_fixture' for key in
-               ('provider_provenance','writing_provider_provenance','source_kind','scope','provenance')):
-            return 'synthetic_fixture'
-    state=call.get('provider_state') or {}
-    return ('openai_live' if state.get('writing_provider_provenance')=='openai_live'
-            and call.get('task_type')=='manuscript_writing'
-            and call.get('workflow_version')=='manuscript_writing_v2' else 'unknown')
+    from app.domain.model_usage.provenance import public_provider_provenance
+    return public_provider_provenance(call) or 'unknown'
 
 
 def empty_summary():

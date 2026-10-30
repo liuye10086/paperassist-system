@@ -4,3 +4,10 @@ backend/tests/fixtures/**/*.png binary
 
 # Preserve raw PMC response hashes, including original line endings and spaces.
 backend/tests/fixtures/pmc_license_versions/*.xml -text -whitespace
+
+# Preserve hash-bound synthetic compatibility fixtures and notices verbatim.
+backend/tests/fixtures/figure_b07/** -text -whitespace
+third_party/** -text -whitespace
+
+# Verbatim license headings can contain seven equals signs.
+third_party/*/texts/*.txt conflict-marker-size=32

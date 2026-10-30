@@ -1,6 +1,7 @@
 import hashlib
 import json
 from uuid import uuid4
+from contextlib import nullcontext
 from app.adapters.task_store import TaskStore, source_conflict
 from app.core.exceptions import StorageError
 
@@ -50,9 +51,10 @@ def validate_setup(store, project_id, file_id, setup, *, recompute=False):
     return validate_plan_reference(store, project_id, file_id, setup, recompute=recompute)
 
 
-def create(project_id, file_id, request, assets):
+def create(project_id, file_id, request, assets, *, db=None):
+    """Optionally commit the public queue with its caller's persisted intent."""
     scoped = TaskStore(assets.owner_id, assets.db_config)
-    with scoped.connection(write=True) as db:
+    with (nullcontext(db) if db is not None else scoped.connection(write=True)) as db:
         project = scoped.require_project(db, project_id)
         row = db.execute('SELECT setup_json FROM analysis_setups WHERE file_id=%s', (file_id,)).fetchone()
         if not row:

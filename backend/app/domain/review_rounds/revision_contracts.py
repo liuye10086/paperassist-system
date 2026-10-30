@@ -1,6 +1,6 @@
 """Narrow fixed-plan revision inputs, always local and explicitly adopted."""
 from typing import Literal
-from pydantic import Field
+from pydantic import Field, model_validator
 from .contracts import Strict
 WORKFLOW='review_revision_v1'
 class RevisionInputVersion(Strict):
@@ -24,7 +24,13 @@ class NumericBinding(Strict):
 class RevisionPreview(Strict):
     plan_revision:int=Field(ge=1)
     expected_current_revision:int=Field(ge=1)
-    operations:list[Operation]=Field(min_length=1,max_length=200)
+    operations:list[Operation]=Field(default_factory=list,max_length=200)
     analysis_adoption_ids:list[str]=Field(default_factory=list,max_length=50)
+    figure_adoption_ids:list[str]=Field(default_factory=list,max_length=50)
+    @model_validator(mode='after')
+    def actual_selection(self):
+        if not self.operations and not self.figure_adoption_ids:
+            raise ValueError('Select concrete edits or an explicit saved figure adoption.')
+        return self
 class RevisionAdopt(RevisionPreview):
     preview_sha256:str=Field(pattern=r'^[0-9a-f]{64}$')

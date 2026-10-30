@@ -1,0 +1,257 @@
+{
+  "payload": {
+    "facts": {
+      "axis.x.label": {
+        "label": "Horizontal field",
+        "raw": "False positive rate (0–1)",
+        "value": "False positive rate (0–1)"
+      },
+      "axis.x.unit": {
+        "label": "Horizontal unit",
+        "raw": "0–1",
+        "value": "0–1"
+      },
+      "axis.y.label": {
+        "label": "Vertical field",
+        "raw": "True positive rate (0–1)",
+        "value": "True positive rate (0–1)"
+      },
+      "axis.y.unit": {
+        "label": "Vertical unit",
+        "raw": "0–1",
+        "value": "0–1"
+      },
+      "data.excluded": {
+        "label": "Data records excluded",
+        "raw": 0,
+        "value": "0"
+      },
+      "data.total": {
+        "label": "Data records total",
+        "raw": 12,
+        "value": "12"
+      },
+      "data.valid": {
+        "label": "Data records valid",
+        "raw": 12,
+        "value": "12"
+      },
+      "design.status": {
+        "label": "Research design information status",
+        "raw": true,
+        "value": "Research design text was supplied but was not programmatically verified or forwarded"
+      },
+      "design.structure": {
+        "label": "Observation structure and verification limits",
+        "raw": "independent",
+        "value": "User-declared independent observations; independence was not verified"
+      },
+      "figure.title": {
+        "label": "Figure title",
+        "raw": "Synthetic score ROC curve",
+        "value": "Synthetic score ROC curve"
+      },
+      "limitation.0": {
+        "label": "Applicable limitation",
+        "raw": "Research declarations are supplied by the user; the program does not establish design or sample authenticity.",
+        "value": "Research declarations are supplied by the user; the program does not establish design or sample authenticity"
+      },
+      "limitation.1": {
+        "label": "Applicable limitation",
+        "raw": "Complete-case analysis may introduce selection bias; no imputation, deduplication or outlier removal.",
+        "value": "Complete-case analysis may introduce selection bias; no imputation, deduplication or outlier removal"
+      },
+      "limitation.2": {
+        "label": "Applicable limitation",
+        "raw": "ROC evaluates frozen scores only; intervals and evaluation declarations do not establish independent external validation. No threshold optimization.",
+        "value": "ROC evaluates frozen scores only; intervals and evaluation declarations do not establish independent external validation. No threshold optimization"
+      },
+      "limitation.3": {
+        "label": "Applicable limitation",
+        "raw": "Research design text was supplied but was not verified or forwarded; sample provenance, procedures and measurement context require review.",
+        "value": "Research design text was supplied but was not verified or forwarded; sample provenance, procedures and measurement context require review"
+      },
+      "limitation.4": {
+        "label": "Applicable limitation",
+        "raw": "User-declared independent observations; independence was not verified",
+        "value": "User-declared independent observations; independence was not verified"
+      },
+      "limitation.5": {
+        "label": "Applicable limitation",
+        "raw": "Causation cannot be inferred from these results.",
+        "value": "Causation cannot be inferred from these results"
+      },
+      "limitation.6": {
+        "label": "Applicable limitation",
+        "raw": "Complete ordered coordinates retain saved precision; other projection summaries display at most 8 significant digits and original statistical summaries at most 6 significant digits. Saved results retain full precision.",
+        "value": "Complete ordered coordinates retain saved precision; other projection summaries display at most 8 significant digits and original statistical summaries at most 6 significant digits. Saved results retain full precision"
+      },
+      "limitation.7": {
+        "label": "Applicable limitation",
+        "raw": "Values and fact references were inserted and checked locally; meaning and research applicability require review.",
+        "value": "Values and fact references were inserted and checked locally; meaning and research applicability require review"
+      },
+      "limitation.8": {
+        "label": "Applicable limitation",
+        "raw": "This explanation checks frozen statistics and metadata only; image pixels, in-image text and visual correctness were not verified. The AI draft requires human review.",
+        "value": "This explanation checks frozen statistics and metadata only; image pixels, in-image text and visual correctness were not verified. The AI draft requires human review"
+      },
+      "method.summary": {
+        "label": "Analysis method",
+        "raw": "Frozen-score ROC with tied scores crossing thresholds together and trapezoidal AUC. No AUC interval is supplied; the reason is recorded with the result. No threshold optimization or model training.",
+        "value": "Frozen-score ROC with tied scores crossing thresholds together and trapezoidal AUC. No AUC interval is supplied; the reason is recorded with the result. No threshold optimization or model training"
+      },
+      "modeling.auc": {
+        "label": "AUC",
+        "raw": 0.8194444444444443,
+        "value": "0.819444"
+      },
+      "modeling.coding": {
+        "label": "Confirmed roles, coding and declarations",
+        "raw": {
+          "assumptions": {
+            "independent_units": true,
+            "inference_confirmed": true
+          },
+          "direction": "higher_is_positive",
+          "evaluation_role": "apparent_exploratory",
+          "independence_confirmed": false,
+          "method": "roc_auc",
+          "missing_policy": "complete_cases",
+          "score_kind": "probability",
+          "task_type": "roc"
+        },
+        "value": "Analysis task type: ROC analysis; Method: ROC area under the curve; Score direction: Higher scores indicate positive outcomes; Score type: Probability score; User-declared evaluation role (not programmatically verified): Apparent exploratory evaluation; Independence confirmed: No; Missing-data policy: Complete cases; Assumptions / Independent-unit declaration: Yes; Assumptions / Inference-assumption declaration: Yes"
+      },
+      "modeling.confidence_interval": {
+        "label": "Confidence interval",
+        "raw": {
+          "high": null,
+          "level": 0.95,
+          "low": null,
+          "method": "delong_normal_clipped",
+          "reason": "evaluation_role_not_independent"
+        },
+        "value": "Lower bound: Unavailable or not supplied; Upper bound: Unavailable or not supplied; Confidence level: 0.95; Method: DeLong normal interval clipped to the unit range; Reason: Evaluation role does not support an independent-validation interval"
+      },
+      "modeling.direction": {
+        "label": "Score direction",
+        "raw": "higher_is_positive",
+        "value": "Higher scores indicate positive outcomes"
+      },
+      "modeling.evaluation_role": {
+        "label": "User-declared evaluation role (not programmatically verified)",
+        "raw": "apparent_exploratory",
+        "value": "Apparent exploratory evaluation"
+      },
+      "modeling.n": {
+        "label": "Valid records",
+        "raw": 12,
+        "value": "12"
+      },
+      "modeling.negative_n": {
+        "label": "Negative records",
+        "raw": 6,
+        "value": "6"
+      },
+      "modeling.positive_n": {
+        "label": "Positive records",
+        "raw": 6,
+        "value": "6"
+      },
+      "modeling.warnings": {
+        "label": "Limitations and warnings",
+        "raw": "auc_not_clinical_utility; small_sample",
+        "value": "AUC does not establish clinical utility; Small sample; interpret cautiously"
+      },
+      "purpose.kind": {
+        "label": "Figure type",
+        "raw": "roc_curve",
+        "value": "a frozen-score ROC curve"
+      },
+      "scope.variables": {
+        "label": "Variable scope",
+        "raw": "Outcome (unit not specified), Score (unit not specified)",
+        "value": "Outcome (unit not specified), Score (unit not specified)"
+      }
+    },
+    "figure_explanation_contract": 5,
+    "language": "en",
+    "required_references": {
+      "data": [
+        "data.total",
+        "data.valid",
+        "data.excluded",
+        "axis.x.label",
+        "axis.x.unit",
+        "axis.y.label",
+        "axis.y.unit"
+      ],
+      "interpretation": [
+        "limitation.0",
+        "limitation.1",
+        "limitation.2",
+        "limitation.3",
+        "limitation.4",
+        "limitation.5",
+        "limitation.6",
+        "limitation.7",
+        "limitation.8"
+      ],
+      "methods": [
+        "method.summary",
+        "modeling.coding",
+        "design.structure",
+        "design.status"
+      ],
+      "paper_text": [
+        "scope.variables",
+        "purpose.kind",
+        "data.valid",
+        "method.summary",
+        "modeling.n",
+        "modeling.positive_n",
+        "modeling.negative_n",
+        "modeling.auc",
+        "modeling.direction",
+        "modeling.evaluation_role",
+        "modeling.confidence_interval",
+        "modeling.warnings",
+        "limitation.0",
+        "limitation.1",
+        "limitation.2",
+        "limitation.3",
+        "limitation.4",
+        "limitation.5",
+        "limitation.6",
+        "limitation.7",
+        "limitation.8"
+      ],
+      "purpose": [
+        "scope.variables",
+        "purpose.kind"
+      ],
+      "results": [
+        "modeling.n",
+        "modeling.positive_n",
+        "modeling.negative_n",
+        "modeling.auc",
+        "modeling.direction",
+        "modeling.evaluation_role",
+        "modeling.confidence_interval",
+        "modeling.warnings"
+      ]
+    },
+    "schema_version": 2
+  },
+  "draft": {
+    "purpose": "This figure describes {{scope.variables}} using {{purpose.kind}}.",
+    "interpretation": "Interpretation requires acknowledging that {{limitation.0}}. Data handling is subject to {{limitation.1}}. Evaluation is constrained by {{limitation.2}}. Research context requires review because {{limitation.3}}. Observation independence remains qualified by {{limitation.4}}. Causal interpretation is restricted because {{limitation.5}}. Numerical reporting follows {{limitation.6}}. The explanation requires review under {{limitation.7}}. Verification is limited as described by {{limitation.8}}.",
+    "results": "The saved analysis reports an original statistical record count of {{modeling.n}}, with {{modeling.positive_n}} positive records and {{modeling.negative_n}} negative records. The saved area under the curve is {{modeling.auc}}. Score direction is specified as {{modeling.direction}}. The user-declared evaluation role is {{modeling.evaluation_role}}. Interval availability and its recorded parameters are described by {{modeling.confidence_interval}}. The saved results carry the warnings {{modeling.warnings}}.",
+    "paper_text": "This figure describes {{scope.variables}} using {{purpose.kind}}. The data contain {{data.valid}} valid records, which are not established as independent participants. The analysis applies {{method.summary}}. The saved statistical analysis includes {{modeling.n}} original records, comprising {{modeling.positive_n}} positive records and {{modeling.negative_n}} negative records. The saved area under the curve is {{modeling.auc}}, with score direction specified as {{modeling.direction}}. The user-declared evaluation role is {{modeling.evaluation_role}}. The saved interval status, parameters and reason are described by {{modeling.confidence_interval}}. Applicable result warnings are {{modeling.warnings}}. Scientific interpretation must account for {{limitation.0}}. Data handling is qualified by {{limitation.1}}. Evaluation boundaries are specified by {{limitation.2}}. Research context remains subject to {{limitation.3}}. Independence is qualified by {{limitation.4}}. Causal interpretation is restricted because {{limitation.5}}. Original statistical summaries and projection summaries are subject to the reporting distinctions in {{limitation.6}}. Local checking does not remove the review requirements in {{limitation.7}}. Verification and human-review boundaries are specified by {{limitation.8}}.",
+    "methods": "This figure applies the saved analysis method described by {{method.summary}}. Confirmed roles, coding and declarations are recorded as {{modeling.coding}}. Observation structure is qualified by {{design.structure}}. Research-design verification status is described by {{design.status}}.",
+    "data": "The source data contain {{data.total}} total records, of which {{data.valid}} are valid and {{data.excluded}} are excluded. These counts describe data records rather than verified independent participants. The horizontal axis displays {{axis.x.label}}, with unit {{axis.x.unit}}. The vertical axis displays {{axis.y.label}}, with unit {{axis.y.unit}}."
+  },
+  "source_task_id": "006f95bd-a60c-4ba5-930d-555f63593163",
+  "source_response_sha256": "140f96c71b4ad00c31689c582250d89a5635b3f153a73783e9f23ec0cf1c6257"
+}

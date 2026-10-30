@@ -1,0 +1,258 @@
+{
+  "task_id": "511f2d78-3b17-4485-9bc0-6e2e471d0900",
+  "response_id": "resp_0e42493da99baf3d006ae28dae9adc87d0979d37b04430b1e0",
+  "raw_file": "raw/000100-retrieve.response.body",
+  "raw_sha256": "fd1d78d7adc70a8020fbddaf5d0a168893e6156b5fcf0d408619d91912fd2f31",
+  "receipt_seq": 102,
+  "payload": {
+    "facts": {
+      "axis.x.label": {
+        "label": "横轴字段",
+        "raw": "随访时间 (day)",
+        "value": "随访时间 (day)"
+      },
+      "axis.x.unit": {
+        "label": "横轴单位",
+        "raw": "day",
+        "value": "day"
+      },
+      "axis.y.label": {
+        "label": "纵轴字段",
+        "raw": "生存概率（0–1）",
+        "value": "生存概率（0–1）"
+      },
+      "axis.y.unit": {
+        "label": "纵轴单位",
+        "raw": "0–1",
+        "value": "0–1"
+      },
+      "data.excluded": {
+        "label": "数据记录 excluded",
+        "raw": 0,
+        "value": "0"
+      },
+      "data.total": {
+        "label": "数据记录 total",
+        "raw": 6,
+        "value": "6"
+      },
+      "data.valid": {
+        "label": "数据记录 valid",
+        "raw": 6,
+        "value": "6"
+      },
+      "design.status": {
+        "label": "研究设计资料状态",
+        "raw": true,
+        "value": "用户提供研究设计文字，尚未经程序验证；未外发该原文"
+      },
+      "design.structure": {
+        "label": "观察结构及核查限制",
+        "raw": "independent",
+        "value": "用户声明独立观察；程序未验证独立性"
+      },
+      "figure.title": {
+        "label": "图标题",
+        "raw": "合成数据 Kaplan–Meier 曲线",
+        "value": "合成数据 Kaplan–Meier 曲线"
+      },
+      "limitation.0": {
+        "label": "适用限制",
+        "raw": "研究声明为用户提供；程序不证明研究设计或样本真实性。",
+        "value": "研究声明为用户提供；程序不证明研究设计或样本真实性"
+      },
+      "limitation.1": {
+        "label": "适用限制",
+        "raw": "完整记录分析可能产生选择偏倚；未插补、去重或删除离群值。",
+        "value": "完整记录分析可能产生选择偏倚；未插补、去重或删除离群值"
+      },
+      "limitation.2": {
+        "label": "适用限制",
+        "raw": "右删失 KM 依赖非信息删失声明；未进行 log-rank、Cox 或竞争风险分析。",
+        "value": "右删失 KM 依赖非信息删失声明；未进行 log-rank、Cox 或竞争风险分析"
+      },
+      "limitation.3": {
+        "label": "适用限制",
+        "raw": "研究设计文字已提供但未经程序验证且未外发；样本来源、实验步骤及测量背景仍需核查。",
+        "value": "研究设计文字已提供但未经程序验证且未外发；样本来源、实验步骤及测量背景仍需核查"
+      },
+      "limitation.4": {
+        "label": "适用限制",
+        "raw": "用户声明独立观察；程序未验证独立性",
+        "value": "用户声明独立观察；程序未验证独立性"
+      },
+      "limitation.5": {
+        "label": "适用限制",
+        "raw": "不能据此推断因果。",
+        "value": "不能据此推断因果"
+      },
+      "limitation.6": {
+        "label": "适用限制",
+        "raw": "完整有序坐标保留保存精度；其它投影摘要最多显示8位有效数字，原统计摘要最多显示6位有效数字，完整数值以保存结果为准。",
+        "value": "完整有序坐标保留保存精度；其它投影摘要最多显示8位有效数字，原统计摘要最多显示6位有效数字，完整数值以保存结果为准"
+      },
+      "limitation.7": {
+        "label": "适用限制",
+        "raw": "数值与事实引用已由程序填入并核对；语义和研究适用性仍需人工审阅。",
+        "value": "数值与事实引用已由程序填入并核对；语义和研究适用性仍需人工审阅"
+      },
+      "limitation.8": {
+        "label": "适用限制",
+        "raw": "本解释仅核对冻结统计与元数据，未验证图片像素、图中文字或视觉正确性；AI初稿仍需人工审阅。",
+        "value": "本解释仅核对冻结统计与元数据，未验证图片像素、图中文字或视觉正确性；AI初稿仍需人工审阅"
+      },
+      "method.summary": {
+        "label": "分析方法",
+        "raw": "右删失 Kaplan–Meier；同一时点先处理事件再撤出删失；Greenwood 方差及对数对数区间；不进行组间检验。",
+        "value": "右删失 Kaplan–Meier；同一时点先处理事件再撤出删失；Greenwood 方差及对数对数区间；不进行组间检验"
+      },
+      "modeling.coding": {
+        "label": "确认的角色、编码及声明",
+        "raw": {
+          "assumptions": {
+            "independent_units": true,
+            "inference_confirmed": true
+          },
+          "method": "kaplan_meier",
+          "missing_policy": "complete_cases",
+          "noninformative_censoring": true,
+          "task_type": "survival"
+        },
+        "value": "分析任务类型: 生存分析; 分析方法: Kaplan–Meier生存估计; 非信息删失声明: 是; 缺失处理: 完整记录; 假设声明 / 独立观察单位声明: 是; 假设声明 / 推断前提已声明确认: 是"
+      },
+      "modeling.groups.0.censored_n": {
+        "label": "组 1: 删失记录数",
+        "raw": 3,
+        "value": "3"
+      },
+      "modeling.groups.0.event_n": {
+        "label": "组 1: 事件记录数",
+        "raw": 3,
+        "value": "3"
+      },
+      "modeling.groups.0.label": {
+        "label": "组 1: 标签",
+        "raw": "Overall",
+        "value": "Overall"
+      },
+      "modeling.groups.0.max_time": {
+        "label": "组 1: 最长观察时间",
+        "raw": 4.0,
+        "value": "4"
+      },
+      "modeling.groups.0.median": {
+        "label": "组 1: 中位数",
+        "raw": 3.0,
+        "value": "3"
+      },
+      "modeling.groups.0.n": {
+        "label": "组 1: 有效记录数",
+        "raw": 6,
+        "value": "6"
+      },
+      "modeling.time_unit": {
+        "label": "时间单位",
+        "raw": "day",
+        "value": "day"
+      },
+      "modeling.warnings": {
+        "label": "局限与警告",
+        "raw": "pointwise_intervals; no_between_group_test; zero_time",
+        "value": "区间为逐时点区间，不是同时置信带; 未进行组间生存检验; 包含零时点记录"
+      },
+      "purpose.kind": {
+        "label": "图形类型",
+        "raw": "kaplan_meier",
+        "value": "Kaplan–Meier生存曲线"
+      },
+      "scope.variables": {
+        "label": "变量范围",
+        "raw": "ID（单位未提供）, Time (day), Status（单位未提供）",
+        "value": "ID（单位未提供）, Time (day), Status（单位未提供）"
+      }
+    },
+    "figure_explanation_contract": 5,
+    "language": "zh-CN",
+    "required_references": {
+      "data": [
+        "data.total",
+        "data.valid",
+        "data.excluded",
+        "axis.x.label",
+        "axis.x.unit",
+        "axis.y.label",
+        "axis.y.unit"
+      ],
+      "interpretation": [
+        "limitation.0",
+        "limitation.1",
+        "limitation.2",
+        "limitation.3",
+        "limitation.4",
+        "limitation.5",
+        "limitation.6",
+        "limitation.7",
+        "limitation.8"
+      ],
+      "methods": [
+        "method.summary",
+        "modeling.coding",
+        "design.structure",
+        "design.status"
+      ],
+      "paper_text": [
+        "scope.variables",
+        "purpose.kind",
+        "data.valid",
+        "method.summary",
+        "modeling.time_unit",
+        "modeling.groups.0.label",
+        "modeling.groups.0.n",
+        "modeling.groups.0.event_n",
+        "modeling.groups.0.censored_n",
+        "modeling.groups.0.max_time",
+        "modeling.groups.0.median",
+        "modeling.warnings",
+        "limitation.0",
+        "limitation.1",
+        "limitation.2",
+        "limitation.3",
+        "limitation.4",
+        "limitation.5",
+        "limitation.6",
+        "limitation.7",
+        "limitation.8"
+      ],
+      "purpose": [
+        "scope.variables",
+        "purpose.kind"
+      ],
+      "results": [
+        "modeling.time_unit",
+        "modeling.groups.0.label",
+        "modeling.groups.0.n",
+        "modeling.groups.0.event_n",
+        "modeling.groups.0.censored_n",
+        "modeling.groups.0.max_time",
+        "modeling.groups.0.median",
+        "modeling.warnings"
+      ]
+    },
+    "schema_version": 2
+  },
+  "draft": {
+    "purpose": "本图用于描述{{scope.variables}}，图形类型为{{purpose.kind}}。",
+    "interpretation": "解释这些结果时应考虑{{limitation.0}}。解释这些结果时应考虑{{limitation.1}}。解释这些结果时应考虑{{limitation.2}}。解释这些结果时应考虑{{limitation.3}}。解释这些结果时应考虑{{limitation.4}}。解释这些结果时应考虑{{limitation.5}}。解释这些结果时应考虑{{limitation.6}}。解释这些结果时应考虑{{limitation.7}}。解释这些结果时应考虑{{limitation.8}}。",
+    "results": "保存结果的时间单位为{{modeling.time_unit}}。标签为{{modeling.groups.0.label}}的组包含{{modeling.groups.0.n}}条有效记录，其中事件记录数为{{modeling.groups.0.event_n}}，删失记录数为{{modeling.groups.0.censored_n}}。该组保存的最长观察时间为{{modeling.groups.0.max_time}}，中位数为{{modeling.groups.0.median}}。保存结果同时提示{{modeling.warnings}}。",
+    "paper_text": "本图描述{{scope.variables}}，采用{{purpose.kind}}展示，纳入的有效记录数为{{data.valid}}。本图采用的已保存方法为{{method.summary}}。保存结果的时间单位为{{modeling.time_unit}}。标签为{{modeling.groups.0.label}}的组包含{{modeling.groups.0.n}}条有效记录，其中事件记录数为{{modeling.groups.0.event_n}}，删失记录数为{{modeling.groups.0.censored_n}}。该组保存的最长观察时间为{{modeling.groups.0.max_time}}，中位数为{{modeling.groups.0.median}}。保存结果同时提示{{modeling.warnings}}。本图的科学解释须考虑{{limitation.0}}。本图的科学解释须考虑{{limitation.1}}。本图的科学解释须考虑{{limitation.2}}。本图的科学解释须考虑{{limitation.3}}。本图的科学解释须考虑{{limitation.4}}。本图的科学解释须考虑{{limitation.5}}。本图的科学解释须考虑{{limitation.6}}。本图的科学解释须考虑{{limitation.7}}。本图的科学解释须考虑{{limitation.8}}。",
+    "methods": "本图采用的已保存方法为{{method.summary}}。已确认的分析角色、编码及声明为{{modeling.coding}}。观察结构及核查限制为{{design.structure}}。研究设计资料状态为{{design.status}}。",
+    "data": "本图的数据记录总数为{{data.total}}，有效记录数为{{data.valid}}，排除记录数为{{data.excluded}}。横轴字段为{{axis.x.label}}，其单位为{{axis.x.unit}}。纵轴字段为{{axis.y.label}}，其单位为{{axis.y.unit}}。"
+  },
+  "source_pins": {
+    "frozen/511f2d78-3b17-4485-9bc0-6e2e471d0900/data.json": "dac87f5d817fe53b8371c0198ab97eaff6745325da11b8ee7b69357267cef5e3",
+    "frozen/511f2d78-3b17-4485-9bc0-6e2e471d0900/expected.json": "6f1f78f532a96056ae3f637c3db950114367c61c2dd911ece4c350b2a0a8658c",
+    "frozen/511f2d78-3b17-4485-9bc0-6e2e471d0900/instructions.txt": "ab77a4b863c79ce6809bfd8caafd31db6f80b429fa0813c5bfb19e4ea521c299",
+    "frozen/511f2d78-3b17-4485-9bc0-6e2e471d0900/policy-snapshot.json": "58e72f61953721f22abfe1edd107fbf9e08c967627d1e781e1b4f199b962ee39",
+    "frozen/511f2d78-3b17-4485-9bc0-6e2e471d0900/task-snapshot.json": "eac1951b5609c190317e989158975a78e60fbad5e421be159e66cdeac579ff88"
+  }
+}

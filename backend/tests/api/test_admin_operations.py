@@ -286,3 +286,73 @@ def test_own_admin_resume_keeps_state_revision_and_idempotency_checks(admin,acco
     assert replay.json()==first.json()
     assert admin.post(url,json=body,headers={'Idempotency-Key':'stage10-other'}).status_code==409
     with database_connection() as db:assert db.execute('SELECT count(*) AS n FROM model_calls').fetchone()['n']==0
+
+
+def test_resume_retry_http_metrics_include_replay_and_rejection_without_new_attempts(admin,accounts):
+    """Synthetic local parse task; HTTP intent must not be inferred from its URL."""
+    task=parse_task_wait(admin,accounts[0]['id'])
+    body=dict(operation='retry',wait_id=None,expected_task_revision=task['revision'],input_version=task['input_version'])
+    url='/api/v1/tasks/'+task['id']+'/resume'
+    first=admin.post(url,json=body,headers={'Idempotency-Key':'b06-retry'})
+    assert first.status_code==202,first.text
+    replay=admin.post(url,json=body,headers={'Idempotency-Key':'b06-retry'})
+    assert replay.status_code==202 and replay.json()==first.json()
+    rejected=admin.post(url,json=body,headers={'Idempotency-Key':'b06-stale'})
+    assert rejected.status_code==409,rejected.text
+    invalid=admin.post(url,json={**body,'operation':'PRIVATE-INVALID'},headers={'Idempotency-Key':'b06-invalid'})
+    assert invalid.status_code==422
+    metrics=admin.get('/api/v1/admin/metrics').json()
+    assert (metrics['retry_requests'],metrics['resume_requests'])==(3,0),metrics
+    assert metrics['recovery_operation_unknown_requests']==1
+    logs=admin.get('/api/v1/admin/logs',params={'task_id':task['id']}).json()['items']
+    by_id={row['request_id']:row for row in logs}
+    for response in (first,replay,rejected):
+        assert by_id[response.headers['X-Request-ID']]['task_operation']=='retry'
+    assert by_id[invalid.headers['X-Request-ID']]['task_operation'] is None
+    with database_connection() as db:
+        assert db.execute('SELECT count(*) AS n FROM task_resume_requests').fetchone()['n']==1
+        assert db.execute('SELECT count(*) AS n FROM task_attempts').fetchone()['n']==1
+        assert db.execute('SELECT count(*) AS n FROM model_calls').fetchone()['n']==0
+
+
+def test_recovery_http_metrics_keep_legacy_and_unvalidated_operations_unknown(admin,accounts):
+    task=parse_task_wait(admin,accounts[0]['id'])
+    body=dict(operation='resume',wait_id='synthetic-missing-wait',expected_task_revision=task['revision'],input_version=task['input_version'])
+    url='/api/v1/tasks/'+task['id']+'/resume'
+    rejected=admin.post(url,json=body,headers={'Idempotency-Key':'b06-resume-denied'})
+    assert rejected.status_code==409,rejected.text
+    # A valid body from another owner still cannot gain task linkage or access.
+    with TestClient(app) as other:
+        login(other,accounts[2])
+        denied=other.post(url,json=body,headers={'Idempotency-Key':'b06-other-owner'})
+        assert denied.status_code==404,denied.text
+    with TestClient(app) as anonymous:
+        denied_auth=anonymous.post(url,json=body,headers={'Idempotency-Key':'b06-no-auth'})
+        assert denied_auth.status_code==401
+    malformed=admin.post(url,content='{invalid',headers={'Idempotency-Key':'b06-malformed','Content-Type':'application/json'})
+    assert malformed.status_code==422
+    wrong_method=admin.get(url)
+    assert wrong_method.status_code==405
+    unregistered=admin.post(url+'-unregistered',json=body)
+    assert unregistered.status_code==404
+    now=datetime.now(timezone.utc)
+    with database_connection(write=True) as db:
+        for route,status in (('resume',202),('retry',429)):
+            db.execute('''INSERT INTO operational_request_events(request_id,route_template,method,status,elapsed_ms,created_at)
+                VALUES(%s,%s,'POST',%s,0,%s)''',(uuid4().hex,'/api/v1/tasks/{task_id}/'+route,status,now))
+    metrics=admin.get('/api/v1/admin/metrics').json()
+    events=[admin.get('/api/v1/admin/logs',params={'request_id':response.headers['X-Request-ID']}).json()['items'][0]
+        for response in (rejected,denied,denied_auth,malformed)]
+    assert (metrics['retry_requests'],metrics['resume_requests'],metrics['recovery_operation_unknown_requests'])==(1,2,3),[(e['status'],e['route_template'],e['task_operation'],e['task_id']) for e in events]
+    assert metrics['rate_limited']==1 and metrics['errors']>=5
+    for response,operation,linked in ((rejected,'resume',True),(denied,'resume',False),(denied_auth,None,False),(malformed,None,True)):
+        event=admin.get('/api/v1/admin/logs',params={'request_id':response.headers['X-Request-ID']}).json()['items'][0]
+        assert event['task_operation']==operation
+        assert event['task_id']==(task['id'] if linked else None)
+    for response in (wrong_method,unregistered):
+        event=admin.get('/api/v1/admin/logs',params={'request_id':response.headers['X-Request-ID']}).json()['items'][0]
+        assert event['task_operation'] is None
+        if response is unregistered:
+            assert event['route_template'] is None and event['task_id'] is None
+    with database_connection() as db:
+        assert db.execute('SELECT count(*) AS n FROM task_resume_requests').fetchone()['n']==0

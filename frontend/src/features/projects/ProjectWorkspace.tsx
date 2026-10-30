@@ -2,6 +2,7 @@ import ReviewsWorkspace from '../reviews/ReviewsWorkspace'
 import JournalWorkspace from '../journals/JournalWorkspace'
 import SchoolTemplates from '../school-templates/SchoolTemplates'
 import ProjectManuscripts from '../manuscripts/ProjectManuscripts'
+import {AnalysisWritingProvider} from '../manuscripts/AnalysisWritingContext'
 import ProjectLiterature from '../literature/ProjectLiterature'
 import { apiFetch } from '../../shared/api/client'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
@@ -250,7 +251,7 @@ export default function ProjectWorkspace() {
       {selection.error && <div className="error-panel" role="alert">{t(selection.error)}{' '}
         <button type="button" onClick={selection.refresh}>{t("重试项目详情")}</button>
       </div>}
-      {project && <div key={selection.instance.key}>
+      {project && <AnalysisWritingProvider key={selection.instance.key} projectId={project.id} projectType={project.project_type} onOpenWriting={()=>selection.selectManuscriptView('materials')}><div>
         <header className="project-page-heading">
           <h1>{project.name}</h1><p>{project.research_topic}</p>
         </header>
@@ -273,7 +274,7 @@ export default function ProjectWorkspace() {
           selectedTaskId={selection.taskId} onSelectTask={selection.selectTask} onOpenLiterature={selection.selectLiterature} />
         <ProjectLiterature projectId={project.id} researchTopic={project.research_topic} outputLanguage={project.default_output_language??'zh-CN'} active={view==='project'&&section==='literature'} initialSearchId={selection.literatureSearchId} onSearchChange={selection.selectLiterature} onOpenTask={selection.selectTask} literatureNavigation={selection.literatureNavigation} onLiteratureNavigate={selection.selectLiteratureView} registerLeaveGuard={selection.registerLeaveGuard}/>
         <ProjectResources analysisNavigation={selection.analysisNavigation} onAnalysisNavigate={selection.selectAnalysis} projectId={project.id} active={view === 'project'} section={section} onSectionChange={changeSection} onSaved={() => { refresh(); selection.refresh() }} resourceNavigation={selection.resourceNavigation} onResourceNavigate={selection.selectResource} registerLeaveGuard={selection.registerLeaveGuard} />
-      </div>}
+      </div></AnalysisWritingProvider>}
     </section>}
   </div>
   </WorkspaceShell>

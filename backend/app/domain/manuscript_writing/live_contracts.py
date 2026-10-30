@@ -22,6 +22,22 @@ class BundleRef(Strict):
     bundle_id: str = Field(min_length=1, max_length=64)
     bundle_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
 
+class SchoolPreviewRequest(WritingRequest):
+    schema_version:Literal[3]
+    output_language:Literal['en','zh-CN']
+    selected_source_ids:list[str]=Field(max_length=100)
+    selected_evidence_ids:list[str]=Field(max_length=100)
+
+    @model_validator(mode='after')
+    def unique_school_selection(self):
+        if any(len(v)!=len(set(v)) for v in (self.selected_source_ids,self.selected_evidence_ids)):raise ValueError('Duplicate school material selection')
+        if self.keywords or self.acknowledgements:raise ValueError('School keywords and acknowledgements remain explicit local export material')
+        return self
+
+def preview_data(value):
+    model=SchoolPreviewRequest if isinstance(value,dict) and value.get('schema_version')==3 else PreviewRequest
+    return model.model_validate(value).model_dump(mode='json') if isinstance(value,dict) else preview_data(value.model_dump(mode='json'))
+
 class LiveWritingRequest(BundleRef):
     schema_version: Literal[2]
     authorization_id: str = Field(min_length=1, max_length=64)
@@ -34,7 +50,7 @@ class AuthorizedTask(Strict):
 class AuthorizationRequest(Strict):
     schema_version: Literal[2]
     confirmed: Literal[True]
-    tasks: list[AuthorizedTask] = Field(min_length=4, max_length=4)
+    tasks: list[AuthorizedTask] = Field(min_length=1, max_length=4)
 
     @field_validator('confirmed',mode='before')
     @classmethod
@@ -44,7 +60,7 @@ class AuthorizationRequest(Strict):
 
     @model_validator(mode='after')
     def unique_tasks(self):
-        if len({t.logical_task_id for t in self.tasks}) != 4: raise ValueError('Four distinct logical tasks required')
+        if len({t.logical_task_id for t in self.tasks}) != len(self.tasks): raise ValueError('Distinct logical tasks required')
         for task in self.tasks:
             if len({b.bundle_id for b in task.bundles}) != len(task.bundles): raise ValueError('Duplicate bundle')
         return self

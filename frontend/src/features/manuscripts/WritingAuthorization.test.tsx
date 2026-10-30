@@ -36,6 +36,6 @@ it('ignores a late preview after the manuscript scope unmounts',async()=>{
 it('invalidates a previously selected grant when rereading current authorization status',async()=>{
  const auth=authFixture([bundleFixture(),bundleFixture('b2'),bundleFixture('b3'),bundleFixture('b4')]),onSelect=vi.fn();let loads=0
  vi.stubGlobal('fetch',vi.fn(async(url:string)=>Response.json(url.endsWith('/manuscripts')?{items:[manuscriptFixture]}:{items:[{...auth,status:loads++?'revoked':'active'}]})))
- render(<WritingAuthorization projectId="p1" onSelect={onSelect}/>);fireEvent.click(screen.getByRole('button',{name:'读取同项目稿件与授权'}));await screen.findByRole('option',{name:'auth1 · active'});fireEvent.change(screen.getByLabelText('明确选择已有授权'),{target:{value:'auth1'}});expect(onSelect).toHaveBeenLastCalledWith(auth)
- fireEvent.click(screen.getByRole('button',{name:'读取同项目稿件与授权'}));await screen.findByRole('option',{name:'auth1 · revoked'});expect(onSelect).toHaveBeenLastCalledWith(null);expect((screen.getByLabelText('明确选择已有授权') as HTMLSelectElement).value).toBe('')
+ render(<WritingAuthorization projectId="p1" onSelect={onSelect}/>);fireEvent.click(screen.getByRole('button',{name:'读取同项目稿件与授权'}));await screen.findByRole('option',{name:'auth1 · 有效'});fireEvent.change(screen.getByLabelText('明确选择已有授权'),{target:{value:'auth1'}});expect(onSelect).toHaveBeenLastCalledWith(auth)
+ fireEvent.click(screen.getByRole('button',{name:'读取同项目稿件与授权'}));await screen.findByRole('option',{name:'auth1 · 已撤销'});expect(onSelect).toHaveBeenLastCalledWith(null);expect((screen.getByLabelText('明确选择已有授权') as HTMLSelectElement).value).toBe('')
 })

@@ -17,6 +17,19 @@ from app.domain.external_processing import digest
 from app.core.exceptions import StorageError
 
 
+@pytest.fixture(autouse=True)
+def frozen_historical_v4_default(monkeypatch):
+    original=e.version_for
+    monkeypatch.setattr(e,'version_for',lambda figure,*,version=None:original(figure,version=version or e.V4_VERSION))
+    enrich=CollectionStore.enrich_bundle
+    def frozen_collection_dependency(self,project_id,value):
+        item=enrich(self,project_id,value)
+        if item['configuration'].get('figure_contract')==3:
+            item['dependency_engine']=e.V4_VERSION
+        return item
+    monkeypatch.setattr(CollectionStore,'enrich_bundle',frozen_collection_dependency)
+
+
 def test_frozen_v3_recovers_original_response_while_new_v4_and_collections_are_distinct(client,monkeypatch):
     store,project,result,version,plot=queued_figure(client,monkeypatch,contract_version=3)
     plot=finish(plot,IndependentV2LineProvider(result,pending=False),run_figure_workbench_task)

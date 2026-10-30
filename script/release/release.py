@@ -180,7 +180,7 @@ def operation(state):
 
 
 def source_files(root=ROOT):
-    roots=['backend/app','backend/alembic','frontend/dist','infra/api','script/release']
+    roots=['backend/app','backend/alembic','frontend/dist','infra/api','script/release','third_party']
     result=[]
     for name in roots:
         for path in sorted((root/name).rglob('*')):

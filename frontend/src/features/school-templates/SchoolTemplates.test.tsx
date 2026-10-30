@@ -5,9 +5,10 @@ import SchoolTemplates from './SchoolTemplates'
 import { clearApiSession } from '../../shared/api/client'
 import {useState} from 'react'
 import type {SchoolTemplateNavigation} from '../projects/manuscriptViews'
+import {setLocale} from '../../shared/i18n'
 const profile = { revision:0,school:'示例学校',department:'',major:'',degree_type:'',education_level:'',applicable_version:'',bound_confirmation_id:null }
 const analysis = {rules:[{id:'r1',label:'正文字体',value:'宋体',source:{part:'word/document.xml',path:'/p[2]',text:'正文宋体'}}],chapters:[{id:'c1',title:'绪论',level:1}],sections:[],notes:[],missing:['发布日期未注明'],unsupported:['文字规则仅引用'],identity_fields:[{label:'作者签名',required:true}],conflicts:[{id:'x1',label:'字号冲突',options:[{id:'o1',value:'小四',source:{part:'word/document.xml',path:'/p[4]',text:'小四'}},{id:'o2',value:'五号'}]}]}
-afterEach(()=>{cleanup();vi.unstubAllGlobals()})
+afterEach(()=>{cleanup();vi.unstubAllGlobals();setLocale('zh-CN')})
 function server(){
  let confirmation:null|{id:string}=null;let bound:string|null=null;let queued=false
  const fetch=vi.fn(async(url:string,init?:RequestInit)=>{
@@ -20,6 +21,24 @@ function server(){
   return Response.json({items:[item]})
  });vi.stubGlobal('fetch',fetch);return {fetch,complete:()=>{queued=false}}
 }
+it('guards front matter drafts across hidden views and replays unknown confirmation with the same key',async()=>{
+ const {fetch}=server();const keys:string[]=[];const bodies:unknown[]=[];let first=true
+ const sources=[{id:'p1',source:{part:'word/document.xml',path:'/p[1]',text:'培养类型：示例值'},section_id:'s1',suggested_label:'培养类型',style:{font_size_pt:18},style_sources:{}}]
+ vi.stubGlobal('fetch',vi.fn(async(url:string,init?:RequestInit)=>{
+  if(url.endsWith('/confirm')){keys.push(new Headers(init?.headers).get('Idempotency-Key')!);bodies.push(JSON.parse(String(init?.body)));if(first){first=false;throw new TypeError('network')}}
+  const response=await fetch(url,init)
+  if(url.endsWith('/school-templates')&&!init?.method){const data=await response.json();data.items[0].front_matter_sources=sources;data.items[0].analysis.sections=[{id:'s1',source:{},page:{},page_number:{},headers:[],footers:[]}];return Response.json(data)}
+  return response
+ }))
+ const checks=new Set<()=>boolean>(),register=(_guard:()=>boolean,dirty?:()=>boolean)=>{if(dirty)checks.add(dirty);return()=>{if(dirty)checks.delete(dirty)}}
+ const user=userEvent.setup();const view=render(<SchoolTemplates projectId="p1" active registerLeaveGuard={register}/>);await screen.findByText('正文字体')
+ await user.click(screen.getByLabelText('使用来源绑定的前置规则'));await user.selectOptions(screen.getByLabelText('新增字段来源'),'p1');await user.click(screen.getByRole('button',{name:'添加前置字段'}))
+ await user.type(screen.getByLabelText('字段标签 1'),'草稿');expect([...checks].some(check=>check())).toBe(true)
+ view.rerender(<SchoolTemplates projectId="p1" active={false} registerLeaveGuard={register}/>);view.rerender(<SchoolTemplates projectId="p1" active registerLeaveGuard={register}/>)
+ act(()=>setLocale('en'));expect((screen.getByLabelText('Field label 1') as HTMLInputElement).value).toBe('培养类型草稿');act(()=>setLocale('zh-CN'))
+ await user.selectOptions(screen.getByLabelText('字号冲突'),'o1');await user.click(screen.getByRole('button',{name:'确认模板规则'}));await screen.findByRole('alert');await user.click(screen.getByRole('button',{name:'确认模板规则'}));await screen.findByRole('button',{name:'绑定此确认版本'})
+ expect(keys).toHaveLength(2);expect(keys[0]).toBe(keys[1]);expect(bodies[0]).toEqual(bodies[1]);expect(bodies[0]).toMatchObject({front_matter:{fields:[{label:'培养类型草稿',source_id:'p1'}]}})
+})
 function LayeredSchool(){
  const [navigation,onNavigate]=useState<SchoolTemplateNavigation>({view:'list',templateId:''})
  const [active,setActive]=useState(true)

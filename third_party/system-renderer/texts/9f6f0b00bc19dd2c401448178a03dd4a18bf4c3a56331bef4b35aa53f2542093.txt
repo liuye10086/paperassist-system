@@ -1,0 +1,51 @@
+Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Upstream-Name: raptor
+Upstream-Contact: Dave Beckett <dave@dajobe.org>
+Source: https://download.librdf.org/source/
+
+Files: *
+Copyright: 2000-2005 University of Bristol.
+           2000-2014 David Beckett
+License: LGPL-2.1+
+
+Files: src/turtle_parser.c
+       src/turtle_parser.h
+       src/parsedate.c
+Copyright: 1984, 1989-1990, 2000-2013 Free Software Foundation, Inc.
+License: GPL-3+
+
+Files: librdfa/context.c
+       librdfa/curie.c
+       librdfa/iri.c
+       librdfa/language.c
+       librdfa/lists.c
+       librdfa/namespace.c
+       librdfa/rdfa*
+       librdfa/subject.c
+       librdfa/triple.c
+Copyright: 2008-2012 Digital Bazaar, Inc.
+License: LGPL-2.1+ or GPL-2+ or Apache-2.0
+
+Files: librdfa/strtok_r.*
+       src/raptor_avltree.c
+       src/strcasecmp.c
+       src/snprintf.c
+       src/sort_r.h
+       src/ssort.h
+       src/parsedate.y
+       utils/getopt.c
+Copyright: none (in the public domain)
+License: public-domain
+ Files is released in the public domain.
+
+License: Apache-2.0
+ See `/usr/share/common-licenses/Apache-2.0'.
+
+License: LGPL-2.1+
+ See `/usr/share/common-licenses/LGPL-2.1'.
+
+License: GPL-2+
+ See `/usr/share/common-licenses/GPL-2'
+
+License: GPL-3+
+ See `/usr/share/common-licenses/GPL-3'

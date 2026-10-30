@@ -164,6 +164,11 @@ class SchoolTemplateService:
         if (digest(snap)!=saved['snapshot_sha256'] or digest(saved['request_json'])!=saved['request_digest']
             or saved['analysis_sha256']!=row['analysis_sha256'] or snap['id']!=saved['id']
             or snap['template_version_id']!=row['id'] or snap['analysis_sha256']!=saved['analysis_sha256']): raise source_conflict()
+        if 'suggestion_provenance' in snap:
+            from .suggestion_service import SuggestionService
+            provenance=snap['suggestion_provenance'];advice=SuggestionService(self.assets).suggestion_row(db,row['project_id'],provenance['suggestion_id'])
+            if (advice['template_version_id']!=row['id'] or advice['artifact_sha256']!=provenance['artifact_sha256']
+                or provenance['decisions']!=saved['request_json'].get('suggestion_decisions')):raise source_conflict()
         return snap
 
     def text_options(self,db,row):
@@ -179,10 +184,14 @@ class SchoolTemplateService:
         from app.domain.admin_configuration.bindings import projection
         from app.domain.admin_configuration.rule_consumption import rules,task_version
         policy=rules(task_version(db,task),'schools')
-        return {k:row[k] for k in ('id','name','school','version_label','created_at','analysis_sha256')} | dict(task=self.store.public_task(task),
+        from .front_matter import sources as front_sources
+        from .suggestion_eligibility import note_eligibility
+        confirmation=self.confirmation(db,row)
+        return {k:row[k] for k in ('id','name','school','version_label','created_at','analysis_sha256')} | dict(task=self.store.public_task(task),front_matter_sources=front_sources(row['analysis_json']),
+            rule_suggestion_note_eligibility=note_eligibility(row['analysis_json'],confirmation.get('front_matter') if confirmation else None),
             configuration=projection(db,'task',task['id']),
             installed_rules={key:policy[key] for key in ('parser_version','quality_version','formats','conflict_policy')},
-            previous_version_id=row.get('previous_version_id'),text_decision_options=self.text_options(db,row),analysis=row['analysis_json'],confirmation=self.confirmation(db,row),sources=[{k:v for k,v in source.items() if k!='file'} for source in sources],
+            previous_version_id=row.get('previous_version_id'),text_decision_options=self.text_options(db,row),analysis=row['analysis_json'],confirmation=confirmation,sources=[{k:v for k,v in source.items() if k!='file'} for source in sources],
             supplement_text=row['request_json']['supplement_text'],current_changes=self.current_changes(db,row,sources))
 
     def list(self,project):
@@ -194,6 +203,7 @@ class SchoolTemplateService:
     def confirm(self,project,identity,request,key):
         require_key(key);body=request.model_dump(mode='json')
         if not request.text_decisions:body.pop('text_decisions',None)
+        if request.front_matter is None:body.pop('front_matter',None)
         with self.store.connection(write=True) as db:
             self.project(db,project,True);row=self.row(db,project,identity)
             existing=db.execute('SELECT * FROM school_template_confirmations WHERE template_version_id=%s',(identity,)).fetchone()
@@ -228,10 +238,20 @@ class SchoolTemplateService:
                     elif chapter:raise invalid('所选原角色不是章节，不能同时采用映射章节。',422)
             selected_roles={r['id']:r['value'] for r in rules if r['category']=='heading_mapping'}
             rules=[r for r in rules if not r.get('alias_rule_id') or selected_roles.get(r['alias_rule_id'])==r['category']]
+            suggestion=None;deferred=[]
+            if getattr(request,'schema_version',None)==2:
+                from .suggestion_confirmation import apply
+                suggestion,deferred=apply(self,db,project,row,request,rules)
             timestamp=now();cid=str(uuid4())
             snap=dict(id=cid,template_version_id=identity,analysis_sha256=row['analysis_sha256'],decisions=body['decisions'],chapters=body['chapters'],rules=rules,
                 missing=deepcopy(analysis['missing']),unsupported=deepcopy(analysis['unsupported']),created_at=timestamp.isoformat())
+            if suggestion is not None:
+                snap['suggestion_provenance']=suggestion
+                snap['unsupported'].extend(deferred)
             if request.text_decisions:snap['text_decisions']=[d.model_dump()|dict(evidence=text_options[d.id]) for d in request.text_decisions]
+            if request.front_matter is not None:
+                from .front_matter import validate_front_matter
+                snap['front_matter']=validate_front_matter(body['front_matter'],analysis,body['chapters'])
             db.execute('''INSERT INTO school_template_confirmations(id,project_id,user_id,idempotency_key,request_json,request_digest,template_version_id,analysis_sha256,snapshot_json,snapshot_sha256,created_at)
                 VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)''',(cid,project,self.store.user_id,key,Jsonb(body),digest(body),identity,row['analysis_sha256'],Jsonb(snap),digest(snap),timestamp))
             from app.domain.admin_configuration.bindings import bind,resolve

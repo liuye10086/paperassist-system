@@ -1,0 +1,234 @@
+{
+  "task_id": "de0becff-2f31-4809-9cc2-63550c037072",
+  "response_id": "resp_02a2947f857c818a006ae290af93a487d08649b6ac5e9f6963",
+  "raw_file": "raw/000135-retrieve.response.body",
+  "raw_sha256": "01e3d7e4a39ffadbcb27872fca347247b403b6fc50c00250471d65b8c982073a",
+  "receipt_seq": 137,
+  "payload": {
+    "facts": {
+      "axis.x.label": {
+        "label": "Horizontal field",
+        "raw": "X (unit not specified)",
+        "value": "X (unit not specified)"
+      },
+      "axis.x.unit": {
+        "label": "Horizontal unit",
+        "raw": "",
+        "value": "Unit not specified"
+      },
+      "axis.y.label": {
+        "label": "Vertical field",
+        "raw": "Y (unit not specified)",
+        "value": "Y (unit not specified)"
+      },
+      "axis.y.unit": {
+        "label": "Vertical unit",
+        "raw": "",
+        "value": "Unit not specified"
+      },
+      "correlation.coefficient": {
+        "label": "Correlation coefficient",
+        "raw": 0.7999999999999998,
+        "value": "0.8"
+      },
+      "correlation.confidence_interval": {
+        "label": "Confidence interval",
+        "raw": "-0.27964 to 0.986196",
+        "value": "-0.27964 to 0.986196"
+      },
+      "correlation.method": {
+        "label": "Correlation method",
+        "raw": "Pearson",
+        "value": "Pearson"
+      },
+      "correlation.n": {
+        "label": "Common effective n",
+        "raw": 5,
+        "value": "5"
+      },
+      "correlation.p_value": {
+        "label": "Two-sided P value",
+        "raw": 0.10408803866182799,
+        "value": "0.104088"
+      },
+      "data.excluded": {
+        "label": "Excluded row count",
+        "raw": 2,
+        "value": "2"
+      },
+      "data.total": {
+        "label": "Source row count",
+        "raw": 7,
+        "value": "7"
+      },
+      "data.valid": {
+        "label": "Complete record count",
+        "raw": 5,
+        "value": "5"
+      },
+      "design.status": {
+        "label": "Research design information status",
+        "raw": true,
+        "value": "Research design text was supplied but was not programmatically verified or forwarded"
+      },
+      "design.structure": {
+        "label": "Observation structure and verification limits",
+        "raw": "independent",
+        "value": "User-declared independent observations; independence was not verified"
+      },
+      "figure.title": {
+        "label": "Figure title",
+        "raw": "Synthetic scatter plot",
+        "value": "Synthetic scatter plot"
+      },
+      "limitation.0": {
+        "label": "Applicable limitation",
+        "raw": "Correlation describes association and does not establish causation or treatment effectiveness.",
+        "value": "Correlation describes association and does not establish causation or treatment effectiveness"
+      },
+      "limitation.1": {
+        "label": "Applicable limitation",
+        "raw": "Independent observations and the required relationship/inferential assumptions were declared by the user; the program does not prove them.",
+        "value": "Independent observations and the required relationship/inferential assumptions were declared by the user; the program does not prove them"
+      },
+      "limitation.2": {
+        "label": "Applicable limitation",
+        "raw": "Small samples and missing-record exclusions can make conclusions unstable; only the selected complete records were analysed.",
+        "value": "Small samples and missing-record exclusions can make conclusions unstable; only the selected complete records were analysed"
+      },
+      "limitation.3": {
+        "label": "Applicable limitation",
+        "raw": "Research design text was supplied but was not verified or forwarded; sample provenance, procedures and measurement context require review.",
+        "value": "Research design text was supplied but was not verified or forwarded; sample provenance, procedures and measurement context require review"
+      },
+      "limitation.4": {
+        "label": "Applicable limitation",
+        "raw": "Complete ordered coordinates retain saved precision; other projection summaries display at most 8 significant digits and original statistical summaries at most 6 significant digits. Saved results retain full precision.",
+        "value": "Complete ordered coordinates retain saved precision; other projection summaries display at most 8 significant digits and original statistical summaries at most 6 significant digits. Saved results retain full precision"
+      },
+      "limitation.5": {
+        "label": "Applicable limitation",
+        "raw": "Values and fact references were inserted and checked locally; meaning and research applicability require review.",
+        "value": "Values and fact references were inserted and checked locally; meaning and research applicability require review"
+      },
+      "limitation.6": {
+        "label": "Applicable limitation",
+        "raw": "This explanation checks frozen statistics and metadata only; image pixels, in-image text and visual correctness were not verified. The AI draft requires human review.",
+        "value": "This explanation checks frozen statistics and metadata only; image pixels, in-image text and visual correctness were not verified. The AI draft requires human review"
+      },
+      "method.summary": {
+        "label": "Analysis method",
+        "raw": "Pearson correlation uses complete observations across all selected variables, retaining original row correspondence; no imputation, deduplication or outlier removal. Pearson measures linear association; its inferential assumptions are declared by the user, not proven by this program. Pearson two-sided beta-distribution test. 95% Fisher z interval. ",
+        "value": "Pearson correlation uses complete observations across all selected variables, retaining original row correspondence; no imputation, deduplication or outlier removal. Pearson measures linear association; its inferential assumptions are declared by the user, not proven by this program. Pearson two-sided beta-distribution test. 95% Fisher z interval"
+      },
+      "purpose.kind": {
+        "label": "Figure type",
+        "raw": "scatter",
+        "value": "a scatter plot"
+      },
+      "scope.variables": {
+        "label": "Variable scope",
+        "raw": "X (unit not specified), Y (unit not specified)",
+        "value": "X (unit not specified), Y (unit not specified)"
+      },
+      "variables.0.name": {
+        "label": "Variable",
+        "raw": "X",
+        "value": "X"
+      },
+      "variables.0.unit": {
+        "label": "Unit",
+        "raw": "unit not specified",
+        "value": "unit not specified"
+      },
+      "variables.1.name": {
+        "label": "Variable",
+        "raw": "Y",
+        "value": "Y"
+      },
+      "variables.1.unit": {
+        "label": "Unit",
+        "raw": "unit not specified",
+        "value": "unit not specified"
+      }
+    },
+    "figure_explanation_contract": 5,
+    "language": "en",
+    "required_references": {
+      "data": [
+        "data.total",
+        "data.valid",
+        "data.excluded",
+        "axis.x.label",
+        "axis.x.unit",
+        "axis.y.label",
+        "axis.y.unit"
+      ],
+      "interpretation": [
+        "limitation.0",
+        "limitation.1",
+        "limitation.2",
+        "limitation.3",
+        "limitation.4",
+        "limitation.5",
+        "limitation.6"
+      ],
+      "methods": [
+        "method.summary",
+        "design.structure",
+        "design.status"
+      ],
+      "paper_text": [
+        "scope.variables",
+        "purpose.kind",
+        "data.valid",
+        "method.summary",
+        "variables.0.name",
+        "variables.1.name",
+        "variables.0.unit",
+        "variables.1.unit",
+        "correlation.n",
+        "correlation.coefficient",
+        "correlation.p_value",
+        "correlation.confidence_interval",
+        "limitation.0",
+        "limitation.1",
+        "limitation.2",
+        "limitation.3",
+        "limitation.4",
+        "limitation.5",
+        "limitation.6"
+      ],
+      "purpose": [
+        "scope.variables",
+        "purpose.kind"
+      ],
+      "results": [
+        "variables.0.name",
+        "variables.1.name",
+        "variables.0.unit",
+        "variables.1.unit",
+        "correlation.n",
+        "correlation.coefficient",
+        "correlation.p_value",
+        "correlation.confidence_interval"
+      ]
+    },
+    "schema_version": 2
+  },
+  "draft": {
+    "purpose": "This figure describes {{scope.variables}} using {{purpose.kind}}.",
+    "interpretation": "Interpretation must respect the association boundary: {{limitation.0}}. Assessment of the declared assumptions must consider that {{limitation.1}}. Assessment of record selection must consider that {{limitation.2}}. Review of the research context must account for the following: {{limitation.3}}. Reading the saved precision requires the following distinction: {{limitation.4}}. Review of the explanation must account for the following: {{limitation.5}}. Review of the figure and draft must respect the verification boundary: {{limitation.6}}.",
+    "results": "The saved results describe the association between {{variables.0.name}} and {{variables.1.name}}, with respective units reported as {{variables.0.unit}} and {{variables.1.unit}}. The original statistical analysis reports a common effective record count of {{correlation.n}}, a correlation coefficient of {{correlation.coefficient}}, a two-sided P value of {{correlation.p_value}}, and a confidence interval of {{correlation.confidence_interval}}.",
+    "paper_text": "This figure describes {{scope.variables}} using {{purpose.kind}}. The analysis includes {{data.valid}} complete original records, which are not thereby a verified count of independent participants. The saved method is described as follows: {{method.summary}}. The saved association concerns {{variables.0.name}} and {{variables.1.name}}, with respective units reported as {{variables.0.unit}} and {{variables.1.unit}}. The original statistical results report a common effective record count of {{correlation.n}}, a correlation coefficient of {{correlation.coefficient}}, a two-sided P value of {{correlation.p_value}}, and a confidence interval of {{correlation.confidence_interval}}. Scientific interpretation must respect the following boundary: {{limitation.0}}. Assessment of assumptions must consider that {{limitation.1}}. Assessment of the analysed records must consider that {{limitation.2}}. Review of research context must account for the following: {{limitation.3}}. Reading original statistical summaries and projection summaries requires the following precision distinction: {{limitation.4}}. Review of applicability must account for the following: {{limitation.5}}. Review of the figure and explanation must respect the following verification boundary: {{limitation.6}}.",
+    "methods": "This figure uses the saved analysis method described as follows: {{method.summary}}. Assessment of observation structure must consider the recorded declaration: {{design.structure}}. Assessment of research design must respect the recorded information status: {{design.status}}.",
+    "data": "The source contains {{data.total}} rows, of which {{data.valid}} are complete original records and {{data.excluded}} are excluded rows. These counts describe source rows and original analysis records, not projection records or verified independent participants. The horizontal field is recorded as {{axis.x.label}}, with its unit reported as {{axis.x.unit}}. The vertical field is recorded as {{axis.y.label}}, with its unit reported as {{axis.y.unit}}."
+  },
+  "source_pins": {
+    "frozen/de0becff-2f31-4809-9cc2-63550c037072/data.json": "f6290c3c05d0b608b1cd3d7299c59e017836bdb8b7b59ef0d2e794ef572d0250",
+    "frozen/de0becff-2f31-4809-9cc2-63550c037072/expected.json": "241fa5dcf22d4a259c22fae928e8b9c50c08654e637350e2dc688a50e7337e12",
+    "frozen/de0becff-2f31-4809-9cc2-63550c037072/instructions.txt": "a99b48726c4371735f0f1469d1f830ae0f7d398bcf85d9c99b90540599cc3353",
+    "frozen/de0becff-2f31-4809-9cc2-63550c037072/policy-snapshot.json": "58e72f61953721f22abfe1edd107fbf9e08c967627d1e781e1b4f199b962ee39",
+    "frozen/de0becff-2f31-4809-9cc2-63550c037072/task-snapshot.json": "fd1d37cdf30ac618af404e00aa54c65930b4e2c04a58a7adb81948884c66e204"
+  }
+}

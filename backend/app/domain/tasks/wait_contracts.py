@@ -7,6 +7,7 @@ from app.domain.journals.format_contracts import FormatInputVersion
 from app.domain.journals.adaptation_contracts import AdaptationInputVersion
 from typing import Literal
 from app.domain.school_templates.contracts import SchoolTemplateInputVersion
+from app.domain.school_templates.suggestion_contracts import SuggestionInputVersion
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -28,7 +29,7 @@ class WaitView(BaseModel):
     kind: Literal['review_round_confirmation','review_round_input','literature_model_authorization', 'literature_configuration', 'remote_observation', 'budget_confirmation', 'submission_unknown', 'unsupported_input', 'unsupported_confirmation', 'dataset_preparation_confirmation', 'ocr_review_confirmation', 'analysis_plan_confirmation', 'analysis_plan_input', 'figure_projection_confirmation', 'remote_observation']
     status: Literal['open', 'resolved', 'superseded']
     task_revision: int
-    input_version: ReviewDocumentInputVersion | RevisionInputVersion | ReviewInputVersion | AdaptationInputVersion | FormatInputVersion | JournalInputVersion | SchoolTemplateInputVersion | WritingInputVersion | ManuscriptInputVersion | AssistanceInputVersion | LiteratureInputVersion | StatisticsInputVersion | CollectionInputVersion | RecommendationInputVersion | AnalysisPlanInputVersion | OcrReviewInputVersion | PreparationInputVersion | DatasetAnalysisInputVersion | InputVersion
+    input_version: ReviewDocumentInputVersion | RevisionInputVersion | ReviewInputVersion | AdaptationInputVersion | FormatInputVersion | JournalInputVersion | SchoolTemplateInputVersion | SuggestionInputVersion | WritingInputVersion | ManuscriptInputVersion | AssistanceInputVersion | LiteratureInputVersion | StatisticsInputVersion | CollectionInputVersion | RecommendationInputVersion | AnalysisPlanInputVersion | OcrReviewInputVersion | PreparationInputVersion | DatasetAnalysisInputVersion | InputVersion
     reason_code: str | None
     error_code: str | None
     created_at: UTCDateTime
@@ -40,7 +41,7 @@ class ResumeRequest(BaseModel):
     operation: Literal['resume', 'retry']
     wait_id: str | None = Field(min_length=1, max_length=64, pattern=r'^\S+$')
     expected_task_revision: int = Field(strict=True, ge=1, lt=2_147_483_647)
-    input_version: ReviewDocumentInputVersion | RevisionInputVersion | ReviewInputVersion | AdaptationInputVersion | FormatInputVersion | JournalInputVersion | SchoolTemplateInputVersion | WritingInputVersion | ManuscriptInputVersion | AssistanceInputVersion | LiteratureInputVersion | StatisticsInputVersion | CollectionInputVersion | RecommendationInputVersion | AnalysisPlanInputVersion | OcrReviewInputVersion | PreparationInputVersion | DatasetAnalysisInputVersion | StrictInputVersion | ParseInputVersion | StructureInputVersion
+    input_version: ReviewDocumentInputVersion | RevisionInputVersion | ReviewInputVersion | AdaptationInputVersion | FormatInputVersion | JournalInputVersion | SchoolTemplateInputVersion | SuggestionInputVersion | WritingInputVersion | ManuscriptInputVersion | AssistanceInputVersion | LiteratureInputVersion | StatisticsInputVersion | CollectionInputVersion | RecommendationInputVersion | AnalysisPlanInputVersion | OcrReviewInputVersion | PreparationInputVersion | DatasetAnalysisInputVersion | StrictInputVersion | ParseInputVersion | StructureInputVersion
 
     @model_validator(mode='after')
     def wait_matches_operation(self):

@@ -1,0 +1,784 @@
+{
+  "key": "scatter:zh-CN",
+  "source_task_id": "a4efd6b2-4a02-4c54-88da-18649ab2e697",
+  "bundle": {
+    "result": {
+      "schema_version": 3,
+      "result_type": "correlation",
+      "file_id": "c24f97bc-bddf-55de-96a8-f7793b5f0a86",
+      "filename": "correlation_heatmap.xlsx",
+      "source_sha256": "7a0b416ef376573f038f8e481709b07f939ded7cd65ec812a9d8bc717788e254",
+      "source": {
+        "kind": "prepared_dataset_version",
+        "schema_version": 1,
+        "dataset_id": "184a1535-eb8f-5137-b599-c299a32edff1",
+        "structure_id": "755a3a0e-bb8d-4319-8862-fcf9ed85657f",
+        "dataset_version": 1,
+        "file_id": "c24f97bc-bddf-55de-96a8-f7793b5f0a86",
+        "source_sha256": "7a0b416ef376573f038f8e481709b07f939ded7cd65ec812a9d8bc717788e254",
+        "dataset_sha256": "f81d9184efc16439e7736cf9a8cb841c578f7842ddfdf141483444e14f3f0b63",
+        "dataset_size_bytes": 3536,
+        "dataset_schema_version": 1,
+        "sheet_index": 0,
+        "sheet_name": "Pair",
+        "parser_version": "openpyxl-3.1.5-structure-v1",
+        "parent_dataset_id": "0a55c7c3-b003-556c-b494-5b93fae62445",
+        "parent_dataset_version": 1,
+        "transform_version": "excel_prepare_v1"
+      },
+      "setup_revision": 3,
+      "selection": {
+        "task_type": "correlation",
+        "sheet_name": "Pair",
+        "method": "pearson",
+        "mode": "pair",
+        "columns": [
+          "A",
+          "B"
+        ],
+        "units": {
+          "A": "",
+          "B": ""
+        },
+        "missing_policy": "complete_cases",
+        "assumptions": {
+          "independent_observations": true,
+          "relationship_form": "linear",
+          "inference_assumptions_confirmed": true
+        }
+      },
+      "check": {
+        "ready": true,
+        "row_count": 7,
+        "valid_count": 5,
+        "excluded_count": 2,
+        "groups": [],
+        "issues": [],
+        "warnings": [
+          "样本量较小，结果可能不稳定。",
+          "缺失行按共同完整记录规则排除，原数据保留。"
+        ]
+      },
+      "analysis_plan": {
+        "plan_id": "ff621f59-ec31-530f-ad8c-842c20d0d0ea",
+        "sha256": "2145152ddb2fbb8684d466b02dc7f02e06aa2f2bdf2fc96b09420c4806370021",
+        "resolutions": {
+          "small_sample:all": "accept_partial_metrics",
+          "selected_missing:all": "exclude_selected_missing"
+        }
+      },
+      "analysis_context": {
+        "plan": {
+          "schema_version": 5,
+          "workflow_version": "analysis_plan_v5",
+          "rules_version": "analysis_plan_rules_v5",
+          "id": "ff621f59-ec31-530f-ad8c-842c20d0d0ea",
+          "task_id": "d80fc3af-8832-4894-89bd-3f52ce95e874",
+          "decision_id": "294fab62-5050-48a7-8dad-23b5d50d1504",
+          "project_id": "123cbf9f-fd5a-4704-b4d1-af97dea0bad1",
+          "file_id": "c24f97bc-bddf-55de-96a8-f7793b5f0a86",
+          "source": {
+            "kind": "prepared_dataset_version",
+            "schema_version": 1,
+            "dataset_id": "184a1535-eb8f-5137-b599-c299a32edff1",
+            "structure_id": "755a3a0e-bb8d-4319-8862-fcf9ed85657f",
+            "dataset_version": 1,
+            "file_id": "c24f97bc-bddf-55de-96a8-f7793b5f0a86",
+            "source_sha256": "7a0b416ef376573f038f8e481709b07f939ded7cd65ec812a9d8bc717788e254",
+            "dataset_sha256": "f81d9184efc16439e7736cf9a8cb841c578f7842ddfdf141483444e14f3f0b63",
+            "dataset_size_bytes": 3536,
+            "dataset_schema_version": 1,
+            "sheet_index": 0,
+            "sheet_name": "Pair",
+            "parser_version": "openpyxl-3.1.5-structure-v1",
+            "parent_dataset_id": "0a55c7c3-b003-556c-b494-5b93fae62445",
+            "parent_dataset_version": 1,
+            "transform_version": "excel_prepare_v1"
+          },
+          "selection": {
+            "task_type": "correlation",
+            "sheet_name": "Pair",
+            "method": "pearson",
+            "mode": "pair",
+            "columns": [
+              "A",
+              "B"
+            ],
+            "units": {
+              "A": "",
+              "B": ""
+            },
+            "missing_policy": "complete_cases",
+            "assumptions": {
+              "independent_observations": true,
+              "relationship_form": "linear",
+              "inference_assumptions_confirmed": true
+            }
+          },
+          "check": {
+            "rules_version": "analysis_plan_rules_v5",
+            "research_missing": [],
+            "data_check": {
+              "rules_version": "analysis_plan_rules_v3",
+              "data_range": "A2:C8",
+              "row_count": 7,
+              "selected_fields": [
+                {
+                  "letter": "A",
+                  "name": "X",
+                  "type_counts": {
+                    "number": 6
+                  },
+                  "missing_count": 1,
+                  "non_missing_count": 6,
+                  "prepared_unit": {
+                    "status": "confirmed",
+                    "value": ""
+                  },
+                  "declared_unit": {
+                    "status": "unknown",
+                    "value": null
+                  },
+                  "observed_min": 1.0,
+                  "observed_max": 6.0
+                },
+                {
+                  "letter": "B",
+                  "name": "Y",
+                  "type_counts": {
+                    "number": 6
+                  },
+                  "missing_count": 1,
+                  "non_missing_count": 6,
+                  "prepared_unit": {
+                    "status": "confirmed",
+                    "value": ""
+                  },
+                  "declared_unit": {
+                    "status": "unknown",
+                    "value": null
+                  },
+                  "observed_min": 1.0,
+                  "observed_max": 7.0
+                }
+              ],
+              "selection_check": {
+                "ready": true,
+                "row_count": 7,
+                "valid_count": 5,
+                "excluded_count": 2,
+                "groups": [],
+                "issues": [],
+                "warnings": [
+                  "样本量较小，结果可能不稳定。",
+                  "缺失行按共同完整记录规则排除，原数据保留。"
+                ]
+              },
+              "issues": [
+                {
+                  "id": "small_sample:all",
+                  "code": "small_sample",
+                  "severity": "warning",
+                  "field": null,
+                  "count": 5,
+                  "coordinates": [],
+                  "message": "样本量较小，结果可能不稳定。",
+                  "allowed_resolutions": [
+                    "accept_partial_metrics"
+                  ]
+                },
+                {
+                  "id": "selected_missing:all",
+                  "code": "selected_missing",
+                  "severity": "warning",
+                  "field": null,
+                  "count": 2,
+                  "coordinates": [
+                    "B7",
+                    "A8"
+                  ],
+                  "message": "缺失行按共同完整记录规则排除，原数据保留。",
+                  "allowed_resolutions": [
+                    "exclude_selected_missing"
+                  ]
+                }
+              ],
+              "limitations": [
+                "相关不代表因果；前提由用户声明，不是程序证明。",
+                "共同完整记录，不填补、不去重、不自动剔除异常值。",
+                "双侧推断；小样本结果可能不稳定。"
+              ],
+              "research_missing": []
+            },
+            "limitations": [
+              "外部材料仅为来源证据，未由本系统重新计算。",
+              "补充资料及采纳候选不等于批准分析计划。"
+            ]
+          },
+          "resolutions": {
+            "small_sample:all": "accept_partial_metrics",
+            "selected_missing:all": "exclude_selected_missing"
+          },
+          "plan_revision": 2,
+          "setup_revision": 3,
+          "created_at": "2026-10-28T04:48:34.851193+00:00",
+          "research_request": {
+            "question": "Prespecified synthetic engineering verification: scatter",
+            "output_language": "zh-CN",
+            "population": "Explicit synthetic study records only",
+            "study_design": "Fixed synthetic demonstration; no real research inference",
+            "observation_unit": "One synthetic record per row",
+            "observation_structure": "independent",
+            "relationship_description": "",
+            "output_requirements": "Preserve source units and all missingness, methods and non-causal limitations; "
+          },
+          "recommendation_ref": null,
+          "evidence_versions": [],
+          "origin_recommendation_ref": null,
+          "source_reference": null,
+          "source_resolution": {
+            "confirmed": true,
+            "note": "Exact authorized B07 synthetic file SHA, prepared version and cohort confirmed; no real participant claims."
+          },
+          "sha256": "2145152ddb2fbb8684d466b02dc7f02e06aa2f2bdf2fc96b09420c4806370021"
+        },
+        "method": {
+          "id": "pearson",
+          "parameters": {
+            "task_type": "correlation",
+            "sheet_name": "Pair",
+            "method": "pearson",
+            "mode": "pair",
+            "columns": [
+              "A",
+              "B"
+            ],
+            "units": {
+              "A": "",
+              "B": ""
+            },
+            "missing_policy": "complete_cases",
+            "assumptions": {
+              "independent_observations": true,
+              "relationship_form": "linear",
+              "inference_assumptions_confirmed": true
+            }
+          },
+          "observation_basis": "independent_rows"
+        },
+        "rounding": {
+          "display_significant_digits": 6,
+          "stored_values": "full_precision"
+        }
+      },
+      "variables": [
+        {
+          "column": "A",
+          "name": "X",
+          "unit": ""
+        },
+        {
+          "column": "B",
+          "name": "Y",
+          "unit": ""
+        }
+      ],
+      "statistics": {
+        "method": "pearson",
+        "mode": "pair",
+        "n": 5,
+        "coefficient": 0.7999999999999998,
+        "matrix": null,
+        "p_value": {
+          "value": 0.10408803866182799,
+          "method": "pearson_beta_two_sided",
+          "reason": null
+        },
+        "confidence_interval": {
+          "low": -0.2796400419693556,
+          "high": 0.9861961933012714,
+          "level": 0.95,
+          "method": "fisher_z",
+          "reason": null
+        },
+        "inference": {
+          "alternative": "two-sided",
+          "rank_method": null,
+          "permutation_type": null,
+          "n_resamples": null,
+          "seed": null,
+          "exact": null
+        },
+        "warnings": [
+          "correlation_not_causation",
+          "small_sample"
+        ]
+      },
+      "row_audit": {
+        "included_rows": [
+          2,
+          3,
+          4,
+          5,
+          6
+        ],
+        "excluded_rows": [
+          {
+            "row": 7,
+            "coordinates": [
+              "B7"
+            ],
+            "reason": "selected_missing"
+          },
+          {
+            "row": 8,
+            "coordinates": [
+              "A8"
+            ],
+            "reason": "selected_missing"
+          }
+        ],
+        "missing_policy": "complete_cases"
+      },
+      "started_at": "2026-10-28T04:48:36.355035+00:00",
+      "completed_at": "2026-10-28T04:48:41.752877+00:00",
+      "engine": {
+        "id": "correlation_statistics_dataset_v1",
+        "python_version": "3.11.17",
+        "scipy_version": "1.17.1",
+        "numpy_version": "2.4.6",
+        "parser_version": "openpyxl-3.1.5-structure-v1",
+        "execution_contract": "fixed_statistics_v2"
+      },
+      "id": "69d8d8b4-0474-46fd-b8e7-7145269e9a72"
+    },
+    "figure": {
+      "schema_version": 5,
+      "figure_kind": "scatter",
+      "language": "zh-CN",
+      "correlation_method": "pearson",
+      "mode": "pair",
+      "title": "合成数据散点图",
+      "x_label": "X (单位未填写)",
+      "y_label": "Y (单位未填写)",
+      "caption": "Pearson相关；纳入 5 行完整记录，排除 2 行。各点保持原始行对应；不绘制回归拟合线或推断标记。未插补、去重或剔除离群值。相关不等于因果。 仅供合成数据工程验证。 相关不等于因果；仅展示已计算的相关系数与有效记录数，不新增P值、置信区间或显著性星号。",
+      "variables": [
+        {
+          "column": "A",
+          "name": "X",
+          "unit": ""
+        },
+        {
+          "column": "B",
+          "name": "Y",
+          "unit": ""
+        }
+      ],
+      "plot_config": {
+        "regression_line": false,
+        "inference_displayed": false,
+        "complete_case_basis": "common_rows",
+        "style": {
+          "palette": "colorblind",
+          "width": 2400,
+          "height": 1600,
+          "font_size": 12,
+          "display_order": []
+        },
+        "numbering_mode": "external"
+      },
+      "statistics": {
+        "n": 5,
+        "coefficient": 0.7999999999999998
+      },
+      "legacy_contract": 2,
+      "presentation": {
+        "schema_version": 2,
+        "axes": {
+          "x": {
+            "label": "X (单位未填写)",
+            "unit": ""
+          },
+          "y": {
+            "label": "Y (单位未填写)",
+            "unit": ""
+          }
+        },
+        "legend": {
+          "title": "分组",
+          "entries": []
+        },
+        "color_scale": null,
+        "abbreviations": [
+          {
+            "term": "n",
+            "definition": "有效记录数；独立人数须由研究设计确认"
+          },
+          {
+            "term": "r",
+            "definition": "Pearson线性相关系数"
+          }
+        ],
+        "statistical_notes": [
+          "相关不等于因果；仅展示已计算的相关系数与有效记录数，不新增P值、置信区间或显著性星号。"
+        ]
+      },
+      "id": "46b64116-5ffc-540c-aaba-ea37a4831c9d",
+      "analysis_run_id": "69d8d8b4-0474-46fd-b8e7-7145269e9a72",
+      "file_id": "c24f97bc-bddf-55de-96a8-f7793b5f0a86",
+      "source": {
+        "kind": "prepared_dataset_version",
+        "schema_version": 1,
+        "dataset_id": "184a1535-eb8f-5137-b599-c299a32edff1",
+        "structure_id": "755a3a0e-bb8d-4319-8862-fcf9ed85657f",
+        "dataset_version": 1,
+        "file_id": "c24f97bc-bddf-55de-96a8-f7793b5f0a86",
+        "source_sha256": "7a0b416ef376573f038f8e481709b07f939ded7cd65ec812a9d8bc717788e254",
+        "dataset_sha256": "f81d9184efc16439e7736cf9a8cb841c578f7842ddfdf141483444e14f3f0b63",
+        "dataset_size_bytes": 3536,
+        "dataset_schema_version": 1,
+        "sheet_index": 0,
+        "sheet_name": "Pair",
+        "parser_version": "openpyxl-3.1.5-structure-v1",
+        "parent_dataset_id": "0a55c7c3-b003-556c-b494-5b93fae62445",
+        "parent_dataset_version": 1,
+        "transform_version": "excel_prepare_v1"
+      },
+      "source_sha256": "7a0b416ef376573f038f8e481709b07f939ded7cd65ec812a9d8bc717788e254",
+      "setup_revision": 3,
+      "sha256": "53f04f2bdaf5bb3a5f9f6ad0ecc9433d5408f469c12d506ce5b1243f51596a5d",
+      "size_bytes": 235992,
+      "figure_config_version_id": "0ae3ee39-99d2-493e-9164-a1cbbeb29dfb",
+      "configuration_sha256": "35d4dc5460f89434c13bd44f554dfaff1f6d0a3d76315da5ac08c518a3ec61d8",
+      "projection_id": "ef806210-dbe0-5333-9be2-c1d27be902f5",
+      "projection_sha256": "d01a7e28a02ea461e138a84c17aa4760e451305d5ca009be61361a5f21e858a7",
+      "facts_sha256": "e9b730e689d6dfc5e76fe554b13d751dfe02a473e62e789253ca3b53a7a385a7",
+      "figure_number": null,
+      "numbering_mode": "external",
+      "method": {
+        "kind": "scatter",
+        "basis": "original_statistical_valid_rows"
+      },
+      "created_at": "2026-10-28T05:02:43.853895+00:00",
+      "engine": {
+        "id": "openai_figure_workbench_v3",
+        "provider": "openai_code_interpreter",
+        "model": "gpt-5.6-sol"
+      },
+      "verification": {
+        "status": "matched",
+        "note": "结构化数值已核验；图像视觉仍需人工审阅。"
+      },
+      "provenance": {
+        "response_id": "resp_0d72c84d479d78a5006ae18a959f2087d09adf9b9e2de7b521",
+        "container_id": "cntr_6ae18a292d5c81989c72e24daaab9a760b09d9546afa9106",
+        "model": "gpt-5.6-sol",
+        "code": [
+          "import json, os, sys, math, statistics, fractions, textwrap, platform\nfrom pathlib import Path\n\ninput_path = Path(\"/mnt/data/43f4573b70a8f7e1250b8f399c251668-data.json\")\nwith input_path.open(\"r\", encoding=\"utf-8\") as f:\n    data = json.load(f)\ndata.keys(), data.get(\"schema_version\"), data.get(\"figure_kind\"), data.get(\"language\")\n",
+          "import pprint, json\npprint.pp(data)\n",
+          "import matplotlib\nmatplotlib.use(\"Agg\")\nimport matplotlib.pyplot as plt\nfrom matplotlib import font_manager\nfonts = sorted(set(f.name for f in font_manager.fontManager.ttflist))\n[x for x in fonts if any(k.lower() in x.lower() for k in [\"noto\", \"cjk\", \"hei\", \"song\", \"yahei\", \"wenquanyi\", \"source han\"])] [:50], len(fonts)\n",
+          "import numpy as np, statistics\nvals = data[\"values\"]\nx = [row[0] for row in vals]\ny = [row[1] for row in vals]\nn=len(vals)\nr = np.corrcoef(x,y)[0,1]\nn,r\n",
+          "from matplotlib.ft2font import FT2Font\nfont_path = font_manager.findfont(\"Noto Sans CJK JP\", fallback_to_default=False)\nfont_path\n",
+          "all_text = \"\".join([\n    data[\"labels\"][\"title\"], data[\"labels\"][\"x_label\"], data[\"labels\"][\"y_label\"], data[\"labels\"][\"caption\"],\n    *[v[\"name\"]+v[\"unit\"]+v[\"column\"] for v in data[\"variables\"]],\n    data[\"presentation\"][\"legend\"][\"title\"],\n    *[a[\"term\"]+a[\"definition\"] for a in data[\"presentation\"][\"abbreviations\"]],\n    *data[\"presentation\"][\"statistical_notes\"]\n])\nft=FT2Font(font_path)\ncharmap=ft.get_charmap()\nmissing=sorted(set(ch for ch in all_text if ord(ch) not in charmap and ch not in \"\\n\\t\"))\nmissing\n",
+          "import matplotlib\nmatplotlib.use(\"Agg\")\nimport matplotlib.pyplot as plt\nfrom matplotlib.font_manager import FontProperties\nfrom matplotlib.ticker import ScalarFormatter\nfrom pathlib import Path\nimport json, platform, math, textwrap\n\n# Data and independent calculation\nvalues = data[\"values\"]\nx = [float(row[0]) for row in values]\ny = [float(row[1]) for row in values]\nn = len(values)\nmean_x = statistics.mean(x)\nmean_y = statistics.mean(y)\nnum = sum((a-mean_x)*(b-mean_y) for a,b in zip(x,y))\nden = math.sqrt(sum((a-mean_x)**2 for a in x)*sum((b-mean_y)**2 for b in y))\ncoefficient = None if den == 0 else num/den\nif coefficient is not None and not math.isfinite(coefficient):\n    coefficient = None\n\nstyle = data[\"plot_config\"][\"style\"]\nwidth_px, height_px = int(style[\"width\"]), int(style[\"height\"])\ndpi = 300\nfigsize = (width_px/dpi, height_px/dpi)\nfont_size = float(style[\"font_size\"])\nfont_name = \"Noto Sans CJK JP\"\nfp = FontProperties(fname=font_path, size=font_size)\nfp_title = FontProperties(fname=font_path, size=font_size, weight=\"bold\")\n\nmatplotlib.rcParams[\"font.family\"] = font_name\nmatplotlib.rcParams[\"font.size\"] = font_size\nmatplotlib.rcParams[\"axes.unicode_minus\"] = False\nmatplotlib.rcParams[\"axes.formatter.use_mathtext\"] = False\nif \"text.parse_math\" in matplotlib.rcParams:\n    matplotlib.rcParams[\"text.parse_math\"] = False\n\nfig = plt.figure(figsize=figsize, dpi=dpi, facecolor=\"white\")\n# Dedicated regions: title/statistics, data axes, caption, abbreviations\nax = fig.add_axes([0.105, 0.32, 0.85, 0.535], facecolor=\"white\")\n\npoint_color = \"#0173B2\"  # colorblind palette first color\nax.scatter(x, y, s=48, c=point_color, edgecolors=\"white\", linewidths=0.8, marker=\"o\", zorder=3)\n\n# Maintain raw values, with sensible padding only\nxr = max(x)-min(x)\nyr = max(y)-min(y)\nxpad = 0.08*xr if xr else max(abs(x[0])*0.08, 0.5)\nypad = 0.10*yr if yr else max(abs(y[0])*0.10, 0.5)\nax.set_xlim(min(x)-xpad, max(x)+xpad)\nax.set_ylim(min(y)-ypad, max(y)+ypad)\nax.grid(True, color=\"#D9D9D9\", linewidth=0.7, alpha=0.85, zorder=0)\nfor spine in ax.spines.values():\n    spine.set_color(\"#555555\")\n    spine.set_linewidth(0.8)\n\nax.set_xlabel(data[\"presentation\"][\"axes\"][\"x\"][\"label\"], fontproperties=fp, labelpad=10)\nax.set_ylabel(data[\"presentation\"][\"axes\"][\"y\"][\"label\"], fontproperties=fp, labelpad=12)\nax.tick_params(axis=\"both\", labelsize=font_size)\nfor lab in ax.get_xticklabels() + ax.get_yticklabels():\n    lab.set_fontproperties(fp)\n\n# Exact title and visible independently computed statistics in a separate region\nfig.text(0.53, 0.955, data[\"labels\"][\"title\"], ha=\"center\", va=\"top\", fontproperties=fp_title)\nstat_text = f\"n = {n}；r = {coefficient:.3f}\" if coefficient is not None else f\"n = {n}；r = null\"\nfig.text(0.53, 0.895, stat_text, ha=\"center\", va=\"top\", fontproperties=fp)\n\n# Wrap caption and abbreviations while preserving every supplied character\ncaption = data[\"labels\"][\"caption\"]\ncaption_wrapped = \"\\n\".join(textwrap.wrap(caption, width=49, break_long_words=True, break_on_hyphens=False))\nabbr_text = \"；\".join(f'{a[\"term\"]}：{a[\"definition\"]}' for a in data[\"presentation\"][\"abbreviations\"])\nabbr_wrapped = \"\\n\".join(textwrap.wrap(abbr_text, width=61, break_long_words=True, break_on_hyphens=False))\n\ncaption_artist = fig.text(0.06, 0.215, caption_wrapped, ha=\"left\", va=\"top\",\n                          fontproperties=fp, linespacing=1.25)\nabbr_artist = fig.text(0.06, 0.065, abbr_wrapped, ha=\"left\", va=\"top\",\n                       fontproperties=fp, linespacing=1.2)\n\n# Draw and inspect\nfig.canvas.draw()\nrenderer = fig.canvas.get_renderer()\ncanvas = fig.bbox\nartists = [caption_artist, abbr_artist, ax.xaxis.label, ax.yaxis.label]\nbboxes = [a.get_window_extent(renderer=renderer) for a in artists]\n[(b.x0, b.y0, b.x1, b.y1) for b in bboxes], (canvas.width, canvas.height)\n",
+          "# Rebuild with revised layout/wrapping\nplt.close(fig)\nfig = plt.figure(figsize=figsize, dpi=dpi, facecolor=\"white\")\nax = fig.add_axes([0.105, 0.39, 0.85, 0.465], facecolor=\"white\")\nax.scatter(x, y, s=48, c=point_color, edgecolors=\"white\", linewidths=0.8, marker=\"o\", zorder=3)\nax.set_xlim(min(x)-xpad, max(x)+xpad)\nax.set_ylim(min(y)-ypad, max(y)+ypad)\nax.grid(True, color=\"#D9D9D9\", linewidth=0.7, alpha=0.85, zorder=0)\nfor spine in ax.spines.values():\n    spine.set_color(\"#555555\")\n    spine.set_linewidth(0.8)\nax.set_xlabel(data[\"presentation\"][\"axes\"][\"x\"][\"label\"], fontproperties=fp, labelpad=10)\nax.set_ylabel(data[\"presentation\"][\"axes\"][\"y\"][\"label\"], fontproperties=fp, labelpad=12)\nax.tick_params(axis=\"both\", labelsize=font_size)\nfor lab in ax.get_xticklabels() + ax.get_yticklabels():\n    lab.set_fontproperties(fp)\n\ntitle_artist = fig.text(0.53, 0.955, data[\"labels\"][\"title\"], ha=\"center\", va=\"top\", fontproperties=fp_title)\nstat_artist = fig.text(0.53, 0.895, stat_text, ha=\"center\", va=\"top\", fontproperties=fp)\n\ncaption_wrapped = \"\\n\".join(textwrap.wrap(caption, width=43, break_long_words=True, break_on_hyphens=False))\nabbr_wrapped = \"\\n\".join(textwrap.wrap(abbr_text, width=61, break_long_words=True, break_on_hyphens=False))\ncaption_artist = fig.text(0.06, 0.27, caption_wrapped, ha=\"left\", va=\"top\",\n                          fontproperties=fp, linespacing=1.22)\nabbr_artist = fig.text(0.06, 0.065, abbr_wrapped, ha=\"left\", va=\"top\",\n                       fontproperties=fp, linespacing=1.2)\nfig.canvas.draw()\nrenderer = fig.canvas.get_renderer()\nnamed = {\n    \"title\": title_artist.get_window_extent(renderer),\n    \"stats\": stat_artist.get_window_extent(renderer),\n    \"xlabel\": ax.xaxis.label.get_window_extent(renderer),\n    \"ylabel\": ax.yaxis.label.get_window_extent(renderer),\n    \"caption\": caption_artist.get_window_extent(renderer),\n    \"abbr\": abbr_artist.get_window_extent(renderer),\n    \"axes\": ax.get_window_extent(renderer),\n}\n{k:(v.x0,v.y0,v.x1,v.y1) for k,v in named.items()}\n",
+          "# Final positioning adjustment\nax.set_position([0.105, 0.405, 0.85, 0.45])\nfig.canvas.draw()\nrenderer = fig.canvas.get_renderer()\nfinal_bboxes = {\n    \"title\": title_artist.get_window_extent(renderer),\n    \"stats\": stat_artist.get_window_extent(renderer),\n    \"xlabel\": ax.xaxis.label.get_window_extent(renderer),\n    \"ylabel\": ax.yaxis.label.get_window_extent(renderer),\n    \"caption\": caption_artist.get_window_extent(renderer),\n    \"abbr\": abbr_artist.get_window_extent(renderer),\n    \"axes\": ax.get_window_extent(renderer),\n}\n{k:(round(v.x0,1),round(v.y0,1),round(v.x1,1),round(v.y1,1)) for k,v in final_bboxes.items()}\n",
+          "ax.set_position([0.105, 0.405, 0.85, 0.435])\nfig.canvas.draw()\nrenderer = fig.canvas.get_renderer()\naxbox=ax.get_window_extent(renderer); stbox=stat_artist.get_window_extent(renderer)\n(axbox.y1, stbox.y0, stbox.y0-axbox.y1)\n",
+          "out_png = Path(\"/mnt/data/figure.png\")\nout_json = Path(\"/mnt/data/result.json\")\n\nfig.savefig(out_png, dpi=dpi, facecolor=\"white\", edgecolor=\"white\", format=\"png\")\nplt.close(fig)\n\nresult = {\n    \"schema_version\": 5,\n    \"figure_kind\": data[\"figure_kind\"],\n    \"language\": data[\"language\"],\n    \"plot_config\": data[\"plot_config\"],\n    \"title\": data[\"labels\"][\"title\"],\n    \"x_label\": data[\"labels\"][\"x_label\"],\n    \"y_label\": data[\"labels\"][\"y_label\"],\n    \"caption\": data[\"labels\"][\"caption\"],\n    \"correlation_method\": data[\"correlation_method\"],\n    \"mode\": data[\"mode\"],\n    \"variables\": data[\"variables\"],\n    \"statistics\": {\n        \"n\": n,\n        \"coefficient\": coefficient\n    },\n    \"legacy_contract\": data[\"legacy_contract\"],\n    \"presentation\": data[\"presentation\"],\n    \"environment\": {\n        \"python_version\": platform.python_version(),\n        \"matplotlib_version\": matplotlib.__version__,\n        \"font\": font_name\n    }\n}\nwith out_json.open(\"w\", encoding=\"utf-8\") as f:\n    json.dump(result, f, ensure_ascii=False, allow_nan=False, indent=2)\n\n# Validate JSON and PNG\nfrom PIL import Image\nwith out_json.open(\"r\", encoding=\"utf-8\") as f:\n    validated = json.load(f)\nim = Image.open(out_png)\nim.size, im.mode, out_png.stat().st_size, out_json.stat().st_size, validated[\"statistics\"]\n",
+          "import matplotlib.pyplot as plt\nfrom PIL import Image\nimg=Image.open(out_png)\ndisplay(img.resize((1200,800)))\n"
+        ],
+        "usage": {
+          "input_tokens": 10757,
+          "input_tokens_details": {
+            "cache_write_tokens": 57,
+            "cached_tokens": 2639
+          },
+          "output_tokens": 4791,
+          "output_tokens_details": {
+            "reasoning_tokens": 4758
+          },
+          "total_tokens": 15548
+        },
+        "prompt_version": "openai_figure_workbench_v3",
+        "png_file_id": "cfile_6ae18b32155c81919d37835c7c2e6dca",
+        "result_file_id": "cfile_6ae18b32157c8191b5f79b79a7023310",
+        "model_call_id": "15ce5d08-2746-4814-b500-7fc44aeb0eb3",
+        "model_input_digest": "6c35c9eb986431410230ad64aa25b028420b49d145cb5419029595c3e51c677b",
+        "input_sha256": "9b1edf1b5c915fd80d460e455c2db3af7cfbfbfae206710f5ed193f62cf636fd"
+      },
+      "text_authorship": {
+        "title": "user",
+        "additional_caption": "user",
+        "created_by": "96da5ede-f336-4136-99a7-d3f3069f7a97"
+      },
+      "external_processing": {
+        "version": 7,
+        "confirmed": true,
+        "version_id": "0ae3ee39-99d2-493e-9164-a1cbbeb29dfb",
+        "confirmed_at": "2026-10-28T05:02:43.853895+00:00",
+        "confirmed_by": "96da5ede-f336-4136-99a7-d3f3069f7a97",
+        "payload_sha256": "9b1edf1b5c915fd80d460e455c2db3af7cfbfbfae206710f5ed193f62cf636fd"
+      }
+    },
+    "configuration": {
+      "id": "0ae3ee39-99d2-493e-9164-a1cbbeb29dfb",
+      "configuration_id": "20c0b039-05e6-4d10-914c-d288e71bbbce",
+      "revision": 1,
+      "parent_version_id": null,
+      "created_by": "96da5ede-f336-4136-99a7-d3f3069f7a97",
+      "created_at": "2026-10-28 04:48:42.993966+00:00",
+      "sha256": "35d4dc5460f89434c13bd44f554dfaff1f6d0a3d76315da5ac08c518a3ec61d8",
+      "config": {
+        "style": {
+          "title": "合成数据散点图",
+          "width": 2400,
+          "height": 1600,
+          "aliases": {
+            "A": "X",
+            "B": "Y",
+            "C": "Z"
+          },
+          "caption": "仅供合成数据工程验证。",
+          "palette": "colorblind",
+          "font_size": 12,
+          "display_order": []
+        },
+        "language": "zh-CN",
+        "projection": null,
+        "figure_kind": "scatter"
+      },
+      "source": {
+        "kind": "prepared_dataset_version",
+        "file_id": "c24f97bc-bddf-55de-96a8-f7793b5f0a86",
+        "dataset_id": "184a1535-eb8f-5137-b599-c299a32edff1",
+        "sheet_name": "Pair",
+        "sheet_index": 0,
+        "structure_id": "755a3a0e-bb8d-4319-8862-fcf9ed85657f",
+        "source_sha256": "7a0b416ef376573f038f8e481709b07f939ded7cd65ec812a9d8bc717788e254",
+        "dataset_sha256": "f81d9184efc16439e7736cf9a8cb841c578f7842ddfdf141483444e14f3f0b63",
+        "parser_version": "openpyxl-3.1.5-structure-v1",
+        "schema_version": 1,
+        "dataset_version": 1,
+        "parent_dataset_id": "0a55c7c3-b003-556c-b494-5b93fae62445",
+        "transform_version": "excel_prepare_v1",
+        "dataset_size_bytes": 3536,
+        "dataset_schema_version": 1,
+        "parent_dataset_version": 1
+      },
+      "figure_contract": 3
+    },
+    "projection": {
+      "id": "ef806210-dbe0-5333-9be2-c1d27be902f5",
+      "config_version_id": "0ae3ee39-99d2-493e-9164-a1cbbeb29dfb",
+      "sha256": "d01a7e28a02ea461e138a84c17aa4760e451305d5ca009be61361a5f21e858a7",
+      "result": {
+        "audit": {
+          "valid_n": 5,
+          "excluded": [
+            {
+              "row": 7,
+              "reason": "selected_missing",
+              "coordinates": [
+                "B7"
+              ]
+            },
+            {
+              "row": 8,
+              "reason": "selected_missing",
+              "coordinates": [
+                "A8"
+              ]
+            }
+          ],
+          "excluded_n": 2,
+          "missing_y_n": 0,
+          "population_n": 7,
+          "included_rows": [
+            2,
+            3,
+            4,
+            5,
+            6
+          ]
+        },
+        "method": {
+          "kind": "scatter",
+          "basis": "original_statistical_valid_rows"
+        },
+        "series": [],
+        "_material": {
+          "sha256": "40c3fb65b808576526444cea54e677de1673ed9cc3e9b2987d35054221c482a9",
+          "payload": {
+            "mode": "pair",
+            "labels": {
+              "title": "合成数据散点图",
+              "caption": "Pearson相关；纳入 5 行完整记录，排除 2 行。各点保持原始行对应；不绘制回归拟合线或推断标记。未插补、去重或剔除离群值。相关不等于因果。 仅供合成数据工程验证。 相关不等于因果；仅展示已计算的相关系数与有效记录数，不新增P值、置信区间或显著性星号。",
+              "x_label": "X (单位未填写)",
+              "y_label": "Y (单位未填写)"
+            },
+            "values": [
+              [
+                1.0,
+                2.0
+              ],
+              [
+                2.0,
+                1.0
+              ],
+              [
+                3.0,
+                4.0
+              ],
+              [
+                4.0,
+                3.0
+              ],
+              [
+                5.0,
+                5.0
+              ]
+            ],
+            "language": "zh-CN",
+            "variables": [
+              {
+                "name": "X",
+                "unit": "",
+                "column": "A"
+              },
+              {
+                "name": "Y",
+                "unit": "",
+                "column": "B"
+              }
+            ],
+            "figure_kind": "scatter",
+            "plot_config": {
+              "style": {
+                "width": 2400,
+                "height": 1600,
+                "palette": "colorblind",
+                "font_size": 12,
+                "display_order": []
+              },
+              "numbering_mode": "external",
+              "regression_line": false,
+              "complete_case_basis": "common_rows",
+              "inference_displayed": false
+            },
+            "presentation": {
+              "axes": {
+                "x": {
+                  "unit": "",
+                  "label": "X (单位未填写)"
+                },
+                "y": {
+                  "unit": "",
+                  "label": "Y (单位未填写)"
+                }
+              },
+              "legend": {
+                "title": "分组",
+                "entries": []
+              },
+              "color_scale": null,
+              "abbreviations": [
+                {
+                  "term": "n",
+                  "definition": "有效记录数；独立人数须由研究设计确认"
+                },
+                {
+                  "term": "r",
+                  "definition": "Pearson线性相关系数"
+                }
+              ],
+              "schema_version": 2,
+              "statistical_notes": [
+                "相关不等于因果；仅展示已计算的相关系数与有效记录数，不新增P值、置信区间或显著性星号。"
+              ]
+            },
+            "schema_version": 5,
+            "legacy_contract": 2,
+            "correlation_method": "pearson"
+          },
+          "expected": {
+            "mode": "pair",
+            "title": "合成数据散点图",
+            "caption": "Pearson相关；纳入 5 行完整记录，排除 2 行。各点保持原始行对应；不绘制回归拟合线或推断标记。未插补、去重或剔除离群值。相关不等于因果。 仅供合成数据工程验证。 相关不等于因果；仅展示已计算的相关系数与有效记录数，不新增P值、置信区间或显著性星号。",
+            "x_label": "X (单位未填写)",
+            "y_label": "Y (单位未填写)",
+            "language": "zh-CN",
+            "variables": [
+              {
+                "name": "X",
+                "unit": "",
+                "column": "A"
+              },
+              {
+                "name": "Y",
+                "unit": "",
+                "column": "B"
+              }
+            ],
+            "statistics": {
+              "n": 5,
+              "coefficient": 0.7999999999999998
+            },
+            "figure_kind": "scatter",
+            "plot_config": {
+              "style": {
+                "width": 2400,
+                "height": 1600,
+                "palette": "colorblind",
+                "font_size": 12,
+                "display_order": []
+              },
+              "numbering_mode": "external",
+              "regression_line": false,
+              "complete_case_basis": "common_rows",
+              "inference_displayed": false
+            },
+            "presentation": {
+              "axes": {
+                "x": {
+                  "unit": "",
+                  "label": "X (单位未填写)"
+                },
+                "y": {
+                  "unit": "",
+                  "label": "Y (单位未填写)"
+                }
+              },
+              "legend": {
+                "title": "分组",
+                "entries": []
+              },
+              "color_scale": null,
+              "abbreviations": [
+                {
+                  "term": "n",
+                  "definition": "有效记录数；独立人数须由研究设计确认"
+                },
+                {
+                  "term": "r",
+                  "definition": "Pearson线性相关系数"
+                }
+              ],
+              "schema_version": 2,
+              "statistical_notes": [
+                "相关不等于因果；仅展示已计算的相关系数与有效记录数，不新增P值、置信区间或显著性星号。"
+              ]
+            },
+            "schema_version": 5,
+            "legacy_contract": 2,
+            "correlation_method": "pearson"
+          }
+        },
+        "input_sha256": "cd58f6dc60224ed7baa4646ddefaff3659f2dfec8dd7a37aa32da52dc8db2ce5",
+        "tool_version": "figure_projection_v1",
+        "schema_version": 1,
+        "original_statistical_n": 5
+      }
+    }
+  },
+  "saved_explanation_included": false
+}

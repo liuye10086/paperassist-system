@@ -1,0 +1,1136 @@
+{
+  "key": "bar:zh-CN",
+  "task_id": "72c48a9c-4c17-4290-aa4d-f280412a7de1",
+  "bundle": {
+    "result": {
+      "source": {
+        "kind": "prepared_dataset_version",
+        "schema_version": 1,
+        "dataset_id": "1b9db280-204c-5e78-8d65-aa374e56c680",
+        "structure_id": "479b80e3-af01-4ea3-aa7a-fdb68a22be36",
+        "dataset_version": 1,
+        "file_id": "4a9c51d6-3f07-5ece-b8e5-14d48568be05",
+        "source_sha256": "778aacd82c3c343b390f6a39f43602d84dfdba2ffe927b4b5492ecb6b7e861cd",
+        "dataset_sha256": "db8ba2e97097be6fe80c3587536378686237890cf894b212b7eb17c0f5aae24f",
+        "dataset_size_bytes": 3179,
+        "dataset_schema_version": 1,
+        "sheet_index": 0,
+        "sheet_name": "研究 & 数据",
+        "parser_version": "openpyxl-3.1.5-structure-v1",
+        "parent_dataset_id": "c56bdc61-efaf-51bd-9b80-069e08870742",
+        "parent_dataset_version": 1,
+        "transform_version": "excel_prepare_v1"
+      },
+      "analysis_plan": {
+        "plan_id": "d0b4f77e-acc2-5ab8-8c80-71f14b3a258d",
+        "sha256": "98394a7489ffb4299941020de60d10530ad6836c617523bd508eafac5532edc6",
+        "resolutions": {
+          "selected_missing:all": "exclude_selected_missing"
+        }
+      },
+      "schema_version": 3,
+      "analysis_context": {
+        "plan": {
+          "schema_version": 5,
+          "workflow_version": "analysis_plan_v5",
+          "rules_version": "analysis_plan_rules_v5",
+          "id": "d0b4f77e-acc2-5ab8-8c80-71f14b3a258d",
+          "task_id": "6c9a3146-2d5f-460e-b4bc-b366137df18f",
+          "decision_id": "51a4edbd-fa61-497f-b4db-be561a95d408",
+          "project_id": "123cbf9f-fd5a-4704-b4d1-af97dea0bad1",
+          "file_id": "4a9c51d6-3f07-5ece-b8e5-14d48568be05",
+          "source": {
+            "kind": "prepared_dataset_version",
+            "schema_version": 1,
+            "dataset_id": "1b9db280-204c-5e78-8d65-aa374e56c680",
+            "structure_id": "479b80e3-af01-4ea3-aa7a-fdb68a22be36",
+            "dataset_version": 1,
+            "file_id": "4a9c51d6-3f07-5ece-b8e5-14d48568be05",
+            "source_sha256": "778aacd82c3c343b390f6a39f43602d84dfdba2ffe927b4b5492ecb6b7e861cd",
+            "dataset_sha256": "db8ba2e97097be6fe80c3587536378686237890cf894b212b7eb17c0f5aae24f",
+            "dataset_size_bytes": 3179,
+            "dataset_schema_version": 1,
+            "sheet_index": 0,
+            "sheet_name": "研究 & 数据",
+            "parser_version": "openpyxl-3.1.5-structure-v1",
+            "parent_dataset_id": "c56bdc61-efaf-51bd-9b80-069e08870742",
+            "parent_dataset_version": 1,
+            "transform_version": "excel_prepare_v1"
+          },
+          "selection": {
+            "task_type": "descriptive_boxplot",
+            "sheet_name": "研究 & 数据",
+            "numeric_column": "D",
+            "group_column": "C",
+            "unit": "mg",
+            "missing_policy": "exclude_selected_missing"
+          },
+          "check": {
+            "rules_version": "analysis_plan_rules_v5",
+            "research_missing": [],
+            "data_check": {
+              "rules_version": "analysis_plan_rules_v3",
+              "data_range": "C5:D10",
+              "row_count": 6,
+              "selected_fields": [
+                {
+                  "letter": "D",
+                  "name": "读数",
+                  "type_counts": {
+                    "number": 5
+                  },
+                  "missing_count": 1,
+                  "non_missing_count": 5,
+                  "prepared_unit": {
+                    "status": "confirmed",
+                    "value": "mg"
+                  },
+                  "declared_unit": {
+                    "status": "label",
+                    "value": "mg"
+                  },
+                  "observed_min": 1.0,
+                  "observed_max": 9.0
+                },
+                {
+                  "letter": "C",
+                  "name": "处理组",
+                  "type_counts": {
+                    "text": 4
+                  },
+                  "missing_count": 2,
+                  "non_missing_count": 4,
+                  "prepared_unit": {
+                    "status": "confirmed",
+                    "value": ""
+                  },
+                  "declared_unit": {
+                    "status": "unknown",
+                    "value": null
+                  },
+                  "observed_min": null,
+                  "observed_max": null
+                }
+              ],
+              "selection_check": {
+                "ready": true,
+                "row_count": 6,
+                "valid_count": 4,
+                "excluded_count": 2,
+                "groups": [
+                  {
+                    "label": "A",
+                    "count": 2
+                  },
+                  {
+                    "label": "B",
+                    "count": 2
+                  }
+                ],
+                "issues": [],
+                "warnings": [
+                  "采用选中字段的完整记录；数值或分组缺失的行将不参与后续计算，原文件保持不变。"
+                ]
+              },
+              "issues": [
+                {
+                  "id": "selected_missing:all",
+                  "code": "selected_missing",
+                  "severity": "warning",
+                  "field": null,
+                  "count": 2,
+                  "coordinates": [
+                    "C6",
+                    "D10",
+                    "C10"
+                  ],
+                  "message": "明确采用所选字段的完整记录；缺失行排除，原整理数据保留。",
+                  "allowed_resolutions": [
+                    "exclude_selected_missing"
+                  ]
+                }
+              ],
+              "limitations": [
+                "数值最小值和最大值是观察范围，不是临床或业务合理范围。",
+                "单位标签仅为声明，不转换数值，也不代表数据真实性已经核验。",
+                "采用既有完整记录、binary64和IQR规则；不计算公式、不自动剔除异常候选，不生成研究方法或P值。",
+                "分析使用已确认整理版本的 C5:D10 区域，保留区域内空行；普通小数采用 binary64，可能存在浮点误差。"
+              ],
+              "research_missing": []
+            },
+            "limitations": [
+              "外部材料仅为来源证据，未由本系统重新计算。",
+              "补充资料及采纳候选不等于批准分析计划。"
+            ]
+          },
+          "resolutions": {
+            "selected_missing:all": "exclude_selected_missing"
+          },
+          "plan_revision": 2,
+          "setup_revision": 2,
+          "created_at": "2026-10-28T04:49:36.548744+00:00",
+          "research_request": {
+            "question": "Prespecified synthetic engineering verification: bar",
+            "output_language": "zh-CN",
+            "population": "Explicit synthetic study records only",
+            "study_design": "Fixed synthetic demonstration; no real research inference",
+            "observation_unit": "One synthetic record per row",
+            "observation_structure": "independent",
+            "relationship_description": "",
+            "output_requirements": "Preserve source units and all missingness, methods and non-causal limitations; "
+          },
+          "recommendation_ref": null,
+          "evidence_versions": [],
+          "origin_recommendation_ref": null,
+          "source_reference": null,
+          "source_resolution": {
+            "confirmed": true,
+            "note": "Exact authorized B07 synthetic file SHA, prepared version and cohort confirmed; no real participant claims."
+          },
+          "sha256": "98394a7489ffb4299941020de60d10530ad6836c617523bd508eafac5532edc6"
+        },
+        "method": {
+          "id": "descriptive",
+          "parameters": {
+            "task_type": "descriptive_boxplot",
+            "sheet_name": "研究 & 数据",
+            "numeric_column": "D",
+            "group_column": "C",
+            "unit": "mg",
+            "missing_policy": "exclude_selected_missing"
+          },
+          "observation_basis": "rows"
+        },
+        "rounding": {
+          "display_significant_digits": 6,
+          "stored_values": "full_precision"
+        },
+        "not_computed": {
+          "p_value": {
+            "value": null,
+            "reason": "not_applicable_descriptive"
+          },
+          "effect_size": {
+            "value": null,
+            "reason": "not_applicable_descriptive"
+          },
+          "confidence_interval": {
+            "value": null,
+            "reason": "not_applicable_descriptive"
+          }
+        }
+      },
+      "file_id": "4a9c51d6-3f07-5ece-b8e5-14d48568be05",
+      "filename": "boxplot.xlsx",
+      "source_sha256": "778aacd82c3c343b390f6a39f43602d84dfdba2ffe927b4b5492ecb6b7e861cd",
+      "setup_revision": 2,
+      "selection": {
+        "task_type": "descriptive_boxplot",
+        "sheet_name": "研究 & 数据",
+        "numeric_column": "D",
+        "group_column": "C",
+        "unit": "mg",
+        "missing_policy": "exclude_selected_missing"
+      },
+      "check": {
+        "ready": true,
+        "row_count": 6,
+        "valid_count": 4,
+        "excluded_count": 2,
+        "groups": [
+          {
+            "label": "A",
+            "count": 2
+          },
+          {
+            "label": "B",
+            "count": 2
+          }
+        ],
+        "issues": [],
+        "warnings": [
+          "采用选中字段的完整记录；数值或分组缺失的行将不参与后续计算，原文件保持不变。"
+        ]
+      },
+      "numeric_name": "读数",
+      "group_name": "处理组",
+      "engine": {
+        "id": "descriptive_statistics_dataset_v1",
+        "python_version": "3.11.17",
+        "parser_version": "openpyxl-3.1.5-structure-v1",
+        "std_ddof": 1,
+        "quantile_method": "linear_inclusive",
+        "execution_contract": "fixed_statistics_v2"
+      },
+      "started_at": "2026-10-28T04:49:37.708837+00:00",
+      "completed_at": "2026-10-28T04:49:53.748552+00:00",
+      "overall": {
+        "n": 4,
+        "mean": 5.5,
+        "std": 3.415650255319866,
+        "min": 1.0,
+        "q1": 4.0,
+        "median": 6.0,
+        "q3": 7.5,
+        "max": 9.0,
+        "iqr": 3.5,
+        "warnings": []
+      },
+      "groups": [
+        {
+          "label": "A",
+          "statistics": {
+            "n": 2,
+            "mean": 3.0,
+            "std": 2.8284271247461903,
+            "min": 1.0,
+            "q1": 2.0,
+            "median": 3.0,
+            "q3": 4.0,
+            "max": 5.0,
+            "iqr": 2.0,
+            "warnings": []
+          }
+        },
+        {
+          "label": "B",
+          "statistics": {
+            "n": 2,
+            "mean": 8.0,
+            "std": 1.4142135623730951,
+            "min": 7.0,
+            "q1": 7.5,
+            "median": 8.0,
+            "q3": 8.5,
+            "max": 9.0,
+            "iqr": 1.0,
+            "warnings": []
+          }
+        }
+      ],
+      "id": "66934ee7-951f-4a42-a8e3-194f6109b2e9"
+    },
+    "figure": {
+      "schema_version": 5,
+      "figure_kind": "bar",
+      "language": "zh-CN",
+      "plot_config": {
+        "rules": {
+          "x_type": "numeric",
+          "x_order": [],
+          "expected_x": [],
+          "aggregation": "unique",
+          "bar_stat": "count",
+          "error_bars": "none",
+          "missing_group": "exclude",
+          "included_categories": [],
+          "grouped": false
+        },
+        "style": {
+          "palette": "colorblind",
+          "width": 2400,
+          "height": 1600,
+          "font_size": 12,
+          "display_order": []
+        },
+        "numbering_mode": "external"
+      },
+      "title": "合成类别记录数",
+      "x_label": "组别",
+      "y_label": "记录数",
+      "caption": "描述性投影：有效记录 4，排除 2；记录不等于独立人数。比例分母为确认类别范围内的组内有效记录；均值误差线仅为样本SD。 仅供合成数据工程验证。 描述性投影；有效记录数不等于独立人数。研究设计未提供时，不能推断独立性或因果。",
+      "statistics": {
+        "series": [
+          {
+            "group": null,
+            "points": [
+              {
+                "n": 2,
+                "sd": null,
+                "value": 2,
+                "reason": null,
+                "category": "A",
+                "denominator": null
+              },
+              {
+                "n": 2,
+                "sd": null,
+                "value": 2,
+                "reason": null,
+                "category": "B",
+                "denominator": null
+              }
+            ]
+          }
+        ]
+      },
+      "presentation": {
+        "schema_version": 2,
+        "axes": {
+          "x": {
+            "label": "组别",
+            "unit": ""
+          },
+          "y": {
+            "label": "记录数",
+            "unit": "条记录"
+          }
+        },
+        "legend": {
+          "title": "组别",
+          "entries": []
+        },
+        "color_scale": null,
+        "abbreviations": [
+          {
+            "term": "n",
+            "definition": "有效记录数；独立人数须由研究设计确认"
+          }
+        ],
+        "statistical_notes": [
+          "描述性投影；有效记录数不等于独立人数。研究设计未提供时，不能推断独立性或因果。"
+        ]
+      },
+      "id": "7cfa932d-825d-5cc4-9d43-56f965081dea",
+      "analysis_run_id": "66934ee7-951f-4a42-a8e3-194f6109b2e9",
+      "file_id": "4a9c51d6-3f07-5ece-b8e5-14d48568be05",
+      "source": {
+        "kind": "prepared_dataset_version",
+        "schema_version": 1,
+        "dataset_id": "1b9db280-204c-5e78-8d65-aa374e56c680",
+        "structure_id": "479b80e3-af01-4ea3-aa7a-fdb68a22be36",
+        "dataset_version": 1,
+        "file_id": "4a9c51d6-3f07-5ece-b8e5-14d48568be05",
+        "source_sha256": "778aacd82c3c343b390f6a39f43602d84dfdba2ffe927b4b5492ecb6b7e861cd",
+        "dataset_sha256": "db8ba2e97097be6fe80c3587536378686237890cf894b212b7eb17c0f5aae24f",
+        "dataset_size_bytes": 3179,
+        "dataset_schema_version": 1,
+        "sheet_index": 0,
+        "sheet_name": "研究 & 数据",
+        "parser_version": "openpyxl-3.1.5-structure-v1",
+        "parent_dataset_id": "c56bdc61-efaf-51bd-9b80-069e08870742",
+        "parent_dataset_version": 1,
+        "transform_version": "excel_prepare_v1"
+      },
+      "source_sha256": "778aacd82c3c343b390f6a39f43602d84dfdba2ffe927b4b5492ecb6b7e861cd",
+      "setup_revision": 2,
+      "sha256": "be522606c5142b7f455d8a6db495087fac53ca4fa0f97de7afdb822961332938",
+      "size_bytes": 214151,
+      "figure_config_version_id": "05d9826b-42ac-44dd-b4fd-b021f3760090",
+      "configuration_sha256": "66150d425393dabac85a3fee354ffb67c341eec2828adb5210eb6afb8c0964fc",
+      "projection_id": "0c5a60fe-92ad-57b7-8f96-4e8a5066a527",
+      "projection_sha256": "19910a61ead8a42a7f11cc5833d017926d2000d59b19456654a8e946bb9011a7",
+      "facts_sha256": "51dc2380497296418be0529f1f29e523b1fd00d17f84b823d978d247d5324b32",
+      "figure_number": null,
+      "numbering_mode": "external",
+      "method": {
+        "id": "figure_projection_v1",
+        "kind": "bar",
+        "x_type": "numeric",
+        "x_order": [],
+        "bar_stat": "count",
+        "x_column": null,
+        "y_column": null,
+        "error_bars": "none",
+        "expected_x": [],
+        "aggregation": "unique",
+        "inferential": false,
+        "record_unit": "included_record",
+        "group_column": null,
+        "missing_group": "exclude",
+        "category_column": "C",
+        "included_categories": []
+      },
+      "created_at": "2026-10-28T05:02:47.471910+00:00",
+      "engine": {
+        "id": "openai_figure_workbench_v3",
+        "provider": "openai_code_interpreter",
+        "model": "gpt-5.6-sol"
+      },
+      "verification": {
+        "status": "matched",
+        "note": "结构化数值已核验；图像视觉仍需人工审阅。"
+      },
+      "provenance": {
+        "response_id": "resp_0d2c4d43c0aee9a3006ae18f3f963087d08003fb6e305bf83a",
+        "container_id": "cntr_6ae18eadbe5c8198950f507c48c4f7c60e48a7e2e2d60306",
+        "model": "gpt-5.6-sol",
+        "code": [
+          "import json, os, sys, math, statistics, platform\npath=\"/mnt/data/92cfd1c4eea14eedc9be80f10363e2f0-data.json\"\nwith open(path,'r',encoding='utf-8') as f:\n    data=json.load(f)\ntype(data), data.keys()\n",
+          "import pprint, json\npprint.pp(data, width=120, sort_dicts=False)\n",
+          "from matplotlib import font_manager\nfonts=font_manager.findSystemFonts(fontext='ttf')+font_manager.findSystemFonts(fontext='otf')\nlen(fonts), fonts[:20]\n",
+          "[x for x in fonts if 'CJK' in x or 'WenQuan' in x or 'SourceHan' in x][:30]\n",
+          "from fontTools.ttLib import TTCollection, TTFont\nfont_path='/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc'\ncoll=TTCollection(font_path)\nlen(coll.fonts)\n",
+          "def get_names(font):\n    names=[]\n    for n in font['name'].names:\n        if n.nameID in (1,2,4,6):\n            try: s=n.toUnicode()\n            except: continue\n            names.append((n.nameID,s))\n    return sorted(set(names))\nfor i,f in enumerate(coll.fonts):\n    print(i, [x for x in get_names(f) if x[0] in (1,4)][:4])\n",
+          "def all_strings(obj):\n    if isinstance(obj,str): yield obj\n    elif isinstance(obj,dict):\n        for k,v in obj.items():\n            # labels? keys are not rendered except terms definitions? only values, but inspect all supplied glyphs means values\n            yield from all_strings(v)\n    elif isinstance(obj,list):\n        for v in obj: yield from all_strings(v)\nstrings=list(all_strings(data))\nchars=set(''.join(strings))\nscfont=coll.fonts[2]\ncmap={}\nfor t in scfont['cmap'].tables:\n    cmap.update(t.cmap)\nmissing=sorted(ch for ch in chars if ord(ch) not in cmap and not ch.isspace())\nmissing, len(chars)\n",
+          "import matplotlib\nmatplotlib.use(\"Agg\")\nimport matplotlib.pyplot as plt\nfrom matplotlib.font_manager import FontProperties\nfrom matplotlib.ticker import FixedLocator, FixedFormatter\nfrom PIL import Image\nimport numpy as np, textwrap, os, json, sys, platform, math\n\n# Extract the Simplified Chinese face so Matplotlib uses the intended collection face.\nfont_out=\"/tmp/NotoSansCJKSC-Regular.ttf\"\ncoll.fonts[2].save(font_out)\nfont_prop=FontProperties(fname=font_out, size=12)\nfont_name=\"Noto Sans CJK SC\"\n\n# Independently computed statistics\nseries = [{\n    \"group\": None,\n    \"points\": [\n        {\"category\": \"A\", \"n\": 2, \"denominator\": None, \"value\": 2, \"sd\": None, \"reason\": None},\n        {\"category\": \"B\", \"n\": 2, \"denominator\": None, \"value\": 2, \"sd\": None, \"reason\": None},\n    ]\n}]\n\nresult = {\n    \"schema_version\": data[\"schema_version\"],\n    \"figure_kind\": data[\"figure_kind\"],\n    \"language\": data[\"language\"],\n    \"plot_config\": data[\"plot_config\"],\n    \"title\": data[\"labels\"][\"title\"],\n    \"x_label\": data[\"labels\"][\"x_label\"],\n    \"y_label\": data[\"labels\"][\"y_label\"],\n    \"caption\": data[\"labels\"][\"caption\"],\n    \"presentation\": data[\"presentation\"],\n    \"statistics\": {\"series\": series},\n    \"environment\": {\n        \"python_version\": platform.python_version(),\n        \"matplotlib_version\": matplotlib.__version__,\n        \"font\": font_name\n    }\n}\n\nresult_path=\"/mnt/data/result.json\"\nwith open(result_path,\"w\",encoding=\"utf-8\") as f:\n    json.dump(result,f,ensure_ascii=False,allow_nan=False,separators=(\",\",\":\"))\n\n# Exact canvas: 2400 x 1600 at 300 DPI.\ndpi=300\nwidth_px=data[\"plot_config\"][\"style\"][\"width\"]\nheight_px=data[\"plot_config\"][\"style\"][\"height\"]\nfig=plt.figure(figsize=(width_px/dpi,height_px/dpi),dpi=dpi,facecolor=\"white\")\nfig.set_layout_engine(None)\n\n# Layout deliberately reserves separate regions.\nax=fig.add_axes([0.12,0.37,0.83,0.48], facecolor=\"white\")\n\ncats=[\"A\",\"B\"]\nvals=[2,2]\nx=np.arange(len(cats))\nbar_color=\"#0173B2\"  # first color of the colorblind palette\nax.bar(x, vals, width=0.62, color=bar_color, edgecolor=\"#333333\", linewidth=0.7)\n\nax.set_xlim(-0.6,1.6)\nax.set_ylim(0,2.5)\nax.set_xticks(x, cats)\nax.set_yticks([0,1,2])\nax.grid(axis=\"y\",color=\"#D9D9D9\",linewidth=0.7)\nax.set_axisbelow(True)\nfor s in (\"top\",\"right\"):\n    ax.spines[s].set_visible(False)\nfor s in (\"left\",\"bottom\"):\n    ax.spines[s].set_color(\"#444444\")\n    ax.spines[s].set_linewidth(0.8)\n\n# Exact labels, with the supplied presentation unit displayed.\nax.set_xlabel(data[\"presentation\"][\"axes\"][\"x\"][\"label\"], labelpad=9, fontproperties=font_prop)\nylabel=data[\"presentation\"][\"axes\"][\"y\"][\"label\"] + \"（\" + data[\"presentation\"][\"axes\"][\"y\"][\"unit\"] + \"）\"\nax.set_ylabel(ylabel, labelpad=10, fontproperties=font_prop)\nax.xaxis.label.set_parse_math(False)\nax.yaxis.label.set_parse_math(False)\nfor lab in ax.get_xticklabels()+ax.get_yticklabels():\n    lab.set_fontproperties(font_prop)\n    lab.set_parse_math(False)\nax.tick_params(labelsize=12, colors=\"#222222\")\n\ntitle=fig.text(0.535,0.935,data[\"labels\"][\"title\"],ha=\"center\",va=\"center\",\n               fontproperties=FontProperties(fname=font_out,size=12),color=\"#111111\",\n               parse_math=False)\n\ndef wrap_cjk_exact(s, max_chars):\n    # Preserve every supplied character; insert only line breaks.\n    return \"\\n\".join(s[i:i+max_chars] for i in range(0,len(s),max_chars))\n\ncaption_wrapped=wrap_cjk_exact(data[\"labels\"][\"caption\"], 48)\ncaption_text=fig.text(0.06,0.255,caption_wrapped,ha=\"left\",va=\"top\",\n                      fontproperties=font_prop,color=\"#222222\",linespacing=1.28,\n                      parse_math=False)\n\nabbrs=data[\"presentation\"][\"abbreviations\"]\nabbr_full=\"缩写：\"+\"；\".join(f'{a[\"term\"]}：{a[\"definition\"]}' for a in abbrs)\nabbr_wrapped=wrap_cjk_exact(abbr_full, 52)\nabbr_text=fig.text(0.06,0.065,abbr_wrapped,ha=\"left\",va=\"bottom\",\n                   fontproperties=font_prop,color=\"#222222\",linespacing=1.25,\n                   parse_math=False)\n\n# Draw and inspect text bounding boxes.\nfig.canvas.draw()\nrenderer=fig.canvas.get_renderer()\nfig_bbox=fig.bbox\ntexts=[title, ax.xaxis.label, ax.yaxis.label, caption_text, abbr_text] + ax.get_xticklabels()+ax.get_yticklabels()\nbboxes=[]\nfor t in texts:\n    if t.get_visible() and t.get_text():\n        bb=t.get_window_extent(renderer=renderer)\n        bboxes.append((t.get_text(),bb))\n        assert bb.x0 >= -1 and bb.y0 >= -1 and bb.x1 <= width_px+1 and bb.y1 <= height_px+1, (t.get_text(),bb.bounds)\n\n# Required-region overlap checks (allow axis tick structures, but no title/xlabel/caption/abbr collisions).\nnamed={\"title\":title.get_window_extent(renderer),\"xlabel\":ax.xaxis.label.get_window_extent(renderer),\n       \"ylabel\":ax.yaxis.label.get_window_extent(renderer),\"caption\":caption_text.get_window_extent(renderer),\n       \"abbr\":abbr_text.get_window_extent(renderer)}\ndef overlaps(a,b,pad=0):\n    return not (a.x1+pad <= b.x0 or b.x1+pad <= a.x0 or a.y1+pad <= b.y0 or b.y1+pad <= a.y0)\nfor a,b in [(\"title\",\"xlabel\"),(\"title\",\"caption\"),(\"xlabel\",\"caption\"),(\"caption\",\"abbr\"),(\"ylabel\",\"caption\"),(\"ylabel\",\"abbr\")]:\n    assert not overlaps(named[a],named[b],pad=3), (a,b,named[a].bounds,named[b].bounds)\n\nfigure_path=\"/mnt/data/figure.png\"\nfig.savefig(figure_path,dpi=dpi,facecolor=\"white\",edgecolor=\"white\",format=\"png\")\nplt.close(fig)\n\nim=Image.open(figure_path)\n(im.size, im.mode, os.path.getsize(figure_path), os.path.getsize(result_path), named)\n",
+          "caption_text.set_text(wrap_cjk_exact(data[\"labels\"][\"caption\"], 44))\nfig.canvas.draw()\nrenderer=fig.canvas.get_renderer()\nfor name,t in [('caption',caption_text),('abbr',abbr_text),('xlabel',ax.xaxis.label),('ylabel',ax.yaxis.label),('title',title)]:\n    print(name,t.get_window_extent(renderer).bounds)\n",
+          "caption_text.set_position((0.06,0.24))\nfig.canvas.draw()\nrenderer=fig.canvas.get_renderer()\ntexts=[title, ax.xaxis.label, ax.yaxis.label, caption_text, abbr_text] + ax.get_xticklabels()+ax.get_yticklabels()\nfor t in texts:\n    if t.get_visible() and t.get_text():\n        bb=t.get_window_extent(renderer=renderer)\n        assert bb.x0 >= -1 and bb.y0 >= -1 and bb.x1 <= width_px+1 and bb.y1 <= height_px+1, (t.get_text(),bb.bounds)\nnamed={\"title\":title.get_window_extent(renderer),\"xlabel\":ax.xaxis.label.get_window_extent(renderer),\n       \"ylabel\":ax.yaxis.label.get_window_extent(renderer),\"caption\":caption_text.get_window_extent(renderer),\n       \"abbr\":abbr_text.get_window_extent(renderer)}\nfor a,b in [(\"title\",\"xlabel\"),(\"title\",\"caption\"),(\"xlabel\",\"caption\"),(\"caption\",\"abbr\"),(\"ylabel\",\"caption\"),(\"ylabel\",\"abbr\")]:\n    assert not overlaps(named[a],named[b],pad=12), (a,b,named[a].bounds,named[b].bounds)\nfigure_path=\"/mnt/data/figure.png\"\nfig.savefig(figure_path,dpi=dpi,facecolor=\"white\",edgecolor=\"white\",format=\"png\")\nplt.close(fig)\nim=Image.open(figure_path)\nprint(im.size, im.mode, os.path.getsize(figure_path), os.path.getsize(result_path))\nprint(named)\n",
+          "def overlaps(a,b,pad=0):\n    return not (a.x1+pad <= b.x0 or b.x1+pad <= a.x0 or a.y1+pad <= b.y0 or b.y1+pad <= a.y0)\nfig.canvas.draw()\nrenderer=fig.canvas.get_renderer()\nnamed={\"title\":title.get_window_extent(renderer),\"xlabel\":ax.xaxis.label.get_window_extent(renderer),\n       \"ylabel\":ax.yaxis.label.get_window_extent(renderer),\"caption\":caption_text.get_window_extent(renderer),\n       \"abbr\":abbr_text.get_window_extent(renderer)}\nfor a,b in [(\"title\",\"xlabel\"),(\"title\",\"caption\"),(\"xlabel\",\"caption\"),(\"caption\",\"abbr\"),(\"ylabel\",\"caption\"),(\"ylabel\",\"abbr\")]:\n    assert not overlaps(named[a],named[b],pad=12), (a,b,named[a].bounds,named[b].bounds)\nfigure_path=\"/mnt/data/figure.png\"\nfig.savefig(figure_path,dpi=dpi,facecolor=\"white\",edgecolor=\"white\",format=\"png\")\nplt.close(fig)\nim=Image.open(figure_path)\nprint(im.size, im.mode, os.path.getsize(figure_path), os.path.getsize(result_path))\nprint({k:v.bounds for k,v in named.items()})\n",
+          "from collections import defaultdict\nobs=data[\"observations\"]\nrules=data[\"plot_config\"][\"rules\"]\n\n# Apply frozen bar rules.\nrows=[]\nfor r in obs:\n    cat=r.get(\"category\")\n    if cat is None:\n        continue\n    # included_categories=[] is the conventional \"no confirmed filter\" sentinel here.\n    if rules.get(\"included_categories\"):\n        if cat not in rules[\"included_categories\"]:\n            continue\n    grp = r.get(\"group\") if rules.get(\"grouped\") else None\n    if rules.get(\"grouped\") and grp is None and rules.get(\"missing_group\")==\"exclude\":\n        continue\n    rows.append((grp,cat,r))\n\ndef type_sort_key(v):\n    return (type(v).__name__, str(v))\n\ngroups=sorted({g for g,c,r in rows}, key=type_sort_key)\ncategories=sorted({c for g,c,r in rows}, key=type_sort_key)\ncomputed=[]\nfor g in groups:\n    pts=[]\n    for c in categories:\n        cnt=sum(1 for gg,cc,r in rows if gg==g and type(gg) is type(g) and cc==c and type(cc) is type(c))\n        pts.append({\"category\":float(c) if isinstance(c,(int,float)) and not isinstance(c,bool) else c,\n                    \"n\":cnt,\"denominator\":None,\"value\":cnt,\"sd\":None,\"reason\":None})\n    computed.append({\"group\":g,\"points\":pts})\ncomputed\n",
+          "result[\"statistics\"]={\"series\":computed}\nwith open(result_path,\"w\",encoding=\"utf-8\") as f:\n    json.dump(result,f,ensure_ascii=False,allow_nan=False,separators=(\",\",\":\"))\n\n# Contract and file validation.\nwith open(result_path,\"r\",encoding=\"utf-8\") as f:\n    check=json.load(f)\nassert set(check.keys()) == {\"schema_version\",\"figure_kind\",\"language\",\"plot_config\",\"title\",\"x_label\",\"y_label\",\"caption\",\"presentation\",\"statistics\",\"environment\"}\nassert set(check[\"environment\"].keys()) == {\"python_version\",\"matplotlib_version\",\"font\"}\nassert check[\"presentation\"] == data[\"presentation\"]\nassert check[\"plot_config\"] == data[\"plot_config\"]\nassert check[\"statistics\"][\"series\"] == computed\nassert Image.open(figure_path).size == (2400,1600)\nprint(json.dumps(check,ensure_ascii=False,indent=2))\n"
+        ],
+        "usage": {
+          "input_tokens": 11047,
+          "input_tokens_details": {
+            "cache_write_tokens": 58,
+            "cached_tokens": 2526
+          },
+          "output_tokens": 5238,
+          "output_tokens_details": {
+            "reasoning_tokens": 5207
+          },
+          "total_tokens": 16285
+        },
+        "prompt_version": "openai_figure_workbench_v3",
+        "png_file_id": "cfile_6ae18fa366908191bf4b86e0a0b7e87c",
+        "result_file_id": "cfile_6ae18fa366c08191813217056a9a7195",
+        "model_call_id": "bace1281-3985-43ab-b5ba-1edd744f8efb",
+        "model_input_digest": "3c654b1c3ade3983ea2bbd81d7ce70ee5ec16395a7e20c79c170b227a8e8cf00",
+        "input_sha256": "00787c829a8e3ab6a37b66c5fbdea3fe1450fe315a52b63a8cfd050006c30cdb"
+      },
+      "text_authorship": {
+        "title": "user",
+        "additional_caption": "user",
+        "created_by": "96da5ede-f336-4136-99a7-d3f3069f7a97"
+      },
+      "external_processing": {
+        "version": 7,
+        "confirmed": true,
+        "version_id": "05d9826b-42ac-44dd-b4fd-b021f3760090",
+        "confirmed_at": "2026-10-28T05:02:47.471910+00:00",
+        "confirmed_by": "96da5ede-f336-4136-99a7-d3f3069f7a97",
+        "payload_sha256": "00787c829a8e3ab6a37b66c5fbdea3fe1450fe315a52b63a8cfd050006c30cdb"
+      }
+    },
+    "configuration": {
+      "id": "05d9826b-42ac-44dd-b4fd-b021f3760090",
+      "configuration_id": "f66a1672-ef6f-4f31-9cb5-4e881f8018d9",
+      "revision": 1,
+      "parent_version_id": null,
+      "created_by": "96da5ede-f336-4136-99a7-d3f3069f7a97",
+      "created_at": "2026-10-28 04:49:54.667401+00:00",
+      "sha256": "66150d425393dabac85a3fee354ffb67c341eec2828adb5210eb6afb8c0964fc",
+      "config": {
+        "style": {
+          "title": "合成类别记录数",
+          "width": 2400,
+          "height": 1600,
+          "aliases": {
+            "C": "组别",
+            "D": "读数"
+          },
+          "caption": "仅供合成数据工程验证。",
+          "palette": "colorblind",
+          "font_size": 12,
+          "display_order": []
+        },
+        "language": "zh-CN",
+        "projection": {
+          "x_type": "numeric",
+          "x_order": [],
+          "bar_stat": "count",
+          "x_column": null,
+          "y_column": null,
+          "error_bars": "none",
+          "expected_x": [],
+          "aggregation": "unique",
+          "group_column": null,
+          "missing_group": "exclude",
+          "category_column": "C",
+          "included_categories": []
+        },
+        "figure_kind": "bar"
+      },
+      "source": {
+        "kind": "prepared_dataset_version",
+        "file_id": "4a9c51d6-3f07-5ece-b8e5-14d48568be05",
+        "dataset_id": "1b9db280-204c-5e78-8d65-aa374e56c680",
+        "sheet_name": "研究 & 数据",
+        "sheet_index": 0,
+        "structure_id": "479b80e3-af01-4ea3-aa7a-fdb68a22be36",
+        "source_sha256": "778aacd82c3c343b390f6a39f43602d84dfdba2ffe927b4b5492ecb6b7e861cd",
+        "dataset_sha256": "db8ba2e97097be6fe80c3587536378686237890cf894b212b7eb17c0f5aae24f",
+        "parser_version": "openpyxl-3.1.5-structure-v1",
+        "schema_version": 1,
+        "dataset_version": 1,
+        "parent_dataset_id": "c56bdc61-efaf-51bd-9b80-069e08870742",
+        "transform_version": "excel_prepare_v1",
+        "dataset_size_bytes": 3179,
+        "dataset_schema_version": 1,
+        "parent_dataset_version": 1
+      },
+      "figure_contract": 3
+    },
+    "projection": {
+      "id": "0c5a60fe-92ad-57b7-8f96-4e8a5066a527",
+      "config_version_id": "05d9826b-42ac-44dd-b4fd-b021f3760090",
+      "sha256": "19910a61ead8a42a7f11cc5833d017926d2000d59b19456654a8e946bb9011a7",
+      "result": {
+        "audit": {
+          "valid_n": 4,
+          "excluded": [
+            {
+              "row": 6,
+              "reason": "missing_category"
+            },
+            {
+              "row": 10,
+              "reason": "missing_category"
+            }
+          ],
+          "source_n": 6,
+          "excluded_n": 2,
+          "missing_y_n": 0,
+          "population_n": 6,
+          "included_rows": [
+            5,
+            7,
+            8,
+            9
+          ],
+          "population_excluded": [],
+          "population_excluded_n": 0
+        },
+        "method": {
+          "id": "figure_projection_v1",
+          "kind": "bar",
+          "x_type": "numeric",
+          "x_order": [],
+          "bar_stat": "count",
+          "x_column": null,
+          "y_column": null,
+          "error_bars": "none",
+          "expected_x": [],
+          "aggregation": "unique",
+          "inferential": false,
+          "record_unit": "included_record",
+          "group_column": null,
+          "missing_group": "exclude",
+          "category_column": "C",
+          "included_categories": []
+        },
+        "series": [
+          {
+            "group": null,
+            "points": [
+              {
+                "n": 2,
+                "sd": null,
+                "value": 2,
+                "reason": null,
+                "category": "A",
+                "denominator": null
+              },
+              {
+                "n": 2,
+                "sd": null,
+                "value": 2,
+                "reason": null,
+                "category": "B",
+                "denominator": null
+              }
+            ]
+          }
+        ],
+        "_material": {
+          "sha256": "fb41d6ed0348d08b42debd11057fdd883520276415b385656607f96e409197c8",
+          "payload": {
+            "labels": {
+              "title": "合成类别记录数",
+              "caption": "描述性投影：有效记录 4，排除 2；记录不等于独立人数。比例分母为确认类别范围内的组内有效记录；均值误差线仅为样本SD。 仅供合成数据工程验证。 描述性投影；有效记录数不等于独立人数。研究设计未提供时，不能推断独立性或因果。",
+              "x_label": "组别",
+              "y_label": "记录数"
+            },
+            "language": "zh-CN",
+            "figure_kind": "bar",
+            "plot_config": {
+              "rules": {
+                "x_type": "numeric",
+                "grouped": false,
+                "x_order": [],
+                "bar_stat": "count",
+                "error_bars": "none",
+                "expected_x": [],
+                "aggregation": "unique",
+                "missing_group": "exclude",
+                "included_categories": []
+              },
+              "style": {
+                "width": 2400,
+                "height": 1600,
+                "palette": "colorblind",
+                "font_size": 12,
+                "display_order": []
+              },
+              "numbering_mode": "external"
+            },
+            "observations": [
+              {
+                "group": null,
+                "category": "A"
+              },
+              {
+                "group": null,
+                "category": null
+              },
+              {
+                "group": null,
+                "category": "A"
+              },
+              {
+                "group": null,
+                "category": "B"
+              },
+              {
+                "group": null,
+                "category": "B"
+              },
+              {
+                "group": null,
+                "category": null
+              }
+            ],
+            "presentation": {
+              "axes": {
+                "x": {
+                  "unit": "",
+                  "label": "组别"
+                },
+                "y": {
+                  "unit": "条记录",
+                  "label": "记录数"
+                }
+              },
+              "legend": {
+                "title": "组别",
+                "entries": []
+              },
+              "color_scale": null,
+              "abbreviations": [
+                {
+                  "term": "n",
+                  "definition": "有效记录数；独立人数须由研究设计确认"
+                }
+              ],
+              "schema_version": 2,
+              "statistical_notes": [
+                "描述性投影；有效记录数不等于独立人数。研究设计未提供时，不能推断独立性或因果。"
+              ]
+            },
+            "schema_version": 5
+          },
+          "expected": {
+            "title": "合成类别记录数",
+            "caption": "描述性投影：有效记录 4，排除 2；记录不等于独立人数。比例分母为确认类别范围内的组内有效记录；均值误差线仅为样本SD。 仅供合成数据工程验证。 描述性投影；有效记录数不等于独立人数。研究设计未提供时，不能推断独立性或因果。",
+            "x_label": "组别",
+            "y_label": "记录数",
+            "language": "zh-CN",
+            "statistics": {
+              "series": [
+                {
+                  "group": null,
+                  "points": [
+                    {
+                      "n": 2,
+                      "sd": null,
+                      "value": 2,
+                      "reason": null,
+                      "category": "A",
+                      "denominator": null
+                    },
+                    {
+                      "n": 2,
+                      "sd": null,
+                      "value": 2,
+                      "reason": null,
+                      "category": "B",
+                      "denominator": null
+                    }
+                  ]
+                }
+              ]
+            },
+            "figure_kind": "bar",
+            "plot_config": {
+              "rules": {
+                "x_type": "numeric",
+                "grouped": false,
+                "x_order": [],
+                "bar_stat": "count",
+                "error_bars": "none",
+                "expected_x": [],
+                "aggregation": "unique",
+                "missing_group": "exclude",
+                "included_categories": []
+              },
+              "style": {
+                "width": 2400,
+                "height": 1600,
+                "palette": "colorblind",
+                "font_size": 12,
+                "display_order": []
+              },
+              "numbering_mode": "external"
+            },
+            "presentation": {
+              "axes": {
+                "x": {
+                  "unit": "",
+                  "label": "组别"
+                },
+                "y": {
+                  "unit": "条记录",
+                  "label": "记录数"
+                }
+              },
+              "legend": {
+                "title": "组别",
+                "entries": []
+              },
+              "color_scale": null,
+              "abbreviations": [
+                {
+                  "term": "n",
+                  "definition": "有效记录数；独立人数须由研究设计确认"
+                }
+              ],
+              "schema_version": 2,
+              "statistical_notes": [
+                "描述性投影；有效记录数不等于独立人数。研究设计未提供时，不能推断独立性或因果。"
+              ]
+            },
+            "schema_version": 5
+          }
+        },
+        "input_sha256": "9e652b9705d9d62de898b473d5a3312570a340c63ff485baa1ae6c9446c7d392",
+        "tool_version": "figure_projection_v1",
+        "schema_version": 1,
+        "original_statistical_n": 4
+      }
+    }
+  },
+  "saved_explanation": {
+    "schema_version": 5,
+    "id": "d912f45a-b813-4f92-a176-08a21786c76d",
+    "analysis_run_id": "66934ee7-951f-4a42-a8e3-194f6109b2e9",
+    "file_id": "4a9c51d6-3f07-5ece-b8e5-14d48568be05",
+    "source": {
+      "kind": "prepared_dataset_version",
+      "schema_version": 1,
+      "dataset_id": "1b9db280-204c-5e78-8d65-aa374e56c680",
+      "structure_id": "479b80e3-af01-4ea3-aa7a-fdb68a22be36",
+      "dataset_version": 1,
+      "file_id": "4a9c51d6-3f07-5ece-b8e5-14d48568be05",
+      "source_sha256": "778aacd82c3c343b390f6a39f43602d84dfdba2ffe927b4b5492ecb6b7e861cd",
+      "dataset_sha256": "db8ba2e97097be6fe80c3587536378686237890cf894b212b7eb17c0f5aae24f",
+      "dataset_size_bytes": 3179,
+      "dataset_schema_version": 1,
+      "sheet_index": 0,
+      "sheet_name": "研究 & 数据",
+      "parser_version": "openpyxl-3.1.5-structure-v1",
+      "parent_dataset_id": "c56bdc61-efaf-51bd-9b80-069e08870742",
+      "parent_dataset_version": 1,
+      "transform_version": "excel_prepare_v1"
+    },
+    "source_sha256": "778aacd82c3c343b390f6a39f43602d84dfdba2ffe927b4b5492ecb6b7e861cd",
+    "setup_revision": 2,
+    "figure_id": "7cfa932d-825d-5cc4-9d43-56f965081dea",
+    "figure_sha256": "be522606c5142b7f455d8a6db495087fac53ca4fa0f97de7afdb822961332938",
+    "facts_sha256": "51dc2380497296418be0529f1f29e523b1fd00d17f84b823d978d247d5324b32",
+    "language": "zh-CN",
+    "created_at": "2026-10-28T08:35:52.070571+00:00",
+    "sections": [
+      {
+        "key": "purpose",
+        "title": "分析目的",
+        "text": "合成类别记录数",
+        "evidence": [
+          {
+            "key": "figure.title",
+            "label": "图标题",
+            "value": "合成类别记录数"
+          }
+        ]
+      },
+      {
+        "key": "data",
+        "title": "使用数据",
+        "text": "投影人群记录: 6; 投影有效记录: 4; 投影排除记录: 2; 原统计有效记录: 4; 组别; 单位未提供; 记录数; 条记录",
+        "evidence": [
+          {
+            "key": "data.total",
+            "label": "投影人群记录",
+            "value": "6"
+          },
+          {
+            "key": "data.valid",
+            "label": "投影有效记录",
+            "value": "4"
+          },
+          {
+            "key": "data.excluded",
+            "label": "投影排除记录",
+            "value": "2"
+          },
+          {
+            "key": "data.original_n",
+            "label": "原统计有效记录",
+            "value": "4"
+          },
+          {
+            "key": "axis.x.label",
+            "label": "横轴字段",
+            "value": "组别"
+          },
+          {
+            "key": "axis.x.unit",
+            "label": "横轴单位",
+            "value": "单位未提供"
+          },
+          {
+            "key": "axis.y.label",
+            "label": "纵轴字段",
+            "value": "记录数"
+          },
+          {
+            "key": "axis.y.unit",
+            "label": "纵轴单位",
+            "value": "条记录"
+          }
+        ]
+      },
+      {
+        "key": "methods",
+        "title": "分析方法",
+        "text": "按纳入记录计数，不代表唯一受试者人数。绘图投影为描述性结果，不增加统计检验或因果证据。; 纳入记录计数; 无误差线; 排除缺组记录; 用户声明独立观察；程序未验证独立性; 用户提供研究设计文字，尚未经程序验证；未外发该原文。",
+        "evidence": [
+          {
+            "key": "method.summary",
+            "label": "投影计算方法与限制",
+            "value": "按纳入记录计数，不代表唯一受试者人数。绘图投影为描述性结果，不增加统计检验或因果证据。"
+          },
+          {
+            "key": "method.rule.bar_stat",
+            "label": "柱状统计规则",
+            "value": "纳入记录计数"
+          },
+          {
+            "key": "method.rule.error_bars",
+            "label": "误差线规则",
+            "value": "无误差线"
+          },
+          {
+            "key": "method.rule.missing_group",
+            "label": "缺组处理规则",
+            "value": "排除缺组记录"
+          },
+          {
+            "key": "design.structure",
+            "label": "观察结构及核查限制",
+            "value": "用户声明独立观察；程序未验证独立性"
+          },
+          {
+            "key": "design.status",
+            "label": "研究设计资料状态",
+            "value": "用户提供研究设计文字，尚未经程序验证；未外发该原文。"
+          }
+        ]
+      },
+      {
+        "key": "results",
+        "title": "主要结果",
+        "text": "投影记录数: 2; 未提供; 绘图统计值: 2; 未记录不可计算原因; A; 未提供; 投影记录数: 2; 未提供; 绘图统计值: 2; 未记录不可计算原因; B; 未提供",
+        "evidence": [
+          {
+            "key": "projection.0.point.0.n",
+            "label": "投影记录数",
+            "value": "2"
+          },
+          {
+            "key": "projection.0.point.0.sd",
+            "label": "样本标准差",
+            "value": "未提供"
+          },
+          {
+            "key": "projection.0.point.0.value",
+            "label": "绘图统计值",
+            "value": "2"
+          },
+          {
+            "key": "projection.0.point.0.reason",
+            "label": "不可计算原因",
+            "value": "未记录不可计算原因"
+          },
+          {
+            "key": "projection.0.point.0.category",
+            "label": "类别",
+            "value": "A"
+          },
+          {
+            "key": "projection.0.point.0.denominator",
+            "label": "比例分母记录数",
+            "value": "未提供"
+          },
+          {
+            "key": "projection.0.point.1.n",
+            "label": "投影记录数",
+            "value": "2"
+          },
+          {
+            "key": "projection.0.point.1.sd",
+            "label": "样本标准差",
+            "value": "未提供"
+          },
+          {
+            "key": "projection.0.point.1.value",
+            "label": "绘图统计值",
+            "value": "2"
+          },
+          {
+            "key": "projection.0.point.1.reason",
+            "label": "不可计算原因",
+            "value": "未记录不可计算原因"
+          },
+          {
+            "key": "projection.0.point.1.category",
+            "label": "类别",
+            "value": "B"
+          },
+          {
+            "key": "projection.0.point.1.denominator",
+            "label": "比例分母记录数",
+            "value": "未提供"
+          }
+        ]
+      },
+      {
+        "key": "interpretation",
+        "title": "结果解释",
+        "text": "按纳入记录计数，不代表唯一受试者人数。绘图投影为描述性结果，不增加统计检验或因果证据。; 用户声明独立观察；程序未验证独立性; 用户提供研究设计文字，尚未经程序验证；未外发该原文。; 绘图投影仅为描述统计，不提供新增P值、置信区间或因果证据。; 原统计有效记录数与投影有效记录数属于不同人群口径；记录数不等于独立受试者人数。; 比例分母限于确认类别内同组有效记录；标准差不等于置信区间，记录不足时不绘制标准差。; 投影事实最多显示8位有效数字；原统计结果说明最多显示6位有效数字，完整数值以保存结果为准。; 研究设计及观察独立性未由程序验证；设计缺失时不作假设，不能据此推断因果。; 数值与事实引用已由程序填入并核对；语义和研究适用性仍需人工审阅。; 用户声明独立观察；程序未验证独立性; 本解释仅核对冻结统计与元数据，未验证图片像素、图中文字或视觉正确性；AI初稿仍需人工审阅。",
+        "evidence": [
+          {
+            "key": "method.summary",
+            "label": "投影计算方法与限制",
+            "value": "按纳入记录计数，不代表唯一受试者人数。绘图投影为描述性结果，不增加统计检验或因果证据。"
+          },
+          {
+            "key": "design.structure",
+            "label": "观察结构及核查限制",
+            "value": "用户声明独立观察；程序未验证独立性"
+          },
+          {
+            "key": "design.status",
+            "label": "研究设计资料状态",
+            "value": "用户提供研究设计文字，尚未经程序验证；未外发该原文。"
+          },
+          {
+            "key": "limitation.0",
+            "label": "适用限制",
+            "value": "绘图投影仅为描述统计，不提供新增P值、置信区间或因果证据。"
+          },
+          {
+            "key": "limitation.1",
+            "label": "适用限制",
+            "value": "原统计有效记录数与投影有效记录数属于不同人群口径；记录数不等于独立受试者人数。"
+          },
+          {
+            "key": "limitation.2",
+            "label": "适用限制",
+            "value": "比例分母限于确认类别内同组有效记录；标准差不等于置信区间，记录不足时不绘制标准差。"
+          },
+          {
+            "key": "limitation.3",
+            "label": "适用限制",
+            "value": "投影事实最多显示8位有效数字；原统计结果说明最多显示6位有效数字，完整数值以保存结果为准。"
+          },
+          {
+            "key": "limitation.4",
+            "label": "适用限制",
+            "value": "研究设计及观察独立性未由程序验证；设计缺失时不作假设，不能据此推断因果。"
+          },
+          {
+            "key": "limitation.5",
+            "label": "适用限制",
+            "value": "数值与事实引用已由程序填入并核对；语义和研究适用性仍需人工审阅。"
+          },
+          {
+            "key": "limitation.6",
+            "label": "适用限制",
+            "value": "用户声明独立观察；程序未验证独立性"
+          },
+          {
+            "key": "limitation.7",
+            "label": "适用限制",
+            "value": "本解释仅核对冻结统计与元数据，未验证图片像素、图中文字或视觉正确性；AI初稿仍需人工审阅。"
+          }
+        ]
+      },
+      {
+        "key": "paper_text",
+        "title": "论文描述文字",
+        "text": "合成类别记录数; 投影有效记录: 4",
+        "evidence": [
+          {
+            "key": "figure.title",
+            "label": "图标题",
+            "value": "合成类别记录数"
+          },
+          {
+            "key": "data.valid",
+            "label": "投影有效记录",
+            "value": "4"
+          }
+        ]
+      }
+    ],
+    "draft": {
+      "purpose": "{{figure.title}}",
+      "interpretation": "{{method.summary}}; {{design.structure}}; {{design.status}}; {{limitation.0}}; {{limitation.1}}; {{limitation.2}}; {{limitation.3}}; {{limitation.4}}; {{limitation.5}}; {{limitation.6}}; {{limitation.7}}",
+      "results": "{{projection.0.point.0.n}}; {{projection.0.point.0.sd}}; {{projection.0.point.0.value}}; {{projection.0.point.0.reason}}; {{projection.0.point.0.category}}; {{projection.0.point.0.denominator}}; {{projection.0.point.1.n}}; {{projection.0.point.1.sd}}; {{projection.0.point.1.value}}; {{projection.0.point.1.reason}}; {{projection.0.point.1.category}}; {{projection.0.point.1.denominator}}",
+      "paper_text": "{{figure.title}}; {{data.valid}}",
+      "methods": "{{method.summary}}; {{method.rule.bar_stat}}; {{method.rule.error_bars}}; {{method.rule.missing_group}}; {{design.structure}}; {{design.status}}",
+      "data": "{{data.total}}; {{data.valid}}; {{data.excluded}}; {{data.original_n}}; {{axis.x.label}}; {{axis.x.unit}}; {{axis.y.label}}; {{axis.y.unit}}"
+    },
+    "payload_sha256": "2f86bc725e9662fead25746c91c12d79c7beebac23103419a7a291d6ed3d587f",
+    "limitations": [
+      "绘图投影仅为描述统计，不提供新增P值、置信区间或因果证据。",
+      "原统计有效记录数与投影有效记录数属于不同人群口径；记录数不等于独立受试者人数。",
+      "比例分母限于确认类别内同组有效记录；标准差不等于置信区间，记录不足时不绘制标准差。",
+      "投影事实最多显示8位有效数字；原统计结果说明最多显示6位有效数字，完整数值以保存结果为准。",
+      "研究设计及观察独立性未由程序验证；设计缺失时不作假设，不能据此推断因果。",
+      "数值与事实引用已由程序填入并核对；语义和研究适用性仍需人工审阅。",
+      "用户声明独立观察；程序未验证独立性",
+      "本解释仅核对冻结统计与元数据，未验证图片像素、图中文字或视觉正确性；AI初稿仍需人工审阅。"
+    ],
+    "verification": {
+      "status": "references_checked",
+      "note": "数值与事实引用已由程序填入并核对；语义和研究适用性仍需人工审阅。"
+    },
+    "engine": {
+      "id": "figure_explanation_v4",
+      "provider": "openai",
+      "model": "gpt-6.1-sol"
+    },
+    "provenance": {
+      "response_id": "resp_08f11a43e63f7736006ae1b344d98487d18fe4f4776cf30b0a",
+      "model": "gpt-6.1-sol",
+      "usage": {
+        "input_tokens": 2436,
+        "input_tokens_details": {
+          "cache_write_tokens": 2433,
+          "cached_tokens": 0
+        },
+        "output_tokens": 329,
+        "output_tokens_details": {
+          "reasoning_tokens": 0
+        },
+        "total_tokens": 2765
+      },
+      "prompt_version": "figure_explanation_v4",
+      "model_call_id": "7dd95bb5-e597-4fbb-a63a-b3c563528187",
+      "model_input_digest": "82d6b3486670f1c3fff789eae6307277a43b8dc038c0a93e701fd644fc8d9bd6",
+      "input_sha256": "2f86bc725e9662fead25746c91c12d79c7beebac23103419a7a291d6ed3d587f"
+    }
+  }
+}

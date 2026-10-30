@@ -1,3 +1,4 @@
+import {systemCheckText} from '../../shared/i18n/systemChecks'
 import {useManuscriptDraft} from './useManuscriptDraft'
 import {useCallback,useEffect,useRef,useState} from 'react'
 import {apiFetch,onApiSessionChanged} from '../../shared/api/client'
@@ -117,7 +118,7 @@ function ChangePanel({projectId,manuscriptId,version,currentRevision,active,onAd
      <small>{t({bookmark:'按原书签建议',title:'按明确标题建议',none:'尚无匹配建议',ambiguous:'匹配有歧义，请指定'}[section.match_method])}</small>
      <details><summary>{t('查看输入正文')}</summary>{section.paragraphs.map((text,i)=><p className="template-text" key={i}>{text}</p>)}</details>
     </div>)}<button type="button" onClick={()=>void run(inspect)}>{t('预览匹配与差异')}</button></fieldset>
-    {preview?<><h4>{t('重要差异与检查')}</h4>{preview.differences.length?preview.differences.map((d,i)=><article key={i}><strong>{d.message}</strong><details><summary>{t('查看变更内容')}</summary><p>{t('原内容')}：{d.before||'—'}</p><p>{t('新输入')}：{d.after||'—'}</p></details></article>):<p>{t('未发现需要列出的重要差异。')}</p>}{preview.issues.map((i,n)=><p key={n} className={i.severity==='error'?'error-panel':'warning-panel'}>{i.message}</p>)}</>:<p role="status">{t('章节映射已更改，请先重新预览。')}</p>}
+    {preview?<><h4>{t('重要差异与检查')}</h4>{preview.differences.length?preview.differences.map((d,i)=><article key={i}><strong>{(systemCheckText(d.message)||t('检查说明不可用，请核对原始记录。'))}</strong><details><summary>{t('查看变更内容')}</summary><p>{t('原内容')}：{d.before||'—'}</p><p>{t('新输入')}：{d.after||'—'}</p></details></article>):<p>{t('未发现需要列出的重要差异。')}</p>}{preview.issues.map((i,n)=><p key={n} className={i.severity==='error'?'error-panel':'warning-panel'}>{(systemCheckText(i.message)||t('检查说明不可用，请核对原始记录。'))}</p>)}</>:<p role="status">{t('章节映射已更改，请先重新预览。')}</p>}
     {selected.adopted_revision!==null?<p>{t('已另存为版本 {revision}',{revision:selected.adopted_revision})}</p>:<button type="button" className="button-primary" disabled={busy||!preview?.can_adopt} onClick={()=>void run(adopt)}>{t('确认匹配并另存版本')}</button>}
    </section>}
    <h4>{t('保留的版本输入')}</h4>{!items.length&&<p>{t('尚无模板迁移或回传输入。')}</p>}{items.map(item=><article key={item.id} className="manuscript-version"><span>{t(item.kind==='template_migration'?'模板迁移输入':'用户回传输入')} · {item.source.filename??t('学校模板')} · {t('父版本 {revision}',{revision:item.base_revision})}{item.adopted_revision!==null&&` · ${t('已另存为版本 {revision}',{revision:item.adopted_revision})}`}</span><button type="button" disabled={busy} onClick={()=>void run(async()=>show(await request(`${base}/school-changes/${encodeURIComponent(item.id)}`)))}>{t('查看此输入')}</button></article>)}

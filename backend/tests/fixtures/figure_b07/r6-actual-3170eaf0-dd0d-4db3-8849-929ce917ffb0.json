@@ -1,0 +1,255 @@
+{
+  "task_id": "3170eaf0-dd0d-4db3-8849-929ce917ffb0",
+  "response_id": "resp_0e7b06afe9829cfb006ae28d3f3bf887d0bcea69640009de7a",
+  "raw_file": "raw/000093-retrieve.response.body",
+  "raw_sha256": "f9ba6b3a66b4ef31cdc80cf0b85675e8f446cca5b19a7aa512529ae62a7a6442",
+  "receipt_seq": 95,
+  "payload": {
+    "facts": {
+      "axis.x.label": {
+        "label": "Horizontal field",
+        "raw": "",
+        "value": "Not applicable (ungrouped)"
+      },
+      "axis.x.unit": {
+        "label": "Horizontal unit",
+        "raw": "",
+        "value": "Unit not specified"
+      },
+      "axis.y.label": {
+        "label": "Vertical field",
+        "raw": "X",
+        "value": "X"
+      },
+      "axis.y.unit": {
+        "label": "Vertical unit",
+        "raw": "",
+        "value": "Unit not specified"
+      },
+      "data.excluded": {
+        "label": "Projection excluded records",
+        "raw": 1,
+        "value": "1"
+      },
+      "data.original_n": {
+        "label": "Original statistical records",
+        "raw": 6,
+        "value": "6"
+      },
+      "data.total": {
+        "label": "Projection population records",
+        "raw": 7,
+        "value": "7"
+      },
+      "data.valid": {
+        "label": "Projection valid records",
+        "raw": 6,
+        "value": "6"
+      },
+      "design.status": {
+        "label": "Research design information status",
+        "raw": true,
+        "value": "Research design text was supplied but was not programmatically verified or forwarded"
+      },
+      "design.structure": {
+        "label": "Observation structure and verification limits",
+        "raw": "independent",
+        "value": "User-declared independent observations; independence was not verified"
+      },
+      "figure.title": {
+        "label": "Figure title",
+        "raw": "Synthetic numeric distribution",
+        "value": "Synthetic numeric distribution"
+      },
+      "limitation.0": {
+        "label": "Applicable limitation",
+        "raw": "Projection is descriptive; it supplies no additional P values or confidence intervals.",
+        "value": "Projection is descriptive; it supplies no additional P values or confidence intervals"
+      },
+      "limitation.1": {
+        "label": "Applicable limitation",
+        "raw": "Original statistical records and projection records use different population definitions; record counts need not equal independent participant counts.",
+        "value": "Original statistical records and projection records use different population definitions; record counts need not equal independent participant counts"
+      },
+      "limitation.2": {
+        "label": "Applicable limitation",
+        "raw": "Density depends on bandwidth and observed-range truncation; it is not an inferential test or event probability.",
+        "value": "Density depends on bandwidth and observed-range truncation; it is not an inferential test or event probability"
+      },
+      "limitation.3": {
+        "label": "Applicable limitation",
+        "raw": "Research design text was supplied but was not verified or forwarded; sample provenance, procedures and measurement context require review.",
+        "value": "Research design text was supplied but was not verified or forwarded; sample provenance, procedures and measurement context require review"
+      },
+      "limitation.4": {
+        "label": "Applicable limitation",
+        "raw": "User-declared independent observations; independence was not verified",
+        "value": "User-declared independent observations; independence was not verified"
+      },
+      "limitation.5": {
+        "label": "Applicable limitation",
+        "raw": "Causation cannot be inferred from these results.",
+        "value": "Causation cannot be inferred from these results"
+      },
+      "limitation.6": {
+        "label": "Applicable limitation",
+        "raw": "Complete ordered coordinates retain saved precision; other projection summaries display at most 8 significant digits and original statistical summaries at most 6 significant digits. Saved results retain full precision.",
+        "value": "Complete ordered coordinates retain saved precision; other projection summaries display at most 8 significant digits and original statistical summaries at most 6 significant digits. Saved results retain full precision"
+      },
+      "limitation.7": {
+        "label": "Applicable limitation",
+        "raw": "Values and fact references were inserted and checked locally; meaning and research applicability require review.",
+        "value": "Values and fact references were inserted and checked locally; meaning and research applicability require review"
+      },
+      "limitation.8": {
+        "label": "Applicable limitation",
+        "raw": "This explanation checks frozen statistics and metadata only; image pixels, in-image text and visual correctness were not verified. The AI draft requires human review.",
+        "value": "This explanation checks frozen statistics and metadata only; image pixels, in-image text and visual correctness were not verified. The AI draft requires human review"
+      },
+      "method.rule.missing_group": {
+        "label": "Missing group rule",
+        "raw": "block",
+        "value": "Block on missing group"
+      },
+      "method.summary": {
+        "label": "Projection method and restrictions",
+        "raw": "Equal-weight Gaussian density, Scott bandwidth, 256-point grid, observed-range truncation and shared density width; linear-interpolated quartiles; density is not event probability. Projection is descriptive and adds no statistical tests or causal evidence.",
+        "value": "Equal-weight Gaussian density, Scott bandwidth, 256-point grid, observed-range truncation and shared density width; linear-interpolated quartiles; density is not event probability. Projection is descriptive and adds no statistical tests or causal evidence"
+      },
+      "projection.0.bandwidth": {
+        "label": "Density bandwidth",
+        "raw": 1.307385825514815,
+        "value": "1.3073858"
+      },
+      "projection.0.max": {
+        "label": "Observed maximum",
+        "raw": 6.0,
+        "value": "6"
+      },
+      "projection.0.median": {
+        "label": "Median value",
+        "raw": 3.5,
+        "value": "3.5"
+      },
+      "projection.0.min": {
+        "label": "Observed minimum",
+        "raw": 1.0,
+        "value": "1"
+      },
+      "projection.0.n": {
+        "label": "Projection records",
+        "raw": 6,
+        "value": "6"
+      },
+      "projection.0.q1": {
+        "label": "Lower quartile",
+        "raw": 2.25,
+        "value": "2.25"
+      },
+      "projection.0.q3": {
+        "label": "Upper quartile",
+        "raw": 4.75,
+        "value": "4.75"
+      },
+      "purpose.kind": {
+        "label": "Figure type",
+        "raw": "violin",
+        "value": "a descriptive violin plot"
+      },
+      "scope.variables": {
+        "label": "Variable scope",
+        "raw": [
+          {
+            "column": "A",
+            "label": "X",
+            "role": "y",
+            "unit": ""
+          }
+        ],
+        "value": "Vertical field: X [A] (unit not specified)"
+      }
+    },
+    "figure_explanation_contract": 5,
+    "language": "en",
+    "required_references": {
+      "data": [
+        "data.valid",
+        "data.total",
+        "data.excluded",
+        "data.original_n",
+        "axis.x.label",
+        "axis.x.unit",
+        "axis.y.label",
+        "axis.y.unit"
+      ],
+      "interpretation": [
+        "limitation.0",
+        "limitation.1",
+        "limitation.2",
+        "limitation.3",
+        "limitation.4",
+        "limitation.5",
+        "limitation.6",
+        "limitation.7",
+        "limitation.8"
+      ],
+      "methods": [
+        "method.summary",
+        "method.rule.missing_group",
+        "design.structure",
+        "design.status"
+      ],
+      "paper_text": [
+        "scope.variables",
+        "purpose.kind",
+        "data.valid",
+        "method.summary",
+        "projection.0.n",
+        "projection.0.q1",
+        "projection.0.q3",
+        "projection.0.max",
+        "projection.0.min",
+        "projection.0.median",
+        "projection.0.bandwidth",
+        "limitation.0",
+        "limitation.1",
+        "limitation.2",
+        "limitation.3",
+        "limitation.4",
+        "limitation.5",
+        "limitation.6",
+        "limitation.7",
+        "limitation.8"
+      ],
+      "purpose": [
+        "scope.variables",
+        "purpose.kind"
+      ],
+      "results": [
+        "projection.0.n",
+        "projection.0.q1",
+        "projection.0.q3",
+        "projection.0.max",
+        "projection.0.min",
+        "projection.0.median",
+        "projection.0.bandwidth"
+      ]
+    },
+    "schema_version": 2
+  },
+  "draft": {
+    "purpose": "This figure describes {{scope.variables}}. It presents {{purpose.kind}}.",
+    "interpretation": "Interpretation must account for {{limitation.0}}. Record-count interpretation must account for {{limitation.1}}. Density interpretation must account for {{limitation.2}}. Research-context assessment must consider {{limitation.3}}. Assessment of the observation structure must consider {{limitation.4}}. Scientific conclusions are constrained by {{limitation.5}}. Precision assessment must account for {{limitation.6}}. Applicability assessment must consider {{limitation.7}}. Review of this explanation must account for {{limitation.8}}.",
+    "results": "The saved projection record count is {{projection.0.n}}. The saved lower quartile is {{projection.0.q1}}. The saved upper quartile is {{projection.0.q3}}. The saved observed maximum is {{projection.0.max}}. The saved observed minimum is {{projection.0.min}}. The saved median is {{projection.0.median}}. The saved density bandwidth is {{projection.0.bandwidth}}.",
+    "paper_text": "This figure describes {{scope.variables}} using {{purpose.kind}}. The projection uses a valid-record count of {{data.valid}}. The saved method is described as {{method.summary}}. The saved projection record count is {{projection.0.n}}. The saved lower quartile is {{projection.0.q1}}. The saved upper quartile is {{projection.0.q3}}. The saved observed maximum is {{projection.0.max}}. The saved observed minimum is {{projection.0.min}}. The saved median is {{projection.0.median}}. The saved density bandwidth is {{projection.0.bandwidth}}. Interpretation must account for {{limitation.0}}. Record-count interpretation must account for {{limitation.1}}. Density interpretation must account for {{limitation.2}}. Research-context assessment must consider {{limitation.3}}. Assessment of the observation structure must consider {{limitation.4}}. Scientific conclusions are constrained by {{limitation.5}}. Precision assessment must account for {{limitation.6}}. Applicability assessment must consider {{limitation.7}}. Review of this explanation must account for {{limitation.8}}.",
+    "methods": "This figure uses the saved method described as {{method.summary}}. The saved missing-group rule is {{method.rule.missing_group}}. The declared observation structure and its verification limits are described as {{design.structure}}. The research-design information status is described as {{design.status}}.",
+    "data": "The projection valid-record count is {{data.valid}}. The projection population-record count is {{data.total}}. The projection excluded-record count is {{data.excluded}}. The original statistical record count is {{data.original_n}}. The horizontal field is described as {{axis.x.label}}. Its unit status is {{axis.x.unit}}. The vertical field is {{axis.y.label}}. Its unit status is {{axis.y.unit}}."
+  },
+  "source_pins": {
+    "frozen/3170eaf0-dd0d-4db3-8849-929ce917ffb0/data.json": "cc159c6a9bcbe6cef5302822899a772cec844d65478c4f9da5b0f51cfe234878",
+    "frozen/3170eaf0-dd0d-4db3-8849-929ce917ffb0/expected.json": "7d70b2d3ea2ec1e6f0220b9d36b28c45d8f5191975c5d5a18c22cf5885dec9d4",
+    "frozen/3170eaf0-dd0d-4db3-8849-929ce917ffb0/instructions.txt": "0de3689ed51e7ff7ca500db2f6c274ba93437b9dd87864076b468b9d98543ef2",
+    "frozen/3170eaf0-dd0d-4db3-8849-929ce917ffb0/policy-snapshot.json": "58e72f61953721f22abfe1edd107fbf9e08c967627d1e781e1b4f199b962ee39",
+    "frozen/3170eaf0-dd0d-4db3-8849-929ce917ffb0/task-snapshot.json": "b81063597c8180aee103f05c2f524a211fe2a67ede8143518aad38c72000d556"
+  }
+}

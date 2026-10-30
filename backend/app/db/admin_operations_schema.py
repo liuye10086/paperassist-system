@@ -2,7 +2,7 @@
 import sqlalchemy as sa
 
 
-def define_admin_operations_tables(metadata):
+def define_admin_operations_tables(metadata, *, include_task_operation=False):
     audit = sa.Table('admin_audit_events', metadata,
         sa.Column('id', sa.Text, primary_key=True),
         sa.Column('source', sa.Text, nullable=False),
@@ -31,6 +31,12 @@ def define_admin_operations_tables(metadata):
         sa.CheckConstraint("request_id ~ '^[0-9a-f]{32}$' AND status BETWEEN 100 AND 599 AND elapsed_ms>=0",name='operational_event_values'),
         sa.CheckConstraint("method IN ('GET','POST','PUT','PATCH','DELETE','HEAD','OPTIONS','OTHER') AND (route_template IS NULL OR length(route_template)<=512) AND (error_code IS NULL OR length(error_code)<=128)",name='operational_event_bounds'),
     )
+    # 0051 imports this helper too: keep that historical table definition frozen.
+    if include_task_operation:
+        events.append_column(sa.Column('task_operation',sa.Text))
+        events.append_constraint(sa.CheckConstraint(
+            "task_operation IS NULL OR (method='POST' AND route_template IS NOT NULL AND route_template='/api/v1/tasks/{task_id}/resume' AND task_operation IN ('retry','resume'))",
+            name='operational_task_operation_values'))
     sa.Index('operational_events_created',events.c.created_at.desc(),events.c.request_id)
     sa.Index('operational_events_task',events.c.task_id,events.c.created_at.desc())
     collection=sa.Table('operational_collection',metadata,

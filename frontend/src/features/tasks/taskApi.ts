@@ -6,7 +6,7 @@ export class TaskRequestError extends Error {
   constructor(message: string, status: number) { super(message); this.status = status }
 }
 export async function taskRequest<T>(url: string, controller: AbortController, valid: (value: unknown) => value is T,
-  fallback: string, init?: RequestInit): Promise<T> {
+  fallback: string, init?: RequestInit, timeoutMs = 15_000): Promise<T> {
   let timer = 0
   try {
     return await Promise.race([
@@ -17,7 +17,7 @@ export async function taskRequest<T>(url: string, controller: AbortController, v
         return value
       }),
       new Promise<never>((_, reject) => {
-        timer = window.setTimeout(() => { controller.abort(); reject(new Error(fallback)) }, 15_000)
+        timer = window.setTimeout(() => { controller.abort(); reject(new Error(fallback)) }, timeoutMs)
       }),
     ])
   } finally { window.clearTimeout(timer) }

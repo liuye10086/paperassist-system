@@ -8,7 +8,8 @@ from app.core.exceptions import StorageError
 from app.domain.figure_workbench.contracts import RENDERER
 
 V2_RENDERER = 'openai_figure_workbench_v2'
-LATEST_RENDERER = 'openai_figure_workbench_v3'
+V3_RENDERER = 'openai_figure_workbench_v3'
+LATEST_RENDERER = 'openai_figure_workbench_v4'
 _PALETTES = {
     'colorblind': ['#0072B2', '#E69F00', '#009E73', '#CC79A7', '#56B4E9', '#D55E00', '#F0E442', '#000000'],
     'blue': ['#084594', '#2171B5', '#4292C6', '#6BAED6', '#9ECAE1', '#C6DBEF'],
@@ -20,18 +21,31 @@ def contract_version(source_json):
     if not isinstance(source_json, dict):
         raise StorageError('task_source_conflict', '图表来源契约无效。', 409)
     version = source_json.get('figure_contract', 1)
-    if type(version) is not int or version not in (1, 2, 3):
+    if type(version) is not int or version not in (1, 2, 3, 4):
         raise StorageError('task_source_conflict', '图表来源契约版本无效。', 409)
     return version
 
 
 def renderer_for(source_json):
-    return {1: RENDERER, 2: V2_RENDERER, 3: LATEST_RENDERER}[contract_version(source_json)]
+    return {1: RENDERER, 2: V2_RENDERER, 3: V3_RENDERER, 4: LATEST_RENDERER}[contract_version(source_json)]
+
+
+def validate_renderer_presentation(renderer, metadata):
+    """Reject mixed frozen figure engines and presentation schemas."""
+    schemas = {RENDERER: None, V2_RENDERER: 1, V3_RENDERER: 2, LATEST_RENDERER: 3}
+    if not isinstance(renderer, str) or renderer not in schemas:
+        raise StorageError('task_source_conflict', '图表渲染版本无效。', 409)
+    wanted = schemas[renderer]
+    valid = metadata is None if wanted is None else (
+        isinstance(metadata, dict) and type(metadata.get('schema_version')) is int
+        and metadata['schema_version'] == wanted)
+    if not valid:
+        raise StorageError('task_source_conflict', '图表渲染与展示契约不匹配。', 409)
 
 
 def enrich_material(payload, expected, *, config, result, projection, fields, contract=2):
     """v2 remains immutable; v3 makes the full caption own all statistical notes."""
-    if type(contract) is not int or contract not in (2, 3):
+    if type(contract) is not int or contract not in (2, 3, 4):
         raise StorageError('task_source_conflict', '图表展示契约版本无效。', 409)
     payload, expected = deepcopy(payload), deepcopy(expected)
     config = config.model_dump() if hasattr(config, 'model_dump') else config
@@ -75,7 +89,9 @@ def enrich_material(payload, expected, *, config, result, projection, fields, co
     def abbr(term, cn, en): abbreviations.append({'term': term, 'definition': tr(cn, en)})
     def note(cn, en): notes.append(tr(cn, en))
     abbr('n', '有效记录数；独立人数须由研究设计确认', 'Valid record count; independent participant count requires the study design')
-    if kind in ('line', 'bar', 'violin'):
+    if contract == 4 and kind in ('line', 'bar', 'violin'):
+        note('有效记录数不等于独立人数。研究设计未提供时，不能推断独立性或因果。', 'Valid records need not be independent participants. An unspecified study design does not establish independence or causality.')
+    elif kind in ('line', 'bar', 'violin'):
         note('描述性投影；有效记录数不等于独立人数。研究设计未提供时，不能推断独立性或因果。', 'Descriptive projection; valid records need not be independent participants. An unspecified study design does not establish independence or causality.')
     if kind == 'bar':
         stat = rules.get('bar_stat', 'count')
@@ -87,6 +103,8 @@ def enrich_material(payload, expected, *, config, result, projection, fields, co
             abbr('SD', '样本标准差（分母n−1）', 'Sample standard deviation (denominator n−1)')
             note('均值误差线表示样本SD，不是置信区间。', 'Mean error bars show sample SD, not confidence intervals.')
             note('有效记录不足2条时样本SD不可计算；无有效数值时均值和SD不可计算；缺失误差线不表示SD为0。', 'Sample SD is unavailable with fewer than two valid records; mean and SD are unavailable with no valid numeric values; an absent error bar does not mean zero SD.')
+        elif contract == 4 and stat == 'mean':
+            note('柱高为有效数值的算术均值；无有效数值时均值不可计算；未要求误差线。', 'Bar heights show arithmetic means of valid numeric values; the mean is unavailable with no valid numeric values; no error bars were requested.')
     elif kind == 'line':
         duplicate = tr('同组同X保持唯一', 'Same-group X values must be unique') if rules.get('aggregation') == 'unique' else tr('同组同X取有效值算术均值', 'Same-group X values use the arithmetic mean of valid Y values')
         note(duplicate + '；已知缺失断线，不插值。', duplicate + '; known missing values break lines; no interpolation.')
@@ -96,7 +114,7 @@ def enrich_material(payload, expected, *, config, result, projection, fields, co
         note('等权高斯KDE，Scott带宽；截于观测范围且不重归一，各组共用密度宽度比例；形状不是置信区间。', 'Equal-weight Gaussian KDE with Scott bandwidth; truncated to observed range without renormalization, shared density-to-width scale; shape is not a confidence interval.')
     elif kind in ('boxplot', 'group_boxplot'):
         abbr('Q1', '第一四分位数', 'First quartile'); abbr('Q3', '第三四分位数', 'Third quartile'); abbr('IQR', '四分位距（Q3−Q1）', 'Interquartile range (Q3−Q1)')
-        if contract == 3 and payload.get('legacy_contract') in (1,3):
+        if contract in (3, 4) and payload.get('legacy_contract') in (1,3):
             # These fixed base captions already contain the full box/whisker algorithm.
             note('箱体和须不是置信区间。', 'Boxes and whiskers are not confidence intervals.')
         else:
@@ -121,7 +139,7 @@ def enrich_material(payload, expected, *, config, result, projection, fields, co
     elif kind == 'kaplan_meier':
         time_unit = payload.get('plot_config', {}).get('time_unit', '')
         x = axis(tr('时间', 'Time'), time_unit)
-        if contract == 3 and result.get('selection', {}).get('time_column') in aliases:
+        if contract in (3, 4) and result.get('selection', {}).get('time_column') in aliases:
             x = axis(aliases[result['selection']['time_column']], time_unit)
         y = {'label': tr('生存概率（0–1）', 'Survival probability (0–1)'), 'unit': '0–1'}
         abbr('KM', 'Kaplan–Meier乘积极限估计', 'Kaplan–Meier product-limit estimate'); abbr('CI', '置信区间', 'Confidence interval')
@@ -149,14 +167,14 @@ def enrich_material(payload, expected, *, config, result, projection, fields, co
             label+=' ['+kind_label+']'
         return label
     legend = {'title': tr('分组', 'Group'), 'entries': [{'label': group_label(group), 'color': palette[i % len(palette)]} for i, group in enumerate(groups)]}
-    if contract == 3:
+    if contract in (3, 4):
         group_column = rules.get('group_column') or result.get('selection', {}).get('group_column')
         if group_column in aliases: legend['title'] = aliases[group_column]
     color_scale = None
     if kind == 'correlation_heatmap':
         color_scale = {'label': tr('相关系数', 'Correlation coefficient'), 'min': -1, 'max': 1, 'center': 0, 'ticks': [-1, 0, 1], 'palette': ['#2166AC', '#F7F7F7', '#B2182B']}
         x = {'label': tr('变量', 'Variables'), 'unit': ''}; y = deepcopy(x)
-    presentation = {'schema_version': 2 if contract == 3 else 1, 'axes': {'x': x, 'y': y}, 'legend': legend, 'color_scale': color_scale, 'abbreviations': abbreviations, 'statistical_notes': notes}
+    presentation = {'schema_version': 3 if contract == 4 else 2 if contract == 3 else 1, 'axes': {'x': x, 'y': y}, 'legend': legend, 'color_scale': color_scale, 'abbreviations': abbreviations, 'statistical_notes': notes}
     # Keep author text verbatim. Replace only known system enum wording; new notes
     # form the additional localized system caption and are independently rebuildable.
     caption = labels.get('caption', '')
@@ -170,8 +188,14 @@ def enrich_material(payload, expected, *, config, result, projection, fields, co
     if zh:
         for code, name in roles.items(): caption = caption.replace('评估角色：' + code, '评估角色：' + name)
     caption = re.sub(r'^(?:图\s*1[.．、]?\s*|Figure\s+1[.．]?\s*)', '', caption)
-    if author_caption: caption += (' ' if caption else '') + author_caption
-    labels.update(x_label=x['label'], y_label=y['label'], caption=caption + (' ' if caption else '') + ' '.join(notes))
+    if contract == 4:
+        # System clauses are created once by their owning builder above. Do not
+        # guess at duplicate meanings inside an arbitrary author's literal text.
+        caption = ' '.join(part for part in (caption, ' '.join(notes), author_caption) if part)
+    else:
+        if author_caption: caption += (' ' if caption else '') + author_caption
+        caption = caption + (' ' if caption else '') + ' '.join(notes)
+    labels.update(x_label=x['label'], y_label=y['label'], caption=caption)
     for key in ('title', 'x_label', 'y_label', 'caption'): expected[key] = labels[key]
     payload['presentation'] = deepcopy(presentation)
     expected['presentation'] = presentation

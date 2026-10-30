@@ -1,5 +1,6 @@
 """Immutable draft versions plus task-backed publication and local export intents."""
 from datetime import datetime,timezone
+from copy import deepcopy
 from hashlib import sha256
 from pathlib import Path
 from uuid import uuid4
@@ -53,6 +54,13 @@ class ManuscriptService:
                 for row in db.execute('SELECT f.id,f.figure_json FROM figures f JOIN analysis_runs a ON a.id=f.analysis_run_id WHERE a.file_id=%s ORDER BY f.id',(file['id'],)).fetchall():
                     import json
                     figure=json.loads(row['figure_json']);item('figure',row['id'],figure['title'],roles=['image_observation'])
+                for row in db.execute('SELECT r.id,r.report_json FROM reports r JOIN analysis_runs a ON a.id=r.analysis_run_id WHERE a.file_id=%s ORDER BY r.id',(file['id'],)).fetchall():
+                    import json
+                    report=json.loads(row['report_json'])
+                    item('analysis_report',row['id'],report['filename'],report['setup_revision'],['user_results'],prefix+'/analysis-runs/'+report['analysis_run_id']+'/report/'+row['id']+'/download')
+                for row in db.execute("SELECT r.id,r.report_json,v.collection_id FROM collection_reports r JOIN report_collection_versions v ON v.id=r.version_id JOIN report_collections c ON c.id=v.collection_id WHERE c.project_id=%s AND r.input_json->'items'->0->'result'->>'file_id'=%s ORDER BY r.id",(project,file['id'])).fetchall():
+                    report=row['report_json']
+                    item('collection_report',row['id'],report['filename'],report['export_revision'],['user_results'],f"/api/v1/projects/{project}/report-collections/{row['collection_id']}/reports/{row['id']}/download")
                 for row in db.execute('SELECT id,snapshot_json FROM manuscript_figure_language_versions WHERE file_id=%s AND project_id=%s AND user_id=%s ORDER BY created_at,id',(file['id'],project,self.store.user_id)).fetchall():
                     figure=row['snapshot_json']
                     item('figure_language_version',row['id'],figure['title']+' ['+figure['output_language']+']',roles=['image_observation'],
@@ -70,6 +78,22 @@ class ManuscriptService:
         request=ManuscriptRequest.model_validate(request) if isinstance(request,dict) else request
         self.validate_request_project(project,request)
         return freeze(self,project,request)
+
+    def writing_materials(self,project,identity,revision):
+        """Read-only material projection; it grants no execution permission."""
+        from .sources import writing_changes
+        from app.domain.manuscript_writing.bundle import build_bundle
+        import json
+        with self.store.connection() as db:
+            version=self.version(db,project,identity,revision)
+            if self.store.require_task(db,version['task_id'])['status']!='succeeded':raise source_conflict()
+            snapshot=version['snapshot_json']
+            if writing_changes(self,project,snapshot):raise source_conflict()
+        bundle=build_bundle(snapshot,dict(mode='full_draft',target_section=None,output_language=snapshot['output_language'],
+            instructions='',keywords=[],acknowledgements='',selected_source_ids=[s['id'] for s in snapshot['sources']],selected_evidence_ids=[]))
+        materials=json.loads(json.loads(bundle['wire_json'])['input'])
+        return dict(scope='writing_material_preview',can_execute=False,version_id=version['id'],revision=revision,
+            materials=materials,materials_sha256=digest(materials),source_changes=self.source_changes(project,snapshot))
 
     def freeze_school_context(self,project,request):
         from .school_binding import freeze_context
@@ -105,6 +129,7 @@ class ManuscriptService:
         validate_frozen(self,db,row)
         if digest(snap)!=row['snapshot_sha256'] or digest(row['request_json'])!=row['request_digest']: raise source_conflict()
         request=ManuscriptRequest.model_validate(row['request_json'])
+        if snap.get('analysis_handoff_run_ids',[])!=request.analysis_handoff_run_ids:raise source_conflict()
         if snap['title']!=request.title or snap['output_language']!=request.output_language or request.expected_revision!=row['revision']-1: raise source_conflict()
         if [{k:s[k] for k in ('kind','id','file_id','role')} for s in snap['sources']]!=[s.model_dump() for s in request.sources]: raise source_conflict()
         if request.citation_draft and (not snap.get('citation_snapshot') or any(snap['citation_snapshot'][k]!=v for k,v in (('draft_id',request.citation_draft.id),('revision',request.citation_draft.revision)))): raise source_conflict()
@@ -191,6 +216,7 @@ class ManuscriptService:
         require_key(key);request=ManuscriptRequest.model_validate(request) if isinstance(request,dict) else request
         body=request.model_dump(mode='json')
         if request.thesis is None: body.pop('thesis',None)
+        if not request.analysis_handoff_run_ids:body.pop('analysis_handoff_run_ids',None)
         hashed=digest(body)
         with self.store.connection(write=True) as db:
             self.require_project(db,project)
@@ -223,7 +249,7 @@ class ManuscriptService:
                 db.execute('''INSERT INTO manuscript_versions(id,project_id,user_id,idempotency_key,request_json,request_digest,manuscript_id,revision,parent_version_id,task_id,snapshot_json,snapshot_sha256,created_at,school_confirmation_id)
                     VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)''',(version_id,project,self.store.user_id,key,Jsonb(body),hashed,identity,revision,parent,task['id'],Jsonb(snapshot),digest(snapshot),timestamp,request.thesis.confirmation_id if request.thesis else None))
                 for source in snapshot['sources']:
-                    foreign={'document_version':'document_version_id','ocr_review_version':'ocr_review_version_id','external_evidence_version':'external_evidence_version_id','analysis_run':'analysis_run_id','figure':'figure_id','figure_language_version':'figure_language_version_id'}.get(source['kind'])
+                    foreign={'document_version':'document_version_id','ocr_review_version':'ocr_review_version_id','external_evidence_version':'external_evidence_version_id','analysis_run':'analysis_run_id','figure':'figure_id','figure_language_version':'figure_language_version_id','analysis_report':'analysis_report_id','collection_report':'collection_report_id'}.get(source['kind'])
                     fields=dict(id=str(uuid4()),version_id=version_id,file_id=source['file_id'],kind=source['kind'],source_id=source['id'],role=source['role'],source_json=Jsonb(source),sha256=digest(source))
                     if foreign: fields[foreign]=source['id']
                     db.execute('INSERT INTO manuscript_sources('+','.join(fields)+') VALUES ('+','.join(['%s']*len(fields))+')',tuple(fields.values()))
@@ -288,7 +314,7 @@ class ManuscriptService:
         fields=dict(id=version_id,project_id=project,user_id=self.store.user_id,idempotency_key='review-revision:'+adaptation['id'],request_json=Jsonb(body),request_digest=digest(body),manuscript_id=identity,revision=revision,parent_version_id=base['id'],task_id=producer['id'],snapshot_json=Jsonb(candidate),snapshot_sha256=digest(candidate),created_at=timestamp,school_confirmation_id=base.get('school_confirmation_id'))
         db.execute('INSERT INTO manuscript_versions('+','.join(fields)+') VALUES ('+','.join(['%s']*len(fields))+')',tuple(fields.values()))
         for source in candidate['sources']:
-            foreign={'document_version':'document_version_id','ocr_review_version':'ocr_review_version_id','external_evidence_version':'external_evidence_version_id','analysis_run':'analysis_run_id','figure':'figure_id','figure_language_version':'figure_language_version_id'}.get(source['kind'])
+            foreign={'document_version':'document_version_id','ocr_review_version':'ocr_review_version_id','external_evidence_version':'external_evidence_version_id','analysis_run':'analysis_run_id','figure':'figure_id','figure_language_version':'figure_language_version_id','analysis_report':'analysis_report_id','collection_report':'collection_report_id'}.get(source['kind'])
             fields=dict(id=str(uuid4()),version_id=version_id,file_id=source['file_id'],kind=source['kind'],source_id=source['id'],role=source['role'],source_json=Jsonb(source),sha256=digest(source))
             if foreign:fields[foreign]=source['id']
             db.execute('INSERT INTO manuscript_sources('+','.join(fields)+') VALUES ('+','.join(['%s']*len(fields))+')',tuple(fields.values()))
@@ -370,10 +396,17 @@ class ManuscriptService:
             allowed.update(frozen['supersedes_source_ids'])
         return allowed
 
-    def verify_task(self,db,task,*,current=False,_review_candidate=None):
+    def verify_task(self,db,task,*,current=False,_review_candidate=None,read_versions=None):
         snap=task['input_snapshot']
         if task['task_type'] not in ('manuscript_draft','manuscript_docx') or task['workflow_version']!=WORKFLOW or digest(snap)!=task['input_digest'] or snap['project_id']!=task['project_id']: raise source_conflict()
-        row=self.version(db,task['project_id'],snap['manuscript_id'],snap['revision'])
+        # Only a task-list read supplies this request-local dictionary. Reuse
+        # full immutable-version verification within the same owner/transaction;
+        # each task digest, version binding and exact export is still checked.
+        key=('manuscript-version',id(db),self.store.user_id,task['project_id'],snap['manuscript_id'],snap['revision'])
+        if current or read_versions is None or key not in read_versions:
+            row=self.version(db,task['project_id'],snap['manuscript_id'],snap['revision'])
+            if not current and read_versions is not None:read_versions[key]=row
+        else:row=read_versions[key]
         if row['id']!=snap['manuscript_version_id'] or row['snapshot_sha256']!=snap['snapshot_sha256'] or row['snapshot_json']['output_language']!=snap['output_language']: raise source_conflict()
         if task['task_type']=='manuscript_draft' and row['task_id']!=task['id']: raise source_conflict()
         if task['task_type']=='manuscript_docx':
@@ -392,7 +425,7 @@ class ManuscriptService:
             if task['task_type']=='manuscript_draft' and not row['snapshot_json'].get('school_change_provenance') and row['snapshot_json'].get('thesis_context'):
                 changed=self.source_changes(row['project_id'],row['snapshot_json'])
                 if changed:
-                    superseded=self.review_superseded_analyses(db,row,_review_candidate)
+                    superseded=self.review_superseded_analyses(db,row,_review_candidate)|set(row['snapshot_json'].get('analysis_handoff_run_ids',[]))
                     if any(c['kind']!='analysis_run' or c['id'] not in superseded or set(c['reasons'])!={'analysis_configuration_changed'} for c in changed):raise source_conflict()
             if task['task_type']=='manuscript_draft' and row['snapshot_json'].get('review_provenance'):
                 from app.domain.manuscript_review.service import ReviewService
@@ -418,13 +451,25 @@ class ManuscriptService:
             if 'school' in request.model_fields_set:
                 raise StorageError('task_input_invalid','SCI导出不得携带学校配置。',422)
             return None
-        options=(request.school or SchoolExportOptions()).model_dump(mode='json')
+        sealed=version['snapshot_json'].get('writing_provenance',{}).get('school_export_options') if version['snapshot_json'].get('writing_provenance',{}).get('language_review_id') else None
+        options=deepcopy(sealed) if sealed is not None and request.school is None else (request.school or SchoolExportOptions()).model_dump(mode='json')
+        front=context['confirmation'].get('front_matter')
+        if front is None:
+            if options['field_values']:raise StorageError('task_input_invalid','旧学校确认不接受动态前置字段。',422)
+            if context and version['snapshot_json'].get('writing_provenance',{}).get('school_content_version')!='school-live-v1':options.pop('field_values',None)
+        else:
+            if set(options['field_values'])-{f['id'] for f in front['fields']}:raise StorageError('task_input_invalid','动态值必须对应固定学校确认字段。',422)
+            options['field_values']={key:options['field_values'][key] for key in sorted(options['field_values'])}
         chapters={c['id']:c for c in context['chapters']}
         for field,purpose in (('manual_chapters','manual'),('keywords','abstract')):
             if any(item['chapter_id'] not in chapters or chapters[item['chapter_id']]['purpose']!=purpose for item in options[field]):
                 raise StorageError('task_input_invalid','人工正文和关键词只能对应冻结版指定用途章节。',422)
             # Ordering is semantic only through fixed chapter identities.
             options[field].sort(key=lambda item:list(chapters).index(item['chapter_id']))
+        if sealed is not None:
+            from app.domain.manuscript_writing.school_language import validate_options_binding
+            try:validate_options_binding(version['snapshot_json'],options)
+            except ValueError as exc:raise StorageError('manuscript_writing_language_invalid','学校导出选项与语言审核产物不符，请重新生成清单并审核。',422) from exc
         return options
 
     def school_analysis(self,db,version,*,current=True):
@@ -440,8 +485,9 @@ class ManuscriptService:
 
     def compile_school_intent(self,db,version,options):
         from .school_export import compile_school_export,validate_school_export
-        plan=compile_school_export(version['snapshot_json'],self.school_analysis(db,version),options)
-        validate_school_export(plan,version['snapshot_json'])
+        analysis=self.school_analysis(db,version)
+        plan=compile_school_export(version['snapshot_json'],analysis,options)
+        validate_school_export(plan,version['snapshot_json'],analysis)
         if plan.get('options')!=options:raise source_conflict()
         return dict(schema_version=1,request=dict(school=options),plan=plan)
 
@@ -461,6 +507,7 @@ class ManuscriptService:
             validate_school_export(intent['plan'],version['snapshot_json'])
         except (ValidationError,ValueError,KeyError,TypeError) as exc:raise source_conflict() from exc
         analysis=self.school_analysis(db,version,current=current)
+        validate_school_export(intent['plan'],version['snapshot_json'],analysis)
         if intent['plan']['analysis_sha256']!=digest(analysis):raise source_conflict()
         if current:
             for source in version['snapshot_json']['sources']:

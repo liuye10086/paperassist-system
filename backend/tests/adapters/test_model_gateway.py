@@ -73,7 +73,7 @@ class Service:
             raise self.reserve_error
         return deepcopy(self.row)
 
-    def begin_submission(self, call_id):
+    def begin_submission(self, call_id, *, provenance_context=None):
         self.events.append('begin')
         if self.row['status'] != 'reserved':
             return False

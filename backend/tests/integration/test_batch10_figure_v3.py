@@ -2,6 +2,7 @@
 from io import BytesIO
 from zipfile import ZipFile
 from xml.etree import ElementTree
+import pytest
 
 from tests.api.test_analysis import client
 from tests.integration.test_batch05_figure_execution import queued_figure, FigureExplanationProvider
@@ -15,6 +16,20 @@ from app.domain.figure_workbench.contracts import GenerateFigure
 from app.domain.external_processing import digest
 from app.domain.report_collections.contracts import CollectionRequest
 from app.domain.report_collections.execution import run_collection_word_task
+
+
+@pytest.fixture(autouse=True)
+def frozen_historical_v4_default(monkeypatch):
+    from app.domain.figure_workbench import explanations as e
+    original=e.version_for
+    monkeypatch.setattr(e,'version_for',lambda figure,*,version=None:original(figure,version=version or e.V4_VERSION))
+    enrich=CollectionStore.enrich_bundle
+    def frozen_collection_dependency(self,project_id,value):
+        item=enrich(self,project_id,value)
+        if item['configuration'].get('figure_contract')==3:
+            item['dependency_engine']=e.V4_VERSION
+        return item
+    monkeypatch.setattr(CollectionStore,'enrich_bundle',frozen_collection_dependency)
 
 
 def test_v3_draw_explain_read_and_word_keep_full_caption_once(client, monkeypatch):

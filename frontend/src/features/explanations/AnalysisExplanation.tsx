@@ -86,7 +86,7 @@ function ExplanationPanel({ base, runId, revision, figureId, canGenerate, disabl
   const unknown = !state?.explanation && (task ? task.reason_code === 'submission_unknown' : state?.job?.status === 'uncertain')
   const unavailable = !state?.explanation && task?.error_code === 'model_response_not_found'
   const budgetWait = !state?.explanation && task?.status === 'waiting_confirmation' && task.reason_code === 'budget_exceeded'
-  const resume = !state?.explanation && !unavailable && (budgetWait || (task?.status === 'failed' && !!task.error_code && !outputFailures.has(task.error_code)))
+  const resume = !state?.explanation && !unavailable && (budgetWait || (task?.status === 'failed' && !!task.error_code && task.error_code !== 'model_configuration_disabled' && !outputFailures.has(task.error_code)))
   const retry = !state?.explanation && (task ? task.status === 'failed' && !resume && !unavailable : state?.job?.status === 'failed')
   const busy = submitting || previewing
   const explanation = state?.explanation

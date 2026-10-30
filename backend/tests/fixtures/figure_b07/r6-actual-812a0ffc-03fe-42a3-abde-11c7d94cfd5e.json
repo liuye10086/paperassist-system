@@ -1,0 +1,258 @@
+{
+  "task_id": "812a0ffc-03fe-42a3-abde-11c7d94cfd5e",
+  "response_id": "resp_076b6ec1093f236f006ae29012629087d0aeff396657028cd5",
+  "raw_file": "raw/000128-retrieve.response.body",
+  "raw_sha256": "a1e0f71278e0791597a9a4dced215047fc5e1e4ef94da7d00e6b147925c12ca1",
+  "receipt_seq": 130,
+  "payload": {
+    "facts": {
+      "axis.x.label": {
+        "label": "Horizontal field",
+        "raw": "Follow-up time (day)",
+        "value": "Follow-up time (day)"
+      },
+      "axis.x.unit": {
+        "label": "Horizontal unit",
+        "raw": "day",
+        "value": "day"
+      },
+      "axis.y.label": {
+        "label": "Vertical field",
+        "raw": "Survival probability (0–1)",
+        "value": "Survival probability (0–1)"
+      },
+      "axis.y.unit": {
+        "label": "Vertical unit",
+        "raw": "0–1",
+        "value": "0–1"
+      },
+      "data.excluded": {
+        "label": "Data records excluded",
+        "raw": 0,
+        "value": "0"
+      },
+      "data.total": {
+        "label": "Data records total",
+        "raw": 6,
+        "value": "6"
+      },
+      "data.valid": {
+        "label": "Data records valid",
+        "raw": 6,
+        "value": "6"
+      },
+      "design.status": {
+        "label": "Research design information status",
+        "raw": true,
+        "value": "Research design text was supplied but was not programmatically verified or forwarded"
+      },
+      "design.structure": {
+        "label": "Observation structure and verification limits",
+        "raw": "independent",
+        "value": "User-declared independent observations; independence was not verified"
+      },
+      "figure.title": {
+        "label": "Figure title",
+        "raw": "Synthetic Kaplan–Meier curve",
+        "value": "Synthetic Kaplan–Meier curve"
+      },
+      "limitation.0": {
+        "label": "Applicable limitation",
+        "raw": "Research declarations are supplied by the user; the program does not establish design or sample authenticity.",
+        "value": "Research declarations are supplied by the user; the program does not establish design or sample authenticity"
+      },
+      "limitation.1": {
+        "label": "Applicable limitation",
+        "raw": "Complete-case analysis may introduce selection bias; no imputation, deduplication or outlier removal.",
+        "value": "Complete-case analysis may introduce selection bias; no imputation, deduplication or outlier removal"
+      },
+      "limitation.2": {
+        "label": "Applicable limitation",
+        "raw": "Right-censored KM relies on the noninformative censoring declaration; no log-rank, Cox or competing-risk analysis.",
+        "value": "Right-censored KM relies on the noninformative censoring declaration; no log-rank, Cox or competing-risk analysis"
+      },
+      "limitation.3": {
+        "label": "Applicable limitation",
+        "raw": "Research design text was supplied but was not verified or forwarded; sample provenance, procedures and measurement context require review.",
+        "value": "Research design text was supplied but was not verified or forwarded; sample provenance, procedures and measurement context require review"
+      },
+      "limitation.4": {
+        "label": "Applicable limitation",
+        "raw": "User-declared independent observations; independence was not verified",
+        "value": "User-declared independent observations; independence was not verified"
+      },
+      "limitation.5": {
+        "label": "Applicable limitation",
+        "raw": "Causation cannot be inferred from these results.",
+        "value": "Causation cannot be inferred from these results"
+      },
+      "limitation.6": {
+        "label": "Applicable limitation",
+        "raw": "Complete ordered coordinates retain saved precision; other projection summaries display at most 8 significant digits and original statistical summaries at most 6 significant digits. Saved results retain full precision.",
+        "value": "Complete ordered coordinates retain saved precision; other projection summaries display at most 8 significant digits and original statistical summaries at most 6 significant digits. Saved results retain full precision"
+      },
+      "limitation.7": {
+        "label": "Applicable limitation",
+        "raw": "Values and fact references were inserted and checked locally; meaning and research applicability require review.",
+        "value": "Values and fact references were inserted and checked locally; meaning and research applicability require review"
+      },
+      "limitation.8": {
+        "label": "Applicable limitation",
+        "raw": "This explanation checks frozen statistics and metadata only; image pixels, in-image text and visual correctness were not verified. The AI draft requires human review.",
+        "value": "This explanation checks frozen statistics and metadata only; image pixels, in-image text and visual correctness were not verified. The AI draft requires human review"
+      },
+      "method.summary": {
+        "label": "Analysis method",
+        "raw": "Right-censored Kaplan-Meier; events precede censor withdrawal at tied times; Greenwood variance and log-log intervals; no between-group test.",
+        "value": "Right-censored Kaplan-Meier; events precede censor withdrawal at tied times; Greenwood variance and log-log intervals; no between-group test"
+      },
+      "modeling.coding": {
+        "label": "Confirmed roles, coding and declarations",
+        "raw": {
+          "assumptions": {
+            "independent_units": true,
+            "inference_confirmed": true
+          },
+          "method": "kaplan_meier",
+          "missing_policy": "complete_cases",
+          "noninformative_censoring": true,
+          "task_type": "survival"
+        },
+        "value": "Analysis task type: Survival analysis; Method: Kaplan–Meier survival estimate; Noninformative-censoring declaration: Yes; Missing-data policy: Complete cases; Assumptions / Independent-unit declaration: Yes; Assumptions / Inference-assumption declaration: Yes"
+      },
+      "modeling.groups.0.censored_n": {
+        "label": "Group 1: Censored records",
+        "raw": 3,
+        "value": "3"
+      },
+      "modeling.groups.0.event_n": {
+        "label": "Group 1: Event records",
+        "raw": 3,
+        "value": "3"
+      },
+      "modeling.groups.0.label": {
+        "label": "Group 1: Label",
+        "raw": "Overall",
+        "value": "Overall"
+      },
+      "modeling.groups.0.max_time": {
+        "label": "Group 1: Maximum observed time",
+        "raw": 4.0,
+        "value": "4"
+      },
+      "modeling.groups.0.median": {
+        "label": "Group 1: Median",
+        "raw": 3.0,
+        "value": "3"
+      },
+      "modeling.groups.0.n": {
+        "label": "Group 1: Valid records",
+        "raw": 6,
+        "value": "6"
+      },
+      "modeling.time_unit": {
+        "label": "Time unit",
+        "raw": "day",
+        "value": "day"
+      },
+      "modeling.warnings": {
+        "label": "Limitations and warnings",
+        "raw": "pointwise_intervals; no_between_group_test; zero_time",
+        "value": "Intervals are pointwise, not simultaneous confidence bands; No between-group survival test was performed; Records include zero follow-up times"
+      },
+      "purpose.kind": {
+        "label": "Figure type",
+        "raw": "kaplan_meier",
+        "value": "a Kaplan–Meier survival curve"
+      },
+      "scope.variables": {
+        "label": "Variable scope",
+        "raw": "ID (unit not specified), Time (day), Status (unit not specified)",
+        "value": "ID (unit not specified), Time (day), Status (unit not specified)"
+      }
+    },
+    "figure_explanation_contract": 5,
+    "language": "en",
+    "required_references": {
+      "data": [
+        "data.total",
+        "data.valid",
+        "data.excluded",
+        "axis.x.label",
+        "axis.x.unit",
+        "axis.y.label",
+        "axis.y.unit"
+      ],
+      "interpretation": [
+        "limitation.0",
+        "limitation.1",
+        "limitation.2",
+        "limitation.3",
+        "limitation.4",
+        "limitation.5",
+        "limitation.6",
+        "limitation.7",
+        "limitation.8"
+      ],
+      "methods": [
+        "method.summary",
+        "modeling.coding",
+        "design.structure",
+        "design.status"
+      ],
+      "paper_text": [
+        "scope.variables",
+        "purpose.kind",
+        "data.valid",
+        "method.summary",
+        "modeling.time_unit",
+        "modeling.groups.0.label",
+        "modeling.groups.0.n",
+        "modeling.groups.0.event_n",
+        "modeling.groups.0.censored_n",
+        "modeling.groups.0.max_time",
+        "modeling.groups.0.median",
+        "modeling.warnings",
+        "limitation.0",
+        "limitation.1",
+        "limitation.2",
+        "limitation.3",
+        "limitation.4",
+        "limitation.5",
+        "limitation.6",
+        "limitation.7",
+        "limitation.8"
+      ],
+      "purpose": [
+        "scope.variables",
+        "purpose.kind"
+      ],
+      "results": [
+        "modeling.time_unit",
+        "modeling.groups.0.label",
+        "modeling.groups.0.n",
+        "modeling.groups.0.event_n",
+        "modeling.groups.0.censored_n",
+        "modeling.groups.0.max_time",
+        "modeling.groups.0.median",
+        "modeling.warnings"
+      ]
+    },
+    "schema_version": 2
+  },
+  "draft": {
+    "purpose": "This figure describes {{scope.variables}} using {{purpose.kind}}.",
+    "interpretation": "Interpretation requires considering {{limitation.0}}. Data handling is subject to {{limitation.1}}. Survival estimation is subject to {{limitation.2}}. Research context requires considering {{limitation.3}}. Observation structure is qualified by {{limitation.4}}. Causal interpretation is bounded by {{limitation.5}}. Numerical reporting is qualified by {{limitation.6}}. Reference validation is bounded by {{limitation.7}}. Figure verification and review are bounded by {{limitation.8}}.",
+    "results": "The saved results report the time unit as {{modeling.time_unit}}. The saved group is labeled {{modeling.groups.0.label}} and contains {{modeling.groups.0.n}} valid records. The saved event count is {{modeling.groups.0.event_n}}, and the saved censored-record count is {{modeling.groups.0.censored_n}}. The maximum observed time is {{modeling.groups.0.max_time}}, and the saved median is {{modeling.groups.0.median}}. The saved results carry these qualifications: {{modeling.warnings}}.",
+    "paper_text": "This figure describes {{scope.variables}} using {{purpose.kind}}. The analysis includes {{data.valid}} valid records and uses the saved method described as {{method.summary}}. The saved results use the time unit {{modeling.time_unit}} and identify the group as {{modeling.groups.0.label}}. This group contains {{modeling.groups.0.n}} valid records, with {{modeling.groups.0.event_n}} event records and {{modeling.groups.0.censored_n}} censored records. The saved maximum observed time is {{modeling.groups.0.max_time}}, and the saved median is {{modeling.groups.0.median}}. These results carry the qualifications {{modeling.warnings}}. Scientific interpretation requires considering {{limitation.0}}. Data handling is subject to {{limitation.1}}. Survival estimation is subject to {{limitation.2}}. Research context requires considering {{limitation.3}}. Observation structure is qualified by {{limitation.4}}. Causal interpretation is bounded by {{limitation.5}}. Numerical reporting is qualified by {{limitation.6}}. Reference validation is bounded by {{limitation.7}}. Figure verification and review are bounded by {{limitation.8}}.",
+    "methods": "This figure uses the saved analysis method described as {{method.summary}}. The saved coding and declarations are described as {{modeling.coding}}. The observation structure is reported as {{design.structure}}. The research-design information status is reported as {{design.status}}.",
+    "data": "The input data contain {{data.total}} total records, of which {{data.valid}} are valid and {{data.excluded}} are excluded. The horizontal field is labeled {{axis.x.label}}, with its unit recorded as {{axis.x.unit}}. The vertical field is labeled {{axis.y.label}}, with its unit recorded as {{axis.y.unit}}."
+  },
+  "source_pins": {
+    "frozen/812a0ffc-03fe-42a3-abde-11c7d94cfd5e/data.json": "7c57153cb965bdee257b99ceaf74cf2e28765de528c2960f5b647dd24b69d583",
+    "frozen/812a0ffc-03fe-42a3-abde-11c7d94cfd5e/expected.json": "a89fc46a610cee089e0f76b493893cd5ad5a573fca30335e4959ad3abb7675b8",
+    "frozen/812a0ffc-03fe-42a3-abde-11c7d94cfd5e/instructions.txt": "d731f8e167f458f1e6b3787a350759323745cca54c935186ed169b49fd731c29",
+    "frozen/812a0ffc-03fe-42a3-abde-11c7d94cfd5e/policy-snapshot.json": "58e72f61953721f22abfe1edd107fbf9e08c967627d1e781e1b4f199b962ee39",
+    "frozen/812a0ffc-03fe-42a3-abde-11c7d94cfd5e/task-snapshot.json": "a337d4ab9c614f26eed41d96d5ae7744230ea928f5f1fa08f9bfaaa308b9634f"
+  }
+}

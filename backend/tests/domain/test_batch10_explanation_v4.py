@@ -26,7 +26,7 @@ def test_real_published_v3_remains_readable_and_byte_unchanged():
     assert input_digest(instructions=e.instructions_for(old),payload=old)==bundle['explanation']['provenance']['model_input_digest']
     assert old['facts']['design.status']['raw'] is True
     assert '尚未提供' in old['facts']['limitation.1']['value']
-    assert e.version_for(bundle['figure'])=='figure_explanation_v4'
+    assert e.version_for(bundle['figure'])=='figure_explanation_v5'
 
 
 @pytest.mark.parametrize('language',['zh-CN','en'])
@@ -36,7 +36,7 @@ def test_v4_design_presence_and_verification_are_consistent(language,provided,st
     bundle=golden();bundle['figure']['language']=language
     request=bundle['result']['analysis_context']['plan']['research_request']
     request.update(output_language=language,study_design='PRIVATE DESIGN' if provided else '',observation_structure=structure)
-    payload=e.build_payload(bundle)
+    payload=e.build_payload(bundle,version=e.V4_VERSION)
     assert payload['figure_explanation_contract']==4
     assert payload['facts']['design.status']['raw'] is provided
     assert payload['facts']['design.structure']['raw']==structure
@@ -45,7 +45,7 @@ def test_v4_design_presence_and_verification_are_consistent(language,provided,st
     assert not any('研究设计、样本来源、实验步骤及测量背景尚未提供' in note for note in notes)
     if provided:
         assert not any('研究设计未提供' in note or 'Research design not provided' in note for note in notes)
-    saved=e.render(bundle,draft(payload),{'model_call_id':'test','response_id':'test'})
+    saved=e.render(bundle,draft(payload),{'model_call_id':'test','response_id':'test'},version=e.V4_VERSION)
     assert saved['engine']['id']=='figure_explanation_v4'
     assert e.validate_saved(bundle,saved)==saved
 
@@ -74,7 +74,7 @@ def test_v4_roc_evaluation_role_is_a_user_declaration_not_program_verification(l
     bundle=frozen('roc_curve',language)
     bundle['figure']['engine']['id']='openai_figure_workbench_v3'
     bundle['figure']['presentation']['schema_version']=2
-    old=e.build_payload(bundle,version='figure_explanation_v3');new=e.build_payload(bundle)
+    old=e.build_payload(bundle,version='figure_explanation_v3');new=e.build_payload(bundle,version=e.V4_VERSION)
     label='用户声明的评估角色（未经程序核验）' if language=='zh-CN' else 'User-declared evaluation role (not programmatically verified)'
     assert new['facts']['modeling.evaluation_role']['label']==label
     assert label in new['facts']['modeling.coding']['value']

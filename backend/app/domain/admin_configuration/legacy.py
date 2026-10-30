@@ -71,7 +71,7 @@ def _affected(task,paths):
                 explanation=name=='figure_explanation'
                 frozen=(Execution if explanation else PlotExecution).model_validate(snap.get('explanation_policy' if explanation else 'boxplot_policy'))
                 policy=ModelPolicy.model_validate(frozen.policy.model_dump())
-                versions=tuple('figure_explanation_v'+str(n) for n in (1,2,3,4)) if explanation else tuple('openai_figure_workbench_v'+str(n) for n in (1,2,3))
+                versions=tuple('figure_explanation_v'+str(n) for n in (1,2,3,4,5)) if explanation else tuple('openai_figure_workbench_v'+str(n) for n in (1,2,3,4))
                 if policy.prompt_version not in versions or policy.tools!=([] if explanation else ['code_interpreter']):return True
             else:return True
         except (ValueError,TypeError,KeyError,StorageError):return True
