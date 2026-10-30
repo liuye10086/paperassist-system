@@ -56,6 +56,8 @@ export default function useProjectSelection(onUnavailable: (id: string) => void,
         route: NavigationRoute;
     } | null>(null), replay = useRef(false);
     function allowed(next: NavigationRoute) {
+        const previous=routeRef.current;
+        if(previous.section==='analysis'&&previous.analysisNavigation.view.startsWith('bio-')&&serializeNavigation(previous)!==serializeNavigation(next))return [...guards.current].every(g=>g());
         return !current.current || !next.projectId || next.projectId === current.current.id || [...guards.current].every(g => g());
     }
     function apply(next: NavigationRoute, seed?: Project) {

@@ -209,6 +209,11 @@ def audit_dataset_sources(db):
             # Dedicated PDF/layout/writing audits check their persisted contracts.
             if table == 'tasks' and row['task_type'] in ('review_ocr','analysis_plan','pdf_export','layout_docx','manuscript_writing'):
                 continue
+            # Bio workflows have closed raw/processed contracts. In particular,
+            # bio_import_v2 is not an Excel source merely because it ends in v2.
+            # The aggregate audit invokes bio_dataset_audit/bio_analysis_audit.
+            if table == 'tasks' and row['task_type'] in ('bio_import','bio_analysis','bio_figure'):
+                continue
             value = object_json(row[column])
             run_id = (value.get('result', {}).get('id') if isinstance(value.get('result'), dict) else None)
             if table in ('figures', 'explanations', 'reports'):

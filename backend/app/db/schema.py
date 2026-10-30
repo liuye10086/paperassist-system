@@ -22,7 +22,7 @@ projects = Table(
     Column("default_output_language", Text, nullable=False, server_default="zh-CN"),
     UniqueConstraint('id', 'owner_id', name='projects_owner_scope_key'),
     CheckConstraint("default_output_language IN ('zh-CN', 'en')", name="projects_output_language_check"),
-    CheckConstraint("project_type IN ('sci', 'thesis')", name="projects_project_type_check"),
+    CheckConstraint("project_type IN ('sci', 'thesis', 'research')", name="projects_project_type_check"),
 )
 
 files = Table(
@@ -31,7 +31,7 @@ files = Table(
     Column("project_id", Text, ForeignKey("projects.id"), nullable=False),
     Column("filename", Text, nullable=False),
     Column("file_type", Text, nullable=False),
-    CheckConstraint("file_type IN ('xlsx','docx','pdf','png','jpeg')", name="files_type_check"),
+    CheckConstraint("file_type IN ('xlsx','docx','pdf','png','jpeg','bio_bundle','bio_component')", name="files_type_check"),
     Column("size_bytes", BigInteger, nullable=False),
     Column("sha256", Text, nullable=False),
     Column("uploaded_at", Text, nullable=False),
@@ -48,7 +48,7 @@ files = Table(
     CheckConstraint("parse_revision >= 0", name="files_parse_revision_check"),
     CheckConstraint("storage_backend = 'local'", name="files_storage_backend_check"),
     CheckConstraint("metadata_revision >= 1", name="files_metadata_revision_check"),
-    CheckConstraint("parse_status IN ('queued', 'parsing', 'parsed', 'failed')", name="files_parse_status_check"),
+    CheckConstraint("parse_status IN ('queued', 'parsing', 'parsed', 'failed', 'stored')", name="files_parse_status_check"),
 )
 Index("files_project", files.c.project_id, files.c.uploaded_at.desc())
 Index("files_project_uploaded_id", files.c.project_id, files.c.uploaded_at.desc(), files.c.id.asc())
@@ -336,3 +336,11 @@ storage_disposable_fixtures,storage_deletion_operations,storage_deletion_items,s
 
 from .school_suggestion_schema import define_school_suggestion_table
 school_rule_suggestions=define_school_suggestion_table(metadata)
+
+from app.db.research_intake_schema import define_research_intake_tables
+research_intakes,research_deliveries,research_requirement_versions,research_design_versions,research_material_refs=define_research_intake_tables(metadata)
+from app.db.bio_dataset_schema import define_bio_dataset_tables
+bio_datasets,bio_imports,bio_import_files,bio_dataset_versions,bio_dataset_members=define_bio_dataset_tables(metadata)
+
+from app.db.bio_analysis_schema import define_bio_analysis_tables
+define_bio_analysis_tables(metadata)

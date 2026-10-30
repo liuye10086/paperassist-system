@@ -1,0 +1,9 @@
+export type Declaration = { state: 'known'|'pending'|'not_applicable'; value: string|null }
+export type DeliveryKind = 'analysis'|'sci_draft'|'thesis_draft'
+export type Content = Record<string, unknown> & {schema_version:number}
+export type MaterialRef = {delivery_id?:string|null;file_id?:string|null;bio_dataset_version_id?:string|null;locator?:string|null;availability:'provided'|'pending'|'none';purpose:string;note?:string}
+export type Version = {id:string;project_id?:string;version:number;operation:'save'|'confirm';content:Content;sha256:string;created_at:string;material_refs?:MaterialRef[]}
+export type Gap = {code:string;path:string;message:string;blocking:boolean}
+export type Delivery = {id:string;kind:DeliveryKind;name:string;active:boolean;selected?:boolean;workflow_available?:boolean;origin:string;revision:number}
+export type Intake = {project_id:string;revision:number;current_requirement:Version|null;current_design:Version|null;deliveries:Delivery[];capabilities:Record<string,boolean>;gaps:Gap[]}
+export const deliveryLabels:Record<DeliveryKind,string>={analysis:'数据分析',sci_draft:'SCI 稿件',thesis_draft:'毕业论文稿件'}

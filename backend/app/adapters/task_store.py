@@ -214,6 +214,9 @@ class TaskStore:
         code = task.get('error_code')
         from app.domain.tasks.waits import input_version
         return TaskView(**{key: task[key] for key in fields},
+            result_bio_processed_dataset_version_id=task.get('result_bio_processed_dataset_version_id'),
+            result_bio_figure_version_id=task.get('result_bio_figure_version_id'),
+            result_bio_dataset_version_id=task.get('result_bio_dataset_version_id'),
             result_analysis_run_id=task.get('result_analysis_run_id'),
             execution_receipt=task.get('execution_receipt'),
             result_report_id=task.get('result_report_id'),
@@ -317,10 +320,10 @@ class TaskStore:
         task['error_code'] = safe_error_code(task.get('error_code'))
         updated = db.execute('''UPDATE tasks
             SET status=%s,phase=%s,revision=%s,current_attempt=%s,reason_code=%s,updated_at=%s,
-                result_report_id=%s,error_code=%s,result_explanation_id=%s,result_figure_id=%s,retry_count=%s,result_analysis_run_id=%s,execution_receipt=%s
+                result_report_id=%s,error_code=%s,result_explanation_id=%s,result_figure_id=%s,retry_count=%s,result_analysis_run_id=%s,execution_receipt=%s,result_bio_dataset_version_id=%s,result_bio_processed_dataset_version_id=%s,result_bio_figure_version_id=%s
             WHERE id=%s AND revision=%s''',
             (task['status'], task['phase'], task['revision'], task['current_attempt'], task['reason_code'],
              task['updated_at'], task.get('result_report_id'), task.get('error_code'),
-             task.get('result_explanation_id'), task.get('result_figure_id'), task.get('retry_count', 0), task.get('result_analysis_run_id'), Jsonb(task['execution_receipt']) if task.get('execution_receipt') is not None else None, task['id'], expected_revision))
+             task.get('result_explanation_id'), task.get('result_figure_id'), task.get('retry_count', 0), task.get('result_analysis_run_id'), Jsonb(task['execution_receipt']) if task.get('execution_receipt') is not None else None, task.get('result_bio_dataset_version_id'), task.get('result_bio_processed_dataset_version_id'), task.get('result_bio_figure_version_id'), task['id'], expected_revision))
         if updated.rowcount != 1:
             raise StorageError('task_revision_conflict', '任务已发生变化，请重新读取后再操作。', 409)

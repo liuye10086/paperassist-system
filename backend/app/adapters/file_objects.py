@@ -11,7 +11,7 @@ from app.adapters.object_storage import LocalObjectStorage, ObjectStoragePort, c
 # A stored PostgreSQL bigint length plus the one-byte integrity probe must fit
 # the port's signed 64-bit bound. Upload limits belong to business entry points.
 MAX_RECORD_BYTES = 2**63 - 2
-FILE_TYPES = frozenset({'xlsx', 'docx', 'pdf', 'png', 'jpeg'})
+FILE_TYPES = frozenset({'xlsx', 'docx', 'pdf', 'png', 'jpeg', 'bio_bundle', 'bio_component'})
 
 
 def original_digest(content: bytes) -> str:

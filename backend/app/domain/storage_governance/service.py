@@ -278,11 +278,12 @@ def _journal(db,root,row):
         except (ValueError,KeyError,TypeError):raise invalid() from None
 
 
-def reconcile_intents(db,root):
+def reconcile_intents(db,root,*,progress=None):
     directory=Path(root)/'.storage-intents'
     if not directory.exists():return 0
-    _key(root,directory);unknown=_reconcile_candidates(db,root)
+    _key(root,directory);unknown=_reconcile_candidates(db,root,progress=progress)
     for path in directory.glob('*.json'):
+        if progress is not None:progress()
         if path.name.endswith(('.allocation.json','.capture.json','.complete.json')):continue
         try:
             _key(root,path)

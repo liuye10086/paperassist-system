@@ -61,18 +61,19 @@ def settle_manifest(db, root, task, rows):
             s.settle(db, root, row['id'])
 
 
-def authorize_rebuild(db, root, task, *, allowed):
+def authorize_rebuild(db, root, task, *, allowed, progress=None):
     """Explicit retry only, after caller verifies immutable source/checkpoint.
 
     allowed maps kind to (object prefix, immutable parse/candidate identifier,
     operation prefixes). Existing complete bytes are verified, absent reserved
     bytes remain charged and can only be rebuilt by exact manifest admission.
     """
-    if s.reconcile_intents(db, root):
+    if s.reconcile_intents(db, root, **({'progress':progress} if progress is not None else {})):
         raise s.invalid()
     rows = db.execute("SELECT * FROM storage_reservations WHERE task_id=%s AND state IN ('reserved','unknown')",
         (task['id'],)).fetchall()
     for row in rows:
+        if progress is not None:progress()
         if (row['namespace'] != s.NAMESPACE or row['project_id'] != task['project_id']
                 or row['owner_id'] != task['user_id'] or row['capacity_bytes'] is not None or row['kind'] not in allowed):
             raise s.invalid()
@@ -93,8 +94,9 @@ def authorize_rebuild(db, root, task, *, allowed):
         except OSError:
             raise s.invalid() from None
     s._scope_check(db,s._project(db,task['project_id']),0,allow_attributed_unknown=True)
-    s._disk_guard(db,root,0)
+    s._disk_guard(db,root,0,**({'progress':progress} if progress is not None else {}))
     for row in rows:
+        if progress is not None:progress()
         db.execute("UPDATE storage_reservations SET state='reserved' WHERE id=%s",(row['id'],))
 
 

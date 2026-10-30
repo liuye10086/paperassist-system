@@ -1,3 +1,5 @@
+from app.domain.bioinformatics.analysis_contracts import BioAnalysisInputVersion, BioFigureInputVersion
+from app.domain.bioinformatics.contracts import BioImportInputVersion, BioImportInputVersionV2
 from app.domain.review_rounds.document_contracts import ReviewDocumentInputVersion
 from app.domain.review_rounds.revision_contracts import RevisionInputVersion
 from app.domain.review_rounds.contracts import ReviewInputVersion
@@ -23,7 +25,7 @@ from app.domain.tasks.errors import ErrorCategory, RetryReason
 from pydantic import AfterValidator, AwareDatetime, BaseModel, ConfigDict, Field, model_validator
 
 
-TaskType = Literal['boxplot', 'explanation', 'word_report', 'parse_file', 'extract_dataset', 'prepare_dataset', 'review_ocr', 'analysis_plan', 'analysis_recommendation', 'figure_projection', 'figure_workbench', 'figure_explanation', 'collection_word_report', 'statistics_compute', 'literature_search', 'literature_assistance', 'manuscript_draft', 'manuscript_docx', 'pdf_export', 'layout_docx', 'manuscript_writing', 'school_template_parse', 'school_rule_suggestion', 'journal_recommendation', 'journal_format_check', 'journal_adaptation', 'review_round_plan', 'review_revision', 'review_document_export']
+TaskType = Literal['boxplot', 'explanation', 'word_report', 'parse_file', 'extract_dataset', 'prepare_dataset', 'review_ocr', 'analysis_plan', 'analysis_recommendation', 'figure_projection', 'figure_workbench', 'figure_explanation', 'collection_word_report', 'statistics_compute', 'literature_search', 'literature_assistance', 'manuscript_draft', 'manuscript_docx', 'pdf_export', 'layout_docx', 'manuscript_writing', 'school_template_parse', 'school_rule_suggestion', 'journal_recommendation', 'journal_format_check', 'journal_adaptation', 'review_round_plan', 'review_revision', 'review_document_export', 'bio_import', 'bio_analysis', 'bio_figure']
 UTCDateTime = Annotated[AwareDatetime, AfterValidator(lambda value: value.astimezone(timezone.utc))]
 TaskStatus = Literal['queued', 'running', 'waiting_input', 'waiting_confirmation', 'succeeded', 'failed']
 TaskPhase = Literal['parse', 'plan', 'compute', 'search', 'interpret', 'write', 'export', 'verify']
@@ -157,7 +159,10 @@ class TaskView(BaseModel):
     reason_code: TaskReason | None
     created_at: UTCDateTime
     updated_at: UTCDateTime | None
-    input_version: ReviewDocumentInputVersion | RevisionInputVersion | ReviewInputVersion | AdaptationInputVersion | FormatInputVersion | JournalInputVersion | SchoolTemplateInputVersion | SuggestionInputVersion | LayoutInputVersion | WritingInputVersion | PdfInputVersion | ManuscriptInputVersion | AssistanceInputVersion | LiteratureInputVersion | StatisticsInputVersion | CollectionInputVersion | RecommendationInputVersion | AnalysisPlanInputVersion | OcrReviewInputVersion | PreparationInputVersion | DatasetAnalysisInputVersion | InputVersion | ParseInputVersion | StructureInputVersion
+    input_version: BioAnalysisInputVersion | BioFigureInputVersion | BioImportInputVersionV2 | BioImportInputVersion | ReviewDocumentInputVersion | RevisionInputVersion | ReviewInputVersion | AdaptationInputVersion | FormatInputVersion | JournalInputVersion | SchoolTemplateInputVersion | SuggestionInputVersion | LayoutInputVersion | WritingInputVersion | PdfInputVersion | ManuscriptInputVersion | AssistanceInputVersion | LiteratureInputVersion | StatisticsInputVersion | CollectionInputVersion | RecommendationInputVersion | AnalysisPlanInputVersion | OcrReviewInputVersion | PreparationInputVersion | DatasetAnalysisInputVersion | InputVersion | ParseInputVersion | StructureInputVersion
+    result_bio_processed_dataset_version_id: str | None = None
+    result_bio_figure_version_id: str | None = None
+    result_bio_dataset_version_id: str | None = None
     result_analysis_run_id: str | None = None
     execution_receipt: dict | None = None
     result_report_id: str | None = None
@@ -167,6 +172,15 @@ class TaskView(BaseModel):
 
     @model_validator(mode='after')
     def metadata_matches_origin(self):
+        for kind, version_type in [('bio_analysis', BioAnalysisInputVersion), ('bio_figure', BioFigureInputVersion)]:
+            if (self.task_type == kind) != isinstance(self.input_version, version_type):
+                raise ValueError('Input version must match spatial task type.')
+        if self.result_bio_processed_dataset_version_id is not None and (self.task_type != 'bio_analysis' or self.status != 'succeeded'):
+            raise ValueError('Only a successful spatial analysis has a processed result.')
+        if self.result_bio_figure_version_id is not None and (self.task_type != 'bio_figure' or self.status != 'succeeded'):
+            raise ValueError('Only a successful bio figure has a figure result.')
+        if (self.task_type=='bio_import') != isinstance(self.input_version,BioImportInputVersion):
+            raise ValueError('Input version must match bio import task type.')
         if (self.task_type=='journal_adaptation') != isinstance(self.input_version,AdaptationInputVersion):
             raise ValueError('Input version must match journal adaptation task type.')
         if (self.task_type=='journal_format_check') != isinstance(self.input_version,FormatInputVersion):

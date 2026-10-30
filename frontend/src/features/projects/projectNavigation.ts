@@ -3,9 +3,9 @@ import { isTaskId } from '../tasks/taskTypes';
 import type { ResourceNavigation } from './resourceViews';
 import { reviewViews, taskDetailViews, type ReviewView, type TaskDetailView } from './reviewViews';
 import type { LiteratureNavigation } from './literatureViews';
-import { analysisViews, type AnalysisNavigation, type ArtifactNavigation } from './analysisViews';
+import { analysisViews, bioResultTabs, type AnalysisNavigation, type ArtifactNavigation } from './analysisViews';
 import { manuscriptViews, journalViews, schoolTemplateViews, type ManuscriptView, type JournalView, type SchoolTemplateNavigation } from './manuscriptViews';
-export type OverviewView = 'tasks' | 'settings' | 'activity' | 'usage';
+export type OverviewView = 'tasks' | 'settings' | 'activity' | 'usage' | 'requirements' | 'deliveries' | 'design';
 export type NavigationRoute = {
     workspaceView: WorkspaceView;
     projectId: string;
@@ -54,13 +54,13 @@ export function parseNavigation(hash: string): NavigationRoute | null {
     if (!['overview', 'files', 'analysis', 'artifacts', 'tasks', 'literature', 'manuscripts', 'reviews', 'school-templates', 'journals'].includes(section))
         return null;
     r.section = section as ProjectSection;
-    const keys: Record<string, string[]> = { overview: ['view'], analysis:['view','file'], artifacts:['view','artifact','kind','page'], files: ['view','file'], tasks: ['view','task'], literature: ['search','view','reference'], manuscripts: ['view','manuscript', 'revision'], reviews: ['view','item','round', 'reviewManuscript', 'reviewRevision', 'reviewRun', 'reviewDocument'], journals: ['view','adaptation'], 'school-templates':['view','template'] };
+    const keys: Record<string, string[]> = { overview: ['view'], analysis:['view','file','import','dataset','version','setup','run','processed','tab','annotationSet','annotationVersion','figure'], artifacts:['view','artifact','kind','page'], files: ['view','file'], tasks: ['view','task'], literature: ['search','view','reference'], manuscripts: ['view','manuscript', 'revision'], reviews: ['view','item','round', 'reviewManuscript', 'reviewRevision', 'reviewRun', 'reviewDocument'], journals: ['view','adaptation'], 'school-templates':['view','template'] };
     if ([...p.keys()].some(k => !['project', 'section', ...(keys[section] ?? [])].includes(k)))
         return null;
     const id = (key: string) => !p.has(key) || validId(p.get(key)!);
     const revision = (key: string) => /^[1-9][0-9]*$/.test(p.get(key) ?? '') && Number.isSafeInteger(Number(p.get(key)));
     if (section === 'overview') {
-        if (p.has('view') && !['tasks', 'settings', 'activity', 'usage'].includes(p.get('view')!))
+        if (p.has('view') && !['tasks', 'settings', 'activity', 'usage','requirements','deliveries','design'].includes(p.get('view')!))
             return null;
         r.overviewView = (p.get('view') ?? 'tasks') as OverviewView;
     }
@@ -88,7 +88,15 @@ export function parseNavigation(hash: string): NavigationRoute | null {
     if (section === 'analysis') {
         const view = p.get('view') ?? 'overview';
         if (!(analysisViews as readonly string[]).includes(view) || !id('file')) return null;
+        if (view.startsWith('bio-')) {
+            const identities:Record<string,string[]>={'bio-datasets':[],'bio-import':['import'],'bio-dataset':['dataset','version'],'bio-analysis-setup':['setup'],'bio-analysis':['run'],'bio-result':['processed','tab'],'bio-annotation':['annotationSet','annotationVersion'],'bio-figure':['figure']};
+            const required=identities[view];
+            if (!required || [...p.keys()].some(k=>!['project','section','view',...required].includes(k)) || required.some(k=>!p.has(k)||!id(k))) return null;
+            if(view==='bio-result'&&!(bioResultTabs as readonly string[]).includes(p.get('tab')!))return null;
+        } else if (['import','dataset','version','setup','run','processed','tab','annotationSet','annotationVersion','figure'].some(k => p.has(k))) return null;
         r.analysisNavigation = {view:view as AnalysisNavigation['view'],fileId:p.get('file') ?? ''};
+        const fields={import:'importId',dataset:'datasetId',version:'versionId',setup:'setupId',run:'runId',processed:'processedId',tab:'tab',annotationSet:'annotationSetId',annotationVersion:'annotationVersionId',figure:'figureId'} as const;
+        for(const [key,field] of Object.entries(fields))if(p.has(key))Object.assign(r.analysisNavigation,{[field]:p.get(key)!});
     }
     if (section === 'artifacts') {
         const view = p.get('view') ?? 'list';
@@ -151,7 +159,15 @@ export function serializeNavigation(r: NavigationRoute): string {
         p.set('search', r.literatureSearchId);
     if (r.section === 'analysis') {
         if (r.analysisNavigation.view !== 'overview') p.set('view', r.analysisNavigation.view);
-        if (r.analysisNavigation.fileId) p.set('file', r.analysisNavigation.fileId);
+        if (!r.analysisNavigation.view.startsWith('bio-') && r.analysisNavigation.fileId) p.set('file', r.analysisNavigation.fileId);
+        if (r.analysisNavigation.view === 'bio-import' && r.analysisNavigation.importId) p.set('import',r.analysisNavigation.importId);
+        if (r.analysisNavigation.view === 'bio-dataset' && r.analysisNavigation.datasetId && r.analysisNavigation.versionId) { p.set('dataset',r.analysisNavigation.datasetId); p.set('version',r.analysisNavigation.versionId); }
+        const a=r.analysisNavigation;
+        if(a.view==='bio-analysis-setup'&&a.setupId)p.set('setup',a.setupId);
+        if(a.view==='bio-analysis'&&a.runId)p.set('run',a.runId);
+        if(a.view==='bio-result'&&a.processedId&&a.tab){p.set('processed',a.processedId);p.set('tab',a.tab);}
+        if(a.view==='bio-annotation'&&a.annotationSetId&&a.annotationVersionId){p.set('annotationSet',a.annotationSetId);p.set('annotationVersion',a.annotationVersionId);}
+        if(a.view==='bio-figure'&&a.figureId)p.set('figure',a.figureId);
     }
     if (r.section === 'artifacts') {
         const a = r.artifactNavigation;

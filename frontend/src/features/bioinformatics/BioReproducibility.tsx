@@ -1,0 +1,6 @@
+import {useBioText} from './spatialHooks'
+import {projectBase} from './api'
+import {useI18n} from '../../shared/i18n'
+import {BioJson,BioSpatialMembers} from './BioSpatialShared'
+import type {BioProcessed} from './spatialContracts'
+export default function BioReproducibility({projectId,result}:{projectId:string;result:BioProcessed}){const {t}=useI18n(),method=result.members.find(m=>m.key==='methods'),text=useBioText(method?.download_url?.startsWith(projectBase(projectId)+'/')?method.download_url:'');return <section className="bio-workspace"><h3>{t('方法与可复现材料')}</h3><p>{t('仅固定算法计算；工程复现不等于生物学确认或用户验收。')}</p><dl><dt>{t('计算引擎')}</dt><dd>{result.source.engine_version}</dd><dt>{t('冻结环境')}</dt><dd><code>{result.source.environment_digest}</code></dd><dt>{t('配方版本')}</dt><dd>{result.source.recipe_version_id}</dd><dt>{t('处理清单 SHA-256')}</dt><dd><code>{result.manifest_sha256}</code></dd></dl><h4>{t('方法记录')}</h4>{text.text?<pre className="bio-json">{text.text}</pre>:result.manifest.methods?<BioJson value={result.manifest.methods}/>:<p>{t('方法记录通过下方固定成员下载。')}</p>}{text.error&&<p role="alert">{t(text.error)}</p>}<h4>{t('实际资源记录')}</h4><BioJson value={result.manifest.resources??null}/><details><summary>{t('完整冻结清单')}</summary><BioJson value={result.manifest}/></details><BioSpatialMembers projectId={projectId} members={result.members}/></section>}

@@ -18,6 +18,14 @@ def error_category(code):
     code = safe_error_code(code)
     if code is None:
         return None
+    if code in ('bio_environment_unavailable', 'bio_isolation_unavailable'):
+        return 'configuration'
+    if code in ('bio_parse_timeout','bio_parse_resource_limit','bio_analysis_timeout','bio_resource_exceeded'):
+        return 'temporary'
+    if code=='bio_output_invalid':
+        return 'output'
+    if code.startswith('bio_'):
+        return 'source'
     if code in ('storage_quota_exceeded', 'storage_disk_insufficient'):
         return 'configuration'
     if code in ('storage_accounting_unknown','storage_deletion_pending','storage_deletion_scope_unknown'):

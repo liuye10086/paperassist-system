@@ -2,12 +2,12 @@
 
 from sqlalchemy import (
     BigInteger, CheckConstraint, Column, DateTime, ForeignKey, Index, Integer,
-    Table, Text, UniqueConstraint,
+    Table, Text, UniqueConstraint, ForeignKeyConstraint,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 
 
-TASK_TYPES = "'boxplot', 'explanation', 'word_report', 'parse_file', 'extract_dataset', 'prepare_dataset', 'review_ocr', 'analysis_plan', 'analysis_recommendation', 'figure_projection', 'figure_workbench', 'figure_explanation', 'collection_word_report', 'statistics_compute', 'literature_search', 'literature_assistance', 'manuscript_draft', 'manuscript_docx', 'pdf_export', 'manuscript_writing', 'layout_docx', 'school_template_parse', 'school_rule_suggestion', 'journal_recommendation', 'journal_format_check', 'journal_adaptation', 'review_round_plan', 'review_revision', 'review_document_export'"
+TASK_TYPES = "'boxplot', 'explanation', 'word_report', 'parse_file', 'extract_dataset', 'prepare_dataset', 'review_ocr', 'analysis_plan', 'analysis_recommendation', 'figure_projection', 'figure_workbench', 'figure_explanation', 'collection_word_report', 'statistics_compute', 'literature_search', 'literature_assistance', 'manuscript_draft', 'manuscript_docx', 'pdf_export', 'manuscript_writing', 'layout_docx', 'school_template_parse', 'school_rule_suggestion', 'journal_recommendation', 'journal_format_check', 'journal_adaptation', 'review_round_plan', 'review_revision', 'review_document_export', 'bio_import', 'bio_analysis', 'bio_figure'"
 STATUSES = "'queued', 'running', 'waiting_input', 'waiting_confirmation', 'succeeded', 'failed'"
 ATTEMPT_STATUSES = "'running', 'waiting_input', 'waiting_confirmation', 'succeeded', 'failed'"
 PHASES = "'parse', 'plan', 'compute', 'search', 'interpret', 'write', 'export', 'verify'"
@@ -37,6 +37,15 @@ def define_task_tables(metadata):
         Column('result_analysis_run_id', Text, ForeignKey('analysis_runs.id', name='tasks_result_analysis_run_id_fkey')),
         Column('execution_receipt', JSONB(none_as_null=True)),
         CheckConstraint("execution_receipt IS NULL OR ((jsonb_typeof(execution_receipt)='object' AND execution_receipt->'schema_version'='1'::jsonb AND jsonb_typeof(execution_receipt->'nodes')='array' AND execution_receipt->>'status' IN ('succeeded','failed')) IS TRUE)", name='tasks_execution_receipt_check'),
+        Column('result_bio_dataset_version_id', Text),
+        Column('result_bio_processed_dataset_version_id', Text),
+        Column('result_bio_figure_version_id', Text),
+        ForeignKeyConstraint(['result_bio_processed_dataset_version_id','project_id'], ['bio_processed_dataset_versions.id','bio_processed_dataset_versions.project_id'], name='tasks_bio_processed_result_fk', use_alter=True),
+        ForeignKeyConstraint(['result_bio_figure_version_id','project_id'], ['bio_figure_versions.id','bio_figure_versions.project_id'], name='tasks_bio_figure_result_fk', use_alter=True),
+        CheckConstraint("(result_bio_processed_dataset_version_id IS NULL OR (task_type='bio_analysis' AND status='succeeded')) AND (result_bio_figure_version_id IS NULL OR (task_type='bio_figure' AND status='succeeded')) AND num_nonnulls(result_bio_processed_dataset_version_id,result_bio_figure_version_id)<=1 AND (num_nonnulls(result_bio_processed_dataset_version_id,result_bio_figure_version_id)=0 OR num_nonnulls(result_bio_dataset_version_id,result_analysis_run_id,result_report_id,result_explanation_id,result_figure_id)=0)", name='tasks_bio_results_check'),
+        CheckConstraint("(task_type<>'bio_analysis' AND task_type<>'bio_figure') OR ((workflow_version=task_type||'_v1' AND input_snapshot->'schema_version'='1'::jsonb AND input_snapshot->>'kind'=task_type AND input_snapshot->>'workflow_version'=workflow_version AND input_snapshot->>'project_id'=project_id AND input_snapshot->>'engine_version'='visium_explore_v1.0.0' AND (input_snapshot->>'environment_digest') ~ '^[0-9a-f]{64}$' AND (input_snapshot->>'code_digest') ~ '^[0-9a-f]{64}$' AND jsonb_typeof(input_snapshot->'limits')='object') IS TRUE)",name='tasks_bio_analysis_snapshot_check'),
+        ForeignKeyConstraint(['result_bio_dataset_version_id','project_id'], ['bio_dataset_versions.id','bio_dataset_versions.project_id'], name='tasks_bio_result_fk', use_alter=True),
+        UniqueConstraint('id','project_id', name='tasks_project_scope_key'),
         Column('result_report_id', Text, ForeignKey('reports.id', name='tasks_result_report_id_fkey')),
         Column('error_code', Text),
         Column('result_explanation_id', Text, ForeignKey('explanations.id', name='tasks_result_explanation_id_fkey')),
@@ -46,6 +55,7 @@ def define_task_tables(metadata):
         UniqueConstraint('id','project_id','user_id', name='tasks_scope_key'),
         UniqueConstraint('user_id', 'project_id', 'task_type', 'idempotency_key', name='tasks_idempotency_key'),
         CheckConstraint(f'task_type IN ({TASK_TYPES})', name='tasks_type_check'),
+        CheckConstraint("task_type<>'bio_import' OR ((workflow_version IN ('bio_import_v1','bio_import_v2') AND input_snapshot->'schema_version'='1'::jsonb AND input_snapshot->>'kind'='bio_import' AND input_snapshot->>'workflow_version'=workflow_version AND (workflow_version='bio_import_v1' OR (input_snapshot->>'parser_version'='geo_visium_import_v2' AND input_snapshot->>'matrix_representation' IN ('mtx','10x_h5') AND input_snapshot->'compare_alternate' IN ('true'::jsonb,'false'::jsonb) AND jsonb_typeof(input_snapshot->'analysis_limits')='object' AND input_snapshot->>'engine_version'='visium_explore_v1.0.0' AND (input_snapshot->>'environment_digest') ~ '^[0-9a-f]{64}$' AND (input_snapshot->>'code_digest') ~ '^[0-9a-f]{64}$')) AND input_snapshot->>'project_id'=project_id AND jsonb_typeof(input_snapshot->'files')='array' AND jsonb_array_length(input_snapshot->'files')>=1 AND jsonb_array_length(input_snapshot->'files')<=10 AND jsonb_typeof(input_snapshot->'settings')='object') IS TRUE)", name='tasks_bio_snapshot_check'),
         CheckConstraint("task_type<>'journal_recommendation' OR ((input_snapshot->>'kind'='journal_recommendation' AND input_snapshot->>'workflow_version'='journal_recommendation_v1' AND jsonb_typeof(input_snapshot->'profiles')='array' AND jsonb_typeof(input_snapshot->'research')='object' AND input_snapshot->'real_model_calls'='false'::jsonb AND input_snapshot->'real_network_calls'='false'::jsonb) IS TRUE)",name='tasks_journal_snapshot_check'),
         CheckConstraint("task_type<>'journal_format_check' OR ((input_snapshot->>'kind'='journal_format_check' AND input_snapshot->>'workflow_version'='journal_format_check_v1' AND jsonb_typeof(input_snapshot->'target')='object' AND jsonb_typeof(input_snapshot->'manuscript')='object' AND input_snapshot->>'check_version'='1' AND input_snapshot->'real_model_calls'='false'::jsonb AND input_snapshot->'real_network_calls'='false'::jsonb) IS TRUE)",name='tasks_journal_format_snapshot_check'),
         CheckConstraint("task_type<>'journal_adaptation' OR ((input_snapshot->>'kind'='journal_adaptation' AND input_snapshot->>'workflow_version'='journal_adaptation_v1' AND jsonb_typeof(input_snapshot->'manuscript')='object' AND jsonb_typeof(input_snapshot->'selected_action_ids')='array' AND input_snapshot->'real_model_calls'='false'::jsonb AND input_snapshot->'real_network_calls'='false'::jsonb) IS TRUE)",name='tasks_journal_adaptation_snapshot_check'),

@@ -25,6 +25,9 @@ class PdfExportService:
 
     def source(self,db,project,kind,identity):
         self.store.require_project(db,project)
+        if kind in ('manuscript_export','review_document_export'):
+            from app.domain.research_intake.delivery_access import require_legacy_writing_db
+            require_legacy_writing_db(db,project,self.store.user_id)
         if kind=='review_document_export':
             from app.domain.review_rounds.document_exports import ReviewDocumentExportService
             svc=ReviewDocumentExportService(self.assets)

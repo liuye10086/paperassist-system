@@ -1,0 +1,16 @@
+# Linux CPython 3.11 x86_64 scientific environment, isolated from backend.
+scanpy==1.11.5
+anndata==0.12.3
+h5py==3.15.1
+numpy==2.2.6
+scipy==1.16.3
+pandas==2.3.3
+scikit-learn==1.7.2
+umap-learn==0.5.9.post2
+numba==0.62.1
+igraph==0.11.9
+matplotlib==3.10.7
+pillow==12.0.0
+pytest==8.4.2
+pydantic==2.13.5
+defusedxml==0.7.1

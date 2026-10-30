@@ -118,7 +118,7 @@ def build_report(snapshot, report, png):
             if source['kind'] == 'prepared_dataset_version' else f"原始数据版本 {source['dataset_version']}")
         paragraph(document, f"数据来源：{filename} · Sheet：{source['sheet_name']} · {versions}")
     document.add_heading('1 数据概况', level=1)
-    for label, value in [('项目类型', 'SCI 论文' if project['project_type'] == 'sci' else '毕业论文'),
+    for label, value in [('项目类型', {'sci':'SCI 论文','thesis':'毕业论文','research':'研究项目'}[project['project_type']]),
                          ('研究主题（用户填写）', project['research_topic'] or '未填写'),
                          ('原始文件', result['filename']), ('工作表', result['selection']['sheet_name']),
                          ('数值字段', result['numeric_name'] + '（列 ' + result['selection']['numeric_column'] + '）'),

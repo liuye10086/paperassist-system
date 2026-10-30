@@ -1,3 +1,6 @@
+import ResearchIntake from '../research-intake/ResearchIntake'
+import type { DeliveryKind } from '../research-intake/contracts'
+import {deliveryLabels} from '../research-intake/contracts'
 import ReviewsWorkspace from '../reviews/ReviewsWorkspace'
 import JournalWorkspace from '../journals/JournalWorkspace'
 import SchoolTemplates from '../school-templates/SchoolTemplates'
@@ -6,7 +9,7 @@ import {AnalysisWritingProvider} from '../manuscripts/AnalysisWritingContext'
 import ProjectLiterature from '../literature/ProjectLiterature'
 import { apiFetch } from '../../shared/api/client'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
-import type { FormEvent } from 'react'
+import type { FormEvent, ReactNode } from 'react'
 import ProjectDetails from './ProjectDetails'
 import ProjectOverview from './ProjectOverview'
 import ProjectResources from './ProjectResources'
@@ -22,7 +25,7 @@ import { PROJECT_PAGE_SIZE, isProject, type Project, type ProjectPage } from './
 import { apiError, safeError, useI18n } from '../../shared/i18n'
 async function responseData(response: Response, fallback: string) {
   const data = await response.json().catch(() => null)
-  if (!response.ok) throw new Error(apiError(data, fallback))
+  if (!response.ok) throw Object.assign(new Error(apiError(data, fallback)),{status:response.status})
   return data
 }
 
@@ -42,7 +45,10 @@ export default function ProjectWorkspace() {
   const [creating, setCreating] = useState(false)
   const [name, setName] = useState('')
   const [topic, setTopic] = useState('')
-  const [projectType, setProjectType] = useState<'' | 'sci' | 'thesis'>('')
+  const [projectType, setProjectType] = useState<'' | 'sci' | 'thesis' | 'research'>('research')
+  const [deliveryKinds,setDeliveryKinds]=useState<DeliveryKind[]>(['analysis'])
+  const createIdentity=useRef<{key:string;body:string}|null>(null)
+  const [createUnknown,setCreateUnknown]=useState(false)
   const createController = useRef<AbortController | null>(null)
   const listRequest = useRef<{ controller: AbortController; timeout: number } | null>(null)
   const listSequence = useRef(0)
@@ -170,6 +176,7 @@ export default function ProjectWorkspace() {
     event.preventDefault()
     if (createController.current) return
     if (!name.trim() || !topic.trim()) { setCreateError('请填写项目名称和研究主题。'); return }
+    if (projectType==='research'&&!deliveryKinds.length){setCreateError('请至少选择一种服务。');return}
     if (!projectType) { setCreateError('请选择项目类型。'); return }
     const controller = new AbortController()
     createController.current = controller
@@ -178,9 +185,13 @@ export default function ProjectWorkspace() {
     setCreating(true)
     setCreateError('')
     try {
-      const response = await apiFetch('/api/v1/projects', { method: 'POST', signal: controller.signal,
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: name.trim(), research_topic: topic.trim(), project_type: projectType }),
+      const body=JSON.stringify({ name: name.trim(), research_topic: topic.trim(), project_type: projectType,...(projectType==='research'?{delivery_kinds:deliveryKinds}:{}) })
+      if(projectType==='research')createIdentity.current??={key:crypto.randomUUID(),body}
+      let recovered:Project|null=null
+      if(createUnknown&&createIdentity.current){const read=await apiFetch(`/api/v1/project-create-requests/${encodeURIComponent(createIdentity.current.key)}`,{signal:controller.signal});if(read.ok)recovered=await read.json();else if(read.status!==404)throw new Error('创建结果尚未核实，请稍后重试。')}
+      const response = recovered?new Response(JSON.stringify(recovered),{status:200}):await apiFetch('/api/v1/projects', { method: 'POST', signal: controller.signal,
+        headers: { 'Content-Type': 'application/json',...(createIdentity.current&&projectType==='research'?{'Idempotency-Key':createIdentity.current.key}:{}) },
+        body: projectType==='research'?createIdentity.current!.body:body,
       })
       const created: Project = await responseData(response, '创建项目失败，请检查输入后重试。')
       if (!controller.signal.aborted) {
@@ -191,10 +202,12 @@ export default function ProjectWorkspace() {
         changeQuery({ ...query, page: 1, q: '', type: '' })
         setName('')
         setTopic('')
-        setProjectType('')
+        setProjectType('research');setDeliveryKinds(['analysis']);createIdentity.current=null;setCreateUnknown(false)
         setShowCreate(false)
       }
     } catch (cause) {
+      const definitive=cause&&typeof cause==='object'&&'status' in cause&&typeof cause.status==='number'&&cause.status>=400&&cause.status<500
+      if(projectType==='research'&&!definitive){setCreateUnknown(true)}else if(!createUnknown)createIdentity.current=null
       if (timedOut) setCreateError('创建请求超时，请先刷新项目列表确认是否已创建。')
       else if (!controller.signal.aborted) setCreateError(cause instanceof TypeError ? '无法连接后端，请稍后重试。'
         : safeError(cause, '创建项目失败。'))
@@ -229,14 +242,15 @@ export default function ProjectWorkspace() {
     {showCreate && <ProjectCreateDialog busy={creating} onClose={() => setShowCreate(false)}>
     <form className="project-form" onSubmit={create} aria-busy={creating}>
       <div className="project-fields">
-        <label>{t("项目名称")}<input value={name} onChange={event => setName(event.target.value)} required maxLength={120} disabled={creating} /></label>
-        <label>{t("项目类型")}<select value={projectType} onChange={event => setProjectType(event.target.value as '' | 'sci' | 'thesis')} required disabled={creating}>
-          <option value="">{t("请选择项目类型")}</option><option value="sci">{t("SCI 科研论文")}</option><option value="thesis">{t("毕业论文")}</option>
+        <label>{t("项目名称")}<input value={name} onChange={event => setName(event.target.value)} required maxLength={120} disabled={creating||createUnknown} /></label>
+        <label>{t("项目类型")}<select value={projectType} onChange={event => setProjectType(event.target.value as '' | 'sci' | 'thesis' | 'research')} required disabled={creating||createUnknown}>
+          <option value="research">{t('研究项目')}</option><option value="">{t("请选择项目类型")}</option><option value="sci">{t("SCI 科研论文")}</option><option value="thesis">{t("毕业论文")}</option>
         </select></label>
       </div>
-      <label>{t("研究主题")}<textarea value={topic} onChange={event => setTopic(event.target.value)} required maxLength={500} rows={2} disabled={creating} /></label>
+      {projectType==='research'&&<fieldset disabled={creating||createUnknown}><legend>{t('所需服务')}</legend>{(Object.keys(deliveryLabels) as DeliveryKind[]).map(kind=><label key={kind}><input type="checkbox" checked={deliveryKinds.includes(kind)} onChange={e=>setDeliveryKinds(e.target.checked?[...deliveryKinds,kind]:deliveryKinds.filter(k=>k!==kind))}/>{t(deliveryLabels[kind])}</label>)}<p>{t('SCI 和毕业论文服务在本批登记，实际写作流程尚未开放。')}</p></fieldset>}
+      <label>{t("研究主题")}<textarea value={topic} onChange={event => setTopic(event.target.value)} required maxLength={500} rows={2} disabled={creating||createUnknown} /></label>
       {createError && <p className="error-panel" role="alert">{t(createError)}</p>}
-      <div className="project-form-actions"><button type="submit" className="button-primary" disabled={creating}>{creating ? t("正在创建……") : t("创建项目")}</button>
+      <div className="project-form-actions"><button type="submit" className="button-primary" disabled={creating}>{creating ? t("正在创建……") : t(createUnknown?'核对创建结果':'创建项目')}</button>
         <button type="button" disabled={creating} onClick={() => setShowCreate(false)}>{t('取消创建')}</button></div>
     </form>
     </ProjectCreateDialog>}
@@ -251,7 +265,7 @@ export default function ProjectWorkspace() {
       {selection.error && <div className="error-panel" role="alert">{t(selection.error)}{' '}
         <button type="button" onClick={selection.refresh}>{t("重试项目详情")}</button>
       </div>}
-      {project && <AnalysisWritingProvider key={selection.instance.key} projectId={project.id} projectType={project.project_type} onOpenWriting={()=>selection.selectManuscriptView('materials')}><div>
+      {project && <ProjectWritingScope key={selection.instance.key} project={project} onOpenWriting={()=>selection.selectManuscriptView('materials')}><div>
         <header className="project-page-heading">
           <h1>{project.name}</h1><p>{project.research_topic}</p>
         </header>
@@ -266,16 +280,20 @@ export default function ProjectWorkspace() {
             active={view === 'project' && (section === 'overview' && overviewView === 'activity' || section === 'artifacts')} onOpenJournals={()=>changeSection('journals')} onOpenManuscripts={()=>changeSection('manuscripts')} />
         </div>
         {project.project_type === 'thesis' && <SchoolTemplates navigation={selection.schoolTemplateNavigation} onNavigate={selection.selectSchoolTemplate} registerLeaveGuard={selection.registerLeaveGuard} projectId={project.id} onChanged={()=>setSchoolRevision(value=>value+1)} active={view === 'project' && section === 'school-templates'} />}
+        {project.project_type==='research'&&['manuscripts','reviews','school-templates','journals'].includes(section)&&<section className="warning-panel"><h2>{t('已登记，当前流程未开放')}</h2><p>{t('请在交付登记中核对 SCI 或毕业论文服务；本批不开放研究项目稿件流程。')}</p><button type="button" onClick={()=>selection.changeOverviewView('deliveries')}>{t('交付登记')}</button></section>}
+        <ResearchIntake projectId={project.id} view={overviewView} active={view==='project'&&section==='overview'&&['requirements','deliveries','design'].includes(overviewView)} registerLeaveGuard={selection.registerLeaveGuard}/>
         <ProjectModelUsage layered projectId={project.id} active={view === 'project' && section === 'overview' && overviewView === 'usage'} />
-        <ReviewsWorkspace view={selection.reviewView} selectedItemId={selection.reviewItemId} onViewChange={selection.selectReviewView} onSelectItem={selection.selectReviewItem} onSelectRun={selection.selectReviewRun} onSelectDocument={selection.selectReviewDocument} registerLeaveGuard={selection.registerLeaveGuard} projectId={project.id} projectType={project.project_type} active={view==='project'&&section==='reviews'} roundId={selection.reviewLink.round} initialManuscript={selection.reviewLink.manuscript} initialRevision={selection.reviewLink.revision} initialRun={selection.reviewLink.run} initialDocument={selection.reviewLink.document} onSelectRound={selection.selectRound} onOpenTask={selection.selectTask}/>
-        <ProjectManuscripts view={selection.manuscriptView} onViewChange={selection.selectManuscriptView} onSelectVersion={selection.selectManuscriptVersion} registerLeaveGuard={selection.registerLeaveGuard} initialManuscript={selection.manuscriptLink.id} initialRevision={selection.manuscriptLink.revision} projectType={project.project_type} projectId={project.id} researchTopic={project.research_topic} outputLanguage={project.default_output_language??'zh-CN'} active={view==='project'&&section==='manuscripts'} onOpenTask={selection.selectTask} onOpenLiterature={()=>selection.selectLiterature('')}/>
+        {project.project_type!=='research'&&<ReviewsWorkspace view={selection.reviewView} selectedItemId={selection.reviewItemId} onViewChange={selection.selectReviewView} onSelectItem={selection.selectReviewItem} onSelectRun={selection.selectReviewRun} onSelectDocument={selection.selectReviewDocument} registerLeaveGuard={selection.registerLeaveGuard} projectId={project.id} projectType={project.project_type} active={view==='project'&&section==='reviews'} roundId={selection.reviewLink.round} initialManuscript={selection.reviewLink.manuscript} initialRevision={selection.reviewLink.revision} initialRun={selection.reviewLink.run} initialDocument={selection.reviewLink.document} onSelectRound={selection.selectRound} onOpenTask={selection.selectTask}/>}
+        {project.project_type!=='research'&&<ProjectManuscripts view={selection.manuscriptView} onViewChange={selection.selectManuscriptView} onSelectVersion={selection.selectManuscriptVersion} registerLeaveGuard={selection.registerLeaveGuard} initialManuscript={selection.manuscriptLink.id} initialRevision={selection.manuscriptLink.revision} projectType={project.project_type} projectId={project.id} researchTopic={project.research_topic} outputLanguage={project.default_output_language??'zh-CN'} active={view==='project'&&section==='manuscripts'} onOpenTask={selection.selectTask} onOpenLiterature={()=>selection.selectLiterature('')}/>}
         {project.project_type === 'sci' && <JournalWorkspace view={selection.journalView} onViewChange={selection.selectJournalView} initialAdaptation={selection.adaptationId} onSelectAdaptation={selection.selectJournalAdaptation} registerLeaveGuard={selection.registerLeaveGuard} projectId={project.id} active={view==='project'&&section==='journals'} onOpenTask={selection.selectTask}/>}
         <ProjectTasks detailView={selection.taskDetailView} onDetailViewChange={selection.selectTaskDetailView} registerLeaveGuard={selection.registerLeaveGuard} onOpenJournals={()=>changeSection('journals')} onOpenManuscripts={()=>changeSection('manuscripts')} onOpenFiles={() => changeSection('files')} projectId={project.id} active={view === 'project' && section === 'tasks'}
           selectedTaskId={selection.taskId} onSelectTask={selection.selectTask} onOpenLiterature={selection.selectLiterature} />
         <ProjectLiterature projectId={project.id} researchTopic={project.research_topic} outputLanguage={project.default_output_language??'zh-CN'} active={view==='project'&&section==='literature'} initialSearchId={selection.literatureSearchId} onSearchChange={selection.selectLiterature} onOpenTask={selection.selectTask} literatureNavigation={selection.literatureNavigation} onLiteratureNavigate={selection.selectLiteratureView} registerLeaveGuard={selection.registerLeaveGuard}/>
         <ProjectResources analysisNavigation={selection.analysisNavigation} onAnalysisNavigate={selection.selectAnalysis} projectId={project.id} active={view === 'project'} section={section} onSectionChange={changeSection} onSaved={() => { refresh(); selection.refresh() }} resourceNavigation={selection.resourceNavigation} onResourceNavigate={selection.selectResource} registerLeaveGuard={selection.registerLeaveGuard} />
-      </div></AnalysisWritingProvider>}
+      </div></ProjectWritingScope>}
     </section>}
   </div>
   </WorkspaceShell>
 }
+
+function ProjectWritingScope({project,onOpenWriting,children}:{project:Project;onOpenWriting:()=>void;children:ReactNode}){return project.project_type==='research'?children:<AnalysisWritingProvider projectId={project.id} projectType={project.project_type} onOpenWriting={onOpenWriting}>{children}</AnalysisWritingProvider>}

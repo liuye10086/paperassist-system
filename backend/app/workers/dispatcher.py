@@ -16,9 +16,11 @@ def dispatch_once(*, publish=None, config=None, limit=20):
         from app.workers.celery_app import publish_confirmed
         publish = publish_confirmed
     with repository.connection(write=True) as db:
+        from app.domain.bioinformatics.analysis_service import expire_stale_confirmations
+        expire_stale_confirmations(db)
         rows = db.execute('''SELECT o.id,o.task_id,o.task_revision,o.publish_attempts FROM task_outbox o
             JOIN tasks t ON t.id=o.task_id WHERE o.published_at IS NULL
-            AND o.available_at<=clock_timestamp() AND t.task_type IN ('word_report','explanation','boxplot','parse_file','extract_dataset','prepare_dataset', 'review_ocr', 'analysis_plan', 'analysis_recommendation', 'figure_projection', 'figure_workbench', 'figure_explanation', 'collection_word_report', 'statistics_compute', 'literature_search', 'literature_assistance', 'manuscript_draft', 'manuscript_docx', 'pdf_export', 'layout_docx', 'manuscript_writing', 'school_template_parse', 'journal_recommendation', 'journal_format_check', 'journal_adaptation', 'review_round_plan', 'review_revision', 'review_document_export')
+            AND o.available_at<=clock_timestamp() AND t.task_type IN ('word_report','explanation','boxplot','parse_file','extract_dataset','prepare_dataset', 'review_ocr', 'analysis_plan', 'analysis_recommendation', 'figure_projection', 'figure_workbench', 'figure_explanation', 'collection_word_report', 'statistics_compute', 'literature_search', 'literature_assistance', 'manuscript_draft', 'manuscript_docx', 'pdf_export', 'layout_docx', 'manuscript_writing', 'school_template_parse', 'journal_recommendation', 'journal_format_check', 'journal_adaptation', 'review_round_plan', 'review_revision', 'review_document_export', 'bio_import', 'bio_analysis', 'bio_figure')
             ORDER BY o.available_at,o.id LIMIT %s''', (limit,)).fetchall()
         now = repository.now(db)
         for row in rows:

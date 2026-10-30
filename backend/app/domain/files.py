@@ -21,11 +21,11 @@ class ProjectFile(BaseModel):
     id: str
     project_id: str
     filename: str
-    file_type: Literal['xlsx', 'docx', 'pdf', 'png', 'jpeg']
+    file_type: Literal['xlsx', 'docx', 'pdf', 'png', 'jpeg', 'bio_bundle', 'bio_component']
     size_bytes: int
     sha256: str
     uploaded_at: str
-    parse_status: Literal['queued', 'parsing', 'parsed', 'failed']
+    parse_status: Literal['queued', 'parsing', 'parsed', 'failed', 'stored']
     error: FileError | None
 
 
@@ -51,7 +51,7 @@ class FilePage(BaseModel):
 
 
 class FileSource(BaseModel):
-    kind: Literal['legacy_excel', 'excel_parse', 'docx_parse', 'pdf_parse', 'ocr_parse'] = 'legacy_excel'
+    kind: Literal['legacy_excel', 'excel_parse', 'docx_parse', 'pdf_parse', 'ocr_parse', 'bio_original'] = 'legacy_excel'
     preview_available: bool
     preview_row_limit: Literal[20] | None = 20
     parser_version: str | None = None
@@ -198,8 +198,8 @@ def read_file_details(store, project_id, file_id):
         for key in ('tasks','active_tasks','external_evidence_versions','prepared_dataset_derivations_v3'):
             references[key]=lifecycle['counts'][key]
         parse = db.execute('SELECT parser_version FROM file_parse_results WHERE file_id=%s ORDER BY version DESC', (file_id,)).fetchone()
-        return FileDetails(**result, source=FileSource(kind='ocr_parse' if row['file_type'] in ('png','jpeg') else 'pdf_parse' if row['file_type']=='pdf' else 'docx_parse' if row['file_type']=='docx' else 'excel_parse' if parse else 'legacy_excel',
-            preview_row_limit=None if row['file_type'] in ('docx','pdf','png','jpeg') else 20,
+        return FileDetails(**result, source=FileSource(kind='bio_original' if row['file_type'] in ('bio_bundle','bio_component') else 'ocr_parse' if row['file_type'] in ('png','jpeg') else 'pdf_parse' if row['file_type']=='pdf' else 'docx_parse' if row['file_type']=='docx' else 'excel_parse' if parse else 'legacy_excel',
+            preview_row_limit=None if row['file_type'] in ('docx','pdf','png','jpeg','bio_bundle','bio_component') else 20,
             parser_version=parse['parser_version'] if parse else None,
             preview_available=bool(db.execute('SELECT id FROM file_parse_results WHERE file_id=%s AND result_json IS NOT NULL',(file_id,)).fetchone()) if row['file_type'] in ('docx','pdf','png','jpeg') else row['parse_status'] == 'parsed' and row['preview_json'] is not None), references=references)
 

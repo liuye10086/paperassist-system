@@ -1,3 +1,4 @@
+import BioTaskLinks from './BioTaskLinks'
 import useDraftLeaveGuard, { type RegisterLeaveGuard } from '../projects/useDraftLeaveGuard'
 import {reviewHash} from '../reviews/reviewTypes'
 import {RecommendationResult} from '../analysisPlan/AnalysisRecommendation'
@@ -25,7 +26,7 @@ export default function TaskPendingAction({ workspace, blocked, onChanged, activ
   // A stale capability list must never turn an unknown submission into a resend.
   const submissionUnknown = task.error_code === 'model_submission_unknown' || task.reason_code === 'submission_unknown'
     || wait?.status === 'open' && (wait.kind === 'submission_unknown' || wait.error_code === 'model_submission_unknown')
-  const actions = submissionUnknown ? [] : workspace.allowed_actions
+  const actions = submissionUnknown ? [] : workspace.allowed_actions.filter(a=>!(task.task_type==='bio_analysis'&&a==='approve'))
   useEffect(() => { active.current = true; return () => { active.current = false; request.current?.abort() } }, [])
   async function perform(operation: TaskOperation) {
     if (task.origin === 'legacy' || task.revision === null || !viewActive || blocked || request.current || !actions.includes(operation)) return
@@ -52,6 +53,7 @@ export default function TaskPendingAction({ workspace, blocked, onChanged, activ
   }
   const currentWait = wait?.status === 'open' ? wait : null
   if (task.origin === 'legacy'||task.task_type==='pdf_export') return null
+  if(currentWait?.kind==='bio_analysis_confirmation')return <section className="task-pending"><p>{t('QC 候选待确认；计算已暂停，不占用 Worker。')}</p><BioTaskLinks task={task}/></section>
   if(task.task_type==='figure_projection')return <p className="warning-panel">{t('请返回来源文件的图表工作台，核对投影人数与规则后独立确认。')}</p>
   if (task.task_type === 'review_ocr' && task.input_version.kind === 'ocr_review') return <OcrReviewWorkspace active={viewActive} registerLeaveGuard={registerLeaveGuard} projectId={task.project_id} fileId={task.input_version.source.file_id} parseId={task.input_version.source.parse_id} taskId={task.id} filename={workspace.source.filename} onUnavailable={onChanged} onPublished={onChanged}/>
   if (task.task_type === 'prepare_dataset') return <><PreparationReview active={viewActive} registerLeaveGuard={registerLeaveGuard} projectId={task.project_id} taskId={task.id} blocked={blocked} onChanged={onChanged} refreshKey={task.revision ?? 0} />
@@ -70,7 +72,7 @@ export default function TaskPendingAction({ workspace, blocked, onChanged, activ
     {currentWait?.kind === 'remote_observation' && <p className="warning-panel">{t('云端请求已超过原观察期限，费用与已有回执仍保留。每次继续仅查询原回执一次，不会重新生成。')}</p>}
     {currentWait?.kind === 'submission_unknown' && <p className="warning-panel">{t('提交结果尚未核实，请联系管理员核对；不能重新发送模型请求。')}</p>}
     {(currentWait?.kind === 'unsupported_input' || currentWait?.kind === 'unsupported_confirmation') && <p className="warning-panel">{t('此任务需要的资料或确认暂未提供处理入口，请联系管理员。')}</p>}
-    {actions.length > 0 && <><p className="task-scope-note">{t(task.task_type==='review_round_plan'?'仅继续本地意见计划核查；不会调用模型、改稿或完成意见。':task.task_type==='journal_adaptation'?'使用冻结的期刊适配、所选动作与父稿重试；不访问外网或调用模型。':task.task_type==='journal_format_check'?'使用冻结的目标、指南要求与稿件版本重试；不访问外网或调用模型。':task.task_type==='journal_recommendation'?'使用冻结的期刊建议输入与来源重试；不访问外网或调用模型。':task.task_type==='school_template_parse'?'使用冻结的学校模板原件重试解析。':task.task_type==='literature_search'?'继续原检索任务，沿用已保存的条件与进度。':task.task_type === 'extract_dataset' ? '使用冻结的原文件输入重试本地结构提取。' : task.task_type === 'parse_file' ? '使用原文件重试本地解析。' : currentWait?.kind === 'remote_observation' ? '授权单次查询原云端回执；不延长原观察期限，也不授权重新生成费用。' : '继续此任务；尚未提交的模型调用会按原策略和预算执行，已有调用沿用已保存结果。')}</p>
+    {actions.length > 0 && <><p className="task-scope-note">{t(task.task_type==='bio_analysis'||task.task_type==='bio_figure'?'使用冻结的来源和参数重试；不会新建运行或覆盖历史结果。':task.task_type==='bio_import'?'使用冻结的生信原件重试结构导入；不执行分析或外发资料。':task.task_type==='review_round_plan'?'仅继续本地意见计划核查；不会调用模型、改稿或完成意见。':task.task_type==='journal_adaptation'?'使用冻结的期刊适配、所选动作与父稿重试；不访问外网或调用模型。':task.task_type==='journal_format_check'?'使用冻结的目标、指南要求与稿件版本重试；不访问外网或调用模型。':task.task_type==='journal_recommendation'?'使用冻结的期刊建议输入与来源重试；不访问外网或调用模型。':task.task_type==='school_template_parse'?'使用冻结的学校模板原件重试解析。':task.task_type==='literature_search'?'继续原检索任务，沿用已保存的条件与进度。':task.task_type === 'extract_dataset' ? '使用冻结的原文件输入重试本地结构提取。' : task.task_type === 'parse_file' ? '使用原文件重试本地解析。' : currentWait?.kind === 'remote_observation' ? '授权单次查询原云端回执；不延长原观察期限，也不授权重新生成费用。' : '继续此任务；尚未提交的模型调用会按原策略和预算执行，已有调用沿用已保存结果。')}</p>
       <div className="task-actions">{actions.map(operation => <button key={operation} type="button" className="button-primary" disabled={!viewActive || blocked || busy}
         onClick={() => void perform(operation)}>{t(operation === 'retry' ? '重试原任务'
           : currentWait?.kind === 'remote_observation' ? '查询原回执一次' : currentWait?.kind === 'budget_confirmation' ? '预算或配置已调整，继续任务' : '继续原任务')}</button>)}</div></>}

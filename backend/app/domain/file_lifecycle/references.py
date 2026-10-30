@@ -17,6 +17,7 @@ DIRECT = {
     'analysis_setups': 'analysis_setups', 'analysis_runs': 'analysis_runs',
 }
 SOURCE_TABLES = {
+    'bio_dataset_version_id':'bio_dataset_versions', 'import_id':'bio_imports',
     'parse_id': 'parse_versions', 'parent_parse_id': 'parse_versions',
     'structure_id': 'structure_versions', 'parent_dataset_id': 'dataset_versions',
     'prepared_dataset_id': 'prepared_dataset_versions', 'base_prepared_dataset_id': 'prepared_dataset_versions',
@@ -58,10 +59,19 @@ def frozen_references(snapshot):
         if node.get('kind')=='collection_report' and isinstance(node.get('id'),str):
             yield 'collection_reports',node['id']
         for key, group in SOURCE_TABLES.items():
+            if key=='analysis_run_id' and node.get('kind')=='bio_processed_dataset_version':continue
             if key=='report_id' and ('collection_report_id' in node or node.get('kind')=='collection_report'):continue
             if isinstance(node.get(key), str):
                 yield group, node[key]
-        if isinstance(node.get('dataset_id'), str):
+        if node.get('kind')=='bio_processed_dataset_version':
+            yield 'bio_processed_dataset_versions',node['processed_dataset_version_id']
+            yield 'bio_analysis_runs',node['analysis_run_id']
+        if node.get('kind')=='bio_dataset_version':
+            identifier=node.get('dataset_version_id',node.get('version_id'))
+            if isinstance(identifier,str):yield 'bio_dataset_versions',identifier
+        if isinstance(node.get('dataset_id'), str) and node.get('kind') in ('bio_import','bio_dataset_version'):
+            yield 'bio_datasets',node['dataset_id']
+        elif isinstance(node.get('dataset_id'), str):
             yield ('prepared_dataset_versions' if node.get('kind') == 'prepared_dataset_version'
                    else 'dataset_versions'), node['dataset_id']
         for key, group in (('result', 'analysis_runs'), ('figure', 'figures'),
@@ -74,6 +84,9 @@ def frozen_references(snapshot):
 def file_ids(snapshot):
     result = set()
     for node in nodes(snapshot):
+        if node.get('kind') in ('bio_import','bio_dataset_version'):
+            result.update(f['id'] for f in node.get('files',[]) if isinstance(f,dict) and isinstance(f.get('id'),str))
+            result.update(f for f in node.get('source_file_ids',[]) if isinstance(f,str))
         if isinstance(node.get('file_id'), str):
             result.add(node['file_id'])
         if isinstance(node.get('file'), dict) and isinstance(node['file'].get('id'), str):
@@ -169,6 +182,10 @@ def public_source_groups(groups, indexes, tasks, file, user_id, producers, proof
             key = (kind, row['id'] if 'id' in row else row['file_id'])
             rows[key] = row
             refs = set()
+            if kind in ('research_material_refs','bio_datasets','bio_imports','bio_dataset_versions','bio_dataset_members','bio_observation_map_sets','bio_observation_map_versions','bio_analysis_setups','bio_analysis_recipe_versions','bio_analysis_runs','bio_processed_dataset_versions','bio_analysis_artifacts','bio_annotation_sets','bio_annotation_versions','bio_annotation_evidence','bio_figure_versions','bio_figure_members'):
+                if row.get('_integrity_valid') and row['project_id']==file['project_id']:safe.add(key)
+                dependencies[key]=set()
+                continue
             if kind in ('manuscript_figure_language_versions','school_template_versions','school_rule_suggestions','manuscript_school_changes','manuscript_school_language_artifacts','journal_material_refs','review_round_refs'):
                 if row.get('_integrity_valid') and row['project_id']==file['project_id'] and row['user_id']==user_id:
                     safe.add(key)
@@ -363,6 +380,10 @@ def read_references(db, file, user_id):
     groups['journal_material_refs']=read_refs(db,file,user_id)
     from app.domain.review_rounds.retention import read_refs as read_review_refs
     groups['review_round_refs']=read_review_refs(db,file,user_id)
+    from app.domain.file_lifecycle.bio_references import read_groups as read_bio_groups
+    groups.update(read_bio_groups(db,file,user_id))
+    from app.domain.file_lifecycle.bio_analysis_references import read_groups as read_bio_analysis_groups
+    groups.update(read_bio_analysis_groups(db,file,user_id))
     school_tasks={v['task_id']:v for v in groups['school_template_versions']}
     school_tasks.update({v['task_id']:v for v in groups['school_rule_suggestions']})
     indexes = {kind: {row['id']: row for row in rows if 'id' in row} for kind, rows in groups.items()}
@@ -382,6 +403,30 @@ def read_references(db, file, user_id):
     for row in project_tasks:
         task = dict(row)
         snapshot = task['input_snapshot']
+        if task['task_type'] in ('bio_analysis','bio_figure'):
+            from app.domain.bioinformatics.analysis_service import source_current
+            linked=task['id'] in output_tasks or file_id in file_ids(snapshot)
+            if not linked:continue
+            valid=task['user_id']==user_id and task['project_id']==project_id and source_current(db,task)
+            task['_scoped_snapshot']={'file_id':file_id}
+            task['_integrity_valid']=valid
+            task['_public']=task['user_id']==user_id and task['project_id']==project_id
+            unknown |= not valid
+            tasks.append(task)
+            continue
+        if task['task_type']=='bio_import':
+            from app.domain.file_lifecycle.bio_references import valid_task
+            linked=any(row['task_id']==task['id'] for row in groups['bio_imports']) or file_id in file_ids(snapshot)
+            if not linked:continue
+            valid=task['user_id']==user_id and valid_task(db,task,file)
+            scoped={'file_id':file_id,'import_id':snapshot.get('import_id')}
+            if task.get('result_bio_dataset_version_id'):scoped['bio_dataset_version_id']=task['result_bio_dataset_version_id']
+            task['_scoped_snapshot']=scoped
+            task['_integrity_valid']=valid
+            task['_public']=task['user_id']==user_id and task['project_id']==project_id
+            unknown |= not valid
+            tasks.append(task)
+            continue
         from app.domain.file_lifecycle.manuscript_task_sources import TYPES, task_material
         manuscript_valid = None
         if task['task_type'] in TYPES:
@@ -486,6 +531,8 @@ def read_references(db, file, user_id):
             latest_checkpoints[checkpoint['task_id']] = checkpoint
     by_task = {t['id']: t for t in tasks}
     reasons = []
+    if groups['bio_imports'] or groups['bio_dataset_versions'] or any(groups[name] for name in ('bio_analysis_runs','bio_observation_map_versions','bio_annotation_evidence','bio_figure_versions')):reasons.append('bio_history_retained')
+    if groups['research_material_refs']:reasons.append('research_material_history_retained')
     if groups['journal_material_refs']:reasons.append('journal_history_retained')
     if groups['review_round_refs']:reasons.append('review_history_retained')
     if groups['school_template_versions']:reasons.append('school_template_history_retained')

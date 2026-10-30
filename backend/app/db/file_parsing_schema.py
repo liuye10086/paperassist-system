@@ -10,6 +10,8 @@ def define_file_parsing_tables(metadata):
         Column('user_id', Text, ForeignKey('users.id'), nullable=False),
         Column('idempotency_key', Text, nullable=False),
         Column('request_digest', Text, nullable=False),
+        Column('profile', Text, nullable=False, server_default='documents'),
+        CheckConstraint("profile IN ('documents','bioinformatics_v1')", name='file_batches_profile_check'),
         Column('created_at', DateTime(timezone=True), nullable=False),
         UniqueConstraint('user_id', 'project_id', 'idempotency_key', name='file_batches_request_key'),
         CheckConstraint("request_digest ~ '^[0-9a-f]{64}$'", name='file_batches_digest_check'))

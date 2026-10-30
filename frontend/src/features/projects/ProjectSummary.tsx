@@ -11,7 +11,7 @@ import { isProjectSummary, type ProjectSummaryData, type SummarySource, type Sum
 import { useI18n } from '../../shared/i18n'
 import './projectSummary.css'
 
-type Props = { artifactNavigation?:ArtifactNavigation; onArtifactNavigate?:(next:ArtifactNavigation)=>void; projectId: string; projectType: 'sci' | 'thesis'; view?: 'overview' | 'artifacts' | 'all'; active?: boolean; onOpenManuscripts?:()=>void; onOpenJournals?:()=>void }
+type Props = { artifactNavigation?:ArtifactNavigation; onArtifactNavigate?:(next:ArtifactNavigation)=>void; projectId: string; projectType: 'sci' | 'thesis' | 'research'; view?: 'overview' | 'artifacts' | 'all'; active?: boolean; onOpenManuscripts?:()=>void; onOpenJournals?:()=>void }
 const taskNames = { statistics: '描述统计', boxplot: '箱线图生成', explanation: 'AI 分析解释', report: 'Word 报告导出' }
 const statuses: Record<SummaryTask['status'], string> = {
   queued: '待执行',

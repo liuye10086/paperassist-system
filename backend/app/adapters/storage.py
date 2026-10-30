@@ -81,11 +81,11 @@ class ProjectStore:
 
     def query_projects(self, *, page=1, page_size=10, q='', project_type=None) -> dict:
         invalid = StorageError('project_query_invalid',
-                               '页码须为1–1000000，页面大小须为1–100，搜索最多120字符，类型仅支持sci或thesis。', 422)
+                               '页码须为1–1000000，页面大小须为1–100，搜索最多120字符，类型仅支持sci、thesis或research。', 422)
         if (type(page) is not int or not 1 <= page <= 1_000_000
                 or type(page_size) is not int or not 1 <= page_size <= 100
                 or not isinstance(q, str) or len(q.strip()) > 120
-                or (project_type is not None and project_type not in ('sci', 'thesis'))):
+                or (project_type is not None and project_type not in ('sci', 'thesis', 'research'))):
             raise invalid
         q = q.strip()
         conditions, parameters = [], []
@@ -127,19 +127,48 @@ class ProjectStore:
             raise StorageError("project_not_found", "项目不存在，请刷新项目列表。", 404)
         return dict(row)
 
-    def create_project(self, name: str, research_topic: str, project_type: str, default_output_language: str = 'zh-CN'):
+    def create_project(self, name: str, research_topic: str, project_type: str, default_output_language: str = 'zh-CN', *, delivery_kinds=None, idempotency_key=None):
         if default_output_language not in ('zh-CN', 'en'):
             raise StorageError('project_language_invalid', '项目默认输出语言仅支持中文或英文。', 422)
+        from app.domain.research_intake.service import digest, request_key
+        from app.adapters.research_intake_store import initialize_intake
+        creation_digest = None
+        if project_type == 'research':
+            request_key(idempotency_key)
+            if not self.owner_id or not isinstance(delivery_kinds,list) or not 1 <= len(delivery_kinds) <= 3 or len(set(delivery_kinds)) != len(delivery_kinds) or any(x not in ('analysis','sci_draft','thesis_draft') for x in delivery_kinds):
+                raise StorageError('research_requirement_invalid','研究项目须有owner及一至三种不重复交付。',422)
+            creation_digest = digest({'name':name,'research_topic':research_topic,'project_type':project_type,'default_output_language':default_output_language,'delivery_kinds':sorted(delivery_kinds)})
         project_id = str(uuid4())
         now = datetime.now(timezone.utc).isoformat()
         with self.connection(write=True) as db:
+            if project_type == 'research':
+                replay = db.execute('SELECT project_id,creation_digest FROM research_intakes WHERE owner_id=%s AND creation_request_key=%s',(self.owner_id,idempotency_key)).fetchone()
+                if replay:
+                    if replay['creation_digest'] != creation_digest:
+                        raise StorageError('research_request_conflict','相同请求键已用于不同项目。',409)
+                    result = self.project(replay['project_id'])
+                    result['_creation_replayed'] = True
+                    return result
             db.execute("""INSERT INTO projects
                 (id, name, research_topic, project_type, created_at, updated_at, owner_id, default_output_language)
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s)""",
                        (project_id, name, research_topic, project_type, now, now, self.owner_id, default_output_language))
             from app.domain.storage_governance.service import initialize_policy
             initialize_policy(db,'project',project_id)
+            initialize_intake(db,project_id,self.owner_id,project_type,delivery_kinds=delivery_kinds,
+                              creation_key=idempotency_key if project_type=='research' else None,creation_digest=creation_digest)
         return self.project(project_id)
+
+    def project_creation_request(self, key):
+        from app.domain.research_intake.service import request_key
+        request_key(key)
+        if not self.owner_id:
+            raise StorageError('project_not_found','项目不存在。',404)
+        with self.connection() as db:
+            row=db.execute('SELECT project_id FROM research_intakes WHERE owner_id=%s AND creation_request_key=%s',(self.owner_id,key)).fetchone()
+        if row is None:
+            raise StorageError('project_not_found','项目创建结果尚未登记。',404)
+        return self.project(row['project_id'])
 
     def update_project(self, project_id: str, changes: dict) -> dict:
         # This entry point also serves trusted local tools: never rely on HTTP

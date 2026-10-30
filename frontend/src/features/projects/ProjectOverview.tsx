@@ -3,9 +3,9 @@ import { WorkspaceIcon, type ProjectSection } from './WorkspaceShell'
 import type { Project } from './projectTypes'
 import './projectOverview.css'
 
-export type OverviewView = 'tasks' | 'settings' | 'activity' | 'usage'
+export type OverviewView = 'tasks' | 'settings' | 'activity' | 'usage' | 'requirements' | 'deliveries' | 'design'
 const views: { value: OverviewView; label: string }[] = [
-  { value: 'tasks', label: '研究任务' }, { value: 'settings', label: '项目资料' },
+  { value: 'requirements', label: '需求档案' }, { value: 'deliveries', label: '交付登记' }, { value: 'design', label: '实验设计与材料' }, { value: 'tasks', label: '研究任务' }, { value: 'settings', label: '项目资料' },
   { value: 'activity', label: '进展记录' }, { value: 'usage', label: '项目用量' },
 ]
 
@@ -39,7 +39,7 @@ export default function ProjectOverview({ project, view, onViewChange, onNavigat
     </nav>
     <section className="project-task-groups" aria-label={t('研究任务')} hidden={view !== 'tasks'}>
       <p className="overview-intro">{t('选择当前要推进的工作，每次专注一项任务。')}</p>
-      <div className="project-task-grid">{groups.map((group, index) => <article key={group.title} className="project-task-card">
+      <div className="project-task-grid">{groups.filter(group => project.project_type !== 'research' || !['稿件写作','评审与修改'].includes(group.title)).map((group, index) => <article key={group.title} className="project-task-card">
         <div className="task-card-top"><span className="task-card-icon"><WorkspaceIcon name={group.icon} /></span><span className="task-card-number">0{index + 1}</span></div>
         <h3>{t(group.title)}</h3><p>{t(group.description)}</p>
         <div className="task-card-actions">{group.links.map(link => <button key={link.section} type="button" className="button-quiet"

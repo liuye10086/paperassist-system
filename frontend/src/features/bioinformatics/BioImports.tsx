@@ -1,0 +1,37 @@
+import BioAnalysisRuns from './BioAnalysisRuns'
+import BioSpatialWorkspace from './BioSpatialWorkspace'
+import {useEffect,useState} from 'react'
+import {onApiSessionChanged} from '../../shared/api/client'
+import {safeError,useI18n} from '../../shared/i18n'
+import type {AnalysisNavigation} from '../projects/analysisViews'
+import type {RegisterLeaveGuard} from '../projects/useDraftLeaveGuard'
+import useDraftLeaveGuard from '../projects/useDraftLeaveGuard'
+import BioImportReview from './BioImportReview'
+import BioDatasetDetail from './BioDatasetDetail'
+import {bioRequest,projectBase} from './api'
+import {BioWriteStatus} from './BioSpatialShared'
+import useBioWrite from './useBioWrite'
+import type {BioDataset,BioImport} from './contracts'
+import '../research-intake/intake.css'
+export default function BioImports({projectId,navigation,onNavigate,active,registerLeaveGuard}:{projectId:string;navigation:AnalysisNavigation;onNavigate:(n:AnalysisNavigation)=>void;active:boolean;registerLeaveGuard?:RegisterLeaveGuard}){
+ const {t}=useI18n()
+ const [datasets,setDatasets]=useState<BioDataset[]>([]),[total,setTotal]=useState(0),[page,setPage]=useState(1)
+ const [files,setFiles]=useState<{id:string;filename:string;file_type:string}[]>([]),[selected,setSelected]=useState<string[]>([]),[name,setName]=useState(''),[target,setTarget]=useState<BioDataset|null>(null),[roles,setRoles]=useState<Record<string,string>>({})
+ const [error,setError]=useState(''),[valid,setValid]=useState(true),[attempt,setAttempt]=useState(0)
+ const [importVersion,setImportVersion]=useState<'v1'|'v2'>('v1'),[representation,setRepresentation]=useState<'mtx'|'10x_h5'>('mtx'),[compare,setCompare]=useState(true)
+ const finish=(id:string)=>{setSelected([]);onNavigate({view:'bio-import',fileId:'',importId:id})}
+ const writer=useBioWrite<BioImport>(projectId,'import',v=>finish(v.id),v=>finish(v.id)),busy=writer.busy,unknown=writer.unknown
+ useDraftLeaveGuard(registerLeaveGuard,selected.length>0&&!writer.completed,busy||unknown)
+ useEffect(()=>onApiSessionChanged(()=>{setValid(false);setDatasets([]);setFiles([]);setSelected([])}),[])
+ useEffect(()=>{if(!active||!valid||navigation.view!=='bio-datasets')return;const c=new AbortController();let live=true;void Promise.all([bioRequest<{items:BioDataset[];total:number}>(`${projectBase(projectId)}/bio-datasets?page=${page}&page_size=5`,{signal:c.signal}),bioRequest<{id:string;filename:string;file_type:string}[]>(`${projectBase(projectId)}/files`,{signal:c.signal})]).then(([d,f])=>{if(live){setError('');setDatasets(d.items);setTotal(d.total);setFiles(f.filter(file=>['bio_bundle','bio_component'].includes(file.file_type)))}}).catch(cause=>{if(live)setError(safeError(cause,'生信数据集读取失败，请重试。'))});return()=>{live=false;c.abort()}},[projectId,active,valid,page,attempt,navigation.view])
+ function start(){if(busy||unknown||!valid||!name.trim()||!selected.length)return;void writer.submit(`${projectBase(projectId)}/bio-imports`,{file_ids:selected,assay:'visium',name:name.trim(),dataset_id:target?.id??null,expected_dataset_revision:target?.revision??0,roles:Object.fromEntries(Object.entries(roles).filter(([id,role])=>selected.includes(id)&&role!=='auto')),...(importVersion==='v2'?{matrix_representation:representation,compare_alternate:compare}:{})})}
+ const blocked=busy||unknown||!valid||!writer.valid
+ return <div hidden={!active}>{['bio-analysis-setup','bio-analysis','bio-result','bio-annotation','bio-figure'].includes(navigation.view)?<BioSpatialWorkspace projectId={projectId} navigation={navigation} onNavigate={onNavigate} registerLeaveGuard={registerLeaveGuard}/>:navigation.view==='bio-import'&&navigation.importId?<BioImportReview key={navigation.importId} projectId={projectId} importId={navigation.importId} onNavigate={onNavigate} registerLeaveGuard={registerLeaveGuard}/>:navigation.view==='bio-dataset'&&navigation.datasetId&&navigation.versionId?<BioDatasetDetail key={navigation.versionId} projectId={projectId} datasetId={navigation.datasetId} versionId={navigation.versionId} onNavigate={onNavigate} registerLeaveGuard={registerLeaveGuard}/>:<section className="bio-workspace">
+ <h2>{t('生信数据集')}</h2><p>{t('支持固定 Visium 原件版本的导入核对与空间分析；计算能力以环境核对结果为准。')}</p>{error&&<p role="alert" className="error-panel">{t(error)}</p>}<button type="button" onClick={()=>setAttempt(v=>v+1)} disabled={!valid||busy}>{t('重新读取')}</button>
+ <ul>{datasets.map(dataset=>{const id=dataset.current_version_id??dataset.current_version?.id;return <li key={dataset.id}><strong>{dataset.name}</strong> · {id?<button type="button" onClick={()=>onNavigate({view:'bio-dataset',fileId:'',datasetId:dataset.id,versionId:id})}>{t('查看已发布数据集版本')}</button>:t('尚无已发布版本')}</li>})}</ul>{!datasets.length&&<p>{t('暂无已发布数据集')}</p>}
+ <BioAnalysisRuns projectId={projectId} active={active&&navigation.view==='bio-datasets'} onNavigate={onNavigate}/><div><button type="button" disabled={page===1} onClick={()=>setPage(p=>p-1)}>{t('上一页')}</button><button type="button" disabled={page*5>=total} onClick={()=>setPage(p=>p+1)}>{t('下一页')}</button></div>
+ <fieldset disabled={blocked}><legend>{t('从已保存原件发起导入')}</legend><label>{t('导入核对流程')}<select value={importVersion} onChange={e=>setImportVersion(e.target.value as 'v1'|'v2')}><option value="v1">{t('第一批兼容结构导入（v1）')}</option><option value="v2">{t('MTX / H5 实际核对（v2）')}</option></select></label>{importVersion==='v2'&&<><label>{t('分析矩阵表示')}<select value={representation} onChange={e=>setRepresentation(e.target.value as 'mtx'|'10x_h5')}><option value="mtx">MTX</option><option value="10x_h5">10x H5</option></select></label><label className="intake-check"><input type="checkbox" checked={compare} onChange={e=>setCompare(e.target.checked)}/>{t('实际比较另一矩阵表示')}</label><p>{t('MTX 与 H5 是同一样本的表示，比较不会增加样本或供体。')}</p></>}
+ <label>{t('导入目标')}<select value={target?.id??''} onChange={e=>{const selected=datasets.find(d=>d.id===e.target.value)??null;setTarget(selected);if(selected)setName(selected.name)}}><option value="">{t('建立新数据集')}</option>{target&&!datasets.some(d=>d.id===target.id)&&<option value={target.id}>{target.name}</option>}{datasets.map(dataset=><option key={dataset.id} value={dataset.id}>{dataset.name}</option>)}</select></label><label>{t('数据集名称')}<input value={name} maxLength={200} onChange={e=>setName(e.target.value)}/></label>
+ {files.map(file=><label className="intake-check" key={file.id}><input type="checkbox" checked={selected.includes(file.id)} onChange={e=>setSelected(e.target.checked?[...selected,file.id]:selected.filter(id=>id!==file.id))}/> {file.filename}<select aria-label={t('生信文件用途 {name}',{name:file.filename})} value={roles[file.id]??'auto'} onChange={e=>setRoles({...roles,[file.id]:e.target.value})}>{[['auto','自动识别'],['matrix','原始矩阵'],['features','特征表'],['barcodes','条码表'],['positions','位置表'],['scalefactors','缩放参数'],['tissue_image','组织图像'],['alternate_matrix','H5 备选矩阵'],['geo_metadata','GEO 元数据']].map(([key,label])=><option key={key} value={key}>{t(label)}</option>)}</select></label>)}{!files.length&&<p>{t('请先在项目文件中上传生信原件。')}</p>}</fieldset>
+ <BioWriteStatus writer={writer}/><button type="button" className="button-primary" disabled={blocked||!selected.length||!name.trim()} onClick={start}>{t(importVersion==='v2'?'开始实际矩阵核对':'开始结构导入')}</button></section>}</div>
+}

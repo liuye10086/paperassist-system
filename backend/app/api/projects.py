@@ -3,7 +3,7 @@ from typing import Annotated, Any, Literal
 from urllib.parse import quote
 
 from fastapi import APIRouter, Body, Depends, File, Header, HTTPException, Query, Response, UploadFile
-from pydantic import BaseModel, BeforeValidator, ConfigDict, Field
+from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, model_validator
 
 from app.core.config import ExcelSettings, get_request_excel_settings
 from app.adapters.excel import WorkbookPreview, fail, parse_workbook, read_upload
@@ -20,8 +20,19 @@ class ProjectInput(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
     name: str = Field(min_length=1, max_length=120)
     research_topic: str = Field(min_length=1, max_length=500)
-    project_type: Literal["sci", "thesis"]
+    project_type: Literal["sci", "thesis", "research"]
     default_output_language: Literal["zh-CN", "en"] = "zh-CN"
+    delivery_kinds: list[Literal['analysis','sci_draft','thesis_draft']] | None = Field(default=None,min_length=1,max_length=3)
+
+    @model_validator(mode='after')
+    def deliveries_valid(self):
+        if self.delivery_kinds is not None and len(self.delivery_kinds)!=len(set(self.delivery_kinds)):
+            raise ValueError('Delivery kinds must be unique')
+        if self.project_type=='research' and not self.delivery_kinds:
+            raise ValueError('Research projects require delivery kinds')
+        if self.project_type!='research' and self.delivery_kinds is not None:
+            raise ValueError('Legacy projects retain their original delivery contract')
+        return self
 
 
 class ProjectLanguageInput(BaseModel):
@@ -29,7 +40,11 @@ class ProjectLanguageInput(BaseModel):
     default_output_language: Literal["zh-CN", "en"]
 
 
-class Project(ProjectInput):
+class Project(BaseModel):
+    name: str
+    research_topic: str
+    project_type: Literal['sci','thesis','research']
+    default_output_language: Literal['zh-CN','en'] = 'zh-CN'
     id: str
     created_at: str
     updated_at: str
@@ -62,7 +77,7 @@ def list_projects(
     page: Annotated[int | None, Query(ge=1, le=1_000_000), BeforeValidator(decimal_query_integer)] = None,
     page_size: Annotated[int | None, Query(ge=1, le=100), BeforeValidator(decimal_query_integer)] = None,
     q: Annotated[str | None, Query()] = None,
-    project_type: Annotated[Literal['sci', 'thesis'] | None, Query(alias='type')] = None,
+    project_type: Annotated[Literal['sci', 'thesis', 'research'] | None, Query(alias='type')] = None,
 ):
     if all(value is None for value in (page, page_size, q, project_type)):
         return store.projects()
@@ -72,8 +87,12 @@ def list_projects(
 
 
 @router.post("", status_code=201, response_model=Project)
-def create_project(project: ProjectInput, store: Store):
-    return store.create_project(**project.model_dump())
+def create_project(project: ProjectInput, store: Store, response: Response,
+                   idempotency_key: Annotated[str | None, Header(alias='Idempotency-Key')] = None):
+    result=store.create_project(**project.model_dump(),idempotency_key=idempotency_key)
+    if result.pop('_creation_replayed',False):
+        response.status_code=200
+    return result
 
 
 @router.get("/{project_id}", response_model=Project)

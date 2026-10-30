@@ -48,10 +48,11 @@ def _present(root,row):
     return found
 
 
-def _disk_guard(db,root,increment,*,key=None):
+def _disk_guard(db,root,increment,*,key=None,progress=None):
     """Current schema, all owners/projects, max by physical key; never zero on failure."""
     pending={}
     for raw in db.execute("SELECT * FROM storage_reservations WHERE state IN ('reserved','unknown')"):
+        if progress is not None:progress()
         row=dict(raw);charge=row['size_bytes']
         if row['capacity_bytes'] is not None:
             charge=row['capacity_bytes'] if row['sha256'] is None else row['size_bytes']
@@ -223,10 +224,11 @@ def task_recovery_mode(db,root,task):
     return mode
 
 
-def _reconcile_candidates(db,root):
+def _reconcile_candidates(db,root,*,progress=None):
     directory=Path(root)/'.storage-intents';unknown=0
     for stage in ('allocation','capture','complete'):
         for path in directory.glob('*.'+stage+'.json'):
+            if progress is not None:progress()
             try:
                 s._key(root,path)
                 with path.open('rb') as stream:raw=stream.read(8193)

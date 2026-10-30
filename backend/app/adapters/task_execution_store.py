@@ -93,7 +93,7 @@ class TaskExecutionStore:
         with self.connection(write=True) as db:
             ensure_schema_current(db)
             row = db.execute('SELECT * FROM tasks WHERE id=%s', (task_id,)).fetchone()
-            if (not row or row['task_type'] not in ('word_report', 'explanation', 'boxplot', 'parse_file', 'extract_dataset', 'prepare_dataset', 'review_ocr', 'analysis_plan', 'analysis_recommendation', 'figure_projection', 'figure_workbench', 'figure_explanation', 'collection_word_report', 'statistics_compute', 'literature_search', 'literature_assistance', 'manuscript_draft', 'manuscript_docx', 'pdf_export', 'layout_docx', 'manuscript_writing', 'school_template_parse', 'school_rule_suggestion', 'journal_recommendation', 'journal_format_check', 'journal_adaptation', 'review_round_plan', 'review_revision', 'review_document_export')
+            if (not row or row['task_type'] not in ('word_report', 'explanation', 'boxplot', 'parse_file', 'extract_dataset', 'prepare_dataset', 'review_ocr', 'analysis_plan', 'analysis_recommendation', 'figure_projection', 'figure_workbench', 'figure_explanation', 'collection_word_report', 'statistics_compute', 'literature_search', 'literature_assistance', 'manuscript_draft', 'manuscript_docx', 'pdf_export', 'layout_docx', 'manuscript_writing', 'school_template_parse', 'school_rule_suggestion', 'journal_recommendation', 'journal_format_check', 'journal_adaptation', 'review_round_plan', 'review_revision', 'review_document_export', 'bio_import', 'bio_analysis', 'bio_figure')
                     or (task_type is not None and row['task_type'] != task_type)
                     or row['revision'] != task_revision):
                 return None
@@ -797,7 +797,7 @@ class TaskExecutionStore:
             reconcile_intents(db,self.assets.directory)
             rows = db.execute('''SELECT t.* FROM tasks t JOIN task_attempts a
                 ON a.task_id=t.id AND a.attempt_no=t.current_attempt
-                WHERE t.task_type IN ('word_report','explanation','boxplot','parse_file','extract_dataset','prepare_dataset', 'review_ocr', 'analysis_plan', 'analysis_recommendation', 'figure_projection', 'figure_workbench', 'figure_explanation', 'collection_word_report', 'statistics_compute', 'literature_search', 'literature_assistance', 'manuscript_draft', 'manuscript_docx', 'pdf_export', 'layout_docx', 'manuscript_writing', 'school_template_parse', 'school_rule_suggestion', 'journal_recommendation', 'journal_format_check', 'journal_adaptation', 'review_round_plan', 'review_revision', 'review_document_export') AND t.status='running' AND a.status='running'
+                WHERE t.task_type IN ('word_report','explanation','boxplot','parse_file','extract_dataset','prepare_dataset', 'review_ocr', 'analysis_plan', 'analysis_recommendation', 'figure_projection', 'figure_workbench', 'figure_explanation', 'collection_word_report', 'statistics_compute', 'literature_search', 'literature_assistance', 'manuscript_draft', 'manuscript_docx', 'pdf_export', 'layout_docx', 'manuscript_writing', 'school_template_parse', 'school_rule_suggestion', 'journal_recommendation', 'journal_format_check', 'journal_adaptation', 'review_round_plan', 'review_revision', 'review_document_export', 'bio_import', 'bio_analysis', 'bio_figure') AND t.status='running' AND a.status='running'
                 AND a.lease_expires_at<=clock_timestamp()
                 ORDER BY a.lease_expires_at,t.id LIMIT %s''', (limit,)).fetchall()
             for row in rows:

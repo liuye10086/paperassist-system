@@ -1,0 +1,8 @@
+import {useI18n} from '../../shared/i18n'
+import {useState} from 'react'
+import type {AnalysisNavigation} from '../projects/analysisViews'
+import {projectBase} from './api'
+import type {BioRun} from './spatialContracts'
+import {useBioRead} from './spatialHooks'
+import {taskDisplayName} from '../tasks/taskTypes'
+export default function BioAnalysisRuns({projectId,active,onNavigate}:{projectId:string;active:boolean;onNavigate:(n:AnalysisNavigation)=>void}){const {t}=useI18n(),[page,setPage]=useState(1),read=useBioRead<{items:BioRun[];total:number;page:number;page_size:number}>(active?`${projectBase(projectId)}/bio-analysis-runs?page=${page}&page_size=50`:'');return <section className="bio-workspace"><h3>{t('空间分析运行历史')}</h3>{read.error&&<p role="alert">{t(read.error)}</p>}{read.value&&<><ul>{read.value.items.map(v=><li key={v.id}><code>{v.id}</code> · {t(taskDisplayName(v.task))} · <button type="button" onClick={()=>onNavigate({view:'bio-analysis',fileId:'',runId:v.id})}>{t('查看空间分析运行与 QC 确认')}</button>{v.result_source&&v.task.status==='succeeded'&&<button type="button" onClick={()=>onNavigate({view:'bio-result',fileId:'',processedId:v.result_source!.processed_dataset_version_id,tab:'qc'})}>{t('打开固定处理结果')}</button>}</li>)}</ul>{!read.value.items.length&&<p>{t('暂无空间分析运行')}</p>}<div className="intake-actions"><button type="button" disabled={page===1} onClick={()=>setPage(p=>p-1)}>{t('上一页')}</button><button type="button" disabled={page*50>=read.value.total} onClick={()=>setPage(p=>p+1)}>{t('下一页')}</button><button type="button" onClick={read.reload}>{t('重新读取')}</button></div></>}</section>}

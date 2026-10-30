@@ -102,7 +102,7 @@ class FutureSummary(BaseModel):
 
 class ProjectSummary(BaseModel):
     project_id: str
-    project_type: Literal['sci', 'thesis']
+    project_type: Literal['sci', 'thesis', 'research']
     tasks: SummaryPage[TaskSummary]
     artifacts: SummaryPage[ArtifactSummary]
     future: FutureSummary
@@ -249,6 +249,8 @@ def read_project_summary(store, project_id, *, task_page=1, artifact_page=1, pag
         revision.actual_revisions=current.get('actual_revisions',[]) if current else []
         revision.documents=current.get('documents',[]) if current else []
         revision.tasks.extend(r['task'] for r in revision.actual_revisions)
+        if project['project_type']=='research':
+            revision=RevisionSummary(state='not_available')
         writing=WritingSummary()
         if project['project_type'] in ('sci','thesis'):
             latest=db.execute('SELECT id,title,current_revision FROM manuscripts WHERE project_id=%s ORDER BY updated_at DESC,id LIMIT 1',(project_id,)).fetchone()

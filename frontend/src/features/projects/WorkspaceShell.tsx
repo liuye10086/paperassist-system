@@ -37,7 +37,7 @@ type Props = {
   onNavigate: (view: WorkspaceView) => void
   onCreate: () => void
   projectName?: string
-  projectType?: 'sci' | 'thesis'
+  projectType?: 'sci' | 'thesis' | 'research'
   section?: ProjectSection
   onSectionChange?: (section: ProjectSection) => void
   onCurrentProject: () => void
@@ -111,12 +111,12 @@ export default function WorkspaceShell({ view, onNavigate, onCreate, projectName
         </button>
         <nav className="project-section-nav" aria-label={t('项目导航')}>
           {sectionButton('overview')}
-          {groups.map(group => <div className={`workspace-nav-group${activeGroup === group.id ? ' is-current' : ''}`} key={group.id}>
+          {groups.filter(group => projectType !== 'research' || group.id !== 'writing').map(group => <div className={`workspace-nav-group${activeGroup === group.id ? ' is-current' : ''}`} key={group.id}>
             <button type="button" className="workspace-nav-item workspace-group-toggle" aria-label={t(group.label)} title={t(group.label)}
               aria-expanded={activeGroup === group.id} aria-controls={`workspace-group-${group.id}`} onClick={() => chooseSection(group.items[0])}>
               <WorkspaceIcon name={group.icon} /><span className="sidebar-text">{t(group.label)}</span><span className="group-chevron sidebar-text" aria-hidden="true">›</span>
             </button>
-            <div className="workspace-group-children" id={`workspace-group-${group.id}`} hidden={activeGroup !== group.id}>{group.items.map(sectionButton)}</div>
+            <div className="workspace-group-children" id={`workspace-group-${group.id}`} hidden={activeGroup !== group.id}>{group.items.filter(item => projectType !== 'research' || item !== 'reviews').map(sectionButton)}</div>
           </div>)}
         </nav>
       </div>}

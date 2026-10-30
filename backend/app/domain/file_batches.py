@@ -57,7 +57,7 @@ class BatchItem(BaseModel):
     ordinal: int
     filename: str
     size_bytes: int
-    status: Literal['pending', 'rejected', 'queued', 'parsing', 'parsed', 'failed']
+    status: Literal['pending', 'rejected', 'queued', 'parsing', 'parsed', 'failed', 'stored']
     file_id: str | None
     task: TaskView | None
     error: dict | None
@@ -79,6 +79,12 @@ class BatchPage(BaseModel):
 
 
 class FileBatchService:
+    profile = 'documents'
+    extensions = ('.xlsx', '.docx', '.pdf', '.png', '.jpg', '.jpeg')
+
+    def maximum(self, version):
+        return effective_excel_settings(version).max_upload_bytes
+
     def __init__(self, project_store):
         self.assets = project_store
         self.store = TaskStore(project_store.owner_id, project_store.db_config)
@@ -87,7 +93,7 @@ class FileBatchService:
         self.store.require_project(db, project_id)
         row = db.execute('SELECT * FROM file_upload_batches WHERE id=%s AND project_id=%s AND user_id=%s',
                          (batch_id, project_id, self.store.user_id)).fetchone()
-        if row is None:
+        if row is None or row['profile'] != self.profile:
             raise StorageError('file_batch_not_found', '上传批次不存在，请重新载入。', 404)
         return row
 
@@ -104,31 +110,37 @@ class FileBatchService:
                 'status': {'queued':'queued','running':'parsing','succeeded':'parsed','failed':'failed'}.get(task['status'], file['parse_status']) if task else file['parse_status'] if file else ('rejected' if row['error_json'] else 'pending'),
                 'task': self.store.public_task(dict(task)) if task else None,
                 'error': error_detail(task['error_code'], '文件解析失败，请检查文件或重试。') if task and task['error_code'] else row['error_json']})
-        return {'id': batch['id'], 'project_id': batch['project_id'],
+        result = {'id': batch['id'], 'project_id': batch['project_id'],
                 'created_at': batch['created_at'].astimezone(timezone.utc).isoformat(), 'revision': revision, 'items': items}
+        if self.profile != 'documents':
+            result['profile'] = self.profile
+        return result
 
     def register(self, project_id, request, key):
-        digest = hashlib.sha256(json.dumps(request.model_dump(), sort_keys=True, ensure_ascii=False,
+        material = request.model_dump()
+        if self.profile != 'documents':
+            material = {'profile': self.profile, **material}
+        digest = hashlib.sha256(json.dumps(material, sort_keys=True, ensure_ascii=False,
                                           separators=(',', ':')).encode()).hexdigest()
         with self.store.connection(write=True) as db:
             self.store.require_project(db, project_id)
             existing = db.execute('SELECT * FROM file_upload_batches WHERE project_id=%s AND user_id=%s AND idempotency_key=%s',
                                   (project_id, self.store.user_id, key)).fetchone()
             if existing:
-                if existing['request_digest'] != digest:
+                if existing['request_digest'] != digest or existing['profile'] != self.profile:
                     raise StorageError('file_batch_idempotency_conflict', '同一批次标识已用于不同文件列表。', 409)
                 return self.project(db, existing), 200
             ids = [item.client_id for item in request.items]
             if db.execute('SELECT id FROM file_upload_items WHERE id=ANY(%s)', (ids,)).fetchone():
                 raise StorageError('file_batch_item_conflict', '文件项标识已使用，请重新登记批次。', 409)
             batch = {'id': str(uuid4()), 'project_id': project_id, 'created_at': datetime.now(timezone.utc)}
-            db.execute('''INSERT INTO file_upload_batches(id,project_id,user_id,idempotency_key,request_digest,created_at)
-                VALUES (%s,%s,%s,%s,%s,%s)''', (batch['id'], project_id, self.store.user_id, key, digest, batch['created_at']))
-            maximum = effective_excel_settings(resolve(db)).max_upload_bytes
+            db.execute('''INSERT INTO file_upload_batches(id,project_id,user_id,idempotency_key,request_digest,created_at,profile)
+                VALUES (%s,%s,%s,%s,%s,%s,%s)''', (batch['id'], project_id, self.store.user_id, key, digest, batch['created_at'], self.profile))
+            maximum = self.maximum(resolve(db))
             for ordinal, item in enumerate(request.items):
-                code = ('unsupported_file_type' if not item.filename.lower().endswith(('.xlsx', '.docx', '.pdf', '.png', '.jpg', '.jpeg')) else
+                code = ('unsupported_file_type' if not item.filename.lower().endswith(self.extensions) else
                         'empty_file' if item.size_bytes == 0 else 'file_too_large' if item.size_bytes > maximum else None)
-                error = error_detail(code, {'unsupported_file_type': '仅支持 .xlsx、.docx、.pdf、.png 或 .jpg/.jpeg 文件。',
+                error = error_detail(code, {'unsupported_file_type': '文件格式不在此上传入口的支持范围内。',
                     'empty_file': '文件为空，请选择有效文件。', 'file_too_large': '文件超过上传大小限制。'}[code],
                     {'max_bytes': maximum}) if code else None
                 db.execute('''INSERT INTO file_upload_items(id,batch_id,ordinal,filename,size_bytes,file_id,error_json)
@@ -143,9 +155,9 @@ class FileBatchService:
     def list(self, project_id, page, page_size):
         with self.store.connection() as db:
             self.store.require_project(db, project_id)
-            args = (project_id, self.store.user_id)
-            total = db.execute('SELECT count(*) AS n FROM file_upload_batches WHERE project_id=%s AND user_id=%s', args).fetchone()['n']
-            rows = db.execute('''SELECT * FROM file_upload_batches WHERE project_id=%s AND user_id=%s
+            args = (project_id, self.store.user_id, self.profile)
+            total = db.execute('SELECT count(*) AS n FROM file_upload_batches WHERE project_id=%s AND user_id=%s AND profile=%s', args).fetchone()['n']
+            rows = db.execute('''SELECT * FROM file_upload_batches WHERE project_id=%s AND user_id=%s AND profile=%s
                 ORDER BY created_at DESC,id LIMIT %s OFFSET %s''', (*args, page_size, (page-1)*page_size)).fetchall()
             return {'items': [self.project(db, row) for row in rows], 'total': total, 'page': page, 'page_size': page_size}
 
@@ -156,9 +168,10 @@ class FileBatchService:
             batch = self.require_batch(db, project_id, batch_id)
             version = resolve(db)
             excel = effective_excel_settings(version)
-            if len(content) > excel.max_upload_bytes:
+            maximum = self.maximum(version)
+            if len(content) > maximum:
                 raise StorageError('file_too_large', '文件超过上传大小限制。', 413,
-                    params={'max_bytes': excel.max_upload_bytes})
+                    params={'max_bytes': maximum})
             item = db.execute('SELECT * FROM file_upload_items WHERE id=%s AND batch_id=%s', (item_id, batch_id)).fetchone()
             if not item:
                 raise StorageError('file_batch_item_not_found', '上传文件项不存在。', 404)
@@ -173,6 +186,8 @@ class FileBatchService:
                     raise StorageError('file_batch_item_conflict', '此文件项已保存不同内容。', 409)
                 self.assets.original(dict(file))
                 return next(row for row in self.project(db, batch)['items'] if row['id'] == item_id)
+            if self.profile == 'bioinformatics_v1':
+                return self.store_original(db, project_id, batch, item, filename, content)
             task_id, parse_id = str(uuid4()), str(uuid4())
             file_type = filename.rsplit('.', 1)[-1].lower()
             if file_type == 'jpg':
@@ -212,3 +227,25 @@ class FileBatchService:
             db.execute('UPDATE file_upload_items SET file_id=%s WHERE id=%s', (file_id, item_id))
             db.execute('UPDATE projects SET updated_at=GREATEST(updated_at,%s) WHERE id=%s', (now.isoformat(), project_id))
             return next(row for row in self.project(db, batch)['items'] if row['id'] == item_id)
+
+    def store_original(self, db, project_id, batch, item, filename, content):
+        kind = 'bio_bundle' if filename.lower().endswith(('.tar', '.tgz', '.tar.gz')) else 'bio_component'
+        descriptor = self.assets.objects.put_original(project_id, batch['id'], kind, content, item_id=item['id'], db=db)
+        now = datetime.now(timezone.utc)
+        db.execute('''INSERT INTO files(id,project_id,filename,file_type,size_bytes,sha256,uploaded_at,
+            parse_status,error_json,preview_json,uploader_id,storage_backend,object_key,metadata_revision,upload_item_id,parse_revision)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,'stored',NULL,NULL,%s,%s,%s,1,%s,0)''',
+            (descriptor.id, project_id, filename, kind, descriptor.size_bytes, descriptor.sha256, now.isoformat(),
+             self.store.user_id, descriptor.storage_backend, descriptor.object_key, item['id']))
+        db.execute('UPDATE file_upload_items SET file_id=%s WHERE id=%s', (descriptor.id, item['id']))
+        db.execute('UPDATE projects SET updated_at=GREATEST(updated_at,%s) WHERE id=%s', (now.isoformat(), project_id))
+        return next(row for row in self.project(db, batch)['items'] if row['id'] == item['id'])
+
+
+class BioUploadService(FileBatchService):
+    profile = 'bioinformatics_v1'
+    extensions = ('.tar', '.tgz', '.gz', '.mtx', '.tsv', '.csv', '.soft', '.xml', '.h5', '.h5ad', '.json', '.txt', '.png', '.jpg', '.jpeg')
+
+    def maximum(self, version):
+        from app.domain.bioinformatics.settings import BioLimits
+        return BioLimits().max_upload_bytes

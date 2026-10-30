@@ -172,3 +172,16 @@ def references(db,root,failed,coverage):
         JOIN projects p ON p.id=a.project_id AND p.owner_id=a.user_id
         WHERE a.task_type IN ('boxplot','figure_workbench') AND a.figure_candidate IS NOT NULL''')
     yield from emit(tasks,'figure_candidate',figure_candidate)
+
+    # B02 immutable producers are resolved from real normalized storage foreign keys.
+    for table,column,hash_column,kind in (
+        ('bio_observation_map_versions','mapping_object_id','mapping_sha256','bio_mapping'),
+        ('bio_analysis_runs','execution_snapshot_object_id','execution_snapshot_sha256','bio_analysis'),
+        ('bio_processed_dataset_versions','manifest_object_id','manifest_sha256','bio_analysis'),
+        ('bio_analysis_artifacts','storage_object_id','sha256','bio_analysis'),
+        ('bio_annotation_versions','geometry_object_id','geometry_sha256','bio_annotation'),
+        ('bio_annotation_versions','assignments_object_id','assignments_sha256','bio_annotation'),
+        ('bio_figure_versions','manifest_object_id','manifest_sha256','bio_figure'),
+        ('bio_figure_members','storage_object_id','sha256','bio_figure')):
+        rows=db.execute('SELECT to_jsonb(a)||jsonb_build_object(\'object_key\',o.object_key,\'size_bytes\',o.size_bytes,\'sha256\',a.'+hash_column+') AS record,p.id AS project_id,p.owner_id FROM '+table+' a JOIN projects p ON p.id=a.project_id AND p.owner_id=a.created_by JOIN storage_objects o ON o.id=a.'+column+' WHERE a.'+column+' IS NOT NULL')
+        yield from emit(rows,kind,lambda r:[r])

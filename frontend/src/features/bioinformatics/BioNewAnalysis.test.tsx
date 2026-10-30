@@ -1,0 +1,11 @@
+import {afterEach,expect,it,vi} from 'vitest'
+import {cleanup,fireEvent,render,screen,waitFor} from '@testing-library/react'
+import {apiFetch} from '../../shared/api/client'
+import BioNewAnalysis from './BioNewAnalysis'
+import {capabilitiesFixture,rawFixture,recipeFixture} from './spatialFixtures'
+import useProjectSelection from '../projects/useProjectSelection'
+vi.mock('../../shared/api/client',()=>({apiFetch:vi.fn(),getApiUserId:()=> 'owner1',onApiSessionChanged:()=>()=>{}}))
+afterEach(()=>{cleanup();vi.clearAllMocks();window.history.replaceState(null,'','/')})
+it('creates a frozen setup separately from starting any scientific task',async()=>{vi.mocked(apiFetch).mockImplementation(async(_url,init)=>Response.json(init?.method==='POST'?recipeFixture:capabilitiesFixture));const navigate=vi.fn();render(<BioNewAnalysis projectId="p1" source={rawFixture} onNavigate={navigate}/>);fireEvent.click(await screen.findByText('新建空间分析配置'));await waitFor(()=>expect(navigate).toHaveBeenCalledWith({view:'bio-analysis-setup',fileId:'',setupId:'setup1'}));expect(vi.mocked(apiFetch).mock.calls.filter(c=>c[1]?.method==='POST')).toHaveLength(1);expect(vi.mocked(apiFetch).mock.calls.some(c=>String(c[0]).includes('/bio-analysis-runs'))).toBe(false)})
+function Harness(){const s=useProjectSelection(()=>{},()=>{});return <><output>{s.analysisNavigation.view}</output><BioNewAnalysis projectId="p1" source={rawFixture} onNavigate={s.selectAnalysis} registerLeaveGuard={s.registerLeaveGuard}/></>}
+it('can navigate to a successfully saved setup through the real pending leave guard',async()=>{window.history.replaceState(null,'','/#project=p1&section=analysis&view=bio-dataset&dataset=d1&version=v1');vi.spyOn(window,'alert').mockImplementation(()=>{});vi.mocked(apiFetch).mockImplementation(async(url,init)=>Response.json(init?.method==='POST'?recipeFixture:String(url).endsWith('/p1')?{id:'p1',name:'Research',research_topic:'T',project_type:'research',file_count:0,created_at:'x',updated_at:'x'}:capabilitiesFixture));render(<Harness/>);fireEvent.click(await screen.findByText('新建空间分析配置'));await waitFor(()=>expect(window.location.hash).toContain('view=bio-analysis-setup&setup=setup1'));expect(window.alert).not.toHaveBeenCalled()})

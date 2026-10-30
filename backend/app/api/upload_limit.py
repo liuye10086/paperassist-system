@@ -14,14 +14,20 @@ class UploadLimitMiddleware:
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send):
         path = scope.get("path", "").rstrip("/")
+        is_bio = bool(re.fullmatch(r"/api/v1/projects/[^/]+/bio-upload-batches/[^/]+/items/[^/]+", path))
+        is_research_json = bool(re.fullmatch(r"/api/v1/projects/[^/]+/(requirements|research-designs|design-table-preview|design-table-previews|deliveries)",path))
+        is_bio_json = bool(re.fullmatch(r"/api/v1/projects/[^/]+/(bio-imports(?:/[^/]+/confirm)?|bio-upload-batches)",path))
         is_upload = (path == "/api/v1/excel/preview" or re.fullmatch(r"/api/v1/projects/[^/]+/files", path)
-                     or re.fullmatch(r"/api/v1/projects/[^/]+/file-batches/[^/]+/items/[^/]+", path))
-        if scope["type"] != "http" or scope["method"] != "POST" or not is_upload:
+                     or re.fullmatch(r"/api/v1/projects/[^/]+/file-batches/[^/]+/items/[^/]+", path) or is_bio)
+        if scope["type"] != "http" or scope["method"] != "POST" or not (is_upload or is_research_json or is_bio_json):
             return await self.app(scope, receive, send)
 
         # Small fixed allowance for the multipart boundary and file headers.
-        max_upload_bytes = get_request_excel_settings().max_upload_bytes
-        limit = max_upload_bytes + 64 * 1024
+        max_upload_bytes = 4*1024*1024 if is_research_json else 65536 if is_bio_json else get_request_excel_settings().max_upload_bytes
+        if is_bio:
+            from app.domain.bioinformatics.settings import BioLimits
+            max_upload_bytes = BioLimits().max_upload_bytes
+        limit = max_upload_bytes + (64*1024 if is_upload else 0)
         body = bytearray()
         while True:
             message = await receive()
@@ -29,7 +35,7 @@ class UploadLimitMiddleware:
                 return
             chunk = message.get("body", b"")
             if len(body) + len(chunk) > limit:
-                response = error_response(413, 'file_too_large', '上传请求超过大小限制，请缩小文件后重试。',
+                response = error_response(413, 'research_content_too_large' if is_research_json else 'bio_input_limit' if is_bio_json else 'file_too_large', '请求超过大小限制，请缩小内容后重试。',
                                           {'max_bytes': max_upload_bytes})
                 return await response(scope, receive, send)
             body.extend(chunk)

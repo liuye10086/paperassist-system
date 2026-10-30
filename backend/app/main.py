@@ -6,7 +6,8 @@ from app.core.safe_logging import configure_safe_logging
 
 configure_safe_logging()
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Depends
+from app.api.research_guards import legacy_writing_project
 from fastapi.exceptions import RequestValidationError
 from starlette.exceptions import HTTPException
 
@@ -93,6 +94,12 @@ app.include_router(storage_deletion_router)
 from app.api.documents import router as documents_router
 app.include_router(documents_router)
 app.include_router(file_batches_router)
+from app.api.research_intake import router as research_intake_router
+app.include_router(research_intake_router)
+from app.api.bio_datasets import router as bio_datasets_router
+from app.api.bio_analysis import router as bio_analysis_router
+app.include_router(bio_datasets_router)
+app.include_router(bio_analysis_router)
 app.include_router(datasets_router)
 app.include_router(dataset_preparation_router)
 app.include_router(analysis_plans_router)
@@ -113,7 +120,7 @@ app.include_router(literature_assistance_router)
 from app.api.literature_citations import router as literature_citations_router
 app.include_router(literature_citations_router)
 from app.api.manuscripts import router as manuscripts_router
-app.include_router(manuscripts_router)
+app.include_router(manuscripts_router, dependencies=[Depends(legacy_writing_project)])
 
 
 @app.get('/api/v1/ai/config')
@@ -187,40 +194,40 @@ from app.api.pdf_exports import router as pdf_exports_router
 app.include_router(pdf_exports_router)
 
 from app.api.manuscript_writing import router as manuscript_writing_router
-app.include_router(manuscript_writing_router)
+app.include_router(manuscript_writing_router, dependencies=[Depends(legacy_writing_project)])
 from app.api.manuscript_review import router as manuscript_review_router
-app.include_router(manuscript_review_router)
+app.include_router(manuscript_review_router, dependencies=[Depends(legacy_writing_project)])
 
 from app.api.layout_exports import router as layout_exports_router
 app.include_router(layout_exports_router)
 
 from app.api.manuscript_writing import preview_router, authorization_router
-app.include_router(preview_router)
-app.include_router(authorization_router)
+app.include_router(preview_router, dependencies=[Depends(legacy_writing_project)])
+app.include_router(authorization_router, dependencies=[Depends(legacy_writing_project)])
 
 from app.api.manuscript_figure_language import router as manuscript_figure_language_router
-app.include_router(manuscript_figure_language_router)
+app.include_router(manuscript_figure_language_router, dependencies=[Depends(legacy_writing_project)])
 
 from app.api.school_templates import router as school_templates_router
-app.include_router(school_templates_router)
+app.include_router(school_templates_router, dependencies=[Depends(legacy_writing_project)])
 
 from app.api.manuscript_school_changes import router as manuscript_school_changes_router
-app.include_router(manuscript_school_changes_router)
+app.include_router(manuscript_school_changes_router, dependencies=[Depends(legacy_writing_project)])
 
 from app.api.journals import router as journals_router
-app.include_router(journals_router)
+app.include_router(journals_router, dependencies=[Depends(legacy_writing_project)])
 
 from app.api.review_rounds import router as review_rounds_router
-app.include_router(review_rounds_router)
+app.include_router(review_rounds_router, dependencies=[Depends(legacy_writing_project)])
 
 from app.api.review_documents import router as review_documents_router
-app.include_router(review_documents_router)
+app.include_router(review_documents_router, dependencies=[Depends(legacy_writing_project)])
 
 from app.api.review_science import router as review_science_router
-app.include_router(review_science_router)
+app.include_router(review_science_router, dependencies=[Depends(legacy_writing_project)])
 
 from app.api.review_continuations import router as review_continuations_router
-app.include_router(review_continuations_router)
+app.include_router(review_continuations_router, dependencies=[Depends(legacy_writing_project)])
 
 from app.api.admin import router as admin_router
 app.include_router(admin_router)

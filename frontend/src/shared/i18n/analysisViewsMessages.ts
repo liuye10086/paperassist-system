@@ -1,4 +1,6 @@
+import {spatialAnalysisMessages} from './spatialAnalysisMessages'
 export const analysisViewsMessages: Record<string, string> = {
+  ...spatialAnalysisMessages,
   '分析方案': 'Analysis plan',
   '请先在字段配置中明确选择数据版本与工作表。': 'Select a data version and worksheet in Field configuration first.',
   '前往字段配置': 'Go to field configuration',

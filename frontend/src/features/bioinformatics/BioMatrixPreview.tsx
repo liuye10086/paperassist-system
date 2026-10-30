@@ -1,0 +1,12 @@
+import {useState} from 'react'
+import {useI18n} from '../../shared/i18n'
+import {projectBase} from './api'
+import {useBioRead} from './spatialHooks'
+type Axis=string|{id?:string;feature_id?:string;barcode?:string;symbol?:string}
+type Preview={features:Axis[];observations:Axis[];values?:unknown[][];matrix?:unknown[][]}
+export default function BioMatrixPreview({projectId,processedId}:{projectId:string;processedId:string}){
+ const {t}=useI18n(),[layer,setLayer]=useState('counts'),[requested,setRequested]=useState(''),[fpage,setFpage]=useState(1),[opage,setOpage]=useState(1)
+ const read=useBioRead<Preview>(requested?`${projectBase(projectId)}/bio-processed-datasets/${encodeURIComponent(processedId)}/matrix-preview?layer=${requested}&features_page=${fpage}&observations_page=${opage}`:''),data=read.value
+ const label=(v:Axis)=>typeof v==='string'?v:v.id??v.feature_id??v.barcode??'',symbol=(v:Axis)=>typeof v==='object'?v.symbol:null,values=data?.values??data?.matrix??[]
+ return <section className="bio-workspace"><h3>{t('原始与派生矩阵层核对')}</h3><p>{t('此处是有界预览，不能代替完整处理对象与逐轴下载。')}</p><label>{t('有界矩阵数据层')}<select value={layer} onChange={e=>setLayer(e.target.value)}>{['counts','normalized','log1p'].map(v=><option key={v}>{v}</option>)}</select></label><button type="button" onClick={()=>{setRequested(layer);setFpage(1);setOpage(1);if(requested===layer)read.reload()}}>{t('读取处理层有界预览')}</button>{read.error&&<p role="alert">{t(read.error)}</p>}{data&&<><p>{requested} · {t('特征页 {features}，观测页 {observations}',{features:fpage,observations:opage})}</p><div className="bio-table-scroll"><table><caption>{requested}</caption><thead><tr><th>{t('观测 / 特征')}</th>{data.features.map((v,i)=><th key={i}><span>{label(v)}</span>{symbol(v)&&<><br/><span>{symbol(v)}</span></>}</th>)}</tr></thead><tbody>{data.observations.map((v,i)=><tr key={i}><th>{label(v)}</th>{data.features.map((_,j)=><td key={j}>{typeof values[i]?.[j]==='number'?String(values[i][j]):'NA'}</td>)}</tr>)}</tbody></table></div><div className="intake-actions"><button type="button" disabled={fpage===1} onClick={()=>setFpage(p=>p-1)}>{t('上一特征页')}</button><button type="button" disabled={data.features.length<40} onClick={()=>setFpage(p=>p+1)}>{t('下一特征页')}</button><button type="button" disabled={opage===1} onClick={()=>setOpage(p=>p-1)}>{t('上一观测页')}</button><button type="button" disabled={data.observations.length<20} onClick={()=>setOpage(p=>p+1)}>{t('下一观测页')}</button></div></>}</section>
+}

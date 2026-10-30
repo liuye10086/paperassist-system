@@ -3,6 +3,23 @@ import sqlalchemy as sa
 from sqlalchemy.dialects.postgresql import JSONB
 
 
+def install_research_barriers(execute):
+    """Only CR-B01 producers; never reinstall historic migration barriers."""
+    tables=('research_intakes','research_deliveries','research_requirement_versions','research_design_versions',
+            'research_material_refs','bio_datasets','bio_imports','bio_import_files','bio_dataset_versions','bio_dataset_members')
+    for table in tables:
+        execute(f'''CREATE FUNCTION storage_guard_{table}() RETURNS trigger LANGUAGE plpgsql AS $$
+          DECLARE fid text;
+          BEGIN fid=coalesce(to_jsonb(NEW)->>'file_id',to_jsonb(NEW)->>'source_file_id');
+          IF EXISTS(SELECT 1 FROM storage_deletion_operations o WHERE o.project_id=NEW.project_id
+            AND o.state<>'preview' AND (o.scope_kind='project' OR o.state IN ('running','partial_failed')
+              OR (o.scope_kind='file' AND o.file_id=fid AND EXISTS(
+                SELECT 1 FROM storage_deletion_items i WHERE i.operation_id=o.id AND i.state<>'retained'))))
+          THEN RAISE EXCEPTION USING ERRCODE='P7501', MESSAGE='storage_deletion_pending'; END IF;
+          RETURN NEW; END $$''')
+        execute(f'CREATE TRIGGER storage_deletion_guard BEFORE INSERT OR UPDATE ON {table} FOR EACH ROW EXECUTE FUNCTION storage_guard_{table}()')
+
+
 def define_storage_deletion_tables(metadata):
     fixtures=sa.Table('storage_disposable_fixtures',metadata,
         sa.Column('id',sa.Text,primary_key=True),

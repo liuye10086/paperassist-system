@@ -1,0 +1,6 @@
+import {expect,it} from 'vitest'
+import {isRawBioSource,isProcessedBioSource} from './spatialContracts'
+const raw={kind:'bio_dataset_version',schema_version:1,project_id:'p1',dataset_id:'d1',dataset_version_id:'v1',version:1,manifest_sha256:'a'.repeat(64),parser_version:'visium-v1',source_file_ids:['f1']}
+it('requires complete frozen raw identity and refuses wrong project or hashes',()=>{expect(isRawBioSource(raw,'p1')).toBe(true);expect(isRawBioSource({...raw,manifest_sha256:'bad'},'p1')).toBe(false);expect(isRawBioSource(raw,'p2')).toBe(false);expect(isRawBioSource({...raw,source_file_ids:[]},'p1')).toBe(false)})
+it('rejects source fields outside the frozen server schema',()=>{expect(isRawBioSource({...raw,path:'private'},'p1')).toBe(false)})
+it('requires complete processed provenance rather than accepting an Excel source',()=>{const source={kind:'bio_processed_dataset_version',schema_version:1,project_id:'p1',processed_dataset_version_id:'pds1',analysis_run_id:'r1',raw_source:raw,recipe_version_id:'recipe1',manifest_sha256:'b'.repeat(64),engine_version:'visium_explore_v1.0.0',environment_digest:'c'.repeat(64)};expect(isProcessedBioSource(source,'p1')).toBe(true);expect(isProcessedBioSource({...source,raw_source:{...raw,project_id:'p2'}},'p1')).toBe(false);expect(isProcessedBioSource({...source,engine_version:''},'p1')).toBe(false)})

@@ -309,6 +309,12 @@ def audit_database(db):
         checks.extend(audit_review_science(db))
         from app.maintenance.school_change_audit import audit_school_changes
         checks.extend(audit_school_changes(db))
+        from app.maintenance.research_intake_audit import audit_research_intakes
+        checks.extend(audit_research_intakes(db))
+        from app.maintenance.bio_dataset_audit import audit_bio_datasets
+        checks.extend(audit_bio_datasets(db))
+        from app.maintenance.bio_analysis_audit import audit_bio_analysis
+        checks.extend(audit_bio_analysis(db))
     return {'schema': schema, 'ok': not issues and not any(c['invalid'] for c in checks), 'schema_issues': issues, 'data_checks': checks,
             'compatibility': 'Legacy JSON/time validated in audit only; task JSONB/time use native types; source chains use single-column foreign keys; values preserved.'}
 

@@ -1,4 +1,4 @@
-export function summaryFixture(projectId = 'p1', projectType: 'sci' | 'thesis' = 'sci') {
+export function summaryFixture(projectId = 'p1', projectType: 'sci' | 'thesis' | 'research' = 'sci') {
   return {
     project_id: projectId, project_type: projectType,
     tasks: { items: [], total: 0, page: 1, page_size: 10 },

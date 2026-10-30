@@ -44,7 +44,7 @@ export default function ProjectList({ items, total, query, searchDraft, loading,
       <label>{t("筛选项目类型")}<select value={query.type} onChange={event => onQueryChange({
         ...query, page: 1, type: event.target.value as ProjectListQuery['type'],
       })}>
-        <option value="">{t("全部类型")}</option><option value="sci">{t("SCI 科研论文")}</option><option value="thesis">{t("毕业论文")}</option>
+        <option value="">{t("全部类型")}</option><option value="sci">{t("SCI 科研论文")}</option><option value="thesis">{t("毕业论文")}</option><option value="research">{t("研究项目")}</option>
       </select></label>
       <button type="button" className="button-quiet" onClick={clearFilters}>{t("清除筛选")}</button>
     </form>

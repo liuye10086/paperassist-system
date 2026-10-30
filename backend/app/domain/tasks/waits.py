@@ -8,6 +8,12 @@ from app.domain.tasks.wait_contracts import WaitView
 
 
 def input_version(task):
+    if task['task_type'] in ('bio_analysis', 'bio_figure'):
+        from app.domain.bioinformatics.analysis_contracts import input_version as spatial_input_version
+        return spatial_input_version(task)
+    if task['task_type']=='bio_import':
+        from app.domain.bioinformatics.contracts import input_version as bio_input_version
+        return bio_input_version(task)
     if task['task_type']=='school_rule_suggestion':
         from app.domain.school_templates.suggestion_service import input_version as suggestion_input_version
         return suggestion_input_version(task)
@@ -132,6 +138,10 @@ def persist_wait(db, task):
     kind = ('unsupported_input' if task['status'] == 'waiting_input' else
         {'budget_exceeded': 'budget_confirmation', 'submission_unknown': 'submission_unknown', 'observation_expired': 'remote_observation'}.get(
             task['reason_code'], 'unsupported_confirmation'))
+    if task['task_type']=='bio_analysis' and task['reason_code']=='confirmation_required':
+        kind='bio_analysis_confirmation'
+    if task['task_type']=='bio_import' and task['reason_code']=='confirmation_required':
+        kind='bio_import_confirmation'
     if task['task_type'] == 'literature_assistance' and task['reason_code'] == 'confirmation_required':
         kind = 'literature_model_authorization'
     if task['task_type'] == 'literature_search' and task['reason_code'] == 'confirmation_required':
@@ -155,6 +165,30 @@ def persist_wait(db, task):
 
 
 def allowed_recovery_actions(db, task):
+    if task['task_type'] in ('bio_analysis', 'bio_figure'):
+        from app.domain.bioinformatics.analysis_service import recovery_actions
+        from app.core.exceptions import StorageError
+        try:
+            return recovery_actions(db, task)
+        except (StorageError, KeyError, ValueError, TypeError, OSError):
+            return []
+    if task['task_type']=='bio_import':
+        from app.domain.bioinformatics.service import recovery_actions, BioDatasetService, latest_checkpoint
+        from app.adapters.task_store import DatasetTaskAssets
+        from app.core.exceptions import StorageError
+        try:
+            actions=recovery_actions(db,task)
+            if not actions:
+                return []
+            service=BioDatasetService(DatasetTaskAssets(task['user_id'],db.config))
+            service.require_sources(db,task)
+            checkpoint=latest_checkpoint(db,task)
+            if 'approve' in actions or checkpoint['next_node']=='publish':
+                if not service.read_candidate(task,checkpoint):
+                    return []
+            return actions
+        except (StorageError,KeyError,ValueError,TypeError,OSError):
+            return []
     if task['task_type']=='school_rule_suggestion' and task.get('reason_code')!='observation_expired':
         if task['status']=='waiting_confirmation':
             wait=get_open_wait(db,task)

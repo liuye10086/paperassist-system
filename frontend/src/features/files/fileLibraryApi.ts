@@ -8,7 +8,7 @@ export const purposeLabels = {
 export type FilePurpose = keyof typeof purposeLabels
 export type ProjectFile = {
   id: string; filename: string; file_type: string; size_bytes: number; uploaded_at: string
-  parse_status: 'queued' | 'parsing' | 'parsed' | 'failed'; parse_revision?: number; error: { code: string; message: string } | null
+  parse_status: 'queued' | 'parsing' | 'parsed' | 'failed' | 'stored'; parse_revision?: number; error: { code: string; message: string } | null
 }
 export type UploadBatchSummary = { created_at: string; item_count: number; item_position: number }
 export type LibraryFile = ProjectFile & { purposes: FilePurpose[]; metadata_revision: number; uploader_recorded: boolean; upload_batch?: UploadBatchSummary | null }
@@ -19,7 +19,7 @@ const originalReferenceLabels = {
 } as const
 export const referenceLabels = { ...originalReferenceLabels, prepared_dataset_derivations: '质量派生与回执' } as const
 export type FileDetail = LibraryFile & {
-  source: { kind: 'legacy_excel' | 'excel_parse' | 'docx_parse' | 'pdf_parse' | 'ocr_parse'; preview_available: boolean; preview_row_limit: 20 | null; parser_version: string | null }
+  source: { kind: 'legacy_excel' | 'excel_parse' | 'docx_parse' | 'pdf_parse' | 'ocr_parse' | 'bio_bundle' | 'bio_component' | 'bio_stored' | 'bio_original'; preview_available: boolean; preview_row_limit: 20 | null; parser_version: string | null }
   references: Record<keyof typeof originalReferenceLabels, number> & { prepared_dataset_derivations?: number }
   retention: { policy: 'internal_testing_keep'; automatic_deletion: false; deletion_available: false }
 }
@@ -61,4 +61,4 @@ export async function fileRequest<T>(url: string, signal: AbortSignal, onUnavail
   finally { signal.removeEventListener('abort', abort) }
 }
 
-export const parseStatusLabels = { queued: '已保存，等待解析', parsing: '文件解析中', parsed: '可预览', failed: '解析失败' }
+export const parseStatusLabels = { stored: '已保存，待生信导入', queued: '已保存，等待解析', parsing: '文件解析中', parsed: '可预览', failed: '解析失败' }

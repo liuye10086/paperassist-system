@@ -13,6 +13,18 @@ class TaskWorkspaceService:
 
     def source(self, db, task, *, manuscript_sources=None):
         snapshot = task['input_snapshot']
+        if task['task_type'] in ('bio_analysis', 'bio_figure'):
+            from app.domain.bioinformatics.analysis_contracts import validate_snapshot
+            from app.domain.bioinformatics.analysis_service import source_current
+            validate_snapshot(task)
+            return dict(file_id=None, filename='空间转录组分析' if task['task_type']=='bio_analysis' else '生信单图',
+                        analysis_run_id=None, is_current=source_current(db, task))
+        if task['task_type']=='bio_import':
+            from app.domain.bioinformatics.contracts import validate_snapshot
+            snapshot=validate_snapshot(task)
+            current=all(db.execute('SELECT id FROM files WHERE id=%s AND project_id=%s AND sha256=%s AND size_bytes=%s',
+                (f['id'],task['project_id'],f['sha256'],f['size_bytes'])).fetchone() for f in snapshot['files'])
+            return dict(file_id=snapshot['files'][0]['id'],filename=snapshot['name'],analysis_run_id=None,is_current=current)
         if task['task_type']=='review_document_export':
             from app.domain.review_rounds.document_exports import workspace
             return workspace(db,task)['source']
@@ -208,7 +220,7 @@ class TaskWorkspaceService:
         if (type(page) is not int or not 1 <= page <= 1_000_000
                 or type(page_size) is not int or not 1 <= page_size <= 50
                 or status not in (None, 'queued', 'running', 'waiting_input', 'waiting_confirmation', 'succeeded', 'failed')
-                or task_type not in (None, 'boxplot', 'explanation', 'word_report', 'parse_file', 'extract_dataset', 'prepare_dataset', 'review_ocr', 'analysis_plan', 'analysis_recommendation', 'figure_projection', 'figure_workbench', 'figure_explanation', 'collection_word_report', 'statistics_compute', 'literature_search', 'literature_assistance', 'manuscript_draft', 'manuscript_docx', 'pdf_export', 'layout_docx', 'manuscript_writing', 'school_template_parse', 'school_rule_suggestion', 'journal_recommendation', 'journal_format_check', 'journal_adaptation', 'review_round_plan', 'review_revision', 'review_document_export')):
+                or task_type not in (None, 'boxplot', 'explanation', 'word_report', 'parse_file', 'extract_dataset', 'prepare_dataset', 'review_ocr', 'analysis_plan', 'analysis_recommendation', 'figure_projection', 'figure_workbench', 'figure_explanation', 'collection_word_report', 'statistics_compute', 'literature_search', 'literature_assistance', 'manuscript_draft', 'manuscript_docx', 'pdf_export', 'layout_docx', 'manuscript_writing', 'school_template_parse', 'school_rule_suggestion', 'journal_recommendation', 'journal_format_check', 'journal_adaptation', 'review_round_plan', 'review_revision', 'review_document_export', 'bio_import', 'bio_analysis', 'bio_figure')):
             raise StorageError('task_input_invalid', '任务列表查询参数无效。', 422)
         from app.adapters.legacy_task_query import mixed_task_page, require_legacy_task
         from app.domain.tasks.legacy import public_legacy_task, legacy_source
@@ -275,6 +287,14 @@ class TaskWorkspaceService:
 
     def artifacts(self, db, task):
         result = {'figure': None, 'explanation': None, 'report': None}
+        if task['task_type'] in ('bio_analysis', 'bio_figure'):
+            from app.domain.bioinformatics.analysis_service import task_artifacts
+            result.update(task_artifacts(db, task))
+            return result
+        if task['task_type']=='bio_import':
+            from app.domain.bioinformatics.service import task_artifacts
+            result.update(task_artifacts(db,task))
+            return result
         if task['task_type']=='school_rule_suggestion':
             from app.domain.school_templates.suggestion_service import SuggestionService
             from app.domain.report_collections.service import scoped_store
