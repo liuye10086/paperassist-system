@@ -1,3 +1,4 @@
+import {STANDARD_REQUEST_TIMEOUT_MS} from '../../shared/api/requestTimeouts'
 import RuntimeNotice from '../operations/RuntimeNotice'
 import { AuthIdentityContext } from './AuthIdentityContext'
 import { useEffect, useId, useLayoutEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
@@ -94,7 +95,7 @@ export default function AuthBoundary({ children }: { children: ReactNode }) {
       if (kind === 'restore') { setError('会话恢复超时，请检查连接后重试。'); setStatus('unavailable') }
       else if (kind === 'login') { setPassword(''); setError('登录请求超时，尚未确认登录结果，请重试或刷新以核对会话。') }
       else setError('退出请求超时，服务端会话尚未确认撤销，请重试。')
-    }, 15_000)
+    }, STANDARD_REQUEST_TIMEOUT_MS)
     return current
   }
 
@@ -303,7 +304,7 @@ export default function AuthBoundary({ children }: { children: ReactNode }) {
       <p className="auth-copyright">PaperAssist · {t('科研论文辅助系统')}</p>
     </main></div>
   }
-  if (status === 'restoring') return anonymousShell(<p role="status">{t('正在恢复会话……')}</p>)
+  if (status === 'restoring') return anonymousShell(<><p role="status">{t('正在恢复会话……')}</p><p className="muted">{t('连接较慢时可能需要数分钟，请保持页面打开。')}</p></>)
   if (status === 'unavailable') return anonymousShell(<section className="login-panel">
     <h2>{t('暂时无法连接')}</h2><p role="alert">{t(error)}</p>
     <button className="button-primary" onClick={() => setAttempt(value => value + 1)}>{t('重试')}</button>

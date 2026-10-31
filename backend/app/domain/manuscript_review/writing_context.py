@@ -38,7 +38,7 @@ class WritingCheckContext:
             if binding['kind']=='study':
                 sid=saved['aliases'].get(binding['source_alias'])
                 if sid not in paragraph['source_ids'] or not self.exact_sources([sid],sources): raise ValueError('Study alias/source mismatch')
-                projected.append(dict(fact_id='analysis_run:'+sid+':'+binding['fact_path'],value=binding['value']))
+                projected.append(dict(fact_id=sources[sid]['kind']+':'+sid+':'+binding['fact_path'],value=binding['value']))
             elif binding['kind']=='literature':
                 # The loader reconstructs these exact new-claim evidence bindings
                 # with LiveReviewService.validate_frozen; do not invent study facts.
@@ -72,7 +72,18 @@ def load_writing_context(manuscripts,db,project,identity,snapshot,*,check_versio
     if snapshot.get('review_revision_provenance'):
         from app.domain.review_rounds.revisions import revision_writing_context
         return revision_writing_context(manuscripts,db,project,identity,snapshot,check_version=check_version)
-    if snapshot.get('writing_provenance',{}).get('schema_version')!=2: return None
+    if snapshot.get('writing_provenance',{}).get('schema_version')!=2:
+        bridge=snapshot.get('research_bridge',{})
+        if not bridge.get('base_version_id'):return None
+        from app.domain.literature.service import digest
+        parent=db.execute('SELECT * FROM manuscript_versions WHERE id=%s AND manuscript_id=%s AND project_id=%s AND user_id=%s',(bridge['base_version_id'],identity,project,manuscripts.store.user_id)).fetchone()
+        if not parent or parent['snapshot_sha256']!=bridge.get('base_snapshot_sha256') or digest(parent['snapshot_json'])!=parent['snapshot_sha256']:raise source_conflict()
+        inherited=load_writing_context(manuscripts,db,project,identity,parent['snapshot_json'],check_version=check_version)
+        if inherited is None:return None
+        current={p['id']:p for s in snapshot.get('sections',[]) for p in s['paragraphs']}
+        paragraphs={key:entry for key,entry in inherited.paragraphs.items() if current.get(key)==entry['paragraph']}
+        tables={path:entry for path,entry in inherited.tables.items() if any(t==entry['approved'] for g in snapshot['results_groups'] for t in g['tables'])}
+        return WritingCheckContext(paragraphs=paragraphs,sources={s['id']:deepcopy(s) for s in snapshot['sources']},tables=tables,check_version=check_version)
     from app.domain.manuscript_writing.live_review import LiveReviewService
     from app.domain.manuscript_writing.language_service import LanguageReviewService
     from app.domain.manuscript_writing.authorization import LiveWritingService
@@ -101,6 +112,10 @@ def load_writing_context(manuscripts,db,project,identity,snapshot,*,check_versio
                 numeric_version=review['report_json'].get('numeric_validation_version',1) if check_version==2 else 1,
                 **(dict(numeric_contract_version=2,numeric_context=deepcopy(bundle['local_manifest'].get('numeric_context',{}))) if is_numeric_v2(bundle) else {})))
         current=frozen['base_snapshot']
+    if current.get('research_bridge',{}).get('base_version_id'):
+        inherited=load_writing_context(manuscripts,db,project,identity,current,check_version=check_version)
+        if inherited:
+            for key,entry in inherited.paragraphs.items():paragraphs.setdefault(key,entry)
     # T2 preserves all frozen result groups. T3 reconstructs only explicit bound
     # display edits. Compare the original source rows before applying that view.
     originals={t['id']:t for g in current['results_groups'] for t in g['tables']}

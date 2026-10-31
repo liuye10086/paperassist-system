@@ -234,3 +234,9 @@ app.include_router(admin_router)
 
 from app.api.admin_configurations import router as admin_configurations_router
 app.include_router(admin_configurations_router)
+
+from app.api.research_results import router as research_results_router
+app.include_router(research_results_router)
+
+from app.api.bio_insights import router as bio_insights_router
+app.include_router(bio_insights_router)

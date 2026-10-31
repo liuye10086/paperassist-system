@@ -123,6 +123,17 @@ def build_bundle(base, request, *, execution_contract=None):
                     numeric.extend(facts(source['content'][key],'/'+key))
                     descriptions.extend(labels(source['content'][key],'/'+key))
         entry=dict(alias=alias,kind=safe_text(source['kind']),role=safe_text(source['role']),facts=numeric,labels=descriptions)
+        from app.domain.manuscripts.research_sources import KINDS,numeric as research_numeric
+        if source['kind'] in KINDS:
+            entry['facts']=[{k:safe_text(v) if isinstance(v,str) and k!='fact_path' else v for k,v in f.items()} for f in research_numeric(source)]
+            entry['methods']=[dict(title=safe_text(m['title']),description=safe_text(m['description']),executed=m['executed']) for m in source['content'].get('methods',[])]
+            for projected,method in zip(entry['methods'],source['content'].get('methods',[])):
+                for key in ('parameters','software'):
+                    if key in method:
+                        check_text_leaves(method[key]);projected[key]=method[key]
+            entry['gaps']=[safe_text(v) for v in source['content'].get('gaps',[])]
+            entry['warnings']=[safe_text(v) for v in source['content'].get('warnings',[])+source['content'].get('limitations',[])]
+            entry['scope']='Frozen research facts retain origin, units and observation level. External values are not recalculated; spot/region values are not donor replicates. User claims are not system conclusions.'
         if source.get('kind') in ('analysis_report','collection_report'):
             entry.update(report_text=safe_text(source['content']['text']),report_text_truncated=source['content']['text_truncated'],
                 scope='Supporting saved report prose; statistical facts come only from analysis_run sources. Researcher verification required.')

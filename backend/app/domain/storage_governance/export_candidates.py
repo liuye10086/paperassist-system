@@ -29,8 +29,8 @@ def hold(db, task):
     return dict(row) if row else None
 
 
-def reconcile(db,root,task):
-    if s.reconcile_intents(db,root):
+def reconcile(db,root,task,*,progress=None):
+    if s.reconcile_intents(db,root,progress=progress):
         raise s.invalid()
     return hold(db,task)
 
@@ -53,8 +53,8 @@ def authorized(db,row,task,lease):
             (task['id'],revision)).fetchone()))
 
 
-def restore(db,root,task,lease):
-    row=reconcile(db,root,task)
+def restore(db,root,task,lease,*,progress=None):
+    row=reconcile(db,root,task,progress=progress)
     if not row:
         return None
     saved,raw=value(root,row,task)
@@ -64,8 +64,8 @@ def restore(db,root,task,lease):
     return saved['metadata'],raw,Path(root)/row['object_key']
 
 
-def capture(db,root,task,lease,target,staged,content,metadata):
-    row=reconcile(db,root,task)
+def capture(db,root,task,lease,target,staged,content,metadata,*,progress=None):
+    row=reconcile(db,root,task,progress=progress)
     if row:
         saved,raw=value(root,row,task)
         if saved['metadata']!=metadata or raw!=content or s._key(root,target)!=row['object_key']:
@@ -73,18 +73,18 @@ def capture(db,root,task,lease,target,staged,content,metadata):
         return row
     return local.capture(db,root,task['project_id'],'export-task:'+task['id'],target,content,
         dict(task_type=task['task_type'],task_id=task['id'],attempt_no=lease.attempt_no,metadata=metadata),
-        source_identity=task['input_digest'],kind=task['task_type'],task_id=task['id'],staged=staged)
+        source_identity=task['input_digest'],kind=task['task_type'],task_id=task['id'],staged=staged,progress=progress)
 
 
-def publish(db,root,task,lease,metadata):
-    row=reconcile(db,root,task)
+def publish(db,root,task,lease,metadata,*,progress=None):
+    row=reconcile(db,root,task,progress=progress)
     if not row:
         raise s.invalid()
     saved,_=value(root,row,task)
     permitted=authorized(db,row,task,lease)
     if saved['metadata']!=metadata or (saved['attempt_no']!=lease.attempt_no and not permitted):
         raise s.invalid()
-    return s.publish_candidate(db,root,row['id'],explicit_recovery=permitted)
+    return s.publish_candidate(db,root,row['id'],explicit_recovery=permitted,progress=progress)
 
 
 def authorize(db,root,task):

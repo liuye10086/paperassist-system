@@ -1,3 +1,4 @@
+import {STANDARD_REQUEST_TIMEOUT_MS} from '../../shared/api/requestTimeouts'
 import ArtifactLibrary from './ArtifactLibrary'
 import type { ArtifactNavigation } from './analysisViews'
 import ReviewResultsSummary from '../reviews/ReviewResultsSummary'
@@ -82,7 +83,7 @@ function Summary({ projectId, projectType, view = 'all', active = true, onOpenMa
     const timeout = window.setTimeout(() => {
       if (!valid()) return
       controller.abort(); setData(null); setError('项目摘要读取超时，请重试。'); setLoading(false)
-    }, 15_000)
+    }, STANDARD_REQUEST_TIMEOUT_MS)
     async function load() {
       try {
         const params = new URLSearchParams({ task_page: String(pages.tasks), artifact_page: String(pages.artifacts), page_size: '10' })

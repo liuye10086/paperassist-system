@@ -2,6 +2,7 @@
 from datetime import datetime, timezone
 from uuid import UUID, uuid4, uuid5
 import re
+from app.domain.source_byte_verification import VerificationPhase, require_phase, phase_guard
 from psycopg.types.json import Jsonb
 from app.adapters.task_store import TaskStore
 from app.adapters.bio_objects import BioObjects
@@ -47,6 +48,16 @@ class BioDatasetService:
         return dict(row)
 
     def require_sources(self, db, task, *, progress=None):
+        # The public path is a consumer contract: always fully read originals.
+        with VerificationPhase(db,self.assets,task['project_id']):
+            return self._sources(db,task,progress=progress)
+
+    @phase_guard
+    def _require_lineage_in_phase(self,db,task,*,phase,progress=None):
+        require_phase(phase,db,self.assets,task['project_id'])
+        self._sources(db,task,phase=phase,progress=progress)
+
+    def _sources(self,db,task,*,phase=None,progress=None):
         snapshot = validate_snapshot(task)
         self.store.require_project(db, task['project_id'])
         row = self.require_import(db, task['project_id'], snapshot['import_id'])
@@ -70,9 +81,10 @@ class BioDatasetService:
                     or ref['declared_role'] != frozen['role']):
                 raise conflict()
             # The original adapter checks the private path and every byte hash.
-            self.assets.original(dict(file))
+            if phase is None:self.assets.original(dict(file))
+            else:phase.verify_original(db,self.assets,task['project_id'],dict(file),progress=progress)
             if progress is not None:progress()
-            result.append({**frozen, 'path':str(self.assets.directory / frozen['object_key'])})
+            if phase is None:result.append({**frozen, 'path':str(self.assets.directory / frozen['object_key'])})
         return sorted(result,key=lambda f: snapshot['files'].index(expected[f['id']]))
 
     @staticmethod

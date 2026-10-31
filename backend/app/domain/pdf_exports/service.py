@@ -2,6 +2,7 @@
 from app.domain.storage_governance import export_candidates as candidates
 from hashlib import sha256
 from pathlib import Path
+from app.domain.source_byte_verification import VerificationPhase, require_phase, phase_guard
 from uuid import uuid4
 from psycopg.types.json import Jsonb
 from app.adapters.task_store import TaskStore,source_conflict
@@ -10,7 +11,7 @@ from app.domain.manuscripts.service import now
 from app.domain.literature.service import digest
 from .contracts import WORKFLOW,PdfCreateRequest
 
-RETRYABLE=frozenset(('pdf_renderer_unavailable','pdf_conversion_timeout','pdf_renderer_busy','storage_unavailable','task_worker_interrupted','pdf_conversion_failed'))
+RETRYABLE=frozenset(('pdf_renderer_unavailable','pdf_conversion_timeout','pdf_renderer_busy','pdf_conversion_failed')) | candidates.STORAGE_ERRORS
 
 def renderer_identity():
     from app.adapters.pdf_renderer import renderer_identity as identity
@@ -23,9 +24,16 @@ class PdfExportService:
         self.assets=assets;self.store=TaskStore(assets.owner_id,assets.db_config)
         self.directory=Path(assets.directory)/'pdf_exports'
 
-    def source(self,db,project,kind,identity):
+    def source(self,db,project,kind,identity,*,progress=None):
+        with VerificationPhase(db,self.assets,project) as phase:
+            return self._source_in_phase(db,project,kind,identity,phase=phase,progress=progress)
+
+    @phase_guard
+    def _source_in_phase(self,db,project,kind,identity,*,phase,progress=None):
+        require_phase(phase,db,self.assets,project)
+        if progress is not None:progress()
         self.store.require_project(db,project)
-        if kind in ('manuscript_export','review_document_export'):
+        if kind=='review_document_export':
             from app.domain.research_intake.delivery_access import require_legacy_writing_db
             require_legacy_writing_db(db,project,self.store.user_id)
         if kind=='review_document_export':
@@ -35,6 +43,12 @@ class PdfExportService:
             metadata,raw=svc.download(project,identity)
             doc=svc.documents.row(db,project,row['document_id'])
             version=dict(id=doc['id'],revision=doc['version'],kind=doc['kind'],language=doc['language'],document_sha256=doc['snapshot_sha256'])
+        elif kind=='research_report':
+            from app.domain.research_results.reports import ResearchReportService
+            row=db.execute("SELECT m.*,v.revision,v.task_id FROM research_report_members m JOIN research_report_versions v ON v.id=m.report_version_id WHERE m.id=%s AND m.project_id=%s AND m.user_id=%s AND m.role='docx' AND m.format='docx'",(identity,project,self.store.user_id)).fetchone()
+            if not row:raise StorageError('pdf_source_not_found','研究报告 DOCX 成员不存在。',404)
+            metadata,raw=ResearchReportService(self.assets)._member_in_phase(db,project,row['report_version_id'],identity,phase=phase,progress=progress)
+            version=dict(id=row['report_version_id'],revision=row['revision'],member_id=identity)
         elif kind=='layout_export':
             from app.domain.layout_exports.service import LayoutExportService
             svc=LayoutExportService(self.assets)
@@ -45,6 +59,8 @@ class PdfExportService:
             from app.domain.manuscripts.service import ManuscriptService
             row=db.execute('SELECT e.*,v.manuscript_id,v.project_id,v.revision FROM manuscript_exports e JOIN manuscript_versions v ON v.id=e.version_id WHERE e.id=%s AND v.project_id=%s AND v.user_id=%s',(identity,project,self.store.user_id)).fetchone()
             if not row: raise StorageError('pdf_source_not_found','DOCX来源不存在。',404)
+            from app.domain.manuscripts.delivery_context import resolve_document_context
+            resolve_document_context(db,project,self.store.user_id,manuscript_id=row['manuscript_id'],active=False)
             task=self.store.require_task(db,row['task_id'])
             if task['status']!='succeeded': raise StorageError('pdf_source_not_ready','请等待DOCX成功后生成PDF。',409)
             metadata,raw=ManuscriptService(self.assets).export(project,row['manuscript_id'],identity,True)
@@ -66,7 +82,13 @@ class PdfExportService:
             version=dict(id=row['analysis_run_id'],revision=metadata['setup_revision'],renderer_version=row['renderer_version'])
         else: raise StorageError('task_input_invalid','PDF来源类型无效。',422)
         if metadata.get('id',identity)!=identity or sha256(raw).hexdigest()!=metadata['sha256'] or len(raw)!=metadata['size_bytes']: raise source_conflict()
-        return dict(source_kind=kind,source_id=identity,version=version,metadata=metadata),raw
+        source=dict(source_kind=kind,source_id=identity,version=version,metadata=metadata)
+        if kind=='research_report':
+            from app.domain.research_results.sources import ResearchSourceReader
+            fixed=ResearchSourceReader(self.assets)._read_source_in_phase(project,dict(source_kind='research_report_version',source_id=row['report_version_id']),db=db,phase=phase,progress=progress)
+            source['files']=[{'file_id':identifier} for identifier in fixed.source_file_ids]
+        if progress is not None:progress()
+        return source,raw
 
     def row(self,db,project,identity):
         self.store.require_project(db,project)
@@ -81,7 +103,7 @@ class PdfExportService:
             or task['task_type']!='pdf_export' or task['workflow_version']!=WORKFLOW or task['project_id']!=row['project_id']
             or task['user_id']!=row['user_id'] or snap.get('project_id')!=row['project_id'] or snap.get('source_kind')!=row['source_kind']
             or snap.get('workflow_version')!=WORKFLOW or snap.get('source_id')!=row['source_id'] or snap.get('source_sha256')!=row['source_sha256'] or snap.get('renderer_identity')!=row['renderer_identity']): raise source_conflict()
-        column={'report':'report_id','collection_report':'collection_report_id','manuscript_export':'manuscript_export_id','layout_export':'layout_export_id','review_document_export':'review_document_export_id'}[row['source_kind']]
+        column={'report':'report_id','collection_report':'collection_report_id','manuscript_export':'manuscript_export_id','layout_export':'layout_export_id','review_document_export':'review_document_export_id','research_report':'research_report_member_id'}[row['source_kind']]
         if row[column]!=row['source_id']: raise source_conflict()
         request=dict(source_kind=row['source_kind'],source_id=row['source_id'],parent_export_id=row['parent_export_id'])
         if digest(request)!=row['request_digest']: raise source_conflict()
@@ -90,9 +112,9 @@ class PdfExportService:
             if (parent['source_id'],parent['source_kind'],parent['source_sha256'])!=(row['source_id'],row['source_kind'],row['source_sha256']): raise source_conflict()
         return task
 
-    def verify_source(self,db,row):
+    def verify_source(self,db,row,*,progress=None):
         self.verify(db,row)
-        source,raw=self.source(db,row['project_id'],row['source_kind'],row['source_id'])
+        source,raw=self.source(db,row['project_id'],row['source_kind'],row['source_id'],progress=progress)
         if source!=row['input_json']['source'] or sha256(raw).hexdigest()!=row['source_sha256']: raise source_conflict()
         return raw
 
@@ -138,7 +160,7 @@ class PdfExportService:
                 table={'review_document_export':'review_document_exports','manuscript_export':'manuscript_exports'}[request.source_kind]
                 producer=db.execute('SELECT task_id FROM '+table+' WHERE id=%s',(request.source_id,)).fetchone()
                 inherit_task(db,task,parent_task=producer['task_id'])
-            column={'report':'report_id','collection_report':'collection_report_id','manuscript_export':'manuscript_export_id','layout_export':'layout_export_id','review_document_export':'review_document_export_id'}[request.source_kind]
+            column={'report':'report_id','collection_report':'collection_report_id','manuscript_export':'manuscript_export_id','layout_export':'layout_export_id','review_document_export':'review_document_export_id','research_report':'research_report_member_id'}[request.source_kind]
             fields=dict(id=export_id,project_id=project,user_id=self.store.user_id,source_kind=request.source_kind,source_id=request.source_id,task_id=task['id'],parent_export_id=parent,request_key=request.request_key,request_digest=hashed,input_json=Jsonb(snapshot),input_sha256=digest(snapshot),source_sha256=source_hash,renderer_identity=Jsonb(identity),created_at=timestamp)
             fields[column]=request.source_id
             db.execute('INSERT INTO pdf_exports('+','.join(fields)+') VALUES ('+','.join(['%s']*len(fields))+')',tuple(fields.values()))
@@ -173,14 +195,15 @@ class PdfExportService:
         except (ValueError,TypeError,AttributeError): raise source_conflict()
         return name
 
-    def download(self,project,identity):
+    def download(self,project,identity,*,progress=None):
         with self.store.connection() as db:
             row=self.row(db,project,identity);view=self.view(db,row)
             if view['status']!='succeeded': raise StorageError('pdf_export_not_ready','PDF尚未成功。',409)
-            self.verify_source(db,row);meta=row['metadata_json']
+            self.verify_source(db,row,progress=progress);meta=row['metadata_json']
         try: raw=(self.directory/self.object_name(row,meta)).read_bytes()
         except FileNotFoundError as exc: raise StorageError('report_missing','PDF文件缺失。',410) from exc
         if sha256(raw).hexdigest()!=meta['sha256'] or len(raw)!=meta['size_bytes'] or not raw.startswith(b'%PDF-'): raise StorageError('report_changed','PDF内容已变化。',409)
+        if progress is not None:progress()
         return meta,raw
 
 

@@ -1,3 +1,4 @@
+import {STANDARD_REQUEST_TIMEOUT_MS} from '../../shared/api/requestTimeouts'
 import {webcrypto} from 'node:crypto'
 import {act,cleanup,fireEvent,render,screen,waitFor,within} from '@testing-library/react'
 import {afterEach,beforeEach,expect,it,vi} from 'vitest'
@@ -46,7 +47,7 @@ it('invalidates old language decisions when whitelisted text changes and preserv
 })
 function OperationHarness(){const op=useWritingOperation();return <><button disabled={op.busy} onClick={()=>void op.run('/local-test',(v):v is {ok:boolean}=>!!v&&typeof v==='object'&&'ok'in v,{exact:'body'})}>submit</button>{op.error&&<p role="alert">{op.error}</p>}</>}
 it('surfaces timeouts rather than silently clearing a failed submission',async()=>{
- vi.useFakeTimers();vi.stubGlobal('fetch',vi.fn(()=>new Promise<Response>(()=>{})));render(<OperationHarness/>);fireEvent.click(screen.getByRole('button'));await act(async()=>{vi.advanceTimersByTime(15001)});expect(screen.getByRole('alert').textContent).toContain('请求未确认')
+ vi.useFakeTimers();vi.stubGlobal('fetch',vi.fn(()=>new Promise<Response>(()=>{})));render(<OperationHarness/>);fireEvent.click(screen.getByRole('button'));await act(async()=>{vi.advanceTimersByTime(STANDARD_REQUEST_TIMEOUT_MS+1)});expect(screen.getByRole('alert').textContent).toContain('请求未确认')
 })
 it('blocks overlapping submits and keeps the same idempotency key after an uncertain failure',async()=>{
  let fail:(error:Error)=>void=()=>{};const fetcher=vi.fn((_url:string,_init?:RequestInit)=>new Promise<Response>((_resolve,reject)=>{fail=reject}));vi.stubGlobal('fetch',fetcher);render(<OperationHarness/>);fireEvent.click(screen.getByRole('button'));fireEvent.click(screen.getByRole('button'));expect(fetcher).toHaveBeenCalledTimes(1);await act(async()=>fail(Error('lost')));fireEvent.click(screen.getByRole('button'));expect(fetcher).toHaveBeenCalledTimes(2);expect(new Headers(fetcher.mock.calls[0][1]?.headers).get('Idempotency-Key')).toBe(new Headers(fetcher.mock.calls[1][1]?.headers).get('Idempotency-Key'))

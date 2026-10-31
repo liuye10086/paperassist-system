@@ -17,6 +17,10 @@ def numeric_leaves(value,path=''):
 def extract_facts(snapshot):
     facts=[]
     for source in snapshot.get('sources',[]):
+        from app.domain.manuscripts.research_sources import KINDS,numeric
+        if source.get('kind') in KINDS:
+            facts.extend(dict(id=source['kind']+':'+source['id']+':'+item['fact_path'],source_id=source['id'],path=item['fact_path'],value=item['value'],source_sha256=source['sha256'],origin=item['origin']) for item in numeric(source))
+            continue
         if source.get('kind')!='analysis_run' or source.get('role')!='computed_results': continue
         content=source.get('content',{})
         for path,value in numeric_leaves({k:content[k] for k in FACT_ROOTS if k in content}):

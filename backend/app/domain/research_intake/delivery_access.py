@@ -8,14 +8,14 @@ def capabilities(project):
 
 
 def delivery_capabilities(project,deliveries):
-    supported={'analysis':True,'sci_draft':project['project_type']=='sci','thesis_draft':project['project_type']=='thesis'}
-    return [{**dict(row),'selected':row['active'],'workflow_available':supported[row['kind']]} for row in deliveries]
+    supported={'analysis':True,'sci_draft':project['project_type'] in ('sci','research'),'thesis_draft':project['project_type'] in ('thesis','research')}
+    return [{**dict(row),'selected':row['active'],'workflow_available':bool(row['active'] and supported[row['kind']])} for row in deliveries]
 
 
 def require_legacy_writing(store, project_id):
     project = store.project(project_id)
     if not capabilities(project)['legacy_writing']:
-        raise StorageError('research_writing_unavailable','研究项目的交付已登记，实际稿件流程将在后续批次开放。',409)
+        raise StorageError('research_writing_unavailable','请先选择明确的 SCI 或毕业论文交付，再通过研究成果创建候选。',409)
     return project
 
 
@@ -24,7 +24,7 @@ def require_legacy_writing_db(db, project_id, owner_id):
     if row is None:
         raise StorageError('project_not_found','项目不存在。',404)
     if row['project_type'] == 'research':
-        raise StorageError('research_writing_unavailable','研究项目的交付已登记，实际稿件流程将在后续批次开放。',409)
+        raise StorageError('research_writing_unavailable','请先选择明确的 SCI 或毕业论文交付，再通过研究成果创建候选。',409)
     return dict(row)
 
 

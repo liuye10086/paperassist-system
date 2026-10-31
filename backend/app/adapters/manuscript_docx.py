@@ -122,6 +122,10 @@ def _figure(document, figure, images, en):
         raise StorageError('figure_missing', '稿件引用的图片不可用。', 409)
     if hashlib.sha256(raw).hexdigest() != figure['sha256']:
         raise StorageError('figure_changed', '图片与稿件冻结版本不一致。', 409)
+    if figure.get('research_member_format') and not figure.get('language_version_id'):
+        from app.adapters.research_report_images import as_png
+        try:raw=as_png(raw,figure['research_member_format'])
+        except (ValueError,OSError) as exc:raise StorageError('figure_changed','研究图件无法按固定格式读取。',409) from exc
     image = Image.from_blob(raw)
     scale = min(6.3 / image.px_width, 6.0 / image.px_height)
     paragraph = document.add_paragraph()

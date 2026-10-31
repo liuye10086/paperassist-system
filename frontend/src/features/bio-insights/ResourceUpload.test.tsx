@@ -1,0 +1,9 @@
+import {cleanup,fireEvent,render,screen,waitFor} from '@testing-library/react'
+import {afterEach,beforeEach,expect,it,vi} from 'vitest'
+import {apiFetch} from '../../shared/api/client'
+import ResourceUpload from './ResourceUpload'
+vi.mock('../../shared/api/client',()=>({apiFetch:vi.fn(),getApiUserId:()=> 'owner',onApiSessionChanged:()=>()=>{}}))
+beforeEach(()=>{sessionStorage.clear();vi.stubGlobal('crypto',{randomUUID:()=> 'request-key',subtle:{digest:vi.fn(async()=>new Uint8Array(32).buffer)}});vi.mocked(apiFetch).mockReset()})
+afterEach(()=>{cleanup();vi.unstubAllGlobals()})
+const file=()=>{const value=new File(['feature_id\tvalue\nG0\t0'],'external.tsv',{type:'text/tab-separated-values'});Object.defineProperty(value,'arrayBuffer',{value:async()=>new Uint8Array([1,2]).buffer});return value}
+it('recovers unknown upload by exact-key GET without blindly reposting original bytes',async()=>{vi.mocked(apiFetch).mockRejectedValueOnce(new TypeError('offline')).mockResolvedValueOnce(Response.json({file_id:'f1',filename:'external.tsv',sha256:'0'.repeat(64),size_bytes:20,parse_status:'parsed',parse_version_id:'parse1'}));const done=vi.fn();render(<ResourceUpload projectId="p1" onUploaded={done}/>);fireEvent.change(screen.getByLabelText('本地资源文件'),{target:{files:[file()]}});fireEvent.click(screen.getByRole('button',{name:'上传资源文件'}));await screen.findByRole('button',{name:'回查原上传请求'});expect(apiFetch).toHaveBeenCalledTimes(1);fireEvent.click(screen.getByRole('button',{name:'回查原上传请求'}));await waitFor(()=>expect(done).toHaveBeenCalledWith(expect.objectContaining({file_id:'f1',parse_version_id:'parse1'})));expect(String(vi.mocked(apiFetch).mock.calls[1][0])).toBe('/api/v1/projects/p1/bio-resource-files/requests/request-key');expect(vi.mocked(apiFetch).mock.calls.filter(([,init])=>init?.method==='POST')).toHaveLength(1)})

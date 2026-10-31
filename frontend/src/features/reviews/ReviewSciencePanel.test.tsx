@@ -1,3 +1,4 @@
+import {STANDARD_REQUEST_TIMEOUT_MS} from '../../shared/api/requestTimeouts'
 import {act,cleanup,fireEvent,render,screen,waitFor} from '@testing-library/react'
 import {afterEach,expect,it,vi} from 'vitest'
 import ReviewSciencePanel from './ReviewSciencePanel'
@@ -19,7 +20,7 @@ it('fixes the selected historical run/config and preserves draft and retry key a
  await screen.findByRole('option',{name:/old-config/});fireEvent.change(screen.getByLabelText('固定图表配置版本'),{target:{value:'old-config'}})
  fireEvent.change(screen.getByLabelText('采用新分析的理由'),{target:{value:'保持草稿'}})
  expect(posts).toHaveLength(0)
- vi.useFakeTimers();fireEvent.click(screen.getByRole('button',{name:'创建关联的本地投影任务'}));await act(async()=>{await vi.advanceTimersByTimeAsync(15001)});vi.useRealTimers();expect(posts).toHaveLength(1);await screen.findByRole('alert')
+ vi.useFakeTimers();fireEvent.click(screen.getByRole('button',{name:'创建关联的本地投影任务'}));await act(async()=>{await vi.advanceTimersByTimeAsync(STANDARD_REQUEST_TIMEOUT_MS+1)});vi.useRealTimers();expect(posts).toHaveLength(1);await screen.findByRole('alert')
  ui.rerender(<ReviewSciencePanel {...props} active={false}/>);ui.rerender(<ReviewSciencePanel {...props}/>);
  expect(screen.getByLabelText('固定分析结果版本')).toHaveProperty('value','old-run');expect(screen.getByLabelText('采用新分析的理由')).toHaveProperty('value','保持草稿')
  fireEvent.click(screen.getByRole('button',{name:'创建关联的本地投影任务'}));await waitFor(()=>expect(posts).toHaveLength(2))

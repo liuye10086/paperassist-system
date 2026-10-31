@@ -107,9 +107,9 @@ def _journal(db,root,row,stage):
         if any(previous.get(k)!=v for k,v in payload.items() if k not in ('schema','database')):raise s.invalid()
 
 
-def admit_candidate(db,root,project_id,operation_key,path,max_bytes,*,task_id,source_identity,kind='figure'):
+def admit_candidate(db,root,project_id,operation_key,path,max_bytes,*,task_id,source_identity,kind='figure',progress=None):
     if type(max_bytes) is not int or not 0<max_bytes<=2**63-1 or not isinstance(source_identity,str) or not 1<=len(source_identity)<=512:raise s.invalid()
-    if s.reconcile_intents(db,root):raise s.invalid()
+    if s.reconcile_intents(db,root,progress=progress):raise s.invalid()
     key=s._key(root,path);s.require_publication_allowed(db,project_id,key,task_id=task_id)
     prior=db.execute('SELECT * FROM storage_reservations WHERE namespace=%s AND project_id=%s AND operation_key=%s',(s.NAMESPACE,project_id,operation_key)).fetchone()
     if prior:
@@ -118,7 +118,7 @@ def admit_candidate(db,root,project_id,operation_key,path,max_bytes,*,task_id,so
         if row['state']=='unknown':raise s.invalid()
         return row
     if db.execute("SELECT 1 FROM storage_reservations WHERE namespace=%s AND object_key=%s AND state<>'released'",(s.NAMESPACE,key)).fetchone():raise s.invalid()
-    project=s._project(db,project_id);_disk_guard(db,root,max_bytes,key=key)
+    project=s._project(db,project_id);_disk_guard(db,root,max_bytes,key=key,progress=progress)
     s._scope_check(db,project,max_bytes,object_key=key)
     row=dict(id=str(uuid4()),namespace=s.NAMESPACE,project_id=project_id,owner_id=project['owner_id'],operation_key=operation_key,
         object_key=key,size_bytes=0,sha256=None,state='reserved',kind=kind,task_id=task_id,capacity_bytes=max_bytes,
@@ -274,8 +274,8 @@ def _reconcile_candidates(db,root,*,progress=None):
     return unknown
 
 
-def publish_candidate(db,root,identifier,*,explicit_recovery=False):
-    if s.reconcile_intents(db,root):raise s.invalid()
+def publish_candidate(db,root,identifier,*,explicit_recovery=False,progress=None):
+    if s.reconcile_intents(db,root,progress=progress):raise s.invalid()
     row=_row(db,identifier)
     if row['state']=='unknown' and not explicit_recovery:raise s.invalid()
     if row['sha256'] is None:raise s.invalid()

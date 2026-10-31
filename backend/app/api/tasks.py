@@ -32,6 +32,15 @@ class RetryRequest(BaseModel):
 def retry_task(task_id: str, request: RetryRequest, store: Store):
     store.require_mutable(task_id)
     task_type = store.get(task_id)['task_type']
+    from app.domain.bio_insights.task_contracts import INSIGHT_TASKS
+    if task_type in INSIGHT_TASKS:
+        from app.domain.bio_insights.execution import retry_in_transaction
+        with store.connection(write=True) as db:
+            return retry_in_transaction(store,db,store.require_task(db,task_id),request.expected_revision)
+    if task_type in ('research_figure','research_report','research_fact_draft'):
+        from app.domain.research_results.execution import retry_in_transaction
+        with store.connection(write=True) as db:
+            return retry_in_transaction(store,db,store.require_task(db,task_id),request.expected_revision)
     if task_type in ('bio_analysis', 'bio_figure'):
         from app.domain.bioinformatics.analysis_service import retry_in_transaction
         with store.connection(write=True) as db:

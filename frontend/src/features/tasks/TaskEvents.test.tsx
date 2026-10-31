@@ -1,3 +1,4 @@
+import {STANDARD_REQUEST_TIMEOUT_MS} from '../../shared/api/requestTimeouts'
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
 import TaskEvents from './TaskEvents'
@@ -108,7 +109,7 @@ it('retains error history and its cursor across pagination, hidden-tab pause and
   vi.stubGlobal('fetch', fetch); render(<TaskEvents {...props} />)
   await act(async () => {})
   act(() => { visibility.mockReturnValue('hidden'); document.dispatchEvent(new Event('visibilitychange')) })
-  await act(async () => { vi.advanceTimersByTime(15000) })
+  await act(async () => { vi.advanceTimersByTime(STANDARD_REQUEST_TIMEOUT_MS) })
   expect(fetch).toHaveBeenCalledTimes(1)
   await act(async () => { visibility.mockReturnValue('visible'); document.dispatchEvent(new Event('visibilitychange')) })
   expect(fetch).toHaveBeenCalledTimes(2)
@@ -119,6 +120,6 @@ it('retains error history and its cursor across pagination, hidden-tab pause and
   await act(async () => {})
   expect(fetch.mock.calls[2][0]).toContain('after=2&limit=50')
   expect(screen.getAllByRole('listitem')).toHaveLength(2)
-  await act(async () => { vi.advanceTimersByTime(15000) })
+  await act(async () => { vi.advanceTimersByTime(STANDARD_REQUEST_TIMEOUT_MS) })
   expect(fetch).toHaveBeenCalledTimes(3)
 })

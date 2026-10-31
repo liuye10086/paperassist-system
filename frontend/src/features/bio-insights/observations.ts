@@ -1,0 +1,13 @@
+import {insightBase,insightRequest} from './api'
+import type {Observation,Page,Source} from './contracts'
+type ObservationPage=Page<Observation>&{raw_dataset_version_id?:string;processed_dataset_version_id?:string}
+async function readAll(projectId:string,source:Source,signal:AbortSignal){const all:Observation[]=[];let page=1,total=1,metadata:ObservationPage|null=null;while((page-1)*1000<total){const v=await insightRequest<ObservationPage>(`${insightBase(projectId)}/sources/${source.source_kind}/${encodeURIComponent(source.source_id)}/observations?page=${page}&page_size=1000`,{signal},true);if(signal.aborted)throw new DOMException('Aborted','AbortError');total=v.total;if(total>100000)throw Error('观测数超过当前界面可选择的 100000 上限。');metadata=v;all.push(...v.items);page++}return{...metadata,items:all}}
+const known=(value:unknown)=>{if(value&&typeof value==='object'&&'status' in value&&value.status==='known'&&'value' in value)return value.value;return null}
+/** Overlay only explicitly selected, matching immutable maps. A barcode alone is
+ * never sufficient to join observations from separate datasets. */
+export async function readFixedObservations(projectId:string,sources:Source[],signal:AbortSignal){
+ const all:Observation[]=[],rawByProcessed=new Map<string,string>()
+ for(const source of sources.filter(s=>s.source_kind==='bio_processed_dataset_version')){const page=await readAll(projectId,source,signal);if(page.raw_dataset_version_id)rawByProcessed.set(source.source_id,page.raw_dataset_version_id);all.push(...page.items.map(row=>({...row,processed_version_id:source.source_id})))}
+ for(const source of sources.filter(s=>['bio_observation_map_version','bio_annotation_version'].includes(s.source_kind))){const page=await readAll(projectId,source,signal),rows=new Map(page.items.map(row=>[row.barcode,row]));for(const observation of all){const mapped=rows.get(observation.barcode);if(!mapped)continue;if(source.source_kind==='bio_observation_map_version'&&page.raw_dataset_version_id&&rawByProcessed.get(observation.processed_version_id)===page.raw_dataset_version_id){for(const[target,field] of [['condition','group'],['donor','donor'],['batch','batch'],['section','section']] as const)observation[target]=known(mapped[field]) as string|null}else if(source.source_kind==='bio_annotation_version'&&page.processed_dataset_version_id===observation.processed_version_id){observation.label_id=mapped.status==='assigned'&&typeof mapped.label_id==='string'?mapped.label_id:null;observation.region=mapped.status==='assigned'&&typeof mapped.label_id==='string'?mapped.label_id:null}}}
+ return all
+}

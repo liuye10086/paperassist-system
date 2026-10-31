@@ -1,3 +1,4 @@
+import {STANDARD_REQUEST_TIMEOUT_MS} from '../../shared/api/requestTimeouts'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
 import AuthBoundary from './AuthBoundary'
@@ -20,13 +21,14 @@ it.each(['request', 'body'] as const)('bounds session restore %s and rejects its
   const response = Response.json(session)
   response.json = () => pending as Promise<typeof session>
   let calls = 0
-  const fetch = vi.fn((_url: string, init: RequestInit) => {
+  const fetch = vi.fn((url: string, init: RequestInit) => {
+    if(!url.endsWith('/me'))return Promise.resolve(Response.json({}))
     signal = init.signal as AbortSignal
     return ++calls === 1 ? phase === 'request' ? pending : Promise.resolve(response) : Promise.resolve(Response.json(other))
   })
   vi.stubGlobal('fetch', fetch); vi.useFakeTimers(); mount()
   await act(async () => {})
-  await act(async () => { vi.advanceTimersByTime(15_000) })
+  await act(async () => { vi.advanceTimersByTime(STANDARD_REQUEST_TIMEOUT_MS) })
   expect(signal.aborted).toBe(true)
   expect(screen.getByRole('alert').textContent).toContain('超时')
   expect(screen.queryByText('Private workspace')).toBeNull()
@@ -50,7 +52,7 @@ it.each(['request', 'body'] as const)('bounds login %s and reconciles a late coo
   })
   vi.stubGlobal('fetch', fetch); mount(); await screen.findByLabelText('邮箱')
   vi.useFakeTimers(); login(); await act(async () => {})
-  await act(async () => { vi.advanceTimersByTime(15_000) })
+  await act(async () => { vi.advanceTimersByTime(STANDARD_REQUEST_TIMEOUT_MS) })
   expect(loginSignal.aborted).toBe(true)
   expect(screen.getByRole('alert').textContent).toContain('超时')
   expect((screen.getByRole('button', { name: '登录' }) as HTMLButtonElement).disabled).toBe(false)
@@ -72,7 +74,7 @@ it('bounds logout without claiming revocation and reconciles its late cookie cle
   mount(); await screen.findByText(session.user.email)
   fireEvent.click(screen.getByRole('button', { name: '账号' }))
   vi.useFakeTimers(); fireEvent.click(screen.getByRole('button', { name: '退出登录' }))
-  await act(async () => { vi.advanceTimersByTime(15_000) })
+  await act(async () => { vi.advanceTimersByTime(STANDARD_REQUEST_TIMEOUT_MS) })
   expect(signal.aborted).toBe(true)
   expect(screen.getByRole('alert').textContent).toContain('尚未确认撤销')
   expect(screen.getByText('Private workspace')).toBeTruthy()

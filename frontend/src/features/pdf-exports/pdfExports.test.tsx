@@ -4,12 +4,19 @@ import PdfExports from './PdfExports'
 import {canRetryPdf,validPdfExport,type PdfExport} from './pdfApi'
 import {setApiSession} from '../../shared/api/client'
 import {setLocale} from '../../shared/i18n'
+import {STANDARD_REQUEST_TIMEOUT_MS,RESEARCH_REQUEST_TIMEOUT_MS} from '../../shared/api/requestTimeouts'
 const hash='a'.repeat(64)
 const props={projectId:'p1',sourceKind:'report' as const,sourceId:'report1',sourceSha256:hash,sourceLabel:'分析配置 v2'}
 const base='/api/v1/projects/p1/pdf-exports'
 const row={id:'pdf1',project_id:'p1',source_kind:'report',source_id:'report1',status:'queued',task_id:'pdf-task',created_at:'2026-10-20T00:00:00Z',filename:null,error_code:null,source_sha256:hash,parent_export_id:null,renderer_manifest:null,sha256:null,size_bytes:null,download_url:null}
 beforeEach(()=>{sessionStorage.clear();setApiSession('pdf-test-session')})
 afterEach(()=>{cleanup();vi.useRealTimers();vi.unstubAllGlobals();setLocale('zh-CN');sessionStorage.clear()})
+it.each(['report','research_report'] as const)('bounds PDF download using its known %s source scope',async sourceKind=>{
+ let signal!:AbortSignal
+ const saved={...row,source_kind:sourceKind,status:'succeeded',filename:'fixed.pdf',sha256:'b'.repeat(64),size_bytes:100,renderer_manifest:{id:'renderer'},download_url:`${base}/pdf1/download`}
+ vi.stubGlobal('fetch',vi.fn((url:string,init?:RequestInit)=>url.endsWith('/download')?(signal=init!.signal as AbortSignal,new Promise<Response>(()=>{})):Promise.resolve(Response.json({items:[saved]}))))
+ render(<PdfExports {...props} sourceKind={sourceKind}/>);const link=await screen.findByRole('link',{name:'下载 PDF'});vi.useFakeTimers();fireEvent.click(link);const deadline=sourceKind==='research_report'?RESEARCH_REQUEST_TIMEOUT_MS:STANDARD_REQUEST_TIMEOUT_MS;await act(()=>vi.advanceTimersByTimeAsync(deadline-1));expect(signal.aborted).toBe(false);await act(()=>vi.advanceTimersByTimeAsync(1));expect(signal.aborted).toBe(true);expect(screen.getByRole('alert').textContent).toContain('超时')
+})
 it('labels local candidate recovery separately and keeps the original visible export/task',async()=>{let recovered=false;const fetcher=vi.fn(async(_url:string,init?:RequestInit)=>{const original={...row,status:recovered?'queued':'failed',error_code:recovered?null:'storage_quota_exceeded',recovery_mode:'local_candidate'};if(init?.method==='POST'){recovered=true;return Response.json({...original,status:'queued',error_code:null,recovery_request_key:JSON.parse(String(init.body)).request_key})}return Response.json({items:[original]})});vi.stubGlobal('fetch',fetcher);render(<PdfExports {...props}/>);fireEvent.click(await screen.findByRole('button',{name:'恢复原导出候选'}));await waitFor(()=>expect(screen.getByText('待执行')).toBeTruthy());expect(screen.getAllByText(/PDF 导出 1/)).toHaveLength(1);expect(fetcher.mock.calls.find(([,init])=>init?.method==='POST')?.[0]).toBe(base+'/pdf1/retry')})
 it('registers a pending PDF request and allows explicit leave after its result becomes unknown',async()=>{
  let guard=()=>true,dirty=()=>false;const register=(next:()=>boolean,isDirty?:()=>boolean)=>{guard=next;dirty=isDirty??(()=>false);return ()=>{}}

@@ -12,6 +12,7 @@ from .live_contracts import PreviewRequest, AuthorizationRequest, LiveWritingReq
 from .policy import MAX_POSTS, MAX_CORRECTIONS, TASK_CAP, BATCH_CAP, POLICY_VERSION, capabilities
 from .frozen import contract,bundle_contract
 from app.domain.admin_configuration.bindings import resolve,bind
+from app.domain.manuscripts.delivery_context import resolve_document_context
 
 def denied():
     return StorageError('manuscript_writing_not_authorized','外发包、逻辑任务或有效授权不匹配。',409)
@@ -51,7 +52,7 @@ class LiveWritingService:
         require_key(key);body=preview_data(request)
         with self.store.connection(write=True) as db:
             root=self.manuscripts.root(db,project,identity)
-            school=self.store.require_project(db,project)['project_type']=='thesis'
+            school=resolve_document_context(db,project,self.store.user_id,manuscript_id=identity)['document_kind']=='thesis'
             if school!=(body['schema_version']==3):raise StorageError('manuscript_writing_not_authorized','学校须使用冻结学校章节协议；SCI继续使用原协议。',422)
             old=db.execute('SELECT id,request_digest FROM manuscript_writing_bundles WHERE project_id=%s AND user_id=%s AND request_key=%s',(project,self.store.user_id,key)).fetchone()
             request_digest=digest(dict(manuscript_id=identity,input=body))
@@ -106,7 +107,7 @@ class LiveWritingService:
                     bundle=self.bundle(db,project,ref['bundle_id']);self.current(db,bundle)
                     if bundle['bundle_sha256']!=ref['bundle_sha256']: raise denied()
                     frozen=bundle_contract(bundle)
-                    if (self.store.require_project(db,project)['project_type']=='thesis')!=(frozen['schema_version']==3):raise denied()
+                    if (resolve_document_context(db,project,self.store.user_id,manuscript_id=bundle['manuscript_id'])['document_kind']=='thesis')!=(frozen['schema_version']==3):raise denied()
                     limits.append(frozen)
                     materials.append(dict(logical_task_id=task['logical_task_id'],bundle_id=bundle['id'],bundle_sha256=bundle['bundle_sha256'],
                         wire_bytes=bundle['wire_bytes'],input_token_allowance=bundle['input_token_allowance'],reserved_micro_usd=bundle['reserved_micro_usd'],policy=bundle['policy_json']))
@@ -166,7 +167,7 @@ class LiveWritingService:
             else:
                 bundle=self.bundle(db,project,execution['bundle_id'])
                 if bundle['manuscript_id']!=identity: raise denied()
-                if (self.store.require_project(db,project)['project_type']=='thesis')!=(bundle_contract(bundle)['schema_version']==3):raise denied()
+                if (resolve_document_context(db,project,self.store.user_id,manuscript_id=identity)['document_kind']=='thesis')!=(bundle_contract(bundle)['schema_version']==3):raise denied()
                 self.require_authorized(db,project,execution,bundle)
                 request_id=str(uuid4());timestamp=now()
                 snap=dict(schema_version=2,project_id=project,workflow_version=WORKFLOW,input=bundle['request_json'],execution=execution,

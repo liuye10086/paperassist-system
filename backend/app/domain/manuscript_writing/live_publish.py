@@ -47,6 +47,9 @@ def publish(service,project,identity,request_id,request,key):
                 fields=dict(original);fields.update(id=str(uuid4()),version_id=version_id)
                 fields={k:Jsonb(v) if isinstance(v,(dict,list)) else v for k,v in fields.items()}
                 db.execute('INSERT INTO manuscript_sources('+','.join(fields)+') VALUES ('+','.join(['%s']*len(fields))+')',tuple(fields.values()))
+            from app.domain.manuscripts.research_sources import KINDS,bind
+            for source in candidate['sources']:
+                if source['kind'] in KINDS:bind(db,project,service.store.user_id,version_id,source)
             if citation:
                 for paragraph in citation['paragraphs']:
                     for fragment in paragraph['fragments']:

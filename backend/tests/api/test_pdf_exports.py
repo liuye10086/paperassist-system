@@ -79,6 +79,28 @@ def test_conversion_failure_retains_docx_and_retry_is_new_idempotent_object(clie
     assert not list((Path(get_data_dir())/'pdf_exports').glob('*'))
 
 
+@pytest.mark.parametrize('code',['storage_quota_exceeded','storage_disk_insufficient','storage_accounting_unknown'])
+def test_storage_rejection_without_a_candidate_allows_explicit_pdf_retry(client,monkeypatch,code):
+    from app.core.exceptions import StorageError
+    from app.db.database import database_connection
+    from app.domain.storage_governance.export_candidates import hold
+    from types import SimpleNamespace
+    path,source=successful_docx(client)
+    saved=client.post(path,json=dict(source_kind='manuscript_export',source_id=source['id'],request_key='storage-pdf')).json()
+    def denied(raw):raise StorageError(code,'Synthetic pre-capture storage rejection',409)
+    monkeypatch.setattr('app.domain.pdf_exports.execution.render_pdf',denied)
+    assert run_task(saved['task_id'],1)['error_code']==code
+    with database_connection() as db:
+        task=dict(db.execute('SELECT * FROM tasks WHERE id=%s',(saved['task_id'],)).fetchone())
+        assert hold(db,task) is None
+    response=client.post(path+'/'+saved['id']+'/retry',json={'request_key':'storage-corrected'})
+    assert response.status_code==201,response.text
+    retried=response.json();assert retried['parent_export_id']==saved['id']
+    monkeypatch.setattr('app.domain.pdf_exports.execution.render_pdf',lambda raw:SimpleNamespace(content=b'%PDF-1.7\nfixed',manifest={'contract':'test-v1'}))
+    assert run_task(retried['task_id'],1)['status']=='succeeded'
+    assert client.get(path+'/'+saved['id']).json()['status']=='failed'
+
+
 def test_pdf_task_workspace_and_audit_are_bound_to_exact_source(client,monkeypatch):
     path,source=successful_docx(client)
     saved=client.post(path,json=dict(source_kind='manuscript_export',source_id=source['id'],request_key='pdf')).json()

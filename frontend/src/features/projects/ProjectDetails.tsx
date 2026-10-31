@@ -1,3 +1,4 @@
+import {STANDARD_REQUEST_TIMEOUT_MS} from '../../shared/api/requestTimeouts'
 import { useEffect, useLayoutEffect, useRef, useState, type FormEvent } from 'react'
 import { apiFetch } from '../../shared/api/client'
 import { typeNames, type Project } from './projectTypes'
@@ -60,7 +61,7 @@ export default function ProjectDetails({ project, onUpdated, showHeading = true,
         setUncertain(true)
         setError('保存请求超时，请先重新读取项目，核对服务端是否已保存。')
       } else setError('项目读取超时，请稍后重试并核对保存结果。')
-    }, 15_000)
+    }, STANDARD_REQUEST_TIMEOUT_MS)
     try {
       const response = await apiFetch(`/api/v1/projects/${encodeURIComponent(project.id)}`, {
         signal: current.controller.signal,

@@ -1,3 +1,4 @@
+import {STANDARD_REQUEST_TIMEOUT_MS,RESEARCH_REQUEST_TIMEOUT_MS} from '../api/requestTimeouts'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import ProjectDownloadLink from './ProjectDownloadLink'
@@ -58,13 +59,21 @@ it.each(['unmount', 'href', 'session', 'scope'])('cancels late blob consumption 
   expect(create).not.toHaveBeenCalled(); if (change !== 'scope') expect(signal.aborted).toBe(true)
   stop()
 })
-it('times out after 30 seconds and retries without duplicating downloads', async () => {
+it('times out at the sixty-minute bound and retries without duplicating downloads', async () => {
   vi.useFakeTimers(); let signal!: AbortSignal
   const fetch = vi.fn((_url: string, init: RequestInit) => { signal = init.signal as AbortSignal; return new Promise<Response>(() => {}) })
   vi.stubGlobal('fetch', fetch); mount(); fireEvent.click(link())
-  await act(async () => { vi.advanceTimersByTime(30_000) })
+  await act(async () => { vi.advanceTimersByTime(STANDARD_REQUEST_TIMEOUT_MS) })
   expect(signal.aborted).toBe(true); expect(screen.getByRole('alert').textContent).toContain('超时')
   fireEvent.click(link()); expect(fetch).toHaveBeenCalledTimes(2)
+})
+it('accepts an ordinary authenticated download that takes twenty seconds',async()=>{
+ vi.useFakeTimers();vi.stubGlobal('fetch',vi.fn(()=>new Promise<Response>(resolve=>window.setTimeout(()=>resolve(new Response('slow exact bytes')),20000))))
+ mount();fireEvent.click(link());await act(()=>vi.advanceTimersByTimeAsync(20000));expect(create).toHaveBeenCalledTimes(1);expect(await create.mock.calls[0][0].text()).toBe('slow exact bytes');expect(revoke).toHaveBeenCalledWith('blob:download')
+})
+it('uses an explicitly supplied research deadline without guessing ownership from the URL',async()=>{
+ vi.useFakeTimers();let signal!:AbortSignal;vi.stubGlobal('fetch',vi.fn((_url:string,init:RequestInit)=>{signal=init.signal as AbortSignal;return new Promise<Response>(()=>{})}))
+ render(<ProjectDownloadLink href={href} filename="fixed.pdf" timeoutMs={RESEARCH_REQUEST_TIMEOUT_MS}>下载原文件</ProjectDownloadLink>);fireEvent.click(link());await act(()=>vi.advanceTimersByTimeAsync(RESEARCH_REQUEST_TIMEOUT_MS-1));expect(signal.aborted).toBe(false);await act(()=>vi.advanceTimersByTimeAsync(1));expect(signal.aborted).toBe(true);expect(screen.getByRole('alert').textContent).toContain('超时')
 })
 it('preserves modified and middle clicks as original authenticated navigation', () => {
   const fetch = vi.fn(); vi.stubGlobal('fetch', fetch); mount()
@@ -80,4 +89,12 @@ it('preserves modified and middle clicks as original authenticated navigation', 
 it('does not start a download from a component belonging to a changed session', () => {
   const fetch = vi.fn(); vi.stubGlobal('fetch', fetch); mount(); setApiSession('other'); fireEvent.click(link())
   expect(fetch).not.toHaveBeenCalled()
+})
+
+it.each([false,true])('keeps an ordinary/research=%s download waiting beyond its former deadline and preserves its bytes',async research=>{
+ vi.useFakeTimers();const former=research?1200000:600000
+ const fetch=vi.fn((_url:string,init?:RequestInit)=>new Promise<Response>((resolve,reject)=>{const timer=window.setTimeout(()=>resolve(new Response('late exact bytes')),former+1000);init?.signal?.addEventListener('abort',()=>{window.clearTimeout(timer);reject(new DOMException('Aborted','AbortError'))},{once:true})}));vi.stubGlobal('fetch',fetch)
+ render(<ProjectDownloadLink href={href} filename="fixed.pdf" timeoutMs={research?RESEARCH_REQUEST_TIMEOUT_MS:undefined}>下载原文件</ProjectDownloadLink>);fireEvent.click(link())
+ await act(()=>vi.advanceTimersByTimeAsync(former+1));expect(link().getAttribute('aria-busy')).toBe('true');expect(screen.queryByRole('alert')).toBeNull();expect(fetch.mock.calls[0][1]?.signal?.aborted).toBe(false);expect(create).not.toHaveBeenCalled()
+ await act(()=>vi.advanceTimersByTimeAsync(999));expect(create).toHaveBeenCalledTimes(1);expect(await create.mock.calls[0][0].text()).toBe('late exact bytes');expect(fetch).toHaveBeenCalledTimes(1)
 })

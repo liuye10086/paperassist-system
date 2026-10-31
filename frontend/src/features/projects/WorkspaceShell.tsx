@@ -53,7 +53,7 @@ export default function WorkspaceShell({ view, onNavigate, onCreate, projectName
   const groups: { id: string; label: string; icon: 'folder' | 'chart' | 'files'; items: ProjectSection[] }[] = [
     { id: 'materials', label: '材料准备', icon: 'folder', items: ['files', 'literature'] },
     { id: 'analysis', label: '分析与成果', icon: 'chart', items: ['analysis', 'artifacts'] },
-    { id: 'writing', label: '稿件写作', icon: 'files', items: ['manuscripts', projectType === 'thesis' ? 'school-templates' : 'journals'] },
+    { id: 'writing', label: '稿件写作', icon: 'files', items: ['manuscripts', projectType === 'thesis' || projectType === 'research' ? 'school-templates' : 'journals'] },
     { id: 'reviews', label: '评审与修改', icon: 'files', items: ['reviews', 'tasks'] },
   ]
   const activeGroup = view === 'project' ? groups.find(group => group.items.includes(section ?? 'overview'))?.id : undefined
@@ -75,7 +75,7 @@ export default function WorkspaceShell({ view, onNavigate, onCreate, projectName
     return () => { document.removeEventListener('keydown', handleKey); if (panel?.contains(document.activeElement)) previous?.focus() }
   }, [menuOpen])
   const chooseSection = (next: ProjectSection) => { setMenuOpen(false); onSectionChange?.(next) }
-  const sectionLabel = (item: typeof projectSections[number]) => t(item.value === 'manuscripts' && projectType === 'thesis' ? '毕业论文写作' : item.label)
+  const sectionLabel = (item: typeof projectSections[number]) => t(item.value === 'manuscripts' && projectType === 'research' ? '研究成果写作' : item.value === 'manuscripts' && projectType === 'thesis' ? '毕业论文写作' : item.label)
   const sectionButton = (value: ProjectSection) => {
     const item = projectSections.find(item => item.value === value)!
     return <button key={value} type="button" className="workspace-nav-item" aria-label={sectionLabel(item)} title={sectionLabel(item)}
@@ -111,7 +111,7 @@ export default function WorkspaceShell({ view, onNavigate, onCreate, projectName
         </button>
         <nav className="project-section-nav" aria-label={t('项目导航')}>
           {sectionButton('overview')}
-          {groups.filter(group => projectType !== 'research' || group.id !== 'writing').map(group => <div className={`workspace-nav-group${activeGroup === group.id ? ' is-current' : ''}`} key={group.id}>
+          {groups.map(group => <div className={`workspace-nav-group${activeGroup === group.id ? ' is-current' : ''}`} key={group.id}>
             <button type="button" className="workspace-nav-item workspace-group-toggle" aria-label={t(group.label)} title={t(group.label)}
               aria-expanded={activeGroup === group.id} aria-controls={`workspace-group-${group.id}`} onClick={() => chooseSection(group.items[0])}>
               <WorkspaceIcon name={group.icon} /><span className="sidebar-text">{t(group.label)}</span><span className="group-chevron sidebar-text" aria-hidden="true">›</span>

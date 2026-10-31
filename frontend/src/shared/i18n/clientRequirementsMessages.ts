@@ -1,4 +1,12 @@
 export const clientRequirementsMessages:Record<string,string> = {
+  '组均值 log1p 表达，未经按基因标准化；非差异效应': 'Group mean log1p expression, without per-gene standardization; not differential effects',
+  '图注、轴、单位、NA 排除、P=0 显示裁剪、热图组均值 log1p 与样本顺序以正式 plot-data／Methods 为准，原始值不会被图上裁剪改写。': 'Captions, axes, units, NA exclusions, display clipping for P=0, heatmap group mean log1p expression and sample order follow the formal plot-data and Methods. Display clipping never changes original values.',
+  '检查下游影响与新版提示': 'Check downstream impact and newer versions',
+  '固定来源保持不变；下游计划、图、发现、报告和稿件仅提示影响，不自动重算或替换。': 'Fixed sources stay unchanged. Downstream plans, figures, findings, reports and manuscripts receive impact notices, without automatic recomputation or replacement.',
+  '存在资源新版': 'A newer resource version exists',
+  '影响链达到查询上限，显示结果不完整。': 'The impact query reached its limit; the displayed chain is incomplete.',
+  '下游依赖影响': 'Downstream dependency impact',
+
   "研究项目": "Research project",
   "需求档案": "Requirements",
   "交付登记": "Deliveries",

@@ -1,3 +1,4 @@
+import {STANDARD_REQUEST_TIMEOUT_MS} from '../../shared/api/requestTimeouts'
 import {act,cleanup,fireEvent,render,screen,waitFor,within} from '@testing-library/react'
 import {afterEach,expect,it,vi} from 'vitest'
 import JournalWorkspace from './JournalWorkspace'
@@ -42,7 +43,7 @@ it('finishes initial loading on error and does not label real local material as 
  await screen.findByRole('alert');expect(screen.queryByText('正在读取期刊资料……')).toBeNull();expect(screen.queryByText('合成材料，仅验证离线工程',{selector:'p'})).toBeNull();expect(screen.getByRole('button',{name:'刷新期刊资料'})).toBeTruthy()
 })
 it('shows a recoverable error after a local request timeout instead of an endless loading state',async()=>{
- vi.useFakeTimers();vi.stubGlobal('fetch',vi.fn(()=>new Promise<Response>(()=>{})));render(<JournalWorkspace projectId="p1" active/>);await act(async()=>{await vi.advanceTimersByTimeAsync(15001)});expect(screen.queryByText('正在读取期刊资料……')).toBeNull();expect(screen.getAllByRole('alert').length).toBeGreaterThan(0)
+ vi.useFakeTimers();vi.stubGlobal('fetch',vi.fn(()=>new Promise<Response>(()=>{})));render(<JournalWorkspace projectId="p1" active/>);await act(async()=>{await vi.advanceTimersByTimeAsync(STANDARD_REQUEST_TIMEOUT_MS+1)});expect(screen.queryByText('正在读取期刊资料……')).toBeNull();expect(screen.getAllByRole('alert').length).toBeGreaterThan(0)
 })
 it('retries a failed task using the same frozen batch and clears content when session changes',async()=>{
  const {requests}=setup([recommendation('j1','failed')]);await screen.findByRole('button',{name:'重试本批任务'});fireEvent.click(screen.getByRole('button',{name:'重试本批任务'}));await waitFor(()=>expect(requests[0]?.url).toMatch(/recommendations\/j1\/retry$/));expect(requests[0].body).toEqual({});act(()=>clearApiSession());expect(screen.queryByText('synthetic Journal')).toBeNull();expect(screen.getByText('会话或项目访问已变化，请重新打开项目。')).toBeTruthy()

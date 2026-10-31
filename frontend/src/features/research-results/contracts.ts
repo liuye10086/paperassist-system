@@ -1,0 +1,29 @@
+import type {Snapshot} from '../manuscripts/manuscriptTypes'
+import type {ThesisInput,ThesisReadiness} from '../manuscripts/thesisTypes'
+export const sourceKinds=['bio_processed_dataset_version','bio_analysis_artifact','bio_figure_version','original_file','external_evidence_version','research_finding_version','research_figure_version','research_report_version','bio_insight_result_version','bio_insight_result_member'] as const
+export type SourceKind=typeof sourceKinds[number]
+export const sourceLabels:Record<SourceKind,string>={bio_insight_result_version:'差异／富集／候选及图件固定版本',bio_insight_result_member:'差异／功能结果固定表或图成员',bio_processed_dataset_version:'生信分析固定版本',bio_analysis_artifact:'生信分析结果表',bio_figure_version:'生信单图固定版本',original_file:'原始文件',external_evidence_version:'外部结果核对版本',research_finding_version:'研究发现固定版本',research_figure_version:'研究组图固定版本',research_report_version:'研究报告固定版本'}
+export type Locator={schema_version?:1;kind:'object'|'field'|'row'|'cell'|'page'|'image';field_path?:string;row_key?:Record<string,string>;column?:string;sheet?:string;cell?:string;page?:number;table?:string;parse_version_id?:string;original_sha256?:string}
+export type Source={schema_version?:1;source_kind:SourceKind;source_id:string;locator:Locator;sha256?:string|null}
+export type SourceItem={source_kind:SourceKind;source_id:string;title:string;sha256:string|null;status:string;created_at:string;version?:number;revision?:number;kind?:string;panel?:string;source_label?:string;dataset_name?:string;sample_id?:string;processed_dataset_version_id?:string;raw_version?:number;recipe_version?:number|string}
+export type Fact={id:string;source_kind:SourceKind;source_id:string;source_sha256:string;locator:Locator;raw_value:unknown;display_value:string;unit:string;observation_level:string;comparison:string;verification_status:string;origin:string;limitations:string[]}
+export type Catalog={source:Source&{title:string;content:Record<string,unknown>};facts:Fact[];methods:{id:string;title:string;description:string;parameters:Record<string,unknown>;software:Record<string,string>;executed:boolean}[];gaps:string[];warnings:string[];limitations:string[];conflicts:string[]}
+export type Claim={id:string;statement:string;fact_ids:string[];figure_refs:string[];origin:'system_candidate'|'user_text'|'public_reanalysis'|'external_result'|'literature';strength:'exploratory'|'descriptive'|'supported'|'unresolved';limitations:string[];conflicts:string[];review_decision:'pending'|'adopt'|'exclude'|'needs_evidence'}
+export type Conflict={id:string;fact_ids:string[];note:string;decision:'unresolved'|'use_first'|'use_second'|'exclude'|'explained';basis:string}
+export type Review={target_id:string;decision:'checked'|'adopt'|'exclude'|'needs_evidence';basis:string;evidence:Source[];reviewed_by?:string;reviewed_at?:string}
+export type FindingContent={title:string;sources:Source[];facts:Fact[];methods:Catalog['methods'];claims:Claim[];conflicts:Conflict[];reviews:Review[];limitations:string[];gaps:string[];warnings:string[];notes:string}
+export type Finding={id:string;set_id:string;revision:number;parent_id:string|null;content:FindingContent;sha256:string}
+export type FindingRoot={id:string;title:string;revision:number;current_version_id:string}
+export type ResearchTask={id:string;status:string;error_code?:string|null;reason_code?:string|null;revision?:number}
+export type Member={id:string;key:string;role:string;format:string;sha256:string;size_bytes:number;download_url:string;properties?:Record<string,unknown>;properties_json?:Record<string,unknown>}
+export type FigureConfig={root_id?:string|null;expected_revision:number;mode:'reuse'|'composite';panels:{source:Source;member_key:string|null;label:string;note:string}[];title:string;caption:string;caption_fact_ids:string[];caption_sources:Source[];language:'zh-CN'|'en';figure_language:'zh-CN'|'en'|'original'|'unknown';width_mm:number;dpi:150|300|600;columns:number;background:string;margin_mm:number;font_size_pt:number;formats:('png'|'tiff'|'pdf'|'svg')[]}
+export type Figure={id:string;root_id:string;revision:number;parent_id:string|null;config:FigureConfig;task:ResearchTask;task_id:string;members:Member[];manifest:Record<string,unknown>|null}
+export type Report={id:string;root_id:string;revision:number;parent_id:string|null;content:{title:string;language:'zh-CN'|'en';finding:Finding;figures:{id:string}[];tables:Record<string,unknown>[];included_pdf?:{id:string}|null};task:ResearchTask;task_id:string;members:Member[];manifest:Record<string,unknown>|null}
+export type Page<T>={items:T[];page:number;page_size:number;total:number}
+export type Selection={finding_version_ids:string[];figure_version_ids:string[];report_version_ids:string[]}
+export type Handoff=Selection&{delivery_id:string;manuscript_id:string|null;base_version_id:string|null;expected_revision:number;output_language:'zh-CN'|'en';thesis?:ThesisInput|null;sections:('results'|'materials_and_methods')[];manual_notes:string}
+export type WritingConfig={document_context:{document_kind:'sci'|'thesis';delivery_id:string};thesis:ThesisReadiness|null;writing_scope:'results_methods'}
+export type HandoffPreview={merge_preview:Snapshot;selected_source_ids:string[];selection_sha256:string;thesis?:ThesisInput|null;expected_revision:number;base_version_id:string|null}
+export type Candidate={id:string;delivery_id:string;task:ResearchTask;task_id:string;candidate:Snapshot|null;candidate_sha256:string|null;manuscript_id:string|null;base_version_id:string|null;expected_revision:number;published_version_id:string|null}
+export type Lookup={id:string;kind:string;set_id?:string;root_id?:string;task_id?:string}
+export type Pdf={id:string;status:string;source_id:string;download_url?:string|null;task?:ResearchTask}

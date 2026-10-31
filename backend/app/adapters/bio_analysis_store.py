@@ -1,5 +1,6 @@
 """Scoped persistent mapping, recipes and bounded processed-result reads."""
 import csv
+from app.domain.source_byte_verification import require_phase, phase_guard, RAW_MATRIX_KEYS
 import io
 import json
 import hashlib
@@ -63,6 +64,14 @@ class BioAnalysisStore:
         return dict(row)
 
     def raw(self,db,project,source,*,verify=True):
+        return self._raw(db,project,source,verify=verify)
+
+    @phase_guard
+    def _raw_lineage_in_phase(self,db,project,source,*,phase,progress=None):
+        require_phase(phase,db,self.assets,project)
+        return self._raw(db,project,source,phase=phase,progress=progress)
+
+    def _raw(self,db,project,source,*,verify=True,phase=None,progress=None):
         if hasattr(source,'model_dump'):source=source.model_dump(mode='json')
         self.store.require_project(db,project)
         if source['project_id']!=project:raise conflict('bio_input_integrity_changed')
@@ -74,10 +83,15 @@ class BioAnalysisStore:
         for member in members:
             self.raw_store.verify_member(member,frozen.get(member['id']))
             member['key']=frozen[member['id']]['key']
-            if verify:self.raw_store.objects.read(member)
+            if verify:
+                if phase is not None and member['key'] in RAW_MATRIX_KEYS:
+                    phase.verify_object(db,self.assets,project,self.raw_store.objects,member,progress=progress)
+                else:self.raw_store.objects.read(member)
         if verify:
             task=self.store.require_task(db,row['task_id'])
-            BioDatasetService(self.assets).require_sources(db,task)
+            service=BioDatasetService(self.assets)
+            if phase is None:service.require_sources(db,task)
+            else:service._require_lineage_in_phase(db,task,phase=phase,progress=progress)
         return row,manifest,members
 
     def axes(self,db,project,source):
@@ -289,13 +303,22 @@ class BioAnalysisStore:
             recipes=['visium_explore_v1'],design_gaps=['independent_donor_design_not_confirmed'],default_params=BioRecipeParameters().model_dump(),runtime=runtime)
 
     def processed_record(self,db,project,identifier):
+        return self._processed_record(db,project,identifier)
+
+    @phase_guard
+    def _processed_lineage_in_phase(self,db,project,identifier,*,phase,progress=None):
+        require_phase(phase,db,self.assets,project)
+        return self._processed_record(db,project,identifier,phase=phase,progress=progress)
+
+    def _processed_record(self,db,project,identifier,*,phase=None,progress=None):
         row=self.require(db,'bio_processed_dataset_versions',project,identifier)
         obj=scoped_object(db,project,self.store.user_id,row['manifest_object_id'])
         if obj['sha256']!=row['manifest_sha256']:raise conflict('bio_input_integrity_changed')
         manifest=self.objects.read_json(obj)
         if manifest.get('identity',{}).get('recipe_version_id')!=row['recipe_version_id']:raise conflict('bio_input_integrity_changed')
         raw_source=manifest.get('raw_source') or manifest.get('identity',{}).get('raw_source')
-        self.raw(db,project,raw_source)
+        if phase is None:self.raw(db,project,raw_source)
+        else:self._raw_lineage_in_phase(db,project,raw_source,phase=phase,progress=progress)
         rows=db.execute('SELECT * FROM bio_analysis_artifacts WHERE processed_dataset_version_id=%s AND project_id=%s ORDER BY key',(identifier,project)).fetchall()
         frozen={m['id']:m for m in manifest['members']};members=[]
         if set(frozen)!={m['id'] for m in rows}:raise conflict('bio_input_integrity_changed')

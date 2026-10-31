@@ -1,3 +1,4 @@
+import {STANDARD_REQUEST_TIMEOUT_MS} from '../../shared/api/requestTimeouts'
 import { apiFetch } from '../../shared/api/client'
 import { apiError } from '../../shared/i18n'
 
@@ -6,7 +7,7 @@ export class TaskRequestError extends Error {
   constructor(message: string, status: number) { super(message); this.status = status }
 }
 export async function taskRequest<T>(url: string, controller: AbortController, valid: (value: unknown) => value is T,
-  fallback: string, init?: RequestInit, timeoutMs = 15_000): Promise<T> {
+  fallback: string, init?: RequestInit, timeoutMs = STANDARD_REQUEST_TIMEOUT_MS): Promise<T> {
   let timer = 0
   try {
     return await Promise.race([

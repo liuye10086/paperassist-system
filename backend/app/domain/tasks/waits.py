@@ -8,6 +8,11 @@ from app.domain.tasks.wait_contracts import WaitView
 
 
 def input_version(task):
+    from app.domain.bio_insights.task_contracts import INSIGHT_TASKS,input_version as insight_input
+    if task['task_type'] in INSIGHT_TASKS:return insight_input(task)
+    if task['task_type'] in ('research_figure','research_report','research_fact_draft'):
+        from app.domain.research_results.task_contracts import input_version as research_input
+        return research_input(task)
     if task['task_type'] in ('bio_analysis', 'bio_figure'):
         from app.domain.bioinformatics.analysis_contracts import input_version as spatial_input_version
         return spatial_input_version(task)
@@ -165,6 +170,13 @@ def persist_wait(db, task):
 
 
 def allowed_recovery_actions(db, task):
+    from app.domain.bio_insights.task_contracts import INSIGHT_TASKS
+    if task['task_type'] in INSIGHT_TASKS:
+        from app.domain.bio_insights.execution import recovery_actions
+        return recovery_actions(db,task)
+    if task['task_type'] in ('research_figure','research_report','research_fact_draft'):
+        from app.domain.research_results.execution import recovery_actions
+        return recovery_actions(db,task)
     if task['task_type'] in ('bio_analysis', 'bio_figure'):
         from app.domain.bioinformatics.analysis_service import recovery_actions
         from app.core.exceptions import StorageError

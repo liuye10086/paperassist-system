@@ -344,3 +344,9 @@ bio_datasets,bio_imports,bio_import_files,bio_dataset_versions,bio_dataset_membe
 
 from app.db.bio_analysis_schema import define_bio_analysis_tables
 define_bio_analysis_tables(metadata)
+
+from app.db.research_results_schema import define_research_results_tables
+define_research_results_tables(metadata)
+
+from app.db.bio_insights_schema import define_bio_insights_tables
+define_bio_insights_tables(metadata)

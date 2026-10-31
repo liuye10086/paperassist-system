@@ -79,8 +79,16 @@ class ParseFileSnapshot(StrictModel):
 def validate_snapshot(task):
     from app.adapters.task_store import source_conflict
     try:
-        if task['task_type'] != 'parse_file' or task['workflow_version'] not in ('parse_file_v1', 'docx_document_v1', 'pdf_document_v1', 'ocr_document_v1'):
+        if task['task_type'] != 'parse_file' or task['workflow_version'] not in ('parse_file_v1', 'docx_document_v1', 'pdf_document_v1', 'ocr_document_v1','bio_insight_table_v1'):
             raise ValueError('Wrong parse workflow')
+        if task['workflow_version']=='bio_insight_table_v1':
+            from app.domain.bio_insights.table_parse import TableParseSnapshot
+            snapshot=TableParseSnapshot.model_validate(task['input_snapshot']).model_dump()
+            if snapshot['project']['id']!=task['project_id']:
+                raise ValueError('Wrong project')
+            from app.domain.bioinformatics.contracts import digest
+            if digest(snapshot)!=task['input_digest']:raise ValueError('Wrong table parser digest')
+            return snapshot
         from app.domain.documents.snapshots import DocxFileSnapshot, PdfFileSnapshot
         from app.domain.documents.ocr_snapshots import OcrFileSnapshot
         model = OcrFileSnapshot if task['workflow_version']=='ocr_document_v1' else PdfFileSnapshot if task['workflow_version'] == 'pdf_document_v1' else DocxFileSnapshot if task['workflow_version'] == 'docx_document_v1' else ParseFileSnapshot

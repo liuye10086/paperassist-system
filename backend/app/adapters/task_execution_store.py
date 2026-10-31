@@ -93,7 +93,7 @@ class TaskExecutionStore:
         with self.connection(write=True) as db:
             ensure_schema_current(db)
             row = db.execute('SELECT * FROM tasks WHERE id=%s', (task_id,)).fetchone()
-            if (not row or row['task_type'] not in ('word_report', 'explanation', 'boxplot', 'parse_file', 'extract_dataset', 'prepare_dataset', 'review_ocr', 'analysis_plan', 'analysis_recommendation', 'figure_projection', 'figure_workbench', 'figure_explanation', 'collection_word_report', 'statistics_compute', 'literature_search', 'literature_assistance', 'manuscript_draft', 'manuscript_docx', 'pdf_export', 'layout_docx', 'manuscript_writing', 'school_template_parse', 'school_rule_suggestion', 'journal_recommendation', 'journal_format_check', 'journal_adaptation', 'review_round_plan', 'review_revision', 'review_document_export', 'bio_import', 'bio_analysis', 'bio_figure')
+            if (not row or row['task_type'] not in ('word_report', 'explanation', 'boxplot', 'parse_file', 'extract_dataset', 'prepare_dataset', 'review_ocr', 'analysis_plan', 'analysis_recommendation', 'figure_projection', 'figure_workbench', 'figure_explanation', 'collection_word_report', 'statistics_compute', 'literature_search', 'literature_assistance', 'manuscript_draft', 'manuscript_docx', 'pdf_export', 'layout_docx', 'manuscript_writing', 'school_template_parse', 'school_rule_suggestion', 'journal_recommendation', 'journal_format_check', 'journal_adaptation', 'review_round_plan', 'review_revision', 'review_document_export', 'bio_import', 'bio_analysis', 'bio_figure', 'research_figure', 'research_report', 'research_fact_draft', 'bio_resource_import', 'bio_comparison', 'bio_result_import', 'bio_enrichment', 'bio_candidate', 'bio_insight_figure')
                     or (task_type is not None and row['task_type'] != task_type)
                     or row['revision'] != task_revision):
                 return None
@@ -158,6 +158,26 @@ class TaskExecutionStore:
                 WHERE task_id=%s AND attempt_no=%s AND lease_owner=%s''',
                 (now, now + timedelta(seconds=LEASE_SECONDS), lease.task_id, lease.attempt_no, lease.lease_owner))
         return True
+
+    def transaction_progress(self, db, lease):
+        """Renew a live lease using the writer already held by this operation.
+
+        Background heartbeats cannot acquire the schema writer lock while a
+        publication validates sources or scans retained storage journals.
+        This callback never revives an expired or replaced attempt.
+        """
+        def progress():
+            updated=db.execute("""UPDATE task_attempts a SET heartbeat_at=clock_timestamp(),
+                lease_expires_at=clock_timestamp()+(%s*interval '1 second') FROM tasks t
+                WHERE t.id=%s AND t.id=a.task_id AND t.current_attempt=%s
+                AND a.attempt_no=t.current_attempt AND t.status='running' AND a.status='running'
+                AND a.lease_owner=%s AND a.lease_expires_at>clock_timestamp()
+                RETURNING a.heartbeat_at,a.lease_expires_at""",
+                (LEASE_SECONDS,lease.task_id,lease.attempt_no,lease.lease_owner))
+            if updated.rowcount!=1:raise LeaseLost()
+            progress.renewed=dict(updated.fetchone())
+        progress()
+        return progress
 
     def defer(self, lease, seconds=5):
         if type(seconds) is not int or not 0 <= seconds <= 3600:
@@ -797,7 +817,7 @@ class TaskExecutionStore:
             reconcile_intents(db,self.assets.directory)
             rows = db.execute('''SELECT t.* FROM tasks t JOIN task_attempts a
                 ON a.task_id=t.id AND a.attempt_no=t.current_attempt
-                WHERE t.task_type IN ('word_report','explanation','boxplot','parse_file','extract_dataset','prepare_dataset', 'review_ocr', 'analysis_plan', 'analysis_recommendation', 'figure_projection', 'figure_workbench', 'figure_explanation', 'collection_word_report', 'statistics_compute', 'literature_search', 'literature_assistance', 'manuscript_draft', 'manuscript_docx', 'pdf_export', 'layout_docx', 'manuscript_writing', 'school_template_parse', 'school_rule_suggestion', 'journal_recommendation', 'journal_format_check', 'journal_adaptation', 'review_round_plan', 'review_revision', 'review_document_export', 'bio_import', 'bio_analysis', 'bio_figure') AND t.status='running' AND a.status='running'
+                WHERE t.task_type IN ('word_report','explanation','boxplot','parse_file','extract_dataset','prepare_dataset', 'review_ocr', 'analysis_plan', 'analysis_recommendation', 'figure_projection', 'figure_workbench', 'figure_explanation', 'collection_word_report', 'statistics_compute', 'literature_search', 'literature_assistance', 'manuscript_draft', 'manuscript_docx', 'pdf_export', 'layout_docx', 'manuscript_writing', 'school_template_parse', 'school_rule_suggestion', 'journal_recommendation', 'journal_format_check', 'journal_adaptation', 'review_round_plan', 'review_revision', 'review_document_export', 'bio_import', 'bio_analysis', 'bio_figure', 'research_figure', 'research_report', 'research_fact_draft', 'bio_resource_import', 'bio_comparison', 'bio_result_import', 'bio_enrichment', 'bio_candidate', 'bio_insight_figure') AND t.status='running' AND a.status='running'
                 AND a.lease_expires_at<=clock_timestamp()
                 ORDER BY a.lease_expires_at,t.id LIMIT %s''', (limit,)).fetchall()
             for row in rows:

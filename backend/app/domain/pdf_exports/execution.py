@@ -3,10 +3,12 @@ import os
 from app.domain.storage_governance import export_candidates as candidates
 from hashlib import sha256
 from threading import Event,Thread
+from time import monotonic
 from psycopg.types.json import Jsonb
 from app.adapters.task_execution_store import TaskExecutionStore,LeaseLost
 from app.adapters.task_store import TaskStore,source_conflict
 from app.core.exceptions import StorageError
+from app.domain.tasks.publication_transaction import publication_transaction,PublicationFailed
 from app.domain.report_collections.service import scoped_store
 from .service import PdfExportService,renderer_identity
 
@@ -15,6 +17,24 @@ SAFE=frozenset(('pdf_renderer_unavailable','pdf_conversion_failed','pdf_conversi
 def render_pdf(content):
     from app.adapters.pdf_renderer import render_pdf as render
     return render(content)
+
+def _verify_source(service,db,row,progress):
+    source_progress=progress
+    if row['source_kind']=='research_report':
+        from app.adapters.task_execution_store import LEASE_SECONDS
+        interval=min(1.0,LEASE_SECONDS/4)
+        # Only dense source-traversal heartbeats are coalesced. The original
+        # callback still owns renewed and every publication/rollback fence.
+        progress()
+        last_renewal=monotonic()
+        def source_progress():
+            nonlocal last_renewal
+            if monotonic()-last_renewal<interval:return
+            progress()
+            last_renewal=monotonic()
+    raw=service.verify_source(db,row,progress=source_progress)
+    progress()
+    return raw
 
 def run_pdf_task(task_id,task_revision,*,config=None,directory=None):
     execution=TaskExecutionStore(config=config,directory=directory)
@@ -28,14 +48,14 @@ def run_pdf_task(task_id,task_revision,*,config=None,directory=None):
             except StorageError: return
     thread=Thread(target=heartbeat,daemon=True);thread.start()
     try:
-        with execution.connection(write=True) as db:
+        with publication_transaction(execution,lease) as (db,progress):
             task=execution.require_lease(db,lease);execution.require_owner(db,task)
             service=PdfExportService(scoped_store(task['user_id'],execution.config,execution.assets.directory))
             row=service.row(db,task['project_id'],task['input_snapshot']['export_id'])
             if row['task_id']!=task_id: raise source_conflict()
-            raw=service.verify_source(db,row)
+            raw=_verify_source(service,db,row,progress)
             if renderer_identity()!=row['renderer_identity']: raise StorageError('pdf_renderer_mismatch','PDF转换环境与冻结身份不符。',409)
-            restored=candidates.restore(db,execution.assets.directory,task,lease)
+            restored=candidates.restore(db,execution.assets.directory,task,lease,progress=progress)
         if restored:
             metadata,content,target=restored
         else:
@@ -48,18 +68,19 @@ def run_pdf_task(task_id,task_revision,*,config=None,directory=None):
             staged=service.directory/(object_name+'.part');target=service.directory/object_name
             metadata=dict(filename=pdf_filename(row['input_json']['source']['metadata']['filename']),sha256=sha256(content).hexdigest(),size_bytes=len(content),
                 source_sha256=row['source_sha256'],input_sha256=row['input_sha256'],renderer_manifest=result.manifest,object_name=object_name)
-        with execution.connection(write=True) as db:
+        with publication_transaction(execution,lease) as (db,progress):
             db.execute('SELECT id FROM tasks WHERE id=%s FOR UPDATE',(task_id,)).fetchone()
             task=execution.require_lease(db,lease);execution.require_owner(db,task)
-            fresh=service.row(db,task['project_id'],row['id']);fresh_raw=service.verify_source(db,fresh)
+            fresh=service.row(db,task['project_id'],row['id']);fresh_raw=_verify_source(service,db,fresh,progress)
             if fresh_raw!=raw or fresh['input_json']!=row['input_json'] or renderer_identity()!=row['renderer_identity']: raise source_conflict()
             execution.require_lease(db,lease)
             if not restored:
-                candidates.capture(db,execution.assets.directory,task,lease,target,staged,content,metadata)
-            candidates.publish(db,execution.assets.directory,task,lease,metadata)
+                candidates.capture(db,execution.assets.directory,task,lease,target,staged,content,metadata,progress=progress)
+            candidates.publish(db,execution.assets.directory,task,lease,metadata,progress=progress)
             db.execute('UPDATE pdf_exports SET metadata_json=%s WHERE id=%s AND task_id=%s AND metadata_json IS NULL',(Jsonb(metadata),row['id'],task_id))
             execution.require_lease(db,lease);execution._finish(db,task,'succeeded',None)
         return TaskStore.public_task(task)
+    except PublicationFailed as exc:return exc.task
     except Exception as exc:
         code=exc.code if isinstance(exc,StorageError) and exc.code in SAFE | candidates.STORAGE_ERRORS else 'storage_unavailable' if isinstance(exc,OSError) else 'pdf_conversion_failed'
         try:

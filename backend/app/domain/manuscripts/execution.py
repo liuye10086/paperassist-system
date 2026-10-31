@@ -8,6 +8,7 @@ from psycopg.types.json import Jsonb
 from app.adapters.task_execution_store import TaskExecutionStore,LeaseLost
 from app.adapters.task_store import TaskStore,source_conflict
 from app.core.exceptions import StorageError
+from app.domain.tasks.publication_transaction import publication_transaction,PublicationFailed
 from app.domain.report_collections.service import scoped_store
 from app.domain.literature.service import digest
 from .service import ManuscriptService,now
@@ -33,14 +34,14 @@ def run_manuscript_task(task_id,task_revision,*,config=None,directory=None):
             except StorageError: return
     thread=Thread(target=heartbeat,daemon=True);thread.start()
     try:
-        with execution.connection(write=True) as db:
+        with publication_transaction(execution,lease) as (db,progress):
             task=execution.require_lease(db,lease);execution.require_owner(db,task)
             if task['task_type'] not in ('manuscript_draft','manuscript_docx'): raise source_conflict()
             service=ManuscriptService(scoped_store(task['user_id'],execution.config,execution.assets.directory))
-            version=service.verify_task(db,task,current=True);snapshot=version['snapshot_json']
+            version=service.verify_task(db,task,current=True,progress=progress);snapshot=version['snapshot_json'];progress()
             state=dict(version_id=version['id'],input_sha256=version['snapshot_sha256'],workflow_version=WORKFLOW)
             checkpoint(db,task,'check','publish',state)
-            restored=candidates.restore(db,execution.assets.directory,task,lease) if task['task_type']=='manuscript_docx' else None
+            restored=candidates.restore(db,execution.assets.directory,task,lease,progress=progress) if task['task_type']=='manuscript_docx' else None
         content=metadata=None
         if restored:
             metadata,content,target=restored
@@ -56,6 +57,9 @@ def run_manuscript_task(task_id,task_revision,*,config=None,directory=None):
                         with service.store.connection() as image_db:
                             image_row=languages.row(image_db,task['project_id'],figure.get('language_version_id') or source['id'])
                             raw=languages.png(image_row)
+                    elif source['kind']=='research_figure_version':
+                        from app.domain.research_results.figures import ResearchFigureService
+                        _,raw=ResearchFigureService(service.assets).member(task['project_id'],source['id'],figure['research_member_id'])
                     elif source['kind']=='figure': raw=service.assets.figure_png(source['content'])
                     elif source['kind']=='document_version':
                         from app.domain.documents.service import DocumentService
@@ -91,19 +95,20 @@ def run_manuscript_task(task_id,task_revision,*,config=None,directory=None):
             if school_plan is not None:metadata['school']=dict(plan=school_plan,report=school_plan['report'],field_update=field_update)
             service.directory.mkdir(parents=True,exist_ok=True)
             staged=service.directory/(export_id+'-'+lease.lease_owner+'.part')
-        with execution.connection(write=True) as db:
+        with publication_transaction(execution,lease) as (db,progress):
             task=execution.require_lease(db,lease);execution.require_owner(db,task)
-            fresh=service.verify_task(db,task,current=True)
+            fresh=service.verify_task(db,task,current=True,progress=progress);progress()
             if fresh['snapshot_json']!=snapshot: raise source_conflict()
             if task['task_type']=='manuscript_docx':
                 target=service.directory/(task['input_snapshot']['export_id']+'.docx')
                 if not restored:
-                    candidates.capture(db,execution.assets.directory,task,lease,target,staged,content,metadata)
-                candidates.publish(db,execution.assets.directory,task,lease,metadata)
+                    candidates.capture(db,execution.assets.directory,task,lease,target,staged,content,metadata,progress=progress)
+                candidates.publish(db,execution.assets.directory,task,lease,metadata,progress=progress)
                 db.execute('UPDATE manuscript_exports SET metadata_json=%s WHERE id=%s AND task_id=%s',(Jsonb(metadata),task['input_snapshot']['export_id'],task['id']))
             checkpoint(db,task,'publish','done',state)
             execution.require_lease(db,lease);execution._finish(db,task,'succeeded',None)
             return TaskStore.public_task(task)
+    except PublicationFailed as exc:return exc.task
     except LeaseLost: return None
     except Exception as exc:
         code=exc.code if isinstance(exc,StorageError) else 'storage_unavailable' if isinstance(exc,OSError) else 'report_render_failed'

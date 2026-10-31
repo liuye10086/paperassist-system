@@ -1,3 +1,6 @@
+import BioInsightsWorkspace from '../bio-insights/BioInsightsWorkspace'
+import {isInsightView} from '../bio-insights/state'
+import {STANDARD_REQUEST_TIMEOUT_MS} from '../../shared/api/requestTimeouts'
 import BioUpload from '../bioinformatics/BioUpload'
 import BioImports from '../bioinformatics/BioImports'
 import type { AnalysisNavigation } from './analysisViews'
@@ -40,7 +43,9 @@ function ResourceContent({ projectId, onSaved, section, onSectionChange, onUnava
   const [localAnalysis,setLocalAnalysis]=useState<AnalysisNavigation>({view:'overview',fileId:''})
   const analysis=analysisNavigation??localAnalysis
   const navigateAnalysis=onAnalysisNavigate??setLocalAnalysis
-  const bioView=analysis.view.startsWith('bio-')
+  const insightView=isInsightView(analysis.view)
+  const bioView=analysis.view.startsWith('bio-')&&!insightView
+  const researchView=analysis.view==='research-findings'
   const filesActive = Boolean(active) && section === 'files'
   const [files, setFiles] = useState<ProjectFile[]>([])
   const [attempt, setAttempt] = useState(0)
@@ -60,7 +65,7 @@ function ResourceContent({ projectId, onSaved, section, onSectionChange, onUnava
   useEffect(() => {
     const controller = new AbortController()
     let active = true
-    const timeout = window.setTimeout(() => controller.abort(), 15_000)
+    const timeout = window.setTimeout(() => controller.abort(), STANDARD_REQUEST_TIMEOUT_MS)
     void fileRequest<ProjectFile[]>(`/api/v1/projects/${projectId}/files`, controller.signal, onUnavailable)
       .then(result => {
         if (!Array.isArray(result)) throw new Error('format')
@@ -100,10 +105,13 @@ function ResourceContent({ projectId, onSaved, section, onSectionChange, onUnava
       </div>
     </div>
     <div hidden={section !== 'analysis'} className="project-analysis-page">
+      <BioInsightsWorkspace projectId={projectId} navigation={analysis} onNavigate={navigateAnalysis} active={Boolean(active)&&section==='analysis'&&insightView} registerLeaveGuard={registerLeaveGuard}/>
       <BioImports projectId={projectId} navigation={analysis} onNavigate={navigateAnalysis} active={Boolean(active)&&section==='analysis'&&bioView} registerLeaveGuard={registerLeaveGuard}/>
       <nav className="analysis-overview-nav" aria-label={t('分析工作区')}>
         <button type="button" aria-current={analysis.view==='overview'?'page':undefined} onClick={()=>navigateAnalysis({...analysis,view:'overview'})}>{t('分析概览')}</button>
         <button type="button" aria-current={bioView?'page':undefined} onClick={()=>navigateAnalysis({view:'bio-datasets',fileId:''})}>{t('生信数据集')}</button>
+        <button type="button" aria-current={insightView?'page':undefined} onClick={()=>navigateAnalysis({view:'bio-insights',fileId:''})}>{t('差异与功能分析')}</button>
+        <button type="button" aria-current={researchView?'page':undefined} onClick={()=>navigateAnalysis({view:'research-findings',fileId:''})}>{t('研究发现与核对')}</button>
         {analysis.view==='overview'&&<button type="button" className="button-primary" onClick={()=>navigateAnalysis({...analysis,view:'setup'})}>{t('进入分析工作台')}</button>}
       </nav>
       <div hidden={analysis.view!=='overview'}>
@@ -118,9 +126,9 @@ function ResourceContent({ projectId, onSaved, section, onSectionChange, onUnava
         ] as const).map(([target,title,description],index)=><button type="button" key={target} onClick={()=>navigateAnalysis({...analysis,view:target})}><span className="analysis-entry-number">{String(index+1).padStart(2,'0')}</span><strong>{t(title)}</strong><span>{t(description)}</span></button>)}</div>
         <ProjectRequirements projectId={projectId} files={files.filter((file):file is ProjectFile & {parse_status:'queued'|'parsing'|'parsed'|'failed'}=>file.parse_status!=='stored')} registerLeaveGuard={registerLeaveGuard}/>
       </div>
-      <div hidden={analysis.view==='overview'||bioView}>
+      <div hidden={analysis.view==='overview'||bioView||insightView||researchView}>
       <AnalysisSetup projectId={projectId} files={files.filter((file):file is ProjectFile & {parse_status:'queued'|'parsing'|'parsed'|'failed'}=>file.parse_status!=='stored'&&file.file_type==='xlsx')} filesLoading={loading} filesError={error} onReloadFiles={refresh}
-        onOpenFiles={() => onSectionChange('files')} stage={analysis.view==='overview'||analysis.view.startsWith('bio-')?'setup':analysis.view as import('../analysis/analysisWorkflowContext').AnalysisStage} onStageChange={view=>navigateAnalysis({...analysis,view})} fileId={analysis.fileId} onFileChange={fileId=>navigateAnalysis({...analysis,fileId})} registerLeaveGuard={registerLeaveGuard} />
+        onOpenFiles={() => onSectionChange('files')} stage={analysis.view==='overview'||analysis.view==='research-findings'||analysis.view.startsWith('bio-')?'setup':analysis.view as import('../analysis/analysisWorkflowContext').AnalysisStage} onStageChange={view=>navigateAnalysis({...analysis,view})} fileId={analysis.fileId} onFileChange={fileId=>navigateAnalysis({...analysis,fileId})} registerLeaveGuard={registerLeaveGuard} />
       </div>
     </div>
   </>

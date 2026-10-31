@@ -185,3 +185,12 @@ def references(db,root,failed,coverage):
         ('bio_figure_members','storage_object_id','sha256','bio_figure')):
         rows=db.execute('SELECT to_jsonb(a)||jsonb_build_object(\'object_key\',o.object_key,\'size_bytes\',o.size_bytes,\'sha256\',a.'+hash_column+') AS record,p.id AS project_id,p.owner_id FROM '+table+' a JOIN projects p ON p.id=a.project_id AND p.owner_id=a.created_by JOIN storage_objects o ON o.id=a.'+column+' WHERE a.'+column+' IS NOT NULL')
         yield from emit(rows,kind,lambda r:[r])
+
+    # Research immutable publications use their owner-scoped formal foreign keys.
+    for table,column,hash_column,kind in (
+        ('research_figure_versions','manifest_object_id','manifest_sha256','research_figure'),
+        ('research_figure_members','storage_object_id','sha256','research_figure'),
+        ('research_report_versions','manifest_object_id','manifest_sha256','research_report'),
+        ('research_report_members','storage_object_id','sha256','research_report')):
+        rows=db.execute('SELECT to_jsonb(a)||jsonb_build_object(\'object_key\',o.object_key,\'size_bytes\',o.size_bytes,\'sha256\',a.'+hash_column+') AS record,p.id AS project_id,p.owner_id FROM '+table+' a JOIN projects p ON p.id=a.project_id AND p.owner_id=a.user_id JOIN storage_objects o ON o.id=a.'+column+' WHERE a.'+column+' IS NOT NULL')
+        yield from emit(rows,kind,lambda r:[r])

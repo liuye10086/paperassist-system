@@ -1,0 +1,13 @@
+import {cleanup,fireEvent,render,screen,waitFor} from '@testing-library/react'
+import {afterEach,expect,it,vi} from 'vitest'
+import {useEffect,useState} from 'react'
+import FigureSetup from './FigureSetup'
+import type {Config} from './contracts'
+import {defaultConfig,buildPlan} from './state'
+import {apiFetch} from '../../shared/api/client'
+vi.mock('../../shared/api/client',()=>({apiFetch:vi.fn(),getApiUserId:()=> 'owner',onApiSessionChanged:()=>()=>{}}))
+afterEach(cleanup)
+it('does not request a result table before a primary result is selected',async()=>{vi.mocked(apiFetch).mockClear();vi.mocked(apiFetch).mockResolvedValue(Response.json({items:[],total:0,matched_total:0}));render(<FigureSetup projectId="p1" config={defaultConfig('figure')} onChange={vi.fn()} sources={[]}/>);expect(screen.getByText('请先在固定来源中添加对应角色。')).not.toBeNull();await waitFor(()=>expect(apiFetch).not.toHaveBeenCalled())})
+it('offers all seven figure types and binds a GSEA curve to its real stable term row',async()=>{let c:Config={...defaultConfig('figure'),result_source_id:'r1'};vi.mocked(apiFetch).mockImplementation(async url=>Response.json(String(url).includes('/tables/')?{columns:['row_key','term_id','NES'],items:[{row_key:'term-row1',term_id:'TERM0',NES:'0'}],total:1,matched_total:1,page:1,page_size:100}:{id:'r1',members:[{id:'m1',key:'enrichment_results',format:'tsv'}]}));function Harness(){const[v,set]=useState(c);useEffect(()=>{c=v as typeof c},[v]);return <FigureSetup projectId="p1" config={v} onChange={set} sources={[]}/>};render(<Harness/>);expect(screen.getByLabelText('图型').querySelectorAll('option')).toHaveLength(7);fireEvent.change(screen.getByLabelText('图型'),{target:{value:'gsea'}});await screen.findByRole('option',{name:/TERM0/});fireEvent.change(screen.getByLabelText('GSEA 精确 term 行'),{target:{value:'term-row1'}});await waitFor(()=>expect(c.term_row_key).toBe('term-row1'));const body=buildPlan('curve',c,[],0,'draft');expect(body.config).not.toHaveProperty('q_threshold');expect(body.config).not.toHaveProperty('minimum_absolute_effect')})
+
+it('describes actual group mean log1p heatmap values',()=>{render(<FigureSetup projectId="p1" config={{...defaultConfig('figure'),figure_type:'heatmap'}} onChange={vi.fn()} sources={[]}/>);expect(screen.getByText(/组均值 log1p 表达，未经按基因标准化/)).toBeTruthy();expect(screen.queryByText(/按基因 z-score/)).toBeNull()})

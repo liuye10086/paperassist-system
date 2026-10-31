@@ -27,7 +27,9 @@ class SchoolTemplateService:
 
     def project(self,db,project,lock=False):
         row=self.store.require_project(db,project)
-        if row['project_type']!='thesis': raise invalid('学校模板仅用于毕业论文项目。',422)
+        if row['project_type']!='thesis':
+            delivery=db.execute("SELECT id FROM research_deliveries WHERE project_id=%s AND kind='thesis_draft'"+(' AND active' if lock else ''),(project,)).fetchone() if row['project_type']=='research' else None
+            if not delivery:raise invalid('学校模板仅用于毕业论文交付。',422)
         if lock: db.execute('SELECT id FROM projects WHERE id=%s FOR UPDATE',(project,)).fetchone()
         return row
 

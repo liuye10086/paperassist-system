@@ -1,3 +1,4 @@
+import {STANDARD_REQUEST_TIMEOUT_MS} from '../../shared/api/requestTimeouts'
 import {act,cleanup,fireEvent,render,screen,waitFor,within} from '@testing-library/react'
 import {afterEach,expect,it,vi} from 'vitest'
 import ManuscriptReview from './ManuscriptReview'
@@ -67,7 +68,7 @@ it('recovers an uncertain publication through read-only history and manuscript r
  let published=false;const result=publishedReviewManuscript;const fn=server([savedReview],async()=>{published=true;throw Error('lost publication')});render(<ManuscriptReview {...props}/>);fireEvent.click(await screen.findByRole('button',{name:'查看检查记录 1'}));fireEvent.click(screen.getByRole('button',{name:'确认保存检查为新版本'}));await screen.findByText('请求结果未确认；请回读记录或使用原请求重试。');fn.mockImplementation(async(url:string)=>Response.json(url.endsWith('/m1')?result:url.includes('/context?')?reviewContext:{items:published?[{...savedReview,status:'published',published_revision:2}]:[savedReview]}));fireEvent.click(screen.getByRole('button',{name:'回读检查记录'}));await waitFor(()=>expect(props.onPublished).toHaveBeenCalledWith(result));expect(fn.mock.calls.filter(([,i])=>i?.method==='POST')).toHaveLength(1)
 })
 it('surfaces a timed-out initial read and leaves read-only retry available',async()=>{
- vi.useFakeTimers();vi.stubGlobal('fetch',vi.fn(()=>new Promise<Response>(()=>{})));render(<ManuscriptReview {...props}/>);await act(async()=>{});await act(async()=>{vi.advanceTimersByTime(15001)});expect(screen.getByRole('alert').textContent).toContain('资料检查读取失败');expect(screen.getByRole('button',{name:'回读检查记录'}).matches(':disabled')).toBe(false)
+ vi.useFakeTimers();vi.stubGlobal('fetch',vi.fn(()=>new Promise<Response>(()=>{})));render(<ManuscriptReview {...props}/>);await act(async()=>{});await act(async()=>{vi.advanceTimersByTime(STANDARD_REQUEST_TIMEOUT_MS+1)});expect(screen.getByRole('alert').textContent).toContain('资料检查读取失败');expect(screen.getByRole('button',{name:'回读检查记录'}).matches(':disabled')).toBe(false)
 })
 it('locates affected tables and section paragraphs instead of leaving focus on the issue button',async()=>{
  const table={id:'t1',title:'Measured table',columns:['Mean'],rows:[['27.555']],source_ids:['run1']},version={...reviewVersion,snapshot:{...reviewVersion.snapshot,results_groups:reviewVersion.snapshot.results_groups.map(g=>({...g,tables:[table]}))}}

@@ -1,0 +1,19 @@
+import {useCallback,useEffect,useRef,useState} from 'react'
+import {getApiUserId,onApiSessionChanged} from '../../shared/api/client'
+import {safeError} from '../../shared/i18n'
+import {researchRequest,ResearchError,jsonRequest,projectBase} from './api'
+import type {Lookup} from './contracts'
+type Pending={key:string;url:string;body:unknown}
+export default function useResearchOperation<T>(project:string,kind:'finding'|'figure'|'report'|'candidate',scope:string){
+ const storage=`paperassist.research-request.v1:${getApiUserId()??'anonymous'}:${project}:${kind}:${scope}`
+ const [busy,setBusy]=useState(false),[unknown,setUnknown]=useState(false),[retryable,setRetryable]=useState(false),[error,setError]=useState(''),[valid,setValid]=useState(true),[conflict,setConflict]=useState(false),[value,setValue]=useState<T|null>(null),[found,setFound]=useState<Lookup|null>(null)
+ const pending=useRef<Pending|null>(null),request=useRef<AbortController|null>(null),live=useRef(true),allowed=useRef(true)
+ const forget=useCallback(()=>{pending.current=null;try{sessionStorage.removeItem(storage)}catch{}},[storage])
+ useEffect(()=>{live.current=true;try{const raw=sessionStorage.getItem(storage);if(raw){const p=JSON.parse(raw) as Pending;if(p.key&&p.url.startsWith(projectBase(project)+'/')){pending.current=p;queueMicrotask(()=>{if(live.current)setUnknown(true)})}}}catch{}return()=>{live.current=false;request.current?.abort();pending.current=null}},[storage,project])
+ useEffect(()=>onApiSessionChanged(()=>{allowed.current=false;request.current?.abort();forget();setValid(false);setValue(null);setFound(null);setUnknown(false);setRetryable(false);setBusy(false);setError('会话已改变，请重新打开项目。')}),[storage,forget])
+ async function send(p:Pending){const c=new AbortController();request.current=c;setBusy(true);setError('');setConflict(false);try{const result=await researchRequest<T>(p.url,{...jsonRequest(p.body,p.key),signal:c.signal});if(live.current&&!c.signal.aborted&&allowed.current){forget();setUnknown(false);setRetryable(false);setValue(result)}}catch(cause){if(live.current&&!c.signal.aborted&&allowed.current){const definitive=cause instanceof ResearchError&&cause.status>=400&&cause.status<500;if(definitive)forget();setUnknown(!definitive);setRetryable(false);setConflict(cause instanceof ResearchError&&cause.status===409);setError(cause instanceof ResearchError&&cause.status===409?'版本已更新；草稿已保留，请刷新并比较后另存新版本。':safeError(cause,'提交结果待核对，请先查询原请求。'))}}finally{if(request.current===c)request.current=null;if(live.current)setBusy(false)}}
+ async function submit(url:string,body:unknown){if(request.current||pending.current||!allowed.current)return;const p={key:crypto.randomUUID(),url,body:structuredClone(body)};pending.current=p;try{sessionStorage.setItem(storage,JSON.stringify(p))}catch{}await send(p)}
+ async function lookup(){if(request.current||!pending.current||!allowed.current)return;const c=new AbortController();request.current=c;setBusy(true);setError('');try{const result=await researchRequest<Lookup>(`${projectBase(project)}/research-requests/${encodeURIComponent(pending.current.key)}?kind=${kind}`,{signal:c.signal});if(live.current&&!c.signal.aborted&&allowed.current){forget();setUnknown(false);setRetryable(false);setFound(result)}}catch(cause){if(live.current&&!c.signal.aborted&&allowed.current){setRetryable(cause instanceof ResearchError&&cause.status===404);setError(cause instanceof ResearchError&&cause.status===404?'尚未找到原请求。可显式重试原请求，保留原键和固定输入。':safeError(cause,'原请求结果尚未核实，请继续查询。'))}}finally{if(request.current===c)request.current=null;if(live.current)setBusy(false)}}
+ async function retry(){if(request.current||!retryable||!pending.current||!allowed.current)return;await send(pending.current)}
+ return{busy,unknown,retryable,error,valid,conflict,value,found,submit,lookup,retry,clear:()=>{setValue(null);setFound(null);setError('');setConflict(false)}}
+}

@@ -32,6 +32,13 @@ class ReviewService:
         changed=self.manuscripts.source_changes(project,combined)
         configurations=[];observations=[]
         for source in sources:
+            from app.domain.manuscripts.research_sources import KINDS,read as read_research
+            if source['kind'] in KINDS:
+                try:observations.append(dict(id=source['id'],sha256=digest(read_research(self.manuscripts,project,source,db))))
+                except StorageError as exc:
+                    if exc.code in ('storage_unavailable','database_configuration'):raise
+                    observations.append(dict(id=source['id'],unavailable=exc.code))
+                continue
             selection={k:source[k] for k in ('kind','id','file_id','role')}
             try: observations.append(dict(id=source['id'],sha256=digest(read_source(self.manuscripts,project,selection))))
             except StorageError as exc:
@@ -197,7 +204,7 @@ class ReviewService:
                 producer=self.manuscripts.task(db,project,'manuscript_draft',task_snapshot,'manuscript:'+version_id,validated_sources=candidate['sources'])
                 db.execute('''INSERT INTO manuscript_versions(id,project_id,user_id,idempotency_key,request_json,request_digest,manuscript_id,revision,parent_version_id,task_id,snapshot_json,snapshot_sha256,created_at,school_confirmation_id)
                     VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)''',(version_id,project,self.store.user_id,'review:'+review_id,Jsonb(body),digest(body),identity,revision,base['id'],producer['id'],Jsonb(candidate),digest(candidate),timestamp,base.get('school_confirmation_id')))
-                for table in ('manuscript_sources','manuscript_citations'):
+                for table in ('manuscript_sources','manuscript_citations','manuscript_research_sources'):
                     for original in db.execute('SELECT * FROM '+table+' WHERE version_id=%s',(base['id'],)).fetchall():
                         fields=dict(original);fields.update(id=str(uuid4()),version_id=version_id)
                         fields={k:Jsonb(v) if isinstance(v,(dict,list)) else v for k,v in fields.items()}

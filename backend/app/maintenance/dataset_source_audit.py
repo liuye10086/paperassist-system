@@ -212,7 +212,7 @@ def audit_dataset_sources(db):
             # Bio workflows have closed raw/processed contracts. In particular,
             # bio_import_v2 is not an Excel source merely because it ends in v2.
             # The aggregate audit invokes bio_dataset_audit/bio_analysis_audit.
-            if table == 'tasks' and row['task_type'] in ('bio_import','bio_analysis','bio_figure'):
+            if table == 'tasks' and row['task_type'] in ('bio_import','bio_analysis','bio_figure','research_figure','research_report','research_fact_draft'):
                 continue
             value = object_json(row[column])
             run_id = (value.get('result', {}).get('id') if isinstance(value.get('result'), dict) else None)

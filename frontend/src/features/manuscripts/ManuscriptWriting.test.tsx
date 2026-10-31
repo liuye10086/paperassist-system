@@ -1,3 +1,4 @@
+import {STANDARD_REQUEST_TIMEOUT_MS} from '../../shared/api/requestTimeouts'
 import {act,cleanup,fireEvent,render,screen,waitFor} from '@testing-library/react'
 import {afterEach,expect,it,vi} from 'vitest'
 import ManuscriptWriting from './ManuscriptWriting'
@@ -69,7 +70,7 @@ it('ignores an old project response after switching projects and rejects foreign
 it('reports a timed-out writing request and keeps it retryable',async()=>{
  vi.useFakeTimers();vi.stubGlobal('fetch',vi.fn(async(_url:string,init?:RequestInit)=>init?.method==='POST'?new Promise<Response>(()=>{}):Response.json({items:[]})))
  render(<ManuscriptWriting {...props}/>);await act(async()=>{})
- fireEvent.change(screen.getByLabelText('关键词（每行一项，可留空）'),{target:{value:'explicit keyword'}});fireEvent.click(screen.getByRole('button',{name:'发起完整七部分写作'}));await act(async()=>{vi.advanceTimersByTime(15001)})
+ fireEvent.change(screen.getByLabelText('关键词（每行一项，可留空）'),{target:{value:'explicit keyword'}});fireEvent.click(screen.getByRole('button',{name:'发起完整七部分写作'}));await act(async()=>{vi.advanceTimersByTime(STANDARD_REQUEST_TIMEOUT_MS+1)})
  expect(screen.getByRole('alert').textContent).toContain('未确认');vi.useRealTimers()
 })
 it('accepts unchanged non-target sections regardless of JSON object property order',async()=>{

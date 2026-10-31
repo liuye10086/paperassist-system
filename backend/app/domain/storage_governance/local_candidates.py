@@ -47,12 +47,12 @@ def read(root, row, source_identity):
     return envelope['value'], paths[0].read_bytes()
 
 
-def capture(db, root, project_id, operation, target, content, value, *, source_identity, kind, task_id=None, staged=None):
+def capture(db, root, project_id, operation, target, content, value, *, source_identity, kind, task_id=None, staged=None, progress=None):
     owner = s._project(db, project_id)['owner_id']
     envelope = encode(dict(schema_version=1, kind=kind, project_id=project_id, owner_id=owner,
         operation_key=operation, task_id=task_id, source_identity=source_identity, value=value))
     row = s.admit_candidate(db, root, project_id, operation, target, max(1, len(content)+len(envelope)),
-        task_id=task_id, source_identity=source_identity, kind=kind)
+        task_id=task_id, source_identity=source_identity, kind=kind, progress=progress)
     descriptor = Path(root)/'storage-candidates'/(row['id']+'.json')
     return s.capture_candidate(db, root, row['id'], content, [staged or target, target],
         source_identity=source_identity, descriptor=envelope, descriptor_path=descriptor,

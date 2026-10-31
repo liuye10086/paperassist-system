@@ -1,6 +1,22 @@
 // Public server codes only. Never render arbitrary server exception text.
 export const errorMessages: Record<string, {
  zh: string; en: string }> = {
+ bio_insight_not_found:{zh:'未找到此固定计划、运行、资源或原请求，请核对项目和版本。',en:'The fixed plan, run, resource or request was not found. Check the project and version.'},
+ bio_insight_revision_conflict:{zh:'计划或资源已有新版本；草稿保留，请读取并比较后另存新版。',en:'A newer plan or resource version exists. The draft is retained. Reload and compare before saving a new version.'},
+ bio_insight_idempotency_conflict:{zh:'原请求键与输入不一致；请保留原请求身份并回查，不要盲目重提。',en:'The original request key and input differ. Preserve the original identity and look it up before resubmitting.'},
+ bio_insight_source_conflict:{zh:'固定来源身份或完整性不一致，请核对所选版本与 SHA。',en:'The fixed source identity or integrity differs. Check the selected version and SHA.'},
+ bio_insight_design_blocked:{zh:'比较设计尚有阻断项，请预检并逐项补齐；不会自动降级为 spot 检验。',en:'The comparison design has blocking issues. Preview and resolve them; the method will not silently fall back to a spot test.'},
+ bio_insight_plan_unconfirmed:{zh:'此计划仍是草稿，请先预检并明确保存确认版本。',en:'The plan is a draft. Preview it and explicitly save a confirmed version first.'},
+ bio_insight_source_incomplete:{zh:'所选来源尚未成功发布，请查看原任务后刷新。',en:'The selected source has not been successfully published. Check the original task and refresh.'},
+ bio_insight_parse_required:{zh:'表格资源需要已成功的固定解析版本。请先实际解析原文件。',en:'A table resource requires a successful fixed parse version. Parse the original file first.'},
+ bio_insight_parse_conflict:{zh:'原文件与解析版本不匹配，请核对固定解析身份。',en:'The original file and parse version do not match. Check the fixed parse identity.'},
+ bio_insight_column_mapping_invalid:{zh:'列映射与实际表头不符，请核对特征、效应、P/q 和比较列。',en:'The column mapping does not match the actual headers. Check feature, effect, P/q and contrast columns.'},
+ bio_insight_resource_format_mismatch:{zh:'资源文件扩展名、角色和格式不一致，请核对原件。',en:'The resource extension, role and format differ. Check the original file.'},
+ bio_insight_file_unsupported:{zh:'此资源上传格式不支持；请选择 CSV/TSV、GMT、OBO/GAF 或允许的压缩格式。',en:'This resource upload format is unsupported. Select CSV/TSV, GMT, OBO/GAF or an allowed compressed format.'},
+ bio_insights_environment_unavailable:{zh:'固定科学环境尚不可用；配置草稿保留，请核对计算能力。',en:'The fixed scientific environment is unavailable. Drafts are retained. Check computation capabilities.'},
+ bio_insights_timeout:{zh:'后台计算达到有界时限，失败材料保留，请到原任务核对恢复。',en:'The computation reached its bounded deadline. Failure materials are retained. Check recovery on the original task.'},
+ bio_insights_output_invalid:{zh:'计算输出未通过固定来源、数值或图件核对，未发布新结果。',en:'The computation output failed source, numerical or figure validation. No new result was published.'},
+ bio_insights_figure_layout_too_small:{zh:'图幅不足以完整显示集合名称与标注。请增大图幅或缩短显示名称。',en:'The figure cannot fit the complete set names and annotations. Increase the figure size or use shorter display names.'},
  bio_analysis_not_found:{zh:'找不到此固定空间分析运行。',en:'This fixed spatial analysis run was not found.'},
  bio_recipe_not_found:{zh:'找不到此固定分析配方。',en:'This fixed analysis recipe was not found.'},
  bio_mapping_not_found:{zh:'找不到此固定条码映射版本。',en:'This fixed barcode mapping version was not found.'},

@@ -1,3 +1,4 @@
+import {STANDARD_REQUEST_TIMEOUT_MS} from '../../shared/api/requestTimeouts'
 import { afterEach, expect, test, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -231,7 +232,7 @@ test('disables editing controls and prevents duplicate patches while saving', as
   expect(await screen.findByRole('heading', { name: '新名称' })).toBeTruthy()
 })
 
-test('times out after fifteen seconds and rereads server result while preserving preview', async () => {
+test('times out at the shared bounded deadline and rereads server result while preserving preview', async () => {
   const mock = api({ patch: init => new Promise((_resolve, reject) => {
     init.signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')))
   }) })
@@ -255,7 +256,7 @@ test('times out after fifteen seconds and rereads server result while preserving
   await editName(user)
   vi.useFakeTimers()
   fireEvent.submit(screen.getByLabelText('修改项目名称').closest('form')!)
-  await act(async () => { await vi.advanceTimersByTimeAsync(14_999) })
+  await act(async () => { await vi.advanceTimersByTimeAsync(STANDARD_REQUEST_TIMEOUT_MS-1) })
   expect(screen.queryByRole('alert')).toBeNull()
   await act(async () => { await vi.advanceTimersByTimeAsync(1) })
   expect(screen.getByRole('alert').textContent).toContain('超时')

@@ -1,13 +1,14 @@
+import {STANDARD_REQUEST_TIMEOUT_MS} from '../api/requestTimeouts'
 import { useI18n, apiError, safeError } from '../i18n'
 import { useEffect, useRef, useState, type MouseEvent, type ReactNode } from 'react'
 import { apiFetch, captureApiSession, onApiSessionChanged } from '../api/client'
 import { captureProjectAccess } from '../api/projectAccess'
-type Props = { href: string; filename: string; children: ReactNode; ariaLabel?: string; onHttpError?: (status: number, body: unknown) => void }
+type Props = { timeoutMs?:number; href: string; filename: string; children: ReactNode; ariaLabel?: string; onHttpError?: (status: number, body: unknown) => void }
 export default function ProjectDownloadLink(props: Props) {
   return <DownloadLink key={props.href} {...props} />
 }
 
-function DownloadLink({ href, filename, children, ariaLabel, onHttpError }: Props) {
+function DownloadLink({ href, filename, children, ariaLabel, onHttpError, timeoutMs=STANDARD_REQUEST_TIMEOUT_MS }: Props) {
   const { t } = useI18n()
   const [checkSession] = useState(captureApiSession)
   const [busy, setBusy] = useState(false)
@@ -47,7 +48,7 @@ function DownloadLink({ href, filename, children, ariaLabel, onHttpError }: Prop
           return response.blob()
         }),
         new Promise<never>((_, reject) => {
-          timer = window.setTimeout(() => { controller.abort(); reject(new Error('下载超时，请重试。')) }, 30_000)
+          timer = window.setTimeout(() => { controller.abort(); reject(new Error('下载超时，请重试。')) }, timeoutMs)
         }),
       ])
       check()
@@ -72,5 +73,5 @@ function DownloadLink({ href, filename, children, ariaLabel, onHttpError }: Prop
     }
   }
   return <><a href={href} aria-label={ariaLabel} aria-busy={busy} aria-disabled={busy} onClick={event => void download(event)}>{children}</a>
-    {busy && <span role="status">{t("正在下载……")}</span>}{error && <span role="alert" className="error-panel">{t(error)}</span>}</>
+    {busy && <span role="status">{t("正在下载……")} {t("大文件可能需要数分钟，请保持页面打开。")}</span>}{error && <span role="alert" className="error-panel">{t(error)}</span>}</>
 }

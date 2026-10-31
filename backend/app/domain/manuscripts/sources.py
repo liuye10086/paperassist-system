@@ -84,6 +84,9 @@ def read_source(service,project,selection):
 def changes(service,project,snapshot,*,current_sources=None):
     changed=[]
     for frozen in snapshot['sources']:
+        from .research_sources import KINDS,changes as research_changes
+        if frozen['kind'] in KINDS:
+            changed.extend(research_changes(service,project,frozen));continue
         reasons=[]
         try:
             selection={k:frozen[k] for k in ('kind','id','file_id','role')}
@@ -124,4 +127,5 @@ def writing_changes(service,project,snapshot):
     selected={s['id'] for s in snapshot.get('sources',[]) if s['kind']=='analysis_run'}
     allowed=set(snapshot.get('analysis_handoff_run_ids',[]))&selected
     return [c for c in service.source_changes(project,snapshot)
+        if not (c['kind'].startswith('research_') and c['reasons']==['newer_source_version'])
         if not (c['kind']=='analysis_run' and c['id'] in allowed and c['reasons']==['analysis_configuration_changed'])]

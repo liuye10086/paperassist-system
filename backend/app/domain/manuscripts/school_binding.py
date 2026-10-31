@@ -28,10 +28,10 @@ def readiness(service,db,project):
     return result
 
 
-def freeze_context(service,project,request):
+def freeze_context(service,project,request,*,document_context=None):
     with service.store.connection() as db:
         project_row=service.require_project(db,project)
-        if project_row['project_type']!='thesis' or request.thesis is None:
+        if (document_context or {}).get('document_kind',project_row['project_type'])!='thesis' or request.thesis is None:
             raise StorageError('task_input_invalid','毕业论文必须选择固定学校确认版本及章节用途。',422)
         current=readiness(service,db,project);selected=request.thesis
         if not current['ready'] or current['confirmation_id']!=selected.confirmation_id or current['profile']['revision']!=selected.profile_revision:

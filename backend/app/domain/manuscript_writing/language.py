@@ -60,6 +60,10 @@ def figure_materials(assets,db,project,candidate):
                 if snap['output_language']!=figure_language(candidate,figure['id']): raise ValueError('Figure language mismatch')
                 manifest=snap['text_manifest']
                 if not manifest and snap['mode']!='no_text_confirmation': raise ValueError('Unknown image text')
+            elif source['kind']=='research_figure_version':
+                from app.domain.research_results.figures import ResearchFigureService
+                _,raw=ResearchFigureService(assets).member(project,source['id'],figure['research_member_id'])
+                # Existing language review stays fail closed for unknown image text.
             elif source['kind']=='figure': raw=assets.figure_png(source['content'])
             elif source['kind']=='document_version':
                 from app.domain.documents.service import DocumentService

@@ -1,3 +1,4 @@
+from app.domain.bio_insights.task_contracts import INSIGHT_TASKS
 """Safe task-center projections, separate from the existing task contract."""
 from typing import Literal
 
@@ -35,9 +36,9 @@ class TaskListItem(BaseModel):
 
     @model_validator(mode='after')
     def source_matches_task(self):
-        if self.source.file_id is None and not (self.task.task_type in ('literature_search','literature_assistance','manuscript_draft','manuscript_docx','pdf_export', 'layout_docx','manuscript_writing','journal_recommendation', 'journal_format_check', 'journal_adaptation', 'review_round_plan', 'review_revision', 'review_document_export', 'bio_analysis', 'bio_figure') or self.task.task_type=='analysis_plan' and self.task.input_version.workflow_version in ('analysis_plan_v4','analysis_plan_v5') and self.task.input_version.source is None):
+        if self.source.file_id is None and not (self.task.task_type in ('literature_search','literature_assistance','manuscript_draft','manuscript_docx','pdf_export', 'layout_docx','manuscript_writing','journal_recommendation', 'journal_format_check', 'journal_adaptation', 'review_round_plan', 'review_revision', 'review_document_export', 'bio_analysis', 'bio_figure', 'research_figure', 'research_report', 'research_fact_draft', *INSIGHT_TASKS) or self.task.task_type=='analysis_plan' and self.task.input_version.workflow_version in ('analysis_plan_v4','analysis_plan_v5') and self.task.input_version.source is None):
             raise ValueError('Only a material requirement may lack a source file')
-        if (self.task.task_type in ('parse_file','extract_dataset','prepare_dataset', 'review_ocr', 'analysis_plan', 'analysis_recommendation', 'collection_word_report', 'statistics_compute', 'literature_search', 'literature_assistance', 'manuscript_draft', 'manuscript_docx', 'pdf_export', 'layout_docx', 'manuscript_writing', 'school_template_parse', 'school_rule_suggestion', 'journal_recommendation', 'journal_format_check', 'journal_adaptation', 'review_round_plan', 'review_revision', 'review_document_export', 'bio_import', 'bio_analysis', 'bio_figure')) != (self.source.analysis_run_id is None):
+        if (self.task.task_type in ('parse_file','extract_dataset','prepare_dataset', 'review_ocr', 'analysis_plan', 'analysis_recommendation', 'collection_word_report', 'statistics_compute', 'literature_search', 'literature_assistance', 'manuscript_draft', 'manuscript_docx', 'pdf_export', 'layout_docx', 'manuscript_writing', 'school_template_parse', 'school_rule_suggestion', 'journal_recommendation', 'journal_format_check', 'journal_adaptation', 'review_round_plan', 'review_revision', 'review_document_export', 'bio_import', 'bio_analysis', 'bio_figure', 'research_figure', 'research_report', 'research_fact_draft', *INSIGHT_TASKS)) != (self.source.analysis_run_id is None):
             raise ValueError('Task source must match its input type.')
         return self
 
@@ -73,6 +74,8 @@ class ReportArtifact(BaseModel):
 
 
 class TaskArtifacts(BaseModel):
+    bio_insights: dict | None = None
+    research_results: dict | None = None
     bioinformatics: dict | None = None
     school_rule_suggestion: dict | None = None
     review: dict | None = None
@@ -89,6 +92,8 @@ class TaskArtifacts(BaseModel):
     @model_serializer(mode='wrap')
     def serialize_artifacts(self, handler):
         value = handler(self)
+        if self.bio_insights is None:value.pop('bio_insights',None)
+        if self.research_results is None:value.pop('research_results',None)
         if self.bioinformatics is None:value.pop('bioinformatics',None)
         if self.school_rule_suggestion is None:value.pop('school_rule_suggestion',None)
         if self.review is None:value.pop('review',None)
@@ -119,8 +124,8 @@ class TaskWorkspace(BaseModel):
 
     @model_validator(mode='after')
     def source_matches_task(self):
-        if self.source.file_id is None and not (self.task.task_type in ('literature_search','literature_assistance','manuscript_draft','manuscript_docx','pdf_export', 'layout_docx','manuscript_writing','journal_recommendation', 'journal_format_check', 'journal_adaptation', 'review_round_plan', 'review_revision', 'review_document_export', 'bio_analysis', 'bio_figure') or self.task.task_type=='analysis_plan' and self.task.input_version.workflow_version in ('analysis_plan_v4','analysis_plan_v5') and self.task.input_version.source is None):
+        if self.source.file_id is None and not (self.task.task_type in ('literature_search','literature_assistance','manuscript_draft','manuscript_docx','pdf_export', 'layout_docx','manuscript_writing','journal_recommendation', 'journal_format_check', 'journal_adaptation', 'review_round_plan', 'review_revision', 'review_document_export', 'bio_analysis', 'bio_figure', 'research_figure', 'research_report', 'research_fact_draft', *INSIGHT_TASKS) or self.task.task_type=='analysis_plan' and self.task.input_version.workflow_version in ('analysis_plan_v4','analysis_plan_v5') and self.task.input_version.source is None):
             raise ValueError('Only a material requirement may lack a source file')
-        if (self.task.task_type in ('parse_file','extract_dataset','prepare_dataset', 'review_ocr', 'analysis_plan', 'analysis_recommendation', 'collection_word_report', 'statistics_compute', 'literature_search', 'literature_assistance', 'manuscript_draft', 'manuscript_docx', 'pdf_export', 'layout_docx', 'manuscript_writing', 'school_template_parse', 'school_rule_suggestion', 'journal_recommendation', 'journal_format_check', 'journal_adaptation', 'review_round_plan', 'review_revision', 'review_document_export', 'bio_import', 'bio_analysis', 'bio_figure')) != (self.source.analysis_run_id is None):
+        if (self.task.task_type in ('parse_file','extract_dataset','prepare_dataset', 'review_ocr', 'analysis_plan', 'analysis_recommendation', 'collection_word_report', 'statistics_compute', 'literature_search', 'literature_assistance', 'manuscript_draft', 'manuscript_docx', 'pdf_export', 'layout_docx', 'manuscript_writing', 'school_template_parse', 'school_rule_suggestion', 'journal_recommendation', 'journal_format_check', 'journal_adaptation', 'review_round_plan', 'review_revision', 'review_document_export', 'bio_import', 'bio_analysis', 'bio_figure', 'research_figure', 'research_report', 'research_fact_draft', *INSIGHT_TASKS)) != (self.source.analysis_run_id is None):
             raise ValueError('Task source must match its input type.')
         return self

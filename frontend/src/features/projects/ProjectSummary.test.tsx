@@ -1,3 +1,4 @@
+import {STANDARD_REQUEST_TIMEOUT_MS} from '../../shared/api/requestTimeouts'
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
@@ -285,7 +286,7 @@ test('times out even when fetch ignores abort and ignores a later response', asy
   const pending = deferred<Response>()
   vi.stubGlobal('fetch', vi.fn(() => pending.promise))
   render(<ProjectSummary projectId="p1" projectType="sci" />)
-  await act(async () => { await vi.advanceTimersByTimeAsync(15_000) })
+  await act(async () => { await vi.advanceTimersByTimeAsync(STANDARD_REQUEST_TIMEOUT_MS) })
   expect(screen.getByRole('alert').textContent).toBe('项目摘要读取超时，请重试。')
   await act(async () => { pending.resolve(Response.json(summaryFixture())) })
   expect(screen.queryByText('期刊目标适配与投稿进展')).toBeNull()

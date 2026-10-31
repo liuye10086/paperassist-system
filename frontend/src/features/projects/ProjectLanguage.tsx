@@ -1,3 +1,4 @@
+import {STANDARD_REQUEST_TIMEOUT_MS} from '../../shared/api/requestTimeouts'
 import { useEffect, useRef, useState } from 'react'
 import { apiFetch, captureApiSession } from '../../shared/api/client'
 import { apiError, isLocale, safeError, useI18n, type Locale } from '../../shared/i18n'
@@ -30,7 +31,7 @@ export default function ProjectLanguage({ project, onUpdated, disabled, onBusyCh
       if (active.current !== request) return
       request.controller.abort(); active.current = null; setBusy(false); onBusyChange(false); setUncertain(true)
       setError('输出语言保存超时，请重新读取项目确认。')
-    }, 15_000)
+    }, STANDARD_REQUEST_TIMEOUT_MS)
     try {
       const response = await apiFetch(`/api/v1/projects/${encodeURIComponent(project.id)}/language`, {
         signal: request.controller.signal,

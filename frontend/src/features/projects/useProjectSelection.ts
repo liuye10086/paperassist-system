@@ -1,3 +1,4 @@
+import {STANDARD_REQUEST_TIMEOUT_MS} from '../../shared/api/requestTimeouts'
 import type { ReviewView, TaskDetailView } from './reviewViews';
 import type { AnalysisNavigation, ArtifactNavigation } from './analysisViews';
 import type { ManuscriptView, JournalView, SchoolTemplateNavigation } from './manuscriptViews';
@@ -68,7 +69,7 @@ export default function useProjectSelection(onUnavailable: (id: string) => void,
             if (next.section !== 'tasks') next = {...next,taskId:routeRef.current.taskId,taskDetailView:routeRef.current.taskDetailView};
             if (next.section !== 'analysis') next = { ...next, analysisNavigation: routeRef.current.analysisNavigation };
             if (next.section !== 'artifacts') next = { ...next, artifactNavigation: routeRef.current.artifactNavigation };
-            if (next.section !== 'manuscripts') next = { ...next, manuscriptView: routeRef.current.manuscriptView, manuscriptLink: routeRef.current.manuscriptLink };
+            if (next.section !== 'manuscripts') next = { ...next, manuscriptView: routeRef.current.manuscriptView, manuscriptLink: routeRef.current.manuscriptLink, researchCandidateId: routeRef.current.researchCandidateId };
             if (next.section !== 'journals') next = { ...next, journalView: routeRef.current.journalView, adaptationId: routeRef.current.adaptationId };
             if (next.section !== 'school-templates') next = { ...next, schoolTemplateNavigation: routeRef.current.schoolTemplateNavigation };
         }
@@ -230,7 +231,7 @@ export default function useProjectSelection(onUnavailable: (id: string) => void,
             controller.abort();
             setFailure({ instance, message: '项目详情读取超时，请稍后重试。' });
             setLoading(false);
-        }, 15000);
+        }, STANDARD_REQUEST_TIMEOUT_MS);
         request.current = { controller, timeout };
         async function load() {
             try {
@@ -384,6 +385,8 @@ export default function useProjectSelection(onUnavailable: (id: string) => void,
         reviewView:route.reviewView,reviewItemId:route.reviewItemId,taskDetailView:route.taskDetailView,
         selectReviewView,selectReviewItem,selectReviewRun,selectReviewDocument,selectTaskDetailView,
         manuscriptView:route.manuscriptView,journalView:route.journalView,schoolTemplateNavigation:route.schoolTemplateNavigation,
+        researchCandidateId:route.researchCandidateId,
+        selectResearchCandidate:(id:string)=>{if(!id||validId(id))navigate({...routeRef.current,section:'manuscripts',manuscriptView:'research-candidates',researchCandidateId:id})},
         selectManuscriptView,selectManuscriptVersion,selectJournalView,selectJournalAdaptation,selectSchoolTemplate,
         workspaceView: route.workspaceView, navigateWorkspace, overviewView: route.overviewView, changeOverviewView, registerLeaveGuard,
         section, taskId, literatureSearchId, adaptationId, reviewLink, manuscriptLink, selectTask, changeSection,

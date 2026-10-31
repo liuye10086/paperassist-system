@@ -1,3 +1,4 @@
+import {STANDARD_REQUEST_TIMEOUT_MS} from '../../shared/api/requestTimeouts'
 import { afterEach, expect, test, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -218,11 +219,11 @@ for (const late of ['response', 'body']) {
   })
 }
 
-test('list requests time out after fifteen seconds and allow retry even if fetch ignores abort', async () => {
+test('list requests time out at the shared bounded deadline and allow retry even if fetch ignores abort', async () => {
   const mock = api(); const normal = mock.getMockImplementation()!; let pending = true
   mock.mockImplementation((url, init) => url.startsWith('/api/v1/projects?') && pending ? new Promise(() => {}) : normal(url, init))
   vi.useFakeTimers(); render(<App />); await act(async () => {})
-  await act(async () => { await vi.advanceTimersByTimeAsync(15000) })
+  await act(async () => { await vi.advanceTimersByTimeAsync(STANDARD_REQUEST_TIMEOUT_MS) })
   expect(screen.getByRole('alert').textContent).toContain('超时')
   pending = false; fireEvent.click(screen.getByRole('button', { name: '重试项目列表' })); await act(async () => {})
   expect(screen.getByRole('button', { name: '打开项目 药学项目' })).toBeTruthy()
@@ -237,12 +238,12 @@ test('detail network failure offers its own retry and keeps the selected hash', 
   failed = false; await user.click(screen.getByRole('button', { name: '重试项目详情' })); await screen.findByRole('heading', { name: '药学项目' })
 })
 
-test('detail requests time out after fifteen seconds and retry when fetch ignores abort', async () => {
+test('detail requests time out at the shared bounded deadline and retry when fetch ignores abort', async () => {
   const mock = api(); const normal = mock.getMockImplementation()!; let pending = true
   mock.mockImplementation((url, init) => url === '/api/v1/projects/p1' && pending ? new Promise(() => {}) : normal(url, init))
   render(<App />); await screen.findByRole('button', { name: '打开项目 药学项目' })
   vi.useFakeTimers(); fireEvent.click(screen.getByRole('button', { name: '打开项目 药学项目' })); await act(async () => {})
-  await act(async () => { await vi.advanceTimersByTimeAsync(15000) })
+  await act(async () => { await vi.advanceTimersByTimeAsync(STANDARD_REQUEST_TIMEOUT_MS) })
   expect(screen.getByRole('alert').textContent).toContain('项目详情读取超时')
   expect(screen.queryByLabelText('选择 Excel 文件')).toBeNull()
   pending = false; fireEvent.click(screen.getByRole('button', { name: '重试项目详情' })); await act(async () => {})

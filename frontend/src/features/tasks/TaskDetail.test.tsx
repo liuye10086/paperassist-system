@@ -1,3 +1,4 @@
+import {STANDARD_REQUEST_TIMEOUT_MS} from '../../shared/api/requestTimeouts'
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
 import TaskDetail from './TaskDetail'
@@ -98,7 +99,7 @@ it('reads events incrementally and stops requests after unmount', async () => {
   await act(async () => { vi.advanceTimersByTime(5000) })
   expect(fetch.mock.calls.some(([url]) => url.includes('/events?after=1'))).toBe(true)
   view.unmount(); const count = fetch.mock.calls.length
-  await act(async () => { vi.advanceTimersByTime(15000) })
+  await act(async () => { vi.advanceTimersByTime(STANDARD_REQUEST_TIMEOUT_MS) })
   expect(fetch.mock.calls).toHaveLength(count)
 })
 it('reuses the same key after an unconfirmed response and a read of unchanged task state', async () => {
@@ -149,7 +150,7 @@ it('reuses the exact body and key after a hung resume request reaches its timeou
   }); vi.stubGlobal('fetch', fetch); render(<TaskDetail {...props} />)
   await act(async () => {})
   fireEvent.click(screen.getByRole('button', { name: '预算或配置已调整，继续任务' }))
-  await act(async () => { vi.advanceTimersByTime(15_001) })
+  await act(async () => { vi.advanceTimersByTime(STANDARD_REQUEST_TIMEOUT_MS+1) })
   expect(screen.getByText('恢复请求未确认，请先重新读取任务。')).toBeTruthy()
   fireEvent.click(screen.getByRole('button', { name: '预算或配置已调整，继续任务' }))
   await act(async () => {})

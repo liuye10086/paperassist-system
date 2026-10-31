@@ -73,6 +73,9 @@ def numeric_leaves(value):
 def numeric_facts(base):
     result={}
     for source in base.get('sources',[]):
+        from app.domain.manuscripts.research_sources import KINDS,numeric
+        if source.get('kind') in KINDS:
+            result[source['id']]={f['value'] for f in numeric(source)};continue
         if source.get('kind')!='analysis_run' or source.get('role')!='computed_results': continue
         content=source.get('content',{})
         result[source['id']]=set(numeric_leaves({key:content[key] for key in ('statistics','overall','groups','comparisons','coefficients') if key in content}))

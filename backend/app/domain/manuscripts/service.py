@@ -125,6 +125,9 @@ class ManuscriptService:
 
     def validate_version(self,db,row):
         snap=row['snapshot_json']
+        if row['request_json'].get('kind')=='research_results_methods':
+            from .research_sources import validate_version
+            return validate_version(self,db,row)
         from .school_binding import validate_frozen
         validate_frozen(self,db,row)
         if digest(snap)!=row['snapshot_sha256'] or digest(row['request_json'])!=row['request_digest']: raise source_conflict()
@@ -206,7 +209,8 @@ class ManuscriptService:
             reason_code=None,created_at=timestamp,updated_at=timestamp)
         # Version/source rows are written later in this same transaction. Use
         # the already validated frozen sources only for this first admission.
-        file_ids=tuple(source['file_id'] for source in validated_sources)
+        from .research_sources import file_ids as source_file_ids
+        file_ids=tuple(source_file_ids(validated_sources))
         self.store.insert_task(db,task,validated_file_ids=file_ids)
         self.store.append_event(db,task,'created')
         self.store.enqueue(db,task,validated_file_ids=file_ids)
@@ -396,8 +400,17 @@ class ManuscriptService:
             allowed.update(frozen['supersedes_source_ids'])
         return allowed
 
-    def verify_task(self,db,task,*,current=False,_review_candidate=None,read_versions=None):
+    def verify_task(self,db,task,*,current=False,_review_candidate=None,read_versions=None,progress=None):
         snap=task['input_snapshot']
+        if task['task_type']=='research_fact_draft':
+            candidate=db.execute('SELECT * FROM research_manuscript_candidates WHERE task_id=%s AND project_id=%s AND user_id=%s',(task['id'],task['project_id'],self.store.user_id)).fetchone()
+            if not candidate or not candidate['published_version_id']:raise source_conflict()
+            row=db.execute('SELECT * FROM manuscript_versions WHERE id=%s',(candidate['published_version_id'],)).fetchone()
+            self.validate_version(db,row)
+            if current:
+                from app.domain.research_results.candidates import ResearchCandidateService
+                ResearchCandidateService(self.assets).require_sources(db,task,progress=progress)
+            return row
         if task['task_type'] not in ('manuscript_draft','manuscript_docx') or task['workflow_version']!=WORKFLOW or digest(snap)!=task['input_digest'] or snap['project_id']!=task['project_id']: raise source_conflict()
         # Only a task-list read supplies this request-local dictionary. Reuse
         # full immutable-version verification within the same owner/transaction;
@@ -412,7 +425,7 @@ class ManuscriptService:
         if task['task_type']=='manuscript_docx':
             export=db.execute('SELECT * FROM manuscript_exports WHERE id=%s AND version_id=%s AND task_id=%s',(snap['export_id'],row['id'],task['id'])).fetchone()
             if not export: raise source_conflict()
-            self.verify_school_export(db,row,export,task,current=current)
+            self.verify_school_export(db,row,export,task,current=current,progress=progress)
             published=db.execute("SELECT status FROM tasks WHERE id=%s",(row['task_id'],)).fetchone()
             if published['status']!='succeeded': raise StorageError('task_revision_conflict','事实稿尚未发布。',409)
         if current:
@@ -434,8 +447,15 @@ class ManuscriptService:
                 reviews.assert_source_state(db,review)
             # Configuration/newer versions are surfaced separately; frozen actual bytes remain usable.
             for source in row['snapshot_json']['sources']:
+                if progress is not None:progress()
+                from .research_sources import KINDS,read as read_research
+                if source['kind'] in KINDS:
+                    if read_research(self,task['project_id'],source,db,progress=progress)!=source:raise source_conflict()
+                    if progress is not None:progress()
+                    continue
                 actual=read_source(self,task['project_id'],{k:source[k] for k in ('kind','id','file_id','role')})
                 if actual!=source: raise source_conflict()
+                if progress is not None:progress()
             if task['task_type']=='manuscript_draft' and row['snapshot_json'].get('citation_snapshot'):
                 citation=row['snapshot_json']['citation_snapshot']
                 _,original=self.citations.draft_row(db,task['project_id'],citation['draft_id'],citation['revision'])
@@ -452,7 +472,9 @@ class ManuscriptService:
                 raise StorageError('task_input_invalid','SCI导出不得携带学校配置。',422)
             return None
         sealed=version['snapshot_json'].get('writing_provenance',{}).get('school_export_options') if version['snapshot_json'].get('writing_provenance',{}).get('language_review_id') else None
-        options=deepcopy(sealed) if sealed is not None and request.school is None else (request.school or SchoolExportOptions()).model_dump(mode='json')
+        retained=version['snapshot_json'].get('research_school_export_defaults') if version['snapshot_json'].get('candidate_origin')=='system_fact_draft' else None
+        defaults=sealed if sealed is not None else retained
+        options=deepcopy(defaults) if defaults is not None and request.school is None else (request.school or SchoolExportOptions()).model_dump(mode='json')
         front=context['confirmation'].get('front_matter')
         if front is None:
             if options['field_values']:raise StorageError('task_input_invalid','旧学校确认不接受动态前置字段。',422)
@@ -491,7 +513,7 @@ class ManuscriptService:
         if plan.get('options')!=options:raise source_conflict()
         return dict(schema_version=1,request=dict(school=options),plan=plan)
 
-    def verify_school_export(self,db,version,export,task,*,current=False):
+    def verify_school_export(self,db,version,export,task,*,current=False,progress=None):
         intent=export.get('school_input_json');hashed=export.get('school_input_sha256')
         if task['input_digest']!=digest(task['input_snapshot']):raise source_conflict()
         if intent is None:
@@ -511,7 +533,14 @@ class ManuscriptService:
         if intent['plan']['analysis_sha256']!=digest(analysis):raise source_conflict()
         if current:
             for source in version['snapshot_json']['sources']:
+                if progress is not None:progress()
+                from .research_sources import KINDS,read as read_research
+                if source['kind'] in KINDS:
+                    if read_research(self,version['project_id'],source,db,progress=progress)!=source:raise source_conflict()
+                    if progress is not None:progress()
+                    continue
                 if read_source(self,version['project_id'],{k:source[k] for k in ('kind','id','file_id','role')})!=source:raise source_conflict()
+                if progress is not None:progress()
         return intent
 
     def preview_export(self,project,identity,revision,request=None):
