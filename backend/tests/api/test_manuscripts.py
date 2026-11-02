@@ -91,7 +91,7 @@ def test_unified_task_publication_checkpoints_export_and_replay(client):
     run_task(exported['task_id'],1)
     complete=client.get(path+'/'+first['id']+'/exports/'+exported['id']).json()
     assert complete['status']=='succeeded',complete
-    assert complete['pdf_status']=='not_requested'
+    assert 'pdf_status' not in complete
     download=client.get(complete['download_url'])
     assert download.status_code==200 and download.content.startswith(b'PK')
     assert client.get(export_path).json()['items'][0]['sha256']==complete['sha256']

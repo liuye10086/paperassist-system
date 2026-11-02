@@ -20,8 +20,12 @@ def environment_proof(identity):
     path=Path(os.environ[RUNTIME_MANIFEST_ENV]);report=json.loads(path.read_bytes())
     environment={key:report[key] for key in ('python','packages','native_libraries','lock_sha256','limits')}
     if digest(environment)!=identity['environment_digest']:raise invalid('bio_insights_environment_unavailable',422)
-    return dict(environment=environment,runtime_identity=actual,gate_checks=report['checks'],isolation=report['isolation'],
-                evidence_scope='actual_locked_runtime_gate')
+    proof=dict(environment=environment,runtime_identity=actual,gate_checks=report['checks'],isolation=report['isolation'],
+               evidence_scope='actual_locked_runtime_gate')
+    if report.get('reuse_provenance'):
+        proof.update({key:report[key] for key in ('reused_checks','reuse_provenance','validation_scope') if key in report})
+        proof['evidence_scope']='accepted_checks_reused_with_actual_qpcr_gate'
+    return proof
 
 
 def synthetic_status(payload):
@@ -38,6 +42,19 @@ def synthetic_status(payload):
 
 
 class BioInsightReproductionService(BioInsightsStore):
+    def _tabular_originals(self,db,project,source,archive):
+        from .sources import InsightSourceReader
+        if source.get('raw',{}).get('manifest',{}).get('schema_version')!=3:return []
+        reader=InsightSourceReader(self.assets);records=[]
+        for original in source['raw']['manifest']['source_files']:
+            file,metadata,members=reader.original(db,project,original['id'])
+            if file['sha256']!=original['sha256'] or file['size_bytes']!=original['size_bytes']:raise invalid()
+            member=members['original_file'];name='input/originals/'+file['sha256']+'.bin'
+            archive.add_file(name,member['path'],member)
+            records.append(dict(processed_version_id=source['source_id'],file_id=file['id'],filename=metadata['filename'],
+                role=original['role'],path=name,sha256=file['sha256'],size_bytes=file['size_bytes']))
+        return records
+
     def _processed_source_proof(self,db,project,source,archive):
         from app.adapters.bio_analysis_store import BioAnalysisStore
         bio=BioAnalysisStore(self.assets)
@@ -61,7 +78,7 @@ class BioInsightReproductionService(BioInsightsStore):
                 service=BioInsightsService(self.assets);payload=service.require_sources(db,task,runtime=False)
                 formal_manifest,members=checked_members(self,db,project,row,resource=resource)
                 proof=environment_proof(payload['identity'])
-                current=copy.deepcopy(payload);required={};source_proofs=[]
+                current=copy.deepcopy(payload);required={};source_proofs=[];tabular_originals=[]
 
                 def external(member,reason,role,source_id):
                     name='required-resources/'+member['sha256']+'.bin'
@@ -92,8 +109,14 @@ class BioInsightReproductionService(BioInsightsStore):
                         source_proofs.append(dict(source_kind=source['source_kind'],source_id=source['source_id'],sha256=source['sha256'],path=name,proof='formal_manifest_bytes'))
                     elif source['source_kind']=='bio_processed_dataset_version':
                         source_proofs.append(self._processed_source_proof(db,project,source,archive))
+                        tabular_originals.extend(self._tabular_originals(db,project,source,archive))
                     elif source['source_kind']=='original_file':
                         source_proofs.append(dict(source_kind=source['source_kind'],source_id=source['source_id'],sha256=source['sha256'],path=source['members']['original_file']['path'],proof='original_bytes'))
+                    elif source['source_kind']=='external_evidence_version':
+                        snapshot=source['metadata']['evidence_snapshot']
+                        if digest(snapshot)!=source['sha256']:raise invalid()
+                        name='provenance/'+source['sha256']+'.json';archive.add_json(name,snapshot)
+                        source_proofs.append(dict(source_kind=source['source_kind'],source_id=source['source_id'],sha256=source['sha256'],path=name,proof='canonical_metadata'))
                     elif source['source_kind']=='research_design_version':
                         if digest(source['metadata'])!=source['sha256']:raise invalid()
                         name='provenance/'+source['sha256']+'.json';archive.add_json(name,source['metadata'])
@@ -116,10 +139,19 @@ class BioInsightReproductionService(BioInsightsStore):
                     baseline.append({key:member[key] for key in ('key','role','format','sha256','size_bytes')}|{'path':name})
                     baseline_source_members[member['key']]=dict(path=name,**{key:member[key] for key in ('role','format','sha256','size_bytes')})
                 archive.add_json('input/payload.json',current)
+                if tabular_originals:archive.add_json('input/tabular-originals.json',tabular_originals)
                 archive.add_json('provenance/task-input.json',task['input_snapshot'])
                 archive.add_json('provenance/formal-manifest.json',formal_manifest)
                 archive.add_json('environment/runtime-proof.json',proof)
                 render=dict(supported=not resource,exact_original_figure=not resource and row['kind']=='figure')
+                if payload['kind']=='bio_candidate' and payload['config'].get('schema_version')==2:
+                    render.update(figure_types=['evidence_matrix','evidence_network','evidence_flow'],source_semantics='complete frozen candidate by external evidence cross product; source statements not recomputed; seed1729')
+                if payload['kind']=='bio_integration':
+                    render.update(figure_types=['integration_network','integration_flow'],source_semantics='complete frozen integration_data nodes and edges; layout seed1729; display-only filter; no statistics recomputation')
+                if payload['kind']=='bio_feature_extract':
+                    render.update(figure_types=['feature_distribution','feature_scatter'],source_semantics='exact frozen feature_data rows; no sequence or structure re-extraction on render')
+                if payload['config'].get('schema_version')==4:
+                    render.update(figure_types=['microbiome_composition','microbiome_alpha','microbiome_pcoa'],source_semantics='versioned microbiome raw assay, original count/fraction/percent and complete taxonomy/sample tables',permdisp=dict(center='median',method='eigh',dimensions=0))
                 if not resource:
                     if row['kind']=='figure':render_payload=copy.deepcopy(current)
                     else:
@@ -152,7 +184,7 @@ class BioInsightReproductionService(BioInsightsStore):
                     external_locked_runtime_required=True,synthetic_status=synthetic_status(payload),real_model_calls=False,real_network_calls=False)
                 archive.add_json('required-resources.json',dict(schema_version=1,resources=list(required.values())))
                 text=(
-                    '# CR-B04 offline reproduction / 离线复现\n\n'
+                    '# Bio insights offline reproduction / 离线复现\n\n'
                     'verify checks immutable input/output SHA, complete table row counts, code and lock/environment identity; it never computes.\n'
                     'recompute invokes the frozen scientific worker in an independent restricted child. render invokes only the figure renderer; no model fit or enrichment.\n'
                     'Use the matching fixed Linux interpreter/environment recorded in package.json; installing dependencies and supplying restricted resources are manual prerequisites. No network download occurs.\n'
@@ -164,6 +196,7 @@ class BioInsightReproductionService(BioInsightsStore):
                     'python reproduce.py render --output /new/empty/figures --config /chosen/FigureConfig.json\n\n'
                     'For an exported figure task, render defaults to its exact original config. Other result kinds require explicit result/contrast/term selection. Resource imports have no plot operation.\n'
                     'Outputs must be new directories outside this immutable package. Failed logs and numeric differences remain in that attempt.\n'
+                    'For tabular V3 sources, input/tabular-originals.json maps each exact uploaded original to its SHA-verified package path. Prepared matrix/metadata members in input/payload.json are the executable comparison inputs.\n'
                     'P/q absolute tolerance <=1e-10; effect/ES/NES <=1e-8. IDs/direction/counts/NA reasons/original external text are exact.\n'
                     'Synthetic origin is unknown unless authenticated input metadata establishes it; donor labels never establish real biological replication.\n'
                     'Code/tests, successful engineering reproduction and biological validation/user acceptance are distinct.\n')

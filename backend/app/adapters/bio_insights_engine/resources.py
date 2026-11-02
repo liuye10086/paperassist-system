@@ -240,6 +240,11 @@ def normalize_annotations(rows):
 
 def run_resource_import(payload,writer):
     from app.adapters.bio_insights_engine.inputs import iter_table
+    if payload['config']['kind'] in ('sample_correspondence','object_correspondence'):
+        from .integration import run_correspondence_import
+        return run_correspondence_import(payload,writer)
+    if payload['config']['kind'] in ('sequence','structure'):
+        return run_feature_resource_import(payload,writer)
     config=payload['config'];sources={s['source_id']:s for s in payload['sources']}
     originals=[];ontology=None;gafs=[];term_results=[];tabular=[];totals=[0]
     if sum(sources[spec['file_id']]['members']['original_file']['size_bytes'] for spec in config['files'])>512*1024**2:
@@ -323,3 +328,27 @@ def run_resource_import(payload,writer):
                  identifier_mapping='explicit_one_to_one_only; ORA_deduplicates_targets; GSEA_excludes_many_to_one',
                  sequence_structure_features='imported_annotations_only',input_files=originals)
     return dict(summary=dict(stats),methods=methods,inference_scope='derived',provenance='system_computed')
+
+
+def run_feature_resource_import(payload,writer):
+    from .feature_extract import extract_fasta,_structure_atoms
+    config=payload['config'];spec=config['files'][0]
+    source=next(s for s in payload['sources'] if s['source_id']==spec['file_id']);member=source['members']['original_file']
+    if member['sha256']!=spec['sha256']:raise ValueError('feature_resource_sha_changed')
+    text='\n'.join(text_lines(member,spec['format'],min(spec['max_uncompressed_bytes'],268435456),expected_size=spec.get('expected_uncompressed_size_bytes')))
+    if config['kind']=='sequence':
+        rows,excluded=extract_fasta(text,config['sequence_type'],payload['identity']['resource_version_id'],config.get('nucleotide_encoding'))
+        inventory=dict(record_count=len(rows)+len(excluded),character_count=sum(r['length'] for r in rows+excluded),invalid_record_count=len(excluded))
+    else:
+        atoms=_structure_atoms(text,spec['format'].removesuffix('.gz'))
+        inventory=dict(atom_count=len(atoms),model_chains=[dict(model_id=m,chain_id=c) for m,c in sorted({(a['model_id'],a['chain_id']) for a in atoms if a['chain_id'] is not None})])
+    # Publish exact source bytes as a usable frozen input member, not a path or
+    # a parsed replacement. Original files also retain their existing FKs.
+    writer.add('feature_input_0',Path(member['path']).read_bytes(),spec['format'],'feature_input')
+    original=dict(file_id=spec['file_id'],sha256=member['sha256'],format=spec['format'],role=spec['role'],member_key='feature_input_0')
+    resource=dict(schema_version=1,kind=config['kind'],sequence_type=config.get('sequence_type'),nucleotide_encoding=config.get('nucleotide_encoding'),structure_origin=config.get('structure_origin'),
+        species_taxon_id=config['species_taxon_id'],namespace=config['namespace'],release=config['release'],source=config['source'],usage=config['usage'],input_files=[original],inventory=inventory)
+    writer.json('resource',resource)
+    methods=dict(resource_kind=config['kind'],release=config['release'],source=config['source'],usage=config['usage'],input_files=[original],sequence_structure_features='validated_input_only; extraction_requires_feature_extract_run',
+        sequence_type=config.get('sequence_type'),nucleotide_encoding=config.get('nucleotide_encoding'),structure_origin=config.get('structure_origin'))
+    return dict(summary=inventory,methods=methods,inference_scope='derived',provenance='system_computed')

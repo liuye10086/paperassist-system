@@ -1,0 +1,952 @@
+{
+  "provenance": {
+    "source": "Frozen public-material qPCR finding; no new analysis",
+    "finding_id": "1300d5ce-d515-523a-8e3b-f1cfa42a3b6d",
+    "finding_sha256": "834ab82e059ec913ba9149133f978eb84fac02eba41bd9b55cb62c0da551ae97",
+    "method_sha256": "409c9e796c69cebc00d2e31f6e01b6cf7aee80de0aebe298aa2f2ec06a2b5e50"
+  },
+  "method": {
+    "id": "insight-method-d15cdd224bc575e93a352dea246eaa6a",
+    "title": "差异与功能分析方法 / Differential and functional methods",
+    "source": {
+      "sha256": "846a2c34ae217160039a324a3ae184113afee477f63acf6f9e7209cc5471b13c",
+      "locator": {
+        "cell": null,
+        "kind": "object",
+        "page": null,
+        "sheet": null,
+        "table": null,
+        "column": null,
+        "row_key": null,
+        "field_path": null,
+        "schema_version": 1,
+        "original_sha256": null,
+        "parse_version_id": null
+      },
+      "source_id": "4b2820a0-3392-516d-8b4a-14ccac1c0435",
+      "source_kind": "bio_insight_result_version",
+      "schema_version": 1
+    },
+    "executed": true,
+    "software": {
+      "code_digest": "267a8ffcd270ecdb44c284eaadb413be5967b40de0a65768c8d4f92269da573a",
+      "engine_version": "bio_insights_v1.0.0",
+      "environment_digest": "9fc75668b6cc78a9ea0146296aa465815856700f6563451376e4ff2af9ed0e74"
+    },
+    "parameters": {
+      "name": "qpcr_relative_quantification_v1",
+      "config": {
+        "kind": "comparison",
+        "mode": "qpcr",
+        "sheet": null,
+        "design": "paired",
+        "method": "paired_t",
+        "recipe": "qpcr_relative_quantification_v1",
+        "columns": {
+          "cq": "cq",
+          "dose": null,
+          "time": null,
+          "well": "well",
+          "pair_id": "pair_id",
+          "plate_id": "plate_id",
+          "condition": "condition",
+          "sample_id": "sample_id",
+          "target_id": "target_id",
+          "detection_status": "detection_status",
+          "biological_unit_id": "biological_unit_id",
+          "technical_replicate": "technical_replicate"
+        },
+        "targets": [
+          "PINK1"
+        ],
+        "contrasts": [
+          {
+            "name": "BrainPhys / N2B27，同板配对",
+            "numerator": "BrainPhys",
+            "contrast_id": "BrainPhys_N2B27",
+            "denominator": "N2B27"
+          }
+        ],
+        "dose_unit": "",
+        "na_values": [
+          "",
+          "NA",
+          "N/A",
+          "Undetermined",
+          "undetermined"
+        ],
+        "namespace": "qPCR_assay_label",
+        "time_unit": "",
+        "references": [
+          "UBC"
+        ],
+        "cross_plate": "separate",
+        "efficiencies": {},
+        "excluded_wells": [
+          {
+            "well": "C1",
+            "reason": "RPL18A preserved but not selected: original article uses UBC only",
+            "plate_id": "BOC82_N2B27vsBP_N1"
+          },
+          {
+            "well": "C2",
+            "reason": "RPL18A preserved but not selected: original article uses UBC only",
+            "plate_id": "BOC82_N2B27vsBP_N1"
+          },
+          {
+            "well": "C3",
+            "reason": "raw control type retained; controls excluded from sample relative expression, retained for QC",
+            "plate_id": "BOC82_N2B27vsBP_N1"
+          },
+          {
+            "well": "C6",
+            "reason": "raw control type retained; controls excluded from sample relative expression, retained for QC",
+            "plate_id": "BOC82_N2B27vsBP_N1"
+          },
+          {
+            "well": "C9",
+            "reason": "raw control type retained; controls excluded from sample relative expression, retained for QC",
+            "plate_id": "BOC82_N2B27vsBP_N1"
+          },
+          {
+            "well": "D1",
+            "reason": "RPL18A preserved but not selected: original article uses UBC only",
+            "plate_id": "BOC82_N2B27vsBP_N1"
+          },
+          {
+            "well": "D2",
+            "reason": "RPL18A preserved but not selected: original article uses UBC only",
+            "plate_id": "BOC82_N2B27vsBP_N1"
+          },
+          {
+            "well": "D3",
+            "reason": "raw control type retained; controls excluded from sample relative expression, retained for QC",
+            "plate_id": "BOC82_N2B27vsBP_N1"
+          },
+          {
+            "well": "D6",
+            "reason": "raw control type retained; controls excluded from sample relative expression, retained for QC",
+            "plate_id": "BOC82_N2B27vsBP_N1"
+          },
+          {
+            "well": "D9",
+            "reason": "raw control type retained; controls excluded from sample relative expression, retained for QC",
+            "plate_id": "BOC82_N2B27vsBP_N1"
+          },
+          {
+            "well": "H10",
+            "reason": "raw control type retained; controls excluded from sample relative expression, retained for QC",
+            "plate_id": "BOC82_N2B27vsBP_N1"
+          },
+          {
+            "well": "H11",
+            "reason": "raw control type retained; controls excluded from sample relative expression, retained for QC",
+            "plate_id": "BOC82_N2B27vsBP_N1"
+          },
+          {
+            "well": "H12",
+            "reason": "raw control type retained; controls excluded from sample relative expression, retained for QC",
+            "plate_id": "BOC82_N2B27vsBP_N1"
+          },
+          {
+            "well": "C1",
+            "reason": "RPL18A preserved but not selected: original article uses UBC only",
+            "plate_id": "BOC82_N2B27vsBP_IND4"
+          },
+          {
+            "well": "C2",
+            "reason": "RPL18A preserved but not selected: original article uses UBC only",
+            "plate_id": "BOC82_N2B27vsBP_IND4"
+          },
+          {
+            "well": "C3",
+            "reason": "raw control type retained; controls excluded from sample relative expression, retained for QC",
+            "plate_id": "BOC82_N2B27vsBP_IND4"
+          },
+          {
+            "well": "C6",
+            "reason": "raw control type retained; controls excluded from sample relative expression, retained for QC",
+            "plate_id": "BOC82_N2B27vsBP_IND4"
+          },
+          {
+            "well": "C9",
+            "reason": "raw control type retained; controls excluded from sample relative expression, retained for QC",
+            "plate_id": "BOC82_N2B27vsBP_IND4"
+          },
+          {
+            "well": "D1",
+            "reason": "RPL18A preserved but not selected: original article uses UBC only",
+            "plate_id": "BOC82_N2B27vsBP_IND4"
+          },
+          {
+            "well": "D2",
+            "reason": "RPL18A preserved but not selected: original article uses UBC only",
+            "plate_id": "BOC82_N2B27vsBP_IND4"
+          },
+          {
+            "well": "D3",
+            "reason": "raw control type retained; controls excluded from sample relative expression, retained for QC",
+            "plate_id": "BOC82_N2B27vsBP_IND4"
+          },
+          {
+            "well": "D6",
+            "reason": "raw control type retained; controls excluded from sample relative expression, retained for QC",
+            "plate_id": "BOC82_N2B27vsBP_IND4"
+          },
+          {
+            "well": "D9",
+            "reason": "raw control type retained; controls excluded from sample relative expression, retained for QC",
+            "plate_id": "BOC82_N2B27vsBP_IND4"
+          },
+          {
+            "well": "H10",
+            "reason": "raw control type retained; controls excluded from sample relative expression, retained for QC",
+            "plate_id": "BOC82_N2B27vsBP_IND4"
+          },
+          {
+            "well": "H11",
+            "reason": "raw control type retained; controls excluded from sample relative expression, retained for QC",
+            "plate_id": "BOC82_N2B27vsBP_IND4"
+          },
+          {
+            "well": "H12",
+            "reason": "raw control type retained; controls excluded from sample relative expression, retained for QC",
+            "plate_id": "BOC82_N2B27vsBP_IND4"
+          },
+          {
+            "well": "C1",
+            "reason": "RPL18A preserved but not selected: original article uses UBC only",
+            "plate_id": "BOC82_N2B27vsBP_IND5"
+          },
+          {
+            "well": "C2",
+            "reason": "RPL18A preserved but not selected: original article uses UBC only",
+            "plate_id": "BOC82_N2B27vsBP_IND5"
+          },
+          {
+            "well": "C3",
+            "reason": "raw control type retained; controls excluded from sample relative expression, retained for QC",
+            "plate_id": "BOC82_N2B27vsBP_IND5"
+          },
+          {
+            "well": "C6",
+            "reason": "raw control type retained; controls excluded from sample relative expression, retained for QC",
+            "plate_id": "BOC82_N2B27vsBP_IND5"
+          },
+          {
+            "well": "C9",
+            "reason": "raw control type retained; controls excluded from sample relative expression, retained for QC",
+            "plate_id": "BOC82_N2B27vsBP_IND5"
+          },
+          {
+            "well": "D1",
+            "reason": "RPL18A preserved but not selected: original article uses UBC only",
+            "plate_id": "BOC82_N2B27vsBP_IND5"
+          },
+          {
+            "well": "D2",
+            "reason": "RPL18A preserved but not selected: original article uses UBC only",
+            "plate_id": "BOC82_N2B27vsBP_IND5"
+          },
+          {
+            "well": "D3",
+            "reason": "raw control type retained; controls excluded from sample relative expression, retained for QC",
+            "plate_id": "BOC82_N2B27vsBP_IND5"
+          },
+          {
+            "well": "D6",
+            "reason": "raw control type retained; controls excluded from sample relative expression, retained for QC",
+            "plate_id": "BOC82_N2B27vsBP_IND5"
+          },
+          {
+            "well": "D9",
+            "reason": "raw control type retained; controls excluded from sample relative expression, retained for QC",
+            "plate_id": "BOC82_N2B27vsBP_IND5"
+          },
+          {
+            "well": "H10",
+            "reason": "raw control type retained; controls excluded from sample relative expression, retained for QC",
+            "plate_id": "BOC82_N2B27vsBP_IND5"
+          },
+          {
+            "well": "H11",
+            "reason": "raw control type retained; controls excluded from sample relative expression, retained for QC",
+            "plate_id": "BOC82_N2B27vsBP_IND5"
+          },
+          {
+            "well": "H12",
+            "reason": "raw control type retained; controls excluded from sample relative expression, retained for QC",
+            "plate_id": "BOC82_N2B27vsBP_IND5"
+          },
+          {
+            "well": "C1",
+            "reason": "RPL18A preserved but not selected: original article uses UBC only",
+            "plate_id": "N2B27vsBP_N4"
+          },
+          {
+            "well": "C2",
+            "reason": "RPL18A preserved but not selected: original article uses UBC only",
+            "plate_id": "N2B27vsBP_N4"
+          },
+          {
+            "well": "C3",
+            "reason": "raw control type retained; controls excluded from sample relative expression, retained for QC",
+            "plate_id": "N2B27vsBP_N4"
+          },
+          {
+            "well": "C6",
+            "reason": "raw control type retained; controls excluded from sample relative expression, retained for QC",
+            "plate_id": "N2B27vsBP_N4"
+          },
+          {
+            "well": "C9",
+            "reason": "raw control type retained; controls excluded from sample relative expression, retained for QC",
+            "plate_id": "N2B27vsBP_N4"
+          },
+          {
+            "well": "D1",
+            "reason": "RPL18A preserved but not selected: original article uses UBC only",
+            "plate_id": "N2B27vsBP_N4"
+          },
+          {
+            "well": "D2",
+            "reason": "RPL18A preserved but not selected: original article uses UBC only",
+            "plate_id": "N2B27vsBP_N4"
+          },
+          {
+            "well": "D3",
+            "reason": "raw control type retained; controls excluded from sample relative expression, retained for QC",
+            "plate_id": "N2B27vsBP_N4"
+          },
+          {
+            "well": "D6",
+            "reason": "raw control type retained; controls excluded from sample relative expression, retained for QC",
+            "plate_id": "N2B27vsBP_N4"
+          },
+          {
+            "well": "D9",
+            "reason": "raw control type retained; controls excluded from sample relative expression, retained for QC",
+            "plate_id": "N2B27vsBP_N4"
+          },
+          {
+            "well": "H10",
+            "reason": "raw control type retained; controls excluded from sample relative expression, retained for QC",
+            "plate_id": "N2B27vsBP_N4"
+          },
+          {
+            "well": "H11",
+            "reason": "raw control type retained; controls excluded from sample relative expression, retained for QC",
+            "plate_id": "N2B27vsBP_N4"
+          },
+          {
+            "well": "H12",
+            "reason": "raw control type retained; controls excluded from sample relative expression, retained for QC",
+            "plate_id": "N2B27vsBP_N4"
+          }
+        ],
+        "file_source_id": "8baaf3a6-6f7f-5775-b35c-296a962c75ee",
+        "quantification": "delta_delta_cq",
+        "schema_version": 3,
+        "detected_values": [
+          "reported_cq"
+        ],
+        "original_checks": [
+          {
+            "unit": "fold",
+            "metric": "relative_quantity",
+            "plate_id": "BOC82_N2B27vsBP_N1",
+            "sample_id": "9_IND3_D24_N2B27",
+            "target_id": "PINK1",
+            "tolerance": 5e-07,
+            "original_value": 0.973309,
+            "precision_basis": "原表保留六位小数，容差为最后一位的一半；不同校准配置造成的差异不视作吻合。",
+            "original_report_source": "Tabular Data.xlsx / Fig 2A / B3; SHA256 86ebcf0926036f8ccf91313027418810449e9027c5f03478e600c3dfc41b80d4; 作者未披露精确校准，原报告为独立两组t检验。"
+          },
+          {
+            "unit": "fold",
+            "metric": "relative_quantity",
+            "plate_id": "BOC82_N2B27vsBP_N1",
+            "sample_id": "10_IND3_D24_BrainPhys",
+            "target_id": "PINK1",
+            "tolerance": 5e-07,
+            "original_value": 0.997842,
+            "precision_basis": "原表保留六位小数，容差为最后一位的一半；不同校准配置造成的差异不视作吻合。",
+            "original_report_source": "Tabular Data.xlsx / Fig 2A / C3; SHA256 86ebcf0926036f8ccf91313027418810449e9027c5f03478e600c3dfc41b80d4; 作者未披露精确校准，原报告为独立两组t检验。"
+          },
+          {
+            "unit": "fold",
+            "metric": "relative_quantity",
+            "plate_id": "BOC82_N2B27vsBP_IND4",
+            "sample_id": "19_IND4_D24_N2B27",
+            "target_id": "PINK1",
+            "tolerance": 5e-07,
+            "original_value": 0.952156,
+            "precision_basis": "原表保留六位小数，容差为最后一位的一半；不同校准配置造成的差异不视作吻合。",
+            "original_report_source": "Tabular Data.xlsx / Fig 2A / B4; SHA256 86ebcf0926036f8ccf91313027418810449e9027c5f03478e600c3dfc41b80d4; 作者未披露精确校准，原报告为独立两组t检验。"
+          },
+          {
+            "unit": "fold",
+            "metric": "relative_quantity",
+            "plate_id": "BOC82_N2B27vsBP_IND4",
+            "sample_id": "20_IND4_D24_BrainPhys",
+            "target_id": "PINK1",
+            "tolerance": 5e-07,
+            "original_value": 1.03785,
+            "precision_basis": "原表保留六位小数，容差为最后一位的一半；不同校准配置造成的差异不视作吻合。",
+            "original_report_source": "Tabular Data.xlsx / Fig 2A / C4; SHA256 86ebcf0926036f8ccf91313027418810449e9027c5f03478e600c3dfc41b80d4; 作者未披露精确校准，原报告为独立两组t检验。"
+          },
+          {
+            "unit": "fold",
+            "metric": "relative_quantity",
+            "plate_id": "BOC82_N2B27vsBP_IND5",
+            "sample_id": "29_IND5_D24_N2B27",
+            "target_id": "PINK1",
+            "tolerance": 5e-07,
+            "original_value": 1.161679,
+            "precision_basis": "原表保留六位小数，容差为最后一位的一半；不同校准配置造成的差异不视作吻合。",
+            "original_report_source": "Tabular Data.xlsx / Fig 2A / B5; SHA256 86ebcf0926036f8ccf91313027418810449e9027c5f03478e600c3dfc41b80d4; 作者未披露精确校准，原报告为独立两组t检验。"
+          },
+          {
+            "unit": "fold",
+            "metric": "relative_quantity",
+            "plate_id": "BOC82_N2B27vsBP_IND5",
+            "sample_id": "30_IND5_D24_BrainPhys",
+            "target_id": "PINK1",
+            "tolerance": 5e-07,
+            "original_value": 1.220917,
+            "precision_basis": "原表保留六位小数，容差为最后一位的一半；不同校准配置造成的差异不视作吻合。",
+            "original_report_source": "Tabular Data.xlsx / Fig 2A / C5; SHA256 86ebcf0926036f8ccf91313027418810449e9027c5f03478e600c3dfc41b80d4; 作者未披露精确校准，原报告为独立两组t检验。"
+          },
+          {
+            "unit": "fold",
+            "metric": "relative_quantity",
+            "plate_id": "N2B27vsBP_N4",
+            "sample_id": "N4_N2B27",
+            "target_id": "PINK1",
+            "tolerance": 5e-07,
+            "original_value": 0.928869,
+            "precision_basis": "原表保留六位小数，容差为最后一位的一半；不同校准配置造成的差异不视作吻合。",
+            "original_report_source": "Tabular Data.xlsx / Fig 2A / B6; SHA256 86ebcf0926036f8ccf91313027418810449e9027c5f03478e600c3dfc41b80d4; 作者未披露精确校准，原报告为独立两组t检验。"
+          },
+          {
+            "unit": "fold",
+            "metric": "relative_quantity",
+            "plate_id": "N2B27vsBP_N4",
+            "sample_id": "N4_BrainPhys",
+            "target_id": "PINK1",
+            "tolerance": 5e-07,
+            "original_value": 0.977227,
+            "precision_basis": "原表保留六位小数，容差为最后一位的一半；不同校准配置造成的差异不视作吻合。",
+            "original_report_source": "Tabular Data.xlsx / Fig 2A / C6; SHA256 86ebcf0926036f8ccf91313027418810449e9027c5f03478e600c3dfc41b80d4; 作者未披露精确校准，原报告为独立两组t检验。"
+          }
+        ],
+        "output_language": "zh-CN",
+        "reference_basis": "沿用原作者RT-qPCR方法的UBC；本轮不独立证明内参稳定性。",
+        "parse_version_id": "7980e412-518c-5d5c-84c1-bf408492fc77",
+        "species_taxon_id": 9606,
+        "cross_plate_basis": "",
+        "reference_version": "Figshare_29064815_v1",
+        "independence_basis": "作者标记N1至N4代表4次induction；探索性以induction为配对单位，同源细胞系统而非4名供体。",
+        "nondetected_values": [
+          "undetermined",
+          "not_detected"
+        ],
+        "paired_plate_basis": "主文Methods及Figure2A：4次独立induction，同一批两培养条件同步分化及检测；每对在同一RDML板。仅合并板内ΔCq差，不合并跨板原Cq或宣称通用跨板校准。",
+        "family_contrast_ids": [
+          "BrainPhys_N2B27"
+        ],
+        "paired_plate_policy": "within_plate_differences",
+        "technical_sd_warning": 0.5,
+        "calibrator_conditions": [
+          "N2B27"
+        ],
+        "calibrator_sample_ids": [],
+        "equal_efficiency_basis": "沿用作者2^(-ΔΔCt)方法的等效率假设；原RDML无测定效率，属于明确假设下的探索性计算。",
+        "independence_confirmed": true,
+        "equal_efficiency_confirmed": true
+      },
+      "figures": "Individual biological sample points and complete-pair lines, no symmetric fold error bars.",
+      "missing": "Undetected/missing/excluded wells retained with reason, no zero/max-cycle imputation; feature complete cases or complete pairs.",
+      "interval": "Mean tests: 95% pointwise log-scale CI, exponentiated ordered endpoints; rank methods have no fold CI.",
+      "warnings": [
+        "逐板相对定量；仅显式确认的同板配对差可合并检验，不合并 Cq 或宣称跨板校准。"
+      ],
+      "direction": "positive delta Cq numerator-minus-denominator means lower expression; effect_value is log2 expression numerator-minus-denominator",
+      "namespace": "qPCR_assay_label",
+      "correction": "BH over all frozen target x contrast x plate-stratum tests; NA internally 1 and restored NA.",
+      "provenance": "system_computed",
+      "cross_plate": "separate",
+      "limitations": "Software checks are not experimental quality certification or biological validation.",
+      "frozen_config": {
+        "kind": "comparison",
+        "mode": "qpcr",
+        "sheet": null,
+        "design": "paired",
+        "method": "paired_t",
+        "recipe": "qpcr_relative_quantification_v1",
+        "columns": {
+          "cq": "cq",
+          "dose": null,
+          "time": null,
+          "well": "well",
+          "pair_id": "pair_id",
+          "plate_id": "plate_id",
+          "condition": "condition",
+          "sample_id": "sample_id",
+          "target_id": "target_id",
+          "detection_status": "detection_status",
+          "biological_unit_id": "biological_unit_id",
+          "technical_replicate": "technical_replicate"
+        },
+        "targets": [
+          "PINK1"
+        ],
+        "contrasts": [
+          {
+            "name": "BrainPhys / N2B27，同板配对",
+            "numerator": "BrainPhys",
+            "contrast_id": "BrainPhys_N2B27",
+            "denominator": "N2B27"
+          }
+        ],
+        "dose_unit": "",
+        "na_values": [
+          "",
+          "NA",
+          "N/A",
+          "Undetermined",
+          "undetermined"
+        ],
+        "namespace": "qPCR_assay_label",
+        "time_unit": "",
+        "references": [
+          "UBC"
+        ],
+        "cross_plate": "separate",
+        "efficiencies": {},
+        "excluded_wells": [
+          {
+            "well": "C1",
+            "reason": "RPL18A preserved but not selected: original article uses UBC only",
+            "plate_id": "BOC82_N2B27vsBP_N1"
+          },
+          {
+            "well": "C2",
+            "reason": "RPL18A preserved but not selected: original article uses UBC only",
+            "plate_id": "BOC82_N2B27vsBP_N1"
+          },
+          {
+            "well": "C3",
+            "reason": "raw control type retained; controls excluded from sample relative expression, retained for QC",
+            "plate_id": "BOC82_N2B27vsBP_N1"
+          },
+          {
+            "well": "C6",
+            "reason": "raw control type retained; controls excluded from sample relative expression, retained for QC",
+            "plate_id": "BOC82_N2B27vsBP_N1"
+          },
+          {
+            "well": "C9",
+            "reason": "raw control type retained; controls excluded from sample relative expression, retained for QC",
+            "plate_id": "BOC82_N2B27vsBP_N1"
+          },
+          {
+            "well": "D1",
+            "reason": "RPL18A preserved but not selected: original article uses UBC only",
+            "plate_id": "BOC82_N2B27vsBP_N1"
+          },
+          {
+            "well": "D2",
+            "reason": "RPL18A preserved but not selected: original article uses UBC only",
+            "plate_id": "BOC82_N2B27vsBP_N1"
+          },
+          {
+            "well": "D3",
+            "reason": "raw control type retained; controls excluded from sample relative expression, retained for QC",
+            "plate_id": "BOC82_N2B27vsBP_N1"
+          },
+          {
+            "well": "D6",
+            "reason": "raw control type retained; controls excluded from sample relative expression, retained for QC",
+            "plate_id": "BOC82_N2B27vsBP_N1"
+          },
+          {
+            "well": "D9",
+            "reason": "raw control type retained; controls excluded from sample relative expression, retained for QC",
+            "plate_id": "BOC82_N2B27vsBP_N1"
+          },
+          {
+            "well": "H10",
+            "reason": "raw control type retained; controls excluded from sample relative expression, retained for QC",
+            "plate_id": "BOC82_N2B27vsBP_N1"
+          },
+          {
+            "well": "H11",
+            "reason": "raw control type retained; controls excluded from sample relative expression, retained for QC",
+            "plate_id": "BOC82_N2B27vsBP_N1"
+          },
+          {
+            "well": "H12",
+            "reason": "raw control type retained; controls excluded from sample relative expression, retained for QC",
+            "plate_id": "BOC82_N2B27vsBP_N1"
+          },
+          {
+            "well": "C1",
+            "reason": "RPL18A preserved but not selected: original article uses UBC only",
+            "plate_id": "BOC82_N2B27vsBP_IND4"
+          },
+          {
+            "well": "C2",
+            "reason": "RPL18A preserved but not selected: original article uses UBC only",
+            "plate_id": "BOC82_N2B27vsBP_IND4"
+          },
+          {
+            "well": "C3",
+            "reason": "raw control type retained; controls excluded from sample relative expression, retained for QC",
+            "plate_id": "BOC82_N2B27vsBP_IND4"
+          },
+          {
+            "well": "C6",
+            "reason": "raw control type retained; controls excluded from sample relative expression, retained for QC",
+            "plate_id": "BOC82_N2B27vsBP_IND4"
+          },
+          {
+            "well": "C9",
+            "reason": "raw control type retained; controls excluded from sample relative expression, retained for QC",
+            "plate_id": "BOC82_N2B27vsBP_IND4"
+          },
+          {
+            "well": "D1",
+            "reason": "RPL18A preserved but not selected: original article uses UBC only",
+            "plate_id": "BOC82_N2B27vsBP_IND4"
+          },
+          {
+            "well": "D2",
+            "reason": "RPL18A preserved but not selected: original article uses UBC only",
+            "plate_id": "BOC82_N2B27vsBP_IND4"
+          },
+          {
+            "well": "D3",
+            "reason": "raw control type retained; controls excluded from sample relative expression, retained for QC",
+            "plate_id": "BOC82_N2B27vsBP_IND4"
+          },
+          {
+            "well": "D6",
+            "reason": "raw control type retained; controls excluded from sample relative expression, retained for QC",
+            "plate_id": "BOC82_N2B27vsBP_IND4"
+          },
+          {
+            "well": "D9",
+            "reason": "raw control type retained; controls excluded from sample relative expression, retained for QC",
+            "plate_id": "BOC82_N2B27vsBP_IND4"
+          },
+          {
+            "well": "H10",
+            "reason": "raw control type retained; controls excluded from sample relative expression, retained for QC",
+            "plate_id": "BOC82_N2B27vsBP_IND4"
+          },
+          {
+            "well": "H11",
+            "reason": "raw control type retained; controls excluded from sample relative expression, retained for QC",
+            "plate_id": "BOC82_N2B27vsBP_IND4"
+          },
+          {
+            "well": "H12",
+            "reason": "raw control type retained; controls excluded from sample relative expression, retained for QC",
+            "plate_id": "BOC82_N2B27vsBP_IND4"
+          },
+          {
+            "well": "C1",
+            "reason": "RPL18A preserved but not selected: original article uses UBC only",
+            "plate_id": "BOC82_N2B27vsBP_IND5"
+          },
+          {
+            "well": "C2",
+            "reason": "RPL18A preserved but not selected: original article uses UBC only",
+            "plate_id": "BOC82_N2B27vsBP_IND5"
+          },
+          {
+            "well": "C3",
+            "reason": "raw control type retained; controls excluded from sample relative expression, retained for QC",
+            "plate_id": "BOC82_N2B27vsBP_IND5"
+          },
+          {
+            "well": "C6",
+            "reason": "raw control type retained; controls excluded from sample relative expression, retained for QC",
+            "plate_id": "BOC82_N2B27vsBP_IND5"
+          },
+          {
+            "well": "C9",
+            "reason": "raw control type retained; controls excluded from sample relative expression, retained for QC",
+            "plate_id": "BOC82_N2B27vsBP_IND5"
+          },
+          {
+            "well": "D1",
+            "reason": "RPL18A preserved but not selected: original article uses UBC only",
+            "plate_id": "BOC82_N2B27vsBP_IND5"
+          },
+          {
+            "well": "D2",
+            "reason": "RPL18A preserved but not selected: original article uses UBC only",
+            "plate_id": "BOC82_N2B27vsBP_IND5"
+          },
+          {
+            "well": "D3",
+            "reason": "raw control type retained; controls excluded from sample relative expression, retained for QC",
+            "plate_id": "BOC82_N2B27vsBP_IND5"
+          },
+          {
+            "well": "D6",
+            "reason": "raw control type retained; controls excluded from sample relative expression, retained for QC",
+            "plate_id": "BOC82_N2B27vsBP_IND5"
+          },
+          {
+            "well": "D9",
+            "reason": "raw control type retained; controls excluded from sample relative expression, retained for QC",
+            "plate_id": "BOC82_N2B27vsBP_IND5"
+          },
+          {
+            "well": "H10",
+            "reason": "raw control type retained; controls excluded from sample relative expression, retained for QC",
+            "plate_id": "BOC82_N2B27vsBP_IND5"
+          },
+          {
+            "well": "H11",
+            "reason": "raw control type retained; controls excluded from sample relative expression, retained for QC",
+            "plate_id": "BOC82_N2B27vsBP_IND5"
+          },
+          {
+            "well": "H12",
+            "reason": "raw control type retained; controls excluded from sample relative expression, retained for QC",
+            "plate_id": "BOC82_N2B27vsBP_IND5"
+          },
+          {
+            "well": "C1",
+            "reason": "RPL18A preserved but not selected: original article uses UBC only",
+            "plate_id": "N2B27vsBP_N4"
+          },
+          {
+            "well": "C2",
+            "reason": "RPL18A preserved but not selected: original article uses UBC only",
+            "plate_id": "N2B27vsBP_N4"
+          },
+          {
+            "well": "C3",
+            "reason": "raw control type retained; controls excluded from sample relative expression, retained for QC",
+            "plate_id": "N2B27vsBP_N4"
+          },
+          {
+            "well": "C6",
+            "reason": "raw control type retained; controls excluded from sample relative expression, retained for QC",
+            "plate_id": "N2B27vsBP_N4"
+          },
+          {
+            "well": "C9",
+            "reason": "raw control type retained; controls excluded from sample relative expression, retained for QC",
+            "plate_id": "N2B27vsBP_N4"
+          },
+          {
+            "well": "D1",
+            "reason": "RPL18A preserved but not selected: original article uses UBC only",
+            "plate_id": "N2B27vsBP_N4"
+          },
+          {
+            "well": "D2",
+            "reason": "RPL18A preserved but not selected: original article uses UBC only",
+            "plate_id": "N2B27vsBP_N4"
+          },
+          {
+            "well": "D3",
+            "reason": "raw control type retained; controls excluded from sample relative expression, retained for QC",
+            "plate_id": "N2B27vsBP_N4"
+          },
+          {
+            "well": "D6",
+            "reason": "raw control type retained; controls excluded from sample relative expression, retained for QC",
+            "plate_id": "N2B27vsBP_N4"
+          },
+          {
+            "well": "D9",
+            "reason": "raw control type retained; controls excluded from sample relative expression, retained for QC",
+            "plate_id": "N2B27vsBP_N4"
+          },
+          {
+            "well": "H10",
+            "reason": "raw control type retained; controls excluded from sample relative expression, retained for QC",
+            "plate_id": "N2B27vsBP_N4"
+          },
+          {
+            "well": "H11",
+            "reason": "raw control type retained; controls excluded from sample relative expression, retained for QC",
+            "plate_id": "N2B27vsBP_N4"
+          },
+          {
+            "well": "H12",
+            "reason": "raw control type retained; controls excluded from sample relative expression, retained for QC",
+            "plate_id": "N2B27vsBP_N4"
+          }
+        ],
+        "file_source_id": "8baaf3a6-6f7f-5775-b35c-296a962c75ee",
+        "quantification": "delta_delta_cq",
+        "schema_version": 3,
+        "detected_values": [
+          "reported_cq"
+        ],
+        "original_checks": [
+          {
+            "unit": "fold",
+            "metric": "relative_quantity",
+            "plate_id": "BOC82_N2B27vsBP_N1",
+            "sample_id": "9_IND3_D24_N2B27",
+            "target_id": "PINK1",
+            "tolerance": 5e-07,
+            "original_value": 0.973309,
+            "precision_basis": "原表保留六位小数，容差为最后一位的一半；不同校准配置造成的差异不视作吻合。",
+            "original_report_source": "Tabular Data.xlsx / Fig 2A / B3; SHA256 86ebcf0926036f8ccf91313027418810449e9027c5f03478e600c3dfc41b80d4; 作者未披露精确校准，原报告为独立两组t检验。"
+          },
+          {
+            "unit": "fold",
+            "metric": "relative_quantity",
+            "plate_id": "BOC82_N2B27vsBP_N1",
+            "sample_id": "10_IND3_D24_BrainPhys",
+            "target_id": "PINK1",
+            "tolerance": 5e-07,
+            "original_value": 0.997842,
+            "precision_basis": "原表保留六位小数，容差为最后一位的一半；不同校准配置造成的差异不视作吻合。",
+            "original_report_source": "Tabular Data.xlsx / Fig 2A / C3; SHA256 86ebcf0926036f8ccf91313027418810449e9027c5f03478e600c3dfc41b80d4; 作者未披露精确校准，原报告为独立两组t检验。"
+          },
+          {
+            "unit": "fold",
+            "metric": "relative_quantity",
+            "plate_id": "BOC82_N2B27vsBP_IND4",
+            "sample_id": "19_IND4_D24_N2B27",
+            "target_id": "PINK1",
+            "tolerance": 5e-07,
+            "original_value": 0.952156,
+            "precision_basis": "原表保留六位小数，容差为最后一位的一半；不同校准配置造成的差异不视作吻合。",
+            "original_report_source": "Tabular Data.xlsx / Fig 2A / B4; SHA256 86ebcf0926036f8ccf91313027418810449e9027c5f03478e600c3dfc41b80d4; 作者未披露精确校准，原报告为独立两组t检验。"
+          },
+          {
+            "unit": "fold",
+            "metric": "relative_quantity",
+            "plate_id": "BOC82_N2B27vsBP_IND4",
+            "sample_id": "20_IND4_D24_BrainPhys",
+            "target_id": "PINK1",
+            "tolerance": 5e-07,
+            "original_value": 1.03785,
+            "precision_basis": "原表保留六位小数，容差为最后一位的一半；不同校准配置造成的差异不视作吻合。",
+            "original_report_source": "Tabular Data.xlsx / Fig 2A / C4; SHA256 86ebcf0926036f8ccf91313027418810449e9027c5f03478e600c3dfc41b80d4; 作者未披露精确校准，原报告为独立两组t检验。"
+          },
+          {
+            "unit": "fold",
+            "metric": "relative_quantity",
+            "plate_id": "BOC82_N2B27vsBP_IND5",
+            "sample_id": "29_IND5_D24_N2B27",
+            "target_id": "PINK1",
+            "tolerance": 5e-07,
+            "original_value": 1.161679,
+            "precision_basis": "原表保留六位小数，容差为最后一位的一半；不同校准配置造成的差异不视作吻合。",
+            "original_report_source": "Tabular Data.xlsx / Fig 2A / B5; SHA256 86ebcf0926036f8ccf91313027418810449e9027c5f03478e600c3dfc41b80d4; 作者未披露精确校准，原报告为独立两组t检验。"
+          },
+          {
+            "unit": "fold",
+            "metric": "relative_quantity",
+            "plate_id": "BOC82_N2B27vsBP_IND5",
+            "sample_id": "30_IND5_D24_BrainPhys",
+            "target_id": "PINK1",
+            "tolerance": 5e-07,
+            "original_value": 1.220917,
+            "precision_basis": "原表保留六位小数，容差为最后一位的一半；不同校准配置造成的差异不视作吻合。",
+            "original_report_source": "Tabular Data.xlsx / Fig 2A / C5; SHA256 86ebcf0926036f8ccf91313027418810449e9027c5f03478e600c3dfc41b80d4; 作者未披露精确校准，原报告为独立两组t检验。"
+          },
+          {
+            "unit": "fold",
+            "metric": "relative_quantity",
+            "plate_id": "N2B27vsBP_N4",
+            "sample_id": "N4_N2B27",
+            "target_id": "PINK1",
+            "tolerance": 5e-07,
+            "original_value": 0.928869,
+            "precision_basis": "原表保留六位小数，容差为最后一位的一半；不同校准配置造成的差异不视作吻合。",
+            "original_report_source": "Tabular Data.xlsx / Fig 2A / B6; SHA256 86ebcf0926036f8ccf91313027418810449e9027c5f03478e600c3dfc41b80d4; 作者未披露精确校准，原报告为独立两组t检验。"
+          },
+          {
+            "unit": "fold",
+            "metric": "relative_quantity",
+            "plate_id": "N2B27vsBP_N4",
+            "sample_id": "N4_BrainPhys",
+            "target_id": "PINK1",
+            "tolerance": 5e-07,
+            "original_value": 0.977227,
+            "precision_basis": "原表保留六位小数，容差为最后一位的一半；不同校准配置造成的差异不视作吻合。",
+            "original_report_source": "Tabular Data.xlsx / Fig 2A / C6; SHA256 86ebcf0926036f8ccf91313027418810449e9027c5f03478e600c3dfc41b80d4; 作者未披露精确校准，原报告为独立两组t检验。"
+          }
+        ],
+        "output_language": "zh-CN",
+        "reference_basis": "沿用原作者RT-qPCR方法的UBC；本轮不独立证明内参稳定性。",
+        "parse_version_id": "7980e412-518c-5d5c-84c1-bf408492fc77",
+        "species_taxon_id": 9606,
+        "cross_plate_basis": "",
+        "reference_version": "Figshare_29064815_v1",
+        "independence_basis": "作者标记N1至N4代表4次induction；探索性以induction为配对单位，同源细胞系统而非4名供体。",
+        "nondetected_values": [
+          "undetermined",
+          "not_detected"
+        ],
+        "paired_plate_basis": "主文Methods及Figure2A：4次独立induction，同一批两培养条件同步分化及检测；每对在同一RDML板。仅合并板内ΔCq差，不合并跨板原Cq或宣称通用跨板校准。",
+        "family_contrast_ids": [
+          "BrainPhys_N2B27"
+        ],
+        "paired_plate_policy": "within_plate_differences",
+        "technical_sd_warning": 0.5,
+        "calibrator_conditions": [
+          "N2B27"
+        ],
+        "calibrator_sample_ids": [],
+        "equal_efficiency_basis": "沿用作者2^(-ΔΔCt)方法的等效率假设；原RDML无测定效率，属于明确假设下的探索性计算。",
+        "independence_confirmed": true,
+        "equal_efficiency_confirmed": true
+      },
+      "inference_unit": "biological_unit_id",
+      "input_identity": {
+        "sheet": null,
+        "file_sha256": "997d9435ceee13eb2f1c6fcddf9de2f1397a3722a4ea0a6c94073f701b5c975a",
+        "file_source_id": "8baaf3a6-6f7f-5775-b35c-296a962c75ee",
+        "parse_version_id": "7980e412-518c-5d5c-84c1-bf408492fc77"
+      },
+      "quantification": "delta_delta_cq",
+      "inference_scope": "sample_inference",
+      "reference_basis": "沿用原作者RT-qPCR方法的UBC；本轮不独立证明内参稳定性。",
+      "species_taxon_id": 9606,
+      "cross_plate_basis": "",
+      "method_references": [
+        "Pfaffl 2001 doi:10.1093/nar/29.9.e45",
+        "MIQE 2.0 doi:10.1093/clinchem/hvaf043"
+      ],
+      "observation_level": "sample",
+      "reference_version": "Figshare_29064815_v1",
+      "statistical_scale": "delta_cq",
+      "efficiency_factors": {},
+      "paired_plate_basis": "主文Methods及Figure2A：4次独立induction，同一批两培养条件同步分化及检测；每对在同一RDML板。仅合并板内ΔCq差，不合并跨板原Cq或宣称通用跨板校准。",
+      "statistical_method": "paired_t",
+      "family_contrast_ids": [
+        "BrainPhys_N2B27"
+      ],
+      "paired_plate_policy": "within_plate_differences",
+      "data_driven_grouping": false,
+      "reference_aggregation": "Equal assay Cq means for delta-delta-Cq; geometric mean of reference efficiency ratios for efficiency correction; no missing-reference fallback.",
+      "technical_aggregation": "Included technical wells: arithmetic mean Cq per sample x assay x plate; technical wells do not increase biological n.",
+      "calibrator_aggregation": "Equal biological sample weights after technical averaging; incomplete calibrators make dependent quantities NA.",
+      "equal_efficiency_basis": "沿用作者2^(-ΔΔCt)方法的等效率假设；原RDML无测定效率，属于明确假设下的探索性计算。",
+      "paired_plate_inference": "When selected, only complete same-plate pair differences enter one paired test; no across-plate Cq pooling or common calibrator claim.",
+      "source_inference_scopes": [
+        "sample_inference"
+      ],
+      "upstream_inference_scopes": [
+        "sample_inference"
+      ],
+      "source_data_driven_grouping": false
+    },
+    "description": "{\"calibrator_aggregation\": \"Equal biological sample weights after technical averaging; incomplete calibrators make dependent quantities NA.\", \"config\": {\"calibrator_conditions\": [\"N2B27\"], \"calibrator_sample_ids\": [], \"columns\": {\"biological_unit_id\": \"biological_unit_id\", \"condition\": \"condition\", \"cq\": \"cq\", \"detection_status\": \"detection_status\", \"dose\": null, \"pair_id\": \"pair_id\", \"plate_id\": \"plate_id\", \"sample_id\": \"sample_id\", \"target_id\": \"target_id\", \"technical_replicate\": \"technical_replicate\", \"time\": null, \"well\": \"well\"}, \"contrasts\": [{\"contrast_id\": \"BrainPhys_N2B27\", \"denominator\": \"N2B27\", \"name\": \"BrainPhys / N2B27，同板配对\", \"numerator\": \"BrainPhys\"}], \"cross_plate\": \"separate\", \"cross_plate_basis\": \"\", \"design\": \"paired\", \"detected_values\": [\"reported_cq\"], \"dose_unit\": \"\", \"efficiencies\": {}, \"equal_efficiency_basis\": \"沿用作者2^(-ΔΔCt)方法的等效率假设；原RDML无测定效率，属于明确假设下的探索性计算。\", \"equal_efficiency_confirmed\": true, \"excluded_wells\": [{\"plate_id\": \"BOC82_N2B27vsBP_N1\", \"reason\": \"RPL18A preserved but not selected: original article uses UBC only\", \"well\": \"C1\"}, {\"plate_id\": \"BOC82_N2B27vsBP_N1\", \"reason\": \"RPL18A preserved but not selected: original article uses UBC only\", \"well\": \"C2\"}, {\"plate_id\": \"BOC82_N2B27vsBP_N1\", \"reason\": \"raw control type retained; controls excluded from sample relative expression, retained for QC\", \"well\": \"C3\"}, {\"plate_id\": \"BOC82_N2B27vsBP_N1\", \"reason\": \"raw control type retained; controls excluded from sample relative expression, retained for QC\", \"well\": \"C6\"}, {\"plate_id\": \"BOC82_N2B27vsBP_N1\", \"reason\": \"raw control type retained; controls excluded from sample relative expression, retained for QC\", \"well\": \"C9\"}, {\"plate_id\": \"BOC82_N2B27vsBP_N1\", \"reason\": \"RPL18A preserved but not selected: original article uses UBC only\", \"well\": \"D1\"}, {\"plate_id\": \"BOC82_N2B27vsBP_N1\", \"reason\": \"RPL18A preserved but not selected: original article uses UBC only\", \"well\": \"D2\"}, {\"plate_id\": \"BOC82_N2B27vsBP_N1\", \"reason\": \"raw control type retained; controls excluded from sample relative expression, retained for QC\", \"well\": \"D3\"}, {\"plate_id\": \"BOC82_N2B27vsBP_N1\", \"reason\": \"raw control type retained; controls excluded from sample relative expression, retained for QC\", \"well\": \"D6\"}, {\"plate_id\": \"BOC82_N2B27vsBP_N1\", \"reason\": \"raw control type retained; controls excluded from sample relative expression, retained for QC\", \"well\": \"D9\"}, {\"plate_id\": \"BOC82_N2B27vsBP_N1\", \"reason\": \"raw control type retained; controls excluded from sample relative expression, retained for QC\", \"well\": \"H10\"}, {\"plate_id\": \"BOC82_N2B27vsBP_N1\", \"reason\": \"raw control type retained; controls excluded from sample relative expression, retained for QC\", \"well\": \"H11\"}, {\"plate_id\": \"BOC82_N2B27vsBP_N1\", \"reason\": \"raw control type retained; controls excluded from sample relative expression, retained for QC\", \"well\": \"H12\"}, {\"plate_id\": \"BOC82_N2B27vsBP_IND4\", \"reason\": \"RPL18A preserved but not selected: original article uses UBC only\", \"well\": \"C1\"}, {\"plate_id\": \"BOC82_N2B27vsBP_IND4\", \"reason\": \"RPL18A preserved but not selected: original article uses UBC only\", \"well\": \"C2\"}, {\"plate_id\": \"BOC82_N2B27vsBP_IND4\", \"reason\": \"raw control type retained; controls excluded from sample relative expression, retained for QC\", \"well\": \"C3\"}, {\"plate_id\": \"BOC82_N2B27vsBP_IND4\", \"reason\": \"raw control type retained; controls excluded from sample relative expression, retained for QC\", \"well\": \"C6\"}, {\"plate_id\": \"BOC82_N2B27vsBP_IND4\", \"reason\": \"raw control type retained; controls excluded from sample relative expression, retained for QC\", \"well\": \"C9\"}, {\"plate_id\": \"BOC82_N2B27vsBP_IND4\", \"reason\": \"RPL18A preserved but not selected: original article uses UBC only\", \"well\": \"D1\"}, {\"plate_id\": \"BOC82_N2B27vsBP_IND4\", \"reason\": \"RPL18A preserved but not selected: original article uses UBC only\", \"well\": \"D2\"}, {\"plate_id\": \"BOC82_N2B27vsBP_IND4\", \"reason\": \"raw control type retained; controls excluded from sample relative "
+  }
+}

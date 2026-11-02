@@ -80,3 +80,23 @@ def recover(project_id:str,manuscript_id:str,request:EmptyRequest,store:Store): 
 @router.post('/{manuscript_id}/versions/{revision}/exports/preview')
 def preview_export(project_id:str,manuscript_id:str,revision:Revision,request:ExportRequest,store:Store):
     return ManuscriptService(store).preview_export(project_id,manuscript_id,revision,request)
+
+from app.domain.manuscripts.presentation_contracts import PresentationRequest
+from app.domain.manuscripts.presentation import PresentationService
+
+@router.post('/{manuscript_id}/presentations/preview')
+def preview_presentation(project_id:str,manuscript_id:str,request:PresentationRequest,store:Store):
+    return PresentationService(ManuscriptService(store)).preview(project_id,manuscript_id,request)
+
+@router.post('/{manuscript_id}/presentations',status_code=201)
+def save_presentation(project_id:str,manuscript_id:str,request:PresentationRequest,response:Response,store:Store,idempotency_key:Key):
+    result,response.status_code=PresentationService(ManuscriptService(store)).save(project_id,manuscript_id,request,idempotency_key)
+    return result
+
+@router.get('/{manuscript_id}/presentations')
+def presentations(project_id:str,manuscript_id:str,store:Store):
+    return PresentationService(ManuscriptService(store)).list(project_id,manuscript_id)
+
+@router.get('/{manuscript_id}/presentations/{presentation_id}')
+def presentation(project_id:str,manuscript_id:str,presentation_id:str,store:Store):
+    return PresentationService(ManuscriptService(store)).get(project_id,manuscript_id,presentation_id)

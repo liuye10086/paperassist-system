@@ -1,4 +1,4 @@
-"""Local-only, bounded DOCX conversion. This container has no research credentials."""
+"""Local-only, bounded Word layout field calculation. This container has no research credentials."""
 from base64 import b64encode
 import hashlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -16,7 +16,6 @@ from zipfile import BadZipFile, ZipFile
 
 MAX_INPUT = 50 * 1024 * 1024
 MAX_UNPACKED = 200 * 1024 * 1024
-MAX_OUTPUT = 80 * 1024 * 1024
 TIMEOUT = 90
 FONT_DIR = Path('/usr/local/share/fonts/paperassist')
 LOCK_PATH = Path(__file__).with_name('renderer-lock.json')
@@ -103,43 +102,6 @@ def run_process(command, timeout):
         raise RenderError('pdf_conversion_failed')
 
 
-def convert(content, directory=None, *, process=run_process):
-    validate_docx(content)
-    with tempfile.TemporaryDirectory(prefix='pdf-', dir=directory) as temporary:
-        folder = Path(temporary)
-        source = folder / 'input.docx'
-        source.write_bytes(content)
-        source.chmod(0o444)
-        profile = folder / 'profile'
-        (profile / 'user').mkdir(parents=True)
-        (profile / 'user/registrymodifications.xcu').write_text(PROFILE, encoding='utf-8')
-        output = folder / 'output'
-        output.mkdir()
-        # Retain the existing passive conversion path for legacy documents. Layout
-        # documents require actual field/index update in the same office session.
-        with ZipFile(BytesIO(content)) as package:
-            has_layout = 'customXml/paperassist-layout.xml' in package.namelist()
-        if has_layout:
-            process(['/usr/bin/python3', str(Path(__file__).with_name('update_fields.py')),
-                     '--source', str(source), '--profile', str(profile),
-                     '--pdf', str(output / 'input.pdf')], TIMEOUT)
-        else:
-            process(['soffice', '-env:UserInstallation=' + profile.as_uri(), '--headless', '--nologo',
-                     '--nodefault', '--nofirststartwizard', '--norestore', '--convert-to',
-                     'pdf:writer_pdf_Export:{"UseLosslessCompression":{"type":"boolean","value":"true"},"ExportBookmarks":{"type":"boolean","value":"true"}}',
-                     '--outdir', str(output), str(source)], TIMEOUT)
-        target = output / 'input.pdf'
-        try:
-            if target.stat().st_size > MAX_OUTPUT:
-                raise RenderError('pdf_conversion_failed')
-            data = target.read_bytes()
-        except OSError:
-            raise RenderError('pdf_conversion_failed') from None
-        if not data.startswith(b'%PDF-') or b'%%EOF' not in data[-1024:]:
-            raise RenderError('pdf_conversion_failed')
-        return data
-
-
 def layout_cache(content, directory=None, *, process=run_process):
     validate_docx(content)
     with tempfile.TemporaryDirectory(prefix='layout-', dir=directory) as temporary:
@@ -186,7 +148,7 @@ def verify_environment():
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = 'PaperAssistPDF/1'
+    server_version = 'PaperAssistWordFields/1'
     def log_message(self, *_):
         pass
 
@@ -211,7 +173,7 @@ class Handler(BaseHTTPRequestHandler):
         self.respond(200, json.dumps(self.server.manifest).encode())
 
     def do_POST(self):
-        if self.path not in ('/convert', '/layout-cache'):
+        if self.path != '/layout-cache':
             return self.respond(404, b'{}')
         if not SLOTS.acquire(blocking=False):
             return self.respond(429, b'{"code":"pdf_renderer_busy"}')
@@ -224,12 +186,8 @@ class Handler(BaseHTTPRequestHandler):
                 raise RenderError('pdf_input_invalid')
             verify_fonts(self.server.manifest['fonts'])
             verify_fonts(self.server.manifest['system_fonts'], Path('/'))
-            if self.path == '/layout-cache':
-                data = json.dumps(layout_cache(content), ensure_ascii=False).encode('utf-8')
-                self.respond(200, data, 'application/json', self.server.manifest)
-            else:
-                data = convert(content)
-                self.respond(200, data, 'application/pdf', self.server.manifest)
+            data = json.dumps(layout_cache(content), ensure_ascii=False).encode('utf-8')
+            self.respond(200, data, 'application/json', self.server.manifest)
         except RenderError as exc:
             self.respond(422 if exc.code == 'pdf_input_invalid' else 503, json.dumps({'code': exc.code}).encode())
         except (OSError, ValueError):

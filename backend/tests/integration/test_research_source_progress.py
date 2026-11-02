@@ -39,48 +39,6 @@ def test_report_freeze_renews_between_sources_without_reviving_expiry(client,tmp
             assert repository.require_lease(db,lease)['status']=='running'
 
 
-def test_report_freeze_keeps_lease_through_included_pdf_source_closure(client,tmp_path,monkeypatch):
-    from types import SimpleNamespace
-    from app.adapters.task_execution_store import TaskExecutionStore
-    from app.adapters import task_execution_store
-    from app.adapters.research_objects import ResearchObjects
-    from app.adapters.research_report_render import render_report
-    from app.domain.research_results.execution import ResearchExecution,run_research_report_task
-    from app.domain.pdf_exports.service import PdfExportService
-    from app.domain.pdf_exports.execution import run_pdf_task
-    base,source=selected_cell(client)
-    finding=client.post(base+'/research-findings',json=dict(title='PDF facts',sources=[source]),headers={'Idempotency-Key':'pdf-progress-finding'}).json()
-    body=dict(title='PDF package',finding_version_id=finding['id'])
-    report=client.post(base+'/research-reports',json=body,headers={'Idempotency-Key':'pdf-progress-report'}).json()
-    assert run_research_report_task(report['task_id'],1,engine=render_report,staging_directory=tmp_path/'stage')['status']=='succeeded'
-    saved=client.get(base+'/research-reports/'+report['id']).json()
-    docx=next(m for m in saved['members'] if m['role']=='docx')
-    identity={'contract':'test-source-progress-v1'}
-    monkeypatch.setattr('app.domain.pdf_exports.service.renderer_identity',lambda:identity)
-    monkeypatch.setattr('app.domain.pdf_exports.execution.renderer_identity',lambda:identity)
-    monkeypatch.setattr('app.domain.pdf_exports.execution.render_pdf',lambda raw:SimpleNamespace(content=b'%PDF-1.7\nsynthetic',manifest=identity))
-    pdf=client.post(base+'/pdf-exports',json=dict(source_kind='research_report',source_id=docx['id'],request_key='progress-pdf')).json()
-    assert run_pdf_task(pdf['task_id'],1)['status']=='succeeded'
-    packaged=client.post(base+'/research-reports',json={**body,'root_id':report['root_id'],'expected_revision':1,'include_pdf_id':pdf['id']},headers={'Idempotency-Key':'progress-package'})
-    assert packaged.status_code==201,packaged.text
-    packaged=packaged.json();repository=TaskExecutionStore()
-    monkeypatch.setattr(task_execution_store,'LEASE_SECONDS',1)
-    lease=repository.claim(packaged['task_id'],1,task_type='research_report')
-    original_download=PdfExportService.download;original_read=ResearchObjects.read;inside=[];reads=[]
-    def download(self,*args,**kwargs):
-        inside.append(True)
-        try:return original_download(self,*args,**kwargs)
-        finally:inside.pop()
-    def slow_read(self,record):
-        if inside:
-            reads.append(record['sha256']);time.sleep(.3)
-        return original_read(self,record)
-    monkeypatch.setattr(PdfExportService,'download',download)
-    monkeypatch.setattr(ResearchObjects,'read',slow_read)
-    with repository.connection(write=True) as db:
-        ResearchExecution(repository,tmp_path/'stage').checked(db,lease)
-        assert len(reads)>4
-        assert repository.require_lease(db,lease)['status']=='running'
 
 
 @pytest.mark.parametrize('code,status',[('research_source_conflict',409),('file_missing',410)])

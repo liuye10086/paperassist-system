@@ -21,9 +21,16 @@ it('shows PDF download and frozen DOCX source without generic task retry or mode
  render(<TaskDetail projectId="p1" taskId="t1" onChanged={()=>{}} onOpenManuscripts={()=>{}}/>);await screen.findByRole('link',{name:'下载此任务的 PDF'})
  expect(screen.getByRole('heading',{name:'PDF 导出'})).toBeTruthy();expect(screen.getByText(/已冻结的 DOCX 来源/)).toBeTruthy();expect(screen.getByRole('button',{name:'打开 SCI 写作'})).toBeTruthy();expect(screen.queryByRole('button',{name:'重试原任务'})).toBeNull();expect(fetcher.mock.calls.some(([url])=>url.includes('model-usage'))).toBe(false)
 })
-it('offers a dedicated new PDF child retry from a failed task workspace',async()=>{
+it('keeps failed PDF tasks read-only while retaining historical downloads and task links',async()=>{
  const failed={...task,status:'failed',display_status:'failed',error_code:'pdf_conversion_timeout'}
  const row={id:'pdf1',project_id:'p1',source_kind:'manuscript_export',source_id:'docx1',source_sha256:'a'.repeat(64),status:'failed',task_id:'t1',created_at:task.created_at,filename:null,error_code:'pdf_conversion_timeout',parent_export_id:null,renderer_manifest:null,sha256:null,size_bytes:null,download_url:null}
- vi.stubGlobal('fetch',vi.fn(async(url:string)=>Response.json(url.endsWith('/workspace')?{...workspace,task:failed,artifacts:{...workspace.artifacts,report:null}}:url.includes('pdf-exports')?{items:[row]}:{task_id:'t1',items:[],next_cursor:0,has_more:false})))
- render(<TaskDetail projectId="p1" taskId="t1" onChanged={()=>{}}/>);await screen.findByRole('button',{name:'重试 PDF'});expect(screen.queryByRole('button',{name:'重试原任务'})).toBeNull()
+ const saved={...row,id:'pdf2',status:'succeeded',task_id:'historical-pdf-task',filename:'saved.pdf',error_code:null,sha256:'b'.repeat(64),size_bytes:100,renderer_manifest:{id:'historical-renderer'},download_url:'/api/v1/projects/p1/pdf-exports/pdf2/download'}
+ const fetcher=vi.fn(async(url:string,_init?:RequestInit)=>Response.json(url.endsWith('/workspace')?{...workspace,task:failed,artifacts:{...workspace.artifacts,report:null}}:url.includes('pdf-exports')?{items:[row,saved]}:{task_id:'t1',items:[],next_cursor:0,has_more:false}));vi.stubGlobal('fetch',fetcher)
+ render(<TaskDetail projectId="p1" taskId="t1" onChanged={()=>{}}/>);
+ expect((await screen.findByRole('link',{name:'下载 PDF'})).getAttribute('href')).toBe(saved.download_url)
+ const taskLinks=screen.getAllByRole('link',{name:'查看 PDF 任务'}).map(link=>link.getAttribute('href'));expect(taskLinks).toContain('#project=p1&section=tasks&task=t1');expect(taskLinks).toContain('#project=p1&section=tasks&task=historical-pdf-task')
+ expect(screen.getAllByText('历史 PDF 转换超时；Word 仍可下载。').length).toBeGreaterThan(0)
+ expect(screen.queryAllByRole('button',{name:/重试原任务|重试 PDF|生成 PDF|新建 PDF|确认上次 PDF/})).toHaveLength(0)
+ expect(fetcher.mock.calls.some(([,init])=>init?.method==='POST')).toBe(false)
+ expect(fetcher.mock.calls.some(([url])=>url.includes('pdf-exports?source_kind=manuscript_export&source_id=docx1'))).toBe(true)
 })

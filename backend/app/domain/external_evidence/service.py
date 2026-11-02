@@ -70,6 +70,7 @@ def validate_evidence_row(db,row):
                 expected_hash=version['sha256'];expected_review='human_reviewed'
             if source['sha256']!=expected_hash or source['review_status']!=expected_review:
                 raise ValueError('Version hash or review status differs')
+        if snapshot.get('typed_evidence')!=request.get('typed_evidence'):raise ValueError('Typed declaration differs')
         current=row;seen=set()
         while current['previous_version_id'] is not None:
             if current['id'] in seen:raise ValueError('Evidence lineage cycle')
@@ -139,6 +140,14 @@ class ExternalEvidenceService:
         if not row:raise not_found()
         return dict(row)
 
+    def recover(self,project,key):
+        require_key(key)
+        with self.store.connection() as db:
+            self.store.require_project(db,project)
+            row=db.execute('SELECT id FROM external_evidence_versions WHERE project_id=%s AND user_id=%s AND idempotency_key=%s',(project,self.store.user_id,key)).fetchone()
+            if not row:raise not_found()
+        return self.get(project,row['id'])
+
     def get(self,project,id):
         with self.store.connection() as db:
             row=self._read(db,project,id);view=validate_evidence_row(db,row)
@@ -147,7 +156,19 @@ class ExternalEvidenceService:
         try:selected=[lookup[i] for i in row['request_json']['item_ids']]
         except KeyError as exc:raise source_conflict() from exc
         if source!=view['source'] or selected!=view['items']:raise source_conflict()
+        if view.get('typed_evidence'):
+            checked=self._typed_source(project,row['file_id'],view['typed_evidence'])
+            if checked!=view.get('locator_verification'):raise source_conflict()
         return view
+
+    def _typed_source(self,project,file_id,typed):
+        from pathlib import Path
+        from .typed import TypedEvidence,verify_locators
+        with self.store.connection() as db:
+            self.store.require_project(db,project);file=dict(require_file(db,project,file_id))
+        self.assets.original(file)
+        try:return verify_locators((Path(self.assets.directory)/file['object_key']).read_bytes(),file['filename'],TypedEvidence.model_validate(typed))
+        except (ValueError,UnicodeError) as exc:raise StorageError('task_input_invalid','原文定位或摘录与固定原件不匹配。',422) from exc
 
     def require_versions(self,project,ids):
         if not isinstance(ids,list) or len(ids)>10 or len(set(ids))!=len(ids) or any(not isinstance(i,str) or not i for i in ids):
@@ -195,6 +216,9 @@ class ExternalEvidenceService:
                               project_id=project,file_id=request.file_id,created_at=now.isoformat(),source=source,items=selected,
                               **{k:material[k] for k in DECLARATIONS},verification_status='external_not_recomputed',
                               computed_by_system=False,included_in_reports=False)
+                if request.typed_evidence is not None:
+                    snapshot['typed_evidence']=material['typed_evidence']
+                    snapshot['locator_verification']=self._typed_source(project,request.file_id,material['typed_evidence'])
                 if len(json.dumps(snapshot,ensure_ascii=False).encode('utf-8'))>MAX_SNAPSHOT_BYTES:
                     raise StorageError('task_input_invalid','材料摘录过大，请减少选定片段；原件仍保留。',422)
                 sha=request_digest(snapshot)

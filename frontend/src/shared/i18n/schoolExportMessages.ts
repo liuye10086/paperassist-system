@@ -1,5 +1,5 @@
 export const schoolExportMessages:Record<string,string>={
-'学校目录已完成排版，请直接下载 Word 或生成 PDF。':'The school table of contents is already laid out. Download Word or generate PDF directly.',
+'学校目录已完成排版，请直接下载 Word。':'The school table of contents is already laid out. Download Word directly.',
 '导出错误代码':'Export error code','标识':'Identifier','说明':'Description','来源依据':'Source evidence','来源':'Source','位置':'Location','状态':'Status','渲染器':'Renderer','规则版本':'Rules version','标题':'Title','文本':'Text','用途':'Purpose','层级':'Level','字体':'Font','字号（磅）':'Font size (pt)','行距':'Line spacing','起始页码':'Starting page number','页码':'Page number','页码格式':'Page number format','页眉':'Header','页脚':'Footer','分节':'Section','章节':'Chapter','必需':'Required','值':'Value','期望值':'Expected','实际值':'Actual','名称':'Name','已实际更新':'Updated','待更新':'Pending','未请求更新':'Not requested','是':'Yes','否':'No',
 '学校固定版本导出':'School export of frozen version',
 '导出固定稿件版本 {revision}；人工字段仅保存到本次导出。':'Export frozen manuscript version {revision}; manual fields belong only to this export.',

@@ -29,7 +29,10 @@ def label_font(config,panels,cell):
 
 
 def render_figure(payload,output):
-    config=payload['config'];output=Path(output);panels=[dict(p) for p in payload['panels']]
+    config=payload['config'];output=Path(output)
+    if not config.get('formats') or any(fmt not in ('png','tiff','svg') for fmt in config['formats']):
+        raise ValueError('unsupported figure output format; PDF export is retired')
+    panels=[dict(p) for p in payload['panels']]
     if config['mode'] not in ('reuse','composite') or not (len(panels)==1 if config['mode']=='reuse' else 2<=len(panels)<=6):raise ValueError('panel limit')
     if config['mode']=='composite':
         used={p.get('label') for p in panels if p.get('label')}
@@ -79,8 +82,8 @@ def render_figure(payload,output):
             png=io.BytesIO();canvas.save(png,'PNG',dpi=(dpi,dpi));encoded=base64.b64encode(png.getvalue()).decode('ascii')
             content=(f'<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="{config["width_mm"]}mm" height="{height/dpi*25.4}mm" viewBox="0 0 {width} {height}"><desc>Raster panel content; noneditable scientific bitmap.</desc><image width="{width}" height="{height}" xlink:href="data:image/png;base64,{encoded}"/></svg>').encode()
         else:
-            options={'compression':'tiff_lzw'} if fmt=='tiff' else {'creationDate':None,'modDate':None} if fmt=='pdf' else {}
-            canvas.save(stream,{'png':'PNG','tiff':'TIFF','pdf':'PDF'}[fmt],dpi=(dpi,dpi),resolution=dpi,**options);content=stream.getvalue()
+            options={'compression':'tiff_lzw'} if fmt=='tiff' else {}
+            canvas.save(stream,{'png':'PNG','tiff':'TIFF'}[fmt],dpi=(dpi,dpi),resolution=dpi,**options);content=stream.getvalue()
         leaf('figure_'+fmt,fmt,content,'figure',dict(width_pixels=width,height_pixels=height,dpi=dpi,width_mm=config['width_mm'],height_mm=height/dpi*25.4,
             bitmap_panel_content_editable=False,figure_language=config.get('figure_language','original'),caption_language=config.get('language','zh-CN')))
     manifest=dict(schema_version=1,renderer_version='research_bitmap_v1',config=config,width_pixels=width,height_pixels=height,panels=descriptors,
@@ -89,7 +92,7 @@ def render_figure(payload,output):
         caption_language=config.get('language','zh-CN'),figure_language=config.get('figure_language','original'),
         language_exception=config.get('figure_language','original') in ('original','unknown') or config.get('figure_language')!=config.get('language','zh-CN'),
         missing_caption_annotations=['n、单位、误差线、方法及统计标注仅以选定 caption_facts 为依据；未绑定内容视为用户未验证文字。'],
-        limitations=['原图语言保留；位图 PDF/SVG 的科学面板内容不可编辑。','分辨率按原始像素报告；上采样不增加原图细节。'])
+        limitations=['原图语言保留；位图 SVG 的科学面板内容不可编辑。','分辨率按原始像素报告；上采样不增加原图细节。'])
     rebuild=dict(config=config,panels=[{**{k:v for k,v in p.items() if k!='path'},'path':d['original_member']+('.png' if images[i][2]=='PNG' else '.jpeg')} for i,(p,d) in enumerate(zip(panels,descriptors))])
     rebuild.update(renderer_identity=renderer_identity(),caption_facts=payload.get('caption_facts',[]))
     leaf('rebuild_config','json',json.dumps(rebuild,ensure_ascii=False,sort_keys=True).encode(),'rebuild_config')

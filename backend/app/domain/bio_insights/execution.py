@@ -87,7 +87,7 @@ class BioInsightsExecution:
         def progress():
             updated=db.execute("""UPDATE task_attempts a SET heartbeat_at=clock_timestamp(),lease_expires_at=clock_timestamp()+(%s*interval '1 second') FROM tasks t
                 WHERE t.id=%s AND t.id=a.task_id AND t.current_attempt=%s AND a.attempt_no=t.current_attempt
-                AND t.task_type IN ('bio_resource_import','bio_comparison','bio_result_import','bio_enrichment','bio_candidate','bio_insight_figure') AND t.status='running' AND a.status='running'
+                AND t.task_type IN ('bio_resource_import','bio_comparison','bio_result_import','bio_enrichment','bio_candidate','bio_insight_figure','bio_feature_extract','bio_integration') AND t.status='running' AND a.status='running'
                 AND a.lease_owner=%s AND a.lease_expires_at>clock_timestamp()
                 RETURNING a.heartbeat_at,a.lease_expires_at""",(LEASE_SECONDS,lease.task_id,lease.attempt_no,lease.lease_owner))
             if updated.rowcount!=1:raise LeaseLost()

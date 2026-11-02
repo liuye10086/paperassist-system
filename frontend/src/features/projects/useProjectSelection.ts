@@ -65,6 +65,7 @@ export default function useProjectSelection(onUnavailable: (id: string) => void,
         // A same-project deep link describes only its visible section. Keep
         // inactive task destinations so Back/Forward does not hide a retained draft.
         if (next.projectId && next.projectId === current.current?.id) {
+            if(next.section!=='overview'||next.overviewView!=='deliveries')next={...next,deliveryId:routeRef.current.deliveryId,deliverySnapshotId:routeRef.current.deliverySnapshotId};
             if (next.section !== 'reviews') next = {...next,reviewLink:routeRef.current.reviewLink,reviewView:routeRef.current.reviewView,reviewItemId:routeRef.current.reviewItemId};
             if (next.section !== 'tasks') next = {...next,taskId:routeRef.current.taskId,taskDetailView:routeRef.current.taskDetailView};
             if (next.section !== 'analysis') next = { ...next, analysisNavigation: routeRef.current.analysisNavigation };
@@ -275,13 +276,13 @@ export default function useProjectSelection(onUnavailable: (id: string) => void,
         setLoading(true);
         setAttempt(value => value + 1);
     }
-    function open(id: string, seed?: Project) {
+    function open(id: string, seed?: Project, startWithUpload = false) {
         if (current.current?.id === id && routeRef.current.workspaceView === 'project') {
             refresh();
             return;
         }
         if (validId(id))
-            navigate({ ...homeRoute(), workspaceView: 'project', projectId: id }, seed);
+            navigate({ ...homeRoute(), workspaceView: 'project', projectId: id, ...(startWithUpload ? { section: 'files' as const, resourceNavigation: { view: 'upload' as const, fileId: '' } } : {}) }, seed);
     }
     function update(project: Project) {
         if (!instance || current.current !== instance || project.id !== instance.id)
@@ -386,6 +387,8 @@ export default function useProjectSelection(onUnavailable: (id: string) => void,
         selectReviewView,selectReviewItem,selectReviewRun,selectReviewDocument,selectTaskDetailView,
         manuscriptView:route.manuscriptView,journalView:route.journalView,schoolTemplateNavigation:route.schoolTemplateNavigation,
         researchCandidateId:route.researchCandidateId,
+        deliveryId:route.deliveryId,deliverySnapshotId:route.deliverySnapshotId,
+        selectDelivery:(deliveryId:string,deliverySnapshotId='')=>{if(validId(deliveryId)&&(!deliverySnapshotId||validId(deliverySnapshotId)))navigate({...routeRef.current,section:'overview',overviewView:'deliveries',deliveryId,deliverySnapshotId})},
         selectResearchCandidate:(id:string)=>{if(!id||validId(id))navigate({...routeRef.current,section:'manuscripts',manuscriptView:'research-candidates',researchCandidateId:id})},
         selectManuscriptView,selectManuscriptVersion,selectJournalView,selectJournalAdaptation,selectSchoolTemplate,
         workspaceView: route.workspaceView, navigateWorkspace, overviewView: route.overviewView, changeOverviewView, registerLeaveGuard,

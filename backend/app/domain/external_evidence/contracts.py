@@ -1,9 +1,19 @@
 from typing import Literal
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator, model_serializer
 
+
+from .typed import TypedEvidence
 
 class EvidenceRequest(BaseModel):
     model_config=ConfigDict(strict=True,extra='forbid')
+    typed_evidence: TypedEvidence | None = None
+
+    @model_serializer(mode='wrap')
+    def legacy_wire(self,handler):
+        data=handler(self)
+        if self.typed_evidence is None:data.pop('typed_evidence',None)
+        return data
+
     file_id: str=Field(min_length=1,max_length=64)
     source_kind: Literal['original','document_version','ocr_review_version']
     document_version_id: str | None=Field(default=None,min_length=1,max_length=64)

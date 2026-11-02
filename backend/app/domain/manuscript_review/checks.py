@@ -34,7 +34,12 @@ def check_snapshot(snapshot,metadata=(),strict_locations=(),*,writing_context=No
         if snapshot.get('thesis_context'):
             from app.domain.manuscripts.school import school_issues
             issues.extend(school_issues(snapshot))
-        elif actual!=list(SECTION_IDS): issues.append(issue('structure','sections','Unexpected section structure.',severity='error',actual=actual,expected=list(SECTION_IDS)))
+        else:
+            expected=list(SECTION_IDS)
+            if snapshot.get('article_structure_version') is not None:
+                from app.domain.manuscript_writing.article_contract import VERSION,STRUCTURES
+                expected=list(STRUCTURES.get(snapshot.get('article_type'),())) if snapshot['article_structure_version']==VERSION else []
+            if actual!=expected:issues.append(issue('structure','sections','Unexpected section structure.',severity='error',actual=actual,expected=expected))
         for section in snapshot['sections']:
             if not section['paragraphs']:
                 issues.append(issue('structure','section:'+section['id'],'Section is empty; material requires human review.'))

@@ -52,6 +52,7 @@ class BioFigureStore(BioAnalysisStore):
             else:
                 row,manifest,members=self.processed_record(db,project,request.processed_source.processed_dataset_version_id)
                 if self.processed_source(row,manifest)!=request.processed_source.model_dump():raise conflict('bio_input_integrity_changed')
+                if manifest.get('assay')=='single_cell' and (request.config.kind in ('spatial_cluster','spatial_gene','annotation') or request.annotation_version_id):raise error('bio_recipe_invalid',422)
                 if request.annotation_version_id:
                     annotation=self.require(db,'bio_annotation_versions',project,request.annotation_version_id)
                     if annotation['processed_dataset_version_id']!=row['id']:raise error('bio_annotation_invalid',422)
@@ -98,6 +99,8 @@ class BioFigureStore(BioAnalysisStore):
         return finish(db,task,checkpoint,moment,'result_bio_figure_version_id',identifier)
 
     def publish_defaults(self,db,task,processed_id,prepared,*,progress=None):
+        if prepared['manifest'].get('schema_version')==2:
+            return self.publish_tabular_defaults(db,task,processed_id,prepared,progress=progress)
         members={m['key']:m for m in prepared['members']}
         for key,png in members.items():
             if progress is not None:progress()
@@ -125,6 +128,23 @@ class BioFigureStore(BioAnalysisStore):
                 'request_key':'default:'+identifier,'request_digest':digest(dict(processed_id=processed_id,key=prefix))})
             for suffix in ('png','pdf','data','manifest'):
                 if progress is not None:progress()
+                member=members[prefix+'_'+suffix];stored=object_by_key(db,task['project_id'],task['user_id'],member)
+                insert(db,'bio_figure_members',{**base_row(str(uuid5(UUID(identifier),suffix)),task['project_id'],task['user_id']),'figure_version_id':identifier,
+                    **{k:member[k] for k in ('key','format','size_bytes','sha256')},'storage_object_id':stored['id']})
+
+    def publish_tabular_defaults(self,db,task,processed_id,prepared,*,progress=None):
+        members={m['key']:m for m in prepared['members']}
+        for key in members:
+            if not key.endswith('_png'):continue
+            prefix=key[:-4];manifest=members[prefix+'_manifest'];identifier=str(uuid5(UUID(processed_id),'figure:'+prefix))
+            rendered=json.loads(self.objects.read(manifest));config=rendered['config'];record=object_by_key(db,task['project_id'],task['user_id'],manifest)
+            if rendered.get('schema_version')!=2 or rendered.get('observation_level')!='sample':raise error('bio_output_invalid')
+            insert(db,'bio_figure_versions',{**base_row(identifier,task['project_id'],task['user_id']),'root_id':identifier,'version':1,'parent_id':None,
+                'processed_dataset_version_id':processed_id,'annotation_version_id':None,'task_id':task['id'],'config_json':config,'config_sha256':digest(config),
+                'renderer_version':'tabular_plots_v1','manifest_object_id':record['id'],'manifest_sha256':record['sha256'],
+                'request_key':'default:'+identifier,'request_digest':digest(dict(processed_id=processed_id,key=prefix))})
+            for suffix in ('png','tiff','svg','pdf','data','manifest'):
+                if progress:progress()
                 member=members[prefix+'_'+suffix];stored=object_by_key(db,task['project_id'],task['user_id'],member)
                 insert(db,'bio_figure_members',{**base_row(str(uuid5(UUID(identifier),suffix)),task['project_id'],task['user_id']),'figure_version_id':identifier,
                     **{k:member[k] for k in ('key','format','size_bytes','sha256')},'storage_object_id':stored['id']})

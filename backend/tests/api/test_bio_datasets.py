@@ -116,9 +116,9 @@ def test_research_delivery_registration_keeps_legacy_writing_gated(client):
     assert client.get(base+'/layout-exports/config').status_code==200
     for kind in ('report','collection_report','layout_export'):
         allowed=client.post(base+'/pdf-exports',json=dict(source_kind=kind,source_id='missing',request_key='research-'+kind))
-        assert allowed.status_code==404,(kind,allowed.text)
+        assert allowed.status_code==405,(kind,allowed.text)
     blocked=client.post(base+'/pdf-exports',json=dict(source_kind='manuscript_export',source_id='missing',request_key='research-manuscript'))
-    assert blocked.status_code==409,blocked.text
+    assert blocked.status_code==405,blocked.text
 
 
 def test_new_json_routes_bound_chunked_body_before_decoding(client):

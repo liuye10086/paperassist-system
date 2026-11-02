@@ -28,8 +28,12 @@ def read_groups(db,file,user_id):
         valid={r['id']:r['_integrity_valid'] for r in groups[parent]}
         for row in rows:row['_integrity_valid']=bool(valid.get(row[column]) and row['user_id']==user_id and row['project_id']==project)
         groups[table]=rows
-    rows=[dict(r) for r in db.execute('SELECT * FROM research_source_bindings WHERE file_id=%s OR finding_version_id=ANY(%s) OR figure_version_id=ANY(%s) OR report_version_id=ANY(%s)',
-        (file['id'],list(selected['research_finding_versions']),list(selected['research_figure_versions']),list(selected['research_report_versions'])))]
+    rows=[dict(r) for r in db.execute('SELECT * FROM research_source_bindings WHERE file_id=%s OR analysis_run_id IN (SELECT id FROM analysis_runs WHERE file_id=%s) OR finding_version_id=ANY(%s) OR figure_version_id=ANY(%s) OR report_version_id=ANY(%s)',
+        (file['id'],file['id'],list(selected['research_finding_versions']),list(selected['research_figure_versions']),list(selected['research_report_versions'])))]
     for row in rows:row['_integrity_valid']=row['user_id']==user_id and row['project_id']==project
     groups['research_source_bindings']=rows
+    groups['delivery_snapshots']=[]
+    for row in db.execute('SELECT * FROM delivery_snapshots WHERE project_id=%s',(project,)):
+        if file['id'] in row['snapshot_json'].get('source_file_ids',[]):
+            row=dict(row);row['_integrity_valid']=row['user_id']==user_id and digest(row['snapshot_json'])==row['sha256'];groups['delivery_snapshots'].append(row)
     return groups

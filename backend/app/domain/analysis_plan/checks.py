@@ -13,6 +13,8 @@ from app.domain.analysis_plan.research import missing_research, RESEARCH_RULES_V
 
 
 def build_check(sheet,selection,research_request=None,*,schema_version=None):
+    from app.domain.statistics_roles import validate_sheet_roles
+    validate_sheet_roles(sheet,selection)
     if getattr(selection,'task_type',None) in ('regression','roc','survival'):
         from app.domain.regression.checks import build_check as build_modeling_check
         return build_modeling_check(sheet,selection,research_request)

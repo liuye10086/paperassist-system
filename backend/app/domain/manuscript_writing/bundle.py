@@ -106,6 +106,11 @@ def build_bundle(base, request, *, execution_contract=None):
     from app.domain.model_usage.contracts import ModelPolicy
     from app.domain.admin_configuration.model_consumption import combine
     frozen=validate(execution_contract) if execution_contract is not None else contract()
+    if frozen['schema_version']==2 and request.get('schema_version')!=4 and base.get('article_type','research')!='research':
+        raise StorageError('manuscript_writing_selection_invalid','此文章类型须使用文章结构协议，不能按旧七部分协议改写。',422)
+    if frozen['schema_version']==4:
+        from .article_contract import build_bundle as article_bundle
+        return article_bundle(base,request,frozen)
     if frozen['schema_version']==3:
         from .school_live import build_bundle as school_bundle
         return school_bundle(base,request,frozen)

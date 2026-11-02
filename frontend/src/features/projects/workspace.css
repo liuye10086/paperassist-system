@@ -3,6 +3,12 @@
   min-height: 0;
 }
 
+/* Notices live outside the shell but must respect its fixed sidebar. */
+body:has(.workbench-shell) .runtime-notice { margin-left: calc(var(--sidebar-width) + 32px); margin-right: 32px; font-size: 12px; }
+body:has(.workbench-shell.is-collapsed) .runtime-notice { margin-left: 116px; }
+.runtime-notice > details > summary { cursor: pointer; color: var(--text); margin-top: 4px; font-size: 12px; }
+@media(max-width:760px) { body:has(.workbench-shell) .runtime-notice, body:has(.workbench-shell.is-collapsed) .runtime-notice { margin-left: 16px; margin-right: 16px; } }
+
 .workspace-icon { width: 20px; height: 20px; flex: 0 0 auto; }
 
 .workspace-sidebar {

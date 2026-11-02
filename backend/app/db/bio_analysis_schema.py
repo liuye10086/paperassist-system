@@ -61,7 +61,7 @@ def define_bio_analysis_tables(metadata):
         text('observation_map_version_id',True),text('design_version_id',True),ref('design_version_id','research_design_versions'),
         fk(['observation_map_version_id','raw_dataset_version_id','project_id'],'bio_observation_map_versions',['id','raw_dataset_version_id','project_id']),
         text('recipe_code'),json('params_json'),json('default_figures_json'),text('engine_contract_version'),
-        sa.CheckConstraint("recipe_code='visium_explore_v1' AND jsonb_typeof(params_json)='object' AND octet_length(params_json::text)<=4194304"))
+        sa.CheckConstraint("recipe_code IN ('visium_explore_v1','single_cell_explore_v1','tabular_quantitative_v1') AND jsonb_typeof(params_json)='object' AND octet_length(params_json::text)<=4194304"))
     make('bio_analysis_runs',*raw(),text('recipe_version_id'),text('task_id'),text('source_digest'),
         text('execution_snapshot_object_id'),text('execution_snapshot_sha256'),integer('expected_setup_revision'),
         text('processed_dataset_version_id',True),*request(),

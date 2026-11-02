@@ -41,7 +41,7 @@ class ResearchSourceReader(ResearchResultsStore):
         if token in chain or len(chain)>=16:raise invalid()
         self.store.require_project(db,project)
         kind=selection.source_kind
-        allowed={'bio_processed_dataset_version':('object','field'),'bio_analysis_artifact':('object','row'),
+        allowed={'analysis_run':('object','field','image'),'bio_processed_dataset_version':('object','field'),'bio_analysis_artifact':('object','row'),
             'bio_figure_version':('object','image'),'original_file':('object','cell','page','image'),
             'external_evidence_version':('object',),'research_finding_version':('object',),
             'research_report_version':('object',),'research_figure_version':('object','image'),
@@ -49,7 +49,10 @@ class ResearchSourceReader(ResearchResultsStore):
         if selection.locator.kind not in allowed[kind]:raise invalid('research_locator_invalid',422)
         if kind!='original_file' and (selection.locator.parse_version_id or selection.locator.original_sha256):
             raise invalid('research_locator_invalid',422)
-        if kind in ('bio_processed_dataset_version','bio_analysis_artifact'):
+        if kind=='analysis_run':
+            from .statistics_sources import read_statistics_source
+            value=read_statistics_source(self,db,project,selection,progress=progress)
+        elif kind in ('bio_processed_dataset_version','bio_analysis_artifact'):
             value=self._bio(db,project,selection,phase=phase,progress=progress)
         elif kind in ('bio_insight_result_version','bio_insight_result_member'):
             from .insight_sources import read_insight_source
@@ -99,7 +102,10 @@ class ResearchSourceReader(ResearchResultsStore):
         else:raise invalid('research_source_unsupported',422)
         if selection.sha256 is not None and selection.sha256!=value['sha256']:raise invalid()
         if progress is not None:progress()
-        return FrozenResearchSource(**{**selection.model_dump(mode='json'),**value,'project_id':project})
+        try:return FrozenResearchSource(**{**selection.model_dump(mode='json'),**value,'project_id':project})
+        except ValueError as exc:
+            if kind=='analysis_run':raise invalid('research_source_limit_exceeded',422) from exc
+            raise
 
     def _completed(self,db,task_id):
         task=self.store.require_task(db,task_id)
@@ -118,9 +124,9 @@ class ResearchSourceReader(ResearchResultsStore):
         _,raw_manifest=self.bio.raw_store.require_version(db,project,raw['dataset_id'],raw['dataset_version_id'])
         accessions=raw_manifest.get('source_accessions') or raw_manifest.get('checks',{}).get('source_accessions',{})
         provenance='public_reanalysis' if any(accessions.values()) else 'system_computed'
-        content={k:manifest[k] for k in ('summary','params','steps','engine_version','code_digest','environment_digest','identity','tables') if k in manifest}
+        content={k:manifest[k] for k in ('summary','params','steps','engine_version','code_digest','environment_digest','identity','tables','observation_level','assay','scale','layers','methods') if k in manifest}
         content.update(processed_version_id=processed_id,raw_source=raw,source_accessions=accessions)
-        sha=row['manifest_sha256'];title='空间分析 / Spatial analysis '+processed_id
+        sha=row['manifest_sha256'];title=('Single-cell analysis ' if manifest.get('observation_level')=='cell' else '样本定量分析 / Sample quantitative analysis ' if manifest.get('observation_level')=='sample' else '空间分析 / Spatial analysis ')+processed_id
         if artifact:
             member=next(m for m in members if m['id']==artifact['id'])
             if member['format'] not in ('tsv','txt','json'):raise invalid('research_source_unsupported',422)
@@ -144,6 +150,7 @@ class ResearchSourceReader(ResearchResultsStore):
                 parsed=json.loads(raw_bytes)
                 if len(raw_bytes)>2*1024*1024:raise invalid('research_source_limit_exceeded',422)
                 content={'metadata':parsed,'processed_version_id':processed_id}
+        if manifest.get('observation_level') in ('sample','cell'):content.update(observation_level=manifest['observation_level'],assay=manifest['assay'])
         return dict(title=title,sha256=sha,provenance=provenance,source_file_ids=raw['source_file_ids'],content=content)
 
     def _bio_figure(self,db,project,selection):
@@ -187,6 +194,10 @@ class ResearchSourceReader(ResearchResultsStore):
         return dict(title=row['filename'],sha256=row['sha256'],provenance='external_result',source_file_ids=[row['id']],content=content)
 
     def catalog(self,source):
+        if source.source_kind=='analysis_run':
+            from .statistics_projection import project_statistics_facts
+            try:return project_statistics_facts(source)
+            except (ValueError,KeyError,TypeError) as exc:raise invalid('research_locator_invalid',422) from exc
         if source.source_kind in ('bio_insight_result_version','bio_insight_result_member'):
             from .insight_projection import project_insight_facts
             try:return project_insight_facts(source)

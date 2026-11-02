@@ -6,6 +6,8 @@ from app.db.research_results_schema import SOURCE_TARGETS
 class ResearchCatalog(ResearchResultsStore):
     def list(self,project,kind,page=1):
         if kind not in SOURCE_TARGETS:raise invalid('research_source_unsupported',422)
+        if kind=='analysis_run':
+            return self.statistics(project,page)
         table=SOURCE_TARGETS[kind][1]
         title={'original_file':'s.filename','bio_analysis_artifact':'s.key',
             'bio_insight_result_member':'s.key','bio_insight_result_version':"s.kind||' / '||s.id",
@@ -42,6 +44,24 @@ class ResearchCatalog(ResearchResultsStore):
             total=db.execute('SELECT count(*) AS n FROM '+table+' WHERE project_id=%s',(project,)).fetchone()['n']
             rows=db.execute('SELECT s.id AS source_id,'+title+' AS title,s.'+moment+' AS created_at,s.'+sha+' AS sha256,'+status+' AS status'+extra+' FROM '+table+' s'+join+' WHERE s.project_id=%s ORDER BY s.'+moment+' DESC,s.id LIMIT 25 OFFSET %s',(project,(page-1)*25)).fetchall()
             return dict(items=[dict(source_kind=kind,**dict(r)) for r in rows],total=total,page=page,page_size=25)
+
+    def statistics(self,project,page):
+        import json
+        from app.domain.bioinformatics.contracts import digest
+        with self.store.connection() as db:
+            self.store.require_project(db,project)
+            total=db.execute('SELECT count(*) AS n FROM analysis_runs r JOIN files f ON f.id=r.file_id WHERE f.project_id=%s',(project,)).fetchone()['n']
+            rows=db.execute('SELECT r.*,f.filename FROM analysis_runs r JOIN files f ON f.id=r.file_id WHERE f.project_id=%s ORDER BY r.completed_at DESC,r.id LIMIT 25 OFFSET %s',(project,(page-1)*25)).fetchall()
+            items=[]
+            for row in rows:
+                try:result=json.loads(row['result_json'])
+                except (ValueError,TypeError):result={}
+                complete=bool(row['completed_at'] and result.get('completed_at') and result.get('id')==row['id'])
+                method=result.get('selection',{}).get('method','descriptive_statistics')
+                items.append(dict(source_kind='analysis_run',source_id=row['id'],title=row['filename']+' / '+method,
+                    created_at=row['completed_at'],sha256=digest(result),status='available' if complete else 'incomplete',
+                    revision=row['setup_revision'],kind=method))
+            return dict(items=items,total=total,page=page,page_size=25)
 
     def request(self,project,kind,key):
         table={'finding':'research_finding_versions','figure':'research_figure_versions',

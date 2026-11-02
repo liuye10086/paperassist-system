@@ -1,3 +1,4 @@
+import {queueResearchSource} from '../bio-insights/researchHandoff'
 import {useAnalysisLeaveGuard} from './analysisActivityContext'
 import StatisticsTaskObserver from './StatisticsTaskObserver'
 import {pendingStatisticsKey,saveStatisticsKey} from './statisticsRequestIdentity'
@@ -163,6 +164,7 @@ function Results({ base, savedRevision, savedSelection, savedSource, savedPlan, 
     </div>
     {unconfirmed&&<><p className="warning-panel">{t('统计提交尚未确认，请核实并继续同一请求。')}</p><button type="button" disabled={loading||submitting||disabled||!fieldsMatch||!revisionMatches} onClick={()=>void execute()}>{t('核实并继续同一统计请求')}</button></>}
     {activeTask&&<StatisticsTaskObserver task={activeTask} context={context} onTask={setActiveTask} onError={setError} onResult={value=>{setState({current_revision:savedRevision,is_current:true,result:value,execution_verification:'verified'});setError('');setNotice('结果已保存，刷新或重启后可再次查看。重复执行同一配置会返回已保存结果。')}}/>}
+    {result&&<div className="analysis-actions"><button type="button" disabled={loading||running} onClick={()=>{const project=decodeURIComponent(base.split('/')[4]);queueResearchSource(project,{source_kind:'analysis_run',source_id:result.id,locator:{schema_version:1,kind:'object'}});window.location.hash=`project=${encodeURIComponent(project)}&section=analysis&view=research-findings`}}>{t('整理常规统计研究发现与报告')}</button><p>{t('固定已完成运行，保留原值与验证身份；进入报告不会重新计算。')}</p></div>}
     {state?.execution_verification==='legacy_unverified'&&result&&<p className="warning-panel">{t('此历史结果没有新版隔离执行回执；阅读不会自动重新计算。')}</p>}
     {loading && <p role="status">{t("正在读取统计结果……")}</p>}
     {running && <p role="status">{t(modelMethod?'正在计算已确认分析，请稍候……':isComparison?'正在计算组间比较，请稍候……':isCorrelation?'正在计算相关分析，请稍候……':'正在计算描述统计，请稍候……')}</p>}

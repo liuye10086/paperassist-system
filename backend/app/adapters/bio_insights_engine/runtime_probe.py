@@ -59,12 +59,11 @@ def exercise(output):
     ax.plot(ranking.to_numpy())
     ax.set_title('差异富集环境验证', fontproperties=FontProperties(fname='/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc'))
     fig.savefig(output / 'probe.png', dpi=100)
-    fig.savefig(output / 'probe.pdf', metadata={'CreationDate': None, 'ModDate': None})
     plt.close(fig)
     return {'aggregation': True, 'deseq2_fit': True, 'gsea': True,
             'fit_shape': list(frame.shape), 'gsea_permutations': 100,
             'png_bytes': (output / 'probe.png').stat().st_size,
-            'pdf_bytes': (output / 'probe.pdf').stat().st_size}
+            'render_formats': ['png']}
 
 
 def probe():

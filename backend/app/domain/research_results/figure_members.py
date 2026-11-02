@@ -1,4 +1,5 @@
 """Read only actual immutable PNG/JPEG members, with owner and byte checks."""
+import base64
 import hashlib
 import io
 from PIL import Image
@@ -16,12 +17,32 @@ def image_metadata(raw):
     except (ValueError,OSError,Image.DecompressionBombError) as exc:raise invalid('research_source_unsupported',422) from exc
 
 
-def read_figure_panel(reader,db,project,panel,*,phase,progress=None):
+def read_figure_panel(reader,db,project,panel,*,phase,progress=None,figure_language=None,frozen_panel=None):
     source=reader._read_source_in_phase(project,panel.source,db=db,phase=phase,progress=progress);kind=source.source_kind;quality={}
     if kind=='original_file':
         if panel.member_key is not None:raise invalid('research_locator_invalid',422)
         row=db.execute('SELECT * FROM files WHERE id=%s AND project_id=%s',(source.source_id,project)).fetchone()
         raw=reader.assets.original(dict(row));sha=source.sha256;key=None
+    elif kind=='analysis_run':
+        if panel.member_key not in (None,'statistics'):raise invalid('research_locator_invalid',422)
+        if frozen_panel is None:
+            from .statistics_figures import render_statistics_figure
+            try:raw=render_statistics_figure(source,language=figure_language)
+            except (ValueError,KeyError,TypeError) as exc:raise invalid('research_source_unsupported',422) from exc
+            sha=hashlib.sha256(raw).hexdigest()
+            record=dict(source_sha256=source.sha256,sha256=sha,size_bytes=len(raw),figure_language=figure_language,png_base64=base64.b64encode(raw).decode())
+        else:
+            # The task owns these already frozen bytes; source resolution above still checks the live fixed run.
+            record=frozen_panel.get('statistics_png')
+            try:
+                if (type(record) is not dict or set(record)!={'source_sha256','sha256','size_bytes','figure_language','png_base64'}
+                    or record['source_sha256']!=source.sha256 or record['figure_language']!=figure_language
+                    or type(record['size_bytes']) is not int or not 0<record['size_bytes']<=4*1024**2
+                    or type(record['png_base64']) is not str or len(record['png_base64'])>6*1024**2):raise ValueError()
+                raw=base64.b64decode(record['png_base64'],validate=True);sha=hashlib.sha256(raw).hexdigest()
+                if len(raw)!=record['size_bytes'] or sha!=record['sha256']:raise ValueError()
+            except (ValueError,KeyError,TypeError) as exc:raise invalid() from exc
+        quality={'statistics_png':record};key='statistics'
     elif kind=='bio_figure_version':
         from app.adapters.bio_figure_store import BioFigureStore
         figures=BioFigureStore(reader.assets);view=source.content['figure']

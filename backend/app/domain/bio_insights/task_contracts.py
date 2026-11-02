@@ -6,8 +6,8 @@ from pydantic import model_validator
 from app.domain.bioinformatics.contracts import digest
 from .contracts import Hash, Identifier, Language, StrictModel
 
-INSIGHT_TASKS=('bio_resource_import','bio_comparison','bio_result_import','bio_enrichment','bio_candidate','bio_insight_figure')
-TaskKind=Literal['bio_resource_import','bio_comparison','bio_result_import','bio_enrichment','bio_candidate','bio_insight_figure']
+INSIGHT_TASKS=('bio_resource_import','bio_comparison','bio_result_import','bio_enrichment','bio_candidate','bio_insight_figure','bio_feature_extract','bio_integration')
+TaskKind=Literal['bio_resource_import','bio_comparison','bio_result_import','bio_enrichment','bio_candidate','bio_insight_figure','bio_feature_extract','bio_integration']
 
 
 class InsightTaskSnapshot(StrictModel):
@@ -25,7 +25,7 @@ class InsightTaskSnapshot(StrictModel):
 
     @model_validator(mode='after')
     def identity(self):
-        if self.workflow_version!=self.kind+'_v1':raise ValueError('Insight workflow mismatch')
+        if self.workflow_version!=self.kind+'_v1' and (self.kind!='bio_comparison' or self.workflow_version not in ('bio_comparison_v2','bio_comparison_qpcr_v1','bio_comparison_microbiome_v1')):raise ValueError('Insight workflow mismatch')
         resource=self.kind=='bio_resource_import'
         if resource:
             if not self.resource_version_id or self.plan_version_id or self.run_id:
@@ -47,7 +47,7 @@ class InsightInputVersion(StrictModel):
 
     @model_validator(mode='after')
     def workflow(self):
-        if self.workflow_version!=self.kind+'_v1':raise ValueError('Insight workflow mismatch')
+        if self.workflow_version!=self.kind+'_v1' and (self.kind!='bio_comparison' or self.workflow_version not in ('bio_comparison_v2','bio_comparison_qpcr_v1','bio_comparison_microbiome_v1')):raise ValueError('Insight workflow mismatch')
         return self
 
 

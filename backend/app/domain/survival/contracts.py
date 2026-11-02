@@ -4,7 +4,9 @@ from app.domain.correlation.contracts import StrictModel,ColumnId
 from app.domain.comparison.contracts import GroupIdentity
 from app.domain.regression.contracts import Assumptions
 ENGINE='survival_statistics_dataset_v1'
-class SurvivalSelection(StrictModel):
+from app.domain.statistics_roles import RoleSelection
+
+class SurvivalSelection(RoleSelection, StrictModel):
     task_type:Literal['survival']
     method:Literal['kaplan_meier']
     sheet_name:str=Field(min_length=1,max_length=31)

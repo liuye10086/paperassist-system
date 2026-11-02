@@ -24,10 +24,10 @@ class LayoutExportService:
         self.directory=Path(assets.directory)/'layout_exports'
 
     def source(self,db,project,kind,identity):
-        from app.domain.pdf_exports.service import PdfExportService
+        from app.domain.docx_sources import DocxSourceReader
         if kind not in ('report','collection_report','manuscript_export'):
             raise StorageError('task_input_invalid','排版来源类型无效。',422)
-        return PdfExportService(self.assets).source(db,project,kind,identity)
+        return DocxSourceReader(self.assets).source(db,project,kind,identity)
 
     def language(self,db,source):
         kind=source['source_kind']

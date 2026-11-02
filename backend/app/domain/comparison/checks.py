@@ -52,13 +52,22 @@ def selected_records(sheet, selection):
     fields={get_column_letter(f.column):f for f in sheet.fields}
     if any(c not in fields for c in selected_columns(selection)):
         raise StorageError('invalid_column','所选比较字段不存在。',422)
-    numeric=[selection.before_column,selection.after_column] if selection.design=='paired' else [selection.numeric_column]
+    long=selection.data_roles is not None and selection.data_roles.structure=='paired_long'
+    numeric=[selection.numeric_column] if long else [selection.before_column,selection.after_column] if selection.design=='paired' else [selection.numeric_column]
     for letter in numeric:
         unit=fields[letter].unit
         if unit.status=='confirmed' and unit.value!=selection.unit:
             raise StorageError('unit_conflict','测量字段单位与声明不一致；不会自动换算数值。',422)
-    if selection.design=='paired' and fields[numeric[0]].unit!=fields[numeric[1]].unit:
+    if selection.design=='paired' and not long and fields[numeric[0]].unit!=fields[numeric[1]].unit:
         raise StorageError('unit_conflict','配对前后字段单位须可比且一致，请重新核对整理单位。',422)
+    from app.domain.statistics_roles import validate_sheet_roles,sheet_records,long_pairs
+    validate_sheet_roles(sheet,selection)
+    if long:
+        paired=long_pairs(sheet_records(sheet,selection.data_roles),selection.data_roles)
+        rows=paired['group_rows']
+        variables=[dict(column=selection.numeric_column,name=str(time),unit=selection.unit) for time in selection.data_roles.time_order]
+        audit=dict(included_rows=sorted(rows[0]+rows[1]),excluded_rows=paired['excluded_rows'],missing_policy='complete_pairs',group_rows=rows,pair_id_column=selection.pair_id_column)
+        return paired['groups'],variables,audit,list(selection.data_roles.time_order)
     cells={(c.row,c.column):c for c in sheet.cells};start,end=rectangle(sheet.data_range)
     def cell(row,letter):return cells.get((row,column_index_from_string(letter)))
     if selection.design=='paired':
@@ -111,7 +120,8 @@ def build_comparison_check(sheet, selection, research):
             severity='warning' if resolution else 'blocking',message=message,coordinates=list(coordinates)[:5],
             allowed_resolutions=[resolution] if resolution else []))
     profile=ProfileScan(sheet,selected_columns=selected_columns(selection));lookup={f['letter']:f for f in profile.fields}
-    numeric=[selection.before_column,selection.after_column] if selection.design=='paired' else [selection.numeric_column]
+    long=selection.data_roles is not None and selection.data_roles.structure=='paired_long'
+    numeric=[selection.numeric_column] if long else [selection.before_column,selection.after_column] if selection.design=='paired' else [selection.numeric_column]
     for letter in selected_columns(selection):
         field=lookup.get(letter)
         if field is None:continue
@@ -130,9 +140,9 @@ def build_comparison_check(sheet, selection, research):
         group_counts=[dict(label=label,count=len(values)) for label,values in zip(labels,groups)]
         validate_comparison_inputs(groups,method=selection.method,posthoc=selection.posthoc)
         if min(map(len,groups))<10:issue('small_sample',None,n,'样本量较小，推断可能不稳定。',resolution='accept_partial_metrics')
-        for reason,resolution,message in [('selected_missing','exclude_selected_missing','缺失测量按完整记录或完整对排除，保留原来源。'),('group_not_selected','retain','仅采用确认的参与组；其余组记录明确排除，原数据保留。')]:
+        for reason,resolution,message in [('selected_missing','exclude_selected_missing','缺失测量按完整记录或完整对排除，保留原来源。'),('incomplete_pair','exclude_selected_missing','缺少另一时点或终点值的个体整对排除，不插补。'),('group_not_selected','retain','仅采用确认的参与组；其余组记录明确排除，原数据保留。')]:
             excluded=[item for item in audit['excluded_rows'] if item['reason']==reason]
-            if excluded:issue(reason,None,len(excluded),message,[c for i in excluded for c in i['coordinates']],resolution)
+            if excluded:issue('selected_missing' if reason=='incomplete_pair' else reason,None,len(excluded),message,[c for i in excluded for c in i['coordinates']],resolution)
     except (StorageError,ComparisonError) as exc:issue(exc.code,None,n,getattr(exc,'message','比较字段检查未通过。'))
     missing_fields=missing_research(research)
     if research['observation_structure']!=('paired' if selection.design=='paired' else 'independent') and 'observation_structure' not in missing_fields:missing_fields.append('observation_structure')

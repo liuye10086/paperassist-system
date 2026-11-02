@@ -182,7 +182,7 @@ def public_source_groups(groups, indexes, tasks, file, user_id, producers, proof
             key = (kind, row['id'] if 'id' in row else row['file_id'])
             rows[key] = row
             refs = set()
-            if kind in ('research_finding_versions','research_figure_versions','research_report_versions','research_manuscript_candidates','manuscript_research_sources','research_figure_members','research_report_members','research_source_bindings','research_material_refs','bio_datasets','bio_imports','bio_dataset_versions','bio_dataset_members','bio_observation_map_sets','bio_observation_map_versions','bio_analysis_setups','bio_analysis_recipe_versions','bio_analysis_runs','bio_processed_dataset_versions','bio_analysis_artifacts','bio_annotation_sets','bio_annotation_versions','bio_annotation_evidence','bio_figure_versions','bio_figure_members'):
+            if kind in ('delivery_snapshots','research_finding_versions','research_figure_versions','research_report_versions','research_manuscript_candidates','manuscript_research_sources','research_figure_members','research_report_members','research_source_bindings','research_material_refs','bio_datasets','bio_imports','bio_dataset_versions','bio_dataset_members','bio_observation_map_sets','bio_observation_map_versions','bio_analysis_setups','bio_analysis_recipe_versions','bio_analysis_runs','bio_processed_dataset_versions','bio_analysis_artifacts','bio_annotation_sets','bio_annotation_versions','bio_annotation_evidence','bio_figure_versions','bio_figure_members'):
                 if row.get('_integrity_valid') and row['project_id']==file['project_id']:safe.add(key)
                 dependencies[key]=set()
                 continue
@@ -405,7 +405,7 @@ def read_references(db, file, user_id):
     for row in project_tasks:
         task = dict(row)
         snapshot = task['input_snapshot']
-        if task['task_type'] in ('research_figure','research_report','research_fact_draft'):
+        if task['task_type'] in ('research_figure','research_report','research_fact_draft','delivery_package'):
             from app.domain.research_results.execution import source_current
             linked=task['id'] in output_tasks or file_id in file_ids(snapshot)
             if not linked:continue
@@ -542,6 +542,7 @@ def read_references(db, file, user_id):
     by_task = {t['id']: t for t in tasks}
     reasons = []
     if groups['bio_imports'] or groups['bio_dataset_versions'] or any(groups[name] for name in ('bio_analysis_runs','bio_observation_map_versions','bio_annotation_evidence','bio_figure_versions')):reasons.append('bio_history_retained')
+    if groups.get('delivery_snapshots'):reasons.append('research_results_history_retained')
     if groups['research_material_refs']:reasons.append('research_material_history_retained')
     if any(groups.get(name) for name in ('research_finding_versions','research_figure_versions','research_report_versions','research_manuscript_candidates','manuscript_research_sources')):reasons.append('research_results_history_retained')
     if groups['journal_material_refs']:reasons.append('journal_history_retained')

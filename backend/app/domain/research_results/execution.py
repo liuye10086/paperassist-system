@@ -45,6 +45,9 @@ class _SourceRejected(Exception):
 
 def service_for(task,repository):
     assets=DatasetTaskAssets(task['user_id'],repository.config,repository.assets.directory)
+    if task['task_type']=='delivery_package':
+        from app.domain.delivery_packages.service import DeliveryService
+        return DeliveryService(assets)
     if task['task_type']=='research_figure':
         from .figures import ResearchFigureService
         return ResearchFigureService(assets)
@@ -64,7 +67,7 @@ def checkpoint_for(db,task):
 
 def result_identifier(task):
     snapshot=task['input_snapshot']
-    return snapshot.get('figure_version_id') or snapshot.get('report_version_id') or snapshot['candidate_id']
+    return snapshot.get('figure_version_id') or snapshot.get('report_version_id') or snapshot.get('snapshot_id') or snapshot['candidate_id']
 
 
 class ResearchExecution:
@@ -97,7 +100,7 @@ class ResearchExecution:
             if not force and last_renewal is not None and monotonic()-last_renewal<renewal_interval:return
             updated=db.execute("""UPDATE task_attempts a SET heartbeat_at=clock_timestamp(),lease_expires_at=clock_timestamp()+(%s*interval '1 second') FROM tasks t
                 WHERE t.id=%s AND t.id=a.task_id AND t.current_attempt=%s AND a.attempt_no=t.current_attempt
-                AND t.task_type IN ('research_figure','research_report','research_fact_draft') AND t.status='running' AND a.status='running'
+                AND t.task_type IN ('research_figure','research_report','research_fact_draft','delivery_package') AND t.status='running' AND a.status='running'
                 AND a.lease_owner=%s AND a.lease_expires_at>clock_timestamp()
                 RETURNING a.heartbeat_at,a.lease_expires_at""",(LEASE_SECONDS,lease.task_id,lease.attempt_no,lease.lease_owner))
             if updated.rowcount!=1:raise LeaseLost()
@@ -169,9 +172,10 @@ class ResearchExecution:
                 from app.adapters.task_store import TaskStore
                 return TaskStore.public_task(task)
             db.execute('RELEASE SAVEPOINT research_admission')
-            state={**cp['state_json'],'prepared':prepared,'prepared_leaves':list(unique.values()),
+            state={**cp['state_json'],**({'stage':'publishing'} if task['task_type'] in ('delivery_package','research_report') else {}),'prepared':prepared,'prepared_leaves':list(unique.values()),
                 'prepared_reservations':[{k:r[k] for k in ('id','namespace','project_id','owner_id','task_id','kind','operation_key','object_key','size_bytes','sha256')} for r in rows]}
-            cp=append_checkpoint(db,task,'publish','publish',state,cp);progress(force=True)
+            phase_task=dict(task,updated_at=self.repository.now(db)) if task['task_type'] in ('delivery_package','research_report') else task
+            cp=append_checkpoint(db,phase_task,'publish','publish',state,cp);progress(force=True)
         return self.publish(lease,cp)
 
     def staging_path(self,task,path):
@@ -232,9 +236,17 @@ def _run_research_task(task_id,task_revision,*,task_type,config=None,directory=N
             if exc.code=='bio_environment_unavailable':raise invalid('research_environment_unavailable',409) from exc
             raise
         root=attempt.parent.parent;execution=ResearchExecution(repository,root)
-        with repository.connection() as db:
+        with repository.connection(write=task_type in ('delivery_package','research_report')) as db:
             task=repository.require_lease(db,lease);repository.require_owner(db,task);cp=checkpoint_for(db,task)
+            if task_type in ('delivery_package','research_report') and cp['next_node']=='check':
+                cp=append_checkpoint(db,dict(task,updated_at=repository.now(db)),'check','check',{**cp['state_json'],'stage':'source_verification'},cp)
             payload=service_for(task,repository).require_sources(db,task)
+        if task_type in ('delivery_package','research_report') and cp['next_node']=='check':
+            with repository.connection(write=True) as db:
+                task=repository.require_lease(db,lease);repository.require_owner(db,task)
+                counts=dict(completed_members=len(payload['raws'])) if task_type=='delivery_package' else dict(table_count=len(payload['tables']),figure_count=len(payload['figures']))
+                cp=append_checkpoint(db,dict(task,updated_at=repository.now(db)),'check','check',{**cp['state_json'],**counts,'stage':'organizing_existing_members' if task_type=='delivery_package' else 'organizing_report_inputs'},cp)
+                cp=append_checkpoint(db,dict(task,updated_at=repository.now(db)),'check','check',{**cp['state_json'],'stage':'writing_package' if task_type=='delivery_package' else 'rendering_report_and_package'},cp)
         if cp['next_node']=='publish':return execution.publish(lease,cp)
         if cp['next_node']!='check':raise invalid()
         if task_type=='research_figure':
@@ -247,10 +259,17 @@ def _run_research_task(task_id,task_revision,*,task_type,config=None,directory=N
             from app.adapters.research_report_render import stage_report_payload,execute_research_report
             payload=stage_report_payload(payload,attempt)
             render=engine or execute_research_report
+        elif task_type=='delivery_package':
+            from app.domain.delivery_packages.render import render_delivery_package
+            render=engine or render_delivery_package
         else:
             from .fact_draft import render_fact_draft
             render=engine or render_fact_draft
         _receipt(attempt,lease,'running_research');result=render(payload,output)
+        if task_type=='research_report':
+            with repository.connection(write=True) as db:
+                task=repository.require_lease(db,lease);repository.require_owner(db,task)
+                cp=append_checkpoint(db,dict(task,updated_at=repository.now(db)),'check','check',{**cp['state_json'],'stage':'render_and_package_complete'},cp)
         if lost.is_set():raise LeaseLost()
         response=execution.prepare(lease,cp,result,output)
         try:_receipt(attempt,lease,response['status'])

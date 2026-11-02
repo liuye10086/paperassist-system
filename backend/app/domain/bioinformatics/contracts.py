@@ -27,6 +27,8 @@ def conflict(code='bio_source_conflict'):
 
 def member_filename(member):
     key=member.get('key','')
+    if key in ('matrix_values','matrix_missing','samples','input_scale','import_audit') or member.get('role')=='features':
+        return key+'.'+member['format']
     if key.startswith('matrix_') or key.endswith('_index'):
         return key+'.'+member['format']
     name=member['source_member_name'].replace('\\','/').rsplit('/',1)[-1]
@@ -104,6 +106,12 @@ class BioConfirmRequest(BaseModel):
 
 
 def validate_snapshot(task):
+    if task.get('input_snapshot',{}).get('workflow_version')=='bio_import_v4':
+        from .single_cell_contracts import validate_import_snapshot
+        return validate_import_snapshot(task)
+    if task.get('input_snapshot',{}).get('workflow_version')=='bio_import_v3':
+        from .tabular_contracts import validate_import_snapshot
+        return validate_import_snapshot(task)
     try:
         value = task['input_snapshot']
         required = {'schema_version','kind','workflow_version','project_id','import_id','dataset_id','name','assay',
@@ -136,6 +144,10 @@ def validate_snapshot(task):
 
 def input_version(task):
     value = validate_snapshot(task)
+    if value['workflow_version']=='bio_import_v4':
+        return {key:value[key] for key in ('kind','import_id','dataset_id','workflow_version','parser_version','output_language','engine_version','environment_digest','code_digest','assay')} | {'source_file_ids':[f['id'] for f in value['files']],'matrix_representation':value['single_cell_config']['matrix_representation']}
+    if value['workflow_version']=='bio_import_v3':
+        return {key:value[key] for key in ('kind','import_id','dataset_id','workflow_version','parser_version','output_language','engine_version','environment_digest','code_digest','assay')} | {'source_file_ids':[f['id'] for f in value['files']]}
     model = BioImportInputVersionV2 if value['workflow_version'] == WORKFLOW_VERSION_V2 else BioImportInputVersion
     extra = {key: value[key] for key in ('matrix_representation', 'compare_alternate', 'engine_version',
                                         'environment_digest', 'code_digest')} if model is BioImportInputVersionV2 else {}

@@ -333,12 +333,16 @@ def operate(root,operation,output=None,resources=None,manifest_sha256=None,pytho
     root=Path(root).resolve();resources=resources or {};package=strict_json((root/'package.json').read_bytes())
     if operation=='verify':return verify_package(root,resources,manifest_sha256)
     if operation not in ('recompute','render'):raise ValueError('Unknown operation')
+    if operation=='recompute' and any(member.get('format')=='pdf' for member in package.get('baseline',[])):
+        raise ValueError('PDF figure export is retired; this historical package remains available for verify. Use a current non-PDF package for recompute.')
     payload=strict_json(relative_file(root,'input/payload.json').read_bytes())
     if operation=='render':
         if not package.get('render',{}).get('supported'):raise ValueError('This resource package has no scientific figure to render')
         payload=strict_json(relative_file(root,'input/render-payload.json').read_bytes())
         if config is not None:payload['config']=strict_json(Path(config).read_bytes())
         elif payload.get('config') is None:raise ValueError('Explicit --config is required to select a result/contrast/term and figure type')
+        if 'pdf' in payload['config'].get('formats',[]):
+            raise ValueError('PDF figure export is retired; use an explicit PNG/TIFF/SVG configuration. Historical PDF members remain verifiable.')
         ids={payload['config']['result_source_id'],*(payload['config'].get('result_source_ids') or [])}
         if payload['config'].get('processed_source_id'):ids.add(payload['config']['processed_source_id'])
         payload['sources']=[s for s in payload['sources'] if s['source_id'] in ids]

@@ -19,7 +19,7 @@ from app.domain.bio_insights.task_contracts import INSIGHT_TASKS
 MAX_LEAF = 256 * 1024**2
 MAX_TOTAL = 512 * 1024**2
 MAX_JSON = 2 * 1024**2
-FORMATS = {'json','tsv','csv','png','tiff','svg','pdf','txt','py','lock'}
+FORMATS = {'json','tsv','csv','png','tiff','svg','txt','py','lock','fasta','pdb','mmcif','fasta.gz','pdb.gz','mmcif.gz'}
 
 
 def invalid(code='bio_insights_output_invalid'):
@@ -89,9 +89,6 @@ def validate_artifacts(outputs,directory):
                 with Image.open(path) as figure:
                     if figure.format!=fmt.upper() or max(figure.size)>4096 or figure.width*figure.height>16_000_000:raise ValueError()
                     figure.verify()
-            elif fmt=='pdf':
-                with path.open('rb') as stream:
-                    if not stream.read(8).startswith(b'%PDF-'):raise ValueError()
             elif fmt=='svg':
                 if size>16*1024**2:raise ValueError()
                 tree=fromstring(path.read_bytes())
@@ -127,7 +124,7 @@ def validate_result(result,directory,payload):
                 or result['engine_version']!='bio_insights_v1.0.0' or result['kind']!=payload['kind']
                 or result['identity']!=payload['identity'] or not all(type(result[k]) is dict for k in ('summary','methods','manifest'))
                 or result['provenance'] not in ('system_computed','external_result')
-                or result['inference_scope'] not in ('spot_exploratory','donor_inference','external_result','derived','visualization')):raise ValueError()
+                or result['inference_scope'] not in ('spot_exploratory','donor_inference','sample_exploratory','sample_inference','external_result','derived','visualization')):raise ValueError()
         if len(json.dumps(result,allow_nan=False).encode())>MAX_JSON:raise ValueError()
         outputs=validate_artifacts(result['outputs'],directory);items={m['key']:m for m in outputs}
         manifest=result['manifest']
@@ -161,12 +158,36 @@ def _validate_scientific_contract(result,items,payload):
     kind=payload['kind'];original=payload['config'];config_kind=original['kind']
     models={'bio_comparison':ComparisonConfig,'bio_result_import':ResultImportConfig,
             'bio_resource_import':ResourceImportRequest,'bio_candidate':CandidateConfig,'bio_insight_figure':FigureConfig}
+    if kind=='bio_candidate' and original.get('schema_version')==2:
+        from app.domain.bio_insights.evidence_contracts import EvidenceMatrixConfig
+        models[kind]=EvidenceMatrixConfig
+    if kind=='bio_integration':
+        from app.domain.bio_insights.integration_contracts import IntegrationConfig
+        models[kind]=IntegrationConfig
+    if kind=='bio_feature_extract':
+        from app.domain.bio_insights.feature_contracts import FeatureExtractConfig
+        models[kind]=FeatureExtractConfig
     if kind=='bio_enrichment':model={'ora':OraConfig,'gsea_prerank':GseaPrerankConfig}.get(config_kind)
     else:model=models.get(kind)
+    quantitative=kind=='bio_comparison' and original.get('schema_version')==2
+    qpcr=kind=='bio_comparison' and original.get('schema_version')==3
+    microbiome=kind=='bio_comparison' and original.get('schema_version')==4
+    if microbiome:
+        from app.domain.bio_insights.microbiome_contracts import MicrobiomeConfig
+        model=MicrobiomeConfig
+    if quantitative:
+        from app.domain.bio_insights.quantitative_contracts import QuantitativeComparisonConfig,quantitative_scope
+        model=QuantitativeComparisonConfig
+    if qpcr:
+        from app.domain.bio_insights.qpcr_contracts import QpcrConfig
+        model=QpcrConfig
     if model is None:raise ValueError('task_configuration_kind_invalid')
     config=model.model_validate(original).model_dump(mode='json')
     scope=('spot_exploratory' if config['mode']=='spot_exploratory' else 'donor_inference') if kind=='bio_comparison' else (
         'external_result' if kind=='bio_result_import' else 'visualization' if kind=='bio_insight_figure' else 'derived')
+    if quantitative:scope=quantitative_scope(model.model_validate(config),[s['metadata']['assay'] for s in payload['sources'] if s['source_kind']=='bio_processed_dataset_version'])
+    if qpcr:scope='sample_inference'
+    if microbiome:scope='sample_inference' if config['contrasts'] or config['beta_inference'] else 'sample_exploratory'
     provenance='external_result' if kind=='bio_result_import' else 'system_computed'
     if result['inference_scope']!=scope or result['provenance']!=provenance:raise ValueError('scientific_scope_mismatch')
     manifest=result['manifest']
@@ -181,6 +202,30 @@ def _validate_scientific_contract(result,items,payload):
         return Path(items[key]['path'])
     def doc(key):return strict_json(require(key,'json').read_bytes())
     if doc('methods')!=result['methods'] or doc('recipe')!=_portable(transported):raise ValueError('methods_or_recipe_mismatch')
+    if kind=='bio_candidate' and config.get('schema_version')==2:
+        from app.adapters.bio_evidence_validation import validate_evidence
+        validate_evidence(result,items,payload)
+        return
+    if kind=='bio_integration' or kind=='bio_resource_import' and config_kind in ('sample_correspondence','object_correspondence'):
+        from app.adapters.bio_integration_validation import validate_integration
+        validate_integration(result,items,payload)
+        return
+    if kind=='bio_feature_extract' or kind=='bio_resource_import' and config_kind in ('sequence','structure'):
+        from app.adapters.bio_feature_validation import validate_feature
+        validate_feature(result,items,payload)
+        return
+    if microbiome:
+        from app.adapters.bio_microbiome_validation import validate_microbiome
+        validate_microbiome(result,items,payload)
+        return
+    if quantitative:
+        from app.adapters.bio_quantitative_validation import validate_quantitative
+        validate_quantitative(result,items,payload)
+        return
+    if qpcr:
+        from app.adapters.bio_qpcr_validation import validate_qpcr
+        validate_qpcr(result,items,payload)
+        return
     def table(key,columns):
         with require(key,'tsv').open(encoding='utf-8',newline='') as stream:
             reader=csv.DictReader(stream,delimiter='\t',strict=True)
@@ -309,11 +354,39 @@ def _validate_scientific_contract(result,items,payload):
         if metadata.get('config')!=config or result['methods'].get('config')!=config:raise ValueError('figure_configuration_mismatch')
         if any(result['methods'].get(k)!=v for k,v in metadata.items()) or metadata.get('analysis_recomputed') is not False:
             raise ValueError('figure_methods_invalid')
+        if config.get('sample_groups'):
+            from app.adapters.bio_insights_engine.quantitative_figures import validate_sample_plot
+            validate_sample_plot(payload,doc('plot_data'))
+        if config.get('figure_type','').startswith('evidence_'):
+            from app.domain.bio_insights.evidence_graph import evidence_plot_data
+            source=next(s for s in payload['sources'] if s['source_id']==config['result_source_id'])
+            if doc('plot_data')!=evidence_plot_data(source,FigureConfig.model_validate(config)):raise ValueError('evidence_figure_data_mismatch')
+        if config.get('figure_type','').startswith('integration_'):
+            from app.domain.bio_insights.integration_graph import integration_plot_data
+            source=next(s for s in payload['sources'] if s['source_id']==config['result_source_id'])
+            if doc('plot_data')!=integration_plot_data(source,FigureConfig.model_validate(config)):raise ValueError('integration_figure_data_mismatch')
+        if config.get('figure_type')=='qpcr_samples':
+            from app.adapters.bio_insights_engine.qpcr_figures import qpcr_plot_data
+            source=next(s for s in payload['sources'] if s['source_id']==config['result_source_id'])
+            if doc('plot_data')!=qpcr_plot_data(source,FigureConfig.model_validate(config)):raise ValueError('qpcr_figure_data_mismatch')
 
 
 def execute_bio_insights(payload,output_directory):
     if sys.platform!='linux' or not Path(INTERPRETER).is_file():raise invalid('bio_insights_environment_unavailable')
     runtime=runtime_identity();limits=BioInsightsLimits();output=Path(output_directory).absolute()
+    if (payload.get('kind')=='bio_comparison' and payload.get('config',{}).get('schema_version')==3
+            or payload.get('kind')=='bio_insight_figure' and payload.get('config',{}).get('figure_type')=='qpcr_samples'):
+        from app.domain.bio_insights.settings import qpcr_runtime_identity
+        runtime=qpcr_runtime_identity()
+    if payload.get('kind')=='bio_comparison' and payload.get('config',{}).get('schema_version')==2:
+        from app.domain.bio_insights.settings import quantitative_runtime_identity
+        runtime=quantitative_runtime_identity()
+    if payload.get('kind')=='bio_integration' or payload.get('kind')=='bio_resource_import' and payload.get('config',{}).get('kind') in ('sample_correspondence','object_correspondence') or payload.get('kind')=='bio_insight_figure' and payload.get('config',{}).get('figure_type','').startswith('integration_'):
+        from app.domain.bio_insights.settings import integration_runtime_identity
+        runtime=integration_runtime_identity()
+    elif payload.get('kind')=='bio_feature_extract' or payload.get('kind')=='bio_resource_import' and payload.get('config',{}).get('kind') in ('sequence','structure') or payload.get('kind')=='bio_insight_figure' and payload.get('config',{}).get('figure_type','').startswith('feature_'):
+        from app.domain.bio_insights.settings import feature_runtime_identity
+        runtime=feature_runtime_identity()
     if not runtime.get('available'):raise invalid('bio_insights_environment_unavailable')
     if payload.get('kind') not in INSIGHT_TASKS:raise invalid('bio_insights_input_invalid')
     if output.is_symlink() or not output.is_dir() or any(output.iterdir()):raise invalid()

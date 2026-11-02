@@ -13,6 +13,7 @@ export default function RuntimeNotice({onProjects,loginTarget='#paperassist-logi
  const text=maintenance?'系统维护中，暂不接受新的修改或任务。':unavailable?'服务依赖不可用，部分操作暂时受限。':observed?'最近采样显示服务可用；实际操作仍以响应为准。':legacy?'运行观测尚未配置，不能据此确认服务健康。':'运行状态暂不可确认，请稍后重试。'
  return <aside className="runtime-notice" aria-label={t('服务运行提示')} data-runtime-state={maintenance?'maintenance':unavailable?'unavailable':observed?'observed':'unknown'}>
   <p role="status">{t(text)}</p>
+  <details open={maintenance||unavailable}><summary>{t('查看服务说明')}</summary>
   {!observed&&<p>{t('已保存成果的读取或下载取决于依赖可用性，当前可能受限。')}</p>}
   {!observed&&<p>{t('页面内的未提交内容保持原样；恢复后不会自动提交。')}</p>}
   {data?.observed_at&&<small>{t(maintenance?'维护设置时间：{time}':'最近状态时间：{time}',{time:data.observed_at})}</small>}
@@ -22,5 +23,5 @@ export default function RuntimeNotice({onProjects,loginTarget='#paperassist-logi
    target?.scrollIntoView?.({block:'start'})
    target?.querySelector<HTMLElement>('input:not(:disabled),button:not(:disabled)')?.focus({preventScroll:true})
   }}>{t('登录后查看已有项目与成果')}</a>)}
- </aside>
+ </details></aside>
 }

@@ -13,9 +13,8 @@ def test_layout_migration_preserves_old_values_columns_indexes_and_constraints(c
     from app.domain.tasks.execution import run_task
     path,source,_=prepared(client)
     pdf_path=path.replace('/layout-exports','/pdf-exports')
-    old=client.post(pdf_path,json=dict(source_kind='manuscript_export',source_id=source['id'],request_key='old-pdf')).json()
-    monkeypatch.setattr('app.domain.pdf_exports.execution.render_pdf',lambda raw:SimpleNamespace(content=b'%PDF-preserved-before-0039',manifest={'contract':'test-v1'}))
-    assert run_task(old['task_id'],1)['status']=='succeeded'
+    from tests.helpers.historical_pdf_exports import historical_pdf
+    old=historical_pdf(pdf_path,'manuscript_export',source['id'],raw=b'%PDF-preserved-before-0039')
     before_pdf=client.get(pdf_path+'/'+old['id']+'/download').content
     cfg=alembic_config()
     with migration_connection(write=True) as db:

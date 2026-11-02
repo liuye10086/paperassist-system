@@ -17,7 +17,7 @@ class TaskWorkspaceService:
         if task['task_type'] in INSIGHT_TASKS:
             from app.domain.bio_insights.execution import source_current
             return dict(file_id=None,filename='差异与功能分析',analysis_run_id=None,is_current=source_current(db,task))
-        if task['task_type'] in ('research_figure','research_report','research_fact_draft'):
+        if task['task_type'] in ('research_figure','research_report','research_fact_draft','delivery_package'):
             from app.domain.research_results.execution import source_current
             return dict(file_id=None,filename=snapshot.get('config',{}).get('title') or '研究成果',analysis_run_id=None,is_current=source_current(db,task))
         if task['task_type'] in ('bio_analysis', 'bio_figure'):
@@ -227,7 +227,7 @@ class TaskWorkspaceService:
         if (type(page) is not int or not 1 <= page <= 1_000_000
                 or type(page_size) is not int or not 1 <= page_size <= 50
                 or status not in (None, 'queued', 'running', 'waiting_input', 'waiting_confirmation', 'succeeded', 'failed')
-                or task_type not in (None, 'boxplot', 'explanation', 'word_report', 'parse_file', 'extract_dataset', 'prepare_dataset', 'review_ocr', 'analysis_plan', 'analysis_recommendation', 'figure_projection', 'figure_workbench', 'figure_explanation', 'collection_word_report', 'statistics_compute', 'literature_search', 'literature_assistance', 'manuscript_draft', 'manuscript_docx', 'pdf_export', 'layout_docx', 'manuscript_writing', 'school_template_parse', 'school_rule_suggestion', 'journal_recommendation', 'journal_format_check', 'journal_adaptation', 'review_round_plan', 'review_revision', 'review_document_export', 'bio_import', 'bio_analysis', 'bio_figure', 'research_figure', 'research_report', 'research_fact_draft', *INSIGHT_TASKS)):
+                or task_type not in (None, 'boxplot', 'explanation', 'word_report', 'parse_file', 'extract_dataset', 'prepare_dataset', 'review_ocr', 'analysis_plan', 'analysis_recommendation', 'figure_projection', 'figure_workbench', 'figure_explanation', 'collection_word_report', 'statistics_compute', 'literature_search', 'literature_assistance', 'manuscript_draft', 'manuscript_docx', 'pdf_export', 'layout_docx', 'manuscript_writing', 'school_template_parse', 'school_rule_suggestion', 'journal_recommendation', 'journal_format_check', 'journal_adaptation', 'review_round_plan', 'review_revision', 'review_document_export', 'bio_import', 'bio_analysis', 'bio_figure', 'research_figure', 'research_report', 'research_fact_draft','delivery_package', *INSIGHT_TASKS)):
             raise StorageError('task_input_invalid', '任务列表查询参数无效。', 422)
         from app.adapters.legacy_task_query import mixed_task_page, require_legacy_task
         from app.domain.tasks.legacy import public_legacy_task, legacy_source
@@ -298,7 +298,7 @@ class TaskWorkspaceService:
             result['bio_insights']=dict(kind=task['task_type'],run_id=task['input_snapshot'].get('run_id'),
                 resource_version_id=task['input_snapshot'].get('resource_version_id'),result_version_id=task.get('result_bio_insight_result_version_id'))
             return result
-        if task['task_type'] in ('research_figure','research_report','research_fact_draft'):
+        if task['task_type'] in ('research_figure','research_report','research_fact_draft','delivery_package'):
             result['research_results']=dict(kind=task['task_type'],source_sha256=task['input_digest'],figure_version_id=task['input_snapshot'].get('figure_version_id'),
                 report_version_id=task['input_snapshot'].get('report_version_id'),candidate_id=task['input_snapshot'].get('candidate_id'))
             return result

@@ -1,4 +1,4 @@
-"""Conversion-boundary tests require no database, Docker, or external service."""
+"""Word field boundary tests require no database, Docker, or external service."""
 import importlib.util
 from io import BytesIO
 from pathlib import Path
@@ -56,22 +56,22 @@ def test_input_size_and_inflated_size_are_bounded(monkeypatch):
         mod.validate_docx(docx())
 
 
-def test_each_conversion_has_readonly_input_separate_profile_and_cleanup(tmp_path):
+def test_each_field_calculation_has_readonly_input_separate_profile_and_cleanup(tmp_path):
     mod = runtime()
     seen = []
     def process(command, timeout):
-        profile = next(v for v in command if v.startswith('-env:UserInstallation='))
-        source = Path(command[-1])
-        out = Path(command[command.index('--outdir') + 1])
+        profile = command[command.index('--profile') + 1]
+        source = Path(command[command.index('--source') + 1])
+        target = Path(command[command.index('--cache') + 1])
         seen.append((profile, source))
         assert source.read_bytes() == docx()
         assert source.stat().st_mode & 0o222 == 0
         settings = (source.parent / 'profile/user/registrymodifications.xcu').read_text()
         assert 'MacroSecurityLevel' in settings and '<value>3</value>' in settings
-        assert '--headless' in command and '--norestore' in command
-        (out / 'input.pdf').write_bytes(b'%PDF-1.7\nsynthetic\n%%EOF\n')
+        assert '--pdf' not in command
+        target.write_text('{"fields":{},"toc_lines":[]}')
     for _ in range(2):
-        assert mod.convert(docx(), tmp_path, process=process).startswith(b'%PDF-')
+        assert mod.layout_cache(docx(), tmp_path, process=process)['fields'] == {}
     assert seen[0][0] != seen[1][0]
     assert not list(tmp_path.iterdir())
 
@@ -81,10 +81,10 @@ def test_timeout_and_invalid_output_cleanup(tmp_path):
     def timeout(command, limit):
         raise mod.RenderError('pdf_conversion_timeout')
     with pytest.raises(mod.RenderError, match='pdf_conversion_timeout'):
-        mod.convert(docx(), tmp_path, process=timeout)
+        mod.layout_cache(docx(), tmp_path, process=timeout)
     assert not list(tmp_path.iterdir())
     with pytest.raises(mod.RenderError, match='pdf_conversion_failed'):
-        mod.convert(docx(), tmp_path, process=lambda *_: None)
+        mod.layout_cache(docx(), tmp_path, process=lambda *_: None)
     assert not list(tmp_path.iterdir())
 
 
@@ -108,3 +108,29 @@ def test_layout_field_cache_uses_isolated_uno_and_validates_response(tmp_path):
     assert result['fields']['PAF000000'] == '1'
     assert '--profile' in seen[0]
     assert not list(tmp_path.iterdir())
+
+
+def test_pdf_route_is_removed_while_word_field_route_remains(monkeypatch):
+    from types import SimpleNamespace
+    import json
+    mod = runtime()
+    monkeypatch.setattr(mod, 'verify_fonts', lambda *_: None)
+    calls = []
+    def fields(content):
+        calls.append(content)
+        return {'fields': {}, 'toc_lines': ['Methods\t5']}
+    monkeypatch.setattr(mod, 'layout_cache', fields)
+    def unexpected(*_):
+        pytest.fail('Retired PDF route must not start conversion')
+    if hasattr(mod, 'convert'):
+        monkeypatch.setattr(mod, 'convert', unexpected)
+    responses = []
+    for path in ('/convert', '/layout-cache'):
+        handler = SimpleNamespace(path=path, headers={'Content-Length': '4'},
+            rfile=BytesIO(b'docx'), server=SimpleNamespace(manifest={'fonts': {}, 'system_fonts': {}}),
+            respond=lambda status, body, *args: responses.append((status, body)))
+        mod.Handler.do_POST(handler)
+    assert responses[0][0] == 404
+    assert responses[1][0] == 200
+    assert json.loads(responses[1][1])['toc_lines'] == ['Methods\t5']
+    assert calls == [b'docx']

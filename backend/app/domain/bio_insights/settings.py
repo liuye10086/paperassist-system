@@ -29,7 +29,14 @@ def engine_code_files():
     paths=list((root/'adapters'/'bio_insights_engine').glob('*.py'))
     paths += [root/name for name in ('__init__.py','adapters/__init__.py','domain/__init__.py',
         'adapters/bio_engine/__init__.py','adapters/bio_engine/manifest.py','adapters/excel_sandbox.py',
-        'domain/bio_insights/__init__.py','domain/bio_insights/contracts.py','domain/bio_insights/design.py','domain/bio_insights/settings.py')]
+        'domain/bio_insights/__init__.py','domain/bio_insights/contracts.py','domain/bio_insights/design.py','domain/bio_insights/settings.py',
+        'domain/bio_insights/quantitative_contracts.py','domain/bio_insights/quantitative_design.py','domain/comparison/kernel.py',
+        'domain/bio_insights/qpcr_contracts.py','domain/bio_insights/qpcr_design.py',
+        'domain/bio_insights/microbiome_contracts.py','domain/bio_insights/microbiome_design.py','domain/bio_insights/feature_contracts.py','domain/bio_insights/integration_contracts.py','domain/bio_insights/evidence_contracts.py','domain/bio_insights/external_matrix.py','domain/bio_insights/evidence_graph.py','domain/bio_insights/integration_matching.py','domain/bio_insights/integration_graph.py',
+        'domain/correlation/kernel.py',
+        'adapters/bio_engine/tabular_assays.py','domain/bioinformatics/__init__.py','domain/bioinformatics/tabular_contracts.py',
+        'domain/bioinformatics/contracts.py','domain/bioinformatics/analysis_contracts.py','domain/bioinformatics/settings.py','domain/bioinformatics/parser_contracts.py',
+        'core/__init__.py','core/exceptions.py')]
     return sorted(paths,key=lambda path:path.relative_to(root).as_posix())
 
 
@@ -71,3 +78,53 @@ def runtime_identity():
         return {'available': True, **identity}
     except (KeyError, TypeError, ValueError, OSError):
         return blocked
+
+
+def quantitative_runtime_identity():
+    actual=runtime_identity()
+    if not actual.get('available'):return actual
+    try:
+        checks=json.loads(Path(os.environ[RUNTIME_MANIFEST_ENV]).read_bytes())['checks']
+        if all(checks.get(k) is True for k in ('quantitative_continuous','quantitative_counts')):return actual
+    except (KeyError,TypeError,ValueError,OSError):pass
+    return {'available':False,'reason':'bio_insights_environment_unavailable'}
+
+
+def qpcr_runtime_identity():
+    actual=runtime_identity()
+    if not actual.get('available'):return actual
+    try:
+        checks=json.loads(Path(os.environ[RUNTIME_MANIFEST_ENV]).read_bytes())['checks']
+        if all(checks.get(k) is True for k in ('qpcr_relative_quantification','qpcr_paired_figure','qpcr_parent_validation')):return actual
+    except (KeyError,TypeError,ValueError,OSError):pass
+    return {'available':False,'reason':'bio_insights_environment_unavailable'}
+
+
+def microbiome_runtime_identity():
+    actual=runtime_identity()
+    if not actual.get('available'):return actual
+    try:
+        checks=json.loads(Path(os.environ[RUNTIME_MANIFEST_ENV]).read_bytes())['checks']
+        if all(checks.get(k) is True for k in ('microbiome_diversity','microbiome_beta','microbiome_figures','microbiome_parent_validation')):return actual
+    except (KeyError,TypeError,ValueError,OSError):pass
+    return {'available':False,'reason':'bio_insights_environment_unavailable'}
+
+
+def feature_runtime_identity():
+    actual=runtime_identity()
+    if not actual.get('available'):return actual
+    try:
+        report=json.loads(Path(os.environ[RUNTIME_MANIFEST_ENV]).read_bytes())
+        if report['packages'].get('biopython')=='1.86' and all(report['checks'].get(k) is True for k in ('feature_sequence','feature_structure','feature_figures','feature_parent_validation')):return actual
+    except (KeyError,TypeError,ValueError,OSError):pass
+    return {'available':False,'reason':'bio_insights_environment_unavailable'}
+
+
+def integration_runtime_identity():
+    actual=runtime_identity()
+    if not actual.get('available'):return actual
+    try:
+        checks=json.loads(Path(os.environ[RUNTIME_MANIFEST_ENV]).read_bytes())['checks']
+        if all(checks.get(k) is True for k in ('integration_matching','integration_correlation','integration_concordance','integration_figures','integration_parent_validation')):return actual
+    except (KeyError,TypeError,ValueError,OSError):pass
+    return {'available':False,'reason':'bio_insights_environment_unavailable'}

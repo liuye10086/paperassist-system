@@ -42,3 +42,60 @@ it.each(['reserved','released'] as const)('shows a %s call as not submitted with
  vi.stubGlobal('fetch',vi.fn(async(url:string)=>Response.json(url.endsWith('/writing-previews')?{items:[],capabilities:{real_calls_enabled:false}}:{items:[unsubmittedRequest(status)]})))
  render(<WritingLive {...props}/>);fireEvent.click(await screen.findByRole('button',{name:'审核此原始候选'}));expect(screen.getByText(/尚未提交；没有供应商回执。/)).toBeTruthy();expect(screen.queryByText(/真实 provider 回执|离线模拟回执/)).toBeNull();expect(screen.getByText(status==='released'?'调用已释放，无执行回执。':'尚未提交；预留额度等待执行或释放。')).toBeTruthy()
 })
+
+it('uses the article contract and sends explicit article scope fields',async()=>{
+ const fetcher=vi.fn(async(url:string,init?:RequestInit)=>init?.method==='POST'?Response.json({}):Response.json(url.endsWith('/writing-previews')?{items:[],capabilities:{real_calls_enabled:false}}:{items:[]}));vi.stubGlobal('fetch',fetcher)
+ const sections=[{id:'discussion',paragraphs:[{id:'discussion:1',text:'Saved discussion',origin:'model_generated',source_ids:[],citations:[],numeric_bindings:[]}]}]
+ render(<WritingLive {...props} version={{...props.version,snapshot:{...props.version.snapshot,article_type:'methods',sections}} as unknown as ManuscriptVersion}/>);await waitFor(()=>expect(screen.getByLabelText('受控写作方式').matches(':disabled')).toBe(false))
+ expect(screen.getByLabelText('文章类型与范围编辑')).toHaveProperty('checked',true)
+ fireEvent.change(screen.getByLabelText('文章类型'),{target:{value:'methods'}})
+ fireEvent.change(screen.getByLabelText('受控写作方式'),{target:{value:'polish'}})
+ const targetSections=screen.getByLabelText('目标章节') as HTMLSelectElement;targetSections.options[0].selected=true;fireEvent.change(targetSections)
+ const targetParagraphs=screen.getByLabelText('目标段落') as HTMLSelectElement;targetParagraphs.options[0].selected=true;fireEvent.change(targetParagraphs)
+ fireEvent.click(screen.getByRole('button',{name:'冻结完整外发预览'}));await waitFor(()=>expect(fetcher.mock.calls.some(([,init])=>init?.method==='POST')).toBe(true))
+ const post=fetcher.mock.calls.find(([,init])=>init?.method==='POST')!;expect(JSON.parse(String(post[1]?.body))).toMatchObject({schema_version:4,document_kind:'sci',article_type:'methods',mode:'polish',target_sections:['discussion'],target_paragraph_ids:['discussion:1'],paragraph_plan:[]})
+})
+
+it('reopens a nonresearch root in its article structure without a legacy writing switch',async()=>{
+ const fetcher=vi.fn(async(url:string,init?:RequestInit)=>Response.json(init?.method==='POST'?{}:url.endsWith('/writing-previews')?{items:[bundleFixture()],capabilities:{real_calls_enabled:false}}:{items:[]}));vi.stubGlobal('fetch',fetcher)
+ render(<WritingLive {...props} version={{...props.version,snapshot:{...props.version.snapshot,article_type:'narrative_review'}}}/> )
+ await waitFor(()=>expect(screen.getByLabelText('受控写作方式').matches(':disabled')).toBe(false))
+ expect(screen.getByLabelText('文章类型')).toHaveProperty('value','narrative_review')
+ expect(screen.getByLabelText('文章类型与范围编辑').matches(':disabled')).toBe(true)
+ expect(screen.queryByRole('option',{name:/b1 · 完整七部分初稿/})).toBeNull()
+ fireEvent.click(screen.getByRole('button',{name:'冻结完整外发预览'}))
+ await waitFor(()=>expect(fetcher.mock.calls.some(([,init])=>init?.method==='POST')).toBe(true))
+ expect(JSON.parse(String(fetcher.mock.calls.find(([,init])=>init?.method==='POST')![1]?.body))).toMatchObject({schema_version:4,article_type:'narrative_review',mode:'full_draft'})
+})
+
+it('serializes an explicit W1 paragraph lineage plan for restructure',async()=>{
+ const fetcher=vi.fn(async(url:string,init?:RequestInit)=>init?.method==='POST'?Response.json({}):Response.json(url.endsWith('/writing-previews')?{items:[],capabilities:{real_calls_enabled:false}}:{items:[]}));vi.stubGlobal('fetch',fetcher)
+ const sections=[{id:'discussion',paragraphs:[{id:'discussion:1',text:'Saved discussion',origin:'model_generated',source_ids:[],citations:[],numeric_bindings:[]}]}]
+ render(<WritingLive {...props} version={{...props.version,snapshot:{...props.version.snapshot,sections}} as unknown as ManuscriptVersion}/>);await waitFor(()=>expect(screen.getByLabelText('受控写作方式').matches(':disabled')).toBe(false))
+ fireEvent.click(screen.getByLabelText('文章类型与范围编辑'));fireEvent.change(screen.getByLabelText('受控写作方式'),{target:{value:'expand_restructure'}})
+ const targetSections=screen.getByLabelText('目标章节') as HTMLSelectElement;targetSections.options[0].selected=true;fireEvent.change(targetSections)
+ const sources=screen.getByLabelText('来源段落 1') as HTMLSelectElement;expect(sources.value).toBe('discussion:1')
+ fireEvent.click(screen.getByRole('button',{name:'冻结完整外发预览'}));await waitFor(()=>expect(fetcher.mock.calls.some(([,init])=>init?.method==='POST')).toBe(true))
+ const post=fetcher.mock.calls.find(([,init])=>init?.method==='POST')!;expect(JSON.parse(String(post[1]?.body))).toMatchObject({schema_version:4,mode:'expand_restructure',target_sections:['discussion'],paragraph_plan:[{id:expect.stringMatching(/^rewrite-/),section_id:'discussion',source_paragraph_ids:['discussion:1']}]})
+})
+
+
+it('retains separate article and legacy drafts while switching modes and protocol',async()=>{
+ vi.stubGlobal('fetch',vi.fn(async(url:string)=>Response.json(url.endsWith('/writing-previews')?{items:[],capabilities:{real_calls_enabled:false}}:{items:[]})))
+ const sections=[{id:'discussion',paragraphs:[{id:'discussion:1',text:'Saved discussion',origin:'user_provided',source_ids:[],citations:[]}]}]
+ render(<WritingLive {...props} version={{...props.version,snapshot:{...props.version.snapshot,sections}} as ManuscriptVersion}/>)
+ await waitFor(()=>expect(screen.getByLabelText('受控写作方式').matches(':disabled')).toBe(false))
+ fireEvent.change(screen.getByLabelText('本次受控写作要求'),{target:{value:'Legacy full'}})
+ fireEvent.click(screen.getByLabelText('文章类型与范围编辑'))
+ fireEvent.change(screen.getByLabelText('本次受控写作要求'),{target:{value:'Article full'}})
+ fireEvent.change(screen.getByLabelText('受控写作方式'),{target:{value:'polish'}})
+ fireEvent.change(screen.getByLabelText('本次受控写作要求'),{target:{value:'Polish only'}})
+ fireEvent.change(screen.getByLabelText('受控写作方式'),{target:{value:'full_draft'}})
+ expect(screen.getByLabelText('本次受控写作要求')).toHaveProperty('value','Article full')
+ fireEvent.click(screen.getByLabelText('文章类型与范围编辑'))
+ expect(screen.getByLabelText('本次受控写作要求')).toHaveProperty('value','Legacy full')
+ fireEvent.click(screen.getByLabelText('文章类型与范围编辑'))
+ expect(screen.getByLabelText('本次受控写作要求')).toHaveProperty('value','Article full')
+ fireEvent.change(screen.getByLabelText('受控写作方式'),{target:{value:'polish'}})
+ expect(screen.getByLabelText('本次受控写作要求')).toHaveProperty('value','Polish only')
+})

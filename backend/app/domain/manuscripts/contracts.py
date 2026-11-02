@@ -156,3 +156,12 @@ class SchoolExportOptions(Strict):
 
 class ExportRequest(Strict):
     school:SchoolExportOptions|None=None
+    presentation_version_id:str|None=Field(default=None,min_length=1,max_length=100)
+    language_view:Literal['zh-CN','en','zh-CN-en']|None=None
+    review_mode:Literal['identified','blind']='identified'
+
+    @model_validator(mode='after')
+    def presentation_selection(self):
+        if not self.presentation_version_id and (self.language_view is not None or self.review_mode!='identified'):
+            raise ValueError('A language or blind view requires a saved presentation version')
+        return self

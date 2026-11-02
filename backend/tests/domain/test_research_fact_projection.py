@@ -42,6 +42,23 @@ def test_saved_shape_and_exclusions_are_bound_without_donor_inference():
     assert any('探索性' in s for s in catalog.limitations)
 
 
+def test_tabular_facts_use_sample_units_and_preserve_complete_method_recipe():
+    from app.domain.research_results.bio_projection import project_bio_facts
+    value=source().model_dump();value['content'].update(observation_level='sample',assay='proteomics',methods={'name':'tabular_quantitative_v1','params':{'transform':'none'},'input_scale':{'kind':'intensity','unit':'AU'}})
+    catalog=project_bio_facts(FrozenResearchSource.model_validate(value))
+    fact=next(f for f in catalog.facts if f.locator.field_path=='summary.retained_observations')
+    assert fact.observation_level=='sample' and fact.unit=='samples'
+    assert any(m.parameters.get('params')=={'transform':'none'} for m in catalog.methods)
+    assert not any('spot' in item for item in catalog.limitations)
+
+
+def test_sample_table_facts_keep_sample_stable_row_keys():
+    from app.domain.research_results.bio_projection import project_bio_facts
+    value=source(source_kind='bio_analysis_artifact',content={'table_key':'sample_qc','rows':[{'sample_id':'S1','missing_count':'0'}],'total_rows':1,'observation_level':'sample'})
+    catalog=project_bio_facts(value)
+    assert catalog.facts[0].locator.row_key=={'sample_id':'S1'} and catalog.facts[0].observation_level=='sample'
+
+
 @pytest.mark.parametrize('key,value', [('excluded_features',2),('retained_observations',5),('clusters',True)])
 def test_inconsistent_or_boolean_counts_cannot_be_published_as_facts(key,value):
     from app.domain.research_results.bio_projection import project_bio_facts

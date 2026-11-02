@@ -147,7 +147,7 @@ def test_legacy_figures_reports_collection_and_language(client,cloud,writer,coll
 def test_legacy_manuscript_and_conversion_exports(client,tmp_path,monkeypatch,kind):
     from types import SimpleNamespace
     from app.domain.tasks.execution import run_task
-    for module in ('pdf_exports','layout_exports'):
+    for module in ('layout_exports',):
         monkeypatch.setattr('app.domain.'+module+'.service.renderer_identity',lambda:{'contract':'test-v1'})
         monkeypatch.setattr('app.domain.'+module+'.execution.renderer_identity',lambda:{'contract':'test-v1'})
     if kind=='review':
@@ -162,12 +162,13 @@ def test_legacy_manuscript_and_conversion_exports(client,tmp_path,monkeypatch,ki
         prefix='layout_exports'
     else:
         from tests.api.test_pdf_exports import successful_docx
+        from tests.helpers.historical_pdf_exports import historical_pdf
         url,source=successful_docx(client)
-        response=client.post(url,json=dict(source_kind='manuscript_export',source_id=source['id'],request_key='inventory-pdf'))
-        monkeypatch.setattr('app.domain.pdf_exports.execution.render_pdf',lambda *a,**k:SimpleNamespace(content=b'%PDF-synthetic',manifest={'contract':'test-v1'}))
+        historical_pdf(url,'manuscript_export',source['id'])
         prefix='pdf_exports'
-    assert response.status_code in (201,202),response.text
-    assert run_task(response.json()['task_id'],1)['status']=='succeeded'
+    if kind!='pdf':
+        assert response.status_code in (201,202),response.text
+        assert run_task(response.json()['task_id'],1)['status']=='succeeded'
     root=legacy_root(tmp_path)
     assert_legacy_files(root,['manuscript_exports',prefix])
 

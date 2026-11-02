@@ -21,11 +21,12 @@ class ResearchFigureService(ResearchResultsStore):
             return self._frozen_in_phase(db,project,request,phase=phase,progress=progress)
 
     @phase_guard
-    def _frozen_in_phase(self,db,project,request,*,phase,progress=None):
+    def _frozen_in_phase(self,db,project,request,*,phase,progress=None,frozen_panels=None):
         require_phase(phase,db,self.assets,project)
         reader=self.reader();sources=[];panels=[];raws=[]
-        for panel in request.panels:
-            source,member,raw=read_figure_panel(reader,db,project,panel,phase=phase,progress=progress);sources.append(source);panels.append(member);raws.append(raw)
+        if frozen_panels is not None and len(frozen_panels)!=len(request.panels):raise invalid()
+        for index,panel in enumerate(request.panels):
+            source,member,raw=read_figure_panel(reader,db,project,panel,phase=phase,progress=progress,figure_language=request.figure_language,frozen_panel=frozen_panels[index] if frozen_panels is not None else None);sources.append(source);panels.append(member);raws.append(raw)
         columns=min(request.columns,len(panels));width=round(request.width_mm/25.4*request.dpi);margin=round(request.margin_mm/25.4*request.dpi)
         cell=(width-(columns+1)*margin)//columns
         from app.adapters.research_figure_render import label_font
@@ -42,7 +43,9 @@ class ResearchFigureService(ResearchResultsStore):
         return sources,panels,raws,caption_sources,[facts[k] for k in request.caption_fact_ids]
 
     def create(self,project,request,key,root_id=None):
-        require_key(key);material=request.model_dump(mode='json');sha=digest(material);identifier=identity(project,'figure',key)
+        require_key(key)
+        request=ResearchFigureRequest.model_validate(request.model_dump(mode='json') if isinstance(request,ResearchFigureRequest) else request)
+        material=request.model_dump(mode='json');sha=digest(material);identifier=identity(project,'figure',key)
         if root_id is not None and request.root_id!=root_id:raise invalid('research_revision_conflict')
         with self.store.connection(write=True) as db:
             self.lock(db,project,'figure:'+str(root_id or request.root_id or key))
@@ -64,6 +67,10 @@ class ResearchFigureService(ResearchResultsStore):
                     figure_version_id=identifier,config=material,panels=panels,caption_sources=[s.model_dump(mode='json') for s in caption_sources],
                     caption_facts=facts,source_file_ids=sorted({file for s in [*sources,*caption_sources] for file in s.source_file_ids}),
                     renderer_identity=renderer_identity(),output_language=request.language,real_model_calls=False,real_network_calls=False)
+                if any('statistics_png' in panel for panel in panels):
+                    import json
+                    if len(json.dumps(snapshot,ensure_ascii=False,separators=(',',':')).encode())>4*1024**2:
+                        raise invalid('research_source_limit_exceeded',422)
                 task=dict(id=task_id,project_id=project,user_id=self.store.user_id,task_type='research_figure',idempotency_key='research_figure:'+task_id,input_digest=digest(snapshot),
                     input_snapshot=snapshot,workflow_version='research_figure_v1',status='queued',phase='compute',revision=1,current_attempt=0,reason_code=None,created_at=moment,updated_at=moment)
                 self.store.insert_task(db,task,validated_file_ids=sorted({file for s in [*sources,*caption_sources] for file in s.source_file_ids}))
@@ -87,10 +94,11 @@ class ResearchFigureService(ResearchResultsStore):
         from app.adapters.research_figure_render import renderer_identity
         if runtime and snapshot.get('renderer_identity')!=renderer_identity():raise invalid()
         if row['task_id']!=task['id'] or row['config_json']!=snapshot['config'] or digest(row['config_json'])!=row['config_sha256']:raise invalid()
-        request=ResearchFigureRequest.model_validate(snapshot['config'])
-        _,panels,raws,caption_sources,facts=self._frozen_in_phase(db,task['project_id'],request,phase=phase,progress=progress)
+        from .contracts import FrozenResearchFigureRequest
+        request=FrozenResearchFigureRequest.model_validate(snapshot['config'])
+        _,panels,raws,caption_sources,facts=self._frozen_in_phase(db,task['project_id'],request,phase=phase,progress=progress,frozen_panels=snapshot['panels'])
         if panels!=snapshot['panels'] or facts!=snapshot['caption_facts'] or [s.model_dump(mode='json') for s in caption_sources]!=snapshot['caption_sources']:raise invalid()
-        return dict(config=snapshot['config'],panels=panels,raws=raws,caption_facts=facts)
+        return dict(config=snapshot['config'],panels=[{k:v for k,v in panel.items() if k!='statistics_png'} for panel in panels],raws=raws,caption_facts=facts)
 
     def get(self,project,identifier,*,progress=None):
         with self.store.connection() as db:

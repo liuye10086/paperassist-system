@@ -9,6 +9,7 @@ TABLE_NAMES = ('research_finding_sets','research_finding_versions','research_fig
 IMMUTABLE = ('research_finding_versions','research_figure_members','research_report_members',
              'research_source_bindings','manuscript_research_sources')
 SOURCE_TARGETS = {
+    'analysis_run': ('analysis_run_id','analysis_runs'),
     'bio_processed_dataset_version': ('processed_version_id','bio_processed_dataset_versions'),
     'bio_analysis_artifact': ('analysis_artifact_id','bio_analysis_artifacts'),
     'bio_figure_version': ('bio_figure_version_id','bio_figure_versions'),
@@ -66,6 +67,8 @@ def define_research_results_tables(metadata):
     def source_fields():
         items=[text('source_kind'),text('source_id')]
         for col,target in SOURCE_TARGETS.values():
+            if col=='analysis_run_id':
+                items.extend([text(col,True),sa.ForeignKeyConstraint([col],['analysis_runs.id'],name='b05_statistics_source_fk')]);continue
             constraint = (sa.ForeignKeyConstraint([col,'project_id'],[target+'.id',target+'.project_id'],
                           name='b04_research_'+col+'_fk') if col.startswith('bio_insight_') else ref(col,target))
             items.extend([text(col,True),constraint])

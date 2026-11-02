@@ -1,0 +1,27 @@
+import type {ReactNode} from 'react'
+// Only the display projection is filtered. API identities and downloaded originals remain intact.
+const identity=/(?:(?:^|_)(?:sha(?:_?256)?|hash|digest)(?:_|$)|(?:^|_)(?:id|ids|path|paths)$|^(?:schema_version|download_url|field_path|row_key|workflow_version|path|script|code)$)/i
+const scientificIds=new Set(['row_key','field_path','object_id','feature_id','feature_ids','gene_id','gene_ids','sample_id','sample_ids','species_taxon_id','taxon_id','donor_id','donor_ids','section_id','biological_replicate_id','contrast_id','variant_id','disease_id','term_id','protein_id','metabolite_id'])
+function isCustomerField(key:string){return scientificIds.has(key)||!identity.test(key)}
+const labels:Record<string,string>={title:'名称',name:'名称',status:'状态',summary:'结果概况',methods:'分析方法',method:'分析方法',parameters:'参数',params:'参数',effective_params:'有效参数',software:'软件',software_version:'软件版本',engine_version:'计算引擎版本',parser_version:'解析器版本',version:'版本',revision:'修订版本',release:'发布版本',sources:'资料来源',source:'资料来源',resources:'计算资源',limitations:'科学限制',warnings:'注意事项',gaps:'研究缺口',notes:'说明',description:'说明',reason:'原因',observations:'观测数',features:'特征数',raw_observations:'原始观测数',kept_observations:'保留观测数',retained_observations:'保留观测数',excluded_observations:'排除观测数',raw_features:'原始特征数',retained_features:'保留特征数',excluded_features:'排除特征数',synthetic:'合成样例',q_threshold:'q 阈值',p_threshold:'p 值阈值',minimum_absolute_effect:'最小绝对效应',unit:'单位',value:'数值',count:'数量',shape:'数据规模',rows:'行数',columns:'列数',kind:'类型',format:'文件格式',size_bytes:'文件大小（字节）',page:'页码',sheet:'工作表',cell:'单元格',column:'结果列',table:'结果表',comparison:'比较',observation_level:'观察层级',field:'字段',role:'用途',inference_scope:'推断范围',provenance:'结果来源',assay:'检测类型',scale:'数值尺度',feature_id:'特征编号',gene_id:'基因编号',species_taxon_id:'物种分类号',threshold:'阈值',normalization:'标准化',n_components:'主成分数',resolution:'聚类分辨率',random_seed:'随机种子',seed:'随机种子',n_neighbors:'邻居数',hvg_n:'高变基因数',min_counts:'最低计数',min_genes:'最低基因数',max_mito_fraction:'线粒体比例上限',executed:'是否执行',image:'图像',presentation:'图像展示',source_metadata:'来源资料',source_notices:'来源说明与限制',dpi_declared:'声明分辨率',dpi_measured:'实际分辨率',physical_size_mm:'物理尺寸（毫米）',pixels:'像素尺寸',vector_dimensions:'矢量尺寸',contains_raster:'是否包含位图',text_verification:'文字核对',font_verification:'字体核对',semantic_verification:'内容语义核对',mapping_status:'对应状态',figure_mapping:'图像对应关系',caption:'图注',panel_order:'图版顺序',license:'使用许可',restrictions:'使用限制',distribution:'分发范围',checks:'检查记录',heading:'标题',text:'正文',origin:'来源类型',steps:'处理步骤',key:'项目',namespace:'标识体系',row_key:'结果行位置',field_path:'引用字段',object_id:'研究对象编号',preview_rows:'对应关系预览',barcode:'条码',donor:'供体',section:'切片',biological_replicate:'生物学重复',numerator:'比较组',denominator:'参照组',label:'名称',n:'数量',contrast_id:'比较编号',donor_id:'供体编号',section_id:'切片编号',biological_replicate_id:'生物学重复编号',variant_id:'变异编号',disease_id:'疾病编号',term_id:'条目编号',protein_id:'蛋白编号',metabolite_id:'代谢物编号',dataset_name:'数据集名称',sample_id:'样本编号',offset:'偏移量',zero_semantics:'零值含义',missing_values:'缺失值',species:'物种'}
+const statuses:Record<string,string>={known:'已知',pending:'待处理',unknown:'未知，待核对',pending_verification:'待核对',unverified:'未核对',confirmed_by_current_user:'当前用户已确认',fixed_existing_event:'沿用已固定的确认记录',available:'可用',blocked:'已阻断',error:'出错',not_reviewed:'未核对',reviewed:'已人工核对',disputed:'存在争议',reported:'原文报告',not_significant:'未显著（不等于等效）',stored:'已保存',parsed:'已解析',cancelled:'已取消',paused:'已暂停',internal_not_checked:'内部未核对',passed:'已通过',verified:'已核对',completed:'已完成',succeeded:'已完成',failed:'失败',warning:'需留意',queued:'待执行',running:'运行中',not_checked:'未核对',not_computable:'无法计算',not_requested:'未请求',not_applicable:'不适用',waiting_confirmation:'等待确认',draft:'草稿',confirmed:'已确认'}
+function customerText(value:unknown):string{
+ if(value===null||value===undefined)return '未提供'
+ if(typeof value==='boolean')return value?'是':'否'
+ if(typeof value==='string'){
+  if(/^\s*[{[]/.test(value)){try{JSON.parse(value);return '结构化记录请下载完整文件查看'}catch{/* ordinary prose */}}
+  const terms:Record<string,string>={pending_verification:'待核对',unverified:'未核对',unknown:'未知，待核对',confirmed_by_current_user:'当前用户已确认',fixed_existing_event:'沿用已固定的确认记录',insufficient_complete_features:'完整特征数量不足',single_cluster:'仅有一个聚类，无法进行组间比较',measured_zero:'实测零值',user_provided:'用户提供',sample_inference:'样本设计推断',sample_exploratory:'样本探索',spot_exploratory:'区域探索',donor_inference:'供体设计推断',external_result:'外部结果'}
+  if(terms[value]??statuses[value])return terms[value]??statuses[value]
+  return value.replace(/\b[a-f0-9]{64}\b/gi,'（校验信息已保留）')
+ }
+ return String(value)
+}
+function customerLabel(key:string){return labels[key]??key.replace(/_/g,' ').replace(/([a-z])([A-Z])/g,'$1 $2')}
+export default function ReadableDetails({value}:{value:unknown}):ReactNode{
+ if(Array.isArray(value))return value.length?<ul>{value.map((v,i)=><li key={i}><ReadableDetails value={v}/></li>)}</ul>:<span>无记录</span>
+ if(value&&typeof value==='object'){
+  const entries=Object.entries(value).filter(([k])=>isCustomerField(k))
+  return entries.length?<dl>{entries.map(([key,item])=><div key={key}><dt>{customerLabel(key)}</dt><dd>{key==='status'||key.endsWith('_status')?statuses[String(item)]??`${customerText(item)}（待核对）`:<ReadableDetails value={item}/>}</dd></div>)}</dl>:<span>详细记录请下载完整文件查看</span>
+ }
+ return <span>{customerText(value)}</span>
+}

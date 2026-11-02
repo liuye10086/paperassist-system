@@ -49,7 +49,7 @@ def load_result(source):
         rows.append(row)
     summary=manifest.get('summary') or metadata.get('summary_json') or {}
     scope=manifest.get('inference_scope') or metadata.get('inference_scope')
-    if scope not in ('spot_exploratory','donor_inference','external_result','derived'):
+    if scope not in ('spot_exploratory','donor_inference','sample_exploratory','sample_inference','external_result','derived'):
         raise ValueError('result_inference_scope_required')
     return {'source':source,'rows':rows,'summary':summary,'manifest':manifest,'config':config,
             'species_taxon_id':taxon,'namespace':namespace,'reference_version':reference,'inference_scope':scope,

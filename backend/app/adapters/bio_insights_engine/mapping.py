@@ -12,8 +12,9 @@ def resource_document(source):
 
 
 class ExplicitMapper:
-    def __init__(self,source_taxon_id,source_namespace,target_taxon_id,target_namespace,mapping_sources):
-        if type(source_taxon_id) is not int or type(target_taxon_id) is not int or source_taxon_id!=target_taxon_id:
+    def __init__(self,source_taxon_id,source_namespace,target_taxon_id,target_namespace,mapping_sources,*,allow_untyped_identity=False):
+        untyped_identity=allow_untyped_identity and source_taxon_id is None and target_taxon_id is None and source_namespace==target_namespace and not mapping_sources
+        if not untyped_identity and (type(source_taxon_id) is not int or type(target_taxon_id) is not int or source_taxon_id!=target_taxon_id):
             raise ValueError('incompatible_species_mapping')
         if not source_namespace or not target_namespace:raise ValueError('explicit_namespace_required')
         matching=[]

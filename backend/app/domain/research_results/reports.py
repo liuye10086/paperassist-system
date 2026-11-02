@@ -14,13 +14,16 @@ from .task_contracts import input_version
 from app.adapters.research_method_text import METHOD_PRESENTATION_VERSION
 
 
+OUTPUT_POLICY='no_generated_pdf_v1'
+
+
 class ResearchReportService(ResearchResultsStore):
     def freeze(self,db,project,request,*,progress=None):
         with VerificationPhase(db,self.assets,project) as phase:
             return self._freeze_in_phase(db,project,request,phase=phase,progress=progress)
 
     @phase_guard
-    def _freeze_in_phase(self,db,project,request,*,phase,progress=None):
+    def _freeze_in_phase(self,db,project,request,*,phase,progress=None,frozen_pdf_id=None,legacy_content=False):
         require_phase(phase,db,self.assets,project)
         if progress is not None:progress()
         reader=ResearchSourceReader(self.assets)
@@ -50,34 +53,42 @@ class ResearchReportService(ResearchResultsStore):
                 if any(obj[k]!=member[k] or saved[k]!=member[k] for k in ('sha256','size_bytes')):raise invalid()
                 raw=ResearchObjects(self.assets.directory).read(obj)
                 if progress is not None:progress()
-                files.append(dict(name=f'figures/figure_{index:02d}/'+member['key']+'.'+member['format'],raw=raw))
+                if legacy_content or member['format']!='pdf':
+                    files.append(dict(name=f'figures/figure_{index:02d}/'+member['key']+'.'+member['format'],raw=raw))
                 priority={'png':0,'tiff':1,'svg':2,'pdf':3}
                 if member['role']=='figure' and member['format'] in priority and (selected_member is None or priority[member['format']]<priority[selected_member['format']]):
                     selected=raw;selected_member=member
             if selected is None:raise invalid('research_source_unsupported',422)
             fixed['document_image']={k:selected_member[k] for k in ('key','format','sha256')}
             images.append(dict(config=view['config'],raw=selected,format=selected_member['format']))
+        from .statistics_package import statistics_reproduction_files
+        files.extend(statistics_reproduction_files(finding['content']['sources']))
         tables,table_raws=_collect_tables_in_phase(reader,db,project,finding['content']['sources'],phase=phase,progress=progress)
         pdf=None
-        if request.include_pdf_id:
+        if frozen_pdf_id:
             if progress is not None:progress()
             if not request.root_id:raise invalid('research_source_conflict',422)
             from app.domain.pdf_exports.service import PdfExportService
-            service=PdfExportService(self.assets);row=service.row(db,project,request.include_pdf_id)
+            service=PdfExportService(self.assets);row=service.row(db,project,frozen_pdf_id)
             member=db.execute('SELECT m.*,v.root_id,v.finding_version_id,v.content_json FROM research_report_members m JOIN research_report_versions v ON v.id=m.report_version_id WHERE m.id=%s AND m.project_id=%s',(row['source_id'],project)).fetchone()
             if (row['source_kind']!='research_report' or not member or member['root_id']!=request.root_id or member['finding_version_id']!=request.finding_version_id
                 or [f['id'] for f in member['content_json']['figures']]!=request.figure_version_ids or member['content_json']['title']!=request.title
                 or member['content_json']['language']!=request.language):raise invalid()
-            metadata,raw=service.download(project,request.include_pdf_id,progress=progress)
+            metadata,raw=service.download(project,frozen_pdf_id,progress=progress)
             pdf=dict(id=row['id'],source_id=row['source_id'],sha256=metadata['sha256'],source_report_version_id=member['report_version_id'])
             files.append(dict(name='analysis.pdf',raw=raw))
         content=dict(schema_version=1,method_presentation_version=METHOD_PRESENTATION_VERSION,title=request.title,language=request.language,finding=finding,figures=figures,tables=tables,
-            included_pdf=pdf,real_model_calls=0)
+            real_model_calls=0)
+        # Historical content kept this key even when no PDF was selected.
+        # Preserve it only when replaying the original frozen output policy.
+        if legacy_content:content['included_pdf']=pdf
         if progress is not None:progress()
         return content,bindings,dict(snapshot=content,tables=tables,table_raws=table_raws,figures=images,package_files=files)
 
     def create(self,project,request,key,root_id=None):
-        require_key(key);request=ResearchReportRequest.model_validate(request);body=request.model_dump(mode='json');sha=digest(body)
+        require_key(key)
+        request=ResearchReportRequest.model_validate(request.model_dump(mode='json') if isinstance(request,ResearchReportRequest) else request)
+        body=request.model_dump(mode='json');sha=digest(body)
         if root_id and root_id!=request.root_id:raise invalid('research_revision_conflict')
         with self.store.connection(write=True) as db:
             self.lock(db,project,'report:'+str(request.root_id or key))
@@ -99,7 +110,7 @@ class ResearchReportService(ResearchResultsStore):
                 content=json.loads(json.dumps(content,default=lambda v:v.isoformat()))
                 from app.adapters.research_report_render import renderer_identity
                 snapshot=dict(schema_version=1,kind='research_report',workflow_version='research_report_v1',project_id=project,report_version_id=identifier,renderer_identity=renderer_identity(),
-                    request=body,content_sha256=digest(content),source_file_ids=sorted({f for s in bindings for f in s.source_file_ids}),
+                    request=body,output_policy=OUTPUT_POLICY,content_sha256=digest(content),source_file_ids=sorted({f for s in bindings for f in s.source_file_ids}),
                     output_language=request.language,real_model_calls=False,real_network_calls=False)
                 task=dict(id=task_id,project_id=project,user_id=self.store.user_id,task_type='research_report',idempotency_key='research_report:'+task_id,
                     input_digest=digest(snapshot),input_snapshot=snapshot,workflow_version='research_report_v1',status='queued',phase='export',revision=1,current_attempt=0,reason_code=None,created_at=moment,updated_at=moment)
@@ -124,7 +135,12 @@ class ResearchReportService(ResearchResultsStore):
         from app.adapters.research_report_render import renderer_identity
         if snapshot.get('renderer_identity')!=renderer_identity():raise invalid()
         if row['task_id']!=task['id'] or digest(row['content_json'])!=row['content_sha256'] or row['content_sha256']!=snapshot['content_sha256']:raise invalid()
-        content,_,payload=self._freeze_in_phase(db,task['project_id'],ResearchReportRequest.model_validate(snapshot['request']),phase=phase,progress=progress)
+        from .contracts import FrozenResearchReportRequest
+        request=FrozenResearchReportRequest.model_validate(snapshot['request'])
+        policy=snapshot.get('output_policy')
+        if policy not in (None,OUTPUT_POLICY) or (policy==OUTPUT_POLICY and request.include_pdf_id is not None):raise invalid()
+        content,_,payload=self._freeze_in_phase(db,task['project_id'],request,phase=phase,progress=progress,
+            frozen_pdf_id=request.include_pdf_id,legacy_content=policy is None)
         normalized=json.loads(json.dumps(content,default=lambda v:v.isoformat()))
         if normalized!=row['content_json']:raise invalid()
         payload['snapshot']=normalized;return payload
@@ -191,4 +207,5 @@ class ResearchReportService(ResearchResultsStore):
             insert(db,'research_report_members',{**base(member['id'],task['project_id'],task['user_id']),'report_version_id':identifier,
                 **{k:member[k] for k in ('key','role','format','sha256','size_bytes')},'storage_object_id':obj['id'],'properties_json':member.get('properties',{})})
         db.execute('UPDATE research_report_versions SET manifest_object_id=%s,manifest_sha256=%s WHERE id=%s AND manifest_object_id IS NULL',(manifest['id'],manifest['sha256'],identifier))
+        checkpoint=dict(checkpoint,state_json={**checkpoint['state_json'],'stage':'published'})
         progress();return finish(db,task,checkpoint,moment,'result_research_report_version_id',identifier)

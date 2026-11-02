@@ -77,7 +77,7 @@ def test_sci_export_retains_empty_request_and_no_school_metadata(client):
         assert 'school' not in row['metadata_json']
 
 
-def test_school_word_receipt_pdf_failure_and_intent_tampering(client,monkeypatch):
+def test_school_word_receipt_retired_pdf_and_intent_tampering(client,monkeypatch):
     from app.core.exceptions import StorageError
     from psycopg.types.json import Jsonb
     path,base,_,root=published(client)
@@ -96,11 +96,7 @@ def test_school_word_receipt_pdf_failure_and_intent_tampering(client,monkeypatch
     done=client.get(base+'/exports/'+created['id']).json()
     assert done['school']['field_update']==receipt
     assert client.get(done['download_url']).status_code==200
-    monkeypatch.setattr('app.domain.pdf_exports.service.renderer_identity',lambda:{'contract':'test-v1'})
-    pdf=client.post(path+'/pdf-exports',json=dict(source_kind='manuscript_export',source_id=created['id'],request_key='pdf')).json()
-    def fail(raw):raise StorageError('pdf_conversion_failed','synthetic failure',422)
-    monkeypatch.setattr('app.domain.pdf_exports.execution.render_pdf',fail)
-    assert run_task(pdf['task_id'],1)['status']=='failed'
+    assert client.post(path+'/pdf-exports',json=dict(source_kind='manuscript_export',source_id=created['id'],request_key='pdf')).status_code==405
     assert client.get(done['download_url']).status_code==200
     with database_connection(write=True) as db:
         row=db.execute('SELECT school_input_json FROM manuscript_exports WHERE id=%s',(created['id'],)).fetchone()

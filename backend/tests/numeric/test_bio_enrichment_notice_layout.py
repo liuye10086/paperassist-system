@@ -28,7 +28,7 @@ def test_enrichment_notice_is_readable_and_preserves_data(tmp_path, monkeypatch,
     source['members']['enrichment_results'] = member(tmp_path, 'enrichment_results', 'tsv', text.encode())
     payload['config'].update(output_language=language, enrichment_style=style,
         title='CR-B04 enrichment', width_inches=7, height_inches=5, dpi=100,
-        formats=['png', 'tiff', 'svg', 'pdf'])
+        formats=['png', 'tiff', 'svg'])
     original = copy.deepcopy(payload)
     seen = []
     close = figures.plt.close

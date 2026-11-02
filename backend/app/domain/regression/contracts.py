@@ -18,7 +18,9 @@ class Covariate(StrictModel):
         if len({(x.kind,x.value) for x in self.levels})!=len(self.levels): raise ValueError('Duplicate levels.')
         if self.reference and self.reference not in self.levels: raise ValueError('Reference must be a frozen level.')
         return self
-class RegressionSelection(StrictModel):
+from app.domain.statistics_roles import RoleSelection
+
+class RegressionSelection(RoleSelection, StrictModel):
     task_type: Literal['regression']
     method: Literal['ols','logistic']
     sheet_name: str=Field(min_length=1,max_length=31)

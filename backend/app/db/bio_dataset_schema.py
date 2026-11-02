@@ -16,7 +16,7 @@ def define_bio_dataset_tables(metadata):
         sa.Column('created_at', sa.DateTime(timezone=True), nullable=False), sa.Column('updated_at', sa.DateTime(timezone=True), nullable=False),
         sa.UniqueConstraint('id','project_id', name='cr_bd_scope_key'),
         scoped_fk(['current_version_id','id','project_id'], ['bio_dataset_versions.id','bio_dataset_versions.dataset_id','bio_dataset_versions.project_id'], 'cr_bd_current_fk', use_alter=True),
-        sa.CheckConstraint("revision>=1 AND assay='visium' AND length(name) BETWEEN 1 AND 200", name='cr_bd_values_check'))
+        sa.CheckConstraint("revision>=1 AND assay IN ('visium','single_cell','bulk_rna_counts','normalized_expression','proteomics','metabolomics','microbiome') AND length(name) BETWEEN 1 AND 200", name='cr_bd_values_check'))
     sa.Index('cr_bd_project_created', datasets.c.project_id, datasets.c.created_at.desc(), datasets.c.id)
     imports = sa.Table('bio_imports', metadata,
         sa.Column('id', sa.Text, primary_key=True), sa.Column('project_id', sa.Text, sa.ForeignKey('projects.id'), nullable=False),

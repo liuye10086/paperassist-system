@@ -25,7 +25,8 @@ class SchoolOutput(Strict):
     sections:list[SchoolSection]=Field(min_length=1,max_length=300)
 
 def is_school(bundle):
-    return bundle.get('execution_contract',{}).get('schema_version')==3
+    frozen=bundle.get('execution_contract',{})
+    return frozen.get('schema_version')==3 or frozen.get('schema_version')==4 and frozen.get('document_kind')=='thesis'
 
 def protected_projection(base):
     return dict(title=base['title'],thesis_context=deepcopy(base['thesis_context']),

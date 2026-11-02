@@ -12,7 +12,6 @@ from threading import Event, Thread
 import numpy as np
 from PIL import Image
 
-from app.adapters.excel_process import _run_child
 from app.core.exceptions import StorageError
 
 
@@ -21,7 +20,14 @@ MAX_LEAF = 256 * 1024**2
 MAX_OUTPUT = 512 * 1024**2
 MAX_JSON = 2 * 1024**2
 MAX_RSS = 2 * 1024**3
-FORMATS = {'npy', 'json', 'tsv', 'csv', 'png', 'pdf', 'h5ad', 'txt', 'py', 'lock'}
+FORMATS = {'npy', 'json', 'tsv', 'csv', 'png', 'h5ad', 'txt', 'py', 'lock'}
+
+
+def _run_child(*args, **kwargs):
+    # Parent transport needs the application environment; pure output validators
+    # also run in the locked numerical environment without Web/Excel packages.
+    from app.adapters.excel_process import _run_child as transport
+    return transport(*args, **kwargs)
 
 
 def invalid(code='bio_output_invalid'):
@@ -41,7 +47,7 @@ def _plain_json(content):
     return json.loads(content, parse_constant=reject, object_pairs_hook=object_pairs)
 
 
-def validate_artifacts(outputs, output_directory):
+def validate_artifacts(outputs, output_directory, *, formats=None):
     """No unregistered bytes or pickle-capable arrays may enter object storage."""
     directory = Path(output_directory).absolute()
     try:
@@ -52,7 +58,7 @@ def validate_artifacts(outputs, output_directory):
             key, fmt, size = item['key'], item['format'], item['size_bytes']
             path = Path(item['path'])
             if (type(key) is not str or not re.fullmatch(r'[a-z][a-z0-9_-]{0,100}', key) or key in keys
-                    or fmt not in FORMATS or type(size) is not int or not 0 < size <= MAX_LEAF
+                    or fmt not in (formats or FORMATS) or type(size) is not int or not 0 < size <= MAX_LEAF
                     or type(item['sha256']) is not str or not re.fullmatch(r'[a-f0-9]{64}', item['sha256'])
                     or type(item['role']) is not str or not item['role'] or len(item['role']) > 100
                     or not path.is_absolute() or path.is_symlink() or not path.is_file()
@@ -75,15 +81,24 @@ def validate_artifacts(outputs, output_directory):
                 # Only the transport is 2MiB. Full axis/map members are bounded
                 # leaves, and may legitimately exceed that with 100k features.
                 _plain_json(path.read_bytes())
-            elif fmt == 'png':
+            elif fmt in ('png','tiff'):
                 with Image.open(path) as image:
-                    if image.format != 'PNG' or max(image.size) > 4096 or image.width * image.height > 16_000_000:
+                    if image.format != fmt.upper() or max(image.size) > 4096 or image.width * image.height > 16_000_000:
                         raise ValueError()
                     image.verify()
-            elif fmt in {'pdf', 'h5ad'}:
+            elif fmt=='svg':
+                from defusedxml.ElementTree import fromstring
+                tree=fromstring(path.read_bytes())
+                if tree.tag.rsplit('}',1)[-1]!='svg':raise ValueError()
+                for node in tree.iter():
+                    if node.tag.rsplit('}',1)[-1] in ('script','foreignObject','iframe','animate','set'):raise ValueError()
+                    for name,value in node.attrib.items():
+                        name=name.rsplit('}',1)[-1]
+                        if name.lower().startswith('on') or name in ('href','src') and not value.startswith(('#','data:image/png;base64,')):raise ValueError()
+            elif fmt == 'h5ad':
                 with path.open('rb') as stream:
                     magic = stream.read(8)
-                if fmt == 'pdf' and not magic.startswith(b'%PDF-') or fmt == 'h5ad' and magic != b'\x89HDF\r\n\x1a\n':
+                if magic != b'\x89HDF\r\n\x1a\n':
                     raise ValueError()
             total += size
             if total > MAX_OUTPUT:
@@ -195,14 +210,20 @@ def execute_bio_analysis(payload, output_directory, *, mode='compute', settings=
     """A fixed interpreter and script, never a user-selected command or code."""
     if sys.platform != 'linux':
         raise invalid('bio_environment_unavailable')
-    interpreter = Path('/opt/paperassist-bio/bin/python')
+    tabular=mode=='import_v3' or payload.get('raw',{}).get('manifest',{}).get('schema_version')==3
+    interpreter = Path('/opt/paperassist-bio-insights/bin/python' if tabular else '/opt/paperassist-bio/bin/python')
     output = Path(output_directory).absolute()
-    if not interpreter.is_file() or output.is_symlink() or mode not in {'qc', 'compute', 'figure', 'h5_check', 'import_v2'}:
+    if not interpreter.is_file() or output.is_symlink() or mode not in {'qc', 'compute', 'figure', 'h5_check', 'import_v2','import_v3','import_single_cell'}:
         raise invalid('bio_environment_unavailable')
     output.mkdir(parents=True, exist_ok=True)
     if any(output.iterdir()):
         raise invalid()
     try:
+        if tabular:
+            from app.domain.bioinformatics.tabular_settings import runtime_identity
+            runtime=runtime_identity()
+            if not runtime['available']:raise invalid('bio_environment_unavailable')
+            payload={**payload,'_runtime_identity':runtime}
         for record in _input_records(payload):
             path, size = Path(record['path']), record['size_bytes']
             if (not path.is_absolute() or path.is_symlink() or not path.is_file() or path.resolve().is_relative_to(output.resolve())
@@ -241,7 +262,7 @@ def execute_bio_analysis(payload, output_directory, *, mode='compute', settings=
         monitors.append(thread)
         thread.start()
 
-    command = [str(interpreter), '-I', '-B', str(Path(__file__).with_name('bio_engine') / 'worker.py'), str(os.getpid())]
+    command = [str(interpreter), '-I', '-B', str(Path(__file__).with_name('bio_engine') / ('tabular_worker.py' if tabular else 'worker.py')), str(os.getpid())]
     try:
         response = _run_child(command, struct.pack('!I', len(data)) + data,
                               timeout_seconds=1380, max_output_bytes=MAX_JSON, on_started=started)
@@ -261,21 +282,24 @@ def execute_bio_analysis(payload, output_directory, *, mode='compute', settings=
         safe = {'bio_environment_unavailable', 'bio_isolation_unavailable', 'bio_resource_exceeded',
                 'bio_recipe_invalid', 'bio_input_integrity_changed', 'bio_h5_unsupported',
                 'bio_h5_matrix_mismatch', 'bio_insufficient_observations', 'bio_output_invalid'}
-        if mode == 'import_v2':
+        if mode in {'import_v2','import_single_cell'}:
             from app.adapters.bio_parse_process import _ERRORS
             safe |= _ERRORS
         code = response['error'].get('code') if isinstance(response['error'], dict) else None
         raise invalid(code if code in safe else 'bio_output_invalid')
     if set(response) != {'result'}:
         raise invalid()
-    if mode == 'import_v2':
+    if tabular:
+        from app.adapters.bio_tabular_process import validate_tabular_result
+        result=validate_tabular_result(response['result'],output,payload,mode)
+    elif mode in {'import_v2','import_single_cell'}:
         from app.adapters.bio_parse_process import validate_parser_result
         from app.domain.bioinformatics.settings import BioLimits
         result = validate_parser_result(response['result'], output, BioLimits.model_validate(payload['settings']),
-                  {item['id'] for item in payload['files']}, expected_parser_version='geo_visium_import_v2')
+                  {item['id'] for item in payload['files']}, expected_parser_version='single_cell_import_v1' if mode=='import_single_cell' else 'geo_visium_import_v2')
     else:
         result = validate_engine_result(response['result'], output, mode=mode)
-    if mode == 'compute':
+    if mode == 'compute' and not tabular:
         validate_processed_arrays(result['outputs'], target_sum=payload.get('config', {}).get('target_sum', 10000.))
     result.setdefault('resources', {})['parent_peak_rss_bytes'] = peak[0]
     return result

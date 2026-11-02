@@ -1,15 +1,21 @@
 """Bounded HTTP/domain contracts. No scientific runtime is imported here."""
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator, model_serializer, Discriminator, Tag
+from .quantitative_contracts import QuantitativeComparisonConfig,SampleGroup
+from .qpcr_contracts import QpcrConfig
+from .microbiome_contracts import MicrobiomeConfig
+from .feature_contracts import FeatureExtractConfig
+from .integration_contracts import IntegrationConfig
+from .evidence_contracts import EvidenceMatrixConfig
 
 Identifier = Annotated[str, Field(min_length=1, max_length=200, pattern=r'^[^/\\\x00-\x1f]+$')]
 Hash = Annotated[str, Field(pattern=r'^[0-9a-f]{64}$')]
 Text = Annotated[str, Field(max_length=4000)]
 Language = Literal['zh-CN', 'en']
 SourceKind = Literal['bio_processed_dataset_version','bio_observation_map_version','bio_annotation_version',
-                     'research_design_version','bio_resource_version','bio_insight_result_version','original_file']
-InsightKind = Literal['comparison','result_import','ora','gsea_prerank','candidate','figure']
+                     'research_design_version','bio_resource_version','bio_insight_result_version','original_file','external_evidence_version']
+InsightKind = Literal['comparison','result_import','ora','gsea_prerank','candidate','figure','feature_extract','integration']
 QColumn = Literal['q_within_contrast','q_global_family','original_q','system_recomputed_q']
 
 
@@ -52,7 +58,7 @@ class InsightSourceSelection(StrictModel):
     source_kind: SourceKind
     source_id: Identifier
     role: Literal['source','processed','observation_map','annotation','design','resource','result','table',
-                  'background','foreground','ranking','id_mapping','gene_sets','feature_annotation'] = 'source'
+                  'background','foreground','ranking','id_mapping','gene_sets','feature_annotation','feature_input','sample_mapping','object_mapping','external_evidence','support_design','overlap_audit'] = 'source'
     sha256: Hash
     locator: SourceLocator = Field(default_factory=SourceLocator)
 
@@ -270,10 +276,15 @@ class FigureConfig(ConfigModel):
     result_source_ids: list[Identifier] = Field(default_factory=list,max_length=8)
     processed_source_id: Identifier | None = None
     expression_groups: list[GroupSelection] = Field(default_factory=list,max_length=30)
+    sample_groups: list[SampleGroup] = Field(default_factory=list,max_length=30)
+    analysis_layer: Literal['analysis','display'] = 'analysis'
+    feature_ids: list[Identifier] = Field(default_factory=list,max_length=100)
+    z_score: bool = False
     selected_sets: list[FigureSetSelection] = Field(default_factory=list,max_length=8)
     intersection_mode: Literal['all','exclusive','at_least_k'] | None = None
     intersection_k: int | None = Field(default=None,ge=1,le=8)
-    figure_type: Literal['volcano','heatmap','enrichment','gsea','venn','upset','candidate_evidence']
+    figure_type: Literal['volcano','heatmap','distribution','qpcr_samples','microbiome_composition','microbiome_alpha','microbiome_pcoa','feature_distribution','feature_scatter','integration_network','integration_flow','evidence_matrix','evidence_network','evidence_flow','enrichment','gsea','venn','upset','candidate_evidence']
+    figure_stratum: Identifier | None = None
     contrast_id: Identifier | None = None
     member_key: Identifier | None = None
     term_row_key: Identifier | None = None
@@ -286,22 +297,48 @@ class FigureConfig(ConfigModel):
     width_inches: float = Field(default=7.0,ge=2,le=20)
     height_inches: float = Field(default=5.0,ge=2,le=20)
     dpi: int = Field(default=300,ge=72,le=600)
-    formats: list[Literal['png','tiff','svg','pdf']] = Field(default_factory=lambda:['png','tiff','svg','pdf'],min_length=1,max_length=4)
+    formats: list[Literal['png','tiff','svg']] = Field(default_factory=lambda:['png','tiff','svg'],min_length=1,max_length=3)
     palette: list[Annotated[str,Field(pattern=r'^#[0-9a-fA-F]{6}$')]] = Field(default_factory=lambda:['#2563eb','#dc2626'],min_length=1,max_length=20)
+
+    @model_serializer(mode='wrap')
+    def unchanged_spatial_wire(self,handler):
+        data=handler(self)
+        if self.figure_stratum is None:data.pop('figure_stratum',None)
+        if not self.sample_groups and self.figure_type not in ('distribution','qpcr_samples','microbiome_composition','microbiome_alpha','microbiome_pcoa'):
+            for key in ('sample_groups','analysis_layer','feature_ids','z_score'):data.pop(key,None)
+        return data
 
     @model_validator(mode='after')
     def figure_inputs(self):
+        if not self.sample_groups and self.figure_type not in ('qpcr_samples','microbiome_alpha') and (self.feature_ids or self.z_score):raise ValueError('sample_options_require_sample_groups')
+        if self.figure_type.startswith('evidence_') and (self.expression_groups or self.sample_groups or self.processed_source_id or self.feature_ids or self.z_score or self.contrast_id):raise ValueError('evidence_figure_uses_saved_matrix_only')
+        if self.figure_type.startswith('integration_') and (self.expression_groups or self.sample_groups or self.processed_source_id or self.feature_ids or self.z_score or self.contrast_id):raise ValueError('integration_figure_uses_saved_relations_only')
+        if self.figure_type.startswith('feature_'):
+            if not self.x_column or self.figure_type=='feature_scatter' and not self.y_column:raise ValueError('feature_figure_axes_required')
+            if self.expression_groups or self.sample_groups or self.processed_source_id or self.feature_ids or self.z_score or self.contrast_id:raise ValueError('feature_figure_uses_fixed_features_only')
+        if self.figure_type.startswith('microbiome_'):
+            if self.expression_groups or self.sample_groups or self.processed_source_id or self.z_score:raise ValueError('microbiome_figure_uses_frozen_result_only')
+            if self.figure_type=='microbiome_alpha' and (len(self.feature_ids)>1 or any(f not in ('shannon','simpson','observed_features') for f in self.feature_ids)):raise ValueError('microbiome_alpha_figure_metric_invalid')
+        if self.figure_type=='qpcr_samples' and (len(self.feature_ids)!=1 or self.sample_groups or self.expression_groups or self.processed_source_id or self.z_score or not self.contrast_id):raise ValueError('qpcr_figure_requires_one_target_and_contrast')
+        if self.figure_type!='qpcr_samples' and self.figure_stratum is not None:raise ValueError('qpcr_stratum_requires_qpcr_figure')
         if len(set(self.formats))!=len(self.formats):raise ValueError('Duplicate figure formats')
         width=round(self.width_inches*self.dpi);height=round(self.height_inches*self.dpi)
         if max(width,height)>4096 or width*height>16000000:raise ValueError('Figure exceeds 4096 pixels per side or 16 million total pixels')
         if self.figure_type=='gsea' and not self.term_row_key:raise ValueError('GSEA curve requires an explicitly selected term row')
         if self.figure_type=='heatmap':
             if self.top_n>100:raise ValueError('Heatmap supports at most 100 selected features')
-            if not self.processed_source_id or not self.expression_groups:
+            if not self.processed_source_id or not (self.expression_groups or self.sample_groups):
                 raise ValueError('Heatmap requires real processed expression and explicit observation groups')
             if any(not group.observation_keys for group in self.expression_groups):raise ValueError('Heatmap groups must resolve exact observations')
             if any(key.processed_version_id!=self.processed_source_id for group in self.expression_groups for key in group.observation_keys):
                 raise ValueError('Heatmap observation is outside selected processed source')
+        if self.sample_groups or self.figure_type=='distribution':
+            if self.figure_type not in ('heatmap','distribution') or self.expression_groups or not self.processed_source_id or not self.sample_groups:raise ValueError('sample_plot_configuration_invalid')
+            if any(k.processed_version_id!=self.processed_source_id for g in self.sample_groups for k in g.sample_keys):raise ValueError('sample_plot_source_mismatch')
+            keys=[(k.processed_version_id,k.sample_id) for g in self.sample_groups for k in g.sample_keys]
+            if len(keys)!=len(set(keys)) or len({g.label for g in self.sample_groups})!=len(self.sample_groups):raise ValueError('sample_plot_duplicate_selection')
+            if len(set(self.feature_ids))!=len(self.feature_ids):raise ValueError('duplicate_figure_feature')
+        if self.figure_type=='distribution' and (len(self.feature_ids)!=1 or self.z_score):raise ValueError('distribution_requires_one_unscaled_feature')
         if self.figure_type in ('venn','upset'):
             if not 2<=len(self.result_source_ids)<=8 or len(set(self.result_source_ids))!=len(self.result_source_ids):
                 raise ValueError('Set figures require 2-8 distinct result sources')
@@ -315,8 +352,22 @@ class FigureConfig(ConfigModel):
         return self
 
 
-InsightConfig = Annotated[ComparisonConfig | ResultImportConfig | OraConfig | GseaPrerankConfig | CandidateConfig | FigureConfig,
-                          Field(discriminator='kind')]
+class FrozenFigureConfig(FigureConfig):
+    """Read immutable historical configuration; never use for new rendering."""
+    formats: list[Literal['png','tiff','svg','pdf']] = Field(default_factory=lambda:['png','tiff','svg','pdf'],min_length=1,max_length=4)
+
+
+def config_discriminator(value):
+    kind=value.get('kind') if isinstance(value,dict) else getattr(value,'kind',None)
+    version=value.get('schema_version') if isinstance(value,dict) else getattr(value,'schema_version',None)
+    return 'candidate_evidence_v2' if kind=='candidate' and version==2 else 'comparison_microbiome' if kind=='comparison' and version==4 else 'comparison_qpcr' if kind=='comparison' and version==3 else 'comparison_v2' if kind=='comparison' and version==2 else kind
+
+
+InsightConfig = Annotated[
+    Annotated[ComparisonConfig,Tag('comparison')] | Annotated[QuantitativeComparisonConfig,Tag('comparison_v2')] | Annotated[QpcrConfig,Tag('comparison_qpcr')] | Annotated[MicrobiomeConfig,Tag('comparison_microbiome')] |
+    Annotated[ResultImportConfig,Tag('result_import')] | Annotated[OraConfig,Tag('ora')] |
+    Annotated[GseaPrerankConfig,Tag('gsea_prerank')] | Annotated[CandidateConfig,Tag('candidate')] | Annotated[EvidenceMatrixConfig,Tag('candidate_evidence_v2')] | Annotated[FigureConfig,Tag('figure')] | Annotated[FeatureExtractConfig,Tag('feature_extract')] | Annotated[IntegrationConfig,Tag('integration')],
+    Discriminator(config_discriminator)]
 
 
 class InsightPlanRequest(StrictModel):
@@ -341,7 +392,35 @@ class InsightPlanRequest(StrictModel):
             for source_id in ids:require(source_id,kinds,roles)
         result_kinds={'bio_insight_result_version'}
         resource_kinds={'bio_resource_version'}
-        if isinstance(config,ComparisonConfig):
+        if isinstance(config,EvidenceMatrixConfig):
+            require_many(config.evidence_source_ids,{'external_evidence_version'},{'external_evidence'})
+            for c in config.candidates:require(c.source_id,{'bio_processed_dataset_version'},{'processed'})
+            require_many(config.integration_result_source_ids,result_kinds,{'result'})
+            for r in config.independent_support_requests:
+                require(r.result_source_id,result_kinds,{'result'})
+                require_many(r.material_source_ids,{'bio_processed_dataset_version'},{'processed'})
+                require(r.design_source_id,{'original_file'},{'support_design'})
+                require(r.overlap_audit_source_id,{'original_file'},{'overlap_audit'})
+        elif isinstance(config,IntegrationConfig):
+            if len(self.sources)>10:raise ValueError('integration_source_limit')
+            require_many(config.processed_source_ids,{'bio_processed_dataset_version'},{'processed','source'})
+            if config.sample_mapping_source_id:require(config.sample_mapping_source_id,resource_kinds,{'sample_mapping','resource'})
+            if config.object_mapping_source_id:require(config.object_mapping_source_id,resource_kinds,{'object_mapping','resource'})
+            for c in config.concordances:require_many([c.left_result_source_id,c.right_result_source_id],result_kinds,{'result'})
+        elif isinstance(config,FeatureExtractConfig):
+            if len(self.sources)>10:raise ValueError('feature_frozen_source_limit')
+            require_many(config.resource_source_ids,resource_kinds,{'feature_input','resource'})
+        elif isinstance(config,MicrobiomeConfig):
+            require(config.processed_source_id,{'bio_processed_dataset_version'},{'processed','source'})
+        elif isinstance(config,QpcrConfig):
+            require(config.file_source_id,{'original_file'},{'source','table'})
+            source=next(s for s in self.sources if s.source_id==config.file_source_id and s.source_kind=='original_file')
+            if source.locator.parse_version_id and source.locator.parse_version_id!=config.parse_version_id:
+                raise ValueError('qPCR parse version differs from frozen file locator')
+        elif isinstance(config,QuantitativeComparisonConfig):
+            ids={key.processed_version_id for c in config.contrasts for g in c.groups for key in g.sample_keys}
+            for source_id in ids:require(source_id,{'bio_processed_dataset_version'},{'processed','source'})
+        elif isinstance(config,ComparisonConfig):
             ids={key.processed_version_id for c in config.contrasts for g in (c.numerator,c.denominator) for key in g.observation_keys}
             for source_id in ids:require(source_id,{'bio_processed_dataset_version'},{'processed','source'})
         elif isinstance(config,ResultImportConfig):
@@ -359,12 +438,17 @@ class InsightPlanRequest(StrictModel):
         elif isinstance(config,CandidateConfig):
             require_many(config.result_source_ids,result_kinds,{'result'})
             require_many(config.mapping_source_ids,resource_kinds,{'id_mapping'})
-            require_many(config.annotation_source_ids,resource_kinds,{'feature_annotation','annotation'})
+            require_many(config.annotation_source_ids,resource_kinds|result_kinds,{'feature_annotation','annotation'})
         elif isinstance(config,FigureConfig):
             require(config.result_source_id,result_kinds,{'result'})
             require_many(config.result_source_ids,result_kinds,{'result'})
             if config.processed_source_id:require(config.processed_source_id,{'bio_processed_dataset_version'},{'processed'})
         return self
+
+
+class FrozenInsightPlanRequest(InsightPlanRequest):
+    """Keep old PDF configuration readable without widening new requests."""
+    config: InsightConfig | FrozenFigureConfig
 
 
 class InsightRunRequest(StrictModel):
@@ -404,8 +488,8 @@ class ResourceColumns(StrictModel):
 class ResourceFile(StrictModel):
     file_id: Identifier
     sha256: Hash
-    role: Literal['obo','gaf','gmt','term_gene','id_mapping','feature_annotation']
-    format: Literal['obo','gaf','gmt','tsv','csv','xlsx','obo.gz','gaf.gz','gmt.gz','tsv.gz']
+    role: Literal['obo','gaf','gmt','term_gene','id_mapping','feature_annotation','fasta','pdb','mmcif','sample_correspondence','object_correspondence']
+    format: Literal['obo','gaf','gmt','tsv','csv','xlsx','obo.gz','gaf.gz','gmt.gz','tsv.gz','fasta','pdb','mmcif','fasta.gz','pdb.gz','mmcif.gz']
     parse_version_id: Identifier | None = None
     sheet: Identifier | None = None
     columns: ResourceColumns = Field(default_factory=ResourceColumns)
@@ -416,7 +500,9 @@ class ResourceFile(StrictModel):
     def format_columns(self):
         fmt=self.format.removesuffix('.gz')
         columns={key for key,value in self.columns.model_dump().items() if value is not None}
-        if self.role in ('obo','gaf','gmt'):
+        if self.role in ('sample_correspondence','object_correspondence'):
+            if fmt!='tsv' or columns:raise ValueError('correspondence_requires_fixed_tsv_columns')
+        elif self.role in ('obo','gaf','gmt','fasta','pdb','mmcif'):
             if fmt!=self.role or columns:raise ValueError('Raw ontology/GAF/GMT format must match role and has fixed columns')
         else:
             if fmt not in ('tsv','csv','xlsx'):raise ValueError('Tabular resource requires TSV/CSV/XLSX')
@@ -431,7 +517,10 @@ class ResourceFile(StrictModel):
 
 
 class ResourceImportRequest(ConfigModel):
-    kind: Literal['gene_sets','id_mapping','feature_annotation']
+    kind: Literal['gene_sets','id_mapping','feature_annotation','sequence','structure','sample_correspondence','object_correspondence']
+    sequence_type: Literal['dna','rna','protein'] | None = None
+    nucleotide_encoding: Literal['T','U'] | None = None
+    structure_origin: Literal['experimental','predicted','unknown'] | None = None
     title: str = Field(min_length=1,max_length=200)
     species_taxon_id: int = Field(ge=1,le=2147483647)
     namespace: Identifier
@@ -449,8 +538,24 @@ class ResourceImportRequest(ConfigModel):
     strip_ensembl_version: bool = False
     expected_revision: int = Field(default=0,ge=0,le=2147483646)
 
+    @model_serializer(mode='wrap')
+    def preserve_existing_resource_wire(self,handler):
+        data=handler(self)
+        if self.kind not in ('sequence','structure'):
+            for key in ('sequence_type','nucleotide_encoding','structure_origin'):data.pop(key,None)
+        return data
+
     @model_validator(mode='after')
     def resource_files(self):
+        if self.kind=='sequence':
+            if self.sequence_type is None or self.structure_origin is not None:raise ValueError('explicit_sequence_type_required')
+        elif self.sequence_type is not None:raise ValueError('sequence_type_only_for_sequence')
+        if self.sequence_type=='rna' and self.nucleotide_encoding is None:raise ValueError('rna_nucleotide_encoding_required')
+        if self.nucleotide_encoding is not None and (self.sequence_type not in ('dna','rna') or self.sequence_type=='dna' and self.nucleotide_encoding!='T'):raise ValueError('nucleotide_encoding_mismatch')
+        if self.kind=='structure':
+            if self.structure_origin is None:raise ValueError('structure_origin_required')
+        elif self.structure_origin is not None:raise ValueError('structure_origin_only_for_structure')
+        if self.kind in ('sequence','structure') and len(self.files)!=1:raise ValueError('one_feature_file_per_resource')
         if self.kind=='id_mapping':
             if not self.mapping_source_namespace or not self.mapping_target_namespace:
                 raise ValueError('ID mapping requires explicit source and target namespaces')
@@ -459,6 +564,9 @@ class ResourceImportRequest(ConfigModel):
         ids=[f.file_id for f in self.files]
         if len(ids)!=len(set(ids)):raise ValueError('Duplicate resource file identity')
         roles={f.role for f in self.files}
+        if self.kind in ('sample_correspondence','object_correspondence') and (len(self.files)!=1 or roles!={self.kind}):raise ValueError('one_matching_correspondence_file_required')
+        if self.kind=='sequence' and roles!={'fasta'}:raise ValueError('sequence_requires_fasta')
+        if self.kind=='structure' and (len(roles)!=1 or not roles<={'pdb','mmcif'}):raise ValueError('structure_requires_pdb_or_mmcif')
         if self.kind=='id_mapping' and roles!={'id_mapping'}:raise ValueError('Mapping resource needs mapping files')
         if self.kind=='feature_annotation' and roles!={'feature_annotation'}:raise ValueError('Annotation resource needs annotation files')
         if self.kind=='gene_sets' and roles-{'obo','gaf','gmt','term_gene'}:raise ValueError('Gene sets require set/ontology files')

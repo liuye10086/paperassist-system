@@ -113,6 +113,21 @@ class BioDatasetService:
                 task = self.store.require_task(db,existing['task_id'])
                 return {'id':existing['id'],'dataset_id':existing['dataset_id'],'task':self.store.public_task(task)}
             workflow, parser_version, extras = WORKFLOW_VERSION, PARSER_VERSION, {}
+            from .tabular_contracts import BioImportRequestV3
+            if isinstance(request,BioImportRequestV3):
+                from .tabular_settings import runtime_identity
+                runtime=runtime_identity()
+                if not runtime['available']:raise StorageError('bio_environment_unavailable','生信执行环境尚未通过验证。',409)
+                workflow,parser_version='bio_import_v3','tabular_assay_import_v1'
+                extras=dict(tabular_config=material,**{k:runtime[k] for k in ('engine_version','environment_digest','code_digest')})
+            from .single_cell_contracts import SingleCellImportRequest
+            if isinstance(request,SingleCellImportRequest):
+                from .single_cell_settings import runtime_identity
+                from .analysis_settings import BioAnalysisLimits
+                runtime=runtime_identity()
+                if not runtime['available']:raise StorageError('bio_environment_unavailable','单细胞执行环境尚未通过验证。',409)
+                workflow,parser_version='bio_import_v4','single_cell_import_v1'
+                extras=dict(single_cell_config=material,analysis_limits=BioAnalysisLimits().model_dump(),**{k:runtime[k] for k in ('engine_version','environment_digest','code_digest')})
             if isinstance(request, BioImportRequestV2):
                 from app.domain.bioinformatics.analysis_settings import runtime_identity, BioAnalysisLimits
                 runtime = runtime_identity()
@@ -138,14 +153,15 @@ class BioDatasetService:
                     raise StorageError('bio_dataset_not_found','数据集不存在。',404)
                 if dataset['revision'] != request.expected_dataset_revision:
                     raise conflict('bio_revision_conflict')
+                if dataset['assay']!=request.assay:raise conflict('bio_source_conflict')
                 revision=dataset['revision']
             else:
                 revision=1
                 db.execute('''INSERT INTO bio_datasets(id,project_id,name,assay,revision,created_by,created_at,updated_at)
-                    VALUES (%s,%s,%s,'visium',1,%s,%s,%s)''',(dataset_id,project_id,request.name,self.store.user_id,now,now))
+                    VALUES (%s,%s,%s,%s,1,%s,%s,%s)''',(dataset_id,project_id,request.name,request.assay,self.store.user_id,now,now))
             import_id,task_id=str(uuid4()),str(uuid4())
             snapshot=dict(schema_version=1,kind='bio_import',workflow_version=workflow,project_id=project_id,
-                import_id=import_id,dataset_id=dataset_id,name=request.name,assay='visium',parser_version=parser_version,
+                import_id=import_id,dataset_id=dataset_id,name=request.name,assay=request.assay,parser_version=parser_version,
                 expected_dataset_revision=revision,output_language=project['default_output_language'],files=files,settings=BioLimits().model_dump(), **extras)
             task=dict(id=task_id,project_id=project_id,user_id=self.store.user_id,task_type='bio_import',
                 idempotency_key=('bio_import_v2:'+task_id if workflow==WORKFLOW_VERSION_V2 else 'bio_import:'+key),
@@ -373,7 +389,8 @@ def retry_in_transaction(store,db,task,expected_revision):
     from app.domain.bioinformatics.contracts import BioImportInputVersion,BioImportInputVersionV2
     assets=DatasetTaskAssets(store.user_id,store.config,get_data_dir())
     frozen=input_version(task)
-    model=BioImportInputVersionV2 if frozen['workflow_version']=='bio_import_v2' else BioImportInputVersion
+    from .tabular_contracts import BioImportInputVersionV3
+    model={'bio_import_v1':BioImportInputVersion,'bio_import_v2':BioImportInputVersionV2,'bio_import_v3':BioImportInputVersionV3}[frozen['workflow_version']]
     request=SimpleNamespace(expected_task_revision=expected_revision,
         input_version=model.model_validate(frozen))
     return BioDatasetService(assets).retry_in_transaction(db,task,request)

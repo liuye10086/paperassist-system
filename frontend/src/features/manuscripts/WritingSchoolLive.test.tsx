@@ -27,12 +27,26 @@ it('validates dynamic schema3 input and digests only school generated purposes i
  expect(validPreviewInput({...input,schema_version:2})).toBe(false)
  expect(bodyProjection(snapshot,{}).map(c=>c.id)).toEqual(['abstract-zh','abstract-en','methods-dynamic'])
 })
+it('selects only writable school paragraphs for a scoped article request',async()=>{
+ const fetcher=vi.fn(async(_url:string,init?:RequestInit)=>Response.json(init?.method==='POST'?{}:{items:[],capabilities:{real_calls_enabled:false}}));vi.stubGlobal('fetch',fetcher)
+ render(<ManuscriptWriting {...props}/>);fireEvent.click(screen.getByRole('button',{name:'受控写作与人工审核'}))
+ await waitFor(()=>expect(screen.getByLabelText('受控写作方式').matches(':disabled')).toBe(false))
+ fireEvent.click(screen.getByLabelText('文章类型与范围编辑'))
+ fireEvent.change(screen.getByLabelText('受控写作方式'),{target:{value:'polish'}})
+ const select=screen.getByLabelText('目标章节') as HTMLSelectElement
+ expect(Array.from(select.options,o=>o.value)).toEqual(['abstract-zh','abstract-en','methods-dynamic'])
+ for(const option of Array.from(select.options))option.selected=option.value==='methods-dynamic'
+ fireEvent.change(select);fireEvent.click(screen.getByRole('button',{name:'冻结完整外发预览'}))
+ await waitFor(()=>expect(fetcher.mock.calls.some(([,i])=>i?.method==='POST')).toBe(true))
+ const body=JSON.parse(String(fetcher.mock.calls.find(([,i])=>i?.method==='POST')![1]?.body))
+ expect(body).toMatchObject({schema_version:4,document_kind:'thesis',article_type:'research',mode:'polish',target_sections:['methods-dynamic'],keywords:[],acknowledgements:''})
+})
 it('requires explicit literal decisions only for protected identity and invalidates decisions after school options change',async()=>{
  const review={...scienceReview,candidate:snapshot};const inventory=[{location:'identity:p1',kind:'paragraph',text:'本人',content_sha256:'e'.repeat(64),scope:'label',target_language:'zh-CN',chapter_id:'declaration-x',protected_identity:true},{location:'body:p2',kind:'paragraph',text:'Methods',content_sha256:'f'.repeat(64),scope:'narrative',target_language:'en',chapter_id:'methods-dynamic',protected_identity:false}]
  const fetcher=vi.fn(async(url:string,_init?:RequestInit)=>Response.json(url.endsWith('language-context')?{...languageContext,schema_version:3,candidate:snapshot,inventory,editable_fields:[]}:{items:[]}));vi.stubGlobal('fetch',fetcher)
  render(<WritingLanguageReview projectId="p1" manuscriptId="m1" baseRevision={1} review={review} onPublished={vi.fn()}/>);
- fireEvent.click(screen.getByRole('button',{name:'读取真实 DOCX 全语言清单'}));await screen.findByRole('group',{name:/identity:p1/})
- const identity=screen.getByRole('group',{name:/identity:p1/}),body=screen.getByRole('group',{name:/body:p2/})
+ fireEvent.click(screen.getByRole('button',{name:'读取真实 DOCX 全语言清单'}));await screen.findByRole('group',{name:/核对项目 1/})
+ const identity=screen.getByRole('group',{name:/核对项目 1/}),body=screen.getByRole('group',{name:/核对项目 2/})
  expect(within(identity).queryByRole('option',{name:'目标语言文字已逐项核对'})).toBeNull();expect(within(body).queryByRole('option',{name:'已逐项核对用户提供的身份原文'})).toBeNull()
  expect(within(identity).getByLabelText('此项语言决定')).toHaveProperty('value','')
  fireEvent.change(within(identity).getByLabelText('此项语言决定'),{target:{value:'provided_literal'}});fireEvent.change(within(identity).getByLabelText('此项语言审核理由'),{target:{value:'核对本人原文'}})

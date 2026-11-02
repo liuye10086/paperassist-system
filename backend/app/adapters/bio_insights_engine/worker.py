@@ -35,6 +35,9 @@ def records(payload):
 
 
 def actual_identity():
+    # Attest the same locked native inventory for every assay and reproduction entry.
+    # Import only: no beta calculation or assay-specific warmup is needed here.
+    import skbio.stats.distance
     from threadpoolctl import threadpool_info
     packages={dist.metadata['Name'].lower().replace('_','-'):dist.version for dist in importlib.metadata.distributions()}
     libraries=sorted(threadpool_info(),key=lambda library:library['filepath'])
@@ -61,8 +64,15 @@ def warm_render_environment(output):
     tqdm.monitor_interval=0
     fig,ax=plt.subplots();ax.plot([0,1],[0,1])
     ax.set_title('图形环境验证',fontproperties=FontProperties(fname='/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc'))
-    for fmt in ('png','pdf','svg','tiff'):fig.savefig(output/('warm.'+fmt),format=fmt)
+    for fmt in ('png','svg','tiff'):fig.savefig(output/('warm.'+fmt),format=fmt)
     plt.close(fig)
+
+
+def warm_microbiome_environment():
+    import skbio
+    from skbio.stats.distance import permanova, permdisp
+    from app.adapters.bio_insights_engine.microbiome import beta_tests
+    beta_tests([[0.,.1,.2,.7,.8,.9],[.1,0.,.1,.6,.7,.8],[.2,.1,0.,.5,.6,.7],[.7,.6,.5,0.,.1,.2],[.8,.7,.6,.1,0.,.1],[.9,.8,.7,.2,.1,0.]],['a','a','a','b','b','b'],permutations=0)
 
 
 def main():
@@ -89,10 +99,13 @@ def main():
         from PIL import Image
         Image.init();codecs.lookup('utf-8-sig')
         # Import all trusted code before Landlock denies the application tree.
-        for name in ('comparison','result_import','resources','enrichment','candidates','figures'):
+        for name in ('comparison','result_import','resources','enrichment','candidates','figures','quantitative','counts_model','quantitative_figures','qpcr','qpcr_figures','microbiome','microbiome_figures','feature_extract','feature_figures','integration','integration_figures','external_evidence','evidence_figures'):
             importlib.import_module('app.adapters.bio_insights_engine.'+name)
+        import Bio.PDB.MMCIF2Dict
+        import Bio.PDB.Polypeptide
+        if payload['config'].get('schema_version')==4 or payload['config'].get('figure_type','').startswith('microbiome_'):warm_microbiome_environment()
         with tempfile.TemporaryDirectory(prefix='b04-warm-') as warm:
-            if payload['kind']=='bio_insight_figure':warm_render_environment(Path(warm))
+            if payload['kind']=='bio_candidate' and payload['config'].get('schema_version')==2 or payload['kind'] in ('bio_insight_figure','bio_feature_extract','bio_integration') or payload['kind']=='bio_resource_import' and payload['config'].get('kind') in ('sequence','structure','sample_correspondence','object_correspondence') or payload['kind']=='bio_comparison' and payload['config'].get('schema_version') in (3,4):warm_render_environment(Path(warm))
             else:exercise(Path(warm))
         actual=actual_identity()
         phase='environment_identity'

@@ -44,7 +44,7 @@ class ResearchFindingService(ResearchResultsStore):
             attached=[c for c in conflicts.values() if set(c.fact_ids)&set(claim.fact_ids) or c.id in claim.conflicts]
             if claim.review_decision=='adopt' and (not claim.fact_ids and not claim.figure_refs or any(c.decision=='unresolved' for c in attached)):
                 raise invalid('research_fact_unresolved',422)
-            figures={s.source_id for s in sources if s.source_kind in ('bio_figure_version','research_figure_version','original_file')}
+            figures={s.source_id for s in sources if s.source_kind in ('bio_figure_version','research_figure_version','original_file','analysis_run')}
             figures.update(s.source_id for s in sources if s.source_kind in ('bio_insight_result_version','bio_insight_result_member') and s.content.get('kind')=='figure' and s.figures)
             if not set(claim.figure_refs)<=figures:raise invalid('research_fact_unresolved',422)
             if claim.review_decision=='adopt' and any(all_facts[f].verification_status in ('missing','conflict') for f in claim.fact_ids):

@@ -14,6 +14,12 @@ from app.adapters.bio_insights_engine.sandbox import enter
 from app.adapters.bio_insights_engine.figures import run_figure
 # iter_table loads this module lazily; preload trusted code before Landlock.
 import app.adapters.bio_insights_engine.tables
+import app.adapters.bio_insights_engine.quantitative_figures
+import app.adapters.bio_insights_engine.qpcr_figures
+import app.adapters.bio_insights_engine.microbiome_figures
+import app.adapters.bio_insights_engine.feature_figures
+import app.adapters.bio_insights_engine.integration_figures
+import app.adapters.bio_insights_engine.evidence_figures
 from app.adapters.bio_engine.manifest import Writer,canonical
 from app.domain.bio_insights.contracts import FigureConfig
 from app.domain.bio_insights.settings import BioInsightsLimits
@@ -36,6 +42,8 @@ def main():
         from PIL import Image
         Image.init();codecs.lookup('utf-8-sig')
         with tempfile.TemporaryDirectory(prefix='b04-render-warm-') as directory:warm_render_environment(Path(directory))
+        if payload['config'].get('figure_type','').startswith('microbiome_'):
+            import skbio
         actual=actual_identity()
         if actual!=payload['_runtime_identity'] or any(payload['identity'].get(k)!=actual[k] for k in ('engine_version','code_digest','environment_digest','lock_sha256')):
             raise RuntimeError('bio_insights_environment_unavailable')

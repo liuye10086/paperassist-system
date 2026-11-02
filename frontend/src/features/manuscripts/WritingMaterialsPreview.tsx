@@ -1,3 +1,4 @@
+import ReadableDetails from '../../shared/components/ReadableDetails'
 import {useEffect,useRef,useState} from 'react'
 import {useI18n,safeError} from '../../shared/i18n'
 import {onApiSessionChanged} from '../../shared/api/client'
@@ -11,5 +12,5 @@ export default function WritingMaterialsPreview({projectId,manuscriptId,revision
  const controller=useRef<AbortController|null>(null)
  useEffect(()=>{const stop=onApiSessionChanged(()=>{controller.current?.abort();setSession(false);setPreview(null)});return()=>{controller.current?.abort();stop()}},[])
  async function read(){if(controller.current||!session)return;const c=new AbortController();controller.current=c;setBusy(true);setError('');try{const value=await taskRequest(`${manuscriptBase(projectId)}/${encodeURIComponent(manuscriptId)}/versions/${revision}/writing-materials`,c,valid,'稿件资料读取失败，请刷新。');if(!c.signal.aborted)setPreview(value)}catch(cause){if(!c.signal.aborted)setError(safeError(cause,'稿件资料读取失败，请刷新。'))}finally{if(controller.current===c)controller.current=null;if(!c.signal.aborted)setBusy(false)}}
- return <section hidden={!active} aria-label={t('固定写作资料预览')}><button type="button" disabled={busy||!session} onClick={()=>void read()}>{t('查看固定写作资料')}</button><p>{t('仅预览所选版本资料，不代表执行授权。')}</p>{error&&<p role="alert">{t(error)}</p>}{preview&&<><p>SHA256 · {preview.materials_sha256}</p><pre>{JSON.stringify(preview.materials,null,2)}</pre></>}</section>
+ return <section hidden={!active} aria-label={t('固定写作资料预览')}><button type="button" disabled={busy||!session} onClick={()=>void read()}>{t('查看固定写作资料')}</button><p>{t('仅预览所选版本资料，不代表执行授权。')}</p>{error&&<p role="alert">{t(error)}</p>}{preview&&<><p>{t('所选写作资料版本已读取')}</p><ReadableDetails value={preview.materials}/></>}</section>
 }

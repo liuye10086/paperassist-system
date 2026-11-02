@@ -29,7 +29,8 @@ def test_pdf_migration_preserves_existing_rows_columns_and_indexes(client):
 
 def test_pdf_fk_and_typed_source_and_parent_constraints_and_downgrade_guard(client):
     path,source=successful_docx(client)
-    saved=client.post(path,json=dict(source_kind='manuscript_export',source_id=source['id'],request_key='pdf')).json()
+    from tests.helpers.historical_pdf_exports import historical_pdf
+    saved=historical_pdf(path,'manuscript_export',source['id'])
     for clause,args in (("source_kind='report'",()),("manuscript_export_id='missing',source_id='missing'",()),("parent_export_id='missing'",())):
         with pytest.raises(SQLAlchemyError):
             with database_connection(write=True) as db: db.execute('UPDATE pdf_exports SET '+clause+' WHERE id=%s',(*args,saved['id']))
@@ -45,7 +46,8 @@ def test_audit_rejects_rehashed_task_binding_drift(client):
     from app.domain.literature.service import digest
     from app.maintenance.pdf_export_audit import audit_pdf_exports
     path,source=successful_docx(client)
-    saved=client.post(path,json=dict(source_kind='manuscript_export',source_id=source['id'],request_key='pdf')).json()
+    from tests.helpers.historical_pdf_exports import historical_pdf
+    saved=historical_pdf(path,'manuscript_export',source['id'])
     with migration_connection(write=True) as db:
         row=db.execute('SELECT * FROM pdf_exports WHERE id=%s',(saved['id'],)).fetchone()
         changed=dict(row['input_json'],source_sha256='f'*64)

@@ -50,7 +50,7 @@ class LiveReviewService:
 
     def raw(self,db,project,identity,request_id):
         row,task=self.writing.row(db,project,identity,request_id)
-        if task['input_snapshot']['schema_version']!=2 or task['status']!='succeeded' or row['candidate_json'] is None:
+        if task['input_snapshot']['schema_version'] not in (2,4) or task['status']!='succeeded' or row['candidate_json'] is None:
             raise StorageError('manuscript_writing_review_required','需要成功的v2原始候选。',409)
         return row,task
 

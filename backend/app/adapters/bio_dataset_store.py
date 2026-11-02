@@ -109,6 +109,10 @@ class BioDatasetStore:
                 return member
             def index(key):
                 return json.loads(self.objects.read(record(key)))
+            if manifest.get('schema_version')==3:
+                from app.adapters.bio_tabular_reads import dense_preview
+                for frozen in manifest['members']:record(frozen['key'])
+                return dense_preview(manifest,[{**by_id[m['id']],'key':m['key']} for m in manifest['members']],self.objects,features_page,observations_page)
             axis=index('features_index')
             features=axis['feature_ids']
             if len(features)!=len(axis['feature_symbols']) or len(features)!=len(axis['feature_types']):
@@ -147,6 +151,7 @@ class BioDatasetStore:
         import json
         with self.store.connection() as db:
             version,manifest=self.require_version(db,project_id,dataset_id,version_id)
+            if manifest.get('schema_version')==3:raise conflict('bio_recipe_invalid')
             members=self.members(db,version)
             frozen={m['id']:m for m in manifest['members']}
             def read(member):

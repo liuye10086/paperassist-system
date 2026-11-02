@@ -7,10 +7,24 @@ import {emptyRequirement} from './state'
 import {STANDARD_REQUEST_TIMEOUT_MS} from '../../shared/api/requestTimeouts'
 vi.mock('../../shared/api/client',()=>({apiFetch:vi.fn(),onApiSessionChanged:()=>()=>{}}))
 afterEach(()=>{cleanup();vi.clearAllMocks();vi.useRealTimers()})
+it('continues only after the server saves requirements and passes the selected services',async()=>{
+ const onContinue=vi.fn(),content={...emptyRequirement(),services:['sci_draft']},version={id:'v1',version:1,operation:'save',content,sha256:'a'.repeat(64),created_at:'2026-11-02T00:00:00Z'}
+ let finish!:(response:Response)=>void
+ vi.mocked(apiFetch).mockImplementation(async(url,init)=>{
+  if(init?.method==='POST')return new Promise<Response>(resolve=>{finish=resolve})
+  if(String(url).endsWith('/research-intake'))return Response.json({revision:0,current_requirement:{...version},current_design:null,deliveries:[],capabilities:{},gaps:[]})
+  return Response.json(String(url).endsWith('/files')?[]:{items:[],total:0})
+ })
+ render(<ResearchIntake projectId="p1" active view="requirements" onContinue={onContinue}/>);await screen.findByText('当前为已保存的需求或设计版本。')
+ fireEvent.click(screen.getByRole('button',{name:'保存需求，进入写作'}));expect(onContinue).not.toHaveBeenCalled()
+ await act(async()=>finish(Response.json({revision:1,version,gaps:[]})))
+ expect(onContinue).toHaveBeenCalledWith(['sci_draft'])
+ expect(vi.mocked(apiFetch).mock.calls.filter(([,init])=>init?.method==='POST')).toHaveLength(1)
+})
 it('keeps a twenty-second save pending and accepts its confirmed version without another POST',async()=>{
  vi.useFakeTimers();let saved=false,signal!:AbortSignal;const root={project_id:'p1',revision:0,current_requirement:null,current_design:null,deliveries:[],capabilities:{},gaps:[]},version={id:'v1',version:1,operation:'save',content:{...emptyRequirement(),notes:'Slow retained draft'},sha256:'a'.repeat(64),created_at:'2026-10-30T00:00:00Z'}
  vi.mocked(apiFetch).mockImplementation(async(url,init)=>{if(init?.method==='POST'){signal=init.signal!;return new Promise<Response>((resolve,reject)=>{const timer=window.setTimeout(()=>{saved=true;resolve(Response.json({revision:1,version,gaps:[]}))},20000);signal.addEventListener('abort',()=>{window.clearTimeout(timer);reject(new DOMException('Aborted','AbortError'))},{once:true})})}if(String(url).endsWith('/research-intake'))return Response.json(saved?{...root,revision:1,current_requirement:version}:root);return Response.json(String(url).endsWith('/files')?[]:{items:[],total:0})})
- render(<ResearchIntake projectId="p1" active view="requirements"/>);await act(async()=>{});fireEvent.change(screen.getByLabelText('补充说明'),{target:{value:'Slow retained draft'}});fireEvent.click(screen.getByText('保存新版本'));await act(()=>vi.advanceTimersByTimeAsync(16000));expect(signal.aborted).toBe(false);expect(screen.getByRole('button',{name:'保存新版本'}).hasAttribute('disabled')).toBe(true);expect(screen.queryByText('核对保存结果')).toBeNull();await act(()=>vi.advanceTimersByTimeAsync(4000));expect(screen.getByText('已保存不可变版本。')).toBeDefined();expect((screen.getByLabelText('补充说明') as HTMLTextAreaElement).value).toBe('Slow retained draft');expect(vi.mocked(apiFetch).mock.calls.filter(([,init])=>init?.method==='POST')).toHaveLength(1)
+ render(<ResearchIntake projectId="p1" active view="requirements"/>);await act(async()=>{});fireEvent.change(screen.getByLabelText('补充说明'),{target:{value:'Slow retained draft'}});fireEvent.click(screen.getByText('保存新版本'));await act(()=>vi.advanceTimersByTimeAsync(16000));expect(signal.aborted).toBe(false);expect(screen.getByRole('button',{name:'保存新版本'}).hasAttribute('disabled')).toBe(true);expect(screen.queryByText('核对保存结果')).toBeNull();await act(()=>vi.advanceTimersByTimeAsync(4000));expect(screen.getByText('需求已保存。')).toBeDefined();expect((screen.getByLabelText('补充说明') as HTMLTextAreaElement).value).toBe('Slow retained draft');expect(vi.mocked(apiFetch).mock.calls.filter(([,init])=>init?.method==='POST')).toHaveLength(1)
 })
 it('retains the original save body and key after the final bound and explicit recovery read',async()=>{
  vi.useFakeTimers();let posts=0;const root={project_id:'p1',revision:0,current_requirement:null,current_design:null,deliveries:[],capabilities:{},gaps:[]},version={id:'v1',version:1,operation:'save',content:emptyRequirement(),sha256:'a'.repeat(64),created_at:'2026-10-30T00:00:00Z'}

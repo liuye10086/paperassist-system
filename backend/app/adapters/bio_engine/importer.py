@@ -27,9 +27,11 @@ def _unique(members,role,required=False):
     return sorted(selected,key=lambda m:(m.name,m.source_file_id or ''))[0]
 
 
-def _mtx(member,features,barcodes,limits):
+def _mtx(member,features,barcodes,limits,*,allow_real_integer=False):
     stream=io.BytesIO(member.content)
-    if stream.readline().strip()!=b'%%MatrixMarket matrix coordinate integer general':raise BioParseError('bio_matrix_invalid','matrix_market_header')
+    header=stream.readline().strip()
+    real=header==b'%%MatrixMarket matrix coordinate real general'
+    if header!=b'%%MatrixMarket matrix coordinate integer general' and not (allow_real_integer and real):raise BioParseError('bio_matrix_invalid','matrix_market_header')
     line=stream.readline()
     while line.startswith(b'%'):line=stream.readline()
     nf,no,nnz=_integers(line,3)
@@ -39,7 +41,18 @@ def _mtx(member,features,barcodes,limits):
     for line in stream:
         if not line.strip() or line.startswith(b'%'):continue
         if cursor>=nnz:raise BioParseError('bio_matrix_invalid','entry_count')
-        feature,observation,value=_integers(line,3);total+=value
+        if real:
+            from decimal import Decimal,InvalidOperation
+            fields=line.split()
+            if len(fields)!=3:raise BioParseError('bio_matrix_invalid','entry_columns')
+            feature,observation=_integers(b' '.join(fields[:2]),2)
+            try:
+                number=Decimal(fields[2].decode('ascii'))
+                if not number.is_finite() or number<0 or number!=number.to_integral_value() or number>np.iinfo(np.int64).max:raise ValueError()
+                value=int(number)
+            except (InvalidOperation,ValueError,UnicodeError):raise BioParseError('bio_matrix_invalid','integer_counts_required') from None
+        else:feature,observation,value=_integers(line,3)
+        total+=value
         if not 1<=feature<=nf or not 1<=observation<=no or total>np.iinfo(np.int64).max:raise BioParseError('bio_matrix_invalid','entry_bounds')
         keys[cursor]=(observation-1)*nf+feature-1;data[cursor]=value;cursor+=1
     if cursor!=nnz:raise BioParseError('bio_matrix_invalid','entry_count')
@@ -49,7 +62,9 @@ def _mtx(member,features,barcodes,limits):
     zeros=int((values==0).sum());nonzero=values!=0;unique=unique[nonzero];values=values[nonzero]
     indptr=np.zeros(no+1,dtype=np.int64);np.cumsum(np.bincount(unique//nf,minlength=no),out=indptr[1:])
     matrix=sparse.csr_matrix((values,(unique%nf).astype(np.int32),indptr),shape=(no,nf))
-    return matrix,{'input_entries':nnz,'canonical_entries':int(matrix.nnz),'duplicate_coordinates_merged':nnz-len(offsets),'explicit_zero_coordinates_removed':zeros}
+    attestation={'input_entries':nnz,'canonical_entries':int(matrix.nnz),'duplicate_coordinates_merged':nnz-len(offsets),'explicit_zero_coordinates_removed':zeros}
+    if allow_real_integer:attestation['real_integer_counts_converted']=real
+    return matrix,attestation
 
 
 def _export(matrix,features,barcodes,source):

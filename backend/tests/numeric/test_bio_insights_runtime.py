@@ -39,7 +39,7 @@ def test_fitting_gsea_rendering_and_kernel_isolation():
     assert report['isolation'] == {'network': 'denied', 'file': 'denied', 'fork': 'denied', 'subprocess': 'denied'}
     assert report['numeric_threads'] == report['warm_threads'] == 1
     assert report['checks']['aggregation'] and report['checks']['deseq2_fit'] and report['checks']['gsea']
-    assert report['checks']['png_bytes'] > 1000 and report['checks']['pdf_bytes'] > 1000
+    assert report['checks']['png_bytes'] > 1000 and report['checks']['render_formats'] == ['png']
     assert report['peak_rss_kib'] < 2 * 1024**2
     assert len(report['lock_sha256']) == len(report['code_digest']) == 64
     assert report['limits']['cpu_seconds'] == 1500

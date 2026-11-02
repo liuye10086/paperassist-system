@@ -1,10 +1,11 @@
+import {isStatisticsRoles,type StatisticsRoles} from './statisticsRoles'
 import {object,exact,validComparisonGroup,groupIdentity,type ComparisonGroup} from './analysisSelection'
 
 export type ModelMethod='ols'|'logistic'|'roc_auc'|'kaplan_meier'
 
 export const modelMethods:Record<ModelMethod,string>={ols:'OLS 线性回归',logistic:'二元 Logistic 回归',roc_auc:'ROC / AUC',kaplan_meier:'Kaplan–Meier 生存分析'}
 
-type Base={sheet_name:string;missing_policy:'complete_cases';assumptions:{independent_units:boolean;inference_confirmed:boolean}}
+type Base={data_roles?:StatisticsRoles;sheet_name:string;missing_policy:'complete_cases';assumptions:{independent_units:boolean;inference_confirmed:boolean}}
 
 export type Covariate={column:string;type:'continuous'|'categorical';unit:string;levels:ComparisonGroup[];reference:ComparisonGroup|null}
 
@@ -29,6 +30,7 @@ const groups=(v:unknown,min=0)=>Array.isArray(v)&&v.length>=min&&v.length<=6&&v.
 export function modelColumns(v:ModelSelection):string[]{return (v.task_type==='regression'?[v.outcome_column,...v.covariates.map(c=>c.column),v.id_column]:v.task_type==='roc'?[v.outcome_column,v.score_column]:[v.id_column,v.time_column,v.status_column,v.group_column]).filter((c):c is string=>c!==null)}
 
 export function isModelSelection(v:unknown):v is ModelSelection{
+ if(object(v)&&Object.hasOwn(v,'data_roles')){if(!isStatisticsRoles(v.data_roles))return false;const {data_roles,...plain}=v;void data_roles;return isModelSelection(plain)}
 
  if(!object(v)||!['regression','roc','survival'].includes(String(v.task_type))||!object(v.assumptions)||!exact(v.assumptions,['independent_units','inference_confirmed'])||!Object.values(v.assumptions).every(x=>typeof x==='boolean')||typeof v.sheet_name!=='string'||!v.sheet_name||v.missing_policy!=='complete_cases')return false
 

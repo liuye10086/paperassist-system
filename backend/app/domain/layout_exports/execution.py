@@ -34,14 +34,14 @@ def run_layout_task(task_id,task_revision,*,config=None,directory=None):
             row=service.row(db,task['project_id'],task['input_snapshot']['export_id'])
             if row['task_id']!=task_id: raise source_conflict()
             raw=service.verify_source(db,row)
-            if renderer_identity()!=row['renderer_identity']: raise StorageError('pdf_renderer_mismatch','PDF转换环境与冻结身份不符。',409)
+            if renderer_identity()!=row['renderer_identity']: raise StorageError('pdf_renderer_mismatch','Word 字段计算环境与冻结身份不符。',409)
             restored=candidates.restore(db,execution.assets.directory,task,lease)
         if restored:
             metadata,content,target=restored
         else:
             from app.domain.document_layout import LayoutOptions
             content=prepare_layout_docx(raw,LayoutOptions.model_validate(row['input_json']['layout']),language=row['input_json']['output_language'])
-            if not isinstance(content,bytes) or not content.startswith(b'PK') or len(content)>100*1024*1024: raise StorageError('pdf_conversion_failed','PDF转换输出无效。',422)
+            if not isinstance(content,bytes) or not content.startswith(b'PK') or len(content)>100*1024*1024: raise StorageError('pdf_conversion_failed','Word 排版输出无效。',422)
             service.directory.mkdir(parents=True,exist_ok=True)
             object_name=row['id']+'-'+lease.lease_owner+'.docx'
             staged=service.directory/(object_name+'.part');target=service.directory/object_name

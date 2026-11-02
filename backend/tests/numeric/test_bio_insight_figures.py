@@ -26,7 +26,7 @@ def test_volcano_writes_all_formats_and_keeps_original_zero_na(tmp_path):
     payload=fixture(tmp_path);output=tmp_path/'out';output.mkdir();writer=Writer(output)
     result=run_figure(payload,writer)
     assert result['inference_scope']=='visualization' and result['methods']['upstream_inference_scope']=='spot_exploratory'
-    assert {'png','tiff','svg','pdf'}<={r['format'] for r in writer.artifacts}
+    assert {'png','tiff','svg'}<={r['format'] for r in writer.artifacts}
     data=json.loads((output/'plot_data.json').read_text())
     assert data['rows'][0]['q_value']==0 and data['rows'][0]['display_neg_log10_q']==300
     assert any(r['feature_id']=='G3' and r['q_value'] is None for r in data['rows'])

@@ -313,7 +313,13 @@ def validate_snapshot(task):
         common={'schema_version','kind','workflow_version','project_id','engine_version','environment_digest','code_digest','output_language','limits'}
         if task['task_type']=='bio_analysis':
             fields={'run_id','setup_id','recipe_version_id','expected_setup_revision','raw_source','params','observation_map_version_id','design_version_id'}
-            BioRecipeParameters.model_validate(value['params'])
+            if value.get('workflow_version')=='bio_analysis_v2':
+                from .tabular_contracts import TabularRecipeParameters
+                TabularRecipeParameters.model_validate(value['params'])
+            elif value.get('workflow_version')=='bio_analysis_v3':
+                from .single_cell_contracts import SingleCellParameters
+                SingleCellParameters.model_validate(value['params'])
+            else:BioRecipeParameters.model_validate(value['params'])
             source=BioDatasetSourceV1.model_validate(value['raw_source'])
             if type(value['expected_setup_revision']) is not int or value['expected_setup_revision']<1:raise ValueError('Invalid revision')
         elif task['task_type']=='bio_figure':
@@ -322,11 +328,12 @@ def validate_snapshot(task):
             source=BioProcessedDatasetSourceV1.model_validate(value['processed_source'])
         else:raise ValueError('Invalid task type')
         BioAnalysisLimits.model_validate(value['limits'])
-        expected=WORKFLOW_VERSION if task['task_type']=='bio_analysis' else FIGURE_WORKFLOW_VERSION
+        expected=(value['workflow_version'] if value.get('workflow_version') in ('bio_analysis_v2','bio_analysis_v3') else WORKFLOW_VERSION) if task['task_type']=='bio_analysis' else FIGURE_WORKFLOW_VERSION
+        expected_engine='tabular_quantitative_v1.0.0' if expected=='bio_analysis_v2' else ENGINE_VERSION
         if (set(value)!=common|fields or type(value['schema_version']) is not int or value['schema_version']!=1
             or value['kind']!=task['task_type'] or value['workflow_version']!=expected or task['workflow_version']!=expected
             or value['project_id']!=task['project_id'] or source.project_id!=task['project_id']
-            or value['engine_version']!=ENGINE_VERSION or task['input_digest']!=digest(value)):
+            or value['engine_version']!=expected_engine or task['input_digest']!=digest(value)):
             raise ValueError('Frozen analysis identity differs')
         import re
         if any(not isinstance(value[k],str) or not re.fullmatch('[0-9a-f]{64}',value[k]) for k in ('environment_digest','code_digest')):
@@ -338,6 +345,8 @@ def validate_snapshot(task):
 
 def input_version(task):
     value=validate_snapshot(task)
+    if task['task_type']=='bio_analysis' and value['workflow_version'] in ('bio_analysis_v2','bio_analysis_v3'):
+        return {key:value[key] for key in ('schema_version','kind','run_id','recipe_version_id','raw_source','workflow_version','engine_version','environment_digest','output_language')}
     if task['task_type']=='bio_analysis':
         return BioAnalysisInputVersion(**{key:value[key] for key in ('run_id','recipe_version_id','raw_source','engine_version','environment_digest','output_language')}).model_dump(mode='json')
     return BioFigureInputVersion(**{key:value[key] for key in ('figure_version_id','processed_source','output_language')}).model_dump(mode='json')

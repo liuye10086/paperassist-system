@@ -111,7 +111,7 @@ def test_research_version_exports_and_enters_existing_writing_and_review(client,
     from app.domain.manuscripts.execution import run_manuscript_task
     assert run_manuscript_task(exported.json()['task_id'],1)['status']=='succeeded'
     pdf=client.post(base+'/pdf-exports',json=dict(source_kind='manuscript_export',source_id=exported.json()['id'],request_key='research-project-pdf'))
-    assert pdf.status_code==201,pdf.text
+    assert pdf.status_code==405,pdf.text
     preview=client.post(endpoint+'/writing-previews',json=dict(schema_version=2,output_language='zh-CN',base_revision=1,mode='full_draft',selected_source_ids=[finding['id']],selected_evidence_ids=[]),headers={'Idempotency-Key':'preview'})
     assert preview.status_code==201,preview.text
     context=client.get(endpoint+'/reviews/context')

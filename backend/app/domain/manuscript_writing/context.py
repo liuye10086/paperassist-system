@@ -31,6 +31,25 @@ def literature_paragraphs(snapshot):
     return result
 
 
+def citation_prose(snapshot,paragraph):
+    """Exact pre-rendered fragments only; never infer citation marks by regex.
+
+    Reuse the existing frozen citation/output projection to locate the same
+    reviewed display text and bindings, even after its local paragraph ID was
+    mapped by a writing review. Parenthesized scientific numbers in the claim
+    remain part of the text fragments.
+    """
+    matches=[p for p in literature_paragraphs(snapshot) if p['text']==paragraph['text'] and p['citations']==paragraph.get('citations')]
+    mapped={paragraph['id'],'literature:'+paragraph['id'],'literature:p_'+digest(paragraph['id'])}
+    saved=[p for p in matches if p['id'] in mapped] or matches
+    if len(saved)!=1:raise ValueError('Cited prose requires one exact frozen citation context')
+    identity=saved[0]['id'].removeprefix('literature:')
+    source=next(p for p in snapshot['citation_snapshot']['paragraphs'] if p['id']==identity)
+    fragments=source['fragments']
+    if any(not isinstance(f.get('text'),str) for f in fragments):raise ValueError('Cited prose lacks frozen pre-citation text')
+    return ''.join(f['text'] for f in fragments)
+
+
 def normalize_sections(snapshot):
     if snapshot.get('thesis_context'):
         from app.domain.manuscripts.school import CHAPTER_FIELDS, validate_chapters
@@ -41,7 +60,12 @@ def normalize_sections(snapshot):
         return sections
     if 'sections' in snapshot:
         sections=deepcopy(snapshot['sections'])
-        if [s['id'] for s in sections] != list(SECTION_IDS):
+        expected=SECTION_IDS
+        if snapshot.get('article_structure_version') is not None:
+            from .article_contract import VERSION,STRUCTURES
+            if snapshot['article_structure_version']!=VERSION or snapshot.get('article_type') not in STRUCTURES:raise ValueError('Invalid frozen article structure')
+            expected=STRUCTURES[snapshot['article_type']]
+        if [s['id'] for s in sections] != list(expected):
             raise ValueError('Invalid frozen sections')
         return sections
     paragraphs={key:[] for key in SECTION_IDS}

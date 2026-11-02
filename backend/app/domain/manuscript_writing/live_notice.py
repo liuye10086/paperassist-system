@@ -15,8 +15,11 @@ def update_notice(candidate, request, *, reviewed=False):
     if request['mode'] == 'full_draft':
         scope = ('Full manuscript candidate: title, abstract, introduction, results, discussion, materials and methods; references managed by the server.' if en else
                  '完整稿候选：标题、摘要、引言、结果、讨论、材料与方法；参考文献由服务器管理。')
+        if request.get('schema_version')==4:
+            scope=('Full manuscript candidate; article-specific structure and references are server-managed.' if en else '完整稿候选；采用选定文章结构，参考文献由服务器管理。')
     else:
-        section = SECTION_NAMES[request['target_section']][0 if en else 1]
+        target=request.get('target_section') or ', '.join(request.get('target_sections') or [])
+        section = SECTION_NAMES.get(target,(target,target))[0 if en else 1]
         scope = (f'Single-section rewrite candidate: {section}; other sections preserved.' if en else
                  f'单章重写候选：{section}；其他章节保留。')
     if provenance == 'synthetic_fixture':

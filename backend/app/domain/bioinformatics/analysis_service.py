@@ -38,7 +38,13 @@ class BioAnalysisService(BioAnalysisStore):
         snapshot=validate_snapshot(task);project=task['project_id']
         self.store.require_project(db,project)
         if runtime:
-            environment=runtime_identity()
+            if snapshot['workflow_version']=='bio_analysis_v2':
+                from .tabular_settings import runtime_identity as tabular_runtime
+                environment=tabular_runtime()
+            elif snapshot['workflow_version']=='bio_analysis_v3':
+                from .single_cell_settings import runtime_identity as cell_runtime
+                environment=cell_runtime()
+            else:environment=runtime_identity()
             if not environment['available']:raise error('bio_environment_unavailable')
             if any(snapshot[k]!=environment[k] for k in ('engine_version','environment_digest','code_digest')):raise conflict('bio_input_integrity_changed')
         if task['task_type']=='bio_figure':
@@ -58,6 +64,16 @@ class BioAnalysisService(BioAnalysisStore):
             config=snapshot['params'] if task['task_type']=='bio_analysis' else snapshot['config'],
             identity=dict(raw_source=raw_source,recipe_version_id=snapshot.get('recipe_version_id') or snapshot['processed_source']['recipe_version_id'],
                 environment_digest=snapshot['environment_digest'],code_digest=snapshot['code_digest']))
+        if snapshot['workflow_version']=='bio_analysis_v3':
+            design=self.design(db,project,snapshot['design_version_id'])
+            payload['identity']['design_confirmed']=bool(design and snapshot['params'].get('donor_design_confirmed') and snapshot['params'].get('independence_basis'))
+            payload['identity']['design_version_id']=snapshot['design_version_id']
+            for label in snapshot['params'].get('cell_labels',[]):
+                for file_id in label['evidence_file_ids']:
+                    file=db.execute('SELECT * FROM files WHERE id=%s AND project_id=%s',(file_id,project)).fetchone()
+                    if not file or file['sha256']!=label['evidence_file_sha256'].get(file_id):raise conflict('bio_input_integrity_changed')
+                    self.assets.original(dict(file))
+        if snapshot['workflow_version']=='bio_analysis_v2':payload['identity']['engine_version']=snapshot['engine_version']
         if task['task_type']=='bio_analysis' and snapshot['observation_map_version_id']:
             mapping=self.require(db,'bio_observation_map_versions',project,snapshot['observation_map_version_id'])
             if mapping['raw_dataset_version_id']!=raw['id'] or mapping['design_version_id']!=snapshot['design_version_id']:raise conflict('bio_input_integrity_changed')
@@ -92,9 +108,16 @@ class BioAnalysisService(BioAnalysisStore):
             root=self.require(db,'bio_analysis_setups',project,recipe['setup_id'])
             if root['revision']!=request.expected_setup_revision or recipe['raw_dataset_version_id']!=request.raw_source.dataset_version_id:raise conflict('bio_revision_conflict')
             self.raw(db,project,request.raw_source)
-        runtime=runtime_identity()
+        tabular=recipe['recipe_code']=='tabular_quantitative_v1'
+        if tabular:
+            from .tabular_settings import runtime_identity as tabular_runtime
+            runtime=tabular_runtime()
+        elif recipe['recipe_code']=='single_cell_explore_v1':
+            from .single_cell_settings import runtime_identity as cell_runtime
+            runtime=cell_runtime()
+        else:runtime=runtime_identity()
         if not runtime['available']:raise error('bio_environment_unavailable')
-        snapshot=dict(schema_version=1,kind='bio_analysis',workflow_version='bio_analysis_v1',project_id=project,run_id=identifier,
+        snapshot=dict(schema_version=1,kind='bio_analysis',workflow_version='bio_analysis_v2' if tabular else 'bio_analysis_v3' if recipe['recipe_code']=='single_cell_explore_v1' else 'bio_analysis_v1',project_id=project,run_id=identifier,
             setup_id=recipe['setup_id'],recipe_version_id=recipe['id'],expected_setup_revision=request.expected_setup_revision,
             raw_source=request.raw_source.model_dump(),params=recipe['params_json'],observation_map_version_id=recipe['observation_map_version_id'],design_version_id=recipe['design_version_id'],
             engine_version=runtime['engine_version'],environment_digest=runtime['environment_digest'],code_digest=runtime['code_digest'],
@@ -112,7 +135,7 @@ class BioAnalysisService(BioAnalysisStore):
             self.raw(db,project,request.raw_source)
             objects=self.settle_documents(db,project,records,reservations);moment=now()
             task=dict(id=task_id,project_id=project,user_id=self.store.user_id,task_type='bio_analysis',idempotency_key='bio_analysis:'+task_id,
-                input_digest=digest(snapshot),input_snapshot=snapshot,workflow_version='bio_analysis_v1',status='queued',phase='parse',revision=1,current_attempt=0,
+                input_digest=digest(snapshot),input_snapshot=snapshot,workflow_version=snapshot['workflow_version'],status='queued',phase='parse',revision=1,current_attempt=0,
                 reason_code=None,created_at=moment,updated_at=moment)
             self.store.insert_task(db,task,validated_file_ids=request.raw_source.source_file_ids)
             insert(db,'bio_analysis_runs',{**base_row(identifier,project,self.store.user_id),'raw_dataset_version_id':request.raw_source.dataset_version_id,

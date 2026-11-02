@@ -5,7 +5,7 @@ import hashlib
 from app.adapters.bio_insights_store import BioInsightsStore,identity,invalid,now
 from app.domain.bioinformatics.service import require_key
 
-EXTENSIONS=('.gaf','.obo','.gmt','.tsv','.csv','.gaf.gz','.obo.gz','.gmt.gz','.tsv.gz')
+EXTENSIONS=('.json','.html','.xml','.cif','.cif.gz','.fasta','.pdb','.mmcif','.fasta.gz','.pdb.gz','.mmcif.gz','.gaf','.obo','.gmt','.tsv','.csv','.gaf.gz','.obo.gz','.gmt.gz','.tsv.gz')
 
 
 class BioResourceUploadService(BioInsightsStore):
@@ -28,6 +28,11 @@ class BioResourceUploadService(BioInsightsStore):
             raise invalid('bio_insight_file_invalid',422)
         if not filename.lower().endswith(EXTENSIONS):raise invalid('bio_insight_file_unsupported',422)
         if not 0<len(content)<=268435456:raise invalid('bio_insight_file_limit_exceeded',413)
+        if filename.lower().endswith(('.html','.xml')) and len(content)>8*1024*1024:raise invalid('bio_insight_file_limit_exceeded',413)
+        if filename.lower().endswith('.json'):
+            from .evidence_contracts import validate_support_document
+            try:validate_support_document(content)
+            except (ValueError,TypeError,AttributeError,UnicodeError) as exc:raise invalid('bio_insight_file_invalid',422) from exc
         operation=identity(project,'resource-upload',key)
         with self.store.connection(write=True) as db:
             self.lock(db,project,'resource-upload:'+key)

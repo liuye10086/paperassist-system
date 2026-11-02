@@ -22,6 +22,7 @@ import ProjectTasks from '../tasks/ProjectTasks'
 import ProjectList, { type ProjectListQuery } from './ProjectList'
 import WorkspaceShell, { WorkspaceIcon, type WorkspaceView, type ProjectSection } from './WorkspaceShell'
 import ProjectCreateDialog from './ProjectCreateDialog'
+import ProjectJourney, { ProjectResultActions } from './ProjectJourney'
 import useProjectSelection from './useProjectSelection'
 import { PROJECT_PAGE_SIZE, isProject, type Project, type ProjectPage } from './projectTypes'
 import { apiError, safeError, useI18n } from '../../shared/i18n'
@@ -36,6 +37,7 @@ export default function ProjectWorkspace() {
   const [schoolRevision,setSchoolRevision]=useState(0)
   const [navigationSequence, setNavigationSequence] = useState(0)
   const [showCreate, setShowCreate] = useState(false)
+  const [writingChoice, setWritingChoice] = useState<{projectId:string;kind:'sci_draft'|'thesis_draft';awaitingServices?:boolean} | null>(null)
   const [projects, setProjects] = useState<Project[]>([])
   const [total, setTotal] = useState(0)
   const [query, setQuery] = useState<ProjectListQuery>({ page: 1, q: '', type: '' })
@@ -199,7 +201,7 @@ export default function ProjectWorkspace() {
       if (!controller.signal.aborted) {
         if (!isProject(created)) throw new Error('项目响应格式不正确，请刷新项目列表。')
         setProjects([created])
-        selection.open(created.id, created)
+        selection.open(created.id, created, true)
         setSearchDraft('')
         changeQuery({ ...query, page: 1, q: '', type: '' })
         setName('')
@@ -221,6 +223,11 @@ export default function ProjectWorkspace() {
   }
 
   const recentProject = view === 'home' && !query.q && !query.type && query.page === 1 && !loadError ? projects[0] : undefined
+  function continueWriting(kind:'sci_draft'|'thesis_draft') {
+    if (!project) return
+    setWritingChoice({projectId:project.id,kind})
+    selection.selectManuscriptView(project.project_type === 'research' ? 'research-selection' : 'materials')
+  }
 
   return <WorkspaceShell view={view} onNavigate={navigate} onCreate={() => setShowCreate(true)} projectName={project?.name} projectType={project?.project_type}
     section={section} onSectionChange={changeSection} onCurrentProject={() => navigate('project')}>
@@ -230,6 +237,7 @@ export default function ProjectWorkspace() {
       <h1 id="projects-title">{t("项目中心")}</h1><p>{t(view === 'home' ? '把研究资料、分析过程和成果，放在同一个地方。' : '通过名称和类型，找到你需要的研究。')}</p></div>
       <button type="button" className="button-primary" aria-label={t('开始一项新研究')} onClick={() => setShowCreate(true)}><WorkspaceIcon name="plus" />{t('新建项目')}</button>
     </div>
+    {view === 'home' && <section className="welcome-workflow" aria-label={t('从这里开始')}><div><span className="workspace-eyebrow">{t('从一份资料，到一份成果')}</span><h2>{t('一步一步，完成你的研究')}</h2><p>{t('告诉我们你需要什么，按提示上传资料和选择分析内容。只做分析也可以，写论文由你决定。')}</p></div><ol><li>{t('新建项目，填写研究主题')}</li><li>{t('上传数据、报告或图片')}</li><li>{t('按模块勾选需要的分析与成果')}</li><li>{t('查看结果，选择结束或继续写作')}</li></ol></section>}
     {recentProject && <section className="continue-research" aria-label={t('最近更新的研究')}>
       <div className="continue-research-icon" aria-hidden="true"><WorkspaceIcon name="file" /></div>
       <div className="continue-research-copy"><span className="workspace-eyebrow">{t('最近更新的研究')}</span><h2>{recentProject.name}</h2>
@@ -244,13 +252,14 @@ export default function ProjectWorkspace() {
     {showCreate && <ProjectCreateDialog busy={creating} onClose={() => setShowCreate(false)}>
     <form className="project-form" onSubmit={create} aria-busy={creating}>
       <div className="project-fields">
-        <label>{t("项目名称")}<input value={name} onChange={event => setName(event.target.value)} required maxLength={120} disabled={creating||createUnknown} /></label>
-        <label>{t("项目类型")}<select value={projectType} onChange={event => setProjectType(event.target.value as '' | 'sci' | 'thesis' | 'research')} required disabled={creating||createUnknown}>
+        <label>{t("项目名称")}<input placeholder={t('例如：药物干预后的表达变化研究')} value={name} onChange={event => setName(event.target.value)} required maxLength={120} disabled={creating||createUnknown} /></label>
+        <details className="customer-extra-options"><summary>{t('其他项目类型')}</summary><label>{t("项目类型")}<select value={projectType} onChange={event => setProjectType(event.target.value as '' | 'sci' | 'thesis' | 'research')} required disabled={creating||createUnknown}>
           <option value="research">{t('研究项目')}</option><option value="">{t("请选择项目类型")}</option><option value="sci">{t("SCI 科研论文")}</option><option value="thesis">{t("毕业论文")}</option>
-        </select></label>
+        </select></label></details>
       </div>
-      {projectType==='research'&&<fieldset disabled={creating||createUnknown}><legend>{t('所需服务')}</legend>{(Object.keys(deliveryLabels) as DeliveryKind[]).map(kind=><label key={kind}><input type="checkbox" checked={deliveryKinds.includes(kind)} onChange={e=>setDeliveryKinds(e.target.checked?[...deliveryKinds,kind]:deliveryKinds.filter(k=>k!==kind))}/>{t(deliveryLabels[kind])}</label>)}<p>{t('SCI 和毕业论文交付可从固定研究成果生成结果与方法事实候选。')}</p></fieldset>}
-      <label>{t("研究主题")}<textarea value={topic} onChange={event => setTopic(event.target.value)} required maxLength={500} rows={2} disabled={creating||createUnknown} /></label>
+      {projectType==='research'&&<fieldset className="create-service-options" disabled={creating||createUnknown}><legend>{t('所需服务')}</legend>{(Object.keys(deliveryLabels) as DeliveryKind[]).map(kind=><label key={kind}><input type="checkbox" checked={deliveryKinds.includes(kind)} onChange={e=>setDeliveryKinds(e.target.checked?[...deliveryKinds,kind]:deliveryKinds.filter(k=>k!==kind))}/>{t(deliveryLabels[kind])}</label>)}<p>{t('可以多选，也可以先做分析，之后再添加论文写作。')}</p></fieldset>}
+      <label>{t("研究主题")}<textarea placeholder={t('用一句话描述你想研究什么，或比较哪些差异。')} value={topic} onChange={event => setTopic(event.target.value)} required maxLength={500} rows={3} disabled={creating||createUnknown} /></label>
+      <p className="muted">{t('创建后进入文件上传，详细需求稍后按步骤填写。')}</p>
       {createError && <p className="error-panel" role="alert">{t(createError)}</p>}
       <div className="project-form-actions"><button type="submit" className="button-primary" disabled={creating}>{creating ? t("正在创建……") : t(createUnknown?'核对创建结果':'创建项目')}</button>
         <button type="button" disabled={creating} onClick={() => setShowCreate(false)}>{t('取消创建')}</button></div>
@@ -271,8 +280,10 @@ export default function ProjectWorkspace() {
         <header className="project-page-heading">
           <h1>{project.name}</h1><p>{project.research_topic}</p>
         </header>
+        <ProjectJourney project={project} section={section} overviewView={overviewView} onOverview={selection.changeOverviewView} onUpload={()=>selection.selectResource({view:'upload',fileId:''})} onAnalysis={()=>selection.selectAnalysis({view:'overview',fileId:selection.analysisNavigation.fileId})} onResults={()=>selection.selectArtifact({view:'list',artifactId:'',kind:'',page:1})}/>
+        {section === 'artifacts' && <ProjectResultActions projectType={project.project_type} onWriting={continueWriting} onExit={closeProject}/>}
         <div hidden={section !== 'overview'}>
-          <ProjectOverview project={project} view={overviewView} onViewChange={selection.changeOverviewView} onNavigate={changeSection} />
+          <div hidden={['requirements','design','deliveries'].includes(overviewView)}><ProjectOverview project={project} view={overviewView} onViewChange={selection.changeOverviewView} onNavigate={changeSection} /></div>
           <div className="project-overview-panel" hidden={overviewView !== 'settings'}>
             <ProjectDetails project={project} onUpdated={updated} showHeading={false} registerLeaveGuard={selection.registerLeaveGuard} />
           </div>
@@ -283,7 +294,7 @@ export default function ProjectWorkspace() {
         </div>
         {project.project_type === 'thesis' && <SchoolTemplates navigation={selection.schoolTemplateNavigation} onNavigate={selection.selectSchoolTemplate} registerLeaveGuard={selection.registerLeaveGuard} projectId={project.id} onChanged={()=>setSchoolRevision(value=>value+1)} active={view === 'project' && section === 'school-templates'} />}
         {project.project_type==='research'&&['reviews','journals'].includes(section)&&<section className="warning-panel"><h2>{t('已登记，当前流程未开放')}</h2><p>{t('研究项目的期刊和独立意见修改入口仍未开放，请使用已发布稿件的受控写作流程。')}</p><button type="button" onClick={()=>selection.changeOverviewView('deliveries')}>{t('交付登记')}</button></section>}
-        <ResearchIntake projectId={project.id} view={overviewView} active={view==='project'&&section==='overview'&&['requirements','deliveries','design'].includes(overviewView)} registerLeaveGuard={selection.registerLeaveGuard}/>
+        <ResearchIntake continueLabel={writingChoice?.projectId===project.id&&writingChoice.awaitingServices?'保存需求并继续':undefined} onContinue={services=>{if(writingChoice?.projectId===project.id&&writingChoice.awaitingServices&&services.includes(writingChoice.kind)){continueWriting(writingChoice.kind)}else if(services.includes('analysis')){setWritingChoice(null);selection.selectAnalysis({view:'overview',fileId:selection.analysisNavigation.fileId})}else{continueWriting(services.includes('sci_draft')?'sci_draft':'thesis_draft')}}} deliveryId={selection.deliveryId} snapshotId={selection.deliverySnapshotId} onDeliverySelect={selection.selectDelivery} projectId={project.id} view={overviewView} active={view==='project'&&section==='overview'&&['requirements','deliveries','design'].includes(overviewView)} registerLeaveGuard={selection.registerLeaveGuard}/>
         <ProjectModelUsage layered projectId={project.id} active={view === 'project' && section === 'overview' && overviewView === 'usage'} />
         {project.project_type!=='research'&&<ReviewsWorkspace view={selection.reviewView} selectedItemId={selection.reviewItemId} onViewChange={selection.selectReviewView} onSelectItem={selection.selectReviewItem} onSelectRun={selection.selectReviewRun} onSelectDocument={selection.selectReviewDocument} registerLeaveGuard={selection.registerLeaveGuard} projectId={project.id} projectType={project.project_type} active={view==='project'&&section==='reviews'} roundId={selection.reviewLink.round} initialManuscript={selection.reviewLink.manuscript} initialRevision={selection.reviewLink.revision} initialRun={selection.reviewLink.run} initialDocument={selection.reviewLink.document} onSelectRound={selection.selectRound} onOpenTask={selection.selectTask}/>}
         {project.project_type!=='research'&&<ProjectManuscripts view={selection.manuscriptView} onViewChange={selection.selectManuscriptView} onSelectVersion={selection.selectManuscriptVersion} registerLeaveGuard={selection.registerLeaveGuard} initialManuscript={selection.manuscriptLink.id} initialRevision={selection.manuscriptLink.revision} projectType={project.project_type} projectId={project.id} researchTopic={project.research_topic} outputLanguage={project.default_output_language??'zh-CN'} active={view==='project'&&section==='manuscripts'} onOpenTask={selection.selectTask} onOpenLiterature={()=>selection.selectLiterature('')}/>}
@@ -291,9 +302,9 @@ export default function ProjectWorkspace() {
         <ProjectTasks detailView={selection.taskDetailView} onDetailViewChange={selection.selectTaskDetailView} registerLeaveGuard={selection.registerLeaveGuard} onOpenJournals={()=>changeSection('journals')} onOpenManuscripts={()=>changeSection('manuscripts')} onOpenFiles={() => changeSection('files')} projectId={project.id} active={view === 'project' && section === 'tasks'}
           selectedTaskId={selection.taskId} onSelectTask={selection.selectTask} onOpenLiterature={selection.selectLiterature} />
         <ProjectLiterature projectId={project.id} researchTopic={project.research_topic} outputLanguage={project.default_output_language??'zh-CN'} active={view==='project'&&section==='literature'} initialSearchId={selection.literatureSearchId} onSearchChange={selection.selectLiterature} onOpenTask={selection.selectTask} literatureNavigation={selection.literatureNavigation} onLiteratureNavigate={selection.selectLiteratureView} registerLeaveGuard={selection.registerLeaveGuard}/>
-        <ResearchWorkspace projectId={project.id} projectType={project.project_type} active={view==='project'} section={section} analysis={selection.analysisNavigation} artifact={selection.artifactNavigation} manuscriptView={selection.manuscriptView} candidateId={selection.researchCandidateId} manuscriptId={selection.manuscriptLink.id} revision={selection.manuscriptLink.revision} onAnalysis={selection.selectAnalysis} onArtifact={selection.selectArtifact} onManuscriptView={selection.selectManuscriptView} onCandidate={selection.selectResearchCandidate} onPublished={(id,revision)=>{selection.selectManuscriptVersion(id,revision);selection.selectManuscriptView('body')}} registerLeaveGuard={selection.registerLeaveGuard} schoolNavigation={selection.schoolTemplateNavigation} onSchoolNavigate={selection.selectSchoolTemplate}/>
-        <ProjectResources analysisNavigation={selection.analysisNavigation} onAnalysisNavigate={selection.selectAnalysis} projectId={project.id} active={view === 'project'} section={section} onSectionChange={changeSection} onSaved={() => { refresh(); selection.refresh() }} resourceNavigation={selection.resourceNavigation} onResourceNavigate={selection.selectResource} registerLeaveGuard={selection.registerLeaveGuard} />
-      </div></ProjectWritingScope>}
+        <ResearchWorkspace preferredDeliveryKind={writingChoice?.projectId===project.id?writingChoice.kind:undefined} onManageServices={()=>{setWritingChoice(previous=>previous?.projectId===project.id?{...previous,awaitingServices:true}:previous);selection.changeOverviewView('requirements')}} projectId={project.id} projectType={project.project_type} active={view==='project'} section={section} analysis={selection.analysisNavigation} artifact={selection.artifactNavigation} manuscriptView={selection.manuscriptView} candidateId={selection.researchCandidateId} manuscriptId={selection.manuscriptLink.id} revision={selection.manuscriptLink.revision} onAnalysis={selection.selectAnalysis} onArtifact={selection.selectArtifact} onManuscriptView={selection.selectManuscriptView} onCandidate={selection.selectResearchCandidate} onPublished={(id,revision)=>{selection.selectManuscriptVersion(id,revision);selection.selectManuscriptView('body')}} registerLeaveGuard={selection.registerLeaveGuard} schoolNavigation={selection.schoolTemplateNavigation} onSchoolNavigate={selection.selectSchoolTemplate}/>
+        <ProjectResources onRequirements={()=>selection.changeOverviewView('requirements')} analysisNavigation={selection.analysisNavigation} onAnalysisNavigate={selection.selectAnalysis} projectId={project.id} active={view === 'project'} section={section} onSectionChange={changeSection} onSaved={() => { refresh(); selection.refresh() }} resourceNavigation={selection.resourceNavigation} onResourceNavigate={selection.selectResource} registerLeaveGuard={selection.registerLeaveGuard} />
+      {section==='analysis'&&<div className="journey-actions"><button type="button" onClick={()=>selection.selectArtifact({view:'list',artifactId:'',kind:'',page:1})}>{t('下一步：查看结果与下载')} →</button></div>}</div></ProjectWritingScope>}
     </section>}
   </div>
   </WorkspaceShell>

@@ -20,8 +20,22 @@ def run(payload):
     from .enrichment import run_enrichment
     from .candidates import run_candidates
     from .figures import run_figure
+    from .feature_extract import run_feature_extract
+    from .integration import run_integration
     dispatch={'bio_comparison':run_comparison,'bio_result_import':run_result_import,'bio_resource_import':run_resource_import,
-              'bio_enrichment':run_enrichment,'bio_candidate':run_candidates,'bio_insight_figure':run_figure}
+              'bio_enrichment':run_enrichment,'bio_candidate':run_candidates,'bio_insight_figure':run_figure,'bio_feature_extract':run_feature_extract,'bio_integration':run_integration}
+    if payload['kind']=='bio_candidate' and payload['config'].get('schema_version')==2:
+        from .external_evidence import run_external_evidence
+        dispatch['bio_candidate']=run_external_evidence
+    if payload['kind']=='bio_comparison' and payload['config'].get('schema_version')==2:
+        from .quantitative import run_quantitative
+        dispatch['bio_comparison']=run_quantitative
+    if payload['kind']=='bio_comparison' and payload['config'].get('schema_version')==3:
+        from .qpcr import run_qpcr
+        dispatch['bio_comparison']=run_qpcr
+    if payload['kind']=='bio_comparison' and payload['config'].get('schema_version')==4:
+        from .microbiome import run_microbiome
+        dispatch['bio_comparison']=run_microbiome
     if payload.get('schema_version')!=1 or payload.get('kind') not in dispatch:raise ValueError('unsupported_insight_task')
     writer=Writer(payload['output_directory']);writer.identity=payload['identity']
     result=clean(dispatch[payload['kind']](payload,writer))
@@ -32,8 +46,8 @@ def run(payload):
     scopes=set()
     for source in payload['sources']:
         meta=source.get('metadata',{});scopes.update(meta.get('upstream_inference_scopes',[]))
-        if meta.get('inference_scope') in ('spot_exploratory','donor_inference','external_result'):scopes.add(meta['inference_scope'])
-    if result['inference_scope'] in ('spot_exploratory','donor_inference','external_result'):scopes.add(result['inference_scope'])
+        if meta.get('inference_scope') in ('spot_exploratory','donor_inference','sample_exploratory','sample_inference','external_result'):scopes.add(meta['inference_scope'])
+    if result['inference_scope'] in ('spot_exploratory','donor_inference','sample_exploratory','sample_inference','external_result'):scopes.add(result['inference_scope'])
     result['methods']['upstream_inference_scopes']=sorted(scopes)
     result['methods']['data_driven_grouping']=bool(payload['config'].get('data_driven_grouping') or
         any(s.get('metadata',{}).get('data_driven_grouping') is True for s in payload['sources']))

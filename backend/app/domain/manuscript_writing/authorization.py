@@ -32,9 +32,9 @@ class LiveWritingService:
             configuration=resolve(db,kind='writing_bundle',object_id=bundle_id)
             frozen=result.get('execution_contract')
             if configuration is not None:
-                if frozen is None or frozen!=contract(configuration,schema_version=frozen['schema_version'],instruction_revision=frozen.get('instruction_revision')):raise ValueError('Bundle binding mismatch')
+                if frozen is None or frozen!=contract(configuration,schema_version=frozen['schema_version'],instruction_revision=frozen.get('instruction_revision'),document_kind=frozen.get('document_kind','sci')):raise ValueError('Bundle binding mismatch')
             elif frozen is not None:
-                if frozen.get('schema_version') not in (2,3) or frozen.get('origin')!='installed':raise ValueError('Bundle binding mismatch')
+                if frozen.get('schema_version') not in (2,3,4) or frozen.get('origin')!='installed':raise ValueError('Bundle binding mismatch')
         except (ValueError,KeyError,TypeError): raise source_conflict() from None
         return result
 
@@ -53,7 +53,8 @@ class LiveWritingService:
         with self.store.connection(write=True) as db:
             root=self.manuscripts.root(db,project,identity)
             school=resolve_document_context(db,project,self.store.user_id,manuscript_id=identity)['document_kind']=='thesis'
-            if school!=(body['schema_version']==3):raise StorageError('manuscript_writing_not_authorized','学校须使用冻结学校章节协议；SCI继续使用原协议。',422)
+            requested_school=body.get('document_kind')=='thesis' if body['schema_version']==4 else body['schema_version']==3
+            if school!=requested_school:raise StorageError('manuscript_writing_not_authorized','文章协议与文稿根类型不匹配。',422)
             old=db.execute('SELECT id,request_digest FROM manuscript_writing_bundles WHERE project_id=%s AND user_id=%s AND request_key=%s',(project,self.store.user_id,key)).fetchone()
             request_digest=digest(dict(manuscript_id=identity,input=body))
             if old:
@@ -64,9 +65,9 @@ class LiveWritingService:
             if changes(self.manuscripts,project,version['snapshot_json']): raise source_conflict()
             if body['mode']=='rewrite_section' and not version['snapshot_json'].get('sections'): raise StorageError('manuscript_writing_base_incomplete','重写需要已发布完整稿。',409)
             configuration=resolve(db)
-            try:data=build_bundle(version['snapshot_json'],body,execution_contract=contract(configuration,schema_version=3 if school else 2))
+            try:data=build_bundle(version['snapshot_json'],body,execution_contract=contract(configuration,schema_version=4 if body['schema_version']==4 else (3 if school else 2),document_kind='thesis' if school else 'sci'))
             except (ValueError,KeyError,TypeError) as exc:
-                if not school:raise
+                if not school:raise StorageError('manuscript_writing_selection_invalid','文章结构、写作范围或所选证据与冻结基础稿不匹配。',422) from exc
                 raise StorageError('manuscript_writing_selection_invalid','学校章节、语言或所选用途与冻结确认不匹配；受保护章节不能请求模型生成。',422) from exc
             data.update(base_snapshot=version['snapshot_json'],request_json=body)
             identity_id=str(uuid4());timestamp=now()
@@ -107,7 +108,8 @@ class LiveWritingService:
                     bundle=self.bundle(db,project,ref['bundle_id']);self.current(db,bundle)
                     if bundle['bundle_sha256']!=ref['bundle_sha256']: raise denied()
                     frozen=bundle_contract(bundle)
-                    if (resolve_document_context(db,project,self.store.user_id,manuscript_id=bundle['manuscript_id'])['document_kind']=='thesis')!=(frozen['schema_version']==3):raise denied()
+                    expected_thesis=frozen['schema_version']==3 or (frozen['schema_version']==4 and frozen.get('document_kind')=='thesis')
+                    if (resolve_document_context(db,project,self.store.user_id,manuscript_id=bundle['manuscript_id'])['document_kind']=='thesis')!=expected_thesis:raise denied()
                     limits.append(frozen)
                     materials.append(dict(logical_task_id=task['logical_task_id'],bundle_id=bundle['id'],bundle_sha256=bundle['bundle_sha256'],
                         wire_bytes=bundle['wire_bytes'],input_token_allowance=bundle['input_token_allowance'],reserved_micro_usd=bundle['reserved_micro_usd'],policy=bundle['policy_json']))
@@ -167,7 +169,8 @@ class LiveWritingService:
             else:
                 bundle=self.bundle(db,project,execution['bundle_id'])
                 if bundle['manuscript_id']!=identity: raise denied()
-                if (resolve_document_context(db,project,self.store.user_id,manuscript_id=identity)['document_kind']=='thesis')!=(bundle_contract(bundle)['schema_version']==3):raise denied()
+                frozen=bundle_contract(bundle);expected_thesis=frozen['schema_version']==3 or (frozen['schema_version']==4 and frozen.get('document_kind')=='thesis')
+                if (resolve_document_context(db,project,self.store.user_id,manuscript_id=identity)['document_kind']=='thesis')!=expected_thesis:raise denied()
                 self.require_authorized(db,project,execution,bundle)
                 request_id=str(uuid4());timestamp=now()
                 snap=dict(schema_version=2,project_id=project,workflow_version=WORKFLOW,input=bundle['request_json'],execution=execution,

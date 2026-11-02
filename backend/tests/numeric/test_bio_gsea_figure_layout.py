@@ -16,7 +16,7 @@ def test_gsea_annotation_outside_plot_and_empirical_zero_preserved(tmp_path, mon
 
     payload = fixture(tmp_path)
     payload['config'].update(figure_type='gsea', term_row_key='T1', output_language=language,
-                             formats=['png', 'svg', 'pdf'], width_inches=size[0], height_inches=size[1])
+                             formats=['png', 'svg'], width_inches=size[0], height_inches=size[1])
     source = payload['sources'][0]
     source['metadata'].update(kind='gsea_prerank', inference_scope='derived',
                               upstream_inference_scopes=['spot_exploratory'], data_driven_grouping=True)

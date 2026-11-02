@@ -2,7 +2,7 @@ import {translate} from './index'
 import {statusNames} from '../../features/tasks/taskTypes'
 
 // These display maps do not change the protocol values held by inputs or requests.
-export const writingModes={full_draft:'完整七部分初稿',rewrite_section:'指定章节重写'}
+export const writingModes={full_draft:'完整七部分初稿',rewrite_section:'指定章节重写',results_discussion:'结果与讨论',expand_restructure:'扩充与重构',polish:'润色'}
 export const authorizationStates={active:'有效',closed:'已关闭',revoked:'已撤销'}
 export const callStates={reserved:'已预留',submitting:'提交中',submitted:'已提交',submission_unknown:'提交结果未知',completed:'已完成',failed:'失败',released:'已释放'}
 export const sourceKinds={original:'原始文件',document_version:'文档版本',ocr_review_version:'文字核对版本',external_evidence_version:'外部证据版本',analysis_run:'统计分析结果',figure:'图表',figure_language_version:'图语言版本'}

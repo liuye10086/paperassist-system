@@ -65,6 +65,11 @@ def engine_code_digest():
     for file in files:
         if file.is_symlink():raise ValueError('Engine source symlink')
         value.update(file.relative_to(root).as_posix().encode('utf-8')+b'\0'+file.read_bytes()+b'\0')
+    # The cell worker imports this strict source-selection contract before
+    # sandbox entry; its bytes are part of the executable scientific identity.
+    dependency=backend_root()/'app'/'domain'/'bioinformatics'/'single_cell_contracts.py'
+    if dependency.is_symlink():raise ValueError('Engine dependency symlink')
+    value.update(b'domain/bioinformatics/single_cell_contracts.py\0'+dependency.read_bytes()+b'\0')
     return value.hexdigest()
 
 

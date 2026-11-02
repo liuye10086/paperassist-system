@@ -8,9 +8,9 @@ TABLE_NAMES = ('bio_resource_versions', 'bio_resource_members', 'bio_insight_pla
                'bio_insight_result_versions', 'bio_insight_result_members')
 IMMUTABLE = ('bio_resource_members', 'bio_insight_plan_versions', 'bio_insight_plan_sources',
              'bio_insight_result_versions', 'bio_insight_result_members')
-KINDS = "'comparison','result_import','ora','gsea_prerank','candidate','figure'"
+KINDS = "'comparison','result_import','ora','gsea_prerank','candidate','figure','feature_extract','integration'"
 TASK_TYPES = ('bio_resource_import', 'bio_comparison', 'bio_result_import',
-              'bio_enrichment', 'bio_candidate', 'bio_insight_figure')
+              'bio_enrichment', 'bio_candidate', 'bio_insight_figure','bio_feature_extract','bio_integration')
 SOURCE_TARGETS = {
     'bio_processed_dataset_version': ('processed_version_id', 'bio_processed_dataset_versions'),
     'bio_observation_map_version': ('observation_map_version_id', 'bio_observation_map_versions'),
@@ -19,6 +19,7 @@ SOURCE_TARGETS = {
     'bio_resource_version': ('resource_version_id', 'bio_resource_versions'),
     'bio_insight_result_version': ('source_result_version_id', 'bio_insight_result_versions'),
     'original_file': ('file_id', 'files'),
+    'external_evidence_version': ('external_evidence_version_id', 'external_evidence_versions'),
 }
 
 
@@ -78,7 +79,7 @@ def define_bio_insights_tables(metadata):
          check('version<>1 OR root_id=id'), text('kind'), text('title'), integer('species_taxon_id'), text('namespace'), text('release'),
          *json('source_json'), *json('usage_json'), *json('config_json'), text('config_sha256'), *task(),
          *manifest(True), *request(),
-         check("kind IN ('gene_sets','id_mapping','feature_annotation') AND task_type='bio_resource_import' AND species_taxon_id>0 AND length(title) BETWEEN 1 AND 200 AND length(namespace) BETWEEN 1 AND 200 AND length(release) BETWEEN 1 AND 200 AND config_sha256 ~ '^[0-9a-f]{64}$'"))
+         check("kind IN ('gene_sets','id_mapping','feature_annotation','sequence','structure','sample_correspondence','object_correspondence') AND task_type='bio_resource_import' AND species_taxon_id>0 AND length(title) BETWEEN 1 AND 200 AND length(namespace) BETWEEN 1 AND 200 AND length(release) BETWEEN 1 AND 200 AND config_sha256 ~ '^[0-9a-f]{64}$'"))
     member('bio_resource_members','resource_version_id','bio_resource_versions', text('original_file_id',True),
            text('parse_version_id',True), ref('original_file_id','files'),
            fk(['parse_version_id','original_file_id'], 'file_parse_results',['id','file_id']),
@@ -99,7 +100,8 @@ def define_bio_insights_tables(metadata):
          check(f"kind IN ({KINDS}) AND config_sha256 ~ '^[0-9a-f]{{64}}$' AND ((decision='draft' AND confirmed_by IS NULL AND confirmed_at IS NULL) OR (decision='confirmed' AND confirmed_by=user_id AND confirmed_at IS NOT NULL AND confirmed_at>=created_at))"))
     source_items = []
     for col, target in SOURCE_TARGETS.values():
-        source_items.extend([text(col,True), ref(col,target)])
+        constraint=sa.ForeignKeyConstraint([col,'project_id'],[target+'.id',target+'.project_id'],name='b05_evidence_project_fk') if col=='external_evidence_version_id' else ref(col,target)
+        source_items.extend([text(col,True),constraint])
     source_columns = ','.join(col for col,_ in SOURCE_TARGETS.values())
     source_choices = ' OR '.join(f"(source_kind='{kind}' AND {col} IS NOT NULL AND source_id={col})" for kind,(col,_) in SOURCE_TARGETS.items())
     make('bio_insight_plan_sources',text('plan_version_id'),ref('plan_version_id','bio_insight_plan_versions'),
@@ -109,7 +111,7 @@ def define_bio_insights_tables(metadata):
          sa.UniqueConstraint('plan_version_id','ordinal'),
          check(f'num_nonnulls({source_columns})=1 AND ({source_choices})'),
          check("ordinal>=0 AND ordinal<100 AND length(role) BETWEEN 1 AND 100 AND source_sha256 ~ '^[0-9a-f]{64}$' AND (parse_version_id IS NULL OR source_kind='original_file')"))
-    kind_task = "((kind='comparison' AND task_type='bio_comparison') OR (kind='result_import' AND task_type='bio_result_import') OR (kind IN ('ora','gsea_prerank') AND task_type='bio_enrichment') OR (kind='candidate' AND task_type='bio_candidate') OR (kind='figure' AND task_type='bio_insight_figure'))"
+    kind_task = "((kind='comparison' AND task_type='bio_comparison') OR (kind='result_import' AND task_type='bio_result_import') OR (kind IN ('ora','gsea_prerank') AND task_type='bio_enrichment') OR (kind='candidate' AND task_type='bio_candidate') OR (kind='figure' AND task_type='bio_insight_figure') OR (kind='feature_extract' AND task_type='bio_feature_extract') OR (kind='integration' AND task_type='bio_integration'))"
     make('bio_insight_runs',text('plan_version_id'),text('kind'),text('decision'),*task(),text('source_digest'),
          text('execution_snapshot_object_id'),obj('execution_snapshot_object_id'),text('execution_snapshot_sha256'),
          integer('expected_plan_revision'),text('result_version_id',True),*request(),
@@ -123,7 +125,7 @@ def define_bio_insights_tables(metadata):
          fk(['run_id','task_id','plan_version_id','kind','project_id','user_id'],'bio_insight_runs',['id','task_id','plan_version_id','kind','project_id','user_id']),
          sa.UniqueConstraint('run_id'),sa.UniqueConstraint('task_id'),sa.UniqueConstraint('id','task_id','project_id'),
          sa.UniqueConstraint('id','run_id','task_id','plan_version_id','kind','project_id','user_id'),
-         check(f"kind IN ({KINDS}) AND provenance IN ('system_computed','external_result') AND inference_scope IN ('spot_exploratory','donor_inference','external_result','derived','visualization') AND (kind<>'result_import' OR (provenance='external_result' AND inference_scope='external_result')) AND (kind<>'comparison' OR (provenance='system_computed' AND inference_scope IN ('spot_exploratory','donor_inference'))) AND environment_digest ~ '^[0-9a-f]{{64}}$' AND code_digest ~ '^[0-9a-f]{{64}}$'"))
+         check(f"kind IN ({KINDS}) AND provenance IN ('system_computed','external_result') AND inference_scope IN ('spot_exploratory','donor_inference','sample_inference','sample_exploratory','external_result','derived','visualization') AND (kind<>'result_import' OR (provenance='external_result' AND inference_scope='external_result')) AND (kind<>'comparison' OR (provenance='system_computed' AND inference_scope IN ('spot_exploratory','donor_inference','sample_inference','sample_exploratory'))) AND environment_digest ~ '^[0-9a-f]{{64}}$' AND code_digest ~ '^[0-9a-f]{{64}}$'"))
     member('bio_insight_result_members','result_version_id','bio_insight_result_versions')
     for table in tables:
         for col in table.c:

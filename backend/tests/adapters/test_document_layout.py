@@ -170,6 +170,67 @@ def test_cache_merge_requires_complete_results_and_preserves_media_math(source_d
     assert error.value.code == 'layout_field_update_failed'
 
 
+
+def test_complete_cache_keeps_editable_fields_without_open_recalculation(source_docx):
+    import json
+    pending = api().apply_layout(source_docx, options({'toc': {'depth': 2}}), language='en')
+    manifest = json.loads(etree.fromstring(parts(pending)['customXml/paperassist-layout.xml']).text)
+    cache = {'source_sha256': hashlib.sha256(pending).hexdigest(), 'fields': {},
+             'toc_lines': ['Methods\t7', 'Results\t8']}
+    finished = api().merge_field_cache(pending, cache)
+    root = xml(finished)
+    assert root.xpath('//w:fldChar[@w:fldCharType="begin"]/@w:dirty', namespaces=NS) == ['false']
+    settings = etree.fromstring(parts(finished)['word/settings.xml'])
+    assert settings.find('w:updateFields', NS).get(f'{{{NS["w"]}}}val') == 'false'
+    assert root.xpath('//w:instrText/text()', namespaces=NS) == [
+        ' ' + manifest['fields'][0]['instruction'] + ' ']
+    assert not root.xpath('//w:fldChar/@w:fldLock', namespaces=NS)
+    assert ''.join(root.xpath('//w:hyperlink//w:t/text()', namespaces=NS)) == 'Methods7Results8'
+
+
+@pytest.mark.parametrize('part_name,kind,dirty', [
+    ('word/document.xml', 'complex', 'true'),
+    ('word/document.xml', 'complex', None),
+    ('word/document.xml', 'simple', None),
+    ('word/footer1.xml', 'simple', None),
+], ids=['complex-dirty', 'complex-no-dirty', 'simple-no-dirty', 'footer-simple-no-dirty'])
+def test_complete_cache_preserves_unprocessed_user_field_update_request(source_docx, part_name, kind, dirty):
+    from app.adapters.document_layout.package import write_package
+    if part_name != 'word/document.xml':
+        document = Document(BytesIO(source_docx))
+        document.sections[0].footer.paragraphs[0].text = 'User footer'
+        stream = BytesIO(); document.save(stream); source_docx = stream.getvalue()
+    pending = api().apply_layout(source_docx, options({'toc': {'depth': 2}}), language='en')
+    package = parts(pending)
+    field_root = etree.fromstring(package[part_name])
+    paragraph = etree.Element(f'{{{NS["w"]}}}p')
+    if part_name == 'word/document.xml':
+        field_root.find('w:body/w:sectPr', NS).addprevious(paragraph)
+    else:
+        field_root.append(paragraph)
+    if kind == 'complex':
+        run = etree.SubElement(paragraph, f'{{{NS["w"]}}}r')
+        field = etree.SubElement(run, f'{{{NS["w"]}}}fldChar', {f'{{{NS["w"]}}}fldCharType': 'begin'})
+        instruction = etree.SubElement(run, f'{{{NS["w"]}}}instrText'); instruction.text = ' DATE '
+        etree.SubElement(run, f'{{{NS["w"]}}}fldChar', {f'{{{NS["w"]}}}fldCharType': 'end'})
+    else:
+        field = etree.SubElement(paragraph, f'{{{NS["w"]}}}fldSimple', {f'{{{NS["w"]}}}instr': 'REF UserBookmark'})
+    if dirty is not None: field.set(f'{{{NS["w"]}}}dirty', dirty)
+    original = etree.tostring(paragraph)
+    package[part_name] = etree.tostring(field_root)
+    pending = write_package(package)
+    cache = {'source_sha256': hashlib.sha256(pending).hexdigest(), 'fields': {},
+             'toc_lines': ['Methods\t7', 'Results\t8']}
+    finished = api().merge_field_cache(pending, cache)
+    root = xml(finished)
+    assert root.xpath('//w:fldChar[@w:fldCharType="begin"]/@w:dirty', namespaces=NS) == ['false'] + ([dirty] if kind == 'complex' and dirty is not None else [])
+    field_root = etree.fromstring(parts(finished)[part_name])
+    retained = field_root.find('w:body/w:sectPr', NS).getprevious() if part_name == 'word/document.xml' else field_root[-1]
+    assert etree.tostring(retained) == original
+    settings = etree.fromstring(parts(finished)['word/settings.xml'])
+    assert settings.find('w:updateFields', NS).get(f'{{{NS["w"]}}}val') == 'true'
+
+
 def test_unbreakable_wide_expression_rejected(source_docx):
     anchor = api().catalog_docx(source_docx)['anchors'][0]['id']
     with pytest.raises(StorageError) as error:

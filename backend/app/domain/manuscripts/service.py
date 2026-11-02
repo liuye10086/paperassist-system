@@ -32,7 +32,7 @@ class ManuscriptService:
             value=self.require_project(db,project)
             from .school_binding import readiness
             thesis=readiness(self,db,project) if value['project_type']=='thesis' else None
-        return dict(project_id=project,project_type=value['project_type'],thesis=thesis,workflow_version=WORKFLOW,real_model_calls=False,pdf_status='not_requested',output_languages=['zh-CN','en'])
+        return dict(project_id=project,project_type=value['project_type'],thesis=thesis,workflow_version=WORKFLOW,real_model_calls=False,output_languages=['zh-CN','en'])
 
     def candidates(self,project):
         items=[]
@@ -426,6 +426,10 @@ class ManuscriptService:
             export=db.execute('SELECT * FROM manuscript_exports WHERE id=%s AND version_id=%s AND task_id=%s',(snap['export_id'],row['id'],task['id'])).fetchone()
             if not export: raise source_conflict()
             self.verify_school_export(db,row,export,task,current=current,progress=progress)
+            if snap.get('presentation'):
+                from .presentation_export import verify
+                row=dict(row)
+                row['_presentation_context']=verify(self,db,row,task,current=current,progress=progress)
             published=db.execute("SELECT status FROM tasks WHERE id=%s",(row['task_id'],)).fetchone()
             if published['status']!='succeeded': raise StorageError('task_revision_conflict','事实稿尚未发布。',409)
         if current:
@@ -544,24 +548,35 @@ class ManuscriptService:
         return intent
 
     def preview_export(self,project,identity,revision,request=None):
+        request=ExportRequest.model_validate(request) if isinstance(request,dict) else request or ExportRequest()
         with self.store.connection() as db:
             version=self.version(db,project,identity,revision)
-            options=self.school_options(version,request)
-            if options is None:raise StorageError('task_input_invalid','此预览仅用于学校导出。',422)
-            intent=self.compile_school_intent(db,version,options)
-            return dict(schema_version=1,school=intent['plan'])
+            from .presentation_export import resolve,school_request,preview_view
+            presentation=resolve(self,db,version,request)
+            options=self.school_options(version,school_request(presentation,request))
+            result=dict(schema_version=1)
+            if options is not None:result['school']=self.compile_school_intent(db,version,options)['plan']
+            if presentation is not None:result['presentation']=preview_view(presentation)
+            if len(result)==1:raise StorageError('task_input_invalid','此预览需要学校或已保存的输出配置。',422)
+            return result
 
     def create_export(self,project,identity,revision,key,request=None):
         require_key(key)
+        request=ExportRequest.model_validate(request) if isinstance(request,dict) else request or ExportRequest()
         with self.store.connection(write=True) as db:
             self.root(db,project,identity);db.execute('SELECT id FROM manuscripts WHERE id=%s FOR UPDATE',(identity,)).fetchone()
             version=self.version(db,project,identity,revision)
-            options=self.school_options(version,request)
+            from .presentation_export import resolve,school_request,seal
+            presentation=resolve(self,db,version,request)
+            options=self.school_options(version,school_request(presentation,request))
             existing=db.execute('SELECT * FROM manuscript_exports WHERE version_id=%s AND idempotency_key=%s',(version['id'],key)).fetchone()
             if existing:
                 sealed=existing.get('school_input_json')
                 if (sealed is None)!=(options is None) or sealed is not None and sealed['request']!={'school':options}:
                     raise StorageError('task_idempotency_conflict','请求标识已用于不同导出输入。',409)
+                old=self.store.require_task(db,existing['task_id'])['input_snapshot'].get('presentation')
+                if (old['binding'] if old else None)!=(presentation['binding'] if presentation else None):
+                    raise StorageError('task_idempotency_conflict','请求标识已用于不同语言或盲审输出。',409)
                 export_id=existing['id'];status=200
             else:
                 if self.store.require_task(db,version['task_id'])['status']!='succeeded': raise StorageError('task_revision_conflict','请等待事实稿发布后导出。',409)
@@ -571,6 +586,7 @@ class ManuscriptService:
                 export_id=str(uuid4());snapshot=dict(project_id=project,manuscript_id=identity,manuscript_version_id=version['id'],revision=revision,
                     output_language=version['snapshot_json']['output_language'],workflow_version=WORKFLOW,snapshot_sha256=version['snapshot_sha256'],export_id=export_id)
                 if intent is not None:snapshot['school_input_sha256']=digest(intent)
+                if presentation is not None:snapshot['presentation']=seal(self,db,presentation)
                 task=self.task(db,project,'manuscript_docx',snapshot,'manuscript-export:'+export_id,validated_sources=version['snapshot_json']['sources'])
                 from app.domain.admin_configuration.rule_consumption import inherit_task
                 inherit_task(db,task,parent_task=version['task_id'])
@@ -589,7 +605,12 @@ class ManuscriptService:
             if task['status']=='succeeded' and (not saved or saved.get('plan')!=intent['plan'] or saved.get('report')!=intent['plan']['report']):raise source_conflict()
             if saved and saved.get('field_update',{}).get('status')!=('updated' if intent['plan']['toc']['enabled'] else 'not_requested'):raise source_conflict()
             school['school']=saved or dict(plan=intent['plan'],report=intent['plan']['report'],field_update=dict(status='pending'))
-        return dict(id=row['id'],version_id=row['version_id'],task_id=row['task_id'],status=task['status'],pdf_status='not_requested',error_code=task.get('error_code'),
+        if task['input_snapshot'].get('presentation'):
+            from .presentation_export import verify,public_view
+            context=verify(self,db,version,task)
+            if task['status']=='succeeded' and 'presentation' not in metadata:raise source_conflict()
+            school['presentation']=public_view(context,metadata)
+        return dict(id=row['id'],version_id=row['version_id'],task_id=row['task_id'],status=task['status'],error_code=task.get('error_code'),
             filename=metadata.get('filename'),sha256=metadata.get('sha256'),size_bytes=metadata.get('size_bytes'),created_at=row['created_at'],
             download_url=f"/api/v1/projects/{version['project_id']}/manuscripts/{version['manuscript_id']}/exports/{export_id}/download" if metadata and task['status']=='succeeded' else None,**school)
 
@@ -597,7 +618,7 @@ class ManuscriptService:
         with self.store.connection() as db:
             version=self.version(db,project,identity,revision)
             rows=db.execute('SELECT id FROM manuscript_exports WHERE version_id=%s ORDER BY created_at DESC,id',(version['id'],)).fetchall()
-            return dict(items=[self.export_view(db,version,r['id']) for r in rows],pdf_status='not_requested')
+            return dict(items=[self.export_view(db,version,r['id']) for r in rows])
 
     def export(self,project,identity,export_id,download=False):
         with self.store.connection() as db:

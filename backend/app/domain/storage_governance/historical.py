@@ -194,3 +194,6 @@ def references(db,root,failed,coverage):
         ('research_report_members','storage_object_id','sha256','research_report')):
         rows=db.execute('SELECT to_jsonb(a)||jsonb_build_object(\'object_key\',o.object_key,\'size_bytes\',o.size_bytes,\'sha256\',a.'+hash_column+') AS record,p.id AS project_id,p.owner_id FROM '+table+' a JOIN projects p ON p.id=a.project_id AND p.owner_id=a.user_id JOIN storage_objects o ON o.id=a.'+column+' WHERE a.'+column+' IS NOT NULL')
         yield from emit(rows,kind,lambda r:[r])
+
+    rows=db.execute("""SELECT c.state_json->'prepared' AS record,p.id AS project_id,p.owner_id FROM tasks t JOIN projects p ON p.id=t.project_id AND p.owner_id=t.user_id JOIN LATERAL (SELECT state_json,next_node FROM task_checkpoints WHERE task_id=t.id ORDER BY seq DESC LIMIT 1) c ON true WHERE t.task_type='delivery_package' AND t.status='succeeded' AND c.next_node='done'""")
+    yield from emit(rows,'delivery_package',lambda r:[r['manifest_ref'],*r['members']])

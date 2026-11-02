@@ -14,11 +14,12 @@ def collect_tables(reader,db,project,sources,*,progress=None):
 @phase_guard
 def _collect_tables_in_phase(reader,db,project,sources,*,phase,progress=None):
     require_phase(phase,db,reader.assets,project)
-    processed=set();artifacts=set();insights=set()
+    processed=set();artifacts=set();insights=set();statistics={}
     def visit(source,depth=0):
         if depth>16:raise invalid()
         kind=source['source_kind'];content=source.get('content',{})
-        if kind=='bio_processed_dataset_version':processed.add(source['source_id'])
+        if kind=='analysis_run':statistics[source['source_id']]=source
+        elif kind=='bio_processed_dataset_version':processed.add(source['source_id'])
         elif kind=='bio_analysis_artifact':artifacts.add(source['source_id'])
         elif kind=='bio_insight_result_version':insights.add(source['source_id'])
         elif kind=='bio_insight_result_member':
@@ -38,9 +39,10 @@ def _collect_tables_in_phase(reader,db,project,sources,*,phase,progress=None):
     tables=[];raws=[];cells=0
     for identity in sorted(processed):
         if progress is not None:progress()
-        _,_,members=reader.bio._processed_lineage_in_phase(db,project,identity,phase=phase,progress=progress)
+        _,manifest,members=reader.bio._processed_lineage_in_phase(db,project,identity,phase=phase,progress=progress)
+        selected={t['key'] for t in manifest.get('tables',[])} if manifest.get('schema_version')==2 or manifest.get('assay')=='single_cell' else {'observations','features','cluster_summary','markers'}
         for member in members:
-            if member['format']!='tsv' or (member['key'] not in ('observations','features','cluster_summary','markers') and member['id'] not in artifacts):continue
+            if member['format']!='tsv' or (member['key'] not in selected and member['id'] not in artifacts):continue
             if progress is not None:progress()
             raw=reader.bio.objects.read(member);csvreader=csv.reader(io.StringIO(raw.decode('utf-8')),delimiter='\t',strict=True)
             columns=next(csvreader,None)
@@ -80,4 +82,13 @@ def _collect_tables_in_phase(reader,db,project,sources,*,phase,progress=None):
                     source=dict(source_kind='bio_insight_result_member',source_id=member['id'],result_version_id=identifier),
                     sha256=member['sha256'],provenance=row['provenance'],inference_scope=row['inference_scope']))
                 raws.append(raw)
+    from .contracts import FrozenResearchSource
+    from .statistics_projection import statistics_tables
+    for identifier in sorted(statistics):
+        fixed=reader._read_source_in_phase(project,dict(source_kind='analysis_run',source_id=identifier,sha256=statistics[identifier]['sha256']),db=db,phase=phase,progress=progress)
+        selected,content=statistics_tables(fixed)
+        for table,raw in zip(selected,content):
+            cells+=(table['expected_rows']+1)*len(table['columns'])
+            if cells>5000000:raise invalid('research_export_limit_exceeded',422)
+            tables.append(table);raws.append(raw)
     return tables,raws

@@ -17,14 +17,14 @@ def test_asymmetric_panels_keep_order_ratio_and_original_dpi(tmp_path):
         value=raster(size,color);path=tmp_path/f'in{index}.png';path.write_bytes(value)
         panels.append(dict(path=str(path),sha256=hashlib.sha256(value).hexdigest(),label=chr(65+index),source={'source_id':str(index)}))
     out=tmp_path/'out';out.mkdir()
-    result=render_figure(dict(config={'mode':'composite','columns':2,'width_mm':85.0,'dpi':150,'formats':['png','svg','pdf','tiff'],'margin_mm':3.0},panels=panels),out)
+    result=render_figure(dict(config={'mode':'composite','columns':2,'width_mm':85.0,'dpi':150,'formats':['png','svg','tiff'],'margin_mm':3.0},panels=panels),out)
     manifest=result['manifest'];a,b=manifest['panels']
     assert a['source']['source_id']=='0' and b['source']['source_id']=='1'
     assert a['box'][2]/a['box'][3]==pytest.approx(3,rel=.02)
     assert b['box'][2]/b['box'][3]==pytest.approx(1/3,rel=.02)
     assert a['effective_dpi']<=150 and b['effective_dpi']<=150
     assert manifest['bitmap_panel_content_editable'] is False
-    assert {x['format'] for x in result['outputs']}>={'png','pdf','svg','tiff','py','json'}
+    assert {x['format'] for x in result['outputs']}>={'png','svg','tiff','py','json'}
     assert (out/'original_1.png').read_bytes()==Path(panels[0]['path']).read_bytes()
     with Image.open(out/'figure_png.png') as image:
         x,y,w,h=a['box'];assert image.getpixel((x+w//2,y+h//2))[:3]==(255,0,0)
@@ -44,13 +44,10 @@ def test_renderer_output_properties_and_rebuild_are_checked_independently(tmp_pa
     from app.adapters.research_figure_render import render_figure,validate_figure_result
     raw=raster((100,50),'green');path=tmp_path/'input.png';path.write_bytes(raw);out=tmp_path/'out';out.mkdir()
     panel=dict(path=str(path),sha256=hashlib.sha256(raw).hexdigest(),source={'source_id':'fixed'})
-    payload=dict(config={'mode':'composite','columns':1,'width_mm':85.0,'dpi':150,'formats':['png','tiff','pdf','svg'],'margin_mm':3.0},panels=[panel,panel])
+    payload=dict(config={'mode':'composite','columns':1,'width_mm':85.0,'dpi':150,'formats':['png','tiff','svg'],'margin_mm':3.0},panels=[panel,panel])
     result=render_figure(payload,out)
     assert [p['label'] for p in result['manifest']['panels']]==['A','B']
     validate_figure_result(payload,result,out)
-    from PIL import PdfImagePlugin
-    import time
-    monkeypatch.setattr(PdfImagePlugin.time,'gmtime',lambda:time.struct_time((2021,1,1,0,0,0,4,1,0)))
     again=tmp_path/'again';again.mkdir();rebuilt=render_figure(payload,again)
     assert {m['key']:m['sha256'] for m in result['outputs']}=={m['key']:m['sha256'] for m in rebuilt['outputs']}
     result['manifest']['width_pixels']+=1

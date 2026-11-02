@@ -15,7 +15,7 @@ def test_real_numeric_runtime_and_linux_isolation():
     assert report['status'] == 'passed'
     assert report['scanpy'] == '1.11.5'
     assert report['isolation'] == {'network': 'denied', 'file': 'denied', 'fork': 'denied'}
-    assert report['h5_roundtrip'] and report['png_bytes'] > 1000 and report['pdf_bytes'] > 1000
+    assert report['h5_roundtrip'] and report['png_bytes'] > 1000 and report['render_formats'] == ['png']
 
 
 def test_sandbox_pins_full_member_budget_without_exhausting_open_files(tmp_path):

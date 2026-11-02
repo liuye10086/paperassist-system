@@ -40,6 +40,20 @@ def test_workbook_splits_by_sheet_limit_without_truncation_and_rejects_over_budg
     monkeypatch.setattr(module,'MAX_CELLS',10)
     with pytest.raises(ValueError,match='cell'):module.build_workbook(sample(),[table])
 
+def test_workbook_preserves_literal_and_native_cell_types_and_styles():
+    from app.adapters.research_results_xlsx import build_workbook
+    from openpyxl import load_workbook
+    values=['=SUM(1,2)','0007',0,None,True,0.25]
+    raw,_=build_workbook(sample(),[dict(key='mixed',columns=list('abcdef'),rows=[values],expected_rows=1)])
+    book=load_workbook(io.BytesIO(raw),read_only=True,data_only=False)
+    header,row=list(book['mixed'].rows)
+    assert [c.value for c in row]==['=SUM(1,2)','0007',0,'NA',True,0.25]
+    assert [c.data_type for c in row]==['s','s','n','s','b','n']
+    assert [c.number_format for c in row]==['@','@','General','@','General','General']
+    assert all(c.font.bold and c.fill.fgColor.rgb.endswith('284B63') and c.alignment.wrap_text for c in header)
+    assert all(c.alignment.vertical=='top' and not c.alignment.wrap_text and not c.font.bold for c in row)
+    book.close()
+
 def test_workbook_row_reconciliation_fails_instead_of_silent_partial_export():
     from app.adapters.research_results_xlsx import build_workbook
     with pytest.raises(ValueError,match='row'):build_workbook(sample(),[dict(key='markers',columns=['id'],rows=[['gene']],expected_rows=100)])
@@ -89,7 +103,7 @@ def test_zip_members_are_frozen_and_checked_and_unsafe_names_rejected():
     assert verify_package(content)==manifest
 
 
-@pytest.mark.parametrize('fmt',['tiff','pdf','svg'])
+@pytest.mark.parametrize('fmt',['tiff','svg'])
 def test_successful_non_png_bitmap_figure_is_a_report_image(fmt,tmp_path):
     from app.adapters.research_figure_render import render_figure
     from app.adapters.research_report_images import as_png

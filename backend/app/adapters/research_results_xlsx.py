@@ -14,6 +14,20 @@ MAX_SHEET_ROWS=1_048_576
 def build_workbook(snapshot,tables):
     book=Workbook(write_only=True);cells=0;used=set();summary={'tables':[],'total_cells':0}
     finding=snapshot['finding']['content']
+    styles={}
+    def row_styles(ws,header):
+        if header not in styles:
+            pair=[]
+            for literal in (False,True):
+                template=WriteOnlyCell(ws)
+                if literal:template.number_format='@'
+                if header:
+                    template.font=Font(bold=True,color='FFFFFF');template.fill=PatternFill('solid',fgColor='284B63')
+                template.alignment=Alignment(vertical='top',wrap_text=header)
+                pair.append(template._style)
+            # These workbook-local arrays are never mutated after assignment.
+            styles[header]=tuple(pair)
+        return styles[header]
     def sheet(label,columns):
         name=re.sub(r'[\\/*?:\[\]]','_',label)[:25] or 'table'
         original=name;index=1
@@ -29,16 +43,15 @@ def build_workbook(snapshot,tables):
         nonlocal cells
         cells+=len(values)
         if cells>MAX_CELLS:raise ValueError('XLSX cell limit exceeded; split the report')
+        native_style,literal_style=row_styles(ws,header)
         output=[]
         for value in values:
             if isinstance(value,(dict,list)):value=json.dumps(value,ensure_ascii=False,sort_keys=True)
             if isinstance(value,str) and len(value)>32767:raise ValueError('XLSX cell text limit exceeded; split the report')
             if value is None:value='NA'
             cell=WriteOnlyCell(ws,value=value)
-            if isinstance(value,str):cell.data_type='s';cell.number_format='@'
-            if header:
-                cell.font=Font(bold=True,color='FFFFFF');cell.fill=PatternFill('solid',fgColor='284B63')
-            cell.alignment=Alignment(vertical='top',wrap_text=header)
+            if isinstance(value,str):cell.data_type='s';cell._style=literal_style
+            else:cell._style=native_style
             output.append(cell)
         ws.append(output)
     try:

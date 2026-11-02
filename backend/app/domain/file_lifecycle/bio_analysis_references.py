@@ -4,6 +4,10 @@ from app.db.bio_analysis_schema import TABLE_NAMES
 
 def read_groups(db,file,user_id):
     raw=[r['dataset_version_id'] for r in db.execute('SELECT DISTINCT dataset_version_id FROM bio_dataset_members WHERE source_file_id=%s',(file['id'],))]
+    # Cell label evidence retains the same immutable recipe and its downstream
+    # roots even when the evidence file is not an expression-matrix original.
+    for row in db.execute("SELECT raw_dataset_version_id FROM bio_analysis_recipe_versions WHERE project_id=%s AND recipe_code='single_cell_explore_v1' AND params_json->'cell_labels' @> %s::jsonb",(file['project_id'],__import__('json').dumps([{'evidence_file_ids':[file['id']]}]))):
+        if row['raw_dataset_version_id'] not in raw:raw.append(row['raw_dataset_version_id'])
     groups={}
     for table in ('bio_observation_map_sets','bio_observation_map_versions','bio_analysis_setups','bio_analysis_recipe_versions','bio_analysis_runs','bio_processed_dataset_versions','bio_annotation_sets','bio_annotation_versions'):
         extra=' OR table_source_file_id=%s' if table=='bio_observation_map_versions' else ''

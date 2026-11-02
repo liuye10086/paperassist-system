@@ -1,6 +1,6 @@
 from app.domain.manuscript_writing.live_review_contracts import ScientificReviewRequest, ReviewedPublishRequest,SchoolScientificReviewRequest
 from app.domain.manuscript_writing.live_review import LiveReviewService
-from app.domain.manuscript_writing.live_contracts import LiveWritingRequest, PreviewRequest, AuthorizationRequest,SchoolPreviewRequest
+from app.domain.manuscript_writing.live_contracts import LiveWritingRequest, PreviewRequest, AuthorizationRequest,SchoolPreviewRequest,ArticlePreviewRequest
 from app.domain.manuscript_writing.authorization import LiveWritingService
 from fastapi import APIRouter,Response
 from app.api.dataset_preparation import Store,Key
@@ -28,7 +28,7 @@ preview_router=APIRouter(prefix='/api/v1/projects/{project_id}/manuscripts/{manu
 authorization_router=APIRouter(prefix='/api/v1/projects/{project_id}/writing-authorizations',tags=['SCI写作'])
 
 @preview_router.post('',status_code=201)
-def preview(project_id:str,manuscript_id:str,request:PreviewRequest | SchoolPreviewRequest,response:Response,store:Store,idempotency_key:Key):
+def preview(project_id:str,manuscript_id:str,request:ArticlePreviewRequest | PreviewRequest | SchoolPreviewRequest,response:Response,store:Store,idempotency_key:Key):
     result,response.status_code=LiveWritingService(store).preview(project_id,manuscript_id,request,idempotency_key)
     return result
 

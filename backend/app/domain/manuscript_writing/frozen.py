@@ -35,9 +35,24 @@ class SchoolContract(NumericContract):
         if type(value) is not int:raise ValueError('School versions require explicit integers')
         return value
 
+class ArticleContract(StrictContract):
+    schema_version:Literal[4]=4
+    origin:Literal['installed','configuration']
+    numeric_contract_version:Literal[2]=2
+    document_kind:Literal['sci','thesis']
+    article_scope_version:Literal['article-scope-v1']='article-scope-v1'
+    policy:ModelPolicy
+    max_input_allowance:Annotated[int,Field(strict=True,ge=1,le=100000)]
+    protocol_allowance:Literal[4096]=4096
+    instruction:str=Field(max_length=1000)
+    task_limit_micro_usd:Annotated[int,Field(strict=True,ge=0,le=3000000)]
+    batch_max_posts:Annotated[int,Field(strict=True,ge=1,le=6)]
+    max_corrections:Annotated[int,Field(strict=True,ge=0,le=2)]
+    batch_cap_micro_usd:Annotated[int,Field(strict=True,ge=1,le=12000000)]
+
 
 def validate(value):
-    model=SchoolContract if isinstance(value,dict) and value.get('schema_version')==3 else NumericContract if isinstance(value,dict) and value.get('schema_version')==2 else Contract
+    model=ArticleContract if isinstance(value,dict) and value.get('schema_version')==4 else SchoolContract if isinstance(value,dict) and value.get('schema_version')==3 else NumericContract if isinstance(value,dict) and value.get('schema_version')==2 else Contract
     parsed=model.model_validate(value)
     value=parsed.model_dump(mode='json')
     # Missing revision is the historical wire contract, including its dump shape.
@@ -49,11 +64,14 @@ def validate(value):
     return value
 
 
-def contract(version=None,*,schema_version=1,instruction_revision='numeric2-exact-v1'):
-    if type(schema_version) is not int or schema_version not in (1,2,3):raise ValueError('Unknown frozen contract version')
+def contract(version=None,*,schema_version=1,instruction_revision='numeric2-exact-v1',document_kind='sci'):
+    if type(schema_version) is not int or schema_version not in (1,2,3,4):raise ValueError('Unknown frozen contract version')
     models=version['bundle']['models'] if version else None
     execution=models['writing']['execution'] if models else None
-    return validate(dict(schema_version=schema_version,**({'instruction_revision':instruction_revision} if schema_version==2 and instruction_revision is not None else {}),**({'numeric_contract_version':2} if schema_version==3 else {}),**({'origin':'configuration' if version else 'installed'} if schema_version in (2,3) else {}),
+    if schema_version==4:
+        article=dict(document_kind=document_kind,article_scope_version='article-scope-v1')
+    else: article={}
+    return validate(dict(schema_version=schema_version,**article,**({'instruction_revision':instruction_revision} if schema_version==2 and instruction_revision is not None else {}),**({'numeric_contract_version':2} if schema_version in (3,4) else {}),**({'origin':'configuration' if version else 'installed'} if schema_version in (2,3,4) else {}),
         policy=execution['policy'] if execution else installed.policy().model_dump(mode='json'),
         max_input_allowance=execution['input_token_allowance'] if execution else installed.MAX_INPUT,
         instruction=version['bundle']['prompts']['writing_instruction'] if version else '',
@@ -70,7 +88,11 @@ def bundle_contract(bundle):
 def wire_parts(value,payload):
     from .bundle import INSTRUCTIONS
     from .live_contracts import LiveOutput
-    if value['schema_version']==3:
+    if value['schema_version']==4:
+        from .article_contract import INSTRUCTIONS,output_schema
+        from .numeric_contract import EXACT_INSTRUCTION
+        instruction=INSTRUCTIONS+' '+EXACT_INSTRUCTION;name='manuscript_writing_article_v1';schema=output_schema(payload)
+    elif value['schema_version']==3:
         from .school_live import INSTRUCTIONS as school_instruction,output_schema
         from .numeric_contract import INSTRUCTION
         if value['numeric_contract_version']!=2 or payload.get('numeric_contract_version')!=2 or payload.get('school_content_version')!=value['school_content_version']:raise ValueError('School contract version mismatch')
@@ -90,8 +112,8 @@ def validate_wire(wire_json,value):
     from app.adapters.models.openai_responses import canonical_payload
     value=validate(value);p=value['policy'];wire=json.loads(wire_json)
     if not isinstance(wire.get('input'),str):raise ValueError('Invalid frozen wire')
-    payload=json.loads(wire['input']) if value['schema_version'] in (2,3) else None
-    if value['schema_version'] in (2,3) and canonical_payload(payload)!=wire['input']:raise ValueError('Noncanonical numeric input')
+    payload=json.loads(wire['input']) if value['schema_version'] in (2,3,4) else None
+    if value['schema_version'] in (2,3,4) and canonical_payload(payload)!=wire['input']:raise ValueError('Noncanonical numeric input')
     expected=dict(model=p['model'],background=True,store=True,service_tier='default',
         input=wire['input'],max_output_tokens=p['max_output_tokens'],**wire_parts(value,payload))
     if wire!=expected or canonical_payload(wire)!=wire_json or not isinstance(wire['input'],str):raise ValueError('Invalid frozen wire')

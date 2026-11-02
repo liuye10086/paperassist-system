@@ -91,7 +91,7 @@ def test_versions_confirmation_languages_and_owner_are_independent(client):
         assert other.post(confirm,json=dict(expected_version=1),headers={'Idempotency-Key':'foreign-confirm'}).status_code==404
     assert client.get(url+'/revisions/'+run['id']+'/documents').status_code==200
 
-def test_export_pdf_fixed_sha_download_and_failure_preserves_success(client,monkeypatch):
+def test_export_docx_and_historical_pdf_fixed_sha_download_and_failure_preserves_success(client,monkeypatch):
     from types import SimpleNamespace
     from hashlib import sha256
     from app.domain.tasks.execution import run_task
@@ -124,17 +124,11 @@ def test_export_pdf_fixed_sha_download_and_failure_preserves_success(client,monk
     monkeypatch.setattr('app.domain.review_rounds.document_execution.render_review_document',render_review_document)
     assert run_task(failed['task_id'],retry.json()['revision'])['status']=='succeeded'
     assert client.get(export['download_url']).content==raw.content
-    monkeypatch.setattr('app.domain.pdf_exports.service.renderer_identity',lambda:{'contract':'test-v1'})
-    monkeypatch.setattr('app.domain.pdf_exports.execution.renderer_identity',lambda:{'contract':'test-v1'})
-    monkeypatch.setattr('app.domain.pdf_exports.execution.render_pdf',lambda data:SimpleNamespace(content=b'%PDF-1.7\nsynthetic test only',manifest={'contract':'test-v1'}))
+    from tests.helpers.historical_pdf_exports import historical_pdf
     pdfpath=url.removesuffix('/reviews')+'/pdf-exports'
-    pdf=client.post(pdfpath,json=dict(source_kind='review_document_export',source_id=export['id'],request_key='pdf'))
-    assert pdf.status_code==201,pdf.text
-    pdf=pdf.json();assert pdf['source_sha256']==export['sha256']
-    pdf_task=run_task(pdf['task_id'],1)
-    assert pdf_task['status']=='succeeded',pdf_task
-    complete=client.get(pdfpath+'/'+pdf['id']).json();assert client.get(complete['download_url']).content.startswith(b'%PDF-')
-    assert client.get(pdfpath,params=dict(source_kind='review_document_export',source_id=export['id'])).json()['items'][0]['source_sha256']==export['sha256']
+    complete=historical_pdf(pdfpath,'review_document_export',export['id'])
+    assert client.get(complete['download_url']).content.startswith(b'%PDF-')
+    assert client.post(pdfpath,json=dict(source_kind='review_document_export',source_id=export['id'],request_key='pdf')).status_code==405
     from tests.integration.test_project_ownership import account_client
     with account_client('export-foreign@example.test')[0] as other:
         assert other.get(export['download_url']).status_code==404

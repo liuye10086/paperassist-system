@@ -16,6 +16,8 @@ METHOD_NAMES = {'raw_qc':'原始质量核对 / Raw quality control','filter':'�
                 'markers':'探索性 marker / Exploratory markers',
                 'h5ad_roundtrip':'H5AD 读回核对 / Round-trip verification'}
 EXPLORATORY = 'spot 层级探索性分析；spot 和区域不等同于独立 donor，聚类与 marker 不证明细胞类型或因果机制。'
+CELL_LIMIT = 'Cell exploratory results; cells and technical samples are not independent donors; markers and labels do not prove cell identity.'
+SAMPLE_LIMIT = '样本定量处理保留实际尺度和缺失；样本编号不证明生物学独立性，PCA/聚类不是验证性或因果证据。'
 
 
 def fact_id(source, locator):
@@ -30,7 +32,7 @@ def make_fact(source,locator,value,*,level='dataset',unit='',comparison=''):
         display_value='NA' if value is None else str(value),unit=unit,observation_level=level,
         comparison=comparison,verification_status='missing' if missing else 'verified',
         origin='public_reanalysis' if source.provenance=='public_reanalysis' else 'system_computed',
-        limitations=[EXPLORATORY] if level in ('spot','region') else [])
+        limitations=[CELL_LIMIT] if level=='cell' else [EXPLORATORY] if level in ('spot','region') else [])
 
 
 def _summary(source):
@@ -48,8 +50,8 @@ def _summary(source):
     facts=[]
     for key in COUNTS:
         if key not in value:continue
-        level='spot' if key.endswith('observations') else 'dataset'
-        unit='spots' if level=='spot' else 'features' if key.endswith('features') or key=='hvg' else ''
+        level=(source.content.get('observation_level') if source.content.get('observation_level') in ('sample','cell') else 'spot') if key.endswith('observations') else 'dataset'
+        unit='cells' if level=='cell' else 'samples' if level=='sample' else 'spots' if level=='spot' else 'features' if key.endswith('features') or key=='hvg' else ''
         facts.append(make_fact(source,ResearchLocator(kind='field',field_path='summary.'+key),value[key],level=level,unit=unit))
     for key in ('target_sum','seed','resolution','neighbors','min_counts','min_genes','min_gene_spots'):
         raw=source.content.get('params',{}).get(key)
@@ -60,6 +62,12 @@ def _summary(source):
 
 def _methods(source):
     result=[]
+    if source.content.get('observation_level')=='sample' and source.content.get('methods'):
+        methods=source.content['methods']
+        result.append(ResearchMethod(id='method-'+sha256((source.source_id+':tabular').encode()).hexdigest()[:32],
+            title='样本定量处理方法 / Sample quantitative processing',description=methods.get('description_zh') or methods.get('description_en') or 'Frozen quantitative processing recipe',
+            source=ResearchSourceSelection(source_kind=source.source_kind,source_id=source.source_id,sha256=source.sha256),parameters=methods,
+            software={k:str(source.content[k]) for k in ('engine_version','code_digest','environment_digest') if k in source.content},executed=True))
     for number,step in enumerate(source.content.get('steps',[])):
         if not isinstance(step,dict) or not isinstance(step.get('key'),str):
             raise ValueError('Invalid saved method step')
@@ -86,7 +94,9 @@ def _table(source):
         if not isinstance(row,dict):raise ValueError('Invalid table row')
         if 'feature_id' in row and 'cluster' in row:keys=('cluster','feature_id')
         elif 'barcode' in row:keys=('barcode',)
+        elif 'sample_id' in row:keys=('sample_id',)
         elif 'feature_id' in row:keys=('feature_id',)
+        elif 'component' in row:keys=('component',)
         elif 'cluster' in row:keys=('cluster',)
         else:raise ValueError('Table requires stable feature, barcode or cluster identities')
         row_key={k:str(row[k]) for k in keys}
@@ -98,7 +108,7 @@ def _table(source):
             if not (raw is None or type(raw) in (str,int,float,bool)):raise ValueError('Table cell must be scalar')
             locator=ResearchLocator(kind='row',row_key=row_key,column=column,table=table)
             comparison=str(row.get('comparison','cluster '+str(row['cluster'])+' versus rest' if 'cluster' in row and 'feature_id' in row else ''))
-            facts.append(make_fact(source,locator,raw,level='spot',comparison=comparison))
+            facts.append(make_fact(source,locator,raw,level=source.content.get('observation_level') if source.content.get('observation_level') in ('sample','cell') else 'spot',comparison=comparison))
             if len(facts)>1000:raise ValueError('Please select fewer table columns or rows')
     warnings=[f'事实目录只展示已选行 {len(rows)}/{total}；完整结果表仍保留，导出不能据此截断。'] if total>len(rows) else []
     return facts,warnings
@@ -120,4 +130,4 @@ def project_bio_facts(source: FrozenResearchSource) -> ResearchFactCatalog:
     if summary.get('mitochondrial_reason'):
         gaps.append('线粒体规则未确定：'+str(summary['mitochondrial_reason']))
     return ResearchFactCatalog(source=source,facts=facts,methods=_methods(source),
-        gaps=gaps,warnings=warnings,limitations=[EXPLORATORY])
+        gaps=gaps,warnings=warnings,limitations=[CELL_LIMIT if source.content.get('observation_level')=='cell' else SAMPLE_LIMIT if source.content.get('observation_level')=='sample' else EXPLORATORY])

@@ -3,14 +3,14 @@ from typing import Literal
 from pydantic import BaseModel,ConfigDict,Field,model_validator
 from app.domain.bioinformatics.contracts import digest
 
-RESEARCH_TASKS=('research_figure','research_report','research_fact_draft')
+RESEARCH_TASKS=('research_figure','research_report','research_fact_draft','delivery_package')
 
 
 class ResearchInputVersion(BaseModel):
     model_config=ConfigDict(strict=True,extra='forbid',frozen=True)
-    kind: Literal['research_figure','research_report','research_fact_draft']
+    kind: Literal['research_figure','research_report','research_fact_draft','delivery_package']
     schema_version: Literal[1]=1
-    workflow_version: Literal['research_figure_v1','research_report_v1','research_results_methods_v1']
+    workflow_version: Literal['research_figure_v1','research_report_v1','research_results_methods_v1','delivery_package_v1']
     source_sha256: str=Field(pattern=r'^[0-9a-f]{64}$')
     output_language: Literal['zh-CN','en']
     real_model_calls: Literal[False]=False

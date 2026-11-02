@@ -32,6 +32,9 @@ def require_live_snapshot(task):
 def compose_live_candidate(output,snapshot,bundle,call_id,provenance,*,composition_version=COMPOSITION_VERSION):
     if type(composition_version) is not int or composition_version not in (1,COMPOSITION_VERSION):
         raise ValueError('Unsupported candidate composition version')
+    if bundle.get('execution_contract',{}).get('schema_version')==4:
+        from .article_contract import compose,output_schema
+        return compose(output,snapshot,bundle,call_id,provenance,composition_version)
     if bundle.get('execution_contract',{}).get('schema_version')==3:
         from .school_live import compose
         return compose(output,snapshot,bundle,call_id,provenance,composition_version)

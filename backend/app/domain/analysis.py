@@ -26,7 +26,9 @@ ColumnId = Annotated[str, Field(pattern=r'^[A-Z]{1,3}$')]
 MAX_GROUPS = 20
 
 
-class AnalysisSelection(BaseModel):
+from app.domain.statistics_roles import RoleSelection
+
+class AnalysisSelection(RoleSelection, BaseModel):
     model_config = ConfigDict(extra='forbid', strict=True)
     task_type: Literal['descriptive_boxplot']
     sheet_name: str = Field(min_length=1, max_length=31)

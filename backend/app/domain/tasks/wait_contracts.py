@@ -1,3 +1,5 @@
+from app.domain.bioinformatics.single_cell_contracts import SingleCellImportInputVersion,SingleCellAnalysisInputVersion
+from app.domain.bioinformatics.tabular_contracts import BioImportInputVersionV3, BioAnalysisInputVersionV2
 from app.domain.bioinformatics.analysis_contracts import BioAnalysisInputVersion, BioFigureInputVersion
 from app.domain.research_results.task_contracts import ResearchInputVersion
 from app.domain.bio_insights.task_contracts import InsightInputVersion
@@ -33,7 +35,7 @@ class WaitView(BaseModel):
     kind: Literal['bio_analysis_confirmation','bio_import_confirmation','review_round_confirmation','review_round_input','literature_model_authorization', 'literature_configuration', 'remote_observation', 'budget_confirmation', 'submission_unknown', 'unsupported_input', 'unsupported_confirmation', 'dataset_preparation_confirmation', 'ocr_review_confirmation', 'analysis_plan_confirmation', 'analysis_plan_input', 'figure_projection_confirmation', 'remote_observation']
     status: Literal['open', 'resolved', 'superseded']
     task_revision: int
-    input_version: ResearchInputVersion | BioAnalysisInputVersion | BioFigureInputVersion | BioImportInputVersionV2 | BioImportInputVersion | ReviewDocumentInputVersion | RevisionInputVersion | ReviewInputVersion | AdaptationInputVersion | FormatInputVersion | JournalInputVersion | SchoolTemplateInputVersion | SuggestionInputVersion | WritingInputVersion | ManuscriptInputVersion | AssistanceInputVersion | LiteratureInputVersion | StatisticsInputVersion | CollectionInputVersion | RecommendationInputVersion | AnalysisPlanInputVersion | OcrReviewInputVersion | PreparationInputVersion | DatasetAnalysisInputVersion | InputVersion
+    input_version: SingleCellImportInputVersion | SingleCellAnalysisInputVersion | BioImportInputVersionV3 | BioAnalysisInputVersionV2 | ResearchInputVersion | BioAnalysisInputVersion | BioFigureInputVersion | BioImportInputVersionV2 | BioImportInputVersion | ReviewDocumentInputVersion | RevisionInputVersion | ReviewInputVersion | AdaptationInputVersion | FormatInputVersion | JournalInputVersion | SchoolTemplateInputVersion | SuggestionInputVersion | WritingInputVersion | ManuscriptInputVersion | AssistanceInputVersion | LiteratureInputVersion | StatisticsInputVersion | CollectionInputVersion | RecommendationInputVersion | AnalysisPlanInputVersion | OcrReviewInputVersion | PreparationInputVersion | DatasetAnalysisInputVersion | InputVersion
     reason_code: str | None
     error_code: str | None
     created_at: UTCDateTime
@@ -45,7 +47,7 @@ class ResumeRequest(BaseModel):
     operation: Literal['resume', 'retry']
     wait_id: str | None = Field(min_length=1, max_length=64, pattern=r'^\S+$')
     expected_task_revision: int = Field(strict=True, ge=1, lt=2_147_483_647)
-    input_version: InsightInputVersion | ResearchInputVersion | BioAnalysisInputVersion | BioFigureInputVersion | BioImportInputVersionV2 | BioImportInputVersion | ReviewDocumentInputVersion | RevisionInputVersion | ReviewInputVersion | AdaptationInputVersion | FormatInputVersion | JournalInputVersion | SchoolTemplateInputVersion | SuggestionInputVersion | WritingInputVersion | ManuscriptInputVersion | AssistanceInputVersion | LiteratureInputVersion | StatisticsInputVersion | CollectionInputVersion | RecommendationInputVersion | AnalysisPlanInputVersion | OcrReviewInputVersion | PreparationInputVersion | DatasetAnalysisInputVersion | StrictInputVersion | ParseInputVersion | StructureInputVersion
+    input_version: SingleCellImportInputVersion | SingleCellAnalysisInputVersion | BioImportInputVersionV3 | BioAnalysisInputVersionV2 | InsightInputVersion | ResearchInputVersion | BioAnalysisInputVersion | BioFigureInputVersion | BioImportInputVersionV2 | BioImportInputVersion | ReviewDocumentInputVersion | RevisionInputVersion | ReviewInputVersion | AdaptationInputVersion | FormatInputVersion | JournalInputVersion | SchoolTemplateInputVersion | SuggestionInputVersion | WritingInputVersion | ManuscriptInputVersion | AssistanceInputVersion | LiteratureInputVersion | StatisticsInputVersion | CollectionInputVersion | RecommendationInputVersion | AnalysisPlanInputVersion | OcrReviewInputVersion | PreparationInputVersion | DatasetAnalysisInputVersion | StrictInputVersion | ParseInputVersion | StructureInputVersion
 
     @model_validator(mode='after')
     def wait_matches_operation(self):

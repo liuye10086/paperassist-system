@@ -17,6 +17,13 @@ def source_refs(value):
 def validate_source(db,project,owner,source):
     from app.db.research_results_schema import SOURCE_TARGETS
     kind=source['source_kind'];table=SOURCE_TARGETS[kind][1]
+    if kind=='analysis_run':
+        import json
+        row=db.execute('SELECT r.* FROM analysis_runs r JOIN files f ON f.id=r.file_id JOIN projects p ON p.id=f.project_id WHERE r.id=%s AND f.project_id=%s AND p.owner_id=%s',(source['source_id'],project,owner)).fetchone()
+        if not row or not row['completed_at']:raise ValueError('Statistics source incomplete or outside project')
+        result=json.loads(row['result_json'])
+        if digest(result)!=source['sha256'] or result.get('completed_at')!=row['completed_at']:raise ValueError('Statistics source hash differs')
+        return
     row=db.execute('SELECT * FROM '+table+' WHERE id=%s AND project_id=%s',(source['source_id'],project)).fetchone()
     if not row or row.get('user_id',row.get('created_by',owner))!=owner:raise ValueError('Research source owner differs')
     column=('sha256' if kind in ('original_file','bio_analysis_artifact','external_evidence_version','bio_insight_result_member') else 'content_sha256' if kind in ('research_finding_version','research_report_version') else 'manifest_sha256')
@@ -44,6 +51,16 @@ def validate_research_task_source(db,task):
     if not actual or actual['owner_id']!=owner:raise ValueError('Research task owner differs')
     cp=db.execute('SELECT * FROM task_checkpoints WHERE task_id=%s ORDER BY seq DESC LIMIT 1',(task['id'],)).fetchone()
     if not cp or cp['state_json'].get('input_version')!=input_version(task):raise ValueError('Research checkpoint differs')
+    if task['task_type']=='delivery_package':
+        row=db.execute('SELECT * FROM delivery_snapshots WHERE id=%s AND delivery_id=%s AND project_id=%s AND user_id=%s',(snapshot['snapshot_id'],snapshot['delivery_id'],project,owner)).fetchone()
+        if not row or digest(row['snapshot_json'])!=row['sha256'] or snapshot['snapshot_sha256']!=row['sha256']:raise ValueError('Delivery snapshot differs')
+        if task['status']=='succeeded':
+            if cp['next_node']!='done' or cp['state_json'].get('result_id')!=row['id']:raise ValueError('Delivery result differs')
+            from app.adapters.bio_analysis_store import object_by_key
+            prepared=cp['state_json']['prepared']
+            object_by_key(db,project,owner,prepared['manifest_ref'])
+            for member in prepared['members']:object_by_key(db,project,owner,member)
+        return row
     table,column,result_column={
         'research_figure':('research_figure_versions','figure_version_id','result_research_figure_version_id'),
         'research_report':('research_report_versions','report_version_id','result_research_report_version_id'),

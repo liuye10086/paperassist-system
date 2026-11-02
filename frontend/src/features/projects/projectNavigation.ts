@@ -23,6 +23,8 @@ export type NavigationRoute = {
     artifactNavigation: ArtifactNavigation;
     adaptationId: string;
     researchCandidateId?: string;
+    deliveryId?:string;
+    deliverySnapshotId?:string;
     manuscriptView: ManuscriptView;
     journalView: JournalView;
     schoolTemplateNavigation: SchoolTemplateNavigation;
@@ -56,7 +58,7 @@ export function parseNavigation(hash: string): NavigationRoute | null {
     if (!['overview', 'files', 'analysis', 'artifacts', 'tasks', 'literature', 'manuscripts', 'reviews', 'school-templates', 'journals'].includes(section))
         return null;
     r.section = section as ProjectSection;
-    const keys: Record<string, string[]> = { overview: ['view'], analysis:['planId','planVersionId','runId','resultVersionId','resourceVersionId','view','file','import','dataset','version','setup','run','processed','tab','annotationSet','annotationVersion','figure'], artifacts:['view','artifact','kind','page'], files: ['view','file'], tasks: ['view','task'], literature: ['search','view','reference'], manuscripts: ['view','manuscript', 'revision','candidate'], reviews: ['view','item','round', 'reviewManuscript', 'reviewRevision', 'reviewRun', 'reviewDocument'], journals: ['view','adaptation'], 'school-templates':['view','template'] };
+    const keys: Record<string, string[]> = { overview: ['view','delivery','snapshot'], analysis:['planId','planVersionId','runId','resultVersionId','resourceVersionId','view','file','import','dataset','version','setup','run','processed','tab','annotationSet','annotationVersion','figure'], artifacts:['view','artifact','kind','page'], files: ['view','file'], tasks: ['view','task'], literature: ['search','view','reference'], manuscripts: ['view','manuscript', 'revision','candidate'], reviews: ['view','item','round', 'reviewManuscript', 'reviewRevision', 'reviewRun', 'reviewDocument'], journals: ['view','adaptation'], 'school-templates':['view','template'] };
     if ([...p.keys()].some(k => !['project', 'section', ...(keys[section] ?? [])].includes(k)))
         return null;
     const id = (key: string) => !p.has(key) || validId(p.get(key)!);
@@ -65,6 +67,9 @@ export function parseNavigation(hash: string): NavigationRoute | null {
         if (p.has('view') && !['tasks', 'settings', 'activity', 'usage','requirements','deliveries','design'].includes(p.get('view')!))
             return null;
         r.overviewView = (p.get('view') ?? 'tasks') as OverviewView;
+        if (!id('delivery') || !id('snapshot') || (p.has('delivery') || p.has('snapshot')) && r.overviewView!=='deliveries' || p.has('snapshot')&&!p.has('delivery'))return null;
+        if(p.has('delivery'))r.deliveryId=p.get('delivery')!;
+        if(p.has('snapshot'))r.deliverySnapshotId=p.get('snapshot')!;
     }
     if (section === 'tasks') {
         r.taskId = p.get('task') ?? '';
@@ -147,6 +152,7 @@ export function serializeNavigation(r: NavigationRoute): string {
         p.set('section', r.section);
     if (r.section === 'overview' && r.overviewView !== 'tasks')
         p.set('view', r.overviewView);
+    if(r.section==='overview'&&r.overviewView==='deliveries'&&r.deliveryId){p.set('delivery',r.deliveryId);if(r.deliverySnapshotId)p.set('snapshot',r.deliverySnapshotId);}
     if (r.section === 'tasks') {
         if (r.taskId && r.taskDetailView !== 'overview') p.set('view',r.taskDetailView);
         if (r.taskId) p.set('task', r.taskId);

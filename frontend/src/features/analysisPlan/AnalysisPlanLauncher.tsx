@@ -1,3 +1,4 @@
+import StatisticsDataRoles from '../analysis/StatisticsDataRoles'
 import {useWorkflowNavigation} from '../analysis/analysisWorkflowContext'
 import {useAnalysisLeaveGuard} from '../analysis/analysisActivityContext'
 import OriginRecommendation from './OriginRecommendation'
@@ -34,7 +35,8 @@ function Launcher({ projectId, fileId, source, selection, initialSelection, fiel
   const parentSignature=JSON.stringify(selection)
   const [candidateState,setCandidateState]=useState<{value:AnalysisSelection;parentSignature:string}>(()=>({value:initialSelection??selection,parentSignature}))
   const [method,setMethod]=useState(initialSelection&&initialSelection.task_type!=='descriptive_boxplot'?initialSelection.method:'descriptive')
-  const candidate=method==='descriptive'&&candidateState.parentSignature!==parentSignature?selection:candidateState.value
+  const candidate=method==='descriptive'&&candidateState.parentSignature!==parentSignature?{...selection,...(candidateState.value.data_roles?{data_roles:candidateState.value.data_roles}:{})}:candidateState.value
+  const planSelection=method==='descriptive'&&!recommendationRef?{...selection,...(candidate.data_roles?{data_roles:candidate.data_roles}:{})}:candidate
   function change(v:AnalysisSelection) {setMethod(v.task_type!=='descriptive_boxplot'?v.method:'descriptive');setCandidateState({value:v,parentSignature});onSelectionChange?.(v)}
   const [research, setResearch] = useState(emptyResearchRequest)
   const [page, setPage] = useState(1)
@@ -62,7 +64,7 @@ function Launcher({ projectId, fileId, source, selection, initialSelection, fiel
 
   async function create() {
     if (disabled || busy || recommendationBusy || action.current || !isResearchRequest(research) || method!=='descriptive'&&!isAnalysisSelection(candidate)) return
-    const body = {schema_version:5,input_kind:'data',file_id:fileId,dataset_id:source.dataset_id,expected_setup_revision:setupRevision,selection:method==='descriptive'&&!recommendationRef?selection:candidate,research_request:research,evidence_version_ids:[],recommendation_ref:recommendationRef,origin_recommendation_ref:recommendationRef?null:originRef}
+    const body = {schema_version:5,input_kind:'data',file_id:fileId,dataset_id:source.dataset_id,expected_setup_revision:setupRevision,selection:planSelection,research_request:research,evidence_version_ids:[],recommendation_ref:recommendationRef,origin_recommendation_ref:recommendationRef?null:originRef}
     const signature = JSON.stringify(body)
     if (replay.current?.signature !== signature) replay.current = { signature, key: crypto.randomUUID() }
     const controller = new AbortController(); action.current = controller; setBusy(true); setActionError('')
@@ -98,7 +100,8 @@ function Launcher({ projectId, fileId, source, selection, initialSelection, fiel
     {method!=='descriptive'&&candidate.task_type==='correlation'&&<CorrelationSelectionForm value={candidate} fields={fields} onChange={change} disabled={disabled||busy||recommendationBusy}/>}
     {candidate.task_type==='group_comparison'&&method!=='descriptive'&&<ComparisonSelectionForm projectId={projectId} fileId={fileId} source={source} value={candidate} fields={fields} onChange={change} disabled={disabled||busy||recommendationBusy}/>}
     {['regression','roc','survival'].includes(candidate.task_type)&&candidate.task_type!=='correlation'&&candidate.task_type!=='group_comparison'&&candidate.task_type!=='descriptive_boxplot'&&<ModelSelectionForm value={candidate} fields={fields} onChange={change} disabled={disabled||busy||recommendationBusy}/>}
-    <ResearchRequestForm selection={method==='descriptive'&&!recommendationRef?selection:candidate} value={research} onChange={setResearch} disabled={disabled || busy || recommendationBusy} />
+    <StatisticsDataRoles value={candidate.data_roles} fields={fields} disabled={disabled||busy||recommendationBusy} onChange={roles=>{const {data_roles:previous,...plain}=candidate;void previous;const next=roles?{...plain,data_roles:roles}:plain;change(next.task_type==='group_comparison'&&next.design==='paired'&&roles?.structure==='paired_long'?{...next,numeric_column:roles.endpoint,pair_id_column:roles.individual_id,before_column:null,after_column:null,group_column:null,groups:[]}:next)}}/>
+    <ResearchRequestForm selection={planSelection} value={research} onChange={setResearch} disabled={disabled || busy || recommendationBusy} />
     <div className="analysis-actions"><button type="button" className="button-primary" disabled={disabled || busy || recommendationBusy || !isResearchRequest(research)||method!=='descriptive'&&!isAnalysisSelection(candidate)} onClick={() => void create()}>{t('生成分析计划')}</button><button type="button" disabled={busy} onClick={() => { setListError(''); setRefresh(n => n + 1) }}>{t('刷新分析计划列表')}</button></div>
     </div>
     {actionError && <p role="alert" className="error-panel">{t(actionError)}</p>}

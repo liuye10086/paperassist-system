@@ -8,6 +8,8 @@ from app.adapters.bio_dataset_store import BioDatasetStore
 from app.core.exceptions import StorageError
 from app.domain.file_batches import BatchInput, BioUploadService
 from app.domain.bioinformatics.contracts import BioImportRequest, BioImportRequestV2, BioConfirmRequest
+from app.domain.bioinformatics.tabular_contracts import BioImportRequestV3
+from app.domain.bioinformatics.single_cell_contracts import SingleCellImportRequest
 from app.domain.bioinformatics.service import BioDatasetService
 from app.domain.bioinformatics.settings import BioLimits
 from app.api.tasks import decimal_query_integer
@@ -47,7 +49,7 @@ def upload(project_id:str,batch_id:str,item_id:str,store:Store,file:Annotated[Up
 
 
 @router.post('/{project_id}/bio-imports',status_code=202)
-def create_import(project_id:str,request:BioImportRequest | BioImportRequestV2,store:Store,idempotency_key:Key):
+def create_import(project_id:str,request:BioImportRequest | BioImportRequestV2 | BioImportRequestV3 | SingleCellImportRequest,store:Store,idempotency_key:Key):
     return BioDatasetService(store).create(project_id,request,idempotency_key)
 
 

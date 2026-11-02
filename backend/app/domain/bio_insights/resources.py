@@ -11,6 +11,13 @@ from .service import BioInsightsService,portable,source_digest
 from .results import checked_members,BioInsightResultService
 
 
+def resource_filename_matches(filename,format):
+    # .cif is the standard filename alias of the explicit mmCIF contract.
+    suffixes=('.'+format,)
+    if format in ('mmcif','mmcif.gz'):suffixes+=('.'+format.replace('mmcif','cif'),)
+    return filename.lower().endswith(suffixes)
+
+
 class BioResourceService(BioInsightsService):
     def initial_resource_members(self,db,task):
         rows=db.execute('SELECT * FROM bio_resource_members WHERE resource_version_id=%s AND project_id=%s AND user_id=%s ORDER BY key',
@@ -24,7 +31,7 @@ class BioResourceService(BioInsightsService):
             row,metadata,members=self.reader().original(db,project,file.file_id,file.parse_version_id,progress)
             if row['sha256']!=file.sha256:raise invalid()
             fmt=file.format.removesuffix('.gz')
-            if not row['filename'].lower().endswith('.'+file.format):raise invalid('bio_insight_resource_format_mismatch',422)
+            if not resource_filename_matches(row['filename'],file.format):raise invalid('bio_insight_resource_format_mismatch',422)
             if fmt in ('csv','tsv','xlsx') and file.parse_version_id is None:
                 raise invalid('bio_insight_parse_required',422)
             total_bytes+=row['size_bytes']
@@ -56,7 +63,7 @@ class BioResourceService(BioInsightsService):
                 if replay['request_digest']!=sha:raise invalid('bio_insight_idempotency_conflict')
                 selected=replay['id'];status=200
             else:
-                sources=self._files(db,project,request);runtime=self._runtime();parent=None;version=1
+                sources=self._files(db,project,request);runtime=self._runtime_for(request);parent=None;version=1
                 if root_id:
                     parent=db.execute('SELECT * FROM bio_resource_versions WHERE root_id=%s AND project_id=%s AND user_id=%s ORDER BY version DESC LIMIT 1',
                         (root_id,project,self.store.user_id)).fetchone()
@@ -108,7 +115,7 @@ class BioResourceService(BioInsightsService):
         payload=dict(schema_version=1,kind='bio_resource_import',config=request.model_dump(mode='json'),identity=frozen['identity'],sources=sources)
         if portable(payload)!=frozen or frozen['identity'].get('task_id')!=task['id']:raise invalid()
         if runtime:
-            current=self._runtime()
+            current=self._runtime_for(request)
             if any(payload['identity'].get(key)!=value for key,value in current.items()):raise invalid('bio_insights_environment_unavailable',422)
         return payload
 

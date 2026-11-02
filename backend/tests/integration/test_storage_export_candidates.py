@@ -114,29 +114,23 @@ def test_language_http_first_precommit_preserves_key_identity_and_read_replay(cl
     assert replay.status_code == 200 and replay.json() == saved
 
 
-@pytest.mark.parametrize('kind', ['pdf', 'layout'])
-def test_conversion_precommit_candidate_survives_cleanup_and_retries_original(client, monkeypatch, kind):
-    from types import SimpleNamespace
+def test_layout_precommit_candidate_survives_cleanup_and_retries_original(client, monkeypatch):
+    kind='layout'
     from app.adapters.task_execution_store import TaskExecutionStore
     from app.domain.tasks.execution import run_task
     from tests.api.test_layout_exports import prepared
-    from tests.api.test_pdf_exports import successful_docx
-    for module in ('pdf_exports', 'layout_exports'):
+    for module in ('layout_exports',):
         monkeypatch.setattr('app.domain.'+module+'.service.renderer_identity', lambda: {'contract':'test-v1'})
         monkeypatch.setattr('app.domain.'+module+'.execution.renderer_identity', lambda: {'contract':'test-v1'})
-    if kind == 'layout':
-        url, source, request = prepared(client)
-    else:
-        url, source = successful_docx(client)
-        request = dict(source_kind='manuscript_export', source_id=source['id'], request_key='storage-pdf')
+    url, source, request = prepared(client)
     saved = client.post(url, json=request).json()
     assets = get_project_store()
     original_source = (assets.directory/'manuscript_exports'/(source['id']+'.docx')).read_bytes()
     calls = []
     def render(raw, *args, **kwargs):
         calls.append(raw)
-        return raw if kind == 'layout' else SimpleNamespace(content=b'%PDF-1.7\nsynthetic-control-only', manifest={'contract':'test-v1'})
-    monkeypatch.setattr('app.domain.'+kind+'_exports.execution.'+('prepare_layout_docx' if kind == 'layout' else 'render_pdf'), render)
+        return raw
+    monkeypatch.setattr('app.domain.layout_exports.execution.prepare_layout_docx', render)
     connection = TaskExecutionStore.connection
     captured = {}
     @contextmanager

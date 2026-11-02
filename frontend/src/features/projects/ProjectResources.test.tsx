@@ -114,6 +114,7 @@ test('upload refreshes the first page without removing a purpose draft', async (
   await user.click(await screen.findByRole('button', { name: '下一页' }))
   await screen.findByRole('button', { name: `预览 ${files[5].filename}` })
   await user.click(screen.getByRole('button', { name: '上传文件' }))
+  await user.click(screen.getByRole('button', { name: '单份 Excel 预览' }))
   await user.upload(screen.getByLabelText('选择 Excel 文件'), new File(['xlsx'], 'new.xlsx'))
   await user.click(screen.getByRole('button', { name: '上传并预览' }))
   await screen.findByText('文件已保存到当前项目，可从项目文件列表再次打开。')
@@ -409,6 +410,7 @@ test('choosing a new local file clears the current saved preview without scrolli
   expect(scroll).toHaveBeenCalledOnce()
   await user.click(screen.getByRole('button', { name: '返回文件列表' }))
   await user.click(screen.getByRole('button', { name: '上传文件' }))
+  await user.click(screen.getByRole('button', { name: '单份 Excel 预览' }))
   await user.upload(screen.getByLabelText('选择 Excel 文件'), new File(['bad'], 'invalid.xls'))
   expect((await screen.findByRole('alert')).textContent).toContain('仅支持 .xlsx')
   expect(screen.getByRole('button', { name: `预览 ${files[0].filename}`, hidden: true }).closest('li')!.getAttribute('aria-current')).toBeNull()
@@ -431,6 +433,7 @@ test('batch completion preserves the opened sheet and purpose draft without open
  await user.click(screen.getByRole('button',{name:'文件详情'}));await user.click(await screen.findByRole('checkbox',{name:'原始数据'}));
  await user.click(screen.getByRole('button',{name:'返回文件列表'}));await user.click(screen.getByRole('button',{name:'上传文件'}));
  await user.upload(screen.getByLabelText('批量选择 Excel / Word / PDF / 图片 文件'),new File(['a'],'new.xlsx'));await user.click(screen.getByRole('button',{name:'开始上传'}));await screen.findByText(/解析完成/);
+ await user.click(screen.getByRole('button',{name:'单份 Excel 预览'}));
  expect((screen.getByLabelText('工作表') as HTMLSelectElement).value).toBe('1');expect(screen.getByRole('table').textContent).toContain('42');
  await user.click(screen.getByRole('button',{name:'返回文件列表'}));await user.click(await screen.findByRole('button',{name:`文件详情 ${files[0].filename}`}));
  expect((await screen.findByRole('checkbox',{name:'原始数据'}) as HTMLInputElement).checked).toBe(true);expect(fetch.mock.calls.filter(([url])=>url.endsWith('/preview'))).toHaveLength(1)

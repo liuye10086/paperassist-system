@@ -67,7 +67,7 @@ class InsightSourceReader(BioInsightsStore):
             return self._resolve_in_phase(db,project,selection,phase=phase,progress=progress)
 
     @phase_guard
-    def _resolve_in_phase(self,db,project,selection,*,phase,lineage_only=False,progress=None):
+    def _resolve_in_phase(self,db,project,selection,*,phase,lineage_only=False,progress=None,comparison_proof=False):
         require_phase(phase,db,self.assets,project)
         selection=InsightSourceSelection.model_validate(selection)
         kind=selection.source_kind;sid=selection.source_id;metadata={};members={};raw=None
@@ -94,19 +94,31 @@ class InsightSourceReader(BioInsightsStore):
                     raw_members[member['key']]={key:member[key] for key in ('sha256','size_bytes')}|{'path':str(objects.path(member['object_key'])),'format':member.get('format','json'),'role':member.get('role','input')}
                 else:raw_members[member['key']]=self._leaf(member,self.bio.raw_store.objects,progress)
             raw=dict(manifest=raw_manifest,members=raw_members)
-            canonical=digest({key:raw['members'][key]['sha256'] for key in ('matrix_data','matrix_indices','matrix_indptr','features_index','barcodes_index')})
-            metadata=dict(canonical_dataset_id=canonical,raw_dataset_version_id=raw_source['dataset_version_id'],raw_source=raw_source,
-                manifest=manifest,shape=row['shape_json'],source_file_ids=raw_source['source_file_ids'])
-            observations=[]
-            for item in self.read_rows(members['observations']):
-                observations.append(dict(processed_version_id=sid,barcode=item['barcode'],donor=item.get('donor') or None,
-                    condition=item.get('group') or None,batch=item.get('batch') or None,sample=item.get('sample_id') or None,
-                    section=item.get('section') or None,retained=_truth(item.get('kept')),library_counts=int(item['total_counts']) if item.get('total_counts') else None))
-            metadata['observations']=observations
-            axes=json.loads(Path(raw['members']['features_index']['path']).read_bytes())
-            metadata['feature_ids']=[fid for fid,ft in zip(axes['feature_ids'],axes['feature_types']) if ft=='Gene Expression']
-            for field in ('species_taxon_id','namespace','reference_version'):
-                metadata[field]=manifest.get(field) or raw_manifest.get(field)
+            if raw_manifest.get('schema_version')==3:
+                canonical=digest({key:raw_members[key]['sha256'] for key in ('matrix_values','matrix_missing','features_index','samples_index')})
+                axes=json.loads(Path(raw_members['features_index']['path']).read_bytes())
+                observations=[{**item,'processed_version_id':sid,'retained':_truth(item.get('kept'))} for item in self.read_rows(members['samples'])]
+                scale=raw_manifest['scale'];feature_rows=list(self.read_rows(members['features']))
+                metadata=dict(canonical_dataset_id=canonical,raw_dataset_version_id=raw_source['dataset_version_id'],raw_source=raw_source,
+                    manifest=manifest,shape=row['shape_json'],source_file_ids=raw_source['source_file_ids'],observations=observations,
+                    observation_level='sample',assay=raw_manifest['assay'],scale=scale,layers=manifest['layers'],feature_ids=axes['feature_ids'],
+                    retained_feature_ids=[r['feature_id'] for r in feature_rows if _truth(r.get('kept'))],
+                    **{field:scale.get(field) for field in ('species_taxon_id','namespace','reference_version')})
+            else:
+                canonical=digest({key:raw['members'][key]['sha256'] for key in ('matrix_data','matrix_indices','matrix_indptr','features_index','barcodes_index')})
+                metadata=dict(canonical_dataset_id=canonical,raw_dataset_version_id=raw_source['dataset_version_id'],raw_source=raw_source,
+                    manifest=manifest,shape=row['shape_json'],source_file_ids=raw_source['source_file_ids'])
+                observations=[]
+                for item in self.read_rows(members['observations']):
+                    observations.append(dict(processed_version_id=sid,barcode=item['barcode'],donor=item.get('donor') or None,
+                        condition=item.get('group') or None,batch=item.get('batch') or None,sample=item.get('sample_id') or None,
+                        section=item.get('section') or None,retained=_truth(item.get('kept')),library_counts=int(item['total_counts']) if item.get('total_counts') else None))
+                metadata['observations']=observations
+                metadata.update(assay=raw_manifest.get('assay','visium'),observation_level='cell' if raw_manifest.get('assay')=='single_cell' else 'spot')
+                axes=json.loads(Path(raw['members']['features_index']['path']).read_bytes())
+                metadata['feature_ids']=[fid for fid,ft in zip(axes['feature_ids'],axes['feature_types']) if ft=='Gene Expression']
+                for field in ('species_taxon_id','namespace','reference_version'):
+                    metadata[field]=manifest.get(field) or raw_manifest.get(field)
         elif kind in ('bio_observation_map_version','bio_annotation_version'):
             table='bio_observation_map_versions' if kind=='bio_observation_map_version' else 'bio_annotation_versions'
             row=self.bio.require(db,table,project,sid)
@@ -126,6 +138,12 @@ class InsightSourceReader(BioInsightsStore):
                     labels=row['labels_json'],checks=row['checks_json'],processed_dataset_version_id=row['processed_dataset_version_id'])
                 sha=digest({'geometry_sha256':row['geometry_sha256'],'assignments_sha256':row['assignments_sha256']})
                 members={'geometry':self._leaf(geometry,objects,progress),'assignments':self._leaf(assignments,objects,progress)}
+        elif kind=='external_evidence_version':
+            from app.domain.external_evidence.service import ExternalEvidenceService
+            view=ExternalEvidenceService(self.assets).get(project,sid)
+            if not view.get('typed_evidence'):raise invalid('bio_insight_source_incomplete',422)
+            _,original,members=self.original(db,project,view['file_id'],progress=progress)
+            sha=view['sha256'];metadata=dict(typed_evidence=view['typed_evidence'],locator_verification=view['locator_verification'],evidence_snapshot={k:v for k,v in view.items() if k!='sha256'},original_sha256=view['source']['source_sha256'],source_file_ids=[view['file_id']],filename=original['filename'])
         elif kind=='research_design_version':
             row=self.bio.design(db,project,sid)
             metadata=row['content_json'];sha=row['sha256']
@@ -154,13 +172,20 @@ class InsightSourceReader(BioInsightsStore):
                 metadata.update({key:row[key] for key in ('provenance','inference_scope','summary_json','methods_json')})
                 plan=self.require(db,'bio_insight_plan_versions',project,row['plan_version_id'])
                 metadata['plan_config']=plan['config_json']
+                # Only C requests freeze this proof; shared/old result envelopes stay unchanged.
+                if comparison_proof and row['kind']=='comparison':
+                    fields=('canonical_dataset_id','species_taxon_id','namespace','reference_version','feature_ids','observations')
+                    metadata['comparison_inputs']=[{key:s[key] for key in ('source_kind','source_id','sha256')}|
+                        {'metadata':{key:s['metadata'].get(key) for key in fields}}
+                        for s in upstream['sources'] if s['source_kind']=='bio_processed_dataset_version']
                 for field in ('species_taxon_id','namespace','reference_version'):
                     value=plan['config_json'].get(field)
                     if value is None:
                         values={s.get('metadata',{}).get(field) for s in upstream['sources'] if s['source_kind']=='bio_insight_result_version'}-{None}
                         value=next(iter(values)) if len(values)==1 else None
+                    if row['kind']=='feature_extract':value=row['methods_json'].get(field)
                     metadata[field]=value
-                if row['kind']=='result_import':
+                if row['kind']=='result_import' or plan['config_json'].get('schema_version')==3:
                     metadata['canonical_dataset_ids']=sorted(set(metadata['canonical_dataset_ids'])|
                         {'original_file_sha256:'+s['sha256'] for s in upstream['sources'] if s['source_kind']=='original_file'})
                     metadata['canonical_identity_scope']='exact_original_bytes_only; cross_format_data_identity_unknown'
@@ -229,10 +254,13 @@ class InsightSourceReader(BioInsightsStore):
     @phase_guard
     def _resolve_many_in_phase(self,db,project,selections,config=None,progress=None,*,phase,lineage_only=False):
         require_phase(phase,db,self.assets,project)
-        sources=[self._resolve_in_phase(db,project,s,phase=phase,lineage_only=lineage_only,progress=progress) for s in selections]
+        proof_ids={r.result_source_id for r in config.independent_support_requests} if config and config.kind=='candidate' and getattr(config,'schema_version',None)==2 else set()
+        sources=[self._resolve_in_phase(db,project,s,phase=phase,lineage_only=lineage_only,progress=progress,
+            **({'comparison_proof':True} if s.source_id in proof_ids and s.source_kind=='bio_insight_result_version' else {})) for s in selections]
         if config and config.kind=='comparison':
             processed=[s for s in sources if s['source_kind']=='bio_processed_dataset_version']
             for source in processed:
+                if source['metadata'].get('observation_level')=='sample':continue
                 metadata=source['metadata']
                 for key in ('species_taxon_id','namespace','reference_version'):
                     if metadata.get(key) is None:metadata[key]=getattr(config,key)
@@ -265,12 +293,13 @@ class InsightSourceReader(BioInsightsStore):
                 if kind=='bio_annotation_version':sha=digest({'geometry_sha256':row['geometry_sha256'],'assignments_sha256':row['assignments_sha256']})
                 item=dict(source_kind=kind,source_id=row['id'],sha256=sha,title=row.get('title') or row.get('name') or row.get('filename') or row['id'])
                 if kind=='bio_processed_dataset_version':
-                    raw=db.execute('SELECT v.version,d.name FROM bio_dataset_versions v JOIN bio_datasets d ON d.id=v.dataset_id AND d.project_id=v.project_id WHERE v.id=%s AND v.project_id=%s',
+                    raw=db.execute('SELECT v.version,d.name,d.assay FROM bio_dataset_versions v JOIN bio_datasets d ON d.id=v.dataset_id AND d.project_id=v.project_id WHERE v.id=%s AND v.project_id=%s',
                         (row['raw_dataset_version_id'],project)).fetchone()
-                    if raw:item.update(title=raw['name']+' / processed '+row['id'][:8],dataset_name=raw['name'],raw_version=raw['version'],recipe_version_id=row['recipe_version_id'])
+                    if raw:item.update(assay=raw['assay'],observation_level='cell' if raw['assay']=='single_cell' else 'spot' if raw['assay']=='visium' else 'sample',title=raw['name']+' / processed '+row['id'][:8],dataset_name=raw['name'],raw_version=raw['version'],recipe_version_id=row['recipe_version_id'])
                 if kind=='bio_insight_result_version':
                     plan=db.execute('SELECT p.name FROM bio_insight_plan_versions v JOIN bio_insight_plans p ON p.id=v.plan_id WHERE v.id=%s AND v.project_id=%s',(row['plan_version_id'],project)).fetchone()
                     item.update(title=row['kind']+' / '+(plan['name'] if plan else row['id']),kind=row['kind'],inference_scope=row['inference_scope'])
+                if kind=='external_evidence_version':item.update(title=row['snapshot_json']['title'],kind=(row['snapshot_json'].get('typed_evidence') or {}).get('evidence_type'))
                 if kind=='original_file':
                     parse=db.execute('SELECT id FROM file_parse_results WHERE file_id=%s AND completed_at IS NOT NULL AND result_json IS NOT NULL ORDER BY version DESC LIMIT 1',(row['id'],)).fetchone()
                     item.update(parse_version_id=parse['id'] if parse else None,filename=row['filename'],file_type=row['file_type'])
@@ -284,11 +313,11 @@ class InsightSourceReader(BioInsightsStore):
         with self.store.connection() as db:
             source=self.resolve(db,project,dict(source_kind=kind,source_id=identifier,sha256=item['sha256']))
             rows=source['metadata'].get('observations') or source['metadata'].get('rows') or []
-            if kind=='bio_processed_dataset_version':
+            if kind=='bio_processed_dataset_version' and source['metadata'].get('observation_level')!='sample':
                 original={r['barcode']:r for r in self.read_rows(source['members']['observations'])}
                 rows=[{**row,'cluster':original[row['barcode']].get('cluster') or None} for row in rows]
             if kind=='bio_annotation_version':rows=source['metadata']['assignments'].get('rows',[])
         groups={field:sorted({str(r[field]) for r in rows if r.get(field) is not None}) for field in ('cluster','condition','donor','batch','section','label_id')}
-        return dict(items=rows[(page-1)*page_size:page*page_size],total=len(rows),page=page,page_size=page_size,sha256=item['sha256'],groups=groups,
+        return dict(assay=source['metadata'].get('assay'),observation_level=source['metadata'].get('observation_level','spot'),layers=source['metadata'].get('layers'),scale=source['metadata'].get('scale'),items=rows[(page-1)*page_size:page*page_size],total=len(rows),page=page,page_size=page_size,sha256=item['sha256'],groups=groups,
             raw_dataset_version_id=source['metadata'].get('raw_dataset_version_id'),
             processed_dataset_version_id=identifier if kind=='bio_processed_dataset_version' else source['metadata'].get('processed_dataset_version_id'))

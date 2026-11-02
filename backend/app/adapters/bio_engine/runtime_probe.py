@@ -51,12 +51,11 @@ def exercise(output):
     ax.scatter(obj.obsm['X_umap'][:, 0], obj.obsm['X_umap'][:, 1])
     ax.set_title('空间转录组 QC', fontproperties=FontProperties(fname=font))
     fig.savefig(output / 'probe.png', dpi=100, metadata={'Software': 'PaperAssist'})
-    fig.savefig(output / 'probe.pdf', metadata={'CreationDate': None, 'ModDate': None})
     plt.close(fig)
     import importlib.metadata
     return {'scanpy': importlib.metadata.version('scanpy'), 'h5_roundtrip': True,
             'png_bytes': (output / 'probe.png').stat().st_size,
-            'pdf_bytes': (output / 'probe.pdf').stat().st_size,
+            'render_formats': ['png'],
             'font_sha256': hashlib.sha256(font.read_bytes()).hexdigest()}
 
 

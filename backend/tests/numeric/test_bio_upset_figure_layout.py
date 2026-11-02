@@ -39,7 +39,7 @@ def render_upset(tmp_path, monkeypatch):
             result_source_ids=[s['source_id'] for s in payload['sources']], selected_sets=selections,
             intersection_mode=mode, intersection_k=2 if mode == 'at_least_k' else None,
             output_language=language, width_inches=size[0], height_inches=size[1],
-            title='CR-B04 figure-upset', formats=['png', 'tiff', 'svg', 'pdf'])
+            title='CR-B04 figure-upset', formats=['png', 'tiff', 'svg'])
         original = copy.deepcopy(payload)
         output = tmp_path / f'out-{len(seen)}'
         output.mkdir()

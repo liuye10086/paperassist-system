@@ -9,7 +9,7 @@ from app.domain.manuscripts.contracts import ThesisSelection
 Identifier = Annotated[str, Field(min_length=1, max_length=200, pattern=r'^[^/\\\x00-\x1f]+$')]
 Hash = Annotated[str, Field(pattern=r'^[0-9a-f]{64}$')]
 ShortText = Annotated[str, Field(max_length=4000)]
-SourceKind = Literal['bio_processed_dataset_version','bio_analysis_artifact','bio_figure_version',
+SourceKind = Literal['analysis_run','bio_processed_dataset_version','bio_analysis_artifact','bio_figure_version',
                      'original_file','external_evidence_version','research_finding_version',
                      'research_figure_version','research_report_version',
                      'bio_insight_result_version','bio_insight_result_member']
@@ -215,7 +215,7 @@ class ResearchFigureRequest(StrictModel):
     background: str = Field(default='#ffffff',pattern=r'^#[0-9a-fA-F]{6}$')
     margin_mm: float = Field(default=3,ge=0,le=20)
     font_size_pt: int = Field(default=10,ge=6,le=24)
-    formats: list[Literal['png','tiff','pdf','svg']] = Field(default_factory=lambda:['png','tiff'],min_length=1,max_length=4)
+    formats: list[Literal['png','tiff','svg']] = Field(default_factory=lambda:['png','tiff'],min_length=1,max_length=3)
 
     @model_validator(mode='after')
     def figure_identity(self):
@@ -226,11 +226,16 @@ class ResearchFigureRequest(StrictModel):
         labels=[p.label for p in self.panels if p.label]
         if len(labels)!=len(set(labels)) or len(self.formats)!=len(set(self.formats)):
             raise ValueError('Duplicate panel labels or formats')
-        if any(p.source.source_kind not in ('original_file','bio_figure_version','research_figure_version','bio_insight_result_version','bio_insight_result_member') for p in self.panels):
+        if any(p.source.source_kind not in ('original_file','bio_figure_version','research_figure_version','bio_insight_result_version','bio_insight_result_member','analysis_run') for p in self.panels):
             raise ValueError('Panel requires a fixed image source')
         if round(self.width_mm/25.4*self.dpi)>8000:
             raise ValueError('Figure exceeds 8000 pixel longest edge')
         return self
+
+
+class FrozenResearchFigureRequest(ResearchFigureRequest):
+    """Read fixed historical configurations; never an HTTP creation schema."""
+    formats: list[Literal['png','tiff','pdf','svg']] = Field(default_factory=lambda:['png','tiff'],min_length=1,max_length=4)
 
 
 class ResearchReportRequest(StrictModel):
@@ -241,7 +246,6 @@ class ResearchReportRequest(StrictModel):
     language: Language = 'zh-CN'
     root_id: Identifier | None = None
     expected_revision: int = Field(default=0,ge=0,lt=2147483647)
-    include_pdf_id: Identifier | None = None
 
     @model_validator(mode='after')
     def report_identity(self):
@@ -250,6 +254,11 @@ class ResearchReportRequest(StrictModel):
         if len(self.figure_version_ids)!=len(set(self.figure_version_ids)):
             raise ValueError('Duplicate figure version')
         return self
+
+
+class FrozenResearchReportRequest(ResearchReportRequest):
+    """Validate historical task requests without accepting new PDF attachments."""
+    include_pdf_id: Identifier | None = None
 
 
 class ResearchHandoffRequest(StrictModel):

@@ -144,11 +144,16 @@ def _figure(document, figure, images, en):
 
 def _full_sections(snapshot):
     sections = snapshot['sections']
-    valid = isinstance(sections, list) and len(sections) == len(SECTION_LABELS)
+    article = snapshot.get('article_type')
+    from app.domain.manuscript_writing.article_contract import STRUCTURES, labels as article_labels
+    if article is not None and article not in STRUCTURES:
+        raise StorageError('report_render_failed','文章类型不受支持。',422)
+    section_labels = article_labels(article) if article else SECTION_LABELS
+    valid = isinstance(sections, list) and len(sections) == len(section_labels)
     if valid:
         valid = all(isinstance(section, dict) and section.get('id') == labels[0]
                     and isinstance(section.get('paragraphs'), list)
-                    for section, labels in zip(sections, SECTION_LABELS))
+                    for section, labels in zip(sections, section_labels))
     if valid:
         paragraphs = [item for section in sections for item in section['paragraphs']]
         valid = all(isinstance(item, dict) and isinstance(item.get('id'), str) and item['id']
@@ -169,13 +174,17 @@ def _references(document, snapshot, en, *, required=False):
                                if en else '尚未选择已核实参考文献，待补充。')
 
 
-def _full_body(document, snapshot, sections, images, en):
+def _full_body(document, snapshot, sections, images, en, excluded_chapter_ids=frozenset()):
     bookmark_number = 0
-    if snapshot.get('journal_display_context'):
+    if snapshot.get('journal_display_context') and snapshot.get('article_type','research')=='research':
         from app.domain.journals.display import display_sections
         projected=display_sections(snapshot)[1:]
-    else:projected=[dict(section,display_name=labels[1 if en else 2]) for section,labels in zip(sections[1:],SECTION_LABELS[1:])]
+    else:
+        from app.domain.manuscript_writing.article_contract import labels as article_labels
+        labels_for = article_labels(snapshot.get('article_type','research')) if snapshot.get('article_type') else SECTION_LABELS
+        projected=[dict(section,display_name=labels[1 if en else 2]) for section,labels in zip(sections[1:],labels_for[1:])]
     for section in projected:
+        if section['id'] in excluded_chapter_ids:continue
         document.add_heading(section['display_name'], 1)
         if section['id'] == 'references':
             _references(document, snapshot, en, required=True)
@@ -196,12 +205,12 @@ def _full_body(document, snapshot, sections, images, en):
                     _table(document, table)
                 for figure in group['figures']:
                     _figure(document, figure, images, en)
-    if snapshot.get('acknowledgements'):
+    if snapshot.get('acknowledgements') and 'acknowledgements' not in excluded_chapter_ids:
         document.add_heading('Acknowledgements' if en else '致谢', 1)
         document.add_paragraph(snapshot['acknowledgements'])
 
 
-def build_manuscript_docx(snapshot, images, *, school_plan=None):
+def build_manuscript_docx(snapshot, images, *, school_plan=None, source_map=None, excluded_chapter_ids=frozenset()):
     """Render only the frozen snapshot, retaining unresolved facts and original images."""
     if snapshot.get('schema_version') != 1 or snapshot.get('output_language') not in ('zh-CN', 'en'):
         raise StorageError('report_render_failed', '稿件版本格式不受支持。', 422)
@@ -224,7 +233,7 @@ def build_manuscript_docx(snapshot, images, *, school_plan=None):
     if school:
         if school_plan is None:raise StorageError('school_export_input_invalid','学校导出缺少固定排版配置。',422)
         from .school_docx import build_school_docx
-        return build_school_docx(snapshot,images,school_plan)
+        return build_school_docx(snapshot,images,school_plan,source_map=source_map,excluded_chapter_ids=excluded_chapter_ids)
     document = _document()
     if snapshot.get('journal_display_context'):
         from app.domain.journals.display import context
@@ -238,7 +247,7 @@ def build_manuscript_docx(snapshot, images, *, school_plan=None):
                     if field=='font_size_pt':style.font.size=Pt(value)
                     else:setattr(style.paragraph_format,field.removesuffix('_pt'),Pt(value) if field.endswith('_pt') else value)
     en = snapshot['output_language'] == 'en'
-    document.add_paragraph(snapshot['title'], style='Title')
+    if 'title' not in excluded_chapter_ids:document.add_paragraph(snapshot['title'], style='Title')
     document.add_paragraph(snapshot['notice'])
     if snapshot.get('journal_adaptation_provenance', {}).get('synthetic'):
         notice = ('Synthetic journal adaptation: synthetic guide or manuscript inputs were used. '
@@ -251,10 +260,10 @@ def build_manuscript_docx(snapshot, images, *, school_plan=None):
         ('Research fact draft' if en else '研究事实稿'))
     bookmark_number = 0
     if sections:
-        _full_body(document, snapshot, sections, images, en)
+        _full_body(document, snapshot, sections, images, en, excluded_chapter_ids)
     else:
-        document.add_heading('Results' if en else '结果', 1)
-        for group in snapshot['results_groups']:
+        if 'results' not in excluded_chapter_ids:document.add_heading('Results' if en else '结果', 1)
+        for group in snapshot['results_groups'] if 'results' not in excluded_chapter_ids else []:
             document.add_heading(group['title'], 2)
             for item in group['paragraphs']:
                 bookmark_number += 1
@@ -263,11 +272,11 @@ def build_manuscript_docx(snapshot, images, *, school_plan=None):
                 _table(document, table)
             for figure in group['figures']:
                 _figure(document, figure, images, en)
-        document.add_heading('Materials and methods' if en else '材料与方法', 1)
-        for item in snapshot['methods']:
+        if 'materials_and_methods' not in excluded_chapter_ids:document.add_heading('Materials and methods' if en else '材料与方法', 1)
+        for item in snapshot['methods'] if 'materials_and_methods' not in excluded_chapter_ids else []:
             bookmark_number += 1
             _paragraph(document, item, bookmark_number)
-        if snapshot['references']:
+        if snapshot['references'] and 'references' not in excluded_chapter_ids:
             document.add_heading('References' if en else '参考文献', 1)
             _references(document, snapshot, en)
     if snapshot['issues']:

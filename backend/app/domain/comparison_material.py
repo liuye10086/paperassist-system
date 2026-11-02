@@ -38,7 +38,7 @@ def build_material(result, groups, *, external=None, saved_expected=None):
         raise StorageError('task_source_conflict','配对图的两次测量必须同单位并保持完整对。',409)
     names=[labels[f'group:{index}'] for index in range(len(groups))]
     unit=variables[0]['unit'] or ('单位未填写' if language=='zh-CN' else 'unit not specified')
-    count=result['check']['valid_count']; excluded=result['check']['excluded_count']
+    count=statistics['sample_sizes'][0] if paired else result['check']['valid_count']; excluded=result['check']['excluded_count']
     if language=='en':
         title='Figure 1. '+('Paired measurements' if paired else variables[0]['name']+' group comparison')
         caption=(f'Figure 1. {count} complete pairs; {excluded} excluded source rows. '

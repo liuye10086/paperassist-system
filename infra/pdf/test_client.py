@@ -1,4 +1,4 @@
-"""PDF transport fails closed and never follows redirects or inherited proxies."""
+"""Word field transport fails closed and never follows redirects or inherited proxies."""
 from base64 import b64encode
 from io import BytesIO
 import json
@@ -18,26 +18,26 @@ from app.core.exceptions import StorageError
 def test_renderer_only_accepts_explicit_local_endpoint(monkeypatch, url):
     monkeypatch.setattr(adapter, 'local_config', lambda: {'PAPERASSIST_PDF_RENDERER_URL': url})
     with pytest.raises(StorageError) as error:
-        adapter.render_pdf(b'docx')
+        adapter.update_layout_fields(b'docx')
     assert error.value.code == 'pdf_renderer_unavailable'
 
 
-def test_response_must_match_fixed_renderer_identity_and_be_pdf(monkeypatch):
+def test_response_must_match_fixed_renderer_identity(monkeypatch):
     identity = {'contract_version': 'synthetic'}
     class Response(BytesIO):
-        url = 'http://pdf-renderer:8080/convert'
+        url = 'http://pdf-renderer:8080/layout-cache'
         status = 200
         headers = {'X-Renderer-Manifest': b64encode(json.dumps(identity).encode()).decode()}
     class Opener:
         def open(self, *_, **__):
-            return Response(b'%PDF-1.7\nsynthetic\n%%EOF')
+            return Response(json.dumps({'source_sha256': adapter.hashlib.sha256(b'docx').hexdigest(), 'fields': {}, 'toc_lines': []}).encode())
     monkeypatch.setattr(adapter, 'local_config', lambda: {})
     monkeypatch.setattr(adapter, 'build_opener', lambda *_: Opener())
     monkeypatch.setattr(adapter, 'renderer_identity', lambda: identity.copy())
-    assert adapter.render_pdf(b'docx').manifest == identity
+    assert adapter.update_layout_fields(b'docx')['fields'] == {}
     Response.headers = {'X-Renderer-Manifest': b64encode(b'{}').decode()}
     with pytest.raises(StorageError) as error:
-        adapter.render_pdf(b'docx')
+        adapter.update_layout_fields(b'docx')
     assert error.value.code == 'pdf_renderer_mismatch'
 
 
@@ -54,7 +54,7 @@ def test_failures_return_safe_independent_codes(monkeypatch, failure, expected):
     monkeypatch.setattr(adapter, 'local_config', lambda: {})
     monkeypatch.setattr(adapter, 'build_opener', lambda *_: Opener())
     with pytest.raises(StorageError) as error:
-        adapter.render_pdf(b'docx')
+        adapter.update_layout_fields(b'docx')
     assert error.value.code == expected
     assert 'private' not in str(error.value)
 

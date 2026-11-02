@@ -16,7 +16,9 @@ class CorrelationAssumptions(StrictModel):
     inference_assumptions_confirmed: bool
 
 
-class CorrelationSelection(StrictModel):
+from app.domain.statistics_roles import RoleSelection
+
+class CorrelationSelection(RoleSelection, StrictModel):
     task_type: Literal['correlation']
     sheet_name: str = Field(min_length=1, max_length=31)
     method: Literal['pearson', 'spearman']

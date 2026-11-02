@@ -21,7 +21,7 @@ This equality does not replace exact tuple membership or claim review. Keep lite
 
 def is_numeric_v2(bundle):
     contract=bundle.get('execution_contract', {})
-    return contract.get('schema_version',1)==2 or contract.get('schema_version')==3 and contract.get('numeric_contract_version')==2
+    return contract.get('schema_version',1)==2 or contract.get('schema_version') in (3,4) and contract.get('numeric_contract_version')==2
 
 
 def context_facts(bundle):

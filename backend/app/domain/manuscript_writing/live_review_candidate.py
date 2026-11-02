@@ -19,8 +19,11 @@ def claim_context(request_id,candidate_sha256,paragraph_id):
 
 def target_ids(raw,snapshot):
     from .school_live import WRITABLE
+    scope=raw.get('writing_provenance',{}).get('target_paragraph_ids')
+    if scope is not None:return set(scope)
+    request=snapshot['input']
     return {p['id'] for s in raw['sections'] if (s.get('purpose') in WRITABLE if raw.get('thesis_context') else s['id']!='references') and
-            (snapshot['input']['mode']=='full_draft' or s['id']==snapshot['input']['target_section']) for p in s['paragraphs']}
+            (request['mode']=='full_draft' or s['id']==request.get('target_section')) for p in s['paragraphs']}
 
 def prepare(raw,snapshot,bundle,body,resolve_claim,*,numeric_version=NUMERIC_VERSION):
     strict=validation_version(numeric_version)==NUMERIC_VERSION
@@ -125,6 +128,12 @@ def finish(candidate,raw,snapshot,body,citation,mapping,review_id,*,numeric_vers
     if snapshot['input']['mode']=='rewrite_section':
         target=snapshot['input']['target_section']
         if any(s!=old for s,old in zip(candidate['sections'],raw['sections']) if s['id']!=target) or references!=raw['references']: raise WritingCitationScopeError('Citation or non-target changes require full manuscript processing')
+    if snapshot['input'].get('schema_version')==4 and snapshot['input']['mode']!='full_draft':
+        targets=target_ids(raw,snapshot)
+        current_preserved=[(s['id'],deepcopy(p)) for s in candidate['sections'] for p in s['paragraphs'] if p['id'] not in targets]
+        raw_preserved=[(s['id'],deepcopy(p)) for s in raw['sections'] for p in s['paragraphs'] if p['id'] not in targets]
+        if current_preserved!=raw_preserved or references!=raw['references']:
+            raise WritingCitationScopeError('Non-target paragraphs and references must remain preserved during scoped review')
     if not school:candidate['title']=candidate['sections'][0]['paragraphs'][0]['text']
     if not candidate['title'].strip() or len(candidate['title'])>200: raise ValueError('Reviewed title exceeds immutable manuscript contract')
     candidate['writing_provenance'].update(review_id=review_id,raw_candidate_sha256=digest(raw),verification_status='scientific_reviewed_language_pending')

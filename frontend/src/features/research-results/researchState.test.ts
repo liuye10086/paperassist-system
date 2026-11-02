@@ -2,8 +2,8 @@ import {describe,it,expect} from 'vitest'
 import {mergeSelection,selectionOnly,findingDiff,sourceOptionLabel} from './state'
 import {parseNavigation,serializeNavigation} from '../projects/projectNavigation'
 describe('fixed research selection',()=>{
- it('uses figure type, source name and version to identify a fixed source while retaining a short ID',()=>{
-  expect(sourceOptionLabel({source_kind:'bio_figure_version',source_id:'12345678-1234-5678-aaaa-bbbbbbbbbbbb',title:'UMAP clusters',kind:'umap',panel:'clusters',version:3,source_label:'GSE262082 NPC',status:'succeeded',created_at:'',sha256:null},s=>s)).toBe('UMAP clusters · umap / clusters · GSE262082 NPC · v3 · 12345678… · 已完成')
+ it('uses figure type, source name and version to identify a fixed source without exposing an internal ID',()=>{
+  expect(sourceOptionLabel({source_kind:'bio_figure_version',source_id:'12345678-1234-5678-aaaa-bbbbbbbbbbbb',title:'UMAP clusters',kind:'umap',panel:'clusters',version:3,source_label:'GSE262082 NPC',status:'succeeded',created_at:'',sha256:null},s=>s)).toBe('UMAP clusters · umap / clusters · GSE262082 NPC · v3 · 已完成')
  })
  it('keeps existing draft choices while deduplicating incoming sources',()=>{
   expect(mergeSelection({finding_version_ids:['old'],figure_version_ids:['fig'],report_version_ids:[]},{finding_version_ids:['new','old'],figure_version_ids:[],report_version_ids:['report']})).toEqual({finding_version_ids:['old','new'],figure_version_ids:['fig'],report_version_ids:['report']})

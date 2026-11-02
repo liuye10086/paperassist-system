@@ -18,7 +18,10 @@ def project_transport_payload(payload):
         if source.get('source_kind')!='bio_processed_dataset_version':continue
         metadata=source.get('metadata')
         if not isinstance(metadata,dict):raise ValueError('processed_metadata_invalid')
-        for key in ('feature_ids','manifest','shape'):metadata.pop(key,None)
+        for key in ('feature_ids','retained_feature_ids','manifest','shape'):metadata.pop(key,None)
+        if source.get('raw',{}).get('manifest',{}).get('schema_version')==3:
+            # Preserve scale/layers/raw semantics; axes are reconstructed from verified leaves.
+            continue
         if 'raw' in source:
             raw=source['raw']
             if (not isinstance(raw,dict) or not isinstance(raw.get('manifest'),dict)

@@ -37,7 +37,7 @@ def retry_task(task_id: str, request: RetryRequest, store: Store):
         from app.domain.bio_insights.execution import retry_in_transaction
         with store.connection(write=True) as db:
             return retry_in_transaction(store,db,store.require_task(db,task_id),request.expected_revision)
-    if task_type in ('research_figure','research_report','research_fact_draft'):
+    if task_type in ('research_figure','research_report','research_fact_draft','delivery_package'):
         from app.domain.research_results.execution import retry_in_transaction
         with store.connection(write=True) as db:
             return retry_in_transaction(store,db,store.require_task(db,task_id),request.expected_revision)
@@ -199,3 +199,9 @@ def get_task_events(
     limit: Annotated[int, Query(ge=1, le=100), BeforeValidator(decimal_query_integer)] = 50,
 ):
     return store.events(task_id, after=after, limit=limit)
+
+
+@router.get('/{task_id}/progress')
+def get_task_progress(task_id: str, store: Store):
+    from app.domain.tasks.progress import task_progress
+    return task_progress(store,task_id)

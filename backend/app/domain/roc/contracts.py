@@ -4,7 +4,9 @@ from app.domain.correlation.contracts import StrictModel,ColumnId
 from app.domain.comparison.contracts import GroupIdentity
 from app.domain.regression.contracts import Assumptions
 ENGINE='roc_statistics_dataset_v1'
-class RocSelection(StrictModel):
+from app.domain.statistics_roles import RoleSelection
+
+class RocSelection(RoleSelection, StrictModel):
     task_type:Literal['roc']
     method:Literal['roc_auc']
     sheet_name:str=Field(min_length=1,max_length=31)

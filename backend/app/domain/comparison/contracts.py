@@ -45,7 +45,9 @@ class ComparisonAssumptions(StrictModel):
     inference_confirmed: bool
 
 
-class ComparisonSelection(StrictModel):
+from app.domain.statistics_roles import RoleSelection
+
+class ComparisonSelection(RoleSelection, StrictModel):
     task_type: Literal['group_comparison']
     sheet_name: str = Field(min_length=1,max_length=31)
     design: Literal['independent','paired','multiple']
@@ -65,6 +67,12 @@ class ComparisonSelection(StrictModel):
     def coherent(self):
         methods={'independent':('welch_t','mann_whitney_u'),'paired':('paired_t','wilcoxon'),'multiple':('welch_anova','kruskal_wallis')}
         if self.method not in methods[self.design]: raise ValueError('Method does not match design.')
+        if self.design=='paired' and self.data_roles and self.data_roles.structure=='paired_long':
+            if (self.numeric_column!=self.data_roles.endpoint or self.pair_id_column!=self.data_roles.individual_id
+                or any(c is not None for c in (self.group_column,self.before_column,self.after_column))
+                or self.groups or self.missing_policy!='complete_pairs' or self.posthoc!='none'):
+                raise ValueError('Long paired roles do not match explicit endpoint and individual.')
+            return self
         if self.design=='paired':
             columns=[self.pair_id_column,self.before_column,self.after_column]
             if (None in columns or len(set(columns))!=3 or self.numeric_column is not None or self.group_column is not None
@@ -81,6 +89,8 @@ class ComparisonSelection(StrictModel):
 
 
 def selected_columns(selection):
+    if selection.data_roles and selection.data_roles.structure=='paired_long':
+        return [selection.pair_id_column,selection.data_roles.time,selection.numeric_column]
     return [selection.pair_id_column,selection.before_column,selection.after_column] if selection.design=='paired' else [selection.numeric_column,selection.group_column]
 
 
@@ -183,7 +193,7 @@ class ComparisonStatistics(StrictModel):
 class ExcludedRow(StrictModel):
     row: int = Field(ge=1)
     coordinates: list[str]
-    reason: Literal['selected_missing','group_not_selected']
+    reason: Literal['selected_missing','group_not_selected','incomplete_pair']
 
 
 class RowAudit(StrictModel):

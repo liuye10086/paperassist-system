@@ -6,19 +6,39 @@ from app.adapters.bio_insights_store import BioInsightsStore,base,insert,identit
 from app.adapters.bio_analysis_store import scoped_object,object_by_key
 from app.domain.bioinformatics.contracts import digest
 from app.domain.bioinformatics.service import require_key,append_checkpoint
-from .contracts import InsightPlanRequest,InsightRunRequest,ResourceImportRequest,InsightSourceSelection,SourceLocator
+from .contracts import FrozenInsightPlanRequest,InsightPlanRequest,InsightRunRequest,ResourceImportRequest,InsightSourceSelection,SourceLocator
 from .task_contracts import InsightTaskSnapshot,input_version
 from .sources import InsightSourceReader,_truth
 from .design import validate_design,DesignPreview,ResourceEstimate,DesignReason
 
 TASK_FOR_KIND={'comparison':'bio_comparison','result_import':'bio_result_import','ora':'bio_enrichment',
-               'gsea_prerank':'bio_enrichment','candidate':'bio_candidate','figure':'bio_insight_figure'}
+               'gsea_prerank':'bio_enrichment','candidate':'bio_candidate','figure':'bio_insight_figure','feature_extract':'bio_feature_extract','integration':'bio_integration'}
 
 
 def portable(value):
     if isinstance(value,dict):return {key:portable(item) for key,item in value.items() if key!='path'}
     if isinstance(value,list):return [portable(item) for item in value]
     return value
+
+
+def frozen_envelope_projection(envelope,frozen):
+    """Compare old Visium envelopes without rewriting either saved source.
+
+    B05 added two derived axis labels to the existing Visium source projection.
+    An old envelope omitted both; all original identities and other metadata
+    still have to match exactly. Envelopes already freezing either label keep
+    their full strict shape, as do single-cell and tabular sources.
+    """
+    projected=portable(envelope)
+    for current,previous in zip(projected.get('sources',[]),frozen.get('sources',[])):
+        metadata=current.get('metadata',{});old=previous.get('metadata',{})
+        identity_fields=('source_kind','source_id','role','sha256','project_id','locator')
+        if (current.get('source_kind')=='bio_processed_dataset_version'
+                and all(current.get(key)==previous.get(key) for key in identity_fields)
+                and 'assay' not in old and 'observation_level' not in old
+                and metadata.get('assay')=='visium' and metadata.get('observation_level')=='spot'):
+            metadata.pop('assay');metadata.pop('observation_level')
+    return projected
 
 
 def frozen_sources(sources):
@@ -30,7 +50,7 @@ def source_digest(sources):return digest(frozen_sources(sources))
 
 def inherit_heatmap_metadata(config,sources):
     """Only an established canonical lineage can supply missing declarations."""
-    if config.kind!='figure' or config.figure_type!='heatmap':return
+    if config.kind!='figure' or config.figure_type not in ('heatmap','distribution'):return
     processed=next(s for s in sources if s['source_kind']=='bio_processed_dataset_version' and s['source_id']==config.processed_source_id)
     result=next(s for s in sources if s['source_kind']=='bio_insight_result_version' and s['source_id']==config.result_source_id)
     meta=processed['metadata'];upstream=result['metadata']
@@ -38,7 +58,7 @@ def inherit_heatmap_metadata(config,sources):
         raise invalid('bio_insight_source_conflict',422)
     for field in ('species_taxon_id','namespace','reference_version'):
         declared=upstream.get(field)
-        if declared is None or meta.get(field) is not None and meta[field]!=declared:
+        if (declared is None and not (meta.get('observation_level')=='sample' and field=='species_taxon_id' and meta.get(field) is None)) or meta.get(field) is not None and meta[field]!=declared:
             raise invalid('bio_insight_source_conflict',422)
         if meta.get(field) is None:meta[field]=declared
     meta['reference_metadata_origin']='linked_frozen_comparison'
@@ -49,7 +69,7 @@ class BioInsightsService(BioInsightsStore):
 
     def _resolve(self,db,project,request,progress=None,*,phase=None,lineage_only=False):
         selections=list(request.sources)
-        if request.kind=='result_import':
+        if request.kind=='result_import' or getattr(request.config,'schema_version',None)==3:
             for index,selection in enumerate(selections):
                 if selection.source_kind=='original_file' and selection.source_id==request.config.file_source_id:
                     data=selection.model_dump(mode='json');data['locator']['parse_version_id']=request.config.parse_version_id
@@ -59,7 +79,7 @@ class BioInsightsService(BioInsightsStore):
             require_phase(phase,db,self.assets,project)
             sources=self.reader()._resolve_many_in_phase(db,project,selections,request.config,progress,phase=phase,lineage_only=lineage_only)
         inherit_heatmap_metadata(request.config,sources)
-        if request.kind=='result_import':
+        if request.kind=='result_import' or getattr(request.config,'schema_version',None)==3:
             source=next(s for s in sources if s['source_kind']=='original_file' and s['source_id']==request.config.file_source_id)
             source['metadata']['sheet']=request.config.sheet
             parsed_headers=source['metadata'].get('parse_summary',{}).get('headers')
@@ -73,9 +93,30 @@ class BioInsightsService(BioInsightsStore):
                     header=next(workbook[request.config.sheet].iter_rows(min_row=1,max_row=1,values_only=True),())
                     if not {v for v in request.config.columns.model_dump().values() if v}<=set(header):raise invalid('bio_insight_column_mapping_invalid',422)
                 finally:workbook.close()
+        if request.kind=='candidate' and getattr(request.config,'schema_version',None)==2:
+            for source in sources:
+                if source['source_kind']=='bio_insight_result_version':
+                    row=self.require(db,'bio_insight_result_versions',project,source['source_id'])
+                    source['metadata'].update(run_id=row['run_id'],task_status=self.store.require_task(db,row['task_id'])['status'])
         return sources
 
     def _design(self,config,sources):
+        if config.kind=='candidate' and getattr(config,'schema_version',None)==2:
+            from .evidence_design import validate_evidence_design
+            return validate_evidence_design(config,sources)
+        if config.kind=='figure' and config.figure_type.startswith('evidence_'):
+            source=next(s for s in sources if s['source_id']==config.result_source_id)
+            reasons=[] if 'evidence_data' in source['members'] else [DesignReason(code='fixed_evidence_matrix_required',message='需要固定候选证据矩阵。')]
+            return DesignPreview(executable=not reasons,blocking_reasons=reasons,resource_estimate=ResourceEstimate(observations=0,features=0,contrasts=0,estimated_working_bytes=0))
+        if config.kind=='comparison' and getattr(config,'schema_version',None)==4:
+            from .microbiome_design import validate_microbiome_design
+            return validate_microbiome_design(config,sources)
+        if config.kind=='comparison' and getattr(config,'schema_version',None)==3:
+            from .qpcr_design import validate_qpcr_design
+            return validate_qpcr_design(config,sources)
+        if config.kind=='comparison' and getattr(config,'schema_version',None)==2:
+            from .quantitative_design import validate_quantitative_design
+            return validate_quantitative_design(config,sources)
         if config.kind=='comparison':
             observations=[];features=[];resolved=[]
             for source in sources:
@@ -109,13 +150,27 @@ class BioInsightsService(BioInsightsStore):
             warnings=list(preview.warnings)+[axis_warning]
             if any(s.get('metadata',{}).get('reference_metadata_origin') for s in sources):
                 warnings.append('上游缺少的物种/命名空间/参考版本使用当前计划显式声明；软件不据基因名称猜测物种。')
+            if config.mode=='spot_exploratory' and any(s.get('metadata',{}).get('assay')=='single_cell' for s in sources):
+                return preview.model_copy(update={'executable':False,'blocking_reasons':list(preview.blocking_reasons)+[DesignReason(code='single_cell_requires_donor_contrast',message='单细胞比较请选择明确供体设计；QC/聚类/marker 探索仍可用。')],'warnings':warnings})
             return preview.model_copy(update={'warnings':warnings})
         reasons=[]
+        if config.kind=='integration':
+            from .integration_design import validate_integration_design
+            return validate_integration_design(config,sources)
+        if config.kind=='feature_extract':
+            selected={s.resource_source_id for s in config.structure_selections}
+            for source in sources:
+                if source['source_id'] not in config.resource_source_ids:continue
+                kind=source['metadata'].get('kind')
+                if kind not in ('sequence','structure') or (kind=='structure')!=(source['source_id'] in selected):
+                    reasons.append(DesignReason(code='feature_input_selection_required',message='FASTA 需要序列资源；结构资源需显式选择单个 model 和 author chain。'))
+            return DesignPreview(executable=not reasons,blocking_reasons=reasons,resource_estimate=ResourceEstimate(observations=0,features=0,contrasts=0,estimated_working_bytes=0),warnings=['提取为描述性特征；不推断功能、P 值、疾病效应或生物学验证。'])
         results=[s['metadata'] for s in sources if s['source_kind']=='bio_insight_result_version']
         resources=[s['metadata'] for s in sources if s['source_kind']=='bio_resource_version']
         if config.kind in ('ora','gsea_prerank','candidate'):
             taxa={s.get('species_taxon_id') for s in results+resources}-{None}
-            if any(s.get('species_taxon_id') is None for s in results+resources) or len(taxa)!=1:
+            exact_sample_identity=config.kind=='candidate' and not resources and all(s.get('inference_scope') in ('sample_inference','sample_exploratory') for s in results) and len({(s.get('species_taxon_id'),s.get('namespace'),s.get('reference_version')) for s in results})==1
+            if not exact_sample_identity and (any(s.get('species_taxon_id') is None for s in results+resources) or len(taxa)!=1):
                 reasons.append(DesignReason(code='incompatible_species',message='所选结果和资源必须具有明确且相同的物种 taxon ID。'))
             for result in results:
                 for resource in [r for r in resources if r.get('kind')=='gene_sets']:
@@ -124,6 +179,10 @@ class BioInsightsService(BioInsightsStore):
                         if not mappings:reasons.append(DesignReason(code='namespace_mapping_required',message='结果和基因集命名空间不同，需要固定且方向匹配的 ID 映射资源。'))
             for source in [s for s in sources if s['source_kind']=='bio_insight_result_version']:
                 meta=source['metadata'];plan=meta.get('plan_config',{})
+                if config.kind=='candidate' and source['source_id'] in config.annotation_source_ids:
+                    if meta['kind']!='feature_extract' or 'resource' not in source['members']:
+                        reasons.append(DesignReason(code='feature_annotation_result_required',message='结果型注释来源必须是已发布的实际特征提取结果。'))
+                    continue
                 if meta['kind'] not in ('comparison','result_import'):
                     reasons.append(DesignReason(code='incompatible_result_kind',message='该计算需要完整差异或外部差异结果，不能把其他结果当作差异全集。'))
                     continue
@@ -131,6 +190,19 @@ class BioInsightsService(BioInsightsStore):
                 wanted=([config.source_contrasts[source['source_id']]] if config.kind=='candidate' else
                         [config.contrast_id] if config.kind=='gsea_prerank' else list(config.contrast_ids))
                 if not set(wanted)<=available:reasons.append(DesignReason(code='contrast_not_found',message='所选比较 ID 不存在于该固定结果版本。'))
+        if config.kind=='figure' and config.figure_type.startswith('integration_'):
+            selected=next(s for s in sources if s['source_id']==config.result_source_id)
+            if selected['metadata'].get('kind')!='integration':reasons.append(DesignReason(code='integration_result_required',message='来源图需要固定的整合结果。'))
+        if config.kind=='figure' and config.figure_type.startswith('feature_'):
+            selected=next(s for s in sources if s['source_id']==config.result_source_id)
+            if selected['metadata'].get('kind')!='feature_extract':reasons.append(DesignReason(code='feature_result_required',message='特征图需要固定的实际提取结果。'))
+        if config.kind=='figure' and config.figure_type.startswith('microbiome_'):
+            selected=next(s for s in sources if s['source_kind']=='bio_insight_result_version' and s['source_id']==config.result_source_id)
+            if selected['metadata'].get('plan_config',{}).get('schema_version')!=4:reasons.append(DesignReason(code='microbiome_result_required',message='微生物组图件仅承接固定微生物组配方结果。'))
+        if config.kind=='figure' and config.figure_type=='volcano':
+            selected=next(s for s in sources if s['source_kind']=='bio_insight_result_version' and s['source_id']==config.result_source_id)
+            if selected['metadata'].get('plan_config',{}).get('design')=='multiple':
+                reasons.append(DesignReason(code='omnibus_has_no_direction',message='多组 omnibus 没有单一方向效应，不能绘制方向火山图。'))
         if config.kind=='figure' and config.figure_type=='gsea':
             selected=next(s for s in sources if s['source_kind']=='bio_insight_result_version' and s['source_id']==config.result_source_id)
             member=selected['members'].get('enrichment_results')
@@ -189,7 +261,7 @@ class BioInsightsService(BioInsightsStore):
         bindings=db.execute('SELECT * FROM bio_insight_plan_sources WHERE plan_version_id=%s AND project_id=%s AND user_id=%s ORDER BY ordinal',
             (row['id'],project,self.store.user_id)).fetchall()
         selections=[dict(source_kind=b['source_kind'],source_id=b['source_id'],role=b['role'],sha256=b['source_sha256'],locator=b['locator_json']) for b in bindings]
-        return InsightPlanRequest(name=row['design_checks_json'].get('plan_name',root['name']),kind=row['kind'],decision=row['decision'],expected_revision=root['revision'],sources=selections,config=row['config_json']),root
+        return FrozenInsightPlanRequest(name=row['design_checks_json'].get('plan_name',root['name']),kind=row['kind'],decision=row['decision'],expected_revision=root['revision'],sources=selections,config=row['config_json']),root
 
     def get_plan(self,project,plan_id,version_id):
         with self.store.connection() as db:
@@ -216,9 +288,39 @@ class BioInsightsService(BioInsightsStore):
         if not runtime['available']:raise invalid('bio_insights_environment_unavailable',422)
         return {key:runtime[key] for key in ('engine_version','environment_digest','code_digest','lock_sha256')}
 
+    def _runtime_for(self,config):
+        if config.kind=='figure' and 'pdf' in config.formats:
+            raise invalid('bio_figure_pdf_export_retired',422)
+        if config.kind in ('integration','sample_correspondence','object_correspondence') or config.kind=='figure' and config.figure_type.startswith('integration_'):
+            from .settings import integration_runtime_identity
+            runtime=integration_runtime_identity()
+            if not runtime.get('available'):raise invalid('bio_insights_environment_unavailable',422)
+            return {key:runtime[key] for key in ('engine_version','environment_digest','code_digest','lock_sha256')}
+        elif config.kind in ('feature_extract','sequence','structure') or config.kind=='figure' and config.figure_type.startswith('feature_'):
+            from .settings import feature_runtime_identity
+            runtime=feature_runtime_identity()
+            if not runtime.get('available'):raise invalid('bio_insights_environment_unavailable',422)
+            return {key:runtime[key] for key in ('engine_version','environment_digest','code_digest','lock_sha256')}
+        if config.kind=='comparison' and getattr(config,'schema_version',None)==4 or config.kind=='figure' and config.figure_type.startswith('microbiome_'):
+            from .settings import microbiome_runtime_identity
+            runtime=microbiome_runtime_identity()
+            if not runtime.get('available'):raise invalid('bio_insights_environment_unavailable',422)
+            return {key:runtime[key] for key in ('engine_version','environment_digest','code_digest','lock_sha256')}
+        if config.kind=='comparison' and getattr(config,'schema_version',None)==3 or config.kind=='figure' and config.figure_type=='qpcr_samples':
+            from .settings import qpcr_runtime_identity
+            runtime=qpcr_runtime_identity()
+            if not runtime.get('available'):raise invalid('bio_insights_environment_unavailable',422)
+            return {key:runtime[key] for key in ('engine_version','environment_digest','code_digest','lock_sha256')}
+        if config.kind=='comparison' and getattr(config,'schema_version',None)==2:
+            from .settings import quantitative_runtime_identity
+            runtime=quantitative_runtime_identity()
+            if not runtime.get('available'):raise invalid('bio_insights_environment_unavailable',422)
+            return {key:runtime[key] for key in ('engine_version','environment_digest','code_digest','lock_sha256')}
+        return self._runtime()
+
     def _new_task(self,db,project,task_id,task_type,snapshot,file_ids):
         task=dict(id=task_id,project_id=project,user_id=self.store.user_id,task_type=task_type,idempotency_key=task_type+':'+task_id,
-            input_digest=digest(snapshot),input_snapshot=snapshot,workflow_version=task_type+'_v1',status='queued',phase='compute',revision=1,
+            input_digest=digest(snapshot),input_snapshot=snapshot,workflow_version=snapshot['workflow_version'],status='queued',phase='compute',revision=1,
             current_attempt=0,reason_code=None,created_at=now(),updated_at=now())
         self.store.insert_task(db,task,validated_file_ids=file_ids)
         append_checkpoint(db,task,'check','check',dict(input_version=input_version(task),stage='check'))
@@ -237,18 +339,20 @@ class BioInsightsService(BioInsightsStore):
             else:
                 row=self.require(db,'bio_insight_plan_versions',project,request.plan_version_id)
                 planned,root=self._plan_request(db,project,row)
+                if planned.config.kind=='figure' and 'pdf' in planned.config.formats:
+                    raise invalid('bio_figure_pdf_export_retired',422)
                 if row['decision']!='confirmed':raise invalid('bio_insight_plan_unconfirmed',422)
                 if root['revision']!=request.expected_plan_revision:raise invalid('bio_insight_revision_conflict')
                 sources=self._resolve(db,project,planned);source_sha=source_digest(sources)
                 if source_sha!=request.source_digest:raise invalid()
                 design=self._design(planned.config,sources)
                 if not design.executable:raise invalid('bio_insight_design_blocked',422)
-                runtime=self._runtime();task_type=TASK_FOR_KIND[row['kind']];task_id=identity(project,'run-task',key)
+                runtime=self._runtime_for(planned.config);task_type=TASK_FOR_KIND[row['kind']];task_id=identity(project,'run-task',key)
                 envelope=dict(schema_version=1,kind=task_type,config=planned.config.model_dump(mode='json'),
                     identity=dict(project_id=project,task_id=task_id,run_id=identifier,plan_version_id=row['id'],source_digest=source_sha,
                         config_sha256=row['config_sha256'],**runtime),sources=sources)
                 obj=self.write_document(db,project,identifier,'execution_snapshot',portable(envelope))
-                snapshot=InsightTaskSnapshot(kind=task_type,workflow_version=task_type+'_v1',project_id=project,plan_version_id=row['id'],
+                snapshot=InsightTaskSnapshot(kind=task_type,workflow_version='bio_comparison_microbiome_v1' if getattr(planned.config,'schema_version',None)==4 else 'bio_comparison_qpcr_v1' if getattr(planned.config,'schema_version',None)==3 else 'bio_comparison_v2' if row['kind']=='comparison' and getattr(planned.config,'schema_version',None)==2 else task_type+'_v1',project_id=project,plan_version_id=row['id'],
                     run_id=identifier,source_digest=source_sha,output_language=planned.config.output_language).model_dump(mode='json',exclude_none=True)
                 file_ids=sorted({s['source_id'] for s in sources if s['source_kind']=='original_file'}|{fid for s in sources for fid in s.get('metadata',{}).get('source_file_ids',[])})
                 task=self._new_task(db,project,task_id,task_type,snapshot,file_ids)
@@ -289,15 +393,17 @@ class BioInsightsService(BioInsightsStore):
         row=self.require(db,'bio_insight_plan_versions',project,snapshot['plan_version_id'])
         if run['task_id']!=task['id'] or run['kind']!=row['kind'] or row['decision']!='confirmed' or run['source_digest']!=snapshot['source_digest']:raise invalid()
         planned,_=self._plan_request(db,project,row);sources=self._resolve(db,project,planned,progress,phase=phase,lineage_only=not runtime)
+        expected_workflow='bio_comparison_microbiome_v1' if getattr(planned.config,'schema_version',None)==4 else 'bio_comparison_qpcr_v1' if getattr(planned.config,'schema_version',None)==3 else 'bio_comparison_v2' if planned.config.kind=='comparison' and getattr(planned.config,'schema_version',None)==2 else task['task_type']+'_v1'
+        if task['workflow_version']!=expected_workflow or snapshot['workflow_version']!=expected_workflow:raise invalid()
         if source_digest(sources)!=run['source_digest']:raise invalid()
         obj=scoped_object(db,project,self.store.user_id,run['execution_snapshot_object_id'])
         if obj['sha256']!=run['execution_snapshot_sha256']:raise invalid()
         frozen=json.loads(self.objects.read(obj))
         envelope=dict(schema_version=1,kind=task['task_type'],config=planned.config.model_dump(mode='json'),identity=frozen['identity'],sources=sources)
-        if portable(envelope)!=frozen:raise invalid()
+        if frozen_envelope_projection(envelope,frozen)!=frozen:raise invalid()
         if frozen['identity'].get('task_id')!=task['id'] or frozen['identity'].get('project_id')!=project:raise invalid()
         if runtime:
-            current=self._runtime()
+            current=self._runtime_for(planned.config)
             if any(frozen['identity'].get(key)!=value for key,value in current.items()):raise invalid('bio_insights_environment_unavailable',422)
         if not self._design(planned.config,sources).executable:raise invalid('bio_insight_design_blocked',422)
         return envelope
@@ -314,6 +420,12 @@ class BioInsightsService(BioInsightsStore):
         manifest_ref=object_by_key(db,task['project_id'],task['user_id'],prepared['manifest_ref'])
         kind=run['kind'];provenance='external_result' if kind=='result_import' else 'system_computed'
         scope='external_result' if kind=='result_import' else ('spot_exploratory' if payload['config']['mode']=='spot_exploratory' else 'donor_inference') if kind=='comparison' else 'visualization' if kind=='figure' else 'derived'
+        if kind=='comparison' and payload['config'].get('schema_version')==2:
+            from .quantitative_contracts import QuantitativeComparisonConfig,quantitative_scope
+            scope=quantitative_scope(QuantitativeComparisonConfig.model_validate(payload['config']),[s['metadata']['assay'] for s in payload['sources'] if s['source_kind']=='bio_processed_dataset_version'])
+        if kind=='comparison' and payload['config'].get('schema_version')==3:scope='sample_inference'
+        if kind=='comparison' and payload['config'].get('schema_version')==4:scope='sample_inference' if payload['config']['contrasts'] or payload['config']['beta_inference'] else 'sample_exploratory'
+        if manifest.get('inference_scope')!=scope or manifest.get('identity')!=payload['identity']:raise invalid()
         methods=manifest.get('methods') or prepared.get('methods') or {}
         if isinstance(methods,list):methods={'steps':methods}
         insert(db,'bio_insight_result_versions',{**base(identifier,task['project_id'],task['user_id']),'run_id':run['id'],'task_id':task['id'],

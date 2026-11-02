@@ -22,7 +22,7 @@ type Column = {
   unit?: { status: 'confirmed' | 'unconfirmed'; value: string | null }; numeric_count: number; can_be_numeric: boolean; can_be_group: boolean; issue_cells: string[]
 }
 type Profile = { sheet_name: string; row_count: number; columns: Column[]; warnings: string[] }
-export type Selection = { task_type: 'descriptive_boxplot'; sheet_name: string; numeric_column: string
+export type Selection = { data_roles?:import('./statisticsRoles').StatisticsRoles; task_type: 'descriptive_boxplot'; sheet_name: string; numeric_column: string
   group_column: string | null; unit: string; missing_policy: 'exclude_selected_missing' }
 export type Check = { ready: boolean; row_count: number; valid_count: number; excluded_count: number
   groups: { label: string; count: number }[]; issues: string[]; warnings: string[] }

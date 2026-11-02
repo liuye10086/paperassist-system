@@ -204,7 +204,7 @@ class _SchoolPagination2:
         self.apply(self.document.add_section(WD_SECTION_START.NEW_PAGE),spec)
 
 
-def build_school_docx(snapshot,images,plan,*,source_map=None):
+def build_school_docx(snapshot,images,plan,*,source_map=None,excluded_chapter_ids=frozenset()):
     from .manuscript_docx import _document,_table,_figure,_save_document
     validate_school_export(plan,snapshot)
     if not plan['report']['can_export']:raise StorageError('manuscript_review_blocked','学校导出存在一致性硬错误。',409)
@@ -249,6 +249,7 @@ def build_school_docx(snapshot,images,plan,*,source_map=None):
     notes=Footnotes(document,snapshot,plan.get('citation_footnotes',False))
     bookmark=0;toc_inserted=False;previous_spec=None
     for chapter_index,chapter in enumerate(snapshot['sections']):
+        if chapter['id'] in excluded_chapter_ids:continue
         role=chapter['purpose'];en=chapter['output_language']=='en'
         toc_just_inserted=False
         if plan['toc']['enabled'] and not toc_inserted and role not in ('manual','abstract','references','acknowledgements'):

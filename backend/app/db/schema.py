@@ -267,6 +267,8 @@ literature_check_receipts, = define_literature_check_tables(metadata)
 
 from app.db.manuscript_schema import define_manuscript_tables
 manuscripts, manuscript_versions, manuscript_sources, manuscript_citations, manuscript_exports = define_manuscript_tables(metadata)
+from app.db.manuscript_presentation_schema import define_manuscript_presentation_table
+manuscript_presentation_versions=define_manuscript_presentation_table(metadata)
 
 from app.db.pdf_export_schema import define_pdf_export_tables
 pdf_exports, = define_pdf_export_tables(metadata)
@@ -350,3 +352,6 @@ define_research_results_tables(metadata)
 
 from app.db.bio_insights_schema import define_bio_insights_tables
 define_bio_insights_tables(metadata)
+
+from app.db.delivery_schema import define_delivery_tables
+define_delivery_tables(metadata)

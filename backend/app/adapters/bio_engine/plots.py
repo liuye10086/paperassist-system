@@ -61,7 +61,7 @@ def save(writer,key,fig,data,config=None):
     if dpi<72 or dpi>600 or max(width,height)*dpi>4096 or width*height*dpi*dpi>16000000: raise ValueError('figure_size_limit')
     fig.set_size_inches(width,height);fig.tight_layout()
     members=[]
-    for fmt,metadata in [('png',{'Software':'PaperAssist'}),('pdf',{'CreationDate':None,'ModDate':None,'Creator':'PaperAssist'})]:
+    for fmt,metadata in [('png',{'Software':'PaperAssist'})]:
         stream=io.BytesIO();fig.savefig(stream,format=fmt,dpi=dpi,metadata=metadata)
         members.append(writer.add(key+'_'+fmt,stream.getvalue(),fmt,'figure_'+fmt))
     plt.close(fig)

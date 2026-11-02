@@ -1,0 +1,380 @@
+{
+  "schema": "independent-stdlib-rational-oracle-v1",
+  "sample_ids": [
+    "S1",
+    "S2",
+    "S3",
+    "S4",
+    "S5",
+    "S6"
+  ],
+  "counts": [
+    [
+      10,
+      90
+    ],
+    [
+      20,
+      80
+    ],
+    [
+      40,
+      60
+    ],
+    [
+      60,
+      40
+    ],
+    [
+      80,
+      20
+    ],
+    [
+      100,
+      0
+    ]
+  ],
+  "groups": [
+    "A",
+    "A",
+    "A",
+    "B",
+    "B",
+    "B"
+  ],
+  "fraction_first_feature_exact": [
+    "1/10",
+    "1/5",
+    "2/5",
+    "3/5",
+    "4/5",
+    "1"
+  ],
+  "alpha": [
+    {
+      "shannon_natural": 0.3250829733914482,
+      "simpson_1_minus_sum_p2": 0.18,
+      "observed_features": 2
+    },
+    {
+      "shannon_natural": 0.5004024235381879,
+      "simpson_1_minus_sum_p2": 0.32,
+      "observed_features": 2
+    },
+    {
+      "shannon_natural": 0.6730116670092565,
+      "simpson_1_minus_sum_p2": 0.48,
+      "observed_features": 2
+    },
+    {
+      "shannon_natural": 0.6730116670092565,
+      "simpson_1_minus_sum_p2": 0.48,
+      "observed_features": 2
+    },
+    {
+      "shannon_natural": 0.5004024235381879,
+      "simpson_1_minus_sum_p2": 0.32,
+      "observed_features": 2
+    },
+    {
+      "shannon_natural": -0.0,
+      "simpson_1_minus_sum_p2": 0.0,
+      "observed_features": 1
+    }
+  ],
+  "bray_curtis": [
+    [
+      0.0,
+      0.1,
+      0.3,
+      0.5,
+      0.7,
+      0.9
+    ],
+    [
+      0.1,
+      0.0,
+      0.2,
+      0.4,
+      0.6,
+      0.8
+    ],
+    [
+      0.3,
+      0.2,
+      0.0,
+      0.2,
+      0.4,
+      0.6
+    ],
+    [
+      0.5,
+      0.4,
+      0.2,
+      0.0,
+      0.2,
+      0.4
+    ],
+    [
+      0.7,
+      0.6,
+      0.4,
+      0.2,
+      0.0,
+      0.2
+    ],
+    [
+      0.9,
+      0.8,
+      0.6,
+      0.4,
+      0.2,
+      0.0
+    ]
+  ],
+  "observed": {
+    "a_indices_1based": [
+      1,
+      2,
+      3
+    ],
+    "permanova_f_exact": "289/19",
+    "permanova_f": 15.210526315789474,
+    "permdisp_f_exact": "1/7",
+    "permdisp_f": 0.14285714285714285
+  },
+  "allocations": [
+    {
+      "a_indices_1based": [
+        1,
+        2,
+        3
+      ],
+      "permanova_f_exact": "289/19",
+      "permanova_f": 15.210526315789474,
+      "permdisp_f_exact": "1/7",
+      "permdisp_f": 0.14285714285714285
+    },
+    {
+      "a_indices_1based": [
+        1,
+        2,
+        4
+      ],
+      "permanova_f_exact": "169/49",
+      "permanova_f": 3.4489795918367347,
+      "permdisp_f_exact": "1/25",
+      "permdisp_f": 0.04
+    },
+    {
+      "a_indices_1based": [
+        1,
+        2,
+        5
+      ],
+      "permanova_f_exact": "81/71",
+      "permanova_f": 1.1408450704225352,
+      "permdisp_f_exact": "1/43",
+      "permdisp_f": 0.023255813953488372
+    },
+    {
+      "a_indices_1based": [
+        1,
+        2,
+        6
+      ],
+      "permanova_f_exact": "5/17",
+      "permanova_f": 0.29411764705882354,
+      "permdisp_f_exact": "25/61",
+      "permdisp_f": 0.4098360655737705
+    },
+    {
+      "a_indices_1based": [
+        1,
+        3,
+        4
+      ],
+      "permanova_f_exact": "81/71",
+      "permanova_f": 1.1408450704225352,
+      "permdisp_f_exact": "9/35",
+      "permdisp_f": 0.2571428571428571
+    },
+    {
+      "a_indices_1based": [
+        1,
+        3,
+        5
+      ],
+      "permanova_f_exact": "5/17",
+      "permanova_f": 0.29411764705882354,
+      "permdisp_f_exact": "1/29",
+      "permdisp_f": 0.034482758620689655
+    },
+    {
+      "a_indices_1based": [
+        1,
+        3,
+        6
+      ],
+      "permanova_f_exact": "1/91",
+      "permanova_f": 0.01098901098901099,
+      "permdisp_f_exact": "3/13",
+      "permdisp_f": 0.23076923076923078
+    },
+    {
+      "a_indices_1based": [
+        1,
+        4,
+        5
+      ],
+      "permanova_f_exact": "1/91",
+      "permanova_f": 0.01098901098901099,
+      "permdisp_f_exact": "1/47",
+      "permdisp_f": 0.02127659574468085
+    },
+    {
+      "a_indices_1based": [
+        1,
+        4,
+        6
+      ],
+      "permanova_f_exact": "9/89",
+      "permanova_f": 0.10112359550561797,
+      "permdisp_f_exact": "3/11",
+      "permdisp_f": 0.2727272727272727
+    },
+    {
+      "a_indices_1based": [
+        1,
+        5,
+        6
+      ],
+      "permanova_f_exact": "49/79",
+      "permanova_f": 0.620253164556962,
+      "permdisp_f_exact": "25/43",
+      "permdisp_f": 0.5813953488372093
+    },
+    {
+      "a_indices_1based": [
+        2,
+        3,
+        4
+      ],
+      "permanova_f_exact": "49/79",
+      "permanova_f": 0.620253164556962,
+      "permdisp_f_exact": "25/43",
+      "permdisp_f": 0.5813953488372093
+    },
+    {
+      "a_indices_1based": [
+        2,
+        3,
+        5
+      ],
+      "permanova_f_exact": "9/89",
+      "permanova_f": 0.10112359550561797,
+      "permdisp_f_exact": "3/11",
+      "permdisp_f": 0.2727272727272727
+    },
+    {
+      "a_indices_1based": [
+        2,
+        3,
+        6
+      ],
+      "permanova_f_exact": "1/91",
+      "permanova_f": 0.01098901098901099,
+      "permdisp_f_exact": "1/47",
+      "permdisp_f": 0.02127659574468085
+    },
+    {
+      "a_indices_1based": [
+        2,
+        4,
+        5
+      ],
+      "permanova_f_exact": "1/91",
+      "permanova_f": 0.01098901098901099,
+      "permdisp_f_exact": "3/13",
+      "permdisp_f": 0.23076923076923078
+    },
+    {
+      "a_indices_1based": [
+        2,
+        4,
+        6
+      ],
+      "permanova_f_exact": "5/17",
+      "permanova_f": 0.29411764705882354,
+      "permdisp_f_exact": "1/29",
+      "permdisp_f": 0.034482758620689655
+    },
+    {
+      "a_indices_1based": [
+        2,
+        5,
+        6
+      ],
+      "permanova_f_exact": "81/71",
+      "permanova_f": 1.1408450704225352,
+      "permdisp_f_exact": "9/35",
+      "permdisp_f": 0.2571428571428571
+    },
+    {
+      "a_indices_1based": [
+        3,
+        4,
+        5
+      ],
+      "permanova_f_exact": "5/17",
+      "permanova_f": 0.29411764705882354,
+      "permdisp_f_exact": "25/61",
+      "permdisp_f": 0.4098360655737705
+    },
+    {
+      "a_indices_1based": [
+        3,
+        4,
+        6
+      ],
+      "permanova_f_exact": "81/71",
+      "permanova_f": 1.1408450704225352,
+      "permdisp_f_exact": "1/43",
+      "permdisp_f": 0.023255813953488372
+    },
+    {
+      "a_indices_1based": [
+        3,
+        5,
+        6
+      ],
+      "permanova_f_exact": "169/49",
+      "permanova_f": 3.4489795918367347,
+      "permdisp_f_exact": "1/25",
+      "permdisp_f": 0.04
+    },
+    {
+      "a_indices_1based": [
+        4,
+        5,
+        6
+      ],
+      "permanova_f_exact": "289/19",
+      "permanova_f": 15.210526315789474,
+      "permdisp_f_exact": "1/7",
+      "permdisp_f": 0.14285714285714285
+    }
+  ],
+  "exact_p": {
+    "permanova": {
+      "exceedance_count": 2,
+      "denominator": 20,
+      "p": 0.1
+    },
+    "permdisp": {
+      "exceedance_count": 12,
+      "denominator": 20,
+      "p": 0.6
+    }
+  }
+}

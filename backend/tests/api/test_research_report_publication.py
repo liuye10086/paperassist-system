@@ -27,10 +27,9 @@ def test_report_task_freezes_and_publishes_complete_members_without_publishing_m
     with database_connection() as db:
         assert db.execute('SELECT count(*) AS n FROM manuscripts WHERE project_id=%s',(base.rsplit('/',1)[-1],)).fetchone()['n']==0
     docx=next(m for m in saved['members'] if m['role']=='docx')
-    # PDF is a separate public task over the exact successful DOCX member.
+    # Document PDF creation is retired; the fixed DOCX remains available.
     pdf=client.post(base+'/pdf-exports',json={'source_kind':'research_report','source_id':docx['id'],'request_key':'report-pdf'})
-    assert pdf.status_code==201,pdf.text
-    assert pdf.json()['source_sha256']==docx['sha256'] and pdf.json()['status']=='queued'
+    assert pdf.status_code==405,pdf.text
     pending=client.get(base+'/research-reports/'+value['id']).json()
     assert pending['manifest_sha256']==saved['manifest_sha256']
 

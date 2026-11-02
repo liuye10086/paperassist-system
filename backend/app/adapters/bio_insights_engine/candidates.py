@@ -119,7 +119,8 @@ def run_candidates(payload,writer):
     evidence={};exclusions=[];canonical={};q_columns={};annotations={};input_rows=0
     for sid in config.result_source_ids:
         source=sources[sid];meta=source['metadata'];canonical[sid]=meta.get('canonical_dataset_ids',[])
-        mapper=ExplicitMapper(meta['species_taxon_id'],meta['namespace'],target['species_taxon_id'],target['namespace'],mapping_sources)
+        mapper=ExplicitMapper(meta['species_taxon_id'],meta['namespace'],target['species_taxon_id'],target['namespace'],mapping_sources,
+            allow_untyped_identity=meta.get('inference_scope') in ('sample_inference','sample_exploratory') and target.get('inference_scope') in ('sample_inference','sample_exploratory'))
         grouped=defaultdict(list);q_column='original_q' if meta.get('provenance')=='external_result' else 'q_within_contrast'
         for step in config.steps:
             if step.operation=='threshold' and sid in step.source_ids:q_column=step.q_column
@@ -145,7 +146,7 @@ def run_candidates(payload,writer):
                 exclusions.extend(dict(source_id=sid,source_row=r['source_row'],feature_id=r['original_feature_id'],reason='many_to_one_or_duplicate_result_id') for r in rows)
     for aid in config.annotation_source_ids:
         resource=document(sources[aid]['members']['resource'])
-        if resource['kind']!='feature_annotation':raise ValueError('annotation_resource_kind_mismatch')
+        if resource['kind']!='feature_annotation' or resource.get('identity_compatible') is False:raise ValueError('annotation_resource_kind_mismatch')
         mapper=ExplicitMapper(resource['species_taxon_id'],resource['namespace'],target['species_taxon_id'],target['namespace'],mapping_sources)
         for row in resource['annotations']:
             feature,reason=mapper.map_id(row['feature_id'])

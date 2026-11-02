@@ -23,8 +23,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--source', required=True)
     parser.add_argument('--profile', required=True)
-    parser.add_argument('--cache')
-    parser.add_argument('--pdf')
+    parser.add_argument('--cache', required=True)
     args = parser.parse_args()
     pipe = 'pa_' + uuid.uuid4().hex
     connection = 'pipe,name=' + pipe + ';urp;StarOffice.ComponentContext'
@@ -86,22 +85,15 @@ def main():
             for index in range(indexes.getCount()):
                 indexes.getByIndex(index).update()
             doc.calculateAll() if hasattr(doc, 'calculateAll') else None
-        if args.cache:
-            bookmarks = doc.getBookmarks()
-            fields = {}
-            for name in bookmarks.getElementNames():
-                if name.startswith('PAF'):
-                    fields[name] = bookmarks.getByName(name).getAnchor().getString()
-            lines = []
-            if layout_index is not None:
-                lines.extend(layout_index.getAnchor().getString().splitlines())
-            Path(args.cache).write_text(json.dumps({'fields': fields, 'toc_lines': lines}, ensure_ascii=False), encoding='utf-8')
-        if args.pdf:
-            doc.storeToURL(Path(args.pdf).as_uri(), (
-                property_value('FilterName', 'writer_pdf_Export'),
-                property_value('FilterData', (
-                    property_value('UseLosslessCompression', True), property_value('ExportBookmarks', True))),
-                property_value('Overwrite', True)))
+        bookmarks = doc.getBookmarks()
+        fields = {}
+        for name in bookmarks.getElementNames():
+            if name.startswith('PAF'):
+                fields[name] = bookmarks.getByName(name).getAnchor().getString()
+        lines = []
+        if layout_index is not None:
+            lines.extend(layout_index.getAnchor().getString().splitlines())
+        Path(args.cache).write_text(json.dumps({'fields': fields, 'toc_lines': lines}, ensure_ascii=False), encoding='utf-8')
     finally:
         if doc is not None:
             doc.close(True)

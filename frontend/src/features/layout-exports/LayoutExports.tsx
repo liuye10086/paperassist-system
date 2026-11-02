@@ -3,7 +3,7 @@ import {useEffect,useLayoutEffect,useRef,useState} from 'react'
 import {onApiSessionChanged} from '../../shared/api/client'
 import {apiError,safeError,useI18n} from '../../shared/i18n'
 import ProjectDownloadLink from '../../shared/components/ProjectDownloadLink'
-import PdfExports from '../pdf-exports/PdfExports'
+import PdfExportHistory from '../pdf-exports/PdfExportHistory'
 import {useDocumentVisible} from '../tasks/useDocumentVisible'
 import LayoutForm from './LayoutForm'
 import {layoutFormError} from './layoutFormState'
@@ -34,7 +34,7 @@ function Exports({projectId,sourceKind,sourceId,sourceSha256,sourceLabel,active=
  {items.map((item,i)=><article key={item.id} className="manuscript-export"><h5>{t('排版导出 {number}',{number:items.length-i})} · {t({queued:'待执行',running:'运行中',succeeded:'已完成',failed:'执行失败'}[item.status])}</h5><p><time dateTime={item.created_at}>{item.created_at}</time>{item.parent_export_id&&<> · {t('重试生成，原失败记录保留')}</>}</p><p>{t('目录：{depth}；公式 {formulas} 个；引用 {references} 条；横向对象 {landscape} 个。',{depth:item.layout.toc?.depth??t('关闭'),formulas:item.layout.formulas.length,references:item.layout.references.length,landscape:item.layout.landscape_anchor_ids.length})}</p>
  <details><summary>{t('查看已冻结的排版设置')}</summary><p>{t('页码模式')}：{t(item.layout.pagination===null?'保留原稿页码':item.layout.pagination.mode==='continuous'?'连续阿拉伯数字':'前言罗马数字，正文从 1 开始')}</p><p>SHA256: {item.source_sha256}</p>{item.layout.formulas.map(f=><p key={f.id}>{t('用户公式 {id}',{id:f.id})} · {t(f.placement==='inline'?'行内公式（段末）':'独立公式（段后，带编号）')} · <code>{f.expression}</code></p>)}{item.layout.references.map((r,n)=><p key={n}>{t('引用 {number}',{number:n+1})} · {t(r.kind==='page'?'目标页码':r.kind==='number'?'公式编号':'目标文字')} · {r.prefix}</p>)}</details>
  {item.error_code&&<p className="warning-panel">{t(apiError({code:item.error_code},'排版请求失败，请核对设置后重试。'))}</p>}
- {item.status==='succeeded'&&item.download_url&&item.sha256&&<><ProjectDownloadLink href={item.download_url} filename={item.filename??'layout.docx'}>{t('下载排版 DOCX')}</ProjectDownloadLink><PdfExports registerLeaveGuard={registerLeaveGuard} projectId={projectId} sourceKind="layout_export" sourceId={item.id} sourceSha256={item.sha256} sourceLabel={item.filename??sourceLabel} active={active&&sessionValid} disabled={disabled} onOpenTask={onOpenTask}/></>}
+ {item.status==='succeeded'&&item.download_url&&item.sha256&&<><ProjectDownloadLink href={item.download_url} filename={item.filename??'layout.docx'}>{t('下载排版 DOCX')}</ProjectDownloadLink><PdfExportHistory registerLeaveGuard={registerLeaveGuard} projectId={projectId} sourceKind="layout_export" sourceId={item.id} sourceSha256={item.sha256} sourceLabel={item.filename??sourceLabel} active={active&&sessionValid} disabled={disabled} onOpenTask={onOpenTask}/></>}
  {(pendingLayout(scope,item.id)||item.can_retry&&item.recovery_mode!=='blocked')&&<button type="button" disabled={blocked||unknown&&!pendingLayout(scope,item.id)} onClick={()=>void submit(item.id)}>{t(pendingLayout(scope,item.id)?'确认上次排版重试':item.recovery_mode==='local_candidate'?'恢复原导出候选':'重试排版')}</button>}
  {onOpenTask?<button type="button" onClick={()=>onOpenTask(item.task_id)}>{t('查看排版任务')}</button>:<a href={`#project=${encodeURIComponent(projectId)}&section=tasks&task=${encodeURIComponent(item.task_id)}`}>{t('查看排版任务')}</a>}</article>)}
  </div>}</section>

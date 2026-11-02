@@ -147,5 +147,5 @@ def test_two_independent_children_are_numerically_and_graphically_deterministic(
         np.testing.assert_allclose(np.load(left[key]['path']),np.load(right[key]['path']),rtol=1e-5,atol=1e-6)
     for key in ['markers','markers_top','embedding','cluster_summary']:
         assert Path(left[key]['path']).read_bytes()==Path(right[key]['path']).read_bytes()
-    for key in [key for key,item in left.items() if item['format'] in {'png','pdf'}]:
+    for key in [key for key,item in left.items() if item['format'] == 'png']:
         assert left[key]['sha256']==right[key]['sha256'],key

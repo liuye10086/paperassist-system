@@ -17,6 +17,11 @@ def list_versions(project_id:str,store:Store,page:Page=1,file_id:str|None=None):
     return ExternalEvidenceService(store).list(project_id,page,file_id)
 
 
+@router.get('/external-evidence/requests/{request_key}')
+def recover(project_id:str,request_key:str,store:Store):
+    return ExternalEvidenceService(store).recover(project_id,request_key)
+
+
 @router.get('/external-evidence/{version_id}')
 def version(project_id:str,version_id:str,store:Store):
     return ExternalEvidenceService(store).get(project_id,version_id)

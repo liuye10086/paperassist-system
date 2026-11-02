@@ -19,7 +19,18 @@ from app.adapters.bio_engine.runtime_probe import exercise
 from app.adapters.bio_engine.hdf5_checks import read_10x,compare
 from app.adapters.bio_engine.errors import error_code
 from app.adapters.bio_engine.importer import import_v2
+from app.adapters.bio_engine.single_cell import import_counts
 from PIL import Image
+
+
+def render_figure(payload):
+    """Use an ASCII minus only for Chinese single-cell standalone figures."""
+    if (payload.get("raw",{}).get("manifest",{}).get("assay")=="single_cell"
+        and payload.get("config",{}).get("output_language")=="zh-CN"):
+        from matplotlib import pyplot as plt
+        with plt.rc_context({"axes.unicode_minus":False}):
+            return render(payload)
+    return render(payload)
 
 
 def main():
@@ -33,7 +44,7 @@ def main():
         payload=json.loads(body,parse_constant=lambda v:(_ for _ in ()).throw(ValueError('nonfinite_json')))
         for lock_path in [Path('/app/requirements-bio.lock.txt'),Path('/tmp/requirements-bio.lock.txt')]:
             if lock_path.is_file():payload['_trusted_lock']=lock_path.read_bytes();break
-        if payload.get('mode') not in {'qc','compute','figure','h5_check','import_v2'}:raise ValueError('unsupported_engine_mode')
+        if payload.get('mode') not in {'qc','compute','figure','h5_check','import_v2','import_single_cell'}:raise ValueError('unsupported_engine_mode')
         member_count=0
         for group,limit in [('raw',256),('processed',256),('annotation',2)]:
             container=payload.get(group,{})
@@ -41,7 +52,7 @@ def main():
             count=len(container.get('members',{}))
             if count>limit:raise ValueError('input_member_limit')
             member_count+=count
-        if payload['mode']=='import_v2':
+        if payload['mode'] in {'import_v2','import_single_cell'}:
             if type(payload.get('files')) is not list or len(payload['files'])>256:raise ValueError('input_member_limit')
             member_count+=len(payload['files'])
         if member_count>514:raise ValueError('input_member_limit')
@@ -63,7 +74,7 @@ def main():
             sc.pp.scale(logged.toarray(),zero_center=True,max_value=10,copy=True)
         signal.setitimer(signal.ITIMER_REAL,0)
         files=[]
-        if payload['mode']=='import_v2':
+        if payload['mode'] in {'import_v2','import_single_cell'}:
             from app.domain.bioinformatics.settings import BioLimits
             BioLimits.model_validate(payload.get('settings',{}))
             files.extend({'path':item['path']} for item in payload['files'])
@@ -74,8 +85,10 @@ def main():
                 files.append({'path':str(path)})
         signal.setitimer(signal.ITIMER_REAL,1200)
         pinned=enter(files,output,parent_pid=int(sys.argv[1]))
-        if payload['mode']=='import_v2':result=import_v2(payload)
-        elif payload['mode']=='figure':result=render(payload)
+        if payload['mode']=='import_single_cell':
+            result=import_counts(payload)
+        elif payload['mode']=='import_v2':result=import_v2(payload)
+        elif payload['mode']=='figure':result=render_figure(payload)
         elif payload['mode']=='h5_check':
             from app.adapters.bio_engine.manifest import Writer
             import hashlib

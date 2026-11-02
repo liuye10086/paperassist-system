@@ -42,7 +42,7 @@ it('collects explicit school fields and previews the request without submitting 
 const report={rules_version:'school-export-v1',issues:[{id:'m1',kind:'manual' as const,severity:'human_review' as const,location:'cover',message:'封面作者待补充',source_evidence:[]}],can_export:true,scientifically_verified:false as const}
 const plan={schema_version:1 as const,rules_version:'school-export-v1',confirmation_id:'confirm1',confirmation_sha256:'a'.repeat(64),analysis_sha256:'b'.repeat(64),snapshot_sha256:'c'.repeat(64),options:{},styles:{},sections:[],chapters:[],requirements:[],rule_decisions:[{id:'font',message:'正文英文采用TNR',source_evidence:[]}],toc:{enabled:true,depth:3},label_map:{figures:{},tables:{}},report}
 const version={...manuscriptFixture.versions[0],exports:[],snapshot:{...manuscriptFixture.versions[0].snapshot,thesis_context:{confirmation_id:'confirm1',chapters:[]}}} as unknown as ManuscriptVersion
-it('previews and creates using identical school options, restores static receipt and keeps Word after PDF failure',async()=>{
+it('previews and creates using identical school options, restores static receipt and keeps Word without PDF generation',async()=>{
  const result={...exportFixture,school:{plan,report,field_update:{status:'updated',renderer:'local'}}};let created=false
  const fetcher=vi.fn(async(url:string,init?:RequestInit)=>{
   if(url.includes('/pdf-exports'))return init?.method==='POST'?Response.json({detail:{code:'pdf_conversion_failed'}},{status:503}):Response.json({items:[]})
@@ -56,9 +56,9 @@ it('previews and creates using identical school options, restores static receipt
  fireEvent.click(screen.getByRole('button',{name:'生成 DOCX'}));await screen.findByRole('link',{name:'下载 DOCX'})
  const calls=fetcher.mock.calls.filter(([,init])=>init?.method==='POST');expect(calls).toHaveLength(2);expect(calls[0][1]?.body).toBe(calls[1][1]?.body)
  expect(screen.getByText('目录更新回执')).toBeTruthy()
- fireEvent.click(await screen.findByRole('button',{name:'生成 PDF'}));await screen.findByRole('alert')
+ expect(screen.queryByRole('button',{name:'生成 PDF'})).toBeNull()
  expect(screen.getByRole('link',{name:'下载 DOCX'}).getAttribute('href')).toBe(exportFixture.download_url)
- const pdf=fetcher.mock.calls.find(([url,init])=>url.includes('/pdf-exports')&&init?.method==='POST')!;expect(JSON.parse(String(pdf[1]?.body))).toMatchObject({source_kind:'manuscript_export',source_id:'export1'})
+ expect(fetcher.mock.calls.some(([url,init])=>url.includes('/pdf-exports')&&init?.method==='POST')).toBe(false)
 })
 it('sends the unchanged empty SCI request without a school key',async()=>{
  const fetcher=vi.fn(async(_url:string,init?:RequestInit)=>init?.method==='POST'?Response.json(exportFixture):Response.json({items:[],pdf_status:'not_requested'}));vi.stubGlobal('fetch',fetcher)
@@ -73,7 +73,7 @@ it('does not offer a second layout pass when a school DOCX already contains its 
  render(<ManuscriptExports projectId="p1" manuscriptId="m1" version={version}/>);
  await screen.findByRole('link',{name:'下载 DOCX'})
  expect(screen.queryByRole('button',{name:'排版与公式'})).toBeNull()
- expect(screen.getByText('学校目录已完成排版，请直接下载 Word 或生成 PDF。')).toBeTruthy()
+ expect(screen.getByText('学校目录已完成排版，请直接下载 Word。')).toBeTruthy()
  expect(screen.getByRole('button',{name:'刷新 PDF 状态'})).toBeTruthy()
 })
 

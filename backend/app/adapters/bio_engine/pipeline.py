@@ -64,7 +64,9 @@ def effective_config(config,features):
 def run(payload):
     started=time.monotonic();writer=Writer(payload['output_directory']);writer.identity=payload.get('identity',{})
     raw,features,barcodes,positions=load_raw(payload['raw'])
+    single_cell=payload['raw']['manifest'].get('assay')=='single_cell'
     config=effective_config(payload.get('config',{}),features);mode=payload['mode']
+    if single_cell and (positions or config.get('in_tissue_only')):raise ValueError('single_cell_nonspatial_only')
     qc=quality_control(raw,features,barcodes,positions,config)
     mask=qc['obs_mask'];fmask=qc['feature_mask'];counts=qc['filtered_counts']
     steps=[dict(key='raw_qc',status='completed',reason=None,params={}),dict(key='filter',status='completed',reason=None,params=config)]
@@ -116,7 +118,7 @@ def run(payload):
                           'pca_upper_bound':max(0,min(config['pca_components'],int(mask.sum())-1,min(config['hvg_count'],int(fmask.sum()))-1)),
                           'neighbors':max(0,min(config['neighbors'],int(mask.sum())-1)),
                           'reason':'effective_hvg_and_pca_require_variance_after_normalization'},
-                      'statistical_unit':'spot_exploratory','replicate_consistency':{'status':'not_computable','reason':'independent_donor_design_not_confirmed'}}
+                      'statistical_unit':'cell_exploratory' if single_cell else 'spot_exploratory','replicate_consistency':{'status':'not_computable','reason':'independent_donor_design_not_confirmed'}}
     if mode=='compute':
         normalized,logged=normalize(counts,target_sum=config['target_sum'])
         ids=[v for v,keep in zip(features['feature_ids'],fmask) if keep]
@@ -140,7 +142,7 @@ def run(payload):
         writer.table('hvg',[dict(feature_id=identifier,chosen=bool(chosen),mean=float(m),dispersion_normalized=clean(d),reason=None if chosen else 'dispersion_not_finite_or_constant' if not np.isfinite(d) else 'outside_top_rank_or_constant') for identifier,chosen,m,d in zip(ids,hvg,mean,dispersion)])
         marker_fields=['cluster','feature_id','n_group','n_rest','score','p_value','q_value','effect_log2_normalized','detected_group','detected_rest','reason']
         writer.table('markers',all_markers,marker_fields);writer.table('markers_top',top,marker_fields)
-        writer.table('cluster_summary',[{'cluster':c,'spots':int((result['clusters']==c).sum()),'statistical_unit':'spot'} for c in sorted(set(result['clusters']),key=int)])
+        writer.table('cluster_summary',[{'cluster':c,'cells' if single_cell else 'spots':int((result['clusters']==c).sum()),'statistical_unit':'cell' if single_cell else 'spot'} for c in sorted(set(result['clusters']),key=int)])
         plots.embedding_figures(writer,result,kept_barcodes,config)
         plots.marker_figures(writer,counts,logged,result['clusters'],ids,top,config)
         if positions:
@@ -175,6 +177,31 @@ def run(payload):
     elif mode!='qc': raise ValueError('unsupported_engine_mode')
     else:
         steps.extend(dict(key=k,status='not_requested',reason='qc_candidate_only',params={}) for k in ['normalize','log1p','hvg','pca','neighbors','umap','leiden','markers','h5ad_roundtrip'])
+    if single_cell:
+        from app.adapters.bio_engine.single_cell import aggregate_cells
+        from app.domain.bioinformatics.single_cell_contracts import SingleCellParameters
+        cell_params=SingleCellParameters.model_validate(payload.get('config',{}))
+        labels={v.cluster:v.model_dump() for v in cell_params.cell_labels}
+        if mode=='compute' and set(labels)-{r['cluster'] for r in observation_rows if r['kept']}:raise ValueError('cell_label_cluster_unknown')
+        label_rows=[]
+        for row in observation_rows:
+            row.pop('in_tissue',None);row.pop('x',None);row.pop('y',None)
+            row['cell_id']=row['barcode'];row['cell_identity_scope']='dataset_version/sample_id/barcode'
+            row['cell_label']=labels.get(row['cluster'],{}).get('label','unknown')
+        if mode=='compute':
+            for cluster in sorted({r['cluster'] for r in observation_rows if r['kept']}):
+                value=labels.get(cluster,{'cluster':cluster,'label':'unknown','marker_ids':[],'evidence_file_ids':[],'basis':'','decided_by':''})
+                label_rows.append({**value,'marker_ids':';'.join(value['marker_ids']),'evidence_file_ids':';'.join(value['evidence_file_ids'])})
+        writer.table('cell_label_evidence',label_rows,['cluster','label','marker_ids','evidence_file_ids','evidence_file_sha256','basis','decided_by'])
+        kept_rows=[r for r in observation_rows if r['kept']]
+        aggregate,units,aggregation=aggregate_cells(counts,kept_rows,design_confirmed=bool(payload.get('identity',{}).get('design_confirmed')))
+        writer.table('cell_sample_donor_counts',[dict(sample_id=sample,donor=donor,cells=sum((r['sample_id'] or 'unknown')==sample and (r['donor'] or 'unknown')==donor for r in kept_rows),independent_n=None) for sample,donor in sorted({(r['sample_id'] or 'unknown',r['donor'] or 'unknown') for r in kept_rows})])
+        if aggregate is not None:
+            writer.matrix('cell_pseudobulk',aggregate)
+            writer.table('cell_pseudobulk_units',[{**u,'unit_id':str(i),'sample_ids':';'.join(u['sample_ids'])} for i,u in enumerate(units)])
+        summary['cell_sample_donor_aggregation']=aggregation
+        summary['replicate_consistency']={'status':'not_computable','reason':'donor_contrast_required_even_when_mapping_ready'}
+        steps.append(dict(key='cell_sample_donor_aggregation',status='completed' if aggregation['status']=='ready' else 'not_computable',reason=aggregation['reason'],params={'statistical_unit':'donor','exploration_allowed':True}))
     writer.table('observations',observation_rows);writer.table('features',feature_rows)
     tables=[dict(key=item['key'],label=item['key'],status='completed',reason=None) for item in writer.artifacts if item['format']=='tsv']
     if mode=='compute':
@@ -188,6 +215,8 @@ def run(payload):
         'Markers: tie-corrected Wilcoxon, cluster-wise all-filtered-gene BH; effect log2((mean normalized group+1e-9)/(mean normalized rest+1e-9)).',
         'Actual steps: '+canonical(steps).decode(),'Configured/effective params: '+canonical(config).decode()])
     if mode=='qc':methods=f'Engine: {ENGINE_VERSION}\nRaw QC and one-pass filtering only. No normalization, dimensionality reduction, clustering or hypothesis tests executed.\n'+canonical(steps).decode()
+    if single_cell:
+        methods=methods.replace('exploratory spot','exploratory cell').replace('independent-donor disease contrasts.','independent-donor disease contrasts. Cell IDs are scoped to the fixed dataset and sample; technical samples do not increase donor n.')+'\nCell labels retain marker/file evidence, reviewer and unknown status. Donor inference requires a separate confirmed donor contrast; cell aggregation is descriptive counts only.'
     writer.add('methods',methods.encode(),'txt');writer.json('recipe',config)
     writer.add('reproduce',b"# Run inside supplied fixed Linux image. Payload must reference only exported authorized local input files.\nimport json, os, struct, subprocess, sys\nfrom pathlib import Path\npayload=json.loads(Path(sys.argv[1]).read_bytes())\nbody=json.dumps(payload,allow_nan=False).encode()\nworker=Path(__import__('app.adapters.bio_engine.worker',fromlist=['x']).__file__)\nr=subprocess.run([sys.executable,'-I','-B',str(worker),str(os.getpid())],input=struct.pack('!I',len(body))+body,capture_output=True,env={},timeout=1380)\nif r.returncode: raise RuntimeError(r.stderr.decode())\nprint(r.stdout.decode())\n",'py')
     if payload.get('_trusted_lock') is not None:writer.add('requirements_bio_lock',payload['_trusted_lock'],'txt')
@@ -198,6 +227,7 @@ def run(payload):
         'raw_source':payload.get('identity',{}).get('raw_source'),'params':config,'steps':steps,'summary':summary,'tables':tables,
         'inputs':[{k:v for k,v in member.items() if k!='path'}|{'key':key} for key,member in payload['raw']['members'].items()],
         'layers':layers,'resources':resources,'members':[{k:v for k,v in a.items() if k!='path'} for a in writer.artifacts]}
+    if single_cell:manifest.update(assay='single_cell',observation_level='cell')
     writer.json('manifest',manifest)
     return clean(dict(status='completed',engine_version=ENGINE_VERSION,steps=steps,summary=summary,outputs=writer.artifacts,manifest=manifest,checks={'raw_hashes':'verified','h5ad_roundtrip':'verified' if mode=='compute' else 'not_requested'},effective_params=config))
 

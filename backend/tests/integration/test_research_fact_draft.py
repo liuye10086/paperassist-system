@@ -132,4 +132,4 @@ def test_research_figure_is_in_common_docx_with_exact_bytes(client,tmp_path,thro
     from io import BytesIO
     with ZipFile(BytesIO(raw)) as archive:assert any(n.startswith('word/media/') for n in archive.namelist())
     pdf=client.post(base+'/pdf-exports',json=dict(source_kind='manuscript_export',source_id=export['id'],request_key='research-manuscript-pdf'))
-    assert pdf.status_code==201,pdf.text
+    assert pdf.status_code==405,pdf.text

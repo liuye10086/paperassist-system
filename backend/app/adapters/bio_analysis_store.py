@@ -96,6 +96,7 @@ class BioAnalysisStore:
 
     def axes(self,db,project,source):
         raw,manifest,members=self.raw(db,project,source)
+        if manifest.get('schema_version')==3:raise error('bio_recipe_invalid',422)
         lookup={m['key']:m for m in members}
         read=lambda key:json.loads(self.raw_store.objects.read(lookup[key]))
         return raw,manifest,members,read('barcodes_index')['barcodes'],read('features_index')
@@ -263,9 +264,34 @@ class BioAnalysisStore:
             if replay:
                 if replay['request_digest']!=sha or (setup_id and replay['setup_id']!=setup_id):raise error('task_idempotency_conflict')
                 return self.recipe_view(db,replay)
-            _,_,_,barcodes,features=self.axes(db,project,request.raw_source)
-            if not set(request.params.exclude_barcodes)<=set(barcodes) or not set(request.params.mt_rule.feature_ids)<=set(features['feature_ids']):raise error('bio_recipe_invalid',422)
+            from app.domain.bioinformatics.tabular_contracts import TabularAnalysisSetupRequest,validate_recipe
+            tabular=isinstance(request,TabularAnalysisSetupRequest)
+            from app.domain.bioinformatics.single_cell_contracts import SingleCellSetupRequest
+            single_cell=isinstance(request,SingleCellSetupRequest)
+            if tabular:
+                _,manifest,members=self.raw(db,project,request.raw_source)
+                if manifest.get('schema_version')!=3:raise error('bio_recipe_invalid',422)
+                try:validate_recipe(request.params,manifest)
+                except ValueError as exc:raise error('bio_recipe_invalid',422) from exc
+                leaves={m['key']:m for m in members}
+                samples=json.loads(self.raw_store.objects.read(leaves['samples_index']))['sample_ids']
+                features=json.loads(self.raw_store.objects.read(leaves['features_index']))['feature_ids']
+                if not set(request.params.exclude_samples)<=set(samples) or not set(request.params.exclude_features)<=set(features):raise error('bio_recipe_invalid',422)
+            else:
+                _,manifest,_,barcodes,features=self.axes(db,project,request.raw_source)
+                if manifest.get('schema_version')==3 or single_cell!=(manifest.get('assay')=='single_cell'):raise error('bio_recipe_invalid',422)
+                if not set(request.params.exclude_barcodes)<=set(barcodes) or not set(request.params.mt_rule.feature_ids)<=set(features['feature_ids']):raise error('bio_recipe_invalid',422)
             self.design(db,project,request.design_version_id)
+            if single_cell:
+                if request.params.donor_design_confirmed and not request.design_version_id:raise error('bio_recipe_invalid',422)
+                for label in request.params.cell_labels:
+                    if not set(label.marker_ids)<=set(features['feature_ids']):raise error('bio_recipe_invalid',422)
+                    label.evidence_file_sha256={}
+                    for file_id in label.evidence_file_ids:
+                        evidence=db.execute('SELECT * FROM files WHERE id=%s AND project_id=%s',(file_id,project)).fetchone()
+                        if not evidence:raise error('bio_recipe_invalid',422)
+                        self.assets.original(dict(evidence))
+                        label.evidence_file_sha256[file_id]=evidence['sha256']
             if request.observation_map_version_id:
                 mapping=self.require(db,'bio_observation_map_versions',project,request.observation_map_version_id)
                 if mapping['raw_dataset_version_id']!=request.raw_source.dataset_version_id or mapping['design_version_id']!=request.design_version_id:raise conflict('bio_input_integrity_changed')
@@ -282,9 +308,9 @@ class BioAnalysisStore:
                     'name':request.name,'revision':1,'current_recipe_version_id':None,'updated_at':now()})
             insert(db,'bio_analysis_recipe_versions',{**base_row(identifier,project,self.store.user_id),'setup_id':root_id,'version':version,'parent_id':parent,
                 'raw_dataset_version_id':request.raw_source.dataset_version_id,'observation_map_version_id':request.observation_map_version_id,
-                'design_version_id':request.design_version_id,'recipe_code':'visium_explore_v1','params_json':request.params.model_dump(),
-                'default_figures_json':['qc','pca','umap','marker_dotplot','marker_heatmap','spatial_cluster','spatial_gene'],
-                'engine_contract_version':ENGINE_VERSION,'request_key':key,'request_digest':sha})
+                'design_version_id':request.design_version_id,'recipe_code':'tabular_quantitative_v1' if tabular else 'single_cell_explore_v1' if single_cell else 'visium_explore_v1','params_json':request.params.model_dump(),
+                'default_figures_json':['qc_missing','pca','sample_clustering'] if tabular else (['qc','pca','umap','marker_dotplot','marker_heatmap'] if single_cell else ['qc','pca','umap','marker_dotplot','marker_heatmap','spatial_cluster','spatial_gene']),
+                'engine_contract_version':'tabular_quantitative_v1.0.0' if tabular else ENGINE_VERSION,'request_key':key,'request_digest':sha})
             changed=db.execute('UPDATE bio_analysis_setups SET revision=CASE WHEN current_recipe_version_id IS NULL THEN revision ELSE revision+1 END,current_recipe_version_id=%s,name=%s,updated_at=%s WHERE id=%s AND revision=%s',
                 (identifier,request.name,now(),root_id,version if not setup_id else request.expected_revision))
             if changed.rowcount!=1:raise conflict('bio_revision_conflict')
@@ -296,11 +322,24 @@ class BioAnalysisStore:
             row,manifest=self.raw_store.require_version(db,project,dataset_id,version_id)
             source=BioDatasetService.source(row,[f['id'] for f in manifest['source_files']])
             self.raw(db,project,source,verify=False)
-        runtime=runtime_identity();blockers=list(runtime['blockers'])
+        if manifest.get('schema_version')==3:
+            from app.domain.bioinformatics.tabular_settings import runtime_identity as tabular_runtime
+            from app.domain.bioinformatics.tabular_contracts import TabularRecipeParameters
+            runtime=tabular_runtime()
+            return dict(raw_source=source,assay=manifest['assay'],scale=manifest['scale'],observation_level='sample',available=runtime['available'],blockers=runtime['blockers'],
+                limits={'max_cells':1000000,'max_rows':100000,'max_columns':256,'max_file_bytes':10485760},recipes=['tabular_quantitative_v1'],
+                design_gaps=['independent_biological_units_not_confirmed'],default_params=TabularRecipeParameters(normalization='display_library_size' if manifest['assay']=='bulk_rna_counts' else 'already_normalized' if manifest['scale']['kind'] in ('tpm','fpkm','normalized','log2','ln','log10') else 'none').model_dump(),runtime=runtime)
+        single_cell=manifest.get('assay')=='single_cell'
+        if single_cell:
+            from app.domain.bioinformatics.single_cell_settings import runtime_identity as cell_runtime
+            from app.domain.bioinformatics.single_cell_contracts import SingleCellParameters
+            runtime=cell_runtime()
+        else:runtime=runtime_identity()
+        blockers=list(runtime['blockers'])
         shape=manifest.get('input_shape',{})
         if shape.get('observations',0)>20000 or shape.get('features',0)>100000:blockers.append('bio_resource_exceeded')
         return dict(raw_source=source,available=not blockers,blockers=blockers,limits=BioAnalysisLimits().model_dump(),
-            recipes=['visium_explore_v1'],design_gaps=['independent_donor_design_not_confirmed'],default_params=BioRecipeParameters().model_dump(),runtime=runtime)
+            assay=manifest.get('assay','visium'),observation_level='cell' if single_cell else 'spot',recipes=['single_cell_explore_v1' if single_cell else 'visium_explore_v1'],design_gaps=['independent_donor_design_not_confirmed'],default_params=SingleCellParameters().model_dump() if single_cell else BioRecipeParameters().model_dump(),runtime=runtime)
 
     def processed_record(self,db,project,identifier):
         return self._processed_record(db,project,identifier)
@@ -332,7 +371,11 @@ class BioAnalysisStore:
 
     @staticmethod
     def processed_source(row,manifest):
-        return BioProcessedDatasetSourceV1(project_id=row['project_id'],processed_dataset_version_id=row['id'],analysis_run_id=row['run_id'],
+        if manifest.get('schema_version')==2:
+            from app.domain.bioinformatics.tabular_contracts import BioProcessedDatasetSourceV2
+            model=BioProcessedDatasetSourceV2;extra={'assay':manifest['assay']}
+        else:model=BioProcessedDatasetSourceV1;extra={}
+        return model(**extra,project_id=row['project_id'],processed_dataset_version_id=row['id'],analysis_run_id=row['run_id'],
             raw_source=manifest.get('raw_source') or manifest['identity']['raw_source'],recipe_version_id=row['recipe_version_id'],
             manifest_sha256=row['manifest_sha256'],engine_version=row['engine_version'],environment_digest=row['environment_digest']).model_dump(mode='json')
 
@@ -369,7 +412,7 @@ class BioAnalysisStore:
         if sort_by is not None and sort_by not in columns:raise error('bio_recipe_invalid',422)
         total=0;items=[];start=(page-1)*page_size;sorted_rows=[]
         for row in reader:
-            if query and not any(query.casefold() in (row.get(k) or '').casefold() for k in ('feature_id','symbol','barcode')):continue
+            if query and not any(query.casefold() in (row.get(k) or '').casefold() for k in ('feature_id','symbol','barcode','sample_id','display_name')):continue
             if cluster is not None and row.get('cluster')!=cluster:continue
             if sort_by:
                 if total>=100000:raise error('bio_resource_exceeded')
@@ -387,6 +430,7 @@ class BioAnalysisStore:
     def coordinates(self,project,identifier):
         with self.store.connection() as db:
             _,manifest,members=self.processed_record(db,project,identifier)
+            if manifest.get('schema_version')==2 or manifest.get('assay')=='single_cell':raise error('bio_recipe_invalid',422)
             raw_source=manifest.get('raw_source') or manifest['identity']['raw_source']
             _,raw_manifest,raw_members=self.raw(db,project,raw_source)
             observation=next((m for m in members if m['key']=='observations'),None)
@@ -410,6 +454,9 @@ class BioAnalysisStore:
         import numpy as np
         with self.store.connection() as db:
             _,manifest,members=self.processed_record(db,project,identifier)
+            if manifest.get('schema_version')==2:
+                from app.adapters.bio_tabular_reads import dense_preview
+                return dense_preview(manifest,members,self.objects,features_page,observations_page,layer)
             if layer not in ('counts','normalized','log1p') or layer not in manifest['layers']:raise error('bio_recipe_invalid',422)
             lookup={m['key']:m for m in members}
             def read(key):

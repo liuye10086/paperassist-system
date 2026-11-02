@@ -29,7 +29,7 @@ export const thesisManuscriptMessages:Record<string,string>={
  '人工填写':'Manual content',
  '其他用途':'Other purpose',
  '请逐章明确内容用途并核对当前学校确认版本。':'Choose every chapter purpose and verify the current school confirmation version.',
- '学校 Word/PDF 成品导出归第三批，本批尚未开放。':'School Word/PDF output belongs to batch 3 and is not available in this batch.',
+ '学校 Word 成品导出归第三批，本批尚未开放。':'School Word output belongs to batch 3 and is not available in this batch.',
  '冻结学校配置':'Frozen school configuration',
  '学校内容检查':'School content checks',
  '内容检查不等同于学校排版验收或科学有效性证明。':'Content checks do not certify school layout compliance or scientific validity.',

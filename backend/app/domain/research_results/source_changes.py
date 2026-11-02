@@ -19,6 +19,8 @@ def check_changes(assets,project,selections):
                 latest=db.execute('SELECT n.id,n.'+revision+' AS revision FROM '+table+' old JOIN '+table+' n ON n.'+root+'=old.'+root+
                     ' AND n.project_id=old.project_id WHERE old.id=%s AND old.project_id=%s AND n.'+revision+'>old.'+revision+' ORDER BY n.'+revision+' DESC LIMIT 1',
                     (fixed.source_id,project)).fetchone()
+            elif fixed.source_kind=='analysis_run':
+                latest=db.execute("SELECT n.id,n.setup_revision AS revision FROM analysis_runs old JOIN analysis_runs n ON n.file_id=old.file_id JOIN files f ON f.id=n.file_id WHERE old.id=%s AND f.project_id=%s AND n.setup_revision>old.setup_revision AND nullif(n.completed_at,'') IS NOT NULL AND n.result_json::jsonb->>'completed_at'=n.completed_at ORDER BY n.setup_revision DESC,n.completed_at DESC LIMIT 1",(fixed.source_id,project)).fetchone()
             elif fixed.source_kind in ('bio_insight_result_version','bio_insight_result_member'):
                 identifier=fixed.content['result_version_id']
                 member=fixed.content.get('member')

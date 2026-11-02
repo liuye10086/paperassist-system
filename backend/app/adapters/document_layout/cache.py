@@ -22,6 +22,7 @@ def merge_field_cache(content: bytes, cache: dict) -> bytes:
         manifest = json.loads(meta.text)
         fields = cache['fields']
         root = parse(parts['word/document.xml'])
+        completed_begins = []
         for field in manifest['fields']:
             marks = root.xpath('//w:bookmarkStart[@w:name=$name]', namespaces=NS, name=field['bookmark'])
             if len(marks) != 1:
@@ -34,6 +35,8 @@ def merge_field_cache(content: bytes, cache: dict) -> bytes:
                 raise ValueError()
             end = ends[0]
             region = list(parent)[parent.index(start) + 1:parent.index(end)]
+            completed_begins.append(next(n.find('w:fldChar', NS) for n in region
+                                         if n.find('w:fldChar[@w:fldCharType="begin"]', NS) is not None))
             separator = next(n for n in region if n.find('w:fldChar[@w:fldCharType="separate"]', NS) is not None)
             final = next(n for n in region if n.find('w:fldChar[@w:fldCharType="end"]', NS) is not None)
             for node in list(parent)[parent.index(separator) + 1:parent.index(final)]:
@@ -78,6 +81,25 @@ def merge_field_cache(content: bytes, cache: dict) -> bytes:
                 if not isinstance(value, str) or not value.strip() or len(value) > 10000 or 'Error!' in value or '错误!' in value:
                     raise ValueError()
                 final.addprevious(text_run(value))
+        # Only fully merged system-owned fields are clean. Keep real fields
+        # editable; neither a lock nor a static text replacement is needed.
+        for begin in completed_begins:
+            begin.set(q('dirty'), 'false')
+        if completed_begins and 'word/settings.xml' in parts:
+            # Global updates may also be requested for user fields without
+            # dirty attributes. Only manifest-owned fields were calculated here.
+            field_nodes = '//w:fldChar[@w:fldCharType="begin"] | //w:fldSimple'
+            stories = ('word/document.xml', 'word/footnotes.xml', 'word/endnotes.xml',
+                       'word/comments.xml', 'word/glossary/document.xml')
+            unprocessed = any(node not in completed_begins
+                              for name, value in parts.items()
+                              if name.endswith('.xml') and (name in stories or name.startswith(('word/header', 'word/footer')))
+                              for node in (root if name == 'word/document.xml' else parse(value)).xpath(field_nodes, namespaces=NS))
+            if not unprocessed:
+                settings = parse(parts['word/settings.xml'])
+                for update in settings.findall('w:updateFields', NS):
+                    update.set(q('val'), 'false')
+                parts['word/settings.xml'] = encode(settings)
         manifest['cache_status'] = 'complete'
         meta.text = json.dumps(manifest, ensure_ascii=False, separators=(',', ':'))
         parts['customXml/paperassist-layout.xml'] = encode(meta)

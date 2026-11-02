@@ -242,7 +242,7 @@ def test_lease_expiry_inside_publication_rolls_back_version_result_and_success(c
         assert db.execute('SELECT count(*) AS n FROM tasks').fetchone()['n']==before_tasks
 
 
-def test_public_docx_pdf_failures_retry_fixed_output_without_new_manuscript(client,monkeypatch):
+def test_public_docx_retry_and_retired_pdf_without_new_manuscript(client,monkeypatch):
     from app.domain.tasks.execution import run_task
     from app.core.exceptions import StorageError
     from types import SimpleNamespace
@@ -259,16 +259,6 @@ def test_public_docx_pdf_failures_retry_fixed_output_without_new_manuscript(clie
     retry=client.post('/api/v1/tasks/'+e['task_id']+'/retry',json=dict(expected_revision=failed['revision']));assert retry.status_code==202,retry.text
     assert run_task(e['task_id'],retry.json()['revision'])['status']=='succeeded'
     pdfpath=base.removesuffix('/journals')+'/pdf-exports'
-    monkeypatch.setattr('app.domain.pdf_exports.service.renderer_identity',lambda:dict(contract='synthetic-pdf-v1'))
-    monkeypatch.setattr('app.domain.pdf_exports.execution.renderer_identity',lambda:dict(contract='synthetic-pdf-v1'))
-    response=client.post(pdfpath,json=dict(source_kind='manuscript_export',source_id=e['id'],request_key='pdf'));assert response.status_code==201,response.text
-    pdf=response.json()
-    def timeout(raw):raise StorageError('pdf_conversion_timeout','Synthetic timeout',422)
-    monkeypatch.setattr('app.domain.pdf_exports.execution.render_pdf',timeout)
-    failed=run_task(pdf['task_id'],1);assert failed['status']=='failed' and failed['error_code']=='pdf_conversion_timeout',failed
-    response=client.post(pdfpath+'/'+pdf['id']+'/retry',json=dict(request_key='pdf-retry'));assert response.status_code==201,response.text
-    retried=response.json();assert retried['source_id']==e['id'] and retried['source_sha256']==pdf['source_sha256']
-    monkeypatch.setattr('app.domain.pdf_exports.execution.render_pdf',lambda raw:SimpleNamespace(content=b'%PDF-1.7\nsynthetic contract only',manifest=dict(contract='synthetic-pdf-v1')))
-    assert run_task(retried['task_id'],1)['status']=='succeeded'
+    assert client.post(pdfpath,json=dict(source_kind='manuscript_export',source_id=e['id'],request_key='pdf')).status_code==405
     assert client.get(root).json()['current_revision']==3
     assert client.get(base+'/submission-events').json()['items']==[]

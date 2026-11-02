@@ -58,7 +58,8 @@ class ResearchHandoffService(ResearchResultsStore):
         retained=previous.get('sources',[]) if previous else []
         merged={s['id']:s for s in retained}
         for source in sources:merged[source['id']]=source
-        payload=dict(schema_version=1,method_presentation_version=METHOD_PRESENTATION_VERSION,project_id=project,document_context=context,sources=list(merged.values()),selected_source_ids=[s['id'] for s in sources],
+        from .fact_draft import FACT_PROJECTION_VERSION
+        payload=dict(schema_version=1,fact_projection_version=FACT_PROJECTION_VERSION,method_presentation_version=METHOD_PRESENTATION_VERSION,project_id=project,document_context=context,sources=list(merged.values()),selected_source_ids=[s['id'] for s in sources],
             base_snapshot=previous,base_version_id=base['id'] if base else None,expected_revision=request.expected_revision,
             output_language=previous['output_language'] if previous else request.output_language,thesis_context=thesis_context,
             thesis=thesis.model_dump(mode='json') if hasattr(thesis,'model_dump') else thesis,

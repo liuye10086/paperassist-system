@@ -69,11 +69,7 @@ def test_layout_publication_shared_pdf_and_original_bytes(client, monkeypatch):
     assert client.get(done['download_url']).content == original
     assert client.get(source['download_url']).content == original
     pdf_path = path.replace('/layout-exports','/pdf-exports')
-    pdf = client.post(pdf_path, json=dict(source_kind='layout_export',source_id=done['id'],request_key='pdf'))
-    assert pdf.status_code == 201, pdf.text
-    monkeypatch.setattr('app.domain.pdf_exports.execution.render_pdf', lambda raw:SimpleNamespace(content=b'%PDF-1.7\nlayout',manifest={'contract':'test-v1'}))
-    assert run_task(pdf.json()['task_id'], 1)['status'] == 'succeeded'
-    assert client.get(pdf_path+'/'+pdf.json()['id']+'/download').status_code == 200
+    assert client.post(pdf_path,json=dict(source_kind='layout_export',source_id=done['id'],request_key='pdf')).status_code==405
     from app.db.database import database_connection
     from app.maintenance.database_audit import audit_database
     with database_connection() as db:
@@ -182,11 +178,9 @@ def test_historical_layout_and_pdf_download_survive_new_renderer_lock(client,mon
     saved=client.post(path,json=request).json()
     assert run_task(saved['task_id'],1)['status']=='succeeded'
     pdf_path=path.replace('/layout-exports','/pdf-exports')
-    pdf=client.post(pdf_path,json=dict(source_kind='layout_export',source_id=saved['id'],request_key='pdf')).json()
-    monkeypatch.setattr('app.domain.pdf_exports.execution.render_pdf',lambda raw:SimpleNamespace(content=b'%PDF-historical',manifest={'contract':'test-v1'}))
-    assert run_task(pdf['task_id'],1)['status']=='succeeded'
+    from tests.helpers.historical_pdf_exports import historical_pdf
+    pdf=historical_pdf(pdf_path,'layout_export',saved['id'],raw=b'%PDF-historical')
     monkeypatch.setattr('app.domain.layout_exports.service.renderer_identity',lambda:{'contract':'new-lock'})
-    monkeypatch.setattr('app.domain.pdf_exports.service.renderer_identity',lambda:{'contract':'new-lock'})
     assert client.get(path+'/'+saved['id']+'/download').status_code==200
     assert client.get(pdf_path+'/'+pdf['id']+'/download').content==b'%PDF-historical'
 

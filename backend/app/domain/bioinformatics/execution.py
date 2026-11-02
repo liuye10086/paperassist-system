@@ -39,7 +39,7 @@ def run_bio_import_task(task_id, task_revision, *, config=None, directory=None, 
             raise StorageError("bio_source_conflict", "生信导入检查点与任务状态不一致。", 409)
         # Keep unregistered parsing output outside the project assets ledger;
         # the store admits the whole known leaf set before immutable publication.
-        if task['input_snapshot']['workflow_version'] == 'bio_import_v2':
+        if task['input_snapshot']['workflow_version'] in ('bio_import_v2','bio_import_v3','bio_import_v4'):
             from app.domain.bioinformatics.analysis_execution import _staging
             _, persistent = _staging(repository, lease, staging_directory)
             manager = nullcontext(str(persistent))
@@ -50,6 +50,14 @@ def run_bio_import_task(task_id, task_revision, *, config=None, directory=None, 
             snapshot = task["input_snapshot"]
             frozen = {"parser_version": snapshot["parser_version"], "files": files}
             selected_parser = parser or parse_bio_isolated
+            if snapshot['workflow_version']=='bio_import_v3':
+                from app.adapters.bio_tabular_process import parse_bio_v3
+                frozen.update({key:snapshot[key] for key in ('tabular_config','engine_version','environment_digest','code_digest')})
+                selected_parser=parser or parse_bio_v3
+            if snapshot['workflow_version']=='bio_import_v4':
+                from app.adapters.bio_import_v2_process import parse_single_cell
+                frozen.update({key:snapshot[key] for key in ('single_cell_config','analysis_limits','engine_version','environment_digest','code_digest')})
+                selected_parser=parser or parse_single_cell
             if snapshot['workflow_version'] == 'bio_import_v2':
                 from app.adapters.bio_import_v2_process import parse_bio_v2
                 frozen.update({key: snapshot[key] for key in ('matrix_representation', 'compare_alternate',
