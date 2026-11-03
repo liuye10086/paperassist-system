@@ -47,7 +47,7 @@ export default function StatisticsTaskObserver({task,context,onTask,onResult,onE
   {task.status==='failed'&&<p className="warning-panel">{t('统计任务未完成，请查看任务详情处理失败原因。')}</p>}
   <p className="muted">{t('此统计任务在本地执行，不调用付费模型。')}</p>
   {error&&<><p role="alert">{t(error)}</p><button type="button" onClick={()=>setAttempt(n=>n+1)}>{t('重新读取统计任务')}</button></>}
-  <button type="button" onClick={()=>setDetails(value=>!value)}>{t(details?'收起统计任务详情':'查看统计任务详情')}</button>
+  {!details&&<button type="button" onClick={()=>setDetails(true)}>{t('查看统计任务详情')}</button>}
   {details&&<TaskDetail projectId={projectId} taskId={task.id} onChanged={()=>setAttempt(n=>n+1)}/>}
  </section>
 }

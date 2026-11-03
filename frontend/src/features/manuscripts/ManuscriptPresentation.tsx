@@ -1,3 +1,4 @@
+import ReadableDetails from '../../shared/components/ReadableDetails'
 import {useEffect,useRef,useState,type ReactNode} from 'react'
 import {onApiSessionChanged} from '../../shared/api/client'
 import {safeError,useI18n} from '../../shared/i18n'
@@ -55,7 +56,7 @@ export default function ManuscriptPresentation({projectId,manuscriptId,version,v
  <PresentationLanguagePanel figures={[...version.snapshot.results_groups.flatMap(group=>group.figures),...(versions.find(v=>v.id===peerId)?.snapshot.results_groups.flatMap(group=>group.figures)??[])]} key={`${savedId}:${editorEpoch}`} config={actualConfig} baseVersionId={version.id} peerVersionId={peerId||null} exports={completedExports} presentations={items} onChange={language_review=>edit({...actualConfig,language_review})} onBlocked={setLanguageBlocked}/>
  <div className="manuscript-actions"><button type="button" disabled={languageBlocked} onClick={()=>void send(false)}>{t('预览配置核对')}</button><button type="button" disabled={!loaded||languageBlocked} onClick={()=>void send(true)}>{t(busy?'正在保存……':'保存输出配置')}</button><button type="button" onClick={()=>{setError('');setAttempt(x=>x+1)}}>{t('刷新配置版本')}</button></div></fieldset>
  {dirty&&<p role="status">{t('输出配置有未保存草稿；导出仍使用已选保存版本。')}</p>}{error&&<p role="alert">{t(error)}</p>}{!session&&<p role="alert">{t('会话已失效，请重新登录。')}</p>}
- {shown&&<div aria-label={t('输出配置核对清单')}>{'stale'in shown&&shown.stale===true&&<p className="warning-panel">{t('关联稿件已有新版本，当前配置需复核。')}</p>}{shown.journal_check&&<p>{t('固定期刊指南版本')} · {t('已绑定保存的指南与要求版本')}</p>}{shown.checks.map((c,i)=><p key={`${c.code}-${i}`}><strong>{t({passed:'已核对',pending:'待补 / 人工核对',conflict:'冲突'}[c.status])}</strong> · <span>{t(c.message)}</span></p>)}<details><summary>{t('中英逐段预览（中文后英文）')}</summary>{shown.paragraph_groups.map(g=><article key={g.id}><h5>{t('关联段落组')}</h5>{g.zh.map(p=><p key={`zh-${p.id}`} lang="zh-CN">{p.text}</p>)}{g.en.map(p=><p key={`en-${p.id}`} lang="en">{p.text}</p>)}</article>)}</details></div>}
+ {shown&&<div aria-label={t('输出配置核对清单')}>{'stale'in shown&&shown.stale===true&&<p className="warning-panel">{t('关联稿件已有新版本，当前配置需复核。')}</p>}{shown.journal_check&&<p>{t('固定期刊指南版本')} · {t('已绑定保存的指南与要求版本')}</p>}{shown.checks.map((c,i)=><p key={`${c.code}-${i}`}><strong>{t({passed:'已核对',pending:'待补 / 人工核对',conflict:'冲突'}[c.status])}</strong> · <ReadableDetails value={t(c.message)}/></p>)}<details><summary>{t('中英逐段预览（中文后英文）')}</summary>{shown.paragraph_groups.map(g=><article key={g.id}><h5>{t('关联段落组')}</h5>{g.zh.map(p=><p key={`zh-${p.id}`} lang="zh-CN">{p.text}</p>)}{g.en.map(p=><p key={`en-${p.id}`} lang="en">{p.text}</p>)}</article>)}</details></div>}
  </section>
 }
 

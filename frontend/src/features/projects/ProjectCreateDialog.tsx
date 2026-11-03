@@ -23,8 +23,7 @@ export default function ProjectCreateDialog({ busy, onClose, children }: { busy:
       if (event.shiftKey && (document.activeElement === first || document.activeElement === dialog.current)) { event.preventDefault(); last.focus() }
       else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus() }
     }}>
-      <header><span className="workspace-eyebrow">{t('开始一项新研究')}</span><h2 id="create-project-title">{t('新建项目')}</h2>
-        <p>{t('先记录研究主题，再逐步整理资料与分析。')}</p></header>
+      <header><h2 id="create-project-title">{t('新建项目')}</h2></header>
       {children}
     </div>
   </div>, document.body)

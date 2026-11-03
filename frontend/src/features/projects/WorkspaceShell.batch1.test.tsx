@@ -16,7 +16,7 @@ test('groups enter first task and expose every applicable task',async()=>{
  await user.click(nav.getByRole('button',{name:'分析与成果'})); expect(nav.queryByRole('button',{name:'文献'})).toBeNull(); expect(nav.getByRole('button',{name:'图表与报告'})).toBeTruthy()
  await user.click(nav.getByRole('button',{name:'稿件写作'})); expect(nav.getByRole('button',{name:'期刊建议'})).toBeTruthy(); expect(nav.queryByRole('button',{name:'学校模板'})).toBeNull()
  await user.click(nav.getByRole('button',{name:'评审与修改'})); expect(nav.getByRole('button',{name:'项目任务'})).toBeTruthy()
- await user.click(nav.getByRole('button',{name:'项目概览'})); expect(nav.queryByRole('button',{name:'项目任务'})).toBeNull()
+ expect(nav.queryByRole('button',{name:'项目概览'})).toBeNull(); await user.click(nav.getByRole('button',{name:'材料准备'})); expect(nav.queryByRole('button',{name:'项目任务'})).toBeNull()
 })
 test('thesis writing and mobile Escape keep navigation usable',async()=>{
  const user=userEvent.setup();render(<Harness type="thesis"/>);const nav=within(screen.getByRole('navigation',{name:'项目导航'}));await user.click(nav.getByRole('button',{name:'稿件写作'}));expect(nav.getByRole('button',{name:'毕业论文写作'})).toBeTruthy();expect(nav.getByRole('button',{name:'学校模板'})).toBeTruthy()

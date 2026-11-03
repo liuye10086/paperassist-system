@@ -60,7 +60,7 @@ function explain(cause: unknown, timedOut: boolean) {
 type Props={base: string; savedRevision: number | null; savedSelection?:AnalysisSelection; savedPlan?:{plan_id:string;sha256:string}; savedSource?: DatasetAnalysisSource; fieldsMatch: boolean; disabled: boolean; onBusyChange: (value: boolean) => void}
 function ResearchBasis(props: Parameters<typeof ResearchRequestSummary>[0]) {
   const {t}=useI18n()
-  return <details className="statistics-provenance"><summary>{t('研究需求与分析依据')}</summary><ResearchRequestSummary {...props}/></details>
+  return <section className="analysis-detail statistics-provenance"><h3>{t('研究需求与分析依据')}</h3><ResearchRequestSummary {...props}/></section>
 }
 function RunFigure({ onRunBusyChange, ...props }: Omit<Parameters<typeof BoxplotFigure>[0], 'onBusyChange'> & { onRunBusyChange: (id: string, busy: boolean) => void }) {
   const change = useCallback((busy: boolean) => onRunBusyChange(props.runId, busy), [onRunBusyChange, props.runId])
@@ -193,10 +193,10 @@ function Results({ base, savedRevision, savedSelection, savedSource, savedPlan, 
       {descriptive.check.warnings.length > 0 && <ul className="warning-panel">{descriptive.check.warnings.map(note => <li key={note}>{workflowNotice(note, t)}</li>)}</ul>}
       <p className="muted">{t((descriptive.source?.schema_version??0) >= 2 ? "统计在当前整理保留记录上按所选变量执行完整记录规则，不填补或额外去重、删异常；上游质量处理见该版本回执。样本标准差使用 n−1 分母，分位数采用线性插值；不足或无法计算的指标显示“—”。" : "样本标准差使用 n−1 分母；Q1、中位数、Q3 按位置 (n−1)p 线性插值；四分位距 = Q3 − Q1。 有效样本不足 2 条时标准差为“—”。数值溢出也显示“—”并提示。总体与分组使用相同的完整记录规则，未插补、未去重、未剔除离群值。")}</p>
       <p className="muted">{t("表格显示最多 6 位有效数字，悬停可查看保存值。此步仅描述数据分布，未进行显著性检验。")}</p>
-      <details className="statistics-provenance"><summary>{t("计算来源与方法记录")}</summary>
+      <section className="analysis-detail statistics-provenance"><h3>{t("计算来源与方法记录")}</h3>
         <p>{t("文件：")}{descriptive.filename}</p>
         <p>{t("开始时间：")}{descriptive.started_at}{t("；完成时间：")}{descriptive.completed_at}</p>
-      </details>
+      </section>
     </>}
     {correlation&&<><SourceSummary source={correlation.source} filename={correlation.filename}/>{!state?.is_current&&<p className="warning-panel">{t('以下为历史结果。设置已变更，请重新分析。')}</p>}<ResearchBasis selection={correlation.selection} value={correlation.analysis_context.plan.research_request!}/><CorrelationResults result={correlation}/></>}
     {modeling&&<><SourceSummary source={modeling.source} filename={modeling.filename}/>{!state?.is_current&&<p className="warning-panel">{t('以下为历史结果。设置已变更，请重新分析。')}</p>}<ResearchBasis selection={modeling.selection} value={modeling.analysis_context.plan.research_request!}/><ModelResults result={modeling}/></>}

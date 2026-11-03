@@ -31,11 +31,12 @@ type PreviewProps = {
   onBusyChange?: (busy: boolean) => void
   onSavedPreviewChange?: (state: SavedPreviewState | null) => void
   uploadVisible?: boolean
+  embedded?: boolean
   onUnavailable?: () => void
   registerLeaveGuard?: RegisterLeaveGuard
 }
 
-export default function ExcelPreview({ projectId, savedFile, onSaved, onBusyChange, onSavedPreviewChange, uploadVisible = true, onUnavailable, registerLeaveGuard }: PreviewProps) {
+export default function ExcelPreview({ projectId, savedFile, onSaved, onBusyChange, onSavedPreviewChange, uploadVisible = true, onUnavailable, registerLeaveGuard, embedded = false }: PreviewProps) {
   const { t } = useI18n()
   const [config, setConfig] = useState<PreviewConfig | null>(null)
   const [configError, setConfigError] = useState('')
@@ -217,11 +218,9 @@ export default function ExcelPreview({ projectId, savedFile, onSaved, onBusyChan
   return (
     <section className="excel-preview" aria-labelledby="excel-title">
       <div className="section-heading">
-        <span className="step-label">{t("数据准备")}</span>
         <h2 id="excel-title">{t(uploadVisible ? 'Excel 上传与预览' : 'Excel 工作表预览')}</h2>
-        <p>{t("上传研究数据，检查工作表、字段与原始记录。")}</p>
       </div>
-      <form hidden={!uploadVisible} onSubmit={upload} className="upload-panel" aria-busy={busy}>
+      {uploadVisible && <form onSubmit={upload} className="upload-panel" aria-busy={busy}>
         <label htmlFor="excel-file">{t("选择 Excel 文件")}</label>
         <p id="upload-help" className="muted">
           {config ? t('支持 .xlsx · 单文件上限 {limit}', { limit: fileSize(config.max_upload_bytes, t) }) : t("正在读取上传配置……")}
@@ -236,7 +235,7 @@ export default function ExcelPreview({ projectId, savedFile, onSaved, onBusyChan
         </div>
         {file && <p className="muted">{t('已选择：{filename}（{size}）', { filename: file.name, size: fileSize(file.size, t) })}</p>}
         {busy && <p role="status">{t("正在读取文件数据，请稍候。")}</p>}
-      </form>
+      </form>}
       {configError && <div className="error-panel" role="alert">{t(configError)}{' '}
         <button type="button" onClick={() => setConfigAttempt(value => value + 1)}>{t("重试读取配置")}</button>
       </div>}
@@ -272,7 +271,7 @@ export default function ExcelPreview({ projectId, savedFile, onSaved, onBusyChan
           </div>}
         </div>
       </div>}
-      {!workbook && !busy && !error && <p className="empty-preview">{projectId
+      {!(embedded && uploadVisible) && !workbook && !busy && !error && <p className="empty-preview">{projectId
         ? t("上传文件，或点击项目文件中的“预览”，查看工作表和数据。")
         : t("选择并上传文件后，这里将显示工作表和数据预览。")}</p>}
     </section>

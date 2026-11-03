@@ -19,12 +19,11 @@ type ProjectListProps = {
   onQueryChange: (query: ProjectListQuery) => void
   onOpen: (projectId: string) => void
   onRetry: () => void
-  onCreate: () => void
   presentation?: 'cards' | 'table'
 }
 
 export default function ProjectList({ items, total, query, searchDraft, loading, error,
-  onSearchDraftChange, onQueryChange, onOpen, onRetry, onCreate, presentation = 'table' }: ProjectListProps) {
+  onSearchDraftChange, onQueryChange, onOpen, onRetry, presentation = 'table' }: ProjectListProps) {
   const { t, locale } = useI18n()
   const pages = Math.max(1, Math.ceil(total / PROJECT_PAGE_SIZE))
   const filtered = Boolean(query.q || query.type)
@@ -62,8 +61,7 @@ export default function ProjectList({ items, total, query, searchDraft, loading,
         <button type="button" className="project-row-open button-quiet" aria-label={t('打开项目 {name}', { name: project.name })} onClick={() => onOpen(project.id)}>{t('打开项目')}<span aria-hidden="true">→</span></button>
       </article>)}
     </div> : <div className="project-table-scroll">
-      <table className="project-table">
-        <caption>{t("项目列表")}</caption>
+      <table className="project-table" aria-label={t('项目列表')}>
         <thead><tr><th scope="col">{t("项目名称")}</th><th scope="col">{t("项目类型")}</th><th scope="col">{t("创建时间")}</th>
           <th scope="col">{t("最近更新时间")}</th><th scope="col">{t("文件数")}</th><th scope="col">{t("操作")}</th></tr></thead>
         <tbody>{items.map(project => <tr key={project.id}>
@@ -76,8 +74,7 @@ export default function ProjectList({ items, total, query, searchDraft, loading,
       </table>
     </div>}
     {!loading && !error && total === 0 && <div className="empty-preview">
-      {filtered ? <p>{t("没有匹配的项目。")}</p> : <><p>{t("还没有项目，请先创建一个项目。")}</p>
-        <button type="button" className="button-primary" onClick={onCreate}>{t("新建项目")}</button></>}
+      <p>{t(filtered ? '没有匹配的项目。' : '还没有项目，请先创建一个项目。')}</p>
     </div>}
     <div className="project-pagination">
       <span>{t('共 {total} 个项目 · 第 {page} / {pages} 页', { total, page: query.page, pages })}</span>

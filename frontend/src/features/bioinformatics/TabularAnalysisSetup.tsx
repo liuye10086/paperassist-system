@@ -35,7 +35,7 @@ export default function TabularAnalysisSetup({projectId,data,valid,error,reload,
   <p>{data.name} · {t('配方版本')} {data.current_recipe.version} · revision {data.revision}</p>
   {error&&<p role="alert">{t(error)}</p>}{capability.error&&<p role="alert">{t(capability.error)}</p>}
   <p>{t('缺失值保留；每特征比较使用实际有效样本。PCA 仅使用完整特征，不自动插补；不足时记录不可计算原因。')}</p>
-  {info&&<><p>{info.assay?t(assayLabels[info.assay]):''} · {info.scale?.kind} · {info.scale?.unit}</p><p>{info.scale?.upstream_method}</p><ul>{[...info.blockers,...info.design_gaps].map(item=><li key={item}>{item}</li>)}</ul><details><summary>{t('资源上限')}</summary><BioJson value={info.limits}/></details></>}
+  {info&&<><p>{info.assay?t(assayLabels[info.assay]):''} · {info.scale?.kind} · {info.scale?.unit}</p><p>{info.scale?.upstream_method}</p><ul>{[...info.blockers,...info.design_gaps].map(item=><li key={item}>{item}</li>)}</ul><section className="analysis-detail"><h3>{t('资源上限')}</h3><BioJson value={info.limits}/></section></>}
   <fieldset disabled={blocked||!current}><legend>{t('不可变分析配方')}</legend>
    <label>{t('固定实验设计版本 ID')}<input value={designVersion} onChange={e=>setDesign(e.target.value)}/></label>
    <label>{t('标准化处理')}<select value={params.normalization} onChange={e=>update('normalization',e.target.value as TabularParams['normalization'])}><option value="none">{t('保持输入尺度，不归一化')}</option><option value="already_normalized">{t('上游已归一化（见尺度记录）')}</option>{!logged&&info?.assay!=='bulk_rna_counts'&&<option value="median">{t('正值矩阵中位数校正')}</option>}{info?.assay==='bulk_rna_counts'&&<option value="display_library_size">{t('按文库大小归一化显示层')}</option>}</select></label>

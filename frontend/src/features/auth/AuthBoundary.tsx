@@ -1,5 +1,5 @@
 import {STANDARD_REQUEST_TIMEOUT_MS} from '../../shared/api/requestTimeouts'
-import RuntimeNotice from '../operations/RuntimeNotice'
+import { WorkspaceChromeContext } from '../../shared/components/WorkspaceChromeContext'
 import { AuthIdentityContext } from './AuthIdentityContext'
 import { useEffect, useId, useLayoutEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { apiFetch, clearApiSession, onApiSessionChanged, onSessionCookieChanged, onSessionExpired, setApiSession } from '../../shared/api/client'
@@ -46,6 +46,8 @@ export default function AuthBoundary({ children }: { children: ReactNode }) {
   const [passwordMode, setPasswordMode] = useState<'change' | 'reset' | null>(null)
   const [notice, setNotice] = useState('')
   const [accountOpen, setAccountOpen] = useState(false)
+  const [navigationSlot, setNavigationSlot] = useState<HTMLDivElement | null>(null)
+  const [accountMenuSlot, setAccountMenuSlot] = useState<HTMLDivElement | null>(null)
   const accountRegion = useRef<HTMLDivElement | null>(null)
   const accountButton = useRef<HTMLButtonElement | null>(null)
   const channel = useRef<BroadcastChannel | null>(null)
@@ -70,11 +72,18 @@ export default function AuthBoundary({ children }: { children: ReactNode }) {
     const dismissOutside = (event: Event) => {
       if (event.target instanceof Node && !accountRegion.current?.contains(event.target)) setAccountOpen(false)
     }
+    const dismissOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && event.target instanceof Node && accountRegion.current?.contains(event.target)) {
+        event.preventDefault(); setAccountOpen(false); accountButton.current?.focus()
+      }
+    }
     document.addEventListener('pointerdown', dismissOutside, true)
     document.addEventListener('focusin', dismissOutside, true)
+    document.addEventListener('keydown', dismissOnEscape, true)
     return () => {
       document.removeEventListener('pointerdown', dismissOutside, true)
       document.removeEventListener('focusin', dismissOutside, true)
+      document.removeEventListener('keydown', dismissOnEscape, true)
     }
   }, [accountOpen])
 
@@ -300,7 +309,7 @@ export default function AuthBoundary({ children }: { children: ReactNode }) {
   </aside>
   function anonymousShell(content: ReactNode) {
     return <div className="auth-page">{brand}<main className="auth-form-area">
-      <div className="auth-language">{languageControl}</div><RuntimeNotice/><div className="auth-form-wrap" id="paperassist-login">{content}</div>
+      <div className="auth-language">{languageControl}</div><div className="auth-form-wrap" id="paperassist-login">{content}</div>
       <p className="auth-copyright">PaperAssist · {t('科研论文辅助系统')}</p>
     </main></div>
   }
@@ -310,32 +319,30 @@ export default function AuthBoundary({ children }: { children: ReactNode }) {
     <button className="button-primary" onClick={() => setAttempt(value => value + 1)}>{t('重试')}</button>
   </section>)
   if (status === 'authenticated') {
-    return <div className="authenticated-app">
-      <header className="auth-topbar">{languageControl}
-        <div ref={accountRegion} className="auth-account" onKeyDown={event => {
-          if (event.key === 'Escape' && accountOpen) { event.preventDefault(); setAccountOpen(false); accountButton.current?.focus() }
-        }}>
+    return <WorkspaceChromeContext.Provider value={{navigation:navigationSlot,accountMenu:accountMenuSlot,closeAccount:()=>{setAccountOpen(false);accountButton.current?.focus()}}}><div className="authenticated-app">
+      <header className="auth-topbar"><div className="auth-project-navigation" ref={setNavigationSlot}/>{languageControl}
+        <div ref={accountRegion} className="auth-account">
           <button ref={accountButton} className="auth-account-button" aria-label={t('账号')} aria-expanded={accountOpen}
             aria-controls={accountActionsId} disabled={busy} onClick={() => setAccountOpen(value => !value)}>
             <span className="auth-avatar" aria-hidden="true">{session?.user.email.slice(0, 1).toUpperCase()}</span>
-            <span className="auth-account-email">{session?.user.email}</span><span aria-hidden="true">⌄</span>
           </button>
-          {accountOpen && <div className="auth-account-actions" id={accountActionsId}>
+          <div className="auth-account-actions" id={accountActionsId} hidden={!accountOpen}>
+            <p className="auth-account-email">{session?.user.email}</p>
+            <div className="auth-workspace-actions" ref={setAccountMenuSlot}/>
             <button disabled={busy || passwordMode !== null} onClick={() => { setAccountOpen(false); setError(''); setPasswordMode('change') }}>{t('修改密码')}</button>
             <button disabled={busy} onClick={() => void logout()}>{busy ? t('正在退出……') : t('退出登录')}</button>
-          </div>}
+          </div>
         </div>
       </header>
       {error && <p className="auth-session-error" role="alert">{t(error)}</p>}
       {passwordMode === 'change' && <div className="auth-password-region"><PasswordForm mode="change"
         onCancel={() => { setFocusTarget('change'); setPasswordMode(null) }} onSuccess={passwordUpdated} /></div>}
       <div className="auth-workspace" ref={workspace} tabIndex={-1}><AuthIdentityContext.Provider value={session?.user ?? null}>{children}</AuthIdentityContext.Provider></div>
-    </div>
+    </div></WorkspaceChromeContext.Provider>
   }
   if (passwordMode === 'reset') return anonymousShell(<PasswordForm mode="reset" onCancel={() => { setFocusTarget('forgot'); setPasswordMode(null) }} onSuccess={passwordUpdated} />)
   return anonymousShell(<section className="login-panel">
-    <p className="auth-eyebrow">{t('欢迎使用 PaperAssist')}</p><h2>{t('登录')}</h2>
-    <p>{t('账号由管理员创建')}</p>
+    <h2>{t('登录')}</h2>
     {notice && <p role="status">{t(notice)}</p>}
     <form onSubmit={event => void login(event)} aria-busy={busy}>
       <label>{t('邮箱')}<input ref={emailInput} type="email" autoComplete="username" required value={email} disabled={busy}

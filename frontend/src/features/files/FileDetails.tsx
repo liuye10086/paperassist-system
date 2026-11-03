@@ -141,11 +141,11 @@ function FileDetailsContent({ projectId, fileId, active, onUnavailable, onUpdate
         <p className="muted">{t('用途用于整理资料，不会更改分析配置或已有成果。')}</p>
         <button type="submit" className="button-primary" disabled={loading || busy}>{t(busy ? '正在保存用途……' : '保存用途')}</button>
       </form>
-      <details className="file-reference-summary"><summary>{t('文件引用汇总')}</summary><dl className="file-reference-counts">
+      <section className="file-reference-summary" aria-label={t('文件引用汇总')}><h4>{t('文件引用汇总')}</h4><dl className="file-reference-counts">
         {(Object.keys(referenceLabels) as (keyof typeof referenceLabels)[]).map(key =>
           <div key={key}><dt>{t(referenceLabels[key])}</dt><dd>{(detail.references[key] ?? 0).toLocaleString(locale)}</dd></div>)}
       </dl>
-      <p className="muted">{t('引用数量描述当前依赖，不代表可以删除文件。')}</p></details>
+      <p className="muted">{t('引用数量描述当前依赖，不代表可以删除文件。')}</p></section>
       </div>
       {visitedTasks.includes('lifecycle') && <div hidden={task !== 'lifecycle'}><FileLifecyclePanel projectId={projectId} fileId={fileId} active={active && task === 'lifecycle'} observedVersion={detail.parse_revision} registerLeaveGuard={registerLeaveGuard} onUnavailable={onUnavailable}/></div>}
     </>}

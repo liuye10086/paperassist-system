@@ -1,4 +1,4 @@
-import { act, cleanup, render, screen } from '@testing-library/react'
+import { act, cleanup, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, expect, test, vi } from 'vitest'
 import ProjectWorkspace from '../../features/projects/ProjectWorkspace'
@@ -81,13 +81,14 @@ test('moves focus out of hidden project sections and retains an editing draft ac
   const scrollTo = vi.fn()
   vi.stubGlobal('scrollTo', scrollTo)
   vi.stubGlobal('scrollY', 500)
-  const project = { id: 'private-project-id', name: '临床研究', research_topic: '组间比较', project_type: 'sci', file_count: 0,
+  const project = { id: 'private-project-id', name: '临床研究', research_topic: '组间比较', project_type: 'sci', file_count: 1,
     created_at: '2026-10-07T00:00:00Z', updated_at: '2026-10-07T00:00:00Z' }
   const fetcher = vi.fn(async (url: string) => {
     if (url.includes('/summary?')) return Response.json(summaryFixture(project.id))
     if (url.endsWith('/files')) return Response.json([])
     if (url.includes('/files?page=')) return Response.json(filePageFixture(url, []))
     if (url.endsWith('/config')) return Response.json({ max_upload_bytes: 10485760, preview_row_limit: 20 })
+    if (url.endsWith('/research-intake')) return Response.json({current_requirement:{content:{services:['analysis']}}})
     if (url === `/api/v1/projects/${project.id}`) return Response.json(project)
     return Response.json({ items: [project], total: 1, page: 1, page_size: 5 })
   })
@@ -95,38 +96,37 @@ test('moves focus out of hidden project sections and retains an editing draft ac
   const user = userEvent.setup()
   render(<ProjectWorkspace />)
   await user.click(await screen.findByRole('button', { name: '打开项目 临床研究' }))
-  await user.click(await screen.findByRole('button', { name: '项目资料' }))
-  await user.click(await screen.findByRole('button', { name: '编辑项目信息' }))
+  await user.click(await screen.findByRole('button', { name: '第 1 步：项目资料' }))
+
   await user.type(screen.getByLabelText('修改项目名称'), '草稿')
   scrollTo.mockClear()
-  await user.click(screen.getByRole('button', { name: '研究任务' }))
-  await user.click(screen.getByRole('button', { name: /整理研究资料/ }))
+  await user.click(screen.getByRole('button', { name: '材料准备' }))
   const region = screen.getByRole('region', { name: '当前项目工作区' })
   expect(document.activeElement).toBe(region)
   expect(scrollTo).toHaveBeenCalledWith({ top: 0, behavior: 'instant' })
-  expect(screen.queryByRole('button', { name: '保存修改' })).toBeNull()
+  expect(screen.queryByRole('button', { name: '保存修改：项目名称' })).toBeNull()
   expect(screen.getByRole('button', { name: '上传文件' })).toBeTruthy()
   expect(screen.queryByRole('button', { name: '上传并预览' })).toBeNull()
   await user.click(screen.getByRole('button', { name: '分析与成果' }))
-  await user.click(screen.getByRole('button', { name: '进入分析工作台' }))
+  await user.click(screen.getByRole('button', { name: /表格数据与统计/ }))
   await user.click(screen.getByRole('button', { name: '数据' }))
   expect(document.activeElement).toBe(region)
   await user.click(screen.getByRole('button', { name: '我的项目' }))
   expect(screen.queryByRole('region', { name: '当前项目工作区' })).toBeNull()
-  await user.click(screen.getByRole('button', { name: '项目概览' }))
-  await user.click(screen.getByRole('button', { name: '项目资料' }))
+  await user.click(within(screen.getByRole('complementary', {name:'主要导航'})).getByRole('button', {name:'临床研究'}))
+  await user.click(screen.getByRole('button', { name: '第 1 步：项目资料' }))
   expect((screen.getByRole('textbox', { name: '修改项目名称' }) as HTMLInputElement).value).toBe('临床研究草稿')
-  await user.click(screen.getByRole('button', { name: '项目概览' }))
+  await user.click(within(screen.getByRole('complementary', {name:'主要导航'})).getByRole('button', {name:'临床研究'}))
   expect(document.activeElement).toBe(region)
   expect(fetcher.mock.calls.filter(([url]) => url === `/api/v1/projects/${project.id}/files`)).toHaveLength(1)
   expect(document.body.textContent).not.toContain('private-project-id')
   await user.click(screen.getByRole('button', { name: '分析与成果' }))
   await user.click(screen.getByRole('button', { name: '图表与报告' }))
-  await screen.findByText('还没有已生成的 PNG 或 Word 文件。')
+  await screen.findByText('暂无已生成的分析图表或报告。')
   const summaryReads = fetcher.mock.calls.filter(([url]) => url.includes('/summary?')).length
   await user.click(screen.getByRole('button', { name: '我的项目' }))
   await user.click(screen.getByRole('button', { name: '分析与成果' }))
   await user.click(screen.getByRole('button', { name: '图表与报告' }))
-  await screen.findByText('还没有已生成的 PNG 或 Word 文件。')
+  await screen.findByText('暂无已生成的分析图表或报告。')
   expect(fetcher.mock.calls.filter(([url]) => url.includes('/summary?'))).toHaveLength(summaryReads + 1)
 })

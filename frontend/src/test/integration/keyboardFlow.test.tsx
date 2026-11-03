@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, expect, it, vi } from 'vitest'
 import AuthBoundary from '../../features/auth/AuthBoundary'
@@ -64,27 +64,26 @@ it('enters change-password and cancels back to its trigger without stealing focu
   expect(document.activeElement).toBe(screen.getByLabelText('Synthetic workspace input'))
 })
 
-it('enters project edit with Enter and returns focus after keyboard cancellation or save', async () => {
+it('keeps project fields visible and supports keyboard cancellation and save', async () => {
   const user = userEvent.setup()
   const onUpdated = vi.fn()
   vi.stubGlobal('fetch', vi.fn().mockResolvedValue(Response.json({ ...project, name: 'Changed' })))
   const view = render(<ProjectDetails project={project} onUpdated={onUpdated} />)
-  const trigger = screen.getByRole('button', { name: '编辑项目信息' })
-  trigger.focus(); await user.keyboard('{Enter}')
-  expect(document.activeElement).toBe(screen.getByLabelText('修改项目名称'))
-  await user.tab(); await user.tab(); await user.tab()
-  expect(document.activeElement).toBe(screen.getByRole('button', { name: '取消修改' }))
+  await user.type(screen.getByLabelText('修改项目名称'), ' draft')
+  await user.tab(); await user.tab()
+  expect(document.activeElement).toBe(screen.getByRole('button', { name: '取消修改：项目名称' }))
   await user.keyboard(' ')
-  expect(document.activeElement).toBe(screen.getByRole('button', { name: '编辑项目信息' }))
-  await user.keyboard('{Enter}')
+  expect(document.activeElement).toBe(screen.getByLabelText('修改项目名称'))
+  expect((screen.getByLabelText('修改项目名称') as HTMLInputElement).value).toBe(project.name)
   await user.clear(screen.getByLabelText('修改项目名称'))
   await user.type(screen.getByLabelText('修改项目名称'), 'Changed')
   screen.getByLabelText('修改研究主题').focus()
   view.rerender(<ProjectDetails project={{ ...project, file_count: 1 }} onUpdated={onUpdated} />)
   expect(document.activeElement).toBe(screen.getByLabelText('修改研究主题'))
-  await user.tab(); await user.keyboard('{Enter}')
-  expect(await screen.findByRole('button', { name: '编辑项目信息' })).toBe(document.activeElement)
-  expect(onUpdated).toHaveBeenCalledOnce()
+  screen.getByRole('button', { name: '保存修改：项目名称' }).focus(); await user.keyboard('{Enter}')
+  await waitFor(() => expect(onUpdated).toHaveBeenCalledOnce())
+  expect((screen.getByLabelText('修改项目名称') as HTMLInputElement).value).toBe('Changed')
+  expect(screen.getByLabelText('修改研究主题')).toBeTruthy()
 })
 
 it('locks login synchronously for two submits dispatched within one event batch', async () => {

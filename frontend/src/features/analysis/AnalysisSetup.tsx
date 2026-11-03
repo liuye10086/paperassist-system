@@ -340,7 +340,6 @@ function AnalysisSetupContent({ projectId, files, onOpenFiles, filesLoading = fa
     <WorkflowStage stage="setup">
       <div className="section-heading">
         <h2>{t("字段配置")}</h2>
-        <p>{t("保存字段选择和数据检查结果，后续步骤将据此计算、绘图和生成报告。")}</p>
         <p className="muted">{t("每个文件保存一份当前配置；保存新选择会更新该文件的配置。")}</p>
       </div>
       <p>{t("描述统计、相关分析或组间比较：在所选整理版本的分析计划中选择方法与图型。")}</p>

@@ -4,7 +4,7 @@ import { parseNavigation, serializeNavigation } from './projectNavigation'
 import useProjectSelection from './useProjectSelection'
 
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); window.history.replaceState(null, '', '/') })
-it.each(['overview','setup','profile','plan','statistics','figure','explanation','report'])('restores analysis view %s with fixed file', view => {
+it.each(['overview','research-request','setup','profile','plan','statistics','figure','explanation','report'])('restores analysis view %s with fixed file', view => {
   const route = parseNavigation(`#project=p1&section=analysis&view=${view}&file=f1`)
   expect(route).not.toBeNull()
   expect(route?.analysisNavigation).toEqual({ view, fileId:'f1' })

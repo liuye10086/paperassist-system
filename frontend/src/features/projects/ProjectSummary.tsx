@@ -12,7 +12,7 @@ import { isProjectSummary, type ProjectSummaryData, type SummarySource, type Sum
 import { useI18n } from '../../shared/i18n'
 import './projectSummary.css'
 
-type Props = { artifactNavigation?:ArtifactNavigation; onArtifactNavigate?:(next:ArtifactNavigation)=>void; projectId: string; projectType: 'sci' | 'thesis' | 'research'; view?: 'overview' | 'artifacts' | 'all'; active?: boolean; onOpenManuscripts?:()=>void; onOpenJournals?:()=>void }
+type Props = { showArtifactNavigation?:boolean; artifactNavigation?:ArtifactNavigation; onArtifactNavigate?:(next:ArtifactNavigation)=>void; projectId: string; projectType: 'sci' | 'thesis' | 'research'; view?: 'overview' | 'artifacts' | 'all'; active?: boolean; onOpenManuscripts?:()=>void; onOpenJournals?:()=>void }
 const taskNames = { statistics: '描述统计', boxplot: '箱线图生成', explanation: 'AI 分析解释', report: 'Word 报告导出' }
 const statuses: Record<SummaryTask['status'], string> = {
   queued: '待执行',
@@ -49,7 +49,7 @@ export default function ProjectSummary(props: Props) {
   return <Summary key={`${props.projectId}:${props.projectType}`} {...props} />
 }
 
-function Summary({ projectId, projectType, view = 'all', active = true, onOpenManuscripts, onOpenJournals, artifactNavigation, onArtifactNavigate }: Props) {
+function Summary({ projectId, projectType, view = 'all', active = true, onOpenManuscripts, onOpenJournals, artifactNavigation, onArtifactNavigate, showArtifactNavigation = true }: Props) {
   const { t, locale } = useI18n()
   const viewRef=useRef(view)
   useLayoutEffect(()=>{viewRef.current=view},[view])
@@ -123,13 +123,11 @@ function Summary({ projectId, projectType, view = 'all', active = true, onOpenMa
 
   useEffect(()=>{ if(view==='artifacts' && pages.artifacts!==navigation.page) refresh({...pages,artifacts:navigation.page}) },[view,navigation.page,pages,refresh])
 
-  const title = view === 'overview' ? '项目任务概览' : view === 'artifacts' ? '图表与报告' : '项目任务与成果'
-  const description = view === 'overview' ? '查看已保存的分析进展与任务状态。'
-    : view === 'artifacts' ? '已保存的图表与 Word 报告，可直接下载。' : '查看分析任务与已保存的研究成果。'
+  const title = view === 'overview' ? '项目任务概览' : view === 'artifacts' ? navigation.view === 'layout' ? '排版导出记录' : navigation.view === 'detail' ? '成果详情' : '成果列表' : '项目任务与成果'
 
   return <section className="project-summary project-summary-panel" aria-label={t(title)} aria-busy={loading}>
-    <div className="summary-panel-heading"><div><h3>{t(title)}</h3><p>{t(description)}</p></div>
-      <button type="button" disabled={loading || sessionChanged} onClick={() => refresh()}>{t("刷新项目摘要")}</button></div>
+    <div className="summary-panel-heading"><h3>{t(title)}</h3>
+      <button type="button" disabled={loading || sessionChanged} onClick={() => refresh()}>{t(view === 'artifacts' ? '刷新成果' : '刷新项目摘要')}</button></div>
     {loading && <p className="summary-empty" role="status">{t("正在读取项目摘要……")}</p>}
     {error && <><p role="alert" className="error-panel">{t(error)}</p><button type="button" onClick={() => refresh()}>{t("重试项目摘要")}</button></>}
     {data && <>
@@ -154,7 +152,7 @@ function Summary({ projectId, projectType, view = 'all', active = true, onOpenMa
         {data.future.sci && <span>{t('期刊目标适配与投稿进展')}</span>}{data.future.thesis && <span>{t('学校与毕业论文评审')}</span>}
         <span className="summary-unavailable">{t('功能未开放')}</span></aside>
       </div>
-      {view === 'artifacts' && data.artifacts.page===navigation.page && <ArtifactLibrary projectId={projectId} data={data} navigation={navigation} onNavigate={navigate}/>}
+      {view === 'artifacts' && data.artifacts.page===navigation.page && <ArtifactLibrary showNavigation={showArtifactNavigation} projectId={projectId} data={data} navigation={navigation} onNavigate={navigate}/>}
       {view !== 'artifacts' && <div className="summary-artifact-section" hidden={view === 'overview'}>
       {!!data.layout_exports?.length&&<section aria-label={t('近期排版导出')}><h4>{t('近期排版导出')}</h4><p className="muted">{t('仅显示最近 20 条排版记录；完整历史请打开原稿的排版与公式。')}</p><ul className="summary-artifact-list">{data.layout_exports.map(item=><li key={item.id}><div className="summary-artifact-content"><strong>{item.filename??t('排版 DOCX 导出')}</strong><p>{t({queued:'待执行',running:'运行中',succeeded:'已完成',failed:'执行失败'}[item.status])} · <time dateTime={item.created_at}>{new Date(item.created_at).toLocaleString(locale)}</time></p><a href={`#project=${encodeURIComponent(projectId)}&section=tasks&task=${encodeURIComponent(item.task_id)}`}>{t('查看排版任务')}</a></div>{item.status==='succeeded'&&item.download_url&&<ProjectDownloadLink href={item.download_url} filename={item.filename??'layout.docx'}>{t('下载排版 DOCX')}</ProjectDownloadLink>}</li>)}</ul></section>}
       <h4 className="summary-section-heading">{t("已生成文件")}<span>{data.artifacts.total}</span></h4>

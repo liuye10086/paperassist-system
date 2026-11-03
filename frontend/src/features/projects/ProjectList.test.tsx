@@ -15,16 +15,15 @@ function setup(options: { items?: Project[]; total?: number; query?: ProjectList
   const onQueryChange = vi.fn()
   const onOpen = vi.fn()
   const onRetry = vi.fn()
-  const onCreate = vi.fn()
   function ControlledList() {
     const [query, setQuery] = useState(options.query ?? initialQuery)
     const [draft, setDraft] = useState(query.q)
     return <ProjectList items={options.items ?? [project]} total={options.total ?? 21} query={query}
       searchDraft={draft} onSearchDraftChange={setDraft} loading={options.loading ?? false} error={options.error ?? ''}
-      onQueryChange={next => { onQueryChange(next); setQuery(next) }} onOpen={onOpen} onRetry={onRetry} onCreate={onCreate} />
+      onQueryChange={next => { onQueryChange(next); setQuery(next) }} onOpen={onOpen} onRetry={onRetry} />
   }
   render(<ControlledList />)
-  return { user: userEvent.setup(), onQueryChange, onOpen, onRetry, onCreate }
+  return { user: userEvent.setup(), onQueryChange, onOpen, onRetry }
 }
 
 test('opens the project directly from its name', async () => {
@@ -91,12 +90,11 @@ test('clears both filters and the draft while returning to page one', async () =
   expect((screen.getByLabelText('搜索项目名称') as HTMLInputElement).value).toBe('')
 })
 
-test('offers creation for an empty project list', async () => {
-  const { user, onCreate } = setup({ items: [], total: 0 })
+test('shows guidance for an empty list without duplicating the navigation create action', () => {
+  setup({ items: [], total: 0 })
   expect(screen.getByText('还没有项目，请先创建一个项目。')).toBeTruthy()
   expect(screen.queryByText('没有匹配的项目。')).toBeNull()
-  await user.click(screen.getByRole('button', { name: '新建项目' }))
-  expect(onCreate).toHaveBeenCalledOnce()
+  expect(screen.queryByRole('button', { name: '新建项目' })).toBeNull()
 })
 
 test('offers clearing filters for an empty filtered result', async () => {

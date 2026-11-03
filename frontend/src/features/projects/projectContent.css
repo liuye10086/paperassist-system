@@ -18,9 +18,6 @@
 .project-files-page .file-history { margin: 0 0 28px; }
 .project-files-page .preview-heading h2 { margin: 8px 0; font-size: 22px; font-weight: 600; }
 .project-files-page .preview-heading p { margin-bottom: 0; }
-.project-files-page .file-list { border-top: 1px solid var(--border); }
-.project-files-page .file-list > li { padding: 20px 4px; }
-.project-files-page .file-list > li[aria-current='true'] { background: var(--accent-bg); box-shadow: inset 3px 0 var(--accent); padding-left: 14px; }
 .file-preview-status { color: var(--accent); font-size: 12px; }
 .file-summary strong { color: var(--text-h); font-size: 14px; font-weight: 600; }
 .file-summary > span { padding: 3px 8px; border-radius: 6px; background: var(--surface); font-size: 11px; }

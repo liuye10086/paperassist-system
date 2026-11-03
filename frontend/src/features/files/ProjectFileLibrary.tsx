@@ -76,22 +76,22 @@ export default function ProjectFileLibrary({ projectId, active, uploadVersion, b
   return <>
     {!resourceNavigation && navigation.view === 'detail' && <button onClick={() => setLocalNavigation({ view: 'list', fileId: '' })}>{t('返回文件列表')}</button>}
     <section hidden={navigation.view !== 'list'} className="file-history" aria-labelledby="files-title">
-      <div className="preview-heading"><div><span className="workspace-eyebrow">{t('研究资料')}</span><h2 id="files-title">{t('项目文件')}</h2>
-        <p className="muted">{t('上传数据，查看工作表，保留研究的原始资料。')}</p></div>
+      <div className="preview-heading"><div><h2 id="files-title">{t('项目文件')}</h2>
+        </div>
         <button type="button" disabled={loading || busy} onClick={() => setAttempt(value => value + 1)}>{t('刷新文件列表')}</button></div>
       {loading && <p role="status">{t('正在读取文件列表……')}</p>}
       {error && <p className="error-panel" role="alert">{t(error)}</p>}
       {!loading && !error && result?.total === 0 && <p>{t('此项目还没有文件。')}</p>}
       {!loading && !error && result && <>
-        <ul className="file-list">{result.items.map(file => <li key={file.id}
+        <ul className="file-list file-card-list">{result.items.map(file => <li key={file.id}
           aria-current={previewState?.id === file.id && previewState.status === 'ready' ? 'true' : undefined}>
           <div className="file-summary"><strong>{file.filename}</strong> · <span>{file.file_type?.toUpperCase()}</span>{' '}<span className={file.parse_status === 'failed' ? 'file-failed' : 'file-parsed'}>
             {t(parseStatusLabels[file.parse_status])}</span>
             <p className="muted">{t('{bytes} 字节 · {date}', { bytes: file.size_bytes.toLocaleString(locale), date: new Date(file.uploaded_at).toLocaleString(locale) })}</p>
-            <details className="file-upload-source"><summary>{t('上传记录')}</summary><p className="muted">{file.upload_batch ? t('上传批次：{date} · 本批登记 {count} 项 · 第 {position} 项', {
+            <p className="muted file-upload-source">{file.upload_batch ? t('上传批次：{date} · 本批登记 {count} 项 · 第 {position} 项', {
               date: new Date(file.upload_batch.created_at).toLocaleString(locale), count: file.upload_batch.item_count,
               position: file.upload_batch.item_position,
-            }) : t('未记录上传批次')}</p></details>
+            }) : t('未记录上传批次')}</p>
             <p className="muted">{file.purposes?.length ? file.purposes.map(purpose => t(purposeLabels[purpose])).join(' · ') : t('未指定用途')}</p>
             {file.error && <p className="file-failed">{t(apiError(file.error, '文件解析失败，请重新上传有效的工作簿。'))}</p>}
             {previewState?.id === file.id && <p className="file-preview-status" role="status">{t(previewState.status === 'loading'
@@ -105,7 +105,7 @@ export default function ProjectFileLibrary({ projectId, active, uploadVersion, b
           </div>
         </li>)}</ul>
       </>}
-      {result && <nav className="file-pagination" aria-label={t('文件分页')}>
+      {result && result.total > 5 && <nav className="file-pagination" aria-label={t('文件分页')}>
           <button type="button" disabled={loading || page === 1} onClick={() => setPage(value => value - 1)}>{t('上一页')}</button>
           <span role="status">{t('第 {page} / {pages} 页 · 共 {count} 个文件', { page, pages: Math.max(1, Math.ceil(result.total / 5)), count: result.total })}</span>
           <button type="button" disabled={loading || page >= Math.ceil(result.total / 5) || page >= 1_000_000} onClick={() => setPage(value => value + 1)}>{t('下一页')}</button>

@@ -19,6 +19,8 @@ import type { ProjectSection } from './WorkspaceShell'
 import type { ResourceNavigation } from './resourceViews'
 import type { RegisterLeaveGuard } from './useDraftLeaveGuard'
 import AnalysisGuide from './AnalysisGuide'
+import './projectUpload.css'
+import './projectAnalysis.css'
 
 type Props = { onRequirements?: () => void; projectId: string; onSaved: () => void; section: ProjectSection; onSectionChange: (section: ProjectSection) => void; active?: boolean
   analysisNavigation?: AnalysisNavigation; onAnalysisNavigate?: (next:AnalysisNavigation)=>void; resourceNavigation?: ResourceNavigation; onResourceNavigate?: (next: ResourceNavigation) => void; registerLeaveGuard?: RegisterLeaveGuard }
@@ -35,15 +37,17 @@ function ResourceScope({ projectId, onSaved, section, onSectionChange, active = 
 function ResourceContent({ projectId, onSaved, section, onSectionChange, onUnavailable, active, resourceNavigation, onResourceNavigate, registerLeaveGuard, analysisNavigation, onAnalysisNavigate, onRequirements }: Props & { onUnavailable: () => void }) {
   const { t } = useI18n()
   const [localNavigation, setLocalNavigation] = useState<ResourceNavigation>({ view: 'list', fileId: '' })
-  const [uploadKind, setUploadKind] = useState<'documents'|'bio'|'excel'>('documents')
+  const [uploadKind, setUploadKind] = useState<'documents'|'bio'>('documents')
   const navigation = resourceNavigation ?? localNavigation
   const [uploadVisited, setUploadVisited] = useState(navigation.view === 'upload')
-  const [previewVisited, setPreviewVisited] = useState(navigation.view === 'upload' || navigation.view === 'preview')
+  const [previewVisited, setPreviewVisited] = useState(navigation.view === 'preview')
   if (navigation.view === 'upload' && !uploadVisited) setUploadVisited(true)
-  if ((navigation.view === 'upload' || navigation.view === 'preview') && !previewVisited) setPreviewVisited(true)
+  if (navigation.view === 'preview' && !previewVisited) setPreviewVisited(true)
   function navigate(next: ResourceNavigation) { if (onResourceNavigate) onResourceNavigate(next); else setLocalNavigation(next) }
   const [localAnalysis,setLocalAnalysis]=useState<AnalysisNavigation>({view:'overview',fileId:''})
   const analysis=analysisNavigation??localAnalysis
+  const [requirementsVisited,setRequirementsVisited]=useState(analysis.view==='research-request')
+  if(analysis.view==='research-request'&&!requirementsVisited)setRequirementsVisited(true)
   const navigateAnalysis=onAnalysisNavigate??setLocalAnalysis
   const insightView=isInsightView(analysis.view)
   const bioView=analysis.view.startsWith('bio-')&&!insightView
@@ -79,51 +83,45 @@ function ResourceContent({ projectId, onSaved, section, onSectionChange, onUnava
   }, [projectId, attempt, onUnavailable])
 
   function batchChanged() { setUploadVersion(value => value + 1); refresh(); onSaved() }
-  function uploaded() {
-    setOpened(null); setPreviewState(null); setUploadVersion(value => value + 1)
-    refresh(); onSaved()
-  }
   return <>
     <div hidden={section !== 'files'} className="project-files-page">
-      <nav className="material-view-actions" aria-label={t('材料视图')}>
-        {navigation.view !== 'list' && <button type="button" onClick={() => navigate({ view: 'list', fileId: '' })}>{t('返回文件列表')}</button>}
-        {navigation.view === 'list' && <button type="button" className="button-primary" onClick={() => navigate({ view: 'upload', fileId: '' })}>{t('上传文件')}</button>}
+      <nav className="material-view-actions resource-view-nav" aria-label={t('材料视图')}>
+        {['list', 'upload'].includes(navigation.view) ? <>
+          <button type="button" aria-current={navigation.view === 'upload' ? 'page' : undefined} onClick={() => navigate({ view: 'upload', fileId: '' })}>{t('上传文件')}</button>
+          <button type="button" aria-current={navigation.view === 'list' ? 'page' : undefined} onClick={() => navigate({ view: 'list', fileId: '' })}>{t('已上传文件')}</button>
+        </> : <button type="button" onClick={() => navigate({ view: 'list', fileId: '' })}>{t('返回文件列表')}</button>}
         {navigation.view === 'preview' && navigation.fileId && <>
           <button type="button" onClick={() => navigate({ view: 'detail', fileId: navigation.fileId })}>{t('文件详情')}</button>
           <button type="button" disabled={busy} onClick={() => { setPreviewState({ id: navigation.fileId, status: 'loading' }); setOpened({ id: navigation.fileId, request: ++openSequence.current }) }}>{t('重新读取预览')}</button>
         </>}
       </nav>
-      <div hidden={navigation.view !== 'upload'}>
-        <div className="upload-kind-options" role="group" aria-label={t('选择上传材料类型')}>{([['documents','表格、报告与图片'],['bio','组学与生信数据包'],['excel','单份 Excel 预览']] as const).map(([kind,label])=><button type="button" key={kind} aria-pressed={uploadKind===kind} onClick={()=>setUploadKind(kind)}>{t(label)}</button>)}</div>
-        <div hidden={uploadKind !== 'documents'}>{uploadVisited && <BatchUpload projectId={projectId} active={filesActive && navigation.view === 'upload' && uploadKind==='documents'} onUnavailable={onUnavailable} onChanged={batchChanged} registerLeaveGuard={registerLeaveGuard} />}</div>
+      <div className="upload-mode-bar" hidden={navigation.view !== 'upload'}>
+        <div className="upload-kind-options" role="group" aria-label={t('选择上传材料类型')}>{([['documents','表格、报告与图片'],['bio','组学与生信数据包']] as const).map(([kind,label])=><button type="button" key={kind} aria-pressed={uploadKind===kind} onClick={()=>setUploadKind(kind)}>{t(label)}</button>)}</div>
       </div>
-      <div hidden={!filesActive||navigation.view!=='upload'||uploadKind!=='bio'}><BioUpload active={filesActive&&navigation.view==='upload'&&uploadKind==='bio'} projectId={projectId} onChanged={batchChanged} registerLeaveGuard={registerLeaveGuard}/></div>
+      <div className="resource-upload-panel" hidden={navigation.view !== 'upload' || uploadKind !== 'documents'}>{uploadVisited && <BatchUpload embedded projectId={projectId} active={filesActive && navigation.view === 'upload' && uploadKind==='documents'} onUnavailable={onUnavailable} onChanged={batchChanged} registerLeaveGuard={registerLeaveGuard} />}</div>
+      <div className="resource-upload-panel" hidden={!filesActive||navigation.view!=='upload'||uploadKind!=='bio'}><BioUpload embedded active={filesActive&&navigation.view==='upload'&&uploadKind==='bio'} projectId={projectId} onChanged={batchChanged} registerLeaveGuard={registerLeaveGuard}/></div>
       <ProjectFileLibrary projectId={projectId} active={filesActive} uploadVersion={uploadVersion} busy={busy} resourceNavigation={navigation} onResourceNavigate={navigate} registerLeaveGuard={registerLeaveGuard}
         previewState={previewState} onUnavailable={onUnavailable} onPreview={id => {
           setPreviewState({ id, status: 'loading' }); setOpened({ id, request: ++openSequence.current })
           navigate({ view: 'preview', fileId: id })
         }} />
-      <div hidden={navigation.view !== 'preview' && (navigation.view !== 'upload' || uploadKind !== 'excel')}>
-        {previewVisited && <ExcelPreview projectId={projectId} savedFile={opened} uploadVisible={navigation.view === 'upload'} onUnavailable={onUnavailable} registerLeaveGuard={registerLeaveGuard} onSaved={uploaded} onBusyChange={setBusy} onSavedPreviewChange={setPreviewState} />}
+      <div className="resource-upload-panel" hidden={navigation.view !== 'preview'}>
+        {previewVisited && <ExcelPreview embedded projectId={projectId} savedFile={opened} uploadVisible={false} onUnavailable={onUnavailable} onBusyChange={setBusy} onSavedPreviewChange={setPreviewState} />}
       </div>
     </div>
     <div hidden={section !== 'analysis'} className="project-analysis-page">
+      <nav hidden={analysis.view==='overview'} className="analysis-overview-nav" aria-label={t('分析工作区')}>
+        <button type="button" onClick={()=>navigateAnalysis({view:'overview',fileId:analysis.fileId})}>← {t('返回分析入口')}</button>
+      </nav>
       <BioInsightsWorkspace projectId={projectId} navigation={analysis} onNavigate={navigateAnalysis} active={Boolean(active)&&section==='analysis'&&insightView} registerLeaveGuard={registerLeaveGuard}/>
       <BioImports projectId={projectId} navigation={analysis} onNavigate={navigateAnalysis} active={Boolean(active)&&section==='analysis'&&bioView} registerLeaveGuard={registerLeaveGuard}/>
-      <nav className="analysis-overview-nav" aria-label={t('分析工作区')}>
-        <button type="button" aria-current={analysis.view==='overview'?'page':undefined} onClick={()=>navigateAnalysis({...analysis,view:'overview'})}>{t('分析概览')}</button>
-        <button type="button" aria-current={bioView?'page':undefined} onClick={()=>navigateAnalysis({view:'bio-datasets',fileId:''})}>{t('生信数据集')}</button>
-        <button type="button" aria-current={insightView?'page':undefined} onClick={()=>navigateAnalysis({view:'bio-insights',fileId:''})}>{t('差异与功能分析')}</button>
-        <button type="button" aria-current={researchView?'page':undefined} onClick={()=>navigateAnalysis({view:'research-findings',fileId:''})}>{t('研究发现与核对')}</button>
-        {analysis.view==='overview'&&<button type="button" className="button-primary" onClick={()=>navigateAnalysis({...analysis,view:'setup'})}>{t('进入分析工作台')}</button>}
-      </nav>
       <div hidden={analysis.view!=='overview'}>
         <AnalysisGuide projectId={projectId} active={Boolean(active)&&section==='analysis'&&analysis.view==='overview'} onNavigate={view=>navigateAnalysis({view,fileId:analysis.fileId})} onRequirements={onRequirements}/>
-        <details className="customer-extra-options"><summary>{t('补充统计分析方案')}</summary><ProjectRequirements projectId={projectId} files={files.filter((file):file is ProjectFile & {parse_status:'queued'|'parsing'|'parsed'|'failed'}=>file.parse_status!=='stored')} registerLeaveGuard={registerLeaveGuard}/></details>
       </div>
-      <div hidden={analysis.view==='overview'||bioView||insightView||researchView}>
+      <div hidden={analysis.view!=='research-request'}>{requirementsVisited&&<ProjectRequirements projectId={projectId} files={files.filter((file):file is ProjectFile & {parse_status:'queued'|'parsing'|'parsed'|'failed'}=>file.parse_status!=='stored')} registerLeaveGuard={registerLeaveGuard}/>}</div>
+      <div hidden={analysis.view==='overview'||analysis.view==='research-request'||bioView||insightView||researchView}>
       <AnalysisSetup projectId={projectId} files={files.filter((file):file is ProjectFile & {parse_status:'queued'|'parsing'|'parsed'|'failed'}=>file.parse_status!=='stored'&&file.file_type==='xlsx')} filesLoading={loading} filesError={error} onReloadFiles={refresh}
-        onOpenFiles={() => onSectionChange('files')} stage={analysis.view==='overview'||analysis.view==='research-findings'||analysis.view.startsWith('bio-')?'setup':analysis.view as import('../analysis/analysisWorkflowContext').AnalysisStage} onStageChange={view=>navigateAnalysis({...analysis,view})} fileId={analysis.fileId} onFileChange={fileId=>navigateAnalysis({...analysis,fileId})} registerLeaveGuard={registerLeaveGuard} />
+        onOpenFiles={() => onSectionChange('files')} stage={analysis.view==='overview'||analysis.view==='research-request'||analysis.view==='research-findings'||analysis.view.startsWith('bio-')?'setup':analysis.view as import('../analysis/analysisWorkflowContext').AnalysisStage} onStageChange={view=>navigateAnalysis({...analysis,view})} fileId={analysis.fileId} onFileChange={fileId=>navigateAnalysis({...analysis,fileId})} registerLeaveGuard={registerLeaveGuard} />
       </div>
     </div>
   </>

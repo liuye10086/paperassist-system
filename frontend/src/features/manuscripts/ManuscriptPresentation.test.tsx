@@ -29,6 +29,12 @@ it('shows stale and pending inventory without claiming compliance',async()=>{
  vi.stubGlobal('fetch',vi.fn(async()=>Response.json({items:[{id:'p-old',revision:3,manuscript_id:'m1',base_version_id:version.id,peer_version_id:null,schema_version:1,config:{paragraph_groups:[],terminology:[],figure_pairs:[],authors:[],affiliations:[],statements:[],school:null,blind:{identity_terms:[],hidden_chapter_ids:[],exceptions:[],manual_image_review:false}},checks:[{code:'missing',status:'pending',message:'Missing material'}],paragraph_groups:[],quality:{scientific_semantic:'pending',word_wps:'pending',real_compliance:'pending'},can_export:true,stale:true,stale_version_ids:[version.id]}]})))
  render(<ManuscriptPresentation projectId="p1" manuscriptId="m1" version={version} versions={[version]} onSelect={vi.fn()} active/>);await screen.findByText('Missing material');expect(screen.getByText('关联稿件已有新版本，当前配置需复核。')).toBeTruthy();expect(screen.getByText('保存成功仅固定配置；语义、真实合规与 Word/WPS 仍待人工核对。')).toBeTruthy()
 })
+it('keeps scientific review notes visible while hiding embedded checksums in the customer preview',async()=>{
+ const rawMessage='题注来源 '+ 'a'.repeat(64)+' 由用户关联，语义仍待人工核对。'
+ vi.stubGlobal('fetch',vi.fn(async()=>Response.json({items:[{id:'p1',revision:1,manuscript_id:'m1',base_version_id:version.id,peer_version_id:null,schema_version:1,config:{paragraph_groups:[],terminology:[],figure_pairs:[],authors:[],affiliations:[],statements:[],school:null,blind:{identity_terms:[],hidden_chapter_ids:[],exceptions:[],manual_image_review:false}},checks:[{code:'caption',status:'pending',message:rawMessage}],paragraph_groups:[],quality:{scientific_semantic:'pending',word_wps:'pending',real_compliance:'pending'},can_export:true,stale:false,stale_version_ids:[]}]})))
+ const {container}=render(<ManuscriptPresentation projectId="p1" manuscriptId="m1" version={version} versions={[version]} onSelect={vi.fn()} active/>);
+ await screen.findByText(/语义仍待人工核对/);expect(container.textContent).not.toContain('a'.repeat(64));expect(container.textContent).toContain('待补 / 人工核对')
+})
 it('sends explicit stable paragraph IDs in a one-to-many group and previews returned text',async()=>{
  const p={origin:'user_provided' as const,source_ids:[],citations:[]}
  const zh={...version,id:'zh-fixed',snapshot:{...version.snapshot,output_language:'zh-CN' as const,sections:[{id:'abstract',paragraphs:[{...p,id:'zh-stable',text:'已有中文事实'}]}],methods:[],results_groups:[]}}

@@ -5,6 +5,7 @@ import userEvent from '@testing-library/user-event'
 import App from '../../app/App'
 import { summaryFixture } from '../fixtures/summaryFixture'
 import { filePageFixture } from '../fixtures/filePageFixture'
+import { batchUploadFixture } from '../fixtures/batchUploadFixture'
 
 afterEach(() => {
   cleanup()
@@ -34,7 +35,10 @@ function deferred<T>() {
 function api(options: { patch?: (init: RequestInit) => Promise<Response> } = {}) {
   let projects = [project, secondProject]
   let currentSession: typeof session | null = session
+  const uploadBatch = batchUploadFixture('p1', () => record)
   const mock = vi.fn(async (url: string, init?: RequestInit): Promise<Response> => {
+    const batchResponse = uploadBatch(url, init)
+    if (batchResponse) return batchResponse
     if (new URL(url, 'http://localhost').pathname.endsWith('/model-usage')) {
       const budget = { scope_type: 'user', limit_micro_usd: null, revision: 0, estimated_micro_usd: 0,
         reserved_micro_usd: 0, available_micro_usd: null, exceeded: false }
@@ -79,25 +83,28 @@ function api(options: { patch?: (init: RequestInit) => Promise<Response> } = {})
 }
 
 async function navigate(name: string) {
+  if (name === '项目资料') {
+    if (!screen.queryByRole('button', {name:'第 1 步：项目资料'})) await act(async () => { fireEvent.click(within(screen.getByRole('complementary', {name:'主要导航'})).getByRole('button', {name:'药学项目'})) })
+    await act(async () => { fireEvent.click(screen.getByRole('button', {name:'第 1 步：项目资料'})) }); return
+  }
   if (name === '项目文件' && !screen.queryByRole('button', { name })) {
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: '材料准备' })) })
   }
   await act(async () => { fireEvent.click(screen.getByRole('button', { name })) })
-  if (name === '项目概览') await act(async () => { fireEvent.click(screen.getByRole('button', { name: '项目资料' })) })
 }
 
 async function openProject() {
   const user = userEvent.setup()
   render(<App />)
   await user.click(await screen.findByRole('button', { name: '打开项目 药学项目' }))
-  await user.click(await screen.findByRole('button', { name: '项目资料' }))
-  await screen.findByRole('button', { name: '编辑项目信息' })
+  await user.click(await screen.findByRole('button', { name: '第 1 步：项目资料' }))
+  await screen.findByLabelText('修改项目名称')
   return user
 }
 
 async function editName(user: ReturnType<typeof userEvent.setup>, value = '新名称') {
-  await navigate('项目概览')
-  await user.click(screen.getByRole('button', { name: '编辑项目信息' }))
+  await navigate('项目资料')
+
   await user.clear(screen.getByLabelText('修改项目名称'))
   await user.type(screen.getByLabelText('修改项目名称'), value)
 }
@@ -106,12 +113,12 @@ function patchCalls(mock: ReturnType<typeof api>) {
   return mock.mock.calls.filter(([, init]) => init?.method === 'PATCH')
 }
 
-test('shows a locked project type and historical report snapshot notice', async () => {
+test('keeps project type locked without redundant editing guidance', async () => {
   api()
   await openProject()
-  expect(screen.getByText(/创建后不可更改/)).toBeTruthy()
-  await navigate('编辑项目信息')
-  expect(screen.getByText(/修改.*不会.*历史报告/)).toBeTruthy()
+  await navigate('项目资料')
+  expect(screen.queryByText(/修改.*不会.*历史报告/)).toBeNull()
+  expect(screen.queryByText(/项目默认语言供新任务参考/)).toBeNull()
   const details = screen.getByLabelText('修改项目名称').closest('.project-details')!
   expect(within(details as HTMLElement).queryByRole('combobox', { name: '项目类型' })).toBeNull()
   expect(within(details as HTMLElement).getByRole('combobox', { name: '项目默认输出语言' })).toBeTruthy()
@@ -126,7 +133,7 @@ test('patches only changed name and updates heading and selection without resett
   await user.selectOptions(screen.getByLabelText('工作表'), '1')
   const fileReads = mock.mock.calls.filter(([url]) => url === '/api/v1/projects/p1/files').length
   await editName(user, '  新名称  ')
-  await user.click(screen.getByRole('button', { name: '保存修改' }))
+  await user.click(screen.getByRole('button', { name: '保存修改：项目名称' }))
   expect(await screen.findByRole('heading', { name: '新名称' })).toBeTruthy()
   await navigate('我的项目')
   expect(await screen.findByRole('button', { name: '打开项目 新名称' })).toBeTruthy()
@@ -142,12 +149,12 @@ test('patches only changed name and updates heading and selection without resett
 test('patches only the changed research topic', async () => {
   const mock = api()
   const user = await openProject()
-  await navigate('项目概览')
-  await user.click(screen.getByRole('button', { name: '编辑项目信息' }))
+  await navigate('项目资料')
+
   await user.clear(screen.getByLabelText('修改研究主题'))
   await user.type(screen.getByLabelText('修改研究主题'), '  新研究主题  ')
-  await user.click(screen.getByRole('button', { name: '保存修改' }))
-  expect(await screen.findByText('新研究主题')).toBeTruthy()
+  await user.click(screen.getByRole('button', { name: '保存修改：研究主题' }))
+  expect(await screen.findByText('新研究主题', { selector: 'p' })).toBeTruthy()
   expect(JSON.parse(String(patchCalls(mock)[0][1]!.body))).toEqual({ research_topic: '新研究主题' })
 })
 
@@ -158,13 +165,13 @@ test('cancels draft without a patch or clearing file preview', async () => {
   await user.click(await screen.findByRole('button', { name: '预览 实验.xlsx' }))
   await screen.findByRole('cell', { name: '10' })
   await editName(user)
-  await user.click(screen.getByRole('button', { name: '取消修改' }))
+  await user.click(screen.getByRole('button', { name: '取消修改：项目名称' }))
   expect(patchCalls(mock)).toHaveLength(0)
   expect(screen.getByRole('heading', { name: '药学项目' })).toBeTruthy()
   await navigate('项目文件')
   expect(screen.getByRole('cell', { name: '10' })).toBeTruthy()
-  await navigate('项目概览')
-  await user.click(screen.getByRole('button', { name: '编辑项目信息' }))
+  await navigate('项目资料')
+
   expect((screen.getByLabelText('修改项目名称') as HTMLInputElement).value).toBe('药学项目')
 })
 
@@ -172,7 +179,7 @@ test('does not patch a draft with no actual changes', async () => {
   const mock = api()
   const user = await openProject()
   await editName(user, '  药学项目  ')
-  await user.click(screen.getByRole('button', { name: '保存修改' }))
+  await user.click(screen.getByRole('button', { name: '保存修改：项目名称' }))
   expect(patchCalls(mock)).toHaveLength(0)
   expect(screen.getByRole('heading', { name: '药学项目' })).toBeTruthy()
 })
@@ -181,11 +188,11 @@ for (const field of ['修改项目名称', '修改研究主题']) {
   test(`rejects whitespace in ${field} before patching`, async () => {
     const mock = api()
     const user = await openProject()
-    await navigate('项目概览')
-    await user.click(screen.getByRole('button', { name: '编辑项目信息' }))
+    await navigate('项目资料')
+
     await user.clear(screen.getByLabelText(field))
     await user.type(screen.getByLabelText(field), '   ')
-    await user.click(screen.getByRole('button', { name: '保存修改' }))
+    await user.click(screen.getByRole('button', { name: field === '修改项目名称' ? '保存修改：项目名称' : '保存修改：研究主题' }))
     expect((await screen.findByRole('alert')).textContent).toContain('请填写项目名称和研究主题')
     expect(patchCalls(mock)).toHaveLength(0)
     expect((screen.getByLabelText(field) as HTMLInputElement).value).toBe('   ')
@@ -205,11 +212,11 @@ for (const failure of ['422', 'network']) {
     } })
     const user = await openProject()
     await editName(user)
-    await user.click(screen.getByRole('button', { name: '保存修改' }))
+    await user.click(screen.getByRole('button', { name: '保存修改：项目名称' }))
     expect((await screen.findByRole('alert')).textContent).toContain(failure === 'network' ? '无法连接后端' : '请仅提交有效的项目名称或研究主题')
     expect(screen.getByRole('alert').textContent).not.toContain('项目资料校验失败')
     expect((screen.getByLabelText('修改项目名称') as HTMLInputElement).value).toBe('新名称')
-    await user.click(screen.getByRole('button', { name: '保存修改' }))
+    await user.click(screen.getByRole('button', { name: '保存修改：项目名称' }))
     expect(await screen.findByRole('heading', { name: '新名称' })).toBeTruthy()
     expect(patchCalls(mock)).toHaveLength(2)
   })
@@ -223,8 +230,8 @@ test('disables editing controls and prevents duplicate patches while saving', as
   const form = screen.getByLabelText('修改项目名称').closest('form')!
   fireEvent.submit(form)
   fireEvent.submit(form)
-  expect((screen.getByRole('button', { name: '正在保存……' }) as HTMLButtonElement).disabled).toBe(true)
-  expect((screen.getByRole('button', { name: '取消修改' }) as HTMLButtonElement).disabled).toBe(true)
+  expect((screen.getByRole('button', { name: '保存修改：项目名称' }) as HTMLButtonElement).disabled).toBe(true)
+  expect((screen.getByRole('button', { name: '取消修改：项目名称' }) as HTMLButtonElement).disabled).toBe(true)
   expect((screen.getByLabelText('修改项目名称') as HTMLInputElement).disabled).toBe(true)
   expect((screen.getByLabelText('修改研究主题') as HTMLTextAreaElement).disabled).toBe(true)
   expect(patchCalls(mock)).toHaveLength(1)
@@ -285,7 +292,7 @@ for (const late of ['response', 'body']) {
     } })
     const user = await openProject()
     await editName(user)
-    await user.click(screen.getByRole('button', { name: '保存修改' }))
+    await user.click(screen.getByRole('button', { name: '保存修改：项目名称' }))
     if (late === 'body') await waitFor(() => expect(bodyStarted).toBe(true))
     const alert = vi.spyOn(window, 'alert').mockImplementation(() => {})
     await navigate('我的项目')
@@ -310,8 +317,8 @@ for (const late of ['response', 'body']) {
     })
     expect(screen.queryByText(/迟到名称/)).toBeNull()
     expect(screen.getByRole('heading', { name: '毕业论文项目' })).toBeTruthy()
-    await navigate('项目概览')
-    await user.click(screen.getByRole('button', { name: '编辑项目信息' }))
+    await navigate('项目资料')
+
     expect((screen.getByLabelText('修改项目名称') as HTMLInputElement).value).toBe('毕业论文项目')
   })
 }
@@ -329,7 +336,7 @@ for (const late of ['response', 'body']) {
     } })
     const user = await openProject()
     await editName(user)
-    await user.click(screen.getByRole('button', { name: '保存修改' }))
+    await user.click(screen.getByRole('button', { name: '保存修改：项目名称' }))
     if (late === 'body') await waitFor(() => expect(bodyStarted).toBe(true))
     await user.click(screen.getByRole('button', { name: '账号' }))
     await user.click(screen.getByRole('button', { name: '退出登录' }))
@@ -359,16 +366,19 @@ test('retains an editing draft during same-project refresh and ignores stale lis
   })
   const user = await openProject()
   await editName(user)
-  await navigate('项目文件')
-  const input = await screen.findByLabelText('选择 Excel 文件')
+  await user.click(screen.getByRole('button', {name:'第 2 步：上传文件'}))
+  const input = await screen.findByLabelText('批量选择 Excel / Word / PDF / 图片 文件')
   await waitFor(() => expect((input as HTMLInputElement).disabled).toBe(false))
   await user.upload(input, new File(['sample'], '实验.xlsx'))
-  await user.click(screen.getByRole('button', { name: '上传并预览' }))
+  await user.click(screen.getByRole('button', { name: '开始上传' }))
+  await screen.findByText(/解析完成/)
+  await user.click(screen.getByRole('button', { name: '已上传文件' }))
+  await user.click(await screen.findByRole('button', { name: '预览 实验.xlsx' }))
   await screen.findByRole('cell', { name: '10' })
-  await navigate('项目概览')
+  await navigate('项目资料')
   expect((screen.getByLabelText('修改项目名称') as HTMLInputElement).value).toBe('新名称')
   await waitFor(() => expect(lists).toBe(2))
-  await user.click(screen.getByRole('button', { name: '保存修改' }))
+  await user.click(screen.getByRole('button', { name: '保存修改：项目名称' }))
   await screen.findByRole('heading', { name: '新名称' })
   await act(async () => staleList.resolve(Response.json({ items: [project, secondProject], total: 2, page: 1, page_size: 5 })))
   expect(screen.getByRole('heading', { name: '新名称' })).toBeTruthy()
@@ -382,13 +392,15 @@ test('does not reset draft when a same-project list refresh completes', async ()
   const mock = api()
   const user = await openProject()
   await editName(user)
-  await navigate('项目文件')
-  const input = await screen.findByLabelText('选择 Excel 文件')
+  await user.click(screen.getByRole('button', {name:'第 2 步：上传文件'}))
+  const input = await screen.findByLabelText('批量选择 Excel / Word / PDF / 图片 文件')
   await waitFor(() => expect((input as HTMLInputElement).disabled).toBe(false))
   await user.upload(input, new File(['sample'], '实验.xlsx'))
-  await user.click(screen.getByRole('button', { name: '上传并预览' }))
+  await user.click(screen.getByRole('button', { name: '开始上传' }))
   await waitFor(() => expect(mock.mock.calls.filter(([url]) => url.startsWith('/api/v1/projects?'))).toHaveLength(2))
+  await user.click(screen.getByRole('button', { name: '已上传文件' }))
+  await user.click(await screen.findByRole('button', { name: '预览 实验.xlsx' }))
   await screen.findByRole('cell', { name: '10' })
-  await navigate('项目概览')
+  await navigate('项目资料')
   expect((screen.getByLabelText('修改项目名称') as HTMLInputElement).value).toBe('新名称')
 })

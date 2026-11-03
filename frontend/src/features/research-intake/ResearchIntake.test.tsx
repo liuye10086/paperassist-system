@@ -7,6 +7,48 @@ import {emptyRequirement} from './state'
 import {STANDARD_REQUEST_TIMEOUT_MS} from '../../shared/api/requestTimeouts'
 vi.mock('../../shared/api/client',()=>({apiFetch:vi.fn(),onApiSessionChanged:()=>()=>{}}))
 afterEach(()=>{cleanup();vi.clearAllMocks();vi.useRealTimers()})
+it('fills the provided figure placeholder when an existing image is selected and preserves its notes',async()=>{
+ vi.mocked(apiFetch).mockImplementation(async(url,init)=>{
+  if(init?.method==='POST'){const body=JSON.parse(String(init.body));return Response.json({revision:1,version:{id:'v1',version:1,operation:'save',content:body.content,material_refs:body.material_refs},gaps:[]})}
+  if(String(url).endsWith('/research-intake'))return Response.json({revision:0,current_requirement:null,current_design:null,deliveries:[{active:true,kind:'analysis'}],capabilities:{},gaps:[]})
+  return Response.json(String(url).endsWith('/files')?[{id:'image1',filename:'已有图.png',file_type:'png'}]:{items:[],total:0})
+ })
+ render(<ResearchIntake projectId="p1" active view="requirements"/>);await screen.findByText('尚未保存版本')
+ fireEvent.click(screen.getByRole('button',{name:'图表与交付'}));fireEvent.change(screen.getByRole('combobox',{name:'已有图表'}),{target:{value:'provided'}})
+ fireEvent.change(screen.getByLabelText('材料定位说明'),{target:{value:'图1A，保留定位'}})
+ fireEvent.click(screen.getByText('已有图像来源'));fireEvent.click(screen.getByLabelText('已有图.png'))
+ expect(screen.getAllByRole('combobox',{name:'来源文件或数据集版本'})).toHaveLength(1)
+ expect((screen.getByRole('combobox',{name:'来源文件或数据集版本'}) as HTMLSelectElement).value).toBe('file:image1')
+ fireEvent.click(screen.getByRole('button',{name:'保存新版本'}));await screen.findByText('需求已保存。')
+ const post=vi.mocked(apiFetch).mock.calls.find(([,init])=>init?.method==='POST')!
+ expect(JSON.parse(String(post[1]?.body)).material_refs).toEqual([expect.objectContaining({purpose:'figures',availability:'provided',file_id:'image1',locator:'图1A，保留定位'})])
+})
+it('guides provided materials to an explicit file without posting incomplete references or losing the draft',async()=>{
+ const root={revision:0,current_requirement:null,current_design:null,deliveries:[{active:true,kind:'analysis'}],capabilities:{},gaps:[]},onContinue=vi.fn()
+ vi.mocked(apiFetch).mockImplementation(async(url,init)=>{
+  if(init?.method==='POST'){const body=JSON.parse(String(init.body));return Response.json({revision:1,version:{id:'v1',version:1,operation:'save',content:body.content,material_refs:body.material_refs},gaps:[]})}
+  if(String(url).endsWith('/research-intake'))return Response.json(root)
+  return Response.json(String(url).endsWith('/files')?[{id:'f1',filename:'示例分组表.xlsx'}]:{items:[],total:0})
+ })
+ render(<ResearchIntake projectId="p1" active view="requirements" onContinue={onContinue}/>);await screen.findByText('尚未保存版本')
+ fireEvent.click(screen.getByRole('button',{name:'图表与交付'}))
+ fireEvent.change(screen.getByLabelText('补充说明'),{target:{value:'保留我的需求'}})
+ fireEvent.change(screen.getByRole('combobox',{name:'样本信息表'}),{target:{value:'provided'}})
+ const source=screen.getByRole('combobox',{name:'来源文件或数据集版本'}) as HTMLSelectElement
+ expect(source.value).toBe('');expect((screen.getByRole('combobox',{name:'材料用途'}) as HTMLSelectElement).value).toBe('sample_sheet')
+ fireEvent.click(screen.getByRole('button',{name:'保存需求，进入分析'}))
+ expect(screen.getByRole('alert').textContent).toContain('选择对应文件或数据集')
+ expect(vi.mocked(apiFetch).mock.calls.filter(([,init])=>init?.method==='POST')).toHaveLength(0)
+ expect((screen.getByLabelText('补充说明') as HTMLTextAreaElement).value).toBe('保留我的需求')
+ fireEvent.change(source,{target:{value:'file:f1'}})
+ fireEvent.change(screen.getByRole('combobox',{name:'样本信息表'}),{target:{value:'pending'}})
+ fireEvent.change(screen.getByRole('combobox',{name:'样本信息表'}),{target:{value:'provided'}})
+ expect(screen.getAllByRole('combobox',{name:'来源文件或数据集版本'})).toHaveLength(1)
+ expect(source.value).toBe('file:f1')
+ fireEvent.click(screen.getByRole('button',{name:'保存需求，进入分析'}));await waitFor(()=>expect(onContinue).toHaveBeenCalledWith(['analysis']))
+ const posts=vi.mocked(apiFetch).mock.calls.filter(([,init])=>init?.method==='POST');expect(posts).toHaveLength(1)
+ expect(JSON.parse(String(posts[0][1]?.body))).toMatchObject({content:{notes:'保留我的需求'},material_refs:[{purpose:'sample_sheet',availability:'provided',file_id:'f1'}]})
+})
 it('continues only after the server saves requirements and passes the selected services',async()=>{
  const onContinue=vi.fn(),content={...emptyRequirement(),services:['sci_draft']},version={id:'v1',version:1,operation:'save',content,sha256:'a'.repeat(64),created_at:'2026-11-02T00:00:00Z'}
  let finish!:(response:Response)=>void
@@ -15,7 +57,7 @@ it('continues only after the server saves requirements and passes the selected s
   if(String(url).endsWith('/research-intake'))return Response.json({revision:0,current_requirement:{...version},current_design:null,deliveries:[],capabilities:{},gaps:[]})
   return Response.json(String(url).endsWith('/files')?[]:{items:[],total:0})
  })
- render(<ResearchIntake projectId="p1" active view="requirements" onContinue={onContinue}/>);await screen.findByText('当前为已保存的需求或设计版本。')
+ render(<ResearchIntake projectId="p1" active view="requirements" onContinue={onContinue}/>);await screen.findByText('已保存')
  fireEvent.click(screen.getByRole('button',{name:'保存需求，进入写作'}));expect(onContinue).not.toHaveBeenCalled()
  await act(async()=>finish(Response.json({revision:1,version,gaps:[]})))
  expect(onContinue).toHaveBeenCalledWith(['sci_draft'])

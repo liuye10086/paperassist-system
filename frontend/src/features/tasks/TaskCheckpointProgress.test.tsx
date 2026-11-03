@@ -9,7 +9,7 @@ it('shows actual checkpoint stages and selected-source counts with exact histori
 })
 it('exposes only the renderer stage actually supplied by a report and preserves source table/figure counts',async()=>{
  vi.stubGlobal('fetch',vi.fn(async()=>Response.json({task_id:'t1',task_type:'research_report',project_id:'p1',status:'running',progress:{...progress,stage:'rendering_report_and_package',completed_members:undefined,total_members:undefined}})))
- render(<TaskCheckpointProgress projectId="p1" taskId="t1" taskType="research_report" active/>);await screen.findByText('整理报告文档与成果包');expect(screen.getByText('来源统计：2 表 / 1 图')).toBeTruthy();expect(screen.queryByText(/PDF 生成|50%|重新生成/)).toBeNull()
+ render(<TaskCheckpointProgress projectId="p1" taskId="t1" taskType="research_report" active/>);await screen.findByText('整理报告文档与成果包');expect(screen.getByText('来源统计：2 表 / 1 图')).toBeTruthy();expect(screen.queryByText(/PDF 生成|50%|重新生成/)).toBeNull();expect(screen.getByRole('heading',{name:'已记录阶段与耗时'})).toBeTruthy();expect(document.querySelector('details')).toBeNull()
 })
 it('does not display a crossed-project checkpoint or fetch while inactive',async()=>{
  const fetcher=vi.fn(async()=>Response.json({task_id:'t1',task_type:'delivery_package',project_id:'other-project',status:'running',progress}));vi.stubGlobal('fetch',fetcher)

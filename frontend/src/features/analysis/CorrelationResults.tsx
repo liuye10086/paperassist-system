@@ -10,6 +10,6 @@ export default function CorrelationResults({result}:{result:CorrelationResult}) 
  {s.warnings.length>0&&<ul className="warning-panel">{s.warnings.map(code=><li key={code}>{t(({small_sample:'样本量较小，结果可能不稳定。',monte_carlo_p_value:'P 值采用固定种子的 Monte Carlo 排列，存在抽样误差。',asymptotic_p_value:'P 值为大样本近似，不是精确排列检验。',correlation_not_causation:'相关不代表因果；前提由用户声明，不是程序证明。',exploratory_matrix:'探索矩阵不做多重假设检验，不提供P值或星号。'} as Record<string,string>)[code]??'相关结果存在限制，请核对已保存的方法记录。')}</li>)}</ul>}
  {result.check.warnings.length>0&&<ul className="warning-panel">{result.check.warnings.map((note,i)=><li key={i}>{t(note)}</li>)}</ul>}
  <p className="muted">{t('相关不等于因果。独立观察和方法前提来自已确认研究声明，程序不证明这些前提。')}</p><p className="muted">{t('使用全部所选字段的共同完整记录；不插补、不去重、不自动删除异常值。矩阵只计算探索系数，不计算 P 值或区间。')}</p><p className="muted">{t('显示保留 6 位有效数字，保存值保留完整精度。')}</p>
- {result.row_audit.excluded_rows.length>0&&<details><summary>{t('排除记录与来源坐标')}</summary><ul>{result.row_audit.excluded_rows.map(r=><li key={r.row}>{t('原始行 {row}：{coordinates}',{row:r.row,coordinates:r.coordinates.join('、')})}</li>)}</ul></details>}
+ {result.row_audit.excluded_rows.length>0&&<section className="analysis-detail"><h3>{t('排除记录与来源坐标')}</h3><ul>{result.row_audit.excluded_rows.map(r=><li key={r.row}>{t('原始行 {row}：{coordinates}',{row:r.row,coordinates:r.coordinates.join('、')})}</li>)}</ul></section>}
  </>
 }

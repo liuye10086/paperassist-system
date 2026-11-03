@@ -48,11 +48,9 @@ export default function LanguageControl({ userId, disabled = false }: { userId?:
   }
 
   return <div className="language-control" aria-busy={busy}>
-    <label>{t('界面语言')}
-      <select value={locale} disabled={disabled || busy} onChange={event => { if (isLocale(event.target.value)) void save(event.target.value) }}>
+      <select aria-label={t('界面语言')} value={locale} disabled={disabled || busy} onChange={event => { if (isLocale(event.target.value)) void save(event.target.value) }}>
         <option value="zh-CN">简体中文</option><option value="en">English</option>
       </select>
-    </label>
     {busy && <span role="status">{t('正在保存语言……')}</span>}
     {error && <><span role="alert">{t(error)}</span><button type="button" disabled={busy} onClick={() => { if (pending) void save(pending) }}>{t('重试保存语言')}</button></>}
   </div>

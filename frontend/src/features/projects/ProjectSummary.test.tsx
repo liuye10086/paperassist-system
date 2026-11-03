@@ -114,7 +114,7 @@ test('refreshes only when entering artifacts and keeps independent task and arti
   await screen.findByText('task-page-2.xlsx')
   expect(fetch).toHaveBeenCalledTimes(2)
   view.rerender(<ProjectSummary projectId="p1" projectType="sci" view="artifacts" />)
-  expect(screen.getByRole('heading', { name: '图表与报告' })).toBeTruthy()
+  expect(screen.getByRole('heading', { name: '成果列表' })).toBeTruthy()
   expect(screen.queryByRole('table', { name: '分析任务记录' })).toBeNull()
   expect(await screen.findByRole('link', { name: '下载成果 figure-page-1.png' })).toBeTruthy()
   expect(fetch).toHaveBeenCalledTimes(3)
@@ -149,7 +149,7 @@ test.each(['figure', 'report'] as const)('loads a newly generated %s when enteri
   expect(fetch).toHaveBeenCalledTimes(1)
 
   view.rerender(<ProjectSummary projectId="p1" projectType="sci" view="artifacts" />)
-  expect(screen.queryByText('还没有已生成的 PNG 或 Word 文件。')).toBeNull()
+  expect(screen.queryByText('暂无已生成的分析图表或报告。')).toBeNull()
   expect(screen.getByRole('status').textContent).toBe('正在读取项目摘要……')
   await act(async () => { pending.resolve(Response.json({ ...fixture, artifacts: { ...fixture.artifacts, total: 1,
     items: [{ ...source, kind, download_filename: filename, size_bytes: 100, sha256: 'a'.repeat(64),
@@ -172,7 +172,7 @@ test('recovers from a previous failed summary when entering artifacts', async ()
   expect(screen.queryByRole('alert')).toBeNull()
   expect(screen.getByRole('status').textContent).toBe('正在读取项目摘要……')
   await act(async () => { pending.resolve(Response.json(summaryFixture())) })
-  expect(await screen.findByText('还没有已生成的 PNG 或 Word 文件。')).toBeTruthy()
+  expect(await screen.findByText('暂无已生成的分析图表或报告。')).toBeTruthy()
   expect(screen.queryByRole('alert')).toBeNull()
   expect(fetch).toHaveBeenCalledTimes(2)
 })
@@ -185,13 +185,13 @@ test('reloads artifacts when becoming active again without changing the summary 
     .mockReturnValueOnce(pending.promise)
   vi.stubGlobal('fetch', fetch)
   const view = render(<ProjectSummary projectId="p1" projectType="sci" view="artifacts" active />)
-  await screen.findByText('还没有已生成的 PNG 或 Word 文件。')
+  await screen.findByText('暂无已生成的分析图表或报告。')
   expect(fetch).toHaveBeenCalledTimes(1)
 
   view.rerender(<ProjectSummary projectId="p1" projectType="sci" view="artifacts" active={false} />)
   expect(fetch).toHaveBeenCalledTimes(1)
   view.rerender(<ProjectSummary projectId="p1" projectType="sci" view="artifacts" active />)
-  expect(screen.queryByText('还没有已生成的 PNG 或 Word 文件。')).toBeNull()
+  expect(screen.queryByText('暂无已生成的分析图表或报告。')).toBeNull()
   expect(screen.getByRole('status').textContent).toBe('正在读取项目摘要……')
   await act(async () => { pending.resolve(Response.json({ ...fixture, artifacts: { ...fixture.artifacts, total: 1,
     items: [{ ...source, kind: 'report', download_filename: '新报告.docx', size_bytes: 100, sha256: 'a'.repeat(64),
@@ -214,12 +214,12 @@ test('aborts an older summary request when entering artifacts and ignores its la
 
   view.rerender(<ProjectSummary projectId="p1" projectType="sci" view="artifacts" />)
   expect(previousSignal.aborted).toBe(true)
-  await screen.findByText('还没有已生成的 PNG 或 Word 文件。')
+  await screen.findByText('暂无已生成的分析图表或报告。')
   await act(async () => { pending.resolve(Response.json({ ...fixture, artifacts: { ...fixture.artifacts, total: 1,
     items: [{ ...source, kind: 'figure', download_filename: '旧图表.png', size_bytes: 100, sha256: 'a'.repeat(64),
       download_url: '/api/v1/projects/p1/files/f1/analysis-runs/r1/figures/job/download' }] } })) })
   expect(screen.queryByRole('link', { name: '下载成果 旧图表.png' })).toBeNull()
-  expect(screen.getByText('还没有已生成的 PNG 或 Word 文件。')).toBeTruthy()
+  expect(screen.getByText('暂无已生成的分析图表或报告。')).toBeTruthy()
   expect(fetch).toHaveBeenCalledTimes(2)
 })
 

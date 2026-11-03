@@ -32,7 +32,7 @@ function Panel(props:Props) {
   } else if([404,409,410].includes(status)){setData(null);setError('解析证据读取失败，请重试。')}
  }
  return <section className="parsed-evidence"><button aria-expanded={open} onClick={()=>setOpen(v=>!v)}>{t('解析内容与来源')}</button>
-  {open&&<><h4>{t('解析内容与来源')}</h4><p className="muted">{t('存储数量不是研究样本量。')}</p>
+  {open&&<><p className="muted">{t('存储数量不是研究样本量。')}</p>
    {error?<p role="alert">{t(error)}</p>:!data&&<p role="status">{t('正在读取解析证据……')}</p>}
    <button onClick={()=>setRefresh(n=>n+1)}>{t('重新读取解析证据')}</button>
    {data&&<><p>{data.source.filename} · v{data.source.version} · {data.format} · {data.parser_version}</p>

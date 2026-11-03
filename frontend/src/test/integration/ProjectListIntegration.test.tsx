@@ -6,6 +6,7 @@ import App from '../../app/App'
 import type { Project } from '../../features/projects/projectTypes'
 import { summaryFixture } from '../fixtures/summaryFixture'
 import { filePageFixture } from '../fixtures/filePageFixture'
+import { batchUploadFixture } from '../fixtures/batchUploadFixture'
 
 afterEach(() => { cleanup(); vi.useRealTimers(); vi.unstubAllGlobals(); window.history.replaceState(null, '', '/') })
 const project: Project = { id: 'p1', name: '药学项目', research_topic: '分组比较', project_type: 'sci', file_count: 1,
@@ -17,7 +18,15 @@ function deferred<T>() { let resolve!: (value: T) => void; const promise = new P
 function api() {
   let projects: Project[] = [project, ...Array.from({ length: 11 }, (_, index) => ({ ...project, id: `p${index + 2}`, name: `其他项目${index + 2}`, project_type: 'thesis' as const }))]
   let files = [record]
+  const uploadBatch = batchUploadFixture('p1', () => {
+    const uploaded = { ...record, id: 'f2' }
+    files = [...files, uploaded]
+    projects = projects.map(item => item.id === 'p1' ? { ...item, file_count: files.length } : item)
+    return uploaded
+  })
   const fetchMock = vi.fn(async (url: string, init?: RequestInit): Promise<Response> => {
+    const batchResponse = uploadBatch(url, init)
+    if (batchResponse) return batchResponse
     const summaryProject = projects.find(item => url.startsWith(`/api/v1/projects/${item.id}/summary?`))
     if (summaryProject) return Response.json(summaryFixture(summaryProject.id, summaryProject.project_type))
     const parsed = new URL(url, 'http://localhost')
@@ -55,11 +64,14 @@ function api() {
 }
 function listCalls(mock: ReturnType<typeof api>) { return mock.mock.calls.filter(([url]) => url.startsWith('/api/v1/projects?')) }
 async function navigate(name: string) {
+  if (name === '项目资料') {
+    if (!screen.queryByRole('button', {name:'第 1 步：项目资料'})) await act(async () => { fireEvent.click(within(screen.getByRole('complementary', {name:'主要导航'})).getByRole('button', {name:'药学项目'})) })
+    await act(async () => { fireEvent.click(screen.getByRole('button', {name:'第 1 步：项目资料'})) }); return
+  }
   if (name === '项目文件' && !screen.queryByRole('button', { name })) {
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: '材料准备' })) })
   }
   await act(async () => { fireEvent.click(screen.getByRole('button', { name })) })
-  if (name === '项目概览') await act(async () => { fireEvent.click(screen.getByRole('button', { name: '项目资料' })) })
 }
 async function openAndPreview() {
   const user = userEvent.setup(); render(<App />)
@@ -68,12 +80,22 @@ async function openAndPreview() {
   await user.click(await screen.findByRole('button', { name: '预览 实验.xlsx' }))
   await screen.findByRole('cell', { name: '777' }); return user
 }
+async function openBatchUpload(user: ReturnType<typeof userEvent.setup>) {
+  await user.click(screen.getByRole('button', { name: '第 2 步：上传文件' }))
+}
+async function previewAfterBatch(user: ReturnType<typeof userEvent.setup>) {
+  await screen.findByText(/解析完成/)
+  await user.click(screen.getByRole('button', { name: '已上传文件' }))
+  const previews = await screen.findAllByRole('button', { name: '预览 实验.xlsx' })
+  await user.click(previews[0])
+  await screen.findByRole('cell', { name: '777' })
+}
 
 test('paginates five projects per page and retains preview and edit draft after paging and no matching filters', async () => {
   const mock = api(); const user = await openAndPreview()
   expect(listCalls(mock)[0][0]).toBe('/api/v1/projects?page=1&page_size=5')
-  await navigate('项目概览')
-  await user.click(screen.getByRole('button', { name: '编辑项目信息' }))
+  await navigate('项目资料')
+
   await user.clear(screen.getByLabelText('修改项目名称')); await user.type(screen.getByLabelText('修改项目名称'), '未保存草稿')
   await navigate('我的项目')
   expect(screen.getByText('共 12 个项目 · 第 1 / 3 页')).toBeTruthy()
@@ -102,11 +124,11 @@ test('paginates five projects per page and retains preview and edit draft after 
   await navigate('我的项目')
   await user.type(screen.getByLabelText('搜索项目名称'), '无匹配'); await user.click(screen.getByRole('button', { name: '搜索项目' }))
   await screen.findByText('没有匹配的项目。')
-  await navigate('项目概览')
+  await navigate('项目资料')
   expect((screen.getByLabelText('修改项目名称') as HTMLInputElement).value).toBe('未保存草稿')
   await navigate('项目文件')
   expect(screen.getByRole('cell', { name: '777' })).toBeTruthy()
-  expect(window.location.hash).toBe('#project=p1&section=files')
+  expect(window.location.hash).toBe('#project=p1&section=files&view=preview&file=f1')
   expect(mock.mock.calls.filter(([url]) => url === '/api/v1/projects/p1/files')).toHaveLength(1)
 })
 
@@ -147,9 +169,9 @@ test('updates details when editing removes the project from search results while
   await navigate('我的项目')
   await user.type(screen.getByLabelText('搜索项目名称'), '药学'); await user.click(screen.getByRole('button', { name: '搜索项目' }))
   await screen.findByText('共 1 个项目 · 第 1 / 1 页')
-  await navigate('项目概览')
-  await user.click(screen.getByRole('button', { name: '编辑项目信息' })); await user.clear(screen.getByLabelText('修改项目名称'))
-  await user.type(screen.getByLabelText('修改项目名称'), '改名项目'); await user.click(screen.getByRole('button', { name: '保存修改' }))
+  await navigate('项目资料')
+   await user.clear(screen.getByLabelText('修改项目名称'))
+  await user.type(screen.getByLabelText('修改项目名称'), '改名项目'); await user.click(screen.getByRole('button', { name: '保存修改：项目名称' }))
   await navigate('我的项目')
   await screen.findByText('没有匹配的项目。')
   await navigate('项目文件')
@@ -158,17 +180,17 @@ test('updates details when editing removes the project from search results while
 
 test('refreshes file counts and metadata after upload without resetting an editing draft', async () => {
   api(); const user = await openAndPreview()
-  await navigate('项目概览')
-  await user.click(screen.getByRole('button', { name: '编辑项目信息' })); await user.type(screen.getByLabelText('修改项目名称'), '草稿')
-  await navigate('项目文件')
-  await user.upload(screen.getByLabelText('选择 Excel 文件'), new File(['data'], '实验.xlsx'))
-  await user.click(screen.getByRole('button', { name: '上传并预览' }))
-  await navigate('项目概览')
-  await waitFor(() => expect(screen.getByText(/创建后不可更改.*2 个文件/)).toBeTruthy())
+  await navigate('项目资料')
+   await user.type(screen.getByLabelText('修改项目名称'), '草稿')
+  await openBatchUpload(user)
+  await user.upload(screen.getByLabelText('批量选择 Excel / Word / PDF / 图片 文件'), new File(['data'], '实验.xlsx'))
+  await user.click(screen.getByRole('button', { name: '开始上传' }))
+  await previewAfterBatch(user)
+  await navigate('项目资料')
   await navigate('我的项目')
   const row = screen.getByRole('cell', { name: '药学项目' }).closest('tr')!
-  expect(within(row).getByRole('cell', { name: '2' })).toBeTruthy()
-  await navigate('项目概览')
+  await waitFor(() => expect(within(row).getByRole('cell', { name: '2' })).toBeTruthy())
+  await navigate('项目资料')
   expect((screen.getByLabelText('修改项目名称') as HTMLInputElement).value).toBe('药学项目草稿')
   await navigate('项目文件')
   expect(screen.getByRole('cell', { name: '777' })).toBeTruthy()
@@ -234,7 +256,7 @@ test('detail network failure offers its own retry and keeps the selected hash', 
   mock.mockImplementation((url, init) => url === '/api/v1/projects/p1' && failed ? Promise.reject(new TypeError('offline')) : normal(url, init))
   const user = userEvent.setup(); render(<App />); await user.click(await screen.findByRole('button', { name: '打开项目 药学项目' }))
   await screen.findByRole('button', { name: '重试项目详情' }); expect(window.location.hash).toBe('#project=p1')
-  expect(screen.queryByLabelText('选择 Excel 文件')).toBeNull()
+  expect(screen.queryByLabelText('批量选择 Excel / Word / PDF / 图片 文件')).toBeNull()
   failed = false; await user.click(screen.getByRole('button', { name: '重试项目详情' })); await screen.findByRole('heading', { name: '药学项目' })
 })
 
@@ -245,7 +267,7 @@ test('detail requests time out at the shared bounded deadline and retry when fet
   vi.useFakeTimers(); fireEvent.click(screen.getByRole('button', { name: '打开项目 药学项目' })); await act(async () => {})
   await act(async () => { await vi.advanceTimersByTimeAsync(STANDARD_REQUEST_TIMEOUT_MS) })
   expect(screen.getByRole('alert').textContent).toContain('项目详情读取超时')
-  expect(screen.queryByLabelText('选择 Excel 文件')).toBeNull()
+  expect(screen.queryByLabelText('批量选择 Excel / Word / PDF / 图片 文件')).toBeNull()
   pending = false; fireEvent.click(screen.getByRole('button', { name: '重试项目详情' })); await act(async () => {})
   await navigate('项目文件')
   expect(screen.getByRole('heading', { name: '药学项目' })).toBeTruthy()
@@ -263,18 +285,20 @@ for (const late of ['response', 'body']) {
       }
       return normal(url, init)
     })
-    const user = await openAndPreview(); await navigate('项目概览'); await user.click(screen.getByRole('button', { name: '编辑项目信息' }))
+    const user = await openAndPreview(); await navigate('项目资料');
     await user.clear(screen.getByLabelText('修改项目名称')); await user.type(screen.getByLabelText('修改项目名称'), 'PATCH 新名称')
     await user.clear(screen.getByLabelText('修改研究主题')); await user.type(screen.getByLabelText('修改研究主题'), 'PATCH 新主题')
-    await navigate('项目文件')
-    await user.upload(screen.getByLabelText('选择 Excel 文件'), new File(['data'], '实验.xlsx'))
-    await user.click(screen.getByRole('button', { name: '上传并预览' })); await waitFor(() => expect(reads).toBe(2))
+    await openBatchUpload(user)
+    await user.upload(screen.getByLabelText('批量选择 Excel / Word / PDF / 图片 文件'), new File(['data'], '实验.xlsx'))
+    await user.click(screen.getByRole('button', { name: '开始上传' })); await waitFor(() => expect(reads).toBe(2))
+    await previewAfterBatch(user)
     if (late === 'body') await waitFor(() => expect(bodyStarted).toBe(true))
-    await navigate('项目概览')
-    await user.click(screen.getByRole('button', { name: '保存修改' })); await screen.findByRole('heading', { name: 'PATCH 新名称' })
+    await navigate('项目资料')
+    await user.click(screen.getByRole('button', { name: '保存修改：项目名称' })); await screen.findByRole('heading', { name: 'PATCH 新名称' })
+    await user.click(screen.getByRole('button', { name: '保存修改：研究主题' })); await waitFor(() => expect((screen.getByRole('button', { name: '保存修改：研究主题' }) as HTMLButtonElement).disabled).toBe(true))
     await act(async () => { if (late === 'response') pending.resolve(Response.json(project)); else body.resolve(project) })
     expect(screen.getByRole('heading', { name: 'PATCH 新名称' })).toBeTruthy()
     await navigate('项目文件')
-    expect(screen.getByText('PATCH 新主题')).toBeTruthy(); expect(screen.getByRole('cell', { name: '777' })).toBeTruthy()
+    expect(screen.getByText('PATCH 新主题', { selector: 'p' })).toBeTruthy(); expect(screen.getByRole('cell', { name: '777' })).toBeTruthy()
   })
 }

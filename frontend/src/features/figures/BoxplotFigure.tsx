@@ -229,7 +229,7 @@ function FigurePanel({ base, runId, revision, canGenerate, disabled, onBusyChang
     <WorkflowReadStatus stages={['explanation', 'report']} loading={loading} error={error}
       loadingMessage="正在读取图表……" reloadLabel="重新读取图表" onReload={reload} disabled={submitting || explanationBusy} />
     <WorkflowStage stage="figure"><section className="boxplot-figure artifact-panel" aria-label={t('OpenAI {figure}',{figure:t(figureLabel)})} aria-busy={loading || busy}>
-    <div className="section-heading"><span className="step-label">{t("图表")}</span><h3>{t(figureLabel)}</h3></div>
+    <div className="section-heading"><h3>{t(figureLabel)}</h3></div>
     <p className="muted">{t(artifactVersion===4?figureKind==='forest'?'将发送本地系数与区间及确认名称；只核对来源与绘图，不独立重算回归。':'将发送必要匿名结局、评分或随访记录与确认编码，独立核对曲线；不发送 ID。':comparison?'只外发纳入组的必要数值与确认标签；配对连接采用匿名顺序，不发送 ID 名称或值。':figureKind==='boxplot'?'仅将所选数值列、分组列的完整记录及绘图标签发送给 OpenAI。生成会调用收费 API；读取已保存图表与下载不会重新生成。':'只发送已确认字段的共同完整数值、标签、单位和方法用于独立核对与绘图；生成调用收费 API，读取与下载不会重新生成。')}</p>
     {!config && !configError && <p role="status">{t("正在读取 OpenAI 配置……")}</p>}
     {config && !config.configured && <p className="warning-panel">{t(apiError({ code: config.message_code ?? 'openai_not_configured', params: config.message_params }, '请联系管理员配置 OpenAI API。'))}</p>}
@@ -281,11 +281,11 @@ function FigurePanel({ base, runId, revision, canGenerate, disabled, onBusyChang
       disabled={disabled || loading || busy || !!error} onBusyChange={setExplanationBusy} />
       : !loading && !error && <>
         <WorkflowStage stage="explanation"><section className="analysis-explanation artifact-panel">
-          <div className="section-heading"><span className="step-label">{t("分析解释")}</span><h3>{t("分析解释与论文表述")}</h3></div>
+          <div className="section-heading"><h3>{t("分析解释与论文表述")}</h3></div>
           <p>{t('请先生成并保存{figure}，再生成分析解释。',{figure:t(figureLabel)})}</p>
         </section></WorkflowStage>
         <WorkflowStage stage="report"><section className="word-report artifact-panel">
-          <div className="section-heading"><span className="step-label">{t("Word 报告")}</span><h3>{t("Word 分析报告导出")}</h3></div>
+          <div className="section-heading"><h3>{t("Word 分析报告导出")}</h3></div>
           <p>{t("请先完成图表和分析解释，再生成 Word 报告。")}</p>
         </section></WorkflowStage>
       </>}

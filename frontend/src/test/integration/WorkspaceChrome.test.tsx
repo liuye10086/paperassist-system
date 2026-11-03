@@ -1,0 +1,54 @@
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
+import { afterEach, expect, it, vi } from 'vitest'
+import App from '../../app/App'
+import { summaryFixture } from '../fixtures/summaryFixture'
+
+const project = { id: 'chrome-project', name: '导航精简研究', research_topic: '合成资料', project_type: 'research', file_count: 0, created_at: '2026-11-02T00:00:00Z', updated_at: '2026-11-02T00:00:00Z' }
+function mount(role = 'user') {
+  window.history.replaceState(null, '', '/#project=chrome-project&section=artifacts')
+  vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+    if (url.endsWith('/auth/me')) return Response.json({user:{id:'chrome-user',email:'customer@example.test',role},csrf_token:'fixture-token'})
+    if (url === '/api/v1/projects/chrome-project') return Response.json(project)
+    if (url.includes('/summary?')) return Response.json(summaryFixture(project.id))
+    if (url.endsWith('/config')) return Response.json({max_upload_bytes:10485760,preview_row_limit:20})
+    if (url.endsWith('/files')) return Response.json([])
+    if (url.startsWith('/api/v1/projects?')) return Response.json({items:[project],total:1,page:1,page_size:5})
+    return Response.json({items:[],total:0,page:1,page_size:10})
+  }))
+  render(<App />)
+}
+afterEach(() => {cleanup();vi.unstubAllGlobals();window.history.replaceState(null,'','/')})
+
+it('keeps one project step navigation in the header and hides it when leaving the project',async()=>{
+  mount();await screen.findByRole('heading',{name:project.name})
+  const header=screen.getByRole('button',{name:'账号'}).closest('header')!
+  expect(within(header).getByRole('navigation',{name:'项目操作步骤'})).toBeTruthy()
+  expect(screen.getAllByRole('navigation',{name:'项目操作步骤'})).toHaveLength(1)
+  fireEvent.click(within(header).getByRole('button',{name:'第 3 步：选择需求'}))
+  expect(window.location.hash).toContain('view=requirements')
+  fireEvent.click(screen.getByRole('button',{name:'我的项目'}))
+  expect(within(header).queryByRole('navigation',{name:'项目操作步骤'})).toBeNull()
+})
+
+it.each(['user','admin'])('moves workspace actions into the %s account menu and retains the project',async(role)=>{
+  mount(role);await screen.findByRole('heading',{name:project.name})
+  const account=screen.getByRole('button',{name:'账号'})
+  expect(account.textContent).toBe('C')
+  expect(screen.queryByRole('button',{name:'本人用量'})).toBeNull()
+  expect(screen.queryByRole('navigation',{name:'面包屑导航'})).toBeNull()
+  expect(screen.queryByLabelText('服务运行提示')).toBeNull()
+  expect(screen.queryByText('从一份数据开始')).toBeNull()
+  expect(screen.queryByText('界面语言',{exact:true})).toBeNull()
+  expect(screen.getByRole('combobox',{name:'界面语言'})).toBeTruthy()
+  fireEvent.click(account)
+  expect(Boolean(screen.queryByRole('button',{name:'管理员'}))).toBe(role==='admin')
+  fireEvent.click(screen.getByRole('button',{name:'本人用量'}))
+  expect(account.getAttribute('aria-expanded')).toBe('false')
+  expect(screen.getByRole('heading',{name:'本人用量'})).toBeTruthy()
+  expect(screen.queryByRole('navigation',{name:'项目操作步骤'})).toBeNull()
+  fireEvent.click(account)
+  fireEvent.click(screen.getByRole('button',{name:'项目工作区'}))
+  expect(screen.getByRole('heading',{name:project.name})).toBeTruthy()
+  expect(screen.getByRole('button',{name:'第 5 步：查看结果'}).getAttribute('aria-current')).toBe('step')
+  expect(vi.mocked(fetch).mock.calls.every(([,init])=>!init?.method||init.method==='GET')).toBe(true)
+})

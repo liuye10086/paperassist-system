@@ -64,7 +64,7 @@ function Tasks({ projectId, active, selectedTaskId, onSelectTask, onOpenFiles, o
   }
   return <section className="project-tasks" hidden={!active} aria-label={t('项目任务')}>
     <div hidden={layered && !!selectedTaskId} className="task-list-view">
-    <div className="task-page-heading"><div><h2>{t('项目任务')}</h2><p>{t('查看保存的执行状态、待办和成果。')}</p></div>
+    <div className="task-page-heading"><div><h2>{t('项目任务')}</h2></div>
       <button type="button" disabled={loading || !sessionValid} onClick={() => { setLoading(true); setError(''); setAttempt(value => value + 1) }}>{t('刷新任务列表')}</button></div>
     <p className="task-scope-note">{t('这里展示统一任务及历史绘图、解释任务。')}</p>
     <div className="task-filters"><label>{t('任务类型')}<select value={kind} onChange={event => filters(event.target.value, 'kind')}>

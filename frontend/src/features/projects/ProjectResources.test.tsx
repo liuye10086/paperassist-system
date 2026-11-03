@@ -5,6 +5,7 @@ import ProjectResources from './ProjectResources'
 import { setLocale } from '../../shared/i18n'
 import { clearApiSession } from '../../shared/api/client'
 import { lifecycleResponse } from '../files/lifecycleFixtures'
+import { batchUploadFixture } from '../../test/fixtures/batchUploadFixture'
 
 const originalScroll = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'scrollIntoView')
 afterEach(() => {
@@ -85,7 +86,7 @@ test('file pagination preserves preview, the full analysis selection and page ac
   const view = render(<ProjectResources {...props} section="files" />)
   await user.click(await screen.findByRole('button', { name: `预览 ${files[0].filename}` }))
   await screen.findByRole('table')
-  await user.click(screen.getByRole('button', { name: '返回文件列表' }))
+  await user.click(screen.getByRole('button', { name: /^(返回文件列表|已上传文件)$/ }))
   await user.click(await screen.findByRole('button', { name: '下一页' }))
   await screen.findByRole('button', { name: `预览 ${files[5].filename}` })
   expect(screen.queryByRole('button', { name: `预览 ${files[0].filename}` })).toBeNull()
@@ -104,21 +105,20 @@ test('file pagination preserves preview, the full analysis selection and page ac
 test('upload refreshes the first page without removing a purpose draft', async () => {
   const fetch = libraryApi()
   const original = fetch.getMockImplementation()!
-  fetch.mockImplementation(async (url, init) => init?.method === 'POST' && url.endsWith('/files')
-    ? Response.json({ file: files[0], preview: workbook }) : original(url, init))
+  const uploadBatch = batchUploadFixture('p1', () => files[0])
+  fetch.mockImplementation(async (url, init) => uploadBatch(url, init) ?? original(url, init))
   const user = userEvent.setup()
   render(<ProjectResources {...props} section="files" />)
   await user.click(await screen.findByRole('button', { name: `文件详情 ${files[0].filename}` }))
   await user.click(await screen.findByLabelText('原始数据'))
-  await user.click(screen.getByRole('button', { name: '返回文件列表' }))
+  await user.click(screen.getByRole('button', { name: /^(返回文件列表|已上传文件)$/ }))
   await user.click(await screen.findByRole('button', { name: '下一页' }))
   await screen.findByRole('button', { name: `预览 ${files[5].filename}` })
   await user.click(screen.getByRole('button', { name: '上传文件' }))
-  await user.click(screen.getByRole('button', { name: '单份 Excel 预览' }))
-  await user.upload(screen.getByLabelText('选择 Excel 文件'), new File(['xlsx'], 'new.xlsx'))
-  await user.click(screen.getByRole('button', { name: '上传并预览' }))
-  await screen.findByText('文件已保存到当前项目，可从项目文件列表再次打开。')
-  await user.click(screen.getByRole('button', { name: '返回文件列表' }))
+  await user.upload(screen.getByLabelText('批量选择 Excel / Word / PDF / 图片 文件'), new File(['xlsx'], 'new.xlsx'))
+  await user.click(screen.getByRole('button', { name: '开始上传' }))
+  await screen.findByText(/解析完成/)
+  await user.click(screen.getByRole('button', { name: /^(返回文件列表|已上传文件)$/ }))
   await screen.findByRole('button', { name: `预览 ${files[0].filename}` })
   expect((screen.getByLabelText('原始数据') as HTMLInputElement).checked).toBe(true)
   expect(fetch.mock.calls.filter(([url]) => url.endsWith('/files')).length).toBeGreaterThan(1)
@@ -332,7 +332,7 @@ test('late page GET cannot roll back saved purposes when the file was on another
   await user.click(await screen.findByRole('button', { name: `文件详情 ${files[0].filename}` }))
   await user.click(await screen.findByLabelText('原始数据'))
   await user.click(screen.getByRole('button', { name: '保存用途' }))
-  await user.click(screen.getByRole('button', { name: '返回文件列表' }))
+  await user.click(screen.getByRole('button', { name: /^(返回文件列表|已上传文件)$/ }))
   await user.click(await screen.findByRole('button', { name: '下一页' }))
   await screen.findByRole('button', { name: `文件详情 ${files[5].filename}` })
   await user.click(screen.getByRole('button', { name: '上一页' }))
@@ -398,7 +398,7 @@ test('saved preview failure gives a short row status, one detailed alert and a w
   expect(row.getAttribute('aria-current')).toBe('true')
 })
 
-test('choosing a new local file clears the current saved preview without scrolling on validation errors', async () => {
+test('batch file validation preserves the saved preview without scrolling or exposing a single-file upload', async () => {
   api(async () => Response.json(files))
   const scroll = vi.fn()
   Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', { configurable: true, value: scroll })
@@ -408,12 +408,13 @@ test('choosing a new local file clears the current saved preview without scrolli
   await user.click(preview)
   await screen.findByRole('table')
   expect(scroll).toHaveBeenCalledOnce()
-  await user.click(screen.getByRole('button', { name: '返回文件列表' }))
+  await user.click(screen.getByRole('button', { name: /^(返回文件列表|已上传文件)$/ }))
   await user.click(screen.getByRole('button', { name: '上传文件' }))
-  await user.click(screen.getByRole('button', { name: '单份 Excel 预览' }))
-  await user.upload(screen.getByLabelText('选择 Excel 文件'), new File(['bad'], 'invalid.xls'))
-  expect((await screen.findByRole('alert')).textContent).toContain('仅支持 .xlsx')
-  expect(screen.getByRole('button', { name: `预览 ${files[0].filename}`, hidden: true }).closest('li')!.getAttribute('aria-current')).toBeNull()
+  await user.upload(screen.getByLabelText('批量选择 Excel / Word / PDF / 图片 文件'), new File(['bad'], 'invalid.xls'))
+  expect(await screen.findByText(/仅支持 .xlsx/)).toBeTruthy()
+  expect(screen.queryByRole('button', { name: '单份 Excel 预览' })).toBeNull()
+  expect(screen.queryByRole('button', { name: '上传并预览', hidden: true })).toBeNull()
+  expect(screen.getByRole('button', { name: `预览 ${files[0].filename}`, hidden: true }).closest('li')!.getAttribute('aria-current')).toBe('true')
   expect(scroll).toHaveBeenCalledOnce()
 })
 
@@ -431,11 +432,10 @@ test('batch completion preserves the opened sheet and purpose draft without open
  });const user=userEvent.setup();render(<ProjectResources {...props} section="files"/>);
  await user.click(await screen.findByRole('button',{name:`预览 ${files[0].filename}`}));await screen.findByRole('table');await user.selectOptions(screen.getByLabelText('工作表'),'1');
  await user.click(screen.getByRole('button',{name:'文件详情'}));await user.click(await screen.findByRole('checkbox',{name:'原始数据'}));
- await user.click(screen.getByRole('button',{name:'返回文件列表'}));await user.click(screen.getByRole('button',{name:'上传文件'}));
+ await user.click(screen.getByRole('button',{name:/^(返回文件列表|已上传文件)$/}));await user.click(screen.getByRole('button',{name:'上传文件'}));
  await user.upload(screen.getByLabelText('批量选择 Excel / Word / PDF / 图片 文件'),new File(['a'],'new.xlsx'));await user.click(screen.getByRole('button',{name:'开始上传'}));await screen.findByText(/解析完成/);
- await user.click(screen.getByRole('button',{name:'单份 Excel 预览'}));
- expect((screen.getByLabelText('工作表') as HTMLSelectElement).value).toBe('1');expect(screen.getByRole('table').textContent).toContain('42');
- await user.click(screen.getByRole('button',{name:'返回文件列表'}));await user.click(await screen.findByRole('button',{name:`文件详情 ${files[0].filename}`}));
+ expect((screen.getByLabelText('工作表') as HTMLSelectElement).value).toBe('1');expect(screen.getByRole('table',{hidden:true}).textContent).toContain('42');
+ await user.click(screen.getByRole('button',{name:/^(返回文件列表|已上传文件)$/}));await user.click(await screen.findByRole('button',{name:`文件详情 ${files[0].filename}`}));
  expect((await screen.findByRole('checkbox',{name:'原始数据'}) as HTMLInputElement).checked).toBe(true);expect(fetch.mock.calls.filter(([url])=>url.endsWith('/preview'))).toHaveLength(1)
 })
 
@@ -447,10 +447,16 @@ test('materials list separates uploads and retains the selected local file on re
   expect(screen.queryByLabelText('批量选择 Excel / Word / PDF / 图片 文件')).toBeNull()
   await user.click(screen.getByRole('button', { name: '上传文件' }))
   await user.upload(screen.getByLabelText('批量选择 Excel / Word / PDF / 图片 文件'), new File(['a'], 'draft.xlsx'))
-  await user.click(screen.getByRole('button', { name: '返回文件列表' }))
+  await user.click(screen.getByRole('button', { name: '已上传文件' }))
   expect(screen.queryByRole('button', { name: '开始上传' })).toBeNull()
   await user.click(screen.getByRole('button', { name: '上传文件' }))
   expect((screen.getByLabelText('批量选择 Excel / Word / PDF / 图片 文件') as HTMLInputElement).files?.[0].name).toBe('draft.xlsx')
+  await user.click(screen.getByRole('button', { name: '组学与生信数据包' }))
+  await user.upload(screen.getByLabelText('选择生信文件'), new File(['cells'], 'matrix.csv'))
+  await user.click(screen.getByRole('button', { name: '表格、报告与图片' }))
+  expect((screen.getByLabelText('批量选择 Excel / Word / PDF / 图片 文件') as HTMLInputElement).files?.[0].name).toBe('draft.xlsx')
+  await user.click(screen.getByRole('button', { name: '组学与生信数据包' }))
+  expect((screen.getByLabelText('选择生信文件') as HTMLInputElement).files?.[0].name).toBe('matrix.csv')
 })
 
 test('material details replace the list and preserve page and purpose draft through task views', async () => {
@@ -465,7 +471,7 @@ test('material details replace the list and preserve page and purpose draft thro
   expect(screen.queryByRole('button', { name: '保存用途' })).toBeNull()
   await user.click(screen.getByRole('button', { name: '返回文件信息' }))
   expect((screen.getByRole('checkbox', { name: '原始数据' }) as HTMLInputElement).checked).toBe(true)
-  await user.click(screen.getByRole('button', { name: '返回文件列表' }))
+  await user.click(screen.getByRole('button', { name: /^(返回文件列表|已上传文件)$/ }))
   await screen.findByRole('button', { name: `文件详情 ${files[5].filename}` })
   expect(screen.queryByRole('button', { name: `文件详情 ${files[0].filename}` })).toBeNull()
   await user.click(screen.getByRole('button', { name: `文件详情 ${files[5].filename}` }))

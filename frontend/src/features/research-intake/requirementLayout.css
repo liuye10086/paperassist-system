@@ -1,0 +1,71 @@
+.intake-workspace { padding: 24px; border: 1px solid var(--border); border-radius: 16px; background: var(--surface); }
+.intake-workspace > h2 { margin: 22px 0 10px; color: var(--text-h); font-size: 22px; }
+.intake-view-nav { display: flex; flex-wrap: wrap; gap: 6px; margin: -24px -24px 0; padding: 14px 24px; border-bottom: 1px solid var(--border); border-radius: 16px 16px 0 0; background: var(--accent-bg); }
+.intake-view-nav button { background: transparent; border-color: transparent; }
+.intake-view-nav button[aria-pressed='true'] { background: var(--surface); border-color: var(--border); color: var(--accent); font-weight: 600; }
+.intake-workspace .intake-version-banner { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin: 0 0 24px; padding: 0; background: transparent; color: var(--text); font-size: 13px; }
+.intake-workspace .intake-form { max-width: none; gap: 24px; }
+.intake-workspace .intake-form > div:not([hidden]) { display: grid; gap: 24px; }
+.intake-workspace .questionnaire-section { display: grid; gap: 16px; margin: 0; padding-top: 20px; border-top: 1px solid var(--border); }
+.intake-workspace .questionnaire-section h3 { margin: 0; color: var(--text-h); font-size: 17px; }
+.intake-workspace .questionnaire-section > .questionnaire-section { border: 0; padding-top: 0; }
+.intake-workspace .questionnaire-section > p { margin: 0; font-size: 13px; }
+.intake-workspace .questionnaire-section > button { justify-self: start; }
+.intake-workspace .design-form .questionnaire-section:has(> .intake-declared-field), .intake-workspace .sample-field-mapping { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.intake-workspace .design-form .questionnaire-section > h3 { grid-column: 1 / -1; }
+.intake-workspace .sample-field-mapping { padding: 16px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg); }
+.intake-workspace .intake-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
+.intake-declared-field { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; }
+.intake-field-heading { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; min-width: 0; }
+.intake-field-heading > select { width: auto; min-width: 100px; padding: 5px 8px; min-height: 30px; font-size: 12px; }
+.intake-workspace textarea, .intake-workspace input, .intake-workspace select { min-width: 0; max-width: 100%; }
+.intake-workspace .questionnaire-services { margin: 0; background: var(--bg); }
+.intake-workspace .questionnaire-services .intake-check { padding: 6px 0; }
+.intake-workspace .questionnaire-steps { gap: 8px; padding-bottom: 16px; border-bottom: 1px solid var(--border); }
+.intake-workspace .questionnaire-steps button { flex: 0 1 auto; min-width: 0; padding: 8px 18px; }
+.intake-workspace .questionnaire-steps button[aria-current='step'] { color: var(--accent); background: var(--accent-bg); border-color: var(--accent); }
+.intake-workspace .questionnaire-progress { grid-template-columns: repeat(3, minmax(0, 1fr)); background: var(--bg); }
+.intake-workspace .questionnaire-progress > label:not(.intake-check) { grid-column: 1 / -1; }
+.intake-workspace .questionnaire-options { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.intake-workspace .questionnaire-option { padding: 12px; }
+.intake-workspace .questionnaire-option:has(input:checked) { border-color: var(--accent); background: var(--accent-bg); }
+.intake-workspace .questionnaire-scope { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.intake-workspace .questionnaire-scope > h3, .intake-workspace .questionnaire-scope > button { grid-column: 1 / -1; }
+.intake-workspace .questionnaire-scope > fieldset { grid-template-columns: repeat(2, minmax(0, 1fr)); margin: 0; background: var(--bg); }
+.intake-workspace .questionnaire-scope > fieldset > label:last-of-type { grid-column: 1 / -1; }
+.intake-workspace .questionnaire-scope > fieldset > button { justify-self: start; }
+.intake-workspace .intake-material { grid-template-columns: minmax(130px, 1fr) 2fr; align-items: end; }
+.intake-workspace .intake-material-references { margin: 24px 0 0; padding: 20px; border: 1px solid var(--border); border-radius: 10px; }
+.intake-material-references > p { margin: 0 0 16px; font-size: 13px; }
+.intake-workspace .intake-reference-row { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; margin: 0 0 16px; padding: 16px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg); }
+.intake-reference-row label { display: grid; gap: 8px; }
+.intake-reference-row > button { align-self: end; justify-self: start; }
+.intake-workspace .intake-save-actions { align-items: center; gap: 10px; margin: 24px 0 8px; }
+.intake-workspace .intake-save-help { margin: 0; font-size: 12px; color: var(--text); }
+.intake-gaps { margin-top: 24px; padding: 16px 18px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg); }
+.intake-gaps h3 { margin: 0 0 12px; color: var(--text-h); font-size: 14px; }
+.intake-gaps ul { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 24px; margin: 0; padding: 0; list-style: none; }
+.intake-gaps li { display: flex; flex-direction: column; gap: 3px; font-size: 13px; }
+.intake-gaps small { color: var(--text); font-size: 12px; }
+.intake-history { margin-top: 24px; padding-top: 20px; border-top: 1px solid var(--border); }
+.intake-history h3 { margin: 0 0 14px; color: var(--text-h); font-size: 16px; }
+.intake-history-list { display: flex; flex-wrap: wrap; gap: 10px; }
+.intake-history-list button { justify-content: flex-start; text-align: left; font-size: 12px; }
+.intake-pagination, .intake-recovery-actions { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 10px; margin-top: 16px; }
+.intake-recovery-actions { justify-content: flex-start; }
+.intake-workspace [hidden] { display: none !important; }
+@media (max-width: 900px) {
+  .intake-workspace .questionnaire-options { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .intake-workspace .intake-reference-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 600px) {
+  .intake-workspace { padding: 20px 16px; }
+  .intake-view-nav { margin: -20px -16px 0; padding: 12px 16px; }
+  .intake-workspace .intake-fields, .intake-workspace .questionnaire-options, .intake-workspace .intake-material, .intake-workspace .intake-reference-row, .intake-gaps ul { grid-template-columns: minmax(0, 1fr); }
+  .intake-workspace .questionnaire-progress { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .intake-workspace .questionnaire-steps button { padding-inline: 12px; }
+  .intake-workspace .intake-material-references { padding: 16px; }
+  .intake-workspace .intake-rows { grid-template-columns: minmax(0, 1fr); }
+  .intake-workspace .questionnaire-scope, .intake-workspace .questionnaire-scope > fieldset { grid-template-columns: minmax(0, 1fr); }
+  .intake-workspace .design-form .questionnaire-section:has(> .intake-declared-field), .intake-workspace .sample-field-mapping { grid-template-columns: minmax(0, 1fr); }
+}

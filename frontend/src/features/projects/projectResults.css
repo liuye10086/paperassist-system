@@ -1,0 +1,95 @@
+.project-result-nav { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 18px; }
+.project-result-nav button { min-height: 40px; padding: 9px 16px; }
+.project-result-nav button[aria-current="page"] { color: var(--accent); border-color: var(--accent); background: var(--accent-bg); }
+.project-results-page .project-summary.project-summary-panel,
+.project-results-page .research-panel { margin: 0; padding: 24px; border: 1px solid var(--border); border-radius: 12px; background: var(--bg); min-width: 0; }
+.project-results-page .summary-panel-heading,
+.project-results-page .result-panel-heading { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; margin: 0 0 18px; }
+.project-results-page .summary-panel-heading h3,
+.project-results-page .result-panel-heading h2 { margin: 0; font-size: 21px; }
+.project-results-page .research-panel > p { margin: 12px 0 18px; color: var(--text); font-size: 13px; }
+.project-results-page .summary-artifact-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.project-results-page .summary-artifact-list > li { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: start; gap: 10px 12px; padding: 16px; border: 1px solid var(--border); border-radius: 9px; min-width: 0; }
+.project-results-page .summary-artifact-symbol { width: 36px; height: 42px; border-radius: 7px; }
+.project-results-page .summary-artifact-content { font-size: 13px; }
+.project-results-page .summary-artifact-content p { margin: 5px 0 0; }
+.project-results-page .artifact-card-actions { grid-column: 2; display: flex; flex-wrap: wrap; align-items: center; gap: 12px; font-size: 13px; }
+.project-results-page .artifact-card-actions button { min-height: 32px; padding: 6px 10px; font-size: 12px; }
+.project-results-page .summary-artifact-list > li > a { margin: 0; padding: 0; }
+.project-results-page .summary-artifact-list > li > .summary-artifact-content:first-child { grid-column: 1 / -1; }
+.project-results-page .artifact-source-identifiers h4 { margin: 0 0 14px; font-size: 14px; }
+.project-results-page .artifact-source-identifiers dl { margin-bottom: 0; }
+.project-results-page .summary-pagination,
+.research-panel .research-pagination { display: flex; justify-content: center; align-items: center; flex-wrap: wrap; gap: 10px; margin-top: 18px; font-size: 12px; }
+.project-results-page .summary-pagination > span { margin: 0; }
+.project-results-page .research-version-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; list-style: none; padding: 0; margin: 16px 0; }
+.project-results-page .research-version-list:empty { display: none; }
+.project-results-page .research-version-list button { width: 100%; height: 100%; margin: 0; padding: 12px 14px; text-align: left; overflow-wrap: anywhere; }
+.project-results-page .research-version-list button[aria-current="true"] { border-color: var(--accent); background: var(--accent-bg); }
+.project-results-page .research-result-detail { margin-top: 20px; padding-top: 18px; border-top: 1px solid var(--border); }
+.project-results-page .research-result-detail > h3 { margin-top: 0; }
+.project-results-page .research-result-editor { margin-top: 20px; max-width: none; }
+.project-results-page .research-result-editor > fieldset { margin: 0; padding: 0; border: 0; }
+.project-results-page .research-result-editor > fieldset > legend { padding: 0; margin-bottom: 16px; font-size: 17px; font-weight: 600; }
+.project-results-page .research-result-editor label { margin: 12px 0; }
+.project-results-page .research-result-editor label:not(:has(input[type="checkbox"])) { display: flex; flex-direction: column; align-items: stretch; gap: 7px; font-size: 13px; }
+.project-results-page .research-result-editor input:not([type="checkbox"]):not([type="color"]),
+.project-results-page .research-result-editor select,
+.project-results-page .research-result-editor textarea { width: 100%; min-width: 0; box-sizing: border-box; }
+.project-results-page .result-basic-fields,
+.project-results-page .result-caption-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 16px; }
+.project-results-page .result-caption-fields > h3,
+.project-results-page .result-caption-fields > label:last-child { grid-column: 1 / -1; }
+.project-results-page .result-formats { display: flex; flex-wrap: wrap; gap: 8px 24px; }
+.project-results-page .result-formats > p { width: 100%; margin: 4px 0 0; font-size: 12px; }
+.project-results-page .research-result-editor .project-fields { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0 16px; }
+.project-results-page .research-sources,
+.project-results-page .result-editor-section { margin: 20px 0; padding: 18px; border: 1px solid var(--border); border-radius: 9px; background: var(--surface); }
+.project-results-page .research-sources h3,
+.project-results-page .result-editor-section h3 { font-size: 15px; margin: 0 0 12px; }
+.project-results-page .result-source-heading { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 14px; }
+.project-results-page .result-source-heading h3 { margin: 0; }
+.project-results-page .result-source-heading button { margin: 0; min-height: 32px; padding: 6px 10px; font-size: 12px; }
+.project-results-page .research-sources > fieldset { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 16px; align-items: end; border: 0; padding: 0; margin: 0; }
+.project-results-page .research-sources > fieldset > label { margin: 0; min-width: 0; }
+.project-results-page .research-sources > fieldset > button { justify-self: start; margin: 0; }
+.project-results-page .research-sources > fieldset > p,
+.project-results-page .research-sources > fieldset > nav { grid-column: 1 / -1; margin: 0; }
+.project-results-page .research-sources > ol:empty { display: none; }
+.project-results-page .research-sources > button { margin: 12px 0 0; }
+.research-detail-block { padding: 16px; margin: 16px 0; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; }
+.research-detail-block > h4 { margin: 0 0 10px; font-size: 14px; }
+.project-results-page .research-detail-block { max-height: 32rem; overflow: auto; }
+.project-results-page .research-member-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; list-style: none; padding: 0; }
+.project-results-page .research-member-list > li { min-width: 0; padding: 14px; border: 1px solid var(--border); border-radius: 8px; font-size: 13px; }
+.project-results-page .research-member-list dl { margin-bottom: 0; }
+.project-results-page .research-panel dl > div { gap: 8px; }
+.project-results-page .research-panel dd { min-width: 0; overflow-wrap: anywhere; }
+.project-results-page .journey-result-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; padding: 22px 24px; margin-top: 20px; background: var(--bg); border-color: var(--border); }
+.project-results-page .result-action-group { min-width: 0; }
+.project-results-page .result-action-group h3 { margin: 0 0 12px; font-size: 15px; }
+.project-results-page .journey-actions { justify-content: flex-start; margin: 0; gap: 10px; }
+.project-results-page .journey-actions button { min-height: 38px; font-size: 13px; }
+.project-results-page .result-exit { grid-column: 1 / -1; justify-self: start; padding: 0; min-height: 24px; font-size: 12px; }
+@media (max-width: 900px) {
+  .project-results-page .summary-artifact-list,
+  .project-results-page .research-version-list,
+  .project-results-page .research-member-list,
+  .project-results-page .journey-result-actions { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 600px) {
+  .project-result-nav { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .project-result-nav button { padding: 9px 6px; font-size: 12px; }
+  .project-results-page .project-summary.project-summary-panel,
+  .project-results-page .research-panel,
+  .project-results-page .journey-result-actions { padding: 18px 16px; }
+  .project-results-page .research-sources,
+  .project-results-page .result-editor-section { padding: 14px; }
+  .project-results-page .research-sources > fieldset,
+  .project-results-page .result-basic-fields,
+  .project-results-page .result-caption-fields,
+  .project-results-page .research-result-editor .project-fields { grid-template-columns: minmax(0, 1fr); }
+  .project-results-page .research-result-editor input,
+  .project-results-page .research-result-editor select,
+  .project-results-page .research-result-editor textarea { min-width: 0; max-width: 100%; box-sizing: border-box; }
+}

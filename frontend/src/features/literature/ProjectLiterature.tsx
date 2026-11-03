@@ -65,7 +65,7 @@ function Literature({projectId,researchTopic,outputLanguage,onOpenTask,initialSe
  }
  if(denied)return <p className="error-panel" role="alert">{t('项目不存在或无权访问。')}</p>
  return <section className="literature-workspace" aria-label={t('项目文献')}>
- <div className="workspace-page-heading"><div><span className="workspace-eyebrow">PubMed</span><h2>{t('文献')}</h2><p>{t('保存检索过程，查看原始来源，人工筛选项目候选。')}</p></div><button type="button" onClick={refresh}>{t('刷新文献记录')}</button></div>
+ <div className="workspace-page-heading"><div><span className="workspace-eyebrow">PubMed</span><h2>{t('文献')}</h2></div><button type="button" onClick={refresh}>{t('刷新文献记录')}</button></div>
  <nav className="literature-view-switcher" aria-label={t('文献任务视图')}>{([['list','候选列表'],['search','新建文献检索'],['history','检索历史'],['evidence','论述与证据核验'],['citations','引用工作台']] as const).map(([target,label])=><button key={target} type="button" aria-pressed={view===target} onClick={()=>navigate({view:target,referenceId:''})}>{t(label)}</button>)}</nav>
  {(visited.has('evidence')||view==='evidence')&&<div hidden={view!=='evidence'}><LiteratureActivity active={view==='evidence'}><EvidenceWorkspace projectId={projectId} researchTopic={researchTopic} outputLanguage={outputLanguage} onOpenTask={onOpenTask} onDenied={deny}/></LiteratureActivity></div>}
  {(visited.has('citations')||view==='citations')&&<div hidden={view!=='citations'}><LiteratureActivity active={view==='citations'}><CitationWorkspace projectId={projectId} outputLanguage={outputLanguage} onVerify={()=>navigate({view:'evidence',referenceId:''})} onDenied={deny}/></LiteratureActivity></div>}
@@ -91,7 +91,7 @@ function Literature({projectId,researchTopic,outputLanguage,onOpenTask,initialSe
  {error&&<p role="alert" className="error-panel">{t(error)}</p>}{saved&&<div role="status"><p>{t('检索任务已保存。')}</p><TaskEntry projectId={projectId} taskId={saved.id} onOpenTask={onOpenTask}/></div>}
  </div>
  <div hidden={view!=='history'} className="literature-task-view">
- <section className="literature-panel" aria-label={t('检索历史')}><h3>{t('检索历史')}</h3>{history.loading&&<p role="status">{t('正在读取检索历史……')}</p>}{history.error&&<p role="alert">{t(history.error)}</p>}
+ <section className="literature-panel" aria-label={t('检索历史')}>{history.loading&&<p role="status">{t('正在读取检索历史……')}</p>}{history.error&&<p role="alert">{t(history.error)}</p>}
  {history.data&&<>{!history.data.items.length&&<p>{t('尚无检索记录。')}</p>}<ol className="literature-history">{history.data.items.map(item=><li key={item.id}><strong>{item.input.research_topic}</strong><p className="literature-original">{item.input.query}</p><span>{translateForLocale(taskDisplayName(item.task),item.input.output_language)} · {new Date(item.created_at).toLocaleString(locale)} · {translateForLocale('已获取 {count} 篇',item.input.output_language,{count:item.retrieved_count})}</span><div className="literature-actions"><button type="button" onClick={()=>chooseSearch(item.id)}>{t('查看本次检索')}</button><button type="button" disabled={busy} onClick={()=>{setInput(structuredClone(item.input));setSaved(null);setError('');navigate({view:'search',referenceId:''})}}>{t('编辑后重新检索')}</button><TaskEntry projectId={projectId} taskId={item.task.id} onOpenTask={onOpenTask}/></div></li>)}</ol><Pagination page={historyPage} total={history.data.total} label="检索历史分页" onPage={setHistoryPage} disabled={history.loading}/></>}
  </section>
  </div>

@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import ProjectWorkspace from '../../features/projects/ProjectWorkspace'
@@ -57,6 +57,7 @@ function api() {
     if (result !== undefined) return result
     const summaryProject = items.find(item => url.startsWith(`/api/v1/projects/${item.id}/summary?`))
     if (summaryProject) return Response.json(summaryFixture(summaryProject.id, summaryProject.project_type))
+    if (url.endsWith('/research-intake')) return Response.json({current_requirement:{content:{services:['analysis']}}})
     const path = new URL(url, 'http://localhost')
     if (path.pathname === '/api/v1/projects') return Response.json({ items, total: items.length,
       page: Number(path.searchParams.get('page')), page_size: Number(path.searchParams.get('page_size')) })
@@ -90,8 +91,8 @@ async function navigateSection(user: ReturnType<typeof userEvent.setup>, label: 
     await user.click(screen.getByRole('button', { name: label === '项目文件' ? '材料准备' : '分析与成果' }))
   }
   await user.click(screen.getByRole('button', { name: label }))
-  if (label === '数据分析' && screen.queryByRole('button', { name: '进入分析工作台' })) await user.click(screen.getByRole('button', { name: '进入分析工作台' }))
-  if (label === '项目文件' && screen.queryByRole('button', { name: '返回文件列表' })) await user.click(screen.getByRole('button', { name: '返回文件列表' }))
+  if (label === '数据分析' && screen.queryByRole('button', { name: /表格数据与统计/ })) await user.click(screen.getByRole('button', { name: /表格数据与统计/ }))
+  if (label === '项目文件' && screen.queryByRole('button', { name: /^(返回文件列表|已上传文件)$/ })) await user.click(screen.getByRole('button', { name: /^(返回文件列表|已上传文件)$/ }))
 }
 async function savedWorkspace() {
   const user = await open()
@@ -130,9 +131,8 @@ test('summary project 404 clears the whole workspace and file preview', async ()
   const mock = api()
   render(<ProjectWorkspace />)
   const user = await savedWorkspace()
-  await user.click(screen.getByRole('button', { name: '项目概览' }))
-  await user.click(screen.getByRole('button', { name: '进展记录' }))
-  await screen.findByText('期刊目标适配与投稿进展')
+  await user.click(screen.getByRole('button', { name: '第 1 步：项目资料' }))
+  await within(screen.getByRole('region', { name: '项目资料' })).findByText('期刊目标适配与投稿进展')
   mock.removeProject()
   mock.override(url => url.includes('/p1/summary?') ? missing() : undefined)
   await user.click(screen.getByRole('button', { name: '刷新项目摘要' }))
@@ -220,7 +220,7 @@ test('successful preview body consumed before loss cannot revive cleared private
   mock.override(url => url.endsWith('/preview') ? response : url === downloads[0].endpoint ? missing() : undefined)
   await navigateSection(user, '项目文件')
   await user.click(screen.getByRole('button', { name: `预览 ${file.filename}` })); await started.promise
-  await user.click(screen.getByRole('button', { name: '返回文件列表' }))
+  await user.click(screen.getByRole('button', { name: /^(返回文件列表|已上传文件)$/ }))
   mock.removeProject(); await user.click(screen.getByRole('link', { name: downloads[0].label })); await expectCleared()
   await act(async () => { body.resolve(preview) }); await expectCleared()
 })

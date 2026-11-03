@@ -10,7 +10,7 @@ function customerText(value:unknown):string{
  if(typeof value==='boolean')return value?'是':'否'
  if(typeof value==='string'){
   if(/^\s*[{[]/.test(value)){try{JSON.parse(value);return '结构化记录请下载完整文件查看'}catch{/* ordinary prose */}}
-  const terms:Record<string,string>={pending_verification:'待核对',unverified:'未核对',unknown:'未知，待核对',confirmed_by_current_user:'当前用户已确认',fixed_existing_event:'沿用已固定的确认记录',insufficient_complete_features:'完整特征数量不足',single_cluster:'仅有一个聚类，无法进行组间比较',measured_zero:'实测零值',user_provided:'用户提供',sample_inference:'样本设计推断',sample_exploratory:'样本探索',spot_exploratory:'区域探索',donor_inference:'供体设计推断',external_result:'外部结果'}
+  const terms:Record<string,string>={school_template_not_bound:'请先绑定学校模板',school_confirmation_unavailable:'学校确认版本不可用，请核对学校模板。',school_template_not_ready:'学校模板尚未处理完成。',school_template_source_changed:'学校模板来源已变化，请重新确认。',pending_verification:'待核对',unverified:'未核对',unknown:'未知，待核对',confirmed_by_current_user:'当前用户已确认',fixed_existing_event:'沿用已固定的确认记录',insufficient_complete_features:'完整特征数量不足',single_cluster:'仅有一个聚类，无法进行组间比较',measured_zero:'实测零值',user_provided:'用户提供',sample_inference:'样本设计推断',sample_exploratory:'样本探索',spot_exploratory:'区域探索',donor_inference:'供体设计推断',external_result:'外部结果'}
   if(terms[value]??statuses[value])return terms[value]??statuses[value]
   return value.replace(/\b[a-f0-9]{64}\b/gi,'（校验信息已保留）')
  }

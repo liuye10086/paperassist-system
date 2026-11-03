@@ -9,6 +9,13 @@ import { summaryFixture } from '../../test/fixtures/summaryFixture'
 import { clearApiSession, setApiSession } from '../../shared/api/client'
 
 afterEach(()=>{cleanup();clearApiSession();vi.unstubAllGlobals()})
+it('limits the empty result message to analysis files rather than claiming no manuscript Word exists',()=>{
+ const data=summaryFixture() as ProjectSummaryData;data.artifacts={items:[],total:0,page:1,page_size:10}
+ render(<ArtifactLibrary projectId="p1" data={data} navigation={{view:'list',artifactId:'',kind:'',page:1}} onNavigate={()=>{}}/>);
+ expect(screen.getByText('暂无已生成的分析图表或报告。')).toBeTruthy()
+ expect(screen.queryByText('还没有已生成的 PNG 或 Word 文件。')).toBeNull()
+ expect(screen.queryByRole('navigation',{name:'成果分页'})).toBeNull()
+})
 const fixture=()=>{
   const data=summaryFixture() as ProjectSummaryData
   data.artifacts={items:(['figure','report'] as const).map(kind=>({kind,id:'same-id',file_id:'file1',filename:'研究.xlsx',analysis_run_id:'old-run',setup_revision:2,current_revision:4,engine_version:'engine-1',recorded_at:'2026-10-26T00:00:00Z',figure_id:null,explanation_id:null,download_filename:kind==='figure'?'固定图.png':'固定报告.docx',size_bytes:200,sha256:'a'.repeat(64),download_url:`/api/v1/projects/p1/files/file1/analysis-runs/old-run/${kind==='figure'?'figures':'report'}/same-id/download`})),total:2,page:1,page_size:10}
@@ -22,6 +29,9 @@ it('opens only the selected artifact and retains the historical run download',()
   render(<Library/>);expect(screen.queryByRole('region',{name:'成果详情'})).toBeNull()
   fireEvent.click(screen.getByRole('button',{name:'查看成果 固定报告.docx'}))
   expect(screen.getByRole('region',{name:'成果详情'}).textContent).toContain('历史结果')
+  expect(screen.getByRole('heading',{name:'固定来源与校验标识'})).toBeTruthy()
+  expect(screen.getByText('old-run')).toBeTruthy()
+  expect(document.querySelector('details')).toBeNull()
   expect(screen.queryByRole('button',{name:'查看成果 固定图.png'})).toBeNull()
   expect(screen.getByRole('link',{name:'下载成果 固定报告.docx'}).getAttribute('href')).toContain('/old-run/report/same-id/download')
   fireEvent.click(screen.getByRole('button',{name:'成果列表'}))

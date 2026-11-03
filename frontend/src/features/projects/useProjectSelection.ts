@@ -35,7 +35,7 @@ type Request = {
     controller: AbortController;
     timeout: number;
 };
-export default function useProjectSelection(onUnavailable: (id: string) => void, onAvailable: (id: string) => void, onNavigate?: () => void) {
+export default function useProjectSelection(onUnavailable: (id: string) => void, onAvailable: (id: string) => void, onNavigate?: () => void, navigationGate?: (next: NavigationRoute) => boolean) {
     const [route, setRoute] = useState(() => initialRoute());
     const routeRef = useRef(route);
     const retainedProjectRoute = useRef(route);
@@ -58,6 +58,7 @@ export default function useProjectSelection(onUnavailable: (id: string) => void,
     } | null>(null), replay = useRef(false);
     function allowed(next: NavigationRoute) {
         const previous=routeRef.current;
+        if (next.workspaceView === 'project' && next.projectId === current.current?.id && navigationGate && !navigationGate(next)) return false;
         if(previous.section==='analysis'&&previous.analysisNavigation.view.startsWith('bio-')&&serializeNavigation(previous)!==serializeNavigation(next))return [...guards.current].every(g=>g());
         return !current.current || !next.projectId || next.projectId === current.current.id || [...guards.current].every(g => g());
     }

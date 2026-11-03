@@ -58,7 +58,6 @@ export default function ProjectLanguage({ project, onUpdated, disabled, onBusyCh
     </label>
     <button type="submit" disabled={disabled || busy || uncertain || draft === saved}>{t(busy ? '正在保存……' : '保存输出语言')}</button>
     {uncertain && <button type="button" disabled={busy || disabled} onClick={() => void submit(true)}>{t('重新读取项目')}</button>}
-    <p className="muted">{t('项目默认语言供新任务参考；分析成果使用计划中独立确认的输出语言。修改默认语言不会改写历史成果或已提交任务。')}</p>
     {error && <p role="alert">{t(error)}</p>}
   </form>
 }

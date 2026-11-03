@@ -5,19 +5,17 @@ import ProjectRequirements from './ProjectRequirements'
 
 afterEach(() => { cleanup(); vi.unstubAllGlobals() })
 
-test('research requirements keep creation and material drafts when collapsed or changing tasks', async () => {
+test('research requirements keep creation and material drafts when changing tasks with directly displayed content', async () => {
  const fetch = vi.fn(async (_url: string, _init?: RequestInit) => Response.json({ items: [], total: 0, page: 1, page_size: 10 }))
  vi.stubGlobal('fetch', fetch)
  const user = userEvent.setup()
  render(<ProjectRequirements projectId="p1" files={[]} />)
- await user.click(screen.getByRole('button', { name: '打开研究需求与材料' }))
  const research = screen.getByLabelText('研究问题') as HTMLTextAreaElement
  await user.type(research, 'Synthetic material-first question')
  expect(screen.queryByRole('heading', { name: '外部材料与来源' })).toBeNull()
  expect(screen.queryByRole('heading', { name: '研究需求历史' })).toBeNull()
- await user.click(screen.getByRole('button', { name: '收起研究需求与材料' }))
+ expect(document.querySelector('details, summary')).toBeNull()
  expect(research.isConnected).toBe(true)
- await user.click(screen.getByRole('button', { name: '打开研究需求与材料' }))
  expect(screen.getByLabelText('研究问题')).toBe(research)
  await user.click(screen.getByRole('button', { name: '需求材料' }))
  const title = screen.getByLabelText('材料标题') as HTMLInputElement

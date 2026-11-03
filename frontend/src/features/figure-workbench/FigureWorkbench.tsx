@@ -75,7 +75,7 @@ function Workbench({base,runId,source,language,resultType,mode,disabled,onChange
  const visibleTaskView=view==='explanation'&&(taskView==='edit'||taskView==='export')?(selectedId?'detail':'list'):taskView
  const kinds=state?compatibleKinds(resultType,mode,state.available_kinds):[],issues=configurationIssues(draft)
  return <section className="figure-workbench" aria-label={t('图表工作台')} aria-busy={busy}>
- <h3>{t('图表工作台')}</h3><p>{t('独立配置、确认计算、预览外发，再生成新图。历史成果保持原样。')}</p>
+ <h3>{t('图表工作台')}</h3><p>{t('新图保存为独立版本，历史成果保持原样。')}</p>
  {error&&<p role="alert" className="error-panel">{t(error)}</p>}<button type="button" disabled={busy||!session} onClick={refresh}>{t('重新读取图表版本')}</button>
  {!state&&!error&&<p role="status">{t('正在读取图表配置……')}</p>}
  {state&&session&&<>

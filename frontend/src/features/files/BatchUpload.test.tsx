@@ -36,13 +36,13 @@ it('rejects eleven selections and exposes mixed file validation without treating
  vi.stubGlobal('fetch',vi.fn(async()=>page()));render(<BatchUpload {...props}/>);select(Array.from({length:11},()=>new File(['a'],'same.xlsx')));expect((screen.getByText('开始上传') as HTMLButtonElement).disabled).toBe(true);select([new File(['a'],'same.xlsx'),new File(['b'],'same.xlsx'),new File([],'empty.xlsx'),new File(['x'],'bad.txt')]);expect(screen.getAllByText(/same.xlsx/)).toHaveLength(2);expect(screen.getByText('文件为空。')).toBeTruthy();expect(screen.getByText('仅支持 .xlsx、.docx、.pdf、.png、.jpg 或 .jpeg 文件。')).toBeTruthy();await waitFor(()=>expect(screen.queryByRole('alert')).toBeNull())
 })
 
-it('replaces an uncertain local receipt when a later batch query confirms saved parsing',async()=>{
+it.each([false,true])('replaces an uncertain local receipt when a later batch query confirms saved parsing (embedded=%s)',async(embedded)=>{
  let snapshot=batch();let confirmed=false
  vi.stubGlobal('fetch',vi.fn(async(url:string,init:RequestInit)=>{
   if(init.method==='POST'&&url.endsWith('file-batches')){const body=JSON.parse(String(init.body));snapshot=batch([item(body.items[0].client_id)]);return Response.json(snapshot)}
   if(url.includes('/items/')||url.endsWith('/b1'))throw new Error('offline')
   return page(confirmed?[{...snapshot,revision:4,items:snapshot.items.map(i=>({...i,status:'parsed',file_id:'f1'}))}]:[])
- }));render(<BatchUpload {...props}/>);select([new File(['a'],'same.xlsx')]);fireEvent.click(screen.getByText('开始上传'));await screen.findByText(/接收结果待确认/);confirmed=true;fireEvent.click(screen.getByText('重新读取批次'));await screen.findByText(/解析完成/);expect(screen.queryByText(/接收结果待确认/)).toBeNull()
+ }));render(<BatchUpload {...props} embedded={embedded}/>);select([new File(['a'],'same.xlsx')]);fireEvent.click(screen.getByText('开始上传'));await screen.findByText(/接收结果待确认/);confirmed=true;fireEvent.click(screen.getByText('重新读取批次'));await screen.findByText(/解析完成/);expect(screen.queryByText(/接收结果待确认/)).toBeNull()
 })
 
 it('keeps newer polled parsed state when a late queued upload receipt arrives and rereads fail',async()=>{
@@ -67,5 +67,5 @@ it('returns to the first authoritative page when starting a batch from page two'
   if(url.includes('/items/')){snapshot={...snapshot,revision:2,items:snapshot.items.map(i=>({...i,status:'queued',file_id:'f-new'}))};return Response.json(snapshot.items[0])}
   if(url.endsWith('/new-batch'))return Response.json(snapshot)
   const number=Number(new URL(url,'http://localhost').searchParams.get('page'));requested.push(number);return Response.json({items:number===1?(created?[snapshot,make('b1'),make('b2'),make('b3'),make('b4')]:[make('b1'),make('b2'),make('b3'),make('b4'),make('b5')]):[make('page-two')],total:created?7:6,page:number,page_size:5})
- });vi.stubGlobal('fetch',fetch);const view=render(<BatchUpload {...props}/>);await screen.findByText('b1.xlsx');fireEvent.click(screen.getByText('下一页'));await screen.findByText('page-two.xlsx');select([new File(['a'],'same.xlsx')]);fireEvent.click(screen.getByText('开始上传'));await waitFor(()=>expect(screen.getByText('上一页').getAttribute('disabled')).not.toBeNull());await screen.findByText('same.xlsx');expect(screen.queryByText('page-two.xlsx')).toBeNull();expect(view.container.querySelectorAll('article')).toHaveLength(5);expect(requested.at(-1)).toBe(1)
+ });vi.stubGlobal('fetch',fetch);const view=render(<BatchUpload {...props}/>);await screen.findByText('b1.xlsx');fireEvent.click(screen.getByText('下一页'));await screen.findByText('page-two.xlsx');select([new File(['a'],'same.xlsx')]);fireEvent.click(screen.getByText('开始上传'));await waitFor(()=>expect(screen.getByText('上一页').getAttribute('disabled')).not.toBeNull());await screen.findByText('same.xlsx');expect(screen.queryByText('page-two.xlsx')).toBeNull();await waitFor(()=>expect(view.container.querySelectorAll('article')).toHaveLength(5));expect(requested.at(-1)).toBe(1)
 })

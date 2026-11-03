@@ -25,3 +25,7 @@ it('preserves exact scientific row and field locators without showing internal s
  for(const value of ['TP53','q','summary.n_spots','ERBB2','EFO_0003767','treated-v-control'])expect(screen.getByText(value)).toBeTruthy()
  expect(container.textContent).not.toContain('private-source')
 })
+it('explains school setup blockers without exposing internal reason codes',()=>{
+ const {container}=render(<ReadableDetails value={['school_template_not_bound','school_template_source_changed']}/>);
+ expect(container.textContent).toContain('请先绑定学校模板');expect(container.textContent).toContain('学校模板来源已变化，请重新确认。');expect(container.textContent).not.toContain('school_template_')
+})

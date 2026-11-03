@@ -1,4 +1,4 @@
-import {act, cleanup, fireEvent, render, screen} from '@testing-library/react'
+import {act, cleanup, render, screen} from '@testing-library/react'
 import {afterEach, beforeEach, expect, it, vi} from 'vitest'
 import {clearApiSession, setApiSession} from '../../shared/api/client'
 import {setLocale} from '../../shared/i18n'
@@ -8,7 +8,7 @@ import type {Report} from './contracts'
 beforeEach(()=>{setApiSession('csrf','owner');setLocale('zh-CN')})
 afterEach(()=>{cleanup();vi.unstubAllGlobals();clearApiSession();setLocale('zh-CN')})
 
-it('collapses each complete method parameter block while preserving large fixed inputs and locale labels',async()=>{
+it('shows complete method parameters directly while preserving large fixed inputs and locale labels',async()=>{
  const observations=Array.from({length:1162},(_,index)=>({processed_version_id:'018e1234-1111-5555-8888-0123456789ab',barcode:`AAACAACGAATAGTTC-${String(index).padStart(4,'0')}`}))
  const groups=[{label:'numerator',observation_keys:observations.slice(0,580)},{label:'denominator',observation_keys:observations.slice(580)}]
  const parameters={plan_config:{groups},executed_config:{groups},primary_q:0,data_driven_grouping:false,missing:null,empty_text:'',empty_list:[],empty_object:{}}
@@ -26,13 +26,10 @@ it('collapses each complete method parameter block while preserving large fixed 
   const description=screen.getByText(`${method.title} · ${method.description}`,{exact:false})
   expect(description.closest('details')).toBeNull()
  }
- const summaries=screen.getAllByText('完整方法参数与追溯信息',{selector:'summary'})
- expect(summaries).toHaveLength(2)
- const sections=summaries.map(summary=>summary.parentElement as HTMLDetailsElement)
- expect(sections.every(section=>!section.open)).toBe(true)
- fireEvent.click(summaries[0])
- expect(sections[0].open).toBe(true)
- expect(sections[1].open).toBe(false)
+ const headings=screen.getAllByRole('heading',{name:'完整方法参数与追溯信息'})
+ expect(headings).toHaveLength(2)
+ const sections=headings.map(heading=>heading.parentElement!)
+ expect(document.querySelector('details')).toBeNull()
  const complete=sections[0].querySelector('dl')!.textContent!
  expect(sections[0].querySelector('pre,code')).toBeNull();expect(complete).not.toContain('sha256')
  expect(complete).toContain(observations[0].barcode)
@@ -40,13 +37,8 @@ it('collapses each complete method parameter block while preserving large fixed 
  expect(JSON.stringify(report)).toBe(frozen)
  const callsBeforeLocale=fetch.mock.calls.length
  act(()=>setLocale('en'))
- expect(screen.getAllByText('Complete method parameters and provenance',{selector:'summary'})).toHaveLength(2)
- expect(sections[0].open).toBe(true)
+ expect(screen.getAllByRole('heading',{name:'Complete method parameters and provenance'})).toHaveLength(2)
  expect(sections[0].querySelector('dl')!.textContent).toBe(complete)
  expect(fetch).toHaveBeenCalledTimes(callsBeforeLocale)
- fireEvent.click(summaries[0])
- expect(sections[0].open).toBe(false)
- fireEvent.click(summaries[1])
- expect(sections[1].open).toBe(true)
  expect(sections[1].querySelector('pre,code')).toBeNull();expect(sections[1].textContent).toContain('0');expect(sections[1].textContent).toContain('否');expect(sections[1].textContent).toContain('未提供')
 })

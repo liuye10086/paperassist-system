@@ -14,8 +14,8 @@ import RequirementReview from './RequirementReview'
 import RequirementSourcePicker from './RequirementSourcePicker'
 import type {PreparedDatasetAnalysisSource} from '../analysis/datasetSource'
 export default function ProjectRequirements({projectId,files,registerLeaveGuard}:{projectId:string;files:ProjectFile[];registerLeaveGuard?:RegisterLeaveGuard}) {
- const {t}=useI18n();const [open,setOpen]=useState(false),[visited,setVisited]=useState(false)
- return <section className="preparation-panel"><h3>{t('项目研究需求与材料')}</h3><p>{t('可从研究问题或外部图片开始；缺原始数据时保存为待补充需求。')}</p><button onClick={()=>{setOpen(x=>!x);setVisited(true)}} aria-expanded={open}>{t(open?'收起研究需求与材料':'打开研究需求与材料')}</button>{visited&&<div hidden={!open}><AnalysisActivity registerLeaveGuard={registerLeaveGuard}><Content key={projectId} projectId={projectId} files={files}/></AnalysisActivity></div>}</section>
+ const {t}=useI18n()
+ return <section className="preparation-panel analysis-requirements"><h2>{t('补充统计分析方案')}</h2><p>{t('可从研究问题或外部图片开始；缺原始数据时保存为待补充需求。')}</p><AnalysisActivity registerLeaveGuard={registerLeaveGuard}><Content key={projectId} projectId={projectId} files={files}/></AnalysisActivity></section>
 }
 function Content({projectId,files}:{projectId:string;files:ProjectFile[]}) {
  const {t}=useI18n();const [research,setResearch]=useState(emptyResearchRequest),[materials,setMaterials]=useState<string[]>([]),[list,setList]=useState<MaterialPage|null>(null),[page,setPage]=useState(1),[refresh,setRefresh]=useState(0),[source,setSource]=useState<{source:PreparedDatasetAnalysisSource;revision:number}|null>(null),[kind,setKind]=useState<'materials'|'data'>('materials'),[tasks,setTasks]=useState<TaskPage|null>(null),[taskPage,setTaskPage]=useState(1),[task,setTask]=useState(''),[busy,setBusy]=useState(false),[error,setError]=useState('');const action=useRef<AbortController|null>(null),replay=useRef<{body:string;key:string}|null>(null)
@@ -37,7 +37,7 @@ function Content({projectId,files}:{projectId:string;files:ProjectFile[]}) {
    <h4>{t('创建研究需求')}</h4><ResearchRequestForm value={research} onChange={setResearch} disabled={busy}/>
    <label>{t('本次需求来源')}<select value={kind} disabled={busy} onChange={e=>setKind(e.target.value as typeof kind)}><option value="materials">{t('只有材料，等待原始数据')}</option><option value="data">{t('已有明确整理版本')}</option></select></label>
    <div hidden={kind!=='data'}><RequirementSourcePicker projectId={projectId} onChange={setSource}/></div>
-   <fieldset disabled={busy}><legend>{t('冻结关联材料版本（最多10项，仅本地）')}</legend>{list?.items.map(v=><label key={v.id}><input type="checkbox" checked={materials.includes(v.id)} disabled={!materials.includes(v.id)&&materials.length>=10} onChange={e=>setMaterials(e.target.checked?[...materials,v.id]:materials.filter(x=>x!==v.id))}/>{v.title} · v{v.version} · {v.source.filename}</label>)}<p>{t('已选 {count} 项材料版本',{count:materials.length})}</p><button disabled={page===1} onClick={()=>setPage(n=>n-1)}>{t('上一页材料版本')}</button><button disabled={!list||page*10>=list.total} onClick={()=>setPage(n=>n+1)}>{t('下一页材料版本')}</button></fieldset>
+   <fieldset disabled={busy}><legend>{t('冻结关联材料版本（最多10项，仅本地）')}</legend>{list?.items.map(v=><label key={v.id}><input type="checkbox" checked={materials.includes(v.id)} disabled={!materials.includes(v.id)&&materials.length>=10} onChange={e=>setMaterials(e.target.checked?[...materials,v.id]:materials.filter(x=>x!==v.id))}/>{v.title} · v{v.version} · {v.source.filename}</label>)}<p>{t('已选 {count} 项材料版本',{count:materials.length})}</p><div className="analysis-pagination" hidden={!list||list.total<=10}><button disabled={page===1} onClick={()=>setPage(n=>n-1)}>{t('上一页材料版本')}</button><button disabled={!list||page*10>=list.total} onClick={()=>setPage(n=>n+1)}>{t('下一页材料版本')}</button></div></fieldset>
    <button className="button-primary" disabled={busy||!isResearchRequest(research)||kind==='materials'&&!materials.length||kind==='data'&&!source} onClick={()=>void create()}>{t('冻结需求并检查缺项')}</button>
    {task&&<button type="button" onClick={()=>setView('detail')}>{t('查看所选研究需求')}</button>}
   </div>
@@ -45,7 +45,7 @@ function Content({projectId,files}:{projectId:string;files:ProjectFile[]}) {
   <div hidden={view!=='history'}>
    <h4>{t('研究需求历史')}</h4><button onClick={()=>setRefresh(n=>n+1)}>{t('刷新')}</button>
    {tasks?.items.filter(x=>x.task.input_version.kind==='analysis_plan'&&['analysis_plan_v4','analysis_plan_v5'].includes(x.task.input_version.workflow_version)).map((x,i)=><button key={x.task.id} onClick={()=>{setTask(x.task.id);setView('detail')}}>{t('研究需求 {number} · {status}',{number:(taskPage-1)*10+i+1,status:t(statusNames[x.task.status])})}</button>)}
-   <button disabled={taskPage===1} onClick={()=>setTaskPage(n=>n-1)}>{t('上一页')}</button><button disabled={!tasks||taskPage*10>=tasks.total} onClick={()=>setTaskPage(n=>n+1)}>{t('下一页')}</button>
+   <div className="analysis-pagination" hidden={!tasks||tasks.total<=10}><button disabled={taskPage===1} onClick={()=>setTaskPage(n=>n-1)}>{t('上一页')}</button><button disabled={!tasks||taskPage*10>=tasks.total} onClick={()=>setTaskPage(n=>n+1)}>{t('下一页')}</button></div>
   </div>
   <div hidden={view!=='detail'}><button type="button" onClick={()=>setView('history')}>{t('返回需求历史')}</button>
    {visitedTasks.map(id=><div key={id} hidden={task!==id}><RequirementReview projectId={projectId} taskId={id} onChanged={()=>setRefresh(n=>n+1)}/></div>)}
