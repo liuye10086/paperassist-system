@@ -23,9 +23,9 @@ from app.core.exceptions import StorageError
 
 
 @contextmanager
-def _storage_connection(write=False, config=None):
+def _storage_connection(write=False, config=None, *, serialize_writes=True):
     try:
-        with database_connection(write=write, config=config) as db:
+        with database_connection(write=write, config=config, serialize_writes=serialize_writes) as db:
             yield db
     except ValueError as exc:
         raise StorageError("database_configuration", "PostgreSQL连接配置无效，请检查本项目专用数据库配置。") from exc

@@ -1,4 +1,7 @@
 export const pdfExportMessages:Record<string,string>={
+ '正在核对固定交付成员……':'Checking the fixed delivery members…',
+ '此历史交付包含 PDF，仅保留状态与原请求查询。':'This historical delivery includes PDF. Only its status and original request lookup remain available.',
+ '固定交付快照读取失败，请重试。':'Could not read the fixed delivery snapshot. Try again.',
  '历史 PDF 文件':'Historical PDF files',
  '仅保留已有 PDF 的查看与下载。文档请导出 Word。':'Existing PDF files remain available to view and download. Export documents as Word.',
  '刷新 PDF 状态':'Refresh PDF status','下载 PDF':'Download PDF','查看 PDF 任务':'View PDF task','PDF 文件':'PDF file','下载此任务的 PDF':'Download this task PDF',
@@ -8,6 +11,8 @@ export const pdfExportMessages:Record<string,string>={
  'PDF 图件不再支持，请移除 PDF 后继续；其他草稿内容保留。':'PDF figures are no longer supported. Remove PDF to continue; other draft content is retained.',
  '移除 PDF 格式':'Remove PDF format',
  '新交付不再支持生成的 PDF 成果，请移除此原选择；其他草稿内容保留。':'New deliveries no longer support generated PDF outputs. Remove the previous selection; other draft content is retained.',
+ '新交付不再支持 PDF 成果，请移除此原选择；其他草稿内容保留。':'New deliveries no longer support PDF outputs. Remove the previous selection; other draft content is retained.',
+ '交付不再支持 PDF 必需格式，请移除后继续；其他草稿内容保留。':'PDF is no longer supported as a required delivery format. Remove it to continue; other draft content is retained.',
  '已冻结的 DOCX 来源':'Frozen DOCX source','稿件 v{revision} · DOCX 导出 {number}':'Manuscript v{revision} · DOCX export {number}','集合 v{revision} · 导出 v{export}':'Collection v{revision} · export v{export}',
  '图像观察，不作为统计结论':'Image observations, not statistical conclusions','冻结图表引用':'Frozen figure and table references','表':'Table','候选图注，需人工补充与确认':'Candidate caption; manual completion and confirmation required','图注缺失，待补充':'Caption missing; completion required',
  '冻结版本按来源绑定图表编号；分面标签使用不重复的大写 A–Z。图注与正文引用问题会列入待办，仍需人工通读核对。':'Frozen versions bind figure and table numbers to their sources. Use unique uppercase A–Z panel labels. Caption and body reference issues appear in the checklist; read through and verify the text manually.',

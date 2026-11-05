@@ -155,14 +155,11 @@ test('a controlled plan deep link exposes initial configuration failure and read
  expect(fetch.mock.calls.some(([,init])=>init?.method==='POST')).toBe(false)
 })
 
-test('a selected file without a dataset guides profile and plan back to explicit source selection',async()=>{
+test('a selected file without a dataset keeps later stages locked until explicit source selection',async()=>{
  mockApi();const user=userEvent.setup();await open(user)
- await user.click(screen.getByRole('button',{name:'数据概况'}))
- expect(screen.getByText('请先在字段配置中明确选择数据版本与工作表。')).toBeTruthy()
- await user.click(screen.getByRole('button',{name:'前往字段配置'}))
+ expect(screen.getByRole('button',{name:'数据概况'})).toHaveProperty('disabled',true)
+ expect(screen.getByRole('button',{name:'分析方案'})).toHaveProperty('disabled',true)
  expect(screen.getByRole('combobox',{name:'原始数据版本'})).toBeTruthy()
- await user.click(screen.getByRole('button',{name:'分析方案'}))
- expect(screen.getByRole('button',{name:'前往字段配置'})).toBeTruthy()
 })
 
 test('saving field configuration checks the real figure draft scope before replacing statistics controllers', async () => {

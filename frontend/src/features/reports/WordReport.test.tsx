@@ -18,9 +18,9 @@ it('keeps historical Word downloadable without offering PDF generation',async()=
  });vi.stubGlobal('fetch',fetcher);render(<WordReport {...props} base={base} revision={2}/>);await screen.findByRole('link',{name:'下载 Word 报告'})
  expect(screen.queryByRole('button',{name:'生成 PDF'})).toBeNull()
  expect(screen.getByRole('button',{name:'排版与公式'})).toBeTruthy();expect(fetcher.mock.calls.some(([url])=>url.includes('/layout-exports'))).toBe(false)
- expect(screen.getByRole('link',{name:'下载 Word 报告'})).toBeTruthy();expect(screen.getByText('分析配置 v1')).toBeTruthy()
+ expect(screen.getByRole('link',{name:'下载 Word 报告'})).toBeTruthy();expect(screen.getByText('历史结果')).toBeTruthy()
  expect(fetcher.mock.calls.some(([,i])=>i?.method==='POST')).toBe(false)
- expect(fetcher.mock.calls.some(([url])=>url.includes('pdf-exports?source_kind=report&source_id=report'))).toBe(true)
+ expect(fetcher.mock.calls.some(([url])=>url.includes('/pdf-exports'))).toBe(false);expect(screen.queryByRole('region',{name:/PDF/})).toBeNull()
 })
 afterEach(() => { cleanup(); setLocale('zh-CN'); vi.unstubAllGlobals(); vi.useRealTimers() })
 it.each(['read', 'submit', 'retry'])('loads the artifact when %s already returns success without the report snapshot', async source => {

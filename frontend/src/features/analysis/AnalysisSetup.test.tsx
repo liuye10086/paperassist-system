@@ -449,11 +449,11 @@ test('workflow offers data navigation and explains missing prerequisites', async
   const user = userEvent.setup()
   const openFiles = vi.fn()
   render(<AnalysisSetup projectId="p1" files={files} onOpenFiles={openFiles} />)
-  await user.click(screen.getByRole('button', { name: '数据' }))
+  await user.click(screen.getByRole('button', { name: '返回上传文件' }))
   expect(openFiles).toHaveBeenCalledOnce()
   for (const step of ['图表', '分析解释', 'Word报告']) {
-    await user.click(screen.getByRole('button', { name: step }))
-    expect(screen.getByText('请先选择文件并完成描述统计。', { selector: '.workflow-stage:not([hidden]) p' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: step })).toHaveProperty('disabled',true)
+    expect(screen.getByRole('button', { name: step }).title).toContain('先选择')
   }
 })
 

@@ -23,3 +23,8 @@ it('retains reached pages within a project and isolates that state when changing
   rerender({id:'p1',section:'overview'});expect(result.current.reason('artifacts')).toBe('')
   rerender({id:'p2',section:'overview'});expect(result.current.reason('artifacts')).not.toBe('')
 })
+it('does not use visited analysis pages to bypass upload or a saved requirement',()=>{
+ expect(flowBlockReason(2,{hasFiles:false,requirementSaved:false,reached:4,existingResults:false})).toContain('上传文件')
+ expect(flowBlockReason(3,{hasFiles:true,requirementSaved:false,reached:4,existingResults:false})).toContain('选择并保存需求')
+ expect(flowBlockReason(3,{hasFiles:true,requirementSaved:true,reached:1,existingResults:false})).toBe('')
+})

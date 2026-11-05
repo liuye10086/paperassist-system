@@ -12,14 +12,14 @@ const version={id:'cv1',revision:1,title:'Study report',language:'zh-CN',automat
 const collection={id:'collection1',title:'Study report',current_version_id:'cv1',versions:[version]}
 const props={projectId:'p1',fileId:'f1',source,language:'zh-CN' as const}
 afterEach(()=>{cleanup();vi.unstubAllGlobals();setLocale('zh-CN')})
-test('reads historical PDF for the exact saved collection Word and shows both frozen revisions',async()=>{
+test('keeps collection Word and frozen revisions without PDF history requests',async()=>{
  const report={schema_version:1,id:'collection-report1',filename:'saved.docx',collection_id:'collection1',collection_version_id:'cv1',build_request_id:'request1',export_revision:2,language:'zh-CN',sha256:'a'.repeat(64),input_sha256:'b'.repeat(64),size_bytes:100,engine:{id:'collection_word_v1'}}
  const saved={...collection,versions:[{...version,requests:[{...request,export_revision:2,status:'succeeded',missing:[],report}]}]}
  const fetcher=vi.fn(async(url:string,init?:RequestInit)=>url.includes('/pdf-exports')?init?.method==='POST'?Response.json({detail:{code:'pdf_renderer_unavailable'}},{status:503}):Response.json({items:[]}):Response.json(url.includes('/candidates')?{items:[pending]}:{items:[saved]}));vi.stubGlobal('fetch',fetcher)
  render(<ReportCollections {...props}/>);await screen.findByRole('link',{name:'下载此版本 Word'});expect(screen.queryByRole('button',{name:'生成 PDF'})).toBeNull()
  expect(screen.getByRole('button',{name:'排版与公式'})).toBeTruthy();expect(fetcher.mock.calls.some(([url])=>url.includes('/layout-exports'))).toBe(false)
- expect(screen.getByRole('link',{name:'下载此版本 Word'})).toBeTruthy();expect(screen.getByText(/集合 v1 · 导出 v2/)).toBeTruthy();expect(fetcher.mock.calls.some(([,i])=>i?.method==='POST')).toBe(false)
- expect(fetcher.mock.calls.some(([url])=>url.includes('pdf-exports?source_kind=collection_report&source_id=collection-report1'))).toBe(true)
+ expect(screen.getByRole('link',{name:'下载此版本 Word'})).toBeTruthy();expect(screen.getByText(/导出版本 2/)).toBeTruthy();expect(fetcher.mock.calls.some(([,i])=>i?.method==='POST')).toBe(false)
+ expect(fetcher.mock.calls.some(([url])=>url.includes('/pdf-exports'))).toBe(false);expect(screen.queryByRole('region',{name:/PDF/})).toBeNull()
 })
 test('pending figure selection saves an exact configuration dependency without paid work',async()=>{
  const fetch=vi.fn(async(url:string,init?:RequestInit)=>Response.json(init?.method==='POST'?collection:url.includes('/candidates')?{items:[pending]}:{items:[]}));vi.stubGlobal('fetch',fetch)

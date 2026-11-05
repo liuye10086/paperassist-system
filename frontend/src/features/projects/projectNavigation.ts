@@ -4,9 +4,10 @@ import { isTaskId } from '../tasks/taskTypes';
 import type { ResourceNavigation } from './resourceViews';
 import { reviewViews, taskDetailViews, type ReviewView, type TaskDetailView } from './reviewViews';
 import type { LiteratureNavigation } from './literatureViews';
-import { analysisViews, bioResultTabs, type AnalysisNavigation, type ArtifactNavigation } from './analysisViews';
+import { analysisEntryIntents, analysisViews, bioResultTabs, type AnalysisNavigation, type ArtifactNavigation } from './analysisViews';
 import { manuscriptViews, journalViews, schoolTemplateViews, type ManuscriptView, type JournalView, type SchoolTemplateNavigation } from './manuscriptViews';
 export type OverviewView = 'tasks' | 'settings' | 'activity' | 'usage' | 'requirements' | 'deliveries' | 'design';
+export type WritingSource = { kind: 'research_finding_version' | 'research_figure_version' | 'research_report_version'; id: string; setId?: string };
 export type NavigationRoute = {
     workspaceView: WorkspaceView;
     projectId: string;
@@ -23,6 +24,8 @@ export type NavigationRoute = {
     artifactNavigation: ArtifactNavigation;
     adaptationId: string;
     researchCandidateId?: string;
+    writingSource?: WritingSource;
+    writingDeliveryId?: string;
     deliveryId?:string;
     deliverySnapshotId?:string;
     manuscriptView: ManuscriptView;
@@ -58,7 +61,7 @@ export function parseNavigation(hash: string): NavigationRoute | null {
     if (!['overview', 'files', 'analysis', 'artifacts', 'tasks', 'literature', 'manuscripts', 'reviews', 'school-templates', 'journals'].includes(section))
         return null;
     r.section = section as ProjectSection;
-    const keys: Record<string, string[]> = { overview: ['view','delivery','snapshot'], analysis:['planId','planVersionId','runId','resultVersionId','resourceVersionId','view','file','import','dataset','version','setup','run','processed','tab','annotationSet','annotationVersion','figure'], artifacts:['view','artifact','kind','page'], files: ['view','file'], tasks: ['view','task'], literature: ['search','view','reference'], manuscripts: ['view','manuscript', 'revision','candidate'], reviews: ['view','item','round', 'reviewManuscript', 'reviewRevision', 'reviewRun', 'reviewDocument'], journals: ['view','adaptation'], 'school-templates':['view','template'] };
+    const keys: Record<string, string[]> = { overview: ['view','delivery','snapshot'], analysis:['requirement','scope','intent','planId','planVersionId','runId','resultVersionId','resourceVersionId','view','file','import','dataset','version','setup','run','processed','tab','annotationSet','annotationVersion','figure','findingSet','findingVersion'], artifacts:['view','artifact','kind','page'], files: ['view','file','quality','import','dataset','version','setup','run','processed','tab','annotationSet','annotationVersion','figure'], tasks: ['view','task'], literature: ['search','view','reference'], manuscripts: ['view','manuscript', 'revision','candidate','sourceKind','sourceId','sourceSet','writingDelivery'], reviews: ['view','item','round', 'reviewManuscript', 'reviewRevision', 'reviewRun', 'reviewDocument'], journals: ['view','adaptation'], 'school-templates':['view','template'] };
     if ([...p.keys()].some(k => !['project', 'section', ...(keys[section] ?? [])].includes(k)))
         return null;
     const id = (key: string) => !p.has(key) || validId(p.get(key)!);
@@ -88,20 +91,34 @@ export function parseNavigation(hash: string): NavigationRoute | null {
     }
     if (section === 'files') {
         const view = p.get('view') ?? 'list';
-        if (!['list','upload','detail','preview'].includes(view) || !id('file') || ['detail','preview'].includes(view) !== p.has('file'))
+        if (!['list','upload','detail','preview','quality'].includes(view) || !id('file') || (view !== 'quality' && ['detail','preview'].includes(view) !== p.has('file')))
             return null;
         r.resourceNavigation = {view:view as ResourceNavigation['view'],fileId:p.get('file') ?? ''};
+        if (view === 'quality' && p.has('quality')) {
+            const bioView = p.get('quality')!;
+            if (!['bio-datasets','bio-import','bio-dataset','bio-analysis-setup','bio-analysis','bio-result','bio-annotation','bio-figure'].includes(bioView) || p.has('file')) return null;
+            const nested = new URLSearchParams(p);
+            nested.set('section','analysis'); nested.set('view',bioView); nested.delete('quality');
+            const parsed = parseNavigation('#' + nested);
+            if (!parsed) return null;
+            r.resourceNavigation.bio = parsed.analysisNavigation;
+        } else if ([...p.keys()].some(key => !['project','section','view','file'].includes(key))) return null;
     }
     if (section === 'analysis') {
         const view = p.get('view') ?? 'overview';
+        if(p.has('requirement')!==p.has('scope') || !id('requirement') || p.has('scope')&&!/^[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)*$/.test(p.get('scope')!) || (p.get('scope')?.length??0)>160 || p.has('intent')&&(!p.has('requirement')||!(analysisEntryIntents as readonly string[]).includes(p.get('intent')!)))return null;
         if (!(analysisViews as readonly string[]).includes(view) || !id('file')) return null;
-        if(isInsightView(view)){if([...p.keys()].some(k=>!['project','section','view','planId','planVersionId','runId','resultVersionId','resourceVersionId','processed'].includes(k))||!['planId','planVersionId','runId','resultVersionId','resourceVersionId','processed'].every(id))return null;} else if (view.startsWith('bio-')) {
+        if(isInsightView(view)){if([...p.keys()].some(k=>!['project','section','view','requirement','scope','intent','planId','planVersionId','runId','resultVersionId','resourceVersionId','processed'].includes(k))||!['planId','planVersionId','runId','resultVersionId','resourceVersionId','processed'].every(id))return null;} else if (view.startsWith('bio-')) {
             const identities:Record<string,string[]>={'bio-datasets':[],'bio-import':['import'],'bio-dataset':['dataset','version'],'bio-analysis-setup':['setup'],'bio-analysis':['run'],'bio-result':['processed','tab'],'bio-annotation':['annotationSet','annotationVersion'],'bio-figure':['figure']};
-            const required=identities[view];
-            if (!required || [...p.keys()].some(k=>!['project','section','view',...required].includes(k)) || required.some(k=>!p.has(k)||!id(k))) return null;
+            const required=identities[view],entryFile=view==='bio-datasets'&&p.has('requirement')&&p.get('intent')==='bio'?['file']:[];
+            if (!required || [...p.keys()].some(k=>!['project','section','view','requirement','scope','intent',...entryFile,...required].includes(k)) || required.some(k=>!p.has(k)||!id(k))) return null;
             if(view==='bio-result'&&!(bioResultTabs as readonly string[]).includes(p.get('tab')!))return null;
-        } else if (view==='research-findings') { if (['import','dataset','version','setup','run','tab','annotationSet','annotationVersion','figure'].some(k=>p.has(k))||!id('processed')) return null; } else if (['import','dataset','version','setup','run','processed','tab','annotationSet','annotationVersion','figure'].some(k => p.has(k))) return null;
+        } else if (view==='research-findings') { if (['import','dataset','version','setup','run','tab','annotationSet','annotationVersion','figure'].some(k=>p.has(k))||!id('processed')||p.has('findingSet')!==p.has('findingVersion')||!id('findingSet')||!id('findingVersion')) return null; } else if (['import','dataset','version','setup','run','processed','tab','annotationSet','annotationVersion','figure'].some(k => p.has(k))) return null;
+        if(view!=='research-findings'&&(p.has('findingSet')||p.has('findingVersion')))return null;
         r.analysisNavigation = {view:view as AnalysisNavigation['view'],fileId:p.get('file') ?? ''};
+        if(p.has('findingSet')){r.analysisNavigation.findingSetId=p.get('findingSet')!;r.analysisNavigation.findingVersionId=p.get('findingVersion')!;}
+        if(p.has('requirement'))r.analysisNavigation.entry={requirementVersionId:p.get('requirement')!,scopeItemId:p.get('scope')!};
+        if(p.has('intent'))r.analysisNavigation.intent=p.get('intent')! as AnalysisNavigation['intent'];
         const fields={planId:'planId',planVersionId:'planVersionId',runId:'runId',resultVersionId:'resultVersionId',resourceVersionId:'resourceVersionId',import:'importId',dataset:'datasetId',version:'versionId',setup:'setupId',run:'runId',processed:'processedId',tab:'tab',annotationSet:'annotationSetId',annotationVersion:'annotationVersionId',figure:'figureId'} as const;
         for(const [key,field] of Object.entries(fields))if(p.has(key))Object.assign(r.analysisNavigation,{[field]:p.get(key)!});
     }
@@ -126,7 +143,12 @@ export function parseNavigation(hash: string): NavigationRoute | null {
         const view = p.get('view') ?? (p.has('manuscript') ? 'body' : 'list');
         if (!(manuscriptViews as readonly string[]).includes(view)) return null;
         if (!id('candidate') || p.has('candidate') && view!=='research-candidates') return null;
+        const writingKinds = ['research_finding_version','research_figure_version','research_report_version'] as const;
+        if ((p.has('sourceKind') || p.has('sourceId')) && (view !== 'research-selection' || !p.has('sourceKind') || !p.has('sourceId') || !writingKinds.includes(p.get('sourceKind') as typeof writingKinds[number]) || !id('sourceId'))) return null;
+        if(!id('writingDelivery')||p.has('writingDelivery')&&view!=='research-selection'||!id('sourceSet')||p.has('sourceSet')&&(!p.has('sourceId')||p.get('sourceKind')!=='research_finding_version'))return null;
+        if(p.has('writingDelivery'))r.writingDeliveryId=p.get('writingDelivery')!;
         r.researchCandidateId=p.get('candidate')??'';
+        if (p.has('sourceKind')) r.writingSource={kind:p.get('sourceKind') as typeof writingKinds[number],id:p.get('sourceId')!,...(p.has('sourceSet')?{setId:p.get('sourceSet')!}:{})};
         r.manuscriptView = view as ManuscriptView;
         if (p.has('manuscript') !== p.has('revision') || p.has('manuscript') && (!id('manuscript') || !revision('revision')))
             return null;
@@ -160,6 +182,13 @@ export function serializeNavigation(r: NavigationRoute): string {
     if (r.section === 'files') {
         if (r.resourceNavigation.view !== 'list') p.set('view', r.resourceNavigation.view);
         if (['detail','preview'].includes(r.resourceNavigation.view)) p.set('file', r.resourceNavigation.fileId);
+        if (r.resourceNavigation.view === 'quality') {
+            if (r.resourceNavigation.bio) {
+                const nested = new URLSearchParams(serializeNavigation({...homeRoute(),workspaceView:'project',projectId:r.projectId,section:'analysis',analysisNavigation:r.resourceNavigation.bio}).slice(1));
+                nested.delete('project'); nested.delete('section');
+                for (const [key,value] of nested) p.set(key === 'view' ? 'quality' : key, value);
+            } else if (r.resourceNavigation.fileId) p.set('file',r.resourceNavigation.fileId);
+        }
     }
     if (r.section === 'literature') {
         if (r.literatureNavigation.view !== 'list') p.set('view', r.literatureNavigation.view);
@@ -169,12 +198,14 @@ export function serializeNavigation(r: NavigationRoute): string {
         p.set('search', r.literatureSearchId);
     if (r.section === 'analysis') {
         if (r.analysisNavigation.view !== 'overview') p.set('view', r.analysisNavigation.view);
-        if (!r.analysisNavigation.view.startsWith('bio-') && r.analysisNavigation.fileId) p.set('file', r.analysisNavigation.fileId);
+        if ((!r.analysisNavigation.view.startsWith('bio-') || r.analysisNavigation.view==='bio-datasets'&&r.analysisNavigation.entry&&r.analysisNavigation.intent==='bio') && r.analysisNavigation.fileId) p.set('file', r.analysisNavigation.fileId);
         if (r.analysisNavigation.view === 'bio-import' && r.analysisNavigation.importId) p.set('import',r.analysisNavigation.importId);
         if (r.analysisNavigation.view === 'bio-dataset' && r.analysisNavigation.datasetId && r.analysisNavigation.versionId) { p.set('dataset',r.analysisNavigation.datasetId); p.set('version',r.analysisNavigation.versionId); }
         const a=r.analysisNavigation;
+        if(a.entry){p.set('requirement',a.entry.requirementVersionId);p.set('scope',a.entry.scopeItemId);if(a.intent)p.set('intent',a.intent);}
         if(isInsightView(a.view)){for(const key of ['planId','planVersionId','runId','resultVersionId','resourceVersionId'] as const)if(a[key])p.set(key,a[key]);if(a.processedId)p.set('processed',a.processedId);}
         if(a.view==='research-findings'&&a.processedId)p.set('processed',a.processedId);
+        if(a.view==='research-findings'&&a.findingSetId&&a.findingVersionId){p.set('findingSet',a.findingSetId);p.set('findingVersion',a.findingVersionId);}
         if(a.view==='bio-analysis-setup'&&a.setupId)p.set('setup',a.setupId);
         if(a.view==='bio-analysis'&&a.runId)p.set('run',a.runId);
         if(a.view==='bio-result'&&a.processedId&&a.tab){p.set('processed',a.processedId);p.set('tab',a.tab);}
@@ -195,6 +226,8 @@ export function serializeNavigation(r: NavigationRoute): string {
     }
     if (r.section === 'manuscripts' && r.manuscriptView !== (r.manuscriptLink.id ? 'body' : 'list')) p.set('view',r.manuscriptView);
     if (r.section === 'manuscripts' && r.manuscriptView==='research-candidates' && r.researchCandidateId) p.set('candidate',r.researchCandidateId);
+    if (r.section === 'manuscripts' && r.manuscriptView==='research-selection' && r.writingSource) { p.set('sourceKind',r.writingSource.kind); p.set('sourceId',r.writingSource.id); if(r.writingSource.setId)p.set('sourceSet',r.writingSource.setId); }
+    if(r.section==='manuscripts'&&r.manuscriptView==='research-selection'&&r.writingDeliveryId)p.set('writingDelivery',r.writingDeliveryId);
     if (r.section === 'journals' && r.adaptationId)
         p.set('adaptation', r.adaptationId);
     if (r.section === 'manuscripts' && r.manuscriptLink.id) {
@@ -219,4 +252,11 @@ export function serializeNavigation(r: NavigationRoute): string {
         }
     }
     return '#' + p.toString();
+}
+
+export function isFixedWritingNavigation(r:NavigationRoute):boolean {
+ const s=r.writingSource;if(!s)return false;
+ if(r.section==='manuscripts'&&r.manuscriptView==='research-selection')return true;
+ if(s.kind==='research_finding_version')return r.section==='analysis'&&r.analysisNavigation.view==='research-findings'&&!!s.setId&&r.analysisNavigation.findingSetId===s.setId&&r.analysisNavigation.findingVersionId===s.id;
+ return r.section==='artifacts'&&r.artifactNavigation.view===(s.kind==='research_figure_version'?'research-figures':'research-reports')&&r.artifactNavigation.artifactId===s.id;
 }

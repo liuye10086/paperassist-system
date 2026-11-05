@@ -5,6 +5,7 @@ from app.domain.dataset_preparation.service import require_key
 from copy import deepcopy
 from .contracts import FindingVersionRequest,ResearchConflict
 from .sources import ResearchSourceReader
+from .frozen_projection import matches_frozen_source
 
 
 class ResearchFindingService(ResearchResultsStore):
@@ -115,7 +116,7 @@ class ResearchFindingService(ResearchResultsStore):
         for source in content['sources']:
             selected={k:source[k] for k in ('schema_version','source_kind','source_id','locator','sha256')}
             current=self.reader.read_source(project,selected,db=db,progress=progress)
-            if current.model_dump(mode='json')!=source:raise invalid()
+            if not matches_frozen_source(current.model_dump(mode='json'),source):raise invalid()
         return self.format_view(row,content)
 
     @staticmethod

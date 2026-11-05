@@ -1,3 +1,4 @@
+import {useState} from 'react'
 import { useI18n } from '../../shared/i18n'
 import { artifactFilename } from '../../shared/components/artifactFilename'
 import ProjectDownloadLink from '../../shared/components/ProjectDownloadLink'
@@ -6,7 +7,7 @@ import type { ProjectSummaryData, SummaryArtifact } from './projectSummaryTypes'
 
 type Props = { showNavigation?:boolean; projectId:string; data:ProjectSummaryData; navigation:ArtifactNavigation; onNavigate:(next:ArtifactNavigation)=>void }
 export default function ArtifactLibrary({projectId,data,navigation,onNavigate,showNavigation=true}:Props) {
-  const {t,locale}=useI18n()
+  const {t,locale}=useI18n();const [detailView,setDetailView]=useState('summary')
   const filename=(item:SummaryArtifact)=>item.collection_id?t('集合报告-v{version}-导出{export}.docx',{version:item.collection_revision!,export:item.export_revision!}):artifactFilename(item.download_filename,item.kind,item.id,item.setup_revision,locale)
   const selected=data.artifacts.items.find(item=>item.id===navigation.artifactId&&item.kind===navigation.kind)
   const pages=Math.max(1,Math.ceil(data.artifacts.total/10))
@@ -31,7 +32,7 @@ export default function ArtifactLibrary({projectId,data,navigation,onNavigate,sh
     {navigation.view==='detail'&&(selected?<section className="artifact-detail" aria-label={t('成果详情')}>
       <div className="artifact-detail-heading"><div><span className="workspace-eyebrow">{t(selected.kind==='figure'?'PNG 图表':'Word 分析报告')}</span><h4>{filename(selected)}</h4><p>{selected.collection_title??selected.filename}</p></div>
         <ProjectDownloadLink href={selected.download_url} filename={filename(selected)} ariaLabel={t('下载成果 {name}',{name:filename(selected)})}>{t('下载文件')}</ProjectDownloadLink></div>
-      <dl className="artifact-detail-grid"><div><dt>{t('来源文件')}</dt><dd>{selected.filename}</dd></div>
+      <nav className="result-view-tabs" aria-label={t('成果详情视图')}><button type="button" onClick={list}>{t('返回成果列表')}</button>{[['summary','成果信息'],['sources','来源与校验']].map(([key,label])=><button type="button" key={key} aria-pressed={detailView===key} onClick={()=>setDetailView(key)}>{t(label)}</button>)}</nav><dl className="artifact-detail-grid" hidden={detailView!=='summary'}><div><dt>{t('来源文件')}</dt><dd>{selected.filename}</dd></div>
         <div><dt>{t('记录时间')}</dt><dd>{new Date(selected.recorded_at).toLocaleString(locale)}</dd></div>
         <div><dt>{t('成果类型')}</dt><dd>{t(selected.collection_id?'同源多结果集合':selected.kind==='figure'?'PNG 图表':'Word 分析报告')}</dd></div>
         <div><dt>{t('版本状态')}</dt><dd>{t(selected.collection_id?'冻结集合版本':selected.current_revision===null?'当前设置未记录':selected.setup_revision===selected.current_revision?'当前结果':'历史结果')}</dd></div>
@@ -39,7 +40,7 @@ export default function ArtifactLibrary({projectId,data,navigation,onNavigate,sh
         {selected.collection_revision!=null&&<div><dt>{t('集合版本')}</dt><dd>{selected.collection_revision} · {t('导出版本')} {selected.export_revision}</dd></div>}
         <div><dt>{t('文件大小')}</dt><dd>{selected.size_bytes.toLocaleString(locale)} {t('字节')}</dd></div>
         <div><dt>{t('分析引擎')}</dt><dd>{selected.engine_version}</dd></div></dl>
-      <section className="artifact-source-identifiers"><h4>{t('固定来源与校验标识')}</h4><dl>
+      <section className="artifact-source-identifiers" hidden={detailView!=='sources'}><h4>{t('固定来源与校验标识')}</h4><dl>
         <dt>{t('成果标识')}</dt><dd>{selected.id}</dd>
         {selected.analysis_run_id&&<><dt>{t('分析运行标识')}</dt><dd>{selected.analysis_run_id}</dd></>}
         {selected.figure_config_version_id&&<><dt>{t('图表配置版本')}</dt><dd>{selected.figure_config_version_id}</dd></>}

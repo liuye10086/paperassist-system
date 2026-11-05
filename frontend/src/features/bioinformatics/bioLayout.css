@@ -1,0 +1,24 @@
+.bio-module-workspace{min-width:0}
+.bio-workspace-header,.bio-workspace-status{display:flex;align-items:center;flex-wrap:wrap;gap:8px 16px}
+.bio-workspace-header h2,.bio-workspace-status p{margin:0}
+.bio-workspace-header>span{color:var(--text-muted);overflow-wrap:anywhere}
+.bio-workspace-header>button{margin-left:auto}
+.bio-workspace-status{margin:12px 0}
+.bio-confirmation-actions{display:flex;align-items:center;flex-wrap:wrap;gap:12px 20px;padding-top:12px;border-top:1px solid var(--border)}
+.bio-confirmation-actions .intake-check{flex:1 1 360px;margin:0}
+.bio-module-workspace>.module-views{margin:10px 0}
+.bio-module-workspace>.module-views>.module-view-content .bio-workspace{padding:0;border:0}
+.bio-module-workspace .module-view-content>.bio-mapping{margin-top:0;padding-top:0;border-top:0}
+.bio-module-workspace .module-view-content>fieldset{margin:0}
+.bio-module-workspace .module-view-content .intake-rows{grid-template-columns:repeat(auto-fit,minmax(180px,1fr))}
+.bio-module-workspace>.intake-actions{margin-top:12px}
+@media(max-width:600px){.bio-workspace-header>button{margin-left:0}.bio-confirmation-actions{align-items:stretch}}
+@media(min-width:641px){
+ .project-files-page:has(>.resource-bio-body:not([hidden]) .bio-module-workspace){display:flex;flex-direction:column;height:max(480px,calc(100dvh - 116px));min-height:0}
+ .resource-bio-body:has(.bio-module-workspace),.analysis-bio-body:has(.bio-module-workspace){display:flex;flex-direction:column;flex:1;min-height:0;max-height:none;overflow:hidden}
+ .resource-bio-body>div:has(>.bio-module-workspace),.analysis-bio-body>div:has(>.bio-module-workspace){display:flex;flex-direction:column;flex:1;min-height:0}
+ .resource-bio-body .bio-module-workspace,.analysis-bio-body .bio-module-workspace{display:flex;flex-direction:column;flex:1;min-height:0}
+ .resource-bio-body .bio-module-workspace>.module-views,.analysis-bio-body .bio-module-workspace>.module-views{display:flex;flex-direction:column;flex:1;min-height:0}
+ .resource-bio-body .bio-module-workspace>.module-views>.module-view-content,.analysis-bio-body .bio-module-workspace>.module-views>.module-view-content{flex:1;min-height:0;max-height:none;overflow:auto}
+ .bio-module-workspace>.module-views>nav,.bio-module-workspace>.bio-workspace-header,.bio-module-workspace>.bio-workspace-status,.bio-module-workspace>.bio-confirmation-actions,.bio-module-workspace>.intake-actions{flex-shrink:0}
+}

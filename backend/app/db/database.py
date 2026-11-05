@@ -222,7 +222,7 @@ def _write_lock(connection: Connection, config: DatabaseConfig, *, capture: bool
 @contextmanager
 def database_connection(
     write: bool = False, config: DatabaseConfig | None = None,
-    *, capture: bool = False,
+    *, capture: bool = False, serialize_writes: bool = True,
 ) -> Iterator[DatabaseConnection]:
     config = config or get_database_config()
     if config.purpose != "runtime":
@@ -235,11 +235,13 @@ def database_connection(
                 connection.exec_driver_sql("SET TRANSACTION READ ONLY")
             _set_numeric_timeout(connection, capture=capture)
             _set_schema(connection, config.schema)
-            if write:
+            if write and serialize_writes:
                 # SQLite previously serialized writes with BEGIN IMMEDIATE.
                 # Take the lock before any business reads at READ COMMITTED so
                 # a waiting writer observes the preceding writer's commit.
                 _write_lock(connection, config, capture=capture)
+            # Opting out is only safe when the caller supplies row-level
+            # concurrency control; ordinary business writes retain the fence.
             yield DatabaseConnection(connection, config, capture=capture)
             # Check immediately before transaction commit; no expired node may
             # publish after its last business statement.

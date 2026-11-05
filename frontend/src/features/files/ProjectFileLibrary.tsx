@@ -9,10 +9,11 @@ import './fileLibrary.css'
 import type { ResourceNavigation } from '../projects/resourceViews'
 import type { RegisterLeaveGuard } from '../projects/useDraftLeaveGuard'
 
-export default function ProjectFileLibrary({ projectId, active, uploadVersion, busy, previewState, onPreview, onUnavailable, resourceNavigation, onResourceNavigate, registerLeaveGuard }: {
+export default function ProjectFileLibrary({ projectId, active, uploadVersion, busy, previewState, onPreview, onUnavailable, resourceNavigation, onResourceNavigate, registerLeaveGuard, onReloadMaterials }: {
   projectId: string; active: boolean; uploadVersion: number; busy: boolean; previewState: SavedPreviewState | null
   onPreview: (id: string) => void; onUnavailable: () => void
   resourceNavigation?: ResourceNavigation; onResourceNavigate?: (next: ResourceNavigation) => void; registerLeaveGuard?: RegisterLeaveGuard
+  onReloadMaterials?: () => void
 }) {
   const { t, locale } = useI18n()
   const [page, setPage] = useState(1)
@@ -23,7 +24,7 @@ export default function ProjectFileLibrary({ projectId, active, uploadVersion, b
   const [seenUpload, setSeenUpload] = useState(uploadVersion)
   const [localNavigation, setLocalNavigation] = useState<ResourceNavigation>({ view: 'list', fileId: '' })
   const navigation = resourceNavigation ?? localNavigation
-  const selected = navigation.view === 'detail' ? navigation.fileId : null
+  const selected = ['detail','quality'].includes(navigation.view) && navigation.fileId ? navigation.fileId : null
   const [visited, setVisited] = useState<string[]>(selected ? [selected] : [])
   const [documentPreview, setDocumentPreview] = useState<string | null>(null)
   if (selected && !visited.includes(selected)) setVisited(current => [...current, selected])
@@ -78,7 +79,7 @@ export default function ProjectFileLibrary({ projectId, active, uploadVersion, b
     <section hidden={navigation.view !== 'list'} className="file-history" aria-labelledby="files-title">
       <div className="preview-heading"><div><h2 id="files-title">{t('项目文件')}</h2>
         </div>
-        <button type="button" disabled={loading || busy} onClick={() => setAttempt(value => value + 1)}>{t('刷新文件列表')}</button></div>
+        <button type="button" disabled={loading || busy} onClick={() => { setAttempt(value => value + 1); onReloadMaterials?.() }}>{t('刷新文件列表')}</button></div>
       {loading && <p role="status">{t('正在读取文件列表……')}</p>}
       {error && <p className="error-panel" role="alert">{t(error)}</p>}
       {!loading && !error && result?.total === 0 && <p>{t('此项目还没有文件。')}</p>}
@@ -112,6 +113,6 @@ export default function ProjectFileLibrary({ projectId, active, uploadVersion, b
         </nav>}
     </section>
     {visited.map(id => <div key={id} hidden={selected !== id}><FileDetails projectId={projectId} fileId={id}
-      active={active && selected === id} initialTask={documentPreview === id ? 'document' : undefined} registerLeaveGuard={registerLeaveGuard} onUnavailable={onUnavailable} onUpdated={updated} /></div>)}
+      active={active && selected === id} initialTask={navigation.view==='quality'&&selected===id?'structure':documentPreview === id ? 'document' : undefined} registerLeaveGuard={registerLeaveGuard} onUnavailable={onUnavailable} onUpdated={updated} /></div>)}
   </>
 }

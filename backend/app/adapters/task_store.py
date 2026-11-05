@@ -60,6 +60,20 @@ class DatasetTaskAssets:
 
     def original(self, record):
         from app.adapters.file_objects import LocalFileObjects
+        if 'object_key' not in record:
+            # Public file projections deliberately hide storage keys. Batch
+            # uploads do not use the legacy files/{id}.xlsx location; resolve
+            # their private locator within this owner's project before reading.
+            scoped = TaskStore(self.owner_id, self.db_config)
+            with scoped.connection() as db:
+                scoped.require_project(db, record['project_id'])
+                row = db.execute('SELECT object_key,storage_backend FROM files WHERE id=%s AND project_id=%s',
+                                 (record['id'], record['project_id'])).fetchone()
+                if row is None:
+                    raise source_conflict()
+            # Keep the caller's fixed size/hash so stale or altered snapshots
+            # still fail the original immutable-byte check.
+            record = {**record, 'object_key': row['object_key'], 'storage_backend': row['storage_backend']}
         return LocalFileObjects(self.directory).original(record)
 
     def file(self, project_id, file_id):

@@ -30,7 +30,7 @@ function FileDetailsContent({ projectId, fileId, active, onUnavailable, onUpdate
   const [previousInitialTask, setPreviousInitialTask] = useState(initialTask)
   if (previousInitialTask !== initialTask) {
     setPreviousInitialTask(initialTask)
-    if (initialTask === 'document') { setTask('document'); setVisitedTasks(current => current.includes('document') ? current : [...current, 'document']) }
+    if (initialTask !== 'info') { setTask(initialTask); setVisitedTasks(current => current.includes(initialTask) ? current : [...current, initialTask]) }
   }
   const mounted = useRef(true)
   const saveController = useRef<AbortController | null>(null)
@@ -110,7 +110,7 @@ function FileDetailsContent({ projectId, fileId, active, onUnavailable, onUpdate
     {loading && <p role="status">{t('正在读取文件详情……')}</p>}
     {error && <p className="error-panel" role="alert">{t(error)}</p>}
     {detail && <>
-      {['bio_bundle','bio_component'].includes(detail.file_type)&&<p>{t('已保存，待生信导入')} · <a href={`#project=${encodeURIComponent(projectId)}&section=analysis&view=bio-datasets`}>{t('生信数据集')}</a></p>}
+      {['bio_bundle','bio_component'].includes(detail.file_type)&&<p>{t('已保存，待生信导入')} · <a href={`#project=${encodeURIComponent(projectId)}&section=files&view=quality&quality=bio-datasets`}>{t('生信数据集')}</a></p>}
       <nav className="material-task-nav" aria-label={t('文件任务')}>
         <button type="button" aria-pressed={task === 'info'} onClick={() => showTask('info')}>{t('文件信息与用途')}</button>
         <button type="button" aria-pressed={task === 'lifecycle'} onClick={() => showTask('lifecycle')}>{t('生命周期')}</button>

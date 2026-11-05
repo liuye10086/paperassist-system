@@ -7,6 +7,7 @@ from app.domain.bioinformatics.service import require_key,append_checkpoint
 from .contracts import ResearchFigureRequest
 from .figure_members import read_figure_panel,research_figure_source
 from .task_contracts import input_version
+from .frozen_projection import frozen_source_projection,matches_frozen_source
 from app.domain.source_byte_verification import VerificationPhase, require_phase, phase_guard
 
 
@@ -26,7 +27,10 @@ class ResearchFigureService(ResearchResultsStore):
         reader=self.reader();sources=[];panels=[];raws=[]
         if frozen_panels is not None and len(frozen_panels)!=len(request.panels):raise invalid()
         for index,panel in enumerate(request.panels):
-            source,member,raw=read_figure_panel(reader,db,project,panel,phase=phase,progress=progress,figure_language=request.figure_language,frozen_panel=frozen_panels[index] if frozen_panels is not None else None);sources.append(source);panels.append(member);raws.append(raw)
+            source,member,raw=read_figure_panel(reader,db,project,panel,phase=phase,progress=progress,figure_language=request.figure_language,frozen_panel=frozen_panels[index] if frozen_panels is not None else None)
+            if frozen_panels is not None:
+                member['source']=frozen_source_projection(member['source'],frozen_panels[index]['source'])
+            sources.append(source);panels.append(member);raws.append(raw)
         columns=min(request.columns,len(panels));width=round(request.width_mm/25.4*request.dpi);margin=round(request.margin_mm/25.4*request.dpi)
         cell=(width-(columns+1)*margin)//columns
         from app.adapters.research_figure_render import label_font
@@ -97,7 +101,9 @@ class ResearchFigureService(ResearchResultsStore):
         from .contracts import FrozenResearchFigureRequest
         request=FrozenResearchFigureRequest.model_validate(snapshot['config'])
         _,panels,raws,caption_sources,facts=self._frozen_in_phase(db,task['project_id'],request,phase=phase,progress=progress,frozen_panels=snapshot['panels'])
-        if panels!=snapshot['panels'] or facts!=snapshot['caption_facts'] or [s.model_dump(mode='json') for s in caption_sources]!=snapshot['caption_sources']:raise invalid()
+        if (panels!=snapshot['panels'] or facts!=snapshot['caption_facts']
+            or len(caption_sources)!=len(snapshot['caption_sources'])
+            or any(not matches_frozen_source(s.model_dump(mode='json'),old) for s,old in zip(caption_sources,snapshot['caption_sources']))):raise invalid()
         return dict(config=snapshot['config'],panels=[{k:v for k,v in panel.items() if k!='statistics_png'} for panel in panels],raws=raws,caption_facts=facts)
 
     def get(self,project,identifier,*,progress=None):

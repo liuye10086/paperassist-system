@@ -13,6 +13,7 @@ from app.domain.bioinformatics.contracts import digest
 from .contracts import FrozenResearchSource,ResearchSourceSelection,ResearchLocator,ResearchFactCatalog
 from .bio_projection import project_bio_facts
 from .external_projection import project_external_facts
+from .frozen_projection import matches_frozen_source
 
 
 def document_page_items(items,page):
@@ -97,7 +98,7 @@ class ResearchSourceReader(ResearchResultsStore):
                     # transaction and recursion chain; compare its frozen value
                     # without hashing every upstream matrix a second time.
                     current=resolved[(frozen['source_kind'],frozen['source_id'],digest(frozen['locator']),frozen['sha256'])]
-                    if current.model_dump(mode='json')!=frozen:raise invalid()
+                    if not matches_frozen_source(current.model_dump(mode='json'),frozen):raise invalid()
             value=dict(title=value.get('title',row['id']),sha256=sha,provenance='research_derived',source_file_ids=sorted(source_files),content=value)
         else:raise invalid('research_source_unsupported',422)
         if selection.sha256 is not None and selection.sha256!=value['sha256']:raise invalid()

@@ -6,6 +6,17 @@ import { WorkflowProvider, WorkflowStage, WorkflowNavigation } from './AnalysisW
 
 afterEach(cleanup)
 
+test('locks later table stages until their source and saved configuration exist', async()=>{
+ const view=render(<WorkflowProvider><WorkflowNavigation readiness={{source:false,configured:false}}/></WorkflowProvider>)
+ expect(screen.getByRole('button',{name:'分析方案'})).toHaveProperty('disabled',true)
+ expect(screen.getByRole('button',{name:'统计结果'})).toHaveProperty('disabled',true)
+ view.rerender(<WorkflowProvider><WorkflowNavigation readiness={{source:true,configured:false}}/></WorkflowProvider>)
+ expect(screen.getByRole('button',{name:'分析方案'})).toHaveProperty('disabled',false)
+ expect(screen.getByRole('button',{name:'统计结果'})).toHaveProperty('disabled',true)
+ view.rerender(<WorkflowProvider><WorkflowNavigation readiness={{source:true,configured:true}}/></WorkflowProvider>)
+ expect(screen.getByRole('button',{name:'统计结果'})).toHaveProperty('disabled',false)
+})
+
 test('stages stay mounted and retain drafts while navigation changes visibility', async () => {
   const mounted = vi.fn()
   const unmounted = vi.fn()

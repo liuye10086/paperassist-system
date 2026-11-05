@@ -623,8 +623,7 @@ class Acceptance:
             self.wait(export['task_id'])
             export = self.get(endpoint + '/exports/' + export['id'])
             self.bytes(dict(export, key='analysis', format='docx'), self.output / kind)
-            pdf = self.pdf('manuscript-pdf-' + kind, 'manuscript_export', export['id'], export['sha256'], self.output / kind)
-            published.append(dict(kind=kind, delivery_id=deliveries[kind], **result, docx_export_id=export['id'], pdf_id=pdf['id']))
+            published.append(dict(kind=kind, delivery_id=deliveries[kind], **result, docx_export_id=export['id']))
         self.record['published'] = published
 
     def run(self):
@@ -702,7 +701,6 @@ def self_test():
         assert checked[0]['raw_zero_cells'] == 1 and checked[0]['raw_NA_cells'] == 1
         # Exercise the actual request models without a DB, queue or HTTP call.
         from app.domain.research_results.contracts import FindingVersionRequest, ResearchFigureRequest, ResearchReportRequest, ResearchCandidateRequest, ResearchPublishRequest
-        from app.domain.pdf_exports.contracts import PdfCreateRequest
         from app.domain.manuscripts.contracts import ExportRequest
         source = dict(source_kind='bio_insight_result_member', source_id='synthetic-member', sha256='a' * 64,
                       locator=dict(kind='row', table='comparison_results', row_key={'row_key': 'r0'}, column='original_q'))
@@ -711,9 +709,8 @@ def self_test():
         ResearchReportRequest.model_validate(dict(title='Synthetic report', finding_version_id='finding1', language='en'))
         ResearchCandidateRequest.model_validate(dict(delivery_id='delivery1', manuscript_id=None, expected_revision=0, base_version_id=None, finding_version_ids=['finding1'], output_language='en', sections=['results', 'materials_and_methods']))
         ResearchPublishRequest.model_validate(dict(candidate_id='candidate1', expected_revision=0))
-        PdfCreateRequest.model_validate(dict(source_kind='research_report', source_id='member1', request_key='synthetic-request-key'))
         ExportRequest.model_validate({'school': {'include_toc': False}})
-    print(json.dumps(dict(offline_self_test='passed', checks=['unknown_get_first_no_repost', 'explicit_retry_same_key_body', 'complete_rows_literal_zero_NA', 'seven_actual_request_models']), ensure_ascii=False))
+    print(json.dumps(dict(offline_self_test='passed', checks=['unknown_get_first_no_repost', 'explicit_retry_same_key_body', 'complete_rows_literal_zero_NA', 'six_actual_request_models']), ensure_ascii=False))
 
 
 def main():
@@ -754,7 +751,7 @@ def main():
         print(json.dumps(dict(mode='offline_prepared_not_executed', schema=state['schema'], project_id=args.project_id,
             result_ids=args.result_id, figure_result_ids=args.figure_result_id, output=str(output),
             chain=['fixed sources and literal rows', 'finding', 'ZH/EN complete XLSX/ZIP/DOCX', 'exact-source report PDFs',
-                   'new SCI/thesis candidates', 'separate --publish gate', 'new-root DOCX/PDF'],
+                   'new SCI/thesis candidates', 'separate --publish gate', 'new-root DOCX'],
             existing_school_binding='reuse only; provide --thesis-selection if no matching prior frozen selection'), ensure_ascii=False, indent=2))
         return
     control.configure(state)

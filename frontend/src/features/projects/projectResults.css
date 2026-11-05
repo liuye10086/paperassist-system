@@ -93,3 +93,60 @@
   .project-results-page .research-result-editor select,
   .project-results-page .research-result-editor textarea { min-width: 0; max-width: 100%; box-sizing: border-box; }
 }
+
+/* Viewing results is the default. Each functional module owns its scroll area. */
+.project-results-page { display:flex; flex-direction:column; height:max(480px,calc(100dvh - 116px)); min-height:0; border:1px solid var(--border); border-radius:12px; background:var(--bg); overflow:hidden; }
+.project-results-page [hidden] { display:none !important; }
+.project-result-nav { flex-shrink:0; margin:0; padding:0 24px; gap:18px; border-bottom:1px solid var(--border); }
+.project-result-nav button { border:0; border-radius:0; background:transparent; padding:14px 2px; border-bottom:3px solid transparent; }
+.project-result-nav button[aria-current="page"] { background:transparent; border-bottom-color:var(--accent); font-weight:600; }
+.result-summary-host, .result-next-panel { flex:1; min-height:0; overflow:auto; }
+.project-results-page .project-summary.project-summary-panel { border:0; border-radius:0; background:transparent; }
+.result-research-host, .project-results-page .result-module, .result-detail-workspace, .result-editor-workspace { display:flex; flex-direction:column; flex:1; min-height:0; }
+.project-results-page .result-module { padding:0; border:0; border-radius:0; background:transparent; }
+.project-results-page .result-module > .result-panel-heading { margin:0; padding:18px 24px; flex-shrink:0; }
+.project-results-page .result-panel-heading h2 { font-size:18px; }
+.project-results-page .result-detail-workspace { margin:0; padding:0; border:0; }
+.project-results-page .result-detail-workspace > .result-panel-heading { margin:0; padding:0 24px; }
+.result-detail-workspace > [role="status"] { margin:8px 24px; }
+.result-detail-header { display:flex; align-items:center; justify-content:space-between; gap:12px 24px; padding:16px 24px 10px; flex-shrink:0; }
+.result-detail-title { min-width:0; }
+.result-detail-title h3 { margin:0; font-size:19px; line-height:1.5; overflow-wrap:anywhere; }
+.result-detail-title > [role="status"] { margin:6px 0 0; font-size:13px; color:var(--text-muted); }
+.result-detail-actions { display:flex; flex-wrap:wrap; justify-content:flex-end; gap:8px; flex-shrink:0; }
+.result-detail-actions button { margin:0; min-height:36px; padding:7px 12px; }
+.result-view-tabs { display:flex; flex-wrap:wrap; align-items:center; gap:12px; padding:0 24px; border-bottom:1px solid var(--border); flex-shrink:0; }
+.result-view-tabs button { margin:0; border:0; border-bottom:3px solid transparent; border-radius:0; background:transparent; padding:10px 2px; }
+.result-view-tabs button[aria-pressed="true"], .result-view-tabs button[aria-current="step"] { color:var(--accent); border-bottom-color:var(--accent); font-weight:600; }
+.result-module-body, .result-editor-body { flex:1; min-height:0; overflow:auto; padding:16px 24px; scrollbar-gutter:stable; overscroll-behavior:contain; }
+.result-module-body > h4:first-child { margin-top:0; }
+.report-fact-table { width:100%; border-collapse:collapse; font-size:14px; }
+.report-fact-table th,.report-fact-table td { text-align:left; padding:10px 12px; border-bottom:1px solid var(--border); }
+.report-fact-table tbody th { font-weight:400; }
+.report-fact-table thead { background:var(--surface); }
+.project-results-page .result-module-body .research-detail-block { max-height:none; overflow:visible; }
+.result-processing-records .research-detail-block { margin-bottom:0; }
+.result-module-body > img { display:block; max-width:100%; max-height:65vh; object-fit:contain; margin:auto; }
+.project-results-page .research-result-editor { margin:0; padding:0; }
+.project-results-page .result-editor-body > fieldset { margin:0; padding:0; border:0; min-inline-size:0; }
+.result-editor-body .result-view-tabs { padding:0; }
+.result-editor-footer { display:flex; flex-wrap:wrap; justify-content:flex-end; gap:12px; padding:10px 24px; border-top:1px solid var(--border); flex-shrink:0; }
+.project-results-page .result-editor-section, .project-results-page .research-sources { margin:12px 0; }
+.project-results-page .journey-result-actions { margin:0; padding:24px; border:0; border-radius:0; background:transparent; }
+@media(max-width:600px) {
+ .project-results-page { height:auto; min-height:480px; }
+ .project-result-nav { display:flex; padding:0 16px; gap:12px; }
+ .project-result-nav button { padding:12px 2px; font-size:13px; }
+ .project-results-page .result-module > .result-panel-heading, .result-module-body, .result-editor-body, .result-editor-footer { padding:16px; }
+ .result-module-body, .result-editor-body { overflow:visible; }
+ .result-view-tabs { padding-inline:16px; }
+}
+@media(max-width:1100px) {
+ .result-detail-header { flex-wrap:wrap; }
+ .result-detail-actions { justify-content:flex-start; flex-shrink:1; }
+}
+@media(max-width:600px) {
+ .result-detail-header { padding:16px; }
+}
+
+.report-fact-table th small { display:block; font-weight:400; color:var(--text-muted); margin-top:4px; }

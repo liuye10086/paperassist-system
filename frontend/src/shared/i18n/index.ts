@@ -1,3 +1,6 @@
+import {resultSequentialMessages} from './resultSequentialMessages'
+import {analysisSequentialMessages} from './analysisSequentialMessages'
+import {analysisEntryMessages} from './analysisEntryMessages'
 import {presentationMessages} from './presentationMessages'
 import {quantitativeMessages} from './quantitativeMessages'
 import {tabularMessages} from './tabularMessages'
@@ -20,6 +23,7 @@ import { analysisOutputsMessages } from './analysisOutputsMessages'
 import { analysisViewsMessages } from './analysisViewsMessages'
 import { analysisWorkspaceMessages } from './analysisWorkspaceMessages'
 import { materialViewsMessages } from './materialViewsMessages'
+import { requirementUiMessages } from './requirementUiMessages'
 import { literatureViewsMessages } from './literatureViewsMessages'
 import { workspaceMessages } from './workspaceMessages'
 import { operationsMessages } from './operationsMessages'
@@ -57,7 +61,7 @@ import { fileLifecycleMessages } from './fileLifecycleMessages'
 import { useSyncExternalStore } from 'react'
 import { rootMessages } from './rootMessages'
 import { workflowMessages as originalWorkflowMessages } from './workflowMessages'
-const workflowMessages = { ...presentationMessages, ...quantitativeMessages, ...tabularMessages, ...waitPolicyMessages, ...researchResultsMessages, ...clientRequirementsMessages, ...runtimeMessages, ...operationsViewsMessages, ...configurationViewsMessages, ...usageViewsMessages, ...storageMessages, ...taskViewsMessages, ...reviewViewsMessages, ...schoolTemplateViewsMessages, ...manuscriptViewsMessages, ...journalViewsMessages, ...analysisOutputsMessages, ...analysisViewsMessages, ...analysisWorkspaceMessages, ...materialViewsMessages, ...literatureViewsMessages, ...workspaceMessages, ...operationsConfigurationMessages, ...operationsMessages, ...reviewContinuationMessages, ...reviewRevisionMessages, ...reviewRoundMessages, ...journalMessages, ...schoolChangeMessages, ...schoolExportMessages, ...thesisManuscriptMessages, ...schoolTemplateMessages, ...writingLiveMessages, ...layoutExportMessages, ...manuscriptReviewMessages, ...pdfExportMessages, ...manuscriptMessages, ...literatureBatch06Messages, ...literatureCheckMessages, ...literatureCitationMessages, ...literatureEvidenceMessages, ...literatureMessages, ...batch10StatisticsMessages, ...batch10SourceMessages, ...batch10ObservationMessages, ...batch09Messages, ...figureWorkbenchMessages, ...originalWorkflowMessages, ...documentMessages, ...ocrReviewMessages, ...evidenceMessages, ...fileLifecycleMessages, ...comparisonMessages, ...modelingMessages, ...qualityMessages, ...batch02Messages, ...systemCheckMessages }
+const workflowMessages = { ...analysisSequentialMessages,...resultSequentialMessages, ...requirementUiMessages, ...analysisEntryMessages, ...presentationMessages, ...quantitativeMessages, ...tabularMessages, ...waitPolicyMessages, ...researchResultsMessages, ...clientRequirementsMessages, ...runtimeMessages, ...operationsViewsMessages, ...configurationViewsMessages, ...usageViewsMessages, ...storageMessages, ...taskViewsMessages, ...reviewViewsMessages, ...schoolTemplateViewsMessages, ...manuscriptViewsMessages, ...journalViewsMessages, ...analysisOutputsMessages, ...analysisViewsMessages, ...analysisWorkspaceMessages, ...materialViewsMessages, ...literatureViewsMessages, ...workspaceMessages, ...operationsConfigurationMessages, ...operationsMessages, ...reviewContinuationMessages, ...reviewRevisionMessages, ...reviewRoundMessages, ...journalMessages, ...schoolChangeMessages, ...schoolExportMessages, ...thesisManuscriptMessages, ...schoolTemplateMessages, ...writingLiveMessages, ...layoutExportMessages, ...manuscriptReviewMessages, ...pdfExportMessages, ...manuscriptMessages, ...literatureBatch06Messages, ...literatureCheckMessages, ...literatureCitationMessages, ...literatureEvidenceMessages, ...literatureMessages, ...batch10StatisticsMessages, ...batch10SourceMessages, ...batch10ObservationMessages, ...batch09Messages, ...figureWorkbenchMessages, ...originalWorkflowMessages, ...documentMessages, ...ocrReviewMessages, ...evidenceMessages, ...fileLifecycleMessages, ...comparisonMessages, ...modelingMessages, ...qualityMessages, ...batch02Messages, ...systemCheckMessages }
 import { errorMessages } from './errorMessages'
 
 export type Locale = 'zh-CN' | 'en'

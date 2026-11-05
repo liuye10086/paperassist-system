@@ -11,6 +11,13 @@ import type {TabularCapabilities,TabularProcessed,TabularSetup} from './tabularC
 
 vi.mock('../../shared/api/client',()=>({apiFetch:vi.fn(),getApiUserId:()=> 'owner1',onApiSessionChanged:()=>()=>{},captureApiSession:()=>()=>{}}))
 afterEach(()=>{cleanup();vi.clearAllMocks();sessionStorage.clear()})
+it('keeps quantitative QC results in the pre-analysis flow',async()=>{
+ vi.mocked(apiFetch).mockImplementation(async(url)=>Response.json(String(url).includes('/tables/')?{key:'sample_qc',columns:[],items:[],total:0,page:1,page_size:50}:processed))
+ render(<BioAnalysisResult projectId="p1" processedId="processed1" tab="qc" qualityMode onNavigate={()=>{}}/>)
+ await screen.findByText('定量分析处理结果')
+ expect(screen.queryByRole('button',{name:'差异与功能分析'})).toBeNull()
+ expect(screen.queryByRole('button',{name:'整理研究发现与报告'})).toBeNull()
+})
 const raw={...rawFixture,parser_version:'tabular_assay_import_v1',source_file_ids:['matrix','samples']}
 const capability:TabularCapabilities={raw_source:raw,available:true,blockers:[],limits:{memory_bytes:2147483648},recipes:['tabular_quantitative_v1'],design_gaps:[],assay:'metabolomics',scale:{kind:'log10',unit:'log10 intensity',upstream_method:'LC-HRMS, normalized and log10',upstream_transforms:['log10'],namespace:'HMDB',reference_version:'sacurine',species_taxon_id:9606,zero_meaning:'measured_zero'},default_params:{normalization:'already_normalized',transform:'none',scaling:'none',exclude_samples:[],exclude_features:[],pca_components:3,seed:0,output_language:'en'}}
 const setup:TabularSetup={id:'setup1',name:'Measured metabolites',revision:1,raw_source:raw,current_recipe_version_id:'recipe1',current_recipe:{id:'recipe1',setup_id:'setup1',version:1,revision:1,raw_source:raw,observation_map_version_id:null,design_version_id:null,recipe_code:'tabular_quantitative_v1',params:capability.default_params}}
@@ -109,4 +116,34 @@ it('navigates from a quantitative result figure to its fixed detail page',async(
  const nav=vi.fn();render(<BioAnalysisResult projectId="p1" processedId="processed1" tab="qc" onNavigate={nav}/>)
  fireEvent.click(await screen.findByText('打开固定单图版本'))
  expect(nav).toHaveBeenCalledWith({view:'bio-figure',fileId:'',figureId:'qc-figure'})
+})
+it('preserves quantitative recipe drafts across modules and keeps save actions outside the scroll area',async()=>{
+ vi.mocked(apiFetch).mockImplementation(async url=>Response.json(String(url).includes('/research-designs')?{items:[],total:0}:String(url).includes('capabilities')?capability:setup))
+ render(<BioAnalysisSetup projectId="p1" setupId="setup1" onNavigate={()=>{}}/>)
+ const input=await screen.findByLabelText('PCA 成分数')
+ fireEvent.change(input,{target:{value:'7'}})
+ fireEvent.click(screen.getByRole('button',{name:'能力与来源'}))
+ expect(screen.queryByRole('region',{name:'分析参数'})).toBeNull()
+ expect(screen.getByRole('region',{name:'能力与来源'})).toBeTruthy()
+ const save=screen.getByRole('button',{name:'保存新配方版本'})
+ expect(save.closest('.module-view-content')).toBeNull()
+ expect((save as HTMLButtonElement).disabled).toBe(false)
+ expect((screen.getByRole('button',{name:'启动 QC 运行'}) as HTMLButtonElement).disabled).toBe(true)
+ fireEvent.click(screen.getByRole('button',{name:'分析参数'}))
+ expect((screen.getByLabelText('PCA 成分数') as HTMLInputElement).value).toBe('7')
+ expect(document.querySelector('details,summary')).toBeNull()
+})
+it('selects a readable experimental design version and sends its exact internal identity',async()=>{
+ const designs=[{id:'design-internal-uuid',version:3,operation:'confirm',created_at:'2026-11-05T00:00:00Z'}]
+ vi.mocked(apiFetch).mockImplementation(async(url,init)=>Response.json(init?.method==='POST'?setup.current_recipe:String(url).includes('/research-designs')?{items:designs,total:1}:String(url).includes('capabilities')?capability:setup))
+ render(<BioAnalysisSetup projectId="p1" setupId="setup1" onNavigate={()=>{}}/>)
+ fireEvent.click(await screen.findByRole('button',{name:'实验设计'}))
+ const design=await screen.findByLabelText('关联实验设计')
+ await screen.findByRole('option',{name:'版本 3 · 已确认'})
+ expect(screen.queryByText('design-internal-uuid')).toBeNull()
+ fireEvent.change(design,{target:{value:'design-internal-uuid'}})
+ fireEvent.click(screen.getByRole('button',{name:'保存新配方版本'}))
+ await waitFor(()=>expect(vi.mocked(apiFetch).mock.calls.some(([,init])=>init?.method==='POST')).toBe(true))
+ const call=vi.mocked(apiFetch).mock.calls.find(([,init])=>init?.method==='POST')
+ expect(JSON.parse(String(call?.[1]?.body))).toMatchObject({design_version_id:'design-internal-uuid',expected_revision:1,raw_source:raw})
 })

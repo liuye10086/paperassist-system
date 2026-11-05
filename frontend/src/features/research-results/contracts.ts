@@ -27,3 +27,5 @@ export type HandoffPreview={merge_preview:Snapshot;selected_source_ids:string[];
 export type Candidate={id:string;delivery_id:string;task:ResearchTask;task_id:string;candidate:Snapshot|null;candidate_sha256:string|null;manuscript_id:string|null;base_version_id:string|null;expected_revision:number;published_version_id:string|null}
 export type Lookup={id:string;kind:string;set_id?:string;root_id?:string;task_id?:string}
 export type Pdf={id:string;status:string;source_id:string;download_url?:string|null;task?:ResearchTask}
+
+export type SourceChange={source_kind:SourceKind;source_id:string;sha256:string;fixed_source_unchanged:boolean;newer_version_id:string|null;newer_revision:number|null;affected:{source_kind:string;source_id:string;manuscript_id?:string;revision?:number;set_id?:string}[];affected_truncated:boolean;automatic_replacement:boolean}

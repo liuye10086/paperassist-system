@@ -21,9 +21,9 @@ class AccountValidationError(ValueError):
 
 
 @contextmanager
-def auth_connection(write=False):
+def auth_connection(write=False, *, serialize_writes=True):
     try:
-        with _storage_connection(write=write) as db:
+        with _storage_connection(write=write, serialize_writes=serialize_writes) as db:
             yield db
     except StorageError as exc:
         if isinstance(exc.__cause__, AccountValidationError):
@@ -197,22 +197,35 @@ def authenticate(email, password, ip):
 
 
 def resolve_session(token):
-    with auth_connection(write=True) as db:
+    # Every authenticated request touches its session. Do not make reads wait
+    # behind filesystem reconciliation and unrelated project writes.
+    with auth_connection(write=True, serialize_writes=False) as db:
         ensure_schema_current(db)
-        now = time.time()
-        row = db.execute(
-            "SELECT users.id,users.email,users.role,users.ui_language,users.active,sessions.csrf_token,sessions.last_seen_at,sessions.expires_at FROM sessions JOIN users ON users.id=sessions.user_id WHERE token_hash = %s",
-            (digest(token),),
+        token_hash = digest(token)
+        session = db.execute(
+            "SELECT user_id,csrf_token,last_seen_at,expires_at FROM sessions WHERE token_hash = %s FOR UPDATE",
+            (token_hash,),
         ).fetchone()
-        if row is None:
+        if session is None:
             return None
+        # Read the account after acquiring the session row, using READ COMMITTED.
+        # Do not lock users here: account changes lock users before deleting
+        # sessions, so locking in the opposite order would introduce deadlocks.
+        user = db.execute(
+            "SELECT id,email,role,ui_language,active FROM users WHERE id = %s",
+            (session["user_id"],),
+        ).fetchone()
+        if user is None:
+            return None
+        row = {**user, **session}
+        now = time.time()
         reason = session_expiry_reason(row, now, settings().idle_seconds)
         if reason:
-            revoke_sessions(db, token_hash=digest(token), reason=reason, source="session", revoked_at=now)
+            revoke_sessions(db, token_hash=token_hash, reason=reason, source="session", revoked_at=now)
             return None
         db.execute(
             "UPDATE sessions SET last_seen_at = %s WHERE token_hash = %s",
-            (now, digest(token)),
+            (now, token_hash),
         )
         return {"user": public_user(row), "csrf_token": row["csrf_token"]}
 
@@ -229,13 +242,15 @@ def update_preferences(token, csrf_token, ui_language):
     error, result = None, None
     with auth_connection(write=True) as db:
         ensure_schema_current(db)
-        now = time.time()
         token_hash = digest(token)
+        # No key changes here. KEY SHARE taken by a concurrent revocation audit
+        # must remain compatible while this transaction waits for the session.
         row = db.execute(
             """SELECT users.id,users.active,sessions.csrf_token,sessions.last_seen_at,sessions.expires_at
             FROM sessions JOIN users ON users.id=sessions.user_id WHERE token_hash = %s
-            FOR UPDATE OF users, sessions""", (token_hash,),
+            FOR NO KEY UPDATE OF users, sessions""", (token_hash,),
         ).fetchone()
+        now = time.time()
         reason = session_expiry_reason(row, now, settings().idle_seconds) if row else None
         if row is None or reason:
             if row:

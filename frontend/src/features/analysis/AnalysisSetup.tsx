@@ -7,7 +7,7 @@ import { datasetRequest, isStructurePage, isStructure, type DatasetSummary, type
 import { useI18n, apiError, safeError } from '../../shared/i18n'
 import { workflowNotice } from '../../shared/i18n/workflowMessages'
 import { apiFetch } from '../../shared/api/client'
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import StatisticsResults from './StatisticsResults'
 import AnalysisPlanLauncher from '../analysisPlan/AnalysisPlanLauncher'
 import { WorkflowProvider, WorkflowStage, WorkflowNavigation, WorkflowEmptyResults } from './AnalysisWorkflow'
@@ -199,10 +199,11 @@ function SheetAnalysis({ base, projectId, fileId, sheetName, dataset, structure,
   </div>
 }
 
-function FileAnalysis(props: { projectId: string; fileId: string; filename: string }) {
+type FileReadiness={source:boolean;configured:boolean}
+function FileAnalysis(props: { projectId: string; fileId: string; filename: string; onReadiness:(id:string,value:FileReadiness)=>void }) {
   return <AnalysisActivity><FileAnalysisContent {...props} /></AnalysisActivity>
 }
-function FileAnalysisContent({ projectId, fileId, filename }: { projectId: string; fileId: string; filename: string }) {
+function FileAnalysisContent({ projectId, fileId, filename,onReadiness }: { projectId: string; fileId: string; filename: string; onReadiness:(id:string,value:FileReadiness)=>void }) {
   const canLeave = useAnalysisCanLeave()
   const navigation = useWorkflowNavigation()
   const resultCanLeave = useRef<() => boolean>(() => true)
@@ -229,6 +230,8 @@ function FileAnalysisContent({ projectId, fileId, filename }: { projectId: strin
   const [preparedError, setPreparedError] = useState('')
   const refreshedPlans = useRef(new Set<string>())
   const dataset: AnalysisDataset | undefined = sourceKind === 'prepared' ? prepared ? { id: prepared.id, file_id: prepared.file_id, structure_id: prepared.source.structure_id, version: prepared.version, sheet_index: prepared.source.sheet_index, sheet_name: prepared.source.sheet_name } : undefined : selected?.datasets.find(d => d.id === datasetId)
+  const hasDataset=!!dataset
+  useEffect(()=>{onReadiness(fileId,{source:ready&&hasDataset,configured:ready&&!!saved})},[fileId,onReadiness,ready,hasDataset,saved])
   useEffect(() => {
     const controller = new AbortController(); let active = true
     const timeout = window.setTimeout(() => controller.abort(), 30_000)
@@ -277,8 +280,7 @@ function FileAnalysisContent({ projectId, fileId, filename }: { projectId: strin
       <button type="button" disabled={busy || running || !error} onClick={() => { if (canLeave()) reload() }}>{t('重新载入分析配置')}</button>
     </div>}
     <WorkflowStage stage="setup">
-      <div className="analysis-actions"><button type="button" disabled={busy || running} onClick={() => { if (canLeave()) reload() }}>{t('重新载入分析配置')}</button>
-        <button type="button" disabled={busy || running} onClick={() => setRefresh(n => n + 1)}>{t('刷新数据版本')}</button></div>
+      <div className="analysis-actions">{error&&<button type="button" disabled={busy || running} onClick={() => { if (canLeave()) reload() }}>{t('重新载入分析配置')}</button>}<button type="button" disabled={busy || running} onClick={()=>setRefresh(n=>n+1)}>{t('刷新数据版本')}</button></div>
       {error && <p className="error-panel" role="alert">{t(error)}</p>}
       {listError && <p className="error-panel" role="alert">{t(listError)}</p>}{preparedError && <p role="alert" className="error-panel">{t(preparedError)}</p>}
       {!ready && !error && <p role="status">{t('正在载入工作表和已保存配置……')}</p>}
@@ -295,8 +297,8 @@ function FileAnalysisContent({ projectId, fileId, filename }: { projectId: strin
         <p className="muted">{t(sourceKind === 'prepared' ? '使用已确认的数据区域。单位是可编辑的分析标签，不会转换数值。' : '第一行用作字段名；从第 2 行至最后含值行分析完整数据，保留中间空行，不自动清洗。')}</p>
         {!dataset && <p className="warning-panel">{t(sourceKind === 'prepared' ? '新分析需明确选择整理数据版本，检查并保存配置。' : '新分析需明确选择原始数据版本，检查并保存配置。')}</p>}
       </>}
-      <div className="analysis-actions"><button type="button" disabled={page <= 1 || busy || running} onClick={() => { setList(null); setPage(n => n - 1) }}>{t('上一页数据版本')}</button>
-        <span>{t('第 {page} 页', { page })}</span><button type="button" disabled={sourceKind === 'prepared' ? !preparedList || page * 5 >= preparedList.total || busy || running : !list || page * 5 >= list.total || busy || running} onClick={() => { setList(null); setPage(n => n + 1) }}>{t('下一页数据版本')}</button></div>
+      {(page>1||(sourceKind==='prepared'?(preparedList?.total??0):(list?.total??0))>5)&&<div className="analysis-actions"><button type="button" disabled={page <= 1 || busy || running} onClick={() => { setList(null); setPage(n => n - 1) }}>{t('上一页数据版本')}</button>
+        <span>{t('第 {page} 页', { page })}</span><button type="button" disabled={sourceKind === 'prepared' ? !preparedList || page * 5 >= preparedList.total || busy || running : !list || page * 5 >= list.total || busy || running} onClick={() => { setList(null); setPage(n => n + 1) }}>{t('下一页数据版本')}</button></div>}
     </WorkflowStage>
     {ready && !dataset && navigation && ['profile','plan'].includes(navigation.stage) && <div className="workflow-empty"><p>{t('请先在字段配置中明确选择数据版本与工作表。')}</p><button type="button" onClick={()=>navigation.setStage('setup')}>{t('前往字段配置')}</button></div>}
     {dataset && (selected || prepared) && <SheetAnalysis beforeSave={() => resultCanLeave.current()} key={dataset.id} base={base} projectId={projectId} fileId={fileId} sheetName={dataset.sheet_name} dataset={dataset} structure={sourceKind === 'raw' ? selected : null} expectedSource={sourceKind === 'prepared' ? prepared?.source : saved?.source?.kind === 'dataset_version' && saved.source.dataset_id === dataset.id ? saved.source : undefined} saved={saved}
@@ -323,10 +325,12 @@ function AnalysisSetupContent({ projectId, files, onOpenFiles, filesLoading = fa
   const selectedId = fileId ?? localId
   const available = files.filter(file => file.file_type === 'xlsx' && file.parse_status === 'parsed')
   const selected = available.find(file => file.id === selectedId)
+  const [readiness,setReadiness]=useState<Record<string,FileReadiness>>({})
+  const onReadiness=useCallback((id:string,value:FileReadiness)=>setReadiness(previous=>previous[id]?.source===value.source&&previous[id]?.configured===value.configured?previous:{...previous,[id]:value}),[])
   const [visitedIds, setVisitedIds] = useState<string[]>([])
   if (selected && !visitedIds.includes(selected.id)) setVisitedIds(ids => [...ids, selected.id])
   return <section className="analysis-setup" aria-label={t('数据分析')}>
-    <WorkflowNavigation onOpenFiles={onOpenFiles} />
+    <WorkflowNavigation onOpenFiles={onOpenFiles} readiness={readiness[selectedId]??{source:false,configured:false}} />
     <div className="analysis-source-toolbar">
       <label>{t("用于分析的文件")}<select value={selected?.id ?? ''} onChange={event => { if (fileId === undefined) setLocalId(event.target.value); onFileChange?.(event.target.value) }}>
         <option value="">{t("请选择已保存文件")}</option>
@@ -349,7 +353,7 @@ function AnalysisSetupContent({ projectId, files, onOpenFiles, filesLoading = fa
       {(['profile', 'plan', 'statistics'] as const).map(stage => <WorkflowStage key={stage} stage={stage}><p className="workflow-empty">{t("请先选择文件并保存字段配置。")}</p></WorkflowStage>)}
       <WorkflowEmptyResults message="请先选择文件并完成描述统计。" />
     </>}
-    {available.filter(file => visitedIds.includes(file.id)).map(file => <div key={`${projectId}:${file.id}`} hidden={selected?.id !== file.id}><FileAnalysis projectId={projectId} fileId={file.id} filename={file.filename} /></div>)}
+    {available.filter(file => visitedIds.includes(file.id)).map(file => <div key={`${projectId}:${file.id}`} hidden={selected?.id !== file.id}><FileAnalysis onReadiness={onReadiness} projectId={projectId} fileId={file.id} filename={file.filename} /></div>)}
   </section>
 }
 

@@ -1,6 +1,7 @@
 // Public server codes only. Never render arbitrary server exception text.
 export const errorMessages: Record<string, {
  zh: string; en: string }> = {
+ research_source_conflict:{zh:'研究来源、数值或版本需要重新核对；原有成果仍保留。',en:'Research sources, values or versions need to be checked again. Existing results are retained.'},
  research_material_invalid:{zh:'材料关联需要补充或核对。请在“已提供材料关联”中选择本项目的对应文件或数据集，并核对材料用途。',en:'Check the material links. Under Provided material links, select the matching file or dataset from this project and check its purpose.'},
  bio_insight_not_found:{zh:'未找到此固定计划、运行、资源或原请求，请核对项目和版本。',en:'The fixed plan, run, resource or request was not found. Check the project and version.'},
  bio_insight_revision_conflict:{zh:'计划或资源已有新版本；草稿保留，请读取并比较后另存新版。',en:'A newer plan or resource version exists. The draft is retained. Reload and compare before saving a new version.'},

@@ -51,4 +51,14 @@ def version_view(db,row,kind):
     column='requirement_version_id' if kind=='requirements' else 'design_version_id'
     fields=('delivery_id','file_id','bio_dataset_version_id','locator','availability','purpose','note')
     value['material_refs']=[{key:item[key] for key in fields} for item in db.execute(f'SELECT * FROM research_material_refs WHERE {column}=%s ORDER BY id',(value['id'],))]
+    value['material_sources']=[]
+    if any(item['bio_dataset_version_id'] for item in value['material_refs']):
+        # Resolve the linked immutable version, never the dataset's current head.
+        value['material_sources']=[dict(item) for item in db.execute(f'''SELECT DISTINCT
+            v.id AS bio_dataset_version_id,v.dataset_id,d.name AS dataset_name,v.version
+            FROM research_material_refs r
+            JOIN bio_dataset_versions v ON v.id=r.bio_dataset_version_id
+            JOIN bio_datasets d ON d.id=v.dataset_id AND d.project_id=v.project_id
+            WHERE r.{column}=%s AND v.project_id=%s ORDER BY v.id''',
+            (value['id'],value['project_id']))]
     return value

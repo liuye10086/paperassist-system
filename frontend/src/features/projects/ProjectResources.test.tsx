@@ -80,6 +80,20 @@ function libraryApi(save = async (_init?: RequestInit) => Response.json({ ...det
   return fetch
 }
 
+test('opens table structure from quality control and retains file purpose drafts', async () => {
+  const fetch = libraryApi(), user = userEvent.setup()
+  const {container}=render(<ProjectResources {...props} section="files" />)
+  await user.click(await screen.findByRole('button',{name:`文件详情 ${files[0].filename}`}))
+  await user.click(await screen.findByRole('checkbox',{name:'原始数据'}))
+  await user.click(screen.getByRole('button',{name:'质量控制'}))
+  await user.click(await screen.findByRole('button',{name:`检查表格 ${files[0].filename}`}))
+  expect(screen.getByRole('button',{name:'结构与数据整理'}).getAttribute('aria-pressed')).toBe('true')
+  await user.click(screen.getByRole('button',{name:'文件信息与用途'}))
+  expect((screen.getByRole('checkbox',{name:'原始数据'}) as HTMLInputElement).checked).toBe(true)
+  expect(container.querySelector('details,summary')).toBeNull()
+  expect(fetch.mock.calls.every(([,init])=>!init?.method||init.method==='GET')).toBe(true)
+})
+
 test('file pagination preserves preview, the full analysis selection and page across sections', async () => {
   const fetch = libraryApi()
   const user = userEvent.setup()

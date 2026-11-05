@@ -82,16 +82,13 @@ class ManuscriptService:
     def writing_materials(self,project,identity,revision):
         """Read-only material projection; it grants no execution permission."""
         from .sources import writing_changes
-        from app.domain.manuscript_writing.bundle import build_bundle
-        import json
+        from .writing_materials import project_materials
         with self.store.connection() as db:
             version=self.version(db,project,identity,revision)
             if self.store.require_task(db,version['task_id'])['status']!='succeeded':raise source_conflict()
             snapshot=version['snapshot_json']
             if writing_changes(self,project,snapshot):raise source_conflict()
-        bundle=build_bundle(snapshot,dict(mode='full_draft',target_section=None,output_language=snapshot['output_language'],
-            instructions='',keywords=[],acknowledgements='',selected_source_ids=[s['id'] for s in snapshot['sources']],selected_evidence_ids=[]))
-        materials=json.loads(json.loads(bundle['wire_json'])['input'])
+        materials=project_materials(snapshot)
         return dict(scope='writing_material_preview',can_execute=False,version_id=version['id'],revision=revision,
             materials=materials,materials_sha256=digest(materials),source_changes=self.source_changes(project,snapshot))
 
@@ -510,9 +507,12 @@ class ManuscriptService:
         return template['analysis_json']
 
     def compile_school_intent(self,db,version,options):
-        from .school_export import compile_school_export,validate_school_export
+        from .school_export import compile_school_export,validate_school_export,reconcile_research_issues
         analysis=self.school_analysis(db,version)
         plan=compile_school_export(version['snapshot_json'],analysis,options)
+        producer=self.store.require_task(db,version['task_id'])
+        if producer['task_type']=='research_fact_draft':
+            reconcile_research_issues(plan,version['snapshot_json'],producer['input_snapshot']['payload'])
         validate_school_export(plan,version['snapshot_json'],analysis)
         if plan.get('options')!=options:raise source_conflict()
         return dict(schema_version=1,request=dict(school=options),plan=plan)

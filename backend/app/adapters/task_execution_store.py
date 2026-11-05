@@ -7,6 +7,7 @@ import json
 import os
 import re
 from pathlib import Path
+from time import monotonic
 from uuid import UUID, uuid4, uuid5
 
 from app.adapters.storage import _storage_connection, ProjectStore
@@ -166,7 +167,12 @@ class TaskExecutionStore:
         publication validates sources or scans retained storage journals.
         This callback never revives an expired or replaced attempt.
         """
-        def progress():
+        last_renewal=None;renewal_interval=min(1.0,LEASE_SECONDS/4)
+        def progress(*,force=False):
+            nonlocal last_renewal
+            # Match research source validation: coalesce per-chunk heartbeats.
+            # Publication still uses its independent require_lease fence.
+            if not force and last_renewal is not None and monotonic()-last_renewal<renewal_interval:return
             updated=db.execute("""UPDATE task_attempts a SET heartbeat_at=clock_timestamp(),
                 lease_expires_at=clock_timestamp()+(%s*interval '1 second') FROM tasks t
                 WHERE t.id=%s AND t.id=a.task_id AND t.current_attempt=%s
@@ -176,7 +182,8 @@ class TaskExecutionStore:
                 (LEASE_SECONDS,lease.task_id,lease.attempt_no,lease.lease_owner))
             if updated.rowcount!=1:raise LeaseLost()
             progress.renewed=dict(updated.fetchone())
-        progress()
+            last_renewal=monotonic()
+        progress(force=True)
         return progress
 
     def defer(self, lease, seconds=5):

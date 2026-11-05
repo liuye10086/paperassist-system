@@ -1,0 +1,10 @@
+.module-views { min-width:0; margin:14px 0; }
+.module-views > nav { display:flex; flex-wrap:wrap; gap:8px 16px; border-bottom:1px solid var(--border); margin:0; padding:0; }
+.module-views > nav > button { margin:0; padding:10px 2px; border:0; border-radius:0; border-bottom:3px solid transparent; background:transparent; }
+.module-views > nav > button[aria-pressed="true"] { color:var(--accent); border-bottom-color:var(--accent); font-weight:600; }
+.module-view-content { min-width:0; max-height:max(220px,calc(100dvh - 370px)); overflow:auto; padding:16px 4px; scrollbar-gutter:stable; overscroll-behavior:contain; }
+.module-view-content[hidden] { display:none!important; }
+.module-view-content > :first-child { margin-top:0; }
+.module-view-content .module-view-content, .module-view-content .research-detail-block { max-height:none; overflow:visible; }
+.module-view-content .field-table-scroll { max-height:none; }
+@media(max-width:640px) { .module-view-content { max-height:none; overflow:visible; } }

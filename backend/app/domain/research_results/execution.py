@@ -236,14 +236,21 @@ def _run_research_task(task_id,task_revision,*,task_type,config=None,directory=N
             if exc.code=='bio_environment_unavailable':raise invalid('research_environment_unavailable',409) from exc
             raise
         root=attempt.parent.parent;execution=ResearchExecution(repository,root)
-        with repository.connection(write=task_type in ('delivery_package','research_report')) as db:
+        if task_type in ('delivery_package','research_report'):
+            with repository.connection(write=True) as db:
+                task=repository.require_lease(db,lease);repository.require_owner(db,task);cp=checkpoint_for(db,task)
+                if cp['next_node']=='check':
+                    append_checkpoint(db,dict(task,updated_at=repository.now(db)),'check','check',{**cp['state_json'],'stage':'source_verification'},cp)
+        # Initial validation can hash a large source closure. Keep it read-only
+        # so the independent heartbeat can renew the lease while it runs.
+        # Prepare/publish still revalidate under their fenced writer phases.
+        with repository.connection() as db:
             task=repository.require_lease(db,lease);repository.require_owner(db,task);cp=checkpoint_for(db,task)
-            if task_type in ('delivery_package','research_report') and cp['next_node']=='check':
-                cp=append_checkpoint(db,dict(task,updated_at=repository.now(db)),'check','check',{**cp['state_json'],'stage':'source_verification'},cp)
             payload=service_for(task,repository).require_sources(db,task)
         if task_type in ('delivery_package','research_report') and cp['next_node']=='check':
             with repository.connection(write=True) as db:
                 task=repository.require_lease(db,lease);repository.require_owner(db,task)
+                if checkpoint_for(db,task)['id']!=cp['id']:raise invalid()
                 counts=dict(completed_members=len(payload['raws'])) if task_type=='delivery_package' else dict(table_count=len(payload['tables']),figure_count=len(payload['figures']))
                 cp=append_checkpoint(db,dict(task,updated_at=repository.now(db)),'check','check',{**cp['state_json'],**counts,'stage':'organizing_existing_members' if task_type=='delivery_package' else 'organizing_report_inputs'},cp)
                 cp=append_checkpoint(db,dict(task,updated_at=repository.now(db)),'check','check',{**cp['state_json'],'stage':'writing_package' if task_type=='delivery_package' else 'rendering_report_and_package'},cp)

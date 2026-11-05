@@ -1,6 +1,6 @@
 """Scoped persistent mapping, recipes and bounded processed-result reads."""
 import csv
-from app.domain.source_byte_verification import require_phase, phase_guard, RAW_MATRIX_KEYS
+from app.domain.source_byte_verification import require_phase, phase_guard, RAW_MATRIX_KEYS, RAW_REPRESENTATION_ROLES
 import io
 import json
 import hashlib
@@ -84,7 +84,7 @@ class BioAnalysisStore:
             self.raw_store.verify_member(member,frozen.get(member['id']))
             member['key']=frozen[member['id']]['key']
             if verify:
-                if phase is not None and member['key'] in RAW_MATRIX_KEYS:
+                if phase is not None and (member['key'] in RAW_MATRIX_KEYS or member['role'] in RAW_REPRESENTATION_ROLES):
                     phase.verify_object(db,self.assets,project,self.raw_store.objects,member,progress=progress)
                 else:self.raw_store.objects.read(member)
         if verify:

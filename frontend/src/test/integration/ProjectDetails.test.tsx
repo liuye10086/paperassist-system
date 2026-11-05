@@ -131,7 +131,7 @@ test('patches only changed name and updates heading and selection without resett
   await user.click(await screen.findByRole('button', { name: '预览 实验.xlsx' }))
   await screen.findByRole('cell', { name: '10' })
   await user.selectOptions(screen.getByLabelText('工作表'), '1')
-  const fileReads = mock.mock.calls.filter(([url]) => url === '/api/v1/projects/p1/files').length
+  const previewReads = mock.mock.calls.filter(([url]) => url.endsWith('/preview')).length
   await editName(user, '  新名称  ')
   await user.click(screen.getByRole('button', { name: '保存修改：项目名称' }))
   expect(await screen.findByRole('heading', { name: '新名称' })).toBeTruthy()
@@ -143,7 +143,7 @@ test('patches only changed name and updates heading and selection without resett
   await navigate('项目文件')
   expect(screen.getByText('空表预览仍保留。')).toBeTruthy()
   expect((screen.getByLabelText('工作表') as HTMLSelectElement).value).toBe('1')
-  expect(mock.mock.calls.filter(([url]) => url === '/api/v1/projects/p1/files')).toHaveLength(fileReads)
+  expect(mock.mock.calls.filter(([url]) => url.endsWith('/preview'))).toHaveLength(previewReads)
 })
 
 test('patches only the changed research topic', async () => {
@@ -154,7 +154,7 @@ test('patches only the changed research topic', async () => {
   await user.clear(screen.getByLabelText('修改研究主题'))
   await user.type(screen.getByLabelText('修改研究主题'), '  新研究主题  ')
   await user.click(screen.getByRole('button', { name: '保存修改：研究主题' }))
-  expect(await screen.findByText('新研究主题', { selector: 'p' })).toBeTruthy()
+  await waitFor(() => expect((screen.getByLabelText('修改研究主题') as HTMLTextAreaElement).value).toBe('新研究主题'))
   expect(JSON.parse(String(patchCalls(mock)[0][1]!.body))).toEqual({ research_topic: '新研究主题' })
 })
 

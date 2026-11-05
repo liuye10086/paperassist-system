@@ -2,7 +2,7 @@
 
 Default only prints the frozen plan. --execute creates recoverable candidates;
 --execute --publish explicitly adopts reviewed engineering candidates as new
-roots and exports DOCX/PDF. Never starts services or rebuilds source reports.
+roots and exports DOCX. Never starts services or rebuilds source reports.
 """
 from __future__ import annotations
 

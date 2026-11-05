@@ -4,7 +4,8 @@ import useProjectSelection from './useProjectSelection'
 afterEach(()=>{cleanup();vi.unstubAllGlobals();window.history.replaceState(null,'','/')})
 function Harness(){
  const s=useProjectSelection(()=>{},()=>{})
- return <><output>{JSON.stringify({manuscript:s.manuscriptLink,view:s.manuscriptView,journal:s.journalView,adaptation:s.adaptationId,school:s.schoolTemplateNavigation})}</output>
+ return <><output>{JSON.stringify({manuscript:s.manuscriptLink,view:s.manuscriptView,journal:s.journalView,adaptation:s.adaptationId,school:s.schoolTemplateNavigation,source:s.writingSource,delivery:s.writingDeliveryId})}</output>
+ <button onClick={()=>s.startWritingSelection()}>new writing</button>
  <button onClick={()=>s.selectManuscriptVersion('m2',2)}>version</button>
  <button onClick={()=>s.selectManuscriptView('writing')}>write</button>
  <button onClick={()=>s.selectJournalView('guidelines')}>guidelines</button>
@@ -36,4 +37,11 @@ it('synchronizes selected adaptation identity and restores an older deep link',a
  fireEvent.click(screen.getByText('manuscripts'))
  act(()=>{window.history.replaceState(null,'','/#project=p1&section=journals&adaptation=a1');window.dispatchEvent(new HashChangeEvent('hashchange'))})
  await waitFor(()=>expect(JSON.parse(screen.getByRole('status').textContent!).adaptation).toBe('a1'))
+})
+
+it('starts an explicit new writing choice without retaining old source or delivery',()=>{
+ window.history.replaceState(null,'','/#project=p1&section=manuscripts&view=research-selection&sourceKind=research_report_version&sourceId=r1&writingDelivery=thesis');start()
+ fireEvent.click(screen.getByText('new writing'))
+ expect(window.location.hash).toBe('#project=p1&section=manuscripts&view=research-selection')
+ const state=JSON.parse(screen.getByRole('status').textContent!);expect(state.source).toBeUndefined();expect(state.delivery).toBeUndefined()
 })

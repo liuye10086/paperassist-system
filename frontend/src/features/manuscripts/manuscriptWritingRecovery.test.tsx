@@ -1,0 +1,25 @@
+import {cleanup,fireEvent,render,screen,waitFor} from '@testing-library/react'
+import {afterEach,expect,it,vi} from 'vitest'
+import ManuscriptWriting from './ManuscriptWriting'
+import {manuscriptFixture} from './manuscriptFixtures'
+import type {ManuscriptVersion} from './manuscriptTypes'
+const props={projectId:'p1',manuscriptId:'m1',version:manuscriptFixture.versions[0] as unknown as ManuscriptVersion,onPublished:vi.fn()}
+afterEach(()=>{cleanup();sessionStorage.clear();vi.unstubAllGlobals()})
+it('keeps the original writing request key across reload and requires explicit retry',async()=>{
+ const fetcher=vi.fn(async(_url:string,init?:RequestInit)=>{if(init?.method==='POST')throw Error('network');return Response.json({items:[]})});vi.stubGlobal('fetch',fetcher)
+ const view=render(<ManuscriptWriting {...props}/>);await screen.findByText('暂无写作任务。');fireEvent.change(screen.getByLabelText('自由写作要求'),{target:{value:'固定要求'}});fireEvent.click(screen.getByRole('button',{name:'发起完整七部分写作'}));await screen.findByRole('alert');const first=fetcher.mock.calls.find(([,i])=>i?.method==='POST')!;view.unmount();render(<ManuscriptWriting {...props}/>);await screen.findByText('暂无写作任务。');expect(fetcher.mock.calls.filter(([,i])=>i?.method==='POST')).toHaveLength(1);expect(screen.getByLabelText('自由写作要求').matches(':disabled')).toBe(true);fireEvent.click(screen.getByRole('button',{name:'使用原请求重试'}));await waitFor(()=>expect(fetcher.mock.calls.filter(([,i])=>i?.method==='POST')).toHaveLength(2));const second=fetcher.mock.calls.filter(([,i])=>i?.method==='POST')[1];expect(new Headers(second[1]?.headers).get('Idempotency-Key')).toBe(new Headers(first[1]?.headers).get('Idempotency-Key'));expect(second[1]?.body).toBe(first[1]?.body)
+})
+it('allows edited writing after a definite 422 rejection',async()=>{
+ const fetcher=vi.fn(async(_url:string,init?:RequestInit)=>init?.method==='POST'?Response.json({detail:{code:'invalid_request'}},{status:422}):Response.json({items:[]}));vi.stubGlobal('fetch',fetcher);render(<ManuscriptWriting {...props}/>);await screen.findByText('暂无写作任务。');fireEvent.click(screen.getByRole('button',{name:'发起完整七部分写作'}));await screen.findByRole('alert');expect(screen.getByLabelText('自由写作要求').matches(':disabled')).toBe(false);fireEvent.change(screen.getByLabelText('自由写作要求'),{target:{value:'修改后'}});expect(screen.getByLabelText('自由写作要求')).toHaveProperty('value','修改后')
+})
+it('keeps the original writing identity after a 409 conflict',async()=>{
+ const fetcher=vi.fn(async(_url:string,init?:RequestInit)=>init?.method==='POST'?Response.json({detail:{code:'conflict'}},{status:409}):Response.json({items:[]}));vi.stubGlobal('fetch',fetcher);render(<ManuscriptWriting {...props}/>);await screen.findByText('暂无写作任务。');fireEvent.click(screen.getByRole('button',{name:'发起完整七部分写作'}));await screen.findByRole('alert');expect(screen.getByLabelText('自由写作要求').matches(':disabled')).toBe(true);fireEvent.click(screen.getByRole('button',{name:'使用原请求重试'}));await waitFor(()=>expect(fetcher.mock.calls.filter(([,i])=>i?.method==='POST')).toHaveLength(2));const posts=fetcher.mock.calls.filter(([,i])=>i?.method==='POST');expect(new Headers(posts[0][1]?.headers).get('Idempotency-Key')).toBe(new Headers(posts[1][1]?.headers).get('Idempotency-Key'))
+})
+import {taskFixture} from '../tasks/taskFixtures'
+const queued={id:'w1',project_id:'p1',manuscript_id:'m1',base_revision:1,input:{base_revision:1,mode:'full_draft',target_section:null,instructions:'',keywords:[],acknowledgements:''},task:{...taskFixture,id:'w1',project_id:'p1',task_type:'manuscript_writing',phase:'write',status:'queued',display_status:'queued',input_version:{kind:'manuscript_writing',base_version_id:'v1',base_revision:1,output_language:'en',workflow_version:'manuscript_writing_v1'}},candidate:null,published_revision:null,real_calls_enabled:false,preservation_check:null}
+it('does not create the same queued writing request again after receiving it',async()=>{
+ let created=false;const fetcher=vi.fn(async(_url:string,init?:RequestInit)=>{if(init?.method==='POST'){created=true;return Response.json(queued)}return Response.json({items:created?[queued]:[]})});vi.stubGlobal('fetch',fetcher);render(<ManuscriptWriting {...props}/>);await screen.findByText('暂无写作任务。');fireEvent.click(screen.getByRole('button',{name:'发起完整七部分写作'}));await screen.findByText('任务尚无可预览候选；请查看任务状态。');fireEvent.click(screen.getByRole('button',{name:'发起完整七部分写作'}));await screen.findByText('相同写作任务正在排队或运行，请查看原任务。');expect(fetcher.mock.calls.filter(([,i])=>i?.method==='POST')).toHaveLength(1)
+})
+it('does not create an already queued identical request after reload',async()=>{
+ const fetcher=vi.fn(async(_url:string,init?:RequestInit)=>Response.json(init?.method==='POST'?queued:{items:[queued]}));vi.stubGlobal('fetch',fetcher);render(<ManuscriptWriting {...props}/>);await screen.findByRole('button',{name:'预览写作候选'});fireEvent.click(screen.getByRole('button',{name:'发起完整七部分写作'}));await screen.findByText('相同写作任务正在排队或运行，请查看原任务。');expect(fetcher.mock.calls.filter(([,i])=>i?.method==='POST')).toHaveLength(0)
+})

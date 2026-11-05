@@ -2,7 +2,7 @@ import {STANDARD_REQUEST_TIMEOUT_MS} from '../../shared/api/requestTimeouts'
 import { WorkspaceChromeContext } from '../../shared/components/WorkspaceChromeContext'
 import { AuthIdentityContext } from './AuthIdentityContext'
 import { useEffect, useId, useLayoutEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
-import { apiFetch, clearApiSession, onApiSessionChanged, onSessionCookieChanged, onSessionExpired, setApiSession } from '../../shared/api/client'
+import { apiFetch, clearApiSession, getApiUserId, onApiSessionChanged, onSessionCookieChanged, onSessionExpired, setApiSession } from '../../shared/api/client'
 import './auth.css'
 import Brand from '../../shared/components/Brand'
 import PasswordForm from './PasswordForm'
@@ -179,7 +179,8 @@ export default function AuthBoundary({ children }: { children: ReactNode }) {
       unsubscribeCookie()
       channel.current?.close()
       channel.current = null
-      clearApiSession()
+      // StrictMode may clean up before the first authenticated restore.
+      if (getApiUserId() !== null) clearApiSession()
       setLocale('zh-CN')
     }
   }, [])

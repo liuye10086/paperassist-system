@@ -6,7 +6,7 @@ import type {ManuscriptVersion} from './manuscriptTypes'
 import {act} from '@testing-library/react'
 import {setLocale} from '../../shared/i18n'
 import {SchoolExportDetails} from './SchoolExportPanel'
-afterEach(()=>{cleanup();vi.unstubAllGlobals();setLocale('zh-CN')})
+afterEach(()=>{cleanup();sessionStorage.clear();vi.unstubAllGlobals();setLocale('zh-CN')})
 it('translates new front matter missing and signature review issues when the UI language changes',()=>{
  const front={schema_version:1 as const,cover_section_id:'s1',fields:[{id:'signature',label:'用户签名',kind:'signature' as const,required:true,source_id:'p1',style_source_id:null,section_id:'s1',chapter_id:null}],content_requirements:[]}
  const details={...plan,schema_version:2 as const,front_matter:front,report:{...report,issues:[{id:'school:field:signature',kind:'manual' as const,severity:'human_review' as const,location:'signature',message:'用户签名未提供，保留待填写。',source_evidence:[]}]}}
@@ -74,7 +74,7 @@ it('does not offer a second layout pass when a school DOCX already contains its 
  await screen.findByRole('link',{name:'下载 DOCX'})
  expect(screen.queryByRole('button',{name:'排版与公式'})).toBeNull()
  expect(screen.getByText('学校目录已完成排版，请直接下载 Word。')).toBeTruthy()
- expect(screen.getByRole('button',{name:'刷新 PDF 状态'})).toBeTruthy()
+ expect(screen.queryByRole('button',{name:'刷新 PDF 状态'})).toBeNull()
 })
 
 it('keeps the existing layout entry for school exports without a TOC manifest',async()=>{

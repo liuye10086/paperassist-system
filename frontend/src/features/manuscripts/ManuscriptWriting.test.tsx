@@ -8,14 +8,14 @@ import {liveRequest,unsubmittedRequest} from './writingLiveFixtures'
 import {taskFixture} from '../tasks/taskFixtures'
 import {setApiSession} from '../../shared/api/client'
 const props={projectId:'p1',manuscriptId:'m1',version:manuscriptFixture.versions[0] as unknown as ManuscriptVersion,onPublished:vi.fn()}
-afterEach(()=>{cleanup();vi.useRealTimers();vi.unstubAllGlobals()})
+afterEach(()=>{cleanup();sessionStorage.clear();vi.useRealTimers();vi.unstubAllGlobals()})
 it('uses only explicit user keywords and retains idempotency across uncertain retries without enabling real calls',async()=>{
  const fetcher=vi.fn(async(_url:string,init?:RequestInit)=>{if(init?.method==='POST')throw Error('network');return Response.json({items:[]})});vi.stubGlobal('fetch',fetcher)
  render(<ManuscriptWriting {...props}/>);await screen.findByText('暂无写作任务。')
  fireEvent.change(screen.getByLabelText('关键词（每行一项，可留空）'),{target:{value:'user keyword'}})
  fireEvent.change(screen.getByLabelText('用户提供的致谢（可留空）'),{target:{value:'user thanks'}})
  fireEvent.click(screen.getByRole('button',{name:'发起完整七部分写作'}));await screen.findByRole('alert')
- fireEvent.click(screen.getByRole('button',{name:'发起完整七部分写作'}));await waitFor(()=>expect(fetcher.mock.calls.filter(([,i])=>i?.method==='POST')).toHaveLength(2))
+ fireEvent.click(screen.getByRole('button',{name:'使用原请求重试'}));await waitFor(()=>expect(fetcher.mock.calls.filter(([,i])=>i?.method==='POST')).toHaveLength(2))
  const posts=fetcher.mock.calls.filter(([,i])=>i?.method==='POST');expect(new Headers(posts[0][1]?.headers).get('Idempotency-Key')).toBe(new Headers(posts[1][1]?.headers).get('Idempotency-Key'))
  expect(JSON.parse(String(posts[0][1]?.body))).toMatchObject({base_revision:1,mode:'full_draft',keywords:['user keyword'],acknowledgements:'user thanks'})
 })
@@ -89,7 +89,7 @@ it('rejects a candidate whose task belongs to another project',async()=>{
 })
 
 it('retains the publish idempotency key when the first publication response is lost',async()=>{
- const fetcher=vi.fn(async(_url:string,init?:RequestInit)=>{if(init?.method==='POST')throw Error('lost publication response');return Response.json({items:[writing]})});vi.stubGlobal('fetch',fetcher);render(<ManuscriptWriting {...props}/>);fireEvent.click(await screen.findByRole('button',{name:'预览写作候选'}));fireEvent.click(screen.getByRole('button',{name:'确认发布为不可变新版本'}));await screen.findByRole('alert');fireEvent.click(screen.getByRole('button',{name:'确认发布为不可变新版本'}));await waitFor(()=>expect(fetcher.mock.calls.filter(([,i])=>i?.method==='POST')).toHaveLength(2));const posts=fetcher.mock.calls.filter(([,i])=>i?.method==='POST');expect(new Headers(posts[0][1]?.headers).get('Idempotency-Key')).toBe(new Headers(posts[1][1]?.headers).get('Idempotency-Key'))
+ const fetcher=vi.fn(async(_url:string,init?:RequestInit)=>{if(init?.method==='POST')throw Error('lost publication response');return Response.json({items:[writing]})});vi.stubGlobal('fetch',fetcher);render(<ManuscriptWriting {...props}/>);fireEvent.click(await screen.findByRole('button',{name:'预览写作候选'}));fireEvent.click(screen.getByRole('button',{name:'确认发布为不可变新版本'}));await screen.findByRole('alert');fireEvent.click(screen.getByRole('button',{name:'使用原请求重试'}));await waitFor(()=>expect(fetcher.mock.calls.filter(([,i])=>i?.method==='POST')).toHaveLength(2));const posts=fetcher.mock.calls.filter(([,i])=>i?.method==='POST');expect(new Headers(posts[0][1]?.headers).get('Idempotency-Key')).toBe(new Headers(posts[1][1]?.headers).get('Idempotency-Key'))
 })
 it('polls an existing queued request into a preview without posting it again',async()=>{
  vi.useFakeTimers();let ready=false;const fetcher=vi.fn(async()=>Response.json({items:[{...writing,task:{...writing.task,status:ready?'succeeded':'queued',display_status:ready?'succeeded':'queued'},candidate:ready?complete:null,preservation_check:ready?writing.preservation_check:null}]}));vi.stubGlobal('fetch',fetcher);render(<ManuscriptWriting {...props}/>);await act(async()=>{});expect(screen.getByRole('status').textContent).toBe('待执行');ready=true;await act(async()=>{vi.advanceTimersByTime(3000)});fireEvent.click(screen.getByRole('button',{name:'预览写作候选'}));expect(screen.getByText('Saved abstract')).toBeTruthy();expect(fetcher.mock.calls.length).toBe(2)
@@ -97,8 +97,8 @@ it('polls an existing queued request into a preview without posting it again',as
 it('requires a complete published base before offering a section rewrite',async()=>{
  vi.stubGlobal('fetch',vi.fn(async()=>Response.json({items:[]})));render(<ManuscriptWriting {...props}/>);expect(screen.queryByRole('option',{name:'指定章节重写'})).toBeNull();expect(screen.getByText('旧两章事实稿须先生成并发布完整初稿，再指定章节重写。')).toBeTruthy()
 })
-it('uses a new request key for another deliberate submission after confirmed acknowledgement',async()=>{
- const pending={...writing,candidate:null,preservation_check:null,task:{...writing.task,status:'queued',display_status:'queued'},input:{...writing.input,keywords:[]}};const fetcher=vi.fn(async(_url:string,init?:RequestInit)=>Response.json(init?.method==='POST'?pending:{items:[]}));vi.stubGlobal('fetch',fetcher);render(<ManuscriptWriting {...props}/>);fireEvent.click(screen.getByRole('button',{name:'发起完整七部分写作'}));await waitFor(()=>expect(fetcher.mock.calls.filter(([,i])=>i?.method==='POST')).toHaveLength(1));await screen.findByText('任务尚无可预览候选；请查看任务状态。');fireEvent.click(screen.getByRole('button',{name:'发起完整七部分写作'}));await waitFor(()=>expect(fetcher.mock.calls.filter(([,i])=>i?.method==='POST')).toHaveLength(2));const posts=fetcher.mock.calls.filter(([,i])=>i?.method==='POST');expect(new Headers(posts[0][1]?.headers).get('Idempotency-Key')).not.toBe(new Headers(posts[1][1]?.headers).get('Idempotency-Key'))
+it('uses a new request key for changed input after a queued submission',async()=>{
+ const pending={...writing,candidate:null,preservation_check:null,task:{...writing.task,status:'queued',display_status:'queued'},input:{...writing.input,keywords:[]}};const fetcher=vi.fn(async(_url:string,init?:RequestInit)=>Response.json(init?.method==='POST'?{...pending,input:JSON.parse(String(init.body))}:{items:[]}));vi.stubGlobal('fetch',fetcher);render(<ManuscriptWriting {...props}/>);fireEvent.click(screen.getByRole('button',{name:'发起完整七部分写作'}));await waitFor(()=>expect(fetcher.mock.calls.filter(([,i])=>i?.method==='POST')).toHaveLength(1));await screen.findByText('任务尚无可预览候选；请查看任务状态。');fireEvent.change(screen.getByLabelText('自由写作要求'),{target:{value:'另一个写作要求'}});fireEvent.click(screen.getByRole('button',{name:'发起完整七部分写作'}));await waitFor(()=>expect(fetcher.mock.calls.filter(([,i])=>i?.method==='POST')).toHaveLength(2));const posts=fetcher.mock.calls.filter(([,i])=>i?.method==='POST');expect(new Headers(posts[0][1]?.headers).get('Idempotency-Key')).not.toBe(new Headers(posts[1][1]?.headers).get('Idempotency-Key'))
 })
 it('distinguishes budget confirmation from an unavailable real model authorization',async()=>{
  vi.stubGlobal('fetch',vi.fn(async()=>Response.json({items:[{...writing,candidate:null,preservation_check:null,task:{...writing.task,status:'waiting_confirmation',display_status:'waiting_confirmation',reason_code:'budget_exceeded',error_code:'model_budget_exceeded'}}]})));render(<ManuscriptWriting {...props}/>);await screen.findByText('预算不足，任务等待确认；请查看任务中的预算说明。');expect(screen.queryByText('等待模型授权；本环境不会发起真实调用。')).toBeNull()

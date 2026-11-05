@@ -31,8 +31,8 @@ function BoundProfile({ base, binding, projectId }: { base: string; binding: Pro
   <p>{t('数据区域 {range}；记录 {count} 行；空行 {blank} 行。', { range: profile.data_range ?? t('无数据区域'), count: profile.record_count, blank: profile.blank_row_count })}</p>
   <p>{t('重复 {groups} 组；涉及 {rows} 行；除首条外 {extra} 行。', { groups: profile.duplicate_groups, rows: profile.duplicate_rows, extra: profile.duplicate_extra_rows })}</p>
   {profile.duplicate_rows > 0 && <button type="button" onClick={() => setIssue({ kind: 'duplicate', column: null })}>{t('查看重复行')}</button>}
-  <p className="muted">{t('选择字段展开详细概况，点击问题坐标核对当前版本。')}</p>
-  <div className="profile-field-picker">{profile.fields.map(f => <button type="button" key={f.column} aria-expanded={fieldColumn === f.column} onClick={() => { setFieldColumn(fieldColumn === f.column ? null : f.column); setIssue(null) }}>{f.letter} · {f.name}</button>)}</div>
+  <p className="muted">{t('选择字段查看概况。')}</p>
+  <div className="profile-field-picker">{profile.fields.map(f => <button type="button" key={f.column} aria-pressed={fieldColumn === f.column} onClick={() => { setFieldColumn(f.column); setIssue(null) }}>{f.letter} · {f.name}</button>)}</div>
   {field && <FieldDetails field={field} onIssue={(kind, column) => setIssue({ kind, column })} />}
   {issue && <IssuePanel key={`${issue.kind}:${issue.column}`} base={base} profile={profile} {...issue} />}
   {projectId && profile.source.kind === 'prepared_dataset_version' && <><button type="button" onClick={() => setQuality(n => n + 1)}>{t('按此版本处理质量问题')}</button>{quality > 0 && <QualityPreparationPanel key={quality} projectId={projectId} source={profile.source} />}</>}

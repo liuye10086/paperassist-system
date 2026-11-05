@@ -145,7 +145,7 @@ class ResearchReportService(ResearchResultsStore):
         if normalized!=row['content_json']:raise invalid()
         payload['snapshot']=normalized;return payload
 
-    def checked_members(self,db,project,row,*,progress=None):
+    def checked_members(self,db,project,row,*,progress=None,read_member_bytes=True):
         import json
         objects=ResearchObjects(self.assets.directory);obj=scoped_object(db,project,self.store.user_id,row['manifest_object_id'])
         if obj['sha256']!=row['manifest_sha256']:raise invalid()
@@ -154,7 +154,8 @@ class ResearchReportService(ResearchResultsStore):
             if progress is not None:progress()
             obj=scoped_object(db,project,self.store.user_id,member['storage_object_id']);match=expected.get(member['id'])
             if not match or any(member[k]!=match[k] for k in ('key','role','format','sha256','size_bytes')) or any(obj[k]!=member[k] for k in ('sha256','size_bytes')):raise invalid()
-            objects.read(obj);members.append({k:member[k] for k in ('id','key','role','format','sha256','size_bytes','properties_json')})
+            if read_member_bytes:objects.read(obj)
+            members.append({k:member[k] for k in ('id','key','role','format','sha256','size_bytes','properties_json')})
             if progress is not None:progress()
         if {m['id'] for m in members}!=set(expected):raise invalid()
         return manifest,members
@@ -174,9 +175,22 @@ class ResearchReportService(ResearchResultsStore):
     def list(self,project,page=1):
         with self.store.connection() as db:
             self.store.require_project(db,project)
-            ids=db.execute('SELECT id FROM research_report_versions WHERE project_id=%s AND user_id=%s ORDER BY created_at DESC,id LIMIT 20 OFFSET %s',(project,self.store.user_id,(page-1)*20)).fetchall()
+            rows=db.execute('SELECT * FROM research_report_versions WHERE project_id=%s AND user_id=%s ORDER BY created_at DESC,id LIMIT 20 OFFSET %s',(project,self.store.user_id,(page-1)*20)).fetchall()
             total=db.execute('SELECT count(*) AS n FROM research_report_versions WHERE project_id=%s AND user_id=%s',(project,self.store.user_id)).fetchone()['n']
-        return dict(items=[self.get(project,r['id']) for r in ids],total=total,page=page,page_size=20)
+            items=[]
+            for row in rows:
+                # A catalog describes saved reports. Opening a report or download
+                # still verifies its full source closure and artifact bytes.
+                self.verify_content(row);task=self.store.require_task(db,row['task_id'])
+                manifest=None;members=[]
+                if row['manifest_object_id']:
+                    if task['status']!='succeeded':raise invalid()
+                    manifest,members=self.checked_members(db,project,row,read_member_bytes=False)
+                    for member in members:member['download_url']=f'/api/v1/projects/{project}/research-reports/{row["id"]}/members/{member["id"]}/download'
+                items.append(dict(id=row['id'],root_id=row['root_id'],revision=row['revision'],parent_id=row['parent_id'],
+                    content=row['content_json'],sha256=row['content_sha256'],manifest=manifest,manifest_sha256=row['manifest_sha256'],
+                    members=members,task_id=row['task_id'],task=self.store.public_task(task)))
+        return dict(items=items,total=total,page=page,page_size=20)
 
     def member(self,project,identifier,member_id,*,progress=None):
         with self.store.connection() as db:

@@ -12,14 +12,14 @@ export function WorkflowStage({ stage, children }: { stage: AnalysisStage; child
   const navigation = useWorkflowNavigation()
   return <div className="workflow-stage" hidden={!!navigation && navigation.stage !== stage}>{children}</div>
 }
-export function WorkflowNavigation({ onOpenFiles }: { onOpenFiles?: () => void }) {
+export function WorkflowNavigation({ onOpenFiles,readiness }: { onOpenFiles?: () => void;readiness?:{source:boolean;configured:boolean} }) {
   const { t } = useI18n()
   const navigation = useWorkflowNavigation()
   if (!navigation) return null
   const stages: [AnalysisStage, string][] = [['setup', '字段配置'], ['profile', '数据概况'], ['plan', '分析方案'], ['statistics', '统计结果'], ['figure', '图表'], ['explanation', '分析解释'], ['report', 'Word报告']]
   return <nav className="analysis-workflow-nav" aria-label={t('分析流程')}>
-    <button type="button" disabled={!onOpenFiles} onClick={onOpenFiles}>{t('数据')}</button>
-    {stages.map(([stage, label], index) => <button type="button" key={stage} aria-current={navigation.stage === stage ? 'step' : undefined} onClick={() => navigation.setStage(stage)}><span aria-hidden="true">{index+1}. </span>{t(label)}</button>)}
+    {stages.map(([stage, label], index) => <button type="button" key={stage} aria-current={navigation.stage === stage ? 'step' : undefined} disabled={!!readiness&&stage!=='setup'&&(['profile','plan'].includes(stage)?!readiness.source:!readiness.configured)} title={readiness&&!readiness.source&&stage!=='setup'?t('先选择数据版本与工作表'):readiness&&!readiness.configured&&!['setup','profile','plan'].includes(stage)?t('先保存有效分析配置'):undefined} onClick={() => navigation.setStage(stage)}><span aria-hidden="true">{index+1}. </span>{t(label)}</button>)}
+    {readiness&&!readiness.source&&onOpenFiles&&<button type="button" className="button-quiet" onClick={onOpenFiles}>{t('返回上传文件')}</button>}
   </nav>
 }
 export function WorkflowEmptyResults({ message }: { message: string }) {

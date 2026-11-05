@@ -346,7 +346,7 @@ it('opens frozen manuscript writing from task details without an analysis config
  const input={kind:'manuscript_writing',base_version_id:'v1',base_revision:1,output_language:'en',workflow_version:'manuscript_writing_v1'}
  const task={...taskFixture,task_type:'manuscript_writing',phase:'write',input_version:input,error_code:'manuscript_writing_not_authorized',reason_code:'confirmation_required'}
  api({...workspaceFixture,task,source:{file_id:null,analysis_run_id:null,filename:'Saved draft',is_current:true},wait:{...workspaceFixture.wait,kind:'unsupported_confirmation',input_version:input},allowed_actions:[]})
- const open=vi.fn();render(<TaskDetail {...props} onOpenManuscripts={open}/>);fireEvent.click(await screen.findByRole('button',{name:'打开 SCI 写作'}));expect(open).toHaveBeenCalled();expect(screen.getByText('已冻结的写作基础版本 1')).toBeTruthy();expect(screen.queryByText('分析配置 v0')).toBeNull()
+ render(<TaskDetail {...props}/>);expect(await screen.findByText('已冻结的写作基础版本 1')).toBeTruthy();expect(await screen.findByText('稿件历史读取失败，请重试。')).toBeTruthy();expect(screen.queryByText('分析配置 v0')).toBeNull()
 })
 
 it('links a successful format task back to frozen journal results without model usage and labels verify events',async()=>{

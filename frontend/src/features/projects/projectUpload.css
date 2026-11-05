@@ -1,7 +1,11 @@
 .project-files-page { border: 1px solid var(--border); border-radius: 16px; background: var(--surface); overflow: hidden; }
-.project-files-page .resource-view-nav { justify-content: flex-start; gap: 6px; margin: 0; padding: 14px 24px; border-bottom: 1px solid var(--border); background: var(--accent-bg); }
-.resource-view-nav button { background: transparent; border-color: transparent; color: var(--text); }
-.resource-view-nav button[aria-current='page'] { background: var(--surface); border-color: var(--border); color: var(--accent); font-weight: 600; }
+.project-files-page .resource-view-nav { justify-content: flex-start; gap: 18px; margin: 0; padding: 0 24px; border-bottom: 1px solid var(--border); background: var(--surface); }
+.resource-view-nav button { background: transparent; border: 0; border-bottom: 3px solid transparent; border-radius: 0; padding: 16px 4px 13px; color: var(--text); }
+.resource-view-nav button[aria-current='page'] { border-bottom-color: var(--accent); color: var(--accent); font-weight: 600; }
+.resource-module-body, .resource-bio-body { max-height: max(360px, calc(100dvh - 194px)); overflow: auto; scrollbar-gutter: stable; overscroll-behavior: contain; }
+.resource-bio-body { padding: 20px 24px; }
+.resource-subview-actions { display: flex; flex-wrap: wrap; gap: 8px; padding: 16px 24px 0; }
+.resource-bio-body .resource-subview-actions { padding: 0 0 16px; }
 .upload-mode-bar { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; padding: 22px 24px 0; }
 .upload-mode-bar .upload-kind-options { margin: 0; gap: 8px; }
 .resource-upload-panel { padding: 24px; min-width: 0; }
@@ -23,15 +27,37 @@
 .resource-upload-panel .upload-panel > label, .resource-upload-panel .upload-panel > p { margin: 0; }
 .resource-upload-panel .upload-controls { display: flex; flex-wrap: wrap; gap: 12px; }
 .resource-upload-panel .upload-controls > input { flex: 1 1 280px; }
-.project-files-page > .file-history { margin: 0; padding: 24px; }
-.project-files-page > .file-history .preview-heading h2 { margin: 0; font-size: 20px; }
-.project-files-page > div > .file-details { margin: 24px; }
+.resource-module-body > .file-history { margin: 0; padding: 12px 24px 20px; }
+.resource-module-body > .file-history .preview-heading h2 { margin: 0; font-size: 18px; }
+.resource-module-body > div > .file-details { margin: 16px 24px 24px; }
 @media (max-width: 640px) {
-  .project-files-page .resource-view-nav { padding: 12px 16px; }
+  .project-files-page .resource-view-nav { padding: 0 16px; gap: 14px; }
   .upload-mode-bar { align-items: flex-start; padding: 18px 16px 0; }
   .upload-mode-bar .upload-kind-options { width: 100%; }
   .upload-kind-options > button { flex: 1; min-width: 0; padding-inline: 10px; }
-  .resource-upload-panel, .project-files-page > .file-history { padding: 20px 16px; }
+  .resource-upload-panel, .resource-module-body > .file-history, .resource-bio-body { padding: 20px 16px; }
   .resource-upload-panel .upload-file-picker, .resource-upload-panel .upload-panel { padding: 16px; }
-  .project-files-page > div > .file-details { margin: 16px; }
+  .resource-module-body > div > .file-details { margin: 16px; }
+  .resource-module-body, .resource-bio-body { max-height: none; overflow: visible; }
+}
+.upload-preparation-summary { padding: 16px 24px 0; overflow-wrap: anywhere; }
+.upload-preparation-summary ul { display: flex; flex-wrap: wrap; gap: 8px; padding: 0; margin: 0; list-style: none; }
+.upload-preparation-summary li { padding: 5px 10px; border-radius: 6px; background: var(--bg); font-size: 12px; }
+.upload-preparation-summary button { margin: 4px 8px 4px 0; }
+.upload-batches-title { margin: 24px 0 12px; padding-top: 16px; border-top: 1px solid var(--border); font-size: 15px; }
+.upload-quality { padding: 24px; }
+.upload-quality-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 20px; }
+.upload-quality-heading h2 { margin: 0 0 8px; font-size: 18px; }
+.upload-quality-heading p, .upload-quality-card p { margin: 0; color: var(--text); font-size: 13px; line-height: 1.7; }
+.upload-quality-heading button, .upload-quality-card button { flex-shrink: 0; }
+.upload-quality-card { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 16px; margin-top: 12px; border: 1px solid var(--border); border-radius: 10px; }
+.upload-quality-card h3 { margin: 0 0 6px; overflow-wrap: anywhere; font-size: 15px; }
+.quality-module-nav { display: flex; flex-wrap: wrap; gap: 6px; margin: 20px 0; }
+.quality-module-nav button { padding: 8px 14px; background: var(--bg); border-color: transparent; }
+.quality-module-nav button[aria-pressed='true'] { background: var(--accent-bg); color: var(--accent); border-color: var(--accent); }
+.resource-bio-body .bio-workspace { margin: 0; }
+@media (max-width: 640px) {
+  .upload-quality { padding: 20px 16px; }
+  .upload-quality-heading, .upload-quality-card { flex-direction: column; gap: 12px; }
+  .upload-preparation-summary { padding: 16px 16px 0; }
 }

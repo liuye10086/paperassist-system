@@ -19,10 +19,16 @@ import type { ProjectSection } from './WorkspaceShell'
 import type { ResourceNavigation } from './resourceViews'
 import type { RegisterLeaveGuard } from './useDraftLeaveGuard'
 import AnalysisGuide from './AnalysisGuide'
+import AnalysisEntryContext from './AnalysisEntryContext'
+import {analysisScopes,filePreparation} from './analysisEntryState'
+import type {Intake,Version} from '../research-intake/contracts'
+import {projectBase,useResearchRead} from '../research-results/api'
+import useEntryImports from './useEntryImports'
 import './projectUpload.css'
 import './projectAnalysis.css'
+import UploadQuality from './UploadQuality'
 
-type Props = { onRequirements?: () => void; projectId: string; onSaved: () => void; section: ProjectSection; onSectionChange: (section: ProjectSection) => void; active?: boolean
+type Props = { savedRequirement?:Version|null; onRequirements?: () => void; projectId: string; onSaved: () => void; section: ProjectSection; onSectionChange: (section: ProjectSection) => void; active?: boolean
   analysisNavigation?: AnalysisNavigation; onAnalysisNavigate?: (next:AnalysisNavigation)=>void; resourceNavigation?: ResourceNavigation; onResourceNavigate?: (next: ResourceNavigation) => void; registerLeaveGuard?: RegisterLeaveGuard }
 
 function ResourceScope({ projectId, onSaved, section, onSectionChange, active = true, ...navigationProps }: Props) {
@@ -34,7 +40,7 @@ function ResourceScope({ projectId, onSaved, section, onSectionChange, active = 
   return <ResourceContent projectId={projectId} onSaved={onSaved} section={section} onSectionChange={onSectionChange} active={active} onUnavailable={denied} {...navigationProps} />
 }
 
-function ResourceContent({ projectId, onSaved, section, onSectionChange, onUnavailable, active, resourceNavigation, onResourceNavigate, registerLeaveGuard, analysisNavigation, onAnalysisNavigate, onRequirements }: Props & { onUnavailable: () => void }) {
+function ResourceContent({ projectId, onSaved, section, onSectionChange, onUnavailable, active, resourceNavigation, onResourceNavigate, registerLeaveGuard, analysisNavigation, onAnalysisNavigate, onRequirements, savedRequirement }: Props & { onUnavailable: () => void }) {
   const { t } = useI18n()
   const [localNavigation, setLocalNavigation] = useState<ResourceNavigation>({ view: 'list', fileId: '' })
   const [uploadKind, setUploadKind] = useState<'documents'|'bio'>('documents')
@@ -49,11 +55,29 @@ function ResourceContent({ projectId, onSaved, section, onSectionChange, onUnava
   const [requirementsVisited,setRequirementsVisited]=useState(analysis.view==='research-request')
   if(analysis.view==='research-request'&&!requirementsVisited)setRequirementsVisited(true)
   const navigateAnalysis=onAnalysisNavigate??setLocalAnalysis
+  const analysisActive=!!active&&section==='analysis'
+  const intake=useResearchRead<Intake>(`${projectBase(projectId)}/research-intake`,analysisActive)
+  const fixed=useResearchRead<Version>(analysis.entry?`${projectBase(projectId)}/requirements/${encodeURIComponent(analysis.entry.requirementVersionId)}`:'',analysisActive&&!!analysis.entry)
+  const current=savedRequirement&&savedRequirement.version>=(intake.data?.current_requirement?.version??0)?savedRequirement:intake.data?.current_requirement??null
+  const requirement=analysis.entry?fixed.data:current
+  const entryAvailable=!analysis.entry||!!fixed.data&&!fixed.error&&analysisScopes(fixed.data).some(s=>s.id===analysis.entry?.scopeItemId)
+  function openFile(id:string){if(onResourceNavigate)onResourceNavigate({view:'detail',fileId:id});else{onSectionChange('files');navigate({view:'detail',fileId:id})}}
   const insightView=isInsightView(analysis.view)
   const bioView=analysis.view.startsWith('bio-')&&!insightView
   const researchView=analysis.view==='research-findings'
   const filesActive = Boolean(active) && section === 'files'
+  const qualityBioActive = filesActive && navigation.view === 'quality' && !!navigation.bio
+  const sharedBioActive = qualityBioActive || analysisActive && bioView && entryAvailable
+  const desiredBio = qualityBioActive ? navigation.bio! : analysis
+  const [retainedBio, setRetainedBio] = useState<AnalysisNavigation>(desiredBio)
+  if (sharedBioActive && retainedBio !== desiredBio) setRetainedBio(desiredBio)
+  function navigateBio(next: AnalysisNavigation) {
+    if (section === 'files') navigate({view:'quality',fileId:'',bio:next})
+    else navigateAnalysis(next)
+  }
   const [files, setFiles] = useState<ProjectFile[]>([])
+  const imports=useEntryImports(projectId,Boolean(active)&&(section==='files'||section==='analysis')&&files.some(file=>file.parse_status==='stored'),section==='analysis'?analysis.view:navigation.view)
+  const initialFileIds=analysis.entry&&analysis.intent==='bio'&&entryAvailable&&fixed.data?.material_refs?.some(ref=>ref.file_id===analysis.fileId&&ref.availability==='provided')&&files.some(file=>file.id===analysis.fileId&&file.parse_status==='stored')?[analysis.fileId]:undefined
   const [attempt, setAttempt] = useState(0)
   const [uploadVersion, setUploadVersion] = useState(0)
   const [loading, setLoading] = useState(true)
@@ -80,27 +104,30 @@ function ResourceContent({ projectId, onSaved, section, onSectionChange, onUnava
       .catch(() => { if (active) setError('文件列表读取失败，请确认后端服务正常后重试。') })
       .finally(() => { window.clearTimeout(timeout); if (active) setLoading(false) })
     return () => { active = false; controller.abort(); window.clearTimeout(timeout) }
-  }, [projectId, attempt, onUnavailable])
+  }, [projectId, attempt, onUnavailable, section])
 
   function batchChanged() { setUploadVersion(value => value + 1); refresh(); onSaved() }
-  return <>
-    <div hidden={section !== 'files'} className="project-files-page">
+  function refreshMaterials(){refresh();imports.refresh()}
+  return <div className={section === 'files' ? 'project-files-page' : 'project-analysis-page analysis-workspace'} hidden={!active || !['files','analysis'].includes(section)}>
+    <div hidden={section !== 'files'}>
       <nav className="material-view-actions resource-view-nav" aria-label={t('材料视图')}>
-        {['list', 'upload'].includes(navigation.view) ? <>
           <button type="button" aria-current={navigation.view === 'upload' ? 'page' : undefined} onClick={() => navigate({ view: 'upload', fileId: '' })}>{t('上传文件')}</button>
-          <button type="button" aria-current={navigation.view === 'list' ? 'page' : undefined} onClick={() => navigate({ view: 'list', fileId: '' })}>{t('已上传文件')}</button>
-        </> : <button type="button" onClick={() => navigate({ view: 'list', fileId: '' })}>{t('返回文件列表')}</button>}
-        {navigation.view === 'preview' && navigation.fileId && <>
+          <button type="button" aria-current={['list','detail','preview'].includes(navigation.view) ? 'page' : undefined} onClick={() => navigate({ view: 'list', fileId: '' })}>{t('已上传文件')}</button>
+          <button type="button" aria-current={navigation.view === 'quality' ? 'page' : undefined} onClick={() => navigate({view:'quality',fileId:''})}>{t('质量控制')}</button>
+      </nav>
+      <div className="resource-module-body" hidden={qualityBioActive}>
+      {navigation.view === 'preview' && navigation.fileId && <div className="resource-subview-actions">
           <button type="button" onClick={() => navigate({ view: 'detail', fileId: navigation.fileId })}>{t('文件详情')}</button>
           <button type="button" disabled={busy} onClick={() => { setPreviewState({ id: navigation.fileId, status: 'loading' }); setOpened({ id: navigation.fileId, request: ++openSequence.current }) }}>{t('重新读取预览')}</button>
-        </>}
-      </nav>
+      </div>}
+      {navigation.view==='quality' && !navigation.fileId && !navigation.bio && <UploadQuality files={files} loading={loading} error={error} onReload={refreshMaterials} onNavigate={navigate}/>}
+      {navigation.view==='list'&&<section className="upload-preparation-summary" aria-label={t('材料准备状态')}>{imports.error&&<p role="alert">{t(imports.error)}</p>}{loading?<p role="status">{t('正在核对材料状态……')}</p>:error?<p role="alert">{t(error)} <button type="button" onClick={refreshMaterials}>{t('重新读取材料')}</button></p>:<ul>{Object.entries(files.reduce<Record<string,number>>((counts,file)=>{const label=file.parse_status==='stored'&&imports.unknown?'材料状态尚未核实':filePreparation(file,imports.data??[]).label;counts[label]=(counts[label]??0)+1;return counts},{})).map(([label,count])=><li key={label}>{t(label)} · {count}</li>)}</ul>}</section>}
       <div className="upload-mode-bar" hidden={navigation.view !== 'upload'}>
         <div className="upload-kind-options" role="group" aria-label={t('选择上传材料类型')}>{([['documents','表格、报告与图片'],['bio','组学与生信数据包']] as const).map(([kind,label])=><button type="button" key={kind} aria-pressed={uploadKind===kind} onClick={()=>setUploadKind(kind)}>{t(label)}</button>)}</div>
       </div>
       <div className="resource-upload-panel" hidden={navigation.view !== 'upload' || uploadKind !== 'documents'}>{uploadVisited && <BatchUpload embedded projectId={projectId} active={filesActive && navigation.view === 'upload' && uploadKind==='documents'} onUnavailable={onUnavailable} onChanged={batchChanged} registerLeaveGuard={registerLeaveGuard} />}</div>
       <div className="resource-upload-panel" hidden={!filesActive||navigation.view!=='upload'||uploadKind!=='bio'}><BioUpload embedded active={filesActive&&navigation.view==='upload'&&uploadKind==='bio'} projectId={projectId} onChanged={batchChanged} registerLeaveGuard={registerLeaveGuard}/></div>
-      <ProjectFileLibrary projectId={projectId} active={filesActive} uploadVersion={uploadVersion} busy={busy} resourceNavigation={navigation} onResourceNavigate={navigate} registerLeaveGuard={registerLeaveGuard}
+      <ProjectFileLibrary projectId={projectId} active={filesActive} uploadVersion={uploadVersion} busy={busy} resourceNavigation={navigation} onResourceNavigate={navigate} registerLeaveGuard={registerLeaveGuard} onReloadMaterials={refreshMaterials}
         previewState={previewState} onUnavailable={onUnavailable} onPreview={id => {
           setPreviewState({ id, status: 'loading' }); setOpened({ id, request: ++openSequence.current })
           navigate({ view: 'preview', fileId: id })
@@ -108,23 +135,30 @@ function ResourceContent({ projectId, onSaved, section, onSectionChange, onUnava
       <div className="resource-upload-panel" hidden={navigation.view !== 'preview'}>
         {previewVisited && <ExcelPreview embedded projectId={projectId} savedFile={opened} uploadVisible={false} onUnavailable={onUnavailable} onBusyChange={setBusy} onSavedPreviewChange={setPreviewState} />}
       </div>
+      </div>
     </div>
-    <div hidden={section !== 'analysis'} className="project-analysis-page">
-      <nav hidden={analysis.view==='overview'} className="analysis-overview-nav" aria-label={t('分析工作区')}>
-        <button type="button" onClick={()=>navigateAnalysis({view:'overview',fileId:analysis.fileId})}>← {t('返回分析入口')}</button>
+    <div className={bioView?'analysis-content analysis-bio-header':'analysis-content'} hidden={section !== 'analysis'}>
+      <nav hidden={analysis.view==='overview'||!!analysis.entry} className="analysis-overview-nav" aria-label={t('分析工作区')}>
+        <button type="button" onClick={()=>navigateAnalysis({view:'overview',fileId:analysis.fileId,entry:analysis.entry,intent:analysis.intent})}>← {t('返回分析入口')}</button>
       </nav>
-      <BioInsightsWorkspace projectId={projectId} navigation={analysis} onNavigate={navigateAnalysis} active={Boolean(active)&&section==='analysis'&&insightView} registerLeaveGuard={registerLeaveGuard}/>
-      <BioImports projectId={projectId} navigation={analysis} onNavigate={navigateAnalysis} active={Boolean(active)&&section==='analysis'&&bioView} registerLeaveGuard={registerLeaveGuard}/>
-      <div hidden={analysis.view!=='overview'}>
-        <AnalysisGuide projectId={projectId} active={Boolean(active)&&section==='analysis'&&analysis.view==='overview'} onNavigate={view=>navigateAnalysis({view,fileId:analysis.fileId})} onRequirements={onRequirements}/>
+      <AnalysisEntryContext navigation={analysis} version={fixed.data} current={current} loading={fixed.loading} error={fixed.error} files={files} filesUnknown={loading||!!error||imports.unknown} imports={imports.data??[]} onReload={fixed.refresh} onNavigate={navigateAnalysis} onFile={openFile}/>
+      <div className="analysis-module-body" hidden={bioView}>
+      <BioInsightsWorkspace projectId={projectId} navigation={analysis} onNavigate={navigateAnalysis} active={analysisActive&&insightView&&entryAvailable} registerLeaveGuard={registerLeaveGuard}/>
+      <div className="analysis-overview-body" hidden={analysis.view!=='overview'}>
+        <AnalysisGuide version={requirement} scopeId={analysis.entry?.scopeItemId} loading={analysis.entry?fixed.loading:intake.loading&&!current} error={analysis.entry?fixed.error:intake.error} onRefresh={analysis.entry?fixed.refresh:intake.refresh} files={files} filesLoading={loading} filesError={error} onReloadFiles={refreshMaterials} imports={imports.data??[]} importsUnknown={imports.unknown} importsError={imports.error} onFile={openFile} onNavigate={navigateAnalysis} onRequirements={onRequirements}/>
       </div>
       <div hidden={analysis.view!=='research-request'}>{requirementsVisited&&<ProjectRequirements projectId={projectId} files={files.filter((file):file is ProjectFile & {parse_status:'queued'|'parsing'|'parsed'|'failed'}=>file.parse_status!=='stored')} registerLeaveGuard={registerLeaveGuard}/>}</div>
-      <div hidden={analysis.view==='overview'||analysis.view==='research-request'||bioView||insightView||researchView}>
+      <div hidden={!entryAvailable||analysis.view==='overview'||analysis.view==='research-request'||bioView||insightView||researchView}>
       <AnalysisSetup projectId={projectId} files={files.filter((file):file is ProjectFile & {parse_status:'queued'|'parsing'|'parsed'|'failed'}=>file.parse_status!=='stored'&&file.file_type==='xlsx')} filesLoading={loading} filesError={error} onReloadFiles={refresh}
         onOpenFiles={() => onSectionChange('files')} stage={analysis.view==='overview'||analysis.view==='research-request'||analysis.view==='research-findings'||analysis.view.startsWith('bio-')?'setup':analysis.view as import('../analysis/analysisWorkflowContext').AnalysisStage} onStageChange={view=>navigateAnalysis({...analysis,view})} fileId={analysis.fileId} onFileChange={fileId=>navigateAnalysis({...analysis,fileId})} registerLeaveGuard={registerLeaveGuard} />
       </div>
     </div>
-  </>
+    </div>
+    <div className={section==='files'?'resource-bio-body':'analysis-bio-body'} hidden={!sharedBioActive}>
+      {qualityBioActive && navigation.bio?.view!=='bio-datasets' && <div className="resource-subview-actions"><button type="button" onClick={()=>navigateBio({view:'bio-datasets',fileId:''})}>{t('返回数据集与记录')}</button></div>}
+      <BioImports projectId={projectId} navigation={sharedBioActive?desiredBio:retainedBio} onNavigate={navigateBio} active={sharedBioActive} sectioned qualityMode={section==='files'} initialFileIds={qualityBioActive?undefined:initialFileIds} entryKey={qualityBioActive?undefined:analysis.entry?`${analysis.entry.requirementVersionId}:${analysis.entry.scopeItemId}`:undefined} registerLeaveGuard={registerLeaveGuard}/>
+    </div>
+  </div>
 }
 
 export default function ProjectResources(props: Props) { return <ResourceScope key={props.projectId} {...props} /> }

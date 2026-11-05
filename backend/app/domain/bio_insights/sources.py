@@ -1,6 +1,6 @@
 """Resolve seven fixed source types into verified, owner-scoped worker leaves."""
 import csv
-from app.domain.source_byte_verification import VerificationPhase, require_phase, phase_guard, RAW_MATRIX_KEYS
+from app.domain.source_byte_verification import VerificationPhase, require_phase, phase_guard, RAW_MATRIX_KEYS, RAW_REPRESENTATION_ROLES
 import hashlib
 import io
 import json
@@ -28,6 +28,10 @@ class InsightSourceReader(BioInsightsStore):
         path=objects.path(record['object_key'])
         self._verify(path,record,progress)
         return {key:record[key] for key in ('sha256','size_bytes')}|{'path':str(path),'format':record.get('format','json'),'role':record.get('role','input')}
+
+    def _lineage_leaf(self,db,project,record,objects,*,phase,progress=None):
+        phase.verify_object(db,self.assets,project,objects,record,progress=progress)
+        return {key:record[key] for key in ('sha256','size_bytes')}|{'path':str(objects.path(record['object_key'])),'format':record.get('format','json'),'role':record.get('role','input')}
 
     @staticmethod
     def _verify(path,record,progress=None):
@@ -82,16 +86,17 @@ class InsightSourceReader(BioInsightsStore):
             sha=row['manifest_sha256']
             manifest_obj=scoped_object(db,project,self.store.user_id,row['manifest_object_id'])
             members={'manifest':self._leaf(manifest_obj,self.bio.objects,progress)}
-            members.update({m['key']:self._leaf(m,self.bio.objects,progress) for m in records})
+            for member in records:
+                # Metadata consumes TSV/JSON below; scientific runtime consumes matrices.
+                if lineage_only and member['format'] in ('h5ad','npy'):
+                    members[member['key']]=self._lineage_leaf(db,project,member,self.bio.objects,phase=phase,progress=progress)
+                else:members[member['key']]=self._leaf(member,self.bio.objects,progress)
             raw_source=manifest.get('raw_source') or manifest['identity']['raw_source']
             _,raw_manifest,raw_records=self.bio._raw_lineage_in_phase(db,project,raw_source,phase=phase,progress=progress)
             raw_members={}
             for member in raw_records:
-                if lineage_only and member['key'] in RAW_MATRIX_KEYS:
-                    objects=self.bio.raw_store.objects
-                    phase.verify_object(db,self.assets,project,objects,member,progress=progress)
-                    # Unconsumed ancestry only. Scientific runtime keeps _leaf's full hash.
-                    raw_members[member['key']]={key:member[key] for key in ('sha256','size_bytes')}|{'path':str(objects.path(member['object_key'])),'format':member.get('format','json'),'role':member.get('role','input')}
+                if lineage_only and (member['key'] in RAW_MATRIX_KEYS or member['role'] in RAW_REPRESENTATION_ROLES):
+                    raw_members[member['key']]=self._lineage_leaf(db,project,member,self.bio.raw_store.objects,phase=phase,progress=progress)
                 else:raw_members[member['key']]=self._leaf(member,self.bio.raw_store.objects,progress)
             raw=dict(manifest=raw_manifest,members=raw_members)
             if raw_manifest.get('schema_version')==3:

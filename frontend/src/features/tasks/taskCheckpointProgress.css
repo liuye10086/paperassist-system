@@ -1,0 +1,8 @@
+.task-checkpoint-progress > h4 { margin:0 0 12px; }
+.task-stage-summary { display:flex; flex-wrap:wrap; gap:8px 24px; }
+.task-stage-summary > p { margin:0; }
+.task-checkpoint-progress h5 { margin:20px 0 10px; font-size:14px; }
+.task-stage-list { padding:0; margin:0; list-style:none; }
+.task-stage-list > li { display:flex; flex-wrap:wrap; justify-content:space-between; gap:6px 24px; padding:12px 0; border-bottom:1px solid var(--border); }
+.task-stage-list > li > span:last-child, .task-stage-observed { color:var(--text-muted); font-size:13px; }
+.task-stage-observed { margin:12px 0 0; }

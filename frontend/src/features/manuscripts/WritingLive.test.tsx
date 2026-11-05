@@ -9,7 +9,7 @@ import {authFixture,bundleFixture,liveRequest,unsubmittedRequest} from './writin
 import WritingLive from './WritingLive'
 import {ManuscriptDraftProvider} from './ManuscriptDraftProvider'
 const props={projectId:'p1',manuscriptId:'m1',version:manuscriptFixture.versions[0] as unknown as ManuscriptVersion,onPublished:vi.fn()}
-afterEach(()=>{cleanup();vi.unstubAllGlobals()})
+afterEach(()=>{cleanup();sessionStorage.clear();vi.unstubAllGlobals()})
 it.each(['受控写作关键词（每行一项）','受控写作致谢'])('keeps cached %s dirty after switching to a section rewrite',async label=>{
  const guards=new Map<()=>boolean,()=>boolean>();const register=(guard:()=>boolean,dirty?:()=>boolean)=>{guards.set(guard,dirty??(()=>false));return ()=>{guards.delete(guard)}}
  vi.stubGlobal('fetch',vi.fn(async(url:string)=>Response.json(url.endsWith('/writing-previews')?{items:[],capabilities:{real_calls_enabled:false}}:{items:[]})))
@@ -98,4 +98,13 @@ it('retains separate article and legacy drafts while switching modes and protoco
  expect(screen.getByLabelText('本次受控写作要求')).toHaveProperty('value','Article full')
  fireEvent.change(screen.getByLabelText('受控写作方式'),{target:{value:'polish'}})
  expect(screen.getByLabelText('本次受控写作要求')).toHaveProperty('value','Polish only')
+})
+it('matches a recovered controlled request by exact call identity without posting',async()=>{
+ const key='paperassist.research-draft.v1:anonymous:p1:manuscript-request:m1:v1:controlled-writing'
+ sessionStorage.setItem(key,JSON.stringify({key:'original',url:'/api/v1/projects/p1/manuscripts/m1/writing-requests',body:JSON.stringify({schema_version:2,bundle_id:'b1',bundle_sha256:'sha',authorization_id:'auth1',logical_task_id:'task-1'}),phase:'unknown'}))
+ const matched={...liveRequest,model_calls:[{id:'call1',model:'model',status:'submission_unknown',provider_provenance:'openai_live',bundle_id:'b1',authorization_id:'auth1',logical_task_id:'task-1',estimated_cost_micro_usd:null}]}
+ const fetcher=vi.fn(async(url:string,_init?:RequestInit)=>Response.json(url.endsWith('/writing-previews')?{items:[],capabilities:{real_calls_enabled:true}}:{items:[{schema_version:1,base_revision:1},matched]}));vi.stubGlobal('fetch',fetcher);render(<WritingLive {...props}/>);await screen.findByRole('button',{name:'审核此原始候选'});await waitFor(()=>expect(JSON.parse(sessionStorage.getItem(key)??'null')).toBeNull());expect(fetcher.mock.calls.every(call=>call.length===1||!(call[1] as RequestInit)?.method)).toBe(true)
+})
+it('links controlled writing tasks to their fixed task workspace',async()=>{
+ const failed={...liveRequest,task:{...liveRequest.task,status:'failed',display_status:'failed'}};vi.stubGlobal('fetch',vi.fn(async(url:string)=>Response.json(url.endsWith('/writing-previews')?{items:[],capabilities:{real_calls_enabled:false}}:{items:[failed]})));render(<WritingLive {...props}/>);expect((await screen.findByRole('link',{name:'查看写作任务'})).getAttribute('href')).toBe('#project=p1&section=tasks&task=w1')
 })

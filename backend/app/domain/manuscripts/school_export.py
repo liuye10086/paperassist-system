@@ -16,6 +16,35 @@ def invalid(message):
     return StorageError('school_export_input_invalid',message,422)
 
 
+def reconcile_research_issues(plan, snapshot, payload):
+    """Recheck display metadata in exact frozen fact paragraphs, not free prose."""
+    from app.domain.research_results.fact_draft import compose
+    from app.domain.manuscript_review.facts import displayed_paragraphs
+    from app.domain.manuscript_writing.context import NUMBER
+    expected = compose(dict(payload, base_snapshot=None, thesis_context=None))
+    if snapshot['sources'] != expected['sources']:
+        return
+    originals = {p['id']:p for _, p in displayed_paragraphs(expected)}
+    displayed = {p['id']:p for _, p in displayed_paragraphs(snapshot)}
+    reconciled = set()
+    for item in snapshot.get('school_content_report', {}).get('issues', []):
+        paragraph = displayed.get(item.get('location'))
+        if not paragraph or paragraph != originals.get(paragraph['id']):
+            continue
+        if item['category'] == 'numeric' and item['id'].endswith(':coverage') and 'research_fact' in paragraph:
+            if NUMBER.findall(paragraph['research_fact']['display_value']) == [b['value'] for b in paragraph['numeric_bindings']]:
+                reconciled.add('school:content:'+item['id'])
+        elif item['category'] == 'reference' and item['id'].endswith(':markers') and 'research_method' in paragraph:
+            markers = list(re.finditer(r'\[\d+(?:\s*[,–-]\s*\d+)*\]', paragraph['text']))
+            if markers and all(re.match(r'\[\d+\]\.[A-Za-z_]', paragraph['text'][m.start():]) for m in markers):
+                reconciled.add('school:content:'+item['id'])
+    if reconciled:
+        report = plan['report']
+        report['issues'] = [i for i in report['issues'] if i['id'] not in reconciled]
+        report['can_export'] = not any(i['severity'] == 'error' for i in report['issues'])
+        report['reconciled_research_issue_ids'] = sorted(reconciled)
+
+
 def _position(source):
     match=re.search(r'/w:body/w:p\[(\d+)\]',source.get('path',''))
     return int(match[1]) if match else None

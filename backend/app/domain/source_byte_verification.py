@@ -1,4 +1,4 @@
-"""Private, transaction-bound proofs for unconsumed raw lineage only.
+"""Private, transaction-bound proofs for unconsumed source lineage only.
 
 No bytes, paths or reusable permission are returned. Actual consumers must keep
 their independent complete read/hash. Nothing here caches a database decision.
@@ -14,6 +14,8 @@ from app.domain.bioinformatics.contracts import conflict
 
 
 RAW_MATRIX_KEYS = frozenset(('matrix_data', 'matrix_indices', 'matrix_indptr'))
+# Retained source representations are not consumed when checking ancestry.
+RAW_REPRESENTATION_ROLES = frozenset(('supplementary', 'derived_representation', 'alternate_matrix'))
 
 
 def phase_guard(function):

@@ -35,10 +35,17 @@ type Request = {
     controller: AbortController;
     timeout: number;
 };
+function mountedBioNavigation(route: NavigationRoute) {
+    if (route.workspaceView !== 'project') return undefined;
+    if (route.section === 'files' && route.resourceNavigation.view === 'quality') return route.resourceNavigation.bio;
+    if (route.section === 'analysis' && ['bio-datasets','bio-import','bio-dataset','bio-analysis-setup','bio-analysis','bio-result','bio-annotation','bio-figure'].includes(route.analysisNavigation.view)) return route.analysisNavigation;
+    return undefined;
+}
 export default function useProjectSelection(onUnavailable: (id: string) => void, onAvailable: (id: string) => void, onNavigate?: () => void, navigationGate?: (next: NavigationRoute) => boolean) {
     const [route, setRoute] = useState(() => initialRoute());
     const routeRef = useRef(route);
     const retainedProjectRoute = useRef(route);
+    const retainedBio = useRef({projectId:route.projectId,navigation:mountedBioNavigation(route)});
     const { section, taskId, literatureSearchId, adaptationId, reviewLink, manuscriptLink } = route;
     const [instance, setInstance] = useState<Instance | null>(() => route.projectId ? { id: route.projectId, key: 1 } : null);
     const nextKey = useRef(1), current = useRef<Instance | null>(instance), callbacks = useRef({ onUnavailable, onAvailable, onNavigate }), request = useRef<Request | null>(null), sequence = useRef(0);
@@ -59,7 +66,9 @@ export default function useProjectSelection(onUnavailable: (id: string) => void,
     function allowed(next: NavigationRoute) {
         const previous=routeRef.current;
         if (next.workspaceView === 'project' && next.projectId === current.current?.id && navigationGate && !navigationGate(next)) return false;
-        if(previous.section==='analysis'&&previous.analysisNavigation.view.startsWith('bio-')&&serializeNavigation(previous)!==serializeNavigation(next))return [...guards.current].every(g=>g());
+        const nextBio=mountedBioNavigation(next);
+        const replacesBio=nextBio && retainedBio.current.projectId===next.projectId && retainedBio.current.navigation && JSON.stringify(nextBio)!==JSON.stringify(retainedBio.current.navigation);
+        if(replacesBio || previous.section==='analysis'&&previous.analysisNavigation.view.startsWith('bio-')&&serializeNavigation(previous)!==serializeNavigation(next))return [...guards.current].every(g=>g());
         return !current.current || !next.projectId || next.projectId === current.current.id || [...guards.current].every(g => g());
     }
     function apply(next: NavigationRoute, seed?: Project) {
@@ -71,7 +80,7 @@ export default function useProjectSelection(onUnavailable: (id: string) => void,
             if (next.section !== 'tasks') next = {...next,taskId:routeRef.current.taskId,taskDetailView:routeRef.current.taskDetailView};
             if (next.section !== 'analysis') next = { ...next, analysisNavigation: routeRef.current.analysisNavigation };
             if (next.section !== 'artifacts') next = { ...next, artifactNavigation: routeRef.current.artifactNavigation };
-            if (next.section !== 'manuscripts') next = { ...next, manuscriptView: routeRef.current.manuscriptView, manuscriptLink: routeRef.current.manuscriptLink, researchCandidateId: routeRef.current.researchCandidateId };
+            if (next.section !== 'manuscripts') next = { ...next, manuscriptView: routeRef.current.manuscriptView, manuscriptLink: routeRef.current.manuscriptLink, researchCandidateId: routeRef.current.researchCandidateId, writingSource:routeRef.current.writingSource, writingDeliveryId:routeRef.current.writingDeliveryId };
             if (next.section !== 'journals') next = { ...next, journalView: routeRef.current.journalView, adaptationId: routeRef.current.adaptationId };
             if (next.section !== 'school-templates') next = { ...next, schoolTemplateNavigation: routeRef.current.schoolTemplateNavigation };
         }
@@ -80,6 +89,8 @@ export default function useProjectSelection(onUnavailable: (id: string) => void,
         else
             next = { ...retainedProjectRoute.current, workspaceView: next.workspaceView, projectId: '' };
         routeRef.current = next;
+        const nextBio=mountedBioNavigation(next);
+        if(next.projectId && (nextBio || retainedBio.current.projectId!==next.projectId))retainedBio.current={projectId:next.projectId,navigation:nextBio};
         setRoute(next);
         if (next.projectId && next.projectId !== current.current?.id) {
             cancel();
@@ -368,9 +379,16 @@ export default function useProjectSelection(onUnavailable: (id: string) => void,
     function selectManuscriptView(manuscriptView: ManuscriptView) {
         navigate({...routeRef.current, projectId:current.current?.id ?? '',workspaceView:'project',section:'manuscripts',manuscriptView});
     }
-    function selectManuscriptVersion(id:string, revision:number) {
+    function startWritingSelection() { navigate({...routeRef.current,projectId:current.current?.id??'',workspaceView:'project',section:'manuscripts',manuscriptView:'research-selection',writingSource:undefined,writingDeliveryId:undefined}); }
+    function selectWritingSource(writingSource: import('./projectNavigation').WritingSource) {
+        if(validId(writingSource.id)&&(!writingSource.setId||validId(writingSource.setId))) navigate({...routeRef.current,projectId:current.current?.id??'',workspaceView:'project',section:'manuscripts',manuscriptView:'research-selection',writingSource});
+    }
+    function selectWritingDelivery(writingDeliveryId:string) {
+        if(!writingDeliveryId||validId(writingDeliveryId))navigate({...routeRef.current,section:'manuscripts',manuscriptView:'research-selection',writingDeliveryId:writingDeliveryId||undefined});
+    }
+    function selectManuscriptVersion(id:string, revision:number, manuscriptView?:ManuscriptView) {
         if (validId(id) && Number.isSafeInteger(revision) && revision > 0)
-            navigate({...routeRef.current, projectId:current.current?.id ?? '',workspaceView:'project',section:'manuscripts',manuscriptLink:{id,revision}});
+            navigate({...routeRef.current, projectId:current.current?.id ?? '',workspaceView:'project',section:'manuscripts',manuscriptLink:{id,revision},...(manuscriptView?{manuscriptView}:{})});
     }
     function selectJournalView(journalView:JournalView) {
         navigate({...routeRef.current,projectId:current.current?.id ?? '',workspaceView:'project',section:'journals',journalView});
@@ -387,7 +405,7 @@ export default function useProjectSelection(onUnavailable: (id: string) => void,
         reviewView:route.reviewView,reviewItemId:route.reviewItemId,taskDetailView:route.taskDetailView,
         selectReviewView,selectReviewItem,selectReviewRun,selectReviewDocument,selectTaskDetailView,
         manuscriptView:route.manuscriptView,journalView:route.journalView,schoolTemplateNavigation:route.schoolTemplateNavigation,
-        researchCandidateId:route.researchCandidateId,
+        researchCandidateId:route.researchCandidateId,writingSource:route.writingSource,writingDeliveryId:route.writingDeliveryId,startWritingSelection,selectWritingSource,selectWritingDelivery,
         deliveryId:route.deliveryId,deliverySnapshotId:route.deliverySnapshotId,
         selectDelivery:(deliveryId:string,deliverySnapshotId='')=>{if(validId(deliveryId)&&(!deliverySnapshotId||validId(deliverySnapshotId)))navigate({...routeRef.current,section:'overview',overviewView:'deliveries',deliveryId,deliverySnapshotId})},
         selectResearchCandidate:(id:string)=>{if(!id||validId(id))navigate({...routeRef.current,section:'manuscripts',manuscriptView:'research-candidates',researchCandidateId:id})},
