@@ -2,11 +2,13 @@
 from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator, model_serializer, Discriminator, Tag
+from .single_cell_composition_contracts import SingleCellCompositionConfig, SingleCellSelection
 from .quantitative_contracts import QuantitativeComparisonConfig,SampleGroup
 from .qpcr_contracts import QpcrConfig
 from .microbiome_contracts import MicrobiomeConfig
 from .feature_contracts import FeatureExtractConfig
 from .integration_contracts import IntegrationConfig
+from .single_cell_topic_contracts import SingleCellTopicConfig
 from .evidence_contracts import EvidenceMatrixConfig
 
 Identifier = Annotated[str, Field(min_length=1, max_length=200, pattern=r'^[^/\\\x00-\x1f]+$')]
@@ -95,6 +97,7 @@ class DonorExclusion(StrictModel):
 
 class ComparisonConfig(ConfigModel):
     kind: Literal['comparison'] = 'comparison'
+    single_cell_selection: SingleCellSelection | None = None
     mode: Literal['spot_exploratory','donor_unpaired','donor_paired']
     contrasts: list[Contrast] = Field(min_length=1,max_length=10)
     family_contrast_ids: list[Identifier] = Field(min_length=1,max_length=10)
@@ -110,6 +113,12 @@ class ComparisonConfig(ConfigModel):
     excluded_donors: list[DonorExclusion] = Field(default_factory=list,max_length=10000)
     minimum_total_counts: int = Field(default=10,ge=1,le=1000000)
     purpose: Text = ''
+
+    @model_serializer(mode='wrap')
+    def preserve_existing_comparison_wire(self,handler):
+        data=handler(self)
+        if self.single_cell_selection is None:data.pop('single_cell_selection',None)
+        return data
 
     @model_validator(mode='after')
     def comparison_family(self):
@@ -283,7 +292,7 @@ class FigureConfig(ConfigModel):
     selected_sets: list[FigureSetSelection] = Field(default_factory=list,max_length=8)
     intersection_mode: Literal['all','exclusive','at_least_k'] | None = None
     intersection_k: int | None = Field(default=None,ge=1,le=8)
-    figure_type: Literal['volcano','heatmap','distribution','qpcr_samples','microbiome_composition','microbiome_alpha','microbiome_pcoa','feature_distribution','feature_scatter','integration_network','integration_flow','evidence_matrix','evidence_network','evidence_flow','enrichment','gsea','venn','upset','candidate_evidence']
+    figure_type: Literal['topic_slingshot','topic_genie3','topic_cellchat','volcano','heatmap','distribution','qpcr_samples','microbiome_composition','microbiome_alpha','microbiome_pcoa','feature_distribution','feature_scatter','integration_network','integration_flow','evidence_matrix','evidence_network','evidence_flow','enrichment','gsea','venn','upset','candidate_evidence']
     figure_stratum: Identifier | None = None
     contrast_id: Identifier | None = None
     member_key: Identifier | None = None
@@ -310,6 +319,7 @@ class FigureConfig(ConfigModel):
 
     @model_validator(mode='after')
     def figure_inputs(self):
+        if self.figure_type.startswith("topic_") and (self.expression_groups or self.sample_groups or self.processed_source_id or self.feature_ids or self.z_score or self.contrast_id or self.selected_sets or self.result_source_ids or self.term_row_key or self.q_column):raise ValueError("topic_figure_uses_saved_values_only")
         if not self.sample_groups and self.figure_type not in ('qpcr_samples','microbiome_alpha') and (self.feature_ids or self.z_score):raise ValueError('sample_options_require_sample_groups')
         if self.figure_type.startswith('evidence_') and (self.expression_groups or self.sample_groups or self.processed_source_id or self.feature_ids or self.z_score or self.contrast_id):raise ValueError('evidence_figure_uses_saved_matrix_only')
         if self.figure_type.startswith('integration_') and (self.expression_groups or self.sample_groups or self.processed_source_id or self.feature_ids or self.z_score or self.contrast_id):raise ValueError('integration_figure_uses_saved_relations_only')
@@ -360,13 +370,13 @@ class FrozenFigureConfig(FigureConfig):
 def config_discriminator(value):
     kind=value.get('kind') if isinstance(value,dict) else getattr(value,'kind',None)
     version=value.get('schema_version') if isinstance(value,dict) else getattr(value,'schema_version',None)
-    return 'candidate_evidence_v2' if kind=='candidate' and version==2 else 'comparison_microbiome' if kind=='comparison' and version==4 else 'comparison_qpcr' if kind=='comparison' and version==3 else 'comparison_v2' if kind=='comparison' and version==2 else kind
+    return 'single_cell_topic' if kind=='integration' and version==2 else 'comparison_composition' if kind=='comparison' and version==5 else 'candidate_evidence_v2' if kind=='candidate' and version==2 else 'comparison_microbiome' if kind=='comparison' and version==4 else 'comparison_qpcr' if kind=='comparison' and version==3 else 'comparison_v2' if kind=='comparison' and version==2 else kind
 
 
 InsightConfig = Annotated[
-    Annotated[ComparisonConfig,Tag('comparison')] | Annotated[QuantitativeComparisonConfig,Tag('comparison_v2')] | Annotated[QpcrConfig,Tag('comparison_qpcr')] | Annotated[MicrobiomeConfig,Tag('comparison_microbiome')] |
+    Annotated[SingleCellCompositionConfig,Tag('comparison_composition')] | Annotated[ComparisonConfig,Tag('comparison')] | Annotated[QuantitativeComparisonConfig,Tag('comparison_v2')] | Annotated[QpcrConfig,Tag('comparison_qpcr')] | Annotated[MicrobiomeConfig,Tag('comparison_microbiome')] |
     Annotated[ResultImportConfig,Tag('result_import')] | Annotated[OraConfig,Tag('ora')] |
-    Annotated[GseaPrerankConfig,Tag('gsea_prerank')] | Annotated[CandidateConfig,Tag('candidate')] | Annotated[EvidenceMatrixConfig,Tag('candidate_evidence_v2')] | Annotated[FigureConfig,Tag('figure')] | Annotated[FeatureExtractConfig,Tag('feature_extract')] | Annotated[IntegrationConfig,Tag('integration')],
+    Annotated[GseaPrerankConfig,Tag('gsea_prerank')] | Annotated[CandidateConfig,Tag('candidate')] | Annotated[EvidenceMatrixConfig,Tag('candidate_evidence_v2')] | Annotated[FigureConfig,Tag('figure')] | Annotated[FeatureExtractConfig,Tag('feature_extract')] | Annotated[IntegrationConfig,Tag('integration')] | Annotated[SingleCellTopicConfig,Tag('single_cell_topic')],
     Discriminator(config_discriminator)]
 
 
@@ -401,6 +411,9 @@ class InsightPlanRequest(StrictModel):
                 require_many(r.material_source_ids,{'bio_processed_dataset_version'},{'processed'})
                 require(r.design_source_id,{'original_file'},{'support_design'})
                 require(r.overlap_audit_source_id,{'original_file'},{'overlap_audit'})
+        elif isinstance(config,SingleCellTopicConfig):
+            require(config.processed_source_id,{'bio_processed_dataset_version'},{'processed','source'})
+            if config.annotation_source_id:require(config.annotation_source_id,{'bio_annotation_version'},{'annotation'})
         elif isinstance(config,IntegrationConfig):
             if len(self.sources)>10:raise ValueError('integration_source_limit')
             require_many(config.processed_source_ids,{'bio_processed_dataset_version'},{'processed','source'})
@@ -420,7 +433,13 @@ class InsightPlanRequest(StrictModel):
         elif isinstance(config,QuantitativeComparisonConfig):
             ids={key.processed_version_id for c in config.contrasts for g in c.groups for key in g.sample_keys}
             for source_id in ids:require(source_id,{'bio_processed_dataset_version'},{'processed','source'})
+        elif isinstance(config,SingleCellCompositionConfig):
+            require(config.processed_source_id,{'bio_processed_dataset_version'},{'processed','source'})
+            require(config.annotation_source_id,{'bio_annotation_version'},{'annotation'})
         elif isinstance(config,ComparisonConfig):
+            if config.single_cell_selection:
+                require(config.single_cell_selection.processed_source_id,{'bio_processed_dataset_version'},{'processed','source'})
+                require(config.single_cell_selection.annotation_source_id,{'bio_annotation_version'},{'annotation'})
             ids={key.processed_version_id for c in config.contrasts for g in (c.numerator,c.denominator) for key in g.observation_keys}
             for source_id in ids:require(source_id,{'bio_processed_dataset_version'},{'processed','source'})
         elif isinstance(config,ResultImportConfig):

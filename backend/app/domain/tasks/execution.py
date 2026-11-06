@@ -119,8 +119,12 @@ def run_task(task_id, task_revision, *, config=None, directory=None):
     from app.domain.review_rounds.document_execution import run_review_document_export_task
     from app.domain.school_templates.suggestion_execution import run_school_suggestion_task
     from app.domain.bioinformatics.execution import run_bio_import_task as run_bio_import
-    from app.domain.bioinformatics.analysis_execution import run_bio_analysis_task, run_bio_figure_task
+    from app.domain.bioinformatics.analysis_execution import run_bio_analysis_task, run_bio_figure_task,run_bio_annotation_task
     from app.domain.bio_insights.task_contracts import INSIGHT_TASKS
+    if task['task_type']=='bio_annotation':return run_bio_annotation_task(task_id,task_revision,config=config,directory=directory)
+    if task['task_type'] == 'bio_cloud_run':
+        from app.domain.bio_cloud.execution import run_bio_cloud_task
+        return run_bio_cloud_task(task_id, task_revision, config=config, directory=directory)
     if task['task_type'] in INSIGHT_TASKS:
         from app.domain.bio_insights.execution import run_bio_insight_task
         return run_bio_insight_task(task_id,task_revision,task_type=task['task_type'],config=config,directory=directory)

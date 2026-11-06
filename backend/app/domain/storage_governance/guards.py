@@ -7,6 +7,9 @@ def pending(code='storage_deletion_pending'):
 
 
 def require_scope_open(db,project_id,*,file_ids=(),task=None,object_key=None,validated_file_ids=None):
+    if task is not None and task['task_type']=='bio_cloud_run' and validated_file_ids is None:
+        from app.domain.bio_cloud.retention import governed_file_ids
+        validated_file_ids=governed_file_ids(db,task)
     operations=list(db.execute("SELECT id,file_id,scope_kind,state FROM storage_deletion_operations WHERE project_id=%s AND state<>'preview'",(project_id,)))
     if any(o['scope_kind']=='project' or o['state'] in ('running','partial_failed') for o in operations):
         raise pending()

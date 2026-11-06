@@ -125,3 +125,27 @@ def test_parent_rejects_inconsistent_scientific_arrays_even_with_correct_hashes(
     with pytest.raises(StorageError) as raised:
         validate(outputs)
     assert raised.value.code == 'bio_output_invalid'
+
+
+@pytest.mark.parametrize('status',['partial','failed'])
+def test_parent_preserves_explicit_optional_model_step_failures(tmp_path,status):
+    path=tmp_path/'values.npy';np.save(path,np.asarray([1.]))
+    result=dict(engine_version='visium_explore_v1.0.0',status='completed',manifest={},summary={},outputs=[entry(path)],steps=[dict(key='decontx',status=status,reason='tool_failed')])
+    validate=importlib.import_module('app.adapters.bio_analysis_process').validate_engine_result
+    assert validate(result,tmp_path,mode='figure')['steps'][0]['status']==status
+
+
+@pytest.mark.parametrize('mutation',[None,'integer','exceeds_counts','wrong_axis','incomplete'])
+def test_parent_checks_independent_float_correction_axis_and_counts_bound(tmp_path,mutation):
+    outputs=processed_arrays(tmp_path)
+    for suffix,value in [('data',np.arange(1,7,dtype='float64')*.75),('indices',np.array([0,1,2,0,1,2],dtype='int32')),('indptr',np.arange(7,dtype='int64'))]:
+        if mutation=='integer' and suffix=='data':value=value.astype('int64')
+        if mutation=='exceeds_counts' and suffix=='data':value=value*2
+        if mutation=='wrong_axis' and suffix=='indptr':value=np.arange(6,dtype='int64')
+        if mutation=='incomplete' and suffix=='indices':continue
+        key='decontx_counts_'+suffix;path=tmp_path/(key+'.npy');np.save(path,value);outputs.append(entry(path,key=key))
+    path=tmp_path/'decontx_counts_shape.json';path.write_text(json.dumps(dict(shape=[6,3],dtype='float64',nnz=6)));outputs.append(entry(path,key='decontx_counts_shape',fmt='json'))
+    validate=importlib.import_module('app.adapters.bio_analysis_process').validate_processed_arrays
+    if mutation is None:assert validate(outputs)['observations']==6
+    else:
+        with pytest.raises(StorageError):validate(outputs)

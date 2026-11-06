@@ -1,0 +1,7 @@
+# scDblFinder 1.20 predates the xgboost 3.x R API changes.
+r-xgboost=2.1.4=cpu_*
+# rstan 2.32.7 was built against the legacy TBB API, before RcppParallel 6.x.
+r-rcppparallel=5.1.9
+# Harmony is a real optional R step; pin its API and the existing R major/minor.
+r-base=4.4
+r-harmony=1.2.3

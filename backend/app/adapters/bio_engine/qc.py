@@ -2,7 +2,18 @@
 import numpy as np
 
 
-def quality_control(raw, features, barcodes, positions, config):
+def quality_control(raw, features, barcodes, positions, config, *, library_ids=None):
+    fields=('min_counts','min_genes','max_counts','max_mt_fraction')
+    overrides=config.get('library_qc_overrides',[])
+    if library_ids is not None and len(library_ids)!=len(barcodes):raise ValueError('library_mapping_axis_invalid')
+    libraries=sorted({v for v in (library_ids or []) if v is not None})
+    if len({v['library_id'] for v in overrides})!=len(overrides):raise ValueError('duplicate_library_qc')
+    if set(v['library_id'] for v in overrides)-set(libraries):raise ValueError('unknown_library_qc_override')
+    effective={library:{field:config.get(field,1 if field in ('min_counts','min_genes') else None) for field in fields} for library in libraries}
+    for item in overrides:
+        effective[item['library_id']].update({field:item[field] for field in fields if item.get(field) is not None})
+    for values in effective.values():
+        if values['max_counts'] is not None and values['max_counts']<values['min_counts']:raise ValueError('library_qc_threshold_conflict')
     raw_counts = np.asarray(raw.sum(axis=1)).ravel()
     detected = np.asarray((raw > 0).sum(axis=1)).ravel()
     fences={};extremes={}
@@ -24,15 +35,16 @@ def quality_control(raw, features, barcodes, positions, config):
     if mt_ids is not None:
         mt_counts = np.asarray(raw[:, np.asarray([i in mt_ids for i in features['feature_ids']])].sum(axis=1)).ravel()
         mt_fraction = np.divide(mt_counts, raw_counts, out=np.full(raw.shape[0], np.nan), where=raw_counts > 0)
-    if config.get('max_mt_fraction') is not None and mt_fraction is None: raise ValueError('mitochondrial_rule_unconfirmed')
+    if (config.get('max_mt_fraction') is not None or any(v['max_mt_fraction'] is not None for v in effective.values())) and mt_fraction is None: raise ValueError('mitochondrial_rule_unconfirmed')
     if not exclusions.issubset(set(barcodes)):
         raise ValueError('unknown_exclusion_barcode')
     reasons = [[] for _ in barcodes]
     for i, barcode in enumerate(barcodes):
-        if counts[i] < config.get('min_counts', 1): reasons[i].append('min_counts')
-        if genes[i] < config.get('min_genes', 1): reasons[i].append('min_genes')
-        if config.get('max_counts') is not None and counts[i]>config['max_counts']: reasons[i].append('max_counts')
-        if config.get('max_mt_fraction') is not None and mt_fraction[i]>config['max_mt_fraction']: reasons[i].append('max_mt_fraction')
+        thresholds=effective.get(library_ids[i],config) if library_ids is not None else config
+        if counts[i] < thresholds.get('min_counts', 1): reasons[i].append('min_counts')
+        if genes[i] < thresholds.get('min_genes', 1): reasons[i].append('min_genes')
+        if thresholds.get('max_counts') is not None and counts[i]>thresholds['max_counts']: reasons[i].append('max_counts')
+        if thresholds.get('max_mt_fraction') is not None and mt_fraction[i]>thresholds['max_mt_fraction']: reasons[i].append('max_mt_fraction')
         if config.get('in_tissue_only', False) and tissue[i] != 1: reasons[i].append('not_in_tissue')
         if barcode in exclusions: reasons[i].append('explicit_exclusion')
     initial = np.asarray([not r for r in reasons])
@@ -47,6 +59,10 @@ def quality_control(raw, features, barcodes, positions, config):
                 feature_counts=np.asarray(raw.sum(0)).ravel(), feature_nonzero=np.asarray((raw>0).sum(0)).ravel(),
                 obs_mask=mask, feature_mask=feature_mask, reasons=reasons, in_tissue=tissue,
                 mt_fraction=mt_fraction, mt_reason=mt_reason,
+                library_qc=[dict(library_id=library,raw_cells=sum(v==library for v in library_ids),
+                    kept_cells=sum(v==library and bool(mask[i]) for i,v in enumerate(library_ids)),
+                    excluded_cells=sum(v==library and not bool(mask[i]) for i,v in enumerate(library_ids)),
+                    **effective[library],exclusion_reason_counts={reason:sum(v==library and reason in reasons[i] for i,v in enumerate(library_ids)) for reason in sorted({r for row in reasons for r in row})}) for library in libraries],
                 filtered_counts=filtered,filtered_total=np.asarray(filtered.sum(1)).ravel(),
                 filtered_detected=np.asarray((filtered>0).sum(1)).ravel(),
                 stages={'raw_observations':raw.shape[0], 'raw_features':raw.shape[1],

@@ -1,0 +1,5 @@
+# Optional, explicitly enabled provider only; verified together in backend/.venv.
+boto3==1.40.75
+botocore==1.40.76
+s3transfer==0.14.0
+jmespath==1.1.0

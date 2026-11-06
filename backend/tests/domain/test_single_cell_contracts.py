@@ -2,6 +2,27 @@ import pytest
 from pydantic import ValidationError
 
 
+def test_sample_source_metadata_is_optional_and_preserves_unknown():
+    from app.domain.bioinformatics.single_cell_contracts import SingleCellSample
+    legacy=SingleCellSample(sample_id='S',library_id='L',file_ids=['f'])
+    assert legacy.species_taxon_id is None and legacy.reference_id is None
+    supplied=SingleCellSample(**{**legacy.model_dump(),'species_taxon_id':9606,'reference_id':'GRCh38','reference_version':'2024-A','library_chemistry':'3prime-v3','pair_id':'P1'})
+    assert supplied.model_dump()['reference_version']=='2024-A'
+    for invalid in (0,-1,True,'9606'):
+        with pytest.raises(ValidationError):SingleCellSample(**{**legacy.model_dump(),'species_taxon_id':invalid})
+
+
+@pytest.mark.parametrize('field,values',[('species_taxon_id',[9606,10090]),('reference_id',['GRCh38','GRCm39']),('reference_version',['v1','v2'])])
+def test_explicit_conflicting_library_identity_cannot_merge(field,values):
+    from app.domain.bioinformatics.single_cell_contracts import SingleCellImportRequest
+    base=dict(workflow_version='bio_import_v4',assay='single_cell',file_ids=['a','b'],name='cells',expected_dataset_revision=0,matrix_representation='mtx')
+    samples=[dict(sample_id='S',library_id=f'L{i}',file_ids=[file_id],**{field:value}) for i,(file_id,value) in enumerate(zip(['a','b'],values))]
+    with pytest.raises(ValidationError,match='sample_'+field+'_conflict'):
+        SingleCellImportRequest(**base,samples=samples)
+    samples[1][field]=None
+    assert SingleCellImportRequest(**base,samples=samples).samples[1].model_dump()[field] is None
+
+
 def test_single_cell_import_requires_explicit_h5ad_axes_and_layer():
     from app.domain.bioinformatics.single_cell_contracts import SingleCellImportRequest
     base=dict(workflow_version='bio_import_v4',assay='single_cell',file_ids=['a'],name='cells',expected_dataset_revision=0,matrix_representation='h5ad')

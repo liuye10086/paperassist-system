@@ -390,6 +390,9 @@ def read_references(db, file, user_id):
     school_tasks.update({v['task_id']:v for v in groups['school_rule_suggestions']})
     indexes = {kind: {row['id']: row for row in rows if 'id' in row} for kind, rows in groups.items()}
     output_tasks = {row['task_id'] for rows in groups.values() for row in rows if row.get('task_id')}
+    from app.domain.bio_cloud.retention import output_links,valid_output
+    cloud_outputs=output_links(db,file)
+    output_tasks.update(r['task_id'] for r in cloud_outputs)
     project_files = {r['id'] for r in db.execute('SELECT id FROM files WHERE project_id=%s',(project_id,))}
     tasks, unknown = [], False
     # Project/date index bounds this scan. Recursive JSON inspection covers old
@@ -405,8 +408,25 @@ def read_references(db, file, user_id):
     for row in project_tasks:
         task = dict(row)
         snapshot = task['input_snapshot']
+        if task['task_type']=='bio_cloud_run':
+            if not any(r['task_id']==task['id'] for r in cloud_outputs):continue
+            valid=task['user_id']==user_id and task['project_id']==project_id and valid_output(db,task,file,cloud_outputs)
+            task['_scoped_snapshot']={'file_id':file_id}
+            task['_integrity_valid']=valid
+            task['_public']=task['user_id']==user_id and task['project_id']==project_id
+            unknown |= not valid
+            tasks.append(task)
+            continue
         if task['task_type'] in ('research_figure','research_report','research_fact_draft','delivery_package'):
             from app.domain.research_results.execution import source_current
+            linked=task['id'] in output_tasks or file_id in file_ids(snapshot)
+            if not linked:continue
+            valid=task['user_id']==user_id and task['project_id']==project_id and source_current(db,task)
+            task['_scoped_snapshot']={'file_id':file_id};task['_integrity_valid']=valid
+            task['_public']=task['user_id']==user_id and task['project_id']==project_id
+            unknown |= not valid;tasks.append(task);continue
+        if task['task_type']=='bio_annotation':
+            from app.domain.bioinformatics.annotation_service import source_current
             linked=task['id'] in output_tasks or file_id in file_ids(snapshot)
             if not linked:continue
             valid=task['user_id']==user_id and task['project_id']==project_id and source_current(db,task)
@@ -541,6 +561,7 @@ def read_references(db, file, user_id):
             latest_checkpoints[checkpoint['task_id']] = checkpoint
     by_task = {t['id']: t for t in tasks}
     reasons = []
+    if cloud_outputs:reasons.append('bio_history_retained')
     if groups['bio_imports'] or groups['bio_dataset_versions'] or any(groups[name] for name in ('bio_analysis_runs','bio_observation_map_versions','bio_annotation_evidence','bio_figure_versions')):reasons.append('bio_history_retained')
     if groups.get('delivery_snapshots'):reasons.append('research_results_history_retained')
     if groups['research_material_refs']:reasons.append('research_material_history_retained')
@@ -576,6 +597,7 @@ def read_references(db, file, user_id):
                       outbox=sorted([facts(o) for o in outbox],key=digest), candidates=sorted(candidates,key=digest),
                       checkpoints=sorted([{k:v for k,v in c.items() if k!='candidate'} for c in checkpoints],key=digest))
     normalized.update(decisions)
+    normalized['bio_cloud_outputs']=sorted(cloud_outputs,key=digest)
     return dict(groups=groups, indexes=indexes, public_groups=public_groups, public_indexes=public_indexes,
                 tasks=tasks, legacy=legacy, counts=counts,
                 reasons=sorted(set(reasons)), facts=normalized)

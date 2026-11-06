@@ -9,6 +9,34 @@ import {capabilitiesFixture,processedFixture,runFixture,setupFixture} from './sp
 vi.mock('../../shared/api/client',()=>({apiFetch:vi.fn(),getApiUserId:()=> 'owner1',onApiSessionChanged:()=>()=>{}}))
 vi.mock('../../shared/components/ProjectDownloadLink',()=>({default:({children}:{children:import('react').ReactNode})=><span>{children}</span>}))
 afterEach(()=>{cleanup();vi.clearAllMocks()})
+it('shows saved single-cell model coverage and offers only an emitted correction layer',async()=>{
+ const result={...processedFixture,tables:[],manifest:{assay:'single_cell',layers:{counts:{},decontx_counts:{}},summary:{single_cell_algorithms:{
+  doublet:{status:'completed',computed_cells:100,predicted_doublets:5,excluded_cells:0,completed_libraries:2,libraries:2},
+  decontx:{status:'completed',computed_cells:100,corrected_cells:100,layer_emitted:true,completed_libraries:2,libraries:2},
+  versions:{R:'4.4.3',scDblFinder:'1.20.2',decontX:'1.4.0'},
+ }}}}
+ vi.mocked(apiFetch).mockResolvedValue(Response.json(result))
+ render(<BioAnalysisResult projectId="p1" processedId="processed1" tab="qc" onNavigate={()=>{}}/>)
+ expect(await screen.findByRole('heading',{name:'双细胞与环境 RNA 结果'})).toBeTruthy()
+ expect(screen.getByText('预测双细胞：5；实际排除：0')).toBeTruthy()
+ expect(screen.getByText('已保存独立 decontx_counts 层；原始 counts 及当前下游输入保持不变。')).toBeTruthy()
+ const layers=screen.getByLabelText('有界矩阵数据层') as HTMLSelectElement
+ expect(Array.from(layers.options).map(v=>v.value)).toContain('decontx_counts')
+})
+it('shows partial model failure without offering a missing correction layer',async()=>{
+ const result={...processedFixture,tables:[],steps:[{key:'decontx',status:'partial',reason:'some_libraries_not_computable_or_failed'}],manifest:{assay:'single_cell',layers:{counts:{}},summary:{single_cell_algorithms:{
+  doublet:{status:'not_requested',reason:'disabled'},
+  decontx:{status:'partial',reason:'some_libraries_not_computable_or_failed',computed_cells:100,input_cells:140,layer_emitted:false,completed_libraries:1,libraries:2},
+ }}}}
+ vi.mocked(apiFetch).mockResolvedValue(Response.json(result))
+ render(<BioAnalysisResult projectId="p1" processedId="processed1" tab="qc" onNavigate={()=>{}}/>)
+ await screen.findByRole('heading',{name:'双细胞与环境 RNA 结果'})
+ expect(screen.getByText('状态：部分完成；完成文库：1 / 2；已计算细胞：100 / 140')).toBeTruthy()
+ expect(screen.getByText('部分文库不可计算或失败，详见逐文库结果表')).toBeTruthy()
+ expect(screen.getByText('未生成可供后续使用的校正层；原始 counts 及当前下游输入保持不变。')).toBeTruthy()
+ const layers=screen.getByLabelText('有界矩阵数据层') as HTMLSelectElement
+ expect(Array.from(layers.options).map(v=>v.value)).not.toContain('decontx_counts')
+})
 it('opens QC results from upload without showing downstream analysis actions',async()=>{
  vi.mocked(apiFetch).mockResolvedValue(Response.json(processedFixture))
  render(<BioImports projectId="p1" active sectioned navigation={{view:'bio-result',fileId:'',processedId:'processed1',tab:'qc'}} onNavigate={()=>{}}/>)

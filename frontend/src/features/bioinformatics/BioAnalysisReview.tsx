@@ -22,7 +22,7 @@ export default function BioAnalysisReview({projectId,runId,onNavigate,registerLe
  const [acceptedDigest,setAcceptedDigest]=useState<string|null>(null),accept=!!signature&&acceptedDigest===signature,writer=useBioWrite<unknown>(projectId,'confirmation',()=>{setAcceptedDigest(null);read.reload()},()=>{setAcceptedDigest(null);read.reload()})
  useDraftLeaveGuard(registerLeaveGuard,false,writer.busy||writer.unknown)
  return <section className="bio-workspace bio-module-workspace">
-  <header className="bio-workspace-header"><h2>{t(tabular?'定量分析运行与 QC 确认':singleCell?'单细胞分析运行与 QC 确认':'空间分析运行与 QC 确认')}</h2><button type="button" disabled={writer.busy} onClick={read.reload}>{t('重新读取')}</button></header>
+  <header className="bio-workspace-header"><h2>{t(tabular?'定量分析运行与 QC 确认':singleCell?'单细胞分析运行':'空间分析运行与 QC 确认')}</h2><button type="button" disabled={writer.busy} onClick={read.reload}>{t('重新读取')}</button></header>
   {read.error&&<p role="alert">{t(read.error)}</p>}{!data&&!read.error&&<p role="status">{t('正在读取固定版本……')}</p>}
   {data&&(data.id!==runId||!isRawBioSource(data.raw_source,projectId))&&<p role="alert">{t('固定来源身份不匹配，请重新打开。')}</p>}
   {data&&data.id===runId&&isRawBioSource(data.raw_source,projectId)&&<>

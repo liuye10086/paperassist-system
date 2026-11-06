@@ -54,3 +54,40 @@ def test_historical_compatibility_cannot_hide_other_changes(change):
     if change=='locator':current['sources'][0]['locator']={'kind': 'changed'}
     if change=='owner_project':current['sources'][0]['project_id']='another-project'
     assert project(current, frozen)!=frozen
+
+
+def single_cell_envelope():
+    value=envelope()
+    value['sources'][0]['metadata'].update(assay='single_cell',observation_level='cell',
+        cell_clusters={'cell1':'0'},retained_feature_ids=['gene1'])
+    return value
+
+
+@pytest.mark.parametrize('missing',[('cell_clusters',),('retained_feature_ids',),('cell_clusters','retained_feature_ids')])
+def test_historical_single_cell_omits_only_new_derived_fields(missing):
+    from app.domain.bio_insights.service import portable
+    current=single_cell_envelope();original=deepcopy(current);frozen=portable(current)
+    for key in missing:del frozen['sources'][0]['metadata'][key]
+    saved=deepcopy(frozen)
+    assert project(current,frozen)==frozen
+    assert current==original and frozen==saved
+
+
+@pytest.mark.parametrize('field',['cell_clusters','retained_feature_ids'])
+def test_frozen_single_cell_axes_stay_strict(field):
+    from app.domain.bio_insights.service import portable
+    current=single_cell_envelope();frozen=portable(current)
+    current['sources'][0]['metadata'][field]={'cell1':'different'} if field=='cell_clusters' else ['different']
+    assert project(current,frozen)!=frozen
+
+
+@pytest.mark.parametrize('field',['source_id','sha256','project_id'])
+def test_historical_single_cell_does_not_project_changed_source_identity(field):
+    from app.domain.bio_insights.service import portable
+    current=single_cell_envelope();frozen=portable(current)
+    del frozen['sources'][0]['metadata']['cell_clusters']
+    del frozen['sources'][0]['metadata']['retained_feature_ids']
+    current['sources'][0][field]='different'
+    projected=project(current,frozen)
+    assert projected!=frozen
+    assert 'cell_clusters' in projected['sources'][0]['metadata']

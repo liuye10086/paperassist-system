@@ -304,6 +304,9 @@ def run_figure(payload,writer):
     from app.domain.bio_insights.contracts import FigureConfig
     config=FigureConfig.model_validate(payload['config']);sources={s['source_id']:s for s in payload['sources']};source=sources[config.result_source_id]
     axes_members={
+        'topic_slingshot':('representation_1','representation_2','topic_plot_data'),
+        'topic_genie3':('predictive_importance','edge','topic_plot_data'),
+        'topic_cellchat':('receiver','sender','topic_plot_data'),
         'integration_network':('layout_x','layout_y','integration_data'),
         'integration_flow':('lineage_stage','layout_y','integration_data'),
         'feature_distribution':(config.x_column,None,'feature_results'),
@@ -333,6 +336,9 @@ def run_figure(payload,writer):
         if config.figure_type=='distribution' or config.figure_type=='heatmap' and config.sample_groups:
             from .quantitative_figures import draw_sample_plot
             data,empty=draw_sample_plot(fig,ax,source,config,sources,zh)
+        elif config.figure_type.startswith('topic_'):
+            from .topic_figures import draw_topic
+            data,empty=draw_topic(fig,ax,source,config,zh)
         elif config.figure_type.startswith('evidence_'):
             from .evidence_figures import draw_evidence
             data,empty=draw_evidence(fig,ax,source,config,zh)

@@ -94,7 +94,7 @@ class TaskExecutionStore:
         with self.connection(write=True) as db:
             ensure_schema_current(db)
             row = db.execute('SELECT * FROM tasks WHERE id=%s', (task_id,)).fetchone()
-            if (not row or row['task_type'] not in ('word_report', 'explanation', 'boxplot', 'parse_file', 'extract_dataset', 'prepare_dataset', 'review_ocr', 'analysis_plan', 'analysis_recommendation', 'figure_projection', 'figure_workbench', 'figure_explanation', 'collection_word_report', 'statistics_compute', 'literature_search', 'literature_assistance', 'manuscript_draft', 'manuscript_docx', 'layout_docx', 'manuscript_writing', 'school_template_parse', 'school_rule_suggestion', 'journal_recommendation', 'journal_format_check', 'journal_adaptation', 'review_round_plan', 'review_revision', 'review_document_export', 'bio_import', 'bio_analysis', 'bio_figure', 'research_figure', 'research_report', 'research_fact_draft','delivery_package', 'bio_resource_import', 'bio_comparison', 'bio_result_import', 'bio_enrichment', 'bio_candidate', 'bio_insight_figure','bio_feature_extract','bio_integration')
+            if (not row or row['task_type'] not in ('bio_cloud_run', 'word_report', 'explanation', 'boxplot', 'parse_file', 'extract_dataset', 'prepare_dataset', 'review_ocr', 'analysis_plan', 'analysis_recommendation', 'figure_projection', 'figure_workbench', 'figure_explanation', 'collection_word_report', 'statistics_compute', 'literature_search', 'literature_assistance', 'manuscript_draft', 'manuscript_docx', 'layout_docx', 'manuscript_writing', 'school_template_parse', 'school_rule_suggestion', 'journal_recommendation', 'journal_format_check', 'journal_adaptation', 'review_round_plan', 'review_revision', 'review_document_export', 'bio_import', 'bio_analysis', 'bio_annotation', 'bio_figure', 'research_figure', 'research_report', 'research_fact_draft','delivery_package', 'bio_resource_import', 'bio_comparison', 'bio_result_import', 'bio_enrichment', 'bio_candidate', 'bio_insight_figure','bio_feature_extract','bio_integration')
                     or (task_type is not None and row['task_type'] != task_type)
                     or row['revision'] != task_revision):
                 return None
@@ -103,7 +103,7 @@ class TaskExecutionStore:
             require_task_open(db,task)
             now = self.now(db)
             token = str(uuid4())
-            if task['status'] == 'running' and task['task_type'] in ('explanation', 'boxplot', 'analysis_recommendation', 'figure_workbench', 'figure_explanation', 'literature_search', 'literature_assistance', 'manuscript_writing', 'school_rule_suggestion'):
+            if task['status'] == 'running' and task['task_type'] in ('bio_cloud_run', 'explanation', 'boxplot', 'analysis_recommendation', 'figure_workbench', 'figure_explanation', 'literature_search', 'literature_assistance', 'manuscript_writing', 'school_rule_suggestion'):
                 updated = db.execute('''UPDATE task_attempts
                     SET lease_owner=%s,lease_expires_at=%s,heartbeat_at=%s
                     WHERE task_id=%s AND attempt_no=%s AND status='running' AND lease_owner IS NULL''',
@@ -191,7 +191,7 @@ class TaskExecutionStore:
             raise ValueError('Invalid task continuation delay.')
         with self.connection(write=True) as db:
             task = self.require_lease(db, lease)
-            if task['task_type'] not in ('explanation', 'boxplot', 'analysis_recommendation', 'figure_workbench', 'figure_explanation', 'literature_search', 'literature_assistance', 'manuscript_writing', 'school_rule_suggestion'):
+            if task['task_type'] not in ('bio_cloud_run', 'explanation', 'boxplot', 'analysis_recommendation', 'figure_workbench', 'figure_explanation', 'literature_search', 'literature_assistance', 'manuscript_writing', 'school_rule_suggestion'):
                 raise source_conflict()
             revision = task['revision']
             task.update(revision=revision + 1, updated_at=max(self.now(db), task['updated_at']), error_code=None)
@@ -214,7 +214,7 @@ class TaskExecutionStore:
                 self._wait_explanation(db, task, 'observation_expired', code)
                 return TaskStore.public_task(task)
             literature_retry = task['task_type'] == 'literature_search' and code == 'ncbi_unavailable'
-            if not literature_retry and (code != 'model_provider_unavailable' or task['task_type'] not in ('explanation', 'boxplot', 'analysis_recommendation', 'figure_workbench', 'figure_explanation', 'literature_search', 'literature_assistance', 'manuscript_writing', 'school_rule_suggestion')):
+            if not literature_retry and (code != 'model_provider_unavailable' or task['task_type'] not in ( 'explanation', 'boxplot', 'analysis_recommendation', 'figure_workbench', 'figure_explanation', 'literature_search', 'literature_assistance', 'manuscript_writing', 'school_rule_suggestion')):
                 self._finish(db, task, 'failed', code)
                 return TaskStore.public_task(task)
             task['_retry_reason'] = 'temporary_provider_error'
@@ -824,11 +824,21 @@ class TaskExecutionStore:
             reconcile_intents(db,self.assets.directory)
             rows = db.execute('''SELECT t.* FROM tasks t JOIN task_attempts a
                 ON a.task_id=t.id AND a.attempt_no=t.current_attempt
-                WHERE t.task_type IN ('word_report','explanation','boxplot','parse_file','extract_dataset','prepare_dataset', 'review_ocr', 'analysis_plan', 'analysis_recommendation', 'figure_projection', 'figure_workbench', 'figure_explanation', 'collection_word_report', 'statistics_compute', 'literature_search', 'literature_assistance', 'manuscript_draft', 'manuscript_docx', 'layout_docx', 'manuscript_writing', 'school_template_parse', 'school_rule_suggestion', 'journal_recommendation', 'journal_format_check', 'journal_adaptation', 'review_round_plan', 'review_revision', 'review_document_export', 'bio_import', 'bio_analysis', 'bio_figure', 'research_figure', 'research_report', 'research_fact_draft','delivery_package', 'bio_resource_import', 'bio_comparison', 'bio_result_import', 'bio_enrichment', 'bio_candidate', 'bio_insight_figure','bio_feature_extract','bio_integration') AND t.status='running' AND a.status='running'
+                WHERE t.task_type IN ('bio_cloud_run','word_report','explanation','boxplot','parse_file','extract_dataset','prepare_dataset', 'review_ocr', 'analysis_plan', 'analysis_recommendation', 'figure_projection', 'figure_workbench', 'figure_explanation', 'collection_word_report', 'statistics_compute', 'literature_search', 'literature_assistance', 'manuscript_draft', 'manuscript_docx', 'layout_docx', 'manuscript_writing', 'school_template_parse', 'school_rule_suggestion', 'journal_recommendation', 'journal_format_check', 'journal_adaptation', 'review_round_plan', 'review_revision', 'review_document_export', 'bio_import', 'bio_analysis', 'bio_annotation', 'bio_figure', 'research_figure', 'research_report', 'research_fact_draft','delivery_package', 'bio_resource_import', 'bio_comparison', 'bio_result_import', 'bio_enrichment', 'bio_candidate', 'bio_insight_figure','bio_feature_extract','bio_integration') AND t.status='running' AND a.status='running'
                 AND a.lease_expires_at<=clock_timestamp()
                 ORDER BY a.lease_expires_at,t.id LIMIT %s''', (limit,)).fetchall()
             for row in rows:
                 task = dict(row)
+                if task['task_type']=='bio_cloud_run':
+                    cloud_run=db.execute('SELECT provider_run_id,submitted_at FROM bio_cloud_runs WHERE task_id=%s',(task['id'],)).fetchone()
+                    if cloud_run and not cloud_run['provider_run_id'] and cloud_run['submitted_at'] is not None:
+                        from app.domain.bio_cloud.execution import pause_unknown_in_transaction
+                        pause_unknown_in_transaction(self,db,task)
+                        continue
+                    if task['retry_count']>=AUTO_ATTEMPTS-1:
+                        self._finish(db,task,'failed','task_worker_interrupted')
+                        db.execute("UPDATE bio_cloud_runs SET status='blocked',error_code='task_worker_interrupted',updated_at=clock_timestamp() WHERE task_id=%s",(task['id'],))
+                        continue
                 from app.domain.storage_governance import export_candidates as export_candidates
                 if task['task_type'] in export_candidates.TYPES and export_candidates.hold(db,task):
                     self._finish(db,task,'failed','storage_accounting_unknown')
@@ -879,15 +889,15 @@ class TaskExecutionStore:
                 # gets one execution, but a lost manual attempt does not restart a loop.
                 # Human OCR review saves each start a fresh finite local node;
                 # lifetime attempt ordinals include successful human wait cycles.
-                if (task['task_type'] in ('review_ocr', 'analysis_plan') and task['retry_count'] >= AUTO_ATTEMPTS-1
-                        or task['task_type'] not in ('review_ocr', 'analysis_plan') and task['current_attempt'] >= AUTO_ATTEMPTS):
+                if (task['task_type'] in ('bio_cloud_run', 'review_ocr', 'analysis_plan') and task['retry_count'] >= AUTO_ATTEMPTS-1
+                        or task['task_type'] not in ('bio_cloud_run', 'review_ocr', 'analysis_plan') and task['current_attempt'] >= AUTO_ATTEMPTS):
                     continue
                 try:
                     self.require_owner(db, task)
                 except StorageError:
                     continue
                 revision = task['revision']
-                if task['task_type'] in ('review_ocr', 'analysis_plan'):
+                if task['task_type'] in ('bio_cloud_run', 'review_ocr', 'analysis_plan'):
                     task['retry_count'] += 1
                 task.update(status='queued', revision=revision + 1, updated_at=max(self.now(db), task['updated_at']),
                             reason_code='retry_requested', error_code=None, _retry_reason='worker_interrupted')

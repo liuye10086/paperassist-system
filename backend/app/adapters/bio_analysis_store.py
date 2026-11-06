@@ -283,6 +283,12 @@ class BioAnalysisStore:
                 if not set(request.params.exclude_barcodes)<=set(barcodes) or not set(request.params.mt_rule.feature_ids)<=set(features['feature_ids']):raise error('bio_recipe_invalid',422)
             self.design(db,project,request.design_version_id)
             if single_cell:
+                from app.domain.bioinformatics.single_cell_contracts import validate_library_qc_libraries
+                try:validate_library_qc_libraries(request.params,manifest.get('samples',[]))
+                except ValueError as exc:raise StorageError('bio_recipe_invalid','文库 QC 覆盖含原始导入中不存在的 library_id。',422) from exc
+                from app.domain.bioinformatics.single_cell_resources import resource_estimate
+                estimate=resource_estimate(manifest,request.params.model_dump())
+                if estimate['blockers']:raise error('bio_resource_exceeded',422)
                 if request.params.donor_design_confirmed and not request.design_version_id:raise error('bio_recipe_invalid',422)
                 for label in request.params.cell_labels:
                     if not set(label.marker_ids)<=set(features['feature_ids']):raise error('bio_recipe_invalid',422)
@@ -332,14 +338,19 @@ class BioAnalysisStore:
         single_cell=manifest.get('assay')=='single_cell'
         if single_cell:
             from app.domain.bioinformatics.single_cell_settings import runtime_identity as cell_runtime
-            from app.domain.bioinformatics.single_cell_contracts import SingleCellParameters
+            from app.domain.bioinformatics.single_cell_contracts import SingleCellParameters,new_single_cell_parameters
             runtime=cell_runtime()
         else:runtime=runtime_identity()
         blockers=list(runtime['blockers'])
         shape=manifest.get('input_shape',{})
-        if shape.get('observations',0)>20000 or shape.get('features',0)>100000:blockers.append('bio_resource_exceeded')
+        estimate=None
+        if single_cell:
+            from app.domain.bioinformatics.single_cell_resources import resource_estimate
+            estimate=resource_estimate(manifest,SingleCellParameters().model_dump())
+            blockers.extend(estimate['blockers'])
+        elif shape.get('observations',0)>20000 or shape.get('features',0)>100000:blockers.append('bio_resource_exceeded')
         return dict(raw_source=source,available=not blockers,blockers=blockers,limits=BioAnalysisLimits().model_dump(),
-            assay=manifest.get('assay','visium'),observation_level='cell' if single_cell else 'spot',recipes=['single_cell_explore_v1' if single_cell else 'visium_explore_v1'],design_gaps=['independent_donor_design_not_confirmed'],default_params=SingleCellParameters().model_dump() if single_cell else BioRecipeParameters().model_dump(),runtime=runtime)
+            assay=manifest.get('assay','visium'),observation_level='cell' if single_cell else 'spot',recipes=['single_cell_explore_v1' if single_cell else 'visium_explore_v1'],design_gaps=['independent_donor_design_not_confirmed'],default_params=new_single_cell_parameters().model_dump(by_alias=True) if single_cell else BioRecipeParameters().model_dump(),runtime=runtime,**({'resource_estimate':estimate,'single_cell_libraries':[{k:s.get(k) for k in ('library_id','sample_id')} for s in manifest.get('samples',[])]} if single_cell else {}))
 
     def processed_record(self,db,project,identifier):
         return self._processed_record(db,project,identifier)
@@ -457,7 +468,7 @@ class BioAnalysisStore:
             if manifest.get('schema_version')==2:
                 from app.adapters.bio_tabular_reads import dense_preview
                 return dense_preview(manifest,members,self.objects,features_page,observations_page,layer)
-            if layer not in ('counts','normalized','log1p') or layer not in manifest['layers']:raise error('bio_recipe_invalid',422)
+            if layer not in ('counts','normalized','log1p','decontx_counts') or layer not in manifest['layers'] or (layer=='decontx_counts' and manifest.get('assay')!='single_cell'):raise error('bio_recipe_invalid',422)
             lookup={m['key']:m for m in members}
             def read(key):
                 item=lookup[key];self.objects.read(item)

@@ -206,6 +206,11 @@ class BioFigureConfig(StrictModel):
         return self
 
 
+class BioDefaultFigureConfig(BioFigureConfig):
+    """Saved pipeline figures; these extra kinds are not standalone requests."""
+    kind: Literal['qc','pca','umap','marker_dotplot','marker_heatmap','spatial_cluster','spatial_gene','annotation','integration_covariates','integration_harmony']
+
+
 class BioFigureRequest(StrictModel):
     processed_source: BioProcessedDatasetSourceV1
     annotation_version_id: str | None = Field(default=None,min_length=1,max_length=64)
@@ -222,9 +227,16 @@ class BioFigureRequest(StrictModel):
 class BioAnnotationLabel(StrictModel):
     id: Identifier
     name: str = Field(min_length=1,max_length=200)
-    status: Literal['proposed','confirmed','unknown'] = 'proposed'
+    status: Literal['proposed','confirmed','unknown','uncertain'] = 'proposed'
     note: str = Field(default='',max_length=4000)
     cluster_ids: list[Identifier] = Field(default_factory=list,max_length=50)
+    cell_ids: list[Identifier] = Field(default_factory=list,max_length=20000)
+
+    @model_validator(mode='after')
+    def unique_selection(self):
+        if len(set(self.cell_ids))!=len(self.cell_ids) or len(set(self.cluster_ids))!=len(self.cluster_ids):
+            raise ValueError('Duplicate annotation selection')
+        return self
 
 
 class BioAnnotationRegion(StrictModel):
@@ -245,7 +257,7 @@ class BioAnnotationRegion(StrictModel):
 
 class BioAnnotationEvidence(StrictModel):
     label_id: Identifier
-    kind: Literal['marker','file']
+    kind: Literal['marker','file','manual','reference']
     analysis_artifact_id: str | None = Field(default=None,min_length=1,max_length=64)
     file_id: str | None = Field(default=None,min_length=1,max_length=64)
     note: str = Field(default='',max_length=4000)
@@ -254,6 +266,8 @@ class BioAnnotationEvidence(StrictModel):
     def one_source(self):
         if (self.kind=='marker') != (self.analysis_artifact_id is not None) or (self.kind=='file') != (self.file_id is not None):
             raise ValueError('Evidence requires exactly one matching source')
+        if self.kind in ('manual','reference') and not self.note.strip():
+            raise ValueError('Manual/reference evidence requires a description')
         return self
 
 
@@ -278,7 +292,7 @@ class BioAnnotationRequest(StrictModel):
             raise ValueError('Unknown label reference')
         if self.overlap_policy=='priority' and (any(r.priority is None for r in self.regions) or len({r.priority for r in self.regions})!=len(self.regions)):
             raise ValueError('Priority policy requires explicit distinct region priorities')
-        if self.processed_dataset_version_id is None and (any(l.cluster_ids for l in self.labels) or any(e.kind=='marker' for e in self.evidence)):
+        if self.processed_dataset_version_id is None and (any(l.cluster_ids or l.cell_ids for l in self.labels) or any(e.kind=='marker' for e in self.evidence)):
             raise ValueError('Cluster and marker evidence requires a processed version')
         return self
 
@@ -307,6 +321,9 @@ class BioFigureInputVersion(StrictModel):
 
 
 def validate_snapshot(task):
+    if task['task_type']=='bio_annotation':
+        from .annotation_contracts import validate_snapshot as annotation_snapshot
+        return annotation_snapshot(task)
     from app.domain.bioinformatics.analysis_settings import BioAnalysisLimits
     try:
         value=task['input_snapshot']
@@ -319,6 +336,14 @@ def validate_snapshot(task):
             elif value.get('workflow_version')=='bio_analysis_v3':
                 from .single_cell_contracts import SingleCellParameters
                 SingleCellParameters.model_validate(value['params'])
+                if 'execution_mode' in value:
+                    fields.add('execution_mode')
+                    if value['execution_mode']!='direct':raise ValueError('Invalid execution mode')
+                if 'subset' in value:
+                    from .single_cell_contracts import SingleCellSubsetSelection
+                    fields.add('subset');subset=SingleCellSubsetSelection.model_validate(value['subset'])
+                    if value.get('execution_mode')!='direct' or subset.parent_processed_source.raw_source.model_dump(mode='json')!=value['raw_source']:
+                        raise ValueError('Subset parent identity differs')
             else:BioRecipeParameters.model_validate(value['params'])
             source=BioDatasetSourceV1.model_validate(value['raw_source'])
             if type(value['expected_setup_revision']) is not int or value['expected_setup_revision']<1:raise ValueError('Invalid revision')
@@ -327,7 +352,11 @@ def validate_snapshot(task):
             BioFigureConfig.model_validate(value['config'])
             source=BioProcessedDatasetSourceV1.model_validate(value['processed_source'])
         else:raise ValueError('Invalid task type')
-        BioAnalysisLimits.model_validate(value['limits'])
+        from .single_cell_resources import analysis_limits_for,SingleCellRAnalysisLimits
+        selected=analysis_limits_for(single_cell=task['task_type']=='bio_analysis' and value.get('workflow_version')=='bio_analysis_v3',params=value.get('params',{}))
+        frozen_limits=type(selected).model_validate(value['limits'])
+        if isinstance(selected,SingleCellRAnalysisLimits) and frozen_limits.memory_bytes!=selected.memory_bytes:raise ValueError('frozen_r_memory_budget_changed')
+        if isinstance(selected,SingleCellRAnalysisLimits) and frozen_limits.max_output_bytes!=selected.max_output_bytes:raise ValueError('frozen_r_output_budget_changed')
         expected=(value['workflow_version'] if value.get('workflow_version') in ('bio_analysis_v2','bio_analysis_v3') else WORKFLOW_VERSION) if task['task_type']=='bio_analysis' else FIGURE_WORKFLOW_VERSION
         expected_engine='tabular_quantitative_v1.0.0' if expected=='bio_analysis_v2' else ENGINE_VERSION
         if (set(value)!=common|fields or type(value['schema_version']) is not int or value['schema_version']!=1
@@ -344,6 +373,9 @@ def validate_snapshot(task):
 
 
 def input_version(task):
+    if task['task_type']=='bio_annotation':
+        from .annotation_contracts import input_version as annotation_input
+        return annotation_input(task)
     value=validate_snapshot(task)
     if task['task_type']=='bio_analysis' and value['workflow_version'] in ('bio_analysis_v2','bio_analysis_v3'):
         return {key:value[key] for key in ('schema_version','kind','run_id','recipe_version_id','raw_source','workflow_version','engine_version','environment_digest','output_language')}

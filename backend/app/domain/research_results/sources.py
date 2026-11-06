@@ -23,8 +23,8 @@ def document_page_items(items,page):
 
 
 class ResearchSourceReader(ResearchResultsStore):
-    def __init__(self,assets):
-        super().__init__(assets);self.bio=BioAnalysisStore(assets)
+    def __init__(self,assets,*,allow_stale_labels=False):
+        super().__init__(assets);self.bio=BioAnalysisStore(assets);self.allow_stale_labels=allow_stale_labels
 
     def read_source(self,project,selection,*,db=None,chain=(),progress=None):
         if db is None:
@@ -156,6 +156,10 @@ class ResearchSourceReader(ResearchResultsStore):
 
     def _bio_figure(self,db,project,selection):
         figures=BioFigureStore(self.assets);row=figures.require(db,'bio_figure_versions',project,selection.source_id)
+        if row['annotation_version_id']:
+            annotation=self.bio.require(db,'bio_annotation_versions',project,row['annotation_version_id'])
+            labels=self.bio.require(db,'bio_annotation_sets',project,annotation['set_id'])
+            if labels['current_version_id']!=row['annotation_version_id'] and not getattr(self,'allow_stale_labels',False):raise invalid('research_source_conflict',409)
         self._completed(db,row['task_id']);view=figures.get(project,row['id'])
         if not row['manifest_sha256']:raise invalid('research_source_incomplete',422)
         return dict(title=view['config'].get('kind','Figure'),sha256=row['manifest_sha256'],provenance='research_derived',

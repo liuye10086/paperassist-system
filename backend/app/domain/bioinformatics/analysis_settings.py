@@ -67,9 +67,14 @@ def engine_code_digest():
         value.update(file.relative_to(root).as_posix().encode('utf-8')+b'\0'+file.read_bytes()+b'\0')
     # The cell worker imports this strict source-selection contract before
     # sandbox entry; its bytes are part of the executable scientific identity.
-    dependency=backend_root()/'app'/'domain'/'bioinformatics'/'single_cell_contracts.py'
-    if dependency.is_symlink():raise ValueError('Engine dependency symlink')
-    value.update(b'domain/bioinformatics/single_cell_contracts.py\0'+dependency.read_bytes()+b'\0')
+    for name in ('single_cell_contracts.py','single_cell_resources.py'):
+        dependency=backend_root()/'app'/'domain'/'bioinformatics'/name
+        if dependency.is_symlink():raise ValueError('Engine dependency symlink')
+        value.update(('domain/bioinformatics/'+name).encode()+b'\0'+dependency.read_bytes()+b'\0')
+    r_root=backend_root()/'app'/'adapters'/'single_cell_r'
+    for dependency in sorted([*r_root.glob('*.py'),*r_root.glob('*.R')],key=lambda p:p.name):
+        if dependency.is_symlink():raise ValueError('Engine dependency symlink')
+        value.update(('adapters/single_cell_r/'+dependency.name).encode()+b'\0'+dependency.read_bytes()+b'\0')
     return value.hexdigest()
 
 

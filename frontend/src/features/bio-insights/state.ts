@@ -20,7 +20,7 @@ export function defaultConfig(kind:InsightKind):Config{
 }
 export function buildPlan(name:string,config:Config,sources:Source[],revision:number,decision:PlanBody['decision']):PlanBody{
  const normalized={...config};for(const key of ['sheet','foreground_member_key','background_source_id','background_member_key','processed_source_id','member_key','contrast_id','x_column','y_column','q_column','term_row_key','figure_stratum'])if(normalized[key]==='')delete normalized[key]
- if(config.kind==='comparison')normalized.family_contrast_ids=(Array.isArray(config.contrasts)?config.contrasts as Contrast[]:[]).map(c=>c.contrast_id)
+ if(config.kind==='comparison'&&config.schema_version!==5)normalized.family_contrast_ids=(Array.isArray(config.contrasts)?config.contrasts as Contrast[]:[]).map(c=>c.contrast_id)
  if(config.kind==='candidate'&&config.schema_version!==2){if(config.ranking_mode==='lexicographic')normalized.weights=[];const ids=strings(config.result_source_ids),contrasts=config.source_contrasts as Record<string,string>|undefined;normalized.source_contrasts=Object.fromEntries(ids.map(id=>[id,contrasts?.[id]??'']))}
  return{name,kind:config.kind,decision,expected_revision:revision,sources:sources.map(s=>({source_kind:s.source_kind,source_id:s.source_id,sha256:s.sha256,role:s.role,locator:s.locator})),config:normalized}
 }
@@ -33,11 +33,20 @@ export function validateRecipe(config:{result_source_ids:unknown;primary_result_
 }
 export function planIssues(config:Config):string[]{
  const issues:string[]=[]
- if(config.kind==='comparison'&&config.schema_version===4){if(!text(config.processed_source_id)||!text(config.measurement_pipeline)||!text(config.classification_database)||!text(config.classification_version)||!text(config.host_identity)||!text(config.feature_identity))issues.push('微生物组需要固定处理版本、测量流程、分类数据库版本和宿主／特征身份。');if(!Array.isArray(config.contrasts)||!strings(config.alpha_metrics).length)issues.push('微生物组需要有效预设对比与 alpha 指标。')}
+ if(config.kind==='comparison'&&config.schema_version===5){if(!text(config.processed_source_id)||!text(config.annotation_source_id)||!strings(config.label_ids).length)issues.push('请选择固定单细胞处理版本、人工注释版本和标签。');if(!text(config.numerator)||!text(config.denominator)||(config.mode!=='descriptive'&&config.numerator===config.denominator))issues.push('请选择两个不同的条件。')}
+ else if(config.kind==='comparison'&&config.schema_version===4){if(!text(config.processed_source_id)||!text(config.measurement_pipeline)||!text(config.classification_database)||!text(config.classification_version)||!text(config.host_identity)||!text(config.feature_identity))issues.push('微生物组需要固定处理版本、测量流程、分类数据库版本和宿主／特征身份。');if(!Array.isArray(config.contrasts)||!strings(config.alpha_metrics).length)issues.push('微生物组需要有效预设对比与 alpha 指标。')}
  else if(config.kind==='comparison'&&config.schema_version===3){if(!text(config.file_source_id)||!text(config.parse_version_id)||!text(config.reference_version)||!text(config.reference_basis)||config.independence_confirmed!==true)issues.push('qPCR 需要原始长表、解析版本、assay 参考版本、内参依据与生物学单位确认。');if(config.quantification==='delta_delta_cq'&&(config.equal_efficiency_confirmed!==true||!text(config.equal_efficiency_basis)))issues.push('qPCR 等效率方法需要明确适用性确认与依据。');if(!Array.isArray(config.excluded_wells)||!Array.isArray(config.original_checks))issues.push('qPCR 排除和原报告核对必须是有效 JSON 数组。')}
  else if(config.kind==='comparison'&&config.schema_version===2){if(!text(config.reference_version).trim()||!text(config.namespace).trim())issues.push('请显式填写特征命名空间和参考版本。')}
  else if(['comparison','result_import'].includes(config.kind)&&(!text(config.reference_version).trim()||!text(config.namespace).trim()||number(config.species_taxon_id)<1))issues.push('请显式填写物种、特征命名空间和参考版本；系统不会按基因名猜测。')
- if(config.kind==='integration'){if(!Array.isArray(config.pairs)||!Array.isArray(config.concordances)||!config.pairs.length&&!config.concordances.length)issues.push('请预声明特征对或一致性对象。');if(config.mapping_confirmed!==true)issues.push('请核对并确认冻结对应资源。')}
+ if(config.kind==='comparison'&&config.single_cell_selection){const selection=config.single_cell_selection as Record<string,unknown>;if(!text(selection.processed_source_id)||!text(selection.annotation_source_id)||!strings(selection.label_ids).length)issues.push('请选择固定单细胞处理版本、人工注释版本和标签。')}
+ if(config.kind==='integration'&&config.schema_version===2){
+  if(!text(config.processed_source_id))issues.push('请选择固定单细胞处理版本。')
+  if(config.method==='slingshot'&&(!text(config.root_cluster)||!text(config.root_basis).trim()))issues.push('请填写根聚类与选择依据。')
+  if(config.method==='genie3'&&(!strings(config.tf_ids).length||strings(config.gene_ids).length<2||!text(config.tf_basis).trim()||strings(config.tf_ids).some(id=>!strings(config.gene_ids).includes(id))||config.seed===config.stability_seed))issues.push('请填写匹配的基因与TF、来源依据和两个不同种子。')
+  if(config.method==='cellchat'&&(!text(config.annotation_source_id)||strings(config.label_ids).length<2||config.communication_mode!=='per_donor'&&strings(config.condition_values).length!==2))issues.push('通讯需要匹配标签；供者比较需要两个条件。')
+  if(config.method==='cellchat'&&config.species_taxon_id!=null&&!text(config.species_basis).trim())issues.push('补充物种时请填写原始样本资料依据。')
+ }
+ if(config.kind==='integration'&&config.schema_version!==2){if(!Array.isArray(config.pairs)||!Array.isArray(config.concordances)||!config.pairs.length&&!config.concordances.length)issues.push('请预声明特征对或一致性对象。');if(config.mapping_confirmed!==true)issues.push('请核对并确认冻结对应资源。')}
  if(config.kind==='candidate'&&config.schema_version===2&&(!Array.isArray(config.candidates)||!config.candidates.length||!strings(config.evidence_source_ids).length))issues.push('请添加固定轴候选对象和类型化外部证据版本。')
  if(config.kind==='feature_extract'&&!strings(config.resource_source_ids).length)issues.push('请选择已冻结的序列或结构资源。')
  if(config.kind==='candidate'&&config.schema_version!==2){issues.push(...validateRecipe({result_source_ids:config.result_source_ids,primary_result_source_id:config.primary_result_source_id,steps:config.steps}));const contrasts=config.source_contrasts as Record<string,string>|undefined;if(strings(config.result_source_ids).some(id=>!contrasts?.[id]))issues.push('请为每个候选来源选择一个实际比较。')}

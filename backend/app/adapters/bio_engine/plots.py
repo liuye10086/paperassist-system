@@ -44,6 +44,7 @@ def save(writer,key,fig,data,config=None):
     font_path=Path('/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc')
     if language=='zh-CN':
         from matplotlib.text import Text
+        if not font_path.is_file():font_path=Path(findfont(FontProperties(family=['Microsoft YaHei','SimHei','DejaVu Sans'])))
         font=FontProperties(fname=font_path)
         translations={'Total counts':'总计数','Detected genes':'检测基因数','Raw':'原始','Filtered':'过滤后',
             'QC: raw observations':'原始观测质量控制','Explained variance ratio':'解释方差比例','Mean log1p':'平均 log1p',
@@ -216,13 +217,58 @@ def marker_figures(writer,counts,logged,clusters,ids,top_rows,config):
     ix=[ids.index(i) for i in selected]
     means=np.array([np.asarray(logged[clusters==c][:,ix].mean(0)).ravel() for c in labels])
     detection=np.array([np.asarray((counts[clusters==c][:,ix]>0).mean(0)).ravel() for c in labels])
-    for key in kinds:
-        fig,ax=plt.subplots()
-        if key=='marker_dotplot':
-            yy,xx=np.indices(means.shape)
-            artist=ax.scatter(xx.ravel(),yy.ravel(),s=detection.ravel()*150,c=means.ravel(),cmap=palette,vmin=config.get('vmin'),vmax=config.get('vmax'))
-        else:artist=ax.imshow(means,aspect='auto',cmap=palette,vmin=config.get('vmin'),vmax=config.get('vmax'))
-        ax.set_xticks(range(len(selected)),selected,rotation=90,fontsize=6);ax.set_yticks(range(len(labels)),labels);ax.set_title(config.get('title') or key)
-        fig.colorbar(artist,ax=ax,label='Mean log1p')
-        save(writer,key,fig,{'feature_ids':selected,'clusters':labels,'mean_log1p':means,'detection_fraction':detection,'effective_color_limits':artist.get_clim()},
-             {**config,'kind':key,'panel':'default'})
+    marker_figures_from_saved(writer,dict(feature_ids=selected,clusters=labels,mean_log1p=means,
+        detection_fraction=detection),config,config.get('feature_symbols'))
+
+
+def marker_figures_from_saved(writer,data,config,feature_symbols=None):
+    """Presentation only: paginate frozen cluster summaries, preserving full numeric data."""
+    from collections import Counter
+    import textwrap
+    ids=list(data.get('feature_ids',[]));clusters=list(data.get('clusters',[]))
+    kinds=[config['kind']] if config.get('kind') in {'marker_dotplot','marker_heatmap'} else ['marker_dotplot','marker_heatmap']
+    if not ids:
+        for key in kinds:
+            fig,ax=plt.subplots();ax.axis('off');ax.text(.1,.5,'Markers not computable; see methods')
+            save(writer,key,fig,data,config)
+        return
+    means=np.asarray(data['mean_log1p'],dtype=float);detection=np.asarray(data['detection_fraction'],dtype=float)
+    if means.shape!=(len(clusters),len(ids)) or detection.shape!=means.shape or not np.isfinite(means).all() or not np.isfinite(detection).all():
+        raise ValueError('invalid_marker_plot_data')
+    selected=list(config.get('gene_ids') or ids)
+    if len(selected)>100 or len(set(selected))!=len(selected) or not set(selected)<=set(ids):raise ValueError('stable_feature_id_not_found')
+    if config.get('layer','log1p')!='log1p':raise ValueError('invalid_parameter_marker_layer')
+    mapping=feature_symbols or dict(zip(ids,data.get('feature_symbols',[])))
+    config={key:value for key,value in config.items() if key!='feature_symbols'}
+    symbol_counts=Counter(str(v).strip() for v in mapping.values() if v and str(v).strip())
+    labels=[str(mapping.get(i) or '').strip() for i in ids]
+    labels=[symbol if symbol and symbol_counts[symbol]==1 else i for i,symbol in zip(ids,labels)]
+    gene_indices=[ids.index(i) for i in selected]
+    palette=config.get('cmap') or config.get('palette') or 'viridis'
+    en=config.get('output_language','en')=='en'
+    pages=[(gene_indices[g:g+20],list(range(c,min(c+20,len(clusters)))))
+        for g in range(0,len(gene_indices),20) for c in range(0,len(clusters),20)]
+    for kind in kinds:
+        for page,(gi,ci) in enumerate(pages,1):
+            fig,ax=plt.subplots()
+            values=means[np.ix_(ci,gi)].T;fractions=detection[np.ix_(ci,gi)].T
+            limits=dict(vmin=config['vmin'] if config.get('vmin') is not None else float(means.min()),vmax=config['vmax'] if config.get('vmax') is not None else float(means.max()))
+            if kind=='marker_dotplot':
+                yy,xx=np.indices(values.shape)
+                artist=ax.scatter(xx.ravel(),yy.ravel(),s=fractions.ravel()*110,c=values.ravel(),cmap=palette,**limits)
+                handles=[ax.scatter([],[],s=f*110,c='#555555',label=f'{int(f*100)}%') for f in (.25,.5,1.)]
+                ax.legend(handles=handles,title='Detected cells' if en else '检出细胞比例',loc='upper left',bbox_to_anchor=(1.15,1),fontsize=8,title_fontsize=8)
+            else:artist=ax.imshow(values,aspect='auto',cmap=palette,**limits)
+            ax.set_yticks(range(len(gi)),['\n'.join(textwrap.wrap(labels[i],32)) for i in gi],fontsize=9)
+            ax.set_xticks(range(len(ci)),[str(clusters[i]) for i in ci],fontsize=9)
+            ax.set_xlabel('Cluster' if en else '聚类')
+            title=config.get('title') or (('Marker dot plot' if kind=='marker_dotplot' else 'Marker mean expression') if en else ('Marker 点图' if kind=='marker_dotplot' else 'Marker 平均表达'))
+            ax.set_title(title+(f' ({page}/{len(pages)})' if len(pages)>1 else ''))
+            ax.set_ylim(len(gi)-.5,-.5);ax.set_xlim(-.5,len(ci)-.5)
+            fig.colorbar(artist,ax=ax,label='Mean log1p',pad=.03,shrink=.6)
+            key=kind if page==1 else kind+'_page_'+str(page)
+            page_data={**data,'feature_ids':ids,'feature_symbols':[mapping.get(i) for i in ids],'feature_labels':labels,
+                'display_feature_indices':gi,'display_cluster_indices':ci,'mean_log1p':means,'detection_fraction':detection,
+                'effective_color_limits':artist.get_clim(),'presentation_only':True}
+            save(writer,key,fig,page_data,{**config,'kind':kind,'panel':'default','gene_ids':selected,
+                'width_inches':8,'height_inches':max(4,min(10,1.8+len(gi)*.35)), 'dpi':min(300,int(config.get('dpi',300)))})

@@ -73,7 +73,10 @@ def _methods(source):
             raise ValueError('Invalid saved method step')
         key=step['key'];executed=step.get('status')=='completed'
         description='已执行 / Completed' if executed else '未完成 / Not completed: '+str(step.get('reason') or step.get('status','unknown'))
-        parameters=dict(step.get('params') or {})
+        raw_parameters=step.get('params')
+        # This saved single-cell step stores its requested column list directly.
+        # Project it as named method parameters without rewriting frozen inputs.
+        parameters={'columns':list(raw_parameters)} if key=='technical_covariates' and isinstance(raw_parameters,list) else dict(raw_parameters or {})
         if key=='normalize':parameters.update({k:v for k,v in source.content.get('params',{}).items() if k=='target_sum'})
         if key=='markers':parameters.update({k:step[k] for k in ('tested_genes','correction') if k in step})
         software={k:str(source.content[k]) for k in ('engine_version','code_digest','environment_digest') if k in source.content}

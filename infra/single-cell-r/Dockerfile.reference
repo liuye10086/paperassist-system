@@ -1,0 +1,7 @@
+ARG WORKER_IMAGE=paperassist-single-cell-worker:b4-singler
+FROM ${WORKER_IMAGE}
+USER root
+# Build context must be the checksum-verified prepare_reference.py output root.
+COPY . /opt/paperassist-single-cell-r/share/paperassist-reference/
+RUN chmod -R a-w /opt/paperassist-single-cell-r/share/paperassist-reference
+USER paperassist

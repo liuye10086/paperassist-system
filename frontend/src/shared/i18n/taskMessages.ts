@@ -1,4 +1,7 @@
 export const taskMessages: Record<string, string> = {
+  '来源：固定生信输入': 'Source: fixed bioinformatics inputs',
+  '固定处理结果与绘图参数': 'Fixed processed results and figure settings',
+  '固定生信来源与任务参数': 'Fixed bioinformatics sources and task settings',
   '项目任务': 'Project tasks',
   '查看保存的执行状态、待办和成果。': 'Review saved execution states, required actions, and results.',
   '刷新任务列表': 'Refresh task list',
@@ -35,6 +38,9 @@ export const taskMessages: Record<string, string> = {
   '继续此任务；尚未提交的模型调用会按原策略和预算执行，已有调用沿用已保存结果。': 'Continue this task. Model calls not yet submitted will follow the original policy and budget; existing calls reuse their saved results.',
   '重试原任务': 'Retry original task', '继续原任务': 'Continue original task',
   '预算或配置已调整，继续任务': 'Budget or configuration updated — continue task',
+  '取消任务': 'Cancel task',
+  '正在提交任务操作……': 'Submitting task action…',
+  '取消后停止当前计算并保留诊断材料；已有成果不变。': 'Cancellation stops the current computation and retains diagnostics. Existing results are preserved.',
   '正在提交恢复请求……': 'Submitting the resume request…',
   '恢复请求未确认，请先重新读取任务。': 'The resume request is unconfirmed. Reload the task first.',
   '任务状态已更新，请核对重新读取的内容后再操作。': 'The task state changed. Review the reloaded details before acting again.',

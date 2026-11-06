@@ -166,7 +166,7 @@ class ResearchReportService(ResearchResultsStore):
             manifest=None;members=[]
             if row['manifest_object_id']:
                 if task['status']!='succeeded':raise invalid()
-                ResearchSourceReader(self.assets).read_source(project,dict(source_kind='research_report_version',source_id=identifier),db=db)
+                ResearchSourceReader(self.assets,allow_stale_labels=True).read_source(project,dict(source_kind='research_report_version',source_id=identifier),db=db)
                 manifest,members=self.checked_members(db,project,row)
                 for member in members:member['download_url']=f'/api/v1/projects/{project}/research-reports/{identifier}/members/{member["id"]}/download'
             return dict(id=identifier,root_id=row['root_id'],revision=row['revision'],parent_id=row['parent_id'],content=row['content_json'],sha256=row['content_sha256'],
@@ -202,7 +202,7 @@ class ResearchReportService(ResearchResultsStore):
         require_phase(phase,db,self.assets,project)
         row=self.require(db,'research_report_versions',project,identifier)
         if not row['manifest_object_id'] or self.store.require_task(db,row['task_id'])['status']!='succeeded':raise invalid('research_source_incomplete',422)
-        ResearchSourceReader(self.assets)._read_source_in_phase(project,dict(source_kind='research_report_version',source_id=identifier),db=db,phase=phase,progress=progress)
+        ResearchSourceReader(self.assets,allow_stale_labels=True)._read_source_in_phase(project,dict(source_kind='research_report_version',source_id=identifier),db=db,phase=phase,progress=progress)
         _,members=self.checked_members(db,project,row,progress=progress)
         member=next((m for m in members if m['id']==member_id),None)
         if not member:raise invalid('research_source_not_found',404)

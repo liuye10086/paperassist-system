@@ -5,8 +5,9 @@ import {readFixedObservations} from './observations'
 import {ConfigField,Field,Toggle,type ConfigProps,DataDetails} from './InsightShared'
 import {number,selectObservations,split,text} from './state'
 import type {Contrast,Observation,ObservationKey} from './contracts'
+import SingleCellComparisonSetup from './SingleCellComparisonSetup'
 import QuantitativeComparisonSetup from './QuantitativeComparisonSetup'
-export default function ComparisonSetup(props:ConfigProps&{projectId:string}){return props.config.schema_version===2?<QuantitativeComparisonSetup {...props}/>:<SpatialComparisonSetup {...props}/>}
+export default function ComparisonSetup(props:ConfigProps&{projectId:string}){return props.config.schema_version===5||props.config.single_cell_selection?<SingleCellComparisonSetup {...props}/>:props.config.schema_version===2?<QuantitativeComparisonSetup {...props}/>:<SpatialComparisonSetup {...props}/>}
 function SpatialComparisonSetup({projectId,config,onChange,sources}:ConfigProps&{projectId:string}){
  const{t}=useI18n(),[rows,setRows]=useState<Observation[]>([]),[busy,setBusy]=useState(false),[error,setError]=useState(''),[field,setField]=useState('cluster'),[value,setValue]=useState(''),[index,setIndex]=useState(0),[manual,setManual]=useState(''),[processed,setProcessed]=useState(''),[panel,setPanel]=useState('design')
  const controller=useRef<AbortController|null>(null),valid=useRef(true),signature=JSON.stringify(sources),contrasts=config.contrasts as Contrast[],current=contrasts[index]??contrasts[0]

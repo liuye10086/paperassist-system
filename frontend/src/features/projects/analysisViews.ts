@@ -1,7 +1,7 @@
 import type { AnalysisStage } from '../analysis/analysisWorkflowContext'
 export const bioResultTabs=['qc','embedding','clusters','markers','spatial','methods'] as const
 export type BioResultTab=typeof bioResultTabs[number]
-export const analysisEntryIntents=['table','bio','comparison','ora','gsea_prerank','candidate','integration','evidence','qpcr','figure','report'] as const
+export const analysisEntryIntents=['table','bio','comparison','ora','gsea_prerank','candidate','integration','single_cell_topic','evidence','qpcr','figure','report'] as const
 export type AnalysisEntryIntent=typeof analysisEntryIntents[number]
 export type AnalysisEntryContext={requirementVersionId:string;scopeItemId:string}
 export type AnalysisNavigation = { entry?:AnalysisEntryContext;intent?:AnalysisEntryIntent; view: 'bio-insights' | 'bio-insight-plan' | 'bio-insight-result' | 'bio-resources' | 'bio-candidates' | 'research-findings' | 'overview' | 'research-request' | AnalysisStage | 'bio-datasets' | 'bio-import' | 'bio-dataset' | 'bio-analysis-setup' | 'bio-analysis' | 'bio-result' | 'bio-annotation' | 'bio-figure'; fileId: string; importId?: string; datasetId?: string; versionId?: string; setupId?:string;runId?:string;processedId?:string;tab?:BioResultTab;annotationSetId?:string;annotationVersionId?:string;planId?:string;planVersionId?:string;resultVersionId?:string;resourceVersionId?:string;figureId?:string;findingSetId?:string;findingVersionId?:string }

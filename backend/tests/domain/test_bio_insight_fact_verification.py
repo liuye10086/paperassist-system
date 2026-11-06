@@ -48,3 +48,14 @@ def test_sample_explicit_readable_locator_keeps_values_and_old_fact_identity(val
 def test_sample_readable_locator_rejects_unverified_mismatch():
     with pytest.raises(ValueError):
         project_insight_facts(sample_source('0',{'row_key':'opaque','feature_id':'wrong'}))
+
+
+def test_candidate_evidence_long_metadata_keeps_exact_raw_value_with_bounded_preview():
+    value='{"statement":"'+('原始声明' * 350)+'"}'
+    source=FrozenResearchSource(source_kind='bio_insight_result_member',source_id='member',project_id='project',sha256='a'*64,
+        provenance='system_computed',content=dict(result_version_id='result',inference_scope='derived',provenance='system_computed',
+            config={'kind':'candidate','schema_version':2},table_key='candidate_evidence',rows=[{'row_key':'r','source_typed_evidence':value}]))
+    fact=project_insight_facts(source).facts[0]
+    assert fact.raw_value==value and fact.raw_type=='string'
+    assert fact.display_value==value[:999]+'…'
+    assert fact.origin=='external_result' and fact.verification_status=='unverified'

@@ -1,0 +1,87 @@
+{
+  "metadata": {
+    "resource_id": "human-demo-literature-v1",
+    "schema_version": 1,
+    "species": "human",
+    "license": "CC-BY-4.0",
+    "license_url": "https://creativecommons.org/licenses/by/4.0/",
+    "label": "Human literature demo: 3 ligand-receptor interactions",
+    "scope": "Engineering demonstration only; 3 manually selected interactions; not a complete ligand-receptor catalog; not official CellChatDB",
+    "attribution": "Adapted and manually structured from Jin et al. (2021), Nature Communications 12:1088, doi:10.1038/s41467-021-21246-9, Figure 7 main text; CC BY 4.0. Interaction identifiers renamed.",
+    "sources": {
+      "jin2021_fig7": {
+        "authors": "Jin et al.",
+        "year": 2021,
+        "title": "Inference and analysis of cell-cell communication using CellChat",
+        "doi": "10.1038/s41467-021-21246-9",
+        "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC7889871/",
+        "license": "CC-BY-4.0",
+        "license_url": "https://creativecommons.org/licenses/by/4.0/",
+        "location": "Human skin results, Figure 7d-f and accompanying main text"
+      }
+    },
+    "curation_notes": "Independently transcribed from the human-skin results in the article main text. No official CellChatDB tables were copied. Complex subunits are preserved. Empty cofactor fields mean not specified by this demo, not biological absence. No guarantee of detectable communication in PBMC.",
+    "payload_sha256": "9f7e7250fe0603615dfabb0c501c4ef6b5ea9f28734b3e874fb5df6723e31e19",
+    "payload_hash_encoding": "UTF-8 JSON of interactions/complexes/cofactors/gene_symbols; ensure_ascii=False, sort_keys=True, separators=(comma,colon)"
+  },
+  "interactions": [
+    {
+      "interaction_name": "DEMO_CCL19_CCR7",
+      "pathway_name": "CCL",
+      "ligand": "CCL19",
+      "receptor": "CCR7",
+      "agonist": "",
+      "antagonist": "",
+      "co_A_receptor": "",
+      "co_I_receptor": "",
+      "evidence": "Jin et al. 2021; doi:10.1038/s41467-021-21246-9; Figure 7 main text",
+      "annotation": "Secreted Signaling",
+      "interaction_name_2": "DEMO_CCL19_CCR7",
+      "source_id": "jin2021_fig7"
+    },
+    {
+      "interaction_name": "DEMO_MIF_CD74_CD44",
+      "pathway_name": "MIF",
+      "ligand": "MIF",
+      "receptor": "DEMO_CD74_CD44",
+      "agonist": "",
+      "antagonist": "",
+      "co_A_receptor": "",
+      "co_I_receptor": "",
+      "evidence": "Jin et al. 2021; doi:10.1038/s41467-021-21246-9; Figure 7 main text",
+      "annotation": "Secreted Signaling",
+      "interaction_name_2": "DEMO_MIF_CD74_CD44",
+      "source_id": "jin2021_fig7"
+    },
+    {
+      "interaction_name": "DEMO_CXCL12_CXCR4",
+      "pathway_name": "CXCL",
+      "ligand": "CXCL12",
+      "receptor": "CXCR4",
+      "agonist": "",
+      "antagonist": "",
+      "co_A_receptor": "",
+      "co_I_receptor": "",
+      "evidence": "Jin et al. 2021; doi:10.1038/s41467-021-21246-9; Figure 7 main text",
+      "annotation": "Secreted Signaling",
+      "interaction_name_2": "DEMO_CXCL12_CXCR4",
+      "source_id": "jin2021_fig7"
+    }
+  ],
+  "complexes": {
+    "DEMO_CD74_CD44": [
+      "CD74",
+      "CD44"
+    ]
+  },
+  "cofactors": {},
+  "gene_symbols": [
+    "CCL19",
+    "CCR7",
+    "MIF",
+    "CD74",
+    "CD44",
+    "CXCL12",
+    "CXCR4"
+  ]
+}

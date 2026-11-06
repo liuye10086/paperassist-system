@@ -13,7 +13,7 @@ class _PathRule(ctypes.Structure):
     _fields_ = [("allowed_access", ctypes.c_uint64), ("parent_fd", ctypes.c_int32)]
 
 
-def enter(files, output, parent_pid):
+def enter(files, output, parent_pid, *, r_scratch=None):
     if len(files)>514:
         raise ValueError('input_member_limit')
     if sys.platform != "linux" or sys.byteorder != "little" or len(os.listdir("/proc/self/task")) != 1:
@@ -52,8 +52,15 @@ def enter(files, output, parent_pid):
     pinned_fds = []
     try:
         runtime = ['/opt/paperassist-bio-insights', '/usr/local/lib/python3.11', '/usr/share/fonts/truetype/wqy']
+        if r_scratch is not None:
+            from pathlib import Path
+            scratch=Path(r_scratch)
+            if (not scratch.is_absolute() or scratch.is_symlink() or not scratch.is_dir()
+                or scratch.parent!=Path('/tmp') or not scratch.name.startswith('b04-propeller-')):raise SandboxUnavailable('invalid_r_scratch')
+            runtime.append('/opt/paperassist-single-cell-r')
         rules = [(str(item["path"]), 1 << 2) for item in files] + [(p, (1 << 2) | (1 << 3)) for p in runtime] + [
             (str(output), (1 << 1) | (1 << 2) | (1 << 3) | (1 << 5) | (1 << 7) | (1 << 8) | (1 << 14))]
+        if r_scratch is not None:rules.append((str(r_scratch),(1 << 1) | (1 << 2) | (1 << 3) | (1 << 5) | (1 << 7) | (1 << 8) | (1 << 14)))
         granted=set()
         for path, access in rules:
             fd = os.open(path, os.O_PATH | os.O_CLOEXEC)
@@ -85,13 +92,13 @@ def enter(files, output, parent_pid):
                        # Up to 514 declared files plus four trusted/output
                        # grants remain pinned; leave bounded numeric I/O room.
                        (resource.RLIMIT_NOFILE, 1024), (resource.RLIMIT_FSIZE, 256 * 1024**2),
-                       # NPROC is per real UID across PID namespaces, so four
-                       # incorrectly rejects thread creation with neighboring
-                       # containers/tests. This bounded ceiling leaves UID
-                       # headroom; numerical parallelism remains exactly one.
-                       # New processes remain forbidden
-                       # by the argument-filtered seccomp rules below.
-                       (resource.RLIMIT_CORE, 0), (resource.RLIMIT_NPROC, 64)]:
+                       # NPROC counts the shared real UID across containers.
+                       # Resident API/Worker parents can each own ~39 threads;
+                       # 64 falsely denied a single GSEA worker thread after
+                       # service startup. This UID-wide guard is not the child
+                       # concurrency limit: threadpool settings remain one and
+                       # fork/exec stay denied by the argument-filtered seccomp.
+                       (resource.RLIMIT_CORE, 0), (resource.RLIMIT_NPROC, 256)]:
         resource.setrlimit(key, (value, value))
         if resource.getrlimit(key) != (value, value):
             raise SandboxUnavailable()

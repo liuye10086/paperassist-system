@@ -47,6 +47,7 @@ def report_text(text,language):
 
 def build_report(snapshot,figures):
     en=snapshot['language']=='en';finding=snapshot['finding']['content'];doc=Document()
+    basic=snapshot.get('basic_analysis',False)
     local=lambda text:report_text(text,snapshot['language'])
     section=doc.sections[0];section.page_width=Mm(210);section.page_height=Mm(297)
     section.top_margin=section.bottom_margin=Mm(20);section.left_margin=section.right_margin=Mm(20)
@@ -54,18 +55,33 @@ def build_report(snapshot,figures):
         style=doc.styles[name];style.font.name='Arial';style.font.color.rgb=RGBColor(0,0,0)
         style.element.get_or_add_rPr().append(OxmlElement('w:rFonts'))
         style.element.rPr.rFonts.set(qn('w:eastAsia'),'Microsoft YaHei')
+        if basic:
+            for border in style.element.xpath('./w:pPr/w:pBdr'):border.getparent().remove(border)
     doc.styles['Normal'].font.size=Pt(10)
     doc.styles['Normal'].paragraph_format.space_after=Pt(6)
     doc.add_paragraph(snapshot['title'],style='Title')
-    doc.add_paragraph('Versioned analysis results for review and Results/Methods drafting. External results have not been recomputed.' if en else
-        '本报告汇总已固定的分析成果，供核对研究发现及编写结果与方法。外部结果未重算；探索性结论仍需独立验证。')
-    doc.add_paragraph(('Finding version: ' if en else '研究发现版本：')+snapshot['finding']['id'])
+    if basic:
+        doc.add_paragraph('This report summarizes the saved input, quality control, methods and figures from this analysis. Cell-level results are exploratory.' if en else
+            '本报告汇总本次分析已保存的输入信息、质量控制、方法与图表。细胞层级结果用于探索，不能代替独立供者验证。')
+    else:
+        doc.add_paragraph('Versioned analysis results for review and Results/Methods drafting. External results have not been recomputed.' if en else
+            '本报告汇总已固定的分析成果，供核对研究发现及编写结果与方法。外部结果未重算；探索性结论仍需独立验证。')
+    if not basic:doc.add_paragraph(('Finding version: ' if en else '研究发现版本：')+snapshot['finding']['id'])
     doc.add_paragraph('SHA256 '+snapshot['finding']['sha256'])
     def heading(zh,english):doc.add_heading(english if en else zh,1)
     heading('数据来源','Data sources')
     for source in finding['sources']:
         doc.add_paragraph(local(source.get('title',''))+' — '+source['source_kind']+' / '+source['source_id'])
         doc.add_paragraph(('Provenance: ' if en else '来源类型：')+source.get('provenance','unknown')+'; SHA256 '+source['sha256'])
+    if basic:
+        for filename in snapshot.get('input_files',[]):doc.add_paragraph(('Input file: ' if en else '输入文件：')+filename)
+        samples=snapshot.get('samples',[])
+        if samples:
+            table=doc.add_table(rows=1,cols=5);table.style='Table Grid'
+            for cell,label in zip(table.rows[0].cells,['Sample','Library','Donor','Batch','Group'] if en else ['样本','文库','供者','批次','分组']):cell.text=label
+            table.rows[0]._tr.get_or_add_trPr().append(OxmlElement('w:tblHeader'))
+            for sample in samples:
+                for cell,key in zip(table.add_row().cells,['sample_id','library_id','donor','batch','group']):cell.text=str(sample.get(key) or ('Unknown' if en else '未提供'))
     heading('设计与缺口','Design and missing information')
     for text in finding.get('gaps',[]) or [('No additional design information provided.' if en else '未提供额外研究设计信息。')]:doc.add_paragraph(local(text))
     heading('数据概况与质量核对','Data overview and quality checks')
@@ -74,7 +90,7 @@ def build_report(snapshot,figures):
     table.autofit=False
     for column,width in zip(table.columns,(62,30,42,36)):column.width=Mm(width)
     headers=['Location','Raw value','Unit / level','Status'] if en else ['来源位置','原值','单位与层级','核对状态']
-    for cell,text in zip(table.rows[0].cells,headers):cell.text=text
+    for cell,text,width in zip(table.rows[0].cells,headers,(62,30,42,36)):cell.text=text;cell.width=Mm(width)
     props=table.rows[0]._tr.get_or_add_trPr();repeat=OxmlElement('w:tblHeader');props.append(repeat)
     for fact in finding['facts']:
         location=fact['locator'];label=location.get('field_path') or (str(location.get('sheet',''))+'!'+str(location.get('cell','')) if location.get('cell') else json.dumps(location,ensure_ascii=False,separators=(',',':')))
@@ -127,6 +143,10 @@ def build_report(snapshot,figures):
     if not finding['conflicts'] and not any(c['review_decision']!='adopt' for c in finding['claims']):doc.add_paragraph('None recorded.' if en else '未登记。')
     heading('局限与复现','Limitations and reproducibility')
     for text in dict.fromkeys(finding.get('limitations',[])+finding.get('warnings',[])):doc.add_paragraph(local(text))
-    doc.add_paragraph('The package contains complete selected tables, methods, figure configurations and file hashes. Raw matrices remain fixed references.' if en else
-        '交付包附完整选定结果表、方法、图件配置及文件哈希。原始大矩阵保留固定引用，不重复打包。')
+    if basic:
+        doc.add_paragraph('Download full tables, H5AD, methods and reproduction files from the analysis result page.' if en else
+            '完整结果表、H5AD、方法和复现文件可从分析结果页单独下载。报告仅汇总本次实际保存的结果，未执行步骤不表示已完成。')
+    else:
+        doc.add_paragraph('The package contains complete selected tables, methods, figure configurations and file hashes. Raw matrices remain fixed references.' if en else
+            '交付包附完整选定结果表、方法、图件配置及文件哈希。原始大矩阵保留固定引用，不重复打包。')
     output=io.BytesIO();doc.save(output);return output.getvalue()

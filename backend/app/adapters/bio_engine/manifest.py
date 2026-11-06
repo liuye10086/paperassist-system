@@ -21,12 +21,14 @@ def canonical(value):
 
 
 class Writer:
-    def __init__(self,root): self.root=Path(root);self.artifacts=[]
+    def __init__(self,root,*,max_output_bytes=512*1024**2):
+        if type(max_output_bytes) is not int or not 1<=max_output_bytes<=1024**3:raise ValueError('invalid_output_budget')
+        self.root=Path(root);self.artifacts=[];self.max_output_bytes=max_output_bytes
     def add(self,key,content,fmt,role=None):
         if not key.replace('_','').replace('-','').isalnum(): raise ValueError('invalid_artifact_key')
         path=self.root/(key+'.'+fmt)
         if path.exists(): raise ValueError('output_exists')
-        if len(content)>256*1024**2 or len(self.artifacts)>=255 or sum(a['size_bytes'] for a in self.artifacts)+len(content)>512*1024**2:
+        if len(content)>256*1024**2 or len(self.artifacts)>=255 or sum(a['size_bytes'] for a in self.artifacts)+len(content)>self.max_output_bytes:
             raise ValueError('output_budget_exceeded')
         path.write_bytes(content)
         item={'key':key,'path':str(path),'role':role or key,'format':fmt,'size_bytes':len(content),'sha256':hashlib.sha256(content).hexdigest()}
@@ -36,7 +38,7 @@ class Writer:
         path=Path(path)
         if path.parent!=self.root or path.is_symlink() or not path.is_file():raise ValueError('invalid_output_path')
         size=path.stat().st_size
-        if size>256*1024**2 or len(self.artifacts)>=255 or sum(a['size_bytes'] for a in self.artifacts)+size>512*1024**2:raise ValueError('output_budget_exceeded')
+        if size>256*1024**2 or len(self.artifacts)>=255 or sum(a['size_bytes'] for a in self.artifacts)+size>self.max_output_bytes:raise ValueError('output_budget_exceeded')
         digest=hashlib.sha256()
         with path.open('rb') as handle:
             while chunk:=handle.read(1024**2):digest.update(chunk)

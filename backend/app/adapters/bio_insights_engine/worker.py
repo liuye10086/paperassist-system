@@ -8,6 +8,8 @@ os.environ.update(MPLBACKEND='Agg',MPLCONFIGDIR='/tmp/b04-mpl',XDG_CACHE_HOME='/
 import sys
 from pathlib import Path
 sys.path.insert(0,str(Path(__file__).resolve().parents[3]))
+from app.adapters.single_cell_r.bootstrap import preload_runtime_libraries
+preload_runtime_libraries()
 import codecs
 import hashlib
 import importlib
@@ -99,14 +101,22 @@ def main():
         from PIL import Image
         Image.init();codecs.lookup('utf-8-sig')
         # Import all trusted code before Landlock denies the application tree.
-        for name in ('comparison','result_import','resources','enrichment','candidates','figures','quantitative','counts_model','quantitative_figures','qpcr','qpcr_figures','microbiome','microbiome_figures','feature_extract','feature_figures','integration','integration_figures','external_evidence','evidence_figures'):
+        for name in ('comparison','result_import','resources','enrichment','candidates','figures','quantitative','counts_model','quantitative_figures','qpcr','qpcr_figures','microbiome','microbiome_figures','feature_extract','feature_figures','integration','integration_figures','external_evidence','evidence_figures','single_cell_composition','single_cell_topics','topic_figures'):
             importlib.import_module('app.adapters.bio_insights_engine.'+name)
         import Bio.PDB.MMCIF2Dict
         import Bio.PDB.Polypeptide
         if payload['config'].get('schema_version')==4 or payload['config'].get('figure_type','').startswith('microbiome_'):warm_microbiome_environment()
         with tempfile.TemporaryDirectory(prefix='b04-warm-') as warm:
-            if payload['kind']=='bio_candidate' and payload['config'].get('schema_version')==2 or payload['kind'] in ('bio_insight_figure','bio_feature_extract','bio_integration') or payload['kind']=='bio_resource_import' and payload['config'].get('kind') in ('sequence','structure','sample_correspondence','object_correspondence') or payload['kind']=='bio_comparison' and payload['config'].get('schema_version') in (3,4):warm_render_environment(Path(warm))
+            if payload['kind']=='bio_candidate' and payload['config'].get('schema_version')==2 or payload['kind'] in ('bio_insight_figure','bio_feature_extract','bio_integration') or payload['kind']=='bio_resource_import' and payload['config'].get('kind') in ('sequence','structure','sample_correspondence','object_correspondence') or payload['kind']=='bio_comparison' and payload['config'].get('schema_version') in (3,4,5):warm_render_environment(Path(warm))
             else:exercise(Path(warm))
+        from app.adapters.single_cell_r.bridge import initialize_propeller
+        r_scratch=Path(tempfile.mkdtemp(prefix='b04-propeller-',dir='/tmp'))
+        from contextlib import redirect_stdout
+        with redirect_stdout(sys.stderr):
+            if payload['kind']=='bio_integration' and payload['config'].get('schema_version')==2:
+                from app.adapters.single_cell_r.topics import initialize_topics
+                initialize_topics(r_scratch,payload['config']['method'])
+            else:initialize_propeller(r_scratch)
         actual=actual_identity()
         phase='environment_identity'
         if actual!=payload['_runtime_identity']:raise RuntimeError('bio_insights_environment_unavailable')
@@ -117,7 +127,7 @@ def main():
             path=Path(item['path'])
             if not path.is_absolute() or path.is_symlink() or not path.is_file():raise ValueError('invalid_input_path')
         signal.setitimer(signal.ITIMER_REAL,limits.compute_wall_seconds)
-        phase='isolation';pinned=enter(files,output,int(sys.argv[1]));phase='analysis'
+        phase='isolation';pinned=enter(files,output,int(sys.argv[1]),r_scratch=r_scratch);phase='analysis'
         result=run(payload)
         result['resources']={'child_peak_rss_kib':resource.getrusage(resource.RUSAGE_SELF).ru_maxrss}
         answer=canonical({'result':result})

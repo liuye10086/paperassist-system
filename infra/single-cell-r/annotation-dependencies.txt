@@ -1,0 +1,5 @@
+# Bioconductor 3.20 / R 4.4; retain the existing QC and Harmony environment.
+bioconductor-singler=2.8.0
+bioconductor-celldex=1.16.0
+bioconductor-delayedmatrixstats=1.28.0
+bioconductor-sparsematrixstats=1.18.0

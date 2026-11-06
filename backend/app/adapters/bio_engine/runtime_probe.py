@@ -1,5 +1,7 @@
 """Real Linux numerical, rendering, HDF5 and sandbox gate."""
 import os
+from app.adapters.single_cell_r.bootstrap import preload_runtime_libraries
+preload_runtime_libraries()
 os.environ.update({name: '1' for name in ('OPENBLAS_NUM_THREADS', 'OMP_NUM_THREADS', 'MKL_NUM_THREADS', 'NUMBA_NUM_THREADS')})
 os.environ['MPLBACKEND'] = 'Agg'
 os.environ['HDF5_PLUGIN_PATH'] = '/nonexistent'

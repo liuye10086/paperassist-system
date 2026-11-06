@@ -15,8 +15,11 @@ from app.core.exceptions import StorageError
 logger = logging.getLogger(__name__)
 
 
-def execution_store(repository):
+def execution_store(repository,task_type='bio_analysis'):
     # Keep task contracts importable without loading the publication adapter.
+    if task_type=='bio_annotation':
+        from app.adapters.bio_annotation_execution import BioAnnotationExecution
+        return BioAnnotationExecution(repository)
     from app.adapters.bio_analysis_execution import BioAnalysisExecution
     return BioAnalysisExecution(repository)
 
@@ -55,7 +58,7 @@ def _receipt(attempt, lease, status):
 
 def run_bio_analysis_task(task_id, task_revision, *, config=None, directory=None,
                           engine=None, staging_directory=None, task_type='bio_analysis'):
-    if task_type not in {'bio_analysis', 'bio_figure'}:
+    if task_type not in {'bio_analysis', 'bio_figure','bio_annotation'}:
         raise ValueError('Unsupported science task type')
     repository = TaskExecutionStore(config=config, directory=directory)
     lease = repository.claim(task_id, task_revision, task_type=task_type)
@@ -64,7 +67,7 @@ def run_bio_analysis_task(task_id, task_revision, *, config=None, directory=None
     stop, lost = Event(), Event()
 
     def keep_alive():
-        while not stop.wait(10):
+        while not stop.wait(1):
             try:
                 if not repository.heartbeat(lease):
                     lost.set()
@@ -76,17 +79,17 @@ def run_bio_analysis_task(task_id, task_revision, *, config=None, directory=None
     thread.start()
     attempt = None
     try:
-        store = execution_store(repository)
+        store = execution_store(repository,task_type) if task_type=='bio_annotation' else execution_store(repository)
         task, checkpoint, payload = store.load(lease)
         if checkpoint['next_node'] == 'publish':
             return store.publish_existing(lease, checkpoint)
         stage = checkpoint['state_json'].get('stage')
-        if (checkpoint['next_node'] != 'check' or stage not in {'qc', 'compute', 'figure'}
-                or (task_type == 'bio_figure') != (stage == 'figure') or task['task_type'] != task_type):
+        if (checkpoint['next_node'] != 'check' or stage not in {'qc', 'compute', 'figure','annotation'}
+                or (task_type == 'bio_figure') != (stage == 'figure') or (task_type=='bio_annotation')!=(stage=='annotation') or task['task_type'] != task_type):
             raise StorageError('bio_source_conflict', '生信任务阶段与固定输入不一致。', 409)
         attempt, output = _staging(repository, lease, staging_directory)
         _receipt(attempt, lease, 'running_' + stage)
-        result = (engine or execute_bio_analysis)(payload, output, mode=stage)
+        result = engine(payload, output, mode=stage) if engine else execute_bio_analysis(payload, output, mode=stage, cancel_event=lost)
         if lost.is_set():
             raise LeaseLost()
         response = store.wait(lease, checkpoint, result) if stage == 'qc' else store.publish_result(lease, checkpoint, result)
@@ -120,3 +123,7 @@ def run_bio_analysis_task(task_id, task_revision, *, config=None, directory=None
 
 def run_bio_figure_task(task_id, task_revision, **kwargs):
     return run_bio_analysis_task(task_id, task_revision, task_type='bio_figure', **kwargs)
+
+
+def run_bio_annotation_task(task_id,task_revision,**kwargs):
+    return run_bio_analysis_task(task_id,task_revision,task_type='bio_annotation',**kwargs)

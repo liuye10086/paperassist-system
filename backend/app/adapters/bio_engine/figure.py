@@ -56,7 +56,13 @@ def render(payload):
     elif kind in {'marker_dotplot','marker_heatmap'}:
         import csv
         rows=list(csv.DictReader(Path(members['markers_top']['path']).read_text().splitlines(),delimiter='\t'))
-        plots.marker_figures(writer,obj.layers['counts'],obj.X,clusters,list(obj.var_names),rows,config)
+        saved=members.get(kind+'_data')
+        symbols=dict(zip(obj.var_names,obj.var['symbol'])) if 'symbol' in obj.var else {}
+        data=json.loads(Path(saved['path']).read_bytes()) if saved else None
+        if data is not None and (not config.get('gene_ids') or set(config['gene_ids'])<=set(data.get('feature_ids',[]))):
+            plots.marker_figures_from_saved(writer,data,config,symbols)
+        else:
+            plots.marker_figures(writer,obj.layers['counts'],obj.X,clusters,list(obj.var_names),rows,{**config,'feature_symbols':symbols})
     elif kind=='qc':
         from app.adapters.bio_engine.qc import quality_control
         qc=quality_control(raw,features,barcodes,positions,processed['manifest']['params'])
@@ -67,6 +73,8 @@ def render(payload):
             values=[mapping.get(b,{}).get(panel) if mapping.get(b,{}).get(panel+'_status')=='known' else 'unknown' for b in barcodes]
             plots.qc_stratified(writer,qc,panel,values,config)
         else:plots.qc_figures(writer,qc,config)
+    elif kind=='annotation' and raw is not None and payload['raw']['manifest'].get('assay')=='single_cell':
+        render_cell_annotation(writer,obj,payload.get('annotation'),config)
     elif kind=='annotation':
         annotation=payload.get('annotation')
         if not annotation: raise ValueError('annotation_required')
@@ -97,3 +105,32 @@ def render(payload):
               'members':[{k:v for k,v in a.items() if k!='path'} for a in writer.artifacts]}
     writer.json('manifest',manifest)
     return clean({'status':'completed','engine_version':ENGINE_VERSION,'outputs':writer.artifacts,'manifest':manifest,'summary':{'figures':sum(m['format']=='png' for m in writer.artifacts)},'steps':[{'key':'render','status':'completed','reason':None,'params':config}], 'checks':{'source_hashes':'verified'},'effective_params':config})
+
+
+def render_cell_annotation(writer,obj,annotation,config):
+    import hashlib
+    if not annotation:raise ValueError('annotation_required')
+    for item in annotation['members'].values():
+        path=Path(item['path'])
+        if path.stat().st_size!=item['size_bytes'] or hashlib.sha256(path.read_bytes()).hexdigest()!=item['sha256']:
+            raise ValueError('annotation_hash_mismatch')
+    assignments=json.loads(Path(annotation['members']['assignments']['path']).read_bytes())['rows']
+    by_cell={r['barcode']:r for r in assignments};cells=list(obj.obs_names)
+    labels={l['id']:l for l in annotation['labels']}
+    if len(by_cell)!=len(assignments) or set(by_cell)!=set(cells) or any(r.get('label_id') is not None and r['label_id'] not in labels for r in assignments):
+        raise ValueError('annotation_cell_axis_invalid')
+    display=[]
+    for cell in cells:
+        row=by_cell[cell];label=labels.get(row.get('label_id'));status=row.get('status')
+        if label is None or status=='unknown' or label.get('status')=='unknown':display.append('unknown')
+        else:display.append(label['name']+' ['+('uncertain' if status=='uncertain' else label.get('status','proposed'))+']')
+    display=np.asarray(display);points=np.asarray(obj.obsm['X_umap'])
+    if points.shape!=(len(cells),2) or not np.isfinite(points).all():raise ValueError('annotation_embedding_invalid')
+    colors,effective=plots.categorical_colors(sorted(set(display)),config.get('cmap','tab20'))
+    fig,ax=plt.subplots()
+    for label in sorted(set(display)):
+        selected=display==label;ax.scatter(points[selected,0],points[selected,1],s=8,label=label,color=colors[label])
+    ax.set(xlabel='UMAP1',ylabel='UMAP2',title=config.get('title') or 'Cell annotation candidates')
+    ax.legend(fontsize=7)
+    plots.save(writer,'annotation',fig,dict(barcodes=cells,coordinates=points,color_labels=display,category_colors=colors,
+        labels=annotation['labels'],assignments=assignments,basis='saved_X_umap_no_recomputation'),{**config,'effective_palette':effective})

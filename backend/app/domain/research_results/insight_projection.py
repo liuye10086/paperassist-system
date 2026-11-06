@@ -49,8 +49,10 @@ def project_insight_facts(source):
     def add(locator,value,row=None):
         missing=value is None or isinstance(value,str) and (value in content.get('config',{}).get('na_values',[]) or value.strip().lower() in ('','na','n/a','nan','none','null'))
         row=row or {}
+        display='NA' if missing else str(value)
+        if len(display)>1000:display=display[:999]+'…'
         facts.append(ResearchFact(id=fact_id(source,locator),source_kind=source.source_kind,source_id=source.source_id,
-            source_sha256=source.sha256,locator=locator,raw_value=value,display_value='NA' if missing else str(value),
+            source_sha256=source.sha256,locator=locator,raw_value=value,display_value=display,
             observation_level=row.get('observation_level') if row.get('observation_level') in ('spot','donor','sample') else level,
             unit=('Angstrom' if locator.column in ('centroid_x','centroid_y','centroid_z','radius_of_gyration') else '') if content.get('config',{}).get('kind')=='feature_extract' else microbiome_unit(locator.column,row) if content.get('config',{}).get('mode')=='microbiome' else qpcr_unit(locator.column,row) if content.get('config',{}).get('mode')=='qpcr' else str(row.get('effect_unit') or '') if locator.column in ('effect_value','effect_log2fc','effect_log2_normalized') else str(row.get('measurement_unit') or '') if locator.column in ('mean','sample_sd') else 'dimensionless ratio' if locator.column=='coefficient_of_variation' else '',
             comparison=(str(row['numerator'])+' / '+str(row['denominator'])) if row.get('numerator') and row.get('denominator') else str(row.get('contrast_id') or ''),

@@ -80,6 +80,8 @@ class BioAnalysisService(BioAnalysisStore):
             item=scoped_object(db,project,self.store.user_id,mapping['mapping_object_id'])
             if item['sha256']!=mapping['mapping_sha256']:raise conflict('bio_input_integrity_changed')
             self.mapping_objects.read(item)
+            if snapshot['workflow_version']=='bio_analysis_v3' and 'observation_map_index' in payload['raw']['members']:
+                payload['raw']['members']['import_observation_map_index']=payload['raw']['members']['observation_map_index']
             payload['raw']['members']['observation_map_index']=engine_member(item,self.mapping_objects.path(item['object_key']),role='observation_map',format='json')
         if task['task_type']=='bio_figure':
             row,manifest,members=self.processed_record(db,project,snapshot['processed_source']['processed_dataset_version_id'])
@@ -88,16 +90,35 @@ class BioAnalysisService(BioAnalysisStore):
                 from app.adapters.bio_objects import BioAnnotationObjects
                 annotation=self.require(db,'bio_annotation_versions',project,snapshot['annotation_version_id'])
                 if annotation['processed_dataset_version_id']!=row['id']:raise conflict('bio_input_integrity_changed')
+                root=self.require(db,'bio_annotation_sets',project,annotation['set_id'])
+                if root['current_version_id']!=annotation['id']:raise conflict('bio_input_integrity_changed')
                 objects=BioAnnotationObjects(self.assets.directory);parts={}
                 for kind in ('geometry','assignments'):
                     item=scoped_object(db,project,self.store.user_id,annotation[kind+'_object_id'])
                     if item['sha256']!=annotation[kind+'_sha256']:raise conflict('bio_input_integrity_changed')
                     objects.read(item);parts[kind]=engine_member(item,objects.path(item['object_key']),role=kind,format='json')
                 payload['annotation']=dict(labels=annotation['labels_json'],members=parts)
+        elif snapshot.get('subset'):
+            from .single_cell_subsets import validate_parent
+            selection=snapshot['subset']
+            _,parent_manifest,parent_members,selected=validate_parent(self,db,project,selection['parent_processed_source'],selection['cluster_ids'],selection['cell_ids'])
+            if selected!=selection['resolved_cell_ids']:raise conflict('bio_input_integrity_changed')
+            payload['processed']=dict(manifest=parent_manifest,members={m['key']:engine_member(m,self.objects.path(m['object_key'])) for m in parent_members})
+            payload['subset']=selection
         return payload
 
-    def create(self,project,request,key):
-        require_key(key);sha=digest(request.model_dump());identifier=identity(project,'run',key);task_id=identity(project,'analysis-task',key)
+    def start_single_cell(self,project,request,key):
+        from .single_cell_contracts import SingleCellSetupRequest
+        from .analysis_contracts import BioAnalysisRunRequest
+        require_key(key)
+        sha=digest(request.model_dump(mode='json'))
+        recipe=self.save_recipe(project,SingleCellSetupRequest(**request.model_dump(),recipe_code='single_cell_explore_v1',expected_revision=0),
+            'single-cell-recipe:'+digest(key))
+        run=BioAnalysisRunRequest(raw_source=request.raw_source,recipe_version_id=recipe['id'],expected_setup_revision=recipe['revision'])
+        return self.create(project,run,key,execution_mode='direct',request_digest=sha)
+
+    def create(self,project,request,key,*,execution_mode=None,request_digest=None,subset=None):
+        require_key(key);sha=request_digest or digest(request.model_dump());identifier=identity(project,'run',key);task_id=identity(project,'analysis-task',key)
         with self.store.connection() as db:
             self.store.require_project(db,project)
             replay=db.execute('SELECT * FROM bio_analysis_runs WHERE project_id=%s AND request_key=%s',(project,key)).fetchone()
@@ -109,6 +130,7 @@ class BioAnalysisService(BioAnalysisStore):
             if root['revision']!=request.expected_setup_revision or recipe['raw_dataset_version_id']!=request.raw_source.dataset_version_id:raise conflict('bio_revision_conflict')
             self.raw(db,project,request.raw_source)
         tabular=recipe['recipe_code']=='tabular_quantitative_v1'
+        if execution_mode is not None and (execution_mode!='direct' or recipe['recipe_code']!='single_cell_explore_v1'):raise error('bio_recipe_invalid',422)
         if tabular:
             from .tabular_settings import runtime_identity as tabular_runtime
             runtime=tabular_runtime()
@@ -117,11 +139,23 @@ class BioAnalysisService(BioAnalysisStore):
             runtime=cell_runtime()
         else:runtime=runtime_identity()
         if not runtime['available']:raise error('bio_environment_unavailable')
+        from .single_cell_resources import analysis_limits_for
+        execution_limits=analysis_limits_for(single_cell=recipe['recipe_code']=='single_cell_explore_v1',params=recipe['params_json'])
         snapshot=dict(schema_version=1,kind='bio_analysis',workflow_version='bio_analysis_v2' if tabular else 'bio_analysis_v3' if recipe['recipe_code']=='single_cell_explore_v1' else 'bio_analysis_v1',project_id=project,run_id=identifier,
             setup_id=recipe['setup_id'],recipe_version_id=recipe['id'],expected_setup_revision=request.expected_setup_revision,
             raw_source=request.raw_source.model_dump(),params=recipe['params_json'],observation_map_version_id=recipe['observation_map_version_id'],design_version_id=recipe['design_version_id'],
             engine_version=runtime['engine_version'],environment_digest=runtime['environment_digest'],code_digest=runtime['code_digest'],
-            output_language=recipe['params_json']['output_language'],limits=BioAnalysisLimits().model_dump())
+            output_language=recipe['params_json']['output_language'],limits=execution_limits.model_dump())
+        if execution_mode is not None:snapshot['execution_mode']=execution_mode
+        if subset is not None:
+            from .single_cell_contracts import SingleCellSubsetSelection
+            from .single_cell_subsets import validate_parent
+            selection=SingleCellSubsetSelection.model_validate(subset)
+            if recipe['recipe_code']!='single_cell_explore_v1' or execution_mode!='direct' or selection.parent_processed_source.raw_source!=request.raw_source:raise error('bio_recipe_invalid',422)
+            with self.store.connection() as db:
+                _,_,_,selected=validate_parent(self,db,project,selection.parent_processed_source,selection.cluster_ids,selection.cell_ids)
+                if selected!=selection.resolved_cell_ids:raise conflict('bio_input_integrity_changed')
+            snapshot['subset']=selection.model_dump(mode='json')
         records,reservations=self.admit_documents(project,identifier,'bio_analysis',self.objects,{'snapshot':canonical(snapshot)})
         with self.store.connection(write=True) as db:
             self.store.require_project(db,project);lock(db,project,'run:'+key)
@@ -135,14 +169,14 @@ class BioAnalysisService(BioAnalysisStore):
             self.raw(db,project,request.raw_source)
             objects=self.settle_documents(db,project,records,reservations);moment=now()
             task=dict(id=task_id,project_id=project,user_id=self.store.user_id,task_type='bio_analysis',idempotency_key='bio_analysis:'+task_id,
-                input_digest=digest(snapshot),input_snapshot=snapshot,workflow_version=snapshot['workflow_version'],status='queued',phase='parse',revision=1,current_attempt=0,
+                input_digest=digest(snapshot),input_snapshot=snapshot,workflow_version=snapshot['workflow_version'],status='queued',phase='compute' if execution_mode=='direct' else 'parse',revision=1,current_attempt=0,
                 reason_code=None,created_at=moment,updated_at=moment)
             self.store.insert_task(db,task,validated_file_ids=request.raw_source.source_file_ids)
             insert(db,'bio_analysis_runs',{**base_row(identifier,project,self.store.user_id),'raw_dataset_version_id':request.raw_source.dataset_version_id,
                 'recipe_version_id':recipe['id'],'task_id':task_id,'source_digest':task['input_digest'],'execution_snapshot_object_id':objects['snapshot']['id'],
                 'execution_snapshot_sha256':records['snapshot']['sha256'],'expected_setup_revision':request.expected_setup_revision,
                 'processed_dataset_version_id':None,'request_key':key,'request_digest':sha})
-            append_checkpoint(db,task,'check','check',dict(input_version=input_version(task),stage='qc',candidate=None,decision_id=None,result_id=None))
+            append_checkpoint(db,task,'check','check',dict(input_version=input_version(task),stage='compute' if execution_mode=='direct' else 'qc',candidate=None,decision_id=None,result_id=None))
             self.store.append_event(db,task,'created');self.store.enqueue(db,task)
             return dict(id=identifier,task=self.store.public_task(task),recipe_version_id=recipe['id'],expected_setup_revision=request.expected_setup_revision)
 
@@ -218,10 +252,14 @@ class BioAnalysisService(BioAnalysisStore):
             from app.adapters.bio_figure_store import BioFigureStore
             return BioFigureStore(self.assets).publish(db,task,checkpoint,moment,prepared,progress=progress)
         state=checkpoint['state_json'];decision=state.get('decision')
-        if not decision or decision['id']!=state.get('decision_id') or decision['user_id']!=task['user_id']:raise error('bio_confirmation_stale')
-        reviewed=db.execute('SELECT * FROM task_checkpoints WHERE id=%s AND task_id=%s',(decision['reviewed_checkpoint_id'],task['id'])).fetchone()
-        wait=db.execute('SELECT * FROM task_waits WHERE id=%s AND task_id=%s',(decision['request']['wait_id'],task['id'])).fetchone()
-        if not reviewed or reviewed['next_node']!='await_confirmation' or reviewed['state_json']['candidate']!=state['candidate'] or not wait or wait['status']!='resolved' or wait['input_version']!=input_version(task) or digest(decision['request'])!=decision['request_digest']:raise error('bio_confirmation_stale')
+        direct=snapshot['workflow_version']=='bio_analysis_v3' and snapshot.get('execution_mode')=='direct'
+        if direct:
+            if state.get('stage')!='compute' or prepared.get('stage')!='compute' or decision or state.get('decision_id'):raise error('bio_confirmation_stale')
+        else:
+            if not decision or decision['id']!=state.get('decision_id') or decision['user_id']!=task['user_id']:raise error('bio_confirmation_stale')
+            reviewed=db.execute('SELECT * FROM task_checkpoints WHERE id=%s AND task_id=%s',(decision['reviewed_checkpoint_id'],task['id'])).fetchone()
+            wait=db.execute('SELECT * FROM task_waits WHERE id=%s AND task_id=%s',(decision['request']['wait_id'],task['id'])).fetchone()
+            if not reviewed or reviewed['next_node']!='await_confirmation' or reviewed['state_json']['candidate']!=state['candidate'] or not wait or wait['status']!='resolved' or wait['input_version']!=input_version(task) or digest(decision['request'])!=decision['request_digest']:raise error('bio_confirmation_stale')
         root=self.require(db,'bio_analysis_setups',task['project_id'],snapshot['setup_id'])
         if root['revision']!=snapshot['expected_setup_revision']:raise conflict('bio_revision_conflict')
         version_id=str(uuid5(UUID(snapshot['run_id']),'processed-version'));manifest=prepared['manifest'];manifest_ref=prepared['manifest_ref']

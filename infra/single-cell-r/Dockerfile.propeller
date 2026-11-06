@@ -1,0 +1,14 @@
+# Retain Batch 4 and its exact Python/R dependency inventories.
+ARG WORKER_IMAGE=paperassist-single-cell-worker:b4-ready
+FROM ${WORKER_IMAGE}
+USER root
+ADD https://bioconductor.posit.co/packages/3.20/bioc/src/contrib/speckle_1.6.0.tar.gz /tmp/speckle_1.6.0.tar.gz
+RUN echo '37c10a800662f8e73dec695fa943956d00d6c6a6a61bcbebbfbb8a31e39829c7  /tmp/speckle_1.6.0.tar.gz' | sha256sum -c - \
+    && /opt/paperassist-single-cell-r/bin/R CMD INSTALL --no-docs --no-html /tmp/speckle_1.6.0.tar.gz \
+    && /opt/paperassist-single-cell-r/bin/Rscript --vanilla -e 'stopifnot(as.character(getRversion())=="4.4.3",as.character(packageVersion("speckle"))=="1.6.0",as.character(packageVersion("limma"))=="3.62.1",as.character(packageVersion("statmod"))=="1.5.2"); library(speckle)'
+RUN R_HOME=/opt/paperassist-single-cell-r/lib/R RPY2_CFFI_MODE=ABI \
+      /opt/paperassist-bio-insights/bin/pip install --no-cache-dir rpy2==3.5.17 cffi==2.1.1 pycparser==3.12 Jinja2==3.1.6 MarkupSafe==3.0.4 tzlocal==5.4.5 \
+    && /opt/paperassist-bio-insights/bin/pip check \
+    && /opt/paperassist-bio-insights/bin/python -c 'import importlib.metadata as m; assert m.version("pydeseq2")=="0.5.4"; assert m.version("gseapy")=="1.3.1"' \
+    && sha256sum /tmp/speckle_1.6.0.tar.gz > /opt/paperassist-single-cell-r/speckle-source.sha256
+USER paperassist

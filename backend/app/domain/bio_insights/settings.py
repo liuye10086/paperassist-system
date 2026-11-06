@@ -27,9 +27,13 @@ def engine_code_files():
     """All first-party code directly executable in the fixed scientific child."""
     root = Path(__file__).resolve().parents[2]
     paths=list((root/'adapters'/'bio_insights_engine').glob('*.py'))
+    paths += list((root/'adapters'/'single_cell_r').glob('*.py'))+list((root/'adapters'/'single_cell_r').glob('*.R'))
     paths += [root/name for name in ('__init__.py','adapters/__init__.py','domain/__init__.py',
         'adapters/bio_engine/__init__.py','adapters/bio_engine/manifest.py','adapters/excel_sandbox.py',
         'domain/bio_insights/__init__.py','domain/bio_insights/contracts.py','domain/bio_insights/design.py','domain/bio_insights/settings.py',
+        'domain/bio_insights/single_cell_composition_contracts.py','domain/bio_insights/single_cell_composition.py',
+        'domain/bio_insights/single_cell_topic_contracts.py','domain/bio_insights/single_cell_topics.py',
+        'adapters/single_cell_r/topics_resource.json',
         'domain/bio_insights/quantitative_contracts.py','domain/bio_insights/quantitative_design.py','domain/comparison/kernel.py',
         'domain/bio_insights/qpcr_contracts.py','domain/bio_insights/qpcr_design.py',
         'domain/bio_insights/microbiome_contracts.py','domain/bio_insights/microbiome_design.py','domain/bio_insights/feature_contracts.py','domain/bio_insights/integration_contracts.py','domain/bio_insights/evidence_contracts.py','domain/bio_insights/external_matrix.py','domain/bio_insights/evidence_graph.py','domain/bio_insights/integration_matching.py','domain/bio_insights/integration_graph.py',
@@ -128,3 +132,24 @@ def integration_runtime_identity():
         if all(checks.get(k) is True for k in ('integration_matching','integration_correlation','integration_concordance','integration_figures','integration_parent_validation')):return actual
     except (KeyError,TypeError,ValueError,OSError):pass
     return {'available':False,'reason':'bio_insights_environment_unavailable'}
+
+
+def composition_runtime_identity():
+    actual=runtime_identity()
+    if not actual.get('available'):return actual
+    try:
+        report=json.loads(Path(os.environ[RUNTIME_MANIFEST_ENV]).read_bytes())
+        if (report['checks'].get('single_cell_propeller') is True and report.get('propeller_versions')==
+            {'R':'4.4.3','speckle':'1.6.0','limma':'3.62.1','statmod':'1.5.2'}):return actual
+    except (KeyError,TypeError,ValueError,OSError):pass
+    return {'available':False,'reason':'bio_insights_environment_unavailable'}
+
+
+def topic_runtime_identity(method):
+    actual=runtime_identity()
+    if not actual.get('available'):return actual
+    try:
+        checks=json.loads(Path(os.environ[RUNTIME_MANIFEST_ENV]).read_bytes())['checks']
+        if method in ('slingshot','genie3','cellchat') and checks.get('topic_'+method) is True:return actual
+    except (KeyError,TypeError,ValueError,OSError):pass
+    return {'available':False,'reason':'single_cell_topic_environment_unavailable'}

@@ -164,6 +164,9 @@ def _validate_scientific_contract(result,items,payload):
     if kind=='bio_integration':
         from app.domain.bio_insights.integration_contracts import IntegrationConfig
         models[kind]=IntegrationConfig
+        if original.get('schema_version')==2:
+            from app.domain.bio_insights.single_cell_topic_contracts import SingleCellTopicConfig
+            models[kind]=SingleCellTopicConfig
     if kind=='bio_feature_extract':
         from app.domain.bio_insights.feature_contracts import FeatureExtractConfig
         models[kind]=FeatureExtractConfig
@@ -171,6 +174,10 @@ def _validate_scientific_contract(result,items,payload):
     else:model=models.get(kind)
     quantitative=kind=='bio_comparison' and original.get('schema_version')==2
     qpcr=kind=='bio_comparison' and original.get('schema_version')==3
+    composition=kind=='bio_comparison' and original.get('schema_version')==5
+    if composition:
+        from app.domain.bio_insights.single_cell_composition_contracts import SingleCellCompositionConfig
+        model=SingleCellCompositionConfig
     microbiome=kind=='bio_comparison' and original.get('schema_version')==4
     if microbiome:
         from app.domain.bio_insights.microbiome_contracts import MicrobiomeConfig
@@ -186,6 +193,9 @@ def _validate_scientific_contract(result,items,payload):
     scope=('spot_exploratory' if config['mode']=='spot_exploratory' else 'donor_inference') if kind=='bio_comparison' else (
         'external_result' if kind=='bio_result_import' else 'visualization' if kind=='bio_insight_figure' else 'derived')
     if quantitative:scope=quantitative_scope(model.model_validate(config),[s['metadata']['assay'] for s in payload['sources'] if s['source_kind']=='bio_processed_dataset_version'])
+    if composition:scope='sample_exploratory' if config['mode']=='descriptive' else 'donor_inference'
+    topic=kind=='bio_integration' and original.get('schema_version')==2
+    if topic:scope='donor_inference' if config['method']=='cellchat' and config['communication_mode']!='per_donor' else 'sample_exploratory'
     if qpcr:scope='sample_inference'
     if microbiome:scope='sample_inference' if config['contrasts'] or config['beta_inference'] else 'sample_exploratory'
     provenance='external_result' if kind=='bio_result_import' else 'system_computed'
@@ -206,6 +216,10 @@ def _validate_scientific_contract(result,items,payload):
         from app.adapters.bio_evidence_validation import validate_evidence
         validate_evidence(result,items,payload)
         return
+    if topic:
+        from app.adapters.bio_single_cell_topic_validation import validate_topic_result
+        validate_topic_result(result,items,payload)
+        return
     if kind=='bio_integration' or kind=='bio_resource_import' and config_kind in ('sample_correspondence','object_correspondence'):
         from app.adapters.bio_integration_validation import validate_integration
         validate_integration(result,items,payload)
@@ -213,6 +227,10 @@ def _validate_scientific_contract(result,items,payload):
     if kind=='bio_feature_extract' or kind=='bio_resource_import' and config_kind in ('sequence','structure'):
         from app.adapters.bio_feature_validation import validate_feature
         validate_feature(result,items,payload)
+        return
+    if composition:
+        from app.adapters.bio_insights_engine.single_cell_composition import validate_composition_result
+        validate_composition_result(result,items,payload)
         return
     if microbiome:
         from app.adapters.bio_microbiome_validation import validate_microbiome
@@ -371,9 +389,14 @@ def _validate_scientific_contract(result,items,payload):
             if doc('plot_data')!=qpcr_plot_data(source,FigureConfig.model_validate(config)):raise ValueError('qpcr_figure_data_mismatch')
 
 
-def execute_bio_insights(payload,output_directory):
+def execute_bio_insights(payload,output_directory,*,cancel_event=None):
+    from app.adapters.bio_child_cancel import require_not_revoked,terminate_revoked_child
+    require_not_revoked(cancel_event)
     if sys.platform!='linux' or not Path(INTERPRETER).is_file():raise invalid('bio_insights_environment_unavailable')
     runtime=runtime_identity();limits=BioInsightsLimits();output=Path(output_directory).absolute()
+    if payload.get('kind')=='bio_comparison' and payload.get('config',{}).get('schema_version')==5:
+        from app.domain.bio_insights.settings import composition_runtime_identity
+        runtime=composition_runtime_identity()
     if (payload.get('kind')=='bio_comparison' and payload.get('config',{}).get('schema_version')==3
             or payload.get('kind')=='bio_insight_figure' and payload.get('config',{}).get('figure_type')=='qpcr_samples'):
         from app.domain.bio_insights.settings import qpcr_runtime_identity
@@ -381,7 +404,10 @@ def execute_bio_insights(payload,output_directory):
     if payload.get('kind')=='bio_comparison' and payload.get('config',{}).get('schema_version')==2:
         from app.domain.bio_insights.settings import quantitative_runtime_identity
         runtime=quantitative_runtime_identity()
-    if payload.get('kind')=='bio_integration' or payload.get('kind')=='bio_resource_import' and payload.get('config',{}).get('kind') in ('sample_correspondence','object_correspondence') or payload.get('kind')=='bio_insight_figure' and payload.get('config',{}).get('figure_type','').startswith('integration_'):
+    if payload.get('kind')=='bio_integration' and payload.get('config',{}).get('schema_version')==2:
+        from app.domain.bio_insights.settings import topic_runtime_identity
+        runtime=topic_runtime_identity(payload['config']['method'])
+    elif payload.get('kind')=='bio_integration' or payload.get('kind')=='bio_resource_import' and payload.get('config',{}).get('kind') in ('sample_correspondence','object_correspondence') or payload.get('kind')=='bio_insight_figure' and payload.get('config',{}).get('figure_type','').startswith('integration_'):
         from app.domain.bio_insights.settings import integration_runtime_identity
         runtime=integration_runtime_identity()
     elif payload.get('kind')=='bio_feature_extract' or payload.get('kind')=='bio_resource_import' and payload.get('config',{}).get('kind') in ('sequence','structure') or payload.get('kind')=='bio_insight_figure' and payload.get('config',{}).get('figure_type','').startswith('feature_'):
@@ -407,6 +433,7 @@ def execute_bio_insights(payload,output_directory):
             while not stopped.wait(.1):
                 try:
                     if stat.read_text().rsplit(')',1)[1].split()[19]!=birth:return
+                    if terminate_revoked_child(pid,birth,cancel_event):return
                     value=re.search(r'^VmRSS:\s+(\d+) kB$',status.read_text(),re.M)
                     rss=int(value.group(1))*1024 if value else 0;peak[0]=max(peak[0],rss)
                     if rss>limits.memory_bytes:exceeded.set();os.kill(pid,signal.SIGKILL);return
@@ -415,9 +442,11 @@ def execute_bio_insights(payload,output_directory):
     from app.adapters.excel_process import _run_child
     command=[INTERPRETER,'-I','-B',str(Path(__file__).with_name('bio_insights_engine')/'worker.py'),str(os.getpid())]
     try:
+        require_not_revoked(cancel_event)
         response=_run_child(command,struct.pack('!I',len(data))+data,timeout_seconds=limits.warmup_seconds+limits.compute_wall_seconds,
                             max_output_bytes=MAX_JSON,on_started=started)
     except StorageError as exc:
+        require_not_revoked(cancel_event)
         code='bio_insights_resource_exceeded' if exceeded.is_set() or exc.code=='parse_resource_limit' else (
             'bio_insights_timeout' if exc.code=='parse_timeout' else 'bio_insights_environment_unavailable')
         raise invalid(code) from exc
@@ -425,6 +454,7 @@ def execute_bio_insights(payload,output_directory):
     finally:
         stopped.set()
         for thread in threads:thread.join(timeout=1)
+    require_not_revoked(cancel_event)
     if type(response) is not dict:raise invalid()
     if set(response)=={'error'}:
         code=response['error'].get('code') if isinstance(response['error'],dict) else None

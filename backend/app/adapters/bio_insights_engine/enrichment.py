@@ -242,21 +242,25 @@ def _gsea(payload,config,writer):
                                     'resource_id':rid,'category':category,'background_gene_count':len(members),
                                     'foreground_gene_count':None,'mutually_exclusive':False})
     if len(terms)>10000:raise ValueError('gsea_eligible_set_budget_exceeded')
-    # PyO3/GSEApy returns per-term running curves internally. Admit their actual
-    # Python-list footprint even though the exported curve index is compact.
+    # Keep the existing conservative transient-curve admission budget. Native
+    # summaries still own all curves; only one term is materialized in Python.
     estimate=256*1024**2+len(genes)*len(terms)*40+len(terms)*config.permutation_num*16
     work=(len(genes)+n_memberships)*config.permutation_num
     if estimate>1536*1024**2 or work>2000000000:raise ValueError('gsea_resource_budget_exceeded')
     result_rows=[];curves=[]
     if terms:
-        fitted=gseapy.prerank(rnk=pd.Series(scores,index=genes),gene_sets=terms,method='permutation',
-            permutation_num=config.permutation_num,weight=config.weight,min_size=config.min_size,max_size=config.max_size,
-            threads=1,seed=config.seed,ascending=None,no_plot=True,outdir=None,verbose=False)
-        if set(fitted.results)!=set(terms):raise ValueError('gsea_eligible_family_incomplete')
-        for key in sorted(terms):
-            observed=fitted.results[key];source,data,term=term_metadata[key]
-            es,nes,p,fdr,fwer=[numeric(observed[name]) for name in ['es','nes','pval','fdr','fwerp']]
-            hits=list(map(int,observed['hits']));res=np.asarray(observed['RES'],dtype=float)
+        # This is exactly the locked GSEApy 1.3.1 Prerank.run permutation
+        # entrypoint. One complete family is fitted together; native summaries
+        # retain the joint null/curves. Avoid to_df(), which additionally keeps
+        # every full running curve as Python float lists in public .results.
+        from gseapy.gse import prerank_rs
+        summaries=prerank_rs(genes,scores,terms,config.weight,config.min_size,config.max_size,
+            config.permutation_num,1,config.seed).summaries
+        if len(summaries)!=len(terms) or {s.term for s in summaries}!=set(terms):raise ValueError('gsea_eligible_family_incomplete')
+        for observed in sorted(summaries,key=lambda s:s.term):
+            key=observed.term;source,data,term=term_metadata[key]
+            es,nes,p,fdr,fwer=[numeric(getattr(observed,name)) for name in ['es','nes','pval','fdr','fwerp']]
+            hits=list(map(int,observed.hits));res=np.asarray(observed.run_es,dtype=float)
             if res.shape!=(len(genes),) or not np.isfinite(res).all():raise ValueError('gsea_curve_invalid')
             if any(not 0<=i<len(genes) for i in hits):raise ValueError('gsea_hit_index_invalid')
             peak=int(np.argmax(res) if es>=0 else np.argmin(res))
@@ -277,7 +281,8 @@ def _gsea(payload,config,writer):
     writer.json('gsea_curves',{'schema_version':1,'rank_member_key':'gsea_ranking','rank_zero_based':True,'terms':curves})
     _mapping_outputs(writer,mapping_rows,exclusions,term_exclusions,classifications)
     tied=1-len(set(scores))/len(scores)
-    methods={'name':'GSEApy_1.3.1_prerank','method':'permutation','correction':'GSEA_joint_null_FDR_not_BH',
+    methods={'name':'GSEApy_1.3.1_prerank','method':'permutation','native_entrypoint':'gseapy.gse.prerank_rs',
+             'running_curve_materialization':'one_term_at_a_time_from_complete_native_family','correction':'GSEA_joint_null_FDR_not_BH',
              'permutation_num':config.permutation_num,'weight':config.weight,'min_size':config.min_size,'max_size':config.max_size,
              'threads':1,'seed':config.seed,'ascending':None,'no_plot':True,'ranking_column':config.ranking_column,
              'ranking_order':'statistic_descending_stable_id_ascending','tied_rank_fraction':tied,

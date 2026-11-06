@@ -14,7 +14,7 @@ from .deterministic import explicit_retry
 
 def _scope(task):
     if task['task_type']=='bio_import':return 'bio_dataset'
-    if task['task_type'] not in ('bio_analysis','bio_figure','research_figure','research_report','research_fact_draft','delivery_package','bio_resource_import', 'bio_comparison', 'bio_result_import', 'bio_enrichment', 'bio_candidate', 'bio_insight_figure','bio_feature_extract','bio_integration'):raise s.invalid()
+    if task['task_type'] not in ('bio_analysis','bio_annotation','bio_figure','research_figure','research_report','research_fact_draft','delivery_package','bio_resource_import', 'bio_comparison', 'bio_result_import', 'bio_enrichment', 'bio_candidate', 'bio_insight_figure','bio_feature_extract','bio_integration'):raise s.invalid()
     return task['task_type']
 
 

@@ -6,6 +6,8 @@ os.environ.update(MPLBACKEND='Agg',MPLCONFIGDIR='/tmp/paperassist-mpl',XDG_CACHE
 import sys
 from pathlib import Path
 sys.path.insert(0,str(Path(__file__).resolve().parents[3]))
+from app.adapters.single_cell_r.bootstrap import preload_runtime_libraries
+preload_runtime_libraries()
 import codecs
 import json
 import struct
@@ -13,6 +15,7 @@ import tempfile
 import signal
 from app.adapters.bio_engine.manifest import canonical
 from app.adapters.bio_engine.pipeline import run
+from app.adapters.bio_engine.annotation import run as annotate
 from app.adapters.bio_engine.figure import render
 from app.adapters.bio_engine.sandbox import enter
 from app.adapters.bio_engine.runtime_probe import exercise
@@ -33,6 +36,16 @@ def render_figure(payload):
     return render(payload)
 
 
+def run_analysis(payload):
+    """Match standalone plots when the fixed Chinese font lacks U+2212."""
+    if (payload.get('raw',{}).get('manifest',{}).get('assay')=='single_cell'
+        and payload.get('config',{}).get('output_language')=='zh-CN'):
+        from matplotlib import pyplot as plt
+        with plt.rc_context({'axes.unicode_minus':False}):
+            return run(payload)
+    return run(payload)
+
+
 def main():
     sys.stdout.buffer.write(b'READY\n');sys.stdout.buffer.flush()
     pinned=[]
@@ -44,7 +57,7 @@ def main():
         payload=json.loads(body,parse_constant=lambda v:(_ for _ in ()).throw(ValueError('nonfinite_json')))
         for lock_path in [Path('/app/requirements-bio.lock.txt'),Path('/tmp/requirements-bio.lock.txt')]:
             if lock_path.is_file():payload['_trusted_lock']=lock_path.read_bytes();break
-        if payload.get('mode') not in {'qc','compute','figure','h5_check','import_v2','import_single_cell'}:raise ValueError('unsupported_engine_mode')
+        if payload.get('mode') not in {'qc','compute','figure','annotation','h5_check','import_v2','import_single_cell'}:raise ValueError('unsupported_engine_mode')
         member_count=0
         for group,limit in [('raw',256),('processed',256),('annotation',2)]:
             container=payload.get(group,{})
@@ -72,6 +85,18 @@ def main():
             _,logged=normalize(sample);high_variable(logged,[str(i) for i in range(8)])
             import scanpy as sc
             sc.pp.scale(logged.toarray(),zero_center=True,max_value=10,copy=True)
+            if payload.get('raw',{}).get('manifest',{}).get('assay')=='single_cell':
+                from app.adapters.bio_engine.integration import regress_covariates,select_hvg
+                warm_rows=[dict(total_counts=int(v),batch='a' if i<6 else 'b') for i,v in enumerate(np.asarray(sample.sum(1)).ravel())]
+                regress_covariates(logged.toarray(),warm_rows,['log1p_total_counts'],False)
+                select_hvg(logged,[str(i) for i in range(8)],4,warm_rows,'batch')
+
+        r_scratch=None
+        if (payload['mode']=='annotation' or (payload['mode'] in {'qc','compute'} and payload.get('raw',{}).get('manifest',{}).get('assay')=='single_cell'
+            and any(payload.get('config',{}).get(tool,{}).get('enabled',False) for tool in ('doublet','decontx','harmony')))):
+            from app.adapters.single_cell_r.bridge import initialize
+            r_scratch=Path(tempfile.mkdtemp(prefix='paperassist-single-cell-r-',dir='/tmp'))
+            initialize(r_scratch)
         signal.setitimer(signal.ITIMER_REAL,0)
         files=[]
         if payload['mode'] in {'import_v2','import_single_cell'}:
@@ -84,11 +109,13 @@ def main():
                 if path.is_symlink() or not path.is_file():raise ValueError('invalid_input_path')
                 files.append({'path':str(path)})
         signal.setitimer(signal.ITIMER_REAL,1200)
-        pinned=enter(files,output,parent_pid=int(sys.argv[1]))
+        pinned=enter(files,output,parent_pid=int(sys.argv[1]),r_scratch=r_scratch)
         if payload['mode']=='import_single_cell':
             result=import_counts(payload)
         elif payload['mode']=='import_v2':result=import_v2(payload)
         elif payload['mode']=='figure':result=render_figure(payload)
+        elif payload['mode']=='annotation':
+            result=annotate(payload)
         elif payload['mode']=='h5_check':
             from app.adapters.bio_engine.manifest import Writer
             import hashlib
@@ -109,7 +136,7 @@ def main():
             manifest={'schema_version':1,'engine_version':'visium_explore_v1.0.0','attestation':attestation,'comparison':comparison,'steps':steps,'input_shape':{'observations':matrix.shape[0],'features':matrix.shape[1]},'members':[{k:v for k,v in item.items() if k!='path'} for item in writer.artifacts]}
             writer.json('manifest',manifest)
             result={'status':'completed','engine_version':'visium_explore_v1.0.0','outputs':writer.artifacts,'manifest':manifest,'summary':manifest,'steps':steps,'checks':attestation,'effective_params':{}}
-        else:result=run(payload)
+        else:result=run_analysis(payload)
         answer=canonical({'result':result})
         if len(answer)>2*1024**2:raise ValueError('output_transport_limit')
     except Exception as exc:

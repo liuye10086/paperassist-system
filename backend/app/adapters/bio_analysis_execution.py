@@ -14,10 +14,13 @@ from app.domain.storage_governance.deterministic import explicit_retry,authorize
 from app.domain.storage_governance.bio_manifest import admit_bio_manifest,settle_bio_manifest
 from app.domain.tasks.waits import persist_wait
 from app.core.config import local_config
+from app.domain.bioinformatics.single_cell_resources import analysis_limits_for
 
 
 def build_candidate(task,result,objects,stage):
     snapshot=task['input_snapshot'];identifier=snapshot.get('run_id') or snapshot['figure_version_id'];namespace=UUID(identifier)
+    from app.domain.bioinformatics.single_cell_resources import SingleCellRAnalysisLimits
+    selected_limits=SingleCellRAnalysisLimits() if task.get('task_type')=='bio_annotation' else analysis_limits_for(single_cell=task.get('task_type')=='bio_analysis' and snapshot.get('workflow_version')=='bio_analysis_v3',params=snapshot.get('params',{}))
     members=[];leaves=[];keys=set();total=0
     for output in result['outputs']:
         key=output['key'];path=Path(output['path']);size=output['size_bytes']
@@ -28,7 +31,7 @@ def build_candidate(task,result,objects,stage):
             for chunk in iter(lambda:stream.read(1024*1024),b''):value.update(chunk)
         if value.hexdigest()!=output['sha256']:raise conflict('bio_output_invalid')
         total+=size
-        if len(members)>=256 or total>536870912:raise conflict('bio_resource_exceeded')
+        if len(members)>=256 or total>selected_limits.max_output_bytes:raise conflict('bio_resource_exceeded')
         member={k:output[k] for k in ('key','role','format','sha256','size_bytes')}
         if key in ('markers','markers_top'):member['role']='marker_table'
         elif member['role']=='marker_table':raise conflict('bio_output_invalid')
@@ -74,7 +77,7 @@ class BioAnalysisExecution:
         content=canonical(prepared['manifest']);manifest_ref=objects.describe(identifier,content,json=True);prepared['manifest_ref']=manifest_ref
         candidate_content=canonical(prepared);candidate_ref=objects.describe(identifier,candidate_content,json=True)
         unique={leaf['record']['object_key']:leaf for leaf in leaves}
-        kind='bio_figure' if task['task_type']=='bio_figure' else 'bio_analysis';prefix=kind+':'+identifier+':'+stage+':'
+        kind=task['task_type'];prefix=kind+':'+identifier+':'+stage+':'
         entries=[(kind,prefix+'leaf:'+leaf['record']['sha256'],leaf['record']) for leaf in unique.values()]
         entries.extend([(kind,prefix+'manifest',manifest_ref),(kind,prefix+'candidate',candidate_ref)])
         with self.repository.connection(write=True) as db:
@@ -110,8 +113,8 @@ class BioAnalysisExecution:
             service=self.service(task);service.require_sources(db,task);state=current['state_json'];prepared=state.get('prepared')
             if not prepared or prepared['input_sha256']!=task['input_digest']:raise conflict('bio_input_integrity_changed')
             if explicit_retry(db,task):
-                identifier=task['input_snapshot'].get('run_id') or task['input_snapshot']['figure_version_id'];kind='bio_figure' if task['task_type']=='bio_figure' else 'bio_analysis'
-                authorize_rebuild(db,self.repository.assets.directory,task,allowed={kind:(self.objects(task).prefix,identifier,re.escape(kind+':'+identifier+':')+r'(?:qc|compute|figure):(?:leaf:[0-9a-f]{64}|manifest|candidate)')},progress=progress)
+                identifier=task['input_snapshot'].get('run_id') or task['input_snapshot']['figure_version_id'];kind=task['task_type']
+                authorize_rebuild(db,self.repository.assets.directory,task,allowed={kind:(self.objects(task).prefix,identifier,re.escape(kind+':'+identifier+':')+r'(?:qc|compute|figure|annotation):(?:leaf:[0-9a-f]{64}|manifest|candidate)')},progress=progress)
             progress()
         objects=self.objects(task)
         for leaf in state['prepared_leaves']:

@@ -16,13 +16,13 @@ it.each([
   ['running', 'plan', 'analyzing', 'AI 分析中'], ['running', 'compute', 'computing', '数据计算中'],
   ['running', 'search', 'searching', '文献检索中'], ['running', 'export', 'generating_document', '文档生成中'],
   ['waiting_input', 'compute', 'waiting_input', '待补充资料'], ['waiting_confirmation', 'compute', 'waiting_confirmation', '待用户确认'],
-  ['succeeded', 'compute', 'succeeded', '已完成'], ['failed', 'export', 'failed', '执行失败'],
+  ['cancelled', 'compute', 'cancelled', '已取消'], ['succeeded', 'compute', 'succeeded', '已完成'], ['failed', 'export', 'failed', '执行失败'],
   ['running', 'interpret', 'analyzing', 'AI 分析中'], ['running', 'verify', 'analyzing', 'AI 分析中'],
   ['running', 'write', 'generating_document', '文档生成中'],
 ])('maps the user-visible lifecycle %s / %s', (status, phase, display, label) => {
   const task = { ...taskFixture, status, phase, display_status: display } as TaskView
   expect(taskDisplayName(task)).toBe(label)
-  expect(Object.keys(displayNames)).toHaveLength(10)
+  expect(Object.keys(displayNames)).toHaveLength(11)
 })
 const retainedRunningPhases = [
   ['parse', 'parsing'], ['plan', 'analyzing'], ['compute', 'computing'], ['search', 'searching'],

@@ -1,0 +1,11 @@
+name: paperassist-single-cell-r
+channels:
+  - conda-forge
+  - bioconda
+  - nodefaults
+dependencies:
+  - r-base=4.4
+  - bioconductor-scdblfinder=1.20.2
+  - bioconductor-decontx=1.4.0
+  - r-jsonlite
+  - r-matrix

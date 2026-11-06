@@ -19,6 +19,21 @@ def _tick(progress):
 def _truth(value):return value in (True,'True','true','1',1)
 
 
+def apply_observation_maps(processed,mappings):
+    """Apply matching fixed maps equally to comparisons and single-cell topics."""
+    for source in processed:
+        metadata=source['metadata']
+        if metadata.get('observation_level')=='sample':continue
+        for mapping in mappings:
+            if mapping['metadata']['raw_dataset_version_id']!=metadata['raw_dataset_version_id']:continue
+            rows={r['barcode']:r for r in mapping['metadata']['rows']}
+            for observation in metadata['observations']:
+                row=rows.get(observation['barcode'],{})
+                for target,field in [('donor','donor'),('condition','group'),('batch','batch'),('sample','sample_id'),('section','section')]:
+                    value=row.get(field,{})
+                    observation[target]=value.get('value') if value.get('status')=='known' else None
+
+
 class InsightSourceReader(BioInsightsStore):
     def __init__(self,assets):
         super().__init__(assets);self.bio=BioAnalysisStore(assets)
@@ -119,6 +134,9 @@ class InsightSourceReader(BioInsightsStore):
                         condition=item.get('group') or None,batch=item.get('batch') or None,sample=item.get('sample_id') or None,
                         section=item.get('section') or None,retained=_truth(item.get('kept')),library_counts=int(item['total_counts']) if item.get('total_counts') else None))
                 metadata['observations']=observations
+                if raw_manifest.get('assay')=='single_cell':
+                    metadata['retained_feature_ids']=[r['feature_id'] for r in self.read_rows(members['features']) if _truth(r.get('kept')) and r.get('feature_type')=='Gene Expression']
+                    metadata['cell_clusters']={r['barcode']:str(r['cluster']) for r in self.read_rows(members['observations']) if _truth(r.get('kept')) and r.get('cluster') not in (None,'')}
                 metadata.update(assay=raw_manifest.get('assay','visium'),observation_level='cell' if raw_manifest.get('assay')=='single_cell' else 'spot')
                 axes=json.loads(Path(raw['members']['features_index']['path']).read_bytes())
                 metadata['feature_ids']=[fid for fid,ft in zip(axes['feature_ids'],axes['feature_types']) if ft=='Gene Expression']
@@ -135,6 +153,8 @@ class InsightSourceReader(BioInsightsStore):
                 metadata['raw_dataset_version_id']=row['raw_dataset_version_id']
             else:
                 from app.adapters.bio_objects import BioAnnotationObjects
+                root=self.bio.require(db,'bio_annotation_sets',project,row['set_id'])
+                if root['current_version_id']!=sid:raise invalid('bio_insight_source_conflict',409)
                 objects=BioAnnotationObjects(self.assets.directory)
                 geometry=scoped_object(db,project,self.store.user_id,row['geometry_object_id'])
                 assignments=scoped_object(db,project,self.store.user_id,row['assignments_object_id'])
@@ -262,22 +282,15 @@ class InsightSourceReader(BioInsightsStore):
         proof_ids={r.result_source_id for r in config.independent_support_requests} if config and config.kind=='candidate' and getattr(config,'schema_version',None)==2 else set()
         sources=[self._resolve_in_phase(db,project,s,phase=phase,lineage_only=lineage_only,progress=progress,
             **({'comparison_proof':True} if s.source_id in proof_ids and s.source_kind=='bio_insight_result_version' else {})) for s in selections]
-        if config and config.kind=='comparison':
+        if config and (config.kind=='comparison' or config.kind=='integration' and getattr(config,'schema_version',None)==2):
             processed=[s for s in sources if s['source_kind']=='bio_processed_dataset_version']
             for source in processed:
                 if source['metadata'].get('observation_level')=='sample':continue
                 metadata=source['metadata']
                 for key in ('species_taxon_id','namespace','reference_version'):
-                    if metadata.get(key) is None:metadata[key]=getattr(config,key)
+                    if metadata.get(key) is None and hasattr(config,key):metadata[key]=getattr(config,key)
                 metadata['reference_metadata_origin']='upstream_if_available_else_explicit_plan_declaration'
-                for mapping in [s for s in sources if s['source_kind']=='bio_observation_map_version']:
-                    if mapping['metadata']['raw_dataset_version_id']!=metadata['raw_dataset_version_id']:continue
-                    rows={r['barcode']:r for r in mapping['metadata']['rows']}
-                    for obs in metadata['observations']:
-                        row=rows.get(obs['barcode'],{})
-                        for target,field in [('donor','donor'),('condition','group'),('batch','batch'),('sample','sample_id'),('section','section')]:
-                            value=row.get(field,{})
-                            obs[target]=value.get('value') if value.get('status')=='known' else None
+            apply_observation_maps(processed,[s for s in sources if s['source_kind']=='bio_observation_map_version'])
             common=set.intersection(*(set(s['metadata']['feature_ids']) for s in processed)) if processed else set()
             for source in processed:source['metadata']['common_feature_count']=len(common)
         return sources

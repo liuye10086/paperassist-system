@@ -7,9 +7,9 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import JSONB
 
 
-TASK_TYPES = "'boxplot', 'explanation', 'word_report', 'parse_file', 'extract_dataset', 'prepare_dataset', 'review_ocr', 'analysis_plan', 'analysis_recommendation', 'figure_projection', 'figure_workbench', 'figure_explanation', 'collection_word_report', 'statistics_compute', 'literature_search', 'literature_assistance', 'manuscript_draft', 'manuscript_docx', 'pdf_export', 'manuscript_writing', 'layout_docx', 'school_template_parse', 'school_rule_suggestion', 'journal_recommendation', 'journal_format_check', 'journal_adaptation', 'review_round_plan', 'review_revision', 'review_document_export', 'bio_import', 'bio_analysis', 'bio_figure', 'research_figure', 'research_report', 'research_fact_draft','delivery_package', 'bio_resource_import', 'bio_comparison', 'bio_result_import', 'bio_enrichment', 'bio_candidate', 'bio_insight_figure', 'bio_feature_extract', 'bio_integration'"
-STATUSES = "'queued', 'running', 'waiting_input', 'waiting_confirmation', 'succeeded', 'failed'"
-ATTEMPT_STATUSES = "'running', 'waiting_input', 'waiting_confirmation', 'succeeded', 'failed'"
+TASK_TYPES = "'bio_cloud_run', 'boxplot', 'explanation', 'word_report', 'parse_file', 'extract_dataset', 'prepare_dataset', 'review_ocr', 'analysis_plan', 'analysis_recommendation', 'figure_projection', 'figure_workbench', 'figure_explanation', 'collection_word_report', 'statistics_compute', 'literature_search', 'literature_assistance', 'manuscript_draft', 'manuscript_docx', 'pdf_export', 'manuscript_writing', 'layout_docx', 'school_template_parse', 'school_rule_suggestion', 'journal_recommendation', 'journal_format_check', 'journal_adaptation', 'review_round_plan', 'review_revision', 'review_document_export', 'bio_import', 'bio_analysis', 'bio_annotation', 'bio_figure', 'research_figure', 'research_report', 'research_fact_draft','delivery_package', 'bio_resource_import', 'bio_comparison', 'bio_result_import', 'bio_enrichment', 'bio_candidate', 'bio_insight_figure', 'bio_feature_extract', 'bio_integration'"
+STATUSES = "'cancelled', 'queued', 'running', 'waiting_input', 'waiting_confirmation', 'succeeded', 'failed'"
+ATTEMPT_STATUSES = "'cancelled', 'running', 'waiting_input', 'waiting_confirmation', 'succeeded', 'failed'"
 PHASES = "'parse', 'plan', 'compute', 'search', 'interpret', 'write', 'export', 'verify'"
 REASONS = ("'input_required', 'confirmation_required', 'submission_unknown', "
            "'budget_exceeded', 'execution_failed', 'retry_requested', "
@@ -127,7 +127,7 @@ def define_task_tables(metadata):
         Column('reason_code', Text),
         Column('created_at', DateTime(timezone=True), nullable=False),
         CheckConstraint('seq = task_revision AND task_revision >= 1', name='task_events_revision_check'),
-        CheckConstraint("event_type IN ('created', 'started', 'phase_changed', 'waiting', 'succeeded', 'failed', 'requeued', 'deferred')", name='task_events_type_check'),
+        CheckConstraint("event_type IN ('created', 'started', 'phase_changed', 'waiting', 'succeeded', 'failed', 'cancelled', 'requeued', 'deferred')", name='task_events_type_check'),
         CheckConstraint(f'status IN ({STATUSES})', name='task_events_status_check'),
         CheckConstraint(f'phase IN ({PHASES})', name='task_events_phase_check'),
         CheckConstraint(f'reason_code IN ({REASONS})', name='task_events_reason_check'),

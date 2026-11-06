@@ -214,8 +214,8 @@ def validate_design(config, observations, features):
                 for donor,rows in sorted(donor_groups.items()):
                     if len({o.condition for o in rows})!=1:
                         block('aggregate_condition_not_unique','同一聚合单元的 condition 不唯一。',cid)
-                    if ((config.batch_adjustment and any(not o.batch for o in rows))
-                            or len({o.batch for o in rows})!=1):
+                    if ((config.batch_adjustment and any(not o.batch for o in rows)) or
+                            ((config.batch_adjustment or config.single_cell_selection is None) and len({o.batch for o in rows})!=1)):
                         block('aggregate_batch_not_unique','同一聚合单元的 batch 缺失或不唯一。',cid)
                     if all(o.library_counts is not None for o in rows) and sum(o.library_counts for o in rows)==0:
                         block('zero_library','原 counts 聚合出现零文库。',cid)
@@ -253,7 +253,8 @@ def validate_design(config, observations, features):
     common_counts=[f.common_feature_count if f.common_feature_count is not None else f.feature_count for f in features]
     nfeatures=min(common_counts,default=0)
     # Conservative admission estimate; actual sparse/fit RSS is separately enforced by the engine.
-    estimated=len(used_keys)*nfeatures*32+nfeatures*len(config.contrasts)*512
+    estimated=(len(used_keys)*nfeatures*32 if config.mode=='spot_exploratory' else
+        10000000*32+len(used_keys)*512+max((u.n_numerator+u.n_denominator for u in units),default=0)*nfeatures*128)+nfeatures*len(config.contrasts)*512
     if estimated>2147483648:block('resource_budget_exceeded','保守工作内存估计超过科学子进程 2 GiB 限额；不能静默抽样。')
     return DesignPreview(executable=not reasons,blocking_reasons=reasons,actual_units=units,
                          family=list(config.family_contrast_ids),warnings=warnings,exclusions=exclusions,

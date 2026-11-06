@@ -79,6 +79,12 @@ def run_comparison(payload, writer):
         if (metadata['species_taxon_id'],metadata['namespace'],metadata['reference_version'])!=(
                 config.species_taxon_id,config.namespace,config.reference_version): raise ValueError('incompatible_feature_metadata')
     loaded=[load_processed(s,config.mode) for s in selected_sources]
+    if config.single_cell_selection:
+        from app.domain.bio_insights.single_cell_composition import validate_de_selection
+        annotation=next(s for s in payload['sources'] if s['source_kind']=='bio_annotation_version' and s['source_id']==config.single_cell_selection.annotation_source_id)
+        from .inputs import document
+        if document(annotation['members']['assignments'])!=annotation['metadata']['assignments']:raise ValueError('annotation_assignments_mismatch')
+        validate_de_selection(config,payload['sources'],next(s['observations'] for s in loaded if s['source']['source_id']==config.single_cell_selection.processed_source_id))
     common=sorted(set.intersection(*(set(s['feature_ids']) for s in loaded)))
     if not common: raise ValueError('empty_common_feature_axis')
     if len(config.contrasts)>10 or len(common)*len(config.contrasts)>1000000: raise ValueError('comparison_budget_exceeded')
@@ -163,7 +169,9 @@ def run_comparison(payload, writer):
              'parameters':{'continuity_correction':False,'ties':'average_rank_variance_correction','effect_pseudocount':1e-9} if scope=='spot_exploratory' else
                  {'size_factors_fit_type':'poscounts','refit_cooks':False,'cooks_filter':True,'independent_filter':False,
                   'low_memory':True,'n_cpus':1,'lfc_shrinkage':False,'minimum_total_counts':config.minimum_total_counts},
-             'warnings':preview.warnings,'model_diagnostics':diagnostics}
+             'warnings':preview.warnings,'model_diagnostics':diagnostics,
+             'single_cell_selection':config.single_cell_selection.model_dump() if config.single_cell_selection else None,
+             'actual_units':[u.model_dump() for u in preview.actual_units]}
     summary={'row_count':len(result_rows),'feature_count':len(common),'contrast_count':len(config.contrasts),
              'family':family,'actual_units':[u.model_dump() for u in preview.actual_units],
              'not_computable_rows':sum(r['p_value'] is None for r in result_rows),

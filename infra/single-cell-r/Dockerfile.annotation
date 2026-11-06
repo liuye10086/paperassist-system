@@ -1,0 +1,25 @@
+ARG WORKER_IMAGE=paperassist-single-cell-worker:local
+FROM ${WORKER_IMAGE} AS annotation-builder
+USER root
+COPY infra/single-cell-r/annotation-dependencies.txt /tmp/annotation-dependencies.txt
+RUN MAMBA_ROOT_PREFIX=/tmp/paperassist-mamba micromamba install --yes --freeze-installed --strict-channel-priority \
+      --prefix /opt/paperassist-single-cell-r -c conda-forge -c bioconda \
+      --file /tmp/annotation-dependencies.txt \
+    && micromamba list --prefix /opt/paperassist-single-cell-r --explicit > /opt/paperassist-single-cell-r/explicit-spec.txt \
+    && MAMBA_ROOT_PREFIX=/tmp/paperassist-mamba micromamba clean --all --yes
+RUN /opt/paperassist-single-cell-r/bin/Rscript --vanilla -e 'stopifnot(as.character(packageVersion("SingleR"))=="2.8.0",as.character(packageVersion("celldex"))=="1.16.0",as.character(packageVersion("scDblFinder"))=="1.20.2",as.character(packageVersion("decontX"))=="1.4.0",as.character(packageVersion("harmony"))=="1.2.3"); library(SingleR); library(celldex); sessionInfo()'
+USER paperassist
+
+# celldex is a build-time data preparation tool. Its optional V8 dependency
+# starts background threads when discovered by rstan; keep it out of the Worker.
+FROM ${WORKER_IMAGE}
+USER root
+COPY --from=annotation-builder /opt/paperassist-single-cell-r/lib/R/library/SingleR /opt/paperassist-single-cell-r/lib/R/library/SingleR
+COPY --from=annotation-builder /opt/paperassist-single-cell-r/lib/R/library/DelayedMatrixStats /opt/paperassist-single-cell-r/lib/R/library/DelayedMatrixStats
+COPY --from=annotation-builder /opt/paperassist-single-cell-r/lib/R/library/sparseMatrixStats /opt/paperassist-single-cell-r/lib/R/library/sparseMatrixStats
+COPY --from=annotation-builder /opt/paperassist-single-cell-r/conda-meta/bioconductor-singler-2.8.0-*.json /opt/paperassist-single-cell-r/conda-meta/
+COPY --from=annotation-builder /opt/paperassist-single-cell-r/conda-meta/bioconductor-delayedmatrixstats-*.json /opt/paperassist-single-cell-r/conda-meta/
+COPY --from=annotation-builder /opt/paperassist-single-cell-r/conda-meta/bioconductor-sparsematrixstats-*.json /opt/paperassist-single-cell-r/conda-meta/
+RUN micromamba list --prefix /opt/paperassist-single-cell-r --explicit > /opt/paperassist-single-cell-r/explicit-spec.txt \
+    && /opt/paperassist-single-cell-r/bin/Rscript --vanilla -e 'library(SingleR); stopifnot(as.character(packageVersion("SingleR"))=="2.8.0",as.character(packageVersion("scDblFinder"))=="1.20.2",as.character(packageVersion("decontX"))=="1.4.0",as.character(packageVersion("harmony"))=="1.2.3"); sessionInfo()'
+USER paperassist

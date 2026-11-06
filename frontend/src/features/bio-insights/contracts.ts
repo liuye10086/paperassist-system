@@ -1,6 +1,6 @@
 export type InsightKind='comparison'|'result_import'|'ora'|'gsea_prerank'|'candidate'|'figure'|'feature_extract'|'integration'
 export const kindLabels:Record<InsightKind,string>={integration:'多组学与跨数据整合',feature_extract:'序列／结构实际特征提取',comparison:'固定设计差异比较',result_import:'导入外部差异表',ora:'ORA 过度富集',gsea_prerank:'GSEA 完整排序',candidate:'候选筛选配方',figure:'结果单图'}
-export const sourceLabels={external_evidence_version:'类型化外部证据版本',bio_processed_dataset_version:'固定处理数据',bio_observation_map_version:'观测对应表',bio_annotation_version:'区域注释',research_design_version:'研究设计',bio_resource_version:'功能／映射／注释资源',bio_insight_result_version:'差异与功能结果',original_file:'已有原始文件'}
+export const sourceLabels={external_evidence_version:'类型化外部证据版本',bio_processed_dataset_version:'固定处理数据',bio_observation_map_version:'观测对应表',bio_annotation_version:'区域／细胞人工注释',research_design_version:'研究设计',bio_resource_version:'功能／映射／注释资源',bio_insight_result_version:'差异与功能结果',original_file:'已有原始文件'}
 export type SourceKind=keyof typeof sourceLabels
 export type Locator={kind:'object'|'table'|'row'|'field';member_key?:string|null;table?:string|null;row_key?:Record<string,string>|null;field?:string|null;parse_version_id?:string|null}
 export type Source={title?:string;source_kind:SourceKind;source_id:string;sha256:string;role:string;locator:Locator}

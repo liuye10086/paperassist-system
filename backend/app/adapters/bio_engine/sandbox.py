@@ -6,6 +6,7 @@ import signal
 import sys
 
 from app.adapters.excel_sandbox import SandboxUnavailable, _Filter, _Program, _Ruleset
+from app.domain.bioinformatics.single_cell_resources import SingleCellRAnalysisLimits,BioAnalysisLimits,memory_bounds
 
 
 class _PathRule(ctypes.Structure):
@@ -13,7 +14,7 @@ class _PathRule(ctypes.Structure):
     _fields_ = [("allowed_access", ctypes.c_uint64), ("parent_fd", ctypes.c_int32)]
 
 
-def enter(files, output, parent_pid):
+def enter(files, output, parent_pid, *, r_scratch=None):
     if len(files)>514:
         raise ValueError('input_member_limit')
     if sys.platform != "linux" or sys.byteorder != "little" or len(os.listdir("/proc/self/task")) != 1:
@@ -52,8 +53,15 @@ def enter(files, output, parent_pid):
     pinned_fds = []
     try:
         runtime = ['/opt/paperassist-bio', '/usr/local/lib/python3.11', '/usr/share/fonts/truetype/wqy']
+        if r_scratch is not None:
+            from pathlib import Path
+            scratch=Path(r_scratch)
+            if scratch.is_symlink() or not scratch.is_dir() or scratch.parent!=Path('/tmp') or not scratch.name.startswith('paperassist-single-cell-r-'):raise SandboxUnavailable('invalid_r_scratch')
+            runtime.append('/opt/paperassist-single-cell-r')
         rules = [(str(item["path"]), 1 << 2) for item in files] + [(p, (1 << 2) | (1 << 3)) for p in runtime] + [
             (str(output), (1 << 1) | (1 << 2) | (1 << 3) | (1 << 5) | (1 << 7) | (1 << 8) | (1 << 14))]
+        if r_scratch is not None:
+            rules.append((str(r_scratch),(1 << 1) | (1 << 2) | (1 << 3) | (1 << 4) | (1 << 5) | (1 << 7) | (1 << 8) | (1 << 14)))
         granted=set()
         for path, access in rules:
             fd = os.open(path, os.O_PATH | os.O_CLOEXEC)
@@ -81,7 +89,8 @@ def enter(files, output, parent_pid):
         raise
     finally:
         os.close(descriptor)
-    for key, value in [(resource.RLIMIT_CPU, 900), (resource.RLIMIT_AS, 3 * 1024**3),
+    bounds=memory_bounds(SingleCellRAnalysisLimits() if r_scratch is not None else BioAnalysisLimits())
+    for key, value in [(resource.RLIMIT_CPU, 900), (resource.RLIMIT_AS, bounds['address_space_limit_bytes']),
                        # Up to 514 declared files plus four trusted/output
                        # grants remain pinned; leave bounded numeric I/O room.
                        (resource.RLIMIT_NOFILE, 1024), (resource.RLIMIT_FSIZE, 256 * 1024**2),

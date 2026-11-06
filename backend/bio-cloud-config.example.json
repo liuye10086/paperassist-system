@@ -1,0 +1,8 @@
+{
+  "enabled": false,
+  "region": "ap-southeast-1",
+  "input_bucket": "",
+  "output_bucket": "",
+  "role_arn": "",
+  "profiles": []
+}

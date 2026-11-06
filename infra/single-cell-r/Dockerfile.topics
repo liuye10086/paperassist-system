@@ -1,0 +1,29 @@
+ARG WORKER_IMAGE=paperassist-single-cell-worker:b5-propeller
+FROM ${WORKER_IMAGE} AS topics-builder
+USER root
+ADD https://bioconductor.posit.co/packages/3.20/bioc/src/contrib/TrajectoryUtils_1.14.0.tar.gz /tmp/TrajectoryUtils.tar.gz
+ADD https://cran.r-project.org/src/contrib/princurve_2.1.6.tar.gz /tmp/princurve.tar.gz
+ADD https://bioconductor.posit.co/packages/3.20/bioc/src/contrib/slingshot_2.14.0.tar.gz /tmp/slingshot.tar.gz
+ADD https://bioconductor.posit.co/packages/3.20/bioc/src/contrib/GENIE3_1.28.0.tar.gz /tmp/GENIE3.tar.gz
+ADD https://api.github.com/repos/jinworks/CellChat/tarball/75253cd0c9e68410e6e721a6d3a0419a1d7e358f /tmp/CellChat.tar.gz
+RUN echo '40d0f1305afa29dfc4e38d19904d7323515c624eee138e8aefca0e15b8548d82  /tmp/TrajectoryUtils.tar.gz\n0216332390eb27013b6ba62232782156dfc99ca640087fcaff53d2be9218f373  /tmp/princurve.tar.gz\n6cc4f546b2deedef2d3fc67e70f6e24f31d7294da3df1b43cda90f3504833065  /tmp/slingshot.tar.gz\n2c1608adac41d222544833e7d0e3780a19a09d5c5c6ce19870e482f628dc8641  /tmp/GENIE3.tar.gz\n9ffe779f79dc869c6d457de63bc732eabda1c556127017dac84a4a852b257bca  /tmp/CellChat.tar.gz' | sha256sum -c -
+RUN MAMBA_ROOT_PREFIX=/tmp/paperassist-mamba micromamba install --yes --freeze-installed --strict-channel-priority --prefix /opt/paperassist-single-cell-r -c conda-forge -c bioconda r-nmf r-ggalluvial r-svglite r-sna r-ggpubr r-ggnetwork r-collapse \
+    && micromamba list --prefix /opt/paperassist-single-cell-r --explicit > /opt/paperassist-single-cell-r/topics-explicit-spec.txt \
+    && MAMBA_ROOT_PREFIX=/tmp/paperassist-mamba micromamba clean --all --yes
+RUN apt-get update && apt-get install -y --no-install-recommends make gcc g++ gfortran && rm -rf /var/lib/apt/lists/*
+RUN printf 'CC=gcc\nCXX=g++\nCXX11=g++\nCXX14=g++\nCXX17=g++\nFC=gfortran\nF77=gfortran\n' > /tmp/topics-Makevars
+ENV R_MAKEVARS_USER=/tmp/topics-Makevars
+ADD https://cran.r-project.org/src/contrib/BiocManager_1.30.27.tar.gz /tmp/BiocManager.tar.gz
+ADD https://cran.r-project.org/src/contrib/NMF_0.28.tar.gz /tmp/NMF.tar.gz
+RUN echo 'acbfdcf09602c8279085556ca54531c2ada0ac3c1775d54ce2c3b9a3dc03fbb5  /tmp/BiocManager.tar.gz\n77dfe7b323ee5e5f8801851d1d4356932e2ffc810a7ac7faf5542cbfd92eeefb  /tmp/NMF.tar.gz' | sha256sum -c -
+ENV BIOCONDUCTOR_ONLINE_VERSION_DIAGNOSIS=FALSE
+RUN /opt/paperassist-single-cell-r/bin/R CMD INSTALL --no-docs --no-html /tmp/BiocManager.tar.gz /tmp/NMF.tar.gz
+RUN /opt/paperassist-single-cell-r/bin/R CMD INSTALL --no-docs --no-html /tmp/princurve.tar.gz /tmp/TrajectoryUtils.tar.gz /tmp/slingshot.tar.gz /tmp/GENIE3.tar.gz /tmp/CellChat.tar.gz \
+    && /opt/paperassist-single-cell-r/bin/Rscript --vanilla -e 'stopifnot(as.character(getRversion())=="4.4.3",as.character(packageVersion("slingshot"))=="2.14.0",as.character(packageVersion("GENIE3"))=="1.28.0",as.character(packageVersion("CellChat"))=="2.2.0.9001"); library(slingshot); library(GENIE3); library(CellChat)' \
+    && sha256sum /tmp/TrajectoryUtils.tar.gz /tmp/princurve.tar.gz /tmp/slingshot.tar.gz /tmp/GENIE3.tar.gz /tmp/CellChat.tar.gz > /opt/paperassist-single-cell-r/topics-source.sha256
+# Remove the bundled official DB; only the independently curated demo is enabled.
+RUN rm -rf /opt/paperassist-single-cell-r/lib/R/library/CellChat/data
+FROM ${WORKER_IMAGE}
+USER root
+COPY --from=topics-builder /opt/paperassist-single-cell-r /opt/paperassist-single-cell-r
+USER paperassist

@@ -14,12 +14,19 @@ class TaskWorkspaceService:
 
     def source(self, db, task, *, manuscript_sources=None):
         snapshot = task['input_snapshot']
+        if task['task_type']=='bio_cloud_run':
+            from app.domain.bioinformatics.contracts import digest
+            row=db.execute('SELECT snapshot_json FROM bio_cloud_runs WHERE task_id=%s AND project_id=%s',(task['id'],task['project_id'])).fetchone()
+            return dict(file_id=None,filename='单细胞云端预处理 · '+snapshot['request']['sample_id'],analysis_run_id=None,is_current=bool(row and row['snapshot_json']==snapshot and digest(snapshot)==task['input_digest']))
         if task['task_type'] in INSIGHT_TASKS:
             from app.domain.bio_insights.execution import source_current
             return dict(file_id=None,filename='差异与功能分析',analysis_run_id=None,is_current=source_current(db,task))
         if task['task_type'] in ('research_figure','research_report','research_fact_draft','delivery_package'):
             from app.domain.research_results.execution import source_current
             return dict(file_id=None,filename=snapshot.get('config',{}).get('title') or '研究成果',analysis_run_id=None,is_current=source_current(db,task))
+        if task['task_type']=='bio_annotation':
+            from app.domain.bioinformatics.annotation_service import source_current
+            return dict(file_id=None,filename='SingleR 参考候选注释',analysis_run_id=None,is_current=source_current(db,task))
         if task['task_type'] in ('bio_analysis', 'bio_figure'):
             from app.domain.bioinformatics.analysis_contracts import validate_snapshot
             from app.domain.bioinformatics.analysis_service import source_current
@@ -226,8 +233,8 @@ class TaskWorkspaceService:
     def list(self, project_id, *, page=1, page_size=10, status=None, task_type=None):
         if (type(page) is not int or not 1 <= page <= 1_000_000
                 or type(page_size) is not int or not 1 <= page_size <= 50
-                or status not in (None, 'queued', 'running', 'waiting_input', 'waiting_confirmation', 'succeeded', 'failed')
-                or task_type not in (None, 'boxplot', 'explanation', 'word_report', 'parse_file', 'extract_dataset', 'prepare_dataset', 'review_ocr', 'analysis_plan', 'analysis_recommendation', 'figure_projection', 'figure_workbench', 'figure_explanation', 'collection_word_report', 'statistics_compute', 'literature_search', 'literature_assistance', 'manuscript_draft', 'manuscript_docx', 'pdf_export', 'layout_docx', 'manuscript_writing', 'school_template_parse', 'school_rule_suggestion', 'journal_recommendation', 'journal_format_check', 'journal_adaptation', 'review_round_plan', 'review_revision', 'review_document_export', 'bio_import', 'bio_analysis', 'bio_figure', 'research_figure', 'research_report', 'research_fact_draft','delivery_package', *INSIGHT_TASKS)):
+                or status not in (None, 'cancelled', 'queued', 'running', 'waiting_input', 'waiting_confirmation', 'succeeded', 'failed')
+                or task_type not in (None, 'bio_cloud_run', 'boxplot', 'explanation', 'word_report', 'parse_file', 'extract_dataset', 'prepare_dataset', 'review_ocr', 'analysis_plan', 'analysis_recommendation', 'figure_projection', 'figure_workbench', 'figure_explanation', 'collection_word_report', 'statistics_compute', 'literature_search', 'literature_assistance', 'manuscript_draft', 'manuscript_docx', 'pdf_export', 'layout_docx', 'manuscript_writing', 'school_template_parse', 'school_rule_suggestion', 'journal_recommendation', 'journal_format_check', 'journal_adaptation', 'review_round_plan', 'review_revision', 'review_document_export', 'bio_import', 'bio_analysis', 'bio_annotation', 'bio_figure', 'research_figure', 'research_report', 'research_fact_draft','delivery_package', *INSIGHT_TASKS)):
             raise StorageError('task_input_invalid', '任务列表查询参数无效。', 422)
         from app.adapters.legacy_task_query import mixed_task_page, require_legacy_task
         from app.domain.tasks.legacy import public_legacy_task, legacy_source
@@ -294,6 +301,10 @@ class TaskWorkspaceService:
 
     def artifacts(self, db, task):
         result = {'figure': None, 'explanation': None, 'report': None}
+        if task['task_type']=='bio_cloud_run':
+            row=db.execute('SELECT id,status,provider_run_id FROM bio_cloud_runs WHERE task_id=%s',(task['id'],)).fetchone()
+            if row:result['bio_cloud']=dict(run_id=row['id'],status=row['status'],provider_run_id=row['provider_run_id'],engine=task['input_snapshot']['profile']['engine'])
+            return result
         if task['task_type'] in INSIGHT_TASKS:
             result['bio_insights']=dict(kind=task['task_type'],run_id=task['input_snapshot'].get('run_id'),
                 resource_version_id=task['input_snapshot'].get('resource_version_id'),result_version_id=task.get('result_bio_insight_result_version_id'))
@@ -301,6 +312,11 @@ class TaskWorkspaceService:
         if task['task_type'] in ('research_figure','research_report','research_fact_draft','delivery_package'):
             result['research_results']=dict(kind=task['task_type'],source_sha256=task['input_digest'],figure_version_id=task['input_snapshot'].get('figure_version_id'),
                 report_version_id=task['input_snapshot'].get('report_version_id'),candidate_id=task['input_snapshot'].get('candidate_id'))
+            return result
+        if task['task_type']=='bio_annotation':
+            from app.domain.bioinformatics.analysis_service import latest_checkpoint
+            cp=latest_checkpoint(db,task);result_id=cp['state_json'].get('result_id')
+            result['bioinformatics']=dict(annotation_run_id=task['id'],annotation_version_id=result_id,annotation_set_id=result_id,processed_source=task['input_snapshot']['parent_processed_source'])
             return result
         if task['task_type'] in ('bio_analysis', 'bio_figure'):
             from app.domain.bioinformatics.analysis_service import task_artifacts
@@ -430,7 +446,8 @@ class TaskWorkspaceService:
                         'wait': None, 'allowed_actions': [], 'artifacts': legacy_artifacts(row, artifact)}
             task = self.store.require_task(db, task_id)
             source = self.source(db, task)
+            from app.domain.tasks.local_cancel import can_cancel
             return {'task': self.store.public_task(task), 'source': source, 'wait': get_open_wait(db, task),
-                    'allowed_actions': allowed_recovery_actions(db, task) if source['is_current'] else [],
+                    'allowed_actions': ['cancel'] if can_cancel(task) else allowed_recovery_actions(db, task) if source['is_current'] else [],
                     'artifacts': self.artifacts(db, task),
                     **({'verification_failure':task['verification_failure']} if task.get('verification_failure') else {})}

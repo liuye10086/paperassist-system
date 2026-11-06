@@ -22,9 +22,9 @@ class ResearchFigureService(ResearchResultsStore):
             return self._frozen_in_phase(db,project,request,phase=phase,progress=progress)
 
     @phase_guard
-    def _frozen_in_phase(self,db,project,request,*,phase,progress=None,frozen_panels=None):
+    def _frozen_in_phase(self,db,project,request,*,phase,progress=None,frozen_panels=None,allow_stale_labels=False):
         require_phase(phase,db,self.assets,project)
-        reader=self.reader();sources=[];panels=[];raws=[]
+        reader=self.reader();reader.allow_stale_labels=allow_stale_labels;sources=[];panels=[];raws=[]
         if frozen_panels is not None and len(frozen_panels)!=len(request.panels):raise invalid()
         for index,panel in enumerate(request.panels):
             source,member,raw=read_figure_panel(reader,db,project,panel,phase=phase,progress=progress,figure_language=request.figure_language,frozen_panel=frozen_panels[index] if frozen_panels is not None else None)
@@ -87,12 +87,12 @@ class ResearchFigureService(ResearchResultsStore):
                 self.store.append_event(db,task,'created');self.store.enqueue(db,task);selected=identifier;status=201
         return self.get(project,selected),status
 
-    def require_sources(self,db,task,*,runtime=True,progress=None):
+    def require_sources(self,db,task,*,runtime=True,progress=None,allow_stale_labels=False):
         with VerificationPhase(db,self.assets,task['project_id']) as phase:
-            return self._require_sources_in_phase(db,task,phase=phase,runtime=runtime,progress=progress)
+            return self._require_sources_in_phase(db,task,phase=phase,runtime=runtime,progress=progress,allow_stale_labels=allow_stale_labels)
 
     @phase_guard
-    def _require_sources_in_phase(self,db,task,*,phase,runtime=True,progress=None):
+    def _require_sources_in_phase(self,db,task,*,phase,runtime=True,progress=None,allow_stale_labels=False):
         require_phase(phase,db,self.assets,task['project_id'])
         input_version(task);snapshot=task['input_snapshot'];row=self.require(db,self.table,task['project_id'],snapshot['figure_version_id'])
         from app.adapters.research_figure_render import renderer_identity
@@ -100,7 +100,7 @@ class ResearchFigureService(ResearchResultsStore):
         if row['task_id']!=task['id'] or row['config_json']!=snapshot['config'] or digest(row['config_json'])!=row['config_sha256']:raise invalid()
         from .contracts import FrozenResearchFigureRequest
         request=FrozenResearchFigureRequest.model_validate(snapshot['config'])
-        _,panels,raws,caption_sources,facts=self._frozen_in_phase(db,task['project_id'],request,phase=phase,progress=progress,frozen_panels=snapshot['panels'])
+        _,panels,raws,caption_sources,facts=self._frozen_in_phase(db,task['project_id'],request,phase=phase,progress=progress,frozen_panels=snapshot['panels'],allow_stale_labels=allow_stale_labels)
         if (panels!=snapshot['panels'] or facts!=snapshot['caption_facts']
             or len(caption_sources)!=len(snapshot['caption_sources'])
             or any(not matches_frozen_source(s.model_dump(mode='json'),old) for s,old in zip(caption_sources,snapshot['caption_sources']))):raise invalid()
@@ -109,17 +109,17 @@ class ResearchFigureService(ResearchResultsStore):
     def get(self,project,identifier,*,progress=None):
         with self.store.connection() as db:
             with VerificationPhase(db,self.assets,project) as phase:
-                return self._get_in_phase(db,project,identifier,phase=phase,progress=progress)
+                return self._get_in_phase(db,project,identifier,phase=phase,progress=progress,allow_stale_labels=True)
 
     @phase_guard
-    def _get_in_phase(self,db,project,identifier,*,phase,progress=None):
+    def _get_in_phase(self,db,project,identifier,*,phase,progress=None,allow_stale_labels=False):
         require_phase(phase,db,self.assets,project)
         row=self.require(db,self.table,project,identifier);task=self.store.require_task(db,row['task_id'])
         if digest(row['config_json'])!=row['config_sha256']:raise invalid()
         members=[];manifest=None
         if row['manifest_object_id']:
             if task['status']!='succeeded':raise invalid()
-            self._require_sources_in_phase(db,task,phase=phase,runtime=False,progress=progress)
+            self._require_sources_in_phase(db,task,phase=phase,runtime=False,progress=progress,allow_stale_labels=allow_stale_labels)
             checked=research_figure_source(self,db,project,row,progress=progress);manifest=checked['manifest']
             members=[{**m,'download_url':f'/api/v1/projects/{project}/research-figures/{identifier}/members/{m["id"]}/download'} for m in checked['members']]
         return dict(id=row['id'],root_id=row['root_id'],revision=row['revision'],parent_id=row['parent_id'],config=row['config_json'],
@@ -138,7 +138,7 @@ class ResearchFigureService(ResearchResultsStore):
             row=self.require(db,self.table,project,identifier)
             task=self.store.require_task(db,row['task_id'])
             if not row['manifest_object_id'] or task['status']!='succeeded':raise invalid('research_source_incomplete',422)
-            self.require_sources(db,task,runtime=False)
+            self.require_sources(db,task,runtime=False,allow_stale_labels=True)
             member=db.execute('SELECT * FROM research_figure_members WHERE id=%s AND figure_version_id=%s AND project_id=%s AND user_id=%s',(member_id,identifier,project,self.store.user_id)).fetchone()
             if not member:raise invalid('research_source_not_found',404)
             obj=scoped_object(db,project,self.store.user_id,member['storage_object_id'])

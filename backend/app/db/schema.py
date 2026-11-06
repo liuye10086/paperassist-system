@@ -355,3 +355,6 @@ define_bio_insights_tables(metadata)
 
 from app.db.delivery_schema import define_delivery_tables
 define_delivery_tables(metadata)
+
+from app.db.bio_cloud_schema import define_bio_cloud_tables
+define_bio_cloud_tables(metadata)

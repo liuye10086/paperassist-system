@@ -93,7 +93,7 @@ def define_bio_analysis_tables(metadata):
     make('bio_annotation_evidence',text('annotation_version_id'),text('label_id'),text('kind'),
         text('analysis_artifact_id',True),text('file_id',True),text('note'),
         ref('annotation_version_id','bio_annotation_versions'),ref('analysis_artifact_id','bio_analysis_artifacts'),ref('file_id','files'),
-        sa.CheckConstraint("(kind='marker' AND analysis_artifact_id IS NOT NULL AND file_id IS NULL) OR (kind='file' AND file_id IS NOT NULL AND analysis_artifact_id IS NULL)"),
+        sa.CheckConstraint("(kind='marker' AND analysis_artifact_id IS NOT NULL AND file_id IS NULL) OR (kind='file' AND file_id IS NOT NULL AND analysis_artifact_id IS NULL) OR (kind IN ('manual','reference') AND analysis_artifact_id IS NULL AND file_id IS NULL AND length(trim(note))>0)",name='bio_annotation_evidence_source_check'),
         sa.CheckConstraint('length(note)<=4000'))
     make('bio_figure_versions',text('root_id'),integer('version'),text('parent_id',True),text('processed_dataset_version_id'),
         text('annotation_version_id',True),text('task_id'),json('config_json'),text('config_sha256'),text('renderer_version'),

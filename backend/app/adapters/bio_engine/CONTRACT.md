@@ -4,10 +4,12 @@ Interpreter: `/opt/paperassist-bio/bin/python -I -B /app/app/adapters/bio_engine
 The child emits `READY\n`, reads a four-byte network-order unsigned JSON byte length,
 then exactly that many UTF-8 bytes and EOF. Payload/output JSON maximum is 2 MiB.
 The parent supplies an empty environment, enforces warmup (180 s), compute wall
-time (1200 s), RSS (2 GiB), container resources and process termination. Child
-sets numeric threads to 1, CPU 900 s, address space 3 GiB, file size 256 MiB,
+time (1200 s), RSS (2 GiB; enabled single-cell R models 4 GiB), container resources and process termination. Child
+sets numeric threads to 1, CPU 900 s, address space 3 GiB (enabled single-cell R models 5 GiB), file size 256 MiB,
 file descriptor 1024, no subprocess/network, read-only trusted Python/font roots,
-and per-file Landlock grants. Only the task output directory is writable.
+and per-file Landlock grants. The task output directory is writable. Optional
+single-cell R models additionally receive one trusted, newly created
+`/tmp/paperassist-single-cell-r-*` scratch directory; `/tmp` itself is not granted.
 Trusted synthetic numeric/JIT/font warmup precedes reading any customer member.
 Input groups are bounded before warmup/file access: raw <=256, processed <=256,
 annotation <=2, import_v2 files <=256, at most 514 declared files in total.
@@ -38,6 +40,34 @@ pca_components=30, neighbors=15, seed=0; bounded user values are executed and
 recorded (target_sum 1..1e6, PCA 2..100, neighbors 2..100, seed 0..2^31-1,
 HVG 3..10000, marker_top_n 1..100). Effective dimensions are capped by data.
 Optional max_counts and confirmed-rule max_mt_fraction (0..1) filter explicitly.
+
+Single-cell optional parameters (both tools default disabled):
+
+```json
+{"library_qc_overrides":[{"library_id":"capture1","min_counts":100,"max_counts":50000}],"doublet":{"enabled":false,"exclude_predicted":false,"expected_rate":null},"decontx":{"enabled":false}}
+```
+
+Overrides accept `min_counts/min_genes/max_counts/max_mt_fraction`; omitted or
+null fields inherit global values. IDs match immutable imported library IDs,
+including when reviewed donor/sample maps change. Unknown/duplicate libraries,
+inverted inherited counts thresholds and unconfirmed mitochondrial rules fail.
+Algorithms run separately per capture after preliminary QC and feature filtering.
+scDblFinder score/class/exclusion remain separate fields and are model predictions.
+Optional predicted-doublet exclusion aligns all final counts/results/H5AD axes.
+`decontx_counts` is sparse float64 and emitted only when every modeled library
+completes. Partial results retain cell contamination/status and library failure
+reasons, with no misleading complete correction layer. Normalization, markers and
+pseudobulk continue using preserved integer counts.
+
+R 4.4, scDblFinder 1.20.2 and decontX 1.4.0 load from the fixed read-only
+`/opt/paperassist-single-cell-r` prefix before sandbox entry. Trusted synthetic
+prewarm runs both original tools; user matrices are read only after isolation.
+R receives genes-by-cells dgCMatrix directly from cells-by-genes CSR slots.
+Integer totals above 2^53-1 are rejected before conversion. Fixed seed,
+SerialParam and one-thread execution retain the original no-fork/exec/network
+syscall policy and resource bounds. Versions, actual parameters and logs are
+exported as `single_cell_tool_versions`, `library_algorithms`, and
+`single_cell_tool_logs`; QC per capture is `library_qc`.
 
 `figure` additionally supplies `processed:{manifest,members}` including
 `processed` H5AD and `markers_top` TSV. `config.kind` is `qc`, `pca`, `umap`,
@@ -101,3 +131,30 @@ CSR layers use `{prefix}_data/indices/indptr.npy` and `{prefix}_shape.json`.
 H5AD X=log1p, layers counts/normalized, raw index mappings in obs/var,
 PCA/UMAP/spatial in obsm, distances/connectivities in obsp. Raw full counts
 remain in the original dataset and are not overwritten.
+
+Single-cell batch 3 compute adds `summary.single_cell_integration`: `hvg`,
+`technical_covariates`, `harmony`, `design`, `downstream_representation`,
+`versions`, and bounded descriptive `diagnostics`. Technical covariate
+`requested` is a list of columns; `applied` is a boolean. Harmony requested and
+applied are both booleans. HVG records global fallback separately from the
+completed selection status. Only final-QC retained cells and known effective
+batch values/original library IDs participate; missing values are not batches.
+
+Historical SingleCellParameters missing these options remain disabled. New
+direct-start requests and new setups (`expected_revision=0`) default to batch
+HVG, log1p_total_counts regression and Harmony. Existing recipe updates retain
+old missing-field behavior. Harmony uses pinned R harmony 1.2.3, theta=2,
+lambda=1, sigma=.1, max_iter=10, early_stop=TRUE, ncores=1 and fixed seed.
+Only embeddings are adjusted. `X_pca_unadjusted`, `X_pca` (post-covariate when
+applied), and optional `X_pca_harmony` are retained in H5AD. Neighbor/UMAP/Leiden
+uses exactly the recorded downstream representation; failures retain PCA.
+H5AD `paperassist_integration_json`, methods, and `integration_summary.json`
+record actual state, params, versions and descriptive diagnostics. Downloadable
+integration coordinates, arrays, design counts, versions and R logs use the
+`integration_` prefix. Downloadable array member keys are lowercase
+`integration_x_pca_unadjusted`, `integration_x_pca`, and optional
+`integration_x_pca_harmony`; H5AD obsm names keep the conventional uppercase X.
+Fixed default PNG kinds `integration_covariates` and
+`integration_harmony` publish as normal figure records; they are not new
+standalone plot request kinds. No PDF is emitted. Harmony-only uses the same
+existing R task limits: RSS 4 GiB, AS 5 GiB, total outputs 1 GiB, leaf 256 MiB.

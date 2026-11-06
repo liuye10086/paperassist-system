@@ -19,6 +19,7 @@ import app.adapters.bio_insights_engine.qpcr_figures
 import app.adapters.bio_insights_engine.microbiome_figures
 import app.adapters.bio_insights_engine.feature_figures
 import app.adapters.bio_insights_engine.integration_figures
+import app.adapters.bio_insights_engine.topic_figures
 import app.adapters.bio_insights_engine.evidence_figures
 from app.adapters.bio_engine.manifest import Writer,canonical
 from app.domain.bio_insights.contracts import FigureConfig
@@ -44,6 +45,12 @@ def main():
         with tempfile.TemporaryDirectory(prefix='b04-render-warm-') as directory:warm_render_environment(Path(directory))
         if payload['config'].get('figure_type','').startswith('microbiome_'):
             import skbio
+        # Figure workers attest an initialized R runtime too. Loading its fixed
+        # native libraries does not fit a model or rerun the source analysis.
+        from app.adapters.single_cell_r.bridge import initialize_propeller
+        from contextlib import redirect_stdout
+        r_scratch=Path(tempfile.mkdtemp(prefix='b04-render-propeller-',dir='/tmp'))
+        with redirect_stdout(sys.stderr):initialize_propeller(r_scratch)
         actual=actual_identity()
         if actual!=payload['_runtime_identity'] or any(payload['identity'].get(k)!=actual[k] for k in ('engine_version','code_digest','environment_digest','lock_sha256')):
             raise RuntimeError('bio_insights_environment_unavailable')

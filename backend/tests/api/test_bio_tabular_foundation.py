@@ -72,7 +72,8 @@ def test_tabular_raw_and_processed_publish_through_existing_tasks(client,monkeyp
     table=client.get(base+f'/bio-processed-datasets/{pid}/tables/sample_qc')
     assert table.status_code==200,table.text
     for figure in processed.json()['figures']:
-        assert {'png','tiff','svg','pdf'} <= {m['format'] for m in figure['members']}
+        assert {'png','tiff','svg','json'} == {m['format'] for m in figure['members']}
+        assert len(figure['members'])==5
         image=next(m for m in figure['members'] if m['format']=='png')
         assert client.get(image['download_url']).content.startswith(b'\x89PNG')
     # Every later read must still verify the original bytes, not just derived leaves.

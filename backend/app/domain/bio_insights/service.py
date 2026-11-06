@@ -22,12 +22,13 @@ def portable(value):
 
 
 def frozen_envelope_projection(envelope,frozen):
-    """Compare old Visium envelopes without rewriting either saved source.
+    """Compare historical derived metadata without rewriting saved sources.
 
     B05 added two derived axis labels to the existing Visium source projection.
     An old envelope omitted both; all original identities and other metadata
-    still have to match exactly. Envelopes already freezing either label keep
-    their full strict shape, as do single-cell and tabular sources.
+    still have to match exactly. B06 added cell_clusters/retained_feature_ids
+    to single-cell projections; omit only fields absent from that old envelope.
+    Already frozen fields, source identities and member hashes remain strict.
     """
     projected=portable(envelope)
     for current,previous in zip(projected.get('sources',[]),frozen.get('sources',[])):
@@ -38,6 +39,12 @@ def frozen_envelope_projection(envelope,frozen):
                 and 'assay' not in old and 'observation_level' not in old
                 and metadata.get('assay')=='visium' and metadata.get('observation_level')=='spot'):
             metadata.pop('assay');metadata.pop('observation_level')
+        if (current.get('source_kind')=='bio_processed_dataset_version'
+                and all(current.get(key)==previous.get(key) for key in identity_fields)
+                and metadata.get('assay')==old.get('assay')=='single_cell'
+                and metadata.get('observation_level')==old.get('observation_level')=='cell'):
+            for field in ('cell_clusters','retained_feature_ids'):
+                if field not in old:metadata.pop(field,None)
     return projected
 
 
@@ -101,6 +108,9 @@ class BioInsightsService(BioInsightsStore):
         return sources
 
     def _design(self,config,sources):
+        if config.kind=='integration' and getattr(config,'schema_version',None)==2:
+            from .single_cell_topics import validate_topic_design
+            return validate_topic_design(config,sources)
         if config.kind=='candidate' and getattr(config,'schema_version',None)==2:
             from .evidence_design import validate_evidence_design
             return validate_evidence_design(config,sources)
@@ -108,6 +118,9 @@ class BioInsightsService(BioInsightsStore):
             source=next(s for s in sources if s['source_id']==config.result_source_id)
             reasons=[] if 'evidence_data' in source['members'] else [DesignReason(code='fixed_evidence_matrix_required',message='需要固定候选证据矩阵。')]
             return DesignPreview(executable=not reasons,blocking_reasons=reasons,resource_estimate=ResourceEstimate(observations=0,features=0,contrasts=0,estimated_working_bytes=0))
+        if config.kind=='comparison' and getattr(config,'schema_version',None)==5:
+            from .single_cell_composition import validate_composition_design
+            return validate_composition_design(config,sources)
         if config.kind=='comparison' and getattr(config,'schema_version',None)==4:
             from .microbiome_design import validate_microbiome_design
             return validate_microbiome_design(config,sources)
@@ -118,6 +131,11 @@ class BioInsightsService(BioInsightsStore):
             from .quantitative_design import validate_quantitative_design
             return validate_quantitative_design(config,sources)
         if config.kind=='comparison':
+            if config.single_cell_selection:
+                from .single_cell_composition import validate_de_selection
+                try:validate_de_selection(config,sources)
+                except ValueError as exc:
+                    return DesignPreview(executable=False,blocking_reasons=[DesignReason(code=str(exc),message='同类型供者比较必须来自固定人工标签的保留细胞。')],resource_estimate=ResourceEstimate(observations=0,features=0,contrasts=len(config.contrasts),estimated_working_bytes=0))
             observations=[];features=[];resolved=[]
             for source in sources:
                 if source['source_kind']!='bio_processed_dataset_version':continue
@@ -190,6 +208,11 @@ class BioInsightsService(BioInsightsStore):
                 wanted=([config.source_contrasts[source['source_id']]] if config.kind=='candidate' else
                         [config.contrast_id] if config.kind=='gsea_prerank' else list(config.contrast_ids))
                 if not set(wanted)<=available:reasons.append(DesignReason(code='contrast_not_found',message='所选比较 ID 不存在于该固定结果版本。'))
+        if config.kind=='figure' and config.figure_type.startswith('topic_'):
+            selected=next(s for s in sources if s['source_id']==config.result_source_id)
+            plan=selected['metadata'].get('plan_config',{})
+            if selected['metadata'].get('kind')!='integration' or plan.get('schema_version')!=2 or plan.get('method')!=config.figure_type.removeprefix('topic_') or 'topic_plot_data' not in selected['members']:
+                reasons.append(DesignReason(code='topic_result_required',message='专题重绘需要匹配方法及保存绘图数值的固定结果。'))
         if config.kind=='figure' and config.figure_type.startswith('integration_'):
             selected=next(s for s in sources if s['source_id']==config.result_source_id)
             if selected['metadata'].get('kind')!='integration':reasons.append(DesignReason(code='integration_result_required',message='来源图需要固定的整合结果。'))
@@ -289,6 +312,11 @@ class BioInsightsService(BioInsightsStore):
         return {key:runtime[key] for key in ('engine_version','environment_digest','code_digest','lock_sha256')}
 
     def _runtime_for(self,config):
+        if config.kind=='integration' and getattr(config,'schema_version',None)==2:
+            from .settings import topic_runtime_identity
+            runtime=topic_runtime_identity(config.method)
+            if not runtime.get('available'):raise invalid('bio_insights_environment_unavailable',422)
+            return {key:runtime[key] for key in ('engine_version','environment_digest','code_digest','lock_sha256')}
         if config.kind=='figure' and 'pdf' in config.formats:
             raise invalid('bio_figure_pdf_export_retired',422)
         if config.kind in ('integration','sample_correspondence','object_correspondence') or config.kind=='figure' and config.figure_type.startswith('integration_'):
@@ -299,6 +327,11 @@ class BioInsightsService(BioInsightsStore):
         elif config.kind in ('feature_extract','sequence','structure') or config.kind=='figure' and config.figure_type.startswith('feature_'):
             from .settings import feature_runtime_identity
             runtime=feature_runtime_identity()
+            if not runtime.get('available'):raise invalid('bio_insights_environment_unavailable',422)
+            return {key:runtime[key] for key in ('engine_version','environment_digest','code_digest','lock_sha256')}
+        if config.kind=='comparison' and getattr(config,'schema_version',None)==5:
+            from .settings import composition_runtime_identity
+            runtime=composition_runtime_identity()
             if not runtime.get('available'):raise invalid('bio_insights_environment_unavailable',422)
             return {key:runtime[key] for key in ('engine_version','environment_digest','code_digest','lock_sha256')}
         if config.kind=='comparison' and getattr(config,'schema_version',None)==4 or config.kind=='figure' and config.figure_type.startswith('microbiome_'):
@@ -423,8 +456,11 @@ class BioInsightsService(BioInsightsStore):
         if kind=='comparison' and payload['config'].get('schema_version')==2:
             from .quantitative_contracts import QuantitativeComparisonConfig,quantitative_scope
             scope=quantitative_scope(QuantitativeComparisonConfig.model_validate(payload['config']),[s['metadata']['assay'] for s in payload['sources'] if s['source_kind']=='bio_processed_dataset_version'])
+        if kind=='comparison' and payload['config'].get('schema_version')==5:scope='sample_exploratory' if payload['config']['mode']=='descriptive' else 'donor_inference'
         if kind=='comparison' and payload['config'].get('schema_version')==3:scope='sample_inference'
         if kind=='comparison' and payload['config'].get('schema_version')==4:scope='sample_inference' if payload['config']['contrasts'] or payload['config']['beta_inference'] else 'sample_exploratory'
+        if kind=='integration' and payload['config'].get('schema_version')==2:
+            scope='donor_inference' if payload['config']['method']=='cellchat' and payload['config']['communication_mode']!='per_donor' else 'sample_exploratory'
         if manifest.get('inference_scope')!=scope or manifest.get('identity')!=payload['identity']:raise invalid()
         methods=manifest.get('methods') or prepared.get('methods') or {}
         if isinstance(methods,list):methods={'steps':methods}

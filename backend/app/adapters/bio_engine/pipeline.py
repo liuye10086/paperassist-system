@@ -15,6 +15,9 @@ from app.adapters.bio_engine.preprocess import normalize, high_variable
 from app.adapters.bio_engine.embedding import embed
 from app.adapters.bio_engine.markers import markers
 from app.adapters.bio_engine import plots
+from app.domain.bioinformatics.single_cell_resources import resource_estimate,memory_bounds,analysis_limits_for
+from app.adapters.single_cell_r.algorithms import run_algorithms
+from app.adapters.bio_engine.subset import inherit_subset
 
 
 def load_raw(raw):
@@ -62,19 +65,63 @@ def effective_config(config,features):
 
 
 def run(payload):
-    started=time.monotonic();writer=Writer(payload['output_directory']);writer.identity=payload.get('identity',{})
+    started=time.monotonic()
+    selected_limits=analysis_limits_for(single_cell=payload['raw']['manifest'].get('assay')=='single_cell',params=payload.get('config',{}))
+    writer=Writer(payload['output_directory'],max_output_bytes=selected_limits.max_output_bytes);writer.identity=payload.get('identity',{})
     raw,features,barcodes,positions=load_raw(payload['raw'])
     single_cell=payload['raw']['manifest'].get('assay')=='single_cell'
     config=effective_config(payload.get('config',{}),features);mode=payload['mode']
+    if single_cell:
+        from app.domain.bioinformatics.single_cell_contracts import SingleCellParameters
+        SingleCellParameters.model_validate(payload.get('config',{}))
     if single_cell and (positions or config.get('in_tissue_only')):raise ValueError('single_cell_nonspatial_only')
-    qc=quality_control(raw,features,barcodes,positions,config)
-    mask=qc['obs_mask'];fmask=qc['feature_mask'];counts=qc['filtered_counts']
-    steps=[dict(key='raw_qc',status='completed',reason=None,params={}),dict(key='filter',status='completed',reason=None,params=config)]
-    position_map={p['barcode']:p for p in positions}
     mapping_member=payload['raw']['members'].get('observation_map_index')
     mapping=json.loads(Path(mapping_member['path']).read_bytes()) if mapping_member else {'rows':[]}
     mapped={r['barcode']:r for r in mapping['rows']}
     if len(mapped)!=len(mapping['rows']) or not set(mapped).issubset(barcodes): raise ValueError('mapping_axis_invalid')
+    original_member=payload['raw']['members'].get('import_observation_map_index')
+    original_mapping=json.loads(Path(original_member['path']).read_bytes()) if original_member else mapping
+    original_mapped={r['barcode']:r for r in original_mapping['rows']}
+    if len(original_mapped)!=len(original_mapping['rows']) or not set(original_mapped).issubset(barcodes):raise ValueError('original_mapping_axis_invalid')
+    library_ids=[original_mapped.get(b,{}).get('library_id') for b in barcodes] if single_cell else None
+    subset_state=None
+    if payload.get('subset'):
+        if not single_cell or mode!='compute':raise ValueError('subset_requires_single_cell_compute')
+        subset_state=inherit_subset(raw,features,barcodes,payload['processed'],payload['subset'])
+        qc=subset_state['qc']
+    else:qc=quality_control(raw,features,barcodes,positions,config,library_ids=library_ids)
+    mask=qc['obs_mask'];fmask=qc['feature_mask'];counts=qc['filtered_counts'];preliminary=mask.copy()
+    steps=[dict(key='raw_qc',status='completed',reason=None,params={}),dict(key='filter',status='completed',reason=None,params=config)]
+    position_map={p['barcode']:p for p in positions}
+    algorithms=None;decontx_counts=None;algorithm_rows={}
+    if subset_state:
+        algorithms=subset_state['algorithms'];decontx_counts=subset_state['decontx_counts'];algorithm_rows=subset_state['algorithm_rows']
+        steps=[dict(key='raw_qc',status='completed',reason='inherited_parent_qc',params={}),dict(key='filter',status='completed',reason='explicit_parent_cell_selection',params={'parent_feature_filter':'inherited'})]
+        writer.json('subset_provenance',subset_state['provenance']);writer.table('subset_cells',subset_state['rows'])
+    if single_cell and not subset_state:
+        initial_indices=np.flatnonzero(preliminary)
+        algorithms=run_algorithms(counts,[barcodes[i] for i in initial_indices],
+            [feature for feature,keep in zip(features['feature_ids'],fmask) if keep],
+            [library_ids[i] for i in initial_indices],config,all_libraries=library_ids)
+        algorithm_rows=dict(zip(map(int,initial_indices),algorithms['observations']))
+        for i in initial_indices[~algorithms['keep']]:qc['reasons'][i].append('predicted_doublet')
+        mask[initial_indices]=algorithms['keep'];counts=counts[algorithms['keep']].tocsr()
+        if algorithms['decontx_counts'] is not None:decontx_counts=algorithms['decontx_counts'][algorithms['keep']].tocsr()
+        qc['filtered_counts']=counts;qc['filtered_total']=np.asarray(counts.sum(1)).ravel();qc['filtered_detected']=np.asarray((counts>0).sum(1)).ravel()
+        qc['stages']['preliminary_qc_cells']=int(preliminary.sum());qc['stages']['final_spots']=int(mask.sum())
+        for row in qc['library_qc']:
+            selected=np.asarray([v==row['library_id'] for v in library_ids])
+            row['preliminary_qc_kept_cells']=row['kept_cells'];row['kept_cells']=int((selected&mask).sum());row['excluded_cells']=int((selected&~mask).sum())
+            row['predicted_doublet_excluded_cells']=int((selected&preliminary&~mask).sum())
+            row['exclusion_reason_counts']['predicted_doublet']=row['predicted_doublet_excluded_cells']
+    if single_cell:
+        writer.table('library_qc',qc['library_qc'])
+        writer.table('library_algorithms',algorithms['library_algorithms'])
+        writer.table('single_cell_tool_versions',[dict(tool=k,version=v) for k,v in algorithms['versions'].items()],['tool','version'])
+        writer.add('single_cell_tool_logs',('\n'.join(algorithms['logs'])+'\n').encode(),'txt')
+        for name,key in [('doublet','scdblfinder'),('decontx','decontx')]:
+            state=algorithms['summary'][name]
+            steps.append(dict(key=key,status='not_requested' if subset_state else state['status'],reason='inherited_parent_qc' if subset_state else state['reason'],params=config.get(name,{})))
     observation_rows=[]
     for i,b in enumerate(barcodes):
         observation_rows.append(dict(raw_index=i,barcode=b,kept=bool(mask[i]),total_counts=int(qc['raw_counts'][i]),detected_genes=int(qc['raw_detected'][i]),
@@ -87,6 +134,16 @@ def run(payload):
             item=mapped.get(b,{}).get(field,{'status':'pending','value':None})
             observation_rows[-1][field]=item.get('value') if item.get('status')=='known' else None
             observation_rows[-1][field+'_status']=item.get('status','pending')
+        if single_cell:
+            observation_rows[-1].update(preliminary_qc_kept=bool(preliminary[i]),**algorithm_rows.get(i,dict(
+                doublet_status='not_computable' if config.get('doublet',{}).get('enabled') else 'not_requested',doublet_score=None,doublet_prediction=None,doublet_excluded=False,doublet_reason='excluded_by_preliminary_qc',
+                decontx_status='not_computable' if config.get('decontx',{}).get('enabled') else 'not_requested',decontx_contamination=None,decontx_reason='excluded_by_preliminary_qc')))
+            observation_rows[-1]['library_id']=original_mapped.get(b,{}).get('library_id')
+            observation_rows[-1]['original_barcode']=original_mapped.get(b,{}).get('original_barcode',b)
+            for field in ('species_taxon_id','reference_id','reference_version','library_chemistry','pair_id'):
+                item=original_mapped.get(b,{}).get(field,{'status':'pending','value':None})
+                observation_rows[-1][field]=item.get('value') if item.get('status')=='known' else None
+                observation_rows[-1][field+'_status']=item.get('status','pending')
     feature_rows=[dict(raw_index=i,feature_id=identifier,symbol=features['feature_symbols'][i],feature_type=features['feature_types'][i],kept=bool(fmask[i]),total_counts=int(qc['feature_counts'][i]),nonzero_spots=int(qc['feature_nonzero'][i])) for i,identifier in enumerate(features['feature_ids'])]
     for index,raw_i in enumerate(np.flatnonzero(mask)):
         observation_rows[raw_i]['filtered_total_counts']=int(qc['filtered_total'][index])
@@ -119,12 +176,30 @@ def run(payload):
                           'neighbors':max(0,min(config['neighbors'],int(mask.sum())-1)),
                           'reason':'effective_hvg_and_pca_require_variance_after_normalization'},
                       'statistical_unit':'cell_exploratory' if single_cell else 'spot_exploratory','replicate_consistency':{'status':'not_computable','reason':'independent_donor_design_not_confirmed'}}
+    if single_cell:
+        summary['single_cell_algorithms']=algorithms['summary']
+        if subset_state:summary['subset']=subset_state['provenance']
+        if decontx_counts is not None:
+            writer.matrix('decontx_counts',decontx_counts)
+            layers['decontx_counts']=dict(prefix='decontx_counts',shape=list(decontx_counts.shape),dtype=str(decontx_counts.dtype),nnz=int(decontx_counts.nnz),source='parent_decontX' if subset_state else 'decontX',axis='final_filtered_cells_by_features',downstream_use='independent_correction_only')
     if mode=='compute':
         normalized,logged=normalize(counts,target_sum=config['target_sum'])
         ids=[v for v,keep in zip(features['feature_ids'],fmask) if keep]
         symbols=[v for v,keep in zip(features['feature_symbols'],fmask) if keep]
-        hvg,mean,dispersion=high_variable(logged,ids,int(config.get('hvg_count',2000)))
-        result=embed(logged,hvg,ids,np.flatnonzero(mask),config)
+        retained_rows=[observation_rows[i] for i in np.flatnonzero(mask)]
+        hvg_hits=None
+        if single_cell:
+            from app.adapters.bio_engine.integration import select_hvg,publish_integration
+            hvg,mean,dispersion,hvg_hits,hvg_state=select_hvg(logged,ids,int(config.get('hvg_count',2000)),retained_rows,config.get('hvg_batch_key'))
+        else:hvg,mean,dispersion=high_variable(logged,ids,int(config.get('hvg_count',2000)))
+        result=embed(logged,hvg,ids,np.flatnonzero(mask),config,integration_rows=retained_rows if single_cell else None)
+        if single_cell:
+            result['integration']['hvg']=hvg_state
+            publish_integration(writer,result,retained_rows,config)
+            summary['single_cell_integration']=result['integration']
+            for key in ('technical_covariates','harmony'):
+                state=result['integration'][key]
+                steps.append(dict(key=key,status=state['status'],reason=state['reason'],params=config.get(key)))
         all_markers,marker_state=markers(counts,normalized,logged,result['clusters'],ids)
         top=[]
         for label in sorted(set(result['clusters']),key=int):
@@ -139,12 +214,12 @@ def run(payload):
         kept_barcodes=[b for b,keep in zip(barcodes,mask) if keep]
         for raw_i,label in zip(np.flatnonzero(mask),result['clusters']):observation_rows[raw_i]['cluster']=label
         writer.table('embedding',[dict(barcode=b,raw_index=int(i),pc1=float(pc[0]),pc2=float(pc[1]),umap1=float(um[0]),umap2=float(um[1]),cluster=c) for b,i,pc,um,c in zip(kept_barcodes,np.flatnonzero(mask),result['pca'],result['umap'],result['clusters'])])
-        writer.table('hvg',[dict(feature_id=identifier,chosen=bool(chosen),mean=float(m),dispersion_normalized=clean(d),reason=None if chosen else 'dispersion_not_finite_or_constant' if not np.isfinite(d) else 'outside_top_rank_or_constant') for identifier,chosen,m,d in zip(ids,hvg,mean,dispersion)])
+        writer.table('hvg',[dict(feature_id=identifier,chosen=bool(hvg[i]),mean=float(mean[i]),dispersion_normalized=clean(dispersion[i]),batch_hits=int(hvg_hits[i]) if hvg_hits is not None else None,strategy=hvg_state['strategy'] if single_cell else 'global_seurat',reason=None if hvg[i] else 'dispersion_not_finite_or_constant' if not np.isfinite(dispersion[i]) else 'outside_top_rank_or_constant') for i,identifier in enumerate(ids)])
         marker_fields=['cluster','feature_id','n_group','n_rest','score','p_value','q_value','effect_log2_normalized','detected_group','detected_rest','reason']
         writer.table('markers',all_markers,marker_fields);writer.table('markers_top',top,marker_fields)
         writer.table('cluster_summary',[{'cluster':c,'cells' if single_cell else 'spots':int((result['clusters']==c).sum()),'statistical_unit':'cell' if single_cell else 'spot'} for c in sorted(set(result['clusters']),key=int)])
         plots.embedding_figures(writer,result,kept_barcodes,config)
-        plots.marker_figures(writer,counts,logged,result['clusters'],ids,top,config)
+        plots.marker_figures(writer,counts,logged,result['clusters'],ids,top,{**config,'feature_symbols':dict(zip(ids,symbols))})
         if positions:
             full_cluster=np.full(len(barcodes),np.nan);full_cluster[mask]=result['clusters'].astype(float)
             image,image_scale,radius,image_sha=spatial_image(payload['raw'])
@@ -158,16 +233,35 @@ def run(payload):
         for field in ['sample_id','section','donor','batch','group']:
             obs[field]=[observation_rows[i][field] or 'unknown' for i in np.flatnonzero(mask)]
             obs[field+'_status']=[observation_rows[i][field+'_status'] for i in np.flatnonzero(mask)]
+        if single_cell:
+            for field in ('doublet_status','doublet_prediction','doublet_reason','decontx_status','decontx_reason'):
+                obs[field]=[observation_rows[i][field] or 'none' for i in np.flatnonzero(mask)]
+            for field in ('doublet_score','decontx_contamination'):
+                obs[field]=[np.nan if observation_rows[i][field] is None else observation_rows[i][field] for i in np.flatnonzero(mask)]
+            obs['doublet_excluded']=[observation_rows[i]['doublet_excluded'] for i in np.flatnonzero(mask)]
+            for field in ['library_id','original_barcode']:
+                obs[field]=[observation_rows[i][field] or 'unknown' for i in np.flatnonzero(mask)]
+            for field in ('species_taxon_id','reference_id','reference_version','library_chemistry','pair_id'):
+                obs[field]=[str(observation_rows[i][field]) if observation_rows[i][field] is not None else 'unknown' for i in np.flatnonzero(mask)]
+                obs[field+'_status']=[observation_rows[i][field+'_status'] for i in np.flatnonzero(mask)]
         var=pd.DataFrame({'raw_index':np.flatnonzero(fmask),'symbol':symbols,'highly_variable':hvg},index=ids)
         obj=ad.AnnData(logged.copy(),obs=obs,var=var)
         obj.layers['counts']=counts;obj.layers['normalized']=normalized
+        if decontx_counts is not None:obj.layers['decontx_counts']=decontx_counts
         obj.obsm['X_pca']=result['pca'];obj.obsm['X_umap']=result['umap']
+        if single_cell:
+            obj.obsm['X_pca_unadjusted']=result['pca_unadjusted']
+            if result['pca_harmony'] is not None:obj.obsm['X_pca_harmony']=result['pca_harmony']
+            obj.uns['paperassist_integration_json']=canonical(result['integration']).decode()
         if positions:obj.obsm['spatial']=np.asarray([[position_map[b]['pxl_col_in_fullres'],position_map[b]['pxl_row_in_fullres']] for b in kept_barcodes])
         obj.obsp['distances']=result['distances'];obj.obsp['connectivities']=result['connectivities']
         obj.uns['paperassist_identity_json']=canonical(payload.get('identity',{})).decode()
         obj.uns['paperassist_params_json']=canonical(config).decode()
+        if single_cell:obj.uns['paperassist_import_samples_json']=canonical(payload['raw']['manifest'].get('samples',[])).decode()
+        if subset_state:obj.uns['paperassist_subset_json']=canonical(subset_state['provenance']).decode()
         path=writer.root/'processed.h5ad';obj.write_h5ad(path)
         restored=ad.read_h5ad(path)
+        if decontx_counts is not None and (restored.layers['decontx_counts']!=decontx_counts).nnz:raise ValueError('h5ad_roundtrip_mismatch')
         if list(restored.obs_names)!=kept_barcodes or list(restored.var_names)!=ids or (restored.X!=logged).nnz or (restored.layers['counts']!=counts).nnz or (restored.layers['normalized']!=normalized).nnz or restored.uns['paperassist_identity_json']!=obj.uns['paperassist_identity_json'] or restored.uns['paperassist_params_json']!=obj.uns['paperassist_params_json'] or not np.array_equal(restored.obs['raw_index'],obj.obs['raw_index']) or not np.array_equal(restored.var['raw_index'],obj.var['raw_index']) or any(not np.array_equal(restored.obsm[k],obj.obsm[k]) for k in obj.obsm) or any((restored.obsp[k]!=obj.obsp[k]).nnz for k in obj.obsp):
             raise ValueError('h5ad_roundtrip_mismatch')
         writer.existing('processed',path,'h5ad')
@@ -217,17 +311,24 @@ def run(payload):
     if mode=='qc':methods=f'Engine: {ENGINE_VERSION}\nRaw QC and one-pass filtering only. No normalization, dimensionality reduction, clustering or hypothesis tests executed.\n'+canonical(steps).decode()
     if single_cell:
         methods=methods.replace('exploratory spot','exploratory cell').replace('independent-donor disease contrasts.','independent-donor disease contrasts. Cell IDs are scoped to the fixed dataset and sample; technical samples do not increase donor n.')+'\nCell labels retain marker/file evidence, reviewer and unknown status. Donor inference requires a separate confirmed donor contrast; cell aggregation is descriptive counts only.'
+        methods+='\nPer-library QC uses original import library IDs. scDblFinder results are model predictions, not confirmed doublets. decontX is an independent floating correction layer; normalization, markers and pseudobulk retain original integer counts. Tool states/versions: '+canonical(algorithms['summary']).decode()
+    if single_cell and mode=='compute':methods+='\nEmbedding adjustments only; raw counts, normalized/log1p, marker expression and pseudobulk are not replaced. Batch mixing metrics are descriptive, not biological quality scores. Actual integration states, parameters, versions and downstream representation: '+canonical(summary['single_cell_integration']).decode()
+    if subset_state:methods+='\nSubset QC, retained genes, scDblFinder predictions and decontX correction are inherited from the frozen parent; capture models were not rerun. Normalization, HVG, embeddings, clusters and markers are recomputed for the selected cells. Parent and selection: '+canonical(subset_state['provenance']).decode()
     writer.add('methods',methods.encode(),'txt');writer.json('recipe',config)
     writer.add('reproduce',b"# Run inside supplied fixed Linux image. Payload must reference only exported authorized local input files.\nimport json, os, struct, subprocess, sys\nfrom pathlib import Path\npayload=json.loads(Path(sys.argv[1]).read_bytes())\nbody=json.dumps(payload,allow_nan=False).encode()\nworker=Path(__import__('app.adapters.bio_engine.worker',fromlist=['x']).__file__)\nr=subprocess.run([sys.executable,'-I','-B',str(worker),str(os.getpid())],input=struct.pack('!I',len(body))+body,capture_output=True,env={},timeout=1380)\nif r.returncode: raise RuntimeError(r.stderr.decode())\nprint(r.stdout.decode())\n",'py')
     if payload.get('_trusted_lock') is not None:writer.add('requirements_bio_lock',payload['_trusted_lock'],'txt')
     import resource
     resources={'wall_seconds':time.monotonic()-started,'peak_rss_kib':resource.getrusage(resource.RUSAGE_SELF).ru_maxrss,'peak_rss_includes_warmup':True}
+    resources.update(memory_bounds(single_cell=single_cell,params=config))
+    resources.update(max_output_bytes=selected_limits.max_output_bytes,max_member_bytes=selected_limits.max_member_bytes)
     manifest={'schema_version':1,'engine_version':ENGINE_VERSION,'identity':payload.get('identity',{}),
         'environment_digest':payload.get('identity',{}).get('environment_digest'),'code_digest':payload.get('identity',{}).get('code_digest'),
         'raw_source':payload.get('identity',{}).get('raw_source'),'params':config,'steps':steps,'summary':summary,'tables':tables,
         'inputs':[{k:v for k,v in member.items() if k!='path'}|{'key':key} for key,member in payload['raw']['members'].items()],
         'layers':layers,'resources':resources,'members':[{k:v for k,v in a.items() if k!='path'} for a in writer.artifacts]}
-    if single_cell:manifest.update(assay='single_cell',observation_level='cell')
+    if single_cell:
+        manifest.update(assay='single_cell',observation_level='cell',samples=payload['raw']['manifest'].get('samples',[]),resource_estimate=resource_estimate(payload['raw']['manifest'],config))
+    if subset_state:manifest['subset']=subset_state['provenance']
     writer.json('manifest',manifest)
     return clean(dict(status='completed',engine_version=ENGINE_VERSION,steps=steps,summary=summary,outputs=writer.artifacts,manifest=manifest,checks={'raw_hashes':'verified','h5ad_roundtrip':'verified' if mode=='compute' else 'not_requested'},effective_params=config))
 

@@ -9,7 +9,7 @@ class EvidenceCandidate(Strict):
     object_id:str=Field(min_length=1,max_length=200)
     source_id:str=Field(min_length=1,max_length=200)
     feature_id:str=Field(min_length=1,max_length=200)
-    namespace:str=Field(min_length=1,max_length=200)
+    namespace:str|None=Field(default=None,min_length=1,max_length=200)
     species_taxon_id:int|None=Field(default=None,ge=1)
     reference_version:str|None=None
     condition:str|None=None

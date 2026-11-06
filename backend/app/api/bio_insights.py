@@ -134,6 +134,20 @@ def download_resource(project_id:str,version_id:str,member_id:str,store:Store):
 def result(project_id:str,version_id:str,store:Store):return BioInsightResultService(store).get(project_id,version_id)
 
 
+@router.get('/{project_id}/bio-insight-results/{version_id}/figures')
+def report_figures(project_id:str,version_id:str,store:Store):
+    from app.adapters.single_cell_insight_report import list_report_figures
+    return list_report_figures(store,project_id,version_id)
+
+
+@router.get('/{project_id}/bio-insight-results/{version_id}/report.docx')
+def insight_word_report(project_id:str,version_id:str,store:Store,figure_version_ids:Annotated[list[str]|None,Query(max_length=10)]=None):
+    from app.adapters.single_cell_insight_report import download_single_cell_insight_report
+    return Response(download_single_cell_insight_report(store,project_id,version_id,figure_version_ids),
+        media_type='application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        headers={'Content-Disposition':'attachment; filename="single-cell-donor-analysis.docx"','X-Content-Type-Options':'nosniff'})
+
+
 @router.get('/{project_id}/bio-insight-results/{version_id}/members/{member_id}/download')
 def download_result(project_id:str,version_id:str,member_id:str,store:Store):return download(*BioInsightResultService(store).member(project_id,version_id,member_id))
 

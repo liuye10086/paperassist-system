@@ -28,6 +28,12 @@ class RetryRequest(BaseModel):
     expected_revision: int = Field(strict=True, ge=1, lt=2_147_483_647)
 
 
+@router.post('/{task_id}/cancel', response_model=TaskView)
+def cancel_local_task(task_id: str, request: RetryRequest, store: Store):
+    from app.domain.tasks.local_cancel import cancel_task
+    return cancel_task(store, task_id, request.expected_revision)
+
+
 @router.post('/{task_id}/retry', response_model=TaskView, status_code=202)
 def retry_task(task_id: str, request: RetryRequest, store: Store):
     store.require_mutable(task_id)
@@ -39,6 +45,10 @@ def retry_task(task_id: str, request: RetryRequest, store: Store):
             return retry_in_transaction(store,db,store.require_task(db,task_id),request.expected_revision)
     if task_type in ('research_figure','research_report','research_fact_draft','delivery_package'):
         from app.domain.research_results.execution import retry_in_transaction
+        with store.connection(write=True) as db:
+            return retry_in_transaction(store,db,store.require_task(db,task_id),request.expected_revision)
+    if task_type=='bio_annotation':
+        from app.domain.bioinformatics.annotation_service import retry_in_transaction
         with store.connection(write=True) as db:
             return retry_in_transaction(store,db,store.require_task(db,task_id),request.expected_revision)
     if task_type in ('bio_analysis', 'bio_figure'):

@@ -5,6 +5,8 @@ for _name in ('OPENBLAS_NUM_THREADS', 'OMP_NUM_THREADS', 'MKL_NUM_THREADS', 'NUM
     os.environ[_name] = '1'
 os.environ.update(MPLBACKEND='Agg', MPLCONFIGDIR='/tmp/b04-mpl', XDG_CACHE_HOME='/tmp/b04-cache',
                   HDF5_PLUGIN_PATH='/nonexistent', HDF5_PLUGIN_PRELOAD='::')
+from app.adapters.single_cell_r.bootstrap import preload_runtime_libraries
+preload_runtime_libraries()
 import hashlib
 import importlib.metadata
 import json
@@ -66,6 +68,16 @@ def exercise(output):
             'render_formats': ['png']}
 
 
+def exercise_propeller():
+    from app.adapters.single_cell_r.bridge import get_bridge
+    counts=[[20,80],[30,70],[25,75],[50,50],[60,40],[55,45]]
+    result=get_bridge().propeller(counts,['u'+str(i) for i in range(6)],['T','other'],['A']*3+['B']*3,
+        ['d'+str(i) for i in range(6)],['']*6,'donor_unpaired',numerator='B',denominator='A')
+    assert result['status']=='completed' and result['rows'][0]['proportion_difference']>0
+    assert 0<=result['rows'][0]['p_value']<=1
+    return True
+
+
 def probe():
     from app.domain.bio_insights.settings import BioInsightsLimits, engine_code_digest
     from app.adapters.bio_insights_engine.sandbox import enter
@@ -81,6 +93,17 @@ def probe():
         importlib.import_module('app.adapters.bio_insights_engine.'+name)
     output = Path(tempfile.mkdtemp(prefix='bio-insights-probe-'))
     exercise(output)
+    from app.adapters.single_cell_r.bridge import initialize_propeller,get_bridge
+    r_scratch=Path(tempfile.mkdtemp(prefix='b04-propeller-',dir='/tmp'))
+    from contextlib import redirect_stdout
+    with redirect_stdout(sys.stderr):initialize_propeller(r_scratch)
+    exercise_propeller()
+    from app.adapters.single_cell_r.topics import initialize_topics,exercise_topics
+    with redirect_stdout(sys.stderr):
+        for method in ('slingshot','genie3','cellchat'):initialize_topics(r_scratch,method)
+    # Match actual_identity() in the normal Worker; scikit-bio owns an
+    # additional OpenMP library even when this task does not use beta analysis.
+    import skbio.stats.distance
     packages = {dist.metadata['Name'].lower().replace('_', '-'): dist.version
                 for dist in importlib.metadata.distributions()}
     libraries = sorted(threadpool_info(), key=lambda library: library['filepath'])
@@ -93,6 +116,7 @@ def probe():
               'warm_threads': len(os.listdir('/proc/self/task')), 'limits': limits.model_dump(),
               'code_digest': engine_code_digest(),
               'lock_sha256': hashlib.sha256(Path('/app/requirements-bio-insights.lock.txt').read_bytes()).hexdigest()}
+    report['propeller_versions']=dict(get_bridge().versions)
     report['container_memory_limit_bytes'] = int(Path('/sys/fs/cgroup/memory.max').read_text())
     report['container_cpu_max'] = Path('/sys/fs/cgroup/cpu.max').read_text().strip()
     report['docker_mem_available_bytes'] = next(int(line.split()[1]) * 1024 for line in
@@ -105,7 +129,7 @@ def probe():
     task_counter = os.open('/sys/fs/cgroup/pids.peak', os.O_RDONLY | os.O_CLOEXEC)
     assert report['warm_threads'] == 1, report['warm_threads']
     signal.alarm(limits.compute_wall_seconds)
-    pinned = enter([], output, parent_pid=os.getppid())
+    pinned = enter([], output, parent_pid=os.getppid(),r_scratch=r_scratch)
     isolation = {}
     for name, action in [('network', lambda: socket.socket()), ('file', lambda: Path('/etc/passwd').read_bytes()),
                          ('fork', os.fork), ('subprocess', lambda: subprocess.run(['/bin/true'], check=True))]:
@@ -116,9 +140,14 @@ def probe():
         else:
             raise AssertionError(f'{name} unexpectedly permitted')
     report['checks'] = exercise(output)
+    report['checks']['single_cell_propeller']=exercise_propeller()
+    topic_checks=exercise_topics()
+    report['topic_versions']=topic_checks.pop('topic_versions')
+    report['checks'].update(topic_checks)
     report.update(status='passed', isolation=isolation,
                   peak_rss_kib=resource.getrusage(resource.RUSAGE_SELF).ru_maxrss,
-                  address_space_limit=list(resource.getrlimit(resource.RLIMIT_AS)))
+                  address_space_limit=list(resource.getrlimit(resource.RLIMIT_AS)),
+                  shared_uid_process_limit=list(resource.getrlimit(resource.RLIMIT_NPROC)))
     report['container_peak_memory_bytes'] = int(os.read(memory_counter, 128))
     report['container_peak_tasks'] = int(os.read(task_counter, 128))
     os.close(memory_counter); os.close(task_counter)

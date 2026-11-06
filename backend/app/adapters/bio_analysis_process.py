@@ -47,10 +47,11 @@ def _plain_json(content):
     return json.loads(content, parse_constant=reject, object_pairs_hook=object_pairs)
 
 
-def validate_artifacts(outputs, output_directory, *, formats=None):
+def validate_artifacts(outputs, output_directory, *, formats=None,max_output_bytes=MAX_OUTPUT):
     """No unregistered bytes or pickle-capable arrays may enter object storage."""
     directory = Path(output_directory).absolute()
     try:
+        if type(max_output_bytes) is not int or not 1<=max_output_bytes<=1024**3:raise ValueError()
         if directory.is_symlink() or not directory.is_dir() or type(outputs) is not list or not 1 <= len(outputs) <= 256:
             raise ValueError()
         expected, keys, total = set(), set(), 0
@@ -101,7 +102,7 @@ def validate_artifacts(outputs, output_directory, *, formats=None):
                 if magic != b'\x89HDF\r\n\x1a\n':
                     raise ValueError()
             total += size
-            if total > MAX_OUTPUT:
+            if total > max_output_bytes:
                 raise ValueError()
             expected.add(path.resolve())
             keys.add(key)
@@ -112,7 +113,7 @@ def validate_artifacts(outputs, output_directory, *, formats=None):
         raise invalid() from exc
 
 
-def validate_engine_result(result, directory, *, mode):
+def validate_engine_result(result, directory, *, mode,max_output_bytes=MAX_OUTPUT):
     try:
         if (type(result) is not dict or result['engine_version'] != ENGINE_VERSION
                 or result['status'] != 'completed' or type(result['manifest']) is not dict
@@ -121,7 +122,7 @@ def validate_engine_result(result, directory, *, mode):
         encoded = json.dumps(result, ensure_ascii=False, allow_nan=False).encode('utf-8')
         if len(encoded) > MAX_JSON:
             raise ValueError()
-        outputs = validate_artifacts(result['outputs'], directory)
+        outputs = validate_artifacts(result['outputs'], directory,max_output_bytes=max_output_bytes)
         keys = {item['key'] for item in outputs}
         if mode in {'qc', 'compute'}:
             if not {'observation_mask', 'feature_mask', 'raw_axes', 'observations', 'features', 'methods', 'recipe', 'manifest'} <= keys:
@@ -129,7 +130,10 @@ def validate_engine_result(result, directory, *, mode):
         if mode == 'compute' and not {'counts_data', 'counts_indices', 'counts_indptr', 'normalized_data', 'log1p_data', 'pca', 'umap', 'processed', 'markers'} <= keys:
             raise ValueError()
         for step in result['steps']:
-            if step['status'] not in {'completed', 'not_computable', 'not_requested'}:
+            allowed={'completed','not_computable','not_requested'}
+            if step.get('key') in {'scdblfinder','decontx'}:allowed|={'partial','failed'}
+            if step.get('key') in {'technical_covariates','harmony'}:allowed.add('failed')
+            if step['status'] not in allowed:
                 raise ValueError()
         return result
     except (KeyError, TypeError, ValueError, OSError) as exc:
@@ -157,7 +161,9 @@ def validate_processed_arrays(outputs, *, target_sum=10000.):
         if not 5 <= n <= 20000 or not 3 <= f <= 100000 or not np.isfinite(target_sum) or target_sum <= 0:
             raise ValueError()
         layers = {}
-        for name in ['counts', 'normalized', 'log1p']:
+        names=['counts','normalized','log1p']
+        if any(key.startswith('decontx_counts_') for key in records):names.append('decontx_counts')
+        for name in names:
             data, indices, ptr = (array(name + '_' + suffix) for suffix in ['data', 'indices', 'indptr'])
             if (data.ndim != 1 or indices.ndim != 1 or ptr.ndim != 1 or ptr.shape != (n + 1,)
                     or ptr.dtype.kind not in 'iu' or indices.dtype.kind not in 'iu'
@@ -173,6 +179,16 @@ def validate_processed_arrays(outputs, *, target_sum=10000.):
             if not np.array_equal(layers[name][1], indices) or not np.array_equal(layers[name][2], ptr):
                 raise ValueError()
         normalized, logged = layers['normalized'][0], layers['log1p'][0]
+        if 'decontx_counts' in layers:
+            corrected,ci,cp=layers['decontx_counts']
+            shape=_plain_json(Path(records['decontx_counts_shape']['path']).read_bytes())
+            if shape.get('shape')!=[n,f] or shape.get('dtype')!=str(corrected.dtype) or shape.get('nnz')!=len(corrected):raise ValueError()
+            for row,(start,end) in enumerate(zip(cp[:-1],cp[1:])):
+                current=ci[start:end];values=corrected[start:end]
+                if len(current)>1 and np.any(current[1:]<=current[:-1]):raise ValueError()
+                original_i=indices[ptr[row]:ptr[row+1]];original_x=counts[ptr[row]:ptr[row+1]]
+                locations=np.searchsorted(original_i,current)
+                if np.any(locations>=len(original_i)) or not np.array_equal(original_i[locations],current) or np.any(values>original_x[locations]+1e-7):raise ValueError()
         for start, end in zip(ptr[:-1], ptr[1:]):
             if end <= start or (end - start > 1 and np.any(indices[start + 1:end] <= indices[start:end - 1])):
                 raise ValueError()
@@ -206,14 +222,19 @@ def _input_records(value):
             yield from _input_records(nested)
 
 
-def execute_bio_analysis(payload, output_directory, *, mode='compute', settings=None):
+def execute_bio_analysis(payload, output_directory, *, mode='compute', settings=None, cancel_event=None):
     """A fixed interpreter and script, never a user-selected command or code."""
+    from app.adapters.bio_child_cancel import require_not_revoked,terminate_revoked_child
+    require_not_revoked(cancel_event)
     if sys.platform != 'linux':
         raise invalid('bio_environment_unavailable')
     tabular=mode=='import_v3' or payload.get('raw',{}).get('manifest',{}).get('schema_version')==3
+    from app.domain.bioinformatics.single_cell_resources import memory_bounds,analysis_limits_for,SingleCellRAnalysisLimits
+    selected_limits=SingleCellRAnalysisLimits() if mode=='annotation' else analysis_limits_for(single_cell=mode in {'qc','compute'} and not tabular and payload.get('raw',{}).get('manifest',{}).get('assay')=='single_cell',params=payload.get('config',{}))
+    bounds=memory_bounds(selected_limits)
     interpreter = Path('/opt/paperassist-bio-insights/bin/python' if tabular else '/opt/paperassist-bio/bin/python')
     output = Path(output_directory).absolute()
-    if not interpreter.is_file() or output.is_symlink() or mode not in {'qc', 'compute', 'figure', 'h5_check', 'import_v2','import_v3','import_single_cell'}:
+    if not interpreter.is_file() or output.is_symlink() or mode not in {'qc', 'compute', 'figure','annotation', 'h5_check', 'import_v2','import_v3','import_single_cell'}:
         raise invalid('bio_environment_unavailable')
     output.mkdir(parents=True, exist_ok=True)
     if any(output.iterdir()):
@@ -249,10 +270,11 @@ def execute_bio_analysis(payload, output_directory, *, mode='compute', settings=
                 try:
                     if stat_path.read_text().rsplit(')', 1)[1].split()[19] != birth:
                         return
+                    if terminate_revoked_child(pid,birth,cancel_event):return
                     match = re.search(r'^VmRSS:\s+(\d+) kB$', status_path.read_text(), re.M)
                     rss = int(match.group(1)) * 1024 if match else 0
                     peak[0] = max(peak[0], rss)
-                    if rss > MAX_RSS:
+                    if rss > bounds['rss_limit_bytes']:
                         exceeded.set()
                         os.kill(pid, signal.SIGKILL)
                         return
@@ -264,9 +286,11 @@ def execute_bio_analysis(payload, output_directory, *, mode='compute', settings=
 
     command = [str(interpreter), '-I', '-B', str(Path(__file__).with_name('bio_engine') / ('tabular_worker.py' if tabular else 'worker.py')), str(os.getpid())]
     try:
+        require_not_revoked(cancel_event)
         response = _run_child(command, struct.pack('!I', len(data)) + data,
                               timeout_seconds=1380, max_output_bytes=MAX_JSON, on_started=started)
     except StorageError as exc:
+        require_not_revoked(cancel_event)
         code = 'bio_resource_exceeded' if exceeded.is_set() or exc.code == 'parse_resource_limit' else (
             'bio_analysis_timeout' if exc.code == 'parse_timeout' else 'bio_environment_unavailable')
         raise invalid(code) from exc
@@ -276,6 +300,7 @@ def execute_bio_analysis(payload, output_directory, *, mode='compute', settings=
         stopped.set()
         for thread in monitors:
             thread.join(timeout=1)
+    require_not_revoked(cancel_event)
     if type(response) is not dict:
         raise invalid()
     if set(response) == {'error'}:
@@ -298,8 +323,13 @@ def execute_bio_analysis(payload, output_directory, *, mode='compute', settings=
         result = validate_parser_result(response['result'], output, BioLimits.model_validate(payload['settings']),
                   {item['id'] for item in payload['files']}, expected_parser_version='single_cell_import_v1' if mode=='import_single_cell' else 'geo_visium_import_v2')
     else:
-        result = validate_engine_result(response['result'], output, mode=mode)
+        result = validate_engine_result(response['result'], output, mode=mode,max_output_bytes=selected_limits.max_output_bytes)
     if mode == 'compute' and not tabular:
         validate_processed_arrays(result['outputs'], target_sum=payload.get('config', {}).get('target_sum', 10000.))
+    if mode=='annotation':
+        from app.adapters.bio_single_cell_validation import validate_annotation_result
+        validate_annotation_result(result,payload)
     result.setdefault('resources', {})['parent_peak_rss_bytes'] = peak[0]
+    result['resources'].update(bounds)
+    result['resources'].update(max_output_bytes=selected_limits.max_output_bytes,max_member_bytes=selected_limits.max_member_bytes)
     return result

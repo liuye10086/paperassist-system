@@ -8,6 +8,11 @@ from app.domain.tasks.wait_contracts import WaitView
 
 
 def input_version(task):
+    if task['task_type']=='bio_annotation':
+        from app.domain.bioinformatics.annotation_contracts import input_version as annotation_input
+        return annotation_input(task)
+    if task['task_type']=='bio_cloud_run':
+        return task['input_snapshot']['input_version']
     from app.domain.bio_insights.task_contracts import INSIGHT_TASKS,input_version as insight_input
     if task['task_type'] in INSIGHT_TASKS:return insight_input(task)
     if task['task_type'] in ('research_figure','research_report','research_fact_draft','delivery_package'):
@@ -170,6 +175,13 @@ def persist_wait(db, task):
 
 
 def allowed_recovery_actions(db, task):
+    from app.domain.tasks.local_cancel import can_cancel
+    if can_cancel(task):return ['cancel']
+    if task['task_type']=='bio_annotation':
+        from app.domain.bioinformatics.annotation_service import recovery_actions
+        return recovery_actions(db,task)
+    if task['task_type']=='bio_cloud_run':
+        return []  # Typed cloud workspace handles non-billable retry/reconciliation.
     from app.domain.bio_insights.task_contracts import INSIGHT_TASKS
     if task['task_type'] in INSIGHT_TASKS:
         from app.domain.bio_insights.execution import recovery_actions

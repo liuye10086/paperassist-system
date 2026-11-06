@@ -210,7 +210,7 @@ def _run_bio_insight_task(task_id,task_revision,*,task_type,config=None,director
     if lease is None:return None
     stop,lost=Event(),Event();attempt=None
     def heartbeat():
-        while not stop.wait(10):
+        while not stop.wait(1):
             try:
                 if not repository.heartbeat(lease):lost.set();return
             except StorageError:pass
@@ -243,7 +243,7 @@ def _run_bio_insight_task(task_id,task_revision,*,task_type,config=None,director
                 raise invalid('bio_insights_input_invalid',422)
             member['path']=str(target.resolve())
         render=engine or execute_bio_insights
-        _receipt(attempt,lease,'running_bio_insights');result=render(payload,output)
+        _receipt(attempt,lease,'running_bio_insights');result=render(payload,output) if engine else render(payload,output,cancel_event=lost)
         if lost.is_set():raise LeaseLost()
         response=execution.prepare(lease,cp,result,output)
         try:_receipt(attempt,lease,response['status'])

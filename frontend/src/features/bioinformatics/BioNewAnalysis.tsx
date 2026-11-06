@@ -7,7 +7,13 @@ import {projectBase} from './api'
 import type {BioCapabilities,BioRecipe,RawBioSource} from './spatialContracts'
 import {BioWriteStatus} from './BioSpatialShared'
 import useBioWrite from './useBioWrite'
-export default function BioNewAnalysis({projectId,source,onNavigate,registerLeaveGuard}:{projectId:string;source:RawBioSource;onNavigate:(n:AnalysisNavigation)=>void;registerLeaveGuard?:RegisterLeaveGuard}){
+import SingleCellDirectStart from './SingleCellDirectStart'
+type Props={projectId:string;source:RawBioSource;onNavigate:(n:AnalysisNavigation)=>void;registerLeaveGuard?:RegisterLeaveGuard}
+export default function BioNewAnalysis(props:Props){
+ if(props.source.parser_version==='single_cell_import_v1')return <SingleCellDirectStart {...props}/>
+ return <LegacyNewAnalysis {...props}/>
+}
+function LegacyNewAnalysis({projectId,source,onNavigate,registerLeaveGuard}:Props){
  const {t}=useI18n(),base=projectBase(projectId),read=useBioRead<BioCapabilities|TabularCapabilities>(`${base}/bio-analysis-capabilities?dataset_id=${encodeURIComponent(source.dataset_id)}&version_id=${encodeURIComponent(source.dataset_version_id)}`)
  const tabular=isTabularRaw(source),singleCell=source.parser_version==='single_cell_import_v1'
  const writer=useBioWrite<BioRecipe|TabularRecipe>(projectId,'recipe',v=>onNavigate({view:'bio-analysis-setup',fileId:'',setupId:v.setup_id}),v=>onNavigate({view:'bio-analysis-setup',fileId:'',setupId:v.root_id!}))

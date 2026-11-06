@@ -99,6 +99,8 @@ app.include_router(research_intake_router)
 from app.api.bio_datasets import router as bio_datasets_router
 from app.api.bio_analysis import router as bio_analysis_router
 app.include_router(bio_datasets_router)
+from app.api.bio_cloud import router as bio_cloud_router
+app.include_router(bio_cloud_router)
 app.include_router(bio_analysis_router)
 app.include_router(datasets_router)
 app.include_router(dataset_preparation_router)

@@ -133,7 +133,7 @@ def read_metadata_counts(db, file, user_id):
     # to delete or assert that a corrupted dependency belongs to this file.
     project_files = {r['id'] for r in db.execute('SELECT id FROM files WHERE project_id=%s', (project,))}
     known_producers = {r['task_id'] for rows in groups.values() for r in rows if r.get('task_id')}
-    specialized = {'bio_import', 'bio_analysis', 'bio_figure', 'research_figure', 'research_report', 'research_fact_draft', 'delivery_package'}
+    specialized = {'bio_import', 'bio_analysis', 'bio_annotation', 'bio_figure', 'research_figure', 'research_report', 'research_fact_draft', 'delivery_package'}
     for task in groups['tasks']:
         if task['id'] in selected['tasks'] or task['task_type'] in specialized:continue
         snapshot = task['input_snapshot'];ids = file_ids(snapshot)

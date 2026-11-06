@@ -52,7 +52,8 @@ class BioFigureStore(BioAnalysisStore):
             else:
                 row,manifest,members=self.processed_record(db,project,request.processed_source.processed_dataset_version_id)
                 if self.processed_source(row,manifest)!=request.processed_source.model_dump():raise conflict('bio_input_integrity_changed')
-                if manifest.get('assay')=='single_cell' and (request.config.kind in ('spatial_cluster','spatial_gene','annotation') or request.annotation_version_id):raise error('bio_recipe_invalid',422)
+                if manifest.get('assay')=='single_cell' and request.config.kind in ('spatial_cluster','spatial_gene'):raise error('bio_recipe_invalid',422)
+                if request.annotation_version_id and request.config.kind!='annotation':raise error('bio_annotation_invalid',422)
                 if request.annotation_version_id:
                     annotation=self.require(db,'bio_annotation_versions',project,request.annotation_version_id)
                     if annotation['processed_dataset_version_id']!=row['id']:raise error('bio_annotation_invalid',422)
@@ -106,10 +107,10 @@ class BioFigureStore(BioAnalysisStore):
             if progress is not None:progress()
             if png['format']!='png' or not key.endswith('_png'):continue
             prefix=key[:-4];manifest=members.get(prefix+'_manifest')
-            if not manifest or prefix+'_pdf' not in members or prefix+'_data' not in members:raise error('bio_output_invalid')
+            if not manifest or prefix+'_data' not in members:raise error('bio_output_invalid')
             identifier=str(uuid5(UUID(processed_id),'figure:'+prefix));record=object_by_key(db,task['project_id'],task['user_id'],manifest)
             rendered=json.loads(self.objects.read(manifest));raw_config=rendered.get('config',{})
-            kind='qc' if prefix.startswith('qc') else 'spatial_gene' if prefix.startswith('spatial_gene') else 'spatial_cluster' if prefix.startswith('spatial') else 'marker_dotplot' if 'dotplot' in prefix else 'marker_heatmap' if 'heatmap' in prefix else 'pca' if prefix.startswith('pca') else 'umap'
+            kind=prefix if prefix in {'integration_covariates','integration_harmony'} else 'qc' if prefix.startswith('qc') else 'spatial_gene' if prefix.startswith('spatial_gene') else 'spatial_cluster' if prefix.startswith('spatial') else 'marker_dotplot' if 'dotplot' in prefix else 'marker_heatmap' if 'heatmap' in prefix else 'pca' if prefix.startswith('pca') else 'umap'
             dpi=rendered.get('dpi',raw_config.get('dpi',300))
             config={k:v for k,v in raw_config.items() if k in BioFigureConfig.model_fields}
             panel={'pca':'scores','pca_variance':'variance','umap':'scores','qc_distribution':'distribution','qc_scatter':'scatter',
@@ -120,13 +121,14 @@ class BioFigureStore(BioAnalysisStore):
                 palette='tab20' if kind=='spatial_cluster' else raw_config.get('cmap',raw_config.get('palette','viridis')),
                 dpi=dpi,width=round(rendered.get('width_inches',raw_config.get('width_inches',6))*dpi),
                 height=round(rendered.get('height_inches',raw_config.get('height_inches',5))*dpi))
-            try:config=BioFigureConfig.model_validate(config).model_dump()
+            from app.domain.bioinformatics.analysis_contracts import BioDefaultFigureConfig
+            try:config=BioDefaultFigureConfig.model_validate(config).model_dump()
             except ValueError as exc:raise error('bio_output_invalid') from exc
             insert(db,'bio_figure_versions',{**base_row(identifier,task['project_id'],task['user_id']),'root_id':identifier,'version':1,'parent_id':None,
                 'processed_dataset_version_id':processed_id,'annotation_version_id':None,'task_id':task['id'],'config_json':config,'config_sha256':digest(config),
                 'renderer_version':'bio_plots_v1','manifest_object_id':record['id'],'manifest_sha256':record['sha256'],
                 'request_key':'default:'+identifier,'request_digest':digest(dict(processed_id=processed_id,key=prefix))})
-            for suffix in ('png','pdf','data','manifest'):
+            for suffix in ('png','data','manifest'):
                 if progress is not None:progress()
                 member=members[prefix+'_'+suffix];stored=object_by_key(db,task['project_id'],task['user_id'],member)
                 insert(db,'bio_figure_members',{**base_row(str(uuid5(UUID(identifier),suffix)),task['project_id'],task['user_id']),'figure_version_id':identifier,
@@ -143,7 +145,7 @@ class BioFigureStore(BioAnalysisStore):
                 'processed_dataset_version_id':processed_id,'annotation_version_id':None,'task_id':task['id'],'config_json':config,'config_sha256':digest(config),
                 'renderer_version':'tabular_plots_v1','manifest_object_id':record['id'],'manifest_sha256':record['sha256'],
                 'request_key':'default:'+identifier,'request_digest':digest(dict(processed_id=processed_id,key=prefix))})
-            for suffix in ('png','tiff','svg','pdf','data','manifest'):
+            for suffix in ('png','tiff','svg','data','manifest'):
                 if progress:progress()
                 member=members[prefix+'_'+suffix];stored=object_by_key(db,task['project_id'],task['user_id'],member)
                 insert(db,'bio_figure_members',{**base_row(str(uuid5(UUID(identifier),suffix)),task['project_id'],task['user_id']),'figure_version_id':identifier,
