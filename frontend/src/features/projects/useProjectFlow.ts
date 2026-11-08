@@ -4,7 +4,15 @@ import { useResearchRead } from '../research-results/api'
 import type { Project } from './projectTypes'
 import type { ProjectSection } from './WorkspaceShell'
 import type { OverviewView } from './projectNavigation'
-import type { ProjectSummaryData } from './projectSummaryTypes'
+
+export type WorkflowState = {
+  project_id: string
+  project_type: Project['project_type']
+  files: { total: number; ready: number }
+  requirements: { saved: boolean; version: number | null; services: DeliveryKind[] }
+  results: { available: boolean }
+  next_step: 'upload' | 'requirements' | 'analysis' | 'results' | 'writing'
+}
 
 export function projectFlowStep(section: ProjectSection, view: OverviewView, analysis: boolean) {
   if (section === 'overview') return ['requirements','design'].includes(view) ? 2 : view === 'deliveries' ? 4 : 0
@@ -28,20 +36,23 @@ export function flowBlockReason(step: number, state: { hasFiles: boolean; requir
 
 export default function useProjectFlow(project: Project | null, section: ProjectSection, view: OverviewView) {
   const id = project?.id ?? ''
-  const intake = useResearchRead<Intake>(id ? `/api/v1/projects/${id}/research-intake` : '', !!id)
-  const summary = useResearchRead<ProjectSummaryData>(id ? `/api/v1/projects/${id}/summary?task_page=1&artifact_page=1&page_size=10` : '', !!id)
+  const intakeActive = !!id && section === 'overview' && ['requirements', 'design'].includes(view)
+  const intake = useResearchRead<Intake>(id ? `/api/v1/projects/${id}/research-intake` : '', intakeActive)
+  const workflow = useResearchRead<WorkflowState>(id ? `/api/v1/projects/${id}/workflow-state` : '', !!id)
   const [accepted, setAccepted] = useState<{ id: string; services: DeliveryKind[]; version?:Version } | null>(null)
   const acceptedRef = useRef(accepted)
-  const services = accepted?.id === id ? accepted.services : intake.data?.current_requirement?.content.services
+  const services = accepted?.id === id ? accepted.services : workflow.data?.requirements.services
   const hasAnalysis = !Array.isArray(services) || services.includes('analysis')
   const step = projectFlowStep(section, view, hasAnalysis)
   const [visited, setVisited] = useState({ id, step })
   const reached = visited.id === id ? Math.max(visited.step, step) : step
   useEffect(() => { if (visited.id !== id || visited.step < step) setVisited({ id, step }) }, [id, step, visited])
-  const existingResults = (summary.data?.artifacts?.total ?? 0) > 0 || !!summary.data?.future?.writing?.current_manuscript
-  const state = { hasFiles: (project?.file_count ?? 0) > 0, requirementSaved: Array.isArray(services) && services.length > 0, reached, existingResults }
+  const existingResults = workflow.data?.results.available ?? false
+  const state = { hasFiles: workflow.data ? workflow.data.files.ready > 0 : (project?.file_count ?? 0) > 0,
+    requirementSaved: workflow.data?.requirements.saved ?? (Array.isArray(services) && services.length > 0), reached, existingResults }
   return {
     hasAnalysis,
+    workflowState: workflow.data,
     savedRequirement: accepted?.id===id&&accepted.version&&accepted.version.version>=(intake.data?.current_requirement?.version??0)?accepted.version:intake.data?.current_requirement??null,
     reason: (target: ProjectSection, overview: OverviewView = 'tasks') => {
       const latest = acceptedRef.current?.id === id ? acceptedRef.current.services : services
@@ -50,8 +61,8 @@ export default function useProjectFlow(project: Project | null, section: Project
         : !analysis && projectFlowStep(target,overview,analysis)===3 && Array.isArray(latest) && latest.length>0 ? ''
         : flowBlockReason(projectFlowStep(target, overview, analysis), {...state, requirementSaved: Array.isArray(latest) && latest.length > 0})
     },
-    acceptServices: (next: DeliveryKind[], version?:Version) => { acceptedRef.current = { id, services: next, version }; setAccepted(acceptedRef.current); intake.refresh() },
-    refresh: () => { acceptedRef.current = null; setAccepted(null); intake.refresh(); summary.refresh() },
-    error: intake.error || summary.error,
+    acceptServices: (next: DeliveryKind[], version?:Version) => { acceptedRef.current = { id, services: next, version }; setAccepted(acceptedRef.current); intake.refresh(); workflow.refresh() },
+    refresh: () => { acceptedRef.current = null; setAccepted(null); intake.refresh(); workflow.refresh() },
+    error: intake.error || workflow.error,
   }
 }

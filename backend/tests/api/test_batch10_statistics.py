@@ -16,6 +16,8 @@ def test_analysis_post_queues_without_computing(client, monkeypatch):
     assert task['execution_receipt'] is None
     assert client.post(base + '/analysis-runs', json={'expected_revision': 1, 'idempotency_key': 'batch10-request'}).json()['id'] == task['id']
     with database_connection() as db:
+        project_id = base.split('/')[4]
+        assert db.execute("SELECT count(*) AS n FROM tasks WHERE project_id=%s AND task_type='statistics_compute'", (project_id,)).fetchone()['n'] == 1
         assert db.execute('SELECT count(*) AS n FROM analysis_runs').fetchone()['n'] == 0
         assert db.execute('SELECT count(*) AS n FROM task_outbox WHERE task_id=%s', (task['id'],)).fetchone()['n'] == 1
     detail = client.get('/api/v1/tasks/' + task['id']).json()

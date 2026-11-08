@@ -93,18 +93,23 @@ function ResourceContent({ projectId, onSaved, section, onSectionChange, onUnava
 
   function refresh() { setLoading(true); setError(''); setAttempt(value => value + 1) }
   useEffect(() => {
+    if (!active || (section !== 'files' && section !== 'analysis')) {
+      setLoading(false)
+      setError('')
+      return undefined
+    }
     const controller = new AbortController()
-    let active = true
+    let live = true
     const timeout = window.setTimeout(() => controller.abort(), STANDARD_REQUEST_TIMEOUT_MS)
     void fileRequest<ProjectFile[]>(`/api/v1/projects/${projectId}/files`, controller.signal, onUnavailable)
       .then(result => {
         if (!Array.isArray(result)) throw new Error('format')
-        if (active && !controller.signal.aborted) setFiles(result)
+        if (live && !controller.signal.aborted) setFiles(result)
       })
-      .catch(() => { if (active) setError('文件列表读取失败，请确认后端服务正常后重试。') })
-      .finally(() => { window.clearTimeout(timeout); if (active) setLoading(false) })
-    return () => { active = false; controller.abort(); window.clearTimeout(timeout) }
-  }, [projectId, attempt, onUnavailable, section])
+      .catch(() => { if (live) setError('文件列表读取失败，请确认后端服务正常后重试。') })
+      .finally(() => { window.clearTimeout(timeout); if (live) setLoading(false) })
+    return () => { live = false; controller.abort(); window.clearTimeout(timeout) }
+  }, [active, projectId, attempt, onUnavailable, section])
 
   function batchChanged() { setUploadVersion(value => value + 1); refresh(); onSaved() }
   function refreshMaterials(){refresh();imports.refresh()}
