@@ -141,9 +141,9 @@ def report_figures(project_id:str,version_id:str,store:Store):
 
 
 @router.get('/{project_id}/bio-insight-results/{version_id}/report.docx')
-def insight_word_report(project_id:str,version_id:str,store:Store,figure_version_ids:Annotated[list[str]|None,Query(max_length=10)]=None):
+def insight_word_report(project_id:str,version_id:str,store:Store,figure_version_ids:Annotated[list[str]|None,Query(max_length=10)]=None,language:Annotated[Literal['zh-CN','en']|None,Query()]=None):
     from app.adapters.single_cell_insight_report import download_single_cell_insight_report
-    return Response(download_single_cell_insight_report(store,project_id,version_id,figure_version_ids),
+    return Response(download_single_cell_insight_report(store,project_id,version_id,figure_version_ids,language),
         media_type='application/vnd.openxmlformats-officedocument.wordprocessingml.document',
         headers={'Content-Disposition':'attachment; filename="single-cell-donor-analysis.docx"','X-Content-Type-Options':'nosniff'})
 

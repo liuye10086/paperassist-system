@@ -21,7 +21,7 @@ it('shows complete method parameters directly while preserving large fixed input
  const fetch=vi.fn(async(url:string)=>Response.json(url.endsWith('/progress')?{project_id:'p1',task_id:'report-task',task_type:'research_report',status:'succeeded',progress:null}:url.endsWith('/research-reports/report')?report:{items:[report],total:1,page:1,page_size:20}))
  vi.stubGlobal('fetch',fetch)
  render(<ResearchReport projectId="p1" active selectedId="report" onSelect={vi.fn()}/>)
- await screen.findByRole('heading',{name:'Frozen report · v1'})
+ await screen.findByRole('heading',{name:'Frozen report'})
  for(const method of methods){
   const description=screen.getByText(`${method.title} · ${method.description}`,{exact:false})
   expect(description.closest('details')).toBeNull()
@@ -48,7 +48,7 @@ it('shows complete method parameters directly while preserving large fixed input
 it('offers the selected successful report as a fixed writing source without creating a task',async()=>{
  const report={id:'report-old',root_id:'r',revision:2,content:{title:'Fixed report',finding:{revision:1,content:{facts:[],methods:[],gaps:[],limitations:[],claims:[]}},tables:[],included_pdf:false},task:{id:'task',status:'succeeded'},members:[]}
  const fetch=vi.fn(async(url:string,_init?:RequestInit)=>Response.json(url.endsWith('/research-reports/report-old')?report:{items:[],total:0,page:1,page_size:20}));vi.stubGlobal('fetch',fetch)
- const onWriting=vi.fn();render(<ResearchReport projectId="p1" active selectedId="report-old" onSelect={vi.fn()} onWriting={onWriting}/>);await screen.findByRole('heading',{name:'Fixed report · v2'});screen.getByRole('button',{name:'用于写作'}).click();expect(onWriting).toHaveBeenCalledWith({kind:'research_report_version',id:'report-old'});expect(fetch.mock.calls.every(([,init])=>!init?.method||init.method==='GET')).toBe(true)
+ const onWriting=vi.fn();render(<ResearchReport projectId="p1" active selectedId="report-old" onSelect={vi.fn()} onWriting={onWriting}/>);await screen.findByRole('heading',{name:'Fixed report'});screen.getByRole('button',{name:'用于写作'}).click();expect(onWriting).toHaveBeenCalledWith({kind:'research_report_version',id:'report-old'});expect(fetch.mock.calls.every(([,init])=>!init?.method||init.method==='GET')).toBe(true)
 })
 
 it.each(['succeeded','running','failed'])('keeps %s report content separate from processing history',async status=>{
@@ -57,7 +57,7 @@ it.each(['succeeded','running','failed'])('keeps %s report content separate from
  const progress={project_id:'p1',task_id:'task',task_type:'research_report',status,progress:{stage:'published',stage_started_at:stamp,stage_ended_at:stamp,stage_elapsed_seconds:0,observed_at:stamp,stages:[{stage:'source_verification',started_at:stamp,ended_at:stamp,elapsed_seconds:1.4}]}}
  const fetch=vi.fn(async(url:string,_init?:RequestInit)=>Response.json(url.endsWith('/progress')?progress:url.endsWith('/research-reports/report-old')?report:{items:[],total:0,page:1,page_size:20}));vi.stubGlobal('fetch',fetch)
  render(<ResearchReport projectId="p1" active selectedId="report-old" onSelect={vi.fn()}/>);
- await screen.findByRole('heading',{name:'Fixed report · v2'})
+ await screen.findByRole('heading',{name:'Fixed report'})
  expect(screen.queryByRole('heading',{name:'已记录阶段与耗时'})).toBeNull()
  expect(fetch.mock.calls.some(([url])=>url.endsWith('/progress'))).toBe(false)
  fireEvent.click(screen.getByRole('button',{name:'下载文件'}))
@@ -78,7 +78,7 @@ it.each(['succeeded','running','failed'])('keeps %s report content separate from
 it.each(['queued','running','failed'])('does not offer a %s report for writing',async status=>{
  const report={id:'report-old',root_id:'r',revision:2,content:{title:'Fixed report',finding:{revision:1,content:{facts:[],methods:[],gaps:[],limitations:[],claims:[]}},tables:[],included_pdf:false},task:{id:'task',status},members:[]}
  vi.stubGlobal('fetch',vi.fn(async(url:string)=>Response.json(url.endsWith('/research-reports/report-old')?report:{items:[],total:0,page:1,page_size:20})))
- render(<ResearchReport projectId="p1" active selectedId="report-old" onSelect={vi.fn()} onWriting={vi.fn()}/>);await screen.findByRole('heading',{name:'Fixed report · v2'});expect(screen.queryByRole('button',{name:'用于写作'})).toBeNull()
+ render(<ResearchReport projectId="p1" active selectedId="report-old" onSelect={vi.fn()} onWriting={vi.fn()}/>);await screen.findByRole('heading',{name:'Fixed report'});expect(screen.queryByRole('button',{name:'用于写作'})).toBeNull()
 })
 
 it('keeps saved report Word and tables without PDF history or a ZIP containing PDF',async()=>{

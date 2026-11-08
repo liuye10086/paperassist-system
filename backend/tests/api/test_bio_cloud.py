@@ -155,6 +155,19 @@ def test_cloud_upload_run_poll_and_cancel_are_persistent(client, monkeypatch):
     assert len(remote.submissions) == 1
 
 
+def test_run_idempotent_replay_survives_disabled_current_configuration(client, monkeypatch):
+    remote = configure(monkeypatch)
+    project = create_project(client)['id']
+    base = f"/api/v1/projects/{project}/bio-cloud"
+    run, body = create_run(client, base, remote)
+    from app.domain.bio_cloud import service
+    from app.domain.bio_cloud.settings import CloudSettings
+    monkeypatch.setattr(service, 'load_settings', lambda: CloudSettings())
+    replay = client.post(base + '/runs', json=body, headers={'Idempotency-Key': 'run-key'})
+    assert replay.status_code == 202, replay.text
+    assert replay.json()['id'] == run['id']
+
+
 def test_submission_unknown_never_reposts_on_worker_recovery(client, monkeypatch):
     remote = configure(monkeypatch)
     remote.fail_submit = True

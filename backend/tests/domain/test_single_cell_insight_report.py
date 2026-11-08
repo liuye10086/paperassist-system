@@ -9,6 +9,44 @@ def text_of(content):
     return '\n'.join(p.text for p in document.paragraphs)+'\n'+'\n'.join(c.text for t in document.tables for row in t.rows for c in row.cells)
 
 
+def test_reader_facing_report_contains_only_reader_facing_body():
+    from app.adapters.single_cell_insight_report import build_single_cell_insight_report
+
+    narrative = {
+        'input_sha256': 'a' * 64,
+        'narrative_sha256': 'b' * 64,
+        'model': 'configured-model',
+        'prompt_version': 'single-cell-reader-report-v1',
+        'narrative': {
+            field: '自然语言科研段落。结果需要结合供者层证据和质量控制后再解释。'
+            for field in ('abstract', 'design_and_data', 'quality_control', 'methods_summary',
+                          'key_findings', 'limitations', 'reader_cautions')
+        },
+    }
+    manifest = {
+        'summary': {'row_count': 1},
+        'methods': {'name': 'cellchat'},
+        'source_bindings': [{'source_id': 'source-1', 'sha256': 'c' * 64}],
+    }
+    blob = build_single_cell_insight_report(
+        'result-1', 'd' * 64,
+        {'kind': 'integration', 'schema_version': 2, 'method': 'cellchat', 'output_language': 'zh-CN'},
+        manifest,
+        {'communication_results': {'rows': [{'sender': 'T', 'receiver': 'B', 'probability': '0.2'}], 'total': 1}},
+        [], narrative=narrative,
+    )
+    document_text = text_of(blob)
+    assert '自然语言科研段落' in document_text
+    assert '附录 A：可追溯性与复现信息' not in document_text
+    assert 'Appendix A: Traceability and reproducibility' not in document_text
+    assert 'result-1' not in document_text and 'source-1' not in document_text
+    assert 'd' * 64 not in document_text and 'c' * 64 not in document_text
+    assert '通讯结果' in document_text
+    assert '发送者细胞类型' in document_text
+    assert '0.2' in document_text
+    assert 'cell_permutation_p_value' not in document_text
+
+
 @pytest.mark.parametrize('language,heading',[('zh-CN','供者单位与组成分母'),('en','Donor units and composition denominators')])
 def test_composition_word_preserves_unknown_denominator_and_no_inference(language,heading):
     from app.adapters.single_cell_insight_report import build_single_cell_insight_report

@@ -10,7 +10,7 @@ from app.adapters.task_store import TaskStore, DatasetTaskAssets
 from app.core.exceptions import StorageError
 from app.domain.bioinformatics.contracts import digest
 from .contracts import WorkflowProfile, build_parameters
-from .provider import ProviderError
+from .provider import ProviderError, PROVIDER_RUN_STATES, provider_run_id
 from . import service as cloud
 
 logger = logging.getLogger(__name__)
@@ -81,8 +81,9 @@ def pause_unknown_in_transaction(repository, db, task):
 
 
 def receipt(repository, row, response):
-    run_id = response.get('run_id')
-    if not isinstance(run_id,str) or not run_id.isdecimal() or len(run_id)>18:
+    try:
+        run_id = provider_run_id(response.get('run_id'))
+    except ProviderError:
         raise ProviderError('invalid_submission_receipt',uncertain=True)
     uri = response.get('run_output_uri')
     if uri:
@@ -159,7 +160,7 @@ def execute(repository, lease, service, provider):
     if response.get('run_id') != row['provider_run_id']:
         raise cloud.error('output_invalid','远端任务身份不一致。')
     state = response.get('status')
-    if state not in ('PENDING','STARTING','RUNNING','STOPPING','COMPLETED','DELETED','CANCELLED','FAILED'):
+    if state not in PROVIDER_RUN_STATES:
         return finish(repository,lease,'blocked','bio_cloud_provider_unavailable')
     uri = response.get('run_output_uri') or row['run_output_uri']
     if state=='COMPLETED':

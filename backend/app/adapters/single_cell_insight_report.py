@@ -8,7 +8,9 @@ import re
 from docx import Document
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
-from docx.shared import Mm, Pt
+from docx.shared import Mm, Pt, RGBColor
+
+from app.adapters.bio_reader_narrative import load_cached_narrative
 
 
 def _value(value):
@@ -41,10 +43,11 @@ def _scalars(value,prefix='',depth=0):
     return rows
 
 
-def _table(doc,rows,columns):
+def _table(doc,rows,columns,display_columns=None):
+    display_columns=display_columns or columns
     table=doc.add_table(rows=1,cols=len(columns));table.style='Table Grid'
     table.rows[0]._tr.get_or_add_trPr().append(OxmlElement('w:tblHeader'))
-    for cell,column in zip(table.rows[0].cells,columns):cell.text=column
+    for cell,column in zip(table.rows[0].cells,display_columns):cell.text=column
     for row in rows:
         cells=table.add_row().cells
         for cell,column in zip(cells,columns):cell.text=_table_value(row.get(column),column)
@@ -56,8 +59,146 @@ def _table(doc,rows,columns):
     return table
 
 
-def build_single_cell_insight_report(identifier,manifest_sha256,config,manifest,tables,figures):
+def _reader_title(config, en):
+    if config.get('kind')=='integration' and config.get('schema_version')==2:
+        return {'slingshot':('单细胞轨迹分析报告','Single-cell trajectory report'),
+                'genie3':('单细胞调控网络报告','Single-cell regulatory network report'),
+                'cellchat':('单细胞通讯分析报告','Single-cell communication report')}.get(config.get('method'),('单细胞分析报告','Single-cell analysis report'))[int(en)]
+    if config.get('method')=='single_cell_composition':return ('单细胞组成分析报告','Single-cell composition report')[int(en)]
+    if config.get('kind') in ('ora','gsea_prerank'):return ('基因集富集分析报告','Gene-set enrichment report')[int(en)]
+    if config.get('mode') in ('donor_paired','donor_unpaired'):return ('供者级差异表达报告','Donor-level differential expression report')[int(en)]
+    return ('单细胞比较分析报告','Single-cell comparison report')[int(en)]
+
+
+def _reader_paragraph(doc, title, text):
+    doc.add_heading(title, 1)
+    if isinstance(text, list):
+        for item in text:
+            doc.add_paragraph(str(item), style='List Bullet')
+    else:
+        doc.add_paragraph(str(text))
+
+
+def _reader_table_title(key, en):
+    labels={
+        'communication_comparisons':('通讯条件比较','Communication condition comparisons'),
+        'communication_results':('通讯结果','Communication results'),
+        'comparison_results':('比较结果','Comparison results'),
+        'composition_results':('组成结果','Composition results'),
+        'enrichment_results':('富集结果','Enrichment results'),
+        'trajectory_results':('轨迹结果','Trajectory results'),
+        'regulation_results':('调控网络结果','Regulatory network results'),
+    }
+    return labels.get(key,(key,key))[int(en)]
+
+
+def _reader_column_label(column, en):
+    labels={
+        'sender':('发送者细胞类型','Sender cell type'),
+        'receiver':('接收者细胞类型','Receiver cell type'),
+        'difference':('条件差值','Condition difference'),
+        'donor_p_value':('供者层 P 值','Donor-level p-value'),
+        'donor_q_value':('供者层校正 Q 值','Donor-level adjusted q-value'),
+        'probability':('预测通讯概率','Predicted communication probability'),
+        'cell_permutation_p_value':('细胞层面置换检验 P 值','Cell-level permutation p-value'),
+        'status':('计算状态','Computation status'),
+        'effect_value':('效应值','Effect value'),
+        'p_value':('P 值','P-value'),
+        'q_within_contrast':('比较内校正 Q 值','Within-comparison adjusted q-value'),
+        'test_status':('检验状态','Test status'),
+        'effect_unit':('效应单位','Effect unit'),
+        'category_label':('类别','Category'),
+        'proportion_difference':('组成比例差值','Difference in proportion'),
+        'proportion_ratio':('组成比例比值','Proportion ratio'),
+        'p_adjust':('校正 P 值','Adjusted p-value'),
+        'inference_status':('推断状态','Inference status'),
+        'term_name':('基因集或通路','Gene set or pathway'),
+        'nes':('标准化富集分数','Normalized enrichment score'),
+        'q_value':('校正 Q 值','Adjusted q-value'),
+        'fdr_q_value':('FDR 校正 Q 值','FDR-adjusted q-value'),
+        'cluster':('细胞群','Cell cluster'),
+        'pseudotime':('拟时序','Pseudotime'),
+        'weight':('调控权重','Regulatory weight'),
+        'covered':('是否覆盖','Covered'),
+        'regulator':('调控因子','Regulator'),
+        'target':('靶基因','Target gene'),
+        'stability_weight':('稳定性权重','Stability weight'),
+        'absolute_weight_difference':('权重绝对差值','Absolute weight difference'),
+    }
+    return labels.get(column,(column,column))[int(en)]
+
+
+def _reader_columns(columns, en):
+    return [_reader_column_label(column,en) for column in columns]
+
+
+def _reader_figure_title(key, en):
+    labels={
+        'topic_plot':('通讯概率热图','Communication probability heatmap'),
+        'communication_heatmap':('通讯概率热图','Communication probability heatmap'),
+        'communication_comparison':('通讯条件比较图','Communication condition comparison'),
+    }
+    return labels.get(key,('分析图件','Analysis figure'))[int(en)]
+
+
+def _build_reader_facing_report(identifier, manifest_sha256, config, manifest, tables, figures, narrative):
+    en=config.get('output_language')=='en';doc=Document();record=narrative if isinstance(narrative,dict) else {};narrative=record.get('narrative',record)
+    section=doc.sections[0];section.page_width=Mm(210);section.page_height=Mm(297)
+    section.left_margin=section.right_margin=section.top_margin=section.bottom_margin=Mm(20)
+    for name in ('Normal','Title','Heading 1','Heading 2'):
+        style=doc.styles[name];style.font.name='Arial';style.element.get_or_add_rPr().get_or_add_rFonts().set(qn('w:eastAsia'),'Microsoft YaHei')
+        style.font.color.rgb=RGBColor(0,0,0)
+        ppr=style.element.get_or_add_pPr()
+        for border in list(ppr):
+            if border.tag==qn('w:pBdr'):ppr.remove(border)
+    doc.styles['Normal'].font.size=Pt(10);doc.styles['Normal'].paragraph_format.space_after=Pt(6)
+    doc.add_paragraph(_reader_title(config,en),style='Title')
+    doc.add_paragraph('Reader-facing report generated from frozen analysis facts.' if en else '本报告基于已冻结的分析事实生成，供研究人员阅读和进一步核对。')
+    _reader_paragraph(doc,'Abstract' if en else '摘要',narrative['abstract'])
+    _reader_paragraph(doc,'Study design and data' if en else '研究设计与数据范围',narrative['design_and_data'])
+    _reader_paragraph(doc,'Quality control and usability' if en else '质量控制与结果可用性',narrative['quality_control'])
+    _reader_paragraph(doc,'Methods' if en else '分析方法',narrative['methods_summary'])
+    _reader_paragraph(doc,'Key findings' if en else '主要结果',narrative['key_findings'])
+    _reader_paragraph(doc,'Limitations' if en else '局限性',narrative['limitations'])
+    _reader_paragraph(doc,'Reader cautions' if en else '阅读提示',narrative['reader_cautions'])
+    doc.add_heading('Selected results' if en else '关键结果表',1)
+    preferred={
+        'communication_comparisons':('sender','receiver','difference','donor_p_value','donor_q_value','status'),
+        'communication_results':('sender','receiver','probability','cell_permutation_p_value','status'),
+        'comparison_results':('effect_value','p_value','q_within_contrast','test_status','effect_unit'),
+        'composition_results':('category_label','proportion_difference','proportion_ratio','p_value','p_adjust','inference_status'),
+        'enrichment_results':('term_name','nes','p_value','q_value','fdr_q_value','status'),
+        'trajectory_results':('cluster','pseudotime','weight','covered','status'),
+        'regulation_results':('regulator','target','weight','stability_weight','absolute_weight_difference','status'),
+    }
+    shown_any=False
+    for key,columns in preferred.items():
+        raw=tables.get(key)
+        if not raw:continue
+        rows=raw.get('rows',[]) if isinstance(raw,dict) else raw
+        if not rows:continue
+        available=[column for column in columns if any(column in row for row in rows)][:6]
+        if not available:continue
+        doc.add_heading(_reader_table_title(key,en),2);_table(doc,rows[:20],available,_reader_columns(available,en));shown_any=True
+        total=raw.get('total',len(rows)) if isinstance(raw,dict) else len(rows)
+        doc.add_paragraph(('The table shows %s of %s saved rows.' % (min(20,len(rows)),total)) if en else ('本表展示已保存结果中的 %s / %s 行。' % (min(20,len(rows)),total)))
+    if not shown_any:doc.add_paragraph('No reader-facing result rows were available.' if en else '没有可供正文展示的结果行。')
+    if figures:
+        doc.add_heading('Figures' if en else '图件',1)
+        from PIL import Image
+        for figure in figures:
+            caption=doc.add_paragraph(_reader_figure_title(figure.get('key',''),en))
+            caption.paragraph_format.keep_with_next=True
+            with Image.open(io.BytesIO(figure['content'])) as picture:width,height=picture.size
+            ratio=min(170/width,210/height)
+            doc.add_picture(io.BytesIO(figure['content']),width=Mm(width*ratio),height=Mm(height*ratio))
+    output=io.BytesIO();doc.save(output);return output.getvalue()
+
+
+def build_single_cell_insight_report(identifier,manifest_sha256,config,manifest,tables,figures,*,narrative=None):
     """Use recorded values only; table excerpts explicitly retain their totals."""
+    if narrative is not None:
+        return _build_reader_facing_report(identifier,manifest_sha256,config,manifest,tables,figures,narrative)
     en=config.get('output_language')=='en';doc=Document()
     local=lambda zh,english:english if en else zh
     section=doc.sections[0];section.page_width=Mm(210);section.page_height=Mm(297)
@@ -216,7 +357,7 @@ def list_report_figures(store,project,identifier):
         return dict(items=output)
 
 
-def download_single_cell_insight_report(store,project,identifier,figure_version_ids=None):
+def download_single_cell_insight_report(store,project,identifier,figure_version_ids=None,language=None):
     from app.domain.bio_insights.results import BioInsightResultService,checked_members
     from app.domain.bio_insights.service import BioInsightsService
     from app.adapters.bio_insights_store import invalid
@@ -229,6 +370,7 @@ def download_single_cell_insight_report(store,project,identifier,figure_version_
         recipe=next((m for m in members if m['key']=='recipe'),None)
         if recipe is None:raise invalid('bio_insight_source_incomplete',422)
         config=json.loads(service.objects.read(recipe))['config']
+        selected_language=language or config.get('output_language','zh-CN')
         if config['kind'] not in ('comparison','ora','gsea_prerank') and not (config['kind']=='integration' and config.get('schema_version')==2):raise invalid('bio_insight_source_incomplete',422)
         tables={};figures=[]
         allowed={'trajectory_results','regulation_results','communication_units','communication_results','communication_comparisons','composition_units','composition_counts','composition_results','aggregation_units','comparison_results','enrichment_results'}
@@ -264,5 +406,6 @@ def download_single_cell_insight_report(store,project,identifier,figure_version_
                 replacements.append(dict(key=methods.get('config',{}).get('title') or methods['figure_type'],sha256=png['sha256'],content=service.objects.read(png),
                     figure_result_id=figure_id,source_result_id=identifier,source_manifest_sha256=row['manifest_sha256']))
             figures=replacements
-        content=build_single_cell_insight_report(identifier,row['manifest_sha256'],config,manifest,tables,figures)
+        narrative=load_cached_narrative(service.assets.directory,project,identifier,selected_language)
+        content=build_single_cell_insight_report(identifier,row['manifest_sha256'],{**config,'output_language':selected_language},manifest,tables,figures,narrative=narrative)
     return content

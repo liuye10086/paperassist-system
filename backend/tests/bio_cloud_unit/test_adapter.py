@@ -98,6 +98,7 @@ def test_config_rejects_secret_and_template_traversal(tmp_path, monkeypatch):
 
 
 def test_sdk_models_and_real_stubber():
+    pytest.importorskip('boto3')
     import boto3
     from botocore.config import Config
     from botocore.stub import Stubber
@@ -113,6 +114,7 @@ def test_sdk_models_and_real_stubber():
 
 
 def test_sdk_s3_contract_and_embedded_completion_failure():
+    pytest.importorskip('boto3')
     import boto3
     from botocore.stub import Stubber
     from app.adapters.bio_cloud.aws import AwsBioProvider
@@ -159,6 +161,7 @@ def test_repeated_pagination_rejected_and_no_secrets():
 
 
 def test_profile_is_frozen_and_get_run_sdk_output_uri():
+    pytest.importorskip('boto3')
     from pydantic import ValidationError
     with pytest.raises(ValidationError): profile().account_verified=False
     import boto3
@@ -210,6 +213,7 @@ def test_submission_service_errors_are_uncertain(status):
 
 
 def test_injected_sdk_client_with_retries_rejected():
+    pytest.importorskip('boto3')
     import boto3
     from app.adapters.bio_cloud.aws import AwsBioProvider
     from app.domain.bio_cloud.provider import ProviderError

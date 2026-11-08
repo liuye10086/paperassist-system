@@ -15,6 +15,8 @@ from .requests import PART_SIZE, CloudInputVersion
 
 
 def create_provider(settings) -> BioCloudProvider:
+    if getattr(settings, 'provider', 'aws_healthomics') != 'aws_healthomics':
+        raise ProviderError('provider_unsupported')
     from app.adapters.bio_cloud.aws import AwsBioProvider
     return AwsBioProvider(settings)
 
@@ -103,6 +105,7 @@ class CloudService:
         outputs = db.execute('''SELECT o.role,o.file_id,o.size_bytes,o.sha256,f.filename FROM bio_cloud_outputs o
             JOIN files f ON f.id=o.file_id AND f.project_id=o.project_id WHERE o.run_id=%s ORDER BY o.role''', (row['id'],)).fetchall()
         return {**{k:row[k] for k in ('id','status','provider_run_id','provider_state','error_code','cancel_requested','created_at','updated_at')},
+                'provider':row['snapshot_json'].get('cloud',{}).get('provider','aws_healthomics'),
                 'sample_id':request['sample_id'], 'library_id':request['library_id'], 'profile_id':request['profile_id'],
                 'engine':row['snapshot_json']['profile']['engine'], 'task':self.store.public_task(task),
                 'outputs':[dict(o) for o in outputs], 'verification':'remote_provider_not_independently_validated'}
@@ -131,7 +134,6 @@ class CloudService:
         require_key(key)
         material = request.model_dump(mode='json')
         request_hash = digest(material)
-        settings = self.ready_settings()
         with self.store.connection(write=True) as db:
             self.store.require_project(db, project)
             existing = db.execute('SELECT * FROM bio_cloud_runs WHERE project_id=%s AND request_key=%s', (project,key)).fetchone()
@@ -139,6 +141,7 @@ class CloudService:
                 if existing['request_digest'] != request_hash:
                     raise error('idempotency_conflict', '此请求标识已用于不同的云计算参数。')
                 return self.public_run(db, existing)
+            settings = self.ready_settings()
             profiles = [p for p in settings.profiles if p.id == request.profile_id and p.account_verified]
             if len(profiles) != 1:
                 raise error('profile_unverified', '请选择已在目标账号和地域核验过的工作流。')
@@ -166,7 +169,7 @@ class CloudService:
             identifier, task_id = str(uuid4()), str(uuid4())
             frozen = dict(kind='bio_cloud_run', project_id=project, run_id=identifier, request=material,
                 profile=profile.model_dump(mode='json'), inputs=uploads,
-                cloud={k:getattr(settings,k) for k in ('region','input_bucket','output_bucket','role_arn')},
+                cloud={k:getattr(settings,k) for k in ('provider','region','input_bucket','output_bucket','role_arn')},
                 output_prefix=f'paperassist/{project}/bio-cloud/{identifier}/outputs/',
                 samplesheet_key=f'paperassist/{project}/bio-cloud/{identifier}/samplesheet.csv')
             frozen['input_version'] = CloudInputVersion(run_id=identifier,profile_id=profile.id,sample_id=request.sample_id,input_sha256=digest(frozen)).model_dump()

@@ -6,6 +6,8 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from .contracts import WorkflowProfile
 from .provider import ProviderError
 
+SUPPORTED_PROVIDERS = frozenset({'aws_healthomics'})
+
 
 def bucket_name(value):
     if not re.fullmatch(r'[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]', value) or '..' in value or re.fullmatch(r'\d+\.\d+\.\d+\.\d+', value):
@@ -16,6 +18,7 @@ def bucket_name(value):
 class CloudSettings(BaseModel):
     model_config = ConfigDict(extra='forbid', strict=True)
     enabled: bool = False
+    provider: str = 'aws_healthomics'
     region: str = 'ap-southeast-1'
     input_bucket: str = ''
     output_bucket: str = ''
@@ -24,6 +27,8 @@ class CloudSettings(BaseModel):
 
     @model_validator(mode='after')
     def configured(self):
+        if self.provider not in SUPPORTED_PROVIDERS:
+            raise ValueError('unsupported_provider')
         if self.enabled:
             bucket_name(self.input_bucket)
             bucket_name(self.output_bucket)

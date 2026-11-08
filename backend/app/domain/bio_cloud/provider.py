@@ -3,6 +3,12 @@ import re
 from typing import Any, BinaryIO, Protocol
 
 
+# Remote task IDs are opaque. AWS HealthOmics currently returns decimal IDs,
+# while future providers may return UUID-like or namespaced job IDs.
+PROVIDER_RUN_ID_PATTERN = r'[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}'
+PROVIDER_RUN_STATES = frozenset({'PENDING', 'STARTING', 'RUNNING', 'STOPPING', 'COMPLETED', 'DELETED', 'CANCELLED', 'FAILED'})
+
+
 class BioCloudProvider(Protocol):
     """Transport boundary shared by cloud storage and asynchronous workflows.
 
@@ -29,3 +35,20 @@ class ProviderError(Exception):
         self.code = code if re.fullmatch(r'[a-z][a-z0-9_]{0,79}', code) else 'provider_error'
         self.uncertain = uncertain
         super().__init__(self.code)
+
+
+def provider_run_id(value: Any) -> str:
+    """Validate an opaque, non-secret remote task identity."""
+    if not isinstance(value, str) or not re.fullmatch(PROVIDER_RUN_ID_PATTERN, value):
+        raise ProviderError('invalid_provider_run_id')
+    return value
+
+
+def output_record(value: Any) -> dict[str, Any]:
+    """Validate the immutable result listing consumed by the collector."""
+    if (not isinstance(value, dict) or not isinstance(value.get('key'), str)
+            or not value['key'] or type(value.get('size_bytes')) is not int
+            or value['size_bytes'] <= 0 or not isinstance(value.get('etag'), str)
+            or not value['etag']):
+        raise ProviderError('invalid_output_record')
+    return dict(key=value['key'], size_bytes=value['size_bytes'], etag=value['etag'])

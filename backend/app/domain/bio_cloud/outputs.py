@@ -9,6 +9,7 @@ from psycopg.types.json import Jsonb
 from app.domain.bioinformatics.settings import BioLimits
 from app.domain.storage_governance import service as storage
 from .execution import output_prefix
+from .provider import ProviderError, output_record
 from .service import error, now
 
 
@@ -80,7 +81,9 @@ def collect_outputs(repository, lease, service, provider, row, uri):
     limits = BioLimits()
     for role,relative in snapshot['profile']['outputs'].items():
         item = by_key.get(prefix+relative)
-        if item is None or type(item.get('size_bytes')) is not int or item['size_bytes']<=0 or not item.get('etag'):
+        try:
+            item = output_record(item)
+        except ProviderError:
             raise error('output_invalid','云流程缺少必需结果，请核对工作流输出合同及运行日志。')
         if item['size_bytes']>limits.max_upload_bytes:
             raise error('input_limit','云计算已完成，但单个结果超过当前矩阵导入上限；需先配置下游资源档位。',413)
@@ -99,7 +102,7 @@ def collect_outputs(repository, lease, service, provider, row, uri):
         _save(repository,lease,service,row,role,item['key'],item['size_bytes'],
               lambda item=item:provider.stream_output(item['key'],expected_etag=item.get('etag')))
     import io
-    metadata = dict(schema_version=1,provider='aws_healthomics',provider_run_id=row['provider_run_id'],
+    metadata = dict(schema_version=1,provider=snapshot.get('cloud',{}).get('provider','aws_healthomics'),provider_run_id=row['provider_run_id'],
         workflow={k:snapshot['profile'][k] for k in ('workflow_id','workflow_type','workflow_version','engine','reference_id')},
         sample=snapshot['request'],input_objects=snapshot['inputs'],output_objects=manifest,
         verification={'transport':'size_and_sha256_checked','matrix_structure':'requires_existing_import_review','biological_validation':'not_claimed'})

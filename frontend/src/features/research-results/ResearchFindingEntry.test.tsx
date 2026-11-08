@@ -27,6 +27,6 @@ it('keeps finding edits while switching between facts, claims and review modules
  expect(screen.getByLabelText('主张文字')).toHaveProperty('value','保留人工主张')
  fireEvent.click(screen.getByRole('button',{name:'人工核对意见'}))
  expect(screen.getByLabelText('核对依据与意见')).toHaveProperty('value','尚未记录的核对意见')
- expect(screen.getByRole('button',{name:'保存研究发现版本'})).toBeTruthy()
+ expect(screen.getByRole('button',{name:'保存研究发现'})).toBeTruthy()
  expect(container.querySelector('details')).toBeNull()
 })

@@ -73,7 +73,9 @@ class CloudInputVersion(StrictRequest):
 
 
 class ReconcileRequest(StrictRequest):
-    provider_run_id: str = Field(pattern=r'^[0-9]{1,18}$')
+    # Provider IDs are opaque. AWS HealthOmics uses decimal IDs today, while
+    # other providers may return UUID-like or namespaced values.
+    provider_run_id: str = Field(min_length=1, max_length=128, pattern=r'^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$')
 
 
 class EmptyRequest(StrictRequest):

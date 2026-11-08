@@ -4,7 +4,7 @@ import hashlib
 import json
 from urllib.parse import urlsplit
 from app.domain.bio_cloud.contracts import MAX_INPUT_BYTES, object_key
-from app.domain.bio_cloud.provider import ProviderError
+from app.domain.bio_cloud.provider import ProviderError, provider_run_id
 
 
 def identity(value, maximum=1024):
@@ -153,14 +153,15 @@ class AwsBioProvider:
             payload['workflowVersionName'] = profile.workflow_version
         result = self._call('omics', 'start_run', uncertain=True, **payload)
         try:
-            run_id = identity(result.get('id'))
+            run_id = provider_run_id(result.get('id'))
         except ProviderError:
             raise ProviderError('submission_unknown', uncertain=True) from None
         return dict(run_id=run_id, arn=result.get('arn'), uuid=result.get('uuid'), run_output_uri=result.get('runOutputUri'), status=result.get('status'))
 
     def get_run(self, run_id):
-        result = self._call('omics', 'get_run', id=identity(run_id))
-        safe = dict(run_id=result.get('id', run_id), status=result.get('status'), run_output_uri=result.get('runOutputUri'))
+        requested_id = provider_run_id(run_id)
+        result = self._call('omics', 'get_run', id=requested_id)
+        safe = dict(run_id=provider_run_id(result.get('id', requested_id)), status=result.get('status'), run_output_uri=result.get('runOutputUri'))
         for source, target in (('name','name'), ('workflowId','workflow_id'), ('workflowType','workflow_type'), ('workflowVersionName','workflow_version')):
             if source in result:
                 safe[target] = result[source]
@@ -176,7 +177,7 @@ class AwsBioProvider:
         return safe
 
     def cancel_run(self, run_id):
-        self._call('omics', 'cancel_run', id=identity(run_id))
+        self._call('omics', 'cancel_run', id=provider_run_id(run_id))
 
     def list_outputs(self, run_output_uri):
         parsed = urlsplit(identity(run_output_uri))

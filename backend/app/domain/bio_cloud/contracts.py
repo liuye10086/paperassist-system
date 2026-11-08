@@ -41,6 +41,8 @@ class WorkflowProfile(BaseModel):
     def output_paths(cls, value):
         if not {'matrix', 'features', 'barcodes', 'qc', 'log'} <= value.keys():
             raise ValueError('missing_output_roles')
+        if len(set(value.values())) != len(value):
+            raise ValueError('duplicate_output_path')
         for path in value.values():
             object_key(path)
         return value
