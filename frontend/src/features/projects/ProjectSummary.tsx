@@ -81,6 +81,11 @@ function Summary({ projectId, projectType, view = 'all', active = true, onOpenMa
       setLoading(false)
       return
     }
+    if (!previouslyActive.current) {
+      setData(null)
+      setError('')
+      setLoading(true)
+    }
     const controller = new AbortController()
     request.current = controller
     let live = true
@@ -122,11 +127,12 @@ function Summary({ projectId, projectType, view = 'all', active = true, onOpenMa
 
   useEffect(() => {
     const enteringArtifacts = artifactsActive && !previouslyArtifactsActive.current
+    const leavingArtifacts = previouslyArtifactsActive.current && !artifactsActive
     const becameVisible = active && !previouslyActive.current
     previouslyArtifactsActive.current = artifactsActive
     previouslyActive.current = active
     if (enteringArtifacts && !becameVisible) refresh()
-    if (!artifactsActive) request.current?.abort()
+    if (leavingArtifacts) request.current?.abort()
   }, [active, artifactsActive, refresh])
 
   useEffect(()=>{ if(view==='artifacts' && pages.artifacts!==navigation.page) refresh({...pages,artifacts:navigation.page}) },[view,navigation.page,pages,refresh])

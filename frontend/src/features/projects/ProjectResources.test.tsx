@@ -260,7 +260,7 @@ test('lost project access clears all file information', async () => {
 test('file library reads only while its workspace is visible', async () => {
   const fetch = libraryApi()
   const view = render(<ProjectResources {...props} section="files" active={false} />)
-  await waitFor(() => expect(fetch.mock.calls.some(([url]) => url.endsWith('/files'))).toBe(true))
+  expect(fetch.mock.calls.some(([url]) => url.endsWith('/files'))).toBe(false)
   expect(fetch.mock.calls.some(([url]) => url.includes('/files?page='))).toBe(false)
   view.rerender(<ProjectResources {...props} section="files" active />)
   await screen.findByRole('button', { name: `文件详情 ${files[0].filename}` })
