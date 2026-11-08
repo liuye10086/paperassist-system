@@ -84,7 +84,7 @@ def test_f3_legacy_metadata_first_scan_preserves_last_known_charge(accounts,monk
 
 
 @pytest.mark.parametrize('reader',['owner','admin'])
-def test_f4_get_reconciles_rollback_before_and_after_another_failed_upload(accounts,reader):
+def test_f4_get_previews_rollback_without_writer_lock_before_and_after_failed_upload(accounts,reader):
     store,pid=project(accounts);path=store.directory/'rollback.bin'
     with pytest.raises(RuntimeError):
         with store.connection(write=True) as db:
@@ -100,6 +100,10 @@ def test_f4_get_reconciles_rollback_before_and_after_another_failed_upload(accou
             assert value['unknown_reservation_count']==1 and value['reconciled_at']
             if attempt==0:
                 with pytest.raises(StorageError):store.save_file(pid,'new.xlsx',b'other',None,None)
+        # Read-only status checks do not commit the journal into the ledger.
+        # The explicit reconciliation operation remains the authoritative write.
+        with store.connection(write=True) as db:
+            assert service.reconcile_intents(db,store.directory)==0
         with store.connection() as db:
             row=db.execute('SELECT state,task_id FROM storage_reservations WHERE project_id=%s',(pid,)).fetchone()
             assert row['state']=='unknown' and row['task_id']=='old-task'

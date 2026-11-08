@@ -4,6 +4,7 @@ from app.domain.source_byte_verification import require_phase, phase_guard, RAW_
 import io
 import json
 import hashlib
+from contextlib import nullcontext
 from datetime import datetime,timezone
 from uuid import UUID,uuid5
 from psycopg.types.json import Jsonb
@@ -119,10 +120,22 @@ class BioAnalysisStore:
             if row['sample_id']['status']=='known' and row['sample_id']['value'] not in samples:raise error('bio_mapping_invalid',422)
         return dict(mapped=len(rows),unmapped=len(barcodes)-len(rows),total=len(barcodes))
 
-    def admit_documents(self,project,identifier,kind,objects,documents):
+    def admit_documents(self,project,identifier,kind,objects,documents,*,_db=None):
         entries=[(key,objects.describe(identifier,content,json=False),content) for key,content in documents.items()]
         reservations=[]
-        with self.store.connection(write=True) as db:
+        if _db is not None:
+            # These are deterministic local snapshots, so an explicit replay may
+            # recover only the same operation, object key, size and byte digest.
+            # The existing publication helper also handles an intent whose bytes
+            # were not written, without releasing unrelated unknown reservations.
+            self.store.require_project(_db,project)
+            for key,record,content in entries:
+                with ledger.publication(_db,self.assets.directory,project,kind+':'+identifier+':'+key,
+                        objects.path(record['object_key']),content,kind=kind,recover=True) as row:
+                    objects.write(record,content)
+                reservations.append(dict(row))
+            return {key:record for key,record,_ in entries},reservations
+        with (nullcontext(_db) if _db is not None else self.store.connection(write=True)) as db:
             self.store.require_project(db,project)
             for key,record,_ in entries:
                 row=ledger.reserve(db,self.assets.directory,project,kind+':'+identifier+':'+key,
@@ -256,9 +269,9 @@ class BioAnalysisStore:
             recipe=self.recipe_view(db,self.require(db,'bio_analysis_recipe_versions',project,row['current_recipe_version_id']))
             return dict(id=row['id'],name=row['name'],revision=row['revision'],raw_source=recipe['raw_source'],current_recipe_version_id=row['current_recipe_version_id'],current_recipe=recipe)
 
-    def save_recipe(self,project,request,key,setup_id=None):
+    def save_recipe(self,project,request,key,setup_id=None,*,_db=None):
         require_key(key);sha=digest(request.model_dump(mode='json'));identifier=identity(project,'recipe',key)
-        with self.store.connection(write=True) as db:
+        with (nullcontext(_db) if _db is not None else self.store.connection(write=True)) as db:
             self.store.require_project(db,project);lock(db,project,'recipe:'+key)
             replay=db.execute('SELECT * FROM bio_analysis_recipe_versions WHERE project_id=%s AND request_key=%s',(project,key)).fetchone()
             if replay:
@@ -514,5 +527,11 @@ class BioAnalysisStore:
             if kind not in mapping:raise error('bio_request_not_found',404)
             table,root=mapping[kind]
             row=db.execute(f'SELECT * FROM {table} WHERE project_id=%s AND created_by=%s AND request_key=%s',(project,self.store.user_id,key)).fetchone()
+            if not row and kind=='run':
+                from app.adapters.analysis_request_receipts import read_receipt,target
+                receipt=read_receipt(db,user_id=self.store.user_id,project_id=project,kind='bio_analysis_run',key=key)
+                if receipt:
+                    row=target(db,user_id=self.store.user_id,project_id=project,kind='bio_analysis_run',target_id=receipt['target_id'])
+                    row['request_digest']=receipt['request_digest']
             if not row:raise error('bio_request_not_found',404)
             return dict(kind=kind,id=row['id'],root_id=row[root] if root else None,request_digest=row['request_digest'],task_id=row.get('task_id'))

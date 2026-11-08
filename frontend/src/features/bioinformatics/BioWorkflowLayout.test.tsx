@@ -9,7 +9,7 @@ import {capabilitiesFixture,runFixture,setupFixture} from './spatialFixtures'
 
 vi.mock('../../shared/api/client',()=>({apiFetch:vi.fn(),getApiUserId:()=> 'owner1',onApiSessionChanged:()=>()=>{}}))
 vi.mock('../../shared/components/ProjectDownloadLink',()=>({default:({children}:{children:import('react').ReactNode})=><span>{children}</span>}))
-afterEach(()=>{cleanup();vi.clearAllMocks()})
+afterEach(()=>{cleanup();vi.clearAllMocks();sessionStorage.clear()})
 
 it('switches dataset modules and retains the loaded bounded matrix preview',async()=>{
  vi.mocked(apiFetch).mockImplementation(async url=>Response.json(String(url).includes('/matrix-preview')?{features:['gene1'],observations:['AA-1'],values:[[3]]}:{id:'v1',dataset_id:'d1',version:1,shape:{features:1,observations:1},checks:[],members:[],summary:{}}))
@@ -56,7 +56,7 @@ it('preserves unsaved recipe values when switching configuration modules',async(
  await waitFor(()=>expect(screen.getByText('donor_unknown')).toBeTruthy())
  expect(screen.queryByRole('region',{name:'分析参数'})).toBeNull()
  expect((screen.getByRole('button',{name:'保存新配方版本'}) as HTMLButtonElement).disabled).toBe(false)
- expect((screen.getByRole('button',{name:'启动 QC 运行'}) as HTMLButtonElement).disabled).toBe(true)
+ expect((screen.getByRole('button',{name:'开始分析'}) as HTMLButtonElement).disabled).toBe(false)
  fireEvent.click(screen.getByRole('button',{name:'分析参数'}))
  expect((screen.getByLabelText('最低 counts') as HTMLInputElement).value).toBe('12')
  expect(document.querySelector('details,summary')).toBeNull()

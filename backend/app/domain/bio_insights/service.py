@@ -4,6 +4,7 @@ from app.domain.source_byte_verification import VerificationPhase, require_phase
 
 from app.adapters.bio_insights_store import BioInsightsStore,base,insert,identity,invalid,now
 from app.adapters.bio_analysis_store import scoped_object,object_by_key
+from app.adapters.analysis_request_receipts import read_receipt,bind_receipt,target
 from app.domain.bioinformatics.contracts import digest
 from app.domain.bioinformatics.service import require_key,append_checkpoint
 from .contracts import FrozenInsightPlanRequest,InsightPlanRequest,InsightRunRequest,ResourceImportRequest,InsightSourceSelection,SourceLocator
@@ -366,6 +367,11 @@ class BioInsightsService(BioInsightsStore):
         with self.store.connection(write=True) as db:
             self.lock(db,project,'run:'+key)
             replay=db.execute('SELECT * FROM bio_insight_runs WHERE project_id=%s AND user_id=%s AND request_key=%s',(project,self.store.user_id,key)).fetchone()
+            if not replay:
+                receipt=read_receipt(db,user_id=self.store.user_id,project_id=project,kind='bio_insight_run',key=key,request_digest=sha)
+                if receipt:
+                    replay=target(db,user_id=self.store.user_id,project_id=project,kind='bio_insight_run',target_id=receipt['target_id'])
+                    replay['request_digest']=receipt['request_digest']
             if replay:
                 if replay['request_digest']!=sha:raise invalid('bio_insight_idempotency_conflict')
                 selected=replay['id'];status=200
@@ -381,20 +387,53 @@ class BioInsightsService(BioInsightsStore):
                 design=self._design(planned.config,sources)
                 if not design.executable:raise invalid('bio_insight_design_blocked',422)
                 runtime=self._runtime_for(planned.config);task_type=TASK_FOR_KIND[row['kind']];task_id=identity(project,'run-task',key)
+                from .settings import BioInsightsLimits
+                limits=BioInsightsLimits().model_dump()
+                signature=dict(plan_version_id=row['id'],source_digest=source_sha,config=planned.config.model_dump(mode='json'),runtime=runtime,limits=limits)
+                self.lock(db,project,'run-content:'+digest(signature))
+                reused=self._reusable_run(db,project,row,sources,runtime,limits)
+                if reused:
+                    bind_receipt(db,user_id=self.store.user_id,project_id=project,kind='bio_insight_run',key=key,request_digest=sha,target_id=reused['id'])
+                    selected=reused['id'];status=200
+                else:
+                    selected=None
                 envelope=dict(schema_version=1,kind=task_type,config=planned.config.model_dump(mode='json'),
                     identity=dict(project_id=project,task_id=task_id,run_id=identifier,plan_version_id=row['id'],source_digest=source_sha,
-                        config_sha256=row['config_sha256'],**runtime),sources=sources)
-                obj=self.write_document(db,project,identifier,'execution_snapshot',portable(envelope))
-                snapshot=InsightTaskSnapshot(kind=task_type,workflow_version='bio_comparison_microbiome_v1' if getattr(planned.config,'schema_version',None)==4 else 'bio_comparison_qpcr_v1' if getattr(planned.config,'schema_version',None)==3 else 'bio_comparison_v2' if row['kind']=='comparison' and getattr(planned.config,'schema_version',None)==2 else task_type+'_v1',project_id=project,plan_version_id=row['id'],
-                    run_id=identifier,source_digest=source_sha,output_language=planned.config.output_language).model_dump(mode='json',exclude_none=True)
-                file_ids=sorted({s['source_id'] for s in sources if s['source_kind']=='original_file'}|{fid for s in sources for fid in s.get('metadata',{}).get('source_file_ids',[])})
-                task=self._new_task(db,project,task_id,task_type,snapshot,file_ids)
-                insert(db,'bio_insight_runs',{**base(identifier,project,self.store.user_id),'plan_version_id':row['id'],'kind':row['kind'],'decision':'confirmed',
-                    'task_id':task_id,'task_type':task_type,'source_digest':source_sha,'execution_snapshot_object_id':obj['id'],
-                    'execution_snapshot_sha256':obj['sha256'],'expected_plan_revision':request.expected_plan_revision,'result_version_id':None,
-                    'request_key':key,'request_digest':sha})
-                selected=identifier;status=202
+                        config_sha256=row['config_sha256'],execution_limits=limits,**runtime),sources=sources)
+                if selected is None:
+                    obj=self.write_document(db,project,identifier,'execution_snapshot',portable(envelope))
+                    snapshot=InsightTaskSnapshot(kind=task_type,workflow_version='bio_comparison_microbiome_v1' if getattr(planned.config,'schema_version',None)==4 else 'bio_comparison_qpcr_v1' if getattr(planned.config,'schema_version',None)==3 else 'bio_comparison_v2' if row['kind']=='comparison' and getattr(planned.config,'schema_version',None)==2 else task_type+'_v1',project_id=project,plan_version_id=row['id'],
+                        run_id=identifier,source_digest=source_sha,output_language=planned.config.output_language).model_dump(mode='json',exclude_none=True)
+                    file_ids=sorted({s['source_id'] for s in sources if s['source_kind']=='original_file'}|{fid for s in sources for fid in s.get('metadata',{}).get('source_file_ids',[])})
+                    task=self._new_task(db,project,task_id,task_type,snapshot,file_ids)
+                    insert(db,'bio_insight_runs',{**base(identifier,project,self.store.user_id),'plan_version_id':row['id'],'kind':row['kind'],'decision':'confirmed',
+                        'task_id':task_id,'task_type':task_type,'source_digest':source_sha,'execution_snapshot_object_id':obj['id'],
+                        'execution_snapshot_sha256':obj['sha256'],'expected_plan_revision':request.expected_plan_revision,'result_version_id':None,
+                        'request_key':key,'request_digest':sha})
+                    selected=identifier;status=202
         return self.get_run(project,selected),status
+
+    def _reusable_run(self,db,project,plan,sources,runtime,limits):
+        rows=db.execute("""SELECT r.* FROM bio_insight_runs r JOIN tasks t ON t.id=r.task_id
+            WHERE r.project_id=%s AND r.user_id=%s AND r.plan_version_id=%s
+            AND t.status IN ('queued','running','succeeded') ORDER BY r.created_at DESC,r.id""",(project,self.store.user_id,plan['id'])).fetchall()
+        for run in rows:
+            obj=scoped_object(db,project,self.store.user_id,run['execution_snapshot_object_id'])
+            if obj['sha256']!=run['execution_snapshot_sha256']:raise invalid()
+            frozen=json.loads(self.objects.read(obj));saved=frozen.get('identity',{})
+            # Historical environments already hash the complete effective limits.
+            # New envelopes also retain them explicitly; never rewrite history.
+            if any(saved.get(k)!=v for k,v in runtime.items()) or saved.get('execution_limits',limits)!=limits:continue
+            task=self.store.require_task(db,run['task_id'])
+            # Full fixed-source and execution-snapshot verification still applies.
+            self.require_sources(db,task,runtime=False)
+            if task['status']=='succeeded':
+                if not run['result_version_id']:raise invalid()
+                result=self.require(db,'bio_insight_result_versions',project,run['result_version_id'])
+                if result['run_id']!=run['id'] or result['task_id']!=task['id']:raise invalid()
+                from .results import checked_members
+                checked_members(self,db,project,result)
+            return dict(run)
 
     def get_run(self,project,identifier):
         with self.store.connection() as db:
@@ -438,6 +477,9 @@ class BioInsightsService(BioInsightsStore):
         if runtime:
             current=self._runtime_for(planned.config)
             if any(frozen['identity'].get(key)!=value for key,value in current.items()):raise invalid('bio_insights_environment_unavailable',422)
+            if 'execution_limits' in frozen['identity']:
+                from .settings import BioInsightsLimits
+                if frozen['identity']['execution_limits']!=BioInsightsLimits().model_dump():raise invalid('bio_insights_environment_unavailable',422)
         if not self._design(planned.config,sources).executable:raise invalid('bio_insight_design_blocked',422)
         return envelope
 
@@ -481,6 +523,9 @@ class BioInsightsService(BioInsightsStore):
             self.store.require_project(db,project)
             table={'plan':'bio_insight_plan_versions','run':'bio_insight_runs','resource':'bio_resource_versions'}[kind]
             row=db.execute('SELECT * FROM '+table+' WHERE project_id=%s AND user_id=%s AND request_key=%s',(project,self.store.user_id,key)).fetchone()
+            if not row and kind=='run':
+                receipt=read_receipt(db,user_id=self.store.user_id,project_id=project,kind='bio_insight_run',key=key)
+                if receipt:row=target(db,user_id=self.store.user_id,project_id=project,kind='bio_insight_run',target_id=receipt['target_id'])
             if not row:raise invalid('bio_insight_not_found',404)
         if kind=='plan':return self.get_plan(project,row['plan_id'],row['id'])
         if kind=='run':return self.get_run(project,row['id'])

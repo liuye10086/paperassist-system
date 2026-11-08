@@ -52,7 +52,11 @@ def test_new_numeric_request_selects_explicit_guidance_and_rebuilds():
 
 
 def test_legacy_numeric_contract_dump_and_wire_stay_exact():
+    from tests.domain.test_unified_model_policy import historical_writing_contract
     snapshot, new_bundle, _ = new_fixture()
+    # This fixture predates the default model migration; preserve its original bytes.
+    new_bundle = build_bundle(snapshot['base_snapshot'], snapshot['input'],
+        execution_contract=historical_writing_contract(schema_version=2))
     old_contract = deepcopy(new_bundle['execution_contract'])
     old_contract.pop('instruction_revision', None)
     assert validate(old_contract) == old_contract

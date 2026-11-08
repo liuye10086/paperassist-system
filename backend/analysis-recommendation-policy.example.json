@@ -1,6 +1,6 @@
 {
   "policy": {
-    "model": "gpt-5.6-sol",
+    "model": "gpt-6.1-sol",
     "prompt_version": "analysis_recommendation_v1",
     "output_format": "analysis_recommendation_v1",
     "max_output_tokens": 2000,
@@ -9,7 +9,7 @@
     "price": {
       "version": "REPLACE_WITH_VERIFIED_PRICE_VERSION",
       "currency": "USD",
-      "model": "gpt-5.6-sol",
+      "model": "gpt-6.1-sol",
       "input_micro_usd_per_million": null,
       "cached_input_micro_usd_per_million": null,
       "output_micro_usd_per_million": null,

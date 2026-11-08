@@ -66,7 +66,7 @@ test.each(['activity', 'usage'] as const)('restores the selected %s module from 
   expect(within(info).queryByRole('textbox', { name: '修改项目名称' })).toBeNull()
   expect(screen.getByRole('tab', { name: view === 'activity' ? '进展记录' : '项目用量' }).getAttribute('aria-selected')).toBe('true')
   expect(screen.getAllByRole('tabpanel')).toHaveLength(1)
-  await user.click(screen.getByRole('button', { name: '第 2 步：上传文件' }))
+  await user.click(screen.getByRole('button', { name: '第 2 步：文件上传/整理' }))
   expect(window.location.hash).toContain('section=files')
   await user.click(screen.getByRole('button', { name: '第 1 步：项目资料' }))
   expect(screen.getByRole('tabpanel', { name: '项目资料' })).toBeTruthy()
@@ -119,7 +119,7 @@ test('keeps metadata and output language drafts across overview views and saves 
   await screen.findByRole('heading', { name: project.name })
 
   await user.type(screen.getByLabelText('修改项目名称'), '草稿')
-  await user.click(screen.getByRole('button', { name: '第 2 步：上传文件' }))
+  await user.click(screen.getByRole('button', { name: '第 2 步：文件上传/整理' }))
   await user.click(screen.getByRole('button', { name: '第 1 步：项目资料' }))
   expect((screen.getByLabelText('修改项目名称') as HTMLInputElement).value).toBe('代谢研究草稿')
   expect(fetcher.mock.calls.filter(([, init]) => init?.method === 'PATCH')).toHaveLength(0)
@@ -127,7 +127,7 @@ test('keeps metadata and output language drafts across overview views and saves 
   await waitFor(() => expect(fetcher.mock.calls.some(([url, init]) => url === '/api/v1/projects/p1'
     && init?.method === 'PATCH' && init.body === JSON.stringify({ name: '代谢研究草稿' }))).toBe(true))
   await user.selectOptions(screen.getByLabelText('项目默认输出语言'), 'en')
-  await user.click(screen.getByRole('button', { name: '第 2 步：上传文件' }))
+  await user.click(screen.getByRole('button', { name: '第 2 步：文件上传/整理' }))
   await user.click(screen.getByRole('button', { name: '第 1 步：项目资料' }))
   expect((screen.getByLabelText('项目默认输出语言') as HTMLSelectElement).value).toBe('en')
   await user.click(screen.getByRole('button', { name: '保存输出语言' }))

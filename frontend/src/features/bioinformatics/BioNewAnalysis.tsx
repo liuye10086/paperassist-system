@@ -8,7 +8,7 @@ import type {BioCapabilities,BioRecipe,RawBioSource} from './spatialContracts'
 import {BioWriteStatus} from './BioSpatialShared'
 import useBioWrite from './useBioWrite'
 import SingleCellDirectStart from './SingleCellDirectStart'
-type Props={projectId:string;source:RawBioSource;onNavigate:(n:AnalysisNavigation)=>void;registerLeaveGuard?:RegisterLeaveGuard}
+type Props={allowNewAnalysis?:boolean;projectId:string;source:RawBioSource;onNavigate:(n:AnalysisNavigation)=>void;registerLeaveGuard?:RegisterLeaveGuard}
 export default function BioNewAnalysis(props:Props){
  if(props.source.parser_version==='single_cell_import_v1')return <SingleCellDirectStart {...props}/>
  return <LegacyNewAnalysis {...props}/>

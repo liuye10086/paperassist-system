@@ -1,14 +1,20 @@
 import json
 import httpx2
+import pytest
 from app.adapters.models.openai_responses import OpenAIResponsesProvider
 from app.domain.manuscript_writing.bundle import build_bundle
 from tests.domain.test_manuscript_writing_live_bundle import material
+
+@pytest.fixture(autouse=True)
+def postgres_schema():
+    # Mock HTTP transport and pure frozen bundles do not need database migrations.
+    yield None
 
 def test_frozen_wire_is_sent_byte_exact_to_official_endpoint_with_no_retry():
     base,request=material();bundle=build_bundle(base,request);seen=[]
     def transport(request):
         seen.append(request)
-        return httpx2.Response(200,json=dict(id='resp_mock',model='gpt-5.4-2026-03-05',status='completed',output=[],usage=None),headers={'x-request-id':'req_mock'})
+        return httpx2.Response(200,json=dict(id='resp_mock',model='gpt-6.1-sol',status='completed',output=[],usage=None),headers={'x-request-id':'req_mock'})
     client=httpx2.Client(transport=httpx2.MockTransport(transport))
     provider=OpenAIResponsesProvider(api_key='synthetic-not-real',http_client=client)
     receipt=provider.create_frozen(wire_json=bundle['wire_json'])

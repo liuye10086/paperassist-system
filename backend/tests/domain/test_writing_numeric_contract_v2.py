@@ -35,13 +35,16 @@ def context_binding(bundle, value):
 
 
 def test_legacy_wire_bytes_and_sha_remain_frozen():
+    from tests.domain.test_unified_model_policy import historical_writing_contract
     base, request = material()
-    bundle = build_bundle(base, request)
+    frozen = historical_writing_contract()
+    bundle = build_bundle(base, request, execution_contract=frozen)
+    bundle.pop('execution_contract')
     assert bundle['wire_bytes'] == 3501
     assert bundle['bundle_sha256'] == '21cfd8f75b6d9db13710cce574a1ac57ddc9e2a62c8d4f3cade44eeaefe14512'
     assert 'execution_contract' not in bundle
     validate_bundle(dict(bundle, base_snapshot=base, request_json=request))
-    validate_wire(bundle['wire_json'], contract())
+    validate_wire(bundle['wire_json'], frozen)
 
 
 def test_new_contract_has_finite_fact_tuples_and_context_not_private_ids():

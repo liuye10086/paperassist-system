@@ -1,8 +1,8 @@
 import {afterEach,expect,it,vi} from 'vitest'
-import {cleanup,fireEvent,render,screen,waitFor} from '@testing-library/react'
-import {apiFetch} from '../../shared/api/client'
+import {act,cleanup,fireEvent,render,screen,waitFor} from '@testing-library/react'
+import {apiFetch,onApiSessionChanged} from '../../shared/api/client'
 import useBioWrite from './useBioWrite'
-vi.mock('../../shared/api/client',()=>({apiFetch:vi.fn(),getApiUserId:()=> 'owner1',onApiSessionChanged:()=>()=>{}}))
+vi.mock('../../shared/api/client',()=>({apiFetch:vi.fn(),getApiUserId:()=> 'owner1',onApiSessionChanged:vi.fn(()=>()=>{})}))
 afterEach(()=>{cleanup();vi.clearAllMocks();sessionStorage.clear()})
 function Harness(){const w=useBioWrite<{id:string}>('p1','recipe',()=>{},lookup=>{document.title=lookup.id});return <><button onClick={()=>void w.submit('/api/v1/projects/p1/bio-analysis-setups',{expected_revision:0})}>save</button><button onClick={()=>void w.lookup()}>lookup</button><output>{w.unknown?'unknown':w.busy?'busy':w.error}</output></>}
 function RunHarness({found}:{found:()=>void}){const w=useBioWrite<{id:string}>('p1','run',()=>{},found);return <><button onClick={()=>void w.submit('/api/v1/projects/p1/bio-analysis-runs',{})}>save run</button><button onClick={()=>void w.lookup()}>lookup run</button><output>{w.unknown?'unknown':''}</output></>}
@@ -25,4 +25,20 @@ it('recovers an uncertain SingleR submission by GET with the same identity and n
  const calls=vi.mocked(apiFetch).mock.calls,key=(calls[0][1]!.headers as Record<string,string>)['Idempotency-Key']
  expect(calls[1][0]).toBe(`/api/v1/projects/p1/bio-requests/${key}?kind=annotation_run`)
  expect(calls.filter(c=>c[1]?.method==='POST')).toHaveLength(1)
+})
+
+it('returns the saved value and suppresses navigation callbacks only for a composed submission',async()=>{
+ const saved=vi.fn(),completed=vi.fn();vi.mocked(apiFetch).mockResolvedValue(Response.json({id:'exact'}))
+ function Composed(){const writer=useBioWrite<{id:string}>('p1','recipe',saved,()=>{});return <button onClick={async()=>{completed(await writer.submit('/save',{}, {notifySaved:false}))}}>compose</button>}
+ render(<Composed/>);fireEvent.click(screen.getByText('compose'));await waitFor(()=>expect(completed).toHaveBeenCalledWith({id:'exact'}));expect(saved).not.toHaveBeenCalled()
+})
+
+it('does not return a stale saved value or start a composed followup after the session changes',async()=>{
+ let invalidate=()=>{},finish!:(response:Response)=>void
+ vi.mocked(onApiSessionChanged).mockImplementation(listener=>{invalidate=listener;return()=>{}})
+ vi.mocked(apiFetch).mockImplementation(()=>new Promise<Response>(resolve=>{finish=resolve}))
+ const completed=vi.fn(),saved=vi.fn()
+ function Composed(){const writer=useBioWrite<{id:string}>('p1','recipe',saved,()=>{});return <button onClick={async()=>{const value=await writer.submit('/save',{}, {notifySaved:false});completed(value);if(value)await writer.submit('/followup',{})}}>compose session</button>}
+ render(<Composed/>);fireEvent.click(screen.getByText('compose session'));await waitFor(()=>expect(finish).toBeTypeOf('function'));act(()=>invalidate());await act(async()=>finish(Response.json({id:'stale'})))
+ expect(completed).toHaveBeenCalledWith(undefined);expect(saved).not.toHaveBeenCalled();expect(apiFetch).toHaveBeenCalledTimes(1)
 })

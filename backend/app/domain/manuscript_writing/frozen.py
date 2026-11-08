@@ -58,7 +58,8 @@ def validate(value):
     # Missing revision is the historical wire contract, including its dump shape.
     if 'instruction_revision' not in parsed.model_fields_set:value.pop('instruction_revision',None)
     p=value['policy']
-    if (p['model']!=installed.MODEL or p['prompt_version']!='sci-writing-v2' or p['tools']
+    # Saved requests retain their original wire and billing policy after a model change.
+    if (p['model'] not in (installed.MODEL,'gpt-5.4-2026-03-05') or p['prompt_version']!='sci-writing-v2' or p['tools']
         or p['output_format']!='manuscript_writing_v2' or p['max_output_tokens']>installed.MAX_OUTPUT):raise ValueError('Unsupported writing contract')
     combine('fixed',value['instruction'])
     return value
@@ -82,7 +83,11 @@ def contract(version=None,*,schema_version=1,instruction_revision='numeric2-exac
 
 
 def bundle_contract(bundle):
-    return validate(bundle['execution_contract']) if 'execution_contract' in bundle else contract(schema_version=1)
+    if 'execution_contract' in bundle:return validate(bundle['execution_contract'])
+    # Older bundles already saved policy_json before execution_contract was introduced.
+    value=contract(schema_version=1)
+    value['policy']=bundle['policy_json']
+    return validate(value)
 
 
 def wire_parts(value,payload):

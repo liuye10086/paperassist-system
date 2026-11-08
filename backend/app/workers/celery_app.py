@@ -29,6 +29,7 @@ def create_app():
         task_create_missing_queues=False, task_serializer='json', accept_content=['json'],
         task_ignore_result=True, task_store_errors_even_if_ignored=False,
         task_acks_late=True, task_reject_on_worker_lost=True, worker_prefetch_multiplier=1,
+        worker_concurrency=1, worker_max_tasks_per_child=1,
         broker_transport_options={'confirm_publish': True, 'read_timeout': 5, 'write_timeout': 5},
         broker_connection_timeout=5, broker_connection_retry_on_startup=True,
         task_publish_retry=False, worker_hijack_root_logger=False,

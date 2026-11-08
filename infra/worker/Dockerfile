@@ -20,7 +20,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
 WORKDIR /app
 COPY backend/requirements.txt /app/requirements.txt
 RUN pip install --timeout 60 --no-cache-dir -r requirements.txt && pip check \
-    && useradd --uid 10001 --create-home paperassist
+    && useradd --uid 10001 --create-home paperassist \
+    && install -d -o paperassist -g paperassist /run/paperassist-execution
 COPY --from=bio-runtime /opt/paperassist-bio /opt/paperassist-bio
 COPY --from=bio-runtime /usr/share/fonts/truetype/wqy /usr/share/fonts/truetype/wqy
 COPY --from=bio-runtime /usr/share/doc/fonts-wqy-zenhei/copyright /usr/share/doc/fonts-wqy-zenhei/copyright

@@ -1,5 +1,6 @@
 """The launcher cannot route a test Worker to development data or leak secrets."""
 import json
+from io import StringIO
 from pathlib import Path
 import sys
 import tempfile
@@ -12,6 +13,19 @@ import worker_stack
 
 
 class WorkerStackTests(unittest.TestCase):
+    def test_start_describes_preserved_word_fields_without_pdf_generation(self):
+        stack = worker_stack.Stack(Path('.'), Path('.'), 'project', {})
+        with patch.object(sys, 'argv', ['worker_stack.py', 'start']), \
+                patch.object(worker_stack, 'load', return_value=stack), \
+                patch('app.core.config.local_config', return_value={}), \
+                patch.object(worker_stack, 'prepare', return_value=stack), \
+                patch.object(worker_stack, 'start') as start, \
+                patch('sys.stdout', new_callable=StringIO) as output:
+            self.assertEqual(worker_stack.main(), 0)
+        start.assert_called_once_with(stack)
+        self.assertIn('Word field service', output.getvalue())
+        self.assertNotIn('PDF renderer', output.getvalue())
+
     def source_tree(self, root):
         for relative in ('backend/app/worker.py', 'backend/app/adapters/pdf_renderer_lock.json',
                          'backend/requirements.txt', '.dockerignore', 'infra/worker/Dockerfile',

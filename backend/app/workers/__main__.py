@@ -13,7 +13,7 @@ from app.core.safe_logging import configure_safe_logging
 
 configure_safe_logging()
 
-from app.workers.config import load_secrets, queue_config, startup_configuration
+from app.workers.config import load_secrets, queue_config, startup_configuration, configure_execution_environment
 from app.domain.runtime_status import record_worker_startup
 
 
@@ -56,6 +56,7 @@ def main(argv=None):
     parser.add_argument('service', nargs='?', choices=['worker', 'dispatch'])
     arguments = parser.parse_args(argv)
     try:
+        configure_execution_environment()
         load_secrets()
         queue_config()
         from app.db.database import database_connection, ensure_schema_current

@@ -5,11 +5,11 @@ import ProjectWorkspace from './ProjectWorkspace'
 import { apiFetch } from '../../shared/api/client'
 
 vi.mock('../../shared/api/client', () => ({ apiFetch: vi.fn(), onApiSessionChanged: () => () => {} }))
-vi.mock('./ProjectResources', () => ({ default: () => null }))
+vi.mock('./ProjectResources', () => ({ default: ({allowNewAnalysis}:{allowNewAnalysis?:boolean}) => <output aria-label="新分析入口状态">{String(allowNewAnalysis)}</output> }))
 vi.mock('./ProjectSummary', () => ({ default: () => null }))
 vi.mock('./ProjectDetails', () => ({ default: ({renderHeader}:{renderHeader?:(language:ReactNode)=>ReactNode}) => renderHeader?.(null) ?? null }))
 vi.mock('../research-intake/ResearchIntake', () => ({ default: () => null }))
-vi.mock('../research-results/ResearchWorkspace', () => ({ default: () => null }))
+vi.mock('../research-results/ResearchWorkspace', () => ({ default: ({onAnalysis}:{onAnalysis:(next:{view:'bio-result';fileId:string;processedId:string;tab:'qc'})=>void}) => <button type="button" onClick={()=>onAnalysis({view:'bio-result',fileId:'',processedId:'historical-result',tab:'qc'})}>打开固定历史分析结果</button> }))
 vi.mock('../manuscripts/ProjectManuscripts', () => ({ default: () => null }))
 vi.mock('../reviews/ReviewsWorkspace', () => ({ default: () => null }))
 vi.mock('../journals/JournalWorkspace', () => ({ default: () => null }))
@@ -29,6 +29,23 @@ function setup(hash = '', projectType = 'research', ready = true, services = ['a
   render(<ProjectWorkspace />)
 }
 afterEach(() => { cleanup(); vi.clearAllMocks(); window.history.replaceState(null, '', '/') })
+it('opens a fixed historical analysis result when current services only request writing',async()=>{
+ setup('#project=p1&section=artifacts','research',true,['sci_draft']);await screen.findByRole('button',{name:'第 4 步：稿件写作'})
+ fireEvent.click(screen.getByRole('button',{name:'打开固定历史分析结果'}));expect(window.location.hash).toContain('view=bio-result');expect(window.location.hash).toContain('processed=historical-result');expect(vi.mocked(apiFetch).mock.calls.every(([,init])=>!init?.method)).toBe(true)
+ expect(screen.getByLabelText('新分析入口状态').textContent).toBe('false')
+})
+it('enables new analysis only after the current saved analysis requirement and materials are ready',async()=>{
+ setup('#project=p1','research',true,['analysis']);await screen.findByRole('button',{name:'第 4 步：执行分析'})
+ await waitFor(()=>expect(screen.getByLabelText('新分析入口状态').textContent).toBe('true'))
+})
+it('returns to the exact analysis route after visiting project information',async()=>{
+ const exact='#project=p1&section=analysis&view=bio-analysis&run=original-run&requirement=req1&scope=questionnaire.analysis.qc&intent=bio'
+ setup(exact);await screen.findByRole('navigation',{name:'项目操作步骤'})
+ fireEvent.click(screen.getByRole('button',{name:'第 1 步：项目资料'}))
+ fireEvent.click(screen.getByRole('button',{name:'第 4 步：执行分析'}))
+ const params=new URLSearchParams(window.location.hash.slice(1));expect(params.get('view')).toBe('bio-analysis');expect(params.get('run')).toBe('original-run');expect(params.get('requirement')).toBe('req1');expect(params.get('intent')).toBe('bio')
+ expect(vi.mocked(apiFetch).mock.calls.every(([,init])=>!init?.method)).toBe(true)
+})
 it.each(['research','sci','thesis'])('opens an available review-group entry for %s projects',async(projectType)=>{
  setup('#project=p1',projectType);await screen.findByRole('region',{name:'当前项目工作区'});await waitFor(()=>expect((screen.getByRole('button',{name:'评审与修改'}) as HTMLButtonElement).disabled).toBe(false))
  fireEvent.click(screen.getByRole('button',{name:'评审与修改'}))
@@ -55,7 +72,7 @@ it('offers ordered navigation without marking unopened work complete', async () 
   setup('#project=p1')
   await screen.findByRole('region', { name: '当前项目工作区' })
   const navigation = screen.getByRole('navigation', { name: '项目操作步骤' })
-  expect(navigation.textContent).toContain('上传文件')
+  expect(navigation.textContent).toContain('文件上传/整理')
   fireEvent.click(screen.getByRole('button', { name: '第 3 步：选择需求' }))
   expect(window.location.hash).toBe('#project=p1&section=overview&view=requirements')
   expect(screen.getByRole('button', { name: '第 3 步：选择需求' }).getAttribute('aria-current')).toBe('step')
@@ -92,13 +109,15 @@ it('switches the four result categories through one navigation without changing 
 it('blocks later steps and sidebar shortcuts until uploaded materials are available', async () => {
   setup('#project=p1','research',false)
   await screen.findByRole('region',{name:'当前项目工作区'})
-  for(const name of ['第 3 步：选择需求','第 4 步：执行分析','第 5 步：查看结果','分析与成果','稿件写作']) {
+  for(const name of ['第 3 步：选择需求','第 4 步：执行分析','分析与成果']) {
     const button=screen.getByRole('button',{name}) as HTMLButtonElement
     expect(button.disabled).toBe(true);fireEvent.click(button)
     expect(window.location.hash).toBe('#project=p1')
   }
-  fireEvent.click(screen.getByRole('button',{name:'第 2 步：上传文件'}))
+  fireEvent.click(screen.getByRole('button',{name:'第 2 步：文件上传/整理'}))
   expect(window.location.hash).toBe('#project=p1&section=files&view=upload')
+  fireEvent.click(screen.getByRole('button',{name:'第 5 步：查看结果'}))
+  expect(window.location.hash).toBe('#project=p1&section=artifacts')
 })
 it('replaces analysis with writing when only manuscript services are selected', async () => {
   setup('#project=p1','research',true,['sci_draft'])
@@ -110,7 +129,7 @@ it('replaces analysis with writing when only manuscript services are selected', 
 
 it('shows the project name only in step one content',async()=>{
  setup('#project=p1');await screen.findByRole('heading',{name:project.name})
- for(const label of ['第 2 步：上传文件','第 3 步：选择需求','第 4 步：执行分析','第 5 步：查看结果']){
+ for(const label of ['第 2 步：文件上传/整理','第 3 步：选择需求','第 4 步：执行分析','第 5 步：查看结果']){
   await waitFor(()=>expect((screen.getByRole('button',{name:label}) as HTMLButtonElement).disabled).toBe(false))
   fireEvent.click(screen.getByRole('button',{name:label}))
   expect(screen.queryByRole('heading',{name:project.name})).toBeNull()

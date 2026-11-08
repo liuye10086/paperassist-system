@@ -1,5 +1,6 @@
 import type {AnalysisEntryIntent} from '../projects/analysisViews'
-import {useEffect,useRef,useState} from 'react'
+import {useEffect,useLayoutEffect,useRef,useState} from 'react'
+import {savedContent} from '../../shared/savedContent'
 import {safeError,useI18n} from '../../shared/i18n'
 import {getApiUserId,onApiSessionChanged} from '../../shared/api/client'
 import useDraftLeaveGuard,{type RegisterLeaveGuard} from '../projects/useDraftLeaveGuard'
@@ -22,14 +23,16 @@ import EnrichmentSetup from './EnrichmentSetup'
 import CandidateRecipe from './CandidateRecipe'
 import FigureSetup from './FigureSetup'
 import {Field,ConfigField,DataDetails,IntentState,ReadState,TaskStatus,DesignUnits} from './InsightShared'
-type Draft={name:string;config:Config;sources:Source[]}
-export default function InsightPlanEditor({projectId,kind,active,initial,initialProcessedId,initialResultId,entryIntent,onSaved,onRun,registerLeaveGuard}:{projectId:string;kind:InsightKind;active:boolean;initial?:Plan|null;initialProcessedId?:string;initialResultId?:string;entryIntent?:AnalysisEntryIntent;onSaved:(v:Plan)=>void;onRun:(v:Run)=>void;registerLeaveGuard?:RegisterLeaveGuard}){
+type Draft={name:string;config:Config;sources:Source[];savedPlan?:Plan}
+export default function InsightPlanEditor({projectId,kind,active,initial,initialProcessedId,initialResultId,entryIntent,onSaved,onRun,registerLeaveGuard,allowNewAnalysis=true}:{allowNewAnalysis?:boolean;projectId:string;kind:InsightKind;active:boolean;initial?:Plan|null;initialProcessedId?:string;initialResultId?:string;entryIntent?:AnalysisEntryIntent;onSaved:(v:Plan)=>void;onRun:(v:Run)=>void;registerLeaveGuard?:RegisterLeaveGuard}){
  const{t}=useI18n(),ordinaryScope=`${kind}:${initialProcessedId??initialResultId??''}`,specialIntent=entryIntent==='evidence'&&kind==='candidate'||entryIntent==='qpcr'&&kind==='comparison'||entryIntent==='single_cell_topic'&&kind==='integration'?entryIntent:undefined,specialScope=specialIntent?`${ordinaryScope}:${specialIntent}`:ordinaryScope,[explicitScope,setExplicitScope]=useState('')
  const stored=(type:'draft'|'request',candidate:string,operation='plan')=>{try{return !!sessionStorage.getItem(`paperassist.bio-insight.${type}:${getApiUserId()??'anonymous'}:${projectId}:${operation}:${candidate}`)}catch{return false}}
  const pending=(candidate:string)=>stored('request',candidate)||stored('request',candidate,'run')
  const scope=initial?.id??(!specialIntent?ordinaryScope:pending(ordinaryScope)?ordinaryScope:pending(specialScope)||explicitScope===specialScope||stored('draft',specialScope)?specialScope:stored('draft',ordinaryScope)?ordinaryScope:specialScope),usingExistingOrdinary=!initial&&!!specialIntent&&scope===ordinaryScope,usingSpecial=!initial&&!!specialIntent&&scope===specialScope
- const[draft,setDraft]=useInsightDraft<Draft>(projectId,`plan:${scope}`,()=>({name:initial?.name??'',config:initial?.config??(usingSpecial&&specialIntent==='single_cell_topic'?defaultSingleCellTopic(initialProcessedId):usingSpecial&&specialIntent==='evidence'?defaultEvidenceMatrix():usingSpecial&&specialIntent==='qpcr'?defaultQpcrConfig():defaultConfig(kind)),sources:initial?.sources??[]})),[preview,setPreview]=useState<{signature:string;design:Design}|null>(null),[busy,setBusy]=useState(false),[error,setError]=useState(''),operation=useInsightIntent<Plan>(projectId,'plan',scope),run=useInsightIntent<Run>(projectId,'run',scope),request=useRef<AbortController|null>(null),alive=useRef(true),seenPlan=useRef(''),seenRun=useRef(''),base=projectBase(projectId)
- const revision=initial?.revision??0,body=buildPlan(draft.name.trim()||t(kind==='integration'&&draft.config.schema_version===2?'单细胞专题':kindLabels[kind]),draft.config,draft.sources,revision,'draft'),signature=JSON.stringify(body),sameSaved=!!initial&&JSON.stringify(body.config)===JSON.stringify(initial.config)&&JSON.stringify(body.sources)===JSON.stringify(initial.sources.map(s=>({source_kind:s.source_kind,source_id:s.source_id,sha256:s.sha256,role:s.role,locator:s.locator})))&&body.name===initial.name,locked=busy||operation.busy||operation.unknown||run.busy||run.unknown||!operation.valid||!run.valid
+ const[draft,setDraft]=useInsightDraft<Draft>(projectId,`plan:${scope}`,()=>({name:initial?.name??'',config:initial?.config??(usingSpecial&&specialIntent==='single_cell_topic'?defaultSingleCellTopic(initialProcessedId):usingSpecial&&specialIntent==='evidence'?defaultEvidenceMatrix():usingSpecial&&specialIntent==='qpcr'?defaultQpcrConfig():defaultConfig(kind)),sources:initial?.sources??[]})),[preview,setPreview]=useState<{signature:string;design:Design}|null>(null),[busy,setBusy]=useState(false),[completedRun,setCompletedRun]=useState<{value:Run;generation:number}|null>(null),[error,setError]=useState(''),operation=useInsightIntent<Plan>(projectId,'plan',scope),run=useInsightIntent<Run>(projectId,'run',scope),request=useRef<AbortController|null>(null),alive=useRef(true),seenPlan=useRef(''),seenRun=useRef(''),base=projectBase(projectId)
+ const savedPlan=draft.savedPlan??initial,revision=savedPlan?.revision??0,body=buildPlan(draft.name.trim()||t(kind==='integration'&&draft.config.schema_version===2?'单细胞专题':kindLabels[kind]),draft.config,draft.sources,revision,'draft'),signature=savedContent(body),projection=(v:Plan)=>buildPlan(v.name,v.config,v.sources,revision,'draft'),sameSaved=!!savedPlan&&savedContent(body)===savedContent(projection(savedPlan)),locked=busy||operation.busy||operation.unknown||run.busy||run.unknown||!operation.valid||!run.valid
+ const launching=useRef(false),context=useRef({active,scope,allowNewAnalysis,generation:0})
+ useLayoutEffect(()=>{context.current={active,scope,allowNewAnalysis,generation:context.current.generation+1};if(!active){request.current?.abort()}},[active,scope,allowNewAnalysis])
  useEffect(()=>{alive.current=true;return()=>{alive.current=false;request.current?.abort()}},[])
  useEffect(()=>onApiSessionChanged(()=>{alive.current=false;request.current?.abort();setPreview(null)}),[])
  useEffect(()=>{if(!active){request.current?.abort();queueMicrotask(()=>setBusy(false))}},[active])
@@ -37,13 +40,40 @@ export default function InsightPlanEditor({projectId,kind,active,initial,initial
  useEffect(()=>{if(run.value&&run.value.id!==seenRun.current){seenRun.current=run.value.id;onRun(run.value)}},[run.value,onRun])
  // Draft edits are already persisted by project and version; navigation does not discard them.
  useDraftLeaveGuard(registerLeaveGuard,false,locked||operation.unknown||run.unknown)
+ // Complete the render that releases this editor's pending guard before host navigation.
+ useEffect(()=>{if(!completedRun)return;if(!alive.current||!context.current.active||completedRun.generation!==context.current.generation){setCompletedRun(null);return}if(locked)return;setCompletedRun(null);seenRun.current=completedRun.value.id;onRun(completedRun.value)},[completedRun,locked,onRun])
  const sources=useInsightRead<{items:Source[]}>(initialProcessedId&&!draft.sources.length?`${base}/bio-insights/sources?source_kind=bio_processed_dataset_version&page=1&page_size=100`:'',active&&!!initialProcessedId)
  const resultInput=useInsightRead<Result>(initialResultId?`${base}/bio-insight-results/${initialResultId}`:'',active&&!!initialResultId,true)
  function change(config:Config){setDraft(d=>({...d,config}));setPreview(null)}
- async function check(){if(request.current||locked)return;const c=new AbortController();request.current=c;setBusy(true);setError('');setPreview(null);try{const design=await insightRequest<Design>(`${base}/bio-insight-plans/preview`,{...jsonRequest(body),signal:c.signal},true);if(alive.current&&!c.signal.aborted)setPreview({signature,design})}catch(cause){if(alive.current&&!c.signal.aborted)setError(safeError(cause,'设计预检失败，请核对固定来源。'))}finally{if(request.current===c){request.current=null;if(alive.current)setBusy(false)}}}
+ async function check(){if(!alive.current||!context.current.active||request.current||locked)return;const c=new AbortController();request.current=c;setBusy(true);setError('');setPreview(null);try{const design=await insightRequest<Design>(`${base}/bio-insight-plans/preview`,{...jsonRequest(body),signal:c.signal},true);if(alive.current&&!c.signal.aborted)setPreview({signature,design})}catch(cause){if(alive.current&&!c.signal.aborted)setError(safeError(cause,'设计预检失败，请核对固定来源。'))}finally{if(request.current===c){request.current=null;if(alive.current)setBusy(false)}}}
  const p={config:draft.config,onChange:change,sources:draft.sources},issues=planIssues(draft.config),validPreview=preview?.signature===signature&&preview.design.executable,canSave=!!draft.sources.length&&!issues.length
  const [step,setStep]=useState<'sources'|'config'|'review'>(initial?.decision==='confirmed'?'review':'sources'),[configPanel,setConfigPanel]=useState('parameters'),[reviewPanel,setReviewPanel]=useState('summary')
- const runnable=!!initial&&sameSaved&&initial.decision==='confirmed'&&initial.design.executable&&initial.current_revision===initial.revision&&!issues.length
+ const runnable=!!savedPlan&&sameSaved&&savedPlan.decision==='confirmed'&&savedPlan.design.executable&&savedPlan.current_revision===savedPlan.revision&&!issues.length
+ async function saveOnly(){
+  if(!alive.current||!context.current.active||launching.current||locked||!canSave)return
+  if(sameSaved&&savedPlan){onSaved(savedPlan);return}
+  await operation.submit(savedPlan?`${base}/bio-insight-plans/${savedPlan.plan_id}/versions`:`${base}/bio-insight-plans`,{...body,decision:'draft'})
+ }
+ async function start(){
+  if(!alive.current||!context.current.active||!context.current.allowNewAnalysis||launching.current||locked||!canSave||pending(scope))return
+  launching.current=true;setBusy(true);setError('')
+  const generation=context.current.generation,canContinue=()=>alive.current&&context.current.active&&context.current.allowNewAnalysis&&context.current.scope===scope&&context.current.generation===generation
+  try{
+   let fixed=runnable?savedPlan:null
+   if(!fixed){
+    let design=preview?.signature===signature?preview.design:null
+    if(!design){const c=new AbortController();request.current=c;try{design=await insightRequest<Design>(`${base}/bio-insight-plans/preview`,{...jsonRequest(body),signal:c.signal},true);if(!canContinue()||c.signal.aborted)return;setPreview({signature,design})}finally{if(request.current===c)request.current=null}}
+    if(!canContinue()||!design.executable)return
+    fixed=await operation.submit(savedPlan?`${base}/bio-insight-plans/${savedPlan.plan_id}/versions`:`${base}/bio-insight-plans`,{...body,decision:'confirmed'},{silent:true})??null
+    if(fixed&&alive.current&&context.current.scope===scope)setDraft(d=>({...d,name:fixed!.name,config:fixed!.config,sources:fixed!.sources,savedPlan:fixed!}))
+    if(!fixed||!canContinue())return
+   }
+   if(!canContinue())return
+   const result=await run.submit(`${base}/bio-insight-runs`,{plan_version_id:fixed.id,expected_plan_revision:fixed.revision,source_digest:fixed.source_digest},{silent:true})
+   if(result&&canContinue())setCompletedRun({value:result,generation})
+  }catch(cause){if(canContinue())setError(safeError(cause,'设计预检失败，请核对固定来源。'))}
+  finally{launching.current=false;if(alive.current)setBusy(false)}
+ }
  const [stepScope,setStepScope]=useState(scope);if(stepScope!==scope){setStepScope(scope);setStep(initial?.decision==='confirmed'?'review':'sources')}
  return <section className="insight-editor">
   <nav className="analysis-sequence" aria-label={t('分析配置顺序')}>{([['sources','选择数据'],['config','配置分析'],['review','检查与运行']] as const).map(([key,label],index)=><button type="button" key={key} aria-current={step===key?'step':undefined} disabled={locked||key==='config'&&!draft.sources.length||key==='review'&&!canSave} onClick={()=>setStep(key)}><span aria-hidden="true">{index+1}. </span>{t(label)}</button>)}</nav>
@@ -65,17 +95,17 @@ export default function InsightPlanEditor({projectId,kind,active,initial,initial
    </div>
    <div hidden={step!=='review'}>
     <nav className="analysis-page-tabs" aria-label={t('分析检查视图')}><button type="button" aria-pressed={reviewPanel==='summary'} onClick={()=>setReviewPanel('summary')}>{t('检查摘要')}</button><button type="button" aria-pressed={reviewPanel==='technical'} onClick={()=>setReviewPanel('technical')}>{t('检查详情')}</button></nav>
-    <div hidden={reviewPanel!=='summary'}><h3>{body.name}</h3><p>{t('已选 {count} 个来源',{count:draft.sources.length})} · {t(draft.config.output_language==='en'?'英文':'中文')}{initial&&<> · v{initial.revision} · {t(initial.decision==='confirmed'?'已确认':'草稿')}</>}</p>
+    <div hidden={reviewPanel!=='summary'}><h3>{body.name}</h3><p>{t('已选 {count} 个来源',{count:draft.sources.length})} · {t(draft.config.output_language==='en'?'英文':'中文')}{initial&&<> · {t(initial.decision==='confirmed'?'已确认':'草稿')}</>}</p>
     {initial&&initial.current_revision!==initial.revision&&<p role="status">{t('当前查看历史版本；保存需要先核对最新版本，不能隐式覆盖。')}</p>}
-    {runnable?<p>{t('该版本已通过检查并确认，可以手动启动分析。')}</p>:<p>{t('先检查配置，再确认保存；只有已确认且未修改的版本可以启动。')}</p>}
-    <div className="intake-actions"><button type="button" disabled={!canSave} onClick={()=>void check()}>{t('预检当前设计')}</button><button type="button" disabled={!canSave||!validPreview} onClick={()=>void operation.submit(initial?`${base}/bio-insight-plans/${initial.plan_id}/versions`:`${base}/bio-insight-plans`,{...body,decision:'confirmed'})}>{t('确认并保存新版本')}</button><button type="button" className="button-primary" disabled={!runnable} onClick={()=>initial&&void run.submit(`${base}/bio-insight-runs`,{plan_version_id:initial.id,expected_plan_revision:initial.revision,source_digest:initial.source_digest})}>{t('提交已确认版本后台计算')}</button></div>
+    <p>{t(runnable?'来源和参数未变，将使用已保存的分析设置。':'开始分析时会先检查并保存本次设置，已有结果保留。')}</p>
+    <div className="intake-actions"><button type="button" disabled={!canSave} onClick={()=>void check()}>{t('预检当前设计')}</button><button type="button" className="button-primary" disabled={!allowNewAnalysis||!canSave||!!preview&&preview.signature===signature&&!validPreview} onClick={()=>void start()}>{t('开始分析')}</button></div>
     {preview&&<section aria-label={t('设计预检')}><h3>{t(preview.design.executable?'设计预检可执行':'设计预检阻断')}</h3><ul>{preview.design.blocking_reasons.map((reason,i)=><li key={i}>{typeof reason==='string'?reason:reason.message??reason.code}</li>)}</ul><DesignUnits value={preview.design.actual_units} cell={draft.config.schema_version===5||!!draft.config.single_cell_selection} singleCondition={draft.config.schema_version===5&&draft.config.mode==='descriptive'&&!!draft.config.numerator&&draft.config.numerator===draft.config.denominator}/>{preview.design.warnings?.map((warning,i)=><p className="warning-panel" key={i}>{warning}</p>)}</section>}
     </div><div hidden={reviewPanel!=='technical'}>{preview&&<DataDetails title="当前设计预检详情" value={preview.design}/>} {initial&&<DataDetails title="该版本保存时的设计检查" value={initial.design}/>}<DataDetails title="当前计划固定来源与原配置" value={{sources:draft.sources,config:draft.config}}/></div>
    </div>
   </fieldset>
-  {busy&&<p role="status">{t('正在核验固定来源，大文件可能需要数分钟。')} <button type="button" onClick={()=>{request.current?.abort();request.current=null;setBusy(false)}}>{t('取消等待')}</button></p>}{error&&<p role="alert">{t(error)}</p>}<IntentState operation={operation}/><IntentState operation={run}/>
+  {busy&&<p role="status">{t('正在核验固定来源，大文件可能需要数分钟。')} <button type="button" onClick={()=>{context.current={...context.current,generation:context.current.generation+1};request.current?.abort();operation.cancel();run.cancel();setBusy(false)}}>{t('取消等待')}</button></p>}{error&&<p role="alert">{t(error)}</p>}<IntentState operation={operation}/><IntentState operation={run}/>
   </div>
-  <footer className="insight-editor-actions"><button type="button" disabled={locked||!canSave} onClick={()=>void operation.submit(initial?`${base}/bio-insight-plans/${initial.plan_id}/versions`:`${base}/bio-insight-plans`,body)}>{t('保存不可变草稿版本')}</button><span className="muted">{t('保存不会启动计算。')}</span><div>{step!=='sources'&&<button type="button" disabled={locked} onClick={()=>setStep(step==='review'?'config':'sources')}>{t('上一步')}</button>}{step!=='review'&&<button type="button" className="button-primary" disabled={locked||(step==='sources'?!draft.sources.length:!canSave)} onClick={()=>setStep(step==='sources'?'config':'review')}>{t(step==='sources'?'下一步：配置分析':'下一步：检查与运行')}</button>}</div></footer>
+  <footer className="insight-editor-actions"><button type="button" disabled={locked||!canSave} onClick={()=>void saveOnly()}>{t('保存不可变草稿版本')}</button><span className="muted">{t('保存不会启动计算。')}</span><div>{step!=='sources'&&<button type="button" disabled={locked} onClick={()=>setStep(step==='review'?'config':'sources')}>{t('上一步')}</button>}{step!=='review'&&<button type="button" className="button-primary" disabled={locked||(step==='sources'?!draft.sources.length:!canSave)} onClick={()=>setStep(step==='sources'?'config':'review')}>{t(step==='sources'?'下一步：配置分析':'下一步：检查与运行')}</button>}</div></footer>
  </section>
 }
 export function InsightRun({projectId,runId,active,onResult,onPlan}:{projectId:string;runId:string;active:boolean;onResult:(id:string)=>void;onPlan?:(plan:string,version:string)=>void}){const{t}=useI18n(),read=useInsightRead<Run>(`${projectBase(projectId)}/bio-insight-runs/${encodeURIComponent(runId)}`,active,false,v=>['queued','running'].includes(v.task.status));return <section><h3>{t('固定计划后台运行')}</h3><ReadState {...read}/>{read.data&&<><p>{read.data.kind}</p><TaskStatus projectId={projectId} task={read.data.task}/>{read.data.plan_id&&onPlan&&<button type="button" onClick={()=>onPlan(read.data!.plan_id!,read.data!.plan_version_id)}>{t('打开此运行的固定计划')}</button>}{read.data.result_version_id&&<button type="button" onClick={()=>onResult(read.data!.result_version_id!)}>{t('打开已发布固定结果')}</button>}<p>{t('刷新或重新打开此运行只读取状态，不重新提交计算。')}</p></>}</section>}

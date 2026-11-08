@@ -2,6 +2,7 @@
 from app.adapters.research_results_store import ResearchResultsStore,base,insert,identity,now,invalid
 from app.adapters.research_objects import ResearchObjects
 from app.adapters.bio_analysis_store import scoped_object,object_by_key
+from app.adapters.analysis_request_receipts import read_receipt,bind_receipt,target
 from app.domain.bioinformatics.contracts import digest
 from app.domain.bioinformatics.service import require_key,append_checkpoint
 from .contracts import ResearchReportRequest
@@ -93,6 +94,11 @@ class ResearchReportService(ResearchResultsStore):
         with self.store.connection(write=True) as db:
             self.lock(db,project,'report:'+str(request.root_id or key))
             replay=db.execute('SELECT * FROM research_report_versions WHERE project_id=%s AND user_id=%s AND request_key=%s',(project,self.store.user_id,key)).fetchone()
+            if not replay:
+                receipt=read_receipt(db,user_id=self.store.user_id,project_id=project,kind='research_report',key=key,request_digest=sha)
+                if receipt:
+                    replay=target(db,user_id=self.store.user_id,project_id=project,kind='research_report',target_id=receipt['target_id'])
+                    replay['request_digest']=receipt['request_digest']
             if replay:
                 if replay['request_digest']!=sha:raise invalid('research_idempotency_conflict')
                 identifier=replay['id'];status=200
@@ -112,16 +118,39 @@ class ResearchReportService(ResearchResultsStore):
                 snapshot=dict(schema_version=1,kind='research_report',workflow_version='research_report_v1',project_id=project,report_version_id=identifier,renderer_identity=renderer_identity(),
                     request=body,output_policy=OUTPUT_POLICY,content_sha256=digest(content),source_file_ids=sorted({f for s in bindings for f in s.source_file_ids}),
                     output_language=request.language,real_model_calls=False,real_network_calls=False)
-                task=dict(id=task_id,project_id=project,user_id=self.store.user_id,task_type='research_report',idempotency_key='research_report:'+task_id,
-                    input_digest=digest(snapshot),input_snapshot=snapshot,workflow_version='research_report_v1',status='queued',phase='export',revision=1,current_attempt=0,reason_code=None,created_at=moment,updated_at=moment)
-                self.store.insert_task(db,task,validated_file_ids=snapshot['source_file_ids'])
-                insert(db,'research_report_versions',{**base(identifier,project,self.store.user_id),'root_id':request.root_id or identifier,'revision':revision,
-                    'parent_id':parent['id'] if parent else None,'finding_version_id':request.finding_version_id,'task_id':task_id,'language':request.language,
-                    'content_json':content,'content_sha256':digest(content),'manifest_object_id':None,'manifest_sha256':None,'request_key':key,'request_digest':sha})
-                for source in bindings:self.bind(db,project,'report',identifier,source)
-                append_checkpoint(db,task,'check','check',dict(input_version=input_version(task),stage='report'))
-                self.store.append_event(db,task,'created');self.store.enqueue(db,task);status=201
+                signature=dict(content_sha256=snapshot['content_sha256'],renderer_identity=snapshot['renderer_identity'],output_policy=OUTPUT_POLICY)
+                self.lock(db,project,'report-content:'+digest(signature))
+                reused=self._reusable_report(db,project,request,snapshot,parent)
+                if reused:
+                    bind_receipt(db,user_id=self.store.user_id,project_id=project,kind='research_report',key=key,request_digest=sha,target_id=reused['id'])
+                    identifier=reused['id'];status=200
+                else:
+                    task=dict(id=task_id,project_id=project,user_id=self.store.user_id,task_type='research_report',idempotency_key='research_report:'+task_id,
+                        input_digest=digest(snapshot),input_snapshot=snapshot,workflow_version='research_report_v1',status='queued',phase='export',revision=1,current_attempt=0,reason_code=None,created_at=moment,updated_at=moment)
+                    self.store.insert_task(db,task,validated_file_ids=snapshot['source_file_ids'])
+                    insert(db,'research_report_versions',{**base(identifier,project,self.store.user_id),'root_id':request.root_id or identifier,'revision':revision,
+                        'parent_id':parent['id'] if parent else None,'finding_version_id':request.finding_version_id,'task_id':task_id,'language':request.language,
+                        'content_json':content,'content_sha256':digest(content),'manifest_object_id':None,'manifest_sha256':None,'request_key':key,'request_digest':sha})
+                    for source in bindings:self.bind(db,project,'report',identifier,source)
+                    append_checkpoint(db,task,'check','check',dict(input_version=input_version(task),stage='report'))
+                    self.store.append_event(db,task,'created');self.store.enqueue(db,task);status=201
         return self.get(project,identifier),status
+
+    def _reusable_report(self,db,project,request,snapshot,parent):
+        rows=db.execute("""SELECT r.* FROM research_report_versions r JOIN tasks t ON t.id=r.task_id
+            WHERE r.project_id=%s AND r.user_id=%s AND r.finding_version_id=%s
+            AND t.status IN ('queued','running','succeeded') ORDER BY r.created_at DESC,r.id""",(project,self.store.user_id,request.finding_version_id)).fetchall()
+        for row in rows:
+            # An explicit root edit first passed CAS and can only reuse its head.
+            # Reusing an ancestor would silently discard a newer report edit.
+            if parent and row['id']!=parent['id']:continue
+            task=self.store.require_task(db,row['task_id']);saved=task['input_snapshot']
+            if any(saved.get(k)!=snapshot[k] for k in ('renderer_identity','output_policy','content_sha256','source_file_ids','output_language')):continue
+            self.require_sources(db,task)
+            if task['status']=='succeeded':
+                if not row['manifest_object_id']:raise invalid()
+                self.checked_members(db,project,row)
+            return dict(row)
 
     def require_sources(self,db,task,*,progress=None):
         with VerificationPhase(db,self.assets,task['project_id']) as phase:

@@ -12,5 +12,7 @@ COPY third_party ./third_party
 COPY infra/api/release_web.py infra/api/release_entry.py ./
 COPY source-manifest.json ./source-manifest.json
 RUN python release_entry.py requirements
+USER root
+RUN install -d -o paperassist -g paperassist /run/paperassist-execution
 USER paperassist
 CMD ["python", "release_web.py"]

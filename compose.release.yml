@@ -8,11 +8,13 @@ x-environment: &environment
   PAPERASSIST_TASK_QUEUE: paperassist.release.${RELEASE_NAMESPACE}
   PAPERASSIST_RUNTIME_CONTROL_DIR: /control
   PAPERASSIST_RUNTIME_NAMESPACE: ${RELEASE_NAMESPACE}
-  PAPERASSIST_WORKER_CONCURRENCY_CEILING: '2'
+  PAPERASSIST_WORKER_CONCURRENCY_CEILING: '1'
+  PAPERASSIST_EXECUTION_LOCK_FILE: /run/paperassist-execution/worker.lock
   PAPERASSIST_WRITING_LIVE_ENABLED: '0'
   PAPERASSIST_PLOT_WORKER_ENABLED: '0'
   PAPERASSIST_NCBI_ENABLED: '0'
   PAPERASSIST_AUTH_TRUSTED_ORIGINS: https://localhost:${RELEASE_PORT}
+  # Legacy name retained for local Word TOC/field updates; PDF generation is retired.
   PAPERASSIST_PDF_RENDERER_URL: http://pdf-renderer:8080
   PAPERASSIST_WORKER_HEALTH_FILE: /tmp/dispatcher-health
   PAPERASSIST_PDF_FONTS_DIR: /usr/local/share/fonts/paperassist
@@ -29,6 +31,7 @@ x-app: &app
   volumes:
     - ${RELEASE_DIRECTORY}/assets:/data
     - ${RELEASE_DIRECTORY}/control:/control:ro
+    - worker-execution:/run/paperassist-execution
   tmpfs: ['/tmp:size=256m,mode=1777']
   labels: &labels
     io.paperassist.release: ${RELEASE_NAMESPACE}
@@ -92,12 +95,13 @@ services:
     <<: *app
     command: [python, -m, app.workers, worker]
     volumes:
+      - worker-execution:/run/paperassist-execution
       - ${RELEASE_DIRECTORY}/assets:/data
       - ${RELEASE_DIRECTORY}/control:/control
       - ${RELEASE_FONTS}/arial.ttf:/usr/local/share/fonts/paperassist/arial.ttf:ro
       - ${RELEASE_FONTS}/simsun.ttc:/usr/local/share/fonts/paperassist/simsun.ttc:ro
-    mem_limit: 2g
-    cpus: 2
+    mem_limit: 5g
+    cpus: 1
     pids_limit: 256
     healthcheck:
       test: [CMD, python, -m, app.workers, health, worker]
@@ -131,6 +135,7 @@ services:
     mem_limit: 256m
     cpus: 0.5
     command: [python, release_entry.py, collect]
+  # Required Word field service; preserve the compatible alias, fonts and isolation.
   renderer:
     image: sha256:8b341880cc1533d0a301e7c9ec60493aba67f1464e1efc00820db9044b15bfde
     pull_policy: never
@@ -186,6 +191,8 @@ secrets:
 volumes:
   database:
   broker:
+  worker-execution:
+    name: paperassist-worker-execution
 networks:
   private:
     internal: true

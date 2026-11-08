@@ -1,0 +1,18 @@
+export const platformBatch4Messages:Record<string,string>={
+ '采用已保存的对应关系会替换本地映射草稿。':'Using the saved correspondence replaces the local mapping draft.',
+ '样本对应关系已更新，本地修改已保留，请选择要使用的内容。':'The sample correspondence has changed. Your local edits are preserved. Choose which content to use.',
+ '采用已保存的对应关系':'Use the saved correspondence',
+ '保留本地修改':'Keep local edits',
+ '重新核对样本对应关系':'Check the sample correspondence again',
+ '后续分析或写作将使用已保存的修改，已有结果保留。':'Future analysis or writing will use the saved changes; existing results are preserved.',
+ '开始分析时会先保存必要的映射和参数修改。':'Starting analysis first saves the necessary mapping and parameter changes.',
+ '来源和参数相同时使用已有分析；修改后建立新分析，已有结果保留。':'The same source and parameters use an existing analysis. Changes create a new analysis and preserve existing results.',
+ '配方读取失败，请重新读取后核对。':'The recipe could not be read. Reload it and check before continuing.',
+ '来源和参数未变，将使用已保存的分析设置。':'The source and parameters are unchanged. The saved analysis settings will be used.',
+ '开始分析时会先检查并保存本次设置，已有结果保留。':'Starting analysis first checks and saves these settings. Existing results are preserved.',
+ '生成研究报告':'Create research report',
+ '接续写作或报告前会先保存本次修改；内容未变时使用已有研究发现。':'Changes are saved before continuing to writing or a report. Unchanged content uses the saved findings.',
+ '核对已保存的研究发现':'Check the saved findings',
+ '已找到保存记录，请完成读取后再继续。':'The saved record was found. Finish loading it before continuing.',
+ '重新读取已保存的研究发现':'Reload the saved findings',
+}

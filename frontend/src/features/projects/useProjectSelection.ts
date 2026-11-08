@@ -75,6 +75,7 @@ export default function useProjectSelection(onUnavailable: (id: string) => void,
         // A same-project deep link describes only its visible section. Keep
         // inactive task destinations so Back/Forward does not hide a retained draft.
         if (next.projectId && next.projectId === current.current?.id) {
+            if (next.section !== 'files') next = { ...next, resourceNavigation: routeRef.current.resourceNavigation };
             if(next.section!=='overview'||next.overviewView!=='deliveries')next={...next,deliveryId:routeRef.current.deliveryId,deliverySnapshotId:routeRef.current.deliverySnapshotId};
             if (next.section !== 'reviews') next = {...next,reviewLink:routeRef.current.reviewLink,reviewView:routeRef.current.reviewView,reviewItemId:routeRef.current.reviewItemId};
             if (next.section !== 'tasks') next = {...next,taskId:routeRef.current.taskId,taskDetailView:routeRef.current.taskDetailView};

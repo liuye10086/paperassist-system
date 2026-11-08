@@ -1,10 +1,42 @@
 import {afterEach,expect,it,vi} from 'vitest'
-import {cleanup,fireEvent,render,screen,waitFor} from '@testing-library/react'
+import {act,cleanup,fireEvent,render,screen,waitFor} from '@testing-library/react'
 import {apiFetch} from '../../shared/api/client'
 import BioImports from './BioImports'
 vi.mock('../../shared/api/client',()=>({apiFetch:vi.fn(),getApiUserId:()=> 'owner1',onApiSessionChanged:()=>()=>{}}))
 afterEach(()=>{cleanup();vi.clearAllMocks();sessionStorage.clear()})
 function responses(url:string,init?:RequestInit){return Promise.resolve(Response.json(init?.method==='POST'?{id:'import1'}:url.endsWith('/files')?[{id:'file1',filename:'matrix.h5',file_type:'bio_component'}]:url.includes('/bio-analysis-runs')?{items:[],total:0}:{items:[{id:'dataset1',name:'Existing Visium',revision:2}],total:1}))}
+it('opens the import form from an original and restores its configuration and sample after reload',async()=>{
+ vi.mocked(apiFetch).mockImplementation(responses)
+ const props={projectId:'p1',active:true,sectioned:true,qualityMode:false,navigation:{view:'bio-datasets' as const,fileId:'file1'},initialFileIds:['file1'],entryKey:'req1:qc',onNavigate:vi.fn()}
+ const view=render(<BioImports {...props}/>);
+ await screen.findByRole('checkbox',{name:/matrix.h5/})
+ expect(screen.getByRole('button',{name:'导入与检查'}).getAttribute('aria-pressed')).toBe('true')
+ fireEvent.change(screen.getByLabelText('导入核对流程'),{target:{value:'v4'}})
+ fireEvent.change(screen.getByLabelText('单细胞矩阵格式'),{target:{value:'h5ad'}})
+ fireEvent.change(screen.getByLabelText('H5AD counts 数据层'),{target:{value:'layers/counts'}})
+ fireEvent.change(screen.getByLabelText('数据集名称'),{target:{value:'恢复矩阵'}})
+ fireEvent.click(screen.getByRole('button',{name:'填写样本信息'}));fireEvent.change(screen.getByLabelText('样本编号 1'),{target:{value:'S1'}})
+ view.unmount();render(<BioImports {...props}/>);
+ expect(await screen.findByLabelText('样本编号 1')).toHaveProperty('value','S1')
+ expect(screen.getByLabelText('数据集名称')).toHaveProperty('value','恢复矩阵')
+ expect(screen.getByLabelText('H5AD counts 数据层')).toHaveProperty('value','layers/counts')
+ expect(vi.mocked(apiFetch).mock.calls.some(([,init])=>init?.method==='POST')).toBe(false)
+})
+it('requires a fresh material read before submitting a restored draft and keeps it blocked on read failure',async()=>{
+ vi.mocked(apiFetch).mockImplementation(responses)
+ const props={projectId:'p1',active:true,navigation:{view:'bio-datasets' as const,fileId:''},onNavigate:vi.fn()}
+ const view=render(<BioImports {...props}/>);await screen.findByText('matrix.h5')
+ fireEvent.change(screen.getByLabelText('数据集名称'),{target:{value:'恢复时不得提前提交'}});fireEvent.click(screen.getByRole('checkbox',{name:/matrix.h5/}));view.unmount()
+ let rejectRead!:(reason:Error)=>void
+ vi.mocked(apiFetch).mockImplementation((url,init)=>String(url).endsWith('/files')?new Promise((_resolve,reject)=>{rejectRead=reject}):responses(url,init))
+ render(<BioImports {...props}/>);
+ expect(screen.getByRole('button',{name:'开始结构导入'})).toHaveProperty('disabled',true)
+ await act(async()=>rejectRead(Error('offline')))
+ expect(screen.getByRole('button',{name:'开始结构导入'})).toHaveProperty('disabled',true)
+ expect(screen.getByLabelText('数据集名称')).toHaveProperty('value','恢复时不得提前提交')
+ expect(screen.getByRole('button',{name:'重新读取导入材料'})).toHaveProperty('disabled',false)
+ expect(vi.mocked(apiFetch).mock.calls.some(([,init])=>init?.method==='POST')).toBe(false)
+})
 it('removes deselected files from sample assignments and keeps the sample editable',async()=>{
  vi.mocked(apiFetch).mockImplementation((url,init)=>url.endsWith('/files')?Promise.resolve(Response.json([
   {id:'file1',filename:'matrix.h5',file_type:'bio_component'},{id:'file2',filename:'other.h5',file_type:'bio_component'},

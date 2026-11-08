@@ -4,7 +4,7 @@ import AnalysisGuide from './AnalysisGuide'
 import {entryMethods} from './analysisEntryState'
 import type {Version} from '../research-intake/contracts'
 
-afterEach(cleanup)
+afterEach(()=>{cleanup();sessionStorage.clear()})
 const version:Version={id:'r1',version:1,operation:'save',created_at:'',sha256:'x',content:{schema_version:1,scope_items:['multiomics','candidates'].map(kind=>({id:'questionnaire.analysis.'+kind,title:kind,delivery_kind:'analysis',status:'planned'}))}}
 const props={version,files:[],loading:false,error:'',filesLoading:false,filesError:'',imports:[],importsUnknown:false,importsError:'',onRefresh:vi.fn(),onReloadFiles:vi.fn(),onNavigate:vi.fn(),onFile:vi.fn()}
 it('focuses one saved task and separates existing analyses without new computation',()=>{

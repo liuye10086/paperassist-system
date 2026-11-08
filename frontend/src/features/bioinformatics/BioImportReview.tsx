@@ -23,7 +23,7 @@ export default function BioImportReview({projectId,importId,onNavigate,registerL
  return <section className="bio-workspace bio-module-workspace">
   <header className="bio-workspace-header"><h2>{t('生信导入核对')}</h2><button type="button" disabled={writer.busy||!read.valid} onClick={read.reload}>{t('重新读取导入')}</button></header>
   {read.error&&<p role="alert" className="error-panel">{t(read.error)}</p>}
-  {data&&<><div className="bio-workspace-status"><p>{t(data.task.status==='succeeded'?'数据集版本已发布':data.task.status==='failed'?'导入失败；原件和已有数据集保留。':data.task.status==='waiting_confirmation'?'候选已生成，待明确确认':'任务已提交，正在处理。')}</p><a href={`#project=${encodeURIComponent(projectId)}&section=tasks&task=${encodeURIComponent(data.task.id)}`}>{t('查看项目任务')}</a></div>
+  {data&&<><div className="bio-workspace-status"><p role="status">{t(data.task.status==='succeeded'?'数据集版本已发布':data.task.status==='failed'?'导入失败；原件和已有数据集保留。':data.task.status==='waiting_confirmation'?'候选已生成，待明确确认':data.task.status==='queued'?'排队中，轮到此任务后核对矩阵。':data.task.status==='cancelled'?'导入已取消，上传文件保留。':data.task.status==='running'?'正在核对矩阵与样本信息。':'正在核对任务状态，请稍后重新读取。')}</p><a href={`#project=${encodeURIComponent(projectId)}&section=tasks&task=${encodeURIComponent(data.task.id)}`}>{t('查看项目任务')}</a></div>
    {data.candidate?<>
     <ModuleViews label={t('导入核对模块')}>
      <ModuleView id="structure" title={t('文件结构')}><BioCounts summary={data.candidate.summary}/><BioChecks checks={data.candidate.checks}/><BioRepresentation summary={data.candidate.summary} checks={data.candidate.checks}/></ModuleView>
@@ -32,7 +32,7 @@ export default function BioImportReview({projectId,importId,onNavigate,registerL
     </ModuleViews>
     {canConfirmCandidate(data)&&<div className="bio-confirmation-actions"><label className="intake-check"><input type="checkbox" checked={accept} onChange={e=>setAccepted(e.target.checked?signature:null)} disabled={writer.busy||writer.unknown}/>{t('接受此数据集及结构核对结果；后续设计、质控和方法须另行确认。')}</label><button type="button" className="button-primary" disabled={writer.busy||writer.unknown||!writer.valid||!accept} onClick={confirm}>{t('确认并发布数据集版本')}</button></div>}
    </>:<p>{t('候选尚未就绪，请查看任务状态。')}</p>}
-   {data.result_source&&<button type="button" onClick={()=>onNavigate({view:'bio-dataset',fileId:'',datasetId:data.result_source!.dataset_id,versionId:data.result_source!.dataset_version_id})}>{t('查看已发布数据集版本')}</button>}
+   {data.result_source&&data.task.status==='succeeded'&&<button type="button" className="button-primary" onClick={()=>onNavigate({view:'bio-dataset',fileId:'',datasetId:data.result_source!.dataset_id,versionId:data.result_source!.dataset_version_id})}>{t('下一步：查看矩阵并配置分析')}</button>}
   </>}<BioWriteStatus writer={writer}/>
  </section>
 }

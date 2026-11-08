@@ -26,7 +26,7 @@ def domain_errors(domain,bundle):
                 if name in ('explanation','recommendation','plot'):
                     {'explanation':explanation,'recommendation':recommendation,'plot':plot}[name](execution)
                 elif name=='writing':
-                    if (parsed.model!='gpt-5.4-2026-03-05' or parsed.tools or parsed.prompt_version!='sci-writing-v2'
+                    if (parsed.model!='gpt-6.1-sol' or parsed.tools or parsed.prompt_version!='sci-writing-v2'
                             or parsed.output_format!='manuscript_writing_v2'):
                         raise ValueError('Unsupported writing wire contract')
                 elif (parsed.model!='gpt-6.1-sol' or parsed.tools or parsed.prompt_version!='literature_assistance_v1'

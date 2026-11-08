@@ -120,7 +120,15 @@ def test_qc_wait_confirmation_and_atomic_result_pointers(client,monkeypatch,tmp_
         assert row['processed_dataset_version_id']==done['result_bio_processed_dataset_version_id']
     lookup=client.get(base+'/bio-requests/confirm?kind=confirmation')
     assert lookup.status_code==200 and lookup.json()['id']==created['id']
-    other=client.post(base+'/bio-analysis-runs',json=request,headers={'Idempotency-Key':'second-run'})
+    reused=client.post(base+'/bio-analysis-runs',json=request,headers={'Idempotency-Key':'same-completed-run'})
+    assert reused.status_code==202 and reused.json()['id']==created['id'],reused.text
+    assert reused.json()['task']['status']=='succeeded'
+    # The ambiguity check needs a genuinely different computation now that
+    # unchanged input reuses its completed run.
+    changed=client.post(base+'/bio-analysis-setups',json=dict(name='changed seed',raw_source=request['raw_source'],
+        expected_revision=0,params={'min_spots':1,'seed':43}),headers={'Idempotency-Key':'changed-recipe'})
+    assert changed.status_code==201,changed.text
+    other=client.post(base+'/bio-analysis-runs',json={**request,'recipe_version_id':changed.json()['id']},headers={'Idempotency-Key':'second-run'})
     assert other.status_code==202,other.text
     assert run(other.json()['task'],staging)['status']=='waiting_confirmation'
     other_view=client.get(base+'/bio-analysis-runs/'+other.json()['id']).json()

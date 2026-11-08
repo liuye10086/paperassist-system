@@ -41,8 +41,11 @@ def test_real_word_execution_saves_success_and_duplicate_message_is_noop(client,
         reports = db.execute('SELECT * FROM reports').fetchall()
         assert len(reports) == 1
         assert json.loads(reports[0]['report_json'])['created_at'].endswith('+00:00')
-        assert len(db.execute('SELECT * FROM task_attempts').fetchall()) == 1
-        assert [r['event_type'] for r in db.execute('SELECT * FROM task_events ORDER BY seq')] == ['created', 'started', 'succeeded']
+        # Preparing a report also executes its source statistics task. Verify
+        # duplicate delivery for this Word task, not unrelated source work.
+        assert len(db.execute('SELECT * FROM task_attempts WHERE task_id=%s', (task['id'],)).fetchall()) == 1
+        assert [r['event_type'] for r in db.execute(
+            'SELECT * FROM task_events WHERE task_id=%s ORDER BY seq', (task['id'],))] == ['created', 'started', 'succeeded']
     assert len(list((tmp_path / 'data' / 'reports').glob('*.docx'))) == 1
 
 

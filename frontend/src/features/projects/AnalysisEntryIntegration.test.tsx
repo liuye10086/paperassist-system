@@ -6,7 +6,7 @@ import ProjectResources from './ProjectResources'
 import type {AnalysisNavigation} from './analysisViews'
 import type {Version} from '../research-intake/contracts'
 
-vi.mock('../../shared/api/client',()=>({apiFetch:vi.fn(),onApiSessionChanged:()=>()=>{}}))
+vi.mock('../../shared/api/client',()=>({apiFetch:vi.fn(),getApiUserId:()=> 'owner1',onApiSessionChanged:()=>()=>{}}))
 vi.mock('../files/ProjectFileLibrary',()=>({default:()=>null}))
 vi.mock('../files/BatchUpload',()=>({default:()=>null}))
 vi.mock('../files/ExcelPreview',()=>({default:()=>null}))
@@ -15,7 +15,7 @@ vi.mock('../bioinformatics/BioImports',()=>({default:({active,initialFileIds}:{a
 vi.mock('../bio-insights/BioInsightsWorkspace',()=>({default:({active,navigation}:{active:boolean;navigation:AnalysisNavigation})=>active?<output>insight:{navigation.intent}</output>:null}))
 vi.mock('../analysis/AnalysisSetup',()=>({default:({fileId}:{fileId:string})=><output>table:{fileId}</output>}))
 vi.mock('../analysisPlan/ProjectRequirements',()=>({default:()=>null}))
-afterEach(()=>{cleanup();vi.clearAllMocks()})
+afterEach(()=>{cleanup();vi.clearAllMocks();sessionStorage.clear()})
 const saved=(id='old',kind='qc',fileId='one'):Version=>({id,version:id==='old'?1:2,operation:'save',created_at:'',sha256:'hash',content:{schema_version:1,scope_items:[{id:'questionnaire.analysis.'+kind,title:'需求-'+kind,delivery_kind:'analysis',status:'planned'}]},material_refs:[{file_id:fileId,availability:'provided',purpose:'raw_data'}]})
 const files=[{id:'one',filename:'one.xlsx',file_type:'xlsx',parse_status:'parsed',size_bytes:10,uploaded_at:'',error:null},{id:'raw',filename:'original.zip',file_type:'bio_bundle',parse_status:'stored',size_bytes:10,uploaded_at:'',error:null}]
 function Harness({projectId='p1',initial={view:'overview',fileId:''},accepted}:{projectId?:string;initial?:AnalysisNavigation;accepted?:Version}){

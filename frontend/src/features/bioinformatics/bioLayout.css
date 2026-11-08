@@ -22,3 +22,7 @@
  .resource-bio-body .bio-module-workspace>.module-views>.module-view-content,.analysis-bio-body .bio-module-workspace>.module-views>.module-view-content{flex:1;min-height:0;max-height:none;overflow:auto}
  .bio-module-workspace>.module-views>nav,.bio-module-workspace>.bio-workspace-header,.bio-module-workspace>.bio-workspace-status,.bio-module-workspace>.bio-confirmation-actions,.bio-module-workspace>.intake-actions{flex-shrink:0}
 }
+.single-cell-delivery { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 16px; margin: 16px 0; padding: 20px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); }
+.single-cell-delivery h3 { margin: 0 0 8px; }
+.single-cell-delivery p { margin: 0; }
+.single-cell-delivery a { display: inline-flex; padding: 10px 16px; border-radius: 8px; color: var(--text-h); background: var(--accent-bg); font-weight: 600; }

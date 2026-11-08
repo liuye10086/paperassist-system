@@ -15,6 +15,8 @@ x-worker: &worker
     PAPERASSIST_DATABASE_URL_FILE: /run/secrets/database-url
     PAPERASSIST_TEST_DATABASE_URL_FILE: /run/secrets/database-url
     PAPERASSIST_WORKER_HEALTH_FILE: /tmp/dispatcher-health
+    PAPERASSIST_WORKER_CONCURRENCY_CEILING: '1'
+    PAPERASSIST_EXECUTION_LOCK_FILE: /run/paperassist-execution/worker.lock
     PAPERASSIST_PDF_FONTS_DIR: /usr/local/share/fonts/paperassist
   secrets:
     - source: database-url
@@ -22,6 +24,7 @@ x-worker: &worker
     - source: broker-url
       target: broker-url
   volumes:
+    - worker-execution:/run/paperassist-execution
     - type: bind
       source: ${PAPERASSIST_STACK_DATA}
       target: /data
@@ -52,13 +55,15 @@ services:
     stop_grace_period: 30s
   worker:
     <<: *worker
-    mem_limit: 2g
+    mem_limit: 5g
+    cpus: 1
     environment:
       <<: *worker-environment
       OPENAI_API_KEY_FILE: /run/secrets/model-api-key
       PAPERASSIST_WRITING_LIVE_ENABLED: ${PAPERASSIST_WRITING_LIVE_ENABLED:-0}
       PAPERASSIST_NCBI_CONFIG_FILE: /run/secrets/ncbi-config
       PAPERASSIST_WORKER_CONFIG_REVISION: ${PAPERASSIST_WORKER_CONFIG_REVISION}
+      # Legacy endpoint/config name: local Word TOC/field updates only, no PDF generation.
       PAPERASSIST_PDF_RENDERER_URL: http://pdf-renderer:8080
     networks: [default, pdf-internal]
     depends_on:
@@ -91,6 +96,8 @@ services:
       timeout: 5s
       retries: 6
       start_period: 10s
+  # Keep this service/network identity for existing stacks and frozen Word manifests.
+  # /layout-cache calculates Word fields; its fixed fonts remain required for layout.
   pdf-renderer:
     image: ${PAPERASSIST_STACK_PROJECT}-pdf-renderer:local
     build:
@@ -149,6 +156,8 @@ secrets:
     file: ${PAPERASSIST_STACK_PRIVATE}/rabbitmq.conf
 volumes:
   broker-data:
+  worker-execution:
+    name: paperassist-worker-execution
 networks:
   pdf-internal:
     internal: true

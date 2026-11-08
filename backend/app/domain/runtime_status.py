@@ -382,7 +382,7 @@ def admin_status(db):
         database=receipt['database'] if receipt else dict(status='unknown',observed_at=None),
         **{field:receipt[field] if receipt else None for field in ('queue','failures','budgets','disk','external_limits')},
         concurrency=dict(desired=desired,effective=effective,deployment_ceiling=concurrency_ceiling(),
-            pending_restart=(desired!=effective or (startup['configuration_sha256'] if startup else None)!=(version['sha256'] if version else None)) if effective is not None else None,
+            pending_restart=(min(desired,concurrency_ceiling())!=effective or (startup['configuration_sha256'] if startup else None)!=(version['sha256'] if version else None)) if effective is not None else None,
             desired_configuration_id=version['id'] if version else None,desired_configuration_sha256=version['sha256'] if version else None,
             effective_configuration_id=startup['configuration_id'] if startup else None,
             effective_configuration_sha256=startup['configuration_sha256'] if startup else None))

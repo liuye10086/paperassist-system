@@ -71,6 +71,12 @@ class ResearchCatalog(ResearchResultsStore):
             self.store.require_project(db,project)
             row=db.execute('SELECT * FROM '+table+' WHERE project_id=%s AND user_id=%s AND request_key=%s',
                 (project,self.store.user_id,key)).fetchone()
+            if not row and kind=='report':
+                from app.adapters.analysis_request_receipts import read_receipt,target
+                receipt=read_receipt(db,user_id=self.store.user_id,project_id=project,kind='research_report',key=key)
+                if receipt:
+                    row=target(db,user_id=self.store.user_id,project_id=project,kind='research_report',target_id=receipt['target_id'])
+                    row['request_digest']=receipt['request_digest']
             if not row:raise invalid('research_source_not_found',404)
             result={k:row[k] for k in ('id','set_id','root_id','revision','task_id') if k in row}
             result.update(kind=kind,request_digest=row['request_digest'])

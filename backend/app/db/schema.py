@@ -358,3 +358,6 @@ define_delivery_tables(metadata)
 
 from app.db.bio_cloud_schema import define_bio_cloud_tables
 define_bio_cloud_tables(metadata)
+
+from app.db.analysis_request_receipt_schema import define_analysis_request_receipts
+analysis_request_receipts=define_analysis_request_receipts(metadata)

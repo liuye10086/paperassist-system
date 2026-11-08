@@ -23,6 +23,8 @@ BASE = 'sha256:299060c24730e5d7aeebab34b7f960ee5548e4ed2a76454a38eac80f78f3c10b'
 POSTGRES = 'postgres@sha256:edb0c08dc33befd0262ab3b5cf1c4f3f8cfd8b09e88c05b45adee29d6761ddb6'
 BROKER = 'rabbitmq:4.3.6-alpine@sha256:2cb43283d8bbd3caa6c0f0dc00e96c8de772df33df7fd8af6aee4d605aeb8ada'
 RENDERER = 'sha256:8b341880cc1533d0a301e7c9ec60493aba67f1464e1efc00820db9044b15bfde'
+# The legacy renderer identity and all locked fonts support Word field layout.
+# Do not drop this preflight/startup dependency when retiring PDF generation.
 FONTS = 'arial.ttf arialbd.ttf arialbi.ttf ariali.ttf simsun.ttc calibri.ttf calibrib.ttf calibrii.ttf calibriz.ttf calibril.ttf calibrili.ttf msyh.ttc msyhbd.ttc msyhl.ttc cambria.ttc simhei.ttf times.ttf timesbd.ttf timesbi.ttf timesi.ttf'.split()
 
 

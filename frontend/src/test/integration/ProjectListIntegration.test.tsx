@@ -81,7 +81,7 @@ async function openAndPreview() {
   await screen.findByRole('cell', { name: '777' }); return user
 }
 async function openBatchUpload(user: ReturnType<typeof userEvent.setup>) {
-  await user.click(screen.getByRole('button', { name: '第 2 步：上传文件' }))
+  await user.click(screen.getByRole('button', { name: '第 2 步：文件上传/整理' }))
 }
 async function previewAfterBatch(user: ReturnType<typeof userEvent.setup>) {
   await screen.findByText(/解析完成/)

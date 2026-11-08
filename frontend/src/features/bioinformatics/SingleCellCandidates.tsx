@@ -1,5 +1,5 @@
 import {useEffect,useLayoutEffect,useRef,useState} from 'react'
-import {useI18n} from '../../shared/i18n'
+import {apiError,useI18n} from '../../shared/i18n'
 import {statusNames,type TaskView} from '../tasks/taskTypes'
 import {projectBase} from './api'
 import type {AnnotationDraft} from './BioAnnotationEditor'
@@ -11,7 +11,7 @@ import useBioWrite from './useBioWrite'
 type Reference={reference_id:string;species:string;gene_id_type:string;label_level?:string;label_levels?:string[];license?:string;available:boolean;reason?:string|null;source?:unknown;version?:string}
 type AnnotationRun={id:string;name:string;parent_processed_source:ProcessedBioSource;reference_id:string;task:TaskView;result:{set_id:string;version_id:string}|null}
 const pending=(run:AnnotationRun)=>['queued','running'].includes(run.task.status)
-export function SingleCellCandidateTask({projectId,result,onPublished}:{projectId:string;result:BioProcessed;onPublished:()=>void}){
+export function SingleCellCandidateTask({projectId,result,onPublished,allowNewAnalysis=true}:{projectId:string;result:BioProcessed;onPublished:()=>void;allowNewAnalysis?:boolean}){
  const {t}=useI18n(),base=projectBase(projectId),[reference,setReference]=useState(''),[newRun,setNewRun]=useState<AnnotationRun|null>(null)
  const refs=useBioRead<{items:Reference[]}>(`${base}/bio-single-cell-references`)
  const runs=useBioRead<{items:AnnotationRun[]}>(`${base}/bio-processed-datasets/${encodeURIComponent(result.id)}/annotation-runs`,v=>v.items.some(pending))
@@ -25,7 +25,7 @@ export function SingleCellCandidateTask({projectId,result,onPublished}:{projectI
   <fieldset disabled={blocked}><legend>{t('选择参考')}</legend><label>{t('本地参考')}<select value={reference} onChange={e=>setReference(e.target.value)}><option value="">{t('请选择可用参考')}</option>{refs.value?.items.map(v=><option key={v.reference_id} value={v.reference_id} disabled={!v.available}>{v.reference_id} · {v.species} · {v.available?t('可用'):t('不可用')}</option>)}</select></label>
    {selected&&<><p>{selected.species} · {selected.gene_id_type} · {selected.label_level??(selected.label_levels?.includes('main')?'main':'—')} · {selected.version}</p><BioJson value={selected.source}/>{selected.license&&<p>{selected.license}</p>}{selected.reason&&<p>{selected.reason}</p>}</>}
    {refs.value&&!refs.value.items.some(v=>v.available)&&<p>{t('暂无可用本地参考，请核对参考安装与物种/基因标识；不会联网获取或自动替代。')}</p>}
-   <button type="button" disabled={!selected?.available} onClick={()=>void writer.submit(`${base}/bio-single-cell-annotation-runs`,{name:'SingleR candidate annotation',parent_processed_source:result.source,reference_id:reference,seed:0})}>{t('运行 SingleR 候选注释')}</button>
+   <button type="button" disabled={!allowNewAnalysis||!selected?.available} onClick={()=>allowNewAnalysis&&void writer.submit(`${base}/bio-single-cell-annotation-runs`,{name:'SingleR candidate annotation',parent_processed_source:result.source,reference_id:reference,seed:0})}>{t('运行 SingleR 候选注释')}</button>
   </fieldset><BioWriteStatus writer={writer}/>
   <button type="button" onClick={()=>{refs.reload();runs.reload()}}>{t('刷新参考与候选任务')}</button>
   {listed.map(run=><CandidateRun key={run.id} projectId={projectId} result={result} runId={run.id} initial={run} onPublished={onPublished}/>)}
@@ -39,7 +39,7 @@ function CandidateRun({projectId,result,runId,initial,onPublished}:{projectId:st
  const matches=!!run&&run.id===runId&&sameProcessedBioSource(run.parent_processed_source,result.source)&&run.task.project_id===projectId
  useEffect(()=>{if(matches&&run?.result?.version_id&&published.current!==run.result.version_id){published.current=run.result.version_id;callback.current()}},[matches,run?.result?.version_id])
  if(run&&!matches)return <p role="alert">{t('固定来源身份不匹配，请重新打开。')}</p>
- return <section>{read.error&&<p role="alert">{t(read.error)}</p>}{run&&<><p>{run.name||'SingleR'} · {run.id} · {t(statusNames[run.task.status])} · {run.task.phase}</p>{run.task.reason_code&&<p>{run.task.reason_code}</p>}{run.task.error_code&&<p role="alert">{run.task.error_code}</p>}
+ return <section>{read.error&&<p role="alert">{t(read.error)}</p>}{run&&<><p>{run.name||'SingleR'} · {run.id} · {t(statusNames[run.task.status])} · {run.task.phase}</p>{run.task.reason_code&&<p>{run.task.reason_code}</p>}{run.task.error_code&&<p role="alert">{t(apiError({code:run.task.error_code},'任务暂未完成，请查看处理说明。'))}</p>}
   <a href={`#project=${encodeURIComponent(projectId)}&section=tasks&task=${encodeURIComponent(run.task.id)}`}>{t('查看候选任务进度与操作')}</a>
   {run.result&&<p>{t('候选已保存，请在下方核对并选择采纳。')}</p>}</>}
   <button type="button" onClick={read.reload}>{t('刷新候选任务')}</button>

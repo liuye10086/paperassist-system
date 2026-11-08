@@ -28,6 +28,20 @@ REPORT_NAMESPACE = UUID('b699a78d-78b0-43cf-9e1c-297d17186642')
 EXPLANATION_NAMESPACE = UUID('067a7749-a01d-4751-b7b5-a6060956c58f')
 FIGURE_NAMESPACE = UUID('03015332-5b69-49ea-a3b6-93b7f88030c7')
 
+# Historical PDF exports remain readable but have no active executor.
+SUPPORTED_TASK_TYPES = (
+    'bio_cloud_run', 'word_report', 'explanation', 'boxplot', 'parse_file', 'extract_dataset',
+    'prepare_dataset', 'review_ocr', 'analysis_plan', 'analysis_recommendation', 'figure_projection',
+    'figure_workbench', 'figure_explanation', 'collection_word_report', 'statistics_compute',
+    'literature_search', 'literature_assistance', 'manuscript_draft', 'manuscript_docx', 'layout_docx',
+    'manuscript_writing', 'school_template_parse', 'school_rule_suggestion', 'journal_recommendation',
+    'journal_format_check', 'journal_adaptation', 'review_round_plan', 'review_revision',
+    'review_document_export', 'bio_import', 'bio_analysis', 'bio_annotation', 'bio_figure',
+    'research_figure', 'research_report', 'research_fact_draft', 'delivery_package', 'bio_resource_import',
+    'bio_comparison', 'bio_result_import', 'bio_enrichment', 'bio_candidate', 'bio_insight_figure',
+    'bio_feature_extract', 'bio_integration',
+)
+
 # Both lost-lease and late-receipt recovery must address the original workflow's
 # one model call. Unknown versions deliberately have no fallback to a v1 POST.
 RECOVERY_CALL_KEY_SQL = """CASE t.task_type
@@ -88,17 +102,50 @@ class TaskExecutionStore:
         if row is None:
             raise StorageError('task_owner_unavailable', '任务所属账号或项目已不可用。', 409)
 
+    @staticmethod
+    def serial_head(db):
+        """A remote continuation retains its place even while its lease is empty.
+
+        A queued head whose publication started retains its place through broker
+        confirmation and retry backoff. Otherwise only ready outbox rows compete,
+        in original creation order. The worker may arrive before confirmation.
+        Callers hold the existing schema writer transaction for atomic claims.
+        """
+        return db.execute('''SELECT t.id,t.revision,t.status FROM tasks t
+            WHERE t.task_type=ANY(%s) AND (t.status='running' OR (t.status='queued' AND EXISTS (
+                SELECT 1 FROM task_outbox o WHERE o.task_id=t.id AND o.task_revision=t.revision
+                AND o.event_type='task_ready'
+                AND (o.published_at IS NOT NULL OR o.publish_attempts>0
+                     OR o.available_at<=clock_timestamp()))))
+            ORDER BY CASE WHEN t.status='running' THEN 0 ELSE 1 END,t.created_at,t.id LIMIT 1''',
+            (list(SUPPORTED_TASK_TYPES),)).fetchone()
+
+    @staticmethod
+    def rearm_blocked(db, task):
+        # Reuse the unique task/revision outbox record. Bump its generation even
+        # if the broker confirmed before dispatcher's database acknowledgement:
+        # the old acknowledgement must not mark this rearmed row as published.
+        db.execute('''UPDATE task_outbox SET published_at=NULL,publish_attempts=publish_attempts+1
+            WHERE task_id=%s AND task_revision=%s AND event_type='task_ready' ''',
+            (task['id'], task['revision']))
+
     def claim(self, task_id, task_revision, *, task_type=None):
         if not isinstance(task_id, str) or type(task_revision) is not int:
             return None
         with self.connection(write=True) as db:
             ensure_schema_current(db)
             row = db.execute('SELECT * FROM tasks WHERE id=%s', (task_id,)).fetchone()
-            if (not row or row['task_type'] not in ('bio_cloud_run', 'word_report', 'explanation', 'boxplot', 'parse_file', 'extract_dataset', 'prepare_dataset', 'review_ocr', 'analysis_plan', 'analysis_recommendation', 'figure_projection', 'figure_workbench', 'figure_explanation', 'collection_word_report', 'statistics_compute', 'literature_search', 'literature_assistance', 'manuscript_draft', 'manuscript_docx', 'layout_docx', 'manuscript_writing', 'school_template_parse', 'school_rule_suggestion', 'journal_recommendation', 'journal_format_check', 'journal_adaptation', 'review_round_plan', 'review_revision', 'review_document_export', 'bio_import', 'bio_analysis', 'bio_annotation', 'bio_figure', 'research_figure', 'research_report', 'research_fact_draft','delivery_package', 'bio_resource_import', 'bio_comparison', 'bio_result_import', 'bio_enrichment', 'bio_candidate', 'bio_insight_figure','bio_feature_extract','bio_integration')
+            if (not row or row['task_type'] not in SUPPORTED_TASK_TYPES
                     or (task_type is not None and row['task_type'] != task_type)
                     or row['revision'] != task_revision):
                 return None
             task = dict(row)
+            if task['status'] not in ('queued', 'running'):
+                return None
+            head = self.serial_head(db)
+            if head is None or head['id'] != task_id:
+                self.rearm_blocked(db, task)
+                return None
             from app.domain.storage_governance.guards import require_task_open
             require_task_open(db,task)
             now = self.now(db)

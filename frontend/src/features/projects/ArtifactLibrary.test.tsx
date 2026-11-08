@@ -12,7 +12,7 @@ afterEach(()=>{cleanup();clearApiSession();vi.unstubAllGlobals()})
 it('limits the empty result message to analysis files rather than claiming no manuscript Word exists',()=>{
  const data=summaryFixture() as ProjectSummaryData;data.artifacts={items:[],total:0,page:1,page_size:10}
  render(<ArtifactLibrary projectId="p1" data={data} navigation={{view:'list',artifactId:'',kind:'',page:1}} onNavigate={()=>{}}/>);
- expect(screen.getByText('暂无已生成的分析图表或报告。')).toBeTruthy()
+ expect(screen.getByText('暂无通用分析图表或报告。')).toBeTruthy()
  expect(screen.queryByText('还没有已生成的 PNG 或 Word 文件。')).toBeNull()
  expect(screen.queryByRole('navigation',{name:'成果分页'})).toBeNull()
 })

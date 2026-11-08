@@ -1,6 +1,7 @@
 import {STANDARD_REQUEST_TIMEOUT_MS} from '../../shared/api/requestTimeouts'
 import ArtifactLibrary from './ArtifactLibrary'
-import type { ArtifactNavigation } from './analysisViews'
+import BioAnalysisRuns from '../bioinformatics/BioAnalysisRuns'
+import type { AnalysisNavigation, ArtifactNavigation } from './analysisViews'
 import ReviewResultsSummary from '../reviews/ReviewResultsSummary'
 import {reviewHash,reviewItemLabel} from '../reviews/reviewTypes'
 import {submissionStatuses} from '../journals/adaptationContracts'
@@ -12,7 +13,7 @@ import { isProjectSummary, type ProjectSummaryData, type SummarySource, type Sum
 import { useI18n } from '../../shared/i18n'
 import './projectSummary.css'
 
-type Props = { showArtifactNavigation?:boolean; artifactNavigation?:ArtifactNavigation; onArtifactNavigate?:(next:ArtifactNavigation)=>void; projectId: string; projectType: 'sci' | 'thesis' | 'research'; view?: 'overview' | 'artifacts' | 'all'; active?: boolean; onOpenManuscripts?:()=>void; onOpenJournals?:()=>void }
+type Props = { showArtifactNavigation?:boolean; artifactNavigation?:ArtifactNavigation; onArtifactNavigate?:(next:ArtifactNavigation)=>void; onAnalysisNavigate?:(next:AnalysisNavigation)=>void; projectId: string; projectType: 'sci' | 'thesis' | 'research'; view?: 'overview' | 'artifacts' | 'all'; active?: boolean; onOpenManuscripts?:()=>void; onOpenJournals?:()=>void }
 const taskNames = { statistics: '描述统计', boxplot: '箱线图生成', explanation: 'AI 分析解释', report: 'Word 报告导出' }
 const statuses: Record<SummaryTask['status'], string> = {
   queued: '待执行',
@@ -49,7 +50,7 @@ export default function ProjectSummary(props: Props) {
   return <Summary key={`${props.projectId}:${props.projectType}`} {...props} />
 }
 
-function Summary({ projectId, projectType, view = 'all', active = true, onOpenManuscripts, onOpenJournals, artifactNavigation, onArtifactNavigate, showArtifactNavigation = true }: Props) {
+function Summary({ projectId, projectType, view = 'all', active = true, onOpenManuscripts, onOpenJournals, artifactNavigation, onArtifactNavigate, onAnalysisNavigate, showArtifactNavigation = true }: Props) {
   const { t, locale } = useI18n()
   const viewRef=useRef(view)
   useLayoutEffect(()=>{viewRef.current=view},[view])
@@ -130,6 +131,7 @@ function Summary({ projectId, projectType, view = 'all', active = true, onOpenMa
       <button type="button" disabled={loading || sessionChanged} onClick={() => refresh()}>{t(view === 'artifacts' ? '刷新成果' : '刷新项目摘要')}</button></div>
     {loading && <p className="summary-empty" role="status">{t("正在读取项目摘要……")}</p>}
     {error && <><p role="alert" className="error-panel">{t(error)}</p><button type="button" onClick={() => refresh()}>{t("重试项目摘要")}</button></>}
+    {active && !sessionChanged && view==='artifacts' && navigation.view==='list' && onAnalysisNavigate && <BioAnalysisRuns projectId={projectId} active resultsOnly title="生信分析结果与 Word" onNavigate={onAnalysisNavigate}/>}
     {data && <>
       <div className="summary-task-section" hidden={view === 'artifacts'}>
       {projectType==='thesis'&&data.thesis_profile&&<section aria-label={t('学校与模板摘要')}><h4>{t('学校与模板摘要')}</h4><dl><dt>{t('学校')}</dt><dd>{data.thesis_profile.school||t('未填写')}</dd><dt>{t('院系 / 专业')}</dt><dd>{[data.thesis_profile.department,data.thesis_profile.major].filter(Boolean).join(' / ')||t('未填写')}</dd><dt>{t('学位 / 层次')}</dt><dd>{[data.thesis_profile.degree_type,data.thesis_profile.education_level].filter(Boolean).join(' / ')||t('未填写')}</dd><dt>{t('已绑定学校模板')}</dt><dd>{data.thesis_profile.bound_confirmation_id?[data.thesis_profile.template_name,data.thesis_profile.template_version_label].filter(Boolean).join(' · '):t('尚未绑定确认版本')}</dd></dl></section>}

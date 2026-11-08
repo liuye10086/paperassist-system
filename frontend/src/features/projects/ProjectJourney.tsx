@@ -7,6 +7,7 @@ import type { ProjectSection } from './WorkspaceShell'
 import type { OverviewView } from './projectNavigation'
 import './projectJourney.css'
 import { projectFlowStep } from './useProjectFlow'
+import type {AnalysisNavigation} from './analysisViews'
 
 type Props = {
   project: Project; section: ProjectSection; overviewView: OverviewView
@@ -14,18 +15,19 @@ type Props = {
   onAnalysis: () => void; onResults: () => void
   active?: boolean
   hasAnalysis?: boolean
+  analysisView?: AnalysisNavigation['view']
   onWriting: () => void
   blocked: (section: ProjectSection, view?: OverviewView) => string
 }
-export default function ProjectJourney({ section, overviewView, onOverview, onUpload, onAnalysis, onResults, onWriting, blocked, hasAnalysis = true, active = true }: Props) {
+export default function ProjectJourney({ section, overviewView, onOverview, onUpload, onAnalysis, onResults, onWriting, blocked, hasAnalysis = true, active = true, analysisView }: Props) {
   const { t } = useI18n()
   const chrome = useContext(WorkspaceChromeContext)
   const workspaceVisible = useContext(ProjectWorkspaceVisibleContext)
-  const step = projectFlowStep(section, overviewView, hasAnalysis)
+  const step = section==='analysis' && ['bio-result','bio-insight-result','report'].includes(analysisView??'') ? 4 : projectFlowStep(section, overviewView, hasAnalysis)
   const reasons = ['', '', blocked('overview','requirements'), blocked(hasAnalysis?'analysis':'manuscripts'), blocked('artifacts')]
   const steps = [
     { title: '项目资料', description: '给研究起个名字', action: () => onOverview('settings') },
-    { title: '上传文件', description: '数据、报告或图片', action: onUpload },
+    { title: '文件上传/整理', description: '上传、核对并整理数据、报告或图片', action: onUpload },
     { title: '选择需求', description: '按模块勾选内容', action: () => onOverview('requirements') },
     { title: hasAnalysis?'执行分析':'稿件写作', description: '核对材料并开始', action: hasAnalysis?onAnalysis:onWriting },
     { title: '查看结果', description: '查看、下载或继续', action: onResults },
@@ -38,6 +40,14 @@ export default function ProjectJourney({ section, overviewView, onOverview, onUp
   return <div className="project-journey">
     {active && workspaceVisible && (chrome ? chrome.navigation && createPortal(navigation, chrome.navigation) : navigation)}
   </div>
+}
+
+export function ProjectJourneyNextAction({onUpload}:{onUpload:()=>void}) {
+  const {t}=useI18n()
+  return <footer className="journey-next-action">
+    <p>{t('项目资料可分别保存。接下来准备本次分析的矩阵、样本信息或已有材料。')}</p>
+    <button type="button" className="button-primary" onClick={onUpload}>{t('下一步：上传矩阵与样本材料')}<span aria-hidden="true"> →</span></button>
+  </footer>
 }
 
 export function ProjectResultActions({ projectType, onWriting, onExit, onExistingManuscripts, onDeliveries }: { projectType: Project['project_type']; onWriting: (kind: 'sci_draft' | 'thesis_draft') => void; onExit: () => void; onExistingManuscripts: () => void; onDeliveries: () => void }) {

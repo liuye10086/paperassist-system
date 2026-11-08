@@ -2,7 +2,16 @@ import {getApiUserId} from '../../shared/api/client'
 import {useState} from 'react'
 import {projectBase} from './api'
 
+export function pendingNewReportScope(projectId:string):string|null{
+ const prefix=`paperassist.research-request.v1:${getApiUserId()??'anonymous'}:${projectId}:report:`
+ try{for(const key of Object.keys(sessionStorage)){if(!key.startsWith(prefix))continue;const scope=key.slice(prefix.length);if((scope==='new'||scope.startsWith('new:'))&&exactPending(projectId,'report',scope))return scope}}catch{}
+ return null
+}
+
 export function hasPendingResult(projectId:string,kind:'figure'|'report',scope:string){
+ return kind==='report'&&scope==='new'?!!pendingNewReportScope(projectId):exactPending(projectId,kind,scope)
+}
+function exactPending(projectId:string,kind:'figure'|'report',scope:string){
  try{
   const raw=sessionStorage.getItem(`paperassist.research-request.v1:${getApiUserId()??'anonymous'}:${projectId}:${kind}:${scope}`)
   const pending=raw?JSON.parse(raw):null

@@ -6,7 +6,7 @@ import ProjectDetails from './ProjectDetails'
 import type { Project } from './projectTypes'
 
 const initial: Project = { id: 'p1', name: '原项目名称', research_topic: '原研究主题', project_type: 'research', file_count: 0, created_at: '2026-11-03T00:00:00Z', updated_at: '2026-11-03T00:00:00Z', default_output_language: 'zh-CN' }
-afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.restoreAllMocks() })
+afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.restoreAllMocks();sessionStorage.clear() })
 function Harness() {
   const [project, setProject] = useState(initial)
   return <ProjectDetails project={project} onUpdated={setProject}/>

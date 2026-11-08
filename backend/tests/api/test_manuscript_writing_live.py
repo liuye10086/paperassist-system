@@ -42,7 +42,7 @@ def test_preview_is_exact_minimal_and_does_not_create_model_call(client):
     assert hashlib.sha256(wire.encode()).hexdigest() == bundle['wire_sha256'] == bundle['bundle_sha256']
     parsed = json.loads(wire)
     assert isinstance(parsed['input'], str)
-    assert parsed['model'] == 'gpt-5.4-2026-03-05'
+    assert parsed['model'] == 'gpt-6.1-sol'
     assert parsed['max_output_tokens'] == 12000
     assert parsed['service_tier'] == 'default'
     assert parsed['text']['format']['strict'] is True

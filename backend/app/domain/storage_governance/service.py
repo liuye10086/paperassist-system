@@ -304,6 +304,43 @@ def reconcile_intents(db,root,*,progress=None):
     return unknown
 
 
+def preview_intents(db,root,*,user_id=None,project_id=None):
+    """Inspect unrecorded intent journals without changing the ledger.
+
+    Status pages must not acquire the global writer lock just to discover that
+    a previous transaction left an intent behind.  This preview mirrors the
+    charge that ``reconcile_intents`` would expose through ``usage``; the next
+    reserve/settle or explicit admin scan still performs the authoritative
+    reconciliation before any new publication.
+    """
+    directory=Path(root)/'.storage-intents'
+    if not directory.exists():return dict(unresolved=0,reserved_bytes=0,unknown_reservation_count=0,reservation_count=0)
+    _key(root,directory);unresolved=0;unknown_count=0;reservation_count=0;pending={}
+    for path in directory.glob('*.json'):
+        if path.name.endswith(('.allocation.json','.capture.json','.complete.json')):continue
+        try:
+            _key(root,path)
+            with path.open('rb') as stream:raw=stream.read(8193)
+            if len(raw)>8192:raise invalid()
+            row=json.loads(raw)
+            if row['namespace']!=NAMESPACE or str(UUID(row['id']))+'.json'!=path.name:raise invalid()
+            persisted=db.execute('SELECT 1 FROM storage_reservations WHERE id=%s',(row['id'],)).fetchone()
+            if persisted:continue
+            _key(root,Path(root)/row['object_key'])
+            project=_project(db,row['project_id'])
+            if row['owner_id']!=project['owner_id']:raise invalid()
+            if type(row['size_bytes']) is not int or not 0<=row['size_bytes']<=2**63-1:raise invalid()
+            unresolved+=1
+            if project_id is not None and row['project_id']!=project_id:continue
+            if user_id is not None and row['owner_id']!=user_id:continue
+            unknown_count+=1;reservation_count+=1
+            known=db.execute("SELECT 1 FROM storage_objects WHERE namespace=%s AND object_key=%s AND state<>'deleted'",(NAMESPACE,row['object_key'])).fetchone()
+            pending[(NAMESPACE,row['object_key'])]=0 if known else max(pending.get((NAMESPACE,row['object_key']),0),row['size_bytes'])
+        except (OSError,ValueError,KeyError,TypeError,StorageError):
+            unresolved+=1
+    return dict(unresolved=unresolved,reserved_bytes=sum(pending.values()),unknown_reservation_count=unknown_count,reservation_count=reservation_count)
+
+
 def recover_reservation(db,root,reservation_id):
     """Explicit local-only recovery; verifies original identity and bytes, no provider call."""
     if reconcile_intents(db,root):raise invalid()

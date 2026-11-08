@@ -1,6 +1,6 @@
 {
   "policy": {
-    "model": "REPLACE_WITH_VERIFIED_MODEL",
+    "model": "gpt-6.1-sol",
     "prompt_version": "openai_boxplot_v1",
     "output_format": "text",
     "max_output_tokens": 16000,
@@ -9,7 +9,7 @@
     "price": {
       "version": "REPLACE_WITH_VERIFIED_PRICE_VERSION",
       "currency": "USD",
-      "model": "REPLACE_WITH_VERIFIED_MODEL",
+      "model": "gpt-6.1-sol",
       "input_micro_usd_per_million": null,
       "cached_input_micro_usd_per_million": null,
       "output_micro_usd_per_million": null,

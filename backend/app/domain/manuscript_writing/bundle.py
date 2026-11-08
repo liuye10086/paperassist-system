@@ -203,6 +203,8 @@ def build_bundle(base, request, *, execution_contract=None):
         policy_version=POLICY_VERSION)
 
 def validate_bundle(row):
-    rebuilt=build_bundle(row['base_snapshot'],row['request_json'],execution_contract=row.get('execution_contract'))
+    from .frozen import bundle_contract
+    rebuilt=build_bundle(row['base_snapshot'],row['request_json'],execution_contract=bundle_contract(row))
+    if 'execution_contract' not in row:rebuilt.pop('execution_contract',None)
     if any(row[k]!=v for k,v in rebuilt.items()): raise ValueError('Frozen bundle mismatch')
     return row

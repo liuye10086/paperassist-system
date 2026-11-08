@@ -93,7 +93,7 @@ export const errorMessages: Record<string, {
  review_revision_not_ready:{zh:'实际修改或公共新稿尚未成功，请核对原任务。',en:'The revision or published manuscript is not ready. Check the original task.'},
  service_maintenance:{zh:'系统维护中，暂不接受新的修改或任务，请稍后重试。',en:'The system is under maintenance and is not accepting new changes or tasks. Please try again later.'},
  service_unavailable:{zh:'运行状态暂不可确认，请稍后重试。',en:'Runtime status is unconfirmed. Please try again later.'},
- storage_quota_exceeded:{zh:'存储配额不足；已有成果仍可读取，请调整配额后显式重试原操作。',en:'Storage quota exceeded; existing results remain readable. Adjust quota before explicitly retrying the original operation.'},
+ storage_quota_exceeded:{zh:'存储配额不足；已有成果仍可查看下载。请查看“本人存储”，联系管理员申请扩容后显式重试原操作。',en:'Storage quota exceeded; existing results remain available to view and download. Check My storage and contact an administrator to request more capacity before explicitly retrying the original operation.'},
  storage_disk_insufficient:{zh:'磁盘保护阻止新增写入；已有资料继续保留，请联系管理员核对。',en:'Disk protection blocked new writes; existing material is retained. Contact an administrator.'},
  storage_accounting_unknown:{zh:'存储记账尚未核对；已有资料继续保留，请核对后显式恢复原操作。',en:'Storage accounting is unresolved; existing material is retained. Reconcile before explicitly recovering the original operation.'},
  storage_policy_revision_conflict:{zh:'配额版本已变化，请核对最新修订。',en:'Quota revision changed; check the latest revision.'},

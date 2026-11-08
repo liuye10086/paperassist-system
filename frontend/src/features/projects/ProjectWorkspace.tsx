@@ -21,17 +21,25 @@ import ProjectTasks from '../tasks/ProjectTasks'
 import ProjectList, { type ProjectListQuery } from './ProjectList'
 import WorkspaceShell, { WorkspaceIcon, type WorkspaceView, type ProjectSection } from './WorkspaceShell'
 import ProjectCreateDialog from './ProjectCreateDialog'
-import ProjectJourney, { ProjectResultActions } from './ProjectJourney'
+import ProjectJourney, { ProjectJourneyNextAction, ProjectResultActions } from './ProjectJourney'
 import ProjectResultNavigation from './ProjectResultNavigation'
 import useProjectSelection from './useProjectSelection'
 import useProjectFlow from './useProjectFlow'
 import {isFixedWritingNavigation, type NavigationRoute} from './projectNavigation'
+import type {AnalysisNavigation} from './analysisViews'
 import { PROJECT_PAGE_SIZE, isProject, type Project, type ProjectPage } from './projectTypes'
 import { apiError, safeError, useI18n } from '../../shared/i18n'
 async function responseData(response: Response, fallback: string) {
   const data = await response.json().catch(() => null)
   if (!response.ok) throw Object.assign(new Error(apiError(data, fallback)),{status:response.status})
   return data
+}
+function isFixedAnalysisRead(analysis:AnalysisNavigation) {
+  return analysis.view==='bio-analysis'&&!!analysis.runId
+    || analysis.view==='bio-result'&&!!analysis.processedId
+    || analysis.view==='bio-insight-plan'&&!!analysis.runId
+    || analysis.view==='bio-insight-result'&&!!analysis.resultVersionId
+    || analysis.view==='research-findings'&&!!analysis.findingSetId&&!!analysis.findingVersionId
 }
 
 export default function ProjectWorkspace() {
@@ -40,6 +48,7 @@ export default function ProjectWorkspace() {
   const [navigationSequence, setNavigationSequence] = useState(0)
   const [showCreate, setShowCreate] = useState(false)
   const [writingChoice, setWritingChoice] = useState<{projectId:string;kind:'sci_draft'|'thesis_draft';awaitingServices?:boolean} | null>(null)
+  const [requirementPanelRequest,setRequirementPanelRequest]=useState<{projectId:string;instanceKey:number;panel:'edit'|'materials';sequence:number}|null>(null)
   const [projects, setProjects] = useState<Project[]>([])
   const [total, setTotal] = useState(0)
   const [query, setQuery] = useState<ProjectListQuery>({ page: 1, q: '', type: '' })
@@ -80,7 +89,8 @@ export default function ProjectWorkspace() {
   const overviewView = selection.overviewView === 'tasks' ? 'settings' : selection.overviewView
   const flow = useProjectFlow(project, section, overviewView)
   flowGate.current = next => {
-    const reason = isFixedWritingNavigation(next) ? '' : flow.reason(next.section, next.overviewView)
+    const fixedAnalysisRead=next.section==='analysis'&&isFixedAnalysisRead(next.analysisNavigation)
+    const reason = isFixedWritingNavigation(next) || fixedAnalysisRead ? '' : flow.reason(next.section, next.overviewView)
     if (reason) setFlowNotice(reason)
     return !reason
   }
@@ -243,6 +253,11 @@ export default function ProjectWorkspace() {
   }
 
   const recentProject = view === 'home' && !query.q && !query.type && query.page === 1 && !loadError ? projects[0] : undefined
+  function openRequirements(panel?:'materials') {
+    if(!project||!selection.instance)return
+    setRequirementPanelRequest(previous=>({projectId:project.id,instanceKey:selection.instance!.key,panel:panel??'edit',sequence:(previous?.sequence??0)+1}))
+    selection.changeOverviewView('requirements')
+  }
   function continueWriting(kind:'sci_draft'|'thesis_draft') {
     if (!project) return
     setWritingChoice({projectId:project.id,kind})
@@ -293,7 +308,7 @@ export default function ProjectWorkspace() {
         <button type="button" onClick={selection.refresh}>{t("重试项目详情")}</button>
       </div>}
       {project && <ProjectWritingScope key={selection.instance.key} project={project} onOpenWriting={()=>selection.selectManuscriptView('materials')}><div className={section === 'artifacts' ? 'project-results-page' : undefined}>
-        <ProjectJourney blocked={flow.reason} hasAnalysis={flow.hasAnalysis} onWriting={()=>selection.selectManuscriptView(project.project_type==='research'?'research-selection':'materials')} active={view === 'project'} project={project} section={section} overviewView={overviewView} onOverview={selection.changeOverviewView} onUpload={()=>selection.selectResource({view:'upload',fileId:''})} onAnalysis={()=>selection.selectAnalysis({view:'overview',fileId:selection.analysisNavigation.fileId})} onResults={()=>selection.selectArtifact({view:'list',artifactId:'',kind:'',page:1})}/>
+        <ProjectJourney analysisView={selection.analysisNavigation.view} blocked={(target,overview)=>target==='analysis'&&isFixedAnalysisRead(selection.analysisNavigation)?'':flow.reason(target,overview)} hasAnalysis={flow.hasAnalysis} onWriting={()=>selection.selectManuscriptView(project.project_type==='research'?'research-selection':'materials')} active={view === 'project'} project={project} section={section} overviewView={overviewView} onOverview={next=>next==='requirements'?openRequirements():selection.changeOverviewView(next)} onUpload={()=>selection.selectResource({view:'upload',fileId:''})} onAnalysis={()=>selection.selectAnalysis(selection.analysisNavigation)} onResults={()=>selection.selectArtifact({view:'list',artifactId:'',kind:'',page:1})}/>
         {section === 'artifacts' && <ProjectResultNavigation navigation={selection.artifactNavigation} nextActive={resultNext} onNext={()=>setResultPanel({route:resultRoute,next:true})} onNavigate={next=>{setResultPanel({route:resultRoute,next:false});selection.selectArtifact(next)}}/> }
         {flowNotice&&<p role="status" className="warning-panel">{t(flowNotice)}</p>}
         <div hidden={section !== 'overview'}>
@@ -304,23 +319,24 @@ export default function ProjectWorkspace() {
                 <div className="project-info-heading-row"><div className="project-info-label"><WorkspaceIcon name="folder"/><h2>{t('项目资料')}</h2></div>{language}</div>
               </header>}/>
           </ProjectInfoActions>
+          {overviewView==='settings'&&<ProjectJourneyNextAction onUpload={()=>selection.selectResource({view:'upload',fileId:''})}/>}
           {overviewView==='deliveries'&&<button type="button" onClick={()=>selection.selectArtifact({view:'list',artifactId:'',kind:'',page:1})}>{t('返回成果列表')}</button>}
         </div>
         <div className="result-summary-host" hidden={section !== 'artifacts'||resultNext||selection.artifactNavigation.view.startsWith('research-')}>
-          <ProjectSummary showArtifactNavigation={false} artifactNavigation={selection.artifactNavigation} onArtifactNavigate={selection.selectArtifact} key={`${project.id}:${schoolRevision}`} projectId={project.id} projectType={project.project_type} view={section === 'artifacts' ? 'artifacts' : 'overview'}
+          <ProjectSummary onAnalysisNavigate={selection.selectAnalysis} showArtifactNavigation={false} artifactNavigation={selection.artifactNavigation} onArtifactNavigate={selection.selectArtifact} key={`${project.id}:${schoolRevision}`} projectId={project.id} projectType={project.project_type} view={section === 'artifacts' ? 'artifacts' : 'overview'}
             active={view === 'project' && section === 'artifacts'&&!resultNext&&!selection.artifactNavigation.view.startsWith('research-')} onOpenJournals={()=>changeSection('journals')} onOpenManuscripts={()=>changeSection('manuscripts')} />
         </div>
         {project.project_type === 'thesis' && <SchoolTemplates navigation={selection.schoolTemplateNavigation} onNavigate={selection.selectSchoolTemplate} registerLeaveGuard={selection.registerLeaveGuard} projectId={project.id} onChanged={()=>setSchoolRevision(value=>value+1)} active={view === 'project' && section === 'school-templates'} />}
         {project.project_type==='research'&&['reviews','journals'].includes(section)&&<section className="warning-panel"><h2>{t('已登记，当前流程未开放')}</h2><p>{t('研究项目的期刊和独立意见修改入口仍未开放，请使用已发布稿件的受控写作流程。')}</p><button type="button" onClick={()=>selection.changeOverviewView('deliveries')}>{t('交付登记')}</button></section>}
-        <ResearchIntake onViewChange={selection.changeOverviewView} onRequirementSaved={flow.acceptServices} continueLabel={writingChoice?.projectId===project.id&&writingChoice.awaitingServices?'保存需求并继续':undefined} onContinue={(services,version)=>{flow.acceptServices(services,version);if(writingChoice?.projectId===project.id&&writingChoice.awaitingServices&&services.includes(writingChoice.kind)){continueWriting(writingChoice.kind)}else if(services.includes('analysis')){setWritingChoice(null);selection.selectAnalysis({view:'overview',fileId:selection.analysisNavigation.fileId})}else{continueWriting(services.includes('sci_draft')?'sci_draft':'thesis_draft')}}} deliveryId={selection.deliveryId} snapshotId={selection.deliverySnapshotId} onDeliverySelect={selection.selectDelivery} projectId={project.id} view={overviewView} active={view==='project'&&section==='overview'&&['requirements','deliveries','design'].includes(overviewView)} registerLeaveGuard={selection.registerLeaveGuard}/>
+        <ResearchIntake panelRequest={requirementPanelRequest?.projectId===project.id&&requirementPanelRequest.instanceKey===selection.instance!.key?requirementPanelRequest:undefined} onViewChange={selection.changeOverviewView} onRequirementSaved={flow.acceptServices} continueLabel={writingChoice?.projectId===project.id&&writingChoice.awaitingServices?'保存需求并继续':undefined} onContinue={(services,version)=>{flow.acceptServices(services,version);if(writingChoice?.projectId===project.id&&writingChoice.awaitingServices&&services.includes(writingChoice.kind)){continueWriting(writingChoice.kind)}else if(services.includes('analysis')){setWritingChoice(null);selection.selectAnalysis({view:'overview',fileId:selection.analysisNavigation.fileId})}else{continueWriting(services.includes('sci_draft')?'sci_draft':'thesis_draft')}}} deliveryId={selection.deliveryId} snapshotId={selection.deliverySnapshotId} onDeliverySelect={selection.selectDelivery} projectId={project.id} view={overviewView} active={view==='project'&&section==='overview'&&['requirements','deliveries','design'].includes(overviewView)} registerLeaveGuard={selection.registerLeaveGuard}/>
         {project.project_type!=='research'&&<ReviewsWorkspace view={selection.reviewView} selectedItemId={selection.reviewItemId} onViewChange={selection.selectReviewView} onSelectItem={selection.selectReviewItem} onSelectRun={selection.selectReviewRun} onSelectDocument={selection.selectReviewDocument} registerLeaveGuard={selection.registerLeaveGuard} projectId={project.id} projectType={project.project_type} active={view==='project'&&section==='reviews'} roundId={selection.reviewLink.round} initialManuscript={selection.reviewLink.manuscript} initialRevision={selection.reviewLink.revision} initialRun={selection.reviewLink.run} initialDocument={selection.reviewLink.document} onSelectRound={selection.selectRound} onOpenTask={selection.selectTask}/>}
         {project.project_type!=='research'&&<ProjectManuscripts view={selection.manuscriptView} onViewChange={selection.selectManuscriptView} onSelectVersion={selection.selectManuscriptVersion} registerLeaveGuard={selection.registerLeaveGuard} initialManuscript={selection.manuscriptLink.id} initialRevision={selection.manuscriptLink.revision} projectType={project.project_type} projectId={project.id} researchTopic={project.research_topic} outputLanguage={project.default_output_language??'zh-CN'} active={view==='project'&&section==='manuscripts'} onOpenTask={selection.selectTask} onOpenLiterature={()=>selection.selectLiterature('')}/>}
         {project.project_type === 'sci' && <JournalWorkspace view={selection.journalView} onViewChange={selection.selectJournalView} initialAdaptation={selection.adaptationId} onSelectAdaptation={selection.selectJournalAdaptation} registerLeaveGuard={selection.registerLeaveGuard} projectId={project.id} active={view==='project'&&section==='journals'} onOpenTask={selection.selectTask}/>}
         <ProjectTasks detailView={selection.taskDetailView} onDetailViewChange={selection.selectTaskDetailView} registerLeaveGuard={selection.registerLeaveGuard} onOpenJournals={()=>changeSection('journals')} onOpenManuscripts={()=>changeSection('manuscripts')} onOpenFiles={() => changeSection('files')} projectId={project.id} active={view === 'project' && section === 'tasks'}
           selectedTaskId={selection.taskId} onSelectTask={selection.selectTask} onOpenLiterature={selection.selectLiterature} />
         <ProjectLiterature projectId={project.id} researchTopic={project.research_topic} outputLanguage={project.default_output_language??'zh-CN'} active={view==='project'&&section==='literature'} initialSearchId={selection.literatureSearchId} onSearchChange={selection.selectLiterature} onOpenTask={selection.selectTask} literatureNavigation={selection.literatureNavigation} onLiteratureNavigate={selection.selectLiteratureView} registerLeaveGuard={selection.registerLeaveGuard}/>
-        <ResearchWorkspace writingSource={selection.writingSource} writingDeliveryId={selection.writingDeliveryId} onWritingSource={source=>{setWritingChoice(null);selection.selectWritingSource(source)}} onWritingDelivery={id=>{setWritingChoice(null);selection.selectWritingDelivery(id)}} onReturnSource={()=>{const source=selection.writingSource;if(!source)return;if(source.kind==='research_finding_version'&&source.setId)selection.selectAnalysis({view:'research-findings',fileId:'',findingSetId:source.setId,findingVersionId:source.id});else if(source.kind!=='research_finding_version')selection.selectArtifact({view:source.kind==='research_figure_version'?'research-figures':'research-reports',artifactId:source.id,kind:'',page:1})}} onOpenTask={selection.selectTask} sectionBlocked={flow.reason} preferredDeliveryKind={writingChoice?.projectId===project.id?writingChoice.kind:undefined} onManageServices={()=>{setWritingChoice(previous=>previous?.projectId===project.id?{...previous,awaitingServices:true}:previous);selection.changeOverviewView('requirements')}} projectId={project.id} projectType={project.project_type} active={view==='project'&&(section!=='artifacts'||!resultNext)} section={section} analysis={selection.analysisNavigation} artifact={selection.artifactNavigation} manuscriptView={selection.manuscriptView} candidateId={selection.researchCandidateId} manuscriptId={selection.manuscriptLink.id} revision={selection.manuscriptLink.revision} onAnalysis={selection.selectAnalysis} onArtifact={selection.selectArtifact} onManuscriptView={selection.selectManuscriptView} onCandidate={selection.selectResearchCandidate} onPublished={(id,revision,view)=>selection.selectManuscriptVersion(id,revision,view??'body')} registerLeaveGuard={selection.registerLeaveGuard} schoolNavigation={selection.schoolTemplateNavigation} onSchoolNavigate={selection.selectSchoolTemplate}/>
-        <ProjectResources savedRequirement={flow.savedRequirement} onRequirements={()=>selection.changeOverviewView('requirements')} analysisNavigation={selection.analysisNavigation} onAnalysisNavigate={selection.selectAnalysis} projectId={project.id} active={view === 'project'} section={section} onSectionChange={changeSection} onSaved={() => { refresh(); selection.refresh() }} resourceNavigation={selection.resourceNavigation} onResourceNavigate={selection.selectResource} registerLeaveGuard={selection.registerLeaveGuard} />
+        <ResearchWorkspace writingSource={selection.writingSource} writingDeliveryId={selection.writingDeliveryId} onWritingSource={source=>{setWritingChoice(null);selection.selectWritingSource(source)}} onWritingDelivery={id=>{setWritingChoice(null);selection.selectWritingDelivery(id)}} onReturnSource={()=>{const source=selection.writingSource;if(!source)return;if(source.kind==='research_finding_version'&&source.setId)selection.selectAnalysis({view:'research-findings',fileId:'',findingSetId:source.setId,findingVersionId:source.id});else if(source.kind!=='research_finding_version')selection.selectArtifact({view:source.kind==='research_figure_version'?'research-figures':'research-reports',artifactId:source.id,kind:'',page:1})}} onOpenTask={selection.selectTask} sectionBlocked={flow.reason} preferredDeliveryKind={writingChoice?.projectId===project.id?writingChoice.kind:undefined} onManageServices={()=>{setWritingChoice(previous=>previous?.projectId===project.id?{...previous,awaitingServices:true}:previous);openRequirements()}} projectId={project.id} projectType={project.project_type} active={view==='project'&&(section!=='artifacts'||!resultNext)} section={section} analysis={selection.analysisNavigation} artifact={selection.artifactNavigation} manuscriptView={selection.manuscriptView} candidateId={selection.researchCandidateId} manuscriptId={selection.manuscriptLink.id} revision={selection.manuscriptLink.revision} onAnalysis={selection.selectAnalysis} onArtifact={selection.selectArtifact} onManuscriptView={selection.selectManuscriptView} onCandidate={selection.selectResearchCandidate} onPublished={(id,revision,view)=>selection.selectManuscriptVersion(id,revision,view??'body')} registerLeaveGuard={selection.registerLeaveGuard} schoolNavigation={selection.schoolTemplateNavigation} onSchoolNavigate={selection.selectSchoolTemplate}/>
+        <ProjectResources allowNewAnalysis={flow.reason('analysis')===''} savedRequirement={flow.savedRequirement} onRequirements={openRequirements} analysisNavigation={selection.analysisNavigation} onAnalysisNavigate={selection.selectAnalysis} projectId={project.id} active={view === 'project'} section={section} onSectionChange={changeSection} onSaved={() => { refresh(); selection.refresh() }} resourceNavigation={selection.resourceNavigation} onResourceNavigate={selection.selectResource} registerLeaveGuard={selection.registerLeaveGuard} />
         {section === 'artifacts' && <div className="result-next-panel" hidden={!resultNext}><ProjectResultActions projectType={project.project_type} onWriting={continueWriting} onExit={closeProject} onExistingManuscripts={()=>selection.selectManuscriptView('list')} onDeliveries={()=>selection.changeOverviewView('deliveries')}/></div>}
       </div></ProjectWritingScope>}
     </section>}

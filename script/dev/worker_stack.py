@@ -1,4 +1,4 @@
-"""Project-scoped Linux services; no secret values enter Docker arguments or output."""
+"""Project-scoped Linux services, including local Word fields; no secrets in output."""
 from __future__ import annotations
 
 import argparse
@@ -62,7 +62,7 @@ def _identity(root: Path, test_id: str | None = None):
 
 
 def build_fingerprint() -> str:
-    """Bind reuse to the source files copied into the two local images."""
+    """Bind reuse to Worker and Word field image inputs (legacy infra/pdf paths)."""
     inputs = [ROOT / relative for relative in (
         '.dockerignore', 'backend/requirements.txt', 'infra/worker/Dockerfile',
         'infra/worker/runtime_probe.py', 'infra/pdf/Dockerfile',
@@ -287,7 +287,7 @@ def main() -> int:
             print('Linux Worker image built.')
         elif args.action == 'start':
             start(stack)
-            print('Worker, dispatcher, PDF renderer and broker are ready.')
+            print('Worker, dispatcher, Word field service and broker are ready.')
         elif args.action == 'stop':
             stop(stack)
             print('Project Worker services stopped; broker volume retained.')

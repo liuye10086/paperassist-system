@@ -10,7 +10,7 @@ const guide={id:'guide1',name:'Original guide',source_version:'v1',requirements_
 const target={id:'target1',guide,additional_guides:[],synthetic:false}
 const callbacks={onSaveGuide:vi.fn(),onConfirm:vi.fn(),onCheck:vi.fn(),onRetry:vi.fn(),onUnavailable:vi.fn()}
 it.each([
- {code:'storage_quota_exceeded',zh:'存储配额不足；已有成果仍可读取，请调整配额后显式重试原操作。',en:'Storage quota exceeded; existing results remain readable. Adjust quota before explicitly retrying the original operation.'},
+ {code:'storage_quota_exceeded',zh:'存储配额不足；已有成果仍可查看下载。请查看“本人存储”，联系管理员申请扩容后显式重试原操作。',en:'Storage quota exceeded; existing results remain available to view and download. Check My storage and contact an administrator to request more capacity before explicitly retrying the original operation.'},
  {code:'PRIVATE_UNKNOWN_CODE',zh:'格式检查任务失败，请查看任务详情。',en:'Format check task failed. Please view task details.'},
 ])('renders the $code journal task error in both languages while preserving the fixed check',({code,zh,en})=>{
  const check={id:'check1',created_at:'2026-10-27',task:{id:'task1',status:'failed',revision:1,current_attempt:1,error_code:code,retry_count:0},input_snapshot:{target,manuscript:{id:'old-manuscript',revision:1,version_id:'version1'}},result:null}
@@ -49,7 +49,7 @@ it('renders a known per-object deletion error rather than the generic fallback',
  vi.stubGlobal('fetch',vi.fn(async()=>Response.json(plan)))
  render(<StorageDeletion onForbidden={vi.fn()}/>)
  fireEvent.change(screen.getByLabelText('删除项目标识'),{target:{value:'p1'}});fireEvent.change(screen.getByLabelText('删除理由'),{target:{value:'用户理由'}});fireEvent.click(screen.getByRole('button',{name:'预览处置范围'}))
- expect(await screen.findByText('存储配额不足；已有成果仍可读取，请调整配额后显式重试原操作。')).toBeTruthy()
- act(()=>setLocale('en'));expect(screen.getByText('Storage quota exceeded; existing results remain readable. Adjust quota before explicitly retrying the original operation.')).toBeTruthy()
+ expect(await screen.findByText('存储配额不足；已有成果仍可查看下载。请查看“本人存储”，联系管理员申请扩容后显式重试原操作。')).toBeTruthy()
+ act(()=>setLocale('en'));expect(screen.getByText('Storage quota exceeded; existing results remain available to view and download. Check My storage and contact an administrator to request more capacity before explicitly retrying the original operation.')).toBeTruthy()
  expect(screen.getByText('原始对象类型')).toBeTruthy();expect(screen.getByText('原始保留原因')).toBeTruthy()
 })

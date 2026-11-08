@@ -43,7 +43,7 @@ def test_v5_policy_uses_existing_node_and_strict_output_contract():
     from tests.integration.test_analysis_recommendation import planning_policy
     from app.domain.analysis_recommendation.policy import validate_execution_policy
     value=planning_policy();value['policy'].update(prompt_version='analysis_recommendation_v5',output_format='analysis_recommendation_v5')
-    assert validate_execution_policy(value)['policy']['model']=='gpt-5.6-sol'
+    assert validate_execution_policy(value)['policy']['model']=='gpt-6.1-sol'
 
 def test_source_alias_cannot_match_prefix_of_another_material():
     from app.domain.analysis_recommendation.contracts import validate_source_reference

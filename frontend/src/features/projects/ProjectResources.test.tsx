@@ -9,7 +9,7 @@ import { batchUploadFixture } from '../../test/fixtures/batchUploadFixture'
 
 const originalScroll = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'scrollIntoView')
 afterEach(() => {
-  cleanup(); vi.unstubAllGlobals(); vi.restoreAllMocks()
+  cleanup(); sessionStorage.clear(); vi.unstubAllGlobals(); vi.restoreAllMocks()
   vi.useRealTimers(); setLocale('zh-CN')
   if (originalScroll) Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', originalScroll)
   else Reflect.deleteProperty(HTMLElement.prototype, 'scrollIntoView')
@@ -20,6 +20,27 @@ const files = Array.from({ length: 12 }, (_, index) => ({ id: `f${index}`, filen
 const workbook = { filename: files[0].filename, sheets: [{ name: '数据', columns: ['值'], row_count: 1,
   column_count: 1, preview_rows: [[5]], warnings: [] }] }
 const props = { projectId: 'p1', onSaved: vi.fn(), onSectionChange: vi.fn() }
+test('offers the next requirement step at the end of the upload and整理 page without claiming originals are analysis ready',async()=>{
+ const saved={...files[0],id:'raw',filename:'matrix.h5',file_type:'bio_component',parse_status:'stored'}
+ const fetch=api(async()=>Response.json([saved]));const original=fetch.getMockImplementation()!
+ fetch.mockImplementation(async(url,init)=>url.includes('/tasks?task_type=bio_import')?Response.json({items:[],total:0}):original(url,init))
+ const onRequirements=vi.fn();const {container}=render(<ProjectResources {...props} section="files" onRequirements={onRequirements}/>);
+ fireEvent.click(await screen.findByRole('button',{name:'下一步：选择分析'}));expect(onRequirements).toHaveBeenCalledOnce()
+ expect(screen.getAllByText(/原件已保存，待导入核对/).length).toBeGreaterThan(0)
+ const body=container.querySelector('.resource-module-body')!;const footer=container.querySelector('.upload-preparation-summary')!;expect(body.compareDocumentPosition(footer)&Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+ expect(fetch.mock.calls.every(([,init])=>!init?.method)).toBe(true)
+})
+test('restores the bio upload mode after reopening so its recovered batch remains visible',async()=>{
+ libraryApi()
+ const resourceNavigation={view:'upload' as const,fileId:''}
+ const view=render(<ProjectResources {...props} section="files" resourceNavigation={resourceNavigation}/>);
+ fireEvent.click(screen.getByRole('button',{name:'组学与生信数据包'}))
+ expect(screen.getByLabelText('选择生信文件').closest('[hidden]')).toBeNull()
+ view.unmount();render(<ProjectResources {...props} section="files" resourceNavigation={resourceNavigation}/>);
+ expect(screen.getByRole('button',{name:'组学与生信数据包'}).getAttribute('aria-pressed')).toBe('true')
+ expect(screen.getByLabelText('选择生信文件').closest('[hidden]')).toBeNull()
+ expect(screen.getByLabelText('批量选择 Excel / Word / PDF / 图片 文件').closest('[hidden]')).not.toBeNull()
+})
 function api(readFiles: () => Promise<Response>, readPreview = async () => Response.json(workbook)) {
   const fetch = vi.fn(async (url: string, _init?: RequestInit) => {
     if (url.includes('/structure-versions?')) return Response.json({ items: [], total: 0, page: 1, page_size: 5, latest_version: 0 })

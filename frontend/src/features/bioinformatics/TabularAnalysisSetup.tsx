@@ -1,8 +1,8 @@
-import {useEffect,useState} from 'react'
-import {useI18n} from '../../shared/i18n'
+import {useEffect,useRef,useState} from 'react'
+import {safeError,useI18n} from '../../shared/i18n'
 import type {AnalysisNavigation} from '../projects/analysisViews'
 import useDraftLeaveGuard,{type RegisterLeaveGuard} from '../projects/useDraftLeaveGuard'
-import {projectBase} from './api'
+import {bioRequest,projectBase} from './api'
 import {useBioRead} from './spatialHooks'
 import {isRawBioSource,type BioRun} from './spatialContracts'
 import type {TabularCapabilities,TabularParams,TabularRecipe,TabularSetup,TabularSetupRequest} from './tabularContracts'
@@ -14,8 +14,11 @@ import type {Version} from '../research-intake/contracts'
 import BioDesignLinks from './BioDesignLinks'
 import './bioLayout.css'
 
-export default function TabularAnalysisSetup({projectId,data,valid,error,reload,onNavigate,registerLeaveGuard}:{projectId:string;data:TabularSetup;valid:boolean;error:string;reload:()=>void;onNavigate:(n:AnalysisNavigation)=>void;registerLeaveGuard?:RegisterLeaveGuard}) {
+export default function TabularAnalysisSetup({projectId,data,valid,error,reload,onNavigate,registerLeaveGuard,allowNewAnalysis=true}:{allowNewAnalysis?:boolean;projectId:string;data:TabularSetup;valid:boolean;error:string;reload:()=>void;onNavigate:(n:AnalysisNavigation)=>void;registerLeaveGuard?:RegisterLeaveGuard}) {
  const {t}=useI18n(),base=projectBase(projectId)
+ const live=useRef(true),reconcileRequest=useRef<AbortController|null>(null),starting=useRef(false),allowed=useRef(allowNewAnalysis);allowed.current=allowNewAnalysis
+ useEffect(()=>{live.current=true;return()=>{live.current=false;reconcileRequest.current?.abort()}},[])
+ const [preparing,setPreparing]=useState(false),[startError,setStartError]=useState('')
  const capability=useBioRead<TabularCapabilities>(`${base}/bio-analysis-capabilities?dataset_id=${encodeURIComponent(data.raw_source.dataset_id)}&version_id=${encodeURIComponent(data.raw_source.dataset_version_id)}`)
  const [draft,setDraft]=useState<TabularParams|null>(null),[design,setDesign]=useState<string|null>(null),[reconciliation,setReconciliation]=useState<{recipeId:string;from:TabularSetup}|null>(null)
  const params=draft??data.current_recipe.params,designVersion=design??data.current_recipe.design_version_id??''
@@ -23,17 +26,35 @@ export default function TabularAnalysisSetup({projectId,data,valid,error,reload,
  const writer=useBioWrite<TabularRecipe>(projectId,'recipe',value=>reconcile(value.id,value.setup_id),value=>reconcile(value.id,value.root_id!))
  const run=useBioWrite<BioRun>(projectId,'run',value=>onNavigate({view:'bio-analysis',fileId:'',runId:value.id}),value=>onNavigate({view:'bio-analysis',fileId:'',runId:value.id}))
  const dirty=JSON.stringify(params)!==JSON.stringify(data.current_recipe.params)||designVersion!==(data.current_recipe.design_version_id??'')
- useDraftLeaveGuard(registerLeaveGuard,dirty&&!writer.completed,writer.busy||writer.unknown||run.busy||run.unknown)
+ useDraftLeaveGuard(registerLeaveGuard,dirty&&!writer.completed,preparing||writer.busy||writer.unknown||run.busy||run.unknown)
  useEffect(()=>{if(reconciliation&&data!==reconciliation.from&&data.current_recipe.id===reconciliation.recipeId)setReconciliation(null)},[data,reconciliation])
  if(!isRawBioSource(data.raw_source,projectId))return <p role="alert">{t('固定来源身份不匹配，请重新打开。')}</p>
- const blocked=!valid||!writer.valid||!run.valid||writer.busy||writer.unknown||run.busy||run.unknown
+ const blocked=preparing||!valid||!writer.valid||!run.valid||writer.busy||writer.unknown||run.busy||run.unknown
  const awaiting=!!reconciliation&&data===reconciliation.from
  const advanced=!!reconciliation&&!awaiting&&data.current_recipe.id!==reconciliation.recipeId
  const current=!awaiting&&!advanced
  const info=capability.value,logged=!!info&&['log2','ln','log10'].includes(info.scale?.kind??'')
  const update=<K extends keyof TabularParams>(key:K,value:TabularParams[K])=>setDraft({...params,[key]:value})
  const lines=(value:string)=>value.split(/\r?\n/).map(s=>s.trim()).filter(Boolean)
- const save=()=>void writer.submit(`${base}/bio-analysis-setups/${encodeURIComponent(data.id)}/recipes`,{recipe_code:'tabular_quantitative_v1',name:data.name,raw_source:data.raw_source,expected_revision:data.revision,observation_map_version_id:null,design_version_id:designVersion||null,params} satisfies TabularSetupRequest)
+ const save=(notifySaved=true)=>writer.submit(`${base}/bio-analysis-setups/${encodeURIComponent(data.id)}/recipes`,{recipe_code:'tabular_quantitative_v1',name:data.name,raw_source:data.raw_source,expected_revision:data.revision,observation_map_version_id:null,design_version_id:designVersion||null,params} satisfies TabularSetupRequest,{notifySaved})
+ async function start(){
+  if(!live.current||starting.current||blocked||!current||!allowed.current||!info?.available)return
+  starting.current=true;setPreparing(true);setStartError('')
+  try{
+   let recipe=data.current_recipe
+   if(dirty){
+    const value=await save(false);if(!value||!live.current)return
+    recipe=value
+    // Reconcile the saved identity with the head before starting: another window may have advanced it.
+    reconcile(value.id,value.setup_id)
+    const controller=new AbortController();reconcileRequest.current=controller
+    const latest=await bioRequest<TabularSetup>(`${base}/bio-analysis-setups/${encodeURIComponent(data.id)}`,{signal:controller.signal})
+    if(!live.current||controller.signal.aborted||latest.id!==data.id||latest.current_recipe.id!==value.id||latest.revision!==value.revision)return
+   }
+   if(!live.current||!allowed.current)return
+   await run.submit(`${base}/bio-analysis-runs`,{raw_source:data.raw_source,recipe_version_id:recipe.id,expected_setup_revision:recipe.revision})
+  }catch(cause){if(live.current)setStartError(safeError(cause,'配方读取失败，请重新读取后核对。'))}finally{reconcileRequest.current=null;starting.current=false;if(live.current)setPreparing(false)}
+ }
  return <section className="bio-workspace intake-form bio-module-workspace">
   <header className="bio-workspace-header"><h2>{t('定量分析配置')}</h2><span>{data.name} · {t('配方版本')} {data.current_recipe.version}</span></header>
   {error&&<p role="alert">{t(error)}</p>}
@@ -59,10 +80,10 @@ export default function TabularAnalysisSetup({projectId,data,valid,error,reload,
    <p>{t('缺失值保留；每特征比较使用实际有效样本。PCA 仅使用完整特征，不自动插补；不足时记录不可计算原因。')}</p>
   </ModuleView>
   </ModuleViews>
-  {dirty&&<p className="warning-panel">{t('有未保存的配方变更；保存新版本后才能启动运行。')}</p>}{awaiting&&<p role="status">{t('正在读取已保存的配方版本……')}</p>}
+  {dirty&&<p className="warning-panel">{t('开始分析时会先保存必要的映射和参数修改。')}</p>}{awaiting&&<p role="status">{t('正在读取已保存的配方版本……')}</p>}
   {advanced&&<div className="warning-panel"><p>{t('当前配方已前进到其他版本。请核对上方参数，再采用当前版本。')}</p><button type="button" disabled={blocked} onClick={()=>{setReconciliation(null);setDraft(null);setDesign(null)}}>{t('核对并采用当前配方版本')}</button></div>}
-  <BioWriteStatus writer={writer}/><BioWriteStatus writer={run}/>
-  <div className="intake-actions"><button type="button" disabled={blocked||!current||!dirty} onClick={save}>{t('保存新配方版本')}</button><button type="button" disabled={blocked||!current||dirty||!info?.available} onClick={()=>void run.submit(`${base}/bio-analysis-runs`,{raw_source:data.raw_source,recipe_version_id:data.current_recipe_version_id,expected_setup_revision:data.revision})}>{t('启动 QC 运行')}</button><button type="button" disabled={blocked} onClick={reload}>{t('重新读取最新版本（保留草稿）')}</button></div>
+  {startError&&<p role="alert">{t(startError)}</p>}{!allowNewAnalysis&&<p role="status">{t('新分析条件尚未就绪；已有结果仍可查看下载，请先核对材料并保存需求。')}</p>}<BioWriteStatus writer={writer}/><BioWriteStatus writer={run}/>
+  <div className="intake-actions"><button type="button" disabled={blocked||!current||!dirty} onClick={()=>void save()}>{t('保存新配方版本')}</button><button type="button" disabled={blocked||!current||!allowNewAnalysis||!info?.available} onClick={()=>void start()}>{t('开始分析')}</button><button type="button" disabled={blocked} onClick={reload}>{t('重新读取最新版本（保留草稿）')}</button></div>
  </section>
 }
 

@@ -85,6 +85,16 @@ def run_boxplot_task(task_id, task_revision, **kwargs):
 
 
 def run_task(task_id, task_revision, *, config=None, directory=None):
+    if not isinstance(task_id, str) or type(task_revision) is not int:
+        return None
+    from app.domain.tasks.serial_execution import execution_lock_path, file_lock
+    # Keep this until the executor and all of its cleanup have returned. A
+    # cancellation/expired lease revokes publication, not an in-flight process.
+    with file_lock(execution_lock_path(directory)):
+        return _run_task_in_slot(task_id, task_revision, config=config, directory=directory)
+
+
+def _run_task_in_slot(task_id, task_revision, *, config=None, directory=None):
     from app.domain.statistics_execution.execution import run_statistics_task
     from app.domain.literature.execution import run_literature_task
     from app.domain.literature_assistance.execution import run_assistance_task

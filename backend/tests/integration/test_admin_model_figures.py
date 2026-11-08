@@ -9,7 +9,7 @@ def test_queued_workbench_keeps_old_policy_and_instruction_after_switch(admin,cl
     from tests.domain.test_plot_policy import execution_policy
     from tests.integration.test_batch05_figure_execution import queued_figure,IndependentLineProvider
     from app.domain.figure_workbench.execution import run_figure_workbench_task
-    policy=execution_policy();policy['policy']['model']='gpt-5.6-sol';policy['policy']['price']['model']='gpt-5.6-sol'
+    policy=execution_policy();policy['policy']['model']='gpt-6.1-sol';policy['policy']['price']['model']='gpt-6.1-sol'
     policy['input_token_allowance']=100000
     policy['task_limit_micro_usd']=200000
     path=tmp_path/'synthetic-plot.json';path.write_text(json.dumps(policy),encoding='utf-8')
@@ -21,7 +21,7 @@ def test_queued_workbench_keeps_old_policy_and_instruction_after_switch(admin,cl
     validated(admin,two);assert switch(admin,two,1,'second').status_code==200
     provider=IndependentLineProvider(result,pending=False);seen=[];original=provider.create_plot;receipt=provider.receipt
     def fixed_receipt():
-        value=receipt();value['model']='gpt-5.6-sol';value['response']['model']='gpt-5.6-sol';return value
+        value=receipt();value['model']='gpt-6.1-sol';value['response']['model']='gpt-6.1-sol';return value
     def capture(**kw):seen.append(kw);return original(**kw)
     provider.receipt=fixed_receipt;provider.create_plot=capture
     for _ in range(5):
@@ -32,7 +32,7 @@ def test_queued_workbench_keeps_old_policy_and_instruction_after_switch(admin,cl
     assert task['status']=='succeeded',task
     assert 'Use a compact caption.' in seen[0]['instructions']
     assert 'Use a detailed caption.' not in seen[0]['instructions']
-    assert seen[0]['policy'].model=='gpt-5.6-sol'
+    assert seen[0]['policy'].model=='gpt-6.1-sol'
     with database_connection() as db:
         call=db.execute('SELECT price_snapshot FROM model_calls WHERE task_id=%s',(task['id'],)).fetchone()
         assert call['price_snapshot']['version']==policy['policy']['price']['version']

@@ -375,7 +375,7 @@ it('dismisses account actions while switching a project section', async () => {
   }))
   render(<App />)
   await user.click(await screen.findByRole('button', { name: '打开项目 菜单交互项目' }))
-  const files = await screen.findByRole('button', { name: '第 2 步：上传文件' })
+  const files = await screen.findByRole('button', { name: '第 2 步：文件上传/整理' })
   const account = screen.getByRole('button', { name: '账号' })
   await user.click(account)
   await user.click(files)

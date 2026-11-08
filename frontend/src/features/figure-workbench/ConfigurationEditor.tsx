@@ -23,7 +23,7 @@ export default function ConfigurationEditor({value,onChange,fields,kinds,disable
  <label>{t('配色')}<select value={value.style.palette} onChange={e=>style({palette:e.target.value as FigureConfig['style']['palette']})}><option value="colorblind">{t('色觉友好')}</option><option value="blue">{t('蓝色')}</option><option value="gray">{t('灰度')}</option></select></label>
  {(['width','height','font_size'] as const).map((key,i)=><label key={key}>{t(['图像宽度','图像高度','字号'][i])}<input type="number" min={key==='font_size'?8:key==='width'?1600:1000} max={key==='font_size'?24:key==='width'?5000:4000} value={value.style[key]} onChange={e=>style({[key]:Number(e.target.value)})}/></label>)}
  <label>{t('显示顺序（逗号分隔）')}<ListInput values={value.style.display_order} onChange={text=>style({display_order:split(text)})}/></label>
- <details className="figure-config-wide"><summary>{t('字段显示别名')}</summary>{fields.map(f=><label key={f.column}>{f.column} · {f.name}<input value={value.style.aliases[f.column]??''} onChange={e=>style({aliases:{...value.style.aliases,[f.column]:e.target.value}})}/></label>)}</details>
+ <section className="figure-config-wide"><h4>{t('字段显示别名')}</h4>{fields.map(f=><label key={f.column}>{f.column} · {f.name}<input value={value.style.aliases[f.column]??''} onChange={e=>style({aliases:{...value.style.aliases,[f.column]:e.target.value}})}/></label>)}</section>
  <p className="muted figure-config-wide">{t('保存草稿不收费。标题、别名和图注为用户说明，不能改变数值或替代方法确认。')}</p>
  </fieldset>
 }

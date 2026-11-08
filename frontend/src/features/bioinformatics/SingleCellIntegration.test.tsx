@@ -21,6 +21,7 @@ it('shows enabled new defaults and submits edited integration settings in one an
  fireEvent.change(screen.getByLabelText('HVG 批次分组'),{target:{value:'library_id'}})
  fireEvent.change(screen.getByLabelText('Harmony 批次分组'),{target:{value:'library_id'}})
  fireEvent.change(screen.getByLabelText('Harmony theta'),{target:{value:'3'}})
+ fireEvent.click(screen.getByRole('button',{name:'下一步：检查并运行'}))
  fireEvent.click(screen.getByRole('button',{name:'开始单细胞分析'}))
  await waitFor(()=>expect(navigate).toHaveBeenCalledWith({view:'bio-analysis',fileId:'',runId:'run3'}))
  const posts=vi.mocked(apiFetch).mock.calls.filter(c=>c[1]?.method==='POST')
@@ -37,6 +38,7 @@ it('allows users to disable both methods without silently restoring defaults',as
  fireEvent.click(await screen.findByLabelText('运行 Harmony 批次整合'))
  fireEvent.click(screen.getByLabelText('处理测序深度（log1p total counts）'))
  fireEvent.change(screen.getByLabelText('HVG 批次分组'),{target:{value:''}})
+ fireEvent.click(screen.getByRole('button',{name:'下一步：检查并运行'}))
  fireEvent.click(screen.getByRole('button',{name:'开始单细胞分析'}))
  await waitFor(()=>expect(vi.mocked(apiFetch).mock.calls.some(c=>c[1]?.method==='POST')).toBe(true))
  const params=JSON.parse(String(vi.mocked(apiFetch).mock.calls.find(c=>c[1]?.method==='POST')![1]!.body)).params

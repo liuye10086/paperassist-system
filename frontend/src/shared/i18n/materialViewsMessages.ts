@@ -14,7 +14,7 @@ export const materialViewsMessages: Record<string, string> = {
   '生信质控视图': 'Bioinformatics QC views',
   '导入与检查': 'Import and checks',
   '质控与结果': 'QC and results',
-  '质量控制请在第 2 步上传文件后进行；此处选择后续分析需求，可以多选。': 'Perform quality control after uploading files in step 2; select one or more subsequent analysis requirements here.',
+  '质量控制请在第 2 步文件上传/整理后进行；此处选择后续分析需求，可以多选。': 'Perform quality control after file upload and organization in step 2; select one or more subsequent analysis requirements here.',
   '支持数据包、矩阵和样本信息表；每批最多 10 个文件，上传后进入质量控制进行导入与核对。': 'Supports data packages, matrices and sample information; up to 10 files per batch. Open quality control after uploading to import and check data.',
   '返回整理版本列表': 'Back to prepared versions',
   '按原规则新建整理任务': 'Start another preparation with these rules',

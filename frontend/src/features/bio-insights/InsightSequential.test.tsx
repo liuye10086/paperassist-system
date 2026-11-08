@@ -17,8 +17,8 @@ it('requires sources before configuration, preserves draft fields and checks bef
  fireEvent.click(screen.getByRole('button',{name:'下一步：配置分析'}))
  expect(screen.getByLabelText('参考／基因 ID 版本')).toHaveProperty('value','test-reference')
  fireEvent.click(screen.getByRole('button',{name:'下一步：检查与运行'}))
- expect(screen.getByRole('button',{name:'确认并保存新版本'})).toHaveProperty('disabled',true)
- expect(screen.getByRole('button',{name:'提交已确认版本后台计算'})).toHaveProperty('disabled',true)
+ expect(screen.queryByRole('button',{name:'确认并保存新版本'})).toBeNull()
+ expect(screen.getByRole('button',{name:'开始分析'})).toHaveProperty('disabled',false)
  expect(vi.mocked(apiFetch).mock.calls.every(([,init])=>!init?.method||init.method==='GET')).toBe(true)
 })
 it('uses an automatic plan name when no optional name was entered and only saves explicitly',async()=>{

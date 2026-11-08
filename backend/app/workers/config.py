@@ -8,12 +8,19 @@ from app.db.database import get_database_config
 
 
 def concurrency_ceiling():
-    """Deployment must explicitly allow a second process; old environments keep one."""
+    """Use one process; tolerate the former deployment value without enabling it."""
     from app.core.config import local_config
     value = local_config().get('PAPERASSIST_WORKER_CONCURRENCY_CEILING', '1')
     if value not in ('1', '2'):
         raise ValueError('Worker concurrency ceiling must be 1 or 2.')
-    return int(value)
+    return 1
+
+
+def configure_execution_environment():
+    """Set numerical libraries before the worker imports them or forks."""
+    for name in ('OPENBLAS_NUM_THREADS','OMP_NUM_THREADS','OMP_THREAD_LIMIT','MKL_NUM_THREADS',
+                 'NUMEXPR_NUM_THREADS','VECLIB_MAXIMUM_THREADS','BLIS_NUM_THREADS'):
+        os.environ[name] = '1'
 
 
 def startup_configuration(db=None):

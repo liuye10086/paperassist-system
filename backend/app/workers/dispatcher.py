@@ -10,6 +10,17 @@ logger = logging.getLogger(__name__)
 
 def dispatch_once(*, publish=None, config=None, limit=20):
     repository = TaskExecutionStore(config=config)
+    from app.domain.tasks.serial_execution import execution_lock_path, file_lock
+    path = execution_lock_path(repository.assets.directory)
+    # Publication happens outside DB locks. Keep one host publisher through the
+    # broker confirmation and its CAS acknowledgement, including slow confirms.
+    with file_lock(path.with_name(path.name + '.dispatch'), blocking=False) as acquired:
+        if not acquired:
+            return 0
+        return _dispatch_once(repository, publish=publish, limit=limit)
+
+
+def _dispatch_once(repository, *, publish, limit):
     from app.domain.report_collections.service import advance_pending
     advance_pending(config=repository.config, directory=repository.assets.directory, limit=limit)
     if publish is None:
@@ -20,10 +31,15 @@ def dispatch_once(*, publish=None, config=None, limit=20):
         expire_stale_confirmations(db)
         from app.domain.bio_cloud.service import recover_receipts
         recover_receipts(db)
-        rows = db.execute('''SELECT o.id,o.task_id,o.task_revision,o.publish_attempts FROM task_outbox o
-            JOIN tasks t ON t.id=o.task_id WHERE o.published_at IS NULL
-            AND o.available_at<=clock_timestamp() AND t.task_type IN ('bio_cloud_run','word_report','explanation','boxplot','parse_file','extract_dataset','prepare_dataset', 'review_ocr', 'analysis_plan', 'analysis_recommendation', 'figure_projection', 'figure_workbench', 'figure_explanation', 'collection_word_report', 'statistics_compute', 'literature_search', 'literature_assistance', 'manuscript_draft', 'manuscript_docx', 'layout_docx', 'manuscript_writing', 'school_template_parse', 'journal_recommendation', 'journal_format_check', 'journal_adaptation', 'review_round_plan', 'review_revision', 'review_document_export', 'bio_import', 'bio_analysis', 'bio_annotation', 'bio_figure', 'research_figure', 'research_report', 'research_fact_draft','delivery_package', 'bio_resource_import', 'bio_comparison', 'bio_result_import', 'bio_enrichment', 'bio_candidate', 'bio_insight_figure','bio_feature_extract','bio_integration')
-            ORDER BY o.available_at,o.id LIMIT %s''', (limit,)).fetchall()
+        head = repository.serial_head(db)
+        rows = [] if head is None or limit <= 0 else db.execute('''
+            SELECT o.id,o.task_id,o.task_revision,o.publish_attempts FROM task_outbox o
+            JOIN tasks t ON t.id=o.task_id AND t.revision=o.task_revision
+            WHERE t.id=%s AND o.published_at IS NULL AND o.event_type='task_ready'
+            AND o.available_at<=clock_timestamp() AND (t.status='queued' OR (t.status='running' AND EXISTS (
+                SELECT 1 FROM task_attempts a WHERE a.task_id=t.id AND a.attempt_no=t.current_attempt
+                AND a.status='running' AND a.lease_owner IS NULL)))
+            ORDER BY o.available_at,o.id LIMIT 1''', (head['id'],)).fetchall()
         now = repository.now(db)
         for row in rows:
             delay = min(60, 2 ** min(row['publish_attempts'] + 1, 6))
@@ -39,7 +55,8 @@ def dispatch_once(*, publish=None, config=None, limit=20):
             logger.warning('outbox publication unavailable outbox_id=%s', row['id'])
             continue
         with repository.connection(write=True) as db:
-            db.execute('UPDATE task_outbox SET published_at=clock_timestamp() WHERE id=%s AND published_at IS NULL',
-                       (row['id'],))
+            db.execute('''UPDATE task_outbox SET published_at=clock_timestamp()
+                WHERE id=%s AND published_at IS NULL AND publish_attempts=%s''',
+                       (row['id'], row['publish_attempts'] + 1))
         published += 1
     return published

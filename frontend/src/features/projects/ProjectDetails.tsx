@@ -5,6 +5,7 @@ import type { Project } from './projectTypes'
 import { apiError, safeError, useI18n } from '../../shared/i18n'
 import ProjectLanguage from './ProjectLanguage'
 import useDraftLeaveGuard, { type RegisterLeaveGuard } from './useDraftLeaveGuard'
+import useResearchDraft from '../research-results/useResearchDraft'
 
 type Field = 'name' | 'research_topic'
 type FieldDraft = { saved: string; value: string; error: string; uncertain: boolean }
@@ -20,7 +21,7 @@ export default function ProjectDetails({ project, onUpdated, showHeading = true,
   renderHeader?: (language: ReactNode) => ReactNode; registerLeaveGuard?: RegisterLeaveGuard
 }) {
   const { t } = useI18n()
-  const [drafts, setDrafts] = useState<Record<Field, FieldDraft>>(() => ({ name: initialDraft(project.name), research_topic: initialDraft(project.research_topic) }))
+  const [drafts, setDrafts] = useResearchDraft<Record<Field, FieldDraft>>(project.id, 'project-information', () => ({ name: initialDraft(project.name), research_topic: initialDraft(project.research_topic) }))
   const [busy, setBusy] = useState<{ field: Field; kind: 'save' | 'read' } | null>(null)
   const [languageBusy, setLanguageBusy] = useState(false)
   const request = useRef<Request | null>(null)
@@ -60,7 +61,7 @@ export default function ProjectDetails({ project, onUpdated, showHeading = true,
     const current: Request = { controller: new AbortController(), timeout: 0, field, kind }
     const checkSession = captureApiSession()
     request.current = current
-    setBusy({ field, kind }); change(field, { error: '' })
+    setBusy({ field, kind }); change(field, { error: '', ...(kind==='save'?{uncertain:true}:{}) })
     current.timeout = window.setTimeout(() => {
       if (request.current !== current) return
       request.current = null; current.controller.abort(); setBusy(null)
@@ -74,13 +75,16 @@ export default function ProjectDetails({ project, onUpdated, showHeading = true,
         ...(kind === 'save' ? { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ [field]: value }) } : {}),
       })
       const data = await response.json(); checkSession()
-      if (!response.ok) throw new Error(apiError(data, kind === 'save' ? '保存修改失败，请稍后重试。' : '项目读取失败，请稍后重试。'))
+      if (!response.ok) {
+        if(kind==='save'&&response.status>=400&&response.status<500) change(field,{uncertain:false})
+        throw new Error(apiError(data, kind === 'save' ? '保存修改失败，请稍后重试。' : '项目读取失败，请稍后重试。'))
+      }
       if (!data || data.id !== project.id || typeof data.name !== 'string' || typeof data.research_topic !== 'string') throw new Error('项目响应格式不正确，请重新读取项目。')
       if (request.current !== current || current.controller.signal.aborted) return
       change(field, initialDraft(data[field])); onUpdated(data)
     } catch (cause) {
       if (request.current !== current || current.controller.signal.aborted) return
-      change(field, { error: cause instanceof TypeError ? '无法连接后端，请稍后重试。' : safeError(cause, '项目请求失败，请稍后重试。') })
+      change(field, { ...(kind==='save'?{uncertain:false}:{}), error: cause instanceof TypeError ? '无法连接后端，请稍后重试。' : safeError(cause, '项目请求失败，请稍后重试。') })
     } finally {
       window.clearTimeout(current.timeout)
       if (request.current === current) { request.current = null; setBusy(null) }

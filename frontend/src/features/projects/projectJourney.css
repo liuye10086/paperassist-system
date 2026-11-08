@@ -42,6 +42,10 @@
 @media(max-width:700px) { .project-steps ol { grid-template-columns: repeat(5,minmax(0,1fr)); gap: 2px; } .project-steps li button { flex-direction: column; align-items: center; text-align: center; padding: 8px 2px; min-height: 76px; } .project-steps strong { font-size: 11px; } .journey-number { flex: 0 0 26px; width: 26px; height: 26px; } .project-steps { padding: 6px; } .journey-context,.journey-result-actions { padding: 20px; } .journey-actions { flex-direction: column; } .welcome-workflow { grid-template-columns: 1fr; padding: 24px; gap: 24px; } .create-service-options { grid-template-columns: 1fr; } }
 
 .project-journey:empty { display: none; }
+.journey-next-action { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-top: 16px; padding: 16px 20px; background: var(--accent-bg); border: 1px solid var(--border); border-radius: 12px; }
+.journey-next-action p { margin: 0; line-height: 1.7; font-size: 13px; }
+.journey-next-action button { flex-shrink: 0; }
+@media(max-width:700px) { .journey-next-action { flex-direction: column; align-items: stretch; } }
 .project-steps.is-compact { padding: 0; border: 0; border-radius: 0; background: transparent; }
 .project-steps.is-compact ol { gap: 4px; }
 .project-steps.is-compact li button { min-height: 42px; padding: 6px 8px; gap: 8px; flex-direction: row; align-items: center; text-align: left; }

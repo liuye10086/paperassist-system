@@ -1,7 +1,7 @@
 """Frozen pricing, protocol and conservative non-cache reservation."""
 from app.domain.model_usage.contracts import ModelPolicy
-MODEL = 'gpt-5.4-2026-03-05'
-PRICE_VERSION = 'openai-standard-2026-10-21'
+MODEL = 'gpt-6.1-sol'
+PRICE_VERSION = 'openai-standard-short-2026-11-06-gpt-6.1-sol'
 POLICY_VERSION = 'writing-live-consent-v2'
 MAX_INPUT = 100000
 MAX_OUTPUT = 12000
@@ -14,8 +14,8 @@ BATCH_CAP = 12000000
 def policy():
     return ModelPolicy(model=MODEL, prompt_version='sci-writing-v2', max_output_tokens=MAX_OUTPUT,
         output_format='manuscript_writing_v2', price=dict(version=PRICE_VERSION,model=MODEL,
-        input_micro_usd_per_million=2500000,cached_input_micro_usd_per_million=250000,
-        output_micro_usd_per_million=15000000))
+        input_micro_usd_per_million=2000000,cached_input_micro_usd_per_million=100000,
+        output_micro_usd_per_million=10000000,cache_write_micro_usd_per_million=2500000))
 
 def installed_policy():
     return policy()

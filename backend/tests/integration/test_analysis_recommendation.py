@@ -35,9 +35,9 @@ def test_recommendation_creation_requires_exact_independent_disclosure_confirmat
     assert rejected.status_code==409,rejected.text
 
 def planning_policy():
-    return dict(policy=dict(model='gpt-5.6-sol',prompt_version='analysis_recommendation_v1',max_output_tokens=2000,
+    return dict(policy=dict(model='gpt-6.1-sol',prompt_version='analysis_recommendation_v1',max_output_tokens=2000,
         timeout_seconds=15,tools=[],output_format='analysis_recommendation_v1',price=dict(version='synthetic-only',currency='USD',
-        model='gpt-5.6-sol',input_micro_usd_per_million=100,cached_input_micro_usd_per_million=50,output_micro_usd_per_million=200)),
+        model='gpt-6.1-sol',input_micro_usd_per_million=100,cached_input_micro_usd_per_million=50,output_micro_usd_per_million=200)),
         input_token_allowance=100000,task_limit_micro_usd=500000)
 
 def queued_recommendation(client,monkeypatch):
@@ -70,7 +70,7 @@ class RecommendationProvider:
             rationale=['Assess a linear association.'],assumptions=['Confirm independent observations.'],missing_information=[])
         if self.corrupt:draft['columns']=['A','C']
         usage=dict(input_tokens=100,output_tokens=50,total_tokens=150,input_tokens_details={'cached_tokens':0})
-        response=dict(id='resp_planning_synthetic',model='gpt-5.6-sol',status='in_progress' if self.pending else 'completed',usage=usage,
+        response=dict(id='resp_planning_synthetic',model='gpt-6.1-sol',status='in_progress' if self.pending else 'completed',usage=usage,
             output=[{'type':'message','content':[{'type':'output_text','text':json.dumps(draft)}]}])
         return dict(response_id=response['id'],request_id='req_planning',model=response['model'],status=response['status'],usage=usage,response=response)
     def create(self,*,policy,instructions,payload):

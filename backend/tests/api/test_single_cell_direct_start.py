@@ -51,7 +51,7 @@ def ready_single_cell(client,monkeypatch,tmp_path):
 
 def synthetic_engine(source,runtime,modes):
     """Contract-only output leaves: no claim of real Scanpy or biological validation."""
-    def engine(payload,out,mode):
+    def engine(payload,out,mode,*,cancel_event=None):
         modes.append(mode)
         body=b'barcode\tkept\tcluster\tcell_label\nc1\tTrue\t0\tunknown\n'
         path=out/'observations.tsv';path.write_bytes(body)

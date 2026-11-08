@@ -16,9 +16,9 @@ it('allows single-cell annotation UMAP only with a verified matching manual labe
  expect(screen.getByRole('option',{name:'人工注释'})).toBeTruthy()
  fireEvent.change(screen.getByLabelText('图片类型'),{target:{value:'annotation'}})
  expect((screen.getByRole('button',{name:'生成独立单图版本'}) as HTMLButtonElement).disabled).toBe(true)
- await screen.findByRole('option',{name:'Manual · v1'})
- expect(screen.queryByRole('option',{name:'Foreign · v1'})).toBeNull()
- fireEvent.change(screen.getByLabelText('固定人工注释版本 ID'),{target:{value:'ann1'}})
+ await screen.findByRole('option',{name:'Manual · 已保存'})
+ expect(screen.queryByRole('option',{name:'Foreign · 已保存'})).toBeNull()
+ fireEvent.change(screen.getByLabelText('人工注释来源'),{target:{value:'ann1'}})
  fireEvent.click(screen.getByRole('button',{name:'生成独立单图版本'}))
  await waitFor(()=>expect(vi.mocked(apiFetch).mock.calls.some(c=>c[1]?.method==='POST')).toBe(true))
  const post=vi.mocked(apiFetch).mock.calls.find(c=>c[1]?.method==='POST')!

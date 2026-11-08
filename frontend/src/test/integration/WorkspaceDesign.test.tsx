@@ -85,6 +85,7 @@ test('moves focus out of hidden project sections and retains an editing draft ac
     created_at: '2026-10-07T00:00:00Z', updated_at: '2026-10-07T00:00:00Z' }
   const fetcher = vi.fn(async (url: string) => {
     if (url.includes('/summary?')) return Response.json(summaryFixture(project.id))
+    if (url.includes('/bio-analysis-runs?')) return Response.json({ items: [], total: 0, page: 1, page_size: 50 })
     if (url.endsWith('/files')) return Response.json([])
     if (url.includes('/files?page=')) return Response.json(filePageFixture(url, []))
     if (url.endsWith('/config')) return Response.json({ max_upload_bytes: 10485760, preview_row_limit: 20 })
@@ -123,11 +124,11 @@ test('moves focus out of hidden project sections and retains an editing draft ac
   expect(document.body.textContent).not.toContain('private-project-id')
   await user.click(screen.getByRole('button', { name: '分析与成果' }))
   await user.click(screen.getByRole('button', { name: '图表与报告' }))
-  await screen.findByText('暂无已生成的分析图表或报告。')
+  await screen.findByText('暂无通用分析图表或报告。')
   const summaryReads = fetcher.mock.calls.filter(([url]) => url.includes('/summary?')).length
   await user.click(screen.getByRole('button', { name: '我的项目' }))
   await user.click(screen.getByRole('button', { name: '分析与成果' }))
   await user.click(screen.getByRole('button', { name: '图表与报告' }))
-  await screen.findByText('暂无已生成的分析图表或报告。')
+  await screen.findByText('暂无通用分析图表或报告。')
   expect(fetcher.mock.calls.filter(([url]) => url.includes('/summary?'))).toHaveLength(summaryReads + 1)
 })

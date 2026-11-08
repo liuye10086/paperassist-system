@@ -68,8 +68,8 @@ test('nine-section preview uses readable facts and scoped enum labels while pres
  const {container}=render(<ReportCollections {...props}/>);fireEvent.click(await screen.findByRole('button',{name:'预览九类报告内容'}))
  await screen.findByText('九类报告内容预览')
  const preview=container.querySelector('.report-preview')!
- expect(preview.querySelectorAll(':scope > details')).toHaveLength(9)
- expect(preview.querySelectorAll(':scope > details[open]')).toHaveLength(0)
+ expect(preview.querySelectorAll(':scope > section')).toHaveLength(9)
+ expect(preview.querySelectorAll(':scope > details')).toHaveLength(0)
  expect(preview.textContent).toContain('所选字段');expect(preview.textContent).toContain('研究声明')
  expect(preview.textContent).toContain('Pearson双侧Beta检验');expect(preview.textContent).toContain('已确认')
  expect(preview.textContent).toContain('confirmed');expect(preview.textContent).toContain('0.2')

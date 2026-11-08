@@ -8,7 +8,7 @@ from app.domain.admin_configuration.contracts import Basic, Bundle, CATEGORIES, 
 
 VALIDATOR_VERSION = 'admin-config-validator-v1'
 DOMAINS = ('models','prompts','ncbi','basic','journals','schools','review')
-INSTALLED_MODELS = ('gpt-5.4-2026-03-05','gpt-5.6-sol','gpt-6.1-sol')
+INSTALLED_MODELS = ('gpt-6.1-sol',)
 
 
 def canonical(value):
@@ -140,8 +140,8 @@ def metadata():
             workflows=[dict(id='installed-v1',editable=False,nodes=['material','policy','authorization','admission','provider','validation'])],
             templates=['sci-writing-v1','sci-writing-v2','literature_assistance_v1',
                        'analysis_explanation_v1-v4','analysis_recommendation_v1-v5','openai_figure_workbench_v1-v4','figure_explanation_v1-v5'],
-            business_constraints={'recommendation':{'model':'gpt-5.6-sol','task_limit_micro_usd':500000,'tools':[]},
-                'writing':{'model':'gpt-5.4-2026-03-05','prompt_version':'sci-writing-v2','output_format':'manuscript_writing_v2','tools':[]},
+            business_constraints={'recommendation':{'model':'gpt-6.1-sol','task_limit_micro_usd':500000,'tools':[]},
+                'writing':{'model':'gpt-6.1-sol','prompt_version':'sci-writing-v2','output_format':'manuscript_writing_v2','tools':[]},
                 'literature':{'model':'gpt-6.1-sol','prompt_version':'literature_assistance_v1','output_format':'text','tools':[],
                               'real_provider_policy':'fixed_batch06_manifest','policy_editable':False,
                               'instruction_effect':'new_task_exact_manifest_required','real_connectivity':'not_tested'},

@@ -1,6 +1,7 @@
 """Unified queued spatial runs, explicit QC decisions and atomic publication."""
 import json
 import re
+from contextlib import nullcontext
 from datetime import datetime,timezone,timedelta
 from uuid import UUID,uuid4,uuid5
 from app.adapters.bio_analysis_store import BioAnalysisStore,base_row,identity,insert,lock,now,error,object_by_key,scoped_object
@@ -10,6 +11,24 @@ from app.domain.bioinformatics.analysis_settings import BioAnalysisLimits,runtim
 from app.domain.bioinformatics.contracts import canonical,digest,conflict
 from app.domain.bioinformatics.service import require_key,append_checkpoint
 from app.domain.tasks.waits import get_open_wait,resolve_open_wait
+from app.adapters.analysis_request_receipts import read_receipt,bind_receipt,target
+
+
+def scientific_projection(snapshot):
+    """Exclude request/run identities while retaining the full execution contract."""
+    value={key:snapshot.get(key) for key in ('workflow_version','raw_source','observation_map_version_id','design_version_id',
+        'engine_version','environment_digest','code_digest','output_language','limits','execution_mode','subset')}
+    params=json.loads(json.dumps(snapshot['params']))
+    if snapshot.get('workflow_version')=='bio_analysis_v3':
+        from .single_cell_contracts import SingleCellParameters
+        # Stored history uses historical defaults, never the new-form defaults.
+        params=SingleCellParameters.model_validate(params).model_dump(mode='json')
+    for key in ('exclude_barcodes','exclude_samples','exclude_features'):
+        if key in params:params[key]=sorted(params[key])
+    if 'mt_rule' in params:params['mt_rule']['feature_ids']=sorted(params['mt_rule']['feature_ids'])
+    value['params']=params
+    if snapshot.get('execution_mode')!='direct':value['recipe_version_id']=snapshot['recipe_version_id']
+    return value
 
 
 def latest_checkpoint(db,task):
@@ -112,19 +131,78 @@ class BioAnalysisService(BioAnalysisStore):
         from .analysis_contracts import BioAnalysisRunRequest
         require_key(key)
         sha=digest(request.model_dump(mode='json'))
-        recipe=self.save_recipe(project,SingleCellSetupRequest(**request.model_dump(),recipe_code='single_cell_explore_v1',expected_revision=0),
-            'single-cell-recipe:'+digest(key))
-        run=BioAnalysisRunRequest(raw_source=request.raw_source,recipe_version_id=recipe['id'],expected_setup_revision=recipe['revision'])
-        return self.create(project,run,key,execution_mode='direct',request_digest=sha)
+        with self.store.connection(write=True) as db:
+            self.store.require_project(db,project);lock(db,project,'run:'+key)
+            replay=self._run_replay(db,project,key,sha)
+            if replay:return self._run_response(db,replay)
+            setup=SingleCellSetupRequest(**request.model_dump(),recipe_code='single_cell_explore_v1',expected_revision=0)
+            # Resolve server-owned evidence hashes before comparing scientific input.
+            self.raw(db,project,setup.raw_source);self.design(db,project,setup.design_version_id)
+            for label in setup.params.cell_labels:
+                label.evidence_file_sha256={}
+                for file_id in label.evidence_file_ids:
+                    evidence=db.execute('SELECT * FROM files WHERE id=%s AND project_id=%s',(file_id,project)).fetchone()
+                    if not evidence:raise error('bio_recipe_invalid',422)
+                    self.assets.original(dict(evidence));label.evidence_file_sha256[file_id]=evidence['sha256']
+            if setup.observation_map_version_id:
+                mapping=self.require(db,'bio_observation_map_versions',project,setup.observation_map_version_id)
+                if mapping['raw_dataset_version_id']!=setup.raw_source.dataset_version_id or mapping['design_version_id']!=setup.design_version_id:raise conflict('bio_input_integrity_changed')
+            from .single_cell_settings import runtime_identity as cell_runtime
+            from .single_cell_resources import analysis_limits_for
+            runtime=cell_runtime()
+            if not runtime['available']:raise error('bio_environment_unavailable')
+            snapshot=dict(workflow_version='bio_analysis_v3',raw_source=setup.raw_source.model_dump(mode='json'),params=setup.params.model_dump(mode='json'),
+                observation_map_version_id=setup.observation_map_version_id,design_version_id=setup.design_version_id,
+                **{k:runtime[k] for k in ('engine_version','environment_digest','code_digest')},output_language=setup.params.output_language,
+                limits=analysis_limits_for(single_cell=True,params=setup.params.model_dump()).model_dump(),execution_mode='direct')
+            reused=self._reuse_run(db,project,key,sha,snapshot)
+            if reused:return self._run_response(db,reused)
+            recipe=self.save_recipe(project,setup,'single-cell-recipe:'+digest(key),_db=db)
+            run=BioAnalysisRunRequest(raw_source=request.raw_source,recipe_version_id=recipe['id'],expected_setup_revision=recipe['revision'])
+            return self.create(project,run,key,execution_mode='direct',request_digest=sha,_db=db)
 
-    def create(self,project,request,key,*,execution_mode=None,request_digest=None,subset=None):
+    def _run_response(self,db,row):
+        return dict(id=row['id'],task=self.store.public_task(self.store.require_task(db,row['task_id'])),recipe_version_id=row['recipe_version_id'],expected_setup_revision=row['expected_setup_revision'])
+
+    def _run_replay(self,db,project,key,sha):
+        row=db.execute('SELECT * FROM bio_analysis_runs WHERE project_id=%s AND request_key=%s',(project,key)).fetchone()
+        if row:
+            if row['request_digest']!=sha:raise error('task_idempotency_conflict')
+            return dict(row)
+        receipt=read_receipt(db,user_id=self.store.user_id,project_id=project,kind='bio_analysis_run',key=key,request_digest=sha)
+        if receipt:return target(db,user_id=self.store.user_id,project_id=project,kind='bio_analysis_run',target_id=receipt['target_id'])
+
+    def _reuse_run(self,db,project,key,sha,snapshot):
+        # Subsets retain their existing start/recovery protocol in this batch.
+        if snapshot.get('subset') is not None:return None
+        projection=scientific_projection(snapshot)
+        lock(db,project,'analysis-content:'+digest(projection))
+        rows=db.execute("""SELECT r.*,t.input_snapshot,t.status FROM bio_analysis_runs r JOIN tasks t ON t.id=r.task_id
+            WHERE r.project_id=%s AND r.created_by=%s AND r.raw_dataset_version_id=%s
+            AND t.status IN ('queued','running','succeeded') ORDER BY r.created_at DESC,r.id""",
+            (project,self.store.user_id,snapshot['raw_source']['dataset_version_id'])).fetchall()
+        for candidate in rows:
+            if scientific_projection(candidate['input_snapshot'])!=projection:continue
+            task=self.store.require_task(db,candidate['task_id']);self.require_sources(db,task,runtime=False)
+            if task['status']=='succeeded':
+                if not candidate['processed_dataset_version_id']:raise conflict('bio_input_integrity_changed')
+                result,_,members=self.processed_record(db,project,candidate['processed_dataset_version_id'])
+                if result['run_id']!=candidate['id'] or result['task_id']!=task['id']:raise conflict('bio_input_integrity_changed')
+                for member in members:self.objects.read(member)
+            bind_receipt(db,user_id=self.store.user_id,project_id=project,kind='bio_analysis_run',key=key,request_digest=sha,target_id=candidate['id'])
+            return dict(candidate)
+
+    def create(self,project,request,key,*,execution_mode=None,request_digest=None,subset=None,_db=None):
+        if _db is None:
+            with self.store.connection(write=True) as db:
+                return self.create(project,request,key,execution_mode=execution_mode,request_digest=request_digest,subset=subset,_db=db)
         require_key(key);sha=request_digest or digest(request.model_dump());identifier=identity(project,'run',key);task_id=identity(project,'analysis-task',key)
-        with self.store.connection() as db:
+        with nullcontext(_db) as db:
             self.store.require_project(db,project)
-            replay=db.execute('SELECT * FROM bio_analysis_runs WHERE project_id=%s AND request_key=%s',(project,key)).fetchone()
+            lock(db,project,'run:'+key)
+            replay=self._run_replay(db,project,key,sha)
             if replay:
-                if replay['request_digest']!=sha:raise error('task_idempotency_conflict')
-                return dict(id=replay['id'],task=self.store.public_task(self.store.require_task(db,replay['task_id'])),recipe_version_id=replay['recipe_version_id'],expected_setup_revision=replay['expected_setup_revision'])
+                return self._run_response(db,replay)
             recipe=self.require(db,'bio_analysis_recipe_versions',project,request.recipe_version_id)
             root=self.require(db,'bio_analysis_setups',project,recipe['setup_id'])
             if root['revision']!=request.expected_setup_revision or recipe['raw_dataset_version_id']!=request.raw_source.dataset_version_id:raise conflict('bio_revision_conflict')
@@ -152,12 +230,14 @@ class BioAnalysisService(BioAnalysisStore):
             from .single_cell_subsets import validate_parent
             selection=SingleCellSubsetSelection.model_validate(subset)
             if recipe['recipe_code']!='single_cell_explore_v1' or execution_mode!='direct' or selection.parent_processed_source.raw_source!=request.raw_source:raise error('bio_recipe_invalid',422)
-            with self.store.connection() as db:
+            with nullcontext(_db) as db:
                 _,_,_,selected=validate_parent(self,db,project,selection.parent_processed_source,selection.cluster_ids,selection.cell_ids)
                 if selected!=selection.resolved_cell_ids:raise conflict('bio_input_integrity_changed')
             snapshot['subset']=selection.model_dump(mode='json')
-        records,reservations=self.admit_documents(project,identifier,'bio_analysis',self.objects,{'snapshot':canonical(snapshot)})
-        with self.store.connection(write=True) as db:
+        reused=self._reuse_run(_db,project,key,sha,snapshot)
+        if reused:return self._run_response(_db,reused)
+        records,reservations=self.admit_documents(project,identifier,'bio_analysis',self.objects,{'snapshot':canonical(snapshot)},_db=_db)
+        with nullcontext(_db) as db:
             self.store.require_project(db,project);lock(db,project,'run:'+key)
             replay=db.execute('SELECT * FROM bio_analysis_runs WHERE project_id=%s AND request_key=%s',(project,key)).fetchone()
             if replay:

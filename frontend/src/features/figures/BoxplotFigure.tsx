@@ -268,11 +268,11 @@ function FigurePanel({ base, runId, revision, canGenerate, disabled, onBusyChang
       {!imageError && <img key={`${figure.id}:${imageAttempt}`} src={`${endpoint}/image?v=${encodeURIComponent(figure.id)}&reload=${imageAttempt}`} alt={figure.title} onError={() => setImageError(true)} />}
       <figcaption>{figure.caption}</figcaption>
       <p><ProjectDownloadLink href={`${endpoint}/image?download=true`} filename={figureKind==='boxplot'?'boxplot.png':'figure.png'}>{figureKind==='boxplot'?t('下载箱线图 PNG'):t('下载{figure} PNG',{figure:t(figureLabel)})}</ProjectDownloadLink></p>
-      <details className="artifact-details"><summary>{t("图表来源与核对记录")}</summary>
+      <section className="artifact-details"><h4>{t("图表来源与核对记录")}</h4>
         <p>{t("横轴：")}{figure.x_label}{t("；纵轴：")}{figure.y_label}</p>
         <p>{figure.verification.note}{t("；请同时人工核对图像与标签。")}</p>
         <p>{t("保存时间：")}{figure.created_at}</p>
-      </details>
+      </section>
     </figure>}
     {state && !figure && !state.job && !task && <p>{t('尚未生成此统计结果的{figure}。',{figure:t(figureLabel)})}</p>}
   </section></WorkflowStage>

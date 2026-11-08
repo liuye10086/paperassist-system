@@ -32,6 +32,70 @@ def test_storage_routes_and_default_limits(admin,accounts):
         assert admin.get('/api/v1/me/storage',params={'project_id':pid}).status_code==404
 
 
+def test_storage_reads_use_last_known_ledger_without_reconciliation_or_writer_lock(admin,accounts,monkeypatch):
+    from contextlib import contextmanager
+    import app.api.storage_governance as storage_api
+    store,pid=project(accounts)
+    original_connection=storage_api.database_connection
+    writes=[]
+    @contextmanager
+    def tracked_connection(*args,**kwargs):
+        writes.append(kwargs.get('write',args[0] if args else False))
+        with original_connection(*args,**kwargs) as db:
+            yield db
+    monkeypatch.setattr(storage_api,'database_connection',tracked_connection)
+    monkeypatch.setattr(storage_api,'reconcile_intents',lambda *args,**kwargs: (_ for _ in ()).throw(AssertionError('read must not reconcile')))
+    with TestClient(app) as client:
+        login(client,accounts[2])
+        own=client.get('/api/v1/me/storage',params={'project_id':pid})
+    admin_view=admin.get('/api/v1/admin/storage')
+    assert own.status_code==200,own.text
+    assert admin_view.status_code==200,admin_view.text
+    assert own.json()['reconciliation_status']=='deferred'
+    assert admin_view.json()['reconciliation_status']=='deferred'
+    assert writes==[False,False]
+
+
+def test_storage_scan_explicitly_reconciles_and_returns_current_status(admin,accounts,monkeypatch):
+    import app.api.storage_governance as storage_api
+    store,pid=project(accounts)
+    calls=[]
+    monkeypatch.setattr(storage_api,'reconcile_intents',lambda db,root:calls.append((db,root)) or 0)
+    response=admin.post('/api/v1/admin/storage/scan')
+    assert response.status_code==200,response.text
+    assert calls and response.json()['reconciliation_status']=='current'
+
+
+def test_deferred_storage_read_previews_unreconciled_intent_without_writing(accounts):
+    import json
+    from app.core.config import local_config
+    from app.domain.storage_governance.service import NAMESPACE
+    store,pid=project(accounts)
+    intent_id=str(uuid4())
+    root=store.directory/'.storage-intents'
+    root.mkdir(parents=True,exist_ok=True)
+    (root/(intent_id+'.json')).write_text(json.dumps({
+        'id':intent_id,'namespace':NAMESPACE,'project_id':pid,'owner_id':accounts[2]['id'],
+        'operation_key':'deferred-preview','object_key':'figures/deferred.bin','size_bytes':7,
+        'kind':'figure','task_id':None,'sha256':None,'schema':local_config().get('PAPERASSIST_DB_SCHEMA','public'),
+        'database':'paperassist_system_test'}),encoding='utf-8')
+    before=store.connection()
+    with before as db:
+        assert db.execute('SELECT 1 FROM storage_reservations WHERE id=%s',(intent_id,)).fetchone() is None
+    from fastapi.testclient import TestClient
+    with TestClient(app) as client:
+        login(client,accounts[2])
+        response=client.get('/api/v1/me/storage',params={'project_id':pid})
+    assert response.status_code==200,response.text
+    value=response.json()
+    assert value['reconciliation_status']=='deferred'
+    assert value['status']=='unknown'
+    assert value['reserved_bytes']==7
+    assert value['unknown_reservation_count']==1
+    with store.connection() as db:
+        assert db.execute('SELECT 1 FROM storage_reservations WHERE id=%s',(intent_id,)).fetchone() is None
+
+
 def test_upload_atomic_limit_failure_and_download_retention(admin,accounts):
     store,pid=project(accounts)
     response=admin.put('/api/v1/admin/storage/policies/project/'+pid,json={'limit_bytes':10,'mode':'enforced','expected_revision':0,'reason':'Synthetic quota validation'})

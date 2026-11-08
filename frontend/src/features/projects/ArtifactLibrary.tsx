@@ -19,7 +19,7 @@ export default function ArtifactLibrary({projectId,data,navigation,onNavigate,sh
       {navigation.view==='detail'&&<span aria-current="page">{t('成果详情')}</span>}
     </nav>}
     {navigation.view==='list'&&<>
-      {data.artifacts.total===0?<p className="summary-empty">{t('暂无已生成的分析图表或报告。')}</p>:<ul className="summary-artifact-list">{data.artifacts.items.map(item=><li key={`${item.kind}:${item.id}`}>
+      {data.artifacts.total===0?<p className="summary-empty">{t('暂无通用分析图表或报告。')}</p>:<ul className="summary-artifact-list">{data.artifacts.items.map(item=><li key={`${item.kind}:${item.id}`}>
         <span className={`summary-artifact-symbol summary-artifact-${item.kind}`} aria-hidden="true">{item.kind==='figure'?'PNG':'DOCX'}</span>
         <div className="summary-artifact-content"><strong>{filename(item)}</strong><p>{item.collection_title??item.filename}</p>{item.collection_id&&<p className="summary-artifact-meta">{t('集合版本 {version} · 导出版本 {export} · {count} 个分析结果',{version:item.collection_revision!,export:item.export_revision!,count:item.result_count!})}</p>}<p className="summary-artifact-meta">{new Date(item.recorded_at).toLocaleString(locale)} · {item.size_bytes.toLocaleString(locale)} {t('字节')}</p></div>
         <div className="artifact-card-actions"><button type="button" aria-label={t('查看成果 {name}',{name:filename(item)})} onClick={()=>onNavigate({view:'detail',artifactId:item.id,kind:item.kind,page:data.artifacts.page})}>{t('查看详情')}</button><ProjectDownloadLink href={item.download_url} filename={filename(item)} ariaLabel={t('下载成果 {name}',{name:filename(item)})}>{t('下载文件')}</ProjectDownloadLink></div>

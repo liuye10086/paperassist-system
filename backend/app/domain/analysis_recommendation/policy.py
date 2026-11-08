@@ -30,7 +30,9 @@ class RecommendationPolicy(StrictContract):
 
     @model_validator(mode='after')
     def fixed(self):
-        if (self.policy.model!='gpt-5.6-sol' or self.policy.tools or self.policy.prompt_version not in (VERSION,VERSION_V2,VERSION_V3,VERSION_V4,VERSION_V5)
+        # Keep prior frozen task policies readable; newly saved administration
+        # configuration is restricted to the current model by its catalog.
+        if (self.policy.model not in ('gpt-6.1-sol','gpt-5.6-sol') or self.policy.tools or self.policy.prompt_version not in (VERSION,VERSION_V2,VERSION_V3,VERSION_V4,VERSION_V5)
                 or self.policy.output_format!=self.policy.prompt_version or not 0<=self.task_limit_micro_usd<=500000
                 or self.input_token_allowance<1):
             raise ValueError('A bounded no-tool recommendation policy is required.')

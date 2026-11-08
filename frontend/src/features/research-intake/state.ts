@@ -30,3 +30,9 @@ export function hasMissingMaterialSource(content:Content,refs:MaterialRef[]):boo
  return refs.some(ref=>ref.availability==='provided'&&!ref.file_id&&!ref.bio_dataset_version_id)||((content.material_checklist??[]) as {purpose:string;availability:string}[]).some(item=>item.availability==='provided'&&!refs.some(ref=>ref.purpose===item.purpose&&ref.availability==='provided'&&(ref.file_id||ref.bio_dataset_version_id)))
 }
 export function cleanMaterialRefs(refs:MaterialRef[]):MaterialRef[]{return refs.map(r=>({delivery_id:r.delivery_id??null,file_id:r.file_id??null,bio_dataset_version_id:r.bio_dataset_version_id??null,locator:r.locator??null,availability:r.availability,purpose:r.purpose,note:r.note??''}))}
+
+// Object key order and server-generated reference row order do not change the saved meaning.
+function stableJson(value:unknown):string{return JSON.stringify(value,(_key,item)=>item&&typeof item==='object'&&!Array.isArray(item)?Object.fromEntries(Object.entries(item).sort(([a],[b])=>a.localeCompare(b))):item)}
+export function sameIntakeVersion(content:Content,refs:MaterialRef[],current:{content:Content;material_refs?:MaterialRef[]}|null|undefined):boolean{
+ return !!current&&stableJson(content)===stableJson(current.content)&&JSON.stringify(cleanMaterialRefs(refs).map(stableJson).sort())===JSON.stringify(cleanMaterialRefs(current.material_refs??[]).map(stableJson).sort())
+}
