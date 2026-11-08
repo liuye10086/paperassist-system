@@ -55,5 +55,20 @@
 .module-step-list { display: flex; flex-wrap: wrap; gap: 12px 24px; list-style: none; padding: 0; margin: 12px 0 20px; color: var(--text); font-size: 13px; }
 .project-info-actions { margin: 16px 0; color: var(--text); }
 .project-steps.is-compact .journey-number { width: 24px; height: 24px; flex: 0 0 24px; font-size: 11px; }
+.journey-status { display: block; margin-top: 6px; color: var(--text); font-size: 11px; font-style: normal; font-weight: 600; }
+.journey-next-action { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 16px 20px; margin-bottom: 12px; border: 1px solid #d9e5d2; border-radius: 14px; background: var(--accent-bg); }
+.journey-next-action > div { display: grid; gap: 4px; }
+.journey-next-kicker { color: var(--text); font-size: 12px; }
+.journey-next-action strong { color: var(--text-h); font-size: 16px; }
+.journey-next-action .button-primary { flex: 0 0 auto; }
 @media(max-width:1100px) { .project-steps.is-compact li button { gap: 5px; padding: 6px; } .project-steps.is-compact strong { font-size: 11px; } }
 @media(max-width:480px) { .project-steps.is-compact li button { flex-direction: column; padding: 4px 2px; gap: 4px; } .project-steps.is-compact ol { gap: 2px; } .project-steps.is-compact strong { font-size: 10px; } }
+@media(max-width:720px) {
+  .journey-next-action { align-items: flex-start; flex-direction: column; }
+  .journey-next-action .button-primary { width: 100%; }
+  .project-steps { overflow-x: auto; }
+  .project-steps ol { display: flex; min-width: 620px; gap: 4px; }
+  .project-steps li { flex: 1 0 116px; }
+  .project-steps li button { min-height: 82px; }
+  .journey-status { font-size: 10px; }
+}

@@ -67,6 +67,7 @@ function Summary({ projectId, projectType, view = 'all', active = true, onOpenMa
   const request = useRef<AbortController | null>(null)
   const artifactsActive = active && view === 'artifacts'
   const previouslyArtifactsActive = useRef(artifactsActive)
+  const previouslyActive = useRef(active)
 
   useEffect(() => onApiSessionChanged(() => {
     validSession.current = false
@@ -76,11 +77,14 @@ function Summary({ projectId, projectType, view = 'all', active = true, onOpenMa
   }), [])
 
   useEffect(() => {
-    if (!validSession.current) return
+    if (!validSession.current || !active) {
+      setLoading(false)
+      return
+    }
     const controller = new AbortController()
     request.current = controller
-    let active = true
-    const valid = () => active && validSession.current && !controller.signal.aborted
+    let live = true
+    const valid = () => live && validSession.current && !controller.signal.aborted
     const timeout = window.setTimeout(() => {
       if (!valid()) return
       controller.abort(); setData(null); setError('项目摘要读取超时，请重试。'); setLoading(false)
@@ -107,8 +111,8 @@ function Summary({ projectId, projectType, view = 'all', active = true, onOpenMa
       }
     }
     void load()
-    return () => { active = false; controller.abort(); window.clearTimeout(timeout) }
-  }, [projectId, projectType, pages, attempt])
+    return () => { live = false; controller.abort(); window.clearTimeout(timeout) }
+  }, [active, projectId, projectType, pages, attempt])
 
   const refresh = useCallback((next = pages) => {
     if (!validSession.current) return
@@ -118,9 +122,12 @@ function Summary({ projectId, projectType, view = 'all', active = true, onOpenMa
 
   useEffect(() => {
     const enteringArtifacts = artifactsActive && !previouslyArtifactsActive.current
+    const becameVisible = active && !previouslyActive.current
     previouslyArtifactsActive.current = artifactsActive
-    if (enteringArtifacts) refresh()
-  }, [artifactsActive, refresh])
+    previouslyActive.current = active
+    if (enteringArtifacts && !becameVisible) refresh()
+    if (!artifactsActive) request.current?.abort()
+  }, [active, artifactsActive, refresh])
 
   useEffect(()=>{ if(view==='artifacts' && pages.artifacts!==navigation.page) refresh({...pages,artifacts:navigation.page}) },[view,navigation.page,pages,refresh])
 

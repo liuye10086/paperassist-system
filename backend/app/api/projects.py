@@ -9,6 +9,7 @@ from app.core.config import ExcelSettings, get_request_excel_settings
 from app.adapters.excel import WorkbookPreview, fail, parse_workbook, read_upload
 from app.adapters.storage import PROJECT_UPDATE_LIMITS, ProjectStore, get_request_project_store
 from app.domain.project_summary import ProjectSummary, read_project_summary
+from app.domain.workflow_state import WorkflowState, read_workflow_state
 from app.domain.files import (ProjectFile, FilePage, FileMetadata, FileDetails, FilePurposesInput,
                               query_files, read_file_details, assign_file_purposes)
 
@@ -93,6 +94,11 @@ def create_project(project: ProjectInput, store: Store, response: Response,
     if result.pop('_creation_replayed',False):
         response.status_code=200
     return result
+
+
+@router.get("/{project_id}/workflow-state", response_model=WorkflowState)
+def get_workflow_state(project_id: str, store: Store):
+    return read_workflow_state(store, project_id)
 
 
 @router.get("/{project_id}", response_model=Project)

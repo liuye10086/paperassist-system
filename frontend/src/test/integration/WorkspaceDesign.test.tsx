@@ -84,6 +84,9 @@ test('moves focus out of hidden project sections and retains an editing draft ac
   const project = { id: 'private-project-id', name: '临床研究', research_topic: '组间比较', project_type: 'sci', file_count: 1,
     created_at: '2026-10-07T00:00:00Z', updated_at: '2026-10-07T00:00:00Z' }
   const fetcher = vi.fn(async (url: string) => {
+    if (url.includes('/workflow-state')) return Response.json({ project_id: project.id, project_type: project.project_type,
+      files: { total: 1, ready: 1 }, requirements: { saved: true, version: 1, services: ['analysis'] },
+      results: { available: false }, next_step: 'analysis' })
     if (url.includes('/summary?')) return Response.json(summaryFixture(project.id))
     if (url.includes('/bio-analysis-runs?')) return Response.json({ items: [], total: 0, page: 1, page_size: 50 })
     if (url.endsWith('/files')) return Response.json([])
@@ -98,6 +101,9 @@ test('moves focus out of hidden project sections and retains an editing draft ac
   render(<ProjectWorkspace />)
   await user.click(await screen.findByRole('button', { name: '打开项目 临床研究' }))
   await user.click(await screen.findByRole('button', { name: '第 1 步：项目资料' }))
+  expect(fetcher.mock.calls.filter(([url]) => String(url).includes('/workflow-state'))).toHaveLength(1)
+  expect(fetcher.mock.calls.filter(([url]) => String(url).includes('/summary?'))).toHaveLength(0)
+  expect(fetcher.mock.calls.filter(([url]) => String(url).endsWith('/files'))).toHaveLength(0)
 
   await user.type(screen.getByLabelText('修改项目名称'), '草稿')
   scrollTo.mockClear()
