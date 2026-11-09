@@ -94,6 +94,27 @@ class WorkerStackTests(unittest.TestCase):
             compose=(worker_stack.ROOT/'compose.workers.yml').read_text(encoding='utf-8')
             self.assertIn('PAPERASSIST_WRITING_LIVE_ENABLED: ${PAPERASSIST_WRITING_LIVE_ENABLED:-0}',compose)
 
+    def test_runtime_manifests_are_staged_and_mounted_for_linux_worker(self):
+        with tempfile.TemporaryDirectory() as directory, patch.object(worker_stack, 'protect_directory'):
+            root = Path(directory)
+            bio = root / 'bio-runtime.json'
+            single = root / 'single-cell-runtime.json'
+            bio.write_text('{"gate_status":"passed"}\n', encoding='utf-8')
+            single.write_text('{"gate_status":"passed"}\n', encoding='utf-8')
+            config = worker_stack.prepare(root, {**self.values(),
+                'PAPERASSIST_BIO_RUNTIME_MANIFEST': str(bio),
+                'PAPERASSIST_SINGLE_CELL_RUNTIME_MANIFEST': str(single)})
+            self.assertEqual((config.directory / 'bio-runtime.json').read_text(encoding='utf-8'), bio.read_text(encoding='utf-8'))
+            self.assertEqual((config.directory / 'single-cell-runtime.json').read_text(encoding='utf-8'), single.read_text(encoding='utf-8'))
+            self.assertEqual(config.environment['PAPERASSIST_BIO_RUNTIME_MANIFEST'], '/run/paperassist/bio-runtime.json')
+            self.assertEqual(config.environment['PAPERASSIST_SINGLE_CELL_RUNTIME_MANIFEST'], '/run/paperassist/single-cell-runtime.json')
+            self.assertEqual(config.environment['PAPERASSIST_BIO_STAGING_DIR'], '/bio-staging')
+            self.assertEqual(config.environment['PAPERASSIST_BIO_STAGING_SOURCE'], str((config.directory / 'bio-staging').resolve()))
+            compose = (root / 'compose.workers.yml').read_text(encoding='utf-8') if (root / 'compose.workers.yml').exists() else (worker_stack.ROOT / 'compose.workers.yml').read_text(encoding='utf-8')
+            self.assertIn('target: /run/paperassist/bio-runtime.json', compose)
+            self.assertIn('target: /run/paperassist/single-cell-runtime.json', compose)
+            self.assertIn('target: /bio-staging', compose)
+
     def test_field_update_script_changes_renderer_revision(self):
         with tempfile.TemporaryDirectory() as directory, patch.object(worker_stack, 'protect_directory'):
             root = Path(directory)

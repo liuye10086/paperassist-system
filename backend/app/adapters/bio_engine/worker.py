@@ -23,6 +23,7 @@ from app.adapters.bio_engine.hdf5_checks import read_10x,compare
 from app.adapters.bio_engine.errors import error_code
 from app.adapters.bio_engine.importer import import_v2
 from app.adapters.bio_engine.single_cell import import_counts
+from app.domain.bioinformatics.single_cell_resources import requires_r_runtime
 from PIL import Image
 
 
@@ -92,8 +93,7 @@ def main():
                 select_hvg(logged,[str(i) for i in range(8)],4,warm_rows,'batch')
 
         r_scratch=None
-        if (payload['mode']=='annotation' or (payload['mode'] in {'qc','compute'} and payload.get('raw',{}).get('manifest',{}).get('assay')=='single_cell'
-            and any(payload.get('config',{}).get(tool,{}).get('enabled',False) for tool in ('doublet','decontx','harmony')))):
+        if requires_r_runtime(mode=payload['mode'], payload=payload):
             from app.adapters.single_cell_r.bridge import initialize
             r_scratch=Path(tempfile.mkdtemp(prefix='paperassist-single-cell-r-',dir='/tmp'))
             initialize(r_scratch)

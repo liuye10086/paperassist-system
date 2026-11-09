@@ -4,7 +4,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 class BioLimits(BaseModel):
     model_config = ConfigDict(strict=True, extra="forbid", frozen=True)
-    max_upload_bytes: int = Field(default=67108864, gt=0, le=67108864)
+    max_upload_bytes: int = Field(default=128 * 1024 * 1024, gt=0, le=128 * 1024 * 1024)
     max_members: int = Field(default=256, gt=0, le=256)
     max_member_bytes: int = Field(default=268435456, gt=0, le=268435456)
     max_expanded_bytes: int = Field(default=536870912, gt=0, le=536870912)

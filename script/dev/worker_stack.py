@@ -10,6 +10,7 @@ import os
 from pathlib import Path
 import re
 import secrets
+import shutil
 import subprocess
 import sys
 
@@ -49,6 +50,32 @@ def private_write(path: Path, value: str) -> None:
     temporary.replace(path)
     if os.name != 'nt':
         path.chmod(0o600)
+
+
+def stage_runtime_manifest(values: dict[str, str], key: str, directory: Path, name: str) -> str:
+    """Stage an optional host-side runtime receipt at a stable container path.
+
+    The API and Worker run in different environments.  Passing the Windows host
+    path through the container environment makes the receipt unreadable inside
+    Linux, so the private stack directory is the single bind-mounted source.
+    Missing or invalid receipts remain visible to the Worker as an unavailable
+    runtime rather than being silently fabricated.
+    """
+    source_value = values.get(key) or ''
+    target = directory / name
+    if not source_value:
+        private_write(target, '{}\n')
+        return f'/run/paperassist/{name}'
+    source = Path(source_value).expanduser()
+    if source.is_symlink() or not source.is_file() or source.stat().st_size > 65536:
+        private_write(target, '{}\n')
+        return f'/run/paperassist/{name}'
+    temporary = target.with_name(target.name + '.writing')
+    shutil.copyfile(source, temporary)
+    temporary.replace(target)
+    if os.name != 'nt':
+        target.chmod(0o600)
+    return f'/run/paperassist/{name}'
 
 
 def _identity(root: Path, test_id: str | None = None):
@@ -114,6 +141,11 @@ def prepare(root: Path, values: dict, *, test_id=None, assets: Path | None = Non
         vhost = 'paperassist_test' if test_id else 'paperassist_dev'
         private_write(broker_path, f'amqp://paperassist:{password}@rabbitmq:5672/{vhost}')
         private_write(rabbit_path, f'default_user = paperassist\ndefault_pass = {password}\ndefault_vhost = {vhost}\n')
+    bio_manifest_path = stage_runtime_manifest(values, 'PAPERASSIST_BIO_RUNTIME_MANIFEST', directory, 'bio-runtime.json')
+    single_cell_manifest_path = stage_runtime_manifest(values, 'PAPERASSIST_SINGLE_CELL_RUNTIME_MANIFEST', directory, 'single-cell-runtime.json')
+    staging_value = values.get('PAPERASSIST_BIO_STAGING_DIR') or str(directory / 'bio-staging')
+    staging_source = Path(staging_value).expanduser().resolve()
+    staging_source.mkdir(parents=True, exist_ok=True)
     private_write(directory / 'database-url', url.set(host='host.docker.internal').render_as_string(hide_password=False))
     # Test workers never receive a development model key, even when inherited
     # environment values point at a real secret file.
@@ -157,6 +189,10 @@ def prepare(root: Path, values: dict, *, test_id=None, assets: Path | None = Non
         'PAPERASSIST_WRITING_LIVE_ENABLED': writing_live_enabled,
         'PAPERASSIST_DATABASE_SECRET_KEY': key + '_FILE',
         'PAPERASSIST_WORKER_CONFIG_REVISION': fingerprint,
+        'PAPERASSIST_BIO_RUNTIME_MANIFEST': bio_manifest_path,
+        'PAPERASSIST_SINGLE_CELL_RUNTIME_MANIFEST': single_cell_manifest_path,
+        'PAPERASSIST_BIO_STAGING_DIR': '/bio-staging',
+        'PAPERASSIST_BIO_STAGING_SOURCE': str(staging_source),
     }
     private_write(directory / 'stack.json', json.dumps({'root': str(root), 'project': project,
                                                        'environment': environment}, indent=2))

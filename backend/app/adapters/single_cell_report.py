@@ -4,10 +4,14 @@ import csv
 import io
 import json
 from docx import Document
+from docx.oxml import OxmlElement
+from docx.oxml.ns import qn
+from docx.shared import Mm, Pt, RGBColor
 
 from app.domain.research_results.bio_projection import project_bio_facts
 from app.domain.research_results.contracts import FrozenResearchSource
 from app.adapters.research_report_docx import build_report
+from app.adapters.bio_reader_narrative import load_cached_narrative
 
 
 def _reason_text(reason,en):
@@ -38,7 +42,138 @@ def _integration_reason(reason,en):
     return label+' ('+str(reason)+')'
 
 
-def build_single_cell_report(project, identifier, manifest_sha256, manifest, raw_manifest, figures, language='zh-CN', *, samples=None, library_algorithms=None, annotation=None):
+_READER_FIGURE_LABELS = {
+    'qc_distribution': ('质量控制指标分布', 'Quality-control metric distributions'),
+    'qc_scatter': ('总 counts 与检测基因数关系', 'Total counts and detected genes'),
+    'qc_violin': ('质量控制小提琴图', 'Quality-control violin plots'),
+    'qc_mitochondrial': ('线粒体指标检查', 'Mitochondrial metric review'),
+    'qc_by_sample_id': ('按样本的质量概况', 'Quality overview by sample'),
+    'qc_by_batch': ('按批次的质量概况', 'Quality overview by batch'),
+    'integration_covariates': ('技术协变量回归前后', 'Technical covariates before and after adjustment'),
+    'pca': ('主成分分析', 'Principal component analysis'),
+    'pca_variance': ('主成分解释方差', 'Principal-component explained variance'),
+    'umap': ('UMAP 细胞分布', 'UMAP cell distribution'),
+    'marker_dotplot': ('聚类 marker 点图', 'Cluster marker dot plot'),
+    'marker_heatmap': ('聚类 marker 热图', 'Cluster marker heatmap'),
+}
+
+
+def _reader_figure_label(key, language):
+    normalized = str(key or '').replace('_page_2', '').replace('_page_3', '')
+    normalized = normalized.removesuffix('_png')
+    labels = _READER_FIGURE_LABELS.get(normalized)
+    if labels:
+        return labels[1] if language == 'en' else labels[0]
+    return 'Analysis figure' if language == 'en' else '分析图件'
+
+
+def _reader_summary(manifest, raw_manifest, language):
+    summary = manifest.get('summary') if isinstance(manifest.get('summary'), dict) else {}
+    en = language == 'en'
+    def value(key, default='NA'):
+        item = summary.get(key, default)
+        return default if item is None else str(item)
+    rows = [
+        ('Raw cells', value('raw_observations')) if en else ('原始细胞数', value('raw_observations')),
+        ('Retained cells', value('retained_observations')) if en else ('保留细胞数', value('retained_observations')),
+        ('Raw genes', value('raw_features')) if en else ('原始基因数', value('raw_features')),
+        ('Retained genes', value('retained_features')) if en else ('保留基因数', value('retained_features')),
+        ('Non-zero entries', value('nnz')) if en else ('非零表达值数量', value('nnz')),
+        ('Exploratory clusters', value('clusters')) if en else ('探索性细胞群数', value('clusters')),
+    ]
+    files = [item.get('filename') for item in raw_manifest.get('source_files', []) if item.get('filename')]
+    if files:
+        rows.append(('Input files', ', '.join(files)) if en else ('输入文件', '、'.join(files)))
+    return rows
+
+
+def _fallback_reader_narrative(manifest, raw_manifest, language):
+    """Reader prose used only when a model narrative has not been cached."""
+    summary = manifest.get('summary') if isinstance(manifest.get('summary'), dict) else {}
+    en = language == 'en'
+    cells = summary.get('retained_observations', 'NA')
+    genes = summary.get('retained_features', 'NA')
+    clusters = summary.get('clusters', 'NA')
+    excluded = summary.get('excluded_observations', 0)
+    if en:
+        return {
+            'abstract': f'This exploratory single-cell analysis retained {cells} cells and {genes} genes and produced {clusters} exploratory clusters. No cells were automatically excluded in the saved run.',
+            'design_and_data': 'The report is based on a saved gene-by-cell expression matrix. Sample and donor metadata were not supplied, so the results describe cell-level structure and do not support donor-level inference.',
+            'quality_control': f'Quality-control checks completed with {excluded} cells excluded. Mitochondrial filtering and model-based doublet or ambient-RNA correction were not applied in this run.',
+            'methods_summary': 'The workflow performed library-size normalization, log1p transformation, highly variable gene selection, PCA, a neighbor graph, UMAP, exploratory Leiden clustering, marker screening and H5AD round-trip verification.',
+            'key_findings': f'The saved embedding and clustering workflow produced {clusters} exploratory clusters from {cells} retained cells. These groupings are useful for inspection and follow-up annotation, but they do not establish cell identity or biological mechanism.',
+            'limitations': 'The absence of sample and donor mappings prevents independent-replicate assessment and donor-level aggregation. Batch correction was not applied because the required batch information was unavailable.',
+            'reader_cautions': 'Treat the figures and clusters as exploratory evidence. Confirm sample provenance, mitochondrial rules, cell labels and biological replication before drawing scientific conclusions.',
+        }
+    return {
+        'abstract': f'This exploratory single-cell analysis retained {cells} cells and {genes} genes and produced {clusters} exploratory clusters. No cells were automatically excluded in the saved run.',
+        'design_and_data': 'The report is based on a saved gene-by-cell expression matrix. Sample and donor metadata were not supplied, so the results describe cell-level structure and do not support donor-level inference.',
+        'quality_control': f'Quality-control checks completed with {excluded} cells excluded. Mitochondrial filtering and model-based doublet or ambient-RNA correction were not applied in this run.',
+        'methods_summary': 'The workflow performed library-size normalization, log1p transformation, highly variable gene selection, PCA, a neighbor graph, UMAP, exploratory Leiden clustering, marker screening, and H5AD round-trip verification.',
+        'key_findings': f'The saved embedding and clustering workflow produced {clusters} exploratory clusters from {cells} retained cells. These groupings are useful for inspection and follow-up annotation, but they do not establish cell identity or biological mechanism.',
+        'limitations': 'The absence of sample and donor mappings prevents independent-replicate assessment and donor-level aggregation. Batch correction was not applied because the required batch information was unavailable.',
+        'reader_cautions': 'Treat the figures and clusters as exploratory evidence. Confirm sample provenance, mitochondrial rules, cell labels, and biological replication before drawing scientific conclusions.',
+    }
+
+
+def _build_reader_facing_report(manifest, raw_manifest, figures, language, narrative=None):
+    """Build the reader-facing Word endpoint without traceability fields."""
+    en = language == 'en'
+    if isinstance(narrative, dict):
+        narrative = narrative.get('narrative', narrative)
+    narrative = narrative or _fallback_reader_narrative(manifest, raw_manifest, language)
+    doc = Document()
+    section = doc.sections[0]
+    section.page_width = Mm(210); section.page_height = Mm(297)
+    section.top_margin = section.bottom_margin = section.left_margin = section.right_margin = Mm(20)
+    for name in ('Normal', 'Title', 'Heading 1', 'Heading 2'):
+        style = doc.styles[name]
+        style.font.name = 'Arial'; style.font.color.rgb = RGBColor(0, 0, 0)
+        style.element.get_or_add_rPr().get_or_add_rFonts().set(qn('w:eastAsia'), 'Microsoft YaHei')
+    doc.styles['Normal'].font.size = Pt(10)
+    doc.styles['Normal'].paragraph_format.space_after = Pt(6)
+    doc.add_paragraph('Single-cell RNA-seq analysis report' if en else '单细胞 RNA 测序分析报告', style='Title')
+    doc.add_paragraph(
+        'This report presents reader-facing scientific prose generated from the saved analysis facts. The language model was used only to organize explanations; it did not alter values, statuses or limitations.' if en else
+        '本报告将已保存的分析事实整理为面向读者的科研正文。语言模型只用于组织解释，不修改数值、状态或局限条件。'
+    )
+    sections = [('Abstract', '摘要', 'abstract'), ('Study design and data', '研究设计与数据范围', 'design_and_data'),
+                ('Quality control and result usability', '质量控制与结果可用性', 'quality_control'),
+                ('Methods', '分析方法', 'methods_summary'), ('Key findings', '主要结果', 'key_findings'),
+                ('Limitations', '局限性', 'limitations'), ('Reader cautions', '阅读提示', 'reader_cautions')]
+    for english, chinese, key in sections:
+        doc.add_heading(english if en else chinese, 1)
+        doc.add_paragraph(str(narrative.get(key, '')))
+    doc.add_heading('Key metrics' if en else '关键指标', 1)
+    table = doc.add_table(rows=1, cols=2); table.style = 'Table Grid'
+    table.rows[0]._tr.get_or_add_trPr().append(OxmlElement('w:tblHeader'))
+    table.rows[0].cells[0].text = 'Measure' if en else '指标'
+    table.rows[0].cells[1].text = 'Value' if en else '结果'
+    for label, value in _reader_summary(manifest, raw_manifest, language):
+        row = table.add_row().cells; row[0].text = label; row[1].text = value
+    doc.add_heading('Figures' if en else '图件', 1)
+    if not figures:
+        doc.add_paragraph('No figures were saved for this result.' if en else '本次结果未保存图件。')
+    else:
+        from PIL import Image
+        for index, figure in enumerate(figures, 1):
+            label = _reader_figure_label(figure.get('config', {}).get('title') or figure.get('config', {}).get('key'), language)
+            p = doc.add_paragraph(f'Figure {index}. {label}' if en else f'图 {index}：{label}')
+            p.paragraph_format.keep_with_next = True
+            with Image.open(io.BytesIO(figure['content'])) as image:
+                width, height = image.size
+            ratio = min(170 / width, 210 / height)
+            doc.add_picture(io.BytesIO(figure['content']), width=Mm(width * ratio), height=Mm(height * ratio))
+            doc.add_paragraph(
+                ('The figure is shown for exploratory inspection and should be interpreted together with the limitations above.' if en else
+                 '图件用于探索性观察，应结合前述局限条件解读。')
+            )
+    output = io.BytesIO(); doc.save(output); return output.getvalue()
+
+
+def build_single_cell_report(project, identifier, manifest_sha256, manifest, raw_manifest, figures, language='zh-CN', *, samples=None, library_algorithms=None, annotation=None, reader_mode=False, narrative=None):
+    if reader_mode:
+        return _build_reader_facing_report(manifest, raw_manifest, figures, language, narrative=narrative)
     source = FrozenResearchSource(
         project_id=project, source_kind='bio_processed_dataset_version', source_id=identifier,
         sha256=manifest_sha256, title='Single-cell analysis' if language=='en' else '单细胞分析结果',
@@ -231,7 +366,10 @@ def download_single_cell_report(assets, project, identifier, annotation_version_
                     figures.append(dict(content=image,config=dict(title='Cell annotation UMAP' if language=='en' else '细胞注释 UMAP',
                         caption=('Annotation snapshot ' if language=='en' else '注释快照 ')+annotation['id']+' · SHA256 '+member['sha256'],
                         language=language,figure_language=figure['config']['output_language'])))
-    content = build_single_cell_report(project,identifier,row['manifest_sha256'],manifest,raw_manifest,figures,language,samples=list(samples.values()),library_algorithms=library_algorithms,annotation=annotation)
+    narrative = load_cached_narrative(store.assets.directory, project, identifier, language)
+    content = build_single_cell_report(project,identifier,row['manifest_sha256'],manifest,raw_manifest,figures,language,
+        samples=list(samples.values()),library_algorithms=library_algorithms,annotation=annotation,
+        reader_mode=True, narrative=narrative)
     return dict(format='docx',filename='single-cell-analysis.docx',sha256=hashlib.sha256(content).hexdigest()),content
 
 

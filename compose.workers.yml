@@ -18,6 +18,9 @@ x-worker: &worker
     PAPERASSIST_WORKER_CONCURRENCY_CEILING: '1'
     PAPERASSIST_EXECUTION_LOCK_FILE: /run/paperassist-execution/worker.lock
     PAPERASSIST_PDF_FONTS_DIR: /usr/local/share/fonts/paperassist
+    PAPERASSIST_BIO_RUNTIME_MANIFEST: /run/paperassist/bio-runtime.json
+    PAPERASSIST_SINGLE_CELL_RUNTIME_MANIFEST: /run/paperassist/single-cell-runtime.json
+    PAPERASSIST_BIO_STAGING_DIR: /bio-staging
   secrets:
     - source: database-url
       target: database-url
@@ -25,6 +28,17 @@ x-worker: &worker
       target: broker-url
   volumes:
     - worker-execution:/run/paperassist-execution
+    - type: bind
+      source: ${PAPERASSIST_STACK_PRIVATE}/bio-runtime.json
+      target: /run/paperassist/bio-runtime.json
+      read_only: true
+    - type: bind
+      source: ${PAPERASSIST_STACK_PRIVATE}/single-cell-runtime.json
+      target: /run/paperassist/single-cell-runtime.json
+      read_only: true
+    - type: bind
+      source: ${PAPERASSIST_BIO_STAGING_SOURCE}
+      target: /bio-staging
     - type: bind
       source: ${PAPERASSIST_STACK_DATA}
       target: /data

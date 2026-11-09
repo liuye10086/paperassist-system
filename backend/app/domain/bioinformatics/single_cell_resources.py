@@ -8,6 +8,36 @@ class SingleCellRAnalysisLimits(BioAnalysisLimits):
     max_output_bytes: int = Field(default=1024**3,ge=1,le=1024**3)
 
 
+def requires_r_runtime(*, mode, payload):
+    """Decide whether this frozen payload can actually execute an R tool.
+
+    Harmony is optional and is not applicable when no observation-level batch
+    metadata (or at least two batch values) is present.  In that case the
+    Python pipeline records a not-computable step and must not be blocked by
+    an unavailable optional R bridge.
+    """
+    if mode == 'annotation':
+        return True
+    if mode not in {'qc', 'compute'}:
+        return False
+    raw = payload.get('raw', {})
+    manifest = raw.get('manifest', {})
+    if manifest.get('assay') != 'single_cell':
+        return False
+    params = payload.get('config', {})
+    if any(isinstance(params.get(tool), dict) and params[tool].get('enabled') is True
+           for tool in ('doublet', 'decontx')):
+        return True
+    harmony = params.get('harmony', {})
+    if not isinstance(harmony, dict) or harmony.get('enabled') is not True:
+        return False
+    samples = manifest.get('samples') or []
+    batches = {str(sample.get('batch')).strip() for sample in samples
+               if isinstance(sample, dict) and sample.get('batch') is not None
+               and str(sample.get('batch')).strip()}
+    return len(batches) >= 2
+
+
 def analysis_limits_for(*,single_cell=False,params=None):
     params=params or {}
     requested=single_cell and any(isinstance(params.get(tool),dict) and params[tool].get('enabled') is True for tool in ('doublet','decontx','harmony'))

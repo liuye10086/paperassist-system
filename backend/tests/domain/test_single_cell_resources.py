@@ -22,3 +22,19 @@ def test_resource_estimate_identifies_every_existing_matrix_limit():
     assert set(result['blockers'])=={'single_cell_observations_limit','single_cell_features_limit','single_cell_nnz_limit'}
     capped=resource_estimate(dict(input_shape=dict(observations=10,features=5),stored_entries=8),dict(hvg_count=2000))
     assert capped['hvg_count']==5 and capped['dense_hvg_values']==50
+
+
+def test_r_runtime_is_not_required_for_inapplicable_harmony():
+    from app.domain.bioinformatics.single_cell_resources import requires_r_runtime
+    payload = {'raw': {'manifest': {'assay': 'single_cell', 'samples': []}},
+               'config': {'harmony': {'enabled': True}}}
+    assert requires_r_runtime(mode='compute', payload=payload) is False
+
+
+def test_r_runtime_is_required_for_enabled_qc_tools_or_multiple_batches():
+    from app.domain.bioinformatics.single_cell_resources import requires_r_runtime
+    base = {'raw': {'manifest': {'assay': 'single_cell', 'samples': []}}, 'config': {}}
+    assert requires_r_runtime(mode='compute', payload={**base, 'config': {'doublet': {'enabled': True}}}) is True
+    batched = {'raw': {'manifest': {'assay': 'single_cell', 'samples': [{'batch': 'A'}, {'batch': 'B'}]}},
+               'config': {'harmony': {'enabled': True}}}
+    assert requires_r_runtime(mode='compute', payload=batched) is True
