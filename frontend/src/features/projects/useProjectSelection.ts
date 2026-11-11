@@ -72,7 +72,7 @@ export default function useProjectSelection(onUnavailable: (id: string) => void,
         const changesAnalysis=previous.section==='analysis'&&serializeNavigation(previous)!==serializeNavigation(next);
         const preservesBulk=changesAnalysis&&previous.projectId===next.projectId&&!!previous.analysisNavigation.bulkView
             &&next.section==='analysis'&&!!next.analysisNavigation.bulkView;
-        if(replacesBio || changesAnalysis&&(previous.analysisNavigation.view.startsWith('bio-')||preservesBulk))return [...guards.current].every(g=>g(preservesBulk));
+        if(replacesBio || changesAnalysis&&(previous.analysisNavigation.view.startsWith('bio-')||preservesBulk))return [...guards.current].every(g=>g(preservesBulk&&!replacesBio));
         return !current.current || !next.projectId || next.projectId === current.current.id || [...guards.current].every(g => g());
     }
     function apply(next: NavigationRoute, seed?: Project) {

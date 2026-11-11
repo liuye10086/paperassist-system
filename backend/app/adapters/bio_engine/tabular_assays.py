@@ -93,6 +93,7 @@ def import_tabular(payload, *, _writer=None):
     missing_columns.update(column for column in mapped_fields.values() if column not in first_columns)
     if missing_columns:
         raise _error('sample_metadata_columns_missing',file=files[sample_spec.file_id]['filename'],columns=','.join(sorted(missing_columns)))
+    validate_sample_role = config.assay == 'bulk_rna_counts' or 'sample_role' in mapped_fields
     for number,row in chain((first_sample,), sample_rows):
         canonical_row=dict(row)
         for field,source_column in mapped_fields.items():
@@ -102,7 +103,7 @@ def import_tabular(payload, *, _writer=None):
         for field in required_fields-{'sample_id'}:
             if not str(canonical_row.get(field) or '').strip():
                 raise _error('sample_metadata_missing_value',file=files[sample_spec.file_id]['filename'],row=number,column=mapped_fields[field],sample_id=sid)
-        if canonical_row.get('sample_role') and canonical_row['sample_role'] not in ('biological','technical'):
+        if validate_sample_role and (role := canonical_row.get('sample_role')) and role not in ('biological','technical'):
             raise _error('sample_metadata_invalid_value',file=files[sample_spec.file_id]['filename'],row=number,column=mapped_fields.get('sample_role','sample_role'),sample_id=sid)
         samples[sid]={**canonical_row,'source_row':number}
     actual=set(samples);expected=set(config.sample_columns)

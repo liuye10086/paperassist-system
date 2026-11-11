@@ -2,6 +2,15 @@
 from copy import deepcopy
 
 
+RESULT_MANIFEST_METADATA = ('summary', 'methods')
+
+
+def project_result_transport(result):
+    """Refer to the already written manifest for duplicated result metadata."""
+    return {key: value for key, value in result.items()
+            if key not in ('manifest', *RESULT_MANIFEST_METADATA)} | {'manifest_ref': 'manifest'}
+
+
 def project_transport_payload(payload):
     """Drop redundant wire metadata; declared leaves remain authoritative.
 

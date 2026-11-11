@@ -25,6 +25,21 @@ def test_registered_members_are_checked_against_actual_bytes_and_directory(tmp_p
     with pytest.raises(Exception):m.validate_artifacts([record],tmp_path)
 
 
+@pytest.mark.parametrize('key', ['model_counts', 'model_normalized_counts', 'comparison_results'])
+def test_wide_bulk_count_tables_allow_identifiers_beyond_the_sample_axis(tmp_path, key):
+    from app.core.exceptions import StorageError
+
+    m = module()
+    fields = ['model_id', 'feature_id', *(f'sample{i}' for i in range(m.LIMITS.max_bulk_observations))]
+    data = '\t'.join(fields) + '\n' + '\t'.join(['model', 'gene', *(['1'] * (len(fields) - 2))]) + '\n'
+    record = member(tmp_path, key, data.encode(), 'tsv')
+    if key == 'comparison_results':
+        with pytest.raises(StorageError):
+            m.validate_artifacts([record], tmp_path)
+    else:
+        assert m.validate_artifacts([record], tmp_path) == [record]
+
+
 @pytest.mark.parametrize('content',[b'{"a":1,"a":2}',b'{"x":NaN}',b'{"x":Infinity}'])
 def test_ambiguous_or_nonfinite_json_is_rejected(tmp_path,content):
     m=module();record=member(tmp_path,'data',content)
@@ -47,6 +62,37 @@ def test_parent_rejects_wrong_manifest_identity_or_missing_members(tmp_path):
     assert m.validate_result(result,tmp_path,payload)==result
     with pytest.raises(Exception):m.validate_result(result,tmp_path,{**payload,'identity':{**payload['identity'],'task_id':'other'}})
     with pytest.raises(Exception):m.validate_result({**result,'outputs':[result['outputs'][-1]]},tmp_path,payload)
+
+
+def test_large_methods_are_recovered_only_from_the_verified_manifest(tmp_path):
+    from app.adapters.bio_engine.manifest import canonical
+    from app.adapters.bio_insights_engine.transport import project_result_transport
+    from app.core.exceptions import StorageError
+    from tests.domain.bio_insight_validation_fixtures import complete_import, import_payload, put, refresh
+
+    m = module()
+    payload = import_payload()
+    result = complete_import(payload, tmp_path)
+    result['methods']['frozen_metadata'] = 'x' * (m.MAX_JSON // 2)
+    result['_root'] = str(tmp_path)
+    put(result, 'methods', result['methods'])
+    refresh(result)
+    result.pop('_root')
+    compact = project_result_transport(result)
+    assert len(canonical({'result': result})) > m.MAX_JSON
+    assert len(canonical({'result': compact})) < m.MAX_JSON
+    restored = compact.copy()
+    assert m.validate_result(restored, tmp_path, payload) == result
+    assert restored == result
+    restored['resources'] = {'child_peak_rss_kib': 1024, 'parent_peak_rss_bytes': 1024**2}
+    assert m.validate_result(restored, tmp_path, payload) == restored
+    with pytest.raises(StorageError):
+        m.validate_result(compact | {'methods': {}}, tmp_path, payload)
+
+    manifest_path = tmp_path / 'manifest.json'
+    manifest_path.write_bytes(manifest_path.read_bytes() + b' ')
+    with pytest.raises(StorageError):
+        m.validate_result(compact, tmp_path, payload)
 
 
 @pytest.mark.parametrize('fault',['scope','provenance','required_table','header','recipe','manifest_summary','source_bindings','methods_member','scientific_method','reported_peak_rss'])

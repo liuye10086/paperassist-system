@@ -291,7 +291,13 @@ def test_research_delivery_registration_keeps_legacy_writing_gated(client):
         default_output_language='zh-CN',delivery_kinds=['analysis']),headers={'Idempotency-Key':'pure-research-create'})
     assert response.status_code==201,response.text
     base='/api/v1/projects/'+response.json()['id']
-    for suffix in ('/manuscripts','/school-templates','/journals/profiles','/reviews/rounds'):
+    listed=client.get(base+'/manuscripts')
+    assert listed.status_code==200 and listed.json()=={'items':[]}
+    blocked=client.post(base+'/manuscripts',json={'title':'legacy draft','output_language':'zh-CN'},
+                        headers={'Idempotency-Key':'pure-research-legacy-draft'})
+    assert blocked.status_code==409,blocked.text
+    assert blocked.json()['detail']['code']=='research_writing_unavailable'
+    for suffix in ('/school-templates','/journals/profiles','/reviews/rounds'):
         blocked=client.get(base+suffix)
         assert blocked.status_code==409,(suffix,blocked.text)
         assert blocked.json()['detail']['code']=='research_writing_unavailable'

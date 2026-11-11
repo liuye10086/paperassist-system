@@ -132,6 +132,21 @@ def test_bulk_sample_mapping_checks_explicit_optional_columns_and_native_roles(t
         import_tabular(dict(request, output_directory=str(output)))
 
 
+def test_non_bulk_import_preserves_unmapped_sample_role_metadata(tmp_path):
+    from app.adapters.bio_engine.tabular_assays import _rows, import_tabular
+
+    request = payload(tmp_path)
+    sample = request['files'][1]
+    contents = b'sample_id,condition,biological_unit_id,sample_role\ns1,A,u1,case\ns2,A,u2,case\ns3,B,u3,control\n'
+    Path(sample['path']).write_bytes(contents)
+    sample.update(size_bytes=len(contents), sha256=hashlib.sha256(contents).hexdigest())
+    output = tmp_path / 'out'
+    output.mkdir()
+    result = import_tabular(dict(request, output_directory=str(output)))
+    member = next(item for item in result['outputs'] if item['key'] == 'samples')
+    assert [row['sample_role'] for row in _rows(member)] == ['case', 'case', 'control']
+
+
 def test_bulk_import_reports_matrix_coordinates_for_invalid_value(tmp_path):
     from app.adapters.bio_engine.tabular_assays import import_tabular
     p=payload(tmp_path,counts=True)

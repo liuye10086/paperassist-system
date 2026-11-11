@@ -23,6 +23,7 @@ import traceback
 from app.adapters.bio_engine.manifest import canonical
 from app.adapters.bio_insights_engine.pipeline import run
 from app.adapters.bio_insights_engine.sandbox import enter
+from app.adapters.bio_insights_engine.transport import project_result_transport
 from app.adapters.bio_insights_engine.runtime_probe import exercise,warm_bulk_model,warm_bulk_display,warm_plot_formats
 from app.domain.bio_insights.settings import (BioInsightsLimits, engine_code_digest, engine_lock_digest,
     uses_bulk_display_runtime, uses_bulk_enrichment_runtime)
@@ -135,7 +136,7 @@ def main():
         phase='isolation';pinned=enter(files,output,int(sys.argv[1]),r_scratch=r_scratch);phase='analysis'
         result=run(payload)
         result['resources']={'child_peak_rss_kib':resource.getrusage(resource.RUSAGE_SELF).ru_maxrss}
-        answer=canonical({'result':result})
+        answer=canonical({'result':project_result_transport(result) if reviewed_bulk else result})
         if len(answer)>2*1024**2:raise ValueError('output_transport_limit')
     except Exception as exc:
         from app.adapters.excel_sandbox import SandboxUnavailable

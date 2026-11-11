@@ -12,6 +12,7 @@ import struct
 import sys
 from threading import Event, Thread
 
+from app.adapters.bio_insights_engine.transport import RESULT_MANIFEST_METADATA
 from app.core.exceptions import StorageError
 from app.domain.bio_insights.settings import BioInsightsLimits, INTERPRETER, runtime_identity
 from app.domain.bioinformatics.settings import BioLimits
@@ -111,7 +112,9 @@ def validate_artifacts(outputs,directory):
             elif fmt in ('tsv','csv'):
                 with path.open(encoding='utf-8',newline='') as stream:
                     reader=csv.reader(stream,delimiter='\t' if fmt=='tsv' else ',');header=next(reader)
-                    if not header or len(set(header))!=len(header) or len(header)>512:raise ValueError()
+                    # Bulk model exports carry two identifiers beside the sample axis.
+                    column_limit = LIMITS.max_bulk_observations + 2 if key in ('model_counts', 'model_normalized_counts') else 512
+                    if not header or len(set(header))!=len(header) or len(header)>column_limit:raise ValueError()
                     for number,row in enumerate(reader,1):
                         if len(row)!=len(header) or number>10_000_000:raise ValueError()
             keys.add(key);paths.add(path.resolve())
@@ -121,20 +124,33 @@ def validate_artifacts(outputs,directory):
 
 
 def validate_result(result,directory,payload):
+    """Validate staged artifacts and the result restored from them for publication."""
     try:
         if (type(result) is not dict or result['schema_version']!=1 or result['status']!='completed'
                 or result['engine_version']!='bio_insights_v1.0.0' or result['kind']!=payload['kind']
-                or result['identity']!=payload['identity'] or not all(type(result[k]) is dict for k in ('summary','methods','manifest'))
+                or result['identity']!=payload['identity']
                 or result['provenance'] not in ('system_computed','external_result')
                 or result['inference_scope'] not in ('spot_exploratory','donor_inference','sample_exploratory','sample_inference','external_result','derived','visualization')):raise ValueError()
-        if len(json.dumps(result,allow_nan=False).encode())>MAX_JSON:raise ValueError()
+        compact = 'manifest_ref' in result
+        inline_fields = ('manifest', *RESULT_MANIFEST_METADATA)
+        if compact and (result['manifest_ref'] != 'manifest' or set(inline_fields) & result.keys()):
+            raise ValueError('invalid_result_manifest_reference')
         outputs=validate_artifacts(result['outputs'],directory);items={m['key']:m for m in outputs}
-        manifest=result['manifest']
-        if ('manifest' not in items or strict_json(Path(items['manifest']['path']).read_bytes())!=manifest
+        member=items['manifest']
+        if member['format']!='json':raise ValueError()
+        manifest=strict_json(Path(member['path']).read_bytes())
+        checked=result
+        if compact:
+            checked=result | {'manifest':manifest, **{key:manifest[key] for key in RESULT_MANIFEST_METADATA}}
+            checked.pop('manifest_ref')
+        if (not all(type(checked[key]) is dict for key in inline_fields) or manifest!=checked['manifest']
                 or manifest['identity']!=payload['identity'] or manifest['kind']!=payload['kind']):raise ValueError()
         expected=[{k:v for k,v in m.items() if k!='path'} for m in outputs if m['key']!='manifest']
         if manifest['members']!=expected:raise ValueError()
-        _validate_scientific_contract(result,items,payload)
+        _validate_scientific_contract(checked,items,payload)
+        if compact:
+            result.pop('manifest_ref')
+            result.update(checked)
         return result
     except (KeyError,ValueError,TypeError,OSError) as exc:raise invalid() from exc
 
