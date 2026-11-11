@@ -3,6 +3,9 @@ import { afterEach, expect, it, vi } from 'vitest'
 import type { ReactNode } from 'react'
 import ProjectWorkspace from './ProjectWorkspace'
 import { apiFetch } from '../../shared/api/client'
+import { workflowStateFixture } from '../../test/fixtures/workflowStateFixture'
+import type { Project } from './projectTypes'
+import type { WorkflowState } from './useProjectFlow'
 
 vi.mock('../../shared/api/client', () => ({ apiFetch: vi.fn(), onApiSessionChanged: () => () => {} }))
 vi.mock('./ProjectResources', () => ({ default: ({allowNewAnalysis}:{allowNewAnalysis?:boolean}) => <output aria-label="新分析入口状态">{String(allowNewAnalysis)}</output> }))
@@ -17,11 +20,12 @@ vi.mock('../school-templates/SchoolTemplates', () => ({ default: () => null }))
 vi.mock('../literature/ProjectLiterature', () => ({ default: () => null }))
 vi.mock('../model-usage/ProjectModelUsage', () => ({ default: () => null }))
 vi.mock('../tasks/ProjectTasks', () => ({ default: () => null }))
-const project = { id: 'p1', name: '客户流程', research_topic: '比较两组样本', project_type: 'research', file_count: 0, created_at: '2026-11-02T00:00:00Z', updated_at: '2026-11-02T00:00:00Z' }
-function setup(hash = '', projectType = 'research', ready = true, services = ['analysis']) {
+const project: Project = { id: 'p1', name: '客户流程', research_topic: '比较两组样本', project_type: 'research', file_count: 0, created_at: '2026-11-02T00:00:00Z', updated_at: '2026-11-02T00:00:00Z' }
+function setup(hash = '', projectType: Project['project_type'] = 'research', ready = true, services: WorkflowState['requirements']['services'] = ['analysis']) {
   window.history.replaceState(null, '', '/' + hash)
   const current={...project,project_type:projectType,file_count:ready?1:0}
   vi.mocked(apiFetch).mockImplementation(async (url, init) => {
+    if(String(url).endsWith('/workflow-state')) return Response.json(workflowStateFixture(current, { services: ready ? services : [] }))
     if(String(url).endsWith('/research-intake')) return Response.json({current_requirement:ready?{content:{services}}:null})
     if(String(url).includes('/summary?')) return Response.json({tasks:{total:ready?1:0},artifacts:{total:0},future:{writing:{current_manuscript:ready?{id:'historical-manuscript'}:null}}})
     return init?.method === 'POST' || String(url) === '/api/v1/projects/p1' ? Response.json(current) : Response.json({ items: [current], total: 1, page: 1, page_size: 5 })
@@ -46,12 +50,12 @@ it('returns to the exact analysis route after visiting project information',asyn
  const params=new URLSearchParams(window.location.hash.slice(1));expect(params.get('view')).toBe('bio-analysis');expect(params.get('run')).toBe('original-run');expect(params.get('requirement')).toBe('req1');expect(params.get('intent')).toBe('bio')
  expect(vi.mocked(apiFetch).mock.calls.every(([,init])=>!init?.method)).toBe(true)
 })
-it.each(['research','sci','thesis'])('opens an available review-group entry for %s projects',async(projectType)=>{
+it.each(['research','sci','thesis'] as const)('opens an available review-group entry for %s projects',async(projectType)=>{
  setup('#project=p1',projectType);await screen.findByRole('region',{name:'当前项目工作区'});await waitFor(()=>expect((screen.getByRole('button',{name:'评审与修改'}) as HTMLButtonElement).disabled).toBe(false))
  fireEvent.click(screen.getByRole('button',{name:'评审与修改'}))
  expect(window.location.hash).toBe(`#project=p1&section=${projectType==='research'?'tasks':'reviews'}`)
 })
-it.each(['research','sci','thesis'])('opens existing manuscript downloads from %s results without creating a manuscript',async(projectType)=>{
+it.each(['research','sci','thesis'] as const)('opens existing manuscript downloads from %s results without creating a manuscript',async(projectType)=>{
  setup('#project=p1&section=artifacts',projectType);await screen.findByRole('region',{name:'当前项目工作区'})
  fireEvent.click(screen.getByRole('button',{name:'写作与交付'}))
  fireEvent.click(screen.getByRole('button',{name:'查看已有稿件与 Word 下载'}))
@@ -76,7 +80,8 @@ it('offers ordered navigation without marking unopened work complete', async () 
   fireEvent.click(screen.getByRole('button', { name: '第 3 步：选择需求' }))
   expect(window.location.hash).toBe('#project=p1&section=overview&view=requirements')
   expect(screen.getByRole('button', { name: '第 3 步：选择需求' }).getAttribute('aria-current')).toBe('step')
-  expect(navigation.textContent).not.toContain('已完成')
+  expect(screen.getByRole('button', { name: '第 4 步：执行分析' }).textContent).not.toContain('已完成')
+  expect(screen.getByRole('button', { name: '第 5 步：查看结果' }).textContent).not.toContain('已完成')
   fireEvent.click(screen.getByRole('button', { name: '第 1 步：项目资料' }))
   expect(window.location.hash).toBe('#project=p1&section=overview&view=settings')
 })

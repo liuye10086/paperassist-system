@@ -3,6 +3,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testi
 import userEvent from '@testing-library/user-event'
 import App from '../../app/App'
 import { summaryFixture } from '../fixtures/summaryFixture'
+import { workflowStateFixture } from '../fixtures/workflowStateFixture'
 
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); window.location.hash = '' })
 const session = { user: { id: 'a', email: 'admin@paperassist.local', role: 'admin' }, csrf_token: 'csrf' }
@@ -359,7 +360,7 @@ it.each(['我的项目', '收起侧边栏'])('dismisses account actions when usi
 
 it('dismisses account actions while switching a project section', async () => {
   const user = userEvent.setup()
-  const project = { id: 'account-project', name: '菜单交互项目', research_topic: '菜单交互', project_type: 'sci',
+  const project = { id: 'account-project', name: '菜单交互项目', research_topic: '菜单交互', project_type: 'sci' as const,
     file_count: 0, created_at: '2026-10-07T00:00:00Z', updated_at: '2026-10-07T00:00:00Z' }
   vi.stubGlobal('fetch', vi.fn(async (url: string) => {
     if (url.endsWith('/me')) return Response.json(session)
@@ -368,6 +369,7 @@ it('dismisses account actions while switching a project section', async () => {
       return Response.json({ items: [project], total: 1, page: Number(parameters.get('page')), page_size: Number(parameters.get('page_size')) })
     }
     if (url === `/api/v1/projects/${project.id}`) return Response.json(project)
+    if (url === `/api/v1/projects/${project.id}/workflow-state`) return Response.json(workflowStateFixture(project))
     if (url.includes('/summary?')) return Response.json(summaryFixture(project.id))
     if (url.endsWith('/health')) return Response.json({ status: 'ok', service: 'paperassist-system' })
     if (url.endsWith('/config')) return Response.json({ max_upload_bytes: 10485760, preview_row_limit: 20 })

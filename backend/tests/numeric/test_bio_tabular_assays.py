@@ -42,6 +42,45 @@ def test_counts_missing_and_fraction_rejected(tmp_path):
     with pytest.raises(ValueError):import_tabular(p)
 
 
+def test_bulk_import_writes_canonical_sample_mapping_and_quality_report(tmp_path):
+    from app.adapters.bio_engine.tabular_assays import import_tabular
+    p=payload(tmp_path,counts=True)
+    qc=tmp_path/'multiqc.html';qc.write_text('<html>upstream</html>',encoding='utf-8')
+    p['files'].append(dict(id='qc',path=str(qc),filename=qc.name,sha256=hashlib.sha256(qc.read_bytes()).hexdigest(),size_bytes=qc.stat().st_size,role='upstream_quality_report'))
+    p['config']['file_ids'].append('qc')
+    p['config']['quality_reports']=[dict(file_id='qc',source='user_provided',report_type='multiqc')]
+    p['config']['scale']['input_origin']='bulk_rna'
+    out=tmp_path/'out';out.mkdir();p['output_directory']=str(out)
+    result=import_tabular(p);members={m['key']:m for m in result['outputs']}
+    mapping=json.loads(Path(members['sample_mapping']['path']).read_text())
+    assert mapping['version']=='bulk_sample_mapping_v1'
+    assert mapping['sample_ids']==['s1','s2','s3']
+    assert mapping['source']['file_id']=='s'
+    assert result['manifest']['checks']['quality_reports']==[{'file_id':'qc','source':'user_provided','report_type':'multiqc'}]
+
+
+def test_bulk_import_reports_sample_metadata_coordinates(tmp_path):
+    from app.adapters.bio_engine.tabular_assays import import_tabular
+    p=payload(tmp_path,counts=True)
+    sample=next(file for file in p['files'] if file['id']=='s')
+    Path(sample['path']).write_text('sample_id,condition,biological_unit_id\ns1,A,u1\ns1,A,u2\ns3,B,u3\n',encoding='utf-8')
+    sample.update(size_bytes=Path(sample['path']).stat().st_size,sha256=hashlib.sha256(Path(sample['path']).read_bytes()).hexdigest())
+    out=tmp_path/'out';out.mkdir();p['output_directory']=str(out)
+    with pytest.raises(ValueError,match=r'duplicate_sample_id:.*file=s\.csv:.*row=3:.*sample_id=s1'):
+        import_tabular(p)
+
+
+def test_bulk_import_reports_matrix_coordinates_for_invalid_value(tmp_path):
+    from app.adapters.bio_engine.tabular_assays import import_tabular
+    p=payload(tmp_path,counts=True)
+    matrix=next(file for file in p['files'] if file['id']=='m')
+    Path(matrix['path']).write_text('feature_id,s1,s2,s3\na,1,bad,4\n',encoding='utf-8')
+    matrix.update(size_bytes=Path(matrix['path']).stat().st_size,sha256=hashlib.sha256(Path(matrix['path']).read_bytes()).hexdigest())
+    out=tmp_path/'out';out.mkdir();p['output_directory']=str(out)
+    with pytest.raises(ValueError,match=r'matrix_non_numeric:.*file=m\.csv:.*row=2:.*column=s2:.*sample_id=s2:.*feature_id=a'):
+        import_tabular(p)
+
+
 @pytest.mark.parametrize('kind',['pca','sample_clustering'])
 @pytest.mark.parametrize('language',['en','zh-CN'])
 def test_quantitative_figure_sample_identity_feature_ticks_and_units_are_readable(tmp_path,monkeypatch,kind,language):

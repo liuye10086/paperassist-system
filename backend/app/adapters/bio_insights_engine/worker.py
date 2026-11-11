@@ -23,8 +23,9 @@ import traceback
 from app.adapters.bio_engine.manifest import canonical
 from app.adapters.bio_insights_engine.pipeline import run
 from app.adapters.bio_insights_engine.sandbox import enter
-from app.adapters.bio_insights_engine.runtime_probe import exercise
-from app.domain.bio_insights.settings import BioInsightsLimits,engine_code_digest,engine_lock_digest
+from app.adapters.bio_insights_engine.runtime_probe import exercise,warm_bulk_model,warm_bulk_display,warm_plot_formats
+from app.domain.bio_insights.settings import (BioInsightsLimits, engine_code_digest, engine_lock_digest,
+    uses_bulk_display_runtime, uses_bulk_enrichment_runtime)
 
 
 def records(payload):
@@ -32,7 +33,7 @@ def records(payload):
     for source in payload.get('sources',[]):
         for container in (source,source.get('raw',{})):
             result.extend(container.get('members',{}).values())
-    if not 1<=len(result)<=514:raise ValueError('input_member_limit')
+    if not 1<=len(result)<=BioInsightsLimits().max_input_members:raise ValueError('input_member_limit')
     return result
 
 
@@ -60,14 +61,9 @@ def warm_render_environment(output):
     from pydeseq2.ds import DeseqStats
     from pydeseq2.default_inference import DefaultInference
     import gseapy
-    from matplotlib import pyplot as plt
-    from matplotlib.font_manager import FontProperties
     from tqdm import tqdm
     tqdm.monitor_interval=0
-    fig,ax=plt.subplots();ax.plot([0,1],[0,1])
-    ax.set_title('图形环境验证',fontproperties=FontProperties(fname='/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc'))
-    for fmt in ('png','svg','tiff'):fig.savefig(output/('warm.'+fmt),format=fmt)
-    plt.close(fig)
+    warm_plot_formats(output)
 
 
 def warm_microbiome_environment():
@@ -100,23 +96,32 @@ def main():
         limits=BioInsightsLimits();signal.signal(signal.SIGALRM,deadline);signal.setitimer(signal.ITIMER_REAL,limits.warmup_seconds)
         from PIL import Image
         Image.init();codecs.lookup('utf-8-sig')
-        # Import all trusted code before Landlock denies the application tree.
-        for name in ('comparison','result_import','resources','enrichment','candidates','figures','quantitative','counts_model','quantitative_figures','qpcr','qpcr_figures','microbiome','microbiome_figures','feature_extract','feature_figures','integration','integration_figures','external_evidence','evidence_figures','single_cell_composition','single_cell_topics','topic_figures'):
-            importlib.import_module('app.adapters.bio_insights_engine.'+name)
-        import Bio.PDB.MMCIF2Dict
-        import Bio.PDB.Polypeptide
-        if payload['config'].get('schema_version')==4 or payload['config'].get('figure_type','').startswith('microbiome_'):warm_microbiome_environment()
-        with tempfile.TemporaryDirectory(prefix='b04-warm-') as warm:
-            if payload['kind']=='bio_candidate' and payload['config'].get('schema_version')==2 or payload['kind'] in ('bio_insight_figure','bio_feature_extract','bio_integration') or payload['kind']=='bio_resource_import' and payload['config'].get('kind') in ('sequence','structure','sample_correspondence','object_correspondence') or payload['kind']=='bio_comparison' and payload['config'].get('schema_version') in (3,4,5):warm_render_environment(Path(warm))
-            else:exercise(Path(warm))
-        from app.adapters.single_cell_r.bridge import initialize_propeller
-        r_scratch=Path(tempfile.mkdtemp(prefix='b04-propeller-',dir='/tmp'))
-        from contextlib import redirect_stdout
-        with redirect_stdout(sys.stderr):
-            if payload['kind']=='bio_integration' and payload['config'].get('schema_version')==2:
-                from app.adapters.single_cell_r.topics import initialize_topics
-                initialize_topics(r_scratch,payload['config']['method'])
-            else:initialize_propeller(r_scratch)
+        reviewed_bulk = payload['kind']=='bio_comparison' and payload['config'].get('bulk_model')=='shared_wald_v1'
+        r_scratch = None
+        if reviewed_bulk:
+            warm_bulk_model()
+        elif uses_bulk_display_runtime(payload['config']) or uses_bulk_enrichment_runtime(payload['config']):
+            with tempfile.TemporaryDirectory(prefix='bulk-display-warm-') as warm:
+                warm_bulk_display(Path(warm))
+        else:
+            # Import all trusted code before Landlock denies the application tree.
+            for name in ('comparison','result_import','resources','enrichment','candidates','figures','bulk_figures','quantitative','counts_model','quantitative_figures','qpcr','qpcr_figures','microbiome','microbiome_figures','feature_extract','feature_figures','integration','integration_figures','external_evidence','evidence_figures','single_cell_composition','single_cell_topics','topic_figures'):
+                importlib.import_module('app.adapters.bio_insights_engine.'+name)
+            import Bio.PDB.MMCIF2Dict
+            import Bio.PDB.Polypeptide
+            if payload['config'].get('schema_version')==4 or payload['config'].get('figure_type','').startswith('microbiome_'):warm_microbiome_environment()
+            with tempfile.TemporaryDirectory(prefix='b04-warm-') as warm:
+                read_only_candidates = payload['kind'] == 'bio_candidate' and payload['config'].get('schema_version') == 2
+                if read_only_candidates or payload['kind'] in ('bio_insight_figure','bio_feature_extract','bio_integration') or payload['kind']=='bio_resource_import' and payload['config'].get('kind') in ('sequence','structure','sample_correspondence','object_correspondence') or payload['kind']=='bio_comparison' and payload['config'].get('schema_version') in (3,4,5):warm_render_environment(Path(warm))
+                else:exercise(Path(warm))
+            from app.adapters.single_cell_r.bridge import initialize_propeller
+            r_scratch=Path(tempfile.mkdtemp(prefix='b04-propeller-',dir='/tmp'))
+            from contextlib import redirect_stdout
+            with redirect_stdout(sys.stderr):
+                if payload['kind']=='bio_integration' and payload['config'].get('schema_version')==2:
+                    from app.adapters.single_cell_r.topics import initialize_topics
+                    initialize_topics(r_scratch,payload['config']['method'])
+                else:initialize_propeller(r_scratch)
         actual=actual_identity()
         phase='environment_identity'
         if actual!=payload['_runtime_identity']:raise RuntimeError('bio_insights_environment_unavailable')

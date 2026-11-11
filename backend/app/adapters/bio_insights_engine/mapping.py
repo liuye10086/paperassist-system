@@ -12,7 +12,8 @@ def resource_document(source):
 
 
 class ExplicitMapper:
-    def __init__(self,source_taxon_id,source_namespace,target_taxon_id,target_namespace,mapping_sources,*,allow_untyped_identity=False):
+    def __init__(self,source_taxon_id,source_namespace,target_taxon_id,target_namespace,mapping_sources,*,
+                 allow_untyped_identity=False, namespace_key=None):
         untyped_identity=allow_untyped_identity and source_taxon_id is None and target_taxon_id is None and source_namespace==target_namespace and not mapping_sources
         if not untyped_identity and (type(source_taxon_id) is not int or type(target_taxon_id) is not int or source_taxon_id!=target_taxon_id):
             raise ValueError('incompatible_species_mapping')
@@ -22,7 +23,10 @@ class ExplicitMapper:
             data=resource_document(source)
             if data['kind']!='id_mapping':raise ValueError('mapping_resource_kind_invalid')
             if data['species_taxon_id']!=source_taxon_id:raise ValueError('mapping_species_mismatch')
-            if (data.get('source_namespace'),data.get('target_namespace'))==(source_namespace,target_namespace):
+            pair=(data.get('source_namespace'),data.get('target_namespace'))
+            if namespace_key is not None:
+                pair=tuple(namespace_key(value) for value in pair)
+            if pair==(source_namespace,target_namespace):
                 matching.append((source,data))
         if len(matching)>1:raise ValueError('multiple_mapping_releases_ambiguous')
         if not matching and source_namespace!=target_namespace:raise ValueError('explicit_mapping_required')

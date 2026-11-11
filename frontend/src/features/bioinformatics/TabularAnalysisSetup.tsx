@@ -61,9 +61,9 @@ export default function TabularAnalysisSetup({projectId,data,valid,error,reload,
   <ModuleViews label={t('分析配置模块')} lazy>
   <ModuleView id="parameters" title={t('分析参数')}>
   <fieldset disabled={blocked||!current}><legend>{t('不可变分析配方')}</legend>
-   <label>{t('标准化处理')}<select value={params.normalization} onChange={e=>update('normalization',e.target.value as TabularParams['normalization'])}><option value="none">{t('保持输入尺度，不归一化')}</option><option value="already_normalized">{t('上游已归一化（见尺度记录）')}</option>{!logged&&info?.assay!=='bulk_rna_counts'&&<option value="median">{t('正值矩阵中位数校正')}</option>}{info?.assay==='bulk_rna_counts'&&<option value="display_library_size">{t('按文库大小归一化显示层')}</option>}</select></label>
+   <label>{t('标准化处理')}<select value={params.normalization} onChange={e=>{const normalization=e.target.value as TabularParams['normalization'];setDraft({...params,normalization,transform:normalization==='vst'?'none':params.transform})}}><option value="none">{t('保持输入尺度，不归一化')}</option><option value="already_normalized">{t('上游已归一化（见尺度记录）')}</option>{!logged&&info?.assay!=='bulk_rna_counts'&&<option value="median">{t('正值矩阵中位数校正')}</option>}{info?.assay==='bulk_rna_counts'&&<><option value="display_library_size">{t('按文库大小归一化显示层')}</option><option value="vst">{t('VST 变换（独立展示层）')}</option></>}</select></label>
    <label>{t('数值变换')}<select value={params.transform} disabled={logged} onChange={e=>update('transform',e.target.value as TabularParams['transform'])}>{['none','log2','ln','log10',...(info?.assay==='bulk_rna_counts'?['log1p']:[])].map(v=><option value={v} key={v}>{v}</option>)}</select></label>
-   {params.transform==='log1p'&&<p>{t('显式 counts 展示变换 ln(1+x)，固定偏移 1；原始 counts 和差异模型输入不变。')}</p>}{logged&&<p>{t('输入已为对数尺度，保持原尺度，不再次取对数。')}</p>}
+   {params.transform==='log1p'&&<p>{t('显式 counts 展示变换 ln(1+x)，固定偏移 1；原始 counts 和差异模型输入不变。')}</p>}{params.normalization==='vst'&&<p>{t('VST 只生成独立展示层；原始 counts、过滤后 counts 和差异模型输入保持可追溯。')}</p>}{logged&&<p>{t('输入已为对数尺度，保持原尺度，不再次取对数。')}</p>}
    <label>{t('缩放处理')}<select value={params.scaling} onChange={e=>update('scaling',e.target.value as TabularParams['scaling'])}><option value="none">{t('不缩放')}</option><option value="unit_variance">{t('按特征单位方差缩放')}</option></select></label>
    <label>{t('排除样本 ID（每行一个）')}<textarea value={params.exclude_samples.join('\n')} onChange={e=>update('exclude_samples',lines(e.target.value))}/></label>
    <label>{t('排除特征 ID（每行一个）')}<textarea value={params.exclude_features.join('\n')} onChange={e=>update('exclude_features',lines(e.target.value))}/></label>
@@ -72,7 +72,7 @@ export default function TabularAnalysisSetup({projectId,data,valid,error,reload,
    <label>{t('输出语言')}<select value={params.output_language} onChange={e=>update('output_language',e.target.value as 'en'|'zh-CN')}><option value="zh-CN">简体中文</option><option value="en">English</option></select></label>
   </fieldset>
   </ModuleView>
-  <ModuleView id="design" title={t('实验设计')}><DesignVersionPicker key={projectId} projectId={projectId} value={designVersion} onChange={setDesign} disabled={blocked||!current}/><BioDesignLinks projectId={projectId}/></ModuleView>
+  <ModuleView id="design" title={t('实验设计')}><DesignVersionPicker key={projectId} projectId={projectId} value={designVersion} sampleIds={info?.sample_ids??[]} onChange={setDesign} disabled={blocked||!current}/><BioDesignLinks projectId={projectId}/></ModuleView>
   <ModuleView id="capability" title={t('能力与来源')}>
    <BioSource source={data.raw_source}/>
    {capability.error&&<p role="alert">{t(capability.error)}</p>}
@@ -88,16 +88,19 @@ export default function TabularAnalysisSetup({projectId,data,valid,error,reload,
 }
 
 type DesignVersion=Pick<Version,'id'|'version'|'operation'>
-function DesignVersionPicker({projectId,value,onChange,disabled}:{projectId:string;value:string;onChange:(id:string)=>void;disabled:boolean}){
+function DesignVersionPicker({projectId,value,sampleIds,onChange,disabled}:{projectId:string;value:string;sampleIds:string[];onChange:(id:string)=>void;disabled:boolean}){
  const {t}=useI18n(),[page,setPage]=useState(1)
  const read=useBioRead<{items:DesignVersion[];total:number}>(`${projectBase(projectId)}/research-designs?page=${page}&page_size=5`)
+ const detail=useBioRead<{content?:{samples?:{id:string}[]}}>(value?`${projectBase(projectId)}/research-designs/${encodeURIComponent(value)}`:'')
  const options=read.value?.items??[]
+ const designIds=(detail.value?.content?.samples??[]).map(item=>item.id).filter(Boolean),missing=designIds.filter(id=>!sampleIds.includes(id)),extra=sampleIds.filter(id=>!designIds.includes(id))
  return <><label>{t('关联实验设计')}<select value={value} disabled={disabled||!read.valid} onChange={e=>onChange(e.target.value)}>
   <option value="">{t('未关联实验设计')}</option>
   {value&&!options.some(option=>option.id===value)&&<option value={value}>{t('当前关联设计')}</option>}
   {options.map(option=><option key={option.id} value={option.id}>{t('版本 {number}',{number:option.version})} · {t(option.operation==='confirm'?'已确认':'已保存')}</option>)}
  </select></label>{read.error&&<p role="alert">{t('实验设计读取失败，请重试。')}</p>}
  {read.error&&<button type="button" disabled={!read.valid} onClick={read.reload}>{t('重新读取')}</button>}
+ {value&&detail.value?.content?.samples&&<p role="status">{t('设计样本 {designCount} 个；输入样本 {inputCount} 个。',{designCount:designIds.length,inputCount:sampleIds.length})}{missing.length||extra.length?` · ${t('缺失')} ${missing.join(',')||t('无')} · ${t('多出')} ${extra.join(',')||t('无')}`:` · ${t('样本集合一致')}`}</p>}
  <div className="intake-actions">{page>1&&<button type="button" disabled={disabled||!read.valid} onClick={()=>setPage(current=>current-1)}>{t('上一页')}</button>}{!!read.value&&page*5<read.value.total&&<button type="button" disabled={disabled||!read.valid} onClick={()=>setPage(current=>current+1)}>{t('下一页')}</button>}</div>
  <p>{t('未关联实验设计时，供体及独立重复保持未知。')}</p></>
 }

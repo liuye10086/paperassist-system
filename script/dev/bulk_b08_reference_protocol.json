@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "alpha": 0.05,
+  "effect_selection_threshold": 1.0,
+  "absolute_direction_floor": 0.02,
+  "size_factor_absolute_limit": 0.000001,
+  "limits": {
+    "base_mean": {"atol": 0.000001, "rtol": 0.000001},
+    "effect_value": {"atol": 0.02, "rtol": 0.02},
+    "lfc_se": {"atol": 0.002, "rtol": 0.02},
+    "wald_statistic": {"atol": 0.02, "rtol": 0.02},
+    "p_value": {"atol": 0.000000000001, "rtol": 0.05},
+    "q_within_contrast": {"atol": 0.000000000001, "rtol": 0.05},
+    "q_global_family": {"atol": 0.000000000001, "rtol": 0.05},
+    "original_method_adjustment": {"atol": 0.000000000001, "rtol": 0.05}
+  }
+}

@@ -23,7 +23,7 @@ def adjust_families(rows, contrast_ids):
         if cid is None:summary['global']=counts
         else:summary['by_contrast'][cid]=counts
         if not selected: continue
-        vector = [1 if r['p_value'] is None else r['p_value'] for r in selected]
+        vector = np.asarray([1 if r['p_value'] is None else r['p_value'] for r in selected], dtype=float)
         if not np.isfinite(vector).all() or any(not 0<=v<=1 for v in vector): raise ValueError('p_value_invalid')
         adjusted = false_discovery_control(vector, method='bh')
         column = 'q_global_family' if cid is None else 'q_within_contrast'

@@ -28,13 +28,14 @@ def parent_result(client,monkeypatch,tmp_path):
     monkeypatch.setattr(bio_figure_store,'runtime_identity',lambda:fixture['runtime'])
     monkeypatch.setattr(analysis_service,'runtime_identity',lambda:fixture['runtime'])
     base=fixture['base'];modes=[];engine=synthetic_engine(fixture['source'],fixture['runtime'],modes)
-    def base_engine(payload,out,mode):
-        result=engine(payload,out,mode)
-        def leaf(key,content,fmt):
+    def base_engine(payload,out,mode,*,cancel_event=None):
+        result=engine(payload,out,mode,cancel_event=cancel_event)
+        def leaf(key,content,fmt,role='axis'):
             path=out/(key+'.'+fmt);path.write_bytes(content)
-            result['outputs'].append(dict(key=key,role='axis',format=fmt,path=str(path.resolve()),size_bytes=len(content),sha256=hashlib.sha256(content).hexdigest()))
+            result['outputs'].append(dict(key=key,role=role,format=fmt,path=str(path.resolve()),size_bytes=len(content),sha256=hashlib.sha256(content).hexdigest()))
         leaf('raw_axes',b'{"barcodes":["c1","c2"],"feature_ids":["g1","g2"]}','json')
         buffer=io.BytesIO();np.save(buffer,np.array([True,False]),allow_pickle=False);leaf('observation_mask',buffer.getvalue(),'npy')
+        leaf('features',b'feature_id\tfeature_type\tkept\ng1\tGene Expression\tTrue\ng2\tGene Expression\tTrue\n','tsv',role='table')
         return result
     created=client.post(base+'/single-cell-analysis-runs',json=dict(name='Parent',raw_source=fixture['source'],params={'min_spots':1}),headers={'Idempotency-Key':'parent'})
     assert created.status_code==202,created.text
@@ -62,7 +63,7 @@ def test_manual_label_versions_are_independent_and_sc_figure_can_use_them(client
     assert figure.status_code==202,figure.text
     from app.domain.bioinformatics import analysis_execution
     from app.domain.tasks.execution import run_task
-    def figure_engine(payload,out,mode):
+    def figure_engine(payload,out,mode,*,cancel_event=None):
         assert mode=='figure'
         from PIL import Image
         buffer=io.BytesIO();Image.new('RGB',(4,4),'white').save(buffer,format='PNG');content=buffer.getvalue()
@@ -134,7 +135,7 @@ def test_single_r_task_publishes_downloadable_candidates_and_replays(client,pare
     f=parent_result;base=f['base'];parent=f['source']
     reference=dict(reference_id='monaco_immune_1.0.0',species='Homo sapiens',species_taxon_id=9606,gene_id_type='ensembl_gene_id',version='1.0.0',source='official fixture',license='fixture',available=True,reason=None)
     monkeypatch.setattr(annotation_service,'reference_catalog',lambda:[reference])
-    def engine(payload,out,mode):
+    def engine(payload,out,mode,*,cancel_event=None):
         assert mode=='annotation';assert payload['identity']['processed_source']==parent
         outputs=[]
         def leaf(key,content,fmt):

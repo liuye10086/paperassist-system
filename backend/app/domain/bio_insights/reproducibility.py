@@ -7,17 +7,24 @@ from pathlib import Path
 from app.adapters.bio_insights_store import BioInsightsStore,invalid
 from app.adapters.bio_insights_reproduction import ReproductionArchive
 from app.adapters.bio_analysis_store import scoped_object
+from app.core.exceptions import StorageError
 from app.domain.bioinformatics.contracts import digest
+from .bulk_reproduction_environment import archived_environment
 from .service import BioInsightsService
 from .results import checked_members
 
 
-def environment_proof(identity):
-    from .settings import runtime_identity,RUNTIME_MANIFEST_ENV
-    actual=runtime_identity()
+def environment_proof(identity, *, bulk_model=False, bulk_display=False, bulk_enrichment=False):
+    from .settings import runtime_identity, RUNTIME_MANIFEST_ENV, BULK_MODEL_MANIFEST_ENV, BULK_DISPLAY_MANIFEST_ENV
+    if bulk_display or bulk_enrichment:
+        env_name, actual = BULK_DISPLAY_MANIFEST_ENV, runtime_identity(bulk_display=True, bulk_enrichment=bulk_enrichment)
+    elif bulk_model:
+        env_name, actual = BULK_MODEL_MANIFEST_ENV, runtime_identity(bulk_model=True)
+    else:
+        env_name, actual = RUNTIME_MANIFEST_ENV, runtime_identity()
     if not actual.get('available') or any(actual.get(key)!=identity.get(key) for key in ('engine_version','code_digest','environment_digest','lock_sha256')):
         raise invalid('bio_insights_environment_unavailable',422)
-    path=Path(os.environ[RUNTIME_MANIFEST_ENV]);report=json.loads(path.read_bytes())
+    path=Path(os.environ[env_name]);report=json.loads(path.read_bytes())
     environment={key:report[key] for key in ('python','packages','native_libraries','lock_sha256','limits')}
     if digest(environment)!=identity['environment_digest']:raise invalid('bio_insights_environment_unavailable',422)
     proof=dict(environment=environment,runtime_identity=actual,gate_checks=report['checks'],isolation=report['isolation'],
@@ -39,6 +46,54 @@ def synthetic_status(payload):
             if field in meta:hints.append(dict(source_kind=source['source_kind'],source_id=source['source_id'],field=field,raw_value=meta[field]))
     return dict(status='unknown',basis='No authenticated biological-origin field in the existing frozen input contract',
                 original_metadata_hints=hints,donor_or_filename_inference=False)
+
+
+def _add_environment(archive, payload, app_root, *, allow_data_only):
+    from .settings import (INTERPRETER, engine_code_digest, engine_code_files, engine_lock_digest,
+                           uses_bulk_display_runtime, uses_bulk_enrichment_runtime)
+
+    config, identity = payload['config'], payload['identity']
+    if uses_bulk_enrichment_runtime(config):
+        profile = 'bulk_enrichment'
+    elif uses_bulk_display_runtime(config):
+        profile = 'bulk_display'
+    elif config.get('bulk_model'):
+        profile = 'bulk_model'
+    else:
+        profile = 'standard'
+    try:
+        proof = environment_proof(identity, **({profile: True} if profile != 'standard' else {}))
+        if engine_code_digest() != identity['code_digest'] or engine_lock_digest() != identity['lock_sha256']:
+            raise invalid('bio_insights_environment_unavailable', 422)
+    except StorageError as error:
+        if error.code != 'bio_insights_environment_unavailable':
+            raise
+        historical = archived_environment(identity, profile)
+        if historical is None:
+            if allow_data_only:
+                return None, [], None
+            raise
+        proof, code, lock, interpreter = historical.proof, historical.code, historical.lock, historical.interpreter
+        for name, content in historical.programs:
+            archive.add_bytes(name, content)
+    else:
+        code = [(path.relative_to(app_root).as_posix(), path.read_bytes()) for path in engine_code_files()]
+        lock = (app_root.parent / 'requirements-bio-insights.lock.txt').read_bytes()
+        interpreter = INTERPRETER
+        archive.add_reproduction_programs(app_root)
+
+    code_files = []
+    for relative, content in code:
+        name = 'code/app/' + relative
+        archive.add_bytes(name, content)
+        code_files.append(dict(relative_name=relative, path=name))
+    for directory in ('app', 'app/adapters', 'app/domain'):
+        name = 'code/' + directory + '/__init__.py'
+        if name not in archive.records:
+            archive.add_bytes(name, b'')
+    archive.add_bytes('code/requirements-bio-insights.lock.txt', lock)
+    archive.add_json('environment/runtime-proof.json', proof)
+    return proof, code_files, interpreter
 
 
 class BioInsightReproductionService(BioInsightsStore):
@@ -68,7 +123,7 @@ class BioInsightReproductionService(BioInsightsStore):
         # manifest; preserve both exact byte identities without substitution.
         return dict(source_kind=source['source_kind'],source_id=source['source_id'],sha256=source['sha256'],path=name,proof='formal_manifest_bytes')
 
-    def export(self,project,identifier,*,resource=False):
+    def export(self,project,identifier,*,resource=False,allow_data_only=False):
         archive=ReproductionArchive()
         try:
             with self.store.connection() as db:
@@ -77,7 +132,8 @@ class BioInsightReproductionService(BioInsightsStore):
                 if task['status']!='succeeded' or not row['manifest_object_id']:raise invalid('bio_insight_not_ready',422)
                 service=BioInsightsService(self.assets);payload=service.require_sources(db,task,runtime=False)
                 formal_manifest,members=checked_members(self,db,project,row,resource=resource)
-                proof=environment_proof(payload['identity'])
+                app_root = Path(__file__).resolve().parents[2]
+                proof, code_files, interpreter = _add_environment(archive, payload, app_root, allow_data_only=allow_data_only)
                 current=copy.deepcopy(payload);required={};source_proofs=[];tabular_originals=[]
 
                 def external(member,reason,role,source_id):
@@ -142,7 +198,6 @@ class BioInsightReproductionService(BioInsightsStore):
                 if tabular_originals:archive.add_json('input/tabular-originals.json',tabular_originals)
                 archive.add_json('provenance/task-input.json',task['input_snapshot'])
                 archive.add_json('provenance/formal-manifest.json',formal_manifest)
-                archive.add_json('environment/runtime-proof.json',proof)
                 render=dict(supported=not resource,exact_original_figure=not resource and row['kind']=='figure')
                 if payload['kind']=='bio_candidate' and payload['config'].get('schema_version')==2:
                     render.update(figure_types=['evidence_matrix','evidence_network','evidence_flow'],source_semantics='complete frozen candidate by external evidence cross product; source statements not recomputed; seed1729')
@@ -154,7 +209,7 @@ class BioInsightReproductionService(BioInsightsStore):
                     render.update(figure_types=['feature_distribution','feature_scatter'],source_semantics='exact frozen feature_data rows; no sequence or structure re-extraction on render')
                 if payload['config'].get('schema_version')==4:
                     render.update(figure_types=['microbiome_composition','microbiome_alpha','microbiome_pcoa'],source_semantics='versioned microbiome raw assay, original count/fraction/percent and complete taxonomy/sample tables',permdisp=dict(center='median',method='eigh',dimensions=0))
-                if not resource:
+                if not resource and proof is not None:
                     if row['kind']=='figure':render_payload=copy.deepcopy(current)
                     else:
                         from .sources import InsightSourceReader
@@ -163,25 +218,12 @@ class BioInsightReproductionService(BioInsightsStore):
                         render_payload=dict(schema_version=1,kind='bio_insight_figure',config=None,identity={**payload['identity'],'offline_render_source_result_id':identifier},
                             sources=[fixed,*copy.deepcopy(current['sources'])])
                     archive.add_json('input/render-payload.json',render_payload)
-                from .settings import engine_code_files,engine_code_digest,engine_lock_digest,INTERPRETER
-                if engine_code_digest()!=payload['identity']['code_digest'] or engine_lock_digest()!=payload['identity']['lock_sha256']:
-                    raise invalid('bio_insights_environment_unavailable',422)
-                app_root=Path(__file__).resolve().parents[2];backend=app_root.parent
-                code_files=[]
-                for path in engine_code_files():
-                    relative=path.relative_to(app_root).as_posix();name='code/app/'+relative
-                    archive.add_bytes(name,path.read_bytes());code_files.append(dict(relative_name=relative,path=name))
-                # Namespace files have no import side effects; fixed package
-                # initializers above remain their exact attested bytes.
-                for directory in ('app','app/adapters','app/domain'):
-                    name='code/'+directory+'/__init__.py'
-                    if name not in archive.records:archive.add_bytes(name,b'')
-                archive.add_bytes('code/requirements-bio-insights.lock.txt',(backend/'requirements-bio-insights.lock.txt').read_bytes())
-                archive.add_reproduction_programs(app_root)
-                package=dict(schema_version=1,kind='bio_insights_reproduction',identity={**payload['identity'],('resource_version_id' if resource else 'result_version_id'):identifier},
+                package=dict(schema_version=1,kind='bio_insights_reproduction' if proof else 'bio_insights_fixed_data',
+                    identity={**payload['identity'],('resource_version_id' if resource else 'result_version_id'):identifier},
                     formal_manifest_sha256=row['manifest_sha256'],task_input_sha256=task['input_digest'],frozen_config_sha256=digest(payload['config']),source_proofs=source_proofs,
-                    environment_proof=proof,runtime_identity=proof['runtime_identity'],engine_code_files=code_files,
-                    lock_path='code/requirements-bio-insights.lock.txt',interpreter=INTERPRETER,baseline=baseline,render=render,
+                    environment_proof=proof,runtime_identity=proof['runtime_identity'] if proof else None,engine_code_files=code_files,
+                    lock_path='code/requirements-bio-insights.lock.txt' if proof else None,interpreter=interpreter,
+                    baseline=baseline,render=render if proof else dict(supported=False,exact_original_figure=False),
                     required_resources=list(required.values()),analysis_inputs_self_contained=not bool(required),fully_self_contained=False,
                     external_locked_runtime_required=True,synthetic_status=synthetic_status(payload),real_model_calls=False,real_network_calls=False)
                 archive.add_json('required-resources.json',dict(schema_version=1,resources=list(required.values())))
@@ -202,9 +244,16 @@ class BioInsightReproductionService(BioInsightsStore):
                     'P/q absolute tolerance <=1e-10; effect/ES/NES <=1e-8. IDs/direction/counts/NA reasons/original external text are exact.\n'
                     'Synthetic origin is unknown unless authenticated input metadata establishes it; donor labels never establish real biological replication.\n'
                     'Code/tests, successful engineering reproduction and biological validation/user acceptance are distinct.\n')
+                if proof is None:
+                    text = ('# Frozen scientific data / 固定科学数据\n\n'
+                            'The exact execution environment for this version is currently unavailable. '
+                            'This ZIP preserves the fixed inputs, results, recipe and recorded code, environment '
+                            'and lock hashes. The SHA-256 records in package.json cover the supplied files. '
+                            'Use an operator-retained matching runtime to export the executable reproduction package.\n')
                 archive.add_bytes('README.md',text.encode('utf-8'))
                 handle,manifest_sha=archive.finish(package)
             return dict(file=handle,filename='bio-insights-'+identifier+'-reproduction.zip',manifest_sha256=manifest_sha,
-                        analysis_inputs_self_contained=not bool(required))
+                        analysis_inputs_self_contained=not bool(required),
+                        reproduction_state='matched_environment' if proof else 'fixed_data_only')
         except BaseException:
             archive.close();raise

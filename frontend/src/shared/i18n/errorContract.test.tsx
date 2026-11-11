@@ -2,29 +2,19 @@ import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, expect, it } from 'vitest'
 import { useState } from 'react'
 import { apiError, safeError, setLocale, translate, useI18n } from './index'
+import { errorMessages } from './errorMessages'
 
-const missingCodes = `
-figure_language_invalid_image figure_language_not_found figure_language_unsupported
-journal_adaptation_invalid journal_adaptation_no_changes journal_adaptation_preview_conflict
-literature_citation_conflict manuscript_not_found manuscript_review_blocked
-manuscript_review_input_invalid manuscript_review_not_found manuscript_revision_conflict
-manuscript_writing_input_limit manuscript_writing_language_invalid manuscript_writing_language_required
-manuscript_writing_material_blocked manuscript_writing_review_invalid manuscript_writing_review_required
-manuscript_writing_selection_invalid numeric_resource_limit school_change_blocked school_change_invalid
-school_change_preview_conflict school_export_input_invalid storage_deletion_idempotency_conflict
-storage_deletion_identity_changed storage_deletion_input_invalid storage_deletion_io_failed
-storage_deletion_pending storage_deletion_scope_unknown storage_policy_invalid storage_reservation_conflict
-literature_pmc_not_authorized review_continuation_invalid review_document_export_not_found
-review_document_export_not_ready review_document_not_found review_progress_correction_conflict
-review_progress_invalid review_return_blocked review_return_invalid review_return_preview_conflict
-review_revision_not_ready
-`.trim().split(/\s+/)
 const fallback = '请求失败，请重试。'
 
 afterEach(() => { cleanup(); setLocale('zh-CN') })
 
-it.each(missingCodes)('retains the safe %s identifier and translates it at render time', code => {
-  const id = apiError({ detail: { code, message: 'PRIVATE TRACE', params: { reason: 'PRIVATE TRACE', secret: 'PRIVATE TRACE' } } }, fallback)
+it.each(Object.keys(errorMessages))('retains the safe %s identifier and translates it at render time', code => {
+  const requiredParams: Record<string, Record<string, string | number>> = {
+    file_too_large: { max_bytes: 1048576 },
+    numeric_precision: { column: 'A', row: 2 },
+    plot_label_too_long: { max_chars: 200 },
+  }
+  const id = apiError({ detail: { code, message: 'PRIVATE TRACE', params: { ...requiredParams[code], reason: 'PRIVATE TRACE', secret: 'PRIVATE TRACE' } } }, fallback)
   expect(id).toContain('PA_ERROR:')
   expect(id).toContain(`"code":"${code}"`)
   expect(safeError(new Error(id), fallback)).toBe(id)

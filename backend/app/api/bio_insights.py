@@ -6,7 +6,7 @@ from fastapi import APIRouter,File,Query,Response,UploadFile
 
 from app.api.bio_datasets import Store,Key,Page
 from app.adapters.bio_insights_store import invalid
-from app.domain.bio_insights.contracts import InsightPlanRequest,InsightRunRequest,ResourceImportRequest,SourceKind
+from app.domain.bio_insights.contracts import BulkQColumn,InsightPlanRequest,InsightRunRequest,ResourceImportRequest,SourceKind
 from app.domain.bio_insights.service import BioInsightsService
 from app.domain.bio_insights.resources import BioResourceService
 from app.domain.bio_insights.results import BioInsightResultService
@@ -24,7 +24,9 @@ def capabilities(project_id:str,store:Store):
     with service.store.connection() as db:service.store.require_project(db,project_id)
     runtime=runtime_identity()
     return dict(methods=['spot_exploratory','donor_unpaired','donor_paired','result_import','ora','gsea_prerank','candidate','figure'],
-        runtime=runtime,configured=runtime['available'],worker_online=None,limits=BioInsightsLimits().model_dump(),
+        runtime=runtime,bulk_model_runtime=runtime_identity(bulk_model=True),bulk_display_runtime=runtime_identity(bulk_display=True),
+        bulk_enrichment_runtime=runtime_identity(bulk_enrichment=True),
+        configured=runtime['available'],worker_online=None,limits=BioInsightsLimits().model_dump(),
         blocking_reasons=[] if runtime['available'] else [runtime['reason']],real_model_calls=False,real_network_calls=False)
 
 
@@ -142,6 +144,31 @@ def report_figures(project_id:str,version_id:str,store:Store):
 
 @router.get('/{project_id}/bio-insight-results/{version_id}/report.docx')
 def insight_word_report(project_id:str,version_id:str,store:Store,figure_version_ids:Annotated[list[str]|None,Query(max_length=10)]=None,language:Annotated[Literal['zh-CN','en']|None,Query()]=None):
+    from app.domain.bio_insights.bulk_results import is_reviewed_bulk
+
+    results = BioInsightResultService(store)
+    with results.store.connection() as db:
+        result = results.require(db, 'bio_insight_result_versions', project_id, version_id)
+        plan = results.require(db, 'bio_insight_plan_versions', project_id, result['plan_version_id'])
+    config = plan['config_json']
+    if is_reviewed_bulk({'kind': result['kind'], 'plan_config': config}):
+        comparison_id, attached = version_id, list(figure_version_ids or [])
+    elif result['kind'] in ('ora', 'gsea_prerank') and config.get('bulk_enrichment'):
+        sources = config['result_source_ids'] if result['kind'] == 'ora' else [config['result_source_id']]
+        if len(sources) != 1:
+            raise invalid('bio_insight_source_conflict', 409)
+        comparison_id, attached = sources[0], [version_id, *(figure_version_ids or [])]
+    else:
+        comparison_id, attached = None, []
+    if comparison_id:
+        from app.api.bulk_workflow import word_response
+        from app.domain.bio_insights.bulk_delivery import BulkDeliveryService
+
+        delivery = BulkDeliveryService(store)
+        facts = delivery.facts(project_id, comparison_id, result_version_ids=attached,
+                               language='en' if (language or config.get('output_language')) == 'en' else 'zh')
+        return word_response(delivery.docx(project_id, facts), facts)
+
     from app.adapters.single_cell_insight_report import download_single_cell_insight_report
     return Response(download_single_cell_insight_report(store,project_id,version_id,figure_version_ids,language),
         media_type='application/vnd.openxmlformats-officedocument.wordprocessingml.document',
@@ -155,6 +182,23 @@ def download_result(project_id:str,version_id:str,member_id:str,store:Store):ret
 @router.get('/{project_id}/bio-insight-results/{version_id}/tables/{key}')
 def result_table(project_id:str,version_id:str,key:str,store:Store,page:Page=1,page_size:PageSize=50,search:Annotated[str|None,Query(max_length=200)]=None):
     return BioInsightResultService(store).table(project_id,version_id,key,page,page_size,search)
+
+
+@router.get('/{project_id}/bio-insight-results/{version_id}/bulk-comparisons')
+def bulk_comparisons(
+    project_id: str, version_id: str, store: Store,
+    contrast_id: Annotated[str | None, Query(min_length=1, max_length=200)] = None,
+    subset: Literal['all', 'deg', 'up', 'down'] = 'all',
+    q_column: BulkQColumn = 'q_within_contrast',
+    q_threshold: Annotated[float, Query(ge=0, le=1)] = 0.05,
+    minimum_absolute_effect: Annotated[float, Query(ge=0, le=1_000_000)] = 1.0,
+    page: Page = 1, page_size: PageSize = 50,
+    search: Annotated[str | None, Query(max_length=200)] = None,
+):
+    return BioInsightResultService(store).bulk_comparisons(
+        project_id, version_id, contrast_id=contrast_id, subset=subset, q_column=q_column, q_threshold=q_threshold,
+        minimum_absolute_effect=minimum_absolute_effect, page=page, page_size=page_size, search=search,
+    )
 
 
 def reproduction_download(store,project,identifier,resource=False):

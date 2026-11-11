@@ -2,15 +2,15 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testi
 import { afterEach, expect, it, vi } from 'vitest'
 import ProjectManuscripts from './ProjectManuscripts'
 import { setLocale } from '../../shared/i18n'
-import { manuscriptFixture, candidatesFixture, snapshotFixture } from './manuscriptFixtures'
+import { manuscriptFixture, candidatesFixture, snapshotFixture, exportFixture } from './manuscriptFixtures'
 const base = '/api/v1/projects/p1/manuscripts'
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.useRealTimers(); setLocale('zh-CN') })
-function server(history: unknown[] = []) {
+function server(history: unknown[] = [], wordExports: (typeof exportFixture)[] = []) {
   const fetcher = vi.fn(async (url: string, init?: RequestInit) => {
     if (url === `${base}/candidates`) return Response.json(candidatesFixture)
     if (url === base && !init?.method) return Response.json({ items: history })
     if (url.endsWith('/preview')) return Response.json(snapshotFixture)
-    if (url.endsWith('/exports') && !init?.method) return Response.json({items:[],pdf_status:'not_requested'})
+    if (url === `${base}/m1/versions/1/exports` && !init?.method) return Response.json({items:wordExports})
     return Response.json(manuscriptFixture)
   }); vi.stubGlobal('fetch', fetcher); return fetcher
 }
@@ -66,10 +66,14 @@ it('keeps group identity while reordering, invalidates old preview and reuses a 
   const body=JSON.parse(String(calls[0][1]?.body));expect(body.results_groups.map((g:{id:string})=>g.id)).toEqual(original.results_groups.map((g:{id:string})=>g.id).reverse())
 })
 it('preserves historical snapshots, clones exact frozen input into a new version and exposes separate DOCX status',async()=>{
-  const fetcher=server([manuscriptFixture]); render(<ProjectManuscripts {...props}/>)
+  const version={...manuscriptFixture.versions[0],exports:[]}
+  const fetcher=server([{...manuscriptFixture,versions:[version]}],[exportFixture])
+  render(<ProjectManuscripts {...props}/>)
   fireEvent.click(await screen.findByRole('button',{name:'查看版本 1'}))
   expect(await screen.findByText('Local deterministic draft')).toBeTruthy()
-  expect(screen.getByRole('link',{name:'下载 DOCX'}).getAttribute('href')).toBe(`${base}/m1/exports/export1/download`)
+  const exports=within(screen.getByRole('region',{name:'DOCX 导出'}))
+  expect((await exports.findByRole('link',{name:'下载 DOCX'})).getAttribute('href')).toBe(exportFixture.download_url)
+  expect(fetcher.mock.calls.every(([,init])=>!init?.method)).toBe(true)
   expect(screen.getByText('Pending verification')).toBeTruthy(); expect(screen.getByText('Missing ethics')).toBeTruthy()
   expect(screen.getByRole('link',{name:'核查引用与证据'})).toBeTruthy()
   fireEvent.click(screen.getByRole('button',{name:'以此版本编辑新稿'}))

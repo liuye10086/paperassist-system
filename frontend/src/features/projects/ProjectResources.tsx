@@ -1,4 +1,6 @@
 import BioInsightsWorkspace from '../bio-insights/BioInsightsWorkspace'
+import BulkWorkflowWorkspace,{BulkWorkflowNav} from '../bio-insights/BulkWorkflowWorkspace'
+import {bulkRoute,continueBulkRoute} from '../bio-insights/bulkWorkflow'
 import {isInsightView} from '../bio-insights/state'
 import {STANDARD_REQUEST_TIMEOUT_MS} from '../../shared/api/requestTimeouts'
 import BioUpload from '../bioinformatics/BioUpload'
@@ -29,7 +31,7 @@ import './projectUpload.css'
 import './projectAnalysis.css'
 import UploadQuality from './UploadQuality'
 
-type Props = { allowNewAnalysis?:boolean; savedRequirement?:Version|null; onRequirements?: (panel?:'materials') => void; projectId: string; onSaved: () => void; section: ProjectSection; onSectionChange: (section: ProjectSection) => void; active?: boolean
+type Props = { allowNewAnalysis?:boolean; savedRequirement?:Version|null; onRequirements?: (panel?:'materials') => void; projectId: string; onSaved: () => void; section: ProjectSection; onSectionChange: (section: ProjectSection) => void; active?: boolean; outputLanguage?:'zh-CN'|'en'; bulkOverviewRevision?:number
   analysisNavigation?: AnalysisNavigation; onAnalysisNavigate?: (next:AnalysisNavigation)=>void; resourceNavigation?: ResourceNavigation; onResourceNavigate?: (next: ResourceNavigation) => void; registerLeaveGuard?: RegisterLeaveGuard }
 
 function ResourceScope({ projectId, onSaved, section, onSectionChange, active = true, ...navigationProps }: Props) {
@@ -41,7 +43,7 @@ function ResourceScope({ projectId, onSaved, section, onSectionChange, active = 
   return <ResourceContent projectId={projectId} onSaved={onSaved} section={section} onSectionChange={onSectionChange} active={active} onUnavailable={denied} {...navigationProps} />
 }
 
-function ResourceContent({ projectId, onSaved, section, onSectionChange, onUnavailable, active, resourceNavigation, onResourceNavigate, registerLeaveGuard, analysisNavigation, onAnalysisNavigate, onRequirements, savedRequirement, allowNewAnalysis=true }: Props & { onUnavailable: () => void }) {
+function ResourceContent({ projectId, onSaved, section, onSectionChange, onUnavailable, active, resourceNavigation, onResourceNavigate, registerLeaveGuard, analysisNavigation, onAnalysisNavigate, onRequirements, savedRequirement, allowNewAnalysis=true, outputLanguage, bulkOverviewRevision=0 }: Props & { onUnavailable: () => void }) {
   const { t } = useI18n()
   const [localNavigation, setLocalNavigation] = useState<ResourceNavigation>({ view: 'list', fileId: '' })
   const [uploadKind, setUploadKind] = useResearchDraft<'documents'|'bio'>(projectId,'resource-upload-kind',()=> 'documents')
@@ -55,8 +57,9 @@ function ResourceContent({ projectId, onSaved, section, onSectionChange, onUnava
   const analysis=analysisNavigation??localAnalysis
   const [requirementsVisited,setRequirementsVisited]=useState(analysis.view==='research-request')
   if(analysis.view==='research-request'&&!requirementsVisited)setRequirementsVisited(true)
-  const navigateAnalysis=onAnalysisNavigate??setLocalAnalysis
+  function navigateAnalysis(next:AnalysisNavigation){(onAnalysisNavigate??setLocalAnalysis)(continueBulkRoute(analysis,next))}
   const analysisActive=!!active&&section==='analysis'
+  const bulkHome=analysis.view==='bulk-workflow'
   const intake=useResearchRead<Intake>(`${projectBase(projectId)}/research-intake`,Boolean(active)&&(section==='analysis'||section==='files'))
   const fixed=useResearchRead<Version>(analysis.entry?`${projectBase(projectId)}/requirements/${encodeURIComponent(analysis.entry.requirementVersionId)}`:'',analysisActive&&!!analysis.entry)
   const current=savedRequirement&&savedRequirement.version>=(intake.data?.current_requirement?.version??0)?savedRequirement:intake.data?.current_requirement??null
@@ -115,13 +118,15 @@ function ResourceContent({ projectId, onSaved, section, onSectionChange, onUnava
   function batchChanged() { setUploadVersion(value => value + 1); refresh(); onSaved() }
   function refreshMaterials(){refresh();imports.refresh()}
   function openUpload(){if(onResourceNavigate)onResourceNavigate({view:'upload',fileId:''});else{onSectionChange('files');navigate({view:'upload',fileId:''})}}
+  function openBulkUpload(){setUploadKind('bio');openUpload()}
   const canContinueMaterials=!loading&&!error&&files.some(file=>file.parse_status==='stored'||file.parse_status==='parsed')
-  return <div className={section === 'files' ? 'project-files-page' : 'project-analysis-page analysis-workspace'} hidden={!active || !['files','analysis'].includes(section)}>
+  return <div className={section === 'files' ? 'project-files-page' : `project-analysis-page analysis-workspace${bulkHome&&analysis.bulkView==='design'?' bulk-workflow-design':''}`} hidden={!active || !['files','analysis'].includes(section)}>
     <div hidden={section !== 'files'}>
       <nav className="material-view-actions resource-view-nav" aria-label={t('材料视图')}>
           <button type="button" aria-current={navigation.view === 'upload' ? 'page' : undefined} onClick={() => navigate({ view: 'upload', fileId: '' })}>{t('上传文件')}</button>
           <button type="button" aria-current={['list','detail','preview'].includes(navigation.view) ? 'page' : undefined} onClick={() => navigate({ view: 'list', fileId: '' })}>{t('已上传文件')}</button>
           <button type="button" aria-current={navigation.view === 'quality' ? 'page' : undefined} onClick={() => navigate({view:'quality',fileId:''})}>{t('质量控制')}</button>
+          {analysis.bulkView&&<button type="button" onClick={()=>navigateAnalysis(bulkRoute('data'))}>{t('返回 Bulk RNA-seq 工作流')}</button>}
       </nav>
       <div className="resource-module-body" hidden={qualityBioActive}>
       {navigation.view === 'preview' && navigation.fileId && <div className="resource-subview-actions">
@@ -157,16 +162,19 @@ function ResourceContent({ projectId, onSaved, section, onSectionChange, onUnava
       <nav hidden={analysis.view==='overview'||!!analysis.entry} className="analysis-overview-nav" aria-label={t('分析工作区')}>
         <button type="button" onClick={()=>navigateAnalysis({view:'overview',fileId:analysis.fileId,entry:analysis.entry,intent:analysis.intent})}>← {t('返回分析入口')}</button>
       </nav>
+      {analysis.bulkView&&<BulkWorkflowNav view={analysis.bulkView} nested={!bulkHome} onNavigate={navigateAnalysis}/>}
       <AnalysisEntryContext navigation={analysis} version={fixed.data} current={current} loading={fixed.loading} error={fixed.error} files={files} filesUnknown={loading||!!error||imports.unknown} imports={imports.data??[]} onReload={fixed.refresh} onNavigate={navigateAnalysis} onFile={openFile}/>
       <div className="analysis-module-body" hidden={bioView}>
+      {analysis.bulkView&&<BulkWorkflowWorkspace key={bulkOverviewRevision} {...{projectId,allowNewAnalysis,files,outputLanguage}}
+        navigation={analysis} active={analysisActive&&bulkHome} onNavigate={navigateAnalysis} onUpload={openBulkUpload}/>}
       <BioInsightsWorkspace allowNewAnalysis={allowNewAnalysis} projectId={projectId} navigation={analysis} onNavigate={navigateAnalysis} active={analysisActive&&insightView&&entryAvailable} registerLeaveGuard={registerLeaveGuard}/>
       <div className="analysis-overview-body" hidden={analysis.view!=='overview'}>
         <AnalysisGuide projectId={projectId} onUpload={openUpload} version={requirement} scopeId={analysis.entry?.scopeItemId} loading={analysis.entry?fixed.loading:intake.loading&&!current} error={analysis.entry?fixed.error:intake.error} onRefresh={analysis.entry?fixed.refresh:intake.refresh} files={files} filesLoading={loading} filesError={error} onReloadFiles={refreshMaterials} imports={imports.data??[]} importsUnknown={imports.unknown} importsError={imports.error} onFile={openFile} onNavigate={navigateAnalysis} onRequirements={onRequirements}/>
       </div>
       <div hidden={analysis.view!=='research-request'}>{requirementsVisited&&<ProjectRequirements projectId={projectId} files={files.filter((file):file is ProjectFile & {parse_status:'queued'|'parsing'|'parsed'|'failed'}=>file.parse_status!=='stored')} registerLeaveGuard={registerLeaveGuard}/>}</div>
-      <div hidden={!entryAvailable||analysis.view==='overview'||analysis.view==='research-request'||bioView||insightView||researchView}>
+      <div hidden={!entryAvailable||analysis.view==='overview'||analysis.view==='research-request'||bioView||insightView||researchView||bulkHome}>
       <AnalysisSetup projectId={projectId} files={files.filter((file):file is ProjectFile & {parse_status:'queued'|'parsing'|'parsed'|'failed'}=>file.parse_status!=='stored'&&file.file_type==='xlsx')} filesLoading={loading} filesError={error} onReloadFiles={refresh}
-        onOpenFiles={() => onSectionChange('files')} stage={analysis.view==='overview'||analysis.view==='research-request'||analysis.view==='research-findings'||analysis.view.startsWith('bio-')?'setup':analysis.view as import('../analysis/analysisWorkflowContext').AnalysisStage} onStageChange={view=>navigateAnalysis({...analysis,view})} fileId={analysis.fileId} onFileChange={fileId=>navigateAnalysis({...analysis,fileId})} registerLeaveGuard={registerLeaveGuard} />
+        onOpenFiles={() => onSectionChange('files')} stage={analysis.view==='overview'||analysis.view==='research-request'||analysis.view==='research-findings'||analysis.view.startsWith('bio-')||bulkHome?'setup':analysis.view as import('../analysis/analysisWorkflowContext').AnalysisStage} onStageChange={view=>navigateAnalysis({...analysis,view})} fileId={analysis.fileId} onFileChange={fileId=>navigateAnalysis({...analysis,fileId})} registerLeaveGuard={registerLeaveGuard} />
       </div>
     </div>
     </div>

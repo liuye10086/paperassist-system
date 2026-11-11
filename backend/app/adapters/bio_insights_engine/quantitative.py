@@ -1,11 +1,19 @@
 """Frozen sample-level continuous and raw-count comparisons."""
 import math
 import numpy as np
+from app.domain.bioinformatics.settings import BioLimits
 from app.domain.bio_insights.quantitative_contracts import QuantitativeComparisonConfig,quantitative_scope
 from app.domain.bio_insights.quantitative_design import validate_quantitative_design,sample_key
 from app.domain.comparison.kernel import compute_comparison,ComparisonError
 from .comparison import adjust_families,_identity
 from .quantitative_inputs import load_quantitative
+
+LIMITS = BioLimits()
+LEGACY_MATRIX_CELLS = 1_000_000
+
+
+def _matrix_budget(config):
+    return LIMITS.max_bulk_matrix_cells if config.mode == 'bulk_counts' else LEGACY_MATRIX_CELLS
 
 
 def prepared_inputs(payload):
@@ -16,13 +24,14 @@ def prepared_inputs(payload):
     preview=validate_quantitative_design(config,verified_sources)
     if not preview.executable:raise ValueError('quantitative_design_blocked:'+','.join(r.code for r in preview.blocking_reasons))
     common=sorted(set.intersection(*(set(s['feature_ids']) for s in loaded)))
-    if not common or len(common)*len(config.contrasts)>1000000:raise ValueError('quantitative_feature_budget')
+    budget = _matrix_budget(config)
+    if not common or len(common)*len(config.contrasts)>budget:raise ValueError('quantitative_feature_budget')
     keys=[];values=[];missing=[];annotations={};exclusions=[]
     for data in loaded:
         index={f:i for i,f in enumerate(data['feature_ids'])};columns=[index[f] for f in common]
         keys.extend(data['retained_keys']);values.append(data['values'][:,columns]);missing.append(data['missing'][:,columns]);annotations.update(data['annotations'])
         exclusions.extend(dict(processed_version_id=data['source']['source_id'],feature_id=f,reason='non_common_or_processing_excluded') for f in data['raw_feature_ids'] if f not in common)
-    if len(keys)*len(common)>1000000:raise ValueError('quantitative_matrix_budget')
+    if len(keys)*len(common)>budget:raise ValueError('quantitative_matrix_budget')
     by_key={sample_key(r):r for source in sources for r in source['metadata']['observations']}
     return config,sources,loaded,preview,common,keys,np.vstack(values),np.vstack(missing),by_key,annotations,exclusions
 
@@ -50,6 +59,10 @@ def comparison_methods(config,scope,layer,preview,diagnostics):
         missing='per-feature complete cases or complete pairs; no imputation; zero retained; LOD/nonrandom missingness may bias results',
         biological_n_by_contrast={u['contrast_id']:u['biological_n'] for u in preview.actual_units},warnings=preview.warnings,
         species_taxon_id=config.species_taxon_id,namespace=config.namespace,reference_version=config.reference_version,model_diagnostics=diagnostics)
+    if config.bulk_model:
+        methods.update(name='PyDESeq2_0.5.4_shared_Wald_v1',
+            direction='numerator relative to denominator; positive log2FC indicates higher expression in the numerator',
+            missing='Frozen nonnegative integer counts with complete sample metadata. No imputation.')
     if config.inference_unit=='technical':methods['technical_replicate_qc']=dict(member_key='technical_replicate_qc',grouping='explicit frozen contrast.groups after declared sample exclusions',
         statistics='mean=fsum(x)/n; sample SD=sqrt(fsum((x-mean)^2)/(n-1)); CV=sample SD/positive mean',
         missing='per-group measured values; no imputation; full features and missing counts retained',
@@ -74,20 +87,31 @@ def run_quantitative(payload,writer):
     family_id=_identity({'plan':payload.get('identity',{}).get('plan_version_id'),'contrasts':config.family_contrast_ids})
     rows=[];counts=[];posthoc=[];models=[];technical_qc=[]
     layer={k:v for k,v in loaded[0]['layer'].items() if k not in ('values','missing','shape')}
+    bulk_fitted = {}
+    if config.bulk_model:
+        from .counts_model import fit_reviewed_counts
+        bulk_fitted, model = fit_reviewed_counts(values, features, index, preview.bulk_model, config)
+        models.append(model)
     for contrast in config.contrasts:
         group_keys,groups=selected_groups(config,contrast,index,by_key)
-        fitted=None
-        if config.mode=='bulk_counts':
+        fitted=bulk_fitted.get(contrast.contrast_id)
+        if config.mode=='bulk_counts' and not config.bulk_model:
             from .counts_model import fit_counts
-            fitted,model=fit_counts(values,features,contrast,groups,group_keys,by_key,config);models.append(model)
+            fitted,model=fit_counts(values,features,contrast,groups,group_keys,by_key,config)
+            models.append(model)
         for j,feature in enumerate(features):
-            group_values=feature_groups(values,missing,groups,j,config.design=='paired');ns=list(map(len,group_values));annotation=annotations[feature]
+            if fitted is None:
+                group_values=feature_groups(values,missing,groups,j,config.design=='paired')
+                ns=list(map(len,group_values))
+            else:
+                ns=list(map(len,groups))
+            annotation=annotations[feature]
             if config.inference_unit=='technical':
                 measured_groups=feature_groups(values,missing,groups,j,False)
                 technical_qc.extend(technical_qc_row(contrast,group,feature,measured,len(indices),layer) for group,indices,measured in zip(contrast.groups,groups,measured_groups))
             row=dict(row_key=_identity({'feature_id':feature,'contrast_id':contrast.contrast_id}),feature_id=feature,symbol=annotation.get('display_name') or feature,
-                feature_kind=annotation.get('feature_kind'),contrast_id=contrast.contrast_id,numerator=contrast.groups[0].label if config.design!='multiple' else None,
-                denominator=contrast.groups[1].label if config.design!='multiple' else None,observation_level='sample',inference_scope=scope,
+                feature_kind=annotation.get('feature_kind'),contrast_id=contrast.contrast_id,numerator=contrast.groups[0].label if config.mode=='bulk_counts' or config.design!='multiple' else None,
+                denominator=contrast.groups[1].label if config.mode=='bulk_counts' or config.design!='multiple' else None,observation_level='sample',inference_scope=scope,
                 effect_name=None,effect_value=None,effect_unit=None,effect_reason='not_computable',statistic=None,p_value=None,
                 q_within_contrast=None,q_global_family=None,original_method_adjustment=None,correction_family_id=family_id,
                 n_numerator=ns[0],n_denominator=ns[1],n_pairs=ns[0] if config.design=='paired' else None,
@@ -119,7 +143,16 @@ def run_quantitative(payload,writer):
     writer.table('feature_exclusions',exclusions,['processed_version_id','feature_id','reason']);writer.table('sample_exclusions',preview.exclusions,['processed_version_id','sample_id','reason'])
     writer.table('common_features',[dict(feature_id=f,symbol=annotations[f].get('display_name') or f,feature_kind=annotations[f].get('feature_kind')) for f in features])
     writer.json('comparison_design',preview.model_dump());writer.json('correction_families',family)
-    if models:
+    diagnostics=[model['diagnostics'] for model in models]
+    if config.bulk_model:
+        model=models[0]
+        ids=diagnostics[0]['sample_unit_ids']
+        model_id=diagnostics[0]['model_id']
+        for key in ('model_counts','model_normalized_counts'):
+            matrix=model.pop(key)
+            writer.table(key,(dict(model_id=model_id,feature_id=feature,**dict(zip(ids,column.tolist())))
+                              for feature,column in zip(features,matrix.T)),['model_id','feature_id',*ids])
+    elif models:
         for key,value_key in (('model_counts','counts'),('model_normalized_counts','normalized_counts')):
             tables=[];fields=['contrast_id','feature_id']
             for model in models:
@@ -128,12 +161,14 @@ def run_quantitative(payload,writer):
                     wide[entry['feature_id']][entry['unit_id']]=entry[value_key]
                     if entry['unit_id'] not in fields:fields.append(entry['unit_id'])
                 tables.extend(wide.values())
-            if len(fields)>512:raise ValueError('model_export_sample_limit')
+            sample_limit = LIMITS.max_bulk_observations + 2 if config.mode == 'bulk_counts' else 512
+            if len(fields)>sample_limit:raise ValueError('model_export_sample_limit')
             writer.table(key,tables,fields)
+    if models:
         for key in ('model_sample_metadata','size_factors','model_convergence'):
             writer.table(key,[row for model in models for row in model[key]])
-        writer.json('model_diagnostics',[m['diagnostics'] for m in models])
-    methods=comparison_methods(config,scope,layer,preview,[m['diagnostics'] for m in models])
+        writer.json('model_diagnostics',diagnostics)
+    methods=comparison_methods(config,scope,layer,preview,diagnostics)
     writer.json('comparison_methods',methods)
     summary=dict(row_count=len(rows),feature_count=len(features),contrast_count=len(config.contrasts),family=family,actual_units=preview.actual_units,
         not_computable_rows=sum(r['p_value'] is None for r in rows),result_member_key='comparison_results',tested_universe_complete=True,

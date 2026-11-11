@@ -141,17 +141,25 @@ def _reader_figure_title(key, en):
     return labels.get(key,('分析图件','Analysis figure'))[int(en)]
 
 
-def _build_reader_facing_report(identifier, manifest_sha256, config, manifest, tables, figures, narrative):
-    en=config.get('output_language')=='en';doc=Document();record=narrative if isinstance(narrative,dict) else {};narrative=record.get('narrative',record)
+def create_insight_report_document(*, reader_style=False):
+    """Shared page setup for versioned analysis reports."""
+    doc=Document()
     section=doc.sections[0];section.page_width=Mm(210);section.page_height=Mm(297)
     section.left_margin=section.right_margin=section.top_margin=section.bottom_margin=Mm(20)
     for name in ('Normal','Title','Heading 1','Heading 2'):
         style=doc.styles[name];style.font.name='Arial';style.element.get_or_add_rPr().get_or_add_rFonts().set(qn('w:eastAsia'),'Microsoft YaHei')
-        style.font.color.rgb=RGBColor(0,0,0)
-        ppr=style.element.get_or_add_pPr()
-        for border in list(ppr):
-            if border.tag==qn('w:pBdr'):ppr.remove(border)
+        if reader_style:
+            style.font.color.rgb=RGBColor(0,0,0)
+            ppr=style.element.get_or_add_pPr()
+            for border in list(ppr):
+                if border.tag==qn('w:pBdr'):ppr.remove(border)
     doc.styles['Normal'].font.size=Pt(10);doc.styles['Normal'].paragraph_format.space_after=Pt(6)
+    return doc
+
+
+def _build_reader_facing_report(identifier, manifest_sha256, config, manifest, tables, figures, narrative):
+    en=config.get('output_language')=='en';doc=create_insight_report_document(reader_style=True)
+    record=narrative if isinstance(narrative,dict) else {};narrative=record.get('narrative',record)
     doc.add_paragraph(_reader_title(config,en),style='Title')
     doc.add_paragraph('Reader-facing report generated from frozen analysis facts.' if en else '本报告基于已冻结的分析事实生成，供研究人员阅读和进一步核对。')
     _reader_paragraph(doc,'Abstract' if en else '摘要',narrative['abstract'])
@@ -199,15 +207,8 @@ def build_single_cell_insight_report(identifier,manifest_sha256,config,manifest,
     """Use recorded values only; table excerpts explicitly retain their totals."""
     if narrative is not None:
         return _build_reader_facing_report(identifier,manifest_sha256,config,manifest,tables,figures,narrative)
-    en=config.get('output_language')=='en';doc=Document()
+    en=config.get('output_language')=='en';doc=create_insight_report_document()
     local=lambda zh,english:english if en else zh
-    section=doc.sections[0];section.page_width=Mm(210);section.page_height=Mm(297)
-    section.left_margin=section.right_margin=section.top_margin=section.bottom_margin=Mm(20)
-    for name in ('Normal','Title','Heading 1','Heading 2'):
-        style=doc.styles[name];style.font.name='Arial'
-        style.element.get_or_add_rPr().get_or_add_rFonts().set(qn('w:eastAsia'),'Microsoft YaHei')
-    doc.styles['Normal'].font.size=Pt(10)
-    doc.styles['Normal'].paragraph_format.space_after=Pt(6)
     topic=config.get('kind')=='integration' and config.get('schema_version')==2
     composition=config.get('method')=='single_cell_composition'
     enrichment=config.get('kind') in ('ora','gsea_prerank')

@@ -7,6 +7,7 @@ import stat
 import zipfile
 from defusedxml.ElementTree import iterparse, fromstring
 from .inputs import verify_member
+from app.domain.bioinformatics.settings import BioLimits
 
 PARSER_VERSION = 'bio_insight_table_v1'
 NS = '{http://schemas.openxmlformats.org/spreadsheetml/2006/main}'
@@ -79,9 +80,10 @@ def _xlsx_rows(path, sheet, limit):
                 node.clear()
 
 
-def iter_table(member, format=None, sheet=None, max_uncompressed_bytes=536870912,
+def iter_table(member, format=None, sheet=None, max_uncompressed_bytes=None,
                encoding='utf-8-sig', delimiter=None, header_row=1):
     path = verify_member(member); format = format or member['format']
+    max_uncompressed_bytes = BioLimits().max_expanded_bytes if max_uncompressed_bytes is None else max_uncompressed_bytes
     if type(header_row) is not int or not 1 <= header_row <= 10000: raise ValueError('table_header_invalid')
     if not 0 < max_uncompressed_bytes <= 2 * 1024**3: raise ValueError('table_expansion_limit')
     if format in ('csv','tsv'):

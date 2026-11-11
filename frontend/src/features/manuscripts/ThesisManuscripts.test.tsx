@@ -4,10 +4,12 @@ import ProjectManuscripts from './ProjectManuscripts'
 import ManuscriptPreview from './ManuscriptPreview'
 import ManuscriptWriting from './ManuscriptWriting'
 import ManuscriptReview from './ManuscriptReview'
+import WritingLanguageReview from './WritingLanguageReview'
 import {reviewContext} from './reviewFixtures'
 import {taskFixture} from '../tasks/taskFixtures'
 import {setLocale} from '../../shared/i18n'
-import {candidatesFixture,manuscriptFixture,snapshotFixture} from './manuscriptFixtures'
+import {candidatesFixture,exportFixture,manuscriptFixture,snapshotFixture} from './manuscriptFixtures'
+import {languageArtifact,scienceReview} from './writingLiveFixtures'
 import {emptyInput,validInput,validSnapshot,type Snapshot,type ManuscriptVersion} from './manuscriptTypes'
 const profile={revision:2,school:'测试学校',department:'',major:'',degree_type:'硕士',education_level:'研究生',applicable_version:'2026',bound_confirmation_id:'confirm1'}
 const chapters=[{id:'chapter-method',title:'第二章 独立方法',level:1,purpose:'materials_and_methods',output_language:'en',result_group_ids:[]},{id:'chapter-result',title:'第三章 实验结果',level:2,purpose:'results',output_language:'zh-CN',result_group_ids:['g1']}]
@@ -60,11 +62,50 @@ it('uses actual school rewrite ids and exposes controlled writing for the school
 })
 
 it('opens fixed school export while keeping controlled writing available',async()=>{
- const version={...manuscriptFixture.versions[0],snapshot,input:{...manuscriptFixture.versions[0].input,thesis:{confirmation_id:'confirm1',profile_revision:2,chapter_mappings:chapters.map(c=>({chapter_id:c.id,purpose:c.purpose,output_language:c.output_language,result_group_ids:c.result_group_ids}))}}}
- vi.stubGlobal('fetch',vi.fn(async(url:string)=>Response.json(url.endsWith('/candidates')?{...candidatesFixture,project_type:'thesis',thesis:readiness}:url.endsWith('/manuscripts')?{items:[{...manuscriptFixture,versions:[version]}]}:url.includes('/context?')?reviewContext:{items:[]})))
- render(<ProjectManuscripts {...props}/>);fireEvent.click(await screen.findByRole('button',{name:'查看版本 1'}))
+ const version={...manuscriptFixture.versions[0],snapshot,exports:[],input:{...manuscriptFixture.versions[0].input,thesis:{confirmation_id:'confirm1',profile_revision:2,chapter_mappings:chapters.map(c=>({chapter_id:c.id,purpose:c.purpose,output_language:c.output_language,result_group_ids:c.result_group_ids}))}}}
+ const base='/api/v1/projects/p1/manuscripts'
+ const fetcher=vi.fn(async(url:string,init?:RequestInit)=>{
+  if(url===`${base}/candidates`)return Response.json({...candidatesFixture,project_type:'thesis',thesis:readiness})
+  if(url===base)return Response.json({items:[{...manuscriptFixture,versions:[version]}]})
+  if(url===`${base}/m1/versions/1/exports`&&!init?.method)return Response.json({items:[exportFixture]})
+  return Response.json(url.includes('/context?')?reviewContext:{items:[]})
+ })
+ vi.stubGlobal('fetch',fetcher)
+ render(<ProjectManuscripts {...props}/>)
+ fireEvent.click(await screen.findByRole('button',{name:'查看版本 1'}))
  expect(await screen.findByRole('heading',{name:'学校固定版本导出'})).toBeTruthy()
- expect(screen.getByRole('link',{name:'下载 DOCX'})).toBeTruthy();expect(screen.getByRole('button',{name:'受控写作与人工审核'})).toBeTruthy()
+ const exports=within(screen.getByRole('region',{name:'DOCX 导出'}))
+ expect((await exports.findByRole('link',{name:'下载 DOCX'})).getAttribute('href')).toBe(exportFixture.download_url)
+ expect(screen.getByRole('button',{name:'受控写作与人工审核'})).toBeTruthy()
+ expect(fetcher.mock.calls.every(([,init])=>!init?.method)).toBe(true)
+})
+it('localizes the frozen school export options in a selected historical language review',async()=>{
+ setLocale('en')
+ const schoolOptions={
+  manual_fields:{author:'',student_id:'',department:'',major:'',class_name:'',supervisor:'',submission_date:''},
+  manual_chapters:[],english_title:'Fixed school title',keywords:[],include_toc:true,toc_depth:3,field_values:{},
+ }
+ const artifact={...languageArtifact,candidate:{...snapshot,writing_provenance:{
+  ...scienceReview.candidate.writing_provenance!,
+  school_export_options:schoolOptions,
+ }}}
+ const fetcher=vi.fn(async(url:string,_init?:RequestInit)=>Response.json(
+  url.endsWith(`/language-reviews/${artifact.id}`)?artifact:{items:[]},
+ ))
+ vi.stubGlobal('fetch',fetcher)
+ render(<WritingLanguageReview projectId="p1" manuscriptId="m1" baseRevision={1} review={{...scienceReview,candidate:snapshot}} onPublished={vi.fn()}/>)
+ fireEvent.click(screen.getByText('Reload a historical language artifact by ID (advanced)'))
+ fireEvent.change(screen.getByLabelText('Historical language artifact ID'),{target:{value:artifact.id}})
+ fireEvent.click(screen.getByRole('button',{name:'Reload language artifact'}))
+ await screen.findByRole('option',{name:/Language review artifact 1/})
+ fireEvent.change(screen.getByLabelText('Explicitly select a language review artifact'),{target:{value:artifact.id}})
+ const summary=screen.getByText('Fixed school export options')
+ fireEvent.click(summary)
+ const options=within(summary.closest('details')!)
+ expect(options.getByText('School export options').tagName).toBe('DT')
+ expect(options.getByText('Fixed school title')).toBeTruthy()
+ expect(screen.getByRole('button',{name:'Explicitly publish the reviewed version'}).matches(':disabled')).toBe(true)
+ expect(fetcher.mock.calls.every(([,init])=>!init?.method)).toBe(true)
 })
 it('shows actual chapter titles in review and finds methods by purpose',async()=>{
  vi.stubGlobal('fetch',vi.fn(async(url:string)=>Response.json(url.includes('/context?')?{...reviewContext,facts:[],relationships:{...reviewContext.relationships,paragraphs:snapshot.sections!.map(s=>({id:s.paragraphs[0].id,section_id:s.id,purpose:s.purpose,source_ids:[],figure_ids:[]})),methods:[{id:'p0',section_id:'chapter-method',purpose:'materials_and_methods',source_ids:[],figure_ids:[]}],figures:[]}}:{items:[]})))

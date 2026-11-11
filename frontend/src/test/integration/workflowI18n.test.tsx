@@ -31,24 +31,40 @@ it('switches upload labels and preserves selected user filename without another 
 })
 
 it('translates analysis labels while preserving field values and a draft on language switches', async () => {
-  const fetch = vi.fn(async (url: string) => Response.json(url.includes('/structure-versions?') ? { ...page, items: [{ ...version, file_id: 'f', task: { ...version.task, project_id: 'p' }, datasets: [{ ...dataset, file_id: 'f', sheet_name: '研究数据' }] }] } : url.endsWith('/preview') ? { sheets: [{ name: '研究数据' }] }
+  const versions = Array.from({ length: 6 }, (_, index) => {
+    const revision = 6 - index
+    const id = `s${revision}`
+    return {
+      ...version, id, version: revision, file_id: 'f',
+      task: { ...version.task, id: `t${revision}`, project_id: 'p', input_version: { ...version.task.input_version, structure_id: id } },
+      datasets: [{ ...dataset, id: `d${revision}`, structure_id: id, version: revision, file_id: 'f', sheet_name: '研究数据' }],
+    }
+  })
+  const fetch = vi.fn(async (url: string) => Response.json(url.includes('/structure-versions?') ? { ...page, total: versions.length, latest_version: versions[0].version, items: versions.slice(0, page.page_size) } : url.endsWith('/preview') ? { sheets: [{ name: '研究数据' }] }
     : url.endsWith('/analysis-setup') ? null : { sheet_name: '研究数据', row_count: 3, warnings: ['第一行作为字段名；分析使用第2行至最后有值行的完整记录，不自动清洗；普通小数采用 binary64，可能存在浮点误差。', '存在合并单元格，覆盖格不自动补值。'], columns: [{ id: 'A', name: '指标原文', type: 'number', non_missing_count: 3, missing_count: 0, numeric_count: 3, can_be_numeric: true, can_be_group: true, issue_cells: [] }] }))
   vi.stubGlobal('fetch', fetch); render(<AnalysisSetup projectId="p" files={[{ id: 'f', filename: '研究数据.xlsx', file_type: 'xlsx', parse_status: 'parsed', uploaded_at: '2026-10-05' }]} />)
   fireEvent.change(screen.getByLabelText('用于分析的文件'), { target: { value: 'f' } })
-  fireEvent.change(await screen.findByLabelText('原始数据版本'), { target: { value: 's1' } })
-  fireEvent.change(screen.getByLabelText('分析工作表'), { target: { value: 'd1' } })
+  await screen.findByRole('option', { name: '原始数据版本 v6' })
+  fireEvent.change(screen.getByLabelText('原始数据版本'), { target: { value: 's6' } })
+  fireEvent.change(screen.getByLabelText('分析工作表'), { target: { value: 'd6' } })
   fireEvent.change(await screen.findByLabelText('数值单位（可选）'), { target: { value: '用户单位原文' } })
   const calls = fetch.mock.calls.length; locale('en')
   expect(screen.getByLabelText('Numeric column')).toBeTruthy()
   expect(screen.getByText('Page 1')).toBeTruthy()
+  expect(screen.getByRole<HTMLButtonElement>('button', { name: 'Next dataset versions' }).disabled).toBe(false)
   expect(screen.getByText('The first row supplies field names. Analysis uses complete records from row 2 through the last row containing a value, without automatic cleaning. Ordinary decimals use binary64 and may have floating-point error.')).toBeTruthy()
   expect(screen.getByText('Merged cells are present. Covered cells are not filled automatically.')).toBeTruthy()
   expect((screen.getByLabelText('Unit (optional)') as HTMLInputElement).value).toBe('用户单位原文')
   expect(screen.getAllByText(/指标原文/).length).toBeGreaterThan(0)
   expect(fetch).toHaveBeenCalledTimes(calls)
   expect(screen.getByRole('button', { name: 'Field setup' }).getAttribute('aria-current')).toBe('step')
-  fireEvent.click(screen.getByRole('button', { name: 'Chart' }))
-  expect(screen.getByText('Complete descriptive statistics before generating figures, explanations and reports.', { selector: '.workflow-stage:not([hidden]) p' })).toBeTruthy()
+  const chart = screen.getByRole<HTMLButtonElement>('button', { name: 'Chart' })
+  expect(chart.disabled).toBe(true)
+  expect(chart.title).toBe('Save a valid analysis configuration first')
+  const plan = screen.getByRole('button', { name: 'Analysis plan' })
+  fireEvent.click(plan)
+  expect(plan.getAttribute('aria-current')).toBe('step')
+  expect(screen.getByText('Select a prepared dataset version to generate and confirm an analysis plan. For raw data, save the field configuration to run descriptive statistics directly.', { selector: '.workflow-stage:not([hidden]) p' })).toBeTruthy()
   fireEvent.click(screen.getByRole('button', { name: 'Field setup' }))
   expect((screen.getByLabelText('Unit (optional)') as HTMLInputElement).value).toBe('用户单位原文')
   expect(fetch).toHaveBeenCalledTimes(calls)

@@ -27,7 +27,7 @@ def conflict(code='bio_source_conflict'):
 
 def member_filename(member):
     key=member.get('key','')
-    if key in ('matrix_values','matrix_missing','samples','input_scale','import_audit') or member.get('role')=='features':
+    if key in ('matrix_values','matrix_missing','samples','sample_mapping','input_scale','import_audit') or member.get('role')=='features':
         return key+'.'+member['format']
     if key.startswith('matrix_') or key.endswith('_index'):
         return key+'.'+member['format']

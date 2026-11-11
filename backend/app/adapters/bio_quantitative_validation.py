@@ -5,6 +5,76 @@ import numpy as np
 from app.adapters.bio_tabular_process import _ReconciliationWriter
 
 
+def _verify_model_values(matrix, tested, ids, features, factor_rows, raw_rows, normalized_rows, axis, method):
+    if [row['unit_id'] for row in factor_rows]!=ids or any(row['method']!=method for row in factor_rows):
+        raise ValueError('size_factor_axis_mismatch')
+    sf = np.array([float(row['factor']) for row in factor_rows])
+    if not np.isfinite(sf).all() or np.any(sf<=0):
+        raise ValueError('size_factor_invalid')
+    fit = matrix[:,tested].astype(float)
+    if method=='ratio':
+        usable=(fit>0).all(0)
+        if not usable.any():raise ValueError('ratio_no_positive_features')
+        logs=np.log(fit[:,usable]);expected=np.exp(np.median(logs-logs.mean(0),axis=1))
+    else:
+        logs=np.zeros_like(fit);np.log(fit,out=logs,where=fit>0);means=logs.mean(0);usable=means>0
+        expected=np.array([np.exp(np.median(np.log(row[usable&(row>0)])-means[usable&(row>0)])) for row in fit]);expected/=np.exp(np.log(expected).mean())
+    if not np.allclose(sf,expected,rtol=1e-8,atol=1e-10):
+        raise ValueError('size_factor_formula_mismatch')
+    if [row['feature_id'] for row in raw_rows]!=features or [row['feature_id'] for row in normalized_rows]!=features:
+        raise ValueError('model_matrix_size_mismatch')
+    allowed = {axis, 'feature_id', *ids}
+    for j,(rawrow,normrow) in enumerate(zip(raw_rows,normalized_rows)):
+        if any(v!='' for k,v in rawrow.items() if k not in allowed) or any(v!='' for k,v in normrow.items() if k not in allowed):
+            raise ValueError('model_extra_sample_values')
+        for i,uid in enumerate(ids):
+            if int(rawrow[uid])!=int(matrix[i,j]):
+                raise ValueError('model_counts_mismatch')
+        observed = [float(normrow[uid]) for uid in ids]
+        if not np.allclose(observed,matrix[:,j]/sf,rtol=1e-10,atol=1e-10):
+            raise ValueError('model_normalized_counts_mismatch')
+    return sf
+
+
+def _verify_fit_warnings(diagnostic):
+    warnings=diagnostic.get('warnings')
+    if not isinstance(warnings,list) or any(not isinstance(w,str) for w in warnings) or diagnostic.get('fit_type_requested')!='parametric' or diagnostic.get('fit_type_effective')!=('mean' if any('mean-based' in w for w in warnings) else 'parametric'):
+        raise ValueError('model_fit_diagnostics_invalid')
+
+
+def _verify_reviewed_model(config, model, matrix_index, values, features, diagnostic, samples, factors, raw, normalized):
+    from app.adapters.bio_insights_engine.counts_model import BULK_FIT_ID, frozen_parameters, reviewed_filter
+    from app.adapters.bio_insights_engine.comparison import _identity
+    from app.domain.bio_insights.bulk_model_design import contrast_vectors
+
+    keys = [(row['processed_version_id'], row['sample_id']) for row in model['samples']]
+    ids = ['s'+_identity(key)[:24] for key in keys]
+    matrix = values[[matrix_index[key] for key in keys]]
+    tested, exclusion_reasons = reviewed_filter(matrix, model['filter'])
+    expected = {key: model[key] for key in ('formula','terms','condition_reference','filter','design_columns',
+                                           'design_matrix','rank','residual_degrees_freedom')}
+    expected.update(model_id=BULK_FIT_ID, method=config.bulk_model, parameters=frozen_parameters(config),
+        contrast_ids=[c.contrast_id for c in config.contrasts], contrast_vectors=contrast_vectors(model),
+        eligible_features=len(features), tested_features=int(tested.sum()), sample_unit_ids=ids)
+    if any(diagnostic.get(key)!=value for key,value in expected.items()):
+        raise ValueError('model_design_or_parameters_mismatch')
+    _verify_fit_warnings(diagnostic)
+    if len(samples)!=len(keys) or len(factors)!=len(keys):
+        raise ValueError('model_sample_mapping_mismatch')
+    for sample, factor, reviewed, uid in zip(samples, factors, model['samples'], ids):
+        fields={key: str(value) for key,value in reviewed.items() if key!='covariates'}
+        fields.update(model_id=BULK_FIT_ID, unit_id=uid)
+        if (set(sample)!={*fields,'covariates'} or any(sample.get(key)!=value for key,value in fields.items()) or
+                json.loads(sample['covariates'])!=reviewed['covariates']):
+            raise ValueError('model_sample_metadata_mismatch')
+        if any(factor.get(key)!=fields[key] for key in ('model_id','unit_id','processed_version_id','sample_id')):
+            raise ValueError('size_factor_axis_mismatch')
+    if any(row.get('model_id')!=BULK_FIT_ID for table in (raw,normalized) for row in table):
+        raise ValueError('model_matrix_size_mismatch')
+    sf = _verify_model_values(matrix,tested,ids,features,factors,raw,normalized,'model_id',config.size_factor_method)
+    return tested, exclusion_reasons, (matrix/sf[:,None]).mean(0)
+
+
 class _ContinuousReconciliationWriter(_ReconciliationWriter):
     """Exact table structure/metadata with a narrow cross-runtime float tolerance."""
     numeric_tables={'comparison_results','posthoc_results'}
@@ -72,52 +142,41 @@ def validate_quantitative(result,items,payload):
         return value
     adjusted=[];actual_counts=[];model_counts=rows('model_counts');norm_counts=rows('model_normalized_counts');model_samples=rows('model_sample_metadata');factors=rows('size_factors')
     diagnostics=doc('model_diagnostics');convergence=rows('model_convergence')
-    if len(diagnostics)!=len(config.contrasts):raise ValueError('model_diagnostic_missing')
+    if len(diagnostics)!=(1 if config.bulk_model else len(config.contrasts)):raise ValueError('model_diagnostic_missing')
+    if config.bulk_model:
+        tested, exclusion_reasons, base_means = _verify_reviewed_model(
+            config, preview.bulk_model, index, values, features, diagnostics[0],
+            model_samples, factors, model_counts, norm_counts)
     if len(convergence)!=len(table):raise ValueError('model_convergence_incomplete')
     if not {'_LFC_converged','_genewise_converged','_MAP_converged'}<=set(convergence[0]):raise ValueError('model_convergence_columns_missing')
     convergence_map={(r['contrast_id'],r['feature_id']):r for r in convergence}
     if len(convergence_map)!=len(convergence):raise ValueError('model_convergence_duplicate')
     for contrast in config.contrasts:
         cid=contrast.contrast_id;group_keys,groups=selected_groups(config,contrast,index,by_key)
-        order=[(key,i,label) for side in (1,0) for key,i in zip(group_keys[side],groups[side]) for label in [contrast.groups[side].label]]
-        matrix=values[[i for _,i,_ in order]];tested=matrix.sum(0)>=config.minimum_total_counts
-        ids=['s'+_identity(key)[:24] for key,_,_ in order]
-        samples=[r for r in model_samples if r['contrast_id']==cid]
-        if [(r['unit_id'],r['processed_version_id'],r['sample_id'],r['condition']) for r in samples]!=[(uid,key[0],key[1],label) for uid,(key,_,label) in zip(ids,order)]:raise ValueError('model_sample_mapping_mismatch')
-        for sample,(key,_,_) in zip(samples,order):
-            source=by_key[key]
-            expected=dict(donor=source.get(config.pairing_field) or '',batch=source.get('batch') or '',biological_unit_id=source.get('biological_unit_id') or source.get('donor') or '')
-            if any(sample[k]!=str(v) for k,v in expected.items()):raise ValueError('model_sample_metadata_mismatch')
-        diagnostic=diagnostics[config.contrasts.index(contrast)]
-        covariate='donor' if config.design=='paired' else 'batch' if config.batch_adjustment else None
-        formula='~ '+covariate+' + condition' if covariate else '~ condition'
-        levels=sorted({r[covariate] for r in samples})[1:] if covariate else []
-        columns=['Intercept']+[f'{covariate}[T.{v}]' for v in levels]+[f'condition[T.{contrast.groups[0].label}]']
-        design=np.array([[1]+[int(r[covariate]==v) for v in levels]+[int(r['condition']==contrast.groups[0].label)] for r in samples],dtype=float)
-        rank=int(np.linalg.matrix_rank(design))
-        if diagnostic.get('contrast_id')!=cid or diagnostic.get('formula')!=formula or diagnostic.get('sample_unit_ids')!=ids or diagnostic.get('design_columns')!=columns or diagnostic.get('design_matrix')!=design.tolist() or diagnostic.get('rank')!=rank or diagnostic.get('residual_degrees_freedom')!=len(samples)-rank or diagnostic.get('parameters')!=frozen_parameters(config):raise ValueError('model_design_or_parameters_mismatch')
-        warnings=diagnostic.get('warnings')
-        if not isinstance(warnings,list) or any(not isinstance(w,str) for w in warnings) or diagnostic.get('fit_type_requested')!='parametric' or diagnostic.get('fit_type_effective')!=('mean' if any('mean-based' in w for w in warnings) else 'parametric'):raise ValueError('model_fit_diagnostics_invalid')
-        factor_rows=[r for r in factors if r['contrast_id']==cid]
-        if [r['unit_id'] for r in factor_rows]!=ids or any(r['method']!=config.size_factor_method for r in factor_rows):raise ValueError('size_factor_axis_mismatch')
-        sf=np.array([float(r['factor']) for r in factor_rows])
-        if not np.isfinite(sf).all() or np.any(sf<=0):raise ValueError('size_factor_invalid')
-        fit=matrix[:,tested].astype(float)
-        if config.size_factor_method=='ratio':
-            usable=(fit>0).all(0)
-            if not usable.any():raise ValueError('ratio_no_positive_features')
-            logs=np.log(fit[:,usable]);expected=np.exp(np.median(logs-logs.mean(0),axis=1))
-        else:
-            logs=np.zeros_like(fit);np.log(fit,out=logs,where=fit>0);means=logs.mean(0);usable=means>0
-            expected=np.array([np.exp(np.median(np.log(row[usable&(row>0)])-means[usable&(row>0)])) for row in fit]);expected/=np.exp(np.log(expected).mean())
-        if not np.allclose(sf,expected,rtol=1e-8,atol=1e-10):raise ValueError('size_factor_formula_mismatch')
-        actual=[r for r in model_counts if r['contrast_id']==cid];normalized=[r for r in norm_counts if r['contrast_id']==cid]
-        if [r['feature_id'] for r in actual]!=features or [r['feature_id'] for r in normalized]!=features:raise ValueError('model_matrix_size_mismatch')
-        for j,(rawrow,normrow) in enumerate(zip(actual,normalized)):
-            if any(v!='' for k,v in rawrow.items() if k not in {'contrast_id','feature_id',*ids}) or any(v!='' for k,v in normrow.items() if k not in {'contrast_id','feature_id',*ids}):raise ValueError('model_extra_sample_values')
-            for i,uid in enumerate(ids):
-                if int(rawrow[uid])!=int(matrix[i,j]):raise ValueError('model_counts_mismatch')
-                if not np.isclose(float(normrow[uid]),matrix[i,j]/sf[i],rtol=1e-10,atol=1e-10):raise ValueError('model_normalized_counts_mismatch')
+        if not config.bulk_model:
+            order=[(key,i,label) for side in (1,0) for key,i in zip(group_keys[side],groups[side]) for label in [contrast.groups[side].label]]
+            matrix=values[[i for _,i,_ in order]];tested=matrix.sum(0)>=config.minimum_total_counts
+            ids=['s'+_identity(key)[:24] for key,_,_ in order]
+            samples=[r for r in model_samples if r['contrast_id']==cid]
+            if [(r['unit_id'],r['processed_version_id'],r['sample_id'],r['condition']) for r in samples]!=[(uid,key[0],key[1],label) for uid,(key,_,label) in zip(ids,order)]:raise ValueError('model_sample_mapping_mismatch')
+            for sample,(key,_,_) in zip(samples,order):
+                source=by_key[key]
+                expected=dict(donor=source.get(config.pairing_field) or '',batch=source.get('batch') or '',biological_unit_id=source.get('biological_unit_id') or source.get('donor') or '')
+                if any(sample[k]!=str(v) for k,v in expected.items()):raise ValueError('model_sample_metadata_mismatch')
+            diagnostic=diagnostics[config.contrasts.index(contrast)]
+            covariate='donor' if config.design=='paired' else 'batch' if config.batch_adjustment else None
+            formula='~ '+covariate+' + condition' if covariate else '~ condition'
+            levels=sorted({r[covariate] for r in samples})[1:] if covariate else []
+            columns=['Intercept']+[f'{covariate}[T.{v}]' for v in levels]+[f'condition[T.{contrast.groups[0].label}]']
+            design=np.array([[1]+[int(r[covariate]==v) for v in levels]+[int(r['condition']==contrast.groups[0].label)] for r in samples],dtype=float)
+            rank=int(np.linalg.matrix_rank(design))
+            if diagnostic.get('contrast_id')!=cid or diagnostic.get('formula')!=formula or diagnostic.get('sample_unit_ids')!=ids or diagnostic.get('design_columns')!=columns or diagnostic.get('design_matrix')!=design.tolist() or diagnostic.get('rank')!=rank or diagnostic.get('residual_degrees_freedom')!=len(samples)-rank or diagnostic.get('parameters')!=frozen_parameters(config):raise ValueError('model_design_or_parameters_mismatch')
+            _verify_fit_warnings(diagnostic)
+            sf = _verify_model_values(matrix,tested,ids,features,[r for r in factors if r['contrast_id']==cid],
+                [r for r in model_counts if r['contrast_id']==cid],[r for r in norm_counts if r['contrast_id']==cid],
+                'contrast_id',config.size_factor_method)
+            base_means = (matrix/sf[:,None]).mean(0)
+            exclusion_reasons = ['minimum_total_counts']*len(features)
         for j,feature in enumerate(features):
             row=result_map[(cid,feature)]
             conv=convergence_map[(cid,feature)]
@@ -142,8 +201,14 @@ def validate_quantitative(result,items,payload):
             if row['p_value_underflow']!=str(p==0):raise ValueError('p_underflow_mismatch')
             padj=number(row,'original_method_adjustment')
             if padj is not None and not 0<=padj<=1:raise ValueError('original_method_adjustment_invalid')
-            if tested[j] and not np.isclose(number(row,'base_mean'),np.mean(matrix[:,j]/sf),rtol=1e-8,atol=1e-8):raise ValueError('base_mean_mismatch')
-            if not tested[j] and (row['reason']!='minimum_total_counts' or p is not None):raise ValueError('prefilter_mismatch')
+            if tested[j] and not np.isclose(number(row,'base_mean'),base_means[j],rtol=1e-8,atol=1e-8):raise ValueError('base_mean_mismatch')
+            if not tested[j] and (row['reason']!=exclusion_reasons[j] or row['test_status']!='excluded' or p is not None):raise ValueError('prefilter_mismatch')
+            if config.bulk_model:
+                if tested[j] and p is None and not failures and (row['test_status']!='not_computable' or row['reason'] not in (
+                        'cooks_filtered','undefined_wald','cooks_filtered_or_undefined_wald')):
+                    raise ValueError('wald_na_reason_invalid')
+                expected_reason = '' if padj is not None else row['reason'] or 'independent_filtered_or_undefined_adjustment'
+                if row.get('original_adjustment_reason')!=expected_reason:raise ValueError('adjustment_na_reason_invalid')
             adjusted.append(dict(tested=bool(tested[j]),contrast_id=cid,p_value=p,row=row))
             actual_counts.append(dict(contrast_id=cid,feature_id=feature,group_sizes={g.label:len(indices) for g,indices in zip(contrast.groups,groups)},n_pairs=len(groups[0]) if config.design=='paired' else None,missing_policy=config.missing_policy))
     family=adjust_families(adjusted,config.family_contrast_ids)

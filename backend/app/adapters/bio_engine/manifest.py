@@ -52,7 +52,10 @@ class Writer:
         for suffix,array in [('data',value.data),('indices',value.indices),('indptr',value.indptr)]: self.array(key+'_'+suffix,array)
         self.json(key+'_shape',{'shape':list(value.shape),'dtype':str(value.dtype),'nnz':int(value.nnz)})
     def table(self,key,rows,fields=None):
-        stream=io.StringIO(newline=''); rows=list(rows); fields=fields or (list(rows[0]) if rows else ['reason'])
+        stream=io.StringIO(newline='')
+        if not fields:
+            rows=list(rows)
+            fields=list(rows[0]) if rows else ['reason']
         writer=csv.DictWriter(stream,fields,delimiter='\t',lineterminator='\n');writer.writeheader()
         for row in rows:
             writer.writerow({k:('' if clean(row.get(k)) is None else json.dumps(clean(row[k]),ensure_ascii=False) if isinstance(row.get(k),(dict,list)) else clean(row.get(k))) for k in fields})

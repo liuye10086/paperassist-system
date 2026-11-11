@@ -2,6 +2,7 @@ import { cleanup, render, screen, waitFor, within } from '@testing-library/react
 import userEvent from '@testing-library/user-event'
 import { afterEach, expect, test, vi } from 'vitest'
 import ProjectWorkspace from './ProjectWorkspace'
+import { workflowStateFixture } from '../../test/fixtures/workflowStateFixture'
 
 vi.mock('./ProjectResources', () => ({ default: () => null }))
 vi.mock('./ProjectSummary', () => ({ default: () => <section aria-label="摘要记录">已保存进展</section> }))
@@ -13,13 +14,23 @@ vi.mock('../manuscripts/ProjectManuscripts', () => ({ default: () => null }))
 vi.mock('../tasks/ProjectTasks', () => ({ default: () => null }))
 vi.mock('../literature/ProjectLiterature', () => ({ default: () => null }))
 
-afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.restoreAllMocks(); window.history.replaceState(null, '', '/') })
-const project = { id: 'p1', name: '代谢研究', research_topic: '组间比较', project_type: 'sci', file_count: 2,
+afterEach(() => {
+  cleanup()
+  sessionStorage.clear()
+  vi.unstubAllGlobals()
+  vi.restoreAllMocks()
+  window.history.replaceState(null, '', '/')
+})
+const project = { id: 'p1', name: '代谢研究', research_topic: '组间比较', project_type: 'sci' as const, file_count: 2,
   created_at: '2026-10-25T00:00:00Z', updated_at: '2026-10-25T00:00:00Z', default_output_language: 'zh-CN' }
 function setup(hash = '#project=p1') {
   window.history.replaceState(null, '', `/${hash}`)
   const fetcher = vi.fn(async (url: string, init?: RequestInit) => {
     if (url.includes('/projects?')) return Response.json({ items: [project, { ...project, id: 'p2', name: '另一研究' }], total: 2, page: 1, page_size: 5 })
+    if (url.endsWith('/workflow-state')) {
+      const id = url.includes('/projects/p2/') ? 'p2' : 'p1'
+      return Response.json(workflowStateFixture({ ...project, id }))
+    }
     if (url === '/api/v1/projects/p2') return Response.json({ ...project, id: 'p2', name: '另一研究' })
     return Response.json({ ...project, ...(init?.body ? JSON.parse(String(init.body)) : {}) })
   })

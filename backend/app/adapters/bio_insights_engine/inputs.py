@@ -5,12 +5,15 @@ import json
 from pathlib import Path
 import numpy as np
 from scipy import sparse
+from app.domain.bioinformatics.settings import BioLimits
+
+LIMITS = BioLimits()
 
 
 def verify_member(member):
     path = Path(member['path'])
     if (not path.is_absolute() or path.is_symlink() or not path.is_file()
-            or type(member['size_bytes']) is not int or not 0 < member['size_bytes'] <= 256 * 1024**2
+            or type(member['size_bytes']) is not int or not 0 < member['size_bytes'] <= LIMITS.max_member_bytes
             or path.stat().st_size != member['size_bytes']):
         raise ValueError('input_member_invalid')
     digest = hashlib.sha256()
@@ -135,7 +138,7 @@ def load_raw(raw):
     return matrix,features,barcodes
 
 
-def iter_table(member, format=None, sheet=None, max_uncompressed_bytes=536870912,
+def iter_table(member, format=None, sheet=None, max_uncompressed_bytes=None,
                encoding='utf-8-sig', delimiter=None, header_row=1):
     from .tables import iter_table as read_table
     return read_table(member, format=format, sheet=sheet, max_uncompressed_bytes=max_uncompressed_bytes,

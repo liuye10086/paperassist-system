@@ -16,6 +16,7 @@ from app.domain.bioinformatics.service import BioDatasetService,require_key
 from app.domain.bioinformatics.analysis_contracts import (BioObservationRow,BioObservationMapPreviewRequest,
     BioProcessedDatasetSourceV1,BioRecipeParameters,ENGINE_VERSION)
 from app.domain.bioinformatics.analysis_settings import BioAnalysisLimits,runtime_identity
+from app.domain.bioinformatics.settings import BioLimits
 from app.core.exceptions import StorageError
 from app.domain.storage_governance import service as ledger
 from app.db.bio_analysis_schema import TABLE_NAMES
@@ -290,6 +291,13 @@ class BioAnalysisStore:
                 samples=json.loads(self.raw_store.objects.read(leaves['samples_index']))['sample_ids']
                 features=json.loads(self.raw_store.objects.read(leaves['features_index']))['feature_ids']
                 if not set(request.params.exclude_samples)<=set(samples) or not set(request.params.exclude_features)<=set(features):raise error('bio_recipe_invalid',422)
+                if manifest['assay'] == 'bulk_rna_counts' and request.design_version_id:
+                    design=self.design(db,project,request.design_version_id)
+                    design_samples = {item['id'] for item in design['content_json']['samples']}
+                    if design_samples != set(samples):
+                        missing = ','.join(sorted(design_samples - set(samples)))
+                        extra = ','.join(sorted(set(samples) - design_samples))
+                        raise StorageError('bio_design_sample_mismatch',f'实验设计与输入样本集合不一致；缺失={missing or "无"}；多出={extra or "无"}。',422)
             else:
                 _,manifest,_,barcodes,features=self.axes(db,project,request.raw_source)
                 if manifest.get('schema_version')==3 or single_cell!=(manifest.get('assay')=='single_cell'):raise error('bio_recipe_invalid',422)
@@ -340,13 +348,18 @@ class BioAnalysisStore:
         with self.store.connection() as db:
             row,manifest=self.raw_store.require_version(db,project,dataset_id,version_id)
             source=BioDatasetService.source(row,[f['id'] for f in manifest['source_files']])
-            self.raw(db,project,source,verify=False)
+            _,_,members=self.raw(db,project,source,verify=False)
         if manifest.get('schema_version')==3:
             from app.domain.bioinformatics.tabular_settings import runtime_identity as tabular_runtime
             from app.domain.bioinformatics.tabular_contracts import TabularRecipeParameters
             runtime=tabular_runtime()
+            lookup={member['key']:member for member in members}
+            sample_ids=json.loads(self.raw_store.objects.read(lookup['samples_index']))['sample_ids']
+            sample_mapping=json.loads(self.raw_store.objects.read(lookup['sample_mapping'])) if 'sample_mapping' in lookup else None
+            limits=BioLimits()
             return dict(raw_source=source,assay=manifest['assay'],scale=manifest['scale'],observation_level='sample',available=runtime['available'],blockers=runtime['blockers'],
-                limits={'max_cells':1000000,'max_rows':100000,'max_columns':256,'max_file_bytes':10485760},recipes=['tabular_quantitative_v1'],
+                sample_ids=sample_ids,sample_mapping=sample_mapping,
+                limits={'max_cells':limits.max_bulk_matrix_cells if manifest['assay']=='bulk_rna_counts' else 1000000,'max_rows':limits.max_features if manifest['assay']=='bulk_rna_counts' else 100000,'max_columns':limits.max_bulk_observations if manifest['assay']=='bulk_rna_counts' else 255,'max_file_bytes':limits.max_tabular_file_bytes if manifest['assay']=='bulk_rna_counts' else 10485760},recipes=['tabular_quantitative_v1'],
                 design_gaps=['independent_biological_units_not_confirmed'],default_params=TabularRecipeParameters(normalization='display_library_size' if manifest['assay']=='bulk_rna_counts' else 'already_normalized' if manifest['scale']['kind'] in ('tpm','fpkm','normalized','log2','ln','log10') else 'none').model_dump(),runtime=runtime)
         single_cell=manifest.get('assay')=='single_cell'
         if single_cell:
@@ -379,6 +392,9 @@ class BioAnalysisStore:
         if obj['sha256']!=row['manifest_sha256']:raise conflict('bio_input_integrity_changed')
         manifest=self.objects.read_json(obj)
         if manifest.get('identity',{}).get('recipe_version_id')!=row['recipe_version_id']:raise conflict('bio_input_integrity_changed')
+        if manifest.get('identity',{}).get('setup_id'):
+            recipe=db.execute('SELECT setup_id FROM bio_analysis_recipe_versions WHERE id=%s AND project_id=%s',(row['recipe_version_id'],project)).fetchone()
+            if not recipe or manifest['identity']['setup_id']!=recipe['setup_id']:raise conflict('bio_input_integrity_changed')
         raw_source=manifest.get('raw_source') or manifest.get('identity',{}).get('raw_source')
         if phase is None:self.raw(db,project,raw_source)
         else:self._raw_lineage_in_phase(db,project,raw_source,phase=phase,progress=progress)
@@ -399,9 +415,12 @@ class BioAnalysisStore:
             from app.domain.bioinformatics.tabular_contracts import BioProcessedDatasetSourceV2
             model=BioProcessedDatasetSourceV2;extra={'assay':manifest['assay']}
         else:model=BioProcessedDatasetSourceV1;extra={}
-        return model(**extra,project_id=row['project_id'],processed_dataset_version_id=row['id'],analysis_run_id=row['run_id'],
+        source=model(**extra,project_id=row['project_id'],processed_dataset_version_id=row['id'],analysis_run_id=row['run_id'],
             raw_source=manifest.get('raw_source') or manifest['identity']['raw_source'],recipe_version_id=row['recipe_version_id'],
+            **({'setup_id':manifest.get('identity',{}).get('setup_id')} if manifest.get('schema_version')==2 else {}),
             manifest_sha256=row['manifest_sha256'],engine_version=row['engine_version'],environment_digest=row['environment_digest']).model_dump(mode='json')
+        if source.get('setup_id') is None:source.pop('setup_id',None)
+        return source
 
     def public_member(self,project,version,item):
         result={k:item[k] for k in ('id','key','role','format','sha256','size_bytes')}

@@ -1,0 +1,24 @@
+# Add the pinned open-source R runtime to the current B08 scientific image.
+ARG WORKER_IMAGE=paperassist-b08-tabular:capacity-delivery
+FROM ${WORKER_IMAGE}
+USER root
+COPY infra/single-cell-r/environment.yml /tmp/single-cell-r-environment.yml
+COPY infra/single-cell-r/compatibility.txt /tmp/single-cell-r-compatibility.txt
+RUN python -c "import urllib.request,tarfile,io; data=urllib.request.urlopen('https://micro.mamba.pm/api/micromamba/linux-64/2.9.0',timeout=120).read(); archive=tarfile.open(fileobj=io.BytesIO(data),mode='r:bz2'); open('/usr/local/bin/micromamba','wb').write(archive.extractfile('bin/micromamba').read())" \
+    && chmod 755 /usr/local/bin/micromamba
+RUN MAMBA_ROOT_PREFIX=/tmp/paperassist-mamba micromamba create --yes --strict-channel-priority \
+      --prefix /opt/paperassist-single-cell-r --file /tmp/single-cell-r-environment.yml \
+    && MAMBA_ROOT_PREFIX=/tmp/paperassist-mamba micromamba install --yes --strict-channel-priority \
+      --prefix /opt/paperassist-single-cell-r -c conda-forge -c bioconda \
+      --file /tmp/single-cell-r-compatibility.txt \
+    && micromamba list --prefix /opt/paperassist-single-cell-r --explicit > /opt/paperassist-single-cell-r/explicit-spec.txt \
+    && MAMBA_ROOT_PREFIX=/tmp/paperassist-mamba micromamba clean --all --yes
+ADD https://bioconductor.posit.co/packages/3.20/bioc/src/contrib/speckle_1.6.0.tar.gz /tmp/speckle_1.6.0.tar.gz
+RUN echo '37c10a800662f8e73dec695fa943956d00d6c6a6a61bcbebbfbb8a31e39829c7  /tmp/speckle_1.6.0.tar.gz' | sha256sum -c - \
+    && /opt/paperassist-single-cell-r/bin/R CMD INSTALL --no-docs --no-html /tmp/speckle_1.6.0.tar.gz \
+    && /opt/paperassist-single-cell-r/bin/Rscript --vanilla -e 'stopifnot(as.character(getRversion())=="4.4.3",as.character(packageVersion("speckle"))=="1.6.0",as.character(packageVersion("limma"))=="3.62.1",as.character(packageVersion("statmod"))=="1.5.2"); library(speckle)'
+RUN R_HOME=/opt/paperassist-single-cell-r/lib/R RPY2_CFFI_MODE=ABI \
+      /opt/paperassist-bio-insights/bin/pip install --no-cache-dir rpy2==3.5.17 cffi==2.1.1 pycparser==3.12 Jinja2==3.1.6 MarkupSafe==3.0.4 tzlocal==5.4.5 \
+    && /opt/paperassist-bio-insights/bin/pip check \
+    && sha256sum /tmp/speckle_1.6.0.tar.gz > /opt/paperassist-single-cell-r/speckle-source.sha256
+USER paperassist

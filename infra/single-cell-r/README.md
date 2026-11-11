@@ -70,3 +70,21 @@ API可通过运维环境变量`PAPERASSIST_SINGLE_CELL_REFERENCE_ROOT`只读访�
 方法、官方链接、数值对照和限制见[第4批SingleR报告](../../docs/superpowers/plans/2026-11-05-batch4-singler-report.md)。
 
 第3批在新建单细胞请求中默认启用测序深度协变量处理和Harmony，仍可关闭；历史缺字段参数保留旧行为。协变量仅作用于HVG降维副本，Harmony仅处理PC矩阵，不替换counts/normalized/log1p。Harmony 1.2.3使用固定`RunHarmony`接口，不浮动采用不同API或默认值；官方资料和混杂/缺批次适用边界见[设计核查](../../docs/superpowers/plans/2026-11-05-batch3-design-notes.md)。Harmony启用沿用本节R任务4/5GiB和1GiB输出预算，未承诺更大数据可用。
+
+## B08 复用的开源 R 扩展镜像
+
+当前 B08 Bulk 镜像没有内置 R。`Dockerfile.b08-propeller` 在 `paperassist-b08-tabular:capacity-delivery` 上复用现有环境定义，补齐 R 4.4.3、Bioconductor 3.20、DelayedMatrixStats 1.28.0、rpy2 3.5.17 和官方 speckle 1.6.0。既有 `Dockerfile.topics` 接续安装 Slingshot 2.14.0、GENIE3 1.28.0、CellChat 2.2.0.9001 及固定源码依赖。核心版本和源码 SHA 固定，实际完整 Conda 清单另行留证；不声称所有传递依赖均由输入锁文件固定。CellChat 运行时仍使用仓库中带 SHA 校验的 CC-BY-4.0 三条人类文献演示资源，不代表完整 CellChatDB。
+
+```powershell
+docker build --network default --build-arg WORKER_IMAGE=paperassist-b08-tabular:capacity-delivery -f infra/single-cell-r/Dockerfile.b08-propeller -t paperassist-b08-tabular:single-cell-r-propeller .
+docker build --network default --build-arg WORKER_IMAGE=paperassist-b08-tabular:single-cell-r-propeller -f infra/single-cell-r/Dockerfile.topics -t paperassist-b08-tabular:single-cell-r-topics .
+docker run --rm --network none --memory 2g --cpus 1 --entrypoint /opt/paperassist-bio-insights/bin/python paperassist-b08-tabular:single-cell-r-topics -m app.adapters.bio_insights_engine.runtime_probe
+```
+
+2026-11-11 最终实测镜像为 `sha256:728b440e94d7708a5bbf983da746ccf6e5ca2d93f93acd19c2dc19cc937c5d57`。断网、单 CPU、2 GiB 容器中的综合探针通过 Propeller、Slingshot、GENIE3、CellChat，进程峰值 RSS 为 1,390,512 KiB（约 1.33 GiB）。另在 4 GiB 容器中分开执行原工具数值对照（7 + 5 项）与运行环境/隔离测试（4 项），共 16 项通过。数值对照使用合成夹具与真实 R 原工具，不替代新公开队列或生物学验证。
+
+最终材料位于 `script/.runtime/bulk-b08-validation/single-cell-r-final/`：`bio-insights-runtime.json` 为程序可直接读取的原始准入收据，`summary.json` 为验证汇总，`commands.json` 保存命令、退出码及耗时；完整包清单、源码 SHA 和初次失败日志均保留。此前的 `single-cell-r-extensions-runtime.json` 仅为历史汇总，不能作为当前镜像的程序准入收据。
+
+本机应用与镜像内四种方法独立预热后的实际 Worker 身份均与最终收据一致，环境摘要为 `fa6b07fd4b1a2f1af87659cd1fcfb34a44627619581ffaca57660301cfa169af`。部署时将同一原始收据通过 `PAPERASSIST_BIO_INSIGHTS_RUNTIME_MANIFEST` 配置给独立单细胞 API/Worker，并使用匹配镜像；仅配置 API 变量不会安装 R。当前 Bulk 验收栈保持独立镜像及原有有效收据。
+
+运行 R 原工具测试前，沿用 `script/dev/single_cell_runtime.py` 的启动次序，先调用 `preload_runtime_libraries()`，再导入 pytest，避免 pytest 提前加载 Debian OpenSSL 与 Conda R 的 ABI 冲突。原工具测试与启动新子进程的综合探针分别运行，防止父进程保留的 R 堆占用 Docker 全局可用内存门槛；没有修改内存或隔离检查。

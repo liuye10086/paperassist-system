@@ -10,11 +10,13 @@ import struct
 import tempfile
 
 from app.adapters.bio_insights_engine.worker import actual_identity,warm_render_environment,records
+from app.adapters.bio_insights_engine.runtime_probe import warm_bulk_display
 from app.adapters.bio_insights_engine.sandbox import enter
 from app.adapters.bio_insights_engine.figures import run_figure
 # iter_table loads this module lazily; preload trusted code before Landlock.
 import app.adapters.bio_insights_engine.tables
 import app.adapters.bio_insights_engine.quantitative_figures
+import app.adapters.bio_insights_engine.bulk_figures
 import app.adapters.bio_insights_engine.qpcr_figures
 import app.adapters.bio_insights_engine.microbiome_figures
 import app.adapters.bio_insights_engine.feature_figures
@@ -23,7 +25,7 @@ import app.adapters.bio_insights_engine.topic_figures
 import app.adapters.bio_insights_engine.evidence_figures
 from app.adapters.bio_engine.manifest import Writer,canonical
 from app.domain.bio_insights.contracts import FigureConfig
-from app.domain.bio_insights.settings import BioInsightsLimits
+from app.domain.bio_insights.settings import BioInsightsLimits, uses_bulk_display_runtime, uses_bulk_enrichment_runtime
 
 
 def main():
@@ -42,15 +44,18 @@ def main():
         signal.alarm(limits.warmup_seconds)
         from PIL import Image
         Image.init();codecs.lookup('utf-8-sig')
-        with tempfile.TemporaryDirectory(prefix='b04-render-warm-') as directory:warm_render_environment(Path(directory))
-        if payload['config'].get('figure_type','').startswith('microbiome_'):
-            import skbio
-        # Figure workers attest an initialized R runtime too. Loading its fixed
-        # native libraries does not fit a model or rerun the source analysis.
-        from app.adapters.single_cell_r.bridge import initialize_propeller
-        from contextlib import redirect_stdout
-        r_scratch=Path(tempfile.mkdtemp(prefix='b04-render-propeller-',dir='/tmp'))
-        with redirect_stdout(sys.stderr):initialize_propeller(r_scratch)
+        bulk_display = uses_bulk_display_runtime(payload['config']) or uses_bulk_enrichment_runtime(payload['config'])
+        with tempfile.TemporaryDirectory(prefix='b04-render-warm-') as directory:
+            warm = warm_bulk_display if bulk_display else warm_render_environment
+            warm(Path(directory))
+        if not bulk_display:
+            if payload['config'].get('figure_type','').startswith('microbiome_'):
+                import skbio
+            # The legacy environment identity includes the initialized R runtime.
+            from app.adapters.single_cell_r.bridge import initialize_propeller
+            from contextlib import redirect_stdout
+            r_scratch=Path(tempfile.mkdtemp(prefix='b04-render-propeller-',dir='/tmp'))
+            with redirect_stdout(sys.stderr):initialize_propeller(r_scratch)
         actual=actual_identity()
         if actual!=payload['_runtime_identity'] or any(payload['identity'].get(k)!=actual[k] for k in ('engine_version','code_digest','environment_digest','lock_sha256')):
             raise RuntimeError('bio_insights_environment_unavailable')

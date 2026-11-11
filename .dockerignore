@@ -1,8 +1,13 @@
 **
 !backend/
 !backend/requirements.txt
+!backend/requirements-bio.lock.txt
+!backend/requirements-bio-insights.lock.txt
 !backend/app/
 !backend/app/**
+!backend/tests/
+!backend/tests/numeric/
+!backend/tests/numeric/**
 !infra/
 !infra/worker/
 !infra/worker/Dockerfile

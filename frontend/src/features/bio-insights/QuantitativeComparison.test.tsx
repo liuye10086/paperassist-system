@@ -24,8 +24,15 @@ it('changes methods and group count explicitly while preserving the full family'
  fireEvent.click(screen.getByText('添加比较（最多 10 个）'))
  expect(buildPlan('test',current,sources,0,'draft').config.family_contrast_ids).toEqual(['contrast_1','contrast_2'])
  fireEvent.change(screen.getByLabelText('定量统计路径'),{target:{value:'bulk_counts'}})
- expect(current).toMatchObject({mode:'bulk_counts',method:'deseq2_wald',analysis_layer:'raw_counts',design:'independent',inference_unit:'biological',size_factor_method:'ratio'})
+ expect(current).toMatchObject({mode:'bulk_counts',method:'deseq2_wald',analysis_layer:'raw_counts',design:'multiple',inference_unit:'biological',size_factor_method:'ratio'})
  expect((current.contrasts as SampleContrast[]).every(c=>c.groups.length===2)).toBe(true)
+})
+it('keeps bulk pairwise multi-contrast design and exposes structured covariates',()=>{
+ let current:Config=defaultQuantitativeConfig();function Harness(){const[c,set]=useState(current);current=c;return <ComparisonSetup projectId="proj" config={c} sources={sources} onChange={set}/>}
+ render(<Harness/>);fireEvent.change(screen.getByLabelText('定量统计路径'),{target:{value:'bulk_counts'}});fireEvent.change(screen.getByLabelText('样本比较设计'),{target:{value:'multiple'}})
+ expect(current).toMatchObject({mode:'bulk_counts',design:'multiple',method:'deseq2_wald'});expect((current.contrasts as SampleContrast[])[0].groups).toHaveLength(2)
+ expect(screen.getByText('添加协变量')).toBeTruthy();fireEvent.click(screen.getByText('添加协变量'))
+ expect((current.covariates as {field:string}[])).toHaveLength(1)
 })
 it('allows unknown mixed-species identifiers without claiming a biological replicate',()=>{
  const c:Config={...defaultQuantitativeConfig(),namespace:'protein_label',reference_version:'MSstats-DDARawData',species_taxon_id:null,inference_unit:'technical'}

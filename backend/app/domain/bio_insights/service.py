@@ -7,7 +7,8 @@ from app.adapters.bio_analysis_store import scoped_object,object_by_key
 from app.adapters.analysis_request_receipts import read_receipt,bind_receipt,target
 from app.domain.bioinformatics.contracts import digest
 from app.domain.bioinformatics.service import require_key,append_checkpoint
-from .contracts import FrozenInsightPlanRequest,InsightPlanRequest,InsightRunRequest,ResourceImportRequest,InsightSourceSelection,SourceLocator
+from .contracts import (BULK_CONTRAST_FIGURES, BULK_HEATMAPS, BULK_PROCESSED_FIGURES, FrozenInsightPlanRequest,
+                        InsightPlanRequest, InsightRunRequest, ResourceImportRequest, InsightSourceSelection, SourceLocator)
 from .task_contracts import InsightTaskSnapshot,input_version
 from .sources import InsightSourceReader,_truth
 from .design import validate_design,DesignPreview,ResourceEstimate,DesignReason
@@ -56,6 +57,10 @@ def frozen_sources(sources):
 def source_digest(sources):return digest(frozen_sources(sources))
 
 
+def reviewed_design_digest(config, design, sources):
+    return digest(dict(config=config.model_dump(mode='json'), design=design.model_dump(mode='json'), sources=source_digest(sources)))
+
+
 def inherit_heatmap_metadata(config,sources):
     """Only an established canonical lineage can supply missing declarations."""
     if config.kind!='figure' or config.figure_type not in ('heatmap','distribution'):return
@@ -70,6 +75,53 @@ def inherit_heatmap_metadata(config,sources):
             raise invalid('bio_insight_source_conflict',422)
         if meta.get(field) is None:meta[field]=declared
     meta['reference_metadata_origin']='linked_frozen_comparison'
+
+
+def preview_bulk_display(config, source):
+    from .bulk_results import is_reviewed_bulk
+
+    metadata = source['metadata']
+    members = source['members']
+    reasons = []
+    selection = config.bulk_selection
+    if config.kind == 'figure' and config.figure_type in BULK_PROCESSED_FIGURES:
+        if (source['source_kind'] != 'bio_processed_dataset_version' or metadata.get('assay') != 'bulk_rna_counts'
+                or metadata.get('observation_level') != 'sample' or metadata.get('manifest', {}).get('schema_version') != 2):
+            reasons.append(DesignReason(code='bulk_processed_source_required', message='重绘需要固定的 Bulk 样本质控结果。'))
+        else:
+            panel = config.bulk_panel
+            required = {
+                'qc_missing': {'qc_missing_data'}, 'qc_expression': {'expression_distribution_data'},
+                'sample_clustering': set(), 'sample_correlation': {'sample_correlation'},
+                'sample_distance': {'sample_distance'}, 'pca_scores': {'pca_scores', 'pca_variance_ratio'},
+                'pca_variance': {'pca_variance_ratio'},
+            }[panel]
+            has_values = required <= members.keys()
+            if panel == 'sample_clustering':
+                has_values = 'sample_clustering_data' in members or (
+                    'sample_clustering' in members and not any(InsightSourceReader.read_rows(members['sample_clustering'])))
+            if panel == 'pca_scores' and has_values and 'pca_data' not in members:
+                has_values = not any(InsightSourceReader.read_rows(members['pca_scores']))
+            if not has_values:
+                reasons.append(DesignReason(code='bulk_plot_data_unavailable', message='这个固定版本缺少该图所需的保存数值。'))
+    elif source['source_kind'] != 'bio_insight_result_version' or not is_reviewed_bulk(metadata):
+        reasons.append(DesignReason(code='bulk_comparison_source_required', message='请选择已发布的 Bulk 共享模型差异结果。'))
+    else:
+        contrasts = {contrast['contrast_id'] for contrast in metadata['plan_config']['contrasts']}
+        if selection.contrast_id not in contrasts:
+            reasons.append(DesignReason(code='contrast_not_found', message='所选比较 ID 不存在于该固定结果版本。'))
+        required = {'comparison_results'}
+        if config.kind == 'figure' and (config.figure_type in BULK_HEATMAPS or config.figure_type == 'bulk_expression'):
+            required.update(('comparison_design', 'model_normalized_counts', 'model_sample_metadata'))
+        if not required <= members.keys():
+            reasons.append(DesignReason(code='bulk_plot_data_unavailable', message='这个固定版本缺少所需的完整比较表或模型数值。'))
+        elif config.kind == 'figure' and config.figure_type == 'bulk_expression' and not reasons:
+            feature = config.feature_ids[0]
+            if not any(row['contrast_id'] == selection.contrast_id and row['feature_id'] == feature
+                       for row in InsightSourceReader.read_rows(members['comparison_results'])):
+                reasons.append(DesignReason(code='bulk_plot_feature_not_found', message='该基因 ID 不在所选固定比较中。'))
+    estimate = ResourceEstimate(observations=0, features=0, contrasts=int(selection is not None), estimated_working_bytes=0)
+    return DesignPreview(executable=not reasons, blocking_reasons=reasons, resource_estimate=estimate)
 
 
 class BioInsightsService(BioInsightsStore):
@@ -109,6 +161,13 @@ class BioInsightsService(BioInsightsStore):
         return sources
 
     def _design(self,config,sources):
+        if getattr(config, 'bulk_enrichment', None) is not None:
+            from .bulk_enrichment import preview_bulk_enrichment
+            return preview_bulk_enrichment(config, sources)
+        if config.kind == 'figure' and config.figure_type in BULK_CONTRAST_FIGURES | BULK_PROCESSED_FIGURES:
+            return preview_bulk_display(config, sources[0])
+        if config.kind == 'candidate' and getattr(config, 'bulk_selection', None) is not None:
+            return preview_bulk_display(config, sources[0])
         if config.kind=='integration' and getattr(config,'schema_version',None)==2:
             from .single_cell_topics import validate_topic_design
             return validate_topic_design(config,sources)
@@ -225,23 +284,61 @@ class BioInsightsService(BioInsightsStore):
             if selected['metadata'].get('plan_config',{}).get('schema_version')!=4:reasons.append(DesignReason(code='microbiome_result_required',message='微生物组图件仅承接固定微生物组配方结果。'))
         if config.kind=='figure' and config.figure_type=='volcano':
             selected=next(s for s in sources if s['source_kind']=='bio_insight_result_version' and s['source_id']==config.result_source_id)
-            if selected['metadata'].get('plan_config',{}).get('design')=='multiple':
+            upstream=selected['metadata'].get('plan_config',{})
+            if upstream.get('design')=='multiple' and not upstream.get('bulk_model'):
                 reasons.append(DesignReason(code='omnibus_has_no_direction',message='多组 omnibus 没有单一方向效应，不能绘制方向火山图。'))
+        if config.kind == 'figure' and config.bulk_enrichment_render:
+            selected = next(s for s in sources if s['source_id'] == config.result_source_id)
+            meta = selected['metadata']
+            if (meta.get('kind') not in ('ora', 'gsea_prerank')
+                    or meta.get('plan_config', {}).get('bulk_enrichment') is None
+                    or 'enrichment_results' not in selected['members']):
+                reasons.append(DesignReason(code='bulk_enrichment_result_required',
+                                            message='请从固定 Bulk ORA 或 GSEA 结果打开重绘。'))
+            elif config.figure_type == 'enrichment':
+                audit = meta['methods_json']['bulk_enrichment']
+                eligible = {row['contrast_id'] for row in audit['coverage']
+                            if row.get('eligible_term_count', 0) > 0
+                            or any(item['eligible_term_count'] > 0 for item in row.get('resources', {}).values())}
+                if config.contrast_id not in eligible and (config.contrast_id is not None or len(eligible) != 1):
+                    reasons.append(DesignReason(code='bulk_enrichment_figure_contrast_unavailable',
+                                                message='请选择有已计算富集条目的固定比较绘图。'))
         if config.kind=='figure' and config.figure_type=='gsea':
             selected=next(s for s in sources if s['source_kind']=='bio_insight_result_version' and s['source_id']==config.result_source_id)
             member=selected['members'].get('enrichment_results')
+            frozen_contrast = selected['metadata'].get('plan_config', {}).get('contrast_id')
             if selected['metadata'].get('kind')!='gsea_prerank' or not member:
                 reasons.append(DesignReason(code='incompatible_result_kind',message='GSEA 曲线需要固定的 GSEA prerank 结果与完整 term 表。'))
-            elif not any(row.get('row_key')==config.term_row_key for row in InsightSourceReader.read_rows(member)):
+            elif config.bulk_enrichment_render and (
+                    not {'gsea_ranking', 'gsea_curves'} <= selected['members'].keys()
+                    or config.contrast_id not in (None, frozen_contrast)):
+                reasons.append(DesignReason(code='bulk_enrichment_figure_contrast_unavailable',
+                                            message='GSEA 曲线需要所属比较及完整排名和曲线数据。'))
+            elif not any(row.get('row_key') == config.term_row_key
+                         and (not config.bulk_enrichment_render or row.get('contrast_id') == frozen_contrast)
+                         for row in InsightSourceReader.read_rows(member)):
                 reasons.append(DesignReason(code='term_not_found',message='所选 term 稳定行键不存在于该固定 GSEA 结果。'))
         return DesignPreview(executable=not reasons,blocking_reasons=reasons,resource_estimate=ResourceEstimate(observations=0,features=0,contrasts=0,estimated_working_bytes=0))
+
+    def _authoring_design(self, config, sources):
+        if config.kind in ('ora', 'gsea_prerank') and config.bulk_enrichment is None:
+            from .bulk_results import is_reviewed_bulk
+            if any(source['source_kind'] == 'bio_insight_result_version' and is_reviewed_bulk(source['metadata'])
+                   for source in sources):
+                return DesignPreview(executable=False, blocking_reasons=[DesignReason(
+                    code='bulk_enrichment_use_fixed_entry', message='请从固定 Bulk 差异结果打开 ORA 或 GSEA。')],
+                    resource_estimate=ResourceEstimate(observations=0, features=0, contrasts=0, estimated_working_bytes=0))
+        return self._design(config, sources)
 
     def preview(self,project,request):
         request=InsightPlanRequest.model_validate(request)
         with self.store.connection() as db:
             sources=self._resolve(db,project,request)
-            design=self._design(request.config,sources)
-        return {**design.model_dump(mode='json'),'source_digest':source_digest(sources),'sources':frozen_sources(sources),
+            design=self._authoring_design(request.config,sources)
+        review = {}
+        if getattr(request.config,'bulk_model',None) and design.executable:
+            review['reviewed_design_sha256'] = reviewed_design_digest(request.config, design, sources)
+        return {**design.model_dump(mode='json'),**review,'source_digest':source_digest(sources),'sources':frozen_sources(sources),
                 'output_language':request.config.output_language,'real_model_calls':False,'real_network_calls':False}
 
     def create_plan(self,project,request,key,plan_id=None):
@@ -256,8 +353,15 @@ class BioInsightsService(BioInsightsStore):
                 if replay['request_digest']!=sha:raise invalid('bio_insight_idempotency_conflict')
                 selected=replay['id'];root=replay['plan_id'];status=200
             else:
-                sources=self._resolve(db,project,request);design=self._design(request.config,sources)
-                if request.decision=='confirmed' and not design.executable:raise invalid('bio_insight_design_blocked',422)
+                sources=self._resolve(db,project,request);design=self._authoring_design(request.config,sources)
+                review={}
+                if request.decision=='confirmed':
+                    if not design.executable:raise invalid('bio_insight_design_blocked',422)
+                    if getattr(request.config,'bulk_model',None):
+                        if not request.reviewed_design_sha256:raise invalid('bio_insight_plan_unconfirmed',422)
+                        if request.reviewed_design_sha256!=reviewed_design_digest(request.config,design,sources):
+                            raise invalid('bio_insight_revision_conflict')
+                        review['reviewed_design_sha256']=request.reviewed_design_sha256
                 if plan_id:
                     rootrow=self.require(db,'bio_insight_plans',project,plan_id)
                     if rootrow['revision']!=request.expected_revision or rootrow['kind']!=request.kind:raise invalid('bio_insight_revision_conflict')
@@ -269,7 +373,7 @@ class BioInsightsService(BioInsightsStore):
                         'revision':1,'current_version_id':None,'updated_at':now()})
                 insert(db,'bio_insight_plan_versions',{**base(identifier,project,self.store.user_id),'plan_id':root,'version':version,'parent_id':parent,
                     'kind':request.kind,'decision':request.decision,'config_json':request.config.model_dump(mode='json'),
-                    'config_sha256':digest(request.config.model_dump(mode='json')),'design_checks_json':{**design.model_dump(mode='json'),'plan_name':request.name},
+                    'config_sha256':digest(request.config.model_dump(mode='json')),'design_checks_json':{**design.model_dump(mode='json'),**review,'plan_name':request.name},
                     'confirmed_by':self.store.user_id if request.decision=='confirmed' else None,'confirmed_at':now() if request.decision=='confirmed' else None,
                     'request_key':key,'request_digest':sha})
                 for ordinal,source in enumerate(sources):self.bind(db,project,identifier,source,ordinal)
@@ -320,6 +424,14 @@ class BioInsightsService(BioInsightsStore):
             return {key:runtime[key] for key in ('engine_version','environment_digest','code_digest','lock_sha256')}
         if config.kind=='figure' and 'pdf' in config.formats:
             raise invalid('bio_figure_pdf_export_retired',422)
+        from .settings import runtime_identity, uses_bulk_display_runtime, uses_bulk_enrichment_runtime
+        wire = config.model_dump(mode='json')
+        bulk_enrichment = uses_bulk_enrichment_runtime(wire)
+        if bulk_enrichment or uses_bulk_display_runtime(wire):
+            runtime = runtime_identity(bulk_enrichment=True) if bulk_enrichment else runtime_identity(bulk_display=True)
+            if not runtime.get('available'):
+                raise invalid('bio_insights_environment_unavailable', 422)
+            return {key: runtime[key] for key in ('engine_version','environment_digest','code_digest','lock_sha256')}
         if config.kind in ('integration','sample_correspondence','object_correspondence') or config.kind=='figure' and config.figure_type.startswith('integration_'):
             from .settings import integration_runtime_identity
             runtime=integration_runtime_identity()
@@ -347,7 +459,7 @@ class BioInsightsService(BioInsightsStore):
             return {key:runtime[key] for key in ('engine_version','environment_digest','code_digest','lock_sha256')}
         if config.kind=='comparison' and getattr(config,'schema_version',None)==2:
             from .settings import quantitative_runtime_identity
-            runtime=quantitative_runtime_identity()
+            runtime=runtime_identity(bulk_model=True) if config.bulk_model else quantitative_runtime_identity()
             if not runtime.get('available'):raise invalid('bio_insights_environment_unavailable',422)
             return {key:runtime[key] for key in ('engine_version','environment_digest','code_digest','lock_sha256')}
         return self._runtime()
@@ -386,6 +498,10 @@ class BioInsightsService(BioInsightsStore):
                 if source_sha!=request.source_digest:raise invalid()
                 design=self._design(planned.config,sources)
                 if not design.executable:raise invalid('bio_insight_design_blocked',422)
+                if getattr(planned.config,'bulk_model',None) and (
+                    root['current_version_id']!=row['id'] or
+                    row['design_checks_json'].get('reviewed_design_sha256')!=reviewed_design_digest(planned.config,design,sources)
+                ):raise invalid('bio_insight_revision_conflict')
                 runtime=self._runtime_for(planned.config);task_type=TASK_FOR_KIND[row['kind']];task_id=identity(project,'run-task',key)
                 from .settings import BioInsightsLimits
                 limits=BioInsightsLimits().model_dump()
@@ -480,7 +596,11 @@ class BioInsightsService(BioInsightsStore):
             if 'execution_limits' in frozen['identity']:
                 from .settings import BioInsightsLimits
                 if frozen['identity']['execution_limits']!=BioInsightsLimits().model_dump():raise invalid('bio_insights_environment_unavailable',422)
-        if not self._design(planned.config,sources).executable:raise invalid('bio_insight_design_blocked',422)
+        design=self._design(planned.config,sources)
+        if not design.executable:raise invalid('bio_insight_design_blocked',422)
+        if getattr(planned.config,'bulk_model',None) and (
+            row['design_checks_json'].get('reviewed_design_sha256')!=reviewed_design_digest(planned.config,design,sources)
+        ):raise invalid('bio_insight_revision_conflict')
         return envelope
 
     def publish(self,db,task,checkpoint,moment,prepared,*,progress):

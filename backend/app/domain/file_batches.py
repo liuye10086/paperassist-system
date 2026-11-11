@@ -244,7 +244,7 @@ class FileBatchService:
 
 class BioUploadService(FileBatchService):
     profile = 'bioinformatics_v1'
-    extensions = ('.xlsx', '.tar', '.tgz', '.gz', '.mtx', '.tsv', '.csv', '.soft', '.xml', '.h5', '.h5ad', '.json', '.txt', '.png', '.jpg', '.jpeg')
+    extensions = ('.xlsx', '.tar', '.tgz', '.gz', '.mtx', '.tsv', '.csv', '.soft', '.xml', '.h5', '.h5ad', '.json', '.txt', '.html', '.pdf', '.png', '.jpg', '.jpeg')
 
     def maximum(self, version):
         from app.domain.bioinformatics.settings import BioLimits

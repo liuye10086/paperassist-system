@@ -1,5 +1,5 @@
 """Pure sample design admission; the numeric worker checks the actual arrays."""
-from pydantic import Field
+from pydantic import Field, model_serializer
 from .contracts import StrictModel
 from .design import DesignReason,ResourceEstimate,_rank
 from .quantitative_contracts import QuantitativeComparisonConfig,quantitative_scope
@@ -13,6 +13,14 @@ class QuantitativeDesignPreview(StrictModel):
     resource_estimate: ResourceEstimate
     warnings: list[str]=Field(default_factory=list)
     exclusions: list[dict]=Field(default_factory=list)
+    bulk_model: dict | None=None
+
+    @model_serializer(mode='wrap')
+    def design_document(self, handler):
+        data = handler(self)
+        if self.bulk_model is None:
+            data.pop('bulk_model', None)
+        return data
 
 
 def sample_key(row):
@@ -23,6 +31,9 @@ def validate_quantitative_design(config,sources):
     config=QuantitativeComparisonConfig.model_validate(config)
     sources=[s for s in sources if s['source_kind']=='bio_processed_dataset_version']
     reasons=[];units=[];exclusions=[];selected=set();by_key={};canonical=[]
+    structured = config.bulk_model is not None
+    cohorts = {}
+    small_sample = False
     def block(code,message,cid=None):
         reason=DesignReason(code=code,message=message,contrast_id=cid)
         if reason not in reasons:reasons.append(reason)
@@ -37,7 +48,7 @@ def validate_quantitative_design(config,sources):
             scale=meta.get('layers',{}).get(config.analysis_layer)
             if not scale:block('analysis_layer_missing','所选处理层不存在。')
             else:scales.append({k:v for k,v in scale.items() if k not in ('values','missing','shape')})
-        feature_axes.append(set(meta.get('retained_feature_ids',meta['feature_ids']) if config.mode=='continuous' else meta['feature_ids']))
+        feature_axes.append(set(meta.get('retained_feature_ids',meta['feature_ids']) if config.mode=='continuous' or structured else meta['feature_ids']))
         for row in meta['observations']:
             key=sample_key(row)
             if key in by_key:block('duplicate_sample_key','样本键重复。')
@@ -68,7 +79,14 @@ def validate_quantitative_design(config,sources):
                 if config.mode=='bulk_counts' and row.get('condition')!=group.label:block('condition_group_mismatch','counts 条件必须与原元数据完全相符。',cid)
                 rows.append(row)
             groups.append(rows)
-        flat=[r for g in groups for r in g];minimum=5 if config.method=='kruskal_wallis' else 3
+        flat=[r for g in groups for r in g]
+        minimum = 2 if structured else 5 if config.method=='kruskal_wallis' else 3
+        if structured:
+            small_sample |= min(map(len, groups)) == 2
+            for group, rows in zip(contrast.groups, groups):
+                cohort = cohorts.setdefault(group.label, rows)
+                if {sample_key(row) for row in cohort} != {sample_key(row) for row in rows}:
+                    block('inconsistent_condition_cohort', '同一条件在每个比较中须使用相同的纳入样本。', cid)
         if min(map(len,groups),default=0)<minimum:block('insufficient_samples',f'每组或完整配对至少需要 {minimum} 个样本。',cid)
         if sum(map(len,groups))>10000:block('sample_limit','比较最多 10000 个观测。',cid)
         biological=[r.get('biological_unit_id') or r.get('donor') for r in flat]
@@ -81,10 +99,11 @@ def validate_quantitative_design(config,sources):
             keys=[[r.get(config.pairing_field) for r in g] for g in groups]
             if any(not k for g in keys for k in g) or any(len(g)!=len(set(g)) for g in keys) or set(keys[0])!=set(keys[1]):block('incomplete_or_duplicate_pairs','配对键必须非空、组内唯一且两侧完全一致。',cid)
             pairs=len(set(keys[0])&set(keys[1])-{None,''});covariate=config.pairing_field
-        elif config.batch_adjustment:
-            covariate='batch'
+        if config.batch_adjustment:
+            if not structured:
+                covariate='batch'
             if any(not r.get('batch') for r in flat):block('batch_missing','批次调整要求完整批次。',cid)
-        if config.mode=='bulk_counts':
+        if config.mode=='bulk_counts' and not structured:
             levels=sorted({str(r.get(covariate)) for r in flat}) if covariate else []
             columns=2+max(0,len(levels)-1)
             if columns>100 or len(flat)>5000:block('design_capacity','设计超过 100 列或 5000 样本。',cid)
@@ -99,13 +118,26 @@ def validate_quantitative_design(config,sources):
             biological_units_numerator=0 if config.inference_unit=='technical' else len({r.get('biological_unit_id') or r.get('donor') for r in groups[0]}-{None,''}),
             biological_units_denominator=0 if config.inference_unit=='technical' else len({r.get('biological_unit_id') or r.get('donor') for r in groups[1]}-{None,''}),inference_unit=config.inference_unit,
             design_columns=columns,design_rank=rank,residual_degrees_freedom=residual))
+    bulk_model = None
+    if structured and not reasons:
+        from .bulk_model_design import describe_bulk_model
+        bulk_model = describe_bulk_model(config, cohorts, len(common), block)
+        if bulk_model:
+            for unit in units:
+                unit.update(design_columns=len(bulk_model['design_columns']), design_rank=bulk_model['rank'],
+                            residual_degrees_freedom=bulk_model['residual_degrees_freedom'])
     for key,row in by_key.items():
         if key in excluded or key not in selected or not row.get('retained'):
             exclusions.append(dict(processed_version_id=key[0],sample_id=key[1],reason=excluded.get(key) or ('not_retained' if not row.get('retained') else 'unassigned_to_any_contrast')))
-    size=len(common)*len(selected)*64+len(common)*len(config.contrasts)*1024
+    observation_count = len(bulk_model['samples']) if bulk_model else len(selected)
+    size=len(common)*observation_count*64+len(common)*len(config.contrasts)*1024
     if size>2*1024**3:block('resource_budget_exceeded','估计工作内存超过 2GiB。')
     warnings=['样本标识和软件一致性检查不能证明生物学独立性或功效。','缺失按每特征完整观测/完整配对处理；不插补，LOD/非随机缺失可能影响推断。']
+    if structured:
+        warnings[1] = 'Bulk 只使用保留样本的原始整数 counts。计算阶段复核过滤后文库和 size factor 的适用条件。'
+        if small_sample:
+            warnings.append('有条件或配对仅达到 2 个生物学重复的准入下界，统计功效须结合实验设计判断。')
     if config.inference_unit=='technical':warnings.append('仅技术测量层探索；真实独立生物学 n=0。')
     if scope=='sample_exploratory':warnings.append('sample_exploratory：P/q 为探索性证据，不构成确认性或因果结论。')
-    return QuantitativeDesignPreview(executable=not reasons,blocking_reasons=reasons,actual_units=units,family=config.family_contrast_ids,warnings=warnings,exclusions=exclusions,
-        resource_estimate=ResourceEstimate(observations=len(selected),features=len(common),contrasts=len(config.contrasts),estimated_working_bytes=size))
+    return QuantitativeDesignPreview(executable=not reasons,blocking_reasons=reasons,actual_units=units,family=config.family_contrast_ids,warnings=warnings,exclusions=exclusions,bulk_model=bulk_model,
+        resource_estimate=ResourceEstimate(observations=observation_count,features=len(common),contrasts=len(config.contrasts),estimated_working_bytes=size))

@@ -26,10 +26,14 @@ def table_shape(path,fmt,*,header='declared'):
 
 
 class ReproductionArchive:
-    def __init__(self):
+    def __init__(self, *, compression=zipfile.ZIP_STORED, compresslevel=None):
         self.file=tempfile.TemporaryFile(mode='w+b')
-        self.zip=zipfile.ZipFile(self.file,'w',compression=zipfile.ZIP_STORED,allowZip64=True)
+        self.zip=zipfile.ZipFile(self.file,'w',compression=compression,compresslevel=compresslevel,allowZip64=True)
         self.records={};self.total=0;self.closed=False
+
+    def _write_bytes(self, name, content):
+        self.zip.writestr(zipfile.ZipInfo(name), content, compress_type=self.zip.compression,
+                          compresslevel=self.zip.compresslevel)
 
     @staticmethod
     def name(name):
@@ -45,7 +49,7 @@ class ReproductionArchive:
             return self.records[name]
         self.total+=len(content)
         if self.total>2*1024**3:raise invalid('bio_insight_limit_exceeded',422)
-        self.zip.writestr(name,content)
+        self._write_bytes(name,content)
         record=dict(path=name,size_bytes=len(content),sha256=sha);self.records[name]=record;return record
 
     def add_json(self,name,value):return self.add_bytes(name,canonical(value))
@@ -62,19 +66,37 @@ class ReproductionArchive:
         if name in self.records:
             if any(self.records[name][key]!=expected[key] for key in ('sha256','size_bytes')):raise invalid()
             return self.records[name]
-        self.total+=expected['size_bytes']
-        if self.total>2*1024**3:raise invalid('bio_insight_limit_exceeded',422)
-        sha=hashlib.sha256();size=0
-        with path.open('rb') as source,self.zip.open(name,'w',force_zip64=True) as target:
-            while chunk:=source.read(1024**2):target.write(chunk);sha.update(chunk);size+=len(chunk)
-        if size!=expected['size_bytes'] or sha.hexdigest()!=expected['sha256']:raise invalid()
-        record=dict(path=name,size_bytes=size,sha256=sha.hexdigest())
+        with path.open('rb') as source:
+            record=self.add_stream(name,source,size_bytes=expected['size_bytes'],sha256=expected['sha256'])
         if fmt in ('tsv','csv'):record['table']=table_shape(path,fmt,header=table_header)
-        self.records[name]=record;return record
+        return record
+
+    def add_stream(self, name, source, *, size_bytes, sha256=None):
+        """Copy a bounded generated member without loading it into memory."""
+        name = self.name(name)
+        if name in self.records or size_bytes < 0:
+            raise invalid()
+        if self.total + size_bytes > 2 * 1024**3:
+            raise invalid('bio_insight_limit_exceeded', 422)
+        digest = hashlib.sha256()
+        size = 0
+        with self.zip.open(name, 'w', force_zip64=True) as target:
+            while chunk := source.read(1024**2):
+                size += len(chunk)
+                if size > size_bytes:
+                    raise invalid()
+                target.write(chunk)
+                digest.update(chunk)
+        if size != size_bytes or sha256 is not None and digest.hexdigest() != sha256:
+            raise invalid()
+        record = dict(path=name, size_bytes=size, sha256=digest.hexdigest())
+        self.total += size
+        self.records[name] = record
+        return record
 
     def finish(self,package):
         package['files']=list(self.records.values());content=canonical(package)
-        self.zip.writestr('package.json',content);self.zip.close();self.closed=True
+        self._write_bytes('package.json',content);self.zip.close();self.closed=True
         self.file.seek(0)
         return self.file,hashlib.sha256(content).hexdigest()
 

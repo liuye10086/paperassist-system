@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+from app.domain.bioinformatics.settings import BioLimits
 
 
 class BioInsightsLimits(BaseModel):
@@ -20,7 +21,22 @@ class BioInsightsLimits(BaseModel):
 
 INTERPRETER = '/opt/paperassist-bio-insights/bin/python'
 RUNTIME_MANIFEST_ENV = 'PAPERASSIST_BIO_INSIGHTS_RUNTIME_MANIFEST'
+BULK_MODEL_MANIFEST_ENV = 'PAPERASSIST_BULK_MODEL_RUNTIME_MANIFEST'
+BULK_DISPLAY_MANIFEST_ENV = 'PAPERASSIST_BULK_DISPLAY_RUNTIME_MANIFEST'
 STAGING_DIRECTORY_ENV = 'PAPERASSIST_BIO_INSIGHTS_STAGING_DIR'
+
+
+def uses_bulk_display_runtime(config):
+    if config.get('kind') == 'figure':
+        return config.get('figure_type', '').startswith('bulk_') or config.get('enrichment_order') == 'adjusted_metric_term_id'
+    return config.get('kind') == 'candidate' and config.get('bulk_selection') is not None
+
+
+def uses_bulk_enrichment_runtime(config):
+    kind = config.get('kind')
+    return (kind in ('ora', 'gsea_prerank') and config.get('bulk_enrichment') is not None
+            or kind in ('gene_sets', 'id_mapping') and config.get('offline_enrichment') is True
+            or kind == 'figure' and config.get('bulk_enrichment_render') is True)
 
 
 def engine_code_files():
@@ -34,7 +50,8 @@ def engine_code_files():
         'domain/bio_insights/single_cell_composition_contracts.py','domain/bio_insights/single_cell_composition.py',
         'domain/bio_insights/single_cell_topic_contracts.py','domain/bio_insights/single_cell_topics.py',
         'adapters/single_cell_r/topics_resource.json',
-        'domain/bio_insights/quantitative_contracts.py','domain/bio_insights/quantitative_design.py','domain/comparison/kernel.py',
+        'domain/bio_insights/quantitative_contracts.py','domain/bio_insights/quantitative_design.py','domain/bio_insights/bulk_model_design.py',
+        'domain/bio_insights/bulk_results.py','domain/bio_insights/bulk_enrichment.py','domain/comparison/kernel.py',
         'domain/bio_insights/qpcr_contracts.py','domain/bio_insights/qpcr_design.py',
         'domain/bio_insights/microbiome_contracts.py','domain/bio_insights/microbiome_design.py','domain/bio_insights/feature_contracts.py','domain/bio_insights/integration_contracts.py','domain/bio_insights/evidence_contracts.py','domain/bio_insights/external_matrix.py','domain/bio_insights/evidence_graph.py','domain/bio_insights/integration_matching.py','domain/bio_insights/integration_graph.py',
         'domain/correlation/kernel.py',
@@ -57,24 +74,36 @@ def engine_lock_digest():
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def runtime_identity():
+def runtime_identity(*, bulk_model=False, bulk_display=False, bulk_enrichment=False):
     """Only a fresh, complete actual Linux gate admits numerical methods."""
     blocked = {'available': False, 'reason': 'bio_insights_environment_unavailable'}
+    if bulk_model and (bulk_display or bulk_enrichment):
+        return blocked
+    if bulk_display or bulk_enrichment:
+        env_name, profile, required_checks = BULK_DISPLAY_MANIFEST_ENV, 'bulk_display', ('bulk_saved_values_render',)
+        if bulk_enrichment:
+            required_checks += ('bulk_offline_resource_import', 'bulk_offline_enrichment', 'bulk_offline_enrichment_render')
+    elif bulk_model:
+        env_name, profile, required_checks = BULK_MODEL_MANIFEST_ENV, 'bulk_model', ('bulk_shared_wald',)
+    else:
+        env_name, profile, required_checks = RUNTIME_MANIFEST_ENV, None, ('aggregation','deseq2_fit','gsea')
     try:
-        path = Path(os.environ[RUNTIME_MANIFEST_ENV])
+        path = Path(os.environ[env_name])
         if path.is_symlink() or not path.is_file() or path.stat().st_size > 2 * 1024**2:
             return blocked
         report = json.loads(path.read_bytes())
         if (report['schema_version'] != 1 or report['status'] != 'passed'
+                or report.get('profile') != profile
                 or report['engine_version'] != 'bio_insights_v1.0.0'
                 or report['interpreter'] != INTERPRETER or report['numeric_threads'] != 1
                 or report['lock_sha256'] != engine_lock_digest()
                 or report['code_digest'] != engine_code_digest()
                 or report['packages']['pydeseq2'] != '0.5.4' or report['packages']['gseapy'] != '1.3.1'
                 or report['isolation'] != {'network': 'denied', 'file': 'denied', 'fork': 'denied', 'subprocess': 'denied'}
-                or any(report['checks'][key] is not True for key in ['aggregation', 'deseq2_fit', 'gsea'])
+                or any(report['checks'][key] is not True for key in required_checks)
                 or report['peak_rss_kib'] >= BioInsightsLimits().memory_bytes // 1024
-                or report['limits'] != BioInsightsLimits().model_dump()):
+                or report['limits'] != BioInsightsLimits().model_dump()
+                or report['bulk_limits'] != BioLimits().model_dump()):
             return blocked
         identity = {key: report[key] for key in ['engine_version', 'code_digest', 'lock_sha256']}
         environment = {key: report[key] for key in ['python', 'packages', 'native_libraries', 'lock_sha256', 'limits']}

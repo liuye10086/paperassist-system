@@ -29,6 +29,7 @@ class WorkerStackTests(unittest.TestCase):
     def source_tree(self, root):
         for relative in ('backend/app/worker.py', 'backend/app/adapters/pdf_renderer_lock.json',
                          'backend/requirements.txt', '.dockerignore', 'infra/worker/Dockerfile',
+                         'backend/requirements-bio-insights.lock.txt',
                          'infra/worker/runtime_probe.py', 'infra/pdf/Dockerfile',
                          'infra/pdf/renderer.py', 'infra/pdf/update_fields.py', 'compose.workers.yml'):
             path = root / relative
@@ -54,6 +55,30 @@ class WorkerStackTests(unittest.TestCase):
                 compose.reset_mock()
                 worker_stack.start(second)
                 compose.assert_not_called()
+
+    def test_changed_staging_sources_are_applied_to_healthy_services(self):
+        with tempfile.TemporaryDirectory() as directory, patch.object(worker_stack, 'protect_directory'):
+            root = Path(directory)
+            self.source_tree(root)
+            values = self.values()
+            revision = 'PAPERASSIST_WORKER_CONFIG_REVISION'
+            healthy = [{'id': name, 'service': name, 'status': 'running', 'health': 'healthy'}
+                       for name in ('worker', 'dispatcher', 'rabbitmq', 'pdf-renderer')]
+            with patch.object(worker_stack, 'ROOT', root), patch.object(worker_stack, 'ensure_docker'), \
+                    patch.object(worker_stack, 'owned_containers', return_value=healthy), \
+                    patch.object(worker_stack, 'compose') as compose:
+                original = worker_stack.prepare(root, values)
+                applied = original.directory / 'applied-config-revision'
+                for prefix in ('PAPERASSIST_BIO_STAGING', 'PAPERASSIST_BIO_INSIGHTS_STAGING'):
+                    with self.subTest(mount=prefix):
+                        applied.write_text(original.environment[revision], encoding='utf-8')
+                        updated = root / 'updated-staging'
+                        refreshed = worker_stack.prepare(root, {**values, prefix + '_DIR': str(updated)})
+                        self.assertEqual(refreshed.environment[prefix + '_SOURCE'], str(updated.resolve()))
+                        compose.reset_mock()
+                        worker_stack.start(refreshed)
+                        self.assertTrue(any(call.args[1][0] == 'up' for call in compose.call_args_list))
+                        self.assertEqual(applied.read_text(encoding='utf-8'), refreshed.environment[revision])
 
     def test_worker_build_inputs_change_revision_but_python_cache_does_not(self):
         with tempfile.TemporaryDirectory() as directory, patch.object(worker_stack, 'protect_directory'):
@@ -114,6 +139,77 @@ class WorkerStackTests(unittest.TestCase):
             self.assertIn('target: /run/paperassist/bio-runtime.json', compose)
             self.assertIn('target: /run/paperassist/single-cell-runtime.json', compose)
             self.assertIn('target: /bio-staging', compose)
+
+    def test_bulk_insights_runtime_manifest_and_staging_are_staged_and_mounted(self):
+        with tempfile.TemporaryDirectory() as directory, patch.object(worker_stack, 'protect_directory'):
+            root = Path(directory)
+            insights = root / 'bio-insights-runtime.json'
+            insights.write_text('{"gate_status":"passed"}\n', encoding='utf-8')
+            bulk = root / 'bulk-model-runtime.json'
+            bulk.write_text('{"profile":"bulk_model"}\n', encoding='utf-8')
+            config = worker_stack.prepare(root, {**self.values(),
+                'PAPERASSIST_BIO_INSIGHTS_RUNTIME_MANIFEST': str(insights),
+                'PAPERASSIST_BULK_MODEL_RUNTIME_MANIFEST': str(bulk),
+                'PAPERASSIST_BIO_INSIGHTS_STAGING_DIR': str(root / 'insights-staging')})
+            self.assertEqual((config.directory / 'bio-insights-runtime.json').read_text(encoding='utf-8'), insights.read_text(encoding='utf-8'))
+            self.assertEqual(config.environment['PAPERASSIST_BIO_INSIGHTS_RUNTIME_MANIFEST'], '/run/paperassist/bio-insights-runtime.json')
+            self.assertEqual((config.directory / 'bulk-model-runtime.json').read_bytes(), bulk.read_bytes())
+            self.assertEqual(config.environment['PAPERASSIST_BULK_MODEL_RUNTIME_MANIFEST'], '/run/paperassist/bulk-model-runtime.json')
+            self.assertEqual(config.environment['PAPERASSIST_BIO_INSIGHTS_STAGING_DIR'], '/bio-insights-staging')
+            self.assertEqual(config.environment['PAPERASSIST_BIO_INSIGHTS_STAGING_SOURCE'], str((root / 'insights-staging').resolve()))
+
+    def test_changed_general_insights_receipt_applies_to_healthy_services(self):
+        with tempfile.TemporaryDirectory() as directory, patch.object(worker_stack, 'protect_directory'):
+            root = Path(directory)
+            self.source_tree(root)
+            receipt = root / 'general-insights.json'
+            values = {**self.values(), 'PAPERASSIST_BIO_INSIGHTS_RUNTIME_MANIFEST': str(receipt)}
+            revision = 'PAPERASSIST_WORKER_CONFIG_REVISION'
+            with patch.object(worker_stack, 'ROOT', root):
+                receipt.write_text('{}\n', encoding='utf-8')
+                original = worker_stack.prepare(root, values)
+                applied = original.directory / 'applied-config-revision'
+                applied.write_text(original.environment[revision], encoding='utf-8')
+                receipt.write_text('{"status":"passed"}\n', encoding='utf-8')
+                refreshed = worker_stack.prepare(root, values)
+
+            healthy = [{'id': name, 'service': name, 'status': 'running', 'health': 'healthy'}
+                       for name in ('worker', 'dispatcher', 'rabbitmq', 'pdf-renderer')]
+            with patch.object(worker_stack, 'ensure_docker'), patch.object(worker_stack, 'owned_containers', return_value=healthy), \
+                    patch.object(worker_stack, 'compose') as compose:
+                worker_stack.start(refreshed)
+                self.assertTrue(any(call.args[1][0] == 'up' for call in compose.call_args_list))
+            self.assertEqual(applied.read_text(encoding='utf-8'), refreshed.environment[revision])
+
+    def test_tabular_receipt_stages_and_updates_the_worker_revision(self):
+        with tempfile.TemporaryDirectory() as directory, patch.object(worker_stack, 'protect_directory'):
+            root = Path(directory)
+            receipt = root / 'tabular.json'
+            receipt.write_text('{"profile":"tabular"}\n', encoding='utf-8')
+            key = 'PAPERASSIST_BIO_TABULAR_RUNTIME_MANIFEST'
+            revision = 'PAPERASSIST_WORKER_CONFIG_REVISION'
+            default = worker_stack.prepare(root, self.values())
+            self.assertEqual(default.environment[key], '')
+            configured = worker_stack.prepare(root, {**self.values(), key: str(receipt)})
+            self.assertEqual(configured.environment[key], '/run/paperassist/bio-tabular-runtime.json')
+            self.assertEqual((configured.directory / 'bio-tabular-runtime.json').read_bytes(), receipt.read_bytes())
+            self.assertNotEqual(default.environment[revision], configured.environment[revision])
+            receipt.write_text('{}\n', encoding='utf-8')
+            changed = worker_stack.prepare(root, {**self.values(), key: str(receipt)})
+            self.assertNotEqual(configured.environment[revision], changed.environment[revision])
+            self.assertIn('target: /run/paperassist/bio-tabular-runtime.json',
+                          (worker_stack.ROOT / 'compose.workers.yml').read_text(encoding='utf-8'))
+            compose = (worker_stack.ROOT / 'compose.workers.yml').read_text(encoding='utf-8')
+            self.assertIn('target: /run/paperassist/bio-insights-runtime.json', compose)
+            self.assertIn('target: /run/paperassist/bulk-model-runtime.json', compose)
+            self.assertIn('target: /bio-insights-staging', compose)
+
+    def test_worker_image_declares_the_bio_insights_runtime(self):
+        dockerfile = (worker_stack.ROOT / 'infra/worker/Dockerfile').read_text(encoding='utf-8')
+        self.assertIn('backend/requirements-bio-insights.lock.txt', dockerfile)
+        self.assertIn('/opt/paperassist-bio-insights', dockerfile)
+        dockerignore = (worker_stack.ROOT / '.dockerignore').read_text(encoding='utf-8')
+        self.assertIn('!backend/requirements-bio-insights.lock.txt', dockerignore)
 
     def test_field_update_script_changes_renderer_revision(self):
         with tempfile.TemporaryDirectory() as directory, patch.object(worker_stack, 'protect_directory'):

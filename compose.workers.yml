@@ -20,7 +20,12 @@ x-worker: &worker
     PAPERASSIST_PDF_FONTS_DIR: /usr/local/share/fonts/paperassist
     PAPERASSIST_BIO_RUNTIME_MANIFEST: /run/paperassist/bio-runtime.json
     PAPERASSIST_SINGLE_CELL_RUNTIME_MANIFEST: /run/paperassist/single-cell-runtime.json
+    PAPERASSIST_BIO_INSIGHTS_RUNTIME_MANIFEST: /run/paperassist/bio-insights-runtime.json
+    PAPERASSIST_BIO_TABULAR_RUNTIME_MANIFEST: ${PAPERASSIST_BIO_TABULAR_RUNTIME_MANIFEST:-}
+    PAPERASSIST_BULK_MODEL_RUNTIME_MANIFEST: /run/paperassist/bulk-model-runtime.json
+    PAPERASSIST_BULK_DISPLAY_RUNTIME_MANIFEST: /run/paperassist/bulk-display-runtime.json
     PAPERASSIST_BIO_STAGING_DIR: /bio-staging
+    PAPERASSIST_BIO_INSIGHTS_STAGING_DIR: /bio-insights-staging
   secrets:
     - source: database-url
       target: database-url
@@ -37,8 +42,27 @@ x-worker: &worker
       target: /run/paperassist/single-cell-runtime.json
       read_only: true
     - type: bind
+      source: ${PAPERASSIST_STACK_PRIVATE}/bio-insights-runtime.json
+      target: /run/paperassist/bio-insights-runtime.json
+      read_only: true
+    - type: bind
+      source: ${PAPERASSIST_STACK_PRIVATE}/bio-tabular-runtime.json
+      target: /run/paperassist/bio-tabular-runtime.json
+      read_only: true
+    - type: bind
+      source: ${PAPERASSIST_STACK_PRIVATE}/bulk-model-runtime.json
+      target: /run/paperassist/bulk-model-runtime.json
+      read_only: true
+    - type: bind
+      source: ${PAPERASSIST_STACK_PRIVATE}/bulk-display-runtime.json
+      target: /run/paperassist/bulk-display-runtime.json
+      read_only: true
+    - type: bind
       source: ${PAPERASSIST_BIO_STAGING_SOURCE}
       target: /bio-staging
+    - type: bind
+      source: ${PAPERASSIST_BIO_INSIGHTS_STAGING_SOURCE}
+      target: /bio-insights-staging
     - type: bind
       source: ${PAPERASSIST_STACK_DATA}
       target: /data

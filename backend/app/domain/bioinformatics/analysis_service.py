@@ -81,7 +81,8 @@ class BioAnalysisService(BioAnalysisStore):
         raw,manifest,members=self.raw(db,project,raw_source)
         payload=dict(raw=dict(manifest=manifest,members={m['key']:engine_member(m,self.raw_store.objects.path(m['object_key'])) for m in members}),
             config=snapshot['params'] if task['task_type']=='bio_analysis' else snapshot['config'],
-            identity=dict(raw_source=raw_source,recipe_version_id=snapshot.get('recipe_version_id') or snapshot['processed_source']['recipe_version_id'],
+            identity=dict(raw_source=raw_source,setup_id=snapshot.get('setup_id'),
+                recipe_version_id=snapshot.get('recipe_version_id') or snapshot['processed_source']['recipe_version_id'],
                 environment_digest=snapshot['environment_digest'],code_digest=snapshot['code_digest']))
         if snapshot['workflow_version']=='bio_analysis_v3':
             design=self.design(db,project,snapshot['design_version_id'])

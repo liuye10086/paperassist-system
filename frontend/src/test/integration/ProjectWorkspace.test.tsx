@@ -1,14 +1,16 @@
 import { afterEach, expect, test, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import App from '../../app/App'
+import type { Project } from '../../features/projects/projectTypes'
 import { summaryFixture } from '../fixtures/summaryFixture'
 import { filePageFixture } from '../fixtures/filePageFixture'
 import { batchUploadFixture } from '../fixtures/batchUploadFixture'
+import { workflowStateFixture } from '../fixtures/workflowStateFixture'
 
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); window.history.replaceState(null, '', '/') })
 
-const project = { id: 'p1', name: '药学项目', research_topic: '分组比较', project_type: 'sci', file_count: 1,
+const project: Project = { id: 'p1', name: '药学项目', research_topic: '分组比较', project_type: 'sci', file_count: 1,
   created_at: '2026-09-29T10:00:00Z', updated_at: '2026-09-29T10:00:00Z' }
 const record = { id: 'f1', project_id: 'p1', filename: '实验.xlsx', file_type: 'xlsx', size_bytes: 123,
   sha256: 'a'.repeat(64), uploaded_at: '2026-09-29T10:00:00Z', parse_status: 'parsed', error: null }
@@ -18,8 +20,8 @@ const preview = { filename: '实验.xlsx', file_type: 'xlsx', sheets: [
 ] }
 
 function api(options: { empty?: boolean; failed?: boolean; uploadFailed?: boolean; listFailsOnce?: boolean; slowPreview?: Promise<Response> } = {}) {
-  let projects = options.empty ? [] : [project, { ...project, id: 'p2', name: '毕业论文项目', project_type: 'thesis', file_count: 0 }]
-  let files: Array<Omit<typeof record, 'error'> & { error: { code: string; message: string } | null }> = options.failed
+  let projects: Project[] = options.empty ? [] : [project, { ...project, id: 'p2', name: '毕业论文项目', project_type: 'thesis', file_count: 0 }]
+  let files: Array<Omit<typeof record, 'error'> & { error: { code: string; message: string } | null }> = options.empty ? [] : options.failed
     ? [{ ...record, parse_status: 'failed', error: { code: 'parse_failed', message: '文件损坏，请重新上传。' } }] : [record]
   const uploadBatch = batchUploadFixture('p1', () => {
     const uploaded = options.uploadFailed
@@ -33,7 +35,12 @@ function api(options: { empty?: boolean; failed?: boolean; uploadFailed?: boolea
     const batchResponse = uploadBatch(url, init)
     if (batchResponse) return batchResponse
     const summaryProject = projects.find(item => url.startsWith(`/api/v1/projects/${item.id}/summary?`))
-    if (summaryProject) return Response.json(summaryFixture(summaryProject.id, summaryProject.project_type as 'sci' | 'thesis'))
+    if (summaryProject) return Response.json(summaryFixture(summaryProject.id, summaryProject.project_type))
+    const flowProject = projects.find(item => url === `/api/v1/projects/${item.id}/workflow-state`)
+    if (flowProject) {
+      const readyFiles = flowProject.id === project.id ? files.filter(file => file.parse_status === 'parsed').length : 0
+      return Response.json(workflowStateFixture(flowProject, { readyFiles }))
+    }
     if (url.includes('/file-batches?')) return Response.json({ items: [], total: 0, page: 1, page_size: 5 })
     if (url.endsWith('/me')) return Response.json({ user: { id: 'test-user', email: 'test@paperassist.local', role: 'user' }, csrf_token: 'test-csrf' })
     if (url.endsWith('/health')) return Response.json({ status: 'ok', service: 'paperassist-system' })
@@ -71,6 +78,7 @@ async function openFiles(user: ReturnType<typeof userEvent.setup>) {
   if (!screen.queryByRole('button', { name: '项目文件' })) await user.click(await screen.findByRole('button', { name: '材料准备' }))
   await user.click(await screen.findByRole('button', { name: '项目文件' }))
 }
+const sidebar = () => within(screen.getByRole('complementary', { name: '主要导航' }))
 
 test('creates a project with a type and topic before uploading', async () => {
   const mock = api({ empty: true })
@@ -117,7 +125,7 @@ test('resets to research after creating another project type', async () => {
   await user.type(screen.getByLabelText('研究主题'), '新主题')
   await user.selectOptions(screen.getByLabelText('项目类型'), 'thesis')
   await user.click(screen.getByRole('button', { name: '创建项目' }))
-  await screen.findByRole('heading', { name: '新项目' })
+  await sidebar().findByRole('button', { name: '新项目' })
   expect(screen.queryByRole('dialog')).toBeNull()
   await user.click(screen.getByRole('button', { name: '新建研究项目' }))
   const dialog = within(screen.getByRole('dialog'))
@@ -139,7 +147,7 @@ test('opens a saved file, switches sheets, then reloads its project without uplo
   first.unmount()
   render(<App />)
   await screen.findByRole('cell', { name: '10' })
-  expect(screen.getByRole('heading', { name: '药学项目' })).toBeTruthy()
+  expect(sidebar().getByRole('button', { name: '药学项目' })).toBeTruthy()
   expect(window.location.hash).toBe('#project=p1&section=files&view=preview&file=f1')
   expect(mock.mock.calls.some(([, init]) => init?.method === 'POST')).toBe(false)
 })
@@ -192,19 +200,20 @@ test('downloads original Excel bytes using its original filename without uploadi
 
 test('late preview response cannot appear in another project', async () => {
   let finish: (value: Response) => void = () => {}
-  api({ slowPreview: new Promise(resolve => { finish = resolve }) })
+  const mock = api({ slowPreview: new Promise(resolve => { finish = resolve }) })
   const user = userEvent.setup()
   render(<App />)
   await user.click(await screen.findByRole('button', { name: '打开项目 药学项目' }))
   await openFiles(user)
   await user.click(await screen.findByRole('button', { name: '预览 实验.xlsx' }))
+  await waitFor(() => expect(mock.mock.calls.some(([url]) => url === '/api/v1/projects/p1/files/f1/preview')).toBe(true))
   await user.click(screen.getByRole('button', { name: '我的项目' }))
   await user.click(screen.getByRole('button', { name: '打开项目 毕业论文项目' }))
   await openFiles(user)
   expect(await screen.findByText('此项目还没有文件。')).toBeTruthy()
-  finish(Response.json(preview))
-  await waitFor(() => expect(screen.queryByRole('cell', { name: '10' })).toBeNull())
-  expect(screen.getByRole('heading', { name: '毕业论文项目' })).toBeTruthy()
+  await act(async () => { finish(Response.json(preview)) })
+  expect(screen.queryByRole('cell', { name: '10' })).toBeNull()
+  expect(sidebar().getByRole('button', { name: '毕业论文项目' })).toBeTruthy()
 })
 
 test('project list network failure can be retried', async () => {

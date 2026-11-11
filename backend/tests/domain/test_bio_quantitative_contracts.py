@@ -76,6 +76,6 @@ def test_database_snapshot_check_whitelists_only_comparison_v2():
     from app.db.schema import metadata
     constraint=next(c for c in metadata.tables['tasks'].constraints if c.name=='b04_tasks_snapshot_check')
     sql=str(constraint.sqltext)
-    assert "task_type='bio_comparison' AND workflow_version='bio_comparison_v2'" in sql
+    assert "task_type='bio_comparison' AND workflow_version IN ('bio_comparison_v2','bio_comparison_qpcr_v1','bio_comparison_microbiome_v1')" in sql
     assert "workflow_version=task_type||'_v1'" in sql
     assert "input_snapshot->'real_network_calls'='false'::jsonb" in sql

@@ -19,7 +19,8 @@ def load_quantitative(source,config):
     if [r['feature_id'] for r in annotations]!=features['feature_ids']:raise ValueError('feature_metadata_mismatch')
     if config.mode=='bulk_counts':
         if source['raw']['manifest']['assay']!='bulk_rna_counts' or raw.dtype!=np.dtype('int64') or missing.any() or np.any(raw<0):raise ValueError('raw_integer_counts_required')
-        values=raw[om];mask=missing[om];eligible=np.ones(raw.shape[1],dtype=bool)
+        eligible=fm if config.bulk_model else np.ones(raw.shape[1],dtype=bool)
+        values=raw[om][:,eligible];mask=missing[om][:,eligible]
         descriptor=dict(input_scale=source['raw']['manifest']['scale'],scale='raw_counts',unit='counts',normalization='none',transform='none',is_raw_integer_counts=True)
     else:
         prefix=config.analysis_layer;values=read_array(members[prefix+'_values']);mask=read_array(members[prefix+'_missing']);eligible=fm

@@ -3,12 +3,12 @@ import { useI18n, apiError, safeError } from '../i18n'
 import { useEffect, useRef, useState, type MouseEvent, type ReactNode } from 'react'
 import { apiFetch, captureApiSession, onApiSessionChanged } from '../api/client'
 import { captureProjectAccess } from '../api/projectAccess'
-type Props = { timeoutMs?:number; href: string; filename: string; children: ReactNode; ariaLabel?: string; onHttpError?: (status: number, body: unknown) => void }
+type Props = { timeoutMs?:number; href: string; filename: string; children: ReactNode; ariaLabel?: string; postBody?:unknown; onHttpError?: (status: number, body: unknown) => void }
 export default function ProjectDownloadLink(props: Props) {
   return <DownloadLink key={props.href} {...props} />
 }
 
-function DownloadLink({ href, filename, children, ariaLabel, onHttpError, timeoutMs=STANDARD_REQUEST_TIMEOUT_MS }: Props) {
+function DownloadLink({ href, filename, children, ariaLabel, postBody, onHttpError, timeoutMs=STANDARD_REQUEST_TIMEOUT_MS }: Props) {
   const { t } = useI18n()
   const [checkSession] = useState(captureApiSession)
   const [busy, setBusy] = useState(false)
@@ -21,9 +21,13 @@ function DownloadLink({ href, filename, children, ariaLabel, onHttpError, timeou
     return () => { active.current = false; request.current?.abort(); unsubscribe() }
   }, [])
 
-  async function download(event: MouseEvent<HTMLAnchorElement>) {
+  function onLinkClick(event: MouseEvent<HTMLAnchorElement>) {
     if (event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return
     event.preventDefault()
+    void download()
+  }
+
+  async function download() {
     if (request.current) return
     const scope = captureProjectAccess(href)
     try { checkSession(); scope.check() } catch { return }
@@ -36,7 +40,9 @@ function DownloadLink({ href, filename, children, ariaLabel, onHttpError, timeou
     }
     try {
       const blob = await Promise.race([
-        apiFetch(href, { signal: controller.signal }).then(async response => {
+        apiFetch(href, { signal: controller.signal, ...(postBody===undefined?{}:{
+          method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(postBody),
+        }) }).then(async response => {
           if (!response.ok) {
             const body = await response.json().catch(() => null)
             // Reject stale responses before notifying the owning context. A 401 already
@@ -72,6 +78,8 @@ function DownloadLink({ href, filename, children, ariaLabel, onHttpError, timeou
       if (active.current) setBusy(false)
     }
   }
-  return <><a href={href} aria-label={ariaLabel} aria-busy={busy} aria-disabled={busy} onClick={event => void download(event)}>{children}</a>
+  return <>{postBody===undefined
+    ?<a href={href} aria-label={ariaLabel} aria-busy={busy} aria-disabled={busy} onClick={onLinkClick}>{children}</a>
+    :<button type="button" aria-label={ariaLabel} aria-busy={busy} disabled={busy} onClick={()=>void download()}>{children}</button>}
     {busy && <span role="status">{t("正在下载……")} {t("大文件可能需要数分钟，请保持页面打开。")}</span>}{error && <span role="alert" className="error-panel">{t(error)}</span>}</>
 }

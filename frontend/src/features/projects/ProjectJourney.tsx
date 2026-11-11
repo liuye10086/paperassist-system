@@ -26,12 +26,13 @@ export default function ProjectJourney({ project, section, overviewView, onOverv
   const workspaceVisible = useContext(ProjectWorkspaceVisibleContext)
   const step = section==='analysis' && ['bio-result','bio-insight-result','report'].includes(analysisView??'') ? 4 : projectFlowStep(section, overviewView, hasAnalysis)
   const reasons = ['', '', blocked('overview','requirements'), blocked(hasAnalysis?'analysis':'manuscripts'), blocked('artifacts')]
+  // The route identifies the current step. Completion comes from saved workflow state.
   const state: WorkflowState = workflowState ?? {
     project_id: project.id,
     project_type: project.project_type,
     files: { total: project.file_count, ready: project.file_count },
-    requirements: { saved: step >= 3, version: null, services: hasAnalysis ? ['analysis'] : ['sci_draft'] },
-    results: { available: step >= 4 },
+    requirements: { saved: false, version: null, services: [] },
+    results: { available: false },
     next_step: step <= 1 ? 'upload' : step === 2 ? 'requirements' : step === 3 ? (hasAnalysis ? 'analysis' : 'writing') : 'results',
   }
   const steps = [

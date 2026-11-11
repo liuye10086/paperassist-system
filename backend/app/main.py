@@ -242,6 +242,8 @@ app.include_router(research_results_router)
 
 from app.api.bio_insights import router as bio_insights_router
 app.include_router(bio_insights_router)
+from app.api.bulk_workflow import router as bulk_workflow_router
+app.include_router(bulk_workflow_router)
 
 from app.api.delivery_packages import router as delivery_packages_router
 app.include_router(delivery_packages_router)

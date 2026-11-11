@@ -29,23 +29,34 @@ def true(value):
     raise ValueError('result_boolean_invalid')
 
 
-def load_result(source):
+def load_result(source, *, bulk_reference=None, bulk_contrasts=()):
     if source['source_kind']!='bio_insight_result_version':raise ValueError('result_source_invalid')
     members=source['members'];metadata=source['metadata']
     manifest=document(members['manifest']) if 'manifest' in members else metadata.get('manifest',{})
     config=metadata.get('plan_config') or metadata.get('config')
     if not config and 'recipe' in members:config=document(members['recipe']).get('config')
     if not isinstance(config,dict):raise ValueError('result_frozen_configuration_required')
-    taxon=config.get('species_taxon_id');namespace=config.get('namespace');reference=config.get('reference_version')
+    identity=config if bulk_reference is None else bulk_reference
+    taxon=identity.get('species_taxon_id');namespace=identity.get('namespace');reference=identity.get('reference_version')
     if type(taxon) is not int or not namespace or not reference:raise ValueError('result_explicit_species_namespace_reference_required')
-    for name,value in [('species_taxon_id',taxon),('namespace',namespace),('reference_version',reference)]:
-        if metadata.get(name) is not None and metadata[name]!=value:raise ValueError('result_reference_metadata_mismatch')
+    if bulk_reference is None:
+        for name,value in [('species_taxon_id',taxon),('namespace',namespace),('reference_version',reference)]:
+            if metadata.get(name) is not None and metadata[name]!=value:raise ValueError('result_reference_metadata_mismatch')
     if 'comparison_results' not in members:raise ValueError('complete_comparison_table_required')
+    fields={'row_key','feature_id','contrast_id','tested','inference_scope'}
+    if bulk_reference is not None:
+        fields.update(('numerator','denominator','test_status','effect_value','q_within_contrast',
+                       'q_global_family','original_method_adjustment','wald_statistic'))
     rows=[];keys=set()
     for number,row in iter_table(members['comparison_results'],format='tsv'):
-        if not {'row_key','feature_id','contrast_id','tested','inference_scope'}<=set(row):raise ValueError('result_columns_missing')
+        if not fields.issubset(row):raise ValueError('result_columns_missing')
         if not row['row_key'] or row['row_key'] in keys:raise ValueError('duplicate_result_row_key')
-        keys.add(row['row_key']);row['tested']=true(row['tested']);row['_source_row']=number
+        keys.add(row['row_key']);row['tested']=true(row['tested'])
+        if bulk_reference is not None:
+            if row['contrast_id'] not in bulk_contrasts:continue
+            # Keep the complete selected contrasts without retaining the heavy DE annotation and sample columns.
+            row={key:row[key] for key in fields}
+        row['_source_row']=number
         rows.append(row)
     summary=manifest.get('summary') or metadata.get('summary_json') or {}
     scope=manifest.get('inference_scope') or metadata.get('inference_scope')

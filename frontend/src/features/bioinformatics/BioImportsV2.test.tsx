@@ -28,8 +28,10 @@ it('requires a fresh material read before submitting a restored draft and keeps 
  const view=render(<BioImports {...props}/>);await screen.findByText('matrix.h5')
  fireEvent.change(screen.getByLabelText('数据集名称'),{target:{value:'恢复时不得提前提交'}});fireEvent.click(screen.getByRole('checkbox',{name:/matrix.h5/}));view.unmount()
  let rejectRead!:(reason:Error)=>void
- vi.mocked(apiFetch).mockImplementation((url,init)=>String(url).endsWith('/files')?new Promise((_resolve,reject)=>{rejectRead=reject}):responses(url,init))
+ const readMaterials=vi.fn(()=>new Promise<Response>((_resolve,reject)=>{rejectRead=reject}))
+ vi.mocked(apiFetch).mockImplementation((url,init)=>url.endsWith('/files')?readMaterials():responses(url,init))
  render(<BioImports {...props}/>);
+ await waitFor(()=>expect(readMaterials).toHaveBeenCalledTimes(1))
  expect(screen.getByRole('button',{name:'开始结构导入'})).toHaveProperty('disabled',true)
  await act(async()=>rejectRead(Error('offline')))
  expect(screen.getByRole('button',{name:'开始结构导入'})).toHaveProperty('disabled',true)

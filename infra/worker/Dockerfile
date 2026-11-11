@@ -15,6 +15,12 @@ ENV PYTHONPATH=/app OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 N
 WORKDIR /app
 USER paperassist
 
+FROM python:3.11.17-slim-bookworm@sha256:0a310eeecf4e1f5a0743f9a6520c90c88d089c903ca5fd283f501e3a805f5f89 AS bio-insights-runtime
+COPY backend/requirements-bio-insights.lock.txt /tmp/requirements-bio-insights.lock.txt
+RUN python -m venv /opt/paperassist-bio-insights \
+    && /opt/paperassist-bio-insights/bin/pip install --require-hashes --only-binary=:all: --no-cache-dir -r /tmp/requirements-bio-insights.lock.txt \
+    && /opt/paperassist-bio-insights/bin/pip check
+
 FROM python:3.11.17-slim-bookworm@sha256:0a310eeecf4e1f5a0743f9a6520c90c88d089c903ca5fd283f501e3a805f5f89
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
 WORKDIR /app
@@ -23,12 +29,14 @@ RUN pip install --timeout 60 --no-cache-dir -r requirements.txt && pip check \
     && useradd --uid 10001 --create-home paperassist \
     && install -d -o paperassist -g paperassist /run/paperassist-execution
 COPY --from=bio-runtime /opt/paperassist-bio /opt/paperassist-bio
+COPY --from=bio-insights-runtime /opt/paperassist-bio-insights /opt/paperassist-bio-insights
 COPY --from=bio-runtime /usr/share/fonts/truetype/wqy /usr/share/fonts/truetype/wqy
 COPY --from=bio-runtime /usr/share/doc/fonts-wqy-zenhei/copyright /usr/share/doc/fonts-wqy-zenhei/copyright
 COPY --from=bio-runtime /usr/lib/x86_64-linux-gnu/libgomp.so.1.0.0 /usr/lib/x86_64-linux-gnu/libgomp.so.1.0.0
 COPY --from=bio-runtime /usr/share/doc/gcc-12-base/copyright /usr/share/doc/libgomp1/copyright
 RUN ln -s libgomp.so.1.0.0 /usr/lib/x86_64-linux-gnu/libgomp.so.1
 COPY backend/requirements-bio.lock.txt /app/requirements-bio.lock.txt
+COPY backend/requirements-bio-insights.lock.txt /app/requirements-bio-insights.lock.txt
 COPY backend/app /app/app
 COPY infra/worker/runtime_probe.py /app/runtime_probe.py
 RUN python -c "from app.adapters.ocr_runtime import get_runtime; get_runtime()"

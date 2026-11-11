@@ -7,6 +7,7 @@ import io
 import math
 from pathlib import Path
 import re
+from app.domain.bioinformatics.settings import BioLimits
 
 ROOT_TERMS = {'GO:0008150', 'GO:0003674', 'GO:0005575'}
 MAX_ROWS = 10_000_000
@@ -15,7 +16,8 @@ MAX_GENES = 100_000
 MAX_RELATIONS = 5_000_000
 
 
-def text_lines(member, fmt, budget=536870912, *, expected_size=None, totals=None):
+def text_lines(member, fmt, budget=None, *, expected_size=None, totals=None):
+    budget = BioLimits().max_expanded_bytes if budget is None else budget
     path = Path(member['path'])
     if path.is_symlink() or not path.is_file() or path.stat().st_size != member['size_bytes']:
         raise ValueError('resource_file_identity_changed')
@@ -321,12 +323,16 @@ def run_resource_import(payload,writer):
     resource=dict(schema_version=1,importer_version='bio_resource_import_v1',kind=config['kind'],species_taxon_id=config['species_taxon_id'],
                   namespace=config['namespace'],release=config['release'],source=config['source'],usage=config['usage'],
                   input_files=originals,strip_ensembl_version=config['strip_ensembl_version'],**data)
+    if config.get('reference_version') is not None:
+        resource['reference_version'] = config['reference_version']
     writer.json('resource',resource)
     methods=dict(resource_kind=config['kind'],release=config['release'],source=config['source'],usage=config['usage'],
                  propagation_relations=config['propagation_relations'] if ontology else [],exclude_not=True,exclude_obsolete=True,
                  root_terms_excluded=sorted(ROOT_TERMS),evidence_codes=config['evidence_codes'],multi_label_counts_not_exclusive=True,
                  identifier_mapping='explicit_one_to_one_only; ORA_deduplicates_targets; GSEA_excludes_many_to_one',
                  sequence_structure_features='imported_annotations_only',input_files=originals)
+    if config.get('reference_version') is not None:
+        methods['reference_version'] = config['reference_version']
     return dict(summary=dict(stats),methods=methods,inference_scope='derived',provenance='system_computed')
 
 

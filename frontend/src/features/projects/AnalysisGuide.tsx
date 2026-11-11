@@ -7,6 +7,7 @@ import type { ProjectFile } from '../files/fileLibraryApi'
 import type { AnalysisNavigation } from './analysisViews'
 import AnalysisRequestList from './AnalysisRequestList'
 import type {EntryImport} from './analysisEntryState'
+import {bulkRoute} from '../bio-insights/bulkWorkflow'
 
 function GuideContent({ projectId, onUpload, version, files, loading, error, filesLoading, filesError, onRefresh, onReloadFiles, onNavigate, onFile, onRequirements, scopeId, imports, importsUnknown, importsError }: {
   projectId?:string;onUpload?:()=>void
@@ -18,6 +19,7 @@ function GuideContent({ projectId, onUpload, version, files, loading, error, fil
     <nav className="analysis-page-tabs" aria-label={t('执行分析视图')}>{[['tasks','本次任务'],['history','已有分析']].map(([key,label])=><button type="button" key={key} aria-pressed={panel===key} onClick={()=>setPanel(key)}>{t(label)}</button>)}</nav>
     <header className="analysis-overview-heading"><h2>{t(panel==='tasks'?'执行分析':'已有分析')}</h2>{panel==='tasks'&&<p>{t('核对任务 → 配置分析 → 检查并运行')}</p>}</header>
     <div className="analysis-guide-body"><div hidden={panel!=='tasks'}>
+    <div className="intake-actions"><button type="button" onClick={()=>onNavigate(bulkRoute('design'))}>{t('进入 Bulk RNA-seq 工作流')}</button></div>
     {importsError&&<p role="alert">{t(importsError)} <button type="button" onClick={onReloadFiles}>{t('重新读取材料')}</button></p>}
     {loading&&<p role="status">{t('正在读取已保存的需求……')}</p>}
     {error?<p role="alert">{t('需求读取失败，请重试。')} <button type="button" onClick={onRefresh}>{t('重新读取需求')}</button></p>:version?<AnalysisRequestList projectId={projectId} onUpload={onUpload} focused version={version} scopeId={scopeId} imports={imports} importsUnknown={importsUnknown} files={files} filesLoading={filesLoading} filesError={filesError} onNavigate={onNavigate} onFile={onFile} onRequirements={onRequirements} onReloadFiles={onReloadFiles}/>:!loading&&<section className="analysis-choice-summary"><p>{t('还没有保存分析需求，请先选择并保存需求。')}</p>{onRequirements&&<button type="button" onClick={()=>onRequirements?.()}>{t('填写需求')}</button>}</section>}

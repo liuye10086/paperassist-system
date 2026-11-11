@@ -12,9 +12,25 @@ def portable(value):
     return value
 
 
-def run(payload):
-    transported=project_transport_payload(payload)
-    payload=hydrate_single_cell_annotations(transported)
+def _runner(payload):
+    if payload.get('schema_version')!=1:raise ValueError('unsupported_insight_task')
+    if payload['kind']=='bio_comparison' and payload['config'].get('bulk_model')=='shared_wald_v1':
+        from .quantitative import run_quantitative
+        return run_quantitative
+    from app.domain.bio_insights.settings import uses_bulk_display_runtime, uses_bulk_enrichment_runtime
+    if uses_bulk_display_runtime(payload['config']) or uses_bulk_enrichment_runtime(payload['config']):
+        if payload['kind'] == 'bio_insight_figure':
+            from .figures import run_figure
+            return run_figure
+        if payload['kind'] == 'bio_candidate':
+            from .candidates import run_candidates
+            return run_candidates
+        if payload['kind'] == 'bio_resource_import':
+            from .resources import run_resource_import
+            return run_resource_import
+        if payload['kind'] == 'bio_enrichment':
+            from .enrichment import run_enrichment
+            return run_enrichment
     from .comparison import run_comparison
     from .result_import import run_result_import
     from .resources import run_resource_import
@@ -43,9 +59,16 @@ def run(payload):
     if payload['kind']=='bio_comparison' and payload['config'].get('schema_version')==5:
         from .single_cell_composition import run_composition
         dispatch['bio_comparison']=run_composition
-    if payload.get('schema_version')!=1 or payload.get('kind') not in dispatch:raise ValueError('unsupported_insight_task')
+    if payload.get('kind') not in dispatch:raise ValueError('unsupported_insight_task')
+    return dispatch[payload['kind']]
+
+
+def run(payload):
+    transported=project_transport_payload(payload)
+    payload=hydrate_single_cell_annotations(transported)
+    runner=_runner(payload)
     writer=Writer(payload['output_directory']);writer.identity=payload['identity']
-    result=clean(dispatch[payload['kind']](payload,writer))
+    result=clean(runner(payload,writer))
     if not all(isinstance(result.get(key),dict) for key in ('summary','methods')):raise ValueError('invalid_engine_result')
     if isinstance(result.get('provenance'),dict):
         result['provenance_details']=result['provenance']

@@ -2,7 +2,7 @@
 from collections import defaultdict
 from fractions import Fraction
 
-from pydantic import Field
+from pydantic import Field, model_serializer
 
 from .contracts import ComparisonConfig, Identifier, ObservationKey, StrictModel, Text
 
@@ -76,6 +76,14 @@ class DesignPreview(StrictModel):
     resource_estimate: ResourceEstimate
     warnings: list[Text] = Field(default_factory=list,max_length=100)
     exclusions: list[DesignExclusion] = Field(default_factory=list,max_length=100000)
+    enrichment_compatibility: dict[str, object] | None = None
+
+    @model_serializer(mode='wrap')
+    def preserve_design_wire(self, handler):
+        data = handler(self)
+        if self.enrichment_compatibility is None:
+            data.pop('enrichment_compatibility', None)
+        return data
 
 
 def _key(row):

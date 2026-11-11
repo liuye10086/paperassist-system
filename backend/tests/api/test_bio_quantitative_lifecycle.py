@@ -4,7 +4,7 @@ from tests.api.test_projects import client,create_project
 from tests.domain.test_bio_tabular_contracts import request_body
 
 
-def processed_fixture(client,monkeypatch,tmp_path):
+def processed_fixture(client,monkeypatch,tmp_path,assay='proteomics'):
     from app.domain.bioinformatics import tabular_settings
     from app.domain.bioinformatics.execution import run_bio_import_task
     from app.domain.bioinformatics.analysis_execution import run_bio_analysis_task
@@ -19,7 +19,9 @@ def processed_fixture(client,monkeypatch,tmp_path):
         file=client.post(base+f"/bio-upload-batches/{batch.json()['id']}/items/{item}",files={'file':(name,content)})
         assert file.status_code==202,file.text
         files.append(file.json()['file_id'])
-    body=request_body('proteomics','intensity');body['file_ids']=files;body['sample_columns']=['B0','B1','B2','A0','A1','A2'];body['scale'].update(namespace='protein_label',reference_version='fixed')
+    counts=assay=='bulk_rna_counts'
+    body=request_body(assay,'raw_counts' if counts else 'intensity');body['file_ids']=files;body['sample_columns']=['B0','B1','B2','A0','A1','A2']
+    body['scale'].update(namespace='ensembl' if counts else 'protein_label',reference_version='fixed')
     for spec,file in zip(body['tables'],files):spec['file_id']=file
     created=client.post(base+'/bio-imports',json=body,headers={'Idempotency-Key':'new-import'})
     assert created.status_code==202,created.text
@@ -52,6 +54,53 @@ def processed_fixture(client,monkeypatch,tmp_path):
     assert done['status']=='succeeded',done
     result=client.get(base+'/bio-analysis-runs/'+run['id']).json()['result_source']
     return base,result['processed_dataset_version_id']
+
+
+def test_bulk_requires_matching_review_and_rejects_superseded_confirmation(client,monkeypatch,tmp_path):
+    from app.domain.bio_insights.service import BioInsightsService
+    from tests.api.test_bio_insight_reproducibility import fixed_fixture_runtime
+
+    base,pid=processed_fixture(client,monkeypatch,tmp_path,assay='bulk_rna_counts')
+    runtime=fixed_fixture_runtime(monkeypatch)
+    monkeypatch.setattr(BioInsightsService,'_runtime_for',lambda self,config:runtime)
+    plans=base+'/bio-insight-plans'
+    runs=base+'/bio-insight-runs'
+    detail=client.get(base+'/bio-processed-datasets/'+pid).json()
+    source=dict(source_kind='bio_processed_dataset_version',source_id=pid,sha256=detail['manifest_sha256'],role='processed')
+    config=dict(schema_version=2,kind='comparison',mode='bulk_counts',design='independent',method='deseq2_wald',
+        analysis_layer='raw_counts',bulk_model='shared_wald_v1',contrasts=[dict(contrast_id='B_A',name='B/A',
+            groups=[dict(label=g,sample_keys=[dict(processed_version_id=pid,sample_id=g+str(i)) for i in range(2)])
+                    for g in ('B','A')])],family_contrast_ids=['B_A'],namespace='ensembl',reference_version='fixed',
+        data_driven_grouping=False,design_basis='Synthetic frozen design',independence_confirmed=True,
+        independence_basis='Synthetic independent units',inference_goal='inference',inference_unit='biological')
+    body=dict(name='Bulk lifecycle',kind='comparison',decision='draft',expected_revision=0,sources=[source],config=config)
+
+    def post(url,payload,key):
+        return client.post(url,json=payload,headers={'Idempotency-Key':key})
+
+    preview=client.post(plans+'/preview',json=body)
+    assert preview.status_code==200,preview.text
+    design=preview.json()
+    assert design['executable'] and len(design['bulk_model']['samples'])==4
+    assert len(design['exclusions'])==2
+    assert client.get(runs).json()['total']==0
+    token=design['reviewed_design_sha256']
+    confirmed={**body,'decision':'confirmed'}
+    assert post(plans,confirmed,'missing-review').status_code==422
+    reversed_config={**config,'contrasts':[{**config['contrasts'][0],'groups':config['contrasts'][0]['groups'][::-1]}]}
+    assert post(plans,{**confirmed,'config':reversed_config,'reviewed_design_sha256':token},'stale-review').status_code==409
+    confirmed['reviewed_design_sha256']=token
+    response=post(plans,confirmed,'confirmed-model')
+    assert response.status_code==201,response.text
+    plan=response.json()
+    assert client.get(runs).json()['total']==0
+    request=dict(plan_version_id=plan['id'],expected_plan_revision=1,source_digest=plan['source_digest'])
+    assert post(runs,request,'confirmed-run').status_code==202
+    versions=plans+'/'+plan['plan_id']+'/versions'
+    response=post(versions,{**body,'expected_revision':1,'config':reversed_config},'reverse-draft')
+    assert response.status_code==201,response.text
+    assert post(runs,{**request,'expected_plan_revision':2},'stale-plan-run').status_code==409
+    assert client.get(versions+'/'+plan['id']).json()['design']['bulk_model']['contrasts'][0]['numerator']=='B'
 
 
 def test_v2_comparison_candidates_research_and_portable_full_export(client,monkeypatch,tmp_path):

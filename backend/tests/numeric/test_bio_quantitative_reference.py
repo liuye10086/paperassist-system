@@ -17,10 +17,12 @@ def test_sample_counts_core_exists_separately_from_spatial_poscounts():
     assert importlib.util.find_spec('app.adapters.bio_insights_engine.counts_model') is not None
 
 
-def test_counts_against_fixed_r_outputs_all_genes_and_samples():
+@pytest.mark.parametrize('shared', [False, True], ids=['legacy','reviewed'])
+def test_counts_against_fixed_r_outputs_all_genes_and_samples(shared):
     if importlib.util.find_spec('pydeseq2') is None:pytest.skip('fixed Linux scientific interpreter required; not a passing numerical comparison')
-    from app.adapters.bio_insights_engine.counts_model import fit_counts
+    from app.adapters.bio_insights_engine.counts_model import fit_counts, fit_reviewed_counts
     from app.domain.bio_insights.quantitative_contracts import QuantitativeComparisonConfig
+    from app.domain.bio_insights.quantitative_design import validate_quantitative_design
     import pandas as pd
     references=Path(os.environ['B05_REFERENCE_ROOT']) if os.environ.get('B05_REFERENCE_ROOT') else Path(__file__).resolve().parents[3]/'script/.runtime/client-requirements-b05/references'
     root=references/'PyDESeq2/original'
@@ -38,12 +40,23 @@ def test_counts_against_fixed_r_outputs_all_genes_and_samples():
         family_contrast_ids=['B_A'],inference_unit='biological',inference_goal='inference',independence_confirmed=True,
         independence_basis='Synthetic units solely for offline numeric benchmark; no biological donor claim',design_basis='D-ratio-no-refit-v1',
         data_driven_grouping=False,namespace='synthetic_gene',reference_version='4426e4db990db1c511de3b1b9b7a514989663dad')
-    rows,model=fit_counts(counts.to_numpy(dtype='int64'),counts.columns.tolist(),cfg.contrasts[0],groups,[[keys[i] for i in group] for group in groups],by_key,cfg)
+    matrix=counts.to_numpy(dtype='int64');features=counts.columns.tolist()
+    if shared:
+        cfg=QuantitativeComparisonConfig.model_validate({**cfg.model_dump(), 'bulk_model':'shared_wald_v1'})
+        preview=validate_quantitative_design(cfg,[dict(source_kind='bio_processed_dataset_version',
+            metadata=dict(canonical_dataset_id='fixed',observation_level='sample',assay='bulk_rna_counts',
+            namespace=cfg.namespace,reference_version=cfg.reference_version,feature_ids=features,
+            observations=[{**row,'retained':True} for row in by_key.values()]))])
+        assert preview.executable,preview.blocking_reasons
+        fitted,model=fit_reviewed_counts(matrix,features,{key:i for i,key in enumerate(keys)},preview.bulk_model,cfg)
+        rows=fitted['B_A']
+    else:
+        rows,model=fit_counts(matrix,features,cfg.contrasts[0],groups,[[keys[i] for i in group] for group in groups],by_key,cfg)
     reference=pd.read_csv(root/'tests/data/single_factor/r_test_res.csv',index_col=0)
     sf=pd.read_csv(root/'tests/data/single_factor/r_test_size_factors.csv',index_col=0)
     for name,expected_sha in [('r_test_res.csv','e22bd2a8b3bcf4e40d23a771ddc944808fcf0e09f6b5a395e8b45c41c325f5de'),('r_test_size_factors.csv','cafc275fba97f8123f288f048fc1ebdf1d6a7a38e68d2a2cb17085abed30d742')]:
         assert hashlib.sha256((root/'tests/data/single_factor'/name).read_bytes()).hexdigest()==expected_sha
-    if os.environ.get('B05_NUMERIC_OUTPUT'):
+    if not shared and os.environ.get('B05_NUMERIC_OUTPUT'):
         dest=Path(os.environ['B05_NUMERIC_OUTPUT']);dest.mkdir(parents=True,exist_ok=False)
         pd.DataFrame(rows,index=counts.columns).to_csv(dest/'actual-results.csv',index_label='feature_id')
         pd.DataFrame(model['size_factors']).to_csv(dest/'actual-size-factors.csv',index=False)

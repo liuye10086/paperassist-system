@@ -5,3 +5,5 @@ r-rcppparallel=5.1.9
 # Harmony is a real optional R step; pin its API and the existing R major/minor.
 r-base=4.4
 r-harmony=1.2.3
+# Slingshot and SingleR use this Bioconductor matrix statistics package.
+bioconductor-delayedmatrixstats=1.28.0

@@ -22,3 +22,17 @@ it('retains the original figure types and binds a GSEA curve to its real stable 
 
 it('describes actual group mean log1p heatmap values',()=>{render(<FigureSetup projectId="p1" config={{...defaultConfig('figure'),figure_type:'heatmap'}} onChange={vi.fn()} sources={[]}/>);expect(screen.getByText(/组均值 log1p 表达，未经按基因标准化/)).toBeTruthy();expect(screen.queryByText(/按基因 z-score/)).toBeNull()})
 it('retains spatial heatmap semantics when a stored version has the new empty sample defaults',()=>{render(<FigureSetup projectId="p1" config={{...defaultConfig('figure'),figure_type:'heatmap',sample_groups:[],analysis_layer:'analysis',z_score:false,expression_groups:[{label:'A',observation_keys:[{processed_version_id:'old',barcode:'b'}]}]}} onChange={vi.fn()} sources={[]}/>);expect(screen.getByLabelText('热图观察轴')).toHaveProperty('value','spatial');expect(screen.getByText(/组均值 log1p 表达，未经按基因标准化/)).toBeTruthy()})
+it('keeps the generic enrichment default and supports explicit adjusted-metric ordering',()=>{
+ function Harness(){
+  const [config,setConfig]=useState<Config>({...defaultConfig('figure'),figure_type:'enrichment'})
+  return <FigureSetup projectId="p1" config={config} onChange={setConfig} sources={[]}/>
+ }
+ render(<Harness/>)
+ expect(screen.getByLabelText('富集条目排序')).toHaveProperty('value','')
+ expect(screen.getByLabelText('富集条目 Top N')).toBeTruthy()
+ fireEvent.change(screen.getByLabelText('图型'),{target:{value:'volcano'}})
+ fireEvent.change(screen.getByLabelText('图型'),{target:{value:'enrichment'}})
+ expect(screen.getByLabelText('富集条目排序')).toHaveProperty('value','')
+ fireEvent.change(screen.getByLabelText('富集条目排序'),{target:{value:'adjusted_metric_term_id'}})
+ expect(screen.getByLabelText('富集条目排序')).toHaveProperty('value','adjusted_metric_term_id')
+})

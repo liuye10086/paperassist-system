@@ -72,7 +72,7 @@ def table(project_id:str,version_id:str,key:str,store:Store,page:Page=1,page_siz
 @router.get('/{project_id}/bio-processed-datasets/{version_id}/coordinates')
 def coordinates(project_id:str,version_id:str,store:Store):return BioAnalysisStore(store).coordinates(project_id,version_id)
 @router.get('/{project_id}/bio-processed-datasets/{version_id}/matrix-preview')
-def matrix(project_id:str,version_id:str,store:Store,layer:Literal['counts','normalized','log1p','decontx_counts','analysis','display']='log1p',features_page:Page=1,observations_page:Page=1):return BioAnalysisStore(store).matrix_preview(project_id,version_id,layer,features_page,observations_page)
+def matrix(project_id:str,version_id:str,store:Store,layer:Literal['counts','normalized','log1p','decontx_counts','analysis','display','raw','filtered','vst']='log1p',features_page:Page=1,observations_page:Page=1):return BioAnalysisStore(store).matrix_preview(project_id,version_id,layer,features_page,observations_page)
 @router.get('/{project_id}/bio-processed-datasets/{version_id}/members/{member_id}/download')
 def processed_member(project_id:str,version_id:str,member_id:str,store:Store):return download(BioAnalysisStore(store).member(project_id,version_id,member_id))
 @router.post('/{project_id}/bio-annotation-sets',status_code=201)

@@ -6,6 +6,8 @@ import signal
 import sys
 
 from app.adapters.excel_sandbox import SandboxUnavailable, _Filter, _Program, _Ruleset
+from app.domain.bio_insights.settings import BioInsightsLimits
+from app.domain.bioinformatics.settings import BioLimits
 
 
 class _PathRule(ctypes.Structure):
@@ -14,7 +16,9 @@ class _PathRule(ctypes.Structure):
 
 
 def enter(files, output, parent_pid, *, r_scratch=None):
-    if len(files)>514:
+    insights_limits = BioInsightsLimits()
+    bio_limits = BioLimits()
+    if len(files)>insights_limits.max_input_members:
         raise ValueError('input_member_limit')
     if sys.platform != "linux" or sys.byteorder != "little" or len(os.listdir("/proc/self/task")) != 1:
         raise SandboxUnavailable('requires_linux_single_thread:'+str(len(os.listdir('/proc/self/task'))) if sys.platform=='linux' else 'requires_linux')
@@ -88,10 +92,10 @@ def enter(files, output, parent_pid, *, r_scratch=None):
         raise
     finally:
         os.close(descriptor)
-    for key, value in [(resource.RLIMIT_CPU, 1500), (resource.RLIMIT_AS, 3 * 1024**3),
+    for key, value in [(resource.RLIMIT_CPU, insights_limits.cpu_seconds), (resource.RLIMIT_AS, insights_limits.address_space_bytes),
                        # Up to 514 declared files plus four trusted/output
                        # grants remain pinned; leave bounded numeric I/O room.
-                       (resource.RLIMIT_NOFILE, 1024), (resource.RLIMIT_FSIZE, 256 * 1024**2),
+                       (resource.RLIMIT_NOFILE, 1024), (resource.RLIMIT_FSIZE, bio_limits.max_member_bytes),
                        # NPROC counts the shared real UID across containers.
                        # Resident API/Worker parents can each own ~39 threads;
                        # 64 falsely denied a single GSEA worker thread after

@@ -51,7 +51,7 @@ def emitted_codes():
             if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Name):
                 continue
             name = node.func.id
-            if name in CONSTRUCTORS or name == 'fail':
+            if name in CONSTRUCTORS:
                 value = literal(node.args[0]) if node.args else None
             elif name in helpers:
                 position = helpers[name]
@@ -80,6 +80,16 @@ def test_direct_helper_and_numeric_mapping_codes_are_public():
     codes = emitted_codes()
     assert ADDED_CODES <= codes, f'Emitter scan missed: {sorted(ADDED_CODES - codes)}'
     assert codes <= PUBLIC_CODES, f'Unpublished error codes: {sorted(codes - PUBLIC_CODES)}'
+
+
+def test_internal_evidence_reasons_are_not_public_error_emitters():
+    # external_matrix.fail appends diagnostic reasons, while docx_parser.fail
+    # constructs StorageError. The helper name alone does not make it public.
+    codes = emitted_codes()
+    assert 'actual_candidate_condition_mismatch' not in codes
+    assert 'invalid_document' in codes
+    assert 'bio_design_sample_mismatch' in codes
+    assert 'presentation_language_unavailable' in codes
 
 
 @pytest.mark.parametrize('code', sorted(ADDED_CODES))

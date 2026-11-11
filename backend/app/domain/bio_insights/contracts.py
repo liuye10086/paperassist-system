@@ -1,5 +1,5 @@
 """Bounded HTTP/domain contracts. No scientific runtime is imported here."""
-from typing import Annotated, Literal
+from typing import Annotated, Literal, get_args
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator, model_serializer, Discriminator, Tag
 from .single_cell_composition_contracts import SingleCellCompositionConfig, SingleCellSelection
@@ -12,6 +12,7 @@ from .single_cell_topic_contracts import SingleCellTopicConfig
 from .evidence_contracts import EvidenceMatrixConfig
 
 Identifier = Annotated[str, Field(min_length=1, max_length=200, pattern=r'^[^/\\\x00-\x1f]+$')]
+TabularFeatureId = Annotated[str, Field(min_length=1, max_length=200, pattern=r'^[^\x00-\x1f]+$')]
 Hash = Annotated[str, Field(pattern=r'^[0-9a-f]{64}$')]
 Text = Annotated[str, Field(max_length=4000)]
 Language = Literal['zh-CN', 'en']
@@ -19,6 +20,15 @@ SourceKind = Literal['bio_processed_dataset_version','bio_observation_map_versio
                      'research_design_version','bio_resource_version','bio_insight_result_version','original_file','external_evidence_version']
 InsightKind = Literal['comparison','result_import','ora','gsea_prerank','candidate','figure','feature_extract','integration']
 QColumn = Literal['q_within_contrast','q_global_family','original_q','system_recomputed_q']
+BulkQColumn = Literal['q_within_contrast', 'q_global_family', 'original_method_adjustment']
+BulkContrastFigure = Literal['bulk_volcano', 'bulk_ma', 'bulk_heatmap', 'bulk_variable_heatmap',
+                            'bulk_expression', 'bulk_summary']
+BulkProcessedFigure = Literal['bulk_qc', 'bulk_pca']
+BulkQcPanel = Literal['qc_missing', 'qc_expression', 'sample_clustering', 'sample_correlation', 'sample_distance']
+BulkPcaPanel = Literal['pca_scores', 'pca_variance']
+BULK_CONTRAST_FIGURES = frozenset(get_args(BulkContrastFigure))
+BULK_PROCESSED_FIGURES = frozenset(get_args(BulkProcessedFigure))
+BULK_HEATMAPS = frozenset(('bulk_heatmap', 'bulk_variable_heatmap'))
 
 
 class StrictModel(BaseModel):
@@ -33,6 +43,14 @@ class StrictModel(BaseModel):
 
 class ConfigModel(StrictModel):
     output_language: Language = 'zh-CN'
+
+
+class BulkSelection(StrictModel):
+    contrast_id: Identifier
+    q_column: BulkQColumn = 'q_within_contrast'
+    q_threshold: float = Field(default=0.05, ge=0, le=1)
+    minimum_absolute_effect: float = Field(default=1.0, ge=0, le=1_000_000)
+    direction: Literal['both', 'up', 'down'] = 'both'
 
 
 class SourceLocator(StrictModel):
@@ -173,7 +191,30 @@ class ResultImportConfig(ConfigModel):
         return self
 
 
-class OraConfig(ConfigModel):
+class BulkEnrichmentScope(StrictModel):
+    source_taxon_id: int | None = Field(default=None, ge=1, le=2147483647)
+    taxon_evidence: str | None = Field(default=None, min_length=1, max_length=1000)
+
+    @model_validator(mode='after')
+    def documented_taxon(self):
+        if ((self.source_taxon_id is None) != (self.taxon_evidence is None)
+                or self.taxon_evidence is not None and not self.taxon_evidence.strip()):
+            raise ValueError('bulk_taxon_declaration_requires_evidence')
+        return self
+
+
+class EnrichmentConfig(ConfigModel):
+    bulk_enrichment: BulkEnrichmentScope | None = None
+
+    @model_serializer(mode='wrap')
+    def preserve_generic_enrichment_wire(self, handler):
+        data = handler(self)
+        if self.bulk_enrichment is None:
+            data.pop('bulk_enrichment', None)
+        return data
+
+
+class OraConfig(EnrichmentConfig):
     kind: Literal['ora'] = 'ora'
     result_source_ids: list[Identifier] = Field(min_length=1,max_length=10)
     resource_source_ids: list[Identifier] = Field(min_length=1,max_length=10)
@@ -183,7 +224,7 @@ class OraConfig(ConfigModel):
     background_member_key: Identifier | None = None
     contrast_ids: list[Identifier] = Field(min_length=1,max_length=30)
     direction: Literal['up','down','both'] = 'both'
-    q_column: QColumn = 'q_within_contrast'
+    q_column: QColumn | Literal['original_method_adjustment'] = 'q_within_contrast'
     q_threshold: float = Field(default=0.05,ge=0,le=1)
     minimum_absolute_effect: float = Field(default=1.0,ge=0,le=1000000)
     min_size: int = Field(default=15,ge=1,le=1000000)
@@ -195,10 +236,17 @@ class OraConfig(ConfigModel):
         if self.min_size>self.max_size:raise ValueError('min_size exceeds max_size')
         if (self.background_source_id is None)!=(self.background_member_key is None):
             raise ValueError('Explicit background requires source and member')
+        if self.bulk_enrichment is not None:
+            if (len(self.result_source_ids) != 1 or len(set(self.contrast_ids)) != len(self.contrast_ids)
+                    or self.foreground_member_key is not None or self.background_source_id is not None
+                    or self.q_column not in get_args(BulkQColumn)):
+                raise ValueError('bulk_ora_requires_fixed_tested_background_and_threshold')
+        elif self.q_column == 'original_method_adjustment':
+            raise ValueError('bulk_native_adjustment_requires_bulk_enrichment')
         return self
 
 
-class GseaPrerankConfig(ConfigModel):
+class GseaPrerankConfig(EnrichmentConfig):
     kind: Literal['gsea_prerank'] = 'gsea_prerank'
     result_source_id: Identifier
     resource_source_ids: list[Identifier] = Field(min_length=1,max_length=10)
@@ -216,6 +264,8 @@ class GseaPrerankConfig(ConfigModel):
     @model_validator(mode='after')
     def sizes(self):
         if self.min_size>self.max_size:raise ValueError('min_size exceeds max_size')
+        if self.bulk_enrichment is not None and self.ranking_column != 'wald_statistic':
+            raise ValueError('bulk_gsea_requires_complete_wald_ranking')
         return self
 
 
@@ -254,9 +304,19 @@ class CandidateConfig(ConfigModel):
     mapping_source_ids: list[Identifier] = Field(default_factory=list,max_length=10)
     annotation_source_ids: list[Identifier] = Field(default_factory=list,max_length=10)
     primary_result_source_id: Identifier
-    steps: list[CandidateStep] = Field(min_length=1,max_length=20)
+    steps: list[CandidateStep] = Field(max_length=20)
     ranking_mode: Literal['lexicographic','weighted'] = 'lexicographic'
     weights: list[EvidenceWeight] = Field(default_factory=list,max_length=20)
+    bulk_selection: BulkSelection | None = None
+    bulk_top_n: int | None = Field(default=None, ge=1, le=500)
+
+    @model_serializer(mode='wrap')
+    def preserve_legacy_recipe(self, handler):
+        data = handler(self)
+        if self.bulk_selection is None:
+            data.pop('bulk_selection', None)
+            data.pop('bulk_top_n', None)
+        return data
 
     @model_validator(mode='after')
     def recipe(self):
@@ -266,6 +326,13 @@ class CandidateConfig(ConfigModel):
         if any(set(s.source_ids)-set(self.result_source_ids) for s in self.steps):raise ValueError('Step uses unselected source')
         if (self.ranking_mode=='weighted') != bool(self.weights):raise ValueError('Weights require weighted ranking')
         if len({w.item for w in self.weights})!=len(self.weights):raise ValueError('Duplicate evidence weight')
+        if self.bulk_selection is None:
+            if not self.steps or self.bulk_top_n is not None:
+                raise ValueError('Candidate recipes require steps')
+        elif (len(self.result_source_ids) != 1 or self.mapping_source_ids or self.annotation_source_ids
+              or self.steps or self.weights or self.bulk_top_n is None
+              or self.source_contrasts[self.primary_result_source_id] != self.bulk_selection.contrast_id):
+            raise ValueError('bulk_candidate_configuration_invalid')
         return self
 
 
@@ -287,17 +354,21 @@ class FigureConfig(ConfigModel):
     expression_groups: list[GroupSelection] = Field(default_factory=list,max_length=30)
     sample_groups: list[SampleGroup] = Field(default_factory=list,max_length=30)
     analysis_layer: Literal['analysis','display'] = 'analysis'
-    feature_ids: list[Identifier] = Field(default_factory=list,max_length=100)
+    feature_ids: list[TabularFeatureId] = Field(default_factory=list,max_length=100)
     z_score: bool = False
     selected_sets: list[FigureSetSelection] = Field(default_factory=list,max_length=8)
     intersection_mode: Literal['all','exclusive','at_least_k'] | None = None
     intersection_k: int | None = Field(default=None,ge=1,le=8)
-    figure_type: Literal['topic_slingshot','topic_genie3','topic_cellchat','volcano','heatmap','distribution','qpcr_samples','microbiome_composition','microbiome_alpha','microbiome_pcoa','feature_distribution','feature_scatter','integration_network','integration_flow','evidence_matrix','evidence_network','evidence_flow','enrichment','gsea','venn','upset','candidate_evidence']
+    figure_type: Literal['topic_slingshot','topic_genie3','topic_cellchat','volcano','heatmap','distribution','qpcr_samples','microbiome_composition','microbiome_alpha','microbiome_pcoa','feature_distribution','feature_scatter','integration_network','integration_flow','evidence_matrix','evidence_network','evidence_flow','enrichment','gsea','venn','upset','candidate_evidence'] | BulkContrastFigure | BulkProcessedFigure
+    bulk_selection: BulkSelection | None = None
+    bulk_panel: BulkQcPanel | BulkPcaPanel | None = None
     figure_stratum: Identifier | None = None
     contrast_id: Identifier | None = None
     member_key: Identifier | None = None
     term_row_key: Identifier | None = None
     enrichment_style: Literal['dot','bar'] = 'dot'
+    enrichment_order: Literal['adjusted_metric_term_id'] | None = None
+    bulk_enrichment_render: Literal[True] | None = None
     title: str = Field(default='',max_length=1000)
     x_column: Identifier | None = None
     y_column: Identifier | None = None
@@ -313,14 +384,26 @@ class FigureConfig(ConfigModel):
     def unchanged_spatial_wire(self,handler):
         data=handler(self)
         if self.figure_stratum is None:data.pop('figure_stratum',None)
-        if not self.sample_groups and self.figure_type not in ('distribution','qpcr_samples','microbiome_composition','microbiome_alpha','microbiome_pcoa'):
+        for key in ('bulk_selection', 'bulk_panel', 'enrichment_order', 'bulk_enrichment_render'):
+            if data.get(key) is None:
+                data.pop(key, None)
+        if self.figure_type in BULK_CONTRAST_FIGURES | BULK_PROCESSED_FIGURES:
+            data.pop('sample_groups', None)
+            data.pop('analysis_layer', None)
+            if self.figure_type != 'bulk_expression':
+                data.pop('feature_ids', None)
+            if self.figure_type not in BULK_HEATMAPS:
+                data.pop('z_score', None)
+        elif not self.sample_groups and self.figure_type not in ('distribution','qpcr_samples','microbiome_composition','microbiome_alpha','microbiome_pcoa'):
             for key in ('sample_groups','analysis_layer','feature_ids','z_score'):data.pop(key,None)
         return data
 
     @model_validator(mode='after')
     def figure_inputs(self):
+        if self.figure_type != 'bulk_expression' and any('/' in value or '\\' in value for value in self.feature_ids):
+            raise ValueError('invalid_figure_feature_id')
         if self.figure_type.startswith("topic_") and (self.expression_groups or self.sample_groups or self.processed_source_id or self.feature_ids or self.z_score or self.contrast_id or self.selected_sets or self.result_source_ids or self.term_row_key or self.q_column):raise ValueError("topic_figure_uses_saved_values_only")
-        if not self.sample_groups and self.figure_type not in ('qpcr_samples','microbiome_alpha') and (self.feature_ids or self.z_score):raise ValueError('sample_options_require_sample_groups')
+        if not self.sample_groups and self.figure_type not in BULK_CONTRAST_FIGURES and self.figure_type not in ('qpcr_samples','microbiome_alpha') and (self.feature_ids or self.z_score):raise ValueError('sample_options_require_sample_groups')
         if self.figure_type.startswith('evidence_') and (self.expression_groups or self.sample_groups or self.processed_source_id or self.feature_ids or self.z_score or self.contrast_id):raise ValueError('evidence_figure_uses_saved_matrix_only')
         if self.figure_type.startswith('integration_') and (self.expression_groups or self.sample_groups or self.processed_source_id or self.feature_ids or self.z_score or self.contrast_id):raise ValueError('integration_figure_uses_saved_relations_only')
         if self.figure_type.startswith('feature_'):
@@ -334,6 +417,18 @@ class FigureConfig(ConfigModel):
         if len(set(self.formats))!=len(self.formats):raise ValueError('Duplicate figure formats')
         width=round(self.width_inches*self.dpi);height=round(self.height_inches*self.dpi)
         if max(width,height)>4096 or width*height>16000000:raise ValueError('Figure exceeds 4096 pixels per side or 16 million total pixels')
+        if self.enrichment_order is not None and self.figure_type != 'enrichment':
+            raise ValueError('enrichment_order_requires_enrichment_figure')
+        if self.bulk_enrichment_render and (self.figure_type not in ('enrichment', 'gsea') or self.result_source_ids
+                or self.processed_source_id or self.expression_groups or self.sample_groups or self.selected_sets):
+            raise ValueError('bulk_enrichment_figure_requires_one_saved_result')
+        if self.bulk_enrichment_render and self.figure_type == 'enrichment' and self.enrichment_order is None:
+            raise ValueError('bulk_enrichment_figure_requires_adjusted_metric_order')
+        if self.figure_type in BULK_CONTRAST_FIGURES | BULK_PROCESSED_FIGURES:
+            self._validate_bulk_figure()
+            return self
+        if self.bulk_selection is not None or self.bulk_panel is not None:
+            raise ValueError('bulk_figure_options_require_bulk_figure')
         if self.figure_type=='gsea' and not self.term_row_key:raise ValueError('GSEA curve requires an explicitly selected term row')
         if self.figure_type=='heatmap':
             if self.top_n>100:raise ValueError('Heatmap supports at most 100 selected features')
@@ -361,6 +456,29 @@ class FigureConfig(ConfigModel):
                 raise ValueError('Invalid intersection k')
         return self
 
+    def _validate_bulk_figure(self):
+        if (self.result_source_ids or self.processed_source_id or self.expression_groups or self.sample_groups
+                or self.selected_sets or self.intersection_mode or self.intersection_k or self.term_row_key
+                or self.analysis_layer != 'analysis'):
+            raise ValueError('bulk_figure_requires_single_frozen_source')
+        if self.figure_type in BULK_PROCESSED_FIGURES:
+            panels = get_args(BulkQcPanel if self.figure_type == 'bulk_qc' else BulkPcaPanel)
+            if (self.bulk_panel not in panels or self.bulk_selection or self.contrast_id or self.q_column
+                    or self.feature_ids or self.z_score):
+                raise ValueError('bulk_processed_figure_configuration_invalid')
+            return
+        if (not self.bulk_selection or self.bulk_panel is not None
+                or self.contrast_id not in (None, self.bulk_selection.contrast_id)
+                or self.q_column not in (None, self.bulk_selection.q_column)):
+            raise ValueError('bulk_comparison_figure_requires_selection')
+        if len(self.feature_ids) != (1 if self.figure_type == 'bulk_expression' else 0):
+            raise ValueError('bulk_expression_requires_one_feature')
+        if self.figure_type in BULK_HEATMAPS:
+            if self.top_n > 100:
+                raise ValueError('Heatmap supports at most 100 selected features')
+        elif self.z_score:
+            raise ValueError('bulk_z_score_requires_heatmap')
+
 
 class FrozenFigureConfig(FigureConfig):
     """Read immutable historical configuration; never use for new rendering."""
@@ -387,6 +505,14 @@ class InsightPlanRequest(StrictModel):
     expected_revision: int = Field(ge=0,le=2147483646)
     sources: list[InsightSourceSelection] = Field(min_length=1,max_length=100)
     config: InsightConfig
+    reviewed_design_sha256: Hash | None = None
+
+    @model_serializer(mode='wrap')
+    def plan_document(self, handler):
+        data = handler(self)
+        if self.reviewed_design_sha256 is None:
+            data.pop('reviewed_design_sha256', None)
+        return data
 
     @model_validator(mode='after')
     def coherent_plan(self):
@@ -400,6 +526,10 @@ class InsightPlanRequest(StrictModel):
         def require_many(ids,kinds,roles):
             if len(ids)!=len(set(ids)):raise ValueError('Duplicate configuration source identity')
             for source_id in ids:require(source_id,kinds,roles)
+        def require_bulk(source_id, kinds, roles):
+            if len(self.sources) != 1 or self.sources[0].locator.kind != 'object':
+                raise ValueError('bulk_display_requires_one_fixed_object')
+            require(source_id, kinds, roles)
         result_kinds={'bio_insight_result_version'}
         resource_kinds={'bio_resource_version'}
         if isinstance(config,EvidenceMatrixConfig):
@@ -452,13 +582,25 @@ class InsightPlanRequest(StrictModel):
             require_many(ids,result_kinds,{'result'})
             require_many(config.resource_source_ids,resource_kinds,{'gene_sets','resource'})
             require_many(config.mapping_source_ids,resource_kinds,{'id_mapping'})
+            if config.bulk_enrichment is not None:
+                expected = set(ids) | set(config.resource_source_ids) | set(config.mapping_source_ids)
+                if (len(expected) != len(self.sources)
+                        or any(s.source_id not in expected or s.locator.kind != 'object' for s in self.sources)):
+                    raise ValueError('bulk_enrichment_requires_exact_fixed_objects')
             if isinstance(config,OraConfig) and config.background_source_id:
                 require(config.background_source_id,{'original_file','bio_insight_result_version'},{'background','result'})
         elif isinstance(config,CandidateConfig):
+            if config.bulk_selection is not None:
+                require_bulk(config.primary_result_source_id, result_kinds, {'result'})
             require_many(config.result_source_ids,result_kinds,{'result'})
             require_many(config.mapping_source_ids,resource_kinds,{'id_mapping'})
             require_many(config.annotation_source_ids,resource_kinds|result_kinds,{'feature_annotation','annotation'})
         elif isinstance(config,FigureConfig):
+            if config.figure_type in BULK_PROCESSED_FIGURES:
+                require_bulk(config.result_source_id, {'bio_processed_dataset_version'}, {'processed'})
+                return self
+            if config.figure_type in BULK_CONTRAST_FIGURES or config.bulk_enrichment_render:
+                require_bulk(config.result_source_id, result_kinds, {'result'})
             require(config.result_source_id,result_kinds,{'result'})
             require_many(config.result_source_ids,result_kinds,{'result'})
             if config.processed_source_id:require(config.processed_source_id,{'bio_processed_dataset_version'},{'processed'})
@@ -543,6 +685,8 @@ class ResourceImportRequest(ConfigModel):
     title: str = Field(min_length=1,max_length=200)
     species_taxon_id: int = Field(ge=1,le=2147483647)
     namespace: Identifier
+    reference_version: Identifier | None = None
+    offline_enrichment: Literal[True] | None = None
     mapping_source_namespace: Identifier | None = None
     mapping_target_namespace: Identifier | None = None
     release: Identifier
@@ -562,10 +706,15 @@ class ResourceImportRequest(ConfigModel):
         data=handler(self)
         if self.kind not in ('sequence','structure'):
             for key in ('sequence_type','nucleotide_encoding','structure_origin'):data.pop(key,None)
+        for key in ('reference_version', 'offline_enrichment'):
+            if data.get(key) is None:
+                data.pop(key, None)
         return data
 
     @model_validator(mode='after')
     def resource_files(self):
+        if self.kind not in ('gene_sets', 'id_mapping') and (self.offline_enrichment or self.reference_version is not None):
+            raise ValueError('offline_enrichment_requires_gene_sets_or_id_mapping')
         if self.kind=='sequence':
             if self.sequence_type is None or self.structure_origin is not None:raise ValueError('explicit_sequence_type_required')
         elif self.sequence_type is not None:raise ValueError('sequence_type_only_for_sequence')

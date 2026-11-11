@@ -21,7 +21,7 @@ it('keeps quantitative QC results in the pre-analysis flow',async()=>{
 const raw={...rawFixture,parser_version:'tabular_assay_import_v1',source_file_ids:['matrix','samples']}
 const capability:TabularCapabilities={raw_source:raw,available:true,blockers:[],limits:{memory_bytes:2147483648},recipes:['tabular_quantitative_v1'],design_gaps:[],assay:'metabolomics',scale:{kind:'log10',unit:'log10 intensity',upstream_method:'LC-HRMS, normalized and log10',upstream_transforms:['log10'],namespace:'HMDB',reference_version:'sacurine',species_taxon_id:9606,zero_meaning:'measured_zero'},default_params:{normalization:'already_normalized',transform:'none',scaling:'none',exclude_samples:[],exclude_features:[],pca_components:3,seed:0,output_language:'en'}}
 const setup:TabularSetup={id:'setup1',name:'Measured metabolites',revision:1,raw_source:raw,current_recipe_version_id:'recipe1',current_recipe:{id:'recipe1',setup_id:'setup1',version:1,revision:1,raw_source:raw,observation_map_version_id:null,design_version_id:null,recipe_code:'tabular_quantitative_v1',params:capability.default_params}}
-const processed:TabularProcessed={id:'processed1',source:{kind:'bio_processed_dataset_version',schema_version:2,project_id:'p1',processed_dataset_version_id:'processed1',analysis_run_id:'run1',raw_source:raw,recipe_version_id:'recipe1',manifest_sha256:'a'.repeat(64),engine_version:'tabular_quantitative_v1.0.0',environment_digest:'b'.repeat(64),assay:'metabolomics',observation_level:'sample'},manifest_sha256:'a'.repeat(64),shape:{observations:8,features:3},steps:[{key:'pca',status:'not_computable',reason:'insufficient_complete_features',params:{}}],tables:[{key:'sample_qc',label:'样本QC',status:'completed',reason:null}],members:[],figures:[],manifest:{assay:'metabolomics',scale:capability.scale,summary:{raw_observations:8,retained_observations:8,excluded_observations:0,raw_features:3,retained_features:3,excluded_features:0}}}
+const processed:TabularProcessed={id:'processed1',source:{kind:'bio_processed_dataset_version',schema_version:2,project_id:'p1',processed_dataset_version_id:'processed1',analysis_run_id:'run1',raw_source:raw,recipe_version_id:'recipe1',setup_id:'setup1',manifest_sha256:'a'.repeat(64),engine_version:'tabular_quantitative_v1.0.0',environment_digest:'b'.repeat(64),assay:'metabolomics',observation_level:'sample'},manifest_sha256:'a'.repeat(64),shape:{observations:8,features:3},steps:[{key:'pca',status:'not_computable',reason:'insufficient_complete_features',params:{}}],tables:[{key:'sample_qc',label:'样本QC',status:'completed',reason:null}],members:[],figures:[],manifest:{assay:'metabolomics',scale:capability.scale,summary:{raw_observations:8,retained_observations:8,excluded_observations:0,raw_features:3,retained_features:3,excluded_features:0}}}
 
 it('creates the tabular recipe from the fixed raw version without a spatial mapping',async()=>{
  vi.mocked(apiFetch).mockImplementation(async(_url,init)=>Response.json(init?.method==='POST'?setup.current_recipe:capability))
@@ -67,6 +67,28 @@ it('shows sample QC, unavailable PCA and the actual quantitative layers without 
  expect(options).toEqual(['analysis','display'])
  expect(screen.queryByText('空间与人工注释')).toBeNull()
  expect(screen.queryByText('探索性 marker')).toBeNull()
+})
+
+it('shows B03 QC metrics, explicit normalized/VST layers, heatmap outputs and manual outlier review',async()=>{
+ const b03={...processed,source:{...processed.source,recipe_version_id:'recipe1',setup_id:'setup1'},manifest:{...processed.manifest,layers:{raw:'raw_counts',filtered:'filtered_counts',normalized:'normalized_counts',vst:'vst'},
+  summary:{raw_observations:4,retained_observations:4,excluded_observations:0,raw_features:3,retained_features:3,excluded_features:0,
+   qc_metrics:{total_counts:{S1:100,S2:200},detected_features:{S1:2,S2:3},zero_fraction:{S1:0.2,S2:0.1},expression_distribution:{quantiles:{p50:2,p90:8}}},
+   outlier_advisories:[{sample_id:'S2',reasons:['library_size_low']}],
+   layers:{raw:'raw_counts',filtered:'filtered_counts',normalized:'normalized_counts',vst:'vst'},analysis_object:{format:'paperassist_tabular_object_v1',round_trip:'verified'}}},
+  tables:[{key:'sample_qc',label:'样本 QC',status:'completed',reason:null}],
+  figures:[{id:'corr',config:{kind:'sample_correlation_heatmap',title:'样本相关性热图'},members:[]},{id:'dist',config:{kind:'expression_distribution',title:'表达分布'},members:[]}]} as TabularProcessed
+ vi.mocked(apiFetch).mockImplementation(async(url)=>Response.json(String(url).includes('/tables/')?{key:'sample_qc',columns:[],items:[],total:0,page:1,page_size:50}:b03))
+ const nav=vi.fn();render(<BioAnalysisResult projectId="p1" processedId="processed1" tab="qc" onNavigate={nav}/>)
+ await screen.findByText('定量分析处理结果')
+ expect(screen.getAllByText('总计数').length).toBe(2)
+ expect(screen.getAllByText('检测特征数').length).toBe(2)
+ expect(screen.getAllByText('零比例').length).toBe(2)
+ expect(screen.getAllByText('表达分布').length).toBeGreaterThanOrEqual(2)
+ expect(screen.getByText('VST')).toBeTruthy()
+ expect(screen.getByText('样本相关性热图')).toBeTruthy()
+ expect(screen.getByText('疑似异常样本')).toBeTruthy()
+ fireEvent.click(screen.getByRole('button',{name:'进入人工排除'}))
+ expect(nav).toHaveBeenCalledWith({view:'bio-analysis-setup',fileId:'',setupId:'setup1'})
 })
 it('opens a nonspatial raw version without requesting coordinates or calling its values raw counts',async()=>{
  vi.mocked(apiFetch).mockImplementation(async(url)=>Response.json(String(url).includes('/bio-analysis-capabilities')?capability:{id:'v1',dataset_id:'d1',version:1,manifest_sha256:'a'.repeat(64),shape:{features:3,observations:8,stored_entries:24},checks:[],members:[],source:raw,summary:{assay:'metabolomics',scale:capability.scale}}))

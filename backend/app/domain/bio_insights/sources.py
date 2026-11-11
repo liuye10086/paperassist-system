@@ -317,6 +317,9 @@ class InsightSourceReader(BioInsightsStore):
                 if kind=='bio_insight_result_version':
                     plan=db.execute('SELECT p.name FROM bio_insight_plan_versions v JOIN bio_insight_plans p ON p.id=v.plan_id WHERE v.id=%s AND v.project_id=%s',(row['plan_version_id'],project)).fetchone()
                     item.update(title=row['kind']+' / '+(plan['name'] if plan else row['id']),kind=row['kind'],inference_scope=row['inference_scope'])
+                if kind == 'bio_resource_version':
+                    item.update({key: row[key] for key in ('kind', 'release', 'version', 'namespace', 'species_taxon_id')})
+                    item['reference_version'] = row['config_json'].get('reference_version')
                 if kind=='external_evidence_version':item.update(title=row['snapshot_json']['title'],kind=(row['snapshot_json'].get('typed_evidence') or {}).get('evidence_type'))
                 if kind=='original_file':
                     parse=db.execute('SELECT id FROM file_parse_results WHERE file_id=%s AND completed_at IS NOT NULL AND result_json IS NOT NULL ORDER BY version DESC LIMIT 1',(row['id'],)).fetchone()

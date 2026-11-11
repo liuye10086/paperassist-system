@@ -12,6 +12,7 @@ import { isTaskId } from '../tasks/taskTypes';
 import { homeRoute, parseNavigation, serializeNavigation, validId, type NavigationRoute, type OverviewView } from './projectNavigation';
 import type { ResourceNavigation } from './resourceViews';
 import type { LiteratureNavigation } from './literatureViews';
+import type {LeaveGuard} from './useDraftLeaveGuard';
 function initialRoute() {
     const hash = window.location.hash, valid = parseNavigation(hash);
     if (valid)
@@ -59,7 +60,7 @@ export default function useProjectSelection(onUnavailable: (id: string) => void,
     } | null>(null);
     const [unavailableId, setUnavailableId] = useState(''), [attempt, setAttempt] = useState(0), [loading, setLoading] = useState(Boolean(instance));
     const dirtyChecks = useRef(new Set<() => boolean>());
-    const guards = useRef(new Set<() => boolean>()), index = useRef(0), restore = useRef<{
+    const guards = useRef(new Set<LeaveGuard>()), index = useRef(0), restore = useRef<{
         delta: number;
         route: NavigationRoute;
     } | null>(null), replay = useRef(false);
@@ -68,7 +69,10 @@ export default function useProjectSelection(onUnavailable: (id: string) => void,
         if (next.workspaceView === 'project' && next.projectId === current.current?.id && navigationGate && !navigationGate(next)) return false;
         const nextBio=mountedBioNavigation(next);
         const replacesBio=nextBio && retainedBio.current.projectId===next.projectId && retainedBio.current.navigation && JSON.stringify(nextBio)!==JSON.stringify(retainedBio.current.navigation);
-        if(replacesBio || previous.section==='analysis'&&previous.analysisNavigation.view.startsWith('bio-')&&serializeNavigation(previous)!==serializeNavigation(next))return [...guards.current].every(g=>g());
+        const changesAnalysis=previous.section==='analysis'&&serializeNavigation(previous)!==serializeNavigation(next);
+        const preservesBulk=changesAnalysis&&previous.projectId===next.projectId&&!!previous.analysisNavigation.bulkView
+            &&next.section==='analysis'&&!!next.analysisNavigation.bulkView;
+        if(replacesBio || changesAnalysis&&(previous.analysisNavigation.view.startsWith('bio-')||preservesBulk))return [...guards.current].every(g=>g(preservesBulk));
         return !current.current || !next.projectId || next.projectId === current.current.id || [...guards.current].every(g => g());
     }
     function apply(next: NavigationRoute, seed?: Project) {
@@ -351,7 +355,7 @@ export default function useProjectSelection(onUnavailable: (id: string) => void,
     function changeOverviewView(view: OverviewView) {
         navigate({ ...routeRef.current, projectId: current.current?.id ?? '', workspaceView: 'project', section: 'overview', overviewView: view });
     }
-    function registerLeaveGuard(guard: () => boolean, isDirty?: () => boolean) {
+    function registerLeaveGuard(guard:LeaveGuard, isDirty?: () => boolean) {
         guards.current.add(guard);
         if (isDirty)
             dirtyChecks.current.add(isDirty);

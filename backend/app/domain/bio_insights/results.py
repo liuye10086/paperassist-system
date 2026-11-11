@@ -99,3 +99,42 @@ class BioInsightResultService(BioInsightsStore):
                     matched+=1
             return dict(key=key,columns=columns,items=selected,total=total,matched_total=matched,page=page,page_size=page_size,
                 sha256=member['sha256'],raw_text_values=True,provenance=row['provenance'],inference_scope=row['inference_scope'])
+
+    def bulk_comparisons(self, project, identifier, *, contrast_id, subset, q_column, q_threshold,
+                         minimum_absolute_effect, page, page_size, search):
+        from .bulk_results import bulk_comparison_page, bulk_contrast_labels, is_reviewed_bulk
+        from .contracts import BulkSelection
+        from .service import BioInsightsService
+
+        with self.store.connection() as db:
+            row = self.require(db, 'bio_insight_result_versions', project, identifier)
+            plan = self.require(db, 'bio_insight_plan_versions', project, row['plan_version_id'])
+            metadata = {'kind': row['kind'], 'plan_config': plan['config_json']}
+            if not is_reviewed_bulk(metadata):
+                raise invalid('bio_insight_source_unsupported', 422)
+            try:
+                contrasts = bulk_contrast_labels(metadata)
+            except (KeyError, IndexError, TypeError, ValueError) as exc:
+                raise invalid() from exc
+            selected = next(iter(contrasts)) if contrast_id is None else contrast_id
+            if selected not in contrasts:
+                raise invalid('bio_insight_not_found', 404)
+
+            task = self.store.require_task(db, row['task_id'])
+            BioInsightsService(self.assets).require_sources(db, task, runtime=False)
+            _, members = checked_members(self, db, project, row)
+            member = next((item for item in members if item['key'] == 'comparison_results'
+                           and item['role'] == 'table' and item['format'] == 'tsv'), None)
+            if member is None:
+                raise invalid('bio_insight_source_incomplete', 422)
+            selection = BulkSelection(contrast_id=selected, q_column=q_column, q_threshold=q_threshold,
+                                      minimum_absolute_effect=minimum_absolute_effect)
+            path = self.objects.path(member['object_key'])
+            try:
+                result = bulk_comparison_page(path, contrasts, selection, subset=subset, page=page,
+                                              page_size=page_size, search=search)
+            except (csv.Error, OSError, ValueError) as exc:
+                raise invalid() from exc
+            return dict(result, sha256=member['sha256'], raw_text_values=True, subset=subset,
+                        q_column=q_column, q_threshold=q_threshold, minimum_absolute_effect=minimum_absolute_effect,
+                        provenance=row['provenance'], inference_scope=row['inference_scope'])

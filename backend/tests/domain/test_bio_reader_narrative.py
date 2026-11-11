@@ -80,3 +80,18 @@ def test_cache_round_trip(tmp_path):
     assert path.is_file()
     loaded = load_cached_narrative(tmp_path, "project-1", "result-1", "zh-CN")
     assert loaded["narrative_sha256"] == _digest(record["narrative"])
+def test_bulk_cached_narrative_matches_exact_facts_and_language(tmp_path):
+    from app.adapters.bio_reader_narrative import (
+        BULK_PROMPT_VERSION, NARRATIVE_FIELDS, load_bulk_cached_narrative, save_cached_narrative,
+    )
+
+    facts_sha = 'e' * 64
+    cache_id = 'bulk-' + facts_sha
+    narrative = {field: 'The interpretation describes the reviewed evidence.' for field in NARRATIVE_FIELDS}
+    record = dict(narrative=narrative, input_sha256=facts_sha, prompt_version=BULK_PROMPT_VERSION)
+    save_cached_narrative(tmp_path, 'project', cache_id, 'en', record)
+    assert load_bulk_cached_narrative(tmp_path, 'project', facts_sha, 'en')['narrative'] == narrative
+    assert load_bulk_cached_narrative(tmp_path, 'project', 'a' * 64, 'en') is None
+    assert load_bulk_cached_narrative(tmp_path, 'project', facts_sha, 'zh-CN') is None
+    save_cached_narrative(tmp_path, 'project', cache_id, 'en', {**record, 'input_sha256': 'b' * 64})
+    assert load_bulk_cached_narrative(tmp_path, 'project', facts_sha, 'en') is None

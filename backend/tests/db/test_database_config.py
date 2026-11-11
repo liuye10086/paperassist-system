@@ -128,7 +128,8 @@ def test_schema_fixture_rejects_url_redirection_before_creating_engine(database,
 
 def test_schema_preserves_business_tables_and_auth_tables_and_uses_job_sequences(database):
     schema = importlib.import_module("app.db.schema")
-    assert set(schema.metadata.tables) == {
+    # These original tables must survive later additive migrations.
+    assert set(schema.metadata.tables) >= {
         "projects", "files", "file_purposes", "analysis_setups", "analysis_runs", "figures", "figure_jobs",
         "explanations", "explanation_jobs", "reports",
         "users", "sessions", "auth_login_attempts",
@@ -229,7 +230,7 @@ def test_migration_summary_never_prints_unknown_revision_or_credentials(database
     assert 'target_revision' in output
 
 
-@pytest.mark.parametrize('target,expected', [('0003_project_ownership', '0003_project_ownership'), ('base', None), ('head', '0029_statistics_execution')])
+@pytest.mark.parametrize('target,expected', [('0003_project_ownership', '0003_project_ownership'), ('base', None), ('head', None)])
 def test_migration_summary_uses_actual_command_target(database, capsys, target, expected):
     import json
     from alembic.script import ScriptDirectory
@@ -237,6 +238,8 @@ def test_migration_summary_uses_actual_command_target(database, capsys, target, 
     revisions = {r.revision for r in script.walk_revisions()}
     if target.startswith('0003'):
         target = expected = next(r for r in revisions if r.startswith('0003'))
+    elif target == 'head':
+        expected = script.get_current_head()
     config = database.DatabaseConfig('development', DEV_URL, purpose='migration')
     connection = SimpleNamespace(exec_driver_sql=lambda *args: SimpleNamespace(scalar_one=lambda: None))
     database.migration_summary(connection, config, target_revision=target)

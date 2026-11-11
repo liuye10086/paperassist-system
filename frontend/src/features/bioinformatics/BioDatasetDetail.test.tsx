@@ -2,7 +2,7 @@ import {afterEach,expect,it,vi} from 'vitest'
 import {cleanup,fireEvent,render,screen,within} from '@testing-library/react'
 import BioDatasetDetail from './BioDatasetDetail'
 import {apiFetch} from '../../shared/api/client'
-vi.mock('../../shared/api/client',()=>({apiFetch:vi.fn(),onApiSessionChanged:()=>()=>{}}))
+vi.mock('../../shared/api/client',()=>({apiFetch:vi.fn(),getApiUserId:()=> 'owner1',onApiSessionChanged:()=>()=>{}}))
 vi.mock('../../shared/components/ProjectDownloadLink',()=>({default:({children}:{children:import('react').ReactNode})=><span>{children}</span>}))
 afterEach(()=>{cleanup();vi.clearAllMocks()})
 it('shows feature IDs and symbols while preserving separate columns for duplicate symbols',async()=>{

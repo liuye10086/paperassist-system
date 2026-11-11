@@ -70,6 +70,8 @@ def stage_runtime_manifest(values: dict[str, str], key: str, directory: Path, na
     if source.is_symlink() or not source.is_file() or source.stat().st_size > 65536:
         private_write(target, '{}\n')
         return f'/run/paperassist/{name}'
+    if not target.is_symlink() and target.is_file() and target.read_bytes() == source.read_bytes():
+        return f'/run/paperassist/{name}'
     temporary = target.with_name(target.name + '.writing')
     shutil.copyfile(source, temporary)
     temporary.replace(target)
@@ -91,7 +93,7 @@ def _identity(root: Path, test_id: str | None = None):
 def build_fingerprint() -> str:
     """Bind reuse to Worker and Word field image inputs (legacy infra/pdf paths)."""
     inputs = [ROOT / relative for relative in (
-        '.dockerignore', 'backend/requirements.txt', 'infra/worker/Dockerfile',
+        '.dockerignore', 'backend/requirements.txt', 'backend/requirements-bio-insights.lock.txt', 'infra/worker/Dockerfile',
         'infra/worker/runtime_probe.py', 'infra/pdf/Dockerfile',
         'infra/pdf/renderer.py', 'infra/pdf/update_fields.py', 'compose.workers.yml')]
     inputs.extend(path for path in (ROOT / 'backend/app').rglob('*')
@@ -143,9 +145,19 @@ def prepare(root: Path, values: dict, *, test_id=None, assets: Path | None = Non
         private_write(rabbit_path, f'default_user = paperassist\ndefault_pass = {password}\ndefault_vhost = {vhost}\n')
     bio_manifest_path = stage_runtime_manifest(values, 'PAPERASSIST_BIO_RUNTIME_MANIFEST', directory, 'bio-runtime.json')
     single_cell_manifest_path = stage_runtime_manifest(values, 'PAPERASSIST_SINGLE_CELL_RUNTIME_MANIFEST', directory, 'single-cell-runtime.json')
+    bio_insights_manifest_path = stage_runtime_manifest(values, 'PAPERASSIST_BIO_INSIGHTS_RUNTIME_MANIFEST', directory, 'bio-insights-runtime.json')
+    tabular_key = 'PAPERASSIST_BIO_TABULAR_RUNTIME_MANIFEST'
+    tabular_manifest_path = stage_runtime_manifest(values, tabular_key, directory, 'bio-tabular-runtime.json')
+    if not values.get(tabular_key):
+        tabular_manifest_path = ''
+    bulk_manifest_path = stage_runtime_manifest(values, 'PAPERASSIST_BULK_MODEL_RUNTIME_MANIFEST', directory, 'bulk-model-runtime.json')
+    bulk_display_manifest_path = stage_runtime_manifest(values, 'PAPERASSIST_BULK_DISPLAY_RUNTIME_MANIFEST', directory, 'bulk-display-runtime.json')
     staging_value = values.get('PAPERASSIST_BIO_STAGING_DIR') or str(directory / 'bio-staging')
     staging_source = Path(staging_value).expanduser().resolve()
     staging_source.mkdir(parents=True, exist_ok=True)
+    insights_staging_value = values.get('PAPERASSIST_BIO_INSIGHTS_STAGING_DIR') or str(directory / 'bio-insights-staging')
+    insights_staging_source = Path(insights_staging_value).expanduser().resolve()
+    insights_staging_source.mkdir(parents=True, exist_ok=True)
     private_write(directory / 'database-url', url.set(host='host.docker.internal').render_as_string(hide_password=False))
     # Test workers never receive a development model key, even when inherited
     # environment values point at a real secret file.
@@ -175,7 +187,13 @@ def prepare(root: Path, values: dict, *, test_id=None, assets: Path | None = Non
     fonts = str(Path(values.get('PAPERASSIST_PDF_FONTS_DIR') or default_fonts).expanduser().resolve())
     writing_live_enabled = '1' if not test_id and values.get('PAPERASSIST_WRITING_LIVE_ENABLED') == '1' else '0'
     fingerprint = hashlib.sha256((url.render_as_string(hide_password=False) + '\0' + model_key + '\0' + ncbi_text + '\0' + writing_live_enabled
-                                  + '\0' + fonts + '\0' + str(data) + '\0' + build_fingerprint()).encode()).hexdigest()
+                                  + '\0' + fonts + '\0' + str(data) + '\0' + build_fingerprint()
+                                  + '\0' + str(staging_source) + '\0' + str(insights_staging_source)
+                                  + '\0' + tabular_manifest_path
+                                  + '\0' + hashlib.sha256((directory / 'bio-insights-runtime.json').read_bytes()).hexdigest()
+                                  + '\0' + hashlib.sha256((directory / 'bio-tabular-runtime.json').read_bytes()).hexdigest()
+                                  + '\0' + hashlib.sha256((directory / 'bulk-model-runtime.json').read_bytes()).hexdigest()
+                                  + '\0' + hashlib.sha256((directory / 'bulk-display-runtime.json').read_bytes()).hexdigest()).encode()).hexdigest()
     environment = {
         'PAPERASSIST_STACK_PROJECT': project,
         'PAPERASSIST_STACK_ROOT': str(root),
@@ -191,8 +209,14 @@ def prepare(root: Path, values: dict, *, test_id=None, assets: Path | None = Non
         'PAPERASSIST_WORKER_CONFIG_REVISION': fingerprint,
         'PAPERASSIST_BIO_RUNTIME_MANIFEST': bio_manifest_path,
         'PAPERASSIST_SINGLE_CELL_RUNTIME_MANIFEST': single_cell_manifest_path,
+        'PAPERASSIST_BIO_INSIGHTS_RUNTIME_MANIFEST': bio_insights_manifest_path,
+        tabular_key: tabular_manifest_path,
+        'PAPERASSIST_BULK_MODEL_RUNTIME_MANIFEST': bulk_manifest_path,
+        'PAPERASSIST_BULK_DISPLAY_RUNTIME_MANIFEST': bulk_display_manifest_path,
         'PAPERASSIST_BIO_STAGING_DIR': '/bio-staging',
         'PAPERASSIST_BIO_STAGING_SOURCE': str(staging_source),
+        'PAPERASSIST_BIO_INSIGHTS_STAGING_DIR': '/bio-insights-staging',
+        'PAPERASSIST_BIO_INSIGHTS_STAGING_SOURCE': str(insights_staging_source),
     }
     private_write(directory / 'stack.json', json.dumps({'root': str(root), 'project': project,
                                                        'environment': environment}, indent=2))

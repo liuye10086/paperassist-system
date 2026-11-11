@@ -3,6 +3,7 @@ import {afterEach,expect,it,vi} from 'vitest'
 import ProjectWorkspace from './ProjectWorkspace'
 import OperationsWorkspace from '../operations/OperationsWorkspace'
 import {AuthIdentityContext} from '../auth/AuthIdentityContext'
+import {workflowStateFixture} from '../../test/fixtures/workflowStateFixture'
 vi.mock('./ProjectDetails',()=>({default:()=>null}))
 vi.mock('./ProjectResources',()=>({default:({section,resourceNavigation,onResourceNavigate}:{section:string;resourceNavigation:{view:string;fileId:string};onResourceNavigate:(next:{view:string;fileId:string})=>void})=>section==='files'?<section aria-label="目标材料">{resourceNavigation.view}:{resourceNavigation.fileId}<button onClick={()=>onResourceNavigate({view:'detail',fileId:'f1'})}>打开材料详情</button></section>:null}))
 vi.mock('./ProjectSummary',()=>({default:()=>null}))
@@ -14,8 +15,12 @@ vi.mock('../manuscripts/ProjectManuscripts',()=>({default:()=>null}))
 vi.mock('../tasks/ProjectTasks',()=>({default:({active,selectedTaskId,detailView,onDetailViewChange}:{active:boolean;selectedTaskId:string;detailView:string;onDetailViewChange:(view:string)=>void})=>active?<><section aria-label="目标任务">{selectedTaskId}</section><section aria-label="任务视图">{detailView}<button onClick={()=>onDetailViewChange('events')}>查看任务事件视图</button></section></>:null}))
 vi.mock('../literature/ProjectLiterature',()=>({default:({active,initialSearchId,literatureNavigation,onLiteratureNavigate}:{active:boolean;initialSearchId:string;literatureNavigation:{view:string;referenceId:string};onLiteratureNavigate:(next:{view:string;referenceId:string})=>void})=>active?<><section aria-label="目标文献">{initialSearchId}</section><section aria-label="文献视图">{literatureNavigation.view}:{literatureNavigation.referenceId}<button onClick={()=>onLiteratureNavigate({view:'citations',referenceId:''})}>打开引用视图</button></section></>:null}))
 afterEach(()=>{cleanup();vi.unstubAllGlobals();window.history.replaceState(null,'','/')})
-const project={id:'p1',name:'研究',research_topic:'主题',project_type:'sci',file_count:0,created_at:'2026-10-08T00:00:00Z',updated_at:'2026-10-08T00:00:00Z',default_output_language:'zh-CN'}
-function ownerFetch(){vi.stubGlobal('fetch',vi.fn(async(url:string)=>Response.json(url.includes('/projects?')?{items:[],total:0,page:1,page_size:20}:project)))}
+const project={id:'p1',name:'研究',research_topic:'主题',project_type:'sci' as const,file_count:0,created_at:'2026-10-08T00:00:00Z',updated_at:'2026-10-08T00:00:00Z',default_output_language:'zh-CN'}
+function ownerResponse(url:string, currentProject = project, workflow = workflowStateFixture(currentProject)) {
+ if(url.endsWith('/workflow-state')) return Response.json(workflow)
+ return Response.json(url.includes('/projects?')?{items:[],total:0,page:1,page_size:20}:currentProject)
+}
+function ownerFetch(){vi.stubGlobal('fetch',vi.fn(async(url:string)=>ownerResponse(url)))}
 function follow(hash:string){act(()=>{window.history.replaceState(null,'','/#'+hash);window.dispatchEvent(new HashChangeEvent('hashchange'))})}
 it('wires resource and literature view routes through the production workspace',async()=>{
  window.history.replaceState(null,'','/#project=p1&section=files');ownerFetch();render(<ProjectWorkspace/>)
@@ -57,7 +62,7 @@ it.each(['工作台','我的项目'])('reopens the unchanged task href from admi
   if(url.startsWith('/api/v1/admin/tasks?'))return Response.json({items:[ownTask],total:1,page:1,page_size:10})
   if(url==='/api/v1/admin/tasks/t1')return Response.json(ownTask)
   if(url.startsWith('/api/v1/admin/users?'))return Response.json({items:[],total:0,page:1,page_size:10})
-  return Response.json(url.includes('/projects?')?{items:[],total:0,page:1,page_size:20}:project)
+  return ownerResponse(url)
  }))
  render(<AuthIdentityContext.Provider value={{id:'self',email:'self@example.test',role:'admin'}}><OperationsWorkspace><ProjectWorkspace/></OperationsWorkspace></AuthIdentityContext.Provider>)
  await screen.findByRole('region',{name:'目标任务'})
@@ -91,7 +96,10 @@ it.each([
 })
 
 it('wires layered review and task routes through the production workspace',async()=>{
- window.history.replaceState(null,'','/#project=p1&section=reviews&round=r1');ownerFetch();render(<ProjectWorkspace/>)
+ const reviewedProject={...project,file_count:1}
+ const workflow=workflowStateFixture(reviewedProject,{services:['sci_draft'],resultsAvailable:true})
+ vi.stubGlobal('fetch',vi.fn(async(url:string)=>ownerResponse(url,reviewedProject,workflow)))
+ window.history.replaceState(null,'','/#project=p1&section=reviews&round=r1');render(<ProjectWorkspace/>)
  fireEvent.click(await screen.findByRole('button',{name:'整理此意见计划'}))
  expect(window.location.hash).toBe('#project=p1&section=reviews&view=plan&item=i1&round=r1')
  expect(screen.getByRole('region',{name:'评审视图'}).textContent).toContain('plan:r1:i1')

@@ -14,11 +14,13 @@ from threading import Event, Thread
 
 from app.core.exceptions import StorageError
 from app.domain.bio_insights.settings import BioInsightsLimits, INTERPRETER, runtime_identity
+from app.domain.bioinformatics.settings import BioLimits
 from app.domain.bio_insights.task_contracts import INSIGHT_TASKS
 
-MAX_LEAF = 256 * 1024**2
-MAX_TOTAL = 512 * 1024**2
-MAX_JSON = 2 * 1024**2
+LIMITS = BioLimits()
+MAX_LEAF = LIMITS.max_member_bytes
+MAX_TOTAL = LIMITS.max_expanded_bytes
+MAX_JSON = LIMITS.max_output_json_bytes
 FORMATS = {'json','tsv','csv','png','tiff','svg','txt','py','lock','fasta','pdb','mmcif','fasta.gz','pdb.gz','mmcif.gz'}
 
 
@@ -300,12 +302,16 @@ def _validate_scientific_contract(result,items,payload):
         resource=doc('resource')
         for key in ('kind','species_taxon_id','namespace','release','source','usage','strip_ensembl_version'):
             if resource.get(key)!=config[key]:raise ValueError('resource_configuration_mismatch:'+key)
+        if resource.get('reference_version') != config.get('reference_version'):
+            raise ValueError('resource_reference_version_mismatch')
         expected_files=[{k:f[k] for k in ('file_id','sha256','format','role')} for f in config['files']]
         if (resource.get('schema_version')!=1 or resource.get('importer_version')!='bio_resource_import_v1'
                 or resource.get('input_files')!=expected_files):raise ValueError('resource_input_identity_mismatch')
         methods=result['methods']
         for key in ('release','source','usage'):
             if methods.get(key)!=config[key]:raise ValueError('resource_method_metadata_mismatch')
+        if methods.get('reference_version') != config.get('reference_version'):
+            raise ValueError('resource_reference_version_mismatch')
         if methods.get('resource_kind')!=config['kind'] or methods.get('input_files')!=expected_files:raise ValueError('resource_method_kind_mismatch')
         if config['kind']=='gene_sets':
             if not isinstance(resource.get('terms'),list) or len(resource['terms'])>50000:raise ValueError('resource_terms_invalid')
@@ -358,6 +364,9 @@ def _validate_scientific_contract(result,items,payload):
         header('mapping_exclusions',{'result_source_id','contrast_id','resource_id','feature_id','reason'})
         header('term_exclusions',{'result_source_id','contrast_id','resource_id','term_id','background_size','reason'})
         header('functional_classification',{'result_source_id','contrast_id','resource_id','category','background_gene_count','foreground_gene_count','mutually_exclusive'})
+        if config.get('bulk_enrichment') is not None:
+            from app.adapters.bio_bulk_enrichment_validation import validate_bulk_enrichment
+            validate_bulk_enrichment(result, transported, table, doc)
     elif kind=='bio_candidate':
         header('candidate_results',{'row_key','feature_id','rank','support_count','conflict_count','score','score_status','inference_scope','provenance'})
         header('candidate_evidence',{'feature_id','source_id','contrast_id','row_key','effect','q','q_column','inference_scope'})
@@ -365,35 +374,79 @@ def _validate_scientific_contract(result,items,payload):
         header('candidate_exclusions',{'step','feature_id','reason'});header('mapping_exclusions',{'source_id','source_row','feature_id','reason'})
         header('missing_requested_features',{'step','feature_id','reason'})
         if doc('candidate_sets').keys()!={'source_sets','selected'} or result['methods'].get('recipe')!=config:raise ValueError('candidate_recipe_output_invalid')
+        if config.get('bulk_selection') is not None:
+            from app.adapters.bio_insights_engine.candidates import run_candidates
+            from app.adapters.bio_tabular_process import _ReconciliationWriter
+            from app.adapters.bio_engine.manifest import clean
+
+            writer = _ReconciliationWriter()
+            expected = clean(run_candidates(transported, writer))
+            for member in writer.artifacts:
+                require(member['key'], member['format'])
+                actual = items[member['key']]
+                if any(actual[key] != member[key] for key in ('role', 'sha256', 'size_bytes')):
+                    raise ValueError('bulk_candidate_member_mismatch:' + member['key'])
+            if (expected['summary'] != result['summary']
+                    or any(result['methods'].get(key) != value for key, value in expected['methods'].items())):
+                raise ValueError('bulk_candidate_summary_mismatch')
     else:
         for fmt in config['formats']:require('figure_'+fmt,fmt)
-        if not isinstance(doc('plot_data'),dict):raise ValueError('figure_plot_data_invalid')
+        plot_data = doc('plot_data')
+        if not isinstance(plot_data,dict):raise ValueError('figure_plot_data_invalid')
         metadata=doc('figure_metadata')
         if metadata.get('config')!=config or result['methods'].get('config')!=config:raise ValueError('figure_configuration_mismatch')
         if any(result['methods'].get(k)!=v for k,v in metadata.items()) or metadata.get('analysis_recomputed') is not False:
             raise ValueError('figure_methods_invalid')
         if config.get('sample_groups'):
             from app.adapters.bio_insights_engine.quantitative_figures import validate_sample_plot
-            validate_sample_plot(payload,doc('plot_data'))
+            validate_sample_plot(payload,plot_data)
+        if config.get('figure_type','').startswith('bulk_'):
+            from app.adapters.bio_insights_engine.bulk_figures import validate_bulk_plot
+            validate_bulk_plot(transported, plot_data)
+        if config.get('enrichment_order') == 'adjusted_metric_term_id':
+            from app.adapters.bio_insights_engine.figure_data import adjusted_enrichment_plot_data
+            source = next(s for s in payload['sources'] if s['source_id'] == config['result_source_id'])
+            if plot_data != adjusted_enrichment_plot_data(source, FigureConfig.model_validate(config)):
+                raise ValueError('adjusted_enrichment_plot_data_mismatch')
+        if config.get('bulk_enrichment_render') and config['figure_type'] == 'gsea':
+            from app.adapters.bio_insights_engine.figure_data import rows, running_enrichment
+            from app.adapters.bio_insights_engine.inputs import document
+            source = next(s for s in payload['sources'] if s['source_id'] == config['result_source_id'])
+            curves = document(source['members']['gsea_curves'])
+            term = next((item for item in curves['terms'] if item['row_key'] == config['term_row_key']), None)
+            ranking = rows(source, 'gsea_ranking')
+            if (term is None or plot_data.get('term') != term or plot_data.get('ranking') != ranking
+                    or plot_data.get('es_reconciled') is not True
+                    or plot_data.get('running_enrichment') != running_enrichment(
+                        [float(row['statistic']) for row in ranking], term['hit_indices'], term['weight'], term['es'])):
+                raise ValueError('bulk_gsea_plot_data_mismatch')
         if config.get('figure_type','').startswith('evidence_'):
             from app.domain.bio_insights.evidence_graph import evidence_plot_data
             source=next(s for s in payload['sources'] if s['source_id']==config['result_source_id'])
-            if doc('plot_data')!=evidence_plot_data(source,FigureConfig.model_validate(config)):raise ValueError('evidence_figure_data_mismatch')
+            if plot_data!=evidence_plot_data(source,FigureConfig.model_validate(config)):raise ValueError('evidence_figure_data_mismatch')
         if config.get('figure_type','').startswith('integration_'):
             from app.domain.bio_insights.integration_graph import integration_plot_data
             source=next(s for s in payload['sources'] if s['source_id']==config['result_source_id'])
-            if doc('plot_data')!=integration_plot_data(source,FigureConfig.model_validate(config)):raise ValueError('integration_figure_data_mismatch')
+            if plot_data!=integration_plot_data(source,FigureConfig.model_validate(config)):raise ValueError('integration_figure_data_mismatch')
         if config.get('figure_type')=='qpcr_samples':
             from app.adapters.bio_insights_engine.qpcr_figures import qpcr_plot_data
             source=next(s for s in payload['sources'] if s['source_id']==config['result_source_id'])
-            if doc('plot_data')!=qpcr_plot_data(source,FigureConfig.model_validate(config)):raise ValueError('qpcr_figure_data_mismatch')
+            if plot_data!=qpcr_plot_data(source,FigureConfig.model_validate(config)):raise ValueError('qpcr_figure_data_mismatch')
 
 
 def execute_bio_insights(payload,output_directory,*,cancel_event=None):
     from app.adapters.bio_child_cancel import require_not_revoked,terminate_revoked_child
+    from app.domain.bio_insights.settings import uses_bulk_display_runtime, uses_bulk_enrichment_runtime
     require_not_revoked(cancel_event)
     if sys.platform!='linux' or not Path(INTERPRETER).is_file():raise invalid('bio_insights_environment_unavailable')
-    runtime=runtime_identity();limits=BioInsightsLimits();output=Path(output_directory).absolute()
+    config = payload['config']
+    if uses_bulk_enrichment_runtime(config):
+        runtime = runtime_identity(bulk_enrichment=True)
+    elif uses_bulk_display_runtime(config):
+        runtime = runtime_identity(bulk_display=True)
+    else:
+        runtime = runtime_identity()
+    limits=BioInsightsLimits();output=Path(output_directory).absolute()
     if payload.get('kind')=='bio_comparison' and payload.get('config',{}).get('schema_version')==5:
         from app.domain.bio_insights.settings import composition_runtime_identity
         runtime=composition_runtime_identity()
@@ -403,7 +456,7 @@ def execute_bio_insights(payload,output_directory,*,cancel_event=None):
         runtime=qpcr_runtime_identity()
     if payload.get('kind')=='bio_comparison' and payload.get('config',{}).get('schema_version')==2:
         from app.domain.bio_insights.settings import quantitative_runtime_identity
-        runtime=quantitative_runtime_identity()
+        runtime=runtime_identity(bulk_model=True) if payload['config'].get('bulk_model') else quantitative_runtime_identity()
     if payload.get('kind')=='bio_integration' and payload.get('config',{}).get('schema_version')==2:
         from app.domain.bio_insights.settings import topic_runtime_identity
         runtime=topic_runtime_identity(payload['config']['method'])

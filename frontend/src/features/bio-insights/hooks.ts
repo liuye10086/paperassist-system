@@ -5,7 +5,15 @@ import {useDocumentVisible} from '../tasks/useDocumentVisible'
 import {insightRequest,IntakeError,jsonRequest,projectBase} from './api'
 type Pending={key:string;url:string;body:unknown}
 const prefix='paperassist.bio-insight.'
-onApiSessionChanged(()=>{try{for(const key of Object.keys(sessionStorage))if(key.startsWith(prefix))sessionStorage.removeItem(key)}catch{}})
+let sessionEstablished=getApiUserId()!==null
+onApiSessionChanged(()=>{
+ const restoredOwner=!sessionEstablished?getApiUserId():null
+ sessionEstablished=true
+ try{for(const key of Object.keys(sessionStorage)){
+  const owner=/^paperassist\.bio-insight\.(?:draft|request):([^:]+):/.exec(key)?.[1]
+  if(key.startsWith(prefix)&&owner!==restoredOwner)sessionStorage.removeItem(key)
+ }}catch{}
+})
 export function useInsightDraft<T>(project:string,scope:string,initial:()=>T){
  const key=`${prefix}draft:${getApiUserId()??'anonymous'}:${project}:${scope}`
  const read=()=>{try{const raw=sessionStorage.getItem(key);if(raw)return JSON.parse(raw) as T}catch{}return initial()}

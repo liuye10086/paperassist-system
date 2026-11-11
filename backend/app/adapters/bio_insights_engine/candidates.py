@@ -3,7 +3,15 @@ from collections import Counter,defaultdict
 import hashlib
 import json
 import math
+from app.domain.bio_insights.bulk_results import bulk_candidate_data, bulk_contrast_labels, is_reviewed_bulk
 from .evidence import source_numeric
+
+
+_CANDIDATE_FIELDS = ('rank','row_key','feature_id','same_direction_support_count','support_count','support_source_count','support_sources','conflict_count','direction_comparable','positive_sources','negative_sources','missing_sources',
+    'unknown_direction_sources','distinct_input_groups','independence_verified','primary_source_id','primary_row_key','primary_q','primary_q_column',
+    'primary_effect','effect_name','effect_unit','score','score_status','score_details','annotations','provenance','inference_scope')
+_EVIDENCE_FIELDS = ('feature_id','source_id','contrast_id','source_group','supported','missing','direction','effect','q','q_column',
+    'row_key','original_feature_id','numerator','denominator','inference_scope','observation_level')
 
 
 def _sign(value):return None if value is None else 1 if value>0 else -1 if value<0 else 0
@@ -110,11 +118,99 @@ def default_ranking_key(row):
             -abs(row['primary_effect']) if row['primary_effect'] is not None else float('inf'),row['feature_id'])
 
 
+def _candidate_row_key(source_digest, feature_id):
+    return hashlib.sha256((source_digest + ':' + feature_id).encode()).hexdigest()
+
+
+def _run_bulk_candidates(config, source, source_digest, writer):
+    from .inputs import iter_table
+
+    source_id = source['source_id']
+    metadata = source['metadata']
+    member = source['members'].get('comparison_results')
+    if (source['source_kind'] != 'bio_insight_result_version' or not is_reviewed_bulk(metadata)
+            or not member or (member.get('format'), member.get('role')) != ('tsv', 'table')):
+        raise ValueError('reviewed_bulk_comparison_required')
+    selection = config.bulk_selection
+    labels = bulk_contrast_labels(metadata).get(selection.contrast_id)
+    if labels is None:
+        raise ValueError('bulk_comparison_contrast_unknown')
+    data = bulk_candidate_data(iter_table(member, format='tsv'), selection, labels)
+    ranked = data['ranked']
+    candidate_count = len(ranked)
+    top_n = config.bulk_top_n
+    displayed_count = min(top_n, candidate_count)
+    groups = dependency_groups({source_id: metadata.get('canonical_dataset_ids', [])})
+    source_group = groups['source_group'][source_id]
+    selection_parameters = selection.model_dump(mode='json')
+    frozen = dict(source_result_version_id=source_id, source_manifest_sha256=source['sha256'],
+                  comparison_sha256=member['sha256'], numerator=labels[0], denominator=labels[1],
+                  **selection_parameters, candidate_count=candidate_count, comparison_counts=data['counts'],
+                  top_n=top_n, displayed_count=displayed_count)
+
+    def candidate_rows(entries):
+        for rank, row in enumerate(entries, 1):
+            feature_id = row['feature_id']
+            direction = row['direction']
+            yield dict(rank=rank, row_key=_candidate_row_key(source_digest, feature_id),
+                       feature_id=feature_id, symbol=row['symbol'], contrast_id=selection.contrast_id, direction=direction,
+                       same_direction_support_count=1, support_count=1, support_source_count=1,
+                       support_sources=[source_id], conflict_count=0, direction_comparable=True,
+                       positive_sources=[source_id] if direction == 'up' else [],
+                       negative_sources=[source_id] if direction == 'down' else [],
+                       missing_sources=[], unknown_direction_sources=[], distinct_input_groups=1, independence_verified=False,
+                       primary_source_id=source_id, primary_row_key=row['row_key'], primary_q=row[selection.q_column],
+                       primary_q_column=selection.q_column, primary_effect=row['effect_value'], effect_name=row['effect_name'],
+                       effect_unit=row['effect_unit'], score=None, score_status='not_requested',
+                       score_details=dict(score=None, score_status='not_requested'), annotations={},
+                       provenance='derived_candidate', inference_scope='derived')
+
+    def evidence_rows():
+        for row in ranked:
+            yield dict(feature_id=row['feature_id'], source_id=source_id, contrast_id=selection.contrast_id,
+                       source_group=source_group, supported=True, missing=False, direction=1 if row['direction'] == 'up' else -1,
+                       effect=row['effect_value'], q=row[selection.q_column], q_column=selection.q_column, row_key=row['row_key'],
+                       original_feature_id=row['feature_id'], numerator=row['numerator'], denominator=row['denominator'],
+                       inference_scope=row['inference_scope'], observation_level=row['observation_level'], source_row=row['source_row'],
+                       test_status=row['test_status'], q_within_contrast=row['q_within_contrast'],
+                       q_global_family=row['q_global_family'], original_method_adjustment=row['original_method_adjustment'])
+
+    candidate_fields = _CANDIDATE_FIELDS + ('symbol', 'contrast_id', 'direction')
+    writer.table('candidate_results', candidate_rows(ranked), candidate_fields)
+    writer.table('bulk_candidate_top', candidate_rows(ranked[:displayed_count]), candidate_fields)
+    writer.table('candidate_evidence', evidence_rows(), _EVIDENCE_FIELDS + (
+        'source_row', 'test_status', 'q_within_contrast', 'q_global_family', 'original_method_adjustment',
+    ))
+    writer.table('candidate_steps', [
+        dict(step=1, operation='bulk_threshold', before_count=data['counts']['total'], after_count=candidate_count,
+             removed_count=len(data['exclusions']), source_counts={source_id: candidate_count},
+             parameters=selection_parameters),
+    ], ['step','operation','before_count','after_count','removed_count','source_counts','parameters'])
+    writer.table('candidate_exclusions', data['exclusions'], ['step','feature_id','reason','source_row','source_row_key'])
+    writer.table('mapping_exclusions', [], ['source_id','source_row','feature_id','reason'])
+    writer.table('missing_requested_features', [], ['step','feature_id','reason'])
+    selected = [row['feature_id'] for row in ranked]
+    writer.json('candidate_sets', {'source_sets': {source_id: selected}, 'selected': selected})
+    writer.json('bulk_candidate_selection', frozen)
+    reference = {field: metadata.get(field) for field in ('species_taxon_id','namespace','reference_version')}
+    methods = dict(recipe=config.model_dump(mode='json'), source_contrasts=config.source_contrasts,
+                   q_columns={source_id: selection.q_column}, dependencies=groups, bulk_selection=frozen,
+                   ranking='selected q ASC, absolute MLE log2 fold change DESC, stable feature ID ASC',
+                   warning='Support counts the fixed result source. Biological replication and confidence require separate evidence.',
+                   **reference)
+    summary = dict(candidate_count=candidate_count, empty_result=candidate_count == 0, source_count=1, step_count=1,
+                   contrast_id=selection.contrast_id, top_n=top_n, displayed_count=displayed_count,
+                   species_taxon_id=reference['species_taxon_id'], namespace=reference['namespace'])
+    return dict(summary=summary, methods=methods, inference_scope='derived', provenance='system_computed')
+
+
 def run_candidates(payload,writer):
     from app.domain.bio_insights.contracts import CandidateConfig
     from .inputs import document,iter_table
-    from .mapping import ExplicitMapper
     config=CandidateConfig.model_validate(payload['config']);sources={s['source_id']:s for s in payload['sources']}
+    if config.bulk_selection is not None:
+        return _run_bulk_candidates(config, sources[config.primary_result_source_id], payload['identity']['source_digest'], writer)
+    from .mapping import ExplicitMapper
     primary=sources[config.primary_result_source_id];target=primary['metadata'];mapping_sources=[sources[i] for i in config.mapping_source_ids]
     evidence={};exclusions=[];canonical={};q_columns={};annotations={};input_rows=0
     for sid in config.result_source_ids:
@@ -177,7 +273,7 @@ def run_candidates(payload,writer):
                         primary_significance=1-primary_row['q'] if primary_row.get('q') is not None else None,
                         primary_absolute_effect=abs(primary_row['effect'])/(1+abs(primary_row['effect'])) if primary_row.get('effect') is not None else None)
         weighted=weighted_score(components,[w.model_dump() for w in config.weights]) if config.ranking_mode=='weighted' else {'score':None,'score_status':'not_requested','components':components}
-        row=dict(row_key=hashlib.sha256((payload['identity']['source_digest']+':'+feature).encode()).hexdigest(),feature_id=feature,
+        row=dict(row_key=_candidate_row_key(payload['identity']['source_digest'],feature),feature_id=feature,
             support_count=len(supported_groups),same_direction_support_count=max(group_positive,group_negative) if comparable else None,
             support_source_count=len(support),support_sources=support,conflict_count=conflict,direction_comparable=comparable,positive_sources=positive,negative_sources=negative,
             missing_sources=[sid for sid in config.result_source_ids if feature not in evidence[sid]],
@@ -197,12 +293,8 @@ def run_candidates(payload,writer):
     default=default_ranking_key
     rows.sort(key=(lambda row:({'complete':0,'partial':1,'unavailable':2}[row['score_status']],-row['score'] if row['score'] is not None else 0,*default(row))) if config.ranking_mode=='weighted' else default)
     for index,row in enumerate(rows,1):row['rank']=index
-    candidate_fields=['rank','row_key','feature_id','same_direction_support_count','support_count','support_source_count','support_sources','conflict_count','direction_comparable','positive_sources','negative_sources','missing_sources',
-        'unknown_direction_sources','distinct_input_groups','independence_verified','primary_source_id','primary_row_key','primary_q','primary_q_column',
-        'primary_effect','effect_name','effect_unit','score','score_status','score_details','annotations','provenance','inference_scope']
-    writer.table('candidate_results',rows,candidate_fields)
-    writer.table('candidate_evidence',matrix,['feature_id','source_id','contrast_id','source_group','supported','missing','direction','effect','q','q_column',
-        'row_key','original_feature_id','numerator','denominator','inference_scope','observation_level'])
+    writer.table('candidate_results',rows,_CANDIDATE_FIELDS)
+    writer.table('candidate_evidence',matrix,_EVIDENCE_FIELDS)
     writer.table('candidate_steps',recipe['steps'],['step','operation','before_count','after_count','removed_count','source_counts','parameters'])
     writer.table('candidate_exclusions',recipe['exclusions'],['step','feature_id','reason'])
     writer.table('mapping_exclusions',exclusions,['source_id','source_row','feature_id','reason'])

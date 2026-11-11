@@ -162,3 +162,23 @@ def test_parent_rejects_individual_semantic_tampering(tmp_path,monkeypatch,targe
             lines=body.splitlines();parts=lines[1].split('\t');parts[1]='nan';lines[1]='\t'.join(parts);body='\n'.join(lines)+'\n'
         rehash_result(result,target,body)
     with pytest.raises(StorageError):validate_tabular_result(result,out,request,'compute')
+
+
+def test_bulk_tabular_capacity_uses_the_central_limit():
+    from app.adapters.bio_engine import tabular_assays
+    from app.domain.bioinformatics.settings import BioLimits
+
+    assert tabular_assays.MAX_CELLS == BioLimits().max_bulk_matrix_cells
+
+
+def test_bulk_capacity_overrides_can_only_tighten():
+    from pydantic import ValidationError
+    from app.domain.bioinformatics.settings import BioLimits
+
+    tightened = BioLimits(max_bulk_matrix_cells=3_000_000, max_bulk_observations=50)
+    assert tightened.max_bulk_matrix_cells == 3_000_000
+    assert tightened.max_bulk_observations == 50
+    with pytest.raises(ValidationError):
+        BioLimits(max_bulk_matrix_cells=5_000_001)
+    with pytest.raises(ValidationError):
+        BioLimits(max_bulk_observations=513)

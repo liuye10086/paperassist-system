@@ -42,6 +42,21 @@ backend/.venv/Scripts/python.exe script/dev/worker_stack.py probe
 
 probe会先准备本项目私有运行配置，再读取PG身份并检查资产挂载；它不迁移数据库、不写用户资产，但不是完全无文件写入的检查。故障排查先检查 Docker Desktop Linux engine、已有运行账号以及宿主PG连接；不要将数据库HBA改为任意来源或trust认证。
 
+### Tabular 导入和 QC 门禁
+
+从待运行的 Worker 镜像生成 `tabular` 收据。探针使用合成整数 counts 实际运行隔离导入、QC 和处理，校验四层分析对象，并检查 Linux 禁止网络、额外文件访问、fork 和执行外部程序。
+
+```powershell
+$workerImage = '<当前 Compose 项目的 Worker 镜像标签>'
+$receipt = Join-Path (Resolve-Path script/.runtime).Path 'bio-tabular-runtime.json'
+$report = docker run --rm --network none --memory 4g --cpus 1 $workerImage /opt/paperassist-bio-insights/bin/python -m app.adapters.bio_engine.tabular_probe /tmp/paperassist-tabular-probe --receipt
+if ($LASTEXITCODE -ne 0 -or ($report | ConvertFrom-Json).status -ne 'passed') { throw 'Tabular probe failed' }
+$report | Set-Content -LiteralPath $receipt -Encoding utf8
+$env:PAPERASSIST_BIO_TABULAR_RUNTIME_MANIFEST = $receipt
+```
+
+从同一 PowerShell 启动 API 和 Worker。`worker_stack.py` 将收据放进项目私有目录，Compose 在容器中只读挂载。启动时使用与收据对应的代码和依赖锁，更新镜像或科学代码后重新生成收据。未设置此变量时，已有通用收据仍可通过其原有 Tabular 校验。Bulk 差异模型与固定结果绘图继续分别读取其已配置的运行时收据。
+
 ## 私有配置
 
 启动器从既有配置中提取运行库URL，并在已配置时读取模型密钥，在 `script/.runtime/workers/development` 生成本项目私有配置。RabbitMQ随机密码首次创建后保留，重启不重设。目录在Windows上设置为当前用户访问，已被Git忽略；不要删除其中一半文件或将文件复制到仓库。

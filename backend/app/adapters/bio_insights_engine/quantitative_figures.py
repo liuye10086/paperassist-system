@@ -1,7 +1,11 @@
 """Actual selected sample values and explicit missingness for quantitative plots."""
 from types import SimpleNamespace
 import numpy as np
+from app.domain.bioinformatics.settings import BioLimits
 from .quantitative_inputs import load_quantitative
+
+LIMITS = BioLimits()
+LEGACY_MATRIX_CELLS = 1_000_000
 
 
 def sample_plot_data(processed,config,features):
@@ -19,7 +23,8 @@ def sample_plot_data(processed,config,features):
         for feature in features:
             j=findex[feature];missing=int(data['missing'][indices,j].sum())
             group_counts.append(dict(group=group.label,feature_id=feature,total_n=len(indices),measured_n=len(indices)-missing,missing_n=missing))
-    if len(selected)*len(features)>1000000:raise ValueError('sample_plot_cell_limit')
+    budget = LIMITS.max_bulk_matrix_cells if data['source']['metadata'].get('assay') == 'bulk_rna_counts' else LEGACY_MATRIX_CELLS
+    if len(selected)*len(features)>budget:raise ValueError('sample_plot_cell_limit')
     values=data['values'][[index[key] for key in selected]][:,[findex[f] for f in features]].astype(float).copy()
     mask=data['missing'][[index[key] for key in selected]][:,[findex[f] for f in features]]
     transform=[]

@@ -23,6 +23,7 @@ NARRATIVE_FIELDS = (
     "reader_cautions",
 )
 PROMPT_VERSION = "single-cell-reader-report-v1"
+BULK_PROMPT_VERSION = "bulk-rna-seq-reader-report-v1"
 _LANGUAGES = {"zh-CN", "en"}
 _SHA = re.compile(r"(?i)(?:sha(?:256)?\s*[:=]?\s*)?[0-9a-f]{64}")
 _UUID = re.compile(r"\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b", re.I)
@@ -131,6 +132,21 @@ def load_cached_narrative(root, project_id, result_id, language):
     if record.get("narrative_sha256") != _digest(record["narrative"]):
         raise ValueError("Reader narrative digest mismatch")
     return record
+
+
+def load_bulk_cached_narrative(root, project_id, facts_digest, language):
+    """Reuse a reader narrative only for the exact frozen Bulk facts and language."""
+    cache_id = f'bulk-{facts_digest}'
+    try:
+        record = load_cached_narrative(root, project_id, cache_id, language)
+    except (OSError, ValueError, TypeError, AttributeError):
+        return None
+    if record and all(record.get(key) == value for key, value in {
+        'schema_version': 1, 'result_id': cache_id, 'language': language,
+        'input_sha256': facts_digest, 'prompt_version': BULK_PROMPT_VERSION,
+    }.items()):
+        return record
+    return None
 
 
 def save_cached_narrative(root, project_id, result_id, language, record):

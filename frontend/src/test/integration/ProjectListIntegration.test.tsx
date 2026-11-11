@@ -7,6 +7,7 @@ import type { Project } from '../../features/projects/projectTypes'
 import { summaryFixture } from '../fixtures/summaryFixture'
 import { filePageFixture } from '../fixtures/filePageFixture'
 import { batchUploadFixture } from '../fixtures/batchUploadFixture'
+import { workflowStateFixture } from '../fixtures/workflowStateFixture'
 
 afterEach(() => { cleanup(); vi.useRealTimers(); vi.unstubAllGlobals(); window.history.replaceState(null, '', '/') })
 const project: Project = { id: 'p1', name: '药学项目', research_topic: '分组比较', project_type: 'sci', file_count: 1,
@@ -29,6 +30,8 @@ function api() {
     if (batchResponse) return batchResponse
     const summaryProject = projects.find(item => url.startsWith(`/api/v1/projects/${item.id}/summary?`))
     if (summaryProject) return Response.json(summaryFixture(summaryProject.id, summaryProject.project_type))
+    const flowProject = projects.find(item => url === `/api/v1/projects/${item.id}/workflow-state`)
+    if (flowProject) return Response.json(workflowStateFixture(flowProject))
     const parsed = new URL(url, 'http://localhost')
     if (url.endsWith('/me')) return Response.json({ user: { id: 'test', email: 'test@example.com', role: 'user' }, csrf_token: 'test-csrf' })
     if (url.endsWith('/config')) return Response.json({ max_upload_bytes: 10485760, preview_row_limit: 20 })
@@ -63,15 +66,21 @@ function api() {
   return fetchMock
 }
 function listCalls(mock: ReturnType<typeof api>) { return mock.mock.calls.filter(([url]) => url.startsWith('/api/v1/projects?')) }
-async function navigate(name: string) {
+const sidebar = () => within(screen.getByRole('complementary', { name: '主要导航' }))
+async function navigate(name: '项目资料' | '项目文件' | '我的项目') {
   if (name === '项目资料') {
-    if (!screen.queryByRole('button', {name:'第 1 步：项目资料'})) await act(async () => { fireEvent.click(within(screen.getByRole('complementary', {name:'主要导航'})).getByRole('button', {name:'药学项目'})) })
-    await act(async () => { fireEvent.click(screen.getByRole('button', {name:'第 1 步：项目资料'})) }); return
+    if (!screen.queryByRole('navigation', { name: '项目操作步骤' })) {
+      await act(async () => { fireEvent.click(sidebar().getByRole('button', { name: '药学项目' })) })
+    }
+    const steps = within(screen.getByRole('navigation', { name: '项目操作步骤' }))
+    await act(async () => { fireEvent.click(steps.getByRole('button', { name: '第 1 步：项目资料' })) })
+    return
   }
-  if (name === '项目文件' && !screen.queryByRole('button', { name })) {
-    await act(async () => { fireEvent.click(screen.getByRole('button', { name: '材料准备' })) })
-  }
-  await act(async () => { fireEvent.click(screen.getByRole('button', { name })) })
+  const nav = sidebar()
+  const button = name === '项目文件'
+    ? nav.queryByRole('button', { name }) ?? nav.getByRole('button', { name: '材料准备' })
+    : nav.getByRole('button', { name })
+  await act(async () => { fireEvent.click(button) })
 }
 async function openAndPreview() {
   const user = userEvent.setup(); render(<App />)
@@ -129,7 +138,7 @@ test('paginates five projects per page and retains preview and edit draft after 
   await navigate('项目文件')
   expect(screen.getByRole('cell', { name: '777' })).toBeTruthy()
   expect(window.location.hash).toBe('#project=p1&section=files&view=preview&file=f1')
-  expect(mock.mock.calls.filter(([url]) => url === '/api/v1/projects/p1/files')).toHaveLength(1)
+  expect(mock.mock.calls.filter(([url]) => url === '/api/v1/projects/p1/files/f1/preview')).toHaveLength(1)
 })
 
 test('restores a hash project by detail even when absent from the current page', async () => {
@@ -147,7 +156,7 @@ test('retains details during a list failure and retries only the list', async ()
   await user.click(screen.getByRole('button', { name: '下一页' }))
   await screen.findByRole('button', { name: '重试项目列表' })
   await navigate('项目文件')
-  expect(screen.getByRole('heading', { name: '药学项目' })).toBeTruthy(); expect(screen.getByRole('cell', { name: '777' })).toBeTruthy()
+  expect(sidebar().getByRole('button', { name: '药学项目' })).toBeTruthy(); expect(screen.getByRole('cell', { name: '777' })).toBeTruthy()
   await navigate('我的项目')
   failed = false; await user.click(screen.getByRole('button', { name: '重试项目列表' })); await screen.findByRole('button', { name: '打开项目 其他项目10' })
   expect(mock.mock.calls.filter(([url]) => url === '/api/v1/projects/p1')).toHaveLength(1)
@@ -175,7 +184,7 @@ test('updates details when editing removes the project from search results while
   await navigate('我的项目')
   await screen.findByText('没有匹配的项目。')
   await navigate('项目文件')
-  expect(screen.getByRole('heading', { name: '改名项目' })).toBeTruthy(); expect(screen.getByRole('cell', { name: '777' })).toBeTruthy()
+  expect(sidebar().getByRole('button', { name: '改名项目' })).toBeTruthy(); expect(screen.getByRole('cell', { name: '777' })).toBeTruthy()
 })
 
 test('refreshes file counts and metadata after upload without resetting an editing draft', async () => {
@@ -208,7 +217,7 @@ test('creation returns to page one and clears both filters with the fixed page s
   await user.click(screen.getByRole('button', { name: '新建研究项目' }))
   await user.type(screen.getByLabelText('项目名称'), '新药学项目'); await user.type(screen.getByLabelText('研究主题'), '新主题')
   await user.selectOptions(screen.getByLabelText('项目类型'), 'sci'); await user.click(screen.getByRole('button', { name: '创建项目' }))
-  await screen.findByRole('heading', { name: '新药学项目' })
+  await sidebar().findByRole('button', { name: '新药学项目' })
   await navigate('我的项目')
   await screen.findByRole('button', { name: '打开项目 新药学项目' })
   expect((screen.getByLabelText('搜索项目名称') as HTMLInputElement).value).toBe('')
@@ -270,7 +279,7 @@ test('detail requests time out at the shared bounded deadline and retry when fet
   expect(screen.queryByLabelText('批量选择 Excel / Word / PDF / 图片 文件')).toBeNull()
   pending = false; fireEvent.click(screen.getByRole('button', { name: '重试项目详情' })); await act(async () => {})
   await navigate('项目文件')
-  expect(screen.getByRole('heading', { name: '药学项目' })).toBeTruthy()
+  expect(sidebar().getByRole('button', { name: '药学项目' })).toBeTruthy()
   expect(mock.mock.calls.filter(([url]) => url === '/api/v1/projects/p1')).toHaveLength(2)
 })
 
@@ -295,10 +304,19 @@ for (const late of ['response', 'body']) {
     if (late === 'body') await waitFor(() => expect(bodyStarted).toBe(true))
     await navigate('项目资料')
     await user.click(screen.getByRole('button', { name: '保存修改：项目名称' })); await screen.findByRole('heading', { name: 'PATCH 新名称' })
-    await user.click(screen.getByRole('button', { name: '保存修改：研究主题' })); await waitFor(() => expect((screen.getByRole('button', { name: '保存修改：研究主题' }) as HTMLButtonElement).disabled).toBe(true))
+    const topic = screen.getByLabelText<HTMLTextAreaElement>('修改研究主题')
+    const saveTopic = screen.getByRole<HTMLButtonElement>('button', { name: '保存修改：研究主题' })
+    await user.click(saveTopic)
+    await waitFor(() => {
+      expect(topic.disabled).toBe(false)
+      expect(saveTopic.disabled).toBe(true)
+      expect(screen.queryByRole('button', { name: '重新读取项目' })).toBeNull()
+    })
     await act(async () => { if (late === 'response') pending.resolve(Response.json(project)); else body.resolve(project) })
     expect(screen.getByRole('heading', { name: 'PATCH 新名称' })).toBeTruthy()
+    expect(topic.value).toBe('PATCH 新主题')
+    expect(screen.getByRole<HTMLButtonElement>('button', { name: '取消修改：研究主题' }).disabled).toBe(true)
     await navigate('项目文件')
-    expect(screen.getByText('PATCH 新主题', { selector: 'p' })).toBeTruthy(); expect(screen.getByRole('cell', { name: '777' })).toBeTruthy()
+    expect(screen.getByRole('cell', { name: '777' })).toBeTruthy()
   })
 }

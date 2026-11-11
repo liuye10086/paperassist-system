@@ -6,30 +6,18 @@ import textwrap
 from pathlib import Path
 import numpy as np
 from matplotlib import pyplot as plt
-from matplotlib.colors import ListedColormap,BoundaryNorm
+from matplotlib.colors import ListedColormap,BoundaryNorm,LinearSegmentedColormap
 from matplotlib.font_manager import FontProperties
 from matplotlib.patches import Circle,Patch
 from matplotlib.ticker import MaxNLocator
 from PIL import Image
 from .inputs import document,iter_table,load_processed
 from .evidence import numeric,source_numeric
-from .figure_data import rows,contrast_rows,q_column as _q_column
+from .figure_data import adjusted_enrichment_plot_data, rows, contrast_rows, q_column as _q_column, running_enrichment
+from .bulk_figures import ZERO_Q_DISPLAY_FLOOR, bulk_axes, bulk_title, draw_bulk, place_bulk_labels
 
 
 number=numeric
-
-def running_enrichment(values,hit_indices,weight,expected_es):
-    ranking=np.asarray(values,dtype=float);hits=np.asarray(hit_indices,dtype=int)
-    if (ranking.ndim!=1 or not np.isfinite(ranking).all() or not 0<len(hits)<len(ranking)
-            or len(set(hits))!=len(hits) or np.any(hits<0) or np.any(hits>=len(ranking))):raise ValueError('invalid_gsea_curve_inputs')
-    mass=np.abs(ranking[hits])**weight
-    if not np.isfinite(mass).all() or mass.sum()<=0:raise ValueError('gsea_hit_weights_not_computable')
-    increments=np.full(len(ranking),-1/(len(ranking)-len(hits)),dtype=float);increments[hits]=mass/mass.sum()
-    result=np.cumsum(increments)
-    observed=float(result.max() if abs(result.max())>abs(result.min()) else result.min())
-    if not np.isclose(observed,expected_es,rtol=1e-6,atol=1e-8):raise ValueError('gsea_curve_es_mismatch')
-    return result.tolist()
-
 
 def intersections(sets):
     if not 2<=len(sets)<=8:raise ValueError('set_plot_count_limit')
@@ -136,11 +124,17 @@ def _heatmap(fig,ax,source,config,sources,zh):
 
 
 def _enrichment(fig,ax,source,config,zh):
-    data=contrast_rows(rows(source,'enrichment_results'),config.contrast_id)
     is_gsea=source['metadata'].get('kind')=='gsea_prerank';qcol='fdr_q_value' if is_gsea else 'q_value'
-    valid=[r for r in data if number(r.get(qcol)) is not None]
-    valid.sort(key=lambda r:(number(r[qcol]),r['row_key']));display=valid[:config.top_n]
-    values=[number(r.get('nes') if is_gsea else r.get('gene_ratio')) for r in display]
+    axis='nes' if is_gsea else 'gene_ratio'
+    if config.enrichment_order:
+        plot=adjusted_enrichment_plot_data(source,config)
+        by_key={r['row_key']:r for r in plot['rows']}
+        display=[by_key[key] for key in plot['displayed_row_keys']]
+    else:
+        data=contrast_rows(rows(source,'enrichment_results'),config.contrast_id)
+        valid=[r for r in data if number(r.get(qcol)) is not None]
+        valid.sort(key=lambda r:(number(r[qcol]),r['row_key']));display=valid[:config.top_n]
+    values=[number(r.get(axis)) for r in display]
     if not display or not any(v is not None for v in values):
         _empty(ax,'没有可计算的富集条目' if zh else 'No computable enrichment terms');empty=True
     else:
@@ -148,11 +142,16 @@ def _enrichment(fig,ax,source,config,zh):
         labels=[r.get('term_name') or r['term_id'] for r in display];y=np.arange(len(values))
         if config.enrichment_style=='bar':ax.barh(y,values,color=config.palette[0])
         else:
+            cmap='viridis'
+            if config.enrichment_order:
+                cmap=(LinearSegmentedColormap.from_list('enrichment_palette',config.palette)
+                      if len(config.palette)>1 else ListedColormap(config.palette))
             image=ax.scatter(values,y,c=[-math.log10(max(number(r[qcol]),1e-300)) for r in display],
-                s=[max(15,min(200,math.sqrt(float(r.get('k') or r.get('set_size') or 1))*15)) for r in display],cmap='viridis')
+                s=[max(15,min(200,math.sqrt(float(r.get('k') or r.get('set_size') or 1))*15)) for r in display],cmap=cmap)
             fig.colorbar(image,ax=ax,label='-log10('+qcol+')')
         ax.set_yticks(y,labels,fontsize=7);ax.invert_yaxis();ax.set_xlabel('NES' if is_gsea else 'GeneRatio (hits / foreground)');empty=False
         if all(number(r[qcol])>.05 for r in display):ax.set_title('q ≤ 0.05 无显著条目' if zh else 'No terms with q ≤ 0.05')
+    if config.enrichment_order:return plot,empty
     return dict(rows=data,displayed_row_keys=[r['row_key'] for r in display],q_column=qcol,top_n=config.top_n,
         correction='GSEA joint-null FDR' if is_gsea else 'BH within frozen enrichment family',style=config.enrichment_style),empty
 
@@ -303,6 +302,7 @@ def _candidate(fig,ax,source,config,zh):
 def run_figure(payload,writer):
     from app.domain.bio_insights.contracts import FigureConfig
     config=FigureConfig.model_validate(payload['config']);sources={s['source_id']:s for s in payload['sources']};source=sources[config.result_source_id]
+    bulk=config.figure_type.startswith('bulk_')
     axes_members={
         'topic_slingshot':('representation_1','representation_2','topic_plot_data'),
         'topic_genie3':('predictive_importance','edge','topic_plot_data'),
@@ -322,7 +322,7 @@ def run_figure(payload,writer):
         'gsea':('rank','running_enrichment','gsea_curves'),
         'venn':('membership','gene_count','comparison_results'),'upset':('membership','gene_count','comparison_results'),
         'candidate_evidence':('source_id','feature_id','candidate_evidence'),'evidence_matrix':('source_id','feature_id','evidence_data'),'evidence_network':('source','target','evidence_data'),'evidence_flow':('source','target','evidence_data')}
-    x,y,member_key=axes_members[config.figure_type]
+    x,y,member_key=bulk_axes(config) if bulk else axes_members[config.figure_type]
     if any(actual is not None and actual!=expected for actual,expected in [(config.x_column,x),(config.y_column,y),(config.member_key,member_key)]):
         raise ValueError('figure_axis_contract_mismatch')
     width=round(config.width_inches*config.dpi);height=round(config.height_inches*config.dpi)
@@ -333,7 +333,9 @@ def run_figure(payload,writer):
     plt.rcParams.update({'font.family':FontProperties(fname=str(font)).get_name(),'axes.unicode_minus':False,'svg.fonttype':'path','pdf.fonttype':42})
     fig,ax=plt.subplots(figsize=(config.width_inches,config.height_inches));zh=config.output_language=='zh-CN'
     try:
-        if config.figure_type=='distribution' or config.figure_type=='heatmap' and config.sample_groups:
+        if bulk:
+            data,empty=draw_bulk(fig,ax,source,config,zh)
+        elif config.figure_type=='distribution' or config.figure_type=='heatmap' and config.sample_groups:
             from .quantitative_figures import draw_sample_plot
             data,empty=draw_sample_plot(fig,ax,source,config,sources,zh)
         elif config.figure_type.startswith('topic_'):
@@ -360,7 +362,7 @@ def run_figure(payload,writer):
         elif config.figure_type=='gsea':data,empty=_gsea(fig,ax,source,config,zh)
         elif config.figure_type in ('venn','upset'):data,empty=_sets(fig,ax,config,sources,zh)
         else:data,empty=_candidate(fig,ax,source,config,zh)
-        scope=source['metadata'].get('inference_scope','derived')
+        scope=source['metadata'].get('inference_scope','sample_exploratory' if config.figure_type in ('bulk_qc','bulk_pca') else 'derived')
         upstream=set()
         for item in sources.values():
             meta=item.get('metadata',{});upstream.update(meta.get('upstream_inference_scopes',[]))
@@ -369,16 +371,18 @@ def run_figure(payload,writer):
         labels={'spot_exploratory':'空间探索' if zh else 'Spot exploratory','donor_inference':'供体层面比较' if zh else 'Donor comparison',
                 'sample_exploratory':'样本探索' if zh else 'Sample exploratory','sample_inference':'样本比较' if zh else 'Sample comparison',
                 'external_result':'外部结果' if zh else 'External result','derived':'派生分析' if zh else 'Derived analysis'}
-        title=config.title or config.figure_type
+        title=config.title or (bulk_title(config,zh) if bulk else config.figure_type)
         restrictions=' / '.join(labels.get(s,s) for s in sorted(upstream)) or labels.get(scope,scope)
         if driven:restrictions+='; '+('数据驱动分组' if zh else 'data-driven grouping')
-        notice=ax.get_title() if config.figure_type=='enrichment' or config.figure_type=='microbiome_pcoa' else ''
+        notice=ax.get_title() if bulk or config.figure_type in ('enrichment','microbiome_pcoa') else ''
         ax.set_title(title+'\n'+restrictions+('\n'+notice if notice else ''),fontsize=10)
         if config.figure_type=='gsea':fig.tight_layout(rect=(0,.16,1,.82))
         elif data.get('actual_figure_type')=='upset':_layout_upset(fig,ax,config,zh)
         else:fig.tight_layout()
         if config.figure_type=='volcano' and source['metadata'].get('plan_config',{}).get('kind')=='comparison' and source['metadata']['plan_config'].get('schema_version')==2:
             _place_small_sample_volcano_legend(fig,ax)
+        if config.figure_type in ('bulk_volcano','bulk_ma'):
+            place_bulk_labels(fig,ax,data)
         for fmt in config.formats:
             if fmt=='tiff':
                 buffer=io.BytesIO();fig.savefig(buffer,format='png',dpi=config.dpi)
@@ -394,9 +398,17 @@ def run_figure(payload,writer):
             config=config.model_dump(mode='json'),upstream_inference_scope=scope,upstream_provenance=source['metadata'].get('provenance'),
             upstream_inference_scopes=sorted(upstream),data_driven_grouping=driven,axes=dict(x=x,y=y),input_member=member_key,
             source_id=source['source_id'],source_sha256=source['sha256'],plot_data_key='plot_data',analysis_recomputed=False,
-            zero_q_display_floor=1e-300 if config.figure_type in ('volcano','enrichment') else None,raw_values_unchanged=True,
-            empty_result=bool(empty),caption_scope='Sample measurements preserve missingness and declared units; technical exploration is not biological inference or independent validation.' if upstream & {'sample_exploratory','sample_inference'} else 'Region enrichment does not establish pure cell identity, mechanism or independent validation.')
+            zero_q_display_floor=ZERO_Q_DISPLAY_FLOOR if config.figure_type in ('volcano','bulk_volcano','enrichment') else None,raw_values_unchanged=True,
+            empty_result=bool(empty),caption_scope='Sample measurements preserve missingness and declared units; technical exploration is not biological inference or independent validation.' if (upstream | {scope}) & {'sample_exploratory','sample_inference'} else 'Region enrichment does not establish pure cell identity, mechanism or independent validation.')
         writer.json('figure_metadata',methods)
-        return dict(summary=dict(figure_type=config.figure_type,actual_figure_type=methods['actual_figure_type'],empty_result=bool(empty),formats=config.formats,
-            output_language=config.output_language),methods=methods,inference_scope='visualization',provenance='system_computed')
+        summary=dict(figure_type=config.figure_type,actual_figure_type=methods['actual_figure_type'],empty_result=bool(empty),formats=config.formats,
+                     output_language=config.output_language)
+        if bulk:
+            summary.update(empty_reason=data['empty_reason'],displayed_count=data['displayed_count'],omitted_count=data['omitted_count'])
+            if config.bulk_selection:
+                summary.update(contrast_id=data['contrast_id'],**data['direction'])
+            if 'requested_top_n' in data:
+                summary.update(requested_top_n=data['requested_top_n'],
+                               displayed_feature_count=data.get('displayed_feature_count',len(data.get('labeled_feature_ids',[]))))
+        return dict(summary=summary,methods=methods,inference_scope='visualization',provenance='system_computed')
     finally:plt.close(fig)

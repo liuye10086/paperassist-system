@@ -1,4 +1,3 @@
-import {useEffect, useState} from 'react'
 import {act, cleanup, fireEvent, render, screen, within} from '@testing-library/react'
 import {afterEach, beforeEach, expect, it, vi} from 'vitest'
 import RuntimeStatus from './RuntimeStatus'
@@ -26,7 +25,7 @@ beforeEach(()=>{vi.useFakeTimers();vi.setSystemTime(now);setApiSession('csrf','a
 afterEach(()=>{cleanup();vi.useRealTimers();vi.unstubAllGlobals();setLocale('zh-CN')})
 async function flush(){await act(async()=>{await Promise.resolve();await Promise.resolve()})}
 const forbidden=vi.fn()
-it('preserves the exact artifact deep link through the anonymous notice click and login',async()=>{
+it('preserves the exact artifact deep link through login',async()=>{
  const original=window.location.href
  const hash='#project=retained-project&section=artifacts&view=detail&artifact=saved-report&kind=report&page=2'
  function ExistingRoute(){const route=useProjectSelection(()=>{},()=>{});return <output aria-label="Existing route">{JSON.stringify({project:route.instance?.id,section:route.section,artifact:route.artifactNavigation})}</output>}
@@ -40,13 +39,7 @@ it('preserves the exact artifact deep link through the anonymous notice click an
    return Response.json({status:'maintenance',reason:'operator_maintenance',observed_at:now.toISOString()})
   })
   render(<AuthBoundary><ExistingRoute/></AuthBoundary>);await flush()
-  const scroll=vi.fn(),target=document.getElementById('paperassist-login')!
-  target.scrollIntoView=scroll
-  screen.getByRole('button',{name:'登录'}).focus()
-  fireEvent.click(screen.getByRole('link',{name:'登录后查看已有项目与成果'}))
-  await act(async()=>vi.advanceTimersByTime(0))
   expect(window.location.hash).toBe(hash)
-  expect(document.activeElement).toBe(screen.getByLabelText('邮箱'));expect(scroll).toHaveBeenCalledOnce()
   fireEvent.change(screen.getByLabelText('邮箱'),{target:{value:'user@example.test'}})
   fireEvent.change(screen.getByLabelText('密码'),{target:{value:'test-password'}})
   fireEvent.click(screen.getByRole('button',{name:'登录'}));await flush()
@@ -87,12 +80,15 @@ it('integrates the admin runtime tab with active polling and immediate role revo
   return Response.json({items:[],total:0,page:1,page_size:10})
  })
  render(<AuthIdentityContext.Provider value={{id:'admin',email:'admin@example.test',role:'admin'}}><OperationsWorkspace><input aria-label="Retained project draft" defaultValue="text"/></OperationsWorkspace></AuthIdentityContext.Provider>)
+ const draft=screen.getByLabelText('Retained project draft')
+ fireEvent.change(draft,{target:{value:'edited draft'}})
  expect(mock.mock.calls.some(([url])=>url==='/api/v1/admin/runtime/status')).toBe(false)
  fireEvent.click(screen.getByRole('button',{name:'管理员'}));fireEvent.click(screen.getByRole('button',{name:'运行状态'}));await flush()
  expect(screen.getByText('desired-config')).toBeTruthy()
- fireEvent.click(screen.getByRole('button',{name:'查看已有项目与成果'}));const count=mock.mock.calls.filter(([url])=>url==='/api/v1/admin/runtime/status').length
+ fireEvent.click(screen.getByRole('button',{name:'项目工作区'}));const count=mock.mock.calls.filter(([url])=>url==='/api/v1/admin/runtime/status').length
  await act(async()=>vi.advanceTimersByTime(16_000));expect(mock.mock.calls.filter(([url])=>url==='/api/v1/admin/runtime/status')).toHaveLength(count)
- expect(screen.getByLabelText('Retained project draft')).toHaveProperty('value','text')
+ expect(screen.getByLabelText('Retained project draft')).toBe(draft)
+ expect(draft).toHaveProperty('value','edited draft')
  denied=true;role='user';fireEvent.click(screen.getByRole('button',{name:'管理员'}));await flush()
  expect(screen.queryByRole('button',{name:'管理员'})).toBeNull();expect(screen.queryByText('desired-config')).toBeNull()
 })
@@ -138,26 +134,33 @@ it('revokes private data on forbidden and session change and ignores delayed old
  render(<RuntimeStatus onForbidden={forbidden}/>);act(()=>clearApiSession());expect(signal?.aborted).toBe(true)
  await act(async()=>finish(Response.json(sample())));expect(screen.queryByText('desired-config')).toBeNull()
 })
-it.each(['maintenance','service_unavailable'] as const)('public %s preserves mounted draft and existing workspace navigation without promising downloads',async status=>{
- let mounts=0
- function Draft(){const[value,setValue]=useState('');useEffect(()=>{mounts++},[]);return <input aria-label="Existing draft" value={value} onChange={e=>setValue(e.target.value)}/>}
+it.each(['maintenance','service_unavailable'] as const)('the public notice for %s offers existing projects without promising downloads',async status=>{
+ const openProjects=vi.fn()
  mock.mockImplementation(async(url:string)=>Response.json(url==='/api/v1/runtime/status'?{status,reason:status==='maintenance'?'operator_maintenance':'service_observation_unavailable',observed_at:now.toISOString()}:{user:{id:'admin',email:'admin@example.test',role:'admin'}}))
- render(<AuthIdentityContext.Provider value={{id:'admin',email:'admin@example.test',role:'admin'}}><OperationsWorkspace><Draft/></OperationsWorkspace></AuthIdentityContext.Provider>);await flush()
- fireEvent.change(screen.getByLabelText('Existing draft'),{target:{value:'Keep research text'}})
+ render(<RuntimeNotice onProjects={openProjects}/>);await flush()
  expect(screen.getByText('已保存成果的读取或下载取决于依赖可用性，当前可能受限。')).toBeTruthy()
- fireEvent.click(screen.getByRole('button',{name:'本人用量'}));fireEvent.click(screen.getByRole('button',{name:'查看已有项目与成果'}))
- expect(screen.getByLabelText('Existing draft')).toHaveProperty('value','Keep research text');expect(mounts).toBe(1)
+ expect(screen.getByText('页面内的未提交内容保持原样；恢复后不会自动提交。')).toBeTruthy()
+ fireEvent.click(screen.getByRole('button',{name:'查看已有项目与成果'}))
+ expect(openProjects).toHaveBeenCalledOnce()
  mock.mockImplementation(async()=>Response.json({status:'normal',reason:'observed_available',observed_at:new Date().toISOString()}))
- await act(async()=>vi.advanceTimersByTime(15_000));expect(mounts).toBe(1);expect(screen.getByLabelText('Existing draft')).toHaveProperty('value','Keep research text')
+ await act(async()=>vi.advanceTimersByTime(15_000))
+ expect(screen.getByText('最近采样显示服务可用；实际操作仍以响应为准。')).toBeTruthy()
+ expect(openProjects).toHaveBeenCalledOnce()
 })
 it('public reads are session independent, legacy normal is unverified, and anonymous maintenance retains the actual login path',async()=>{
  mock.mockResolvedValue(Response.json({status:'normal',reason:'runtime_control_not_configured',observed_at:null}))
  const view=render(<RuntimeNotice/>);act(()=>clearApiSession());await flush()
  expect(screen.getByText('运行观测尚未配置，不能据此确认服务健康。')).toBeTruthy();expect(mock.mock.calls[0][1]).toMatchObject({cache:'no-store'})
  view.unmount();mock.mockImplementation(async(url:string)=>url==='/api/v1/auth/me'?Response.json({},{status:401}):Response.json({status:'maintenance',reason:'operator_maintenance',observed_at:'2026-10-26T00:00:00Z'}))
- render(<AuthBoundary><p>Authenticated workspace</p></AuthBoundary>);await flush()
+ render(<><RuntimeNotice/><AuthBoundary><p>Authenticated workspace</p></AuthBoundary></>);await flush()
  expect(screen.getByText('系统维护中，暂不接受新的修改或任务。')).toBeTruthy()
- const link=screen.getByRole('link',{name:'登录后查看已有项目与成果'});expect(document.querySelector(link.getAttribute('href')!)).toBeTruthy()
+ const link=screen.getByRole('link',{name:'登录后查看已有项目与成果'})
+ const target=document.querySelector<HTMLElement>(link.getAttribute('href')!)!
+ const scroll=vi.fn()
+ target.scrollIntoView=scroll
+ fireEvent.click(link)
+ expect(document.activeElement).toBe(screen.getByLabelText('邮箱'))
+ expect(scroll).toHaveBeenCalledOnce()
  expect(screen.getByRole('button',{name:'登录'})).toBeTruthy()
 })
 it('renders unknown, stale, failures and restart metadata in English without exposing server error prose',async()=>{

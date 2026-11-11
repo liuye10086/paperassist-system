@@ -2,9 +2,17 @@ import {afterEach, expect, it, vi} from 'vitest'
 import {cleanup, fireEvent, render, screen, waitFor} from '@testing-library/react'
 import {apiFetch} from '../../shared/api/client'
 import BioImports from './BioImports'
+import {BULK_TABULAR_LIMITS,newTabularDraft,tabularImportBody} from './TabularImportFields'
 
 vi.mock('../../shared/api/client', () => ({apiFetch:vi.fn(), getApiUserId:()=>'owner1', onApiSessionChanged:()=>()=>{}}))
 afterEach(()=>{cleanup();vi.clearAllMocks();sessionStorage.clear()})
+it('builds a complete Bulk mapping request at the B01 512-sample limit',()=>{
+ const draft=newTabularDraft();draft.files.quantitative_matrix='matrix';draft.files.sample_metadata='samples';draft.samples=Array.from({length:BULK_TABULAR_LIMITS.maxSamples},(_,i)=>`S${i+1}`).join('\n');draft.scale.upstream_method='featureCounts raw integer counts'
+ const body=tabularImportBody(draft,[{id:'matrix',filename:'counts.csv',file_type:'bio_component'},{id:'samples',filename:'samples.tsv',file_type:'bio_component'},{id:'qc',filename:'multiqc.html',file_type:'bio_component'}],'Bulk counts',null)
+ expect(body).toMatchObject({file_ids:['matrix','samples'],sample_metadata_mapping:{sample_id:'sample_id',condition:'condition',biological_unit_id:'biological_unit_id'},scale:{kind:'raw_counts',input_origin:'bulk_rna'}});expect(body?.sample_columns).toHaveLength(BULK_TABULAR_LIMITS.maxSamples);expect(body?.sample_columns.slice(0,2)).toEqual(['S1','S2'])
+ draft.qualityReport='qc';expect(tabularImportBody(draft,[{id:'matrix',filename:'counts.csv',file_type:'bio_component'},{id:'samples',filename:'samples.tsv',file_type:'bio_component'},{id:'qc',filename:'multiqc.html',file_type:'bio_component'}],'Bulk counts',null)?.quality_reports).toEqual([{file_id:'qc',source:'user_provided',report_type:'upstream_quality_report'}])
+ draft.samples+='\nS513';expect(tabularImportBody(draft,[{id:'matrix',filename:'counts.csv',file_type:'bio_component'},{id:'samples',filename:'samples.tsv',file_type:'bio_component'},{id:'qc',filename:'multiqc.html',file_type:'bio_component'}],'Bulk counts',null)).toBeNull()
+})
 const files = [
  {id:'matrix',filename:'measured.xlsx',file_type:'bio_component'},
  {id:'samples',filename:'samples.tsv',file_type:'bio_component'},
