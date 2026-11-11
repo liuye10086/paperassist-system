@@ -9,6 +9,12 @@ from app.domain.bioinformatics.contracts import digest,conflict
 from app.domain.bioinformatics.service import require_key,append_checkpoint
 
 
+_TABULAR_FIGURE_DATA = {
+    'correlation_heatmap': 'sample_correlation',
+    'distance_heatmap': 'sample_distance',
+}
+
+
 class BioFigureStore(BioAnalysisStore):
     def __init__(self,assets):super().__init__(assets);self.figure_objects=BioFigureObjects(assets.directory)
     def reader(self,record):return self.figure_objects if record['object_key'].startswith('bio-figures/') else self.objects
@@ -141,12 +147,18 @@ class BioFigureStore(BioAnalysisStore):
             prefix=key[:-4];manifest=members[prefix+'_manifest'];identifier=str(uuid5(UUID(processed_id),'figure:'+prefix))
             rendered=json.loads(self.objects.read(manifest));config=rendered['config'];record=object_by_key(db,task['project_id'],task['user_id'],manifest)
             if rendered.get('schema_version')!=2 or rendered.get('observation_level')!='sample':raise error('bio_output_invalid')
+            legacy_data=prefix+'_data'
+            data_key=rendered.get('data_member',legacy_data)
+            if (data_key not in (legacy_data,_TABULAR_FIGURE_DATA.get(prefix,legacy_data))
+                    or data_key not in members or members[data_key]['format']!='json'):
+                raise error('bio_output_invalid')
             insert(db,'bio_figure_versions',{**base_row(identifier,task['project_id'],task['user_id']),'root_id':identifier,'version':1,'parent_id':None,
                 'processed_dataset_version_id':processed_id,'annotation_version_id':None,'task_id':task['id'],'config_json':config,'config_sha256':digest(config),
                 'renderer_version':'tabular_plots_v1','manifest_object_id':record['id'],'manifest_sha256':record['sha256'],
                 'request_key':'default:'+identifier,'request_digest':digest(dict(processed_id=processed_id,key=prefix))})
             for suffix in ('png','tiff','svg','data','manifest'):
                 if progress:progress()
-                member=members[prefix+'_'+suffix];stored=object_by_key(db,task['project_id'],task['user_id'],member)
+                member=members[data_key if suffix=='data' else prefix+'_'+suffix]
+                stored=object_by_key(db,task['project_id'],task['user_id'],member)
                 insert(db,'bio_figure_members',{**base_row(str(uuid5(UUID(identifier),suffix)),task['project_id'],task['user_id']),'figure_version_id':identifier,
                     **{k:member[k] for k in ('key','format','size_bytes','sha256')},'storage_object_id':stored['id']})

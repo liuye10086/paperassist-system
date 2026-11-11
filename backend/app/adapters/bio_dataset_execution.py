@@ -107,7 +107,7 @@ class BioDatasetExecution:
             progress()
         # No bytes enter controlled object storage before complete admission.
         for leaf in unique.values():
-            service.objects.write(leaf["record"], Path(leaf["path"]).read_bytes())
+            service.objects.write_path(leaf["record"], Path(leaf["path"]))
         service.objects.write(manifest_ref, manifest_content)
         service.objects.write(candidate_ref, candidate_content)
         with self.repository.connection(write=True) as db:

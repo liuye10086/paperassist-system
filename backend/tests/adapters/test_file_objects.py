@@ -1,4 +1,5 @@
 import hashlib
+import io
 import os
 import subprocess
 from dataclasses import asdict
@@ -55,6 +56,48 @@ def test_local_port_concurrent_immutable_different_content(tmp_path):
     assert len(winners) == 1
     assert port.read('files/concurrent.xlsx', 6) == winners[0]
     port.put_immutable('files/concurrent.xlsx', winners[0])
+    assert not list(tmp_path.rglob('*.part'))
+
+
+def test_local_port_stream_publication_keeps_first_content_when_racing(tmp_path, monkeypatch):
+    port = file_objects.LocalObjectStorage(tmp_path)
+    def no_byte_read(*args):
+        raise AssertionError('streaming publication must not assemble the stored bytes')
+    monkeypatch.setattr(port, 'read', no_byte_read)
+
+    class BoundedStream(io.BytesIO):
+        def read(self, size=-1):
+            assert 0 < size <= 65536
+            return super().read(size)
+
+    key = 'files/concurrent.bio_component'
+
+    def publish(content):
+        try:
+            port.put_immutable_stream(key, BoundedStream(content), len(content),
+                                      hashlib.sha256(content).hexdigest())
+            return content
+        except StorageError as error:
+            assert (error.code, error.status) == ('file_changed', 409)
+            return None
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(pool.map(publish, [b'x' * 70000, b'y' * 70000]))
+    winners = [content for content in results if content is not None]
+    assert len(winners) == 1
+    assert (tmp_path / key).read_bytes() == winners[0]
+    assert publish(winners[0]) == winners[0]
+    assert not list(tmp_path.rglob('*.part'))
+
+
+@pytest.mark.parametrize('incoming', [b'to', b'longer', b'new!'])
+def test_local_port_stream_rejects_size_or_digest_change_without_publishing(tmp_path, incoming):
+    port = file_objects.LocalObjectStorage(tmp_path)
+    key = 'files/source.bio_component'
+    with pytest.raises(StorageError) as error:
+        port.put_immutable_stream(key, io.BytesIO(incoming), 4, hashlib.sha256(b'old!').hexdigest())
+    assert (error.value.code, error.value.status) == ('file_changed', 409)
+    assert not (tmp_path / key).exists()
     assert not list(tmp_path.rglob('*.part'))
 
 

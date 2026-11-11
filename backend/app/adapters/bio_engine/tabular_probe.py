@@ -10,6 +10,7 @@ from app.domain.bioinformatics.tabular_contracts import BioImportRequestV3, ENGI
 from app.domain.bioinformatics.tabular_settings import engine_code_digest
 from app.adapters.bio_insights_engine.worker import actual_identity, warm_render_environment
 from app.adapters.bio_insights_engine.probe_transport import monitored_run
+from app.adapters.bio_engine.tabular_transport import stage_request
 
 
 def exercise(root, *, bulk_counts=False):
@@ -51,9 +52,9 @@ def exercise(root, *, bulk_counts=False):
         directory = root / name
         directory.mkdir()
         request = {**payload, 'mode': mode, 'output_directory': str(directory), '_runtime_identity': runtime}
-        body = json.dumps(request, allow_nan=False).encode()
         command = [sys.executable, '-I', '-B', str(Path(__file__).with_name('tabular_worker.py')), str(os.getpid())]
-        process = monitored_run(command, struct.pack('!I', len(body)) + body, timeout=1380)
+        with stage_request(request, directory) as body:
+            process = monitored_run(command, struct.pack('!I', len(body)) + body, timeout=1380)
         (root / (name + '-stderr.txt')).write_bytes(process.stderr)
         if process.returncode or not process.stdout.startswith(b'READY\n'):
             raise RuntimeError('tabular child transport failed')
@@ -71,8 +72,12 @@ def exercise(root, *, bulk_counts=False):
     checks = {'tabular_import': True}
     results = [imported]
     if bulk_counts:
+        from app.adapters.bio_engine.tabular_assays import _rows
+
         qc = child(payload, 'qc', 'qc')
-        if qc['summary']['qc_metrics']['total_counts'] != dict(s1=14, s2=17, s3=26, s4=42):
+        member = next(item for item in qc['outputs'] if item['key'] == qc['summary']['sample_qc_table'])
+        totals = {row['sample_id']: float(row['total_counts']) for row in _rows(member)}
+        if totals != dict(s1=14, s2=17, s3=26, s4=42):
             raise RuntimeError('tabular QC probe totals differ')
         checks['tabular_qc'] = True
         results.append(qc)

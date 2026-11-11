@@ -33,9 +33,10 @@ def load_layer(source,layer):
     om=read_array(m['observation_mask']);fm=read_array(m['feature_mask'])
     if om.dtype.kind!='b' or fm.dtype.kind!='b' or om.shape!=(len(samples),) or fm.shape!=(len(features),):raise ValueError('integration_layer_axes_invalid')
     samples=[v for v,keep in zip(samples,om) if keep];features=[v for v,keep in zip(features,fm) if keep]
-    values=read_array(m[layer+'_values']);missing=read_array(m[layer+'_missing'])
-    if len(samples)!=len(set(samples)) or len(features)!=len(set(features)) or values.shape!=(len(samples),len(features)) or missing.shape!=values.shape or missing.dtype.kind!='b':raise ValueError('integration_layer_shape_invalid')
     descriptor=manifest['layers'][layer]
+    values=read_array(m[descriptor.get('values',layer+'_values')])
+    missing=read_array(m[descriptor.get('missing',layer+'_missing')])
+    if len(samples)!=len(set(samples)) or len(features)!=len(set(features)) or values.shape!=(len(samples),len(features)) or missing.shape!=values.shape or missing.dtype.kind!='b':raise ValueError('integration_layer_shape_invalid')
     if source['metadata'].get('layers',{}).get(layer)!=descriptor:raise ValueError('integration_layer_scale_changed')
     return dict(samples=samples,features=features,values=values,missing=missing,layer=descriptor)
 

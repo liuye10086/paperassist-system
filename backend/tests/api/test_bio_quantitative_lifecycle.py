@@ -13,7 +13,7 @@ def processed_fixture(client,monkeypatch,tmp_path,assay='proteomics'):
     monkeypatch.setattr(tabular_settings,'runtime_identity',lambda:runtime)
     staging=tmp_path/'science';monkeypatch.setenv('PAPERASSIST_BIO_STAGING_DIR',str(staging))
     project=create_project(client);base=f"/api/v1/projects/{project['id']}";files=[]
-    for name,content in [('matrix.csv',b'feature_id,B0,B1,B2,A0,A1,A2\nf1,6,8,13,1,2,5\nf2,10,11,15,1,3,7\nf3,1,1,1,1,1,1\n'),('samples.csv',b'sample_id,condition,biological_unit_id,sample_role\nB0,B,B0,biological\nB1,B,B1,biological\nB2,B,B2,biological\nA0,A,A0,biological\nA1,A,A1,biological\nA2,A,A2,biological\n')]:
+    for name,content in [('matrix.csv',b'feature_id,B0,B1,B2,A0,A1,A2\nf1,6,8,13,1,2,5\nf2,10,11,15,1,3,7\nf3,1,1,1,1,1,1\n'),('samples.csv',b'sample_id,condition,biological_unit_id,sample_role,time\nB0,B,B0,biological,2023\nB1,B,B1,biological,2024\nB2,B,B2,biological,2025\nA0,A,A0,biological,2020\nA1,A,A1,biological,2021\nA2,A,A2,biological,2022\n')]:
         item=str(uuid4());batch=client.post(base+'/bio-upload-batches',json={'items':[dict(client_id=item,filename=name,size_bytes=len(content))]},headers={'Idempotency-Key':str(uuid4())})
         assert batch.status_code==201,batch.text
         file=client.post(base+f"/bio-upload-batches/{batch.json()['id']}/items/{item}",files={'file':(name,content)})
@@ -72,11 +72,21 @@ def test_bulk_requires_matching_review_and_rejects_superseded_confirmation(clien
             groups=[dict(label=g,sample_keys=[dict(processed_version_id=pid,sample_id=g+str(i)) for i in range(2)])
                     for g in ('B','A')])],family_contrast_ids=['B_A'],namespace='ensembl',reference_version='fixed',
         data_driven_grouping=False,design_basis='Synthetic frozen design',independence_confirmed=True,
-        independence_basis='Synthetic independent units',inference_goal='inference',inference_unit='biological')
+        independence_basis='Synthetic independent units',inference_goal='inference',inference_unit='biological',
+        covariates=[dict(field='time',kind='continuous',name='Time')])
     body=dict(name='Bulk lifecycle',kind='comparison',decision='draft',expected_revision=0,sources=[source],config=config)
 
     def post(url,payload,key):
         return client.post(url,json=payload,headers={'Idempotency-Key':key})
+
+    with monkeypatch.context() as legacy:
+        legacy.setattr(BioInsightsService, '_authoring_transform', staticmethod(lambda request: request))
+        legacy_plan = post(plans,body,'legacy-model')
+    assert legacy_plan.status_code==201,legacy_plan.text
+    assert 'continuous_transform' not in legacy_plan.json()['config']
+    replay = post(plans,body,'legacy-model')
+    assert replay.status_code==200,replay.text
+    assert replay.json()==legacy_plan.json()
 
     preview=client.post(plans+'/preview',json=body)
     assert preview.status_code==200,preview.text
@@ -93,6 +103,7 @@ def test_bulk_requires_matching_review_and_rejects_superseded_confirmation(clien
     response=post(plans,confirmed,'confirmed-model')
     assert response.status_code==201,response.text
     plan=response.json()
+    assert plan['config']['continuous_transform']=='centered_range_v2'
     assert client.get(runs).json()['total']==0
     request=dict(plan_version_id=plan['id'],expected_plan_revision=1,source_digest=plan['source_digest'])
     assert post(runs,request,'confirmed-run').status_code==202

@@ -3,6 +3,105 @@ import io
 
 import pytest
 
+@pytest.mark.parametrize(('kind', 'field', 'old', 'new'), [
+    ('candidate', 'bulk_selection', {'q_threshold': .05}, {'q_threshold': .01}),
+    ('candidate', 'bulk_top_n', 20, 10),
+    ('figure', 'palette', 'blue', 'red'),
+    ('figure', 'top_n', 20, 10),
+    ('figure', 'output_language', 'en', 'zh-CN'),
+])
+def test_artifact_revision_is_visible_and_prior_result_stale(kind, field, old, new):
+    from app.domain.bio_insights.bulk_workflow import project_workflow
+    records = workflow_records()
+    base = dict(plan_id='artifact', name='Artifact', current_version_id='artifact-v2', kind=kind,
+                decision='confirmed', config_json={field: old}, created_at='2026-11-10T00:00:12')
+    records['plans'].extend([dict(base, id='artifact-v1'), dict(base, id='artifact-v2',
+                            config_json={field: new}, created_at='2026-11-10T00:00:14')])
+    records['bindings'].extend(dict(plan_version_id=version, source_kind='bio_insight_result_version', source_id='result')
+                               for version in ('artifact-v1', 'artifact-v2'))
+    records['insight_runs'].append(dict(id='artifact-run', plan_version_id='artifact-v1', result_version_id='artifact-result',
+                                       task_id='artifact-task', status='succeeded', created_at='2026-11-10T00:00:13'))
+    view = project_workflow('project', records)
+    items = [item for stage in view['stages'] for item in stage['items'] if item['refs'].get('plan_id') == 'artifact']
+    assert {item['refs']['plan_version_id'] for item in items} == {'artifact-v1', 'artifact-v2'}
+    assert next(item for item in items if item['refs']['plan_version_id'] == 'artifact-v1')['stale']
+
+
+def test_alternate_sensitivity_requires_same_raw_lineage_and_shared_samples(monkeypatch):
+    from app.domain.bio_insights import bulk_sensitivity as module
+    from app.domain.bio_insights.contracts import BulkSelection
+    from app.core.exceptions import StorageError
+
+    def side(raw, samples):
+        return dict(species_taxon_id=9606, namespace='ensembl', reference_version='v1',
+                    processed_sources=[dict(dataset_id='dataset', dataset_version_id=raw)],
+                    samples=[dict(dataset_version_id=raw, sample_id=s, condition='A') for s in samples],
+                    parameters={}, inference_scope='x', environment_digest='e', code_digest='c')
+    versions = {'left': side('raw', ['a', 'b']), 'right': side('other', ['a', 'b'])}
+    monkeypatch.setattr(module, '_read_fixed_comparison', lambda service, db, project, version: (versions[version], {'c': ('A', 'B')}, None))
+    monkeypatch.setattr(module, 'compare_gene_tables', lambda *args, **kwargs: {})
+    selection = BulkSelection(contrast_id='c', q_column='q_within_contrast', q_threshold=.05,
+                              minimum_absolute_effect=1, direction='both')
+    def compare():
+        return module.compare_saved_bulk(None, None, 'p', 'left', 'right', selection, selection)
+    with pytest.raises(StorageError):
+        compare()
+    versions['right'] = side('raw', ['c'])
+    with pytest.raises(StorageError):
+        compare()
+    versions['right'] = side('raw', ['b', 'c'])
+    assert compare()['sample_changes']['shared'] == 1
+    assert module.compare_saved_bulk(None, None, 'p', 'left', 'left', selection, selection)['comparison_type'] == 'threshold_only'
+
+
+def test_workflow_exposes_fixed_sample_lineage_for_sensitivity_options():
+    from app.domain.bio_insights.bulk_workflow import project_workflow
+    records = workflow_records()
+    records['plans'][0]['bulk_model_samples'] = [
+        {'processed_version_id': 'processed', 'sample_id': 's1', 'condition': 'A'},
+        {'processed_version_id': 'processed', 'sample_id': 's2', 'condition': 'B'},
+    ]
+    view = project_workflow('project', records)
+    comparison, = view['comparisons']
+    assert comparison['sensitivity_lineage'] == [['dataset', 'raw']]
+    assert {sample[1] for sample in comparison['sensitivity_samples']} == {'A', 'B'}
+    assert all('sensitivity_samples' not in item for stage in view['stages'] for item in stage['items'])
+
+
+def test_qc_figure_repointed_to_display_processed_version_is_new_artifact():
+    from app.domain.bio_insights.bulk_workflow import project_workflow
+    records = workflow_records()
+    records['analysis_runs'].append(dict(records['analysis_runs'][0], id='display-qc',
+                                        recipe_version_id='display-recipe', processed_version_id='display-processed'))
+    base = dict(plan_id='qc-figure', name='QC figure', current_version_id='qc-figure-v2', kind='figure',
+                decision='confirmed', config_json={'figure_type': 'pca'}, created_at='2026-11-10T00:00:12')
+    records['plans'].extend([dict(base, id='qc-figure-v1'), dict(base, id='qc-figure-v2')])
+    records['bindings'].extend([dict(plan_version_id='qc-figure-v1', source_kind='bio_processed_dataset_version', source_id='processed'),
+                                dict(plan_version_id='qc-figure-v2', source_kind='bio_processed_dataset_version', source_id='display-processed')])
+    records['insight_runs'].append(dict(id='qc-figure-run', plan_version_id='qc-figure-v1', result_version_id='qc-figure-result',
+                                       task_id='qc-figure-task', status='succeeded', created_at='2026-11-10T00:00:13'))
+    view = project_workflow('project', records)
+    items = [item for stage in view['stages'] for item in stage['items'] if item['refs'].get('plan_id') == 'qc-figure']
+    assert {item['refs']['plan_version_id'] for item in items} == {'qc-figure-v1', 'qc-figure-v2'}
+    assert next(item for item in items if item['refs']['plan_version_id'] == 'qc-figure-v1')['stale']
+
+
+def test_alternate_sensitivity_rejects_shared_samples_outside_selected_contrast(monkeypatch):
+    from app.domain.bio_insights import bulk_sensitivity as module
+    from app.domain.bio_insights.contracts import BulkSelection
+    from app.core.exceptions import StorageError
+    def side(samples):
+        return dict(species_taxon_id=9606, namespace='ensembl', reference_version='v1',
+                    processed_sources=[dict(dataset_id='dataset', dataset_version_id='raw')],
+                    samples=[dict(dataset_version_id='raw', sample_id=s, condition=c) for s, c in samples],
+                    parameters={}, inference_scope='x', environment_digest='e', code_digest='c')
+    sides = {'left': side([('a', 'A'), ('x', 'C')]), 'right': side([('b', 'B'), ('x', 'C')])}
+    monkeypatch.setattr(module, '_read_fixed_comparison', lambda service, db, project, version: (sides[version], {'c': ('A', 'B')}, None))
+    monkeypatch.setattr(module, 'compare_gene_tables', lambda *args, **kwargs: {})
+    selection = BulkSelection(contrast_id='c')
+    with pytest.raises(StorageError):
+        module.compare_saved_bulk(None, None, 'p', 'left', 'right', selection, selection)
+
 from tests.domain.test_bio_b05_selection import saved_row
 
 

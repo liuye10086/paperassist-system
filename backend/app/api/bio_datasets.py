@@ -1,10 +1,13 @@
 """Independent biological upload profile and explicit candidate review API."""
 from typing import Annotated, Literal
 from urllib.parse import quote
-from fastapi import APIRouter, Depends, File, Header, Query, Response, UploadFile
+from fastapi import APIRouter, Depends, Header, Query, Request, Response
 from pydantic import BeforeValidator
+from starlette.concurrency import run_in_threadpool
+from starlette.datastructures import UploadFile
 from app.adapters.storage import ProjectStore, get_request_project_store
 from app.adapters.bio_dataset_store import BioDatasetStore
+from app.api.upload_limit import bio_upload_form
 from app.core.exceptions import StorageError
 from app.domain.file_batches import BatchInput, BioUploadService
 from app.domain.bioinformatics.contracts import BioImportRequest, BioImportRequestV2, BioConfirmRequest
@@ -37,15 +40,19 @@ def batch(project_id:str,batch_id:str,store:Store):
     return BioUploadService(store).get(project_id,batch_id)
 
 
-@router.post('/{project_id}/bio-upload-batches/{batch_id}/items/{item_id}',status_code=202)
-def upload(project_id:str,batch_id:str,item_id:str,store:Store,file:Annotated[UploadFile|None,File()]=None):
-    if file is None or not file.filename:
-        raise StorageError('missing_file','请选择登记的原始文件。',422)
-    maximum=BioLimits().max_upload_bytes
-    content=file.file.read(maximum+1)
-    if len(content)>maximum:
-        raise StorageError('file_too_large','生信原始文件超过上传限制。',413,params={'max_bytes':maximum})
-    return BioUploadService(store).upload(project_id,batch_id,item_id,file.filename,content)
+@router.post('/{project_id}/bio-upload-batches/{batch_id}/items/{item_id}', status_code=202,
+    openapi_extra={'requestBody': {'content': {'multipart/form-data': {'schema': {
+        'type': 'object', 'properties': {'file': {'type': 'string', 'format': 'binary'}},
+    }}}}})
+async def upload(project_id: str, batch_id: str, item_id: str, store: Store, request: Request):
+    async with bio_upload_form(request, BioLimits().max_upload_bytes) as form:
+        file = form.get('file')
+        if file is None or (isinstance(file, UploadFile) and not file.filename):
+            raise StorageError('missing_file', '请选择登记的原始文件。', 422)
+        if not isinstance(file, UploadFile):
+            raise StorageError('invalid_request', '请求格式无效，请检查上传文件后重试。', 422)
+        return await run_in_threadpool(
+            BioUploadService(store).upload, project_id, batch_id, item_id, file.filename, file.file, file.size)
 
 
 @router.post('/{project_id}/bio-imports',status_code=202)

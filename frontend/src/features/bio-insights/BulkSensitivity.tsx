@@ -18,6 +18,19 @@ export function bulkComparisonOption(item:BulkWorkflowComparison) {
   return [item.label,...item.contrasts.map(bulkComparisonLabel),item.refs.result_version_id].filter(Boolean).join(' · ')
 }
 
+export function sensitivityCompatible(left:BulkWorkflowComparison,right:BulkWorkflowComparison,
+  contrast:BulkWorkflowComparison['contrasts'][number]) {
+  const lineage=left.sensitivity_lineage??[], otherLineage=right.sensitivity_lineage??[]
+  const keys=(values:string[][])=>values.map(value=>JSON.stringify(value)).sort()
+  if(!lineage.length||JSON.stringify(keys(lineage))!==JSON.stringify(keys(otherLineage))) return false
+  if(!left.sensitivity_identity||!right.sensitivity_identity||
+     JSON.stringify(left.sensitivity_identity)!==JSON.stringify(right.sensitivity_identity)) return false
+  const selected=(values:string[][])=>values.filter(([,condition])=>condition===contrast.numerator||condition===contrast.denominator)
+    .map(([identity])=>identity)
+  const samples=new Set(selected(left.sensitivity_samples??[]))
+  return selected(right.sensitivity_samples??[]).some(key=>samples.has(key))
+}
+
 export default function BulkSensitivity({projectId,comparisons,initialId,onReviewed}:{
   projectId:string;comparisons:BulkWorkflowComparison[];initialId?:string;onReviewed:(value:BulkSensitivityRequest)=>void
 }) {
@@ -28,9 +41,10 @@ export default function BulkSensitivity({projectId,comparisons,initialId,onRevie
   const read=useBulkRequest<BulkSensitivityResult>()
   const baseline=comparisons.find(item=>item.refs.result_version_id===draft.baselineId)
   const independent=draft.mode==='run'
-  const scenario=independent?comparisons.find(item=>item.refs.result_version_id===draft.scenarioId&&item!==baseline):baseline
   const comparison=baseline?.contrasts.find(item=>item.contrast_id===draft.baseline.contrast_id)
-  const eligibleScenarios=comparisons.filter(item=>item!==baseline&&item.contrasts.some(c=>c.numerator===comparison?.numerator&&c.denominator===comparison?.denominator))
+  const eligibleScenarios=comparisons.filter(item=>baseline&&comparison&&item!==baseline&&sensitivityCompatible(baseline,item,comparison)&&
+    item.contrasts.some(c=>c.numerator===comparison?.numerator&&c.denominator===comparison?.denominator))
+  const scenario=independent?eligibleScenarios.find(item=>item.refs.result_version_id===draft.scenarioId):baseline
   const scenarioContrasts=scenario?.contrasts.filter(item=>item.numerator===comparison?.numerator&&item.denominator===comparison?.denominator)??[]
   const baselineSelection=toBulkSelection(draft.baseline,baseline?.contrasts??[])
   const scenarioSelection=toBulkSelection(independent?draft.scenario:{...draft.scenario,contrast_id:draft.baseline.contrast_id},scenarioContrasts)
@@ -69,7 +83,7 @@ export default function BulkSensitivity({projectId,comparisons,initialId,onRevie
           <option value="">{t('请选择')}</option>
           {eligibleScenarios.map(item=><option key={item.refs.result_version_id!} value={item.refs.result_version_id!}>{bulkComparisonOption(item)}</option>)}
         </Field>}
-        {comparison&&independent&&!eligibleScenarios.length&&<p>{t('暂无相同比较方向的其他已发布运行。')}</p>}
+        {comparison&&independent&&!eligibleScenarios.length&&<p>{t('暂无同一原始数据版本、具有共同样本且方向兼容的其他已发布运行。')}</p>}
         {comparison&&scenario&&<BulkSelectionFields title="变体筛选" contrasts={scenarioContrasts} fixedContrast={!independent}
           value={independent?draft.scenario:{...draft.scenario,contrast_id:draft.baseline.contrast_id}}
           onChange={value=>update({...draft,scenario:value})}/>}

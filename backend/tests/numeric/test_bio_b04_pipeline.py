@@ -11,7 +11,7 @@ def postgres_schema():
     yield None
 
 
-def bulk_payload(tmp_path, monkeypatch, conditions, repeats, **config_options):
+def bulk_payload(tmp_path, monkeypatch, conditions, repeats, *, age_offset=0, age_unit=1, **config_options):
     from app.adapters.bio_engine import tabular_assays as engine
     from app.domain.bioinformatics.tabular_contracts import BioImportRequestV3
 
@@ -30,7 +30,8 @@ def bulk_payload(tmp_path, monkeypatch, conditions, repeats, **config_options):
     for j, condition in enumerate(conditions):
         for i in range(repeats):
             sample=f'{condition}{i}'
-            metadata += f'{sample},{condition},{i if paired else sample},p{i},batch{(i+j)%2},{30+i*i+j*i},{"M" if (i+2*j)%3 else "F"}\n'
+            age = age_offset + age_unit * (30 + i*i + j*i)
+            metadata += f'{sample},{condition},{i if paired else sample},p{i},batch{(i+j)%2},{age},{"M" if (i+2*j)%3 else "F"}\n'
     files = []
     for role, body in (('quantitative_matrix', matrix), ('sample_metadata', metadata)):
         path = tmp_path/(role+'.csv')
@@ -79,6 +80,25 @@ def run_and_check(payload, tmp_path):
     result=run(payload)
     validate_result(result,out,payload)
     return result,out,{m['key']:m for m in result['outputs']}
+
+
+def test_centered_continuous_covariate_keeps_full_fit_under_offset_and_unit_change(tmp_path, monkeypatch):
+    pytest.importorskip('pydeseq2')
+    from app.adapters.bio_engine.tabular_assays import _rows
+
+    comparison = contrast('B', 'A', 4)
+    model = dict(contrasts=[comparison], family_contrast_ids=[comparison['contrast_id']],
+                 covariates=[dict(field='age', kind='continuous', name='Age')],
+                 continuous_transform='centered_range_v2')
+    tables = []
+    for name, options in [('original', {}), ('shifted', {'age_offset': 1_000_000, 'age_unit': 60})]:
+        directory = tmp_path / name
+        directory.mkdir()
+        payload = bulk_payload(directory, monkeypatch, 'AB', 4, **model, **options)
+        _, _, members = run_and_check(payload, directory)
+        tables.append(_rows(members['comparison_results']))
+    assert tables[0] == tables[1]
+    assert any(row['test_status'] == 'tested' for row in tables[0])
 
 
 def test_shared_bulk_pipeline_fits_once_and_reverses_effects(tmp_path, monkeypatch):

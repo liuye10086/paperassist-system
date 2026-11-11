@@ -35,6 +35,48 @@ def test_import_preserves_missing_and_real_sample_axis(tmp_path):
     assert 'barcodes_index' not in members
 
 
+def test_bulk_matrix_budget_counts_only_numeric_matrix_cells(tmp_path, monkeypatch):
+    from app.adapters.bio_engine import tabular_assays
+
+    monkeypatch.setattr(tabular_assays, 'LIMITS', tabular_assays.LIMITS.model_copy(update={'max_bulk_matrix_cells': 9}))
+    request = payload(tmp_path, counts=True)
+    output = tmp_path / 'out'
+    output.mkdir()
+    request['output_directory'] = str(output)
+
+    assert tabular_assays.import_tabular(request)['entry_count'] == 9
+    monkeypatch.setattr(tabular_assays, 'LIMITS', tabular_assays.LIMITS.model_copy(update={'max_bulk_matrix_cells': 8}))
+    with pytest.raises(ValueError, match='tabular_cell_limit'):
+        tabular_assays.import_tabular(request)
+
+
+@pytest.mark.parametrize(('row', 'error'), [
+    ({'feature_id': 'a', 's1': '1', 's2': '2', 's3': '3', 'extra': '9'},
+     r'matrix_columns_mismatch:file=m\.csv:row=2:columns=extra'),
+    ({'feature_id': 'a', 's1': '1', 's2': 'bad', 's3': '3'},
+     r'matrix_non_numeric:file=m\.csv:row=2:column=s2:sample_id=s2:feature_id=a'),
+])
+def test_bulk_rejects_invalid_matrix_row_before_reading_more_rows(tmp_path, monkeypatch, row, error):
+    from app.adapters.bio_engine import tabular_assays
+
+    request = payload(tmp_path, counts=True)
+    output = tmp_path / 'out'
+    output.mkdir()
+
+    original = tabular_assays.iter_table
+
+    def rows(file, **kwargs):
+        if file['role'] != 'quantitative_matrix':
+            yield from original(file, **kwargs)
+            return
+        yield 2, row
+        pytest.fail('read beyond the first invalid matrix row')
+
+    monkeypatch.setattr(tabular_assays, 'iter_table', rows)
+    with pytest.raises(ValueError, match=error):
+        tabular_assays.import_tabular(dict(request, output_directory=str(output)))
+
+
 def test_counts_missing_and_fraction_rejected(tmp_path):
     from app.adapters.bio_engine.tabular_assays import import_tabular
     p=payload(tmp_path);p['config']['assay']='bulk_rna_counts';p['config']['scale']['kind']='raw_counts'
@@ -70,6 +112,26 @@ def test_bulk_import_reports_sample_metadata_coordinates(tmp_path):
         import_tabular(p)
 
 
+@pytest.mark.parametrize('mapping,heading,value,error', [
+    ({'batch': 'typo'}, 'batch', 'existing', r'sample_metadata_columns_missing:file=s\.csv:columns=typo'),
+    (None, 'sample_role', 'Technical', r'sample_metadata_invalid_value:file=s\.csv:row=2:column=sample_role:sample_id=s1'),
+])
+def test_bulk_sample_mapping_checks_explicit_optional_columns_and_native_roles(tmp_path, mapping, heading, value, error):
+    from app.adapters.bio_engine.tabular_assays import import_tabular
+
+    request = payload(tmp_path, counts=True)
+    sample = request['files'][1]
+    contents = f'sample_id,condition,biological_unit_id,{heading}\ns1,A,u1,{value}\ns2,A,u2,\ns3,B,u3,\n'.encode()
+    Path(sample['path']).write_bytes(contents)
+    sample.update(size_bytes=len(contents), sha256=hashlib.sha256(contents).hexdigest())
+    if mapping:
+        request['config']['sample_metadata_mapping'] = mapping
+    output = tmp_path / 'out'
+    output.mkdir()
+    with pytest.raises(ValueError, match=error):
+        import_tabular(dict(request, output_directory=str(output)))
+
+
 def test_bulk_import_reports_matrix_coordinates_for_invalid_value(tmp_path):
     from app.adapters.bio_engine.tabular_assays import import_tabular
     p=payload(tmp_path,counts=True)
@@ -96,7 +158,7 @@ def test_quantitative_figure_sample_identity_feature_ticks_and_units_are_readabl
     p['config']['sample_columns']=samples;p['config']['scale']['unit']='summed intensity (source unit unspecified)'
     rawdir=tmp_path/'raw';rawdir.mkdir();p['output_directory']=str(rawdir);raw=engine.import_tabular(p)
     observed={}
-    def capture(writer,key,title,plot,data,params):
+    def capture(writer,key,title,plot,data,params,*_storage_options):
         fig,ax=plt.subplots();plot(ax)
         observed[key]=dict(texts=[t.get_text() for t in ax.texts],legend=[t.get_text() for t in ax.get_legend().get_texts()] if ax.get_legend() else [],
             ticks=[t.get_text() for t in ax.get_xticklabels()],colorbar=fig.axes[-1].get_ylabel(),data=data,xlabel=ax.get_xlabel(),legend_title=ax.get_legend().get_title().get_text() if ax.get_legend() else '')

@@ -17,8 +17,11 @@ export default function TabularAnalysisResult({projectId,result,tab,onNavigate,q
  if(!isTabularProcessedSource(result.source,projectId)||result.source.processed_dataset_version_id!==result.id)return <p role="alert">{t('固定来源身份不匹配，请重新打开。')}</p>
  const supported=tab in tabs,active=supported?tab as keyof typeof tabs:'qc'
  const relevant=(key:string)=>active==='qc'?/qc|sample|feature|expression|correlation|distance|heatmap|distribution/.test(key)&&!key.includes('clustering'):active==='embedding'?key.startsWith('pca'):active==='clusters'?key.includes('clustering'):false
- const tables=result.tables.filter(table=>relevant(table.key)),selected=tables.find(table=>table.key===tableKey)??tables[0]
  const summary=result.manifest.summary&&typeof result.manifest.summary==='object'?result.manifest.summary as Record<string,unknown>:{}
+ const tables=result.tables.filter(table=>relevant(table.key))
+ const selected=tables.find(table=>table.key===tableKey)??tables.find(table=>table.key===summary.sample_qc_table)??tables[0]
+ const correlationUnavailable=result.source.assay==='bulk_rna_counts'&&result.members.some(member=>member.key==='sample_correlation')&&
+  !result.figures.some(figure=>figure.config.kind==='correlation_heatmap')
  const panels = !qualityMode&&result.source.assay==='bulk_rna_counts'
   ?(Object.keys(bulkPanels) as BulkPanel[]).filter(panel=>bulkPanelTab(panel)===active&&hasBulkPanel(result,panel))
   :[]
@@ -36,6 +39,8 @@ export default function TabularAnalysisResult({projectId,result,tab,onNavigate,q
   {!supported&&<p role="status">{t('此非空间版本不提供该标签页，当前显示样本 QC。')}</p>}
   <section className="analysis-detail"><h3>{t('实际步骤状态和缺口')}</h3><ul>{result.steps.map(step=><li key={step.key}>{step.key}: {t(step.status==='completed'?'已完成':step.status==='not_computable'?'不可计算':'未请求')}{step.reason&&<> · <span>{step.reason}</span></>}</li>)}</ul></section>
   {active==='methods'?<BioReproducibility projectId={projectId} result={result}/>:<>
+   {active==='qc'&&summary.sample_qc_table==='sample_qc'&&<p>{t('样本质控明细保存在 sample_qc 表中，可分页查看。')}</p>}
+   {active==='qc'&&correlationUnavailable&&<p role="status">{t('Pearson 相关性需要至少两个共同特征和两个具有变化的样本。')}</p>}
    {active==='qc'&&<><BioQcSummary summary={summary} observationLabel="样本" featureLabel="特征"/><BulkQcDetails summary={summary} layers={(result.manifest.value_layers??result.manifest.layers??{}) as Record<string,unknown>} analysisObject={(summary as Record<string,unknown>).analysis_object??result.manifest.analysis_object} setupId={result.source.setup_id} isBulk={result.source.assay==='bulk_rna_counts'} onNavigate={onNavigate}/><BioMatrixPreview projectId={projectId} processedId={result.id} layers={Object.keys((result.manifest.value_layers??result.manifest.layers??{}) as Record<string,unknown>).length?Object.keys((result.manifest.value_layers??result.manifest.layers??{}) as Record<string,unknown>):['analysis','display']}/><section className="analysis-detail"><h3>{t('原始尺度与处理记录')}</h3><BioJson value={{scale:result.manifest.scale,steps:result.steps,methods:result.manifest.methods,analysis_object:(summary as Record<string,unknown>).analysis_object??result.manifest.analysis_object}}/></section></>}
    {result.figures.filter(figure=>relevant(figure.config.kind)).map(figure=><section key={figure.id}><h3>{figure.config.title||figure.config.kind}</h3><button type="button" onClick={()=>onNavigate({view:'bio-figure',fileId:'',figureId:figure.id})}>{t('打开固定单图版本')}</button>{figure.members.filter(member=>member.format==='png').map(member=><BioMemberImage key={member.id} projectId={projectId} member={member}/>)}<BioSpatialMembers projectId={projectId} members={figure.members}/></section>)}
    {tables.length?<><label>{t('结果表')}<select value={selected?.key??''} onChange={e=>setTableKey(e.target.value)}>{tables.map(table=><option key={table.key} value={table.key}>{table.label}</option>)}</select></label>{selected?.status==='not_computable'?<p>{t('不可计算')} · {selected.reason}</p>:selected&&<BioResultTable key={selected.key} projectId={projectId} processedId={result.id} tableKey={selected.key}/>}</>:<p>{t('此标签页无可用结果表，请查看步骤状态和下载清单。')}</p>}

@@ -3,12 +3,12 @@ import { useI18n, apiError, safeError } from '../i18n'
 import { useEffect, useRef, useState, type MouseEvent, type ReactNode } from 'react'
 import { apiFetch, captureApiSession, onApiSessionChanged } from '../api/client'
 import { captureProjectAccess } from '../api/projectAccess'
-type Props = { timeoutMs?:number; href: string; filename: string; children: ReactNode; ariaLabel?: string; postBody?:unknown; onHttpError?: (status: number, body: unknown) => void }
+type Props = { nativePrepared?:boolean; timeoutMs?:number; href: string; filename: string; children: ReactNode; ariaLabel?: string; postBody?:unknown; onHttpError?: (status: number, body: unknown) => void }
 export default function ProjectDownloadLink(props: Props) {
   return <DownloadLink key={props.href} {...props} />
 }
 
-function DownloadLink({ href, filename, children, ariaLabel, postBody, onHttpError, timeoutMs=STANDARD_REQUEST_TIMEOUT_MS }: Props) {
+function DownloadLink({ href, filename, children, ariaLabel, postBody, nativePrepared=false, onHttpError, timeoutMs=STANDARD_REQUEST_TIMEOUT_MS }: Props) {
   const { t } = useI18n()
   const [checkSession] = useState(captureApiSession)
   const [busy, setBusy] = useState(false)
@@ -39,7 +39,7 @@ function DownloadLink({ href, filename, children, ariaLabel, postBody, onHttpErr
       if (!active.current || controller.signal.aborted) throw new DOMException('下载已取消', 'AbortError')
     }
     try {
-      const blob = await Promise.race([
+      const result = await Promise.race([
         apiFetch(href, { signal: controller.signal, ...(postBody===undefined?{}:{
           method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(postBody),
         }) }).then(async response => {
@@ -51,6 +51,15 @@ function DownloadLink({ href, filename, children, ariaLabel, postBody, onHttpErr
             onHttpError?.(response.status, body)
             throw new Error(apiError(body, '下载失败，请重试。'))
           }
+          if (nativePrepared) {
+            const body = await response.json()
+            const prefix = href.replace(/\/prepare\/(word|archive)$/, '/prepared/$1/')
+            if (prefix === href || typeof body?.download_url !== 'string'
+                || !body.download_url.startsWith(prefix) || !/^[a-f0-9]{64}$/.test(body.download_url.slice(prefix.length))) {
+              throw new Error('下载失败，请重试。')
+            }
+            return body.download_url as string
+          }
           return response.blob()
         }),
         new Promise<never>((_, reject) => {
@@ -58,16 +67,17 @@ function DownloadLink({ href, filename, children, ariaLabel, postBody, onHttpErr
         }),
       ])
       check()
-      const url = URL.createObjectURL(blob)
+      const url = typeof result === 'string' ? result : URL.createObjectURL(result)
       try {
         const anchor = document.createElement('a')
         anchor.href = url
+        if (nativePrepared) { anchor.target = '_blank'; anchor.rel = 'noopener' }
         // Keep only the final path segment and remove characters unsafe for file names.
         // eslint-disable-next-line no-control-regex
         anchor.download = filename.split(/[\\/]/).pop()?.replace(/[\u0000-\u001f\u007f<>:"|?*]/g, '').replace(/[. ]+$/g, '').trim() || 'download'
         document.body.append(anchor)
         try { anchor.click() } finally { anchor.remove() }
-      } finally { URL.revokeObjectURL(url) }
+      } finally { if (!nativePrepared) URL.revokeObjectURL(url) }
     } catch (cause) {
       if (active.current && !(cause instanceof DOMException && cause.name === 'AbortError')) {
         setError(safeError(cause, '下载失败，请重试。'))

@@ -15,6 +15,7 @@ const reasons:Record<string,string> = {
  insufficient_resource_background:'映射后与资源相交的背景不足。',
  empty_effective_foreground:'前景映射后与资源没有有效交集。',
  no_eligible_terms:'没有满足当前基因集大小范围的可计算条目。',
+ ranking_all_equal:'所有可用排序分值相同，无法形成有意义的排序。',
  ranking_all_zero_or_insufficient:'可用有符号排序不足或分值全为零。',
  no_applicable_enrichment_families:'各比较或资源均不适用。',
 }
@@ -74,6 +75,7 @@ export default function BulkEnrichmentResult({result,onPlan,onNavigate}:{
   {gsea?<p>{t('NES 为正表示基因集富集在分子组方向，NES 为负表示富集在分母组方向。0 保留为经验置换估计值，精度由置换次数限定。')}</p>
    :<OraForeground direction={result.methods.direction} qColumn={result.methods.q_column}
     qThreshold={result.methods.q_threshold} effect={result.methods.minimum_absolute_effect}/>}
+  {gsea&&status!=='not_applicable'&&!!scope?.ranking?.tied_rank_count&&<p>{t('相同分值按稳定基因 ID 排序。')}</p>}
   {scope&&<p>{t('固定来源版本')} <code>{scope.result_source_id}</code> · {t('固定比较')} {contrasts.join(' · ')}</p>}
   <div className="intake-actions">
    {scope&&onNavigate&&<button type="button" onClick={()=>onNavigate({view:'bio-insight-result',fileId:'',resultVersionId:scope.result_source_id})}>{t('打开此版本的固定来源')}</button>}
@@ -102,12 +104,13 @@ function MappingCoverage({coverage,resources}:{coverage:Coverage[];resources:Enr
   <h3>{t('富集 ID 映射覆盖')}</h3>
   <div className="field-table-scroll"><table className="field-table" aria-label={t('富集 ID 映射覆盖')}>
    <thead><tr>{['固定比较','资源 release','映射范围',...countColumns.map(([,label])=>label),
-    '未映射率','歧义率','多对一影响数','并列排名数','不适用原因'].map(label=><th key={label}>{t(label)}</th>)}</tr></thead>
+    '未映射率','歧义率','多对一影响数','并列排名数与比例','不适用原因'].map(label=><th key={label}>{t(label)}</th>)}</tr></thead>
    <tbody>{scopes.map(({scope,role,counts})=><tr key={`${scope.contrast_id}:${scope.resource_id}:${role}`}>
     <th scope="row">{scope.contrast_id}</th><td>{scope.resource_id==='joint'?t('联合基因集'):name(scope.resource_id)}</td><td>{t(role)}</td>
     {countColumns.map(([key])=><td key={key}>{counts?.[key]??'—'}</td>)}
     <td>{ratio(counts?.unmapped_count,counts?.original_count)}</td><td>{ratio(counts?.ambiguous_count,counts?.original_count)}</td>
-    <td>{counts?.many_to_one_collapse_count??counts?.many_to_one_conflict_count??'—'}</td><td>{counts?.tied_rank_count??'—'}</td>
+    <td>{counts?.many_to_one_collapse_count??counts?.many_to_one_conflict_count??'—'}</td>
+    <td>{counts?.tied_rank_count==null?'—':`${counts.tied_rank_count} · ${ratio(counts.tied_rank_count,counts.effective_count)}`}</td>
     <td>{scope.not_applicable_reason?t(reasons[scope.not_applicable_reason]??scope.not_applicable_reason):'—'}</td>
    </tr>)}</tbody>
   </table></div>

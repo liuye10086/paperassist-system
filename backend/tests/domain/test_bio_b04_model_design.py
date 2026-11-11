@@ -147,3 +147,42 @@ def test_repeated_measurement_model_rejects_disconnected_blocks():
     preview = validate_quantitative_design(config, source)
     assert not preview.executable
     assert {reason.code for reason in preview.blocking_reasons} == {'incomplete_or_duplicate_pairs'}
+
+
+def test_continuous_transform_is_translation_and_unit_invariant_and_legacy_frozen():
+    from app.domain.bio_insights.quantitative_design import validate_quantitative_design
+    from app.domain.bio_insights.quantitative_contracts import QuantitativeComparisonConfig
+
+    config = bulk_config([contrast('B_A', 'B', 'A', 4)],
+        covariates=[dict(field='age', kind='continuous', name='Age')])
+    source = sources('AB', 4)
+    legacy = validate_quantitative_design(config, source).bulk_model
+    assert 'continuous_transform' not in QuantitativeComparisonConfig.model_validate(config).model_dump()
+    assert legacy['terms'][0]['divisor'] == 40
+    config['continuous_transform'] = 'centered_range_v2'
+    original = validate_quantitative_design(config, source)
+    assert original.executable
+    rows = source[0]['metadata']['observations']
+    for row in rows:
+        row['age'] = str(1e12 + 100 * float(row['age']))
+    transformed = validate_quantitative_design(config, source)
+    assert transformed.executable
+    assert [r[1] for r in transformed.bulk_model['design_matrix']] == pytest.approx(
+        [r[1] for r in original.bulk_model['design_matrix']])
+
+
+def test_authoring_assigns_new_transform_without_changing_frozen_legacy_config():
+    from app.domain.bio_insights.contracts import InsightPlanRequest
+    from app.domain.bio_insights.service import BioInsightsService
+    from app.domain.bio_insights.quantitative_contracts import QuantitativeComparisonConfig
+    wire = bulk_config([contrast('B_A', 'B', 'A', 4)],
+        covariates=[dict(field='age', kind='continuous', name='Age')])
+    legacy = QuantitativeComparisonConfig.model_validate(wire)
+    assert 'continuous_transform' not in legacy.model_dump()
+    request = InsightPlanRequest.model_construct(config=QuantitativeComparisonConfig.model_validate(wire))
+    request = BioInsightsService._authoring_transform(request)
+    assert request.config.model_dump()['continuous_transform'] == 'centered_range_v2'
+    assert 'continuous_transform' not in legacy.model_dump()
+    request = request.model_copy(update={'config': request.config.model_copy(update={'covariates': []})})
+    request = BioInsightsService._authoring_transform(request)
+    assert 'continuous_transform' not in request.config.model_dump()

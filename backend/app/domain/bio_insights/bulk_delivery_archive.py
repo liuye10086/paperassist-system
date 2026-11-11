@@ -151,8 +151,8 @@ class BulkDeliveryArchive(BioInsightReproductionService):
                 references.append(item)
         archive.add_json('evidence/references.json', references)
 
-    def export_delivery(self, project, facts, word, *, change_table=None):
-        archive = ReproductionArchive(compression=zipfile.ZIP_DEFLATED, compresslevel=1)
+    def export_delivery(self, project, facts, word, *, change_table=None, destination=None):
+        archive = ReproductionArchive(compression=zipfile.ZIP_DEFLATED, compresslevel=1, destination=destination)
         try:
             comparison = facts['comparison_version_id']
             results = list(dict.fromkeys([comparison, *facts['result_version_ids']]))

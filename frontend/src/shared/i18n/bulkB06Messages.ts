@@ -1,4 +1,5 @@
 export const bulkB06Messages:Record<string,string> = {
+ '所有可用排序分值相同，无法形成有意义的排序。':'All usable ranking scores are equal, so a meaningful ranking cannot be computed.',
  '用当前筛选配置 ORA':'Configure ORA from the applied filters',
  '用完整 Wald 排名配置 GSEA':'Configure GSEA from the complete Wald ranking',
  'ORA 使用已应用的 DEG 阈值与方向。GSEA 使用所选比较的完整有符号 Wald 排名，包括未达 DEG 阈值的基因。':'ORA uses the applied DEG thresholds and direction. GSEA uses the complete signed Wald ranking of the selected contrast, including genes below the DEG thresholds.',
@@ -89,7 +90,8 @@ export const bulkB06Messages:Record<string,string> = {
  '未映射率':'Unmapped rate',
  '歧义率':'Ambiguity rate',
  '多对一影响数':'IDs affected by many-to-one mapping',
- '并列排名数':'Tied ranks',
+ '并列排名数与比例':'Tied ranks and proportion',
+ '相同分值按稳定基因 ID 排序。':'Tied scores are ordered by stable gene ID.',
  '映射范围':'Mapping scope',
  '完整排序':'Complete ranking',
  '受检背景':'Tested background',

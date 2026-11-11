@@ -119,8 +119,8 @@ class BioAnalysisExecution:
         objects=self.objects(task)
         for leaf in state['prepared_leaves']:
             record=leaf['record']
-            if objects.path(record['object_key']).exists():objects.read(record)
-            else:objects.write(record,self._staging_path(task,leaf['path']).read_bytes())
+            if objects.path(record['object_key']).exists():objects.verified_path(record)
+            else:objects.write_path(record,self._staging_path(task,leaf['path']))
         objects.write(prepared['manifest_ref'],canonical(prepared['manifest']))
         objects.write(state['prepared_candidate_ref'],canonical(prepared))
         with self.repository.connection(write=True) as db:

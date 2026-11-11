@@ -6,8 +6,14 @@ from tests.domain.test_bio_tabular_contracts import request_body
 from tests.api.test_research_intake import research
 
 
-@pytest.mark.parametrize('assay,scale',[('bulk_rna_counts','raw_counts'),('normalized_expression','tpm'),('proteomics','intensity'),('metabolomics','concentration')])
-def test_tabular_raw_and_processed_publish_through_existing_tasks(client,monkeypatch,tmp_path,assay,scale):
+@pytest.mark.parametrize('assay,scale,quality_count',[
+    ('bulk_rna_counts','raw_counts',1),
+    ('bulk_rna_counts','raw_counts',2),
+    ('normalized_expression','tpm',0),
+    ('proteomics','intensity',0),
+    ('metabolomics','concentration',0),
+])
+def test_tabular_raw_and_processed_publish_through_existing_tasks(client,monkeypatch,tmp_path,assay,scale,quality_count):
     # The injected engine uses the same headless backend as tabular_worker.
     import matplotlib
     matplotlib.use('Agg', force=True)
@@ -23,7 +29,8 @@ def test_tabular_raw_and_processed_publish_through_existing_tasks(client,monkeyp
     uploads = [('matrix.csv',b'feature_id,s1,s2,s3\na,1,2,4\nb,2,5,8\nc,3,6,12\n'),('samples.csv',b'sample_id,condition,biological_unit_id\ns1,A,u1\ns2,A,u2\ns3,B,u3\n')]
     if bulk:
         uploads[1] = ('samples.csv', b'sample,group,unit\ns1,A,u1\ns2,A,u2\ns3,B,u3\n')
-        uploads.append(('multiqc.html', b'<html>Supplied upstream quality report</html>'))
+        uploads.append(('features.csv', b'feature_id,display_name\na,Gene A\nb,Gene B\nc,Gene C\n'))
+        uploads.extend((f'multiqc-{i}.html', f'<html>Quality report {i}</html>'.encode()) for i in range(quality_count))
     for name,content in uploads:
         item=str(uuid4());batch=client.post(base+'/bio-upload-batches',json={'items':[dict(client_id=item,filename=name,size_bytes=len(content))]},headers={'Idempotency-Key':str(uuid4())})
         assert batch.status_code==201,batch.text
@@ -33,9 +40,12 @@ def test_tabular_raw_and_processed_publish_through_existing_tasks(client,monkeyp
     body=request_body(assay,scale);body['file_ids']=files
     for spec,file in zip(body['tables'],files):spec['file_id']=file
     if bulk:
+        body['tables'].append(dict(file_id=files[2], role='feature_metadata', format='csv'))
         body['sample_metadata_mapping'] = dict(sample_id='sample', condition='group', biological_unit_id='unit')
         body['scale']['input_origin'] = 'bulk_rna'
-        body['quality_reports'] = [dict(file_id=files[2], source='user_provided', report_type='multiqc')]
+        body['quality_reports'] = [
+            dict(file_id=file_id, source='user_provided', report_type='multiqc') for file_id in files[3:]
+        ]
     created=client.post(base+'/bio-imports',json=body,headers={'Idempotency-Key':'new-import'})
     assert created.status_code==202,created.text
     value=created.json();task=value['task']
@@ -65,7 +75,7 @@ def test_tabular_raw_and_processed_publish_through_existing_tasks(client,monkeyp
         assert mapping['mapping'] == body['sample_metadata_mapping']
         assert mapping['source']['file_id'] == files[1]
         assert [row['source_row'] for row in mapping['rows']] == [2, 3, 4]
-        assert files[2] in source['source_file_ids']
+        assert set(files) == set(source['source_file_ids'])
         from app.db.database import database_connection
         revision = 1
         for sample_ids in ([], ['s1', 's2'], ['s1', 's2', 's3', 's4'], ['s3', 's1', 's2']):
@@ -115,11 +125,18 @@ def test_tabular_raw_and_processed_publish_through_existing_tasks(client,monkeyp
     if bulk:
         manifest=processed_value['manifest']
         assert {'raw','filtered','normalized','vst'} <= set(manifest['value_layers'])
-        assert manifest['summary']['qc_metrics']['detected_features']['s1']==3
+        assert manifest['summary']['sample_qc_table']=='sample_qc'
         assert manifest['summary']['layers']['vst']=='variance_stabilized_expression'
         assert manifest['summary']['analysis_object']['round_trip']=='verified_by_loader'
         figure_kinds={figure['config']['kind'] for figure in processed_value['figures']}
         assert {'expression_distribution','correlation_heatmap','distance_heatmap'} <= figure_kinds
+        leaves={member['key']:member for member in processed_value['members']}
+        for kind, shared_key in (('correlation_heatmap','sample_correlation'),('distance_heatmap','sample_distance')):
+            figure=next(figure for figure in processed_value['figures'] if figure['config']['kind']==kind)
+            shared=next(member for member in figure['members'] if member['key']==shared_key)
+            assert shared['sha256']==leaves[shared_key]['sha256']
+            assert kind+'_data' not in leaves
+            assert client.get(shared['download_url']).json()['sample_ids']==['s1','s2','s3']
         for layer in ('raw','filtered','normalized','vst'):
             preview=client.get(base+f'/bio-processed-datasets/{pid}/matrix-preview?layer={layer}')
             assert preview.status_code==200,preview.text
@@ -128,6 +145,9 @@ def test_tabular_raw_and_processed_publish_through_existing_tasks(client,monkeyp
     assert client.get(base+f'/bio-processed-datasets/{pid}/coordinates').status_code==422
     table=client.get(base+f'/bio-processed-datasets/{pid}/tables/sample_qc')
     assert table.status_code==200,table.text
+    if bulk:
+        sample = next(row for row in table.json()['items'] if row['sample_id'] == 's1')
+        assert int(sample['detected_features']) == 3
     for figure in processed.json()['figures']:
         assert {'png','tiff','svg','json'} == {m['format'] for m in figure['members']}
         assert len(figure['members'])==5

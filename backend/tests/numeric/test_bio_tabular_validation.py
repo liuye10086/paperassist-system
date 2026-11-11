@@ -75,7 +75,7 @@ def test_parent_reconciles_raw_with_one_reread_per_original_table(tmp_path,monke
         return original(file,**kwargs)
     monkeypatch.setattr(engine,'iter_table',tracked)
     validate_tabular_result(r,out,p,'import_v3')
-    assert seen==['m','s','f']
+    assert sorted(seen) == ['f', 'm', 's']
 
 
 @pytest.mark.parametrize('mode',['qc','compute'])
@@ -90,6 +90,50 @@ def test_parent_binds_self_consistent_output_to_frozen_recipe(tmp_path,monkeypat
     result=engine.run_tabular(request)
     validate_tabular_result(result,out,request,mode)
     with pytest.raises(StorageError):validate_tabular_result(result,out,{**request,'config':{}},mode)
+
+
+def test_large_bulk_recipe_and_response_use_verified_file_references(tmp_path, monkeypatch):
+    from app.adapters.bio_engine import tabular_assays
+    from app.adapters.bio_engine.tabular_transport import (
+        MAX_FRAME_BYTES, stage_request, read_request, response_result,
+    )
+    from app.adapters.bio_tabular_process import validate_tabular_result
+    from app.core.exceptions import StorageError
+
+    monkeypatch.setattr(tabular_assays, '_figure', lambda *args: None)
+    feature_ids = [f'g{i:05d}' + 'x' * 194 for i in range(11_000)]
+    original = payload(tmp_path, counts=True)
+    matrix = Path(original['files'][0]['path'])
+    matrix.write_text('feature_id,s1,s2,s3\n' + ''.join(f'{feature},1,2,3\n' for feature in feature_ids), encoding='utf-8')
+    original['files'][0].update(size_bytes=matrix.stat().st_size, sha256=hashlib.sha256(matrix.read_bytes()).hexdigest())
+    raw, _ = review_import(tmp_path, original)
+    output = tmp_path / 'qc'
+    output.mkdir()
+    request = dict(
+        raw={'manifest': raw['manifest'], 'members': {member['key']: member for member in raw['outputs']}},
+        config={'exclude_features': feature_ids[:-1]}, identity=original['identity'], mode='qc', output_directory=str(output),
+    )
+    assert len(json.dumps(request).encode()) > MAX_FRAME_BYTES
+    with stage_request(request, output) as wire:
+        assert len(wire) < 2048
+        ref = Path(json.loads(wire)['request_ref']['path'])
+        assert read_request(wire) == request
+        ref.write_bytes(b'{}')
+        with pytest.raises(ValueError, match='tabular_request_integrity'):
+            read_request(wire)
+    assert not ref.exists()
+
+    result = tabular_assays.run_tabular(request)
+    assert result['summary']['sample_qc_table'] == 'sample_qc'
+    assert 'qc_metrics' not in result['summary']
+    compact = response_result(result, 'qc')
+    assert len(json.dumps(compact).encode()) < 32 * 1024
+    verified = validate_tabular_result(compact, output, request, 'qc')
+    assert verified['effective_params']['exclude_features'] == feature_ids[:-1]
+    member = next(item for item in result['outputs'] if item['key'] == 'manifest')
+    Path(member['path']).write_text('{}', encoding='utf-8')
+    with pytest.raises(StorageError):
+        validate_tabular_result(compact, output, request, 'qc')
 
 
 @pytest.mark.parametrize('mode',['qc','compute'])
@@ -125,6 +169,7 @@ def test_output_layers_describe_effective_scale_and_preview(tmp_path,monkeypatch
         assert layer['is_raw_integer_counts'] is (counts and normalization=='none')
     class Objects:
         def read(self,m):return Path(m['path']).read_bytes()
+        def verified_path(self,m):return Path(m['path'])
     preview=dense_preview(result['manifest'],result['outputs'],Objects(),1,1,'analysis')
     assert preview['scale']==result['manifest']['layers']['analysis']
 
@@ -169,6 +214,29 @@ def test_bulk_tabular_capacity_uses_the_central_limit():
     from app.domain.bioinformatics.settings import BioLimits
 
     assert tabular_assays.MAX_CELLS == BioLimits().max_bulk_matrix_cells
+
+
+def test_parent_reconciles_shared_bulk_layers_with_exclusions(tmp_path,monkeypatch):
+    import numpy as np
+    from app.adapters.bio_engine import tabular_assays as engine
+    from app.adapters.bio_tabular_process import validate_tabular_result
+    from app.core.exceptions import StorageError
+
+    monkeypatch.setattr(engine,'_figure',lambda *args:None)
+    p=payload(tmp_path,counts=True);raw,_=review_import(tmp_path,p)
+    out=tmp_path/'processed';out.mkdir()
+    request=dict(raw=dict(manifest=raw['manifest'],members={m['key']:m for m in raw['outputs']}),
+                 config={'exclude_features':['c'],'exclude_samples':['s2'],'normalization':'vst'},
+                 identity=p['identity'],mode='compute',output_directory=str(out))
+    result=engine.run_tabular(request)
+    validate_tabular_result(result,out,request,'compute')
+    leaf=next(m for m in result['outputs'] if m['key']=='raw_values')
+    values=np.load(leaf['path'],allow_pickle=False)
+    values[0,0]+=1
+    np.save(leaf['path'],values,allow_pickle=False)
+    rehash_result(result,'raw_values')
+    with pytest.raises(StorageError):
+        validate_tabular_result(result,out,request,'compute')
 
 
 def test_bulk_capacity_overrides_can_only_tighten():

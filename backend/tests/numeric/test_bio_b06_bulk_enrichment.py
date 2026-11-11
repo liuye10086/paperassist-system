@@ -70,6 +70,49 @@ def artifact_json(writer, key):
     return json.loads(Path(next(item['path'] for item in writer.artifacts if item['key'] == key)).read_bytes())
 
 
+@pytest.mark.parametrize(('rank_count', 'permutation_count', 'term_count'), [
+    pytest.param(60_000, 10_000, 1, id='tag-vectors-alone'),
+    pytest.param(10_000, 3_400, 1, id='maps-and-tag-vectors'),
+    pytest.param(20, 10_000, 7_000, id='joint-null-correction'),
+])
+def test_bulk_gsea_rejects_native_permutation_peak_before_call(
+    tmp_path, monkeypatch, rank_count, permutation_count, term_count,
+):
+    import gseapy.gse
+
+    source = bulk_result(tmp_path, (
+        (f'g{i}', {'wald_statistic': rank_count // 2 - i}) for i in range(rank_count)
+    ))
+    resource = resource_source(tmp_path, namespace='Ensembl gene ID',
+                               terms=[term(f'set{i}', 'g0', 'g1') for i in range(term_count)])
+
+    def forbidden(*args, **kwargs):
+        pytest.fail('The native permutation workspace exceeded the admission limit')
+
+    monkeypatch.setattr(gseapy.gse, 'prerank_rs', forbidden)
+    with pytest.raises(MemoryError, match='gsea_resource_budget_exceeded'):
+        execute(tmp_path, gsea_config(permutation_num=permutation_count), [source, resource])
+
+
+def test_bulk_gsea_without_eligible_terms_skips_native_permutation_budget(tmp_path, monkeypatch):
+    import gseapy.gse
+
+    rank_count = 60_000
+    source = bulk_result(tmp_path, (
+        (f'g{i}', {'wald_statistic': rank_count // 2 - i}) for i in range(rank_count)
+    ))
+    resource = resource_source(tmp_path, namespace='Ensembl gene ID', terms=[term('unmatched', 'absent')])
+
+    def forbidden(*args, **kwargs):
+        pytest.fail('An empty family does not enter native GSEA')
+
+    monkeypatch.setattr(gseapy.gse, 'prerank_rs', forbidden)
+    result, _ = execute(tmp_path, gsea_config(permutation_num=10_000), [source, resource])
+    assert result['summary']['ranking_size'] == rank_count
+    assert result['summary']['eligible_set_count'] == 0
+    assert result['summary']['not_applicable_reason'] == 'no_eligible_terms'
+
+
 def test_bulk_ora_exact_resource_universe_and_bh_include_zero_hits(tmp_path):
     source = bulk_result(tmp_path, [
         ('a1', {'effect_value': 1., 'original_method_adjustment': .05}), ('a2', {}), ('b', {}),
@@ -234,3 +277,44 @@ def test_bulk_gsea_publishes_audit_even_when_no_test_is_applicable(tmp_path, sco
     assert rows(writer, 'enrichment_results') == []
     assert len(rows(writer, 'gsea_ranking')) == ranking_size
     assert artifact_json(writer, 'gsea_curves')['terms'] == []
+
+
+def test_bulk_gsea_equal_nonzero_scores_are_not_applicable_without_native(tmp_path, monkeypatch):
+    import gseapy.gse
+    def forbidden(*args, **kwargs):
+        raise AssertionError('native engine must not run for degenerate ranks')
+    monkeypatch.setattr(gseapy.gse, 'prerank_rs', forbidden)
+    source = bulk_result(tmp_path, [(f'g{i}', {'wald_statistic': 2.}) for i in range(4)])
+    resource = resource_source(tmp_path, namespace='ensembl_gene_id', terms=[term('one', 'g1')])
+    result, writer = execute(tmp_path, gsea_config(), [source, resource])
+    assert result['summary']['not_applicable_reason'] == 'ranking_all_equal'
+    assert len(rows(writer, 'mapping_rows')) == 4
+    assert len(rows(writer, 'gsea_ranking')) == 4
+    assert all(r['reason'] == 'ranking_all_equal' for r in rows(writer, 'term_exclusions'))
+    from app.adapters.bio_bulk_enrichment_validation import validate_bulk_enrichment
+    def table(key, required):
+        return iter(rows(writer, key))
+    def doc(key):
+        return artifact_json(writer, key)
+    payload = {'config': gsea_config(), 'sources': [source, resource]}
+    validate_bulk_enrichment(result, payload, table, doc)
+    result['summary']['not_applicable_reason'] = 'no_eligible_terms'
+    with pytest.raises(ValueError, match='bulk_enrichment_status_mismatch'):
+        validate_bulk_enrichment(result, payload, table, doc)
+
+
+def test_bulk_gsea_term_renames_do_not_change_joint_probabilities(tmp_path):
+    source = bulk_result(tmp_path, [(f'g{i}', {'wald_statistic': float(8-i)}) for i in range(8)])
+    first = resource_source(tmp_path, namespace='ensembl_gene_id', terms=[term('a__one', 'g0', 'g2'), term('b', 'g4', 'g7')])
+    cfg = gsea_config()
+    _, writer = execute(tmp_path, cfg, [source, first])
+    first_rows = {r['term_id']: r for r in rows(writer, 'enrichment_results')}
+    other_dir = tmp_path / 'other'
+    other_dir.mkdir()
+    second = resource_source(other_dir, sid='renamed__resource', namespace='ensembl_gene_id',
+        terms=[term('z', 'g0', 'g2'), term('other__name', 'g4', 'g7')])
+    _, renamed = execute(tmp_path, gsea_config(resource_source_ids=['renamed__resource']), [source, second], 'renamed')
+    second_rows = {r['term_id']: r for r in rows(renamed, 'enrichment_results')}
+    for old, new in [('a__one', 'z'), ('b', 'other__name')]:
+        for field in ('nes', 'fdr_q_value', 'fwer_p_value'):
+            assert float(first_rows[old][field]) == pytest.approx(float(second_rows[new][field]))

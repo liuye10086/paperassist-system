@@ -83,7 +83,7 @@ def test_bulk_import_reports_conflicting_axes(bulk_import, file_id, text, reason
 
 
 def test_bulk_qc_locates_zero_library_and_compute_cannot_keep_it(bulk_import, tmp_path):
-    from app.adapters.bio_engine.tabular_assays import import_tabular, run_tabular
+    from app.adapters.bio_engine.tabular_assays import _rows, import_tabular, run_tabular
 
     replace_original(bulk_import, 'm', 'feature_id,s1,s2,s3\na,1,0,4\nb,2,0,8\nc,3,0,12\n')
     result = import_tabular(bulk_import)
@@ -92,10 +92,11 @@ def test_bulk_qc_locates_zero_library_and_compute_cannot_keep_it(bulk_import, tm
     qc_directory.mkdir()
     common = dict(raw=raw, config={}, identity=bulk_import['identity'])
     qc = run_tabular({**common, 'mode': 'qc', 'output_directory': str(qc_directory)})
-    metrics = qc['summary']['qc_metrics']
-    assert metrics['total_counts'] == {'s1': 6., 's2': 0., 's3': 24.}
-    assert metrics['detected_features']['s2'] == 0
-    assert metrics['zero_fraction']['s2'] == 1.
+    member = next(item for item in qc['outputs'] if item['key'] == qc['summary']['sample_qc_table'])
+    metrics = {row['sample_id']: row for row in _rows(member)}
+    assert {sample: float(row['total_counts']) for sample, row in metrics.items()} == {'s1': 6., 's2': 0., 's3': 24.}
+    assert int(metrics['s2']['detected_features']) == 0
+    assert float(metrics['s2']['zero_fraction']) == 1.
     assert qc['summary']['retained_observations'] == 3
 
     compute_directory = tmp_path / 'compute'

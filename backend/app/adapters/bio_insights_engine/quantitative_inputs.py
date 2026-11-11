@@ -1,7 +1,8 @@
 """Verified dense sample axes and declared processed layers; never spot aliases."""
 import numpy as np
 from .inputs import verify_member,document,read_array
-from app.adapters.bio_engine.tabular_assays import load_tabular,_rows,transformed,layer_scale
+from app.adapters.bio_engine.tabular_assays import SHARED_LAYER_LAYOUT, filtered_matrix, layer_layout, load_tabular,_rows,transformed
+from app.domain.bioinformatics.tabular_contracts import validate_recipe
 
 
 def load_quantitative(source,config):
@@ -20,15 +21,23 @@ def load_quantitative(source,config):
     if config.mode=='bulk_counts':
         if source['raw']['manifest']['assay']!='bulk_rna_counts' or raw.dtype!=np.dtype('int64') or missing.any() or np.any(raw<0):raise ValueError('raw_integer_counts_required')
         eligible=fm if config.bulk_model else np.ones(raw.shape[1],dtype=bool)
-        values=raw[om][:,eligible];mask=missing[om][:,eligible]
+        values=filtered_matrix(raw,om,eligible);mask=filtered_matrix(missing,om,eligible)
         descriptor=dict(input_scale=source['raw']['manifest']['scale'],scale='raw_counts',unit='counts',normalization='none',transform='none',is_raw_integer_counts=True)
     else:
-        prefix=config.analysis_layer;values=read_array(members[prefix+'_values']);mask=read_array(members[prefix+'_missing']);eligible=fm
-        expected,_=transformed(raw[om][:,fm],missing[om][:,fm],manifest['params'],source['raw']['manifest'])
+        prefix=config.analysis_layer;eligible=fm
+        raw_manifest=source['raw']['manifest']
+        params=validate_recipe(manifest['params'],raw_manifest)
+        filtered_missing=filtered_matrix(missing,om,fm)
+        shared=manifest.get('layer_layout')==SHARED_LAYER_LAYOUT
+        if (manifest.get('layer_layout') is not None and not shared) or (shared and raw_manifest['assay']!='bulk_rna_counts'):
+            raise ValueError('layer_scale_mismatch')
+        layers,_=layer_layout(params,raw_manifest,raw.shape,filtered_missing.shape,shared=shared)
         descriptor=manifest['layers'][prefix]
-        if descriptor!=dict(values=prefix+'_values',missing=prefix+'_missing',shape=list(expected.shape),**layer_scale(manifest['params'],source['raw']['manifest'])):raise ValueError('layer_scale_mismatch')
-        if values.shape!=expected.shape or mask.dtype.kind!='b' or not np.array_equal(mask,missing[om][:,fm]) or not np.allclose(values,expected,rtol=1e-12,atol=1e-12):raise ValueError('processed_layer_mismatch')
+        if descriptor!=layers[prefix]:raise ValueError('layer_scale_mismatch')
+        values=read_array(members[descriptor['values']]);mask=read_array(members[descriptor['missing']])
+        expected,_=transformed(filtered_matrix(raw,om,fm),filtered_missing,params,raw_manifest)
+        if values.shape!=expected.shape or mask.dtype.kind!='b' or not np.array_equal(mask,filtered_missing) or not np.allclose(values,expected,rtol=1e-12,atol=1e-12):raise ValueError('processed_layer_mismatch')
         if meta['layers'][prefix]!=descriptor:raise ValueError('frozen_layer_metadata_mismatch')
     return dict(source=source,values=values,missing=mask,observations=observations,
-        retained_keys=[(sid,s) for s,yes in zip(samples,om) if yes],feature_ids=np.asarray(features['feature_ids'])[eligible].tolist(),
+        retained_keys=[(sid,s) for s,yes in zip(samples,om) if yes],feature_ids=[f for f,keep in zip(features['feature_ids'],eligible) if keep],
         raw_feature_ids=features['feature_ids'],annotations={r['feature_id']:r for r in annotations},layer=descriptor)

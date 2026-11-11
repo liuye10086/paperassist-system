@@ -26,9 +26,13 @@ def table_shape(path,fmt,*,header='declared'):
 
 
 class ReproductionArchive:
-    def __init__(self, *, compression=zipfile.ZIP_STORED, compresslevel=None):
-        self.file=tempfile.TemporaryFile(mode='w+b')
-        self.zip=zipfile.ZipFile(self.file,'w',compression=compression,compresslevel=compresslevel,allowZip64=True)
+    def __init__(self, *, compression=zipfile.ZIP_STORED, compresslevel=None, destination=None):
+        self.file = tempfile.TemporaryFile(mode='w+b') if destination is None else Path(destination).open('x+b')
+        try:
+            self.zip=zipfile.ZipFile(self.file,'w',compression=compression,compresslevel=compresslevel,allowZip64=True)
+        except BaseException:
+            self.file.close()
+            raise
         self.records={};self.total=0;self.closed=False
 
     def _write_bytes(self, name, content):

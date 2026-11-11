@@ -113,19 +113,19 @@ def test_interrupted_leaf_write_retries_same_reserved_manifest(client, monkeypat
     from app.adapters.bio_objects import BioObjects
     from app.core.exceptions import StorageError
     base, created, _, _ = create_import(client)
-    original_write = BioObjects.write
+    original_write = BioObjects.write_path
     writes = []
     def fail_write(self, record, content):
         writes.append(record["object_key"])
         raise StorageError("storage_unavailable", "synthetic interrupted local write")
-    monkeypatch.setattr(BioObjects, "write", fail_write)
+    monkeypatch.setattr(BioObjects, "write_path", fail_write)
     failed = run(created["task"])
     assert failed["status"] == "failed" and failed["error_code"] == "storage_unavailable", failed
     with database_connection() as db:
         reserved = list(db.execute("SELECT operation_key,object_key,sha256,size_bytes FROM storage_reservations WHERE task_id=%s ORDER BY operation_key", (failed["id"],)))
         assert len(reserved) > 6 and len(writes) == 1
         assert db.execute("SELECT candidate_object_id FROM bio_imports WHERE id=%s", (created["id"],)).fetchone()["candidate_object_id"] is None
-    monkeypatch.setattr(BioObjects, "write", original_write)
+    monkeypatch.setattr(BioObjects, "write_path", original_write)
     queued = client.post("/api/v1/tasks/" + failed["id"] + "/retry", json={"expected_revision": failed["revision"]})
     assert queued.status_code == 202, queued.text
     waiting = run(queued.json())

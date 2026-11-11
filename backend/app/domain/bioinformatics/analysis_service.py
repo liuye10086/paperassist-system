@@ -189,7 +189,7 @@ class BioAnalysisService(BioAnalysisStore):
                 if not candidate['processed_dataset_version_id']:raise conflict('bio_input_integrity_changed')
                 result,_,members=self.processed_record(db,project,candidate['processed_dataset_version_id'])
                 if result['run_id']!=candidate['id'] or result['task_id']!=task['id']:raise conflict('bio_input_integrity_changed')
-                for member in members:self.objects.read(member)
+                for member in members:self.objects.verified_path(member)
             bind_receipt(db,user_id=self.store.user_id,project_id=project,kind='bio_analysis_run',key=key,request_digest=sha,target_id=candidate['id'])
             return dict(candidate)
 
@@ -266,7 +266,7 @@ class BioAnalysisService(BioAnalysisStore):
         if not reference:return None
         value=self.objects.read_json(reference)
         if value['input_sha256']!=task['input_digest'] or value['run_id']!=task['input_snapshot']['run_id']:raise conflict('bio_input_integrity_changed')
-        for member in value['members']:self.objects.read(member)
+        for member in value['members']:self.objects.verified_path(member)
         return value
 
     def get(self,project,run_id):

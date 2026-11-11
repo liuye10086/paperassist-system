@@ -161,13 +161,16 @@ def insight_word_report(project_id:str,version_id:str,store:Store,figure_version
     else:
         comparison_id, attached = None, []
     if comparison_id:
-        from app.api.bulk_workflow import word_response
-        from app.domain.bio_insights.bulk_delivery import BulkDeliveryService
+        from app.api.bulk_workflow import heavy_slot, resolve_delivery, prepared_artifact, artifact_response
+        from app.domain.bio_insights.bulk_delivery_contracts import BulkDeliveryRequest, BulkDownloadRequest
 
-        delivery = BulkDeliveryService(store)
-        facts = delivery.facts(project_id, comparison_id, result_version_ids=attached,
-                               language='en' if (language or config.get('output_language')) == 'en' else 'zh')
-        return word_response(delivery.docx(project_id, facts), facts)
+        request = BulkDeliveryRequest(comparison_version_id=comparison_id, result_version_ids=attached,
+                                      language='en' if (language or config.get('output_language')) == 'en' else 'zh')
+        with heavy_slot(store, project_id):
+            _, facts = resolve_delivery(project_id, store, request)
+            frozen = BulkDownloadRequest(**request.model_dump(), facts_digest=facts['facts_digest'])
+            _, entry = prepared_artifact(project_id, store, frozen, 'word')
+            return artifact_response(entry, 'word')
 
     from app.adapters.single_cell_insight_report import download_single_cell_insight_report
     return Response(download_single_cell_insight_report(store,project_id,version_id,figure_version_ids,language),

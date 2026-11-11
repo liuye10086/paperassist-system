@@ -1,4 +1,6 @@
+import asyncio
 import importlib.util
+import json
 import pytest
 
 
@@ -58,3 +60,35 @@ def test_bulk_contract_rejects_single_cell_origin_and_invalid_mapping():
     body=request_body();body['sample_metadata_mapping']={'sample_id':'sample','condition':'sample','biological_unit_id':'biological_unit_id'}
     with pytest.raises(ValueError,match='sample_metadata_mapping_invalid'):
         BioImportRequestV3(**body)
+
+
+def test_bulk_import_request_accepts_512_long_sample_ids():
+    from app.api.upload_limit import UploadLimitMiddleware
+    from app.domain.bioinformatics.tabular_contracts import BioImportRequestV3
+
+    body = request_body()
+    body['sample_columns'] = [f's{i:03d}' + chr(0x1f600) * 196 for i in range(512)]
+    wire = json.dumps(BioImportRequestV3.model_validate(body).model_dump()).encode()
+    assert len(wire) > 1024**2
+
+    async def exercise(content):
+        messages = []
+
+        async def receive():
+            return {'type': 'http.request', 'body': content}
+
+        async def send(message):
+            messages.append(message)
+
+        async def app(scope, receive_body, respond):
+            assert (await receive_body())['body'] == content
+            await respond({'type': 'http.response.start', 'status': 202})
+
+        await UploadLimitMiddleware(app)(
+            {'type': 'http', 'method': 'POST', 'path': '/api/v1/projects/p/bio-imports'}, receive, send
+        )
+        return messages[0]['status']
+
+    assert asyncio.run(exercise(wire)) == 202
+    assert asyncio.run(exercise(wire.replace(b'bulk_rna_counts', b'proteomics'))) == 413
+    assert asyncio.run(exercise(wire + b' ' * (2 * 1024**2))) == 413

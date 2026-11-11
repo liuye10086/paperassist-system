@@ -51,6 +51,7 @@ export const bulkB07Messages:Record<string,string> = {
   '基线固定比较版本':'Frozen baseline comparison version',
   '另一个固定比较版本':'Alternative frozen comparison version',
   '暂无相同比较方向的其他已发布运行。':'No other published run has the same comparison direction.',
+  '暂无同一原始数据版本、具有共同样本且方向兼容的其他已发布运行。':'No other published run shares the raw data version, comparison direction, and eligible samples.',
   '固定比较方向':'Frozen comparison direction',
   '基线筛选':'Baseline filters',
   '变体筛选':'Scenario filters',

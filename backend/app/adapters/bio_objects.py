@@ -1,5 +1,6 @@
 """Content-addressed, bounded bio objects with no client-selected paths."""
 import hashlib
+import io
 import json
 import re
 import os
@@ -39,25 +40,73 @@ class BioObjects:
     def write(self, record, content):
         if len(content) != record['size_bytes'] or hashlib.sha256(content).hexdigest() != record['sha256']:
             raise conflict()
+        with io.BytesIO(content) as stream:
+            self._publish(record, stream)
+
+    def write_path(self, record, source):
+        """Copy a verified staging leaf without allocating its full contents."""
+        try:
+            source = Path(source)
+            if source.is_symlink() or not source.is_file() or source.stat().st_size != record['size_bytes']:
+                raise conflict()
+            stream = source.open('rb')
+        except OSError as exc:
+            raise conflict() from exc
+        with stream:
+            self._publish(record, stream)
+
+    def _publish(self, record, source):
         target = self.path(record['object_key'])
         target.parent.mkdir(parents=True, exist_ok=True)
         target = self.path(record['object_key'])
         if target.exists():
-            self.read(record)
+            self._verify_stream(record, source)
+            self.verified_path(record)
             return
         temporary = target.with_name(target.name + '.' + uuid4().hex + '.part')
+        created = False
         try:
             with temporary.open('xb') as stream:
-                stream.write(content)
+                created = True
+                self._verify_stream(record, source, destination=stream)
                 stream.flush()
                 os.fsync(stream.fileno())
             try:
                 os.link(temporary, self.path(record['object_key']))
             except FileExistsError:
-                self.read(record)
+                self.verified_path(record)
         finally:
-            temporary.unlink(missing_ok=True)
-        self.read(record)
+            if created:
+                temporary.unlink(missing_ok=True)
+        self.verified_path(record)
+
+    @staticmethod
+    def _verify_stream(record, stream, *, destination=None):
+        digest = hashlib.sha256()
+        size = 0
+        limit = record['size_bytes']
+        if type(limit) is not int or not 0 < limit <= 268435456:
+            raise conflict()
+        while block := stream.read(min(1024**2, limit + 1 - size)):
+            size += len(block)
+            if size > limit:
+                raise conflict()
+            digest.update(block)
+            if destination is not None:
+                destination.write(block)
+        if size != limit or digest.hexdigest() != record['sha256']:
+            raise conflict()
+
+    def verified_path(self, record):
+        path = self.path(record['object_key'])
+        try:
+            if not path.is_file() or path.stat().st_size != record['size_bytes']:
+                raise conflict()
+            with path.open('rb') as stream:
+                self._verify_stream(record, stream)
+            return path
+        except OSError as exc:
+            raise conflict() from exc
 
     def read(self, record):
         path = self.path(record['object_key'])

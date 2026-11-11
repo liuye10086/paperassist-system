@@ -1,5 +1,4 @@
 """Compare classifications on the complete saved gene tables of fixed Bulk results."""
-from collections import Counter
 import csv
 
 from app.adapters.bio_analysis_store import BioAnalysisStore
@@ -24,38 +23,6 @@ _MODEL_PARAMETERS = (
 )
 
 
-def _fixed_gene_rows(path, selections, labels):
-    by_contrast = {selection.contrast_id for selection in selections}
-    tables = [{} for _ in selections]
-    with path.open(encoding='utf-8-sig', newline='') as stream:
-        reader = csv.DictReader(stream, delimiter='\t', strict=True)
-        columns = reader.fieldnames or []
-        if not _TABLE_COLUMNS.issubset(columns) or len(columns) != len(set(columns)):
-            raise ValueError('bulk_comparison_columns_invalid')
-        for row in reader:
-            if row['contrast_id'] not in by_contrast:
-                continue
-            if (None in row or None in row.values() or not row['feature_id'] or not row['row_key']
-                    or (row['numerator'], row['denominator']) != labels
-                    or row['test_status'] not in ('tested', 'excluded', 'not_computable')):
-                raise ValueError('bulk_comparison_row_invalid')
-            for selection, table in zip(selections, tables):
-                if row['contrast_id'] != selection.contrast_id:
-                    continue
-                feature_id = row['feature_id']
-                if feature_id in table:
-                    raise ValueError('bulk_comparison_row_invalid')
-                category = bulk_row_class(row, selection)
-                if category in BULK_DIRECTIONS and selection.direction not in ('both', category):
-                    category = 'direction_not_selected'
-                q = finite_metric(row[selection.q_column])
-                q = q if q is not None and 0 <= q <= 1 else None
-                table[feature_id] = (category, q, finite_metric(row['effect_value']), row['symbol'])
-    if not all(tables):
-        raise ValueError('bulk_comparison_rows_missing')
-    return tables
-
-
 def _change(before, after):
     if before in _INELIGIBLE or after in _INELIGIBLE:
         return 'ineligible'
@@ -70,39 +37,12 @@ def _change(before, after):
 
 def compare_gene_tables(baseline_path, scenario_path, baseline, scenario, labels, *,
                         page=1, page_size=100, change_stream=None):
-    if baseline_path == scenario_path:
-        before, after = _fixed_gene_rows(baseline_path, (baseline, scenario), labels)
-    else:
-        before, = _fixed_gene_rows(baseline_path, (baseline,), labels)
-        after, = _fixed_gene_rows(scenario_path, (scenario,), labels)
-    writer = None
-    if change_stream is not None:
-        writer = csv.DictWriter(change_stream, fieldnames=_GENE_FIELDS, delimiter='\t', lineterminator='\n')
-        writer.writeheader()
-    counts = dict.fromkeys(_CHANGE_CLASSES, 0)
-    baseline_counts, scenario_counts = Counter(), Counter()
-    items = []
-    identifiers = sorted(before.keys() | after.keys())
-    start, end = (page - 1) * page_size, page * page_size
-    absent = ('absent', None, None, '')
-    for index, feature_id in enumerate(identifiers):
-        left, left_q, left_effect, left_symbol = before.get(feature_id, absent)
-        right, right_q, right_effect, right_symbol = after.get(feature_id, absent)
-        change = _change(left, right)
-        counts[change] += 1
-        baseline_counts[left] += 1
-        scenario_counts[right] += 1
-        on_page = start <= index < end
-        if on_page or writer:
-            item = dict(feature_id=feature_id, symbol=left_symbol or right_symbol, baseline_class=left,
-                        scenario_class=right, change=change, baseline_q=left_q, scenario_q=right_q,
-                        baseline_effect=left_effect, scenario_effect=right_effect)
-            if writer:
-                writer.writerow(item)
-            if on_page:
-                items.append(item)
-    return dict(counts=counts, baseline_counts=dict(baseline_counts), scenario_counts=dict(scenario_counts),
-                items=items, total=len(identifiers), page=page, page_size=page_size)
+    import tempfile
+    from pathlib import Path
+    from .bulk_sensitivity_index import compare_index
+    with tempfile.TemporaryDirectory(prefix='bulk-sensitivity-') as folder:
+        return compare_index(Path(folder) / 'index.sqlite', baseline_path, scenario_path, baseline, scenario, labels,
+                             page=page, page_size=page_size, change_stream=change_stream)
 
 
 def _processed_sources(assets, db, project, sources):
@@ -213,9 +153,31 @@ def compare_saved_bulk(service, db, project, baseline_version_id, scenario_versi
     if (direction != scenario_direction or same_result and baseline_selection.contrast_id != scenario_selection.contrast_id
             or any(left[key] != right[key] for key in identity_fields)):
         raise invalid('bio_insight_source_unsupported', 422)
+    sample_changes = _sample_changes(left['samples'], right['samples'])
+    if not same_result:
+        def lineage(side):
+            return {(source['dataset_id'], source['dataset_version_id']) for source in side['processed_sources']}
+        def contrast_samples(side):
+            return {(sample['dataset_version_id'], sample['sample_id']) for sample in side['samples']
+                    if sample['condition'] in direction}
+        if (not lineage(left) or lineage(left) != lineage(right)
+                or not (contrast_samples(left) & contrast_samples(right))):
+            raise invalid('bio_insight_source_unsupported', 422)
     try:
-        results = compare_gene_tables(left_path, right_path, baseline_selection, scenario_selection, direction,
-                                      page=page, page_size=page_size, change_stream=change_stream)
+        if service is None:  # Pure comparison callers have no owned cache scope.
+            results = compare_gene_tables(left_path, right_path, baseline_selection, scenario_selection, direction,
+                                          page=page, page_size=page_size, change_stream=change_stream)
+        else:
+            from .bulk_delivery_cache import cache_for
+            from .bulk_sensitivity_index import compare_index
+            from app.domain.bioinformatics.contracts import digest
+            key = digest([left, right, baseline_selection.model_dump(), scenario_selection.model_dump(), direction])
+            def build(folder):
+                compare_index(folder / 'index.sqlite', left_path, right_path, baseline_selection, scenario_selection, direction)
+                return {}
+            cached = cache_for(service.assets, project, 'sensitivity').obtain(key, build)
+            results = compare_index(cached['path'] / 'index.sqlite', left_path, right_path, baseline_selection,
+                                    scenario_selection, direction, page=page, page_size=page_size, change_stream=change_stream)
     except (csv.Error, OSError, UnicodeError, ValueError) as exc:
         raise invalid() from exc
     numerator, denominator = direction
@@ -225,4 +187,4 @@ def compare_saved_bulk(service, db, project, baseline_version_id, scenario_versi
     return dict(**results, comparison_type='threshold_only' if same_result else 'alternate_run',
                 baseline={**left, **labels, 'selection': baseline_selection.model_dump(mode='json')},
                 scenario={**right, **labels, 'selection': scenario_selection.model_dump(mode='json')},
-                sample_changes=_sample_changes(left['samples'], right['samples']), parameter_changes=changes)
+                sample_changes=sample_changes, parameter_changes=changes)

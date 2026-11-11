@@ -49,27 +49,101 @@ def test_b03_qc_has_counts_detection_distribution_filter_reasons_and_outlier_adv
 def test_b03_has_independent_normalized_vst_layers_and_roundtrippable_analysis_object(tmp_path):
     result = _run(tmp_path, {'normalization': 'vst'})
     members = {item['key']: item for item in result['outputs']}
-    assert {'raw_values', 'filtered_values', 'normalized_values', 'vst_values', 'analysis_object', 'analysis_object_manifest'} <= set(members)
+    assert {'raw_values', 'normalized_values', 'vst_values', 'analysis_object', 'analysis_object_manifest'} <= set(members)
     assert result['manifest']['value_layers']['normalized']['semantic'] == 'normalized_counts'
     assert result['manifest']['value_layers']['vst']['semantic'] == 'variance_stabilized_expression'
+    layers = result['manifest']['layers']
+    assert layers['analysis'] == layers['display']
+    assert layers['analysis']['values'] == 'vst_values'
+    assert result['manifest']['value_layers']['filtered']['values'] == 'raw_values'
+    masks = {layer['missing'] for name,layer in result['manifest']['value_layers'].items() if name != 'raw'}
+    assert masks == {layers['analysis']['missing']}
+    assert not {'filtered_values', 'filtered_missing', 'analysis_values', 'display_values',
+                'normalized_missing', 'vst_missing'} & members.keys()
     object_manifest=json.loads(Path(members['analysis_object_manifest']['path']).read_text(encoding='utf-8'))
     assert object_manifest['params']['normalization']=='vst'
     assert object_manifest['identity']==result['manifest']['identity']
     assert len(object_manifest['manifest_identity_sha256'])==64
+    assert object_manifest['aliases'] == {'raw': 'filtered'}
+    with np.load(members['analysis_object']['path'], allow_pickle=False) as physical:
+        assert set(physical.files) == {'filtered', 'normalized', 'vst'}
     from app.adapters.bio_engine.tabular_assays import load_analysis_object
     restored = load_analysis_object(members['analysis_object']['path'], members['analysis_object_manifest']['path'])
     np.testing.assert_array_equal(restored['sample_ids'], ['s1', 's2', 's3'])
     assert restored['layers'].keys() >= {'raw', 'filtered', 'normalized', 'vst'}
+    from app.adapters.bio_insights_engine.integration import load_layer
+    selected = load_layer({'members': members, 'metadata': {'layers': layers}}, 'display')
+    np.testing.assert_array_equal(selected['values'], restored['layers']['vst'])
 
 
 def test_b03_emits_correlation_distance_heatmap_data_with_metadata_labels(tmp_path):
     result = _run(tmp_path, {'normalization': 'vst'})
     members = {item['key']: item for item in result['outputs']}
-    assert {'sample_correlation', 'sample_distance', 'correlation_heatmap_data', 'distance_heatmap_data'} <= set(members)
+    assert {'sample_correlation', 'sample_distance'} <= set(members)
+    for key, data in (('correlation_heatmap', 'sample_correlation'), ('distance_heatmap', 'sample_distance')):
+        manifest = json.loads(Path(members[key+'_manifest']['path']).read_bytes())
+        assert manifest['data_member'] == data
+        assert key+'_data' not in members
     correlation = json.loads(Path(members['sample_correlation']['path']).read_text(encoding='utf-8'))
     assert correlation['sample_ids'] == ['s1', 's2', 's3']
     assert correlation['condition'] == ['A', 'A', 'B']
     assert correlation['batch'] == [''] * 3
+
+
+def test_bulk_pearson_with_one_feature_marks_all_pairs_unavailable(tmp_path):
+    result = _run(tmp_path, matrix='feature_id,s1,s2,s3\na,1,2,3\n')
+    members = {item['key']: item for item in result['outputs']}
+    correlation = json.loads(Path(members['sample_correlation']['path']).read_bytes())
+    distance = json.loads(Path(members['sample_distance']['path']).read_bytes())
+    assert correlation['status'] == 'not_computable'
+    assert correlation['values'] == [[None] * 3 for _ in range(3)]
+    assert 'correlation_heatmap_png' not in members
+    assert np.isfinite(distance['values']).all()
+
+
+def test_bulk_pearson_keeps_undefined_sample_pairs_as_na(tmp_path):
+    result = _run(tmp_path, matrix='feature_id,s1,s2,s3\na,4,1,7\nb,4,2,8\nc,4,9,2\n')
+    members = {item['key']: item for item in result['outputs']}
+    correlation = json.loads(Path(members['sample_correlation']['path']).read_bytes())
+    assert correlation['values'][0] == [None, None, None]
+    assert correlation['values'][1][0] is None
+    assert correlation['values'][1][1] == 1.0
+    assert 'correlation_heatmap_png' in members
+
+
+def test_bulk_portable_object_binds_bytes_and_reads_legacy_manifest(tmp_path):
+    from app.adapters.bio_engine.tabular_assays import load_analysis_object
+    from app.adapters.bio_engine.manifest import canonical
+
+    def object_paths(name, matrix):
+        directory = tmp_path / name
+        directory.mkdir()
+        result = _run(directory, matrix=matrix)
+        members = {item['key']: item['path'] for item in result['outputs']}
+        return members['analysis_object'], members['analysis_object_manifest']
+
+    before, _ = object_paths('before', 'feature_id,s1,s2,s3\na,1,2,3\nb,6,5,4\n')
+    after, manifest = object_paths('after', 'feature_id,s1,s2,s3\na,3,2,1\nb,4,5,6\n')
+    expected = load_analysis_object(after, manifest)
+    with pytest.raises(ValueError, match='analysis_object_digest_invalid'):
+        load_analysis_object(before, manifest, expected_identity=expected['identity'], expected_params=expected['params'])
+    current = json.loads(Path(manifest).read_bytes())
+    assert current['object_sha256'] == hashlib.sha256(Path(after).read_bytes()).hexdigest()
+    legacy_archive = tmp_path / 'legacy.npz'
+    np.savez(legacy_archive, **expected['layers'])
+    for version in (1, 2):
+        legacy = {key: current[key] for key in ('identity', 'params', 'sample_ids', 'feature_ids', 'metadata')}
+        legacy.update(schema_version=version, format=f'paperassist_tabular_analysis_object_npz_v{version}',
+                      arrays=sorted(expected['layers']))
+        binding = ['identity', 'params']
+        if version == 2:
+            legacy['object_sha256'] = hashlib.sha256(legacy_archive.read_bytes()).hexdigest()
+            binding += ['object_sha256', 'sample_ids', 'feature_ids', 'arrays', 'metadata']
+        legacy['manifest_identity_sha256'] = hashlib.sha256(canonical({k: legacy[k] for k in binding})).hexdigest()
+        legacy_path = tmp_path / f'legacy-{version}.json'
+        legacy_path.write_text(json.dumps(legacy), encoding='utf-8')
+        np.testing.assert_array_equal(load_analysis_object(legacy_archive, legacy_path)['layers']['raw'],
+                                      expected['layers']['raw'])
 
 
 def test_bulk_sample_distance_matches_euclidean_without_three_dimensional_broadcast(tmp_path, monkeypatch):

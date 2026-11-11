@@ -105,7 +105,7 @@ class BioDatasetStore:
                 frozen=by_key.get(key)
                 member=by_id.get(frozen['id']) if frozen else None
                 self.verify_member(member,frozen)
-                self.objects.read(member)
+                self.objects.verified_path(member)
                 return member
             def index(key):
                 return json.loads(self.objects.read(record(key)))

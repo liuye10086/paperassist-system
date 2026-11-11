@@ -2,6 +2,10 @@
 from pydantic import BaseModel, ConfigDict, Field
 
 
+MAX_BULK_IMPORT_REQUEST_BYTES = 2 * 1024**2
+MAX_BULK_METADATA_CELLS = 5_000_000
+
+
 class BioLimits(BaseModel):
     model_config = ConfigDict(strict=True, extra="forbid", frozen=True)
     max_upload_bytes: int = Field(default=128 * 1024 * 1024, gt=0, le=128 * 1024 * 1024)

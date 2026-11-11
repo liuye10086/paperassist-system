@@ -51,7 +51,7 @@ def test_slow_legacy_import_manifest_renews_while_background_heartbeat_blocks(cl
         task,checkpoint,_=execution.load(lease)
         from app.adapters.bio_objects import BioObjects
         from app.adapters import bio_dataset_execution as adapter
-        reader=BioObjects.read;renew=adapter.renew_bio_lease
+        reader=BioObjects.verified_path;renew=adapter.renew_bio_lease
         heartbeats.clear();expired.clear();started.clear()
         def observe_renew(db,current):
             active['db']=db
@@ -65,7 +65,7 @@ def test_slow_legacy_import_manifest_renews_while_background_heartbeat_blocks(cl
                 (lease.task_id,lease.attempt_no)).fetchone()['expired'])
             return reader(self,record)
         monkeypatch.setattr(adapter,'renew_bio_lease',observe_renew)
-        monkeypatch.setattr(BioObjects,'read',slow_read)
+        monkeypatch.setattr(BioObjects,'verified_path',slow_read)
         begin=time.monotonic();done=execution.publish(lease,checkpoint)
         assert done['status']=='succeeded' and time.monotonic()-begin>3
         assert len(expired)>7 and not any(expired)

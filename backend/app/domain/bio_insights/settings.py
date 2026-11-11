@@ -55,7 +55,8 @@ def engine_code_files():
         'domain/bio_insights/qpcr_contracts.py','domain/bio_insights/qpcr_design.py',
         'domain/bio_insights/microbiome_contracts.py','domain/bio_insights/microbiome_design.py','domain/bio_insights/feature_contracts.py','domain/bio_insights/integration_contracts.py','domain/bio_insights/evidence_contracts.py','domain/bio_insights/external_matrix.py','domain/bio_insights/evidence_graph.py','domain/bio_insights/integration_matching.py','domain/bio_insights/integration_graph.py',
         'domain/correlation/kernel.py',
-        'adapters/bio_engine/tabular_assays.py','domain/bioinformatics/__init__.py','domain/bioinformatics/tabular_contracts.py',
+        'adapters/bio_engine/tabular_assays.py','adapters/bio_engine/tabular_writer.py',
+        'domain/bioinformatics/__init__.py','domain/bioinformatics/tabular_contracts.py',
         'domain/bioinformatics/contracts.py','domain/bioinformatics/analysis_contracts.py','domain/bioinformatics/settings.py','domain/bioinformatics/parser_contracts.py',
         'core/__init__.py','core/exceptions.py')]
     return sorted(paths,key=lambda path:path.relative_to(root).as_posix())

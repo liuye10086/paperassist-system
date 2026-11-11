@@ -4,13 +4,14 @@ from datetime import datetime, timezone
 import hashlib
 import json
 from uuid import UUID, uuid4
-from typing import Literal
+from typing import BinaryIO, Literal
 
 from psycopg.types.json import Jsonb
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.adapters.task_store import TaskStore
 from app.adapters.file_objects import original_digest
+from app.adapters.object_storage import stream_digest
 from app.core.config import effective_excel_settings
 from app.domain.admin_configuration.bindings import resolve, bind
 from app.core.exceptions import StorageError
@@ -161,6 +162,17 @@ class FileBatchService:
                 ORDER BY created_at DESC,id LIMIT %s OFFSET %s''', (*args, page_size, (page-1)*page_size)).fetchall()
             return {'items': [self.project(db, row) for row in rows], 'total': total, 'page': page, 'page_size': page_size}
 
+    @staticmethod
+    def _require_upload_item(db, batch_id, item_id, filename, size):
+        item = db.execute('SELECT * FROM file_upload_items WHERE id=%s AND batch_id=%s', (item_id, batch_id)).fetchone()
+        if not item:
+            raise StorageError('file_batch_item_not_found', '上传文件项不存在。', 404)
+        if item['error_json']:
+            raise StorageError('file_batch_item_rejected', '此文件已在登记时拒绝，请重新选择。', 409)
+        if filename != item['filename'] or size != item['size_bytes']:
+            raise StorageError('file_upload_mismatch', '文件名称或大小与登记不一致，请重新选择原文件。', 409)
+        return item
+
     def upload(self, project_id, batch_id, item_id, filename, content):
         # The writer transaction serializes item confirmation. Preserve an object on
         # rollback or unknown commit; deterministic item paths allow safe retransmission.
@@ -172,13 +184,7 @@ class FileBatchService:
             if len(content) > maximum:
                 raise StorageError('file_too_large', '文件超过上传大小限制。', 413,
                     params={'max_bytes': maximum})
-            item = db.execute('SELECT * FROM file_upload_items WHERE id=%s AND batch_id=%s', (item_id, batch_id)).fetchone()
-            if not item:
-                raise StorageError('file_batch_item_not_found', '上传文件项不存在。', 404)
-            if item['error_json']:
-                raise StorageError('file_batch_item_rejected', '此文件已在登记时拒绝，请重新选择。', 409)
-            if filename != item['filename'] or len(content) != item['size_bytes']:
-                raise StorageError('file_upload_mismatch', '文件名称或大小与登记不一致，请重新选择原文件。', 409)
+            item = self._require_upload_item(db, batch_id, item_id, filename, len(content))
             sha = original_digest(content)
             if item['file_id']:
                 file = db.execute('SELECT * FROM files WHERE id=%s', (item['file_id'],)).fetchone()
@@ -186,8 +192,6 @@ class FileBatchService:
                     raise StorageError('file_batch_item_conflict', '此文件项已保存不同内容。', 409)
                 self.assets.original(dict(file))
                 return next(row for row in self.project(db, batch)['items'] if row['id'] == item_id)
-            if self.profile == 'bioinformatics_v1':
-                return self.store_original(db, project_id, batch, item, filename, content)
             task_id, parse_id = str(uuid4()), str(uuid4())
             file_type = filename.rsplit('.', 1)[-1].lower()
             if file_type == 'jpg':
@@ -228,19 +232,6 @@ class FileBatchService:
             db.execute('UPDATE projects SET updated_at=GREATEST(updated_at,%s) WHERE id=%s', (now.isoformat(), project_id))
             return next(row for row in self.project(db, batch)['items'] if row['id'] == item_id)
 
-    def store_original(self, db, project_id, batch, item, filename, content):
-        kind = 'bio_bundle' if filename.lower().endswith(('.tar', '.tgz', '.tar.gz')) else 'bio_component'
-        descriptor = self.assets.objects.put_original(project_id, batch['id'], kind, content, item_id=item['id'], db=db)
-        now = datetime.now(timezone.utc)
-        db.execute('''INSERT INTO files(id,project_id,filename,file_type,size_bytes,sha256,uploaded_at,
-            parse_status,error_json,preview_json,uploader_id,storage_backend,object_key,metadata_revision,upload_item_id,parse_revision)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,'stored',NULL,NULL,%s,%s,%s,1,%s,0)''',
-            (descriptor.id, project_id, filename, kind, descriptor.size_bytes, descriptor.sha256, now.isoformat(),
-             self.store.user_id, descriptor.storage_backend, descriptor.object_key, item['id']))
-        db.execute('UPDATE file_upload_items SET file_id=%s WHERE id=%s', (descriptor.id, item['id']))
-        db.execute('UPDATE projects SET updated_at=GREATEST(updated_at,%s) WHERE id=%s', (now.isoformat(), project_id))
-        return next(row for row in self.project(db, batch)['items'] if row['id'] == item['id'])
-
 
 class BioUploadService(FileBatchService):
     profile = 'bioinformatics_v1'
@@ -249,3 +240,41 @@ class BioUploadService(FileBatchService):
     def maximum(self, version):
         from app.domain.bioinformatics.settings import BioLimits
         return BioLimits().max_upload_bytes
+
+    def upload(self, project_id, batch_id, item_id, filename, source: BinaryIO, size: int):
+        maximum = self.maximum(None)
+        if type(size) is not int or size < 0:
+            raise StorageError('file_upload_mismatch', '文件大小与登记不一致，请重新选择原文件。', 409)
+        if size > maximum:
+            raise StorageError('file_too_large', '生信原始文件超过上传限制。', 413,
+                               params={'max_bytes': maximum})
+        with self.store.connection(write=True) as db:
+            batch = self.require_batch(db, project_id, batch_id)
+            item = self._require_upload_item(db, batch_id, item_id, filename, size)
+            try:
+                source.seek(0)
+                digest = stream_digest(source, size)
+                source.seek(0)
+            except OSError as exc:
+                raise StorageError('storage_unavailable', '无法读取暂存的原始文件，请重新上传。') from exc
+            if item['file_id']:
+                file = db.execute('SELECT * FROM files WHERE id=%s', (item['file_id'],)).fetchone()
+                if file['sha256'] != digest:
+                    raise StorageError('file_batch_item_conflict', '此文件项已保存不同内容。', 409)
+                self.assets.objects.verify_original(dict(file))
+            else:
+                self._store_original(db, project_id, batch, item, filename, source, size, digest)
+            return next(row for row in self.project(db, batch)['items'] if row['id'] == item_id)
+
+    def _store_original(self, db, project_id, batch, item, filename, source, size, digest):
+        kind = 'bio_bundle' if filename.lower().endswith(('.tar', '.tgz', '.tar.gz')) else 'bio_component'
+        descriptor = self.assets.objects.put_original_stream(
+            project_id, batch['id'], kind, source, size, digest, item_id=item['id'], db=db)
+        now = datetime.now(timezone.utc)
+        db.execute('''INSERT INTO files(id,project_id,filename,file_type,size_bytes,sha256,uploaded_at,
+            parse_status,error_json,preview_json,uploader_id,storage_backend,object_key,metadata_revision,upload_item_id,parse_revision)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,'stored',NULL,NULL,%s,%s,%s,1,%s,0)''',
+            (descriptor.id, project_id, filename, kind, descriptor.size_bytes, descriptor.sha256, now.isoformat(),
+             self.store.user_id, descriptor.storage_backend, descriptor.object_key, item['id']))
+        db.execute('UPDATE file_upload_items SET file_id=%s WHERE id=%s', (descriptor.id, item['id']))
+        db.execute('UPDATE projects SET updated_at=GREATEST(updated_at,%s) WHERE id=%s', (now.isoformat(), project_id))

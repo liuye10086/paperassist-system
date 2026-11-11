@@ -34,3 +34,16 @@ def test_bio_frozen_import_and_dataset_pointer_constraints(client):
         with database_connection(write=True) as db:
             db.raw_connection.execute(metadata.tables['tasks'].insert(),original)
     assert error.value.orig.diag.constraint_name=='tasks_bio_snapshot_check'
+
+    # A v4 row with malformed settings must still fail after the v3 widening.
+    single_cell = dict(original, id='invalid-v4-settings', idempotency_key='invalid-v4-settings',
+                       workflow_version='bio_import_v4', result_bio_dataset_version_id=None)
+    single_cell['input_snapshot'] = dict(
+        schema_version=1, kind='bio_import', workflow_version='bio_import_v4', project_id=original['project_id'],
+        assay='single_cell', parser_version='single_cell_import_v1', engine_version='visium_explore_v1.0.0',
+        single_cell_config={}, analysis_limits={}, files=[{}], settings=[], environment_digest='a'*64, code_digest='b'*64,
+    )
+    with pytest.raises(IntegrityError) as error:
+        with database_connection(write=True) as db:
+            db.raw_connection.execute(metadata.tables['tasks'].insert(), single_cell)
+    assert error.value.orig.diag.constraint_name=='tasks_bio_snapshot_check'

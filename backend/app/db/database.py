@@ -29,7 +29,7 @@ from sqlalchemy.pool import NullPool
 from app.core.config import local_config
 
 
-SCHEMA_HEAD = "0073_analysis_request_receipts"
+SCHEMA_HEAD = "0074_tabular_import_file_limit"
 _SCHEMA_NAME = re.compile(r"[a-z_][a-z0-9_]{0,62}\Z")
 _TEST_SCHEMA = re.compile(r"pa_test_[0-9a-f]{32}\Z")
 _CONNECTION_OPTIONS = frozenset({

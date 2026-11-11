@@ -330,8 +330,17 @@ class BioInsightsService(BioInsightsStore):
                     resource_estimate=ResourceEstimate(observations=0, features=0, contrasts=0, estimated_working_bytes=0))
         return self._design(config, sources)
 
+    @staticmethod
+    def _authoring_transform(request):
+        config = request.config
+        if getattr(config, 'bulk_model', None):
+            transform = ('centered_range_v2'
+                if any(c.kind == 'continuous' for c in config.covariates) else None)
+            request = request.model_copy(update={'config': config.model_copy(update={'continuous_transform': transform})})
+        return request
+
     def preview(self,project,request):
-        request=InsightPlanRequest.model_validate(request)
+        request=self._authoring_transform(InsightPlanRequest.model_validate(request))
         with self.store.connection() as db:
             sources=self._resolve(db,project,request)
             design=self._authoring_design(request.config,sources)
@@ -353,6 +362,7 @@ class BioInsightsService(BioInsightsStore):
                 if replay['request_digest']!=sha:raise invalid('bio_insight_idempotency_conflict')
                 selected=replay['id'];root=replay['plan_id'];status=200
             else:
+                request=self._authoring_transform(request)
                 sources=self._resolve(db,project,request);design=self._authoring_design(request.config,sources)
                 review={}
                 if request.decision=='confirmed':

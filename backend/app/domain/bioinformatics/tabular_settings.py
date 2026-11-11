@@ -17,7 +17,8 @@ def engine_code_digest():
     from app.domain.bio_insights.settings import engine_code_digest as insight_digest
     root=Path(__file__).resolve().parents[2];sha=hashlib.sha256(insight_digest().encode())
     for name in ('domain/bioinformatics/tabular_contracts.py','domain/bioinformatics/tabular_settings.py',
-                 'adapters/bio_engine/tabular_assays.py','adapters/bio_engine/tabular_worker.py','adapters/bio_engine/tabular_probe.py'):
+                 'adapters/bio_engine/tabular_assays.py','adapters/bio_engine/tabular_worker.py',
+                 'adapters/bio_engine/tabular_transport.py','adapters/bio_engine/tabular_probe.py'):
         path=root/name;sha.update(name.encode()+b'\0'+path.read_bytes()+b'\0')
     return sha.hexdigest()
 

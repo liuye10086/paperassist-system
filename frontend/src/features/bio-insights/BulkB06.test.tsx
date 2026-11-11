@@ -47,7 +47,7 @@ const gsea:Result = {
   methods:{config:{...defaultConfig('gsea_prerank'),bulk_enrichment:{},result_source_id:comparison.id,contrast_id:'reverse'},
     bulk_enrichment:{source_reference:compatibility.source,resource_references:{'go-local':compatibility.resources[0]},
       coverage:[{result_source_id:comparison.id,contrast_id:'reverse',resource_id:'joint',not_applicable_reason:null,
-        ranking:{original_count:10,unmapped_count:2,ambiguous_count:1,mapped_count:7,effective_count:6}}]}},
+        ranking:{original_count:10,unmapped_count:2,ambiguous_count:1,mapped_count:7,effective_count:6,tied_rank_count:2}}]}},
   members:[member('mapping_rows'),member('mapping_exclusions'),member('enrichment_results'),member('gsea_ranking'),member('gsea_curves','json')],
 }
 const postCalls = () => vi.mocked(apiFetch).mock.calls.filter(([,init])=>init?.method==='POST')
@@ -169,6 +169,8 @@ it('shows a no-significance GSEA outcome, mapping audit and a stable saved-curve
   expect(screen.getByText('GSEA FDR')).toBeTruthy()
   const mapping = screen.getByRole('table',{name:'富集 ID 映射覆盖'})
   expect(within(mapping).getByText('2')).toBeTruthy()
+  expect(within(mapping).getByText('2 · 33.3%')).toBeTruthy()
+  expect(screen.getByText('相同分值按稳定基因 ID 排序。')).toBeTruthy()
   expect(screen.getByRole('link',{name:/mapping_exclusions · tsv/})).toBeTruthy()
   expect(screen.getByRole('link',{name:/gsea_ranking · tsv/})).toBeTruthy()
   expect(screen.getByRole('link',{name:/gsea_curves · json/})).toBeTruthy()

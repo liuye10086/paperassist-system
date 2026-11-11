@@ -36,6 +36,7 @@ export type BulkWorkflowItem = BulkVersionState & {
 export type BulkWorkflowComparison = BulkWorkflowItem & {
   contrasts:Pick<BulkContrast,'contrast_id'|'numerator'|'denominator'>[]
   processed_version_ids?:string[]
+  sensitivity_lineage?:string[][];sensitivity_samples?:string[][];sensitivity_identity?:(string|number|null)[]
 }
 export type BulkWorkflowDescendant = BulkWorkflowItem & {
   comparison_version_ids:string[]

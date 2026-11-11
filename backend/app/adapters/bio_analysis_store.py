@@ -88,7 +88,7 @@ class BioAnalysisStore:
             if verify:
                 if phase is not None and (member['key'] in RAW_MATRIX_KEYS or member['role'] in RAW_REPRESENTATION_ROLES):
                     phase.verify_object(db,self.assets,project,self.raw_store.objects,member,progress=progress)
-                else:self.raw_store.objects.read(member)
+                else:self.raw_store.objects.verified_path(member)
         if verify:
             task=self.store.require_task(db,row['task_id'])
             service=BioDatasetService(self.assets)
@@ -450,18 +450,20 @@ class BioAnalysisStore:
             allowed={t['key'] for t in manifest.get('tables',[])}
             member=next((m for m in members if m['key']==key and m['format']=='tsv'),None)
             if key not in allowed or not member:raise error('bio_member_not_found',404)
-            content=self.objects.read(member).decode('utf-8')
-        reader=csv.DictReader(io.StringIO(content),delimiter='\t');columns=reader.fieldnames or []
-        if sort_by is not None and sort_by not in columns:raise error('bio_recipe_invalid',422)
-        total=0;items=[];start=(page-1)*page_size;sorted_rows=[]
-        for row in reader:
-            if query and not any(query.casefold() in (row.get(k) or '').casefold() for k in ('feature_id','symbol','barcode','sample_id','display_name')):continue
-            if cluster is not None and row.get('cluster')!=cluster:continue
-            if sort_by:
-                if total>=100000:raise error('bio_resource_exceeded')
-                sorted_rows.append(row)
-            elif start<=total<start+page_size:items.append(row)
-            total+=1
+            path=self.objects.verified_path(member)
+        with path.open(encoding='utf-8',newline='') as stream:
+            reader=csv.DictReader(stream,delimiter='\t');columns=reader.fieldnames or []
+            if sort_by is not None and sort_by not in columns:raise error('bio_recipe_invalid',422)
+            total=0;items=[];start=(page-1)*page_size;sorted_rows=[]
+            needle=query.casefold() if query else None
+            for row in reader:
+                if needle and not any(needle in (row.get(k) or '').casefold() for k in ('feature_id','symbol','barcode','sample_id','display_name')):continue
+                if cluster is not None and row.get('cluster')!=cluster:continue
+                if sort_by:
+                    if total>=100000:raise error('bio_resource_exceeded')
+                    sorted_rows.append(row)
+                elif start<=total<start+page_size:items.append(row)
+                total+=1
         if sort_by:
             def keyfn(row):
                 value=row.get(sort_by) or ''

@@ -148,9 +148,9 @@ function SelectedBulkDelivery({projectId,selected,descendants,files,outputLangua
       <p>{t('完整包包含统计表、筛选表、对象、参数、任务日志、软件与资源版本以及复现说明。')}</p>
       <p>{t('包内清单标明复现支持。匹配运行环境未留存时，交付包含固定数据与来源记录。')}</p>
       <div className="intake-actions">
-        <ProjectDownloadLink href={`${base}/report.docx`} filename={`bulk-rna-report-${exportBody.facts_digest.slice(0,12)}.docx`}
+        <ProjectDownloadLink nativePrepared href={`${base}/prepare/word`} filename={`bulk-rna-report-${exportBody.facts_digest.slice(0,12)}.docx`}
           postBody={exportBody} timeoutMs={RESEARCH_REQUEST_TIMEOUT_MS}>{t('下载 Bulk Word 报告')}</ProjectDownloadLink>
-        <ProjectDownloadLink href={`${base}/reproducibility-package`} filename={`bulk-rna-reproducibility-${exportBody.facts_digest.slice(0,12)}.zip`}
+        <ProjectDownloadLink nativePrepared href={`${base}/prepare/archive`} filename={`bulk-rna-reproducibility-${exportBody.facts_digest.slice(0,12)}.zip`}
           postBody={exportBody} timeoutMs={RESEARCH_REQUEST_TIMEOUT_MS}>{t('下载 Bulk 完整复现包')}</ProjectDownloadLink>
       </div>
     </section>}

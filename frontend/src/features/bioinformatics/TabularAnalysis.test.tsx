@@ -90,6 +90,21 @@ it('shows B03 QC metrics, explicit normalized/VST layers, heatmap outputs and ma
  fireEvent.click(screen.getByRole('button',{name:'进入人工排除'}))
  expect(nav).toHaveBeenCalledWith({view:'bio-analysis-setup',fileId:'',setupId:'setup1'})
 })
+
+it('opens the paginated sample QC table for a result with a compact Bulk summary',async()=>{
+ const bulk={
+  ...processed,
+  source:{...processed.source,assay:'bulk_rna_counts'},
+  manifest:{...processed.manifest,summary:{sample_qc_table:'sample_qc'}},
+  tables:[{key:'samples',label:'samples',status:'completed',reason:null},...processed.tables],
+ } as TabularProcessed
+ vi.mocked(apiFetch).mockImplementation(async(url)=>Response.json(String(url).includes('/tables/')
+  ?{key:'sample_qc',columns:['sample_id','total_counts'],items:[{sample_id:'S1',total_counts:123}],total:1,page:1,page_size:50}:bulk))
+ render(<BioAnalysisResult projectId="p1" processedId="processed1" tab="qc" onNavigate={()=>{}}/>)
+ expect(await screen.findByText('样本质控明细保存在 sample_qc 表中，可分页查看。')).toBeTruthy()
+ expect(await screen.findByText('123')).toBeTruthy()
+ expect(vi.mocked(apiFetch).mock.calls.some(call=>String(call[0]).includes('/tables/sample_qc?'))).toBe(true)
+})
 it('opens a nonspatial raw version without requesting coordinates or calling its values raw counts',async()=>{
  vi.mocked(apiFetch).mockImplementation(async(url)=>Response.json(String(url).includes('/bio-analysis-capabilities')?capability:{id:'v1',dataset_id:'d1',version:1,manifest_sha256:'a'.repeat(64),shape:{features:3,observations:8,stored_entries:24},checks:[],members:[],source:raw,summary:{assay:'metabolomics',scale:capability.scale}}))
  render(<BioDatasetDetail projectId="p1" datasetId="d1" versionId="v1" onNavigate={()=>{}}/>)

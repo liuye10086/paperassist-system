@@ -48,16 +48,16 @@ class BioDatasetService:
         return dict(row)
 
     def require_sources(self, db, task, *, progress=None):
-        # The public path is a consumer contract: always fully read originals.
-        with VerificationPhase(db,self.assets,task['project_id']):
-            return self._sources(db,task,progress=progress)
+        # Verify every original independently before handing its path to the worker.
+        with VerificationPhase(db, self.assets, task['project_id'], descriptor_cap=0) as phase:
+            return self._sources(db, task, phase=phase, progress=progress, include_paths=True)
 
     @phase_guard
     def _require_lineage_in_phase(self,db,task,*,phase,progress=None):
         require_phase(phase,db,self.assets,task['project_id'])
         self._sources(db,task,phase=phase,progress=progress)
 
-    def _sources(self,db,task,*,phase=None,progress=None):
+    def _sources(self,db,task,*,phase,progress=None,include_paths=False):
         snapshot = validate_snapshot(task)
         self.store.require_project(db, task['project_id'])
         row = self.require_import(db, task['project_id'], snapshot['import_id'])
@@ -81,10 +81,9 @@ class BioDatasetService:
                     or ref['declared_role'] != frozen['role']):
                 raise conflict()
             # The original adapter checks the private path and every byte hash.
-            if phase is None:self.assets.original(dict(file))
-            else:phase.verify_original(db,self.assets,task['project_id'],dict(file),progress=progress)
+            phase.verify_original(db,self.assets,task['project_id'],dict(file),progress=progress)
             if progress is not None:progress()
-            if phase is None:result.append({**frozen, 'path':str(self.assets.directory / frozen['object_key'])})
+            if include_paths:result.append({**frozen, 'path':str(self.assets.directory / frozen['object_key'])})
         return sorted(result,key=lambda f: snapshot['files'].index(expected[f['id']]))
 
     @staticmethod
@@ -138,13 +137,14 @@ class BioDatasetService:
                     analysis_limits=BioAnalysisLimits().model_dump(), engine_version=runtime['engine_version'],
                     environment_digest=runtime['environment_digest'], code_digest=runtime['code_digest'])
             files=[]
-            for file_id in request.file_ids:
-                file = db.execute('SELECT * FROM files WHERE id=%s AND project_id=%s', (file_id,project_id)).fetchone()
-                if not file or file['file_type'] not in ('bio_bundle','bio_component') or file['parse_status'] != 'stored':
-                    raise StorageError('bio_import_invalid','请选择当前项目中已保存的生信原始文件。',422)
-                self.assets.original(dict(file))
-                files.append({k:file[k] for k in ('id','filename','sha256','size_bytes','storage_backend','object_key')})
-                files[-1]['role']=request.roles.get(file_id,'auto')
+            with VerificationPhase(db, self.assets, project_id, descriptor_cap=0) as phase:
+                for file_id in request.file_ids:
+                    file = db.execute('SELECT * FROM files WHERE id=%s AND project_id=%s', (file_id,project_id)).fetchone()
+                    if not file or file['file_type'] not in ('bio_bundle','bio_component') or file['parse_status'] != 'stored':
+                        raise StorageError('bio_import_invalid','请选择当前项目中已保存的生信原始文件。',422)
+                    phase.verify_original(db, self.assets, project_id, dict(file))
+                    files.append({k:file[k] for k in ('id','filename','sha256','size_bytes','storage_backend','object_key')})
+                    files[-1]['role']=request.roles.get(file_id,'auto')
             now=datetime.now(timezone.utc)
             dataset_id=request.dataset_id or str(uuid4())
             if request.dataset_id:
@@ -190,7 +190,7 @@ class BioDatasetService:
             raise conflict()
         for member in obj['members']:
             if progress is not None:progress()
-            self.objects.read(member)
+            self.objects.verified_path(member)
             if progress is not None:progress()
             if member['source_file_id'] not in {f['id'] for f in snapshot['files']}:
                 raise conflict()

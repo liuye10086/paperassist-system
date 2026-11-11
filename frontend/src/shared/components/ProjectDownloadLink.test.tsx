@@ -98,3 +98,20 @@ it.each([false,true])('keeps an ordinary/research=%s download waiting beyond its
  await act(()=>vi.advanceTimersByTimeAsync(former+1));expect(link().getAttribute('aria-busy')).toBe('true');expect(screen.queryByRole('alert')).toBeNull();expect(fetch.mock.calls[0][1]?.signal?.aborted).toBe(false);expect(create).not.toHaveBeenCalled()
  await act(()=>vi.advanceTimersByTimeAsync(999));expect(create).toHaveBeenCalledTimes(1);expect(await create.mock.calls[0][0].text()).toBe('late exact bytes');expect(fetch).toHaveBeenCalledTimes(1)
 })
+
+it('prepares a private native download without consuming the package as Blob',async()=>{
+ const native='/api/v1/projects/p1/bulk-workflow/delivery/prepared/archive/'+'a'.repeat(64)
+ const fetch=vi.fn(async()=>Response.json({download_url:native}));vi.stubGlobal('fetch',fetch)
+ render(<ProjectDownloadLink href="/api/v1/projects/p1/bulk-workflow/delivery/prepare/archive" filename="result.zip" postBody={{facts_digest:'a'.repeat(64)}} nativePrepared>下载完整包</ProjectDownloadLink>)
+ fireEvent.click(screen.getByRole('button',{name:'下载完整包'}))
+ await waitFor(()=>expect(clicks).toHaveLength(1))
+ expect(clicks[0].href).toContain(native);expect(create).not.toHaveBeenCalled()
+ expect(fetch).toHaveBeenCalledTimes(1)
+})
+
+it('rejects a prepared URL outside the exact project delivery scope',async()=>{
+ vi.stubGlobal('fetch',vi.fn(async()=>Response.json({download_url:'/api/v1/projects/other/bulk-workflow/delivery/prepared/archive/'+'a'.repeat(64)})))
+ render(<ProjectDownloadLink href="/api/v1/projects/p1/bulk-workflow/delivery/prepare/archive" filename="result.zip" postBody={{}} nativePrepared>下载完整包</ProjectDownloadLink>)
+ fireEvent.click(screen.getByRole('button',{name:'下载完整包'}))
+ await screen.findByRole('alert');expect(clicks).toHaveLength(0);expect(create).not.toHaveBeenCalled()
+})

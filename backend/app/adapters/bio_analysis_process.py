@@ -1,4 +1,5 @@
 """Bounded Linux science transport and independent parent-side output checks."""
+from contextlib import nullcontext
 import hashlib
 import json
 import os
@@ -47,7 +48,7 @@ def _plain_json(content):
     return json.loads(content, parse_constant=reject, object_pairs_hook=object_pairs)
 
 
-def validate_artifacts(outputs, output_directory, *, formats=None,max_output_bytes=MAX_OUTPUT):
+def validate_artifacts(outputs, output_directory, *, formats=None,max_output_bytes=MAX_OUTPUT,json_validators=None):
     """No unregistered bytes or pickle-capable arrays may enter object storage."""
     directory = Path(output_directory).absolute()
     try:
@@ -75,13 +76,22 @@ def validate_artifacts(outputs, output_directory, *, formats=None,max_output_byt
             if fmt == 'npy':
                 array = np.load(path, allow_pickle=False, mmap_mode='r')
                 if (not isinstance(array, np.ndarray) or array.dtype.kind not in 'biuf'
-                        or array.ndim > 2 or array.size > 20_000_000 or not np.isfinite(array).all()):
+                        or array.ndim > 2 or array.size > 20_000_000):
                     raise ValueError()
+                if array.dtype.kind == 'f':
+                    blocks = np.nditer(array, flags=['external_loop', 'buffered', 'zerosize_ok'], buffersize=131072)
+                    if any(not np.isfinite(block).all() for block in blocks):
+                        raise ValueError()
+                    del blocks
                 del array
             elif fmt == 'json':
                 # Only the transport is 2MiB. Full axis/map members are bounded
                 # leaves, and may legitimately exceed that with 100k features.
-                _plain_json(path.read_bytes())
+                validator = (json_validators or {}).get(key)
+                if validator is None:
+                    _plain_json(path.read_bytes())
+                else:
+                    validator(path, _plain_json)
             elif fmt in ('png','tiff'):
                 with Image.open(path) as image:
                     if image.format != fmt.upper() or max(image.size) > 4096 or image.width * image.height > 16_000_000:
@@ -248,13 +258,20 @@ def execute_bio_analysis(payload, output_directory, *, mode='compute', settings=
         for record in _input_records(payload):
             path, size = Path(record['path']), record['size_bytes']
             if (not path.is_absolute() or path.is_symlink() or not path.is_file() or path.resolve().is_relative_to(output.resolve())
-                    or type(size) is not int or not 0 < size <= MAX_LEAF or path.stat().st_size != size
-                    or hashlib.sha256(path.read_bytes()).hexdigest() != record['sha256']):
+                    or type(size) is not int or not 0 < size <= MAX_LEAF or path.stat().st_size != size):
                 raise ValueError()
-        data = json.dumps({**payload, 'mode': mode, 'output_directory': str(output)}, ensure_ascii=False,
-                          allow_nan=False, separators=(',', ':')).encode('utf-8')
-        if len(data) > MAX_JSON:
-            raise ValueError()
+            with path.open('rb') as stream:
+                if hashlib.file_digest(stream, 'sha256').hexdigest() != record['sha256']:
+                    raise ValueError()
+        request = {**payload, 'mode': mode, 'output_directory': str(output)}
+        if tabular:
+            from app.adapters.bio_engine.tabular_transport import stage_request
+            transport = stage_request(request, output)
+        else:
+            data = json.dumps(request, ensure_ascii=False, allow_nan=False, separators=(',', ':')).encode('utf-8')
+            if len(data) > MAX_JSON:
+                raise ValueError()
+            transport = nullcontext(data)
     except (KeyError, TypeError, ValueError, OSError) as exc:
         raise invalid('bio_input_integrity_changed') from exc
     stopped, exceeded = Event(), Event()
@@ -286,14 +303,17 @@ def execute_bio_analysis(payload, output_directory, *, mode='compute', settings=
 
     command = [str(interpreter), '-I', '-B', str(Path(__file__).with_name('bio_engine') / ('tabular_worker.py' if tabular else 'worker.py')), str(os.getpid())]
     try:
-        require_not_revoked(cancel_event)
-        response = _run_child(command, struct.pack('!I', len(data)) + data,
-                              timeout_seconds=1380, max_output_bytes=MAX_JSON, on_started=started)
+        with transport as data:
+            require_not_revoked(cancel_event)
+            response = _run_child(command, struct.pack('!I', len(data)) + data,
+                                  timeout_seconds=1380, max_output_bytes=MAX_JSON, on_started=started)
     except StorageError as exc:
         require_not_revoked(cancel_event)
         code = 'bio_resource_exceeded' if exceeded.is_set() or exc.code == 'parse_resource_limit' else (
             'bio_analysis_timeout' if exc.code == 'parse_timeout' else 'bio_environment_unavailable')
         raise invalid(code) from exc
+    except ValueError as exc:
+        raise invalid('bio_input_limit') from exc
     except OSError as exc:
         raise invalid('bio_environment_unavailable') from exc
     finally:

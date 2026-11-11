@@ -1,17 +1,43 @@
 """Offline execution boundary tests; database/queue integration is separate."""
 from pathlib import Path
 from types import SimpleNamespace
+from uuid import uuid4
 
 import pytest
+
+
+def test_staging_leaf_copy_is_bounded_and_immutable(tmp_path, monkeypatch):
+    from app.adapters.bio_objects import BioObjects
+    from app.core.exceptions import StorageError
+    import hashlib
+
+    objects = BioObjects(tmp_path / 'assets')
+    source = tmp_path / 'staged.npy'
+    content = b'x' * (2 * 1024**2 + 5)
+    source.write_bytes(content)
+    record = objects.describe(str(uuid4()), content)
+    def forbidden(_):
+        pytest.fail('staging publication must stream file bytes')
+    monkeypatch.setattr(Path, 'read_bytes', forbidden)
+    objects.write_path(record, source)
+    objects.write_path(record, source)
+    assert objects.verified_path(record).stat().st_size == len(content)
+    source.write_bytes(b'y' + content[1:])
+    with pytest.raises(StorageError):
+        objects.write_path(record, source)
+    with objects.verified_path(record).open('rb') as stream:
+        assert hashlib.file_digest(stream, 'sha256').hexdigest() == record['sha256']
 
 
 def test_candidate_member_ids_and_bytes_are_stable(tmp_path):
     from app.adapters.bio_dataset_execution import build_candidate
     from app.adapters.bio_parser.visium import parse_visium_bundle
+    from app.domain.bioinformatics.parser_contracts import PARSER_VERSION
     from app.domain.bioinformatics.settings import BioLimits
     from tests.helpers.bio_fixtures import visium_bundle_bytes
     task = {"id": "task", "input_digest": "a" * 64,
-            "input_snapshot": {"import_id": "09ecb24d-64b6-471f-b3a9-9371ee2eaf09", "files": [{"id": "raw"}]}}
+            "input_snapshot": {"workflow_version": "bio_import_v1", "parser_version": PARSER_VERSION,
+                               "import_id": "09ecb24d-64b6-471f-b3a9-9371ee2eaf09", "files": [{"id": "raw"}]}}
     result = parse_visium_bundle(visium_bundle_bytes(), tmp_path / "first", BioLimits()).summary()
     # The pure parser has no registered file ID; trusted execution assigns it.
     for out in result["outputs"]:
@@ -32,7 +58,8 @@ def test_candidate_member_ids_and_bytes_are_stable(tmp_path):
 def test_execution_uses_isolated_parser_only_for_check(tmp_path, monkeypatch):
     from app.domain.bioinformatics import execution
     calls = []
-    task = {"id": "t", "input_snapshot": {"parser_version": "geo_visium_import_v1", "settings": {}}}
+    task = {"id": "t", "input_snapshot": {"workflow_version": "bio_import_v1",
+                                          "parser_version": "geo_visium_import_v1", "settings": {}}}
     checkpoint = {"next_node": "check"}
     class Repository:
         assets = SimpleNamespace(directory=tmp_path)

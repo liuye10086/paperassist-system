@@ -4,6 +4,7 @@ import {apiFetch} from '../../shared/api/client'
 import type {ProjectFile} from '../files/fileLibraryApi'
 import {bulkWorkflowViews,type BulkWorkflowView} from '../projects/analysisViews'
 import BulkWorkflowWorkspace,{BulkWorkflowNav} from './BulkWorkflowWorkspace'
+import {sensitivityCompatible} from './BulkSensitivity'
 import {bulkRoute,type BulkWorkflowComparison,type BulkWorkflowDescendant,type BulkWorkflowOverview} from './bulkWorkflow'
 
 vi.mock('../../shared/api/client',()=>({apiFetch:vi.fn(),getApiUserId:()=> 'owner',onApiSessionChanged:()=>()=>{},captureApiSession:()=>()=>{}}))
@@ -12,8 +13,19 @@ const hash='a'.repeat(64)
 const comparison=(id:string,contrast_id='treated-control'):BulkWorkflowComparison=>({
   kind:'comparison',label:`Comparison ${id}`,refs:{result_version_id:id,processed_version_id:'qc-v2'},
   contrasts:[{contrast_id,numerator:'treated',denominator:'control'}],status:'succeeded',stale:false,stale_reasons:[],
+  sensitivity_lineage:[['dataset','raw']],sensitivity_samples:[['sample-hash','treated']],sensitivity_identity:[9606,'ensembl','v1'],
 })
 const baseline=comparison('de-v2')
+it('filters sensitivity alternatives by raw lineage, identity and shared samples',()=>{
+  const fixed={...baseline,sensitivity_lineage:[['dataset','raw']],sensitivity_samples:[['s1','treated'],['s2','other']],
+    sensitivity_identity:[9606,'ensembl','v1']} as BulkWorkflowComparison
+  const compatible={...fixed,refs:{result_version_id:'other'},sensitivity_samples:[['s1','control'],['s2','other']]}
+  const contrast=fixed.contrasts[0]
+  expect(sensitivityCompatible(fixed,compatible,contrast)).toBe(true)
+  expect(sensitivityCompatible(fixed,{...compatible,sensitivity_lineage:[['dataset','different']]},contrast)).toBe(false)
+  expect(sensitivityCompatible(fixed,{...compatible,sensitivity_samples:[['s2','other']]},contrast)).toBe(false)
+  expect(sensitivityCompatible(fixed,{...compatible,sensitivity_identity:[10090,'ensembl','v1']},contrast)).toBe(false)
+})
 const alternate={...comparison('de-v1','variant-treated-control'),stale:true,
   stale_reasons:[{kind:'dataset_version',version_id:'raw-v1',current_version_id:'raw-v2'}]}
 const descendant=(id:string,parent:string,kind='ora'):BulkWorkflowDescendant=>({
@@ -59,7 +71,7 @@ beforeEach(()=>{
         parameter_changes:independent?['minimum_total_counts']:[],counts:{stable_up:1,lost:0},items:[{feature_id:'ENSG0001',symbol:'GENE1',
           baseline_class:'up',scenario_class:'up',change:'stable_up',baseline_q:0.01,scenario_q:0.01,baseline_effect:2,scenario_effect:2}],total:1,page:1,page_size:50})
     }
-    if(path.endsWith('/report.docx')||path.endsWith('/reproducibility-package'))return new Response(new Blob(['fixed files']))
+    if(path.includes('/delivery/prepare/'))return Response.json({download_url:path.replace('/prepare/','/prepared/')+'/'+hash})
     throw new Error(path)
   })
 })
@@ -147,8 +159,8 @@ it('requires exact preview before both native downloads and separates evidence f
   fireEvent.click(screen.getByRole('button',{name:'下载 Bulk Word 报告'}))
   fireEvent.click(screen.getByRole('button',{name:'下载 Bulk 完整复现包'}))
   await waitFor(()=>expect(downloadNames).toEqual(['bulk-rna-report-aaaaaaaaaaaa.docx','bulk-rna-reproducibility-aaaaaaaaaaaa.zip']))
-  expect(bodyFor('/report.docx')).toEqual([{...request,facts_digest:hash}])
-  expect(bodyFor('/reproducibility-package')).toEqual([{...request,facts_digest:hash}])
+  expect(bodyFor('/prepare/word')).toEqual([{...request,facts_digest:hash}])
+  expect(bodyFor('/prepare/archive')).toEqual([{...request,facts_digest:hash}])
   fireEvent.change(screen.getByLabelText('报告语言'),{target:{value:'en'}})
   expect(screen.queryByRole('button',{name:'下载 Bulk Word 报告'})).toBeNull()
 })

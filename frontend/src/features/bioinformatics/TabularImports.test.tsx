@@ -2,7 +2,7 @@ import {afterEach, expect, it, vi} from 'vitest'
 import {cleanup, fireEvent, render, screen, waitFor} from '@testing-library/react'
 import {apiFetch} from '../../shared/api/client'
 import BioImports from './BioImports'
-import {BULK_TABULAR_LIMITS,newTabularDraft,tabularImportBody} from './TabularImportFields'
+import TabularImportFields,{BULK_TABULAR_LIMITS,newTabularDraft,tabularImportBody} from './TabularImportFields'
 
 vi.mock('../../shared/api/client', () => ({apiFetch:vi.fn(), getApiUserId:()=>'owner1', onApiSessionChanged:()=>()=>{}}))
 afterEach(()=>{cleanup();vi.clearAllMocks();sessionStorage.clear()})
@@ -10,7 +10,9 @@ it('builds a complete Bulk mapping request at the B01 512-sample limit',()=>{
  const draft=newTabularDraft();draft.files.quantitative_matrix='matrix';draft.files.sample_metadata='samples';draft.samples=Array.from({length:BULK_TABULAR_LIMITS.maxSamples},(_,i)=>`S${i+1}`).join('\n');draft.scale.upstream_method='featureCounts raw integer counts'
  const body=tabularImportBody(draft,[{id:'matrix',filename:'counts.csv',file_type:'bio_component'},{id:'samples',filename:'samples.tsv',file_type:'bio_component'},{id:'qc',filename:'multiqc.html',file_type:'bio_component'}],'Bulk counts',null)
  expect(body).toMatchObject({file_ids:['matrix','samples'],sample_metadata_mapping:{sample_id:'sample_id',condition:'condition',biological_unit_id:'biological_unit_id'},scale:{kind:'raw_counts',input_origin:'bulk_rna'}});expect(body?.sample_columns).toHaveLength(BULK_TABULAR_LIMITS.maxSamples);expect(body?.sample_columns.slice(0,2)).toEqual(['S1','S2'])
- draft.qualityReport='qc';expect(tabularImportBody(draft,[{id:'matrix',filename:'counts.csv',file_type:'bio_component'},{id:'samples',filename:'samples.tsv',file_type:'bio_component'},{id:'qc',filename:'multiqc.html',file_type:'bio_component'}],'Bulk counts',null)?.quality_reports).toEqual([{file_id:'qc',source:'user_provided',report_type:'upstream_quality_report'}])
+ draft.qualityReports=['qc','qc2']
+ expect(tabularImportBody(draft,[{id:'matrix',filename:'counts.csv',file_type:'bio_component'},{id:'samples',filename:'samples.tsv',file_type:'bio_component'},{id:'qc',filename:'multiqc.html',file_type:'bio_component'},{id:'qc2',filename:'other-qc.json',file_type:'bio_component'}],'Bulk counts',null)?.quality_reports)
+  .toEqual(['qc','qc2'].map(file_id=>({file_id,source:'user_provided',report_type:'upstream_quality_report'})))
  draft.samples+='\nS513';expect(tabularImportBody(draft,[{id:'matrix',filename:'counts.csv',file_type:'bio_component'},{id:'samples',filename:'samples.tsv',file_type:'bio_component'},{id:'qc',filename:'multiqc.html',file_type:'bio_component'}],'Bulk counts',null)).toBeNull()
 })
 const files = [
@@ -25,6 +27,35 @@ function mockRequests(failPost=false) {
   return Response.json(String(url).endsWith('/files')?files:{items:[],total:0})
  })
 }
+
+it('restores a pre-Bulk tabular draft and submits its saved file and sample choices',async()=>{
+ mockRequests()
+ const draft=newTabularDraft()
+ const saved:Record<string,unknown>={...draft,files:{...draft.files,quantitative_matrix:'matrix',sample_metadata:'samples'},
+  sheets:{...draft.sheets,quantitative_matrix:'Counts'},samples:'S1\nS2',scale:{...draft.scale,upstream_method:'old counts'}}
+ delete saved.qualityReport;delete saved.qualityReports;delete saved.metadataMapping
+ const key='paperassist.research-draft.v1:owner1:p1:bio-import:analysis'
+ sessionStorage.setItem(key+':tabular',JSON.stringify(saved))
+ sessionStorage.setItem(key+':name',JSON.stringify('Old saved draft'))
+ sessionStorage.setItem(key+':workflow',JSON.stringify('v3'))
+ render(<BioImports projectId="p1" active navigation={{view:'bio-datasets',fileId:''}} onNavigate={()=>{}}/>)
+ expect(screen.getByLabelText('样本列名（每行一个，保留原始顺序）')).toHaveProperty('value','S1\nS2')
+ expect(screen.getByLabelText('sample_id（必需）')).toHaveProperty('value','sample_id')
+ const submit=screen.getByText('开始定量矩阵核对')
+ await waitFor(()=>expect(submit).toHaveProperty('disabled',false))
+ fireEvent.click(submit)
+ await waitFor(()=>expect(vi.mocked(apiFetch).mock.calls.some(c=>c[1]?.method==='POST')).toBe(true))
+ const request=JSON.parse(String(vi.mocked(apiFetch).mock.calls.find(c=>c[1]?.method==='POST')?.[1]?.body))
+ expect(request).toMatchObject({sample_columns:['S1','S2'],name:'Old saved draft',file_ids:['matrix','samples']})
+})
+
+it('downloads Bulk templates with matching sample axes',()=>{
+ render(<TabularImportFields draft={newTabularDraft()} files={[]} onChange={()=>{}}/>)
+ const template=(label:string)=>decodeURIComponent(screen.getByRole('link',{name:label}).getAttribute('href')!.split(',')[1])
+ const counts=template('下载 counts 矩阵模板').trim().split('\n')[0].split(',').slice(1)
+ const samples=template('下载样本信息模板').trim().split('\n').slice(1).map(row=>row.split('\t')[0])
+ expect(samples).toEqual(counts)
+})
 async function fill() {
  await screen.findByText('measured.xlsx')
  fireEvent.change(screen.getByLabelText('导入核对流程'),{target:{value:'v3'}})

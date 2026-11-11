@@ -117,12 +117,31 @@ def describe_bulk_model(config, cohorts, feature_count, block):
             if len(set(numeric)) < 2:
                 block('covariate_constant', f"连续协变量 {term['field']} 没有变化。")
                 return None
-            scale = max(map(abs, numeric))
-            scaled = [value / scale for value in numeric]
-            center = math.fsum(scaled) / len(scaled)
-            term.update(divisor=scale, center_after_division=center)
+            if config.continuous_transform == 'centered_range_v2':
+                # Subtract an observed origin first to avoid losing small variation
+                # under a large offset; normalize before averaging to avoid overflow.
+                origin = numeric[0]
+                offsets = [value - origin for value in numeric]
+                if not all(map(math.isfinite, offsets)):
+                    origin = 0.0
+                    divisor = max(map(abs, numeric))
+                    offsets = [value / divisor for value in numeric]
+                    origin = None
+                else:
+                    divisor = max(map(abs, offsets))
+                    offsets = [value / divisor for value in offsets]
+                center = math.fsum(offsets) / len(offsets)
+                term.update(transform='centered_range_v2', origin=origin, divisor=divisor,
+                            center_after_division=center)
+                encoded = [value - center for value in offsets]
+            else:
+                scale = max(map(abs, numeric))
+                scaled = [value / scale for value in numeric]
+                center = math.fsum(scaled) / len(scaled)
+                term.update(divisor=scale, center_after_division=center)
+                encoded = [value - center for value in scaled]
             columns.append(term['term'])
-            blocks.append([[value - center] for value in scaled])
+            blocks.append([[value] for value in encoded])
 
     if len(columns) > 100:
         block('design_capacity', '设计超过 100 列。')

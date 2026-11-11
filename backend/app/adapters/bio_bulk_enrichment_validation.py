@@ -72,7 +72,7 @@ def _ora_inputs(comparison, resources, maps, references, config, doc, mapping_ro
     return expected, coverage
 
 
-def _gsea_inputs(comparison, resources, maps, references, config, table, doc, mapping_rows, exclusions):
+def _gsea_inputs(comparison, resources, maps, references, config, table, doc, mapping_rows, exclusions, *, neutral_keys):
     source_id = comparison['source']['source_id']
     context = dict(result_source_id=source_id, contrast_id=config.contrast_id, resource_id='joint')
     universes = {source['source_id']: gene_set_universe(data) for source, data in resources}
@@ -89,12 +89,13 @@ def _gsea_inputs(comparison, resources, maps, references, config, table, doc, ma
 
     ranks = {row['feature_id']: index for index, row in enumerate(ranked)}
     insufficient = len(ranked) < 2 or not any(row['statistic'] for row in ranked)
-    ranking_reason = 'ranking_all_zero_or_insufficient' if insufficient else None
+    ranking_reason = ('ranking_all_zero_or_insufficient' if insufficient else
+                      'ranking_all_equal' if neutral_keys and len({row['statistic'] for row in ranked}) == 1 else None)
     expected = {}
     for source, resource in resources:
         rid = source['source_id']
         count = 0
-        if not insufficient:
+        if ranking_reason is None:
             for term in resource['terms']:
                 hits = sorted(ranks[gene] for gene in term['genes'] if gene in ranks)
                 if (config.min_size <= len(hits) <= config.max_size and len(hits) < len(ranked)
@@ -188,7 +189,8 @@ def validate_bulk_enrichment(result, payload, table, doc):
         expected, coverage = _ora_inputs(comparison, resources, maps, references, config, doc, mapping_rows, exclusions)
     else:
         expected, coverage, curves = _gsea_inputs(comparison, resources, maps, references, config, table, doc,
-                                                   mapping_rows, exclusions)
+                                                   mapping_rows, exclusions,
+                                                   neutral_keys=result['methods'].get('native_term_key_policy') == 'membership_ordered_opaque_v1')
     reasons = sorted({item['not_applicable_reason'] for item in coverage if item['not_applicable_reason']})
     audit = result['methods']['bulk_enrichment']
     if audit != dict(source_reference=comparison['bulk_reference'], resource_references=references,

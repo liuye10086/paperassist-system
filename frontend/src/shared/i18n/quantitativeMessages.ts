@@ -1,4 +1,6 @@
 export const quantitativeMessages:Record<string,string>={
+ '此版本的连续协变量采用旧版缩放。重新预检并确认可生成使用新版缩放的方案。':'This version uses the legacy scaling for continuous covariates. Preview and confirm a new plan to use updated scaling.',
+ '重新审核新版缩放':'Review updated scaling',
  '固定设计差异比较':'Fixed-design differential comparison',
  '比较数据类型':'Comparison data type',
  '空间区域／供体比较':'Spatial region / donor comparison',

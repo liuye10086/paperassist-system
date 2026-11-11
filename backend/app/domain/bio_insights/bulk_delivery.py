@@ -265,7 +265,7 @@ class BulkDeliveryService(BioInsightResultService):
                     top_rows=top, table=self.public_member(project, value.row['id'], member))
 
     def _snapshot(self, db, project, comparison_version_id, *, result_version_ids, selections, language,
-                  sensitivity, evidence, include_images):
+                  sensitivity, evidence, include_images, cached_facts=None):
         comparison_id = comparison_version_id
         if language not in ('zh', 'zh-CN', 'en') or len(result_version_ids) > 20:
             raise invalid('bio_insight_source_unsupported', 422)
@@ -300,8 +300,12 @@ class BulkDeliveryService(BioInsightResultService):
                           confirmation=dict(plan_version_id=plan['id'], plan_id=plan['plan_id'],
                               confirmed_at=plan['confirmed_at'].isoformat(), confirmed_by=plan['confirmed_by'],
                               reviewed_design_sha256=plan['design_checks_json']['reviewed_design_sha256']))
-            contrasts = _report_contrasts(self.objects, _member(comparison.members, 'comparison_results', 'tsv'),
-                                          labels, selection_map, frozen_design)
+            reusable = (cached_facts is not None
+                        and cached_facts['references']['comparison'] == self._result_reference(project, comparison)
+                        and cached_facts['selections'] == [selection_map[cid].model_dump(mode='json') for cid in labels])
+            contrasts = (cached_facts['contrasts'] if reusable else
+                         _report_contrasts(self.objects, _member(comparison.members, 'comparison_results', 'tsv'),
+                                          labels, selection_map, frozen_design))
             if sum(item['counts']['total'] for item in contrasts) != comparison.summary.get('row_count'):
                 raise invalid()
             processed, qc, processed_refs, figures = {}, [], [], []
@@ -395,17 +399,17 @@ class BulkDeliveryService(BioInsightResultService):
         return snapshot | {'facts_digest': digest(snapshot)}, images
 
     def facts(self, project, comparison_version_id, *, result_version_ids=(), selections=(), language='zh',
-              sensitivity=None, evidence=()):
+              sensitivity=None, evidence=(), cached_facts=None):
         with self.store.connection() as db:
             try:
                 facts, _ = self._snapshot(db, project, comparison_version_id, result_version_ids=result_version_ids,
                                           selections=selections, language=language, sensitivity=sensitivity,
-                                          evidence=evidence, include_images=False)
+                                          evidence=evidence, include_images=False, cached_facts=cached_facts)
             except (KeyError, TypeError, IndexError, ValueError, csv.Error, OSError) as exc:
                 raise invalid() from exc
         return facts
 
-    def docx(self, project, facts):
+    def docx(self, project, facts, *, verified_contrasts=False):
         from app.adapters.bulk_insight_report import build_bulk_insight_report
         from app.adapters.bio_reader_narrative import load_bulk_cached_narrative
 
@@ -415,7 +419,8 @@ class BulkDeliveryService(BioInsightResultService):
                     raise invalid('bio_insight_not_found', 404)
                 frozen, images = self._snapshot(db, project, facts['comparison_version_id'],
                     result_version_ids=facts['selected_result_version_ids'], selections=facts['selections'],
-                    language=facts['language'], sensitivity=facts['sensitivity'], evidence=facts['evidence'], include_images=True)
+                    language=facts['language'], sensitivity=facts['sensitivity'], evidence=facts['evidence'], include_images=True,
+                    cached_facts=facts if verified_contrasts else None)
                 if frozen != facts:
                     raise invalid()
             except (KeyError, TypeError, IndexError, ValueError, csv.Error, OSError) as exc:

@@ -25,11 +25,6 @@ _MAP_SOURCE = 'bio_observation_map_version'
 _RESOURCE_SOURCE = 'bio_resource_version'
 _ENRICHMENT = frozenset(('ora', 'gsea_prerank'))
 _DISPLAY_RECIPE_PARAMS = frozenset(('normalization', 'transform', 'log1p_offset', 'scaling', 'pca_components', 'seed'))
-_PRESENTATION_PLAN_FIELDS = {
-    'figure': frozenset(('title', 'palette', 'width_inches', 'height_inches', 'dpi', 'formats', 'top_n',
-                        'bulk_selection', 'q_column', 'enrichment_style')),
-    'candidate': frozenset(('bulk_selection', 'bulk_top_n')),
-}
 
 
 class BulkWorkflowService(BioInsightsStore):
@@ -112,6 +107,12 @@ class BulkWorkflowService(BioInsightsStore):
                COALESCE(v.design_checks_json->>'plan_name',p.name) AS name,
                (v.design_checks_json->>'executable')::boolean AS executable,
                v.design_checks_json->'blocking_reasons' AS blockers,
+               CASE WHEN v.kind='comparison' THEN (
+                   SELECT COALESCE(jsonb_agg(jsonb_build_object(
+                       'processed_version_id', sample.value->>'processed_version_id',
+                       'sample_id', sample.value->>'sample_id', 'condition', sample.value->>'condition')), '[]'::jsonb)
+                   FROM jsonb_array_elements(COALESCE(v.design_checks_json->'bulk_model'->'samples', '[]'::jsonb)) AS sample(value)
+               ) END AS bulk_model_samples,
                EXISTS (SELECT 1 FROM bulk_plans b WHERE b.id=v.id) AS bulk_related
         FROM roots b JOIN bio_insight_plans p ON p.id=b.plan_id AND p.project_id=b.project_id AND p.user_id=b.user_id
         JOIN bio_insight_plan_versions v ON v.plan_id=p.id AND v.project_id=p.project_id AND v.user_id=p.user_id""", processed_ids)
@@ -139,7 +140,8 @@ class BulkWorkflowService(BioInsightsStore):
 
     def sensitivity(self, project, baseline_version_id, scenario_version_id, baseline_selection, scenario_selection,
                     *, page=1, page_size=100, change_stream=None):
-        with self.store.connection() as db:
+        from .bulk_delivery_cache import heavy_slot
+        with heavy_slot(self.assets, project), self.store.connection() as db:
             self.store.require_project(db, project)
             return compare_saved_bulk(self, db, project, baseline_version_id, scenario_version_id,
                                       baseline_selection, scenario_selection, page=page, page_size=page_size,
@@ -385,9 +387,10 @@ def project_workflow(project, records):
     def plan_signature(identifier):
         row = plans[identifier]
         config = {key: value for key, value in row['config_json'].items()
-                  if key not in _PRESENTATION_PLAN_FIELDS.get(row['kind'], ()) and key != 'output_language'}
+                  if key != 'output_language' or row['kind'] == 'figure'}
         substitutions = {source['source_id']: processed_signature(source['source_id'])
-                         for source in sources[identifier] if source['source_kind'] == _PROCESSED_SOURCE}
+                         for source in sources[identifier]
+                         if row['kind'] == 'comparison' and source['source_kind'] == _PROCESSED_SOURCE}
 
         def project_values(value):
             if isinstance(value, dict):
@@ -501,6 +504,19 @@ def project_workflow(project, records):
                        contrasts=contrasts, figure_type=plan['config_json'].get('figure_type'), decision=plan['decision'],
                        blockers=plan.get('blockers') or [], **parents)
 
+    def comparison_eligibility(item):
+        plan = plans[item['refs']['plan_version_id']]
+        raw_by_processed = {sid: processed[sid]['raw_dataset_version_id'] for sid in item['processed_version_ids'] if sid in processed}
+        raw_lineage = sorted({(raw[rid]['dataset_id'], rid) for rid in raw_by_processed.values() if rid in raw})
+        samples = plan.get('bulk_model_samples') or []
+        sample_keys = sorted({(digest((raw_by_processed[s['processed_version_id']], s['sample_id'])), s['condition'])
+                              for s in samples if s.get('processed_version_id') in raw_by_processed
+                              and s.get('sample_id') and s.get('condition')})
+        return dict(item, sensitivity_lineage=[list(value) for value in raw_lineage],
+                    sensitivity_samples=[list(value) for value in sample_keys],
+                    sensitivity_identity=[plan['config_json'].get(key) for key in
+                                          ('species_taxon_id', 'namespace', 'reference_version')])
+
     design_items = _ordered([_record('design', row, {'design_version_id': row['id']},
                                     status='succeeded', operation=row['operation'])
                              for row in designs.values()])
@@ -589,4 +605,6 @@ def project_workflow(project, records):
         _stage('delivery', comparisons + descendants, ('differential',), chosen=baseline,
                status='ready' if ready_baseline else 'dependency_blocked'),
     ]
-    return dict(project_id=project, stages=stages, comparisons=comparisons, descendants=descendants)
+    return dict(project_id=project, stages=stages,
+                comparisons=[comparison_eligibility(item) if item['status'] == 'succeeded' else item for item in comparisons],
+                descendants=descendants)

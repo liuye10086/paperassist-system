@@ -14,6 +14,10 @@ from .inputs import document,iter_table
 from .mapping import ExplicitMapper,resource_document
 
 
+_GSEA_BASE_BYTES = 256 * 1024**2
+_GSEA_ADMISSION_BYTES = 1536 * 1024**2
+
+
 def _hash(value):
     return hashlib.sha256(json.dumps(value,sort_keys=True,separators=(',',':')).encode()).hexdigest()
 
@@ -225,8 +229,39 @@ def _mapping_outputs(writer,mapping_rows,exclusions,term_exclusions,classificati
                  ['result_source_id','contrast_id','resource_id','category','background_gene_count','foreground_gene_count','mutually_exclusive'])
 
 
+def _gsea_working_bytes(rank_count, term_count, permutation_count, membership_count):
+    """Estimate the peak for the locked 64-bit GSEApy 1.3.1 permutation path."""
+    if not term_count:
+        return _GSEA_BASE_BYTES
+
+    # algorithm.rs gene_permutation retains every DynamicEnum through stats.rs
+    # GSEAResult::stat. Each clone owns an index vector and a HashMap<usize, usize>.
+    # Rust's hash table grows in powers of two at 7/8 load (16 bytes + a control byte per bucket).
+    buckets_needed = (8 * rank_count + 6) // 7
+    buckets = 1 << (max(4, buckets_needed) - 1).bit_length()
+    shuffle_count = permutation_count + 1  # Includes the observed order.
+    permutation_maps = shuffle_count * (8 * rank_count + 17 * buckets + 256)
+
+    # Prerank constructs every f64 tag vector for one term at a time. These
+    # vectors overlap the permutation maps, completed summaries and ES scratch.
+    tag_vectors = shuffle_count * (8 * rank_count + 64)
+    curves = 8 * rank_count * term_count
+    null_scores = 8 * permutation_count * term_count
+    family_overhead = 64 * membership_count + 512 * term_count
+    scoring_peak = permutation_maps + tag_vectors + curves + null_scores + 48 * rank_count + 8 * shuffle_count
+
+    # During joint correction the tag vectors are gone. The original ES nulls
+    # coexist with the growing normalized null vector. Budget up to 3x its
+    # contents for a vector reallocation, plus per-term normalization/FWER scratch.
+    correction_peak = permutation_maps + curves + 4 * null_scores + 32 * permutation_count
+
+    # The PyO3 summaries getter clones the native summaries. Keep the previous
+    # conservative curve allowance, space for a Python curve, and the null copies.
+    export_peak = 5 * curves + 40 * rank_count + 4 * null_scores
+    return _GSEA_BASE_BYTES + family_overhead + max(scoring_peak, correction_peak, export_peak)
+
+
 def _gsea(payload,config,writer):
-    import gseapy
     resources,maps=_resources(payload,config)
     source=_source(payload['sources'],config.result_source_id,'bio_insight_result_version')
     bulk=config.bulk_enrichment is not None
@@ -274,6 +309,8 @@ def _gsea(payload,config,writer):
     if len(ranking)<2 or not any(r['statistic']!=0 for r in ranking):
         ranking_reason='ranking_all_zero_or_insufficient'
         if not bulk:raise ValueError(ranking_reason)
+    elif bulk and len({r['statistic'] for r in ranking}) == 1:
+        ranking_reason='ranking_all_equal'
     for i,row in enumerate(ranking):row['rank']=i
     genes=[r['feature_id'] for r in ranking];scores=[r['statistic'] for r in ranking];gene_set=set(genes)
     score_by_gene=dict(zip(genes,scores))
@@ -307,11 +344,15 @@ def _gsea(payload,config,writer):
             coverage['resources'][rid].update(eligible_term_count=eligible_count,
                 not_applicable_reason=None if eligible_count else ranking_reason or 'no_eligible_terms')
     if len(terms)>10000:raise ValueError('gsea_eligible_set_budget_exceeded')
-    # Keep the existing conservative transient-curve admission budget. Native
-    # summaries still own all curves; only one term is materialized in Python.
-    estimate=256*1024**2+len(genes)*len(terms)*40+len(terms)*config.permutation_num*16
+    estimate = _gsea_working_bytes(len(genes), len(terms), config.permutation_num, n_memberships)
+    if estimate > _GSEA_ADMISSION_BYTES:
+        raise MemoryError(
+            f'gsea_resource_budget_exceeded: estimated {estimate} bytes for {len(genes)} ranks, '
+            f'{len(terms)} eligible terms and {config.permutation_num} permutations '
+            f'(limit {_GSEA_ADMISSION_BYTES} bytes)'
+        )
     work=(len(genes)+n_memberships)*config.permutation_num
-    if estimate>1536*1024**2 or work>2000000000:raise ValueError('gsea_resource_budget_exceeded')
+    if work>2000000000:raise ValueError('gsea_resource_budget_exceeded')
     result_rows=[];curves=[]
     if terms:
         # This is exactly the locked GSEApy 1.3.1 Prerank.run permutation
@@ -319,11 +360,20 @@ def _gsea(payload,config,writer):
         # retain the joint null/curves. Avoid to_df(), which additionally keeps
         # every full running curve as Python float lists in public .results.
         from gseapy.gse import prerank_rs
-        summaries=prerank_rs(genes,scores,terms,config.weight,config.min_size,config.max_size,
+        if bulk:
+            # Native GSEApy interprets '__' as a collection separator. Opaque,
+            # membership-ordered keys keep its single joint null independent of labels.
+            ordered = sorted(terms, key=lambda key: (terms[key], key))
+            native_to_public = {f'term{i:08d}': key for i, key in enumerate(ordered)}
+            native_terms = {native: terms[key] for native, key in native_to_public.items()}
+        else:
+            native_terms = terms
+            native_to_public = {key: key for key in terms}
+        summaries=prerank_rs(genes,scores,native_terms,config.weight,config.min_size,config.max_size,
             config.permutation_num,1,config.seed).summaries
-        if len(summaries)!=len(terms) or {s.term for s in summaries}!=set(terms):raise ValueError('gsea_eligible_family_incomplete')
-        for observed in sorted(summaries,key=lambda s:s.term):
-            key=observed.term;source,data,term=term_metadata[key]
+        if len(summaries)!=len(terms) or {s.term for s in summaries}!=set(native_terms):raise ValueError('gsea_eligible_family_incomplete')
+        for observed in sorted(summaries,key=lambda s:native_to_public[s.term]):
+            key=native_to_public[observed.term];source,data,term=term_metadata[key]
             es,nes,p,fdr,fwer=[numeric(getattr(observed,name)) for name in ['es','nes','pval','fdr','fwerp']]
             hits=list(map(int,observed.hits));res=np.asarray(observed.run_es,dtype=float)
             if res.shape!=(len(genes),) or not np.isfinite(res).all():raise ValueError('gsea_curve_invalid')
@@ -361,6 +411,7 @@ def _gsea(payload,config,writer):
              'eligible_term_family_complete':True,'empty_eligible_sets':not bool(terms),
              'result_member_key':'enrichment_results','excluded_terms':len(term_exclusions)}
     if bulk:
+        methods['native_term_key_policy']='membership_ordered_opaque_v1'
         coverage['not_applicable_reason']=None if terms else ranking_reason or 'no_eligible_terms'
         significant=sum(r['fdr_q_value'] is not None and r['fdr_q_value']<=.05 for r in result_rows)
         bulk_result_status(result,references,[coverage],summary,methods,significant)

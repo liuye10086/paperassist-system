@@ -61,6 +61,7 @@ class QuantitativeComparisonConfig(QuantitativeModel):
     pairing_field: Literal['pair_id','donor','biological_unit_id']='pair_id'
     batch_adjustment: bool=False
     bulk_model: Literal['shared_wald_v1'] | None=None
+    continuous_transform: Literal['centered_range_v2'] | None=None
     covariates: list[QuantitativeCovariate]=Field(default_factory=list,max_length=16)
     condition_reference: Identifier | None=None
     minimum_sample_counts: int=Field(default=1,ge=1,le=1000000)
@@ -77,6 +78,8 @@ class QuantitativeComparisonConfig(QuantitativeModel):
     @model_serializer(mode='wrap')
     def frozen_config(self, handler):
         data = handler(self)
+        if self.continuous_transform is None:
+            data.pop('continuous_transform', None)
         if self.bulk_model is None:
             for field in ('bulk_model','covariates','condition_reference','minimum_sample_counts'):
                 data.pop(field, None)
@@ -87,6 +90,8 @@ class QuantitativeComparisonConfig(QuantitativeModel):
         if len(self.model_dump_json().encode())>4*1024**2:raise ValueError('quantitative_config_limit')
         ids=[c.contrast_id for c in self.contrasts]
         if len(ids)!=len(set(ids)) or len(set(self.family_contrast_ids))!=len(self.family_contrast_ids) or set(ids)!=set(self.family_contrast_ids):raise ValueError('complete_family_required')
+        if self.continuous_transform and not self.bulk_model:
+            raise ValueError('continuous_transform_requires_covariate')
         covariate_fields=[covariate.field for covariate in self.covariates]
         if len(covariate_fields)!=len(set(covariate_fields)):raise ValueError('duplicate_covariate')
         reserved={'condition','sample_id','processed_version_id','biological_unit_id','pair_id','donor','batch','sample_role','retained','kept','source_row','exclusion_reason'}

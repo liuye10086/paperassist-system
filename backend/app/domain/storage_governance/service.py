@@ -357,12 +357,18 @@ def recover_reservation(db,root,reservation_id):
 
 @contextmanager
 def publication(db,root,project_id,operation_key,path,content,*,kind='derived',task_id=None,recover=False):
+    with publication_identity(db,root,project_id,operation_key,path,len(content),hashlib.sha256(content).hexdigest(),
+                              kind=kind,task_id=task_id,recover=recover) as row:
+        yield row
+
+
+@contextmanager
+def publication_identity(db,root,project_id,operation_key,path,size_bytes,digest,*,kind='derived',task_id=None,recover=False):
     if reconcile_intents(db,root):raise invalid()
-    digest=hashlib.sha256(content).hexdigest()
     prior=db.execute('SELECT * FROM storage_reservations WHERE namespace=%s AND project_id=%s AND operation_key=%s',
         (NAMESPACE,project_id,operation_key)).fetchone() if recover else None
     if prior and prior['state']=='unknown':
-        if (prior['object_key']!=_key(root,path) or prior['size_bytes']!=len(content) or prior['sha256']!=digest
+        if (prior['object_key']!=_key(root,path) or prior['size_bytes']!=size_bytes or prior['sha256']!=digest
                 or prior['task_id']!=task_id or prior['kind']!=kind):raise invalid()
         if Path(path).exists():
             recover_reservation(db,root,prior['id'])
@@ -371,12 +377,12 @@ def publication(db,root,project_id,operation_key,path,content,*,kind='derived',t
             # target. Paid producer retries must NOT opt in implicitly.
             _disk_guard(db,root,0)
             db.execute("UPDATE storage_reservations SET state='released' WHERE id=%s",(prior['id'],))
-            try:_scope_check(db,_project(db,project_id),len(content),object_key=prior['object_key'],allow_attributed_unknown=True)
+            try:_scope_check(db,_project(db,project_id),size_bytes,object_key=prior['object_key'],allow_attributed_unknown=True)
             finally:db.execute("UPDATE storage_reservations SET state='unknown' WHERE id=%s",(prior['id'],))
             db.execute("UPDATE storage_reservations SET state='reserved' WHERE id=%s",(prior['id'],))
         row=dict(db.execute('SELECT * FROM storage_reservations WHERE id=%s',(prior['id'],)).fetchone())
     else:
-        row=reserve(db,root,project_id,operation_key,path,len(content),kind=kind,task_id=task_id,sha256=digest)
+        row=reserve(db,root,project_id,operation_key,path,size_bytes,kind=kind,task_id=task_id,sha256=digest)
     _journal(db,root,row)
     try:
         yield row
