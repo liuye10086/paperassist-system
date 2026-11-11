@@ -7,6 +7,7 @@ export const bulkQColumns = {
   original_method_adjustment:'模型原生调整值（独立过滤）',
 } as const
 export type BulkQColumn = keyof typeof bulkQColumns
+export const BULK_ORA_ELIGIBLE_BACKGROUND = 'computable_selected_q_effect_intersected_with_collection'
 export type BulkSubset = 'all' | 'deg' | 'up' | 'down'
 export type BulkSelection = {
   contrast_id:string

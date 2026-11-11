@@ -7,8 +7,9 @@ from app.adapters.bio_analysis_store import scoped_object,object_by_key
 from app.adapters.analysis_request_receipts import read_receipt,bind_receipt,target
 from app.domain.bioinformatics.contracts import digest
 from app.domain.bioinformatics.service import require_key,append_checkpoint
-from .contracts import (BULK_CONTRAST_FIGURES, BULK_HEATMAPS, BULK_PROCESSED_FIGURES, FrozenInsightPlanRequest,
-                        InsightPlanRequest, InsightRunRequest, ResourceImportRequest, InsightSourceSelection, SourceLocator)
+from .contracts import (BULK_CONTRAST_FIGURES, BULK_HEATMAPS, BULK_ORA_ELIGIBLE_BACKGROUND, BULK_PROCESSED_FIGURES,
+                        FrozenInsightPlanRequest, InsightPlanRequest, InsightRunRequest, OraConfig, ResourceImportRequest,
+                        InsightSourceSelection, SourceLocator)
 from .task_contracts import InsightTaskSnapshot,input_version
 from .sources import InsightSourceReader,_truth
 from .design import validate_design,DesignPreview,ResourceEstimate,DesignReason
@@ -337,6 +338,9 @@ class BioInsightsService(BioInsightsStore):
             transform = ('centered_range_v2'
                 if any(c.kind == 'continuous' for c in config.covariates) else None)
             request = request.model_copy(update={'config': config.model_copy(update={'continuous_transform': transform})})
+        elif isinstance(config, OraConfig) and config.bulk_enrichment is not None:
+            config = config.model_copy(update={'bulk_background': BULK_ORA_ELIGIBLE_BACKGROUND})
+            request = request.model_copy(update={'config': config})
         return request
 
     def preview(self,project,request):

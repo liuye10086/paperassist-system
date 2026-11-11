@@ -21,6 +21,8 @@ SourceKind = Literal['bio_processed_dataset_version','bio_observation_map_versio
 InsightKind = Literal['comparison','result_import','ora','gsea_prerank','candidate','figure','feature_extract','integration']
 QColumn = Literal['q_within_contrast','q_global_family','original_q','system_recomputed_q']
 BulkQColumn = Literal['q_within_contrast', 'q_global_family', 'original_method_adjustment']
+BulkOraBackground = Literal['computable_selected_q_effect_intersected_with_collection']
+BULK_ORA_ELIGIBLE_BACKGROUND: BulkOraBackground = 'computable_selected_q_effect_intersected_with_collection'
 BulkContrastFigure = Literal['bulk_volcano', 'bulk_ma', 'bulk_heatmap', 'bulk_variable_heatmap',
                             'bulk_expression', 'bulk_summary']
 BulkProcessedFigure = Literal['bulk_qc', 'bulk_pca']
@@ -209,13 +211,16 @@ class EnrichmentConfig(ConfigModel):
     @model_serializer(mode='wrap')
     def preserve_generic_enrichment_wire(self, handler):
         data = handler(self)
-        if self.bulk_enrichment is None:
-            data.pop('bulk_enrichment', None)
+        for key in ('bulk_enrichment', 'bulk_background'):
+            if data.get(key) is None:
+                data.pop(key, None)
         return data
 
 
 class OraConfig(EnrichmentConfig):
     kind: Literal['ora'] = 'ora'
+    # An omitted rule denotes the original tested universe in saved plans and recipes.
+    bulk_background: BulkOraBackground | None = None
     result_source_ids: list[Identifier] = Field(min_length=1,max_length=10)
     resource_source_ids: list[Identifier] = Field(min_length=1,max_length=10)
     mapping_source_ids: list[Identifier] = Field(default_factory=list,max_length=10)
@@ -243,7 +248,13 @@ class OraConfig(EnrichmentConfig):
                 raise ValueError('bulk_ora_requires_fixed_tested_background_and_threshold')
         elif self.q_column == 'original_method_adjustment':
             raise ValueError('bulk_native_adjustment_requires_bulk_enrichment')
+        elif self.bulk_background is not None:
+            raise ValueError('bulk_ora_background_requires_bulk_enrichment')
         return self
+
+    @property
+    def bulk_background_method(self):
+        return self.bulk_background or 'complete_tested_gene_universe_intersected_with_collection'
 
 
 class GseaPrerankConfig(EnrichmentConfig):

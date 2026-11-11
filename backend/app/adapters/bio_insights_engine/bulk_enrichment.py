@@ -20,6 +20,10 @@ _MAPPING_CLASSES = {
     'unmapped_feature_id': 'unmapped',
     'invalid_feature_id': 'invalid',
 }
+_ORA_BACKGROUND_EXCLUSIONS = {
+    'not_computable': 'background_not_computable',
+    'missing_metric': 'background_missing_selected_q_or_effect',
+}
 
 
 def load_bulk_result(source, scope, contrast_ids):
@@ -77,12 +81,27 @@ def gene_set_universe(data):
     return {gene for term in data['terms'] for gene in term['genes']}
 
 
-def ora_selection(contrast, config):
+def ora_selection(contrast, config, source_id, contrast_id, exclusions):
     source_rows = {row['feature_id']: row for row in contrast}
     if len(source_rows) != len(contrast):
         raise ValueError('bulk_comparison_duplicate_feature')
     classes = {gene: bulk_row_class(row, config) for gene, row in source_rows.items()}
-    background = {gene for gene, row in source_rows.items() if row['tested']}
+    if config.bulk_background is None:
+        background = {gene for gene, row in source_rows.items() if row['tested']}
+    else:
+        background = set()
+        for gene, row in source_rows.items():
+            category = classes[gene]
+            if category == 'excluded':
+                continue
+            if row['test_status'] != 'tested':
+                category = classes[gene] = 'not_computable'
+            reason = _ORA_BACKGROUND_EXCLUSIONS.get(category)
+            if reason:
+                exclusions.append(dict(result_source_id=source_id, contrast_id=contrast_id, resource_id='',
+                                       feature_id=gene, reason=reason))
+            else:
+                background.add(gene)
     directions = {'up', 'down'} if config.direction == 'both' else {config.direction}
     foreground = {gene for gene in background if classes[gene] in directions}
     return source_rows, classes, background, foreground
@@ -122,7 +141,8 @@ def map_ora_selection(selection, mapper, universe, context, mapping_rows, exclus
     bg, background_coverage = _ora_role_coverage(background, mapped, universe)
     fg, foreground_coverage = _ora_role_coverage(foreground, mapped, universe)
     return bg, fg, dict(**context, background=background_coverage, foreground=foreground_coverage,
-                        not_tested_count=len(source_rows) - len(background), selection_counts=dict(Counter(classes.values())))
+                        not_tested_count=sum(not row['tested'] for row in source_rows.values()),
+                        selection_counts=dict(Counter(classes.values())))
 
 
 def ora_skip_reason(coverage, min_size):

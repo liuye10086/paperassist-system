@@ -30,7 +30,8 @@ def _ora_inputs(comparison, resources, maps, references, config, doc, mapping_ro
     source_id = comparison['source']['source_id']
     expected, sets, coverage = {}, {}, []
     for contrast in config.contrast_ids:
-        selection = ora_selection([row for row in comparison['rows'] if row['contrast_id'] == contrast], config)
+        rows = [row for row in comparison['rows'] if row['contrast_id'] == contrast]
+        selection = ora_selection(rows, config, source_id, contrast, exclusions)
         for source, resource in resources:
             rid = source['source_id']
             universe = gene_set_universe(resource)
@@ -186,6 +187,8 @@ def validate_bulk_enrichment(result, payload, table, doc):
     resource_sha = {source['source_id']: source['sha256'] for source, _ in resources}
     mapping_rows, exclusions = [], []
     if ora:
+        if result['methods'].get('background') != config.bulk_background_method:
+            raise ValueError('bulk_ora_background_method_mismatch')
         expected, coverage = _ora_inputs(comparison, resources, maps, references, config, doc, mapping_rows, exclusions)
     else:
         expected, coverage, curves = _gsea_inputs(comparison, resources, maps, references, config, table, doc,

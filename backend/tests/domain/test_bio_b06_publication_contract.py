@@ -1,5 +1,6 @@
 import csv
 import hashlib
+import json
 from pathlib import Path
 
 import pytest
@@ -15,20 +16,23 @@ def postgres_schema():
 
 
 @pytest.fixture
-def scoped_ora(tmp_path):
+def scoped_ora(tmp_path, request):
     frozen = Writer(tmp_path)
     common = dict(contrast_id='a_vs_b', numerator='A', denominator='B', tested=True,
                   test_status='tested', inference_scope='sample_inference')
-    comparison = frozen.table('comparison_results', [
+    rows = [
         dict(common, feature_id=f'g{i}', row_key=f'r{i}', effect_value=2 if i < 4 else -.5,
              q_within_contrast=.01 if i < 4 else .8, q_global_family=.02, original_method_adjustment=.01,
              wald_statistic=10 - i)
-        for i in range(10)
-    ])
+        for i in range(12)
+    ]
+    rows[10]['test_status'] = 'not_computable'
+    rows[11]['q_within_contrast'] = None
+    comparison = frozen.table('comparison_results', rows)
     resource = frozen.json('resource', dict(schema_version=1, kind='gene_sets', species_taxon_id=9606,
         namespace='ensembl_gene_id', release='v1', usage={'redistribution_allowed': True}, terms=[
             dict(term_id='positive', name='Positive', genes=[f'g{i}' for i in range(4)]),
-            dict(term_id='other', name='Other', genes=[f'g{i}' for i in range(4, 10)]),
+            dict(term_id='other', name='Other', genes=[f'g{i}' for i in range(4, 12)]),
         ]))
     plan = dict(kind='comparison', mode='bulk_counts', bulk_model='shared_wald_v1', species_taxon_id=9606,
                 namespace='Ensembl gene ID', reference_version='v1', contrasts=[dict(contrast_id='a_vs_b',
@@ -43,6 +47,8 @@ def scoped_ora(tmp_path):
     from app.domain.bio_insights.contracts import OraConfig
     config = OraConfig(result_source_ids=['comparison'], resource_source_ids=['collection'], contrast_ids=['a_vs_b'],
                        bulk_enrichment={}, min_size=2, max_size=9).model_dump(mode='json')
+    if getattr(request, 'param', False):
+        config['bulk_background'] = 'computable_selected_q_effect_intersected_with_collection'
     output = tmp_path / 'outputs'
     output.mkdir()
     payload = dict(schema_version=1, kind='bio_enrichment', identity={}, config=config, sources=sources,
@@ -50,6 +56,20 @@ def scoped_ora(tmp_path):
     result = run(payload)
     items = {member['key']: member for member in result['outputs']}
     return payload, result, items
+
+
+@pytest.mark.parametrize('scoped_ora', [True], indirect=True)
+def test_parent_checks_new_background_against_the_frozen_plan(scoped_ora):
+    payload, result, items = scoped_ora
+    _validate_scientific_contract(result, items, payload)
+    coverage = result['methods']['bulk_enrichment']['coverage'][0]
+    assert coverage['background']['effective_count'] == 10
+
+    result['methods']['background'] = 'complete_tested_gene_universe_intersected_with_collection'
+    result['manifest']['methods'] = result['methods']
+    Path(items['methods']['path']).write_text(json.dumps(result['methods']), encoding='utf-8')
+    with pytest.raises(ValueError, match='bulk_ora_background_method_mismatch'):
+        _validate_scientific_contract(result, items, payload)
 
 
 def test_parent_rejects_a_truncated_bulk_enrichment_family_with_updated_member_hash(scoped_ora):

@@ -1,7 +1,9 @@
 import pytest
 from pydantic import ValidationError
 
-from app.domain.bio_insights.contracts import FigureConfig, GseaPrerankConfig, InsightPlanRequest, OraConfig, ResourceImportRequest
+from app.domain.bio_insights.contracts import (
+    FigureConfig, FrozenInsightPlanRequest, GseaPrerankConfig, InsightPlanRequest, OraConfig, ResourceImportRequest,
+)
 from app.domain.bio_insights.service import BioInsightsService
 
 
@@ -42,6 +44,31 @@ def test_fixed_bulk_ora_accepts_native_q_and_preserves_generic_wire():
                     {'result_source_ids': ['fixed', 'another']}):
         with pytest.raises(ValidationError):
             OraConfig.model_validate(options | invalid)
+
+
+def test_authoring_freezes_the_new_ora_background_without_upgrading_saved_wires():
+    def source(key, kind, role):
+        return dict(source_id=key, source_kind=kind, role=role, locator={'kind': 'object'}, sha256='a' * 64)
+
+    sources = [source('fixed', 'bio_insight_result_version', 'result'),
+               source('reactome', 'bio_resource_version', 'gene_sets')]
+    request = dict(kind='ora', name='Fixed ORA', expected_revision=0, sources=sources,
+                   config=ORA | {'bulk_enrichment': DECLARATION})
+    original = InsightPlanRequest.model_validate(request)
+    legacy_wire = original.model_dump(mode='json')
+    assert 'bulk_background' not in legacy_wire['config']
+    assert FrozenInsightPlanRequest.model_validate(legacy_wire).model_dump(mode='json') == legacy_wire
+
+    authored = BioInsightsService._authoring_transform(original)
+    policy = 'computable_selected_q_effect_intersected_with_collection'
+    authored_wire = authored.model_dump(mode='json')
+    assert authored_wire['config']['bulk_background'] == policy
+    assert original.model_dump(mode='json') == legacy_wire
+    assert FrozenInsightPlanRequest.model_validate(authored_wire).model_dump(mode='json') == authored_wire
+    design = preview(authored.config, frozen_result(), local_resource())
+    assert design.executable and design.enrichment_compatibility['background'] == policy
+    with pytest.raises(ValidationError):
+        OraConfig.model_validate(ORA | {'bulk_background': policy})
 
 
 def test_bulk_gsea_requires_fixed_wald_ranking_and_declaration_evidence():

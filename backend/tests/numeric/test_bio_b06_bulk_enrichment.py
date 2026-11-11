@@ -157,6 +157,91 @@ def test_bulk_ora_exact_resource_universe_and_bh_include_zero_hits(tmp_path):
     assert sets['background'] == ['A', 'B', 'F', 'N', 'Z'] and sets['foreground'] == ['A', 'B']
 
 
+def test_bulk_ora_background_requires_computable_rows_and_the_selected_metrics(tmp_path):
+    significant = {'q_within_contrast': .01, 'q_global_family': .01}
+    source = bulk_result(tmp_path, [
+        ('a', significant), ('alias', {}), ('b', significant),
+        ('negative', significant | {'effect_value': -2.}),
+        ('zero', significant | {'effect_value': 0.}),
+        ('weak', significant | {'effect_value': .25}),
+        ('nonsignificant', {'q_within_contrast': 1., 'q_global_family': 1.}),
+        ('missing_q', significant | {'q_within_contrast': None}),
+        ('invalid_q', {'q_within_contrast': 1.1, 'q_global_family': -.01}),
+        ('invalid_effect', significant | {'effect_value': float('inf')}),
+        ('missing_effect', significant | {'effect_value': None}),
+        ('failed', significant | {'test_status': 'not_computable'}),
+        ('excluded', significant | {'tested': False, 'test_status': 'excluded'}),
+        ('out', {}),
+    ])
+    mapping = mapping_source(tmp_path, dict(a='A', alias='A', b='B', negative='N', zero='Z', weak='W',
+        nonsignificant='H', missing_q='Q', invalid_q='O', invalid_effect='E', missing_effect='M',
+        failed='F', excluded='U', out='R'))
+    resource = resource_source(tmp_path, namespace='symbol', terms=[
+        term('hit', 'A', 'B', 'E', 'F'), term('zero_hit', 'H', 'N', 'W', 'Z'),
+        term('only_ineligible', 'Q', 'O', 'M', 'U'),
+    ])
+    sources = [source, resource, mapping]
+    policy = 'computable_selected_q_effect_intersected_with_collection'
+    cfg = ora_config(mapping_source_ids=[MAPPING_ID], q_column='q_within_contrast', bulk_background=policy)
+    result, writer = execute(tmp_path, cfg, sources)
+    assert result['methods']['background'] == policy
+    coverage = result['methods']['bulk_enrichment']['coverage'][0]
+    assert (coverage['background']['original_count'], coverage['background']['effective_count']) == (8, 6)
+    assert coverage['not_tested_count'] == 1
+    assert coverage['selection_counts']['not_computable'] == 1
+    assert coverage['selection_counts']['missing_metric'] == 4
+    sets = artifact_json(writer, 'ora_sets')['families'][0]
+    assert sets['background'] == ['A', 'B', 'H', 'N', 'W', 'Z']
+    assert sets['foreground'] == ['A', 'B']
+    hit, zero = rows(writer, 'enrichment_results')
+    assert hit['term_id'] == 'hit' and zero['term_id'] == 'zero_hit'
+    assert [int(hit[key]) for key in ('N', 'n', 'K', 'k')] == [6, 2, 2, 2]
+    assert float(hit['p_value']) == pytest.approx(1 / 15)
+    assert float(hit['q_value']) == pytest.approx(2 / 15)
+    assert {row['feature_id']: row['reason'] for row in rows(writer, 'mapping_exclusions') if not row['resource_id']} == {
+        'failed': 'background_not_computable',
+        **dict.fromkeys(('missing_q', 'invalid_q', 'invalid_effect', 'missing_effect'), 'background_missing_selected_q_or_effect'),
+    }
+
+    _, alternate = execute(tmp_path, cfg | {'q_column': 'q_global_family'}, sources, 'global')
+    alternate_sets = artifact_json(alternate, 'ora_sets')['families'][0]
+    assert alternate_sets['background'] == sorted([*sets['background'], 'Q'])
+    assert alternate_sets['foreground'] == ['A', 'B', 'Q']
+
+    _, strict = execute(tmp_path, cfg | {'direction': 'down', 'q_threshold': 0.}, sources, 'strict')
+    strict_sets = artifact_json(strict, 'ora_sets')['families'][0]
+    assert strict_sets['background'] == sets['background']
+    assert strict_sets['foreground'] == []
+
+
+def test_bulk_ora_background_uses_only_rows_from_its_contrast(tmp_path):
+    reverse = {'contrast_id': 'c2', 'numerator': 'A', 'denominator': 'B'}
+    source = bulk_result(tmp_path, [
+        ('a', {}), ('b', {'original_method_adjustment': None}), ('common', {'original_method_adjustment': .8}),
+        ('a', reverse | {'test_status': 'not_computable'}), ('b', reverse),
+        ('common', reverse | {'original_method_adjustment': .8}),
+    ])
+    plan = source['metadata']['plan_config']
+    plan['family_contrast_ids'].append('c2')
+    plan['contrasts'].append({'contrast_id': 'c2', 'groups': [{'label': 'A'}, {'label': 'B'}]})
+    terms = [term('shared', 'a', 'b', 'common')]
+    resources = [resource_source(tmp_path, sid=sid, namespace='ensembl_gene_id', terms=terms)
+                 for sid in ('resource1', 'resource2')]
+    cfg = ora_config(contrast_ids=['c1', 'c2'], resource_source_ids=[r['source_id'] for r in resources],
+                     bulk_background='computable_selected_q_effect_intersected_with_collection')
+    _, writer = execute(tmp_path, cfg, [source, *resources])
+    families = artifact_json(writer, 'ora_sets')['families']
+    assert len(families) == 4
+    for family in families:
+        selected = {'c1': 'a', 'c2': 'b'}[family['contrast_id']]
+        assert family['background'] == [selected, 'common']
+        assert family['foreground'] == [selected]
+    audit = rows(writer, 'mapping_exclusions')
+    assert [(row['contrast_id'], row['feature_id'], row['resource_id']) for row in audit] == [
+        ('c1', 'b', ''), ('c2', 'a', ''),
+    ]
+
+
 @pytest.mark.parametrize(('selected', 'terms', 'min_size', 'reason'), [
     ('zero', [term('bg', 'zero', 'bg')], 1, 'empty_foreground'),
     ('out', [term('bg', 'zero', 'bg')], 1, 'empty_effective_foreground'),

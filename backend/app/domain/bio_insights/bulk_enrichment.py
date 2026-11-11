@@ -94,6 +94,8 @@ def preview_bulk_enrichment(config, sources):
     summary = metadata.get('summary_json') or metadata.get('manifest', {}).get('summary', {})
     reasons = []
     compatibility = {'source': None, 'resources': []}
+    if ora:
+        compatibility['background'] = config.bulk_background_method
     try:
         if (source.get('source_kind') != 'bio_insight_result_version' or not is_reviewed_bulk(metadata)
                 or summary.get('tested_universe_complete') is not True or 'comparison_results' not in source['members']):

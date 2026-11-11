@@ -25,7 +25,7 @@ import BulkEnrichmentSetup,{BulkEnrichmentBinding,BulkEnrichmentCompatibility,Bu
 import CandidateRecipe from './CandidateRecipe'
 import FigureSetup from './FigureSetup'
 import BulkPlanSettings from './BulkPlanSettings'
-import {bulkFigureLabels,bulkPanels,bulkPlanScope,fixedBulkEnrichmentIdentity,isBulkFigureType,isBulkPanel,type BulkPlanSeed} from './bulk'
+import {BULK_ORA_ELIGIBLE_BACKGROUND,bulkFigureLabels,bulkPanels,bulkPlanScope,fixedBulkEnrichmentIdentity,isBulkFigureType,isBulkPanel,type BulkPlanSeed} from './bulk'
 import {Field,ConfigField,DataDetails,IntentState,ReadState,TaskStatus,DesignUnits} from './InsightShared'
 type Draft={name:string;config:Config;sources:Source[];savedPlan?:Plan}
 export default function InsightPlanEditor({projectId,kind,active,initial,initialProcessedId,initialResultId,bulkSeed,entryIntent,onSaved,onRun,registerLeaveGuard,allowNewAnalysis=true}:{allowNewAnalysis?:boolean;projectId:string;kind:InsightKind;active:boolean;initial?:Plan|null;initialProcessedId?:string;initialResultId?:string;bulkSeed?:BulkPlanSeed;entryIntent?:AnalysisEntryIntent;onSaved:(v:Plan)=>void;onRun:(v:Run)=>void;registerLeaveGuard?:RegisterLeaveGuard}){
@@ -89,6 +89,7 @@ export default function InsightPlanEditor({projectId,kind,active,initial,initial
  const initialStep=initial?.decision==='confirmed'?'review':fixedEntry?'config':'sources'
  const [step,setStep]=useState<'sources'|'config'|'review'>(initialStep),[configPanel,setConfigPanel]=useState('parameters'),[reviewPanel,setReviewPanel]=useState('summary')
  const runnable=!!savedPlan&&sameSaved&&savedPlan.decision==='confirmed'&&savedPlan.design.executable&&savedPlan.current_revision===savedPlan.revision&&!issues.length
+ const eligibleBackground=!(sameSaved&&savedPlan?.decision==='confirmed')||savedPlan.config.bulk_background===BULK_ORA_ELIGIBLE_BACKGROUND
  const canStart=bulk?runnable:currentPreview?validPreview:!bulkEnrichment||runnable
  async function saveOnly(){
   if(!alive.current||!context.current.active||launching.current||locked||!canSave)return
@@ -147,7 +148,7 @@ export default function InsightPlanEditor({projectId,kind,active,initial,initial
  {kind==='comparison'&&<><Field label="比较数据类型" value={draft.config.schema_version===5?'single_cell_composition':draft.config.single_cell_selection?'single_cell_de':draft.config.schema_version===4?'microbiome':draft.config.schema_version===3?'qpcr':draft.config.schema_version===2?'sample':'spatial'} onChange={v=>change({...(v==='single_cell_composition'?defaultSingleCellComposition():v==='single_cell_de'?defaultSingleCellDE():v==='microbiome'?defaultMicrobiomeConfig():v==='qpcr'?defaultQpcrConfig():v==='sample'?defaultQuantitativeConfig():defaultConfig('comparison')),output_language:draft.config.output_language})}><option value="single_cell_composition">单细胞供者组成（描述／propeller）</option><option value="single_cell_de">同细胞类型供者差异表达</option><option value="spatial">{t('空间区域／供体比较')}</option><option value="sample">{t('bulk／蛋白／代谢样本比较')}</option><option value="qpcr">qPCR 逐孔长表</option><option value="microbiome">微生物组组成与多样性</option></Field><p>{t('切换数据类型会重置当前比较设计；固定来源保留，已保存版本不变。')}</p></>}{kind==='integration'&&<Field label="分析类型" value={draft.config.schema_version===2?'single_cell_topic':'integration'} onChange={v=>change({...v==='single_cell_topic'?defaultSingleCellTopic(initialProcessedId):defaultConfig('integration'),output_language:draft.config.output_language})}><option value="single_cell_topic">单细胞轨迹／调控／通讯</option><option value="integration">多组学与跨数据整合</option></Field>}
  {enrichmentFigure?<BulkEnrichmentFigureSetup {...p}/>:bulkEnrichment?<><ReadState {...enrichmentInput}/>
   <BulkEnrichmentSetup projectId={projectId} active={active&&step==='config'&&configPanel==='parameters'}
-   result={enrichmentInput.data} onResources={selectEnrichmentResources} {...p}/></>
+   result={enrichmentInput.data} onResources={selectEnrichmentResources} eligibleBackground={eligibleBackground} {...p}/></>
   :bulkFixed?<BulkPlanSettings projectId={projectId} active={active&&step==='config'&&configPanel==='parameters'} {...p}/>:kind==='integration'&&draft.config.schema_version===2?<SingleCellTopicSetup projectId={projectId} {...p}/>:kind==='integration'?<IntegrationSetup {...p}/>:kind==='feature_extract'?<FeatureExtractionSetup {...p}/>:kind==='comparison'&&draft.config.schema_version===4?<MicrobiomeSetup {...p}/>:kind==='comparison'&&draft.config.schema_version===3?<QpcrSetup {...p}/>:kind==='comparison'?<ComparisonSetup projectId={projectId} {...p}/>:kind==='result_import'?<ResultImportSetup {...p}/>:kind==='ora'||kind==='gsea_prerank'?<EnrichmentSetup {...p}/>:kind==='candidate'&&draft.config.schema_version===2?<EvidenceLinks projectId={projectId} {...p}/>:kind==='candidate'?<CandidateRecipe projectId={projectId} {...p}/>:<FigureSetup projectId={projectId} {...p}/>}</div>
     {issues.map(issue=><p role="alert" key={issue}>{t(issue)}</p>)}
    </div>
@@ -157,7 +158,7 @@ export default function InsightPlanEditor({projectId,kind,active,initial,initial
     {reviewedBulk&&sameSaved&&savedPlan?.decision==='confirmed'&&!draft.config.continuous_transform&&Array.isArray(draft.config.covariates)&&draft.config.covariates.some((c: {kind?:string})=>c.kind==='continuous')&&<div className="warning-panel"><p>{t('此版本的连续协变量采用旧版缩放。重新预检并确认可生成使用新版缩放的方案。')}</p><button type="button" onClick={()=>change({...draft.config,continuous_transform:'centered_range_v2'})}>{t('重新审核新版缩放')}</button></div>}
     {initial&&initial.current_revision!==initial.revision&&<p role="status">{t('当前查看历史版本；保存需要先核对最新版本，不能隐式覆盖。')}</p>}
     <p>{t(runnable?'来源和参数未变，将使用已保存的分析设置。':bulk?'先预检并核对最终设计，再确认模型。确认后可单独启动计算。':bulkEnrichment?'先预检固定来源与资源兼容性，再运行富集。':bulkFixed?'按当前设置生成新版本，只读取已保存的来源。':'开始分析时会先检查并保存本次设置，已有结果保留。')}</p>
-    {bulkEnrichment&&<><BulkEnrichmentBinding config={draft.config} source={enrichmentSource} result={enrichmentInput.data}/><ReadState {...enrichmentInput}/></>}
+    {bulkEnrichment&&<><BulkEnrichmentBinding config={draft.config} source={enrichmentSource} result={enrichmentInput.data} eligibleBackground={eligibleBackground}/><ReadState {...enrichmentInput}/></>}
     <div className="intake-actions">
      <button type="button" disabled={!canSave} onClick={()=>void check()}>{t('预检当前设计')}</button>
      {bulk&&<button type="button" disabled={!allowNewAnalysis||!validPreview||runnable||reviewedBulk&&!currentPreview?.reviewed_design_sha256} onClick={()=>void confirmBulk()}>{t('确认并保存 Bulk 模型')}</button>}

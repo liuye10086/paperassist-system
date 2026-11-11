@@ -154,6 +154,7 @@ it('reopens a saved B06 plan with its fixed comparison and saved compatibility c
     :fallback(url,init))
   render(<BioInsightsWorkspace projectId="p1" active navigation={{view:'bio-insight-plan',fileId:'',planId:'fixed-plan',planVersionId:'frozen-version'}} onNavigate={vi.fn()}/>)
   await screen.findByRole('heading',{name:'Saved ORA'})
+  expect(screen.getAllByText('此版本以该比较完整的受检基因为背景。').length).toBeGreaterThan(0)
   expect(screen.getByRole('table',{name:'固定资源兼容性'})).toBeTruthy()
   fireEvent.click(screen.getByRole('button',{name:'配置分析'}))
   const parameters = screen.getByRole('heading',{name:'固定 Bulk ORA'}).closest('section')!
@@ -191,6 +192,20 @@ it('shows an empty ORA foreground as not applicable and labels its term adjustme
   expect(screen.getByText('固定筛选得到空前景。')).toBeTruthy()
   expect(screen.getByText('ORA BH q')).toBeTruthy()
   expect(screen.queryByText('无显著富集条目')).toBeNull()
+})
+
+it.each([
+  [undefined,'受检背景','此版本以该比较完整的受检基因为背景。'],
+  ['computable_selected_q_effect_intersected_with_collection','可计算背景','背景包含该比较中检验可计算、所选 q 值与效应值均有效的基因。'],
+])('shows the saved ORA background rule and mapping coverage for %s',async (background,label,description) => {
+  mockRequests({result:{...gsea,kind:'ora',methods:{background,bulk_enrichment:{
+    source_reference:compatibility.source,resource_references:{'go-local':compatibility.resources[0]},
+    coverage:[{result_source_id:comparison.id,contrast_id:'reverse',resource_id:'go-local',
+      background:{original_count:10,effective_count:8},foreground:{original_count:3,effective_count:2}}],
+  }}}})
+  openResult(gsea.id)
+  expect(await screen.findByText(description)).toBeTruthy()
+  expect(within(screen.getByRole('table',{name:'富集 ID 映射覆盖'})).getByText(label)).toBeTruthy()
 })
 
 it('generates an enrichment bar figure from the published result and the saved adjustment order',async () => {

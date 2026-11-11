@@ -27,7 +27,15 @@ export function OraForeground({direction,qColumn,qThreshold,effect}:{direction:u
  return <p>{t(label)} · {t(bulkQColumns[q as BulkQColumn]??q)} ({q}) · q ≤ {String(qThreshold)} · |log2FC| ≥ {String(effect)}</p>
 }
 
-export function BulkEnrichmentBinding({config,source,result}:{config:Config;source?:Source;result:Result|null}) {
+export function OraBackground({eligible}:{eligible:boolean}) {
+ const {t} = useI18n()
+ return <p>{t(eligible?'背景包含该比较中检验可计算、所选 q 值与效应值均有效的基因。'
+  :'此版本以该比较完整的受检基因为背景。')}</p>
+}
+
+export function BulkEnrichmentBinding({config,source,result,eligibleBackground}:{
+ config:Config;source?:Source;result:Result|null;eligibleBackground:boolean
+}) {
  const {t} = useI18n()
  const gsea = config.kind==='gsea_prerank'
  const saved = result?.methods.config as {contrasts?:{contrast_id:string;groups?:{label:string}[]}[]}|undefined
@@ -40,12 +48,13 @@ export function BulkEnrichmentBinding({config,source,result}:{config:Config;sour
     ?bulkComparisonLabel({contrast_id:id,numerator:groups[0].label,denominator:groups[1].label}):<code>{id}</code>}</span>
   })}</p>
   {gsea?<p>{t('排序统计量')} <code>wald_statistic</code> · {t('完整排名使用检验状态为可计算的全部有限有符号 Wald 统计量。Cook 过滤等不可计算行保留在映射审计。')}</p>
-   :<OraForeground direction={config.direction} qColumn={config.q_column} qThreshold={config.q_threshold} effect={config.minimum_absolute_effect}/>}
+   :<><OraForeground direction={config.direction} qColumn={config.q_column} qThreshold={config.q_threshold} effect={config.minimum_absolute_effect}/>
+    <OraBackground eligible={eligibleBackground}/></>}
  </>
 }
 
-export default function BulkEnrichmentSetup({config,onChange,sources,projectId,active,result,onResources}:ConfigProps&{
- projectId:string;active:boolean;result:Result|null;onResources:(resources:Source[])=>void
+export default function BulkEnrichmentSetup({config,onChange,sources,projectId,active,result,onResources,eligibleBackground}:ConfigProps&{
+ projectId:string;active:boolean;result:Result|null;onResources:(resources:Source[])=>void;eligibleBackground:boolean
 }) {
  const {t} = useI18n()
  const gsea = config.kind==='gsea_prerank'
@@ -56,8 +65,8 @@ export default function BulkEnrichmentSetup({config,onChange,sources,projectId,a
  const params = {config,onChange}
  return <section>
   <h3>{t(gsea?'固定 Bulk GSEA':'固定 Bulk ORA')}</h3>
-  <BulkEnrichmentBinding {...{config,source,result}}/>
-  {!gsea&&<p>{t('背景为该比较完整的受检基因。空前景会记录为不适用。')}</p>}
+  <BulkEnrichmentBinding {...{config,source,result,eligibleBackground}}/>
+  {!gsea&&<p>{t('空前景会记录为不适用。')}</p>}
   {result&&<div className="analysis-detail">
    <dl>
     <dt>{t('来源命名空间')}</dt><dd>{identity.namespace??t('未登记')}</dd>

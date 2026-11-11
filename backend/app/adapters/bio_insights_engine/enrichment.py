@@ -110,7 +110,7 @@ def _ora(payload,config,writer):
             contrast=[row for row in result['rows'] if row['contrast_id']==cid]
             if not contrast:raise ValueError('selected_contrast_missing')
             if bulk:
-                selection=ora_selection(contrast,config)
+                selection=ora_selection(contrast,config,sid,cid,exclusions)
             else:
                 tested=[row for row in contrast if row['tested']]
                 if explicit_background is None:
@@ -206,7 +206,7 @@ def _ora(payload,config,writer):
              'significant_terms':significant,'result_member_key':'enrichment_results',
              'family':families,'excluded_terms':len(term_exclusions)}
     if bulk:
-        methods['background']='complete_tested_gene_universe_intersected_with_collection'
+        methods['background']=config.bulk_background_method
         bulk_result_status(bulk_result,references,coverage,summary,methods,significant)
     return {'summary':summary,
             'methods':methods,'inference_scope':'derived','provenance':{'system_computed':True,'upstream':upstream,

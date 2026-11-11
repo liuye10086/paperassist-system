@@ -1,9 +1,9 @@
 import {useState} from 'react'
 import {useI18n} from '../../shared/i18n'
 import type {AnalysisNavigation} from '../projects/analysisViews'
-import {bulkEnrichmentContrast, type BulkPlanSeed} from './bulk'
+import {BULK_ORA_ELIGIBLE_BACKGROUND, bulkEnrichmentContrast, type BulkPlanSeed} from './bulk'
 import type {Config, EnrichmentResourceIdentity, EnrichmentSourceIdentity, Result} from './contracts'
-import {BulkEnrichmentCompatibility, OraForeground} from './BulkEnrichmentSetup'
+import {BulkEnrichmentCompatibility, OraBackground, OraForeground} from './BulkEnrichmentSetup'
 import {Field} from './InsightShared'
 import {defaultConfig, text} from './state'
 
@@ -55,6 +55,7 @@ export default function BulkEnrichmentResult({result,onPlan,onNavigate}:{
  const {t} = useI18n()
  const [selection,setSelection] = useState('')
  const gsea = result.kind==='gsea_prerank'
+ const eligibleBackground = result.methods.background===BULK_ORA_ELIGIBLE_BACKGROUND
  const audit = methods(result)
  const {enrichment_status,not_applicable_reason,significant_terms} = result.summary
  const status = text(enrichment_status)
@@ -73,8 +74,9 @@ export default function BulkEnrichmentResult({result,onPlan,onNavigate}:{
   {typeof significant_terms==='number'&&status!=='not_applicable'&&<p>{t('显著条目 {count} 项（调整指标 ≤ 0.05）。',{count:significant_terms})}</p>}
   <p><strong>{gsea?'GSEA FDR':'ORA BH q'}</strong> · {t(gsea?'置换联合零分布校正。':'固定富集检验族内的 BH 校正。')}</p>
   {gsea?<p>{t('NES 为正表示基因集富集在分子组方向，NES 为负表示富集在分母组方向。0 保留为经验置换估计值，精度由置换次数限定。')}</p>
-   :<OraForeground direction={result.methods.direction} qColumn={result.methods.q_column}
-    qThreshold={result.methods.q_threshold} effect={result.methods.minimum_absolute_effect}/>}
+   :<><OraForeground direction={result.methods.direction} qColumn={result.methods.q_column}
+    qThreshold={result.methods.q_threshold} effect={result.methods.minimum_absolute_effect}/>
+    <OraBackground eligible={eligibleBackground}/></>}
   {gsea&&status!=='not_applicable'&&!!scope?.ranking?.tied_rank_count&&<p>{t('相同分值按稳定基因 ID 排序。')}</p>}
   {scope&&<p>{t('固定来源版本')} <code>{scope.result_source_id}</code> · {t('固定比较')} {contrasts.join(' · ')}</p>}
   <div className="intake-actions">
@@ -88,16 +90,18 @@ export default function BulkEnrichmentResult({result,onPlan,onNavigate}:{
    </>}
   </div>
   <BulkEnrichmentCompatibility value={{source:audit.source_reference,resources}}/>
-  <MappingCoverage coverage={audit.coverage} resources={resources}/>
+  <MappingCoverage coverage={audit.coverage} resources={resources} eligibleBackground={eligibleBackground}/>
  </section>
 }
 
-function MappingCoverage({coverage,resources}:{coverage:Coverage[];resources:EnrichmentResourceIdentity[]}) {
+function MappingCoverage({coverage,resources,eligibleBackground}:{
+ coverage:Coverage[];resources:EnrichmentResourceIdentity[];eligibleBackground:boolean
+}) {
  const {t} = useI18n()
  const name = (id:string) => resources.find(resource=>resource.resource_id===id)?.release??id
  const scopes = coverage.flatMap(scope=>scope.ranking
   ?[{scope,role:'完整排序',counts:scope.ranking}]
-  :[{scope,role:'受检背景',counts:scope.background},{scope,role:'筛选前景',counts:scope.foreground}])
+  :[{scope,role:eligibleBackground?'可计算背景':'受检背景',counts:scope.background},{scope,role:'筛选前景',counts:scope.foreground}])
  const rankingResources = coverage.flatMap(scope=>Object.entries(scope.resources??{}).map(([id,counts])=>({scope,id,counts})))
  if (!scopes.length) return null
  return <section>
