@@ -12,6 +12,7 @@ from app.adapters.storage import _storage_connection
 from app.core.exceptions import StorageError
 from contextlib import contextmanager
 from app.db.database import ensure_schema_current
+from app.auth.accounts import canonical_role
 from app.auth.config import settings
 from app.auth.revocations import invalidate_recovery_codes, revoke_sessions, session_expiry_reason
 
@@ -58,8 +59,7 @@ def public_user(row):
 
 def _create(email, password, role, bootstrap, operator=None):
     email = normalize_email(email)
-    if role not in ("user", "admin"):
-        raise ValueError("无效账号角色。")
+    role = canonical_role(role)
     hashed = password_hash(password)
     result = dict(id=str(uuid4()), email=email, role=role, ui_language="zh-CN")
     with auth_connection(write=True) as db:
@@ -92,7 +92,7 @@ def _create(email, password, role, bootstrap, operator=None):
     return result
 
 
-def create_user(email, password, role="user", claim_legacy=False, *, operator=None):
+def create_user(email, password, role="analyst", claim_legacy=False, *, operator=None):
     if claim_legacy:
         raise ValueError("历史项目只能通过 bootstrap_admin 认领。")
     return _create(email, password, role, False,operator)
@@ -106,9 +106,11 @@ def _change(email, field, value, reason, operator=None):
     email = normalize_email(email)
     with auth_connection(write=True) as db:
         ensure_schema_current(db)
-        row = db.execute("SELECT id,role,active FROM users WHERE email = %s", (email,)).fetchone()
+        row = db.execute("SELECT id,role,active,review_status FROM users WHERE email = %s", (email,)).fetchone()
         if not row:
             raise AccountValidationError("账号不存在。")
+        if row['review_status'] != 'approved':
+            raise AccountValidationError('账号须先通过审核。')
         from app.domain.admin_operations import audit_account, guard_last_admin
         if field=='active':
             guard_last_admin(db,row,row['role'],value)
@@ -143,6 +145,7 @@ def authenticate(email, password, ip):
     now = time.time()
     limited = False
     result = None
+    blocked = None
     with auth_connection(write=True) as db:
         ensure_schema_current(db)
         db.execute(
@@ -164,11 +167,18 @@ def authenticate(email, password, ip):
                 )
             except (VerificationError, InvalidHashError):
                 valid = False
-            if not row or not row["active"] or not valid:
+            if not row or not valid or not row['active']:
                 db.execute(
                     "INSERT INTO auth_login_attempts (email,client_ip,attempted_at) VALUES (%s,%s,%s)",
                     (email, ip, now),
                 )
+                if row and valid:
+                    if row['review_status'] == 'pending':
+                        blocked = StorageError('account_pending_review', '账号正在等待管理员审核。', 403)
+                    elif row['review_status'] == 'rejected':
+                        blocked = StorageError('account_review_rejected', '账号注册申请未通过审核。', 403)
+                    else:
+                        blocked = StorageError('account_disabled', '账号已停用。', 401)
             else:
                 config = settings()
                 token, csrf = secrets.token_urlsafe(32), secrets.token_urlsafe(32)
@@ -191,6 +201,8 @@ def authenticate(email, password, ip):
                 result = (token, {"user": public_user(row), "csrf_token": csrf})
     if limited:
         raise StorageError("login_rate_limited", "登录尝试过多，请稍后重试。", 429)
+    if blocked is not None:
+        raise blocked
     if result is None:
         raise StorageError("invalid_credentials", "账号或密码错误。", 401)
     return result

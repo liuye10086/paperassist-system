@@ -5,18 +5,19 @@ import { useEffect, useRef, useState } from 'react'
 import { onApiSessionChanged } from '../../shared/api/client'
 import { safeError, useI18n } from '../../shared/i18n'
 import { taskRequest } from './taskApi'
-import { isTaskPage, statusNames, taskDisplayName, taskPhaseName, taskNames, type TaskPage } from './taskTypes'
+import { isTaskPage, statusNames, taskDisplayName, taskPhaseName, taskNames, type TaskPage, type TaskType } from './taskTypes'
 import TaskDetail from './TaskDetail'
 import { useDocumentVisible } from './useDocumentVisible'
 import './task.css'
 
-type Props = { detailView?: TaskDetailView; onDetailViewChange?: (view: TaskDetailView) => void; registerLeaveGuard?: RegisterLeaveGuard; projectId: string; active: boolean; selectedTaskId: string; onSelectTask: (id: string) => void; onOpenFiles?: () => void; onOpenManuscripts?:()=>void; onOpenJournals?:()=>void; onOpenLiterature?: (searchId:string)=>void }
+const resultKinds: TaskType[] = ['statistics_compute', 'boxplot', 'figure_workbench', 'figure_explanation', 'explanation', 'word_report', 'collection_word_report']
+type Props = { assigned?: boolean; resultsOnly?: boolean; detailView?: TaskDetailView; onDetailViewChange?: (view: TaskDetailView) => void; registerLeaveGuard?: RegisterLeaveGuard; projectId: string; active: boolean; selectedTaskId: string; onSelectTask: (id: string) => void; onOpenFiles?: () => void; onOpenManuscripts?:()=>void; onOpenJournals?:()=>void; onOpenLiterature?: (searchId:string)=>void }
 export default function ProjectTasks(props: Props) {
   const [visited, setVisited] = useState(props.active)
   if (props.active && !visited) setVisited(true)
   return visited || props.active ? <Tasks key={props.projectId} {...props} /> : null
 }
-function Tasks({ projectId, active, selectedTaskId, onSelectTask, onOpenFiles, onOpenLiterature, onOpenManuscripts, onOpenJournals, detailView, onDetailViewChange, registerLeaveGuard }: Props) {
+function Tasks({ projectId, active, selectedTaskId, onSelectTask, onOpenFiles, onOpenLiterature, onOpenManuscripts, onOpenJournals, detailView, onDetailViewChange, registerLeaveGuard, resultsOnly = false, assigned = false }: Props) {
   const { t, locale } = useI18n()
   const visible = useDocumentVisible()
   const layered = detailView !== undefined && onDetailViewChange !== undefined
@@ -26,8 +27,8 @@ function Tasks({ projectId, active, selectedTaskId, onSelectTask, onOpenFiles, o
   const detailIds = selectedTaskId && !visitedTasks.includes(selectedTaskId) ? [...visitedTasks, selectedTaskId] : visitedTasks
   const [data, setData] = useState<TaskPage | null>(null)
   const [page, setPage] = useState(1)
-  const [status, setStatus] = useState('')
-  const [kind, setKind] = useState('')
+  const [status, setStatus] = useState(resultsOnly ? 'succeeded' : '')
+  const [kind, setKind] = useState(resultsOnly ? resultKinds[0] : '')
   const [attempt, setAttempt] = useState(0)
   const [loading, setLoading] = useState(active)
   const [error, setError] = useState('')
@@ -62,24 +63,26 @@ function Tasks({ projectId, active, selectedTaskId, onSelectTask, onOpenFiles, o
     request.current?.abort(); setData(null); setPage(1); setLoading(true); setError('')
     if (type === 'status') setStatus(next); else setKind(next)
   }
-  return <section className="project-tasks" hidden={!active} aria-label={t('项目任务')}>
+  const title = t(resultsOnly ? '表格分析结果' : '项目任务')
+  const kinds = resultsOnly ? resultKinds : Object.keys(taskNames) as TaskType[]
+  return <section className="project-tasks" hidden={!active} aria-label={title}>
     <div hidden={layered && !!selectedTaskId} className="task-list-view">
-    <div className="task-page-heading"><div><h2>{t('项目任务')}</h2></div>
-      <button type="button" disabled={loading || !sessionValid} onClick={() => { setLoading(true); setError(''); setAttempt(value => value + 1) }}>{t('刷新任务列表')}</button></div>
-    <p className="task-scope-note">{t('这里展示统一任务及历史绘图、解释任务。')}</p>
-    <div className="task-filters"><label>{t('任务类型')}<select value={kind} onChange={event => filters(event.target.value, 'kind')}>
-      <option value="">{t('全部类型')}</option>{Object.entries(taskNames).map(([value, label]) => <option key={value} value={value}>{t(label)}</option>)}</select></label>
-      <label>{t('任务状态')}<select value={status} onChange={event => filters(event.target.value, 'status')}>
-        <option value="">{t('全部状态')}</option>{Object.entries(statusNames).map(([value, label]) => <option key={value} value={value}>{t(label)}</option>)}</select></label></div>
+    <div className="task-page-heading"><div><h2>{title}</h2></div>
+      <button type="button" disabled={loading || !sessionValid} onClick={() => { setLoading(true); setError(''); setAttempt(value => value + 1) }}>{t(resultsOnly ? '刷新成果' : '刷新任务列表')}</button></div>
+    {!resultsOnly && <p className="task-scope-note">{t('这里展示统一任务及历史绘图、解释任务。')}</p>}
+    <div className="task-filters"><label>{t(resultsOnly ? '成果类型' : '任务类型')}<select value={kind} onChange={event => filters(event.target.value, 'kind')}>
+      {!resultsOnly && <option value="">{t('全部类型')}</option>}{kinds.map(value => <option key={value} value={value}>{t(taskNames[value])}</option>)}</select></label>
+      {!resultsOnly && <label>{t('任务状态')}<select value={status} onChange={event => filters(event.target.value, 'status')}>
+        <option value="">{t('全部状态')}</option>{Object.entries(statusNames).map(([value, label]) => <option key={value} value={value}>{t(label)}</option>)}</select></label>}</div>
     {!sessionValid && <p role="alert">{t('会话已失效，请重新登录。')}</p>}
     {loading && <p role="status">{t('正在读取项目任务……')}</p>}
     {error && <p role="alert" className="error-panel">{t(error)}</p>}
     {data && <div className="task-list-panel">
-      {!data.total ? <p className="task-empty">{t('此筛选下没有任务。')}</p> : <>
-        <div className="task-table-scroll"><table><caption className="visually-hidden">{t('项目任务列表')}</caption>
+      {!data.total ? <p className="task-empty">{t(resultsOnly ? '此类型暂无已完成的分析成果。' : '此筛选下没有任务。')}</p> : <>
+        <div className="task-table-scroll"><table><caption className="visually-hidden">{resultsOnly ? title : t('项目任务列表')}</caption>
           <thead><tr><th scope="col">{t('任务')}</th><th scope="col">{t('状态与阶段')}</th><th scope="col">{t('输入来源')}</th><th scope="col">{t('更新时间')}</th></tr></thead>
           <tbody>{data.items.map(({ task, source }) => <tr key={task.id} aria-selected={selectedTaskId === task.id}>
-            <td><button type="button" className="task-open button-quiet" aria-label={t('查看{type}任务', { type: t(taskNames[task.task_type]) })}
+            <td><button type="button" className="task-open button-quiet" aria-label={t(resultsOnly ? '查看{type}成果' : '查看{type}任务', { type: t(taskNames[task.task_type]) })}
               onClick={() => onSelectTask(task.id)}>{t(taskNames[task.task_type])}</button>{task.origin === 'legacy' && <small>{t('历史任务')}</small>}</td>
             <td><span className={`task-status task-status-${task.status}`}>{t(taskDisplayName(task))}</span><small>{t(taskPhaseName(task))}</small></td>
             <td><strong>{source.filename||t('研究材料')}</strong>{source.dataset_source && <SourceSummary source={source.dataset_source} filename={source.filename} />}<small>{task.task_type.startsWith('bio_')?t(task.task_type==='bio_figure'?'固定处理结果与绘图参数':'固定生信来源与任务参数'):task.input_version.kind==='review_revision'?t('固定的意见计划、父稿与具体修改'):task.input_version.kind==='review_document_export'?t('固定独立成果版本与 DOCX 来源'):task.input_version.kind==='review_round_plan'?t('冻结的意见来源与固定稿件版本'):task.input_version.kind==='journal_adaptation'?t('冻结的期刊适配输入、所选动作与父稿'):task.input_version.kind==='journal_format_check'?t('冻结的目标、指南要求与稿件版本'):task.input_version.kind==='journal_recommendation'?t('冻结的期刊建议输入与来源'):task.input_version.kind==='pdf_export'?t('已冻结的 DOCX 来源'):task.input_version.kind==='manuscript'?t('已冻结的稿件资料'):task.task_type==='literature_assistance'?t('冻结的文献建议输入'):task.task_type==='literature_search'?t('已冻结的文献检索条件'):['parse_file', 'extract_dataset', 'review_ocr'].includes(task.task_type) ? t(task.task_type === 'review_ocr' ? '原图转录核对' : task.task_type === 'extract_dataset' ? '本地 Excel 结构提取' : '本地文件解析') : task.task_type === 'prepare_dataset' ? t('本地数据整理') : task.task_type === 'analysis_plan' ? t('整理数据分析计划') : t('分析配置 v{revision}', { revision: task.input_version.setup_revision ?? 0 })}</small>
@@ -95,10 +98,10 @@ function Tasks({ projectId, active, selectedTaskId, onSelectTask, onOpenFiles, o
     </div>
     {layered && selectedTaskId && <div className="task-detail-back"><button type="button" className="button-quiet" onClick={() => onSelectTask('')}>{t('返回任务列表')}</button></div>}
     {sessionValid && detailIds.map(id => <div key={id} hidden={!active || id !== selectedTaskId}>
-      <TaskDetail onOpenJournals={onOpenJournals} onOpenManuscripts={onOpenManuscripts} projectId={projectId} taskId={id}
+      <TaskDetail allowUsage={!assigned} onOpenJournals={onOpenJournals} onOpenManuscripts={onOpenManuscripts} projectId={projectId} taskId={id}
         active={active && id === selectedTaskId} view={layered ? detailView : undefined} onViewChange={onDetailViewChange} registerLeaveGuard={registerLeaveGuard}
         onChanged={() => setAttempt(value => value + 1)} onOpenFiles={onOpenFiles} onOpenLiterature={onOpenLiterature} />
     </div>)}
-    {!layered && sessionValid && !selectedTaskId && <p className="task-empty">{t('选择任务，查看详细记录。')}</p>}
+    {!resultsOnly && !layered && sessionValid && !selectedTaskId && <p className="task-empty">{t('选择任务，查看详细记录。')}</p>}
   </section>
 }

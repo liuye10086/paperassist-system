@@ -3,9 +3,10 @@ from datetime import datetime
 from typing import Annotated,Literal
 
 from fastapi import APIRouter,Depends,Query,Request
-from pydantic import BaseModel,BeforeValidator,ConfigDict,Field,field_validator,model_validator
+from pydantic import AfterValidator,BaseModel,BeforeValidator,ConfigDict,Field,field_validator,model_validator
 
 from app.api.tasks import decimal_query_integer
+from app.auth.accounts import AccountRole, AccountRoleInput, ReviewStatus
 from app.db.database import database_connection
 from app.domain.admin_operations import AdminOperations,require_identity
 from app.domain.admin_usage import UsageReporting
@@ -41,14 +42,20 @@ class TimeRange(QueryContract):
 
 class UsersQuery(Paging):
     q:str|None=Field(default=None,min_length=1,max_length=254)
-    role:Literal['user','admin']|None=None
+    role:AccountRoleInput|None=None
     active:bool|None=None
+    review_status:ReviewStatus|None=None
 
     @field_validator('active',mode='before')
     @classmethod
     def exact_boolean(cls,value):
         if value not in (None,True,False,'true','false'):raise ValueError('启用筛选须为true或false。')
         return value
+
+
+class RegistrationsQuery(Paging):
+    review_status: ReviewStatus = 'pending'
+    q: str | None = Field(default=None, min_length=1, max_length=254, pattern=r'^[^\x00-\x1f\x7f]+$')
 
 
 class TaskQuery(Paging,TimeRange):
@@ -95,20 +102,40 @@ class AuditQuery(Paging,TimeRange):
     actor_user_id:Identifier|None=None
 
 
+AccountRevision = Annotated[int, Field(ge=1, lt=2_147_483_647)]
+
+def meaningful_reason(value):
+    value = value.strip()
+    if len(value) < 5 or any(ord(char) < 32 or ord(char) == 127 for char in value):
+        raise ValueError('请填写至少5个字符的具体理由。')
+    return value
+
+
+AccountReason = Annotated[str, Field(min_length=5, max_length=500), AfterValidator(meaningful_reason)]
+
+
 class AccountChange(BaseModel):
     model_config=ConfigDict(extra='forbid',strict=True)
-    role:Literal['user','admin']
+    role:AccountRoleInput
     active:bool
-    expected_revision:int=Field(ge=1,lt=2_147_483_647)
-    reason:str=Field(min_length=5,max_length=500)
+    expected_revision:AccountRevision
+    reason:AccountReason
 
-    @field_validator('reason')
-    @classmethod
-    def meaningful_reason(cls,value):
-        value=value.strip()
-        if len(value)<5 or any(ord(char)<32 or ord(char)==127 for char in value):
-            raise ValueError('请填写至少5个字符的具体修改理由。')
-        return value
+
+class RegistrationDecision(BaseModel):
+    model_config = ConfigDict(extra='forbid', strict=True)
+    decision: Literal['approve', 'reject']
+    expected_revision: AccountRevision
+    role: AccountRole | None = None
+    reason: AccountReason | None = None
+
+    @model_validator(mode='after')
+    def validate_decision(self):
+        if self.decision == 'approve' and self.role is None:
+            raise ValueError('审核通过时请选择账号角色。')
+        if self.decision == 'reject' and (self.role is not None or self.reason is None):
+            raise ValueError('驳回时须填写原因。')
+        return self
 
 
 def admin_service(request:Request):
@@ -124,9 +151,24 @@ Admin=Annotated[AdminOperations,Depends(admin_service)]
 def users(service:Admin,query:Annotated[UsersQuery,Query()]):return service.list_users(**query.model_dump())
 
 
+@router.get('/admin/registrations')
+def registrations(service: Admin, query: Annotated[RegistrationsQuery, Query()]):
+    return service.list_registrations(**query.model_dump())
+
+
 @router.patch('/admin/users/{user_id}')
 def update_user(user_id:str,body:AccountChange,request:Request,service:Admin):
     return service.change_user(user_id,body,request.state.request_id)
+
+
+@router.get('/admin/users/{user_id}/registration')
+def registration_details(user_id: str, service: Admin):
+    return service.registration(user_id)
+
+
+@router.post('/admin/users/{user_id}/registration/review')
+def review_registration(user_id: str, body: RegistrationDecision, request: Request, service: Admin):
+    return service.review_registration(user_id, body, request.state.request_id)
 
 
 @router.get('/admin/tasks')

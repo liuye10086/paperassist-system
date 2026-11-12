@@ -6,6 +6,7 @@ from app.api.bio_datasets import Store,Key,Page
 from app.domain.research_results.contracts import StrictModel,ResearchSourceSelection,FindingVersionRequest,SourceKind
 from app.domain.research_results.sources import ResearchSourceReader
 from app.domain.research_results.findings import ResearchFindingService
+from app.core.exceptions import StorageError
 
 
 router=APIRouter(prefix='/api/v1/projects',tags=['研究成果与写作'])
@@ -23,6 +24,8 @@ def source_list(project_id:str,source_kind:SourceKind,store:Store,page:Page=1):
 
 @router.get('/{project_id}/research-requests/{request_key}')
 def recover(project_id:str,request_key:str,kind:Literal['finding','figure','report','candidate'],store:Store):
+    if store.assignment is not None and kind == 'candidate':
+        raise StorageError('research_source_not_found','成果请求不存在。',404)
     from app.domain.research_results.catalog import ResearchCatalog
     return ResearchCatalog(store).request(project_id,kind,request_key)
 

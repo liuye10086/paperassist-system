@@ -32,9 +32,9 @@ export function flowBlockReason(step: number, state: { hasFiles: boolean; requir
   return ''
 }
 
-export default function useProjectFlow(project: Project | null, section: ProjectSection, view: OverviewView) {
+export default function useProjectFlow(project: Project | null, section: ProjectSection, view: OverviewView, assigned = false) {
   const id = project?.id ?? ''
-  const intakeActive = !!id && section === 'overview' && ['requirements', 'design'].includes(view)
+  const intakeActive = !!id && !assigned && section === 'overview' && ['requirements', 'design'].includes(view)
   const intake = useResearchRead<Intake>(id ? `/api/v1/projects/${id}/research-intake` : '', intakeActive)
   const workflow = useResearchRead<WorkflowState>(id ? `/api/v1/projects/${id}/workflow-state` : '', !!id)
   const [accepted, setAccepted] = useState<{ id: string; services: DeliveryKind[]; version?:Version } | null>(null)

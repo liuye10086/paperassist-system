@@ -1,13 +1,13 @@
 import { useState, type FormEvent, type ReactNode } from 'react'
 import { useI18n } from '../../shared/i18n'
 import type { Coverage } from './operationsApi'
-export type Field={key:string;label:string;type?:string;options?:{value:string;label:string}[]}
+export type Field={key:string;label:string;type?:string;maxLength?:number;options?:{value:string;label:string}[]}
 export function Filters({fields,onApply,initial={},disabled=false,applyLabel='应用筛选',collapsible=false}:{fields:Field[];onApply:(value:Record<string,string>)=>void;initial?:Record<string,string>;disabled?:boolean;applyLabel?:string;collapsible?:boolean}){
  const {t}=useI18n();const [draft,setDraft]=useState(initial),[error,setError]=useState('')
  function apply(event:FormEvent){event.preventDefault();if(disabled)return;const value:Record<string,string>={};for(const field of fields){const item=draft[field.key]?.trim();if(item)value[field.key]=field.type==='datetime-local'?new Date(item).toISOString():item}
   if(value.from&&value.to&&value.from>=value.to){setError('起始时间必须早于结束时间。');return}setError('');onApply(value)
  }
- const form=<form className="operations-filters" onSubmit={apply}>{fields.map(field=><label key={field.key}>{t(field.label)}{field.options?<select disabled={disabled} value={draft[field.key]??''} onChange={event=>setDraft({...draft,[field.key]:event.target.value})}>{field.options.map(option=><option key={option.value} value={option.value}>{t(option.label)}</option>)}</select>:<input disabled={disabled} type={field.type??'text'} value={draft[field.key]??''} onChange={event=>setDraft({...draft,[field.key]:event.target.value})}/>}</label>)}<button type="submit" disabled={disabled}>{t(applyLabel)}</button>{error&&<p role="alert">{t(error)}</p>}</form>
+ const form=<form className="operations-filters" onSubmit={apply}>{fields.map(field=><label key={field.key}>{t(field.label)}{field.options?<select disabled={disabled} value={draft[field.key]??''} onChange={event=>setDraft({...draft,[field.key]:event.target.value})}>{field.options.map(option=><option key={option.value} value={option.value}>{t(option.label)}</option>)}</select>:<input disabled={disabled} type={field.type??'text'} maxLength={field.maxLength} value={draft[field.key]??''} onChange={event=>setDraft({...draft,[field.key]:event.target.value})}/>}</label>)}<button type="submit" disabled={disabled}>{t(applyLabel)}</button>{error&&<p role="alert">{t(error)}</p>}</form>
  return collapsible?<details className="operations-filter-disclosure"><summary>{t('筛选条件')}</summary>{form}</details>:form
 }
 

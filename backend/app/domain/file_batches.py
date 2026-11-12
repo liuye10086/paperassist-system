@@ -90,11 +90,12 @@ class FileBatchService:
         self.assets = project_store
         self.store = TaskStore(project_store.owner_id, project_store.db_config)
 
-    def require_batch(self, db, project_id, batch_id):
+    def require_batch(self, db, project_id, batch_id, *, uploading=False):
         self.store.require_project(db, project_id)
         row = db.execute('SELECT * FROM file_upload_batches WHERE id=%s AND project_id=%s AND user_id=%s',
                          (batch_id, project_id, self.store.user_id)).fetchone()
-        if row is None or row['profile'] != self.profile:
+        if (row is None or row['profile'] != self.profile
+                or ((uploading or self.assets.customer) and row['upload_actor_id'] != self.assets.actor_id)):
             raise StorageError('file_batch_not_found', '上传批次不存在，请重新载入。', 404)
         return row
 
@@ -125,8 +126,10 @@ class FileBatchService:
                                           separators=(',', ':')).encode()).hexdigest()
         with self.store.connection(write=True) as db:
             self.store.require_project(db, project_id)
-            existing = db.execute('SELECT * FROM file_upload_batches WHERE project_id=%s AND user_id=%s AND idempotency_key=%s',
-                                  (project_id, self.store.user_id, key)).fetchone()
+            actor = self.assets.actor_id
+            existing = db.execute('''SELECT * FROM file_upload_batches
+                WHERE project_id=%s AND user_id=%s AND upload_actor_id=%s AND idempotency_key=%s''',
+                (project_id, self.store.user_id, actor, key)).fetchone()
             if existing:
                 if existing['request_digest'] != digest or existing['profile'] != self.profile:
                     raise StorageError('file_batch_idempotency_conflict', '同一批次标识已用于不同文件列表。', 409)
@@ -135,8 +138,8 @@ class FileBatchService:
             if db.execute('SELECT id FROM file_upload_items WHERE id=ANY(%s)', (ids,)).fetchone():
                 raise StorageError('file_batch_item_conflict', '文件项标识已使用，请重新登记批次。', 409)
             batch = {'id': str(uuid4()), 'project_id': project_id, 'created_at': datetime.now(timezone.utc)}
-            db.execute('''INSERT INTO file_upload_batches(id,project_id,user_id,idempotency_key,request_digest,created_at,profile)
-                VALUES (%s,%s,%s,%s,%s,%s,%s)''', (batch['id'], project_id, self.store.user_id, key, digest, batch['created_at'], self.profile))
+            db.execute('''INSERT INTO file_upload_batches(id,project_id,user_id,idempotency_key,request_digest,created_at,profile,upload_actor_id)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s)''', (batch['id'], project_id, self.store.user_id, key, digest, batch['created_at'], self.profile, actor))
             maximum = self.maximum(resolve(db))
             for ordinal, item in enumerate(request.items):
                 code = ('unsupported_file_type' if not item.filename.lower().endswith(self.extensions) else
@@ -157,9 +160,13 @@ class FileBatchService:
         with self.store.connection() as db:
             self.store.require_project(db, project_id)
             args = (project_id, self.store.user_id, self.profile)
-            total = db.execute('SELECT count(*) AS n FROM file_upload_batches WHERE project_id=%s AND user_id=%s AND profile=%s', args).fetchone()['n']
-            rows = db.execute('''SELECT * FROM file_upload_batches WHERE project_id=%s AND user_id=%s AND profile=%s
-                ORDER BY created_at DESC,id LIMIT %s OFFSET %s''', (*args, page_size, (page-1)*page_size)).fetchall()
+            where = ' WHERE project_id=%s AND user_id=%s AND profile=%s'
+            if self.assets.customer:
+                where += ' AND upload_actor_id=%s'
+                args += (self.assets.actor_id,)
+            total = db.execute('SELECT count(*) AS n FROM file_upload_batches' + where, args).fetchone()['n']
+            rows = db.execute('SELECT * FROM file_upload_batches' + where + ' ORDER BY created_at DESC,id LIMIT %s OFFSET %s',
+                              (*args, page_size, (page-1)*page_size)).fetchall()
             return {'items': [self.project(db, row) for row in rows], 'total': total, 'page': page, 'page_size': page_size}
 
     @staticmethod
@@ -177,7 +184,7 @@ class FileBatchService:
         # The writer transaction serializes item confirmation. Preserve an object on
         # rollback or unknown commit; deterministic item paths allow safe retransmission.
         with self.store.connection(write=True) as db:
-            batch = self.require_batch(db, project_id, batch_id)
+            batch = self.require_batch(db, project_id, batch_id, uploading=True)
             version = resolve(db)
             excel = effective_excel_settings(version)
             maximum = self.maximum(version)
@@ -212,10 +219,10 @@ class FileBatchService:
                 settings = snapshot['settings']
                 parser_version, workflow_version = snapshot['parser_version'], snapshot['kind'] + '_v1'
             db.execute('''INSERT INTO files(id,project_id,filename,file_type,size_bytes,sha256,uploaded_at,
-                parse_status,error_json,preview_json,uploader_id,storage_backend,object_key,metadata_revision,upload_item_id,parse_revision)
-                VALUES (%s,%s,%s,%s,%s,%s,%s,'queued',NULL,NULL,%s,%s,%s,1,%s,1)''',
+                parse_status,error_json,preview_json,uploader_id,storage_backend,object_key,metadata_revision,upload_item_id,parse_revision,upload_actor_id)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,'queued',NULL,NULL,%s,%s,%s,1,%s,1,%s)''',
                 (file_id, project_id, filename, descriptor.file_type, descriptor.size_bytes, descriptor.sha256,
-                 now.isoformat(), self.store.user_id, descriptor.storage_backend, descriptor.object_key, item_id))
+                 now.isoformat(), self.store.user_id, descriptor.storage_backend, descriptor.object_key, item_id, batch['upload_actor_id']))
             task = {'id': task_id, 'project_id': project_id, 'user_id': self.store.user_id,
                 'task_type': 'parse_file', 'idempotency_key': item_id, 'input_digest': sha,
                 'input_snapshot': snapshot, 'workflow_version': workflow_version, 'status': 'queued',
@@ -249,7 +256,7 @@ class BioUploadService(FileBatchService):
             raise StorageError('file_too_large', '生信原始文件超过上传限制。', 413,
                                params={'max_bytes': maximum})
         with self.store.connection(write=True) as db:
-            batch = self.require_batch(db, project_id, batch_id)
+            batch = self.require_batch(db, project_id, batch_id, uploading=True)
             item = self._require_upload_item(db, batch_id, item_id, filename, size)
             try:
                 source.seek(0)
@@ -272,9 +279,9 @@ class BioUploadService(FileBatchService):
             project_id, batch['id'], kind, source, size, digest, item_id=item['id'], db=db)
         now = datetime.now(timezone.utc)
         db.execute('''INSERT INTO files(id,project_id,filename,file_type,size_bytes,sha256,uploaded_at,
-            parse_status,error_json,preview_json,uploader_id,storage_backend,object_key,metadata_revision,upload_item_id,parse_revision)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,'stored',NULL,NULL,%s,%s,%s,1,%s,0)''',
+            parse_status,error_json,preview_json,uploader_id,storage_backend,object_key,metadata_revision,upload_item_id,parse_revision,upload_actor_id)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,'stored',NULL,NULL,%s,%s,%s,1,%s,0,%s)''',
             (descriptor.id, project_id, filename, kind, descriptor.size_bytes, descriptor.sha256, now.isoformat(),
-             self.store.user_id, descriptor.storage_backend, descriptor.object_key, item['id']))
+             self.store.user_id, descriptor.storage_backend, descriptor.object_key, item['id'], batch['upload_actor_id']))
         db.execute('UPDATE file_upload_items SET file_id=%s WHERE id=%s', (descriptor.id, item['id']))
         db.execute('UPDATE projects SET updated_at=GREATEST(updated_at,%s) WHERE id=%s', (now.isoformat(), project_id))

@@ -10,11 +10,12 @@ import useDraftLeaveGuard, { type RegisterLeaveGuard } from '../projects/useDraf
 
 type DetailTask = 'info' | 'lifecycle' | 'structure' | 'document'
 
-function FileDetailsContent({ projectId, fileId, active, onUnavailable, onUpdated, initialTask = 'info', registerLeaveGuard }: {
+function FileDetailsContent({ projectId, fileId, active, onUnavailable, onUpdated, initialTask: requestedTask = 'info', registerLeaveGuard, allowLifecycle = true }: {
   projectId: string; fileId: string; active: boolean; onUnavailable: () => void; onUpdated: (file: LibraryFile) => void
-  initialTask?: DetailTask; registerLeaveGuard?: RegisterLeaveGuard
+  initialTask?: DetailTask; registerLeaveGuard?: RegisterLeaveGuard; allowLifecycle?: boolean
 }) {
   const { t, locale } = useI18n()
+  const initialTask = !allowLifecycle && requestedTask === 'lifecycle' ? 'info' : requestedTask
   const [detail, setDetail] = useState<FileDetail | null>(null)
   const [draft, setDraft] = useState<FilePurpose[]>([])
   const draftInitialized = useRef(false)
@@ -113,7 +114,7 @@ function FileDetailsContent({ projectId, fileId, active, onUnavailable, onUpdate
       {['bio_bundle','bio_component'].includes(detail.file_type)&&<p>{t('已保存，待生信导入')} · <a href={`#project=${encodeURIComponent(projectId)}&section=files&view=quality&quality=bio-datasets`}>{t('生信数据集')}</a></p>}
       <nav className="material-task-nav" aria-label={t('文件任务')}>
         <button type="button" aria-pressed={task === 'info'} onClick={() => showTask('info')}>{t('文件信息与用途')}</button>
-        <button type="button" aria-pressed={task === 'lifecycle'} onClick={() => showTask('lifecycle')}>{t('生命周期')}</button>
+        {allowLifecycle && <button type="button" aria-pressed={task === 'lifecycle'} onClick={() => showTask('lifecycle')}>{t('生命周期')}</button>}
         {detail.file_type === 'xlsx' && detail.parse_status === 'parsed' && <button type="button" aria-pressed={task === 'structure'} onClick={() => showTask('structure')}>{t('结构与数据整理')}</button>}
         {['docx','pdf','png','jpeg'].includes(detail.file_type) && <button type="button" aria-pressed={task === 'document'} onClick={() => showTask('document')}>{t('解析与文字核对')}</button>}
       </nav>
@@ -145,13 +146,13 @@ function FileDetailsContent({ projectId, fileId, active, onUnavailable, onUpdate
         {(Object.keys(referenceLabels) as (keyof typeof referenceLabels)[]).map(key =>
           <div key={key}><dt>{t(referenceLabels[key])}</dt><dd>{(detail.references[key] ?? 0).toLocaleString(locale)}</dd></div>)}
       </dl>
-      <p className="muted">{t('引用数量描述当前依赖，不代表可以删除文件。')}</p></section>
+      {allowLifecycle && <p className="muted">{t('引用数量描述当前依赖，不代表可以删除文件。')}</p>}</section>
       </div>
-      {visitedTasks.includes('lifecycle') && <div hidden={task !== 'lifecycle'}><FileLifecyclePanel projectId={projectId} fileId={fileId} active={active && task === 'lifecycle'} observedVersion={detail.parse_revision} registerLeaveGuard={registerLeaveGuard} onUnavailable={onUnavailable}/></div>}
+      {allowLifecycle && visitedTasks.includes('lifecycle') && <div hidden={task !== 'lifecycle'}><FileLifecyclePanel projectId={projectId} fileId={fileId} active={active && task === 'lifecycle'} observedVersion={detail.parse_revision} registerLeaveGuard={registerLeaveGuard} onUnavailable={onUnavailable}/></div>}
     </>}
     {visitedTasks.includes('structure') && detail?.file_type === 'xlsx' && detail.parse_status === 'parsed' && <div hidden={task !== 'structure'}><StructureVersions projectId={projectId} fileId={fileId} filename={detail.filename} active={active && task === 'structure'} registerLeaveGuard={registerLeaveGuard} onUnavailable={onUnavailable} /></div>}
     {visitedTasks.includes('document') && detail && ['docx','pdf','png','jpeg'].includes(detail.file_type) && <div hidden={task !== 'document'}><DocumentVersions fileType={detail.file_type as 'docx' | 'pdf' | 'png' | 'jpeg'} projectId={projectId} fileId={fileId} filename={detail.filename} active={active && task === 'document'} registerLeaveGuard={registerLeaveGuard} onUnavailable={onUnavailable} /></div>}
     {notice && <p className="saved-notice" role="status">{t(notice)}</p>}
   </section>
 }
-export default function FileDetails(props:Parameters<typeof FileDetailsContent>[0]){return <FileDetailsContent key={JSON.stringify([props.projectId,props.fileId])} {...props}/>}
+export default function FileDetails(props:Parameters<typeof FileDetailsContent>[0]){return <FileDetailsContent key={JSON.stringify([props.projectId,props.fileId,props.allowLifecycle])} {...props}/>}

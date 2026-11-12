@@ -2,8 +2,10 @@
 from uuid import uuid4
 import json
 from psycopg.types.json import Jsonb
+from app.adapters.research_intake_store import latest_confirmed_requirement
 from app.adapters.research_results_store import ResearchResultsStore,identity,now,invalid
 from app.domain.bioinformatics.contracts import digest
+from app.core.exceptions import StorageError
 from app.domain.research_intake.service import request_key
 from app.domain.bioinformatics.service import append_checkpoint
 from .contracts import SnapshotWrite,Selection,AcceptanceWrite
@@ -18,11 +20,21 @@ def insert(db,table,value):
 def normalized(value):return json.loads(json.dumps(value,default=lambda x:x.isoformat()))
 
 
+def analysis_member_supported(kind, format):
+    """Keep system-generated reconstruction data out of customer releases."""
+    formats = {
+        'research_report_member': ('docx', 'xlsx'),
+        'research_figure_member': ('png', 'tiff', 'jpg', 'jpeg', 'svg'),
+    }
+    return kind == 'file' or format in formats.get(kind, ())
+
+
 class DeliveryService(ResearchResultsStore):
     def scope(self,db,project,delivery):
         self.store.require_project(db,project)
         row=db.execute('SELECT * FROM research_deliveries WHERE id=%s AND project_id=%s',(delivery,project)).fetchone()
-        if not row:raise invalid('research_source_not_found',404)
+        if not row or (getattr(self.assets, 'assignment', None) is not None and row['kind'] != 'analysis'):
+            raise invalid('research_source_not_found',404)
         return dict(row)
 
     def row(self,db,project,delivery,identifier):
@@ -51,6 +63,11 @@ class DeliveryService(ResearchResultsStore):
 
     def prepare_snapshot(self,db,project,delivery,request):
         registered=self.scope(db,project,delivery)
+        assigned = getattr(self.assets, 'assignment', None) is not None
+        if assigned:
+            latest = latest_confirmed_requirement(db, project)
+            if latest is None or latest['id'] != request.requirement_version_id:
+                raise StorageError('research_revision_conflict', '交付需关联客户最新正式需求。', 409)
         requirement=db.execute('SELECT * FROM research_requirement_versions WHERE id=%s AND project_id=%s',(request.requirement_version_id,project)).fetchone()
         if not requirement or digest(requirement['content_json'])!=requirement['sha256']:raise invalid('research_source_not_found',404)
         if registered['kind'] not in requirement['content_json']['services']:raise invalid()
@@ -72,6 +89,8 @@ class DeliveryService(ResearchResultsStore):
             if selected_roots and selected_roots!={root['id']}:raise invalid()
             round_binding=dict(status='fixed_existing_event',round_id=fixed['id'],round_number=fixed['round_number'],round_sha256=fixed['snapshot_sha256'],event_id=event['id'],revision=event['revision'],event_sha256=event['snapshot_sha256'],manuscript=fixed['snapshot_json']['manuscript'])
         members,raws,files=resolve_members(self,db,project,registered,request.members,request.mode)
+        if assigned and any(not analysis_member_supported(member['selection']['kind'], member['format']) for member in members):
+            raise StorageError('research_source_unsupported', '请仅选择分析报告、图件或可交付的附件。', 422)
         formats={m['format'] for m in members};gaps=['required_format:'+x for x in sorted(set(request.required_formats)-formats)]
         quality=list(request.quality_items)
         for m in members:
@@ -109,20 +128,26 @@ class DeliveryService(ResearchResultsStore):
     def candidates(self,project,delivery):
         with self.store.connection() as db:
             self.scope(db,project,delivery);items=[]
+            assigned = getattr(self.assets, 'assignment', None) is not None
             for family in ('report','figure'):
+                kind = 'research_' + family + '_member'
                 for row in db.execute('SELECT m.*,v.root_id,v.revision FROM research_'+family+'_members m JOIN research_'+family+'_versions v ON v.id=m.'+family+"_version_id JOIN tasks t ON t.id=v.task_id WHERE m.project_id=%s AND m.user_id=%s AND t.status='succeeded' ORDER BY v.created_at DESC,m.key",(project,self.store.user_id)):
-                    if row['format']=='pdf':continue
-                    items.append(dict(selection=dict(kind='research_'+family+'_member',version_id=row[family+'_version_id'],member_id=row['id']),label=f"{family} r{row['revision']} {row['key']}",format=row['format'],status='succeeded',sha256=row['sha256']))
-            for row in db.execute("SELECT e.*,v.manuscript_id,v.snapshot_json FROM manuscript_exports e JOIN manuscript_versions v ON v.id=e.version_id JOIN manuscripts m ON m.id=v.manuscript_id JOIN tasks t ON t.id=e.task_id WHERE v.project_id=%s AND v.user_id=%s AND (m.delivery_id=%s OR m.delivery_id IS NULL) AND t.status='succeeded' ORDER BY e.created_at DESC",(project,self.store.user_id,delivery)):
-                from app.core.exceptions import StorageError
-                try:require_document_delivery(self,db,project,delivery,row['manuscript_id'])
-                except StorageError as exc:
-                    if exc.code not in ('research_source_conflict','research_writing_unavailable'):raise
-                    continue
-                task=self.store.require_task(db,row['task_id']);binding=task['input_snapshot'].get('presentation',{}).get('binding',{})
-                items.append(dict(selection=dict(kind='manuscript_export',version_id=row['version_id'],manuscript_id=row['manuscript_id'],export_id=row['id']),label=(row['metadata_json'] or {}).get('filename') or row['id'],format='docx',status='succeeded',language=binding.get('language_view',row['snapshot_json']['output_language']),review_mode=binding.get('review_mode','identified'),presentation_id=binding.get('presentation_version_id')))
+                    if row['format']=='pdf' or (assigned and not analysis_member_supported(kind, row['format'])):continue
+                    items.append(dict(selection=dict(kind=kind,version_id=row[family+'_version_id'],member_id=row['id']),label=f"{family} r{row['revision']} {row['key']}",format=row['format'],status='succeeded',sha256=row['sha256']))
+            if not assigned:
+                for row in db.execute("SELECT e.*,v.manuscript_id,v.snapshot_json FROM manuscript_exports e JOIN manuscript_versions v ON v.id=e.version_id JOIN manuscripts m ON m.id=v.manuscript_id JOIN tasks t ON t.id=e.task_id WHERE v.project_id=%s AND v.user_id=%s AND (m.delivery_id=%s OR m.delivery_id IS NULL) AND t.status='succeeded' ORDER BY e.created_at DESC",(project,self.store.user_id,delivery)):
+                    try:require_document_delivery(self,db,project,delivery,row['manuscript_id'])
+                    except StorageError as exc:
+                        if exc.code not in ('research_source_conflict','research_writing_unavailable'):raise
+                        continue
+                    task=self.store.require_task(db,row['task_id']);binding=task['input_snapshot'].get('presentation',{}).get('binding',{})
+                    items.append(dict(selection=dict(kind='manuscript_export',version_id=row['version_id'],manuscript_id=row['manuscript_id'],export_id=row['id']),label=(row['metadata_json'] or {}).get('filename') or row['id'],format='docx',status='succeeded',language=binding.get('language_view',row['snapshot_json']['output_language']),review_mode=binding.get('review_mode','identified'),presentation_id=binding.get('presentation_version_id')))
             for row in db.execute('SELECT * FROM files WHERE project_id=%s ORDER BY uploaded_at DESC,id',(project,)):
                 items.append(dict(selection=dict(kind='file',file_id=row['id']),label=row['filename'],format=row['filename'].rsplit('.',1)[-1].lower(),status='existing_upload',blind_eligible=False))
+            if assigned:
+                latest = latest_confirmed_requirement(db, project)
+                requirements = [dict(id=latest['id'], version=latest['version'], sha256=latest['sha256'])] if latest else []
+                return dict(items=items, requirements=requirements, opinion_rounds=[])
             requirements=[dict(id=r['id'],version=r['version'],sha256=r['sha256']) for r in db.execute('SELECT id,version,sha256 FROM research_requirement_versions WHERE project_id=%s ORDER BY version DESC',(project,))]
             rounds=[]
             for round_row in db.execute("SELECT r.* FROM review_rounds r JOIN manuscripts m ON m.id=(r.snapshot_json->'manuscript'->>'id') WHERE r.project_id=%s AND r.user_id=%s AND m.delivery_id=%s ORDER BY r.round_number DESC",(project,self.store.user_id,delivery)):
@@ -136,11 +161,15 @@ class DeliveryService(ResearchResultsStore):
 
     def member(self,project,delivery,identifier,member_id):
         with self.store.connection() as db:
-            row=self.row(db,project,delivery,identifier);snapshot=row['snapshot_json'];member=next((m for m in snapshot['members'] if m['id']==member_id),None)
-            if not member:raise invalid('research_source_not_found',404)
-            registered=self.scope(db,project,delivery);current,raws,_=resolve_members(self,db,project,registered,[Selection.model_validate(member['selection'])],snapshot['mode'],frozen_members=[member])
-            if current[0]!=member:raise invalid()
-            return member,raws[0]
+            return self.member_bytes(db,self.row(db,project,delivery,identifier),member_id)
+
+    def member_bytes(self,db,row,member_id):
+        snapshot=row['snapshot_json'];member=next((m for m in snapshot['members'] if m['id']==member_id),None)
+        if not member:raise invalid('research_source_not_found',404)
+        project=row['project_id'];registered=self.scope(db,project,row['delivery_id'])
+        current,raws,_=resolve_members(self,db,project,registered,[Selection.model_validate(member['selection'])],snapshot['mode'],frozen_members=[member])
+        if current[0]!=member:raise invalid()
+        return member,raws[0]
 
     def acceptance(self,project,delivery,identifier,request,key):
         request_key(key);hashed=digest(request.model_dump(mode='json'))
@@ -187,10 +216,19 @@ class DeliveryService(ResearchResultsStore):
         from app.domain.research_results.task_contracts import input_version
         input_version(task);snap=task['input_snapshot'];row=self.row(db,task['project_id'],snap['delivery_id'],snap['snapshot_id'])
         if snap['snapshot_sha256']!=row['sha256']:raise invalid()
-        saved=row['snapshot_json'];registered=self.scope(db,task['project_id'],snap['delivery_id'])
-        members,raws,files=resolve_members(self,db,task['project_id'],registered,[Selection.model_validate(m['selection']) for m in saved['members']],saved['mode'],progress,frozen_members=saved['members'])
-        if members!=saved['members'] or files!=saved['source_file_ids']:raise invalid()
+        raws = self.require_snapshot_sources(db, row, progress=progress)
         return dict(snapshot=self.view(row),raws=raws)
+
+    def require_snapshot_sources(self, db, row, *, progress=None):
+        snapshot = row['snapshot_json']
+        project_id = row['project_id']
+        registered = self.scope(db, project_id, row['delivery_id'])
+        selections = [Selection.model_validate(member['selection']) for member in snapshot['members']]
+        members, raws, files = resolve_members(self, db, project_id, registered, selections, snapshot['mode'],
+                                               progress, frozen_members=snapshot['members'])
+        if members != snapshot['members'] or files != snapshot['source_file_ids']:
+            raise invalid()
+        return raws
 
     def publish(self,db,task,checkpoint,moment,prepared,*,progress):
         if len(prepared['members'])!=1 or prepared['members'][0]['format']!='zip':raise invalid()
@@ -200,17 +238,26 @@ class DeliveryService(ResearchResultsStore):
 
     def download(self,project,delivery,identifier):
         with self.store.connection() as db:
-            self.row(db,project,delivery,identifier)
-            task=db.execute("SELECT * FROM tasks WHERE project_id=%s AND user_id=%s AND task_type='delivery_package' AND input_snapshot->>'snapshot_id'=%s AND status='succeeded'",(project,self.store.user_id,identifier)).fetchone()
-            if not task:raise invalid('research_source_incomplete',409)
-            self.require_sources(db,task)
-            cp=db.execute('SELECT * FROM task_checkpoints WHERE task_id=%s ORDER BY seq DESC LIMIT 1',(task['id'],)).fetchone();prepared=cp['state_json']['prepared'];member=prepared['members'][0]
-            from app.adapters.bio_analysis_store import object_by_key
-            from app.adapters.research_objects import ResearchObjects
-            obj=object_by_key(db,project,self.store.user_id,member);raw=ResearchObjects(self.assets.directory).read(obj)
-            from app.domain.research_results.report_package import verify_package
-            verify_package(raw)
-            return dict(filename='delivery-'+identifier+'.zip',sha256=member['sha256'],size_bytes=member['size_bytes']),raw
+            return self.package_bytes(db,self.row(db,project,delivery,identifier))
+
+    def ready_package(self,db,row):
+        return db.execute('''SELECT * FROM tasks WHERE project_id=%s AND user_id=%s AND task_type='delivery_package'
+            AND input_snapshot->>'snapshot_id'=%s AND status='succeeded' ''',
+            (row['project_id'],self.store.user_id,row['id'])).fetchone()
+
+    def package_bytes(self,db,row):
+        task=self.ready_package(db,row)
+        if not task:raise invalid('research_source_incomplete',409)
+        self.require_sources(db,task)
+        cp=db.execute('SELECT * FROM task_checkpoints WHERE task_id=%s ORDER BY seq DESC LIMIT 1',(task['id'],)).fetchone()
+        member=cp['state_json']['prepared']['members'][0]
+        from app.adapters.bio_analysis_store import object_by_key
+        from app.adapters.research_objects import ResearchObjects
+        obj=object_by_key(db,row['project_id'],self.store.user_id,member)
+        raw=ResearchObjects(self.assets.directory).read(obj)
+        from app.domain.research_results.report_package import verify_package
+        verify_package(raw)
+        return dict(filename='delivery-'+row['id']+'.zip',sha256=member['sha256'],size_bytes=member['size_bytes']),raw
 
 
 def run_delivery_package_task(task_id,task_revision,**kwargs):

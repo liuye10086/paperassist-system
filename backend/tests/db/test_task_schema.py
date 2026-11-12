@@ -20,7 +20,9 @@ NOW = datetime(2026, 10, 8, tzinfo=timezone.utc)
 
 
 def seed_owner(db):
-    db.execute("INSERT INTO users(id,email,password_hash,role,active,created_at,updated_at) VALUES ('u','u@example.invalid','unused','user',true,1,1)")
+    columns = inspect(db.raw_connection).get_columns('users', schema=db.config.schema)
+    role = 'analyst' if any(column['name'] == 'review_status' for column in columns) else 'user'
+    db.execute("INSERT INTO users(id,email,password_hash,role,active,created_at,updated_at) VALUES ('u','u@example.invalid','unused',%s,true,1,1)", (role,))
     db.execute("INSERT INTO projects(id,name,research_topic,project_type,created_at,updated_at,owner_id) VALUES ('p','name','topic','sci','2026-10-08T00:00:00Z','2026-10-08T00:00:00Z','u')")
 
 

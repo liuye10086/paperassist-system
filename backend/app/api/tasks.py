@@ -17,7 +17,8 @@ project_router = APIRouter(prefix='/api/v1/projects', tags=['任务'])
 
 
 def get_request_task_store(request: Request) -> TaskStore:
-    return TaskStore(request.state.user['id'])
+    assignment = getattr(request.state, 'project_assignment', None)
+    return TaskStore(assignment.owner_id if assignment else request.state.user['id'])
 
 
 Store = Annotated[TaskStore, Depends(get_request_task_store)]

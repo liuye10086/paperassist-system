@@ -30,6 +30,7 @@ from app.auth.service import authenticate, revoke_session, update_preferences
 from app.auth.config import settings
 from app.auth.middleware import COOKIE_NAME
 from app.auth.passwords import change_password, recover_password
+from app.auth.registration import RegisterInput, submit_registration
 
 router = APIRouter(prefix="/api/v1/auth", tags=["auth"], route_class=AuthRoute)
 
@@ -70,6 +71,12 @@ def login(body: LoginInput, request: Request, response: Response):
         path="/",
     )
     return result
+
+
+@router.post('/register', status_code=202)
+def register(body: RegisterInput, request: Request):
+    submit_registration(body, request.client.host if request.client else 'unknown')
+    return {'status': 'submitted'}
 
 
 @router.get("/me")

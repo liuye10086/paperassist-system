@@ -105,8 +105,9 @@ class BioAnalysisStore:
 
     def design(self,db,project,identifier):
         if identifier is None:return None
+        self.store.require_project(db,project)
         row=db.execute('SELECT * FROM research_design_versions WHERE id=%s AND project_id=%s',(identifier,project)).fetchone()
-        if not row or row['created_by']!=self.store.user_id:raise error('bio_mapping_invalid',422)
+        if not row:raise error('bio_mapping_invalid',422)
         return dict(row)
 
     def validate_rows(self,db,project,source,rows,design_id):

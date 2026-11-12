@@ -106,6 +106,8 @@ class UploadLimitMiddleware:
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send):
         path = scope.get("path", "").rstrip("/")
+        is_auth_json = path in {'/api/v1/auth/register', '/api/v1/auth/login', '/api/v1/auth/reset-password'}
+        is_customer_feedback = bool(re.fullmatch(r"/api/v1/projects/[^/]+/customer-workspace/feedback", path))
         is_research_json = bool(re.fullmatch(r"/api/v1/projects/[^/]+/(requirements|research-designs|design-table-preview|design-table-previews|deliveries)",path))
         is_import_create = bool(re.fullmatch(r"/api/v1/projects/[^/]+/bio-imports", path))
         is_bio_json = is_import_create or bool(re.fullmatch(
@@ -113,19 +115,29 @@ class UploadLimitMiddleware:
         ))
         is_upload = (path == "/api/v1/excel/preview" or re.fullmatch(r"/api/v1/projects/[^/]+/files", path)
                      or re.fullmatch(r"/api/v1/projects/[^/]+/file-batches/[^/]+/items/[^/]+", path))
-        if scope["type"] != "http" or scope["method"] != "POST" or not (is_upload or is_research_json or is_bio_json):
+        if scope["type"] != "http" or scope["method"] != "POST" or not (is_upload or is_research_json or is_bio_json or is_auth_json or is_customer_feedback):
             return await self.app(scope, receive, send)
 
         # Small fixed allowance for the multipart boundary and file headers.
         small_bio_json_bytes = 64 * 1024
-        if is_import_create:
+        if is_auth_json:
+            max_upload_bytes = 32 * 1024
+            error_code = 'auth_content_too_large'
+        elif is_customer_feedback:
+            max_upload_bytes = 64 * 1024
+            error_code = 'research_content_too_large'
+        elif is_import_create:
             max_upload_bytes = MAX_BULK_IMPORT_REQUEST_BYTES
+            error_code = 'bio_input_limit'
         elif is_research_json:
             max_upload_bytes = 4 * 1024**2
+            error_code = 'research_content_too_large'
         elif is_bio_json:
             max_upload_bytes = small_bio_json_bytes
+            error_code = 'bio_input_limit'
         else:
             max_upload_bytes = get_request_excel_settings().max_upload_bytes
+            error_code = 'file_too_large'
         limit = max_upload_bytes + (MULTIPART_ALLOWANCE if is_upload else 0)
         body = bytearray()
         while True:
@@ -134,7 +146,7 @@ class UploadLimitMiddleware:
                 return
             chunk = message.get("body", b"")
             if len(body) + len(chunk) > limit:
-                response = error_response(413, 'research_content_too_large' if is_research_json else 'bio_input_limit' if is_bio_json else 'file_too_large', '请求超过大小限制，请缩小内容后重试。',
+                response = error_response(413, error_code, '请求超过大小限制，请缩小内容后重试。',
                                           {'max_bytes': max_upload_bytes})
                 return await response(scope, receive, send)
             body.extend(chunk)

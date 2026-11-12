@@ -11,6 +11,12 @@ test('strict assessment accepts historical text identities and rejects malformed
  expect(Object.keys(value.counts)).toEqual(countKeys)
  expect(lifecycleBase('old project/中文','old file:一')).toBe('/api/v1/projects/old%20project%2F%E4%B8%AD%E6%96%87/files/old%20file%3A%E4%B8%80/lifecycle')
 })
+test('accepts additional nonnegative reference counts from newer analysis modules',()=>{
+ const value=assessmentFixture()
+ const counts={...value.counts,external_evidence_versions:2,research_report_versions:1}
+ expect(isAssessment({...value,counts},'f','delete')).toBe(true)
+ expect(isAssessment({...value,counts:{...counts,external_evidence_versions:'2'}},'f','delete')).toBe(false)
+})
 test('task and full-total history validators reject forged URLs, unsafe IDs, bad pages and receipt scope',()=>{
  const a=assessmentFixture(),r={id:'old request',file_id:'f',reason:'reason',status:'retained',requested_at:'2026-10-13T00:00:00Z',resolved_at:'2026-10-13T00:00:00Z',policy_version:a.policy_version,assessment_revision:a.assessment_revision,assessment:a}
  expect(isReceipt(r,'f')).toBe(true);expect(isReceipt({...r,assessment:{...a,file_id:'foreign'}},'f')).toBe(false)

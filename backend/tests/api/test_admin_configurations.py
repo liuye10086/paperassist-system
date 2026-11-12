@@ -120,7 +120,7 @@ def test_all_configuration_reads_and_writes_require_active_admin(admin, accounts
     from app.domain.admin_configuration.service import Configurations
     service = Configurations(accounts[0]['id'])
     with database_connection(write=True) as db:
-        db.execute("UPDATE users SET role='user' WHERE id=%s", (accounts[0]['id'],))
+        db.execute("UPDATE users SET role='analyst' WHERE id=%s", (accounts[0]['id'],))
     with pytest.raises(Exception) as exc:
         service.copy(one['id'])
     assert exc.value.code == 'permission_denied'

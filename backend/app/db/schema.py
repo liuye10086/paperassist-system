@@ -44,6 +44,7 @@ files = Table(
     Column("metadata_revision", Integer, nullable=False, server_default=text("1")),
     Column("parse_revision", Integer, nullable=False, server_default=text("0")),
     Column("upload_item_id", Text, ForeignKey("file_upload_items.id", name="files_upload_item_id_fkey")),
+    Column('upload_actor_id', Text, ForeignKey('users.id', name='files_upload_actor_fk')),
     UniqueConstraint("upload_item_id", name="files_upload_item_key"),
     CheckConstraint("parse_revision >= 0", name="files_parse_revision_check"),
     CheckConstraint("storage_backend = 'local'", name="files_storage_backend_check"),
@@ -138,15 +139,19 @@ users = Table("users", metadata,
     Column("id", Text, primary_key=True),
     Column("email", Text, nullable=False, unique=True),
     Column("password_hash", Text, nullable=False),
-    Column("role", Text, nullable=False),
+    Column("role", Text),
     Column("active", Boolean, nullable=False),
+    Column("review_status", Text, nullable=False, server_default="approved"),
     Column("created_at", DOUBLE_PRECISION, nullable=False),
     Column("updated_at", DOUBLE_PRECISION, nullable=False),
     Column("admin_revision", Integer, nullable=False, server_default=text('1')),
     CheckConstraint('admin_revision>=1', name='users_admin_revision_check'),
     Column("ui_language", Text, nullable=False, server_default="zh-CN"),
     CheckConstraint("ui_language IN ('zh-CN', 'en')", name="users_ui_language_check"),
-    CheckConstraint("role IN ('user','admin')", name="users_role_check"))
+    CheckConstraint("role IN ('customer','admin','analyst')", name="users_role_check"),
+    CheckConstraint("(review_status='approved' AND role IS NOT NULL) OR "
+                    "(review_status IN ('pending','rejected') AND role IS NULL AND NOT active)",
+                    name="users_review_status_check"))
 sessions = Table("sessions", metadata,
     Column("token_hash", Text, primary_key=True),
     Column("user_id", Text, ForeignKey("users.id"), nullable=False),
@@ -326,7 +331,11 @@ from app.db.review_figure_schema import define_review_figure_tables
 review_figure_adoptions,=define_review_figure_tables(metadata)
 
 from app.db.admin_operations_schema import define_admin_operations_tables
-admin_audit_events,operational_request_events,operational_collection=define_admin_operations_tables(metadata,include_task_operation=True)
+admin_audit_events,operational_request_events,operational_collection=define_admin_operations_tables(
+    metadata, include_task_operation=True, include_account_roles=True, include_registration_review=True)
+
+from app.db.account_registration_schema import define_registration_tables
+account_registrations, auth_registration_attempts = define_registration_tables(metadata)
 
 from app.db.admin_configuration_schema import define_admin_configuration_tables
 admin_configuration_versions,admin_configuration_validations,admin_configuration_pointer,admin_configuration_events,admin_configuration_bindings,admin_usage_summaries=define_admin_configuration_tables(metadata)
@@ -355,6 +364,12 @@ define_bio_insights_tables(metadata)
 
 from app.db.delivery_schema import define_delivery_tables
 define_delivery_tables(metadata)
+
+from app.db.customer_workspace_schema import define_customer_workspace_tables
+define_customer_workspace_tables(metadata, include_assignment_revision=True)
+
+from app.db.project_assignment_schema import define_project_assignment_tables
+define_project_assignment_tables(metadata)
 
 from app.db.bio_cloud_schema import define_bio_cloud_tables
 define_bio_cloud_tables(metadata)

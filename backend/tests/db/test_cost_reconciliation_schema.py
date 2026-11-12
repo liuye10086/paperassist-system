@@ -25,7 +25,10 @@ def test_0013_round_trip_preserves_old_columns_and_indexes(postgres_schema, post
         indexes = {table: inspect(db.raw_connection).get_indexes(table, schema=postgres_schema.schema) for table in tables}
         command.upgrade(settings, 'head')
         for table in tables:
-            assert [dict(row) for row in db.execute('SELECT ' + ','.join('"' + col + '"' for col in columns[table]) + ' FROM "' + table + '" ORDER BY 1').fetchall()] == before[table]
+            expected = before[table]
+            if table == 'users':
+                expected = [{**row, 'role': 'analyst'} if row['role'] == 'user' else row for row in expected]
+            assert [dict(row) for row in db.execute('SELECT ' + ','.join('"' + col + '"' for col in columns[table]) + ' FROM "' + table + '" ORDER BY 1').fetchall()] == expected
             current_indexes = inspect(db.raw_connection).get_indexes(table, schema=postgres_schema.schema)
             assert all(index in current_indexes for index in indexes[table] if not (table=='figures' and index['name']=='figures_input_key'))
             if table=='figures':

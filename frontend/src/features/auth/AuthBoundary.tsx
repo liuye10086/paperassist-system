@@ -6,6 +6,7 @@ import { apiFetch, clearApiSession, getApiUserId, onApiSessionChanged, onSession
 import './auth.css'
 import Brand from '../../shared/components/Brand'
 import PasswordForm from './PasswordForm'
+import RegistrationForm from './RegistrationForm'
 import LanguageControl from './LanguageControl'
 import { apiError, isLocale, message, setLocale, useI18n, type Locale } from '../../shared/i18n'
 
@@ -25,11 +26,11 @@ async function errorMessage(response: Response, fallback: string) {
     const retry = response.headers.get('Retry-After')
     return retry && /^\d{1,6}$/.test(retry) ? message('登录尝试过多，请 {seconds} 秒后重试。', { seconds: retry }) : '登录尝试过多，请稍后重试。'
   }
-  if (response.status === 401) return '账号或密码错误。'
+  const messageFallback = response.status === 401 ? '账号或密码错误。' : fallback
   try {
-    return apiError(await response.json(), fallback)
+    return apiError(await response.json(), messageFallback)
   } catch {
-    return fallback
+    return messageFallback
   }
 }
 
@@ -43,7 +44,7 @@ export default function AuthBoundary({ children }: { children: ReactNode }) {
   const [busy, setBusy] = useState(false)
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
-  const [passwordMode, setPasswordMode] = useState<'change' | 'reset' | null>(null)
+  const [formMode, setFormMode] = useState<'change' | 'reset' | 'register' | null>(null)
   const [notice, setNotice] = useState('')
   const [accountOpen, setAccountOpen] = useState(false)
   const [navigationSlot, setNavigationSlot] = useState<HTMLDivElement | null>(null)
@@ -59,13 +60,13 @@ export default function AuthBoundary({ children }: { children: ReactNode }) {
   const [focusTarget, setFocusTarget] = useState<'email' | 'forgot' | 'change' | 'workspace'>('email')
 
   useLayoutEffect(() => {
-    if (passwordMode) return
+    if (formMode) return
     if (status === 'anonymous') (focusTarget === 'forgot' ? forgotButton : emailInput).current?.focus()
     if (status === 'authenticated') {
       if (focusTarget === 'change') accountButton.current?.focus()
       else (workspace.current?.querySelector<HTMLElement>('main') ?? workspace.current?.querySelector<HTMLElement>('input:not(:disabled),button:not(:disabled),a[href],select:not(:disabled)') ?? workspace.current)?.focus()
     }
-  }, [status, passwordMode, focusTarget])
+  }, [status, formMode, focusTarget])
 
   useEffect(() => {
     if (!accountOpen) return
@@ -126,7 +127,7 @@ export default function AuthBoundary({ children }: { children: ReactNode }) {
     window.history.replaceState(null, '', window.location.pathname + window.location.search)
     setSession(null)
     setPassword('')
-    setPasswordMode(null)
+    setFormMode(null)
     setStatus('anonymous')
   }
 
@@ -298,6 +299,13 @@ export default function AuthBoundary({ children }: { children: ReactNode }) {
     channel.current?.postMessage('session_changed')
   }
 
+  function openAuthForm(mode: 'register' | 'reset') {
+    setPassword('')
+    setError('')
+    setNotice('')
+    setFormMode(mode)
+  }
+
   const languageControl = <LanguageControl key={session?.user.id ?? status} userId={status === 'authenticated' ? session?.user.id : undefined} disabled={status === 'restoring'} />
   const brand = <aside className="auth-brand">
     <div className="auth-brand-name"><Brand />PaperAssist</div>
@@ -320,7 +328,7 @@ export default function AuthBoundary({ children }: { children: ReactNode }) {
     <button className="button-primary" onClick={() => setAttempt(value => value + 1)}>{t('重试')}</button>
   </section>)
   if (status === 'authenticated') {
-    return <WorkspaceChromeContext.Provider value={{navigation:navigationSlot,accountMenu:accountMenuSlot,closeAccount:()=>{setAccountOpen(false);accountButton.current?.focus()}}}><div className="authenticated-app">
+    return <WorkspaceChromeContext.Provider value={{navigation:navigationSlot,accountMenu:accountMenuSlot,closeAccount:()=>{setAccountOpen(false);accountButton.current?.focus()}}}><div className="authenticated-app" data-role={session?.user.role}>
       <header className="auth-topbar"><div className="auth-project-navigation" ref={setNavigationSlot}/>{languageControl}
         <div ref={accountRegion} className="auth-account">
           <button ref={accountButton} className="auth-account-button" aria-label={t('账号')} aria-expanded={accountOpen}
@@ -330,30 +338,40 @@ export default function AuthBoundary({ children }: { children: ReactNode }) {
           <div className="auth-account-actions" id={accountActionsId} hidden={!accountOpen}>
             <p className="auth-account-email">{session?.user.email}</p>
             <div className="auth-workspace-actions" ref={setAccountMenuSlot}/>
-            <button disabled={busy || passwordMode !== null} onClick={() => { setAccountOpen(false); setError(''); setPasswordMode('change') }}>{t('修改密码')}</button>
+            <button disabled={busy || formMode !== null} onClick={() => { setAccountOpen(false); setError(''); setFormMode('change') }}>{t('修改密码')}</button>
             <button disabled={busy} onClick={() => void logout()}>{busy ? t('正在退出……') : t('退出登录')}</button>
           </div>
         </div>
       </header>
       {error && <p className="auth-session-error" role="alert">{t(error)}</p>}
-      {passwordMode === 'change' && <div className="auth-password-region"><PasswordForm mode="change"
-        onCancel={() => { setFocusTarget('change'); setPasswordMode(null) }} onSuccess={passwordUpdated} /></div>}
+      {formMode === 'change' && <div className="auth-password-region"><PasswordForm mode="change"
+        onCancel={() => { setFocusTarget('change'); setFormMode(null) }} onSuccess={passwordUpdated} /></div>}
       <div className="auth-workspace" ref={workspace} tabIndex={-1}><AuthIdentityContext.Provider value={session?.user ?? null}>{children}</AuthIdentityContext.Provider></div>
     </div></WorkspaceChromeContext.Provider>
   }
-  if (passwordMode === 'reset') return anonymousShell(<PasswordForm mode="reset" onCancel={() => { setFocusTarget('forgot'); setPasswordMode(null) }} onSuccess={passwordUpdated} />)
+  if (formMode === 'reset') return anonymousShell(<PasswordForm mode="reset" onCancel={() => { setFocusTarget('forgot'); setFormMode(null) }} onSuccess={passwordUpdated} />)
+  if (formMode === 'register') return anonymousShell(<RegistrationForm initialEmail={email}
+    onCancel={() => { setFocusTarget('email'); setFormMode(null) }}
+    onSubmitted={registeredEmail => {
+      setEmail(registeredEmail)
+      setFocusTarget('email')
+      setFormMode(null)
+      setNotice('申请已提交，请登录查看审核状态。')
+    }} />)
   return anonymousShell(<section className="login-panel">
     <h2>{t('登录')}</h2>
     {notice && <p role="status">{t(notice)}</p>}
     <form onSubmit={event => void login(event)} aria-busy={busy}>
-      <label>{t('邮箱')}<input ref={emailInput} type="email" autoComplete="username" required value={email} disabled={busy}
+      <label>{t('邮箱')}<input ref={emailInput} name="email" type="email" autoComplete="username" required maxLength={254} value={email} disabled={busy}
           onChange={event => setEmail(event.target.value)} /></label>
-      <label>{t('密码')}<input type="password" autoComplete="current-password" required maxLength={256} value={password}
+      <label>{t('密码')}<input name="password" type="password" autoComplete="current-password" required maxLength={256} value={password}
           disabled={busy} onChange={event => setPassword(event.target.value)} /></label>
-      <button className="button-primary auth-login-submit" disabled={busy} type="submit">{busy ? t('正在登录……') : t('登录')}</button>
-      <button className="button-quiet auth-forgot" ref={forgotButton} disabled={busy} type="button" onClick={() => { setPassword(''); setError(''); setNotice(''); setPasswordMode('reset') }}>{t('忘记密码')}</button>
       {error && <p role="alert">{t(error)}</p>}
+      <button className="button-primary auth-login-submit" disabled={busy} type="submit">{busy ? t('正在登录……') : t('登录')}</button>
+      <div className="auth-secondary-actions">
+        <button className="button-quiet" disabled={busy} type="button" onClick={() => openAuthForm('register')}>{t('注册账号')}</button>
+        <button className="button-quiet" ref={forgotButton} disabled={busy} type="button" onClick={() => openAuthForm('reset')}>{t('忘记密码')}</button>
+      </div>
     </form>
-    <p className="auth-contact">{t('需要账号？请联系管理员。')}</p>
   </section>)
 }

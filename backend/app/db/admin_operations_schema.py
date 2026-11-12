@@ -1,24 +1,35 @@
 """Small append-only operational history, separate from research payloads."""
 import sqlalchemy as sa
+from app.db.account_registration_schema import REVIEW_AUDIT_STATE
 
 
-def define_admin_operations_tables(metadata, *, include_task_operation=False):
+def define_admin_operations_tables(metadata, *, include_task_operation=False, include_account_roles=False,
+                                   include_registration_review=False):
+    audit_roles = "'user','admin','customer','analyst'" if include_account_roles else "'user','admin'"
+    after_role_values = f'after_role IN ({audit_roles})'
+    if include_registration_review:
+        after_role_values = f'(after_role IS NULL OR {after_role_values})'
     audit = sa.Table('admin_audit_events', metadata,
         sa.Column('id', sa.Text, primary_key=True),
         sa.Column('source', sa.Text, nullable=False),
         sa.Column('operator', sa.Text),
         sa.Column('actor_user_id', sa.Text, sa.ForeignKey('users.id')),
         sa.Column('target_user_id', sa.Text, sa.ForeignKey('users.id'), nullable=False),
-        sa.Column('before_role', sa.Text), sa.Column('after_role', sa.Text, nullable=False),
+        sa.Column('before_role', sa.Text), sa.Column('after_role', sa.Text, nullable=include_registration_review),
         sa.Column('before_active', sa.Boolean), sa.Column('after_active', sa.Boolean, nullable=False),
         sa.Column('reason', sa.Text, nullable=False),
         sa.Column('effective_at', sa.Double, nullable=False),
         sa.Column('request_id', sa.Text),
-        sa.CheckConstraint("source IN ('web','cli') AND after_role IN ('user','admin') AND (before_role IS NULL OR before_role IN ('user','admin'))",name='admin_audit_values'),
+        sa.CheckConstraint(f"source IN ('web','cli') AND {after_role_values} "
+                           f"AND (before_role IS NULL OR before_role IN ({audit_roles}))", name='admin_audit_values'),
         sa.CheckConstraint("length(reason) BETWEEN 5 AND 500 AND (operator IS NULL OR length(operator) BETWEEN 1 AND 128)",name='admin_audit_bounds'),
         sa.CheckConstraint("source<>'web' OR (actor_user_id IS NOT NULL AND request_id IS NOT NULL)",name='admin_audit_actor'),
         sa.CheckConstraint("request_id IS NULL OR request_id ~ '^[0-9a-f]{32}$'",name='admin_audit_request'),
     )
+    if include_registration_review:
+        audit.append_column(sa.Column('before_review_status', sa.Text))
+        audit.append_column(sa.Column('after_review_status', sa.Text))
+        audit.append_constraint(sa.CheckConstraint(REVIEW_AUDIT_STATE, name='admin_audit_review_state'))
     sa.Index('admin_audit_target_time',audit.c.target_user_id,audit.c.effective_at.desc(),audit.c.id)
     events = sa.Table('operational_request_events', metadata,
         sa.Column('request_id',sa.Text,primary_key=True),

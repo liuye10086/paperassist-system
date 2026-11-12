@@ -6,13 +6,14 @@ import hashlib
 import json
 import os
 from pathlib import Path
-from uuid import uuid4, UUID
+from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
 
 from fastapi import Request
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.core.config import get_data_dir
 from app.adapters.file_objects import LocalFileObjects
+from app.auth.project_access import ACTIVE_ASSIGNMENTS_FROM, assignment_for_owner
 from app.db.database import database_connection, ensure_schema_current, get_database_config, SchemaVersionError
 
 
@@ -45,11 +46,17 @@ def check_database_ready():
 
 
 class ProjectStore:
-    def __init__(self, directory: Path, *, owner_id: str | None = None):
+    # Trusted background workers also build scoped instances without __init__.
+    customer = False
+    assignment = None
+
+    def __init__(self, directory: Path, *, owner_id: str | None = None, customer: bool = False):
         # None is reserved for trusted local management and recovery workers.
         if owner_id is not None and not owner_id:
             raise ValueError('An owner scope must be non-empty.')
         self.owner_id = owner_id
+        self.customer = customer
+        self.assignment = assignment_for_owner(owner_id)
         self.directory = directory
         self.objects = LocalFileObjects(directory)
         self.files_dir = directory / "files"
@@ -69,29 +76,57 @@ class ProjectStore:
         with _storage_connection(write=write, config=self.db_config) as db:
             yield db
 
+    @property
+    def actor_id(self):
+        return self.assignment.analyst_id if self.assignment else self.owner_id
+
+    def require_project_scope(self, project_id):
+        if self.assignment is not None:
+            self.assignment.require_project(project_id)
+
+    @property
+    def material_filter(self):
+        # Ordinary customer material reads include the customer's own uploads
+        # and historical originals, while analysis releases use their snapshot.
+        return ''' AND NOT EXISTS (SELECT 1 FROM projects material_project WHERE material_project.id=files.project_id
+            AND coalesce(files.upload_actor_id,files.uploader_id,material_project.owner_id) IS DISTINCT FROM material_project.owner_id)
+            AND NOT EXISTS (SELECT 1 FROM bio_cloud_outputs o
+            WHERE o.project_id=files.project_id AND o.file_id=files.id)''' if self.customer else ''
+
+    @property
+    def project_fields(self):
+        return f'''projects.id, name, research_topic, project_type, default_output_language, created_at, updated_at,
+            (SELECT count(*) FROM files WHERE project_id=projects.id{self.material_filter}) AS file_count'''
+
     def projects(self):
         scope = ' WHERE owner_id = %s' if self.owner_id is not None else ''
         parameters = (self.owner_id,) if self.owner_id is not None else ()
+        if self.assignment is not None:
+            scope += ' AND id=%s'
+            parameters += (self.assignment.project_id,)
         with self.connection() as db:
-            return [dict(row) for row in db.execute("""
-                SELECT projects.id, name, research_topic, project_type, default_output_language, created_at, updated_at,
-                    (SELECT count(*) FROM files WHERE project_id = projects.id) AS file_count
-                FROM projects
-            """ + scope + ' ORDER BY updated_at DESC, id', parameters)]
+            return [dict(row) for row in db.execute(f'SELECT {self.project_fields} FROM projects'
+                + scope + ' ORDER BY updated_at DESC, id', parameters)]
 
-    def query_projects(self, *, page=1, page_size=10, q='', project_type=None) -> dict:
+    def query_projects(self, *, page=1, page_size=10, q='', project_type=None, assigned=False) -> dict:
         invalid = StorageError('project_query_invalid',
                                '页码须为1–1000000，页面大小须为1–100，搜索最多120字符，类型仅支持sci、thesis或research。', 422)
         if (type(page) is not int or not 1 <= page <= 1_000_000
                 or type(page_size) is not int or not 1 <= page_size <= 100
-                or not isinstance(q, str) or len(q.strip()) > 120
+                or not isinstance(q, str) or len(q.strip()) > 120 or '\x00' in q
                 or (project_type is not None and project_type not in ('sci', 'thesis', 'research'))):
             raise invalid
         q = q.strip()
         conditions, parameters = [], []
-        if self.owner_id is not None:
+        if assigned:
+            conditions.append('id IN (SELECT a.project_id ' + ACTIVE_ASSIGNMENTS_FROM + ' AND analyst.id=%s)')
+            parameters.append(self.actor_id)
+        elif self.owner_id is not None:
             conditions.append('owner_id = %s')
             parameters.append(self.owner_id)
+        if self.assignment is not None:
+            conditions.append('id=%s')
+            parameters.append(self.assignment.project_id)
         if project_type is not None:
             conditions.append('project_type = %s')
             parameters.append(project_type)
@@ -102,9 +137,7 @@ class ProjectStore:
             parameters.append(q)
         where = ' WHERE ' + ' AND '.join(conditions) if conditions else ''
         parameters = tuple(parameters)
-        projection = '''SELECT projects.id, name, research_topic, project_type, default_output_language, created_at, updated_at,
-            (SELECT count(*) FROM files WHERE project_id = projects.id) AS file_count
-            FROM projects'''
+        projection = f'SELECT {self.project_fields} FROM projects'
         # connection() opens one read-only REPEATABLE READ transaction; count
         # and rows use the identical predicates and the same committed snapshot.
         with self.connection() as db:
@@ -115,14 +148,11 @@ class ProjectStore:
                     'page': page, 'page_size': page_size}
 
     def project(self, project_id: str):
+        self.require_project_scope(project_id)
         scope = ' AND owner_id = %s' if self.owner_id is not None else ''
         parameters = (project_id, self.owner_id) if self.owner_id is not None else (project_id,)
         with self.connection() as db:
-            row = db.execute("""
-                SELECT projects.id, name, research_topic, project_type, default_output_language, created_at, updated_at,
-                    (SELECT count(*) FROM files WHERE project_id = projects.id) AS file_count
-                FROM projects WHERE id = %s
-            """ + scope, parameters).fetchone()
+            row = db.execute(f'SELECT {self.project_fields} FROM projects WHERE id = %s' + scope, parameters).fetchone()
         if row is None:
             raise StorageError("project_not_found", "项目不存在，请刷新项目列表。", 404)
         return dict(row)
@@ -171,6 +201,7 @@ class ProjectStore:
         return self.project(row['project_id'])
 
     def update_project(self, project_id: str, changes: dict) -> dict:
+        self.require_project_scope(project_id)
         # This entry point also serves trusted local tools: never rely on HTTP
         # validation for immutable fields or dynamically constructed SQL columns.
         if isinstance(changes, dict) and 'project_type' in changes:
@@ -188,8 +219,7 @@ class ProjectStore:
 
         scope = ' AND owner_id = %s' if self.owner_id is not None else ''
         parameters = (project_id, self.owner_id) if self.owner_id is not None else (project_id,)
-        projection = '''projects.id, name, research_topic, project_type, default_output_language, created_at, updated_at,
-            (SELECT count(*) FROM files WHERE project_id = projects.id) AS file_count'''
+        projection = self.project_fields
         with self.connection(write=True) as db:
             row = db.execute('SELECT ' + projection + ' FROM projects WHERE id = %s' + scope
                              + ' FOR UPDATE OF projects', parameters).fetchone()
@@ -210,12 +240,12 @@ class ProjectStore:
             return dict(updated)
 
     def update_project_language(self, project_id: str, default_output_language: str) -> dict:
+        self.require_project_scope(project_id)
         if default_output_language not in ('zh-CN', 'en'):
             raise StorageError('project_language_invalid', '项目默认输出语言仅支持中文或英文。', 422)
         scope = ' AND owner_id = %s' if self.owner_id is not None else ''
         parameters = (project_id, self.owner_id) if self.owner_id is not None else (project_id,)
-        projection = '''projects.id, name, research_topic, project_type, default_output_language, created_at, updated_at,
-            (SELECT count(*) FROM files WHERE project_id = projects.id) AS file_count'''
+        projection = self.project_fields
         with self.connection(write=True) as db:
             row = db.execute('SELECT ' + projection + ' FROM projects WHERE id = %s' + scope
                              + ' FOR UPDATE OF projects', parameters).fetchone()
@@ -244,13 +274,14 @@ class ProjectStore:
             return [self.file_record(row) for row in db.execute("""
                 SELECT id, project_id, filename, file_type, size_bytes, sha256,
                        uploaded_at, parse_status, error_json
-                FROM files WHERE project_id = %s ORDER BY uploaded_at DESC, id
-            """, (project_id,))]
+                FROM files WHERE project_id = %s
+            """ + self.material_filter + ' ORDER BY uploaded_at DESC, id', (project_id,))]
 
     def file(self, project_id: str, file_id: str):
         self.project(project_id)
         with self.connection() as db:
-            row = db.execute("SELECT * FROM files WHERE project_id = %s AND id = %s", (project_id, file_id)).fetchone()
+            row = db.execute('SELECT * FROM files WHERE project_id = %s AND id = %s' + self.material_filter,
+                             (project_id, file_id)).fetchone()
         if row is None:
             raise StorageError("file_not_found", "当前项目中没有此文件。", 404)
         return dict(row)
@@ -262,6 +293,12 @@ class ProjectStore:
                 if str(UUID(operation_id))!=operation_id:raise ValueError()
             except (ValueError,TypeError,AttributeError):
                 raise StorageError('invalid_request','上传幂等身份必须为规范 UUID。',422) from None
+        operation_prefix = 'sync:'
+        if self.assignment is not None:
+            actor_digest = hashlib.sha256(self.actor_id.encode('utf-8')).hexdigest()
+            operation_prefix = f'sync-assignment:{actor_digest}:'
+            if operation_id is not None:
+                operation_id = str(uuid5(NAMESPACE_URL, operation_prefix + operation_id))
         fingerprint=hashlib.sha256(json.dumps([filename,hashlib.sha256(content).hexdigest()],
             ensure_ascii=False,separators=(',',':')).encode()).hexdigest()
         now = datetime.now(timezone.utc).isoformat()
@@ -278,13 +315,13 @@ class ProjectStore:
                 # unfinished, exact filename/content identity may be recovered;
                 # an already successful upload still permits an independent copy.
                 pending=list(db.execute("SELECT operation_key FROM storage_reservations WHERE namespace=%s AND project_id=%s AND kind='original' AND state IN ('reserved','unknown') AND operation_key LIKE %s",
-                    (NAMESPACE,project_id,'sync:%:'+fingerprint)))
+                    (NAMESPACE,project_id,operation_prefix+'%:'+fingerprint)))
                 if len(pending)>1:
                     raise StorageError('storage_reservation_conflict','存在多个相同上传候选，请使用明确的原操作身份恢复。',409)
-                operation_id=pending[0]['operation_key'].split(':')[1] if pending else str(uuid4())
-            operation_key='sync:'+operation_id+':'+fingerprint
+                operation_id=pending[0]['operation_key'].rsplit(':',2)[1] if pending else str(uuid4())
+            operation_key=operation_prefix+operation_id+':'+fingerprint
             prior=list(db.execute('SELECT operation_key FROM storage_reservations WHERE namespace=%s AND project_id=%s AND operation_key LIKE %s',
-                (NAMESPACE,project_id,'sync:'+operation_id+':%')))
+                (NAMESPACE,project_id,operation_prefix+operation_id+':%')))
             if any(row['operation_key']!=operation_key for row in prior):
                 raise StorageError('storage_reservation_conflict','上传幂等身份已绑定不同文件名或内容。',409)
             existing=db.execute('''SELECT f.* FROM files f JOIN storage_reservations r
@@ -301,16 +338,18 @@ class ProjectStore:
             descriptor = self.objects.put_original(project_id, operation_id, 'xlsx', content, db=db,operation_key=operation_key)
             file_id = descriptor.id
             db.execute("""INSERT INTO files (id, project_id, filename, file_type, size_bytes, sha256,
-                uploaded_at, parse_status, error_json, preview_json, uploader_id, object_key, storage_backend)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""", (
+                uploaded_at, parse_status, error_json, preview_json, uploader_id, object_key, storage_backend, upload_actor_id)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""", (
                 file_id, project_id, filename, descriptor.file_type, descriptor.size_bytes, descriptor.sha256,
                 now, "failed" if error else "parsed", json.dumps(error, ensure_ascii=False) if error else None, preview,
-                self.owner_id, descriptor.object_key, descriptor.storage_backend,
+                self.owner_id, descriptor.object_key, descriptor.storage_backend, self.actor_id,
             ))
             db.execute("UPDATE projects SET updated_at = GREATEST(updated_at, %s) WHERE id = %s", (now, project_id))
         return self.file_record(self.file(project_id, file_id))
 
     def original(self, record: dict) -> bytes:
+        if 'project_id' in record:
+            self.require_project_scope(record['project_id'])
         return self.objects.original(record)
 
     def analysis_setup(self, project_id: str, file_id: str):
@@ -634,4 +673,6 @@ def get_request_project_store(request: Request) -> ProjectStore:
     user = getattr(request.state, 'user', None)
     if not isinstance(user, dict) or not isinstance(user.get('id'), str) or not user['id']:
         raise StorageError('authentication_required', '请先登录。', 401)
-    return ProjectStore(get_data_dir(), owner_id=user['id'])
+    assignment = getattr(request.state, 'project_assignment', None)
+    owner_id = assignment.owner_id if assignment else user['id']
+    return ProjectStore(get_data_dir(), owner_id=owner_id, customer=user['role'] == 'customer')

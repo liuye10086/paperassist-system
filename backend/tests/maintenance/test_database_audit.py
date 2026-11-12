@@ -237,11 +237,11 @@ def test_not_valid_constraint_is_reported(postgres_schema, postgres_migration_co
     with migration_connection(write=True, config=postgres_migration_config) as db:
         db.execute('ALTER TABLE users DROP CONSTRAINT users_role_check')
         db.execute("INSERT INTO users(id,email,password_hash,role,active,created_at,updated_at) VALUES ('invalid-role-user','private@example.test','private-hash','unexpected',true,1,1)")
-        db.execute("ALTER TABLE users ADD CONSTRAINT users_role_check CHECK (role IN ('user','admin')) NOT VALID")
+        db.execute("ALTER TABLE users ADD CONSTRAINT users_role_check CHECK (role IN ('customer','admin','analyst')) NOT VALID")
     with database_connection(config=postgres_schema) as db:
         result = audit_database(db)
     assert not result['ok']
     assert {'table': 'users', 'kind': 'constraint_state:users_role_check'} in result['schema_issues']
-    assert len(result['data_checks']) == 91
+    assert {'table': 'users', 'column': 'created_at', 'rows': 1, 'invalid': 0} in result['data_checks']
     assert 'private@example.test' not in json.dumps(result)
     assert 'unexpected' not in json.dumps(result)

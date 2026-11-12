@@ -9,14 +9,14 @@ type Item={id:string;filename:string;size_bytes?:number;status:string;file_id:st
 type Batch={id:string;project_id:string;items:Item[];profile?:unknown}
 type Registration={key:string;body:{items:{client_id:string;filename:string;size_bytes:number}[]}}
 type UploadDraft={batch:Batch|null;registration:Registration|null;unknown:boolean}
-type Props={embedded?:boolean;active?:boolean;projectId:string;onChanged:()=>void;registerLeaveGuard?:RegisterLeaveGuard}
+type Props={embedded?:boolean;active?:boolean;projectId:string;onChanged:()=>void;registerLeaveGuard?:RegisterLeaveGuard;customerView?:boolean}
 const reselectMessage='请重新选择名称和大小一致的原文件。'
 const pending=(item:Item)=>!item.file_id&&item.status!=='rejected'
 
 export default function BioUpload(props:Props){
  return <UploadContent key={`${getApiUserId()}:${props.projectId}`} {...props}/>
 }
-function UploadContent({projectId,onChanged,registerLeaveGuard,active=true,embedded=false}:Props){
+function UploadContent({projectId,onChanged,registerLeaveGuard,active=true,embedded=false,customerView=false}:Props){
  const {t}=useI18n()
  // File objects stay in memory. Only the original request identity and server snapshot survive a reload.
  const [draft,setDraft]=useResearchDraft<UploadDraft>(projectId,'bio-upload',()=>({batch:null,registration:null,unknown:false}))
@@ -87,10 +87,10 @@ function UploadContent({projectId,onChanged,registerLeaveGuard,active=true,embed
  const recoveringRegistration=!batch&&!!draft.registration&&unknown
  return <section className="bio-workspace bio-upload">
   {!embedded&&<h3>{t('生信上传与数据包')}</h3>}
-  <p>{t(embedded?'支持数据包、矩阵和样本信息表；每批最多 10 个文件，上传后选择分析，再继续导入核对。':'原件保存后仍待生信导入；每批最多 10 项，按顺序上传，不触发旧文件解析。')}</p>
+  <p>{t(customerView?'上传测序数据包、矩阵或样本信息表，每批最多 10 个文件。':embedded?'支持数据包、矩阵和样本信息表；每批最多 10 个文件，上传后选择分析，再继续导入核对。':'原件保存后仍待生信导入；每批最多 10 项，按顺序上传，不触发旧文件解析。')}</p>
   <label className="upload-file-picker">{t('选择生信文件')}<input type="file" multiple disabled={busy||registrationLocked} accept=".tar,.tar.gz,.tgz,.gz,.mtx,.tsv,.csv,.xlsx,.txt,.json,.h5,.hdf5,.png,.jpg,.jpeg" onChange={e=>{const next=Array.from(e.target.files??[]);if(next.length>10||next.some(file=>file.size===0)){setError('每批最多 10 项，且文件不能为空。');return}setFiles(next);setError('')}}/></label>
   {files.length>0&&<ul>{files.filter(Boolean).map((file,index)=><li key={index}>{file.name} · {file.size.toLocaleString()} {t('字节')}</li>)}</ul>}
-  {batch&&<ul>{batch.items.map((item,index)=><li key={item.id}>{item.filename}{pending(item)&&<label>{t('重新选择同一文件')}<input type="file" disabled={busy} onChange={e=>{const file=e.target.files?.[0];if(!file||file.name!==item.filename||item.size_bytes!==undefined&&file.size!==item.size_bytes){setError(reselectMessage);return}setFiles(old=>{const next=[...old];next[index]=file;return next});setError('')}}/></label>} · {t(item.file_id?'已保存，待生信导入':item.status==='rejected'?'上传被拒绝':'待上传或待核对')}</li>)}</ul>}
+  {batch&&<ul>{batch.items.map((item,index)=><li key={item.id}>{item.filename}{pending(item)&&<label>{t('重新选择同一文件')}<input type="file" disabled={busy} onChange={e=>{const file=e.target.files?.[0];if(!file||file.name!==item.filename||item.size_bytes!==undefined&&file.size!==item.size_bytes){setError(reselectMessage);return}setFiles(old=>{const next=[...old];next[index]=file;return next});setError('')}}/></label>} · {t(item.file_id?(customerView?'已上传':'已保存，待生信导入'):item.status==='rejected'?'上传被拒绝':'待上传或待核对')}</li>)}</ul>}
   {missingLocal&&!error&&<p>{t(reselectMessage)}</p>}
   {error&&<p role="alert" className="error-panel">{t(error)}</p>}
   {unknown&&<p className="warning-panel">{t('上传结果尚未核实，先读取原批次；保持原文件和请求身份。')}</p>}

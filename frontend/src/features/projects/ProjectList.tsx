@@ -20,10 +20,11 @@ type ProjectListProps = {
   onOpen: (projectId: string) => void
   onRetry: () => void
   presentation?: 'cards' | 'table'
+  emptyMessage?: string
 }
 
 export default function ProjectList({ items, total, query, searchDraft, loading, error,
-  onSearchDraftChange, onQueryChange, onOpen, onRetry, presentation = 'table' }: ProjectListProps) {
+  onSearchDraftChange, onQueryChange, onOpen, onRetry, presentation = 'table', emptyMessage = '还没有项目，请先创建一个项目。' }: ProjectListProps) {
   const { t, locale } = useI18n()
   const pages = Math.max(1, Math.ceil(total / PROJECT_PAGE_SIZE))
   const filtered = Boolean(query.q || query.type)
@@ -74,7 +75,7 @@ export default function ProjectList({ items, total, query, searchDraft, loading,
       </table>
     </div>}
     {!loading && !error && total === 0 && <div className="empty-preview">
-      <p>{t(filtered ? '没有匹配的项目。' : '还没有项目，请先创建一个项目。')}</p>
+      <p>{t(filtered ? '没有匹配的项目。' : emptyMessage)}</p>
     </div>}
     <div className="project-pagination">
       <span>{t('共 {total} 个项目 · 第 {page} / {pages} 页', { total, page: query.page, pages })}</span>

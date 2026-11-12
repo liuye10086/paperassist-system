@@ -38,7 +38,7 @@ def test_migration_role_retains_transactional_ddl(postgres_schema):
 def test_runtime_dml_works(postgres_schema):
     with database_connection(write=True) as db:
         db.execute("INSERT INTO users (id, email, password_hash, role, active, created_at, updated_at) VALUES (%s, %s, %s, %s, %s, %s, %s)",
-                   ('permissions-user', 'permissions@example.invalid', 'unused', 'user', True, 1.0, 1.0))
+                   ('permissions-user', 'permissions@example.invalid', 'unused', 'analyst', True, 1.0, 1.0))
         db.execute("INSERT INTO projects (id, name, research_topic, project_type, created_at, updated_at, owner_id) VALUES (%s,%s,%s,%s,%s,%s,%s)",
                    ('permissions-project', 'probe', '', 'sci', 'same', 'same', 'permissions-user'))
         db.execute("UPDATE projects SET name=%s WHERE id=%s", ('updated', 'permissions-project'))

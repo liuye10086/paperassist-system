@@ -53,7 +53,7 @@ export function parseNavigation(hash: string): NavigationRoute | null {
     if ([...p.keys()].some(k => p.getAll(k).length !== 1))
         return null;
     if (p.has('workspace'))
-        return p.size === 1 && ['home', 'projects'].includes(p.get('workspace')!) ? { ...r, workspaceView: p.get('workspace') as WorkspaceView } : null;
+        return p.size === 1 && ['home', 'projects', 'assigned'].includes(p.get('workspace')!) ? { ...r, workspaceView: p.get('workspace') as WorkspaceView } : null;
     if (!validId(p.get('project') ?? ''))
         return null;
     r.workspaceView = 'project';
@@ -271,4 +271,22 @@ export function isFixedWritingNavigation(r:NavigationRoute):boolean {
  if(r.section==='manuscripts'&&r.manuscriptView==='research-selection')return true;
  if(s.kind==='research_finding_version')return r.section==='analysis'&&r.analysisNavigation.view==='research-findings'&&!!s.setId&&r.analysisNavigation.findingSetId===s.setId&&r.analysisNavigation.findingVersionId===s.id;
  return r.section==='artifacts'&&r.artifactNavigation.view===(s.kind==='research_figure_version'?'research-figures':'research-reports')&&r.artifactNavigation.artifactId===s.id;
+}
+
+export function analystNavigation(route: NavigationRoute, assigned = false): NavigationRoute {
+    if (route.workspaceView !== 'project') return route;
+    if (!['overview', 'files', 'analysis', 'artifacts', 'tasks'].includes(route.section)
+        || route.section === 'overview' && ['activity', 'usage'].includes(route.overviewView)) {
+        return { ...homeRoute(), workspaceView: 'project', projectId: route.projectId, overviewView: 'settings' };
+    }
+    if (route.section === 'artifacts' && route.artifactNavigation.view === 'layout') {
+        return { ...route, artifactNavigation: homeRoute().artifactNavigation };
+    }
+    if (assigned && route.section === 'analysis' && route.analysisNavigation.view === 'research-request') {
+        return { ...route, section: 'overview', overviewView: 'design', analysisNavigation: homeRoute().analysisNavigation };
+    }
+    if (assigned && route.section === 'tasks' && route.taskDetailView === 'usage') {
+        return { ...route, taskDetailView: 'overview' };
+    }
+    return route;
 }

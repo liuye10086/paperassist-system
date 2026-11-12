@@ -252,7 +252,7 @@ def test_report_and_figure_result_columns_are_exact_task_and_source_scoped():
 def test_research_output_intent_cannot_bind_a_task_of_another_user():
     seed();upgrade()
     with migration_connection(write=True) as db:
-        db.execute("INSERT INTO users(id,email,password_hash,role,active,created_at,updated_at) VALUES('other','other@example.invalid','unused','user',true,0,0)")
+        db.execute("INSERT INTO users(id,email,password_hash,role,active,created_at,updated_at) VALUES('other','other@example.invalid','unused','analyst',true,0,0)")
         task(db,'other-task','research_figure')
         db.execute("UPDATE tasks SET user_id='other' WHERE id='other-task'")
     with pytest.raises(IntegrityError):

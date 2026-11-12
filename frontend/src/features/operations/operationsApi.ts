@@ -4,7 +4,48 @@ import { apiFetch, onApiSessionChanged } from '../../shared/api/client'
 import { useDocumentVisible } from '../tasks/useDocumentVisible'
 import { apiError, safeError } from '../../shared/i18n'
 export type Page<T> = {items:T[];total:number;page:number;page_size:number}
-export type Account={id:string;email:string;role:'user'|'admin';active:boolean;admin_revision:number;updated_at:number;allowed_actions:string[]}
+export const accountRoles = [
+  { value: 'customer', label: '客户' },
+  { value: 'analyst', label: '分析员' },
+  { value: 'admin', label: '管理员' },
+] as const
+export const accountReviewNames = { pending: '待审核', approved: '审核通过', rejected: '审核驳回' } as const
+type AccountRole = typeof accountRoles[number]['value']
+export type AccountReviewStatus = keyof typeof accountReviewNames
+export type Account = {
+  id: string
+  email: string
+  role: AccountRole | null
+  active: boolean
+  review_status: AccountReviewStatus
+  admin_revision: number
+  updated_at: number
+  allowed_actions: string[]
+}
+export type RegistrationSummary = {
+  user_id: string
+  email: string
+  display_name: string
+  organization: string
+  submitted_at: number
+  review_status: AccountReviewStatus
+}
+export type AccountRegistration = RegistrationSummary & {
+  note: string
+  admin_revision: number
+  decision: {
+    status: 'approved' | 'rejected'
+    role: AccountRole | null
+    reason: string
+    reviewed_at: number
+    reviewer_email: string
+  } | null
+}
+
+export function accountRoleName(role: string | null) {
+  if (role === 'user') return '普通用户'
+  return accountRoles.find(option => option.value === role)?.label ?? '未知'
+}
 export type SafeTask={id:string;user_id:string;user_email:string;project_id:string;task_type:string;phase:string;status:string;revision:number;created_at:string;updated_at:string;current_attempt:number|null;attempt_count:number;started_at:string|null;finished_at:string|null;elapsed_ms:number|null;error_code:string|null;request_id:string|null;can_open_workspace:boolean;allowed_actions:string[];workspace_url?:string|null}
 export type Summary=ToolUsage&{call_count:number;estimated_micro_usd:number|null;estimated_unknown_count:number;actual_micro_usd:number|null;actual_known_micro_usd:number;actual_unknown_count:number;reconciled_count:number;partial_count:number;pending_count:number;not_applicable_count:number;reserved_micro_usd:number;accounted_micro_usd:number;tool_call_count:number;tool_call_unknown_count:number;input_tokens:{known:number;unknown_count:number};output_tokens:{known:number;unknown_count:number};total_tokens:{known:number;unknown_count:number}}
 export const provenanceNames={openai_live:'已证实真实调用',synthetic_fixture:'合成验收样例',unknown:'来源未知'} as const
@@ -14,7 +55,7 @@ export type Budget={user_id:string;scope_type:string;scope_key:string;limit_micr
 export type Usage=Page<Call>&{currency:string;period:{kind:string;timezone:string;from:string|null;to:string|null};coverage:{historical_missing_is_zero:boolean};user_charge_enabled:boolean;quota:{configured:boolean};budget_scope:string;budgets:Budget[];summary:Summary;by_provenance:Provenance;groups:{key:string;summary:Summary;by_provenance:Provenance}[];group_by:string;group_total:number;group_page:number;group_page_size:number}
 export type Coverage={started_at:string;historical_missing_is_zero:false;policy:string}
 export type Log={request_id:string;task_operation?:'retry'|'resume'|null;route_template:string|null;method:string;status:number;elapsed_ms:number;user_id:string|null;task_id:string|null;error_code:string|null;created_at:string}
-export type Audit={id:string;source:string;operator:string|null;actor_user_id:string|null;target_user_id:string;before_role:string|null;after_role:string;before_active:boolean|null;after_active:boolean;reason:string;effective_at:number;request_id:string|null}
+export type Audit={id:string;source:string;operator:string|null;actor_user_id:string|null;target_user_id:string;before_role:string|null;after_role:string|null;before_active:boolean|null;after_active:boolean;reason:string;effective_at:number;request_id:string|null;before_review_status?:AccountReviewStatus|null;after_review_status?:AccountReviewStatus|null}
 export type Metrics=ToolUsage&{coverage:Coverage;requests:number;errors:number;rate_limited:number;retry_requests:number;resume_requests:number;recovery_operation_unknown_requests?:number;model_calls:number;tool_calls:number;tool_calls_unknown_count:number;model_calls_by_provenance:Record<string,number>}
 export class OperationsError extends Error {status:number;constructor(status:number,message:string){super(message);this.status=status}}
 export async function operationsRequest<T>(url:string,signal:AbortSignal,init:RequestInit={}):Promise<T>{

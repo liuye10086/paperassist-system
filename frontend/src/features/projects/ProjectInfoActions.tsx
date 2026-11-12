@@ -14,10 +14,11 @@ const views = [
   { value: 'usage', label: '项目用量', icon: 'chart' },
 ] as const
 
-export default function ProjectInfoActions({ project, active, view, onViewChange, children, error, onOpenJournals, onOpenManuscripts }: {
+export default function ProjectInfoActions({ project, active, view, onViewChange, children, error, onOpenJournals, onOpenManuscripts, analysisOnly = false }: {
   project: Project; active: boolean; error?: string
   view: OverviewView; onViewChange: (view: InfoView) => void; children: ReactNode
   onOpenJournals: () => void; onOpenManuscripts: () => void
+  analysisOnly?: boolean
 }) {
   const { t } = useI18n()
   const panelId = useId()
@@ -26,6 +27,7 @@ export default function ProjectInfoActions({ project, active, view, onViewChange
   if (view === 'usage' && !usageOpened) setUsageOpened(true)
   return <section className="project-info-card project-info-main" aria-label={t('项目资料')} hidden={!active}>
     <header className="project-info-title"><WorkspaceIcon name="folder"/><h1>{project.name}</h1></header>
+    {analysisOnly ? children : <>
     <div className="project-info-tabs" role="tablist" aria-label={t('项目资料')}>
       {views.map((item, index) => <button key={item.value} type="button" role="tab"
         ref={element => { buttons.current[item.value] = element }}
@@ -49,5 +51,6 @@ export default function ProjectInfoActions({ project, active, view, onViewChange
         ? <ProjectSummary projectId={project.id} projectType={project.project_type} view="overview" active={active && view === 'activity'} onOpenJournals={onOpenJournals} onOpenManuscripts={onOpenManuscripts}/>
         : <ProjectModelUsage layered projectId={project.id} active={active && (view === 'usage' || usageOpened)}/>}
     </div>)}
+    </>}
   </section>
 }

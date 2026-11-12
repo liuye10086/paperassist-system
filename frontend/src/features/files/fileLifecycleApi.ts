@@ -18,7 +18,9 @@ const identity=(v:unknown):v is string=>typeof v==='string'&&v.trim().length>0&&
 const revision=(v:unknown):v is string=>typeof v==='string'&&/^[a-f0-9]{64}$/.test(v)
 const date=(v:unknown)=>typeof v==='string'&&Number.isFinite(Date.parse(v))
 const own=(map:object,v:unknown)=>typeof v==='string'&&Object.hasOwn(map,v)
-export function isCounts(v:unknown):v is Counts{return object(v)&&Object.keys(originalLifecycleCounts).every(k=>Object.hasOwn(v,k))&&Object.keys(v).every(k=>Object.hasOwn(lifecycleCounts,k))&&Object.values(v).every(n=>integer(n))}
+export function isCounts(v:unknown):v is Counts{
+ return object(v)&&Object.keys(originalLifecycleCounts).every(k=>Object.hasOwn(v,k))&&Object.values(v).every(n=>integer(n))
+}
 function latest(v:unknown):v is Latest {
  if(!object(v)||!exact(v,['parse_versions','structure_versions','confirmed_plans','dataset_versions','prepared_dataset_versions','ocr_review_versions']))return false
  return ['parse_versions','structure_versions','confirmed_plans'].every(k=>integer(v[k]))&&['dataset_versions','prepared_dataset_versions','ocr_review_versions'].every(k=>Array.isArray(v[k])&&v[k].every((x:unknown)=>{const parent=k==='dataset_versions'?'sheet_index':k==='prepared_dataset_versions'?'parent_dataset_id':'parent_parse_id';return object(x)&&exact(x,['id','version',parent])&&identity(x.id)&&integer(x.version,1)&&(parent==='sheet_index'?integer(x[parent]):identity(x[parent]))}))

@@ -39,10 +39,15 @@ def validate_setup(store, project_id, file_id, setup, *, recompute=False):
     from app.domain.analysis_plan.service import validate_plan_reference
     from app.domain.dataset_analysis import load_dataset
     from app.domain.analysis import source
-    if setup.get('source') is not None:
-        if not setup.get('analysis_plan'):
+    frozen_source = setup.get('source')
+    if frozen_source is not None:
+        # The existing raw-data form saves a descriptive setup directly against
+        # an immutable dataset. Prepared data and other methods require a plan.
+        raw_description = (frozen_source['kind'] == 'dataset_version'
+                           and setup['selection']['task_type'] == 'descriptive_boxplot')
+        if not raw_description and not setup.get('analysis_plan'):
             raise source_conflict()
-        load_dataset(store, project_id, file_id, setup['source']['dataset_id'], expected_source=setup['source'])
+        load_dataset(store, project_id, file_id, frozen_source['dataset_id'], expected_source=frozen_source)
     else:
         if setup.get('schema_version') is not None or setup['selection']['task_type'] != 'descriptive_boxplot':
             raise source_conflict()

@@ -4,6 +4,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.adapters.research_intake_store import latest_confirmed_requirement
 from app.adapters.storage import ProjectStore
 from app.core.exceptions import StorageError
 
@@ -65,8 +66,10 @@ def _services(content_json) -> list[str]:
 
 def read_workflow_state(store: ProjectStore, project_id: str) -> WorkflowState:
     """Read all flow gates in one repeatable, owner-scoped read transaction."""
+    store.require_project_scope(project_id)
     scope = " AND p.owner_id = %s" if store.owner_id is not None else ""
     parameters = (project_id, store.owner_id) if store.owner_id is not None else (project_id,)
+    assigned = store.assignment is not None
     with store.connection() as db:
         project = db.execute(
             "SELECT p.id, p.project_type, p.owner_id FROM projects p WHERE p.id = %s" + scope,
@@ -75,6 +78,8 @@ def read_workflow_state(store: ProjectStore, project_id: str) -> WorkflowState:
         if project is None:
             raise StorageError("project_not_found", "项目不存在，请刷新项目列表。", 404)
 
+        confirmed = latest_confirmed_requirement(db, project_id) if assigned else None
+        confirmed_id = confirmed["id"] if confirmed else None
         row = db.execute(
             """
             SELECT
@@ -103,22 +108,24 @@ def read_workflow_state(store: ProjectStore, project_id: str) -> WorkflowState:
                     WHERE rr.project_id = p.id AND rr.user_id = p.owner_id
                 ) OR EXISTS (
                     SELECT 1 FROM research_manuscript_candidates rmc
-                    WHERE rmc.project_id = p.id AND rmc.user_id = p.owner_id
+                    WHERE rmc.project_id = p.id AND rmc.user_id = p.owner_id AND %s
                 ) AS results_available
             FROM projects p
             LEFT JOIN research_intakes ri ON ri.project_id = p.id
             LEFT JOIN research_requirement_versions rrv
-                ON rrv.id = ri.current_requirement_version_id
+                ON rrv.id = CASE WHEN %s THEN %s::text ELSE ri.current_requirement_version_id END
                 AND rrv.project_id = p.id
             WHERE p.id = %s
             """,
-            (project_id,),
+            (not assigned, assigned, confirmed_id, project_id),
         ).fetchone()
         if row is None:
             raise StorageError("project_not_found", "项目不存在，请刷新项目列表。", 404)
 
         services = _services(row["requirement_content"])
-        if not services:
+        if assigned:
+            services = [service for service in services if service == "analysis"]
+        elif not services:
             deliveries = db.execute(
                 "SELECT kind FROM research_deliveries WHERE project_id = %s AND active = true ORDER BY kind",
                 (project_id,),

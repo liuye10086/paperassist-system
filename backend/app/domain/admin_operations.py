@@ -6,6 +6,7 @@ from uuid import uuid4
 from app.core.errors import PUBLIC_CODES
 from app.core.exceptions import StorageError
 from app.db.database import database_connection, ensure_schema_current
+from app.auth.accounts import canonical_role
 
 
 def require_identity(db, user_id, *, admin=True):
@@ -17,12 +18,13 @@ def require_identity(db, user_id, *, admin=True):
     return row
 
 
-def audit_account(db, before, after, reason, *, actor=None, request_id=None, source='cli', operator=None):
+def audit_account(db, before, after, reason, *, actor=None, request_id=None, source='cli', operator=None, review=False):
     db.execute('''INSERT INTO admin_audit_events(id,source,operator,actor_user_id,target_user_id,
-        before_role,after_role,before_active,after_active,reason,effective_at,request_id)
-        VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)''',
+        before_role,after_role,before_active,after_active,reason,effective_at,request_id,before_review_status,after_review_status)
+        VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)''',
         (str(uuid4()),source,operator,actor,after['id'],before['role'] if before else None,
-         after['role'],before['active'] if before else None,after['active'],reason,after['updated_at'],request_id))
+         after['role'],before['active'] if before else None,after['active'],reason,after['updated_at'],request_id,
+         before['review_status'] if review else None, after['review_status'] if review else None))
 
 
 def guard_last_admin(db, before, role, active):
@@ -65,7 +67,12 @@ def page_query(db,select,source,where,values,page,page_size,order):
     return dict(items=[dict(row) for row in rows],total=total,page=page,page_size=page_size)
 
 
-USER_FIELDS='id,email,role,active,admin_revision,updated_at'
+def literal_substring(value):
+    return '%' + value.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_') + '%'
+
+
+USER_FIELDS='id,email,role,active,review_status,admin_revision,updated_at'
+HAS_REGISTRATION = 'EXISTS (SELECT 1 FROM account_registrations WHERE user_id=users.id)'
 TASK_FIELDS='t.id,t.user_id,u.email AS user_email,t.project_id,t.task_type,t.phase,t.status,t.revision,t.created_at,t.updated_at,t.current_attempt,t.error_code'
 TASK_DIAGNOSTICS='''a.started_at,a.finished_at,
     CASE WHEN a.finished_at IS NOT NULL THEN floor(extract(epoch FROM(a.finished_at-a.started_at))*1000)::bigint END AS elapsed_ms,
@@ -78,39 +85,109 @@ TASK_SOURCE='''tasks t JOIN users u ON u.id=t.user_id
 class AdminOperations:
     def __init__(self,user_id):self.user_id=user_id
 
-    def list_users(self, *, page=1,page_size=10,q=None,role=None,active=None):
+    def list_users(self, *, page=1,page_size=10,q=None,role=None,active=None,review_status=None):
         clauses=[];values=[]
         if q:
             # Literal substring: wildcard characters are not a query language.
             clauses.append("email ILIKE %s ESCAPE '\\'")
-            values.append('%'+q.replace('\\','\\\\').replace('%','\\%').replace('_','\\_')+'%')
-        if role is not None:clauses.append('role=%s');values.append(role)
+            values.append(literal_substring(q))
+        if role is not None:clauses.append('role=%s');values.append(canonical_role(role))
         if active is not None:clauses.append('active=%s');values.append(active)
+        if review_status is not None:clauses.append('review_status=%s');values.append(review_status)
         with database_connection() as db:
             require_identity(db,self.user_id)
-            result=page_query(db,USER_FIELDS,'users',clauses,values,page,page_size,'email,id')
-        for row in result['items']:row['allowed_actions']=[] if row['id']==self.user_id else ['edit']
+            result=page_query(db,f'{USER_FIELDS},{HAS_REGISTRATION} AS has_registration',
+                              'users',clauses,values,page,page_size,'email,id')
+        for row in result['items']:
+            actions = []
+            if row['id'] != self.user_id and row['review_status'] == 'approved':
+                actions.append('edit')
+            if row.pop('has_registration'):
+                actions.append('review' if row['review_status'] == 'pending' else 'view_registration')
+            row['allowed_actions'] = actions
         return result
 
-    def change_user(self,target,request,request_id):
+    def list_registrations(self, *, page=1, page_size=10, q=None, review_status='pending'):
+        clauses = ['u.review_status=%s']
+        values = [review_status]
+        if q:
+            clauses.append("u.email ILIKE %s ESCAPE '\\'")
+            values.append(literal_substring(q))
+        with database_connection() as db:
+            require_identity(db, self.user_id)
+            return page_query(
+                db, 'r.user_id,u.email,r.display_name,r.organization,u.created_at AS submitted_at,u.review_status',
+                'account_registrations r JOIN users u ON u.id=r.user_id',
+                clauses, values, page, page_size, 'u.created_at,u.id',
+            )
+
+    def _save_account(self, db, before, *, role, active, review_status, reason, request_id):
         from app.auth.revocations import revoke_sessions,invalidate_recovery_codes
+        now = time.time()
+        target = before['id']
+        changed = db.execute('''UPDATE users SET role=%s,active=%s,review_status=%s,
+            admin_revision=admin_revision+1,updated_at=%s WHERE id=%s RETURNING ''' + USER_FIELDS,
+            (role,active,review_status,now,target)).fetchone()
+        audit_account(db,before,changed,reason,actor=self.user_id,request_id=request_id,source='web',
+                      review=before['review_status'] != review_status)
+        invalidate_recovery_codes(db,target,now)
+        revoke_sessions(db,user_id=target,reason='admin_account_changed',source='web',revoked_at=now)
+        return dict(changed)
+
+    def change_user(self,target,request,request_id):
         with database_connection(write=True) as db:
             require_identity(db,self.user_id)
             row=db.execute('SELECT '+USER_FIELDS+' FROM users WHERE id=%s',(target,)).fetchone()
             if not row:raise StorageError('admin_user_not_found','账号不存在。',404)
             if target==self.user_id:raise StorageError('admin_self_change','请由其他管理员修改当前账号。',409)
+            if row['review_status'] != 'approved':
+                raise StorageError('account_review_required', '账号须先通过审核。', 409)
             if row['admin_revision']!=request.expected_revision:
                 raise StorageError('admin_revision_conflict','账号版本已变化，请刷新后重试。',409)
-            if row['role']==request.role and row['active']==request.active:
+            role = canonical_role(request.role)
+            if row['role']==role and row['active']==request.active:
                 raise StorageError('admin_change_invalid','账号角色和状态没有变化。',422)
-            guard_last_admin(db,row,request.role,request.active)
-            now=time.time()
-            changed=db.execute('''UPDATE users SET role=%s,active=%s,admin_revision=admin_revision+1,updated_at=%s
-                WHERE id=%s RETURNING '''+USER_FIELDS,(request.role,request.active,now,target)).fetchone()
-            audit_account(db,row,changed,request.reason,actor=self.user_id,request_id=request_id,source='web')
-            invalidate_recovery_codes(db,target,now)
-            revoke_sessions(db,user_id=target,reason='admin_account_changed',source='web',revoked_at=now)
-            return {**dict(changed),'allowed_actions':['edit']}
+            guard_last_admin(db,row,role,request.active)
+            changed = self._save_account(db,row,role=role,active=request.active,review_status='approved',
+                                         reason=request.reason,request_id=request_id)
+            return {**changed,'allowed_actions':['edit']}
+
+    def registration(self, target):
+        with database_connection() as db:
+            require_identity(db, self.user_id)
+            record = db.execute("""
+                SELECT u.id AS user_id, u.email, u.created_at AS submitted_at, u.admin_revision, u.review_status,
+                    r.display_name, r.organization, r.note,
+                    (SELECT jsonb_build_object('status', e.after_review_status, 'role', e.after_role,
+                        'reason', e.reason, 'reviewed_at', e.effective_at, 'reviewer_email', reviewer.email)
+                     FROM admin_audit_events e JOIN users reviewer ON reviewer.id=e.actor_user_id
+                     WHERE e.target_user_id=u.id AND e.after_review_status IS NOT NULL
+                     ORDER BY e.effective_at DESC,e.id DESC LIMIT 1) AS decision
+                FROM users u JOIN account_registrations r ON r.user_id=u.id WHERE u.id=%s
+            """, (target,)).fetchone()
+        if not record:
+            raise StorageError('registration_not_found', '注册申请不存在。', 404)
+        return dict(record)
+
+    def review_registration(self, target, request, request_id):
+        with database_connection(write=True) as db:
+            require_identity(db, self.user_id)
+            row = db.execute(f'SELECT {USER_FIELDS} FROM users WHERE id=%s AND {HAS_REGISTRATION}', (target,)).fetchone()
+            if not row:
+                raise StorageError('registration_not_found', '注册申请不存在。', 404)
+            if row['review_status'] != 'pending':
+                raise StorageError('registration_already_reviewed', '该注册申请已经审核，请查看最新结果。', 409)
+            if row['admin_revision'] != request.expected_revision:
+                raise StorageError('admin_revision_conflict', '账号版本已变化，请刷新后重试。', 409)
+            approved = request.decision == 'approve'
+            changed = self._save_account(
+                db, row, role=request.role, active=approved, review_status='approved' if approved else 'rejected',
+                reason=request.reason or '注册申请审核通过', request_id=request_id,
+            )
+            if approved:
+                from app.domain.storage_governance.service import initialize_policy
+                initialize_policy(db, 'user', target)
+            return changed
 
     def task_projection(self,row):
         value=dict(row)
@@ -161,7 +238,7 @@ class AdminOperations:
         filtered_time(clauses,values,'effective_at',start,end,epoch=True)
         with database_connection() as db:
             require_identity(db,self.user_id)
-            return {**page_query(db,'id,source,operator,actor_user_id,target_user_id,before_role,after_role,before_active,after_active,reason,effective_at,request_id',
+            return {**page_query(db,'id,source,operator,actor_user_id,target_user_id,before_role,after_role,before_active,after_active,reason,effective_at,request_id,before_review_status,after_review_status',
                 'admin_audit_events',clauses,values,page,page_size,'effective_at DESC,id DESC'),'coverage':coverage(db)}
 
     def metrics(self, *, start=None,end=None):

@@ -13,7 +13,7 @@ def test_0051_preserves_existing_users_and_adds_default_revision(postgres_schema
         db.execute("""INSERT INTO users(id,email,password_hash,role,active,created_at,updated_at)
             VALUES('legacy-account','legacy@example.test','unchanged-hash','user',true,10,20)""")
         before=dict(db.execute('SELECT * FROM users').fetchone())
-        command.upgrade(settings,'head')
+        command.upgrade(settings,'0051_admin_operations')
         after=dict(db.execute('SELECT * FROM users').fetchone())
         assert after.pop('admin_revision')==1
         assert after==before

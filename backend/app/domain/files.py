@@ -101,14 +101,15 @@ class FilePurposesInput(BaseModel):
 
 
 def require_project(db, store, project_id):
+    store.require_project_scope(project_id)
     scope = ' AND owner_id=%s' if store.owner_id is not None else ''
     params = (project_id, store.owner_id) if store.owner_id is not None else (project_id,)
     if db.execute('SELECT id FROM projects WHERE id=%s' + scope, params).fetchone() is None:
         raise StorageError('project_not_found', '项目不存在，请刷新项目列表。', 404)
 
 
-def require_file(db, project_id, file_id, *, lock=False):
-    row = db.execute('SELECT * FROM files WHERE project_id=%s AND id=%s' + (' FOR UPDATE' if lock else ''),
+def require_file(db, project_id, file_id, *, lock=False, material_filter=''):
+    row = db.execute('SELECT * FROM files WHERE project_id=%s AND id=%s' + material_filter + (' FOR UPDATE' if lock else ''),
                      (project_id, file_id)).fetchone()
     if row is None:
         raise StorageError('file_not_found', '当前项目中没有此文件。', 404)
@@ -143,8 +144,9 @@ def query_files(store, project_id, *, page=1, page_size=10):
         raise StorageError('file_query_invalid', '页码须为1–1000000，页面大小须为1–100。', 422)
     with store.connection() as db:
         require_project(db, store, project_id)
-        total = db.execute('SELECT count(*) AS n FROM files WHERE project_id=%s', (project_id,)).fetchone()['n']
-        rows = db.execute('SELECT * FROM files WHERE project_id=%s ORDER BY uploaded_at DESC,id ASC LIMIT %s OFFSET %s',
+        where = ' WHERE project_id=%s' + store.material_filter
+        total = db.execute('SELECT count(*) AS n FROM files' + where, (project_id,)).fetchone()['n']
+        rows = db.execute('SELECT * FROM files' + where + ' ORDER BY uploaded_at DESC,id ASC LIMIT %s OFFSET %s',
                           (project_id, page_size, (page - 1) * page_size)).fetchall()
         summaries = batch_summaries(db, store, project_id, rows)
         return {'items': [metadata_record(db, store, row, summaries) for row in rows], 'total': total, 'page': page, 'page_size': page_size}
@@ -186,7 +188,7 @@ SELECT
 def read_file_details(store, project_id, file_id):
     with store.connection() as db:
         require_project(db, store, project_id)
-        row = require_file(db, project_id, file_id)
+        row = require_file(db, project_id, file_id, material_filter=store.material_filter)
         result = metadata_record(db, store, row)
         references = dict(db.execute(REFERENCES, (project_id, file_id, project_id, file_id, file_id, file_id, file_id)).fetchone())
         references['structure_versions'] = db.execute('SELECT count(*) AS n FROM file_structure_versions WHERE file_id=%s',(file_id,)).fetchone()['n']
@@ -205,7 +207,7 @@ def read_file_details(store, project_id, file_id):
 def assign_file_purposes(store, project_id, file_id, changes: FilePurposesInput):
     with store.connection(write=True) as db:
         require_project(db, store, project_id)
-        row = require_file(db, project_id, file_id, lock=True)
+        row = require_file(db, project_id, file_id, lock=True, material_filter=store.material_filter)
         current = metadata_record(db, store, row)
         if changes.expected_revision != row['metadata_revision']:
             if changes.expected_revision < row['metadata_revision'] and set(changes.purposes) == set(current['purposes']):
@@ -219,6 +221,6 @@ def assign_file_purposes(store, project_id, file_id, changes: FilePurposesInput)
         for purpose in changes.purposes:
             if purpose not in current['purposes']:
                 db.execute('INSERT INTO file_purposes(file_id,purpose,assigned_by,assigned_at) VALUES (%s,%s,%s,%s)',
-                           (file_id, purpose, store.owner_id, now))
+                           (file_id, purpose, store.actor_id, now))
         updated = db.execute('UPDATE files SET metadata_revision=metadata_revision+1 WHERE id=%s RETURNING *', (file_id,)).fetchone()
         return metadata_record(db, store, updated)

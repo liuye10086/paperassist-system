@@ -1,0 +1,94 @@
+.customer-requirements {
+  display: grid;
+  gap: 20px;
+  min-width: 0;
+  padding: clamp(16px, 3vw, 28px);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: var(--surface);
+}
+
+.customer-requirements__header,
+.customer-requirements__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+}
+
+.customer-requirements__header { justify-content: space-between; }
+.customer-requirements__form { display: grid; gap: 16px; min-width: 0; }
+
+.customer-requirements__row {
+  min-inline-size: 0;
+  margin: 0;
+  padding: 0 0 16px;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.customer-requirements__row > legend {
+  margin-bottom: 10px;
+  padding: 0;
+  color: var(--text-h);
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.customer-requirements__groups {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 20px;
+}
+
+.customer-requirements__groups > .customer-requirements__group { flex: 1 1 220px; min-width: 0; }
+.customer-requirements__group { display: grid; align-content: start; gap: 8px; }
+.customer-requirements__group h3 { font-size: 13px; overflow-wrap: anywhere; }
+.customer-requirements__choices { display: flex; flex-wrap: wrap; gap: 8px; }
+
+.customer-requirements__choice {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 42px;
+  max-width: 100%;
+  padding: 7px 11px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text-h);
+  background: var(--surface);
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+
+.customer-requirements__choice input {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  accent-color: var(--accent);
+  cursor: inherit;
+}
+
+.customer-requirements__choice:hover,
+.customer-requirements__choice:has(input:checked) {
+  border-color: var(--accent);
+  background: var(--accent-bg);
+}
+
+.customer-requirements__choice:has(input:disabled) { cursor: default; }
+.customer-requirements__notes { display: grid; gap: 8px; color: var(--text-h); font-weight: 600; }
+.customer-requirements__notes textarea { width: 100%; font-weight: 400; }
+.customer-requirements__recovery {
+  display: grid;
+  gap: 8px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--social-bg);
+}
+
+.customer-requirements > .error-panel { margin-top: 0; }
+.customer-requirements > footer { justify-content: flex-end; }

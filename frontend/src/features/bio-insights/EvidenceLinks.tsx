@@ -8,7 +8,7 @@ import {text} from './state'
 export const defaultEvidenceMatrix=():Config=>({kind:'candidate',schema_version:2,output_language:'zh-CN',candidates:[],evidence_source_ids:[],integration_result_source_ids:[],independent_support_requests:[],ranking_mode:'lexicographic'})
 type Candidate={object_id:string;source_id:string;feature_id:string;namespace:string|null;species_taxon_id:number|null;reference_version:string|null;condition:string|null;expected_direction:string|null;mapping_evidence_source_id:string|null;mapping_locator:string|null;mapping_quote:string|null}
 const types={disease_literature:'疾病文献',expression_atlas:'表达图谱',public_validation:'公共验证',knockout:'敲除原始实验',mutation_literature:'突变文献'}
-export default function EvidenceLinks({projectId,config,onChange,sources}:ConfigProps&{projectId:string}){
+export default function EvidenceLinks({projectId,config,onChange,sources,allowRegistration=true}:ConfigProps&{projectId:string;allowRegistration?:boolean}){
  const [supportText,setSupportText]=useState(JSON.stringify(config.independent_support_requests??[],null,2)),[supportError,setSupportError]=useState('')
  const candidates=(config.candidates??[]) as Candidate[],p={config,onChange,sources}
  return <section><h3>固定候选 × 类型化外部证据</h3><p>原文陈述、人工核对、系统整理与独立数据支持分别保存。不同依赖组不证明独立；未知不按阴性或零分处理，条件不同时只保留背景，原文突变不等于 KO 机制。</p>
@@ -17,7 +17,7 @@ export default function EvidenceLinks({projectId,config,onChange,sources}:Config
  <button type="button" onClick={()=>onChange({...config,candidates:[...candidates,{object_id:'',source_id:'',feature_id:'',namespace:null,species_taxon_id:null,reference_version:null,condition:null,expected_direction:null,mapping_evidence_source_id:null,mapping_locator:null,mapping_quote:null}]})}>添加固定候选对象</button>
  <p>独立支持需固定分析 run、完整结果行、独立材料、设计、对象／对照和供体重叠核查共同准入；此视图不提供“一键通过”独立性开关。全部矩阵与未满足项会在预检及正式结果中显示。</p>
  <section className="analysis-detail"><h3>更多关联设置</h3><p>先将已完成结果、独立处理材料、设计 JSON 和供体重叠核查 JSON 加入固定来源。每项填写 evidence_source_id、candidate_object_id、result_source_id、result_row_key、material_source_ids、design_source_id、overlap_audit_source_id、numerator、denominator、q_threshold；后台逐项核查真实来源。</p><Field label="独立支持请求 JSON" type="textarea" value={supportText} onChange={setSupportText}/><button type="button" onClick={()=>{try{const value:unknown=JSON.parse(supportText);if(!Array.isArray(value))throw Error();onChange({...config,independent_support_requests:value});setSupportError('')}catch{setSupportError('请填写有效 JSON 数组。')}}}>采用独立支持准入请求</button>{supportError&&<p role="alert">{supportError}</p>}</section>
- <EvidenceRegistration projectId={projectId}/><DataDetails title="独立支持请求（固定来源准入合同）" value={config.independent_support_requests}/>
+ {allowRegistration&&<EvidenceRegistration projectId={projectId}/>}<DataDetails title="独立支持请求（固定来源准入合同）" value={config.independent_support_requests}/>
  </section>
 }
 function EvidenceRegistration({projectId}:{projectId:string}){

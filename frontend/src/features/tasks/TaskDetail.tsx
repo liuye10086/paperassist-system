@@ -24,7 +24,7 @@ import { isWorkspace, taskPhaseName, taskDisplayName, taskNames, type TaskWorksp
 import { taskRequest, TaskRequestError } from './taskApi'
 import { useDocumentVisible } from './useDocumentVisible'
 
-type Props = { active?: boolean; view?: TaskDetailView; onViewChange?: (view: TaskDetailView) => void; registerLeaveGuard?: RegisterLeaveGuard; projectId: string; taskId: string; onChanged: () => void; onOpenFiles?: () => void; onOpenManuscripts?:()=>void; onOpenJournals?:()=>void; onOpenLiterature?: (searchId:string)=>void }
+type Props = { allowUsage?: boolean; active?: boolean; view?: TaskDetailView; onViewChange?: (view: TaskDetailView) => void; registerLeaveGuard?: RegisterLeaveGuard; projectId: string; taskId: string; onChanged: () => void; onOpenFiles?: () => void; onOpenManuscripts?:()=>void; onOpenJournals?:()=>void; onOpenLiterature?: (searchId:string)=>void }
 const historicalErrorReasons: Record<string, string> = {
   task_failed: '旧任务执行失败。',
   explanation_invalid: '旧任务的解释未通过事实核验，未保存内容。',
@@ -35,7 +35,7 @@ function historicalErrorReason(code: string) {
   return Object.hasOwn(historicalErrorReasons, code) ? historicalErrorReasons[code] : '旧系统记录了任务异常，具体原因无法确认。'
 }
 export default function TaskDetail(props: Props) { return <Detail key={`${props.projectId}:${props.taskId}`} {...props} /> }
-function Detail({ projectId, taskId, onChanged, onOpenFiles, onOpenLiterature, onOpenManuscripts, onOpenJournals, active = true, view, onViewChange, registerLeaveGuard }: Props) {
+function Detail({ projectId, taskId, onChanged, onOpenFiles, onOpenLiterature, onOpenManuscripts, onOpenJournals, active = true, view, onViewChange, registerLeaveGuard, allowUsage = true }: Props) {
   const { t, locale } = useI18n()
   const visible = useDocumentVisible()
   const [data, setData] = useState<TaskWorkspace | null>(null)
@@ -71,14 +71,14 @@ function Detail({ projectId, taskId, onChanged, onOpenFiles, onOpenLiterature, o
     return () => { mounted = false; controller.abort(); window.clearTimeout(timer) }
   }, [projectId, taskId, active, sessionValid, visible, attempt])
   function refresh() { request.current?.abort(); setLoading(true); setError(''); setAttempt(value => value + 1) }
-  const shown = (name: TaskDetailView) => view === undefined || view === name
+  const shown = (name: TaskDetailView) => (name !== 'usage' || allowUsage) && (view === undefined || view === name)
   const actionActive = active && shown('actions')
   const viewLabels: Record<TaskDetailView, string> = { overview: '概况', actions: '待处理', result: '成果', events: '事件', usage: '用量' }
   const live = !!data && !['succeeded', 'failed', 'cancelled'].includes(data.task.status)
   return <section className="task-detail" data-layered={view!==undefined} aria-label={t('任务详情')} hidden={!active} aria-busy={loading}>
     <div className="task-section-heading"><h2 ref={heading} tabIndex={-1}>{t('任务详情')}</h2>
       <button type="button" disabled={loading || !sessionValid} onClick={refresh}>{t('重新读取任务')}</button></div>
-    {view !== undefined && onViewChange && <nav className="task-detail-nav" aria-label={t('任务详情视图')}>{taskDetailViews.map(name => <button type="button" key={name} aria-current={view === name ? 'page' : undefined} onClick={() => onViewChange(name)}>{t(viewLabels[name])}</button>)}</nav>}
+    {view !== undefined && onViewChange && <nav className="task-detail-nav" aria-label={t('任务详情视图')}>{taskDetailViews.filter(name => name !== 'usage' || allowUsage).map(name => <button type="button" key={name} aria-current={view === name ? 'page' : undefined} onClick={() => onViewChange(name)}>{t(viewLabels[name])}</button>)}</nav>}
     {loading && !data && <p role="status">{t('正在读取任务详情……')}</p>}
     {error && <p role="alert" className="error-panel">{t(error)}</p>}
     {!sessionValid && <p role="alert">{t('会话已失效，请重新登录。')}</p>}

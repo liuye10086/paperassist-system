@@ -299,12 +299,16 @@ class InsightSourceReader(BioInsightsStore):
         from app.db.bio_insights_schema import SOURCE_TARGETS
         if kind not in SOURCE_TARGETS:raise invalid('bio_insight_source_unsupported',422)
         table=SOURCE_TARGETS[kind][1]
-        owner='uploader_id' if kind=='original_file' else 'created_by' if kind in ('bio_processed_dataset_version','bio_observation_map_version','bio_annotation_version','research_design_version') else 'user_id'
+        where, args = ' WHERE project_id=%s', (project,)
+        if kind != 'research_design_version':
+            owner='uploader_id' if kind=='original_file' else 'created_by' if kind in ('bio_processed_dataset_version','bio_observation_map_version','bio_annotation_version') else 'user_id'
+            where += ' AND '+owner+'=%s'
+            args += (self.store.user_id,)
         with self.store.connection() as db:
             self.store.require_project(db,project)
-            total=db.execute('SELECT count(*) AS n FROM '+table+' WHERE project_id=%s AND '+owner+'=%s',(project,self.store.user_id)).fetchone()['n']
-            rows=db.execute('SELECT * FROM '+table+' WHERE project_id=%s AND '+owner+'=%s ORDER BY '+('uploaded_at' if kind=='original_file' else 'created_at')+' DESC,id LIMIT %s OFFSET %s',
-                            (project,self.store.user_id,page_size,(page-1)*page_size)).fetchall()
+            total=db.execute('SELECT count(*) AS n FROM '+table+where,args).fetchone()['n']
+            rows=db.execute('SELECT * FROM '+table+where+' ORDER BY '+('uploaded_at' if kind=='original_file' else 'created_at')+' DESC,id LIMIT %s OFFSET %s',
+                            (*args,page_size,(page-1)*page_size)).fetchall()
             items=[]
             for row in rows:
                 sha=row.get('manifest_sha256') or row.get('mapping_sha256') or row.get('content_sha256') or row.get('sha256')

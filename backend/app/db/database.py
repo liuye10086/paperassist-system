@@ -29,7 +29,22 @@ from sqlalchemy.pool import NullPool
 from app.core.config import local_config
 
 
-SCHEMA_HEAD = "0074_tabular_import_file_limit"
+SCHEMA_HEAD = "0078_project_assignments"
+_APPEND_ONLY_TABLES = frozenset({
+    'analysis_request_receipts', 'research_finding_versions', 'research_figure_members',
+    'research_report_members', 'research_source_bindings', 'manuscript_research_sources',
+    'bio_observation_map_versions', 'bio_analysis_recipe_versions', 'bio_processed_dataset_versions',
+    'bio_analysis_artifacts', 'bio_annotation_versions', 'bio_annotation_evidence', 'bio_figure_members',
+    'research_requirement_versions', 'research_design_versions', 'research_material_refs',
+    'bio_import_files', 'bio_dataset_versions', 'bio_dataset_members', 'review_figure_adoptions',
+    'storage_disposable_fixtures', 'storage_deletion_events', 'storage_policy_events',
+    'admin_usage_summaries', 'admin_configuration_versions', 'admin_configuration_validations',
+    'admin_configuration_events', 'admin_configuration_bindings', 'literature_pmc_receipts',
+    'manuscript_versions', 'manuscript_sources', 'manuscript_citations', 'manuscript_writing_bundles',
+    'manuscript_writing_authorized_tasks', 'manuscript_writing_reviews', 'manuscript_writing_language_reviews',
+    'manuscript_figure_language_versions', 'admin_audit_events', 'operational_request_events',
+    'operational_collection', 'project_assignment_events',
+})
 _SCHEMA_NAME = re.compile(r"[a-z_][a-z0-9_]{0,62}\Z")
 _TEST_SCHEMA = re.compile(r"pa_test_[0-9a-f]{32}\Z")
 _CONNECTION_OPTIONS = frozenset({
@@ -224,25 +239,31 @@ def database_connection(
     write: bool = False, config: DatabaseConfig | None = None,
     *, capture: bool = False, serialize_writes: bool = True,
 ) -> Iterator[DatabaseConnection]:
+    from app.auth.project_access import current_assignment, require_current_assignment
+
     config = config or get_database_config()
     if config.purpose != "runtime":
         raise ValueError("Business connections require runtime purpose.")
     isolation = "READ COMMITTED" if write else "REPEATABLE READ"
     engine = _capture_engine_for_url(config.url) if capture else get_engine(config)
+    assignment = current_assignment()
     with engine.connect().execution_options(isolation_level=isolation) as connection:
         with connection.begin():
             if not write:
                 connection.exec_driver_sql("SET TRANSACTION READ ONLY")
             _set_numeric_timeout(connection, capture=capture)
             _set_schema(connection, config.schema)
-            if write and serialize_writes:
+            if write and (serialize_writes or assignment is not None):
                 # SQLite previously serialized writes with BEGIN IMMEDIATE.
                 # Take the lock before any business reads at READ COMMITTED so
                 # a waiting writer observes the preceding writer's commit.
                 _write_lock(connection, config, capture=capture)
             # Opting out is only safe when the caller supplies row-level
             # concurrency control; ordinary business writes retain the fence.
-            yield DatabaseConnection(connection, config, capture=capture)
+            db = DatabaseConnection(connection, config, capture=capture)
+            if assignment is not None:
+                require_current_assignment(db, assignment, lock=write)
+            yield db
             # Check immediately before transaction commit; no expired node may
             # publish after its last business statement.
             from app.domain.fixed_statistics_runtime import scope_active, remaining_seconds
@@ -301,7 +322,7 @@ def grant_runtime_access(connection: Connection, migration_config: DatabaseConfi
             (f'"{runtime_config.schema}"."{name}"',)).scalar_one() is None:
             continue
         connection.exec_driver_sql(f"GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE {schema}.{quote(name)} TO {role}")
-        if name in ('analysis_request_receipts','research_finding_versions','research_figure_members','research_report_members','research_source_bindings','manuscript_research_sources','bio_observation_map_versions','bio_analysis_recipe_versions','bio_processed_dataset_versions','bio_analysis_artifacts','bio_annotation_versions','bio_annotation_evidence','bio_figure_members','research_requirement_versions','research_design_versions','research_material_refs','bio_import_files','bio_dataset_versions','bio_dataset_members','review_figure_adoptions','storage_disposable_fixtures','storage_deletion_events','storage_policy_events','admin_usage_summaries','admin_configuration_versions','admin_configuration_validations','admin_configuration_events','admin_configuration_bindings','literature_pmc_receipts','manuscript_versions','manuscript_sources','manuscript_citations','manuscript_writing_bundles','manuscript_writing_authorized_tasks','manuscript_writing_reviews','manuscript_writing_language_reviews','manuscript_figure_language_versions','admin_audit_events','operational_request_events','operational_collection'):
+        if name in _APPEND_ONLY_TABLES:
             connection.exec_driver_sql(f"REVOKE UPDATE, DELETE, TRUNCATE ON TABLE {schema}.{quote(name)} FROM {role}")
     connection.exec_driver_sql(f"GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA {schema} TO {role}")
     version = f"{schema}.alembic_version"
@@ -340,7 +361,7 @@ def verify_runtime_permissions(connection: Connection, runtime_config: DatabaseC
             allowed = connection.exec_driver_sql(
                 "SELECT has_table_privilege(current_user, %s, %s)",
                 (f'"{runtime_config.schema}"."{name}"', privilege)).scalar_one()
-            expected = not (name in ('analysis_request_receipts','research_finding_versions','research_figure_members','research_report_members','research_source_bindings','manuscript_research_sources','bio_observation_map_versions','bio_analysis_recipe_versions','bio_processed_dataset_versions','bio_analysis_artifacts','bio_annotation_versions','bio_annotation_evidence','bio_figure_members','research_requirement_versions','research_design_versions','research_material_refs','bio_import_files','bio_dataset_versions','bio_dataset_members','review_figure_adoptions','storage_disposable_fixtures','storage_deletion_events','storage_policy_events','admin_usage_summaries','admin_configuration_versions','admin_configuration_validations','admin_configuration_events','admin_configuration_bindings','literature_pmc_receipts','manuscript_versions','manuscript_sources','manuscript_citations','manuscript_writing_bundles','manuscript_writing_authorized_tasks','manuscript_writing_reviews','manuscript_writing_language_reviews','manuscript_figure_language_versions','admin_audit_events','operational_request_events','operational_collection') and privilege in ('UPDATE', 'DELETE'))
+            expected = not (name in _APPEND_ONLY_TABLES and privilege in ('UPDATE', 'DELETE'))
             if allowed != expected:
                 raise ValueError("Runtime role is missing business table permissions.")
     if not connection.exec_driver_sql("SELECT has_schema_privilege(current_user, %s, 'USAGE')", (runtime_config.schema,)).scalar_one():

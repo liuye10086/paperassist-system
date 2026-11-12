@@ -8,11 +8,13 @@ from app.core.config import get_data_dir
 from psycopg.types.json import Jsonb
 
 from app.adapters.storage import _storage_connection, ProjectStore
+from app.auth.project_access import ASSIGNED_TASK_TYPES, assignment_for_owner
 from app.core.exceptions import StorageError
 from app.core.errors import PUBLIC_CODES
 from app.db.database import get_database_config
 from app.domain.tasks.contracts import TaskView, TaskEventView, display_status
 from app.domain.tasks.errors import safe_error_code, error_category
+from app.domain.tasks.legacy import missing_task
 
 
 def source_conflict():
@@ -92,27 +94,40 @@ class TaskStore:
             raise ValueError('Tasks require an explicit owner.')
         self.user_id = user_id
         self.config = config or get_database_config()
+        self.assignment = assignment_for_owner(user_id)
 
     def connection(self, write=False):
         return _storage_connection(write=write, config=self.config)
 
-    def require_project(self, db, project_id):
+    def require_project(self, db, project_id, *, role=None):
+        if self.assignment is not None:
+            self.assignment.require_project(project_id)
+        role_filter = '' if role is None else ' AND u.role=%s'
+        parameters = (project_id, self.user_id) if role is None else (project_id, self.user_id, role)
         row = db.execute('''SELECT p.* FROM projects p JOIN users u ON u.id=p.owner_id
-            WHERE p.id=%s AND p.owner_id=%s AND u.active''', (project_id, self.user_id)).fetchone()
+            WHERE p.id=%s AND p.owner_id=%s AND u.active''' + role_filter, parameters).fetchone()
         if row is None:
             raise StorageError('project_not_found', '项目不存在，请刷新项目列表。', 404)
         return dict(row)
 
     def require_task(self, db, task_id):
+        scope = ''
+        parameters = (task_id, self.user_id, self.user_id)
+        if self.assignment is not None:
+            scope = ' AND t.project_id=%s AND t.task_type=ANY(%s)'
+            parameters += (self.assignment.project_id, list(ASSIGNED_TASK_TYPES))
         row = db.execute('''SELECT t.* FROM tasks t JOIN projects p ON p.id=t.project_id
             JOIN users u ON u.id=t.user_id
-            WHERE t.id=%s AND t.user_id=%s AND p.owner_id=%s AND u.active''',
-            (task_id, self.user_id, self.user_id)).fetchone()
+            WHERE t.id=%s AND t.user_id=%s AND p.owner_id=%s AND u.active''' + scope, parameters).fetchone()
         if row is None:
-            raise StorageError('task_not_found', '任务不存在，请刷新后重试。', 404)
+            raise missing_task()
         return dict(row)
 
     def find_request(self, db, project_id, task_type, key):
+        if self.assignment is not None:
+            self.assignment.require_project(project_id)
+            if task_type not in ASSIGNED_TASK_TYPES:
+                raise missing_task()
         row = db.execute('''SELECT * FROM tasks
             WHERE user_id=%s AND project_id=%s AND task_type=%s AND idempotency_key=%s''',
             (self.user_id, project_id, task_type, key)).fetchone()
@@ -249,6 +264,8 @@ class TaskStore:
         with self.connection() as db:
             from app.domain.tasks.legacy import is_legacy_id, public_legacy_task
             if is_legacy_id(task_id):
+                if self.assignment is not None:
+                    raise missing_task()
                 from app.adapters.legacy_task_query import require_legacy_task
                 from app.domain.tasks.legacy_artifacts import exact_legacy_artifact
                 row = require_legacy_task(db, self.user_id, task_id)
@@ -258,6 +275,8 @@ class TaskStore:
     def require_mutable(self, task_id):
         from app.domain.tasks.legacy import is_legacy_id
         if is_legacy_id(task_id):
+            if self.assignment is not None:
+                raise missing_task()
             from app.adapters.legacy_task_query import require_legacy_task
             with self.connection() as db:
                 require_legacy_task(db, self.user_id, task_id)
@@ -270,6 +289,8 @@ class TaskStore:
         with self.connection() as db:
             from app.domain.tasks.legacy import is_legacy_id
             if is_legacy_id(task_id):
+                if self.assignment is not None:
+                    raise missing_task()
                 from app.adapters.legacy_task_query import require_legacy_task
                 require_legacy_task(db, self.user_id, task_id)
                 return {'task_id': task_id, 'items': [], 'next_cursor': after, 'has_more': False}
@@ -282,6 +303,11 @@ class TaskStore:
 
     @staticmethod
     def insert_task(db, task, *, validated_file_ids=None):
+        scope = assignment_for_owner(task['user_id'])
+        if scope is not None:
+            scope.require_project(task['project_id'])
+            if task['task_type'] not in ASSIGNED_TASK_TYPES:
+                raise missing_task()
         from app.domain.storage_governance.guards import require_task_open
         require_task_open(db,task,validated_file_ids=validated_file_ids)
         fields = ('id', 'project_id', 'user_id', 'task_type', 'idempotency_key', 'input_digest', 'input_snapshot',

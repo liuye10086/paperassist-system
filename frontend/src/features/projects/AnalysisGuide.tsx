@@ -9,10 +9,10 @@ import AnalysisRequestList from './AnalysisRequestList'
 import type {EntryImport} from './analysisEntryState'
 import {bulkRoute} from '../bio-insights/bulkWorkflow'
 
-function GuideContent({ projectId, onUpload, version, files, loading, error, filesLoading, filesError, onRefresh, onReloadFiles, onNavigate, onFile, onRequirements, scopeId, imports, importsUnknown, importsError }: {
+function GuideContent({ projectId, onUpload, version, files, loading, error, filesLoading, filesError, onRefresh, onReloadFiles, onNavigate, onFile, onRequirements, scopeId, imports, importsUnknown, importsError, assigned=false }: {
   projectId?:string;onUpload?:()=>void
   version:Version|null;files:ProjectFile[];loading:boolean;error:string;filesLoading:boolean;filesError:string;onRefresh:()=>void;onReloadFiles:()=>void;onFile:(id:string)=>void;scopeId?:string;onNavigate:(next:AnalysisNavigation)=>void;onRequirements?:(panel?:'materials')=>void
-  imports:EntryImport[];importsUnknown:boolean;importsError:string
+  imports:EntryImport[];importsUnknown:boolean;importsError:string;assigned?:boolean
 }) {
   const { t } = useI18n();const [panel,setPanel]=useResearchDraft(projectId??version?.project_id??'unscoped',`analysis-panel:${version?.id??'new'}:${scopeId??'all'}`,()=> 'tasks');const hasTasks=!!version&&analysisScopes(version).length>0
   return <div className="analysis-guide">
@@ -22,8 +22,8 @@ function GuideContent({ projectId, onUpload, version, files, loading, error, fil
     <div className="intake-actions"><button type="button" onClick={()=>onNavigate(bulkRoute('design'))}>{t('进入 Bulk RNA-seq 工作流')}</button></div>
     {importsError&&<p role="alert">{t(importsError)} <button type="button" onClick={onReloadFiles}>{t('重新读取材料')}</button></p>}
     {loading&&<p role="status">{t('正在读取已保存的需求……')}</p>}
-    {error?<p role="alert">{t('需求读取失败，请重试。')} <button type="button" onClick={onRefresh}>{t('重新读取需求')}</button></p>:version?<AnalysisRequestList projectId={projectId} onUpload={onUpload} focused version={version} scopeId={scopeId} imports={imports} importsUnknown={importsUnknown} files={files} filesLoading={filesLoading} filesError={filesError} onNavigate={onNavigate} onFile={onFile} onRequirements={onRequirements} onReloadFiles={onReloadFiles}/>:!loading&&<section className="analysis-choice-summary"><p>{t('还没有保存分析需求，请先选择并保存需求。')}</p>{onRequirements&&<button type="button" onClick={()=>onRequirements?.()}>{t('填写需求')}</button>}</section>}
-    {!hasTasks&&!loading&&!error&&<><section className="analysis-overview-heading"><h3>{t('选择分析类型')}</h3></section>
+    {error?<p role="alert">{t('需求读取失败，请重试。')} <button type="button" onClick={onRefresh}>{t('重新读取需求')}</button></p>:version?<AnalysisRequestList assigned={assigned} projectId={projectId} onUpload={onUpload} focused version={version} scopeId={scopeId} imports={imports} importsUnknown={importsUnknown} files={files} filesLoading={filesLoading} filesError={filesError} onNavigate={onNavigate} onFile={onFile} onRequirements={onRequirements} onReloadFiles={onReloadFiles}/>:!loading&&<section className="analysis-choice-summary"><p>{t(assigned?'客户尚未提交需求。':'还没有保存分析需求，请先选择并保存需求。')}</p>{onRequirements&&!assigned&&<button type="button" onClick={()=>onRequirements?.()}>{t('填写需求')}</button>}</section>}
+    {(assigned&&!scopeId||!hasTasks)&&!loading&&!error&&<><section className="analysis-overview-heading"><h3>{t('选择分析类型')}</h3></section>
     <div className="analysis-entry-grid">
       {([
         ['setup', '表格数据与统计', '适合实验指标、临床、行为学等表格；选择文件与分组后分析。'],

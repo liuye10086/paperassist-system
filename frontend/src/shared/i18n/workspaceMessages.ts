@@ -30,7 +30,6 @@ export const workspaceMessages: Record<string, string> = {
   '从文献、数据到论文，把研究中的每一步汇聚在一个清晰的工作空间。': 'Bring literature, data and manuscripts together in one clear workspace.',
   '专注研究，连接灵感': 'Focus on research. Connect ideas.',
   '欢迎使用 PaperAssist': 'Welcome to PaperAssist',
-  '需要账号？请联系管理员。': 'Need an account? Contact your administrator.',
   '研究任务': 'Research tasks',
   '项目资料': 'Project information',
   '进展记录': 'Progress records',

@@ -54,9 +54,13 @@ class BioResourceUploadService(BioInsightsStore):
             descriptor=self.assets.objects.put_original(project,operation,'bio_component',content,db=db,operation_key='bio-resource-original:'+operation)
             file=dict(id=descriptor.id,project_id=project,filename=filename,file_type='bio_component',size_bytes=descriptor.size_bytes,
                 sha256=descriptor.sha256,uploaded_at=now(),parse_status='stored',uploader_id=self.store.user_id,storage_backend=descriptor.storage_backend,
-                object_key=descriptor.object_key,metadata_revision=1,parse_revision=0)
-            db.execute("INSERT INTO files(id,project_id,filename,file_type,size_bytes,sha256,uploaded_at,parse_status,uploader_id,storage_backend,object_key,metadata_revision,parse_revision) VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,1,0)",
-                tuple(file[k] for k in ('id','project_id','filename','file_type','size_bytes','sha256','uploaded_at','parse_status','uploader_id','storage_backend','object_key')))
+                object_key=descriptor.object_key,metadata_revision=1,parse_revision=0,
+                upload_actor_id=getattr(self.assets, 'actor_id', self.store.user_id))
+            db.execute('''INSERT INTO files(id,project_id,filename,file_type,size_bytes,sha256,uploaded_at,parse_status,
+                uploader_id,storage_backend,object_key,metadata_revision,parse_revision,upload_actor_id)
+                VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,1,0,%s)''',
+                tuple(file[k] for k in ('id','project_id','filename','file_type','size_bytes','sha256','uploaded_at',
+                                       'parse_status','uploader_id','storage_backend','object_key','upload_actor_id')))
             if filename.lower().endswith(('.csv','.tsv')):
                 from .table_parse import persist
                 persist(self.store,db,project,file,content);file['parse_status']='parsed'

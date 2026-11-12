@@ -80,11 +80,12 @@ export async function apiFetch(input: string, init: RequestInit = {}): Promise<R
     if (wasAuthenticated) listeners.forEach(listener => listener())
     return response
   }
-  if (response.status === 404 && /^\/api\/v1\/projects\/[^/?#]+(?:[/?#]|$)/.test(input)) {
+  if ((response.status === 404 || response.status === 409) && /^\/api\/v1\/projects\/[^/?#]+(?:[/?#]|$)/.test(input)) {
     check()
     const body = await response.clone().json().catch(() => null)
     check()
-    if (body?.detail?.code === 'project_not_found') projectAccess.unavailable()
+    if (response.status === 404 && body?.detail?.code === 'project_not_found'
+      || response.status === 409 && body?.detail?.code === 'project_assignment_stale') projectAccess.unavailable()
   }
   const protect = (source: Response): Response => new Proxy(source, {
     get(target, property) {

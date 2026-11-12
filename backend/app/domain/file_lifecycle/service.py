@@ -6,6 +6,7 @@ from uuid import uuid4
 from psycopg.types.json import Jsonb
 
 from app.adapters.task_store import TaskStore
+from app.auth.project_access import ASSIGNED_TASK_TYPES
 from app.core.exceptions import StorageError
 from app.domain.files import require_file
 from app.domain.file_lifecycle.contracts import ACTIVE, POLICY_VERSION, digest
@@ -74,6 +75,8 @@ class FileLifecycleService:
         return value, dict(assessment=value, file=file_facts, references=refs['facts'])
 
     def assessment(self, project_id, file_id, action='delete'):
+        if self.store.assignment is not None and action != 'reparse':
+            raise StorageError('permission_denied', '分配项目只允许核对重解析影响。', 403)
         with self.store.connection() as db:
             return self.assess_in_transaction(db, project_id, file_id, action)[0]
 
@@ -82,6 +85,8 @@ class FileLifecycleService:
             file = self.file(db, project_id, file_id)
             refs = read_references(db, file, self.store.user_id)
             rows = task_views(refs)
+            if self.store.assignment is not None:
+                rows = [row for row in rows if row['task_type'] in ASSIGNED_TASK_TYPES]
             return dict(items=rows[(page-1)*page_size:page*page_size], total=len(rows), page=page,
                         page_size=page_size, counts=refs['counts'])
 

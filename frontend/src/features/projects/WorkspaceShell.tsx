@@ -1,9 +1,10 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import { useI18n } from '../../shared/i18n'
 import './workspace.css'
 import Brand from '../../shared/components/Brand'
+import type { OverviewView } from './projectNavigation'
 
-export type WorkspaceView = 'home' | 'projects' | 'project'
+export type WorkspaceView = 'home' | 'projects' | 'assigned' | 'project'
 export type ProjectSection = 'overview' | 'files' | 'analysis' | 'artifacts' | 'tasks' | 'literature' | 'manuscripts' | 'school-templates' | 'journals' | 'reviews'
 const projectSections: { value: ProjectSection; label: string; icon: 'home' | 'folder' | 'chart' | 'files' }[] = [
   { value: 'files', label: '项目文件', icon: 'folder' },
@@ -39,6 +40,9 @@ type Props = {
   projectName?: string
   projectType?: 'sci' | 'thesis' | 'research'
   section?: ProjectSection
+  analysisOnly?: boolean
+  overviewView?: OverviewView
+  onOverviewChange?: (view: OverviewView) => void
   onSectionChange?: (section: ProjectSection) => void
   onCurrentProject: () => void
   sectionBlocked?: (section: ProjectSection) => string
@@ -46,19 +50,20 @@ type Props = {
   children: ReactNode
 }
 
-export default function WorkspaceShell({ view, onNavigate, onCreate, projectName, projectType, section, onSectionChange, onCurrentProject, sectionBlocked, hasAnalysis = true, children }: Props) {
+export function WorkspaceFrame({ className, homeLabel = '返回工作台', onHome, sidebarAction, navigation, children }: {
+  className?: string
+  homeLabel?: string
+  onHome: () => void
+  sidebarAction?: (closeMenu: () => void) => ReactNode
+  navigation: (closeMenu: () => void) => ReactNode
+  children: ReactNode
+}) {
   const { t } = useI18n()
   const [menuOpen, setMenuOpen] = useState(false)
   const [collapsed, setCollapsed] = useState(false)
+  const sidebarId = useId()
   const menuButton = useRef<HTMLButtonElement>(null)
   const sidebar = useRef<HTMLElement>(null)
-  const groups: { id: string; label: string; icon: 'folder' | 'chart' | 'files'; items: ProjectSection[] }[] = [
-    { id: 'materials', label: '材料准备', icon: 'folder', items: ['files', 'literature'] },
-    { id: 'analysis', label: hasAnalysis ? '分析与成果' : '成果与下载', icon: 'chart', items: hasAnalysis ? ['analysis', 'artifacts'] : ['artifacts'] },
-    { id: 'writing', label: '稿件写作', icon: 'files', items: ['manuscripts', projectType === 'thesis' || projectType === 'research' ? 'school-templates' : 'journals'] },
-    { id: 'reviews', label: '评审与修改', icon: 'files', items: ['reviews', 'tasks'] },
-  ]
-  const activeGroup = view === 'project' ? groups.find(group => group.items.includes(section ?? 'overview'))?.id : undefined
   useEffect(() => {
     if (!menuOpen) return
     const previous = document.activeElement as HTMLElement | null
@@ -76,47 +81,79 @@ export default function WorkspaceShell({ view, onNavigate, onCreate, projectName
     document.addEventListener('keydown', handleKey)
     return () => { document.removeEventListener('keydown', handleKey); if (panel?.contains(document.activeElement)) previous?.focus() }
   }, [menuOpen])
-  const chooseSection = (next: ProjectSection) => { setMenuOpen(false); onSectionChange?.(next) }
-  const sectionLabel = (item: typeof projectSections[number]) => t(item.value === 'manuscripts' && projectType === 'research' ? '研究成果写作' : item.value === 'manuscripts' && projectType === 'thesis' ? '毕业论文写作' : item.label)
-  const sectionButton = (value: ProjectSection) => {
-    const item = projectSections.find(item => item.value === value)!
-    return <button key={value} type="button" className="workspace-nav-item" disabled={!!sectionBlocked?.(value)} aria-label={sectionLabel(item)} title={t(sectionBlocked?.(value)||sectionLabel(item))}
-      aria-current={view === 'project' && section === value ? 'page' : undefined} onClick={() => chooseSection(value)}>
-      <WorkspaceIcon name={item.icon} /><span className="sidebar-text">{sectionLabel(item)}</span></button>
-  }
-  const navigate = (next: WorkspaceView) => { onNavigate(next); setMenuOpen(false) }
-  return <div className={`workbench-shell${collapsed ? ' is-collapsed' : ''}`}>
-    <button ref={menuButton} type="button" className="workspace-mobile-menu button-quiet" aria-expanded={menuOpen} aria-controls="workspace-sidebar"
+  const closeMenu = () => setMenuOpen(false)
+  return <div className={['workbench-shell', className, collapsed && 'is-collapsed'].filter(Boolean).join(' ')}>
+    <button ref={menuButton} type="button" className="workspace-mobile-menu button-quiet" aria-expanded={menuOpen} aria-controls={sidebarId}
       onClick={() => setMenuOpen(value => !value)}><WorkspaceIcon name="menu" />{t('导航')}</button>
-    {menuOpen && <button className="workspace-nav-backdrop" aria-label={t('关闭导航')} onClick={() => { setMenuOpen(false); menuButton.current?.focus() }} />}
-    <aside ref={sidebar} role={menuOpen ? 'dialog' : undefined} aria-modal={menuOpen ? true : undefined} aria-label={t('主要导航')} className={`workspace-sidebar${menuOpen ? ' is-open' : ''}`} id="workspace-sidebar">
-      <div className="sidebar-header"><div className="sidebar-brand-row">
-      <button type="button" className="workspace-brand" aria-label={t('返回工作台')} onClick={() => navigate('home')}>
-        <Brand />
-        <span className="sidebar-text"><strong>PaperAssist</strong></span>
-      </button>
-      <button type="button" className="sidebar-toggle button-quiet" aria-expanded={!collapsed} aria-controls="workspace-sidebar"
-        aria-label={t(collapsed ? '展开侧边栏' : '收起侧边栏')} title={t(collapsed ? '展开侧边栏' : '收起侧边栏')}
-        onClick={() => setCollapsed(value => !value)}><WorkspaceIcon name={collapsed ? 'expand' : 'collapse'} /></button>
+    {menuOpen && <button className="workspace-nav-backdrop" aria-label={t('关闭导航')} onClick={() => { closeMenu(); menuButton.current?.focus() }} />}
+    <aside ref={sidebar} role={menuOpen ? 'dialog' : undefined} aria-modal={menuOpen ? true : undefined} aria-label={t('主要导航')} className={`workspace-sidebar${menuOpen ? ' is-open' : ''}`} id={sidebarId}>
+      <div className="sidebar-header">
+        <div className="sidebar-brand-row">
+          <button type="button" className="workspace-brand" aria-label={t(homeLabel)} onClick={() => { onHome(); closeMenu() }}>
+            <Brand />
+            <span className="sidebar-text"><strong>PaperAssist</strong></span>
+          </button>
+          <button type="button" className="sidebar-toggle button-quiet" aria-expanded={!collapsed} aria-controls={sidebarId}
+            aria-label={t(collapsed ? '展开侧边栏' : '收起侧边栏')} title={t(collapsed ? '展开侧边栏' : '收起侧边栏')}
+            onClick={() => setCollapsed(value => !value)}><WorkspaceIcon name={collapsed ? 'expand' : 'collapse'} /></button>
+        </div>
+        {sidebarAction?.(closeMenu)}
       </div>
-      <button type="button" className="sidebar-create button-primary" aria-label={t('新建研究项目')} title={t('新建项目')}
-        onClick={() => { setMenuOpen(false); onCreate() }}><WorkspaceIcon name="plus" /><span className="sidebar-text">{t('新建项目')}</span></button>
-      </div>
-      <div className="sidebar-navigation">
+      <div className="sidebar-navigation">{navigation(closeMenu)}</div>
+    </aside>
+    <main className="workbench-content" tabIndex={-1}>{children}</main>
+  </div>
+}
+
+export default function WorkspaceShell({ view, onNavigate, onCreate, projectName, projectType, section, onSectionChange, onCurrentProject, sectionBlocked, hasAnalysis = true, analysisOnly = false, overviewView, onOverviewChange, children }: Props) {
+  const { t } = useI18n()
+  const groups: { id: string; label: string; icon: 'folder' | 'chart' | 'files'; items: ProjectSection[] }[] = [
+    { id: 'materials', label: '材料准备', icon: 'folder', items: ['files', 'literature'] },
+    { id: 'analysis', label: hasAnalysis ? '分析与成果' : '成果与下载', icon: 'chart', items: hasAnalysis ? ['analysis', 'artifacts'] : ['artifacts'] },
+    { id: 'writing', label: '稿件写作', icon: 'files', items: ['manuscripts', projectType === 'thesis' || projectType === 'research' ? 'school-templates' : 'journals'] },
+    { id: 'reviews', label: '评审与修改', icon: 'files', items: ['reviews', 'tasks'] },
+  ]
+  const activeGroup = view === 'project' ? groups.find(group => group.items.includes(section ?? 'overview'))?.id : undefined
+  const sectionLabel = (item: typeof projectSections[number]) => t(item.value === 'manuscripts' && projectType === 'research' ? '研究成果写作' : item.value === 'manuscripts' && projectType === 'thesis' ? '毕业论文写作' : item.label)
+  const navigation = (closeMenu: () => void) => {
+    const chooseSection = (next: ProjectSection) => { closeMenu(); onSectionChange?.(next) }
+    const sectionButton = (value: ProjectSection) => {
+      const item = projectSections.find(item => item.value === value)!
+      return <button key={value} type="button" className="workspace-nav-item" disabled={!!sectionBlocked?.(value)} aria-label={sectionLabel(item)} title={t(sectionBlocked?.(value)||sectionLabel(item))}
+        aria-current={view === 'project' && section === value ? 'page' : undefined} onClick={() => chooseSection(value)}>
+        <WorkspaceIcon name={item.icon} /><span className="sidebar-text">{sectionLabel(item)}</span></button>
+    }
+    const navigate = (next: WorkspaceView) => { onNavigate(next); closeMenu() }
+    function overviewButton(value: 'settings' | 'requirements' | 'deliveries', label: string, icon: 'folder' | 'file' | 'files') {
+      const current = view === 'project' && section === 'overview' && (overviewView === value || value === 'requirements' && overviewView === 'design')
+      return <button type="button" className="workspace-nav-item" aria-label={t(label)} title={t(label)} aria-current={current ? 'page' : undefined}
+        onClick={() => { closeMenu(); onOverviewChange?.(value) }}><WorkspaceIcon name={icon} /><span className="sidebar-text">{t(label)}</span></button>
+    }
+    return <>
       <p className="sidebar-label">{t('工作空间')}</p>
       <nav aria-label={t('主要导航')}>
         <button type="button" className="workspace-nav-item" aria-current={view === 'home' ? 'page' : undefined}
           aria-label={t('工作台')} title={t('工作台')} onClick={() => navigate('home')}><WorkspaceIcon name="home" /><span className="sidebar-text">{t('工作台')}</span></button>
         <button type="button" className="workspace-nav-item" aria-current={view === 'projects' ? 'page' : undefined}
           aria-label={t('我的项目')} title={t('我的项目')} onClick={() => navigate('projects')}><WorkspaceIcon name="folder" /><span className="sidebar-text">{t('我的项目')}</span></button>
+        {analysisOnly && <button type="button" className="workspace-nav-item" aria-current={view === 'assigned' ? 'page' : undefined}
+          aria-label={t('分配给我的项目')} title={t('分配给我的项目')} onClick={() => navigate('assigned')}><WorkspaceIcon name="files" /><span className="sidebar-text">{t('分配给我的项目')}</span></button>}
       </nav>
       {projectName && <div className="sidebar-current"><p className="sidebar-label">{t('当前项目')}</p>
         <button type="button" className="workspace-nav-item current-project-name" aria-label={projectName} title={projectName}
-          onClick={() => { setMenuOpen(false); onCurrentProject() }}>
+          onClick={() => { closeMenu(); onCurrentProject() }}>
           <WorkspaceIcon name="file" /><span className="sidebar-text">{projectName}</span>
         </button>
         <nav className="project-section-nav" aria-label={t('项目导航')}>
-          {groups.map(group => <div className={`workspace-nav-group${activeGroup === group.id ? ' is-current' : ''}`} key={group.id}>
+          {analysisOnly ? <>
+            {overviewButton('settings', '项目资料', 'folder')}
+            {sectionButton('files')}
+            {overviewButton('requirements', '需求与分析方案', 'file')}
+            {sectionButton('analysis')}
+            {sectionButton('artifacts')}
+            {sectionButton('tasks')}
+            {overviewButton('deliveries', '分析交付', 'files')}
+          </> : groups.map(group => <div className={`workspace-nav-group${activeGroup === group.id ? ' is-current' : ''}`} key={group.id}>
             <button type="button" className="workspace-nav-item workspace-group-toggle" disabled={!!sectionBlocked?.(group.id==='reviews'?'reviews':group.items[0])} aria-label={t(group.label)} title={t(sectionBlocked?.(group.id==='reviews'?'reviews':group.items[0])||group.label)}
               aria-expanded={activeGroup === group.id} aria-controls={`workspace-group-${group.id}`} onClick={() => chooseSection(group.items.filter(item => projectType !== 'research' || item !== 'reviews')[0])}>
               <WorkspaceIcon name={group.icon} /><span className="sidebar-text">{t(group.label)}</span><span className="group-chevron sidebar-text" aria-hidden="true">›</span>
@@ -125,9 +162,10 @@ export default function WorkspaceShell({ view, onNavigate, onCreate, projectName
           </div>)}
         </nav>
       </div>}
-      </div>
-    </aside>
-    <main className="workbench-content" tabIndex={-1}>
-      {children}</main>
-  </div>
+    </>
+  }
+  return <WorkspaceFrame onHome={() => onNavigate('home')} navigation={navigation} sidebarAction={closeMenu =>
+    <button type="button" className="sidebar-create button-primary" aria-label={t('新建研究项目')} title={t('新建项目')}
+      onClick={() => { closeMenu(); onCreate() }}><WorkspaceIcon name="plus" /><span className="sidebar-text">{t('新建项目')}</span></button>
+  }>{children}</WorkspaceFrame>
 }

@@ -9,14 +9,17 @@ import { isProject, type Project } from './projectTypes';
 import { apiError, safeError } from '../../shared/i18n';
 import type { ProjectSection, WorkspaceView } from './WorkspaceShell';
 import { isTaskId } from '../tasks/taskTypes';
-import { homeRoute, parseNavigation, serializeNavigation, validId, type NavigationRoute, type OverviewView } from './projectNavigation';
+import { analystNavigation, homeRoute, parseNavigation, serializeNavigation, validId, type NavigationRoute, type OverviewView } from './projectNavigation';
 import type { ResourceNavigation } from './resourceViews';
 import type { LiteratureNavigation } from './literatureViews';
 import type {LeaveGuard} from './useDraftLeaveGuard';
-function initialRoute() {
+function initialRoute(normalize: (route: NavigationRoute) => NavigationRoute) {
     const hash = window.location.hash, valid = parseNavigation(hash);
-    if (valid)
-        return valid;
+    if (valid) {
+        const route = normalize(valid);
+        if (route !== valid) window.history.replaceState(window.history.state, '', window.location.pathname + window.location.search + serializeNavigation(route));
+        return route;
+    }
     const p = new URLSearchParams(hash.slice(1));
     if (p.get('section') === 'tasks' && p.getAll('project').length === 1 && p.getAll('section').length === 1 && p.getAll('task').length === 1 && [...p.keys()].every(k => ['project', 'section', 'task'].includes(k))) {
         p.delete('task');
@@ -42,10 +45,14 @@ function mountedBioNavigation(route: NavigationRoute) {
     if (route.section === 'analysis' && ['bio-datasets','bio-import','bio-dataset','bio-analysis-setup','bio-analysis','bio-result','bio-annotation','bio-figure'].includes(route.analysisNavigation.view)) return route.analysisNavigation;
     return undefined;
 }
-export default function useProjectSelection(onUnavailable: (id: string) => void, onAvailable: (id: string) => void, onNavigate?: () => void, navigationGate?: (next: NavigationRoute) => boolean) {
-    const [route, setRoute] = useState(() => initialRoute());
+export default function useProjectSelection(onUnavailable: (id: string) => void, onAvailable: (id: string) => void, onNavigate?: () => void, navigationGate?: (next: NavigationRoute) => boolean, analysisOnly = false) {
+    const assignedProject = useRef('');
+    const normalize = (route: NavigationRoute) => analysisOnly ? analystNavigation(route, route.projectId === assignedProject.current)
+        : route.workspaceView === 'assigned' ? homeRoute() : route;
+    const [route, setRoute] = useState(() => initialRoute(normalize));
     const routeRef = useRef(route);
     const retainedProjectRoute = useRef(route);
+    const returnList = useRef<'assigned' | 'projects'>(route.workspaceView === 'assigned' ? 'assigned' : 'projects');
     const retainedBio = useRef({projectId:route.projectId,navigation:mountedBioNavigation(route)});
     const { section, taskId, literatureSearchId, adaptationId, reviewLink, manuscriptLink } = route;
     const [instance, setInstance] = useState<Instance | null>(() => route.projectId ? { id: route.projectId, key: 1 } : null);
@@ -76,6 +83,9 @@ export default function useProjectSelection(onUnavailable: (id: string) => void,
         return !current.current || !next.projectId || next.projectId === current.current.id || [...guards.current].every(g => g());
     }
     function apply(next: NavigationRoute, seed?: Project) {
+        const previousView = routeRef.current.workspaceView;
+        const checkAssignment = analysisOnly && previousView !== 'project' && !!next.projectId && next.projectId === assignedProject.current;
+        if (next.workspaceView !== 'project') returnList.current = next.workspaceView === 'assigned' ? 'assigned' : 'projects';
         // A same-project deep link describes only its visible section. Keep
         // inactive task destinations so Back/Forward does not hide a retained draft.
         if (next.projectId && next.projectId === current.current?.id) {
@@ -97,7 +107,7 @@ export default function useProjectSelection(onUnavailable: (id: string) => void,
         const nextBio=mountedBioNavigation(next);
         if(next.projectId && (nextBio || retainedBio.current.projectId!==next.projectId))retainedBio.current={projectId:next.projectId,navigation:nextBio};
         setRoute(next);
-        if (next.projectId && next.projectId !== current.current?.id) {
+        if (next.projectId && (next.projectId !== current.current?.id || checkAssignment)) {
             cancel();
             const fresh = { id: next.projectId, key: ++nextKey.current };
             current.current = fresh;
@@ -115,6 +125,7 @@ export default function useProjectSelection(onUnavailable: (id: string) => void,
         window.history[replace ? 'replaceState' : 'pushState']({ ...window.history.state, paperassistNavigationIndex: index.current }, '', window.location.pathname + window.location.search + serializeNavigation(next));
     }
     function navigate(next: NavigationRoute, seed?: Project) {
+        next = normalize(next);
         if (!allowed(next))
             return;
         if (serializeNavigation(next) !== serializeNavigation(routeRef.current))
@@ -155,9 +166,11 @@ export default function useProjectSelection(onUnavailable: (id: string) => void,
             setFailure(null);
             setLoading(false);
             setUnavailableId(instance.id);
-            retainedProjectRoute.current = homeRoute();
-            apply(homeRoute());
-            write(homeRoute(), true);
+            const fallback: NavigationRoute = analysisOnly && (assignedProject.current === instance.id || returnList.current === 'assigned')
+                ? { ...homeRoute(), workspaceView: 'assigned' } : homeRoute();
+            retainedProjectRoute.current = fallback;
+            apply(fallback);
+            write(fallback, true);
             callbacks.current.onUnavailable(instance.id);
         });
         return () => {
@@ -180,9 +193,11 @@ export default function useProjectSelection(onUnavailable: (id: string) => void,
         function follow(event: Event) {
             if (event.type === 'hashchange' && (restore.current || replay.current))
                 return;
-            const next = parseNavigation(window.location.hash);
-            if (!next)
+            const parsed = parseNavigation(window.location.hash);
+            if (!parsed)
                 return;
+            const next = normalize(parsed);
+            if (next !== parsed) window.history.replaceState(window.history.state, '', window.location.pathname + window.location.search + serializeNavigation(next));
             let nextIndex = window.history.state?.paperassistNavigationIndex;
             if (restore.current) {
                 const pending = restore.current;
@@ -261,6 +276,9 @@ export default function useProjectSelection(onUnavailable: (id: string) => void,
                     throw new Error(apiError(result, '项目详情读取失败，请稍后重试。'));
                 if (!isProject(result) || result.id !== instance!.id)
                     throw new Error('项目详情格式不正确，请重试。');
+                assignedProject.current = result.assignment_revision === undefined ? '' : result.id;
+                const normalized = normalize(routeRef.current);
+                if (normalized !== routeRef.current) { write(normalized, true); apply(normalized); }
                 setDetail({ instance: instance!, project: result });
                 if (result.project_type === 'sci')
                     setSection(previous => previous === 'school-templates' ? 'overview' : previous);
@@ -325,9 +343,9 @@ export default function useProjectSelection(onUnavailable: (id: string) => void,
     function changeSection(next: ProjectSection) {
         navigate({ ...routeRef.current, projectId: current.current?.id ?? '', workspaceView: 'project', section: next });
     }
-    function selectTask(id: string) {
+    function selectTask(id: string, detailView: TaskDetailView = 'overview') {
         if (!id || isTaskId(id))
-            navigate({ ...routeRef.current, projectId: current.current?.id ?? '', workspaceView: 'project', section: 'tasks', taskId: id, taskDetailView:'overview' });
+            navigate({ ...routeRef.current, projectId: current.current?.id ?? '', workspaceView: 'project', section: 'tasks', taskId: id, taskDetailView: detailView });
     }
     function selectTaskDetailView(taskDetailView:TaskDetailView) {
         if (routeRef.current.taskId) navigate({...routeRef.current,projectId:current.current?.id ?? '',workspaceView:'project',section:'tasks',taskDetailView});
@@ -351,6 +369,10 @@ export default function useProjectSelection(onUnavailable: (id: string) => void,
     }
     function navigateWorkspace(view: WorkspaceView) {
         navigate({ ...routeRef.current, workspaceView: view === 'project' && !current.current ? 'projects' : view, projectId: view === 'project' ? current.current?.id ?? '' : '' });
+    }
+    function returnToList() {
+        const projectId = current.current?.id ?? unavailableId;
+        navigateWorkspace(analysisOnly && assignedProject.current === projectId && !!projectId ? 'assigned' : returnList.current);
     }
     function changeOverviewView(view: OverviewView) {
         navigate({ ...routeRef.current, projectId: current.current?.id ?? '', workspaceView: 'project', section: 'overview', overviewView: view });
@@ -406,7 +428,7 @@ export default function useProjectSelection(onUnavailable: (id: string) => void,
         const next = {...routeRef.current,projectId:current.current?.id ?? '',workspaceView:'project' as const,section:'school-templates' as const,schoolTemplateNavigation};
         if (parseNavigation(serializeNavigation(next))) navigate(next);
     }
-    return { instance, project: detail?.instance === instance ? detail?.project ?? null : null, error: failure?.instance === instance ? failure?.message ?? '' : '', loading, unavailableId, open, refresh, update, close,
+    return { instance, project: detail?.instance === instance ? detail?.project ?? null : null, error: failure?.instance === instance ? failure?.message ?? '' : '', loading, unavailableId, open, refresh, update, close, returnToList,
         reviewView:route.reviewView,reviewItemId:route.reviewItemId,taskDetailView:route.taskDetailView,
         selectReviewView,selectReviewItem,selectReviewRun,selectReviewDocument,selectTaskDetailView,
         manuscriptView:route.manuscriptView,journalView:route.journalView,schoolTemplateNavigation:route.schoolTemplateNavigation,

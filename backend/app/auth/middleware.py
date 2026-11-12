@@ -27,7 +27,8 @@ class AuthMiddleware(BaseHTTPMiddleware):
                 config = settings()
             except ValueError:
                 raise StorageError('authentication_configuration', '认证配置无效，请检查受信源和会话期限。') from None
-            public = request.url.path in ("/api/v1/health", "/api/v1/runtime/status", "/api/v1/auth/login", "/api/v1/auth/reset-password")
+            public = request.url.path in ("/api/v1/health", "/api/v1/runtime/status", "/api/v1/auth/login",
+                                          "/api/v1/auth/register", "/api/v1/auth/reset-password")
             session = None
             if not public:
                 token = request.cookies.get(COOKIE_NAME)

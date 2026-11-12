@@ -3,8 +3,10 @@ import json
 from urllib.parse import quote
 
 from app.adapters.task_store import DatasetTaskAssets, TaskStore, source_conflict, snapshots_match
+from app.auth.project_access import ASSIGNED_TASK_TYPES
 from app.core.exceptions import StorageError
 from app.domain.tasks.contracts import TaskCreateRequest
+from app.domain.tasks.legacy import missing_task
 from app.domain.bio_insights.task_contracts import INSIGHT_TASKS
 
 
@@ -242,7 +244,8 @@ class TaskWorkspaceService:
         with self.store.connection() as db:
             self.store.require_project(db, project_id)
             total, rows = mixed_task_page(db, self.store.user_id, project_id, page=page, page_size=page_size,
-                                         status=status, task_type=task_type)
+                                         status=status, task_type=task_type,
+                                         allowed_types=ASSIGNED_TASK_TYPES if self.store.assignment else None)
             items = []
             manuscript_sources = {}
             for candidate in rows:
@@ -438,6 +441,8 @@ class TaskWorkspaceService:
         with self.store.connection() as db:
             from app.domain.tasks.legacy import is_legacy_id, public_legacy_task, legacy_source
             if is_legacy_id(task_id):
+                if self.store.assignment is not None:
+                    raise missing_task()
                 from app.adapters.legacy_task_query import require_legacy_task
                 from app.domain.tasks.legacy_artifacts import exact_legacy_artifact, legacy_artifacts
                 row = require_legacy_task(db, self.store.user_id, task_id)
@@ -447,7 +452,10 @@ class TaskWorkspaceService:
             task = self.store.require_task(db, task_id)
             source = self.source(db, task)
             from app.domain.tasks.local_cancel import can_cancel
+            actions = ['cancel'] if can_cancel(task) else allowed_recovery_actions(db, task) if source['is_current'] else []
+            if self.store.assignment is not None:
+                actions = [action for action in actions if action != 'cancel']
             return {'task': self.store.public_task(task), 'source': source, 'wait': get_open_wait(db, task),
-                    'allowed_actions': ['cancel'] if can_cancel(task) else allowed_recovery_actions(db, task) if source['is_current'] else [],
+                    'allowed_actions': actions,
                     'artifacts': self.artifacts(db, task),
                     **({'verification_failure':task['verification_failure']} if task.get('verification_failure') else {})}

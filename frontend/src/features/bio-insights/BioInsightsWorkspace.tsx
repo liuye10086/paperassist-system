@@ -17,9 +17,9 @@ import InsightResults from './InsightResults'
 import InsightResources from './InsightResources'
 import {queueResearchSource} from './researchHandoff'
 import './insights.css'
-type Props={allowNewAnalysis?:boolean;projectId:string;navigation:AnalysisNavigation;active:boolean;onNavigate:(n:AnalysisNavigation)=>void;registerLeaveGuard?:RegisterLeaveGuard}
+type Props={allowExternalEvidenceRegistration?:boolean;allowNewAnalysis?:boolean;projectId:string;navigation:AnalysisNavigation;active:boolean;onNavigate:(n:AnalysisNavigation)=>void;registerLeaveGuard?:RegisterLeaveGuard}
 export default function BioInsightsWorkspace(props:Props){return props.active&&isInsightView(props.navigation.view)?<Content key={`${props.projectId}:${props.navigation.entry?.requirementVersionId??''}:${props.navigation.entry?.scopeItemId??''}:${props.navigation.intent??''}`} {...props}/>:null}
-function Content({projectId,navigation:n,active,onNavigate,registerLeaveGuard,allowNewAnalysis=true}:Props){
+function Content({projectId,navigation:n,active,onNavigate,registerLeaveGuard,allowNewAnalysis=true,allowExternalEvidenceRegistration}:Props){
  const{t}=useI18n(),[valid,setValid]=useState(true),[page,setPage]=useState(1),[runPage,setRunPage]=useState(1),[newKind,setNewKind]=useState<InsightKind>(navigationKind(n)??'comparison')
  const [workflowSeeds,setWorkflowSeeds]=useResearchDraft<Record<string,BulkPlanSeed>>(projectId,'bulk-workflow-plan-seeds',()=>({}))
  const workflowSeed=n.bulkView&&n.resultVersionId?workflowSeeds[`${n.bulkView}:${n.resultVersionId}`]:undefined
@@ -82,7 +82,7 @@ function Content({projectId,navigation:n,active,onNavigate,registerLeaveGuard,al
  {!n.planVersionId&&!n.runId&&!n.resultVersionId&&area!=='candidates'&&area!=='figures'&&!intentKind&&<div className="insight-kind-selection"><Field label="新计划类型" value={kind} onChange={v=>setNewKind(v as InsightKind)}>{(area==='resources'?['ora','gsea_prerank']:['comparison','result_import','feature_extract','integration']).map(k=><option key={k} value={k}>{t(kindLabels[k as InsightKind])}</option>)}</Field></div>}
  <div className="insight-editor-host" hidden={!!n.resultVersionId&&panel!=='plot'}>
   {(!n.runId||n.planVersionId)&&(!n.planVersionId||plan.data)&&(!n.bulkPanel||processedSeed)&&(!n.resultVersionId||seed||legacyPlot)&&
-   <InsightPlanEditor allowNewAnalysis={allowNewAnalysis} key={seed?bulkPlanScope(seed):`${plan.data?.id??kind}:${n.processedId??n.resultVersionId??''}`}
+   <InsightPlanEditor allowExternalEvidenceRegistration={allowExternalEvidenceRegistration} allowNewAnalysis={allowNewAnalysis} key={seed?bulkPlanScope(seed):`${plan.data?.id??kind}:${n.processedId??n.resultVersionId??''}`}
     projectId={projectId} kind={seed?.config.kind??kind} active={active} initial={plan.data}
     initialProcessedId={seed?undefined:n.processedId} initialResultId={seed?undefined:n.resultVersionId} bulkSeed={seed} entryIntent={n.intent}
     onSaved={v=>{plans.refresh();openPlan(v)}} onRun={v=>{runs.refresh();openRun(v)}} registerLeaveGuard={registerLeaveGuard}/>}

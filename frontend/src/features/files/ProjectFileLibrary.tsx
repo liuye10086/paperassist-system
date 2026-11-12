@@ -9,11 +9,11 @@ import './fileLibrary.css'
 import type { ResourceNavigation } from '../projects/resourceViews'
 import type { RegisterLeaveGuard } from '../projects/useDraftLeaveGuard'
 
-export default function ProjectFileLibrary({ projectId, active, uploadVersion, busy, previewState, onPreview, onUnavailable, resourceNavigation, onResourceNavigate, registerLeaveGuard, onReloadMaterials }: {
+export default function ProjectFileLibrary({ projectId, active, uploadVersion, busy, previewState, onPreview, onUnavailable, resourceNavigation, onResourceNavigate, registerLeaveGuard, onReloadMaterials, allowLifecycle }: {
   projectId: string; active: boolean; uploadVersion: number; busy: boolean; previewState: SavedPreviewState | null
   onPreview: (id: string) => void; onUnavailable: () => void
   resourceNavigation?: ResourceNavigation; onResourceNavigate?: (next: ResourceNavigation) => void; registerLeaveGuard?: RegisterLeaveGuard
-  onReloadMaterials?: () => void
+  onReloadMaterials?: () => void; allowLifecycle?: boolean
 }) {
   const { t, locale } = useI18n()
   const [page, setPage] = useState(1)
@@ -112,7 +112,7 @@ export default function ProjectFileLibrary({ projectId, active, uploadVersion, b
           <button type="button" disabled={loading || page >= Math.ceil(result.total / 5) || page >= 1_000_000} onClick={() => setPage(value => value + 1)}>{t('下一页')}</button>
         </nav>}
     </section>
-    {visited.map(id => <div key={id} hidden={selected !== id}><FileDetails projectId={projectId} fileId={id}
+    {visited.map(id => <div key={id} hidden={selected !== id}><FileDetails projectId={projectId} fileId={id} allowLifecycle={allowLifecycle}
       active={active && selected === id} initialTask={navigation.view==='quality'&&selected===id?'structure':documentPreview === id ? 'document' : undefined} registerLeaveGuard={registerLeaveGuard} onUnavailable={onUnavailable} onUpdated={updated} /></div>)}
   </>
 }

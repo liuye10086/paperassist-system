@@ -202,7 +202,11 @@ cd backend
 .\.venv\Scripts\python.exe -m app.manage_users bootstrap --email admin@paperassist.local
 ```
 
-新环境初始化时按提示输入两次12–128字符密码（`getpass` 隐藏输入）；命令在同一事务创建首个管理员并认领历史项目。已有账号时再次执行会拒绝。账号管理同样使用 `app.manage_users` 的 `create`、`reset-password`、`disable`、`enable` 命令和 `--email`；密码重置或停用会使旧会话失效。管理员网页已接入账号运营管理；公开注册与邮件恢复继续保留条件边界，用户可自行改密或使用管理员签发的恢复码。
+新环境初始化时按提示输入两次 12–128 字符密码（`getpass` 隐藏输入）。命令在同一事务创建首个管理员并认领历史项目。已有账号时再次执行会拒绝。账号管理同样使用 `app.manage_users` 的 `create`、`reset-password`、`disable`、`enable` 命令和 `--email`。密码重置或停用会使旧会话失效。用户可自行改密或使用管理员签发的恢复码。
+
+创建账号时可用 `--role customer`、`--role analyst` 或 `--role admin`。默认角色为 `analyst`，旧命令中的 `--role user` 也按 `analyst` 处理。数据库迁移 `0075_account_roles` 会将已有普通账号映射为分析员并沿用原账号 ID。
+
+迁移 `0076_account_registration` 接通登录页的注册申请。首个管理员初始化后即可接受注册。管理员在账号管理里打开待审申请，核对申请人身份后分配角色并通过，或填写原因后驳回。申请人可以用注册邮箱和密码查看审核状态。客户登录后进入账号状态页，分析员登录后进入现有项目工作区。
 
 接口为 `/api/v1/auth/login`、`/api/v1/auth/me`、`/api/v1/auth/logout`。会话令牌只保存摘要，Cookie 使用 HttpOnly、SameSite=Lax，生产环境启用 Secure；绝对有效期 7 天、闲置期 30 分钟，状态修改请求检查 CSRF 与来源。15 分钟内失败限制为每邮箱 5 次、每 IP 30 次。管理员仅能读取自己名下研究内容，嵌套资源、写入与下载均核对项目归属，越权返回 404。
 

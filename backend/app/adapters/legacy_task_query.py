@@ -39,12 +39,15 @@ CANDIDATES = '''WITH candidates AS (
     ''' + _legacy_candidates('figure_jobs', 'plot') + ' UNION ALL ' + _legacy_candidates('explanation_jobs', 'explanation') + ') '
 
 
-def mixed_task_page(db, user_id, project_id, *, page, page_size, status, task_type):
+def mixed_task_page(db, user_id, project_id, *, page, page_size, status, task_type, allowed_types=None):
     conditions, values = ['project_id=%s', 'user_id=%s'], [project_id, user_id]
     for field, value in [('status', status), ('task_type', task_type)]:
         if value is not None:
             conditions.append(field + '=%s')
             values.append(value)
+    if allowed_types is not None:
+        conditions.extend(("origin='unified'", 'task_type=ANY(%s)'))
+        values.append(list(allowed_types))
     where = ' WHERE ' + ' AND '.join(conditions)
     total = db.execute(CANDIDATES + 'SELECT count(*) AS n FROM candidates' + where, tuple(values)).fetchone()['n']
     rows = db.execute(CANDIDATES + 'SELECT id,origin FROM candidates' + where

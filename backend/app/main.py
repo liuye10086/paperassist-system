@@ -15,6 +15,8 @@ from app.core.config import get_excel_settings, local_config
 from app.api.excel import router as excel_router
 from app.api.upload_limit import UploadLimitMiddleware
 from app.auth.middleware import AuthMiddleware
+from app.auth.permissions import require_customer_permission
+from app.auth.project_access import bind_project_assignment
 from app.auth.routes import router as auth_router
 from app.auth.config import settings as auth_settings
 from app.api.projects import router as projects_router
@@ -70,7 +72,8 @@ async def lifespan(app):
                 await task
 
 
-app = FastAPI(title="PaperAssist System", lifespan=lifespan)
+app = FastAPI(title="PaperAssist System", lifespan=lifespan,
+              dependencies=[Depends(require_customer_permission), Depends(bind_project_assignment)])
 app.add_middleware(UploadLimitMiddleware)
 app.add_middleware(AuthMiddleware)
 app.add_middleware(RequestIdMiddleware)
@@ -234,6 +237,9 @@ app.include_router(review_continuations_router, dependencies=[Depends(legacy_wri
 from app.api.admin import router as admin_router
 app.include_router(admin_router)
 
+from app.api.project_assignments import router as project_assignments_router
+app.include_router(project_assignments_router)
+
 from app.api.admin_configurations import router as admin_configurations_router
 app.include_router(admin_configurations_router)
 
@@ -247,3 +253,9 @@ app.include_router(bulk_workflow_router)
 
 from app.api.delivery_packages import router as delivery_packages_router
 app.include_router(delivery_packages_router)
+
+from app.api.customer_workspace import router as customer_workspace_router
+app.include_router(customer_workspace_router)
+
+from app.api.analyst_workspace import router as analyst_workspace_router
+app.include_router(analyst_workspace_router)

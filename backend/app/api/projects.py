@@ -59,6 +59,10 @@ class ProjectPage(BaseModel):
     page_size: int
 
 
+class AssignedProject(Project):
+    assignment_revision: int = Field(ge=1)
+
+
 class SavedUpload(BaseModel):
     file: ProjectFile
     preview: WorkbookPreview | None
@@ -101,9 +105,12 @@ def get_workflow_state(project_id: str, store: Store):
     return read_workflow_state(store, project_id)
 
 
-@router.get("/{project_id}", response_model=Project)
+@router.get("/{project_id}", response_model=AssignedProject | Project)
 def get_project(project_id: str, store: Store):
-    return store.project(project_id)
+    project = store.project(project_id)
+    if store.assignment is not None:
+        project['assignment_revision'] = store.assignment.revision
+    return project
 
 
 @router.get("/{project_id}/language", response_model=Project)

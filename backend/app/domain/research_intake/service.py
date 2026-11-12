@@ -3,7 +3,9 @@ import hashlib
 import json
 from uuid import uuid4
 from app.core.exceptions import StorageError
-from app.adapters.research_intake_store import VERSION_TABLES, now, require_owner, require_reference, version_view
+from app.adapters.research_intake_store import (
+    VERSION_TABLES, latest_confirmed_requirement, now, require_owner, require_reference, version_view,
+)
 from .delivery_access import capabilities, delivery_capabilities
 from .validation import requirement_gaps, design_gaps, design_table_preview
 
@@ -32,30 +34,58 @@ def read_intake(store,project_id):
         root=db.execute('SELECT * FROM research_intakes WHERE project_id=%s',(project_id,)).fetchone()
         if root is None:
             raise StorageError('research_intake_not_found','项目尚无需求登记。',404)
-        requirement=version_view(db,db.execute('SELECT * FROM research_requirement_versions WHERE id=%s',(root['current_requirement_version_id'],)).fetchone(),'requirements')
-        design=version_view(db,db.execute('SELECT * FROM research_design_versions WHERE id=%s',(root['current_design_version_id'],)).fetchone(),'research-designs')
+        assigned = getattr(store, 'assignment', None) is not None
+        requirement_id = root['current_requirement_version_id']
+        if assigned:
+            confirmed = latest_confirmed_requirement(db, project_id)
+            requirement_id = confirmed['id'] if confirmed else None
+        requirement=version_view(db,db.execute('SELECT * FROM research_requirement_versions WHERE id=%s',(requirement_id,)).fetchone(),'requirements')
         deliveries=[dict(row) for row in db.execute('SELECT * FROM research_deliveries WHERE project_id=%s ORDER BY kind',(project_id,))]
-        issues=(gaps('requirements',requirement['content']) if requirement else [])+(gaps('research-designs',design['content']) if design else [])
+        issues=gaps('requirements',requirement['content']) if requirement else []
+        available=capabilities(project)
+        if assigned:
+            if requirement:
+                requirement.pop('request_key', None)
+            selected = requirement['content']['services'] if requirement else []
+            deliveries = [dict(row, active='analysis' in selected) for row in deliveries if row['kind'] == 'analysis']
+            available['legacy_writing'] = False
+        if store.customer:
+            fields=('id','kind','name','active','origin','revision')
+            return {'project_id':project_id,'revision':root['revision'],'current_requirement':requirement,'current_design':None,
+                    'deliveries':[{field:row[field] for field in fields} for row in deliveries],
+                    'capabilities':{key:key=='requirements' for key in available},'gaps':issues}
+        design=version_view(db,db.execute('SELECT * FROM research_design_versions WHERE id=%s',(root['current_design_version_id'],)).fetchone(),'research-designs')
+        if design:
+            issues+=gaps('research-designs',design['content'])
         return {'project_id':project_id,'revision':root['revision'],'current_requirement':requirement,'current_design':design,
-                'deliveries':delivery_capabilities(project,deliveries),'capabilities':capabilities(project),'gaps':issues}
+                'deliveries':delivery_capabilities(project,deliveries),'capabilities':available,'gaps':issues}
 
 
 def read_versions(store,project_id,kind,*,page=1,version_id=None,key=None):
     table=VERSION_TABLES[kind]
+    assigned_requirements = kind == 'requirements' and getattr(store, 'assignment', None) is not None
+    visible = " AND operation='confirm'" if assigned_requirements else ''
     with store.connection() as db:
         require_owner(db,store,project_id)
         if version_id or key:
             column='id' if version_id else 'request_key'
-            row=db.execute(f'SELECT * FROM {table} WHERE project_id=%s AND {column}=%s',(project_id,version_id or key)).fetchone()
+            row=db.execute(f'SELECT * FROM {table} WHERE project_id=%s AND {column}=%s{visible}',(project_id,version_id or key)).fetchone()
             if row is None:
                 raise StorageError('research_version_not_found','版本不存在。',404)
-            return version_view(db,row,kind)
-        total=db.execute(f'SELECT count(*) AS n FROM {table} WHERE project_id=%s',(project_id,)).fetchone()['n']
-        rows=db.execute(f'SELECT * FROM {table} WHERE project_id=%s ORDER BY version DESC LIMIT 5 OFFSET %s',(project_id,(page-1)*5))
-        return {'items':[version_view(db,row,kind) for row in rows],'page':page,'page_size':5,'total':total}
+            item = version_view(db, row, kind)
+            if assigned_requirements:
+                item.pop('request_key', None)
+            return item
+        total=db.execute(f'SELECT count(*) AS n FROM {table} WHERE project_id=%s{visible}',(project_id,)).fetchone()['n']
+        rows=db.execute(f'SELECT * FROM {table} WHERE project_id=%s{visible} ORDER BY version DESC LIMIT 5 OFFSET %s',(project_id,(page-1)*5))
+        items = [version_view(db, row, kind) for row in rows]
+        if assigned_requirements:
+            for item in items:
+                item.pop('request_key', None)
+        return {'items':items,'page':page,'page_size':5,'total':total}
 
 
-def _validate_refs(db,project_id,kind,content,refs):
+def _validate_refs(db,project_id,kind,content,refs,*,material_filter):
     references=[('research_deliveries',r.delivery_id) for r in refs if r.delivery_id]
     references += [('files',r.file_id) for r in refs if r.file_id]
     references += [('bio_dataset_versions',r.bio_dataset_version_id) for r in refs if r.bio_dataset_version_id]
@@ -77,7 +107,7 @@ def _validate_refs(db,project_id,kind,content,refs):
             if item['availability']=='provided' and not any(r.purpose==item['purpose'] and r.availability=='provided' for r in refs):
                 raise StorageError('research_material_invalid','已提供材料须绑定实际文件或数据集版本。',422)
     for table,identifier in references:
-        require_reference(db,table,identifier,project_id)
+        require_reference(db,table,identifier,project_id,material_filter=material_filter)
 
 
 def write_version(store,project_id,kind,request,key):
@@ -93,6 +123,8 @@ def write_version(store,project_id,kind,request,key):
         raise StorageError('research_content_too_large','需求或设计内容超过4MiB。',422)
     with store.connection(write=True) as db:
         project=require_owner(db,store,project_id)
+        if kind == 'requirements' and getattr(store, 'assignment', None) is not None:
+            raise StorageError('permission_denied', '项目需求由客户提交。', 403)
         replay=db.execute(f'SELECT * FROM {table} WHERE project_id=%s AND request_key=%s',(project_id,key)).fetchone()
         if replay:
             if replay['request_digest']!=request_digest:
@@ -104,13 +136,14 @@ def write_version(store,project_id,kind,request,key):
             raise StorageError('research_intake_not_found','项目尚无需求登记。',404)
         if root['revision']!=request.expected_revision:
             raise StorageError('research_revision_conflict','需求已被另一窗口修改，请读取新版本并保留本地草稿。',409)
-        _validate_refs(db,project_id,kind,content,request.material_refs)
+        _validate_refs(db,project_id,kind,content,request.material_refs,material_filter=store.material_filter)
         version=db.execute(f'SELECT coalesce(max(version),0)+1 AS n FROM {table} WHERE project_id=%s',(project_id,)).fetchone()['n']
         pointer='current_requirement_version_id' if kind=='requirements' else 'current_design_version_id'
         identifier=str(uuid4()); moment=now()
+        author = getattr(store, 'actor_id', None) or store.owner_id
         db.execute(f'''INSERT INTO {table}(id,project_id,version,parent_id,operation,content_json,sha256,request_key,request_digest,created_by,created_at)
             VALUES(%s,%s,%s,%s,%s,%s::jsonb,%s,%s,%s,%s,%s)''',
-            (identifier,project_id,version,root[pointer],request.operation,canonical(content),digest(content),key,request_digest,store.owner_id,moment))
+            (identifier,project_id,version,root[pointer],request.operation,canonical(content),digest(content),key,request_digest,author,moment))
         ref_column='requirement_version_id' if kind=='requirements' else 'design_version_id'
         for ref in request.material_refs:
             db.execute(f'''INSERT INTO research_material_refs(id,project_id,{ref_column},delivery_id,file_id,bio_dataset_version_id,locator,availability,purpose,note)

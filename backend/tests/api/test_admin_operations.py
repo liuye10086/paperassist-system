@@ -86,7 +86,8 @@ def test_accounts_cas_audit_and_session_revocation_are_atomic(admin, accounts):
         login(other,target)
         page = admin.get('/api/v1/admin/users',params={'q':'ordinary'}).json()
         assert page['total'] == 1
-        assert set(page['items'][0]) == {'id','email','role','active','admin_revision','updated_at','allowed_actions'}
+        assert set(page['items'][0]) == {'id','email','role','active','review_status','admin_revision','updated_at','allowed_actions'}
+        assert page['items'][0]['review_status'] == 'approved'
         body = dict(role='admin',active=True,expected_revision=1,reason='Approved admin promotion')
         changed = admin.patch('/api/v1/admin/users/'+target['id'],json=body)
         assert changed.status_code == 200, changed.text
@@ -97,7 +98,7 @@ def test_accounts_cas_audit_and_session_revocation_are_atomic(admin, accounts):
     assert len(audits) == 2  # creation via CLI and the web mutation
     event = next(row for row in audits if row['source']=='web')
     assert event['actor_user_id'] == accounts[0]['id']
-    assert event['before_role']=='user' and event['after_role']=='admin'
+    assert event['before_role']=='analyst' and event['after_role']=='admin'
     assert event['request_id']==changed.headers['X-Request-ID']
     with pytest.raises(Exception):
         with database_connection(write=True) as db:
@@ -228,7 +229,7 @@ def test_audit_failure_rolls_back_account_change_and_session_revocation(admin,ac
         assert target.get('/api/v1/auth/me').status_code==200
         with database_connection() as db:
             row=db.execute('SELECT role,admin_revision FROM users WHERE id=%s',(user['id'],)).fetchone()
-            assert row['role']=='user' and row['admin_revision']==1
+            assert row['role']=='analyst' and row['admin_revision']==1
 
 
 def parse_task_wait(admin,owner, *, unknown=False):

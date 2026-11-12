@@ -23,6 +23,7 @@ def initialize_intake(db,project_id,owner_id,project_type,*,delivery_kinds=None,
 
 
 def require_owner(db,store,project_id):
+    store.require_project_scope(project_id)
     if not store.owner_id:
         raise StorageError('project_not_found','项目不存在。',404)
     project=db.execute('SELECT * FROM projects WHERE id=%s AND owner_id=%s',(project_id,store.owner_id)).fetchone()
@@ -31,9 +32,15 @@ def require_owner(db,store,project_id):
     return dict(project)
 
 
-def require_reference(db,table,identifier,project_id):
-    if not db.execute(f'SELECT id FROM {table} WHERE id=%s AND project_id=%s',(identifier,project_id)).fetchone():
+def require_reference(db,table,identifier,project_id,*,material_filter=''):
+    visibility=material_filter if table=='files' else ''
+    if not db.execute(f'SELECT id FROM {table} WHERE id=%s AND project_id=%s{visibility}',(identifier,project_id)).fetchone():
         raise StorageError('research_material_invalid','材料引用不存在或不属于当前项目。',422)
+
+
+def latest_confirmed_requirement(db, project_id):
+    return db.execute('''SELECT id, version, created_at, sha256 FROM research_requirement_versions
+        WHERE project_id=%s AND operation='confirm' ORDER BY version DESC LIMIT 1''', (project_id,)).fetchone()
 
 
 def version_view(db,row,kind):

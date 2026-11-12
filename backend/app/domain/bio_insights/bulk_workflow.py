@@ -52,7 +52,7 @@ class BulkWorkflowService(BioInsightsStore):
         designs = read("""SELECT v.id,v.operation,v.content_json,v.created_at,
                    i.current_design_version_id AS current_version_id
             FROM research_design_versions v JOIN research_intakes i ON i.project_id=v.project_id
-            WHERE v.project_id=%s AND v.created_by=%s""")
+            WHERE v.project_id=%s AND i.owner_id=%s""")
         maps = read("""SELECT v.id,v.set_id,v.raw_dataset_version_id,v.design_version_id,v.mapping_object_id,
                    v.mapping_sha256,v.created_at,s.name,s.current_version_id
             FROM bio_observation_map_versions v JOIN bio_observation_map_sets s

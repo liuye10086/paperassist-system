@@ -1,11 +1,11 @@
 import { useI18n } from '../../shared/i18n'
 import { useContext } from 'react'
-import { createPortal } from 'react-dom'
-import { ProjectWorkspaceVisibleContext, WorkspaceChromeContext } from '../../shared/components/WorkspaceChromeContext'
+import { ProjectWorkspaceVisibleContext } from '../../shared/components/WorkspaceChromeContext'
 import type { Project } from './projectTypes'
 import type { ProjectSection } from './WorkspaceShell'
 import type { OverviewView } from './projectNavigation'
 import './projectJourney.css'
+import WorkspaceSteps from './WorkspaceSteps'
 import { projectFlowStep, type WorkflowState } from './useProjectFlow'
 import type {AnalysisNavigation} from './analysisViews'
 
@@ -19,11 +19,25 @@ type Props = {
   onWriting: () => void
   blocked: (section: ProjectSection, view?: OverviewView) => string
   workflowState?: WorkflowState
+  analysisOnly?: boolean
+  assigned?: boolean
 }
-export default function ProjectJourney({ project, section, overviewView, onOverview, onUpload, onAnalysis, onResults, onWriting, blocked, hasAnalysis = true, active = true, analysisView, workflowState }: Props) {
+export default function ProjectJourney({ project, section, overviewView, onOverview, onUpload, onAnalysis, onResults, onWriting, blocked, hasAnalysis = true, active = true, analysisView, workflowState, analysisOnly = false, assigned = false }: Props) {
   const { t } = useI18n()
-  const chrome = useContext(WorkspaceChromeContext)
   const workspaceVisible = useContext(ProjectWorkspaceVisibleContext)
+  if (analysisOnly) {
+    const current = section === 'overview' && overviewView === 'deliveries' ? 5
+      : section === 'analysis' && ['bio-result','bio-insight-result','report'].includes(analysisView ?? '') ? 4
+        : projectFlowStep(section, overviewView, true)
+    return active && workspaceVisible ? <div className="project-journey"><WorkspaceSteps current={current} steps={[
+      { title: '项目资料', action: () => onOverview('settings') },
+      { title: '文件上传/整理', action: onUpload },
+      { title: assigned ? '已提交需求' : '需求与分析方案', action: () => onOverview('requirements') },
+      { title: '执行分析', action: onAnalysis, disabledReason: blocked('analysis') },
+      { title: '查看结果', action: onResults },
+      { title: '分析交付', action: () => onOverview('deliveries') },
+    ]}/></div> : null
+  }
   const step = section==='analysis' && ['bio-result','bio-insight-result','report'].includes(analysisView??'') ? 4 : projectFlowStep(section, overviewView, hasAnalysis)
   const reasons = ['', '', blocked('overview','requirements'), blocked(hasAnalysis?'analysis':'manuscripts'), blocked('artifacts')]
   // The route identifies the current step. Completion comes from saved workflow state.
@@ -53,18 +67,15 @@ export default function ProjectJourney({ project, section, overviewView, onOverv
   const status = (index: number) => completed[index] ? '已完成'
     : state.next_step === (index === 1 ? 'upload' : index === 2 ? 'requirements' : index === 3 ? (hasAnalysis ? 'analysis' : 'writing') : index === 4 ? 'results' : '')
       ? '进行中' : index === 1 && state.files.total > state.files.ready ? '待补材料' : '待处理'
-  const navigation = <nav className={`project-steps${chrome ? ' is-compact' : ''}`} aria-label={t('项目操作步骤')}><ol>{steps.map((item, index) => <li key={item.title}>
-      <button type="button" disabled={!!reasons[index]} title={t(reasons[index]||item.description)} aria-label={t('第 {number} 步：{title}', { number: index + 1, title: t(item.title) })} aria-current={step === index ? 'step' : undefined} onClick={item.action}>
-        <span className="journey-number" aria-hidden="true">{index + 1}</span><span><strong>{t(item.title)}</strong><small>{t(item.description)}</small><em className="journey-status">{t(status(index))}</em></span>
-      </button>
-    </li>)}</ol></nav>
   const nextAction = <section className="journey-next-action" aria-label={t('下一步')}>
     <div><span className="journey-next-kicker">{t('下一步')}</span><strong>{t(primary.label)}</strong></div>
     <button type="button" className="button-primary" onClick={primary.action}>{t('下一步')}<span aria-hidden="true"> →</span></button>
   </section>
   return <div className="project-journey">
     {active && workspaceVisible && nextAction}
-    {active && workspaceVisible && (chrome ? chrome.navigation && createPortal(navigation, chrome.navigation) : navigation)}
+    {active && workspaceVisible && <WorkspaceSteps current={step} steps={steps.map((item, index) => ({
+      ...item, status: status(index), disabledReason: reasons[index],
+    }))} />}
   </div>
 }
 

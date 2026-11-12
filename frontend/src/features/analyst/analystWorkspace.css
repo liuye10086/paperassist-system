@@ -1,0 +1,25 @@
+.analyst-card {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+  margin-block: 16px;
+  padding: clamp(16px, 2vw, 24px);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+}
+
+.analyst-card h2, .analyst-card h3, .analyst-card h4, .analyst-card p { margin: 0; }
+.analyst-card-heading { display: flex; flex-wrap: wrap; gap: 12px; align-items: baseline; justify-content: space-between; }
+.analyst-card-heading p { flex-basis: 100%; }
+.analyst-form { display: grid; gap: 12px; max-width: 650px; }
+.analyst-form label { display: grid; gap: 6px; }
+.analyst-form button { justify-self: start; }
+.analyst-feedback-list, .analyst-scope-list { margin: 0; padding-inline-start: 20px; }
+.analyst-feedback-list li + li, .analyst-scope-list li + li { margin-block-start: 10px; }
+.analyst-feedback-list time, .analyst-publication time { font-size: 0.9em; }
+.analyst-publication { display: grid; gap: 6px; padding-block: 12px; border-top: 1px solid var(--border); }
+.analyst-note, .analyst-feedback-list p { white-space: pre-wrap; overflow-wrap: anywhere; }
+.analyst-project-info { margin: 0; padding: 16px 0; display: grid; gap: 12px; }
+.analyst-project-info dt { font-weight: 600; }
+.analyst-project-info dd { margin: 4px 0 0; overflow-wrap: anywhere; }

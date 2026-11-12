@@ -1,0 +1,44 @@
+import { useI18n } from '../../shared/i18n'
+import { projectBase } from '../research-intake/api'
+import type { Intake, Version } from '../research-intake/contracts'
+import { useResearchRead } from '../research-results/api'
+import type { AnalystWorkspace, SubmittedVersion } from './useAnalystWorkspace'
+
+function confirmedVersion(version: Version | null | undefined, projectId: string): version is Version {
+  return !!version && typeof version.id === 'string' && Number.isSafeInteger(version.version) && version.operation === 'confirm'
+    && !!version.content && (!version.project_id || version.project_id === projectId)
+}
+
+function matchesSubmitted(version: Version, submitted: SubmittedVersion) {
+  return version.id === submitted.id && version.version === submitted.version
+}
+
+export default function SubmittedRequirement({ projectId, workspace, onDesign }: {
+  projectId: string; workspace: AnalystWorkspace; onDesign: () => void
+}) {
+  const { t } = useI18n()
+  const base = projectBase(projectId)
+  const submitted = workspace.value?.requirement
+  const intake = useResearchRead<Intake>(`${base}/research-intake`, !!workspace.value)
+  const latest = intake.data?.current_requirement
+  const current = confirmedVersion(latest, projectId) && (!submitted || latest.version > submitted.version || matchesSubmitted(latest, submitted)) ? latest : null
+  const needsExactVersion = !!intake.data && !!submitted && !current
+  const historical = useResearchRead<Version>(submitted ? `${base}/requirements/${encodeURIComponent(submitted.id)}` : '', needsExactVersion)
+  const version = current ?? (submitted && confirmedVersion(historical.data, projectId) && matchesSubmitted(historical.data, submitted) ? historical.data : null)
+  const readError = workspace.error || intake.error || needsExactVersion && (historical.error || historical.data && !version && '无法核对已提交的需求版本。')
+  const notes = version && typeof version.content.notes === 'string' ? version.content.notes : ''
+  const scope = Array.isArray(version?.content.scope_items) ? version.content.scope_items.filter(item => item && typeof item.id === 'string'
+    && typeof item.title === 'string' && item.delivery_kind === 'analysis' && item.status !== 'not_included') : []
+  return <section className="analyst-card" aria-label={t('已提交需求')}>
+    <header className="analyst-card-heading"><h2>{t('已提交需求')}</h2><button type="button" onClick={onDesign}>{t('实验设计')}</button></header>
+    {readError ? <><p role="alert">{t(readError)}</p><button type="button" onClick={() => { workspace.refresh(); intake.refresh(); historical.refresh() }}>{t('重新读取需求')}</button></>
+      : !intake.data || submitted && !version ? <p role="status">{t('正在读取已提交需求……')}</p>
+        : !version ? <p>{t('客户尚未提交需求。')}</p> : null}
+    {version && <>
+      <p>{t('需求版本 {version}', { version: version.version })}</p>
+      <h3>{t('研究范围')}</h3>
+      {scope.length ? <ul className="analyst-scope-list">{scope.map(item => <li key={item.id}>{item.title}</li>)}</ul> : <p>{t('暂无已选研究范围。')}</p>}
+      {notes && <><h3>{t('补充说明')}</h3><p className="analyst-note">{notes}</p></>}
+    </>}
+  </section>
+}

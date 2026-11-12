@@ -3,6 +3,8 @@
 import argparse
 import getpass
 import sys
+from typing import get_args
+from app.auth.accounts import AccountRoleInput
 from app.auth.service import bootstrap_admin, create_user, reset_password, set_user_active
 from app.core.exceptions import StorageError
 from app.auth.passwords import issue_recovery_code
@@ -25,7 +27,7 @@ def main():
         choices=["bootstrap", "create", "reset-password", "issue-recovery", "disable", "enable"],
     )
     parser.add_argument("--email", required=True)
-    parser.add_argument("--role", choices=["user", "admin"], default="user")
+    parser.add_argument("--role", choices=get_args(AccountRoleInput), default="analyst")
     parser.add_argument("--operator", help="可选本机操作者标识（不代表已认证HTTP身份）")
     args = parser.parse_args()
     try:

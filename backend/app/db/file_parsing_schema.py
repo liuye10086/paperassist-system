@@ -13,7 +13,8 @@ def define_file_parsing_tables(metadata):
         Column('profile', Text, nullable=False, server_default='documents'),
         CheckConstraint("profile IN ('documents','bioinformatics_v1')", name='file_batches_profile_check'),
         Column('created_at', DateTime(timezone=True), nullable=False),
-        UniqueConstraint('user_id', 'project_id', 'idempotency_key', name='file_batches_request_key'),
+        Column('upload_actor_id', Text, ForeignKey('users.id', name='file_batches_upload_actor_fk'), nullable=False),
+        UniqueConstraint('user_id', 'project_id', 'upload_actor_id', 'idempotency_key', name='file_batches_actor_request_key'),
         CheckConstraint("request_digest ~ '^[0-9a-f]{64}$'", name='file_batches_digest_check'))
     items = Table('file_upload_items', metadata,
         Column('id', Text, primary_key=True),
