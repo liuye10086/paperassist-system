@@ -33,19 +33,23 @@ const file = { id: 'f1', filename: '实验.xlsx', file_type: 'xlsx', size_bytes:
 const statisticsTask = { ...taskFixture, project_id: project.id, task_type: 'statistics_compute', status: 'succeeded', display_status: 'succeeded',
   reason_code: null, error_code: null, result_analysis_run_id: 'run1', execution_receipt: {},
   input_version: { kind: 'statistics_compute', setup_revision: 1, output_language: 'zh-CN', source: null, analysis_plan_id: null, workflow_version: 'statistics_compute_v1' } }
+const plotTask = { ...taskFixture, id: 'plot-task', project_id: project.id, status: 'succeeded', display_status: 'succeeded',
+  reason_code: null, error_code: null, result_figure_id: 'plot1' }
 
 function open(hash: string) {
   window.history.replaceState(null, '', `${window.location.pathname}${hash}`)
   return render(<ProjectWorkspace analysisOnly />)
 }
 
-function server() {
-  const state = { status: 'assigned', note: null as string | null, frozen: false, published: false, revoked: false, stale: false }
+function server({ intakeDraft = false } = {}) {
+  const state = { status: 'assigned', note: null as string | null, frozen: false, published: false, revoked: false, stale: false, assignedTotal: 1 }
   const fetcher = vi.fn(async (url: string, init?: RequestInit) => {
-    const path = url.split('?')[0]
+    const [path, query] = url.split('?')
+    const parameters = new URLSearchParams(query)
     const method = init?.method ?? 'GET'
     if (path === '/api/v1/assigned-projects') {
-      return Response.json({ items: state.revoked ? [] : [project], total: state.revoked ? 0 : 1, page: 1, page_size: 5 })
+      return Response.json({ items: state.revoked ? [] : [project], total: state.revoked ? 0 : state.assignedTotal,
+        page: Number(parameters.get('page') ?? 1), page_size: 5 })
     }
     if (path === '/api/v1/projects') return Response.json({ items: [personal], total: 1, page: 1, page_size: 5 })
     if (path === '/api/v1/projects/personal') return Response.json(personal)
@@ -67,7 +71,7 @@ function server() {
       state.status = 'delivered'
       return Response.json({}, { status: 201 })
     }
-    if (path === base + '/research-intake') return Response.json({ project_id: project.id, revision: 2, current_requirement: draft,
+    if (path === base + '/research-intake') return Response.json({ project_id: project.id, revision: 2, current_requirement: intakeDraft ? draft : requirement,
       current_design: null, deliveries: [{ id: 'd1', kind: 'analysis', active: true, origin: 'explicit' }, { id: 'd2', kind: 'sci_draft', active: true }], capabilities: {}, gaps: [] })
     if (path === base + '/requirements/r1') return Response.json(requirement)
     if (path === delivery + '/candidates') return Response.json({ items: [{ selection, label: 'expression.csv', format: 'csv', status: 'existing_upload' }],
@@ -83,7 +87,9 @@ function server() {
     if (path.endsWith('/files')) return Response.json(url.includes('?') ? { items: [file], total: 1, page: 1, page_size: 5 } : [file])
     if (path.endsWith('/files/f1/details')) return Response.json({ ...file, references: {}, source: { kind: 'excel_parse', preview_available: true, preview_row_limit: 20, parser_version: 'excel-v1' } })
     if (path.endsWith('/structure-versions')) return Response.json({ items: [], total: 0, page: 1, page_size: 5, latest_version: 0 })
-    if (path === base + '/tasks') return Response.json({ project_id: project.id, items: [{ task: statisticsTask, source: { ...sourceFixture, analysis_run_id: null } }], total: 1, page: 1, page_size: 10 })
+    if (path === base + '/tasks') return Response.json({ project_id: project.id, total: 1, page: 1, page_size: 10,
+      items: [parameters.get('task_type') === 'boxplot' ? { task: plotTask, source: sourceFixture }
+        : { task: statisticsTask, source: { ...sourceFixture, analysis_run_id: null } }] })
     return Response.json({ items: [], total: 0, page: 1, page_size: 5 })
   })
   vi.stubGlobal('fetch', fetcher)
@@ -93,13 +99,15 @@ function server() {
 afterEach(() => {
   cleanup()
   clearApiSession()
+  vi.restoreAllMocks()
   vi.unstubAllGlobals()
   sessionStorage.clear()
   window.history.replaceState(null, '', window.location.pathname)
 })
 
 it('opens the assigned list from a saved address and applies its project filters', async () => {
-  const { fetcher } = server()
+  const { fetcher, state } = server()
+  state.assignedTotal = 6
   open('#workspace=assigned')
   await screen.findByRole('heading', { name: '分配给我的项目' })
   expect(screen.getByRole('button', { name: '分配给我的项目' }).getAttribute('aria-current')).toBe('page')
@@ -111,11 +119,16 @@ it('opens the assigned list from a saved address and applies its project filters
     return value.pathname === '/api/v1/assigned-projects' && value.searchParams.get('q') === '表达谱'
       && value.searchParams.get('page') === '1' && value.searchParams.get('type') === 'research'
   })).toBe(true))
+  await screen.findByRole('button', { name: '打开项目 客户表达谱' })
+  fireEvent.click(screen.getByRole('button', { name: '下一页' }))
   fireEvent.click(await screen.findByRole('button', { name: '打开项目 客户表达谱' }))
   await screen.findByText('比较病例和对照')
   expect(screen.queryByLabelText('修改研究主题')).toBeNull()
   fireEvent.click(screen.getByRole('button', { name: '返回项目列表' }))
   await screen.findByRole('heading', { name: '分配给我的项目' })
+  expect((screen.getByLabelText('筛选项目类型') as HTMLSelectElement).value).toBe('research')
+  expect((screen.getByLabelText('搜索项目名称') as HTMLInputElement).value).toBe('表达谱')
+  await screen.findByText('共 6 个项目 · 第 2 / 2 页')
   fireEvent.click(screen.getByRole('button', { name: '我的项目' }))
   await screen.findByRole('button', { name: '打开项目 我的历史项目' })
 })
@@ -137,7 +150,7 @@ it('redirects legacy writing addresses before activating their views', async () 
 })
 
 it('reads the selected customer scope and notes from the submitted requirement version', async () => {
-  server()
+  server({ intakeDraft: true })
   open('#project=assigned&section=overview&view=requirements')
   await screen.findByRole('heading', { name: '已提交需求' })
   expect(await screen.findByText('Bulk RNA-seq · 火山图')).toBeTruthy()
@@ -147,17 +160,27 @@ it('reads the selected customer scope and notes from the submitted requirement v
 })
 
 it('writes progress against the assignment and latest submitted requirement', async () => {
-  const { fetcher } = server()
+  const { fetcher, state } = server()
   open('#project=assigned')
-  const panel = within(await screen.findByRole('region', { name: '处理进度' }))
+  let panel = within(await screen.findByRole('region', { name: '处理进度' }))
   await screen.findByText('已补充样本表。')
   fireEvent.change(panel.getByLabelText('更新进度'), { target: { value: 'needs_materials' } })
   fireEvent.change(panel.getByLabelText('给客户的进度说明'), { target: { value: '请补充分组表。' } })
+  const steps = within(screen.getByRole('navigation', { name: '项目操作步骤' }))
+  fireEvent.click(steps.getByRole('button', { name: /第 3 步/ }))
+  await screen.findByRole('heading', { name: '已提交需求' })
+  fireEvent.click(steps.getByRole('button', { name: /第 1 步/ }))
+  panel = within(await screen.findByRole('region', { name: '处理进度' }))
+  expect((panel.getByLabelText('更新进度') as HTMLSelectElement).value).toBe('needs_materials')
+  expect((panel.getByLabelText('给客户的进度说明') as HTMLTextAreaElement).value).toBe('请补充分组表。')
   fireEvent.click(panel.getByRole('button', { name: '保存进度' }))
   expect(await panel.findByText('进度已保存。')).toBeTruthy()
   const write = fetcher.mock.calls.find(([url]) => url === analyst + '/progress')
   expect(write?.[1]?.method).toBe('PATCH')
   expect(JSON.parse(String(write?.[1]?.body))).toEqual({ assignment_revision: 2, requirement_version_id: 'r1', status: 'needs_materials', note: '请补充分组表。' })
+  state.note = '服务器更新的说明。'
+  fireEvent.click(panel.getByRole('button', { name: '刷新进度与反馈' }))
+  await waitFor(() => expect((panel.getByLabelText('给客户的进度说明') as HTMLTextAreaElement).value).toBe(state.note))
 })
 
 it('publishes a frozen analysis snapshot and shows feedback without starting a ZIP task', async () => {
@@ -169,6 +192,11 @@ it('publishes a frozen analysis snapshot and shows feedback without starting a Z
   fireEvent.click(screen.getByRole('button', { name: '核对所选成员与缺口' }))
   fireEvent.click(await screen.findByRole('button', { name: '冻结本次交付快照' }))
   fireEvent.change(await screen.findByLabelText('交付标题'), { target: { value: '第一版表达谱' } })
+  const steps = within(screen.getByRole('navigation', { name: '项目操作步骤' }))
+  fireEvent.click(steps.getByRole('button', { name: /第 1 步/ }))
+  await screen.findByRole('heading', { name: project.name })
+  fireEvent.click(steps.getByRole('button', { name: /第 6 步/ }))
+  expect((await screen.findByLabelText('交付标题') as HTMLInputElement).value).toBe('第一版表达谱')
   fireEvent.click(screen.getByRole('button', { name: '发布给客户' }))
   expect(await screen.findByText('已下载分析结果。')).toBeTruthy()
   const posts = fetcher.mock.calls.filter(([, init]) => init?.method === 'POST')
@@ -216,6 +244,60 @@ it('opens a completed statistics result without asking for the owner project sum
   expect(window.location.hash).toBe('#project=assigned&section=tasks&view=result&task=t1')
   expect(fetcher.mock.calls.some(([url]) => url.startsWith(`${base}/tasks?`) && url.includes('status=succeeded') && url.includes('task_type=statistics_compute'))).toBe(true)
   expect(fetcher.mock.calls.some(([url]) => url.startsWith(`${base}/summary`))).toBe(false)
+})
+
+it('returns a table result to its original filtered list and keeps the result step selected', async () => {
+  server()
+  open('#project=assigned&section=artifacts')
+  fireEvent.change(await screen.findByLabelText('成果类型'), { target: { value: 'boxplot' } })
+  fireEvent.click(await screen.findByRole('button', { name: '查看图表生成成果' }))
+  expect(window.location.hash).toBe('#project=assigned&section=tasks&view=result&task=plot-task')
+  const steps = within(screen.getByRole('navigation', { name: '项目操作步骤' }))
+  expect(steps.getByRole('button', { name: /第 5 步/ }).getAttribute('aria-current')).toBe('step')
+  fireEvent.click(within(screen.getByRole('navigation', { name: '任务详情视图' })).getByRole('button', { name: '概况' }))
+  expect(steps.getByRole('button', { name: /第 5 步/ }).getAttribute('aria-current')).toBe('step')
+  fireEvent.click(screen.getByRole('button', { name: '返回成果列表' }))
+  expect(window.location.hash).toBe('#project=assigned&section=artifacts')
+  expect((await screen.findByLabelText('成果类型') as HTMLSelectElement).value).toBe('boxplot')
+  fireEvent.click(screen.getByRole('button', { name: '项目任务' }))
+  expect(window.location.hash).toBe('#project=assigned&section=tasks')
+})
+
+it('takes the execute step to the analysis entry from a fixed analysis result', async () => {
+  server()
+  open('#project=assigned&section=analysis&view=bio-result&processed=result1&tab=qc')
+  const steps = within(await screen.findByRole('navigation', { name: '项目操作步骤' }))
+  expect(steps.getByRole('button', { name: /第 5 步/ }).getAttribute('aria-current')).toBe('step')
+  fireEvent.click(steps.getByRole('button', { name: /第 4 步/ }))
+  expect(window.location.hash).toBe('#project=assigned&section=analysis')
+  expect(steps.getByRole('button', { name: /第 4 步/ }).getAttribute('aria-current')).toBe('step')
+})
+
+it('guards pending local files when leaving an assigned project by list or history', async () => {
+  server()
+  const confirm = vi.spyOn(window, 'confirm').mockReturnValueOnce(false).mockReturnValueOnce(false).mockReturnValue(true)
+  open('#workspace=assigned')
+  fireEvent.click(await screen.findByRole('button', { name: '打开项目 客户表达谱' }))
+  const steps = within(await screen.findByRole('navigation', { name: '项目操作步骤' }))
+  fireEvent.click(steps.getByRole('button', { name: /第 2 步/ }))
+  const upload = window.location.hash
+  fireEvent.change(await screen.findByLabelText('批量选择 Excel / Word / PDF / 图片 文件'), {
+    target: { files: [new File(['sample'], 'sample.xlsx')] },
+  })
+
+  fireEvent.click(screen.getByRole('button', { name: '返回项目列表' }))
+  expect(confirm).toHaveBeenCalledTimes(1)
+  expect(window.location.hash).toBe(upload)
+  expect(screen.getByText(/sample\.xlsx/)).toBeTruthy()
+
+  await act(async () => window.history.go(-2))
+  await waitFor(() => expect(confirm).toHaveBeenCalledTimes(2))
+  expect(window.location.hash).toBe(upload)
+  expect(screen.getByText(/sample\.xlsx/)).toBeTruthy()
+
+  await act(async () => window.history.go(-2))
+  await screen.findByRole('heading', { name: '分配给我的项目' })
+  expect(window.location.hash).toBe('#workspace=assigned')
 })
 
 it('opens file details and structure versions with lifecycle deletion hidden', async () => {

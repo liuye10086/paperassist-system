@@ -2,6 +2,7 @@ import {useState} from 'react'
 import {useI18n} from '../../shared/i18n'
 import {RESEARCH_REQUEST_TIMEOUT_MS} from '../../shared/api/requestTimeouts'
 import ProjectDownloadLink from '../../shared/components/ProjectDownloadLink'
+import NativeDeliveryArtifact,{type NativeDeliveryTarget} from '../analyst/NativeDeliveryArtifact'
 import type {ProjectFile} from '../files/fileLibraryApi'
 import type {AnalysisNavigation} from '../projects/analysisViews'
 import useResearchDraft from '../research-results/useResearchDraft'
@@ -24,6 +25,7 @@ type Props = {
   projectId:string;comparisons:BulkWorkflowComparison[];descendants:BulkWorkflowDescendant[];files:ProjectFile[]
   outputLanguage?:'zh-CN'|'en';initialId?:string;sensitivity:Record<string,BulkSensitivityRequest>
   onNavigate:(navigation:AnalysisNavigation)=>void
+  deliveryTarget?:NativeDeliveryTarget
 }
 type Draft = {
   attachments:string[];language:'zh'|'en';filters:BulkSelection[];editingFilter:BulkSelectionDraft|null
@@ -55,9 +57,9 @@ export default function BulkDelivery({projectId,comparisons,initialId,onNavigate
   </section>
 }
 
-function SelectedBulkDelivery({projectId,selected,descendants,files,outputLanguage,sensitivity,onNavigate}:{
+function SelectedBulkDelivery({projectId,selected,descendants,files,outputLanguage,sensitivity,onNavigate,deliveryTarget}:{
   projectId:string;selected:BulkWorkflowComparison;sensitivity:BulkSensitivityRequest|null
-}&Pick<Props,'descendants'|'files'|'outputLanguage'|'onNavigate'>) {
+}&Pick<Props,'descendants'|'files'|'outputLanguage'|'onNavigate'|'deliveryTarget'>) {
   const {t,locale}=useI18n()
   const id=selected.refs.result_version_id!
   const [draft,update]=useResearchDraft<Draft>(projectId,`bulk-delivery:${id}`,()=>({
@@ -152,6 +154,7 @@ function SelectedBulkDelivery({projectId,selected,descendants,files,outputLangua
           postBody={exportBody} timeoutMs={RESEARCH_REQUEST_TIMEOUT_MS}>{t('下载 Bulk Word 报告')}</ProjectDownloadLink>
         <ProjectDownloadLink nativePrepared href={`${base}/prepare/archive`} filename={`bulk-rna-reproducibility-${exportBody.facts_digest.slice(0,12)}.zip`}
           postBody={exportBody} timeoutMs={RESEARCH_REQUEST_TIMEOUT_MS}>{t('下载 Bulk 完整复现包')}</ProjectDownloadLink>
+        <NativeDeliveryArtifact {...{projectId,deliveryTarget}} source={{prepareUrl:`${base}/prepare/word`,body:exportBody}} name="Bulk Word"/>
       </div>
     </section>}
   </>

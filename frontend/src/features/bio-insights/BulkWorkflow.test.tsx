@@ -71,7 +71,8 @@ beforeEach(()=>{
         parameter_changes:independent?['minimum_total_counts']:[],counts:{stable_up:1,lost:0},items:[{feature_id:'ENSG0001',symbol:'GENE1',
           baseline_class:'up',scenario_class:'up',change:'stable_up',baseline_q:0.01,scenario_q:0.01,baseline_effect:2,scenario_effect:2}],total:1,page:1,page_size:50})
     }
-    if(path.includes('/delivery/prepare/'))return Response.json({download_url:path.replace('/prepare/','/prepared/')+'/'+hash})
+    if(path.includes('/delivery/prepare/'))return Response.json({download_url:path.replace('/prepare/','/prepared/')+'/'+hash,artifact_id:hash,facts_digest:hash})
+    if(path.endsWith('/analyst-workspace/delivery-artifacts'))return Response.json({file_id:'bulk-doc',filename:'bulk-report.docx',format:'docx',sha256:hash,size_bytes:200},{status:201})
     throw new Error(path)
   })
 })
@@ -87,6 +88,48 @@ function workspace(view:BulkWorkflowView,initialId?:string,onNavigate=vi.fn()) {
 }
 const bodyFor=(suffix:string)=>mockFetch.mock.calls.filter(([url,init])=>String(url).endsWith(suffix)&&init?.method==='POST')
   .map(([,init])=>JSON.parse(String(init?.body)))
+
+it('prepares and adds the reviewed Bulk Word without downloading or publishing it',async()=>{
+  render(<BulkWorkflowWorkspace projectId="p1" navigation={bulkRoute('delivery','de-v2')} active allowNewAnalysis files={files}
+    onNavigate={vi.fn()} onUpload={vi.fn()} deliveryTarget={{assignmentRevision:4}}/>)
+  const preview=await screen.findByRole('button',{name:'预览报告事实'})
+  expect(screen.queryByRole('button',{name:'加入交付候选 · Bulk Word'})).toBeNull()
+  fireEvent.click(preview)
+  const add=await screen.findByRole('button',{name:'加入交付候选 · Bulk Word'})
+  expect(bodyFor('/delivery/prepare/word')).toHaveLength(0)
+  fireEvent.click(add)
+  await screen.findByText('已加入交付候选 · bulk-report.docx')
+  expect(bodyFor('/delivery/prepare/word')).toEqual([expect.objectContaining({comparison_version_id:'de-v2',facts_digest:hash})])
+  expect(bodyFor('/analyst-workspace/delivery-artifacts')).toEqual([{assignment_revision:4,kind:'bulk_word',artifact_id:hash,facts_digest:hash}])
+  expect(bodyFor('/analyst-workspace/publish')).toHaveLength(0)
+  expect(downloadNames).toHaveLength(0)
+})
+
+it('reuses the first Bulk delivery attachment request after an uncertain response',async()=>{
+  const fetch=mockFetch.getMockImplementation()!
+  let attempts=0
+  mockFetch.mockImplementation(async(url,init)=>{
+    if(String(url).endsWith('/analyst-workspace/delivery-artifacts')&&++attempts===1)
+      return Response.json({detail:{code:'internal_error'}},{status:503})
+    return fetch(url,init)
+  })
+  const view=<BulkWorkflowWorkspace projectId="p1" navigation={bulkRoute('delivery','de-v2')} active allowNewAnalysis files={files}
+    onNavigate={vi.fn()} onUpload={vi.fn()} deliveryTarget={{assignmentRevision:4}}/>
+  const mounted=render(view)
+  fireEvent.click(await screen.findByRole('button',{name:'预览报告事实'}))
+  fireEvent.click(await screen.findByRole('button',{name:'加入交付候选 · Bulk Word'}))
+  await screen.findByRole('alert')
+  mounted.unmount()
+  render(view)
+  fireEvent.click(await screen.findByRole('button',{name:'预览报告事实'}))
+  fireEvent.click(await screen.findByRole('button',{name:'加入交付候选 · Bulk Word'}))
+  await screen.findByText('已加入交付候选 · bulk-report.docx')
+  expect(bodyFor('/delivery/prepare/word')).toHaveLength(1)
+  const calls=mockFetch.mock.calls.filter(([url])=>String(url).endsWith('/analyst-workspace/delivery-artifacts'))
+  expect(calls).toHaveLength(2)
+  expect(calls[0][1]?.body).toBe(calls[1][1]?.body)
+  expect(new Headers(calls[0][1]?.headers).get('Idempotency-Key')).toBe(new Headers(calls[1][1]?.headers).get('Idempotency-Key'))
+})
 
 it('links every main view and preserves fixed history alongside live task navigation',async()=>{
   const navigate=vi.fn()

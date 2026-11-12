@@ -453,8 +453,6 @@ class TaskWorkspaceService:
             source = self.source(db, task)
             from app.domain.tasks.local_cancel import can_cancel
             actions = ['cancel'] if can_cancel(task) else allowed_recovery_actions(db, task) if source['is_current'] else []
-            if self.store.assignment is not None:
-                actions = [action for action in actions if action != 'cancel']
             return {'task': self.store.public_task(task), 'source': source, 'wait': get_open_wait(db, task),
                     'allowed_actions': actions,
                     'artifacts': self.artifacts(db, task),

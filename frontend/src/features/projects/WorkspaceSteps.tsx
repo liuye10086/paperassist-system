@@ -1,4 +1,4 @@
-import { useContext } from 'react'
+import { useContext, useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { WorkspaceChromeContext } from '../../shared/components/WorkspaceChromeContext'
 import { useI18n } from '../../shared/i18n'
@@ -15,9 +15,32 @@ type Step = {
 export default function WorkspaceSteps({ steps, current }: { steps: Step[]; current: number }) {
   const { t } = useI18n()
   const chrome = useContext(WorkspaceChromeContext)
-  const navigation = <nav className={`project-steps${chrome ? ' is-compact' : ''}`} aria-label={t('项目操作步骤')}>
+  const scrollArea = useRef<HTMLElement>(null)
+  const currentStep = useRef<HTMLButtonElement>(null)
+  const slot = chrome?.navigation
+  useEffect(() => {
+    const area = scrollArea.current
+    const step = currentStep.current
+    if (!area || !step) return
+    function revealStep() {
+      if (!area || !step || area.scrollWidth <= area.clientWidth) return
+      const visible = area.getBoundingClientRect()
+      const active = step.getBoundingClientRect()
+      if (active.left < visible.left || active.right > visible.right) {
+        area.scrollLeft += active.left + active.width / 2 - visible.left - visible.width / 2
+      }
+    }
+    revealStep()
+    if (typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver(revealStep)
+    observer.observe(area)
+    observer.observe(step)
+    return () => observer.disconnect()
+  }, [current, slot, steps.length])
+
+  const navigation = <nav ref={scrollArea} className={`project-steps${chrome ? ' is-compact' : ''}`} aria-label={t('项目操作步骤')}>
     <ol>{steps.map((step, index) => <li key={step.title}>
-      <button type="button" disabled={!!step.disabledReason} title={t(step.disabledReason || step.description || step.title)}
+      <button ref={current === index ? currentStep : undefined} type="button" disabled={!!step.disabledReason} title={t(step.disabledReason || step.description || step.title)}
         aria-label={t('第 {number} 步：{title}', { number: index + 1, title: t(step.title) })}
         aria-current={current === index ? 'step' : undefined} onClick={step.action}>
         <span className="journey-number" aria-hidden="true">{index + 1}</span>
@@ -28,5 +51,5 @@ export default function WorkspaceSteps({ steps, current }: { steps: Step[]; curr
       </button>
     </li>)}</ol>
   </nav>
-  return chrome ? chrome.navigation && createPortal(navigation, chrome.navigation) : navigation
+  return chrome ? slot && createPortal(navigation, slot) : navigation
 }

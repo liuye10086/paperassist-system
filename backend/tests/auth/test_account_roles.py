@@ -1,4 +1,6 @@
 import asyncio
+from concurrent.futures import ThreadPoolExecutor
+from threading import Event
 import time
 
 import httpx
@@ -198,3 +200,46 @@ def test_role_change_revokes_analyst_request_still_receiving_body():
         denied = asyncio.run(send_after_role_change())
         assert denied.status_code == 401, denied.text
         assert denied.json()['detail']['code'] == 'authentication_required'
+
+
+def test_role_change_fences_an_already_admitted_project_write(monkeypatch):
+    from app.domain.research_intake import service
+
+    analyst = create_user('writing-analyst@roles.test', PASSWORD, role='analyst')
+    create_user('writing-admin@roles.test', PASSWORD, role='admin')
+    admitted, release = Event(), Event()
+    write_version = service.write_version
+
+    def pause_before_transaction(*args, **kwargs):
+        admitted.set()
+        assert release.wait(10)
+        return write_version(*args, **kwargs)
+
+    with TestClient(app) as analyst_client, TestClient(app) as admin_client:
+        analyst_headers = write_headers(login(analyst_client, analyst['email']))
+        admin_headers = write_headers(login(admin_client, 'writing-admin@roles.test'))
+        created = analyst_client.post('/api/v1/projects', headers={**analyst_headers, 'Idempotency-Key': 'role-fence'}, json={
+            'name': 'Role fence project', 'research_topic': 'Isolated test', 'project_type': 'research',
+            'delivery_kinds': ['analysis'],
+        })
+        assert created.status_code == 201, created.text
+        project_id = created.json()['id']
+        monkeypatch.setattr(service, 'write_version', pause_before_transaction)
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            pending = executor.submit(analyst_client.post, f'/api/v1/projects/{project_id}/research-designs',
+                headers={**analyst_headers, 'Idempotency-Key': 'admitted-design'}, json={
+                    'expected_revision': 1, 'operation': 'save',
+                    'content': {'schema_version': 1, 'experiments': [{'id': 'exp1', 'data_type': 'Synthetic data'}]},
+                })
+            try:
+                assert admitted.wait(10)
+                changed = admin_client.patch(f"/api/v1/admin/users/{analyst['id']}", headers=admin_headers,
+                    json={'role': 'customer', 'active': True, 'expected_revision': 1, 'reason': 'Update project role'})
+                assert changed.status_code == 200, changed.text
+            finally:
+                release.set()
+            denied = pending.result(timeout=10)
+        assert denied.status_code == 401, denied.text
+        with database_connection() as db:
+            assert db.execute('SELECT count(*) AS n FROM research_design_versions WHERE project_id=%s',
+                              (project_id,)).fetchone()['n'] == 0

@@ -30,8 +30,9 @@ import useEntryImports from './useEntryImports'
 import './projectUpload.css'
 import './projectAnalysis.css'
 import UploadQuality from './UploadQuality'
+import type { NativeDeliveryTarget } from '../analyst/NativeDeliveryArtifact'
 
-type Props = { assigned?:boolean; allowNewAnalysis?:boolean; savedRequirement?:Version|null; onRequirements?: (panel?:'materials') => void; projectId: string; onSaved: () => void; section: ProjectSection; onSectionChange: (section: ProjectSection) => void; active?: boolean; outputLanguage?:'zh-CN'|'en'; bulkOverviewRevision?:number
+type Props = { assigned?:boolean; assignmentRevision?:number; onDeliveries?:()=>void; allowNewAnalysis?:boolean; savedRequirement?:Version|null; onRequirements?: (panel?:'materials') => void; projectId: string; onSaved: () => void; section: ProjectSection; onSectionChange: (section: ProjectSection) => void; active?: boolean; outputLanguage?:'zh-CN'|'en'; bulkOverviewRevision?:number
   analysisNavigation?: AnalysisNavigation; onAnalysisNavigate?: (next:AnalysisNavigation)=>void; resourceNavigation?: ResourceNavigation; onResourceNavigate?: (next: ResourceNavigation) => void; registerLeaveGuard?: RegisterLeaveGuard }
 
 function ResourceScope({ projectId, onSaved, section, onSectionChange, active = true, ...navigationProps }: Props) {
@@ -43,7 +44,7 @@ function ResourceScope({ projectId, onSaved, section, onSectionChange, active = 
   return <ResourceContent projectId={projectId} onSaved={onSaved} section={section} onSectionChange={onSectionChange} active={active} onUnavailable={denied} {...navigationProps} />
 }
 
-function ResourceContent({ projectId, onSaved, section, onSectionChange, onUnavailable, active, resourceNavigation, onResourceNavigate, registerLeaveGuard, analysisNavigation, onAnalysisNavigate, onRequirements, savedRequirement, allowNewAnalysis=true, outputLanguage, bulkOverviewRevision=0, assigned=false }: Props & { onUnavailable: () => void }) {
+function ResourceContent({ projectId, onSaved, section, onSectionChange, onUnavailable, active, resourceNavigation, onResourceNavigate, registerLeaveGuard, analysisNavigation, onAnalysisNavigate, onRequirements, onDeliveries, assignmentRevision, savedRequirement, allowNewAnalysis=true, outputLanguage, bulkOverviewRevision=0, assigned=false }: Props & { onUnavailable: () => void }) {
   const { t } = useI18n()
   const [localNavigation, setLocalNavigation] = useState<ResourceNavigation>({ view: 'list', fileId: '' })
   const [uploadKind, setUploadKind] = useResearchDraft<'documents'|'bio'>(projectId,'resource-upload-kind',()=> 'documents')
@@ -62,9 +63,14 @@ function ResourceContent({ projectId, onSaved, section, onSectionChange, onUnava
   const bulkHome=analysis.view==='bulk-workflow'
   const intake=useResearchRead<Intake>(`${projectBase(projectId)}/research-intake`,Boolean(active)&&(section==='analysis'||section==='files'))
   const fixed=useResearchRead<Version>(analysis.entry?`${projectBase(projectId)}/requirements/${encodeURIComponent(analysis.entry.requirementVersionId)}`:'',analysisActive&&!!analysis.entry)
-  const current=savedRequirement&&savedRequirement.version>=(intake.data?.current_requirement?.version??0)?savedRequirement:intake.data?.current_requirement??null
-  const requirement=analysis.entry?fixed.data:current
-  const entryAvailable=!analysis.entry||!!fixed.data&&!fixed.error&&analysisScopes(fixed.data).some(s=>s.id===analysis.entry?.scopeItemId)
+  const eligible=(version:Version|null|undefined)=>version&&(!assigned||version.operation==='confirm')&&(!version.project_id||version.project_id===projectId)?version:null
+  const saved=eligible(savedRequirement),read=eligible(intake.data?.current_requirement)
+  const current=saved&&saved.version>=(read?.version??0)?saved:read
+  const fixedVersion=fixed.data?.id===analysis.entry?.requirementVersionId?eligible(fixed.data):null
+  const fixedError=fixed.error||(fixed.data&&!fixedVersion?'固定需求读取失败，请重试。':'')
+  const requirement=analysis.entry?fixedVersion:current
+  const entryAvailable=!analysis.entry||!!fixedVersion&&!fixedError&&analysisScopes(fixedVersion).some(s=>s.id===analysis.entry?.scopeItemId)
+  const deliveryTarget:NativeDeliveryTarget|undefined=assigned&&assignmentRevision!==undefined?{assignmentRevision,onDeliveries}:undefined
   function openFile(id:string){if(onResourceNavigate)onResourceNavigate({view:'detail',fileId:id});else{onSectionChange('files');navigate({view:'detail',fileId:id})}}
   const insightView=isInsightView(analysis.view)
   const bioView=analysis.view.startsWith('bio-')&&!insightView
@@ -81,7 +87,7 @@ function ResourceContent({ projectId, onSaved, section, onSectionChange, onUnava
   }
   const [files, setFiles] = useState<ProjectFile[]>([])
   const imports=useEntryImports(projectId,Boolean(active)&&(section==='files'||section==='analysis')&&files.some(file=>file.parse_status==='stored'),section==='analysis'?analysis.view:navigation.view)
-  const initialFileIds=analysis.entry&&analysis.intent==='bio'&&entryAvailable&&fixed.data?.material_refs?.some(ref=>ref.file_id===analysis.fileId&&ref.availability==='provided')&&files.some(file=>file.id===analysis.fileId&&file.parse_status==='stored')?[analysis.fileId]:undefined
+  const initialFileIds=analysis.entry&&['bio','single_cell_import'].includes(analysis.intent??'')&&entryAvailable&&fixedVersion?.material_refs?.some(ref=>ref.file_id===analysis.fileId&&ref.availability==='provided')&&files.some(file=>file.id===analysis.fileId&&file.parse_status==='stored')?[analysis.fileId]:undefined
   const [attempt, setAttempt] = useState(0)
   const [uploadVersion, setUploadVersion] = useState(0)
   const [loading, setLoading] = useState(true)
@@ -162,14 +168,14 @@ function ResourceContent({ projectId, onSaved, section, onSectionChange, onUnava
       <nav hidden={analysis.view==='overview'||!!analysis.entry} className="analysis-overview-nav" aria-label={t('分析工作区')}>
         <button type="button" onClick={()=>navigateAnalysis({view:'overview',fileId:analysis.fileId,entry:analysis.entry,intent:analysis.intent})}>← {t('返回分析入口')}</button>
       </nav>
-      {analysis.bulkView&&<BulkWorkflowNav view={analysis.bulkView} nested={!bulkHome} onNavigate={navigateAnalysis}/>}
-      <AnalysisEntryContext navigation={analysis} version={fixed.data} current={current} loading={fixed.loading} error={fixed.error} files={files} filesUnknown={loading||!!error||imports.unknown} imports={imports.data??[]} onReload={fixed.refresh} onNavigate={navigateAnalysis} onFile={openFile}/>
+      {analysis.bulkView&&entryAvailable&&<BulkWorkflowNav view={analysis.bulkView} nested={!bulkHome} onNavigate={navigateAnalysis}/>}
+      <AnalysisEntryContext navigation={analysis} version={fixedVersion} current={current} loading={fixed.loading} error={fixedError} files={files} filesUnknown={loading||!!error||imports.unknown} imports={imports.data??[]} onReload={fixed.refresh} onNavigate={navigateAnalysis} onFile={openFile}/>
       <div className="analysis-module-body" hidden={bioView}>
-      {analysis.bulkView&&<BulkWorkflowWorkspace key={bulkOverviewRevision} {...{projectId,allowNewAnalysis,files,outputLanguage}}
+      {analysis.bulkView&&entryAvailable&&<BulkWorkflowWorkspace key={bulkOverviewRevision} {...{projectId,allowNewAnalysis,files,outputLanguage,deliveryTarget}}
         navigation={analysis} active={analysisActive&&bulkHome} onNavigate={navigateAnalysis} onUpload={openBulkUpload}/>}
-      <BioInsightsWorkspace allowExternalEvidenceRegistration={!assigned} allowNewAnalysis={allowNewAnalysis} projectId={projectId} navigation={analysis} onNavigate={navigateAnalysis} active={analysisActive&&insightView&&entryAvailable} registerLeaveGuard={registerLeaveGuard}/>
+      <BioInsightsWorkspace allowExternalEvidenceRegistration={!assigned} allowNewAnalysis={allowNewAnalysis} deliveryTarget={deliveryTarget} projectId={projectId} navigation={analysis} onNavigate={navigateAnalysis} active={analysisActive&&insightView&&entryAvailable} registerLeaveGuard={registerLeaveGuard}/>
       <div className="analysis-overview-body" hidden={analysis.view!=='overview'}>
-        <AnalysisGuide assigned={assigned} projectId={projectId} onUpload={openUpload} version={requirement} scopeId={analysis.entry?.scopeItemId} loading={analysis.entry?fixed.loading:intake.loading&&!current} error={analysis.entry?fixed.error:intake.error} onRefresh={analysis.entry?fixed.refresh:intake.refresh} files={files} filesLoading={loading} filesError={error} onReloadFiles={refreshMaterials} imports={imports.data??[]} importsUnknown={imports.unknown} importsError={imports.error} onFile={openFile} onNavigate={navigateAnalysis} onRequirements={onRequirements}/>
+        <AnalysisGuide assigned={assigned} projectId={projectId} onUpload={openUpload} version={requirement} scopeId={analysis.entry?.scopeItemId} loading={analysis.entry?fixed.loading:intake.loading&&!current} error={analysis.entry?fixedError:intake.error} onRefresh={analysis.entry?fixed.refresh:intake.refresh} files={files} filesLoading={loading} filesError={error} onReloadFiles={refreshMaterials} imports={imports.data??[]} importsUnknown={imports.unknown} importsError={imports.error} onFile={openFile} onNavigate={navigateAnalysis} onRequirements={onRequirements} onDeliveries={onDeliveries}/>
       </div>
       {!assigned&&<div hidden={analysis.view!=='research-request'}>{requirementsVisited&&<ProjectRequirements projectId={projectId} files={files.filter((file):file is ProjectFile & {parse_status:'queued'|'parsing'|'parsed'|'failed'}=>file.parse_status!=='stored')} registerLeaveGuard={registerLeaveGuard}/>}</div>}
       <div hidden={!entryAvailable||analysis.view==='overview'||analysis.view==='research-request'||bioView||insightView||researchView||bulkHome}>
@@ -180,7 +186,7 @@ function ResourceContent({ projectId, onSaved, section, onSectionChange, onUnava
     </div>
     <div className={section==='files'?'resource-bio-body':'analysis-bio-body'} hidden={!sharedBioActive}>
       {qualityBioActive && navigation.bio?.view!=='bio-datasets' && <div className="resource-subview-actions"><button type="button" onClick={()=>navigateBio({view:'bio-datasets',fileId:''})}>{t('返回数据集与记录')}</button></div>}
-      <BioImports allowCloud={!assigned} allowNewAnalysis={allowNewAnalysis} projectId={projectId} navigation={sharedBioActive?desiredBio:retainedBio} onNavigate={navigateBio} active={sharedBioActive} sectioned qualityMode={section==='files'} initialFileIds={qualityBioActive?undefined:initialFileIds} entryKey={qualityBioActive?undefined:analysis.entry?`${analysis.entry.requirementVersionId}:${analysis.entry.scopeItemId}`:undefined} registerLeaveGuard={registerLeaveGuard}/>
+      <BioImports allowCloud={!assigned} allowNewAnalysis={allowNewAnalysis} deliveryTarget={sharedBioActive?deliveryTarget:undefined} projectId={projectId} navigation={sharedBioActive?desiredBio:retainedBio} onNavigate={navigateBio} active={sharedBioActive} sectioned qualityMode={section==='files'} initialFileIds={qualityBioActive?undefined:initialFileIds} entryKey={qualityBioActive?undefined:analysis.entry?`${analysis.entry.requirementVersionId}:${analysis.entry.scopeItemId}`:undefined} registerLeaveGuard={registerLeaveGuard}/>
     </div>
   </div>
 }

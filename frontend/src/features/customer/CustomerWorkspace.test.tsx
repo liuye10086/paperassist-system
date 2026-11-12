@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { clearApiSession, setApiSession } from '../../shared/api/client'
 import CustomerFeedback from './CustomerFeedback'
@@ -21,6 +21,7 @@ beforeEach(() => { setApiSession('csrf', 'customer-test'); sessionStorage.clear(
 afterEach(() => {
   cleanup()
   clearApiSession()
+  vi.restoreAllMocks()
   vi.unstubAllGlobals()
   window.history.replaceState(null, '', window.location.pathname)
 })
@@ -74,6 +75,7 @@ it('creates a customer project, opens five steps, and sends feedback on a publis
   fireEvent.click(within(stepper).getByRole('button', { name: /查看交付/ }))
   fireEvent.click(await screen.findByRole('button', { name: '查看交付 已发布演示成果' }))
   expect((await screen.findByRole('link', { name: '下载 heatmap.png' })).getAttribute('href')).toBe(memberUrl)
+  expect(document.activeElement).toBe(screen.getByRole('heading', { name: delivery.title }))
   fireEvent.change(screen.getByRole('textbox', { name: '反馈内容' }), { target: { value: '热图配色清晰。' } })
   fireEvent.click(screen.getByRole('button', { name: '发送反馈' }))
   await screen.findByText('反馈已发送。')
@@ -81,6 +83,36 @@ it('creates a customer project, opens five steps, and sends feedback on a publis
   const [, sent] = fetch.mock.calls.find(([url]) => url === customer + '/feedback')!
   expect(JSON.parse(String(sent?.body))).toEqual({ message: '热图配色清晰。', snapshot_id: delivery.id })
   expect(new Headers(sent?.headers).get('Idempotency-Key')).toBeTruthy()
+  fireEvent.click(screen.getByRole('button', { name: '返回交付列表' }))
+  expect(document.activeElement).toBe(await screen.findByRole('button', { name: '查看交付 已发布演示成果' }))
+})
+
+it('preserves Back and Forward after a cancelled departure from an upload', async () => {
+  vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+    if (url === base) return Response.json(project)
+    const items = url.startsWith('/api/v1/projects?') ? [project] : []
+    return Response.json({ items, total: items.length, page: 1, page_size: 5 })
+  }))
+  const confirm = vi.spyOn(window, 'confirm').mockReturnValueOnce(false).mockReturnValue(true)
+  render(<CustomerWorkspace />)
+  fireEvent.click(await screen.findByRole('button', { name: '打开项目 ' + project.name }))
+  const details = window.location.hash
+  fireEvent.click(await screen.findByRole('button', { name: '下一步 上传资料' }))
+  const upload = window.location.hash
+  const input = await screen.findByLabelText('批量选择 Excel / Word / PDF / 图片 文件')
+  fireEvent.change(input, { target: { files: [new File(['sample'], 'sample.xlsx')] } })
+
+  await act(async () => window.history.back())
+  await waitFor(() => expect(confirm).toHaveBeenCalledTimes(1))
+  await waitFor(() => expect(window.location.hash).toBe(upload))
+  expect(screen.getByText(/sample\.xlsx/)).toBeTruthy()
+
+  await act(async () => window.history.back())
+  await waitFor(() => expect(window.location.hash).toBe(details))
+  await screen.findByRole('button', { name: '下一步 上传资料' })
+  await act(async () => window.history.forward())
+  await waitFor(() => expect(window.location.hash).toBe(upload))
+  await screen.findByLabelText('批量选择 Excel / Word / PDF / 图片 文件')
 })
 
 it('keeps a foreign project address outside the customer steps and delivery API', async () => {

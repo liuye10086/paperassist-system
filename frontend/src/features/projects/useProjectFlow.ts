@@ -4,6 +4,7 @@ import { useResearchRead } from '../research-results/api'
 import type { Project } from './projectTypes'
 import type { ProjectSection } from './WorkspaceShell'
 import type { OverviewView } from './projectNavigation'
+import type { AnalysisNavigation } from './analysisViews'
 
 export type WorkflowState = {
   project_id: string
@@ -21,6 +22,10 @@ export function projectFlowStep(section: ProjectSection, view: OverviewView, ana
   if (section === 'artifacts') return 4
   if (section === 'manuscripts') return analysis ? 4 : 3
   return analysis ? 5 : 3
+}
+
+export function isAnalysisResultView(view: AnalysisNavigation['view'] | undefined) {
+  return ['bio-result', 'bio-insight-result', 'bio-insight-runs', 'report'].includes(view ?? '')
 }
 
 export function flowBlockReason(step: number, state: { hasFiles: boolean; requirementSaved: boolean; reached: number; existingResults: boolean }) {

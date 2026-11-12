@@ -122,7 +122,7 @@ function bulkCandidateIssues(config:Config) {
   return issues
 }
 
-export const insightViews=['bio-insights','bio-insight-plan','bio-insight-result','bio-resources','bio-candidates'] as const
+export const insightViews=['bio-insights','bio-insight-plan','bio-insight-runs','bio-insight-result','bio-resources','bio-candidates'] as const
 export const isInsightView=(view:string)=>(insightViews as readonly string[]).includes(view)
 
 export const qOptions={q_within_contrast:'每比较 BH q',q_global_family:'冻结比较族 BH q',original_q:'外部原始 q',system_recomputed_q:'系统另算 q'}

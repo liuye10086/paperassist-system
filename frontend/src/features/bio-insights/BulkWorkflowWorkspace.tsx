@@ -1,4 +1,5 @@
 import {apiError,useI18n} from '../../shared/i18n'
+import type {NativeDeliveryTarget} from '../analyst/NativeDeliveryArtifact'
 import {bulkWorkflowViews, type AnalysisNavigation, type BulkWorkflowView} from '../projects/analysisViews'
 import type {ProjectFile} from '../files/fileLibraryApi'
 import useResearchDraft from '../research-results/useResearchDraft'
@@ -23,6 +24,7 @@ type Props = {
   outputLanguage?:'zh-CN'|'en'
   onNavigate:(navigation:AnalysisNavigation)=>void
   onUpload:()=>void
+  deliveryTarget?:NativeDeliveryTarget
 }
 
 export function BulkWorkflowNav({view,nested,onNavigate}:{
@@ -36,7 +38,7 @@ export function BulkWorkflowNav({view,nested,onNavigate}:{
   </nav>
 }
 
-export default function BulkWorkflowWorkspace({projectId,navigation,active,allowNewAnalysis,files,outputLanguage,onNavigate,onUpload}:Props) {
+export default function BulkWorkflowWorkspace({projectId,navigation,active,allowNewAnalysis,files,outputLanguage,onNavigate,onUpload,deliveryTarget}:Props) {
   const {t}=useI18n()
   const [reviewed,setReviewed]=useResearchDraft<BulkSensitivityRequest|{byComparison:Record<string,BulkSensitivityRequest>}|null>(
     projectId,'bulk-workflow-reviewed-sensitivity',()=>null)
@@ -80,7 +82,7 @@ export default function BulkWorkflowWorkspace({projectId,navigation,active,allow
     </div>
     {view==='differential'&&data&&<BulkSensitivity key={navigation.resultVersionId??'default'} projectId={projectId} comparisons={comparisons}
       initialId={navigation.resultVersionId} onReviewed={value=>setReviewed({byComparison:{...sensitivity,[value.baseline_version_id]:value}})}/>}
-    {view==='delivery'&&data&&<BulkDelivery {...{projectId,comparisons,files,outputLanguage,onNavigate,sensitivity}}
+    {view==='delivery'&&data&&<BulkDelivery {...{projectId,comparisons,files,outputLanguage,onNavigate,sensitivity,deliveryTarget}}
       descendants={data.descendants} initialId={navigation.resultVersionId}/>}
   </section>
 }

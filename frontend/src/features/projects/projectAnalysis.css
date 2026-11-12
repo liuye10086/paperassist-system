@@ -18,6 +18,14 @@
 .analysis-request-row { display: grid; gap: 12px; padding: 18px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg); min-width: 0; overflow-wrap: anywhere; }
 .analysis-request-row p { margin: 0; }
 .analysis-request-row label { display: grid; gap: 8px; min-width: 0; }
+.analysis-assay-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 290px), 1fr)); gap: 14px; }
+.analysis-assay-card { align-content: start; gap: 14px; padding: 18px; border-top: 3px solid var(--accent); background: var(--surface); }
+.analysis-assay-card h4 { font-size: 17px; }
+.analysis-assay-card > .intake-actions { margin: 0; }
+.analysis-assay-choices { display: grid; gap: 0; margin: 0; padding: 0; list-style: none; }
+.analysis-assay-choices > li { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 6px 12px; padding: 10px 0; border-top: 1px solid var(--border); }
+.analysis-assay-choices > li > span { flex: 1 1 120px; min-width: 0; color: var(--text); font-size: 13px; }
+.analysis-assay-choices > li > button { min-height: 38px; padding-inline: 10px; }
 .analysis-preparation-status { color: var(--text); font-size: 12px; }
 .analysis-entry-sources { display: grid; gap: 10px; margin: 0; padding-left: 18px; min-width: 0; overflow-wrap: anywhere; }
 .analysis-entry-sources li > small { display: block; color: var(--text); margin-top: 4px; }
@@ -85,7 +93,7 @@
 .analysis-bio-body { padding: 20px 24px; }
 .analysis-overview-body, .analysis-guide { height: 100%; min-height: 0; }
 .analysis-guide { display: flex; flex-direction: column; }
-.analysis-page-tabs { display: flex; align-items: center; flex-wrap: wrap; gap: 16px; padding: 0 24px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
+.analysis-page-tabs { display: flex; align-items: center; flex-wrap: wrap; gap: 16px; padding: 0 24px; border-bottom: 1px solid var(--border); flex-shrink: 0; background: var(--social-bg); }
 .analysis-page-tabs button { border: 0; border-bottom: 3px solid transparent; border-radius: 0; background: transparent; padding: 12px 2px; }
 .analysis-page-tabs button[aria-pressed='true'] { border-bottom-color: var(--accent); color: var(--accent); font-weight: 600; }
 .analysis-workspace .analysis-overview-heading { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; padding: 16px 24px; margin: 0; flex-shrink: 0; }

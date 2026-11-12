@@ -23,3 +23,6 @@
 .analyst-project-info { margin: 0; padding: 16px 0; display: grid; gap: 12px; }
 .analyst-project-info dt { font-weight: 600; }
 .analyst-project-info dd { margin: 4px 0 0; overflow-wrap: anywhere; }
+.native-delivery-action { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-block: 10px; }
+.native-delivery-action [role='status'] { color: var(--accent-hover); overflow-wrap: anywhere; }
+.native-delivery-action [role='alert'] { flex-basis: 100%; color: #903f37; }

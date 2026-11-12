@@ -1,6 +1,7 @@
 import {useState} from 'react'
 import {useI18n} from '../../shared/i18n'
 import type {AnalysisNavigation} from '../projects/analysisViews'
+import NativeDeliveryArtifact,{type NativeDeliveryTarget} from '../analyst/NativeDeliveryArtifact'
 import type {Source as ResearchSource} from '../research-results/contracts'
 import {projectBase} from './api'
 import {bulkComparisonLabel, bulkFigureLabels, bulkPanels, bulkPanelTab, bulkQColumns, isBulkEnrichmentResult, isBulkFigureType, isBulkPanel, isBulkProcessedFigure, isReviewedBulkComparison, validBulkSelection, type BulkPlanSeed, type BulkSelection} from './bulk'
@@ -16,7 +17,7 @@ import SingleCellTopicSummary from './SingleCellTopicSummary'
 import {displayRaw} from './state'
 import {bulkRoute} from './bulkWorkflow'
 
-export default function InsightResults({projectId,resultId,active,onResearch,onNavigate,onBulkPlan,allowNewAnalysis,resultRead}: {
+export default function InsightResults({projectId,resultId,active,onResearch,onNavigate,onBulkPlan,allowNewAnalysis,resultRead,deliveryTarget}: {
  projectId:string
  resultId:string
  active:boolean
@@ -25,6 +26,7 @@ export default function InsightResults({projectId,resultId,active,onResearch,onN
  onBulkPlan?:(seed:BulkPlanSeed)=>void
  allowNewAnalysis?:boolean
  resultRead?:ReturnType<typeof useInsightRead<Result>>
+ deliveryTarget?:NativeDeliveryTarget
 }) {
  const {t} = useI18n()
  const fallback = useInsightRead<Result>(`${projectBase(projectId)}/bio-insight-results/${encodeURIComponent(resultId)}`,active&&!resultRead,true)
@@ -59,7 +61,11 @@ export default function InsightResults({projectId,resultId,active,onResearch,onN
     onCurve={bulkEnrichment&&data.kind==='gsea_prerank'&&allowNewAnalysis!==false&&onBulkPlan&&data.members.some(member=>member.key==='gsea_curves')
      ?(key,contrast)=>onBulkPlan(bulkEnrichmentFigureSeed(data,contrast||bulkEnrichmentResultContrast(data),{termRowKey:key}))
      :undefined}/>}
-   {data.members.filter(member=>member.format==='png').map(member=><button type="button" key={member.id} onClick={()=>onResearch({source_kind:'bio_insight_result_member',source_id:member.id,sha256:member.sha256,locator:{kind:'image'}})}>{t('引用固定图成员')} · {member.key}</button>)}
+   {data.members.filter(member=>member.format==='png').map(member=><div className="intake-actions" key={member.id}>
+    <button type="button" onClick={()=>onResearch({source_kind:'bio_insight_result_member',source_id:member.id,sha256:member.sha256,locator:{kind:'image'}})}>{t('引用固定图成员')} · {member.key}</button>
+    {data.id===resultId&&data.task.status==='succeeded'&&<NativeDeliveryArtifact {...{projectId,deliveryTarget}}
+     source={{kind:'bio_insight_png',version_id:data.id,member_id:member.id}} name={member.key}/>}
+   </div>)}
    <Members projectId={projectId} members={data.members}/>
   </>}
  </section>

@@ -8,6 +8,8 @@ from app.adapters.bio_analysis_store import scoped_object
 from app.domain.source_byte_verification import VerificationPhase
 from app.domain.research_results.sources import ResearchSourceReader
 from app.domain.bioinformatics.contracts import digest
+from .contracts import MAX_DELIVERY_BYTES
+from .native_artifacts import artifact_provenance
 
 
 _NOTICE_KEYS=frozenset(('limitations','warnings','gaps','conflicts','quality','license','restrictions','distribution','redistribution','scope','caption','panel_order','panel_labels','text_verification','font_verification','semantic_verification','language_review','blind','checks','verification_status','strength','review_decision','observation_level'))
@@ -77,6 +79,7 @@ def resolve_members(service,db,project,delivery,selections,mode,progress=None,*,
         for selection in selections:
             if progress:progress()
             value=selection.model_dump(mode='json',exclude_none=True);kind=selection.kind;proof={};review='identified';language=None;presentation=None;format=None
+            native_name = None
             frozen=frozen_by_id.get(digest(value)[:24])
             if frozen_members is not None and frozen is None:raise invalid()
             frozen_proof=frozen['source_metadata'] if frozen is not None else None
@@ -153,6 +156,14 @@ def resolve_members(service,db,project,delivery,selections,mode,progress=None,*,
                 row=db.execute('SELECT * FROM files WHERE project_id=%s AND id=%s',(project,selection.file_id)).fetchone()
                 if not row:raise invalid('research_source_not_found',404)
                 row=dict(row);raw=service.assets.original(row);source_files.add(row['id']);format=Path(row['filename']).suffix.lstrip('.').lower() or 'bin';filename=row['filename'];directory='materials';proof=dict(distribution='user_selected_existing_upload',license='no_new_license_granted',source_notices=[])
+                native = artifact_provenance(db, project, row)
+                if native is not None:
+                    source_files.update(native['source_file_ids'])
+                    proof.update(distribution='user_selected_analysis_artifact', analysis_artifact=native,
+                                 source_notices=inherited_notices(native))
+                    language = native['language']
+                    directory = 'reports' if format == 'docx' else 'figures'
+                    native_name = Path(filename).stem
                 from app.domain.external_evidence.service import validate_evidence_row
                 if frozen_proof is None:
                     evidence_rows=list(db.execute('SELECT * FROM external_evidence_versions WHERE file_id=%s AND project_id=%s AND user_id=%s ORDER BY version,id',(row['id'],project,service.store.user_id)))
@@ -172,12 +183,12 @@ def resolve_members(service,db,project,delivery,selections,mode,progress=None,*,
             if mode=='blind' and (kind not in ('manuscript_export','pdf_export') or review!='blind'):raise invalid()
             if mode=='complete' and review=='blind':raise invalid()
             actual=sha256(raw).hexdigest();total+=len(raw)
-            if total>256*1024*1024:raise invalid('research_export_limit_exceeded',422)
+            if total>MAX_DELIVERY_BYTES:raise invalid('research_export_limit_exceeded',422)
             token=(kind,selection.member_id or selection.export_id or selection.file_id)
             if token in seen:raise invalid()
             seen.add(token);identifier=digest(value)[:24]
             # Generated safe names prevent internal filenames/owner identities leaking into blind exports.
-            name=directory+'/'+identifier+'.'+format
+            name=directory+'/'+(native_name+'-' if native_name else '')+identifier+'.'+format
             properties=image_properties(raw,format) if format in ('png','tiff','jpg','jpeg','svg','pdf') else {}
             if properties:
                 properties['dpi_declared']=proof.get('dpi_declared')

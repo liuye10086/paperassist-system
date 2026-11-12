@@ -1,9 +1,9 @@
-import { cleanup, render, screen, within } from '@testing-library/react'
+import { act, cleanup, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, expect, test, vi } from 'vitest'
 import { useState } from 'react'
 import WorkspaceShell, { type ProjectSection } from './WorkspaceShell'
-afterEach(cleanup)
+afterEach(() => { cleanup(); vi.unstubAllGlobals() })
 function Harness({ type = 'sci' }: {type?: 'sci' | 'thesis'}) {
  const [section,setSection]=useState<ProjectSection>('overview')
  return <WorkspaceShell view="project" onNavigate={vi.fn()} onCreate={vi.fn()} projectName="测试研究" projectType={type} section={section} onSectionChange={setSection} onCurrentProject={vi.fn()}><p>body</p></WorkspaceShell>
@@ -21,4 +21,18 @@ test('groups enter first task and expose every applicable task',async()=>{
 test('thesis writing and mobile Escape keep navigation usable',async()=>{
  const user=userEvent.setup();render(<Harness type="thesis"/>);const nav=within(screen.getByRole('navigation',{name:'项目导航'}));await user.click(nav.getByRole('button',{name:'稿件写作'}));expect(nav.getByRole('button',{name:'毕业论文写作'})).toBeTruthy();expect(nav.getByRole('button',{name:'学校模板'})).toBeTruthy()
  const menu=screen.getByRole('button',{name:'导航'});await user.click(menu);expect(menu.getAttribute('aria-expanded')).toBe('true');await user.keyboard('{Escape}');expect(menu.getAttribute('aria-expanded')).toBe('false');expect(document.activeElement).toBe(menu)
+})
+
+test('leaving the mobile breakpoint closes the navigation dialog', async () => {
+ const breakpoint = new EventTarget()
+ vi.stubGlobal('matchMedia', () => breakpoint)
+ const user = userEvent.setup()
+ render(<Harness />)
+ const menu = screen.getByRole('button', { name: '导航' })
+ await user.click(menu)
+ expect(screen.getByRole('dialog', { name: '主要导航' })).toBeTruthy()
+ const resize = Object.assign(new Event('change'), { matches: true })
+ act(() => { breakpoint.dispatchEvent(resize) })
+ expect(screen.queryByRole('dialog', { name: '主要导航' })).toBeNull()
+ expect(menu.getAttribute('aria-expanded')).toBe('false')
 })

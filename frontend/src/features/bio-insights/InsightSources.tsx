@@ -7,8 +7,8 @@ import {Field,Paging,ReadState} from './InsightShared'
 const roles={external_evidence:'类型化外部证据',support_design:'独立验证设计原件',overlap_audit:'供体重叠核查原件',sample_mapping:'样本对应资源',object_mapping:'对象对应资源',feature_input:'实际提取输入（FASTA／结构）',processed:'处理数据',observation_map:'观测对应表',annotation:'区域／细胞人工注释',design:'研究设计',result:'分析结果',gene_sets:'基因集合',id_mapping:'ID 映射',feature_annotation:'序列／结构注释',source:'外部表文件',background:'显式背景'}
 const resourceRoles = {gene_sets:'基因集合',id_mapping:'ID 映射'}
 
-export default function InsightSources({projectId,value,onChange,active=true,bulkResources=false}:{
- projectId:string;value:Source[];onChange:(s:Source[])=>void;active?:boolean;bulkResources?:boolean
+export default function InsightSources({projectId,value,onChange,active=true,bulkResources=false,processedAssay}:{
+ projectId:string;value:Source[];onChange:(s:Source[])=>void;active?:boolean;bulkResources?:boolean;processedAssay?:string
 }) {
  const {t} = useI18n()
  const [kind,setKind] = useState<SourceKind>(bulkResources?'bio_resource_version':'bio_processed_dataset_version')
@@ -17,7 +17,8 @@ export default function InsightSources({projectId,value,onChange,active=true,bul
  const [id,setId] = useState('')
  const list = useInsightRead<Page<SourceItem>>(`${insightBase(projectId)}/sources?source_kind=${kind}&page=${page}&page_size=20`,active)
  const items = list.data?.items??[]
- const eligible = bulkResources?items.filter(item=>item.kind===role&&!!item.sha256):items
+ const eligible = bulkResources?items.filter(item=>item.kind===role&&!!item.sha256):
+  processedAssay&&kind==='bio_processed_dataset_version'?items.filter(item=>item.assay===processedAssay):items
  const picked = eligible.find(item=>item.source_id===id)
  const title = (item:SourceItem) => bulkResources
   ?[item.title,item.release,item.version===undefined?undefined:`v${item.version}`].filter(Boolean).join(' · ')

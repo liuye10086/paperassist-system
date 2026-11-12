@@ -25,6 +25,7 @@ const steps = [
 ] as const
 type Step = typeof steps[number][0]
 type Route = { projectId: string; step: Step } | null
+const navigationIndexKey = 'paperassistCustomerNavigationIndex'
 
 function readRoute(): Route {
   const params = new URLSearchParams(window.location.hash.slice(1))
@@ -42,6 +43,8 @@ export default function CustomerWorkspace() {
   const { t } = useI18n()
   const [route, setRoute] = useState(readRoute)
   const currentRoute = useRef(route)
+  const navigationIndex = useRef(0)
+  const restoringEntry = useRef(false)
   const [unavailable, setUnavailable] = useState('')
   const [creating, setCreating] = useState(false)
   const [query, setQuery] = useState<ProjectListQuery>({ page: 1, q: '', type: '' })
@@ -70,20 +73,39 @@ export default function CustomerWorkspace() {
   function navigate(next: Route, confirmed = false) {
     if (address(next) === address(currentRoute.current) || (!confirmed && !canLeave())) return
     currentRoute.current = next
-    window.history.pushState(window.history.state, '', window.location.pathname + window.location.search + address(next))
+    navigationIndex.current += 1
+    window.history.pushState({ ...window.history.state, [navigationIndexKey]: navigationIndex.current }, '',
+      window.location.pathname + window.location.search + address(next))
     setRoute(next)
   }
 
   useEffect(() => {
+    const savedIndex = window.history.state?.[navigationIndexKey]
+    navigationIndex.current = Number.isInteger(savedIndex) ? savedIndex : 0
+    window.history.replaceState({ ...window.history.state, [navigationIndexKey]: navigationIndex.current }, '')
     const restore = () => {
-      const next = readRoute()
-      if (address(next) === address(currentRoute.current)) return
-      if (canLeave()) {
-        currentRoute.current = next
-        setRoute(next)
-      } else {
-        window.history.replaceState(window.history.state, '', window.location.pathname + window.location.search + address(currentRoute.current))
+      let nextIndex = window.history.state?.[navigationIndexKey]
+      if (restoringEntry.current) {
+        if (nextIndex === navigationIndex.current) restoringEntry.current = false
+        return
       }
+      const next = readRoute()
+      if (address(next) === address(currentRoute.current)) {
+        if (Number.isInteger(nextIndex)) navigationIndex.current = nextIndex
+        return
+      }
+      if (!Number.isInteger(nextIndex) || nextIndex === navigationIndex.current) {
+        nextIndex = navigationIndex.current + 1
+        window.history.replaceState({ ...window.history.state, [navigationIndexKey]: nextIndex }, '')
+      }
+      if (!canLeave()) {
+        restoringEntry.current = true
+        window.history.go(navigationIndex.current - nextIndex)
+        return
+      }
+      navigationIndex.current = nextIndex
+      currentRoute.current = next
+      setRoute(next)
     }
     const warn = (event: BeforeUnloadEvent) => {
       if ([...guards.current.values()].some(isDirty => isDirty())) {

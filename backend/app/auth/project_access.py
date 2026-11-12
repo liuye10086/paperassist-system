@@ -89,7 +89,8 @@ PROJECT_OPERATIONS = frozenset((method, PROJECT_PATH + path) for method, paths i
         SNAPSHOT, SNAPSHOT + '/package', SNAPSHOT + '/download', SNAPSHOT + '/members/{member_id}/download',
     ),
     'POST': (
-        '/analyst-workspace/publish', '/files', '/file-batches', '/file-batches/{batch_id}/items/{item_id}',
+        '/analyst-workspace/publish', '/analyst-workspace/delivery-artifacts',
+        '/files', '/file-batches', '/file-batches/{batch_id}/items/{item_id}',
         '/bio-upload-batches', '/bio-upload-batches/{batch_id}/items/{item_id}',
         '/research-designs', '/design-table-preview', '/design-table-previews',
         FILE + '/document-versions', FILE + '/document-versions/ocr', FILE + '/ocr-reviews',
@@ -111,7 +112,7 @@ PROJECT_OPERATIONS = frozenset((method, PROJECT_PATH + path) for method, paths i
         '/bio-insight-runs', '/bio-resources/preview', '/bio-resources', '/bio-resources/{root_id}/versions',
         '/bulk-workflow/sensitivity', '/bulk-workflow/delivery/preview', '/bulk-workflow/delivery/report.docx',
         '/bulk-workflow/delivery/reproducibility-package', '/bulk-workflow/delivery/prepare/{kind}',
-        '/research-results/preview', '/research-findings', '/research-findings/{set_id}/versions',
+        '/research-results/preview', '/research-results/source-changes', '/research-findings', '/research-findings/{set_id}/versions',
         '/research-figures', '/research-figures/{root_id}/versions', '/research-reports', '/research-reports/{root_id}/versions',
         '/report-collections', '/report-collections/{collection_id}/versions',
         '/report-collections/{collection_id}/versions/{version_id}/exports',
@@ -128,7 +129,7 @@ TASK_OPERATIONS = frozenset((method, TASK + path) for method, paths in {
         '/dataset-preparation/impacts/download', '/dataset-preparation/preview/download',
     ),
     'POST': (
-        '/retry', '/resume', '/analysis-plan/decisions', '/analysis-plan/continuations', '/analysis-plan/source-decisions',
+        '/retry', '/resume', '/cancel', '/analysis-plan/decisions', '/analysis-plan/continuations', '/analysis-plan/source-decisions',
         '/ocr-review/decision', '/dataset-preparation/decision',
     ),
 }.items() for path in paths)

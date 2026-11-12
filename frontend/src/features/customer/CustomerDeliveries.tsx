@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useLayoutEffect, useRef, useState } from 'react'
 import ProjectDownloadLink from '../../shared/components/ProjectDownloadLink'
 import { useI18n } from '../../shared/i18n'
 import type { LeaveGuard, RegisterLeaveGuard } from '../projects/useDraftLeaveGuard'
@@ -13,13 +13,22 @@ export default function CustomerDeliveries({ projectId, registerLeaveGuard }: {
 }) {
   const { t, locale } = useI18n()
   const [selected, setSelected] = useState<string | null>(null)
+  const returnDelivery = useRef<string | null>(null)
+  const returnButton = useRef<HTMLButtonElement | null>(null)
+  const listHeading = useRef<HTMLHeadingElement | null>(null)
   const read = useResearchRead<{ items: DeliverySummary[] }>(customerBase(projectId) + '/deliveries', selected === null)
+  useLayoutEffect(() => {
+    if (!selected && returnDelivery.current) {
+      (returnButton.current ?? listHeading.current)?.focus()
+      returnDelivery.current = null
+    }
+  }, [selected])
   if (selected) return <ReleasedDelivery key={selected} projectId={projectId} snapshotId={selected}
     onBack={() => setSelected(null)} registerLeaveGuard={registerLeaveGuard} />
 
   return <div className="customer-section">
     <div className="customer-section-heading">
-      <h2>{t('已发布交付')}</h2>
+      <h2 ref={listHeading} tabIndex={-1}>{t('已发布交付')}</h2>
       <button type="button" className="button-quiet" disabled={read.loading} onClick={read.refresh}>{t('刷新交付')}</button>
     </div>
     {read.error && <p role="alert" className="error-panel">{t(read.error)}</p>}
@@ -33,7 +42,8 @@ export default function CustomerDeliveries({ projectId, registerLeaveGuard }: {
             <time dateTime={delivery.published_at}>{new Date(delivery.published_at).toLocaleString(locale)}</time>
           </p></div>
           <button type="button" className="button-quiet" aria-label={t('查看交付 {title}', { title: delivery.title })}
-            onClick={() => setSelected(delivery.id)}>{t('查看详情')}</button>
+            ref={button => { if (returnDelivery.current === delivery.id) returnButton.current = button }}
+            onClick={() => { returnDelivery.current = delivery.id; setSelected(delivery.id) }}>{t('查看详情')}</button>
         </li>)}
       </ul>)}
   </div>
@@ -50,6 +60,12 @@ function ReleasedDelivery({ projectId, snapshotId, onBack, registerLeaveGuard }:
   const read = useResearchRead<DeliveryDetail>(base, true)
   const delivery = read.data
   const [previewId, setPreviewId] = useState<string | null>(null)
+  const heading = useRef<HTMLHeadingElement | null>(null)
+  const backButton = useRef<HTMLButtonElement | null>(null)
+  useLayoutEffect(() => { backButton.current?.focus() }, [])
+  useLayoutEffect(() => {
+    if (document.activeElement === backButton.current) heading.current?.focus()
+  }, [delivery?.id, read.error])
   const feedbackGuard = useRef<LeaveGuard | null>(null)
   const registerFeedback = useCallback<RegisterLeaveGuard>((guard, isDirty) => {
     feedbackGuard.current = guard
@@ -58,7 +74,7 @@ function ReleasedDelivery({ projectId, snapshotId, onBack, registerLeaveGuard }:
   }, [registerLeaveGuard])
 
   return <div className="customer-section">
-    <button type="button" className="button-quiet" onClick={() => {
+    <button ref={backButton} type="button" className="button-quiet" onClick={() => {
       if (feedbackGuard.current?.(true) !== false) onBack()
     }}>{t('返回交付列表')}</button>
     {read.error && <div role="alert" className="error-panel">{t(read.error)}{' '}
@@ -67,7 +83,7 @@ function ReleasedDelivery({ projectId, snapshotId, onBack, registerLeaveGuard }:
     {!delivery && !read.error && <p role="status">{t('正在读取交付详情……')}</p>}
     {delivery && !read.error && <>
       <div className="customer-section-heading customer-delivery-heading">
-        <div><h2>{delivery.title}</h2><p className="muted">
+        <div><h2 ref={heading} tabIndex={-1}>{delivery.title}</h2><p className="muted">
           {t('版本 {version} · 发布于 {date}', { version: delivery.revision, date: new Date(delivery.published_at).toLocaleString(locale) })}
         </p></div>
         {delivery.package_url === base + '/download' && <ProjectDownloadLink href={delivery.package_url}

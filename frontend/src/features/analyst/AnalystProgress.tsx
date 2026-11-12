@@ -1,5 +1,6 @@
-import { useState } from 'react'
+import { useEffect } from 'react'
 import { useI18n } from '../../shared/i18n'
+import useResearchDraft from '../research-results/useResearchDraft'
 import { analystStatuses, type AnalystFeedback, type AnalystPublication, type AnalystWorkspace, type ProgressStatus } from './useAnalystWorkspace'
 import './analystWorkspace.css'
 
@@ -32,25 +33,32 @@ export function AnalystWorkspaceStatus({ workspace }: { workspace: AnalystWorksp
   </>
 }
 
-function ProgressForm({ workspace }: { workspace: AnalystWorkspace }) {
+type ProgressDraft = { status: ProgressStatus; note: string }
+
+function ProgressForm({ projectId, requirementId, workspace }: { projectId: string; requirementId: string; workspace: AnalystWorkspace }) {
   const { t } = useI18n()
   const value = workspace.value!
-  const [status, setStatus] = useState<ProgressStatus>(value.status === 'needs_materials' ? 'needs_materials' : 'analyzing')
-  const [note, setNote] = useState(value.note ?? '')
+  const [draft, setDraft] = useResearchDraft<ProgressDraft | null>(projectId, `analyst-progress:${value.assignment_revision}:${requirementId}`, () => null)
+  const synchronized = draft && draft.status === value.status && draft.note.trim() === (value.note ?? '')
+  useEffect(() => {
+    if (synchronized) setDraft(null)
+  }, [setDraft, synchronized])
+  const status = draft?.status ?? (value.status === 'needs_materials' ? 'needs_materials' : 'analyzing')
+  const note = draft?.note ?? value.note ?? ''
   return <form className="analyst-form" onSubmit={event => {
     event.preventDefault()
-    if (!workspace.busy && value.requirement) workspace.saveProgress(value.requirement.id, status, note)
+    if (!workspace.busy) workspace.saveProgress(requirementId, status, note)
   }}>
-    <label>{t('更新进度')}<select value={status} disabled={workspace.busy} onChange={event => setStatus(event.target.value as ProgressStatus)}>
+    <label>{t('更新进度')}<select value={status} disabled={workspace.busy} onChange={event => setDraft({ status: event.target.value as ProgressStatus, note })}>
       <option value="analyzing">{t(analystStatuses.analyzing)}</option>
       <option value="needs_materials">{t(analystStatuses.needs_materials)}</option>
     </select></label>
-    <label>{t('给客户的进度说明')}<textarea value={note} maxLength={4000} rows={3} disabled={workspace.busy} onChange={event => setNote(event.target.value)}/></label>
+    <label>{t('给客户的进度说明')}<textarea value={note} maxLength={4000} rows={3} disabled={workspace.busy} onChange={event => setDraft({ status, note: event.target.value })}/></label>
     <button type="submit" className="button-primary" disabled={workspace.busy}>{t('保存进度')}</button>
   </form>
 }
 
-export default function AnalystProgress({ workspace }: { workspace: AnalystWorkspace }) {
+export default function AnalystProgress({ projectId, workspace }: { projectId: string; workspace: AnalystWorkspace }) {
   const { t } = useI18n()
   const value = workspace.value
   return <>
@@ -59,7 +67,8 @@ export default function AnalystProgress({ workspace }: { workspace: AnalystWorks
       {value && <>
         <p><strong>{t(analystStatuses[value.status])}</strong>{value.requirement && <> · {t('需求版本 {version}', { version: value.requirement.version })}</>}</p>
         {value.note && <p className="analyst-note">{value.note}</p>}
-        {value.requirement && value.status !== 'delivered' && <ProgressForm key={value.requirement.id} workspace={workspace}/>}
+        {value.requirement && value.status !== 'delivered' && <ProgressForm key={value.requirement.id}
+          projectId={projectId} requirementId={value.requirement.id} workspace={workspace}/>}
       </>}
     </section>
     {value && <>

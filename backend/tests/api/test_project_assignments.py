@@ -130,6 +130,12 @@ def test_delegate_scope_checks_nested_files_tasks_and_actor():
     file_path = project + f'/files/{file_id}'
     assert analyst.get(file_path + '/download').content == content
     assert outsider.get(file_path + '/download').status_code == 404
+    compare_source = {'sources': [{'source_kind': 'original_file', 'source_id': file_id}]}
+    changes = analyst.post(project + '/research-results/source-changes', json=compare_source)
+    assert changes.status_code == 200, changes.text
+    assert changes.json()['items'][0]['fixed_source_unchanged']
+    assert owner.post(project + '/research-results/source-changes', json=compare_source).status_code == 403
+    assert outsider.post(project + '/research-results/source-changes', json=compare_source).status_code == 404
     saved = analyst.put(file_path + '/analysis-setup', json=selection(
         expected_revision=0, sheet_name='研究数据', numeric_column='B', group_column=None,
     ))

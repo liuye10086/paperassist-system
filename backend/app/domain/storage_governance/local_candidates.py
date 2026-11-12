@@ -18,7 +18,7 @@ def encode(value):
     return raw
 
 
-def lookup(db, root, project_id, operation, *, kind, task_id=None):
+def lookup(db, root, project_id, operation, *, kind, task_id=None, include_released=False):
     if s.reconcile_intents(db, root):
         raise s.invalid()
     row = db.execute('SELECT * FROM storage_reservations WHERE namespace=%s AND project_id=%s AND operation_key=%s',
@@ -27,9 +27,33 @@ def lookup(db, root, project_id, operation, *, kind, task_id=None):
         return None
     row = dict(row)
     if (row['owner_id'] != s._project(db, project_id)['owner_id'] or row['kind'] != kind
-            or row['task_id'] != task_id or row['capacity_bytes'] is None or row['state'] == 'released'):
+            or row['task_id'] != task_id or row['capacity_bytes'] is None
+            or (row['state'] == 'released' and not include_released)):
         raise s.invalid()
     return row
+
+
+def release_empty(db, root, row):
+    """Release only an unpublished local hold whose exact paths are absent."""
+    metadata = row['candidate_json']
+    if row['state'] not in s.ACTIVE or metadata.get('descriptor_complete'):
+        return False
+    keys = {row['object_key'], f"storage-candidates/{row['id']}.json", *metadata.get('locations', ())}
+    if metadata.get('descriptor'):
+        keys.add(metadata['descriptor']['object_key'])
+    for key in keys | {f".storage-intents/{row['id']}.complete.json"}:
+        try:
+            c._path(root, key).lstat()
+        except FileNotFoundError:
+            continue
+        except OSError as exc:
+            raise s.invalid() from exc
+        return False
+    if db.execute('SELECT 1 FROM storage_objects WHERE namespace=%s AND object_key=ANY(%s)',
+                  (s.NAMESPACE, list(keys))).fetchone():
+        return False
+    s.release(db, row['id'])
+    return True
 
 
 def read(root, row, source_identity):

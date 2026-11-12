@@ -15,7 +15,7 @@ from app.core.config import get_excel_settings, local_config
 from app.api.excel import router as excel_router
 from app.api.upload_limit import UploadLimitMiddleware
 from app.auth.middleware import AuthMiddleware
-from app.auth.permissions import require_customer_permission
+from app.auth.permissions import bind_write_session, require_customer_permission
 from app.auth.project_access import bind_project_assignment
 from app.auth.routes import router as auth_router
 from app.auth.config import settings as auth_settings
@@ -73,7 +73,7 @@ async def lifespan(app):
 
 
 app = FastAPI(title="PaperAssist System", lifespan=lifespan,
-              dependencies=[Depends(require_customer_permission), Depends(bind_project_assignment)])
+              dependencies=[Depends(require_customer_permission), Depends(bind_write_session), Depends(bind_project_assignment)])
 app.add_middleware(UploadLimitMiddleware)
 app.add_middleware(AuthMiddleware)
 app.add_middleware(RequestIdMiddleware)

@@ -8,7 +8,7 @@ import BioImports from './BioImports'
 import {capabilitiesFixture,processedFixture,runFixture,setupFixture} from './spatialFixtures'
 vi.mock('../../shared/api/client',()=>({apiFetch:vi.fn(),getApiUserId:()=> 'owner1',onApiSessionChanged:()=>()=>{}}))
 vi.mock('../../shared/components/ProjectDownloadLink',()=>({default:({children}:{children:import('react').ReactNode})=><span>{children}</span>}))
-afterEach(()=>{cleanup();vi.clearAllMocks()})
+afterEach(()=>{cleanup();vi.clearAllMocks();sessionStorage.clear()})
 it('shows saved single-cell model coverage and offers only an emitted correction layer',async()=>{
  const result={...processedFixture,tables:[],manifest:{assay:'single_cell',layers:{counts:{},decontx_counts:{}},summary:{single_cell_algorithms:{
   doublet:{status:'completed',computed_cells:100,predicted_doublets:5,excluded_cells:0,completed_libraries:2,libraries:2},
@@ -44,6 +44,30 @@ it('opens QC results from upload without showing downstream analysis actions',as
  expect(screen.queryByRole('button',{name:'差异与功能分析'})).toBeNull()
  expect(screen.queryByRole('button',{name:'整理研究发现与报告'})).toBeNull()
  expect(screen.getByRole('button',{name:'QC 与过滤'})).toBeTruthy()
+})
+it('opens the submitted single-cell import with its own matrix flow and draft',async()=>{
+ sessionStorage.setItem('paperassist.research-draft.v1:owner1:p1:bio-import:analysis:workflow',JSON.stringify('v1'))
+ vi.mocked(apiFetch).mockImplementation(async url=>Response.json(String(url).endsWith('/files')?[]:{items:[],total:0}))
+ render(<BioImports projectId="p1" active sectioned qualityMode={false} allowCloud={false}
+  navigation={{view:'bio-datasets',fileId:'',intent:'single_cell_import',entry:{requirementVersionId:'submitted',scopeItemId:'customer.type.single_cell'}}}
+  onNavigate={vi.fn()}/>)
+ expect(await screen.findByRole('heading',{name:'导入并核对单细胞矩阵'})).toBeTruthy()
+ expect(screen.getByRole('button',{name:'导入与检查'}).getAttribute('aria-pressed')).toBe('true')
+ expect(screen.getByLabelText('单细胞矩阵格式')).toBeTruthy()
+ expect(screen.queryByLabelText('导入核对流程')).toBeNull()
+ expect(vi.mocked(apiFetch).mock.calls.every(([,init])=>!init?.method)).toBe(true)
+})
+it('opens an existing single-cell UMAP through the scoped processing history',async()=>{
+ const rawSource={...runFixture.raw_source,parser_version:'single_cell_import_v1'}
+ const completed={...runFixture,raw_source:rawSource,task:{...runFixture.task,status:'succeeded'},result_source:processedFixture.source}
+ vi.mocked(apiFetch).mockImplementation(async url=>Response.json(String(url).endsWith('/files')?[]:{
+  items:String(url).includes('/bio-analysis-runs?')?[completed,{...completed,id:'visium',raw_source:runFixture.raw_source}]:[],total:2,
+ }))
+ const navigate=vi.fn(),entry={requirementVersionId:'submitted',scopeItemId:'customer.figure.single_cell.umap'}
+ render(<BioImports projectId="p1" active sectioned qualityMode={false} navigation={{view:'bio-datasets',fileId:'',intent:'single_cell_results',entry}} onNavigate={navigate}/>)
+ fireEvent.click(await screen.findByRole('button',{name:'打开固定处理结果'}))
+ expect(screen.queryByRole('button',{name:'查看空间分析运行与 QC 确认'})).toBeNull()
+ expect(navigate).toHaveBeenCalledWith({view:'bio-result',fileId:'',entry,intent:'single_cell_results',processedId:processedFixture.id,tab:'embedding'})
 })
 it('shows immutable source and blocks computation when capability is unavailable',async()=>{vi.mocked(apiFetch).mockImplementation(async url=>Response.json(String(url).includes('capabilities')?{...capabilitiesFixture,available:false,blockers:['environment_unavailable']}:setupFixture));render(<BioAnalysisSetup projectId="p1" setupId="setup1" onNavigate={()=>{}}/>);fireEvent.click(await screen.findByRole('button',{name:'能力与来源'}));await screen.findByText('environment_unavailable');expect((screen.getByText('开始分析') as HTMLButtonElement).disabled).toBe(true);expect(screen.getByText(capabilitiesFixture.raw_source.parser_version)).toBeTruthy();expect(document.querySelector('details, summary')).toBeNull()})
 it('preserves modified recipe inputs on a revision conflict',async()=>{vi.mocked(apiFetch).mockImplementation(async(url,init)=>init?.method==='POST'?Response.json({detail:{code:'conflict'}},{status:409}):Response.json(String(url).includes('capabilities')?capabilitiesFixture:setupFixture));render(<BioAnalysisSetup projectId="p1" setupId="setup1" onNavigate={()=>{}}/>);const input=await screen.findByLabelText('最低 counts');fireEvent.change(input,{target:{value:'12'}});fireEvent.click(screen.getByText('保存新配方版本'));await screen.findByText('版本已更新；草稿已保留，请重新读取最新版本后核对。');expect((input as HTMLInputElement).value).toBe('12');const call=vi.mocked(apiFetch).mock.calls.find(c=>c[1]?.method==='POST');expect(JSON.parse(String(call?.[1]?.body))).toMatchObject({expected_revision:1,raw_source:capabilitiesFixture.raw_source,params:{min_counts:12}})})

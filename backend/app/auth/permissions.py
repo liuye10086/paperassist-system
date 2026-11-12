@@ -1,14 +1,58 @@
+from contextvars import ContextVar
+from dataclasses import dataclass
+from time import time
+
 from fastapi import Request
 from starlette.concurrency import run_in_threadpool
 
+from app.auth.config import settings
 from app.auth.middleware import COOKIE_NAME
-from app.auth.service import resolve_session
+from app.auth.revocations import session_expiry_reason
+from app.auth.service import digest, resolve_session
 from app.core.exceptions import StorageError
 
 
 READ_METHODS = frozenset({'GET', 'HEAD', 'OPTIONS'})
 PROJECT_PATH = '/api/v1/projects/{project_id}'
 CUSTOMER_WORKSPACE_PATH = PROJECT_PATH + '/customer-workspace'
+
+
+@dataclass(frozen=True)
+class WriteSession:
+    user_id: str
+    role: str
+    token_hash: str
+
+
+_write_session = ContextVar[WriteSession | None]('request_write_session', default=None)
+
+
+def current_write_session() -> WriteSession | None:
+    return _write_session.get()
+
+
+def require_write_session(db, session: WriteSession) -> None:
+    row = db.execute('''SELECT u.role,u.active,u.review_status,s.last_seen_at,s.expires_at
+        FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=%s AND u.id=%s''',
+        (session.token_hash, session.user_id)).fetchone()
+    if (row is None or row['role'] != session.role or row['review_status'] != 'approved'
+            or session_expiry_reason(row, time(), settings().idle_seconds)):
+        raise StorageError('authentication_required', '请登录后继续。', 401)
+
+
+async def bind_write_session(request: Request):
+    user = getattr(request.state, 'user', None)
+    session = None
+    if user is not None and request.method not in READ_METHODS:
+        token = request.cookies.get(COOKIE_NAME)
+        if token is None:
+            raise StorageError('authentication_required', '请登录后继续。', 401)
+        session = WriteSession(user['id'], user['role'], digest(token))
+    marker = _write_session.set(session)
+    try:
+        yield
+    finally:
+        _write_session.reset(marker)
 
 # Match the registered route and method so new internal read and write routes
 # stay closed to customers by default.

@@ -142,8 +142,14 @@ class DeliveryService(ResearchResultsStore):
                         continue
                     task=self.store.require_task(db,row['task_id']);binding=task['input_snapshot'].get('presentation',{}).get('binding',{})
                     items.append(dict(selection=dict(kind='manuscript_export',version_id=row['version_id'],manuscript_id=row['manuscript_id'],export_id=row['id']),label=(row['metadata_json'] or {}).get('filename') or row['id'],format='docx',status='succeeded',language=binding.get('language_view',row['snapshot_json']['output_language']),review_mode=binding.get('review_mode','identified'),presentation_id=binding.get('presentation_version_id')))
-            for row in db.execute('SELECT * FROM files WHERE project_id=%s ORDER BY uploaded_at DESC,id',(project,)):
-                items.append(dict(selection=dict(kind='file',file_id=row['id']),label=row['filename'],format=row['filename'].rsplit('.',1)[-1].lower(),status='existing_upload',blind_eligible=False))
+            for row in db.execute('''SELECT f.*, a.file_id IS NOT NULL AS native_artifact FROM files f
+                LEFT JOIN delivery_artifact_sources a ON a.file_id=f.id AND a.project_id=f.project_id
+                WHERE f.project_id=%s ORDER BY f.uploaded_at DESC,f.id''', (project,)):
+                item = dict(selection=dict(kind='file',file_id=row['id']),label=row['filename'],
+                            format=row['filename'].rsplit('.',1)[-1].lower(),status='existing_upload',blind_eligible=False)
+                if row['native_artifact']:
+                    item.update(status='succeeded', sha256=row['sha256'])
+                items.append(item)
             if assigned:
                 latest = latest_confirmed_requirement(db, project)
                 requirements = [dict(id=latest['id'], version=latest['version'], sha256=latest['sha256'])] if latest else []

@@ -11,13 +11,13 @@ import { useDocumentVisible } from './useDocumentVisible'
 import './task.css'
 
 const resultKinds: TaskType[] = ['statistics_compute', 'boxplot', 'figure_workbench', 'figure_explanation', 'explanation', 'word_report', 'collection_word_report']
-type Props = { assigned?: boolean; resultsOnly?: boolean; detailView?: TaskDetailView; onDetailViewChange?: (view: TaskDetailView) => void; registerLeaveGuard?: RegisterLeaveGuard; projectId: string; active: boolean; selectedTaskId: string; onSelectTask: (id: string) => void; onOpenFiles?: () => void; onOpenManuscripts?:()=>void; onOpenJournals?:()=>void; onOpenLiterature?: (searchId:string)=>void }
+type Props = { assigned?: boolean; resultsOnly?: boolean; detailView?: TaskDetailView; onDetailViewChange?: (view: TaskDetailView) => void; registerLeaveGuard?: RegisterLeaveGuard; projectId: string; active: boolean; selectedTaskId: string; onSelectTask: (id: string) => void; onBackToResults?: () => void; onOpenFiles?: () => void; onOpenManuscripts?:()=>void; onOpenJournals?:()=>void; onOpenLiterature?: (searchId:string)=>void }
 export default function ProjectTasks(props: Props) {
   const [visited, setVisited] = useState(props.active)
   if (props.active && !visited) setVisited(true)
   return visited || props.active ? <Tasks key={props.projectId} {...props} /> : null
 }
-function Tasks({ projectId, active, selectedTaskId, onSelectTask, onOpenFiles, onOpenLiterature, onOpenManuscripts, onOpenJournals, detailView, onDetailViewChange, registerLeaveGuard, resultsOnly = false, assigned = false }: Props) {
+function Tasks({ projectId, active, selectedTaskId, onSelectTask, onBackToResults, onOpenFiles, onOpenLiterature, onOpenManuscripts, onOpenJournals, detailView, onDetailViewChange, registerLeaveGuard, resultsOnly = false, assigned = false }: Props) {
   const { t, locale } = useI18n()
   const visible = useDocumentVisible()
   const layered = detailView !== undefined && onDetailViewChange !== undefined
@@ -96,7 +96,8 @@ function Tasks({ projectId, active, selectedTaskId, onSelectTask, onOpenFiles, o
         </nav></>}
     </div>}
     </div>
-    {layered && selectedTaskId && <div className="task-detail-back"><button type="button" className="button-quiet" onClick={() => onSelectTask('')}>{t('返回任务列表')}</button></div>}
+    {layered && selectedTaskId && <div className="task-detail-back"><button type="button" className="button-quiet"
+      onClick={onBackToResults ?? (() => onSelectTask(''))}>{t(onBackToResults ? '返回成果列表' : '返回任务列表')}</button></div>}
     {sessionValid && detailIds.map(id => <div key={id} hidden={!active || id !== selectedTaskId}>
       <TaskDetail allowUsage={!assigned} onOpenJournals={onOpenJournals} onOpenManuscripts={onOpenManuscripts} projectId={projectId} taskId={id}
         active={active && id === selectedTaskId} view={layered ? detailView : undefined} onViewChange={onDetailViewChange} registerLeaveGuard={registerLeaveGuard}

@@ -45,6 +45,9 @@ function mountedBioNavigation(route: NavigationRoute) {
     if (route.section === 'analysis' && ['bio-datasets','bio-import','bio-dataset','bio-analysis-setup','bio-analysis','bio-result','bio-annotation','bio-figure'].includes(route.analysisNavigation.view)) return route.analysisNavigation;
     return undefined;
 }
+function leavesAssignedProject(previous: NavigationRoute, next: NavigationRoute, assignedProjectId: string) {
+    return !!assignedProjectId && previous.projectId === assignedProjectId && next.workspaceView !== 'project';
+}
 export default function useProjectSelection(onUnavailable: (id: string) => void, onAvailable: (id: string) => void, onNavigate?: () => void, navigationGate?: (next: NavigationRoute) => boolean, analysisOnly = false) {
     const assignedProject = useRef('');
     const normalize = (route: NavigationRoute) => analysisOnly ? analystNavigation(route, route.projectId === assignedProject.current)
@@ -74,6 +77,7 @@ export default function useProjectSelection(onUnavailable: (id: string) => void,
     function allowed(next: NavigationRoute) {
         const previous=routeRef.current;
         if (next.workspaceView === 'project' && next.projectId === current.current?.id && navigationGate && !navigationGate(next)) return false;
+        if (leavesAssignedProject(previous, next, assignedProject.current)) return [...guards.current].every(guard => guard());
         const nextBio=mountedBioNavigation(next);
         const replacesBio=nextBio && retainedBio.current.projectId===next.projectId && retainedBio.current.navigation && JSON.stringify(nextBio)!==JSON.stringify(retainedBio.current.navigation);
         const changesAnalysis=previous.section==='analysis'&&serializeNavigation(previous)!==serializeNavigation(next);
@@ -218,7 +222,8 @@ export default function useProjectSelection(onUnavailable: (id: string) => void,
                 window.history.replaceState({ ...window.history.state, paperassistNavigationIndex: nextIndex }, '');
             }
             const delta = nextIndex - index.current;
-            if (!replay.current && next.projectId && current.current && next.projectId !== current.current.id && guards.current.size) {
+            const replacesProject = next.projectId && current.current && next.projectId !== current.current.id;
+            if (!replay.current && guards.current.size && (replacesProject || leavesAssignedProject(routeRef.current, next, assignedProject.current))) {
                 restore.current = { delta, route: next };
                 window.history.go(-delta);
                 return;
@@ -276,7 +281,7 @@ export default function useProjectSelection(onUnavailable: (id: string) => void,
                     throw new Error(apiError(result, '项目详情读取失败，请稍后重试。'));
                 if (!isProject(result) || result.id !== instance!.id)
                     throw new Error('项目详情格式不正确，请重试。');
-                assignedProject.current = result.assignment_revision === undefined ? '' : result.id;
+                assignedProject.current = analysisOnly && result.assignment_revision !== undefined ? result.id : '';
                 const normalized = normalize(routeRef.current);
                 if (normalized !== routeRef.current) { write(normalized, true); apply(normalized); }
                 setDetail({ instance: instance!, project: result });
@@ -304,7 +309,7 @@ export default function useProjectSelection(onUnavailable: (id: string) => void,
             controller.abort();
             window.clearTimeout(timeout);
         };
-    }, [instance, attempt]);
+    }, [instance, attempt, analysisOnly]);
     function refresh() {
         cancel();
         setFailure(null);

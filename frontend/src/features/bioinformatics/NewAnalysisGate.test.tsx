@@ -28,6 +28,55 @@ it('passes the current workflow gate through resources and imports while keeping
  expect(posts()).toHaveLength(0)
 })
 
+it('adds the exact fixed single-cell Word and PNG to delivery only after explicit actions',async()=>{
+ const png={id:'umap1',key:'umap_png',role:'figure_png',format:'png',filename:'umap.png',sha256:'c'.repeat(64),size_bytes:20,download_url:'/api/v1/projects/p1/bio-processed-datasets/processed1/members/umap1/download'}
+ vi.mocked(apiFetch).mockImplementation(async(url,init)=>{
+  if(init?.method==='POST'){
+   const input=JSON.parse(String(init.body))
+   const image=input.kind==='single_cell_png'
+   return Response.json({file_id:image?'png-file':'word-file',filename:image?'umap.png':'single-cell.docx',format:image?'png':'docx',size_bytes:20,sha256:'c'.repeat(64)},{status:201})
+  }
+  return String(url).endsWith('/bio-processed-datasets/processed1')?Response.json({...result,members:[png]}):reads(url)
+ })
+ const deliveries=vi.fn()
+ render(<ProjectResources assigned assignmentRevision={2} onDeliveries={deliveries} projectId="p1" section="analysis" analysisNavigation={{view:'bio-result',fileId:'',processedId:result.id,tab:'embedding'}} onSaved={()=>{}} onSectionChange={()=>{}}/>)
+ const word=await screen.findByRole('button',{name:'加入交付候选 · Word'})
+ expect(posts()).toHaveLength(0)
+ fireEvent.click(word)
+ await screen.findByText('已加入交付候选 · single-cell.docx')
+ fireEvent.click(screen.getByRole('button',{name:'加入交付候选 · umap.png'}))
+ await screen.findByText('已加入交付候选 · umap.png')
+ expect(posts().map(([url,init])=>[String(url),JSON.parse(String(init?.body))])).toEqual([
+  ['/api/v1/projects/p1/analyst-workspace/delivery-artifacts',{assignment_revision:2,kind:'single_cell_word',version_id:result.id}],
+  ['/api/v1/projects/p1/analyst-workspace/delivery-artifacts',{assignment_revision:2,kind:'single_cell_png',version_id:result.id,member_id:'umap1'}],
+ ])
+ expect(new Headers(posts()[0][1]?.headers).get('Idempotency-Key')).toBeTruthy()
+ expect(deliveries).not.toHaveBeenCalled()
+ fireEvent.click(screen.getAllByRole('button',{name:'打开分析交付'})[0])
+ expect(deliveries).toHaveBeenCalledOnce()
+})
+
+it.each([
+ {available:false,clusters:2,message:'当前环境未验证 Slingshot，可继续查看已有结果。'},
+ {available:true,clusters:1,message:'拟时分析需要至少两个固定聚类和可用的 PCA。'},
+ {available:true,clusters:2,message:null},
+])('checks the fixed data and runtime before offering pseudotime ($available/$clusters)',async({available,clusters,message})=>{
+ const pca={id:'pca1',key:'pca',format:'tsv',sha256:'c'.repeat(64),size_bytes:20,download_url:'/pca'}
+ const fixed={...result,manifest:{...result.manifest,summary:{clusters,retained_observations:10}},members:[pca]}
+ vi.mocked(apiFetch).mockImplementation(async url=>String(url).endsWith('/bio-insights/capabilities')
+  ?Response.json({single_cell_topic_runtimes:{slingshot:{available}}}):Response.json(fixed))
+ const navigate=vi.fn(),entry={requirementVersionId:'req1',scopeItemId:'customer.analysis.single_cell.pseudotime'}
+ render(<BioAnalysisResult projectId="p1" processedId={result.id} tab="embedding" entry={entry} onNavigate={navigate}/>)
+ if(message){
+  await screen.findByText(message)
+  expect(screen.queryByRole('button',{name:'配置 Slingshot 拟时分析'})).toBeNull()
+ }else{
+  fireEvent.click(await screen.findByRole('button',{name:'配置 Slingshot 拟时分析'}))
+  expect(navigate).toHaveBeenCalledWith({view:'bio-insights',fileId:'',processedId:result.id,intent:'single_cell_topic'})
+ }
+ expect(posts()).toHaveLength(0)
+})
+
 it('blocks a new direct run at both its button and submit handler after the gate changes',async()=>{
  vi.mocked(apiFetch).mockImplementation(async url=>reads(url))
  const props={projectId:'p1',source,onNavigate:vi.fn()}

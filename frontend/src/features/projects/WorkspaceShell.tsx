@@ -68,24 +68,32 @@ export function WorkspaceFrame({ className, homeLabel = '返回工作台', onHom
     if (!menuOpen) return
     const previous = document.activeElement as HTMLElement | null
     const panel = sidebar.current
+    const desktop = window.matchMedia?.('(min-width: 761px)')
+    const closeOnDesktop = (event: MediaQueryListEvent) => { if (event.matches) setMenuOpen(false) }
     panel?.querySelector<HTMLButtonElement>('.workspace-brand')?.focus()
     const handleKey = (event: KeyboardEvent) => {
       if (event.key === 'Escape') { event.preventDefault(); setMenuOpen(false); menuButton.current?.focus() }
       if (event.key === 'Tab') {
-        const buttons = Array.from(panel?.querySelectorAll<HTMLButtonElement>('button') ?? []).filter(button => button.getClientRects().length > 0)
+        const buttons = Array.from(panel?.querySelectorAll<HTMLButtonElement>('button:not(:disabled)') ?? []).filter(button => button.getClientRects().length > 0)
         const first = buttons[0], last = buttons[buttons.length - 1]
-        if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus() }
-        else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus() }
+        const outside = !panel?.contains(document.activeElement)
+        if (event.shiftKey && (outside || document.activeElement === first)) { event.preventDefault(); last?.focus() }
+        else if (!event.shiftKey && (outside || document.activeElement === last)) { event.preventDefault(); first?.focus() }
       }
     }
+    desktop?.addEventListener('change', closeOnDesktop)
     document.addEventListener('keydown', handleKey)
-    return () => { document.removeEventListener('keydown', handleKey); if (panel?.contains(document.activeElement)) previous?.focus() }
+    return () => {
+      desktop?.removeEventListener('change', closeOnDesktop)
+      document.removeEventListener('keydown', handleKey)
+      if (!desktop?.matches && panel?.contains(document.activeElement)) previous?.focus()
+    }
   }, [menuOpen])
   const closeMenu = () => setMenuOpen(false)
   return <div className={['workbench-shell', className, collapsed && 'is-collapsed'].filter(Boolean).join(' ')}>
     <button ref={menuButton} type="button" className="workspace-mobile-menu button-quiet" aria-expanded={menuOpen} aria-controls={sidebarId}
       onClick={() => setMenuOpen(value => !value)}><WorkspaceIcon name="menu" />{t('导航')}</button>
-    {menuOpen && <button className="workspace-nav-backdrop" aria-label={t('关闭导航')} onClick={() => { closeMenu(); menuButton.current?.focus() }} />}
+    {menuOpen && <button type="button" tabIndex={-1} className="workspace-nav-backdrop" aria-label={t('关闭导航')} onClick={() => { closeMenu(); menuButton.current?.focus() }} />}
     <aside ref={sidebar} role={menuOpen ? 'dialog' : undefined} aria-modal={menuOpen ? true : undefined} aria-label={t('主要导航')} className={`workspace-sidebar${menuOpen ? ' is-open' : ''}`} id={sidebarId}>
       <div className="sidebar-header">
         <div className="sidebar-brand-row">

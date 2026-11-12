@@ -59,12 +59,16 @@ export const bulkRoute = (bulkView:BulkWorkflowView,resultVersionId?:string):Ana
 })
 
 export function continueBulkRoute(current:AnalysisNavigation,next:AnalysisNavigation):AnalysisNavigation {
-  if(!current.bulkView||next.bulkView||!next.view.startsWith('bio-')) return next
+  if (!current.bulkView || next.view!=='bulk-workflow' && !next.view.startsWith('bio-')) return next
+  if (next.entry && (next.entry.requirementVersionId!==current.entry?.requirementVersionId
+    || next.entry.scopeItemId!==current.entry?.scopeItemId)) return next
+  const scoped = current.entry ? {...next,entry:current.entry,intent:next.intent??current.intent} : next
+  if (next.bulkView) return scoped
   const bulkView = next.view==='bio-datasets'||next.view==='bio-import'||next.view==='bio-dataset'?'data'
     :next.view==='bio-analysis'||next.view==='bio-analysis-setup'||next.view==='bio-result'||next.view==='bio-figure'||next.bulkPanel?'qc'
     :next.view==='bio-resources'?'functional'
     :next.view==='bio-insights'||next.view==='bio-candidates'?'differential':current.bulkView
-  return {...next,bulkView}
+  return {...scoped,bulkView}
 }
 
 export function publishedBulkComparisons(items:BulkWorkflowComparison[]) {

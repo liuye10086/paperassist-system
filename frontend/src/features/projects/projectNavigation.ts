@@ -115,10 +115,12 @@ export function parseNavigation(hash: string): NavigationRoute | null {
         if (bulkPanel!==null&&(!isBulkPanel(bulkPanel)||view!=='bio-insight-result'||!p.has('processed')
             ||['planId','planVersionId','runId','resultVersionId','resourceVersionId'].some(key=>p.has(key)))) return null
         if(view==='bulk-workflow') {
-            if (!isBulkWorkflowView(bulkView)||[...p.keys()].some(k=>!['project','section','view','bulkView','resultVersionId'].includes(k))||p.has('resultVersionId')&&(!['differential','delivery'].includes(bulkView)||!id('resultVersionId')))return null
+            if (!isBulkWorkflowView(bulkView)||[...p.keys()].some(k=>!['project','section','view','requirement','scope','intent','bulkView','resultVersionId'].includes(k))||p.has('resultVersionId')&&(!['differential','delivery'].includes(bulkView)||!id('resultVersionId')))return null
+        } else if (view==='bio-insight-runs') {
+            if ([...p.keys()].some(k=>!['project','section','view','requirement','scope','intent','bulkView'].includes(k)))return null
         } else if(isInsightView(view)){if([...p.keys()].some(k=>!['project','section','view','requirement','scope','intent','planId','planVersionId','runId','resultVersionId','resourceVersionId','processed','bulkPanel','bulkView'].includes(k))||!['planId','planVersionId','runId','resultVersionId','resourceVersionId','processed'].every(id))return null;} else if (view.startsWith('bio-')) {
             const identities:Record<string,string[]>={'bio-datasets':[],'bio-import':['import'],'bio-dataset':['dataset','version'],'bio-analysis-setup':['setup'],'bio-analysis':['run'],'bio-result':['processed','tab'],'bio-annotation':['annotationSet','annotationVersion'],'bio-figure':['figure']};
-            const required=identities[view],entryFile=view==='bio-datasets'&&p.has('requirement')&&p.get('intent')==='bio'?['file']:[];
+            const required=identities[view],entryFile=view==='bio-datasets'&&p.has('requirement')&&['bio','single_cell_import'].includes(p.get('intent')??'')?['file']:[];
             if (!required || [...p.keys()].some(k=>!['project','section','view','requirement','scope','intent','bulkView',...entryFile,...required].includes(k)) || required.some(k=>!p.has(k)||!id(k))) return null;
             if(view==='bio-result'&&!(bioResultTabs as readonly string[]).includes(p.get('tab')!))return null;
         } else if (view==='research-findings') { if (['import','dataset','version','setup','run','tab','annotationSet','annotationVersion','figure'].some(k=>p.has(k))||!id('processed')||p.has('findingSet')!==p.has('findingVersion')||!id('findingSet')||!id('findingVersion')) return null; } else if (['import','dataset','version','setup','run','processed','tab','annotationSet','annotationVersion','figure'].some(k => p.has(k))) return null;
@@ -208,7 +210,7 @@ export function serializeNavigation(r: NavigationRoute): string {
         p.set('search', r.literatureSearchId);
     if (r.section === 'analysis') {
         if (r.analysisNavigation.view !== 'overview') p.set('view', r.analysisNavigation.view);
-        if ((!r.analysisNavigation.view.startsWith('bio-') || r.analysisNavigation.view==='bio-datasets'&&r.analysisNavigation.entry&&r.analysisNavigation.intent==='bio') && r.analysisNavigation.fileId) p.set('file', r.analysisNavigation.fileId);
+        if ((!r.analysisNavigation.view.startsWith('bio-') || r.analysisNavigation.view==='bio-datasets'&&r.analysisNavigation.entry&&['bio','single_cell_import'].includes(r.analysisNavigation.intent??'')) && r.analysisNavigation.fileId) p.set('file', r.analysisNavigation.fileId);
         if (r.analysisNavigation.view === 'bio-import' && r.analysisNavigation.importId) p.set('import',r.analysisNavigation.importId);
         if (r.analysisNavigation.view === 'bio-dataset' && r.analysisNavigation.datasetId && r.analysisNavigation.versionId) { p.set('dataset',r.analysisNavigation.datasetId); p.set('version',r.analysisNavigation.versionId); }
         const a=r.analysisNavigation;

@@ -1,5 +1,6 @@
 import {useState} from 'react'
 import ProjectDownloadLink from '../../shared/components/ProjectDownloadLink'
+import NativeDeliveryArtifact,{type NativeDeliveryTarget} from '../analyst/NativeDeliveryArtifact'
 import {useI18n} from '../../shared/i18n'
 import type {AnalysisNavigation} from '../projects/analysisViews'
 import type {RegisterLeaveGuard} from '../projects/useDraftLeaveGuard'
@@ -18,7 +19,7 @@ function subsetParameters(parent:BioRecipeParameters){
  delete params.min_gene_spots
  return params
 }
-export default function SingleCellAnnotationWorkspace({projectId,result,onNavigate,registerLeaveGuard,allowNewAnalysis=true}:{projectId:string;result:BioProcessed;onNavigate:(n:AnalysisNavigation)=>void;registerLeaveGuard?:RegisterLeaveGuard;allowNewAnalysis?:boolean}){
+export default function SingleCellAnnotationWorkspace({projectId,result,onNavigate,registerLeaveGuard,allowNewAnalysis=true,deliveryTarget}:{projectId:string;deliveryTarget?:NativeDeliveryTarget;result:BioProcessed;onNavigate:(n:AnalysisNavigation)=>void;registerLeaveGuard?:RegisterLeaveGuard;allowNewAnalysis?:boolean}){
  const {t}=useI18n(),base=projectBase(projectId)
  const read=useBioRead<{items:BioAnnotation[]}>(`${base}/bio-processed-datasets/${encodeURIComponent(result.id)}/annotations`)
  const [create,setCreate]=useState(false),[report,setReport]=useState(''),[adopted,setAdopted]=useState<AnnotationDraft|null>(null)
@@ -40,7 +41,8 @@ export default function SingleCellAnnotationWorkspace({projectId,result,onNaviga
   <SingleCellCandidateTask allowNewAnalysis={allowNewAnalysis} projectId={projectId} result={result} onPublished={read.reload}/>
   {candidates.map(candidate=><SingleCellCandidateReview key={candidate.id} projectId={projectId} candidate={candidate} canAdopt={!create} onAdopt={draft=>{setAdopted(draft);setCreate(true)}}/>)}
   <section><h4>{t('带人工标签的 Word 报告')}</h4><label>{t('报告使用的人工标签')}<select value={report} onChange={e=>setReport(e.target.value)}><option value="">{t('请选择当前人工注释')}</option>{items.map(item=><option key={item.id} value={item.id}>{item.name||item.set_id} · v{item.version}</option>)}</select></label>
-   {items.some(item=>item.id===report)&&<ProjectDownloadLink href={`${base}/bio-processed-datasets/${encodeURIComponent(result.id)}/report.docx?annotation_version_id=${encodeURIComponent(report)}`} filename="single-cell-annotated-analysis.docx">{t('下载包含所选标签的 Word 报告')}</ProjectDownloadLink>}
+   {items.some(item=>item.id===report)&&<><ProjectDownloadLink href={`${base}/bio-processed-datasets/${encodeURIComponent(result.id)}/report.docx?annotation_version_id=${encodeURIComponent(report)}`} filename="single-cell-annotated-analysis.docx">{t('下载包含所选标签的 Word 报告')}</ProjectDownloadLink>
+    <NativeDeliveryArtifact {...{projectId,deliveryTarget}} source={{kind:'single_cell_word',version_id:result.id,annotation_version_id:report}} name="Word"/></>}
    <AnnotationUmap allowNewAnalysis={allowNewAnalysis} projectId={projectId} result={result} annotationId={items.some(item=>item.id===report)?report:''} onNavigate={onNavigate} registerLeaveGuard={registerLeaveGuard}/>
   </section>
   <SingleCellSubset allowNewAnalysis={allowNewAnalysis} projectId={projectId} result={result} onNavigate={onNavigate} registerLeaveGuard={registerLeaveGuard}/>

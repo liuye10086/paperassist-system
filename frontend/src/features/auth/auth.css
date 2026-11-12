@@ -55,7 +55,7 @@
 .auth-form-wrap .login-panel { background: transparent; }
 @media (max-width: 760px) { .auth-topbar { padding: 10px 16px; gap: 10px; } }
 
-.auth-topbar { gap: 16px; padding: 12px 24px; }
+.auth-topbar { gap: 16px; padding: 10px 32px; box-shadow: 0 2px 8px #19392e08; }
 .auth-project-navigation { flex: 1; min-width: 0; }
 .auth-topbar > .language-control, .auth-account { flex-shrink: 0; }
 .account-workspace-nav { display: grid; gap: 4px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }

@@ -6,7 +6,7 @@ import type { ProjectSection } from './WorkspaceShell'
 import type { OverviewView } from './projectNavigation'
 import './projectJourney.css'
 import WorkspaceSteps from './WorkspaceSteps'
-import { projectFlowStep, type WorkflowState } from './useProjectFlow'
+import { isAnalysisResultView, projectFlowStep, type WorkflowState } from './useProjectFlow'
 import type {AnalysisNavigation} from './analysisViews'
 
 type Props = {
@@ -21,13 +21,15 @@ type Props = {
   workflowState?: WorkflowState
   analysisOnly?: boolean
   assigned?: boolean
+  showingTaskResult?: boolean
 }
-export default function ProjectJourney({ project, section, overviewView, onOverview, onUpload, onAnalysis, onResults, onWriting, blocked, hasAnalysis = true, active = true, analysisView, workflowState, analysisOnly = false, assigned = false }: Props) {
+
+export default function ProjectJourney({ project, section, overviewView, onOverview, onUpload, onAnalysis, onResults, onWriting, blocked, hasAnalysis = true, active = true, analysisView, workflowState, analysisOnly = false, assigned = false, showingTaskResult = false }: Props) {
   const { t } = useI18n()
   const workspaceVisible = useContext(ProjectWorkspaceVisibleContext)
   if (analysisOnly) {
     const current = section === 'overview' && overviewView === 'deliveries' ? 5
-      : section === 'analysis' && ['bio-result','bio-insight-result','report'].includes(analysisView ?? '') ? 4
+      : (section === 'analysis' && isAnalysisResultView(analysisView)) || (section === 'tasks' && showingTaskResult) ? 4
         : projectFlowStep(section, overviewView, true)
     return active && workspaceVisible ? <div className="project-journey"><WorkspaceSteps current={current} steps={[
       { title: '项目资料', action: () => onOverview('settings') },
@@ -38,7 +40,7 @@ export default function ProjectJourney({ project, section, overviewView, onOverv
       { title: '分析交付', action: () => onOverview('deliveries') },
     ]}/></div> : null
   }
-  const step = section==='analysis' && ['bio-result','bio-insight-result','report'].includes(analysisView??'') ? 4 : projectFlowStep(section, overviewView, hasAnalysis)
+  const step = section==='analysis' && isAnalysisResultView(analysisView) ? 4 : projectFlowStep(section, overviewView, hasAnalysis)
   const reasons = ['', '', blocked('overview','requirements'), blocked(hasAnalysis?'analysis':'manuscripts'), blocked('artifacts')]
   // The route identifies the current step. Completion comes from saved workflow state.
   const state: WorkflowState = workflowState ?? {

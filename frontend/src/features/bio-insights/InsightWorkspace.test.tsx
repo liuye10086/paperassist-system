@@ -13,3 +13,11 @@ it('opens plan history directly without a current requirement or plan identity',
  expect(screen.getByRole('button',{name:'历史记录'}).getAttribute('aria-pressed')).toBe('true')
  expect(await screen.findByText('暂无已保存计划')).toBeTruthy()
 })
+
+it('opens fixed results directly from insight run history',async()=>{
+ const navigate=vi.fn()
+ vi.mocked(apiFetch).mockImplementation(async()=>Response.json({items:[{id:'runB',kind:'comparison',task:{status:'succeeded'},result_version_id:'resultB'}],total:1,page:1,page_size:20}))
+ render(<BioInsightsWorkspace projectId="p1" navigation={{view:'bio-insight-runs',fileId:''}} active onNavigate={navigate}/>);
+ fireEvent.click(await screen.findByRole('button',{name:'查看固定结果'}))
+ expect(navigate).toHaveBeenCalledWith({view:'bio-insight-result',fileId:'',resultVersionId:'resultB'})
+})

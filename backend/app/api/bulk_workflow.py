@@ -166,22 +166,61 @@ def download_archive(project_id: str, request: BulkDownloadRequest, store: Store
 def prepare_download(project_id: str, kind: Literal['word', 'archive'], request: BulkDownloadRequest, store: Store):
     with heavy_slot(store, project_id):
         key, entry = prepared_artifact(project_id, store, request, kind)
-        return dict(download_url=f'/api/v1/projects/{project_id}/bulk-workflow/delivery/prepared/{kind}/{key}',
+        return dict(artifact_id=key, download_url=f'/api/v1/projects/{project_id}/bulk-workflow/delivery/prepared/{kind}/{key}',
                     facts_digest=entry['metadata']['facts_digest'])
+
+
+def read_prepared_artifact(project, kind, artifact_id, store):
+    entry = cache_for(store, project, kind).read(artifact_id)
+    if entry is None:
+        raise invalid('bio_insight_source_incomplete', 410)
+    handle = open_artifact(entry)
+    try:
+        request = BulkDownloadRequest.model_validate(entry['metadata']['request'])
+        _, facts = resolve_delivery(project, store, request)
+        checked_facts(request, facts)
+        return entry, handle, facts
+    except BaseException:
+        handle.close()
+        raise
 
 
 @router.get('/delivery/prepared/{kind}/{artifact_id}')
 def download_prepared(project_id: str, kind: Literal['word', 'archive'], artifact_id: str, store: Store):
     with heavy_slot(store, project_id):
-        entry = cache_for(store, project_id, kind).read(artifact_id)
-        if entry is None:
-            raise invalid('bio_insight_source_incomplete', 410)
-        handle = open_artifact(entry)
+        entry, handle, _ = read_prepared_artifact(project_id, kind, artifact_id, store)
         try:
-            request = BulkDownloadRequest.model_validate(entry['metadata']['request'])
-            _, facts = resolve_delivery(project_id, store, request)
-            checked_facts(request, facts)
             return artifact_response(entry, kind, handle=handle)
         except BaseException:
             handle.close()
             raise
+
+
+def prepared_word_for_delivery(project, store, artifact_id, facts_digest):
+    from hashlib import sha256
+
+    from app.adapters.research_results_store import invalid as delivery_error
+    from app.domain.delivery_packages.contracts import MAX_DELIVERY_BYTES
+    from app.domain.delivery_packages.native_artifacts import NativeArtifact
+
+    with heavy_slot(store, project):
+        _, handle, facts = read_prepared_artifact(project, 'word', artifact_id, store)
+        with handle:
+            if facts['facts_digest'] != facts_digest:
+                raise invalid('bio_insight_source_conflict', 409)
+            if os.fstat(handle.fileno()).st_size > MAX_DELIVERY_BYTES:
+                raise delivery_error('research_export_limit_exceeded', 422)
+            content = handle.read(MAX_DELIVERY_BYTES + 1)
+
+    comparison = facts['references']['comparison']
+    related = {family: [dict(version_id=row['version_id'], manifest_sha256=row['manifest_sha256'])
+                        for row in facts['references'][family]]
+               for family in ('processed', 'results', 'resources')}
+    source_files = {row['id'] for row in facts['qc']['input_files']}
+    source_files.update(item['source_id'] for item in facts['evidence'] if item['kind'] == 'experimental_material')
+    provenance = dict(version_id=comparison['version_id'], manifest_sha256=comparison['manifest_sha256'],
+                      facts_digest=facts_digest, artifact_id=artifact_id,
+                      language='zh-CN' if facts['language'] == 'zh' else 'en',
+                      source_file_ids=sorted(source_files), references=related, limitations=facts['limitations'])
+    filename = 'bulk-rna-seq-report-' + facts_digest[:12] + '.docx'
+    return NativeArtifact(filename, 'docx', content, sha256(content).hexdigest(), provenance)

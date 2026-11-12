@@ -2,6 +2,8 @@
 from typing import Literal
 from pydantic import BaseModel,ConfigDict,Field,model_validator
 
+MAX_DELIVERY_BYTES = 256 * 1024 * 1024
+
 class Strict(BaseModel):
     model_config=ConfigDict(extra='forbid',strict=True)
 

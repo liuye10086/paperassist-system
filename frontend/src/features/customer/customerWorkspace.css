@@ -36,18 +36,25 @@
 .customer-delivery-image { display: block; max-width: 100%; max-height: 480px; object-fit: contain; margin-top: 14px; }
 .customer-progress-state {
   border: 1px solid var(--border);
+  border-inline-start: 4px solid var(--accent);
   border-radius: 10px;
   background: var(--social-bg);
   padding: 18px;
 }
 .customer-progress-note, .customer-feedback-history p { overflow-wrap: anywhere; white-space: pre-wrap; }
 .customer-status {
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   padding: 4px 10px;
-  border-radius: 6px;
+  border-radius: 20px;
   background: var(--accent-bg);
-  color: var(--accent);
+  color: var(--accent-hover);
+  font-size: 12px;
+  font-weight: 650;
 }
+.customer-status::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.customer-progress-state[data-status='needs_materials'] { border-inline-start-color: #986b25; }
 .customer-progress-state[data-status='needs_materials'] .customer-status { background: #fbf2dc; color: #734d14; }
 .customer-feedback { margin-top: 26px; padding-top: 20px; border-top: 1px solid var(--border); }
 .customer-feedback form { display: grid; justify-items: start; gap: 12px; margin: 14px 0; max-width: 680px; }
@@ -56,21 +63,6 @@
 .customer-feedback-history time { font-size: 13px; color: var(--text); }
 .customer-feedback-history p { margin: 6px 0 0; }
 .project-dialog .customer-actions { margin-top: 18px; }
-.authenticated-app[data-role='customer'] .project-steps.is-compact strong { white-space: normal; overflow-wrap: anywhere; }
-
-@media (max-width: 760px) {
-  .authenticated-app[data-role='customer'] .project-steps.is-compact ol {
-    display: grid;
-    grid-template-columns: repeat(5, minmax(0, 1fr));
-    min-width: 0;
-  }
-  .authenticated-app[data-role='customer'] .project-steps.is-compact li button {
-    min-height: 54px;
-    flex-direction: column;
-    text-align: center;
-  }
-}
-
 @media (max-width: 520px) {
   .customer-list > li, .customer-member-row { align-items: flex-start; flex-direction: column; gap: 8px; }
 }

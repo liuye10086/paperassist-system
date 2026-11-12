@@ -63,6 +63,41 @@ def synthetic_engine(source,runtime,modes):
     return engine
 
 
+def test_assigned_analyst_can_cancel_only_an_authorized_single_cell_task(client, ready_single_cell):
+    from fastapi.testclient import TestClient
+    from app.main import app
+    from tests.api.test_customer_workspace import sign_in
+    from tests.api.test_project_assignments import assign
+
+    base = ready_single_cell['base']
+    owner = client.get('/api/v1/auth/me').json()['user']
+    queued = client.post(base + '/single-cell-analysis-runs', headers={'Idempotency-Key': 'cancel-cell-run'}, json={
+        'name': 'Queued single-cell run', 'raw_source': ready_single_cell['source'], 'params': {'min_spots': 1},
+    })
+    assert queued.status_code == 202, queued.text
+    task = queued.json()['task']
+    task_url = '/api/v1/tasks/' + task['id']
+    with TestClient(app) as admin, TestClient(app) as analyst, TestClient(app) as outsider:
+        sign_in(admin, 'cancel-cell-admin@assignments.test', 'admin')
+        analyst_id = sign_in(analyst, 'cancel-cell-analyst@assignments.test', 'analyst')
+        sign_in(outsider, 'cancel-cell-outsider@assignments.test', 'analyst')
+        changed = admin.patch('/api/v1/admin/users/' + owner['id'], json={
+            'role': 'customer', 'active': True, 'expected_revision': 1, 'reason': 'Assign synthetic project',
+        })
+        assert changed.status_code == 200, changed.text
+        assert assign(admin, base, analyst_id, 0).status_code == 200
+        workspace = analyst.get(task_url + '/workspace')
+        assert workspace.status_code == 200, workspace.text
+        assert 'cancel' in workspace.json()['allowed_actions']
+        body = {'expected_revision': task['revision']}
+        assert outsider.post(task_url + '/cancel', json=body).status_code == 404
+        cancelled = analyst.post(task_url + '/cancel', json=body)
+        assert cancelled.status_code == 200, cancelled.text
+        assert cancelled.json()['status'] == 'cancelled'
+        assert assign(admin, base, None, 1).status_code == 200
+        assert analyst.post(task_url + '/cancel', json=body).status_code == 404
+
+
 def test_direct_start_unified_worker_has_no_manual_qc_wait_and_replays(client,ready_single_cell,monkeypatch):
     from app.domain.tasks.execution import run_task
     from app.domain.bioinformatics import analysis_execution

@@ -19,13 +19,14 @@ ObservationPageSize=Annotated[int,Query(ge=1,le=1000)]
 
 @router.get('/{project_id}/bio-insights/capabilities')
 def capabilities(project_id:str,store:Store):
-    from app.domain.bio_insights.settings import runtime_identity,BioInsightsLimits
+    from app.domain.bio_insights.settings import runtime_identity,topic_runtime_identity,BioInsightsLimits
     service=BioInsightsService(store)
     with service.store.connection() as db:service.store.require_project(db,project_id)
     runtime=runtime_identity()
     return dict(methods=['spot_exploratory','donor_unpaired','donor_paired','result_import','ora','gsea_prerank','candidate','figure'],
         runtime=runtime,bulk_model_runtime=runtime_identity(bulk_model=True),bulk_display_runtime=runtime_identity(bulk_display=True),
         bulk_enrichment_runtime=runtime_identity(bulk_enrichment=True),
+        single_cell_topic_runtimes={'slingshot':topic_runtime_identity('slingshot')},
         configured=runtime['available'],worker_online=None,limits=BioInsightsLimits().model_dump(),
         blocking_reasons=[] if runtime['available'] else [runtime['reason']],real_model_calls=False,real_network_calls=False)
 

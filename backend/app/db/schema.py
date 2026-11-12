@@ -376,3 +376,6 @@ define_bio_cloud_tables(metadata)
 
 from app.db.analysis_request_receipt_schema import define_analysis_request_receipts
 analysis_request_receipts=define_analysis_request_receipts(metadata)
+
+from app.db.delivery_artifact_schema import define_delivery_artifact_sources
+delivery_artifact_sources = define_delivery_artifact_sources(metadata)

@@ -1,4 +1,5 @@
 """Read-only newer-version notices over explicitly selected, fixed sources."""
+from app.auth.project_access import assignment_for_owner
 from .sources import ResearchSourceReader
 
 LINEAGES={'research_finding_version':('research_finding_versions','set_id'),
@@ -43,6 +44,7 @@ def check_changes(assets,project,selections):
 
 def dependency_impact(db,project,user,kind,identifier,limit=500):
     """Bounded read-only graph; member/version aliases share downstream reachability."""
+    include_manuscripts = assignment_for_owner(user) is None
     visited={(kind,identifier)};pending=[(kind,identifier)];affected=[];truncated=False
     def add(child,**extra):
         nonlocal truncated
@@ -69,6 +71,8 @@ def dependency_impact(db,project,user,kind,identifier,limit=500):
                 add(('bio_insight_result_version',row['id']))
         for row in db.execute('SELECT DISTINCT parent_kind,finding_version_id,figure_version_id,report_version_id FROM research_source_bindings WHERE project_id=%s AND user_id=%s AND source_kind=%s AND source_id=%s ORDER BY parent_kind,finding_version_id,figure_version_id,report_version_id LIMIT 501',(project,user,kind,identifier)).fetchall():
             add(('research_'+row['parent_kind']+'_version',row[row['parent_kind']+'_version_id']))
+        if not include_manuscripts:
+            continue
         for row in db.execute('SELECT s.version_id,v.manuscript_id,v.revision FROM manuscript_research_sources s JOIN manuscript_versions v ON v.id=s.version_id AND v.project_id=s.project_id WHERE s.project_id=%s AND s.user_id=%s AND s.source_kind=%s AND s.source_id=%s ORDER BY s.version_id LIMIT 501',(project,user,kind,identifier)).fetchall():
             add(('manuscript_version',row['version_id']),manuscript_id=row['manuscript_id'],revision=row['revision'])
     return dict(affected=affected,affected_truncated=truncated,automatic_replacement=False)

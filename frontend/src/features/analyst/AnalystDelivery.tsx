@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect } from 'react'
 import { useI18n } from '../../shared/i18n'
 import { projectBase } from '../research-intake/api'
 import type { Intake } from '../research-intake/contracts'
@@ -6,14 +6,21 @@ import type { DeliverySnapshot } from '../research-intake/deliveryPackageContrac
 import DeliveryPackagePanel from '../research-intake/DeliveryPackagePanel'
 import type { RegisterLeaveGuard } from '../projects/useDraftLeaveGuard'
 import { useResearchRead } from '../research-results/api'
+import useResearchDraft from '../research-results/useResearchDraft'
 import { AnalystPublications, AnalystWorkspaceStatus } from './AnalystProgress'
 import type { AnalystWorkspace } from './useAnalystWorkspace'
 
-function PublishSnapshot({ snapshot, workspace }: { snapshot: DeliverySnapshot; workspace: AnalystWorkspace }) {
+function PublishSnapshot({ projectId, assignmentRevision, snapshot, workspace }: {
+  projectId: string; assignmentRevision: number; snapshot: DeliverySnapshot; workspace: AnalystWorkspace
+}) {
   const { t } = useI18n()
-  const [title, setTitle] = useState('')
+  const [title, setTitle] = useResearchDraft(projectId, `analyst-publish:${assignmentRevision}:${snapshot.id}`, () => '')
+  const published = workspace.value?.publications.some(item => item.id === snapshot.id)
+  useEffect(() => {
+    if (published && title) setTitle('')
+  }, [published, setTitle, title])
   if (!workspace.value) return null
-  if (workspace.value.publications.some(item => item.id === snapshot.id)) return <p>{t('此快照已发布给客户。')}</p>
+  if (published) return <p>{t('此快照已发布给客户。')}</p>
   if (workspace.value.requirement?.id !== snapshot.requirement_version_id) return <p>{t('请使用最新提交的需求版本冻结快照后再发布。')}</p>
   return <form className="analyst-form" onSubmit={event => {
     event.preventDefault()
@@ -32,6 +39,7 @@ export default function AnalystDelivery({ projectId, active, snapshotId, deliver
   const { t } = useI18n()
   const intake = useResearchRead<Intake>(`${projectBase(projectId)}/research-intake`, active)
   const delivery = intake.data?.deliveries?.find(item => item.kind === 'analysis')
+  const assignmentRevision = workspace?.value?.assignment_revision
   return <section hidden={!active} className="research-intake analyst-card" aria-label={t('分析交付')}>
     <header className="analyst-card-heading"><h2>{t('分析交付')}</h2>
       {workspace && <AnalystWorkspaceStatus workspace={workspace}/>}
@@ -43,7 +51,9 @@ export default function AnalystDelivery({ projectId, active, snapshotId, deliver
       active={active} snapshotId={deliveryId === delivery.id ? snapshotId : undefined} onSelect={snapshot => onSelect(delivery.id, snapshot)}
       requiredVersionId={workspace ? workspace.value?.requirement?.id ?? '' : undefined}
       registerLeaveGuard={registerLeaveGuard}
-      renderSnapshotActions={workspace && (snapshot => <PublishSnapshot key={snapshot.id} snapshot={snapshot} workspace={workspace}/>)}/>}
+      renderSnapshotActions={workspace && assignmentRevision !== undefined
+        ? snapshot => <PublishSnapshot key={snapshot.id} projectId={projectId} assignmentRevision={assignmentRevision} snapshot={snapshot} workspace={workspace}/>
+        : undefined}/>}
     {workspace?.value && <AnalystPublications publications={workspace.value.publications}/>}
   </section>
 }

@@ -4,22 +4,37 @@ import {useI18n} from '../../shared/i18n'
 import type {ProjectFile} from '../files/fileLibraryApi'
 import type {Version} from '../research-intake/contracts'
 import type {AnalysisNavigation} from './analysisViews'
-import {analysisScopes,entryMethods,entrySources,scopeKind,sourceNavigation,type AnalysisScope,type EntryMethod,type EntrySource,type EntryImport} from './analysisEntryState'
+import {analysisScopes,entryMethods,entrySources,rnaRequestGroups,scopeKind,sourceNavigation,type AnalysisScope,type EntryMethod,type EntrySource,type EntryImport} from './analysisEntryState'
 
-type Props={projectId?:string;focused?:boolean;version:Version;files:ProjectFile[];filesLoading?:boolean;filesError?:string;imports?:EntryImport[];importsUnknown?:boolean;onNavigate:(next:AnalysisNavigation)=>void;onFile?:(id:string)=>void;onRequirements?:(panel?:'materials')=>void;onUpload?:()=>void;onReloadFiles?:()=>void;scopeId?:string;assigned?:boolean}
+type Props={projectId?:string;focused?:boolean;version:Version;files:ProjectFile[];filesLoading?:boolean;filesError?:string;imports?:EntryImport[];importsUnknown?:boolean;onNavigate:(next:AnalysisNavigation)=>void;onFile?:(id:string)=>void;onRequirements?:(panel?:'materials')=>void;onUpload?:()=>void;onReloadFiles?:()=>void;onDeliveries?:()=>void;scopeId?:string;assigned?:boolean}
 const compatible=(source:EntrySource,method:EntryMethod)=>method.source==='table'?source.kind==='table':method.source==='bio'?['bio-original','bio-version'].includes(source.kind):false
 export default function AnalysisRequestList(props:Props){
  return <RequestList key={`${getApiUserId()}:${props.projectId??props.version.project_id??'unscoped'}:${props.version.id}:${props.scopeId??'all'}`} {...props}/>
 }
 function RequestList(props:Props){
- const {t}=useI18n(),scopes=analysisScopes(props.version).filter(scope=>!props.scopeId||scope.id===props.scopeId)
+ const {t}=useI18n(),allScopes=analysisScopes(props.version),rna=rnaRequestGroups(allScopes,props.scopeId)
+ const claimed=new Set(rna.flatMap(group=>[group.parent.id,...group.choices.map(item=>item.scope.id)]))
+ const delivery=props.onDeliveries&&allScopes.find(scope=>scope.id==='customer.delivery.package'&&(!props.scopeId||scope.id===props.scopeId))
+ if(delivery)claimed.add(delivery.id)
+ const scopes=allScopes.filter(scope=>(!props.scopeId||scope.id===props.scopeId)&&!claimed.has(scope.id))
  const [selected,setSelected]=useResearchDraft(props.projectId??props.version.project_id??'unscoped',`analysis-task:${props.version.id}:${props.scopeId??'all'}`,()=> '');const current=scopes.some(s=>s.id===selected)?selected:scopes[0]?.id
+ function openScope(scope:AnalysisScope,navigation:AnalysisNavigation){
+  props.onNavigate({...navigation,entry:{requirementVersionId:props.version.id,scopeItemId:scope.id}})
+ }
  return <section className="analysis-request-list" aria-label={t('本次分析清单')}>
   <header><h3>{t('本次分析清单')}</h3><span>{t(props.assigned?'已提交需求':'已保存需求')}</span>{props.onRequirements&&<button type="button" className="button-quiet" onClick={()=>props.onRequirements?.()}>{t(props.assigned?'查看已提交需求':'调整分析需求')}</button>}{props.onReloadFiles&&<button type="button" className="button-quiet" onClick={props.onReloadFiles}>{t('重新读取材料')}</button>}</header>
-  <p className="muted">{t('选择本次要执行的任务，核对来源后进入配置。')}</p>
+  {!!scopes.length&&<p className="muted">{t('选择本次要执行的任务，核对来源后进入配置。')}</p>}
   {props.filesLoading&&<p role="status">{t('正在核对材料状态……')}</p>}
   {props.filesError&&<p role="alert">{t('材料读取失败，请重试。')} {props.onReloadFiles&&<button type="button" onClick={props.onReloadFiles}>{t('重新读取材料')}</button>}</p>}
-  {!scopes.length&&<p>{t(props.scopeId?'该需求版本中没有此分析条目，请重新选择。':'还没有勾选分析项目。你也可以直接从下方的数据类型开始。')}</p>}
+  {!scopes.length&&!rna.length&&!delivery&&<p>{t(props.scopeId?'该需求版本中没有此分析条目，请重新选择。':'还没有勾选分析项目。你也可以直接从下方的数据类型开始。')}</p>}
+  {!!rna.length&&<div className="analysis-assay-grid">{rna.map(({assay,title,primary,choices})=><article key={assay} className="analysis-request-row analysis-assay-card" aria-label={t(title)}>
+    <header><h4>{t(title)}</h4></header>
+    {!!primary.length&&<div className="intake-actions">{primary.map(({scope,label,navigation},index)=><button key={label} type="button" className={index===0?'button-primary':undefined} onClick={()=>openScope(scope,navigation)}>{t(label)}</button>)}</div>}
+    {!!choices.length&&<ul className="analysis-assay-choices">{choices.map(({scope,label,navigation,title:choiceTitle})=><li key={scope.id}>
+      <span>{t(choiceTitle)}</span><button type="button" onClick={()=>openScope(scope,navigation)}>{t(label)}</button>
+    </li>)}</ul>}
+  </article>)}</div>}
+  {delivery&&<div className="intake-actions"><button type="button" onClick={props.onDeliveries}>{t('打开分析交付')}</button></div>}
   {props.focused&&scopes.length>1&&<nav className="analysis-task-picker" aria-label={t('选择本次任务')}>{scopes.map(scope=><button type="button" key={scope.id} aria-pressed={scope.id===current} onClick={()=>setSelected(scope.id)}>{t(scope.title)}</button>)}</nav>}
   {scopes.map(scope=><div key={`${props.version.id}:${scope.id}`} hidden={props.focused&&scope.id!==current}><RequestRow {...props} scope={scope}/></div>)}
  </section>

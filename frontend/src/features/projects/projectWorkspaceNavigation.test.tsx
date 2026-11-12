@@ -69,6 +69,7 @@ it.each(['工作台','我的项目'])('reopens the unchanged task href from admi
  fireEvent.click(screen.getByRole('button',{name:origin}))
  expect(screen.queryByRole('region',{name:'目标任务'})).toBeNull()
  fireEvent.click(screen.getByRole('button',{name:'管理员'}))
+ fireEvent.click(screen.getByRole('button',{name:'运营工具'}))
  fireEvent.click(screen.getByRole('button',{name:'系统任务'}))
  fireEvent.click(await screen.findByRole('button',{name:'查看安全详情'}))
  const link=await screen.findByRole('link',{name:'在项目中打开'})

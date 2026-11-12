@@ -2,6 +2,8 @@ import type {ProjectFile} from '../files/fileLibraryApi'
 import type {MaterialRef,Version} from '../research-intake/contracts'
 import type {AnalysisNavigation} from './analysisViews'
 import {materialPurposes} from '../research-intake/state'
+import {bulkRoute} from '../bio-insights/bulkWorkflow'
+import {analysisTypes,deliveryChoices} from '../customer/customerRequirementChoices'
 
 export type AnalysisScope={id:string;title:string;status:string;delivery_kind:string}
 export type EntryImport={id:string;status:string;fileIds:string[];datasetId:string;versionId?:string;createdAt:string}
@@ -10,7 +12,55 @@ export type EntryMethod={id:string;label:string;source:'table'|'bio'|'module';he
 export function analysisScopes(version:Version):AnalysisScope[]{
  return ((version.content.scope_items??[]) as AnalysisScope[]).filter(item=>item.delivery_kind==='analysis'&&item.status!=='not_included')
 }
-export const scopeKind=(scope:AnalysisScope)=>scope.id.startsWith('questionnaire.analysis.')?scope.id.slice('questionnaire.analysis.'.length):'custom'
+export const scopeKind=(scope:AnalysisScope)=>scope.id.startsWith('questionnaire.analysis.')?scope.id.slice('questionnaire.analysis.'.length):scope.id.startsWith('customer.delivery.')?'delivery':'custom'
+
+type RnaAction = { label: string; navigation: AnalysisNavigation }
+const singleCellResults: AnalysisNavigation = {view:'bio-datasets',fileId:'',intent:'single_cell_results'}
+const rnaActions = {
+ single_cell: {
+  primary: [
+   {label:'导入并核对单细胞矩阵',navigation:{view:'bio-datasets',fileId:'',intent:'single_cell_import'}},
+   {label:'查看单细胞处理结果',navigation:singleCellResults},
+  ],
+  choices: {
+   'customer.analysis.single_cell.differential':{label:'配置单细胞差异表达',navigation:{view:'bio-insights',fileId:'',intent:'single_cell_differential'}},
+   'customer.analysis.single_cell.enrichment':{label:'核对单细胞富集来源',navigation:{view:'bio-insight-runs',fileId:'',intent:'single_cell_enrichment'}},
+   'customer.analysis.single_cell.pseudotime':{label:'核对拟时分析前提',navigation:singleCellResults},
+   'customer.figure.single_cell.umap':{label:'查看 UMAP 来源',navigation:singleCellResults},
+   'customer.figure.single_cell.heatmap':{label:'查看单细胞热图来源',navigation:singleCellResults},
+   'customer.delivery.word':{label:'准备单细胞 Word',navigation:singleCellResults},
+  },
+ },
+ bulk: {
+  primary: [
+   {label:'进入 Bulk RNA-seq 工作流',navigation:bulkRoute('design')},
+   {label:'查看 Bulk 固定结果',navigation:bulkRoute('differential')},
+  ],
+  choices: {
+   'customer.analysis.bulk.differential':{label:'配置 Bulk 差异表达',navigation:bulkRoute('differential')},
+   'customer.analysis.bulk.enrichment':{label:'核对 Bulk 富集来源',navigation:bulkRoute('functional')},
+   'customer.figure.bulk.volcano':{label:'查看 Bulk 火山图来源',navigation:bulkRoute('differential')},
+   'customer.figure.bulk.heatmap':{label:'查看 Bulk 热图来源',navigation:bulkRoute('differential')},
+   'customer.delivery.word':{label:'准备 Bulk Word',navigation:bulkRoute('delivery')},
+  },
+ },
+} satisfies Record<string,{primary:RnaAction[];choices:Record<string,RnaAction>}>
+
+export function rnaRequestGroups(scopes: AnalysisScope[], scopeId?: string) {
+ return Object.entries(rnaActions).flatMap(([assay,{primary,choices}])=>{
+  const parent=scopes.find(scope=>scope.id===`customer.type.${assay}`)
+  if(!parent)return []
+  const group=analysisTypes.find(item=>item.type.id===parent.id)
+  const declared=[...(group?.analyses??[]),...(group?.figures??[]),...deliveryChoices]
+  const matching=scopes.flatMap(scope=>{
+   const action=Object.hasOwn(choices,scope.id)?(choices as Record<string,RnaAction>)[scope.id]:undefined
+   return action ? [{...action,scope,title:declared.find(choice=>choice.id===scope.id)?.label??scope.title}] : []
+  })
+  if(scopeId&&scopeId!==parent.id&&!matching.some(({scope})=>scope.id===scopeId))return []
+  const main=(!scopeId||scopeId===parent.id)?primary.map(action=>({...action,scope:parent})):[]
+  return [{assay,parent,title:group?.type.label??parent.title,primary:main,choices:matching.filter(({scope})=>!scopeId||scopeId===scope.id)}]
+ })
+}
 const importStatus=(item:EntryImport)=>item.status==='waiting_confirmation'?'等待核对确认':item.status==='succeeded'&&item.versionId?'原件已有发布版本，可选择复用':item.status==='failed'?'导入失败，可查看原任务':item.status==='queued'?'导入已排队':item.status==='running'?'导入处理中':'查看已有导入状态'
 export function filePreparation(file:ProjectFile,imports:EntryImport[]=[]):Pick<EntrySource,'kind'|'ready'> & {label:string}{
  if(file.parse_status==='stored'){const related=imports.filter(item=>item.fileIds.includes(file.id));return {kind:'bio-original',ready:false,label:related.length===1?importStatus(related[0]):related.length>1?'存在多次导入，请选择记录':'原件已保存，待导入核对'}}

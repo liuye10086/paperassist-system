@@ -1,4 +1,4 @@
-import type {AnalysisEntryIntent} from '../projects/analysisViews'
+import type {AnalysisEntryContext,AnalysisEntryIntent} from '../projects/analysisViews'
 import {useEffect,useLayoutEffect,useRef,useState} from 'react'
 import {savedContent} from '../../shared/savedContent'
 import {safeError,useI18n} from '../../shared/i18n'
@@ -7,7 +7,7 @@ import useDraftLeaveGuard,{type RegisterLeaveGuard} from '../projects/useDraftLe
 import {insightRequest,jsonRequest,projectBase} from './api'
 import {useInsightDraft,useInsightIntent,useInsightRead} from './hooks'
 import {kindLabels,type Config,type Design,type InsightKind,type Plan,type Source,type SourceItem,type Run,type Result} from './contracts'
-import {buildPlan,defaultConfig,planIssues} from './state'
+import {buildPlan,defaultConfig,planIssues,strings} from './state'
 import InsightSources from './InsightSources'
 import ComparisonSetup from './ComparisonSetup'
 import {defaultSingleCellComposition,defaultSingleCellDE} from './singleCellComparison'
@@ -28,12 +28,33 @@ import BulkPlanSettings from './BulkPlanSettings'
 import {BULK_ORA_ELIGIBLE_BACKGROUND,bulkFigureLabels,bulkPanels,bulkPlanScope,fixedBulkEnrichmentIdentity,isBulkFigureType,isBulkPanel,type BulkPlanSeed} from './bulk'
 import {Field,ConfigField,DataDetails,IntentState,ReadState,TaskStatus,DesignUnits} from './InsightShared'
 type Draft={name:string;config:Config;sources:Source[];savedPlan?:Plan}
-export default function InsightPlanEditor({projectId,kind,active,initial,initialProcessedId,initialResultId,bulkSeed,entryIntent,onSaved,onRun,registerLeaveGuard,allowNewAnalysis=true,allowExternalEvidenceRegistration}:{allowExternalEvidenceRegistration?:boolean;allowNewAnalysis?:boolean;projectId:string;kind:InsightKind;active:boolean;initial?:Plan|null;initialProcessedId?:string;initialResultId?:string;bulkSeed?:BulkPlanSeed;entryIntent?:AnalysisEntryIntent;onSaved:(v:Plan)=>void;onRun:(v:Run)=>void;registerLeaveGuard?:RegisterLeaveGuard}){
- const{t}=useI18n(),ordinaryScope=bulkSeed?`${kind}:bulk:${bulkPlanScope(bulkSeed)}`:`${kind}:${initialProcessedId??initialResultId??''}`,specialIntent=!bulkSeed&&(entryIntent==='evidence'&&kind==='candidate'||entryIntent==='qpcr'&&kind==='comparison'||entryIntent==='single_cell_topic'&&kind==='integration')?entryIntent:undefined,specialScope=specialIntent?`${ordinaryScope}:${specialIntent}`:ordinaryScope,[explicitScope,setExplicitScope]=useState('')
+export default function InsightPlanEditor({projectId,kind,active,initial,initialProcessedId,initialResultId,enrichmentSource,bulkSeed,entry,entryIntent,onSaved,onRun,registerLeaveGuard,allowNewAnalysis=true,allowExternalEvidenceRegistration}:{allowExternalEvidenceRegistration?:boolean;allowNewAnalysis?:boolean;projectId:string;kind:InsightKind;active:boolean;initial?:Plan|null;initialProcessedId?:string;initialResultId?:string;enrichmentSource?:Result;bulkSeed?:BulkPlanSeed;entry?:AnalysisEntryContext;entryIntent?:AnalysisEntryIntent;onSaved:(v:Plan)=>void;onRun:(v:Run)=>void;registerLeaveGuard?:RegisterLeaveGuard}){
+ const{t}=useI18n(),ordinaryScope=bulkSeed?`${kind}:bulk:${bulkPlanScope(bulkSeed)}`:`${kind}:${initialProcessedId??initialResultId??enrichmentSource?.id??''}`,specialIntent=!bulkSeed&&(entryIntent==='evidence'&&kind==='candidate'||entryIntent==='qpcr'&&kind==='comparison'||entryIntent==='single_cell_topic'&&kind==='integration')?entryIntent:undefined,specialScope=specialIntent?`${ordinaryScope}:${specialIntent}`:ordinaryScope,[explicitScope,setExplicitScope]=useState('')
  const stored=(type:'draft'|'request',candidate:string,operation='plan')=>{try{return !!sessionStorage.getItem(`paperassist.bio-insight.${type}:${getApiUserId()??'anonymous'}:${projectId}:${operation}:${candidate}`)}catch{return false}}
  const pending=(candidate:string)=>stored('request',candidate)||stored('request',candidate,'run')
- const scope=initial?.id??(!specialIntent?ordinaryScope:pending(ordinaryScope)?ordinaryScope:pending(specialScope)||explicitScope===specialScope||stored('draft',specialScope)?specialScope:stored('draft',ordinaryScope)?ordinaryScope:specialScope),usingExistingOrdinary=!initial&&!!specialIntent&&scope===ordinaryScope,usingSpecial=!initial&&!!specialIntent&&scope===specialScope
- const[draft,setDraft]=useInsightDraft<Draft>(projectId,`plan:${scope}`,()=>({name:initial?.name??'',config:initial?.config??bulkSeed?.config??(usingSpecial&&specialIntent==='single_cell_topic'?defaultSingleCellTopic(initialProcessedId):usingSpecial&&specialIntent==='evidence'?defaultEvidenceMatrix():usingSpecial&&specialIntent==='qpcr'?defaultQpcrConfig():defaultConfig(kind)),sources:initial?.sources??(bulkSeed?[bulkSeed.source]:[])})),[preview,setPreview]=useState<{signature:string;design:Design}|null>(null),[busy,setBusy]=useState(false),[completedRun,setCompletedRun]=useState<{value:Run;generation:number}|null>(null),[error,setError]=useState(''),operation=useInsightIntent<Plan>(projectId,'plan',scope),run=useInsightIntent<Run>(projectId,'run',scope),request=useRef<AbortController|null>(null),alive=useRef(true),seenPlan=useRef(''),seenRun=useRef(''),base=projectBase(projectId)
+ const singleCellDifferential=entryIntent==='single_cell_differential'&&kind==='comparison'
+ const singleCellEnrichment=entryIntent==='single_cell_enrichment'&&kind==='ora'
+ const requestedTrajectory=entry?.scopeItemId==='customer.analysis.single_cell.pseudotime'&&specialIntent==='single_cell_topic'
+ const scopedIntent=entry&&(singleCellDifferential||singleCellEnrichment||requestedTrajectory)
+ const scope=initial?.id??(scopedIntent?`${ordinaryScope}:${entry.requirementVersionId}:${entry.scopeItemId}`:!specialIntent?ordinaryScope:pending(ordinaryScope)?ordinaryScope:pending(specialScope)||explicitScope===specialScope||stored('draft',specialScope)?specialScope:stored('draft',ordinaryScope)?ordinaryScope:specialScope)
+ const usingExistingOrdinary=!initial&&!!specialIntent&&scope===ordinaryScope,usingSpecial=!initial&&!!specialIntent&&scope===specialScope
+ function newDraft():Draft{
+  if(initial)return {name:initial.name,config:initial.config,sources:initial.sources}
+  if(bulkSeed)return {name:'',config:bulkSeed.config,sources:[bulkSeed.source]}
+  if(enrichmentSource){
+   const config=enrichmentSource.methods.config as Record<string,unknown>|undefined
+   return {name:'',config:{...defaultConfig('ora'),result_source_ids:[enrichmentSource.id],
+    contrast_ids:strings(enrichmentSource.methods.family_contrast_ids??config?.family_contrast_ids)},
+    sources:[{source_kind:'bio_insight_result_version',source_id:enrichmentSource.id,sha256:enrichmentSource.manifest_sha256,role:'result',locator:{kind:'object'}}]}
+  }
+  let config=defaultConfig(kind)
+  if(singleCellDifferential)config=defaultSingleCellDE()
+  if(requestedTrajectory||usingSpecial&&specialIntent==='single_cell_topic')config=defaultSingleCellTopic(initialProcessedId)
+  if(usingSpecial&&specialIntent==='evidence')config=defaultEvidenceMatrix()
+  if(usingSpecial&&specialIntent==='qpcr')config=defaultQpcrConfig()
+  return {name:'',config,sources:[]}
+ }
+ const[draft,setDraft]=useInsightDraft<Draft>(projectId,`plan:${scope}`,newDraft),[preview,setPreview]=useState<{signature:string;design:Design}|null>(null),[busy,setBusy]=useState(false),[completedRun,setCompletedRun]=useState<{value:Run;generation:number}|null>(null),[error,setError]=useState(''),operation=useInsightIntent<Plan>(projectId,'plan',scope),run=useInsightIntent<Run>(projectId,'run',scope),request=useRef<AbortController|null>(null),alive=useRef(true),seenPlan=useRef(''),seenRun=useRef(''),base=projectBase(projectId)
  const bulkFigure=kind==='figure'&&isBulkFigureType(draft.config.figure_type)?draft.config.figure_type:null
  const bulkCandidate=kind==='candidate'&&draft.config.bulk_selection!=null
  const enrichmentFigure=kind==='figure'&&draft.config.bulk_enrichment_render===true
@@ -57,8 +78,8 @@ export default function InsightPlanEditor({projectId,kind,active,initial,initial
  useEffect(()=>{if(!completedRun)return;if(!alive.current||!context.current.active||completedRun.generation!==context.current.generation){setCompletedRun(null);return}if(locked)return;setCompletedRun(null);seenRun.current=completedRun.value.id;onRun(completedRun.value)},[completedRun,locked,onRun])
  const sources=useInsightRead<{items:SourceItem[]}>(initialProcessedId&&!draft.sources.length?`${base}/bio-insights/sources?source_kind=bio_processed_dataset_version&page=1&page_size=100`:'',active&&!!initialProcessedId&&!fixedEntry)
  const resultInput=useInsightRead<Result>(initialResultId?`${base}/bio-insight-results/${initialResultId}`:'',active&&!!initialResultId&&!fixedEntry,true)
- const enrichmentSource=bulkEnrichment?draft.sources.find(source=>source.role==='result'):undefined
- const enrichmentInput=useInsightRead<Result>(enrichmentSource?`${base}/bio-insight-results/${encodeURIComponent(enrichmentSource.source_id)}`:'',active&&!!enrichmentSource,true)
+ const bulkEnrichmentSource=bulkEnrichment?draft.sources.find(source=>source.role==='result'):undefined
+ const enrichmentInput=useInsightRead<Result>(bulkEnrichmentSource?`${base}/bio-insight-results/${encodeURIComponent(bulkEnrichmentSource.source_id)}`:'',active&&!!bulkEnrichmentSource,true)
  function change(config:Config){setDraft(d=>({...d,config}));setPreview(null)}
  function selectSources(sources:Source[]){
   setDraft(d=>{
@@ -77,6 +98,8 @@ export default function InsightPlanEditor({projectId,kind,active,initial,initial
  }
  async function check(){if(!alive.current||!context.current.active||request.current||locked)return;const c=new AbortController();request.current=c;setBusy(true);setError('');setPreview(null);try{const design=await insightRequest<Design>(`${base}/bio-insight-plans/preview`,{...jsonRequest(body),signal:c.signal},true);if(alive.current&&!c.signal.aborted)setPreview({signature,design})}catch(cause){if(alive.current&&!c.signal.aborted)setError(safeError(cause,'设计预检失败，请核对固定来源。'))}finally{if(request.current===c){request.current=null;if(alive.current)setBusy(false)}}}
  const p={config:draft.config,onChange:change,sources:draft.sources},issues=planIssues(draft.config)
+ if(singleCellEnrichment&&(!strings(draft.config.resource_source_ids).length||!strings(draft.config.result_source_ids).length||!strings(draft.config.contrast_ids).length))
+  issues.push('请选择固定差异结果、比较与已发布的本地基因集。')
  const taxon=draft.config.bulk_enrichment?.source_taxon_id??0,evidence=draft.config.bulk_enrichment?.taxon_evidence?.trim()??''
  if(bulkEnrichment&&enrichmentInput.data&&fixedBulkEnrichmentIdentity(enrichmentInput.data).species_taxon_id===null
     &&(!Number.isInteger(taxon)||taxon<1||taxon>2147483647||!evidence||evidence.length>1000))issues.push('请填写有效的来源 taxonomy ID 和物种依据。')
@@ -90,7 +113,7 @@ export default function InsightPlanEditor({projectId,kind,active,initial,initial
  const [step,setStep]=useState<'sources'|'config'|'review'>(initialStep),[configPanel,setConfigPanel]=useState('parameters'),[reviewPanel,setReviewPanel]=useState('summary')
  const runnable=!!savedPlan&&sameSaved&&savedPlan.decision==='confirmed'&&savedPlan.design.executable&&savedPlan.current_revision===savedPlan.revision&&!issues.length
  const eligibleBackground=!(sameSaved&&savedPlan?.decision==='confirmed')||savedPlan.config.bulk_background===BULK_ORA_ELIGIBLE_BACKGROUND
- const canStart=bulk?runnable:currentPreview?validPreview:!bulkEnrichment||runnable
+ const canStart=bulk?runnable:currentPreview?validPreview:(!bulkEnrichment&&!singleCellEnrichment)||runnable
  async function saveOnly(){
   if(!alive.current||!context.current.active||launching.current||locked||!canSave)return
   if(sameSaved&&savedPlan){onSaved(savedPlan);return}
@@ -138,7 +161,10 @@ export default function InsightPlanEditor({projectId,kind,active,initial,initial
     {fixedEntry?<DataDetails title="本次固定来源" value={draft.sources.map(source=>({source_kind:source.source_kind,source_id:source.source_id,sha256:source.sha256}))}/>:<>
     {initialProcessedId&&!draft.sources.some(s=>s.source_id===initialProcessedId)&&<button type="button" disabled={!sources.data?.items.some(s=>s.source_id===initialProcessedId)} onClick={()=>{const s=sources.data?.items.find(s=>s.source_id===initialProcessedId);if(s?.sha256)selectSources([...draft.sources,{...s,sha256:s.sha256,role:'processed',locator:{kind:'object'}}])}}>{t('采用入口的固定处理版本')}</button>}
  {resultInput.data&&!draft.sources.some(s=>s.source_id===initialResultId)&&<button type="button" onClick={()=>setDraft(d=>({...d,sources:[...d.sources,{source_kind:'bio_insight_result_version',source_id:resultInput.data!.id,sha256:resultInput.data!.manifest_sha256,role:'result',locator:{kind:'object'}}],config:{...d.config,result_source_id:resultInput.data!.id,...(resultInput.data!.summary.topic_method?{figure_type:'topic_'+String(resultInput.data!.summary.topic_method)}:{})}}))}>{t('采用当前固定结果作为绘图来源')}</button>}
-<InsightSources projectId={projectId} active={active} value={draft.sources} onChange={selectSources}/>
+ {singleCellEnrichment?<><DataDetails title="本次固定来源" value={draft.sources.filter(source=>source.role==='result')}/>
+  <InsightSources projectId={projectId} active={active} bulkResources value={draft.sources.filter(source=>source.role!=='result')} onChange={selectEnrichmentResources}/></>:
+  <InsightSources projectId={projectId} active={active} value={draft.sources} onChange={selectSources}
+   processedAssay={singleCellDifferential||requestedTrajectory?'single_cell':undefined}/>}
     </>}
    </div>
    <div hidden={step!=='config'}>
@@ -158,7 +184,7 @@ export default function InsightPlanEditor({projectId,kind,active,initial,initial
     {reviewedBulk&&sameSaved&&savedPlan?.decision==='confirmed'&&!draft.config.continuous_transform&&Array.isArray(draft.config.covariates)&&draft.config.covariates.some((c: {kind?:string})=>c.kind==='continuous')&&<div className="warning-panel"><p>{t('此版本的连续协变量采用旧版缩放。重新预检并确认可生成使用新版缩放的方案。')}</p><button type="button" onClick={()=>change({...draft.config,continuous_transform:'centered_range_v2'})}>{t('重新审核新版缩放')}</button></div>}
     {initial&&initial.current_revision!==initial.revision&&<p role="status">{t('当前查看历史版本；保存需要先核对最新版本，不能隐式覆盖。')}</p>}
     <p>{t(runnable?'来源和参数未变，将使用已保存的分析设置。':bulk?'先预检并核对最终设计，再确认模型。确认后可单独启动计算。':bulkEnrichment?'先预检固定来源与资源兼容性，再运行富集。':bulkFixed?'按当前设置生成新版本，只读取已保存的来源。':'开始分析时会先检查并保存本次设置，已有结果保留。')}</p>
-    {bulkEnrichment&&<><BulkEnrichmentBinding config={draft.config} source={enrichmentSource} result={enrichmentInput.data} eligibleBackground={eligibleBackground}/><ReadState {...enrichmentInput}/></>}
+    {bulkEnrichment&&<><BulkEnrichmentBinding config={draft.config} source={bulkEnrichmentSource} result={enrichmentInput.data} eligibleBackground={eligibleBackground}/><ReadState {...enrichmentInput}/></>}
     <div className="intake-actions">
      <button type="button" disabled={!canSave} onClick={()=>void check()}>{t('预检当前设计')}</button>
      {bulk&&<button type="button" disabled={!allowNewAnalysis||!validPreview||runnable||reviewedBulk&&!currentPreview?.reviewed_design_sha256} onClick={()=>void confirmBulk()}>{t('确认并保存 Bulk 模型')}</button>}
