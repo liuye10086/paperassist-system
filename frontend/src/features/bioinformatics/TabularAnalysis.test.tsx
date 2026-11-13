@@ -1,5 +1,5 @@
 import {afterEach,expect,it,vi} from 'vitest'
-import {cleanup,fireEvent,render,screen,waitFor} from '@testing-library/react'
+import {cleanup,fireEvent,render,screen,waitFor,within} from '@testing-library/react'
 import {apiFetch} from '../../shared/api/client'
 import BioNewAnalysis from './BioNewAnalysis'
 import BioAnalysisSetup from './BioAnalysisSetup'
@@ -62,7 +62,7 @@ it('shows sample QC, unavailable PCA and the actual quantitative layers without 
  render(<BioAnalysisResult projectId="p1" processedId="processed1" tab="qc" onNavigate={()=>{}}/>)
  await screen.findByText('定量分析处理结果')
  expect(await screen.findByText('S1')).toBeTruthy()
- expect(screen.getByText('insufficient_complete_features')).toBeTruthy()
+ expect(screen.getAllByText('完整特征数量不足').length).toBeGreaterThan(0)
  const options=Array.from((screen.getByLabelText('有界矩阵数据层') as HTMLSelectElement).options).map(o=>o.value)
  expect(options).toEqual(['analysis','display'])
  expect(screen.queryByText('空间与人工注释')).toBeNull()
@@ -83,8 +83,9 @@ it('shows B03 QC metrics, explicit normalized/VST layers, heatmap outputs and ma
  expect(screen.getAllByText('总计数').length).toBe(2)
  expect(screen.getAllByText('检测特征数').length).toBe(2)
  expect(screen.getAllByText('零比例').length).toBe(2)
- expect(screen.getAllByText('表达分布').length).toBeGreaterThanOrEqual(2)
- expect(screen.getByText('VST')).toBeTruthy()
+ expect(screen.getByText('表达分布')).toBeTruthy()
+ expect(screen.getByText('样本表达分布图')).toBeTruthy()
+ expect(within(screen.getByRole('region',{name:'矩阵层语义'})).getByText('VST')).toBeTruthy()
  expect(screen.getByText('样本相关性热图')).toBeTruthy()
  expect(screen.getByText('疑似异常样本')).toBeTruthy()
  fireEvent.click(screen.getByRole('button',{name:'进入人工排除'}))
@@ -101,7 +102,7 @@ it('opens the paginated sample QC table for a result with a compact Bulk summary
  vi.mocked(apiFetch).mockImplementation(async(url)=>Response.json(String(url).includes('/tables/')
   ?{key:'sample_qc',columns:['sample_id','total_counts'],items:[{sample_id:'S1',total_counts:123}],total:1,page:1,page_size:50}:bulk))
  render(<BioAnalysisResult projectId="p1" processedId="processed1" tab="qc" onNavigate={()=>{}}/>)
- expect(await screen.findByText('样本质控明细保存在 sample_qc 表中，可分页查看。')).toBeTruthy()
+ expect(await screen.findByText('可在结果表中分页查看样本质控明细。')).toBeTruthy()
  expect(await screen.findByText('123')).toBeTruthy()
  expect(vi.mocked(apiFetch).mock.calls.some(call=>String(call[0]).includes('/tables/sample_qc?'))).toBe(true)
 })
@@ -116,7 +117,7 @@ it('opens a fixed quantitative figure deep link with its source and downloads',a
  const figure={id:'figure-tabular',root_id:'figure-root',version:1,processed_source:processed.source,annotation_version_id:null,config:{kind:'qc_missing',title:'Sample missing values',output_language:'en'},manifest_sha256:'c'.repeat(64),members:[]}
  vi.mocked(apiFetch).mockImplementation(async(url)=>Response.json(String(url).includes('/bio-figures/')?figure:processed))
  const nav=vi.fn();render(<BioFigureDetail projectId="p1" figureId="figure-tabular" onNavigate={nav}/>)
- await screen.findByText('此图来自固定定量处理版本。')
+ await screen.findByText('此图来自已保存的定量分析。')
  fireEvent.click(screen.getByText('查看来源处理版本与方法'))
  expect(nav).toHaveBeenCalledWith({view:'bio-result',fileId:'',processedId:'processed1',tab:'methods'})
  expect(screen.queryByText('空间基因表达')).toBeNull()
@@ -176,7 +177,7 @@ it('selects a readable experimental design version and sends its exact internal 
  render(<BioAnalysisSetup projectId="p1" setupId="setup1" onNavigate={()=>{}}/>)
  fireEvent.click(await screen.findByRole('button',{name:'实验设计'}))
  const design=await screen.findByLabelText('关联实验设计')
- await screen.findByRole('option',{name:'版本 3 · 已确认'})
+ await screen.findByRole('option',{name:/已确认 · /})
  expect(screen.queryByText('design-internal-uuid')).toBeNull()
  fireEvent.change(design,{target:{value:'design-internal-uuid'}})
  fireEvent.click(screen.getByRole('button',{name:'保存新配方版本'}))

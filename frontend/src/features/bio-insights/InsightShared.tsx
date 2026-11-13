@@ -1,6 +1,7 @@
 import ReadableDetails from '../../shared/components/ReadableDetails'
 import type {ReactNode} from 'react'
-import {useI18n} from '../../shared/i18n'
+import {apiError,useI18n} from '../../shared/i18n'
+import {isTechnicalResultFile,resultFileName} from '../bioinformatics/bioPresentation'
 import {displayRaw,text,number,strings,split,qOptions} from './state'
 import type {Config,Member,Source,Task} from './contracts'
 import ProjectDownloadLink from '../../shared/components/ProjectDownloadLink'
@@ -15,11 +16,24 @@ export function SourceChoice({config,onChange,sources,name,label,role,multiple=f
 
 export function QFields({config,onChange}:Pick<ConfigProps,'config'|'onChange'>){return <><ConfigField {...{config,onChange}} name="q_column" label="q 值口径" options={qOptions}/><ConfigField {...{config,onChange}} name="q_threshold" label="q 阈值" type="number" min={0} max={1} step={0.001}/><ConfigField {...{config,onChange}} name="minimum_absolute_effect" label="最小绝对效应" type="number" min={0} step={0.1}/></>}
 export function DataDetails({title,value}:{title:string;value:unknown}){const{t}=useI18n();return <section className="analysis-detail"><h3>{t(title)}</h3><DataValue value={value}/></section>}
-export function DataValue({value}:{value:unknown}):ReactNode{return <ReadableDetails value={value}/>}
+export function DataValue({value}:{value:unknown}):ReactNode{return <ReadableDetails value={value} readerView/>}
 export function Paging({page,total,size,onPage}:{page:number;total:number;size:number;onPage:(p:number)=>void}){const{t}=useI18n();if(total<=size)return null;return <nav className="analysis-pagination" aria-label={t('结果分页')}><button type="button" disabled={page<=1} onClick={()=>onPage(page-1)}>{t('上一页')}</button> {page} / {Math.max(1,Math.ceil(total/size))} · {total} <button type="button" disabled={page*size>=total} onClick={()=>onPage(page+1)}>{t('下一页')}</button></nav>}
 export function ReadState({loading,error,refresh}:{loading:boolean;error:string;refresh:()=>void}){const{t}=useI18n();return <>{loading&&<p role="status">{t('正在核验固定来源，大文件可能需要数分钟。')}</p>}{error&&<p role="alert">{t(error)} <button type="button" disabled={loading} onClick={refresh}>{t('重新读取')}</button></p>}</>}
 export function IntentState({operation}:{operation:{busy:boolean;unknown:boolean;retryable:boolean;error:string;lookup:()=>Promise<void>;retry:()=>Promise<void>;cancel:()=>void}}){const{t}=useI18n();return <>{operation.busy&&<p role="status">{t('正在核验固定来源，大文件可能需要数分钟。')} <button type="button" onClick={operation.cancel}>{t('取消等待')}</button></p>}{operation.error&&<p role="alert">{t(operation.error)}</p>}{operation.unknown&&<p>{t('请求状态需回查；不会自动重发或重新计算。')} <button type="button" disabled={operation.busy} onClick={()=>void operation.lookup()}>{t('查询原请求')}</button>{operation.retryable&&<button type="button" disabled={operation.busy} onClick={()=>void operation.retry()}>{t('显式重试原请求')}</button>}</p>}</>}
-export function TaskStatus({projectId,task}:{projectId:string;task:Task}){const{t}=useI18n();return <p role="status">{t('后台任务')} · {t(({queued:'待执行',running:'运行中',succeeded:'已完成',failed:'执行失败'} as Record<string,string>)[task.status]??task.status)} · {task.phase} {task.reason_code??task.error_code} · <a href={`#project=${projectId}&section=tasks&task=${task.id}`}>{t('查看任务进度与恢复')}</a></p>}
-export function Members({members}:{projectId:string;members:Member[]}){const{t}=useI18n();return <section><h3>{t('完整结果与重现文件')}</h3><p>{t('下载包含完整结果；页面搜索、分页和 Top N 不改变文件或校正范围。')}</p><ul>{members.filter(m=>m.format.toLowerCase()!=='pdf'&&(!members.some(member=>member.format.toLowerCase()==='pdf')||m.format.toLowerCase()!=='zip')).map(m=><li key={m.id}><ProjectDownloadLink href={m.download_url} filename={`${m.key}.${m.format}`} timeoutMs={RESEARCH_REQUEST_TIMEOUT_MS}>{m.key} · {m.format} · {m.size_bytes} bytes</ProjectDownloadLink>{m.format==='png'&&<ManuscriptImage url={m.download_url} title={m.key} timeoutMs={RESEARCH_REQUEST_TIMEOUT_MS}/>}</li>)}</ul></section>}
+const taskLabels:Record<string,string>={queued:'待执行',running:'运行中',succeeded:'已完成',failed:'执行失败',cancelled:'已取消',paused:'已暂停',waiting_confirmation:'待确认',waiting_input:'待补充资料'}
+export function TaskStatus({projectId,task}:{projectId:string;task:Task}){
+ const{t}=useI18n()
+ const code=task.reason_code??task.error_code
+ return <p role="status">{t('后台任务')} · {t(taskLabels[task.status]??'状态待核对')}
+  {code&&' · '+t(apiError({code},'请查看任务详情。'))} · <a href={`#project=${projectId}&section=tasks&task=${task.id}`}>{t('查看任务进度与恢复')}</a></p>
+}
+export function Members({members,figureKind}:{projectId:string;members:Member[];figureKind?:string}){
+ const{t}=useI18n()
+ const files=members.filter(m=>!isTechnicalResultFile(m.key,m.format)&&m.format.toLowerCase()!=='pdf'&&(!members.some(member=>member.format.toLowerCase()==='pdf')||m.format.toLowerCase()!=='zip'))
+ return <section><h3>{t('结果文件')}</h3><p>{t('下载包含完整结果；页面搜索、分页和 Top N 不改变文件或校正范围。')}</p><ul>{files.map(m=>{
+  const name=resultFileName(m,t,figureKind)
+  return <li key={m.id}><ProjectDownloadLink href={m.download_url} filename={name} timeoutMs={RESEARCH_REQUEST_TIMEOUT_MS}>{name}</ProjectDownloadLink>{m.format==='png'&&<ManuscriptImage url={m.download_url} title={name} timeoutMs={RESEARCH_REQUEST_TIMEOUT_MS}/>}</li>
+ })}</ul></section>
+}
 
 export function DesignUnits({value,cell=false,singleCondition=false}:{value:unknown;cell?:boolean;singleCondition?:boolean}){const{t}=useI18n(),units=Array.isArray(value)?value as Record<string,unknown>[]:[],sample=units.some(row=>row.observation_level==='sample'),columns=singleCondition?[['denominator','条件'],['n_denominator','实际供者 n'],['spots_denominator','实际细胞 n']]:sample?[['contrast_id','比较 ID'],['observation_level','观察单位'],['n_numerator','分子组样本数'],['n_denominator','分母组样本数'],['biological_units_numerator','分子组生物学单位数'],['biological_units_denominator','分母组生物学单位数'],['group_sizes','各组有效样本'],['complete_pairs','完整样本对'],['design_rank','设计秩'],['residual_degrees_freedom','残差自由度']]:[['contrast_id','比较 ID'],['observation_level','观察单位'],['n_numerator',cell?'分子组供者 n':'分子组重复数'],['n_denominator',cell?'分母组供者 n':'分母组重复数'],['spots_numerator',cell?'分子组细胞 n':'分子组 spot 数'],['spots_denominator',cell?'分母组细胞 n':'分母组 spot 数'],['complete_pairs','完整供体对'],['design_rank','设计秩'],['residual_degrees_freedom','残差自由度']];return units.length>0?<div className="field-table-scroll"><table className="field-table" aria-label={t('实际统计单位与重复数')}><thead><tr>{columns.map(([key,label])=><th key={key}>{t(label)}</th>)}</tr></thead><tbody>{units.map((row,i)=><tr key={i}>{columns.map(([key])=><td key={key}>{displayRaw(row[key])}</td>)}</tr>)}</tbody></table></div>:null}

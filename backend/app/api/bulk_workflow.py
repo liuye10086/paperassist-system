@@ -3,6 +3,7 @@ import tempfile
 import json
 import os
 from typing import Literal
+from urllib.parse import quote
 
 from app.domain.bio_insights.bulk_delivery_cache import cache_for, heavy_slot
 from app.domain.bioinformatics.contracts import digest
@@ -74,7 +75,7 @@ def checked_facts(request, facts):
 
 def delivery_headers(filename, facts):
     return {
-        'Content-Disposition': f'attachment; filename="{filename}"',
+        'Content-Disposition': "attachment; filename*=UTF-8''" + quote(filename, safe=''),
         'X-Bulk-Facts-SHA256': facts['facts_digest'],
         'Cache-Control': 'private, no-store',
         'X-Content-Type-Options': 'nosniff',
@@ -97,7 +98,7 @@ def prepared_artifact(project, store, request, kind):
     checked_facts(request, facts)
     narrative = load_bulk_cached_narrative(store.directory, project, facts['facts_digest'],
                                            'zh-CN' if facts['language'] == 'zh' else 'en')
-    key = digest([facts['facts_digest'], narrative])
+    key = digest([facts['facts_digest'], narrative, 'reader-report'])
     def word(folder):
         (folder / 'payload').write_bytes(service.docx(project, facts, verified_contrasts=True))
         return dict(facts_digest=facts['facts_digest'], request=request.model_dump(mode='json'))
@@ -132,7 +133,7 @@ def open_artifact(entry):
 
 def artifact_response(entry, kind, *, handle=None):
     metadata = entry['metadata']
-    headers = delivery_headers('bulk-rna-seq-report.docx' if kind == 'word' else 'bulk-rna-seq-reproduction.zip', metadata)
+    headers = delivery_headers('转录组学分析报告.docx' if kind == 'word' else '转录组学分析复现资料.zip', metadata)
     if kind == 'archive':
         headers['X-Reproducibility-Manifest-SHA256'] = metadata['manifest_sha256']
         headers['X-Analysis-Inputs-Self-Contained'] = str(metadata['analysis_inputs_self_contained']).lower()
@@ -202,6 +203,7 @@ def prepared_word_for_delivery(project, store, artifact_id, facts_digest):
     from app.adapters.research_results_store import invalid as delivery_error
     from app.domain.delivery_packages.contracts import MAX_DELIVERY_BYTES
     from app.domain.delivery_packages.native_artifacts import NativeArtifact
+    from app.domain.delivery_packages.reader_files import native_filename
 
     with heavy_slot(store, project):
         _, handle, facts = read_prepared_artifact(project, 'word', artifact_id, store)
@@ -222,5 +224,5 @@ def prepared_word_for_delivery(project, store, artifact_id, facts_digest):
                       facts_digest=facts_digest, artifact_id=artifact_id,
                       language='zh-CN' if facts['language'] == 'zh' else 'en',
                       source_file_ids=sorted(source_files), references=related, limitations=facts['limitations'])
-    filename = 'bulk-rna-seq-report-' + facts_digest[:12] + '.docx'
+    filename = native_filename({'kind': 'bulk_word'})
     return NativeArtifact(filename, 'docx', content, sha256(content).hexdigest(), provenance)

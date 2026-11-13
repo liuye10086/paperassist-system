@@ -23,7 +23,7 @@ type Props = {
   files:ProjectFile[]
   outputLanguage?:'zh-CN'|'en'
   onNavigate:(navigation:AnalysisNavigation)=>void
-  onUpload:()=>void
+  onUpload?:()=>void
   deliveryTarget?:NativeDeliveryTarget
 }
 
@@ -65,7 +65,7 @@ export default function BulkWorkflowWorkspace({projectId,navigation,active,allow
     {stage&&<StageVersions {...{projectId,view,stage,onNavigate}}/>}
     <div className="intake-actions">
       {view==='data'&&<>
-        <button type="button" onClick={onUpload}>{t('上传 counts 矩阵与样本表')}</button>
+        {onUpload && <button type="button" onClick={onUpload}>{t('上传 counts 矩阵与样本表')}</button>}
         <button type="button" onClick={()=>onNavigate({view:'bio-datasets',fileId:'',bulkView:'data'})}>{t('导入并核对 Bulk 矩阵')}</button>
       </>}
       {view==='qc'&&dataStage?.refs.dataset_id&&dataStage.refs.dataset_version_id&&allowNewAnalysis&&
@@ -108,7 +108,7 @@ function StageVersions({projectId,view,stage,onNavigate}:{
     <h3>{t('当前流程状态')} · {t(statusLabel(stage))}</h3>
     <VersionFreshness stale={stage.stale} reasons={stage.stale_reasons}/>
     {current?.label&&<p>{current.label}</p>}
-    {currentId&&<p>{t('当前流程版本')} <code>{currentId}</code></p>}
+    {current?.created_at&&<p>{t('记录时间')} · <time dateTime={current.created_at}>{new Date(current.created_at).toLocaleString(locale)}</time></p>}
     <Outcome reason={stage.reason} errorCode={current?.error_code}/>
     {stage.status==='dependency_blocked'&&stage.depends_on.length>0&&<div className="intake-actions">
       {stage.depends_on.map(key=><button type="button" key={key} onClick={()=>onNavigate(bulkRoute(key))}>{t(bulkWorkflowLabels[key])}</button>)}
@@ -121,7 +121,7 @@ function StageVersions({projectId,view,stage,onNavigate}:{
       </li>)}</ul>
     </details>}
     {view==='qc'&&stage.reusable_processed_refs?.processed_version_id&&<>
-      <p>{t('可复用质控版本')} · <code>{stage.reusable_processed_refs.processed_version_id}</code></p>
+      <p>{t('已有可继续使用的质控结果。')}</p>
       <VersionActions {...{projectId,view,onNavigate}} refs={stage.reusable_processed_refs}/>
     </>}
     {history.length>0&&<details className="bulk-stage-history">
@@ -130,7 +130,6 @@ function StageVersions({projectId,view,stage,onNavigate}:{
         <strong>{item.label||t(workflowItemLabels[item.kind]??item.kind)}</strong>
         {' · '}{t(statusLabel(item))}
         {item.created_at&&<> · <time dateTime={item.created_at}>{new Date(item.created_at).toLocaleString(locale)}</time></>}
-        <p><code>{versionKey(item.refs)}</code></p>
         <VersionFreshness stale={item.stale} reasons={item.stale_reasons} historical/>
         <Outcome reason={item.reason} errorCode={item.error_code}/>
         <VersionActions {...{projectId,view,onNavigate}} refs={item.refs}/>
@@ -141,7 +140,7 @@ function StageVersions({projectId,view,stage,onNavigate}:{
 
 function Outcome({reason,errorCode}:{reason?:string|null;errorCode?:string|null}) {
   const {t}=useI18n()
-  if(errorCode) return <p role="status">{t(apiError({code:errorCode},'执行失败'))} · <code>{errorCode}</code></p>
+  if(errorCode) return <p role="status">{t(apiError({code:errorCode},'执行失败'))}</p>
   return reason?<p>{t(bulkEnrichmentReason(reason))}</p>:null
 }
 
@@ -150,7 +149,7 @@ function VersionFreshness({stale,reasons,historical=false}:{stale:boolean;reason
   if(!stale) return null
   return <div className="warning-panel"><p>{t(historical?'此历史版本使用旧依赖，固定结果仍可读取。':'当前流程已过期，原固定版本仍可读取。')}</p>
     {reasons.length>0&&<ul>{reasons.map(reason=><li key={`${reason.kind}:${reason.version_id}`}>
-      {t(staleLabels[reason.kind]??reason.kind)} · <code>{reason.version_id}</code>{reason.current_version_id&&<> → <code>{reason.current_version_id}</code></>}
+      {t(staleLabels[reason.kind]??'分析来源已变更')}
     </li>)}</ul>}
   </div>
 }

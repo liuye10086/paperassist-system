@@ -11,6 +11,24 @@ METHOD_PRESENTATION_VERSION = 'bio_insight_readable_v1'
 KINDS = {'integration', 'comparison', 'ora', 'gsea_prerank', 'candidate', 'figure', 'result_import'}
 BULK_IDENTITIES = {'observation_keys', 'excluded_observations', 'feature_ids',
                    'background_gene_ids', 'foreground_gene_ids', 'excluded_donors','sample_keys','excluded_samples'}
+READER_INTERNAL_FIELDS = {'id', 'schema_version', 'workflow_version', 'engine_version',
+    'renderer_version', 'parser_version', 'code_digest', 'environment_digest', 'software_versions',
+    'tool_versions', 'tool_version', 'version', 'revision', 'reference_version',
+    'source_id', 'source_ids', 'file_id', 'task_id', 'run_id', 'member_id', 'member_key',
+    'primary_result_source_id', 'input_identity', 'row_key', 'provenance'}
+
+
+def reader_internal_field(key):
+    return (key in READER_INTERNAL_FIELDS or key.endswith(('_sha256', '_digest', '_version_id', '_version_ids'))
+            or key in ('sha256', 'digest'))
+
+
+def reader_method_value(value):
+    if not isinstance(value, str):
+        return value
+    if value.startswith('PyDESeq2_') and 'Wald' in value:
+        return 'PyDESeq2 Wald'
+    return value
 
 
 def canonical(value):
@@ -47,33 +65,35 @@ def _value(value):
     return str(value)
 
 
-def _details(value, en, path=''):
+def _details(value, en, path='', *, reader=False):
     """Flatten settings, retaining every non-bulk leaf and list order."""
     if isinstance(value, dict):
         lines = []
         for key, item in sorted(value.items()):
+            if reader and reader_internal_field(key):continue
             label = path + '.' + key if path else key
             if key in BULK_IDENTITIES and isinstance(item, list):
                 # A reference plus count/hash is exact and does not expose a
                 # large barcode/gene vector as a paragraph or spreadsheet cell.
                 label = label.replace('observation_keys', 'spot membership' if en else 'spot 成员')
-                lines.append(f'{label}: {len(item)}; SHA256 {hashlib.sha256(canonical(item).encode()).hexdigest()}')
+                summary=f'{label}: {len(item)}'
+                lines.append(summary if reader else summary+f'; SHA256 {hashlib.sha256(canonical(item).encode()).hexdigest()}')
                 if key in ('excluded_observations', 'excluded_donors'):
                     reasons = {}
                     for entry in item:
                         reason = entry.get('reason', 'NA') if isinstance(entry, dict) else 'NA'
                         reasons[reason] = reasons.get(reason, 0) + 1
-                    lines.extend(_details(reasons, en, label + '.reasons'))
+                    lines.extend(_details(reasons, en, label + '.reasons',reader=reader))
             else:
-                lines.extend(_details(item, en, label))
-        return lines or [path + ': {}']
+                lines.extend(_details(item, en, label,reader=reader))
+        return lines if reader else lines or [path + ': {}']
     if isinstance(value, list):
         if not value:
             return [path + ': []']
         if all(not isinstance(item, (dict, list)) for item in value):
             return [path + ': ' + ', '.join(_value(item) for item in value)]
-        return [line for i, item in enumerate(value, 1) for line in _details(item, en, f'{path}[{i}]')]
-    return [path + ': ' + _value(value)]
+        return [line for i, item in enumerate(value, 1) for line in _details(item, en, f'{path}[{i}]',reader=reader)]
+    return [path + ': ' + _value(reader_method_value(value) if reader else value)]
 
 
 def _paragraphs(lines, label):
@@ -103,7 +123,7 @@ def _sample_groups(groups):
     return [dict(label=group.get('label'),selected_samples=len(group.get('sample_keys',[]))) for group in groups]
 
 
-def _qpcr_method(method, language, *, reference, duplicate_of=None):
+def _qpcr_method(method, language, *, reference, duplicate_of=None, reader=False):
     """Present only the frozen qPCR contract; no inferred n or legacy spot groups."""
     en=language=='en';p=method['parameters'];config=p['frozen_config'];source=method['source']
     title='qPCR relative quantification' if en else 'qPCR 相对定量'
@@ -111,7 +131,7 @@ def _qpcr_method(method, language, *, reference, duplicate_of=None):
     pointer=('Complete fixed parameters: ' if en else '完整固定参数：')+reference
     if duplicate_of is not None:
         text=f'Same scientific method as method block {duplicate_of}.' if en else f'科学方法与方法块 {duplicate_of} 相同。'
-        return dict(title=title,paragraphs=[text,origin,pointer])
+        return dict(title=title,paragraphs=[text] if reader else [text,origin,pointer])
     paragraphs=[('Executed: ' if en else '已执行：')+_value(method['executed'])]
     paragraphs.append('Biological inference units use the recorded biological_unit_id and pairing field. Included technical wells are averaged within sample x assay x plate; technical wells do not increase biological n. Effective biological n and complete-pair n are recorded in comparison_results; well counts and missingness are in qpcr_well_audit and qpcr_technical_summary, and are not inferred from configuration membership.' if en else
         '生物学推断按记录的 biological_unit_id 及配对字段识别单位。纳入的技术孔在样本×assay×板内先平均 Cq；技术孔不增加生物学 n。实际生物学 n 和完整对 n 见 comparison_results，逐孔数量及缺失见 qpcr_well_audit 与 qpcr_technical_summary；不从配置成员数推算实际 n。')
@@ -141,36 +161,43 @@ def _qpcr_method(method, language, *, reference, duplicate_of=None):
     values=dict(config);values.update({k:v for k,v in p.items() if k not in ('config','recipe','frozen_config')})
     def fields(zh,english,keys,data=None):
         selected=_selected(values if data is None else data,keys,missing)
-        paragraphs.extend(_paragraphs(_details(selected,en),english if en else zh))
+        paragraphs.extend(_paragraphs(_details(selected,en,reader=reader),english if en else zh))
     fields('实际单位与设计','Recorded units and design',('inference_unit','observation_level','design','statistical_method','statistical_scale','independence_confirmed','independence_basis'))
     fields('原始字段角色','Frozen column roles',('sample_id','biological_unit_id','technical_replicate','plate_id','pair_id','target_id','cq'),config.get('columns',{}))
     fields('定量、内参与校准','Quantification, references and calibration',('quantification','targets','references','calibrator_conditions','calibrator_sample_ids','technical_aggregation','reference_aggregation','calibrator_aggregation','reference_basis'))
     fields('效率依据','Efficiency basis',('equal_efficiency_confirmed','equal_efficiency_basis') if quantification=='delta_delta_cq' else ('efficiency_factors','efficiencies'))
     fields('分板及配对策略','Plate and pairing policy',('cross_plate','cross_plate_basis','paired_plate_policy','paired_plate_basis','paired_plate_inference'))
     for contrast in config.get('contrasts',[]):
-        paragraphs.extend(_paragraphs(_details(_selected(contrast,('contrast_id','numerator','denominator'),missing),en),'Frozen contrast' if en else '冻结对比'))
+        paragraphs.extend(_paragraphs(_details(_selected(contrast,('contrast_id','numerator','denominator'),missing),en,reader=reader),'Frozen contrast' if en else '冻结对比'))
     fields('检验族、区间与缺失','Test family, intervals and missingness',('direction','correction','family_contrast_ids','interval','missing','figures'))
     original=config.get('original_checks',[])
     fields('原作者核对身份','Original-author check identity',('original_check_count','original_report_sources'),dict(original_check_count=len(original),original_report_sources=list(dict.fromkeys(item['original_report_source'] for item in original if item.get('original_report_source')))))
     fields('来源、文献与限制','Source, references and limits',('input_identity','method_references','limitations','warnings'))
-    if method.get('software'):fields('执行软件','Execution software',tuple(method['software']),method['software'])
-    paragraphs.extend([origin,pointer])
+    if not reader:
+        if method.get('software'):fields('执行软件','Execution software',tuple(method['software']),method['software'])
+        paragraphs.extend([origin,pointer])
     return dict(title=title,paragraphs=paragraphs)
 
 
-def present_method(method, language, *, reference, duplicate_of=None):
+def present_method(method, language, *, reference='', duplicate_of=None, reader=False):
     """Return title/paragraphs for recognized methods only; no input mutation."""
     if not insight_method(method):
         return None
     en = language == 'en'; p = method['parameters']; config = p['frozen_config']; kind = config['kind']
     if kind=='candidate' and config.get('schema_version')==2:
-        return dict(title='Typed external evidence matrix' if en else '类型化外部证据与固定候选矩阵',paragraphs=[('Complete candidate by evidence cross product; source statements, locator matching, human review and independent support remain separate. Matrix computation never upgrades a biological claim.' if en else '输出候选×证据完整交叉表。原文陈述、原件定位核对、人工核对与独立数据支持分开保存；系统整理矩阵不升级原文生物学断言。'),('Unknown is not negative or zero. Species, conditions and disease descendant categories are retained; mutation association does not establish knockout mechanisms.' if en else '未知不等于阴性或零分；保留物种、组织、条件和疾病后代类别差异，突变关联不等于敲除机制。'),('Independent support requires actual fixed result/run, independent material/design, matching object/control and a complete donor overlap audit. Different dependency groups alone prove no independence.' if en else '独立支持必须同时核实实际 run 与固定结果、独立材料和设计、对象与对照以及完整供体重叠核查；不同依赖组本身不证明独立。'),json.dumps(p.get('dependency_groups',{}),ensure_ascii=False),json.dumps(p.get('gaps',[]),ensure_ascii=False),str(reference)])
+        paragraphs=[('Complete candidate by evidence cross product; source statements, locator matching, human review and independent support remain separate. Matrix computation never upgrades a biological claim.' if en else '输出候选×证据完整交叉表。原文陈述、原件定位核对、人工核对与独立数据支持分开保存；系统整理矩阵不升级原文生物学断言。'),('Unknown is not negative or zero. Species, conditions and disease descendant categories are retained; mutation association does not establish knockout mechanisms.' if en else '未知不等于阴性或零分；保留物种、组织、条件和疾病后代类别差异，突变关联不等于敲除机制。'),('Independent support requires actual fixed result/run, independent material/design, matching object/control and a complete donor overlap audit. Different dependency groups alone prove no independence.' if en else '独立支持必须同时核实实际 run 与固定结果、独立材料和设计、对象与对照以及完整供体重叠核查；不同依赖组本身不证明独立。')]
+        if not reader:paragraphs.extend([json.dumps(p.get('dependency_groups',{}),ensure_ascii=False),json.dumps(p.get('gaps',[]),ensure_ascii=False),str(reference)])
+        return dict(title='Typed external evidence matrix' if en else '类型化外部证据与固定候选矩阵',paragraphs=paragraphs)
     if kind=='integration':
-        return dict(title='Frozen cross-data integration' if en else '冻结对应与跨数据整合',paragraphs=[('Saved quantitative layers and predeclared pairs; no upstream refit or added transformation.' if en else '复用已保存定量层，预声明特征对，不重跑上游差异、不增加变换；保留全部匹配与排除记录。'),('Descriptive mode computes coefficients only; P/q and independent donor n are NA. Correlation is not causation.' if en else '描述性模式只计算系数；P/q 和独立供体 n 为 NA，matched observations 不代表已验证独立供体。相关不等于因果。'),json.dumps(config,ensure_ascii=False),str(reference)])
+        paragraphs=[('Saved quantitative layers and predeclared pairs; no upstream refit or added transformation.' if en else '复用已保存定量层，预声明特征对，不重跑上游差异、不增加变换；保留全部匹配与排除记录。'),('Descriptive mode computes coefficients only; P/q and independent donor n are NA. Correlation is not causation.' if en else '描述性模式只计算系数；P/q 和独立供体 n 为 NA，matched observations 不代表已验证独立供体。相关不等于因果。')]
+        if not reader:paragraphs.extend([json.dumps(config,ensure_ascii=False),str(reference)])
+        return dict(title='Frozen cross-data integration' if en else '冻结对应与跨数据整合',paragraphs=paragraphs)
     if kind=='comparison' and config.get('schema_version')==3 and config.get('mode')=='qpcr':
-        return _qpcr_method(method,language,reference=reference,duplicate_of=duplicate_of)
+        return _qpcr_method(method,language,reference=reference,duplicate_of=duplicate_of,reader=reader)
     if kind=='comparison' and config.get('schema_version')==4:
-        return dict(title='Microbiome diversity' if en else '微生物组组成与多样性',paragraphs=[str(p.get('chinese_methods','')),str(p.get('distance','')),str(p.get('ordination','')),str(p.get('limitations','')),json.dumps(p.get('beta',{}),ensure_ascii=False),json.dumps(p.get('source_semantics',{}),ensure_ascii=False),str(reference)])
+        paragraphs=[str(p.get(key,'')) for key in ('chinese_methods','distance','ordination','limitations')]
+        if not reader:paragraphs.extend([json.dumps(p.get('beta',{}),ensure_ascii=False),json.dumps(p.get('source_semantics',{}),ensure_ascii=False),str(reference)])
+        return dict(title='Microbiome diversity' if en else '微生物组组成与多样性',paragraphs=paragraphs)
     names = {
         'comparison': ('差异比较', 'Differential comparison'),
         'ora': ('过度富集分析', 'Over-representation analysis'),
@@ -185,7 +212,7 @@ def present_method(method, language, *, reference, duplicate_of=None):
     pointer = ('Complete fixed parameters: ' if en else '完整固定参数：') + reference
     if duplicate_of is not None:
         text = (f'Same scientific method as method block {duplicate_of}.' if en else f'科学方法与方法块 {duplicate_of} 相同。')
-        return dict(title=title, paragraphs=[text, origin, pointer])
+        return dict(title=title, paragraphs=[text] if reader else [text, origin, pointer])
     paragraphs = [('Executed: ' if en else '已执行：') + _value(method['executed'])]
     scopes = [p.get('inference_scope'), *p.get('source_inference_scopes', []), *p.get('upstream_inference_scopes', [])]
     if config.get('mode') == 'spot_exploratory' or 'spot_exploratory' in scopes:
@@ -231,7 +258,7 @@ def present_method(method, language, *, reference, duplicate_of=None):
     missing='not recorded; see fixed result tables' if en else '未记录；见固定结果表'
     values=dict(config);values.update({k:v for k,v in p.items() if k not in ('config','recipe','frozen_config')})
     def add(zh,english,data):
-        if data:paragraphs.extend(_paragraphs(_details(data,en),english if en else zh))
+        if data:paragraphs.extend(_paragraphs(_details(data,en,reader=reader),english if en else zh))
     def fields(zh,english,keys,data=None):
         add(zh,english,_selected(values if data is None else data,keys,missing))
     common=('inference_scope','source_inference_scopes','provenance','source_data_driven_grouping')
@@ -349,9 +376,20 @@ def present_method(method, language, *, reference, duplicate_of=None):
         for item in upstream:
             add('上游比较口径','Upstream comparison',dict(inference_scope=item.get('inference_scope',missing),
                 **{k:item.get('methods',{})[k] for k in ('name','correction','direction') if k in item.get('methods',{})}))
-    if method.get('software',{}).get('engine_version'):
-        add('执行软件','Execution software',{'engine_version':method['software']['engine_version']})
-    paragraphs.append('Only applicable scientific settings are summarized here. Full settings, resource descriptions, identities and software digests remain in the fixed method record and the referenced machine-readable parameters.' if en else
-                      '此处汇总适用的科学设置；完整参数、资源说明、身份列表与软件摘要仍保留在固定方法记录及下列机器可读引用中。')
-    paragraphs.extend([origin, pointer])
+    if not reader:
+        if method.get('software',{}).get('engine_version'):
+            add('执行软件','Execution software',{'engine_version':method['software']['engine_version']})
+        paragraphs.append('Only applicable scientific settings are summarized here. Full settings, resource descriptions, identities and software digests remain in the fixed method record and the referenced machine-readable parameters.' if en else
+                          '此处汇总适用的科学设置；完整参数、资源说明、身份列表与软件摘要仍保留在固定方法记录及下列机器可读引用中。')
+        paragraphs.extend([origin, pointer])
     return dict(title=title, paragraphs=paragraphs)
+
+
+def reader_method(method, language, *, duplicate_of=None):
+    shown=present_method(method,language,reader=True,duplicate_of=duplicate_of)
+    if shown is not None:return shown
+    en=language=='en'
+    status=('Performed' if en else '已执行') if method['executed'] else ('Not performed' if en else '未执行')
+    paragraphs=[text for text in (method.get('description'),status) if text]
+    paragraphs.extend(_paragraphs(_details(method.get('parameters',{}),en,reader=True),'Parameters' if en else '分析参数'))
+    return dict(title=method['title'],paragraphs=paragraphs)

@@ -1,4 +1,5 @@
 """Render a deterministic Bulk RNA-seq report from validated facts and saved PNGs."""
+from datetime import datetime
 from io import BytesIO
 
 from docx.enum.text import WD_ALIGN_PARAGRAPH
@@ -62,10 +63,10 @@ def _quality_control(doc, facts, local):
     included = {(sample['processed_version_id'], sample['sample_id']) for sample in facts['design'].get('samples', [])}
     reasons = {(sample['processed_version_id'], sample['sample_id']): sample['reason']
                for sample in facts['design']['exclusions']}
-    for dataset in facts['qc']['datasets']:
+    for index, dataset in enumerate(facts['qc']['datasets'], 1):
         version = dataset['version_id']
         if len(facts['qc']['datasets']) > 1:
-            doc.add_heading(f"{local('处理版本', 'Processed version')} {version}", 2)
+            doc.add_heading(f"{local('数据集', 'Dataset')} {index}", 2)
         summary = dataset['summary']
         doc.add_paragraph(local(
             f"保留 {summary['retained_observations']} / {summary['raw_observations']} 个样本和 "
@@ -76,7 +77,7 @@ def _quality_control(doc, facts, local):
         mapping = dataset['sample_mapping'] or {}
         source = mapping.get('source', {})
         if source:
-            doc.add_paragraph(f"{local('样本表', 'Sample sheet')} {files.get(source['file_id'], source['file_id'])}")
+            doc.add_paragraph(f"{local('样本表', 'Sample sheet')} {files.get(source['file_id'], '')}".rstrip())
             fields = ' · '.join(f'{key} → {value}' for key, value in mapping.get('mapping', {}).items() if value)
             if fields:
                 doc.add_paragraph(fields)
@@ -102,7 +103,7 @@ def _quality_control(doc, facts, local):
                 doc.add_paragraph(f"{step['key']} · {step['status']} · {_value(step.get('reason'))}")
         for report in dataset['quality_reports']:
             identifier = report['file_id']
-            doc.add_paragraph(f"{local('上游质控材料', 'Upstream QC material')} {files.get(identifier, identifier)}"
+            doc.add_paragraph(f"{local('上游质控材料', 'Upstream QC material')} {files.get(identifier, '')}"
                               f" · {_value(report.get('report_type') or report.get('kind'))}")
 
 
@@ -121,8 +122,8 @@ def _methods(doc, facts, local):
         value = design.get(key) or (local('未登记', 'Unspecified') if key in ('species_taxon_id', 'reference_version') else 'NA')
         doc.add_paragraph(f'{local(*label)}  {value}')
     confirmation = design['confirmation']
-    doc.add_paragraph(f"{local('确认方案版本', 'Reviewed plan version')} {confirmation['plan_version_id']}"
-                      f"  ·  {confirmation['confirmed_at']}")
+    confirmed = datetime.fromisoformat(confirmation['confirmed_at']).strftime('%Y-%m-%d %H:%M:%S')
+    doc.add_paragraph(f"{local('方案确认时间', 'Plan reviewed on')} {confirmed}")
     if design.get('terms'):
         _table(doc, design['terms'], ('term', 'field', 'kind', 'reference_level'),
                (local('模型项', 'Term'), local('字段', 'Field'), local('类型', 'Type'), local('参考水平', 'Reference level')))
@@ -168,7 +169,6 @@ def _comparisons(doc, facts, local):
         if top:
             _table(doc, top, ('rank', 'feature_id', 'symbol', 'primary_effect', 'primary_q', 'direction'),
                    (local('排名', 'Rank'), local('基因 ID', 'Gene ID'), local('基因符号', 'Symbol'), 'log2FC', local('所选 q', 'Selected q'), local('方向', 'Direction')))
-        doc.add_paragraph(candidate['version_id'])
 
 
 def _enrichment(doc, facts, local):
@@ -214,7 +214,6 @@ def _enrichment(doc, facts, local):
             extra = ('GeneRatio', 'BgRatio') if ora else ('es', 'nes')
             _table(doc, result['top_rows'], ('term_id', 'term_name', metric, *extra),
                    (local('条目 ID', 'Term ID'), local('条目名称', 'Term name'), metric, *extra))
-        doc.add_paragraph(result['version_id'])
 
 
 def _figures(doc, facts, images, local):
@@ -236,11 +235,6 @@ def _figures(doc, facts, images, local):
         else:
             doc.add_paragraph(local('此版本未保存可嵌入的 PNG。完整包保留可用格式。',
                                     'This version has no embeddable PNG. The complete package retains available formats.'))
-        source = doc.add_paragraph(f"{local('图件版本', 'Figure version')} {figure['version_id']}  ·  "
-                                   f"{local('来源版本', 'Source version')} {figure['source_version_id']}")
-        source.paragraph_format.space_after = Pt(3)
-        if figure['png']:
-            doc.add_paragraph(f"PNG SHA256 {figure['png']['sha256']}")
         if figure.get('selection'):
             summary = figure['summary']
             prefix = _contrast_label(summary) + ' · ' if 'numerator' in summary and 'denominator' in summary else ''
@@ -258,7 +252,7 @@ def _support(doc, facts, local):
                           else local('单独确认的运行对照', 'Comparison of separately reviewed runs'))
         for key, label in (('baseline', ('基线', 'Baseline')), ('scenario', ('对照', 'Scenario'))):
             side = sensitivity[key]
-            doc.add_paragraph(f"{local(*label)}  {_contrast_label(side)}  ·  {side['result_version_id']}")
+            doc.add_paragraph(f"{local(*label)}  {_contrast_label(side)}")
             doc.add_paragraph(_selection(side['selection'], local))
         doc.add_paragraph(local('入选变化按各侧的 q 值、效应阈值和方向筛选统计。',
                                 'Selection changes use each side’s q value, effect threshold and direction filter.'))
@@ -280,33 +274,22 @@ def _support(doc, facts, local):
     if facts['evidence']:
         doc.add_heading(local('独立计算与实验材料', 'Independent computation and experimental materials'), 1)
     for item in facts['evidence']:
-        source = item.get('filename') or item['source_id']
+        source = item.get('filename') or local('独立分析结果', 'Independent analysis result')
         doc.add_paragraph(f"{source}  ·  {item['classification']}  ·  {item['verification_status']}")
         if item['kind'] == 'independent_analysis':
             doc.add_paragraph(f"{local('生物学独立性状态', 'Biological independence status')} {_value(item.get('independence_status'))}")
             if item.get('shared_processed_source_ids'):
-                doc.add_paragraph(f"{local('共享的处理来源版本', 'Shared processed source versions')} "
-                                  + ', '.join(item['shared_processed_source_ids']))
+                doc.add_paragraph(local('与本次比较共用分析输入。', 'Shares an analysis input with this comparison.'))
         if item.get('note'):
             doc.add_paragraph(item['note'])
-        doc.add_paragraph(f"SHA256 {item['sha256']}")
 
 
 def _references(doc, facts, local):
-    doc.add_heading(local('来源、版本与复现', 'Sources, versions and reproduction'), 1)
-    doc.add_paragraph(f"{local('事实摘要', 'Facts digest')} SHA256 {facts['facts_digest']}")
-    references = facts['references']
-    doc.add_paragraph(f"{local('设计确认摘要', 'Reviewed design digest')} SHA256 {facts['design']['confirmation']['reviewed_design_sha256']}")
+    doc.add_heading(local('资料来源', 'Data sources'), 1)
     for item in facts['qc']['input_files']:
-        doc.add_paragraph(f"{item.get('filename', item['id'])}  ·  {item['id']}  ·  SHA256 {item['sha256']}")
-    for ref in [references['comparison'], *references['processed'], *references['results'], *references['resources']]:
-        doc.add_paragraph(f"{ref.get('kind') or local('处理数据', 'Processed dataset')}  ·  {ref['version_id']}")
-        identity = ref.get('identity', {})
-        version = ref.get('engine_version')
-        doc.add_paragraph(f"SHA256 {ref['manifest_sha256']}" + (f"  ·  {version}" if version else ''))
-        for key in ('environment_digest', 'code_digest', 'lock_sha256'):
-            if identity.get(key):
-                doc.add_paragraph(f"{key} {identity[key]}")
+        if item.get('filename'):
+            doc.add_paragraph(item['filename'])
+    for ref in facts['references']['resources']:
         if ref.get('release'):
             doc.add_paragraph(f"{_value(ref.get('title'))} · {ref['release']} · {ref['namespace']} · Taxon {ref['species_taxon_id']}")
     doc.add_paragraph(local('完整包提供结果表、样本映射、图件、参数、输入清单与复现资料。',
@@ -331,7 +314,6 @@ def build_bulk_insight_report(facts, images, *, narrative=None):
         doc.add_heading(local('辅助解读', 'Reader interpretation'), 1)
         doc.add_paragraph(narrative['narrative']['key_findings'])
         doc.add_paragraph(narrative['narrative']['reader_cautions'])
-        doc.add_paragraph(f"{local('解读摘要', 'Interpretation digest')} SHA256 {narrative['narrative_sha256']}")
     if facts['figures']:
         _figures(doc, facts, images, local)
     doc.add_heading(local('解释边界', 'Interpretation limits'), 1)

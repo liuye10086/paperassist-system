@@ -85,20 +85,30 @@ function UploadContent({projectId,onChanged,registerLeaveGuard,active=true,embed
   finally{if(request.current===c)request.current=null;if(live.current)setBusy(false)}
  }
  const recoveringRegistration=!batch&&!!draft.registration&&unknown
+ const filePicker=<label className="upload-file-picker">
+  {t('选择生信文件')}
+  <input type="file" multiple disabled={busy||registrationLocked} accept=".tar,.tar.gz,.tgz,.gz,.mtx,.tsv,.csv,.xlsx,.txt,.json,.h5,.hdf5,.png,.jpg,.jpeg" onChange={e=>{
+   const next=Array.from(e.target.files??[])
+   if(next.length>10||next.some(file=>file.size===0)){setError('每批最多 10 项，且文件不能为空。');return}
+   setFiles(next);setError('')
+  }}/>
+ </label>
+ const uploadButton=<button type="button" className="button-primary" disabled={busy||!valid||!files.length&&!recoveringRegistration||unknown&&!!batch||!!batch&&!batch.items.some(pending)}
+  onClick={()=>void upload()}>{t(busy?'正在上传':batch?'核对并继续上传':recoveringRegistration&&!files.length?'核对登记结果':embedded?'开始上传':'登记并上传')}</button>
  return <section className="bio-workspace bio-upload">
   {!embedded&&<h3>{t('生信上传与数据包')}</h3>}
   <p>{t(customerView?'上传测序数据包、矩阵或样本信息表，每批最多 10 个文件。':embedded?'支持数据包、矩阵和样本信息表；每批最多 10 个文件，上传后选择分析，再继续导入核对。':'原件保存后仍待生信导入；每批最多 10 项，按顺序上传，不触发旧文件解析。')}</p>
-  <label className="upload-file-picker">{t('选择生信文件')}<input type="file" multiple disabled={busy||registrationLocked} accept=".tar,.tar.gz,.tgz,.gz,.mtx,.tsv,.csv,.xlsx,.txt,.json,.h5,.hdf5,.png,.jpg,.jpeg" onChange={e=>{const next=Array.from(e.target.files??[]);if(next.length>10||next.some(file=>file.size===0)){setError('每批最多 10 项，且文件不能为空。');return}setFiles(next);setError('')}}/></label>
+  {customerView?<div className="customer-upload-row">{filePicker}{uploadButton}</div>:filePicker}
   {files.length>0&&<ul>{files.filter(Boolean).map((file,index)=><li key={index}>{file.name} · {file.size.toLocaleString()} {t('字节')}</li>)}</ul>}
   {batch&&<ul>{batch.items.map((item,index)=><li key={item.id}>{item.filename}{pending(item)&&<label>{t('重新选择同一文件')}<input type="file" disabled={busy} onChange={e=>{const file=e.target.files?.[0];if(!file||file.name!==item.filename||item.size_bytes!==undefined&&file.size!==item.size_bytes){setError(reselectMessage);return}setFiles(old=>{const next=[...old];next[index]=file;return next});setError('')}}/></label>} · {t(item.file_id?(customerView?'已上传':'已保存，待生信导入'):item.status==='rejected'?'上传被拒绝':'待上传或待核对')}</li>)}</ul>}
   {missingLocal&&!error&&<p>{t(reselectMessage)}</p>}
   {error&&<p role="alert" className="error-panel">{t(error)}</p>}
   {unknown&&<p className="warning-panel">{t('上传结果尚未核实，先读取原批次；保持原文件和请求身份。')}</p>}
-  <div className="intake-actions">
-   <button type="button" className="button-primary" disabled={busy||!valid||!files.length&&!recoveringRegistration||unknown&&!!batch||!!batch&&!batch.items.some(pending)} onClick={()=>void upload()}>{t(busy?'正在上传':batch?'核对并继续上传':recoveringRegistration&&!files.length?'核对登记结果':embedded?'开始上传':'登记并上传')}</button>
+  {(!customerView||batch)&&<div className="intake-actions">
+   {!customerView&&uploadButton}
    {batch&&<button type="button" disabled={busy||!valid} onClick={()=>void check()}>{t('重新读取上传批次')}</button>}
    {batch&&batch.items.every(item=>!pending(item))&&<button type="button" disabled={busy} onClick={()=>{setDraft({batch:null,registration:null,unknown:false});setFiles([]);create.current=null;setError('')}}>{t('开始另一批上传')}</button>}
-  </div>
+  </div>}
   {!batch&&batches.length>0&&<section className="bio-upload-history" aria-label={t('已上传批次')}><h4>{t('已上传批次')}</h4><div className="bio-upload-history-list">{batches.map(value=><button key={value.id} type="button" disabled={busy||registrationLocked} onClick={()=>{setDraft({batch:value,registration:null,unknown:false});create.current=null;setFiles([]);setError('')}}>{value.items.map(item=>item.filename).join(' · ')}</button>)}</div>{batchTotal>5&&<nav className="file-pagination" aria-label={t('上传批次')}><button type="button" disabled={batchPage===1} onClick={()=>setBatchPage(page=>page-1)}>{t('上一页')}</button><span>{batchPage} / {Math.ceil(batchTotal/5)}</span><button type="button" disabled={batchPage*5>=batchTotal} onClick={()=>setBatchPage(page=>page+1)}>{t('下一页')}</button></nav>}</section>}
  </section>
 }

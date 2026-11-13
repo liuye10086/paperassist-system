@@ -1,10 +1,11 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { useEffect, useId, useLayoutEffect, useRef, useState, type FormEvent } from 'react'
 import { safeError, useI18n } from '../../shared/i18n'
 import useDraftLeaveGuard, { type RegisterLeaveGuard } from '../projects/useDraftLeaveGuard'
-import { DateValue, Filters, Pagination, ReadState, Table } from './OperationsCommon'
+import { Filters, Pagination, ReadState, Table } from './OperationsCommon'
 import { OperationsError, operationsRequest, queryUrl, useOperationsRead, type Account, type Page } from './operationsApi'
 
 const assignmentsPath = '/api/v1/admin/project-assignments'
+const headers = ['项目', '客户', '任务进度', '当前分析员', '操作']
 
 type Assignment = {
   id: string
@@ -17,17 +18,7 @@ type Assignment = {
   submitted_version: number | null
   progress_status: string
 }
-type AssignmentEvent = {
-  id: string
-  actor_email: string
-  previous_analyst_email: string | null
-  analyst_email: string | null
-  revision: number
-  reason: string
-  created_at: string
-}
-type EditorMode = 'assign' | 'revoke'
-type Panel = { mode: EditorMode | 'history'; project: Assignment }
+type AssignmentTarget = { mode: 'assign' | 'revoke'; project: Assignment }
 type Shared = { active: boolean; onForbidden: () => void }
 
 const progressNames: Record<string, string> = {
@@ -45,79 +36,106 @@ export default function ProjectAssignmentsPanel({ active, onForbidden, registerL
   const { t } = useI18n()
   const [filters, setFilters] = useState<Record<string, string>>({})
   const [page, setPage] = useState(1)
-  const [panel, setPanel] = useState<Panel | null>(null)
-  const [notice, setNotice] = useState('')
-  const read = useOperationsRead<Page<Assignment>>(queryUrl(assignmentsPath, filters, page), onForbidden, active && !panel)
+  const [target, setTarget] = useState<AssignmentTarget | null>(null)
+  const panel = useRef<HTMLElement>(null)
+  const opener = useRef<HTMLButtonElement>(null)
+  const read = useOperationsRead<Page<Assignment>>(queryUrl(assignmentsPath, filters, page), onForbidden, active)
 
-  function open(project: Assignment, mode: Panel['mode']) {
-    setNotice('')
-    setPanel({ project, mode })
+  function open(project: Assignment, mode: AssignmentTarget['mode'], button: HTMLButtonElement) {
+    opener.current = button
+    setTarget({ project, mode })
   }
 
-  return <section aria-label={t('项目分配')} className="project-assignments">
+  function close(saved: boolean) {
+    setTarget(null)
+    if (saved) {
+      read.reload()
+      panel.current?.focus({ preventScroll: true })
+    } else {
+      opener.current?.focus({ preventScroll: true })
+    }
+    opener.current = null
+  }
+
+  return <section aria-label={t('项目分配')} className="admin-account-panel project-assignments" ref={panel} tabIndex={-1}>
     <h2>{t('项目分配')}</h2>
-    {notice && <p role="status">{t(notice)}</p>}
-    {panel ? (panel.mode === 'history'
-      ? <AssignmentHistory key={panel.project.id} project={panel.project} active={active} onForbidden={onForbidden} onBack={() => setPanel(null)} />
-      : <AssignmentEditor key={panel.project.id + panel.mode} project={panel.project} mode={panel.mode}
-        active={active} onForbidden={onForbidden} registerLeaveGuard={registerLeaveGuard} onBack={() => setPanel(null)}
-        onSaved={message => { setPanel(null); setNotice(message); read.reload() }} />) : <>
+    <div className="admin-account-filters">
       <Filters fields={[{ key: 'q', label: '搜索项目或客户', maxLength: 254 }]} applyLabel="搜索项目"
         initial={filters} onApply={value => { setFilters(value); setPage(1) }} />
       <button type="button" onClick={read.reload} disabled={read.loading}>{t('刷新')}</button>
-      <ReadState {...read} empty={read.data?.items.length === 0} />
-      {read.data && read.data.items.length > 0 && <Table headers={['项目', '客户', '任务进度', '当前分析员', '操作']}>
-        {read.data.items.map(project => <tr key={project.id}>
-          <td><strong>{project.name}</strong><small>{project.research_topic}</small></td>
-          <td>{project.customer_email}</td>
-          <td>{t(progressNames[project.progress_status] ?? '未知')}
-            {project.submitted_version != null && <small>{t('需求版本 {version}', { version: project.submitted_version })}</small>}
-          </td>
-          <td>{project.analyst_email ?? t('未分配')}</td>
-          <td><div className="assignment-actions">
-            <button type="button" onClick={() => open(project, 'assign')}>{t(project.analyst_id ? '更换分析员' : '分配分析员')}</button>
-            {project.analyst_id && <button type="button" onClick={() => open(project, 'revoke')}>{t('撤回授权')}</button>}
-            <button type="button" onClick={() => open(project, 'history')}>{t('查看分配记录')}</button>
-          </div></td>
-        </tr>)}
-      </Table>}
+    </div>
+    <Table headers={headers}>
+      {read.data?.items.map(project => <tr key={project.id}>
+        <td><strong>{project.name}</strong><small>{project.research_topic}</small></td>
+        <td>{project.customer_email}</td>
+        <td>{t(progressNames[project.progress_status] ?? '未知')}
+          {project.submitted_version != null && <small>{t('需求版本 {version}', { version: project.submitted_version })}</small>}
+        </td>
+        <td>{project.analyst_email ?? t('未分配')}</td>
+        <td><div className="assignment-actions">
+          <button type="button" aria-haspopup="dialog" onClick={event => open(project, 'assign', event.currentTarget)}>
+            {t(project.analyst_id ? '更换分析员' : '分配分析员')}
+          </button>
+          {project.analyst_id && <button type="button" aria-haspopup="dialog" onClick={event => open(project, 'revoke', event.currentTarget)}>
+            {t('撤回授权')}
+          </button>}
+        </div></td>
+      </tr>)}
+      {!read.data?.items.length && <tr><td colSpan={headers.length}><ReadState {...read} empty={read.data?.items.length === 0} /></td></tr>}
+    </Table>
+    <div className="admin-account-pager">
       {read.data && <Pagination page={page} total={read.data.total} size={read.data.page_size} onChange={setPage} />}
-    </>}
+    </div>
+    {target && <AssignmentDialog {...target} active={active} onForbidden={onForbidden}
+      registerLeaveGuard={registerLeaveGuard} onClose={close} />}
   </section>
 }
 
-function AssignmentEditor({ project, mode, active, onForbidden, onBack, onSaved, registerLeaveGuard }: Shared & {
-  project: Assignment
-  mode: EditorMode
-  onBack: () => void
-  onSaved: (message: string) => void
+function AssignmentDialog({ project, mode, active, onForbidden, onClose, registerLeaveGuard }: Shared & AssignmentTarget & {
+  onClose: (saved: boolean) => void
   registerLeaveGuard: RegisterLeaveGuard
 }) {
   const { t } = useI18n()
-  const [filters, setFilters] = useState<Record<string, string>>({})
+  const id = useId()
+  const dialog = useRef<HTMLDialogElement>(null)
   const [page, setPage] = useState(1)
   const [selected, setSelected] = useState<Pick<Account, 'id' | 'email'> | null>(null)
-  const [reason, setReason] = useState('')
+  const [revokeReason, setRevokeReason] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const request = useRef<AbortController | null>(null)
-  const candidates = useOperationsRead<Page<Account>>(queryUrl('/api/v1/admin/users', filters, page, {
-    role: 'analyst', review_status: 'approved', active: 'true',
-  }), onForbidden, active && mode === 'assign')
+  const assigning = mode === 'assign'
+  const analystId = assigning ? selected?.id : null
+  const title = assigning ? (project.analyst_id ? '更换分析员' : '分配分析员') : '撤回授权'
+  const candidates = useOperationsRead<Page<Account>>(queryUrl('/api/v1/admin/users', {}, page, {
+    role: 'analyst', review_status: 'approved',
+  }), onForbidden, active && assigning)
+  const analysts = candidates.data?.items ?? []
   useEffect(() => () => request.current?.abort(), [])
-  const dirty = !!(reason.trim() || selected)
-  useDraftLeaveGuard(registerLeaveGuard, dirty, busy)
+  useLayoutEffect(() => {
+    const element = dialog.current
+    if (!active || !element) return
+    element.showModal()
+    return () => { if (element.open) element.close() }
+  }, [active])
+  useDraftLeaveGuard(registerLeaveGuard, !!(selected || revokeReason.trim()), busy)
+
+  function dismiss(saved: boolean) {
+    dialog.current?.close()
+    onClose(saved)
+  }
 
   async function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    if (request.current || (mode === 'assign' && (!selected || selected.id === project.analyst_id))) return
-    const trimmed = reason.trim()
-    const characters = Array.from(trimmed)
-    if (characters.length < 5 || characters.length > 500 || characters.some(character => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127)) {
-      setError('请填写 5 至 500 字的分配理由。')
-      return
+    if (request.current || analystId === undefined || analystId === project.analyst_id) return
+    const reason = assigning ? (project.analyst_id ? '权限管理更换分析员' : '权限管理分配分析员') : revokeReason.trim()
+    if (!assigning) {
+      const characters = Array.from(reason)
+      if (characters.length < 5 || characters.length > 500 || characters.some(character => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127)) {
+        setError('请填写 5 至 500 字的分配理由。')
+        return
+      }
     }
-    const analystId = mode === 'revoke' ? null : selected!.id
     const controller = new AbortController()
     request.current = controller
     setBusy(true)
@@ -125,13 +143,13 @@ function AssignmentEditor({ project, mode, active, onForbidden, onBack, onSaved,
     try {
       const result = await operationsRequest<Assignment>(`${assignmentsPath}/${encodeURIComponent(project.id)}`, controller.signal, {
         method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ analyst_id: analystId, expected_revision: project.revision, reason: trimmed }),
+        body: JSON.stringify({ analyst_id: analystId, expected_revision: project.revision, reason }),
       })
       if (controller.signal.aborted) return
       if (result.id !== project.id || result.analyst_id !== analystId || result.revision !== project.revision + 1) {
         throw new Error('项目分配结果待确认，请刷新列表核对。')
       }
-      onSaved(mode === 'revoke' ? '项目授权已撤回。' : project.analyst_id ? '分析员已更换。' : '项目已分配。')
+      dismiss(true)
     } catch (cause) {
       if (controller.signal.aborted) return
       if (cause instanceof OperationsError && cause.status === 403) onForbidden()
@@ -142,61 +160,41 @@ function AssignmentEditor({ project, mode, active, onForbidden, onBack, onSaved,
     }
   }
 
-  return <div className="assignment-detail">
-    <h3>{project.name}</h3>
-    <p>{t('当前分析员')} · {project.analyst_email ?? t('未分配')}</p>
-    {mode === 'assign' && <>
-      <Filters fields={[{ key: 'q', label: '搜索分析员邮箱', maxLength: 254 }]} applyLabel="搜索分析员"
-        disabled={busy} onApply={value => { setFilters(value); setPage(1) }} />
+  return <dialog ref={dialog} className="assignment-dialog" aria-labelledby={`${id}-title`} aria-describedby={`${id}-project`}
+    aria-busy={busy} onCancel={event => { event.preventDefault(); if (!request.current) dismiss(false) }}>
+    <h2 id={`${id}-title`}>{t(title)}</h2>
+    <p id={`${id}-project`}><strong>{project.name}</strong> · {project.customer_email}</p>
+    {project.analyst_email && <p>{t('当前分析员')} · {project.analyst_email}</p>}
+    {assigning && <>
       <ReadState {...candidates} empty={candidates.data?.items.length === 0} />
-      {candidates.data && <>
-        <fieldset className="assignment-candidates" disabled={busy}>
-          <legend>{t('选择分析员')}</legend>
-          {candidates.data.items.map(analyst => <label key={analyst.id}>
-            <input type="radio" name="assignment-analyst" checked={selected?.id === analyst.id}
-              disabled={analyst.id === project.analyst_id} onChange={() => setSelected(analyst)} />
-            {analyst.email}
-          </label>)}
-        </fieldset>
-        <Pagination page={page} total={candidates.data.total} size={candidates.data.page_size} onChange={setPage} disabled={busy} />
-      </>}
-      {selected && <p>{t('已选分析员')} · {selected.email}</p>}
+      {analysts.length > 0 && <fieldset className="assignment-candidates" disabled={busy}>
+        <legend>{t('选择分析员')}</legend>
+        {analysts.map(analyst => <label key={analyst.id}>
+          <input type="radio" name="assignment-analyst" checked={selected?.id === analyst.id}
+            disabled={!analyst.active || analyst.id === project.analyst_id} onChange={() => setSelected(analyst)} />
+          {analyst.email}
+          {!analyst.active && <span className="status-badge">{t('停用')}</span>}
+        </label>)}
+      </fieldset>}
+      {analysts.length > 0 && analysts.every(analyst => !analyst.active) &&
+        <p className="assignment-availability">{t('在账号管理启用分析员后即可分配。')}</p>}
+      {candidates.data && (page > 1 || candidates.data.total > candidates.data.page_size) &&
+        <div className="admin-account-pager">
+          <Pagination page={page} total={candidates.data.total} size={candidates.data.page_size} onChange={setPage} disabled={busy} />
+        </div>}
+      {selected && !analysts.some(analyst => analyst.id === selected.id) && <p>{t('已选分析员')} · {selected.email}</p>}
     </>}
-    {mode === 'revoke' && <p>{t('撤回后，当前分析员将失去此项目的访问权限。')}</p>}
-    <form className="operations-editor" onSubmit={event => void save(event)} aria-busy={busy}>
-      <label>{t('分配理由')}<input required minLength={5} maxLength={500} disabled={busy} value={reason}
-        onChange={event => setReason(event.target.value)} /></label>
+    {!assigning && <p>{t('撤回后，当前分析员将失去此项目的访问权限。')}</p>}
+    <form onSubmit={event => void save(event)}>
+      {!assigning && <label>{t('分配理由')}<input required minLength={5} maxLength={500} disabled={busy} value={revokeReason}
+        onChange={event => setRevokeReason(event.target.value)} /></label>}
       {error && <p role="alert" className="error-panel">{t(error)}</p>}
-      <div className="assignment-actions">
-        <button type="submit" disabled={busy || (mode === 'assign' && !selected)}>
-          {t(busy ? '正在保存……' : mode === 'revoke' ? '确认撤回' : project.analyst_id ? '确认更换' : '确认分配')}
+      <div className="assignment-dialog-actions">
+        <button type="button" disabled={busy} onClick={() => dismiss(false)}>{t('取消')}</button>
+        <button type="submit" className={assigning ? 'button-primary' : 'button-destructive'} disabled={busy || analystId === undefined || analystId === project.analyst_id}>
+          {t(busy ? '正在保存……' : assigning ? '分配' : '确认撤回')}
         </button>
-        <button type="button" disabled={busy} onClick={() => {
-          if (!dirty || window.confirm(t('放弃未保存的分配修改？'))) onBack()
-        }}>{t('返回项目分配')}</button>
       </div>
     </form>
-  </div>
-}
-
-function AssignmentHistory({ project, active, onForbidden, onBack }: Shared & { project: Assignment; onBack: () => void }) {
-  const { t } = useI18n()
-  const [page, setPage] = useState(1)
-  const path = `${assignmentsPath}/${encodeURIComponent(project.id)}/events`
-  const read = useOperationsRead<Page<AssignmentEvent>>(queryUrl(path, {}, page), onForbidden, active)
-  return <div className="assignment-detail">
-    <button type="button" onClick={onBack}>{t('返回项目分配')}</button>
-    <h3>{t('分配记录')} · {project.name}</h3>
-    <ReadState {...read} empty={read.data?.items.length === 0} />
-    {read.data && read.data.items.length > 0 && <>
-      <Table headers={['时间', '操作人', '原分析员', '新分析员', '分配理由', '版本']}>
-        {read.data.items.map(event => <tr key={event.id}>
-          <td><DateValue value={event.created_at} /></td><td>{event.actor_email}</td>
-          <td>{event.previous_analyst_email ?? t('未分配')}</td><td>{event.analyst_email ?? t('未分配')}</td>
-          <td>{event.reason}</td><td>{event.revision}</td>
-        </tr>)}
-      </Table>
-      <Pagination page={page} total={read.data.total} size={read.data.page_size} onChange={setPage} />
-    </>}
-  </div>
+  </dialog>
 }

@@ -1,12 +1,11 @@
 """Deterministic analysis report; external observations remain uncomputed."""
 import io
-import json
 import re
 from docx import Document
 from docx.shared import Mm,Pt,RGBColor
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
-from .research_method_text import presentation_enabled,present_method,method_fingerprint
+from .research_method_text import reader_method,method_fingerprint
 
 
 # Only deterministic system wording is localized. Frozen source values, reason
@@ -45,10 +44,51 @@ def report_text(text,language):
     return 'Source text (original language): '+text if re.search(r'[\u3400-\u9fff]',text) else text
 
 
+def reader_text(text, language):
+    if text=='空间分析 / Spatial analysis':return 'Spatial analysis' if language=='en' else '空间分析'
+    for prefix, english, chinese in (
+        ('donor/组别的独立重复设计未确认：','Independent donor/group replicate design has not been confirmed.','未确认供者与分组的独立重复设计。'),
+        ('线粒体规则未确定：','Mitochondrial rule has not been confirmed.','未确认线粒体基因识别规则。'),
+    ):
+        if text.startswith(prefix) and re.fullmatch(r'[a-z][a-z0-9_]+',text[len(prefix):]):
+            return english if language=='en' else chinese
+    return report_text(text,language)
+
+
+def source_title(source, en):
+    label=source.get('title') or ''
+    identifier=source.get('source_id')
+    if identifier and label==identifier:
+        label=''
+    elif identifier:
+        for sep in (' / ', ' · ', ' '):
+            if label.endswith(sep+identifier):
+                label=label[:-len(sep+identifier)]
+                break
+    return reader_text(label, 'en' if en else 'zh-CN') or ('Analysis input' if en else '分析资料')
+
+
+def fact_location(locator, en):
+    if locator.get('cell'):return f"{locator.get('sheet','')}!{locator['cell']}"
+    if locator.get('page'):return f"Page {locator['page']}" if en else f"第 {locator['page']} 页"
+    if locator.get('field_path'):return locator['field_path'].replace('_',' ')
+    if locator.get('row_key'):
+        return ' · '.join(str(v) for v in (locator.get('table'),*locator['row_key'].values(),locator.get('column')) if v)
+    return 'Source overview' if en else '来源概况'
+
+
+def conflict_text(conflict, en):
+    if isinstance(conflict,str):return reader_text(conflict,'en' if en else 'zh-CN')
+    decisions={'unresolved':('待核对','Unresolved'),'use_first':('采用第一项','Use first'),
+        'use_second':('采用第二项','Use second'),'exclude':('已排除','Excluded'),'explained':('已说明','Explained')}
+    decision=decisions.get(conflict.get('decision'),decisions['unresolved'])
+    return ' · '.join(v for v in (decision[en],conflict.get('note'),conflict.get('basis')) if v)
+
+
 def build_report(snapshot,figures):
     en=snapshot['language']=='en';finding=snapshot['finding']['content'];doc=Document()
     basic=snapshot.get('basic_analysis',False)
-    local=lambda text:report_text(text,snapshot['language'])
+    local=lambda text:reader_text(text,snapshot['language'])
     section=doc.sections[0];section.page_width=Mm(210);section.page_height=Mm(297)
     section.top_margin=section.bottom_margin=Mm(20);section.left_margin=section.right_margin=Mm(20)
     for name in ('Normal','Title','Heading 1','Heading 2'):
@@ -64,15 +104,15 @@ def build_report(snapshot,figures):
         doc.add_paragraph('This report summarizes the saved input, quality control, methods and figures from this analysis. Cell-level results are exploratory.' if en else
             '本报告汇总本次分析已保存的输入信息、质量控制、方法与图表。细胞层级结果用于探索，不能代替独立供者验证。')
     else:
-        doc.add_paragraph('Versioned analysis results for review and Results/Methods drafting. External results have not been recomputed.' if en else
+        doc.add_paragraph('Analysis results for review and Results/Methods drafting. External results have not been recomputed.' if en else
             '本报告汇总已固定的分析成果，供核对研究发现及编写结果与方法。外部结果未重算；探索性结论仍需独立验证。')
-    if not basic:doc.add_paragraph(('Finding version: ' if en else '研究发现版本：')+snapshot['finding']['id'])
-    doc.add_paragraph('SHA256 '+snapshot['finding']['sha256'])
     def heading(zh,english):doc.add_heading(english if en else zh,1)
     heading('数据来源','Data sources')
     for source in finding['sources']:
-        doc.add_paragraph(local(source.get('title',''))+' — '+source['source_kind']+' / '+source['source_id'])
-        doc.add_paragraph(('Provenance: ' if en else '来源类型：')+source.get('provenance','unknown')+'; SHA256 '+source['sha256'])
+        provenance={'system_computed':('系统分析结果','System analysis'),'public_reanalysis':('公开数据重分析','Public data reanalysis'),
+            'external_result':('外部结果','External result'),'manual_transcription':('人工摘录','Manual transcription'),
+            'research_derived':('研究整理成果','Research output')}.get(source.get('provenance'),('来源类型未登记','Source type not recorded'))
+        doc.add_paragraph(source_title(source,en)+' · '+provenance[en])
     if basic:
         for filename in snapshot.get('input_files',[]):doc.add_paragraph(('Input file: ' if en else '输入文件：')+filename)
         samples=snapshot.get('samples',[])
@@ -93,33 +133,19 @@ def build_report(snapshot,figures):
     for cell,text,width in zip(table.rows[0].cells,headers,(62,30,42,36)):cell.text=text;cell.width=Mm(width)
     props=table.rows[0]._tr.get_or_add_trPr();repeat=OxmlElement('w:tblHeader');props.append(repeat)
     for fact in finding['facts']:
-        location=fact['locator'];label=location.get('field_path') or (str(location.get('sheet',''))+'!'+str(location.get('cell','')) if location.get('cell') else json.dumps(location,ensure_ascii=False,separators=(',',':')))
+        label=fact_location(fact['locator'],en)
         values=[label,'NA' if fact['raw_value'] is None else str(fact['raw_value']),fact.get('unit','')+' / '+fact.get('observation_level','unknown'),fact.get('verification_status','unverified')]
         row=table.add_row();row._tr.get_or_add_trPr().append(OxmlElement('w:cantSplit'))
         for cell,text,width in zip(row.cells,values,(62,30,42,36)):cell.text=text;cell.width=Mm(width)
     heading('实际执行的方法','Methods performed')
     if not finding['methods']:doc.add_paragraph('No performed methods were provided.' if en else '未提供已执行方法；不能据此补写分析步骤。')
-    software_seen=set();method_seen={};readable=presentation_enabled(snapshot)
+    method_seen={}
     for index,method in enumerate(finding['methods']):
         fingerprint=method_fingerprint(method)
-        shown=present_method(method,snapshot['language'],reference=f"parameters.json[{index}]; method_index.json / {method['id']}; report_snapshot.json (full method/software)",
-            duplicate_of=method_seen.get(fingerprint)) if readable else None
-        if shown is not None:
-            doc.add_heading(shown['title'],2)
-            for text in shown['paragraphs']:doc.add_paragraph(text)
-            method_seen.setdefault(fingerprint,index+1)
-            continue
-        first_paragraph=len(doc.paragraphs)
-        doc.add_heading(local(method['title']),2)
-        doc.add_paragraph(local(method.get('description','')))
-        doc.add_paragraph(('Executed: ' if en else '已执行：')+('Yes' if en else '是') if method['executed'] else ('Not performed' if en else '未执行'))
-        for label,key in [('Parameters','parameters'),('Software','software')]:
-            if method.get(key):
-                value=json.dumps(method[key],ensure_ascii=False,sort_keys=True)
-                if key=='software' and value in software_seen:continue
-                doc.add_paragraph((label if en else {'Parameters':'参数','Software':'软件与复现标识'}[label])+': '+value)
-                if key=='software':software_seen.add(value)
-        for paragraph in doc.paragraphs[first_paragraph:-1]:paragraph.paragraph_format.keep_with_next=True
+        shown=reader_method(method,snapshot['language'],duplicate_of=method_seen.get(fingerprint))
+        doc.add_heading(local(shown['title']),2)
+        for text in shown['paragraphs']:doc.add_paragraph(local(text))
+        method_seen.setdefault(fingerprint,index+1)
     heading('探索性结果与研究发现','Exploratory results and findings')
     adopted=[c for c in finding['claims'] if c['review_decision']=='adopt']
     for claim in adopted:
@@ -137,7 +163,7 @@ def build_report(snapshot,figures):
         config=figure['config'];doc.add_paragraph(('Figure ' if en else '图 ')+str(i)+' '+config.get('title','')+'\n'+config.get('caption',''))
         doc.add_paragraph(('Image language / caption language: ' if en else '图内语言与图注语言：')+config.get('figure_language','unknown')+' / '+config.get('language','unknown'))
     heading('冲突与待复核内容','Conflicts and pending review')
-    for conflict in finding['conflicts']:doc.add_paragraph(json.dumps(conflict,ensure_ascii=False))
+    for conflict in finding['conflicts']:doc.add_paragraph(conflict_text(conflict,en))
     for claim in finding['claims']:
         if claim['review_decision']!='adopt':doc.add_paragraph(claim['review_decision']+' — '+local(claim['statement']))
     if not finding['conflicts'] and not any(c['review_decision']!='adopt' for c in finding['claims']):doc.add_paragraph('None recorded.' if en else '未登记。')
@@ -147,6 +173,6 @@ def build_report(snapshot,figures):
         doc.add_paragraph('Download full tables, H5AD, methods and reproduction files from the analysis result page.' if en else
             '完整结果表、H5AD、方法和复现文件可从分析结果页单独下载。报告仅汇总本次实际保存的结果，未执行步骤不表示已完成。')
     else:
-        doc.add_paragraph('The package contains complete selected tables, methods, figure configurations and file hashes. Raw matrices remain fixed references.' if en else
-            '交付包附完整选定结果表、方法、图件配置及文件哈希。原始大矩阵保留固定引用，不重复打包。')
+        doc.add_paragraph('The selected result tables are provided in full. Original matrices and reproduction material are kept separately.' if en else
+            '选定的结果表完整保留，原始矩阵和复现资料另行保存。')
     output=io.BytesIO();doc.save(output);return output.getvalue()

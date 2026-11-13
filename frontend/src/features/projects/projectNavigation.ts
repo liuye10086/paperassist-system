@@ -4,7 +4,7 @@ import { isTaskId } from '../tasks/taskTypes';
 import type { ResourceNavigation } from './resourceViews';
 import { reviewViews, taskDetailViews, type ReviewView, type TaskDetailView } from './reviewViews';
 import type { LiteratureNavigation } from './literatureViews';
-import { analysisEntryIntents, analysisViews, bioResultTabs, isBulkWorkflowView, type AnalysisNavigation, type ArtifactNavigation } from './analysisViews';
+import { analysisEntryIntents, analysisViews, bioResultTabs, isBulkWorkflowView, supportsResultOrigin, type AnalysisNavigation, type ArtifactNavigation } from './analysisViews';
 import {isBulkPanel} from '../bio-insights/bulk'
 import { manuscriptViews, journalViews, schoolTemplateViews, type ManuscriptView, type JournalView, type SchoolTemplateNavigation } from './manuscriptViews';
 export type OverviewView = 'tasks' | 'settings' | 'activity' | 'usage' | 'requirements' | 'deliveries' | 'design';
@@ -62,7 +62,7 @@ export function parseNavigation(hash: string): NavigationRoute | null {
     if (!['overview', 'files', 'analysis', 'artifacts', 'tasks', 'literature', 'manuscripts', 'reviews', 'school-templates', 'journals'].includes(section))
         return null;
     r.section = section as ProjectSection;
-    const keys: Record<string, string[]> = { overview: ['view','delivery','snapshot'], analysis:['requirement','scope','intent','planId','planVersionId','runId','resultVersionId','resourceVersionId','view','file','import','dataset','version','setup','run','processed','tab','annotationSet','annotationVersion','figure','findingSet','findingVersion','bulkPanel','bulkView'], artifacts:['view','artifact','kind','page'], files: ['view','file','quality','import','dataset','version','setup','run','processed','tab','annotationSet','annotationVersion','figure'], tasks: ['view','task'], literature: ['search','view','reference'], manuscripts: ['view','manuscript', 'revision','candidate','sourceKind','sourceId','sourceSet','writingDelivery'], reviews: ['view','item','round', 'reviewManuscript', 'reviewRevision', 'reviewRun', 'reviewDocument'], journals: ['view','adaptation'], 'school-templates':['view','template'] };
+    const keys: Record<string, string[]> = { overview: ['view','delivery','snapshot'], analysis:['requirement','scope','intent','planId','planVersionId','runId','resultVersionId','resourceVersionId','view','file','import','dataset','version','setup','run','processed','tab','annotationSet','annotationVersion','figure','findingSet','findingVersion','bulkPanel','bulkView','from'], artifacts:['view','artifact','kind','page'], files: ['view','file','quality','import','dataset','version','setup','run','processed','tab','annotationSet','annotationVersion','figure'], tasks: ['view','task'], literature: ['search','view','reference'], manuscripts: ['view','manuscript', 'revision','candidate','sourceKind','sourceId','sourceSet','writingDelivery'], reviews: ['view','item','round', 'reviewManuscript', 'reviewRevision', 'reviewRun', 'reviewDocument'], journals: ['view','adaptation'], 'school-templates':['view','template'] };
     if ([...p.keys()].some(k => !['project', 'section', ...(keys[section] ?? [])].includes(k)))
         return null;
     const id = (key: string) => !p.has(key) || validId(p.get(key)!);
@@ -109,6 +109,7 @@ export function parseNavigation(hash: string): NavigationRoute | null {
         const view = p.get('view') ?? 'overview';
         if(p.has('requirement')!==p.has('scope') || !id('requirement') || p.has('scope')&&!/^[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)*$/.test(p.get('scope')!) || (p.get('scope')?.length??0)>160 || p.has('intent')&&(!p.has('requirement')||!(analysisEntryIntents as readonly string[]).includes(p.get('intent')!)))return null;
         if (!(analysisViews as readonly string[]).includes(view) || !id('file')) return null;
+        if (p.has('from') && (!supportsResultOrigin(view) || p.get('from')!=='results')) return null;
         const bulkPanel = p.get('bulkPanel')
         const bulkView = p.get('bulkView')
         if (bulkView!==null&&(!isBulkWorkflowView(bulkView)||view!=='bulk-workflow'&&!view.startsWith('bio-'))) return null
@@ -121,11 +122,12 @@ export function parseNavigation(hash: string): NavigationRoute | null {
         } else if(isInsightView(view)){if([...p.keys()].some(k=>!['project','section','view','requirement','scope','intent','planId','planVersionId','runId','resultVersionId','resourceVersionId','processed','bulkPanel','bulkView'].includes(k))||!['planId','planVersionId','runId','resultVersionId','resourceVersionId','processed'].every(id))return null;} else if (view.startsWith('bio-')) {
             const identities:Record<string,string[]>={'bio-datasets':[],'bio-import':['import'],'bio-dataset':['dataset','version'],'bio-analysis-setup':['setup'],'bio-analysis':['run'],'bio-result':['processed','tab'],'bio-annotation':['annotationSet','annotationVersion'],'bio-figure':['figure']};
             const required=identities[view],entryFile=view==='bio-datasets'&&p.has('requirement')&&['bio','single_cell_import'].includes(p.get('intent')??'')?['file']:[];
-            if (!required || [...p.keys()].some(k=>!['project','section','view','requirement','scope','intent','bulkView',...entryFile,...required].includes(k)) || required.some(k=>!p.has(k)||!id(k))) return null;
+            if (!required || [...p.keys()].some(k=>!['project','section','view','requirement','scope','intent','bulkView','from',...entryFile,...required].includes(k)) || required.some(k=>!p.has(k)||!id(k))) return null;
             if(view==='bio-result'&&!(bioResultTabs as readonly string[]).includes(p.get('tab')!))return null;
         } else if (view==='research-findings') { if (['import','dataset','version','setup','run','tab','annotationSet','annotationVersion','figure'].some(k=>p.has(k))||!id('processed')||p.has('findingSet')!==p.has('findingVersion')||!id('findingSet')||!id('findingVersion')) return null; } else if (['import','dataset','version','setup','run','processed','tab','annotationSet','annotationVersion','figure'].some(k => p.has(k))) return null;
         if(view!=='research-findings'&&(p.has('findingSet')||p.has('findingVersion')))return null;
         r.analysisNavigation = {view:view as AnalysisNavigation['view'],fileId:p.get('file') ?? ''};
+        if(p.has('from'))r.analysisNavigation.fromResults=true;
         if(p.has('findingSet')){r.analysisNavigation.findingSetId=p.get('findingSet')!;r.analysisNavigation.findingVersionId=p.get('findingVersion')!;}
         if(p.has('requirement'))r.analysisNavigation.entry={requirementVersionId:p.get('requirement')!,scopeItemId:p.get('scope')!};
         if(p.has('intent'))r.analysisNavigation.intent=p.get('intent')! as AnalysisNavigation['intent'];
@@ -223,6 +225,7 @@ export function serializeNavigation(r: NavigationRoute): string {
         if(a.view==='bio-result'&&a.processedId&&a.tab){p.set('processed',a.processedId);p.set('tab',a.tab);}
         if(a.view==='bio-annotation'&&a.annotationSetId&&a.annotationVersionId){p.set('annotationSet',a.annotationSetId);p.set('annotationVersion',a.annotationVersionId);}
         if(a.view==='bio-figure'&&a.figureId)p.set('figure',a.figureId);
+        if(a.fromResults&&supportsResultOrigin(a.view))p.set('from','results');
         if(a.view==='bulk-workflow'&&a.resultVersionId)p.set('resultVersionId',a.resultVersionId)
         if(a.bulkView)p.set('bulkView',a.bulkView)
     }
@@ -276,10 +279,13 @@ export function isFixedWritingNavigation(r:NavigationRoute):boolean {
 }
 
 export function analystNavigation(route: NavigationRoute, assigned = false): NavigationRoute {
-    if (route.workspaceView !== 'project') return route;
+    if (route.workspaceView !== 'project') return route.workspaceView === 'assigned' ? route : { ...route, workspaceView: 'assigned' };
     if (!['overview', 'files', 'analysis', 'artifacts', 'tasks'].includes(route.section)
         || route.section === 'overview' && ['activity', 'usage'].includes(route.overviewView)) {
         return { ...homeRoute(), workspaceView: 'project', projectId: route.projectId, overviewView: 'settings' };
+    }
+    if (route.section === 'files' && route.resourceNavigation.view === 'upload') {
+        return { ...route, resourceNavigation: { view: 'list', fileId: '' } };
     }
     if (route.section === 'artifacts' && route.artifactNavigation.view === 'layout') {
         return { ...route, artifactNavigation: homeRoute().artifactNavigation };

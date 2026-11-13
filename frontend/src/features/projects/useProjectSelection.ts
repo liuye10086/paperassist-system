@@ -29,7 +29,10 @@ function initialRoute(normalize: (route: NavigationRoute) => NavigationRoute) {
             return fallback;
         }
     }
-    return homeRoute();
+    const home = homeRoute();
+    const route = normalize(home);
+    if (route !== home) window.history.replaceState(window.history.state, '', window.location.pathname + window.location.search + serializeNavigation(route));
+    return route;
 }
 type Instance = {
     id: string;
@@ -55,7 +58,6 @@ export default function useProjectSelection(onUnavailable: (id: string) => void,
     const [route, setRoute] = useState(() => initialRoute(normalize));
     const routeRef = useRef(route);
     const retainedProjectRoute = useRef(route);
-    const returnList = useRef<'assigned' | 'projects'>(route.workspaceView === 'assigned' ? 'assigned' : 'projects');
     const retainedBio = useRef({projectId:route.projectId,navigation:mountedBioNavigation(route)});
     const { section, taskId, literatureSearchId, adaptationId, reviewLink, manuscriptLink } = route;
     const [instance, setInstance] = useState<Instance | null>(() => route.projectId ? { id: route.projectId, key: 1 } : null);
@@ -83,13 +85,13 @@ export default function useProjectSelection(onUnavailable: (id: string) => void,
         const changesAnalysis=previous.section==='analysis'&&serializeNavigation(previous)!==serializeNavigation(next);
         const preservesBulk=changesAnalysis&&previous.projectId===next.projectId&&!!previous.analysisNavigation.bulkView
             &&next.section==='analysis'&&!!next.analysisNavigation.bulkView;
-        if(replacesBio || changesAnalysis&&(previous.analysisNavigation.view.startsWith('bio-')||preservesBulk))return [...guards.current].every(g=>g(preservesBulk&&!replacesBio));
+        const retainsAnalysis = analysisOnly && previous.projectId === next.projectId && next.section === 'files' && !nextBio;
+        if(replacesBio || changesAnalysis&&(previous.analysisNavigation.view.startsWith('bio-')||preservesBulk))return [...guards.current].every(g=>g((preservesBulk||retainsAnalysis)&&!replacesBio));
         return !current.current || !next.projectId || next.projectId === current.current.id || [...guards.current].every(g => g());
     }
     function apply(next: NavigationRoute, seed?: Project) {
         const previousView = routeRef.current.workspaceView;
         const checkAssignment = analysisOnly && previousView !== 'project' && !!next.projectId && next.projectId === assignedProject.current;
-        if (next.workspaceView !== 'project') returnList.current = next.workspaceView === 'assigned' ? 'assigned' : 'projects';
         // A same-project deep link describes only its visible section. Keep
         // inactive task destinations so Back/Forward does not hide a retained draft.
         if (next.projectId && next.projectId === current.current?.id) {
@@ -170,8 +172,7 @@ export default function useProjectSelection(onUnavailable: (id: string) => void,
             setFailure(null);
             setLoading(false);
             setUnavailableId(instance.id);
-            const fallback: NavigationRoute = analysisOnly && (assignedProject.current === instance.id || returnList.current === 'assigned')
-                ? { ...homeRoute(), workspaceView: 'assigned' } : homeRoute();
+            const fallback = normalize(homeRoute());
             retainedProjectRoute.current = fallback;
             apply(fallback);
             write(fallback, true);
@@ -376,8 +377,7 @@ export default function useProjectSelection(onUnavailable: (id: string) => void,
         navigate({ ...routeRef.current, workspaceView: view === 'project' && !current.current ? 'projects' : view, projectId: view === 'project' ? current.current?.id ?? '' : '' });
     }
     function returnToList() {
-        const projectId = current.current?.id ?? unavailableId;
-        navigateWorkspace(analysisOnly && assignedProject.current === projectId && !!projectId ? 'assigned' : returnList.current);
+        navigateWorkspace(analysisOnly ? 'assigned' : 'projects');
     }
     function changeOverviewView(view: OverviewView) {
         navigate({ ...routeRef.current, projectId: current.current?.id ?? '', workspaceView: 'project', section: 'overview', overviewView: view });

@@ -210,8 +210,14 @@ def get_preview(project_id: str, file_id: str, store: Store):
 
 @router.get("/{project_id}/files/{file_id}/download")
 def download_file(project_id: str, file_id: str, store: Store):
+    from app.domain.delivery_packages.reader_files import analyst_file_names
+
     record = store.file(project_id, file_id)
+    filename = record['filename']
+    if store.assignment is not None:
+        with store.connection() as db:
+            filename = analyst_file_names(db, store, project_id, [file_id]).get(file_id, filename)
     return Response(store.original(record), media_type={"png":"image/png","jpeg":"image/jpeg","pdf":"application/pdf","xlsx":"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet","docx":"application/vnd.openxmlformats-officedocument.wordprocessingml.document"}.get(record["file_type"], "application/octet-stream"), headers={
-        "Content-Disposition": f"attachment; filename*=UTF-8''{quote(record['filename'], safe='')}",
+        "Content-Disposition": f"attachment; filename*=UTF-8''{quote(filename, safe='')}",
         "X-Content-Type-Options": "nosniff",
     })

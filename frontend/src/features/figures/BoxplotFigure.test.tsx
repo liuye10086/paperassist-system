@@ -102,7 +102,7 @@ it('aborts the image recheck when the figure panel unmounts', async () => {
 it('downloads saved PNG bytes with a safe default filename without generation', async () => {
   const create = vi.fn((_blob: Blob) => 'blob:png'); const revoke = vi.fn()
   vi.stubGlobal('URL', class extends URL { static createObjectURL = create; static revokeObjectURL = revoke })
-  const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (this: HTMLAnchorElement) { expect(this.download).toBe('boxplot.png') })
+  const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (this: HTMLAnchorElement) { expect(this.download).toBe('箱线图.png') })
   const fetch = vi.fn((url: string, _init?: RequestInit) => Promise.resolve(url.endsWith('/image?download=true') ? new Response('png bytes') : Response.json((url === '/api/v1/ai/plot-config' || url === '/api/v1/ai/explanation-config') ? { configured: true } : url.endsWith('/explanation') ? { explanation: null, job: null } : { ...empty, figure })))
   vi.stubGlobal('fetch', fetch); render(<BoxplotFigure {...props} />)
   fireEvent.click(await screen.findByRole('link', { name: '下载箱线图 PNG' }))

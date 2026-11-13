@@ -28,7 +28,7 @@
 .project-files-page .upload-panel { border-style: dashed; background: var(--surface); }
 .project-files-page .excel-preview button { background: var(--accent); color: #fff; border-color: var(--accent); border-radius: 8px; }
 .project-files-page .excel-preview button:hover:not(:disabled) { background: var(--accent-hover); border-color: var(--accent-hover); }
-.project-files-page .preview-panel, .project-files-page .preview-feedback { scroll-margin-top: 104px; }
+.project-files-page .preview-panel, .project-files-page .preview-feedback { scroll-margin-top: calc(104px + var(--project-nav-space, 0px)); }
 .project-files-page .preview-panel { border-color: var(--border); }
 .project-files-page .excel-preview .data-count { font-size: 16px; }
 .project-files-page .table-scroll { max-width: 100%; }

@@ -9,6 +9,7 @@ from app.core.exceptions import StorageError
 from app.domain.research_intake.service import request_key
 from app.domain.bioinformatics.service import append_checkpoint
 from .contracts import SnapshotWrite,Selection,AcceptanceWrite
+from .reader_files import analysis_member_filenames, analysis_package_filename, native_filename, reader_zip, research_member_filename
 from .sources import resolve_members,require_document_delivery
 
 
@@ -44,22 +45,29 @@ class DeliveryService(ResearchResultsStore):
         if digest(row['snapshot_json'])!=row['sha256']:raise invalid()
         return dict(row)
 
-    def view(self,row):
+    @staticmethod
+    def reader_view(db, snapshot):
+        if snapshot.get('delivery_kind') != 'analysis' or snapshot['mode'] != 'complete':
+            return snapshot
+        names = analysis_member_filenames(db, snapshot['project_id'], snapshot['members'])
+        return dict(snapshot, members=[dict(m, display_name=names[m['id']]) for m in snapshot['members']])
+
+    def view(self,row,db=None):
         value=dict(row['snapshot_json'],sha256=row['sha256'])
         project=row['project_id'];delivery=row['delivery_id'];identifier=row['id']
         base=f'/api/v1/projects/{project}/deliveries/{delivery}/snapshots/{identifier}'
         value['members']=[dict(m,download_url=base+'/members/'+m['id']+'/download') for m in value['members']]
-        return value
+        return value if db is None else self.reader_view(db, value)
 
     def get(self,project,delivery,identifier):
-        with self.store.connection() as db:return self.view(self.row(db,project,delivery,identifier))
+        with self.store.connection() as db:return self.view(self.row(db,project,delivery,identifier),db)
 
     def listing(self,project,delivery,key=None):
         with self.store.connection() as db:
             self.scope(db,project,delivery)
             rows=db.execute('SELECT * FROM delivery_snapshots WHERE project_id=%s AND delivery_id=%s AND user_id=%s AND (%s::text IS NULL OR request_key=%s) ORDER BY revision DESC',(project,delivery,self.store.user_id,key,key)).fetchall()
             if key and not rows:raise invalid('research_source_not_found',404)
-            return self.view(rows[0]) if key else dict(items=[self.view(row) for row in rows])
+            return self.view(rows[0],db) if key else dict(items=[self.view(row,db) for row in rows])
 
     def prepare_snapshot(self,db,project,delivery,request):
         registered=self.scope(db,project,delivery)
@@ -108,7 +116,8 @@ class DeliveryService(ResearchResultsStore):
         return dict(schema_version=1,project_id=project,delivery_id=delivery,delivery_kind=registered['kind'],revision=request.expected_revision+1,parent_snapshot_id=request.parent_snapshot_id,stage=request.stage,requirement_version_id=request.requirement_version_id,requirement_sha256=requirement['sha256'],mode=request.mode,required_formats=sorted(set(request.required_formats)),change_note=request.change_note,opinion_round=request.opinion_round,opinion_round_binding=round_binding,source_notices=[dict(member_id=m['id'],notices=m['source_metadata'].get('source_notices',[])) for m in members if m['source_metadata'].get('source_notices')],members=members,gaps=gaps,quality_items=sorted(set(quality)),completeness='missing_required' if gaps else 'quality_unresolved' if quality else 'complete',changes=changes,source_file_ids=files,acceptance='not_recorded'),raws
 
     def preview(self,project,delivery,request):
-        with self.store.connection() as db:return self.prepare_snapshot(db,project,delivery,request)[0]
+        with self.store.connection() as db:
+            return self.reader_view(db, self.prepare_snapshot(db,project,delivery,request)[0])
 
     def freeze(self,project,delivery,request,key):
         request_key(key);body=request.model_dump(mode='json');sha=digest(body)
@@ -117,23 +126,27 @@ class DeliveryService(ResearchResultsStore):
             replay=db.execute('SELECT * FROM delivery_snapshots WHERE delivery_id=%s AND request_key=%s',(delivery,key)).fetchone()
             if replay:
                 if replay['request_digest']!=sha:raise invalid('research_idempotency_conflict')
-                return self.view(replay),200
+                return self.view(replay,db),200
             snapshot,_=self.prepare_snapshot(db,project,delivery,request);identifier=identity(project,'delivery-snapshot',delivery+':'+key);moment=now();snapshot.update(id=identifier,created_at=moment.isoformat())
             from app.domain.storage_governance.guards import require_scope_open
             require_scope_open(db,project,file_ids=snapshot['source_file_ids'])
             row=dict(id=identifier,project_id=project,delivery_id=delivery,user_id=self.store.user_id,revision=snapshot['revision'],parent_snapshot_id=request.parent_snapshot_id,requirement_version_id=request.requirement_version_id,stage=request.stage,request_key=key,request_digest=sha,snapshot_json=normalized(snapshot),sha256=digest(snapshot),created_at=moment)
             insert(db,'delivery_snapshots',row)
-            return self.view(row),201
+            return self.view(row,db),201
 
     def candidates(self,project,delivery):
         with self.store.connection() as db:
-            self.scope(db,project,delivery);items=[]
+            registered=self.scope(db,project,delivery);items=[]
             assigned = getattr(self.assets, 'assignment', None) is not None
             for family in ('report','figure'):
                 kind = 'research_' + family + '_member'
-                for row in db.execute('SELECT m.*,v.root_id,v.revision FROM research_'+family+'_members m JOIN research_'+family+'_versions v ON v.id=m.'+family+"_version_id JOIN tasks t ON t.id=v.task_id WHERE m.project_id=%s AND m.user_id=%s AND t.status='succeeded' ORDER BY v.created_at DESC,m.key",(project,self.store.user_id)):
+                title_column='config_json' if family=='figure' else 'content_json'
+                for row in db.execute(f"SELECT m.*,v.root_id,v.revision,v.created_at AS generated_at,v.{title_column}->>'title' AS title FROM research_{family}_members m JOIN research_{family}_versions v ON v.id=m.{family}_version_id JOIN tasks t ON t.id=v.task_id WHERE m.project_id=%s AND m.user_id=%s AND t.status='succeeded' ORDER BY v.created_at DESC,m.key",(project,self.store.user_id)):
                     if row['format']=='pdf' or (assigned and not analysis_member_supported(kind, row['format'])):continue
-                    items.append(dict(selection=dict(kind=kind,version_id=row[family+'_version_id'],member_id=row['id']),label=f"{family} r{row['revision']} {row['key']}",format=row['format'],status='succeeded',sha256=row['sha256']))
+                    label=f"{family} r{row['revision']} {row['key']}"
+                    if registered['kind']=='analysis':
+                        label=research_member_filename(kind,row['format'],row['title'])
+                    items.append(dict(selection=dict(kind=kind,version_id=row[family+'_version_id'],member_id=row['id']),label=label,format=row['format'],status='succeeded',sha256=row['sha256'],created_at=row['generated_at']))
             if not assigned:
                 for row in db.execute("SELECT e.*,v.manuscript_id,v.snapshot_json FROM manuscript_exports e JOIN manuscript_versions v ON v.id=e.version_id JOIN manuscripts m ON m.id=v.manuscript_id JOIN tasks t ON t.id=e.task_id WHERE v.project_id=%s AND v.user_id=%s AND (m.delivery_id=%s OR m.delivery_id IS NULL) AND t.status='succeeded' ORDER BY e.created_at DESC",(project,self.store.user_id,delivery)):
                     try:require_document_delivery(self,db,project,delivery,row['manuscript_id'])
@@ -142,17 +155,19 @@ class DeliveryService(ResearchResultsStore):
                         continue
                     task=self.store.require_task(db,row['task_id']);binding=task['input_snapshot'].get('presentation',{}).get('binding',{})
                     items.append(dict(selection=dict(kind='manuscript_export',version_id=row['version_id'],manuscript_id=row['manuscript_id'],export_id=row['id']),label=(row['metadata_json'] or {}).get('filename') or row['id'],format='docx',status='succeeded',language=binding.get('language_view',row['snapshot_json']['output_language']),review_mode=binding.get('review_mode','identified'),presentation_id=binding.get('presentation_version_id')))
-            for row in db.execute('''SELECT f.*, a.file_id IS NOT NULL AS native_artifact FROM files f
+            for row in db.execute('''SELECT f.*, a.provenance_json AS native_artifact FROM files f
                 LEFT JOIN delivery_artifact_sources a ON a.file_id=f.id AND a.project_id=f.project_id
                 WHERE f.project_id=%s ORDER BY f.uploaded_at DESC,f.id''', (project,)):
                 item = dict(selection=dict(kind='file',file_id=row['id']),label=row['filename'],
                             format=row['filename'].rsplit('.',1)[-1].lower(),status='existing_upload',blind_eligible=False)
                 if row['native_artifact']:
-                    item.update(status='succeeded', sha256=row['sha256'])
+                    item.update(status='succeeded', label=native_filename(row['native_artifact']),
+                                sha256=row['sha256'], created_at=row['uploaded_at'])
                 items.append(item)
             if assigned:
                 latest = latest_confirmed_requirement(db, project)
-                requirements = [dict(id=latest['id'], version=latest['version'], sha256=latest['sha256'])] if latest else []
+                requirements = [dict(id=latest['id'], version=latest['version'], sha256=latest['sha256'],
+                                     created_at=latest['created_at'])] if latest else []
                 return dict(items=items, requirements=requirements, opinion_rounds=[])
             requirements=[dict(id=r['id'],version=r['version'],sha256=r['sha256']) for r in db.execute('SELECT id,version,sha256 FROM research_requirement_versions WHERE project_id=%s ORDER BY version DESC',(project,))]
             rounds=[]
@@ -167,7 +182,11 @@ class DeliveryService(ResearchResultsStore):
 
     def member(self,project,delivery,identifier,member_id):
         with self.store.connection() as db:
-            return self.member_bytes(db,self.row(db,project,delivery,identifier),member_id)
+            row = self.row(db,project,delivery,identifier)
+            member, raw = self.member_bytes(db,row,member_id)
+            shown = self.reader_view(db,row['snapshot_json'])
+            display = next(m.get('display_name') for m in shown['members'] if m['id'] == member_id)
+            return dict(member,filename=display) if display else member,raw
 
     def member_bytes(self,db,row,member_id):
         snapshot=row['snapshot_json'];member=next((m for m in snapshot['members'] if m['id']==member_id),None)
@@ -244,7 +263,20 @@ class DeliveryService(ResearchResultsStore):
 
     def download(self,project,delivery,identifier):
         with self.store.connection() as db:
-            return self.package_bytes(db,self.row(db,project,delivery,identifier))
+            row = self.row(db,project,delivery,identifier)
+            return self.reader_package(db,row) if getattr(self.assets,'assignment',None) is not None else self.package_bytes(db,row)
+
+    def reader_package(self,db,row):
+        from hashlib import sha256
+
+        snapshot = row['snapshot_json']
+        if snapshot['mode'] != 'complete' or snapshot.get('delivery_kind') != 'analysis':
+            return self.package_bytes(db,row)
+        _, stored = self.package_bytes(db,row)
+        members = snapshot['members']
+        names = analysis_member_filenames(db,row['project_id'],members)
+        raw = reader_zip(stored,members,names)
+        return dict(filename=analysis_package_filename(snapshot),sha256=sha256(raw).hexdigest(),size_bytes=len(raw)),raw
 
     def ready_package(self,db,row):
         return db.execute('''SELECT * FROM tasks WHERE project_id=%s AND user_id=%s AND task_type='delivery_package'

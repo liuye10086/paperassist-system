@@ -29,17 +29,8 @@ export type RegistrationSummary = {
   organization: string
   submitted_at: number
   review_status: AccountReviewStatus
-}
-export type AccountRegistration = RegistrationSummary & {
-  note: string
+  role: AccountRole | null
   admin_revision: number
-  decision: {
-    status: 'approved' | 'rejected'
-    role: AccountRole | null
-    reason: string
-    reviewed_at: number
-    reviewer_email: string
-  } | null
 }
 
 export function accountRoleName(role: string | null) {

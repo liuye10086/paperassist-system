@@ -86,7 +86,7 @@
   .project-analysis-page .bio-import-form .intake-check select { width: 100%; max-width: none; margin-left: 0; }
   .project-analysis-page .analysis-detail { padding: 14px; }
 }
-.analysis-workspace { display: flex; flex-direction: column; height: max(480px, calc(100dvh - 116px)); padding: 0; overflow: hidden; }
+.analysis-workspace { display: flex; flex-direction: column; height: max(480px, calc(100dvh - 116px - var(--project-nav-space, 0px))); padding: 0; overflow: hidden; }
 .analysis-content { display: flex; flex-direction: column; flex: 1; min-height: 0; }
 .analysis-content.analysis-bio-header { flex: none; }
 .analysis-module-body, .analysis-bio-body { flex: 1; min-height: 0; overflow: auto; overscroll-behavior: contain; }
@@ -108,13 +108,86 @@
 .analysis-workspace .analysis-entry-context { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; flex-shrink: 0; margin: 0; border: 0; border-bottom: 1px solid var(--border); border-radius: 0; padding: 12px 24px; background: var(--bg); font-size: 13px; }
 .analysis-workspace .analysis-entry-context > button, .analysis-workspace .analysis-entry-context p { margin: 0; }
 .analysis-workspace .analysis-overview-nav { margin: 0; padding: 10px 24px; background: var(--surface); border-radius: 0; flex-shrink: 0; }
+.analyst-material-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 10px 24px; flex-shrink: 0; }
 .analysis-workspace .analysis-setup { padding: 20px 24px; }
 .analysis-sequence { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 12px 24px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
 .analysis-sequence button[aria-current='step'] { color: var(--accent); background: var(--accent-bg); border-color: var(--accent); }
 @media (max-width: 600px) {
   .analysis-workspace { height: auto; }
-  .analysis-page-tabs, .analysis-sequence { padding-inline: 16px; gap: 8px; }
+  .analysis-page-tabs, .analysis-sequence, .analyst-material-actions { padding-inline: 16px; gap: 8px; }
   .analysis-workspace .analysis-overview-heading, .analysis-workspace .analysis-entry-context, .analysis-workspace .analysis-setup, .analysis-bio-body { padding: 16px; }
   .analysis-guide-body { overflow: visible; padding: 0 16px 16px; }
   .analysis-module-body, .analysis-bio-body { overflow: visible; }
+}
+
+.analyst-execution-card { min-width: 0; }
+.analyst-execution-card > :is(.analysis-workspace, .project-files-page, .intake-workspace),
+.analyst-results-card > .analysis-workspace {
+  height: auto;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+.analyst-execution-card .analyst-project-details-heading { flex-wrap: wrap; }
+.analyst-execution-card .analyst-material-actions { padding: 0; }
+.analyst-execution-card .analyst-material-request { margin-inline: 0; }
+.analyst-execution-card .analyst-material-request .analyst-form > button { margin-inline-start: 0; }
+.analyst-execution-card .analysis-page-tabs,
+.analyst-execution-card .project-files-page .resource-view-nav { padding-inline: 0; background: transparent; }
+.analyst-execution-card .analysis-overview-nav { padding: 0 0 12px; background: transparent; }
+.analyst-execution-card .analysis-entry-context { padding: 10px 12px; }
+.analyst-execution-card .analysis-request-list > header { justify-content: flex-start; }
+.analyst-execution-card .analysis-request-list > header > span { margin-inline-start: auto; }
+.analyst-execution-card .analysis-assay-card { padding: 14px 16px; border-top-width: 1px; }
+.analyst-execution-card .analysis-assay-choices > li { padding-block: 8px 0; }
+.analyst-execution-card .analysis-type-options { border-top: 1px solid var(--border); }
+.analyst-execution-card .analysis-entry-grid > button { gap: 6px; padding: 12px 16px; }
+.analyst-execution-card .analysis-entry-grid > button > [aria-hidden='true'] { display: none; }
+.analyst-execution-card .analysis-workflow-nav { padding-bottom: 12px; border-bottom: 1px solid var(--border); }
+
+.analyst-execution-card :is(.analysis-guide-body, .resource-bio-body, .resource-module-body),
+:is(.analyst-execution-card, .analyst-results-card) :is(.analysis-module-body, .analysis-bio-body) {
+  max-height: none;
+  overflow: visible;
+}
+.analyst-execution-card :is(.analysis-bio-body, .resource-bio-body, .bulk-workflow-body, .upload-quality) { padding: 16px 0 0; }
+.analyst-execution-card .analysis-workspace .analysis-setup { padding: 16px 0 0; }
+.analyst-execution-card .analysis-guide-body { padding: 16px 0 0; }
+.analyst-execution-card .analysis-workspace .analysis-tools { margin-bottom: 0; }
+.analyst-execution-card .analysis-source-toolbar { padding: 0; border: 0; background: transparent; }
+.analyst-execution-card .analysis-source-toolbar label { max-width: none; }
+.analyst-execution-card .resource-module-body > .file-history,
+.analyst-execution-card .resource-subview-actions,
+.analyst-execution-card .resource-upload-panel,
+.analyst-execution-card .upload-preparation-summary { padding-inline: 0; }
+.analyst-execution-card .upload-preparation-summary:not(:has(li, p)) { display: none; }
+.analyst-execution-card .resource-module-body > div > .file-details { margin-inline: 0; }
+:is(.analyst-execution-card, .analyst-results-card) .bio-module-workspace .module-view-content,
+:is(.analyst-execution-card, .analyst-results-card) :is(.insight-editor-body, .insight-read-panel),
+.analyst-execution-card .intake-module-content,
+.analyst-execution-card .intake-support-panel { max-height: none; overflow: visible; }
+.analyst-execution-card .project-analysis-page .bio-import-form { grid-template-columns: minmax(0, 1fr); }
+
+:is(.analyst-execution-card, .analyst-results-card) label:not(.intake-check):has(> :is(select, textarea, input:not([type='checkbox'], [type='radio'], [type='hidden']))) {
+  display: grid;
+  grid-template-columns: var(--project-detail-label-width) minmax(0, 1fr);
+  align-items: center;
+  gap: var(--project-detail-column-gap);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+:is(.analyst-execution-card, .analyst-results-card) label:not(.intake-check) > :is(select, textarea, input:not([type='checkbox'], [type='radio'], [type='hidden'])) {
+  grid-column: 2;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+}
+.analyst-execution-card .analysis-request-row label,
+.analyst-execution-card .bio-import-form label { margin: 0; }
+.analyst-execution-card .bio-import-form label:has(> input[type='checkbox']) {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }

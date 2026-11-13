@@ -54,7 +54,7 @@ class UsersQuery(Paging):
 
 
 class RegistrationsQuery(Paging):
-    review_status: ReviewStatus = 'pending'
+    review_status: ReviewStatus | Literal['all'] = 'pending'
     q: str | None = Field(default=None, min_length=1, max_length=254, pattern=r'^[^\x00-\x1f\x7f]+$')
 
 
@@ -122,6 +122,11 @@ class AccountChange(BaseModel):
     reason:AccountReason
 
 
+class AccountDeletion(BaseModel):
+    model_config = ConfigDict(extra='forbid', strict=True)
+    expected_revision: AccountRevision
+
+
 class RegistrationDecision(BaseModel):
     model_config = ConfigDict(extra='forbid', strict=True)
     decision: Literal['approve', 'reject']
@@ -159,6 +164,11 @@ def registrations(service: Admin, query: Annotated[RegistrationsQuery, Query()])
 @router.patch('/admin/users/{user_id}')
 def update_user(user_id:str,body:AccountChange,request:Request,service:Admin):
     return service.change_user(user_id,body,request.state.request_id)
+
+
+@router.delete('/admin/users/{user_id}')
+def delete_user(user_id: Identifier, body: AccountDeletion, service: Admin):
+    return service.delete_user(user_id, body.expected_revision)
 
 
 @router.get('/admin/users/{user_id}/registration')

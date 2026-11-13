@@ -44,7 +44,7 @@ export default function RegistrationForm({ initialEmail, onCancel, onSubmitted }
     const email = String(fields.get('email') ?? '').trim()
     const body = {
       display_name: String(fields.get('display_name') ?? ''), email, password,
-      organization: String(fields.get('organization') ?? ''), note: String(fields.get('note') ?? ''),
+      organization: String(fields.get('organization') ?? ''), note: '',
     }
     const controller = new AbortController()
     const submission = { controller, timeout: window.setTimeout(() => {
@@ -83,20 +83,21 @@ export default function RegistrationForm({ initialEmail, onCancel, onSubmitted }
     <h2>{t('注册账号')}</h2>
     <p className="muted">{t('提交申请后由管理员审核。审核通过后即可登录。')}</p>
     <form onSubmit={event => void submit(event)} aria-busy={busy}>
-      <label>{t('称呼')}<input ref={nameInput} name="display_name" autoComplete="name" required maxLength={80} disabled={busy}/></label>
-      <label>{t('邮箱')}<input name="email" type="email" autoComplete="username" defaultValue={initialEmail} required maxLength={254} disabled={busy}/></label>
-      <div className="auth-field-pair">
-        <label>{t('密码')}<input name="password" type="password" autoComplete="new-password" required minLength={12} maxLength={256} aria-describedby={passwordHint} disabled={busy}/></label>
-        <label>{t('确认密码')}<input name="confirmation" type="password" autoComplete="new-password" required minLength={12} maxLength={256} disabled={busy}/></label>
+      <div className="auth-register-identity">
+        <label>{t('称呼')}<input ref={nameInput} name="display_name" autoComplete="name" required maxLength={80} disabled={busy}/></label>
+        <label>{t('单位或团队（选填）')}<input name="organization" autoComplete="organization" maxLength={160} disabled={busy}/></label>
       </div>
+      <label>{t('邮箱')}<input name="email" type="email" autoComplete="username" defaultValue={initialEmail} required maxLength={254} disabled={busy}/></label>
+      <label>{t('密码')}<input name="password" type="password" autoComplete="new-password" required minLength={12} maxLength={256} aria-describedby={passwordHint} disabled={busy}/></label>
+      <label>{t('确认密码')}<input name="confirmation" type="password" autoComplete="new-password" required minLength={12} maxLength={256} disabled={busy}/></label>
       <p className="muted auth-form-hint" id={passwordHint}>{t('密码须为 12–128 个字符。')}</p>
-      <label>{t('单位或团队（选填）')}<input name="organization" autoComplete="organization" maxLength={160} disabled={busy}/></label>
-      <label>{t('申请说明（选填）')}<textarea name="note" rows={3} maxLength={1000} disabled={busy}/></label>
       {error && <p role="alert">{t(error)}</p>}
-      <button className="button-primary auth-login-submit" disabled={busy} type="submit">
-        {t(busy ? '正在提交申请……' : '提交注册申请')}
-      </button>
-      <button className="button-quiet" type="button" disabled={busy} onClick={onCancel}>{t('返回登录')}</button>
+      <div className="auth-register-actions">
+        <button className="button-quiet" type="button" disabled={busy} onClick={onCancel}>{t('返回登录')}</button>
+        <button className="button-primary" disabled={busy} type="submit">
+          {t(busy ? '正在提交申请……' : '提交注册申请')}
+        </button>
+      </div>
     </form>
   </section>
 }

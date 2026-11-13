@@ -65,33 +65,45 @@ function Tasks({ projectId, active, selectedTaskId, onSelectTask, onBackToResult
   }
   const title = t(resultsOnly ? '表格分析结果' : '项目任务')
   const kinds = resultsOnly ? resultKinds : Object.keys(taskNames) as TaskType[]
+  const kindFilter = <label>{t(resultsOnly ? '成果类型' : '任务类型')}
+    <select value={kind} onChange={event => filters(event.target.value, 'kind')}>
+      {!resultsOnly && <option value="">{t('全部类型')}</option>}
+      {kinds.map(value => <option key={value} value={value}>{t(taskNames[value])}</option>)}
+    </select>
+  </label>
   return <section className="project-tasks" hidden={!active} aria-label={title}>
     <div hidden={layered && !!selectedTaskId} className="task-list-view">
-    <div className="task-page-heading"><div><h2>{title}</h2></div>
-      <button type="button" disabled={loading || !sessionValid} onClick={() => { setLoading(true); setError(''); setAttempt(value => value + 1) }}>{t(resultsOnly ? '刷新成果' : '刷新任务列表')}</button></div>
+    <div className="task-page-heading"><h2>{title}</h2>
+      <div className="task-list-actions">
+        {resultsOnly && kindFilter}
+        <button type="button" disabled={loading || !sessionValid} onClick={() => { setLoading(true); setError(''); setAttempt(value => value + 1) }}>{t(resultsOnly ? '刷新成果' : '刷新任务列表')}</button>
+      </div>
+    </div>
     {!resultsOnly && <p className="task-scope-note">{t('这里展示统一任务及历史绘图、解释任务。')}</p>}
-    <div className="task-filters"><label>{t(resultsOnly ? '成果类型' : '任务类型')}<select value={kind} onChange={event => filters(event.target.value, 'kind')}>
-      {!resultsOnly && <option value="">{t('全部类型')}</option>}{kinds.map(value => <option key={value} value={value}>{t(taskNames[value])}</option>)}</select></label>
-      {!resultsOnly && <label>{t('任务状态')}<select value={status} onChange={event => filters(event.target.value, 'status')}>
-        <option value="">{t('全部状态')}</option>{Object.entries(statusNames).map(([value, label]) => <option key={value} value={value}>{t(label)}</option>)}</select></label>}</div>
+    {!resultsOnly && <div className="task-filters">{kindFilter}
+      <label>{t('任务状态')}<select value={status} onChange={event => filters(event.target.value, 'status')}>
+        <option value="">{t('全部状态')}</option>{Object.entries(statusNames).map(([value, label]) => <option key={value} value={value}>{t(label)}</option>)}</select></label>
+    </div>}
     {!sessionValid && <p role="alert">{t('会话已失效，请重新登录。')}</p>}
     {loading && <p role="status">{t('正在读取项目任务……')}</p>}
     {error && <p role="alert" className="error-panel">{t(error)}</p>}
     {data && <div className="task-list-panel">
       {!data.total ? <p className="task-empty">{t(resultsOnly ? '此类型暂无已完成的分析成果。' : '此筛选下没有任务。')}</p> : <>
-        <div className="task-table-scroll"><table><caption className="visually-hidden">{resultsOnly ? title : t('项目任务列表')}</caption>
+        <div className="task-table-scroll workspace-table-scroll" tabIndex={0} role="region" aria-label={resultsOnly ? title : t('项目任务列表')}>
+          <table><caption className="visually-hidden">{resultsOnly ? title : t('项目任务列表')}</caption>
           <thead><tr><th scope="col">{t('任务')}</th><th scope="col">{t('状态与阶段')}</th><th scope="col">{t('输入来源')}</th><th scope="col">{t('更新时间')}</th></tr></thead>
           <tbody>{data.items.map(({ task, source }) => <tr key={task.id} aria-selected={selectedTaskId === task.id}>
             <td><button type="button" className="task-open button-quiet" aria-label={t(resultsOnly ? '查看{type}成果' : '查看{type}任务', { type: t(taskNames[task.task_type]) })}
               onClick={() => onSelectTask(task.id)}>{t(taskNames[task.task_type])}</button>{task.origin === 'legacy' && <small>{t('历史任务')}</small>}</td>
-            <td><span className={`task-status task-status-${task.status}`}>{t(taskDisplayName(task))}</span><small>{t(taskPhaseName(task))}</small></td>
+            <td><span className={`status-badge task-status task-status-${task.status}`}>{t(taskDisplayName(task))}</span><small>{t(taskPhaseName(task))}</small></td>
             <td><strong>{source.filename||t('研究材料')}</strong>{source.dataset_source && <SourceSummary source={source.dataset_source} filename={source.filename} />}<small>{task.task_type.startsWith('bio_')?t(task.task_type==='bio_figure'?'固定处理结果与绘图参数':'固定生信来源与任务参数'):task.input_version.kind==='review_revision'?t('固定的意见计划、父稿与具体修改'):task.input_version.kind==='review_document_export'?t('固定独立成果版本与 DOCX 来源'):task.input_version.kind==='review_round_plan'?t('冻结的意见来源与固定稿件版本'):task.input_version.kind==='journal_adaptation'?t('冻结的期刊适配输入、所选动作与父稿'):task.input_version.kind==='journal_format_check'?t('冻结的目标、指南要求与稿件版本'):task.input_version.kind==='journal_recommendation'?t('冻结的期刊建议输入与来源'):task.input_version.kind==='pdf_export'?t('已冻结的 DOCX 来源'):task.input_version.kind==='manuscript'?t('已冻结的稿件资料'):task.task_type==='literature_assistance'?t('冻结的文献建议输入'):task.task_type==='literature_search'?t('已冻结的文献检索条件'):['parse_file', 'extract_dataset', 'review_ocr'].includes(task.task_type) ? t(task.task_type === 'review_ocr' ? '原图转录核对' : task.task_type === 'extract_dataset' ? '本地 Excel 结构提取' : '本地文件解析') : task.task_type === 'prepare_dataset' ? t('本地数据整理') : task.task_type === 'analysis_plan' ? t('整理数据分析计划') : t('分析配置 v{revision}', { revision: task.input_version.setup_revision ?? 0 })}</small>
               {task.task_type==='literature_assistance'&&<small>{t(source.is_current?'绑定提交时的输入版本':'绑定历史论述版本')}</small>}
               {!task.task_type.startsWith('bio_')&&!['review_revision','review_document_export','review_round_plan','journal_adaptation','journal_format_check','journal_recommendation','pdf_export','manuscript_draft','manuscript_docx','literature_assistance','literature_search','parse_file', 'extract_dataset', 'prepare_dataset', 'analysis_plan', 'review_ocr'].includes(task.task_type) && <small>{t(source.is_current ? '当前分析配置' : '历史分析配置')}</small>}</td>
             <td>{task.updated_at === null ? t('未记录') : <time dateTime={task.updated_at}>{new Date(task.updated_at).toLocaleString(locale)}</time>}</td></tr>)}</tbody></table></div>
         <nav className="task-pagination" aria-label={t('项目任务分页')}>
-          <span>{t('共 {total} 项 · 第 {page} / {pages} 页', { total: data.total, page, pages: Math.max(1, Math.ceil(data.total / 10)) })}</span>
+          {!resultsOnly && <span>{t('共 {total} 项 · 第 {page} / {pages} 页', { total: data.total, page, pages: Math.max(1, Math.ceil(data.total / 10)) })}</span>}
           <button type="button" disabled={loading || page <= 1} onClick={() => { setLoading(true); setError(''); setData(null); setPage(value => value - 1) }}>{t('上一页')}</button>
+          {resultsOnly && <span>{t('第 {page} / {pages} 页', { page, pages: Math.max(1, Math.ceil(data.total / 10)) })}</span>}
           <button type="button" disabled={loading || page >= Math.ceil(data.total / 10)} onClick={() => { setLoading(true); setError(''); setData(null); setPage(value => value + 1) }}>{t('下一页')}</button>
         </nav></>}
     </div>}

@@ -47,7 +47,7 @@ export default function BulkDelivery({projectId,comparisons,initialId,onNavigate
       onNavigate(bulkRoute('delivery',value||undefined))
     }}>
       <option value="">{t('请选择')}</option>
-      {selectedId&&!selected&&<option value={selectedId}>{selectedId} · {t('固定版本当前不可用')}</option>}
+      {selectedId&&!selected&&<option value={selectedId}>{t('原选比较当前不可用')}</option>}
       {comparisons.map(item=><option key={item.refs.result_version_id!} value={item.refs.result_version_id!}>
         {bulkComparisonOption(item)}{item.stale?` · ${t('历史固定版本')}`:''}
       </option>)}
@@ -88,7 +88,7 @@ function SelectedBulkDelivery({projectId,selected,descendants,files,outputLangua
   }
 
   return <>
-    <p>{t('主比较版本')} <code>{id}</code>{selected.stale&&<> · {t('历史固定版本')}</>}</p>
+    <p>{bulkComparisonOption(selected)}{selected.stale&&<> · {t('历史结果')}</>}</p>
     <div className="intake-actions">
       <button type="button" onClick={()=>onNavigate({view:'bio-insight-result',fileId:'',bulkView:'differential',resultVersionId:id})}>{t('查看主比较固定结果')}</button>
       <button type="button" onClick={()=>onNavigate(bulkRoute('differential',id))}>{t('查看稳健性对照设置')}</button>
@@ -107,11 +107,11 @@ function SelectedBulkDelivery({projectId,selected,descendants,files,outputLangua
             return <label className="intake-check" key={versionId}>
               <input type="checkbox" checked={included} disabled={!included&&draft.attachments.length>=20}
                 onChange={event=>toggleAttachment(versionId,event.target.checked)}/>
-              <span>{item.label||t(kindLabels[item.kind as keyof typeof kindLabels]??item.kind)} · <code>{versionId}</code>
+              <span>{item.label||t(kindLabels[item.kind as keyof typeof kindLabels]??item.kind)}
                 {' · '}{t(bulkWorkflowStatuses[item.status]??item.status)}{item.stale&&<> · {t('历史固定版本')}</>}</span>
             </label>
           })}
-          {missing.map(versionId=><p role="status" key={versionId}>{t('固定版本当前不可用')} · <code>{versionId}</code>{' '}
+          {missing.map(versionId=><p role="status" key={versionId}>{t('固定版本当前不可用')}{' '}
             <button type="button" onClick={()=>toggleAttachment(versionId,false)}>{t('移除')}</button></p>)}
         </fieldset>
         <fieldset><legend>{t('报告筛选口径')}</legend>
@@ -133,7 +133,7 @@ function SelectedBulkDelivery({projectId,selected,descendants,files,outputLangua
         </fieldset>
         {(sensitivity||draft.includeSensitivity)&&<label className="intake-check"><input type="checkbox" checked={draft.includeSensitivity}
           onChange={event=>update({...draft,includeSensitivity:event.target.checked,attachedSensitivity:event.target.checked?sensitivity:null})}/>
-          {t('附上已核对的稳健性对照')} · <code>{(attachedSensitivity??sensitivity)?.scenario_version_id??'—'}</code>
+          {t('附上已核对的稳健性对照')}
         </label>}
         {missingSensitivity&&<p role="status">{t('所选稳健性对照当前不可用。')}</p>}
         <EvidencePicker projectId={projectId} comparisonId={id} descendants={descendants} files={files} value={draft.evidence}
@@ -150,11 +150,11 @@ function SelectedBulkDelivery({projectId,selected,descendants,files,outputLangua
       <p>{t('完整包包含统计表、筛选表、对象、参数、任务日志、软件与资源版本以及复现说明。')}</p>
       <p>{t('包内清单标明复现支持。匹配运行环境未留存时，交付包含固定数据与来源记录。')}</p>
       <div className="intake-actions">
-        <ProjectDownloadLink nativePrepared href={`${base}/prepare/word`} filename={`bulk-rna-report-${exportBody.facts_digest.slice(0,12)}.docx`}
+        <ProjectDownloadLink nativePrepared href={`${base}/prepare/word`} filename={t('转录组学分析报告')+'.docx'}
           postBody={exportBody} timeoutMs={RESEARCH_REQUEST_TIMEOUT_MS}>{t('下载 Bulk Word 报告')}</ProjectDownloadLink>
-        <ProjectDownloadLink nativePrepared href={`${base}/prepare/archive`} filename={`bulk-rna-reproducibility-${exportBody.facts_digest.slice(0,12)}.zip`}
+        <ProjectDownloadLink nativePrepared href={`${base}/prepare/archive`} filename={t('转录组学分析复现资料')+'.zip'}
           postBody={exportBody} timeoutMs={RESEARCH_REQUEST_TIMEOUT_MS}>{t('下载 Bulk 完整复现包')}</ProjectDownloadLink>
-        <NativeDeliveryArtifact {...{projectId,deliveryTarget}} source={{prepareUrl:`${base}/prepare/word`,body:exportBody}} name="Bulk Word"/>
+        <NativeDeliveryArtifact {...{projectId,deliveryTarget}} source={{prepareUrl:`${base}/prepare/word`,body:exportBody}} name={t('转录组学分析报告')+'.docx'}/>
       </div>
     </section>}
   </>
@@ -183,7 +183,7 @@ function EvidencePicker({projectId,comparisonId,descendants,files,value,onChange
       {draft.kind&&<>
         <Field label={independent?'选择独立分析版本':'选择实验材料原件'} value={draft.sourceId} onChange={sourceId=>update({...draft,sourceId})}>
           <option value="">{t('请选择')}</option>
-          {sources.map(item=><option key={item.id} value={item.id}>{item.title} · {item.id}</option>)}
+          {sources.map(item=><option key={item.id} value={item.id}>{item.title}</option>)}
         </Field>
         {independent&&<><ReadState {...sourceCatalog}/>{sourceCatalog.data&&<Paging page={page} size={evidencePageSize} total={sourceCatalog.data.total}
           onPage={next=>{setPage(next);update({...draft,sourceId:''})}}/>}</>}
@@ -195,7 +195,7 @@ function EvidencePicker({projectId,comparisonId,descendants,files,value,onChange
       </>}
     </div>
     <ul className="bulk-evidence-list">{value.map(item=><li key={`${item.kind}:${item.source_id}`}>
-      <strong>{t(bulkEvidenceKinds[item.kind])}</strong> · <code>{item.source_id}</code>{item.note&&<> · {item.note}</>}{' '}
+      <strong>{t(bulkEvidenceKinds[item.kind])}</strong>{item.note&&<> · {item.note}</>}{' '}
       <button type="button" onClick={()=>onChange(value.filter(other=>other!==item))}>{t('移除')}</button>
     </li>)}</ul>
   </fieldset>
@@ -212,16 +212,14 @@ function BulkFactsPreview({facts}:{facts:BulkDeliveryFacts}) {
   const confirmation=facts.design.confirmation
   return <section className="bulk-facts" aria-label={t('固定报告事实预览')}>
     <h4>{t('固定报告事实预览')}</h4>
-    <p>{t('事实摘要校验值')} <code>{facts.facts_digest}</code></p>
     <h5>{t('样本质控与设计确认')}</h5>
-    <p>{t('固定处理版本')} · {(facts.processed_version_ids??[facts.processed_version_id]).map(id=><code key={id}>{id}{' '}</code>)}</p>
     <dl className="bulk-workflow-metrics">{Object.entries(qcLabels).map(([key,label])=>{
       const value=facts.qc.summary[key]
       return typeof value==='number'?<div key={key}><dt>{t(label)}</dt><dd>{value}</dd></div>:null
     })}</dl>
     <p>{facts.design.formula&&<code>{facts.design.formula}</code>} · {t('设计秩')} {facts.design.rank??'—'} · {t('残差自由度')} {facts.design.residual_df??'—'}</p>
     <p>{t('物种分类号')} {facts.design.species_taxon_id??'—'} · {t('标识体系')} {facts.design.namespace??'—'} · {t('参考版本')} {facts.design.reference_version??'—'}</p>
-    {confirmation&&<p>{t('固定模型确认')} · <code>{confirmation.plan_version_id}</code> · <time dateTime={confirmation.confirmed_at}>
+    {confirmation&&<p>{t('方案确认时间')} · <time dateTime={confirmation.confirmed_at}>
       {new Date(confirmation.confirmed_at).toLocaleString(locale)}</time></p>}
     {!!facts.qc.input_files?.length&&<p>{t('固定输入文件')} · {facts.qc.input_files.map(item=>item.filename).join(' · ')}</p>}
     <h5>{t('固定比较与统计口径')}</h5>
@@ -232,16 +230,15 @@ function BulkFactsPreview({facts}:{facts:BulkDeliveryFacts}) {
       </div>)}</dl>
     </section>)}
     {facts.figures.length>0&&<><h5>{t('固定图件与来源')}</h5><ul>{facts.figures.map(item=><li key={`${item.version_id}:${item.figure_type}:${item.panel??''}`}>
-      {item.title||t(bulkFigureLabels[item.figure_type as BulkFigureType]??item.figure_type)} · <code>{item.version_id}</code> · {t('固定来源版本')} <code>{item.source_version_id}</code>
+      {item.title||t(bulkFigureLabels[item.figure_type as BulkFigureType]??item.figure_type)}
     </li>)}</ul></>}
     {facts.enrichments.length>0&&<><h5>{t('功能分析实际状态')}</h5><ul>{facts.enrichments.map(item=><li key={item.version_id}>
-      {t(kindLabels[item.kind as keyof typeof kindLabels]??item.kind)} · {t(bulkWorkflowStatuses[item.status]??item.status)} · <code>{item.version_id}</code>
+      {t(kindLabels[item.kind as keyof typeof kindLabels]??item.kind)} · {t(bulkWorkflowStatuses[item.status]??item.status)}
       {item.not_applicable_reason&&<> · {t(bulkEnrichmentReason(item.not_applicable_reason))}</>}
     </li>)}</ul></>}
-    {!!facts.resource_version_ids.length&&<p>{t('固定资源版本')} · {facts.resource_version_ids.map(id=><code key={id}>{id}{' '}</code>)}</p>}
     {facts.sensitivity&&<BulkSensitivitySummary result={facts.sensitivity}/>}
     {facts.evidence.length>0&&<><h5>{t('独立分析与实验材料')}</h5><ul>{facts.evidence.map(item=><li key={`${item.kind}:${item.source_id}`}>
-      {t(bulkEvidenceKinds[item.kind])} · {item.filename&&<>{item.filename} · </>}<code>{item.source_id}</code>
+      {t(bulkEvidenceKinds[item.kind])}{item.filename&&<> · {item.filename}</>}
       {item.verification_status==='saved_execution_verified'&&<> · {t('已核对固定计算记录')}</>}
       {item.verification_status==='attachment_integrity_verified'&&<> · {t('已核对原件完整性')}</>}
       {item.independence_status==='unverified'&&<> · {t('样本独立性尚未核对')}</>}

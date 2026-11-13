@@ -20,19 +20,21 @@ function subsetParameters(parent:BioRecipeParameters){
  return params
 }
 export default function SingleCellAnnotationWorkspace({projectId,result,onNavigate,registerLeaveGuard,allowNewAnalysis=true,deliveryTarget}:{projectId:string;deliveryTarget?:NativeDeliveryTarget;result:BioProcessed;onNavigate:(n:AnalysisNavigation)=>void;registerLeaveGuard?:RegisterLeaveGuard;allowNewAnalysis?:boolean}){
- const {t}=useI18n(),base=projectBase(projectId)
+ const {t,locale}=useI18n(),base=projectBase(projectId)
  const read=useBioRead<{items:BioAnnotation[]}>(`${base}/bio-processed-datasets/${encodeURIComponent(result.id)}/annotations`)
  const [create,setCreate]=useState(false),[report,setReport]=useState(''),[adopted,setAdopted]=useState<AnnotationDraft|null>(null)
  const matches=(item:BioAnnotation)=>item.processed_dataset_version_id===result.id&&sameRawBioSource(item.raw_source,result.source.raw_source)
  const all=read.value?.items.filter(matches)??[],items=all.filter(item=>item.origin!=='SingleR'),candidates=all.filter(item=>item.origin==='SingleR')
  const parent=((result.manifest.subset as {parent_processed_source?:unknown}|undefined)?.parent_processed_source??result.manifest.parent_processed_source) as {processed_dataset_version_id?:string}|undefined
+ const label=(item:BioAnnotation&{created_at?:string})=>[item.name||t('人工细胞注释'),item.created_at&&new Date(item.created_at).toLocaleString(locale)].filter(Boolean).join(' · ')
+ const reportName=t('单细胞分析报告（含细胞注释）')+'.docx'
  return <section className="intake-form"><h3>{t('细胞注释与亚群')}</h3>
   <p>{t('人工标签与基础计算独立保存。候选工具结果需要研究者逐项核对；保存标签不会重新运行基础分析。')}</p>
-  {parent?.processed_dataset_version_id&&<button type="button" onClick={()=>onNavigate({view:'bio-result',fileId:'',processedId:parent.processed_dataset_version_id,tab:'spatial'})}>{t('返回父处理结果')} · {parent.processed_dataset_version_id}</button>}
+  {parent?.processed_dataset_version_id&&<button type="button" onClick={()=>onNavigate({view:'bio-result',fileId:'',processedId:parent.processed_dataset_version_id,tab:'spatial'})}>{t('返回上一级分析结果')}</button>}
   <section><h4>{t('当前人工注释')}</h4>{read.error&&<p role="alert">{t(read.error)}</p>}
    {read.value?.items.some(item=>!matches(item))&&<p role="alert">{t('固定来源身份不匹配，请重新打开。')}</p>}
-   <ul>{items.map(item=><li key={item.id}><strong>{item.name||item.set_id}</strong> · v{item.version} · {item.labels.length} {t('标签')}
-    <button type="button" onClick={()=>onNavigate({view:'bio-annotation',fileId:'',annotationSetId:item.set_id,annotationVersionId:item.id})}>{t('编辑 {name}',{name:item.name||item.set_id})}</button>
+   <ul>{items.map(item=><li key={item.id}><strong>{label(item)}</strong> · {item.labels.length} {t('标签')}
+    <button type="button" onClick={()=>onNavigate({view:'bio-annotation',fileId:'',annotationSetId:item.set_id,annotationVersionId:item.id})}>{t('编辑 {name}',{name:item.name||t('人工细胞注释')})}</button>
     <ul>{item.labels.map(label=><li key={label.id}>{label.name} · {t(label.status==='confirmed'?'研究者已确认':label.status==='uncertain'?'不确定':label.status==='unknown'?'未知':'候选')} · cluster {label.cluster_ids.join(', ')||'—'} · {label.cell_ids?.length??0} explicit cells</li>)}</ul>
    </li>)}</ul>{read.value&&!items.length&&<p>{t('尚无人工标签。')}</p>}
    <button type="button" onClick={read.reload}>{t('刷新人工注释')}</button><button type="button" disabled={create} onClick={()=>{setAdopted(null);setCreate(true)}}>{t(create?'人工草稿已打开':'新建人工注释')}</button>
@@ -40,9 +42,9 @@ export default function SingleCellAnnotationWorkspace({projectId,result,onNaviga
   </section>
   <SingleCellCandidateTask allowNewAnalysis={allowNewAnalysis} projectId={projectId} result={result} onPublished={read.reload}/>
   {candidates.map(candidate=><SingleCellCandidateReview key={candidate.id} projectId={projectId} candidate={candidate} canAdopt={!create} onAdopt={draft=>{setAdopted(draft);setCreate(true)}}/>)}
-  <section><h4>{t('带人工标签的 Word 报告')}</h4><label>{t('报告使用的人工标签')}<select value={report} onChange={e=>setReport(e.target.value)}><option value="">{t('请选择当前人工注释')}</option>{items.map(item=><option key={item.id} value={item.id}>{item.name||item.set_id} · v{item.version}</option>)}</select></label>
-   {items.some(item=>item.id===report)&&<><ProjectDownloadLink href={`${base}/bio-processed-datasets/${encodeURIComponent(result.id)}/report.docx?annotation_version_id=${encodeURIComponent(report)}`} filename="single-cell-annotated-analysis.docx">{t('下载包含所选标签的 Word 报告')}</ProjectDownloadLink>
-    <NativeDeliveryArtifact {...{projectId,deliveryTarget}} source={{kind:'single_cell_word',version_id:result.id,annotation_version_id:report}} name="Word"/></>}
+  <section><h4>{t('带人工标签的 Word 报告')}</h4><label>{t('报告使用的人工标签')}<select value={report} onChange={e=>setReport(e.target.value)}><option value="">{t('请选择当前人工注释')}</option>{items.map(item=><option key={item.id} value={item.id}>{label(item)}</option>)}</select></label>
+   {items.some(item=>item.id===report)&&<><ProjectDownloadLink href={`${base}/bio-processed-datasets/${encodeURIComponent(result.id)}/report.docx?annotation_version_id=${encodeURIComponent(report)}`} filename={reportName}>{t('下载包含所选标签的 Word 报告')}</ProjectDownloadLink>
+    <NativeDeliveryArtifact {...{projectId,deliveryTarget}} source={{kind:'single_cell_word',version_id:result.id,annotation_version_id:report}} name={reportName}/></>}
    <AnnotationUmap allowNewAnalysis={allowNewAnalysis} projectId={projectId} result={result} annotationId={items.some(item=>item.id===report)?report:''} onNavigate={onNavigate} registerLeaveGuard={registerLeaveGuard}/>
   </section>
   <SingleCellSubset allowNewAnalysis={allowNewAnalysis} projectId={projectId} result={result} onNavigate={onNavigate} registerLeaveGuard={registerLeaveGuard}/>

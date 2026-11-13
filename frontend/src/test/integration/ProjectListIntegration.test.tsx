@@ -1,15 +1,17 @@
 import {STANDARD_REQUEST_TIMEOUT_MS} from '../../shared/api/requestTimeouts'
-import { afterEach, expect, test, vi } from 'vitest'
+import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import App from '../../app/App'
+import ProjectWorkspace from '../../features/projects/ProjectWorkspace'
 import type { Project } from '../../features/projects/projectTypes'
+import { clearApiSession, setApiSession } from '../../shared/api/client'
 import { summaryFixture } from '../fixtures/summaryFixture'
 import { filePageFixture } from '../fixtures/filePageFixture'
 import { batchUploadFixture } from '../fixtures/batchUploadFixture'
 import { workflowStateFixture } from '../fixtures/workflowStateFixture'
 
-afterEach(() => { cleanup(); vi.useRealTimers(); vi.unstubAllGlobals(); window.history.replaceState(null, '', '/') })
+beforeEach(() => { setApiSession('test-csrf', 'test') })
+afterEach(() => { cleanup(); clearApiSession(); vi.useRealTimers(); vi.unstubAllGlobals(); window.history.replaceState(null, '', '/') })
 const project: Project = { id: 'p1', name: '药学项目', research_topic: '分组比较', project_type: 'sci', file_count: 1,
   created_at: '2026-09-29T10:00:00Z', updated_at: '2026-09-30T10:00:00Z' }
 const record = { id: 'f1', filename: '实验.xlsx', file_type: 'xlsx', size_bytes: 123, uploaded_at: project.created_at, parse_status: 'parsed', error: null }
@@ -33,7 +35,6 @@ function api() {
     const flowProject = projects.find(item => url === `/api/v1/projects/${item.id}/workflow-state`)
     if (flowProject) return Response.json(workflowStateFixture(flowProject))
     const parsed = new URL(url, 'http://localhost')
-    if (url.endsWith('/me')) return Response.json({ user: { id: 'test', email: 'test@example.com', role: 'user' }, csrf_token: 'test-csrf' })
     if (url.endsWith('/config')) return Response.json({ max_upload_bytes: 10485760, preview_row_limit: 20 })
     if (parsed.pathname === '/api/v1/projects') {
       if (init?.method === 'POST') {
@@ -83,7 +84,7 @@ async function navigate(name: '项目资料' | '项目文件' | '我的项目') 
   await act(async () => { fireEvent.click(button) })
 }
 async function openAndPreview() {
-  const user = userEvent.setup(); render(<App />)
+  const user = userEvent.setup(); render(<ProjectWorkspace />)
   await user.click(await screen.findByRole('button', { name: '打开项目 药学项目' }))
   await navigate('项目文件')
   await user.click(await screen.findByRole('button', { name: '预览 实验.xlsx' }))
@@ -142,7 +143,7 @@ test('paginates five projects per page and retains preview and edit draft after 
 })
 
 test('restores a hash project by detail even when absent from the current page', async () => {
-  const mock = api(); window.location.hash = '#project=p12'; render(<App />)
+  const mock = api(); window.location.hash = '#project=p12'; render(<ProjectWorkspace />)
   await screen.findByRole('heading', { name: '其他项目12' })
   expect(mock.mock.calls.some(([url]) => url === '/api/v1/projects/p12')).toBe(true)
   expect(screen.queryByRole('button', { name: '打开项目 其他项目12' })).toBeNull()
@@ -163,7 +164,7 @@ test('retains details during a list failure and retries only the list', async ()
 })
 
 test('corrects a page beyond the new total to the last valid page', async () => {
-  const mock = api(); const normal = mock.getMockImplementation()!; const user = userEvent.setup(); render(<App />)
+  const mock = api(); const normal = mock.getMockImplementation()!; const user = userEvent.setup(); render(<ProjectWorkspace />)
   await screen.findByRole('button', { name: '打开项目 药学项目' })
   mock.mockImplementation((url, init) => url.includes('page=2&') ? Promise.resolve(Response.json({ items: [], total: 1, page: 2, page_size: 5 })) : normal(url, init))
   await navigate('我的项目')
@@ -206,7 +207,7 @@ test('refreshes file counts and metadata after upload without resetting an editi
 })
 
 test('creation returns to page one and clears both filters with the fixed page size', async () => {
-  const mock = api(); const user = userEvent.setup(); render(<App />)
+  const mock = api(); const user = userEvent.setup(); render(<ProjectWorkspace />)
   await screen.findByRole('button', { name: '打开项目 药学项目' })
   await user.selectOptions(screen.getByLabelText('筛选项目类型'), 'thesis')
   await navigate('我的项目')
@@ -238,7 +239,7 @@ for (const late of ['response', 'body']) {
       }
       return normal(url, init)
     })
-    const user = userEvent.setup(); render(<App />); await screen.findByRole('button', { name: '打开项目 药学项目' })
+    const user = userEvent.setup(); render(<ProjectWorkspace />); await screen.findByRole('button', { name: '打开项目 药学项目' })
     await navigate('我的项目')
     await user.type(screen.getByLabelText('搜索项目名称'), 'old'); await user.click(screen.getByRole('button', { name: '搜索项目' }))
     if (late === 'body') await waitFor(() => expect(bodyStarted).toBe(true))
@@ -253,7 +254,7 @@ for (const late of ['response', 'body']) {
 test('list requests time out at the shared bounded deadline and allow retry even if fetch ignores abort', async () => {
   const mock = api(); const normal = mock.getMockImplementation()!; let pending = true
   mock.mockImplementation((url, init) => url.startsWith('/api/v1/projects?') && pending ? new Promise(() => {}) : normal(url, init))
-  vi.useFakeTimers(); render(<App />); await act(async () => {})
+  vi.useFakeTimers(); render(<ProjectWorkspace />); await act(async () => {})
   await act(async () => { await vi.advanceTimersByTimeAsync(STANDARD_REQUEST_TIMEOUT_MS) })
   expect(screen.getByRole('alert').textContent).toContain('超时')
   pending = false; fireEvent.click(screen.getByRole('button', { name: '重试项目列表' })); await act(async () => {})
@@ -263,7 +264,7 @@ test('list requests time out at the shared bounded deadline and allow retry even
 test('detail network failure offers its own retry and keeps the selected hash', async () => {
   const mock = api(); const normal = mock.getMockImplementation()!; let failed = true
   mock.mockImplementation((url, init) => url === '/api/v1/projects/p1' && failed ? Promise.reject(new TypeError('offline')) : normal(url, init))
-  const user = userEvent.setup(); render(<App />); await user.click(await screen.findByRole('button', { name: '打开项目 药学项目' }))
+  const user = userEvent.setup(); render(<ProjectWorkspace />); await user.click(await screen.findByRole('button', { name: '打开项目 药学项目' }))
   await screen.findByRole('button', { name: '重试项目详情' }); expect(window.location.hash).toBe('#project=p1')
   expect(screen.queryByLabelText('批量选择 Excel / Word / PDF / 图片 文件')).toBeNull()
   failed = false; await user.click(screen.getByRole('button', { name: '重试项目详情' })); await screen.findByRole('heading', { name: '药学项目' })
@@ -272,7 +273,7 @@ test('detail network failure offers its own retry and keeps the selected hash', 
 test('detail requests time out at the shared bounded deadline and retry when fetch ignores abort', async () => {
   const mock = api(); const normal = mock.getMockImplementation()!; let pending = true
   mock.mockImplementation((url, init) => url === '/api/v1/projects/p1' && pending ? new Promise(() => {}) : normal(url, init))
-  render(<App />); await screen.findByRole('button', { name: '打开项目 药学项目' })
+  render(<ProjectWorkspace />); await screen.findByRole('button', { name: '打开项目 药学项目' })
   vi.useFakeTimers(); fireEvent.click(screen.getByRole('button', { name: '打开项目 药学项目' })); await act(async () => {})
   await act(async () => { await vi.advanceTimersByTimeAsync(STANDARD_REQUEST_TIMEOUT_MS) })
   expect(screen.getByRole('alert').textContent).toContain('项目详情读取超时')

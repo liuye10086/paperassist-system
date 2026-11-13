@@ -103,12 +103,17 @@ def bootstrap_admin(email, password, *, operator=None):
 
 
 def _change(email, field, value, reason, operator=None):
+    from app.domain.account_deletion import DELETION_PENDING
+
     email = normalize_email(email)
     with auth_connection(write=True) as db:
         ensure_schema_current(db)
-        row = db.execute("SELECT id,role,active,review_status FROM users WHERE email = %s", (email,)).fetchone()
+        row = db.execute(f'SELECT id,role,active,review_status,{DELETION_PENDING} AS deletion_pending FROM users WHERE email=%s',
+                         (email,)).fetchone()
         if not row:
             raise AccountValidationError("账号不存在。")
+        if row['deletion_pending']:
+            raise AccountValidationError('账号正在永久删除。')
         if row['review_status'] != 'approved':
             raise AccountValidationError('账号须先通过审核。')
         from app.domain.admin_operations import audit_account, guard_last_admin

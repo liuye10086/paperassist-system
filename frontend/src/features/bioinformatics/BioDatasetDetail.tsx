@@ -11,7 +11,6 @@ import {safeError,useI18n} from '../../shared/i18n'
 import {bioRequest,projectBase} from './api'
 import type {BioVersion} from './contracts'
 import {BioChecks,BioCounts,BioMembers} from './BioDetails'
-import ProjectDownloadLink from '../../shared/components/ProjectDownloadLink'
 import ModuleViews,{ModuleView} from '../../shared/components/ModuleViews'
 import useResearchDraft from '../research-results/useResearchDraft'
 import './bioLayout.css'
@@ -31,7 +30,7 @@ export default function BioDatasetDetail({allowNewAnalysis=true,projectId,datase
   {data&&<ModuleViews label={t('数据集模块')} value={panel} onChange={setPanel}>
    <ModuleView id="overview" title={t('数据概况')}><BioCounts summary={data.shape}/></ModuleView>
    <ModuleView id="checks" title={t('结构检查')}><BioChecks checks={data.checks} singleCell={singleCell}/>{!tabular&&!singleCell&&<BioRepresentation summary={data.summary} checks={data.checks}/>}</ModuleView>
-   <ModuleView id="files" title={t('数据文件')}><BioMembers projectId={projectId} members={data.members}/><ProjectDownloadLink href={`${base}/manifest`} filename="bio-manifest.json">{t('下载导入核对清单')}</ProjectDownloadLink></ModuleView>
+   <ModuleView id="files" title={t('数据文件')}><BioMembers projectId={projectId} members={data.members}/></ModuleView>
    {(!tabular&&!singleCell||image)&&<ModuleView id="coordinates" title={t('坐标与图像')}>{!tabular&&!singleCell&&<BioCoordinates projectId={projectId} datasetId={datasetId} versionId={versionId} members={data.members}/>}{image&&<figure><img className="bio-coordinate-preview" src={image} alt={t('组织原图核对')}/><figcaption>{t('原组织图，用于配套核对；不表示空间表达或细胞类型。')}</figcaption></figure>}</ModuleView>}
    <ModuleView id="matrix" title={t('矩阵预览')}><button type="button" disabled={!valid} onClick={()=>void preview()}>{t('读取有界矩阵预览')}</button>{matrix&&<MatrixPreview value={matrix}/>}</ModuleView>
    {onNavigate&&isRawBioSource(data.source,projectId)&&<ModuleView id="analysis" title={t('分析入口')}><BioNewAnalysis allowNewAnalysis={allowNewAnalysis} projectId={projectId} source={data.source} onNavigate={onNavigate} registerLeaveGuard={registerLeaveGuard}/></ModuleView>}

@@ -115,7 +115,6 @@ export function BulkSensitivitySummary({result}:{result:Pick<BulkSensitivityResu
     {([['基线筛选',result.baseline],['变体筛选',result.scenario]] as const).map(([label,side])=><p key={label}>
       <strong>{t(label)}</strong> · {bulkComparisonLabel({contrast_id:side.selection.contrast_id,numerator:side.numerator,denominator:side.denominator})}
       {' · '}<BulkSelectionSummary value={side.selection}/><br/>
-      <code>{side.version_id}</code> · <code>{side.run_id}</code> · <code>{side.plan_version_id}</code>
     </p>)}
     <dl className="bulk-workflow-metrics">
       {Object.entries(result.counts).map(([key,value])=><div key={key}><dt>{t(changeLabels[key]??key)}</dt><dd>{value}</dd></div>)}

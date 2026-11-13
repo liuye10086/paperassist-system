@@ -162,7 +162,8 @@ def test_registration_queue_is_admin_only_and_filters_application_summaries():
         assert first.status_code == 200, first.text
         assert first.json()['total'] == 2
         item, = first.json()['items']
-        assert set(item) == {'user_id', 'email', 'display_name', 'organization', 'submitted_at', 'review_status'}
+        assert set(item) == {'user_id', 'email', 'display_name', 'organization', 'submitted_at', 'review_status', 'role', 'admin_revision'}
+        assert item['role'] is None
         assert item['email'] == 'first@registration.test' and item['review_status'] == 'pending'
         assert item['display_name'] == '申请人' and item['organization'] == '示例单位'
         assert admin.get(REGISTRATIONS, params={'page': 2, 'page_size': 1}).json()['items'][0]['email'] == 'second@registration.test'
@@ -170,12 +171,18 @@ def test_registration_queue_is_admin_only_and_filters_application_summaries():
 
         account = pending_account(admin, 'first@registration.test')
         reviewed = admin.post(registration_url(account) + '/review', headers=write_headers(identity), json={
-            'decision': 'approve', 'role': 'analyst', 'expected_revision': account['admin_revision'],
+            'decision': 'approve', 'role': 'analyst', 'expected_revision': item['admin_revision'],
         })
         assert reviewed.status_code == 200, reviewed.text
         assert admin.get(REGISTRATIONS).json()['total'] == 1
         approved = admin.get(REGISTRATIONS, params={'review_status': 'approved', 'q': 'FIRST'}).json()
         assert approved['total'] == 1 and approved['items'][0]['user_id'] == item['user_id']
+        all_reviews = admin.get(REGISTRATIONS, params={'review_status': 'all', 'page_size': 1})
+        assert all_reviews.status_code == 200, all_reviews.text
+        assert all_reviews.json()['total'] == 2
+        same_row, = all_reviews.json()['items']
+        assert same_row['user_id'] == item['user_id'] and same_row['review_status'] == 'approved'
+        assert same_row['role'] == 'analyst' and same_row['admin_revision'] == item['admin_revision'] + 1
 
         for client, account in [(customer_client, customer), (analyst_client, analyst)]:
             assert login(client, account['email']).status_code == 200

@@ -116,7 +116,8 @@ def test_assigned_native_word_replays_and_publishes_the_saved_bytes(assigned_pro
     delivery_id = next(row['id'] for row in intake['deliveries'] if row['kind'] == 'analysis')
     delivery = assigned.project + '/deliveries/' + delivery_id
     candidates = assigned.analyst.get(delivery + '/candidates').json()['items']
-    assert any(row['selection'].get('file_id') == file_id and row['status'] == 'succeeded' for row in candidates)
+    candidate = next(row for row in candidates if row['selection'].get('file_id') == file_id)
+    assert candidate['status'] == 'succeeded' and candidate['label'] == '单细胞分析报告.docx'
     frozen = assigned.analyst.post(delivery + '/snapshots', headers={'Idempotency-Key': 'freeze-native-word'},
                                   json=freeze_body(assigned.requirement, file_id))
     assert frozen.status_code == 201, frozen.text
@@ -136,14 +137,21 @@ def test_assigned_native_word_replays_and_publishes_the_saved_bytes(assigned_pro
     queued = package.json()['task']
     completed = run_delivery_package_task(queued['id'], queued['revision'], staging_directory=tmp_path / 'staging')
     assert completed['status'] == 'succeeded', completed
+    analyst_archive = assigned.analyst.get(delivery + '/snapshots/' + snapshot['id'] + '/download')
+    assert analyst_archive.status_code == 200
+    with ZipFile(BytesIO(analyst_archive.content)) as files:
+        assert files.namelist() == ['单细胞分析报告.docx']
+        assert files.read('单细胞分析报告.docx') == raw
     assign(assigned.admin, assigned.project, None, assigned.revision)
     assert assigned.analyst.post(assigned.endpoint, json=body, headers=headers).status_code == 404
     public = assigned.customer.get(customer_workspace + '/deliveries/' + snapshot['id']).json()
     assert set(public['members'][0]) == {'id', 'name', 'format', 'size_bytes', 'download_url'}
+    assert public['members'][0]['name'] == '单细胞分析报告.docx'
     assert assigned.customer.get(public['members'][0]['download_url']).content == raw
     archive = assigned.customer.get(public['package_url'])
     assert archive.status_code == 200, archive.text
     with ZipFile(BytesIO(archive.content)) as files:
+        assert files.namelist() == ['单细胞分析报告.docx']
         assert files.read(public['members'][0]['name']) == raw
     assert len(renders) == 1
 
@@ -252,10 +260,13 @@ def test_native_retry_discards_only_empty_storage_capture(assigned_project, monk
 
 
 def test_processed_single_cell_png_accepts_only_saved_figure_members(assigned_project, monkeypatch):
+    from urllib.parse import unquote
+
     from PIL import Image
 
     from app.adapters.bio_analysis_store import BioAnalysisStore
     from app.adapters.task_store import TaskStore
+    from app.db.database import database_connection
 
     assigned = assigned_project
     buffer = BytesIO()
@@ -279,6 +290,26 @@ def test_processed_single_cell_png_accepts_only_saved_figure_members(assigned_pr
     saved = assigned.analyst.post(assigned.endpoint, headers={'Idempotency-Key': 'attach-umap'}, json=body)
     assert saved.status_code == 201, saved.text
     assert saved.json()['format'] == 'png' and saved.json()['sha256'] == figure['sha256']
+    assert saved.json()['filename'] == 'UMAP 聚类图.png'
+    file_id = saved.json()['file_id']
+    legacy_name = f"analysis-figure-{figure['sha256'][:12]}.png"
+    with database_connection(write=True) as db:
+        db.execute('UPDATE files SET filename=%s WHERE id=%s', (legacy_name, file_id))
+    listed = assigned.analyst.get(assigned.project + '/files?page=1&page_size=10').json()
+    assert next(item['filename'] for item in listed['items'] if item['id'] == file_id) == 'UMAP 聚类图.png'
+    downloaded = assigned.analyst.get(assigned.project + f'/files/{file_id}/download')
+    assert downloaded.content == raw
+    assert unquote(downloaded.headers['content-disposition']).endswith('UMAP 聚类图.png')
+    saved_second = assigned.analyst.post(assigned.endpoint, headers={'Idempotency-Key': 'another-umap'}, json=body)
+    assert saved_second.status_code == 201
+    intake = assigned.analyst.get(assigned.project + '/research-intake').json()
+    delivery_id = next(row['id'] for row in intake['deliveries'] if row['kind'] == 'analysis')
+    preview_body = freeze_body(assigned.requirement, file_id)
+    preview_body['members'].append({'kind': 'file', 'file_id': saved_second.json()['file_id']})
+    preview = assigned.analyst.post(assigned.project + f'/deliveries/{delivery_id}/snapshots/preview', json=preview_body)
+    assert preview.status_code == 200, preview.text
+    assert [m['display_name'] for m in preview.json()['members']] == ['UMAP 聚类图.png', 'UMAP 聚类图（2）.png']
+    assert [m['sha256'] for m in preview.json()['members']] == [figure['sha256']] * 2
     blocked = assigned.analyst.post(assigned.endpoint, headers={'Idempotency-Key': 'attach-internal'},
                                     json={**body, 'member_id': unsafe['id']})
     assert blocked.status_code == 422

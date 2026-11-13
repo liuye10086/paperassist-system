@@ -30,8 +30,8 @@ export type EnrichmentResourceIdentity=EnrichmentIdentity&{
 }
 export type EnrichmentCompatibility={source:EnrichmentSourceIdentity|null;resources:EnrichmentResourceIdentity[];note?:string}
 export type Design={executable:boolean;blocking_reasons:({code?:string;message?:string;detail?:unknown}|string)[];warnings?:string[];source_digest?:string;reviewed_design_sha256?:string;bulk_model?:BulkModelPreview;enrichment_compatibility?:EnrichmentCompatibility|null;exclusions?:{processed_version_id:string;sample_id:string;reason:string}[];[key:string]:unknown}
-export type Plan={id:string;plan_id:string;version:number;revision:number;current_revision:number;parent_id:string|null;kind:InsightKind;name:string;decision:'draft'|'confirmed';config:Config;config_sha256:string;sources:Source[];source_digest:string;design:Design;design_checks?:Design}
-export type Task={id:string;status:string;phase?:string;display_status?:string;reason_code?:string|null;error_code?:string|null;revision?:number}
+export type Plan={id:string;plan_id:string;version:number;revision:number;current_revision:number;parent_id:string|null;kind:InsightKind;name:string;decision:'draft'|'confirmed';config:Config;config_sha256:string;sources:Source[];source_digest:string;design:Design;design_checks?:Design;created_at?:string}
+export type Task={id:string;status:string;phase?:string;display_status?:string;reason_code?:string|null;error_code?:string|null;revision?:number;created_at?:string}
 export type Run={id:string;run_id:string;kind:InsightKind;plan_id?:string;plan_version_id:string;source_digest:string;result_version_id:string|null;task_id:string;task:Task}
 export type Member={id:string;key:string;role:string;format:string;sha256:string;size_bytes:number;shape?:Record<string,unknown>;download_url:string}
 export type Result={id:string;run_id:string;plan_version_id:string;kind:InsightKind;provenance:string;inference_scope:string;summary:Record<string,unknown>;methods:Record<string,unknown>;manifest:Record<string,unknown>;manifest_sha256:string;task_id:string;task:Task;members:Member[]}

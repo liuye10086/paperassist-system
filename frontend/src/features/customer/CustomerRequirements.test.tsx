@@ -13,7 +13,7 @@ vi.mock('../../shared/api/client', () => ({
 const projectId = 'customer-project'
 const base = `/api/v1/projects/${projectId}`
 const singleCell = '单细胞 RNA 测序数据分析'
-const bulk = 'RNA 转录组学分析（Bulk RNA-seq）'
+const bulk = 'RNA 转录组学分析'
 const spatial = '空间转录组分析'
 
 type Write = { expected_revision: number; operation: Version['operation']; content: Content; material_refs: MaterialRef[] }
@@ -50,7 +50,6 @@ function checkbox(name: string) {
   return screen.getByRole('checkbox', { name }) as HTMLInputElement
 }
 
-function notes() { return screen.getByRole('textbox', { name: '补充说明' }) as HTMLTextAreaElement }
 function click(name: string) { fireEvent.click(screen.getByRole('button', { name })) }
 async function open(onSubmitted = vi.fn(), registerLeaveGuard?: RegisterLeaveGuard) {
   const component = render(<CustomerRequirements projectId={projectId} onSubmitted={onSubmitted} registerLeaveGuard={registerLeaveGuard}/>)
@@ -59,6 +58,20 @@ async function open(onSubmitted = vi.fn(), registerLeaveGuard?: RegisterLeaveGua
 }
 
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.resetAllMocks(); sessionStorage.clear() })
+
+it('shows five unfinished analysis types as disabled choices', async () => {
+  server()
+  await open()
+  const types = within(screen.getByRole('group', { name: '分析类型' }))
+  expect(types.getAllByRole('checkbox')).toHaveLength(7)
+  expect(checkbox(singleCell).matches(':enabled')).toBe(true)
+  expect(checkbox(bulk).matches(':enabled')).toBe(true)
+  for (const name of [spatial, '代谢组学分析', '基因组学分析', '多组学联合分析', '肠道菌群16S-rRNA分析']) {
+    const option = types.getByRole('checkbox', { name: `${name} 建设中` }) as HTMLInputElement
+    expect(option.matches(':disabled')).toBe(true)
+    expect(option.checked).toBe(false)
+  }
+})
 
 it('groups dependent choices for every selected type and clears only the deselected type', async () => {
   server()
@@ -71,11 +84,10 @@ it('groups dependent choices for every selected type and clears only the deselec
 
   fireEvent.click(checkbox(singleCell))
   fireEvent.click(checkbox(bulk))
-  fireEvent.click(checkbox(spatial))
   const bulkAnalysis = within(analysis.getByRole('group', { name: bulk }))
   const singleCellAnalysis = within(analysis.getByRole('group', { name: singleCell }))
   const singleCellFigures = within(figures.getByRole('group', { name: singleCell }))
-  expect(analysis.getByRole('group', { name: spatial })).toBeTruthy()
+  expect(analysis.queryByRole('group', { name: spatial })).toBeNull()
   expect(bulkAnalysis.queryByRole('checkbox', { name: '拟时分析' })).toBeNull()
   fireEvent.click(singleCellAnalysis.getByRole('checkbox', { name: '拟时分析' }))
   fireEvent.click(singleCellFigures.getByRole('checkbox', { name: 'UMAP 图' }))
@@ -92,6 +104,30 @@ it('groups dependent choices for every selected type and clears only the deselec
   expect(checkbox('Word 报告').checked).toBe(true)
 })
 
+it('keeps previously selected spatial scopes read-only and preserves them on save', async () => {
+  const scope = [
+    { id: 'customer.type.spatial', title: spatial, delivery_kind: 'analysis' },
+    { id: 'customer.analysis.spatial.spatial_domains', title: '空间区域识别', delivery_kind: 'analysis' },
+    { id: 'customer.figure.spatial.spatial_distribution', title: '空间分布图', delivery_kind: 'analysis' },
+  ]
+  server(version({ ...emptyRequirement(), scope_items: scope }))
+  await open()
+  const type = screen.getByRole('checkbox', { name: /^空间转录组分析/ }) as HTMLInputElement
+  for (const option of [type, checkbox('空间区域识别'), checkbox('空间分布图')]) {
+    expect(option.checked).toBe(true)
+    expect(option.matches(':disabled')).toBe(true)
+  }
+  const analysis = within(screen.getByRole('group', { name: '个性化分析' }))
+  expect(analysis.getByRole('checkbox', { name: '差异表达' }).matches(':disabled')).toBe(true)
+  fireEvent.click(checkbox(bulk))
+  click('保存草稿')
+  await screen.findByText('草稿已保存。')
+  expect(writes()[0].body.content.scope_items).toEqual([
+    expect.objectContaining({ id: 'customer.type.bulk', title: 'RNA 转录组学分析（Bulk RNA-seq）' }),
+    ...scope,
+  ])
+})
+
 it('saves readable choices and restores them with legacy fields, delivery types and material references', async () => {
   const legacyScope = { id: 'legacy', title: '原有分析范围', delivery_kind: 'sci_draft', status: 'completed', source: '旧需求' }
   const refs = [{ file_id: 'file-1', purpose: 'sample_sheet', availability: 'provided', note: '已经关联' }] satisfies MaterialRef[]
@@ -100,7 +136,7 @@ it('saves readable choices and restores them with legacy fields, delivery types 
   server(version(previous, 'confirm', refs))
   const onSubmitted = vi.fn()
   const first = await open(onSubmitted)
-  expect(notes().value).toBe('原说明')
+  expect(screen.queryByRole('textbox', { name: '补充说明' })).toBeNull()
   fireEvent.click(checkbox(singleCell))
   fireEvent.click(checkbox('拟时分析'))
   fireEvent.click(checkbox('UMAP 图'))
@@ -125,16 +161,16 @@ it('saves readable choices and restores them with legacy fields, delivery types 
   expect(checkbox('拟时分析').checked).toBe(true)
   expect(checkbox('UMAP 图').checked).toBe(true)
   expect(checkbox('Word 报告').checked).toBe(true)
-  expect(notes().value).toBe('原说明')
   fireEvent.click(checkbox(singleCell))
   click('提交需求')
   await waitFor(() => expect(onSubmitted).toHaveBeenCalledOnce())
   expect(writes()[1].body).toMatchObject({ expected_revision: 3, operation: 'confirm', content: {
+    notes: '原说明',
     scope_items: [legacyScope, expect.objectContaining({ id: 'customer.delivery.word' })],
   } })
 })
 
-it('allows an empty draft but requires an analysis type or meaningful notes before submitting', async () => {
+it('allows an empty draft and requires an analysis type for a new submission', async () => {
   server(version({ ...emptyRequirement(), services: [] }))
   const onSubmitted = vi.fn()
   await open(onSubmitted)
@@ -143,17 +179,18 @@ it('allows an empty draft but requires an analysis type or meaningful notes befo
   expect(writes()[0].body).toMatchObject({ operation: 'save', content: { notes: '', services: [], scope_items: [] } })
 
   fireEvent.click(checkbox('交付包'))
-  fireEvent.change(notes(), { target: { value: '  ' } })
   click('提交需求')
-  expect(screen.getByRole('alert').textContent).toContain('请选择至少一种分析类型或填写补充说明。')
+  expect(screen.getByRole('alert').textContent).toContain('请选择至少一种分析类型。')
   expect(writes()).toHaveLength(1)
   expect(onSubmitted).not.toHaveBeenCalled()
 
   fireEvent.click(checkbox('交付包'))
-  fireEvent.change(notes(), { target: { value: '请先核对样本表。' } })
+  fireEvent.click(checkbox(bulk))
   click('提交需求')
   await waitFor(() => expect(onSubmitted).toHaveBeenCalledOnce())
-  expect(writes()[1].body).toMatchObject({ operation: 'confirm', content: { notes: '请先核对样本表。', services: ['analysis'], scope_items: [] } })
+  expect(writes()[1].body).toMatchObject({ operation: 'confirm', content: {
+    notes: '', services: ['analysis'], scope_items: [expect.objectContaining({ id: 'customer.type.bulk' })],
+  } })
 })
 
 it('restores an unfinished request and retries its original confirmation after reopening', async () => {
@@ -206,6 +243,11 @@ it('retains local edits on revision conflict and uses the latest unrelated field
   const singleCellScope = { id: 'customer.type.single_cell', title: singleCell, delivery_kind: 'analysis' }
   const bulkScope = { id: 'customer.type.bulk', title: bulk, delivery_kind: 'analysis' }
   const { root, commit } = server(version({ ...emptyRequirement(), scope_items: [singleCellScope] }))
+  const baseline = { selected: [singleCellScope.id], notes: '' }
+  sessionStorage.setItem(`paperassist.research-draft.v1:customer:${projectId}:customer-requirements`, JSON.stringify({
+    draft: { revision: root.revision, baseline, input: { ...baseline, notes: '我的补充说明' } },
+    pending: null,
+  }))
   const addedScope = { id: 'server-only', title: '服务器新增范围', delivery_kind: 'analysis' }
   const addedRef = { file_id: 'new-file', purpose: 'other', availability: 'provided' } satisfies MaterialRef
   vi.mocked(apiFetch).mockImplementation(async (url, init) => {
@@ -218,14 +260,12 @@ it('retains local edits on revision conflict and uses the latest unrelated field
   await open()
   expect(checkbox(singleCell).checked).toBe(true)
   fireEvent.click(checkbox('拟时分析'))
-  fireEvent.change(notes(), { target: { value: '我的补充说明' } })
   click('保存草稿')
   await screen.findByRole('button', { name: '读取服务器版本并保留草稿' })
-  expect(notes().value).toBe('我的补充说明')
+  expect(writes()[0].body.content.notes).toBe('我的补充说明')
   click('读取服务器版本并保留草稿')
   await screen.findByRole('button', { name: '合并本地修改' })
   click('合并本地修改')
-  expect(notes().value).toBe('我的补充说明')
   expect(checkbox(singleCell).checked).toBe(true)
   expect(checkbox(bulk).checked).toBe(true)
   expect(checkbox('拟时分析').checked).toBe(true)
@@ -245,13 +285,13 @@ it('warns before leaving a dirty project and retains its draft across steps', as
   const ask = vi.spyOn(window, 'confirm').mockReturnValue(false)
   const first = await open(vi.fn(), register)
   expect(guard?.()).toBe(true)
-  fireEvent.change(notes(), { target: { value: '留在本项目草稿' } })
+  fireEvent.click(checkbox(singleCell))
   expect(guard?.()).toBe(false)
   expect(ask).toHaveBeenCalledOnce()
   expect(guard?.(true)).toBe(true)
   first.unmount()
 
   await open(vi.fn(), register)
-  expect(notes().value).toBe('留在本项目草稿')
+  expect(checkbox(singleCell).checked).toBe(true)
   expect(writes()).toHaveLength(0)
 })

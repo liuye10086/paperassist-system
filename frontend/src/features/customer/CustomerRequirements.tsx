@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState } from 'react'
+import { useEffect, useId, useRef, useState, type Ref } from 'react'
 import { onApiSessionChanged } from '../../shared/api/client'
 import { safeError, useI18n } from '../../shared/i18n'
 import useDraftLeaveGuard, { type RegisterLeaveGuard } from '../projects/useDraftLeaveGuard'
@@ -7,12 +7,17 @@ import type { Content, Intake, MaterialRef, Version } from '../research-intake/c
 import { cleanMaterialRefs } from '../research-intake/state'
 import useResearchDraft from '../research-results/useResearchDraft'
 import {
-  analysisTypes, buildRequirementContent, deliveryChoices, mergeRequirementInput, readRequirementInput,
+  analysisTypeChoices, analysisTypes, buildRequirementContent, deliveryChoices, mergeRequirementInput, readRequirementInput,
   sameRequirementInput, toggleRequirementChoice, type Choice, type RequirementInput,
 } from './customerRequirementChoices'
 import './customerRequirements.css'
 
-type Props = { projectId: string; onSubmitted: () => void; registerLeaveGuard?: RegisterLeaveGuard }
+type Props = {
+  projectId: string
+  headingRef?: Ref<HTMLHeadingElement>
+  onSubmitted: () => void
+  registerLeaveGuard?: RegisterLeaveGuard
+}
 type Operation = Version['operation']
 type Draft = { revision: number; baseline: RequirementInput; input: RequirementInput }
 type PendingWrite = { key: string; body: { expected_revision: number; operation: Operation; content: Content; material_refs: MaterialRef[] } }
@@ -24,7 +29,7 @@ export default function CustomerRequirements(props: Props) {
   return <RequirementsForm key={props.projectId} {...props}/>
 }
 
-function RequirementsForm({ projectId, onSubmitted, registerLeaveGuard }: Props) {
+function RequirementsForm({ projectId, headingRef, onSubmitted, registerLeaveGuard }: Props) {
   const { t } = useI18n()
   const headingId = useId()
   const base = projectBase(projectId)
@@ -150,8 +155,9 @@ function RequirementsForm({ projectId, onSubmitted, registerLeaveGuard }: Props)
 
   function save(operation: Operation) {
     if (!root || busy || pending || conflict || request.current) return
+    // Preserve submissions from drafts that already contain notes.
     if (operation === 'confirm' && !selectedTypes.length && !input.notes.trim()) {
-      setError('请选择至少一种分析类型或填写补充说明。')
+      setError('请选择至少一种分析类型。')
       return
     }
     const content = buildRequirementContent(root, input, operation, t)
@@ -169,37 +175,40 @@ function RequirementsForm({ projectId, onSubmitted, registerLeaveGuard }: Props)
   const current = root?.current_requirement
   const status = draft ? '有未保存的修改。' : current?.operation === 'confirm' ? '需求已提交。' : current ? '草稿已保存。' : '尚未保存需求。'
   const disabled = busy || !!pending
-  return <section className="customer-requirements" aria-labelledby={headingId}>
+  return <section className="customer-section customer-requirements" aria-labelledby={headingId}>
     <header className="customer-requirements__header">
-      <h2 id={headingId}>{t('选择需求')}</h2>
+      <h1 id={headingId} ref={headingRef} tabIndex={-1}>{t('选择需求')}</h1>
       {root && !pending && <p role="status">{t(status)}</p>}
     </header>
     {reading && <p role="status">{t('正在读取需求……')}</p>}
     {!root && !reading && error && <button type="button" onClick={reload}>{t('重新读取需求')}</button>}
     {root && <div className="customer-requirements__form" aria-busy={busy}>
-      <fieldset className="customer-requirements__row" disabled={disabled}>
-        <legend>{t('分析类型')}</legend>
-        <ChoiceGroup choices={analysisTypes.map(group => group.type)} {...choiceProps}/>
-      </fieldset>
-      <fieldset className="customer-requirements__row" disabled={disabled}>
-        <legend>{t('个性化分析')}</legend>
-        {selectedTypes.length === 0 && <p>{t('选择分析类型后可勾选对应的分析。')}</p>}
-        <div className="customer-requirements__groups">
-          {selectedTypes.map(group => <ChoiceGroup key={group.type.id} title={group.type.label} choices={group.analyses} {...choiceProps}/>)}
-        </div>
-      </fieldset>
-      <fieldset className="customer-requirements__row" disabled={disabled}>
-        <legend>{t('图件与交付')}</legend>
-        <div className="customer-requirements__groups">
-          {selectedTypes.map(group => <ChoiceGroup key={group.type.id} title={group.type.label} choices={group.figures} {...choiceProps}/>)}
-          <ChoiceGroup title="项目交付" choices={deliveryChoices} {...choiceProps}/>
-        </div>
-      </fieldset>
-      <label className="customer-requirements__notes">
-        <span>{t('补充说明')}</span>
-        <textarea rows={3} maxLength={10000} value={input.notes} disabled={disabled}
-          onChange={event => updateInput({ ...input, notes: event.target.value })}/>
-      </label>
+      <div className="customer-requirements__row">
+        <span id={`${headingId}-types`}>{t('分析类型')}</span>
+        <fieldset aria-labelledby={`${headingId}-types`} disabled={disabled}>
+          <ChoiceGroup choices={analysisTypeChoices} {...choiceProps}/>
+        </fieldset>
+      </div>
+      <div className="customer-requirements__row">
+        <span id={`${headingId}-analyses`}>{t('个性化分析')}</span>
+        <fieldset aria-labelledby={`${headingId}-analyses`} disabled={disabled}>
+          {selectedTypes.length === 0 ? <p>{t('选择分析类型后可勾选对应的分析。')}</p> :
+            <div className="customer-requirements__groups">
+              {selectedTypes.map(group => <ChoiceGroup key={group.type.id} title={group.customerChoice.label} choices={group.analyses}
+                disabled={!!group.customerChoice.disabledReason} {...choiceProps}/>)}
+            </div>}
+        </fieldset>
+      </div>
+      <div className="customer-requirements__row">
+        <span id={`${headingId}-deliveries`}>{t('图件与交付')}</span>
+        <fieldset aria-labelledby={`${headingId}-deliveries`} disabled={disabled}>
+          <div className="customer-requirements__groups">
+            {selectedTypes.map(group => <ChoiceGroup key={group.type.id} title={group.customerChoice.label} choices={group.figures}
+              disabled={!!group.customerChoice.disabledReason} {...choiceProps}/>)}
+            <ChoiceGroup title="项目交付" choices={deliveryChoices} {...choiceProps}/>
+          </div>
+        </fieldset>
+      </div>
     </div>}
     {error && <p role="alert" className="error-panel">{t(error)}</p>}
     {conflict && !pending && <div className="customer-requirements__recovery">
@@ -228,16 +237,24 @@ function RequirementsForm({ projectId, onSubmitted, registerLeaveGuard }: Props)
   </section>
 }
 
-function ChoiceGroup({ choices, title, selected, onChange }: {
-  choices: Choice[]; title?: string; selected: string[]; onChange: (id: string, checked: boolean) => void
+function ChoiceGroup({ choices, title, selected, onChange, disabled = false }: {
+  choices: Choice[]
+  title?: string
+  selected: string[]
+  onChange: (id: string, checked: boolean) => void
+  disabled?: boolean
 }) {
   const { t } = useI18n()
   return <div className="customer-requirements__group" role={title ? 'group' : undefined} aria-label={title && t(title)}>
     {title && <h3>{t(title)}</h3>}
     <div className="customer-requirements__choices">
       {choices.map(choice => <label className="customer-requirements__choice" key={choice.id}>
-        <input type="checkbox" checked={selected.includes(choice.id)} onChange={event => onChange(choice.id, event.target.checked)}/>
-        <span>{t(choice.label)}</span>
+        <input type="checkbox" checked={selected.includes(choice.id)} disabled={disabled || !!choice.disabledReason}
+          onChange={event => onChange(choice.id, event.target.checked)}/>
+        <span className="customer-requirements__choice-text">
+          <span>{t(choice.label)}</span>
+          {choice.disabledReason && <small className="customer-requirements__choice-status">{t(choice.disabledReason)}</small>}
+        </span>
       </label>)}
     </div>
   </div>

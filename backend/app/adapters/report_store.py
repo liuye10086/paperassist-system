@@ -12,6 +12,20 @@ from app.adapters.report_docx import VERSION
 from app.core.exceptions import StorageError
 
 
+def reader_report_filename(report, result_type=None):
+    names = {
+        'correlation': ('相关分析报告', 'Correlation analysis report'),
+        'group_comparison': ('组间比较报告', 'Group comparison report'),
+        'regression': ('回归分析报告', 'Regression report'),
+        'roc': ('ROC 分析报告', 'ROC analysis report'),
+        'survival': ('生存分析报告', 'Survival analysis report'),
+    }
+    label = names.get(result_type, ('描述统计分析报告', 'Descriptive statistics report')
+                      if report['engine']['id'] == VERSION else ('统计分析报告', 'Statistical analysis report'))
+    moment = datetime.fromisoformat(report['created_at']).astimezone()
+    return f"{label[report['language']=='en']} - {moment:%Y-%m-%d %H-%M-%S}.docx"
+
+
 def digest(value):
     return hashlib.sha256(json.dumps(value, ensure_ascii=False, allow_nan=False,
                                      sort_keys=True, separators=(',', ':')).encode('utf-8')).hexdigest()
@@ -99,12 +113,13 @@ class ReportStore:
         version = saved_report_version(explanation)
         language = explanation['language'] if version in (REPORT_V2,REPORT_V3,REPORT_V4) else 'zh-CN'
         report_id = str(uuid4())
-        return {'id': report_id, 'analysis_run_id': result['id'], 'figure_id': figure['id'], 'explanation_id': explanation['id'],
+        metadata = {'id': report_id, 'analysis_run_id': result['id'], 'figure_id': figure['id'], 'explanation_id': explanation['id'],
                 'setup_revision': result['setup_revision'], 'source_sha256': result['source_sha256'], 'figure_sha256': figure['sha256'],
-                'created_at': datetime.now(timezone.utc).isoformat(), 'filename': f'分析报告-v{result["setup_revision"]}-{report_id[:8]}.docx',
+                'created_at': datetime.now(timezone.utc).isoformat(),
                 'language': language, 'engine': {'id': version, 'python_docx': docx.__version__}, 'input_sha256': digest(snapshot),
                 **({'schema_version':4} if version==REPORT_V4 else {'schema_version':3} if version==REPORT_V3 else {}),
                 **({'source': result['source']} if 'source' in result else {})}
+        return dict(metadata, filename=reader_report_filename(metadata, result.get('result_type')))
 
     @staticmethod
     def operation(snapshot):

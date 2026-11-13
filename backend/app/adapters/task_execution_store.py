@@ -13,7 +13,7 @@ from uuid import UUID, uuid4, uuid5
 from app.adapters.storage import _storage_connection, ProjectStore
 from app.adapters.file_objects import LocalFileObjects
 from app.adapters.task_store import TaskStore, DatasetTaskAssets, source_conflict, workflow_version, snapshots_match
-from app.adapters.report_store import ReportStore
+from app.adapters.report_store import ReportStore, reader_report_filename
 from app.adapters.report_docx import VERSION
 from app.core.config import get_data_dir
 from app.core.exceptions import StorageError
@@ -78,7 +78,10 @@ class ExecutionAssets:
         self.files_dir = self.directory / 'files'
         self.figures_dir = self.directory / 'figures'
 
-    original = ProjectStore.original
+    def original(self, record):
+        # Task callers resolve the frozen file under their project and lease before reading.
+        return self.objects.original(record)
+
     figure_png = ProjectStore.figure_png
 
 
@@ -353,11 +356,9 @@ class TaskExecutionStore:
             self.assets.original(record)
         png = self.assets.figure_png(snapshot['figure'])
         metadata = ReportStore.metadata(snapshot)
-        report_id = str(uuid5(REPORT_NAMESPACE, lease.task_id))
-        from app.domain.artifact_contracts import artifact_language
-        title="analysis-report" if artifact_language(snapshot["result"])=="en" else "分析报告"
-        metadata.update(id=report_id, created_at=task['created_at'].astimezone(timezone.utc).isoformat(),
-                        filename=f"{title}-v{snapshot['result']['setup_revision']}-{report_id[:8]}.docx")
+        metadata.update(id=str(uuid5(REPORT_NAMESPACE, lease.task_id)),
+                        created_at=task['created_at'].astimezone(timezone.utc).isoformat())
+        metadata['filename'] = reader_report_filename(metadata, snapshot['result'].get('result_type'))
         return snapshot, metadata, png
 
     def load_explanation_task(self, lease):

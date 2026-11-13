@@ -32,6 +32,8 @@ def test_modern_word_includes_local_statistics_and_original_png_bytes(language,m
     document=Document(BytesIO(content))
     text='\n'.join(p.text for p in document.paragraphs)+'\n'+'\n'.join(cell.text for table in document.tables for row in table.rows for cell in row.cells)
     assert ('Correlation analysis report' if language=='en' else '相关分析报告') in text
+    assert metadata['filename'].startswith('Correlation analysis report - ' if language=='en' else '相关分析报告 - ')
+    assert all(value not in text for value in ('c'*64,'d'*64,'Configuration revision','配置版本','word_analysis_report_v2'))
     assert '0.8' in text and '4' in text
     if mode=='pair': assert '0.2' in text and '-0.5' in text
     else:

@@ -1,5 +1,6 @@
 import {useEffect,useRef,useState} from 'react'
 import {safeError,useI18n} from '../../shared/i18n'
+import {bioConditionLabel} from './bioPresentation'
 import type {AnalysisNavigation} from '../projects/analysisViews'
 import useDraftLeaveGuard,{type RegisterLeaveGuard} from '../projects/useDraftLeaveGuard'
 import {bioRequest,projectBase} from './api'
@@ -56,7 +57,7 @@ export default function TabularAnalysisSetup({projectId,data,valid,error,reload,
   }catch(cause){if(live.current)setStartError(safeError(cause,'配方读取失败，请重新读取后核对。'))}finally{reconcileRequest.current=null;starting.current=false;if(live.current)setPreparing(false)}
  }
  return <section className="bio-workspace intake-form bio-module-workspace">
-  <header className="bio-workspace-header"><h2>{t('定量分析配置')}</h2><span>{data.name} · {t('配方版本')} {data.current_recipe.version}</span></header>
+  <header className="bio-workspace-header"><h2>{t('定量分析配置')}</h2><span>{data.name}</span></header>
   {error&&<p role="alert">{t(error)}</p>}
   <ModuleViews label={t('分析配置模块')} lazy>
   <ModuleView id="parameters" title={t('分析参数')}>
@@ -76,7 +77,7 @@ export default function TabularAnalysisSetup({projectId,data,valid,error,reload,
   <ModuleView id="capability" title={t('能力与来源')}>
    <BioSource source={data.raw_source}/>
    {capability.error&&<p role="alert">{t(capability.error)}</p>}
-   {info&&<><p>{info.assay?t(assayLabels[info.assay]):''} · {info.scale?.kind} · {info.scale?.unit}</p>{info.scale?.upstream_method&&<p>{info.scale.upstream_method}</p>}<ul>{[...info.blockers,...info.design_gaps].map(item=><li key={item}>{item}</li>)}</ul><h3>{t('资源上限')}</h3><BioJson value={info.limits}/></>}
+   {info&&<><p>{info.assay?t(assayLabels[info.assay]):''} · {info.scale?.unit}</p>{info.scale?.upstream_method&&<p>{info.scale.upstream_method}</p>}<ul>{[...info.blockers,...info.design_gaps].map(item=><li key={item}>{t(bioConditionLabel(item))}</li>)}</ul><h3>{t('资源上限')}</h3><BioJson value={info.limits}/></>}
    <p>{t('缺失值保留；每特征比较使用实际有效样本。PCA 仅使用完整特征，不自动插补；不足时记录不可计算原因。')}</p>
   </ModuleView>
   </ModuleViews>
@@ -87,20 +88,20 @@ export default function TabularAnalysisSetup({projectId,data,valid,error,reload,
  </section>
 }
 
-type DesignVersion=Pick<Version,'id'|'version'|'operation'>
-function DesignVersionPicker({projectId,value,sampleIds,onChange,disabled}:{projectId:string;value:string;sampleIds:string[];onChange:(id:string)=>void;disabled:boolean}){
- const {t}=useI18n(),[page,setPage]=useState(1)
+type DesignVersion=Pick<Version,'id'|'operation'|'created_at'>
+export function DesignVersionPicker({projectId,value,sampleIds,onChange,disabled}:{projectId:string;value:string;sampleIds?:string[];onChange:(id:string)=>void;disabled:boolean}){
+ const {t,locale}=useI18n(),[page,setPage]=useState(1)
  const read=useBioRead<{items:DesignVersion[];total:number}>(`${projectBase(projectId)}/research-designs?page=${page}&page_size=5`)
- const detail=useBioRead<{content?:{samples?:{id:string}[]}}>(value?`${projectBase(projectId)}/research-designs/${encodeURIComponent(value)}`:'')
+ const detail=useBioRead<{content?:{samples?:{id:string}[]}}>(value&&sampleIds?`${projectBase(projectId)}/research-designs/${encodeURIComponent(value)}`:'')
  const options=read.value?.items??[]
- const designIds=(detail.value?.content?.samples??[]).map(item=>item.id).filter(Boolean),missing=designIds.filter(id=>!sampleIds.includes(id)),extra=sampleIds.filter(id=>!designIds.includes(id))
+ const designIds=(detail.value?.content?.samples??[]).map(item=>item.id).filter(Boolean),missing=designIds.filter(id=>!sampleIds?.includes(id)),extra=sampleIds?.filter(id=>!designIds.includes(id))??[]
  return <><label>{t('关联实验设计')}<select value={value} disabled={disabled||!read.valid} onChange={e=>onChange(e.target.value)}>
   <option value="">{t('未关联实验设计')}</option>
   {value&&!options.some(option=>option.id===value)&&<option value={value}>{t('当前关联设计')}</option>}
-  {options.map(option=><option key={option.id} value={option.id}>{t('版本 {number}',{number:option.version})} · {t(option.operation==='confirm'?'已确认':'已保存')}</option>)}
+  {options.map(option=><option key={option.id} value={option.id}>{t(option.operation==='confirm'?'已确认':'已保存')} · {new Date(option.created_at).toLocaleString(locale)}</option>)}
  </select></label>{read.error&&<p role="alert">{t('实验设计读取失败，请重试。')}</p>}
  {read.error&&<button type="button" disabled={!read.valid} onClick={read.reload}>{t('重新读取')}</button>}
- {value&&detail.value?.content?.samples&&<p role="status">{t('设计样本 {designCount} 个；输入样本 {inputCount} 个。',{designCount:designIds.length,inputCount:sampleIds.length})}{missing.length||extra.length?` · ${t('缺失')} ${missing.join(',')||t('无')} · ${t('多出')} ${extra.join(',')||t('无')}`:` · ${t('样本集合一致')}`}</p>}
+ {value&&sampleIds&&detail.value?.content?.samples&&<p role="status">{t('设计样本 {designCount} 个；输入样本 {inputCount} 个。',{designCount:designIds.length,inputCount:sampleIds.length})}{missing.length||extra.length?` · ${t('缺失')} ${missing.join(',')||t('无')} · ${t('多出')} ${extra.join(',')||t('无')}`:` · ${t('样本集合一致')}`}</p>}
  <div className="intake-actions">{page>1&&<button type="button" disabled={disabled||!read.valid} onClick={()=>setPage(current=>current-1)}>{t('上一页')}</button>}{!!read.value&&page*5<read.value.total&&<button type="button" disabled={disabled||!read.valid} onClick={()=>setPage(current=>current+1)}>{t('下一页')}</button>}</div>
  <p>{t('未关联实验设计时，供体及独立重复保持未知。')}</p></>
 }

@@ -58,12 +58,15 @@ def test_export_reuses_saved_content_and_png_without_api(client, cloud, writer, 
     response = export(client, url, figure, explanation)
     assert response.status_code == 200, response.text
     report = response.json()['report']
+    assert report['filename'].startswith('描述统计分析报告 - ')
     assert report['source_sha256'] == file['sha256']
     assert report['figure_sha256'] == figure['sha256'] and report['explanation_id'] == explanation['id']
     downloaded = client.get(url + '/' + report['id'] + '/download')
     assert downloaded.status_code == 200
     assert downloaded.headers['content-type'] == 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
     assert 'attachment' in downloaded.headers['content-disposition']
+    from urllib.parse import unquote
+    assert '描述统计分析报告 - ' in unquote(downloaded.headers['content-disposition'])
     assert hashlib.sha256(downloaded.content).hexdigest() == report['sha256']
     with ZipFile(BytesIO(downloaded.content)) as archive:
         root = ET.fromstring(archive.read('word/document.xml'))
@@ -74,8 +77,10 @@ def test_export_reuses_saved_content_and_png_without_api(client, cloud, writer, 
             assert section['text'] in text
             for evidence in section['evidence']:
                 assert evidence['label'] in text and evidence['value'] in text
-        for value in (file['sha256'], figure['sha256'], result['id'], explanation['id'], report['id'], '无法计算', 'AI 初稿'):
+        for value in ('无法计算', 'AI 初稿', result['filename']):
             assert value in text
+        for internal in (file['sha256'], figure['sha256'], result['id'], explanation['id'], report['id'], '引用键：', '配置版本'):
+            assert internal not in text
         assert len(root.findall('.//w:tbl', ns)) >= 2
         assert figure['title'] in paragraphs
         assert f"图 {figure['figure_number']}  {figure['title']}" not in paragraphs
@@ -98,6 +103,7 @@ def test_rejects_wrong_ids_revision_and_unknown_fields(client, cloud, writer):
 def test_old_report_download_survives_config_change_and_new_export(client, cloud, writer):
     base, _, result, figure, explanation, url = report_ready(client)
     old = export(client, url, figure, explanation).json()['report']
+    assert old['filename'].startswith('描述统计分析报告 - ')
     download = url + '/' + old['id'] + '/download'
     content = client.get(download).content
     client.put(base + '/analysis-setup', json={**result['selection'], 'expected_revision': 1, 'unit': 'new'})

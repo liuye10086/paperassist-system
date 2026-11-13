@@ -51,7 +51,8 @@ test('shows the five project fields and a named open action', async () => {
 test('uses five projects per page without a page-size selector', async () => {
   const { user, onQueryChange } = setup()
   expect(screen.queryByLabelText('每页项目数')).toBeNull()
-  expect(screen.getByText('共 21 个项目 · 第 1 / 5 页')).toBeTruthy()
+  const pagination = screen.getByRole('navigation', { name: '项目分页' })
+  expect(Array.from(pagination.children, child => child.textContent)).toEqual(['上一页', '共 21 个项目 · 第 1 / 5 页', '下一页'])
   expect((screen.getByRole('button', { name: '上一页' }) as HTMLButtonElement).disabled).toBe(true)
   await user.click(screen.getByRole('button', { name: '下一页' }))
   expect(onQueryChange).toHaveBeenLastCalledWith({ ...initialQuery, page: 2 })

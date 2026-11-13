@@ -33,13 +33,13 @@ export function SingleCellCandidateTask({projectId,result,onPublished,allowNewAn
  </section>
 }
 function CandidateRun({projectId,result,runId,initial,onPublished}:{projectId:string;result:BioProcessed;runId:string;initial?:AnnotationRun;onPublished:()=>void}){
- const {t}=useI18n(),read=useBioRead<AnnotationRun>(`${projectBase(projectId)}/bio-single-cell-annotation-runs/${encodeURIComponent(runId)}`,pending),run=read.value??initial
+ const {t,locale}=useI18n(),read=useBioRead<AnnotationRun>(`${projectBase(projectId)}/bio-single-cell-annotation-runs/${encodeURIComponent(runId)}`,pending),run=read.value??initial
  const published=useRef(''),callback=useRef(onPublished)
  useLayoutEffect(()=>{callback.current=onPublished},[onPublished])
  const matches=!!run&&run.id===runId&&sameProcessedBioSource(run.parent_processed_source,result.source)&&run.task.project_id===projectId
  useEffect(()=>{if(matches&&run?.result?.version_id&&published.current!==run.result.version_id){published.current=run.result.version_id;callback.current()}},[matches,run?.result?.version_id])
  if(run&&!matches)return <p role="alert">{t('固定来源身份不匹配，请重新打开。')}</p>
- return <section>{read.error&&<p role="alert">{t(read.error)}</p>}{run&&<><p>{run.name||'SingleR'} · {run.id} · {t(statusNames[run.task.status])} · {run.task.phase}</p>{run.task.reason_code&&<p>{run.task.reason_code}</p>}{run.task.error_code&&<p role="alert">{t(apiError({code:run.task.error_code},'任务暂未完成，请查看处理说明。'))}</p>}
+ return <section>{read.error&&<p role="alert">{t(read.error)}</p>}{run&&<><p>{run.name||'SingleR'} · {t(statusNames[run.task.status])}{run.task.created_at&&' · '+new Date(run.task.created_at).toLocaleString(locale)}</p>{run.task.error_code&&<p role="alert">{t(apiError({code:run.task.error_code},'任务暂未完成，请查看处理说明。'))}</p>}
   <a href={`#project=${encodeURIComponent(projectId)}&section=tasks&task=${encodeURIComponent(run.task.id)}`}>{t('查看候选任务进度与操作')}</a>
   {run.result&&<p>{t('候选已保存，请在下方核对并选择采纳。')}</p>}</>}
   <button type="button" onClick={read.reload}>{t('刷新候选任务')}</button>
@@ -60,7 +60,7 @@ export function SingleCellCandidateReview({projectId,candidate,onAdopt,canAdopt=
   }
   if(labels.length)onAdopt({name:`${candidate.name||'SingleR'} · manual review`,labels,evidence,regions:[],overlap_policy:'ambiguity'})
  }
- return <section><h4>{candidate.name||t('SingleR 候选结果')} · v{candidate.version}</h4><BioJson value={candidate.algorithm}/>
+ return <section><h4>{candidate.name||t('SingleR 候选结果')}</h4><BioJson value={candidate.algorithm}/>
   <p>{t('显示逐 cell 候选、pruned 结果与分数差；完整 score 矩阵、参考元信息和工具日志见下载。')}</p>
   <div className="table-scroll"><table><thead><tr>{['cell ID','candidate','pruned','delta.next','delta.median','状态'].map(v=><th key={v}>{t(v)}</th>)}</tr></thead><tbody>{assignments.slice(page*50,(page+1)*50).map(a=><tr key={a.barcode}><td>{a.barcode}</td><td>{a.candidate_label??'—'}</td><td>{a.pruned_label??t('未知 / pruned')}</td><td>{a.delta_next??'—'}</td><td>{a.delta_median??'—'}</td><td>{t(a.status==='uncertain'?'不确定':a.status==='unknown'?'未知':'候选')}</td></tr>)}</tbody></table></div>
   <p>{assignments.length} cells · {page+1}/{Math.max(1,Math.ceil(assignments.length/50))}</p><button type="button" disabled={page===0} onClick={()=>setPage(v=>v-1)}>{t('上一页')}</button><button type="button" disabled={(page+1)*50>=assignments.length} onClick={()=>setPage(v=>v+1)}>{t('下一页')}</button>

@@ -29,8 +29,9 @@ from sqlalchemy.pool import NullPool
 from app.core.config import local_config
 
 
-SCHEMA_HEAD = "0079_delivery_artifact_sources"
+SCHEMA_HEAD = "0080_account_deletion"
 _APPEND_ONLY_TABLES = frozenset({
+    'account_deletions',
     'analysis_request_receipts', 'research_finding_versions', 'research_figure_members',
     'research_report_members', 'research_source_bindings', 'manuscript_research_sources',
     'bio_observation_map_versions', 'bio_analysis_recipe_versions', 'bio_processed_dataset_versions',

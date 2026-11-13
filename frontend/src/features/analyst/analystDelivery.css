@@ -1,0 +1,129 @@
+.analyst-delivery-card, .analyst-delivery, .analyst-delivery-panel,
+.analyst-delivery-panel > .module-views {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.analyst-delivery, .analyst-delivery-panel, .analyst-delivery-panel > .module-views {
+  flex: 1;
+  min-height: 0;
+}
+.analyst-delivery .analyst-project-details-heading { flex-wrap: wrap; }
+.analyst-delivery-panel > .module-views { margin: 0; }
+.analyst-delivery-panel .module-views > nav { border: 0; padding: 2px 0; }
+.analyst-delivery-panel > .module-views > nav { flex: 0 0 auto; }
+.analyst-delivery-panel > .module-views > .module-view-content {
+  flex: 1;
+  min-height: 0;
+  max-height: none;
+  padding: 14px 2px 2px;
+  scrollbar-gutter: auto;
+}
+.analyst-delivery-panel > .module-views > .module-view-content:has(> .analyst-delivery-candidates) {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.analyst-delivery-actions, .analyst-delivery-bar, .analyst-delivery-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+}
+.analyst-delivery-bar { justify-content: space-between; }
+.analyst-delivery-bar > p, .analyst-delivery-hint, .analyst-delivery-bar small { color: var(--muted-foreground); }
+.analyst-delivery-module { display: grid; gap: 12px; }
+.analyst-delivery-footer { margin-top: auto; padding: 8px 0 2px; }
+.analyst-delivery-panel button:focus-visible, .analyst-delivery-panel input:focus-visible { outline-offset: 1px; }
+.analyst-delivery-panel fieldset { min-width: 0; border: 0; margin: 0; padding: 0; }
+.analyst-delivery-candidates { min-height: 0; overflow: auto; overscroll-behavior: contain; }
+.analyst-delivery-candidate-group + .analyst-delivery-candidate-group { margin-top: 12px; }
+.analyst-delivery-candidate-group > h3 { margin: 0 0 4px; padding: 6px 12px; border-radius: 8px; background: var(--secondary); font-size: 14px; }
+.analyst-delivery-candidate-row, .analyst-delivery-members li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(100px, 22%) auto;
+  align-items: center;
+  gap: 6px 12px;
+  padding: 6px 12px;
+  min-height: 38px;
+  border-radius: 8px;
+}
+.analyst-delivery-candidate-row { cursor: pointer; }
+.analyst-delivery-candidate-row:hover, .analyst-delivery-members li { background: var(--background); }
+.analyst-delivery-candidate-row:has(input:checked) { background: var(--accent-surface); }
+.analyst-delivery-candidate-row strong, .analyst-delivery-members strong { overflow-wrap: anywhere; font-weight: 500; }
+.analyst-delivery-candidate-row span, .analyst-delivery-members li > span { color: var(--muted-foreground); }
+.analyst-delivery-candidate-row input { inline-size: 16px; block-size: 16px; margin: 2px; }
+.analyst-delivery-fields {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+}
+.analyst-delivery-freeze {
+  display: grid;
+  align-items: start;
+  gap: 16px;
+}
+@media (min-width: 1150px) {
+  .analyst-delivery-freeze:has(> .analyst-delivery-review) { grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); }
+}
+.analyst-delivery-panel .analyst-delivery-mapping {
+  margin: 6px 0 8px;
+  padding: 4px 12px 10px;
+  background: var(--background);
+  border-radius: 8px;
+}
+.analyst-delivery-mapping legend { padding: 0 2px; color: var(--muted-foreground); font-size: 13px; }
+.analyst-delivery-fields > label:not(.analyst-delivery-check), .analyst-delivery-row > label {
+  display: grid;
+  grid-template-columns: var(--project-detail-label-width) minmax(0, 1fr);
+  align-items: center;
+  gap: var(--project-detail-column-gap);
+  min-width: 0;
+}
+.analyst-delivery-row > label { flex: 1 1 320px; max-width: 760px; }
+.analyst-delivery-fields > label :is(input:not([type='checkbox']), select, textarea), .analyst-delivery-row > label :is(input, select) {
+  width: 100%;
+  min-width: 0;
+  max-width: 620px;
+}
+.analyst-delivery-fields > label:has(textarea) { align-items: start; }
+.analyst-delivery-fields textarea { min-height: 54px; resize: vertical; }
+.analyst-delivery-check { display: flex; align-items: center; gap: 6px; }
+.analyst-delivery-review, .analyst-delivery-history {
+  display: grid;
+  gap: 8px;
+  padding: 12px 16px;
+  border-radius: 10px;
+  background: var(--secondary);
+}
+.analyst-delivery-review h3 { font-size: 15px; }
+.analyst-delivery-review h4 { font-size: 14px; }
+.analyst-delivery-review p, .analyst-delivery-review li { overflow-wrap: anywhere; }
+.analyst-delivery-completeness { --status-surface: var(--warning-soft); --status-ink: var(--warning); }
+.analyst-delivery-completeness.is-complete { --status-surface: var(--success-soft); --status-ink: var(--success); }
+.analyst-delivery-members { list-style: none; padding: 0; margin: 0; }
+.analyst-delivery-members li + li { margin-top: 4px; }
+.analyst-delivery-history .analyst-card { margin: 0; background: transparent; }
+.analyst-delivery-history .analyst-card-heading { align-items: center; }
+.analyst-delivery-history .analyst-publication {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  padding: 6px 0;
+}
+.analyst-delivery-history .analyst-feedback-list { flex-basis: 100%; }
+.analyst-delivery-review ul:not(.analyst-delivery-members) { padding-inline-start: 20px; margin: 4px 0; }
+.analyst-delivery-review .module-views { margin: 0; }
+.analyst-delivery-records dl { margin: 0; }
+.analyst-delivery-records dl > div { display: grid; grid-template-columns: var(--project-detail-label-width) minmax(0, 1fr); gap: 6px 12px; }
+.analyst-delivery-records dd { margin: 0; overflow-wrap: anywhere; }
+@media (max-width: 600px) {
+  .analyst-delivery-card .analyst-project-details-heading { margin-bottom: 8px; }
+  .analyst-delivery-panel > .module-views > .module-view-content { overflow: auto; }
+  .analyst-delivery-candidate-row, .analyst-delivery-members li { grid-template-columns: minmax(0, 1fr) auto; }
+  .analyst-delivery-candidate-row span, .analyst-delivery-members li > span { grid-row: 2; font-size: 12px; }
+  .analyst-delivery-candidate-row input, .analyst-delivery-members li > a { grid-column: 2; grid-row: 1 / span 2; }
+  .analyst-delivery-row > label { flex-basis: 100%; }
+}

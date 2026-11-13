@@ -30,7 +30,7 @@ def build_report(snapshot,report,png):
     footer.add_run(t('第 ','Page ')); field=OxmlElement('w:fldSimple'); field.set(qn('w:instr'),'PAGE'); footer._p.append(field)
     if language=='zh-CN': footer.add_run(' 页')
     paragraph(document,title,'Title'); paragraph(document,project['name'],'Subtitle')
-    paragraph(document,t('配置版本','Configuration revision')+f' {result["setup_revision"]} · '+t('导出时间','Exported')+f' {report["created_at"]} (UTC)')
+    paragraph(document,t('导出时间','Exported')+': '+report['created_at'][:19].replace('T',' ')+' (UTC)')
     paragraph(document,t('本报告保留已确认组间或配对设计、真实本地统计、单一主要图与六节解释。研究者须审核前提、结果适用性及表述。',
         'This report retains the confirmed independent-group or paired design, local statistics, one primary figure and six-section explanation. Researchers must review assumptions, applicability and wording.'))
     document.add_heading(t('1 数据与研究声明','1 Data and research declarations'),level=1)
@@ -38,8 +38,7 @@ def build_report(snapshot,report,png):
                         (t('研究主题 用户填写','Research topic entered by user'),project['research_topic'] or t('未填写','Not specified'))]: paragraph(document,label+': '+str(value))
     source=result.get('source')
     if source:
-        paragraph(document,t('数据版本','Dataset version')+': '+str(source['dataset_version']))
-        if source.get('parent_dataset_version') is not None: paragraph(document,t('原始数据版本','Parent dataset version')+': '+str(source['parent_dataset_version']))
+        paragraph(document,t('数据来源：','Data source: ')+(t('整理后的数据','Prepared data') if source['kind']=='prepared_dataset_version' else t('原始工作表','Original worksheet')))
     for variable in result['variables']: paragraph(document,t('变量','Variable')+f': {variable["name"]} ({variable["column"]}); '+t('单位','Unit')+': '+(variable['unit'] or t('未填写','Not specified')))
     plan=result.get('analysis_context',{}).get('plan',{}); research=plan.get('research_request')
     if research:
@@ -108,14 +107,5 @@ def build_report(snapshot,report,png):
     document.add_heading(t('附录 A 解释依据','Appendix A Interpretation evidence'),level=1)
     for section in explanation['sections']:
         document.add_heading(section['title'],level=2)
-        for evidence in section['evidence']: paragraph(document,f'{evidence["label"]}: {evidence["value"]}\n'+t('引用键','Reference key')+': '+evidence['key'])
-    document.add_heading(t('附录 B 来源与版本','Appendix B Sources and versions'),level=1)
-    records=[('Project ID',project['id']),('File ID',result['file_id']),('Source SHA256',result['source_sha256']),
-        ('Analysis ID',result['id']),('Analysis engine',result['engine']['id']),('Plan SHA256',result['analysis_plan']['sha256']),
-        ('Figure ID',figure['id']),('PNG SHA256',figure['sha256']),('Plot engine',figure['engine']['id']),
-        ('Explanation ID',explanation['id']),('Explanation engine',explanation['engine']['id']),('Explanation input SHA256',explanation['provenance']['input_sha256']),
-        ('Report ID',report['id']),('Report renderer',report['engine']['id']),('Report input SHA256',report['input_sha256'])]
-    for label,value in records: paragraph(document,label+': '+str(value))
-    for key,label in [('id','Plan ID'),('decision_id','Plan decision ID'),('plan_revision','Plan revision'),('workflow_version','Plan workflow'),('rules_version','Plan rules')]:
-        if key in plan: paragraph(document,label+': '+str(plan[key]))
+        for evidence in section['evidence']: paragraph(document,f'{evidence["label"]}: {evidence["value"]}')
     output=BytesIO(); document.save(output); return output.getvalue()

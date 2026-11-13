@@ -33,7 +33,7 @@ export function OraBackground({eligible}:{eligible:boolean}) {
   :'此版本以该比较完整的受检基因为背景。')}</p>
 }
 
-export function BulkEnrichmentBinding({config,source,result,eligibleBackground}:{
+export function BulkEnrichmentBinding({config,result,eligibleBackground}:{
  config:Config;source?:Source;result:Result|null;eligibleBackground:boolean
 }) {
  const {t} = useI18n()
@@ -41,7 +41,6 @@ export function BulkEnrichmentBinding({config,source,result,eligibleBackground}:
  const saved = result?.methods.config as {contrasts?:{contrast_id:string;groups?:{label:string}[]}[]}|undefined
  const contrasts = gsea?[bulkEnrichmentContrast(config)]:strings(config.contrast_ids)
  return <>
-  {source&&<p>{t('固定来源版本')} <code>{source.source_id}</code></p>}
   <p>{t('固定比较')} {contrasts.map((id,index)=>{
    const groups = saved?.contrasts?.find(contrast=>contrast.contrast_id===id)?.groups
    return <span key={id}>{index>0&&' · '}{groups?.[0]&&groups[1]
@@ -124,12 +123,12 @@ export function BulkEnrichmentCompatibility({value}:{value:EnrichmentCompatibili
  </section>
 }
 
-export function BulkEnrichmentFigureSetup({config,onChange,sources}:ConfigProps) {
+export function BulkEnrichmentFigureSetup({config,onChange}:ConfigProps) {
  const {t} = useI18n()
  const curve = config.figure_type==='gsea'
  return <section>
   <h3>{t(curve?'固定 GSEA 曲线':'固定富集图')}</h3>
-  <p>{t('固定来源版本')} <code>{sources[0]?.source_id}</code> · {t('固定比较')} <code>{text(config.contrast_id)}</code></p>
+  <p>{t('固定比较')} <code>{text(config.contrast_id)}</code></p>
   {curve?<p>{t('GSEA 稳定条目行')} <code>{text(config.term_row_key)}</code></p>
    :<ConfigField {...{config,onChange}} name="enrichment_style" label="富集图样式" options={{dot:'富集点图',bar:'富集条图'}}/>}
   <p>{t('图件使用已发布的富集表或 GSEA 曲线数据。调整外观会保存新的图件版本。')}</p>

@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, type ReactNode } from 'react'
 import { useI18n } from '../../shared/i18n'
 import { projectBase } from '../research-intake/api'
 import type { Intake } from '../research-intake/contracts'
@@ -9,6 +9,7 @@ import { useResearchRead } from '../research-results/api'
 import useResearchDraft from '../research-results/useResearchDraft'
 import { AnalystPublications, AnalystWorkspaceStatus } from './AnalystProgress'
 import type { AnalystWorkspace } from './useAnalystWorkspace'
+import './analystDelivery.css'
 
 function PublishSnapshot({ projectId, assignmentRevision, snapshot, workspace }: {
   projectId: string; assignmentRevision: number; snapshot: DeliverySnapshot; workspace: AnalystWorkspace
@@ -21,8 +22,8 @@ function PublishSnapshot({ projectId, assignmentRevision, snapshot, workspace }:
   }, [published, setTitle, title])
   if (!workspace.value) return null
   if (published) return <p>{t('此快照已发布给客户。')}</p>
-  if (workspace.value.requirement?.id !== snapshot.requirement_version_id) return <p>{t('请使用最新提交的需求版本冻结快照后再发布。')}</p>
-  return <form className="analyst-form" onSubmit={event => {
+  if (workspace.value.requirement?.id !== snapshot.requirement_version_id) return <p>{t('请关联客户最新提交的需求，重新冻结后再发布。')}</p>
+  return <form className="analyst-delivery-row analyst-delivery-publish" onSubmit={event => {
     event.preventDefault()
     if (!workspace.busy && title.trim()) workspace.publish(snapshot.id, title)
   }}>
@@ -31,18 +32,22 @@ function PublishSnapshot({ projectId, assignmentRevision, snapshot, workspace }:
   </form>
 }
 
-export default function AnalystDelivery({ projectId, active, snapshotId, deliveryId, onSelect, registerLeaveGuard, workspace }: {
+export default function AnalystDelivery({ projectId, active, snapshotId, deliveryId, onSelect, registerLeaveGuard, workspace, onBackToResults, headerAction }: {
   projectId: string; active: boolean; deliveryId?: string; snapshotId?: string
   onSelect: (delivery: string, snapshot: string) => void; registerLeaveGuard?: RegisterLeaveGuard
-  workspace?: AnalystWorkspace
+  workspace?: AnalystWorkspace; onBackToResults: () => void; headerAction: ReactNode
 }) {
   const { t } = useI18n()
   const intake = useResearchRead<Intake>(`${projectBase(projectId)}/research-intake`, active)
   const delivery = intake.data?.deliveries?.find(item => item.kind === 'analysis')
   const assignmentRevision = workspace?.value?.assignment_revision
-  return <section hidden={!active} className="research-intake analyst-card" aria-label={t('分析交付')}>
-    <header className="analyst-card-heading"><h2>{t('分析交付')}</h2>
-      {workspace && <AnalystWorkspaceStatus workspace={workspace}/>}
+  return <div hidden={!active} className="analyst-delivery">
+    <header className="analyst-project-details-heading">
+      <h1>{t('分析交付')}</h1>
+      <div className="analyst-delivery-actions">
+        <button type="button" className="button-quiet" onClick={onBackToResults}>{t('返回成果列表')}</button>
+        {headerAction}
+      </div>
     </header>
     {intake.error && <p role="alert">{t(intake.error)} <button type="button" onClick={intake.refresh}>{t('重新读取')}</button></p>}
     {!intake.error && !intake.data && <p role="status">{t('正在读取分析交付……')}</p>}
@@ -51,9 +56,14 @@ export default function AnalystDelivery({ projectId, active, snapshotId, deliver
       active={active} snapshotId={deliveryId === delivery.id ? snapshotId : undefined} onSelect={snapshot => onSelect(delivery.id, snapshot)}
       requiredVersionId={workspace ? workspace.value?.requirement?.id ?? '' : undefined}
       registerLeaveGuard={registerLeaveGuard}
+      publicationHistory={workspace && <>
+        <AnalystWorkspaceStatus workspace={workspace} showRefresh={false}/>
+        {workspace.value && <AnalystPublications publications={workspace.value.publications} headerAction={
+          <button type="button" onClick={workspace.refresh} disabled={workspace.busy}>{t('刷新进度与反馈')}</button>
+        }/>}
+      </>}
       renderSnapshotActions={workspace && assignmentRevision !== undefined
         ? snapshot => <PublishSnapshot key={snapshot.id} projectId={projectId} assignmentRevision={assignmentRevision} snapshot={snapshot} workspace={workspace}/>
         : undefined}/>}
-    {workspace?.value && <AnalystPublications publications={workspace.value.publications}/>}
-  </section>
+  </div>
 }

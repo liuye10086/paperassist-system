@@ -2,7 +2,7 @@
 .project-files-page .resource-view-nav { justify-content: flex-start; gap: 18px; margin: 0; padding: 0 24px; border-bottom: 1px solid var(--border); background: var(--surface); }
 .resource-view-nav button { background: transparent; border: 0; border-bottom: 3px solid transparent; border-radius: 0; padding: 16px 4px 13px; color: var(--text); }
 .resource-view-nav button[aria-current='page'] { border-bottom-color: var(--accent); color: var(--accent); font-weight: 600; }
-.resource-module-body, .resource-bio-body { max-height: max(360px, calc(100dvh - 194px)); overflow: auto; scrollbar-gutter: stable; overscroll-behavior: contain; }
+.resource-module-body, .resource-bio-body { max-height: max(360px, calc(100dvh - 194px - var(--project-nav-space, 0px))); overflow: auto; scrollbar-gutter: stable; overscroll-behavior: contain; }
 .resource-bio-body { padding: 20px 24px; }
 .resource-subview-actions { display: flex; flex-wrap: wrap; gap: 8px; padding: 16px 24px 0; }
 .resource-bio-body .resource-subview-actions { padding: 0 0 16px; }

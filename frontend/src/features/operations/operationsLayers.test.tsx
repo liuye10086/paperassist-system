@@ -1,7 +1,7 @@
 import {AuthIdentityContext} from '../auth/AuthIdentityContext'
 import {clearApiSession} from '../../shared/api/client'
 import {workspaceFixture,taskFixture} from '../tasks/taskFixtures'
-import {act,cleanup,fireEvent,render,renderHook,screen,waitFor} from '@testing-library/react'
+import {act,cleanup,fireEvent,render,renderHook,screen,waitFor,within} from '@testing-library/react'
 import {afterEach,beforeEach,expect,it,vi} from 'vitest'
 import OperationsWorkspace from './OperationsWorkspace'
 import {useOperationsRead} from './operationsApi'
@@ -13,8 +13,16 @@ const baseFetch=async(url:string)=>Response.json(url==='/api/v1/auth/me'?{user:{
 const fetch=vi.fn(baseFetch)
 beforeEach(()=>{role='admin';setApiSession('csrf','self');fetch.mockReset();fetch.mockImplementation(baseFetch);vi.stubGlobal('fetch',fetch)})
 afterEach(()=>{cleanup();vi.unstubAllGlobals();vi.restoreAllMocks();window.history.replaceState(null,'','/')})
-async function start(){render(<OperationsWorkspace><p>Project remains</p></OperationsWorkspace>);fireEvent.click(await screen.findByRole('button',{name:'管理员'}));await screen.findByText('other@example.test')}
-it.each([['账号管理','账号搜索','unapplied-account'],['系统任务','任务状态','failed'],['运行日志','请求标识','unapplied-request']])('starts %s filters collapsed and preserves unapplied input when reopening',async(tab,label,value)=>{
+async function openAccounts() {
+ fireEvent.click(await screen.findByRole('button',{name:'管理员'}))
+ fireEvent.click(await screen.findByRole('button',{name:'账号管理'}))
+ const tools = screen.getByRole('button',{name:'运营工具'})
+ if (tools.getAttribute('aria-expanded') === 'false') fireEvent.click(tools)
+ await screen.findByText('other@example.test')
+}
+async function start(){render(<OperationsWorkspace><p>Project remains</p></OperationsWorkspace>);await openAccounts()}
+function accountRow(){return within(screen.getByText(account.email).closest('tr')!)}
+it.each([['系统任务','任务状态','failed'],['运行日志','请求标识','unapplied-request']])('starts %s filters collapsed and preserves unapplied input when reopening',async(tab,label,value)=>{
  await start();if(tab!=='账号管理')fireEvent.click(screen.getByRole('button',{name:tab}))
  const input=screen.getByLabelText(label),disclosure=input.closest('details')!;expect(disclosure).not.toBeNull();expect(disclosure.open).toBe(false)
  const summary=disclosure.querySelector('summary')!;expect(summary.textContent).toBe('筛选条件');fireEvent.click(summary);expect(disclosure.open).toBe(true)
@@ -29,51 +37,50 @@ it('pauses hidden operational reads and ignores an aborted response',async()=>{
  rerender({active:false});await act(async()=>resolve(Response.json({items:['obsolete']})))
  expect(result.current.data).toBeNull()
 })
-it('separates account list and editor and retains drafts through admin tabs',async()=>{
- await start();fireEvent.click(screen.getByRole('button',{name:'编辑账号'}))
- expect(screen.getByLabelText('账号搜索').closest('[hidden]')).toBeTruthy()
- fireEvent.change(screen.getByLabelText('账号角色'),{target:{value:'admin'}})
- fireEvent.change(screen.getByLabelText('变更理由'),{target:{value:'Keep this reviewed role change'}})
+it('keeps the account table visible while editing and retains drafts through admin tabs',async()=>{
+ await start()
+ expect(screen.getByLabelText('账号搜索').closest('[hidden]')).toBeNull()
+ expect(screen.getByRole('table')).toBeTruthy()
+ fireEvent.change(accountRow().getByLabelText('账号角色'),{target:{value:'admin'}})
+ fireEvent.change(accountRow().getByLabelText('账号状态'),{target:{value:'false'}})
  fireEvent.click(screen.getByRole('button',{name:'运行日志'}));fireEvent.click(screen.getByRole('button',{name:'账号管理'}))
- expect(screen.getByLabelText('账号角色')).toHaveProperty('value','admin')
- expect(screen.getByLabelText('变更理由')).toHaveProperty('value','Keep this reviewed role change')
- fireEvent.click(screen.getByRole('button',{name:'返回账号列表'}));expect(screen.getByLabelText('账号搜索')).toBeTruthy()
- fireEvent.click(screen.getByRole('button',{name:'编辑账号'}));expect(screen.getByLabelText('变更理由')).toHaveProperty('value','Keep this reviewed role change')
+ expect(accountRow().getByLabelText('账号角色')).toHaveProperty('value','admin')
+ expect(accountRow().getByLabelText('账号状态')).toHaveProperty('value','false')
+ expect(accountRow().getByRole('button',{name:'保存账号变更'})).toHaveProperty('disabled',false)
 })
 it('removes retained privileged content after server role revocation',async()=>{
- await start();fireEvent.click(screen.getByRole('button',{name:'编辑账号'}))
- fireEvent.change(screen.getByLabelText('变更理由'),{target:{value:'Privileged draft'}})
+ await start()
+ fireEvent.change(accountRow().getByLabelText('账号角色'),{target:{value:'admin'}})
  fireEvent.click(screen.getByRole('button',{name:'项目工作区'}));role='user'
  fireEvent.click(screen.getByRole('button',{name:'管理员'}))
  await waitFor(()=>expect(screen.queryByRole('button',{name:'管理员'})).toBeNull())
- expect(document.querySelector('textarea')).toBeNull()
+ expect(document.querySelector('[aria-label="账号角色"]')).toBeNull()
  expect(document.body.textContent).not.toContain('other@example.test')
 })
 it('keeps an in-flight account operation mounted while switching views',async()=>{
  let resolve!:(value:Response)=>void;let signal:AbortSignal|undefined
  const normal=fetch.getMockImplementation()!
  fetch.mockImplementation((url:string,init?:RequestInit)=>init?.method==='PATCH'?new Promise<Response>(r=>{resolve=r;signal=init.signal??undefined}):normal(url))
- await start();fireEvent.click(screen.getByRole('button',{name:'编辑账号'}))
- fireEvent.change(screen.getByLabelText('账号角色'),{target:{value:'admin'}})
- fireEvent.change(screen.getByLabelText('变更理由'),{target:{value:'Approved role adjustment'}})
- fireEvent.click(screen.getByRole('button',{name:'保存账号变更'}));fireEvent.click(screen.getByRole('button',{name:'运行日志'}))
+ await start()
+ fireEvent.change(accountRow().getByLabelText('账号角色'),{target:{value:'admin'}})
+ fireEvent.click(accountRow().getByRole('button',{name:'保存账号变更'}));fireEvent.click(screen.getByRole('button',{name:'运行日志'}))
  expect(signal?.aborted).toBe(false)
  await act(async()=>resolve(Response.json({...account,admin_revision:4,role:'admin'})))
- expect(screen.getByRole('button',{name:'运行日志'}).getAttribute('aria-pressed')).toBe('true')
- fireEvent.click(screen.getByRole('button',{name:'账号管理'}));expect(screen.getByText('账号已更新，目标会话已撤销。')).toBeTruthy()
+ expect(screen.getByRole('button',{name:'运行日志'}).getAttribute('aria-current')).toBe('page')
+ fireEvent.click(screen.getByRole('button',{name:'账号管理'}));expect(screen.getByRole('button',{name:'查看操作审计'})).toBeTruthy()
 })
 
 it('clears hidden account drafts and leave guards after session invalidation',async()=>{
- await start();fireEvent.click(screen.getByRole('button',{name:'编辑账号'}));fireEvent.change(screen.getByLabelText('变更理由'),{target:{value:'Unsaved private reason'}})
+ await start();fireEvent.change(accountRow().getByLabelText('账号状态'),{target:{value:'false'}})
  fireEvent.click(screen.getByRole('button',{name:'项目工作区'}))
  const dirtyEvent=new Event('beforeunload',{cancelable:true});window.dispatchEvent(dirtyEvent);expect(dirtyEvent.defaultPrevented).toBe(true)
- act(()=>clearApiSession());expect(document.querySelector('textarea')).toBeNull()
+ act(()=>clearApiSession());expect(document.querySelector('[aria-label="账号状态"]')).toBeNull()
  const cleanEvent=new Event('beforeunload',{cancelable:true});window.dispatchEvent(cleanEvent);expect(cleanEvent.defaultPrevented).toBe(false)
 })
 it('revokes cached administrator content on confirmed identity context changes',async()=>{
  const identity={id:'self',email:'self@example.test',role:'admin'}
  const {rerender}=render(<AuthIdentityContext.Provider value={identity}><OperationsWorkspace><p>Project</p></OperationsWorkspace></AuthIdentityContext.Provider>)
- fireEvent.click(screen.getByRole('button',{name:'管理员'}));await screen.findByText('other@example.test')
+ await openAccounts()
  fireEvent.click(screen.getByRole('button',{name:'项目工作区'}))
  rerender(<AuthIdentityContext.Provider value={{...identity,role:'user'}}><OperationsWorkspace><p>Project</p></OperationsWorkspace></AuthIdentityContext.Provider>)
  expect(document.body.textContent).not.toContain('other@example.test')
@@ -114,7 +121,10 @@ it('keeps the own task layer and exact project deep link after returning through
 })
 it('reopens the same explicit account audit without resetting either log filter draft',async()=>{
  fetch.mockImplementation(async(url:string,init?:RequestInit)=>init?.method==='PATCH'?Response.json({...account,role:'admin',admin_revision:4}):baseFetch(url))
- await start();fireEvent.click(screen.getByRole('button',{name:'编辑账号'}));fireEvent.change(screen.getByLabelText('账号角色'),{target:{value:'admin'}});fireEvent.change(screen.getByLabelText('变更理由'),{target:{value:'Reviewed account adjustment'}});fireEvent.click(screen.getByRole('button',{name:'保存账号变更'}));fireEvent.click(await screen.findByRole('button',{name:'查看操作审计'}))
+ await start()
+ fireEvent.change(accountRow().getByLabelText('账号角色'),{target:{value:'admin'}})
+ fireEvent.click(accountRow().getByRole('button',{name:'保存账号变更'}))
+ fireEvent.click(await screen.findByRole('button',{name:'查看操作审计'}))
  expect(screen.getByRole('button',{name:'操作审计'}).getAttribute('aria-pressed')).toBe('true');expect(screen.getByLabelText('目标账号标识')).toHaveProperty('value','other');fireEvent.change(screen.getByLabelText('操作者账号标识'),{target:{value:'actor-draft'}})
  fireEvent.click(screen.getByRole('button',{name:'请求日志'}));fireEvent.change(screen.getByLabelText('请求标识'),{target:{value:'retained-request-draft'}});fireEvent.click(screen.getByRole('button',{name:'账号管理'}));fireEvent.click(screen.getByRole('button',{name:'查看操作审计'}))
  expect(screen.getByRole('button',{name:'操作审计'}).getAttribute('aria-pressed')).toBe('true');expect(screen.getByLabelText('操作者账号标识')).toHaveProperty('value','actor-draft');expect(screen.getByLabelText('目标账号标识')).toHaveProperty('value','other')

@@ -3,7 +3,6 @@
 from io import BytesIO
 import re
 
-import docx
 from docx import Document
 from docx.enum.table import WD_CELL_VERTICAL_ALIGNMENT
 from docx.enum.text import WD_ALIGN_PARAGRAPH
@@ -108,15 +107,13 @@ def build_report(snapshot, report, png):
 
     paragraph(document, '描述统计分析报告', 'Title')
     paragraph(document, project['name'], 'Subtitle')
-    paragraph(document, f"配置版本 {result['setup_revision']} · 导出时间 {report['created_at']}（UTC）")
+    paragraph(document, f"导出时间：{report['created_at'][:19].replace('T', ' ')}（UTC）")
     paragraph(document, '本报告整理已保存的数据检查、真实描述统计、图表与 AI 初稿。解释须由研究者审核后使用；本报告未执行推断检验。')
 
     if 'source' in result:
-        filename = result['filename']
         source = result['source']
-        versions = (f"原始数据版本 {source['parent_dataset_version']} · 整理数据版本 {source['dataset_version']}"
-            if source['kind'] == 'prepared_dataset_version' else f"原始数据版本 {source['dataset_version']}")
-        paragraph(document, f"数据来源：{filename} · Sheet：{source['sheet_name']} · {versions}")
+        source_type = '整理后的数据' if source['kind'] == 'prepared_dataset_version' else '原始工作表'
+        paragraph(document, f"数据来源：{source_type}")
     document.add_heading('1 数据概况', level=1)
     for label, value in [('项目类型', {'sci':'SCI 论文','thesis':'毕业论文','research':'研究项目'}[project['project_type']]),
                          ('研究主题（用户填写）', project['research_topic'] or '未填写'),
@@ -181,24 +178,8 @@ def build_report(snapshot, report, png):
     for section in explanation['sections']:
         document.add_heading(section['title'], level=2)
         for evidence in section['evidence']:
-            paragraph(document, f"{evidence['label']}：{evidence['value']}\n引用键：{evidence['key']}")
+            paragraph(document, f"{evidence['label']}：{evidence['value']}")
 
-    document.add_heading('附录 B 来源与版本', level=1)
-    records = [('项目编号', project['id']), ('文件编号', result['file_id']), ('原文件 SHA256', result['source_sha256']),
-               ('统计结果编号', result['id']), ('统计完成时间', result['completed_at']),
-               ('统计引擎', result['engine']['id']), ('Python', result['engine']['python_version']),
-               (('数据解析器', result['engine']['parser_version']) if 'source' in result
-                else ('openpyxl', result['engine']['openpyxl_version'])),
-               ('图表编号', figure['id']), ('图表保存时间', figure['created_at']),
-               ('图片 SHA256', figure['sha256']), ('绘图引擎', figure['engine']['id']),
-               ('绘图模型', figure['provenance'].get('model', '未记录')), ('绘图响应编号', figure['provenance'].get('response_id', '未记录')),
-               ('解释编号', explanation['id']), ('解释保存时间', explanation['created_at']), ('解释模型', explanation['engine']['model']),
-               ('解释引擎 / 提示版本', explanation['engine']['id']), ('解释响应编号', explanation['provenance'].get('response_id', '未记录')),
-               ('解释输入 SHA256', explanation['provenance']['input_sha256']), ('报告编号', report['id']),
-               ('报告模板', VERSION), ('python-docx', docx.__version__), ('报告输入 SHA256', report['input_sha256'])]
-    for label, value in records:
-        paragraph(document, f'{label}：{value}')
-    paragraph(document, '时间均为带 UTC 时区偏移的保存记录。XML 无法表示的控制字符显示为替代符号“�”，不改变原始数据文件。')
     buffer = BytesIO()
     document.save(buffer)
     return buffer.getvalue()

@@ -15,6 +15,7 @@ from app.domain.storage_governance.guards import require_scope_open
 from app.domain.storage_governance.service import publish_candidate
 
 from .contracts import MAX_DELIVERY_BYTES
+from .reader_files import native_filename
 
 
 @dataclass(frozen=True)
@@ -48,9 +49,9 @@ def _replayed(db, store, assignment, key, request_digest):
         return None
     if row['request_digest'] != request_digest:
         raise StorageError('research_request_conflict', '此请求标识已绑定其他交付来源。', 409)
-    artifact_provenance(db, assignment.project_id, row)
+    proof = artifact_provenance(db, assignment.project_id, row)
     store.objects.verify_original(dict(row))
-    return dict(file_id=row['id'], filename=row['filename'], format=row['file_type'],
+    return dict(file_id=row['id'], filename=native_filename(proof), format=row['file_type'],
                 sha256=row['sha256'], size_bytes=row['size_bytes'])
 
 
@@ -78,7 +79,7 @@ def _finish_capture(db, store, assignment, file_id, key, request_digest, candida
         (file_id, project_id, assignment.analyst_id, assignment.revision,
          key, request_digest, Jsonb(proof), digest(proof)))
     db.execute('UPDATE projects SET updated_at=GREATEST(updated_at,%s) WHERE id=%s', (uploaded_at, project_id))
-    return dict(file_id=file_id, filename=filename, format=file_type, sha256=file_sha256, size_bytes=size_bytes), 201
+    return dict(file_id=file_id, filename=native_filename(proof), format=file_type, sha256=file_sha256, size_bytes=size_bytes), 201
 
 
 def _resume(db, store, assignment, file_id, operation, key, request_digest):
@@ -151,7 +152,7 @@ def single_cell_word(store, project, request):
     from app.adapters.single_cell_report import download_single_cell_report
 
     metadata, content = download_single_cell_report(store, project, request.version_id, request.annotation_version_id)
-    filename = 'single-cell-analysis-' + metadata['sha256'][:12] + '.docx'
+    filename = native_filename({**metadata['provenance'], 'kind': 'single_cell_word'})
     return NativeArtifact(filename, 'docx', content, metadata['sha256'], metadata['provenance'])
 
 
@@ -193,7 +194,7 @@ def _figure_png(store, project, request):
     _, content = service.member(project, request.version_id, request.member_id)
     provenance = dict(manifest_sha256=figure['manifest_sha256'],
                       source_file_ids=figure['processed_source']['raw_source']['source_file_ids'],
-                      language=figure['config'].get('output_language'))
+                      language=figure['config'].get('output_language'), figure_kind=figure['config']['kind'])
     return member, content, provenance
 
 
@@ -207,7 +208,8 @@ def _insight_png(store, project, request):
     member = _png_member(source.content['members'], request.member_id, role='figure')
     _, content = BioInsightResultService(store).member(project, request.version_id, request.member_id)
     provenance = dict(manifest_sha256=source.sha256, source_file_ids=source.source_file_ids,
-                      language=source.content['config'].get('output_language'))
+                      language=source.content['config'].get('output_language'),
+                      figure_kind=source.content['config'].get('figure_type'))
     return member, content, provenance
 
 
@@ -217,5 +219,5 @@ def native_png(store, project, request):
     if not content.startswith(b'\x89PNG\r\n\x1a\n'):
         raise invalid('research_output_invalid', 422)
     provenance.update(version_id=request.version_id, member_id=request.member_id, member_key=member['key'])
-    filename = 'analysis-figure-' + member['sha256'][:12] + '.png'
+    filename = native_filename({**provenance, 'kind': request.kind})
     return NativeArtifact(filename, 'png', content, member['sha256'], provenance)

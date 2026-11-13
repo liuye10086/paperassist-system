@@ -31,7 +31,7 @@ it('shows current manual annotations, edits fixed versions and selects a label v
  vi.mocked(apiFetch).mockImplementation(async url=>Response.json(String(url).endsWith('/annotations')?{items:[annotation]}:String(url).endsWith('/annotation-runs')?{items:[]}:String(url).endsWith('/bio-single-cell-references')?{items:[]}:result))
  render(<BioAnalysisResult projectId="p1" processedId="processed1" tab="spatial" onNavigate={navigate}/>)
  expect(await screen.findByRole('button',{name:'细胞注释与亚群'})).toBeTruthy()
- expect(await screen.findByText('My labels')).toBeTruthy()
+ expect(await screen.findByRole('option',{name:'My labels'})).toBeTruthy()
  fireEvent.click(screen.getByRole('button',{name:'编辑 My labels'}))
  expect(navigate).toHaveBeenCalledWith({view:'bio-annotation',fileId:'',annotationSetId:'ann1',annotationVersionId:'annv1'})
  fireEvent.change(screen.getByLabelText('报告使用的人工标签'),{target:{value:'annv1'}})
@@ -67,7 +67,8 @@ it('requires an available reference and starts SingleR as a separate task with t
  const posts=vi.mocked(apiFetch).mock.calls.filter(c=>c[1]?.method==='POST')
  expect(posts).toHaveLength(1);expect(posts[0][0]).toBe('/api/v1/projects/p1/bio-single-cell-annotation-runs')
  expect(JSON.parse(String(posts[0][1]?.body))).toMatchObject({parent_processed_source:result.source,reference_id:'monaco',seed:0})
- expect(await screen.findByText(/annotationrun/)).toBeTruthy()
+ expect(await screen.findByText(/SingleR · /)).toBeTruthy()
+ expect(screen.queryByText(/annotationrun/)).toBeNull()
 })
 it('keeps SingleR candidates separate and requires explicit selection to create a proposed manual draft preserving pruned uncertainty',async()=>{
  vi.mocked(apiFetch).mockImplementation(async(url,init)=>Response.json(init?.method==='POST'?annotation:String(url).endsWith('/annotations')?{items:[candidate]}:String(url).endsWith('/bio-single-cell-references')||String(url).endsWith('/annotation-runs')?{items:[]}:result))
@@ -75,7 +76,7 @@ it('keeps SingleR candidates separate and requires explicit selection to create 
  const select=await screen.findByLabelText('采纳候选 T cell') as HTMLInputElement
  expect(select.checked).toBe(false)
  expect((screen.getByRole('button',{name:'将所选候选加入人工草稿'}) as HTMLButtonElement).disabled).toBe(true)
- expect(screen.getByText('0.01')).toBeTruthy();expect(screen.getByRole('link',{name:/tool_log/})).toBeTruthy()
+ expect(screen.getByText('0.01')).toBeTruthy();expect(screen.getByRole('link',{name:'运行日志.txt'})).toBeTruthy()
  fireEvent.click(select);fireEvent.click(screen.getByRole('button',{name:'将所选候选加入人工草稿'}))
  expect((screen.getAllByLabelText('标签状态')[0] as HTMLSelectElement).value).toBe('proposed')
  expect((screen.getAllByLabelText('标签状态')[1] as HTMLSelectElement).value).toBe('uncertain')
@@ -107,7 +108,7 @@ it('opens the original parent result link from subset provenance',async()=>{
  const navigate=vi.fn(),child={...result,manifest:{...result.manifest,subset:{parent_processed_source:{...result.source,processed_dataset_version_id:'parent1'}}}}
  vi.mocked(apiFetch).mockImplementation(async url=>Response.json(String(url).endsWith('/annotations')||String(url).endsWith('/bio-single-cell-references')||String(url).endsWith('/annotation-runs')?{items:[]}:child))
  render(<BioAnalysisResult projectId="p1" processedId="processed1" tab="spatial" onNavigate={navigate}/>)
- fireEvent.click(await screen.findByRole('button',{name:/返回父处理结果/}))
+ fireEvent.click(await screen.findByRole('button',{name:'返回上一级分析结果'}))
  expect(navigate).toHaveBeenCalledWith({view:'bio-result',fileId:'',processedId:'parent1',tab:'spatial'})
 })
 it('keeps a directly opened machine candidate immutable and returns to its manual-review workspace',async()=>{
@@ -134,7 +135,7 @@ it('generates an annotated UMAP from the selected manual labels through only a f
  const navigate=vi.fn()
  vi.mocked(apiFetch).mockImplementation(async(url,init)=>Response.json(init?.method==='POST'?{id:'annotationfigure'}:String(url).endsWith('/annotations')?{items:[annotation]}:String(url).endsWith('/bio-single-cell-references')||String(url).endsWith('/annotation-runs')?{items:[]}:result))
  render(<BioAnalysisResult projectId="p1" processedId="processed1" tab="spatial" onNavigate={navigate}/>)
- await screen.findByText('My labels')
+ await screen.findByRole('option',{name:'My labels'})
  fireEvent.change(screen.getByLabelText('报告使用的人工标签'),{target:{value:'annv1'}})
  fireEvent.click(screen.getByRole('button',{name:'按此标签绘制 UMAP'}))
  await waitFor(()=>expect(navigate).toHaveBeenCalledWith({view:'bio-figure',fileId:'',figureId:'annotationfigure'}))

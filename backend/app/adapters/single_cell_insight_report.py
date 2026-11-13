@@ -11,6 +11,7 @@ from docx.oxml.ns import qn
 from docx.shared import Mm, Pt, RGBColor
 
 from app.adapters.bio_reader_narrative import load_cached_narrative
+from app.adapters.research_method_text import reader_internal_field, reader_method_value
 
 
 def _value(value):
@@ -34,12 +35,14 @@ def _scalars(value,prefix='',depth=0):
     if not isinstance(value,dict) or depth>3:return []
     rows=[]
     for key,item in value.items():
+        if reader_internal_field(key) or key in ('warnings','resources','software','label_names','actual_units'):
+            continue
         path=f'{prefix}.{key}' if prefix else key
         if isinstance(item,dict):rows.extend(_scalars(item,path,depth+1))
         elif isinstance(item,list):
             if item and len(item)<=10 and all(type(v) in (str,int,float,bool) for v in item):
-                rows.append((path,', '.join(_value(v) for v in item)))
-        elif item is None or type(item) in (str,int,float,bool):rows.append((path,_value(item)))
+                rows.append((path,', '.join(_value(reader_method_value(v)) for v in item)))
+        elif item is None or type(item) in (str,int,float,bool):rows.append((path,_value(reader_method_value(item))))
     return rows
 
 
@@ -88,6 +91,11 @@ def _reader_table_title(key, en):
         'enrichment_results':('富集结果','Enrichment results'),
         'trajectory_results':('轨迹结果','Trajectory results'),
         'regulation_results':('调控网络结果','Regulatory network results'),
+        'communication_units':('各供者的细胞数量','Cell counts by donor'),
+        'composition_units':('组成分析纳入样本','Samples in composition analysis'),
+        'composition_counts':('各类细胞数量与比例','Counts and proportions by cell type'),
+        'aggregation_units':('供者汇总与计数','Donor aggregation and counts'),
+        'ora_background':('富集检验的背景与前景','Tested background and foreground'),
     }
     return labels.get(key,(key,key))[int(en)]
 
@@ -124,6 +132,9 @@ def _reader_column_label(column, en):
         'target':('靶基因','Target gene'),
         'stability_weight':('稳定性权重','Stability weight'),
         'absolute_weight_difference':('权重绝对差值','Absolute weight difference'),
+        'complete_pairs':('完整配对数','Complete pairs'),
+        'n_numerator':('分子组纳入数','Numerator count'),
+        'n_denominator':('分母组纳入数','Denominator count'),
     }
     return labels.get(column,(column,column))[int(en)]
 
@@ -218,17 +229,14 @@ def build_single_cell_insight_report(identifier,manifest_sha256,config,manifest,
     doc.add_paragraph(title,style='Title')
     doc.add_paragraph(local('本报告读取已发布结果，不重新计算。完整表格、参数及日志保留在结果下载中。','This report reads published results without recomputation. Complete tables, parameters and logs remain in the result downloads.'))
     doc.add_paragraph(local('表格小数以6位有效数字展示，0与NA保留；下载表保留完整精度。','Table decimals use 6 significant digits; zero and NA are retained. Downloadable tables retain full precision.'))
-    doc.add_paragraph(local('结果标识：','Result ID: ')+identifier)
-    doc.add_paragraph('SHA256 '+manifest_sha256)
     def heading(zh,english):doc.add_heading(local(zh,english),1)
     heading('固定输入与标签来源','Fixed inputs and label sources')
-    for source in manifest.get('source_bindings',[]):
-        doc.add_paragraph(f"{source.get('source_kind','')} · {source.get('source_id','')}")
-        doc.add_paragraph('SHA256 '+str(source.get('sha256','')))
-    for key in ('purpose','label_basis','independence_basis','root_basis','tf_basis'):
-        if config.get(key):doc.add_paragraph(key+': '+str(config[key]))
+    for key, label in [('purpose',('分析目的','Purpose')),('label_basis',('注释依据','Label basis')),
+        ('independence_basis',('独立性依据','Independence basis')),('root_basis',('起点选择依据','Root selection')),
+        ('tf_basis',('转录因子选择依据','Transcription factor selection'))]:
+        if config.get(key):doc.add_paragraph(local(*label)+': '+str(config[key]))
     selection=config.get('single_cell_selection') or {}
-    if selection.get('label_basis'):doc.add_paragraph('label_basis: '+selection['label_basis'])
+    if selection.get('label_basis'):doc.add_paragraph(local('注释依据：','Label basis: ')+selection['label_basis'])
     heading('实际设计与方法','Actual design and methods')
     contrasts=config.get('contrasts',[])
     if contrasts and all(isinstance(c.get('numerator'),dict) and isinstance(c.get('denominator'),dict) for c in contrasts):
@@ -249,22 +257,25 @@ def build_single_cell_insight_report(identifier,manifest_sha256,config,manifest,
     methods=manifest.get('methods',{})
     overview={k:v for k,v in methods.items() if k not in ('config','actual_units','model_diagnostics','upstream','upstream_methods')}
     params={k:v for k,v in config.items() if k not in ('contrasts','single_cell_selection','excluded_observations','excluded_donors','label_ids','family_contrast_ids','purpose','label_basis','independence_basis')}
-    details=_scalars({'config':params,'methods':overview})
-    if details:_table(doc,[dict(parameter=k,value=v) for k,v in details],['parameter','value'])
+    details=_scalars(params)+_scalars(overview)
+    if details:_table(doc,[dict(parameter=k.replace('_',' ').replace('.',' · '),value=v) for k,v in details],
+        ['parameter','value'],[local('参数','Parameter'),local('数值或设置','Value or setting')])
     for warning in methods.get('warnings',[]):doc.add_paragraph(local('限制：','Limitation: ')+str(warning))
     for resource in methods.get('resources',[]):
         if isinstance(resource,dict):
             doc.add_paragraph(local('固定基因集资源','Fixed gene-set resource'))
-            _table(doc,[dict(parameter=k,value=v) for k,v in _scalars(resource)],['parameter','value'])
+            _table(doc,[dict(parameter=k.replace('_',' ').replace('.',' · '),value=v) for k,v in _scalars(resource)],
+                ['parameter','value'],[local('资源信息','Resource field'),local('内容','Value')])
     heading('保存结果概况','Saved result summary')
     values=_scalars(manifest.get('summary',{}))
-    if values:_table(doc,[dict(field=k,value=v) for k,v in values],['field','value'])
+    if values:_table(doc,[dict(field=k.replace('_',' ').replace('.',' · '),value=v) for k,v in values],
+        ['field','value'],[local('指标','Metric'),local('数值','Value')])
     units=manifest.get('summary',{}).get('actual_units') or methods.get('actual_units') or []
     if isinstance(units,dict):units=[units]
     if units:
         if topic:doc.add_paragraph(local('下表为设计入选数量；逐边有效供者数和不可计算原因见结果表。','The following counts describe design inclusion; edge-specific effective donor counts and non-computable reasons are listed with results.'))
         columns=[k for k in (('contrast_id','n_numerator','n_denominator','complete_pairs') if topic else ('contrast_id','n_numerator','n_denominator','complete_pairs','design_rank','residual_degrees_freedom')) if any(k in r for r in units)]
-        if columns:_table(doc,units,columns)
+        if columns:_table(doc,units,columns,_reader_columns(columns,en))
     heading('供者单位与组成分母','Donor units and composition denominators') if composition else heading('保存结果表','Saved result tables')
     preferred={
         'trajectory_results':('barcode','cluster','lineage_id','pseudotime','weight','covered'),
@@ -277,14 +288,14 @@ def build_single_cell_insight_report(identifier,manifest_sha256,config,manifest,
         'composition_results':('category_label','proportion_difference','proportion_ratio','t_statistic','p_value','p_adjust'),
         'aggregation_units':('unit_id','donor','condition','batch','spot_count','library_counts'),
         'comparison_results':('feature_id','contrast_id','effect_value','p_value','q_within_contrast','test_status'),
-        'ora_background':('contrast_id','N','n','resource_id'),
+        'ora_background':('contrast_id','N','n'),
         'enrichment_results':('term_id','term_name','nes','p_value','q_value','nominal_p_value','fdr_q_value'),
     }
     for key,choices in preferred.items():
         if key not in tables:continue
         raw=tables[key];rows=raw.get('rows',[]) if isinstance(raw,dict) else raw
         total=raw.get('total',len(rows)) if isinstance(raw,dict) else len(rows)
-        doc.add_heading(key,2)
+        doc.add_heading(_reader_table_title(key,en),2)
         limit=200 if key in ('composition_units','composition_counts','aggregation_units') else 20
         shown=rows[:limit]
         if key=='comparison_results':
@@ -300,11 +311,12 @@ def build_single_cell_insight_report(identifier,manifest_sha256,config,manifest,
             continue
         columns=[k for k in choices if any(k in row for row in shown)][:6]
         if not columns:columns=list(shown[0])[:6]
-        _table(doc,shown,columns)
+        _table(doc,shown,columns,_reader_columns(columns,en))
         if key=='communication_comparisons':
             doc.add_paragraph(local('逐边实际供者数与计算状态','Edge-specific donor counts and computation status'))
             counts=[dict(edge=str(r.get('sender'))+' → '+str(r.get('receiver'))+' / '+str(r.get('interaction_id')),**{k:r.get(k) for k in ('n_denominator','n_numerator','complete_pairs','status','reason')}) for r in shown]
-            _table(doc,counts,['edge','n_denominator','n_numerator','complete_pairs','status','reason'])
+            columns=['edge','n_denominator','n_numerator','complete_pairs','status','reason']
+            _table(doc,counts,columns,_reader_columns(columns,en))
         if key=='composition_results' and any('inference_status' in r for r in shown):
             doc.add_paragraph(local('逐类别推断状态与原因','Per-category inference status and reason'))
             _table(doc,shown,['category_label','inference_status','reason','ratio_status'])
@@ -316,14 +328,11 @@ def build_single_cell_insight_report(identifier,manifest_sha256,config,manifest,
     if figures:
         from PIL import Image
         for figure in figures:
-            doc.add_heading(figure['key'],2)
+            doc.add_heading(_reader_figure_title(figure['key'],en),2)
             with Image.open(io.BytesIO(figure['content'])) as picture:width,height=picture.size
             ratio=min(170/width,210/height)
             doc.add_picture(io.BytesIO(figure['content']),width=Mm(width*ratio),height=Mm(height*ratio))
-            doc.add_paragraph('SHA256 '+figure['sha256'])
             if figure.get('figure_result_id'):
-                doc.add_paragraph(local('独立重绘结果：','Separately rendered figure result: ')+figure['figure_result_id'])
-                doc.add_paragraph(local('数值来源：','Saved numeric source: ')+figure['source_result_id']+' | SHA256 '+figure['source_manifest_sha256'])
                 doc.add_paragraph(local('仅重绘保存数值；未重算科学分析。原图保留在原结果下载中。','Saved values rendered only; scientific analysis was not recomputed. Original figures remain in original result downloads.'))
     heading('解释边界','Interpretation limits')
     doc.add_paragraph(local('细胞和技术文库不是独立供者。最小重复数是工程门槛，不保证统计功效；标签、配对和独立性依据需要科学审核。计算成功与用户验收不等于生物学验证。','Cells and technical libraries are not independent donors. Minimum replication is an engineering threshold, not a power guarantee. Labels, pairing and independence require scientific review. Successful computation and user acceptance are not biological validation.'))

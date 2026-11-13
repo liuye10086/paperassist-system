@@ -9,6 +9,7 @@ import {useBioRead} from './spatialHooks'
 import useBioWrite from './useBioWrite'
 import SingleCellQcFields from './SingleCellQcFields'
 import SingleCellIntegrationFields from './SingleCellIntegrationFields'
+import {bioConditionLabel} from './bioPresentation'
 
 const fields:[keyof BioRecipeParameters,string,number,number,number][]=[
  ['min_counts','最低 counts',0,2147483647,1],['min_genes','最低检测基因数',0,100000,1],['min_spots','基因最低 cell 数',1,20000,1],
@@ -56,7 +57,7 @@ function SingleCellStartForm({allowNewAnalysis=true,projectId,source,onNavigate,
   <p>{t('来源和参数相同时使用已有分析；修改后建立新分析，已有结果保留。')}</p>
   <p>{t('未知供者不影响探索；cell 不代表独立供者，marker 仅为探索性 cell 群关联。')}</p>
   {read.error&&<p role="alert">{t(read.error)}</p>}
-  {read.value&&<><ul>{blockers.map(v=><li key={v}>{t(resourceReasons[v]??v)}</li>)}</ul>
+  {read.value&&<><ul>{blockers.map(v=><li key={v}>{t(resourceReasons[v]??bioConditionLabel(v))}</li>)}</ul>
    {estimate&&<section aria-label="资源估算"><h4>{t('矩阵规模与资源估算')}</h4>
     <p>{number(estimate.matrix.observations)} {t('个细胞')} × {number(estimate.matrix.features)} {t('个基因')}；{resourceAvailable?t('当前资源可用'):t('当前资源不足')}</p>
     <section className="customer-advanced-details"><h4>{t('高级资源详情')}</h4>

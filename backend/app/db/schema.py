@@ -152,6 +152,10 @@ users = Table("users", metadata,
     CheckConstraint("(review_status='approved' AND role IS NOT NULL) OR "
                     "(review_status IN ('pending','rejected') AND role IS NULL AND NOT active)",
                     name="users_review_status_check"))
+account_deletions = Table("account_deletions", metadata,
+    Column("user_id", Text, ForeignKey("users.id"), primary_key=True),
+    Column("assets", JSONB, nullable=False),
+)
 sessions = Table("sessions", metadata,
     Column("token_hash", Text, primary_key=True),
     Column("user_id", Text, ForeignKey("users.id"), nullable=False),

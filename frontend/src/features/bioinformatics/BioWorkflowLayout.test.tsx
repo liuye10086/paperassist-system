@@ -1,5 +1,5 @@
 import {afterEach,expect,it,vi} from 'vitest'
-import {cleanup,fireEvent,render,screen,waitFor} from '@testing-library/react'
+import {cleanup,fireEvent,render,screen,waitFor,within} from '@testing-library/react'
 import {apiFetch} from '../../shared/api/client'
 import BioDatasetDetail from './BioDatasetDetail'
 import BioImportReview from './BioImportReview'
@@ -37,14 +37,20 @@ it('keeps import acceptance and confirmation outside the switchable review modul
 })
 
 it('keeps QC acceptance available while reviewing effective parameters',async()=>{
- vi.mocked(apiFetch).mockResolvedValue(Response.json(runFixture))
+ vi.mocked(apiFetch).mockImplementation(async(_url,init)=>Response.json(init?.method==='POST'?{}:{
+  ...runFixture,candidate:{...runFixture.candidate,checks:{raw_hashes:'verified',h5ad_roundtrip:'not_requested'}},
+ }))
  render(<BioAnalysisReview projectId="p1" runId="run1" onNavigate={()=>{}}/>)
- await screen.findByRole('region',{name:'QC 概况'})
+ const qc=within(await screen.findByRole('region',{name:'QC 概况'}))
+ expect(within(qc.getByRole('row',{name:/原始数据哈希/})).getByText('已通过')).toBeTruthy()
+ expect(within(qc.getByRole('row',{name:/H5AD 读写核对/})).getByText('未请求')).toBeTruthy()
  fireEvent.click(screen.getByRole('checkbox'))
  fireEvent.click(screen.getByRole('button',{name:'有效参数'}))
  expect(screen.queryByRole('region',{name:'QC 概况'})).toBeNull()
  expect(screen.getByRole('region',{name:'有效参数'})).toBeTruthy()
  expect((screen.getByRole('button',{name:'确认此 QC 候选并继续计算'}) as HTMLButtonElement).disabled).toBe(false)
+ fireEvent.click(screen.getByRole('button',{name:'确认此 QC 候选并继续计算'}))
+ await waitFor(()=>expect(apiFetch).toHaveBeenCalledWith('/api/v1/projects/p1/bio-analysis-runs/run1/confirm',expect.objectContaining({method:'POST'})))
 })
 
 it('preserves unsaved recipe values when switching configuration modules',async()=>{

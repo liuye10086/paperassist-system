@@ -26,10 +26,10 @@ def build_report(snapshot,report,png):
     title=t('建模与生存分析报告','Modeling and survival analysis report')
     doc.core_properties.title=title;doc.core_properties.author='PaperAssist System'
     paragraph(doc,title,'Title');paragraph(doc,project['name'],'Subtitle')
-    paragraph(doc,t('导出时间','Exported')+': '+report['created_at'])
+    paragraph(doc,t('导出时间','Exported')+': '+report['created_at'][:19].replace('T',' ')+' (UTC)')
     doc.add_heading(t('1 数据与已确认声明','1 Data and confirmed declarations'),level=1)
-    for label,value in [('Filename',result['filename']),('Sheet',result['selection']['sheet_name']),('Research topic',project.get('research_topic') or ''),
-        ('Source SHA256',result['source_sha256']),('Setup revision',result['setup_revision'])]:paragraph(doc,label+': '+display(value))
+    for label,value in [(t('原始文件','Source file'),result['filename']),(t('工作表','Worksheet'),result['selection']['sheet_name']),
+        (t('研究主题','Research topic'),project.get('research_topic') or '')]:paragraph(doc,label+': '+display(value))
     table(doc,[t('字段','Variable'),t('列','Column'),t('单位','Unit')],[[v['name'],v['column'],v['unit']] for v in result['variables']],[7,3,7])
     research=result.get('analysis_context',{}).get('plan',{}).get('research_request',{})
     for key,value in research.items():paragraph(doc,key+': '+display(value))
@@ -85,13 +85,8 @@ def build_report(snapshot,report,png):
     paragraph(doc,t('原 PNG 字节未改写。森林图仅核对本地效应投影；ROC/KM 根据必要匿名数值独立计算曲线。图片像素仍需人工审阅。','Saved PNG bytes are embedded unchanged. Forest checks local effect projection; ROC/KM independently compute curves from necessary anonymous observations. Image pixels require review.'))
     doc.add_heading(t('5 六节解释','5 Six-section explanation'),level=1)
     for section in explanation['sections']:doc.add_heading(section['title'],level=2);paragraph(doc,section['text'])
-    doc.add_heading(t('6 限制与来源','6 Limitations and provenance'),level=1)
+    doc.add_heading(t('6 适用限制','6 Limitations'),level=1)
     for limitation in explanation['limitations']:paragraph(doc,limitation)
-    records={'Analysis ID':result['id'],'Analysis engine':result['engine']['id'],'Plan SHA256':result['analysis_plan']['sha256'],
-        'Figure ID':figure['id'],'PNG SHA256':figure['sha256'],'Plot engine':figure['engine']['id'],
-        'Explanation ID':explanation['id'],'Explanation engine':explanation['engine']['id'],'Explanation input SHA256':explanation['provenance']['input_sha256'],
-        'Report ID':report['id'],'Report engine':report['engine']['id'],'Report input SHA256':report['input_sha256']}
-    for key,value in records.items():paragraph(doc,key+': '+display(value))
     # Keep each observation and its unavailable-value reason on one page.
     # Repeated table headers are already supplied by the shared table helper.
     for result_table in doc.tables:

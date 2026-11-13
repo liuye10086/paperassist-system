@@ -1,7 +1,7 @@
 import {configurationButton,findConfigurationButton,configurationField} from './configurationTestNavigation'
 import {testCatalog,testVersion} from './configurationTestFixtures'
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
-import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import OperationsWorkspace from './OperationsWorkspace'
 import { setLocale } from '../../shared/i18n'
 import { clearApiSession, setApiSession } from '../../shared/api/client'
@@ -11,7 +11,7 @@ const provenance = {openai_live:{...summary,call_count:0},synthetic_fixture:summ
 const usage = {currency:'USD',period:{kind:'cumulative',timezone:'UTC',from:null,to:null},coverage:{historical_missing_is_zero:false},user_charge_enabled:false,quota:{configured:false},budget_scope:'cumulative_unfiltered',budgets:[],summary,by_provenance:provenance,items:[{id:'call1',user_id:'self',project_id:'p1',task_id:'t1',task_type:'boxplot',model:'fixture-model',status:'completed',provider_provenance:'synthetic_fixture',created_at:'2026-10-23T00:00:00Z',input_tokens:null,output_tokens:10,total_tokens:null,estimated_cost_micro_usd:null,reconciliation:{status:'pending',actual_micro_usd:null},reserved_micro_usd:5,accounted_micro_usd:128}],total:21,page:1,page_size:10,groups:[{key:'fixture-model',summary,by_provenance:provenance}],group_total:51,group_page:1,group_page_size:50}
 const account = {id:'other',email:'other@example.test',role:'analyst',review_status:'approved',active:true,admin_revision:3,updated_at:1792700000,allowed_actions:['edit']}
 const pending = {user_id:'pending', email:'pending@example.test', display_name:'待审申请人',
-  organization:'示例单位', submitted_at:1792700000, review_status:'pending'}
+  organization:'示例单位', submitted_at:1792700000, review_status:'pending', role:null, admin_revision:3}
 const task = {id:'t1',user_id:'other',user_email:'other@example.test',project_id:'p1',task_type:'boxplot',phase:'compute',status:'failed',revision:3,created_at:'2026-10-23T00:00:00Z',updated_at:'2026-10-23T00:01:00Z',elapsed_ms:null,started_at:null,finished_at:null,current_attempt:1,attempt_count:1,error_code:'task_execution_failed',request_id:null,can_open_workspace:false,allowed_actions:[],workspace_url:null}
 const coverage = {started_at:'2026-10-23T00:00:00Z',historical_missing_is_zero:false,policy:'retain_no_auto_delete'}
 let role='admin';let active=true;let own=false;let conflict=false;let denied=false
@@ -44,11 +44,45 @@ async function admin(page = '账号管理', locale: 'zh-CN' | 'en' = 'zh-CN') {
   }
   fireEvent.click(await screen.findByRole('button', { name: page }))
 }
+async function accountRow(email = account.email) {
+  return within((await screen.findByText(email)).closest('tr')!)
+}
 it('shows server-confirmed admin and own usage while preserving projects',async()=>{mount();await screen.findByRole('button',{name:'管理员'});expect(screen.getByText('Project workspace retained')).toBeTruthy();await admin();await screen.findByText('other@example.test');fireEvent.click(screen.getByRole('button',{name:'项目工作区'}));expect(screen.getByText('Project workspace retained')).toBeTruthy()})
 it('ordinary users only load own usage without user_id',async()=>{role='user';mount();fireEvent.click(await screen.findByRole('button',{name:'本人用量'}));await screen.findByText('fixture-model');expect(screen.queryByRole('button',{name:'管理员'})).toBeNull();expect(screen.queryByLabelText('用户标识')).toBeNull();expect(fetchMock.mock.calls.some(([u])=>u.startsWith('/api/v1/me/usage?')&&!u.includes('user_id'))).toBe(true)})
 it('disabled sessions have no operations entries',async()=>{active=false;mount();await waitFor(()=>expect(fetchMock).toHaveBeenCalled());await act(async()=>{});expect(screen.queryByRole('button',{name:'管理员'})).toBeNull();expect(screen.queryByRole('button',{name:'本人用量'})).toBeNull()})
-it('writes revision and meaningful reason once and links audit',async()=>{mount();await admin();fireEvent.click(await screen.findByRole('button',{name:'编辑账号'}));fireEvent.change(screen.getByLabelText('账号角色'),{target:{value:'admin'}});fireEvent.change(screen.getByLabelText('变更理由'),{target:{value:'Approved role adjustment'}});const button=screen.getByRole('button',{name:'保存账号变更'});fireEvent.click(button);fireEvent.click(button);await screen.findByText('账号已更新，目标会话已撤销。');const calls=fetchMock.mock.calls.filter(([,init])=>init?.method==='PATCH');expect(calls).toHaveLength(1);expect(JSON.parse(calls[0][1].body)).toEqual({role:'admin',active:true,reason:'Approved role adjustment',expected_revision:3});expect(screen.getByRole('button',{name:'查看操作审计'})).toBeTruthy()})
-it('reloads on revision conflicts and translates safe code',async()=>{conflict=true;mount();await admin();fireEvent.click(await screen.findByRole('button',{name:'编辑账号'}));fireEvent.change(screen.getByLabelText('账号角色'),{target:{value:'admin'}});fireEvent.change(screen.getByLabelText('变更理由'),{target:{value:'Concurrent role update'}});fireEvent.click(screen.getByRole('button',{name:'保存账号变更'}));await screen.findByText('账号已被修改，请读取最新版本后重试。');expect(screen.queryByText('SECRET')).toBeNull();fireEvent.click(screen.getByRole('button',{name:'返回账号列表'}));await waitFor(()=>expect(fetchMock.mock.calls.filter(([u])=>u.startsWith('/api/v1/admin/users?')).length).toBeGreaterThan(1))})
+it('saves row role and status from the actions column and links the audit', async () => {
+  mount()
+  await admin()
+  const row = await accountRow()
+  expect(screen.queryByRole('columnheader', { name: '变更理由' })).toBeNull()
+  expect(row.queryByLabelText('变更理由')).toBeNull()
+  fireEvent.change(row.getByLabelText('账号角色'), { target: { value: 'admin' } })
+  fireEvent.change(row.getByLabelText('账号状态'), { target: { value: 'false' } })
+  const button = row.getByRole('button', { name: '保存账号变更' })
+  expect(button.closest('td')).toBe(row.getAllByRole('cell').at(-1))
+  fireEvent.click(button)
+  fireEvent.click(button)
+  const audit = await screen.findByRole('button', { name: '查看操作审计' })
+  expect(screen.queryByText('账号已更新，目标会话已撤销。')).toBeNull()
+  expect(audit.closest('.admin-account-toolbar')).toBeTruthy()
+  const calls = fetchMock.mock.calls.filter(([, init]) => init?.method === 'PATCH')
+  expect(calls).toHaveLength(1)
+  expect(JSON.parse(calls[0][1].body)).toEqual({ role: 'admin', active: false, reason: '账号管理更新', expected_revision: 3 })
+})
+it('reloads on revision conflicts and translates safe code', async () => {
+  conflict = true
+  mount()
+  await admin()
+  const row = await accountRow()
+  fireEvent.change(row.getByLabelText('账号角色'), { target: { value: 'admin' } })
+  fireEvent.click(row.getByRole('button', { name: '保存账号变更' }))
+  await screen.findByText('账号已被修改，请读取最新版本后重试。')
+  expect(screen.queryByText('SECRET')).toBeNull()
+  const refreshed = await accountRow()
+  expect(refreshed.getByLabelText('账号角色')).toHaveProperty('value', 'analyst')
+  expect(refreshed.getByRole('button', { name: '保存账号变更' })).toHaveProperty('disabled', true)
+  expect(fetchMock.mock.calls.filter(([url]) => url.startsWith('/api/v1/admin/users?')).length).toBeGreaterThan(1)
+})
 it('only reads safe metadata for another owner and displays unknown attempt time',async()=>{mount();await admin('系统任务');fireEvent.click(await screen.findByRole('button',{name:'查看安全详情'}));await screen.findByText('此任务属于其他账号，仅可查看运营信息。');expect(fetchMock.mock.calls.some(([u])=>/\/tasks\/t1\/(workspace|events|model-usage)/.test(u))).toBe(false);expect(screen.queryByRole('link',{name:'在项目中打开'})).toBeNull();expect(screen.getAllByText('未知').length).toBeGreaterThan(0)})
 it('opens own TaskDetail and reuses exact retry contract',async()=>{own=true;mount();await admin('系统任务');fireEvent.click(await screen.findByRole('button',{name:'查看安全详情'}));fireEvent.click(await screen.findByRole('button',{name:'打开本人的任务详情'}));fireEvent.click(await screen.findByRole('button',{name:'待处理'}));fireEvent.click(await screen.findByRole('button',{name:'重试原任务'}));await waitFor(()=>expect(fetchMock.mock.calls.some(([u])=>u==='/api/v1/tasks/t1/resume')).toBe(true));expect(JSON.parse(fetchMock.mock.calls.find(([u])=>u==='/api/v1/tasks/t1/resume')![1].body)).toEqual({operation:'retry',wait_id:null,expected_task_revision:3,input_version:taskFixture.input_version});fireEvent.click(screen.getByRole('button',{name:'返回任务安全详情'}));expect(screen.getByRole('link',{name:'在项目中打开'}).getAttribute('href')).toBe('#project=p1&section=tasks&task=t1')})
 it('separates provenance and never presents unknown tokens or actual spend as zero',async()=>{role='user';mount();fireEvent.click(await screen.findByRole('button',{name:'本人用量'}));fireEvent.click(screen.getByRole('button',{name:'来源口径'}));await screen.findByRole('region',{name:'已证实真实调用'});for(const source of ['已证实真实调用','合成验收样例','来源未知']){fireEvent.click(screen.getByRole('button',{name:source}));const current=screen.getByRole('region',{name:source});expect(within(current).getByText('未知（尚未完整核对）')).toBeTruthy();expect(within(current).getAllByText('已知 0；未知 1 次').length).toBeGreaterThan(0)}expect(screen.getByText('用户收费未启用')).toBeTruthy();expect(screen.getByText('容量配额未配置')).toBeTruthy();expect(screen.getAllByText(/0.000007/).length).toBeGreaterThan(0)})
@@ -58,19 +92,64 @@ it('renders English account filters',async()=>{setLocale('en');mount();await adm
 it('session change aborts delayed requests and clears private operational state',async()=>{let finish!:(r:Response)=>void;fetchMock.mockImplementation((url:string,init?:RequestInit)=>url.startsWith('/api/v1/admin/users?')?new Promise<Response>(resolve=>{finish=resolve}):Promise.resolve(fixture(url,init)));mount();await admin();await waitFor(()=>expect(finish).toBeTypeOf('function'));act(()=>clearApiSession());await act(async()=>{finish(Response.json({items:[account],total:1,page:1,page_size:10}))});expect(screen.queryByText('other@example.test')).toBeNull();expect(screen.queryByRole('button',{name:'管理员'})).toBeNull()})
 it('403 immediately removes privileged data and entry then rereads role',async()=>{mount();await admin();await screen.findByText('other@example.test');denied=true;role='user';fireEvent.click(screen.getByRole('button',{name:'刷新'}));await waitFor(()=>expect(screen.queryByRole('button',{name:'管理员'})).toBeNull());expect(screen.queryByText('other@example.test')).toBeNull();expect(fetchMock.mock.calls.filter(([u])=>u==='/api/v1/auth/me').length).toBeGreaterThan(1)})
 it('validates from before to without making invalid request',async()=>{mount();await admin('系统任务');await screen.findByRole('button',{name:'查看安全详情'});fireEvent.change(screen.getByLabelText('起始时间'),{target:{value:'2026-10-23T12:00'}});fireEvent.change(screen.getByLabelText('结束时间'),{target:{value:'2026-10-22T12:00'}});const count=fetchMock.mock.calls.length;fireEvent.click(screen.getByRole('button',{name:'应用筛选'}));await screen.findByText('起始时间必须早于结束时间。');expect(fetchMock.mock.calls.length).toBe(count)})
-it('blocks invalid reason and keeps pending changes visible',async()=>{let finish!:(r:Response)=>void;fetchMock.mockImplementation((url:string,init?:RequestInit)=>init?.method==='PATCH'?new Promise<Response>(resolve=>{finish=resolve}):Promise.resolve(fixture(url,init)));mount();await admin();fireEvent.click(await screen.findByRole('button',{name:'编辑账号'}));fireEvent.change(screen.getByLabelText('账号角色'),{target:{value:'admin'}});fireEvent.change(screen.getByLabelText('变更理由'),{target:{value:'x'}});fireEvent.submit(screen.getByRole('button',{name:'保存账号变更'}).closest('form')!);await screen.findByText('请填写 5 至 500 字的有效理由，并修改角色或状态。');expect(fetchMock.mock.calls.some(([,init])=>init?.method==='PATCH')).toBe(false);fireEvent.change(screen.getByLabelText('变更理由'),{target:{value:'Valid reason'}});fireEvent.submit(screen.getByRole('button',{name:'保存账号变更'}).closest('form')!);await waitFor(()=>expect(finish).toBeTypeOf('function'));expect((screen.getByLabelText('账号搜索') as HTMLInputElement).disabled).toBe(true);expect(screen.queryByRole('button',{name:'应用筛选'})).toBeNull();await act(async()=>{finish(Response.json(account))})})
-it('aborts tab requests before rendering another operational page',async()=>{let finish!:(r:Response)=>void;let signal:AbortSignal|null=null;fetchMock.mockImplementation((url:string,init?:RequestInit)=>url.startsWith('/api/v1/admin/users?')?new Promise<Response>(resolve=>{finish=resolve;signal=init?.signal as AbortSignal}):Promise.resolve(fixture(url,init)));mount();await admin();await waitFor(()=>expect(finish).toBeTypeOf('function'));fireEvent.click(screen.getByRole('button',{name:'运营工具'}));fireEvent.click(screen.getByRole('button',{name:'系统任务'}));await screen.findByRole('button',{name:'查看安全详情'});expect(signal!.aborted).toBe(true);await act(async()=>finish(Response.json({items:[account],total:1,page:1,page_size:10})));expect(screen.queryByRole('button',{name:'编辑账号'})).toBeNull()})
+it('enables save only for changed rows and keeps pending changes visible', async () => {
+  let finish!: (response: Response) => void
+  fetchMock.mockImplementation((url: string, init?: RequestInit) => init?.method === 'PATCH'
+    ? new Promise<Response>(resolve => { finish = resolve })
+    : Promise.resolve(fixture(url, init)))
+  mount()
+  await admin()
+  const row = await accountRow()
+  const select = row.getByLabelText('账号角色')
+  const save = row.getByRole('button', { name: '保存账号变更' })
+  expect(save).toHaveProperty('disabled', true)
+  fireEvent.change(select, { target: { value: 'admin' } })
+  fireEvent.change(select, { target: { value: 'analyst' } })
+  expect(save).toHaveProperty('disabled', true)
+  expect(fetchMock.mock.calls.some(([, init]) => init?.method === 'PATCH')).toBe(false)
+  fireEvent.change(select, { target: { value: 'admin' } })
+  fireEvent.click(save)
+  await waitFor(() => expect(finish).toBeTypeOf('function'))
+  expect(select).toHaveProperty('value', 'admin')
+  expect(screen.getByLabelText('账号搜索')).toHaveProperty('disabled', true)
+  expect(screen.getByRole('button', { name: '应用筛选' })).toHaveProperty('disabled', true)
+  await act(async () => finish(Response.json(account)))
+})
+it('aborts tab requests before rendering another operational page', async () => {
+  let finish!: (response: Response) => void
+  let signal: AbortSignal | null = null
+  fetchMock.mockImplementation((url: string, init?: RequestInit) => url.startsWith('/api/v1/admin/users?')
+    ? new Promise<Response>(resolve => { finish = resolve; signal = init?.signal as AbortSignal })
+    : Promise.resolve(fixture(url, init)))
+  mount()
+  await admin()
+  await waitFor(() => expect(finish).toBeTypeOf('function'))
+  const accounts = screen.getByRole('region', { name: '账号管理' })
+  fireEvent.click(screen.getByRole('button', { name: '运营工具' }))
+  fireEvent.click(screen.getByRole('button', { name: '系统任务' }))
+  await screen.findByRole('button', { name: '查看安全详情' })
+  expect(signal!.aborted).toBe(true)
+  await act(async () => finish(Response.json({ items: [account], total: 1, page: 1, page_size: 10 })))
+  expect(within(accounts).queryByText(account.email)).toBeNull()
+})
 it('displays approved account roles and sends the selected filters', async () => {
   mount()
   await admin()
-  const analystRow = (await screen.findByText('other@example.test')).closest('tr')!
-  expect(within(analystRow).getByText('分析员')).toBeTruthy()
+  const analystRow = await accountRow()
+  expect(analystRow.getByLabelText('账号角色')).toHaveProperty('value', 'analyst')
+  expect(analystRow.getByLabelText('账号状态')).toHaveProperty('value', 'true')
+  const ownRow = await accountRow('self@example.test')
+  expect(ownRow.queryByRole('combobox')).toBeNull()
+  expect(ownRow.getByText('管理员')).toBeTruthy()
+  expect(screen.getByLabelText('账号搜索').closest('details')).toBeNull()
+  expect(screen.queryByRole('columnheader', {name: '用户标识'})).toBeNull()
+  expect(screen.queryByRole('columnheader', {name: '版本'})).toBeNull()
   expect(within(screen.getByRole('region', {name:'账号管理'})).queryByText(pending.email)).toBeNull()
-  expect(screen.getAllByRole('button', {name: '编辑账号'})).toHaveLength(1)
+  expect(screen.queryByRole('button', {name: '编辑账号'})).toBeNull()
 
   fireEvent.change(screen.getByLabelText('账号搜索'), {target: {value: 'other@'}})
   fireEvent.change(screen.getByLabelText('角色'), {target: {value: 'analyst'}})
-  fireEvent.change(screen.getByLabelText('账号状态'), {target: {value: 'true'}})
+  fireEvent.change(within(screen.getByLabelText('账号搜索').closest('form')!).getByLabelText('账号状态'), {target: {value: 'true'}})
   fireEvent.click(screen.getByRole('button', {name: '应用筛选'}))
   await waitFor(() => expect(fetchMock.mock.calls.some(([url]) => {
     const request = new URL(url, 'http://localhost')
@@ -83,37 +162,163 @@ it('displays approved account roles and sends the selected filters', async () =>
   await waitFor(() => expect(fetchMock.mock.calls.some(([url]) => url.startsWith('/api/v1/admin/users?') && url.includes('page=2'))).toBe(true))
 })
 
-it.each(['approve', 'reject'] as const)('submits %s with the application revision', async decision => {
-  const path = '/api/v1/admin/users/pending/registration'
-  const profile = {...pending, note: '提交的注册说明', admin_revision: 3, decision: null}
+describe('permanent account deletion', () => {
+  const deletable = { ...account, allowed_actions: ['edit', 'delete'] }
+  const showModal = Object.getOwnPropertyDescriptor(HTMLDialogElement.prototype, 'showModal')
+  const close = Object.getOwnPropertyDescriptor(HTMLDialogElement.prototype, 'close')
+
+  beforeEach(() => {
+    // jsdom does not implement dialog top-layer APIs.
+    Object.defineProperties(HTMLDialogElement.prototype, {
+      showModal: { configurable: true, value(this: HTMLDialogElement) { this.open = true } },
+      close: { configurable: true, value(this: HTMLDialogElement) { this.open = false } },
+    })
+  })
+
+  afterEach(() => {
+    cleanup()
+    if (showModal) Object.defineProperty(HTMLDialogElement.prototype, 'showModal', showModal)
+    else Reflect.deleteProperty(HTMLDialogElement.prototype, 'showModal')
+    if (close) Object.defineProperty(HTMLDialogElement.prototype, 'close', close)
+    else Reflect.deleteProperty(HTMLDialogElement.prototype, 'close')
+  })
+
+  it('requires a server-authorized target and returns focus when canceled', async () => {
+    fetchMock.mockImplementation(async (url: string, init?: RequestInit) => url.startsWith('/api/v1/admin/users?')
+      ? Response.json({ items: [
+        deletable,
+        { ...deletable, id: 'self', email: 'self@example.test', role: 'admin' },
+        { ...deletable, id: 'admin2', email: 'admin2@example.test', role: 'admin' },
+        { ...account, id: 'read-only', email: 'read-only@example.test', allowed_actions: [] },
+      ], total: 4, page: 1, page_size: 10 })
+      : fixture(url, init))
+    mount()
+    await admin()
+    const trigger = (await accountRow()).getByRole('button', { name: '删除' })
+    for (const email of ['self@example.test', 'admin2@example.test', 'read-only@example.test']) {
+      expect((await accountRow(email)).queryByRole('button', { name: '删除' })).toBeNull()
+    }
+    fireEvent.click(trigger)
+    const dialog = screen.getByRole('dialog', { name: '永久删除账号' })
+    expect(within(dialog).getByText(account.email)).toBeTruthy()
+    expect(within(dialog).getByText(/其拥有的本机项目和文件，以及关联的本机记录/)).toBeTruthy()
+    expect(document.activeElement).toBe(within(dialog).getByRole('button', { name: '取消' }))
+    fireEvent(dialog, new Event('cancel', { cancelable: true }))
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(document.activeElement).toBe(trigger)
+    expect(fetchMock.mock.calls.some(([, init]) => init?.method === 'DELETE')).toBe(false)
+  })
+
+  it('sends a single revision-checked deletion after confirmation and refreshes the list', async () => {
+    let finish!: () => void
+    let deleted = false
+    fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (init?.method === 'DELETE') return new Promise<Response>(resolve => {
+        finish = () => {
+          deleted = true
+          resolve(Response.json({ id: account.id, deleted: true }))
+        }
+      })
+      if (url.startsWith('/api/v1/admin/users?')) return Response.json({
+        items: deleted ? [] : [deletable], total: deleted ? 0 : 1, page: 1, page_size: 10,
+      })
+      return fixture(url, init)
+    })
+    mount()
+    await admin()
+    fireEvent.click((await accountRow()).getByRole('button', { name: '删除' }))
+    const dialog = screen.getByRole('dialog', { name: '永久删除账号' })
+    const confirm = within(dialog).getByRole('button', { name: '确认永久删除' })
+    fireEvent.click(confirm)
+    fireEvent.click(confirm)
+    fireEvent(dialog, new Event('cancel', { cancelable: true }))
+    expect(screen.getByRole('dialog')).toBe(dialog)
+    expect(within(dialog).getByRole('button', { name: '取消' })).toHaveProperty('disabled', true)
+    const calls = fetchMock.mock.calls.filter(([, init]) => init?.method === 'DELETE')
+    expect(calls).toHaveLength(1)
+    expect(calls[0][0]).toBe('/api/v1/admin/users/other')
+    expect(JSON.parse(calls[0][1].body)).toEqual({ expected_revision: 3 })
+    await act(async () => finish())
+    await screen.findByText('账号已永久删除。')
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(screen.queryByText(account.email)).toBeNull()
+    await screen.findByText('没有符合筛选条件的记录。')
+  })
+
+  it('allows retry after incomplete cleanup takes the account out of the active filter', async () => {
+    let attempts = 0
+    fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (init?.method === 'DELETE') {
+        attempts += 1
+        if (attempts === 1) return Response.json({
+          detail: { code: 'account_delete_incomplete', message: 'SECRET_LOCAL_PATH' },
+        }, { status: 503 })
+        return Response.json({ id: account.id, deleted: true })
+      }
+      if (url.startsWith('/api/v1/admin/users?')) {
+        const enabledOnly = new URL(url, 'http://localhost').searchParams.get('active') === 'true'
+        const items = attempts === 0 ? [deletable]
+          : attempts === 1 && !enabledOnly ? [{ ...deletable, active: false, allowed_actions: ['delete'] }] : []
+        return Response.json({ items, total: items.length, page: 1, page_size: 10 })
+      }
+      return fixture(url, init)
+    })
+    mount()
+    await admin()
+    const filters = within(screen.getByLabelText('账号搜索').closest('form')!)
+    fireEvent.change(filters.getByLabelText('账号状态'), { target: { value: 'true' } })
+    fireEvent.click(filters.getByRole('button', { name: '应用筛选' }))
+    fireEvent.click((await accountRow()).getByRole('button', { name: '删除' }))
+    const dialog = within(screen.getByRole('dialog', { name: '永久删除账号' }))
+    fireEvent.click(dialog.getByRole('button', { name: '确认永久删除' }))
+    const error = await dialog.findByRole('alert')
+    expect(error.textContent).not.toContain('SECRET_LOCAL_PATH')
+    expect(screen.queryByText('账号已永久删除。')).toBeNull()
+    const retry = dialog.getByRole('button', { name: '确认永久删除' })
+    await screen.findByText('没有符合筛选条件的记录。')
+    await waitFor(() => expect(retry).toHaveProperty('disabled', false))
+    fireEvent.click(retry)
+    await screen.findByText('账号已永久删除。')
+    expect(attempts).toBe(2)
+  })
+})
+
+it('approves the role from the application row and shows the confirmed result in the same list', async () => {
+  const path = '/api/v1/admin/users/pending/registration/review'
   let reviewed = false
   fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
-    if (url === path + '/review') {
+    if (url === path) {
       reviewed = true
-      return Response.json({review_status: decision === 'approve' ? 'approved' : 'rejected'})
+      return Response.json({...account, id:pending.user_id, role:'analyst', admin_revision:4})
     }
-    if (url === path) return Response.json(reviewed ? {...profile, review_status: decision === 'approve' ? 'approved' : 'rejected'} : profile)
+    if (url.startsWith('/api/v1/admin/registrations?')) {
+      const item = reviewed ? {...pending, role:'analyst', review_status:'approved', admin_revision:4} : pending
+      return Response.json({items:[item], total:1, page:1, page_size:10})
+    }
     return fixture(url, init)
   })
   mount()
   await admin('审核管理')
-  fireEvent.click(await screen.findByRole('button', { name: '审核申请' }))
-  await screen.findByText('待审申请人')
-  expect(screen.getByText('提交的注册说明')).toBeTruthy()
-  if (decision === 'approve') {
-    fireEvent.change(screen.getByLabelText('分配角色'), {target: {value: 'analyst'}})
-  } else {
-    fireEvent.change(screen.getByLabelText('审核决定'), {target: {value: 'reject'}})
-    fireEvent.change(screen.getByLabelText('驳回原因'), {target: {value: '资料尚不完整'}})
-  }
-  fireEvent.click(screen.getByRole('button', {name: decision === 'approve' ? '通过并分配角色' : '驳回申请'}))
-  await screen.findByText(decision === 'approve' ? '申请已通过，账号已启用。' : '申请已驳回。')
-  const calls = fetchMock.mock.calls.filter(([url]) => url === path + '/review')
+  const row = (await screen.findByText(pending.email)).closest('tr')!
+  const approve = within(row).getByRole('button', {name: '未审核'})
+  const role = within(row).getByRole('combobox')
+  expect(role).toHaveProperty('value', 'customer')
+  expect(within(role).getAllByRole('option').map(option => option.textContent)).toEqual(['客户', '分析员', '管理员'])
+  expect(approve).toHaveProperty('disabled', false)
+  fireEvent.change(role, {target: {value:'analyst'}})
+  fireEvent.click(approve)
+  fireEvent.click(approve)
+  await waitFor(() => expect(within(screen.getByText(pending.email).closest('tr')!).getByText('审核通过')).toBeTruthy())
+  expect(screen.queryByText('申请已通过，账号已启用。')).toBeNull()
+  const confirmed = (await screen.findByText(pending.email)).closest('tr')!
+  expect(within(confirmed).getByText('分析员')).toBeTruthy()
+  expect(fetchMock.mock.calls.some(([url]) => url.endsWith('/registration'))).toBe(false)
+  expect(fetchMock.mock.calls.some(([url]) => url.includes('review_status=all') && url.includes('page_size=10'))).toBe(true)
+  const calls = fetchMock.mock.calls.filter(([url]) => url === path)
   expect(calls).toHaveLength(1)
-  expect(JSON.parse(calls[0][1].body)).toEqual(decision === 'approve'
-    ? {decision, expected_revision: 3, role: 'analyst'}
-    : {decision, expected_revision: 3, reason: '资料尚不完整'})
+  expect(JSON.parse(calls[0][1].body)).toEqual({decision:'approve', expected_revision:3, role:'analyst'})
 })
+
 it('translates empty and safe error states in English',async()=>{setLocale('en');let error=false;fetchMock.mockImplementation(async(url:string,init?:RequestInit)=>url.startsWith('/api/v1/admin/users?')?error?Response.json({detail:{code:'admin_query_invalid',message:'SECRET'}},{status:422}):Response.json({items:[],total:0,page:1,page_size:10}):fixture(url,init));mount();await admin('Accounts','en');await screen.findByText('No records match these filters.');error=true;fireEvent.click(screen.getByRole('button',{name:'Refresh'}));await screen.findByText('Operational filters are invalid. Check identifiers and the time range.');expect(screen.queryByText('SECRET')).toBeNull()})
 it.each(['zh-CN','en'] as const)('renders all call states and uncertain-submission warning in %s',async(locale)=>{
  role='user';setLocale(locale)

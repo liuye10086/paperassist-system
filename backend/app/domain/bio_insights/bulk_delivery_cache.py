@@ -26,6 +26,11 @@ def _slot_engine(url):
     return create_engine(url, poolclass=NullPool, hide_parameters=True, connect_args={'connect_timeout': 10})
 
 
+def project_slot_key(config, project):
+    scope = f'bulk-delivery-project:{config.url.database}:{config.schema}:{project}'
+    return int.from_bytes(hashlib.sha256(scope.encode()).digest()[:8], 'big', signed=True)
+
+
 @contextmanager
 def heavy_slot(assets, project):
     service = BioInsightsStore(assets)
@@ -40,6 +45,10 @@ def heavy_slot(assets, project):
     with _slot_engine(config.url).connect() as connection, connection.begin():
         key = int.from_bytes(hashlib.sha256(('bulk-delivery:' + ':'.join(identity)).encode()).digest()[:8], 'big', signed=True)
         connection.exec_driver_sql('SELECT pg_catalog.pg_advisory_xact_lock(%s)', (key,))
+        connection.exec_driver_sql('SELECT pg_catalog.pg_advisory_xact_lock(%s)', (project_slot_key(config, project),))
+        # A request queued for the slot may have lost access while it waited.
+        with service.store.connection() as db:
+            service.store.require_project(db, project)
         token = _active.set(identity)
         try:
             yield
@@ -47,13 +56,19 @@ def heavy_slot(assets, project):
             _active.reset(token)
 
 
-def cache_for(assets, project, kind):
-    config = assets.db_config
-    schema = digest([str(Path(assets.directory).resolve()), getattr(config.url, 'host', ''),
+def cache_pool(directory, config):
+    schema = digest([str(Path(directory).resolve()), getattr(config.url, 'host', ''),
                      getattr(config.url, 'port', None), str(config.url.database), config.schema])
-    scope = digest([assets.owner_id, project, kind])
-    pool = Path(tempfile.gettempdir()) / 'paperassist-bulk-delivery-v2' / schema
-    return ArtifactCache(pool / scope, pool=pool)
+    return Path(tempfile.gettempdir()) / 'paperassist-bulk-delivery-v2' / schema
+
+
+def cache_scope(owner_id, project, kind):
+    return digest([owner_id, project, kind])
+
+
+def cache_for(assets, project, kind):
+    pool = cache_pool(assets.directory, assets.db_config)
+    return ArtifactCache(pool / cache_scope(assets.owner_id, project, kind), pool=pool)
 
 
 def file_digest(path):

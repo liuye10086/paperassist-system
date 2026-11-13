@@ -40,7 +40,7 @@ const missing = () => Response.json({ detail: { code: 'project_not_found', messa
 const base = '/api/v1/projects/p1'
 const downloads = [
   { label: '下载 实验.xlsx', endpoint: `${base}/files/f1/download`, filename: file.filename },
-  { label: '下载箱线图 PNG', endpoint: `${base}/files/f1/analysis-runs/run/boxplot/image?download=true`, filename: 'boxplot.png' },
+  { label: '下载箱线图 PNG', endpoint: `${base}/files/f1/analysis-runs/run/boxplot/image?download=true`, filename: '箱线图.png' },
   { label: '下载 Word 报告', endpoint: `${base}/files/f1/analysis-runs/run/report/report/download`, filename: report.filename },
 ]
 

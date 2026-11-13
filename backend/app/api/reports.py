@@ -7,7 +7,7 @@ from fastapi import APIRouter, Header, Response
 from app.api.dependencies import Store
 from app.domain import report_tasks as operations
 from app.domain.reports import ReportRequest
-from app.adapters.report_store import ReportStore
+from app.adapters.report_store import ReportStore, reader_report_filename
 
 router = APIRouter(prefix='/api/v1/projects/{project_id}/files/{file_id}/analysis-runs/{run_id}', tags=['Word 分析报告'])
 
@@ -26,6 +26,7 @@ def generate_report(project_id: str, file_id: str, run_id: str, request: ReportR
 def download(project_id: str, file_id: str, run_id: str, report_id: str, store: Store):
     repository = ReportStore(store)
     report = repository.by_id(project_id, file_id, run_id, report_id)
+    name = reader_report_filename(report) if report['filename'].startswith(('分析报告-v', 'analysis-report-v')) else report['filename']
     return Response(repository.content(report), media_type='application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-                    headers={'Content-Disposition': "attachment; filename=analysis-report.docx; filename*=UTF-8''" + quote(report['filename']),
+                    headers={'Content-Disposition': "attachment; filename=analysis-report.docx; filename*=UTF-8''" + quote(name),
                              'Cache-Control': 'no-store'})

@@ -1,7 +1,7 @@
 """Read exact existing outputs. No render, conversion, download or model calls."""
 from hashlib import sha256
 from pathlib import Path
-import io,json
+import io,json,re
 from app.adapters.research_results_store import invalid
 from app.adapters.research_objects import ResearchObjects
 from app.adapters.bio_analysis_store import scoped_object
@@ -163,7 +163,10 @@ def resolve_members(service,db,project,delivery,selections,mode,progress=None,*,
                                  source_notices=inherited_notices(native))
                     language = native['language']
                     directory = 'reports' if format == 'docx' else 'figures'
-                    native_name = Path(filename).stem
+                    # Preserve legacy archive paths. New reader filenames can contain
+                    # spaces and Chinese characters; they are not storage paths.
+                    stem = Path(filename).stem
+                    native_name = stem if re.fullmatch(r'[a-z0-9-]+', stem) else None
                 from app.domain.external_evidence.service import validate_evidence_row
                 if frozen_proof is None:
                     evidence_rows=list(db.execute('SELECT * FROM external_evidence_versions WHERE file_id=%s AND project_id=%s AND user_id=%s ORDER BY version,id',(row['id'],project,service.store.user_id)))

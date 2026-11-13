@@ -127,7 +127,7 @@ function FileDetailsContent({ projectId, fileId, active, onUnavailable, onUpdate
         <div><dt>{t('上传者记录')}</dt><dd>{t(detail.uploader_recorded ? '已记录上传者' : '未记录上传者')}</dd></div>
       </dl>
       {detail.file_type === 'xlsx' && <><p className="muted">{t(detail.source.preview_available ? '既有预览：前 {count} 行' : '此文件没有可用的既有预览。', { count: detail.source.preview_row_limit ?? 20 })}</p>
-      <p className="muted">{detail.source.kind === 'excel_parse' ? t('解析器版本：{version}。预览不代表完整数据。', { version: detail.source.parser_version ?? '' }) : t('历史 Excel 读取链未记录精确解析版本。预览不代表完整数据。')}</p></>}
+      <p className="muted">{t('预览不代表完整数据。')}</p></>}
       <p className="muted">{t('已保存用途：{purposes}', { purposes: detail.purposes.length
         ? detail.purposes.map(purpose => t(purposeLabels[purpose])).join(' · ') : t('未指定用途') })}</p>
       <form onSubmit={event => { event.preventDefault(); void save() }}>
@@ -150,8 +150,8 @@ function FileDetailsContent({ projectId, fileId, active, onUnavailable, onUpdate
       </div>
       {allowLifecycle && visitedTasks.includes('lifecycle') && <div hidden={task !== 'lifecycle'}><FileLifecyclePanel projectId={projectId} fileId={fileId} active={active && task === 'lifecycle'} observedVersion={detail.parse_revision} registerLeaveGuard={registerLeaveGuard} onUnavailable={onUnavailable}/></div>}
     </>}
-    {visitedTasks.includes('structure') && detail?.file_type === 'xlsx' && detail.parse_status === 'parsed' && <div hidden={task !== 'structure'}><StructureVersions projectId={projectId} fileId={fileId} filename={detail.filename} active={active && task === 'structure'} registerLeaveGuard={registerLeaveGuard} onUnavailable={onUnavailable} /></div>}
-    {visitedTasks.includes('document') && detail && ['docx','pdf','png','jpeg'].includes(detail.file_type) && <div hidden={task !== 'document'}><DocumentVersions fileType={detail.file_type as 'docx' | 'pdf' | 'png' | 'jpeg'} projectId={projectId} fileId={fileId} filename={detail.filename} active={active && task === 'document'} registerLeaveGuard={registerLeaveGuard} onUnavailable={onUnavailable} /></div>}
+    {visitedTasks.includes('structure') && detail?.file_type === 'xlsx' && detail.parse_status === 'parsed' && <div hidden={task !== 'structure'}><StructureVersions readerView={!allowLifecycle} projectId={projectId} fileId={fileId} filename={detail.filename} active={active && task === 'structure'} registerLeaveGuard={registerLeaveGuard} onUnavailable={onUnavailable} /></div>}
+    {visitedTasks.includes('document') && detail && ['docx','pdf','png','jpeg'].includes(detail.file_type) && <div hidden={task !== 'document'}><DocumentVersions readerView={!allowLifecycle} fileType={detail.file_type as 'docx' | 'pdf' | 'png' | 'jpeg'} projectId={projectId} fileId={fileId} filename={detail.filename} active={active && task === 'document'} registerLeaveGuard={registerLeaveGuard} onUnavailable={onUnavailable} /></div>}
     {notice && <p className="saved-notice" role="status">{t(notice)}</p>}
   </section>
 }

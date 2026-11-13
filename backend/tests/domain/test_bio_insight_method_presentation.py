@@ -69,9 +69,11 @@ def test_report_and_fact_prose_summarize_large_fixed_groups_without_mutating_evi
         assert 'observation_keys' not in rendered and 'frozen_config' not in rendered
         assert len(rendered) < 14000
         for kept in ('379','783','cluster 0','other fixed clusters','BH_predeclared_tests_NA_internal_one',
-                     'two_sided_rank_sum_normal_tie_corrected','GRCh38_release95','1e-09','false','result-fixed','a'*64):
+                     'two_sided_rank_sum_normal_tie_corrected','1e-09','false'):
             assert kept in rendered
         assert ('not independent donors' in rendered) if language=='en' else ('不等于独立供体' in rendered)
+    assert 'result-fixed' in text and 'a'*64 in text
+    assert all(value not in prose for value in ('result-fixed','a'*64,'bio_insights_v1.0.0'))
     assert candidate['methods'][0]['research_method'] == fixed
     assert (snap,request)==before
 
@@ -83,7 +85,7 @@ def test_legacy_payload_and_report_snapshot_keep_their_original_text():
     expected=fixed['title']+': '+fixed['description']+' '+json.dumps(fixed['parameters'],ensure_ascii=False,sort_keys=True,separators=(',',':'))+' bio_insights_v1.0.0'
     assert compose(request)['methods'][0]['text']==expected
     doc=Document(io.BytesIO(build_report(snapshot([fixed],modern=False),[])))
-    assert any('observation_keys' in p.text for p in doc.paragraphs)
+    assert all('observation_keys' not in p.text and 'NUM_0000' not in p.text for p in doc.paragraphs)
 
 
 def test_duplicate_method_prose_references_the_prior_block_but_keeps_each_full_metadata():
@@ -171,14 +173,18 @@ def test_report_package_contains_helper_and_full_parameters_for_offline_rebuild(
     book.close()
 
 
-def test_legacy_large_workbook_failure_is_preserved_and_modern_renderer_identity_covers_helper():
+def test_large_legacy_source_is_readable_and_renderer_identity_covers_helper():
     from app.adapters.research_results_xlsx import build_workbook
     from app.adapters.research_report_render import renderer_identity
     from app.adapters import research_report_render
     from pathlib import Path
     import hashlib
-    with pytest.raises(ValueError,match='XLSX cell text limit'):
-        build_workbook(snapshot([method()],modern=False),[])
+    from openpyxl import load_workbook
+    content,_=build_workbook(snapshot([method()],modern=False),[])
+    with io.BytesIO(content) as stream:
+        book=load_workbook(stream,read_only=True,data_only=False)
+        assert all('NUM_0000' not in str(row) and 'a'*64 not in str(row) for row in book['Methods'].values)
+        book.close()
     root=Path(research_report_render.__file__).parent
     names=('research_report_render.py','research_report_child.py','research_report_docx.py','research_results_xlsx.py','research_report_images.py','research_method_text.py')
     paths=[root/name for name in names]+[root.parent/'domain/research_results/report_package.py']
@@ -219,7 +225,7 @@ def test_long_resource_descriptions_stay_in_full_metadata_while_releases_are_rea
     before=deepcopy(fixed)
     raw,_=build_workbook(snapshot([fixed]),[])
     book=load_workbook(io.BytesIO(raw),read_only=True,data_only=False)
-    text='\n'.join(str(row[3]) for row in list(book['Methods'].values)[1:])
+    text='\n'.join(str(row[2]) for row in list(book['Methods'].values)[1:])
     for i in range(10):
         assert f'release-{i}' in text
         assert f'description-{i}-' not in text

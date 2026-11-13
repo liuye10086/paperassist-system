@@ -126,7 +126,7 @@ class BioAnnotationStore(BioAnalysisStore):
             return dict(id=version_id,set_id=set_id,name=value['name'],version=row['version'],revision=row['version'],raw_source=value['raw_source'],
                 processed_dataset_version_id=row['processed_dataset_version_id'],labels=row['labels_json'],regions=value['regions'],overlap_policy=value['overlap_policy'],
                 checks=row['checks_json'],assignments=rows,evidence=evidence,origin=value.get('origin','manual'),algorithm=value.get('algorithm'),members=members,
-                is_current=root['current_version_id']==version_id)
+                created_at=row['created_at'].isoformat(),is_current=root['current_version_id']==version_id)
 
     def list_for_processed(self,project,identifier):
         with self.store.connection() as db:

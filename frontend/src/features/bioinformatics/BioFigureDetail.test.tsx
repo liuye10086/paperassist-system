@@ -25,29 +25,34 @@ it('allows single-cell annotation UMAP only with a verified matching manual labe
  expect(post[0]).toBe('/api/v1/projects/p1/bio-figures')
  expect(JSON.parse(String(post[1]?.body))).toMatchObject({annotation_version_id:'ann1',config:{kind:'annotation'}})
 })
-it.each(['integration_covariates','integration_harmony'])('opens %s as a read-only published figure with preview and download',async kind=>{
+it.each([['integration_covariates','协变量校正前后对比图'],['integration_harmony','批次整合前后对比图']])('opens %s as a read-only published figure with preview and download',async (kind,label)=>{
  vi.stubGlobal('URL',class extends URL{static createObjectURL=()=> 'blob:integration';static revokeObjectURL=vi.fn()})
  const download='/api/v1/projects/p1/bio-figures/figure1/members/image1/download'
  const figure={...previous(config),config:{...config,kind},members:[{id:'image1',key:kind,format:'png',filename:`${kind}.png`,size_bytes:3,sha256:'a'.repeat(64),download_url:download}]}
  vi.mocked(apiFetch).mockImplementation(async url=>String(url)===download?new Response(new Blob(['PNG'],{type:'image/png'})):Response.json(String(url).includes('bio-processed-datasets')?processedFixture:figure))
  render(<BioFigureDetail projectId="p1" figureId="figure1" onNavigate={()=>{}}/>)
- expect(await screen.findByRole('img',{name:kind})).toBeTruthy()
- await waitFor(()=>expect(vi.mocked(apiFetch).mock.calls.some(([url])=>String(url).includes('bio-processed-datasets'))).toBe(true))
- expect(screen.getByRole('link',{name:`${kind}.png · png`}).getAttribute('href')).toBe(download)
+ expect(await screen.findByRole('img',{name:label})).toBeTruthy()
+ expect(vi.mocked(apiFetch).mock.calls.some(([url])=>String(url).includes('bio-processed-datasets'))).toBe(false)
+ expect(screen.getByRole('link',{name:'下载 PNG'}).getAttribute('href')).toBe(download)
+ expect(screen.queryByRole('heading',{name:'查看高级图件配置'})).toBeNull()
  expect(screen.getByText('此图记录整合处理前后的实际结果，可查看和下载。')).toBeTruthy()
  expect(screen.queryByText('单图配置与版本')).toBeNull()
  expect(screen.queryByRole('button',{name:'生成独立单图版本'})).toBeNull()
+ fireEvent.click(screen.getByRole('button',{name:'高级配置'}))
+ expect(screen.getByRole('heading',{name:'查看高级图件配置'})).toBeTruthy()
+ expect(screen.getByText('1800 × 1500')).toBeTruthy()
+ expect(screen.queryByText('vmax')).toBeNull()
 })
 it('adds only the published PNG member from a fixed figure to the delivery candidates',async()=>{
  const download='/api/v1/projects/p1/bio-figures/figure1/members/image1/download'
  const member={id:'image1',key:'umap',format:'png',filename:'umap.png',size_bytes:3,sha256:'a'.repeat(64),download_url:download}
  const figure={...previous({...config,kind:'umap'}),members:[member,{...member,id:'data1',format:'csv',filename:'values.csv'}]}
- vi.mocked(apiFetch).mockImplementation(async(url,init)=>init?.method==='POST'?Response.json({file_id:'added',filename:'umap.png',format:'png'}):
+ vi.mocked(apiFetch).mockImplementation(async(url,init)=>init?.method==='POST'?Response.json({file_id:'added',filename:'analysis-figure-c0d35d33e8c0.png',format:'png'}):
   String(url)===download?new Response(new Blob(['PNG'],{type:'image/png'})):Response.json(String(url).includes('bio-processed-datasets')?processedFixture:figure))
  render(<BioFigureDetail projectId="p1" figureId="figure1" onNavigate={()=>{}} deliveryTarget={{assignmentRevision:3}}/>)
- fireEvent.click(await screen.findByRole('button',{name:'加入交付候选 · umap.png'}))
+ fireEvent.click(await screen.findByRole('button',{name:'加入交付候选 · UMAP 聚类图.png'}))
  expect(screen.queryByRole('button',{name:'加入交付候选 · values.csv'})).toBeNull()
- await screen.findByText('已加入交付候选 · umap.png')
+ await screen.findByText('已加入交付候选 · UMAP 聚类图.png')
  const attach=vi.mocked(apiFetch).mock.calls.find(([url])=>String(url).endsWith('/analyst-workspace/delivery-artifacts'))
  expect(JSON.parse(String(attach?.[1]?.body))).toEqual({assignment_revision:3,kind:'bio_figure_png',version_id:'figure1',member_id:'image1'})
 })
@@ -57,7 +62,7 @@ it.each(['marker_dotplot','marker_heatmap'])('switching to %s fixes mean-log1p c
 it.each([['pca','variance'],['qc','distribution'],['qc','violin'],['qc','scatter'],['qc','mitochondrial'],['qc','sample_id'],['qc','section'],['qc','batch']])('editing %s/%s retains that exact frozen panel',async(kind,panel)=>{vi.mocked(apiFetch).mockResolvedValue(Response.json({id:'figure2'}));render(<BioFigureComposer projectId="p1" result={processedFixture} previous={previous({...config,kind,panel} as FigureConfig)} onNavigate={()=>{}}/>);fireEvent.change(screen.getByLabelText('图片标题'),{target:{value:'Changed title'}});fireEvent.change(screen.getByLabelText('色盘'),{target:{value:'magma'}});expect((screen.getByLabelText('图片面板') as HTMLSelectElement).value).toBe(panel);fireEvent.click(screen.getByText('生成独立单图版本'));await waitFor(()=>expect(apiFetch).toHaveBeenCalled());const body=JSON.parse(String(vi.mocked(apiFetch).mock.calls.find(c=>c[1]?.method==='POST')?.[1]?.body));expect(body.config).toMatchObject({kind,panel,title:'Changed title',palette:'magma'})})
 it('resets an incompatible panel when switching kinds and sends an explicit default for old responses',async()=>{vi.mocked(apiFetch).mockResolvedValue(Response.json({id:'figure2'}));render(<BioFigureComposer projectId="p1" result={processedFixture} previous={previous({...config,kind:'pca',panel:'variance'} as FigureConfig)} onNavigate={()=>{}}/>);fireEvent.change(screen.getByLabelText('图片类型'),{target:{value:'umap'}});const panels=screen.getByLabelText('图片面板') as HTMLSelectElement;expect(panels.value).toBe('default');expect(Array.from(panels.options).map(v=>v.value)).toEqual(['default','scores']);fireEvent.change(screen.getByLabelText('图片面板'),{target:{value:'scores'}});fireEvent.change(screen.getByLabelText('图片类型'),{target:{value:'pca'}});expect((screen.getByLabelText('图片面板') as HTMLSelectElement).value).toBe('scores');fireEvent.click(screen.getByText('生成独立单图版本'));await waitFor(()=>expect(apiFetch).toHaveBeenCalled());const body=JSON.parse(String(vi.mocked(apiFetch).mock.calls.find(c=>c[1]?.method==='POST')?.[1]?.body));expect(body.config).toMatchObject({kind:'pca',panel:'scores'})})
 it('normalizes a legacy config with no panel to the explicit default without changing the kind',async()=>{vi.mocked(apiFetch).mockResolvedValue(Response.json({id:'figure2'}));render(<BioFigureComposer projectId="p1" result={processedFixture} previous={previous({...config,kind:'pca'})} onNavigate={()=>{}}/>);fireEvent.change(screen.getByLabelText('图片标题'),{target:{value:'Legacy title edit'}});fireEvent.click(screen.getByText('生成独立单图版本'));await waitFor(()=>expect(apiFetch).toHaveBeenCalled());const body=JSON.parse(String(vi.mocked(apiFetch).mock.calls.find(c=>c[1]?.method==='POST')?.[1]?.body));expect(body.config).toMatchObject({kind:'pca',panel:'default',title:'Legacy title edit'})})
-it('hides unused layer and color limits for categorical plots and clears stale expression bounds',async()=>{vi.mocked(apiFetch).mockResolvedValue(Response.json({id:'figure2'}));render(<BioFigureComposer projectId="p1" result={processedFixture} previous={previous({...config,vmin:1,vmax:8})} onNavigate={()=>{}}/>);expect((screen.getByLabelText('vmin') as HTMLInputElement).value).toBe('1');fireEvent.change(screen.getByLabelText('图片类型'),{target:{value:'pca'}});expect(screen.queryByLabelText('表达层')).toBeNull();expect(screen.queryByLabelText('vmin')).toBeNull();expect(screen.queryByLabelText('vmax')).toBeNull();fireEvent.click(screen.getByText('生成独立单图版本'));await waitFor(()=>expect(apiFetch).toHaveBeenCalled());const body=JSON.parse(String(vi.mocked(apiFetch).mock.calls.find(c=>c[1]?.method==='POST')?.[1]?.body));expect(body.config).toMatchObject({kind:'pca',vmin:null,vmax:null,layer:'log1p'});fireEvent.change(screen.getByLabelText('图片类型'),{target:{value:'spatial_gene'}});expect((screen.getByLabelText('vmin') as HTMLInputElement).value).toBe('')})
+it('hides unused layer and color limits for categorical plots and clears stale expression bounds',async()=>{vi.mocked(apiFetch).mockResolvedValue(Response.json({id:'figure2'}));render(<BioFigureComposer projectId="p1" result={processedFixture} previous={previous({...config,vmin:1,vmax:8})} onNavigate={()=>{}}/>);expect((screen.getByLabelText('色阶下限') as HTMLInputElement).value).toBe('1');fireEvent.change(screen.getByLabelText('图片类型'),{target:{value:'pca'}});expect(screen.queryByLabelText('表达层')).toBeNull();expect(screen.queryByLabelText('色阶下限')).toBeNull();expect(screen.queryByLabelText('色阶上限')).toBeNull();fireEvent.click(screen.getByText('生成独立单图版本'));await waitFor(()=>expect(apiFetch).toHaveBeenCalled());const body=JSON.parse(String(vi.mocked(apiFetch).mock.calls.find(c=>c[1]?.method==='POST')?.[1]?.body));expect(body.config).toMatchObject({kind:'pca',vmin:null,vmax:null,layer:'log1p'});fireEvent.change(screen.getByLabelText('图片类型'),{target:{value:'spatial_gene'}});expect((screen.getByLabelText('色阶下限') as HTMLInputElement).value).toBe('')})
 
 it('orders marker pages naturally while preserving every other image position and source array',async()=>{
  const {orderMarkerPngMembers}=await import('./markerFigureOrder')

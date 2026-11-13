@@ -210,7 +210,9 @@ def test_docx_uses_bulk_language_and_frozen_figures_and_rejects_rehashed_changes
     for literal in ('Bulk RNA-seq', 'A vs B', 'B vs A', 'sample_A', 'gA', 'empty_foreground', 'Fixture title'):
         assert literal in all_text
     assert 'Biological independence status unverified' in all_text
-    assert 'Shared processed source versions qc' in all_text
+    assert 'Shares an analysis input' in all_text
+    assert 'samples.tsv' in all_text
+    assert 'SHA256' not in all_text and 'd' * 64 not in all_text
     assert 'single-cell' not in all_text.casefold()
     facts['contrasts'][0]['numerator'] = 'altered'
     facts['facts_digest'] = digest({k: v for k, v in facts.items() if k != 'facts_digest'})

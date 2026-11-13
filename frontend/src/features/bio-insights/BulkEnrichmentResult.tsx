@@ -78,7 +78,7 @@ export default function BulkEnrichmentResult({result,onPlan,onNavigate}:{
     qThreshold={result.methods.q_threshold} effect={result.methods.minimum_absolute_effect}/>
     <OraBackground eligible={eligibleBackground}/></>}
   {gsea&&status!=='not_applicable'&&!!scope?.ranking?.tied_rank_count&&<p>{t('相同分值按稳定基因 ID 排序。')}</p>}
-  {scope&&<p>{t('固定来源版本')} <code>{scope.result_source_id}</code> · {t('固定比较')} {contrasts.join(' · ')}</p>}
+  {scope&&<p>{t('固定比较')} {contrasts.join(' · ')}</p>}
   <div className="intake-actions">
    {scope&&onNavigate&&<button type="button" onClick={()=>onNavigate({view:'bio-insight-result',fileId:'',resultVersionId:scope.result_source_id})}>{t('打开此版本的固定来源')}</button>}
    {onPlan&&hasTerms&&contrast&&<>
@@ -138,7 +138,7 @@ export function BulkEnrichmentFigureResult({result,onNavigate}:{result:Result;on
  const source = text(config.result_source_id)
  return <section className="analysis-detail">
   <h3>{t(curve?'固定 GSEA 曲线':config.enrichment_style==='bar'?'富集条图':'富集点图')}</h3>
-  <p>{t('固定来源版本')} <code>{source}</code> · {t('固定比较')} <code>{text(config.contrast_id)}</code></p>
+  <p>{t('固定比较')} <code>{text(config.contrast_id)}</code></p>
   {curve&&<p>{t('GSEA 稳定条目行')} <code>{text(config.term_row_key)}</code></p>}
   {onNavigate&&<div className="intake-actions">
    <button type="button" onClick={()=>onNavigate({view:'bio-insight-plan',fileId:'',runId:result.run_id})}>{t('打开固定计划修改样式')}</button>

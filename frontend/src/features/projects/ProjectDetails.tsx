@@ -6,6 +6,7 @@ import { apiError, safeError, useI18n } from '../../shared/i18n'
 import ProjectLanguage from './ProjectLanguage'
 import useDraftLeaveGuard, { type RegisterLeaveGuard } from './useDraftLeaveGuard'
 import useResearchDraft from '../research-results/useResearchDraft'
+import './projectOverview.css'
 
 type Field = 'name' | 'research_topic'
 type FieldDraft = { saved: string; value: string; error: string; uncertain: boolean }
@@ -113,7 +114,7 @@ export default function ProjectDetails({ project, onUpdated, showHeading = true,
             : <textarea ref={element => { inputs.current[key] = element }} value={draft.value} onChange={event => change(key, { value: event.target.value })} required maxLength={maxLength} rows={2} disabled={blocked}/>}</label>
           <div className="project-edit-actions">
             <button type="submit" aria-label={t('保存修改：{field}', { field: t(title) })} disabled={blocked || uncertain || draft.value === draft.saved}>{t(busy?.field === key && busy.kind === 'save' ? '正在保存……' : '保存修改')}</button>
-            <button type="button" aria-label={t('取消修改：{field}', { field: t(title) })} disabled={blocked || draft.uncertain || (draft.value === draft.saved && !draft.error)} onClick={() => { change(key, { value: draft.saved, error: '' }); focus(key) }}>{t('取消修改')}</button>
+            <button type="button" className="project-edit-cancel" aria-label={t('取消修改：{field}', { field: t(title) })} disabled={blocked || draft.uncertain || (draft.value === draft.saved && !draft.error)} onClick={() => { change(key, { value: draft.saved, error: '' }); focus(key) }}>{t('取消修改')}</button>
             {draft.uncertain && <button type="button" disabled={blocked} onClick={() => void submit(key, 'read')}>{t(busy?.field === key && busy.kind === 'read' ? '正在读取……' : '重新读取项目')}</button>}
           </div>
           {draft.error && <p className="error-panel" role="alert">{t(draft.error)}</p>}

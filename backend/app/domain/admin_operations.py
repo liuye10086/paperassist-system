@@ -7,6 +7,7 @@ from app.core.errors import PUBLIC_CODES
 from app.core.exceptions import StorageError
 from app.db.database import database_connection, ensure_schema_current
 from app.auth.accounts import canonical_role
+from app.domain.account_deletion import DELETABLE_ROLES, DELETED_ACTOR_ID, DELETION_PENDING, delete_account
 
 
 def require_identity(db, user_id, *, admin=True):
@@ -86,7 +87,7 @@ class AdminOperations:
     def __init__(self,user_id):self.user_id=user_id
 
     def list_users(self, *, page=1,page_size=10,q=None,role=None,active=None,review_status=None):
-        clauses=[];values=[]
+        clauses=['id<>%s'];values=[DELETED_ACTOR_ID]
         if q:
             # Literal substring: wildcard characters are not a query language.
             clauses.append("email ILIKE %s ESCAPE '\\'")
@@ -96,27 +97,33 @@ class AdminOperations:
         if review_status is not None:clauses.append('review_status=%s');values.append(review_status)
         with database_connection() as db:
             require_identity(db,self.user_id)
-            result=page_query(db,f'{USER_FIELDS},{HAS_REGISTRATION} AS has_registration',
+            result=page_query(db,f'{USER_FIELDS},{HAS_REGISTRATION} AS has_registration,{DELETION_PENDING} AS deletion_pending',
                               'users',clauses,values,page,page_size,'email,id')
         for row in result['items']:
             actions = []
-            if row['id'] != self.user_id and row['review_status'] == 'approved':
+            pending = row.pop('deletion_pending')
+            if not pending and row['id'] != self.user_id and row['review_status'] == 'approved':
                 actions.append('edit')
-            if row.pop('has_registration'):
+            if row.pop('has_registration') and not pending:
                 actions.append('review' if row['review_status'] == 'pending' else 'view_registration')
+            if row['role'] in DELETABLE_ROLES:
+                actions.append('delete')
             row['allowed_actions'] = actions
         return result
 
     def list_registrations(self, *, page=1, page_size=10, q=None, review_status='pending'):
-        clauses = ['u.review_status=%s']
-        values = [review_status]
+        clauses = []
+        values = []
+        if review_status != 'all':
+            clauses.append('u.review_status=%s')
+            values.append(review_status)
         if q:
             clauses.append("u.email ILIKE %s ESCAPE '\\'")
             values.append(literal_substring(q))
         with database_connection() as db:
             require_identity(db, self.user_id)
             return page_query(
-                db, 'r.user_id,u.email,r.display_name,r.organization,u.created_at AS submitted_at,u.review_status',
+                db, 'r.user_id,u.email,r.display_name,r.organization,u.created_at AS submitted_at,u.review_status,u.role,u.admin_revision',
                 'account_registrations r JOIN users u ON u.id=r.user_id',
                 clauses, values, page, page_size, 'u.created_at,u.id',
             )
@@ -137,8 +144,11 @@ class AdminOperations:
     def change_user(self,target,request,request_id):
         with database_connection(write=True) as db:
             require_identity(db,self.user_id)
-            row=db.execute('SELECT '+USER_FIELDS+' FROM users WHERE id=%s',(target,)).fetchone()
+            row=db.execute(f'SELECT {USER_FIELDS},{DELETION_PENDING} AS deletion_pending FROM users WHERE id=%s AND id<>%s',
+                           (target,DELETED_ACTOR_ID)).fetchone()
             if not row:raise StorageError('admin_user_not_found','账号不存在。',404)
+            if row['deletion_pending']:
+                raise StorageError('account_delete_incomplete','本机清理未完成，请重试删除。',503)
             if target==self.user_id:raise StorageError('admin_self_change','请由其他管理员修改当前账号。',409)
             if row['review_status'] != 'approved':
                 raise StorageError('account_review_required', '账号须先通过审核。', 409)
@@ -150,7 +160,10 @@ class AdminOperations:
             guard_last_admin(db,row,role,request.active)
             changed = self._save_account(db,row,role=role,active=request.active,review_status='approved',
                                          reason=request.reason,request_id=request_id)
-            return {**changed,'allowed_actions':['edit']}
+            return {**changed,'allowed_actions':['edit'] if role == 'admin' else ['edit','delete']}
+
+    def delete_user(self, target, expected_revision):
+        return delete_account(self.user_id, target, expected_revision)
 
     def registration(self, target):
         with database_connection() as db:
@@ -273,7 +286,7 @@ def record_request(event,task_candidate=None):
     with database_connection(write=True, capture=True) as db:
         ensure_schema_current(db)
         user_id=event.get('user_id')
-        if user_id and not db.execute('SELECT id FROM users WHERE id=%s',(user_id,)).fetchone():
+        if user_id and not db.execute(f'SELECT id FROM users WHERE id=%s AND NOT {DELETION_PENDING}',(user_id,)).fetchone():
             event['user_id']=None;user_id=None
         task_id=None
         if user_id and task_candidate:

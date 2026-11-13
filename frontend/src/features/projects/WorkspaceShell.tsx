@@ -1,7 +1,8 @@
-import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
+import { useContext, useEffect, useId, useRef, useState, type ReactNode } from 'react'
+import { createPortal } from 'react-dom'
 import { useI18n } from '../../shared/i18n'
+import { ProjectWorkspaceVisibleContext, WorkspaceChromeContext } from '../../shared/components/WorkspaceChromeContext'
 import './workspace.css'
-import Brand from '../../shared/components/Brand'
 import type { OverviewView } from './projectNavigation'
 
 export type WorkspaceView = 'home' | 'projects' | 'assigned' | 'project'
@@ -41,6 +42,7 @@ type Props = {
   projectType?: 'sci' | 'thesis' | 'research'
   section?: ProjectSection
   analysisOnly?: boolean
+  showingResult?: boolean
   overviewView?: OverviewView
   onOverviewChange?: (view: OverviewView) => void
   onSectionChange?: (section: ProjectSection) => void
@@ -50,17 +52,21 @@ type Props = {
   children: ReactNode
 }
 
-export function WorkspaceFrame({ className, homeLabel = '返回工作台', onHome, sidebarAction, navigation, children }: {
+export function WorkspaceFrame({ className, homeLabel = '返回工作台', onHome, location, projectName, sidebarAction, navigation, children }: {
   className?: string
   homeLabel?: string
   onHome: () => void
+  location?: string
+  projectName?: string
   sidebarAction?: (closeMenu: () => void) => ReactNode
   navigation: (closeMenu: () => void) => ReactNode
   children: ReactNode
 }) {
   const { t } = useI18n()
+  const chrome = useContext(WorkspaceChromeContext)
+  const workspaceVisible = useContext(ProjectWorkspaceVisibleContext)
   const [menuOpen, setMenuOpen] = useState(false)
-  const [collapsed, setCollapsed] = useState(false)
+  const [collapsed, setCollapsed] = useState(() => window.matchMedia?.('(min-width: 1024px) and (max-width: 1279px)').matches ?? false)
   const sidebarId = useId()
   const menuButton = useRef<HTMLButtonElement>(null)
   const sidebar = useRef<HTMLElement>(null)
@@ -68,7 +74,7 @@ export function WorkspaceFrame({ className, homeLabel = '返回工作台', onHom
     if (!menuOpen) return
     const previous = document.activeElement as HTMLElement | null
     const panel = sidebar.current
-    const desktop = window.matchMedia?.('(min-width: 761px)')
+    const desktop = window.matchMedia?.('(min-width: 1024px)')
     const closeOnDesktop = (event: MediaQueryListEvent) => { if (event.matches) setMenuOpen(false) }
     panel?.querySelector<HTMLButtonElement>('.workspace-brand')?.focus()
     const handleKey = (event: KeyboardEvent) => {
@@ -91,15 +97,23 @@ export function WorkspaceFrame({ className, homeLabel = '返回工作台', onHom
   }, [menuOpen])
   const closeMenu = () => setMenuOpen(false)
   return <div className={['workbench-shell', className, collapsed && 'is-collapsed'].filter(Boolean).join(' ')}>
+    {workspaceVisible && location && chrome?.navigation && createPortal(
+      <div className="workspace-location">
+        <span className="workspace-location-label">{t(location)}</span>
+        {projectName && <><span className="workspace-location-divider" aria-hidden="true">/</span>
+          <strong title={projectName}>{projectName}</strong></>}
+      </div>,
+      chrome.navigation,
+    )}
     <button ref={menuButton} type="button" className="workspace-mobile-menu button-quiet" aria-expanded={menuOpen} aria-controls={sidebarId}
-      onClick={() => setMenuOpen(value => !value)}><WorkspaceIcon name="menu" />{t('导航')}</button>
+      aria-label={t('导航')} title={t('导航')} onClick={() => setMenuOpen(value => !value)}><WorkspaceIcon name="menu" /></button>
     {menuOpen && <button type="button" tabIndex={-1} className="workspace-nav-backdrop" aria-label={t('关闭导航')} onClick={() => { closeMenu(); menuButton.current?.focus() }} />}
     <aside ref={sidebar} role={menuOpen ? 'dialog' : undefined} aria-modal={menuOpen ? true : undefined} aria-label={t('主要导航')} className={`workspace-sidebar${menuOpen ? ' is-open' : ''}`} id={sidebarId}>
       <div className="sidebar-header">
         <div className="sidebar-brand-row">
           <button type="button" className="workspace-brand" aria-label={t(homeLabel)} onClick={() => { onHome(); closeMenu() }}>
-            <Brand />
-            <span className="sidebar-text"><strong>PaperAssist</strong></span>
+            <span className="workspace-brand-icon"><WorkspaceIcon name="file" /></span>
+            <span className="sidebar-text"><strong>PaperAssist</strong><small>Arviva Therapeutics</small></span>
           </button>
           <button type="button" className="sidebar-toggle button-quiet" aria-expanded={!collapsed} aria-controls={sidebarId}
             aria-label={t(collapsed ? '展开侧边栏' : '收起侧边栏')} title={t(collapsed ? '展开侧边栏' : '收起侧边栏')}
@@ -113,7 +127,7 @@ export function WorkspaceFrame({ className, homeLabel = '返回工作台', onHom
   </div>
 }
 
-export default function WorkspaceShell({ view, onNavigate, onCreate, projectName, projectType, section, onSectionChange, onCurrentProject, sectionBlocked, hasAnalysis = true, analysisOnly = false, overviewView, onOverviewChange, children }: Props) {
+export default function WorkspaceShell({ view, onNavigate, onCreate, projectName, projectType, section, onSectionChange, onCurrentProject, sectionBlocked, hasAnalysis = true, analysisOnly = false, showingResult = section === 'artifacts', overviewView, onOverviewChange, children }: Props) {
   const { t } = useI18n()
   const groups: { id: string; label: string; icon: 'folder' | 'chart' | 'files'; items: ProjectSection[] }[] = [
     { id: 'materials', label: '材料准备', icon: 'folder', items: ['files', 'literature'] },
@@ -125,11 +139,12 @@ export default function WorkspaceShell({ view, onNavigate, onCreate, projectName
   const sectionLabel = (item: typeof projectSections[number]) => t(item.value === 'manuscripts' && projectType === 'research' ? '研究成果写作' : item.value === 'manuscripts' && projectType === 'thesis' ? '毕业论文写作' : item.label)
   const navigation = (closeMenu: () => void) => {
     const chooseSection = (next: ProjectSection) => { closeMenu(); onSectionChange?.(next) }
-    const sectionButton = (value: ProjectSection) => {
+    const sectionButton = (value: ProjectSection, label?: string, current = section === value) => {
       const item = projectSections.find(item => item.value === value)!
-      return <button key={value} type="button" className="workspace-nav-item" disabled={!!sectionBlocked?.(value)} aria-label={sectionLabel(item)} title={t(sectionBlocked?.(value)||sectionLabel(item))}
-        aria-current={view === 'project' && section === value ? 'page' : undefined} onClick={() => chooseSection(value)}>
-        <WorkspaceIcon name={item.icon} /><span className="sidebar-text">{sectionLabel(item)}</span></button>
+      const title = label ? t(label) : sectionLabel(item)
+      return <button key={value} type="button" className="workspace-nav-item" disabled={!!sectionBlocked?.(value)} aria-label={title} title={t(sectionBlocked?.(value)||title)}
+        aria-current={view === 'project' && current ? 'page' : undefined} onClick={() => chooseSection(value)}>
+        <WorkspaceIcon name={item.icon} /><span className="sidebar-text">{title}</span></button>
     }
     const navigate = (next: WorkspaceView) => { onNavigate(next); closeMenu() }
     function overviewButton(value: 'settings' | 'requirements' | 'deliveries', label: string, icon: 'folder' | 'file' | 'files') {
@@ -140,12 +155,14 @@ export default function WorkspaceShell({ view, onNavigate, onCreate, projectName
     return <>
       <p className="sidebar-label">{t('工作空间')}</p>
       <nav aria-label={t('主要导航')}>
-        <button type="button" className="workspace-nav-item" aria-current={view === 'home' ? 'page' : undefined}
-          aria-label={t('工作台')} title={t('工作台')} onClick={() => navigate('home')}><WorkspaceIcon name="home" /><span className="sidebar-text">{t('工作台')}</span></button>
-        <button type="button" className="workspace-nav-item" aria-current={view === 'projects' ? 'page' : undefined}
-          aria-label={t('我的项目')} title={t('我的项目')} onClick={() => navigate('projects')}><WorkspaceIcon name="folder" /><span className="sidebar-text">{t('我的项目')}</span></button>
-        {analysisOnly && <button type="button" className="workspace-nav-item" aria-current={view === 'assigned' ? 'page' : undefined}
-          aria-label={t('分配给我的项目')} title={t('分配给我的项目')} onClick={() => navigate('assigned')}><WorkspaceIcon name="files" /><span className="sidebar-text">{t('分配给我的项目')}</span></button>}
+        {analysisOnly ? <button type="button" className="workspace-nav-item" aria-current={view === 'assigned' ? 'page' : undefined}
+          aria-label={t('分配给我的项目')} title={t('分配给我的项目')} onClick={() => navigate('assigned')}><WorkspaceIcon name="files" /><span className="sidebar-text">{t('分配给我的项目')}</span></button>
+          : <>
+            <button type="button" className="workspace-nav-item" aria-current={view === 'home' ? 'page' : undefined}
+              aria-label={t('工作台')} title={t('工作台')} onClick={() => navigate('home')}><WorkspaceIcon name="home" /><span className="sidebar-text">{t('工作台')}</span></button>
+            <button type="button" className="workspace-nav-item" aria-current={view === 'projects' ? 'page' : undefined}
+              aria-label={t('我的项目')} title={t('我的项目')} onClick={() => navigate('projects')}><WorkspaceIcon name="folder" /><span className="sidebar-text">{t('我的项目')}</span></button>
+          </>}
       </nav>
       {projectName && <div className="sidebar-current"><p className="sidebar-label">{t('当前项目')}</p>
         <button type="button" className="workspace-nav-item current-project-name" aria-label={projectName} title={projectName}
@@ -155,25 +172,27 @@ export default function WorkspaceShell({ view, onNavigate, onCreate, projectName
         <nav className="project-section-nav" aria-label={t('项目导航')}>
           {analysisOnly ? <>
             {overviewButton('settings', '项目资料', 'folder')}
-            {sectionButton('files')}
-            {overviewButton('requirements', '需求与分析方案', 'file')}
-            {sectionButton('analysis')}
-            {sectionButton('artifacts')}
-            {sectionButton('tasks')}
+            {overviewButton('requirements', '已提交需求', 'file')}
+            {sectionButton('analysis', '执行分析', (section === 'analysis' && !showingResult) || section === 'files')}
+            {sectionButton('artifacts', '查看结果', showingResult)}
             {overviewButton('deliveries', '分析交付', 'files')}
+            {sectionButton('tasks', undefined, section === 'tasks' && !showingResult)}
           </> : groups.map(group => <div className={`workspace-nav-group${activeGroup === group.id ? ' is-current' : ''}`} key={group.id}>
             <button type="button" className="workspace-nav-item workspace-group-toggle" disabled={!!sectionBlocked?.(group.id==='reviews'?'reviews':group.items[0])} aria-label={t(group.label)} title={t(sectionBlocked?.(group.id==='reviews'?'reviews':group.items[0])||group.label)}
               aria-expanded={activeGroup === group.id} aria-controls={`workspace-group-${group.id}`} onClick={() => chooseSection(group.items.filter(item => projectType !== 'research' || item !== 'reviews')[0])}>
               <WorkspaceIcon name={group.icon} /><span className="sidebar-text">{t(group.label)}</span><span className="group-chevron sidebar-text" aria-hidden="true">›</span>
             </button>
-            <div className="workspace-group-children" id={`workspace-group-${group.id}`} hidden={activeGroup !== group.id}>{group.items.filter(item => projectType !== 'research' || item !== 'reviews').map(sectionButton)}</div>
+            <div className="workspace-group-children" id={`workspace-group-${group.id}`} hidden={activeGroup !== group.id}>{group.items.filter(item => projectType !== 'research' || item !== 'reviews').map(value => sectionButton(value))}</div>
           </div>)}
         </nav>
       </div>}
     </>
   }
-  return <WorkspaceFrame onHome={() => onNavigate('home')} navigation={navigation} sidebarAction={closeMenu =>
-    <button type="button" className="sidebar-create button-primary" aria-label={t('新建研究项目')} title={t('新建项目')}
+  const location = analysisOnly ? '分配给我的项目' : view === 'home' ? '工作台' : '我的项目'
+  return <WorkspaceFrame homeLabel={analysisOnly ? '返回分配项目列表' : undefined} onHome={() => onNavigate(analysisOnly ? 'assigned' : 'home')}
+    location={location} projectName={view === 'project' ? projectName : undefined}
+    navigation={navigation} sidebarAction={analysisOnly ? undefined : closeMenu =>
+    <button type="button" className="sidebar-create" aria-label={t('新建研究项目')} title={t('新建项目')}
       onClick={() => { closeMenu(); onCreate() }}><WorkspaceIcon name="plus" /><span className="sidebar-text">{t('新建项目')}</span></button>
   }>{children}</WorkspaceFrame>
 }

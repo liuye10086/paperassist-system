@@ -1,3 +1,4 @@
+import type { Ref } from 'react'
 import { useI18n } from '../../shared/i18n'
 import type { RegisterLeaveGuard } from '../projects/useDraftLeaveGuard'
 import { useResearchRead } from '../research-results/api'
@@ -13,8 +14,9 @@ const statuses: Record<Progress['status'], { label: string; detail: string }> = 
   delivered: { label: '已交付', detail: '成果已发布，可以查看和下载。' },
 }
 
-export default function CustomerProgress({ projectId, onRequirements, onUpload, onDeliveries, registerLeaveGuard }: {
+export default function CustomerProgress({ projectId, headingRef, onRequirements, onUpload, onDeliveries, registerLeaveGuard }: {
   projectId: string
+  headingRef: Ref<HTMLHeadingElement>
   onRequirements: () => void
   onUpload: () => void
   onDeliveries: () => void
@@ -24,16 +26,21 @@ export default function CustomerProgress({ projectId, onRequirements, onUpload, 
   const read = useResearchRead<Progress>(customerBase(projectId) + '/progress', true)
   const progress = read.data
   const state = progress && statuses[progress.status]
-  return <div className="customer-section">
+  return <div className="customer-section customer-progress">
     <div className="customer-section-heading">
-      <h2>{t('任务进度')}</h2>
+      <h1 ref={headingRef} tabIndex={-1}>{t('任务进度')}</h1>
       <button type="button" className="button-quiet" disabled={read.loading} onClick={read.refresh}>{t('刷新进度')}</button>
     </div>
     {read.error && <p role="alert" className="error-panel">{t(read.error)}</p>}
     {!progress && !read.error && <p role="status">{t('正在读取任务进度……')}</p>}
     {progress && state && !read.error && <>
       <div className="customer-progress-state" data-status={progress.status}>
-        <strong role="status" className="customer-status">{t(state.label)}</strong>
+        <div className="customer-progress-status-row">
+          <strong role="status" className="status-badge">{t(state.label)}</strong>
+          {progress.status === 'draft' && <button type="button" onClick={onRequirements}>{t('前往选择需求')}</button>}
+          {progress.status === 'needs_materials' && <button type="button" className="button-primary" onClick={onUpload}>{t('补交资料')}</button>}
+          {progress.status === 'delivered' && <button type="button" className="button-primary" onClick={onDeliveries}>{t('查看已发布交付')}</button>}
+        </div>
         <p>{t(state.detail)}</p>
         {progress.note && <p className="customer-progress-note">{progress.note}</p>}
         {progress.submitted_at && <p className="muted">
@@ -44,9 +51,6 @@ export default function CustomerProgress({ projectId, onRequirements, onUpload, 
         {progress.updated_at && progress.updated_at !== progress.submitted_at && <p className="muted">
           {t('进度更新于 {date}', { date: new Date(progress.updated_at).toLocaleString(locale) })}
         </p>}
-        {progress.status === 'draft' && <button type="button" onClick={onRequirements}>{t('前往选择需求')}</button>}
-        {progress.status === 'needs_materials' && <button type="button" className="button-primary" onClick={onUpload}>{t('补交资料')}</button>}
-        {progress.status === 'delivered' && <button type="button" className="button-primary" onClick={onDeliveries}>{t('查看已发布交付')}</button>}
       </div>
       {progress.status !== 'draft' && <CustomerFeedback projectId={projectId} entries={progress.feedback} onSaved={read.refresh}
         registerLeaveGuard={registerLeaveGuard} />}

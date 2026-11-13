@@ -16,7 +16,6 @@ from app.core.config import get_data_dir
 from app.db.database import database_connection
 from app.domain.delivery_packages.contracts import SnapshotWrite
 from app.domain.delivery_packages.service import DeliveryService, run_delivery_package_task
-from app.domain.research_results.report_package import verify_package
 from app.main import app
 from tests.api.test_excel import workbook_bytes
 from tests.auth.test_account_roles import login, PASSWORD, write_headers
@@ -200,9 +199,8 @@ def test_unpublished_and_foreign_delivery_routes_are_closed(monkeypatch, tmp_pat
         archive = customer.get(path + '/download')
         assert archive.status_code == 200, archive.text
         assert archive.headers['x-content-sha256'] == sha256(archive.content).hexdigest()
-        assert verify_package(archive.content)['members'][0]['sha256'] == sha256(content).hexdigest()
         with ZipFile(BytesIO(archive.content)) as package:
-            assert set(package.namelist()) == {member['name'], 'manifest.json', 'SHA256SUMS.txt'}
+            assert package.namelist() == [member['name']]
             assert package.read(member['name']) == content
         assert customer.get(legacy + '/' + snapshot['id'] + '/download').status_code == 403
         with database_connection() as db:

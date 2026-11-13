@@ -45,7 +45,6 @@ export default function BulkPlanSettings({projectId,active,config,onChange,sourc
     :figureType==='bulk_volcano'||figureType==='bulk_ma'?'DEG 标注 Top N':undefined
   return <section>
     <h3>{t(panel?bulkPanels[panel]:figureType?bulkFigureLabels[figureType]:'冻结 Bulk 候选')}</h3>
-    {source&&<p>{t('固定来源版本')} <code>{source.source_id}</code></p>}
     {selection&&<>
       <ReadState {...result}/>
       <p><strong>{comparison}</strong> · {t(directionLabels[selection.direction])} · {t(bulkQColumns[selection.q_column])} ({selection.q_column}) · q ≤ {selection.q_threshold} · |log2FC| ≥ {selection.minimum_absolute_effect}</p>

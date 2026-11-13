@@ -139,6 +139,8 @@ def metadata_record(db, store, row, summaries=None):
 
 
 def query_files(store, project_id, *, page=1, page_size=10):
+    from app.domain.delivery_packages.reader_files import analyst_file_names
+
     if (type(page) is not int or not 1 <= page <= 1_000_000
             or type(page_size) is not int or not 1 <= page_size <= 100):
         raise StorageError('file_query_invalid', '页码须为1–1000000，页面大小须为1–100。', 422)
@@ -149,7 +151,9 @@ def query_files(store, project_id, *, page=1, page_size=10):
         rows = db.execute('SELECT * FROM files' + where + ' ORDER BY uploaded_at DESC,id ASC LIMIT %s OFFSET %s',
                           (project_id, page_size, (page - 1) * page_size)).fetchall()
         summaries = batch_summaries(db, store, project_id, rows)
-        return {'items': [metadata_record(db, store, row, summaries) for row in rows], 'total': total, 'page': page, 'page_size': page_size}
+        names = analyst_file_names(db, store, project_id, [row['id'] for row in rows])
+        items = [dict(metadata_record(db, store, row, summaries), filename=names.get(row['id'], row['filename'])) for row in rows]
+        return {'items': items, 'total': total, 'page': page, 'page_size': page_size}
 
 
 REFERENCES = '''WITH runs AS (
@@ -186,10 +190,13 @@ SELECT
 
 
 def read_file_details(store, project_id, file_id):
+    from app.domain.delivery_packages.reader_files import analyst_file_names
+
     with store.connection() as db:
         require_project(db, store, project_id)
         row = require_file(db, project_id, file_id, material_filter=store.material_filter)
         result = metadata_record(db, store, row)
+        result['filename'] = analyst_file_names(db, store, project_id, [file_id]).get(file_id, row['filename'])
         references = dict(db.execute(REFERENCES, (project_id, file_id, project_id, file_id, file_id, file_id, file_id)).fetchone())
         references['structure_versions'] = db.execute('SELECT count(*) AS n FROM file_structure_versions WHERE file_id=%s',(file_id,)).fetchone()['n']
         references['dataset_versions'] = db.execute('SELECT count(*) AS n FROM dataset_versions WHERE file_id=%s',(file_id,)).fetchone()['n']

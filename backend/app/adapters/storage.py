@@ -269,13 +269,17 @@ class ProjectStore:
         return result
 
     def files(self, project_id: str):
+        from app.domain.delivery_packages.reader_files import analyst_file_names
+
         self.project(project_id)
         with self.connection() as db:
-            return [self.file_record(row) for row in db.execute("""
+            rows = db.execute("""
                 SELECT id, project_id, filename, file_type, size_bytes, sha256,
                        uploaded_at, parse_status, error_json
                 FROM files WHERE project_id = %s
-            """ + self.material_filter + ' ORDER BY uploaded_at DESC, id', (project_id,))]
+            """ + self.material_filter + ' ORDER BY uploaded_at DESC, id', (project_id,)).fetchall()
+            names = analyst_file_names(db, self, project_id, [row['id'] for row in rows])
+            return [dict(self.file_record(row), filename=names.get(row['id'], row['filename'])) for row in rows]
 
     def file(self, project_id: str, file_id: str):
         self.project(project_id)

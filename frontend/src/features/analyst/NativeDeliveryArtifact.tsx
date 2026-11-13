@@ -67,7 +67,7 @@ function ArtifactAction({projectId,deliveryTarget,source,name}:Props&{deliveryTa
    if(!signal.aborted){
     submission.current=null
     setSavedSubmission(null)
-    setState({busy:false,filename:value.filename,error:'',valid:true})
+    setState({busy:false,filename:name,error:'',valid:true})
    }
   } catch(cause) {
    if(!signal.aborted)setState({busy:false,filename:'',error:safeError(cause,'加入交付候选失败，请重试。'),valid:true})

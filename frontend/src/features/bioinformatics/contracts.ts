@@ -6,8 +6,12 @@ export type BioCandidate={sha256:string;summary:Record<string,unknown>;checks:Bi
 export type BioImport={id:string;dataset_id:string;task:TaskView;candidate:BioCandidate|null;checkpoint_id:string|null;wait_id:string|null;result_source?:{dataset_id:string;dataset_version_id:string}|null;expected_dataset_revision?:number}
 export type BioVersion={id:string;dataset_id:string;version:number;manifest_sha256:string;shape:{features:number;observations:number;stored_entries:number};checks:BioCheck[];source:unknown;members:BioMember[];summary:Record<string,unknown>}
 export type BioDataset={id:string;name:string;assay?:string;revision:number;current_version_id?:string|null;current_version?:{id:string;version:number}|null}
-export function canConfirmCandidate(value:{task:{status:string;revision:number|null};candidate:{sha256:string;checks:BioCheck[]}|null;checkpoint_id:string|null;wait_id:string|null}):boolean{
- return value.task.status==='waiting_confirmation'&&Number.isSafeInteger(value.task.revision)&&!!value.checkpoint_id&&!!value.wait_id&&!!value.candidate&&/^[a-f0-9]{64}$/.test(value.candidate.sha256)&&!value.candidate.checks.some(c=>c.blocking===true&&(c.status==='failed'||c.status==='error'||c.status==='blocked')||c.code==='representation_equivalence'&&c.value&&typeof c.value==='object'&&'status' in c.value&&c.value.status==='mismatch')
+type CandidateWait = {task:{status:string;revision:number|null};candidate:{sha256:string}|null;checkpoint_id:string|null;wait_id:string|null}
+export function hasCandidateConfirmation(value:CandidateWait):boolean{
+ return value.task.status==='waiting_confirmation'&&Number.isSafeInteger(value.task.revision)&&!!value.checkpoint_id&&!!value.wait_id&&!!value.candidate&&/^[a-f0-9]{64}$/.test(value.candidate.sha256)
+}
+export function canConfirmCandidate(value:CandidateWait & {candidate:{sha256:string;checks:BioCheck[]}|null}):boolean{
+ return hasCandidateConfirmation(value)&&!!value.candidate&&!value.candidate.checks.some(c=>c.blocking===true&&(c.status==='failed'||c.status==='error'||c.status==='blocked')||c.code==='representation_equivalence'&&c.value&&typeof c.value==='object'&&'status' in c.value&&c.value.status==='mismatch')
 }
 
 export const roleLabels:Record<string,string>={derived_representation:'派生表示（非原件）',matrix:'原始矩阵',features:'特征表',barcodes:'条码表',positions:'位置表',scalefactors:'缩放参数',alternate_matrix:'H5 备选矩阵',tissue_image:'组织图像',qc_image:'质控图像',geo_metadata:'GEO 元数据',package_listing:'数据包清单',supplementary:'补充材料',matrix_data:'矩阵计数',matrix_indices:'矩阵特征索引',matrix_indptr:'矩阵观测索引',features_index:'特征索引',barcodes_index:'条码索引',positions_index:'坐标索引',upstream_quality_report:'上游质量报告'}

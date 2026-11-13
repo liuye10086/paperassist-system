@@ -7,13 +7,14 @@ import { batchRequest, isBatch, mergeBatch, uploadQueue, validateFile, validateS
 import './batchUpload.css';
 import useDraftLeaveGuard, { type RegisterLeaveGuard } from '../projects/useDraftLeaveGuard';
 const statusLabels = { pending: '等待上传', rejected: '上传被拒绝', queued: '已保存，等待解析', parsing: '文件解析中', parsed: '解析完成', failed: '解析失败' };
-export default function BatchUpload({ projectId, active, onUnavailable, onChanged, registerLeaveGuard, embedded = false }: {
+export default function BatchUpload({ projectId, active, onUnavailable, onChanged, registerLeaveGuard, embedded = false, customerView = false }: {
     projectId: string;
     active: boolean;
     onUnavailable: () => void;
     onChanged: () => void;
     registerLeaveGuard?: RegisterLeaveGuard;
     embedded?: boolean;
+    customerView?: boolean;
 }) {
     const { t } = useI18n();
     const visible = useDocumentVisible();
@@ -249,16 +250,27 @@ export default function BatchUpload({ projectId, active, onUnavailable, onChange
                 setBusy(false);
         }
     }
-    return <section className={`batch-upload${embedded ? ' is-embedded' : ''}`} aria-label={t('批量上传 Excel / Word / PDF / 图片')}>
-        {!embedded && <h2>{t('批量上传 Excel / Word / PDF / 图片')}</h2>}
-        <p>{t(embedded ? '支持 Excel、Word、PDF、PNG 和 JPG；每个文件最多 10 MiB，每批最多 10 个。' : '支持 .xlsx / .docx / .pdf / .png / .jpg / .jpeg，每文件最多 10 MiB，每批最多 10 项，同时上传 2 项。')}</p>
-        <label className="upload-file-picker">{t(embedded ? '选择文件（可多选）' : '批量选择 Excel / Word / PDF / 图片 文件')}<input aria-label={t('批量选择 Excel / Word / PDF / 图片 文件')} type="file" accept=".xlsx,.docx,.pdf,.png,.jpg,.jpeg" multiple disabled={busy} onChange={e => {
+    const filePicker = <label className="upload-file-picker">
+        {t(embedded ? '选择文件（可多选）' : '批量选择 Excel / Word / PDF / 图片 文件')}
+        <input aria-label={t('批量选择 Excel / Word / PDF / 图片 文件')} type="file" accept=".xlsx,.docx,.pdf,.png,.jpg,.jpeg" multiple disabled={busy} onChange={e => {
             setSelection(Array.from(e.target.files ?? []));
             registration.current = null;
             setError('');
-        }}/></label>
+        }}/>
+    </label>;
+    const uploadButton = <button type="button" className="button-primary" disabled={busy || !selection.length || selection.length > 10}
+        onClick={() => void start()}>{t(busy ? '正在上传' : '开始上传')}</button>;
+    const showRefresh = !embedded || Boolean(loadError || error) || batches.length > 0 || Object.values(local).some(Boolean);
+
+    return <section className={`batch-upload${embedded ? ' is-embedded' : ''}`} aria-label={t('批量上传 Excel / Word / PDF / 图片')}>
+        {!embedded && <h2>{t('批量上传 Excel / Word / PDF / 图片')}</h2>}
+        <p>{t(embedded ? '支持 Excel、Word、PDF、PNG 和 JPG；每个文件最多 10 MiB，每批最多 10 个。' : '支持 .xlsx / .docx / .pdf / .png / .jpg / .jpeg，每文件最多 10 MiB，每批最多 10 项，同时上传 2 项。')}</p>
+        {customerView ? <div className="customer-upload-row">{filePicker}{uploadButton}</div> : filePicker}
  {selection.length > 0 && <ul>{selection.map((f, i) => <li key={i}>{f.name} · {f.size} {t('字节')}{validateFile(f) && <span className="file-failed"> {t(validateFile(f)!)}</span>}</li>)}</ul>}
- <div className="upload-submit-actions"><button type="button" className="button-primary" disabled={busy || !selection.length || selection.length > 10} onClick={() => void start()}>{t(busy ? '正在上传' : '开始上传')}</button>{(!embedded || loadError || error || batches.length > 0 || Object.values(local).some(Boolean)) && <button type="button" onClick={() => setRefresh(v => v + 1)}>{t('重新读取批次')}</button>}</div>
+        {(!customerView || showRefresh) && <div className="upload-submit-actions">
+            {!customerView && uploadButton}
+            {showRefresh && <button type="button" onClick={() => setRefresh(v => v + 1)}>{t('重新读取批次')}</button>}
+        </div>}
  {selection.length > 10 && <p role="alert">{t('每批最多选择 10 个文件。')}</p>}{error && <p role="alert">{t(error)}</p>}{loadError && <p role="alert">{t(loadError)}</p>}
  {batches.some(b => snapshots.current.has(b.id)) && <h3 className="upload-batches-title">{t('已上传批次')}</h3>}
  {batches.filter(b => snapshots.current.has(b.id)).map(batch => <article key={batch.id}><h3>{t('上传批次')} · {new Date(batch.created_at).toLocaleString()}</h3><p role="status">{t('已解析 {count} / {total}', { count: batch.items.filter(i => i.status === 'parsed').length, total: batch.items.length })}</p><ul>{batch.items.map(item => <li key={item.id}><strong>{item.filename}</strong> · {t(local[item.id] || statusLabels[item.status])}{item.error && <p>{t(apiError(item.error, '文件处理失败，请重试。'))}</p>}{item.file_id && <ProjectDownloadLink href={`/api/v1/projects/${encodeURIComponent(projectId)}/files/${encodeURIComponent(item.file_id)}/download`} filename={item.filename}>{t('下载原文件')}</ProjectDownloadLink>}{item.status === 'pending' && <>{!files.current.has(item.id) && <label>{t('重新选择同一文件')}<input type="file" accept=".xlsx,.docx,.pdf,.png,.jpg,.jpeg" onChange={e => {
@@ -270,10 +282,10 @@ export default function BatchUpload({ projectId, active, onUnavailable, onChange
                             files.current.set(item.id, f);
                             setLocal(s => ({ ...s, [item.id]: '' }));
                         }}/></label>}<button type="button" disabled={busy || !files.current.has(item.id) || local[item.id] === '正在上传'} onClick={() => void retry(batch, item.id)}>{t('核对后上传')}</button></>}</li>)}</ul></article>)}
- {total > 5 && <div><button disabled={page === 1} onClick={() => {
+ {total > 5 && <div className="upload-batch-pagination"><button disabled={page === 1} onClick={() => {
                 setBatches([]);
                 setPage(v => v - 1);
-            }}>{t('上一页')}</button><span>{page}</span><button disabled={page * 5 >= total} onClick={() => {
+            }}>{t('上一页')}</button><span>{customerView ? `${page} / ${Math.ceil(total / 5)}` : page}</span><button disabled={page * 5 >= total} onClick={() => {
                 setBatches([]);
                 setPage(v => v + 1);
             }}>{t('下一页')}</button></div>}{(!embedded || busy) && <p className="muted">{t('离开项目会停止本地传输；服务端已接收的解析任务继续处理。')}</p>}</section>;

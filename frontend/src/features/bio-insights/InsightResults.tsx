@@ -5,7 +5,8 @@ import NativeDeliveryArtifact,{type NativeDeliveryTarget} from '../analyst/Nativ
 import type {Source as ResearchSource} from '../research-results/contracts'
 import {projectBase} from './api'
 import {bulkComparisonLabel, bulkFigureLabels, bulkPanels, bulkPanelTab, bulkQColumns, isBulkEnrichmentResult, isBulkFigureType, isBulkPanel, isBulkProcessedFigure, isReviewedBulkComparison, validBulkSelection, type BulkPlanSeed, type BulkSelection} from './bulk'
-import type {Result, TablePage} from './contracts'
+import {kindLabels,type Result,type TablePage} from './contracts'
+import {figureName,resultFileName,resultTableLabels} from '../bioinformatics/bioPresentation'
 import {useInsightRead} from './hooks'
 import BulkComparisons from './BulkComparisons'
 import BulkEnrichmentResult,{BulkEnrichmentFigureResult,bulkEnrichmentFigureSeed,bulkEnrichmentResultContrast} from './BulkEnrichmentResult'
@@ -17,6 +18,7 @@ import SingleCellTopicSummary from './SingleCellTopicSummary'
 import {displayRaw} from './state'
 import {bulkRoute} from './bulkWorkflow'
 
+const analysisScopeLabels:Record<string,string>={sample_inference:'按独立样本推断',sample_exploratory:'样本探索',spot_exploratory:'区域探索',donor_inference:'按供者推断',external_result:'外部结果'}
 export default function InsightResults({projectId,resultId,active,onResearch,onNavigate,onBulkPlan,allowNewAnalysis,resultRead,deliveryTarget}: {
  projectId:string
  resultId:string
@@ -38,8 +40,8 @@ export default function InsightResults({projectId,resultId,active,onResearch,onN
  return <section>
   <h3>{t('固定分析结果详情')}</h3><ReadState {...result}/>
   {data&&<>
-   <p>{data.kind} · <strong>{data.inference_scope}</strong> · {data.provenance}</p>
-   <p className="warning-panel">{t('sample_inference 按已确认样本设计推断；sample_exploratory 为样本探索；spot_exploratory 为区域探索；donor_inference 按供体；external_result 为外部结果。技术重复与 synthetic 限制以来源记录为准。')}</p>
+   <p>{t(kindLabels[data.kind])} · <strong>{t(analysisScopeLabels[data.inference_scope]??'推断范围待核对')}</strong></p>
+   <p className="warning-panel">{t('技术重复不增加独立样本量。解读结果前请核对研究设计与来源。')}</p>
    {data.summary.synthetic===true&&<p className="warning-panel">{t('合成工程样例，不代表真实客户供体验证或生物学验证。')}</p>}
    {reviewedBulk&&onNavigate&&<div className="intake-actions">
     <button type="button" onClick={()=>onNavigate(bulkRoute('differential',data.id))}>{t('查看稳健性对照设置')}</button>
@@ -62,11 +64,11 @@ export default function InsightResults({projectId,resultId,active,onResearch,onN
      ?(key,contrast)=>onBulkPlan(bulkEnrichmentFigureSeed(data,contrast||bulkEnrichmentResultContrast(data),{termRowKey:key}))
      :undefined}/>}
    {data.members.filter(member=>member.format==='png').map(member=><div className="intake-actions" key={member.id}>
-    <button type="button" onClick={()=>onResearch({source_kind:'bio_insight_result_member',source_id:member.id,sha256:member.sha256,locator:{kind:'image'}})}>{t('引用固定图成员')} · {member.key}</button>
+    <button type="button" onClick={()=>onResearch({source_kind:'bio_insight_result_member',source_id:member.id,sha256:member.sha256,locator:{kind:'image'}})}>{t('引用图件')} · {figureName(member.key,t,String(data.summary.figure_type??''))}</button>
     {data.id===resultId&&data.task.status==='succeeded'&&<NativeDeliveryArtifact {...{projectId,deliveryTarget}}
-     source={{kind:'bio_insight_png',version_id:data.id,member_id:member.id}} name={member.key}/>}
+     source={{kind:'bio_insight_png',version_id:data.id,member_id:member.id}} name={resultFileName(member,t,String(data.summary.figure_type??''))}/>}
    </div>)}
-   <Members projectId={projectId} members={data.members}/>
+   <Members projectId={projectId} members={data.members} figureKind={String(data.summary.figure_type??'')}/>
   </>}
  </section>
 }
@@ -95,7 +97,7 @@ function BulkPublishedDetails({result,onNavigate}:{result:Result;onNavigate?:(na
   {selection&&<p>{typeof numerator==='string'&&typeof denominator==='string'
    ?bulkComparisonLabel({contrast_id:selection.contrast_id,numerator,denominator})
    :selection.contrast_id} · {t(bulkQColumns[selection.q_column])} ({selection.q_column}) · q ≤ {selection.q_threshold} · |log2FC| ≥ {selection.minimum_absolute_effect} · {t(selection.direction==='both'?'双向 DEG':selection.direction==='up'?'上调 DEG':'下调 DEG')}</p>}
-  {figure&&<><p>{t('固定来源版本')} <code>{displayRaw(sourceId)}</code> · {t('图件数据成员')} <code>{displayRaw(result.methods.input_member)}</code></p>
+  {figure&&<>
    {axes&&<p>X · {axes.x} / Y · {axes.y}</p>}
    {config?.z_score===true&&<p>{t('图上使用行 z-score，固定表达值可在图数据中核对。')}</p>}
    {result.summary.empty_result===true&&<p role="status">{t('此图的实际绘制范围为空，原因见图数据与方法。')}</p>}
@@ -139,7 +141,7 @@ function ResultTables({projectId,data,active,onResearch,onCurve}:{projectId:stri
  return <>
   <Field label={label} value={selected.key} onChange={value=>{setKey(value);setPage(1);setSearch('');setQuery('');setColumn('')}}>
    {tables.map(member=><option key={member.id} value={member.key}>{candidate&&member.key==='bulk_candidate_top'
-    ?t('候选 Top N 预览'):candidate&&member.key==='candidate_results'?t('完整候选表'):member.key}</option>)}
+    ?t('候选 Top N 预览'):candidate&&member.key==='candidate_results'?t('完整候选表'):t(resultTableLabels[member.key]??'分析结果表')}</option>)}
   </Field>
   <form onSubmit={event=>{event.preventDefault();setPage(1);setQuery(search)}}>
    <Field label="搜索完整结果" value={search} onChange={setSearch}/><button type="submit">{t('搜索')}</button>

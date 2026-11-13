@@ -61,19 +61,19 @@ export default function CustomerProjectCreate({ onCreated, onClose }: {
   }
 
   return <ProjectCreateDialog busy={busy} onClose={onClose}>
-    <form onSubmit={event => void create(event)}>
+    <form className="project-form customer-project-form" aria-busy={busy} onSubmit={event => void create(event)}>
       <div className="project-fields">
-        <label>{t('项目名称')}<input required value={draft.name} maxLength={120} readOnly={!!draft.submission} disabled={busy}
+        <label>{t('项目名称')}<input placeholder={t('例如：药物干预后的表达变化研究')} required value={draft.name} maxLength={120} readOnly={!!draft.submission} disabled={busy}
           onChange={event => setDraft({ ...draft, name: event.target.value })} /></label>
-        <label>{t('研究目标')}<textarea required value={draft.goal} maxLength={500} rows={3} readOnly={!!draft.submission} disabled={busy}
+        <label>{t('研究目标')}<textarea placeholder={t('用一句话描述你想研究什么，或比较哪些差异。')} required value={draft.goal} maxLength={500} rows={3} readOnly={!!draft.submission} disabled={busy}
           onChange={event => setDraft({ ...draft, goal: event.target.value })} /></label>
       </div>
       {error && <p className="error-panel" role="alert">{t(error)}</p>}
-      <div className="customer-actions">
+      <div className="project-form-actions">
         <button type="submit" className="button-primary" disabled={busy}>
           {t(busy ? '正在创建……' : draft.submission ? '重试创建项目' : '创建项目')}
         </button>
-        <button type="button" className="button-quiet" onClick={onClose} disabled={busy}>{t('取消')}</button>
+        <button type="button" onClick={onClose} disabled={busy}>{t('取消')}</button>
       </div>
     </form>
   </ProjectCreateDialog>

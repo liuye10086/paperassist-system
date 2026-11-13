@@ -11,6 +11,7 @@ from docx.shared import Mm, Pt, RGBColor
 from app.domain.research_results.bio_projection import project_bio_facts
 from app.domain.research_results.contracts import FrozenResearchSource
 from app.domain.bioinformatics.contracts import digest
+from app.domain.bioinformatics.artifact_names import single_cell_report_name
 from app.adapters.research_report_docx import build_report
 from app.adapters.bio_reader_narrative import load_cached_narrative
 
@@ -381,7 +382,7 @@ def download_single_cell_report(assets, project, identifier, annotation_version_
                                         geometry_sha256=annotation_row['geometry_sha256'],
                                         assignments_sha256=annotation_row['assignments_sha256'])
     provenance['source_file_ids'] = sorted(source_file_ids)
-    return dict(format='docx', filename='single-cell-analysis.docx', sha256=hashlib.sha256(content).hexdigest(),
+    return dict(format='docx', filename=single_cell_report_name(bool(annotation)), sha256=hashlib.sha256(content).hexdigest(),
                 provenance=provenance), content
 
 

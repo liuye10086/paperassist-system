@@ -19,12 +19,14 @@ def test_workbook_keeps_full_tables_exact_values_zero_na_and_formula_like_ids():
     from app.adapters.research_results_xlsx import build_workbook
     from openpyxl import load_workbook
     rows=[['=GENE','01-MAR','0','NA','0.0000000000000000123']]+[[str(i),'ENSG'+str(i),'1','not_significant','0.8'] for i in range(150)]
-    content,summary=build_workbook(sample(),[dict(key='markers',columns=['feature_id','symbol','n','reason','p_value'],rows=rows,expected_rows=151)])
+    content,summary=build_workbook(sample(),[dict(key='markers',columns=['feature_id','symbol','n','reason','p_value'],rows=rows,expected_rows=151,sha256='c'*64)])
     book=load_workbook(io.BytesIO(content),read_only=True,data_only=False)
     saved=list(book['markers'].values)
     assert len(saved)==152 and list(saved[1])==rows[0] and list(saved[-1])==rows[-1]
     assert book['markers']['A2'].data_type=='s'
     assert summary['tables'][0]['rows']==151 and summary['tables'][0]['sheets']==['markers']
+    assert summary['tables'][0]['sha256']=='c'*64
+    assert all(sha not in str(row) for name in book.sheetnames for row in book[name].values for sha in ('b'*64,'c'*64))
     book.close()
 
 def test_workbook_splits_by_sheet_limit_without_truncation_and_rejects_over_budget(monkeypatch):
@@ -66,6 +68,7 @@ def test_docx_contains_source_boundaries_and_does_not_invent_missing_methods():
     assert '0.0000000000000000123' in text and '独立 donor 未确认' in text
     assert 'spot 层级探索性分析' in text and '未重算' in text
     assert '未提供已执行方法' in text and 'P < 0.05' not in text
+    assert '外部表格' in text and all(value not in text for value in ('finding-v1','a'*64,'b'*64))
 
 
 def test_english_report_translates_system_caveats_without_mutating_frozen_sources():
@@ -76,14 +79,17 @@ def test_english_report_translates_system_caveats_without_mutating_frozen_source
     snapshot=sample();snapshot['language']='en';snapshot['title']='Fixed analysis'
     content=snapshot['finding']['content']
     content['sources'][0]['title']='空间分析 / Spatial analysis fixed-id'
+    content['sources'][0]['source_id']='fixed-id'
+    content['facts'][0]['source_id']='fixed-id'
     content['gaps']=['donor/组别的独立重复设计未确认：independent_donors_not_confirmed','线粒体规则未确定：mitochondrial_rule_unconfirmed','用户提供的备注原文']
     content['limitations']=[EXPLORATORY]
     content['warnings']=['事实目录只展示已选行 2/100；完整结果表仍保留，导出不能据此截断。']
     content['methods']=[dict(title=title,description='已执行 / Completed',executed=True,parameters={'seed':0},software={}) for title in METHOD_NAMES.values()]
     before=deepcopy(snapshot)
     doc=Document(io.BytesIO(build_report(snapshot,[])));text='\n'.join(p.text for p in doc.paragraphs)
-    assert 'Independent donor/group replicate design has not been confirmed: independent_donors_not_confirmed' in text
-    assert 'Mitochondrial rule has not been confirmed: mitochondrial_rule_unconfirmed' in text
+    assert 'Independent donor/group replicate design has not been confirmed.' in text
+    assert 'Mitochondrial rule has not been confirmed.' in text
+    assert 'independent_donors_not_confirmed' not in text and 'mitochondrial_rule_unconfirmed' not in text and 'fixed-id' not in text
     assert 'spots and regions are not independent donors' in text
     assert 'Selected rows shown in the fact catalog: 2/100' in text
     assert 'Source text (original language): 用户提供的备注原文' in text

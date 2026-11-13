@@ -1,6 +1,7 @@
-import {cleanup,fireEvent,render,screen} from '@testing-library/react'
+import {cleanup,fireEvent,render,screen,within} from '@testing-library/react'
 import {afterEach,expect,it,vi} from 'vitest'
 import ResearchFindings from './ResearchFindings'
+import ResearchSources from './ResearchSources'
 import {setApiSession,clearApiSession} from '../../shared/api/client'
 afterEach(()=>{cleanup();vi.unstubAllGlobals();clearApiSession()})
 it('returns to the exact older finding version and sends it to writing',async()=>{
@@ -29,4 +30,22 @@ it('keeps finding edits while switching between facts, claims and review modules
  expect(screen.getByLabelText('核对依据与意见')).toHaveProperty('value','尚未记录的核对意见')
  expect(screen.getByRole('button',{name:'保存研究发现'})).toBeTruthy()
  expect(container.querySelector('details')).toBeNull()
+})
+
+it('chooses a parsed document by date and keeps its exact saved source',async()=>{
+ setApiSession('csrf','owner')
+ const created_at='2026-11-13T05:00:00Z', file='file-internal', parse='parse-internal', sha256='a'.repeat(64)
+ vi.stubGlobal('fetch',vi.fn(async(url:string)=>Response.json(url.includes('document-versions')
+  ?{items:[{id:parse,file_id:file,status:'succeeded',created_at}],total:1,page:1,page_size:5}
+  :{items:[{source_id:file,source_kind:'original_file',title:'研究资料.pdf',created_at,sha256}],total:1,page:1,page_size:25})))
+ const onChange=vi.fn()
+ render(<ResearchSources projectId="p1" active readerView allowedKinds={['original_file']} value={[]} onChange={onChange}/>)
+ expect(await screen.findByRole('option',{name:/研究资料\.pdf.*2026/})).toBeTruthy()
+ fireEvent.change(screen.getByLabelText('选用资料'),{target:{value:file}})
+ const selection=screen.getByLabelText('使用已解析的内容')
+ const parsed=await within(selection).findByRole('option',{name:/2026/})
+ fireEvent.change(selection,{target:{value:parse}})
+ fireEvent.click(screen.getByRole('button',{name:'加入固定来源'}))
+ expect(onChange).toHaveBeenCalledWith([{source_kind:'original_file',source_id:file,sha256,locator:{schema_version:1,kind:'object',parse_version_id:parse}}])
+ expect(parsed.textContent).not.toContain(parse)
 })

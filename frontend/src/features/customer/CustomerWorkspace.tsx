@@ -49,6 +49,7 @@ export default function CustomerWorkspace() {
   const [creating, setCreating] = useState(false)
   const [query, setQuery] = useState<ProjectListQuery>({ page: 1, q: '', type: '' })
   const [search, setSearch] = useState('')
+  const projectList = useRef<HTMLElement | null>(null)
   const heading = useRef<HTMLHeadingElement | null>(null)
   const guards = useRef(new Map<LeaveGuard, () => boolean>())
   const registerLeaveGuard = useCallback<RegisterLeaveGuard>((guard, isDirty = () => true) => {
@@ -124,7 +125,8 @@ export default function CustomerWorkspace() {
   }, [canLeave])
 
   useLayoutEffect(() => {
-    heading.current?.focus({ preventScroll: true })
+    const target = route ? heading.current : projectList.current
+    target?.focus({ preventScroll: true })
     if (window.scrollY > 0) window.scrollTo({ top: 0, behavior: 'instant' })
   }, [route, project?.id])
 
@@ -138,7 +140,8 @@ export default function CustomerWorkspace() {
   }
 
   return <WorkspaceFrame className="customer-workbench" homeLabel="返回我的项目" onHome={() => navigate(null)}
-    sidebarAction={closeMenu => <button type="button" className="sidebar-create button-primary"
+    location="我的项目" projectName={project?.name}
+    sidebarAction={closeMenu => <button type="button" className="sidebar-create"
       aria-label={t('新建研究项目')} title={t('新建项目')} onClick={() => { if (canLeave()) setCreating(true); closeMenu() }}>
       <WorkspaceIcon name="plus" /><span className="sidebar-text">{t('新建项目')}</span>
     </button>}
@@ -156,13 +159,10 @@ export default function CustomerWorkspace() {
         </button>
       </div>}
     </nav>}>
-    <div className="customer-workspace">
-      {!route && <>
-        <header className="workspace-page-heading"><h1 ref={heading} tabIndex={-1}>{t('我的项目')}</h1></header>
-        <ProjectList items={list.error ? [] : list.data?.items ?? []} total={list.data?.total ?? 0}
-          query={query} searchDraft={search} loading={list.loading || (!list.data && !list.error)} error={list.error}
-          onSearchDraftChange={setSearch} onQueryChange={setQuery} onOpen={openProject} onRetry={list.refresh} presentation="cards" />
-      </>}
+    <div className={route ? 'customer-workspace' : 'customer-workspace project-list-panel'}>
+      {!route && <ProjectList ref={projectList} items={list.error ? [] : list.data?.items ?? []} total={list.data?.total ?? 0}
+        query={query} searchDraft={search} loading={list.loading || (!list.data && !list.error)} error={list.error}
+        onSearchDraftChange={setSearch} onQueryChange={setQuery} onOpen={openProject} onRetry={list.refresh} presentation="cards" />}
       {route && projectUnavailable && <div className="customer-section">
         <p role="alert">{t('项目不存在或无权访问。')}</p>
         <button type="button" onClick={() => navigate(null)}>{t('返回我的项目')}</button>
@@ -171,27 +171,28 @@ export default function CustomerWorkspace() {
         <p role="alert">{t(details.error)}</p>
         <button type="button" onClick={details.refresh}>{t('重新读取项目')}</button>
       </div>}
-      {route && !projectUnavailable && !details.error && !project && <p role="status">{t('正在读取项目……')}</p>}
+      {route && !projectUnavailable && !details.error && !project && <div className="customer-section">
+        <p role="status">{t('正在读取项目……')}</p>
+      </div>}
       {route && project && <>
         <WorkspaceSteps current={steps.findIndex(([key]) => key === route.step)} steps={steps.map(([key, title]) => ({
           title, action: () => chooseStep(key),
         }))} />
-        <header className="workspace-page-heading"><h1 ref={heading} tabIndex={-1}>{project.name}</h1></header>
-        <div key={project.id}>
-          {route.step === 'details' && <div className="customer-section">
+        <div key={project.id} className="customer-step-content">
+          {route.step === 'details' && <div className="customer-section customer-project-details project-details-card">
             <div className="customer-section-heading">
-              <h2>{t('项目资料')}</h2>
+              <h1 ref={heading} tabIndex={-1}>{t('项目资料')}</h1>
               <button type="button" className="button-primary" onClick={() => chooseStep('upload')}>{t('下一步 上传资料')}</button>
             </div>
             <ProjectDetails project={project} showHeading={false} onUpdated={details.refresh} registerLeaveGuard={registerLeaveGuard} />
           </div>}
-          {route.step === 'upload' && <CustomerMaterials projectId={project.id} onContinue={() => chooseStep('requirements')}
+          {route.step === 'upload' && <CustomerMaterials projectId={project.id} headingRef={heading} onContinue={() => chooseStep('requirements')}
             onUnavailable={onUnavailable} registerLeaveGuard={registerLeaveGuard} />}
-          {route.step === 'requirements' && <CustomerRequirements projectId={project.id}
+          {route.step === 'requirements' && <CustomerRequirements projectId={project.id} headingRef={heading}
             onSubmitted={() => chooseStep('progress', true)} registerLeaveGuard={registerLeaveGuard} />}
-          {route.step === 'progress' && <CustomerProgress projectId={project.id} onRequirements={() => chooseStep('requirements')}
+          {route.step === 'progress' && <CustomerProgress projectId={project.id} headingRef={heading} onRequirements={() => chooseStep('requirements')}
             onUpload={() => chooseStep('upload')} onDeliveries={() => chooseStep('deliveries')} registerLeaveGuard={registerLeaveGuard} />}
-          {route.step === 'deliveries' && <CustomerDeliveries projectId={project.id} registerLeaveGuard={registerLeaveGuard} />}
+          {route.step === 'deliveries' && <CustomerDeliveries projectId={project.id} headingRef={heading} registerLeaveGuard={registerLeaveGuard} />}
         </div>
       </>}
     </div>

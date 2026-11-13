@@ -99,9 +99,10 @@ class CustomerWorkspace:
             publication = self._publication(db, project_id, snapshot_id)
             row = self.delivery.row(db, project_id, publication['delivery_id'], snapshot_id)
             base = f'/api/v1/projects/{quote(project_id, safe="")}/customer-workspace/deliveries/{snapshot_id}'
-            members = [dict(id=m['id'], name=PurePosixPath(m['name']).name, format=m['format'],
+            shown = self.delivery.reader_view(db, row['snapshot_json'])
+            members = [dict(id=m['id'], name=m.get('display_name') or PurePosixPath(m['name']).name, format=m['format'],
                             size_bytes=m['size_bytes'], download_url=f'{base}/members/{m["id"]}/download')
-                       for m in row['snapshot_json']['members']]
+                       for m in shown['members']]
             return dict(self._summary(publication), members=members,
                         package_url=f'{base}/download' if self.delivery.ready_package(db, row) else None,
                         feedback=self._feedback(db, project_id, snapshot_id))
@@ -112,13 +113,17 @@ class CustomerWorkspace:
             publication = self._publication(db, project_id, snapshot_id)
             row = self.delivery.row(db, project_id, publication['delivery_id'], snapshot_id)
             member, raw = self.delivery.member_bytes(db, row, member_id)
-            return dict(filename=PurePosixPath(member['name']).name, sha256=member['sha256']), raw
+            shown = self.delivery.reader_view(db, row['snapshot_json'])
+            display = next(m.get('display_name') for m in shown['members'] if m['id'] == member_id)
+            return dict(filename=display or PurePosixPath(member['name']).name, sha256=member['sha256']), raw
 
     def package(self, project_id, snapshot_id):
         with self.store.connection() as db:
             self.store.require_project(db, project_id, role='customer')
             publication = self._publication(db, project_id, snapshot_id)
             row = self.delivery.row(db, project_id, publication['delivery_id'], snapshot_id)
+            if row['snapshot_json'].get('delivery_kind') == 'analysis' and row['snapshot_json']['mode'] == 'complete':
+                return self.delivery.reader_package(db, row)
             metadata, stored = self.delivery.package_bytes(db, row)
 
         # The existing archive includes internal source and change metadata.

@@ -4,7 +4,6 @@ import { AuthIdentityContext } from './AuthIdentityContext'
 import { useEffect, useId, useLayoutEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { apiFetch, clearApiSession, getApiUserId, onApiSessionChanged, onSessionCookieChanged, onSessionExpired, setApiSession } from '../../shared/api/client'
 import './auth.css'
-import Brand from '../../shared/components/Brand'
 import PasswordForm from './PasswordForm'
 import RegistrationForm from './RegistrationForm'
 import LanguageControl from './LanguageControl'
@@ -308,13 +307,12 @@ export default function AuthBoundary({ children }: { children: ReactNode }) {
 
   const languageControl = <LanguageControl key={session?.user.id ?? status} userId={status === 'authenticated' ? session?.user.id : undefined} disabled={status === 'restoring'} />
   const brand = <aside className="auth-brand">
-    <div className="auth-brand-name"><Brand />PaperAssist</div>
-    <div className="auth-brand-copy"><p className="auth-eyebrow">{t('科研，从容开始')}</p>
+    <div className="auth-brand-copy">
+      <p className="auth-brand-name">PaperAssist</p>
       <h1>{t('让研究更有条理，')}<br />{t('让写作更进一步。')}</h1>
-      <p>{t('从文献、数据到论文，把研究中的每一步汇聚在一个清晰的工作空间。')}</p>
+      <p className="auth-brand-description">{t('从文献、数据到论文，把研究中的每一步汇聚在一个清晰的工作空间。')}</p>
       <div className="auth-brand-art" aria-hidden="true"><span /><span /><span /></div>
     </div>
-    <p className="auth-brand-footer">{t('专注研究，连接灵感')}</p>
   </aside>
   function anonymousShell(content: ReactNode) {
     return <div className="auth-page">{brand}<main className="auth-form-area">
@@ -329,19 +327,24 @@ export default function AuthBoundary({ children }: { children: ReactNode }) {
   </section>)
   if (status === 'authenticated') {
     return <WorkspaceChromeContext.Provider value={{navigation:navigationSlot,accountMenu:accountMenuSlot,closeAccount:()=>{setAccountOpen(false);accountButton.current?.focus()}}}><div className="authenticated-app" data-role={session?.user.role}>
-      <header className="auth-topbar"><div className="auth-project-navigation" ref={setNavigationSlot}/>{languageControl}
-        <div ref={accountRegion} className="auth-account">
-          <button ref={accountButton} className="auth-account-button" aria-label={t('账号')} aria-expanded={accountOpen}
-            aria-controls={accountActionsId} disabled={busy} onClick={() => setAccountOpen(value => !value)}>
-            <span className="auth-avatar" aria-hidden="true">{session?.user.email.slice(0, 1).toUpperCase()}</span>
-          </button>
-          <div className="auth-account-actions" id={accountActionsId} hidden={!accountOpen}>
-            <p className="auth-account-email">{session?.user.email}</p>
-            <div className="auth-workspace-actions" ref={setAccountMenuSlot}/>
-            <button disabled={busy || formMode !== null} onClick={() => { setAccountOpen(false); setError(''); setFormMode('change') }}>{t('修改密码')}</button>
-            <button disabled={busy} onClick={() => void logout()}>{busy ? t('正在退出……') : t('退出登录')}</button>
+      <header className="auth-topbar">
+        <span className="auth-topbar-brand">PaperAssist</span>
+        <div className="auth-topbar-actions">
+          {languageControl}
+          <div ref={accountRegion} className="auth-account">
+            <button ref={accountButton} className="auth-account-button" aria-label={t('账号')} aria-expanded={accountOpen}
+              aria-controls={accountActionsId} disabled={busy} onClick={() => setAccountOpen(value => !value)}>
+              <span className="auth-avatar" aria-hidden="true">{session?.user.email.slice(0, 1).toUpperCase()}</span>
+            </button>
+            <div className="auth-account-actions" id={accountActionsId} hidden={!accountOpen}>
+              <p className="auth-account-email">{session?.user.email}</p>
+              <div className="auth-workspace-actions" ref={setAccountMenuSlot}/>
+              <button disabled={busy || formMode !== null} onClick={() => { setAccountOpen(false); setError(''); setFormMode('change') }}>{t('修改密码')}</button>
+              <button disabled={busy} onClick={() => void logout()}>{busy ? t('正在退出……') : t('退出登录')}</button>
+            </div>
           </div>
         </div>
+        <div className="auth-project-navigation" ref={setNavigationSlot} />
       </header>
       {error && <p className="auth-session-error" role="alert">{t(error)}</p>}
       {formMode === 'change' && <div className="auth-password-region"><PasswordForm mode="change"
@@ -364,8 +367,7 @@ export default function AuthBoundary({ children }: { children: ReactNode }) {
     <form onSubmit={event => void login(event)} aria-busy={busy}>
       <label>{t('邮箱')}<input ref={emailInput} name="email" type="email" autoComplete="username" required maxLength={254} value={email} disabled={busy}
           onChange={event => setEmail(event.target.value)} /></label>
-      <label>{t('密码')}<input name="password" type="password" autoComplete="current-password" required maxLength={256} value={password}
-          disabled={busy} onChange={event => setPassword(event.target.value)} /></label>
+      <LoginPasswordField value={password} disabled={busy} onChange={setPassword} />
       {error && <p role="alert">{t(error)}</p>}
       <button className="button-primary auth-login-submit" disabled={busy} type="submit">{busy ? t('正在登录……') : t('登录')}</button>
       <div className="auth-secondary-actions">
@@ -374,4 +376,31 @@ export default function AuthBoundary({ children }: { children: ReactNode }) {
       </div>
     </form>
   </section>)
+}
+
+function LoginPasswordField({ value, disabled, onChange }: {
+  value: string
+  disabled: boolean
+  onChange: (value: string) => void
+}) {
+  const { t } = useI18n()
+  const id = useId()
+  const [visible, setVisible] = useState(false)
+  const action = t(visible ? '隐藏密码' : '显示密码')
+
+  return <div className="auth-password-field">
+    <label htmlFor={id}>{t('密码')}</label>
+    <div className="auth-password-input">
+      <input id={id} name="password" type={visible ? 'text' : 'password'} autoComplete="current-password"
+        required maxLength={256} value={value} disabled={disabled} onChange={event => onChange(event.target.value)} />
+      <button className="auth-password-toggle button-quiet" type="button" aria-label={action} title={action}
+        aria-controls={id} disabled={disabled} onClick={() => setVisible(value => !value)}>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6Z" />
+          <circle cx="12" cy="12" r="2.5" />
+          {visible && <path d="M4 4l16 16" />}
+        </svg>
+      </button>
+    </div>
+  </div>
 }

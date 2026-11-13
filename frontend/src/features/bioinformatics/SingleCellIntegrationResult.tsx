@@ -9,18 +9,18 @@ const reasons:Record<string,string>={
  covariate_missing_or_nonfinite:'协变量存在缺失或无效数值',covariate_design_rank_deficient:'协变量共线或剩余自由度不足',insufficient_residual_variation:'处理后有效变异不足',insufficient_cells_for_harmony_default_clusters:'细胞数量不足以使用当前 Harmony 默认聚类策略',
  regression_failed:'协变量回归失败，详见日志',harmony_failed:'Harmony 运行失败，详见日志',resource_insufficient:'计算资源不足，该项未完成',
 }
-const describe=(value:unknown)=>typeof value==='string'?(reasons[value]??value):''
+const describe=(value:unknown)=>typeof value==='string'?(reasons[value]??'请核对批次信息和分析条件。'):''
 
 export default function SingleCellIntegrationResult({summary}:{summary:Result}){
  const result=object(summary.single_cell_integration)
  if(!Object.keys(result).length)return null
  const hvg=object(result.hvg),technical=object(result.technical_covariates),harmony=object(result.harmony),design=object(result.design)
- const status=(value:Result)=>statuses[String(value.status)]??String(value.status??'未记录')
+ const status=(value:Result)=>statuses[String(value.status)]??'未记录'
  const applied=(value:Result)=>value.applied===true?'已应用':'未应用'
  const columns=Array.isArray(technical.columns)?technical.columns.filter(v=>typeof v==='string').join('、'):'未选择'
  return <section className="analysis-detail">
   <h3>多样本整合与技术协变量结果</h3>
-  <p>邻居、UMAP 与聚类实际使用：{result.downstream_representation==='X_pca_harmony'?'Harmony 整合表示':result.downstream_representation==='X_pca'?'PCA 表示':String(result.downstream_representation??'未记录')}</p>
+  <p>邻居、UMAP 与聚类实际使用：{result.downstream_representation==='X_pca_harmony'?'Harmony 整合表示':result.downstream_representation==='X_pca'?'PCA 表示':'未记录'}</p>
   <h4>HVG 批次策略</h4>
   <p>{status(hvg)}；{hvg.fallback===true?'已回退到全局 HVG':hvg.strategy==='batch_aware_seurat'?`批次感知 HVG；分组字段：${String(hvg.batch_key)}`:'全局 HVG'}</p>
   {!!hvg.reason&&<p>{describe(hvg.reason)}</p>}
@@ -32,6 +32,5 @@ export default function SingleCellIntegrationResult({summary}:{summary:Result}){
   {!!harmony.reason&&<p>{describe(harmony.reason)}</p>}
   <p>批次与研究组设计：{status(design)}{design.reason?`；${describe(design.reason)}`:''}</p>
   <p>原始 counts、normalized 和 log1p 保留；协变量处理仅用于降维，Harmony 仅调整低维表示。前后批次指标用于描述，不能证明生物学准确性。</p>
-  {Object.keys(object(result.versions)).length>0&&<p>实际工具版本：{Object.entries(object(result.versions)).map(([name,value])=>`${name} ${String(value)}`).join('；')}</p>}
  </section>
 }

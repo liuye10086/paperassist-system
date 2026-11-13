@@ -1,3 +1,4 @@
+import type { Ref } from 'react'
 import { PROJECT_PAGE_SIZE, typeNames, type Project } from './projectTypes'
 import { useI18n } from '../../shared/i18n'
 import './projectList.css'
@@ -9,6 +10,7 @@ export type ProjectListQuery = {
 }
 
 type ProjectListProps = {
+  ref?: Ref<HTMLElement>
   items: Project[]
   total: number
   query: ProjectListQuery
@@ -23,18 +25,20 @@ type ProjectListProps = {
   emptyMessage?: string
 }
 
-export default function ProjectList({ items, total, query, searchDraft, loading, error,
+export default function ProjectList({ ref, items, total, query, searchDraft, loading, error,
   onSearchDraftChange, onQueryChange, onOpen, onRetry, presentation = 'table', emptyMessage = '还没有项目，请先创建一个项目。' }: ProjectListProps) {
   const { t, locale } = useI18n()
   const pages = Math.max(1, Math.ceil(total / PROJECT_PAGE_SIZE))
   const filtered = Boolean(query.q || query.type)
+  const cards = presentation === 'cards'
+  const pageSummary = <span>{t('共 {total} 个项目 · 第 {page} / {pages} 页', { total, page: query.page, pages })}</span>
 
   function clearFilters() {
     onSearchDraftChange('')
     onQueryChange({ ...query, page: 1, q: '', type: '' })
   }
 
-  return <section className="project-list" aria-label={t("项目列表区域")} aria-busy={loading}>
+  return <section ref={ref} tabIndex={ref ? -1 : undefined} className="project-list" aria-label={t("项目列表区域")} aria-busy={loading}>
     <form className="project-list-filters" onSubmit={event => {
       event.preventDefault()
       onQueryChange({ ...query, page: 1, q: searchDraft.trim() })
@@ -48,39 +52,42 @@ export default function ProjectList({ items, total, query, searchDraft, loading,
       </select></label>
       <button type="button" className="button-quiet" onClick={clearFilters}>{t("清除筛选")}</button>
     </form>
-    {loading && <p role="status">{t("正在读取项目列表……")}</p>}
-    {error && <div className="error-panel" role="alert">{t(error)}{' '}
-      <button type="button" onClick={onRetry} disabled={loading}>{t("重试项目列表")}</button>
-    </div>}
-    {presentation === 'cards' ? <div className="project-card-list" aria-label={t('项目列表')}>
-      {items.map(project => <article key={project.id} className="research-project-card">
-        <span className="project-type-badge">{t(typeNames[project.project_type])}</span>
-        <h3><button type="button" className="project-name" onClick={() => onOpen(project.id)}>{project.name}</button></h3>
-        <p>{project.research_topic}</p>
-        <div className="research-project-meta"><span>{t('{count} 个文件', { count: project.file_count })}</span>
-          <time dateTime={project.updated_at}>{t('最近更新 {date}', { date: new Date(project.updated_at).toLocaleDateString(locale) })}</time></div>
-        <button type="button" className="project-row-open button-quiet" aria-label={t('打开项目 {name}', { name: project.name })} onClick={() => onOpen(project.id)}>{t('打开项目')}<span aria-hidden="true">→</span></button>
-      </article>)}
-    </div> : <div className="project-table-scroll">
-      <table className="project-table" aria-label={t('项目列表')}>
-        <thead><tr><th scope="col">{t("项目名称")}</th><th scope="col">{t("项目类型")}</th><th scope="col">{t("创建时间")}</th>
-          <th scope="col">{t("最近更新时间")}</th><th scope="col">{t("文件数")}</th><th scope="col">{t("操作")}</th></tr></thead>
-        <tbody>{items.map(project => <tr key={project.id}>
-          <td><button type="button" className="project-name" onClick={() => onOpen(project.id)}>{project.name}</button></td><td><span className="project-type-badge">{t(typeNames[project.project_type])}</span></td>
-          <td><time dateTime={project.created_at}>{new Date(project.created_at).toLocaleString(locale)}</time></td>
-          <td><time dateTime={project.updated_at}>{new Date(project.updated_at).toLocaleString(locale)}</time></td>
-          <td>{project.file_count}</td>
-          <td><button type="button" className="project-row-open button-quiet" aria-label={t('打开项目 {name}', { name: project.name })} onClick={() => onOpen(project.id)}><span aria-hidden="true">→</span></button></td>
-        </tr>)}</tbody>
-      </table>
-    </div>}
-    {!loading && !error && total === 0 && <div className="empty-preview">
-      <p>{t(filtered ? '没有匹配的项目。' : emptyMessage)}</p>
-    </div>}
-    <div className="project-pagination">
-      <span>{t('共 {total} 个项目 · 第 {page} / {pages} 页', { total, page: query.page, pages })}</span>
-      <button type="button" onClick={() => onQueryChange({ ...query, page: query.page - 1 })} disabled={loading || query.page <= 1}>{t("上一页")}</button>
-      <button type="button" onClick={() => onQueryChange({ ...query, page: query.page + 1 })} disabled={loading || query.page >= pages}>{t("下一页")}</button>
+    <div className="project-list-content" tabIndex={cards ? 0 : undefined} role={cards ? 'region' : undefined}
+      aria-label={cards ? t('项目列表') : undefined}>
+      {loading && <p role="status">{t("正在读取项目列表……")}</p>}
+      {error && <div className="error-panel" role="alert">{t(error)}{' '}
+        <button type="button" onClick={onRetry} disabled={loading}>{t("重试项目列表")}</button>
+      </div>}
+      {cards ? <div className="project-card-list">
+        {items.map(project => <article key={project.id} className="research-project-card">
+          <span className="project-type-badge">{t(typeNames[project.project_type])}</span>
+          <h3><button type="button" className="project-name" onClick={() => onOpen(project.id)}>{project.name}</button></h3>
+          <p>{project.research_topic}</p>
+          <div className="research-project-meta"><span>{t('{count} 个文件', { count: project.file_count })}</span>
+            <time dateTime={project.updated_at}>{t('最近更新 {date}', { date: new Date(project.updated_at).toLocaleDateString(locale) })}</time></div>
+          <button type="button" className="project-row-open button-quiet" aria-label={t('打开项目 {name}', { name: project.name })} onClick={() => onOpen(project.id)}>{t('打开项目')}<span aria-hidden="true">→</span></button>
+        </article>)}
+      </div> : <div className="project-table-scroll workspace-table-scroll" tabIndex={0} role="region" aria-label={t('项目列表')}>
+        <table className="project-table" aria-label={t('项目列表')}>
+          <thead><tr><th scope="col">{t("项目名称")}</th><th scope="col">{t("项目类型")}</th><th scope="col">{t("创建时间")}</th>
+            <th scope="col">{t("最近更新时间")}</th><th scope="col" className="table-number">{t("文件数")}</th><th scope="col">{t("操作")}</th></tr></thead>
+          <tbody>{items.map(project => <tr key={project.id}>
+            <td><button type="button" className="project-name" onClick={() => onOpen(project.id)}>{project.name}</button></td><td><span className="project-type-badge">{t(typeNames[project.project_type])}</span></td>
+            <td><time dateTime={project.created_at}>{new Date(project.created_at).toLocaleString(locale)}</time></td>
+            <td><time dateTime={project.updated_at}>{new Date(project.updated_at).toLocaleString(locale)}</time></td>
+            <td className="table-number">{project.file_count}</td>
+            <td><button type="button" className="project-row-open button-quiet" aria-label={t('打开项目 {name}', { name: project.name })} onClick={() => onOpen(project.id)}><span aria-hidden="true">→</span></button></td>
+          </tr>)}</tbody>
+        </table>
+      </div>}
+      {!loading && !error && total === 0 && <div className="empty-preview">
+        <p>{t(filtered ? '没有匹配的项目。' : emptyMessage)}</p>
+      </div>}
     </div>
+    <nav className="project-pagination" aria-label={t('项目分页')}>
+      <button type="button" onClick={() => onQueryChange({ ...query, page: query.page - 1 })} disabled={loading || query.page <= 1}>{t("上一页")}</button>
+      {pageSummary}
+      <button type="button" onClick={() => onQueryChange({ ...query, page: query.page + 1 })} disabled={loading || query.page >= pages}>{t("下一页")}</button>
+    </nav>
   </section>
 }

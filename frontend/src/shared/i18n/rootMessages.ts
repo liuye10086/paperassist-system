@@ -120,6 +120,7 @@ export const rootMessages: Record<string, string> = {
   '没有匹配的项目。': 'No matching projects.',
   '还没有项目，请先创建一个项目。': 'No projects yet. Create a project to get started.',
   '共 {total} 个项目 · 第 {page} / {pages} 页': '{total} projects · Page {page} / {pages}',
+  '项目分页': 'Project pagination',
   '上一页': 'Previous page',
   '下一页': 'Next page',
   '项目列表读取超时，请稍后重试。': 'Loading projects timed out. Please try again later.',

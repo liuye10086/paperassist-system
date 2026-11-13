@@ -27,7 +27,7 @@ def test_communication_report_keeps_edge_specific_donor_numbers_and_missing_reas
     doc=Document(io.BytesIO(blob));content='\n'.join(p.text for p in doc.paragraphs)+'\n'+'\n'.join(c.text for t in doc.tables for r in t.rows for c in r.cells)
     assert '设计入选数量' in content
     assert '逐边实际供者数' in content and 'insufficient_computable_donors' in content
-    assert 'n_denominator' in content and '3' in content
+    assert '分母组纳入数' in content and '3' in content
 
 
 @pytest.mark.parametrize('all_zero',[True,False])

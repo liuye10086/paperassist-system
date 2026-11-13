@@ -48,7 +48,7 @@ def _rows(db,table,joins,where=''):
         ' a '+joins+' JOIN projects p ON p.id=f.project_id '+where)
 
 
-def references(db,root,failed,coverage):
+def references(db,root,failed,coverage,*,error_projects=None):
     """Yield (scope, kind, exact descriptor); report per-family malformed evidence."""
     def emit(rows,kind,extract):
         coverage[kind]=dict(rows=0,references=0,errors=0)
@@ -68,7 +68,9 @@ def references(db,root,failed,coverage):
                     coverage[kind]['references']+=1
                     yield dict(project_id=scoped['project_id'],owner_id=scoped['owner_id'],kind=kind,**obj)
             except (StorageError,KeyError,TypeError,ValueError,OSError):
-                coverage[kind]['errors']+=1;failed(kind)
+                coverage[kind]['errors']+=1
+                if error_projects is None or scoped['project_id'] in error_projects:
+                    failed(kind)
 
     originals=_rows(db,'files','JOIN files f ON f.id=a.id')
     yield from emit(originals,'original',lambda r: [] if r['storage_backend'] not in (None,'local') else

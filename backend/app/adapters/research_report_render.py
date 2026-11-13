@@ -44,11 +44,11 @@ def checked_bytes(item):
 
 
 def render_report(payload,output,*,enforce_deadlines=False):
-    from app.adapters.research_report_docx import build_report,report_text
+    from app.adapters.research_report_docx import build_report,reader_text
     from app.adapters.research_results_xlsx import build_workbook
     from app.domain.research_results.report_package import make_package
     from app.adapters.research_report_images import as_png
-    from app.adapters.research_method_text import presentation_enabled,canonical
+    from app.adapters.research_method_text import presentation_enabled,canonical,reader_method
     if enforce_deadlines:signal.alarm(120)
     snapshot=payload['snapshot'];tables=[]
     for table in payload['tables']:
@@ -59,7 +59,8 @@ def render_report(payload,output,*,enforce_deadlines=False):
     xlsx,counts=build_workbook(snapshot,tables)
     docx=build_report(snapshot,figures)
     finding=snapshot['finding']['content']
-    methods='\n\n'.join(report_text(m['title'],snapshot['language'])+'\n'+report_text(m.get('description',''),snapshot['language'])+'\n'+json.dumps({k:m.get(k,{}) for k in ('executed','parameters','software','source')},ensure_ascii=False,sort_keys=True) for m in finding['methods'])
+    methods='\n\n'.join('\n'.join(reader_text(text,snapshot['language']) for text in (m['title'],*m['paragraphs']))
+        for m in (reader_method(method,snapshot['language']) for method in finding['methods']))
     if not methods:methods='No performed methods provided. External results have not been recomputed.' if snapshot['language']=='en' else '外部结果未重算；未提供已执行方法。'
     captions='\n\n'.join(f"Figure {i} "+f['config'].get('title','')+'\n'+f['config'].get('caption','') for i,f in enumerate(snapshot['figures'],1))
     files={'analysis.docx':docx,'results.xlsx':xlsx,'methods.txt':methods.encode('utf-8'),'captions.txt':captions.encode('utf-8') or b'No figures selected.\n',

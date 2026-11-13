@@ -21,7 +21,7 @@ export default function InsightSources({projectId,value,onChange,active=true,bul
   processedAssay&&kind==='bio_processed_dataset_version'?items.filter(item=>item.assay===processedAssay):items
  const picked = eligible.find(item=>item.source_id===id)
  const title = (item:SourceItem) => bulkResources
-  ?[item.title,item.release,item.version===undefined?undefined:`v${item.version}`].filter(Boolean).join(' · ')
+  ?[item.title,item.release].filter(Boolean).join(' · ')
   :item.title
  function changeKind(next:SourceKind) {
   setKind(next);setPage(1);setId('')

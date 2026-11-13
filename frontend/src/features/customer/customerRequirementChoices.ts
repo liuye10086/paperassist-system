@@ -1,7 +1,12 @@
 import type { Content, DeliveryKind, Intake, Version } from '../research-intake/contracts'
 import { emptyRequirement } from '../research-intake/state'
 
-export type Choice = { id: string; label: string; parent?: { id: string; label: string } }
+export type Choice = {
+  id: string
+  label: string
+  disabledReason?: string
+  parent?: { id: string; label: string }
+}
 export type RequirementInput = { selected: string[]; notes: string }
 type ScopeItem = {
   id: string
@@ -11,12 +16,19 @@ type ScopeItem = {
   source?: string
 }
 
-function analysisType(key: string, label: string, analyses: [string, string][], figures: [string, string][]) {
+function analysisType(
+  key: string,
+  label: string,
+  analyses: [string, string][],
+  figures: [string, string][],
+  customer: { label?: string; disabledReason?: string } = {},
+) {
   const type = { id: `customer.type.${key}`, label }
+  const customerChoice = { ...type, ...customer }
   const choices = (category: 'analysis' | 'figure', items: [string, string][]): Choice[] => items.map(([name, title]) => ({
     id: `customer.${category}.${key}.${name}`, label: title, parent: type,
   }))
-  return { type, analyses: choices('analysis', analyses), figures: choices('figure', figures) }
+  return { type, customerChoice, analyses: choices('analysis', analyses), figures: choices('figure', figures) }
 }
 
 export const analysisTypes = [
@@ -29,12 +41,21 @@ export const analysisTypes = [
     ['differential', '差异表达'], ['enrichment', '富集分析'],
   ], [
     ['heatmap', '热图'], ['volcano', '火山图'],
-  ]),
+  ], { label: 'RNA 转录组学分析' }),
   analysisType('spatial', '空间转录组分析', [
     ['differential', '差异表达'], ['enrichment', '富集分析'], ['spatial_domains', '空间区域识别'],
   ], [
     ['spatial_distribution', '空间分布图'], ['heatmap', '热图'],
-  ]),
+  ], { disabledReason: '建设中' }),
+]
+
+export const analysisTypeChoices: Choice[] = [
+  ...analysisTypes.map(group => group.customerChoice),
+  // These types are displayed before they have supported requirement scopes.
+  { id: 'customer.type.metabolomics', label: '代谢组学分析', disabledReason: '建设中' },
+  { id: 'customer.type.genomics', label: '基因组学分析', disabledReason: '建设中' },
+  { id: 'customer.type.multi_omics', label: '多组学联合分析', disabledReason: '建设中' },
+  { id: 'customer.type.gut_16s_rrna', label: '肠道菌群16S-rRNA分析', disabledReason: '建设中' },
 ]
 
 export const deliveryChoices: Choice[] = [

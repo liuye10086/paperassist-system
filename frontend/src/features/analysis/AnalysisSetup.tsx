@@ -207,7 +207,7 @@ function FileAnalysisContent({ projectId, fileId, filename,onReadiness }: { proj
   const canLeave = useAnalysisCanLeave()
   const navigation = useWorkflowNavigation()
   const resultCanLeave = useRef<() => boolean>(() => true)
-  const { t } = useI18n()
+  const { t, locale } = useI18n()
   const base = `/api/v1/projects/${projectId}/files/${fileId}`
   const [saved, setSaved] = useState<Saved | null>(null)
   const [ready, setReady] = useState(false)
@@ -287,11 +287,11 @@ function FileAnalysisContent({ projectId, fileId, filename,onReadiness }: { proj
       {ready && <>
         {saved && <><SourceSummary source={saved.source} filename={filename} />{!saved.source && saved.selection.task_type==='descriptive_boxplot' && <p>{t('历史字段配置：工作表 {sheet}；数值列 {numeric}；分组列 {group}；单位 {unit}。', { sheet: saved.selection.sheet_name, numeric: saved.selection.numeric_column, group: saved.selection.group_column ?? t('不分组'), unit: saved.selection.unit || t('未填写') })}</p>}</>}
         <div className="analysis-field-grid"><label>{t('数据来源类型')}<select value={sourceKind} disabled={busy || running} onChange={e => { if (!canLeave()) return; setFieldsMatch(false); setSourceKind(e.target.value as 'raw' | 'prepared'); setPage(1) }}><option value="raw">{t('原始数据')}</option><option value="prepared">{t('整理数据')}</option></select></label></div>
-        {sourceKind === 'prepared' ? <div className="analysis-field-grid"><label>{t('整理数据版本')}<select value={prepared?.id ?? ''} disabled={busy || running} onChange={e => { if (!canLeave()) return; setFieldsMatch(false); setPrepared(preparedOptions.find(v => v.id === e.target.value) ?? null) }}><option value="">{t('请选择整理版本')}</option>{preparedOptions.map(v => <option key={v.id} value={v.id}>{t('原始数据 v{raw} · 整理数据 v{prepared}', { raw: v.parent_dataset_version, prepared: v.version })} · {v.source.sheet_name}</option>)}</select></label></div> : <div className="analysis-field-grid"><label>{t('原始数据版本')}<select value={selected?.id ?? ''} disabled={busy || running} onChange={event => {
+        {sourceKind === 'prepared' ? <div className="analysis-field-grid"><label>{t('整理数据版本')}<select value={prepared?.id ?? ''} disabled={busy || running} onChange={e => { if (!canLeave()) return; setFieldsMatch(false); setPrepared(preparedOptions.find(v => v.id === e.target.value) ?? null) }}><option value="">{t('请选择整理版本')}</option>{preparedOptions.map(v => <option key={v.id} value={v.id}>{v.source.sheet_name} · {new Date(v.created_at).toLocaleString(locale)}</option>)}</select></label></div> : <div className="analysis-field-grid"><label>{t('原始数据版本')}<select value={selected?.id ?? ''} disabled={busy || running} onChange={event => {
           if (!canLeave()) return
           const value = options.find(v => v.id === event.target.value) ?? null
           setFieldsMatch(false); setSelected(value); setDatasetId('')
-        }}><option value="">{t('请选择成功的数据版本')}</option>{options.map(v => <option key={v.id} value={v.id}>{t('原始数据版本 v{version}', { version: v.version })}</option>)}</select></label>
+        }}><option value="">{t('请选择成功的数据版本')}</option>{options.map(v => <option key={v.id} value={v.id}>{t('解析时间')} · {new Date(v.completed_at??v.created_at).toLocaleString(locale)}</option>)}</select></label>
         <label>{t('分析工作表')}<select value={datasetId} disabled={!selected || busy || running} onChange={event => { if (!canLeave()) return; setFieldsMatch(false); setDatasetId(event.target.value) }}>
           <option value="">{t(selected ? '请选择工作表' : '请先选择数据版本')}</option>{selected?.datasets.map(d => <option key={d.id} value={d.id}>{d.sheet_name}</option>)}</select></label></div>}
         <p className="muted">{t(sourceKind === 'prepared' ? '使用已确认的数据区域。单位是可编辑的分析标签，不会转换数值。' : '第一行用作字段名；从第 2 行至最后含值行分析完整数据，保留中间空行，不自动清洗。')}</p>
@@ -313,12 +313,12 @@ function FileAnalysisContent({ projectId, fileId, filename,onReadiness }: { proj
 }
 
 type AnalysisSetupProps = {
-  projectId: string; files: FileSummary[]; onOpenFiles?: () => void
+  projectId: string; files: FileSummary[]; onOpenFiles?: () => void; analysisOnly?: boolean
   filesLoading?: boolean; filesError?: string; onReloadFiles?: () => void
   stage?: AnalysisStage; onStageChange?: (stage: AnalysisStage) => void
   fileId?: string; onFileChange?: (id: string) => void; registerLeaveGuard?: RegisterLeaveGuard
 }
-function AnalysisSetupContent({ projectId, files, onOpenFiles, filesLoading = false, filesError = '', onReloadFiles, fileId, onFileChange }: AnalysisSetupProps) {
+function AnalysisSetupContent({ projectId, files, onOpenFiles, analysisOnly = false, filesLoading = false, filesError = '', onReloadFiles, fileId, onFileChange }: AnalysisSetupProps) {
   const { t, locale } = useI18n()
   const navigation = useWorkflowNavigation()
   const [localId, setLocalId] = useState('')
@@ -348,7 +348,9 @@ function AnalysisSetupContent({ projectId, files, onOpenFiles, filesLoading = fa
       </div>
       <p>{t("描述统计、相关分析或组间比较：在所选整理版本的分析计划中选择方法与图型。")}</p>
     </WorkflowStage>
-    {!filesLoading && !filesError && !available.length && <p className="muted">{t("请先在当前项目上传一份可预览的 Excel。")}</p>}
+    {!filesLoading && !filesError && !available.length && <p className="muted">
+      {t(analysisOnly ? '客户资料中暂无可用于分析的 Excel 文件。' : '请先在当前项目上传一份可预览的 Excel。')}
+    </p>}
     {!selected && !filesLoading && !filesError && navigation && <>
       {(['profile', 'plan', 'statistics'] as const).map(stage => <WorkflowStage key={stage} stage={stage}><p className="workflow-empty">{t("请先选择文件并保存字段配置。")}</p></WorkflowStage>)}
       <WorkflowEmptyResults message="请先选择文件并完成描述统计。" />

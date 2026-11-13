@@ -7,14 +7,12 @@ import type { RegisterLeaveGuard } from '../projects/useDraftLeaveGuard'
 import AccountsPanel from './AccountsPanel'
 import ConfigurationsPanel from './ConfigurationsPanel'
 import LogsPanel from './LogsPanel'
-import { Table } from './OperationsCommon'
 import ProjectAssignmentsPanel from './ProjectAssignmentsPanel'
 import RegistrationQueuePanel from './RegistrationQueuePanel'
 import RuntimeStatus from './RuntimeStatus'
 import StoragePanel from './StoragePanel'
 import TasksPanel from './TasksPanel'
 import UsagePanel from './UsagePanel'
-import { accountRoleName } from './operationsApi'
 
 const pageNames = {
   reviews: '审核管理',
@@ -35,31 +33,6 @@ const toolPages = ['tasks', 'usage', 'logs', 'configurations', 'storage', 'runti
 function addressPage(): Page {
   const value = window.location.hash.slice('#admin='.length)
   return window.location.hash.startsWith('#admin=') && Object.hasOwn(pageNames, value) ? value as Page : 'reviews'
-}
-
-const rolePermissions = [
-  { role: 'admin', pages: '审核管理、账号管理、权限管理、运营工具', actions: '审核注册、管理账号、分配项目、查看操作审计' },
-  { role: 'customer', pages: '客户项目工作台、账号菜单', actions: '上传资料、提交需求、查看进度与交付、发送反馈' },
-  { role: 'analyst', pages: '本人项目、分配给我的项目、本人用量', actions: '整理资料、执行分析、发布客户交付' },
-] as const
-
-function PermissionsPanel({ onAccounts, active, onForbidden, registerLeaveGuard }: {
-  onAccounts: () => void
-  active: boolean
-  onForbidden: () => void
-  registerLeaveGuard: RegisterLeaveGuard
-}) {
-  const { t } = useI18n()
-  return <section aria-label={t('权限管理')}>
-    <ProjectAssignmentsPanel active={active} onForbidden={onForbidden} registerLeaveGuard={registerLeaveGuard} />
-    <h2>{t('角色权限')}</h2>
-    <Table headers={['角色', '可进入的页面', '可执行的关键操作']}>
-      {rolePermissions.map(({ role, pages, actions }) => <tr key={role}>
-        <td>{t(accountRoleName(role))}</td><td>{t(pages)}</td><td>{t(actions)}</td>
-      </tr>)}
-    </Table>
-    <button onClick={onAccounts}>{t('去账号管理')}</button>
-  </section>
 }
 
 export default function AdminWorkspace({ userId, active, onForbidden, onProject, registerLeaveGuard }: {
@@ -138,8 +111,7 @@ export default function AdminWorkspace({ userId, active, onForbidden, onProject,
         {!chrome?.navigation && pageHeading}
         {visited.includes('reviews') && <div hidden={!shown('reviews')}><RegistrationQueuePanel {...shared} active={shown('reviews')} /></div>}
         {visited.includes('accounts') && <div hidden={!shown('accounts')}><AccountsPanel {...shared} userId={userId} active={shown('accounts')} onAudit={id => openLogs(id, '')} /></div>}
-        {visited.includes('permissions') && <div hidden={!shown('permissions')}><PermissionsPanel {...shared}
-          active={shown('permissions')} onAccounts={() => selectPage('accounts')} /></div>}
+        {visited.includes('permissions') && <div hidden={!shown('permissions')}><ProjectAssignmentsPanel {...shared} active={shown('permissions')} /></div>}
         {visited.includes('tasks') && <div hidden={!shown('tasks')}><TasksPanel {...shared} userId={userId} active={shown('tasks')} onProject={onProject} onLogs={id => openLogs('', id)} /></div>}
         {visited.includes('usage') && <div hidden={!shown('usage')}><UsagePanel {...shared} admin active={shown('usage')} /></div>}
         {visited.includes('logs') && <div hidden={!shown('logs')}><LogsPanel onForbidden={onForbidden} active={shown('logs')} {...logLink} /></div>}

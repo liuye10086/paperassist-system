@@ -20,21 +20,20 @@ type Props = {
   blocked: (section: ProjectSection, view?: OverviewView) => string
   workflowState?: WorkflowState
   analysisOnly?: boolean
-  assigned?: boolean
   showingTaskResult?: boolean
+  analysisFromResults?: boolean
 }
 
-export default function ProjectJourney({ project, section, overviewView, onOverview, onUpload, onAnalysis, onResults, onWriting, blocked, hasAnalysis = true, active = true, analysisView, workflowState, analysisOnly = false, assigned = false, showingTaskResult = false }: Props) {
+export default function ProjectJourney({ project, section, overviewView, onOverview, onUpload, onAnalysis, onResults, onWriting, blocked, hasAnalysis = true, active = true, analysisView, workflowState, analysisOnly = false, showingTaskResult = false, analysisFromResults = false }: Props) {
   const { t } = useI18n()
   const workspaceVisible = useContext(ProjectWorkspaceVisibleContext)
   if (analysisOnly) {
-    const current = section === 'overview' && overviewView === 'deliveries' ? 5
-      : (section === 'analysis' && isAnalysisResultView(analysisView)) || (section === 'tasks' && showingTaskResult) ? 4
-        : projectFlowStep(section, overviewView, true)
+    const current = section === 'overview'
+      ? overviewView === 'deliveries' ? 4 : ['requirements', 'design'].includes(overviewView) ? 1 : 0
+      : section === 'artifacts' || (section === 'analysis' && (analysisFromResults || isAnalysisResultView(analysisView))) || (section === 'tasks' && showingTaskResult) ? 3 : 2
     return active && workspaceVisible ? <div className="project-journey"><WorkspaceSteps current={current} steps={[
       { title: '项目资料', action: () => onOverview('settings') },
-      { title: '文件上传/整理', action: onUpload },
-      { title: assigned ? '已提交需求' : '需求与分析方案', action: () => onOverview('requirements') },
+      { title: '已提交需求', action: () => onOverview('requirements') },
       { title: '执行分析', action: onAnalysis, disabledReason: blocked('analysis') },
       { title: '查看结果', action: onResults },
       { title: '分析交付', action: () => onOverview('deliveries') },

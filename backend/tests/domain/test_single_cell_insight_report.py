@@ -67,9 +67,9 @@ def test_pseudobulk_word_records_pairs_counts_and_exact_na_zero():
         methods=dict(name='PyDESeq2_0.5.4_Wald',parameters={'independent_filter':False}),inference_scope='donor_inference',source_bindings=[])
     tables={'comparison_results':[dict(feature_id='ENSG1',effect_value=1.25,p_value=0,q_within_contrast=None)]}
     text=text_of(build_single_cell_insight_report('result2','b'*64,config,manifest,tables,[]))
-    assert 'Eight donor pairs' in text and 'complete_pairs' in text and '8' in text
+    assert 'Eight donor pairs' in text and 'Complete pairs' in text and '8' in text
     assert 'Original integer counts' in text and 'ENSG1' in text and '1.25' in text and 'NA' in text
-    assert 'PyDESeq2_0.5.4_Wald' in text
+    assert 'PyDESeq2 Wald' in text and '0.5.4' not in text and 'b'*64 not in text
 
 
 @pytest.mark.parametrize('kind',['ora','gsea_prerank'])
@@ -78,7 +78,7 @@ def test_empty_enrichment_word_uses_saved_background_without_claiming_enrichment
     config=dict(kind=kind,output_language='zh-CN')
     manifest=dict(summary={'row_count':0,'tested_background':1729},methods={'name':kind},inference_scope='derived',source_bindings=[dict(source_kind='bio_resource_version',source_id='resource-frozen',sha256='c'*64)])
     text=text_of(build_single_cell_insight_report('empty','d'*64,config,manifest,{'enrichment_results':[]},[]))
-    assert 'resource-frozen' in text and '1729' in text
+    assert 'resource-frozen' not in text and 'c'*64 not in text and '1729' in text
     assert '无结果行' in text and '不能解释为不存在生物学效应' in text
 
 
@@ -112,10 +112,11 @@ def test_word_numeric_display_keeps_sign_zero_na_and_full_saved_values():
     assert '\n0\n' in text and '\nNA' in text and row==before
 
 
-def test_word_numeric_looking_identifiers_and_versions_remain_verbatim():
+def test_word_preserves_scientific_labels_without_printing_internal_versions():
     from app.adapters.single_cell_insight_report import build_single_cell_insight_report
     text=text_of(build_single_cell_insight_report('x','e'*64,
         dict(kind='comparison',method='single_cell_composition',reference_version='1.0',output_language='en'),
         dict(summary={},methods={},source_bindings=[]),
         {'composition_units':[dict(unit_id='1e5',donor='001.20',condition='2.0',cell_count=10)]},[]))
-    assert all('\n'+v+'\n' in text for v in ('1e5','001.20','2.0','1.0'))
+    assert all('\n'+v+'\n' in text for v in ('1e5','001.20','2.0'))
+    assert '\n1.0\n' not in text

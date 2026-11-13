@@ -35,7 +35,7 @@ def build_report(snapshot, report, png):
     footer.add_run(t('第 ','Page ')); field=OxmlElement('w:fldSimple'); field.set(qn('w:instr'),'PAGE'); footer._p.append(field)
     if language=='zh-CN': footer.add_run(' 页')
     paragraph(document,title,'Title'); paragraph(document,project['name'],'Subtitle')
-    paragraph(document,t('配置版本','Configuration revision')+f' {result["setup_revision"]} · '+t('导出时间','Exported')+f' {report["created_at"]} (UTC)')
+    paragraph(document,t('导出时间','Exported')+': '+report['created_at'][:19].replace('T',' ')+' (UTC)')
     paragraph(document,t('本报告记录完整行统计、已核验图表及六节解释，研究者需审核解释及适用前提。',
         'This report records complete-case statistics, verified figure metadata and six-section interpretation. Researchers must review the wording and applicable assumptions.'))
     document.add_heading(t('1 数据概况','1 Data overview'),level=1)
@@ -44,8 +44,7 @@ def build_report(snapshot, report, png):
         paragraph(document,label+': '+str(value))
     source=result.get('source')
     if source:
-        paragraph(document,t('数据版本','Dataset version')+f': {source["dataset_version"]}')
-        if source.get('parent_dataset_version') is not None: paragraph(document,t('原始数据版本','Parent dataset version')+f': {source["parent_dataset_version"]}')
+        paragraph(document,t('数据来源：','Data source: ')+(t('整理后的数据','Prepared data') if source['kind']=='prepared_dataset_version' else t('原始工作表','Original worksheet')))
     if correlation:
         for variable in result['variables']:
             paragraph(document,t('变量','Variable')+f': {variable["name"]} ({variable["column"]}); '+t('单位','Unit')+': '+(variable['unit'] or t('未填写','Not specified')))
@@ -150,24 +149,5 @@ def build_report(snapshot, report, png):
     document.add_heading(t('附录 A 解释依据','Appendix A Interpretation evidence'),level=1)
     for section in explanation['sections']:
         document.add_heading(section['title'],level=2)
-        for evidence in section['evidence']: paragraph(document,f'{evidence["label"]}: {evidence["value"]}\n'+t('引用键','Reference key')+': '+evidence['key'])
-    document.add_heading(t('附录 B 来源与版本','Appendix B Sources and versions'),level=1)
-    records=[('Project ID',project['id']),('File ID',result['file_id']),('Source SHA256',result['source_sha256']),
-        ('Analysis ID',result['id']),('Analysis engine',result['engine']['id']),('Figure ID',figure['id']),
-        ('PNG SHA256',figure['sha256']),('Plot engine',figure['engine']['id']),('Explanation ID',explanation['id']),
-        ('Explanation engine',explanation['engine']['id']),('Explanation input SHA256',explanation['provenance']['input_sha256']),
-        ('Report ID',report['id']),('Report renderer',report['engine']['id']),('Report input SHA256',report['input_sha256'])]
-    if result.get('analysis_plan'): records.append(('Plan SHA256',result['analysis_plan']['sha256']))
-    for key,label in [('id','Plan ID'),('decision_id','Plan decision ID'),('plan_revision','Plan revision'),
-                      ('workflow_version','Plan workflow'),('rules_version','Plan rules')]:
-        if key in plan: records.append((label,plan[key]))
-    records.extend((key,value) for key,value in result['engine'].items() if key!='id')
-    source_labels={'Project ID':'项目编号','File ID':'文件编号','Source SHA256':'原文件 SHA256','Analysis ID':'统计结果编号',
-        'Analysis engine':'统计引擎','Figure ID':'图表编号','PNG SHA256':'图片 SHA256','Plot engine':'绘图引擎',
-        'Explanation ID':'解释编号','Explanation engine':'解释引擎','Explanation input SHA256':'解释输入 SHA256',
-        'Report ID':'报告编号','Report renderer':'报告模板','Report input SHA256':'报告输入 SHA256','Plan SHA256':'计划 SHA256',
-        'Plan ID':'计划编号','Plan decision ID':'计划决定编号','Plan revision':'计划代次','Plan workflow':'计划工作流','Plan rules':'计划规则'}
-    for label,value in records: paragraph(document,(source_labels.get(label,label) if language=='zh-CN' else label)+': '+str(value))
-    paragraph(document,t('时间使用 UTC 保存记录。XML 不支持的控制字符显示为替代符号。',
-        'Times use saved UTC records. XML-incompatible controls are displayed as replacement characters.'))
+        for evidence in section['evidence']: paragraph(document,f'{evidence["label"]}: {evidence["value"]}')
     output=BytesIO(); document.save(output); return output.getvalue()
