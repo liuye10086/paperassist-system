@@ -67,6 +67,11 @@ it('shows sample QC, unavailable PCA and the actual quantitative layers without 
  expect(options).toEqual(['analysis','display'])
  expect(screen.queryByText('空间与人工注释')).toBeNull()
  expect(screen.queryByText('探索性 marker')).toBeNull()
+ fireEvent.click(screen.getByRole('button',{name:'准备详细报告'}))
+ const report=vi.mocked(apiFetch).mock.calls.find(([url])=>String(url).endsWith('/bio-reader-reports/prepare'))
+ expect(JSON.parse(String(report?.[1]?.body)).selection).toEqual({
+  kind:'processed',processed_version_id:processed.id,annotation_version_id:null,figure_version_ids:[],
+ })
 })
 
 it('shows B03 QC metrics, explicit normalized/VST layers, heatmap outputs and manual outlier review',async()=>{

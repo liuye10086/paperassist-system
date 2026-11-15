@@ -26,6 +26,7 @@ x-worker: &worker
     PAPERASSIST_BULK_DISPLAY_RUNTIME_MANIFEST: /run/paperassist/bulk-display-runtime.json
     PAPERASSIST_BIO_STAGING_DIR: /bio-staging
     PAPERASSIST_BIO_INSIGHTS_STAGING_DIR: /bio-insights-staging
+    PAPERASSIST_RESEARCH_STAGING_DIR: /research-staging
   secrets:
     - source: database-url
       target: database-url
@@ -64,6 +65,9 @@ x-worker: &worker
       source: ${PAPERASSIST_BIO_INSIGHTS_STAGING_SOURCE}
       target: /bio-insights-staging
     - type: bind
+      source: ${PAPERASSIST_RESEARCH_STAGING_SOURCE}
+      target: /research-staging
+    - type: bind
       source: ${PAPERASSIST_STACK_DATA}
       target: /data
     - ${PAPERASSIST_PDF_FONTS}/arial.ttf:/usr/local/share/fonts/paperassist/arial.ttf:ro
@@ -99,6 +103,7 @@ services:
       <<: *worker-environment
       OPENAI_API_KEY_FILE: /run/secrets/model-api-key
       PAPERASSIST_WRITING_LIVE_ENABLED: ${PAPERASSIST_WRITING_LIVE_ENABLED:-0}
+      PAPERASSIST_READER_REPORT_MODEL_ENABLED: ${PAPERASSIST_READER_REPORT_MODEL_ENABLED:-0}
       PAPERASSIST_NCBI_CONFIG_FILE: /run/secrets/ncbi-config
       PAPERASSIST_WORKER_CONFIG_REVISION: ${PAPERASSIST_WORKER_CONFIG_REVISION}
       # Legacy endpoint/config name: local Word TOC/field updates only, no PDF generation.

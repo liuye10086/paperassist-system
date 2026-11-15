@@ -6,6 +6,7 @@ unknown fields and bulk identities remain in the unchanged evidence/sidecars.
 """
 import hashlib
 import json
+import re
 
 METHOD_PRESENTATION_VERSION = 'bio_insight_readable_v1'
 KINDS = {'integration', 'comparison', 'ora', 'gsea_prerank', 'candidate', 'figure', 'result_import'}
@@ -17,15 +18,79 @@ READER_INTERNAL_FIELDS = {'id', 'schema_version', 'workflow_version', 'engine_ve
     'source_id', 'source_ids', 'file_id', 'task_id', 'run_id', 'member_id', 'member_key',
     'primary_result_source_id', 'input_identity', 'row_key', 'provenance'}
 
+# Presentation labels only. The frozen parameters and raw result tables are not
+# rewritten, so scientific values and the full reproduction record stay intact.
+READER_LABELS = {
+    'raw_observations':('原始观测数','Original observations'),
+    'retained_observations':('保留观测数','Retained observations'),
+    'excluded_observations':('排除观测数','Excluded observations'),
+    'raw_features':('原始特征数','Original features'),'retained_features':('保留特征数','Retained features'),
+    'excluded_features':('排除特征数','Excluded features'),'clusters':('探索性分群数','Exploratory clusters'),
+    'hvg':('高变特征数','Highly variable features'),'hvg_count':('高变特征数','Highly variable features'),
+    'pca_components':('主成分数','Principal components'),'nnz':('非零表达值数量','Nonzero expression values'),
+    'target_sum':('每个观测的标准化总量','Normalization total per observation'),
+    'seed':('随机种子','Random seed'),'resolution':('聚类分辨率','Clustering resolution'),
+    'neighbors':('邻居数量','Number of neighbors'),'min_counts':('最低总计数','Minimum total counts'),
+    'max_counts':('最高总计数','Maximum total counts'),'min_genes':('最少检测基因数','Minimum detected genes'),
+    'min_gene_spots':('最少表达空间点数','Minimum expressing spots'),'min_spots':('最少保留空间点数','Minimum retained spots'),
+    'max_mt_fraction':('线粒体表达比例上限','Maximum mitochondrial fraction'),
+    'in_tissue_only':('仅保留组织内空间点','Keep only spots inside tissue'),
+    'mt_rule':('线粒体基因识别规则','Mitochondrial gene identification'),
+    'confirmed':('已确认','Confirmed'),'kind':('类型','Type'),'prefix':('基因名称前缀','Gene name prefix'),
+    'feature_ids':('基因列表','Gene list'),'exclude_barcodes':('手动排除观测列表','Manually excluded observations'),
+    'groups':('分组','Group'),'label':('名称','Name'),
+    'selected_samples':('选定样本数','Selected sample count'),'z_score':('逐特征标准化','Standardization'),
+    'marker_top_n':('每群展示的候选标志基因数','Displayed marker candidates per cluster'),
+    'tested_genes':('参与检验的基因数','Tested genes'),'correction':('多重检验校正','Multiple-testing correction'),
+    'BH_per_cluster_all_filtered_genes':('每群对全部过滤后基因进行 Benjamini–Hochberg 校正','Benjamini–Hochberg correction over all filtered genes within each cluster'),
+    'BH_predeclared_tests_NA_internal_one':('在预先定义的检验范围内进行 Benjamini–Hochberg 校正；无法计算的检验按保守值纳入校正，结果仍标为缺失','Benjamini–Hochberg correction over the predefined tests; non-computable tests use a conservative value for correction and remain missing in the results'),
+    'two_sided_rank_sum_normal_tie_corrected':('双侧秩和检验，采用正态近似并校正并列秩','Two-sided rank-sum test with a normal approximation and tie correction'),
+    'output_language':('图内语言','Figure language'),'zh-CN':('中文','Chinese'),'en':('英文','English'),
+    'spot':('空间点','Spatial spot'),'cell':('细胞','Cell'),'sample':('样本','Sample'),
+    'spots':('空间点','Spots'),'cells':('细胞','Cells'),'features':('特征','Features'),
+    'dataset':('整个数据集','Dataset'),'region':('区域','Region'),'unknown':('未明确','Unknown'),
+    'verified':('已核对','Verified'),'unverified':('未核对','Unverified'),'missing':('缺失','Missing'),
+    'exploratory':('探索性','Exploratory'),'descriptive':('描述性','Descriptive'),
+    'supported':('有证据支持','Supported'),'unresolved':('待核对','Unresolved'),
+    'system_candidate':('系统候选','System candidate'),'user_text':('用户整理','User-authored'),
+    'public_reanalysis':('公开数据重分析','Public-data reanalysis'),'external_result':('外部结果','External result'),
+    'literature':('文献','Literature'),'pending':('待审核','Pending review'),
+    'exclude':('不采用','Excluded'),'needs_evidence':('需补充证据','Additional evidence needed'),
+}
+
+
+def reader_label(value, language):
+    text='' if value is None else str(value)
+    labels=READER_LABELS.get(text)
+    return labels[language=='en'] if labels else text.replace('_',' ')
+
+
+def reader_prose(text):
+    """Remove embedded engineering identities from prose, never from raw data."""
+    text=re.sub(r'```.*?```','',str(text or ''),flags=re.S)
+    text=re.sub(r'(?i)(?:[·;；]?\s*(?:SHA(?:256)?|(?:code|environment|content)[_ ]digest)\s*[:=]?\s*)?\b[0-9a-f]{64}\b','',text)
+    text=re.sub(r'(?i)\b[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}\b','',text)
+    text=re.sub(r'(?i)\b(?:v|version\s+)\d+\.\d+(?:\.\d+)*\b','',text)
+    return text.strip(' ·;；')
+
 
 def reader_internal_field(key):
     return (key in READER_INTERNAL_FIELDS or key.endswith(('_sha256', '_digest', '_version_id', '_version_ids'))
             or key in ('sha256', 'digest'))
 
 
-def reader_method_value(value):
+def reader_method_value(value, en=False):
     if not isinstance(value, str):
         return value
+    scopes={'sample_inference':('样本层级统计推断','Sample-level inference'),
+            'sample_exploratory':('样本层级探索','Sample-level exploration'),
+            'spot_exploratory':('空间点层级探索','Spatial spot-level exploration'),
+            'cell_exploratory':('细胞层级探索','Cell-level exploration'),
+            'donor_inference':('供体层级统计推断','Donor-level inference')}
+    if value in scopes:return scopes[value][en]
+    if value=='groups[0] relative to groups[1]; omnibus has no single effect':
+        return ('The first selected group relative to the second; a test across multiple groups has no single effect direction'
+                if en else '首个选定组相对第二组；多组总体检验没有单一效应方向')
     if value.startswith('PyDESeq2_') and 'Wald' in value:
         return 'PyDESeq2 Wald'
     return value
@@ -71,7 +136,8 @@ def _details(value, en, path='', *, reader=False):
         lines = []
         for key, item in sorted(value.items()):
             if reader and reader_internal_field(key):continue
-            label = path + '.' + key if path else key
+            name=reader_label(key,'en' if en else 'zh-CN') if reader else key
+            label = path + (' / ' if reader else '.') + name if path else name
             if key in BULK_IDENTITIES and isinstance(item, list):
                 # A reference plus count/hash is exact and does not expose a
                 # large barcode/gene vector as a paragraph or spreadsheet cell.
@@ -89,11 +155,15 @@ def _details(value, en, path='', *, reader=False):
         return lines if reader else lines or [path + ': {}']
     if isinstance(value, list):
         if not value:
-            return [path + ': []']
+            return [path + ': '+(('None' if en else '无') if reader else '[]')]
         if all(not isinstance(item, (dict, list)) for item in value):
-            return [path + ': ' + ', '.join(_value(item) for item in value)]
-        return [line for i, item in enumerate(value, 1) for line in _details(item, en, f'{path}[{i}]',reader=reader)]
-    return [path + ': ' + _value(reader_method_value(value) if reader else value)]
+            return [path + ': ' + ', '.join(_value(reader_method_value(item,en)) if reader else _value(item) for item in value)]
+        return [line for i, item in enumerate(value, 1) for line in _details(item, en,
+                f'{path} {i}'.strip() if reader else f'{path}[{i}]',reader=reader)]
+    if reader:
+        shown=('Not set' if en else '未设置') if value is None else ('Yes' if en else '是') if value is True else ('No' if en else '否') if value is False else reader_label(reader_method_value(value,en),'en' if en else 'zh-CN')
+        return [path+': '+reader_prose(shown)]
+    return [path + ': ' + _value(value)]
 
 
 def _paragraphs(lines, label):
@@ -121,6 +191,55 @@ def _groups(groups):
 
 def _sample_groups(groups):
     return [dict(label=group.get('label'),selected_samples=len(group.get('sample_keys',[]))) for group in groups]
+
+
+def _composition_reader_method(method, language):
+    """Schema 5 counts cells within units; it is not the spatial DE contract."""
+    en=language=='en';p=method['parameters'];config=p['frozen_config']
+    descriptive=config['mode']=='descriptive'
+    single=descriptive and config['numerator']==config['denominator']
+    paragraphs=[('Cell proportions use all retained cells within each selected-condition unit as the denominator, including unknown, uncertain, conflicting, unlabeled and other labels. Known donors aggregate technical samples by donor × condition; without donor mapping, descriptive units remain sample × condition. Cell counts are not independent donor counts.' if en else
+        '细胞比例以每个选定条件单元内的全部保留细胞为分母，包含未知、不确定、冲突、未标注及其他标签。已知供体的技术样本按供体 × 条件合并；缺少供体映射时，描述性单元仍按样本 × 条件保留。细胞数不等于独立供体数。')]
+    if single:
+        paragraphs.append(('Single-condition description: ' if en else '单条件组成描述：')+str(config['denominator'])+
+            ('. No second group, between-condition difference or ratio is constructed.' if en else '。不构造第二组，不计算条件间差值或比值。'))
+    else:
+        paragraphs.append(('Selected comparison: ' if en else '选定条件比较：')+str(config['numerator'])+
+            (' relative to ' if en else ' 相对 ')+str(config['denominator'])+
+            ('. Differences and ratios describe mean unit-level proportions; unavailable conditions or zero denominators retain their missing or non-computable status.' if en else
+             '。差值和比值描述单元比例均值；条件缺失或分母为零时保留缺失或不可计算状态。'))
+    if descriptive:
+        paragraphs.append('No inferential test was requested; P values and adjusted P values remain missing. The description does not establish a donor-level difference.' if en else
+            '未请求推断检验，P 值及校正 P 值保持缺失；组成描述不能确立供体层差异。')
+    else:
+        paragraphs.append(('The model uses donors as the inference unit, with paired donors across conditions.' if config['mode']=='donor_paired' else
+                           'The model uses donors as the inference unit, with independent donors in each condition.') if en else
+                          ('模型以供体为推断单位，按跨条件的供体配对进行比较。' if config['mode']=='donor_paired' else
+                           '模型以供体为推断单位，比较各条件的独立供体。'))
+        status=p.get('inference_status')
+        shown={'ok':('已完成','completed'),'completed':('已完成','completed'),
+               'not_computable':('无法计算','not computable')}.get(status,('未记录','not recorded'))[en]
+        paragraphs.append(('Recorded inference status: ' if en else '记录的推断状态：')+shown+
+            ('. Missing test results must not be interpreted as significant.' if en else '。缺失检验结果不能解释为显著。'))
+    paragraphs.append('The accompanying results workbook preserves cell counts and denominators, donor-condition units, cell assignments and composition results. Label confirmation and interpretation remain tied to the saved annotation.' if en else
+        '随附结果工作簿保留细胞计数与分母、供体条件单元、逐细胞分配及组成结果。标签确认状态与解释依据保持对应已保存注释。')
+    return dict(title='Single-cell composition' if en else '单细胞组成',paragraphs=paragraphs)
+
+
+def _reader_ranking(value, language):
+    """Translate only saved ranking prose; the underlying order is unchanged."""
+    if not isinstance(value,str):return value
+    en=language=='en'
+    labels={'same-direction dependency-group support':('同方向依赖组支持数','same-direction dependency-group support'),
+            'absolute MLE log2 fold change':('极大似然估计的 log2 倍数变化绝对值','absolute MLE log2 fold change'),
+            'abs primary effect':('主比较效应绝对值','absolute primary effect'),
+            'stable feature ID':('稳定特征标识','stable feature identifier'),'stable ID':('稳定标识','stable identifier'),
+            'selected q':('选定 q 值','selected q value'),'primary q':('主比较 q 值','primary q value'),
+            'support':('支持数','support'),'conflict':('冲突数','conflict'),'unknown last':('未知值最后','unknown last')}
+    for name,translated in labels.items():
+        value=value.replace(name,translated[en])
+    value=re.sub(r'\bASC\b','ascending' if en else '升序',value)
+    return re.sub(r'\bDESC\b','descending' if en else '降序',value)
 
 
 def _qpcr_method(method, language, *, reference, duplicate_of=None, reader=False):
@@ -179,11 +298,99 @@ def _qpcr_method(method, language, *, reference, duplicate_of=None, reader=False
     return dict(title=title,paragraphs=paragraphs)
 
 
+def _single_cell_topic_reader_method(parameters, config, en):
+    method = config['method']
+    saved = parameters.get('parameters', {})
+    paragraphs = []
+
+    def settings(*fields):
+        lines = []
+        for zh, english, value in fields:
+            if value is None or value == '' or value == []:
+                continue
+            if isinstance(value, list):
+                value = ', '.join(str(item) for item in value)
+            lines.append(f'{english if en else zh} {value}')
+        paragraphs.extend(_paragraphs(lines, 'Recorded settings' if en else '已记录设置'))
+
+    if method == 'slingshot':
+        title = 'Slingshot trajectory inference' if en else 'Slingshot 轨迹推断'
+        representation = parameters.get('input_layer') or config.get('representation')
+        representation = {
+            'pca': ('PCA', 'PCA'), 'pca_unadjusted': ('未校正的 PCA', 'Unadjusted PCA'),
+            'pca_harmony': ('经 Harmony 校正的 PCA', 'Harmony-adjusted PCA'),
+        }.get(representation, ('未记录', 'Not recorded'))[en]
+        paragraphs.append('Slingshot estimates lineages and relative pseudotime from the saved representation, cluster assignments and declared root. '
+                          'Pseudotime orders cells within that model and does not measure elapsed time or establish causality. Uncovered cells retain missing pseudotime.'
+                          if en else 'Slingshot 根据已保存的表示、分群归属及指定根分群推断谱系和相对拟时序。拟时序描述模型内的细胞排序，不代表真实时间或因果关系。未覆盖细胞的拟时序保留缺失。')
+        settings(('表示','Representation',representation), ('根分群','Declared root cluster',config.get('root_cluster')),
+                 ('根的选择依据','Root selection basis',config.get('root_basis')),
+                 ('实际使用维数','Dimensions used',parameters.get('actual_components')),
+                 ('配置维数','Configured dimensions',config.get('n_components')),
+                 ('随机种子','Seed',config.get('seed')),
+                 ('谱系的分群顺序','Cluster order by lineage',[' → '.join(lineage) for lineage in parameters.get('lineage_clusters',[])]))
+    elif method == 'genie3':
+        title = 'GENIE3 regulatory network inference' if en else 'GENIE3 调控网络推断'
+        paragraphs.append('GENIE3 fits tree ensembles with the selected transcription factors and unintegrated log1p expression. '
+                          'The weights measure predictive importance, not P values or causal regulation. Agreement across the two seeds checks computational stability within the same data, not external replication.'
+                          if en else 'GENIE3 使用选定的转录因子及未整合的 log1p 表达拟合树模型集成。权重表示预测重要性，不代表 P 值或因果调控。两次种子结果的一致性只用于核对同一数据的计算稳定性，不能代替独立重复。')
+        genes = parameters.get('gene_ids',config.get('gene_ids'))
+        settings(('候选转录因子','Candidate transcription factors',parameters.get('tf_ids',config.get('tf_ids'))),
+                 ('转录因子选择依据','Basis for TF selection',parameters.get('tf_basis',config.get('tf_basis'))),
+                 ('选定基因数','Selected gene count',len(genes) if genes is not None else None),
+                 ('树数','Trees per fit',saved.get('n_trees',config.get('n_trees'))),
+                 ('主分析与稳定性种子','Primary and stability seeds',saved.get('seeds',[config['seed'],config['stability_seed']]
+                    if 'seed' in config and 'stability_seed' in config else None)))
+    else:
+        title = 'CellChat communication analysis' if en else 'CellChat 细胞通讯分析'
+        paragraphs.append('CellChat models ligand–receptor scores separately within each donor × condition unit, using log1p expression normalized from original counts. '
+                          'P values from cell permutations refer to the within-unit model. Modeled scores do not establish measured interactions.'
+                          if en else 'CellChat 使用从原始计数标准化后的 log1p 表达，在每个供体 × 条件单元内分别拟合配体–受体评分。细胞置换 P 值对应单元内模型；模型评分不证明实测相互作用。')
+        mode = config.get('communication_mode')
+        recorded_test = parameters.get('donor_test')
+        if mode == 'per_donor':
+            paragraphs.append('This setting describes the saved networks; no donor-level comparison was requested.'
+                              if en else '该设置描述已保存的通讯网络，未请求供体层比较。')
+        elif mode in ('paired', 'unpaired'):
+            tests = {
+                ('paired', 'paired_t'): ('按跨条件的完整供体配对采用配对 t 检验', 'a paired t test on complete donor pairs'),
+                ('unpaired', 'welch_t'): ('按各条件的独立供体采用 Welch t 检验', 'a Welch t test on independent donors'),
+            }
+            if (mode, recorded_test) in tests:
+                test = tests[mode, recorded_test][en]
+                paragraphs.append(f'The recorded donor-level comparison uses {test} for eligible edges. '
+                                  'The Benjamini–Hochberg adjustment, where available, covers the predefined computable edges.'
+                                  if en else f'记录的供体层比较仅对符合条件的边{test}。Benjamini–Hochberg 校正只纳入预先定义且能计算的边。')
+            conditions = config.get('condition_values', [])
+            if len(conditions) == 2:
+                settings(('比较方向','Comparison direction',f'{conditions[1]} − {conditions[0]}'))
+            paragraphs.append('The complete results give actual donor counts and test status for each edge. Edges marked not computable retain missing values.'
+                              if en else '完整结果按边记录实际纳入的供体数和检验状态。无法计算的边保留缺失值。')
+        resource = parameters.get('resource') or {}
+        resource_name = resource.get('resource_id') or config.get('lr_resource_id')
+        if resource_name == 'human-demo-literature-v1':
+            resource_name = ('人类文献配体–受体演示子集' if not en else 'Human ligand–receptor demonstration subset from the literature')
+        settings(('配体–受体资源','Ligand–receptor resource',resource_name), ('资源许可','Resource license',resource.get('license')),
+                 ('选定配体–受体条目','Selected ligand–receptor entries',saved.get('lr_ids',config.get('lr_ids'))),
+                 ('细胞置换次数','Cell permutations',saved.get('n_boot',config.get('n_boot'))),
+                 ('每组细胞数须严格超过','Cells per group must exceed',saved.get('min_cells_exclusive',config.get('min_cells'))),
+                 ('随机种子','Seed',saved.get('seed',config.get('seed'))))
+
+    labels = parameters.get('label_names', {})
+    settings(('选定分群','Selected clusters',config.get('cluster_ids')),
+             ('选定条件','Selected conditions',config.get('condition_values')),
+             ('选定标签','Selected labels',[labels.get(label,label) for label in config.get('label_ids',[])]),
+             ('标签依据','Label selection basis',parameters.get('label_basis') or config.get('label_basis')))
+    return dict(title=title, paragraphs=paragraphs)
+
+
 def present_method(method, language, *, reference='', duplicate_of=None, reader=False):
     """Return title/paragraphs for recognized methods only; no input mutation."""
     if not insight_method(method):
         return None
     en = language == 'en'; p = method['parameters']; config = p['frozen_config']; kind = config['kind']
+    if reader and kind=='integration' and config.get('schema_version')==2 and config.get('method') in ('slingshot','genie3','cellchat'):
+        return _single_cell_topic_reader_method(p,config,en)
     if kind=='candidate' and config.get('schema_version')==2:
         paragraphs=[('Complete candidate by evidence cross product; source statements, locator matching, human review and independent support remain separate. Matrix computation never upgrades a biological claim.' if en else '输出候选×证据完整交叉表。原文陈述、原件定位核对、人工核对与独立数据支持分开保存；系统整理矩阵不升级原文生物学断言。'),('Unknown is not negative or zero. Species, conditions and disease descendant categories are retained; mutation association does not establish knockout mechanisms.' if en else '未知不等于阴性或零分；保留物种、组织、条件和疾病后代类别差异，突变关联不等于敲除机制。'),('Independent support requires actual fixed result/run, independent material/design, matching object/control and a complete donor overlap audit. Different dependency groups alone prove no independence.' if en else '独立支持必须同时核实实际 run 与固定结果、独立材料和设计、对象与对照以及完整供体重叠核查；不同依赖组本身不证明独立。')]
         if not reader:paragraphs.extend([json.dumps(p.get('dependency_groups',{}),ensure_ascii=False),json.dumps(p.get('gaps',[]),ensure_ascii=False),str(reference)])
@@ -194,6 +401,8 @@ def present_method(method, language, *, reference='', duplicate_of=None, reader=
         return dict(title='Frozen cross-data integration' if en else '冻结对应与跨数据整合',paragraphs=paragraphs)
     if kind=='comparison' and config.get('schema_version')==3 and config.get('mode')=='qpcr':
         return _qpcr_method(method,language,reference=reference,duplicate_of=duplicate_of,reader=reader)
+    if reader and kind=='comparison' and config.get('schema_version')==5:
+        return _composition_reader_method(method,language)
     if kind=='comparison' and config.get('schema_version')==4:
         paragraphs=[str(p.get(key,'')) for key in ('chinese_methods','distance','ordination','limitations')]
         if not reader:paragraphs.extend([json.dumps(p.get('beta',{}),ensure_ascii=False),json.dumps(p.get('source_semantics',{}),ensure_ascii=False),str(reference)])
@@ -213,7 +422,9 @@ def present_method(method, language, *, reference='', duplicate_of=None, reader=
     if duplicate_of is not None:
         text = (f'Same scientific method as method block {duplicate_of}.' if en else f'科学方法与方法块 {duplicate_of} 相同。')
         return dict(title=title, paragraphs=[text] if reader else [text, origin, pointer])
-    paragraphs = [('Executed: ' if en else '已执行：') + _value(method['executed'])]
+    paragraphs = [((('Performed' if method['executed'] else 'Not performed') if en else
+                    ('已执行' if method['executed'] else '未执行')) if reader else
+                   ('Executed: ' if en else '已执行：') + _value(method['executed']))]
     scopes = [p.get('inference_scope'), *p.get('source_inference_scopes', []), *p.get('upstream_inference_scopes', [])]
     if config.get('mode') == 'spot_exploratory' or 'spot_exploratory' in scopes:
         paragraphs.append('Spot counts are not independent donors. Region enrichment is exploratory and does not establish pure cell identity, mechanism or independent validation.' if en else
@@ -222,19 +433,31 @@ def present_method(method, language, *, reference='', duplicate_of=None, reader=
         paragraphs.append('Groups were data-driven; testing the same expression data is not an independent confirmatory comparison.' if en else
                           '分组由数据驱动；在同一表达数据上检验不属于独立确认性比较。')
     if kind == 'comparison' and config.get('schema_version')==2:
-        paragraphs.append('The observation axis is sample. Two-group effects are groups[0] relative to groups[1]; omnibus tests have no single directional effect. Actual per-feature n_numerator/n_denominator and n_pairs are in comparison_results and feature_sample_counts; frozen group membership counts are before exclusions and missingness.' if en else
-            '观测轴为 sample。两组效应为 groups[0] 相对 groups[1]；多组 omnibus 无单一方向效应。每特征实际 n_numerator/n_denominator、n_pairs 见 comparison_results 与 feature_sample_counts；冻结组成员数为排除及缺失处理之前的数量。')
+        if reader:
+            paragraphs.append('Each observation is a sample. Two-group effects compare the first group relative to the second group in each listed contrast; tests across multiple groups have no single effect direction. Actual per-feature sample counts and the number of complete pairs are recorded in the accompanying results workbook. Listed group sizes are before exclusions and missing-value handling.' if en else
+                '每个观测代表一个样本。两组效应按下列每项对比中第一组相对第二组的方向计算；多组整体检验没有单一效应方向。每个特征实际纳入的样本数及完整配对数见随附结果工作簿；下列分组数量为排除和缺失处理之前的数量。')
+        else:
+            paragraphs.append('The observation axis is sample. Two-group effects are groups[0] relative to groups[1]; omnibus tests have no single directional effect. Actual per-feature n_numerator/n_denominator and n_pairs are in comparison_results and feature_sample_counts; frozen group membership counts are before exclusions and missingness.' if en else
+                '观测轴为 sample。两组效应为 groups[0] 相对 groups[1]；多组 omnibus 无单一方向效应。每特征实际 n_numerator/n_denominator、n_pairs 见 comparison_results 与 feature_sample_counts；冻结组成员数为排除及缺失处理之前的数量。')
         paragraphs.append('Missing values use per-feature complete cases or complete pairs, without imputation; zero is retained. LOD/nonrandom missingness can bias inference. Observational associations do not establish causality.' if en else
             '缺失按每特征完整观测或完整配对处理，不插补，零值保留；LOD/非随机缺失可能影响推断。观察关联不构成因果证据。')
         if config.get('inference_unit')=='technical':paragraphs.append('Technical measurement exploration only; independent biological n=0.' if en else '仅技术测量层探索；独立生物学 n=0。')
         if config.get('mode')=='bulk_counts':paragraphs.append('The model uses original integer counts. Library-size display normalization and explicit display/PCA transforms never replace model input. Model size factors, normalized counts, design and convergence are exported; no LFC shrinkage is applied. Original DESeq2 padj is separate from within-contrast/global predeclared BH q.' if en else
             '模型使用原始整数 counts；显示层 library-size 归一化及显式显示/PCA 变换不替代模型输入。完整导出模型 size factors、归一化 counts、设计及收敛诊断；不做 LFC shrinkage。原 DESeq2 padj 与预声明对比内/全局 BH q 分开。')
     elif kind == 'comparison':
-        paragraphs.append('Effects are numerator relative to denominator. Frozen group membership counts spots before exclusions, not the effective sample size. Effective spot/donor counts are in the fixed comparison_results table (spots_numerator/denominator, donors_numerator/denominator); donor counts are not recorded in this method metadata and must not be inferred from spots.' if en else
-                          '效应方向为分子组相对分母组。冻结分组成员数为排除前的 spot 数，不是有效样本量。实际 spot／供体数见固定 comparison_results 表（spots_numerator/denominator、donors_numerator/denominator）；本方法元数据未记录实际供体数，不能由 spot 数推算。')
+        if reader:
+            paragraphs.append('Effects compare the numerator group relative to the denominator group. Listed group sizes count spatial spots before exclusions, not the effective sample size. Effective spatial-spot and donor counts for each group are in the accompanying results workbook. Donor counts are not recorded in this method description and cannot be inferred from spot counts.' if en else
+                '效应方向为分子组相对分母组。下列分组数量为排除前的空间点数，不是有效样本量。各组实际纳入的空间点数和供体数见随附结果工作簿；本方法说明未记录实际供体数，不能由空间点数推算。')
+        else:
+            paragraphs.append('Effects are numerator relative to denominator. Frozen group membership counts spots before exclusions, not the effective sample size. Effective spot/donor counts are in the fixed comparison_results table (spots_numerator/denominator, donors_numerator/denominator); donor counts are not recorded in this method metadata and must not be inferred from spots.' if en else
+                              '效应方向为分子组相对分母组。冻结分组成员数为排除前的 spot 数，不是有效样本量。实际 spot／供体数见固定 comparison_results 表（spots_numerator/denominator、donors_numerator/denominator）；本方法元数据未记录实际供体数，不能由 spot 数推算。')
     if kind == 'ora':
-        paragraphs.append('Background and mapping exclusions are recorded below. Mapped background/foreground sizes and coverage are in the fixed ora_sets and mapping tables; classification counts may overlap and are not an additive denominator.' if en else
-                          '背景与映射排除规则见下文。映射后背景、前景大小与覆盖情况见固定 ora_sets 及映射表；分类计数可能重叠，不应相加作为分母。')
+        if reader:
+            paragraphs.append('Background and mapping exclusions are recorded below. Mapped background and foreground sizes and coverage are in the gene-set results and identifier-mapping sheets of the accompanying results workbook. Classification counts may overlap and must not be added together as a denominator.' if en else
+                '背景与映射排除规则见下文。映射后的背景、前景大小及覆盖情况见随附结果工作簿中的基因集结果和标识映射表；分类计数可能重叠，不应相加作为分母。')
+        else:
+            paragraphs.append('Background and mapping exclusions are recorded below. Mapped background/foreground sizes and coverage are in the fixed ora_sets and mapping tables; classification counts may overlap and are not an additive denominator.' if en else
+                              '背景与映射排除规则见下文。映射后背景、前景大小与覆盖情况见固定 ora_sets 及映射表；分类计数可能重叠，不应相加作为分母。')
     if kind == 'gsea_prerank':
         paragraphs.append('Use the complete signed ranking, not a significance-filtered gene list. Preserve empirical P = 0 as zero; it does not imply infinite significance. FDR follows the recorded GSEA joint-null family, not BH.' if en else
                           '使用完整有符号排序，不以显著基因筛选列表代替。经验 P = 0 保留为零，不代表无限显著性。FDR 按记录的 GSEA 联合零分布族计算，不是 BH。')
@@ -242,8 +465,12 @@ def present_method(method, language, *, reference='', duplicate_of=None, reader=
         paragraphs.append('Support counts express dependency-group consistency, not independent biological replication or a biological confidence probability.' if en else
                           '支持数表示依赖组的一致性，不等于独立生物学重复或生物学置信概率。')
     if kind == 'figure' and config.get('sample_groups'):
-        paragraphs.append('The plot uses individual selected samples with their frozen layer, units and missing mask; no group averaging or automatic log is performed. Explicit z_score applies only when recorded true, using measured values and sample SD. Distribution plots retain every measured point and report measured/missing n per group. Plotting does not refit the statistical model.' if en else
-            '图件读取选定样本的冻结处理层、单位及缺失掩码，不做组均值替代或自动 log。仅 z_score 明确为 true 时，按实测值及样本标准差计算。分布图保留每个实测点并标明各组实测/缺失 n；绘图不重新拟合统计模型。')
+        if reader:
+            paragraphs.append('The plot uses individual selected samples with their saved measurement layer, units and missing-value indicators; it does not average groups or apply an automatic logarithm. Standardization is applied only when explicitly selected, using measured values and the sample standard deviation. Distribution plots retain every measured point and report measured and missing counts for each group. Plotting does not refit the statistical model.' if en else
+                '图件读取选定样本的已保存处理层、单位及缺失标记，不以组均值替代样本，也不自动取对数。仅明确选择标准化时，按实测值及样本标准差进行标准化。分布图保留每个实测点并标明各组实测及缺失数量；绘图不重新拟合统计模型。')
+        else:
+            paragraphs.append('The plot uses individual selected samples with their frozen layer, units and missing mask; no group averaging or automatic log is performed. Explicit z_score applies only when recorded true, using measured values and sample SD. Distribution plots retain every measured point and report measured/missing n per group. Plotting does not refit the statistical model.' if en else
+                '图件读取选定样本的冻结处理层、单位及缺失掩码，不做组均值替代或自动 log。仅 z_score 明确为 true 时，按实测值及样本标准差计算。分布图保留每个实测点并标明各组实测/缺失 n；绘图不重新拟合统计模型。')
     elif kind == 'figure' and (p.get('actual_figure_type') or config.get('figure_type')) == 'heatmap':
         paragraphs.append('Heatmap values are group mean log1p expression; no row z-score is applied. Analysis is not rerun by plotting.' if en else
                           '热图数值为分组 mean log1p 表达；未进行逐行 z-score 标准化。绘图不重新执行统计分析。')
@@ -252,7 +479,8 @@ def present_method(method, language, *, reference='', duplicate_of=None, reader=
         paragraphs.append('Original external effects/P/q are preserved and not recomputed. System q recomputation is separate and explicitly recorded below; missing values remain NA, with custom missing tokens retained.' if en else
                           '外部原始效应、P/q 原值保留且未重算。系统 q 重算是独立字段，执行状态见下文；缺失值仍为 NA，并保留自定义缺失标记。')
         if recomputed is False:
-            paragraphs.append('System q was not recomputed (recomputed: false).' if en else '系统 q 未重算（recomputed: false）。')
+            paragraphs.append(('System q was not recomputed.' if en else '系统 q 未重算。') if reader else
+                              ('System q was not recomputed (recomputed: false).' if en else '系统 q 未重算（recomputed: false）。'))
     # No generic config dump: mode-specific scientific fields are explicit.
     # Missing is different from null, zero or false, and never filled by guesses.
     missing='not recorded; see fixed result tables' if en else '未记录；见固定结果表'
@@ -314,11 +542,17 @@ def present_method(method, language, *, reference='', duplicate_of=None, reader=
     elif kind=='candidate':
         fields('候选筛选规则','Candidate selection policy',('ranking_mode','set_step_policy','same_direction_comparability','support_count_definition','source_step_semantics'))
         if config.get('ranking_mode')=='weighted':
-            paragraphs.append('Actual weighted order: score_status complete → partial → unavailable, then score DESC within each status; the recorded ranking below is the tie-break for equal status and score.' if en else
-                              '实际加权排序：先按 score_status complete → partial → unavailable 分层，同层按 score DESC；下列记录的排序键仅用于同层同分时继续排序。')
-            add('同层同分排序键','Tie-break',{'tie_break':p.get('ranking',missing)})
+            if reader:
+                paragraphs.append('Weighted candidates are ordered by complete evidence, partial evidence, then unavailable evidence; within each category, higher scores come first. The ordering listed below resolves ties with the same evidence status and score.' if en else
+                    '加权候选先按完整证据、部分证据、证据不可用的顺序分层，同层按分数从高到低排列；下列排序规则用于证据状态及分数均相同时继续排序。')
+            else:
+                paragraphs.append('Actual weighted order: score_status complete → partial → unavailable, then score DESC within each status; the recorded ranking below is the tie-break for equal status and score.' if en else
+                                  '实际加权排序：先按 score_status complete → partial → unavailable 分层，同层按 score DESC；下列记录的排序键仅用于同层同分时继续排序。')
+            ranking=p.get('ranking',missing)
+            add('同层同分排序键','Tie-break',{'tie_break':_reader_ranking(ranking,language) if reader else ranking})
         else:
-            fields('实际候选排序','Actual candidate ranking',('ranking',))
+            ranking=values.get('ranking',missing)
+            fields('实际候选排序','Actual candidate ranking',('ranking',),{'ranking':_reader_ranking(ranking,language) if reader else ranking})
         dependency=p.get('dependencies',{})
         add('依赖与独立性','Dependency and independence',dict(independence_verified=dependency.get('independence_verified',missing),
             dependency_group_count=len(dependency['groups']) if 'groups' in dependency else missing,
@@ -390,6 +624,33 @@ def reader_method(method, language, *, duplicate_of=None):
     if shown is not None:return shown
     en=language=='en'
     status=('Performed' if en else '已执行') if method['executed'] else ('Not performed' if en else '未执行')
-    paragraphs=[text for text in (method.get('description'),status) if text]
-    paragraphs.extend(_paragraphs(_details(method.get('parameters',{}),en,reader=True),'Parameters' if en else '分析参数'))
-    return dict(title=method['title'],paragraphs=paragraphs)
+    description=method.get('description')
+    parameters=method.get('parameters',{})
+    title=method['title']
+    processed=method.get('source',{}).get('source_kind')=='bio_processed_dataset_version'
+    if processed and parameters.get('name')=='tabular_quantitative_v1':
+        title='Sample quantitative processing' if en else '样本定量处理方法'
+        if description in (parameters.get('description_en'),parameters.get('description_zh')):
+            description=(parameters.get('description_en' if en else 'description_zh') or description or '')
+            description=description.replace('raw_counts','raw counts' if en else '原始计数')
+        parameters={key:value for key,value in parameters.items() if key not in ('name','description_en','description_zh')}
+        if parameters.get('layers')=='raw, filtered, normalized and variance-stabilized layers retain explicit axes; analysis object is portable NPZ+JSON':
+            parameters['layers']=('Raw, filtered, normalized and variance-stabilized measurements keep their sample and feature axes'
+                                  if en else '原始、过滤后、标准化和方差稳定化层保留样本与特征轴')
+    elif processed and title=='sample_clustering':
+        title='Sample clustering' if en else '样本聚类'
+    paragraphs=[text for text in (description,status) if text]
+    if title=='过滤 / Filtering' and processed:
+        # The processing engine records its full configuration on the filter
+        # step. Distinguish the actual filtering rules from settings for later
+        # steps when displaying the frozen record.
+        filter_keys={'exclude_barcodes','in_tissue_only','min_counts','max_counts','min_genes',
+                     'min_spots','min_gene_spots','max_mt_fraction','mt_rule','mitochondrial_feature_ids'}
+        filtering={key: value for key,value in parameters.items() if key in filter_keys}
+        other={key: value for key,value in parameters.items() if key not in filter_keys and key!='output_language'}
+        paragraphs.extend(_paragraphs(_details(filtering,en,reader=True),'Filtering rules' if en else '筛选规则'))
+        paragraphs.extend(_paragraphs(_details(other,en,reader=True),'Other recorded analysis settings' if en else '其他已记录分析设置'))
+        if other:title='Filtering and recorded analysis settings' if en else '过滤与已记录分析设置'
+    else:
+        paragraphs.extend(_paragraphs(_details(parameters,en,reader=True),'Parameters' if en else '分析参数'))
+    return dict(title=title,paragraphs=paragraphs)

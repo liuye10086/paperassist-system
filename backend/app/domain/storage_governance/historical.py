@@ -43,6 +43,23 @@ def _metadata(row,column,prefix,suffix):
     return descriptor(value,key=_fixed(prefix,row['id'],suffix))
 
 
+def report_reference(db,row,*,collection=False):
+    value=mapping(row['report_json'])
+    if not value.get('reader_export'):
+        return _metadata(row,'report_json','collection_reports' if collection else 'reports','.docx')
+    column='collection_report_id' if collection else 'report_id'
+    member=db.execute(f'''SELECT o.object_key,m.sha256,m.size_bytes FROM statistics_legacy_report_exports e
+        JOIN research_report_versions v ON v.id=e.report_version_id AND v.project_id=e.project_id AND v.user_id=e.user_id
+        JOIN research_report_members m ON m.report_version_id=v.id AND m.project_id=e.project_id AND m.user_id=e.user_id AND m.role='docx'
+        JOIN storage_objects o ON o.id=m.storage_object_id AND o.state='present'
+        JOIN storage_references sr ON sr.object_id=o.id AND sr.project_id=e.project_id AND sr.owner_id=e.user_id
+        JOIN tasks t ON t.id=e.task_id AND t.status='succeeded'
+        WHERE e.{column}=%s AND m.sha256=o.sha256 AND m.size_bytes=o.size_bytes''',(row['id'],)).fetchone()
+    if not member or value.get('id')!=row['id'] or any(member[k]!=value[k] for k in ('sha256','size_bytes')):
+        raise s.invalid()
+    return descriptor(dict(member))
+
+
 def _rows(db,table,joins,where=''):
     return db.execute('SELECT to_jsonb(a) AS record,p.id AS project_id,p.owner_id FROM '+table+
         ' a '+joins+' JOIN projects p ON p.id=f.project_id '+where)
@@ -111,11 +128,11 @@ def references(db,root,failed,coverage,*,error_projects=None):
 
     for table,column,suffix,kind in (('figures','figure_json','.png','figure'),('reports','report_json','.docx','report')):
         yield from emit(_rows(db,table,'JOIN analysis_runs v ON v.id=a.analysis_run_id JOIN files f ON f.id=v.file_id'),kind,
-            lambda r,c=column,p=table,x=suffix:[_metadata(r,c,p,x)])
+            lambda r,c=column,p=table,x=suffix:[report_reference(db,r) if p=='reports' else _metadata(r,c,p,x)])
     collection=db.execute('''SELECT to_jsonb(a) AS record,p.id AS project_id,p.owner_id FROM collection_reports a
         JOIN report_collection_versions v ON v.id=a.version_id JOIN report_collections c ON c.id=v.collection_id
         JOIN projects p ON p.id=c.project_id AND p.owner_id=c.created_by''')
-    yield from emit(collection,'collection_report',lambda r:[_metadata(r,'report_json','collection_reports','.docx')])
+    yield from emit(collection,'collection_report',lambda r:[report_reference(db,r,collection=True)])
     manuscript=db.execute('''SELECT to_jsonb(a) AS record,p.id AS project_id,p.owner_id FROM manuscript_exports a
         JOIN manuscript_versions v ON v.id=a.version_id JOIN projects p ON p.id=v.project_id AND p.owner_id=v.user_id
         WHERE a.metadata_json IS NOT NULL''')

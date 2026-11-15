@@ -1,7 +1,7 @@
 import {sourceLabels,type Source,type SourceItem,type Selection} from './contracts'
 import {figureConfigName,resultFileName} from '../bioinformatics/bioPresentation'
 import type {SourceKind} from './contracts'
-const readerLabels:Record<SourceKind,string>={analysis_run:'统计分析结果',bio_insight_result_version:'差异、富集与候选结果',
+const readerLabels:Record<SourceKind,string>={bio_report_context:'固定报告选材',statistics_report_context:sourceLabels.statistics_report_context,analysis_run:'统计分析结果',bio_insight_result_version:'差异、富集与候选结果',
  bio_insight_result_member:'差异与富集成果文件',bio_processed_dataset_version:'生信分析结果',bio_analysis_artifact:'生信分析结果表',
  bio_figure_version:'生信图件',original_file:'原始文件',external_evidence_version:'外部结果',
  research_finding_version:'研究发现',research_figure_version:'研究图件',research_report_version:'研究报告'}

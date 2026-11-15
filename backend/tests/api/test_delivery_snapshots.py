@@ -107,7 +107,7 @@ def test_image_metadata_pdf_and_missing_dpi_do_not_invent_resolution():
     start=len(raw);raw+=b'xref\n0 4\n0000000000 65535 f \n'+b''.join(f'{v:010d} 00000 n \n'.encode() for v in offsets[1:])+b'trailer\n<< /Size 4 /Root 1 0 R >>\nstartxref\n'+str(start).encode()+b'\n%%EOF\n'
     pdf=image_properties(raw,'pdf');assert pdf['page_sizes_mm']==[[25.4,50.8]] and pdf['contains_raster'] is False and pdf['dpi_measured'] is None
 
-def test_grouped_report_members_reduce_full_reads_preserving_sha_scope_and_corruption(client,monkeypatch):
+def test_grouped_report_members_reduce_full_reads_preserving_sha_scope_and_corruption(client,monkeypatch, research_reader_narrative):
     """Static tiny member fixture; no report renderer or package executor is called."""
     from app.adapters.task_execution_store import TaskExecutionStore
     from app.adapters.task_store import DatasetTaskAssets
@@ -123,7 +123,7 @@ def test_grouped_report_members_reduce_full_reads_preserving_sha_scope_and_corru
     from psycopg.types.json import Jsonb
     base,path,body=setup_delivery(client);project=base.rsplit('/',1)[-1];delivery=path.rsplit('/',1)[-1]
     finding=client.post(base+'/research-findings',json=dict(title='Tiny static closure',sources=[dict(source_kind='original_file',source_id=body['members'][0]['file_id'])]),headers={'Idempotency-Key':'read-finding'}).json()
-    response=client.post(base+'/research-reports',json=dict(title='Static fixture only',finding_version_id=finding['id']),headers={'Idempotency-Key':'read-report'});assert response.status_code==201,response.text
+    response=client.post(base+'/research-reports',json=dict(title='Static fixture only',finding_version_id=finding['id'],reader_narrative_id=research_reader_narrative),headers={'Idempotency-Key':'read-report'});assert response.status_code==201,response.text
     report=response.json();repository=TaskExecutionStore();lease=repository.claim(report['task_id'],1,task_type='research_report');assert lease
     with repository.connection(write=True) as db:
         task=repository.require_lease(db,lease);assets=DatasetTaskAssets(task['user_id'],repository.config,get_data_dir());objects=ResearchObjects(assets.directory);members=[]
@@ -180,12 +180,12 @@ def test_opinion_round_identifier_requires_fixed_event_and_server_notices_are_ca
     assert any('region enriched' in str(v) for v in notices)
     assert any('pending' in str(v) for v in notices)
 
-def test_existing_report_task_records_observable_source_and_combined_render_stages(client,tmp_path):
+def test_existing_report_task_records_observable_source_and_combined_render_stages(client,tmp_path, research_reader_narrative):
     """Stop at the engine callback; no document/report/package is rendered."""
     base,path,body=setup_delivery(client)
     source=dict(source_kind='original_file',source_id=body['members'][0]['file_id'])
     finding=client.post(base+'/research-findings',json=dict(title='Progress fixture',sources=[source]),headers={'Idempotency-Key':'progress-finding'}).json()
-    report=client.post(base+'/research-reports',json=dict(title='Progress fixture',finding_version_id=finding['id']),headers={'Idempotency-Key':'progress-report'}).json()
+    report=client.post(base+'/research-reports',json=dict(title='Progress fixture',finding_version_id=finding['id'],reader_narrative_id=research_reader_narrative),headers={'Idempotency-Key':'progress-report'}).json()
     observed=[]
     def stop_at_engine(payload,output):
         with database_connection() as db:

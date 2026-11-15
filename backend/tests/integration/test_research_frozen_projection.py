@@ -4,7 +4,7 @@ import hashlib
 from tests.api.test_projects import client
 
 
-def test_legacy_finding_report_remain_readable_after_layers_projection_added(client, monkeypatch, tmp_path):
+def test_legacy_finding_report_remain_readable_after_layers_projection_added(client, monkeypatch, tmp_path, research_reader_narrative):
     from tests.integration.test_research_lineage_phases import processed
     from tests.integration.test_research_validation_efficiency import report_service
     from app.domain.research_results.sources import ResearchSourceReader
@@ -25,7 +25,7 @@ def test_legacy_finding_report_remain_readable_after_layers_projection_added(cli
             headers={'Idempotency-Key':'legacy-finding'})
         assert response.status_code == 201, response.text
         finding = response.json()
-        report = client.post(base+'/research-reports', json=dict(title='Legacy report', finding_version_id=finding['id']),
+        report = client.post(base+'/research-reports', json=dict(title='Legacy report', finding_version_id=finding['id'],reader_narrative_id=research_reader_narrative),
                              headers={'Idempotency-Key':'legacy-report'}).json()
         done = run_research_report_task(report['task_id'], report['task']['revision'], engine=render_report,
                                        staging_directory=tmp_path/'report-stage')

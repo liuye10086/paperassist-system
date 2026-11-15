@@ -6,6 +6,20 @@ from .sources import ResearchSourceReader
 from app.adapters.research_results_store import invalid
 
 
+def source_closure(sources, depth=0):
+    """The same finding/report source paths used by selection and table export."""
+    if depth > 16:
+        raise invalid()
+    for source in sources:
+        yield source
+        if source['source_kind'] in ('bio_report_context', 'statistics_report_context'):
+            continue
+        content = source.get('content', {})
+        yield from source_closure(content.get('sources', []), depth + 1)
+        if source['source_kind'] == 'research_report_version':
+            yield from source_closure(content.get('finding', {}).get('content', {}).get('sources', []), depth + 1)
+
+
 def collect_tables(reader,db,project,sources,*,progress=None):
     with VerificationPhase(db,reader.assets,project) as phase:
         return _collect_tables_in_phase(reader,db,project,sources,phase=phase,progress=progress)
@@ -14,10 +28,11 @@ def collect_tables(reader,db,project,sources,*,progress=None):
 @phase_guard
 def _collect_tables_in_phase(reader,db,project,sources,*,phase,progress=None):
     require_phase(phase,db,reader.assets,project)
-    processed=set();artifacts=set();insights=set();statistics={}
-    def visit(source,depth=0):
-        if depth>16:raise invalid()
+    processed=set();artifacts=set();insights=set();statistics={};contexts=[]
+    def visit(source):
         kind=source['source_kind'];content=source.get('content',{})
+        if kind in ('bio_report_context','statistics_report_context'):
+            contexts.append((kind,source['source_id']));return
         if kind=='analysis_run':statistics[source['source_id']]=source
         elif kind=='bio_processed_dataset_version':processed.add(source['source_id'])
         elif kind=='bio_analysis_artifact':artifacts.add(source['source_id'])
@@ -29,14 +44,20 @@ def _collect_tables_in_phase(reader,db,project,sources,*,phase,progress=None):
                 from app.adapters.bio_insights_store import BioInsightsStore
                 member=BioInsightsStore(reader.assets).require(db,'bio_insight_result_members',project,source['source_id'])
                 insights.add(member['result_version_id'])
-        for child in content.get('sources',[]):visit(child,depth+1)
-        if kind=='research_report_version':
-            for child in content.get('finding',{}).get('content',{}).get('sources',[]):visit(child,depth+1)
-    for source in sources:visit(source)
+    for source in source_closure(sources):visit(source)
     for identity in artifacts:
         row=reader.bio.require(db,'bio_analysis_artifacts',project,identity)
         processed.add(row['processed_dataset_version_id'])
     tables=[];raws=[];cells=0
+    if contexts:
+        from app.domain.bio_reader_reports import BioReaderReportService
+        from app.domain.statistics_reader_reports.service import StatisticsReaderReportService
+        services={'bio_report_context':BioReaderReportService,'statistics_report_context':StatisticsReaderReportService}
+        for kind,identifier in dict.fromkeys(contexts):
+            material=services[kind](reader.assets).export_material(db,project,identifier,phase=phase,progress=progress)
+            tables.extend(material['tables']);raws.extend(material['table_raws'])
+        cells=sum((t['expected_rows']+1)*len(t['columns']) for t in tables)
+        if cells>5_000_000:raise invalid('research_export_limit_exceeded',422)
     for identity in sorted(processed):
         if progress is not None:progress()
         _,manifest,members=reader.bio._processed_lineage_in_phase(db,project,identity,phase=phase,progress=progress)
@@ -81,6 +102,7 @@ def _collect_tables_in_phase(reader,db,project,sources,*,phase,progress=None):
                 tables.append(dict(key=member['key'],columns=columns,expected_rows=count,
                     source=dict(source_kind='bio_insight_result_member',source_id=member['id'],result_version_id=identifier),
                     sha256=member['sha256'],provenance=row['provenance'],inference_scope=row['inference_scope']))
+                if member['format']=='csv':tables[-1]['format']='csv'
                 raws.append(raw)
     from .contracts import FrozenResearchSource
     from .statistics_projection import statistics_tables

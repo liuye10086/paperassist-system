@@ -59,10 +59,10 @@ def tiny_pdf():
     start=len(raw);return raw+b'xref\n0 4\n0000000000 65535 f \n'+b''.join(f'{v:010d} 00000 n \n'.encode() for v in offsets)+b'trailer\n<< /Size 4 /Root 1 0 R >>\nstartxref\n'+str(start).encode()+b'\n%%EOF\n'
 
 
-def static_report(client,base,file_id,label):
+def static_report(client,base,file_id,label, research_reader_narrative):
     """Persist tiny declared bytes using existing publication, without executing a renderer."""
     finding=post(client,base+'/research-findings',dict(title=label,sources=[dict(source_kind='original_file',source_id=file_id)]),'finding-'+label).json()
-    report=post(client,base+'/research-reports',dict(title=label,finding_version_id=finding['id']),'report-'+label).json()
+    report=post(client,base+'/research-reports',dict(title=label,finding_version_id=finding['id'],reader_narrative_id=research_reader_narrative),'report-'+label).json()
     from app.adapters.task_execution_store import TaskExecutionStore
     from app.adapters.task_store import DatasetTaskAssets
     from app.adapters.research_objects import ResearchObjects
@@ -83,8 +83,8 @@ def static_report(client,base,file_id,label):
     return dict(report_id=report['id'],finding_id=finding['id'],member=member)
 
 
-def test_br03_pdf_report_finding_participates_in_cross_member_consistency(client,monkeypatch):
-    base,path,body=setup_delivery(client);file_id=body['members'][0]['file_id'];a=static_report(client,base,file_id,'A');b=static_report(client,base,file_id,'B')
+def test_br03_pdf_report_finding_participates_in_cross_member_consistency(client,monkeypatch, research_reader_narrative):
+    base,path,body=setup_delivery(client);file_id=body['members'][0]['file_id'];a=static_report(client,base,file_id,'A',research_reader_narrative);b=static_report(client,base,file_id,'B',research_reader_narrative)
     # The existing successful PDF download guard is a controlled boundary here;
     # this test targets only W3's cross-member research identity collection.
     from app.domain.pdf_exports.service import PdfExportService

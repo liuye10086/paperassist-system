@@ -81,35 +81,39 @@ class ResearchFindingService(ResearchResultsStore):
     def create(self,project,request,key,set_id=None):
         require_key(key);request=FindingVersionRequest.model_validate(request)
         if set_id is not None and set_id!=request.set_id:raise invalid('research_revision_conflict')
-        body=request.model_dump(mode='json');request_hash=digest(body)
         with self.store.connection(write=True) as db:
-            self.lock(db,project,'finding-key:'+key)
-            replay=db.execute('SELECT * FROM research_finding_versions WHERE project_id=%s AND user_id=%s AND request_key=%s',
-                (project,self.store.user_id,key)).fetchone()
-            if replay:
-                if replay['request_digest']!=request_hash:raise invalid('task_idempotency_conflict')
-                return self.view(db,project,dict(replay)),200
-            if request.set_id:
-                self.lock(db,project,'finding-root:'+request.set_id)
-                root=self.require(db,'research_finding_sets',project,request.set_id)
-                if root['revision']!=request.expected_revision:raise invalid('research_revision_conflict')
-                revision=root['revision']+1;parent=root['current_version_id'];root_id=root['id']
-            else:
-                root_id=identity(project,'finding-set',key);revision=1;parent=None
-            content,sources=self._content(db,project,request)
-            version_id=identity(project,'finding-version',key)
-            if not request.set_id:
-                insert(db,'research_finding_sets',{**base(root_id,project,self.store.user_id),'title':request.title,
-                    'revision':1,'current_version_id':None,'updated_at':now()})
-            insert(db,'research_finding_versions',{**base(version_id,project,self.store.user_id),'set_id':root_id,
-                'revision':revision,'parent_id':parent,'content_json':content,'content_sha256':digest(content),
-                'requirement_version_id':request.requirement_version_id,'design_version_id':request.design_version_id,
-                'request_key':key,'request_digest':request_hash})
-            for source in sources:self.bind(db,project,'finding',version_id,source)
-            changed=db.execute('UPDATE research_finding_sets SET title=%s,revision=%s,current_version_id=%s,updated_at=%s WHERE id=%s AND revision=%s',
-                (request.title,revision,version_id,now(),root_id,request.expected_revision or 1))
-            if changed.rowcount!=1:raise invalid('research_revision_conflict')
-            return self.view(db,project,self.require(db,'research_finding_versions',project,version_id)),201
+            return self._create_in_transaction(db,project,request,key)
+
+    def _create_in_transaction(self,db,project,request,key):
+        require_key(key);request=FindingVersionRequest.model_validate(request)
+        request_hash=digest(request.model_dump(mode='json'))
+        self.lock(db,project,'finding-key:'+key)
+        replay=db.execute('SELECT * FROM research_finding_versions WHERE project_id=%s AND user_id=%s AND request_key=%s',
+            (project,self.store.user_id,key)).fetchone()
+        if replay:
+            if replay['request_digest']!=request_hash:raise invalid('task_idempotency_conflict')
+            return self.view(db,project,dict(replay)),200
+        if request.set_id:
+            self.lock(db,project,'finding-root:'+request.set_id)
+            root=self.require(db,'research_finding_sets',project,request.set_id)
+            if root['revision']!=request.expected_revision:raise invalid('research_revision_conflict')
+            revision=root['revision']+1;parent=root['current_version_id'];root_id=root['id']
+        else:
+            root_id=identity(project,'finding-set',key);revision=1;parent=None
+        content,sources=self._content(db,project,request)
+        version_id=identity(project,'finding-version',key)
+        if not request.set_id:
+            insert(db,'research_finding_sets',{**base(root_id,project,self.store.user_id),'title':request.title,
+                'revision':1,'current_version_id':None,'updated_at':now()})
+        insert(db,'research_finding_versions',{**base(version_id,project,self.store.user_id),'set_id':root_id,
+            'revision':revision,'parent_id':parent,'content_json':content,'content_sha256':digest(content),
+            'requirement_version_id':request.requirement_version_id,'design_version_id':request.design_version_id,
+            'request_key':key,'request_digest':request_hash})
+        for source in sources:self.bind(db,project,'finding',version_id,source)
+        changed=db.execute('UPDATE research_finding_sets SET title=%s,revision=%s,current_version_id=%s,updated_at=%s WHERE id=%s AND revision=%s',
+            (request.title,revision,version_id,now(),root_id,request.expected_revision or 1))
+        if changed.rowcount!=1:raise invalid('research_revision_conflict')
+        return self.view(db,project,self.require(db,'research_finding_versions',project,version_id)),201
 
     def view(self,db,project,row,*,progress=None):
         content=self.verify_content(row)

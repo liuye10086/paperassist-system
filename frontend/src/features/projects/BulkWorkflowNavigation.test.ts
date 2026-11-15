@@ -62,3 +62,29 @@ it('round trips a linked single-cell original, topic intent and fixed insight hi
     expect(serializeNavigation(route!)).toBe(prefix+suffix)
   }
 })
+
+it('round trips fixed native report links and rejects unrelated or unsourced parameters',()=>{
+  const hash=prefix+'bio-reader-report&requirement=req-1&scope=customer.type.single_cell&intent=report&processed=processed1&tab=spatial&reportContext=context1&reportTask=task1'
+  const parsed=parseNavigation(hash)
+  expect(parsed?.analysisNavigation).toMatchObject({view:'bio-reader-report',processedId:'processed1',tab:'spatial',
+    entry:{requirementVersionId:'req-1',scopeItemId:'customer.type.single_cell'},intent:'report',reportContextId:'context1',reportTaskId:'task1'})
+  expect(parseNavigation(serializeNavigation(parsed!))).toEqual(parsed)
+  for(const suffix of [
+    'bio-reader-report','bio-reader-report&reportContext=context1&file=x',
+    'bio-reader-report&reportContext=context1&processed=processed1&resultVersionId=other',
+    'bio-result&processed=processed1&tab=qc&reportTask=task1',
+    'bulk-workflow&bulkView=differential&resultVersionId=de-v2&reportContext=context1',
+    'research-findings&reportContext=context1',
+  ])expect(parseNavigation(prefix+suffix)).toBeNull()
+  const source=prefix+'bulk-workflow&resultVersionId=de-v2&bulkView=delivery&reportContext=context1'
+  expect(parseNavigation(serializeNavigation(parseNavigation(source)!))).toEqual(parseNavigation(source))
+  const returnHash=hash.replace('&reportTask=task1','')
+  const artifact='#project=p1&section=artifacts&view=research-reports&artifact=formal1&reportReturn='+encodeURIComponent(returnHash)
+  expect(parseNavigation(artifact)?.artifactNavigation.reportReturn).toEqual(parseNavigation(returnHash)?.analysisNavigation)
+  expect(parseNavigation(artifact.replace('project=p1','project=other'))).toBeNull()
+  const task='#project=p1&section=tasks&view=result&task=task1&reportReturn='+encodeURIComponent(returnHash)
+  expect(parseNavigation(task)?.taskReportReturn).toEqual(parseNavigation(returnHash)?.analysisNavigation)
+  expect(parseNavigation(serializeNavigation(parseNavigation(task)!))).toEqual(parseNavigation(task))
+  expect(parseNavigation(task.replace('project=p1','project=other'))).toBeNull()
+  expect(parseNavigation(task.replace('&task=task1',''))).toBeNull()
+})

@@ -342,27 +342,45 @@ def build_single_cell_insight_report(identifier,manifest_sha256,config,manifest,
 
 def validate_report_figure(identifier,sha256,method,methods):
     from app.adapters.bio_insights_store import invalid
-    if (methods.get('figure_type')!='topic_'+method or methods.get('source_id')!=identifier
+    kind = methods.get('figure_type', '')
+    matches_type = kind == 'topic_' + method if method is not None else bool(kind) and not kind.startswith('topic_')
+    if (not matches_type or methods.get('source_id')!=identifier
             or methods.get('source_sha256')!=sha256 or methods.get('analysis_recomputed') is not False):
         raise invalid('bio_insight_source_conflict',409)
 
 
 def list_report_figures(store,project,identifier):
     from app.domain.bio_insights.results import BioInsightResultService,checked_members
-    from app.adapters.bio_insights_store import invalid
+    from app.core.exceptions import StorageError
+    from app.domain.reader_reports.content import _check_png
+
     service=BioInsightResultService(store)
     with service.store.connection() as db:
         original=service.require(db,'bio_insight_result_versions',project,identifier)
-        manifest,_=checked_members(service,db,project,original)
-        rows=db.execute("SELECT * FROM bio_insight_result_versions WHERE project_id=%s AND user_id=%s AND kind='figure' AND methods_json->>'source_id'=%s AND methods_json->>'source_sha256'=%s ORDER BY created_at DESC LIMIT 100",
+        checked_members(service,db,project,original)
+        plan = service.require(db, 'bio_insight_plan_versions', project, original['plan_version_id'])
+        config = plan['config_json']
+        topic_method = config['method'] if original['kind'] == 'integration' and config.get('schema_version') == 2 else None
+        rows=db.execute("SELECT * FROM bio_insight_result_versions WHERE project_id=%s AND user_id=%s AND kind='figure' AND methods_json->>'source_id'=%s AND methods_json->>'source_sha256'=%s ORDER BY created_at DESC,id LIMIT 100",
             (project,service.store.user_id,identifier,original['manifest_sha256'])).fetchall()
         output=[]
         for row in rows:
-            task=service.store.require_task(db,row['task_id'])
-            if task['status']!='succeeded':continue
-            methods=row['methods_json'];kind=methods.get('figure_type','')
-            if not kind.startswith('topic_') or methods.get('analysis_recomputed') is not False or 'png' not in methods.get('config',{}).get('formats',[]):continue
-            output.append(dict(id=row['id'],title=methods.get('config',{}).get('title',''),figure_type=kind,
+            methods = row['methods_json']
+            try:
+                validate_report_figure(identifier, original['manifest_sha256'], topic_method, methods)
+                manifest, members = checked_members(service, db, project, row)
+                png = next((m for m in members if m['key'] == 'figure_png' and m['role'] == 'figure'
+                            and m['format'] == 'png'), None)
+                if png is None or manifest.get('methods') != methods:
+                    continue
+                _check_png(service.objects.read(png))
+            except ValueError:
+                continue
+            except StorageError as exc:
+                if exc.status not in (404, 409, 422):
+                    raise
+                continue
+            output.append(dict(id=row['id'],title=methods.get('config',{}).get('title',''),figure_type=methods['figure_type'],
                 task_id=row['task_id'],manifest_sha256=row['manifest_sha256'],output_language=methods.get('config',{}).get('output_language'),source_id=identifier,source_sha256=original['manifest_sha256']))
         return dict(items=output)
 

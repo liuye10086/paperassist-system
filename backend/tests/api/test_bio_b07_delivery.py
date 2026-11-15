@@ -107,3 +107,34 @@ def test_archive_bytes_use_fixed_timestamps():
             assert all(info.date_time == (1980, 1, 1, 0, 0, 0) for info in packed.infolist())
     finally:
         archive.close()
+
+
+def test_stream_attachment_closes_handle_when_asgi_send_disconnects():
+    import asyncio
+    import tempfile
+
+    from starlette.requests import ClientDisconnect
+
+    from app.api.bulk_workflow import stream_attachment
+
+    async def disconnect(handle):
+        response = stream_attachment(handle, 'application/zip', {})
+
+        async def receive():
+            raise AssertionError('ASGI 2.4 does not use receive during streaming')
+
+        async def send(event):
+            if event['type'] == 'http.response.body':
+                raise OSError('fixture client disconnected')
+
+        try:
+            with pytest.raises(ClientDisconnect):
+                await response({'type': 'http', 'asgi': {'spec_version': '2.4'}}, receive, send)
+            assert handle.closed
+        finally:
+            await response.body_iterator.aclose()
+
+    with tempfile.TemporaryFile() as handle:
+        handle.write(b'Frozen test bytes')
+        handle.seek(0)
+        asyncio.run(disconnect(handle))

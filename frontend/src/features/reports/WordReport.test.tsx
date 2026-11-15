@@ -3,6 +3,8 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-libra
 import { afterEach, expect, it, vi } from 'vitest'
 import WordReport from './WordReport'
 import { setLocale } from '../../shared/i18n'
+import { setApiSession, clearApiSession } from '../../shared/api/client'
+import { readerEngine, readerPolicy, readerProjection, wordSha } from './statisticsReaderFixtures'
 const props = { base: '/file', runId: 'run', revision: 1, figureId: 'figure', explanationId: 'exp', canGenerate: true, disabled: false, onBusyChange: vi.fn() }
 const report = { id: 'report', analysis_run_id: 'run', figure_id: 'figure', explanation_id: 'exp', setup_revision: 1, source_sha256: 'source', figure_sha256: 'image', created_at: 'today', filename: '分析报告.docx', size_bytes: 2048, sha256: 'docx', language: 'zh-CN', engine: { id: 'word-v1', python_docx: '1' }, input_sha256: 'input' }
 const state = { current_revision: 1, is_current: true, ready: true, issues: [], report: null }
@@ -55,7 +57,7 @@ it('submits once then polls unified state without blocking the workspace and loa
   expect(screen.getByText(/等待生成 Word 报告/)).toBeTruthy()
   expect(generate().disabled).toBe(true); expect(busy).toHaveBeenLastCalledWith(false)
   const posts = fetch.mock.calls.filter(call => call[1]?.method === 'POST'); expect(posts).toHaveLength(1)
-  expect(new Headers(posts[0][1]?.headers).get('Idempotency-Key')).toBe('word-report-v1:exp:1')
+  expect(new Headers(posts[0][1]?.headers).get('Idempotency-Key')).toBe('word-report-r3:exp:1')
   await act(async () => { vi.advanceTimersByTime(3000) })
   expect(screen.getByRole('link', { name: '下载 Word 报告' })).toBeTruthy()
 })
@@ -221,4 +223,71 @@ it('protects an unresolved Word submission and permits explicit confirmation aft
  expect([...guards].every(g=>g())).toBe(false);expect(confirm).toHaveBeenCalled()
  confirm.mockReturnValue(true);expect([...guards].every(g=>g())).toBe(true)
  confirm.mockRestore();alert.mockRestore()
+})
+
+const readerBase = '/api/v1/projects/p1/files/f1'
+const detail = { ...report, id: 'detailed-doc', size_bytes: 200, sha256: wordSha,
+  engine: { id: readerEngine, python_docx: '1' }, ...readerProjection('word_report', 'word-task') }
+
+it('creates a detailed report beside a short historical Word and uses only its three protected members', async () => {
+  const initial = { ...state, output_policy: readerPolicy, historical_report: report }
+  const server = vi.fn(async (_url: string, init?: RequestInit) => Response.json(init?.method === 'POST'
+    ? { ...initial, report: detail, task: { ...task, project_id: 'p1', status: 'succeeded', result_report_id: detail.id } }
+    : initial))
+  vi.stubGlobal('fetch', server)
+  render(<WordReport {...props} base={readerBase} />)
+  const historical = await screen.findByRole('link', { name: '下载历史 Word 报告' })
+  expect(historical.getAttribute('href')).toBe(`${readerBase}/analysis-runs/run/report/report/download`)
+  expect(server.mock.calls.every(([, init]) => !init?.method)).toBe(true)
+  fireEvent.click(screen.getByRole('button', { name: '生成详细报告' }))
+  expect(await screen.findByText('Fixed results for this report.')).toBeTruthy()
+  expect(screen.getByText('Read the axes.')).toBeTruthy()
+  expect(screen.getByText('Descriptive evidence.')).toBeTruthy()
+  expect(screen.queryByText(/解读由模型生成/)).toBeNull()
+  expect(screen.getByRole('link',{name:'下载 Word 报告'}).getAttribute('href')).toBe(detail.members[0].download_url)
+  expect(screen.getByRole('link',{name:'下载 XLSX 结果表'}).getAttribute('href')).toBe(detail.members[1].download_url)
+  expect(screen.getByRole('link',{name:'下载复现资料（ZIP）'}).getAttribute('href')).toBe(detail.members[2].download_url)
+  expect(screen.getByRole('link',{name:'查看任务'}).getAttribute('href')).toContain('task=word-task')
+  expect(screen.getByRole('link', { name: '下载历史 Word 报告' }).getAttribute('href')).toBe(historical.getAttribute('href'))
+  const posts = server.mock.calls.filter(([,init])=>init?.method==='POST')
+  expect(posts).toHaveLength(1)
+  expect(new Headers(posts[0][1]?.headers).get('Idempotency-Key')).toBe('word-report-r3:exp:1')
+})
+
+it('keeps a replayed old POST artifact historical and does not identify it as detailed from the policy alone', async () => {
+  const initial = { ...state, output_policy: readerPolicy }
+  vi.stubGlobal('fetch', vi.fn(async (_url: string, init?: RequestInit) => Response.json(init?.method === 'POST'
+    ? { ...initial, report, task: { ...task, project_id: 'p1', status: 'succeeded', result_report_id: report.id } }
+    : initial)))
+  render(<WordReport {...props} base={readerBase} />)
+  const create = await screen.findByRole('button', { name: '生成详细报告' }) as HTMLButtonElement
+  await waitFor(() => expect(create.disabled).toBe(false))
+  fireEvent.click(create)
+  expect((await screen.findByRole('link', { name: '下载历史 Word 报告' })).getAttribute('href')).toMatch(/\/report\/report\/download$/)
+  expect(screen.queryByRole('region', { name: '详细报告解读' })).toBeNull()
+  expect(screen.queryByRole('link', { name: '下载 XLSX 结果表' })).toBeNull()
+})
+
+it.each([
+  { ...detail, reader_export: undefined },
+  { ...detail, figure_id: 'other-figure' },
+  { ...detail, members: detail.members.slice(0, 2) },
+  { ...detail, members: detail.members.map(m => ({ ...m, download_url: m.download_url.replace('/p1/', '/other/') })) },
+])('rejects an unbound or incomplete detailed projection', async invalid => {
+  vi.stubGlobal('fetch', vi.fn(() => json({ ...state, output_policy: readerPolicy, report: invalid })))
+  render(<WordReport {...props} base={readerBase} />)
+  expect(await screen.findByRole('alert')).toBeTruthy()
+  expect(screen.queryByRole('link')).toBeNull()
+})
+
+it('clears detailed text and protected file links when the API session changes', async () => {
+  setApiSession('report-session')
+  vi.stubGlobal('fetch', vi.fn(() => json({ ...state, output_policy: readerPolicy, report: detail })))
+  render(<WordReport {...props} base={readerBase} />)
+  try {
+    await screen.findByText('Fixed results for this report.')
+    act(() => clearApiSession())
+    expect(screen.queryByText('Fixed results for this report.')).toBeNull()
+    expect(screen.queryByRole('link')).toBeNull()
+  } finally { clearApiSession() }
 })

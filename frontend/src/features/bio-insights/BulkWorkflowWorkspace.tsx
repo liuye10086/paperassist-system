@@ -83,7 +83,7 @@ export default function BulkWorkflowWorkspace({projectId,navigation,active,allow
     {view==='differential'&&data&&<BulkSensitivity key={navigation.resultVersionId??'default'} projectId={projectId} comparisons={comparisons}
       initialId={navigation.resultVersionId} onReviewed={value=>setReviewed({byComparison:{...sensitivity,[value.baseline_version_id]:value}})}/>}
     {view==='delivery'&&data&&<BulkDelivery {...{projectId,comparisons,files,outputLanguage,onNavigate,sensitivity,deliveryTarget}}
-      descendants={data.descendants} initialId={navigation.resultVersionId}/>}
+      descendants={data.descendants} initialId={navigation.resultVersionId} location={navigation} reportContextId={navigation.reportContextId}/>}
   </section>
 }
 

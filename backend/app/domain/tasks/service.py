@@ -48,6 +48,9 @@ class TaskService:
         digest = request_digest(request)
         with self.store.connection(write=True) as db:
             project = self.store.require_project(db, project_id)
+            if request.task_type == 'word_report':
+                from app.domain.statistics_reader_reports.legacy_exports import lock_submission
+                lock_submission(db, project_id, request)
             existing = self.store.find_request(db, project_id, request.task_type, idempotency_key)
             if existing:
                 if existing['input_digest'] != digest:
@@ -149,7 +152,17 @@ class TaskService:
                         input_snapshot=snapshot, workflow_version=workflow_version(request.task_type, snapshot), status='queued',
                         phase={'boxplot': 'compute', 'explanation': 'interpret', 'word_report': 'export'}[request.task_type],
                         revision=1, current_attempt=0, reason_code=None, created_at=now, updated_at=now)
+            if request.task_type == 'word_report':
+                from app.adapters.task_store import DatasetTaskAssets
+                from app.domain.statistics_reader_reports.legacy_exports import StatisticsLegacyReportService, reusable_task, bind_request
+                reused = reusable_task(db, self.store, project_id, request, idempotency_key, digest)
+                if reused:return self.store.public_task(reused), False
+                reader = StatisticsLegacyReportService(DatasetTaskAssets(self.store.user_id,self.store.config))
+                frozen = reader.freeze_task(db,task)
             self.store.insert_task(db, task)
+            if request.task_type == 'word_report':
+                reader.bind_task(db,task,frozen)
+                bind_request(db,task,idempotency_key,digest)
             bind(db,kind='task',object_id=task['id'],version=configuration)
             frozen_budget = snapshot.get('explanation_policy') or snapshot.get('boxplot_policy')
             if frozen_budget is not None:

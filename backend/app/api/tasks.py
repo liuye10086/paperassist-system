@@ -88,6 +88,14 @@ def retry_task(task_id: str, request: RetryRequest, store: Store):
         from app.domain.journals.service import retry_in_transaction
         with store.connection(write=True) as db:
             return retry_in_transaction(store,db,store.require_task(db,task_id),request.expected_revision)
+    if task_type == 'reader_report_narrative':
+        from app.domain.reader_reports.execution import retry_in_transaction
+        with store.connection(write=True) as db:
+            task = store.require_task(db, task_id)
+            if task['status'] != 'failed':
+                from app.core.exceptions import StorageError
+                raise StorageError('task_transition_invalid', '待办须使用共同恢复入口。', 409)
+            return retry_in_transaction(store, db, task, request.expected_revision)
     if task_type=='school_rule_suggestion':
         from app.domain.school_templates.suggestion_execution import retry_in_transaction
         with store.connection(write=True) as db:

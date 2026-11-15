@@ -437,7 +437,7 @@ export default function ProjectWorkspace({ analysisOnly = false }: { analysisOnl
           <ProjectLiterature projectId={project.id} researchTopic={project.research_topic} outputLanguage={project.default_output_language??'zh-CN'} active={view==='project'&&section==='literature'} initialSearchId={selection.literatureSearchId} onSearchChange={selection.selectLiterature} onOpenTask={selection.selectTask} literatureNavigation={selection.literatureNavigation} onLiteratureNavigate={selection.selectLiteratureView} registerLeaveGuard={selection.registerLeaveGuard}/>
         </>}
         <ProjectTasks assigned={assigned} detailView={selection.taskDetailView} onDetailViewChange={selection.selectTaskDetailView} registerLeaveGuard={selection.registerLeaveGuard} onOpenJournals={analysisOnly?undefined:()=>changeSection('journals')} onOpenManuscripts={analysisOnly?undefined:()=>changeSection('manuscripts')} onOpenFiles={() => changeSection('files')} projectId={project.id} active={view === 'project' && section === 'tasks'}
-          selectedTaskId={selection.taskId} onSelectTask={openTask} onBackToResults={assigned && showingTaskResult ? openResults : undefined}
+          selectedTaskId={selection.taskId} taskReportReturn={selection.taskReportReturn} onSelectTask={openTask} onBackToResults={assigned && showingTaskResult ? openResults : undefined}
           onOpenLiterature={analysisOnly?undefined:selection.selectLiterature} />
         <ProjectResources analysisOnly={analysisOnly} assigned={assigned} assignmentRevision={assigned ? project.assignment_revision : undefined}
           analystWorkspace={assigned ? analyst : undefined} headerAction={showingAnalystExecution || showingAnalystResults && section === 'analysis' ? returnToListButton : undefined}

@@ -40,7 +40,9 @@ type ProgressFormProps = { projectId: string; requirementId: string; workspace: 
 function ProgressForm({ projectId, requirementId, workspace, materialsOnly = false }: ProgressFormProps & { materialsOnly?: boolean }) {
   const { t } = useI18n()
   const value = workspace.value!
-  const [draft, setDraft] = useResearchDraft<ProgressDraft | null>(projectId, `analyst-progress:${value.assignment_revision}:${requirementId}`, () => null)
+  // Each form owns its draft; keep the original progress key for existing drafts.
+  const draftKind = materialsOnly ? 'analyst-materials' : 'analyst-progress'
+  const [draft, setDraft] = useResearchDraft<ProgressDraft | null>(projectId, `${draftKind}:${value.assignment_revision}:${requirementId}`, () => null)
   const synchronized = draft && draft.status === value.status && draft.note.trim() === (value.note ?? '')
   useEffect(() => {
     if (synchronized) setDraft(null)

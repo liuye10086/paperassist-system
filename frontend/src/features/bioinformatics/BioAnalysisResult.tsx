@@ -2,8 +2,10 @@ import SingleCellRobustness,{type RepeatContext} from './SingleCellRobustness'
 import SingleCellDirectStart from './SingleCellDirectStart'
 import SingleCellAnnotationWorkspace from './SingleCellAnnotationWorkspace'
 import SingleCellIntegrationResult from './SingleCellIntegrationResult'
-import ProjectDownloadLink from '../../shared/components/ProjectDownloadLink'
-import NativeDeliveryArtifact,{type NativeDeliveryTarget} from '../analyst/NativeDeliveryArtifact'
+import type {NativeDeliveryTarget} from '../analyst/NativeDeliveryArtifact'
+import type {ReportLocation} from '../bio-reader-reports/navigation'
+import {useBioReportContext} from '../bio-reader-reports/useBioReportContext'
+import ProcessedReaderReport from './ProcessedReaderReport'
 import TabularAnalysisResult from './TabularAnalysisResult'
 import type {TabularProcessed} from './tabularContracts'
 import BioQcSummary from './BioQcSummary'
@@ -32,11 +34,21 @@ const resultKeys={
  clusters:/cluster|cell_label|cell_sample|pseudobulk/,
  markers:/marker|feature/,
 }
-export default function BioAnalysisResult({projectId,processedId,tab,onNavigate,registerLeaveGuard,qualityMode=false,allowNewAnalysis=true,deliveryTarget,entry}:{projectId:string;processedId:string;entry?:AnalysisEntryContext;deliveryTarget?:NativeDeliveryTarget;tab:BioResultTab;onNavigate:(n:AnalysisNavigation)=>void;registerLeaveGuard?:RegisterLeaveGuard;qualityMode?:boolean;allowNewAnalysis?:boolean}){
+export default function BioAnalysisResult({projectId,processedId,tab,onNavigate,registerLeaveGuard,qualityMode=false,allowNewAnalysis=true,deliveryTarget,entry,location,reportContextId,active=true}:{
+ projectId:string;processedId:string;entry?:AnalysisEntryContext;deliveryTarget?:NativeDeliveryTarget;tab:BioResultTab;
+ onNavigate:(n:AnalysisNavigation)=>void;registerLeaveGuard?:RegisterLeaveGuard;qualityMode?:boolean;allowNewAnalysis?:boolean;
+ location?:ReportLocation;reportContextId?:string;active?:boolean
+}){
  const {t}=useI18n(),read=useBioRead<BioProcessed|TabularProcessed>(`${projectBase(projectId)}/bio-processed-datasets/${encodeURIComponent(processedId)}`),data=read.value
  const [repeat,setRepeat]=useState<RepeatContext|null>(null)
+ const fixed=useBioReportContext(projectId,reportContextId,active,context=>context.selection.kind==='processed'
+  &&context.selection.processed_version_id===processedId&&(!context.selection.annotation_version_id||tab==='spatial'))
+ const restored=fixed.data??undefined
+ const restoredAnnotationId=restored?.selection.kind==='processed'?restored.selection.annotation_version_id:null
+ if(fixed.error)return <p role="alert">{t(fixed.error)} <button type="button" onClick={fixed.refresh}>{t('重新读取')}</button></p>
+ if(active&&fixed.loading)return <p role="status">{t(fixed.loadingMessage)}</p>
  if(!data)return <section className="bio-workspace"><h2>{t('生信分析处理结果')}</h2><p role={read.error?'alert':'status'}>{t(read.error||'正在读取固定版本……')}</p><button onClick={read.reload}>{t('重新读取')}</button></section>
- if(data.id===processedId&&data.source.schema_version===2)return <TabularAnalysisResult qualityMode={qualityMode} projectId={projectId} result={data as TabularProcessed} tab={tab} onNavigate={onNavigate}/>
+ if(data.id===processedId&&data.source.schema_version===2)return <TabularAnalysisResult {...{qualityMode,projectId,tab,onNavigate,active,location,deliveryTarget,restored}} result={data as TabularProcessed}/>
  if(data.id!==processedId||!isProcessedBioSource(data.source,projectId)||data.source.processed_dataset_version_id!==processedId)return <p role="alert">{t('固定来源身份不匹配，请重新打开。')}</p>
  const singleCell=data.manifest.assay==='single_cell'
  const result=data as BioProcessed
@@ -46,11 +58,9 @@ export default function BioAnalysisResult({projectId,processedId,tab,onNavigate,
    <div><h2>{t(singleCell?'单细胞分析处理结果':'空间分析处理结果')}</h2>
     <p>{t('基于已导入的研究资料')}</p>
    </div>
-   {singleCell&&<div className="bio-result-toolbar" aria-label={t('分析结果与 Word')}>
-    <ProjectDownloadLink href={`${projectBase(projectId)}/bio-processed-datasets/${encodeURIComponent(processedId)}/report.docx`} filename={t('单细胞分析报告')+'.docx'}>{t('下载 Word 分析报告')}</ProjectDownloadLink>
-    <NativeDeliveryArtifact {...{projectId,deliveryTarget}} source={{kind:'single_cell_word',version_id:processedId}} name={t('单细胞分析报告')+'.docx'}/>
-   </div>}
   </header>
+  <ProcessedReaderReport {...{projectId,result,active,location,deliveryTarget}} restored={restoredAnnotationId?undefined:restored}
+   title={singleCell?'单细胞分析报告':'空间分析报告'}/>
   {!allowNewAnalysis&&<p role="status">{t('新分析条件尚未就绪；已有结果仍可查看下载，请先核对材料并保存需求。')}</p>}
   <p className="bio-result-scope">{t(singleCell?'cell 不代表独立 donor；marker 和人工标签是探索性结果，技术重复不会增加 n。':'spot 或组织片段不代表独立供体；marker 仅为探索性区域或 cluster 关联。')}</p>
   {!qualityMode&&singleCell&&entry?.scopeItemId==='customer.analysis.single_cell.pseudotime'&&
@@ -85,7 +95,7 @@ export default function BioAnalysisResult({projectId,processedId,tab,onNavigate,
      </>}
     </div></section>
    </ModuleView>}
-  </ModuleViews>:tab==='spatial'&&singleCell?<SingleCellAnnotationWorkspace allowNewAnalysis={allowNewAnalysis} deliveryTarget={deliveryTarget} key={data.id} projectId={projectId} result={result} onNavigate={onNavigate} registerLeaveGuard={registerLeaveGuard}/>
+  </ModuleViews>:tab==='spatial'&&singleCell?<SingleCellAnnotationWorkspace {...{allowNewAnalysis,deliveryTarget,projectId,result,onNavigate,registerLeaveGuard,active,location}} key={data.id+':'+(restored?.id??'')} restored={restoredAnnotationId?restored:undefined}/>
    :tab==='spatial'?<BioSpatialResult allowNewAnalysis={allowNewAnalysis} projectId={projectId} result={result} onNavigate={onNavigate} registerLeaveGuard={registerLeaveGuard}/>
    :<ModuleViews lazy key={tab} label={t(labels[tab])}>
     {tab==='qc'&&<ModuleView id="summary" title={t('QC 概况')}>

@@ -13,6 +13,9 @@ from app.domain.tasks.legacy import job_data, mapped_status
 # Root/current-version pointers are deliberately not used for version resolution.
 PROJECT_TABLES = (
     'tasks', 'external_evidence_versions', 'research_finding_versions',
+    'bio_report_context_versions', 'bio_report_context_files', 'bio_report_context_requests',
+    'statistics_report_context_versions', 'statistics_report_context_files',
+    'statistics_report_context_items', 'statistics_report_context_requests', 'statistics_legacy_report_exports','statistics_legacy_export_requests',
     'research_figure_versions', 'research_report_versions', 'research_manuscript_candidates',
     'manuscript_research_sources', 'research_source_bindings', 'delivery_snapshots',
     'manuscript_versions', 'manuscript_figure_language_versions', 'manuscript_school_changes',
@@ -24,6 +27,8 @@ PROJECT_TABLES = (
     'review_opinion_task_links', 'review_analysis_adoptions', 'review_figure_adoptions', 'pdf_exports',
 )
 SOURCE_TABLES = {
+    'bio_report_context': 'bio_report_context_versions',
+    'statistics_report_context': 'statistics_report_context_versions',
     'original_file': 'files', 'research_finding_version': 'research_finding_versions',
     'research_figure_version': 'research_figure_versions', 'research_report_version': 'research_report_versions',
     'bio_processed_dataset_version': 'bio_processed_dataset_versions', 'bio_dataset_version': 'bio_dataset_versions',
@@ -63,6 +68,8 @@ def read_metadata_counts(db, file, user_id):
     for table, columns in (
         ('manuscript_sources', {'version_id': 'manuscript_versions'}),
         ('school_template_sources', {'template_version_id': 'school_template_versions'}),
+        ('bio_report_context_files', {'context_id':'bio_report_context_versions'}),
+        ('statistics_report_context_files', {'context_id':'statistics_report_context_versions'}),
         ('research_source_bindings', {'finding_version_id': 'research_finding_versions',
                                     'figure_version_id': 'research_figure_versions', 'report_version_id': 'research_report_versions'}),
     ):
@@ -150,6 +157,7 @@ def read_metadata_counts(db, file, user_id):
     for table, kind in (('figure_jobs', 'plot'), ('explanation_jobs', 'explanation')):
         legacy.extend(dict(r, kind=kind, project_id=project) for r in db.execute(
             'SELECT j.*,r.setup_revision FROM '+table+' j JOIN analysis_runs r ON r.id=j.analysis_run_id WHERE r.file_id=%s', (file_id,)))
-    return dict(tasks=len(tasks), active_tasks=sum(t['status'] in ACTIVE for t in tasks)+sum(mapped_status(job_data(j)) in ACTIVE for j in legacy),
+    return dict(bio_report_context_versions=len(selected['bio_report_context_versions']),
+        statistics_report_context_versions=len(selected['statistics_report_context_versions']),tasks=len(tasks), active_tasks=sum(t['status'] in ACTIVE for t in tasks)+sum(mapped_status(job_data(j)) in ACTIVE for j in legacy),
         external_evidence_versions=db.execute('SELECT count(*) AS n FROM external_evidence_versions WHERE file_id=%s', (file_id,)).fetchone()['n'],
         prepared_dataset_derivations_v3=db.execute('SELECT count(*) AS n FROM prepared_dataset_derivations_v3 d JOIN prepared_dataset_versions v ON v.id=d.prepared_dataset_id WHERE v.file_id=%s', (file_id,)).fetchone()['n'])

@@ -54,7 +54,8 @@ def collection_task_artifact(task_store,db,task,*,directory=None):
         JOIN report_collection_versions v ON v.id=r.version_id WHERE q.task_id=%s''',(task['id'],)).fetchone()
     if not row: return None
     metadata,_=repository.download(task['project_id'],row['collection_id'],row['report_json']['id'])
-    return {'filename':metadata['filename'],'download_url':f"/api/v1/projects/{task['project_id']}/report-collections/{row['collection_id']}/reports/{metadata['id']}/download"}
+    return {'filename':metadata['filename'],'download_url':f"/api/v1/projects/{task['project_id']}/report-collections/{row['collection_id']}/reports/{metadata['id']}/download",
+            **{key:metadata[key] for key in ('reader_export','reader_report','members') if key in metadata}}
 
 
 def input_version(task):

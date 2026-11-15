@@ -3,13 +3,14 @@ import { useI18n, apiError, safeError } from '../i18n'
 import { useEffect, useRef, useState, type MouseEvent, type ReactNode } from 'react'
 import { apiFetch, captureApiSession, onApiSessionChanged } from '../api/client'
 import { captureProjectAccess } from '../api/projectAccess'
-type Props = { nativePrepared?:boolean; timeoutMs?:number; href: string; filename: string; children: ReactNode; ariaLabel?: string; postBody?:unknown; onHttpError?: (status: number, body: unknown) => void }
+type Props = { nativePrepared?:boolean; preparedFactsDigest?:string; timeoutMs?:number; href: string; filename: string; children: ReactNode; ariaLabel?: string; postBody?:unknown; onHttpError?: (status: number, body: unknown) => void }
 export default function ProjectDownloadLink(props: Props) {
   return <DownloadLink key={props.href} {...props} />
 }
 
-function DownloadLink({ href, filename, children, ariaLabel, postBody, nativePrepared=false, onHttpError, timeoutMs=STANDARD_REQUEST_TIMEOUT_MS }: Props) {
+function DownloadLink({ href, filename, children, ariaLabel, postBody, nativePrepared=false, preparedFactsDigest, onHttpError, timeoutMs=STANDARD_REQUEST_TIMEOUT_MS }: Props) {
   const { t } = useI18n()
+  const post = nativePrepared || postBody !== undefined
   const [checkSession] = useState(captureApiSession)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
@@ -40,9 +41,9 @@ function DownloadLink({ href, filename, children, ariaLabel, postBody, nativePre
     }
     try {
       const result = await Promise.race([
-        apiFetch(href, { signal: controller.signal, ...(postBody===undefined?{}:{
-          method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(postBody),
-        }) }).then(async response => {
+        apiFetch(href, {signal:controller.signal, ...(post?{method:'POST'}:{}), ...(postBody===undefined?{}:{
+          headers:{'Content-Type':'application/json'},body:JSON.stringify(postBody),
+        })}).then(async response => {
           if (!response.ok) {
             const body = await response.json().catch(() => null)
             // Reject stale responses before notifying the owning context. A 401 already
@@ -53,9 +54,11 @@ function DownloadLink({ href, filename, children, ariaLabel, postBody, nativePre
           }
           if (nativePrepared) {
             const body = await response.json()
-            const prefix = href.replace(/\/prepare\/(word|archive)$/, '/prepared/$1/')
+            const bulkReport=href.endsWith('/bulk-reproduction/prepare')
+            const prefix = bulkReport?href.slice(0,-'prepare'.length):href.replace(/\/prepare\/(word|archive)$/, '/prepared/$1/')
             if (prefix === href || typeof body?.download_url !== 'string'
-                || !body.download_url.startsWith(prefix) || !/^[a-f0-9]{64}$/.test(body.download_url.slice(prefix.length))) {
+                || !body.download_url.startsWith(prefix) || !/^[a-f0-9]{64}$/.test(body.download_url.slice(prefix.length))
+                || bulkReport&&(body.artifact_id!==body.download_url.slice(prefix.length)||body.facts_digest!==preparedFactsDigest)) {
               throw new Error('下载失败，请重试。')
             }
             return body.download_url as string
@@ -88,7 +91,7 @@ function DownloadLink({ href, filename, children, ariaLabel, postBody, nativePre
       if (active.current) setBusy(false)
     }
   }
-  return <>{postBody===undefined
+  return <>{!post
     ?<a href={href} aria-label={ariaLabel} aria-busy={busy} aria-disabled={busy} onClick={onLinkClick}>{children}</a>
     :<button type="button" aria-label={ariaLabel} aria-busy={busy} disabled={busy} onClick={()=>void download()}>{children}</button>}
     {busy && <span role="status">{t("正在下载……")} {t("大文件可能需要数分钟，请保持页面打开。")}</span>}{error && <span role="alert" className="error-panel">{t(error)}</span>}</>

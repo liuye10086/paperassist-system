@@ -46,11 +46,18 @@ class ResearchSourceReader(ResearchResultsStore):
             'bio_figure_version':('object','image'),'original_file':('object','cell','page','image'),
             'external_evidence_version':('object',),'research_finding_version':('object',),
             'research_report_version':('object',),'research_figure_version':('object','image'),
-            'bio_insight_result_version':('object','field','image'),'bio_insight_result_member':('object','row','image')}
+            'bio_insight_result_version':('object','field','image'),'bio_insight_result_member':('object','row','image'),
+            'bio_report_context':('object',),'statistics_report_context':('object',)}
         if selection.locator.kind not in allowed[kind]:raise invalid('research_locator_invalid',422)
         if kind!='original_file' and (selection.locator.parse_version_id or selection.locator.original_sha256):
             raise invalid('research_locator_invalid',422)
-        if kind=='analysis_run':
+        if kind=='bio_report_context':
+            from app.domain.bio_reader_reports import BioReaderReportService
+            value=BioReaderReportService(self.assets).source_value(db,project,selection.source_id,phase=phase,progress=progress)
+        elif kind=='statistics_report_context':
+            from app.domain.statistics_reader_reports.service import StatisticsReaderReportService
+            value=StatisticsReaderReportService(self.assets).source_value(db,project,selection.source_id,phase=phase,progress=progress)
+        elif kind=='analysis_run':
             from .statistics_sources import read_statistics_source
             value=read_statistics_source(self,db,project,selection,progress=progress)
         elif kind in ('bio_processed_dataset_version','bio_analysis_artifact'):
@@ -79,6 +86,10 @@ class ResearchSourceReader(ResearchResultsStore):
                 value=self.verify_content(row);sha=row['content_sha256']
                 if kind=='research_report_version':
                     if not row['manifest_object_id']:raise invalid('research_source_incomplete',422)
+                    producer=self.store.require_task(db,row['task_id'])
+                    if producer['task_type']!='research_report':
+                        from app.domain.statistics_reader_reports.legacy_exports import StatisticsLegacyReportService
+                        StatisticsLegacyReportService(self.assets).association(db,producer)
                     from .reports import ResearchReportService
                     ResearchReportService(self.assets).checked_members(db,project,row,progress=progress)
             if kind!='research_finding_version':self._completed(db,row['task_id'])
@@ -217,7 +228,7 @@ class ResearchSourceReader(ResearchResultsStore):
                 return result
             except ValueError as exc:raise invalid('research_output_invalid',422) from exc
         if source.source_kind in ('original_file','external_evidence_version'):return project_external_facts(source)
-        if source.source_kind=='research_finding_version':
+        if source.source_kind in ('research_finding_version','bio_report_context','statistics_report_context'):
             return ResearchFactCatalog(source=source,**{k:source.content.get(k,[]) for k in ('facts','methods','gaps','warnings','limitations','conflicts') if k!='conflicts'})
         return ResearchFactCatalog(source=source)
 

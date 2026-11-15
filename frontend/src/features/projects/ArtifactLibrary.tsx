@@ -4,12 +4,16 @@ import { artifactFilename } from '../../shared/components/artifactFilename'
 import ProjectDownloadLink from '../../shared/components/ProjectDownloadLink'
 import type { ArtifactNavigation } from './analysisViews'
 import type { ProjectSummaryData, SummaryArtifact } from './projectSummaryTypes'
+import StatisticsReportDownloads from '../reports/StatisticsReportDownloads'
+import {statisticsFormalReportHref,statisticsReaderEngine,validReaderExportFiles} from '../reports/statisticsReaderExport'
 
 type Props = { showNavigation?:boolean; projectId:string; data:ProjectSummaryData; navigation:ArtifactNavigation; onNavigate:(next:ArtifactNavigation)=>void }
 export default function ArtifactLibrary({projectId,data,navigation,onNavigate,showNavigation=true}:Props) {
   const {t,locale}=useI18n();const [detailView,setDetailView]=useState('summary')
   const filename=(item:SummaryArtifact)=>item.collection_id?t('集合报告-v{version}-导出{export}.docx',{version:item.collection_revision!,export:item.export_revision!}):artifactFilename(item.download_filename,item.kind,item.id,item.setup_revision,locale)
   const selected=data.artifacts.items.find(item=>item.id===navigation.artifactId&&item.kind===navigation.kind)
+  const reportFiles=selected?.kind==='report'&&selected.engine_version===statisticsReaderEngine
+    &&validReaderExportFiles(selected,projectId,selected.collection_id?'collection_word_report':'word_report')?selected:null
   const pages=Math.max(1,Math.ceil(data.artifacts.total/10))
   const list=()=>onNavigate({...navigation,view:'list',artifactId:'',kind:''})
   return <div className="artifact-library">
@@ -32,6 +36,8 @@ export default function ArtifactLibrary({projectId,data,navigation,onNavigate,sh
     {navigation.view==='detail'&&(selected?<section className="artifact-detail" aria-label={t('成果详情')}>
       <div className="artifact-detail-heading"><div><span className="workspace-eyebrow">{t(selected.kind==='figure'?'PNG 图表':'Word 分析报告')}</span><h4>{filename(selected)}</h4><p>{selected.collection_title??selected.filename}</p></div>
         <ProjectDownloadLink href={selected.download_url} filename={filename(selected)} ariaLabel={t('下载成果 {name}',{name:filename(selected)})}>{t('下载文件')}</ProjectDownloadLink></div>
+      {reportFiles&&<><StatisticsReportDownloads files={reportFiles} filename={filename(selected)} includeWord={false}/>
+        <p><a href={statisticsFormalReportHref(projectId,reportFiles.reader_export.report_version_id)}>{t('查看固定研究成果')}</a></p></>}
       <nav className="result-view-tabs" aria-label={t('成果详情视图')}><button type="button" onClick={list}>{t('返回成果列表')}</button>{[['summary','成果信息'],['sources','来源与校验']].map(([key,label])=><button type="button" key={key} aria-pressed={detailView===key} onClick={()=>setDetailView(key)}>{t(label)}</button>)}</nav><dl className="artifact-detail-grid" hidden={detailView!=='summary'}><div><dt>{t('来源文件')}</dt><dd>{selected.filename}</dd></div>
         <div><dt>{t('记录时间')}</dt><dd>{new Date(selected.recorded_at).toLocaleString(locale)}</dd></div>
         <div><dt>{t('成果类型')}</dt><dd>{t(selected.collection_id?'同源多结果集合':selected.kind==='figure'?'PNG 图表':'Word 分析报告')}</dd></div>

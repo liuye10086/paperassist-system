@@ -98,7 +98,7 @@ export default function useProjectSelection(onUnavailable: (id: string) => void,
             if (next.section !== 'files') next = { ...next, resourceNavigation: routeRef.current.resourceNavigation };
             if(next.section!=='overview'||next.overviewView!=='deliveries')next={...next,deliveryId:routeRef.current.deliveryId,deliverySnapshotId:routeRef.current.deliverySnapshotId};
             if (next.section !== 'reviews') next = {...next,reviewLink:routeRef.current.reviewLink,reviewView:routeRef.current.reviewView,reviewItemId:routeRef.current.reviewItemId};
-            if (next.section !== 'tasks') next = {...next,taskId:routeRef.current.taskId,taskDetailView:routeRef.current.taskDetailView};
+            if (next.section !== 'tasks') next = {...next,taskId:routeRef.current.taskId,taskDetailView:routeRef.current.taskDetailView,taskReportReturn:routeRef.current.taskReportReturn};
             if (next.section !== 'analysis') next = { ...next, analysisNavigation: routeRef.current.analysisNavigation };
             if (next.section !== 'artifacts') next = { ...next, artifactNavigation: routeRef.current.artifactNavigation };
             if (next.section !== 'manuscripts') next = { ...next, manuscriptView: routeRef.current.manuscriptView, manuscriptLink: routeRef.current.manuscriptLink, researchCandidateId: routeRef.current.researchCandidateId, writingSource:routeRef.current.writingSource, writingDeliveryId:routeRef.current.writingDeliveryId };
@@ -351,7 +351,7 @@ export default function useProjectSelection(onUnavailable: (id: string) => void,
     }
     function selectTask(id: string, detailView: TaskDetailView = 'overview') {
         if (!id || isTaskId(id))
-            navigate({ ...routeRef.current, projectId: current.current?.id ?? '', workspaceView: 'project', section: 'tasks', taskId: id, taskDetailView: detailView });
+            navigate({ ...routeRef.current, projectId: current.current?.id ?? '', workspaceView: 'project', section: 'tasks', taskId: id, taskDetailView: detailView,taskReportReturn:undefined });
     }
     function selectTaskDetailView(taskDetailView:TaskDetailView) {
         if (routeRef.current.taskId) navigate({...routeRef.current,projectId:current.current?.id ?? '',workspaceView:'project',section:'tasks',taskDetailView});
@@ -434,7 +434,7 @@ export default function useProjectSelection(onUnavailable: (id: string) => void,
         if (parseNavigation(serializeNavigation(next))) navigate(next);
     }
     return { instance, project: detail?.instance === instance ? detail?.project ?? null : null, error: failure?.instance === instance ? failure?.message ?? '' : '', loading, unavailableId, open, refresh, update, close, returnToList,
-        reviewView:route.reviewView,reviewItemId:route.reviewItemId,taskDetailView:route.taskDetailView,
+        reviewView:route.reviewView,reviewItemId:route.reviewItemId,taskDetailView:route.taskDetailView,taskReportReturn:route.taskReportReturn,
         selectReviewView,selectReviewItem,selectReviewRun,selectReviewDocument,selectTaskDetailView,
         manuscriptView:route.manuscriptView,journalView:route.journalView,schoolTemplateNavigation:route.schoolTemplateNavigation,
         researchCandidateId:route.researchCandidateId,writingSource:route.writingSource,writingDeliveryId:route.writingDeliveryId,startWritingSelection,selectWritingSource,selectWritingDelivery,

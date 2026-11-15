@@ -351,6 +351,8 @@ storage_disposable_fixtures,storage_deletion_operations,storage_deletion_items,s
 
 from .school_suggestion_schema import define_school_suggestion_table
 school_rule_suggestions=define_school_suggestion_table(metadata)
+from .reader_report_schema import define_reader_report_tables
+reader_report_narratives, reader_report_narrative_requests = define_reader_report_tables(metadata)
 
 from app.db.research_intake_schema import define_research_intake_tables
 research_intakes,research_deliveries,research_requirement_versions,research_design_versions,research_material_refs=define_research_intake_tables(metadata)
@@ -362,6 +364,12 @@ define_bio_analysis_tables(metadata)
 
 from app.db.research_results_schema import define_research_results_tables
 define_research_results_tables(metadata)
+
+from .bio_report_context_schema import define_bio_report_context_tables
+define_bio_report_context_tables(metadata)
+
+from .statistics_report_context_schema import define_statistics_report_context_tables
+define_statistics_report_context_tables(metadata)
 
 from app.db.bio_insights_schema import define_bio_insights_tables
 define_bio_insights_tables(metadata)
@@ -383,3 +391,6 @@ analysis_request_receipts=define_analysis_request_receipts(metadata)
 
 from app.db.delivery_artifact_schema import define_delivery_artifact_sources
 delivery_artifact_sources = define_delivery_artifact_sources(metadata)
+
+from .statistics_legacy_export_schema import define_statistics_legacy_exports
+define_statistics_legacy_exports(metadata)

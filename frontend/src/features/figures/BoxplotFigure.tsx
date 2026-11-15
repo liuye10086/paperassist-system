@@ -20,7 +20,7 @@ type Task = { id: string; status: 'queued' | 'running' | 'waiting_input' | 'wait
   revision: number; reason_code: string | null; error_code: string | null; result_figure_id?: string | null }
 type State = {generation_compatible?:boolean; current_revision: number | null; is_current: boolean; figure: Figure | null; job: Job | null; task?: Task | null }
 type Config = { configured: boolean; model: string | null; message: string; message_code?: string; message_params?: Record<string, string | number> }
-type Props = {artifactVersion?:4;planSha?:string;comparison?:boolean;legacyFallbackAllowed?:boolean; figureKind?:'boxplot'|'scatter'|'correlation_heatmap'|'group_boxplot'|'paired_connected'|'forest'|'roc_curve'|'kaplan_meier';outputLanguage?:'zh-CN'|'en';modern?:boolean; source?: DatasetAnalysisSource; filename?: string; base: string; runId: string; revision: number; canGenerate: boolean; disabled: boolean; onBusyChange: (busy: boolean) => void }
+type Props = {artifactVersion?:4;planSha?:string;comparison?:boolean;legacyFallbackAllowed?:boolean; figureKind?:'boxplot'|'scatter'|'correlation_heatmap'|'group_boxplot'|'paired_connected'|'forest'|'roc_curve'|'kaplan_meier';outputLanguage?:'zh-CN'|'en';modern?:boolean; source?: DatasetAnalysisSource; filename?: string; base: string; runId: string; revision: number; canGenerate: boolean; canExportSavedReport?: boolean; disabled: boolean; onBusyChange: (busy: boolean) => void }
 async function rawRequest<T>(url: string, controller: AbortController, init?: RequestInit): Promise<T> {
   let timer = 0
   try {
@@ -47,7 +47,7 @@ function needsPoll(value: State) {
   return value.task ? ['queued', 'running'].includes(value.task.status) || value.task.status === 'succeeded'
     : value.job?.status === 'submitting' || value.job?.status === 'running'
 }
-function FigurePanel({ base, runId, revision, canGenerate, disabled, onBusyChange, source, filename, figureKind='boxplot', outputLanguage='zh-CN', modern=false,comparison=false,artifactVersion,planSha,legacyFallbackAllowed=false }: Props) {
+function FigurePanel({ base, runId, revision, canGenerate, canExportSavedReport=canGenerate, disabled, onBusyChange, source, filename, figureKind='boxplot', outputLanguage='zh-CN', modern=false,comparison=false,artifactVersion,planSha,legacyFallbackAllowed=false }: Props) {
   const { t } = useI18n()
   const figureLabel=figureKind==='paired_connected'?'配对连接图':figureKind==='group_boxplot'?'组间箱线图':figureKind==='forest'?'效应森林图':figureKind==='roc_curve'?'ROC 曲线':figureKind==='kaplan_meier'?'Kaplan–Meier 生存曲线':figureKind==='scatter'?'散点图':figureKind==='correlation_heatmap'?'相关热力图':'箱线图'
   const request = useCallback(async <T,>(url: string, controller: AbortController, init?: RequestInit): Promise<T> => {
@@ -91,6 +91,7 @@ function FigurePanel({ base, runId, revision, canGenerate, disabled, onBusyChang
   const originalRecovery=legacyRecover||!!(storageFailure&&storageRetry)
   const running = !!state && needsPoll(state)
   const hasCurrentFigure=!!state?.figure&&state.generation_compatible!==false
+  const currentFigure = hasCurrentFigure && !!state?.is_current && state.current_revision === revision && state.figure?.setup_revision === revision
   const unknown = !hasCurrentFigure && (task ? task.reason_code === 'submission_unknown' : state?.job?.status === 'uncertain')
   const unavailable = !hasCurrentFigure && task?.error_code === 'model_response_not_found'
   const expired = !hasCurrentFigure && task?.error_code === 'plot_container_expired'
@@ -277,7 +278,8 @@ function FigurePanel({ base, runId, revision, canGenerate, disabled, onBusyChang
     {state && !figure && !state.job && !task && <p>{t('尚未生成此统计结果的{figure}。',{figure:t(figureLabel)})}</p>}
   </section></WorkflowStage>
     {figure ? <AnalysisExplanation base={base} runId={runId} revision={revision} figureId={figure.id} source={figure.source} filename={filename} outputLanguage={figure.language??'zh-CN'} comparison={comparison} artifactVersion={artifactVersion} planSha={planSha} figureSha={figure.sha256} modern={['openai_analysis_plot_v2','openai_comparison_plot_v3','openai_modeling_plot_v4'].includes(figure.engine?.id)}
-      canGenerate={canGenerate && state?.generation_compatible!==false && !!state?.is_current && state.current_revision === revision && figure.setup_revision === revision}
+      canGenerate={canGenerate && currentFigure}
+      canExportSavedReport={canExportSavedReport && currentFigure && figure.analysis_run_id===runId}
       disabled={disabled || loading || busy || !!error} onBusyChange={setExplanationBusy} />
       : !loading && !error && <>
         <WorkflowStage stage="explanation"><section className="analysis-explanation artifact-panel">

@@ -8,9 +8,12 @@ import {useI18n,safeError,type Locale} from '../../shared/i18n'
 import {onApiSessionChanged} from '../../shared/api/client'
 import {type DatasetAnalysisSource} from '../analysis/datasetSource'
 import ProjectDownloadLink from '../../shared/components/ProjectDownloadLink'
+import {ReportNarrativeView} from '../research-results/ResearchReportNarrative'
+import StatisticsReportDownloads from '../reports/StatisticsReportDownloads'
+import {statisticsReaderPolicy,statisticsReportTaskHref,validStatisticsReaderExport} from '../reports/statisticsReaderExport'
 import {workbenchRequest} from '../figure-workbench/api'
 import {object,text} from '../figure-workbench/contracts'
-import {bundleId,bundleTitle,bundleCaption,bundleLanguage,sameCollectionScope,reorderItems,isBundle,isCollection,isExport,type Bundle,type Collection,type CollectionVersion} from './contracts'
+import {bundleId,bundleTitle,bundleCaption,bundleLanguage,sameCollectionScope,reorderItems,isBundle,isCollection,isExport,type Bundle,type Collection,type CollectionVersion,type ExportRequest} from './contracts'
 type Props={taskLayout?:boolean;registerLeaveGuard?:RegisterLeaveGuard;projectId:string;fileId:string;source:DatasetAnalysisSource;language:Locale;currentRunId?:string;refreshKey?:number;disabled?:boolean}
 type Preview={schema_version:1;language:Locale;items:Bundle[];ready:boolean;missing:{figure_id:string;kind:string}[];sections:{key:string;title:string;content:unknown}[]}
 const sectionKeys=['overview','quality','processing','methods','statistics','figures','explanations','findings','summary']
@@ -29,7 +32,7 @@ function Collections({projectId,fileId,source,language,currentRunId,refreshKey=0
  useEffect(()=>{alive.current=true;const activeControllers=controllers.current;const stop=onApiSessionChanged(()=>{activeControllers.forEach(c=>c.abort());setSession(false);setCollections([]);setCandidates([]);setSelected([]);setPreview(null)});return()=>{alive.current=false;activeControllers.forEach(c=>c.abort());stop()}},[])
  useEffect(()=>{if(!session)return;const c=new AbortController();const activeControllers=controllers.current;activeControllers.add(c);let timer=0
   async function read(){if(action.current){timer=window.setTimeout(()=>void read(),4000);return}try{
-   const [options,list]=await Promise.all([workbenchRequest(`${base}/candidates?file_id=${encodeURIComponent(fileId)}`,c.signal,(v):v is {items:Bundle[]}=>object(v)&&Array.isArray(v.items)&&v.items.every(isBundle)),workbenchRequest(base,c.signal,(v):v is {items:Collection[]}=>object(v)&&Array.isArray(v.items)&&v.items.every(isCollection))])
+   const [options,list]=await Promise.all([workbenchRequest(`${base}/candidates?file_id=${encodeURIComponent(fileId)}`,c.signal,(v):v is {items:Bundle[]}=>object(v)&&Array.isArray(v.items)&&v.items.every(isBundle)),workbenchRequest(base,c.signal,(v):v is {items:Collection[]}=>object(v)&&Array.isArray(v.items)&&v.items.every(item=>isCollection(item,projectId)))])
    if(!alive.current||c.signal.aborted)return;setCandidates(options.items.filter(inScope));setCollections(list.items.filter(item=>item.versions.some(v=>v.items.every(inScope))));setLoaded(true);setError('');if(list.items.some(item=>item.versions.some(v=>v.requests.some(r=>['waiting','queued'].includes(r.status)))))timer=window.setTimeout(()=>void read(),4000)
   }catch(e){if(alive.current&&!c.signal.aborted){setError(safeError(e,'图表与报告请求失败，请重新读取后重试。'));setLoaded(true)}}}void read();return()=>{c.abort();activeControllers.delete(c);window.clearTimeout(timer)}
   // Scope is immutable for the component lifetime; polling only reads durable state.
@@ -37,14 +40,13 @@ function Collections({projectId,fileId,source,language,currentRunId,refreshKey=0
  },[refreshKey,attempt,session])
  async function perform(work:(signal:AbortSignal)=>Promise<void>){if(action.current||disabled||!session)return;const c=new AbortController();controllers.current.add(c);action.current=true;setBusy(true);setError('');const timer=window.setTimeout(()=>c.abort(),30000);try{await work(c.signal)}catch(e){if(alive.current)setError(c.signal.aborted?'请求未确认，请重新读取后核对，勿重复创建任务。':safeError(e,'图表与报告请求失败，请重新读取后重试。'))}finally{window.clearTimeout(timer);controllers.current.delete(c);action.current=false;if(alive.current)setBusy(false)}}
  function requestKey(signature:string){if(replay.current?.signature!==signature)replay.current={signature,key:crypto.randomUUID()};setHasReplay(true);return replay.current.key}
- async function save(){if(!selected.length||!title.trim())return;await perform(async signal=>{const current=editing?.versions.find(v=>v.id===editing.current_version_id);const body={title:title.trim(),language,automatic,items:selected.map(i=>({...(i.figure?{figure_id:i.figure.id}:{figure_config_version_id:i.configuration.id}),...(i.explanation?{explanation_id:i.explanation.id}:{explanation_engine:i.dependency_engine??'figure_explanation_v1'}),caption:i.user_caption??null})),...(current?{expected_revision:current.revision}:{})};const url=editing?`${base}/${encodeURIComponent(editing.id)}/versions`:base;const saved=await workbenchRequest(url,signal,isCollection,body,requestKey(JSON.stringify([url,body])));if(alive.current&&!signal.aborted){setEditing(saved);setDraftDirty(false);setAttempt(x=>x+1);replay.current=null;setHasReplay(false);setPreview(null)}})}
+ async function save(){if(!selected.length||!title.trim())return;await perform(async signal=>{const current=editing?.versions.find(v=>v.id===editing.current_version_id);const body={title:title.trim(),language,automatic,items:selected.map(i=>({...(i.figure?{figure_id:i.figure.id}:{figure_config_version_id:i.configuration.id}),...(i.explanation?{explanation_id:i.explanation.id}:{explanation_engine:i.dependency_engine??'figure_explanation_v1'}),caption:i.user_caption??null})),...(current?{expected_revision:current.revision}:{})};const url=editing?`${base}/${encodeURIComponent(editing.id)}/versions`:base;const saved=await workbenchRequest(url,signal,(v):v is Collection=>isCollection(v,projectId),body,requestKey(JSON.stringify([url,body])));if(alive.current&&!signal.aborted){setEditing(saved);setDraftDirty(false);setAttempt(x=>x+1);replay.current=null;setHasReplay(false);setPreview(null)}})}
  async function readPreview(collection:Collection,version:CollectionVersion){if(taskLayout)setTaskView('preview');setPreview(null);await perform(async signal=>{const value=await workbenchRequest(`${base}/${encodeURIComponent(collection.id)}/versions/${encodeURIComponent(version.id)}/preview`,signal,(v):v is Preview=>object(v)&&v.schema_version===1&&v.language===language&&Array.isArray(v.items)&&v.items.every(i=>isBundle(i)&&inScope(i))&&Array.isArray(v.sections)&&v.sections.length===9&&v.sections.every((s,i)=>object(s)&&s.key===sectionKeys[i]&&text(s.title))&&Array.isArray(v.missing)&&typeof v.ready==='boolean');if(alive.current&&!signal.aborted)setPreview(value)})}
- async function exportNew(collection:Collection,version:CollectionVersion){await perform(async signal=>{const url=`${base}/${encodeURIComponent(collection.id)}/versions/${encodeURIComponent(version.id)}/exports`;const value=await workbenchRequest(url,signal,isExport,{},requestKey(url));if(value.version_id!==version.id)throw new Error('数据来源或版本不一致，请重新载入配置。');if(alive.current&&!signal.aborted){replay.current=null;setHasReplay(false);setAttempt(x=>x+1)}})}
+ async function exportNew(collection:Collection,version:CollectionVersion){await perform(async signal=>{const url=`${base}/${encodeURIComponent(collection.id)}/versions/${encodeURIComponent(version.id)}/exports`;const value=await workbenchRequest(url,signal,(v):v is ExportRequest=>isExport(v,projectId,version.items.length),{},requestKey(url));if(value.version_id!==version.id||value.report&&(value.report.collection_id!==collection.id||value.report.language!==version.language))throw new Error('数据来源或版本不一致，请重新载入配置。');if(alive.current&&!signal.aborted){replay.current=null;setHasReplay(false);setAttempt(x=>x+1)}})}
  function hasUpdate(item:Bundle){return !!item.configuration.configuration_id&&candidates.some(c=>c.configuration.configuration_id===item.configuration.configuration_id&&(c.configuration.revision??0)>(item.configuration.revision??0))}
  function chooseCurrent(){setDraftDirty(true);const entries=new Map<string,Bundle>();for(const item of candidates.filter(i=>i.result.id===currentRunId)){const key=item.configuration.configuration_id??item.configuration.id,previous=entries.get(key);if(!previous||(item.configuration.revision??0)>(previous.configuration.revision??0)||(item.configuration.revision??0)===(previous.configuration.revision??0)&&item.explanation)entries.set(key,item)}setSelected([...entries.values()]);if(!title.trim())setTitle(language==='en'?'Analysis report':'分析报告');setPreview(null)}
  function edit(collection:Collection,version:CollectionVersion){if(!mayReplaceDraft())return;setTaskView('edit');setDraftDirty(false);setEditing(collection);setTitle(version.title);setAutomatic(version.automatic);setSelected(version.items);setPreview(null)}
- const statuses:Record<string,string>={waiting:'等待所需图表与解释',queued:'本地 Word 整理中',succeeded:'Word 已保存',failed:'导出失败，请在任务中心处理',blocked:'来源异常，导出已阻断'}
- return <section className="report-collections" aria-label={t('多图报告集合')} aria-busy={busy}><h3>{t('多图报告集合')}</h3><p>{t('同一整理版本、工作表和语言可选多个已确认结果。按顺序冻结图号，各结果样本数分别保留。')}</p><p className="muted">{t('保存并启用后，图与六节解释齐备即自动本地整理 Word；不会自动调用收费图表或解释服务。')}</p>
+ return <section className="report-collections" aria-label={t('多图报告集合')} aria-busy={busy}><h3>{t('多图报告集合')}</h3><p>{t('同一整理版本、工作表和语言可选多个已确认结果。按顺序冻结图号，各结果样本数分别保留。')}</p><p className="muted">{t('保存并启用后，图与六节解释齐备时自动在本地生成详细报告和复现资料。')}</p>
  {error&&<p className="error-panel" role="alert">{t(error)}</p>}<button type="button" disabled={busy||!session} onClick={()=>setAttempt(x=>x+1)}>{t('重新读取集合与成果')}</button>{!loaded&&!error&&<p role="status">{t('正在读取集合……')}</p>}
  {loaded&&session&&<>
  {taskLayout&&<div className="output-task-toolbar">{taskView!=='list'&&<button type="button" onClick={()=>setTaskView('list')}>{t('返回集合列表')}</button>}<button type="button" disabled={busy||disabled} onClick={newCollection}>{t('新建报告集合')}</button><button type="button" onClick={()=>setTaskView('edit')}>{t('继续编辑集合草稿')}</button></div>}
@@ -55,10 +57,84 @@ function Collections({projectId,fileId,source,language,currentRunId,refreshKey=0
  {selected.length>0&&<ol className="collection-items">{selected.map((item,i)=><li key={bundleId(item)}><strong>{t('图 {number}',{number:i+1})} · {bundleTitle(item)}</strong><p>{bundleCaption(item)}</p><label>{t('集合图注补充（用户说明）')}<textarea maxLength={2000} value={item.user_caption??''} disabled={busy} onChange={e=>{setDraftDirty(true);setSelected(old=>old.map(x=>bundleId(x)===bundleId(item)?{...x,user_caption:e.target.value}:x))}}/></label><button type="button" disabled={busy||i===0} aria-label={t('上移图 {number}',{number:i+1})} onClick={()=>{setDraftDirty(true);setSelected(old=>reorderItems(old,i,-1))}}>{t('上移')}</button><button type="button" disabled={busy||i===selected.length-1} aria-label={t('下移图 {number}',{number:i+1})} onClick={()=>{setDraftDirty(true);setSelected(old=>reorderItems(old,i,1))}}>{t('下移')}</button><button type="button" disabled={busy} onClick={()=>{setDraftDirty(true);setSelected(old=>old.filter(x=>bundleId(x)!==bundleId(item)))}}>{t('移出集合')}</button></li>)}</ol>}
  <label><input type="checkbox" checked={automatic} disabled={busy||disabled} onChange={e=>{setAutomatic(e.target.checked);setDraftDirty(true)}}/>{t('依赖齐备后自动本地生成 Word')}</label>
  <div className="analysis-actions"><button type="button" disabled={busy||disabled||!title.trim()||!selected.length||selected.length>30} onClick={()=>void save()}>{t(editing?'保存为新集合版本':'保存并启用集合')}</button>{editing&&!taskLayout&&<button type="button" disabled={busy} onClick={newCollection}>{t('新建报告集合')}</button>}</div></div>
- {collections.map(collection=><article className="figure-version" key={collection.id} hidden={taskLayout&&(selectedVersion?.collectionId!==collection.id||['list','edit','preview'].includes(taskView))}><h4>{collection.title}</h4>{taskLayout&&<><label>{t('查看集合版本')}<select value={selectedVersion?.collectionId===collection.id?selectedVersion.versionId:''} onChange={e=>{collectionVersions.current[collection.id]=e.target.value;setSelectedVersion({collectionId:collection.id,versionId:e.target.value});setPreview(null);setTaskView('detail')}}>{collection.versions.filter(v=>v.items.every(inScope)).map(v=><option key={v.id} value={v.id}>{t('集合版本 {number}',{number:v.revision})}</option>)}</select></label>{selectedVersion?.collectionId===collection.id&&!collection.versions.some(v=>v.id===selectedVersion.versionId&&v.items.every(inScope))&&<p role="alert">{t('所选集合版本当前不可用，请重新读取；不会自动替换为最新版本。')}</p>}</>}{collection.versions.filter(v=>v.items.every(inScope)).map(version=><section key={version.id} hidden={taskLayout&&selectedVersion?.versionId!==version.id}><h5>{t('集合版本 {number}',{number:version.revision})} · {t(version.id===collection.current_version_id?'当前版本':'历史版本')}</h5>{taskLayout&&<nav className="output-task-toolbar" aria-label={t('报告集合任务')}><button type="button" aria-current={taskView==='detail'?'page':undefined} onClick={()=>setTaskView('detail')}>{t('报告内容')}</button><button type="button" aria-current={taskView==='export'?'page':undefined} onClick={()=>{setExportVisited(old=>({...old,[version.id]:true}));setTaskView('export')}}>{t('导出与下载')}</button></nav>}<div hidden={taskLayout&&taskView==='export'}><ol>{version.items.map((item,i)=><li key={bundleId(item)}>{t('图 {number}',{number:item.figure_number??i+1})} · {bundleTitle(item)} · {t(!item.figure?'图表依赖已冻结':item.explanation?'六节解释已齐备':'六节解释依赖已冻结')}{hasUpdate(item)&&<span> · {t('有更新版本，当前集合仍使用已冻结内容')}</span>}</li>)}</ol><div className="analysis-actions"><button type="button" disabled={busy} onClick={()=>void readPreview(collection,version)}>{t('预览九类报告内容')}</button><button type="button" disabled={busy||disabled} onClick={()=>edit(collection,version)}>{t('调整内容与顺序')}</button><button type="button" hidden={taskLayout} disabled={busy||disabled} onClick={()=>void exportNew(collection,version)}>{t('生成新版报告')}</button></div></div><div hidden={taskLayout&&taskView!=='export'}>{taskLayout&&<button type="button" disabled={busy||disabled} onClick={()=>void exportNew(collection,version)}>{t('生成新版报告')}</button>}{(!taskLayout||exportVisited[version.id])&&version.requests.map(request=><div key={request.id}><p role="status">{t('导出版本 {number}',{number:request.export_revision})} · {t(statuses[request.status])}{request.missing.length>0?` · ${t('尚缺 {count} 项图表或解释',{count:request.missing.length})}`:''}</p>{request.report&&<><ProjectDownloadLink href={`${base}/${encodeURIComponent(collection.id)}/reports/${encodeURIComponent(request.report.id)}/download`} filename={request.report.filename}>{t('下载此版本 Word')}</ProjectDownloadLink>{request.status==='succeeded'&&<><SendCollectionReportToWriting collectionId={collection.id} versionId={version.id} reportId={request.report.id} disabled={disabled}/><LayoutExports projectId={projectId} sourceKind="collection_report" sourceId={request.report.id} sourceSha256={request.report.sha256} sourceLabel={t('集合 v{revision} · 导出 v{export}',{revision:version.revision,export:request.export_revision})} disabled={disabled}/></>}</>}</div>)}</div></section>)}</article>)}
+ {collections.map(collection=><article className="figure-version" key={collection.id} hidden={taskLayout&&(selectedVersion?.collectionId!==collection.id||['list','edit','preview'].includes(taskView))}>
+  <h4>{collection.title}</h4>
+  {taskLayout&&<><label>{t('查看集合版本')}<select value={selectedVersion?.collectionId===collection.id?selectedVersion.versionId:''} onChange={e=>{collectionVersions.current[collection.id]=e.target.value;setSelectedVersion({collectionId:collection.id,versionId:e.target.value});setPreview(null);setTaskView('detail')}}>{collection.versions.filter(v=>v.items.every(inScope)).map(v=><option key={v.id} value={v.id}>{t('集合版本 {number}',{number:v.revision})}</option>)}</select></label>
+   {selectedVersion?.collectionId===collection.id&&!collection.versions.some(v=>v.id===selectedVersion.versionId&&v.items.every(inScope))&&<p role="alert">{t('所选集合版本当前不可用，请重新读取；不会自动替换为最新版本。')}</p>}</>}
+  {collection.versions.filter(v=>v.items.every(inScope)).map(version=><section key={version.id} hidden={taskLayout&&selectedVersion?.versionId!==version.id}>
+   <h5>{t('集合版本 {number}',{number:version.revision})} · {t(version.id===collection.current_version_id?'当前版本':'历史版本')}</h5>
+   {taskLayout&&<nav className="output-task-toolbar" aria-label={t('报告集合任务')}>
+    <button type="button" aria-current={taskView==='detail'?'page':undefined} onClick={()=>setTaskView('detail')}>{t('报告内容')}</button>
+    <button type="button" aria-current={taskView==='export'?'page':undefined} onClick={()=>{setExportVisited(old=>({...old,[version.id]:true}));setTaskView('export')}}>{t('导出与下载')}</button>
+   </nav>}
+   <div hidden={taskLayout&&taskView==='export'}>
+    <ol>{version.items.map((item,i)=><li key={bundleId(item)}>{t('图 {number}',{number:item.figure_number??i+1})} · {bundleTitle(item)} · {t(!item.figure?'图表依赖已冻结':item.explanation?'六节解释已齐备':'六节解释依赖已冻结')}{hasUpdate(item)&&<span> · {t('有更新版本，当前集合仍使用已冻结内容')}</span>}</li>)}</ol>
+    <div className="analysis-actions">
+     <button type="button" disabled={busy} onClick={()=>void readPreview(collection,version)}>{t('预览九类报告内容')}</button>
+     <button type="button" disabled={busy||disabled} onClick={()=>edit(collection,version)}>{t('调整内容与顺序')}</button>
+     <button type="button" hidden={taskLayout} disabled={busy||disabled} onClick={()=>void exportNew(collection,version)}>{t('生成新版报告')}</button>
+    </div>
+    <CollectionReportBody version={version} projectId={projectId}/>
+   </div>
+   <div hidden={taskLayout&&taskView!=='export'}>
+    {taskLayout&&<button type="button" disabled={busy||disabled} onClick={()=>void exportNew(collection,version)}>{t('生成新版报告')}</button>}
+    {(!taskLayout||exportVisited[version.id])&&version.requests.map(request=><CollectionExport key={request.id} request={request} version={version} collectionId={collection.id} base={base} projectId={projectId} disabled={disabled}/>)}
+   </div>
+  </section>)}
+ </article>)}
  {taskLayout&&selectedVersion&&!collections.some(c=>c.id===selectedVersion.collectionId)&&!['list','edit'].includes(taskView)&&<p role="alert">{t('所选集合版本当前不可用，请重新读取；不会自动替换为最新版本。')}</p>}
  {taskLayout&&taskView==='preview'&&!preview&&busy&&<p role="status">{t('正在读取报告内容……')}</p>}
  {preview&&<div hidden={taskLayout&&taskView!=='preview'}>{taskLayout&&<button type="button" onClick={()=>setTaskView('detail')}>{t('返回集合详情')}</button>}<ReportPreview sections={preview.sections} ready={preview.ready} projectId={projectId} source={source}/></div>}
  </>}
  </section>
+}
+
+function CollectionReportBody({version,projectId}:{version:CollectionVersion;projectId:string}){
+ const {t}=useI18n()
+ const published=version.requests.filter(request=>request.status==='succeeded'&&request.report)
+ const preferred=published.find(request=>request.output_policy===statisticsReaderPolicy)
+ const [selection,setSelection]=useState('')
+ const requestId=selection||preferred?.id||''
+ const selected=published.find(request=>request.id===requestId)
+ const report=selected?.report
+ const detailed=validStatisticsReaderExport(report,projectId,'collection_word_report',selected?.task_id??undefined,version.items.length)?report:null
+ if(!requestId&&!preferred)return null
+ return <section className="artifact-details">
+  <label>{t('查看已保存的导出版本')}<select value={requestId} onChange={event=>setSelection(event.target.value)}>
+    {requestId&&!selected&&<option value={requestId}>{t('所选导出版本不可用')}</option>}
+    {published.map(request=><option key={request.id} value={request.id}>{t('导出版本 {number}',{number:request.export_revision})} · {t(request.output_policy===statisticsReaderPolicy?'详细报告':'历史 Word 报告')}</option>)}
+  </select></label>
+  {!selected&&<p role="alert">{t('所选导出版本不可用')}</p>}
+  {report&&!detailed&&<p className="muted">{t('此历史版本可在导出与下载中获取 Word。')}</p>}
+  {detailed&&<ReportNarrativeView result={detailed.reader_report} draft={false}/>}
+ </section>
+}
+
+const statuses:Record<ExportRequest['status'],string>={
+ waiting:'等待所需图表与解释',queued:'本地 Word 整理中',succeeded:'Word 已保存',
+ failed:'导出失败，请在任务中心处理',blocked:'来源异常，导出已阻断',
+}
+
+function CollectionExport({request,version,collectionId,base,projectId,disabled}:{
+ request:ExportRequest;version:CollectionVersion;collectionId:string;base:string;projectId:string;disabled:boolean
+}){
+ const {t}=useI18n()
+ const report=request.report
+ const reader=request.output_policy===statisticsReaderPolicy
+ const detailed=validStatisticsReaderExport(report,projectId,'collection_word_report',request.task_id??undefined,version.items.length)?report:null
+ const status=reader&&request.status==='queued'?'正在本地生成详细报告':reader&&request.status==='succeeded'?'详细报告已保存':statuses[request.status]
+ return <article className="artifact-details">
+  <p role="status">{t('导出版本 {number}',{number:request.export_revision})} · {t(status)}
+   {request.missing.length>0?` · ${t('尚缺 {count} 项图表或解释',{count:request.missing.length})}`:''}</p>
+  {request.task_id&&<p><a href={statisticsReportTaskHref(projectId,request.task_id,request.status==='failed'?'actions':'result')}>{t('查看任务')}</a></p>}
+  {report&&<>
+   {detailed?<StatisticsReportDownloads files={detailed} filename={report.filename}/>
+    :<ProjectDownloadLink href={`${base}/${encodeURIComponent(collectionId)}/reports/${encodeURIComponent(report.id)}/download`} filename={report.filename}>{t('下载此版本 Word')}</ProjectDownloadLink>}
+   {request.status==='succeeded'&&<>
+    <SendCollectionReportToWriting collectionId={collectionId} versionId={version.id} reportId={report.id} disabled={disabled}/>
+    <LayoutExports projectId={projectId} sourceKind="collection_report" sourceId={report.id} sourceSha256={report.sha256}
+      sourceLabel={t('集合 v{revision} · 导出 v{export}',{revision:version.revision,export:request.export_revision})} disabled={disabled}/>
+   </>}
+  </>}
+ </article>
 }

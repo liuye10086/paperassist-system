@@ -144,7 +144,12 @@ def report_figures(project_id:str,version_id:str,store:Store):
 
 
 @router.get('/{project_id}/bio-insight-results/{version_id}/report.docx')
-def insight_word_report(project_id:str,version_id:str,store:Store,figure_version_ids:Annotated[list[str]|None,Query(max_length=10)]=None,language:Annotated[Literal['zh-CN','en']|None,Query()]=None):
+def insight_word_report(project_id:str,version_id:str,store:Store,figure_version_ids:Annotated[list[str]|None,Query(max_length=10)]=None,language:Annotated[Literal['zh-CN','en']|None,Query()]=None,
+                        report_version_id:Annotated[str|None,Query(min_length=1,max_length=64)]=None):
+    if report_version_id is not None:
+        from app.api.bio_reader_reports import fixed_legacy_word
+        selection=dict(kind='insight',result_version_id=version_id,figure_version_ids=figure_version_ids or [])
+        return fixed_legacy_word(store,project_id,report_version_id,selection=selection,language=language)
     from app.domain.bio_insights.bulk_results import is_reviewed_bulk
 
     results = BioInsightResultService(store)

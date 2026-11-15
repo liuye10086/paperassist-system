@@ -68,7 +68,7 @@ def test_all_topic_saved_views_preserve_source_values(tmp_path,method,data,langu
     finally:plt.close(fig)
 
 
-def test_word_records_separate_figure_and_saved_source_without_pdf():
+def test_word_embeds_fixed_separate_figure_without_internal_ids_or_pdf():
     import io,zipfile
     from PIL import Image
     from app.adapters.single_cell_insight_report import build_single_cell_insight_report
@@ -77,8 +77,10 @@ def test_word_records_separate_figure_and_saved_source_without_pdf():
         [dict(key='New figure',sha256='b'*64,content=image.getvalue(),figure_result_id='f',source_result_id='r',source_manifest_sha256='a'*64)])
     with zipfile.ZipFile(io.BytesIO(content)) as archive:
         xml=archive.read('word/document.xml').decode()
-        assert 'Separately rendered figure result: f' in xml and 'Saved numeric source: r' in xml
+        assert 'Single cell communication report' in xml
+        assert 'Separately rendered figure result:' not in xml and 'Saved numeric source:' not in xml
         assert 'scientific analysis was not recomputed' in xml
+        assert any(archive.read(name)==image.getvalue() for name in archive.namelist() if name.startswith('word/media/'))
         assert not any(name.endswith('.pdf') for name in archive.namelist())
 
 def test_topic_runs_existing_figure_writer_formats_and_metadata(tmp_path,monkeypatch):

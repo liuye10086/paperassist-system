@@ -3,7 +3,7 @@ from tests.api.test_research_findings import client, selected_cell
 import pytest
 
 
-def test_report_initial_source_validation_allows_heartbeat(client, tmp_path, monkeypatch):
+def test_report_initial_source_validation_allows_heartbeat(client, tmp_path, monkeypatch, research_reader_narrative):
     from app.adapters.research_report_render import render_report
     from app.adapters.task_execution_store import TaskExecutionStore, TaskLease
     from app.domain.research_results.execution import run_research_task
@@ -13,7 +13,7 @@ def test_report_initial_source_validation_allows_heartbeat(client, tmp_path, mon
     finding = client.post(base + '/research-findings', json={'title': 'Fixed finding', 'sources': [source]},
                           headers={'Idempotency-Key': 'lease-finding'}).json()
     response = client.post(base + '/research-reports',
-                           json={'title': 'Fixed report', 'finding_version_id': finding['id']},
+                           json={'title': 'Fixed report', 'finding_version_id': finding['id'], 'reader_narrative_id':research_reader_narrative},
                            headers={'Idempotency-Key': 'lease-report'})
     assert response.status_code == 201, response.text
     report = response.json()
@@ -40,7 +40,7 @@ def test_report_initial_source_validation_allows_heartbeat(client, tmp_path, mon
 
 
 @pytest.mark.parametrize('change', ['lease', 'checkpoint'])
-def test_report_rechecks_fence_after_initial_source_read(client, tmp_path, monkeypatch, change):
+def test_report_rechecks_fence_after_initial_source_read(client, tmp_path, monkeypatch, change, research_reader_narrative):
     from app.db.database import database_connection
     from app.domain.bioinformatics.service import append_checkpoint
     from app.domain.research_results.execution import run_research_task, checkpoint_for
@@ -52,7 +52,7 @@ def test_report_rechecks_fence_after_initial_source_read(client, tmp_path, monke
                           json={'title': 'Fixed finding', 'sources': [source]},
                           headers={'Idempotency-Key': 'fence-finding'}).json()
     report = client.post(base + '/research-reports',
-                         json={'title': 'Fixed report', 'finding_version_id': finding['id']},
+                         json={'title': 'Fixed report', 'finding_version_id': finding['id'], 'reader_narrative_id':research_reader_narrative},
                          headers={'Idempotency-Key': 'fence-report'}).json()
     original = ResearchReportService.require_sources
     observed = []

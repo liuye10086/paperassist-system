@@ -2,7 +2,7 @@
 from typing import Annotated, Generic, Literal, TypeVar
 from urllib.parse import quote
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_serializer
 
 from app.core.exceptions import StorageError
 
@@ -26,6 +26,8 @@ class TaskSummary(SourceSummary):
 
 
 class ArtifactSummary(SourceSummary):
+    reader_export: dict | None = None
+    members: list[dict] | None = None
     analysis_run_id: str | None
     setup_revision: int | None
     figure_kind: str | None = None
@@ -41,6 +43,13 @@ class ArtifactSummary(SourceSummary):
     size_bytes: int
     sha256: str
     download_url: str
+
+    @model_serializer(mode='wrap')
+    def omit_reader_files(self, handler):
+        value=handler(self)
+        if self.reader_export is None:value.pop('reader_export',None)
+        if self.members is None:value.pop('members',None)
+        return value
 
 
 Item = TypeVar('Item')
@@ -173,14 +182,16 @@ ARTIFACTS = '''
            COALESCE(f.figure_json::jsonb ->> 'figure_kind', 'boxplot') AS figure_kind,
            f.figure_json::jsonb ->> 'figure_config_version_id' AS figure_config_version_id,
            NULL::text AS collection_id, NULL::text AS collection_version_id, NULL::integer AS collection_revision,
-           NULL::integer AS export_revision, NULL::text AS collection_title, NULL::integer AS result_count
+           NULL::integer AS export_revision, NULL::text AS collection_title, NULL::integer AS result_count,
+           NULL::jsonb AS reader_export, NULL::jsonb AS members
     FROM figures f JOIN runs r ON r.id=f.analysis_run_id
     UNION ALL
     SELECT p.id, 'report', p.analysis_run_id, p.renderer_version,
            p.report_json::jsonb ->> 'created_at', e.figure_id, p.explanation_id,
            p.report_json::jsonb ->> 'filename', (p.report_json::jsonb ->> 'size_bytes')::bigint,
            p.report_json::jsonb ->> 'sha256', r.file_id, r.filename, r.setup_revision, r.current_revision,
-           NULL::text, NULL::text, NULL::text, NULL::text, NULL::integer, NULL::integer, NULL::text, NULL::integer
+           NULL::text, NULL::text, NULL::text, NULL::text, NULL::integer, NULL::integer, NULL::text, NULL::integer,
+           p.report_json::jsonb->'reader_export', p.report_json::jsonb->'members'
     FROM reports p JOIN runs r ON r.id=p.analysis_run_id
     JOIN explanations e ON e.id=p.explanation_id AND e.analysis_run_id=r.id
     JOIN figures f ON f.id=e.figure_id AND f.analysis_run_id=r.id
@@ -189,7 +200,8 @@ ARTIFACTS = '''
            NULL::text, NULL::text, p.report_json->>'filename', (p.report_json->>'size_bytes')::bigint, p.sha256,
            f.id, f.filename, NULL::integer, NULL::integer, NULL::text, NULL::text,
            c.id, v.id, v.revision, p.export_revision, v.content_json->>'title',
-           (SELECT count(DISTINCT i.analysis_run_id)::integer FROM report_collection_items i WHERE i.version_id=v.id)
+           (SELECT count(DISTINCT i.analysis_run_id)::integer FROM report_collection_items i WHERE i.version_id=v.id),
+           p.report_json->'reader_export', p.report_json->'members'
     FROM collection_reports p JOIN report_collection_versions v ON v.id=p.version_id
     JOIN report_collections c ON c.id=v.collection_id
     JOIN projects owner_project ON owner_project.id=c.project_id AND owner_project.owner_id=c.created_by

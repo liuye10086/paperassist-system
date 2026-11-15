@@ -16,6 +16,10 @@ class TaskWorkspaceService:
 
     def source(self, db, task, *, manuscript_sources=None):
         snapshot = task['input_snapshot']
+        if task['task_type'] == 'reader_report_narrative':
+            from app.domain.reader_reports.service import input_version
+            input_version(task)
+            return dict(file_id=None, filename=snapshot['request']['report']['title'], analysis_run_id=None, is_current=True)
         if task['task_type']=='bio_cloud_run':
             from app.domain.bioinformatics.contracts import digest
             row=db.execute('SELECT snapshot_json FROM bio_cloud_runs WHERE task_id=%s AND project_id=%s',(task['id'],task['project_id'])).fetchone()
@@ -220,7 +224,7 @@ class TaskWorkspaceService:
             validate_plan_reference(DatasetTaskAssets(self.store.user_id, self.store.config),
                                     project['id'], request.file_id, snapshot['result'])
             try:
-                current = self.store.source_snapshot(db, project, request)
+                current = self.store.source_snapshot(db, project, request, report_policy=snapshot.get('reader_export',{}).get('policy'))
                 is_current = snapshots_match(current, snapshot)
             except StorageError as exc:
                 if exc.code != 'task_source_conflict':
@@ -236,7 +240,7 @@ class TaskWorkspaceService:
         if (type(page) is not int or not 1 <= page <= 1_000_000
                 or type(page_size) is not int or not 1 <= page_size <= 50
                 or status not in (None, 'cancelled', 'queued', 'running', 'waiting_input', 'waiting_confirmation', 'succeeded', 'failed')
-                or task_type not in (None, 'bio_cloud_run', 'boxplot', 'explanation', 'word_report', 'parse_file', 'extract_dataset', 'prepare_dataset', 'review_ocr', 'analysis_plan', 'analysis_recommendation', 'figure_projection', 'figure_workbench', 'figure_explanation', 'collection_word_report', 'statistics_compute', 'literature_search', 'literature_assistance', 'manuscript_draft', 'manuscript_docx', 'pdf_export', 'layout_docx', 'manuscript_writing', 'school_template_parse', 'school_rule_suggestion', 'journal_recommendation', 'journal_format_check', 'journal_adaptation', 'review_round_plan', 'review_revision', 'review_document_export', 'bio_import', 'bio_analysis', 'bio_annotation', 'bio_figure', 'research_figure', 'research_report', 'research_fact_draft','delivery_package', *INSIGHT_TASKS)):
+                or task_type not in (None, 'bio_cloud_run', 'boxplot', 'explanation', 'word_report', 'parse_file', 'extract_dataset', 'prepare_dataset', 'review_ocr', 'analysis_plan', 'analysis_recommendation', 'figure_projection', 'figure_workbench', 'figure_explanation', 'collection_word_report', 'statistics_compute', 'literature_search', 'literature_assistance', 'manuscript_draft', 'manuscript_docx', 'pdf_export', 'layout_docx', 'manuscript_writing', 'school_template_parse', 'school_rule_suggestion', 'reader_report_narrative', 'journal_recommendation', 'journal_format_check', 'journal_adaptation', 'review_round_plan', 'review_revision', 'review_document_export', 'bio_import', 'bio_analysis', 'bio_annotation', 'bio_figure', 'research_figure', 'research_report', 'research_fact_draft','delivery_package', *INSIGHT_TASKS)):
             raise StorageError('task_input_invalid', '任务列表查询参数无效。', 422)
         from app.adapters.legacy_task_query import mixed_task_page, require_legacy_task
         from app.domain.tasks.legacy import public_legacy_task, legacy_source
@@ -302,8 +306,34 @@ class TaskWorkspaceService:
         except (KeyError, TypeError, ValueError) as exc:
             raise source_conflict() from exc
 
+    @staticmethod
+    def _reader_context_id(db, task):
+        from app.domain.bioinformatics.contracts import digest
+
+        report = task['input_snapshot']['request']['report']
+        scope = (task['project_id'], task['user_id'])
+        finding = db.execute('''SELECT content_json,content_sha256 FROM research_finding_versions
+            WHERE id=%s AND project_id=%s AND user_id=%s''', (report['finding_version_id'], *scope)).fetchone()
+        if not finding or digest(finding['content_json']) != finding['content_sha256']:
+            return None
+        sources = finding['content_json']['sources']
+        if len(sources) != 1 or sources[0]['source_kind'] != 'bio_report_context':
+            return None
+        source = sources[0]
+        context = db.execute('''SELECT id,content_json,content_sha256 FROM bio_report_context_versions
+            WHERE id=%s AND project_id=%s AND user_id=%s''', (source['source_id'], *scope)).fetchone()
+        if (context and digest(context['content_json']) == context['content_sha256'] == source['sha256']
+                and context['content_json']['language'] == report['language']):
+            return context['id']
+        return None
+
     def artifacts(self, db, task):
         result = {'figure': None, 'explanation': None, 'report': None}
+        from app.domain.statistics_reader_reports.legacy_exports import is_reader_export
+        if is_reader_export(task):
+            marker=task['input_snapshot']['reader_export']
+            result['reader_export']={key:marker[key] for key in ('policy','context_id','report_version_id','adapter_version')}
+            result['reader_export'].update(task_id=task['id'],task_type=task['task_type'],origin='saved_explanation_reuse')
         if task['task_type']=='bio_cloud_run':
             row=db.execute('SELECT id,status,provider_run_id FROM bio_cloud_runs WHERE task_id=%s',(task['id'],)).fetchone()
             if row:result['bio_cloud']=dict(run_id=row['id'],status=row['status'],provider_run_id=row['provider_run_id'],engine=task['input_snapshot']['profile']['engine'])
@@ -328,6 +358,11 @@ class TaskWorkspaceService:
         if task['task_type']=='bio_import':
             from app.domain.bioinformatics.service import task_artifacts
             result.update(task_artifacts(db,task))
+            return result
+        if task['task_type'] == 'reader_report_narrative':
+            context_id = self._reader_context_id(db, task)
+            if context_id is not None:
+                result['bio_reader_report_context_id'] = context_id
             return result
         if task['task_type']=='school_rule_suggestion':
             from app.domain.school_templates.suggestion_service import SuggestionService
@@ -430,7 +465,8 @@ class TaskWorkspaceService:
             report = self._saved_artifact(db, task, 'report')
             if report:
                 result['report'] = {'filename': report['filename'],
-                                    'download_url': prefix + '/report/' + quote(report['id'], safe='') + '/download'}
+                                    'download_url': prefix + '/report/' + quote(report['id'], safe='') + '/download',
+                                    **{key:report[key] for key in ('reader_export','reader_report','members') if key in report}}
             return result
         except (KeyError, TypeError, ValueError) as exc:
             raise source_conflict() from exc

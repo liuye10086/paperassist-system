@@ -13,6 +13,10 @@ from .deterministic import explicit_retry
 
 
 def _scope(task):
+    from app.domain.statistics_reader_reports.legacy_exports import is_reader_export, input_identity
+    if is_reader_export(task):
+        input_identity(task)
+        return task['task_type']
     if task['task_type']=='bio_import':return 'bio_dataset'
     if task['task_type'] not in ('bio_analysis','bio_annotation','bio_figure','research_figure','research_report','research_fact_draft','delivery_package','bio_resource_import', 'bio_comparison', 'bio_result_import', 'bio_enrichment', 'bio_candidate', 'bio_insight_figure','bio_feature_extract','bio_integration'):raise s.invalid()
     return task['task_type']

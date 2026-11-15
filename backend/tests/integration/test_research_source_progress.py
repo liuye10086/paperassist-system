@@ -5,7 +5,7 @@ from tests.api.test_research_findings import client,selected_cell
 
 
 @pytest.mark.parametrize('expire_one_read',[False,True])
-def test_report_freeze_renews_between_sources_without_reviving_expiry(client,tmp_path,monkeypatch,expire_one_read):
+def test_report_freeze_renews_between_sources_without_reviving_expiry(client,tmp_path,monkeypatch,expire_one_read, research_reader_narrative):
     from app.adapters.task_execution_store import TaskExecutionStore,LeaseLost
     from app.adapters import task_execution_store
     from app.domain.research_results.execution import ResearchExecution
@@ -13,7 +13,7 @@ def test_report_freeze_renews_between_sources_without_reviving_expiry(client,tmp
     base,source=selected_cell(client)
     sources=[{**source,'locator':{**source['locator'],'cell':'B'+str(i)}} for i in range(2,6)]
     finding=client.post(base+'/research-findings',json=dict(title='Bounded source checks',sources=sources),headers={'Idempotency-Key':'progress-finding'}).json()
-    created=client.post(base+'/research-reports',json=dict(title='Lease progress',finding_version_id=finding['id']),headers={'Idempotency-Key':'progress-report'})
+    created=client.post(base+'/research-reports',json=dict(title='Lease progress',finding_version_id=finding['id'],reader_narrative_id=research_reader_narrative),headers={'Idempotency-Key':'progress-report'})
     assert created.status_code==201,created.text
     report=created.json();repository=TaskExecutionStore()
     monkeypatch.setattr(task_execution_store,'LEASE_SECONDS',1)
@@ -42,7 +42,7 @@ def test_report_freeze_renews_between_sources_without_reviving_expiry(client,tmp
 
 
 @pytest.mark.parametrize('code,status',[('research_source_conflict',409),('file_missing',410)])
-def test_slow_source_rejection_is_committed_without_reaper_requeue(client,tmp_path,monkeypatch,code,status):
+def test_slow_source_rejection_is_committed_without_reaper_requeue(client,tmp_path,monkeypatch,code,status, research_reader_narrative):
     from app.adapters import task_execution_store
     from app.adapters.research_report_render import render_report
     from app.adapters.research_results_store import invalid
@@ -52,7 +52,7 @@ def test_slow_source_rejection_is_committed_without_reaper_requeue(client,tmp_pa
     base,source=selected_cell(client)
     sources=[{**source,'locator':{**source['locator'],'cell':'B'+str(i)}} for i in range(2,6)]
     finding=client.post(base+'/research-findings',json=dict(title='Source rejection',sources=sources),headers={'Idempotency-Key':'reject-finding'}).json()
-    report=client.post(base+'/research-reports',json=dict(title='Rejected report',finding_version_id=finding['id']),headers={'Idempotency-Key':'reject-report'}).json()
+    report=client.post(base+'/research-reports',json=dict(title='Rejected report',finding_version_id=finding['id'],reader_narrative_id=research_reader_narrative),headers={'Idempotency-Key':'reject-report'}).json()
     original=ResearchSourceReader._original;rendered=[];reads=[]
     def engine(payload,output):
         result=render_report(payload,output);rendered.append(True);return result

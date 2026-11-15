@@ -1,6 +1,9 @@
 import {useState} from 'react'
-import ProjectDownloadLink from '../../shared/components/ProjectDownloadLink'
-import NativeDeliveryArtifact,{type NativeDeliveryTarget} from '../analyst/NativeDeliveryArtifact'
+import type {NativeDeliveryTarget} from '../analyst/NativeDeliveryArtifact'
+import type {ReportLocation} from '../bio-reader-reports/navigation'
+import type {BioReportContext} from '../bio-reader-reports/contracts'
+import {ReportSelectionToggle} from '../bio-reader-reports/BioReaderReport'
+import useResearchDraft from '../research-results/useResearchDraft'
 import {useI18n} from '../../shared/i18n'
 import type {AnalysisNavigation} from '../projects/analysisViews'
 import type {RegisterLeaveGuard} from '../projects/useDraftLeaveGuard'
@@ -12,6 +15,7 @@ import {BioWriteStatus} from './BioSpatialShared'
 import {sameRawBioSource,type BioAnnotation,type BioFigure,type BioProcessed,type BioRecipeParameters,type BioRun} from './spatialContracts'
 import {useBioRead} from './spatialHooks'
 import useBioWrite from './useBioWrite'
+import ProcessedReaderReport from './ProcessedReaderReport'
 
 const ids=(text:string)=>[...new Set(text.split(/[\s,]+/).filter(Boolean))]
 function subsetParameters(parent:BioRecipeParameters){
@@ -19,15 +23,24 @@ function subsetParameters(parent:BioRecipeParameters){
  delete params.min_gene_spots
  return params
 }
-export default function SingleCellAnnotationWorkspace({projectId,result,onNavigate,registerLeaveGuard,allowNewAnalysis=true,deliveryTarget}:{projectId:string;deliveryTarget?:NativeDeliveryTarget;result:BioProcessed;onNavigate:(n:AnalysisNavigation)=>void;registerLeaveGuard?:RegisterLeaveGuard;allowNewAnalysis?:boolean}){
+export default function SingleCellAnnotationWorkspace({projectId,result,onNavigate,registerLeaveGuard,allowNewAnalysis=true,deliveryTarget,active,location,restored}:{
+ projectId:string;deliveryTarget?:NativeDeliveryTarget;result:BioProcessed;onNavigate:(n:AnalysisNavigation)=>void;
+ registerLeaveGuard?:RegisterLeaveGuard;allowNewAnalysis?:boolean;active?:boolean;location?:ReportLocation;restored?:BioReportContext
+}){
  const {t,locale}=useI18n(),base=projectBase(projectId)
  const read=useBioRead<{items:BioAnnotation[]}>(`${base}/bio-processed-datasets/${encodeURIComponent(result.id)}/annotations`)
- const [create,setCreate]=useState(false),[report,setReport]=useState(''),[adopted,setAdopted]=useState<AnnotationDraft|null>(null)
+ const [create,setCreate]=useState(false),[adopted,setAdopted]=useState<AnnotationDraft|null>(null)
+ const restoredAnnotation=restored?.selection.kind==='processed'?restored.selection.annotation_version_id:null
+ const [draftReport,setReport]=useResearchDraft(projectId,`bio-report-annotation:${result.id}:${restored?.id??''}`,()=>restoredAnnotation??'')
+ const [editingReport,setEditingReport]=useState(false)
+ if(active===false&&editingReport)setEditingReport(false)
+ const report=restoredAnnotation&&!editingReport?restoredAnnotation:draftReport
  const matches=(item:BioAnnotation)=>item.processed_dataset_version_id===result.id&&sameRawBioSource(item.raw_source,result.source.raw_source)
  const all=read.value?.items.filter(matches)??[],items=all.filter(item=>item.origin!=='SingleR'),candidates=all.filter(item=>item.origin==='SingleR')
  const parent=((result.manifest.subset as {parent_processed_source?:unknown}|undefined)?.parent_processed_source??result.manifest.parent_processed_source) as {processed_dataset_version_id?:string}|undefined
  const label=(item:BioAnnotation&{created_at?:string})=>[item.name||t('人工细胞注释'),item.created_at&&new Date(item.created_at).toLocaleString(locale)].filter(Boolean).join(' · ')
- const reportName=t('单细胞分析报告（含细胞注释）')+'.docx'
+ const currentAnnotation=items.some(item=>item.id===report)
+ const historical=!!report&&report===restoredAnnotation&&!currentAnnotation
  return <section className="intake-form"><h3>{t('细胞注释与亚群')}</h3>
   <p>{t('人工标签与基础计算独立保存。候选工具结果需要研究者逐项核对；保存标签不会重新运行基础分析。')}</p>
   {parent?.processed_dataset_version_id&&<button type="button" onClick={()=>onNavigate({view:'bio-result',fileId:'',processedId:parent.processed_dataset_version_id,tab:'spatial'})}>{t('返回上一级分析结果')}</button>}
@@ -42,10 +55,16 @@ export default function SingleCellAnnotationWorkspace({projectId,result,onNaviga
   </section>
   <SingleCellCandidateTask allowNewAnalysis={allowNewAnalysis} projectId={projectId} result={result} onPublished={read.reload}/>
   {candidates.map(candidate=><SingleCellCandidateReview key={candidate.id} projectId={projectId} candidate={candidate} canAdopt={!create} onAdopt={draft=>{setAdopted(draft);setCreate(true)}}/>)}
-  <section><h4>{t('带人工标签的 Word 报告')}</h4><label>{t('报告使用的人工标签')}<select value={report} onChange={e=>setReport(e.target.value)}><option value="">{t('请选择当前人工注释')}</option>{items.map(item=><option key={item.id} value={item.id}>{label(item)}</option>)}</select></label>
-   {items.some(item=>item.id===report)&&<><ProjectDownloadLink href={`${base}/bio-processed-datasets/${encodeURIComponent(result.id)}/report.docx?annotation_version_id=${encodeURIComponent(report)}`} filename={reportName}>{t('下载包含所选标签的 Word 报告')}</ProjectDownloadLink>
-    <NativeDeliveryArtifact {...{projectId,deliveryTarget}} source={{kind:'single_cell_word',version_id:result.id,annotation_version_id:report}} name={reportName}/></>}
-   <AnnotationUmap allowNewAnalysis={allowNewAnalysis} projectId={projectId} result={result} annotationId={items.some(item=>item.id===report)?report:''} onNavigate={onNavigate} registerLeaveGuard={registerLeaveGuard}/>
+  <section aria-label={t('带人工标签的报告')}><h4>{t('带人工标签的报告')}</h4>
+   {restored&&<ReportSelectionToggle editing={editingReport} onToggle={()=>setEditingReport(value=>!value)}/>}
+   <label>{t('报告使用的人工标签')}<select value={report} disabled={!!restored&&!editingReport} onChange={e=>setReport(e.target.value)}>
+    <option value="">{t('请选择当前人工注释')}</option>
+    {historical&&<option value={report}>{t('报告保留的历史人工注释')}</option>}
+    {items.map(item=><option key={item.id} value={item.id}>{label(item)}</option>)}
+   </select></label>
+   {(currentAnnotation||historical)&&<ProcessedReaderReport {...{projectId,result,deliveryTarget,active,location}}
+    annotationId={report} title="单细胞分析报告（含细胞注释）" fixedEditing={editingReport} restored={report===restoredAnnotation?restored:undefined}/>}
+   <AnnotationUmap allowNewAnalysis={allowNewAnalysis} projectId={projectId} result={result} annotationId={currentAnnotation?report:''} onNavigate={onNavigate} registerLeaveGuard={registerLeaveGuard}/>
   </section>
   <SingleCellSubset allowNewAnalysis={allowNewAnalysis} projectId={projectId} result={result} onNavigate={onNavigate} registerLeaveGuard={registerLeaveGuard}/>
  </section>

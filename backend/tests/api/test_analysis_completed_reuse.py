@@ -33,7 +33,7 @@ def test_completed_insight_reuses_published_result_without_new_task(client, monk
     assert counts() == before
 
 
-def test_completed_report_reuses_word_bytes_without_new_task(client, tmp_path):
+def test_completed_report_reuses_word_bytes_without_new_task(client, tmp_path, research_reader_narrative):
     from tests.api.test_research_findings import selected_cell
     from app.domain.research_results.execution import run_research_task
     from app.adapters.research_report_render import render_report
@@ -41,7 +41,7 @@ def test_completed_report_reuses_word_bytes_without_new_task(client, tmp_path):
     finding = client.post(base + '/research-findings', json={'title': 'Result', 'sources': [source]},
                           headers={'Idempotency-Key': 'completed-finding'}).json()
     request = dict(title='Word reuse', finding_version_id=finding['id'])
-    created = client.post(base + '/research-reports', json=request,
+    created = client.post(base + '/research-reports', json={**request, 'reader_narrative_id':research_reader_narrative},
                           headers={'Idempotency-Key': 'completed-report'})
     assert created.status_code == 201, created.text
     report = created.json()
@@ -52,7 +52,7 @@ def test_completed_report_reuses_word_bytes_without_new_task(client, tmp_path):
     word = next(member for member in old['members'] if member['role'] == 'docx')
     content = client.get(word['download_url']).content
     before = counts()
-    reused = client.post(base + '/research-reports', json=request,
+    reused = client.post(base + '/research-reports', json={**request, 'reader_narrative_id':research_reader_narrative},
                          headers={'Idempotency-Key': 'completed-report-alias'})
     assert reused.status_code == 200, reused.text
     assert reused.json()['id'] == old['id'] and reused.json()['manifest_sha256'] == old['manifest_sha256']

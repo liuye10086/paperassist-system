@@ -1,9 +1,10 @@
 import {afterEach,expect,test,vi} from 'vitest'
-import {cleanup,fireEvent,render,screen,waitFor} from '@testing-library/react'
+import {cleanup,fireEvent,render,screen,waitFor,within} from '@testing-library/react'
 import ReportCollections from './ReportCollections'
 import {correlationResult} from '../analysis/correlationFixtures'
 import {setLocale} from '../../shared/i18n'
 import {defaultConfig} from '../figure-workbench/config'
+import {readerEngine,readerPolicy,readerProjection,wordSha} from '../reports/statisticsReaderFixtures'
 const source=correlationResult.source
 const config={id:'config-version',source,config:{...defaultConfig('scatter','zh-CN'),style:{...defaultConfig('scatter','zh-CN').style,title:'Study association'}}}
 const pending={result:correlationResult,figure:null,explanation:null,configuration:config,projection:{id:'projection1'}}
@@ -20,6 +21,42 @@ test('keeps collection Word and frozen revisions without PDF history requests',a
  expect(screen.getByRole('button',{name:'排版与公式'})).toBeTruthy();expect(fetcher.mock.calls.some(([url])=>url.includes('/layout-exports'))).toBe(false)
  expect(screen.getByRole('link',{name:'下载此版本 Word'})).toBeTruthy();expect(screen.getByText(/导出版本 2/)).toBeTruthy();expect(fetcher.mock.calls.some(([,i])=>i?.method==='POST')).toBe(false)
  expect(fetcher.mock.calls.some(([url])=>url.includes('/pdf-exports'))).toBe(false);expect(screen.queryByRole('region',{name:/PDF/})).toBeNull()
+})
+
+test('shows the detailed body for the selected ordered export and keeps an old Word and waiting policy separate',async()=>{
+ const older={schema_version:1,id:'older-word',filename:'saved.docx',collection_id:'collection1',collection_version_id:'cv1',build_request_id:'old-request',export_revision:2,language:'zh-CN',sha256:wordSha,input_sha256:'b'.repeat(64),size_bytes:200,engine:{id:'collection_word_v1'}}
+ const baseReport={...older,id:'detailed-word',build_request_id:'new-request',export_revision:3,engine:{id:readerEngine}}
+ const newest={...baseReport,...readerProjection('collection_word_report','collection-task','fixed-report',['Second selected panel','First selected panel'])}
+ const second={...pending,configuration:{...config,id:'second-config-version'},projection:{id:'projection2'}}
+ const fixed={...version,items:[{...second,figure_number:1},{...pending,figure_number:2}],requests:[
+  {...request,id:'new-request',task_id:'collection-task',renderer_version:readerEngine,output_policy:readerPolicy,export_revision:3,status:'succeeded',missing:[],report:newest},
+  {...request,id:'old-request',renderer_version:'collection_word_v1',output_policy:null,export_revision:2,status:'succeeded',missing:[],report:older},
+  {...request,renderer_version:readerEngine,output_policy:readerPolicy},
+ ]}
+ let requests=fixed.requests
+ const server=vi.fn(async(url:string,_init?:RequestInit)=>Response.json(url.includes('/candidates')?{items:[pending,second]}:{items:[{...collection,versions:[{...fixed,requests}]}]}))
+ vi.stubGlobal('fetch',server)
+ render(<ReportCollections {...props} taskLayout/>)
+ fireEvent.click(await screen.findByRole('button',{name:'打开报告集合 Study report'}))
+ const narrative=await screen.findByRole('region',{name:'详细报告解读'})
+ expect(within(narrative).getAllByRole('heading',{level:6}).map(h=>h.textContent)).toEqual(['图 1 Second selected panel','图 2 First selected panel'])
+ expect(screen.getByRole('button',{name:'预览九类报告内容'})).toBeTruthy()
+ fireEvent.click(screen.getByRole('button',{name:'导出与下载'}))
+ expect(screen.getByRole('link',{name:'下载 Word 报告'}).getAttribute('href')).toBe(newest.members[0].download_url)
+ expect(screen.getByRole('link',{name:'下载 XLSX 结果表'}).getAttribute('href')).toBe(newest.members[1].download_url)
+ expect(screen.getByRole('link',{name:'下载复现资料（ZIP）'}).getAttribute('href')).toBe(newest.members[2].download_url)
+ expect(screen.getByRole('link',{name:'下载此版本 Word'}).getAttribute('href')).toMatch(/\/reports\/older-word\/download$/)
+ expect(screen.getByText(/等待所需图表与解释/)).toBeTruthy()
+ fireEvent.click(screen.getByRole('button',{name:'报告内容'}))
+ const select=screen.getByLabelText('查看已保存的导出版本') as HTMLSelectElement
+ fireEvent.change(select,{target:{value:'old-request'}})
+ expect(screen.queryByRole('region',{name:'详细报告解读'})).toBeNull()
+ requests=requests.filter(entry=>entry.id!=='old-request')
+ fireEvent.click(screen.getByRole('button',{name:'重新读取集合与成果'}))
+ await waitFor(()=>expect(screen.getByRole('alert').textContent).toBe('所选导出版本不可用'))
+ expect(select.value).toBe('old-request')
+ expect(screen.queryByRole('region',{name:'详细报告解读'})).toBeNull()
+ expect(server.mock.calls.every(([,init])=>!init?.method)).toBe(true)
 })
 test('pending figure selection saves an exact configuration dependency without paid work',async()=>{
  const fetch=vi.fn(async(url:string,init?:RequestInit)=>Response.json(init?.method==='POST'?collection:url.includes('/candidates')?{items:[pending]}:{items:[]}));vi.stubGlobal('fetch',fetch)

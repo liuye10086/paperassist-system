@@ -117,7 +117,12 @@ def file_object_keys(db,refs):
                 keys.add(result['object']['object_key'])
                 keys.update(i['object_key'] for i in result['images'])
     for kind,suffix in (('figures','.png'),('reports','.docx'),('collection_reports','.docx'),('manuscript_figure_language_versions','.png')):
-        keys.update(kind+'/'+r['id']+suffix for r in groups.get(kind,[]))
+        for row in groups.get(kind,[]):
+            if kind in ('reports','collection_reports'):
+                from .historical import report_reference
+                keys.add(report_reference(db,row,collection=kind=='collection_reports')['object_key'])
+            else:
+                keys.add(kind+'/'+row['id']+suffix)
     task_ids=[t['id'] for t in refs['tasks']]
     for row in db.execute('SELECT object_key,candidate_json FROM storage_reservations WHERE task_id=ANY(%s)',(task_ids,)):
         keys.add(row['object_key']);candidate=row['candidate_json'] or {}

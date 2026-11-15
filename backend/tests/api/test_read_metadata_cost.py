@@ -59,7 +59,7 @@ def test_display_counts_preserve_bio_multifile_producers(client, monkeypatch, tm
         assert_display_counts_match_assessment(client, base+'/files/'+file['id'])
 
 
-def test_report_list_reads_metadata_but_access_still_checks_original(client, tmp_path, monkeypatch):
+def test_report_list_reads_metadata_but_access_still_checks_original(client, tmp_path, monkeypatch, research_reader_narrative):
     from tests.api.test_research_findings import selected_cell
     from app.domain.research_results.execution import run_research_task
     from app.adapters.research_report_render import render_report
@@ -72,7 +72,7 @@ def test_report_list_reads_metadata_but_access_still_checks_original(client, tmp
     base, source = selected_cell(client)
     finding = client.post(base+'/research-findings', json={'title':'Read costs','sources':[source]},
                           headers={'Idempotency-Key':'read-cost-finding'}).json()
-    report = client.post(base+'/research-reports', json={'title':'Read costs','finding_version_id':finding['id']},
+    report = client.post(base+'/research-reports', json={'title':'Read costs','finding_version_id':finding['id'], 'reader_narrative_id':research_reader_narrative},
                          headers={'Idempotency-Key':'read-cost-report'}).json()
     done = run_research_task(report['task_id'], report['task']['revision'], task_type='research_report',
                             engine=render_report, staging_directory=tmp_path/'stage')

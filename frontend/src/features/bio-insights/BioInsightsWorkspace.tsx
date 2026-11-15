@@ -82,6 +82,7 @@ function Content({projectId,navigation:n,active,onNavigate,registerLeaveGuard,al
  {n.resultVersionId&&!enrichmentConfig&&<div className="insight-read-panel" hidden={panel==='plot'}>
   <InsightResults key={n.resultVersionId} projectId={projectId} resultId={n.resultVersionId} active={active&&panel==='current'}
    resultRead={resultRead} onResearch={research} allowNewAnalysis={allowNewAnalysis} deliveryTarget={deliveryTarget}
+   location={n} reportContextId={n.reportContextId}
    onNavigate={next=>onNavigate({...entry,...next})} onBulkPlan={next=>{
     if(n.bulkView) {
       const target=next.config.bulk_enrichment!=null||next.config.bulk_enrichment_render?'functional':n.bulkView

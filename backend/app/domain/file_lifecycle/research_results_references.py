@@ -6,7 +6,18 @@ from app.maintenance.research_results_audit import validate_research_task_source
 def read_groups(db,file,user_id):
     from .references import file_ids
     project=file['project_id'];groups={};selected={}
-    tasks={r['id']:r for r in db.execute("SELECT * FROM tasks WHERE project_id=%s AND task_type IN ('research_figure','research_report','research_fact_draft')",(project,))}
+    for prefix in ('bio_report_context','statistics_report_context'):
+        contexts=[];edges=[]
+        for raw in db.execute(f'''SELECT c.*,r.file_id,r.sha256 AS file_sha256,r.id AS edge_id
+            FROM {prefix}_versions c JOIN {prefix}_files r
+            ON r.context_id=c.id AND r.project_id=c.project_id AND r.user_id=c.user_id WHERE r.file_id=%s''',(file['id'],)):
+            row=dict(raw)
+            valid=(row['project_id']==project and row['user_id']==user_id and row['file_sha256']==file['sha256']
+                and digest(row['content_json'])==row['content_sha256'] and file['id'] in row['content_json'].get('source_file_ids',[]))
+            row['_integrity_valid']=valid;contexts.append(row)
+            edges.append(dict(id=row['edge_id'],context_id=row['id'],file_id=file['id'],project_id=row['project_id'],user_id=row['user_id'],sha256=row['file_sha256'],_integrity_valid=valid))
+        groups[prefix+'_versions']=contexts;groups[prefix+'_files']=edges
+    tasks={r['id']:r for r in db.execute("SELECT * FROM tasks WHERE project_id=%s AND (task_type IN ('research_figure','research_report','research_fact_draft') OR input_snapshot->'reader_export'->>'policy'='statistics_reader_export_v1')",(project,))}
     linked_tasks={key for key,task in tasks.items() if file['id'] in file_ids(task['input_snapshot'])}
     for table in ('research_finding_versions','research_figure_versions','research_report_versions','research_manuscript_candidates','manuscript_research_sources'):
         rows=[]
@@ -32,6 +43,13 @@ def read_groups(db,file,user_id):
         (file['id'],file['id'],list(selected['research_finding_versions']),list(selected['research_figure_versions']),list(selected['research_report_versions'])))]
     for row in rows:row['_integrity_valid']=row['user_id']==user_id and row['project_id']==project
     groups['research_source_bindings']=rows
+    exports=[dict(r) for r in db.execute('SELECT * FROM statistics_legacy_report_exports WHERE report_version_id=ANY(%s)',(list(selected['research_report_versions']),))]
+    validity={r['id']:r['_integrity_valid'] for r in groups['research_report_versions']}
+    for row in exports:row['_integrity_valid']=bool(validity.get(row['report_version_id']) and row['project_id']==project and row['user_id']==user_id)
+    groups['statistics_legacy_report_exports']=exports
+    receipts=[dict(r) for r in db.execute('SELECT * FROM statistics_legacy_export_requests WHERE task_id=ANY(%s)',([r['task_id'] for r in exports],))]
+    for row in receipts:row['_integrity_valid']=row['project_id']==project and row['user_id']==user_id
+    groups['statistics_legacy_export_requests']=receipts
     groups['delivery_snapshots']=[]
     for row in db.execute('SELECT * FROM delivery_snapshots WHERE project_id=%s',(project,)):
         if file['id'] in row['snapshot_json'].get('source_file_ids',[]):

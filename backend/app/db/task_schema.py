@@ -7,7 +7,9 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import JSONB
 
 
-TASK_TYPES = "'bio_cloud_run', 'boxplot', 'explanation', 'word_report', 'parse_file', 'extract_dataset', 'prepare_dataset', 'review_ocr', 'analysis_plan', 'analysis_recommendation', 'figure_projection', 'figure_workbench', 'figure_explanation', 'collection_word_report', 'statistics_compute', 'literature_search', 'literature_assistance', 'manuscript_draft', 'manuscript_docx', 'pdf_export', 'manuscript_writing', 'layout_docx', 'school_template_parse', 'school_rule_suggestion', 'journal_recommendation', 'journal_format_check', 'journal_adaptation', 'review_round_plan', 'review_revision', 'review_document_export', 'bio_import', 'bio_analysis', 'bio_annotation', 'bio_figure', 'research_figure', 'research_report', 'research_fact_draft','delivery_package', 'bio_resource_import', 'bio_comparison', 'bio_result_import', 'bio_enrichment', 'bio_candidate', 'bio_insight_figure', 'bio_feature_extract', 'bio_integration'"
+from .reader_report_schema import TASK_SNAPSHOT_CHECK
+
+TASK_TYPES = "'bio_cloud_run', 'boxplot', 'explanation', 'word_report', 'parse_file', 'extract_dataset', 'prepare_dataset', 'review_ocr', 'analysis_plan', 'analysis_recommendation', 'figure_projection', 'figure_workbench', 'figure_explanation', 'collection_word_report', 'statistics_compute', 'literature_search', 'literature_assistance', 'manuscript_draft', 'manuscript_docx', 'pdf_export', 'manuscript_writing', 'layout_docx', 'school_template_parse', 'school_rule_suggestion', 'journal_recommendation', 'journal_format_check', 'journal_adaptation', 'review_round_plan', 'review_revision', 'review_document_export', 'bio_import', 'bio_analysis', 'bio_annotation', 'bio_figure', 'research_figure', 'research_report', 'research_fact_draft','delivery_package', 'bio_resource_import', 'bio_comparison', 'bio_result_import', 'bio_enrichment', 'bio_candidate', 'bio_insight_figure', 'bio_feature_extract', 'bio_integration', 'reader_report_narrative'"
 STATUSES = "'cancelled', 'queued', 'running', 'waiting_input', 'waiting_confirmation', 'succeeded', 'failed'"
 ATTEMPT_STATUSES = "'cancelled', 'running', 'waiting_input', 'waiting_confirmation', 'succeeded', 'failed'"
 PHASES = "'parse', 'plan', 'compute', 'search', 'interpret', 'write', 'export', 'verify'"
@@ -85,6 +87,7 @@ def define_task_tables(metadata):
         CheckConstraint('length(idempotency_key) >= 1 AND length(idempotency_key) <= 128', name='tasks_key_length_check'),
         CheckConstraint("input_digest ~ '^[0-9a-f]{64}$'", name='tasks_digest_check'),
         CheckConstraint('length(workflow_version) >= 1', name='tasks_workflow_version_check'),
+        CheckConstraint(TASK_SNAPSHOT_CHECK, name='tasks_reader_report_snapshot_check'),
         CheckConstraint("jsonb_typeof(input_snapshot) = 'object'", name='tasks_snapshot_object_check'),
         CheckConstraint("figure_candidate IS NULL OR jsonb_typeof(figure_candidate) = 'object'",
                         name='tasks_figure_candidate_check'),

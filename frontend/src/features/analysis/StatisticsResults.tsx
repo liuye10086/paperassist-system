@@ -57,7 +57,7 @@ function explain(cause: unknown, timedOut: boolean) {
   return safeError(cause, '统计请求失败，请重新读取结果后重试。')
 }
 
-type Props={base: string; savedRevision: number | null; savedSelection?:AnalysisSelection; savedPlan?:{plan_id:string;sha256:string}; savedSource?: DatasetAnalysisSource; fieldsMatch: boolean; disabled: boolean; onBusyChange: (value: boolean) => void}
+type Props={base: string; savedRevision: number | null; savedSelection?:AnalysisSelection; savedPlan?:{plan_id:string;sha256:string}; savedSource?: DatasetAnalysisSource; fieldsMatch: boolean; allowLegacySavedReport?: boolean; disabled: boolean; onBusyChange: (value: boolean) => void}
 function ResearchBasis(props: Parameters<typeof ResearchRequestSummary>[0]) {
   const {t}=useI18n()
   return <section className="analysis-detail statistics-provenance"><h3>{t('研究需求与分析依据')}</h3><ResearchRequestSummary {...props}/></section>
@@ -67,7 +67,7 @@ function RunFigure({ onRunBusyChange, ...props }: Omit<Parameters<typeof Boxplot
   return <BoxplotFigure {...props} onBusyChange={change}/>
 }
 export default function StatisticsResults(props:Props){return <Results key={JSON.stringify([props.base,props.savedRevision,props.savedSource,props.savedPlan])} {...props}/>}
-function Results({ base, savedRevision, savedSelection, savedSource, savedPlan, fieldsMatch, disabled, onBusyChange }:Props) {
+function Results({ base, savedRevision, savedSelection, savedSource, savedPlan, fieldsMatch, allowLegacySavedReport, disabled, onBusyChange }:Props) {
   const { t, locale } = useI18n()
   const navigation = useWorkflowNavigation()
   const [state, setState] = useState<ResultState | null>(null)
@@ -104,6 +104,7 @@ function Results({ base, savedRevision, savedSelection, savedSource, savedPlan, 
   const isCorrelation=!!correlation||savedSelection?.task_type==='correlation'
   const requestGeneration=useRef(0)
   const revisionMatches = !!savedRevision && state?.current_revision === savedRevision
+  const currentRunId = revisionMatches && state?.is_current ? result?.id : undefined
 
   useEffect(() => {
     if (!savedRevision) return
@@ -208,7 +209,9 @@ function Results({ base, savedRevision, savedSelection, savedSource, savedPlan, 
    {legacyRuns.map(run=><div key={run.id} hidden={legacyRunId!==run.id}>
       <RunFigure base={base} runId={run.id} revision={run.setup_revision} source={run.source} filename={run.filename}
         legacyFallbackAllowed={run.schema_version===2&&run.analysis_context?.plan.research_request?.output_language==='en'} artifactVersion={run.result_type==='regression'||run.result_type==='roc'||run.result_type==='survival'?4:undefined} figureKind={run.result_type==='regression'?'forest':run.result_type==='roc'?'roc_curve':run.result_type==='survival'?'kaplan_meier':run.result_type==='group_comparison'?(run.selection.design==='paired'?'paired_connected':'group_boxplot'):run.result_type==='correlation'?(run.selection.mode==='pair'?'scatter':'correlation_heatmap'):'boxplot'} outputLanguage={run.analysis_context?.plan.research_request?.output_language??'zh-CN'} comparison={run.result_type==='group_comparison'} planSha={run.analysis_context?.plan.sha256} modern={run.schema_version===5||run.schema_version===4||run.schema_version===3||run.schema_version===2&&run.analysis_context?.plan.research_request?.output_language==='en'}
-        canGenerate={run.id===result?.id&&fieldsMatch && revisionMatches && !!state?.is_current} disabled={disabled || loading || running || !!error} onRunBusyChange={onRunBusyChange} />
+        canGenerate={run.id===currentRunId && fieldsMatch}
+        canExportSavedReport={run.id===currentRunId && (fieldsMatch || !!allowLegacySavedReport && !run.source && run.selection.task_type==='descriptive_boxplot')}
+        disabled={disabled || loading || running || !!error} onRunBusyChange={onRunBusyChange} />
    </div>)}
   </div>
   <div hidden={!!navigation&&artifactMode!=='workbench'}><ConfirmedRunArtifacts base={base} current={result} disabled={disabled||running} onHistoricalSelection={setHistoricalSelection}/></div>

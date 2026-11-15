@@ -126,7 +126,7 @@ def preview_bulk_display(config, source):
 
 
 class BioInsightsService(BioInsightsStore):
-    def reader(self):return InsightSourceReader(self.assets)
+    def reader(self):return InsightSourceReader(self.assets,allow_stale_labels=getattr(self,'allow_stale_labels',False))
 
     def _resolve(self,db,project,request,progress=None,*,phase=None,lineage_only=False):
         selections=list(request.sources)

@@ -35,8 +35,8 @@ def apply_observation_maps(processed,mappings):
 
 
 class InsightSourceReader(BioInsightsStore):
-    def __init__(self,assets):
-        super().__init__(assets);self.bio=BioAnalysisStore(assets)
+    def __init__(self,assets,*,allow_stale_labels=False):
+        super().__init__(assets);self.bio=BioAnalysisStore(assets);self.allow_stale_labels=allow_stale_labels
 
     def _leaf(self,record,objects,progress=None):
         _tick(progress)
@@ -154,7 +154,7 @@ class InsightSourceReader(BioInsightsStore):
             else:
                 from app.adapters.bio_objects import BioAnnotationObjects
                 root=self.bio.require(db,'bio_annotation_sets',project,row['set_id'])
-                if root['current_version_id']!=sid:raise invalid('bio_insight_source_conflict',409)
+                if root['current_version_id']!=sid and not self.allow_stale_labels:raise invalid('bio_insight_source_conflict',409)
                 objects=BioAnnotationObjects(self.assets.directory)
                 geometry=scoped_object(db,project,self.store.user_id,row['geometry_object_id'])
                 assignments=scoped_object(db,project,self.store.user_id,row['assignments_object_id'])
@@ -179,7 +179,9 @@ class InsightSourceReader(BioInsightsStore):
             task=self.store.require_task(db,row['task_id'])
             if task['status']!='succeeded' or not row['manifest_object_id']:raise invalid('bio_insight_source_incomplete',422)
             from .service import BioInsightsService
-            upstream=BioInsightsService(self.assets)._require_sources_in_phase(db,task,phase=phase,runtime=False,progress=progress)
+            upstream_service=BioInsightsService(self.assets)
+            upstream_service.allow_stale_labels=self.allow_stale_labels
+            upstream=upstream_service._require_sources_in_phase(db,task,phase=phase,runtime=False,progress=progress)
             from .results import checked_members
             manifest,records=checked_members(self,db,project,row,resource=resource,progress=progress)
             members={m['key']:self._leaf(m,self.objects,progress) for m in records if m['role'] not in ('input_snapshot','original_resource')}

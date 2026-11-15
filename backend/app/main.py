@@ -245,9 +245,15 @@ app.include_router(admin_configurations_router)
 
 from app.api.research_results import router as research_results_router
 app.include_router(research_results_router)
+from app.api.reader_reports import router as reader_reports_router
+app.include_router(reader_reports_router)
 
 from app.api.bio_insights import router as bio_insights_router
 app.include_router(bio_insights_router)
+from app.api.bio_reader_reports import router as bio_reader_reports_router
+app.include_router(bio_reader_reports_router)
+from app.api.statistics_reader_reports import router as statistics_reader_reports_router
+app.include_router(statistics_reader_reports_router)
 from app.api.bulk_workflow import router as bulk_workflow_router
 app.include_router(bulk_workflow_router)
 

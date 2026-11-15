@@ -26,8 +26,19 @@ def validate_source(db,project,owner,source):
         return
     row=db.execute('SELECT * FROM '+table+' WHERE id=%s AND project_id=%s',(source['source_id'],project)).fetchone()
     if not row or row.get('user_id',row.get('created_by',owner))!=owner:raise ValueError('Research source owner differs')
-    column=('sha256' if kind in ('original_file','bio_analysis_artifact','external_evidence_version','bio_insight_result_member') else 'content_sha256' if kind in ('research_finding_version','research_report_version') else 'manifest_sha256')
+    column=('sha256' if kind in ('original_file','bio_analysis_artifact','external_evidence_version','bio_insight_result_member') else 'content_sha256' if kind in ('research_finding_version','research_report_version','bio_report_context','statistics_report_context') else 'manifest_sha256')
     if row[column]!=source['sha256']:raise ValueError('Research source hash differs')
+    if kind in ('bio_report_context','statistics_report_context'):
+        from app.adapters.task_store import DatasetTaskAssets
+        from app.core.config import get_data_dir
+        from app.domain.source_byte_verification import VerificationPhase
+        if kind=='statistics_report_context':
+            from app.domain.statistics_reader_reports.service import StatisticsReaderReportService as ContextService
+        else:
+            from app.domain.bio_reader_reports import BioReaderReportService as ContextService
+        assets=DatasetTaskAssets(owner,db.config,get_data_dir())
+        with VerificationPhase(db,assets,project) as phase:
+            ContextService(assets).checked(db,project,row['id'],phase=phase)
     if kind in ('bio_insight_result_version','bio_insight_result_member'):
         from app.adapters.task_store import DatasetTaskAssets
         from app.core.config import get_data_dir
@@ -46,6 +57,8 @@ def validate_source(db,project,owner,source):
 
 
 def validate_research_task_source(db,task):
+    from app.domain.statistics_reader_reports.legacy_exports import is_reader_export, audit_task
+    if is_reader_export(task):return audit_task(db,task)
     input_version(task);project=task['project_id'];owner=task['user_id'];snapshot=task['input_snapshot']
     actual=db.execute('SELECT owner_id FROM projects WHERE id=%s',(project,)).fetchone()
     if not actual or actual['owner_id']!=owner:raise ValueError('Research task owner differs')
@@ -101,9 +114,20 @@ def validate_research_task_source(db,task):
 
 def audit_research_task_sources(db,limit=200):
     if type(limit) is not int or not 1<=limit<=1000:raise ValueError('Invalid audit limit')
-    rows=db.execute('SELECT * FROM tasks WHERE task_type=ANY(%s) ORDER BY id LIMIT %s',(list(RESEARCH_TASKS),limit)).fetchall();invalid=0
+    rows=db.execute("SELECT * FROM tasks WHERE (task_type=ANY(%s) OR (task_type IN ('word_report','collection_word_report') AND input_snapshot->'reader_export'->>'policy'='statistics_reader_export_v1')) ORDER BY id LIMIT %s",(list(RESEARCH_TASKS),limit)).fetchall();invalid=0
     for task in rows:
         try:validate_research_task_source(db,task)
         except Exception:invalid+=1
-    total=db.execute('SELECT count(*) AS n FROM tasks WHERE task_type=ANY(%s)',(list(RESEARCH_TASKS),)).fetchone()['n']
-    return [dict(table='tasks',column='research_typed_sources',rows=len(rows),total=total,truncated=total>len(rows),invalid=invalid)]
+    total=db.execute("SELECT count(*) AS n FROM tasks WHERE (task_type=ANY(%s) OR (task_type IN ('word_report','collection_word_report') AND input_snapshot->'reader_export'->>'policy'='statistics_reader_export_v1'))",(list(RESEARCH_TASKS),)).fetchone()['n']
+    checks=[dict(table='tasks',column='research_typed_sources',rows=len(rows),total=total,truncated=total>len(rows),invalid=invalid)]
+    for kind in ('bio_report_context','statistics_report_context'):
+        table=kind+'_versions'
+        contexts=db.execute(f'SELECT id,project_id,user_id,content_sha256 FROM {table} ORDER BY id LIMIT %s',(limit,)).fetchall()
+        invalid_contexts=0
+        for row in contexts:
+            try:validate_source(db,row['project_id'],row['user_id'],dict(source_kind=kind,source_id=row['id'],sha256=row['content_sha256']))
+            except Exception:invalid_contexts+=1
+        total_contexts=db.execute(f'SELECT count(*) AS n FROM {table}').fetchone()['n']
+        checks.append(dict(table=table,column='native_sources',rows=len(contexts),total=total_contexts,
+                           truncated=total_contexts>len(contexts),invalid=invalid_contexts))
+    return checks

@@ -11,6 +11,7 @@ import {useInsightRead} from './hooks'
 import BulkComparisons from './BulkComparisons'
 import BulkEnrichmentResult,{BulkEnrichmentFigureResult,bulkEnrichmentFigureSeed,bulkEnrichmentResultContrast} from './BulkEnrichmentResult'
 import InsightDelivery from './InsightDelivery'
+import type {ReportLocation} from '../bio-reader-reports/navigation'
 import InsightImpact from './InsightImpact'
 import {DataDetails, Field, Members, Paging, ReadState, TaskStatus} from './InsightShared'
 import SingleCellInsightSummary from './SingleCellInsightSummary'
@@ -19,7 +20,7 @@ import {displayRaw} from './state'
 import {bulkRoute} from './bulkWorkflow'
 
 const analysisScopeLabels:Record<string,string>={sample_inference:'按独立样本推断',sample_exploratory:'样本探索',spot_exploratory:'区域探索',donor_inference:'按供者推断',external_result:'外部结果'}
-export default function InsightResults({projectId,resultId,active,onResearch,onNavigate,onBulkPlan,allowNewAnalysis,resultRead,deliveryTarget}: {
+export default function InsightResults({projectId,resultId,active,onResearch,onNavigate,onBulkPlan,allowNewAnalysis,resultRead,deliveryTarget,location,reportContextId}: {
  projectId:string
  resultId:string
  active:boolean
@@ -29,6 +30,8 @@ export default function InsightResults({projectId,resultId,active,onResearch,onN
  allowNewAnalysis?:boolean
  resultRead?:ReturnType<typeof useInsightRead<Result>>
  deliveryTarget?:NativeDeliveryTarget
+ location?:ReportLocation
+ reportContextId?:string
 }) {
  const {t} = useI18n()
  const fallback = useInsightRead<Result>(`${projectBase(projectId)}/bio-insight-results/${encodeURIComponent(resultId)}`,active&&!resultRead,true)
@@ -52,7 +55,7 @@ export default function InsightResults({projectId,resultId,active,onResearch,onN
    <BulkEnrichmentFigureResult result={data} onNavigate={onNavigate}/>
    <BulkPublishedDetails result={data} onNavigate={onNavigate}/>
    <SingleCellInsightSummary result={data}/><SingleCellTopicSummary result={data}/>
-   <InsightDelivery key={'delivery:'+data.id} projectId={projectId} result={data}/>
+   {data.id===resultId&&<InsightDelivery key={'delivery:'+data.id} {...{projectId,active,location,deliveryTarget,reportContextId}} result={data}/>}
    <DataDetails title="结果概况与样例标记" value={data.summary}/><TaskStatus projectId={projectId} task={data.task}/>
    <button type="button" onClick={()=>onResearch({source_kind:'bio_insight_result_version',source_id:resultId,sha256:data.manifest_sha256,locator:{kind:'object'}})}>{t('将此固定结果送入研究发现')}</button>
    <LazyResultDetails key={'methods:'+projectId+':'+data.id} title="方法、统计单位与校正族" expand="展开方法详情" collapse="收起方法详情" value={data.methods}/>

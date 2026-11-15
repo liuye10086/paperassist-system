@@ -40,7 +40,7 @@ def admission_context(provider, *, request, operation):
             provider._check(request.policy)
             if (provider.task_id!=request.task_id or provider._authorization['payload_digest']!=request.input_digest):
                 raise LivePolicyError('batch06_input_mismatch')
-        expected_operation='plot' if exact is OpenAIPlotProvider else ('text','frozen_writing') if exact is OpenAIResponsesProvider else 'text'
+        expected_operation='plot' if exact is OpenAIPlotProvider else ('text','frozen_writing','reader_report') if exact is OpenAIResponsesProvider else 'text'
         matches=operation in expected_operation if isinstance(expected_operation,tuple) else operation==expected_operation
         if transport=='official_default' and matches:kind='openai_live'
     elif getattr(provider,'source_kind',None)=='synthetic_fixture':
@@ -57,6 +57,8 @@ def _live_flow(evidence,task):
     if adapter=='openai_plot':
         return operation=='plot' and workflow in _PLOT_FLOWS.get(task_type,set())
     if adapter=='openai_responses':
+        if operation == 'reader_report':
+            return task_type == 'reader_report_narrative' and workflow == 'reader_report_narrative_v1'
         return (operation=='text' and workflow in _TEXT_FLOWS.get(task_type,set())
             or operation=='frozen_writing' and task_type=='manuscript_writing' and workflow=='manuscript_writing_v2')
     return False

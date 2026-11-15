@@ -18,8 +18,11 @@ from app.domain.report_collections.service import scoped_store
 REPORT_NAMESPACE=UUID('e5eb1353-9472-448b-a2ee-af00c20fcfbd')
 
 
-def run_collection_word_task(task_id,task_revision,*,config=None,directory=None):
+def run_collection_word_task(task_id,task_revision,*,config=None,directory=None,engine=None,staging_directory=None):
     execution=TaskExecutionStore(config=config,directory=directory)
+    from app.domain.statistics_reader_reports.legacy_exports import dispatch
+    handled, result = dispatch(task_id, task_revision, execution, engine=engine, staging_directory=staging_directory)
+    if handled:return result
     lease=execution.claim(task_id,task_revision,task_type='collection_word_report')
     if lease is None: return None
     stop=Event()
@@ -92,6 +95,12 @@ def run_collection_word_task(task_id,task_revision,*,config=None,directory=None)
 def retry_collection_in_transaction(store,db,task,expected_revision):
     if task['task_type']!='collection_word_report' or task['status']!='failed' or task['revision']!=expected_revision:
         raise StorageError('task_revision_conflict','仅能重试当前版本的失败报告任务。',409)
+    from app.domain.statistics_reader_reports.legacy_exports import is_reader_export
+    if is_reader_export(task):
+        from app.domain.research_results.execution import retry_in_transaction
+        result=retry_in_transaction(store,db,task,expected_revision)
+        db.execute("UPDATE report_build_requests SET status='queued',error_code=NULL,updated_at=clock_timestamp() WHERE task_id=%s",(task['id'],))
+        return result
     repository=CollectionStore(scoped_store(task['user_id'],store.config))
     repository.verify_task_snapshot(db,task)
     candidates.authorize(db,repository.store.directory,task)

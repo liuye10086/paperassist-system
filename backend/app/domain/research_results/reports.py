@@ -1,4 +1,6 @@
 """Fixed report intents and atomic multi-format publication."""
+import json
+
 from app.adapters.research_results_store import ResearchResultsStore,base,insert,identity,now,invalid
 from app.adapters.research_objects import ResearchObjects
 from app.adapters.bio_analysis_store import scoped_object,object_by_key
@@ -13,18 +15,25 @@ from .report_tables import _collect_tables_in_phase
 from app.domain.source_byte_verification import VerificationPhase, require_phase, phase_guard
 from .task_contracts import input_version
 from app.adapters.research_method_text import METHOD_PRESENTATION_VERSION
+from app.core.exceptions import StorageError
 
 
 OUTPUT_POLICY='no_generated_pdf_v1'
 
 
+def narrative_required(language):
+    message=('Generate a reader narrative for this report before exporting.' if language=='en'
+             else '请先生成此报告的详细解读，再导出报告。')
+    return StorageError('reader_report_narrative_required',message,409)
+
+
 class ResearchReportService(ResearchResultsStore):
-    def freeze(self,db,project,request,*,progress=None):
+    def freeze(self,db,project,request,*,progress=None,attach_reader=True):
         with VerificationPhase(db,self.assets,project) as phase:
-            return self._freeze_in_phase(db,project,request,phase=phase,progress=progress)
+            return self._freeze_in_phase(db,project,request,phase=phase,progress=progress,attach_reader=attach_reader)
 
     @phase_guard
-    def _freeze_in_phase(self,db,project,request,*,phase,progress=None,frozen_pdf_id=None,legacy_content=False):
+    def _freeze_in_phase(self,db,project,request,*,phase,progress=None,frozen_pdf_id=None,legacy_content=False,attach_reader=True):
         require_phase(phase,db,self.assets,project)
         if progress is not None:progress()
         reader=ResearchSourceReader(self.assets)
@@ -37,6 +46,30 @@ class ResearchReportService(ResearchResultsStore):
         finding=ResearchFindingService.format_view(found,verified)
         if len(finding['content']['claims'])>100:raise invalid('research_export_limit_exceeded',422)
         figures=[];images=[];files=[];bindings=[binding]
+        from .report_tables import source_closure
+        native=[source for source in source_closure(finding['content']['sources']) if source['source_kind']=='bio_report_context']
+        native_material=None
+        statistics_material=None
+        if native:
+            if len(native)!=1 or len(finding['content']['sources'])!=1 or finding['content']['sources'][0]['source_kind']!='bio_report_context' or request.figure_version_ids:
+                raise invalid('research_source_conflict',422)
+            from app.domain.bio_reader_reports import BioReaderReportService
+            native_material=BioReaderReportService(self.assets).export_material(db,project,native[0]['source_id'],phase=phase,progress=progress)
+            if native_material['language']!=request.language:
+                raise invalid('research_source_conflict',422)
+            figures=native_material['figures'];images=native_material['images'];files=native_material['files']
+        statistics=[source for source in source_closure(finding['content']['sources']) if source['source_kind']=='statistics_report_context']
+        if statistics:
+            if (len(statistics)!=1 or len(finding['content']['sources'])!=1
+                    or finding['content']['sources'][0]['source_kind']!='statistics_report_context' or request.figure_version_ids):
+                raise invalid('research_source_conflict',422)
+            from app.domain.statistics_reader_reports.service import StatisticsReaderReportService
+            statistics_service=StatisticsReaderReportService(self.assets)
+            statistics_id=statistics[0]['source_id']
+            statistics_material=statistics_service.export_material(db,project,statistics_id,phase=phase,progress=progress)
+            if statistics_material['language']!=request.language:
+                raise invalid('research_source_conflict',422)
+            figures=statistics_material['figures'];images=statistics_material['images'];files=statistics_material['files']
         for index,identifier in enumerate(request.figure_version_ids,1):
             svc=ResearchFigureService(self.assets);view=svc._get_in_phase(db,project,identifier,phase=phase,progress=progress)
             if view['task']['status']!='succeeded':raise invalid('research_source_incomplete',422)
@@ -61,10 +94,21 @@ class ResearchReportService(ResearchResultsStore):
                     selected=raw;selected_member=member
             if selected is None:raise invalid('research_source_unsupported',422)
             fixed['document_image']={k:selected_member[k] for k in ('key','format','sha256')}
-            images.append(dict(config=view['config'],raw=selected,format=selected_member['format']))
+            # The figure service has revalidated the task's caption facts
+            # against their sources. Only forward manifest facts that match it.
+            caption_facts=view['manifest'].get('caption_facts',[])
+            task=self.store.require_task(db,view['task_id'])
+            if caption_facts!=task['input_snapshot']['caption_facts']:raise invalid()
+            images.append(dict(config=view['config'],raw=selected,format=selected_member['format'],caption_facts=caption_facts))
         from .statistics_package import statistics_reproduction_files
-        files.extend(statistics_reproduction_files(finding['content']['sources']))
-        tables,table_raws=_collect_tables_in_phase(reader,db,project,finding['content']['sources'],phase=phase,progress=progress)
+        if statistics_material is None:
+            files.extend(statistics_reproduction_files(finding['content']['sources']))
+        if statistics_material is not None:
+            tables,table_raws=statistics_material['tables'],statistics_material['table_raws']
+        elif native_material is None:
+            tables,table_raws=_collect_tables_in_phase(reader,db,project,finding['content']['sources'],phase=phase,progress=progress)
+        else:
+            tables,table_raws=native_material['tables'],native_material['table_raws']
         pdf=None
         if frozen_pdf_id:
             if progress is not None:progress()
@@ -83,13 +127,28 @@ class ResearchReportService(ResearchResultsStore):
         # Historical content kept this key even when no PDF was selected.
         # Preserve it only when replaying the original frozen output policy.
         if legacy_content:content['included_pdf']=pdf
+        content=json.loads(json.dumps(content,default=lambda value:value.isoformat()))
+        if attach_reader and request.reader_narrative_id:
+            from app.domain.reader_reports.service import ReaderReportService
+            record=ReaderReportService(self.assets).record_for(db,project,request.reader_narrative_id,content)
+            content['reader_report']=record
+        elif (attach_reader and statistics_material is not None
+              and statistics_service.prepared_finding(db,project,statistics_id,request.finding_version_id)):
+            from app.domain.statistics_reader_reports.materials import local_reader_record
+            record=local_reader_record(content,statistics_material)
+            if record is not None:
+                content['reader_report']=record
         if progress is not None:progress()
         return content,bindings,dict(snapshot=content,tables=tables,table_raws=table_raws,figures=images,package_files=files)
 
     def create(self,project,request,key,root_id=None):
         require_key(key)
         request=ResearchReportRequest.model_validate(request.model_dump(mode='json') if isinstance(request,ResearchReportRequest) else request)
-        body=request.model_dump(mode='json');sha=digest(body)
+        body=request.model_dump(mode='json')
+        if body['reader_narrative_id'] is None:
+            # A previously accepted request key must still match its saved digest.
+            body.pop('reader_narrative_id')
+        sha=digest(body)
         if root_id and root_id!=request.root_id:raise invalid('research_revision_conflict')
         with self.store.connection(write=True) as db:
             self.lock(db,project,'report:'+str(request.root_id or key))
@@ -103,18 +162,25 @@ class ResearchReportService(ResearchResultsStore):
                 if replay['request_digest']!=sha:raise invalid('research_idempotency_conflict')
                 identifier=replay['id'];status=200
             else:
+                if not request.reader_narrative_id:
+                    fixed=db.execute("""SELECT 1 FROM statistics_report_context_requests
+                        WHERE project_id=%s AND user_id=%s AND finding_version_id=%s LIMIT 1""",
+                        (project,self.store.user_id,request.finding_version_id)).fetchone()
+                    if not fixed:
+                        raise narrative_required(request.language)
                 parent=None;revision=1
                 if request.root_id:
                     parent=db.execute('SELECT * FROM research_report_versions WHERE root_id=%s AND project_id=%s AND user_id=%s ORDER BY revision DESC LIMIT 1',(request.root_id,project,self.store.user_id)).fetchone()
                     if not parent:raise invalid('research_source_not_found',404)
                     if parent['revision']!=request.expected_revision:raise invalid('research_revision_conflict')
                     revision=parent['revision']+1
-                content,bindings,_=self.freeze(db,project,request);identifier=identity(project,'report',key);task_id=identity(project,'report-task',key);moment=now()
-                # JSON-compatible creation time and frozen source fields, without
-                # internal paths or table byte payloads.
-                import json
-                content=json.loads(json.dumps(content,default=lambda v:v.isoformat()))
+                content,bindings,_=self.freeze(db,project,request)
+                if not request.reader_narrative_id and content.get('reader_report',{}).get('origin')!='saved_explanation_reuse':
+                    raise narrative_required(request.language)
+                identifier=identity(project,'report',key);task_id=identity(project,'report-task',key);moment=now()
                 from app.adapters.research_report_render import renderer_identity
+                if any(s['source_kind']=='statistics_report_context' for s in content['finding']['content']['sources']):
+                    from app.domain.statistics_reader_reports.render import renderer_identity
                 snapshot=dict(schema_version=1,kind='research_report',workflow_version='research_report_v1',project_id=project,report_version_id=identifier,renderer_identity=renderer_identity(),
                     request=body,output_policy=OUTPUT_POLICY,content_sha256=digest(content),source_file_ids=sorted({f for s in bindings for f in s.source_file_ids}),
                     output_language=request.language,real_model_calls=False,real_network_calls=False)
@@ -159,10 +225,9 @@ class ResearchReportService(ResearchResultsStore):
     @phase_guard
     def _require_sources_in_phase(self,db,task,*,phase,progress=None):
         require_phase(phase,db,self.assets,task['project_id'])
-        import json
         input_version(task);snapshot=task['input_snapshot'];row=self.require(db,'research_report_versions',task['project_id'],snapshot['report_version_id'])
-        from app.adapters.research_report_render import renderer_identity
-        if snapshot.get('renderer_identity')!=renderer_identity():raise invalid()
+        from app.domain.statistics_reader_reports.render import frozen_renderer_identity
+        if snapshot.get('renderer_identity')!=frozen_renderer_identity(snapshot.get('renderer_identity',{})):raise invalid()
         if row['task_id']!=task['id'] or digest(row['content_json'])!=row['content_sha256'] or row['content_sha256']!=snapshot['content_sha256']:raise invalid()
         from .contracts import FrozenResearchReportRequest
         request=FrozenResearchReportRequest.model_validate(snapshot['request'])
@@ -170,9 +235,8 @@ class ResearchReportService(ResearchResultsStore):
         if policy not in (None,OUTPUT_POLICY) or (policy==OUTPUT_POLICY and request.include_pdf_id is not None):raise invalid()
         content,_,payload=self._freeze_in_phase(db,task['project_id'],request,phase=phase,progress=progress,
             frozen_pdf_id=request.include_pdf_id,legacy_content=policy is None)
-        normalized=json.loads(json.dumps(content,default=lambda v:v.isoformat()))
-        if normalized!=row['content_json']:raise invalid()
-        payload['snapshot']=normalized;return payload
+        if content!=row['content_json']:raise invalid()
+        return payload
 
     def checked_members(self,db,project,row,*,progress=None,read_member_bytes=True):
         import json
@@ -242,7 +306,13 @@ class ResearchReportService(ResearchResultsStore):
 
     def publish(self,db,task,checkpoint,moment,prepared,*,progress):
         from app.domain.bioinformatics.analysis_service import finish
-        identifier=task['input_snapshot']['report_version_id'];row=self.require(db,'research_report_versions',task['project_id'],identifier)
+        identifier=task['input_snapshot']['report_version_id']
+        self.publish_members(db,task,identifier,prepared,progress=progress)
+        checkpoint=dict(checkpoint,state_json={**checkpoint['state_json'],'stage':'published'})
+        progress();return finish(db,task,checkpoint,moment,'result_research_report_version_id',identifier)
+
+    def publish_members(self,db,task,identifier,prepared,*,progress):
+        row=self.require(db,'research_report_versions',task['project_id'],identifier)
         if row['manifest_object_id']:raise invalid()
         manifest=object_by_key(db,task['project_id'],task['user_id'],prepared['manifest_ref'])
         for member in prepared['members']:
@@ -250,5 +320,3 @@ class ResearchReportService(ResearchResultsStore):
             insert(db,'research_report_members',{**base(member['id'],task['project_id'],task['user_id']),'report_version_id':identifier,
                 **{k:member[k] for k in ('key','role','format','sha256','size_bytes')},'storage_object_id':obj['id'],'properties_json':member.get('properties',{})})
         db.execute('UPDATE research_report_versions SET manifest_object_id=%s,manifest_sha256=%s WHERE id=%s AND manifest_object_id IS NULL',(manifest['id'],manifest['sha256'],identifier))
-        checkpoint=dict(checkpoint,state_json={**checkpoint['state_json'],'stage':'published'})
-        progress();return finish(db,task,checkpoint,moment,'result_research_report_version_id',identifier)

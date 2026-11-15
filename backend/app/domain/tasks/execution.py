@@ -18,8 +18,11 @@ SAFE_ERRORS = frozenset({'task_source_conflict', 'task_owner_unavailable', 'file
     'report_render_failed', 'task_execution_failed', 'source_conflict', 'dataset_missing', 'dataset_changed'})
 
 
-def run_word_task(task_id, task_revision, *, config=None, directory=None):
+def run_word_task(task_id, task_revision, *, config=None, directory=None, engine=None, staging_directory=None):
     repository = TaskExecutionStore(config=config, directory=directory)
+    from app.domain.statistics_reader_reports.legacy_exports import dispatch
+    handled, result = dispatch(task_id, task_revision, repository, engine=engine, staging_directory=staging_directory)
+    if handled:return result
     lease = repository.claim(task_id, task_revision, task_type='word_report')
     if lease is None:
         return None
@@ -131,6 +134,9 @@ def _run_task_in_slot(task_id, task_revision, *, config=None, directory=None):
     from app.domain.bioinformatics.execution import run_bio_import_task as run_bio_import
     from app.domain.bioinformatics.analysis_execution import run_bio_analysis_task, run_bio_figure_task,run_bio_annotation_task
     from app.domain.bio_insights.task_contracts import INSIGHT_TASKS
+    if task['task_type'] == 'reader_report_narrative':
+        from app.domain.reader_reports.execution import run_reader_report_task
+        return run_reader_report_task(task_id, task_revision, config=config, directory=directory)
     if task['task_type']=='bio_annotation':return run_bio_annotation_task(task_id,task_revision,config=config,directory=directory)
     if task['task_type'] == 'bio_cloud_run':
         from app.domain.bio_cloud.execution import run_bio_cloud_task

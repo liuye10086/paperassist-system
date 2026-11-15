@@ -3,6 +3,7 @@ import re
 from uuid import uuid4
 
 import pytest
+from tests.helpers.research_report import research_reader_narrative
 
 
 @pytest.fixture(autouse=True)
@@ -15,6 +16,8 @@ def isolate_cloud_worker(monkeypatch):
     monkeypatch.setenv('PAPERASSIST_NCBI_EMAIL', '')
     monkeypatch.setenv('PAPERASSIST_NCBI_API_KEY', '')
     monkeypatch.setenv('PAPERASSIST_WRITING_LIVE_ENABLED', '0')
+    monkeypatch.setenv('PAPERASSIST_READER_REPORT_MODEL_ENABLED', '0')
+    monkeypatch.setenv('PAPERASSIST_READER_REPORT_POLICY_FILE', '')
     monkeypatch.setenv('OPENAI_API_KEY', '')
     monkeypatch.setenv('OPENAI_API_KEY_FILE', '')
     monkeypatch.setenv('PAPERASSIST_EXPLANATION_POLICY_FILE', '')

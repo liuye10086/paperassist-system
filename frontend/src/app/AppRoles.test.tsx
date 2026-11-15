@@ -48,6 +48,19 @@ it.each([
   expect(fetch.mock.calls.some(([url]) => url.includes('/admin/registrations') && url.includes('review_status=all'))).toBe(role === 'admin')
 })
 
+it('keeps a customer opening an analyst report hash in the customer workspace',async()=>{
+ window.history.replaceState(null,'','#project=p1&section=analysis&view=bio-reader-report&reportContext=context1')
+ const fetch=vi.fn(async(url:string)=>url.endsWith('/me')
+  ?Response.json({user:{id:'customer1',email:'customer@example.test',role:'customer'},csrf_token:'test-csrf'})
+  :Response.json({items:[],total:0,page:1,page_size:10}))
+ vi.stubGlobal('fetch',fetch)
+ render(<App/>)
+ await screen.findByRole('region',{name:'项目列表区域'})
+ expect(screen.queryByText('Existing analyst workspace')).toBeNull()
+ expect(screen.queryByRole('button',{name:'准备详细报告'})).toBeNull()
+ expect(fetch.mock.calls.some(([url])=>url.includes('/bio-reader-reports'))).toBe(false)
+})
+
 it('restores the permissions page and opens approved accounts from the sidebar', async () => {
   const fetch = vi.fn(async (url: string) => url.endsWith('/me')
     ? Response.json({ user: { id: 'account', email: 'admin@example.test', role: 'admin' }, csrf_token: 'test-csrf' })

@@ -47,7 +47,7 @@ function open(hash: string) {
 }
 
 function server({ intakeDraft = false } = {}) {
-  const state = { status: 'assigned', note: null as string | null, frozen: false, published: false, revoked: false, stale: false, assignedTotal: 1 }
+  const state = { status: 'assigned', note: null as string | null, frozen: false, published: false, revoked: false, stale: false, progressFailure: false, assignedTotal: 1 }
   const fetcher = vi.fn(async (url: string, init?: RequestInit) => {
     const [path, query] = url.split('?')
     const parameters = new URLSearchParams(query)
@@ -66,6 +66,7 @@ function server({ intakeDraft = false } = {}) {
         feedback: [{ id: 'f2', message: '已下载分析结果。', created_at: date }] }] : [] })
     if (path === analyst + '/progress' && method === 'PATCH') {
       if (state.stale) return Response.json({ detail: { code: 'project_assignment_stale' } }, { status: 409 })
+      if (state.progressFailure) return Response.json({ detail: { code: 'storage_unavailable' } }, { status: 503 })
       const body = JSON.parse(String(init?.body))
       state.note = body.note
       state.status = body.status
@@ -226,6 +227,75 @@ it('marks missing materials from analysis without leaving the current view', asy
   })
   expect(window.location.hash).toBe(url)
   expect(screen.getByRole<HTMLSelectElement>('combobox', { name: '用于分析的文件' }).value).toBe(file.id)
+})
+
+it.each(['analyzing', 'needs_materials'])('keeps %s progress and materials drafts separate across navigation and reload', async (status) => {
+  const { fetcher } = server()
+  let view = open('#project=assigned&section=overview&view=settings')
+  fireEvent.change(await screen.findByLabelText('更新进度'), { target: { value: status } })
+  fireEvent.change(screen.getByLabelText('给客户的进度说明'), { target: { value: '未提交的普通进度。' } })
+  fireEvent.click(screen.getByRole('button', { name: '第 3 步：执行分析' }))
+  fireEvent.click(await screen.findByRole('button', { name: '填写补料说明' }))
+  expect(screen.getByLabelText('给客户的进度说明')).toHaveProperty('value', '')
+  fireEvent.change(screen.getByLabelText('给客户的进度说明'), { target: { value: '未提交的补料清单。' } })
+  fireEvent.click(screen.getByRole('button', { name: '填写补料说明' }))
+  fireEvent.click(screen.getByRole('button', { name: '填写补料说明' }))
+  expect(screen.getByLabelText('给客户的进度说明')).toHaveProperty('value', '未提交的补料清单。')
+  fireEvent.click(screen.getByRole('button', { name: '第 1 步：项目资料' }))
+  expect(await screen.findByLabelText('给客户的进度说明')).toHaveProperty('value', '未提交的普通进度。')
+  expect(screen.getByLabelText('更新进度')).toHaveProperty('value', status)
+  view.unmount()
+  view = open(window.location.hash)
+  expect(await screen.findByLabelText('给客户的进度说明')).toHaveProperty('value', '未提交的普通进度。')
+  expect(screen.getByLabelText('更新进度')).toHaveProperty('value', status)
+  fireEvent.click(screen.getByRole('button', { name: '第 3 步：执行分析' }))
+  fireEvent.click(await screen.findByRole('button', { name: '填写补料说明' }))
+  expect(screen.getByLabelText('给客户的进度说明')).toHaveProperty('value', '未提交的补料清单。')
+  expect(fetcher.mock.calls.filter(([, init]) => init?.method === 'PATCH')).toHaveLength(0)
+})
+
+it.each(['progress', 'materials'])('saving the %s draft preserves the other draft after remount', async (submitted) => {
+  const { state } = server()
+  const view = open('#project=assigned&section=overview&view=settings')
+  fireEvent.change(await screen.findByLabelText('给客户的进度说明'), { target: { value: '普通进度草稿。' } })
+  fireEvent.click(screen.getByRole('button', { name: '第 3 步：执行分析' }))
+  fireEvent.click(await screen.findByRole('button', { name: '填写补料说明' }))
+  fireEvent.change(screen.getByLabelText('给客户的进度说明'), { target: { value: '补料草稿。' } })
+  if (submitted === 'progress') {
+    fireEvent.click(screen.getByRole('button', { name: '第 1 步：项目资料' }))
+    await screen.findByLabelText('更新进度')
+  }
+  fireEvent.click(screen.getByRole('button', { name: submitted === 'progress' ? '保存进度' : '标记待补材料' }))
+  await screen.findByText('进度已保存。')
+  expect(state.note).toBe(submitted === 'progress' ? '普通进度草稿。' : '补料草稿。')
+  expect(state.status).toBe(submitted === 'progress' ? 'analyzing' : 'needs_materials')
+  view.unmount()
+  open(submitted === 'progress' ? '#project=assigned&section=analysis' : '#project=assigned&section=overview&view=settings')
+  if (submitted === 'progress') fireEvent.click(await screen.findByRole('button', { name: '填写补料说明' }))
+  expect(await screen.findByLabelText('给客户的进度说明')).toHaveProperty('value', submitted === 'progress' ? '补料草稿。' : '普通进度草稿。')
+})
+
+it('restores both drafts after a failed materials submission and retries only the materials draft', async () => {
+  const { state } = server()
+  const view = open('#project=assigned&section=overview&view=settings')
+  fireEvent.change(await screen.findByLabelText('给客户的进度说明'), { target: { value: '保留普通进度。' } })
+  fireEvent.click(screen.getByRole('button', { name: '第 3 步：执行分析' }))
+  fireEvent.click(await screen.findByRole('button', { name: '填写补料说明' }))
+  fireEvent.change(screen.getByLabelText('给客户的进度说明'), { target: { value: '失败后重试补料。' } })
+  state.progressFailure = true
+  fireEvent.click(screen.getByRole('button', { name: '标记待补材料' }))
+  await screen.findByRole('alert')
+  expect(state.note).toBeNull()
+  view.unmount()
+  open('#project=assigned&section=overview&view=settings')
+  expect(await screen.findByLabelText('给客户的进度说明')).toHaveProperty('value', '保留普通进度。')
+  fireEvent.click(screen.getByRole('button', { name: '第 3 步：执行分析' }))
+  fireEvent.click(await screen.findByRole('button', { name: '填写补料说明' }))
+  expect(screen.getByLabelText('给客户的进度说明')).toHaveProperty('value', '失败后重试补料。')
+  state.progressFailure = false
+  fireEvent.click(screen.getByRole('button', { name: '标记待补材料' }))
+  await screen.findByText('进度已保存。')
+  expect(state.note).toBe('失败后重试补料。')
 })
 
 it('publishes a frozen analysis snapshot and shows feedback without starting a ZIP task', async () => {

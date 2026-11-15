@@ -2,6 +2,7 @@ import {validRevision,type Revision} from '../reviews/revisionTypes'
 import {isTask,type TaskView} from '../tasks/taskTypes'
 import {isSubmissionEvent,type SubmissionEvent} from '../journals/adaptationContracts'
 import {validLayoutExport,type LayoutExport} from '../layout-exports/layoutApi'
+import {hasReaderProjection,statisticsReaderEngine,validReaderExportFiles,type ReaderExportFiles} from '../reports/statisticsReaderExport'
 export type SummarySource = {
   id: string; file_id: string; filename: string; analysis_run_id: string
   setup_revision: number; current_revision: number | null; engine_version: string
@@ -11,7 +12,7 @@ export type SummaryTask = SummarySource & {
   kind: 'statistics' | 'boxplot' | 'explanation' | 'report'
   status: 'queued' | 'submitting' | 'running' | 'waiting_input' | 'waiting_confirmation' | 'completed' | 'failed' | 'uncertain' | 'unknown'
 }
-export type SummaryArtifact = Omit<SummarySource,'analysis_run_id'|'setup_revision'> & {
+export type SummaryArtifact = Omit<SummarySource,'analysis_run_id'|'setup_revision'> & Partial<ReaderExportFiles> & {
   analysis_run_id:string|null;setup_revision:number|null
   kind: 'figure' | 'report'; download_filename: string; size_bytes: number; sha256: string; download_url: string
   figure_kind?:string|null;figure_config_version_id?:string|null
@@ -72,6 +73,8 @@ export function isProjectSummary(value: unknown, projectId: string, projectType:
       if (!record(artifact) || !['figure', 'report'].includes(String(artifact.kind))
         || typeof artifact.download_filename !== 'string' || !artifact.download_filename
         || !integer(artifact.size_bytes) || typeof artifact.sha256 !== 'string' || !/^[a-f0-9]{64}$/.test(artifact.sha256)) return false
+      if (hasReaderProjection(artifact) && (artifact.kind!=='report'||artifact.engine_version!==statisticsReaderEngine
+        || !validReaderExportFiles(artifact,projectId,artifact.collection_id==null?'word_report':'collection_word_report'))) return false
       if(artifact.collection_id!=null){
         if(artifact.kind!=='report'||!source({...artifact,analysis_run_id:'collection',setup_revision:1})||artifact.analysis_run_id!==null||artifact.setup_revision!==null||artifact.current_revision!==null||artifact.figure_id!==null||artifact.explanation_id!==null||artifact.figure_config_version_id!=null||!['collection_id','collection_version_id','collection_title'].every(key=>typeof artifact[key]==='string'&&artifact[key]!=='' )||!integer(artifact.collection_revision,1)||!integer(artifact.export_revision,1)||!integer(artifact.result_count,1))return false
         return artifact.download_url===`/api/v1/projects/${encodeURIComponent(projectId)}/report-collections/${encodeURIComponent(String(artifact.collection_id))}/reports/${encodeURIComponent(String(artifact.id))}/download`

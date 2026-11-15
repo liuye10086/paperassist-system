@@ -1,8 +1,10 @@
 import {useState} from 'react'
 import {useI18n} from '../../shared/i18n'
-import {RESEARCH_REQUEST_TIMEOUT_MS} from '../../shared/api/requestTimeouts'
-import ProjectDownloadLink from '../../shared/components/ProjectDownloadLink'
-import NativeDeliveryArtifact,{type NativeDeliveryTarget} from '../analyst/NativeDeliveryArtifact'
+import type {NativeDeliveryTarget} from '../analyst/NativeDeliveryArtifact'
+import BioReaderReport,{ReportSelectionToggle} from '../bio-reader-reports/BioReaderReport'
+import type {ReportLocation} from '../bio-reader-reports/navigation'
+import type {BioReportContext} from '../bio-reader-reports/contracts'
+import {useBioReportContext} from '../bio-reader-reports/useBioReportContext'
 import type {ProjectFile} from '../files/fileLibraryApi'
 import type {AnalysisNavigation} from '../projects/analysisViews'
 import useResearchDraft from '../research-results/useResearchDraft'
@@ -26,6 +28,8 @@ type Props = {
   outputLanguage?:'zh-CN'|'en';initialId?:string;sensitivity:Record<string,BulkSensitivityRequest>
   onNavigate:(navigation:AnalysisNavigation)=>void
   deliveryTarget?:NativeDeliveryTarget
+  location?:ReportLocation
+  reportContextId?:string
 }
 type Draft = {
   attachments:string[];language:'zh'|'en';filters:BulkSelection[];editingFilter:BulkSelectionDraft|null
@@ -33,11 +37,14 @@ type Draft = {
 }
 const evidencePageSize=20
 
-export default function BulkDelivery({projectId,comparisons,initialId,onNavigate,sensitivity,...props}:Props) {
+export default function BulkDelivery({projectId,comparisons,initialId,onNavigate,sensitivity,reportContextId,...props}:Props) {
   const {t}=useI18n()
   const [savedId,setSavedId]=useResearchDraft(projectId,'bulk-delivery-comparison',()=> '')
   const selectedId=initialId??savedId
   const selected=comparisons.find(item=>item.refs.result_version_id===selectedId)
+  const fixed=useBioReportContext(projectId,reportContextId,true,context=>
+    context.selection.kind==='bulk'&&context.selection.delivery.comparison_version_id===selectedId)
+  const restored=fixed.data??undefined
   return <section className="analysis-detail" aria-label={t('Bulk Word 与完整复现包')}>
     <h3>{t('Bulk Word 与完整复现包')}</h3>
     <p>{t('选择主比较与兼容固定结果。预览会核对来源、确认、科学口径和局限。')}</p>
@@ -53,18 +60,38 @@ export default function BulkDelivery({projectId,comparisons,initialId,onNavigate
       </option>)}
     </Field>}
     {selectedId&&!selected&&<p role="alert">{t('所选主比较固定版本当前不可用。')}</p>}
-    {selected&&<SelectedBulkDelivery key={selectedId} {...props} {...{projectId,selected,onNavigate}} sensitivity={sensitivity[selectedId]??null}/>}
+    {fixed.error&&<p role="alert">{t(fixed.error)} <button type="button" onClick={fixed.refresh}>{t('重新读取')}</button></p>}
+    {fixed.loading&&<p role="status">{t(fixed.loadingMessage)}</p>}
+    {selected&&(!reportContextId||restored)&&<SelectedBulkDelivery key={selectedId+':'+(restored?.id??'')}
+     {...props} {...{projectId,selected,onNavigate,restored}} sensitivity={sensitivity[selectedId]??null}/>}
   </section>
 }
 
-function SelectedBulkDelivery({projectId,selected,descendants,files,outputLanguage,sensitivity,onNavigate,deliveryTarget}:{
-  projectId:string;selected:BulkWorkflowComparison;sensitivity:BulkSensitivityRequest|null
-}&Pick<Props,'descendants'|'files'|'outputLanguage'|'onNavigate'|'deliveryTarget'>) {
+function agreesWithPreview(facts:BulkDeliveryFacts|undefined|null,projectId:string,body:BulkDeliveryRequest):facts is BulkDeliveryFacts {
+  return !!facts&&facts.project_id===projectId&&facts.language===body.language&&facts.comparison_version_id===body.comparison_version_id
+    &&/^[a-f0-9]{64}$/.test(facts.facts_digest)&&Array.isArray(facts.selected_result_version_ids)
+    &&facts.selected_result_version_ids.length===body.result_version_ids.length
+    &&facts.selected_result_version_ids.every((version,index)=>version===body.result_version_ids[index])
+}
+
+function SelectedBulkDelivery({projectId,selected,descendants,files,outputLanguage,sensitivity,onNavigate,deliveryTarget,location,restored}:{
+  projectId:string;selected:BulkWorkflowComparison;sensitivity:BulkSensitivityRequest|null;restored?:BioReportContext
+}&Pick<Props,'descendants'|'files'|'outputLanguage'|'onNavigate'|'deliveryTarget'|'location'>) {
   const {t,locale}=useI18n()
   const id=selected.refs.result_version_id!
-  const [draft,update]=useResearchDraft<Draft>(projectId,`bulk-delivery:${id}`,()=>({
-    attachments:[],language:(outputLanguage??locale)==='en'?'en':'zh',filters:[],editingFilter:null,includeSensitivity:false,evidence:[],
-  }))
+  const fixed=restored?.selection.kind==='bulk'?restored.selection.delivery:null
+  const scope=`bulk-delivery:${id}${restored?':'+restored.id:''}`
+  const [editingReport,setEditingReport]=useState(false)
+  const showFixed=!!fixed&&!editingReport
+  const initialDraft=():Draft=>({
+    attachments:fixed?.result_version_ids??[],language:fixed?.language??((outputLanguage??locale)==='en'?'en':'zh'),
+    filters:fixed?.selections??[],editingFilter:null,includeSensitivity:!!fixed?.sensitivity,
+    attachedSensitivity:fixed?.sensitivity,evidence:fixed?.evidence??[],
+  })
+  const [savedDraft,update]=useResearchDraft<Draft>(projectId,scope,initialDraft)
+  const draft=showFixed?initialDraft():savedDraft
+  const [approval,saveApproval]=useResearchDraft<{signature:string;digest:string}|null>(projectId,scope+':preview',()=>null)
+  const [preparing,setPreparing]=useState(false)
   const read=useBulkRequest<BulkDeliveryFacts>()
   const compatible=compatibleBulkAttachments(selected,descendants)
   const missing=draft.attachments.filter(versionId=>!compatible.some(item=>item.refs.result_version_id===versionId))
@@ -74,17 +101,24 @@ function SelectedBulkDelivery({projectId,selected,descendants,files,outputLangua
     selections:draft.filters,sensitivity:attachedSensitivity,evidence:draft.evidence}
   const signature=JSON.stringify(body)
   const facts=read.data?.signature===signature?read.data.value:null
-  const checked=!!facts&&(!facts.project_id||facts.project_id===projectId)&&(!facts.language||facts.language===body.language)
-    &&facts.comparison_version_id===id&&/^[a-f0-9]{64}$/.test(facts.facts_digest)
-    &&facts.selected_result_version_ids.length===body.result_version_ids.length
-    &&facts.selected_result_version_ids.every((version,index)=>version===body.result_version_ids[index])
-  const exportBody=checked?{...body,facts_digest:facts.facts_digest}:null
+  const checked=agreesWithPreview(facts,projectId,body)
+  const restoredBody=fixed&&{comparison_version_id:fixed.comparison_version_id,result_version_ids:fixed.result_version_ids,
+    language:fixed.language,selections:fixed.selections,sensitivity:fixed.sensitivity,evidence:fixed.evidence}
+  const digest=showFixed?fixed?.facts_digest:checked?facts.facts_digest:approval?.signature===signature?approval.digest:
+    fixed&&JSON.stringify(restoredBody)===signature?fixed.facts_digest:null
+  const exportBody=showFixed?fixed:digest&&!draft.editingFilter&&!read.busy&&read.valid?{...body,facts_digest:digest}:null
   const base=`${bulkWorkflowBase(projectId)}/delivery`
   const editing=draft.editingFilter
   const pendingFilter=editing&&toBulkSelection(editing,selected.contrasts)
 
   function toggleAttachment(versionId:string,include:boolean) {
     update(current=>({...current,attachments:include?[...current.attachments,versionId]:current.attachments.filter(item=>item!==versionId)}))
+  }
+  async function preview(){
+    if(showFixed||missing.length||missingSensitivity||editing||read.busy||!read.valid||preparing)return
+    saveApproval(null)
+    const response=await read.submit(`${base}/preview`,body,signature)
+    if(agreesWithPreview(response,projectId,body))saveApproval({signature,digest:response.facts_digest})
   }
 
   return <>
@@ -93,8 +127,9 @@ function SelectedBulkDelivery({projectId,selected,descendants,files,outputLangua
       <button type="button" onClick={()=>onNavigate({view:'bio-insight-result',fileId:'',bulkView:'differential',resultVersionId:id})}>{t('查看主比较固定结果')}</button>
       <button type="button" onClick={()=>onNavigate(bulkRoute('differential',id))}>{t('查看稳健性对照设置')}</button>
     </div>
-    <form onSubmit={event=>{event.preventDefault();if(!missing.length&&!missingSensitivity&&!editing)void read.submit(`${base}/preview`,body,signature)}}>
-      <fieldset className="bulk-workflow-fields" disabled={read.busy||!read.valid}>
+    {restored&&<ReportSelectionToggle editing={editingReport} onToggle={()=>setEditingReport(value=>!value)}/>}
+    <form onSubmit={event=>{event.preventDefault();void preview()}}>
+      <fieldset className="bulk-workflow-fields" disabled={showFixed||read.busy||!read.valid||preparing}>
         <Field label="报告语言" value={draft.language} onChange={language=>update({...draft,language:language as Draft['language']})}>
           <option value="zh">{t('简体中文')}</option><option value="en">English</option>
         </Field>
@@ -141,21 +176,16 @@ function SelectedBulkDelivery({projectId,selected,descendants,files,outputLangua
         <button className="button-primary" type="submit" disabled={!!missing.length||missingSensitivity||!!editing}>{t('预览报告事实')}</button>
       </fieldset>
     </form>
-    {read.busy&&<p role="status">{t('正在核验固定来源，大文件可能需要数分钟。')} <button type="button" onClick={read.cancel}>{t('取消等待')}</button></p>}
-    {read.error&&<p role="alert">{t(read.error)}</p>}
-    {facts&&!checked&&<p role="alert">{t('固定来源身份不匹配，请重新打开。')}</p>}
+    {!showFixed&&read.busy&&<p role="status">{t('正在核验固定来源，大文件可能需要数分钟。')} <button type="button" onClick={read.cancel}>{t('取消等待')}</button></p>}
+    {!showFixed&&read.error&&<p role="alert">{t(read.error)}</p>}
+    {!showFixed&&facts&&!checked&&<p role="alert">{t('固定来源身份不匹配，请重新打开。')}</p>}
     {checked&&<BulkFactsPreview facts={facts}/>}
     {exportBody&&<section>
-      <h4>{t('下载已核对的交付')}</h4>
       <p>{t('完整包包含统计表、筛选表、对象、参数、任务日志、软件与资源版本以及复现说明。')}</p>
       <p>{t('包内清单标明复现支持。匹配运行环境未留存时，交付包含固定数据与来源记录。')}</p>
-      <div className="intake-actions">
-        <ProjectDownloadLink nativePrepared href={`${base}/prepare/word`} filename={t('转录组学分析报告')+'.docx'}
-          postBody={exportBody} timeoutMs={RESEARCH_REQUEST_TIMEOUT_MS}>{t('下载 Bulk Word 报告')}</ProjectDownloadLink>
-        <ProjectDownloadLink nativePrepared href={`${base}/prepare/archive`} filename={t('转录组学分析复现资料')+'.zip'}
-          postBody={exportBody} timeoutMs={RESEARCH_REQUEST_TIMEOUT_MS}>{t('下载 Bulk 完整复现包')}</ProjectDownloadLink>
-        <NativeDeliveryArtifact {...{projectId,deliveryTarget}} source={{prepareUrl:`${base}/prepare/word`,body:exportBody}} name={t('转录组学分析报告')+'.docx'}/>
-      </div>
+      <BioReaderReport key={digest} {...{projectId,location,deliveryTarget,restored}} fixedEditing={editingReport}
+       title="Bulk RNA-seq 分析报告" onPrepareBlocked={setPreparing}
+       selection={{kind:'bulk',delivery:exportBody}}/>
     </section>}
   </>
 }

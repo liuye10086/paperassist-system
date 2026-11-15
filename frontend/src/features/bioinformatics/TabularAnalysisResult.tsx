@@ -12,9 +12,16 @@ import BulkQcDetails from './BulkQcDetails'
 import {BioResultSteps} from './BioResultPanels'
 import {figureConfigName,isTechnicalResultFile,resultTableLabels} from './bioPresentation'
 import {bulkPanels, bulkPanelTab, hasBulkPanel, type BulkPanel} from '../bio-insights/bulk'
+import BioReaderReport from '../bio-reader-reports/BioReaderReport'
+import type {ReportLocation} from '../bio-reader-reports/navigation'
+import type {BioReportContext} from '../bio-reader-reports/contracts'
+import type {NativeDeliveryTarget} from '../analyst/NativeDeliveryArtifact'
 
 const tabs={qc:'QC 与过滤',embedding:'样本 PCA',clusters:'样本聚类',methods:'方法与复现'}
-export default function TabularAnalysisResult({projectId,result,tab,onNavigate,qualityMode=false}:{projectId:string;result:TabularProcessed;tab:BioResultTab;onNavigate:(n:AnalysisNavigation)=>void;qualityMode?:boolean}) {
+export default function TabularAnalysisResult({projectId,result,tab,onNavigate,qualityMode=false,active:reportActive=true,location,deliveryTarget,restored}:{
+ projectId:string;result:TabularProcessed;tab:BioResultTab;onNavigate:(n:AnalysisNavigation)=>void;qualityMode?:boolean;
+ active?:boolean;location?:ReportLocation;deliveryTarget?:NativeDeliveryTarget;restored?:BioReportContext
+}) {
  const {t}=useI18n(),[tableKey,setTableKey]=useState('')
  if(!isTabularProcessedSource(result.source,projectId)||result.source.processed_dataset_version_id!==result.id)return <p role="alert">{t('固定来源身份不匹配，请重新打开。')}</p>
  const supported=tab in tabs,active=supported?tab as keyof typeof tabs:'qc'
@@ -30,6 +37,8 @@ export default function TabularAnalysisResult({projectId,result,tab,onNavigate,q
  return <section className="bio-workspace"><h2>{t('定量分析处理结果')}</h2>
   <p>{t(assayLabels[result.source.assay])} · {t('统计观察单位：样本；独立性与技术重复须结合样本设计判断。')}</p>
   <BioSource source={result.source.raw_source}/>
+  <BioReaderReport {...{projectId,location,deliveryTarget,restored}} active={reportActive} title="定量分析报告"
+   selection={{kind:'processed',processed_version_id:result.id,annotation_version_id:null}}/>
   {!qualityMode&&<><button type="button" onClick={()=>onNavigate({view:'bio-insights',fileId:'',processedId:result.id,
     ...(result.source.assay==='bulk_rna_counts'?{bulkView:'differential'}:{})})}>{t('差异与功能分析')}</button><button type="button" onClick={()=>onNavigate({view:'research-findings',fileId:'',processedId:result.id})}>{t('整理研究发现与报告')}</button></>}
   <nav className="intake-actions" aria-label={t('生信结果标签页')}>{Object.entries(tabs).map(([key,label])=><button type="button" key={key} aria-current={key===active?'page':undefined} onClick={()=>onNavigate({view:'bio-result',fileId:'',processedId:result.id,tab:key as BioResultTab})}>{t(label)}</button>)}</nav>

@@ -158,6 +158,9 @@ def prepare(root: Path, values: dict, *, test_id=None, assets: Path | None = Non
     insights_staging_value = values.get('PAPERASSIST_BIO_INSIGHTS_STAGING_DIR') or str(directory / 'bio-insights-staging')
     insights_staging_source = Path(insights_staging_value).expanduser().resolve()
     insights_staging_source.mkdir(parents=True, exist_ok=True)
+    research_staging_value = values.get('PAPERASSIST_RESEARCH_STAGING_DIR') or str(directory / 'research-staging')
+    research_staging_source = Path(research_staging_value).expanduser().resolve()
+    research_staging_source.mkdir(parents=True, exist_ok=True)
     private_write(directory / 'database-url', url.set(host='host.docker.internal').render_as_string(hide_password=False))
     # Test workers never receive a development model key, even when inherited
     # environment values point at a real secret file.
@@ -186,9 +189,10 @@ def prepare(root: Path, values: dict, *, test_id=None, assets: Path | None = Non
     default_fonts = str(Path(os.environ.get('WINDIR', 'C:/Windows')) / 'Fonts') if os.name == 'nt' else '/usr/local/share/fonts/paperassist'
     fonts = str(Path(values.get('PAPERASSIST_PDF_FONTS_DIR') or default_fonts).expanduser().resolve())
     writing_live_enabled = '1' if not test_id and values.get('PAPERASSIST_WRITING_LIVE_ENABLED') == '1' else '0'
+    reader_live_enabled = '1' if not test_id and values.get('PAPERASSIST_READER_REPORT_MODEL_ENABLED') == '1' else '0'
     fingerprint = hashlib.sha256((url.render_as_string(hide_password=False) + '\0' + model_key + '\0' + ncbi_text + '\0' + writing_live_enabled
-                                  + '\0' + fonts + '\0' + str(data) + '\0' + build_fingerprint()
-                                  + '\0' + str(staging_source) + '\0' + str(insights_staging_source)
+                                  + '\0' + reader_live_enabled + '\0' + fonts + '\0' + str(data) + '\0' + build_fingerprint()
+                                  + '\0' + str(staging_source) + '\0' + str(insights_staging_source) + '\0' + str(research_staging_source)
                                   + '\0' + tabular_manifest_path
                                   + '\0' + hashlib.sha256((directory / 'bio-insights-runtime.json').read_bytes()).hexdigest()
                                   + '\0' + hashlib.sha256((directory / 'bio-tabular-runtime.json').read_bytes()).hexdigest()
@@ -205,6 +209,7 @@ def prepare(root: Path, values: dict, *, test_id=None, assets: Path | None = Non
         'PAPERASSIST_TASK_QUEUE': 'paperassist.test.' + test_id if test_id else 'paperassist.word',
         'PAPERASSIST_QUEUE_TEST_ALLOWED': '1' if test_id else '0',
         'PAPERASSIST_WRITING_LIVE_ENABLED': writing_live_enabled,
+        'PAPERASSIST_READER_REPORT_MODEL_ENABLED': reader_live_enabled,
         'PAPERASSIST_DATABASE_SECRET_KEY': key + '_FILE',
         'PAPERASSIST_WORKER_CONFIG_REVISION': fingerprint,
         'PAPERASSIST_BIO_RUNTIME_MANIFEST': bio_manifest_path,
@@ -217,6 +222,8 @@ def prepare(root: Path, values: dict, *, test_id=None, assets: Path | None = Non
         'PAPERASSIST_BIO_STAGING_SOURCE': str(staging_source),
         'PAPERASSIST_BIO_INSIGHTS_STAGING_DIR': '/bio-insights-staging',
         'PAPERASSIST_BIO_INSIGHTS_STAGING_SOURCE': str(insights_staging_source),
+        'PAPERASSIST_RESEARCH_STAGING_DIR': '/research-staging',
+        'PAPERASSIST_RESEARCH_STAGING_SOURCE': str(research_staging_source),
     }
     private_write(directory / 'stack.json', json.dumps({'root': str(root), 'project': project,
                                                        'environment': environment}, indent=2))

@@ -1,0 +1,21 @@
+{
+  "policy": {
+    "model": "REPLACE_WITH_APPROVED_VISION_MODEL",
+    "prompt_version": "reader-report-v1",
+    "output_format": "reader_report_v1",
+    "max_output_tokens": 22000,
+    "timeout_seconds": 120,
+    "tools": [],
+    "price": {
+      "version": "REPLACE_WITH_VERIFIED_PRICE_VERSION",
+      "currency": "USD",
+      "model": "REPLACE_WITH_APPROVED_VISION_MODEL",
+      "input_micro_usd_per_million": null,
+      "cached_input_micro_usd_per_million": null,
+      "output_micro_usd_per_million": null,
+      "cache_write_micro_usd_per_million": null
+    }
+  },
+  "input_token_allowance": null,
+  "task_limit_micro_usd": null
+}

@@ -1,6 +1,17 @@
 import { expect, it } from 'vitest'
 import { displayNames, isEventPage, isTask, isTaskPage, isWorkspace, taskDisplayName, type TaskView } from './taskTypes'
-import { eventsFixture, legacyTaskFixture, legacyWorkspaceFixture, pageFixture, taskFixture } from './taskFixtures'
+import { eventsFixture, legacyTaskFixture, legacyWorkspaceFixture, pageFixture, taskFixture, workspaceFixture } from './taskFixtures'
+
+it('accepts a detailed report task and its original-call wait alongside existing tasks', () => {
+  const input = {kind:'reader_report_narrative',workflow_version:'reader_report_narrative_v1',narrative_id:'reader-1',binding_sha256:'a'.repeat(64),bundle_sha256:'b'.repeat(64)}
+  const task = {...taskFixture,id:'reader-task',task_type:'reader_report_narrative',phase:'interpret',input_version:input}
+  const source = {file_id:null,filename:'Spatial analysis',analysis_run_id:null,is_current:true}
+  const detail = {...workspaceFixture,task,source,wait:{...workspaceFixture.wait,input_version:input}}
+  expect(isTaskPage({...pageFixture,total:2,items:[...pageFixture.items,{task,source}]},'p1',1)).toBe(true)
+  expect(isWorkspace(detail,'p1','reader-task')).toBe(true)
+  expect(isWorkspace({...detail,wait:{...detail.wait,input_version:{...input,bundle_sha256:'c'.repeat(64)}}},'p1','reader-task')).toBe(false)
+  expect(isWorkspace({...detail,wait:{...detail.wait,kind:'submission_unknown'}},'p1','reader-task')).toBe(false)
+})
 
 it('accepts a prepared analysis plan task and its scoped confirmation workspace', () => {
   const source = { kind: 'prepared_dataset_version', schema_version: 1, dataset_id: 'prepared1', structure_id: 's1', dataset_version: 1, file_id: 'f1', source_sha256: 'a'.repeat(64), dataset_sha256: 'b'.repeat(64), dataset_size_bytes: 100, dataset_schema_version: 1, sheet_index: 0, sheet_name: 'Sheet1', parser_version: 'structure-v1', parent_dataset_id: 'raw1', parent_dataset_version: 1, transform_version: 'excel_prepare_v1' }

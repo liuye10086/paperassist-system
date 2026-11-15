@@ -11,3 +11,7 @@
 .research-published-content { min-width:0; max-height:max(240px,calc(100dvh - 340px - var(--project-nav-space, 0px))); overflow:auto; overscroll-behavior:contain; scrollbar-gutter:stable; padding:12px 4px; }
 .research-published-content[hidden] { display:none!important; }
 @media(max-width:640px) { .research-published-content { max-height:none; overflow:visible; } .research-delivery-toolbar label,.research-manuscript-picker { flex-wrap:wrap; } }
+.research-narrative-paragraph {
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+}

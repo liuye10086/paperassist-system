@@ -100,7 +100,7 @@ def test_research_candidate_rejects_stale_worker_and_has_no_formal_manuscript(cl
 
 
 @pytest.mark.parametrize('through_report,fmt',[(False,'png'),(True,'png'),(True,'tiff'),(True,'pdf'),(True,'svg')])
-def test_research_figure_is_in_common_docx_with_exact_bytes(client,tmp_path,through_report,fmt):
+def test_research_figure_is_in_common_docx_with_exact_bytes(client,tmp_path,through_report,fmt, research_reader_narrative):
     from tests.api.test_research_figure_publication import selected_image
     from tests.api.test_projects import upload
     from app.domain.research_results.execution import run_research_figure_task
@@ -117,7 +117,7 @@ def test_research_figure_is_in_common_docx_with_exact_bytes(client,tmp_path,thro
     if through_report:
         from app.domain.research_results.execution import run_research_report_task
         from app.adapters.research_report_render import render_report
-        report=client.post(base+'/research-reports',json=dict(title='Report source',finding_version_id=finding['id'],figure_version_ids=[figure['id']]),headers={'Idempotency-Key':'report'}).json()
+        report=client.post(base+'/research-reports',json=dict(title='Report source',finding_version_id=finding['id'],figure_version_ids=[figure['id']],reader_narrative_id=research_reader_narrative),headers={'Idempotency-Key':'report'}).json()
         assert run_research_report_task(report['task_id'],1,engine=render_report,staging_directory=tmp_path/'stage')['status']=='succeeded'
         selection=dict(delivery_id=delivery,report_version_ids=[report['id']])
     result=publish_candidate(client,base,selection,tmp_path)

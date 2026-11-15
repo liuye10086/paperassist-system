@@ -2,12 +2,12 @@
 from tests.api.test_research_writing_handoff import client,prepared
 
 
-def test_research_outbox_and_generic_worker_execute_candidate(client,tmp_path,monkeypatch):
+def test_research_outbox_and_generic_worker_execute_candidate(client,tmp_path,monkeypatch, research_reader_narrative):
     from app.workers.dispatcher import dispatch_once
     from app.domain.tasks.execution import run_task
     from app.db.database import database_connection
     base,deliveries,finding=prepared(client)
-    report=client.post(base+'/research-reports',json=dict(title='Queue report',finding_version_id=finding['id']),headers={'Idempotency-Key':'queue-report'}).json()
+    report=client.post(base+'/research-reports',json=dict(title='Queue report',finding_version_id=finding['id'],reader_narrative_id=research_reader_narrative),headers={'Idempotency-Key':'queue-report'}).json()
     candidate=client.post(base+'/research-manuscript-candidates',json=dict(delivery_id=deliveries['sci_draft'],finding_version_ids=[finding['id']]),headers={'Idempotency-Key':'queue-candidate'}).json()
     messages=[];dispatch_once(publish=messages.append)
     assert {report['task_id'],candidate['task_id']}<={m['task_id'] for m in messages}

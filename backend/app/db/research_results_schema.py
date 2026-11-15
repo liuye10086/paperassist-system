@@ -2,10 +2,12 @@
 import hashlib
 import sqlalchemy as sa
 from sqlalchemy.dialects.postgresql import JSONB
+from .statistics_report_context_schema import TABLE_NAMES as STATISTICS_CONTEXT_TABLES
 
 TABLE_NAMES = ('research_finding_sets','research_finding_versions','research_figure_versions',
                'research_figure_members','research_report_versions','research_report_members',
-               'research_source_bindings','manuscript_research_sources','research_manuscript_candidates')
+               'research_source_bindings','manuscript_research_sources','research_manuscript_candidates',
+               'bio_report_context_versions','bio_report_context_files','bio_report_context_requests',*STATISTICS_CONTEXT_TABLES,'statistics_legacy_report_exports','statistics_legacy_export_requests')
 IMMUTABLE = ('research_finding_versions','research_figure_members','research_report_members',
              'research_source_bindings','manuscript_research_sources')
 SOURCE_TARGETS = {
@@ -20,6 +22,8 @@ SOURCE_TARGETS = {
     'research_report_version': ('source_report_version_id','research_report_versions'),
     'bio_insight_result_version': ('bio_insight_result_version_id','bio_insight_result_versions'),
     'bio_insight_result_member': ('bio_insight_result_member_id','bio_insight_result_members'),
+    'bio_report_context': ('bio_report_context_id','bio_report_context_versions'),
+    'statistics_report_context': ('statistics_report_context_id','statistics_report_context_versions'),
 }
 
 
@@ -64,9 +68,16 @@ def define_research_results_tables(metadata):
     def task_result(name):
         return [text('task_id'),fk(['task_id','project_id','user_id'],'tasks',['id','project_id','user_id']),sa.UniqueConstraint('task_id'),
                 sa.UniqueConstraint('id','task_id','project_id')]
+    current_source_table=['research_source_bindings']
     def source_fields():
         items=[text('source_kind'),text('source_id')]
         for col,target in SOURCE_TARGETS.values():
+            if col=='statistics_report_context_id':
+                scope=[col,'project_id','user_id']
+                items.extend([text(col,True),sa.ForeignKeyConstraint(scope,[target+'.'+key for key in ('id','project_id','user_id')],
+                    name='src_'+current_source_table[0]+'_fk')]);continue
+            if col=='bio_report_context_id':
+                items.extend([text(col,True),sa.ForeignKeyConstraint([col,'project_id'],[target+'.id',target+'.project_id'],name='brc_'+current_source_table[0]+'_fk')]);continue
             if col=='analysis_run_id':
                 items.extend([text(col,True),sa.ForeignKeyConstraint([col],['analysis_runs.id'],name='b05_statistics_source_fk')]);continue
             constraint = (sa.ForeignKeyConstraint([col,'project_id'],[target+'.id',target+'.project_id'],
@@ -115,6 +126,7 @@ def define_research_results_tables(metadata):
          *bounded_json('locator_json'),text('source_sha256'),text('role'),
          check("source_sha256 ~ '^[0-9a-f]{64}$' AND length(role) BETWEEN 1 AND 100"),
          check("num_nonnulls(finding_version_id,figure_version_id,report_version_id)=1 AND ((parent_kind='finding' AND finding_version_id IS NOT NULL) OR (parent_kind='figure' AND figure_version_id IS NOT NULL) OR (parent_kind='report' AND report_version_id IS NOT NULL))"))
+    current_source_table[0]='manuscript_research_sources'
     make('manuscript_research_sources',text('version_id'),
          fk(['version_id','project_id','user_id'],'manuscript_versions',['id','project_id','user_id']),
          *source_fields(),text('role'),*bounded_json('source_json'),text('sha256'),

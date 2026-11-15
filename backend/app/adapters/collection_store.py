@@ -155,7 +155,7 @@ class CollectionStore:
                 item['explanation']['id'] if item.get('explanation') else None,item['dependency_engine'],item['figure_number'],item['caption'],Jsonb(item),digest(item)))
         db.execute('UPDATE report_collections SET current_version_id=%s,title=%s,updated_at=%s WHERE id=%s',(version_id,request.title,timestamp,collection_id))
         if request.automatic:
-            build=self.insert_request(db,version_id,'automatic:v1')
+            build=self.insert_request(db,version_id,'automatic:r3')
             self.advance_in_transaction(db,project_id,build['id'])
         return version_id
 
@@ -164,9 +164,10 @@ class CollectionStore:
         if row: return dict(row)
         version=db.execute('SELECT * FROM report_collection_versions WHERE id=%s FOR UPDATE',(version_id,)).fetchone()
         revision=db.execute('SELECT COALESCE(max(export_revision),0)+1 AS n FROM report_build_requests WHERE version_id=%s',(version_id,)).fetchone()['n']
+        from app.domain.statistics_reader_reports.legacy_exports import RENDERER as reader_renderer
         request_id=str(uuid4()); timestamp=now()
         db.execute('''INSERT INTO report_build_requests (id,version_id,export_revision,renderer_version,request_key,request_digest,status,dependencies_json,input_json,input_sha256,task_id,created_at,updated_at,error_code)
-            VALUES (%s,%s,%s,%s,%s,%s,'waiting',%s,NULL,NULL,NULL,%s,%s,NULL)''',(request_id,version_id,revision,RENDERER,key,digest({'version_id':version_id,'sha256':version['sha256'],'request_key':key}),Jsonb(version['content_json']['missing']),timestamp,timestamp))
+            VALUES (%s,%s,%s,%s,%s,%s,'waiting',%s,NULL,NULL,NULL,%s,%s,NULL)''',(request_id,version_id,revision,reader_renderer,key,digest({'version_id':version_id,'sha256':version['sha256'],'request_key':key}),Jsonb(version['content_json']['missing']),timestamp,timestamp))
         return dict(db.execute('SELECT * FROM report_build_requests WHERE id=%s',(request_id,)).fetchone())
 
     def export(self,project_id,collection_id,version_id,key):
@@ -231,9 +232,14 @@ class CollectionStore:
         task=dict(id=str(uuid4()),project_id=project_id,user_id=self.store.owner_id,task_type='collection_word_report',
             idempotency_key='collection:'+request_id,input_digest=digest(snapshot),input_snapshot=snapshot,workflow_version='collection_word_report_v1',
             status='queued',phase='export',revision=1,current_attempt=0,reason_code=None,created_at=timestamp,updated_at=timestamp)
+        from app.domain.statistics_reader_reports.legacy_exports import RENDERER as reader_renderer, StatisticsLegacyReportService
+        reader = StatisticsLegacyReportService(self.store) if row['renderer_version']==reader_renderer else None
+        if row['renderer_version'] not in (RENDERER,reader_renderer):raise invalid()
+        frozen = reader.freeze_task(db,task) if reader else None
         self.tasks.insert_task(db,task); self.tasks.append_event(db,task,'created'); self.tasks.enqueue(db,task)
         db.execute("UPDATE report_build_requests SET status='queued',dependencies_json=%s,input_json=%s,input_sha256=%s,task_id=%s,updated_at=%s WHERE id=%s",
             (Jsonb([]),Jsonb(snapshot),digest(snapshot),task['id'],timestamp,request_id))
+        if reader:reader.bind_task(db,task,frozen)
 
     def advance(self,project_id,request_id):
         with self.store.connection(write=True) as db:
@@ -244,7 +250,8 @@ class CollectionStore:
         row=dict(db.execute('SELECT * FROM report_build_requests WHERE id=%s',(request_id,)).fetchone())
         report=db.execute('SELECT report_json FROM collection_reports WHERE build_request_id=%s',(request_id,)).fetchone()
         task=db.execute('SELECT status,error_code FROM tasks WHERE id=%s',(row['task_id'],)).fetchone() if row['task_id'] else None
-        return {key:row[key] for key in ('id','version_id','export_revision','task_id','created_at','updated_at')}|{
+        return {key:row[key] for key in ('id','version_id','export_revision','task_id','created_at','updated_at','renderer_version')}|{
+            'output_policy': 'statistics_reader_export_v1' if row['renderer_version']=='statistics_reader_report_v1' else None,
             'status':'failed' if task and task['status']=='failed' else row['status'],
             'error_code':task['error_code'] if task and task['error_code'] else row['error_code'],
             'missing':row['dependencies_json'],'report':report['report_json'] if report else None}
@@ -279,11 +286,16 @@ class CollectionStore:
             or task['input_digest']!=digest(snapshot) or snapshot['project_id']!=task['project_id']): raise invalid()
         request=db.execute('SELECT * FROM report_build_requests WHERE id=%s',(snapshot['build_request_id'],)).fetchone()
         if not request or request['task_id']!=task['id'] or request['input_json']!=snapshot or request['input_sha256']!=digest(snapshot): raise invalid()
+        from app.domain.statistics_reader_reports.legacy_exports import is_reader_export, RENDERER as reader_renderer
+        if request['renderer_version'] != (reader_renderer if is_reader_export(task) else RENDERER):raise invalid()
         current=self.resolve_snapshot(db,task['project_id'],snapshot['collection_version_id'])
         if any(snapshot.get(key)!=value for key,value in current.items()): raise invalid()
         return snapshot
 
     def content(self,metadata):
+        if metadata.get('reader_export'):
+            from app.domain.statistics_reader_reports.legacy_exports import governed_content
+            return governed_content(self.store,metadata,collection=True)
         try:
             with (self.directory/(metadata['id']+'.docx')).open('rb') as stream: raw=stream.read(metadata['size_bytes']+1)
         except FileNotFoundError as exc: raise StorageError('report_missing','集合报告文件缺失。',410) from exc

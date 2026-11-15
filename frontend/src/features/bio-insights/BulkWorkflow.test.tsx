@@ -3,6 +3,7 @@ import {afterEach,beforeEach,expect,it,vi} from 'vitest'
 import {apiFetch} from '../../shared/api/client'
 import type {ProjectFile} from '../files/fileLibraryApi'
 import {bulkWorkflowViews,type BulkWorkflowView} from '../projects/analysisViews'
+import {fixedContext,fixedExports} from '../bio-reader-reports/testFixtures'
 import BulkWorkflowWorkspace,{BulkWorkflowNav} from './BulkWorkflowWorkspace'
 import {sensitivityCompatible} from './BulkSensitivity'
 import {bulkRoute,type BulkWorkflowComparison,type BulkWorkflowDescendant,type BulkWorkflowOverview} from './bulkWorkflow'
@@ -55,7 +56,7 @@ beforeEach(()=>{
     if(path.endsWith('/bulk-workflow'))return Response.json(overview)
     if(path.endsWith('/delivery/preview')) {
       const input=JSON.parse(String(init?.body))
-      return Response.json({comparison_version_id:input.comparison_version_id,processed_version_id:'qc-v2',
+      return Response.json({project_id:'p1',language:input.language,comparison_version_id:input.comparison_version_id,processed_version_id:'qc-v2',
         facts_digest:hash,design:{formula:'~ condition',rank:2,residual_df:4},qc:{summary:{raw_observations:6,retained_observations:5,
           analysis_object:{format:'h5ad',round_trip:{status:'verified'}}}},
         contrasts:[{...baseline.contrasts[0],selection,counts:{total:50,tested:48,deg:2}}],figures:[],candidates:[],enrichments:[],
@@ -71,8 +72,9 @@ beforeEach(()=>{
         parameter_changes:independent?['minimum_total_counts']:[],counts:{stable_up:1,lost:0},items:[{feature_id:'ENSG0001',symbol:'GENE1',
           baseline_class:'up',scenario_class:'up',change:'stable_up',baseline_q:0.01,scenario_q:0.01,baseline_effect:2,scenario_effect:2}],total:1,page:1,page_size:50})
     }
-    if(path.includes('/delivery/prepare/'))return Response.json({download_url:path.replace('/prepare/','/prepared/')+'/'+hash,artifact_id:hash,facts_digest:hash})
-    if(path.endsWith('/analyst-workspace/delivery-artifacts'))return Response.json({file_id:'bulk-doc',filename:'bulk-report.docx',format:'docx',sha256:hash,size_bytes:200},{status:201})
+    if(path.endsWith('/bio-reader-reports/prepare'))return Response.json(fixedContext(JSON.parse(String(init?.body))))
+    if(path.endsWith('/bio-reader-reports/context1/reports?page=1'))return Response.json(fixedExports())
+    if(path.endsWith('/bulk-reproduction/prepare'))return Response.json({download_url:path.replace(/prepare$/,hash),artifact_id:hash,facts_digest:hash})
     throw new Error(path)
   })
 })
@@ -89,46 +91,75 @@ function workspace(view:BulkWorkflowView,initialId?:string,onNavigate=vi.fn()) {
 const bodyFor=(suffix:string)=>mockFetch.mock.calls.filter(([url,init])=>String(url).endsWith(suffix)&&init?.method==='POST')
   .map(([,init])=>JSON.parse(String(init?.body)))
 
-it('prepares and adds the reviewed Bulk Word without downloading or publishing it',async()=>{
+it('reopens the fixed Bulk attachments and language with the separate edited draft available',async()=>{
+ const fixed=fixedContext({title:'Bulk RNA-seq analysis report',language:'en',selection:{kind:'bulk',delivery:{
+  comparison_version_id:'de-v2',result_version_ids:['ora-v2'],language:'en',selections:[],sensitivity:null,evidence:[],facts_digest:hash,
+ }}})
+ const fetch=mockFetch.getMockImplementation()!
+ mockFetch.mockImplementation((url,init)=>String(url).endsWith('/bio-reader-reports/context1')?Promise.resolve(Response.json(fixed)):fetch(url,init))
+ const page=<BulkWorkflowWorkspace projectId="p1" navigation={{...bulkRoute('delivery','de-v2'),reportContextId:'context1'}}
+  active allowNewAnalysis files={files} onNavigate={vi.fn()}/>
+ const first=render(page)
+ await screen.findByRole('link',{name:'打开正式报告'})
+ const edit=()=>screen.getByRole('button',{name:'编辑报告选材草稿'})
+ fireEvent.click(edit())
+ fireEvent.click(screen.getByRole('checkbox',{name:/ora-v2/}))
+ fireEvent.change(screen.getByLabelText('报告语言'),{target:{value:'zh'}})
+ first.unmount()
+ render(page)
+ await screen.findByRole('link',{name:'打开正式报告'})
+ expect(screen.getByRole('checkbox',{name:/ora-v2/})).toHaveProperty('checked',true)
+ expect(screen.getByLabelText('报告语言')).toHaveProperty('value','en')
+ fireEvent.click(edit())
+ expect(screen.getByRole('checkbox',{name:/ora-v2/})).toHaveProperty('checked',false)
+ expect(screen.getByLabelText('报告语言')).toHaveProperty('value','zh')
+ expect(bodyFor('/bio-reader-reports/prepare')).toHaveLength(0)
+})
+
+it('opens the existing delivery candidates without rendering or publishing another Word',async()=>{
+  const deliveries=vi.fn()
   render(<BulkWorkflowWorkspace projectId="p1" navigation={bulkRoute('delivery','de-v2')} active allowNewAnalysis files={files}
-    onNavigate={vi.fn()} onUpload={vi.fn()} deliveryTarget={{assignmentRevision:4}}/>)
+    onNavigate={vi.fn()} onUpload={vi.fn()} deliveryTarget={{assignmentRevision:4,onDeliveries:deliveries}}/>)
   const preview=await screen.findByRole('button',{name:'预览报告事实'})
-  expect(screen.queryByRole('button',{name:'加入交付候选 · 转录组学分析报告.docx'})).toBeNull()
+  expect(screen.queryByRole('button',{name:'准备详细报告'})).toBeNull()
   fireEvent.click(preview)
-  const add=await screen.findByRole('button',{name:'加入交付候选 · 转录组学分析报告.docx'})
-  expect(bodyFor('/delivery/prepare/word')).toHaveLength(0)
-  fireEvent.click(add)
-  await screen.findByText('已加入交付候选 · 转录组学分析报告.docx')
-  expect(bodyFor('/delivery/prepare/word')).toEqual([expect.objectContaining({comparison_version_id:'de-v2',facts_digest:hash})])
-  expect(bodyFor('/analyst-workspace/delivery-artifacts')).toEqual([{assignment_revision:4,kind:'bulk_word',artifact_id:hash,facts_digest:hash}])
+  fireEvent.click(await screen.findByRole('button',{name:'准备详细报告'}))
+  fireEvent.click(await screen.findByRole('button',{name:'打开分析交付'}))
+  expect(deliveries).toHaveBeenCalledOnce()
+  expect(bodyFor('/bio-reader-reports/prepare')).toEqual([expect.objectContaining({selection:{
+    kind:'bulk',delivery:expect.objectContaining({comparison_version_id:'de-v2',facts_digest:hash}),
+  }})])
+  expect(bodyFor('/analyst-workspace/delivery-artifacts')).toHaveLength(0)
   expect(bodyFor('/analyst-workspace/publish')).toHaveLength(0)
   expect(downloadNames).toHaveLength(0)
 })
 
-it('reuses the first Bulk delivery attachment request after an uncertain response',async()=>{
+it('recovers the original Bulk report preparation key and selection after reload',async()=>{
   const fetch=mockFetch.getMockImplementation()!
-  let attempts=0
+  let attempts=0,body:unknown
   mockFetch.mockImplementation(async(url,init)=>{
-    if(String(url).endsWith('/analyst-workspace/delivery-artifacts')&&++attempts===1)
+    if(String(url).endsWith('/bio-reader-reports/prepare')&&++attempts===1){
+      body=JSON.parse(String(init?.body))
       return Response.json({detail:{code:'internal_error'}},{status:503})
+    }
+    if(String(url).includes('/bio-reader-reports/requests/'))return Response.json(fixedContext(body as Parameters<typeof fixedContext>[0]))
     return fetch(url,init)
   })
   const view=<BulkWorkflowWorkspace projectId="p1" navigation={bulkRoute('delivery','de-v2')} active allowNewAnalysis files={files}
     onNavigate={vi.fn()} onUpload={vi.fn()} deliveryTarget={{assignmentRevision:4}}/>
   const mounted=render(view)
   fireEvent.click(await screen.findByRole('button',{name:'预览报告事实'}))
-  fireEvent.click(await screen.findByRole('button',{name:'加入交付候选 · 转录组学分析报告.docx'}))
-  await screen.findByRole('alert')
+  fireEvent.click(await screen.findByRole('button',{name:'准备详细报告'}))
+  await screen.findByRole('button',{name:'查询原请求结果'})
   mounted.unmount()
   render(view)
-  fireEvent.click(await screen.findByRole('button',{name:'预览报告事实'}))
-  fireEvent.click(await screen.findByRole('button',{name:'加入交付候选 · 转录组学分析报告.docx'}))
-  await screen.findByText('已加入交付候选 · 转录组学分析报告.docx')
-  expect(bodyFor('/delivery/prepare/word')).toHaveLength(1)
-  const calls=mockFetch.mock.calls.filter(([url])=>String(url).endsWith('/analyst-workspace/delivery-artifacts'))
-  expect(calls).toHaveLength(2)
-  expect(calls[0][1]?.body).toBe(calls[1][1]?.body)
-  expect(new Headers(calls[0][1]?.headers).get('Idempotency-Key')).toBe(new Headers(calls[1][1]?.headers).get('Idempotency-Key'))
+  fireEvent.click(await screen.findByRole('button',{name:'查询原请求结果'}))
+  await screen.findByRole('link',{name:'打开正式报告'})
+  expect(bodyFor('/delivery/preview')).toHaveLength(1)
+  const calls=mockFetch.mock.calls.filter(([url])=>String(url).endsWith('/bio-reader-reports/prepare'))
+  expect(calls).toHaveLength(1)
+  const key=new Headers(calls[0][1]?.headers).get('Idempotency-Key')
+  expect(mockFetch.mock.calls.some(([url])=>String(url).endsWith('/bio-reader-reports/requests/'+key))).toBe(true)
 })
 
 it('links every main view and preserves fixed history alongside live task navigation',async()=>{
@@ -184,7 +215,7 @@ it('requires exact preview before both native downloads and separates evidence f
   const checkbox=screen.getByRole('checkbox',{name:/ora-v2/})
   expect(screen.queryByRole('checkbox',{name:/wrong-lineage/})).toBeNull()
   expect(screen.queryByRole('checkbox',{name:/unsupported-candidate/})).toBeNull()
-  expect(screen.queryByRole('button',{name:'下载 Bulk Word 报告'})).toBeNull()
+  expect(screen.queryByRole('button',{name:'准备详细报告'})).toBeNull()
   fireEvent.click(checkbox)
   fireEvent.change(screen.getByLabelText('佐证类型'),{target:{value:'independent_analysis'}})
   await screen.findByRole('option',{name:/qPCR fixed comparison/})
@@ -199,13 +230,19 @@ it('requires exact preview before both native downloads and separates evidence f
   const request={comparison_version_id:'de-v2',result_version_ids:['ora-v2'],language:'zh',selections:[],sensitivity:null,
     evidence:[{kind:'independent_analysis',source_id:'qpcr-v3',note:''},{kind:'experimental_material',source_id:'experiment-1',note:''}]}
   expect(bodyFor('/delivery/preview')).toEqual([request])
-  fireEvent.click(screen.getByRole('button',{name:'下载 Bulk Word 报告'}))
-  fireEvent.click(screen.getByRole('button',{name:'下载 Bulk 完整复现包'}))
-  await waitFor(()=>expect(downloadNames).toEqual(['转录组学分析报告.docx','转录组学分析复现资料.zip']))
-  expect(bodyFor('/prepare/word')).toEqual([{...request,facts_digest:hash}])
-  expect(bodyFor('/prepare/archive')).toEqual([{...request,facts_digest:hash}])
+  fireEvent.click(screen.getByRole('button',{name:'准备详细报告'}))
+  fireEvent.click(await screen.findByRole('button',{name:'下载 Bulk 完整分析复现包'}))
+  await waitFor(()=>expect(downloadNames).toEqual(['Bulk 完整分析复现资料.zip']))
+  expect(bodyFor('/bio-reader-reports/prepare')).toEqual([{title:'Bulk RNA-seq 分析报告',language:'zh-CN',selection:{
+    kind:'bulk',delivery:{...request,facts_digest:hash},
+  }}])
+  const archive=mockFetch.mock.calls.find(([url])=>String(url).endsWith('/bulk-reproduction/prepare'))
+  expect(archive?.[0]).toBe('/api/v1/projects/p1/bio-reader-reports/context1/reports/formal1/bulk-reproduction/prepare')
+  expect(archive?.[1]).toMatchObject({method:'POST'})
+  expect(archive?.[1]?.body).toBeUndefined()
+  expect(bodyFor('/prepare/archive')).toHaveLength(0)
   fireEvent.change(screen.getByLabelText('报告语言'),{target:{value:'en'}})
-  expect(screen.queryByRole('button',{name:'下载 Bulk Word 报告'})).toBeNull()
+  expect(screen.queryByRole('button',{name:'准备详细报告'})).toBeNull()
 })
 
 it('continues differential analysis from the server-designated reusable QC result',async()=>{

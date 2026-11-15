@@ -18,7 +18,7 @@ def processed(client, monkeypatch, tmp_path):
     return base, value
 
 
-def test_report_diamond_public_freezes_and_five_stages_have_fresh_proofs(client, monkeypatch, tmp_path):
+def test_report_diamond_public_freezes_and_five_stages_have_fresh_proofs(client, monkeypatch, tmp_path, research_reader_narrative):
     from app.domain.source_byte_verification import VerificationPhase
     from app.domain.research_results.contracts import ResearchReportRequest
     from app.domain.research_results.execution import run_research_report_task
@@ -54,7 +54,7 @@ def test_report_diamond_public_freezes_and_five_stages_have_fresh_proofs(client,
     assert all(p['full_reads']==4 and p['proof_hits']==12 for p in nonempty)
     assert payload['table_raws'] and all(isinstance(raw, bytes) for raw in payload['table_raws'])
     assert all('phase' not in str(source.model_dump()) for source in bindings)
-    response = client.post(base+'/research-reports', json=request.model_dump(mode='json'),
+    response = client.post(base+'/research-reports', json={**request.model_dump(mode='json'), 'reader_narrative_id':research_reader_narrative},
                            headers={'Idempotency-Key':'phase-diamond-report'})
     assert response.status_code == 201, response.text
     report = response.json();phases.clear()

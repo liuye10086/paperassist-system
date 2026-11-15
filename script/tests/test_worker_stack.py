@@ -13,6 +13,20 @@ import worker_stack
 
 
 class WorkerStackTests(unittest.TestCase):
+    def test_reader_model_flag_changes_worker_revision_and_is_disabled_for_test_stacks(self):
+        with tempfile.TemporaryDirectory() as directory, patch.object(worker_stack, 'protect_directory'):
+            root = Path(directory); self.source_tree(root)
+            with patch.object(worker_stack, 'ROOT', root):
+                off = worker_stack.prepare(root, self.values())
+                on = worker_stack.prepare(root, {**self.values(), 'PAPERASSIST_READER_REPORT_MODEL_ENABLED': '1'})
+            self.assertEqual(off.environment['PAPERASSIST_READER_REPORT_MODEL_ENABLED'], '0')
+            self.assertEqual(on.environment['PAPERASSIST_READER_REPORT_MODEL_ENABLED'], '1')
+            self.assertNotEqual(off.environment['PAPERASSIST_WORKER_CONFIG_REVISION'], on.environment['PAPERASSIST_WORKER_CONFIG_REVISION'])
+            ident = 'd' * 32
+            isolated = worker_stack.prepare(root, {**self.values(), 'PAPERASSIST_READER_REPORT_MODEL_ENABLED': '1',
+                'PAPERASSIST_ENV': 'test', 'PAPERASSIST_DB_SCHEMA': 'pa_test_' + ident}, test_id=ident, assets=root/'isolated')
+            self.assertEqual(isolated.environment['PAPERASSIST_READER_REPORT_MODEL_ENABLED'], '0')
+
     def test_start_describes_preserved_word_fields_without_pdf_generation(self):
         stack = worker_stack.Stack(Path('.'), Path('.'), 'project', {})
         with patch.object(sys, 'argv', ['worker_stack.py', 'start']), \
@@ -69,7 +83,7 @@ class WorkerStackTests(unittest.TestCase):
                     patch.object(worker_stack, 'compose') as compose:
                 original = worker_stack.prepare(root, values)
                 applied = original.directory / 'applied-config-revision'
-                for prefix in ('PAPERASSIST_BIO_STAGING', 'PAPERASSIST_BIO_INSIGHTS_STAGING'):
+                for prefix in ('PAPERASSIST_BIO_STAGING', 'PAPERASSIST_BIO_INSIGHTS_STAGING', 'PAPERASSIST_RESEARCH_STAGING'):
                     with self.subTest(mount=prefix):
                         applied.write_text(original.environment[revision], encoding='utf-8')
                         updated = root / 'updated-staging'

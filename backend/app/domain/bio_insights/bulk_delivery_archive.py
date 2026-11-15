@@ -121,7 +121,18 @@ class BulkDeliveryArchive(BioInsightReproductionService):
                 cursor = page['next_cursor']
             archive.add_json(f'tasks/{task_id}-events.json', dict(task_id=task_id, events=events))
 
-    def _add_evidence(self, archive, db, project, evidence):
+    def restricted_material_shas(self, db, project, evidence):
+        hashes = [item['sha256'] for item in evidence if item['kind'] == 'experimental_material']
+        if not hashes:
+            return ()
+        rows = db.execute("""SELECT DISTINCT m.sha256 FROM bio_resource_members m
+            JOIN bio_resource_versions v ON v.id=m.resource_version_id AND v.project_id=m.project_id AND v.user_id=m.user_id
+            WHERE m.project_id=%s AND m.user_id=%s AND m.role='original_resource' AND m.sha256=ANY(%s)
+              AND v.usage_json->'redistribution_allowed' IS DISTINCT FROM 'true'::jsonb
+            ORDER BY m.sha256""", (project, self.store.user_id, hashes)).fetchall()
+        return tuple(row['sha256'] for row in rows)
+
+    def _add_evidence(self, archive, db, project, evidence, restricted_materials):
         if not evidence:
             return
         reader = InsightSourceReader(self.assets)
@@ -131,12 +142,7 @@ class BulkDeliveryArchive(BioInsightReproductionService):
                 file = dict(require_file(db, project, item['source_id']))
                 if file['sha256'] != item['sha256']:
                     raise invalid()
-                restricted = db.execute("""SELECT 1 FROM bio_resource_members m
-                    JOIN bio_resource_versions v ON v.id=m.resource_version_id AND v.project_id=m.project_id AND v.user_id=m.user_id
-                    WHERE m.project_id=%s AND m.user_id=%s AND m.role='original_resource' AND m.sha256=%s
-                      AND v.usage_json->'redistribution_allowed' IS DISTINCT FROM 'true'::jsonb LIMIT 1""",
-                    (project, self.store.user_id, file['sha256'])).fetchone()
-                if restricted:
+                if file['sha256'] in restricted_materials:
                     references.append({**item, 'distribution': 'reference_only_resource_license'})
                     continue
                 name = f'evidence/materials/{file["id"]}.bin'
@@ -151,7 +157,8 @@ class BulkDeliveryArchive(BioInsightReproductionService):
                 references.append(item)
         archive.add_json('evidence/references.json', references)
 
-    def export_delivery(self, project, facts, word, *, change_table=None, destination=None):
+    def export_delivery(self, project, facts, word, *, workbook=None, report_identity=None, expected_restrictions=None,
+                        change_table=None, destination=None):
         archive = ReproductionArchive(compression=zipfile.ZIP_DEFLATED, compresslevel=1, destination=destination)
         try:
             comparison = facts['comparison_version_id']
@@ -186,20 +193,33 @@ class BulkDeliveryArchive(BioInsightReproductionService):
                 if not full:
                     raise invalid('bio_insight_source_incomplete', 422)
                 filters = add_filtered_tables(archive, self.objects.path(full['object_key']), full['sha256'], facts['contrasts'])
-                self._add_evidence(archive, db, project, facts['evidence'])
+                restricted = self.restricted_material_shas(db, project, facts['evidence'])
+                if expected_restrictions is not None and restricted != expected_restrictions:
+                    raise invalid('bio_insight_source_incomplete', 410)
+                self._add_evidence(archive, db, project, facts['evidence'], restricted)
 
             packages = [self._add_reproduction(archive, project, version_id) for version_id in results]
             packages.extend(self._add_reproduction(archive, project, row['id'], resource=True) for row in resource_rows)
             self._add_task_events(archive, task_ids)
             if change_table is not None:
                 add_generated(archive, 'sensitivity/feature-changes.tsv', change_table)
-            archive.add_bytes('README.md', README.encode('utf-8'))
+            fixed_report = ('\n`report/report.docx` and `report/results.xlsx` are the saved members of the '
+                            'same published report. See `report` in `package.json` for their identities.\n')
+            archive.add_bytes('README.md', (README + (fixed_report if report_identity is not None else '')).encode('utf-8'))
             archive.add_json('report/facts.json', facts)
-            archive.add_bytes('report/report.docx', word)
+            if report_identity is None:
+                archive.add_bytes('report/report.docx', word)
+            else:
+                for role, path, stream in (('docx', 'report/report.docx', word),
+                                           ('xlsx', 'report/results.xlsx', workbook)):
+                    expected = report_identity['members'][role]
+                    archive.add_stream(path, stream, size_bytes=expected['size_bytes'], sha256=expected['sha256'])
             self_contained = all(item['analysis_inputs_self_contained'] for item in packages)
             manifest = dict(schema_version=1, kind='bulk_rna_seq_delivery', project_id=project, facts_digest=facts['facts_digest'],
                             comparison_version_id=comparison, processed_version_ids=processed_ids, packages=packages,
                             filters=filters, analysis_inputs_self_contained=self_contained, external_locked_runtime_required=True)
+            if report_identity is not None:
+                manifest['report'] = report_identity
             handle, manifest_sha256 = archive.finish(manifest)
             return dict(file=handle, manifest_sha256=manifest_sha256, analysis_inputs_self_contained=self_contained)
         except BaseException:

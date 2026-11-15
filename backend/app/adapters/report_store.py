@@ -95,6 +95,9 @@ class ReportStore:
             raise StorageError('report_source_changed', '报告与保存的统计、图表或解释来源不一致。', 409) from exc
 
     def content(self, report):
+        if report.get('reader_export'):
+            from app.domain.statistics_reader_reports.legacy_exports import governed_content
+            return governed_content(self.store, report)
         try:
             with (self.directory / (report['id'] + '.docx')).open('rb') as stream:
                 content = stream.read(report['size_bytes'] + 1)

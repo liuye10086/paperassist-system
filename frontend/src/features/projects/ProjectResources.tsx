@@ -5,6 +5,7 @@ import {isInsightView} from '../bio-insights/state'
 import {STANDARD_REQUEST_TIMEOUT_MS} from '../../shared/api/requestTimeouts'
 import BioUpload from '../bioinformatics/BioUpload'
 import BioImports from '../bioinformatics/BioImports'
+import BioReaderReportWorkspace from '../bio-reader-reports/BioReaderReportWorkspace'
 import type { AnalysisNavigation } from './analysisViews'
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { onApiSessionChanged } from '../../shared/api/client'
@@ -77,7 +78,8 @@ function ResourceContent({ projectId, onSaved, section, onSectionChange, onUnava
   const deliveryTarget:NativeDeliveryTarget|undefined=assigned&&assignmentRevision!==undefined?{assignmentRevision,onDeliveries}:undefined
   function openFile(id:string){if(onResourceNavigate)onResourceNavigate({view:'detail',fileId:id});else{onSectionChange('files');navigate({view:'detail',fileId:id})}}
   const insightView=isInsightView(analysis.view)
-  const bioView=analysis.view.startsWith('bio-')&&!insightView
+  const readerReportView=analysis.view==='bio-reader-report'
+  const bioView=analysis.view.startsWith('bio-')&&!insightView&&!readerReportView
   const researchView=analysis.view==='research-findings'
   const filesActive = Boolean(active) && section === 'files'
   const qualityBioActive = filesActive && navigation.view === 'quality' && !!navigation.bio
@@ -198,11 +200,13 @@ function ResourceContent({ projectId, onSaved, section, onSectionChange, onUnava
       {analysis.bulkView&&entryAvailable&&<BulkWorkflowWorkspace key={bulkOverviewRevision} {...{projectId,allowNewAnalysis,files,outputLanguage,deliveryTarget}}
         navigation={analysis} active={analysisActive&&bulkHome} onNavigate={navigateAnalysis} onUpload={analysisOnly ? undefined : openBulkUpload}/>}
       <BioInsightsWorkspace allowExternalEvidenceRegistration={!assigned} allowNewAnalysis={allowNewAnalysis} deliveryTarget={deliveryTarget} projectId={projectId} navigation={analysis} onNavigate={navigateAnalysis} active={analysisActive&&insightView&&entryAvailable} registerLeaveGuard={registerLeaveGuard}/>
+      {analysisActive&&readerReportView&&entryAvailable&&<BioReaderReportWorkspace key={projectId+':'+analysis.reportContextId}
+       {...{projectId,deliveryTarget}} navigation={analysis}/>}
       <div className="analysis-overview-body" hidden={analysis.view!=='overview'}>
         <AnalysisGuide embedded={analysisOnly} assigned={assigned} projectId={projectId} onUpload={analysisOnly ? undefined : openUpload} version={requirement} scopeId={analysis.entry?.scopeItemId} loading={analysis.entry?fixed.loading:intake.loading&&!current} error={analysis.entry?fixedError:intake.error} onRefresh={analysis.entry?fixed.refresh:intake.refresh} files={files} filesLoading={loading} filesError={error} onReloadFiles={refreshMaterials} imports={imports.data??[]} importsUnknown={imports.unknown} importsError={imports.error} onFile={openFile} onNavigate={navigateAnalysis} onRequirements={onRequirements} onDeliveries={onDeliveries}/>
       </div>
       {!assigned&&<div hidden={analysis.view!=='research-request'}>{requirementsVisited&&<ProjectRequirements projectId={projectId} files={files.filter((file):file is ProjectFile & {parse_status:'queued'|'parsing'|'parsed'|'failed'}=>file.parse_status!=='stored')} registerLeaveGuard={registerLeaveGuard}/>}</div>}
-      <div hidden={!entryAvailable||analysis.view==='overview'||analysis.view==='research-request'||bioView||insightView||researchView||bulkHome}>
+      <div hidden={!entryAvailable||analysis.view==='overview'||analysis.view==='research-request'||bioView||insightView||researchView||readerReportView||bulkHome}>
       <AnalysisSetup analysisOnly={analysisOnly} projectId={projectId} files={files.filter((file):file is ProjectFile & {parse_status:'queued'|'parsing'|'parsed'|'failed'}=>file.parse_status!=='stored'&&file.file_type==='xlsx')} filesLoading={loading} filesError={error} onReloadFiles={refresh}
         onOpenFiles={analysisOnly ? undefined : () => onSectionChange('files')} stage={analysis.view==='overview'||analysis.view==='research-request'||analysis.view==='research-findings'||analysis.view.startsWith('bio-')||bulkHome?'setup':analysis.view as import('../analysis/analysisWorkflowContext').AnalysisStage} onStageChange={view=>navigateAnalysis({...analysis,view})} fileId={analysis.fileId} onFileChange={fileId=>navigateAnalysis({...analysis,fileId})} registerLeaveGuard={registerLeaveGuard} />
       </div>

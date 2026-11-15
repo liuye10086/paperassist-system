@@ -6,6 +6,7 @@ import { version, dataset, page } from '../datasets/datasetFixtures'
 import type { StructureVersion } from '../datasets/datasetApi'
 import { reviewFixture } from '../analysisPlan/analysisPlanFixtures'
 import { correlationResult } from './correlationFixtures'
+import { readerPolicy } from '../reports/statisticsReaderFixtures'
 afterEach(() => { cleanup(); vi.unstubAllGlobals() })
 const source = { kind: 'dataset_version', schema_version: 1, dataset_id: 'd1', structure_id: 's1', dataset_version: 1, file_id: 'f1', source_sha256: 'a'.repeat(64), dataset_sha256: 'b'.repeat(64), dataset_size_bytes: 100, dataset_schema_version: 1, sheet_index: 0, sheet_name: 'Sheet1', parser_version: 'openpyxl-3.1.5-structure-v1' }
 const selection = { task_type: 'descriptive_boxplot', sheet_name: 'Sheet1', numeric_column: 'A', group_column: null, unit: '', missing_policy: 'exclude_selected_missing' }
@@ -228,6 +229,70 @@ test('legacy configuration and results remain readable while execution requires 
  await user.click(screen.getByRole('button', { name: '统计结果' })); await screen.findByRole('table', { name: '描述统计结果' })
  expect((screen.getByRole('button', { name: '执行描述统计' }) as HTMLButtonElement).disabled).toBe(true)
  expect(fetch.mock.calls.some(([, init]) => init?.method === 'POST' || init?.method === 'PUT')).toBe(false)
+})
+test('exports the current saved legacy report with no data-source draft while keeping new analysis actions disabled', async () => {
+ const { source: _source, ...legacySaved } = saved
+ const { source: _resultSource, ...legacyResult } = result
+ const figure = { id: 'figure1', analysis_run_id: result.id, setup_revision: 1, title: '原箱线图', caption: 'n=30',
+  x_label: '分组', y_label: '测量值', source_sha256: source.source_sha256, sha256: 'c'.repeat(64), created_at: dataset.created_at,
+  engine: { id: 'openai_boxplot_v1', provider: 'openai_code_interpreter', model: 'saved' }, verification: { status: 'matched', note: '统计核对一致' } }
+ const explanation = { id: 'explanation1', analysis_run_id: result.id, figure_id: figure.id, setup_revision: 1,
+  figure_sha256: figure.sha256, source_sha256: source.source_sha256, language: 'zh-CN', created_at: dataset.created_at,
+  sections: ['purpose', 'data', 'methods', 'results', 'interpretation', 'paper_text'].map(key => ({ key, title: key, text: `已保存 ${key}`, evidence: [] })),
+  limitations: [], engine: { id: 'analysis_explanation_v1' }, verification: { status: 'references_checked' }, provenance: {} }
+ const fetch = mockApi({ saved: legacySaved, result: legacyResult })
+ const original = fetch.getMockImplementation()!
+ let reportReady = true
+ let reportCurrent = true
+ fetch.mockImplementation((url, init) => {
+  if (url.endsWith('/plot-config') || url.endsWith('/explanation-config')) return Promise.resolve(Response.json({ configured: true }))
+  if (url.endsWith('/boxplot')) return Promise.resolve(Response.json({ current_revision: 1, is_current: true, generation_compatible: true, figure, job: null }))
+  if (url.endsWith('/explanation')) return Promise.resolve(Response.json({ current_revision: 1, is_current: true, figure_id: figure.id, explanation, job: null }))
+  if (url.endsWith('/report')) return Promise.resolve(Response.json({ current_revision: 1, is_current: reportCurrent, ready: reportReady, issues: [], report: null, output_policy: readerPolicy }))
+  return original(url, init)
+ })
+ const user = userEvent.setup()
+ const structure = await open(user)
+ const navigate = (name: string) => user.click(screen.getByRole('button', { name }))
+ await navigate('统计结果')
+ await screen.findByRole('table', { name: '描述统计结果' })
+ expect(screen.getByRole('button', { name: '执行描述统计' }).hasAttribute('disabled')).toBe(true)
+ await navigate('图表')
+ await screen.findByAltText(figure.title)
+ expect(screen.getByRole('button', { name: '使用 OpenAI 生成箱线图' }).hasAttribute('disabled')).toBe(true)
+ await navigate('分析解释')
+ await screen.findByText('已保存 results')
+ expect(screen.getByRole('button', { name: '使用 OpenAI 生成解释' }).hasAttribute('disabled')).toBe(true)
+ await navigate('Word报告')
+ const generate = await screen.findByRole('button', { name: '生成详细报告' })
+ await waitFor(() => expect(generate.hasAttribute('disabled')).toBe(false))
+ expect(fetch.mock.calls.some(([, init]) => init?.method === 'POST' || init?.method === 'PUT')).toBe(false)
+
+ for (const state of [{ ready: false, current: true }, { ready: true, current: false }]) {
+  reportReady = state.ready
+  reportCurrent = state.current
+  await navigate('重新读取报告')
+  await waitFor(() => expect(screen.getByRole('region', { name: 'Word 分析报告' }).getAttribute('aria-busy')).toBe('false'))
+  expect(generate.hasAttribute('disabled')).toBe(true)
+ }
+ reportCurrent = true
+ await navigate('重新读取报告')
+ await waitFor(() => expect(generate.hasAttribute('disabled')).toBe(false))
+ await navigate('字段配置')
+ await user.selectOptions(structure, 's2')
+ await navigate('Word报告')
+ expect(generate.hasAttribute('disabled')).toBe(true)
+ await navigate('字段配置')
+ await user.selectOptions(structure, '')
+ await navigate('Word报告')
+ expect(generate.hasAttribute('disabled')).toBe(false)
+
+ await user.click(generate)
+ const mutations = fetch.mock.calls.filter(([, init]) => init?.method === 'POST' || init?.method === 'PUT')
+ expect(mutations).toHaveLength(1)
+ expect(mutations[0][0]).toBe('/api/v1/projects/p1/files/f1/analysis-runs/run1/report')
+ expect(JSON.parse(String(mutations[0][1]?.body))).toEqual({ expected_revision: 1, figure_id: figure.id, explanation_id: explanation.id })
+ expect(new Headers(mutations[0][1]?.headers).get('Idempotency-Key')).toBe('word-report-r3:explanation1:1')
 })
 test('late dataset profile cannot replace a different selected version', async () => {
  const fetch = mockApi(); const original = fetch.getMockImplementation()!; let finish!: (response: Response) => void

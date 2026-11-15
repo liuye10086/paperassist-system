@@ -131,9 +131,11 @@ class TaskStore:
         row = db.execute('''SELECT * FROM tasks
             WHERE user_id=%s AND project_id=%s AND task_type=%s AND idempotency_key=%s''',
             (self.user_id, project_id, task_type, key)).fetchone()
+        if not row and task_type == 'word_report':
+            row = db.execute('SELECT t.* FROM statistics_legacy_export_requests r JOIN tasks t ON t.id=r.task_id WHERE r.project_id=%s AND r.user_id=%s AND r.request_key=%s', (project_id,self.user_id,key)).fetchone()
         return dict(row) if row else None
 
-    def source_snapshot(self, db, project, request, *, directory=None):
+    def source_snapshot(self, db, project, request, *, directory=None, report_policy=None):
         # Only persisted records are accepted, inside the creation transaction.
         # Legacy file bytes are checked by the executor; dataset objects are
         # verified here and again at execution/publication boundaries.
@@ -222,6 +224,8 @@ class TaskStore:
                 validate_sources(result, figure, explanation)
         except (KeyError, TypeError, ValueError, StorageError) as exc:
             raise source_conflict() from exc
+        if request.task_type == 'word_report' and report_policy == 'statistics_reader_export_v1':
+            from app.domain.statistics_reader_reports.legacy_exports import RENDERER as REPORT_VERSION
         processing = None
         if request.task_type == 'word_report':
             from app.domain.dataset_processing import load_processing

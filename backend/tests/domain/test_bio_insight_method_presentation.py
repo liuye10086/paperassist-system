@@ -55,6 +55,97 @@ def payload(methods, language='en', modern=True):
     return value
 
 
+TOPIC_EXPECTATIONS = {
+    'slingshot': (('Slingshot', 'Harmony-adjusted PCA', 'root cluster', 'FIXED_ROOT', '4', 'pseudotime', 'elapsed time'),
+                  ('Slingshot', '经 Harmony 校正的 PCA', '根分群', 'FIXED_ROOT', '4', '拟时序', '真实时间')),
+    'genie3': (('GENIE3', 'unintegrated log1p', 'TF_EXAMPLE', '31, 43', '75', 'predictive importance', 'external replication'),
+               ('GENIE3', '未整合的 log1p', 'TF_EXAMPLE', '31, 43', '75', '预测重要性', '独立重复')),
+    'per_donor': (('CellChat', 'donor × condition', 'literature', 'CC BY 4.0', 'cell permutations', 'no donor-level comparison'),
+                  ('CellChat', '供体 × 条件', '文献', 'CC BY 4.0', '细胞置换', '未请求供体层比较')),
+    'paired': (('CellChat', 'paired t test', 'complete donor pairs', 'STIM − BASE', 'Benjamini–Hochberg', 'not computable'),
+               ('CellChat', '配对 t 检验', '完整供体配对', 'STIM − BASE', 'Benjamini–Hochberg', '无法计算')),
+    'unpaired': (('CellChat', 'Welch t test', 'independent donors', 'STIM − BASE', 'Benjamini–Hochberg', 'not computable'),
+                 ('CellChat', 'Welch t 检验', '独立供体', 'STIM − BASE', 'Benjamini–Hochberg', '无法计算')),
+}
+
+
+def fixed_topic(case):
+    algorithm = case if case in ('slingshot', 'genie3') else 'cellchat'
+    config = dict(kind='integration', schema_version=2, method=algorithm, cluster_ids=['C0', 'C1'],
+                  condition_values=['BASE', 'STIM'], label_ids=['X', 'Y'], label_basis='Frozen labels',
+                  processed_source_id='d'*64)
+    parameters = dict(name=algorithm, frozen_config=config, label_names={'X':'B cells','Y':'T cells'},
+                      exclusions={'not_selected':2})
+    if algorithm == 'slingshot':
+        config.update(representation='pca_harmony', n_components=10, root_cluster='FIXED_ROOT',
+                      root_basis='Saved biological basis', seed=17)
+        parameters.update(input_layer='pca_harmony', actual_components=4, lineage_clusters=[['C0','C1']])
+    elif algorithm == 'genie3':
+        config.update(gene_ids=['TF_EXAMPLE','GX'], tf_ids=['TF_EXAMPLE'], tf_basis='Saved TF list',
+                      n_trees=75, seed=31, stability_seed=43)
+        parameters.update(input_layer='unintegrated_log1p', parameters=dict(n_trees=75,seeds=[31,43]),
+                          tf_ids=['TF_EXAMPLE'], gene_ids=['TF_EXAMPLE','GX'], tf_basis='Saved TF list')
+    else:
+        config.update(communication_mode=case, lr_resource_id='human-demo-literature-v1', n_boot=37,
+                      min_cells=12, seed=17)
+        parameters.update(input_layer='unintegrated_log1p',
+            donor_test={'per_donor':'not_requested','paired':'paired_t','unpaired':'welch_t'}[case],
+            resource=dict(resource_id='human-demo-literature-v1',license='CC BY 4.0'),
+            parameters=dict(n_boot=37,min_cells_exclusive=12,seed=17,lr_ids=['CXCL12_CXCR4']))
+    return dict(method('integration'), id='insight-method-'+case,description=json.dumps(parameters),parameters=parameters)
+
+
+@pytest.mark.parametrize('language',['en','zh-CN'])
+@pytest.mark.parametrize('case',TOPIC_EXPECTATIONS)
+def test_single_cell_topic_exports_keep_only_the_recorded_scientific_method(language,case,tmp_path):
+    from app.adapters.research_report_render import render_report
+    from openpyxl import load_workbook
+
+    fixed=fixed_topic(case)
+    snap=snapshot([fixed],language)
+    before=deepcopy(snap)
+    render_report(dict(snapshot=snap,tables=[],figures=[],package_files=[]),tmp_path)
+    doc=Document(tmp_path/'analysis.docx')
+    book=load_workbook(tmp_path/'results.xlsx',read_only=True)
+    try:
+        text_parts=(
+            '\n'.join(p.text for p in doc.paragraphs),
+            '\n'.join(str(cell) for row in book['Methods'].values for cell in row),
+            (tmp_path/'methods.txt').read_text(encoding='utf-8'),
+        )
+    finally:book.close()
+    for text in text_parts:
+        assert all(value in text for value in TOPIC_EXPECTATIONS[case][language=='zh-CN']), (case,text)
+        assert all(value not in text for value in ('Frozen cross-data integration','冻结对应与跨数据整合',
+            'coefficients only','只计算系数','predeclared pairs','预声明特征对','unintegrated_log1p',
+            'pca_harmony','d'*64,'condition_values['))
+    with zipfile.ZipFile(tmp_path/'analysis_package.zip') as archive:
+        assert json.loads(archive.read('parameters.json'))==[fixed['parameters']]
+        assert json.loads(archive.read('report_snapshot.json'))==before
+    assert snap==before
+
+
+@pytest.mark.parametrize(('language','technical_sha','model_sha'),[
+    ('en','2b9d7383ca729ecac7203d6768a7226f687d21e65677b18bc54e01a2c8eba776',
+     '18b1a20e8d189f9b37760df64e769e2f3af6f7c233e7006b6032b6caf26efa5d'),
+    ('zh-CN','490f71fc1eeef6387cafbf856545e6ddca99aec9403c964daf2241a1a956ab07',
+     'c7ad201930c0c1a04f271bcad84fca3cbc47e481ae9a72d6649387bb67680a56'),
+])
+def test_topic_reader_fix_preserves_technical_and_model_golden(language,technical_sha,model_sha):
+    from hashlib import sha256
+    from app.adapters.research_method_text import present_method
+    from app.domain.reader_reports.content import canonical, make_material
+
+    cross_data=dict(method('integration'),description='',
+        parameters={'frozen_config':{'kind':'integration','schema_version':1,'metric':'pearson'}})
+    methods=[fixed_topic(case) for case in TOPIC_EXPECTATIONS]+[cross_data]
+    technical=[present_method(m,language,reader=False,reference='frozen source') for m in methods]
+    assert sha256(canonical(technical).encode()).hexdigest()==technical_sha
+    assert sha256(canonical(make_material(snapshot(methods,language),[])).encode()).hexdigest()==model_sha
+    title = present_method(cross_data,language,reader=True)['title']
+    assert title==('Frozen cross-data integration' if language=='en' else '冻结对应与跨数据整合')
+
+
 @pytest.mark.parametrize('language',['zh-CN','en'])
 def test_report_and_fact_prose_summarize_large_fixed_groups_without_mutating_evidence(language):
     from app.adapters.research_report_docx import build_report
@@ -68,11 +159,15 @@ def test_report_and_fact_prose_summarize_large_fixed_groups_without_mutating_evi
         assert 'NUM_0000' not in rendered and 'DEN_0000' not in rendered
         assert 'observation_keys' not in rendered and 'frozen_config' not in rendered
         assert len(rendered) < 14000
-        for kept in ('379','783','cluster 0','other fixed clusters','BH_predeclared_tests_NA_internal_one',
-                     'two_sided_rank_sum_normal_tie_corrected','1e-09','false'):
+        for kept in ('379','783','cluster 0','other fixed clusters','1e-09'):
             assert kept in rendered
         assert ('not independent donors' in rendered) if language=='en' else ('不等于独立供体' in rendered)
     assert 'result-fixed' in text and 'a'*64 in text
+    for raw in ('BH_predeclared_tests_NA_internal_one','two_sided_rank_sum_normal_tie_corrected','false'):
+        assert raw in text
+        assert raw not in prose
+    assert 'Benjamini–Hochberg' in prose
+    assert ('tie correction' if language=='en' else '校正并列秩') in prose
     assert all(value not in prose for value in ('result-fixed','a'*64,'bio_insights_v1.0.0'))
     assert candidate['methods'][0]['research_method'] == fixed
     assert (snap,request)==before
@@ -186,7 +281,8 @@ def test_large_legacy_source_is_readable_and_renderer_identity_covers_helper():
         assert all('NUM_0000' not in str(row) and 'a'*64 not in str(row) for row in book['Methods'].values)
         book.close()
     root=Path(research_report_render.__file__).parent
-    names=('research_report_render.py','research_report_child.py','research_report_docx.py','research_results_xlsx.py','research_report_images.py','research_method_text.py')
+    names=('research_report_render.py','research_report_child.py','research_report_docx.py','research_results_xlsx.py',
+        'research_report_images.py','research_method_text.py','reader_report_presentation.py')
     paths=[root/name for name in names]+[root.parent/'domain/research_results/report_package.py']
     assert renderer_identity()['code_digest']==hashlib.sha256(b''.join(p.read_bytes() for p in paths)).hexdigest()
 

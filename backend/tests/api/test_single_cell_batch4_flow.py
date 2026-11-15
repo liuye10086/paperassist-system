@@ -9,7 +9,7 @@ from tests.api.test_single_cell_direct_start import ready_single_cell,synthetic_
 
 
 @pytest.fixture
-def parent_result(client,monkeypatch,tmp_path):
+def parent_result(client,monkeypatch,tmp_path,base=None):
     from app.domain.bioinformatics import execution,analysis_execution
     original=execution.run_bio_import_task
     def imported(*args,**kwargs):
@@ -22,7 +22,7 @@ def parent_result(client,monkeypatch,tmp_path):
             kwargs['parser']=with_species
         return original(*args,**kwargs)
     monkeypatch.setattr(execution,'run_bio_import_task',imported)
-    fixture=ready_single_cell.__wrapped__(client,monkeypatch,tmp_path)
+    fixture=ready_single_cell.__wrapped__(client,monkeypatch,tmp_path,base)
     from app.adapters import bio_figure_store
     from app.domain.bioinformatics import analysis_service
     monkeypatch.setattr(bio_figure_store,'runtime_identity',lambda:fixture['runtime'])
@@ -48,7 +48,7 @@ def parent_result(client,monkeypatch,tmp_path):
     return fixture
 
 
-def test_manual_label_versions_are_independent_and_sc_figure_can_use_them(client,parent_result,monkeypatch):
+def test_manual_label_versions_are_independent_and_sc_figure_can_use_them(client,parent_result,monkeypatch, research_reader_narrative):
     from app.db.database import database_connection
     f=parent_result;base=f['base'];parent=f['source']
     body=dict(name='Reviewed',raw_source=parent['raw_source'],processed_dataset_version_id=parent['processed_dataset_version_id'],expected_revision=0,
@@ -77,7 +77,7 @@ def test_manual_label_versions_are_independent_and_sc_figure_can_use_them(client
     finding=client.post(base+'/research-findings',json=dict(title='Annotated cell projection',sources=[selection]),headers={'Idempotency-Key':'label-finding'})
     assert finding.status_code==201,finding.text
     report_body=dict(title='Label-dependent report',finding_version_id=finding.json()['id'])
-    report=client.post(base+'/research-reports',json=report_body,headers={'Idempotency-Key':'label-report'})
+    report=client.post(base+'/research-reports',json={**report_body, 'reader_narrative_id':research_reader_narrative},headers={'Idempotency-Key':'label-report'})
     assert report.status_code==201,report.text
     from app.domain.research_results.execution import run_research_report_task
     def history_report_engine(payload,out):
@@ -89,7 +89,15 @@ def test_manual_label_versions_are_independent_and_sc_figure_can_use_them(client
     assert finished['status']=='succeeded',finished
     historical_report=client.get(base+'/research-reports/'+report.json()['id'])
     assert historical_report.status_code==200,historical_report.text
-    historical_download=historical_report.json()['members'][0]['download_url']
+    report_member=historical_report.json()['members'][0]
+    historical_download=report_member['download_url']
+    from app.domain.delivery_packages.contracts import Selection
+    from app.domain.delivery_packages.sources import resolve_members
+    from tests.api.test_bio_reader_reports import service_for
+    report_service=service_for(parent['project_id'])
+    delivery_member=Selection(kind='research_report_member',version_id=report.json()['id'],member_id=report_member['id'])
+    with report_service.store.connection() as db:
+        frozen_delivery,frozen_raws,_=resolve_members(report_service,db,parent['project_id'],{},[delivery_member],'complete')
     from app.domain.research_results.execution import source_current as research_current
     with database_connection() as db:
         report_task=db.execute('SELECT * FROM tasks WHERE id=%s',(report.json()['task']['id'],)).fetchone()
@@ -105,12 +113,15 @@ def test_manual_label_versions_are_independent_and_sc_figure_can_use_them(client
     with database_connection() as db:
         report_task=db.execute('SELECT * FROM tasks WHERE id=%s',(report.json()['task']['id'],)).fetchone()
         assert research_current(db,report_task) is False
-    new_report=client.post(base+'/research-reports',json=report_body,headers={'Idempotency-Key':'stale-label-report'})
+    new_report=client.post(base+'/research-reports',json={**report_body, 'reader_narrative_id':research_reader_narrative},headers={'Idempotency-Key':'stale-label-report'})
     assert new_report.status_code==409,new_report.text
     assert new_report.json()['detail']['code']=='research_source_conflict'
     assert client.get(figure_view['members'][0]['download_url']).status_code==200
     assert client.get(historical_download).status_code==200
     assert client.get(base+'/research-reports/'+report.json()['id']).status_code==200
+    with report_service.store.connection() as db:
+        current,raws,_=resolve_members(report_service,db,parent['project_id'],{},[delivery_member],'complete',frozen_members=frozen_delivery)
+    assert current==frozen_delivery and raws==frozen_raws
     with database_connection() as db:
         assert db.execute("SELECT count(*) AS n FROM tasks WHERE project_id=%s AND task_type='bio_analysis'",(parent['project_id'],)).fetchone()['n']==1
         from app.adapters.task_store import DatasetTaskAssets

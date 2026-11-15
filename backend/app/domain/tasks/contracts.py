@@ -5,6 +5,7 @@ from app.domain.bio_insights.task_contracts import InsightInputVersion,INSIGHT_T
 from app.domain.bioinformatics.analysis_contracts import BioAnalysisInputVersion, BioFigureInputVersion
 from app.domain.bioinformatics.annotation_contracts import BioAnnotationInputVersion
 from app.domain.research_results.task_contracts import ResearchInputVersion
+from app.domain.reader_reports.contracts import ReaderReportInputVersion
 from app.domain.bioinformatics.contracts import BioImportInputVersion, BioImportInputVersionV2
 from app.domain.review_rounds.document_contracts import ReviewDocumentInputVersion
 from app.domain.review_rounds.revision_contracts import RevisionInputVersion
@@ -31,7 +32,7 @@ from app.domain.tasks.errors import ErrorCategory, RetryReason
 from pydantic import AfterValidator, AwareDatetime, BaseModel, ConfigDict, Field, model_validator
 
 
-TaskType = Literal['bio_cloud_run', 'boxplot', 'explanation', 'word_report', 'parse_file', 'extract_dataset', 'prepare_dataset', 'review_ocr', 'analysis_plan', 'analysis_recommendation', 'figure_projection', 'figure_workbench', 'figure_explanation', 'collection_word_report', 'statistics_compute', 'literature_search', 'literature_assistance', 'manuscript_draft', 'manuscript_docx', 'pdf_export', 'layout_docx', 'manuscript_writing', 'school_template_parse', 'school_rule_suggestion', 'journal_recommendation', 'journal_format_check', 'journal_adaptation', 'review_round_plan', 'review_revision', 'review_document_export', 'bio_import', 'bio_analysis', 'bio_annotation', 'bio_figure', 'research_figure', 'research_report', 'research_fact_draft','delivery_package', 'bio_resource_import', 'bio_comparison', 'bio_result_import', 'bio_enrichment', 'bio_candidate', 'bio_insight_figure','bio_feature_extract','bio_integration']
+TaskType = Literal['bio_cloud_run', 'boxplot', 'explanation', 'word_report', 'parse_file', 'extract_dataset', 'prepare_dataset', 'review_ocr', 'analysis_plan', 'analysis_recommendation', 'figure_projection', 'figure_workbench', 'figure_explanation', 'collection_word_report', 'statistics_compute', 'literature_search', 'literature_assistance', 'manuscript_draft', 'manuscript_docx', 'pdf_export', 'layout_docx', 'manuscript_writing', 'school_template_parse', 'school_rule_suggestion', 'reader_report_narrative', 'journal_recommendation', 'journal_format_check', 'journal_adaptation', 'review_round_plan', 'review_revision', 'review_document_export', 'bio_import', 'bio_analysis', 'bio_annotation', 'bio_figure', 'research_figure', 'research_report', 'research_fact_draft','delivery_package', 'bio_resource_import', 'bio_comparison', 'bio_result_import', 'bio_enrichment', 'bio_candidate', 'bio_insight_figure','bio_feature_extract','bio_integration']
 UTCDateTime = Annotated[AwareDatetime, AfterValidator(lambda value: value.astimezone(timezone.utc))]
 TaskStatus = Literal['cancelled', 'queued', 'running', 'waiting_input', 'waiting_confirmation', 'succeeded', 'failed']
 TaskPhase = Literal['parse', 'plan', 'compute', 'search', 'interpret', 'write', 'export', 'verify']
@@ -165,7 +166,7 @@ class TaskView(BaseModel):
     reason_code: TaskReason | None
     created_at: UTCDateTime
     updated_at: UTCDateTime | None
-    input_version: BioAnnotationInputVersion | CloudInputVersion | SingleCellImportInputVersion | SingleCellAnalysisInputVersion | BioImportInputVersionV3 | BioAnalysisInputVersionV2 | InsightInputVersion | ResearchInputVersion | BioAnalysisInputVersion | BioFigureInputVersion | BioImportInputVersionV2 | BioImportInputVersion | ReviewDocumentInputVersion | RevisionInputVersion | ReviewInputVersion | AdaptationInputVersion | FormatInputVersion | JournalInputVersion | SchoolTemplateInputVersion | SuggestionInputVersion | LayoutInputVersion | WritingInputVersion | PdfInputVersion | ManuscriptInputVersion | AssistanceInputVersion | LiteratureInputVersion | StatisticsInputVersion | CollectionInputVersion | RecommendationInputVersion | AnalysisPlanInputVersion | OcrReviewInputVersion | PreparationInputVersion | DatasetAnalysisInputVersion | InputVersion | ParseInputVersion | StructureInputVersion
+    input_version: BioAnnotationInputVersion | CloudInputVersion | SingleCellImportInputVersion | SingleCellAnalysisInputVersion | BioImportInputVersionV3 | BioAnalysisInputVersionV2 | InsightInputVersion | ResearchInputVersion | BioAnalysisInputVersion | BioFigureInputVersion | BioImportInputVersionV2 | BioImportInputVersion | ReviewDocumentInputVersion | RevisionInputVersion | ReviewInputVersion | AdaptationInputVersion | FormatInputVersion | JournalInputVersion | SchoolTemplateInputVersion | SuggestionInputVersion | ReaderReportInputVersion | LayoutInputVersion | WritingInputVersion | PdfInputVersion | ManuscriptInputVersion | AssistanceInputVersion | LiteratureInputVersion | StatisticsInputVersion | CollectionInputVersion | RecommendationInputVersion | AnalysisPlanInputVersion | OcrReviewInputVersion | PreparationInputVersion | DatasetAnalysisInputVersion | InputVersion | ParseInputVersion | StructureInputVersion
     result_bio_resource_version_id: str | None = None
     result_bio_insight_result_version_id: str | None = None
     result_research_figure_version_id: str | None = None
@@ -213,6 +214,8 @@ class TaskView(BaseModel):
             raise ValueError('Input version must match journal format task type.')
         if (self.task_type=='journal_recommendation') != isinstance(self.input_version,JournalInputVersion):
             raise ValueError('Input version must match journal task type.')
+        if (self.task_type == 'reader_report_narrative') != isinstance(self.input_version, ReaderReportInputVersion):
+            raise ValueError('Input version must match reader report narrative task type.')
         if (self.task_type=='school_rule_suggestion') != isinstance(self.input_version,SuggestionInputVersion):
             raise ValueError('Input version must match school suggestion task type.')
         if (self.task_type=='school_template_parse') != isinstance(self.input_version,SchoolTemplateInputVersion):

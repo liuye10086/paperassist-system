@@ -4,9 +4,90 @@ import {clearApiSession, setApiSession} from '../../shared/api/client'
 import {setLocale} from '../../shared/i18n'
 import ResearchReport from './ResearchReport'
 import type {Report} from './contracts'
+import {readerProjection,wordSha} from '../reports/statisticsReaderFixtures'
 
 beforeEach(()=>{setApiSession('csrf','owner');setLocale('zh-CN')})
 afterEach(()=>{cleanup();vi.unstubAllGlobals();clearApiSession();setLocale('zh-CN')})
+
+it.each(['statistics figure', 'statistics context without figures'])('keeps a formal report bound to its %s',async(kind)=>{
+ const id='formal-statistics',taskId='statistics-task',hasFigure=kind==='statistics figure'
+ const {reader_report,members}=readerProjection('word_report',taskId,id,hasFigure?['Fixed statistical panel']:[])
+ const sources=hasFigure?[]:[{source_kind:'statistics_report_context',source_id:'fixed-statistics-context',locator:{kind:'object'}}]
+ const figures=hasFigure?[{id:'statistics-figure',statistics_source:{
+  analysis_run_id:'run1',result_sha256:wordSha,figure_id:'statistics-figure',figure_sha256:wordSha,
+  explanation_id:'explanation1',explanation_sha256:wordSha,
+ }}]:[]
+ const task={id:taskId,project_id:'p1',task_type:'research_report',status:'succeeded'}
+ const report={id,root_id:'r',revision:1,task,task_id:taskId,members,content:{
+  title:'Fixed statistical report',language:'zh-CN',figures,tables:[],reader_report,
+  finding:{content:{facts:[],methods:[],gaps:[],limitations:[],claims:[],sources}},
+ }}
+ const fetch=vi.fn(async(url:string,_init?:RequestInit)=>Response.json(url.endsWith('/research-reports/'+id)?report:
+  url.endsWith('/progress')?{project_id:'p1',task_id:taskId,task_type:task.task_type,status:task.status,progress:null}:{items:[],total:0,page:1,page_size:20}))
+ vi.stubGlobal('fetch',fetch)
+ const onWriting=vi.fn()
+ render(<ResearchReport projectId="p1" active selectedId={id} onSelect={vi.fn()} onWriting={onWriting}/>)
+ await screen.findByText('Fixed results for this report.')
+ expect(screen.queryByRole('button',{name:'以此报告另存新版本'})).toBeNull()
+ expect(screen.queryByRole('link',{name:'以此报告另存新版本'})).toBeNull()
+ expect(screen.getByRole('link',{name:'查看任务'}).getAttribute('href')).toBe('#project=p1&section=tasks&task=statistics-task')
+ fireEvent.click(screen.getByRole('button',{name:'用于写作'}))
+ expect(onWriting).toHaveBeenCalledWith({kind:'research_report_version',id})
+ fireEvent.click(screen.getByRole('button',{name:'下载文件'}))
+ expect(screen.getByRole('link',{name:/analysis\.docx/}).getAttribute('href')).toBe(members[0].download_url)
+ fireEvent.click(screen.getByRole('button',{name:'处理记录'}))
+ await screen.findByText('尚无阶段记录')
+ expect(fetch.mock.calls.some(([url])=>url===`/api/v1/tasks/${taskId}/progress`)).toBe(true)
+ expect(fetch.mock.calls.some(([,init])=>init?.method==='POST')).toBe(false)
+})
+
+it.each(['word_report','collection_word_report'])('links the formal report receipt to its actual %s retry and omits the research-only progress route',async(task_type)=>{
+ const id='fixed-report',taskId='legacy-export-task'
+ const report={id,root_id:'r',revision:1,content:{title:'Fixed statistical report',language:'en',
+  finding:{revision:1,content:{facts:[],methods:[],gaps:[],limitations:[],claims:[],sources:[]}},figures:[],tables:[]},
+  task:{id:taskId,status:'failed',task_type},task_id:taskId,members:[]}
+ const fetch=vi.fn(async(url:string,_init?:RequestInit)=>Response.json(url.endsWith('/research-reports/'+id)?report:{items:[],total:0,page:1,page_size:20}))
+ vi.stubGlobal('fetch',fetch)
+ render(<ResearchReport projectId="p1" active selectedId={id} onSelect={vi.fn()}/>)
+ const task=await screen.findByRole('link',{name:'查看任务'})
+ expect(task.getAttribute('href')).toBe('#project=p1&section=tasks&task=legacy-export-task&view=actions')
+ fireEvent.click(screen.getByRole('button',{name:'处理记录'}))
+ expect(screen.queryByRole('button',{name:'以此报告另存新版本'})).toBeNull()
+ expect(fetch.mock.calls.some(([url])=>url.endsWith('/progress'))).toBe(false)
+ expect(fetch.mock.calls.some(([,init])=>init?.method==='POST')).toBe(false)
+})
+
+it('routes a saved native report back to its frozen selection when copying',async()=>{
+ const report={id:'report-old',root_id:'r',revision:2,content:{title:'Fixed report',language:'en',
+  finding:{revision:1,content:{facts:[],methods:[],gaps:[],limitations:[],claims:[],
+   sources:[{source_kind:'bio_report_context',source_id:'context1'}]}},
+  figures:[{id:'native-png',native_source:{source_kind:'bio_analysis_artifact',source_id:'native-png'}}],tables:[]},
+  task:{id:'task',status:'succeeded'},members:[]}
+ const fetch=vi.fn(async(url:string,_init?:RequestInit)=>Response.json(url.endsWith('/research-reports/report-old')?report:{items:[],total:0,page:1,page_size:20}))
+ vi.stubGlobal('fetch',fetch)
+ render(<ResearchReport projectId="p1" active selectedId="report-old" onSelect={vi.fn()}/>)
+ const link=await screen.findByRole('link',{name:'以此报告另存新版本'})
+ expect(link.getAttribute('href')).toContain('reportContext=context1')
+ expect(screen.queryByRole('button',{name:'以此报告另存新版本'})).toBeNull()
+ expect(fetch.mock.calls.some(([,init])=>init?.method==='POST')).toBe(false)
+})
+
+it('uses the fixed native narrative in the preview and retains raw method details in sources',async()=>{
+ const raw='{"method":"internal_sample_method","opaque_setting":"private_protocol_parameter"}'
+ const report={id:'report-old',root_id:'r',revision:2,content:{title:'Fixed native report',language:'en',
+  finding:{revision:1,content:{facts:[],methods:[{id:'m1',title:'Scientific method',description:raw,parameters:{}}],
+   gaps:[],limitations:[],claims:[],sources:[{source_kind:'bio_report_context',source_id:'context1'}]}},
+  figures:[],tables:[],reader_report:{narrative:{methods_summary:'Normalized retained biological samples.'},figures:[]}},
+  task:{id:'task',status:'succeeded'},members:[]}
+ vi.stubGlobal('fetch',vi.fn(async(url:string)=>Response.json(url.endsWith('/research-reports/report-old')?report:{items:[],total:0,page:1,page_size:20})))
+ render(<ResearchReport projectId="p1" active selectedId="report-old" onSelect={vi.fn()}/>)
+ const narrative=await screen.findByText('Normalized retained biological samples.')
+ const preview=narrative.closest('.result-module-body')!
+ expect(preview.textContent).not.toContain('private_protocol_parameter')
+ fireEvent.click(screen.getByRole('button',{name:'来源与方法'}))
+ const source=screen.getByRole('heading',{name:'完整方法参数与追溯信息'}).closest('section')!
+ expect(source.textContent).toContain('private_protocol_parameter')
+})
 
 it('shows complete method parameters directly while preserving large fixed inputs and locale labels',async()=>{
  const observations=Array.from({length:1162},(_,index)=>({processed_version_id:'018e1234-1111-5555-8888-0123456789ab',barcode:`AAACAACGAATAGTTC-${String(index).padStart(4,'0')}`}))

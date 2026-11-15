@@ -34,11 +34,11 @@ def test_preview_preserves_external_zero_and_cannot_promote_it_to_system_computa
     assert altered.status_code==409
 
 
-def test_source_change_notice_preserves_old_finding_and_lists_dependent_report(client):
+def test_source_change_notice_preserves_old_finding_and_lists_dependent_report(client, research_reader_narrative):
     base,source=selected_cell(client)
     body={'title':'原发现','sources':[source]}
     first=client.post(base+'/research-findings',json=body,headers={'Idempotency-Key':'impact-first'}).json()
-    report=client.post(base+'/research-reports',json={'title':'旧报告','finding_version_id':first['id']},headers={'Idempotency-Key':'impact-report'}).json()
+    report=client.post(base+'/research-reports',json={'title':'旧报告','finding_version_id':first['id'], 'reader_narrative_id':research_reader_narrative},headers={'Idempotency-Key':'impact-report'}).json()
     second=client.post(base+f"/research-findings/{first['set_id']}/versions",json={**body,'set_id':first['set_id'],'expected_revision':1,'title':'新发现'},headers={'Idempotency-Key':'impact-second'})
     assert second.status_code==201,second.text
     response=client.post(base+'/research-results/source-changes',json={'sources':[{'source_kind':'research_finding_version','source_id':first['id'],'sha256':first['sha256']}]})

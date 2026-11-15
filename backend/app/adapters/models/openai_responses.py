@@ -85,11 +85,18 @@ class OpenAIResponsesProvider:
             if not isinstance(instructions, str) or not instructions.strip():
                 raise ValueError('Instructions must be nonempty.')
             content = canonical_payload(payload)
+            if getattr(policy, 'output_format', 'text') == 'reader_report_v1':
+                from app.domain.reader_reports.content import multimodal_input
+                content = multimodal_input(payload)
         except (TypeError, ValueError, RecursionError):
             raise ModelProviderError('model_input_invalid') from None
         try:
             options = {}
-            if getattr(policy, 'output_format', 'text') in ('analysis_explanation_v1','analysis_explanation_v2','analysis_explanation_v3','analysis_explanation_v4'):
+            if getattr(policy, 'output_format', 'text') == 'reader_report_v1':
+                from app.domain.reader_reports.content import response_schema
+                options['text'] = {'format': {'type': 'json_schema', 'name': 'reader_report_v1',
+                                              'strict': True, 'schema': response_schema()}}
+            elif getattr(policy, 'output_format', 'text') in ('analysis_explanation_v1','analysis_explanation_v2','analysis_explanation_v3','analysis_explanation_v4'):
                 from app.adapters.openai_explanation import SCHEMA
                 options['text'] = {'format': {'type': 'json_schema', 'name': 'analysis_explanation',
                                              'strict': True, 'schema': SCHEMA}}

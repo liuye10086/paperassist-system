@@ -14,9 +14,11 @@ class ResearchCatalog(ResearchResultsStore):
             'bio_figure_version':"COALESCE(NULLIF(s.config_json->>'title',''),s.config_json->>'kind',s.id)",
             'research_figure_version':"COALESCE(NULLIF(s.config_json->>'title',''),s.id)",
             'research_finding_version':"COALESCE(NULLIF(s.content_json->>'title',''),s.id)",
+            'bio_report_context':"COALESCE(NULLIF(s.content_json->>'title',''),s.id)",
+            'statistics_report_context':"COALESCE(NULLIF(s.content_json->>'title',''),s.id)",
             'research_report_version':"COALESCE(NULLIF(s.content_json->>'title',''),s.id)"}.get(kind,'s.id')
         moment='uploaded_at' if kind=='original_file' else 'created_at'
-        sha='sha256' if kind in ('original_file','bio_analysis_artifact','external_evidence_version','bio_insight_result_member') else 'content_sha256' if kind in ('research_finding_version','research_report_version') else 'manifest_sha256'
+        sha='sha256' if kind in ('original_file','bio_analysis_artifact','external_evidence_version','bio_insight_result_member') else 'content_sha256' if kind in ('research_finding_version','research_report_version','bio_report_context','statistics_report_context') else 'manifest_sha256'
         # Objects without complete formal output remain visible as unavailable.
         join='';extra='';status="'available'"
         if kind=='bio_insight_result_member':

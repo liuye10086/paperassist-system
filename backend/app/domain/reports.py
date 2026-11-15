@@ -131,7 +131,10 @@ def context(store, project_id, file_id, run_id, *, archive=False):
         store.figure_png(figure)
     if figure and explanation:
         validate_sources(result, figure, explanation)
-    report = ReportStore(store).saved(explanation['id'],saved_report_version(explanation)) if explanation else None
+    from app.domain.statistics_reader_reports.legacy_exports import RENDERER as reader_renderer
+    historical_report = ReportStore(store).saved(explanation['id'],saved_report_version(explanation)) if explanation else None
+    if historical_report:ReportStore(store).content(historical_report)
+    report = ReportStore(store).saved(explanation['id'],reader_renderer) if explanation else None
     if report:
         if 'source' in result:
             report = ReportStore(store).by_id(project_id, file_id, run_id, report['id'])
@@ -143,7 +146,7 @@ def context(store, project_id, file_id, run_id, *, archive=False):
     from app.domain.dataset_processing import load_processing
     processing = load_processing(store, project_id, result.get('source', {}))
     if processing is not None: snapshot['processing'] = processing
-    return snapshot, {**state, 'ready': not issues, 'issues': issues, 'report': report}
+    return snapshot, {**state, 'ready': not issues, 'issues': issues, 'report': report, 'historical_report': historical_report, 'output_policy': 'statistics_reader_export_v1'}
 
 
 def get_report(project_id: str, file_id: str, run_id: str, store: ProjectStore):

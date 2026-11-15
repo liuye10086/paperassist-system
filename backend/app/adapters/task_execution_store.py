@@ -34,7 +34,7 @@ SUPPORTED_TASK_TYPES = (
     'prepare_dataset', 'review_ocr', 'analysis_plan', 'analysis_recommendation', 'figure_projection',
     'figure_workbench', 'figure_explanation', 'collection_word_report', 'statistics_compute',
     'literature_search', 'literature_assistance', 'manuscript_draft', 'manuscript_docx', 'layout_docx',
-    'manuscript_writing', 'school_template_parse', 'school_rule_suggestion', 'journal_recommendation',
+    'manuscript_writing', 'school_template_parse', 'school_rule_suggestion', 'reader_report_narrative', 'journal_recommendation',
     'journal_format_check', 'journal_adaptation', 'review_round_plan', 'review_revision',
     'review_document_export', 'bio_import', 'bio_analysis', 'bio_annotation', 'bio_figure',
     'research_figure', 'research_report', 'research_fact_draft', 'delivery_package', 'bio_resource_import',
@@ -53,6 +53,7 @@ RECOVERY_CALL_KEY_SQL = """CASE t.task_type
         WHEN 'analysis_recommendation_v5' THEN 'analysis_recommendation:v5' END
     WHEN 'manuscript_writing' THEN CASE WHEN t.workflow_version='manuscript_writing_v2'
         THEN 'manuscript-writing-v2' ELSE 'manuscript-writing-v1' END
+    WHEN 'reader_report_narrative' THEN CASE WHEN t.workflow_version='reader_report_narrative_v1' THEN 'reader-report-narrative-v1' END
     WHEN 'school_rule_suggestion' THEN CASE WHEN t.workflow_version='school_rule_suggestion_v1' THEN 'school-rule-suggestion-v1' END
     WHEN 'literature_assistance' THEN 'literature-assistance-v1'
     WHEN 'figure_explanation' THEN 'figure_explanation:v1'
@@ -153,7 +154,7 @@ class TaskExecutionStore:
             require_task_open(db,task)
             now = self.now(db)
             token = str(uuid4())
-            if task['status'] == 'running' and task['task_type'] in ('bio_cloud_run', 'explanation', 'boxplot', 'analysis_recommendation', 'figure_workbench', 'figure_explanation', 'literature_search', 'literature_assistance', 'manuscript_writing', 'school_rule_suggestion'):
+            if task['status'] == 'running' and task['task_type'] in ('bio_cloud_run', 'explanation', 'boxplot', 'analysis_recommendation', 'figure_workbench', 'figure_explanation', 'literature_search', 'literature_assistance', 'manuscript_writing', 'school_rule_suggestion','reader_report_narrative'):
                 updated = db.execute('''UPDATE task_attempts
                     SET lease_owner=%s,lease_expires_at=%s,heartbeat_at=%s
                     WHERE task_id=%s AND attempt_no=%s AND status='running' AND lease_owner IS NULL''',
@@ -241,7 +242,7 @@ class TaskExecutionStore:
             raise ValueError('Invalid task continuation delay.')
         with self.connection(write=True) as db:
             task = self.require_lease(db, lease)
-            if task['task_type'] not in ('bio_cloud_run', 'explanation', 'boxplot', 'analysis_recommendation', 'figure_workbench', 'figure_explanation', 'literature_search', 'literature_assistance', 'manuscript_writing', 'school_rule_suggestion'):
+            if task['task_type'] not in ('bio_cloud_run', 'explanation', 'boxplot', 'analysis_recommendation', 'figure_workbench', 'figure_explanation', 'literature_search', 'literature_assistance', 'manuscript_writing', 'school_rule_suggestion','reader_report_narrative'):
                 raise source_conflict()
             revision = task['revision']
             task.update(revision=revision + 1, updated_at=max(self.now(db), task['updated_at']), error_code=None)
@@ -264,7 +265,7 @@ class TaskExecutionStore:
                 self._wait_explanation(db, task, 'observation_expired', code)
                 return TaskStore.public_task(task)
             literature_retry = task['task_type'] == 'literature_search' and code == 'ncbi_unavailable'
-            if not literature_retry and (code != 'model_provider_unavailable' or task['task_type'] not in ( 'explanation', 'boxplot', 'analysis_recommendation', 'figure_workbench', 'figure_explanation', 'literature_search', 'literature_assistance', 'manuscript_writing', 'school_rule_suggestion')):
+            if not literature_retry and (code != 'model_provider_unavailable' or task['task_type'] not in ( 'explanation', 'boxplot', 'analysis_recommendation', 'figure_workbench', 'figure_explanation', 'literature_search', 'literature_assistance', 'manuscript_writing', 'school_rule_suggestion','reader_report_narrative')):
                 self._finish(db, task, 'failed', code)
                 return TaskStore.public_task(task)
             task['_retry_reason'] = 'temporary_provider_error'
@@ -303,7 +304,7 @@ class TaskExecutionStore:
                 explanation_id=snapshot['explanation']['id'] if task['task_type'] == 'word_report' else None)
             scoped = TaskStore(task['user_id'], self.config)
             project = scoped.require_project(db, task['project_id'])
-            current = scoped.source_snapshot(db, project, request, directory=self.assets.directory)
+            current = scoped.source_snapshot(db, project, request, directory=self.assets.directory, report_policy=snapshot.get('reader_export',{}).get('policy'))
             if not snapshots_match(current, snapshot):
                 raise source_conflict()
             from app.domain.descriptive import verify_result
@@ -872,7 +873,7 @@ class TaskExecutionStore:
             reconcile_intents(db,self.assets.directory)
             rows = db.execute('''SELECT t.* FROM tasks t JOIN task_attempts a
                 ON a.task_id=t.id AND a.attempt_no=t.current_attempt
-                WHERE t.task_type IN ('bio_cloud_run','word_report','explanation','boxplot','parse_file','extract_dataset','prepare_dataset', 'review_ocr', 'analysis_plan', 'analysis_recommendation', 'figure_projection', 'figure_workbench', 'figure_explanation', 'collection_word_report', 'statistics_compute', 'literature_search', 'literature_assistance', 'manuscript_draft', 'manuscript_docx', 'layout_docx', 'manuscript_writing', 'school_template_parse', 'school_rule_suggestion', 'journal_recommendation', 'journal_format_check', 'journal_adaptation', 'review_round_plan', 'review_revision', 'review_document_export', 'bio_import', 'bio_analysis', 'bio_annotation', 'bio_figure', 'research_figure', 'research_report', 'research_fact_draft','delivery_package', 'bio_resource_import', 'bio_comparison', 'bio_result_import', 'bio_enrichment', 'bio_candidate', 'bio_insight_figure','bio_feature_extract','bio_integration') AND t.status='running' AND a.status='running'
+                WHERE t.task_type IN ('bio_cloud_run','word_report','explanation','boxplot','parse_file','extract_dataset','prepare_dataset', 'review_ocr', 'analysis_plan', 'analysis_recommendation', 'figure_projection', 'figure_workbench', 'figure_explanation', 'collection_word_report', 'statistics_compute', 'literature_search', 'literature_assistance', 'manuscript_draft', 'manuscript_docx', 'layout_docx', 'manuscript_writing', 'school_template_parse', 'school_rule_suggestion', 'reader_report_narrative', 'journal_recommendation', 'journal_format_check', 'journal_adaptation', 'review_round_plan', 'review_revision', 'review_document_export', 'bio_import', 'bio_analysis', 'bio_annotation', 'bio_figure', 'research_figure', 'research_report', 'research_fact_draft','delivery_package', 'bio_resource_import', 'bio_comparison', 'bio_result_import', 'bio_enrichment', 'bio_candidate', 'bio_insight_figure','bio_feature_extract','bio_integration') AND t.status='running' AND a.status='running'
                 AND a.lease_expires_at<=clock_timestamp()
                 ORDER BY a.lease_expires_at,t.id LIMIT %s''', (limit,)).fetchall()
             for row in rows:
@@ -911,7 +912,7 @@ class TaskExecutionStore:
                         if uncertain:
                             self._wait_explanation(db, task, 'submission_unknown', 'model_submission_unknown')
                             continue
-                if task['task_type'] in ('explanation','analysis_recommendation','figure_explanation','literature_assistance','manuscript_writing','school_rule_suggestion'):
+                if task['task_type'] in ('explanation','analysis_recommendation','figure_explanation','literature_assistance','manuscript_writing','school_rule_suggestion','reader_report_narrative'):
                     call = db.execute(f"""SELECT c.status,c.provider_response_id FROM model_calls c
                         JOIN tasks t ON t.id=c.task_id
                         WHERE t.id=%s AND c.call_key=({RECOVERY_CALL_KEY_SQL})
@@ -966,7 +967,7 @@ class TaskExecutionStore:
         rows=db.execute(f"""SELECT t.* FROM tasks t JOIN model_calls c ON c.task_id=t.id
             JOIN projects p ON p.id=t.project_id AND p.owner_id=t.user_id
             JOIN users u ON u.id=t.user_id AND u.active
-            WHERE t.task_type IN ('explanation','analysis_recommendation','figure_explanation','literature_assistance','manuscript_writing','school_rule_suggestion') AND t.status='waiting_confirmation'
+            WHERE t.task_type IN ('explanation','analysis_recommendation','figure_explanation','literature_assistance','manuscript_writing','school_rule_suggestion','reader_report_narrative') AND t.status='waiting_confirmation'
                 AND t.reason_code='submission_unknown' AND c.call_key=({RECOVERY_CALL_KEY_SQL})
                 AND c.user_id=t.user_id AND c.project_id=t.project_id AND c.provider_response_id IS NOT NULL
             ORDER BY t.updated_at,t.id LIMIT %s""",(limit,)).fetchall()

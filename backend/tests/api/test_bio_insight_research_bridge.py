@@ -55,7 +55,7 @@ def test_member_locator_cannot_replace_table_values_or_select_ambiguous_rows(cli
     assert client.post(base+'/research-results/preview',json={'sources':[source]}).status_code==422
 
 
-def test_bridge_report_exports_complete_table_and_typed_audit_passes(client,monkeypatch,tmp_path):
+def test_bridge_report_exports_complete_table_and_typed_audit_passes(client,monkeypatch,tmp_path, research_reader_narrative):
     import io,json
     from openpyxl import load_workbook
     from app.domain.research_results.execution import run_research_task
@@ -64,7 +64,7 @@ def test_bridge_report_exports_complete_table_and_typed_audit_passes(client,monk
     source=dict(source_kind='bio_insight_result_member',source_id=member['id'],locator=dict(kind='row',row_key={'row_key':'g1'},column='p_value',table=member['key']))
     finding=client.post(base+'/research-findings',json=dict(title='external values',sources=[source]),headers={'Idempotency-Key':'report-finding'})
     assert finding.status_code==201,finding.text
-    report=client.post(base+'/research-reports',json=dict(title='fixed external report',finding_version_id=finding.json()['id'],language='en'),headers={'Idempotency-Key':'bridge-report'})
+    report=client.post(base+'/research-reports',json=dict(title='fixed external report',finding_version_id=finding.json()['id'],language='en',reader_narrative_id=research_reader_narrative),headers={'Idempotency-Key':'bridge-report'})
     assert report.status_code==201,report.text
     report=report.json()
     done=run_research_task(report['task_id'],report['task']['revision'],task_type='research_report',engine=render_report,staging_directory=tmp_path/'report-stage')

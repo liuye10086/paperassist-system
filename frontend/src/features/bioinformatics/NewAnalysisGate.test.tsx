@@ -1,5 +1,5 @@
 import {afterEach,expect,it,vi} from 'vitest'
-import {cleanup,fireEvent,render,screen,waitFor} from '@testing-library/react'
+import {cleanup,fireEvent,render,screen,waitFor,within} from '@testing-library/react'
 import {apiFetch} from '../../shared/api/client'
 import ProjectResources from '../projects/ProjectResources'
 import BioAnalysisResult from './BioAnalysisResult'
@@ -7,6 +7,7 @@ import SingleCellDirectStart from './SingleCellDirectStart'
 import {BioFigureComposer} from './BioFigureDetail'
 import BioInsightsWorkspace from '../bio-insights/BioInsightsWorkspace'
 import {capabilitiesFixture,processedFixture,rawFixture} from './spatialFixtures'
+import {fixedContext,fixedExports} from '../bio-reader-reports/testFixtures'
 
 vi.mock('../../shared/api/client',()=>({apiFetch:vi.fn(),getApiUserId:()=> 'owner1',captureApiSession:()=>()=>true,onApiSessionChanged:()=>()=>{}}))
 vi.mock('../../shared/components/ProjectDownloadLink',()=>({default:({href,children}:{href:string;children:React.ReactNode})=><a href={href}>{children}</a>}))
@@ -23,15 +24,18 @@ function reads(url:RequestInfo|URL){
 it('passes the current workflow gate through resources and imports while keeping historical Word readable',async()=>{
  vi.mocked(apiFetch).mockImplementation(async url=>reads(url))
  render(<ProjectResources allowNewAnalysis={false} projectId="p1" section="analysis" analysisNavigation={{view:'bio-result',fileId:'',processedId:result.id,tab:'methods'}} onSaved={()=>{}} onSectionChange={()=>{}}/>)
- expect(await screen.findByRole('link',{name:'下载 Word 分析报告'})).toBeTruthy()
+ expect(await screen.findByRole('button',{name:'准备详细报告'})).toHaveProperty('disabled',false)
  fireEvent.click(screen.getByRole('button',{name:'稳健性与重复计算'}))
  expect(await screen.findByRole('button',{name:'用此参数打开分析方案'})).toHaveProperty('disabled',true)
  expect(posts()).toHaveLength(0)
 })
 
-it('adds the exact fixed single-cell Word and PNG to delivery only after explicit actions',async()=>{
+it('reuses frozen single-cell report candidates and still adds the exact PNG explicitly',async()=>{
  const png={id:'umap1',key:'umap_png',role:'figure_png',format:'png',filename:'umap.png',sha256:'c'.repeat(64),size_bytes:20,download_url:'/api/v1/projects/p1/bio-processed-datasets/processed1/members/umap1/download'}
  vi.mocked(apiFetch).mockImplementation(async(url,init)=>{
+  const path=String(url)
+  if(path.endsWith('/bio-reader-reports/prepare'))return Response.json(fixedContext(JSON.parse(String(init?.body))))
+  if(path.endsWith('/context1/reports?page=1'))return Response.json(fixedExports())
   if(init?.method==='POST'){
    const input=JSON.parse(String(init.body))
    const image=input.kind==='single_cell_png'
@@ -41,21 +45,20 @@ it('adds the exact fixed single-cell Word and PNG to delivery only after explici
  })
  const deliveries=vi.fn()
  render(<ProjectResources assigned assignmentRevision={2} onDeliveries={deliveries} projectId="p1" section="analysis" analysisNavigation={{view:'bio-result',fileId:'',processedId:result.id,tab:'embedding'}} onSaved={()=>{}} onSectionChange={()=>{}}/>)
- const word=await screen.findByRole('button',{name:'加入交付候选 · 单细胞分析报告.docx'})
+ const prepare=await screen.findByRole('button',{name:'准备详细报告'})
  expect(posts()).toHaveLength(0)
- fireEvent.click(word)
- await screen.findByText('已加入交付候选 · 单细胞分析报告.docx')
+ fireEvent.click(prepare)
+ expect((await screen.findByRole('link',{name:/下载.*docx/})).getAttribute('href')).toContain('/context1/reports/formal1/members/docx/download')
+ fireEvent.click(screen.getByRole('button',{name:'打开分析交付'}))
+ expect(deliveries).toHaveBeenCalledOnce()
  fireEvent.click(screen.getByRole('button',{name:'结果文件'}))
  fireEvent.click(screen.getByRole('button',{name:'加入交付候选 · UMAP 聚类图.png'}))
  await screen.findByText('已加入交付候选 · UMAP 聚类图.png')
  expect(posts().map(([url,init])=>[String(url),JSON.parse(String(init?.body))])).toEqual([
-  ['/api/v1/projects/p1/analyst-workspace/delivery-artifacts',{assignment_revision:2,kind:'single_cell_word',version_id:result.id}],
+  ['/api/v1/projects/p1/bio-reader-reports/prepare',expect.objectContaining({selection:{kind:'processed',processed_version_id:result.id,annotation_version_id:null,figure_version_ids:[]}})],
   ['/api/v1/projects/p1/analyst-workspace/delivery-artifacts',{assignment_revision:2,kind:'single_cell_png',version_id:result.id,member_id:'umap1'}],
  ])
  expect(new Headers(posts()[0][1]?.headers).get('Idempotency-Key')).toBeTruthy()
- expect(deliveries).not.toHaveBeenCalled()
- fireEvent.click(screen.getAllByRole('button',{name:'打开分析交付'})[0])
- expect(deliveries).toHaveBeenCalledOnce()
 })
 
 it.each([
@@ -104,7 +107,7 @@ it('blocks new subsets, SingleR and annotation plots while retaining manual anno
  await screen.findByRole('option',{name:'Manual labels'})
  fireEvent.change(screen.getByLabelText('报告使用的人工标签'),{target:{value:annotation.id}})
  expect(screen.getByRole('button',{name:'按此标签绘制 UMAP'})).toHaveProperty('disabled',true)
- expect(screen.getByRole('link',{name:'下载包含所选标签的 Word 报告'})).toBeTruthy()
+ expect(within(screen.getByRole('region',{name:'带人工标签的报告'})).getByRole('button',{name:'准备详细报告'})).toHaveProperty('disabled',false)
  fireEvent.click(screen.getByRole('button',{name:'新建人工注释'}))
  expect(screen.getByRole('button',{name:'添加人工标签'})).toHaveProperty('disabled',false)
  expect(posts()).toHaveLength(0)

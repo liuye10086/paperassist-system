@@ -11,6 +11,7 @@ from app.domain.bio_insights.results import checked_members
 
 def read_insight_source(reader,db,project,selection,progress=None,*,phase):
     service=BioInsightsService(reader.assets);member=None
+    service.allow_stale_labels=getattr(reader,'allow_stale_labels',False)
     if selection.source_kind=='bio_insight_result_member':
         member=service.require(db,'bio_insight_result_members',project,selection.source_id)
         identifier=member['result_version_id']

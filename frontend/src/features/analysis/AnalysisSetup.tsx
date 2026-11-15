@@ -231,6 +231,8 @@ function FileAnalysisContent({ projectId, fileId, filename,onReadiness }: { proj
   const refreshedPlans = useRef(new Set<string>())
   const dataset: AnalysisDataset | undefined = sourceKind === 'prepared' ? prepared ? { id: prepared.id, file_id: prepared.file_id, structure_id: prepared.source.structure_id, version: prepared.version, sheet_index: prepared.source.sheet_index, sheet_name: prepared.source.sheet_name } : undefined : selected?.datasets.find(d => d.id === datasetId)
   const hasDataset=!!dataset
+  const allowLegacySavedReport = ready && saved?.selection.task_type === 'descriptive_boxplot' && !saved.source
+    && sourceKind === 'raw' && selected === null && !datasetId
   useEffect(()=>{onReadiness(fileId,{source:ready&&hasDataset,configured:ready&&!!saved})},[fileId,onReadiness,ready,hasDataset,saved])
   useEffect(() => {
     const controller = new AbortController(); let active = true
@@ -308,7 +310,7 @@ function FileAnalysisContent({ projectId, fileId, filename,onReadiness }: { proj
       }} />}
     {publishedPlan&&<div className="workflow-read-status"><p role="status">{t('分析计划已发布，重新载入分析配置后继续。')}</p><button type="button" disabled={busy||running} onClick={()=>{if(canLeave())reload()}}>{t('载入已发布分析计划')}</button></div>}
     <AnalysisActivity onCanLeave={guard => { resultCanLeave.current = guard }}>{initialized && <StatisticsResults key={`${base}:${saved?.revision ?? 0}`} base={base} savedRevision={saved?.revision ?? null} savedSelection={saved?.selection} savedSource={saved?.source} savedPlan={saved?.analysis_plan}
-      fieldsMatch={ready && fieldsMatch && !!saved?.source} disabled={busy || !ready} onBusyChange={setRunning} />}</AnalysisActivity>
+      fieldsMatch={ready && fieldsMatch && !!saved?.source} allowLegacySavedReport={allowLegacySavedReport} disabled={busy || !ready} onBusyChange={setRunning} />}</AnalysisActivity>
   </>
 }
 

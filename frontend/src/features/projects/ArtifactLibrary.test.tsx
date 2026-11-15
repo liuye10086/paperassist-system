@@ -41,6 +41,18 @@ it('opens only the selected artifact and retains the historical run download',()
   expect(screen.getByText('尚无排版导出记录。')).toBeTruthy()
   expect(screen.queryByRole('button',{name:'查看成果 固定图.png'})).toBeNull()
 })
+it('shows protected members for the exact detailed artifact while retaining its original Word route',async()=>{
+  const {readerEngine,readerProjection,wordSha}=await import('../reports/statisticsReaderFixtures')
+  const data=fixture()
+  const {reader_export,members}=readerProjection('word_report','word-task','old-fixed-report')
+  data.artifacts.items[1]={...data.artifacts.items[1],engine_version:readerEngine,sha256:wordSha,reader_export,members}
+  vi.stubGlobal('fetch',vi.fn(async()=>Response.json(data)))
+  render(<ProjectSummary projectId="p1" projectType="sci" view="artifacts" artifactNavigation={{view:'detail',artifactId:'same-id',kind:'report',page:1}} onArtifactNavigate={()=>{}}/>)
+  expect((await screen.findByRole('link',{name:'下载 XLSX 结果表'})).getAttribute('href')).toBe(members[1].download_url)
+  expect(screen.getByRole('link',{name:'下载复现资料（ZIP）'}).getAttribute('href')).toBe(members[2].download_url)
+  expect(screen.getByRole('link',{name:'下载成果 固定报告.docx'}).getAttribute('href')).toContain('/old-run/report/same-id/download')
+})
+
 it('does not substitute another artifact when a fixed identifier disappears',()=>{
   render(<ArtifactLibrary projectId="p1" data={fixture()} navigation={{view:'detail',artifactId:'missing',kind:'figure',page:1}} onNavigate={()=>{}}/>);
   expect(screen.getByRole('alert').textContent).toContain('不会替换为其他版本')

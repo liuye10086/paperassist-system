@@ -23,7 +23,7 @@ type Task = { id: string; status: 'queued' | 'running' | 'waiting_input' | 'wait
   revision: number; reason_code: string | null; error_code: string | null; result_explanation_id?: string | null }
 type State = {generation_compatible?:boolean; current_revision: number | null; is_current: boolean; figure_id: string | null; explanation: Explanation | null; task?: Task | null
   job: { id: string; status: 'submitting' | 'running' | 'failed' | 'uncertain' | 'completed'; message: string; message_code?: string; message_params?: Record<string, string | number>; response_id: string | null; created_at: string } | null }
-type Props = {artifactVersion?:4;planSha?:string;figureSha?:string;comparison?:boolean;outputLanguage?:'zh-CN'|'en';modern?:boolean; source?: DatasetAnalysisSource; filename?: string; base: string; runId: string; revision: number; figureId: string; canGenerate: boolean; disabled: boolean
+type Props = {artifactVersion?:4;planSha?:string;figureSha?:string;comparison?:boolean;outputLanguage?:'zh-CN'|'en';modern?:boolean; source?: DatasetAnalysisSource; filename?: string; base: string; runId: string; revision: number; figureId: string; canGenerate: boolean; canExportSavedReport?: boolean; disabled: boolean
   onBusyChange: (busy: boolean) => void; configuration?: Config | null; configurationError?: string; onReloadConfiguration?: () => void }
 async function rawRequest<T>(url: string, controller: AbortController, init?: RequestInit): Promise<T> {
   let timer = 0
@@ -49,7 +49,7 @@ function needsPoll(value: State) {
   return value.task ? ['queued', 'running'].includes(value.task.status) || (value.task.status === 'succeeded' && !value.explanation)
     : value.job?.status === 'submitting' || value.job?.status === 'running'
 }
-function ExplanationPanel({ base, runId, revision, figureId, canGenerate, disabled, onBusyChange, source, filename, outputLanguage='zh-CN', modern=false,comparison=false,artifactVersion,planSha,figureSha }: Props) {
+function ExplanationPanel({ base, runId, revision, figureId, canGenerate, canExportSavedReport=canGenerate, disabled, onBusyChange, source, filename, outputLanguage='zh-CN', modern=false,comparison=false,artifactVersion,planSha,figureSha }: Props) {
   const { t } = useI18n()
   const request = useCallback(async <T,>(url: string, controller: AbortController, init?: RequestInit): Promise<T> => {
     const value = await rawRequest<T>(url, controller, init)
@@ -251,7 +251,7 @@ function ExplanationPanel({ base, runId, revision, figureId, canGenerate, disabl
     {state && !explanation && !state.job && !task && <p>{t("尚未生成此图表的分析解释。")}</p>}
   </section></WorkflowStage>
     {explanation ? <WordReport key={explanation.id} base={base} runId={runId} revision={revision} figureId={figureId} explanationId={explanation.id} source={explanation.source} filename={filename} outputLanguage={explanation.language} comparison={comparison} artifactVersion={artifactVersion} figureSha={figureSha} modern={['analysis_explanation_v2','analysis_explanation_v3','analysis_explanation_v4'].includes(explanation.engine?.id)}
-      canGenerate={canGenerate && current} disabled={disabled || loading || busy || !!error} onBusyChange={setReportBusy} />
+      canGenerate={canExportSavedReport && current} disabled={disabled || loading || busy || !!error} onBusyChange={setReportBusy} />
       : !loading && !error && <WorkflowStage stage="report"><section className="word-report artifact-panel">
         <div className="section-heading"><span className="step-label">{t("Word 报告")}</span><h3>{t("Word 分析报告导出")}</h3></div>
         <p>{t("请先生成并保存分析解释，再生成 Word 报告。")}</p>

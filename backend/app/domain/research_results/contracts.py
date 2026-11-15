@@ -12,7 +12,7 @@ ShortText = Annotated[str, Field(max_length=4000)]
 SourceKind = Literal['analysis_run','bio_processed_dataset_version','bio_analysis_artifact','bio_figure_version',
                      'original_file','external_evidence_version','research_finding_version',
                      'research_figure_version','research_report_version',
-                     'bio_insight_result_version','bio_insight_result_member']
+                     'bio_insight_result_version','bio_insight_result_member','bio_report_context','statistics_report_context']
 Language = Literal['zh-CN','en']
 Section = Literal['results','materials_and_methods']
 
@@ -246,6 +246,7 @@ class ResearchReportRequest(StrictModel):
     language: Language = 'zh-CN'
     root_id: Identifier | None = None
     expected_revision: int = Field(default=0,ge=0,lt=2147483647)
+    reader_narrative_id: Identifier | None = None
 
     @model_validator(mode='after')
     def report_identity(self):

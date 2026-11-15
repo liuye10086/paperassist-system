@@ -25,7 +25,7 @@ export function projectFlowStep(section: ProjectSection, view: OverviewView, ana
 }
 
 export function isAnalysisResultView(view: AnalysisNavigation['view'] | undefined) {
-  return ['bio-result', 'bio-insight-result', 'bio-insight-runs', 'report'].includes(view ?? '')
+  return ['bio-result', 'bio-insight-result', 'bio-insight-runs', 'bio-reader-report', 'report'].includes(view ?? '')
 }
 
 export function flowBlockReason(step: number, state: { hasFiles: boolean; requirementSaved: boolean; reached: number; existingResults: boolean }) {

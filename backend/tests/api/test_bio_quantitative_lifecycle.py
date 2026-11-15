@@ -114,7 +114,7 @@ def test_bulk_requires_matching_review_and_rejects_superseded_confirmation(clien
     assert client.get(versions+'/'+plan['id']).json()['design']['bulk_model']['contrasts'][0]['numerator']=='B'
 
 
-def test_v2_comparison_candidates_research_and_portable_full_export(client,monkeypatch,tmp_path):
+def test_v2_comparison_candidates_research_and_portable_full_export(client,monkeypatch,tmp_path, research_reader_narrative):
     import io,json,zipfile
     from app.domain.bio_insights.execution import run_bio_insight_task
     from app.adapters.bio_insights_engine.pipeline import run as pipeline
@@ -165,7 +165,7 @@ def test_v2_comparison_candidates_research_and_portable_full_export(client,monke
     assert finding.status_code==201,finding.text
     from app.domain.research_results.execution import run_research_task
     from app.adapters.research_report_render import render_report
-    report=client.post(base+'/research-reports',json=dict(title='Sample measurements report',finding_version_id=finding.json()['id'],language='en'),headers={'Idempotency-Key':'sample-report'})
+    report=client.post(base+'/research-reports',json=dict(title='Sample measurements report',finding_version_id=finding.json()['id'],language='en',reader_narrative_id=research_reader_narrative),headers={'Idempotency-Key':'sample-report'})
     assert report.status_code==201,report.text
     report=report.json()
     done=run_research_task(report['task_id'],report['task']['revision'],task_type='research_report',engine=render_report,staging_directory=tmp_path/'report-stage')
@@ -175,12 +175,17 @@ def test_v2_comparison_candidates_research_and_portable_full_export(client,monke
     docx=next(m for m in saved['members'] if m['format']=='docx')
     from docx import Document
     document=Document(io.BytesIO(client.get(docx['download_url']).content));body='\n'.join(p.text for p in document.paragraphs)
-    assert 'n_numerator' in body and 'selected_samples' in body and 'spots_numerator' not in body
+    assert 'complete selected result tables' in body
+    assert all(key not in body for key in ('n_numerator','selected_samples','spots_numerator'))
     pdf=client.post(base+'/pdf-exports',json=dict(source_kind='research_report',source_id=docx['id'],request_key='sample-report-pdf'))
     assert pdf.status_code==405,pdf.text
     zipped=next(m for m in saved['members'] if m['format']=='zip')
     with zipfile.ZipFile(io.BytesIO(client.get(zipped['download_url']).content)) as package:
         assert b'def _sample_groups' in package.read('rebuild_support/research_method_text.py')
+        frozen=json.loads(package.read('report_snapshot.json'))['finding']['content']['sources'][0]['content']
+        assert frozen['inference_scope']=='sample_inference'
+        assert [len(group['sample_keys']) for group in frozen['config']['contrasts'][0]['groups']]==[3,3]
+        assert frozen['rows'][0]['n_numerator']=='3' and 'spots_numerator' not in frozen['rows'][0]
     from openpyxl import load_workbook
     xlsx=next(m for m in saved['members'] if m['format']=='xlsx')
     workbook=load_workbook(io.BytesIO(client.get(xlsx['download_url']).content),read_only=True,data_only=False)
@@ -188,6 +193,7 @@ def test_v2_comparison_candidates_research_and_portable_full_export(client,monke
         tables=[list(sheet.values) for sheet in workbook.worksheets]
         full=next(rows for rows in tables if rows and rows[0][:2]==('row_key','feature_id'))
         assert len(full)==4 and full[-1][1]=='f3'
+        assert full[1][full[0].index('n_numerator')]=='3' and 'spots_numerator' not in full[0]
     finally:workbook.close()
     export=client.get(base+'/bio-insight-results/'+result['id']+'/reproducibility-package')
     assert export.status_code==200,export.text

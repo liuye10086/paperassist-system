@@ -7,14 +7,14 @@ from tests.api.test_projects import client,create_project
 
 
 @pytest.fixture
-def ready_single_cell(client,monkeypatch,tmp_path):
+def ready_single_cell(client,monkeypatch,tmp_path,base=None):
     from app.domain.bioinformatics import single_cell_settings
     from app.domain.bioinformatics.execution import run_bio_import_task
     from app.domain.bioinformatics.analysis_execution import run_bio_analysis_task
     runtime=dict(available=True,blockers=[],engine_version='visium_explore_v1.0.0',environment_digest='b'*64,code_digest='a'*64)
     monkeypatch.setattr(single_cell_settings,'runtime_identity',lambda:runtime)
     stage=tmp_path/'science';monkeypatch.setenv('PAPERASSIST_BIO_STAGING_DIR',str(stage))
-    base=f"/api/v1/projects/{create_project(client)['id']}"
+    base=base or f"/api/v1/projects/{create_project(client)['id']}"
     content=b'%%MatrixMarket matrix coordinate integer general\n2 2 3\n1 1 1\n1 2 2\n2 2 3\n';item=str(uuid4())
     batch=client.post(base+'/bio-upload-batches',json={'items':[dict(client_id=item,filename='matrix.mtx',size_bytes=len(content))]},headers={'Idempotency-Key':'upload'})
     assert batch.status_code==201,batch.text

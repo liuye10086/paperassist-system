@@ -125,12 +125,12 @@ def test_insight_content_reuse_has_recoverable_alias_and_runtime_identity(client
     with database_connection() as db:assert db.execute('SELECT count(*) AS n FROM bio_insight_runs').fetchone()['n']==2
 
 
-def test_report_content_reuse_has_recoverable_alias_and_preserves_root_cas(client):
+def test_report_content_reuse_has_recoverable_alias_and_preserves_root_cas(client, research_reader_narrative):
     from tests.api.test_research_findings import selected_cell
     base,source=selected_cell(client)
     finding=client.post(base+'/research-findings',json={'title':'Reuse source','sources':[source]},headers={'Idempotency-Key':'finding'}).json()
     body=dict(title='Same report',finding_version_id=finding['id'])
-    def submit(key,body=body):return client.post(base+'/research-reports',json=body,headers={'Idempotency-Key':key})
+    def submit(key,body=body):return client.post(base+'/research-reports',json={**body, 'reader_narrative_id':research_reader_narrative},headers={'Idempotency-Key':key})
     first=submit('first');assert first.status_code==201,first.text
     alias=submit('alias');assert alias.status_code==200 and alias.json()['id']==first.json()['id'],alias.text
     recovery=client.get(base+'/research-requests/alias?kind=report')

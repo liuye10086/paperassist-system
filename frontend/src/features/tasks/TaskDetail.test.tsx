@@ -17,6 +17,45 @@ function api(workspace: unknown = workspaceFixture) {
     return Response.json(workspace)
   }); vi.stubGlobal('fetch', fetch); return fetch
 }
+it('takes a completed report interpretation task back to the report editor', async () => {
+  const task={...taskFixture,task_type:'reader_report_narrative',status:'succeeded',display_status:'succeeded',phase:'interpret',reason_code:null,error_code:null,
+    input_version:{kind:'reader_report_narrative',workflow_version:'reader_report_narrative_v1',narrative_id:'narrative-1',binding_sha256:'a'.repeat(64),bundle_sha256:'b'.repeat(64)}}
+  const fetch=api({...workspaceFixture,task,wait:null,allowed_actions:[],source:{file_id:null,filename:'Spatial report',analysis_run_id:null,is_current:true}})
+  render(<TaskDetail {...props} view="result"/>)
+  const link=await screen.findByRole('link',{name:'返回分析报告'})
+  expect(link.getAttribute('href')).toBe('#project=p1&section=artifacts&view=research-reports')
+  expect(screen.getByText('详细解读已保存，可返回分析报告复核解读并生成文件。')).toBeTruthy()
+  expect(screen.queryByText('此任务尚无已保存的成果。')).toBeNull()
+  expect(fetch.mock.calls.some(([,init])=>init?.method==='POST')).toBe(false)
+})
+it('links a native interpretation to its exact context and original task',async()=>{
+ const task={...taskFixture,task_type:'reader_report_narrative',status:'succeeded',display_status:'succeeded',phase:'interpret',reason_code:null,error_code:null,
+  input_version:{kind:'reader_report_narrative',workflow_version:'reader_report_narrative_v1',narrative_id:'narrative-1',binding_sha256:'a'.repeat(64),bundle_sha256:'b'.repeat(64)}}
+ api({...workspaceFixture,task,wait:null,allowed_actions:[],source:{file_id:null,filename:'Spatial report',analysis_run_id:null,is_current:true},
+  artifacts:{...workspaceFixture.artifacts,bio_reader_report_context_id:'context1'}})
+ render(<TaskDetail {...props} view="result"/>)
+ const link=await screen.findByRole('link',{name:'返回分析报告'})
+ expect(link.getAttribute('href')).toBe('#project=p1&section=analysis&view=bio-reader-report&reportContext=context1&reportTask=t1')
+})
+it.each(['context1','unrelated'])('returns the origin only when the saved report binds it to the exporting task (%s)',async(contextId)=>{
+ const task={...taskFixture,task_type:'research_report',status:'succeeded',display_status:'succeeded',phase:'export',
+  reason_code:null,error_code:null,result_research_report_version_id:'report1',
+  input_version:{schema_version:1,kind:'research_report',workflow_version:'research_report_v1',source_sha256:'a'.repeat(64),output_language:'en',real_model_calls:false,real_network_calls:false}}
+ const workspace={...workspaceFixture,task,wait:null,allowed_actions:[],
+  source:{file_id:null,filename:'Fixed report',analysis_run_id:null,is_current:true}}
+ vi.stubGlobal('fetch',vi.fn(async(url:string)=>Response.json(url.endsWith('/research-reports/report1')?
+  {id:'report1',task_id:'t1',content:{finding:{content:{sources:[{source_kind:'bio_report_context',source_id:contextId}]}}}}:workspace)))
+ const taskReportReturn={view:'bio-reader-report' as const,fileId:'',reportContextId:'context1',resultVersionId:'ora1',
+  entry:{requirementVersionId:'req1',scopeItemId:'customer.delivery.word'},intent:'report' as const}
+ render(<TaskDetail {...props} view="result" {...{taskReportReturn}}/>)
+ await waitFor(()=>{
+  const link=screen.getByRole('link',{name:'查看固定研究成果'})
+  const target=new URLSearchParams(link.getAttribute('href')!.slice(1))
+  expect(target.get('artifact')).toBe('report1')
+  if(contextId==='context1')expect(target.get('reportReturn')).toContain('requirement=req1')
+  else expect(target.has('reportReturn')).toBe(false)
+ })
+})
 it('points a successful journal task to its saved suggestions and labels its events in both languages',async()=>{
  const workspace={task:{...taskFixture,task_type:'journal_recommendation',status:'succeeded',display_status:'succeeded',phase:'plan',reason_code:null,error_code:null,input_version:{kind:'journal_recommendation',recommendation_id:'journal1',workflow_version:'journal_recommendation_v1'}},source:{file_id:null,filename:'Frozen journal research',analysis_run_id:null,is_current:true},wait:null,allowed_actions:[],artifacts:{figure:null,explanation:null,report:null}}
  const open=vi.fn();vi.stubGlobal('fetch',vi.fn(async(url:string)=>Response.json(url.includes('/events')?{...eventsFixture,items:[{...eventsFixture.items[0],event_type:'succeeded',status:'succeeded',phase:'plan'}]}:workspace)))
@@ -315,6 +354,32 @@ it.each([
   await screen.findByText(reason)
   expect(screen.queryByText(locale === 'en' ? 'This historical task is available for viewing only; resume and retry are unavailable.' : '此历史任务仅供查看，不支持恢复或重试。')).toBeNull()
 })
+it('shows the fixed detailed suite from the actual Word task workspace', async () => {
+  const { readerProjection } = await import('../reports/statisticsReaderFixtures')
+  const projection = readerProjection('word_report', props.taskId)
+  api({ ...workspaceFixture, wait: null, allowed_actions: [], task: { ...taskFixture, task_type: 'word_report',
+    phase: 'export', status: 'succeeded', display_status: 'succeeded', result_report_id: 'report-new' },
+    artifacts: { figure: null, explanation: null, reader_export: projection.reader_export,
+      report: { filename: '固定报告.docx', download_url: '/api/v1/projects/p1/files/f1/analysis-runs/r1/report/report-new/download', ...projection } } })
+  render(<TaskDetail {...props} view="result" />)
+  expect(await screen.findByText('Fixed results for this report.')).toBeTruthy()
+  expect(screen.getByRole('link', { name: '下载 XLSX 结果表' }).getAttribute('href')).toBe(projection.members[1].download_url)
+  expect(screen.getByRole('link', { name: '查看固定研究成果' }).getAttribute('href')).toBe('#project=p1&section=artifacts&view=research-reports&artifact=formal-report')
+})
+
+it('rejects a detailed task projection from another fixed report version', async () => {
+  const { readerProjection } = await import('../reports/statisticsReaderFixtures')
+  const projection = readerProjection('word_report', props.taskId)
+  api({ ...workspaceFixture, wait: null, allowed_actions: [], task: { ...taskFixture, task_type: 'word_report',
+    phase: 'export', status: 'succeeded', display_status: 'succeeded', result_report_id: 'report-new' },
+    artifacts: { figure: null, explanation: null, reader_export: projection.reader_export,
+      report: { filename: '固定报告.docx', download_url: '/api/v1/projects/p1/files/f1/analysis-runs/r1/report/report-new/download',
+        ...readerProjection('word_report', props.taskId, 'other-report') } } })
+  render(<TaskDetail {...props} view="result" />)
+  expect(await screen.findByRole('alert')).toBeTruthy()
+  expect(screen.queryByRole('link')).toBeNull()
+})
+
 it('preserves the saved unified Word download route', async () => {
   api({ ...workspaceFixture, wait: null, allowed_actions: [], task: { ...taskFixture, task_type: 'word_report',
     phase: 'export', status: 'succeeded', display_status: 'succeeded', result_report_id: 'report-old' },

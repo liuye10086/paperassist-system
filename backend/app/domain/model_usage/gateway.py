@@ -64,7 +64,8 @@ class ModelGateway:
         # The service transaction commits before this function receives True.
         begin_options = {**lease_options, 'expected_task_revision': request.expected_task_revision} if lease_options else {}
         from app.domain.model_usage.provenance import admission_context
-        begin_options['provenance_context']=admission_context(self.provider,request=request,operation='text')
+        operation = 'reader_report' if getattr(request.policy, 'output_format', 'text') == 'reader_report_v1' else 'text'
+        begin_options['provenance_context']=admission_context(self.provider,request=request,operation=operation)
         if not self.service.begin_submission(call['id'], **begin_options):
             current = self.service.get_call(call['id'])
             if current.get('provider_response_id'):

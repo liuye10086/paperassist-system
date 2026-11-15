@@ -1,9 +1,10 @@
 import {afterEach,expect,it,vi} from 'vitest'
-import {act,cleanup,fireEvent,render,screen,waitFor} from '@testing-library/react'
+import {act,cleanup,fireEvent,render,screen,waitFor,within} from '@testing-library/react'
 import {apiFetch} from '../../shared/api/client'
 import BioAnalysisResult from './BioAnalysisResult'
 import BioAnnotationEditor,{BioAnnotationDetail} from './BioAnnotationEditor'
 import {capabilitiesFixture,processedFixture,rawFixture} from './spatialFixtures'
+import {fixedContext,fixedExports} from '../bio-reader-reports/testFixtures'
 vi.mock('../../shared/api/client',()=>({apiFetch:vi.fn(),getApiUserId:()=> 'owner1',onApiSessionChanged:()=>()=>{}}))
 vi.mock('../../shared/components/ProjectDownloadLink',()=>({default:({href,children}:{href:string;children:React.ReactNode})=><a href={href}>{children}</a>}))
 const result={...processedFixture,manifest:{assay:'single_cell',params:capabilitiesFixture.default_params}}
@@ -35,7 +36,13 @@ it('shows current manual annotations, edits fixed versions and selects a label v
  fireEvent.click(screen.getByRole('button',{name:'编辑 My labels'}))
  expect(navigate).toHaveBeenCalledWith({view:'bio-annotation',fileId:'',annotationSetId:'ann1',annotationVersionId:'annv1'})
  fireEvent.change(screen.getByLabelText('报告使用的人工标签'),{target:{value:'annv1'}})
- expect(screen.getByRole('link',{name:'下载包含所选标签的 Word 报告'}).getAttribute('href')).toContain('annotation_version_id=annv1')
+ const panel=screen.getByRole('region',{name:'带人工标签的报告'})
+ fireEvent.click(within(panel).getByRole('button',{name:'准备详细报告'}))
+ await waitFor(()=>expect(vi.mocked(apiFetch).mock.calls.some(([url])=>String(url).endsWith('/bio-reader-reports/prepare'))).toBe(true))
+ const post=vi.mocked(apiFetch).mock.calls.find(([url])=>String(url).endsWith('/bio-reader-reports/prepare'))
+ expect(JSON.parse(String(post?.[1]?.body)).selection).toEqual({
+  kind:'processed',processed_version_id:'processed1',annotation_version_id:'annv1',figure_version_ids:[],
+ })
 })
 it('starts only an explicit child subset with a frozen parent source and navigates to its existing run',async()=>{
  const navigate=vi.fn()
@@ -47,6 +54,40 @@ it('starts only an explicit child subset with a frozen parent source and navigat
  const posts=vi.mocked(apiFetch).mock.calls.filter(c=>c[1]?.method==='POST')
  expect(posts).toHaveLength(1);expect(posts[0][0]).toBe('/api/v1/projects/p1/bio-single-cell-subsets')
  expect(JSON.parse(String(posts[0][1]?.body))).toMatchObject({parent_processed_source:result.source,cluster_ids:['0','2'],cell_ids:[],params:{doublet:{enabled:false},decontx:{enabled:false}}})
+})
+it.each(['reload','back'])('reopens the fixed historical annotation and retains the draft on %s',async(transition)=>{
+ const second={...annotation,id:'annv2',name:'New labels',version:2,revision:2}
+ const fixed=fixedContext({title:'Selected annotation',language:'en',selection:{
+  kind:'processed',processed_version_id:'processed1',annotation_version_id:'annv1',figure_version_ids:[],
+ }})
+ vi.mocked(apiFetch).mockImplementation(async url=>{
+  const path=String(url)
+  return Response.json(path.endsWith('/context1')?fixed:path.endsWith('/reports?page=1')?fixedExports():
+   path.endsWith('/annotations')?{items:[second]}:path.endsWith('/processed1')?result:{items:[]})
+ })
+ const page=(active:boolean)=><BioAnalysisResult projectId="p1" processedId="processed1" tab="spatial" reportContextId="context1" active={active} onNavigate={()=>{}}/>
+ const first=render(page(true))
+ await screen.findByRole('link',{name:/下载.*docx/})
+ const panel=()=>within(screen.getByRole('region',{name:'带人工标签的报告'}))
+ const edit=()=>panel().getByRole('button',{name:'编辑报告选材草稿'})
+ const picker=()=>panel().getByLabelText('报告使用的人工标签')
+ fireEvent.click(edit())
+ fireEvent.change(picker(),{target:{value:'annv2'}})
+ if(transition==='back'){
+  fireEvent.click(screen.getByRole('button',{name:'新建人工注释'}))
+  fireEvent.change(screen.getByLabelText('注释名称'),{target:{value:'Unsaved annotation editor'}})
+  first.rerender(page(false))
+  first.rerender(page(true))
+  expect(screen.getByLabelText('注释名称')).toHaveProperty('value','Unsaved annotation editor')
+ }else{
+  first.unmount()
+  render(page(true))
+ }
+ await screen.findByRole('region',{name:'带人工标签的报告'})
+ expect(picker()).toHaveProperty('value','annv1')
+ expect((await screen.findByRole('link',{name:/下载.*docx/})).getAttribute('href')).toContain('/context1/reports/formal1/members/docx/download')
+ fireEvent.click(edit())
+ expect(picker()).toHaveProperty('value','annv2')
 })
 it('rejects mismatched annotation processed provenance before exposing an editor and never requests coordinates for single cells',async()=>{
  vi.mocked(apiFetch).mockImplementation(async url=>Response.json(String(url).includes('/coordinates')?{coordinate_space:'fullres',points:[],images:[],spatial:{},total:0}:String(url).includes('/bio-annotation-sets/')?{...annotation,processed_dataset_version_id:'different'}:result))

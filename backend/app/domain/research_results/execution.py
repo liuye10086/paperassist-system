@@ -22,6 +22,7 @@ from app.domain.storage_governance.deterministic import explicit_retry,authorize
 from app.core.exceptions import StorageError
 from app.domain.tasks.publication_transaction import PublicationFailed
 from .task_contracts import input_version,RESEARCH_TASKS
+from app.domain.statistics_reader_reports.legacy_exports import is_reader_export, input_identity, LEGACY_TASKS
 
 _SERIAL_RESEARCH_WORKER=BoundedSemaphore(1)
 logger=logging.getLogger(__name__)
@@ -45,6 +46,9 @@ class _SourceRejected(Exception):
 
 def service_for(task,repository):
     assets=DatasetTaskAssets(task['user_id'],repository.config,repository.assets.directory)
+    if is_reader_export(task):
+        from app.domain.statistics_reader_reports.legacy_exports import StatisticsLegacyReportService
+        return StatisticsLegacyReportService(assets)
     if task['task_type']=='delivery_package':
         from app.domain.delivery_packages.service import DeliveryService
         return DeliveryService(assets)
@@ -61,12 +65,13 @@ def service_for(task,repository):
 
 def checkpoint_for(db,task):
     row=db.execute('SELECT * FROM task_checkpoints WHERE task_id=%s ORDER BY seq DESC LIMIT 1',(task['id'],)).fetchone()
-    if not row or row['state_json'].get('input_version')!=input_version(task):raise invalid()
+    if not row or row['state_json'].get('input_version')!=(input_identity(task) if is_reader_export(task) else input_version(task)):raise invalid()
     return dict(row)
 
 
 def result_identifier(task):
     snapshot=task['input_snapshot']
+    if is_reader_export(task):return snapshot['reader_export']['report_version_id']
     return snapshot.get('figure_version_id') or snapshot.get('report_version_id') or snapshot.get('snapshot_id') or snapshot['candidate_id']
 
 
@@ -100,12 +105,14 @@ class ResearchExecution:
             if not force and last_renewal is not None and monotonic()-last_renewal<renewal_interval:return
             updated=db.execute("""UPDATE task_attempts a SET heartbeat_at=clock_timestamp(),lease_expires_at=clock_timestamp()+(%s*interval '1 second') FROM tasks t
                 WHERE t.id=%s AND t.id=a.task_id AND t.current_attempt=%s AND a.attempt_no=t.current_attempt
-                AND t.task_type IN ('research_figure','research_report','research_fact_draft','delivery_package') AND t.status='running' AND a.status='running'
+                AND t.task_type IN ('research_figure','research_report','research_fact_draft','delivery_package','word_report','collection_word_report') AND t.status='running' AND a.status='running'
                 AND a.lease_owner=%s AND a.lease_expires_at>clock_timestamp()
                 RETURNING a.heartbeat_at,a.lease_expires_at""",(LEASE_SECONDS,lease.task_id,lease.attempt_no,lease.lease_owner))
             if updated.rowcount!=1:raise LeaseLost()
             progress.renewed=dict(updated.fetchone())
             last_renewal=monotonic()
+        if task['task_type'] in LEGACY_TASKS:
+            service_for(task,self.repository).association(db,task)
         progress(force=True)
         cp=checkpoint_for(db,task)
         if checkpoint is not None and checkpoint['id']!=cp['id']:raise invalid()
@@ -172,9 +179,9 @@ class ResearchExecution:
                 from app.adapters.task_store import TaskStore
                 return TaskStore.public_task(task)
             db.execute('RELEASE SAVEPOINT research_admission')
-            state={**cp['state_json'],**({'stage':'publishing'} if task['task_type'] in ('delivery_package','research_report') else {}),'prepared':prepared,'prepared_leaves':list(unique.values()),
+            state={**cp['state_json'],**({'stage':'publishing'} if task['task_type'] in ('delivery_package','research_report',*LEGACY_TASKS) else {}),'prepared':prepared,'prepared_leaves':list(unique.values()),
                 'prepared_reservations':[{k:r[k] for k in ('id','namespace','project_id','owner_id','task_id','kind','operation_key','object_key','size_bytes','sha256')} for r in rows]}
-            phase_task=dict(task,updated_at=self.repository.now(db)) if task['task_type'] in ('delivery_package','research_report') else task
+            phase_task=dict(task,updated_at=self.repository.now(db)) if task['task_type'] in ('delivery_package','research_report',*LEGACY_TASKS) else task
             cp=append_checkpoint(db,phase_task,'publish','publish',state,cp);progress(force=True)
         return self.publish(lease,cp)
 
@@ -217,7 +224,7 @@ def run_research_task(task_id,task_revision,*,task_type,config=None,directory=No
 
 
 def _run_research_task(task_id,task_revision,*,task_type,config=None,directory=None,engine=None,staging_directory=None):
-    if task_type not in RESEARCH_TASKS:raise ValueError('Unknown research task')
+    if task_type not in (*RESEARCH_TASKS,*LEGACY_TASKS):raise ValueError('Unknown research task')
     repository=TaskExecutionStore(config=config,directory=directory);lease=repository.claim(task_id,task_revision,task_type=task_type)
     if lease is None:return None
     stop,lost=Event(),Event();attempt=None
@@ -236,7 +243,7 @@ def _run_research_task(task_id,task_revision,*,task_type,config=None,directory=N
             if exc.code=='bio_environment_unavailable':raise invalid('research_environment_unavailable',409) from exc
             raise
         root=attempt.parent.parent;execution=ResearchExecution(repository,root)
-        if task_type in ('delivery_package','research_report'):
+        if task_type in ('delivery_package','research_report',*LEGACY_TASKS):
             with repository.connection(write=True) as db:
                 task=repository.require_lease(db,lease);repository.require_owner(db,task);cp=checkpoint_for(db,task)
                 if cp['next_node']=='check':
@@ -247,7 +254,7 @@ def _run_research_task(task_id,task_revision,*,task_type,config=None,directory=N
         with repository.connection() as db:
             task=repository.require_lease(db,lease);repository.require_owner(db,task);cp=checkpoint_for(db,task)
             payload=service_for(task,repository).require_sources(db,task)
-        if task_type in ('delivery_package','research_report') and cp['next_node']=='check':
+        if task_type in ('delivery_package','research_report',*LEGACY_TASKS) and cp['next_node']=='check':
             with repository.connection(write=True) as db:
                 task=repository.require_lease(db,lease);repository.require_owner(db,task)
                 if checkpoint_for(db,task)['id']!=cp['id']:raise invalid()
@@ -262,10 +269,12 @@ def _run_research_task(task_id,task_revision,*,task_type,config=None,directory=N
             for index,(panel,raw) in enumerate(zip(payload['panels'],raws)):
                 path=attempt/f'input_{index}.bin';path.write_bytes(raw);panel['path']=str(path.resolve())
             render=engine or execute_research_figure
-        elif task_type=='research_report':
+        elif task_type in ('research_report',*LEGACY_TASKS):
             from app.adapters.research_report_render import stage_report_payload,execute_research_report
             payload=stage_report_payload(payload,attempt)
-            render=engine or execute_research_report
+            from app.domain.statistics_reader_reports.render import VERSION as statistics_renderer, execute_statistics_report
+            frozen=task['input_snapshot'].get('reader_export',task['input_snapshot'])['renderer_identity']
+            render=engine or (execute_statistics_report if frozen.get('renderer_version')==statistics_renderer else execute_research_report)
         elif task_type=='delivery_package':
             from app.domain.delivery_packages.render import render_delivery_package
             render=engine or render_delivery_package
@@ -273,7 +282,7 @@ def _run_research_task(task_id,task_revision,*,task_type,config=None,directory=N
             from .fact_draft import render_fact_draft
             render=engine or render_fact_draft
         _receipt(attempt,lease,'running_research');result=render(payload,output)
-        if task_type=='research_report':
+        if task_type in ('research_report',*LEGACY_TASKS):
             with repository.connection(write=True) as db:
                 task=repository.require_lease(db,lease);repository.require_owner(db,task)
                 cp=append_checkpoint(db,dict(task,updated_at=repository.now(db)),'check','check',{**cp['state_json'],'stage':'render_and_package_complete'},cp)
@@ -292,11 +301,17 @@ def _run_research_task(task_id,task_revision,*,task_type,config=None,directory=N
         return None
     except Exception as exc:
         from app.core.errors import PUBLIC_CODES
+        if task_type in LEGACY_TASKS:
+            from app.domain.statistics_reader_reports.validation import numeric_failure
+            exc=numeric_failure(exc) or exc
         code=exc.code if isinstance(exc,StorageError) and exc.code in PUBLIC_CODES else ('storage_unavailable' if isinstance(exc,OSError) else 'task_execution_failed')
         logger.warning('research task failed task_id=%s code=%s',task_id,code)
         try:_receipt(attempt,lease,'failed_'+code)
         except OSError:pass
-        try:return repository.fail(lease,code)
+        try:
+            receipt=getattr(exc,'execution_receipt',None) if task_type in LEGACY_TASKS else None
+            if receipt is not None:return repository.fail(lease,code,execution_receipt=receipt)
+            return repository.fail(lease,code)
         except LeaseLost:return None
     finally:stop.set();thread.join(timeout=1)
 
@@ -319,7 +334,9 @@ def source_current(db,task):
 
 
 def recovery_actions(db,task):
-    return ['retry'] if task['status']=='failed' and task.get('error_code') in STORAGE_RETRY_CODES|{'research_environment_unavailable','research_render_timeout'} and source_current(db,task) else []
+    retry_codes=STORAGE_RETRY_CODES|{'research_environment_unavailable','research_render_timeout'}
+    if is_reader_export(task):retry_codes=retry_codes|{'numeric_timeout'}
+    return ['retry'] if task['status']=='failed' and task.get('error_code') in retry_codes and source_current(db,task) else []
 
 
 def retry_in_transaction(store,db,task,expected_revision):

@@ -2,6 +2,7 @@ import {cleanup,fireEvent,render,screen,waitFor} from '@testing-library/react'
 import {afterEach,beforeEach,it,expect,vi} from 'vitest'
 import {setApiSession,clearApiSession} from '../../shared/api/client'
 import ResearchReport from './ResearchReport'
+import {prepareReportNarrative,reportNarrativeResponse,reportNarrativeStatus} from './reportNarrativeFixtures'
 import ResearchFigureComposer from './ResearchFigureComposer'
 import {Members as ResearchMembers} from './ResearchShared'
 import {Members as InsightMembers} from '../bio-insights/InsightShared'
@@ -13,11 +14,11 @@ afterEach(()=>{cleanup();vi.unstubAllGlobals();clearApiSession();sessionStorage.
 it('omits only the retired PDF option from an existing report draft request',async()=>{
  const draft={title:'Retained title',finding_version_id:'finding1',figure_version_ids:['figure1'],language:'en',root_id:null,expected_revision:0,include_pdf_id:'pdf1'}
  sessionStorage.setItem('paperassist.research-draft.v1:owner:p1:report:new',JSON.stringify(draft))
- const fetch=vi.fn(async(_url:string,init?:RequestInit)=>Response.json(init?.method==='POST'?{id:'new-report'}:{items:[],total:0,page:1,page_size:20}));vi.stubGlobal('fetch',fetch)
+ const fetch=vi.fn(async(url:string,init?:RequestInit)=>reportNarrativeResponse(url)??Response.json(init?.method==='POST'?{id:'new-report'}:{items:[],total:0,page:1,page_size:20}));vi.stubGlobal('fetch',fetch)
  render(<ResearchReport projectId="p1" active selectedId="" onSelect={vi.fn()}/>);fireEvent.click(screen.getByRole('button',{name:'新建研究报告'}));fireEvent.click(screen.getByRole('button',{name:'下一步：确认生成'}));
  expect((screen.getByLabelText('报告标题') as HTMLInputElement).value).toBe('Retained title');expect(screen.getByText(/旧草稿中的 PDF 选项不再支持/)).toBeTruthy()
- fireEvent.click(screen.getByRole('button',{name:'生成固定报告与成果包'}));await waitFor(()=>expect(fetch.mock.calls.some(([,init])=>init?.method==='POST')).toBe(true))
- const request=JSON.parse(String(fetch.mock.calls.find(([,init])=>init?.method==='POST')![1]?.body));const{include_pdf_id:_,...kept}=draft;expect(request).toEqual(kept)
+ await prepareReportNarrative();fireEvent.click(screen.getByRole('button',{name:'生成固定报告与成果包'}));const exportRequest=()=>fetch.mock.calls.find(([url,init])=>url.endsWith('/research-reports')&&init?.method==='POST');await waitFor(()=>expect(exportRequest()).toBeTruthy())
+ const request=JSON.parse(String(exportRequest()![1]?.body));const{include_pdf_id:_,...kept}=draft;expect(request).toEqual({...kept,reader_narrative_id:reportNarrativeStatus.id})
  expect(JSON.parse(sessionStorage.getItem('paperassist.research-draft.v1:owner:p1:report:new')!)).toEqual(draft)
 })
 it('retains the legacy figure draft while requiring explicit PDF removal',async()=>{

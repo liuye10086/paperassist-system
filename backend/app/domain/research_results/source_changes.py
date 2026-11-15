@@ -55,6 +55,14 @@ def dependency_impact(db,project,user,kind,identifier,limit=500):
         affected.append(dict(source_kind=child[0],source_id=child[1],**extra))
     while pending and not truncated:
         kind,identifier=pending.pop(0)
+        if kind=='original_file':
+            for row in db.execute('SELECT context_id FROM bio_report_context_files WHERE file_id=%s AND project_id=%s AND user_id=%s ORDER BY context_id LIMIT 501',(identifier,project,user)).fetchall():
+                add(('bio_report_context',row['context_id']))
+            for row in db.execute('SELECT context_id FROM statistics_report_context_files WHERE file_id=%s AND project_id=%s AND user_id=%s ORDER BY context_id LIMIT 501',(identifier,project,user)).fetchall():
+                add(('statistics_report_context',row['context_id']))
+        if kind=='analysis_run':
+            for row in db.execute('SELECT DISTINCT context_id FROM statistics_report_context_items WHERE analysis_run_id=%s AND project_id=%s AND user_id=%s ORDER BY context_id LIMIT 501',(identifier,project,user)).fetchall():
+                add(('statistics_report_context',row['context_id']))
         if kind=='bio_insight_result_version':
             for row in db.execute('SELECT id FROM bio_insight_result_members WHERE result_version_id=%s AND project_id=%s AND user_id=%s ORDER BY id LIMIT 501',(identifier,project,user)).fetchall():
                 add(('bio_insight_result_member',row['id']))
@@ -69,6 +77,9 @@ def dependency_impact(db,project,user,kind,identifier,limit=500):
         if kind=='bio_insight_run':
             for row in db.execute('SELECT id FROM bio_insight_result_versions WHERE run_id=%s AND project_id=%s AND user_id=%s ORDER BY id LIMIT 501',(identifier,project,user)).fetchall():
                 add(('bio_insight_result_version',row['id']))
+        from psycopg.types.json import Jsonb
+        for context in db.execute("SELECT id FROM bio_report_context_versions WHERE project_id=%s AND user_id=%s AND content_json->'dependencies' @> %s::jsonb ORDER BY id LIMIT 501",(project,user,Jsonb([dict(kind=kind,id=identifier)]))).fetchall():
+            add(('bio_report_context',context['id']))
         for row in db.execute('SELECT DISTINCT parent_kind,finding_version_id,figure_version_id,report_version_id FROM research_source_bindings WHERE project_id=%s AND user_id=%s AND source_kind=%s AND source_id=%s ORDER BY parent_kind,finding_version_id,figure_version_id,report_version_id LIMIT 501',(project,user,kind,identifier)).fetchall():
             add(('research_'+row['parent_kind']+'_version',row[row['parent_kind']+'_version_id']))
         if not include_manuscripts:

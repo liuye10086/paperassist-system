@@ -75,7 +75,6 @@ def resolve_members(service,db,project,delivery,selections,mode,progress=None,*,
     frozen_by_id={m['id']:m for m in frozen_members or []}
     report_ids=set();findings=set()
     with VerificationPhase(db,service.assets,project) as phase:
-        reader=ResearchSourceReader(service.assets)
         for selection in selections:
             if progress:progress()
             value=selection.model_dump(mode='json',exclude_none=True);kind=selection.kind;proof={};review='identified';language=None;presentation=None;format=None
@@ -86,6 +85,9 @@ def resolve_members(service,db,project,delivery,selections,mode,progress=None,*,
             if kind in ('research_report_member','research_figure_member'):
                 family='report' if kind=='research_report_member' else 'figure';token=(family,selection.version_id)
                 if token not in validated:
+                    # A published report reads its pinned annotation lineage,
+                    # including versions no longer current for new analysis.
+                    reader=ResearchSourceReader(service.assets,allow_stale_labels=family=='report')
                     bound=reader._read_source_in_phase(project,dict(source_kind='research_'+family+'_version',source_id=selection.version_id),db=db,phase=phase,progress=progress)
                     validated[token]=bound;source_files.update(bound.source_file_ids)
                 bound=validated[token];table='research_'+family+'_members'

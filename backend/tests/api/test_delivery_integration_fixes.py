@@ -57,7 +57,7 @@ def test_legacy_manuscript_candidates_freeze_and_download_share_scoped_mapping(c
     with database_connection() as db:assert dict(db.execute('SELECT * FROM manuscripts WHERE id=%s',(root['id'],)).fetchone())==before
 
 
-def test_progress_public_projection_is_bounded_scoped_and_fixed_per_attempt(client):
+def test_progress_public_projection_is_bounded_scoped_and_fixed_per_attempt(client, research_reader_narrative):
     base,path,body=setup_delivery(client);saved=post(client,path+'/snapshots',body,'progress-snapshot').json();package_path=path+'/snapshots/'+saved['id']+'/package'
     queued=post(client,package_path,{},'progress-task').json();identifier=queued['task_id']
     from app.domain.bioinformatics.service import append_checkpoint
@@ -84,7 +84,7 @@ def test_progress_public_projection_is_bounded_scoped_and_fixed_per_attempt(clie
         current=db.execute('SELECT * FROM tasks WHERE id=%s',(identifier,)).fetchone();assert current['input_digest']==original_sha and current['input_snapshot']==original_snapshot
     # The second supported task exposes its frozen input stage without rendering.
     file_id=body['members'][0]['file_id'];finding=post(client,base+'/research-findings',dict(title='Static progress',sources=[dict(source_kind='original_file',source_id=file_id)]),'progress-finding').json()
-    report=post(client,base+'/research-reports',dict(title='Static progress',finding_version_id=finding['id']),'progress-report').json()
+    report=post(client,base+'/research-reports',dict(title='Static progress',finding_version_id=finding['id'],reader_narrative_id=research_reader_narrative),'progress-report').json()
     projected=client.get('/api/v1/tasks/'+report['task_id']+'/progress');assert projected.status_code==200,projected.text
     assert projected.json()['progress']['stage']=='frozen_inputs' and projected.json()['progress']['stage_elapsed_seconds']==0
     from app.auth.service import create_user

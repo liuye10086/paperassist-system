@@ -4,6 +4,7 @@ from urllib.parse import quote
 from fastapi import APIRouter,Query,Response
 from pydantic import BeforeValidator
 from app.api.bio_datasets import Store,Key,Page
+from app.api.bio_reader_reports import ReportVersion, fixed_legacy_word
 from app.api.tasks import decimal_query_integer
 from app.adapters.bio_analysis_store import BioAnalysisStore
 from app.adapters.bio_annotation_store import BioAnnotationStore
@@ -61,7 +62,13 @@ def qc_member(project_id:str,run_id:str,member_id:str,store:Store):return downlo
 @router.get('/{project_id}/bio-processed-datasets/{version_id}')
 def processed(project_id:str,version_id:str,store:Store):return BioAnalysisStore(store).processed(project_id,version_id)
 @router.get('/{project_id}/bio-processed-datasets/{version_id}/report.docx')
-def single_cell_report(project_id:str,version_id:str,store:Store,annotation_version_id:Annotated[str|None,Query(min_length=1,max_length=64)]=None):
+def single_cell_report(project_id:str,version_id:str,store:Store,annotation_version_id:Annotated[str|None,Query(min_length=1,max_length=64)]=None,
+    report_version_id:ReportVersion=None,language:Literal['zh-CN','en']|None=None,
+    figure_version_ids:Annotated[list[str]|None,Query(max_length=50)]=None):
+    if report_version_id is not None:
+        selection=dict(kind='processed',processed_version_id=version_id,annotation_version_id=annotation_version_id,
+                       figure_version_ids=figure_version_ids or [])
+        return fixed_legacy_word(store,project_id,report_version_id,selection=selection,language=language)
     from app.adapters.single_cell_report import download_single_cell_report
     return download(download_single_cell_report(store,project_id,version_id,annotation_version_id=annotation_version_id))
 @router.get('/{project_id}/bio-processed-datasets/{version_id}/tables/{key}')

@@ -5,15 +5,18 @@ import SourceSummary from '../analysis/SourceSummary'
 import { validAnalysisTaskSource, validOptionalSource, type DatasetAnalysisSource } from '../analysis/datasetSource'
 import { useI18n, apiError, safeError } from '../../shared/i18n'
 import { workflowNotice } from '../../shared/i18n/workflowMessages'
-import { apiFetch } from '../../shared/api/client'
+import { apiFetch, onApiSessionChanged } from '../../shared/api/client'
 import { useEffect, useRef, useState } from 'react'
 import { WorkflowStage } from '../analysis/AnalysisWorkflow'
 import '../figures/artifactPanels.css'
 import { artifactFilename } from '../../shared/components/artifactFilename'
 import ProjectDownloadLink from '../../shared/components/ProjectDownloadLink'
-type Report = {schema_version?:3|4; source?: DatasetAnalysisSource; id: string; analysis_run_id: string; figure_id: string; explanation_id: string; setup_revision: number; source_sha256: string; figure_sha256: string; created_at: string; filename: string; size_bytes: number; sha256: string; language: 'zh-CN' | 'en'; engine: { id: string; python_docx: string }; input_sha256: string }
+import { ReportNarrativeView } from '../research-results/ResearchReportNarrative'
+import StatisticsReportDownloads from './StatisticsReportDownloads'
+import { hasReaderProjection, statisticsReaderEngine, statisticsReaderPolicy, statisticsReportTaskHref, validStatisticsReaderExport } from './statisticsReaderExport'
+type Report = {schema_version?:2|3|4; source?: DatasetAnalysisSource; id: string; analysis_run_id: string; figure_id: string; explanation_id: string; setup_revision: number; source_sha256: string; figure_sha256: string; created_at: string; filename: string; size_bytes: number; sha256: string; language: 'zh-CN' | 'en'; engine: { id: string; python_docx: string }; input_sha256: string }
 type Task = { id: string; status: 'queued' | 'running' | 'succeeded' | 'failed' | 'waiting_input' | 'waiting_confirmation'; revision: number; error_code: string | null; result_report_id: string | null }
-type State = {generation_compatible?:boolean; current_revision: number | null; is_current: boolean; ready: boolean; issues: string[]; report: Report | null; task?: Task | null }
+type State = {generation_compatible?:boolean; current_revision: number | null; is_current: boolean; ready: boolean; issues: string[]; report: Report | null; historical_report?: Report | null; task?: Task | null; output_policy?: string }
 type Props = {artifactVersion?:4;figureSha?:string;comparison?:boolean;outputLanguage?:'zh-CN'|'en';modern?:boolean; source?: DatasetAnalysisSource; filename?: string; base: string; runId: string; revision: number; figureId: string; explanationId: string; canGenerate: boolean; disabled: boolean; onBusyChange: (busy: boolean) => void }
 export default function WordReport(props: Props) { return <ReportPanel key={`${props.base}:${props.runId}:${props.figureId}:${props.explanationId}:${props.revision}:${props.outputLanguage}:${props.modern}:${props.comparison}:${props.figureSha}`} {...props} /> }
 function ReportPanel({ base, runId, revision, figureId, explanationId, canGenerate, disabled, onBusyChange, source, filename: sourceFilename, outputLanguage='zh-CN',modern=false,comparison=false,artifactVersion,figureSha }: Props) {
@@ -26,40 +29,82 @@ function ReportPanel({ base, runId, revision, figureId, explanationId, canGenera
   const [unconfirmed, setUnconfirmed] = useState(false)
   const [attempt, setAttempt] = useState(0)
   const [pollTick, setPollTick] = useState(0)
+  const [sessionValid, setSessionValid] = useState(true)
   const active = useRef(true)
   const action = useRef<AbortController | null>(null)
-  const projectId = /^\/api\/v1\/projects\/([^/]+)\/files\//.exec(base)?.[1]
+  const projectSegment = /^\/api\/v1\/projects\/([^/]+)\/files\//.exec(base)?.[1]
+  const projectId = projectSegment ? decodeURIComponent(projectSegment) : ''
   const report = state?.report
   const task = state?.task
+  const reader = state?.output_policy === statisticsReaderPolicy
+  const detailed = validStatisticsReaderExport(report, projectId, 'word_report', undefined, 1) ? report : null
+  const reports = [
+    ...(report ? [{ report, historical: reader && !detailed }] : []),
+    ...(state?.historical_report && state.historical_report.id !== report?.id ? [{ report: state.historical_report, historical: true }] : []),
+  ]
   const pending = task?.status === 'queued' || task?.status === 'running'
-  const needsReport = task?.status === 'succeeded' && !report
+  const needsReport = task?.status === 'succeeded' && !reports.some(({report}) => report.id === task.result_report_id)
   const failed = task?.status === 'failed'
-  const filename = report ? artifactFilename(report.filename, 'report', report.id, report.setup_revision, locale) : ''
-  const current = !!state?.is_current && state.current_revision === revision && (!report || (report.setup_revision === revision && report.analysis_run_id === runId && report.figure_id === figureId && report.explanation_id === explanationId))
-  const allowed = !!state?.ready && current && !!figureId && !!explanationId && canGenerate && !disabled && !loading && !submitting && !pending && !needsReport && !error
+  const sameSelection = (saved: Report) => saved.setup_revision === revision && saved.analysis_run_id === runId
+    && saved.figure_id === figureId && saved.explanation_id === explanationId
+  const current = !!state?.is_current && state.current_revision === revision && (!report || reader || sameSelection(report))
+  const allowed = sessionValid && !!state?.ready && current && !!figureId && !!explanationId && canGenerate && !disabled
+    && !loading && !submitting && !pending && !needsReport && !error && (!detailed || failed)
   useAnalysisLeaveGuard(unconfirmed, submitting)
   useEffect(() => { active.current = true; return () => { active.current = false; action.current?.abort() } }, [])
+  useEffect(() => onApiSessionChanged(() => {
+    active.current = false
+    action.current?.abort()
+    setSessionValid(false); setState(null); setError(''); setLoading(false); setSubmitting(false); setUnconfirmed(false)
+  }), [])
   useEffect(() => { onBusyChange(submitting); return () => onBusyChange(false) }, [submitting, onBusyChange])
+  function validSavedReport(saved: Report, current: boolean, historical: boolean, ownerTask?: Task | null) {
+    if (!validOptionalSource(saved, source)) return false
+    const sameFigure = figureSha === undefined || saved.figure_sha256 === figureSha
+    const rightSchema = !(comparison || artifactVersion === 4) || saved.schema_version === (artifactVersion === 4 ? 4 : 3)
+    if (saved.engine?.id === statisticsReaderEngine) {
+      return !historical && !!projectId && rightSchema && sameFigure && sameSelection(saved) && saved.language === outputLanguage
+        && validStatisticsReaderExport(saved, projectId, 'word_report', ownerTask?.result_report_id === saved.id ? ownerTask.id : undefined, 1)
+    }
+    if (hasReaderProjection(saved)) return false
+    if (!modern || !(comparison || artifactVersion === 4 || current)) return true
+    return rightSchema && (!(comparison || artifactVersion === 4) || sameFigure) && saved.language === outputLanguage
+      && saved.engine?.id === (artifactVersion === 4 ? 'word_analysis_report_v4' : comparison ? 'word_analysis_report_v3' : 'word_analysis_report_v2')
+      && sameSelection(saved)
+  }
+  function validTask(value: unknown, expectedId?: string) {
+    if (!validAnalysisTaskSource(value, source, revision, outputLanguage)) return false
+    const task = value as Task & { task_type?: string; project_id?: string }
+    return (!task.task_type || task.task_type === 'word_report') && (!projectId || !task.project_id || task.project_id === projectId)
+      && (!expectedId || task.id === expectedId)
+  }
   async function request<T>(controller: AbortController, url = endpoint, init?: RequestInit): Promise<T> {
     let timer = 0
     try { return await Promise.race([apiFetch(url, { ...init, signal: controller.signal }).then(async response => {
       const body = await response.json().catch(() => null)
       if (!response.ok) throw new Error(apiError(body, '报告请求失败，请重新读取报告。'))
-      if (body && typeof body === 'object' && 'report' in body && body.report && (!validOptionalSource(body.report, source)||modern&&(comparison||artifactVersion===4||body.is_current)&&((comparison||artifactVersion===4)&&(body.report.schema_version!==(artifactVersion===4?4:3)||figureSha!==undefined&&body.report.figure_sha256!==figureSha)||body.report.language!==outputLanguage||body.report.engine?.id!==(artifactVersion===4?'word_analysis_report_v4':comparison?'word_analysis_report_v3':'word_analysis_report_v2')||body.report.analysis_run_id!==runId||body.report.figure_id!==figureId||body.report.explanation_id!==explanationId||body.report.setup_revision!==revision))) throw new Error('数据来源或版本不一致，请重新载入配置。')
-      if (body && typeof body === 'object' && (body.task && !validAnalysisTaskSource(body.task, source, revision, outputLanguage) || url.startsWith('/api/v1/tasks/') && !validAnalysisTaskSource(body, source, revision, outputLanguage))) throw new Error('数据来源或版本不一致，请重新载入配置。')
+      if (body && typeof body === 'object') {
+        const taskId = /^\/api\/v1\/tasks\/([^/]+)/.exec(url)?.[1]
+        const oldReplay = init?.method === 'POST' && body.output_policy === statisticsReaderPolicy && body.report?.engine?.id !== statisticsReaderEngine
+        const invalid = body.report && !validSavedReport(body.report, body.is_current && !oldReplay, false, body.task)
+          || body.historical_report && !validSavedReport(body.historical_report, false, true)
+          || body.task && !validTask(body.task) || taskId && !validTask(body, decodeURIComponent(taskId))
+        if (invalid) throw new Error('数据来源或版本不一致，请重新载入配置。')
+      }
       return body as T
     }), new Promise<never>((_, reject) => { timer = window.setTimeout(() => { controller.abort(); reject(new Error('报告请求超时，后端可能仍在保存。请先重新读取报告，确认状态。')) }, 30_000) })]) }
     finally { window.clearTimeout(timer) }
   }
   useEffect(() => {
+    if (!sessionValid) return
     const controller = new AbortController(); let disposed = false; action.current = controller
     request<State>(controller).then(value => { if (!disposed && !controller.signal.aborted) { setState(value); setError(''); setUnconfirmed(false) } }).catch(cause => { if (!disposed) setError(cause instanceof TypeError ? '无法连接后端，请重新读取报告。' : safeError(cause, '报告读取失败。')) }).finally(() => { if (action.current === controller) action.current = null; if (!disposed) setLoading(false) })
     return () => { disposed = true; controller.abort(); if (action.current === controller) action.current = null }
     // The panel key fixes source IDs and endpoint for its lifetime.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [attempt])
+  }, [attempt, sessionValid])
   useEffect(() => {
-    if (!task || (!pending && !needsReport) || loading || submitting || error) return
+    if (!sessionValid || !task || (!pending && !needsReport) || loading || submitting || error) return
     const controller = new AbortController(); let disposed = false
     const timer = window.setTimeout(async () => {
       try {
@@ -76,7 +121,7 @@ function ReportPanel({ base, runId, revision, figureId, explanationId, canGenera
     return () => { disposed = true; window.clearTimeout(timer); controller.abort() }
     // The panel key fixes endpoint and source IDs for this mounted instance.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [task?.id, task?.status, task?.revision, pending, needsReport, loading, submitting, error, pollTick])
+  }, [task?.id, task?.status, task?.revision, pending, needsReport, loading, submitting, error, pollTick, sessionValid])
   async function generate() {
     if (!allowed || action.current) return
     const controller = new AbortController(); action.current = controller; setSubmitting(true)
@@ -85,7 +130,7 @@ function ReportPanel({ base, runId, revision, figureId, explanationId, canGenera
         ? { ...state!, task: await request<Task>(controller, `/api/v1/tasks/${encodeURIComponent(task.id)}/retry`, {
           method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ expected_revision: task.revision }) }) }
         : await request<State>(controller, endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json',
-          'Idempotency-Key': `word-report-v1:${explanationId}:${revision}` },
+          'Idempotency-Key': `word-report-r3:${explanationId}:${revision}` },
           body: JSON.stringify({ expected_revision: revision, figure_id: figureId, explanation_id: explanationId }) })
       if (active.current && !controller.signal.aborted) { setState(value); setError(''); setUnconfirmed(false) }
     }
@@ -98,14 +143,29 @@ function ReportPanel({ base, runId, revision, figureId, explanationId, canGenera
     <p className="warning-panel">{t("AI 文字需人工审核后使用；图中像素尚未经过自动核验。")}</p>
     {!canGenerate && <p className="warning-panel">{t("请保存当前配置并完成对应统计、图表和解释后生成报告。")}</p>}
     {report && (!current) && <p className="warning-panel">{t('以下报告对应旧配置或旧来源，可继续下载历史报告。')}</p>}
-    <div className="analysis-actions"><button type="button" disabled={!allowed} onClick={() => void generate()}>{t(failed ? "重试生成 Word 报告" : "生成 Word 报告")}</button><button type="button" disabled={loading || submitting || disabled} onClick={() => { setLoading(true); setAttempt(value => value + 1) }}>{t("重新读取报告")}</button></div>
+    {!sessionValid && <p role="alert">{t('会话已失效，请重新登录。')}</p>}
+    <div className="analysis-actions">{(!detailed || failed) && <button type="button" disabled={!allowed} onClick={() => void generate()}>{t(failed ? '重试生成 Word 报告' : reader ? '生成详细报告' : '生成 Word 报告')}</button>}<button type="button" disabled={!sessionValid || loading || submitting || disabled} onClick={() => { setLoading(true); setAttempt(value => value + 1) }}>{t("重新读取报告")}</button>
+    {reader && projectId && task && <a href={statisticsReportTaskHref(projectId, task.id, failed ? 'actions' : 'result')}>{t('查看任务')}</a>}</div>
     {(loading || (needsReport && !error)) && <p role="status">{t("正在读取报告……")}</p>}{submitting && <p role="status">{t("正在提交 Word 报告任务……")}</p>}
     {pending && <p role="status">{t(task?.status === 'queued' ? '等待生成 Word 报告……' : '正在生成 Word 报告……')}{t('可以离开页面，回来后继续查看。')}</p>}
     {failed && <p className="warning-panel">{t('Word 报告生成失败。')}{t(apiError({ code: task?.error_code }, '请重新读取报告，核对来源后重试。'))}</p>}
     {error && <p role="alert" className="error-panel">{t(error)}</p>}
     {state?.issues?.length ? <ul>{state.issues.map((issue, index) => <li key={index}>{workflowNotice(issue, t)}</li>)}</ul> : null}
-    {report && <><SendAnalysisToWriting key={report.id} fileId={decodeURIComponent(base.split('/')[6])} runId={runId} figureId={report.figure_id} reportId={report.id} disabled={disabled}/><p className="artifact-status">{t(current ? "当前结果" : "历史结果")}</p><p><ProjectDownloadLink href={`${endpoint}/${encodeURIComponent(report.id)}/download`} filename={filename}>{t("下载 Word 报告")}</ProjectDownloadLink></p><p>{t("文件：")}{filename}{t("；生成时间：")}{report.created_at}{t("；文件大小：")}{t('{count} 字节', { count: report.size_bytes })}</p>
-      {projectId&&/^[a-f0-9]{64}$/.test(report.sha256)&&<><LayoutExports projectId={decodeURIComponent(projectId)} sourceKind="report" sourceId={report.id} sourceSha256={report.sha256} sourceLabel={t('分析配置 v{revision}',{revision:report.setup_revision})} disabled={disabled}/></>}<section className="artifact-details"><h4>{t("报告来源记录")}</h4><SourceSummary source={report.source} filename={sourceFilename} />{report.source?.schema_version === 2 && <p>{t('报告按该整理版本冻结质量策略、前后概况和处理摘要；完整明细请查看该版本质量回执，各计划有效记录数分别列出。')}</p>}<p>{t(modern?'内容来自同一已确认计划的统计结果、图表和分析解释。':'内容来自已保存的描述统计、箱线图和分析解释。')}</p><p>{t("语言：")}{t(report.language === 'zh-CN' ? '中文' : '英文')}</p></section></>}
-    {state && !report && <p className="artifact-empty">{t("尚未生成 Word 报告。完成当前结果后，可将统计、图表和解释整理为可编辑文档。")}</p>}
+    {reports.map(({report: saved, historical}) => {
+      const filename = artifactFilename(saved.filename, 'report', saved.id, saved.setup_revision, locale)
+      const files = saved.id === detailed?.id ? detailed : null
+      return <section key={saved.id} className="artifact-details">
+        <p className="artifact-status">{t(historical ? '历史 Word 报告' : current && sameSelection(saved) ? '当前结果' : '历史结果')}</p>
+        {files ? <><ReportNarrativeView result={files.reader_report} draft={false}/><StatisticsReportDownloads files={files} filename={filename}/></>
+          : <p><ProjectDownloadLink href={`${endpoint}/${encodeURIComponent(saved.id)}/download`} filename={filename}>{t(historical ? '下载历史 Word 报告' : '下载 Word 报告')}</ProjectDownloadLink></p>}
+        <SendAnalysisToWriting fileId={decodeURIComponent(base.split('/')[6])} runId={runId} figureId={saved.figure_id} reportId={saved.id} disabled={disabled}/>
+        <p>{t('文件：')}{filename}{t('；生成时间：')}{saved.created_at}{t('；文件大小：')}{t('{count} 字节', { count: saved.size_bytes })}</p>
+        {projectId&&/^[a-f0-9]{64}$/.test(saved.sha256)&&<LayoutExports projectId={projectId} sourceKind="report" sourceId={saved.id} sourceSha256={saved.sha256} sourceLabel={t('分析配置 v{revision}',{revision:saved.setup_revision})} disabled={disabled}/>}
+        <h4>{t('报告来源记录')}</h4><SourceSummary source={saved.source} filename={sourceFilename}/>
+        {saved.source?.schema_version === 2 && <p>{t('报告按该整理版本冻结质量策略、前后概况和处理摘要；完整明细请查看该版本质量回执，各计划有效记录数分别列出。')}</p>}
+        <p>{t(modern?'内容来自同一已确认计划的统计结果、图表和分析解释。':'内容来自已保存的描述统计、箱线图和分析解释。')}</p><p>{t('语言：')}{t(saved.language === 'zh-CN' ? '中文' : '英文')}</p>
+      </section>
+    })}
+    {state && !report && <p className="artifact-empty">{t(reader ? '尚未生成详细报告。' : '尚未生成 Word 报告。完成当前结果后，可将统计、图表和解释整理为可编辑文档。')}</p>}
   </section></WorkflowStage>
 }

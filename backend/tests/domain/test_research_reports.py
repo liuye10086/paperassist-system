@@ -71,6 +71,133 @@ def test_docx_contains_source_boundaries_and_does_not_invent_missing_methods():
     assert '外部表格' in text and all(value not in text for value in ('finding-v1','a'*64,'b'*64))
 
 
+@pytest.mark.parametrize('language',['zh-CN','en'])
+@pytest.mark.parametrize('inherited',[False,True])
+@pytest.mark.parametrize('decision',['use_first','use_second'])
+def test_conflict_exports_resolve_facts_in_declared_order_without_internal_ids(language,inherited,decision):
+    from copy import deepcopy
+    from docx import Document
+    from openpyxl import load_workbook
+    from app.adapters.research_report_docx import build_report
+    from app.adapters.research_results_xlsx import build_workbook
+    snapshot=sample();snapshot['language']=language
+    finding=snapshot['finding']['content']
+    first={**finding['facts'][0],'id':'internal-fact-one','raw_value':'10.25','unit':'mg','locator':{'sheet':'Assay A','cell':'B2'}}
+    second={**first,'id':'internal-fact-two','raw_value':'20.75','locator':{'sheet':'Assay B','cell':'C9'}}
+    finding['facts']=[first,second]
+    finding['conflicts']=[dict(id='internal-conflict',fact_ids=[second['id'],first['id']],decision=decision,note='Different measurements',basis='Reviewed original assay')]
+    if inherited:
+        finding['sources']=[dict(source_id='internal-parent',title='Reviewed results',content=deepcopy(finding))]
+        finding['facts']=[]
+    before=deepcopy(snapshot)
+    doc=Document(io.BytesIO(build_report(snapshot,[])))
+    text='\n'.join(p.text for p in doc.paragraphs)
+    xlsx,_=build_workbook(snapshot,[])
+    book=load_workbook(io.BytesIO(xlsx),read_only=True)
+    row=list(book['Limitations'].values)[-1][1]
+    for exported in (text,row):
+        assert exported.index('Assay B!C9') < exported.index('Assay A!B2')
+        assert '20.75 mg' in exported and '10.25 mg' in exported
+        assert ('第 1 项' if language=='zh-CN' else 'Item 1') in exported
+        assert ('第 2 项' if language=='zh-CN' else 'Item 2') in exported
+        assert 'Reviewed original assay' in exported and 'Different measurements' in exported
+        assert ({'use_first':'Use first','use_second':'Use second'}[decision] if language=='en' else {'use_first':'采用第一项','use_second':'采用第二项'}[decision]) in exported
+        assert not any(value in exported for value in ('internal-fact-one','internal-fact-two','internal-conflict','internal-parent','b'*64))
+    assert snapshot==before
+    book.close()
+
+
+def test_conflict_export_rejects_unresolvable_fact_instead_of_ambiguous_decision():
+    from app.adapters.research_report_docx import build_report
+    from app.adapters.research_results_xlsx import build_workbook
+    snapshot=sample()
+    snapshot['finding']['content']['conflicts']=[dict(fact_ids=['fact1','missing'],decision='use_second',basis='reviewed')]
+    with pytest.raises(ValueError,match='conflict fact'):build_report(snapshot,[])
+    with pytest.raises(ValueError,match='conflict fact'):build_workbook(snapshot,[])
+
+
+def test_reader_export_explains_system_fields_without_changing_source_values():
+    from copy import deepcopy
+    from app.adapters.research_report_docx import build_report
+    from app.adapters.research_results_xlsx import build_workbook
+    from docx import Document
+    from openpyxl import load_workbook
+    snapshot=sample();finding=snapshot['finding']['content']
+    finding['facts'][0].update(locator={'field_path':'summary.retained_observations'},raw_value=1162,
+        observation_level='spot',verification_status='verified')
+    finding['methods']=[dict(title='过滤 / Filtering',executed=True,description='已执行 · SHA256 '+'c'*64+' v1.2.3',
+        parameters=dict(min_counts=1,min_gene_spots=3,max_mt_fraction=None,seed=0,in_tissue_only=False,engine_version='internal-v1.2.3',code_digest='a'*64))]
+    finding['claims']=[dict(statement='观察到六个探索性分群。',strength='exploratory',origin='system_candidate',review_decision='adopt',limitations=[])]
+    before=deepcopy(snapshot)
+    doc=Document(io.BytesIO(build_report(snapshot,[])))
+    text='\n'.join([p.text for p in doc.paragraphs]+[c.text for t in doc.tables for r in t.rows for c in r.cells])
+    for label in ('保留观测数','空间点','已核对','最低总计数','最少表达空间点数','未设置','探索性','系统候选'):
+        assert label in text
+    assert '随机种子: 0' in text and '仅保留组织内空间点: 否' in text
+    for technical in ('summary.retained','min_counts','min_gene_spots','max_mt_fraction','verified','system_candidate','internal-v1.2.3','a'*64,'c'*64,'v1.2.3'):
+        assert technical not in text
+    raw,_=build_workbook(snapshot,[]);book=load_workbook(io.BytesIO(raw),read_only=True)
+    assert book['Facts']['A2'].value==1162
+    assert book['Facts']['D2'].value=='空间点' and book['Facts']['E2'].value=='已核对'
+    assert book['Facts']['G2'].value=='保留观测数'
+    method_text=str(list(book['Methods'].values))
+    assert '已执行' in method_text and all(v not in method_text for v in ('c'*64,'SHA256','v1.2.3'))
+    assert snapshot==before
+    book.close()
+
+
+def test_reader_exports_keep_science_and_remove_version_and_id_from_title_and_conflict_prose():
+    from copy import deepcopy
+    from docx import Document
+    from openpyxl import load_workbook
+    from app.adapters.research_report_docx import build_report
+    from app.adapters.research_results_xlsx import build_workbook
+    from tests.helpers.research_report import sample_reader_record
+
+    identifier='681fa52c-b922-4917-9c76-72cd5daf628b'
+    version='v1.9.8'
+    digest='e'*64
+    gene='ENSG00000141510.18'
+    snapshot=sample()
+    snapshot['language']='en'
+    snapshot['title']=f'Spatial results for {gene} · {identifier} {version}'
+    finding=snapshot['finding']['content']
+    finding['facts'][0].update(raw_value=gene,display_value=gene,unit='mg/mL')
+    finding['conflicts']=[dict(fact_ids=['fact1'],decision='unresolved',
+        note=f'Check {gene} at 5 mg/mL · {identifier} {version}',
+        basis=f'Original observation confirmed · SHA256 {digest}')]
+    snapshot['reader_report']=sample_reader_record(snapshot)
+    before=deepcopy(snapshot)
+    doc=Document(io.BytesIO(build_report(snapshot,[])))
+    raw,_=build_workbook(snapshot,[])
+    book=load_workbook(io.BytesIO(raw),read_only=True)
+    for visible in ('\n'.join(p.text for p in doc.paragraphs),str(list(book['Limitations'].values))):
+        assert gene in visible and '5 mg/mL' in visible and 'Original observation confirmed' in visible
+        assert all(token not in visible for token in (identifier,version,digest))
+    assert book['Facts']['A2'].value==gene and book['Facts']['C2'].value=='mg/mL'
+    book.close()
+    assert snapshot==before
+
+
+def test_reader_export_separates_spatial_filter_rules_from_other_frozen_settings():
+    from copy import deepcopy
+    from app.adapters.research_method_text import reader_method
+
+    method=dict(title='过滤 / Filtering',description='已执行 / Completed',executed=True,
+        source=dict(source_kind='bio_processed_dataset_version',locator=dict(field_path='steps[1]')),
+        parameters=dict(min_counts=1,min_gene_spots=3,target_sum=10000,pca_components=30,neighbors=15,resolution=.5,
+                        seed=0,mt_rule=dict(kind='prefix',prefix='MT-',confirmed=True),output_language='en'))
+    before=deepcopy(method)
+    shown=reader_method(method,'en')
+    assert 'Filtering and recorded analysis settings' in shown['title']
+    filtering,other=shown['paragraphs'][-2:]
+    assert 'Minimum total counts: 1' in filtering and 'Gene name prefix: MT-' in filtering
+    assert 'Normalization total per observation: 10000' in other
+    assert 'Principal components: 30' in other and 'Number of neighbors: 15' in other
+    assert 'Normalization total' not in filtering and 'Figure language' not in '\n'.join(shown['paragraphs'])
+    assert method==before
+
+
 def test_english_report_translates_system_caveats_without_mutating_frozen_sources():
     from copy import deepcopy
     from app.adapters.research_report_docx import build_report
@@ -143,6 +270,161 @@ def test_rebuild_uses_exact_table_bytes_including_empty_strings(tmp_path):
     second=load_workbook(tmp_path/'package/rebuilt/results.xlsx',read_only=True,data_only=False)
     assert list(first['markers'].values)==list(second['markers'].values)
     first.close();second.close()
+
+
+def test_reader_scope_and_saved_cluster_sizes_use_only_selected_verified_table(tmp_path):
+    import hashlib
+    import subprocess
+    import sys
+    from docx import Document
+    from openpyxl import load_workbook
+    from app.adapters.research_report_render import render_report
+    from tests.helpers.research_report import sample_reader_record
+
+    columns=['cluster','spots','statistical_unit']
+    lines=[f'{index}\t{count}\tspot' for index,count in enumerate(('007','11','29','31','42','64'))]
+    cluster_raw=('\t'.join(columns)+'\n'+'\n'.join(lines)+'\n').encode()
+    unrelated_raw=b'cluster\tspots\tstatistical_unit\n0\t999\tspot\n'
+    second_raw=b'cluster\tspots\tstatistical_unit\n8\t50\tspot\n'
+    large_raw=('\t'.join(columns)+'\n'+''.join(f'{index}\t29\tspot\n' for index in range(201))).encode()
+    snapshot=sample()
+    snapshot['language']='en'
+    snapshot['reader_report']=sample_reader_record(snapshot)
+    snapshot['finding']['content']['sources'].append(dict(source_kind='bio_processed_dataset_version',
+        source_id='fixed-source',title='Spatial tissue sample',provenance='system_computed'))
+    selected=[]
+    for index,(raw,source) in enumerate((
+        (cluster_raw,dict(source_kind='bio_analysis_artifact',processed_version_id='fixed-source')),
+        (unrelated_raw,dict(source_kind='bio_insight_result_member',result_version_id='unrelated')),
+        (second_raw,dict(source_kind='bio_analysis_artifact',processed_version_id='another-source')),
+        (large_raw,dict(source_kind='bio_analysis_artifact',processed_version_id='large-source')),
+    )):
+        path=tmp_path/f'table_{index}.tsv'
+        path.write_bytes(raw)
+        selected.append(dict(key='cluster_summary',columns=columns,sha256=hashlib.sha256(raw).hexdigest(),
+            source=source,expected_rows=len(raw.splitlines())-1,path=str(path)))
+    snapshot['tables']=[{key:value for key,value in table.items() if key!='path'} for table in selected]
+    output=tmp_path/'export'
+    output.mkdir()
+    render_report(dict(snapshot=snapshot,tables=selected,figures=[],package_files=[]),output)
+    doc=Document(output/'analysis.docx')
+    scope=next(p.text for p in doc.paragraphs if 'selected summary facts' in p.text)
+    assert 'not provided' in scope.lower() and 'workbook' in scope
+    assert 'did not read the complete tables row by row' in scope and 'directly from the selected tables' in scope
+    assert list(p.text for p in doc.paragraphs).index(scope)<list(p.text for p in doc.paragraphs).index('Abstract')
+    assert len(doc.tables)==3
+    labels=[p.text for p in doc.paragraphs if p.text.startswith('Selected result table')]
+    assert labels==['Selected result table 1 · Spatial tissue sample','Selected result table 3']
+    observed=[[cell.text for cell in row.cells] for row in doc.tables[0].rows]
+    assert observed==[['Cluster','Spatial spots']]+[line.split('\t')[:2] for line in lines]
+    book=load_workbook(output/'results.xlsx',read_only=True)
+    assert list(book['Report narrative'].values)[1][1]==scope
+    assert book['cluster_summary']['B2'].value=='007'
+    assert book['cluster_summary_2']['B2'].value=='999'
+    assert book['cluster_summary_4']['A202'].value=='200'
+    book.close()
+    with zipfile.ZipFile(output/'analysis_package.zip') as archive:
+        assert json.loads(archive.read('report_snapshot.json'))['reader_report']==snapshot['reader_report']
+        archive.extractall(tmp_path/'package')
+    completed=subprocess.run([sys.executable,str(tmp_path/'package/rebuild_report.py')],capture_output=True,text=True)
+    assert completed.returncode==0,completed.stderr
+    rebuilt=Document(tmp_path/'package/rebuilt/analysis.docx')
+    assert [[cell.text for cell in row.cells] for row in rebuilt.tables[0].rows]==observed
+
+
+def test_reader_workbook_persists_display_widths_in_saved_sheets():
+    from openpyxl import load_workbook
+    from app.adapters.research_results_xlsx import build_workbook
+    from tests.helpers.research_report import sample_reader_record
+
+    snapshot=sample()
+    snapshot['reader_report']=sample_reader_record(snapshot)
+    raw,_=build_workbook(snapshot,[])
+    workbook=load_workbook(io.BytesIO(raw))
+    try:
+        expected={'Report narrative': {'B':100}, 'Methods': {'C':100},
+                  'Figures': {'A':8,'B':44,'C':100}, 'Limitations': {'B':100}}
+        actual={sheet:{column:workbook[sheet].column_dimensions[column].width for column in widths}
+                for sheet,widths in expected.items()}
+        assert actual==expected
+    finally:
+        workbook.close()
+
+
+def test_saved_reader_rows_reserve_a_line_for_excel_word_wrapping():
+    from openpyxl import load_workbook
+    from app.adapters.research_results_xlsx import build_workbook
+    from tests.helpers.research_report import sample_reader_record
+
+    snapshot=sample()
+    snapshot['language']='en'
+    snapshot['figures']=[dict(config={})]
+    record=sample_reader_record(snapshot)
+    record['narrative']['abstract']='\n'.join(['A short line.']*7)
+    record['narrative']['methods_summary']=('word '*116).strip()
+    caption_lengths={3:387,13:285,42:289,47:489,51:385}
+    record['figures'][0]['caption']='\n'.join(
+        ('word '*100)[:caption_lengths[row]].strip() if row in caption_lengths else 'Short.'
+        for row in range(2,52)
+    )
+    snapshot['reader_report']=record
+
+    raw,_=build_workbook(snapshot,[])
+    workbook=load_workbook(io.BytesIO(raw))
+    try:
+        assert workbook['Report narrative'].row_dimensions[12].height==111
+        assert {row:workbook['Figures'].row_dimensions[row].height for row in caption_lengths}=={
+            3:81,13:66,42:66,47:96,51:81}
+        assert workbook['Figures'].row_dimensions[2].height==21
+    finally:
+        workbook.close()
+
+def test_report_package_reuses_exact_reader_record_and_rebuilds_historical_pdf_figure(tmp_path):
+    import hashlib
+    import subprocess
+    import sys
+    from docx import Document
+    from openpyxl import load_workbook
+    from PIL import Image
+    from app.adapters.research_report_render import render_report
+    from tests.helpers.research_report import sample_reader_record
+
+    old_pdf=tmp_path/'legacy.pdf'
+    Image.new('RGB',(100,50),'red').save(old_pdf,'PDF')
+    sha=hashlib.sha256(old_pdf.read_bytes()).hexdigest()
+    config=dict(title='旧图题',caption='旧图注',figure_language='en',language='zh-CN')
+    snapshot=sample()
+    snapshot['tables']=[]
+    snapshot['figures']=[dict(id='legacy-figure',manifest_sha256='b'*64,config=config,
+        document_image=dict(key='figure_pdf',format='pdf',sha256=sha))]
+    record=sample_reader_record(snapshot)
+    snapshot['reader_report']=record
+    output=tmp_path/'output'
+    output.mkdir()
+    result=render_report(dict(snapshot=snapshot,tables=[],figures=[
+        dict(config=config,path=str(old_pdf),format='pdf',sha256=sha)],package_files=[]),output)
+    assert result['manifest']['reader_report_provenance']==record['provenance']
+    with zipfile.ZipFile(output/'analysis_package.zip') as archive:
+        assert json.loads(archive.read('report_snapshot.json'))['reader_report']==record
+        captions=archive.read('captions.txt').decode()
+        assert record['figures'][0]['observations'] in captions and '旧图注' not in captions
+        assert not any(name.endswith('.pdf') for name in archive.namelist())
+        archive.extractall(tmp_path/'package')
+    completed=subprocess.run([sys.executable,str(tmp_path/'package/rebuild_report.py')],capture_output=True,text=True)
+    assert completed.returncode==0,completed.stderr
+    first=Document(output/'analysis.docx')
+    rebuilt=Document(tmp_path/'package/rebuilt/analysis.docx')
+    assert len(first.inline_shapes)==len(rebuilt.inline_shapes)==1
+    first_text='\n'.join(p.text for p in first.paragraphs)
+    assert first_text=='\n'.join(p.text for p in rebuilt.paragraphs)
+    assert all(text in first_text for text in record['narrative'].values())
+    assert record['figures'][0]['limitations'] in first_text and '旧图注' not in first_text
+    final_caption=next(p for p in first.paragraphs if p.text==record['figures'][0]['limitations'])
+    assert final_caption.paragraph_format.keep_with_next is True
+    workbook=load_workbook(output/'results.xlsx',read_only=True)
+    assert all(text in str(list(workbook['Report narrative'].values)) for text in record['narrative'].values())
+    assert record['figures'][0]['observations'] in str(list(workbook['Figures'].values))
+    workbook.close()
 
 
 def test_child_quota_failure_keeps_actionable_public_code(monkeypatch,tmp_path):

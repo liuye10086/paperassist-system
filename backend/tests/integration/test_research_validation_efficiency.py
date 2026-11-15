@@ -86,13 +86,13 @@ def test_b04_freeze_avoids_duplicate_finding_pass_and_keeps_full_table(client, m
 
 
 @pytest.mark.parametrize('failure_at_end', [None, 'expired', 'owner_changed'])
-def test_checked_coalesces_lease_sql_and_always_fences_at_exit(client, monkeypatch, tmp_path, failure_at_end):
+def test_checked_coalesces_lease_sql_and_always_fences_at_exit(client, monkeypatch, tmp_path, failure_at_end, research_reader_narrative):
     from app.adapters.task_execution_store import TaskExecutionStore, LeaseLost
     from app.domain.research_results import execution
     base, source = selected_cell(client)
     finding = client.post(base + '/research-findings', json=dict(title='Lease facts', sources=[source]),
                           headers={'Idempotency-Key': 'coalesced-finding'}).json()
-    response = client.post(base + '/research-reports', json=dict(title='Lease report', finding_version_id=finding['id']),
+    response = client.post(base + '/research-reports', json=dict(title='Lease report', finding_version_id=finding['id'],reader_narrative_id=research_reader_narrative),
                            headers={'Idempotency-Key': 'coalesced-report'})
     assert response.status_code == 201, response.text
     report = response.json()
@@ -176,7 +176,7 @@ def test_freeze_rechecks_same_size_source_byte_mutation_in_same_or_new_db(client
             assert rejected.value.status == 409
 
 
-def test_publication_final_fence_is_not_coalesced_after_member_writes(client, monkeypatch, tmp_path):
+def test_publication_final_fence_is_not_coalesced_after_member_writes(client, monkeypatch, tmp_path, research_reader_narrative):
     from app.adapters.research_report_render import render_report
     from app.domain.research_results.execution import run_research_report_task
     from app.domain.research_results.reports import ResearchReportService
@@ -184,7 +184,7 @@ def test_publication_final_fence_is_not_coalesced_after_member_writes(client, mo
     base, source = selected_cell(client)
     finding = client.post(base + '/research-findings', json=dict(title='Publication facts', sources=[source]),
                           headers={'Idempotency-Key': 'final-fence-finding'}).json()
-    response = client.post(base + '/research-reports', json=dict(title='Final fence', finding_version_id=finding['id']),
+    response = client.post(base + '/research-reports', json=dict(title='Final fence', finding_version_id=finding['id'],reader_narrative_id=research_reader_narrative),
                            headers={'Idempotency-Key': 'final-fence-report'})
     assert response.status_code == 201, response.text
     report = response.json()

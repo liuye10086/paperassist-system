@@ -10,7 +10,6 @@ from app.domain.bioinformatics.contracts import digest
 
 from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
-from starlette.background import BackgroundTask
 
 from app.adapters.bio_insights_store import invalid
 from app.api.bio_datasets import Store
@@ -131,22 +130,39 @@ def open_artifact(entry):
         raise invalid('bio_insight_source_incomplete', 410) from exc
 
 
-def artifact_response(entry, kind, *, handle=None):
+def artifact_response(entry, kind, *, handle=None, filename=None):
     metadata = entry['metadata']
-    headers = delivery_headers('转录组学分析报告.docx' if kind == 'word' else '转录组学分析复现资料.zip', metadata)
+    name = filename or ('转录组学分析报告.docx' if kind == 'word' else '转录组学分析复现资料.zip')
+    headers = delivery_headers(name, metadata)
     if kind == 'archive':
         headers['X-Reproducibility-Manifest-SHA256'] = metadata['manifest_sha256']
         headers['X-Analysis-Inputs-Self-Contained'] = str(metadata['analysis_inputs_self_contained']).lower()
-    handle = handle or open_artifact(entry)
-    headers['Content-Length'] = str(os.fstat(handle.fileno()).st_size)
-    def chunks():
+    return stream_attachment(handle or open_artifact(entry), WORD_MEDIA_TYPE if kind == 'word' else 'application/zip', headers)
+
+
+class _AttachmentResponse(StreamingResponse):
+    def __init__(self, handle, media_type, headers):
+        self.handle = handle
+        super().__init__(self.chunks(), media_type=media_type, headers=headers)
+
+    def chunks(self):
+        while block := self.handle.read(1024**2):
+            yield block
+
+    async def __call__(self, scope, receive, send):
         try:
-            while block := handle.read(1024**2):
-                yield block
+            await super().__call__(scope, receive, send)
         finally:
-            handle.close()
-    return StreamingResponse(chunks(), media_type=WORD_MEDIA_TYPE if kind == 'word' else 'application/zip',
-                             headers=headers, background=BackgroundTask(handle.close))
+            self.handle.close()
+
+
+def stream_attachment(handle, media_type, headers):
+    try:
+        headers['Content-Length'] = str(os.fstat(handle.fileno()).st_size)
+        return _AttachmentResponse(handle, media_type, headers)
+    except BaseException:
+        handle.close()
+        raise
 
 
 @router.post('/delivery/report.docx')

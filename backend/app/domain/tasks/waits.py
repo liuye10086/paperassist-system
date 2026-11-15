@@ -24,6 +24,9 @@ def input_version(task):
     if task['task_type']=='bio_import':
         from app.domain.bioinformatics.contracts import input_version as bio_input_version
         return bio_input_version(task)
+    if task['task_type'] == 'reader_report_narrative':
+        from app.domain.reader_reports.service import input_version as reader_report_input
+        return reader_report_input(task)
     if task['task_type']=='school_rule_suggestion':
         from app.domain.school_templates.suggestion_service import input_version as suggestion_input_version
         return suggestion_input_version(task)
@@ -186,7 +189,8 @@ def allowed_recovery_actions(db, task):
     if task['task_type'] in INSIGHT_TASKS:
         from app.domain.bio_insights.execution import recovery_actions
         return recovery_actions(db,task)
-    if task['task_type'] in ('research_figure','research_report','research_fact_draft','delivery_package'):
+    from app.domain.statistics_reader_reports.legacy_exports import is_reader_export
+    if is_reader_export(task) or task['task_type'] in ('research_figure','research_report','research_fact_draft','delivery_package'):
         from app.domain.research_results.execution import recovery_actions
         return recovery_actions(db,task)
     if task['task_type'] in ('bio_analysis', 'bio_figure'):
@@ -213,6 +217,15 @@ def allowed_recovery_actions(db, task):
             return actions
         except (StorageError,KeyError,ValueError,TypeError,OSError):
             return []
+    if task['task_type'] == 'reader_report_narrative' and task.get('reason_code') != 'observation_expired':
+        if task['status'] == 'waiting_confirmation' and task.get('reason_code') in ('budget_exceeded', 'confirmation_required'):
+            wait = get_open_wait(db, task)
+            return ['resume'] if wait and wait['task_revision'] == task['revision'] else []
+        if task['status'] == 'failed' and task.get('error_code') in (
+            'storage_unavailable', 'task_worker_interrupted', 'model_provider_unavailable',
+        ):
+            return ['retry']
+        return []
     if task['task_type']=='school_rule_suggestion' and task.get('reason_code')!='observation_expired':
         if task['status']=='waiting_confirmation':
             wait=get_open_wait(db,task)
