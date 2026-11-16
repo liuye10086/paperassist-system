@@ -1,4 +1,5 @@
 """One transaction accepts a recovery decision, resolves its wait and queues work."""
+from contextlib import nullcontext
 import hashlib
 import json
 import re
@@ -17,7 +18,7 @@ class TaskResumeService:
     def __init__(self, user_id, config=None):
         self.store = TaskStore(user_id, config)
 
-    def resume(self, task_id, request, *, idempotency_key):
+    def resume(self, task_id, request, *, idempotency_key, transaction=None):
         try:
             request = ResumeRequest.model_validate(request.model_dump() if isinstance(request, ResumeRequest) else request)
         except (ValidationError, TypeError, ValueError) as exc:
@@ -27,7 +28,8 @@ class TaskResumeService:
         material = request.model_dump(mode='json')
         digest = hashlib.sha256(json.dumps(material, ensure_ascii=False, sort_keys=True,
             separators=(',', ':'), allow_nan=False).encode('utf-8')).hexdigest()
-        with self.store.connection(write=True) as db:
+        connection = self.store.connection(write=True) if transaction is None else nullcontext(transaction)
+        with connection as db:
             task = self.store.require_task(db, task_id)
             existing = db.execute('''SELECT * FROM task_resume_requests
                 WHERE user_id=%s AND task_id=%s AND idempotency_key=%s''',

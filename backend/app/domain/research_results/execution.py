@@ -31,6 +31,8 @@ logger=logging.getLogger(__name__)
 # phase. Database/storage availability and unknown exceptions still roll back.
 SOURCE_REJECTIONS=frozenset(('research_source_conflict','research_source_not_found',
     'research_source_incomplete','research_source_unsupported','research_locator_invalid',
+    'delivery_source_mismatch','delivery_member_source_conflict','delivery_member_file_changed',
+    'delivery_member_source_missing','delivery_member_source_incomplete','delivery_member_duplicate',
     'research_source_limit_exceeded','research_fact_unresolved','research_figure_limit_exceeded',
     'research_export_limit_exceeded','research_output_invalid','research_revision_conflict',
     'research_writing_unavailable','bio_input_integrity_changed','bio_source_conflict',
@@ -270,11 +272,11 @@ def _run_research_task(task_id,task_revision,*,task_type,config=None,directory=N
                 path=attempt/f'input_{index}.bin';path.write_bytes(raw);panel['path']=str(path.resolve())
             render=engine or execute_research_figure
         elif task_type in ('research_report',*LEGACY_TASKS):
-            from app.adapters.research_report_render import stage_report_payload,execute_research_report
+            from app.adapters.research_report_render import stage_report_payload
+            from .report_renderer import frozen_report_renderer
             payload=stage_report_payload(payload,attempt)
-            from app.domain.statistics_reader_reports.render import VERSION as statistics_renderer, execute_statistics_report
             frozen=task['input_snapshot'].get('reader_export',task['input_snapshot'])['renderer_identity']
-            render=engine or (execute_statistics_report if frozen.get('renderer_version')==statistics_renderer else execute_research_report)
+            render=engine or frozen_report_renderer(frozen)
         elif task_type=='delivery_package':
             from app.domain.delivery_packages.render import render_delivery_package
             render=engine or render_delivery_package
@@ -334,9 +336,17 @@ def source_current(db,task):
 
 
 def recovery_actions(db,task):
+    if task['status']!='failed':return []
     retry_codes=STORAGE_RETRY_CODES|{'research_environment_unavailable','research_render_timeout'}
     if is_reader_export(task):retry_codes=retry_codes|{'numeric_timeout'}
-    return ['retry'] if task['status']=='failed' and task.get('error_code') in retry_codes and source_current(db,task) else []
+    error=task.get('error_code')
+    retryable=error in retry_codes
+    if task['task_type']=='research_report' and error=='research_source_conflict':
+        from .report_renderer import is_legacy_renderer
+        if not is_legacy_renderer(task['input_snapshot'].get('renderer_identity')):return []
+        try:retryable=checkpoint_for(db,task)['next_node'] in ('check','publish')
+        except StorageError:return []
+    return ['retry'] if retryable and source_current(db,task) else []
 
 
 def retry_in_transaction(store,db,task,expected_revision):

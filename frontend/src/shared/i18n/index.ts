@@ -113,6 +113,13 @@ function errorParams(code: string, value: unknown): Params {
     if (typeof item === 'number' && Number.isSafeInteger(item) && item >= min && item <= max) result[name] = item
   }
   if (code === 'numeric_precision' && typeof params.column === 'string' && /^[A-Z]{1,3}$/.test(params.column)) result.column = params.column
+  if (code === 'delivery_source_mismatch' || code.startsWith('delivery_member_')) {
+    const fields = code === 'delivery_source_mismatch' ? ['file', 'other_file'] : ['file']
+    for (const field of fields) {
+      const name = params[field]
+      if (typeof name === 'string' && name.trim() && name.length <= 240 && !/[\\/<>:"|?*\p{Cc}\u202a-\u202e\u2066-\u2069]/u.test(name)) result[field] = name
+    }
+  }
   return result
 }
 
@@ -156,6 +163,10 @@ export function translate(source: string, params: Params = {}): string {
         const template = locale === 'en' ? entry.en : entry.zh
         const parameters = errorParams(item.code, item.params)
         if ([...template.matchAll(/\{([a-zA-Z0-9_]+)\}/g)].some(match => !Object.hasOwn(parameters, match[1]))) {
+          if (item.code === 'delivery_source_mismatch' || item.code.startsWith('delivery_member_')) {
+            const generic = errorMessages.research_source_conflict
+            return locale === 'en' ? generic.en : generic.zh
+          }
           const fallback = Object.hasOwn(rootMessages, item.fallback) || Object.hasOwn(workflowMessages, item.fallback) ? item.fallback : '请求失败，请重试。'
           return translate(fallback)
         }

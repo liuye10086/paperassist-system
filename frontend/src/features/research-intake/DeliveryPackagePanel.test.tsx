@@ -67,6 +67,61 @@ it('preserves the conflicting input, separates blind selection and clears sensit
  fireEvent.change(screen.getByLabelText('交付模式'),{target:{value:'blind'}});expect(screen.queryByLabelText('draft.docx · Word 文档 · 署名版')).toBeNull();expect(screen.getByLabelText('blind.docx · Word 文档 · 盲审版')).toBeTruthy();expect((screen.getByLabelText('已选择成员数') as HTMLOutputElement).textContent).toBe('0')
  act(()=>clearApiSession());expect(screen.queryByDisplayValue('Private retained input')).toBeNull();expect(Object.values(sessionStorage).join('')).not.toContain('Private retained input')
 })
+it.each(['preview','freeze'])('names mismatched files when %s rejects a delivery and keeps the draft',async phase=>{
+ const fallback=mockApi()
+ const mock=vi.fn(async(url:string,init?:RequestInit)=>{
+  const affected=phase==='preview'?url.endsWith('/snapshots/preview'):url.endsWith('/snapshots')
+  if(init?.method==='POST'&&affected)return Response.json({detail:{code:'delivery_source_mismatch',params:{file:'中文分析报告.docx',other_file:'English analysis.docx'}}},{status:409})
+  return fallback(url,init)
+ })
+ vi.stubGlobal('fetch',mock)
+ render(<DeliveryPackagePanel {...props} snapshotId="s1"/>)
+ fireEvent.click(await screen.findByRole('button',{name:'从此快照派生新版本'}))
+ fireEvent.change(screen.getByLabelText('本次修改说明'),{target:{value:'Keep both selected reports'}})
+ fireEvent.click(screen.getByRole('button',{name:'核对所选成员与缺口'}))
+ if(phase==='freeze')fireEvent.click(await screen.findByRole('button',{name:'冻结本次交付快照'}))
+ expect((await screen.findByRole('alert')).textContent).toMatch(/中文分析报告\.docx.+English analysis\.docx.+来源不一致/)
+ expect(screen.getByLabelText('本次修改说明')).toHaveProperty('value','Keep both selected reports')
+ expect(screen.queryByRole('button',{name:'冻结本次交付快照'})).toBeNull()
+ if(phase==='freeze'){
+  fireEvent.click(screen.getByRole('button',{name:'核对所选成员与缺口'}))
+  expect(await screen.findByRole('button',{name:'冻结本次交付快照'})).toHaveProperty('disabled',false)
+  expect(screen.queryByRole('alert')).toBeNull()
+ }
+})
+it('discards a previously successful preview when the same draft no longer passes verification',async()=>{
+ const fallback=mockApi()
+ let checks=0
+ vi.stubGlobal('fetch',vi.fn(async(url:string,init?:RequestInit)=>{
+  if(init?.method==='POST'&&url.endsWith('/snapshots/preview')&&++checks===2){
+   return Response.json({detail:{code:'delivery_member_file_changed',params:{file:'plot.png'}}},{status:409})
+  }
+  return fallback(url,init)
+ }))
+ render(<DeliveryPackagePanel {...props} snapshotId="s1"/>)
+ fireEvent.click(await screen.findByRole('button',{name:'从此快照派生新版本'}))
+ fireEvent.change(screen.getByLabelText('本次修改说明'),{target:{value:'Keep the original draft'}})
+ fireEvent.click(screen.getByRole('button',{name:'核对所选成员与缺口'}))
+ await screen.findByRole('button',{name:'冻结本次交付快照'})
+ fireEvent.click(screen.getByRole('button',{name:'核对所选成员与缺口'}))
+ expect((await screen.findByRole('alert')).textContent).toContain('plot.png')
+ expect(screen.queryByRole('button',{name:'冻结本次交付快照'})).toBeNull()
+ expect(screen.getByLabelText('本次修改说明')).toHaveProperty('value','Keep the original draft')
+})
+it('keeps the analyst draft and disables freeze when the latest customer requirement changes',async()=>{
+ const fetcher=mockApi()
+ const view=render(<DeliveryPackagePanel {...props} snapshotId="s1" analysisOnly requiredVersionId="r1"/>)
+ fireEvent.click(await screen.findByRole('button',{name:'沿用这次交付进行修订'}))
+ fireEvent.click(screen.getByRole('button',{name:'下一步：冻结快照'}))
+ fireEvent.change(screen.getByLabelText('本次修改说明'),{target:{value:'Retain selected files and note'}})
+ fireEvent.click(screen.getByRole('button',{name:'核对所选成员与缺口'}))
+ await screen.findByRole('button',{name:'冻结本次交付快照'})
+ view.rerender(<DeliveryPackagePanel {...props} snapshotId="s1" analysisOnly requiredVersionId="r2"/>)
+ expect(screen.queryByRole('button',{name:'冻结本次交付快照'})).toBeNull()
+ expect(screen.getByRole('button',{name:'核对所选成员与缺口'})).toHaveProperty('disabled',true)
+ expect(screen.getByLabelText('本次修改说明')).toHaveProperty('value','Retain selected files and note')
+ expect(fetcher.mock.calls.filter(([u,i])=>u.endsWith('/snapshots')&&i?.method==='POST')).toHaveLength(0)
+})
 it('records an explicit current-user acceptance bound to the historical SHA without packaging or assuming customer login',async()=>{
  const fetcher=mockApi();render(<DeliveryPackagePanel {...props} snapshotId="s1"/>);await screen.findByRole('button',{name:'从此快照派生新版本'});fireEvent.click(screen.getByRole('button',{name:'封包与接受'}));fireEvent.click(screen.getByRole('button',{name:'追加接受或纠正记录'}));const form=screen.getByRole('group',{name:'追加接受或纠正记录'})
  fireEvent.change(within(form).getByLabelText('明确接受范围'),{target:{value:'Engineering scope only'}});fireEvent.change(within(form).getByLabelText('接受或纠正意见'),{target:{value:'Fixture check'}});fireEvent.click(within(form).getByRole('button',{name:'追加本次记录'}))

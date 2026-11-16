@@ -218,12 +218,12 @@ def allowed_recovery_actions(db, task):
         except (StorageError,KeyError,ValueError,TypeError,OSError):
             return []
     if task['task_type'] == 'reader_report_narrative' and task.get('reason_code') != 'observation_expired':
+        from app.domain.reader_reports.contracts import RETRYABLE_FAILURES
+
         if task['status'] == 'waiting_confirmation' and task.get('reason_code') in ('budget_exceeded', 'confirmation_required'):
             wait = get_open_wait(db, task)
             return ['resume'] if wait and wait['task_revision'] == task['revision'] else []
-        if task['status'] == 'failed' and task.get('error_code') in (
-            'storage_unavailable', 'task_worker_interrupted', 'model_provider_unavailable',
-        ):
+        if task['status'] == 'failed' and task.get('error_code') in RETRYABLE_FAILURES:
             return ['retry']
         return []
     if task['task_type']=='school_rule_suggestion' and task.get('reason_code')!='observation_expired':

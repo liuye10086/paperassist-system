@@ -19,6 +19,7 @@ export type Member={id:string;key:string;role:string;format:string;sha256:string
 export type FigureConfig={root_id?:string|null;expected_revision:number;mode:'reuse'|'composite';panels:{source:Source;member_key:string|null;label:string;note:string}[];title:string;caption:string;caption_fact_ids:string[];caption_sources:Source[];language:'zh-CN'|'en';figure_language:'zh-CN'|'en'|'original'|'unknown';width_mm:number;dpi:150|300|600;columns:number;background:string;margin_mm:number;font_size_pt:number;formats:('png'|'tiff'|'svg')[]}
 export type Figure={id:string;root_id:string;revision:number;parent_id:string|null;config:FigureConfig;task:ResearchTask;task_id:string;members:Member[];manifest:Record<string,unknown>|null}
 export type ReportRequest={title:string;finding_version_id:string;figure_version_ids:string[];language:'zh-CN'|'en';root_id:string|null;expected_revision:number}
+export type FrozenReportRequest=ReportRequest&{schema_version:1;reader_narrative_id:null}
 export type ReportDisclosureFact={
  label?:string;locator?:Locator;measure?:Locator|string;raw_value?:unknown;value?:unknown;unit?:string;
  observation_level?:string;comparison?:string;verification_status?:string;verification?:string;origin?:string;

@@ -141,7 +141,7 @@ def _execute(repository, lease, provider):
     try:
         try:
             if call and call['provider_response_id']:
-                output = gateway.refresh(call['id'])
+                output = gateway.refresh(call['id'], accept_terminal_failure=True)
             else:
                 with repository.connection() as db:
                     repository.require_lease(db, lease)
@@ -214,8 +214,18 @@ def retry_in_transaction(store, db, task, expected_revision, *, assets=None):
     if row['result_json'] is not None or _unknown(call):
         raise source_conflict()
     if task.get('reason_code') == 'observation_expired':
-        from app.domain.model_usage.observation import continue_original
-        return continue_original(store, db, task, get_open_wait(db, task))
+        from app.domain.tasks.resume import TaskResumeService
+        wait = get_open_wait(db, task)
+        if wait is None:
+            raise StorageError('task_revision_conflict', '解读任务的待办已变化，请重新读取。', 409)
+        # The common resume transaction records the decision required by the one-GET grant.
+        return TaskResumeService(store.user_id, store.config).resume(
+            task['id'], dict(operation='resume', wait_id=wait['id'], expected_task_revision=expected_revision,
+                             input_version=version),
+            idempotency_key=f"reader-report-observation:{wait['id']}", transaction=db,
+        )
+    if not call or not call['provider_response_id']:
+        service.require_no_replacement(db, row, has_reservation=bool(call and call['status'] == 'reserved'))
     _checkpoint(db, task)
     task.update(status='queued', revision=expected_revision+1, reason_code='retry_requested', error_code=None,
                 updated_at=max(now(), task['updated_at']), _retry_reason='manual_retry')

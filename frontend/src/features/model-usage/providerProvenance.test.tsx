@@ -12,6 +12,23 @@ afterEach(() => { cleanup(); clearApiSession(); vi.unstubAllGlobals() })
 for (const scope of ['project', 'task']) {
   const mount = () => render(scope === 'project' ? <ProjectModelUsage projectId="p1" /> : <TaskModelUsage taskId="t1" />)
 
+  test(`${scope} shows reader report interpretation receipts with their synthetic usage`, async () => {
+    const readerCall = { ...reconciliationCall, id: 'reader-call', task_type: 'reader_report_narrative',
+      model: 'reader-model', provider_provenance: 'synthetic_fixture',
+      reconciliation: { status: 'pending', token_micro_usd: null, tool_micro_usd: null, tool_applicable: false,
+        actual_micro_usd: null, reconciled_at: null } }
+    const items = scope === 'project' ? [readerCall, reconciliationCall] : [readerCall]
+    vi.stubGlobal('fetch', vi.fn(async () => Response.json({ ...reconciliationFixture, total: items.length, items })))
+    mount()
+    const row = (await screen.findByText('reader-model')).closest('tr')!
+    expect(within(row).getByText('离线模拟回执')).toBeTruthy()
+    if (scope === 'project') {
+      expect(within(row).getByText('研究报告详细解读')).toBeTruthy()
+      expect(screen.getByText('partial-model')).toBeTruthy()
+    }
+    expect(screen.queryByRole('alert')).toBeNull()
+  })
+
   test(`${scope} labels synthetic amounts as offline demo usage and never as actual charges`, async () => {
     vi.stubGlobal('fetch', vi.fn(async () => Response.json({ ...reconciliationFixture,
       items: [{ ...reconciliationCall, provider_provenance: 'synthetic_fixture' }] })))

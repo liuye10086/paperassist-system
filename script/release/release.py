@@ -26,6 +26,13 @@ RENDERER = 'sha256:8b341880cc1533d0a301e7c9ec60493aba67f1464e1efc00820db9044b15b
 # The legacy renderer identity and all locked fonts support Word field layout.
 # Do not drop this preflight/startup dependency when retiring PDF generation.
 FONTS = 'arial.ttf arialbd.ttf arialbi.ttf ariali.ttf simsun.ttc calibri.ttf calibrib.ttf calibrii.ttf calibriz.ttf calibril.ttf calibrili.ttf msyh.ttc msyhbd.ttc msyhl.ttc cambria.ttc simhei.ttf times.ttf timesbd.ttf timesbi.ttf timesi.ttf'.split()
+IMAGE_ID = re.compile(r'sha256:[0-9a-f]{64}')
+RENDERER_TEMPLATE = '  renderer:\n    image: ${RELEASE_RENDERER_IMAGE}\n'
+RENDERER_FILES = {
+    'renderer.py': 'infra/pdf/renderer.py',
+    'update_fields.py': 'infra/pdf/update_fields.py',
+    'renderer-lock.json': 'backend/app/adapters/pdf_renderer_lock.json',
+}
 
 
 def utc(): return datetime.now(timezone.utc).isoformat()
@@ -90,9 +97,20 @@ def candidate_compose(value):
     directory=Path(value['receipt']).parent
     manifest=directory/'source-manifest.json'; path=directory/'context/compose.release.yml'
     if sha(manifest)!=value['source_manifest_sha256']: raise ValueError('Compose manifest binding differs')
-    entries=[entry for entry in read(manifest) if entry['path']=='compose.release.yml']
+    manifest_entries=read(manifest)
+    entries=[entry for entry in manifest_entries if entry['path']=='compose.release.yml']
     if len(entries)!=1 or not path.is_file() or sha(path)!=entries[0]['sha256'] or path.stat().st_size!=entries[0]['bytes']:
         raise ValueError('Candidate Compose snapshot differs')
+    input_entries=[entry for entry in manifest_entries if entry['path']=='input-images.json']
+    if input_entries:
+        inputs=directory/'context/input-images.json'
+        if len(input_entries)!=1 or not inputs.is_file() or sha(inputs)!=input_entries[0]['sha256'] or inputs.stat().st_size!=input_entries[0]['bytes']:
+            raise ValueError('Candidate input image snapshot differs')
+        images=read(inputs)
+        if (set(images)!={'base','postgres','broker','renderer'} or not all(IMAGE_ID.fullmatch(image) for image in images.values())
+                or images!=value.get('preflight',{}).get('images')
+                or RENDERER_TEMPLATE.replace('${RELEASE_RENDERER_IMAGE}',images['renderer']) not in path.read_text(encoding='utf-8')):
+            raise ValueError('Candidate input image binding differs')
     return path
 
 
@@ -112,9 +130,14 @@ def load(namespace, *, verify_resources=True):
 def save(state): atomic(Path(state['directory'])/'state.json',state)
 
 
+def require_complete_restore(state):
+    if state.get('restore_pending'):
+        raise ValueError('Incomplete restore requires a verified backup and a fresh namespace')
+
+
 def named_resources(project, *, fresh=False):
     result={}
-    for kind,suffixes in [('volume',['database','broker']),('network',['private','front'])]:
+    for kind,suffixes in [('volume',['database','broker','research-staging']),('network',['private','front'])]:
         names=set(docker([kind,'ls','--format','{{.Name}}']).splitlines())
         for suffix in suffixes:
             name=project+'_'+suffix
@@ -190,7 +213,8 @@ def source_files(root=ROOT):
             if path.is_symlink(): raise ValueError('Candidate cannot contain symlinks')
             if path.is_file() and not any(part.startswith('.env') or part in {'__pycache__','data','backups','private','tests','node_modules','.git'} for part in relative.parts) and path.suffix not in {'.pyc','.pyo','.pem','.key'}:
                 result.append(relative)
-    result.extend(Path(name) for name in ['backend/requirements.txt','backend/alembic.ini','compose.release.yml'] if (root/name).is_file())
+    single_files=['backend/requirements.txt','backend/alembic.ini','compose.release.yml','infra/pdf/renderer.py','infra/pdf/update_fields.py']
+    result.extend(Path(name) for name in single_files if (root/name).is_file())
     return sorted(result)
 
 
@@ -216,7 +240,7 @@ def validate_files(root, entries):
 
 def candidate(path):
     path=Path(path).resolve(); value=read(path)
-    if not re.fullmatch('sha256:[0-9a-f]{64}',value.get('image','')): raise ValueError('Candidate requires immutable full image ID')
+    if not IMAGE_ID.fullmatch(value.get('image','')): raise ValueError('Candidate requires immutable full image ID')
     if sha(path.parent/'source-manifest.json')!=value.get('source_manifest_sha256'): raise ValueError('Candidate manifest mismatch')
     inspected=json.loads(docker(['image','inspect',value['image'],'--format','{"Id":{{json .Id}},"Labels":{{json .Config.Labels}}}']))
     if inspected['Id']!=value['image']: raise ValueError('Candidate image missing')
@@ -226,30 +250,77 @@ def candidate(path):
     return value
 
 
-def preflight(fonts):
+def preflight(fonts, *, base_image=BASE, renderer_image=RENDERER):
+    if not IMAGE_ID.fullmatch(base_image) or not IMAGE_ID.fullmatch(renderer_image):
+        raise ValueError('Base and renderer each require an immutable full image ID')
     system=json.loads(docker(['info','--format','{{json .}}'],timeout=20))
     if system['OSType']!='linux' or system['NCPU']<4 or system['MemTotal']<7*1024**3: raise ValueError('Linux Docker requires at least 4 CPU / 7 GiB for this bounded stack')
-    images={name:docker(['image','inspect',ref,'--format','{{.Id}}'],timeout=15).strip() for name,ref in [('base',BASE),('postgres',POSTGRES),('broker',BROKER),('renderer',RENDERER)]}
+    refs={'base':base_image,'postgres':POSTGRES,'broker':BROKER,'renderer':renderer_image}
+    images={name:docker(['image','inspect',ref,'--format','{{.Id}}'],timeout=15).strip() for name,ref in refs.items()}
+    if images['base']!=base_image or images['renderer']!=renderer_image: raise ValueError('Local image identity differs')
+    renderer_config=json.loads(docker(['image','inspect',renderer_image,'--format',
+        '{"Entrypoint":{{json .Config.Entrypoint}},"Cmd":{{json .Config.Cmd}},'
+        '"WorkingDir":{{json .Config.WorkingDir}},"User":{{json .Config.User}}}'],timeout=15))
+    if (renderer_config['Entrypoint'] not in (None,[]) or renderer_config['Cmd']!=['python','/app/renderer.py']
+            or renderer_config['WorkingDir']!='/app' or renderer_config['User'] not in ('renderer','10002','10002:10002')):
+        raise ValueError('Renderer service configuration differs')
+    fonts=fonts.resolve()
     missing=[name for name in FONTS if not (fonts/name).is_file()]
     if missing or not (ROOT/'frontend/dist/index.html').is_file(): raise ValueError('Local frontend dist or required fonts missing')
-    checked=docker(['run','--pull=never','--network=none','--name','pa-release-requirements-'+uuid4().hex[:12],
-                    '--workdir','/releaseapp','--mount',f'type=bind,source={ROOT / "backend/requirements.txt"},target=/releaseapp/requirements.txt,readonly',
+    base_probe='''import os, runpy, sys
+print(f'{os.getuid()}:{os.getgid()}')
+sys.argv = ['release_entry.py', 'requirements']
+runpy.run_path(sys.argv[0], run_name='__main__')
+'''
+    checked=docker(['run','--rm','--pull=never','--network=none','--name','pa-release-requirements-'+uuid4().hex[:12],
+                    '--user','paperassist','--workdir','/releaseapp',
+                    '--mount',f'type=bind,source={ROOT / "backend/requirements.txt"},target=/releaseapp/requirements.txt,readonly',
                     '--mount',f'type=bind,source={ROOT / "infra/api/release_entry.py"},target=/releaseapp/release_entry.py,readonly',
-                    BASE,'python','release_entry.py','requirements'],timeout=30)
-    return dict(at=utc(),images=images,cpus=system['NCPU'],memory_bytes=system['MemTotal'],font_count=len(FONTS),requirements=json.loads(checked),network_calls=0)
+                    base_image,'python','-c',base_probe],timeout=30)
+    base_user,_,requirements=checked.partition('\n')
+    if base_user!='10001:10001': raise ValueError('Base paperassist UID and GID differ')
+    renderer_sources={name:sha(ROOT/relative) for name,relative in RENDERER_FILES.items()}
+    mounts=[argument for name in FONTS for argument in ('--mount',
+            f'type=bind,source={fonts/name},target=/usr/local/share/fonts/paperassist/{name},readonly')]
+    probe='''import hashlib, json, os, sys
+from pathlib import Path
+
+if os.getuid() != 10002 or os.getgid() == 0:
+    raise SystemExit('Renderer process identity differs')
+
+for name, digest in json.loads(sys.argv[1]).items():
+    if hashlib.sha256(Path(name).read_bytes()).hexdigest() != digest:
+        raise SystemExit('Renderer source differs')
+
+import renderer
+print(renderer.verify_environment()['contract_version'])
+'''
+    renderer_contract=docker(['run','--rm','--pull=never','--network=none','--read-only','--cap-drop','ALL',
+                              '--security-opt','no-new-privileges','--tmpfs','/tmp:size=512m,mode=1777',
+                              *mounts,renderer_image,'python','-c',probe,json.dumps(renderer_sources)],timeout=30).strip()
+    if renderer_contract!=read(ROOT/RENDERER_FILES['renderer-lock.json'])['contract_version']:
+        raise ValueError('Renderer runtime contract differs')
+    return dict(at=utc(),images=images,cpus=system['NCPU'],memory_bytes=system['MemTotal'],font_count=len(FONTS),
+                requirements=json.loads(requirements),base_user=base_user,
+                renderer=dict(contract=renderer_contract,source_sha256=renderer_sources),network_calls=0)
 
 
-def build(fonts):
-    receipt=preflight(fonts)
+def build(fonts, *, base_image=BASE, renderer_image=RENDERER):
+    receipt=preflight(fonts,base_image=base_image,renderer_image=renderer_image)
     directory=RUNTIME/'candidates'/uuid4().hex; context=directory/'context'; context.mkdir(parents=True)
-    entries=[]
     for relative in source_files():
         source=ROOT/relative; target=context/relative; target.parent.mkdir(parents=True,exist_ok=True); shutil.copyfile(source,target)
-        entries.append(dict(path=relative.as_posix(),bytes=target.stat().st_size,sha256=sha(target)))
-    atomic(directory/'source-manifest.json',entries); shutil.copyfile(directory/'source-manifest.json',context/'source-manifest.json')
+    if {name:sha(context/relative) for name,relative in RENDERER_FILES.items()}!=receipt['renderer']['source_sha256']:
+        raise ValueError('Renderer source changed during preflight')
+    frozen_compose=context/'compose.release.yml'
+    template=frozen_compose.read_text(encoding='utf-8')
+    if template.count(RENDERER_TEMPLATE)!=1: raise ValueError('Renderer image template differs')
+    frozen_compose.write_text(template.replace(RENDERER_TEMPLATE,RENDERER_TEMPLATE.replace('${RELEASE_RENDERER_IMAGE}',renderer_image)),encoding='utf-8',newline='\n')
+    atomic(context/'input-images.json',receipt['images'])
+    atomic(directory/'source-manifest.json',file_manifest(context)); shutil.copyfile(directory/'source-manifest.json',context/'source-manifest.json')
     tag='paperassist-release:'+directory.name
-    base_tag='paperassist-offline-base:'+BASE.split(':')[1]
-    docker(['tag',BASE,base_tag])
+    base_tag='paperassist-offline-base:'+base_image.split(':')[1]
+    docker(['tag',base_image,base_tag])
     builder=docker(['context','show']).strip()
     description=docker(['buildx','inspect',builder])
     if not re.search(r'^Driver:\s+docker\s*$',description,re.M): raise ValueError('Offline build requires the current context Docker driver')
@@ -270,7 +341,7 @@ def maintenance(state, mode):
     atomic(path,dict(expected,mode=mode,updated_at=utc(),retry_after_seconds=30))
 
 
-def create(namespace,candidate_path,port,fonts):
+def create(namespace,candidate_path,port,fonts,*,restore_pending=False):
     if not 1024<=port<=65535: raise ValueError('Explicit unprivileged HTTPS port required')
     value=candidate(candidate_path); validate_namespace(namespace)
     project='pa-release-'+namespace
@@ -280,6 +351,7 @@ def create(namespace,candidate_path,port,fonts):
     directory=new_directory(namespace)
     for name in ['private','tls','control','assets','backups']: (directory/name).mkdir()
     state=dict(namespace=namespace,project=project,directory=str(directory),root=str(ROOT),candidate=value,port=port,fonts=str(fonts.resolve()),initialized=False,created_at=utc())
+    if restore_pending: state['restore_pending']=True
     runtime_password=secrets.token_hex(32); owner_password=secrets.token_hex(32); broker_password=secrets.token_hex(32)
     private_files={'database-url':f'postgresql+psycopg://paperassist_runtime:{runtime_password}@db:5432/paperassist_system',
                    'migration-url':f'postgresql+psycopg://paperassist_owner:{owner_password}@db:5432/paperassist_system',
@@ -334,6 +406,7 @@ REVOKE ALL ON SCHEMA public FROM PUBLIC;
 
 
 def initialize(state,revision='head'):
+    require_complete_restore(state)
     bootstrap(state)
     operator(state,'migrate',migration=True,extra=['--revision',revision],timeout=300)
     state['schema_ready']=revision=='head'; state['revision']=revision; save(state)
@@ -341,6 +414,7 @@ def initialize(state,revision='head'):
 
 
 def resume_migration(state,path,revision):
+    require_complete_restore(state)
     if not state.get('initialized') or state.get('schema_ready'): raise ValueError('Resume requires bootstrapped incomplete target')
     if read(Path(state['directory'])/'control/maintenance.json').get('mode')!='maintenance': raise ValueError('Maintenance required')
     require_stopped(state,{'api','worker','dispatcher','collector'})
@@ -352,6 +426,7 @@ def resume_migration(state,path,revision):
 
 
 def up(state):
+    require_complete_restore(state)
     if not state.get('schema_ready'): raise ValueError('Explicit forward migration/check required before service startup')
     operator(state,'check')
     compose(state,['up','-d','--pull','never','--no-build','--wait','--wait-timeout','120','renderer','worker','dispatcher','api'],timeout=150)
@@ -407,22 +482,43 @@ def quiesce(state, timeout=180):
     stop_collector(state)
 
 
+def prepared_research_assets(state, snapshot=None):
+    arguments=['run','--rm','--no-deps','-T','--pull','never']
+    if snapshot is not None:
+        volume=state['project']+'_research-staging'
+        if volume in named_resources(state['project']):
+            arguments+=['--volume',volume+':/research-staging:ro']
+        arguments+=['--volume',str(snapshot)+':/backup-assets']
+    arguments+=['collector','python','-B','-', 'capture' if snapshot is not None else 'verify']
+    # Run maintenance against the candidate's application and read-only data
+    # role. Streaming the tool also supports already-frozen candidates.
+    tool=Path(__file__).with_name('backup_research.py').read_text(encoding='utf-8')
+    return json.loads(compose(state,arguments,input_text=tool,timeout=300))
+
+
 def backup(state):
+    require_complete_restore(state)
     quiesce(state)
     directory=Path(state['directory'])/'backups'/uuid4().hex; directory.mkdir()
     before=json.loads(operator(state,'fingerprint'))
     stop_collector(state)
     archive='/backups/'+directory.name+'/database.dump'
     compose(state,['exec','-T','db','pg_dump','-U','postgres','-d','paperassist_system','--format=custom','--no-owner','--no-privileges','--schema=public','--file',archive],timeout=180)
-    shutil.copytree(Path(state['directory'])/'assets',directory/'assets')
+    live_assets=Path(state['directory'])/'assets'; snapshot=directory/'assets'
+    shutil.copytree(live_assets,snapshot)
+    originals=file_manifest(snapshot)
+    prepared=prepared_research_assets(state,snapshot)
+    assets=sorted([*originals,*prepared],key=lambda entry:entry['path'])
     after=json.loads(operator(state,'fingerprint'))
     stop_collector(state)
     if before!=after: raise ValueError('Database changed across snapshot; retain failed evidence')
-    assets=file_manifest(directory/'assets'); validate_files(Path(state['directory'])/'assets',assets)
+    validate_files(live_assets,originals)
+    validate_files(snapshot,assets)
     shutil.copyfile(Path(state['candidate']['receipt']).parent/'source-manifest.json',directory/'source-manifest.json')
     value=dict(format_version=1,namespace=state['namespace'],database_schema='public',candidate=state['candidate'],
                created_at=utc(),quiescence='api_graceful_stop_tasks_zero_executors_stopped',database_sha256=sha(directory/'database.dump'),
-               source_manifest_sha256=sha(directory/'source-manifest.json'),assets=assets,fingerprint=before,retention='retain_all')
+               source_manifest_sha256=sha(directory/'source-manifest.json'),assets=assets,
+               prepared_research_assets=prepared,fingerprint=before,retention='retain_all')
     atomic(directory/'backup.json',value); atomic(directory/'backup.sha256',sha(directory/'backup.json'))
     return str(directory)
 
@@ -438,7 +534,8 @@ def validate_backup(path, selected):
 
 def restore(namespace,backup_path,candidate_path,port,fonts):
     selected=candidate(candidate_path); source=Path(backup_path).resolve(); receipt=validate_backup(source,selected)
-    state=create(namespace,candidate_path,port,fonts); bootstrap(state)
+    state=create(namespace,candidate_path,port,fonts,restore_pending=True)
+    bootstrap(state)
     directory=Path(state['directory']); retained=directory/'backups'/'restore-input'; shutil.copytree(source,retained)
     # New target has only its empty public schema. Exclude its CREATE/COMMENT TOC records.
     archive='/backups/restore-input/database.dump'
@@ -455,12 +552,16 @@ def restore(namespace,backup_path,candidate_path,port,fonts):
     observed=json.loads(operator(state,'fingerprint'))
     if observed!=receipt['fingerprint']: raise ValueError('Restored database fingerprint differs')
     validate_files(directory/'assets',receipt['assets'])
+    prepared_research_assets(state)
+    atomic(directory/'restore-receipt.json',dict(at=utc(),source_backup=str(source),source_namespace=receipt['namespace'],
+        target_namespace=namespace,database_and_assets_verified=True,prepared_research_verified=True,candidate_image=selected['image']))
+    state.pop('restore_pending')
     state['schema_ready']=True; state['revision']='head'; save(state)
-    atomic(directory/'restore-receipt.json',dict(at=utc(),source_backup=str(source),source_namespace=receipt['namespace'],target_namespace=namespace,database_and_assets_verified=True,candidate_image=selected['image']))
     return state
 
 
 def switch(state,path):
+    require_complete_restore(state)
     mode=read(Path(state['directory'])/'control/maintenance.json')
     if mode.get('mode')!='maintenance': raise ValueError('Explicit maintenance window required for candidate switch')
     selected=candidate(path)
@@ -478,11 +579,16 @@ def main():
     parser.add_argument('action',choices=['preflight','build','create','init','resume-migration','up','status','sample','watch','maintenance','backup','restore','switch','stop'])
     parser.add_argument('--namespace'); parser.add_argument('--candidate'); parser.add_argument('--backup')
     parser.add_argument('--port',type=int); parser.add_argument('--fonts',type=Path,default=Path('C:/Windows/Fonts'))
+    parser.add_argument('--base-image'); parser.add_argument('--renderer-image')
     parser.add_argument('--mode',choices=['normal','maintenance']); parser.add_argument('--revision',choices=['head','0052_admin_configurations'],default='head')
     args=parser.parse_args()
     try:
-        if args.action=='preflight': result=preflight(args.fonts)
-        elif args.action=='build': result=build(args.fonts)
+        if args.action in ('preflight','build'):
+            action=preflight if args.action=='preflight' else build
+            result=action(args.fonts,base_image=args.base_image if args.base_image is not None else BASE,
+                          renderer_image=args.renderer_image if args.renderer_image is not None else RENDERER)
+        elif args.base_image is not None or args.renderer_image is not None:
+            raise ValueError('Image selection is only available for preflight and build')
         elif args.action in ('create','restore'):
             if not args.namespace or not args.candidate or args.port is None: raise ValueError('namespace, candidate and port required')
             if args.action=='restore':

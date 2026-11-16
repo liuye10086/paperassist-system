@@ -98,6 +98,68 @@ class ReleaseTests(unittest.TestCase):
             with patch.object(self.release,'docker',return_value=json.dumps({'Id':value['image'],'Labels':{'io.paperassist.source-manifest':'wrong'}})):
                 with self.assertRaisesRegex(ValueError,'manifest'): self.release.candidate(root/'candidate.json')
 
+    def test_candidate_rejects_input_image_provenance_different_from_frozen_compose(self):
+        r = self.release
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            context = root / 'context'
+            context.mkdir()
+            renderer = 'sha256:' + 'b' * 64
+            images = {'base': r.BASE, 'renderer': renderer, 'postgres': r.BASE, 'broker': r.BASE}
+            (context / 'compose.release.yml').write_text(f'services:\n  renderer:\n    image: {renderer}\n')
+            r.atomic(context / 'input-images.json', images)
+            r.atomic(root / 'source-manifest.json', r.file_manifest(context))
+            value = {'receipt': str(root / 'candidate.json'), 'source_manifest_sha256': r.sha(root / 'source-manifest.json'),
+                     'preflight': {'images': images}}
+            self.assertEqual(r.candidate_compose(value), context / 'compose.release.yml')
+            value['preflight'] = {'images': {**images, 'renderer': r.RENDERER}}
+            with self.assertRaisesRegex(ValueError, 'input image'):
+                r.candidate_compose(value)
+
+    def test_preflight_rejects_tag_overrides_before_inspecting_docker(self):
+        with patch.object(self.release, 'docker', side_effect=AssertionError('Docker must not see mutable overrides')):
+            with self.assertRaisesRegex(ValueError, 'immutable full image ID'):
+                self.release.preflight(Path('.'), renderer_image='renderer:local')
+
+    def test_preflight_rejects_renderer_with_incompatible_default_service_configuration(self):
+        r = self.release
+        config = {'Entrypoint': None, 'Cmd': ['python', '/app/renderer.py'], 'WorkingDir': '/app', 'User': 'renderer'}
+        for key, unsuitable in [('Entrypoint', ['/bin/sh']), ('Cmd', ['false']), ('WorkingDir', '/tmp'), ('User', 'root')]:
+            def docker(args, **kwargs):
+                if args[0] == 'info':
+                    return json.dumps({'OSType': 'linux', 'NCPU': 4, 'MemTotal': 8 * 1024 ** 3})
+                if args[:2] == ['image', 'inspect']:
+                    if args[-1] == '{{.Id}}':
+                        return args[2].split('@')[-1]
+                    return json.dumps({**config, key: unsuitable})
+                raise AssertionError('An incompatible image must be rejected before runtime probes')
+
+            with self.subTest(key=key), patch.object(r, 'docker', side_effect=docker):
+                with self.assertRaisesRegex(ValueError, 'Renderer service configuration'):
+                    r.preflight(Path('.'))
+
+    def test_preflight_rejects_base_with_incompatible_paperassist_identity(self):
+        r = self.release
+
+        def docker(args, **kwargs):
+            if args[0] == 'info':
+                return json.dumps({'OSType': 'linux', 'NCPU': 4, 'MemTotal': 8 * 1024 ** 3})
+            if args[:2] == ['image', 'inspect']:
+                if args[-1] == '{{.Id}}':
+                    return args[2].split('@')[-1]
+                return json.dumps({'Entrypoint': None, 'Cmd': ['python', '/app/renderer.py'], 'WorkingDir': '/app', 'User': 'renderer'})
+            if r.BASE in args:
+                return '10002:10002\n{"requirements":"exact-match"}'
+            raise AssertionError('An incompatible base must be rejected before the renderer probe')
+
+        with tempfile.TemporaryDirectory() as tmp, patch.object(r, 'docker', side_effect=docker), patch.object(r, 'FONTS', []):
+            root = Path(tmp)
+            index = root / 'frontend/dist/index.html'
+            index.parent.mkdir(parents=True)
+            index.touch()
+            with patch.object(r, 'ROOT', root), self.assertRaisesRegex(ValueError, 'paperassist UID and GID'):
+                r.preflight(root)
+
     def test_source_manifest_includes_operator_and_compose_contract(self):
         if not hasattr(self, 'release'): self.skipTest('operator missing')
         names=[p.as_posix() for p in self.release.source_files(ROOT)]

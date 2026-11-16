@@ -1,19 +1,18 @@
-import {useLayoutEffect,useState,type ReactNode} from 'react'
+import {useLayoutEffect,useRef,useState,type ReactNode} from 'react'
 import {translateForLocale,useI18n} from '../../shared/i18n'
 import ProjectDownloadLink from '../../shared/components/ProjectDownloadLink'
 import type {NativeDeliveryTarget} from '../analyst/NativeDeliveryArtifact'
 import {projectBase,RESEARCH_LOADING_MESSAGE,RESEARCH_TIMEOUT_MS,useResearchRead} from '../research-results/api'
-import type {Page,Report} from '../research-results/contracts'
+import type {Report,ReportRequest} from '../research-results/contracts'
 import {NarrativePreparation} from '../research-results/ResearchReportNarrative'
 import {Members,OperationStatus,Paging,TaskStatus} from '../research-results/ResearchShared'
-import useResearchCompletion from '../research-results/useResearchCompletion'
 import useResearchDraft from '../research-results/useResearchDraft'
 import useResearchOperation from '../research-results/useResearchOperation'
 import {useReportNarrative,type NarrativeBinding} from '../research-results/useReportNarrative'
 import {bioReportLink,bioReportTaskLink,type ReportLocation} from './navigation'
 import {
  bioReportsBase,matchesRequest,reportIdentityError,validContext,type BioReportContext,type BioReportExport,
- type BioReportRequest,type BulkSelection,type FigureChoice,type NativeSelection,type ReportLanguage,
+ type BioReportExportPage,type BioReportRequest,type BulkSelection,type FigureChoice,type NativeSelection,type ReportLanguage,
 } from './contracts'
 
 type Common={projectId:string;active?:boolean;title:string;location?:ReportLocation;deliveryTarget?:NativeDeliveryTarget}
@@ -145,33 +144,44 @@ function SelectionPanel({projectId,active=true,title,selection,figures=[],initia
 
 export function FixedBioReaderReport({projectId,context,active=true,location,deliveryTarget,recovered,standalone=false}:{
  projectId:string;context:BioReportContext;active?:boolean;location?:ReportLocation;deliveryTarget?:NativeDeliveryTarget;
- recovered?:NarrativeBinding;standalone?:boolean
+ recovered?:NarrativeBinding&{report:ReportRequest};standalone?:boolean
 }){
  const {t,locale}=useI18n(),[page,setPage]=useState(1)
  const base=projectBase(projectId)
  const contextUrl=`${bioReportsBase(projectId)}/${encodeURIComponent(context.id)}`
- const history=useResearchRead<Page<BioReportExport>>(`${contextUrl}/reports?page=${page}`,active,
-  value=>value.items.some(item=>['queued','running'].includes(item.task.status)))
- const scope='bio-reader:'+context.id
+ const history=useResearchRead<BioReportExportPage>(`${contextUrl}/reports?page=${page}`,active,
+  value=>value.export_state==='active'||value.items.some(item=>item.task?.status==='queued'||item.task?.status==='running'))
+ const latestHistory=useRef(history.data)
+ useLayoutEffect(()=>{latestHistory.current=history.data},[history.data])
+ const [historyBeforeExport,setHistoryBeforeExport]=useState<BioReportExportPage|null>(null)
+ const report=recovered?.report??context.report
+ const separateProjection=recovered&&(report.title!==context.report.title||report.root_id!==null)
+ const scope='bio-reader:'+context.id+(separateProjection?':narrative:'+recovered.id:'')
  const [binding,saveBinding]=useResearchDraft<NarrativeBinding|undefined>(projectId,scope+':narrative',()=>undefined)
  const [changedRecovered,setChangedRecovered]=useState(false)
- const report=context.report
- const operation=useResearchOperation<Report>(projectId,'report',scope)
+ const operation=useResearchOperation<Report>(projectId,'report',scope,{onResolved:()=>{
+  // Reconcile a newly accepted request against fresh history before allowing another export.
+  setHistoryBeforeExport(latestHistory.current)
+  history.refresh()
+ }})
  const preparation=useReportNarrative(projectId,scope,active,report,(!changedRecovered&&recovered)||binding,update=>{
   saveBinding(update)
   setChangedRecovered(true)
  })
- useResearchCompletion(operation.value?.id??operation.found?.id,history.refresh)
  const valid=(item:BioReportExport)=>item.task?.project_id===projectId&&item.task.id===item.task_id&&item.task.task_type==='research_report'
  const items=history.data?.items.filter(valid)??[]
- const canGenerate=active&&history.valid&&!history.error&&history.data?.total===0&&!operation.busy&&!operation.unknown&&operation.valid
- const hasReport=!!history.data?.total||!!operation.value||!!operation.found
+ const canCreate=history.data?.export_state==='available'&&history.data.items.length===items.length
+  &&items.every(item=>['failed','cancelled'].includes(item.task.status))
+ const canGenerate=active&&canCreate&&history.valid&&!history.error&&!history.loading&&history.data!==historyBeforeExport
+  &&!operation.busy&&!operation.unknown&&operation.valid
+ const readyNarrative=preparation.read.loading||preparation.read.error?null:preparation.ready
+ const reportUrl=report.root_id?`${base}/research-reports/${encodeURIComponent(report.root_id)}/versions`:base+'/research-reports'
  const reportReturn=bioReportLink(projectId,context.id,location)
  const taskLink=(id:string)=>bioReportTaskLink(projectId,id,reportReturn)
  const navigateReport=(id:string)=>'#'+new URLSearchParams({project:projectId,section:'artifacts',view:'research-reports',artifact:id,
   reportReturn})
  return <section className="research-detail-block" aria-label={t('已固定的报告选材')}>
-  <h4>{context.title}</h4>
+  <h4>{report.title}</h4>
   {!standalone&&<a href={bioReportLink(projectId,context.id,location)}>{t('打开固定报告选材')}</a>}
   {history.error&&<p role="alert">{t(history.error)}</p>}
   {history.loading&&<p role="status">{t(RESEARCH_LOADING_MESSAGE)}</p>}
@@ -199,11 +209,11 @@ export function FixedBioReaderReport({projectId,context,active=true,location,del
    </article>
   })}
   {history.data&&<Paging page={page} total={history.data.total} size={history.data.page_size} onPage={setPage}/>}
-  {!hasReport&&<>
+  {canCreate&&<>
    <NarrativePreparation projectId={projectId} enabled={canGenerate} preparation={preparation} taskLink={taskLink}/>
-   <button type="button" className="button-primary" disabled={!canGenerate||preparation.blocking||!preparation.ready}
-    onClick={()=>{if(canGenerate&&preparation.ready&&!preparation.blocking)
-     void operation.submit(base+'/research-reports',{...report,reader_narrative_id:preparation.ready.id})}}>
+   <button type="button" className="button-primary" disabled={!canGenerate||preparation.blocking||!readyNarrative}
+    onClick={()=>{if(canGenerate&&readyNarrative&&!preparation.blocking)
+     void operation.submit(reportUrl,{...report,reader_narrative_id:readyNarrative.id})}}>
     {t('生成固定报告与成果包')}
    </button>
   </>}

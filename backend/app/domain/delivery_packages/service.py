@@ -75,13 +75,15 @@ class DeliveryService(ResearchResultsStore):
         if assigned:
             latest = latest_confirmed_requirement(db, project)
             if latest is None or latest['id'] != request.requirement_version_id:
-                raise StorageError('research_revision_conflict', '交付需关联客户最新正式需求。', 409)
+                raise StorageError('delivery_requirement_changed', '交付需关联客户最新正式需求。', 409)
         requirement=db.execute('SELECT * FROM research_requirement_versions WHERE id=%s AND project_id=%s',(request.requirement_version_id,project)).fetchone()
         if not requirement or digest(requirement['content_json'])!=requirement['sha256']:raise invalid('research_source_not_found',404)
         if registered['kind'] not in requirement['content_json']['services']:raise invalid()
         parent=db.execute('SELECT * FROM delivery_snapshots WHERE delivery_id=%s ORDER BY revision DESC LIMIT 1',(delivery,)).fetchone()
-        if (parent['revision'] if parent else 0)!=request.expected_revision or (parent['id'] if parent else None)!=request.parent_snapshot_id:raise invalid('research_revision_conflict')
-        if (not parent and request.stage!='first') or (parent and request.stage=='first'):raise invalid('research_revision_conflict')
+        if (parent['revision'] if parent else 0)!=request.expected_revision or (parent['id'] if parent else None)!=request.parent_snapshot_id:
+            raise StorageError('delivery_snapshot_changed', '交付已有新版本，请读取最近的快照。', 409)
+        if (not parent and request.stage!='first') or (parent and request.stage=='first'):
+            raise StorageError('research_revision_conflict', '交付阶段与已有快照不符，请核对当前交付阶段。', 409)
         round_binding=dict(status='not_applicable',reason=request.opinion_round)
         if bool(request.opinion_round_id)!=bool(request.opinion_round_event_id):raise invalid()
         if request.opinion_round_id:

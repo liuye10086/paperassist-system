@@ -9,7 +9,7 @@ import re
 import stat
 
 from app.core.exceptions import StorageError
-from app.domain.bio_insights.bulk_delivery_cache import cache_pool, cache_scope, project_slot_key
+from app.domain.bio_insights.bulk_delivery_cache import BULK_CACHE_KINDS, cache_pool, cache_scope, project_slot_key
 from app.domain.storage_governance import service as ledger
 from app.domain.storage_governance import candidates, historical
 
@@ -18,7 +18,6 @@ _UUID = r'[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}'
 _JOURNAL_NAME = re.compile(rf'({_UUID})(?:\.(allocation|capture|complete))?\.json')
 _STAGING_NAME = re.compile(rf'(.+)\.(?:[0-9a-f]{{32}}|{_UUID})\.part')
 _JOURNAL_SCOPE_FIELDS = ('namespace', 'project_id', 'owner_id', 'object_key', 'operation_key', 'kind', 'task_id')
-_BULK_CACHE_KINDS = ('facts', 'word', 'archive', 'sensitivity')
 
 
 def _blocked(message):
@@ -364,7 +363,7 @@ def collect_account_assets(db, root, user_id, project_ids):
         for project in sorted(owned_projects):
             if re.fullmatch(r'[A-Za-z0-9_-]{1,128}', project):
                 assets.extend(_scoped_files(root, f'bio-reader-narratives/{project}'))
-            for kind in _BULK_CACHE_KINDS:
+            for kind in BULK_CACHE_KINDS:
                 scope = cache_scope(user_id, project, kind)
                 assets.extend(_scoped_files(pool, scope, 'bulk_cache'))
     return assets

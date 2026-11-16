@@ -14,5 +14,7 @@ COPY source-manifest.json ./source-manifest.json
 RUN python release_entry.py requirements
 USER root
 RUN install -d -o paperassist -g paperassist /run/paperassist-execution
+# Docker copies this ownership and mode to a new release's staging volume.
+RUN install -d -m 0700 -o paperassist -g paperassist /research-staging
 USER paperassist
 CMD ["python", "release_web.py"]

@@ -33,7 +33,8 @@ class ResearchReportService(ResearchResultsStore):
             return self._freeze_in_phase(db,project,request,phase=phase,progress=progress,attach_reader=attach_reader)
 
     @phase_guard
-    def _freeze_in_phase(self,db,project,request,*,phase,progress=None,frozen_pdf_id=None,legacy_content=False,attach_reader=True):
+    def _freeze_in_phase(self,db,project,request,*,phase,progress=None,frozen_pdf_id=None,legacy_content=False,
+                         attach_reader=True,legacy_table_schema=False):
         require_phase(phase,db,self.assets,project)
         if progress is not None:progress()
         reader=ResearchSourceReader(self.assets)
@@ -106,7 +107,8 @@ class ResearchReportService(ResearchResultsStore):
         if statistics_material is not None:
             tables,table_raws=statistics_material['tables'],statistics_material['table_raws']
         elif native_material is None:
-            tables,table_raws=_collect_tables_in_phase(reader,db,project,finding['content']['sources'],phase=phase,progress=progress)
+            tables,table_raws=_collect_tables_in_phase(reader,db,project,finding['content']['sources'],phase=phase,progress=progress,
+                                                      legacy_table_schema=legacy_table_schema)
         else:
             tables,table_raws=native_material['tables'],native_material['table_raws']
         pdf=None
@@ -168,13 +170,20 @@ class ResearchReportService(ResearchResultsStore):
                         (project,self.store.user_id,request.finding_version_id)).fetchone()
                     if not fixed:
                         raise narrative_required(request.language)
-                parent=None;revision=1
+                parent=None;revision=1;same_head_request=False
                 if request.root_id:
                     parent=db.execute('SELECT * FROM research_report_versions WHERE root_id=%s AND project_id=%s AND user_id=%s ORDER BY revision DESC LIMIT 1',(request.root_id,project,self.store.user_id)).fetchone()
                     if not parent:raise invalid('research_source_not_found',404)
-                    if parent['revision']!=request.expected_revision:raise invalid('research_revision_conflict')
+                    if parent['revision']!=request.expected_revision:
+                        # A restored native export keeps its original version request.
+                        # Only its own prior attempt may have advanced the head.
+                        same_head_request=parent['revision']>request.expected_revision and parent['request_digest']==sha
+                        if not same_head_request:raise invalid('research_revision_conflict')
                     revision=parent['revision']+1
                 content,bindings,_=self.freeze(db,project,request)
+                if same_head_request:
+                    sources=content['finding']['content']['sources']
+                    if len(sources)!=1 or sources[0]['source_kind']!='bio_report_context':raise invalid('research_revision_conflict')
                 if not request.reader_narrative_id and content.get('reader_report',{}).get('origin')!='saved_explanation_reuse':
                     raise narrative_required(request.language)
                 identifier=identity(project,'report',key);task_id=identity(project,'report-task',key);moment=now()
@@ -191,6 +200,8 @@ class ResearchReportService(ResearchResultsStore):
                     bind_receipt(db,user_id=self.store.user_id,project_id=project,kind='research_report',key=key,request_digest=sha,target_id=reused['id'])
                     identifier=reused['id'];status=200
                 else:
+                    if same_head_request and self.store.require_task(db,parent['task_id'])['status'] not in ('failed','cancelled'):
+                        raise invalid('research_revision_conflict')
                     task=dict(id=task_id,project_id=project,user_id=self.store.user_id,task_type='research_report',idempotency_key='research_report:'+task_id,
                         input_digest=digest(snapshot),input_snapshot=snapshot,workflow_version='research_report_v1',status='queued',phase='export',revision=1,current_attempt=0,reason_code=None,created_at=moment,updated_at=moment)
                     self.store.insert_task(db,task,validated_file_ids=snapshot['source_file_ids'])
@@ -226,15 +237,17 @@ class ResearchReportService(ResearchResultsStore):
     def _require_sources_in_phase(self,db,task,*,phase,progress=None):
         require_phase(phase,db,self.assets,task['project_id'])
         input_version(task);snapshot=task['input_snapshot'];row=self.require(db,'research_report_versions',task['project_id'],snapshot['report_version_id'])
-        from app.domain.statistics_reader_reports.render import frozen_renderer_identity
-        if snapshot.get('renderer_identity')!=frozen_renderer_identity(snapshot.get('renderer_identity',{})):raise invalid()
+        from .report_renderer import frozen_report_renderer,is_legacy_renderer
+        renderer=snapshot.get('renderer_identity');frozen_report_renderer(renderer)
+        legacy_renderer=is_legacy_renderer(renderer)
         if row['task_id']!=task['id'] or digest(row['content_json'])!=row['content_sha256'] or row['content_sha256']!=snapshot['content_sha256']:raise invalid()
         from .contracts import FrozenResearchReportRequest
         request=FrozenResearchReportRequest.model_validate(snapshot['request'])
         policy=snapshot.get('output_policy')
         if policy not in (None,OUTPUT_POLICY) or (policy==OUTPUT_POLICY and request.include_pdf_id is not None):raise invalid()
         content,_,payload=self._freeze_in_phase(db,task['project_id'],request,phase=phase,progress=progress,
-            frozen_pdf_id=request.include_pdf_id,legacy_content=policy is None)
+            frozen_pdf_id=request.include_pdf_id,legacy_content=policy is None,
+            attach_reader=not legacy_renderer,legacy_table_schema=legacy_renderer)
         if content!=row['content_json']:raise invalid()
         return payload
 

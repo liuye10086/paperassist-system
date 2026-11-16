@@ -179,7 +179,8 @@ def test_removes_assigned_upload_receipt_and_keeps_project_original(tmp_path, ro
     assert not (root / journal_key).exists()
 
 
-def test_collect_removes_only_owned_narrative_and_bulk_cache_scopes(tmp_path, monkeypatch, rows):
+@pytest.mark.parametrize('kind', ['word', 'reader-archive'])
+def test_collect_removes_only_owned_narrative_and_bulk_cache_scopes(tmp_path, monkeypatch, rows, kind):
     from app.domain.account_deletion_assets import collect_account_assets, remove_account_assets
     from app.domain.bio_insights import bulk_delivery_cache
 
@@ -187,8 +188,8 @@ def test_collect_removes_only_owned_narrative_and_bulk_cache_scopes(tmp_path, mo
     monkeypatch.setattr(bulk_delivery_cache.tempfile, 'gettempdir', lambda: str(tmp_path / 'temp'))
     owner = SimpleNamespace(directory=root, owner_id='account', db_config=rows.config)
     other = SimpleNamespace(directory=root, owner_id='other-account', db_config=rows.config)
-    own_cache = bulk_delivery_cache.cache_for(owner, 'owned', 'word')
-    other_cache = bulk_delivery_cache.cache_for(other, 'other', 'word')
+    own_cache = bulk_delivery_cache.cache_for(owner, 'owned', kind)
+    other_cache = bulk_delivery_cache.cache_for(other, 'other', kind)
     asset(own_cache.root, 'generation/payload', b'owner cache')
     asset(other_cache.root, 'generation/payload', b'other cache')
     asset(root, 'bio-reader-narratives/owned/result/en.json', b'owned narrative')

@@ -25,7 +25,8 @@ def test_snapshot_revision_gap_replay_acceptance_and_retention(client):
     first=first.json();assert first['completeness']=='missing_required' and first['gaps']==['required_format:pdf']
     assert client.post(path+'/snapshots',json=body,headers={'Idempotency-Key':'freeze-first'}).json()['id']==first['id']
     assert client.post(path+'/snapshots',json=dict(body,change_note='changed'),headers={'Idempotency-Key':'freeze-first'}).status_code==409
-    assert client.post(path+'/snapshots',json=body,headers={'Idempotency-Key':'stale'}).status_code==409
+    stale=client.post(path+'/snapshots',json=body,headers={'Idempotency-Key':'stale'})
+    assert stale.status_code==409 and stale.json()['detail']['code']=='delivery_snapshot_changed'
     second=dict(body,stage='revision',expected_revision=1,parent_snapshot_id=first['id'],change_note='Keep explicit PDF gap')
     two=client.post(path+'/snapshots',json=second,headers={'Idempotency-Key':'freeze-second'});assert two.status_code==201,two.text
     final=dict(second,stage='final',expected_revision=2,parent_snapshot_id=two.json()['id'])

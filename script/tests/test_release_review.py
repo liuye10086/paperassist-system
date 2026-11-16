@@ -77,6 +77,65 @@ class ReviewTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError,'gracefully'): release.backup({})
             counts.assert_not_called()
 
+    def test_backup_includes_prepared_research_bytes_without_changing_originals(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root=Path(temporary)
+            (root/'backups').mkdir()
+            (root/'assets').mkdir()
+            (root/'assets'/'saved').write_bytes(b'published')
+            (root/'source-manifest.json').write_text('[]', encoding='utf-8')
+            state={'directory':str(root),'namespace':'source','candidate':{'receipt':str(root/'candidate.json'),
+                'source_manifest_sha256':release.sha(root/'source-manifest.json')}}
+
+            def dump(_state,args,**kwargs):
+                (root/args[-1].lstrip('/')).write_bytes(b'database')
+
+            def capture(_state,asset_copy):
+                (asset_copy/'prepared').write_bytes(b'staged')
+                return [entry for entry in release.file_manifest(asset_copy) if entry['path']=='prepared']
+
+            with patch.object(release,'quiesce'),patch.object(release,'operator',return_value='{}'), \
+                    patch.object(release,'stop_collector'),patch.object(release,'compose',side_effect=dump), \
+                    patch.object(release,'prepared_research_assets',side_effect=capture,create=True):
+                snapshot=Path(release.backup(state))
+            self.assertEqual((snapshot/'assets'/'prepared').read_bytes(),b'staged')
+            self.assertEqual({item['path'] for item in release.read(snapshot/'backup.json')['assets']},{'saved','prepared'})
+            self.assertEqual(list((root/'assets').iterdir()),[root/'assets'/'saved'])
+
+    def test_restore_rejects_missing_prepared_research_bytes_before_ready(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root=Path(temporary)
+            source=root/'source'
+            (source/'assets').mkdir(parents=True)
+            target=root/'target'
+            (target/'backups').mkdir(parents=True)
+            state={'directory':str(target)}
+            selected={'image':'candidate-image'}
+            receipt={'namespace':'source','fingerprint':{},'assets':[]}
+            def create_target(*args,restore_pending=False):
+                if restore_pending: state['restore_pending']=True
+                release.save(state)
+                return state
+
+            with patch.object(release,'candidate',return_value=selected), \
+                    patch.object(release,'validate_backup',return_value=receipt), \
+                    patch.object(release,'create',side_effect=create_target),patch.object(release,'bootstrap'), \
+                    patch.object(release,'compose',return_value=''),patch.object(release,'operator',return_value='{}'), \
+                    patch.object(release,'prepared_research_assets',side_effect=ValueError('missing prepared leaf'),create=True):
+                with self.assertRaisesRegex(ValueError,'missing prepared leaf'):
+                    release.restore('target',source,'candidate',18443,Path('.'))
+            self.assertNotIn('schema_ready',state)
+            self.assertTrue(release.read(target/'state.json')['restore_pending'])
+            self.assertFalse((target/'restore-receipt.json').exists())
+
+    def test_unverified_restore_cannot_be_marked_ready_via_migration_or_switch(self):
+        state={'restore_pending':True,'initialized':True,'schema_ready':False}
+        actions=[(release.initialize,()),(release.resume_migration,('candidate','head')),
+                 (release.switch,('candidate',)),(release.up,()),(release.backup,())]
+        for action,args in actions:
+            with self.subTest(action=action.__name__),self.assertRaisesRegex(ValueError,'Incomplete restore'):
+                action(state,*args)
+
     def test_compose_tmpfs_single_complete_mount(self):
         import yaml
         config=yaml.safe_load((ROOT/'compose.release.yml').read_text())

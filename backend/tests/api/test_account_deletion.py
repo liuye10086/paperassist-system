@@ -74,6 +74,53 @@ def test_delete_owned_project_files_and_local_account_history(monkeypatch):
             assert not db.execute('SELECT id FROM storage_objects WHERE object_key=%s', (key,)).fetchone()
 
 
+def test_delete_bulk_reader_archive_cache_preserves_another_account(tmp_path, monkeypatch):
+    from zipfile import ZipFile
+
+    from app.adapters.storage import ProjectStore
+    from app.domain.bio_insights import bulk_delivery_cache
+    from tests.api.test_projects import create_project
+
+    root = get_data_dir()
+    cache_tmp = tmp_path / 'bulk-cache-fixture'
+    monkeypatch.setattr(bulk_delivery_cache.tempfile, 'gettempdir', lambda: str(cache_tmp))
+    target = create_user('bulk-target@account-deletion.test', PASSWORD, 'analyst')
+    peer = create_user('bulk-peer@account-deletion.test', PASSWORD, 'analyst')
+    operator = create_user('bulk-eraser@account-deletion.test', PASSWORD, 'admin')
+
+    def build(folder):
+        with ZipFile(folder / 'payload', 'w') as archive:
+            archive.writestr('report/report.docx', b'synthetic report')
+            archive.writestr('report/results.xlsx', b'synthetic workbook')
+        return {'facts_digest': 'a' * 64}
+
+    with TestClient(app) as analyst, TestClient(app) as other, TestClient(app) as admin:
+        login(analyst, target)
+        login(other, peer)
+        login(admin, operator)
+        project = create_project(analyst)['id']
+        peer_project = create_project(other)['id']
+        assets = ProjectStore(root, owner_id=target['id'])
+        cached = bulk_delivery_cache.cache_for(assets, project, 'reader-archive')
+        peer_cache = bulk_delivery_cache.cache_for(ProjectStore(root, owner_id=peer['id']), peer_project, 'reader-archive')
+        key = 'b' * 64
+        cached.obtain(key, build)
+        peer_payload = peer_cache.obtain(key, build)['path'] / 'payload'
+        peer_bytes = peer_payload.read_bytes()
+
+        with bulk_delivery_cache.heavy_slot(assets, project):
+            blocked = delete(admin, target)
+            assert blocked.status_code == 409 and blocked.json()['detail']['code'] == 'account_delete_blocked'
+            assert cached.read(key) is not None
+
+        response = delete(admin, target)
+        assert response.status_code == 200 and response.json()['deleted'], response.text
+        assert not cached.root.exists()
+        assert peer_payload.read_bytes() == peer_bytes
+        assert other.get('/api/v1/projects/' + peer_project).status_code == 200
+        assert analyst.get('/api/v1/auth/me').status_code == 401
+
+
 def test_delete_analyst_keeps_customer_project_and_delegated_files():
     analyst = create_user('analyst@account-deletion.test', PASSWORD, 'analyst')
     customer = create_user('owner@account-deletion.test', PASSWORD, 'customer')

@@ -175,7 +175,7 @@ class ModelGateway:
             raise ModelGatewayError('model_receipt_persistence_failed', request_id=request_id) from None
         return {'call': call, 'response': None}
 
-    def refresh(self, call_id: str) -> dict:
+    def refresh(self, call_id: str, *, accept_terminal_failure=False) -> dict:
         call = self.service.get_call(call_id)
         response_id = call.get('provider_response_id')
         if not response_id:
@@ -214,7 +214,9 @@ class ModelGateway:
                 raise ModelGatewayError('model_observation_expired', request_id=exc.request_id,
                                         status_code=exc.status_code) from None
             raise
-        if continuation and receipt.get('status') != 'completed':
+        status = receipt.get('status')
+        finished = status == 'completed' or accept_terminal_failure and status in ('failed', 'incomplete', 'cancelled')
+        if continuation and not finished:
             raise ModelGatewayError('model_observation_expired')
         return result
 

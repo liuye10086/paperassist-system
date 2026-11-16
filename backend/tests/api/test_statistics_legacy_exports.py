@@ -21,9 +21,58 @@ def retain_artifacts(name, report, members):
     (root/'report.json').write_text(json.dumps(report,ensure_ascii=False,indent=2),encoding='utf-8')
 
 
+def assert_account_deletion_with_missing_docx(client, project, report):
+    from fastapi.testclient import TestClient
+    from app.auth.service import create_user
+    from app.core.config import get_data_dir
+    from app.main import app
+    from tests.api.test_account_deletion import delete
+    from tests.api.test_admin_operations import PASSWORD, login
+
+    version = report['reader_export']['report_version_id']
+    with database_connection() as db:
+        members = db.execute('''SELECT m.role,o.id,o.object_key FROM research_report_members m
+            JOIN storage_objects o ON o.id=m.storage_object_id WHERE m.report_version_id=%s''', (version,)).fetchall()
+    word, = [member for member in members if member['role'] == 'docx']
+    root = get_data_dir()
+    assert all((root / member['object_key']).is_file() for member in members)
+    docx = root / word['object_key']
+    docx.unlink()
+
+    account = client.get('/api/v1/auth/me').json()['user']
+    actor = create_user('legacy-erasure-admin@paperassist.local', PASSWORD, 'admin')
+    with TestClient(app) as admin:
+        login(admin, actor)
+        scan = admin.post('/api/v1/admin/storage/scan')
+        assert scan.status_code == 200, scan.text
+        with database_connection() as db:
+            assert db.execute('SELECT state FROM storage_objects WHERE id=%s', (word['id'],)).fetchone()['state'] == 'missing'
+        download = next(member['download_url'] for member in report['members'] if member['role'] == 'docx')
+        assert client.get(download).status_code == 409
+
+        # The old inventory state is not authority to remove replacement bytes.
+        replacement = b'unattributed replacement bytes'
+        docx.write_bytes(replacement)
+        blocked = delete(admin, account)
+        assert blocked.status_code == 409 and blocked.json()['detail']['code'] == 'account_delete_blocked'
+        assert docx.read_bytes() == replacement
+        assert client.get('/api/v1/auth/me').status_code == 200
+        docx.unlink()
+
+        response = delete(admin, account)
+        assert response.status_code == 200, response.text
+        assert response.json() == {'id': account['id'], 'deleted': True}
+    assert all(not (root / member['object_key']).exists() for member in members)
+    with database_connection() as db:
+        assert not db.execute('SELECT id FROM users WHERE id=%s', (account['id'],)).fetchone()
+        assert not db.execute('SELECT id FROM storage_objects WHERE id=ANY(%s)', ([member['id'] for member in members],)).fetchall()
+        for table in ('statistics_legacy_report_exports', 'statistics_legacy_export_requests', 'research_report_members'):
+            assert not db.execute('SELECT 1 FROM ' + table + ' WHERE project_id=%s', (project,)).fetchone()
+
+
 def test_original_word_route_publishes_atomic_governed_members(client, cloud, writer, tmp_path, monkeypatch):
-    from app.domain.statistics_reader_reports.render import execute_statistics_report as render_report
     from app.domain.tasks.execution import run_word_task
+    monkeypatch.setenv('PAPERASSIST_RESEARCH_STAGING_DIR', str(tmp_path/'research-staging'))
     _, _, result, figure, explanation, url = report_ready(client)
     before = call_count()
     response = client.post(url, json=dict(expected_revision=result['setup_revision'], figure_id=figure['id'], explanation_id=explanation['id']))
@@ -42,7 +91,7 @@ def test_original_word_route_publishes_atomic_governed_members(client, cloud, wr
         original(self,db,task,identifier,prepared,progress=progress)
         raise OSError('Synthetic interruption after member inserts')
     monkeypatch.setattr(StatisticsLegacyReportService,'publish_members',interrupted)
-    failed=run_word_task(task['id'],task['revision'],engine=render_report,staging_directory=tmp_path/'render')
+    failed=run_word_task(task['id'],task['revision'])
     assert failed['status']=='failed' and failed['error_code']=='storage_unavailable',failed
     with database_connection() as db:
         assert db.execute('SELECT count(*) AS n FROM reports').fetchone()['n']==0
@@ -54,7 +103,7 @@ def test_original_word_route_publishes_atomic_governed_members(client, cloud, wr
     retried=client.post('/api/v1/tasks/'+task['id']+'/retry',json={'expected_revision':failed['revision']})
     assert retried.status_code==202,retried.text
     def no_second_render(*args):raise AssertionError('Prepared recovery must not render again')
-    done = run_word_task(task['id'], retried.json()['revision'], engine=no_second_render, staging_directory=tmp_path/'render')
+    done = run_word_task(task['id'], retried.json()['revision'], engine=no_second_render)
     assert done['status'] == 'succeeded', done
     report = client.get(url).json()['report']
     assert report['reader_export']['task_id'] == task['id']
@@ -109,25 +158,18 @@ def test_original_word_route_publishes_atomic_governed_members(client, cloud, wr
         assert all(stranger.get(member['download_url']).status_code==404 for member in report['members'])
     finally:
         stranger.close()
-    from app.auth.service import create_user
-    from app.domain.account_deletion import delete_account
-    from tests.api.test_admin_operations import PASSWORD
-    operator=create_user('legacy-erasure-admin@paperassist.local',PASSWORD,'admin')
-    assert delete_account(operator['id'],saved['user_id'],1)['deleted']
-    with database_connection() as db:
-        for table in ('statistics_legacy_report_exports','statistics_legacy_export_requests','research_report_members'):
-            assert not db.execute('SELECT 1 FROM '+table+' WHERE project_id=%s',(saved['project_id'],)).fetchone()
+    assert_account_deletion_with_missing_docx(client, saved['project_id'], report)
 
 
 def test_original_collection_export_uses_same_suite(client, monkeypatch, tmp_path):
-    from app.domain.statistics_reader_reports.render import execute_statistics_report as render_report
     from app.domain.report_collections.execution import run_collection_word_task
+    monkeypatch.setenv('PAPERASSIST_RESEARCH_STAGING_DIR', str(tmp_path/'research-staging'))
     seeded = seed_ordered_collection(client, monkeypatch)
     repository, state, project = seeded['repository'], seeded['state'], seeded['project_id']
     version = state['versions'][0]
     request = repository.export(project, state['id'], version['id'], 'reader-explicit')
     before = call_count()
-    done = run_collection_word_task(request['task_id'], 1, engine=render_report, staging_directory=tmp_path/'render')
+    done = run_collection_word_task(request['task_id'], 1)
     assert done['status'] == 'succeeded', done
     report = repository.get(project, state['id'])['versions'][0]['requests'][0]['report']
     assert report['reader_export']['task_type'] == 'collection_word_report'
@@ -165,9 +207,10 @@ def test_original_collection_export_uses_same_suite(client, monkeypatch, tmp_pat
     with repository.store.connection() as db:
         fixed=db.execute('SELECT request_key FROM report_build_requests WHERE id=%s',(build['id'],)).fetchone()
         assert fixed['request_key']=='automatic:r3'
-    done=run_collection_word_task(build['task_id'],1,engine=render_report,staging_directory=tmp_path/'automatic')
+    done=run_collection_word_task(build['task_id'],1)
     assert done['status']=='succeeded',done
     assert call_count()==before
+    assert_account_deletion_with_missing_docx(client, project, report)
 
 
 def test_old_queued_failed_task_and_request_key_keep_original_policy(client, cloud, writer, monkeypatch, tmp_path):

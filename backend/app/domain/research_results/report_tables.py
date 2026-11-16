@@ -26,7 +26,7 @@ def collect_tables(reader,db,project,sources,*,progress=None):
 
 
 @phase_guard
-def _collect_tables_in_phase(reader,db,project,sources,*,phase,progress=None):
+def _collect_tables_in_phase(reader,db,project,sources,*,phase,progress=None,legacy_table_schema=False):
     require_phase(phase,db,reader.assets,project)
     processed=set();artifacts=set();insights=set();statistics={};contexts=[]
     def visit(source):
@@ -102,7 +102,7 @@ def _collect_tables_in_phase(reader,db,project,sources,*,phase,progress=None):
                 tables.append(dict(key=member['key'],columns=columns,expected_rows=count,
                     source=dict(source_kind='bio_insight_result_member',source_id=member['id'],result_version_id=identifier),
                     sha256=member['sha256'],provenance=row['provenance'],inference_scope=row['inference_scope']))
-                if member['format']=='csv':tables[-1]['format']='csv'
+                if member['format']=='csv' and not legacy_table_schema:tables[-1]['format']='csv'
                 raws.append(raw)
     from .contracts import FrozenResearchSource
     from .statistics_projection import statistics_tables

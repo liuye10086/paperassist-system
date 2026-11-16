@@ -1,5 +1,5 @@
 import type {BulkDeliveryRequest} from '../bio-insights/bulkWorkflow'
-import type {Member,ReportRequest,ResearchTask} from '../research-results/contracts'
+import type {FrozenReportRequest,Member,Page,ReportRequest,ResearchTask} from '../research-results/contracts'
 import {projectBase} from '../research-results/api'
 
 export type ReportLanguage=ReportRequest['language']
@@ -11,11 +11,12 @@ export type BioReportSelection=(NativeSelection&{figure_version_ids:string[]})|B
 export type BioReportRequest={title:string;language:ReportLanguage;selection:BioReportSelection}
 export type BioReportContext=BioReportRequest&{
  id:string
- report:ReportRequest&{schema_version:1;reader_narrative_id:null}
+ report:FrozenReportRequest
  source:{source_kind:'bio_report_context';source_id:string;sha256:string;selection:BioReportSelection;
   supporting_sources?:{kind:string;facts?:{enrichments?:{kind:string;version_id:string}[]}}[]}
 }
 export type BioReportExport={id:string;task_id:string;task:ResearchTask&{project_id:string;task_type:string};members:Member[]}
+export type BioReportExportPage=Page<BioReportExport>&{export_state:'available'|'active'|'completed'}
 export type FigureChoice={id:string;title:string}
 export const bioReportsBase=(projectId:string)=>projectBase(projectId)+'/bio-reader-reports'
 export const reportIdentityError='固定来源身份不匹配，请重新打开。'

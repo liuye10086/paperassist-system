@@ -37,3 +37,20 @@ def test_bulk_preparation_uses_native_delivery_digest_and_shortcut(client, monke
         delivery=default_delivery | {'facts_digest': default_facts['facts_digest']})), 'explicit-default')
     assert status == 200 and explicit == shortcut
     assert all('generated' not in blob for blob in content['table_blobs'])
+
+    from app.domain.bio_insights import bulk_delivery
+    from app.domain.delivery_packages.report_sources import reader_report_analysis_digest
+
+    chinese_delivery = dict(delivery, language='zh')
+    chinese_facts = BulkDeliveryService(svc.assets).facts(project, **chinese_delivery)
+    chinese, _ = svc.prepare(project, dict(title='转录组分析报告', language='zh-CN', selection=dict(kind='bulk',
+        delivery=chinese_delivery | {'facts_digest': chinese_facts['facts_digest']})), 'bulk-zh')
+    assert chinese['report']['finding_version_id'] != view['report']['finding_version_id']
+    # The frozen analysis equivalence should survive an update to display text.
+    monkeypatch.setitem(bulk_delivery._LIMITS, 'en', ('Updated English presentation text.',))
+    with svc.store.connection() as db:
+        owner = svc.store.user_id
+        en_key = reader_report_analysis_digest(db, project, owner, view['report']['finding_version_id'])
+        zh_key = reader_report_analysis_digest(db, project, owner, chinese['report']['finding_version_id'])
+        assert en_key and en_key == zh_key
+        assert en_key != reader_report_analysis_digest(db, project, owner, shortcut['report']['finding_version_id'])

@@ -85,7 +85,7 @@ class AnalystWorkspace:
                 raise invalid('research_source_not_found', 404)
             row = self.delivery.row(db, project_id, frozen['delivery_id'], request.snapshot_id)
             if row['requirement_version_id'] != requirement['id']:
-                raise StorageError('research_revision_conflict', '交付需关联客户最新正式需求。', 409)
+                raise StorageError('delivery_requirement_changed', '交付需关联客户最新正式需求。', 409)
             snapshot = row['snapshot_json']
             if snapshot['requirement_sha256'] != requirement['sha256']:
                 raise invalid()

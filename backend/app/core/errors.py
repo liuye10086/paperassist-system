@@ -13,6 +13,7 @@ bio_cloud_disabled bio_cloud_configuration_invalid bio_cloud_provider_unavailabl
 bio_insight_locator_invalid bio_insight_sheet_invalid bio_insight_parse_conflict bio_insight_column_mapping_invalid bio_insight_file_unsupported bio_insight_file_limit_exceeded bio_insight_table_limit_exceeded bio_insight_table_unsupported bio_insight_resource_format_mismatch bio_insight_source_incomplete bio_insight_source_unsupported bio_insight_source_conflict bio_insight_not_found bio_insight_limit_exceeded bio_insight_revision_conflict bio_insight_idempotency_conflict bio_insight_plan_unconfirmed bio_insight_design_blocked bio_insight_not_ready bio_insight_parse_required bio_insight_table_invalid bio_insight_resource_invalid bio_insight_file_invalid bio_insights_input_invalid bio_insights_figure_layout_too_small bio_insights_output_invalid bio_insights_environment_unavailable bio_insights_isolation_unavailable bio_insights_resource_exceeded bio_insights_timeout bio_insights_design_blocked
 reader_report_narrative_required reader_report_not_configured reader_report_input_limit reader_report_budget_limit research_source_conflict research_source_not_found research_source_incomplete research_source_unsupported research_locator_invalid research_source_limit_exceeded research_fact_unresolved research_delivery_unavailable research_figure_limit_exceeded research_export_limit_exceeded research_output_invalid
 research_environment_unavailable research_render_timeout research_idempotency_conflict
+delivery_source_mismatch delivery_member_source_conflict delivery_member_file_changed delivery_member_source_missing delivery_member_source_incomplete delivery_member_duplicate delivery_requirement_changed delivery_snapshot_changed
 research_request_key_required research_intake_not_found research_version_not_found research_material_invalid research_design_invalid research_requirement_invalid research_content_too_large research_request_conflict research_revision_conflict research_writing_unavailable
 bio_import_not_found bio_dataset_not_found bio_version_not_found bio_member_not_found bio_source_conflict bio_candidate_conflict bio_revision_conflict bio_import_invalid bio_environment_unavailable bio_parse_failed bio_parse_timeout bio_limit_exceeded bio_bundle_invalid bio_output_invalid bio_manifest_invalid bio_role_invalid bio_import_not_ready
 bio_parse_resource_limit bio_input_limit bio_archive_invalid bio_matrix_invalid bio_duplicate_coordinate bio_components_mismatch bio_source_changed bio_format_unsupported
@@ -104,6 +105,14 @@ def safe_params(code, params=None):
     if not isinstance(params, dict):
         return {}
     result = {}
+    if code in ('delivery_source_mismatch', 'delivery_member_source_conflict', 'delivery_member_file_changed',
+                'delivery_member_source_missing', 'delivery_member_source_incomplete', 'delivery_member_duplicate'):
+        fields = ('file', 'other_file') if code == 'delivery_source_mismatch' else ('file',)
+        for field in fields:
+            name = params.get(field)
+            if isinstance(name, str) and name.strip() and re.fullmatch(r'[^/\\<>:"|?*\x00-\x1f\x7f\u202a-\u202e\u2066-\u2069]{1,240}', name):
+                result[field] = name
+        return result
     if code == 'configuration_legacy_inflight':
         task_id=params.get('task_id')
         if isinstance(task_id,str) and re.fullmatch(r'[0-9a-f-]{36}',task_id):result['task_id']=task_id

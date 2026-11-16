@@ -94,8 +94,12 @@ services:
   worker:
     <<: *app
     command: [python, -m, app.workers, worker]
+    environment:
+      <<: *environment
+      PAPERASSIST_RESEARCH_STAGING_DIR: /research-staging
     volumes:
       - worker-execution:/run/paperassist-execution
+      - research-staging:/research-staging
       - ${RELEASE_DIRECTORY}/assets:/data
       - ${RELEASE_DIRECTORY}/control:/control
       - ${RELEASE_FONTS}/arial.ttf:/usr/local/share/fonts/paperassist/arial.ttf:ro
@@ -137,7 +141,7 @@ services:
     command: [python, release_entry.py, collect]
   # Required Word field service; preserve the compatible alias, fonts and isolation.
   renderer:
-    image: sha256:8b341880cc1533d0a301e7c9ec60493aba67f1464e1efc00820db9044b15bfde
+    image: ${RELEASE_RENDERER_IMAGE}
     pull_policy: never
     init: true
     read_only: true
@@ -191,6 +195,7 @@ secrets:
 volumes:
   database:
   broker:
+  research-staging:
   worker-execution:
     name: paperassist-worker-execution
 networks:

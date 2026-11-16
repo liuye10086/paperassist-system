@@ -1,9 +1,11 @@
 """Exercise the report narrative product entry point against isolated PostgreSQL."""
 import base64
+from datetime import datetime, timedelta, timezone
 import io
 import json
 
 import pytest
+from psycopg.types.json import Jsonb
 
 from app.db.database import database_connection
 from tests.api.test_research_findings import client, selected_cell
@@ -100,15 +102,15 @@ def worker(queued, provider):
     return run_reader_report_task(queued['task']['id'], queued['task']['revision'], provider=provider)
 
 
-def authorize_user_and_project(queued):
+def authorize_user_and_project(queued, *, limit=1_000_000):
     from app.domain.model_usage.service import ModelUsageService
 
     task = queued['task']
     with database_connection() as db:
         user_id = db.execute('SELECT user_id FROM tasks WHERE id=%s', (task['id'],)).fetchone()['user_id']
     service = ModelUsageService(user_id)
-    service.set_budget('user', user_id, 1_000_000, 0)
-    service.set_budget('project', task['project_id'], 1_000_000, 0)
+    service.set_budget('user', user_id, limit, 0)
+    service.set_budget('project', task['project_id'], limit, 0)
     return user_id
 
 
@@ -143,6 +145,13 @@ def test_budget_wait_retries_original_and_success_is_reusable(client):
     assert client.post(endpoint + '/preview', json=report).json()['cached'] is True
     assert client.post(endpoint + '/preview', json=report).json()['reserved_micro_usd'] == 0
     assert client.get('/api/v1/tasks/' + done['id'] + '/workspace').status_code == 200
+    for usage_path in (endpoint.rsplit('/', 1)[0], '/api/v1/tasks/' + done['id']):
+        usage = client.get(usage_path + '/model-usage')
+        assert usage.status_code == 200, usage.text
+        call, = usage.json()['items']
+        assert call['task_type'] == 'reader_report_narrative'
+        assert call['provider_provenance'] == 'synthetic_fixture'
+        assert call['estimated_cost_micro_usd'] == 40
     replay = client.post(endpoint, json=request, headers={'Idempotency-Key': 'second-success-key'})
     assert replay.status_code == 200 and replay.json() == saved
     assert len(provider.posts) == 1
@@ -202,6 +211,158 @@ def test_paid_call_remains_the_reusable_candidate_after_get_retries_are_exhauste
     provider.pending = False
     assert worker(resumed.json(), provider)['status'] == 'succeeded'
     assert len(provider.posts) == 1 and provider.gets == [provider.response_id]
+
+
+@pytest.mark.parametrize('provider_status', ['completed', 'incomplete'])
+def test_report_page_continues_expired_observation_with_one_get(client, provider_status):
+    endpoint, report = report_request(client)
+    _, queued = queue_narrative(client, endpoint, report)
+    authorize_user_and_project(queued)
+
+    class DelayedResponse(Fixture):
+        def retrieve(self, response_id, **options):
+            receipt = super().retrieve(response_id, **options)
+            if provider_status == 'incomplete':
+                receipt.update(status='incomplete', response={'status': 'incomplete', 'output': []})
+            return receipt
+
+    provider = DelayedResponse(narrative_fixture())
+    provider.pending = True
+    deferred = worker(queued, provider)
+    assert deferred['status'] == 'running'
+    started = datetime.now(timezone.utc) - timedelta(minutes=21)
+    deadline = started + timedelta(minutes=20)
+    with database_connection(write=True) as db:
+        db.execute("""UPDATE model_calls SET provider_state=jsonb_set(provider_state, '{observation}', %s)
+            WHERE task_id=%s""", (Jsonb(dict(version=1, started_at=started.isoformat(),
+                deadline_at=deadline.isoformat(), continuations=0)), deferred['id']))
+    waiting = worker({'task': deferred}, provider)
+    assert waiting['reason_code'] == 'observation_expired'
+    assert provider.gets == []
+
+    path = endpoint + '/' + queued['id']
+    wait = client.get(path).json()['wait']
+    assert wait['kind'] == 'remote_observation'
+    request = {'expected_revision': waiting['revision']}
+    resumed = client.post(path + '/retry', json=request)
+    assert resumed.status_code == 202, resumed.text
+    assert resumed.json()['task']['id'] == waiting['id']
+    assert client.post(path + '/retry', json=request).status_code == 409
+
+    provider.pending = False
+    done = worker(resumed.json(), provider)
+    assert provider.gets == [provider.response_id]
+    assert len(provider.posts) == 1
+    assert done['status'] == ('succeeded' if provider_status == 'completed' else 'failed'), done
+    saved = client.get(path).json()
+    assert saved['wait'] is None
+    assert saved['can_regenerate'] is (provider_status == 'incomplete')
+    with database_connection() as db:
+        resume = db.execute('SELECT * FROM task_resume_requests WHERE task_id=%s', (waiting['id'],)).fetchall()
+        assert len(resume) == 1 and resume[0]['wait_id'] == wait['id'] and resume[0]['operation'] == 'resume'
+        call, = db.execute('SELECT * FROM model_calls WHERE task_id=%s', (waiting['id'],)).fetchall()
+        observation = call['provider_state']['observation']
+        assert observation['deadline_at'] == deadline.isoformat()
+        assert observation['retrieval_grant']['consumed_at'] is not None
+
+
+def exhaust_reader_worker_recovery(client, path, task, start_attempt):
+    from app.adapters.task_execution_store import AUTO_ATTEMPTS, TaskExecutionStore
+
+    repository = TaskExecutionStore()
+    for _ in range(AUTO_ATTEMPTS):
+        start_attempt(task)
+        with database_connection(write=True) as db:
+            updated = db.execute("""UPDATE task_attempts SET lease_expires_at=clock_timestamp()-interval '1 second'
+                WHERE task_id=%s AND status='running'""", (task['id'],))
+            assert updated.rowcount == 1
+        assert repository.recover_expired() == 1
+        task = client.get(path).json()['task']
+    assert task['status'] == 'failed' and task['error_code'] == 'task_worker_interrupted', task
+    return task
+
+
+def test_unsubmitted_original_cannot_retry_over_a_replacement(client):
+    from app.adapters.task_execution_store import TaskExecutionStore
+
+    endpoint, report = report_request(client)
+    request, queued = queue_narrative(client, endpoint, report)
+    authorize_user_and_project(queued)
+    repository = TaskExecutionStore()
+
+    def claim_without_submitting(task):
+        assert repository.claim(task['id'], task['revision'], task_type='reader_report_narrative') is not None
+
+    path = endpoint + '/' + queued['id']
+    task = exhaust_reader_worker_recovery(client, path, queued['task'], claim_without_submitting)
+    replacement = client.post(endpoint, json=request, headers={'Idempotency-Key': 'same-report-after-interruption'})
+    assert replacement.status_code == 202 and replacement.json()['id'] != queued['id']
+    retry = client.post(path + '/retry', json={'expected_revision': task['revision']})
+    assert retry.status_code == 409, retry.text
+    provider = Fixture(narrative_fixture())
+    assert worker(replacement.json(), provider)['status'] == 'succeeded'
+    retry_from_tasks = client.post('/api/v1/tasks/' + task['id'] + '/resume', json={
+        'operation': 'retry', 'expected_task_revision': task['revision'], 'input_version': task['input_version'], 'wait_id': None,
+    }, headers={'Idempotency-Key': 'superseded-reader-task'})
+    assert retry_from_tasks.status_code == 409, retry_from_tasks.text
+    assert client.get(path).json()['task'] == task
+    assert client.get(path).json()['model_calls'] == []
+    assert len(provider.posts) == 1
+
+
+@pytest.mark.parametrize('legacy_replacement', [False, True], ids=['new-request', 'existing-budget-wait'])
+def test_replay_reuses_failed_unsubmitted_task_with_held_budget(client, monkeypatch, legacy_replacement):
+    from app.adapters.task_execution_store import LeaseLost
+    from app.domain.model_usage.service import ModelUsageService
+    from app.domain.reader_reports.service import ReaderReportService
+
+    endpoint, report = report_request(client)
+    request, queued = queue_narrative(client, endpoint, report)
+    limit = client.post(endpoint + '/preview', json=report).json()['reserved_micro_usd']
+    authorize_user_and_project(queued, limit=limit)
+    provider = Fixture(narrative_fixture())
+
+    def stop_before_post(*args, **kwargs):
+        raise LeaseLost()
+
+    def claim_and_reserve(task):
+        assert worker({'task': task}, provider) is None
+
+    path = endpoint + '/' + queued['id']
+    with monkeypatch.context() as interrupted:
+        interrupted.setattr(ModelUsageService, 'begin_submission', stop_before_post)
+        task = exhaust_reader_worker_recovery(client, path, queued['task'], claim_and_reserve)
+    assert provider.posts == []
+    reserved, = client.get(path).json()['model_calls']
+    assert reserved['status'] == 'reserved'
+
+    headers = {'Idempotency-Key': 'confirmed-after-reservation'}
+    if legacy_replacement:
+        original_reusable = ReaderReportService._reusable
+
+        def original_admission(service, *args, **kwargs):
+            return original_reusable(service, *args, **{**kwargs, 'reuse_reservation': False})
+
+        with monkeypatch.context() as legacy:
+            legacy.setattr(ReaderReportService, '_reusable', original_admission)
+            replay = client.post(endpoint, json=request, headers=headers)
+        assert replay.status_code == 202, replay.text
+        replacement = worker(replay.json(), provider)
+        assert replacement['status'] == 'waiting_confirmation' and replacement['reason_code'] == 'budget_exceeded'
+        replacement_path = endpoint + '/' + replay.json()['id']
+        assert client.get(replacement_path).json()['model_calls'] == []
+    else:
+        replay = client.post(endpoint, json=request, headers=headers)
+        assert replay.status_code == 200 and replay.json()['id'] == queued['id'], replay.text
+
+    retry = client.post(path + '/retry', json={'expected_revision': task['revision']})
+    assert retry.status_code == 202, retry.text
+    if legacy_replacement:
+        redirected = client.post(replacement_path + '/retry', json={'expected_revision': replacement['revision']})
+        assert redirected.status_code == 409, redirected.text
+    assert worker(retry.json(), provider)['status'] == 'succeeded'
+    saved, = client.get(path).json()['model_calls']
+    assert saved['id'] == reserved['id'] and len(provider.posts) == 1
 
 
 def test_invalid_model_output_does_not_become_a_report_record(client):

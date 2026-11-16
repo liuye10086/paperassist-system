@@ -41,7 +41,7 @@ function Panel({projectId,deliveryId,active,snapshotId='',onSelect,registerLeave
  useEffect(()=>{if(!analysisOnly)setSelected(null);if(!active||!valid||!readId)return;const c=new AbortController();let live=true;void intakeRequest<DeliverySnapshot>(base+'/snapshots/'+encodeURIComponent(readId),{signal:c.signal}).then(s=>{if(live)setSelected(s)}).catch(e=>{if(live)setError(safeError(e,'固定快照读取失败，请重新核对。'))});return()=>{live=false;c.abort()}},[base,readId,active,valid,reload,analysisOnly])
  useEffect(()=>{if(!freeze.value)return;const result=freeze.value;setSelected(result);setReadId(result.id);setEditing(false);setDeliveryView('snapshot');setDraft(emptyDraft());setPreview(null);setReload(r=>r+1);onSelect(result.id)},[freeze.value])
  const blocked=loading||freeze.busy||freeze.unknown||!freeze.valid||!valid
- function edit(p:Partial<SnapshotWrite>){setDraft({...draft,...p});setPreview(null)}
+ function edit(p:Partial<SnapshotWrite>){setDraft({...draft,...p});setPreview(null);freeze.clearError()}
  function derive(s:DeliverySnapshot){if(blocked)return;const binding=analysisOnly?undefined:s.opinion_round_binding;setDraft({stage:'revision',parent_snapshot_id:s.id,expected_revision:s.revision,requirement_version_id:s.requirement_version_id,change_note:'',opinion_round:analysisOnly?'分析交付':s.opinion_round,opinion_round_id:binding?.status==='fixed_existing_event'?String(binding.round_id):null,opinion_round_event_id:binding?.status==='fixed_existing_event'?String(binding.event_id):null,mode:analysisOnly?'complete':s.mode,required_formats:s.required_formats,quality_items:s.quality_items,members:s.members.map(m=>m.selection)});setEditing(true);setPreview(null)}
  function toggle(c:Candidate,checked:boolean){edit({members:checked?[...draft.members,c.selection]:draft.members.filter(m=>selectionKey(m)!==selectionKey(c.selection))})}
  const knownMembers=[...history.flatMap(s=>s.members),...(selected?.members??[]),...(preview?.members??[])]
@@ -59,7 +59,22 @@ function Panel({projectId,deliveryId,active,snapshotId='',onSelect,registerLeave
   return()=>{live=false;c.abort()}
  },[base,active,valid,freeze.valid,freeze.busy,freeze.retryable,freeze.pendingBody,freezeSignature,retiredFreeze,candidates,loading])
  const ready=!retiredPdf&&!pdfRequired&&!!draft.requirement_version_id&&(requiredVersionId===undefined||draft.requirement_version_id===requiredVersionId)&&!!draft.change_note.trim()&&!!draft.opinion_round.trim()&&!!draft.members.length&&(!draft.opinion_round_id||!!draft.opinion_round_event_id)&&(!analysisOnly||!draft.members.some(member=>member.kind==='manuscript_export'))
- async function check(){if(blocked||!ready)return;previewController.current?.abort();const c=new AbortController();previewController.current=c;const input=signature;setLoading(true);setError('');try{const value=await intakeRequest<DeliverySnapshot>(base+'/snapshots/preview',{...jsonRequest(draft),signal:c.signal});if(!c.signal.aborted){setPreview(value);setPreviewSignature(input)}}catch(e){if(!c.signal.aborted)setError(safeError(e,'核对失败，草稿已保留。'))}finally{if(previewController.current===c){previewController.current=null;setLoading(false)}}}
+ async function check(){
+  if(blocked||!ready)return
+  previewController.current?.abort()
+  const c=new AbortController()
+  previewController.current=c
+  const input=signature
+  setPreview(null);setPreviewSignature('');freeze.clearError();setLoading(true);setError('')
+  try{
+   const value=await intakeRequest<DeliverySnapshot>(base+'/snapshots/preview',{...jsonRequest(draft),signal:c.signal})
+   if(!c.signal.aborted){setPreview(value);setPreviewSignature(input)}
+  }catch(e){
+   if(!c.signal.aborted)setError(safeError(e,'核对失败，草稿已保留。'))
+  }finally{
+   if(previewController.current===c){previewController.current=null;setLoading(false)}
+  }
+ }
  const round=candidates?.opinion_rounds?.find(r=>r.id===draft.opinion_round_id)
  if(!valid||!freeze.valid)return <p role="alert">{t('会话已改变，请重新打开项目。')}</p>
  const refresh=<button type="button" disabled={blocked} onClick={()=>setReload(r=>r+1)}>{t(analysisOnly?'刷新交付记录':'读取服务器历史并保留草稿')}</button>
@@ -113,7 +128,7 @@ function Panel({projectId,deliveryId,active,snapshotId='',onSelect,registerLeave
  }
  const missing=draft.members.filter(m=>!available.some(c=>selectionKey(c.selection)===selectionKey(m))).map(m=>
   <p key={selectionKey(m)} className="warning-panel">{t('原选择当前不可选，请明确移除或核对来源')} {t('此前选定的成果')} {draft.members.indexOf(m)+1} <button type="button" onClick={()=>edit({members:draft.members.filter(s=>selectionKey(s)!==selectionKey(m))})}>{t('移除此原选择')}</button></p>)
- const canFreeze=preview&&previewSignature===signature&&!retiredPdf&&!pdfRequired
+ const canFreeze=preview&&previewSignature===signature&&ready&&!freeze.error
  const checkButton=<button type="button" className={analysisOnly&&!canFreeze?'button-primary':undefined} disabled={blocked||!ready} onClick={()=>void check()}>{t('核对所选成员与缺口')}</button>
  const freezeButton=canFreeze&&<button type="button" className={analysisOnly?'button-primary':undefined} disabled={blocked} onClick={()=>void freeze.submit('freeze',base+'/snapshots',draft,base+'/snapshots/requests/{key}')}>{t('冻结本次交付快照')}</button>
  const operationStatus=<>{freeze.unknown&&(retiredFreeze||freezeCheck?.containsPdf)&&<p>{t('此历史交付包含 PDF，仅保留状态与原请求查询。')}</p>}<OperationStatus operation={{...freeze,retryable:freeze.retryable&&!retiredFreeze&&!loading&&!!candidates&&freezeCheck?.signature===freezeSignature&&!freezeCheck.containsPdf}}/></>

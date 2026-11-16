@@ -6,6 +6,18 @@ def postgres_schema():
     yield None
 
 
+def attachment_bytes(response):
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    app = FastAPI()
+    app.add_api_route('/attachment', lambda: response)
+    with TestClient(app) as client:
+        content = client.get('/attachment').content
+    assert response.handle.closed
+    return content
+
+
 def test_cache_reuses_complete_artifact_and_repairs_corruption(tmp_path):
     from app.domain.bio_insights.bulk_delivery_cache import ArtifactCache
     cache = ArtifactCache(tmp_path, ttl=60, budget=1024)
@@ -116,8 +128,7 @@ def test_api_preparation_reuses_statistics_word_and_archive_and_rechecks_sources
     assert calls == dict(stats=1, word=1, archive=1)
     response = api.download_prepared('project', 'archive', packed['download_url'].split('/')[-1], published.assets)
     assert response.headers['content-length'] == '13'
-    # Close the opened streaming response without relying on a client consuming it.
-    response.background.func()
+    assert attachment_bytes(response) == b'fixed archive'
     member = next(item for item in published.records['bio_insight_result_members', ('comparison', 'project', 'owner')]
                   if item['key'] == 'comparison_results')
     source = published.assets.directory / member['object_key']
@@ -242,7 +253,8 @@ def test_prepared_stream_survives_eviction_during_reauthorization(published, mon
     monkeypatch.setattr(api, 'resolve_delivery', expire)
     response = api.download_prepared('project', 'word', prepared['download_url'].split('/')[-1], published.assets)
     assert int(response.headers['content-length']) > 1000
-    response.background.func()
+    content = attachment_bytes(response)
+    assert content.startswith(b'PK') and len(content) == int(response.headers['content-length'])
 
 def test_corrupt_metadata_and_missing_payload_are_rebuilt(tmp_path):
     import json

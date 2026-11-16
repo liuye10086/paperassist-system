@@ -42,7 +42,7 @@ export function NarrativePreparation({projectId, enabled, preparation, taskLink}
       {!read.error && read.data && !status && <p role="alert">{t('详细解读与当前报告内容不一致。')}</p>}
       {status && <TaskStatus projectId={projectId} task={status.task} href={taskLink?.(status.task.id)}/>}
       {status?.task.error_code && <p role="alert">{t(apiError({detail:{code:status.task.error_code}}, '请查看任务详情处理。'))}</p>}
-      {!ready && <button type="button" disabled={read.loading || preparation.blocking} onClick={read.refresh}>{t('刷新解读状态')}</button>}
+      {(!ready || read.error) && <button type="button" disabled={read.loading || preparation.blocking} onClick={read.refresh}>{t('刷新解读状态')}</button>}
       {status?.allowed_actions?.some(action => action === 'retry' || action === 'resume') && <button type="button" disabled={read.loading || preparation.blocking}
         onClick={() => void preparation.retry()}>{t(status.allowed_actions.includes('resume') ? '继续查看原解读任务' : '重试原解读任务')}</button>}
     </>}

@@ -17,6 +17,7 @@ from app.domain.bioinformatics.contracts import digest
 _active = ContextVar('bulk_heavy_slot', default=None)
 _KEY = re.compile(r'[a-f0-9]{64}')
 _GENERATION = re.compile(r'[a-f0-9]{64}-[a-f0-9]{32}')
+BULK_CACHE_KINDS = ('facts', 'word', 'archive', 'sensitivity', 'reader-archive')
 
 
 @lru_cache(maxsize=8)
@@ -67,6 +68,9 @@ def cache_scope(owner_id, project, kind):
 
 
 def cache_for(assets, project, kind):
+    # Every writable scope must also be discoverable during account deletion.
+    if kind not in BULK_CACHE_KINDS:
+        raise ValueError('Unknown Bulk delivery cache kind')
     pool = cache_pool(assets.directory, assets.db_config)
     return ArtifactCache(pool / cache_scope(assets.owner_id, project, kind), pool=pool)
 

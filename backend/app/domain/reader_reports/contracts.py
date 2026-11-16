@@ -9,6 +9,7 @@ from app.domain.research_results.contracts import Hash, Identifier, ResearchRepo
 TASK_TYPE = 'reader_report_narrative'
 WORKFLOW = 'reader_report_narrative_v1'
 CALL_KEY = 'reader-report-narrative-v1'
+RETRYABLE_FAILURES = ('storage_unavailable', 'task_worker_interrupted', 'model_provider_unavailable')
 
 
 class NarrativeRequest(StrictModel):

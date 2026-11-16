@@ -307,10 +307,11 @@ class TaskWorkspaceService:
             raise source_conflict() from exc
 
     @staticmethod
-    def _reader_context_id(db, task):
+    def _reader_context_id(db, task, report):
         from app.domain.bioinformatics.contracts import digest
 
-        report = task['input_snapshot']['request']['report']
+        if report['figure_version_ids']:
+            return None
         scope = (task['project_id'], task['user_id'])
         finding = db.execute('''SELECT content_json,content_sha256 FROM research_finding_versions
             WHERE id=%s AND project_id=%s AND user_id=%s''', (report['finding_version_id'], *scope)).fetchone()
@@ -320,8 +321,11 @@ class TaskWorkspaceService:
         if len(sources) != 1 or sources[0]['source_kind'] != 'bio_report_context':
             return None
         source = sources[0]
-        context = db.execute('''SELECT id,content_json,content_sha256 FROM bio_report_context_versions
-            WHERE id=%s AND project_id=%s AND user_id=%s''', (source['source_id'], *scope)).fetchone()
+        context = db.execute('''SELECT c.id,c.content_json,c.content_sha256 FROM bio_report_context_versions c
+            WHERE c.id=%s AND c.project_id=%s AND c.user_id=%s
+            AND EXISTS (SELECT 1 FROM bio_report_context_requests r WHERE r.context_id=c.id
+                AND r.project_id=c.project_id AND r.user_id=c.user_id AND r.finding_version_id=%s)''',
+            (source['source_id'], *scope, report['finding_version_id'])).fetchone()
         if (context and digest(context['content_json']) == context['content_sha256'] == source['sha256']
                 and context['content_json']['language'] == report['language']):
             return context['id']
@@ -360,9 +364,11 @@ class TaskWorkspaceService:
             result.update(task_artifacts(db,task))
             return result
         if task['task_type'] == 'reader_report_narrative':
-            context_id = self._reader_context_id(db, task)
+            report = task['input_snapshot']['request']['report']
+            context_id = self._reader_context_id(db, task, report)
             if context_id is not None:
                 result['bio_reader_report_context_id'] = context_id
+                result['bio_reader_report_request'] = {**report, 'reader_narrative_id': None}
             return result
         if task['task_type']=='school_rule_suggestion':
             from app.domain.school_templates.suggestion_service import SuggestionService

@@ -16,6 +16,22 @@ class RuntimeTests(unittest.TestCase):
   c=yaml.safe_load((ROOT/'compose.release.yml').read_text())
   self.assertEqual(c['services']['worker']['environment']['PAPERASSIST_PDF_RENDERER_URL'],'http://pdf-renderer:8080')
   self.assertIn('pdf-renderer',c['services']['renderer']['networks']['private']['aliases'])
+ def test_release_research_staging_is_persistent_and_worker_only(self):
+  c=yaml.safe_load((ROOT/'compose.release.yml').read_text())
+  worker=c['services']['worker']
+  self.assertEqual(worker['environment'].get('PAPERASSIST_RESEARCH_STAGING_DIR'),'/research-staging')
+  self.assertIn('research-staging:/research-staging',worker['volumes'])
+  self.assertTrue(worker['read_only'])
+  self.assertIn('research-staging',c['volumes'])
+  self.assertFalse(c['volumes']['research-staging'])
+  for name,service in c['services'].items():
+   if name!='worker':
+    self.assertNotIn('PAPERASSIST_RESEARCH_STAGING_DIR',service.get('environment',{}))
+    self.assertNotIn('research-staging:/research-staging',service.get('volumes',[]))
+ def test_fresh_research_staging_name_collision_is_rejected(self):
+  def docker(args,**kw):return 'pa-release-fresh_research-staging' if args[:2]==['volume','ls'] else ''
+  with patch.object(r,'docker',side_effect=docker):
+   with self.assertRaisesRegex(ValueError,'target'):r.named_resources('pa-release-fresh',fresh=True)
  def test_api_front_network_and_verified_https_health(self):
   c=yaml.safe_load((ROOT/'compose.release.yml').read_text())
   self.assertFalse(c['networks'].get('front',{}).get('internal',True))

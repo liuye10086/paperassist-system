@@ -48,10 +48,11 @@ def report_reference(db,row,*,collection=False):
     if not value.get('reader_export'):
         return _metadata(row,'report_json','collection_reports' if collection else 'reports','.docx')
     column='collection_report_id' if collection else 'report_id'
+    # Inventory may mark the bytes missing while the owned member identity is valid.
     member=db.execute(f'''SELECT o.object_key,m.sha256,m.size_bytes FROM statistics_legacy_report_exports e
         JOIN research_report_versions v ON v.id=e.report_version_id AND v.project_id=e.project_id AND v.user_id=e.user_id
         JOIN research_report_members m ON m.report_version_id=v.id AND m.project_id=e.project_id AND m.user_id=e.user_id AND m.role='docx'
-        JOIN storage_objects o ON o.id=m.storage_object_id AND o.state='present'
+        JOIN storage_objects o ON o.id=m.storage_object_id AND o.state IN ('present','missing')
         JOIN storage_references sr ON sr.object_id=o.id AND sr.project_id=e.project_id AND sr.owner_id=e.user_id
         JOIN tasks t ON t.id=e.task_id AND t.status='succeeded'
         WHERE e.{column}=%s AND m.sha256=o.sha256 AND m.size_bytes=o.size_bytes''',(row['id'],)).fetchone()

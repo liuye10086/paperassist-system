@@ -4,8 +4,6 @@ import InsightTaskLinks from './InsightTaskLinks'
 import ResearchTaskLinks from './ResearchTaskLinks'
 import {bioReportLink} from '../bio-reader-reports/navigation'
 import type {AnalysisNavigation} from '../projects/analysisViews'
-import {projectBase,useResearchRead} from '../research-results/api'
-import type {Report} from '../research-results/contracts'
 import ManuscriptTaskLinks from './ManuscriptTaskLinks'
 import BioTaskLinks from './BioTaskLinks'
 import { AnalysisActivity } from '../analysis/AnalysisActivity'
@@ -89,14 +87,7 @@ function Detail({ projectId, taskId, onChanged, onOpenFiles, onOpenLiterature, o
   const narrativeBack=narrativeContext?bioReportLink(projectId,narrativeContext,
     taskReportReturn?.reportContextId===narrativeContext?taskReportReturn:undefined,taskId):
     `#project=${encodeURIComponent(projectId)}&section=artifacts&view=research-reports`
-  const reportId=data?.task.task_type==='research_report'&&taskReportReturn?.reportContextId?
-    data.task.result_research_report_version_id??data.artifacts.research_results?.report_version_id:null
-  const fixedReport=useResearchRead<Report>(reportId?`${projectBase(projectId)}/research-reports/${encodeURIComponent(reportId)}`:'',
-    active&&visible&&sessionValid)
-  const checkingReport=!!reportId&&!fixedReport.data&&!fixedReport.error
-  const reportContext=fixedReport.data?.content?.finding?.content?.sources?.find(source=>source.source_kind==='bio_report_context')?.source_id
-  const reportReturn=reportContext&&fixedReport.data?.id===reportId&&fixedReport.data?.task_id===taskId
-    &&reportContext===taskReportReturn?.reportContextId?bioReportLink(projectId,reportContext,taskReportReturn):undefined
+  const reportReturn=taskReportReturn?.reportContextId?bioReportLink(projectId,taskReportReturn.reportContextId,taskReportReturn):undefined
   return <section className="task-detail" data-layered={view!==undefined} aria-label={t('任务详情')} hidden={!active} aria-busy={loading}>
     <div className="task-section-heading"><h2 ref={heading} tabIndex={-1}>{t('任务详情')}</h2>
       <button type="button" disabled={loading || !sessionValid} onClick={refresh}>{t('重新读取任务')}</button></div>
@@ -123,12 +114,12 @@ function Detail({ projectId, taskId, onChanged, onOpenFiles, onOpenLiterature, o
       {(data.task.task_type==='journal_adaptation'||data.task.task_type==='journal_format_check'||data.task.task_type==='journal_recommendation')&&<p>{data.task.input_version.kind==='journal_adaptation'?<a href={`#project=${encodeURIComponent(projectId)}&section=journals&adaptation=${encodeURIComponent(data.task.input_version.adaptation_id)}`}>{t('打开期刊建议')}</a>:onOpenJournals?<button type="button" onClick={onOpenJournals}>{t('打开期刊建议')}</button>:<a href={`#project=${encodeURIComponent(projectId)}&section=journals`}>{t('打开期刊建议')}</a>}</p>}
       {data.task.task_type==='literature_assistance'&&<p className="muted">{translateForLocale(data.source.is_current?'模型建议与人工决定独立保存；历史建议只读，不能自动确认或改写新版本。':'历史版本只读；旧判定和模型建议不能确认新论述。',data.task.input_version.output_language??locale)}</p>}
       {data.task.task_type==='literature_search'&&<p>{onOpenLiterature?<button type="button" onClick={()=>onOpenLiterature(data.task.id)}>{t('查看文献与候选')}</button>:<a href={`#project=${encodeURIComponent(projectId)}&section=literature&search=${encodeURIComponent(data.task.id)}`}>{t('查看文献与候选')}</a>}</p>}
-      <InsightTaskLinks task={data.task} artifact={data.artifacts.bio_insights}/><BioTaskLinks task={data.task}/>{!checkingReport&&<ResearchTaskLinks task={data.task} artifact={data.artifacts.research_results} reportReturn={reportReturn}/>}{data.task.input_version.kind==='bio_import'&&<p><a href={`#project=${encodeURIComponent(projectId)}&section=analysis&view=bio-import&import=${encodeURIComponent(data.task.input_version.import_id)}`}>{t('查看生信导入与结果')}</a></p>}
+      <InsightTaskLinks task={data.task} artifact={data.artifacts.bio_insights}/><BioTaskLinks task={data.task}/><ResearchTaskLinks task={data.task} artifact={data.artifacts.research_results} reportReturn={reportReturn}/>{data.task.input_version.kind==='bio_import'&&<p><a href={`#project=${encodeURIComponent(projectId)}&section=analysis&view=bio-import&import=${encodeURIComponent(data.task.input_version.import_id)}`}>{t('查看生信导入与结果')}</a></p>}
       {data.task.error_code && (data.task.origin === 'legacy' ? <div className="warning-panel">
         <p>{t(historicalErrorReason(data.task.error_code))}</p><p>{t('此历史任务仅供查看，不支持恢复或重试。')}</p>
       </div> : <p className="warning-panel">{t(apiError({ code: data.task.error_code }, '任务暂未完成，请查看处理说明。'))}</p>)}
       </div>
-      <div hidden={!shown('actions')} className="task-actions-view"><InsightTaskLinks task={data.task} artifact={data.artifacts.bio_insights}/><BioTaskLinks task={data.task}/>{!checkingReport&&<ResearchTaskLinks task={data.task} artifact={data.artifacts.research_results} reportReturn={reportReturn}/>}{data.task.input_version.kind==='bio_import'&&<p><a href={`#project=${encodeURIComponent(projectId)}&section=analysis&view=bio-import&import=${encodeURIComponent(data.task.input_version.import_id)}`}>{t('查看生信导入与结果')}</a></p>}
+      <div hidden={!shown('actions')} className="task-actions-view"><InsightTaskLinks task={data.task} artifact={data.artifacts.bio_insights}/><BioTaskLinks task={data.task}/><ResearchTaskLinks task={data.task} artifact={data.artifacts.research_results} reportReturn={reportReturn}/>{data.task.input_version.kind==='bio_import'&&<p><a href={`#project=${encodeURIComponent(projectId)}&section=analysis&view=bio-import&import=${encodeURIComponent(data.task.input_version.import_id)}`}>{t('查看生信导入与结果')}</a></p>}
       <AnalysisActivity registerLeaveGuard={registerLeaveGuard}>
       {data.verification_failure&&<div className="warning-panel"><p>{t('云端图表数值未通过独立核对，下游成果已停止。')}</p><div className="field-table-scroll"><table className="field-table"><caption>{t('图表数值核对差异')}</caption><thead><tr>{['核对项目','本地期望','云端返回','差异原因'].map(k=><th key={k} scope="col">{t(k)}</th>)}</tr></thead><tbody>{data.verification_failure.differences.filter(d=>!/(?:sha256|digest|provenance|response|container|model_call|\.id$)/i.test(d.path)).map((d,i)=><tr key={i}><th scope="row">{d.path}</th><td>{String(d.expected??'—')}</td><td>{String(d.actual??'—')}</td><td>{d.reason??'—'}</td></tr>)}</tbody></table></div><p>{t('记录时间：')}{new Date(data.verification_failure.recorded_at).toLocaleString(locale)}</p></div>}
       {data.task.input_version.kind==='layout_docx'&&data.task.status==='failed'&&<LayoutExports active={actionActive} registerLeaveGuard={registerLeaveGuard} projectId={projectId} sourceKind={data.task.input_version.source_kind} sourceId={data.task.input_version.source_id} sourceSha256={data.task.input_version.source_sha256} sourceLabel={data.source.filename} initialOpen disabled={loading||!!error}/>}
@@ -137,7 +128,7 @@ function Detail({ projectId, taskId, onChanged, onOpenFiles, onOpenLiterature, o
       {data.task.origin !== 'legacy' && !['layout_docx','statistics_compute','pdf_export','delivery_package'].includes(data.task.task_type) && (data.task.task_type!=='bio_import'||data.task.status==='failed') && <TaskPendingAction active={actionActive} registerLeaveGuard={registerLeaveGuard} workspace={data} blocked={loading || !!error} onChanged={() => { refresh(); onChanged() }} />}
       </AnalysisActivity>
       </div>
-      <div hidden={!shown('result')} className="task-result-view"><InsightTaskLinks task={data.task} artifact={data.artifacts.bio_insights}/><BioTaskLinks task={data.task}/>{!checkingReport&&<ResearchTaskLinks task={data.task} artifact={data.artifacts.research_results} reportReturn={reportReturn}/>}{data.task.input_version.kind==='bio_import'&&<p><a href={`#project=${encodeURIComponent(projectId)}&section=analysis&view=bio-import&import=${encodeURIComponent(data.task.input_version.import_id)}`}>{t('查看生信导入与结果')}</a></p>}
+      <div hidden={!shown('result')} className="task-result-view"><InsightTaskLinks task={data.task} artifact={data.artifacts.bio_insights}/><BioTaskLinks task={data.task}/><ResearchTaskLinks task={data.task} artifact={data.artifacts.research_results} reportReturn={reportReturn}/>{data.task.input_version.kind==='bio_import'&&<p><a href={`#project=${encodeURIComponent(projectId)}&section=analysis&view=bio-import&import=${encodeURIComponent(data.task.input_version.import_id)}`}>{t('查看生信导入与结果')}</a></p>}
       <ReviewTaskOutcome task={data.task}/>
       {data.task.task_type!=='review_ocr'&&<section className="task-artifacts" aria-label={t('此任务的成果')}><h3>{t('此任务的成果')}</h3>
         {data.artifacts.literature_assistance?.result&&<article><p className="warning-panel">{translateForLocale('模型建议，尚非人工决定',data.task.input_version.output_language??locale)}</p><AssistanceResult outputLanguage={data.task.input_version.output_language} kind={data.artifacts.literature_assistance.kind} result={data.artifacts.literature_assistance.result}/></article>}

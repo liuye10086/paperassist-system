@@ -29,6 +29,8 @@ def error_category(code):
         return 'output'
     if code.startswith('bio_'):
         return 'source'
+    if code.startswith('delivery_member_') or code == 'delivery_source_mismatch':
+        return 'source'
     if code in ('storage_quota_exceeded', 'storage_disk_insufficient'):
         return 'configuration'
     if code in ('storage_accounting_unknown','storage_deletion_pending','storage_deletion_scope_unknown'):

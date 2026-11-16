@@ -59,7 +59,10 @@ class BioReaderReportExports(ResearchResultsStore):
             context = self.require(db, 'bio_report_context_versions', project, context_id)
             # The direct finding binding filters before pagination, irrespective
             # of how many reports exist elsewhere in the project.
-            scope = """FROM research_report_versions r WHERE r.project_id=%s AND r.user_id=%s
+            scope = """FROM research_report_versions r
+                LEFT JOIN tasks t ON t.id=r.task_id AND t.project_id=r.project_id
+                    AND t.user_id=r.user_id AND t.task_type='research_report'
+                WHERE r.project_id=%s AND r.user_id=%s
                 AND EXISTS (SELECT 1 FROM research_source_bindings b
                     WHERE b.finding_version_id=r.finding_version_id AND b.project_id=r.project_id
                     AND b.user_id=r.user_id AND b.source_kind='bio_report_context' AND b.source_id=%s
@@ -67,7 +70,10 @@ class BioReaderReportExports(ResearchResultsStore):
                         WHERE other.finding_version_id=b.finding_version_id AND other.project_id=b.project_id
                         AND other.user_id=b.user_id AND other.id<>b.id))"""
             parameters = (project, self.store.user_id, context_id)
-            total = db.execute('SELECT count(*) AS n ' + scope, parameters).fetchone()['n']
+            summary = db.execute("""SELECT count(*) AS total,
+                bool_or(t.id IS NULL OR t.status NOT IN ('succeeded','failed','cancelled')) AS has_active,
+                bool_or(t.status='succeeded') AS has_completed """ + scope, parameters).fetchone()
+            export_state = 'active' if summary['has_active'] else 'completed' if summary['has_completed'] else 'available'
             rows = db.execute('SELECT r.* ' + scope + ' ORDER BY r.created_at DESC,r.id LIMIT %s OFFSET %s',
                               (*parameters, PAGE_SIZE, (page - 1) * PAGE_SIZE)).fetchall()
             items = []
@@ -79,7 +85,7 @@ class BioReaderReportExports(ResearchResultsStore):
                     members = [member for member in available if member['role'] in MEMBER_ROLES
                                and member['format'] == member['role']]
                 items.append(dict(id=report['id'], task_id=task['id'], task=self.store.public_task(task), members=members))
-            return dict(items=items, total=total, page=page, page_size=PAGE_SIZE)
+            return dict(items=items, total=summary['total'], page=page, page_size=PAGE_SIZE, export_state=export_state)
 
     def _published(self, db, project, report, task):
         if task['status'] != 'succeeded' or not report['manifest_object_id']:

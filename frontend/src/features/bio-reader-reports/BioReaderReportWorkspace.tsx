@@ -45,7 +45,10 @@ export default function BioReaderReportWorkspace({projectId,navigation,deliveryT
   if(!isWorkspace(task.data,projectId,taskId)||task.data.artifacts.bio_reader_report_context_id!==context.id
     ||task.data.task.input_version.kind!=='reader_report_narrative')return <p role="alert">{t(reportIdentityError)}</p>
   const input=task.data.task.input_version
-  recovered={id:input.narrative_id,binding:input.binding_sha256,bundle:input.bundle_sha256,fingerprint:JSON.stringify(context.report)}
+  const report=task.data.artifacts.bio_reader_report_request
+  if(!report||report.finding_version_id!==context.report.finding_version_id||report.language!==context.language)
+   return <p role="alert">{t(reportIdentityError)}</p>
+  recovered={id:input.narrative_id,taskId,binding:input.binding_sha256,bundle:input.bundle_sha256,fingerprint:JSON.stringify(report),report}
  }
  const source=serializeNavigation({...homeRoute(),workspaceView:'project',projectId,section:'analysis',analysisNavigation:reportSource(context,navigation)})
  return <section className="bio-workspace">

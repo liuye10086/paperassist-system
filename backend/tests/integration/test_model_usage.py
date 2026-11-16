@@ -464,8 +464,9 @@ def test_budget_revision_missing_view_lowering_limit_and_public_projection(conte
     assert set(page) == {'currency','period','enforcement_scope','user_budget','project_budget','task_budget',
         'estimated_micro_usd','accounted_micro_usd','reconciliation','reserved_micro_usd','pending_count','items','total','page','page_size'}
     assert set(page['items'][0]) == {'id','task_type','model','status','provider_status','usage_status',
-                                   'estimated_cost_micro_usd','created_at','updated_at','reconciliation'}
+                                   'estimated_cost_micro_usd','created_at','updated_at','reconciliation','provider_provenance'}
     assert page['items'][0]['id'] == saved['id']
+    assert page['items'][0]['provider_provenance'] is None
 
 
 def test_settlement_side_effects_roll_back_together(context, monkeypatch):

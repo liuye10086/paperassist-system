@@ -4,6 +4,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator, model_serializer
 from app.domain.analysis_sources import AnyDatasetAnalysisSource
+from app.domain.research_results.contracts import ResearchReportRequest
 
 from app.domain.tasks.contracts import TaskView
 from app.domain.tasks.wait_contracts import WaitView
@@ -88,6 +89,7 @@ class TaskArtifacts(BaseModel):
     bio_cloud: dict | None = None
     bio_insights: dict | None = None
     bio_reader_report_context_id: str | None = None
+    bio_reader_report_request: ResearchReportRequest | None = None
     research_results: dict | None = None
     bioinformatics: dict | None = None
     school_rule_suggestion: dict | None = None
@@ -108,6 +110,7 @@ class TaskArtifacts(BaseModel):
         if self.reader_export is None:value.pop('reader_export',None)
         if self.bio_insights is None:value.pop('bio_insights',None)
         if self.bio_reader_report_context_id is None:value.pop('bio_reader_report_context_id',None)
+        if self.bio_reader_report_request is None:value.pop('bio_reader_report_request',None)
         if self.research_results is None:value.pop('research_results',None)
         if self.bioinformatics is None:value.pop('bioinformatics',None)
         if self.school_rule_suggestion is None:value.pop('school_rule_suggestion',None)

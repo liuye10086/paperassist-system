@@ -13,5 +13,5 @@ export function fixedExports(project='p1',context='context1',report='formal1') {
   task:{id:'export1',project_id:project,task_type:'research_report',status:'succeeded'},
   members:['docx','xlsx','zip'].map(role=>({id:'member-'+role,key:'report',role,format:role,sha256:fixedSha,size_bytes:12,
    download_url:`/api/v1/projects/${project}/bio-reader-reports/${context}/reports/${report}/members/${role}/download`}))}],
-  total:1,page:1,page_size:20}
+  total:1,page:1,page_size:20,export_state:'completed'}
 }

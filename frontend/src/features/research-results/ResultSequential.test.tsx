@@ -3,6 +3,7 @@ import {afterEach,beforeEach,expect,it,vi} from 'vitest'
 import {clearApiSession,setApiSession} from '../../shared/api/client'
 import ResearchFigureComposer from './ResearchFigureComposer'
 import ResearchReport from './ResearchReport'
+import type {Report,Source} from './contracts'
 
 beforeEach(()=>{setApiSession('csrf','owner');sessionStorage.clear()})
 afterEach(()=>{cleanup();vi.unstubAllGlobals();clearApiSession();sessionStorage.clear()})
@@ -59,11 +60,44 @@ it('chooses an existing figure by its purpose while keeping the stored member ke
  const post=fetch.mock.calls.find(([,options])=>options?.method==='POST')
  expect(JSON.parse(post?.[1]?.body as string).panels[0]).toMatchObject({source:{source_id:sourceId},member_key:memberKey})
 })
+function savedReport(sources:Source[]=[]):Report {
+ const title='Saved report'
+ return {id:'old',root_id:'root',revision:2,parent_id:'initial',task_id:'export1',
+  content:{title,language:'en',finding:{id:'finding',set_id:'set1',revision:1,parent_id:null,sha256:'a'.repeat(64),
+   content:{title,sources,facts:[],methods:[],claims:[],conflicts:[],reviews:[],limitations:[],gaps:[],warnings:[],notes:''}},
+   figures:[],tables:[]},task:{id:'export1',status:'succeeded',task_type:'research_report'},members:[],manifest:null}
+}
+
+it.each(['context1','unrelated'])('uses advisory return navigation only for the saved native source (%s)',async(reportContextId)=>{
+ const report=savedReport([{source_kind:'bio_report_context',source_id:'context1',locator:{kind:'object'}}])
+ const fetch=vi.fn(async(url:string)=>Response.json(url.endsWith('/research-reports/old')?report:{items:[],total:0,page:1,page_size:20}))
+ vi.stubGlobal('fetch',fetch)
+ const reportReturn={view:'bio-reader-report' as const,fileId:'',reportContextId,processedId:'data1',
+  entry:{requirementVersionId:'req1',scopeItemId:'customer.delivery.word'},intent:'report' as const}
+ render(<ResearchReport projectId="p1" onSelect={vi.fn()} active selectedId="old" reportReturn={reportReturn}/>)
+ const link=await screen.findByRole('link',{name:'以此报告另存新版本'})
+ const route=new URLSearchParams(link.getAttribute('href')!.slice(1))
+ expect(route.get('reportContext')).toBe('context1')
+ expect(route.get('requirement')).toBe(reportContextId==='context1'?'req1':null)
+ expect(route.get('processed')).toBe(reportContextId==='context1'?'data1':null)
+ expect(fetch.mock.calls.filter(([url])=>url.endsWith('/research-reports/old'))).toHaveLength(1)
+})
+
 it('retains an old-version pending editor across result module switches',async()=>{
  const key='paperassist.research-request.v1:owner:p1:report:old'
- sessionStorage.setItem(key,JSON.stringify({key:'old-request',url:'/api/v1/projects/p1/research-reports/root/versions',body:{retained:true}}))
- const report={id:'old',root_id:'root',revision:2,content:{title:'Saved report',language:'en',finding:{id:'finding',content:{}},figures:[]},task:{status:'succeeded'},members:[]}
- vi.stubGlobal('fetch',vi.fn(async(url:string)=>Response.json(url.endsWith('/research-reports/old')?report:{items:[],total:0,page:1,page_size:20})))
+ const report=savedReport()
+ const url='/api/v1/projects/p1/research-reports/root/versions'
+ const body={title:report.content.title,finding_version_id:report.content.finding.id,figure_version_ids:[],
+  language:report.content.language,root_id:report.root_id,expected_revision:report.revision,reader_narrative_id:'saved-narrative'}
+ sessionStorage.setItem(key,JSON.stringify({key:'old-request',url,body}))
+ const fetch=vi.fn(async(url:string,init?:RequestInit)=>{
+  if(url.endsWith('/research-reports/old'))return Response.json(report)
+  if(url.endsWith('/research-findings/set1/versions/finding'))return Response.json(report.content.finding)
+  if(url.endsWith('/research-requests/old-request?kind=report'))return new Response('',{status:404})
+  if(init?.method==='POST')return Response.json({...report,id:'new-version'})
+  return Response.json({items:[],total:0,page:1,page_size:20})
+ })
+ vi.stubGlobal('fetch',fetch)
  const props={projectId:'p1',onSelect:vi.fn()};const view=render(<ResearchReport {...props} active selectedId="old"/>);
  await screen.findByRole('button',{name:'查询原请求结果'})
  view.rerender(<ResearchReport {...props} active={false} selectedId=""/>);
@@ -71,4 +105,11 @@ it('retains an old-version pending editor across result module switches',async()
  expect(screen.getByRole('button',{name:'查询原请求结果'})).toBeTruthy()
  expect(screen.getByRole('button',{name:'返回报告版本列表'})).toHaveProperty('disabled',true)
  expect(JSON.parse(sessionStorage.getItem(key)!).key).toBe('old-request')
+ fireEvent.click(screen.getByRole('button',{name:'查询原请求结果'}))
+ fireEvent.click(await screen.findByRole('button',{name:'用原键重试固定请求'}))
+ await waitFor(()=>expect(props.onSelect).toHaveBeenCalledWith('new-version'))
+ const [postedUrl,request]=fetch.mock.calls.find(([,init])=>init?.method==='POST')!
+ expect(postedUrl).toBe(url)
+ expect(new Headers(request?.headers).get('Idempotency-Key')).toBe('old-request')
+ expect(JSON.parse(String(request?.body))).toEqual(body)
 })

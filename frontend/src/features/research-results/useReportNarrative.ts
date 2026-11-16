@@ -5,7 +5,7 @@ import {jsonRequest, projectBase, researchRequest, useResearchRead} from './api'
 import type {ReportDisclosureFact, ReportDisclosureMaterial, ReportRequest, ReportNarrative, ResearchTask} from './contracts'
 import useResearchOperation from './useResearchOperation'
 
-export type NarrativeBinding = {id: string | null; fingerprint: string; binding: string; bundle: string}
+export type NarrativeBinding = {id: string | null; fingerprint: string; binding: string; bundle: string; taskId?: string}
 type Preview = {
   bundle_sha256: string
   binding_sha256: string
@@ -48,7 +48,8 @@ export function useReportNarrative(projectId: string, scope: string, active: boo
   }, [])
   const url = matching?.id ? `${base}/${encodeURIComponent(matching.id)}` : ''
   const read = useResearchRead<NarrativeStatus>(url, active, value => ['queued', 'running'].includes(value.task.status))
-  const status = read.data?.id === matching?.id && read.data?.binding_sha256 === matching?.binding && read.data?.bundle_sha256 === matching?.bundle ? read.data : null
+  const status = read.data && matching && read.data.id === matching.id && read.data.binding_sha256 === matching.binding
+    && read.data.bundle_sha256 === matching.bundle && (!matching.taskId || read.data.task?.id === matching.taskId) ? read.data : null
   const ready = status?.task.status === 'succeeded' && status.artifact_sha256 && status.result ? status : null
   const canRegenerate = status?.task.status === 'failed' && status.can_regenerate === true
   const preview = previewState?.fingerprint === fingerprint ? previewState.value : null

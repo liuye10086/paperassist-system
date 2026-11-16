@@ -1,7 +1,7 @@
 import {cleanup,fireEvent,render,screen,waitFor} from '@testing-library/react'
 import {afterEach,beforeEach,expect,it,vi} from 'vitest'
 import {clearApiSession,setApiSession} from '../../shared/api/client'
-import BioReaderReport from './BioReaderReport'
+import BioReaderReport,{FixedBioReaderReport} from './BioReaderReport'
 import BioReaderReportWorkspace from './BioReaderReportWorkspace'
 import TaskDetail from '../tasks/TaskDetail'
 import {parseNavigation} from '../projects/projectNavigation'
@@ -37,7 +37,7 @@ function mockServer({unknown=false,saved=false}: {unknown?:boolean;saved?:boolea
   if(url===contexts+'/context1'||url.startsWith(contexts+'/requests/'))return Response.json(fixed)
   if(url===contexts+'/context1/reports?page=1')return Response.json({items:exported?[{
    id:'formal1',task_id:'export1',task:{id:'export1',project_id:'p1',task_type:'research_report',status:'succeeded'},members,
-  }]:[],total:Number(exported),page:1,page_size:20})
+  }]:[],total:Number(exported),page:1,page_size:20,export_state:exported?'completed':'available'})
   if(url===narratives+'/preview')return Response.json({bundle_sha256:sha,binding_sha256:binding,model:'fixture-model',
    reserved_micro_usd:2000,fact_count:0,figures:[],real_calls_enabled:true})
   if(url===narratives||url===narratives+'/narr1')return Response.json(success)
@@ -133,6 +133,104 @@ const returnNavigation={view:'bio-reader-report',fileId:'',reportContextId:'cont
 const context=fixedContext({title:'Selected annotated report',language:'en',
  selection:{...selection,annotation_version_id:'ann-old',figure_version_ids:['fig2','fig1']}})
 
+const failedExport={id:'failed1',task_id:'failure1',
+ task:{id:'failure1',project_id:'p1',task_type:'research_report',status:'failed',error_code:'report_render_failed'},members:[]}
+
+it('exports again with the saved interpretation and a new key after each failed export',async()=>{
+ const historyUrl=contexts+'/context1/reports?page=1',reportUrl=base+'/research-reports'
+ const items=[failedExport]
+ let finishHistory:()=>void=()=>{},waitForHistory=false
+ const fetch=vi.fn(async(url:string,_init?:RequestInit)=>{
+  if(url===historyUrl){
+   if(waitForHistory){
+    waitForHistory=false
+    await new Promise<void>(resolve=>{finishHistory=resolve})
+   }
+   return Response.json({items,total:items.length,page:1,page_size:20,export_state:'available'})
+  }
+  if(url===narratives+'/narr1')return Response.json(success)
+  if(url===reportUrl){
+   waitForHistory=items.length===1
+   const id='failed'+(items.length+1),taskId='failure'+(items.length+1)
+   items.unshift({...failedExport,id,task_id:taskId,task:{...failedExport.task,id:taskId}})
+   return Response.json({id})
+  }
+  return Response.json({}, {status:404})
+ })
+ vi.stubGlobal('fetch',fetch)
+ render(<FixedBioReaderReport projectId="p1" context={context} recovered={{id:'narr1',
+  fingerprint:JSON.stringify(context.report),binding,bundle:sha,report:context.report}}/>)
+
+ await screen.findByText('Saved exact interpretation')
+ expect(screen.getByText(/执行失败/)).toBeTruthy()
+ const generate=()=>screen.getByRole('button',{name:'生成固定报告与成果包'})
+ expect(generate()).toHaveProperty('disabled',false)
+ fireEvent.click(generate())
+ await waitFor(()=>expect(fetch.mock.calls.filter(([url])=>url===historyUrl)).toHaveLength(2))
+ expect(generate()).toHaveProperty('disabled',true)
+ fireEvent.click(generate())
+ expect(fetch.mock.calls.filter(([url])=>url===reportUrl)).toHaveLength(1)
+ finishHistory()
+ await waitFor(()=>expect(generate()).toHaveProperty('disabled',false))
+ fireEvent.click(generate())
+
+ const requests=fetch.mock.calls.filter(([,init])=>init?.method==='POST')
+ expect(requests.map(([url])=>url)).toEqual([reportUrl,reportUrl])
+ expect(new Set(requests.map(([,init])=>new Headers(init?.headers).get('Idempotency-Key'))).size).toBe(2)
+ for(const [,init] of requests)expect(JSON.parse(String(init?.body))).toEqual({...context.report,reader_narrative_id:'narr1'})
+ await waitFor(()=>expect(screen.getAllByText(/执行失败/)).toHaveLength(3))
+})
+
+it.each(['active','completed'])('blocks duplicate export when the %s report is on an older page',async(export_state)=>{
+ const reportUrl=contexts+'/context1/reports?page='
+ const oldItem=export_state==='active'?{...failedExport,id:'formal1',task:{...failedExport.task,status:'running'}}:fixedExports().items[0]
+ const fetch=vi.fn(async(url:string)=>{
+  if(url===narratives+'/narr1')return Response.json(success)
+  const page=Number(url.slice(reportUrl.length))
+  return Response.json({items:[page===1?failedExport:oldItem],total:2,page,page_size:1,export_state})
+ })
+ vi.stubGlobal('fetch',fetch)
+ render(<FixedBioReaderReport projectId="p1" context={context} recovered={{id:'narr1',
+  fingerprint:JSON.stringify(context.report),binding,bundle:sha,report:context.report}}/>)
+ await screen.findByText(/执行失败/)
+ expect(screen.queryByRole('button',{name:'生成固定报告与成果包'})).toBeNull()
+ click('下一页')
+ await screen.findByText(export_state==='active'?/运行中/:/已完成/)
+ click('上一页')
+ await screen.findByText(/执行失败/)
+ expect(screen.queryByRole('button',{name:'生成固定报告与成果包'})).toBeNull()
+})
+
+it('keeps interpretation preparation available after failed history without making an automatic request',async()=>{
+ const fetch=vi.fn(async(_url:string)=>Response.json({items:[failedExport],total:1,page:1,page_size:20,export_state:'available'}))
+ vi.stubGlobal('fetch',fetch)
+ render(<FixedBioReaderReport projectId="p1" context={context}/>)
+ expect(await screen.findByRole('button',{name:'生成详细解读'})).toHaveProperty('disabled',false)
+ expect(screen.getByRole('button',{name:'生成固定报告与成果包'})).toHaveProperty('disabled',true)
+ expect(fetch.mock.calls.map(([url])=>url)).toEqual([contexts+'/context1/reports?page=1'])
+})
+
+it('refreshes a previously read interpretation after a transient read error',async()=>{
+ const context=fixedContext({title:projection.title,language:'en',selection:{...selection,figure_version_ids:[]}})
+ const recovered={id:'narr1',fingerprint:JSON.stringify(context.report),binding,bundle:sha,report:context.report}
+ let unavailable=false
+ vi.stubGlobal('fetch',vi.fn(async(url:string)=>{
+  if(url===narratives+'/narr1')return unavailable?new Response('',{status:503}):Response.json(success)
+  return Response.json({items:[],total:0,page:1,page_size:20,export_state:'available'})
+ }))
+ const generate=()=>screen.getByRole('button',{name:'生成固定报告与成果包'})
+ const view=render(<FixedBioReaderReport projectId="p1" context={context} recovered={recovered}/>)
+ await waitFor(()=>expect(generate()).toHaveProperty('disabled',false))
+ unavailable=true
+ view.rerender(<FixedBioReaderReport projectId="p1" context={context} recovered={recovered} active={false}/>)
+ view.rerender(<FixedBioReaderReport projectId="p1" context={context} recovered={recovered}/>)
+ await screen.findByRole('alert')
+ expect(generate()).toHaveProperty('disabled',true)
+ unavailable=false
+ click('刷新解读状态')
+ await waitFor(()=>expect(generate()).toHaveProperty('disabled',false))
+})
+
 it('reopens original report language, figure order and file while keeping edited materials in a draft',async()=>{
  const restored=fixedContext({title:'Saved English report',language:'en',selection:{...selection,figure_version_ids:['fig2','fig1']}})
  vi.stubGlobal('fetch',vi.fn(async()=>Response.json(fixedExports())))
@@ -178,10 +276,10 @@ it('preserves submitted demand and Bulk enrichment source during a round trip th
    narrative_id:'narr1',binding_sha256:binding,bundle_sha256:sha}}
  vi.stubGlobal('fetch',vi.fn(async(url:string)=>{
   if(url.endsWith('/task1/workspace'))return Response.json({...workspaceFixture,task,wait:null,allowed_actions:[],
-   source:{file_id:null,filename:'Selected report',analysis_run_id:null,is_current:true},
-   artifacts:{...workspaceFixture.artifacts,bio_reader_report_context_id:'context1'}})
+   source:{file_id:null,filename:fixed.report.title,analysis_run_id:null,is_current:true},
+   artifacts:{...workspaceFixture.artifacts,bio_reader_report_context_id:'context1',bio_reader_report_request:fixed.report}})
   if(url===narratives+'/narr1')return Response.json(success)
-  return Response.json(url.endsWith('/reports?page=1')?{items:[],total:0,page:1,page_size:20}:fixed)
+  return Response.json(url.endsWith('/reports?page=1')?{items:[],total:0,page:1,page_size:20,export_state:'available'}:fixed)
  }))
  const navigation={...returnNavigation,processedId:undefined,tab:undefined,resultVersionId:'ora1',reportTaskId:'task1'}
  const start=render(<BioReaderReportWorkspace projectId="p1" navigation={navigation}/>)
@@ -233,10 +331,10 @@ it.each(['context1','unrelated'])('restores a task only when the server binds it
    narrative_id:'narr1',binding_sha256:binding,bundle_sha256:sha}}
  const fetch=vi.fn(async(url:string)=>{
   if(url.endsWith('/task1/workspace'))return Response.json({...workspaceFixture,task,wait:null,allowed_actions:[],
-   source:{file_id:null,filename:'Selected report',analysis_run_id:null,is_current:true},
-   artifacts:{...workspaceFixture.artifacts,bio_reader_report_context_id:taskContext}})
+   source:{file_id:null,filename:context.report.title,analysis_run_id:null,is_current:true},
+   artifacts:{...workspaceFixture.artifacts,bio_reader_report_context_id:taskContext,bio_reader_report_request:context.report}})
   if(url===narratives+'/narr1')return Response.json(success)
-  return Response.json(url.endsWith('/reports?page=1')?{items:[],total:0,page:1,page_size:20}:context)
+  return Response.json(url.endsWith('/reports?page=1')?{items:[],total:0,page:1,page_size:20,export_state:'available'}:context)
  })
  vi.stubGlobal('fetch',fetch)
  render(<BioReaderReportWorkspace projectId="p1" navigation={{...returnNavigation,reportTaskId:'task1'}}/>)

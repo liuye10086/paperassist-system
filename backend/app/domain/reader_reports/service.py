@@ -13,7 +13,7 @@ from app.domain.model_usage.provenance import public_provider_provenance
 from app.domain.model_usage.service import TERMINAL
 from app.domain.research_results.contracts import ResearchReportRequest
 
-from .contracts import CALL_KEY, TASK_TYPE, WORKFLOW, NarrativeRequest, ReaderReportInputVersion
+from .contracts import CALL_KEY, RETRYABLE_FAILURES, TASK_TYPE, WORKFLOW, NarrativeRequest, ReaderReportInputVersion
 
 
 def input_version(task):
@@ -76,15 +76,34 @@ class ReaderReportService(ResearchResultsStore):
         content, files, figures = self._base(db, project, report, check_revision=True)
         return binding_digest(content), files, bundle(_material(content, figures))
 
-    def _reusable(self, db, project, binding, bundle_sha):
+    def _lock_binding(self, db, project, binding, bundle_sha):
+        self.lock(db, project, 'reader-report-binding:' + digest([binding, bundle_sha]))
+
+    def _reusable(self, db, project, binding, bundle_sha, *, exclude_id=None, reuse_reservation=False,
+                  ignore_unreserved_budget_wait=False):
         return db.execute("""SELECT n.id,t.status FROM reader_report_narratives n JOIN tasks t ON t.id=n.task_id
             LEFT JOIN model_calls c ON c.task_id=t.id AND c.project_id=t.project_id AND c.user_id=t.user_id AND c.call_key=%s
             WHERE n.project_id=%s AND n.user_id=%s AND n.binding_sha256=%s AND n.bundle_sha256=%s
+              AND n.id IS DISTINCT FROM %s
+              AND NOT (%s AND t.status='waiting_confirmation' AND t.reason_code IS NOT DISTINCT FROM 'budget_exceeded'
+                       AND c.id IS NULL)
               AND (t.status IN ('succeeded','queued','running','waiting_confirmation')
                    OR (t.status='failed' AND (n.result_json IS NULL OR COALESCE(c.provider_status,'') <> ALL(%s))
-                       AND (c.provider_response_id IS NOT NULL OR c.status IN ('submitting','submission_unknown'))))
-            ORDER BY (t.status='succeeded') DESC,n.created_at,n.id LIMIT 1""",
-            (CALL_KEY, project, self.store.user_id, binding, bundle_sha, sorted(TERMINAL))).fetchone()
+                       AND (c.provider_response_id IS NOT NULL OR c.status IN ('submitting','submission_unknown')))
+                   OR (%s AND t.status='failed' AND n.result_json IS NULL AND t.error_code=ANY(%s)
+                       AND c.status='reserved' AND c.provider_response_id IS NULL))
+            ORDER BY (t.status='succeeded') DESC,(c.status='reserved' AND t.status='failed') ASC NULLS FIRST,
+                     n.created_at,n.id LIMIT 1""",
+            (CALL_KEY, project, self.store.user_id, binding, bundle_sha, exclude_id, ignore_unreserved_budget_wait,
+             sorted(TERMINAL), reuse_reservation, list(RETRYABLE_FAILURES))).fetchone()
+
+    def require_no_replacement(self, db, row, *, has_reservation):
+        project, binding, bundle = (row[key] for key in ('project_id', 'binding_sha256', 'bundle_sha256'))
+        self._lock_binding(db, project, binding, bundle)
+        # A legacy replacement waiting for a second reservation must not trap the original hold.
+        if self._reusable(db, project, binding, bundle, exclude_id=row['id'],
+                          ignore_unreserved_budget_wait=has_reservation):
+            raise StorageError('task_revision_conflict', '已有相同材料和策略的解读任务，请在任务列表查看该任务。', 409)
 
     def preview(self, project, report):
         with self.store.connection() as db:
@@ -125,8 +144,10 @@ class ReaderReportService(ResearchResultsStore):
                 raise source_conflict()
             from app.domain.storage_governance.guards import require_scope_open
             require_scope_open(db, project, file_ids=files)
-            self.lock(db, project, 'reader-report-binding:' + digest([binding, request.bundle_sha256]))
-            old = self._reusable(db, project, binding, request.bundle_sha256)
+            self._lock_binding(db, project, binding, request.bundle_sha256)
+            # A retry can reuse a pre-submit hold. Creating another task would
+            # require a second reservation for the same confirmed material.
+            old = self._reusable(db, project, binding, request.bundle_sha256, reuse_reservation=True)
             if old:
                 identifier, status = old['id'], 200
             else:
