@@ -58,19 +58,26 @@ class LiveWritingService:
         kind = request.get('article_type')
         if request['schema_version'] != 4 or request.get('document_kind') != 'sci' or kind not in ('research', 'narrative_review'):
             raise StorageError('customer_operation_forbidden', 'SCI 客户写作须使用受控的研究型论文或综述流程。', 403)
-        intake = db.execute('SELECT sci_settings_json FROM research_intakes WHERE project_id=%s', (project,)).fetchone()
-        settings = intake['sci_settings_json'] if intake else None
-        if settings and settings['article_type'] != kind:
+        plan = snapshot.get('paper_plan')
+        if plan:
+            expected = plan['kind']
+        else:
+            intake = db.execute('SELECT sci_settings_json FROM research_intakes WHERE project_id=%s', (project,)).fetchone()
+            settings = intake['sci_settings_json'] if intake else None
+            expected = settings['article_type'] if settings else kind
+        if expected != kind:
             raise StorageError('manuscript_article_type_changed', '论文类型与项目资料不一致，请重新准备写作预览。', 422)
         if kind == 'narrative_review':
             if not request['selected_evidence_ids']:
                 raise StorageError('manuscript_writing_evidence_required', '综述须选择至少一项已核验文献证据。', 422)
             return
         selected = set(request['selected_source_ids'])
+        from .paper_context import is_note
         supported_result = any(
             paragraph['source_ids'] and set(paragraph['source_ids']) <= selected
             for group in snapshot['results_groups'] for paragraph in group['paragraphs']
-            if paragraph['origin'] == 'computed_result' or paragraph['id'] == 'results:reported'
+            if (paragraph['origin'] == 'computed_result' or paragraph['id'] == 'results:reported'
+                or snapshot.get('paper_plan', {}).get('kind') == 'research' and is_note(paragraph))
         )
         from app.domain.manuscripts.research_sources import KINDS
         fixed_research = any(source['id'] in selected and source['kind'] in KINDS and source['content'].get('facts')

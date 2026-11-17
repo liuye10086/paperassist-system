@@ -28,7 +28,7 @@ def readiness(service,db,project):
     return result
 
 
-def freeze_context(service,project,request,*,document_context=None):
+def freeze_context(service,project,request,*,document_context=None,paper_plan=None):
     with service.store.connection() as db:
         project_row=service.require_project(db,project)
         if (document_context or {}).get('document_kind',project_row['project_type'])!='thesis' or request.thesis is None:
@@ -41,6 +41,15 @@ def freeze_context(service,project,request,*,document_context=None):
             raise StorageError('task_input_invalid','章节用途必须按固定确认版完整对应。',422)
         if sum(m.purpose=='references' for m in selected.chapter_mappings)>1:raise StorageError('task_input_invalid','共用引用清单只能映射一个参考文献章节。',422)
         groups={g.id for g in request.results_groups};used=[];chapters=[]
+        if paper_plan is not None:
+            from .paper_plan import result_sections
+            groups.update(section['id'] for section in result_sections(paper_plan))
+            mappings={mapping.chapter_id: mapping for mapping in selected.chapter_mappings}
+            for section in paper_plan['sections']:
+                mapping=mappings[section['chapter_id']]
+                if (mapping.purpose!=section['purpose'] or
+                    section['purpose']=='results' and section['id'] not in mapping.result_group_ids):
+                    raise StorageError('task_input_invalid','毕业论文需求的内容与图表须保留在对应的学校章节。',422)
         if request.reported_result:groups.add('reported-result')
         for chapter,mapping in zip(current['chapters'],selected.chapter_mappings):
             if (mapping.result_group_ids and mapping.purpose!='results') or not set(mapping.result_group_ids)<=groups:
@@ -86,7 +95,13 @@ def current_changes(service,project,snapshot):
     with service.store.connection() as db:
         state=readiness(service,db,project)
     reasons=[]
-    if state['profile']!=context['profile']:reasons.append('school_profile_changed')
+    current_profile, fixed_profile=state['profile'],context['profile']
+    if snapshot.get('paper_plan'):
+        # Saving writing requirements also advances the shared profile revision.
+        # A fixed manuscript still uses the same school settings in that case.
+        current_profile={key:value for key,value in current_profile.items() if key!='revision'}
+        fixed_profile={key:value for key,value in fixed_profile.items() if key!='revision'}
+    if current_profile!=fixed_profile:reasons.append('school_profile_changed')
     if state['confirmation_id']!=context['confirmation_id']:reasons.append('school_confirmation_changed')
     reasons.extend(state['blocking_reasons'])
     return [dict(kind='school_configuration',id=context['confirmation_id'],reasons=reasons)] if reasons else []

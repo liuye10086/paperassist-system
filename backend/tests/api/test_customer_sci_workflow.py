@@ -18,7 +18,11 @@ from tests.api.test_manuscripts import body
 
 
 def sci_project(client, kind='research', key='sci'):
-    settings = SCI_SETTINGS | {'article_type': kind}
+    settings = SCI_SETTINGS.copy()
+    if kind == 'narrative_review':
+        settings['article_type'] = kind
+        settings.pop('figure_findings')
+        settings['review_sections'] = [dict(id='synthetic-section-1', heading='Research themes', content='Synthetic scope')]
     return project_path(create(client, key, **project_body('sci', sci_settings=settings)))
 
 

@@ -2,9 +2,9 @@ import LiteratureChecks from './LiteratureChecks'
 import EvidenceWorkspace from './EvidenceWorkspace'
 import CitationWorkspace from './CitationWorkspace'
 import SavedSearchContext from './SavedSearchContext'
-import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { useEffect, useId, useRef, useState, type FormEvent } from 'react'
 import { onApiSessionChanged } from '../../shared/api/client'
-import { safeError, translateForLocale, useI18n } from '../../shared/i18n'
+import { apiError, safeError, translateForLocale, useI18n } from '../../shared/i18n'
 import ProjectDownloadLink from '../../shared/components/ProjectDownloadLink'
 import { isTask, taskDisplayName, type TaskView } from '../tasks/taskTypes'
 import { TaskRequestError } from '../tasks/taskApi'
@@ -13,8 +13,9 @@ import type { LiteratureNavigation, LiteratureView } from '../projects/literatur
 import type { RegisterLeaveGuard } from '../projects/useDraftLeaveGuard'
 import {LiteratureActivity} from './LiteratureActivity'
 import {useLiteratureActive,useLiteratureLeaveGuard} from './literatureActivityContext'
+import { suggestManualPubMedQuery, suggestPubMedQuery } from './pubmedKeywords'
 import './literature.css'
-type Props={customerSci?:boolean;initialQuery?:string;projectId:string;researchTopic:string;outputLanguage?:string;active:boolean;initialSearchId?:string;onOpenTask?:(id:string)=>void;onSearchChange?:(id:string)=>void;literatureNavigation?:LiteratureNavigation;onLiteratureNavigate?:(next:LiteratureNavigation)=>void;registerLeaveGuard?:RegisterLeaveGuard}
+type Props={customerSci?:boolean;projectKeywords?:readonly string[];projectId:string;researchTopic:string;outputLanguage?:string;active:boolean;initialSearchId?:string;onOpenTask?:(id:string)=>void;onSearchChange?:(id:string)=>void;literatureNavigation?:LiteratureNavigation;onLiteratureNavigate?:(next:LiteratureNavigation)=>void;registerLeaveGuard?:RegisterLeaveGuard}
 export default function ProjectLiterature(props:Props){return <Scope key={props.projectId} {...props}/>}
 function Scope(props:Props){const {t}=useI18n();const [valid,setValid]=useState(true);const [visited,setVisited]=useState(props.active);if(props.active&&!visited)setVisited(true);useEffect(()=>onApiSessionChanged(()=>setValid(false)),[]);return valid?visited?<div hidden={!props.active}><LiteratureActivity active={props.active} register={props.registerLeaveGuard}><Literature {...props}/></LiteratureActivity></div>:null:<p hidden={!props.active} role="alert">{t('会话已失效，请重新登录。')}</p>}
 function useResource<T>(url:string|null,valid:(v:unknown)=>v is T,revision:number,onDenied:()=>void,onLoaded?:(data:T)=>void){
@@ -29,8 +30,10 @@ function useResource<T>(url:string|null,valid:(v:unknown)=>v is T,revision:numbe
  return state.key===key?state:{key,data:null,error:'',loading:!!url}
 }
 function Pagination({page,total,label,onPage,disabled=false}:{page:number;total:number;label:string;onPage:(p:number)=>void;disabled?:boolean}){const {t}=useI18n();const pages=Math.max(1,Math.ceil(total/10));return <nav className="literature-pagination" aria-label={t(label)}><span>{t('共 {total} 项 · 第 {page} / {pages} 页',{total,page,pages})}</span><button type="button" disabled={disabled||page<=1} onClick={()=>onPage(page-1)}>{t('上一页')}</button><button type="button" disabled={disabled||page>=pages} onClick={()=>onPage(page+1)}>{t('下一页')}</button></nav>}
-function Literature({projectId,researchTopic,outputLanguage,onOpenTask,initialSearchId,onSearchChange,literatureNavigation,onLiteratureNavigate,customerSci=false,initialQuery=''}:Props){
+function Literature({projectId,researchTopic,outputLanguage,onOpenTask,initialSearchId,onSearchChange,literatureNavigation,onLiteratureNavigate,customerSci=false,projectKeywords=[]}:Props){
  const {t,locale}=useI18n();const base=basePath(projectId)
+ const queryHint=useId()
+ const keywordSuggestion=suggestPubMedQuery(projectKeywords)
  const [localNavigation,setLocalNavigation]=useState<LiteratureNavigation>({view:'list',referenceId:''});const navigation=literatureNavigation??localNavigation;const view=navigation.view;
  const [visited,setVisited]=useState<Set<LiteratureView>>(()=>new Set([view]));
  const [details,setDetails]=useState<{referenceId:string;searchId:string}[]>([]);
@@ -41,7 +44,9 @@ function Literature({projectId,researchTopic,outputLanguage,onOpenTask,initialSe
  const [localSearchId,setSearchId]=useState(initialSearchId??'');const searchId=initialSearchId===undefined?localSearchId:initialSearchId;const [selection,setSelection]=useState('');const detailId=navigation.referenceId;
  const [previousSearch,setPreviousSearch]=useState(initialSearchId);if(previousSearch!==initialSearchId){setPreviousSearch(initialSearchId);setSearchId(initialSearchId??'');setCandidatePage(1)}
  if(view==='detail'&&detailId&&!details.some(d=>d.referenceId===detailId&&d.searchId===searchId))setDetails([...details,{referenceId:detailId,searchId}])
- const [input,setInput]=useState<SearchInput>({research_topic:researchTopic,source_context:{kind:'project_topic',label:'',text:researchTopic},query:initialQuery.slice(0,4000),year_from:null,year_to:null,publication_types:[],sort:'relevance',limit:20,output_language:outputLanguage==='en'?'en':'zh-CN'})
+ const [input,setInput]=useState<SearchInput>({research_topic:researchTopic,source_context:{kind:'project_topic',label:'',text:researchTopic},query:keywordSuggestion.query,year_from:null,year_to:null,publication_types:[],sort:'relevance',limit:20,output_language:outputLanguage==='en'?'en':'zh-CN'})
+ const manualSuggestion=suggestManualPubMedQuery(input.query)
+ const queryTranslation=manualSuggestion&&!manualSuggestion.omitted.length?manualSuggestion.query:''
  const [inputBaseline,setInputBaseline]=useState(JSON.stringify(input));const [uncertain,setUncertain]=useState(false);
  const [busy,setBusy]=useState(false);useLiteratureLeaveGuard(JSON.stringify(input)!==inputBaseline||uncertain,busy);const [error,setError]=useState('');const [saved,setSaved]=useState<TaskView|null>(null)
  const replay=useRef<{signature:string;key:string}|null>(null);const request=useRef<AbortController|null>(null);const mounted=useRef(true)
@@ -49,17 +54,22 @@ function Literature({projectId,researchTopic,outputLanguage,onOpenTask,initialSe
  const config=useResource<Configuration>(denied?null:`${base}/config`,validConfig,revision,deny)
  const history=useResource<Page<Search>>(denied?null:`${base}/searches?page=${historyPage}`,v=>validPage(v,projectId,historyPage,x=>validSearch(x,projectId)),revision,deny,data=>{const last=Math.max(1,Math.ceil(data.total/10));if(historyPage>last)setHistoryPage(last)})
  const search=useResource<Search>(!denied&&searchId?`${base}/searches/${encodeURIComponent(searchId)}`:null,(v):v is Search=>validSearch(v,projectId)&&v.id===searchId,revision,deny)
+ const selectedSearch=search.data
  const params=new URLSearchParams({page:String(candidatePage)});if(searchId)params.set('search_id',searchId);if(selection)params.set('selection',selection)
  const candidates=useResource<Page<Reference>>(denied?null:`${base}/references?${params}`,v=>validPage(v,projectId,candidatePage,x=>validReference(x,projectId)),revision,deny,data=>{const last=Math.max(1,Math.ceil(data.total/10));if(candidatePage>last)setCandidatePage(last)})
  function refresh(){setRevision(r=>r+1)}
  function chooseSearch(id:string){setSearchId(id);onSearchChange?.(id);setCandidatePage(1);navigate({view:'list',referenceId:''})}
  function edit<K extends keyof SearchInput>(key:K,value:SearchInput[K]){setInput(old=>({...old,[key]:value}));setSaved(null);setError('')}
+ function editSavedSearch(search:Search){
+  setInput(structuredClone(search.input));setSaved(null);setError('')
+  navigate({view:'search',referenceId:''})
+ }
  async function create(event:FormEvent){event.preventDefault();if(request.current||denied)return
- const body={...input,research_topic:input.research_topic.trim(),query:input.query.trim()}
+ const body={...input,research_topic:input.research_topic.trim(),query:queryTranslation||input.query.trim()}
  if(!validSearchInput(body)){setError('请检查研究主题、检索式和年份范围。');return}
  const signature=JSON.stringify(body);if(replay.current?.signature!==signature)replay.current={signature,key:crypto.randomUUID()}
  const controller=new AbortController();request.current=controller;setBusy(true);setError('');setSaved(null)
- try{const task=await literatureRequest(`${base}/searches`,controller,(v):v is TaskView=>isTask(v,projectId)&&v.task_type==='literature_search',{method:'POST',headers:{'Content-Type':'application/json','Idempotency-Key':replay.current.key},body:signature});if(mounted.current&&!controller.signal.aborted){setSaved(task);setInputBaseline(signature);setUncertain(false);refresh()}}
+ try{const task=await literatureRequest(`${base}/searches`,controller,(v):v is TaskView=>isTask(v,projectId)&&v.task_type==='literature_search',{method:'POST',headers:{'Content-Type':'application/json','Idempotency-Key':replay.current.key},body:signature});if(mounted.current&&!controller.signal.aborted){setSaved(task);setInput(body);setInputBaseline(signature);setUncertain(false);refresh()}}
  catch(cause){if(mounted.current){if(cause instanceof TaskRequestError&&cause.status===403)deny();setUncertain(true);setError('检索提交结果未确认，请先刷新历史；相同输入重试沿用请求标识。')}}
  finally{if(request.current===controller)request.current=null;if(mounted.current)setBusy(false)}
  }
@@ -78,25 +88,73 @@ function Literature({projectId,researchTopic,outputLanguage,onOpenTask,initialSe
  <div className="project-fields"><label>{t('来源类型')}<select value={input.source_context.kind} onChange={e=>edit('source_context',{...input.source_context,kind:e.target.value as SearchInput['source_context']['kind']})}><option value="project_topic">{t('项目研究主题')}</option><option value="section">{t('论文章节')}</option>{!customerSci&&<option value="feedback">{t('导师或审稿反馈')}</option>}</select></label><label>{t('来源标签')}<input maxLength={200} value={input.source_context.label} onChange={e=>edit('source_context',{...input.source_context,label:e.target.value})}/></label></div>
  <label>{t('来源文本快照')}<textarea maxLength={6000} value={input.source_context.text} onChange={e=>edit('source_context',{...input.source_context,text:e.target.value})}/></label>
  <p className="muted">{t('检索依据按本次填写保存，后续修改不会改写历史。')}</p>
- <label>{t('PubMed 检索式')}<textarea required maxLength={4000} value={input.query} onChange={e=>edit('query',e.target.value)} placeholder="(topic[Title/Abstract]) AND (population[Title/Abstract])"/></label>
+ <div className="literature-search-query">
+   <label>{t('PubMed 检索式')}<textarea required maxLength={4000} value={input.query} onChange={e=>edit('query',e.target.value)}
+     aria-describedby={queryHint} placeholder="single cell RNA sequencing AND (batch effects OR batch correction)"/></label>
+   <div id={queryHint} className="muted literature-search-query">
+     {keywordSuggestion.hasSecondaryTerms && <small>{t('项目关键词建议式匹配第一个可用概念和任一其他可用概念。')}</small>}
+     {keywordSuggestion.omitted.length>0 && <small>{t('建议式暂缺这些关键词的英文写法（{keywords}）。请补充到检索式中。', {keywords:keywordSuggestion.omitted.join(' · ')})}</small>}
+     {keywordSuggestion.tooLong && <small>{t('关键词建议式超过 4000 字符，请选取主要概念填写检索式。')}</small>}
+     {queryTranslation&&<small>{t('检索将使用以下英文词组')} <span>{queryTranslation}</span></small>}
+     {!!manualSuggestion?.omitted.length&&<small>{t('请为这些手填关键词补充英文写法（{keywords}）。',{keywords:manualSuggestion.omitted.join(' · ')})}</small>}
+     <small>{t('可直接填写英文检索词、PubMed 字段标签或 PMID。')}</small>
+   </div>
+   {keywordSuggestion.query && input.query!==keywordSuggestion.query && <button type="button" onClick={()=>edit('query',keywordSuggestion.query)}>
+     {t('填入项目关键词建议式')}
+   </button>}
+ </div>
  <div className="literature-condition-grid"><label>{t('起始年份')}<input type="number" min={1800} max={3000} step={1} placeholder={t('不限')} value={input.year_from??''} onChange={e=>edit('year_from',e.target.value===''?null:Number(e.target.value))}/></label><label>{t('结束年份')}<input type="number" min={1800} max={3000} step={1} placeholder={t('不限')} value={input.year_to??''} onChange={e=>edit('year_to',e.target.value===''?null:Number(e.target.value))}/></label>
  <label>{t('排序方式')}<select value={input.sort} onChange={e=>edit('sort',e.target.value as SearchInput['sort'])}><option value="relevance">{t('相关性')}</option><option value="pub_date">{t('发表日期')}</option></select></label>
  <label>{t('候选数量上限')}<select value={input.limit} onChange={e=>edit('limit',Number(e.target.value) as SearchInput['limit'])}>{[20,50,100].map(n=><option key={n} value={n}>{n}</option>)}</select></label>
  <label>{t('检索输出语言')}<select value={input.output_language} onChange={e=>edit('output_language',e.target.value as SearchInput['output_language'])}><option value="zh-CN">{t('简体中文')}</option><option value="en">English</option></select></label></div>
  <fieldset className="literature-types"><legend>{t('文献类型（默认不限）')}</legend>{publicationTypes.map(type=><label key={type}><input type="checkbox" checked={input.publication_types.includes(type)} onChange={e=>edit('publication_types',e.target.checked?[...input.publication_types,type]:input.publication_types.filter(v=>v!==type))}/>{t(publicationTypeLabel(type))}</label>)}</fieldset>
- <p className="muted">{t('自动补搜：0。修改条件后创建新任务，历史输入保留。')} · <a href="https://www.ncbi.nlm.nih.gov/About/disclaimer.html" target="_blank" rel="noopener noreferrer">{t('NCBI 使用与版权说明')}</a></p>
+ <p className="muted"><a href="https://www.ncbi.nlm.nih.gov/About/disclaimer.html" target="_blank" rel="noopener noreferrer">{t('NCBI 使用与版权说明')}</a></p>
  <p className="muted">{t('PubMed 主要覆盖生物医学，全文可得性以实际取得为准。')}</p>
  <button type="submit" className="button-primary">{t(busy?'正在保存检索……':'保存检索并创建任务')}</button>
  </fieldset></form>
- {error&&<p role="alert" className="error-panel">{t(error)}</p>}{saved&&<div role="status"><p>{t('检索任务已保存。')}</p><TaskEntry customerSci={customerSci} projectId={projectId} taskId={saved.id} onOpenTask={onOpenTask}/></div>}
+ {error&&<p role="alert" className="error-panel">{t(error)}</p>}{saved&&<div><p role="status">{t('检索任务已保存。')}</p>
+   <div className="literature-actions"><button type="button" onClick={()=>chooseSearch(saved.id)}>{t('查看本次检索')}</button>
+     <TaskEntry customerSci={customerSci} projectId={projectId} taskId={saved.id} onOpenTask={onOpenTask}/></div>
+ </div>}
  </div>
  <div hidden={view!=='history'} className="literature-task-view">
  <section className="literature-panel" aria-label={t('检索历史')}>{history.loading&&<p role="status">{t('正在读取检索历史……')}</p>}{history.error&&<p role="alert">{t(history.error)}</p>}
- {history.data&&<>{!history.data.items.length&&<p>{t('尚无检索记录。')}</p>}<ol className="literature-history">{history.data.items.map(item=><li key={item.id}><strong>{item.input.research_topic}</strong><p className="literature-original">{item.input.query}</p><span>{translateForLocale(taskDisplayName(item.task),item.input.output_language)} · {new Date(item.created_at).toLocaleString(locale)} · {translateForLocale('已获取 {count} 篇',item.input.output_language,{count:item.retrieved_count})}</span><div className="literature-actions"><button type="button" onClick={()=>chooseSearch(item.id)}>{t('查看本次检索')}</button><button type="button" disabled={busy} onClick={()=>{setInput(structuredClone(item.input));setSaved(null);setError('');navigate({view:'search',referenceId:''})}}>{t('编辑后重新检索')}</button><TaskEntry customerSci={customerSci} projectId={projectId} taskId={item.task.id} onOpenTask={onOpenTask}/></div></li>)}</ol><Pagination page={historyPage} total={history.data.total} label="检索历史分页" onPage={setHistoryPage} disabled={history.loading}/></>}
+ {history.data&&<>{!history.data.items.length&&<p>{t('尚无检索记录。')}</p>}<ol className="literature-history">{history.data.items.map(item=><li key={item.id}><strong>{item.input.research_topic}</strong><p className="literature-original">{item.input.query}</p><span>{translateForLocale(taskDisplayName(item.task),item.input.output_language)} · {new Date(item.created_at).toLocaleString(locale)} · {translateForLocale('已获取 {count} 篇',item.input.output_language,{count:item.retrieved_count})}</span><div className="literature-actions"><button type="button" onClick={()=>chooseSearch(item.id)}>{t('查看本次检索')}</button><button type="button" disabled={busy} onClick={()=>editSavedSearch(item)}>{t('编辑后重新检索')}</button><TaskEntry customerSci={customerSci} projectId={projectId} taskId={item.task.id} onOpenTask={onOpenTask}/></div></li>)}</ol><Pagination page={historyPage} total={history.data.total} label="检索历史分页" onPage={setHistoryPage} disabled={history.loading}/></>}
  </section>
  </div>
  <div hidden={view!=='list'} className="literature-task-view">
- {searchId&&<section className="literature-panel" aria-label={t('已保存的检索条件')}><h3>{t('已保存的检索条件')}</h3>{search.loading&&<p role="status">{t('正在读取检索历史……')}</p>}{search.error&&<p role="alert">{t(search.error)}</p>}{search.data&&<><strong>{search.data.input.research_topic}</strong><p>{search.data.input.source_context.label}</p><p className="literature-original">{search.data.input.source_context.text}</p><FrozenConditions input={search.data.input}/><dl><dt>{t('原始检索式')}</dt><dd className="literature-original">{search.data.input.query}</dd><dt>{t('有效检索式')}</dt><dd className="literature-original">{search.data.effective_query}</dd><dt>{t('PubMed 转换检索式')}</dt><dd className="literature-original">{search.data.query_translation??t('尚未返回')}</dd><dt>{t('匹配与获取')}</dt><dd>{translateForLocale('匹配 {matched} 篇 · 已获取 {retrieved} 篇',search.data.input.output_language,{matched:search.data.matched_count??translateForLocale('尚未返回',search.data.input.output_language),retrieved:search.data.retrieved_count})}</dd></dl>{search.data.missing_pmids.length>0&&<p className="warning-panel">{translateForLocale('部分条目未返回：{pmids}',search.data.input.output_language,{pmids:search.data.missing_pmids.join(', ')})}</p>}{search.data.warnings.length>0&&<p className="warning-panel">{translateForLocale('PubMed 返回 {count} 条检索提示，请核对官方检索结果与原始来源。',search.data.input.output_language,{count:search.data.warnings.length})}</p>}<a href={`https://pubmed.ncbi.nlm.nih.gov/?term=${encodeURIComponent(search.data.effective_query)}`} target="_blank" rel="noopener noreferrer">{t('打开 PubMed 检索')}</a><TaskEntry customerSci={customerSci} projectId={projectId} taskId={search.data.task.id} onOpenTask={onOpenTask}/></>}</section>}
+ {searchId&&<section className="literature-panel" aria-label={t('已保存的检索条件')}>
+   <h3>{t('已保存的检索条件')}</h3>
+   {search.loading&&<p role="status">{t('正在读取检索历史……')}</p>}
+   {search.error&&<p role="alert">{t(search.error)}</p>}
+   {selectedSearch&&<>
+     <strong>{selectedSearch.input.research_topic}</strong>
+     <p>{selectedSearch.input.source_context.label}</p>
+     <p className="literature-original">{selectedSearch.input.source_context.text}</p>
+     <FrozenConditions input={selectedSearch.input}/>
+     <dl>
+       <dt>{t('原始检索式')}</dt><dd className="literature-original">{selectedSearch.input.query}</dd>
+       <dt>{t('有效检索式')}</dt><dd className="literature-original">{selectedSearch.effective_query}</dd>
+       <dt>{t('PubMed 转换检索式')}</dt><dd className="literature-original">{selectedSearch.query_translation??t('尚未返回')}</dd>
+       <dt>{t('匹配与获取')}</dt>
+       <dd>{translateForLocale('匹配 {matched} 篇 · 已获取 {retrieved} 篇',selectedSearch.input.output_language,{
+         matched:selectedSearch.matched_count??translateForLocale('尚未返回',selectedSearch.input.output_language),
+         retrieved:selectedSearch.retrieved_count,
+       })}</dd>
+     </dl>
+     {selectedSearch.task.status==='failed'&&<p className="error-panel" role="alert">
+       {t(apiError({code:selectedSearch.task.error_code},'检索未完成，请核对条件后重试。'))}
+     </p>}
+     {selectedSearch.matched_count===0&&<p className="warning-panel">{t('当前检索条件匹配 0 篇。可保留主要概念、替换同义词或放宽年份和文献类型，再保存为新的检索。')}</p>}
+     {selectedSearch.missing_pmids.length>0&&<p className="warning-panel">{translateForLocale('部分条目未返回：{pmids}',selectedSearch.input.output_language,{pmids:selectedSearch.missing_pmids.join(', ')})}</p>}
+     {selectedSearch.warnings.length>0&&<p className="warning-panel">{translateForLocale('PubMed 返回 {count} 条检索提示，请核对官方检索结果与原始来源。',selectedSearch.input.output_language,{count:selectedSearch.warnings.length})}</p>}
+     <div className="literature-actions">
+       {(selectedSearch.matched_count===0||selectedSearch.task.status==='failed')&&<button type="button" disabled={busy} onClick={()=>editSavedSearch(selectedSearch)}>{t('编辑后重新检索')}</button>}
+       <a href={`https://pubmed.ncbi.nlm.nih.gov/?term=${encodeURIComponent(selectedSearch.effective_query)}`} target="_blank" rel="noopener noreferrer">{t('打开 PubMed 检索')}</a>
+       <TaskEntry customerSci={customerSci} projectId={projectId} taskId={selectedSearch.task.id} onOpenTask={onOpenTask}/>
+     </div>
+   </>}
+ </section>}
  <section className="literature-panel" aria-label={t('项目候选文献')}><div className="literature-actions"><h3>{t('项目候选文献')}</h3><label>{t('筛选候选状态')}<select value={selection} onChange={e=>{setSelection(e.target.value);setCandidatePage(1)}}><option value="">{t('全部状态')}</option>{(['candidate','shortlisted','excluded'] as const).map(s=><option key={s} value={s}>{t(selectionName(s))}</option>)}</select></label>{searchId&&<button type="button" onClick={()=>chooseSearch('')}>{t('查看所有检索候选')}</button>}</div>
  <p className="muted">{t('入选不代表支持论述；全文入口不代表取得全文，DOI 入口不代表解析成功。')}</p>
  {candidates.loading&&<p role="status">{t('正在读取候选文献……')}</p>}{candidates.error&&<p role="alert">{t(candidates.error)}</p>}

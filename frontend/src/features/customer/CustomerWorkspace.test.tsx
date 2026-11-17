@@ -157,9 +157,10 @@ it('keeps a foreign project address outside the customer steps and delivery API'
 it('validates SCI inputs, creates a review project, and reads its saved SCI settings', async () => {
   const sci = { ...project, id: 'sci-project', project_type: 'sci' }
   const settings = {
-    article_type: 'narrative_review', main_results: '综述结论',
+    article_type: 'narrative_review', proposed_title: '单细胞研究的文献综述',
     target_journal: { choice: 'science', name: null },
-    keywords: ['RNA-seq'], figure_plan: [{ title: '图 1', description: '文献主题' }],
+    keywords: ['RNA-seq', '细胞分化', '单细胞', '转录组'],
+    review_sections: [{ id: 'section-1', heading: '文献主题', content: '描述领域现状。' }],
   }
   const fetch = vi.fn(async (url: string, init?: RequestInit) => {
     if (url.startsWith('/api/v1/projects?')) return Response.json({ items: [], total: 0, page: 1, page_size: 5 })
@@ -179,39 +180,56 @@ it('validates SCI inputs, creates a review project, and reads its saved SCI sett
   expect(dialog.getByRole('alert').textContent).toContain('请选择论文类型。')
   expect(fetch.mock.calls.some(([, init]) => init?.method === 'POST')).toBe(false)
   fireEvent.change(dialog.getByLabelText('论文类型'), { target: { value: 'narrative_review' } })
-  fireEvent.change(dialog.getByLabelText('主要结果或结论'), { target: { value: settings.main_results } })
+  fireEvent.change(dialog.getByLabelText('拟定论文题目'), { target: { value: settings.proposed_title } })
   fireEvent.click(dialog.getByRole('radio', { name: 'Science' }))
-  fireEvent.change(dialog.getByLabelText('关键词'), { target: { value: ' RNA-seq ' } })
-  fireEvent.click(dialog.getByRole('button', { name: '添加关键词' }))
-  fireEvent.click(dialog.getByRole('button', { name: '添加图表计划' }))
-  fireEvent.change(dialog.getByLabelText('图表标题'), { target: { value: '图 1' } })
-  fireEvent.change(dialog.getByLabelText('拟表达内容'), { target: { value: '文献主题' } })
+  for (const keyword of settings.keywords) {
+    fireEvent.change(dialog.getByLabelText('关键词'), { target: { value: ` ${keyword} ` } })
+    fireEvent.click(dialog.getByRole('button', { name: '添加关键词' }))
+  }
+  expect(dialog.queryByLabelText('主要结果或结论')).toBeNull()
+  fireEvent.click(dialog.getByRole('button', { name: '添加小标题' }))
+  fireEvent.change(dialog.getByLabelText('小标题'), { target: { value: '文献主题' } })
+  fireEvent.change(dialog.getByLabelText('需要涵盖的内容'), { target: { value: '描述领域现状。' } })
   fireEvent.click(dialog.getByRole('button', { name: '创建项目' }))
-  expect(await screen.findByText('综述结论')).toBeTruthy()
+  expect(await screen.findByText('描述领域现状。')).toBeTruthy()
   expect(screen.queryByRole('navigation', { name: '项目操作步骤' })).toBeNull()
   const [, create] = fetch.mock.calls.find(([url]) => url === '/api/v1/projects')!
-  expect(JSON.parse(String(create?.body))).toMatchObject({ project_type: 'sci', sci_settings: settings })
+  const sections = [{ ...settings.review_sections[0], id: expect.any(String) }]
+  expect(JSON.parse(String(create?.body))).toMatchObject({ project_type: 'sci', sci_settings: { ...settings, review_sections: sections } })
   expect(JSON.parse(String(create?.body))).not.toHaveProperty('delivery_kinds')
 })
 
-it('creates a thesis with common fields after switching away from an SCI draft', async () => {
+it('creates a thesis with its own requirements after switching away from an SCI draft', async () => {
   const thesis = { ...project, project_type: 'thesis' }
+  const requirements = { education_level: '硕士', school: '合成大学', title: '单细胞表达特征', keywords: ['单细胞', '表达', '分群', '验证'] }
   const fetch = vi.fn(async (_url: string, _init?: RequestInit) => Response.json(thesis, { status: 201 }))
   const created = vi.fn()
   vi.stubGlobal('fetch', fetch)
   render(<CustomerProjectCreate onCreated={created} onClose={vi.fn()} />)
   const type = screen.getByLabelText('项目类型')
   fireEvent.change(type, { target: { value: 'sci' } })
-  fireEvent.change(screen.getByLabelText('主要结果或结论'), { target: { value: 'Saved SCI draft' } })
+  fireEvent.change(screen.getByLabelText('拟定论文题目'), { target: { value: 'Saved SCI draft' } })
   fireEvent.change(type, { target: { value: 'thesis' } })
-  expect(screen.queryByLabelText('主要结果或结论')).toBeNull()
+  expect(screen.queryByLabelText('拟定论文题目')).toBeNull()
   fireEvent.change(screen.getByLabelText('项目名称'), { target: { value: thesis.name } })
   fireEvent.change(screen.getByLabelText('研究目标'), { target: { value: thesis.research_topic } })
+  fireEvent.click(screen.getByRole('button', { name: '创建项目' }))
+  expect(screen.getByRole('alert').textContent).toContain('请选择学位层次。')
+  expect(fetch).not.toHaveBeenCalled()
+  fireEvent.change(screen.getByLabelText('学位层次'), { target: { value: requirements.education_level } })
+  fireEvent.change(screen.getByLabelText('论文语种'), { target: { value: 'en' } })
+  fireEvent.change(screen.getByLabelText('学校名称'), { target: { value: requirements.school } })
+  fireEvent.change(screen.getByLabelText('论文题目'), { target: { value: requirements.title } })
+  for (const word of requirements.keywords) {
+    fireEvent.change(screen.getByLabelText('关键词'), { target: { value: word } })
+    fireEvent.click(screen.getByRole('button', { name: '添加关键词' }))
+  }
   fireEvent.click(screen.getByRole('button', { name: '创建项目' }))
   await waitFor(() => expect(created).toHaveBeenCalledWith(thesis))
   const [, init] = fetch.mock.calls[0]
   expect(JSON.parse(String(init?.body))).toEqual({
-    name: thesis.name, research_topic: thesis.research_topic, project_type: 'thesis', default_output_language: 'zh-CN',
+    name: thesis.name, research_topic: thesis.research_topic, project_type: 'thesis', default_output_language: 'en',
+    thesis_requirements: requirements,
   })
 })
 

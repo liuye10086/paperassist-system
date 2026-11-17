@@ -13,9 +13,10 @@ const literatureViews: LiteratureView[] = ['list', 'search', 'history', 'detail'
 type Props = {
   project: Project
   startWithCitations: boolean
-  initialQuery?: string
+  projectKeywords?: readonly string[]
   literatureReady?: boolean
   onContinue: () => void
+  onRequirements: () => void
   onUnavailable: () => void
   registerLeaveGuard: RegisterLeaveGuard
   params: URLSearchParams
@@ -23,7 +24,7 @@ type Props = {
 }
 
 export default function CustomerWritingMaterials({
-  project, startWithCitations, initialQuery, literatureReady = true, onContinue, onUnavailable, registerLeaveGuard,
+  project, startWithCitations, projectKeywords, literatureReady = true, onContinue, onRequirements, onUnavailable, registerLeaveGuard,
   params, onUpdateRoute,
 }: Props) {
   const { t } = useI18n()
@@ -47,10 +48,12 @@ export default function CustomerWritingMaterials({
     </div>
     {openUpload && <div hidden={!showUpload}>
       <CustomerMaterials projectId={project.id} onContinue={onContinue} onUnavailable={onUnavailable}
-        registerLeaveGuard={registerLeaveGuard} active={showUpload} forWriting={project.project_type === 'thesis' ? 'thesis' : 'sci'} />
+        registerLeaveGuard={registerLeaveGuard} active={showUpload} forWriting={project.project_type === 'thesis' ? 'thesis' : 'sci'}
+        onRequirements={onRequirements} />
     </div>}
+    {!showUpload && !literatureReady && <p role="status">{t('正在读取项目关键词……')}</p>}
     {openLiterature && literatureReady && <ProjectLiterature projectId={project.id} researchTopic={project.research_topic}
-      outputLanguage={project.default_output_language ?? 'zh-CN'} initialQuery={initialQuery} initialSearchId={searchId}
+      outputLanguage={project.default_output_language ?? 'zh-CN'} projectKeywords={projectKeywords} initialSearchId={searchId}
       literatureNavigation={{ view: literatureView ?? 'list', referenceId }}
       onSearchChange={search => onUpdateRoute({ search, view: 'list', reference: undefined }, true)}
       onLiteratureNavigate={({ view, referenceId }) => onUpdateRoute({ view, reference: referenceId }, true)}

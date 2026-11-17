@@ -72,7 +72,8 @@ def test_customer_school_templates_and_parse_tasks_require_visible_project_sourc
         research = create_customer_project(client)
         for wrong in (sci, research):
             assert client.get(wrong + '/school-templates').status_code == 403
-        for endpoint in ('/thesis-profile', '/school-templates', '/manuscripts/config'):
+            assert client.get(wrong + '/thesis-requirements').status_code == 403
+        for endpoint in ('/thesis-profile', '/thesis-requirements', '/school-templates', '/manuscripts/config'):
             assert other.get(project + endpoint).status_code == 404
         for endpoint in ('/journals/config', '/pdf-exports'):
             assert client.get(project + endpoint).status_code == 403
@@ -93,11 +94,28 @@ def test_customer_school_templates_and_parse_tasks_require_visible_project_sourc
         assert retry.status_code == 200, retry.text
         assert run_school_template_task(task['id'], retry.json()['task']['revision'], parser=analysis)['status'] == 'succeeded'
         confirmation, confirm_url, confirmation_body = confirm_template(client, project, item, 'rules')
-        bind(client, project, confirmation, 0)
+        profile = bind(client, project, confirmation, 0)
+
+        requirements_url = project + '/thesis-requirements'
+        basics = dict(education_level='硕士', school='Synthetic university', title='Synthetic thesis',
+                      keywords=['cohort', 'sampling', 'observations', 'comparison'])
+        section = dict(chapter_id='results', purpose='results', content='Describe the observed measurements.')
+        plan = dict(confirmation_id=confirmation['id'], sections=[section])
+        write = dict(expected_revision=profile['revision'], expected_language='zh-CN', language='en', basics=basics,
+                     chapter_plan=plan)
+        missing = plan | {'sections': [section | {'chapter_id': 'missing'}]}
+        assert client.put(requirements_url, json=write | {'chapter_plan': missing}).status_code == 422
+        saved = client.put(requirements_url, json=write)
+        assert saved.status_code == 200, saved.text
+        assert saved.json()['sections'] == [section]
+        assert saved.json()['template']['chapters'] == confirmation['chapters']
+        assert client.put(requirements_url, json=write).json() == saved.json()
 
         hide(file_id, actor)
         assert client.get(project + '/school-templates').json()['items'] == []
         assert client.get(project + '/thesis-profile').json()['bound_confirmation_id'] is None
+        restricted = client.get(requirements_url).json()
+        assert restricted['title'] == basics['title'] and restricted['template'] is None and restricted['sections'] == []
         assert client.get(project + '/manuscripts/config').json()['thesis']['ready'] is False
         assert post(client, project + '/school-templates', body, 'hidden-template').status_code == 404
         visible = upload_docx(client, project, 'visible.docx', 'Other customer original.')

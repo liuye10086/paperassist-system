@@ -31,7 +31,7 @@ files = Table(
     Column("project_id", Text, ForeignKey("projects.id"), nullable=False),
     Column("filename", Text, nullable=False),
     Column("file_type", Text, nullable=False),
-    CheckConstraint("file_type IN ('xlsx','docx','pdf','png','jpeg','bio_bundle','bio_component')", name="files_type_check"),
+    CheckConstraint("file_type IN ('xlsx','docx','pdf','png','jpeg','tiff','bio_bundle','bio_component')", name="files_type_check"),
     Column("size_bytes", BigInteger, nullable=False),
     Column("sha256", Text, nullable=False),
     Column("uploaded_at", Text, nullable=False),
@@ -305,6 +305,9 @@ from app.db.manuscript_figure_language_schema import define_manuscript_figure_la
 # Scoped original/document references for school template snapshots.
 UniqueConstraint(files.c.id,files.c.project_id,name='files_project_scope_key')
 UniqueConstraint(file_parse_results.c.id,file_parse_results.c.file_id,name='fpr_file_scope_key')
+from app.db.paper_materials_schema import define_paper_material_notes
+paper_material_notes = define_paper_material_notes(metadata)
+
 from app.db.school_template_schema import define_school_template_tables
 thesis_profiles,school_template_versions,school_template_sources,school_template_confirmations=define_school_template_tables(metadata)
 

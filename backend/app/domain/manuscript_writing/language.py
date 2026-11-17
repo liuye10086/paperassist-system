@@ -6,19 +6,26 @@ import re
 from zipfile import ZipFile
 from lxml import etree
 from app.adapters.task_store import source_conflict
-from app.adapters.manuscript_docx import build_manuscript_docx, RENDERER_VERSION
+from app.adapters.manuscript_docx import build_manuscript_docx, CUSTOMER_ARTICLE_RENDERER_VERSION, RENDERER_VERSION
 from app.domain.literature.service import digest
 from .context import NUMBER
 from .numeric_review import NUMERIC_VERSION,validation_version,language_markers
 
 
 def editable_fields(candidate):
+    from .article_contract import theme_sections, visible_illustration_groups
+
+    theme_group_ids = {s['id'] for s in theme_sections(candidate)}
+    visible_ids = {g['id'] for g in visible_illustration_groups(candidate)}
     fields=[]
     def item(path,text):
         fields.append(dict(path=path,text=text,original_sha256=digest(text)))
     for g,group in enumerate(candidate['results_groups']):
+        if group['id'] not in visible_ids:
+            continue
         prefix=f'/results_groups/{g}'
-        item(prefix+'/title',group['title'])
+        if group['id'] not in theme_group_ids:
+            item(prefix+'/title',group['title'])
         for t,table in enumerate(group['tables']):
             base=prefix+f'/tables/{t}'
             item(base+'/title',table['title'])
@@ -48,8 +55,10 @@ def prepare_candidate(candidate,body,*,numeric_version=NUMERIC_VERSION):
 
 def figure_materials(assets,db,project,candidate):
     """Load exactly the bytes subsequently consumed by DOCX, never trust preview URLs."""
+    from .article_contract import visible_illustration_groups
+
     images={};items=[]
-    for group in candidate['results_groups']:
+    for group in visible_illustration_groups(candidate):
         for figure in group['figures']:
             source=next(s for s in candidate['sources'] if s['id']==figure['source_ids'][0])
             version_id=figure.get('language_version_id') or (source['id'] if source['kind']=='figure_language_version' else None)
@@ -72,8 +81,13 @@ def figure_materials(assets,db,project,candidate):
             else: raw=assets.original(assets.file(project,source['file_id']))
             if sha256(raw).hexdigest()!=figure['sha256']: raise source_conflict()
             images[figure['id']]=raw
+            embedded_sha256 = figure['sha256']
+            if not version_id and figure.get('original_image_format') == 'tiff':
+                from app.adapters.project_images import WORD_MAX_SIDE, tiff_as_png
+
+                embedded_sha256 = sha256(tiff_as_png(raw, max_side=WORD_MAX_SIDE)).hexdigest()
             prefix='image:'+figure['id']
-            items.append(dict(location=prefix,kind='image',asset_sha256=figure['sha256'],content_sha256=digest(dict(asset_sha256=figure['sha256'],manifest=manifest)),text='',language_known=manifest is not None,no_text=manifest==[]))
+            items.append(dict(location=prefix,kind='image',asset_sha256=embedded_sha256,content_sha256=digest(dict(asset_sha256=embedded_sha256,manifest=manifest)),text='',language_known=manifest is not None,no_text=manifest==[]))
             school=candidate.get('writing_provenance',{}).get('school_content_version')=='school-live-v1'
             if school:items[-1]['figure_id']=figure['id']
             for entry in manifest or []:
@@ -90,12 +104,16 @@ def figure_language(candidate,identity):
 
 def export_semantics(candidate):
     """Retain prose boundaries even when the renderer prefixes a panel identifier."""
+    from .article_contract import visible_illustration_groups
+
     narrative={p['text'] for section in candidate.get('sections',[]) if section['id']!='references' for p in section['paragraphs']}
+    if candidate.get('paper_plan', {}).get('kind') == 'narrative_review':
+        narrative.update(section['title'] for section in candidate['sections'] if section.get('parent_id') == 'themes')
     narrative.update(candidate.get(k,'') for k in ('title','notice','acknowledgements'))
     labels=set()
     for issue in candidate.get('issues',[]):
         narrative.add(issue['message']);narrative.update(issue.get('values',[]))
-    for group in candidate['results_groups']:
+    for group in visible_illustration_groups(candidate):
         narrative.add(group['title'])
         for table in group['tables']:
             narrative.add(table['title'])
@@ -134,8 +152,14 @@ def reference_paragraphs(root,candidate):
     return result
 
 
-def inventory(candidate,images,image_items):
-    raw=build_manuscript_docx(candidate,images);items=[]
+def inventory(candidate,images,image_items,*,renderer_version=RENDERER_VERSION):
+    customer_view = renderer_version != RENDERER_VERSION
+    customer_revision = customer_view and bool(
+        candidate.get('review_revision_provenance') or candidate.get('user_return_provenance')
+    )
+    raw = build_manuscript_docx(candidate, images, customer_view=customer_view,
+        customer_revision=customer_revision, renderer_version=renderer_version)
+    items=[]
     narrative,labels=export_semantics(candidate)
     with ZipFile(BytesIO(raw)) as archive:
         for name in sorted(archive.namelist()):
@@ -148,7 +172,10 @@ def inventory(candidate,images,image_items):
                 spans=[] if p in references else sorted({(m.start(),m.end()) for value in narrative for m in re.finditer(re.escape(value),text)})
                 scope='reference_metadata' if p in references else 'narrative' if spans or text not in labels else 'label'
                 if scope=='narrative' and not spans: spans=[(0,len(text))]
-                items.append(dict(location=name+f':paragraph:{index}',kind='export_text',scope=scope,narrative_ranges=[list(span) for span in spans],text=text,content_sha256=digest(text)))
+                item = dict(location=name+f':paragraph:{index}',kind='export_text',scope=scope,narrative_ranges=[list(span) for span in spans],text=text,content_sha256=digest(text))
+                if p in references and renderer_version == CUSTOMER_ARTICLE_RENDERER_VERSION:
+                    item['preserve_reference'] = True
+                items.append(item)
     return items+image_items
 
 
@@ -161,6 +188,9 @@ def validate_decisions(items,body,language):
         if not item or item['content_sha256']!=decision['content_sha256'] or not decision['reason'].strip(): raise ValueError('Language decision is not bound to exact exported content')
         if item['kind']=='image':
             if not item['language_known'] or decision['exceptions'] or decision['decision']!=('no_text' if item['no_text'] else 'target_language'): raise ValueError('Unknown external image requires verified replacement or no-text version')
+            continue
+        if item.get('preserve_reference') and decision['decision']=='provided_literal':
+            if decision['exceptions']: raise ValueError('Frozen bibliographic text is reviewed as supplied')
             continue
         if decision['decision']!='target_language': raise ValueError('Text requires language judgment')
         text=item['text'];masked=list(text);end=0

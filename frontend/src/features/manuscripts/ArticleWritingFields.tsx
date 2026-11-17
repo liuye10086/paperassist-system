@@ -1,14 +1,16 @@
 import {useI18n} from '../../shared/i18n'
 import type {Snapshot} from './manuscriptTypes'
 import {articleHeading} from './articleStructure'
+import {plannedSectionTitle} from './paperPlan'
 import {writableSchoolPurpose,type ArticlePreviewInput,type ParagraphPlan,type WritingMode} from './writingLiveTypes'
 
 type Props={customerSci?:boolean;input:ArticlePreviewInput;snapshot:Snapshot;onChange:(patch:Partial<ArticlePreviewInput>)=>void}
 const outputId=()=>`rewrite-${crypto.randomUUID()}`
 export default function ArticleWritingFields({input,snapshot,onChange,customerSci=false}:Props){
  const {t}=useI18n(),school=!!snapshot.thesis_context
- const sections=(snapshot.sections??[]).filter(s=>school?writableSchoolPurpose(s.purpose):s.id!=='references')
- const title=(id:string)=>sections.find(s=>s.id===id)?.title??articleHeading(input.article_type,id,snapshot.output_language)
+ const planned=!!snapshot.paper_plan
+ const sections=(snapshot.sections??[]).filter(s=>(school?writableSchoolPurpose(s.purpose):s.id!=='references'&&!(snapshot.paper_plan?.kind==='narrative_review'&&s.id==='themes'))&&(!planned||s.paragraphs.length>0))
+ const title=(id:string)=>plannedSectionTitle(snapshot,id)??articleHeading(input.article_type,id,snapshot.output_language)
  const pairedRoles=input.article_type==='methods'&&!school?['validation','discussion']:['results','discussion']
  const targetIds=input.mode==='rewrite_section'?[input.target_section]:input.mode==='results_discussion'?sections.filter(s=>pairedRoles.includes(s.purpose??s.id)).map(s=>s.id):input.target_sections
  const paragraphs=sections.filter(s=>targetIds.includes(s.id)).flatMap(s=>s.paragraphs.map((p,index)=>({id:p.id,section_id:s.id,label:`${title(s.id)} ${index+1} · ${p.text.slice(0,100)}`})))
@@ -19,10 +21,10 @@ export default function ArticleWritingFields({input,snapshot,onChange,customerSc
   onChange({mode:value,target_section:value==='rewrite_section'?(sections[0]?.id??null):null,target_sections:targets,target_paragraph_ids:[],paragraph_plan:value==='expand_restructure'?initialPlan(targets):[]})
  }
  function plan(index:number,patch:Partial<ParagraphPlan>){onChange({paragraph_plan:input.paragraph_plan.map((row,i)=>i===index?{...row,...patch}:row)})}
- const canEdit=!!snapshot.sections&&input.article_type===(snapshot.article_type??'research')
+ const canEdit=!!snapshot.sections&&sections.length>0&&(!planned||!!snapshot.writing_provenance)&&input.article_type===(snapshot.article_type??'research')
  return <>
- {customerSci&&<p>{t('文章类型')}：{t(input.article_type==='narrative_review'?'综述':'研究型论文')}</p>}{!school&&!customerSci&&<label>{t('文章类型')}<select value={input.article_type} onChange={e=>onChange({article_type:e.target.value as ArticlePreviewInput['article_type'],mode:'full_draft',target_section:null,target_sections:[],target_paragraph_ids:[],paragraph_plan:[],brief_limits:null,validation_source_ids:[]})}><option value="research">{t('原始研究')}</option><option value="brief">{t('简报')}</option><option value="narrative_review">{t('综述')}</option><option value="methods">{t('方法论文')}</option></select></label>}
- <label>{t('受控写作方式')}<select value={input.mode} onChange={e=>mode(e.target.value as WritingMode)}><option value="full_draft">{t('完整文章初稿')}</option>{canEdit&&<><option value="rewrite_section">{t('指定章节重写')}</option>{!customerSci&&input.article_type!=='narrative_review'&&pairedRoles.every(role=>sections.some(s=>(s.purpose??s.id)===role))&&<option value="results_discussion">{t(input.article_type==='methods'?'验证与讨论':'结果与讨论')}</option>}{!customerSci&&<><option value="expand_restructure">{t('扩充与重构')}</option><option value="polish">{t('润色')}</option></>}</>}</select></label>
+ {(customerSci||planned)&&<p>{t('文章类型')}：{t(input.article_type==='narrative_review'?'综述':'研究型论文')}</p>}{!school&&!customerSci&&!planned&&<label>{t('文章类型')}<select value={input.article_type} onChange={e=>onChange({article_type:e.target.value as ArticlePreviewInput['article_type'],mode:'full_draft',target_section:null,target_sections:[],target_paragraph_ids:[],paragraph_plan:[],brief_limits:null,validation_source_ids:[]})}><option value="research">{t('原始研究')}</option><option value="brief">{t('简报')}</option><option value="narrative_review">{t('综述')}</option><option value="methods">{t('方法论文')}</option></select></label>}
+ <label>{t('受控写作方式')}<select value={input.mode} onChange={e=>mode(e.target.value as WritingMode)}><option value="full_draft">{t('完整文章初稿')}</option>{canEdit&&<><option value="rewrite_section">{t('指定章节重写')}</option>{!customerSci&&!planned&&input.article_type!=='narrative_review'&&pairedRoles.every(role=>sections.some(s=>(s.purpose??s.id)===role))&&<option value="results_discussion">{t(input.article_type==='methods'?'验证与讨论':'结果与讨论')}</option>}{!customerSci&&!planned&&<><option value="expand_restructure">{t('扩充与重构')}</option><option value="polish">{t('润色')}</option></>}</>}</select></label>
  {input.mode==='rewrite_section'&&<label>{t('重写目标章节')}<select value={input.target_section??''} onChange={e=>onChange({target_section:e.target.value,target_paragraph_ids:[]})}>{sections.map(s=><option key={s.id} value={s.id}>{title(s.id)}</option>)}</select></label>}
  {(input.mode==='polish'||input.mode==='expand_restructure')&&<label>{t('目标章节')}<select multiple value={input.target_sections} onChange={e=>{const ids=Array.from(e.currentTarget.selectedOptions,x=>x.value);onChange({target_sections:ids,target_paragraph_ids:[],paragraph_plan:input.mode==='expand_restructure'?initialPlan(ids):[]})}}>{sections.map(s=><option key={s.id} value={s.id}>{title(s.id)}</option>)}</select></label>}
  {input.mode!=='full_draft'&&<><label>{t('目标段落')}<select multiple value={input.target_paragraph_ids} onChange={e=>{const ids=Array.from(e.currentTarget.selectedOptions,x=>x.value);onChange({target_paragraph_ids:ids,...(input.mode==='expand_restructure'?{paragraph_plan:paragraphs.filter(p=>!ids.length||ids.includes(p.id)).map(p=>({id:outputId(),section_id:p.section_id,source_paragraph_ids:[p.id]}))}:{})})}}>{paragraphs.map(p=><option key={p.id} value={p.id}>{p.label}</option>)}</select></label><p>{t('不选择具体段落时，处理目标章节内全部段落。')}</p></>}

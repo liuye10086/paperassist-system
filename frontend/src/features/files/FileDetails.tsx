@@ -1,5 +1,6 @@
 import DocumentVersions from '../documents/DocumentVersions'
 import StructureVersions from '../datasets/StructureVersions'
+import ManuscriptImage from '../manuscripts/ManuscriptImage'
 import { useEffect, useRef, useState } from 'react'
 import { safeError, useI18n } from '../../shared/i18n'
 import { fileRequest, mergeFileMetadata, parseStatusLabels, purposeLabels, referenceLabels } from './fileLibraryApi'
@@ -122,10 +123,14 @@ function FileDetailsContent({ projectId, fileId, active, onUnavailable, onUpdate
       <div hidden={task !== 'info'}>
       <dl className="file-metadata">
         <div><dt>{t('文件大小')}</dt><dd>{t('{count} 字节', { count: detail.size_bytes.toLocaleString(locale) })}</dd></div>
-        <div><dt>{t('文件类型')}</dt><dd>{detail.file_type === 'xlsx' ? 'Excel (.xlsx)' : detail.file_type === 'docx' ? 'Word (.docx)' : detail.file_type === 'pdf' ? 'PDF (.pdf)' : detail.file_type === 'png' ? 'PNG (.png)' : detail.file_type === 'jpeg' ? 'JPEG (.jpg / .jpeg)' : t('未知类型')}</dd></div>
-        <div><dt>{t('解析状态')}</dt><dd>{t(parseStatusLabels[detail.parse_status])}</dd></div>
+        <div><dt>{t('文件类型')}</dt><dd>{detail.file_type === 'xlsx' ? 'Excel (.xlsx)' : detail.file_type === 'docx' ? 'Word (.docx)' : detail.file_type === 'pdf' ? 'PDF (.pdf)' : detail.file_type === 'png' ? 'PNG (.png)' : detail.file_type === 'jpeg' ? 'JPEG (.jpg / .jpeg)' : detail.file_type === 'tiff' ? 'TIFF (.tif / .tiff)' : t('未知类型')}</dd></div>
+        <div><dt>{t('解析状态')}</dt><dd>{t(detail.file_type === 'tiff' && detail.parse_status === 'stored' ? '已上传' : parseStatusLabels[detail.parse_status])}</dd></div>
         <div><dt>{t('上传者记录')}</dt><dd>{t(detail.uploader_recorded ? '已记录上传者' : '未记录上传者')}</dd></div>
       </dl>
+      {detail.file_type === 'tiff' && task === 'info' && active && <div className="paper-material-preview">
+        <ManuscriptImage url={`${base}/image-preview`} title={t('预览 {name}', { name: detail.filename })} />
+        <p className="muted">{t('TIFF 预览和 Word 使用第一页，可下载完整原件。')}</p>
+      </div>}
       {detail.file_type === 'xlsx' && <><p className="muted">{t(detail.source.preview_available ? '既有预览：前 {count} 行' : '此文件没有可用的既有预览。', { count: detail.source.preview_row_limit ?? 20 })}</p>
       <p className="muted">{t('预览不代表完整数据。')}</p></>}
       <p className="muted">{t('已保存用途：{purposes}', { purposes: detail.purposes.length

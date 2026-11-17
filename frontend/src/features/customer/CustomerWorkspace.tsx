@@ -20,6 +20,7 @@ import CustomerReviewWorkflow from './CustomerReviewWorkflow'
 import CustomerRequirements from './CustomerRequirements'
 import CustomerSciSettings from './CustomerSciSettings'
 import CustomerSciWorkflow from './CustomerSciWorkflow'
+import CustomerThesisRequirements from './CustomerThesisRequirements'
 import CustomerThesisWorkflow from './CustomerThesisWorkflow'
 import { readLegacyCustomerRoute } from './customerLegacyNavigation'
 import { customerReviewParams, readCustomerReviewNavigation, validCustomerRouteId, type CustomerReviewNavigation } from './customerReviewNavigation'
@@ -283,8 +284,10 @@ export default function CustomerWorkspace() {
                   </button>}
                 </div>}
             </div>
-            <ProjectDetails project={project} showHeading={false} onUpdated={details.refresh} registerLeaveGuard={registerLeaveGuard} />
+            <ProjectDetails project={project} showHeading={false} showLanguage={!isThesis} onUpdated={details.refresh} registerLeaveGuard={registerLeaveGuard} />
             {project.project_type === 'sci' && <CustomerSciSettings projectId={project.id} registerLeaveGuard={registerLeaveGuard} />}
+            {isThesis && <CustomerThesisRequirements projectId={project.id} onOpenTemplate={() => chooseStep('school')}
+              onLanguageChanged={details.refresh} registerLeaveGuard={registerLeaveGuard} />}
           </div>}
           {activeStep === 'upload' && <CustomerMaterials projectId={project.id} headingRef={heading} onContinue={() => chooseStep('requirements')}
             onUnavailable={onUnavailable} registerLeaveGuard={registerLeaveGuard} />}

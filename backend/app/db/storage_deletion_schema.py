@@ -7,6 +7,10 @@ def install_research_barriers(execute):
     """Only CR-B01 producers; never reinstall historic migration barriers."""
     tables=('research_intakes','research_deliveries','research_requirement_versions','research_design_versions',
             'research_material_refs','bio_datasets','bio_imports','bio_import_files','bio_dataset_versions','bio_dataset_members')
+    install_file_reference_barriers(execute, tables)
+
+
+def install_file_reference_barriers(execute, tables):
     for table in tables:
         execute(f'''CREATE FUNCTION storage_guard_{table}() RETURNS trigger LANGUAGE plpgsql AS $$
           DECLARE fid text;

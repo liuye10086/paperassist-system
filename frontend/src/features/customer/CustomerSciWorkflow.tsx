@@ -8,9 +8,10 @@ import type { RegisterLeaveGuard } from '../projects/useDraftLeaveGuard'
 import { projectBase } from '../research-intake/api'
 import { useResearchRead } from '../research-results/api'
 import CustomerWritingMaterials from './CustomerWritingMaterials'
+import SciSettingsSummary from './SciSettingsSummary'
 import { customerManuscriptNavigation, type UpdatePaperRoute } from './customerPaperNavigation'
 import { validCustomerRouteId } from './customerReviewNavigation'
-import { articleTypes, type SciSettingsState } from './sciProjectSettings'
+import { isLegacySciSettings, type SciSettingsState } from './sciProjectSettings'
 
 type Step = 'materials' | 'citations' | 'manuscripts' | 'journals' | 'word'
 type Props = {
@@ -58,20 +59,23 @@ export default function CustomerSciWorkflow({
     {step !== 'word' && receipt.data && !settings && <p className="warning-panel">{t('此项目尚未保存 SCI 建项资料。')}
       {' '}<button type="button" onClick={() => onNavigate('details')}>{t('补充 SCI 建项资料')}</button>
     </p>}
-    {(step === 'manuscripts' || materialsStep) && settings && <section className="manuscript-panel sci-workflow-context" aria-label={t('已保存的写作意向')}>
-      <h2>{t('已保存的写作意向')} · {t(articleTypes[settings.article_type])}</h2>
-      <p className="muted">{t('主要结果或结论与图表计划来自建项填写。请在事实稿中选择对应资料并核对来源。')}</p>
-      <dl className="sci-settings-summary">
-        <dt>{t('关键词')}</dt><dd>{settings.keywords.join('、')}</dd>
-        <dt>{t('客户提供的主要结果或结论')}</dt><dd>{settings.main_results}</dd>
-        <dt>{t('图表计划（待绑定实际图表）')}</dt>
-        <dd><ul>{settings.figure_plan.map((figure, i) => <li key={i}><strong>{figure.title}</strong> · <span>{figure.description}</span></li>)}</ul></dd>
-      </dl>
+    {settings && (materialsStep || step === 'manuscripts' && isLegacySciSettings(settings)) && <section className="manuscript-panel" aria-label={t('已保存的写作意向')}>
+      <h2>{t('已保存的写作意向')}</h2>
+      {isLegacySciSettings(settings) ? <>
+        <p className="muted">{t('主要结果或结论与图表计划来自建项填写。请在事实稿中选择对应资料并核对来源。')}</p>
+        <SciSettingsSummary settings={settings} />
+      </> : <>
+        <dl className="sci-settings-summary">
+          <dt>{t('拟定论文题目')}</dt><dd>{settings.proposed_title}</dd>
+          <dt>{t('关键词')}</dt><dd>{settings.keywords.join(' · ')}</dd>
+        </dl>
+        <button type="button" className="button-quiet" onClick={() => onNavigate('details')}>{t('查看 SCI 建项资料')}</button>
+      </>}
     </section>}
     {materialsStep && <CustomerWritingMaterials project={project} startWithCitations={step === 'citations'}
-      initialQuery={settings?.keywords.join(' AND ')} literatureReady={!!(receipt.data || receipt.error)}
+      projectKeywords={settings?.keywords} literatureReady={!!(receipt.data || receipt.error)}
       params={params} onUpdateRoute={onUpdateRoute}
-      onContinue={() => onNavigate('manuscripts')} onUnavailable={onUnavailable} registerLeaveGuard={registerLeaveGuard} />}
+      onContinue={() => onNavigate('manuscripts')} onRequirements={() => onNavigate('details')} onUnavailable={onUnavailable} registerLeaveGuard={registerLeaveGuard} />}
     {(step === 'word' || step === 'manuscripts') && manuscript.invalid &&
       <p role="alert">{t('指定固定稿件版本不可用；不会自动替换为最新版本。')}</p>}
     {(step === 'word' || step === 'manuscripts' && !!receipt.data) && <ProjectManuscripts
@@ -81,7 +85,8 @@ export default function CustomerSciWorkflow({
       onSelectVersion={(id, revision) => onUpdateRoute({ manuscript: id, revision, view: step === 'word' ? 'exports' : 'body' }, true)}
       onViewChange={view => onUpdateRoute({ view: step === 'word' && view === 'body' ? 'exports' : view }, true)}
       onStartReview={onStartReview}
-      onOpenLiterature={() => onNavigate('citations')} registerLeaveGuard={registerLeaveGuard} />}
+      onOpenLiterature={() => onNavigate('citations')} onOpenRequirements={() => onNavigate('details')}
+      onOpenMaterials={() => onNavigate('materials')} registerLeaveGuard={registerLeaveGuard} />}
     {step === 'journals' && params.has('adaptation') && !adaptationId &&
       <p role="alert">{t('指定适配记录尚未读取，请刷新；不会代用其他记录。')}</p>}
     {step === 'journals' && receipt.data && <JournalWorkspace projectId={id} active view={journalView}

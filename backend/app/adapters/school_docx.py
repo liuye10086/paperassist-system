@@ -242,11 +242,15 @@ class _SchoolPagination2:
         self.apply(section,spec)
 
 
+CUSTOMER_SCHOOL_LAYOUT_VERSION = 'school_customer_layout_v1'
+
+
 def build_school_docx(snapshot,images,plan,*,source_map=None,excluded_chapter_ids=frozenset(),mask_identity=False,customer_revision=False,
                       school_template=None):
     from .manuscript_docx import _document,_table,_figure,_save_document
     validate_school_export(plan,snapshot)
     if not plan['report']['can_export']:raise StorageError('manuscript_review_blocked','学校导出存在一致性硬错误。',409)
+    planned = bool(snapshot.get('paper_plan'))
     gs501=plan.get('format_profile')==bsu_gs501.PROFILE
     submission_forms='submission_forms_source_sha256' in plan
     if gs501 and excluded_chapter_ids:
@@ -294,7 +298,7 @@ def build_school_docx(snapshot,images,plan,*,source_map=None,excluded_chapter_id
         paragraph=document.add_paragraph(snapshot['thesis_context']['profile']['school'],style='Title')
         mark(paragraph,identity=True)
         document.add_paragraph(snapshot['title'],style='Title')
-        if not customer_revision:
+        if not planned and not customer_revision:
             document.add_paragraph('School thesis engineering draft; verify synthetic materials and missing details.' if mapping and snapshot['output_language']=='en' else '学校论文工程稿  合成资料及缺失信息须核对')
         fields=plan['options'].get('manual_fields',{});profile=snapshot['thesis_context']['profile']
         for key,label in MANUAL_LABELS.items():
@@ -305,7 +309,11 @@ def build_school_docx(snapshot,images,plan,*,source_map=None,excluded_chapter_id
             paragraph=document.add_paragraph(label+'：'+(value or '待填写'))
             mark(paragraph,identity=True)
         if not customer_revision:
-            document.add_paragraph('Only determined cover rules are applied; formal cover, identity and signatures require explicit user material.' if mapping and snapshot['output_language']=='en' else '封面仅应用可确定规则；原模板未确定的正式封面、身份和签名须人工补齐。')
+            if planned:
+                document.add_paragraph('Please review the cover details and required signatures.' if snapshot['output_language']=='en'
+                                       else '请核对封面信息及所需签名。')
+            else:
+                document.add_paragraph('Only determined cover rules are applied; formal cover, identity and signatures require explicit user material.' if mapping and snapshot['output_language']=='en' else '封面仅应用可确定规则；原模板未确定的正式封面、身份和签名须人工补齐。')
     elif not submission_forms:
         document.add_paragraph(snapshot['title'],style='Title')
         _front_fields(document,plan,None,sections['__cover__']['id'],mark=mark,section_settings=pagination.apply if pagination else None,
@@ -319,7 +327,14 @@ def build_school_docx(snapshot,images,plan,*,source_map=None,excluded_chapter_id
         if chapter['id'] in excluded_chapter_ids or chapter['id'] in skipped:continue
         role=chapter['purpose'];en=chapter['output_language']=='en'
         toc_just_inserted=False
-        if plan['toc']['enabled'] and not toc_inserted and role not in ('manual','abstract','references','acknowledgements'):
+        pending_id = 'school:' + chapter['id'] + ':pending'
+        template_toc = (planned and role == 'manual' and not manual.get(chapter['id'])
+                        and re.sub(r'\s+', '', chapter['title']).casefold() in ('目录', 'contents', 'tableofcontents')
+                        and all(item['id'] == pending_id for item in chapter['paragraphs']))
+        if template_toc and (toc_inserted or not plan['toc']['enabled']):
+            continue
+        if plan['toc']['enabled'] and not toc_inserted and (template_toc or
+                role not in ('manual','abstract','references','acknowledgements')):
             if gs501 and running_headers:
                 toc_style=_running_title_style(document,GS501_TOC_STYLE,'toc_heading')
                 toc_style_id=toc_style.style_id
@@ -332,6 +347,8 @@ def build_school_docx(snapshot,images,plan,*,source_map=None,excluded_chapter_id
             end=OxmlElement('w:bookmarkEnd');end.set(qn('w:id'),'500000');paragraph._p.append(start);paragraph._p.append(end);toc_inserted=True
             toc_just_inserted=True
             if gs501:capture()
+            if template_toc:
+                continue
         if role=='abstract' and not en:running_headers=gs501
         if role=='abstract':category='abstract_heading_en' if en else 'abstract_heading_zh'
         elif role=='references':category='references_heading'
@@ -376,6 +393,8 @@ def build_school_docx(snapshot,images,plan,*,source_map=None,excluded_chapter_id
             paragraphs = [dict(id='manual:'+chapter['id']+':'+str(index), text=line, citations=[], source_ids=[])
                           for index, line in enumerate(supplied.splitlines())]
         for item in paragraphs:
+            if planned and role == 'manual' and item['id'] == pending_id:
+                item = {**item, 'text': 'To be supplied by the author.' if en else '待作者填写。'}
             bookmark+=1;paragraph=notes.paragraph(item,bookmark,plan)
             if gs501 and role=='abstract' and en:paragraph.style=GS501_TEXT_STYLES['abstract_body_en']
         if front is not None:

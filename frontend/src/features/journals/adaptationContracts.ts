@@ -1,7 +1,7 @@
 import {isTask,type TaskView} from '../tasks/taskTypes'
 import {record} from './contracts'
 import {sectionIds,styleBounds} from './formatContracts'
-import {articleStructures} from '../manuscripts/articleStructure'
+import {narrativeSectionOrder} from '../manuscripts/articleStructure'
 export type FixedManuscript={id:string;revision:number;version_id:string}
 export type AdaptationRequest={target_id:string;check_id:string;manuscript:FixedManuscript}
 export type Action={id:string;key:string;before:unknown;after:unknown;evidence:unknown[];reason:string}
@@ -44,8 +44,13 @@ function unexecuted(v:unknown):v is Unexecuted{return record(v)&&text(v.key)&&te
 function hasSections(sections:unknown[],ids:readonly string[]){
  return sections.length===ids.length&&ids.every(id=>sections.some(s=>record(s)&&s.section_id===id&&typeof s.changed==='boolean'&&Object.hasOwn(s,'before')&&Object.hasOwn(s,'after')))
 }
+function hasNarrativeSections(sections:unknown[]){
+ const thematic=sections.flatMap(section=>record(section)&&text(section.section_id)&&/^paper-[a-f0-9]{32}$/.test(section.section_id)?[section.section_id]:[])
+ // Saved previews can enumerate the sections in the persisted display-map key order.
+ return new Set(thematic).size===thematic.length&&hasSections(sections,narrativeSectionOrder(thematic))
+}
 export function isAdaptationPreview(v:unknown,expected?:AdaptationRequest):v is AdaptationPreview{
- if(!record(v)||!id(v.target_id)||!id(v.check_id)||!isFixedManuscript(v.manuscript)||!revision(v.expected_current_revision)||!hash(v.preview_sha256)||typeof v.synthetic!=='boolean'||typeof v.can_adopt!=='boolean'||!Array.isArray(v.actions)||!v.actions.every(action)||new Set(v.actions.map(a=>a.id)).size!==v.actions.length||!Array.isArray(v.unexecuted)||!v.unexecuted.every(unexecuted)||!Array.isArray(v.sections)||!(hasSections(v.sections,sectionIds)||hasSections(v.sections,articleStructures.narrative_review)&&v.actions.every(narrativeAction))||v.can_adopt!==(v.actions.length>0))return false
+ if(!record(v)||!id(v.target_id)||!id(v.check_id)||!isFixedManuscript(v.manuscript)||!revision(v.expected_current_revision)||!hash(v.preview_sha256)||typeof v.synthetic!=='boolean'||typeof v.can_adopt!=='boolean'||!Array.isArray(v.actions)||!v.actions.every(action)||new Set(v.actions.map(a=>a.id)).size!==v.actions.length||!Array.isArray(v.unexecuted)||!v.unexecuted.every(unexecuted)||!Array.isArray(v.sections)||!(hasSections(v.sections,sectionIds)||hasNarrativeSections(v.sections)&&v.actions.every(narrativeAction))||v.can_adopt!==(v.actions.length>0))return false
  return !expected||v.target_id===expected.target_id&&v.check_id===expected.check_id&&sameManuscript(v.manuscript,expected.manuscript)
 }
 export function isAdaptation(v:unknown,projectId:string):v is Adaptation{

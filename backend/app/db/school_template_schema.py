@@ -41,6 +41,7 @@ def define_school_template_tables(metadata):
     profiles=sa.Table('thesis_profiles',metadata,*scope('tp'),sa.Column('revision',sa.Integer,nullable=False),
         *(sa.Column(k,sa.Text,nullable=False) for k in ('school','department','major','degree_type','education_level','applicable_version')),
         sa.Column('bound_confirmation_id',sa.Text),sa.Column('updated_at',sa.DateTime(timezone=True),nullable=False),
+        sa.Column('requirements_json',JSONB),
         sa.PrimaryKeyConstraint('project_id'),
         sa.ForeignKeyConstraint(['bound_confirmation_id','project_id','user_id'],['school_template_confirmations.id','school_template_confirmations.project_id','school_template_confirmations.user_id'],name='tp_binding_scope_fk'),
         sa.CheckConstraint('revision>=1',name='tp_revision_check'))

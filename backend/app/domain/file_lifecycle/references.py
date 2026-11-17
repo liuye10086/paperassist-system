@@ -315,6 +315,11 @@ def read_references(db, file, user_id):
     file_id, project_id = file['id'], file['project_id']
     groups = {kind: [dict(row) for row in db.execute(f'SELECT * FROM {table} WHERE file_id=%s', (file_id,))]
               for kind, table in DIRECT.items()}
+    # A saved note retains the original it currently points to. Keep private
+    # result text and target labels out of lifecycle receipts.
+    groups['paper_material_notes'] = [dict(row) for row in db.execute('''SELECT id, file_id, project_id,
+        owner_id AS created_by, revision FROM paper_material_notes WHERE file_id=%s AND project_id=%s''',
+        (file_id, project_id))]
     groups['prepared_dataset_derivations'] = [dict(row) for row in db.execute(
         'SELECT d.*,d.prepared_dataset_id AS id,v.file_id FROM prepared_dataset_derivations d '
         'JOIN prepared_dataset_versions v ON v.id=d.prepared_dataset_id WHERE v.file_id=%s', (file_id,))]
@@ -569,6 +574,7 @@ def read_references(db, file, user_id):
     if groups['research_material_refs']:reasons.append('research_material_history_retained')
     if any(groups.get(name) for name in ('bio_report_context_versions','statistics_report_context_versions','research_finding_versions','research_figure_versions','research_report_versions','research_manuscript_candidates','manuscript_research_sources')):reasons.append('research_results_history_retained')
     if groups['journal_material_refs']:reasons.append('journal_history_retained')
+    if groups['paper_material_notes']:reasons.append('paper_material_note_retained')
     if groups['review_round_refs']:reasons.append('review_history_retained')
     if groups['school_template_versions']:reasons.append('school_template_history_retained')
     if groups['manuscript_school_language_artifacts']:reasons.append('school_template_history_retained')

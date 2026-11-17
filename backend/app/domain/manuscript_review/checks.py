@@ -36,12 +36,19 @@ def check_snapshot(snapshot,metadata=(),strict_locations=(),*,writing_context=No
             issues.extend(school_issues(snapshot))
         else:
             expected=list(SECTION_IDS)
+            valid=True
             if snapshot.get('article_structure_version') is not None:
-                from app.domain.manuscript_writing.article_contract import VERSION,STRUCTURES
-                expected=list(STRUCTURES.get(snapshot.get('article_type'),())) if snapshot['article_structure_version']==VERSION else []
-            if actual!=expected:issues.append(issue('structure','sections','Unexpected section structure.',severity='error',actual=actual,expected=expected))
+                from app.domain.manuscript_writing.article_contract import VERSION, STRUCTURES, labels, matches_structure
+                try:
+                    kind=snapshot.get('article_type')
+                    expected=[sid for sid, _, _ in labels(kind,snapshot)] if snapshot['article_structure_version']==VERSION and kind in STRUCTURES else []
+                    valid=matches_structure(snapshot)
+                except (ValueError,KeyError,TypeError):
+                    valid=False
+            if not valid or actual!=expected:issues.append(issue('structure','sections','Unexpected section structure.',severity='error',actual=actual,expected=expected))
         for section in snapshot['sections']:
-            if not section['paragraphs']:
+            parent = section['id']=='themes' and snapshot.get('paper_plan', {}).get('kind')=='narrative_review'
+            if not section['paragraphs'] and not parent:
                 issues.append(issue('structure','section:'+section['id'],'Section is empty; material requires human review.'))
     else: issues.append(issue('structure','sections','Historical two-section fact draft; complete manuscript structure has not been supplied.'))
 
@@ -123,6 +130,12 @@ def check_snapshot(snapshot,metadata=(),strict_locations=(),*,writing_context=No
         recorded=any(i.get('id')==item['id'] and i.get('values',[])==item['values'] for i in snapshot.get('issues',[]))
         severity='human_review' if recorded and item['field'] not in strict_locations else 'error'
         issues.append(issue('illustration',item['field'],item['message'],severity=severity,actual=item['values'],expected='saved figure/table/panel identity',suffix=item['id']))
+    paper_tables = {
+        material['selection']['id']: material['tables']
+        for material in (snapshot.get('paper_plan') or {}).get('materials', [])
+        if 'tables' in material
+    }
+    paper_table_ids = {f'table:{sid}:{i+1}' for sid, tables in paper_tables.items() for i in range(len(tables))}
     for group_index,group in enumerate(snapshot.get('results_groups',[])):
         for figure in group.get('figures',[]):
             location='caption:'+figure['id']
@@ -134,10 +147,33 @@ def check_snapshot(snapshot,metadata=(),strict_locations=(),*,writing_context=No
         for table_index,table in enumerate(group.get('tables',[])):
             from app.domain.manuscripts.draft import flat_values
             expected=[];rows=table.get('rows');language=snapshot['output_language'];bound_table=True
+            source_ids = table.get('source_ids', [])
+            native = 'paper_table_index' in table or table['id'] in paper_table_ids or any(sid in paper_tables for sid in source_ids)
+            original = table
             if writing_context:
-                try: rows,language=writing_context.table(f'/results_groups/{group_index}/tables/{table_index}',table,sources)
+                path = f'/results_groups/{group_index}/tables/{table_index}'
+                try:
+                    rows,language=writing_context.table(path,table,sources)
+                    if native:
+                        original = writing_context.tables[path]['original']
                 except (ValueError,KeyError,TypeError): bound_table=False
-            for sid in table.get('source_ids',[]):
+            if native:
+                sid = source_ids[0] if len(source_ids) == 1 else None
+                source = sources.get(sid, {})
+                index = original.get('paper_table_index')
+                available = paper_tables.get(sid, [])
+                bound = (type(index) is int and 0 <= index < len(available)
+                    and table['id'] == f'table:{sid}:{index+1}' and table.get('paper_table_index') == index
+                    and source.get('kind') == 'original' and source.get('file_id') == sid)
+                frozen = available[index] if bound else None
+                if not bound_table or not frozen or rows != frozen['rows'] or original.get('columns') != frozen['columns']:
+                    en = snapshot['output_language'] == 'en'
+                    message = ('Table headings and rows must match the exact frozen source table.' if en
+                        else '表头和行内容必须与冻结的原件表格一致。')
+                    issues.append(issue('numeric','table:'+table['id'],message,severity='error',
+                        actual=dict(columns=table.get('columns'),rows=table.get('rows')),expected=frozen,evidence=source_ids))
+                continue
+            for sid in source_ids:
                 source=sources.get(sid,{})
                 if source.get('kind')=='analysis_run':
                     content=source['content'];expected+=list(flat_values({k:content[k] for k in ('check','overall','groups','statistics','variables') if k in content},en=language=='en'))
@@ -159,19 +195,27 @@ def check_snapshot(snapshot,metadata=(),strict_locations=(),*,writing_context=No
     # after the results text, rather than treating them as non-prose metadata.
     reference_texts=[]
     if 'sections' in snapshot:
+        from app.domain.manuscript_writing.article_contract import illustration_groups
+
         sections=snapshot['sections']
         if snapshot.get('journal_display_context'):
             from app.domain.journals.display import display_sections
             try:sections=display_sections(snapshot)
             except (ValueError,KeyError,TypeError):pass
+        deferred=[]
+        submission_layout = (snapshot.get('paper_plan', {}).get('kind')=='narrative_review'
+            and snapshot.get('journal_display_context', {}).get('frontiers_review', {}).get('submission_layout'))
         for section in sections:
             role=section.get('purpose',section['id'])
             if role!='references': reference_texts.extend(section['paragraphs'])
-            if role=='results':
-                if snapshot.get('thesis_context'):
-                    selected={f['id'] for group in snapshot.get('results_groups',[]) if group['id'] in section['result_group_ids'] for f in group.get('figures',[])}
-                    reference_texts.extend(p for p in figure_texts if any(p['id']=='caption:'+identity or p['id'].startswith('panel:'+identity+':') for identity in selected))
-                else: reference_texts.extend(figure_texts)
+            if snapshot.get('thesis_context'):
+                groups=[g for g in snapshot.get('results_groups',[]) if g['id'] in section['result_group_ids']] if role=='results' else []
+            else:
+                groups=illustration_groups(snapshot,section)
+            selected={f['id'] for group in groups for f in group.get('figures',[])}
+            location=deferred if submission_layout else reference_texts
+            location.extend(p for p in figure_texts if any(p['id']=='caption:'+identity or p['id'].startswith('panel:'+identity+':') for identity in selected))
+        reference_texts.extend(deferred)
     else:
         reference_texts=[p for section,p in paragraphs if section=='results']+figure_texts+[p for section,p in paragraphs if section!='results']
     for p in reference_texts:

@@ -5,7 +5,7 @@ export type BatchItem = {
     ordinal: number;
     filename: string;
     size_bytes: number;
-    status: 'pending' | 'rejected' | 'queued' | 'parsing' | 'parsed' | 'failed';
+    status: 'pending' | 'rejected' | 'queued' | 'parsing' | 'parsed' | 'failed' | 'stored';
     file_id: string | null;
     task: TaskView | null;
     error: {
@@ -27,11 +27,14 @@ export type BatchPage = {
     page: number;
     page_size: number;
 };
-export function validateSelection(files: File[]) {
-    return files.length > 10 ? '每批最多选择 10 个文件。' : files.length === 0 ? '请选择 Excel、Word、PDF 或 PNG/JPEG 图片。' : null;
+export function validateSelection(files: File[], writing = false) {
+    return files.length > 10 ? '每批最多选择 10 个文件。' : files.length === 0
+        ? writing ? '请选择 DOCX、XLSX 或图片。' : '请选择 Excel、Word、PDF 或 PNG/JPEG 图片。' : null;
 }
-export function validateFile(file: File) {
-    return !/^.+\.(xlsx|docx|pdf|png|jpe?g)$/i.test(file.name) ? '仅支持 .xlsx、.docx、.pdf、.png、.jpg 或 .jpeg 文件。' : file.size === 0 ? '文件为空。' : file.size > 10 * 1024 * 1024 ? '单文件不能超过 10 MiB。' : null;
+export function validateFile(file: File, writing = false) {
+    const formats = writing ? /^.+\.(xlsx|docx|png|jpe?g|tiff?)$/i : /^.+\.(xlsx|docx|pdf|png|jpe?g)$/i;
+    if (!formats.test(file.name)) return writing ? '请选择 DOCX、XLSX 或 PNG、JPEG、TIFF 图片。' : '仅支持 .xlsx、.docx、.pdf、.png、.jpg 或 .jpeg 文件。';
+    return file.size === 0 ? '文件为空。' : file.size > 10 * 1024 * 1024 ? '单文件不能超过 10 MiB。' : null;
 }
 export function mergeBatch<T extends {
     id: string;
@@ -55,7 +58,7 @@ const record = (v: unknown): v is Record<string, unknown> => !!v && typeof v ===
 export function isBatch(value: unknown, projectId: string): value is UploadBatch {
     if (!record(value) || typeof value.id !== 'string' || value.project_id !== projectId || typeof value.created_at !== 'string' || !Number.isFinite(Date.parse(value.created_at)) || !Number.isSafeInteger(value.revision) || Number(value.revision) < 1 || !Array.isArray(value.items) || value.items.length < 1 || value.items.length > 10)
         return false;
-    return value.items.every((item, index) => record(item) && typeof item.id === 'string' && Number.isSafeInteger(item.ordinal) && item.ordinal === index && typeof item.filename === 'string' && Number.isSafeInteger(item.size_bytes) && Number(item.size_bytes) >= 0 && ['pending', 'rejected', 'queued', 'parsing', 'parsed', 'failed'].includes(String(item.status)) && (item.file_id === null || typeof item.file_id === 'string') && (item.task === null || isTask(item.task, projectId) && item.task.task_type === 'parse_file') && (item.error === null || record(item.error) && typeof item.error.code === 'string')) && new Set(value.items.map(item => item.id)).size === value.items.length;
+    return value.items.every((item, index) => record(item) && typeof item.id === 'string' && Number.isSafeInteger(item.ordinal) && item.ordinal === index && typeof item.filename === 'string' && Number.isSafeInteger(item.size_bytes) && Number(item.size_bytes) >= 0 && ['pending', 'rejected', 'queued', 'parsing', 'parsed', 'failed', 'stored'].includes(String(item.status)) && (item.file_id === null || typeof item.file_id === 'string') && (item.task === null || isTask(item.task, projectId) && item.task.task_type === 'parse_file') && (item.error === null || record(item.error) && typeof item.error.code === 'string')) && new Set(value.items.map(item => item.id)).size === value.items.length;
 }
 export async function batchRequest<T>(url: string, controller: AbortController, onUnavailable: () => void, valid: (v: unknown) => v is T, init?: RequestInit): Promise<T> {
     const timer = window.setTimeout(() => controller.abort(), 15000);

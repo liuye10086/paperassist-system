@@ -5,10 +5,11 @@ import { IntakeError, intakeRequest, projectBase } from '../research-intake/api'
 import { useResearchRead } from '../research-results/api'
 import useResearchDraft from '../research-results/useResearchDraft'
 import SciSettingsFields from './SciSettingsFields'
-import { articleTypes, journalChoices, prepareSciSettings, sciSettingsDraft, type SciSettingsDraft, type SciSettingsState } from './sciProjectSettings'
+import SciSettingsSummary, { LegacySciHistory } from './SciSettingsSummary'
+import { isLegacySciSettings, prepareSciSettings, restoreSciSettingsDraft, sciSettingsDraft, type SciSettingsState, type StoredSciSettingsDraft } from './sciProjectSettings'
 
 type Props = { projectId: string; registerLeaveGuard: RegisterLeaveGuard }
-type Edit = { revision: number; draft: SciSettingsDraft }
+type Edit = { revision: number; draft: StoredSciSettingsDraft }
 
 export default function CustomerSciSettings({ projectId, registerLeaveGuard }: Props) {
   const { t } = useI18n()
@@ -29,7 +30,8 @@ function SettingsEditor({ projectId, url, receipt, refresh, registerLeaveGuard }
   url: string; receipt: SciSettingsState; refresh: () => void
 }) {
   const { t } = useI18n()
-  const [edit, setEdit] = useResearchDraft<Edit | null>(projectId, 'customer-sci-settings', () => null)
+  const [storedEdit, setEdit] = useResearchDraft<Edit | null>(projectId, 'customer-sci-settings', () => null)
+  const edit = storedEdit && { ...storedEdit, draft: restoreSciSettingsDraft(storedEdit.draft) }
   const [saved, setSaved] = useState<SciSettingsState | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
@@ -71,16 +73,9 @@ function SettingsEditor({ projectId, url, receipt, refresh, registerLeaveGuard }
     }
   }
 
+  const legacy = current.legacy_settings ?? (edit && !stale && settings && isLegacySciSettings(settings) ? settings : null)
   return <>
-    {(!edit || stale) && (settings ? <dl className="sci-settings-summary">
-      <dt>{t('论文类型')}</dt><dd>{t(articleTypes[settings.article_type])}</dd>
-      <dt>{t('主要结果或结论')}</dt><dd>{settings.main_results}</dd>
-      <dt>{t('目标期刊')}</dt><dd>{t(journalChoices[settings.target_journal.choice])}
-        {settings.target_journal.name && ' · ' + settings.target_journal.name}</dd>
-      <dt>{t('关键词')}</dt><dd>{settings.keywords.join(' · ')}</dd>
-      <dt>{t('图表计划（Figure plan）')}</dt><dd><ol>{settings.figure_plan.map((item, index) =>
-        <li key={index}><strong>{item.title}</strong><p>{item.description}</p></li>)}</ol></dd>
-    </dl> : <p>{t('此项目尚未填写 SCI 建项资料。')}</p>)}
+    {(!edit || stale) && (settings ? <SciSettingsSummary settings={settings} /> : <p>{t('此项目尚未填写 SCI 建项资料。')}</p>)}
     {!edit ? <button type="button" onClick={() => setEdit({ revision: current.revision, draft: sciSettingsDraft(settings) })}>
       {t(settings ? '编辑 SCI 建项资料' : '补充 SCI 建项资料')}
     </button> : <form className="sci-settings-edit" noValidate aria-busy={busy} onSubmit={event => void save(event)}>
@@ -96,5 +91,6 @@ function SettingsEditor({ projectId, url, receipt, refresh, registerLeaveGuard }
         <button type="button" disabled={busy} onClick={() => { setEdit(null); setError('') }}>{t('取消')}</button>
       </div>
     </form>}
+    {legacy && <LegacySciHistory settings={legacy} />}
   </>
 }

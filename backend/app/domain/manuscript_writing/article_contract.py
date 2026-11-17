@@ -52,8 +52,94 @@ SCI_PROSE_INSTRUCTIONS=(
 )
 
 
-def labels(kind):
-    return [(sid,*OVERRIDES.get(kind,{}).get(sid,COMMON[sid])) for sid in STRUCTURES[kind]]
+def theme_sections(snapshot):
+    plan = (snapshot or {}).get('paper_plan') or {}
+    if plan.get('kind') != 'narrative_review':
+        return []
+    rows = plan['sections']
+    ids = [row['id'] for row in rows]
+    if (not rows or len(rows) + len(STRUCTURES['narrative_review']) > 300
+            or len(ids) != len(set(ids))
+            or any(not re.fullmatch(r'paper-[a-f0-9]{32}', sid) for sid in ids)
+            or any(not row['label'].strip() for row in rows)):
+        raise ValueError('Invalid frozen review themes')
+    return [dict(id=row['id'], title=row['label'], level=2, parent_id='themes',
+                 result_group_ids=[row['id']]) for row in rows]
+
+
+def labels(kind, snapshot=None):
+    children = theme_sections(snapshot) if kind == 'narrative_review' else []
+    result = []
+    for sid in STRUCTURES[kind]:
+        result.append((sid, *OVERRIDES.get(kind, {}).get(sid, COMMON[sid])))
+        if sid == 'themes':
+            result.extend((s['id'], s['title'], s['title']) for s in children)
+    return result
+
+
+def matches_structure(snapshot):
+    kind = snapshot.get('article_type')
+    if snapshot.get('article_structure_version') != VERSION or kind not in STRUCTURES:
+        return False
+    sections = snapshot.get('sections', [])
+    if [s['id'] for s in sections] != [sid for sid, _, _ in labels(kind, snapshot)]:
+        return False
+    children = {s['id']: s for s in theme_sections(snapshot)} if kind == 'narrative_review' else {}
+    if children:
+        group_ids = [g['id'] for g in snapshot.get('results_groups', [])]
+        for section in sections:
+            identity = section['id']
+            if identity == 'themes' and section['paragraphs']:
+                return False
+            child = children.get(identity)
+            if child and (any(section.get(key) != value for key, value in child.items())
+                          or group_ids.count(identity) != 1):
+                return False
+    return True
+
+
+def seed_review_sections(snapshot):
+    """Keep the frozen source groups; show user prose once under its saved heading."""
+    from .context import literature_paragraphs, normalize_sections
+
+    common = {s['id']: s['paragraphs'] for s in normalize_sections(snapshot)}
+    groups = {g['id']: g['paragraphs'] for g in snapshot['results_groups']}
+    children = {s['id']: s for s in theme_sections(snapshot)}
+    sections = []
+    for identity, _, _ in labels('narrative_review', snapshot):
+        section = dict(children[identity]) if identity in children else dict(id=identity)
+        if identity in children:
+            paragraphs = groups[identity]
+        elif identity == 'literature_scope':
+            paragraphs = literature_paragraphs(snapshot)
+        else:
+            paragraphs = common.get(identity, [])
+        section['paragraphs'] = deepcopy(paragraphs)
+        sections.append(section)
+    return dict(snapshot, sections=sections, article_type='narrative_review',
+                article_structure_version=VERSION)
+
+
+def writing_keywords(base, request):
+    return base['keywords'] if base.get('paper_plan') else request['keywords']
+
+
+def illustration_groups(snapshot, section):
+    groups = snapshot.get('results_groups', [])
+    if section['id'] == 'results':
+        return groups
+    if ((snapshot.get('paper_plan') or {}).get('kind') == 'narrative_review'
+            and section.get('parent_id') == 'themes'):
+        return [group for group in groups if group['id'] in section['result_group_ids']]
+    return []
+
+
+def visible_illustration_groups(snapshot, excluded_section_ids=frozenset()):
+    if (snapshot.get('paper_plan') or {}).get('kind') != 'narrative_review':
+        return snapshot.get('results_groups', [])
+    return [group for section in snapshot['sections']
+            if section['id'] not in excluded_section_ids and section.get('parent_id') not in excluded_section_ids
+            for group in illustration_groups(snapshot, section)]
 
 
 class ArticleSection(Strict):
@@ -70,19 +156,27 @@ def structure(base,request):
     old=normalize_sections(base)
     if base.get('thesis_context'):return old
     kind=request['article_type']
+    plan=base.get('paper_plan')
+    if plan and plan['kind']!=kind:
+        raise ValueError('Article type must match the frozen paper requirements')
     if request['mode']!='full_draft' and kind!=base.get('article_type','research'):
         raise ValueError('Article type changes require an explicit full draft candidate')
     by_id={s['id']:s for s in old}
-    return [deepcopy(by_id.get(sid,dict(id=sid,paragraphs=[]))) for sid in STRUCTURES[kind]]
+    return [deepcopy(by_id.get(sid,dict(id=sid,paragraphs=[]))) for sid, _, _ in labels(kind, base)]
 
 
 def scope(base,request,sections):
     from .school_live import WRITABLE
     school=bool(base.get('thesis_context'));mode=request['mode']
-    eligible=[s['id'] for s in sections if (s.get('purpose') in WRITABLE if school else s['id']!='references')]
+    protected={'references'}
+    if theme_sections(base):
+        protected.add('themes')
+    eligible=[s['id'] for s in sections if (s.get('purpose') in WRITABLE if school else s['id'] not in protected)]
     if mode=='full_draft':targets=eligible
     else:
         if not base.get('sections'):raise ValueError('Scoped editing requires published sections')
+        if theme_sections(base) and not base.get('writing_provenance'):
+            raise ValueError('Produce the planned review before requesting scoped edits')
         if mode=='rewrite_section':targets=[request['target_section']]
         elif mode=='results_discussion':
             if request['article_type']=='narrative_review' and not school:raise ValueError('Narrative review has no original results')
@@ -124,6 +218,7 @@ def build_bundle(base,request,frozen,*,include_reported_results=True):
     from .school_live import build_bundle as school_bundle
     from .frozen import wire_parts
     from .policy import POLICY_VERSION
+    from .paper_context import add_illustration_context, add_notes, is_note, place_illustrations, review_material_ids
     from app.core.exceptions import StorageError
     school=bool(base.get('thesis_context'))
     if (request['document_kind']=='thesis')!=school or frozen['document_kind']!=request['document_kind']:raise ValueError('Frozen document kind mismatch')
@@ -131,7 +226,7 @@ def build_bundle(base,request,frozen,*,include_reported_results=True):
     seed_contract={k:deepcopy(v) for k,v in frozen.items()
                    if k not in ('document_kind','article_scope_version','numeric_contract_version','article_instruction_revision')}
     seed_contract['schema_version']=3 if school else 2
-    seed_request=dict(request,mode='full_draft',target_section=None)
+    seed_request=dict(request,mode='full_draft',target_section=None,keywords=writing_keywords(base,request))
     if school:seed_contract.update(numeric_contract_version=2,school_content_version='school-live-v1')
     seed=(school_bundle if school else common)(base,seed_request,seed_contract) if school else common(base,seed_request,execution_contract=seed_contract)
     payload=json.loads(json.loads(seed['wire_json'])['input']);local=seed['local_manifest']
@@ -139,9 +234,19 @@ def build_bundle(base,request,frozen,*,include_reported_results=True):
         from .numeric_contract import add_reported_results
         add_reported_results(base,request,payload,local,safe_text)
     if request['article_type']=='narrative_review' and not school:
-        prohibited=[s for s in payload['sources'] if s.get('role') in ('computed_results','user_results','image_observation') or s.get('kind')=='analysis_run']
+        allowed = review_material_ids(base)
+        prohibited=[s for s in payload['sources']
+                    if local['sources'][s['alias']] not in allowed
+                    and (s.get('role') in ('computed_results','user_results','image_observation') or s.get('kind')=='analysis_run')]
         if prohibited:raise ValueError('Narrative review uses acquired literature evidence, not original study results')
-        payload['illustrations']=[]
+        if not base.get('paper_plan'):
+            payload['illustrations']=[]
+        else:
+            allowed_illustrations={(kind, item['number'])
+                                   for group in base['results_groups'] for kind in ('figure', 'table')
+                                   for item in group[kind+'s'] if item['source_ids'] and set(item['source_ids']) <= allowed}
+            payload['illustrations']=[item for item in payload['illustrations']
+                                      if (item['kind'], item['number']) in allowed_illustrations]
     local['writing_scope']=editing
     if school:
         layout=local['school'];mapping={c['chapter_id']:a for a,c in layout['chapters'].items()}
@@ -151,7 +256,12 @@ def build_bundle(base,request,frozen,*,include_reported_results=True):
         for row in editing['paragraph_plan']:
             if row['id'] not in aliases:aliases[row['id']]=f'paragraph{len(aliases)+1}'
         local['writing_paragraph_aliases']={alias:pid for pid,alias in aliases.items()}
-    else:mapping={sid:sid for sid in STRUCTURES[request['article_type']]};aliases={p['id']:p['id'] for s in sections for p in s['paragraphs']}
+    else:
+        mapping={s['id']:s['id'] for s in sections}
+        aliases={p['id']:p['id'] for s in sections for p in s['paragraphs']}
+        add_notes(base, request, payload, local, mapping)
+        place_illustrations(base, payload, mapping)
+        add_illustration_context(base, payload, local)
     output_ids=[mapping[sid] for sid in editing['target_section_ids']]
     payload.update(schema_version=4,article_scope_version=VERSION,document_kind=request['document_kind'],article_type=request['article_type'],
         mode=request['mode'],target_section=mapping.get(request['target_section']),brief_limits=request['brief_limits'])
@@ -159,13 +269,17 @@ def build_bundle(base,request,frozen,*,include_reported_results=True):
         target_paragraph_ids=[aliases[p] for p in editing['target_paragraph_ids']],
         paragraph_plan=[dict(id=aliases.get(r['id'],r['id']),section_id=mapping[r['section_id']],source_paragraph_ids=[aliases[p] for p in r['source_paragraph_ids']]) for r in editing['paragraph_plan']])
     payload['writing_scope']=wire_scope
-    payload['article_structure']=[dict(id=mapping[s['id']],heading=safe_text(s['title']) if school else labels(request['article_type'])[[r[0] for r in labels(request['article_type'])].index(s['id'])][1 if request['output_language']=='en' else 2]) for s in sections if s['id'] in mapping and (not school or mapping[s['id']] in local['school']['writable_aliases'])]
+    headings={sid:en if request['output_language']=='en' else zh for sid,en,zh in labels(request['article_type'],base)}
+    payload['article_structure']=[dict(id=mapping[s['id']],heading=safe_text(s['title'] if school else headings[s['id']]),
+        **(dict(parent_id=s['parent_id'],level=s['level']) if not school and s.get('parent_id') else {}))
+        for s in sections if s['id'] in mapping and (not school or mapping[s['id']] in local['school']['writable_aliases'])]
     if school:
         # Add paragraph aliases only to eligible text already projected by school.
         for context in payload['context']:
             chapter=local['school']['chapters'][context['id']]
             rows=next(s for s in sections if s['id']==chapter['chapter_id'])['paragraphs']
-            permitted=[p for p in rows if not p.get('citations') and set(p.get('source_ids',[]))<=set(request['selected_source_ids'])]
+            permitted=[p for p in rows if not p.get('citations') and set(p.get('source_ids',[]))<=set(request['selected_source_ids'])
+                       and not (base.get('paper_plan') and is_note(p))]
             for projected,p in zip(context['paragraphs'],permitted):projected['id']=aliases[p['id']]
     else:
         for context in payload['context']:
@@ -242,7 +356,9 @@ def enforce_science(candidate,payload,target_ids):
             if re.search(r'outperform|benchmark|accuracy|sensitivity|specificity|性能|准确|优于|领先',p['text'],re.I):raise ValueError('Validation evidence unavailable; performance claim is forbidden')
             p['text']=payload['validation_gap']
     if candidate.get('article_type')=='narrative_review':
+        from .paper_context import review_material_ids
         original_result_ids={s['id'] for s in candidate.get('sources',[]) if s.get('role') in ('computed_results','user_results','image_observation') or s.get('kind')=='analysis_run'}
+        original_result_ids -= review_material_ids(candidate)
         for s in candidate['sections']:
             for p in s['paragraphs']:
                 if p['id'] in target_ids and (set(p.get('source_ids',[])) & original_result_ids or p.get('study_numeric_bindings')):raise ValueError('Literature review cannot claim original study results')
@@ -287,7 +403,7 @@ def compose(output,snapshot,bundle,call_id,provenance,composition_version):
             proposed[section['id']]=paragraphs
         result.update(article_type=request['article_type'],article_structure_version=VERSION)
         if request['mode']=='full_draft':
-            result.update(output_language=request['output_language'],keywords=deepcopy(request['keywords']),acknowledgements=request['acknowledgements'])
+            result.update(output_language=request['output_language'],keywords=deepcopy(writing_keywords(base,request)),acknowledgements=request['acknowledgements'])
         elif request['output_language']!=base['output_language']:raise ValueError('Scoped editing cannot change manuscript language')
     old={p['id']:p for s in original for p in s['paragraphs']}
     for sid,paragraphs in proposed.items():

@@ -1,58 +1,94 @@
+import { preparePaperKeywords, type PaperKeywordDraft } from './paperKeywords'
+
 export const articleTypes = { research: '研究型论文', narrative_review: '综述' } as const
 export const journalChoices = { nature_subjournal: 'Nature 子刊', science: 'Science', other: '其他期刊' } as const
-export const MAX_KEYWORDS = 30
-export const MAX_FIGURE_PLANS = 30
 
 type ArticleType = keyof typeof articleTypes
 type JournalChoice = keyof typeof journalChoices
 type FigurePlan = { title: string; description: string }
+type FigureFinding = { id: string; finding: string }
+type ReviewSection = { id: string; heading: string; content: string }
 
-export type SciSettings = {
-  article_type: ArticleType
-  main_results: string
+type SciIntent = {
   target_journal: { choice: JournalChoice; name: string | null }
   keywords: string[]
+}
+
+export type LegacySciContent = {
+  main_results: string
   figure_plan: FigurePlan[]
 }
 
-export type SciSettingsDraft = Omit<SciSettings, 'article_type' | 'target_journal'> & {
+export type LegacySciSettings = SciIntent & LegacySciContent & { article_type: ArticleType }
+type SciRequirements = SciIntent & { proposed_title: string } & (
+  | { article_type: 'research'; figure_findings: FigureFinding[] }
+  | { article_type: 'narrative_review'; review_sections: ReviewSection[] }
+)
+export type SciSettings = LegacySciSettings | SciRequirements
+
+type SciDraftIntent = PaperKeywordDraft & {
   article_type: ArticleType | ''
   target_journal: { choice: JournalChoice | ''; name: string }
-  keywordInput: string
+}
+export type SciSettingsDraft = SciDraftIntent & {
+  proposed_title: string
+  figure_findings: FigureFinding[]
+  review_sections: ReviewSection[]
+  legacy_draft?: LegacySciContent
+}
+export type StoredSciSettingsDraft = SciSettingsDraft | (SciDraftIntent & LegacySciContent)
+
+export type SciSettingsState = { revision: number; settings: SciSettings | null; legacy_settings?: LegacySciSettings }
+
+export function isLegacySciSettings(settings: SciSettings): settings is LegacySciSettings {
+  return 'main_results' in settings
 }
 
-export type SciSettingsState = { revision: number; settings: SciSettings | null }
-
 export function sciSettingsDraft(settings: SciSettings | null = null): SciSettingsDraft {
+  const requirements = settings && !isLegacySciSettings(settings) ? settings : null
   return {
     article_type: settings?.article_type ?? '',
-    main_results: settings?.main_results ?? '',
+    proposed_title: requirements?.proposed_title ?? '',
     target_journal: { choice: settings?.target_journal.choice ?? '', name: settings?.target_journal.name ?? '' },
     keywords: settings?.keywords ?? [],
-    figure_plan: settings?.figure_plan ?? [],
+    figure_findings: requirements?.article_type === 'research' ? requirements.figure_findings : [],
+    review_sections: requirements?.article_type === 'narrative_review' ? requirements.review_sections : [],
     keywordInput: '',
   }
 }
 
-export function hasKeyword(keywords: string[], value: string) {
-  return keywords.some(keyword => keyword.toLowerCase() === value.toLowerCase())
+export function restoreSciSettingsDraft(stored?: StoredSciSettingsDraft): SciSettingsDraft {
+  if (!stored) return sciSettingsDraft()
+  if ('proposed_title' in stored) return stored
+  const { main_results, figure_plan, ...intent } = stored
+  return { ...sciSettingsDraft(), ...intent, legacy_draft: { main_results, figure_plan } }
 }
 
-export function prepareSciSettings(draft: SciSettingsDraft): { settings: SciSettings } | { error: string } {
-  const { article_type, target_journal, keywordInput } = draft
-  const main_results = draft.main_results.trim()
+export function legacySciResult(settings: SciSettings | null | undefined) {
+  return settings && isLegacySciSettings(settings) ? settings.main_results : ''
+}
+
+export function prepareSciSettings(draft: SciSettingsDraft): { settings: SciRequirements } | { error: string } {
+  const { article_type, target_journal } = draft
   if (!article_type) return { error: '请选择论文类型。' }
-  if (!main_results) return { error: '请填写主要结果或结论。' }
+  const proposed_title = draft.proposed_title.trim()
+  if (!proposed_title) return { error: '请填写拟定论文题目。' }
   if (!target_journal.choice) return { error: '请选择一个目标期刊。' }
   const name = target_journal.choice === 'science' ? '' : target_journal.name.trim()
-  if (target_journal.choice === 'other' && !name) return { error: '请填写具体期刊名称。' }
-  const pending = keywordInput.trim()
-  if (pending && hasKeyword(draft.keywords, pending)) return { error: '关键词已添加。' }
-  const keywords = pending ? [...draft.keywords, pending] : draft.keywords
-  if (!keywords.length || keywords.length > MAX_KEYWORDS) return { error: '请填写 1 至 30 个关键词。' }
-  const figure_plan = draft.figure_plan.map(item => ({ title: item.title.trim(), description: item.description.trim() }))
-  if (!figure_plan.length || figure_plan.some(item => !item.title || !item.description)) {
-    return { error: '请至少添加一项图表计划，并填写每项的标题和拟表达内容。' }
+  if (target_journal.choice !== 'science' && !name) return { error: '请填写具体期刊名称。' }
+  const prepared = preparePaperKeywords(draft)
+  if ('error' in prepared) return prepared
+  const intent = { proposed_title, target_journal: { choice: target_journal.choice, name: name || null }, keywords: prepared.keywords }
+  if (article_type === 'research') {
+    const figure_findings = draft.figure_findings.map(({ id, finding }) => ({ id, finding: finding.trim() }))
+    if (!figure_findings.length || figure_findings.some(item => !item.finding)) {
+      return { error: '请至少添加一张图，并填写每张图的主要发现。' }
+    }
+    return { settings: { ...intent, article_type, figure_findings } }
   }
-  return { settings: { article_type, main_results, target_journal: { choice: target_journal.choice, name: name || null }, keywords, figure_plan } }
+  const review_sections = draft.review_sections.map(({ id, heading, content }) => ({ id, heading: heading.trim(), content: content.trim() }))
+  if (!review_sections.length || review_sections.some(item => !item.heading || !item.content)) {
+    return { error: '请至少添加一个小标题，并填写每项需要涵盖的内容。' }
+  }
+  return { settings: { ...intent, article_type, review_sections } }
 }

@@ -87,7 +87,7 @@ export default function ProjectFileLibrary({ projectId, active, uploadVersion, b
         <ul className="file-list file-card-list">{result.items.map(file => <li key={file.id}
           aria-current={previewState?.id === file.id && previewState.status === 'ready' ? 'true' : undefined}>
           <div className="file-summary"><strong>{file.filename}</strong> · <span>{file.file_type?.toUpperCase()}</span>{' '}<span className={file.parse_status === 'failed' ? 'file-failed' : 'file-parsed'}>
-            {t(parseStatusLabels[file.parse_status])}</span>
+            {t(file.file_type === 'tiff' && file.parse_status === 'stored' ? '已上传' : parseStatusLabels[file.parse_status])}</span>
             <p className="muted">{t('{bytes} 字节 · {date}', { bytes: file.size_bytes.toLocaleString(locale), date: new Date(file.uploaded_at).toLocaleString(locale) })}</p>
             <p className="muted file-upload-source">{file.upload_batch ? t('上传批次：{date} · 本批登记 {count} 项 · 第 {position} 项', {
               date: new Date(file.upload_batch.created_at).toLocaleString(locale), count: file.upload_batch.item_count,
@@ -99,8 +99,12 @@ export default function ProjectFileLibrary({ projectId, active, uploadVersion, b
               ? '正在读取预览……' : previewState.status === 'ready' ? '当前预览' : '读取预览失败。')}</p>}
           </div><div className="file-actions">
             <button type="button" aria-label={t('文件详情 {name}', { name: file.filename })} onClick={() => openDetails(file.id)}>{t('文件详情')}</button>
-            {file.parse_status === 'parsed' && <button type="button" disabled={busy} aria-label={t('预览 {name}', { name: file.filename })}
-              onClick={() => { if (file.file_type === 'xlsx') onPreview(file.id); else if (['docx','pdf','png','jpeg'].includes(file.file_type)) openDetails(file.id, true) }}>{t('预览')}</button>}
+            {(file.parse_status === 'parsed' || file.file_type === 'tiff') && <button type="button" disabled={busy} aria-label={t('预览 {name}', { name: file.filename })}
+              onClick={() => {
+                if (file.file_type === 'xlsx') onPreview(file.id)
+                else if (file.file_type === 'tiff') openDetails(file.id)
+                else if (['docx', 'pdf', 'png', 'jpeg'].includes(file.file_type)) openDetails(file.id, true)
+              }}>{t('预览')}</button>}
             <ProjectDownloadLink href={`/api/v1/projects/${projectId}/files/${file.id}/download`} filename={file.filename}
               ariaLabel={t('下载 {name}', { name: file.filename })}>{t('下载原文件')}</ProjectDownloadLink>
           </div>

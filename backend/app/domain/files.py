@@ -21,7 +21,7 @@ class ProjectFile(BaseModel):
     id: str
     project_id: str
     filename: str
-    file_type: Literal['xlsx', 'docx', 'pdf', 'png', 'jpeg', 'bio_bundle', 'bio_component']
+    file_type: Literal['xlsx', 'docx', 'pdf', 'png', 'jpeg', 'tiff', 'bio_bundle', 'bio_component']
     size_bytes: int
     sha256: str
     uploaded_at: str
@@ -51,7 +51,7 @@ class FilePage(BaseModel):
 
 
 class FileSource(BaseModel):
-    kind: Literal['legacy_excel', 'excel_parse', 'docx_parse', 'pdf_parse', 'ocr_parse', 'bio_original'] = 'legacy_excel'
+    kind: Literal['legacy_excel', 'excel_parse', 'docx_parse', 'pdf_parse', 'ocr_parse', 'image_original', 'bio_original'] = 'legacy_excel'
     preview_available: bool
     preview_row_limit: Literal[20] | None = 20
     parser_version: str | None = None
@@ -204,6 +204,9 @@ def read_file_details(store, project_id, file_id):
         references['prepared_dataset_derivations'] = db.execute('SELECT count(*) AS n FROM prepared_dataset_derivations d JOIN prepared_dataset_versions p ON p.id=d.prepared_dataset_id WHERE p.file_id=%s',(file_id,)).fetchone()['n']
         from app.domain.file_lifecycle.metadata_summary import read_metadata_counts
         references.update(read_metadata_counts(db,row,store.owner_id))
+        if row['file_type'] == 'tiff':
+            return FileDetails(**result, source=FileSource(kind='image_original', preview_row_limit=None,
+                preview_available=True), references=references)
         parse = db.execute('SELECT parser_version FROM file_parse_results WHERE file_id=%s ORDER BY version DESC', (file_id,)).fetchone()
         return FileDetails(**result, source=FileSource(kind='bio_original' if row['file_type'] in ('bio_bundle','bio_component') else 'ocr_parse' if row['file_type'] in ('png','jpeg') else 'pdf_parse' if row['file_type']=='pdf' else 'docx_parse' if row['file_type']=='docx' else 'excel_parse' if parse else 'legacy_excel',
             preview_row_limit=None if row['file_type'] in ('docx','pdf','png','jpeg','bio_bundle','bio_component') else 20,

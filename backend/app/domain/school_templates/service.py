@@ -35,9 +35,11 @@ class SchoolTemplateService:
         if lock: db.execute('SELECT id FROM projects WHERE id=%s FOR UPDATE',(project,)).fetchone()
         return row
 
-    def profile_view(self,db,project,*,include_hidden_binding=False):
-        row=db.execute('SELECT * FROM thesis_profiles WHERE project_id=%s AND user_id=%s',(project,self.store.user_id)).fetchone()
-        profile=({k:row[k] for k in ('revision',*PROFILE_FIELDS,'bound_confirmation_id')} if row else
+    def profile_view(self,db,project,*,include_hidden_binding=False,include_requirements=False):
+        fields=('revision',*PROFILE_FIELDS,'bound_confirmation_id')
+        if include_requirements: fields+=('requirements_json',)
+        row=db.execute('SELECT '+','.join(fields)+' FROM thesis_profiles WHERE project_id=%s AND user_id=%s',(project,self.store.user_id)).fetchone()
+        profile=(dict(row) if row else
             dict(revision=0,**{k:'' for k in PROFILE_FIELDS},bound_confirmation_id=None))
         if self.assets.customer and not include_hidden_binding and profile['bound_confirmation_id']:
             saved=db.execute('SELECT template_version_id FROM school_template_confirmations WHERE id=%s AND project_id=%s AND user_id=%s',
@@ -58,16 +60,18 @@ class SchoolTemplateService:
             self.project(db,project,True);old=self.profile_view(db,project,include_hidden_binding=True)
             if old['revision']!=request.expected_revision: raise StorageError('task_revision_conflict','学校资料已更新，请刷新。',409)
             values={k:getattr(request,k) for k in PROFILE_FIELDS}
-            self._profile(db,project,old,values,old['bound_confirmation_id'])
+            self.write_profile(db,project,old,values,old['bound_confirmation_id'])
             return self.profile_view(db,project)
 
-    def _profile(self,db,project,old,values,binding):
-        db.execute('''INSERT INTO thesis_profiles(project_id,user_id,revision,school,department,major,degree_type,education_level,applicable_version,bound_confirmation_id,updated_at)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) ON CONFLICT(project_id) DO UPDATE SET
+    def write_profile(self,db,project,old,values,binding,*,requirements=None):
+        db.execute('''INSERT INTO thesis_profiles(project_id,user_id,revision,school,department,major,degree_type,education_level,applicable_version,bound_confirmation_id,updated_at,requirements_json)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) ON CONFLICT(project_id) DO UPDATE SET
             revision=EXCLUDED.revision,school=EXCLUDED.school,department=EXCLUDED.department,major=EXCLUDED.major,
             degree_type=EXCLUDED.degree_type,education_level=EXCLUDED.education_level,applicable_version=EXCLUDED.applicable_version,
-            bound_confirmation_id=EXCLUDED.bound_confirmation_id,updated_at=EXCLUDED.updated_at''',
-            (project,self.store.user_id,old['revision']+1,*(values[k] for k in PROFILE_FIELDS),binding,now()))
+            bound_confirmation_id=EXCLUDED.bound_confirmation_id,updated_at=EXCLUDED.updated_at,
+            requirements_json=COALESCE(EXCLUDED.requirements_json,thesis_profiles.requirements_json)''',
+            (project,self.store.user_id,old['revision']+1,*(values[k] for k in PROFILE_FIELDS),binding,now(),
+             Jsonb(requirements) if requirements is not None else None))
 
     def freeze_source(self,db,project,file_id,role):
         file=dict(require_file(db,project,file_id,material_filter=self.assets.material_filter))
@@ -307,7 +311,7 @@ class SchoolTemplateService:
             confirmation=db.execute('SELECT * FROM school_template_confirmations WHERE id=%s AND project_id=%s AND user_id=%s',(request.confirmation_id,project,self.store.user_id)).fetchone()
             if not confirmation: raise StorageError('not_found','确认版本不存在。',404)
             row=self.row(db,project,confirmation['template_version_id']);self.require_current(db,row);self.confirmation(db,row)
-            self._profile(db,project,old,old,confirmation['id']);return self.profile_view(db,project)
+            self.write_profile(db,project,old,old,confirmation['id']);return self.profile_view(db,project)
 
     def retry(self,project,identity):
         with self.store.connection(write=True) as db:

@@ -16,10 +16,12 @@ def is_narrative_review(snapshot):
 def completed_narrative_review(snapshot):
     if not is_narrative_review(snapshot):
         return False
-    from app.domain.manuscript_writing.article_contract import STRUCTURES
+    from app.domain.manuscript_writing.article_contract import STRUCTURES, matches_structure
 
     review = snapshot.get('writing_provenance', {})
-    return (tuple(section['id'] for section in snapshot.get('sections', [])) == STRUCTURES['narrative_review']
+    valid_shape = (matches_structure(snapshot) if snapshot.get('paper_plan') else
+                   tuple(section['id'] for section in snapshot.get('sections', [])) == STRUCTURES['narrative_review'])
+    return (valid_shape
             and review.get('schema_version') == 2
             and review.get('verification_status') == 'scientific_and_language_reviewed')
 
@@ -30,7 +32,7 @@ def defaults(snapshot):
     if is_narrative_review(snapshot):
         from app.domain.manuscript_writing.article_contract import labels as article_labels
 
-        labels = article_labels('narrative_review')
+        labels = article_labels('narrative_review', snapshot)
     names = {key: en if snapshot['output_language'] == 'en' else zh for key, en, zh in labels}
     return dict(version=DISPLAY_VERSION, names=names, order=list(names), styles={})
 
@@ -40,7 +42,9 @@ def context(snapshot):
     value = deepcopy(saved or base)
     if value.get('version') != DISPLAY_VERSION or set(value['names']) != set(base['names']) or sorted(value['order']) != sorted(base['order']) or value['order'][0] != 'title':
         raise ValueError('Invalid journal display mapping')
-    if len(set(value['names'].values())) != len(base['order']):
+    levels = theme_heading_levels(snapshot)
+    main_names = [name for key, name in value['names'].items() if key not in levels]
+    if len(set(main_names)) != len(main_names):
         raise ValueError('Display headings must be one-to-one')
     profile = value.get('frontiers_review')
     if profile is not None:
@@ -64,11 +68,20 @@ def validate_style(key,value):
 
 def display_sections(snapshot):
     value=context(snapshot);sections={s['id']:s for s in snapshot['sections']}
-    return [dict(sections[k], display_name=value['names'][k], heading_level=_heading_level(value, k)) for k in value['order']]
+    levels = theme_heading_levels(snapshot)
+    return [dict(sections[k], display_name=value['names'][k], heading_level=_heading_level(value, k, levels))
+            for k in value['order']]
 
 
-def _heading_level(value, key):
-    return frontiers.HEADING_LEVELS.get(key, 1) if value.get('frontiers_review', {}).get('headings') else 1
+def theme_heading_levels(snapshot):
+    from app.domain.manuscript_writing.article_contract import theme_sections
+
+    return {s['id']: s['level'] for s in theme_sections(snapshot)} if is_narrative_review(snapshot) else {}
+
+
+def _heading_level(value, key, levels=None):
+    level = (levels or {}).get(key, 1)
+    return frontiers.HEADING_LEVELS.get(key, level) if value.get('frontiers_review', {}).get('headings') else level
 
 
 def _frontiers_action(snapshot, value, key, new):
@@ -90,6 +103,7 @@ def plan(snapshot,target,warnings):
     complete_research = [s['id'] for s in snapshot.get('sections', [])] == list(SECTION_IDS)
     narrative = is_narrative_review(snapshot)
     complete_review = completed_narrative_review(snapshot)
+    levels = theme_heading_levels(snapshot)
     for rule in rules:
         key=rule['key'];reason=None;old=None;new=rule['value']
         if not (complete_research or complete_review):
@@ -105,7 +119,7 @@ def plan(snapshot,target,warnings):
                 new = {k: dict(display_name=frontiers.HEADING_NAMES.get(k, after['names'][k]),
                                level=frontiers.HEADING_LEVELS.get(k, 1)) for k in keys}
             elif key == 'section_order':
-                if [after['names'][k] for k in after['order'] if after['names'][k] in new] == new:
+                if [after['names'][k] for k in after['order'] if k not in levels and after['names'][k] in new] == new:
                     continue  # Heading mapping meets the order without moving text.
                 reason = '所选综述章节显示尚不匹配；需核对必需章节。'
             elif key == 'document_single_spacing':
@@ -167,13 +181,13 @@ def plan(snapshot,target,warnings):
     unexecuted += [dict(key=c['key'],evidence=c['requirements'],reason=c['reason']) for c in target['conflicts']]
     def section_display(value, key):
         profile = value.get('frontiers_review', {})
-        scoped = 'frontiers_review' in before or 'frontiers_review' in after
+        scoped = key in levels or 'frontiers_review' in before or 'frontiers_review' in after
         styles = value['styles'] if key != 'title' else {}
         if profile.get('single_spacing'):
             styles = styles | dict(document_single_spacing=True)
         return dict(display_name=value['names'][key], position=value['order'].index(key), styles=styles,
-                    **({'level': _heading_level(value, key)} if scoped else {}))
-    sections=[dict(section_id=k,before=section_display(before,k),after=section_display(after,k)) for k in before['names']]
+                    **({'level': _heading_level(value, key, levels)} if scoped else {}))
+    sections=[dict(section_id=k,before=section_display(before,k),after=section_display(after,k)) for k in before['order']]
     for s in sections:s['changed']=s['before']!=s['after']
     return dict(sections=sections,actions=actions,unexecuted=unexecuted,display_context=after)
 

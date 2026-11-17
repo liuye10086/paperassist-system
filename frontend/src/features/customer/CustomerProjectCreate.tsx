@@ -6,14 +6,17 @@ import { customerProjectTypeNames, isProject, type Project } from '../projects/p
 import { IntakeError, intakeRequest } from '../research-intake/api'
 import useResearchDraft from '../research-results/useResearchDraft'
 import SciSettingsFields from './SciSettingsFields'
-import { prepareSciSettings, sciSettingsDraft, type SciSettingsDraft } from './sciProjectSettings'
+import ThesisBasicsFields from './ThesisBasicsFields'
+import { prepareSciSettings, restoreSciSettingsDraft, type StoredSciSettingsDraft } from './sciProjectSettings'
+import { prepareThesisBasics, thesisBasicsDraft, type ThesisBasicsDraft } from './thesisProjectRequirements'
 
 type Draft = {
   name: string
   goal: string
   submission: ArtifactSubmission | null
   projectType?: Project['project_type']
-  sci?: SciSettingsDraft
+  sci?: StoredSciSettingsDraft
+  thesis?: ThesisBasicsDraft
 }
 const emptyDraft = (): Draft => ({ name: '', goal: '', submission: null })
 
@@ -28,7 +31,8 @@ export default function CustomerProjectCreate({ onCreated, onClose }: {
   const request = useRef<AbortController | null>(null)
   useEffect(() => () => request.current?.abort(), [])
   const projectType = draft.projectType ?? 'research'
-  const sci = draft.sci ?? sciSettingsDraft()
+  const sci = restoreSciSettingsDraft(draft.sci)
+  const thesis = draft.thesis ?? thesisBasicsDraft()
   const locked = busy || !!draft.submission
 
   function change(update: Partial<Draft>) {
@@ -49,10 +53,13 @@ export default function CustomerProjectCreate({ onCreated, onClose }: {
     if (!submission) {
       const validated = projectType === 'sci' ? prepareSciSettings(sci) : null
       if (validated && 'error' in validated) { setError(validated.error); return }
+      const thesisRequirements = projectType === 'thesis' ? prepareThesisBasics(thesis) : null
+      if (thesisRequirements && 'error' in thesisRequirements) { setError(thesisRequirements.error); return }
       submission = createArtifactSubmission({
-        name, research_topic: goal, project_type: projectType, default_output_language: locale,
+        name, research_topic: goal, project_type: projectType, default_output_language: thesisRequirements?.language ?? locale,
         ...(projectType === 'research' ? { delivery_kinds: ['analysis'] } : {}),
         ...(validated ? { sci_settings: validated.settings } : {}),
+        ...(thesisRequirements ? { thesis_requirements: thesisRequirements.basics } : {}),
       })
     }
     setDraft({ ...draft, submission })
@@ -109,6 +116,7 @@ export default function CustomerProjectCreate({ onCreated, onClose }: {
           onChange={event => change({ goal: event.target.value })} /></label>
       </div>
       {projectType === 'sci' && <SciSettingsFields draft={sci} disabled={locked} onChange={value => change({ sci: value })} onError={setError} />}
+      {projectType === 'thesis' && <ThesisBasicsFields draft={thesis} disabled={locked} onChange={value => change({ thesis: value })} onError={setError} />}
       {error && <p className="error-panel" role="alert">{t(error)}</p>}
       <div className="project-form-actions">
         <button type="submit" className="button-primary" disabled={busy}>

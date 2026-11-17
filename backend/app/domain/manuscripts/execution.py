@@ -93,14 +93,13 @@ def run_manuscript_task(task_id,task_revision,*,config=None,directory=None):
             metadata,content,target=restored
         elif task['task_type']=='manuscript_docx':
             from app.adapters.manuscript_docx import (
-                CUSTOMER_NARRATIVE_REVIEW_RENDERER_VERSION, CUSTOMER_RENDERER_VERSION, RENDERER_VERSION,
+                CUSTOMER_RENDERER_VERSIONS, RENDERER_VERSION,
                 build_manuscript_docx, revised_manuscript_filename,
             )
             renderer = task['input_snapshot'].get('renderer_version', RENDERER_VERSION)
-            customer_renderers = (CUSTOMER_RENDERER_VERSION, CUSTOMER_NARRATIVE_REVIEW_RENDERER_VERSION)
-            if renderer not in (RENDERER_VERSION, *customer_renderers):
+            if renderer not in (RENDERER_VERSION, *CUSTOMER_RENDERER_VERSIONS):
                 raise source_conflict()
-            customer_view = renderer in customer_renderers
+            customer_view = renderer in CUSTOMER_RENDERER_VERSIONS
             customer_revision = customer_view and bool(snapshot.get('review_revision_provenance') or snapshot.get('user_return_provenance'))
             presentation=version.get('_presentation_context')
             selected=presentation['selected'] if presentation is not None else version
@@ -188,6 +187,12 @@ def run_manuscript_task(task_id,task_revision,*,config=None,directory=None):
             if customer_revision:
                 blind = presentation is not None and presentation['binding']['review_mode']=='blind'
                 metadata['filename'] = revised_manuscript_filename(rendered, blind=blind)
+            elif customer_view and school_plan is not None and rendered.get('paper_plan'):
+                blind = presentation is not None and presentation['binding']['review_mode']=='blind'
+                if rendered['output_language']=='en':
+                    metadata['filename'] = 'Thesis - anonymized.docx' if blind else 'Thesis.docx'
+                else:
+                    metadata['filename'] = '毕业论文盲审稿.docx' if blind else '毕业论文.docx'
             elif customer_view:
                 metadata['filename'] = 'Manuscript.docx' if rendered['output_language'] == 'en' else 'SCI论文.docx'
             service.directory.mkdir(parents=True,exist_ok=True)

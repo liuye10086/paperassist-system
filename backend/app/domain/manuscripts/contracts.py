@@ -88,6 +88,7 @@ class ManuscriptRequest(Strict):
     title:str=Field(min_length=1,max_length=200)
     output_language:Literal['zh-CN','en']
     expected_revision:int=Field(default=0,ge=0)
+    paper_plan_token: str | None = Field(default=None, pattern=r'^[0-9a-f]{64}$', exclude_if=lambda value: value is None)
     sources:list[SourceSelection]=Field(default_factory=list,max_length=50)
     methods:Methods=Field(default_factory=Methods)
     method_source_ids:dict[MethodField,list[str]]=Field(default_factory=dict)

@@ -49,6 +49,7 @@ def build_bundle(base,request,frozen):
     from .numeric_contract import add_reported_results,text_facts
     from .frozen import wire_parts
     from .policy import POLICY_VERSION
+    from .paper_context import add_illustration_context, add_notes, is_note, place_illustrations
     from app.core.exceptions import StorageError
     school=layout(base,request)
     safe=deepcopy(base)
@@ -66,6 +67,7 @@ def build_bundle(base,request,frozen):
         if c['purpose'] not in WRITABLE:continue
         paragraphs=[]
         for i,p in enumerate(sections[c['chapter_id']]['paragraphs']):
+            if base.get('paper_plan') and is_note(p):continue
             if p.get('citations') or not set(p.get('source_ids',[]))<=set(request['selected_source_ids']):continue
             text=safe_text(p['text']);paragraphs.append(dict(text=text))
             if c['purpose']=='materials_and_methods' and p.get('origin')=='user_provided':
@@ -83,10 +85,16 @@ def build_bundle(base,request,frozen):
     local.update(school=school,numeric_context=contexts,protected_identity=dict(sha256=digest(protected_projection(base))))
     payload['numeric_context']=[dict(alias=a,**row) for a,row in contexts.items()]
     add_reported_results(base,request,payload,local,safe_text)
+    if base.get('paper_plan'):
+        chapter_aliases={c['chapter_id']:alias for alias,c in school['chapters'].items() if c['purpose'] in WRITABLE}
+        payload['keywords']=[safe_text(word) for word in base['keywords']]
+        add_notes(base, request, payload, local, chapter_aliases)
+        place_illustrations(base, payload, chapter_aliases)
+        add_illustration_context(base, payload, local)
     for evidence in payload['evidence']:evidence['numeric_facts']=text_facts(evidence['quote'],'/quote/numbers')
-    for c in school['chapters'].values():
+    for alias,c in school['chapters'].items():
         c['allowed_source_aliases']=allowed_sources(base,local,c)
-        c['allowed_context_aliases']=allowed_contexts(base,payload,contexts,c)
+        c['allowed_context_aliases']=allowed_contexts(base,payload,contexts,c,wire_alias=alias)
     payload['chapters']=[dict(alias=a,title=safe_text(c['title']),level=c['level'],purpose=c['purpose'],output_language=c['output_language'],allowed_source_aliases=c['allowed_source_aliases'],allowed_context_aliases=c['allowed_context_aliases']) for a,c in school['chapters'].items() if a in school['writable_aliases']]
     payload['target_section']=next((a for a,c in school['chapters'].items() if c['chapter_id']==request['target_section']),None)
     parts=wire_parts(frozen,payload);policy=ModelPolicy.model_validate(frozen['policy'])
@@ -104,14 +112,28 @@ def allowed_sources(base,local,chapter):
         for item in group.get('paragraphs',[])+group.get('tables',[])+group.get('figures',[]):selected.update(item.get('source_ids',[]))
     return [a for a,identity in local['sources'].items() if identity in selected]
 
-def allowed_contexts(base,payload,contexts,chapter):
+def allowed_contexts(base,payload,contexts,chapter,*,wire_alias=None):
     from .numeric_contract import REPORTED_RESULTS_LOCATION
-    if chapter['purpose']!='results':
-        return [alias for alias,row in contexts.items() if row['location']!=REPORTED_RESULTS_LOCATION
-                or chapter['purpose'] in ('abstract','discussion','conclusion')]
+    from .paper_context import LOCATION, TABLE_LOCATION
+    def accepts_note(row):
+        match=LOCATION.fullmatch(row['location'])
+        if match:
+            assigned=payload['paper_notes'][int(match[1])]['section_id']
+        elif match:=TABLE_LOCATION.fullmatch(row['location']):
+            assigned=payload['illustrations'][int(match[1])].get('section_id')
+        else:return None
+        return chapter['purpose'] in ('abstract','discussion','conclusion') or assigned == wire_alias
     figures={f['number'] for g in base['results_groups'] if g['id'] in chapter['result_group_ids'] for f in g['figures']}
     result=[]
     for alias,row in contexts.items():
+        note=accepts_note(row)
+        if note is not None:
+            if note:result.append(alias)
+            continue
+        if chapter['purpose']!='results':
+            if row['location']!=REPORTED_RESULTS_LOCATION or chapter['purpose'] in ('abstract','discussion','conclusion'):
+                result.append(alias)
+            continue
         if row['location']==REPORTED_RESULTS_LOCATION and 'reported-result' in chapter['result_group_ids']:
             result.append(alias)
             continue

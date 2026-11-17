@@ -6,6 +6,10 @@
 .manuscript-form > fieldset > label > textarea { min-height: 6rem; resize: vertical; }
 .manuscript-panel { margin: 1.25rem 0; padding: 1.35rem; border: 1px solid var(--border, #dedfd9); border-radius: 12px; background: var(--surface); }
 .manuscript-panel h3, .manuscript-panel h4 { margin-top: 0; }
+.paper-plan-section { border-top: 1px solid var(--border, #dedfd9); margin-top: 0.9rem; padding-top: 0.9rem; }
+.paper-plan-section > :last-child, .paper-plan-files li > :last-child { margin-bottom: 0; }
+.paper-plan-files { display: grid; gap: 0.6rem; margin: 0.6rem 0; padding-inline-start: 1.35rem; }
+.paper-plan-note { white-space: pre-wrap; overflow-wrap: anywhere; }
 .manuscript-sources { display: grid; grid-template-columns: repeat(auto-fit,minmax(230px,1fr)); gap: 1rem; }
 .manuscript-source { display: grid; gap: .55rem; border: 1px solid var(--border, #dedfd9); border-radius: 8px; min-width: 0; }
 .manuscript-source > label:first-of-type, .manuscript-group-options label { display:flex; align-items:center; gap:.5rem; }

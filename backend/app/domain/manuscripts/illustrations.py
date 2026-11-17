@@ -15,10 +15,10 @@ def reference_text(reference, language):
     return prefix + str(reference['number']) + (reference.get('panel_label') or '')
 
 
-def attach_references(groups, language, issue):
+def attach_references(groups, language, issue, *, from_index=0):
     """Derived links describe source placement; no image-derived scientific claim."""
     en = language == 'en'
-    for group in groups:
+    for group in groups[from_index:]:
         for paragraph, table in zip(group['paragraphs'], group['tables']):
             paragraph['cross_references'] = [dict(kind='table',target_id=table['id'],number=table['number'],panel_label=None)]
         references = []

@@ -31,14 +31,19 @@ class ManuscriptService:
         with self.store.connection() as db:
             value=self.require_project(db,project)
             from .school_binding import readiness
+            from .paper_plan import current_plan
             thesis=readiness(self,db,project) if value['project_type']=='thesis' else None
-        return dict(project_id=project,project_type=value['project_type'],thesis=thesis,workflow_version=WORKFLOW,real_model_calls=False,output_languages=['zh-CN','en'])
+            plan=current_plan(self,db,value,thesis)
+        config=dict(project_id=project,project_type=value['project_type'],thesis=thesis,workflow_version=WORKFLOW,real_model_calls=False,output_languages=['zh-CN','en'])
+        if plan is not None:
+            config['paper_plan']=plan
+        return config
 
     def candidates(self,project):
         items=[]
         with self.store.connection() as db:
             self.require_project(db,project)
-            kinds = " AND file_type IN ('docx','xlsx','png','jpeg')" if self.assets.customer else ''
+            kinds = " AND file_type IN ('docx','xlsx','png','jpeg','tiff')" if self.assets.customer else ''
             files=db.execute('SELECT * FROM files WHERE project_id=%s'+self.assets.material_filter+kinds+' ORDER BY uploaded_at DESC,id',(project,)).fetchall()
             include_analysis = customer_can_use_analysis(db, self.assets, project)
             for file in files:
@@ -46,7 +51,7 @@ class ManuscriptService:
                 def item(kind,identity,label,version=None,roles=None,url=None):
                     items.append(dict(kind=kind,id=identity,file_id=file['id'],label=label,version=version,
                         allowed_roles=roles or ['methods','user_results','literature','image_observation'],download_url=url or prefix+'/download'))
-                item('original',file['id'],file['filename'],roles=['methods','user_results','literature']+(['image_observation'] if file['file_type'] in ('png','jpeg') else []))
+                item('original',file['id'],file['filename'],roles=['methods','user_results','literature']+(['image_observation'] if file['file_type'] in ('png','jpeg','tiff') else []))
                 for kind,table in (('document_version','file_parse_results'),('ocr_review_version','ocr_review_versions')):
                     rows=db.execute('SELECT v.id,v.version FROM '+table+" v JOIN tasks t ON t.id=v.task_id WHERE v.file_id=%s AND t.user_id=%s AND t.project_id=%s AND t.status='succeeded' ORDER BY v.version DESC",(file['id'],self.store.user_id,project)).fetchall()
                     for row in rows: item(kind,row['id'],file['filename']+' — '+('文档解析 / Parsed document' if kind=='document_version' else '人工核对 / Human reviewed')+' v'+str(row['version']),row['version'])
@@ -90,12 +95,16 @@ class ManuscriptService:
                 drafts.append(dict(id=root['id'],revision=row['revision'],title=snap['title'],usable=not bool(self.citations.current_changes(db,project,snap))))
         config=self.config(project)
         excluded=set((config['thesis'] or {}).get('template_source_file_ids',[]))
-        return dict(items=[s for s in items if s['file_id'] not in excluded],citation_drafts=drafts,methods_fields=list(METHOD_FIELDS),project_type=config['project_type'],thesis=config['thesis'])
+        result=dict(items=[s for s in items if s['file_id'] not in excluded],citation_drafts=drafts,methods_fields=list(METHOD_FIELDS),project_type=config['project_type'],thesis=config['thesis'])
+        if 'paper_plan' in config:
+            result['paper_plan']=config['paper_plan']
+        return result
 
     def preview(self,project,request):
         request=ManuscriptRequest.model_validate(request) if isinstance(request,dict) else request
-        self.validate_request_project(project,request)
-        return freeze(self,project,request)
+        with self.store.connection() as db:
+            value=self.require_project(db,project)
+            return self.freeze_request(db,value,request)
 
     def writing_materials(self,project,identity,revision):
         """Read-only material projection; it grants no execution permission."""
@@ -110,15 +119,21 @@ class ManuscriptService:
         return dict(scope='writing_material_preview',can_execute=False,version_id=version['id'],revision=revision,
             materials=materials,materials_sha256=digest(materials),source_changes=self.source_changes(project,snapshot))
 
-    def freeze_school_context(self,project,request):
+    def freeze_school_context(self,project,request,**options):
         from .school_binding import freeze_context
-        return freeze_context(self,project,request)
+        return freeze_context(self,project,request,**options)
 
-    def validate_request_project(self,project,request):
-        with self.store.connection() as db: value=self.require_project(db,project)
+    def freeze_request(self,db,value,request):
         if (value['project_type']=='thesis') != (request.thesis is not None):
             raise StorageError('task_input_invalid','毕业论文须选择学校配置，SCI不得混用学校配置。',422)
-        if request.thesis:self.freeze_school_context(project,request)
+        project=value['id']
+        if not request.paper_plan_token:
+            return freeze(self,project,request)
+        from .paper_plan import require_current_plan
+        from .school_binding import readiness
+        school=readiness(self,db,project) if request.thesis else None
+        plan=require_current_plan(self,db,value,request,school)
+        return freeze(self,project,request,paper_plan=plan)
 
     def source_changes(self,project,snapshot):
         from .school_binding import current_changes
@@ -153,7 +168,16 @@ class ManuscriptService:
         request=ManuscriptRequest.model_validate(row['request_json'])
         if snap.get('analysis_handoff_run_ids',[])!=request.analysis_handoff_run_ids:raise source_conflict()
         if snap['title']!=request.title or snap['output_language']!=request.output_language or request.expected_revision!=row['revision']-1: raise source_conflict()
-        if [{k:s[k] for k in ('kind','id','file_id','role')} for s in snap['sources']]!=[s.model_dump() for s in request.sources]: raise source_conflict()
+        selections=[s.model_dump() for s in request.sources]
+        plan=snap.get('paper_plan')
+        if bool(request.paper_plan_token)!=bool(plan):raise source_conflict()
+        actual=[{k:s[k] for k in ('kind','id','file_id','role')} for s in snap['sources']]
+        if plan:
+            planned=[item['selection'] for item in plan['materials']]
+            planned_ids={item['id'] for item in planned}
+            if [source for source in actual if source['id'] in planned_ids]!=planned:raise source_conflict()
+            actual=[source for source in actual if source['id'] not in planned_ids]
+        if actual!=selections:raise source_conflict()
         if request.citation_draft and (not snap.get('citation_snapshot') or any(snap['citation_snapshot'][k]!=v for k,v in (('draft_id',request.citation_draft.id),('revision',request.citation_draft.revision)))): raise source_conflict()
         # Historical output is sealed by independent snapshot/request/source/task
         # hashes. Never regenerate it using a future wording/formatting function.
@@ -242,7 +266,7 @@ class ManuscriptService:
         if not request.analysis_handoff_run_ids:body.pop('analysis_handoff_run_ids',None)
         hashed=digest(body)
         with self.store.connection(write=True) as db:
-            self.require_project(db,project)
+            value=self.require_project(db,project)
             db.execute('SELECT id FROM projects WHERE id=%s FOR UPDATE',(project,)).fetchone()
             if identity:
                 root=self.root(db,project,identity)
@@ -255,9 +279,11 @@ class ManuscriptService:
             else:
                 revision=root['current_revision']+1 if identity else 1
                 if request.expected_revision!=(revision-1): raise StorageError('manuscript_revision_conflict','事实稿已有新版本，请刷新。',409)
-                parent=self.version(db,project,identity,revision-1)['id'] if identity else None
-                self.validate_request_project(project,request)
-                snapshot=freeze(self,project,request);timestamp=now()
+                base=self.version(db,project,identity,revision-1) if identity else None
+                if base and base['snapshot_json'].get('paper_plan') and not request.paper_plan_token:
+                    raise StorageError('task_input_invalid','请在已保存稿件中复核正文，或从当前项目需求另建事实稿。',422)
+                parent=base['id'] if base else None
+                snapshot=self.freeze_request(db,value,request);timestamp=now()
                 if not identity:
                     identity=str(uuid4())
                     db.execute('''INSERT INTO manuscripts(id,project_id,user_id,idempotency_key,request_json,request_digest,current_revision,title,created_at,updated_at)
@@ -334,7 +360,9 @@ class ManuscriptService:
         revision=root['current_revision']+1;version_id=str(uuid4());timestamp=now()
         body=dict(base['request_json'],expected_revision=revision-1)
         if body.get('kind')!='research_results_methods':
-            body['sources']=[{k:s[k] for k in ('kind','id','file_id','role')} for s in candidate['sources']]
+            planned_ids={item['selection']['id'] for item in candidate.get('paper_plan',{}).get('materials',[])}
+            body['sources']=[{k:s[k] for k in ('kind','id','file_id','role')}
+                             for s in candidate['sources'] if s['id'] not in planned_ids]
         producer=self.task(db,project,'manuscript_draft',dict(project_id=project,manuscript_id=identity,manuscript_version_id=version_id,revision=revision,output_language=candidate['output_language'],workflow_version=WORKFLOW,snapshot_sha256=digest(candidate)),'manuscript:'+version_id,validated_sources=candidate['sources'])
         from app.domain.admin_configuration.rule_consumption import inherit_task
         inherit_task(db,producer,parent_task=adaptation['task_id'])
@@ -621,6 +649,16 @@ class ManuscriptService:
             if len(result)==1:raise StorageError('task_input_invalid','此预览需要学校或已保存的输出配置。',422)
             return result
 
+    def export_renderer_version(self, db, project, manuscript, *, plain):
+        from app.adapters.manuscript_docx import RENDERER_VERSION, customer_renderer_version
+
+        revised = manuscript.get('review_revision_provenance') or manuscript.get('user_return_provenance')
+        planned_thesis = manuscript.get('thesis_context') and manuscript.get('paper_plan')
+        if self.assets.customer and (revised or planned_thesis or (
+                plain and self.require_project(db, project)['project_type'] == 'sci')):
+            return customer_renderer_version(manuscript)
+        return RENDERER_VERSION
+
     def create_export(self,project,identity,revision,key,request=None):
         require_key(key)
         request=ExportRequest.model_validate(request) if isinstance(request,dict) else request or ExportRequest()
@@ -647,16 +685,12 @@ class ManuscriptService:
                     raise StorageError('task_input_invalid','学校导出存在必须修正的问题，请检查预览。',422)
                 export_id=str(uuid4());snapshot=dict(project_id=project,manuscript_id=identity,manuscript_version_id=version['id'],revision=revision,
                     output_language=version['snapshot_json']['output_language'],workflow_version=WORKFLOW,snapshot_sha256=version['snapshot_sha256'],export_id=export_id)
-                manuscript = version['snapshot_json']
-                revised = manuscript.get('review_revision_provenance') or manuscript.get('user_return_provenance')
-                if self.assets.customer and (revised or (presentation is None and intent is None
-                        and self.require_project(db,project)['project_type'] == 'sci')):
-                    from app.adapters.manuscript_docx import (
-                        CUSTOMER_NARRATIVE_REVIEW_RENDERER_VERSION, CUSTOMER_RENDERER_VERSION,
-                    )
+                from app.adapters.manuscript_docx import RENDERER_VERSION
 
-                    narrative_review = manuscript.get('article_type') == 'narrative_review' and not manuscript.get('thesis_context')
-                    snapshot['renderer_version'] = CUSTOMER_NARRATIVE_REVIEW_RENDERER_VERSION if narrative_review else CUSTOMER_RENDERER_VERSION
+                renderer_version = self.export_renderer_version(db, project, version['snapshot_json'],
+                    plain=presentation is None and intent is None)
+                if renderer_version != RENDERER_VERSION:
+                    snapshot['renderer_version'] = renderer_version
                 if intent is not None:snapshot['school_input_sha256']=digest(intent)
                 if presentation is not None:snapshot['presentation']=seal(self,db,presentation)
                 task=self.task(db,project,'manuscript_docx',snapshot,'manuscript-export:'+export_id,validated_sources=version['snapshot_json']['sources'])

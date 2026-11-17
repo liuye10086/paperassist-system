@@ -19,7 +19,7 @@ const originalReferenceLabels = {
 } as const
 export const referenceLabels = { ...originalReferenceLabels, prepared_dataset_derivations: '质量派生与回执' } as const
 export type FileDetail = LibraryFile & {
-  source: { kind: 'legacy_excel' | 'excel_parse' | 'docx_parse' | 'pdf_parse' | 'ocr_parse' | 'bio_bundle' | 'bio_component' | 'bio_stored' | 'bio_original'; preview_available: boolean; preview_row_limit: 20 | null; parser_version: string | null }
+  source: { kind: 'legacy_excel' | 'excel_parse' | 'docx_parse' | 'pdf_parse' | 'ocr_parse' | 'image_original' | 'bio_bundle' | 'bio_component' | 'bio_stored' | 'bio_original'; preview_available: boolean; preview_row_limit: 20 | null; parser_version: string | null }
   references: Record<keyof typeof originalReferenceLabels, number> & { prepared_dataset_derivations?: number }
   retention: { policy: 'internal_testing_keep'; automatic_deletion: false; deletion_available: false }
 }

@@ -125,6 +125,9 @@ def wire_parts(value,payload):
         instruction=INSTRUCTIONS+' '+numeric_instruction;name='manuscript_writing_numeric_v2';schema=output_schema(payload)
     else:
         instruction=INSTRUCTIONS;name='manuscript_writing_v2';schema=LiveOutput.model_json_schema()
+    if value['schema_version'] in (3,4) and 'paper_notes' in payload:
+        from .paper_context import INSTRUCTIONS as paper_instruction
+        instruction += ' ' + paper_instruction
     return dict(instructions=combine(instruction,value['instruction']),
         text=dict(format=dict(type='json_schema',name=name,strict=True,schema=schema)))
 

@@ -99,7 +99,9 @@ class ExternalEvidenceService:
         with self.store.connection() as db:
             self.store.require_project(db,project)
             file=dict(require_file(db,project,file_id,material_filter=self.assets.material_filter))
-        customer_types=('docx','xlsx','png','jpeg','pdf') if allow_customer_pdf and kind=='document_version' else ('docx','xlsx','png','jpeg')
+        customer_types=('docx','xlsx','png','jpeg')
+        if kind=='original': customer_types+=('tiff',)
+        if allow_customer_pdf and kind=='document_version': customer_types+=('pdf',)
         if self.assets.customer and (file['file_type'] not in customer_types or kind=='ocr_review_version'):
             raise StorageError('unsupported_file_type','SCI 资料支持 Word、Excel 和图片。',422)
         self.assets.original(file)

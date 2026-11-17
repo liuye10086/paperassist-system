@@ -21,7 +21,7 @@ TASK = '/api/v1/tasks/{task_id}'
 PROJECT_OPERATIONS = frozenset((method, PROJECT_PATH + path) for method, paths in {
     'GET': (
         '', '/language', '/workflow-state', '/analyst-workspace', '/tasks',
-        '/files', FILE + '/details', FILE + '/preview', FILE + '/download',
+        '/files', FILE + '/details', FILE + '/preview', FILE + '/image-preview', FILE + '/download',
         '/file-batches', '/file-batches/{batch_id}',
         '/bio-upload-batches', '/bio-upload-batches/{batch_id}',
         '/research-intake', '/requirements', '/requirements/{version_id}',

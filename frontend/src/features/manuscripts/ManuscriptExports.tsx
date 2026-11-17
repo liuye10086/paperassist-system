@@ -19,6 +19,7 @@ import { taskRequest,TaskRequestError } from '../tasks/taskApi'
 import {isWorkspace,isTask,sameInputVersion,type TaskWorkspace,type TaskView} from '../tasks/taskTypes'
 import { useDocumentVisible } from '../tasks/useDocumentVisible'
 import { manuscriptBase, validExport, type ManuscriptExport, type ManuscriptVersion } from './manuscriptTypes'
+import PaperPlanSummary from './PaperPlanSummary'
 type Props={customerSci?:boolean;customerThesis?:boolean;revisedResult?:boolean;registerLeaveGuard?:RegisterLeaveGuard;projectId:string;manuscriptId:string;version:ManuscriptVersion;versions?:ManuscriptVersion[];onOpenTask?:(id:string)=>void;active?:boolean}
 export default function ManuscriptExports(props:Props){return <Exports key={`${props.projectId}:${props.manuscriptId}:${props.version.id}`} {...props}/>}
 function Exports({customerSci=false,customerThesis=false,revisedResult=false,projectId,manuscriptId,version,versions,onOpenTask,active=true,registerLeaveGuard}:Props){
@@ -26,7 +27,8 @@ function Exports({customerSci=false,customerThesis=false,revisedResult=false,pro
  const {t,locale}=useI18n(),visible=useDocumentVisible();const [items,setItems]=useState(version.exports),[loaded,setLoaded]=useState(false),[error,setError]=useState(''),[actionError,setActionError]=useState(''),[busy,setBusy]=useState(false),[attempt,setAttempt]=useState(0),[sessionValid,setSessionValid]=useState(true)
  const school=!!version.snapshot.thesis_context
  const customer=customerSci||customerThesis
- const wordTitle=t(revisedResult?'修订稿 Word':school?'毕业论文 Word':version.snapshot.sections?'完整稿 Word':'事实稿 Word')
+ const paperPlan=version.snapshot.paper_plan
+ const wordTitle=t(revisedResult?'修订稿 Word':school?'毕业论文 Word':version.snapshot.sections&&(!paperPlan||version.snapshot.writing_provenance)?'完整稿 Word':'事实稿 Word')
  const downloadName=t(revisedResult?'修订稿':school?'毕业论文':'稿件')
  const hasFront=validFrontMatter(version.snapshot.thesis_context?.confirmation?.front_matter)
  const reviewedSchoolOptions=customerThesis&&school&&version.snapshot.writing_provenance?.language_review_id
@@ -107,6 +109,7 @@ function Exports({customerSci=false,customerThesis=false,revisedResult=false,pro
  }
  return <section className="manuscript-panel" aria-label={t('DOCX 导出')}><h4>{customer?wordTitle:t('DOCX 导出')}</h4>{!customer&&<p><a href={deliveryHref(projectId,(version.snapshot as unknown as {research_bridge?:{delivery_id?:string}}).research_bridge?.delivery_id)}>{t('进入当前项目交付登记（选择已有成果）')}</a></p>}{!revisedResult&&<p className="muted">{t(school?'学校稿与 DOCX 分别保存状态。':version.snapshot.sections?(customer?'Word 按所选固定版本导出正文、图表和引用。':'完整稿与 DOCX 分别保存状态。导出七部分、图表、实际引用和待办。'):'事实稿与 DOCX 分别保存状态。仅导出两章、图表、实际引用和待办。')}</p>}
  {!customer&&<p>{t(school?'毕业论文 Word · 版本 {number}':version.snapshot.sections?'完整稿 Word · 版本 {number}':'事实稿 Word · 版本 {number}',{number:version.revision})}</p>}
+ {paperPlan&&<PaperPlanSummary plan={paperPlan} heading="本版 Word 使用的章节与图表" filesOnly/>}
  {sessionValid&&loaded&&!error&&!intent.pending&&items.length===0&&<p>{t(revisedResult?'修订稿尚未生成 Word。':'当前版本尚未生成 Word。')}</p>}
  {sessionValid&&loaded&&!error&&pending&&<p>{t('Word 正在生成，请等待任务完成。')}</p>}
  {sessionValid&&intent.pending&&<div className="warning-panel"><p>{t('Word 提交结果待核对，原请求和固定输入已保留。')}</p><p>{t('先刷新已有记录；列表不能确认原请求时，可显式用原请求重试。')}</p><button type="button" disabled={busy} onClick={()=>void submit(undefined,true)}>{t('用原请求重试 Word')}</button></div>}

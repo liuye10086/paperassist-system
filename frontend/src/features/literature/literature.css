@@ -5,6 +5,8 @@
 .literature-workspace label { display: grid; gap: 7px; font-size: .9rem; }
 .literature-workspace textarea { min-height: 80px; resize: vertical; }
 .literature-workspace input,.literature-workspace select,.literature-workspace textarea { max-width: 100%; }
+.literature-search-query { display: grid; gap: 8px; min-width: 0; overflow-wrap: anywhere; }
+.literature-search-query button { justify-self: start; }
 .literature-condition-grid { display: grid; grid-template-columns: repeat(auto-fit,minmax(140px,1fr)); gap: 14px; }
 .literature-workspace .literature-types { display: flex; flex-wrap: wrap; gap: 14px 22px; }
 .literature-types label { display: flex; align-items: center; gap: 7px; }

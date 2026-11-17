@@ -12,12 +12,17 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from app.adapters.task_store import TaskStore
 from app.adapters.file_objects import original_digest
 from app.adapters.object_storage import stream_digest
+from app.adapters.project_images import INVALID_PROJECT_IMAGE, validate_project_image
 from app.core.config import effective_excel_settings
 from app.domain.admin_configuration.bindings import resolve, bind
 from app.core.exceptions import StorageError
 from app.core.errors import error_detail
 from app.domain.file_parsing import PARSER_VERSION, PROCESS_SETTINGS, ParseFileSnapshot
 from app.domain.tasks.contracts import TaskView
+
+
+TIFF_EXTENSIONS = ('.tif', '.tiff')
+PAPER_PROJECT_TYPES = ('sci', 'thesis')
 
 
 class BatchItemInput(BaseModel):
@@ -106,7 +111,10 @@ class FileBatchService:
             file = db.execute('SELECT * FROM files WHERE id=%s', (row['file_id'],)).fetchone() if row['file_id'] else None
             task = db.execute('SELECT t.* FROM tasks t JOIN file_parse_results r ON r.task_id=t.id WHERE r.file_id=%s AND r.version=1',
                               (row['file_id'],)).fetchone() if file else None
-            revision += file['parse_revision'] if file else 0
+            if file:
+                revision += max(1, file['parse_revision']) if file['file_type'] == 'tiff' else file['parse_revision']
+            elif (row['error_json'] or {}).get('code') == INVALID_PROJECT_IMAGE:
+                revision += 1
             items.append({'id': row['id'], 'ordinal': row['ordinal'], 'filename': row['filename'],
                 'size_bytes': row['size_bytes'], 'file_id': row['file_id'],
                 'status': {'queued':'queued','running':'parsing','succeeded':'parsed','failed':'failed'}.get(task['status'], file['parse_status']) if task else file['parse_status'] if file else ('rejected' if row['error_json'] else 'pending'),
@@ -125,7 +133,7 @@ class FileBatchService:
         digest = hashlib.sha256(json.dumps(material, sort_keys=True, ensure_ascii=False,
                                           separators=(',', ':')).encode()).hexdigest()
         with self.store.connection(write=True) as db:
-            self.store.require_project(db, project_id)
+            project_type = self.store.require_project(db, project_id)['project_type']
             actor = self.assets.actor_id
             existing = db.execute('''SELECT * FROM file_upload_batches
                 WHERE project_id=%s AND user_id=%s AND upload_actor_id=%s AND idempotency_key=%s''',
@@ -141,8 +149,9 @@ class FileBatchService:
             db.execute('''INSERT INTO file_upload_batches(id,project_id,user_id,idempotency_key,request_digest,created_at,profile,upload_actor_id)
                 VALUES (%s,%s,%s,%s,%s,%s,%s,%s)''', (batch['id'], project_id, self.store.user_id, key, digest, batch['created_at'], self.profile, actor))
             maximum = self.maximum(resolve(db))
+            extensions = self.extensions + TIFF_EXTENSIONS if self.profile == 'documents' and project_type in PAPER_PROJECT_TYPES else self.extensions
             for ordinal, item in enumerate(request.items):
-                code = ('unsupported_file_type' if not item.filename.lower().endswith(self.extensions) else
+                code = ('unsupported_file_type' if not item.filename.lower().endswith(extensions) else
                         'empty_file' if item.size_bytes == 0 else 'file_too_large' if item.size_bytes > maximum else None)
                 error = error_detail(code, {'unsupported_file_type': '文件格式不在此上传入口的支持范围内。',
                     'empty_file': '文件为空，请选择有效文件。', 'file_too_large': '文件超过上传大小限制。'}[code],
@@ -175,7 +184,7 @@ class FileBatchService:
         if not item:
             raise StorageError('file_batch_item_not_found', '上传文件项不存在。', 404)
         if item['error_json']:
-            raise StorageError('file_batch_item_rejected', '此文件已在登记时拒绝，请重新选择。', 409)
+            raise StorageError('file_batch_item_rejected', '此文件已被拒绝，请重新选择。', 409)
         if filename != item['filename'] or size != item['size_bytes']:
             raise StorageError('file_upload_mismatch', '文件名称或大小与登记不一致，请重新选择原文件。', 409)
         return item
@@ -199,42 +208,54 @@ class FileBatchService:
                     raise StorageError('file_batch_item_conflict', '此文件项已保存不同内容。', 409)
                 self.assets.original(dict(file))
                 return next(row for row in self.project(db, batch)['items'] if row['id'] == item_id)
-            task_id, parse_id = str(uuid4()), str(uuid4())
             file_type = filename.rsplit('.', 1)[-1].lower()
-            if file_type == 'jpg':
-                file_type = 'jpeg'
+            file_type = {'jpg': 'jpeg', 'tif': 'tiff'}.get(file_type, file_type)
+            needs_parse = file_type != 'tiff'
+            if not needs_parse:
+                if self.store.require_project(db, project_id)['project_type'] not in PAPER_PROJECT_TYPES:
+                    raise StorageError('unsupported_file_type', 'TIFF 原图上传仅用于 SCI 或毕业论文项目。', 422)
+                try:
+                    validate_project_image(content, file_type)
+                except StorageError as exc:
+                    db.execute('UPDATE file_upload_items SET error_json=%s WHERE id=%s',
+                               (Jsonb(error_detail(exc.code, exc.message, exc.params)), item_id))
+                    return next(row for row in self.project(db, batch)['items'] if row['id'] == item_id)
             descriptor = self.assets.objects.put_original(
                 project_id, batch['id'], file_type, content, item_id=item['id'], db=db)
             file_id = descriptor.id
             now = datetime.now(timezone.utc)
-            file = {'filename': filename, **asdict(descriptor)}
-            settings = {'excel': excel.model_dump(), 'process': PROCESS_SETTINGS.copy()}
-            snapshot = ParseFileSnapshot.model_validate({'schema_version': 1, 'kind': 'parse_file',
-                'project': {'id': project_id}, 'file': file, 'parse_id': parse_id,
-                'parser_version': PARSER_VERSION, 'settings': settings}).model_dump() if file_type == 'xlsx' else None
-            parser_version, workflow_version = PARSER_VERSION, 'parse_file_v1'
-            if file_type in ('docx', 'pdf', 'png', 'jpeg'):
-                from app.domain.documents.service import document_snapshot
-                snapshot = document_snapshot(project_id, file, parse_id, 1)
-                settings = snapshot['settings']
-                parser_version, workflow_version = snapshot['parser_version'], snapshot['kind'] + '_v1'
+            if needs_parse:
+                task_id, parse_id = str(uuid4()), str(uuid4())
+                file = {'filename': filename, **asdict(descriptor)}
+                settings = {'excel': excel.model_dump(), 'process': PROCESS_SETTINGS.copy()}
+                snapshot = ParseFileSnapshot.model_validate({'schema_version': 1, 'kind': 'parse_file',
+                    'project': {'id': project_id}, 'file': file, 'parse_id': parse_id,
+                    'parser_version': PARSER_VERSION, 'settings': settings}).model_dump() if file_type == 'xlsx' else None
+                parser_version, workflow_version = PARSER_VERSION, 'parse_file_v1'
+                if file_type in ('docx', 'pdf', 'png', 'jpeg'):
+                    from app.domain.documents.service import document_snapshot
+                    snapshot = document_snapshot(project_id, file, parse_id, 1)
+                    settings = snapshot['settings']
+                    parser_version, workflow_version = snapshot['parser_version'], snapshot['kind'] + '_v1'
             db.execute('''INSERT INTO files(id,project_id,filename,file_type,size_bytes,sha256,uploaded_at,
                 parse_status,error_json,preview_json,uploader_id,storage_backend,object_key,metadata_revision,upload_item_id,parse_revision,upload_actor_id)
-                VALUES (%s,%s,%s,%s,%s,%s,%s,'queued',NULL,NULL,%s,%s,%s,1,%s,1,%s)''',
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,NULL,NULL,%s,%s,%s,1,%s,%s,%s)''',
                 (file_id, project_id, filename, descriptor.file_type, descriptor.size_bytes, descriptor.sha256,
-                 now.isoformat(), self.store.user_id, descriptor.storage_backend, descriptor.object_key, item_id, batch['upload_actor_id']))
-            task = {'id': task_id, 'project_id': project_id, 'user_id': self.store.user_id,
-                'task_type': 'parse_file', 'idempotency_key': item_id, 'input_digest': sha,
-                'input_snapshot': snapshot, 'workflow_version': workflow_version, 'status': 'queued',
-                'phase': 'parse', 'revision': 1, 'current_attempt': 0, 'reason_code': None,
-                'created_at': now, 'updated_at': now}
-            self.store.insert_task(db, task)
-            bind(db, kind='task', object_id=task_id, version=version)
-            db.execute('''INSERT INTO file_parse_results(id,file_id,task_id,version,source_sha256,parser_version,
-                settings_json,created_at,completed_at,result_json) VALUES (%s,%s,%s,1,%s,%s,%s,%s,NULL,NULL)''',
-                (parse_id, file_id, task_id, sha, parser_version, Jsonb(settings), now))
-            self.store.append_event(db, task, 'created')
-            self.store.enqueue(db, task)
+                 now.isoformat(), 'queued' if needs_parse else 'stored', self.store.user_id, descriptor.storage_backend,
+                 descriptor.object_key, item_id, 1 if needs_parse else 0, batch['upload_actor_id']))
+            if needs_parse:
+                task = {'id': task_id, 'project_id': project_id, 'user_id': self.store.user_id,
+                    'task_type': 'parse_file', 'idempotency_key': item_id, 'input_digest': sha,
+                    'input_snapshot': snapshot, 'workflow_version': workflow_version, 'status': 'queued',
+                    'phase': 'parse', 'revision': 1, 'current_attempt': 0, 'reason_code': None,
+                    'created_at': now, 'updated_at': now}
+                self.store.insert_task(db, task)
+                bind(db, kind='task', object_id=task_id, version=version)
+                db.execute('''INSERT INTO file_parse_results(id,file_id,task_id,version,source_sha256,parser_version,
+                    settings_json,created_at,completed_at,result_json) VALUES (%s,%s,%s,1,%s,%s,%s,%s,NULL,NULL)''',
+                    (parse_id, file_id, task_id, sha, parser_version, Jsonb(settings), now))
+                self.store.append_event(db, task, 'created')
+                self.store.enqueue(db, task)
             db.execute('UPDATE file_upload_items SET file_id=%s WHERE id=%s', (file_id, item_id))
             db.execute('UPDATE projects SET updated_at=GREATEST(updated_at,%s) WHERE id=%s', (now.isoformat(), project_id))
             return next(row for row in self.project(db, batch)['items'] if row['id'] == item_id)

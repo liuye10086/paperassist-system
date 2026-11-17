@@ -1,6 +1,7 @@
 """Finite format of a confirmed Frontiers in Cardiovascular Medicine Review."""
 
 import re
+from urllib.parse import urldefrag
 
 from app.domain.literature_citations.formatter import format_frontiers_reference, render_paragraphs
 
@@ -55,7 +56,8 @@ def confirmed_rule(target, rule):
     if not target or target.get('article_type') != 'review' or target.get('synthetic') or not target.get('confirmed_by'):
         return False
     profile = target.get('candidate', {}).get('profile', {})
-    if (profile.get('name'), profile.get('source_type'), profile.get('official_url')) != (JOURNAL, 'official_local', ARTICLE_TYPES):
+    profile_page = urldefrag(profile.get('official_url') or '').url
+    if (profile.get('name'), profile.get('source_type'), profile_page) != (JOURNAL, 'official_local', ARTICLE_TYPES):
         return False
     key = rule['key']
     quote = rule.get('quote', '')
@@ -95,7 +97,8 @@ def confirmed_rule(target, rule):
         return False
     return any(
         guide.get('id') == rule.get('source_id') and guide.get('source_version') == rule.get('source_version')
-        and guide.get('source_url') == guide.get('official_url') == url and guide.get('source_type') == 'official_local'
+        and all(urldefrag(guide.get(field) or '').url == url for field in ('source_url', 'official_url'))
+        and guide.get('source_type') == 'official_local'
         and guide.get('permission_status') == 'allowed' and guide.get('source_status') == 'available'
         and quote in guide.get('source_text', '')
         and (url != ARTICLE_OVERVIEW or 'Review' in guide['source_text'].splitlines())
@@ -117,11 +120,15 @@ def submission_evidence(target, keys, warnings):
 
 def submission_content(snapshot, excluded_chapter_ids=frozenset()):
     """Project the frozen English body text and the main manuscript illustrations."""
+    from app.domain.manuscript_writing.article_contract import visible_illustration_groups
+
+    planned = snapshot.get('paper_plan', {}).get('kind') == 'narrative_review'
     paragraphs = [item['text'] for section in snapshot['sections']
                   if section['id'] not in BODY_EXCLUSIONS and section['id'] not in excluded_chapter_ids
+                  and (not planned or section.get('parent_id') not in excluded_chapter_ids)
                   for item in section['paragraphs']]
     words = sum(len(text.split()) for text in paragraphs)
-    groups = snapshot.get('results_groups', [])
+    groups = visible_illustration_groups(snapshot, excluded_chapter_ids)
     figures = [item for group in groups for item in group.get('figures', [])]
     tables = [item for group in groups for item in group.get('tables', [])]
     return dict(body=paragraphs, words=words, figures=figures, tables=tables)

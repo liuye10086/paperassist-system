@@ -18,8 +18,15 @@ PROJECTS = '/api/v1/projects'
 ASSIGNMENTS = '/api/v1/admin/project-assignments'
 SCI_SETTINGS = {
     'article_type': 'research',
-    'main_results': 'Synthetic result',
+    'proposed_title': 'A synthetic cohort study',
     'target_journal': {'choice': 'other', 'name': 'Synthetic journal'},
+    'keywords': ['cohort', 'expression', 'pathway', 'replication'],
+    'figure_findings': [{'id': 'synthetic-figure-1', 'finding': 'Synthetic cohort flow'}],
+}
+LEGACY_SCI_SETTINGS = {
+    'article_type': 'research',
+    'main_results': 'Synthetic result',
+    'target_journal': {'choice': 'nature_subjournal', 'name': None},
     'keywords': ['cohort', 'expression'],
     'figure_plan': [{'title': 'Figure 1', 'description': 'Synthetic cohort flow'}],
 }
@@ -70,16 +77,21 @@ def test_customer_sci_creation_requires_valid_settings():
         for change in (
             None,
             {'article_type': 'brief'},
-            {'main_results': '  '},
+            {'proposed_title': '  '},
             {'target_journal': {'choice': 'other', 'name': '  '}},
-            {'keywords': [' cohort ', 'COHORT']},
-            {'figure_plan': []},
-            {'figure_plan': [{'title': 'Figure 1', 'description': '  '}]},
+            {'target_journal': {'choice': 'nature_subjournal', 'name': None}},
+            {'keywords': ['cohort', 'expression', 'pathway']},
+            {'keywords': [*SCI_SETTINGS['keywords'], 'extra1', 'extra2', 'extra3']},
+            {'keywords': [' cohort ', 'COHORT', 'pathway', 'expression']},
+            {'figure_findings': []},
+            {'figure_findings': [{'id': 'synthetic-figure-1', 'finding': '  '}]},
         ):
             fields = {} if change is None else {'sci_settings': SCI_SETTINGS | change}
             reply = create(client, 'invalid', **project_body('sci', **fields))
             assert reply.status_code == 422, reply.text
         assert client.get('/api/v1/project-create-requests/invalid').status_code == 404
+        reply = create(client, 'legacy-format', **project_body('sci', sci_settings=LEGACY_SCI_SETTINGS))
+        assert reply.status_code == 422, reply.text
         assert client.get(PROJECTS).json() == []
 
 
@@ -110,7 +122,7 @@ def test_concurrent_sci_create_replays_once_and_same_key_rejects_changed_setting
             results = list(workers.map(lambda _: submit(), range(2)))
         assert sorted(response.status_code for response in results) == [200, 201]
         assert len({response.json()['id'] for response in results}) == 1
-        changed = body | {'sci_settings': SCI_SETTINGS | {'keywords': ['changed']}}
+        changed = body | {'sci_settings': SCI_SETTINGS | {'proposed_title': 'Changed title'}}
         assert create(client, 'same-sci', **changed).status_code == 409
         assert len(client.get(PROJECTS).json()) == 1
 
@@ -135,10 +147,30 @@ def test_sci_settings_are_owner_scoped_and_old_sci_can_fill_them():
         assert saved.json() == {'revision': 2, 'settings': SCI_SETTINGS}
         assert client.put(settings_url, json=body).json() == saved.json()
         assert client.get(settings_url).json() == saved.json()
-        assert client.put(settings_url, json=body | {'settings': SCI_SETTINGS | {'keywords': ['conflict']}}).status_code == 409
+        conflicting = body | {'settings': SCI_SETTINGS | {'proposed_title': 'Conflicting title'}}
+        assert client.put(settings_url, json=conflicting).status_code == 409
         thesis = project_path(create(client, 'thesis', **project_body('thesis')))
         assert client.get(thesis + '/sci-settings').status_code == 403
         assert client.get(thesis + '/customer-workspace/progress').status_code == 403
+
+
+def test_legacy_sci_replays_and_preserves_original_settings_when_updated():
+    with TestClient(app) as client:
+        owner = sign_in(client, 'sci-legacy-settings@manuscript.test', 'customer')
+        old_body = project_body('sci', sci_settings=LEGACY_SCI_SETTINGS)
+        existing = ProjectStore(get_data_dir(), owner_id=owner).create_project(**old_body, idempotency_key='old-sci')
+        replay = create(client, 'old-sci', **old_body)
+        assert replay.status_code == 200, replay.text
+        assert replay.json()['id'] == existing['id']
+        url = f'{PROJECTS}/{existing["id"]}/sci-settings'
+        original = {'revision': 1, 'settings': LEGACY_SCI_SETTINGS}
+        assert client.get(url).json() == original
+        assert client.put(url, json={'expected_revision': 1, 'settings': LEGACY_SCI_SETTINGS}).json() == original
+        update = {'expected_revision': 1, 'settings': SCI_SETTINGS}
+        expected = {'revision': 2, 'settings': SCI_SETTINGS, 'legacy_settings': LEGACY_SCI_SETTINGS}
+        assert client.put(url, json=update).json() == expected
+        assert client.put(url, json=update).json() == expected
+        assert client.get(url).json() == expected
 
 
 def test_paper_projects_cannot_be_newly_assigned_but_legacy_grants_can_be_revoked():

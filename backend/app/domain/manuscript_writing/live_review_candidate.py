@@ -45,6 +45,9 @@ def prepare(raw,snapshot,bundle,body,resolve_claim,*,numeric_version=NUMERIC_VER
     manifest = bundle['local_manifest']
     report_sources = {alias: row['source_ids'] for alias, row in manifest.get('numeric_context', {}).items()
                       if row['location'] == REPORTED_RESULTS_LOCATION}
+    paper_sources = set(manifest.get('paper_context_source_ids', []))
+    paper_context_sources = {alias: row['source_ids'] for alias, row in manifest.get('numeric_context', {}).items()
+                             if raw.get('paper_plan') and 'source_ids' in row}
     fragments={}
     for section in candidate['sections']:
         for paragraph in section['paragraphs']:
@@ -59,6 +62,12 @@ def prepare(raw,snapshot,bundle,body,resolve_claim,*,numeric_version=NUMERIC_VER
             if (report_sources and text == paragraph['text'] and paragraph['origin'] == 'model_generated'
                     and decision['classification'] == 'study_claim'):
                 source_ids.extend(manifest['sources'][alias] for alias in paragraph.get('suggested_source_aliases', []))
+            if (paper_sources and text == paragraph['text'] and decision['classification']
+                    in ('study_claim', 'mixed_claim', 'context_claim')):
+                source_ids.extend(sid for sid in paragraph.get('source_ids', []) if sid in paper_sources)
+            if (raw.get('paper_plan', {}).get('kind') == 'narrative_review'
+                    and decision['classification'] == 'study_claim'):
+                raise ValueError('Narrative review must not be approved as an original study claim')
             paragraph['text']=text
             literature=decision['classification'] in ('literature_claim','mixed_claim')
             if literature!=(decision['claim'] is not None): raise ValueError('Literature classification requires a new exact claim')
@@ -82,6 +91,7 @@ def prepare(raw,snapshot,bundle,body,resolve_claim,*,numeric_version=NUMERIC_VER
                         frozen_chapter=next(c for c in bundle['local_manifest']['school']['chapters'].values() if c['chapter_id']==section['id'])
                         if bound['source_alias'] not in frozen_chapter['allowed_context_aliases']:raise ValueError('Context belongs to another school chapter')
                     source_ids.extend(report_sources.get(bound['source_alias'], []))
+                    source_ids.extend(paper_context_sources.get(bound['source_alias'], []))
                 elif bound['kind']=='literature':
                     evidence=[e for b in fragment.get('bindings',[]) for e in b['evidence'] if e['id']==bound['evidence_id']]
                     if not literature or bound['source_alias'] is not None or bound['fact_path'] is not None or not evidence or value not in (signed_numbers if strict else NUMBER.findall)(evidence[0]['quote']): raise ValueError('Literature number lacks exact new-claim reviewed evidence')

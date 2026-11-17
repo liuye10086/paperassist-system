@@ -6,7 +6,7 @@ import ProjectDownloadLink from '../../shared/components/ProjectDownloadLink';
 import { batchRequest, isBatch, mergeBatch, uploadQueue, validateFile, validateSelection, type UploadBatch, type BatchPage } from './batchUploadApi';
 import './batchUpload.css';
 import useDraftLeaveGuard, { type RegisterLeaveGuard } from '../projects/useDraftLeaveGuard';
-const statusLabels = { pending: '等待上传', rejected: '上传被拒绝', queued: '已保存，等待解析', parsing: '文件解析中', parsed: '解析完成', failed: '解析失败' };
+const statusLabels = { pending: '等待上传', rejected: '上传被拒绝', queued: '已保存，等待解析', parsing: '文件解析中', parsed: '解析完成', failed: '解析失败', stored: '已上传' };
 export default function BatchUpload({ projectId, active, onUnavailable, onChanged, registerLeaveGuard, embedded = false, customerView = false, writingMaterials, schoolTemplate = false, reviewDocument = false }: {
     projectId: string;
     active: boolean;
@@ -21,11 +21,11 @@ export default function BatchUpload({ projectId, active, onUnavailable, onChange
 }) {
     const { t } = useI18n();
     const wordOnly = schoolTemplate || reviewDocument;
-    const accepted = wordOnly ? '.docx' : writingMaterials ? '.xlsx,.docx,.png,.jpg,.jpeg' : '.xlsx,.docx,.pdf,.png,.jpg,.jpeg';
+    const accepted = wordOnly ? '.docx' : writingMaterials ? '.xlsx,.docx,.png,.jpg,.jpeg,.tif,.tiff' : '.xlsx,.docx,.pdf,.png,.jpg,.jpeg';
     const uploadLabel = reviewDocument ? '批量上传返修 DOCX' : schoolTemplate ? '批量上传 DOCX 模板与规范' : writingMaterials ? '批量上传 Excel / Word / 图片' : '批量上传 Excel / Word / PDF / 图片';
     const selectionLabel = wordOnly ? '批量选择 DOCX 文件' : writingMaterials ? '批量选择 Excel / Word / 图片文件' : '批量选择 Excel / Word / PDF / 图片 文件';
     const uploadDescription = wordOnly ? '支持 DOCX。每个文件最多 10 MiB，每批最多 10 个。'
-        : writingMaterials ? '支持 Excel、Word、PNG 和 JPG；每个文件最多 10 MiB，每批最多 10 个。'
+        : writingMaterials ? '支持 DOCX、XLSX 和 PNG、JPEG、TIFF；每个文件最多 10 MiB，每批最多 10 个。'
         : embedded ? '支持 Excel、Word、PDF、PNG 和 JPG；每个文件最多 10 MiB，每批最多 10 个。'
         : '支持 .xlsx / .docx / .pdf / .png / .jpg / .jpeg，每文件最多 10 MiB，每批最多 10 项，同时上传 2 项。';
     const writingFileError = writingMaterials === 'thesis' ? '毕业论文写作资料请选择 Word、Excel 或图片。' : 'SCI 写作资料请选择 Word、Excel 或图片。';
@@ -33,7 +33,7 @@ export default function BatchUpload({ projectId, active, onUnavailable, onChange
         if (wordOnly && !/\.docx$/i.test(filename)) return schoolTemplate ? '学校模板和补充规范请选择 DOCX 文件。' : '请选择返修 DOCX 文件。';
         return writingMaterials && /\.pdf$/i.test(filename) ? writingFileError : null;
     }
-    const validateMaterial = (file: File) => formatError(file.name) ?? validateFile(file);
+    const validateMaterial = (file: File) => formatError(file.name) ?? validateFile(file, !!writingMaterials);
     const visible = useDocumentVisible();
     const [loadError, setLoadError] = useState('');
     const [selection, setSelection] = useState<File[]>([]);
@@ -170,7 +170,7 @@ export default function BatchUpload({ projectId, active, onUnavailable, onChange
             form.append('file', file);
             await request(`${base}/${encodeURIComponent(batch.id)}/items/${encodeURIComponent(itemId)}`, (v): v is UploadBatch['items'][number] => {
                 const i = v as UploadBatch['items'][number];
-                return !!i && i.id === itemId && i.filename === file.name && ['pending', 'rejected', 'queued', 'parsing', 'parsed', 'failed'].includes(i.status);
+                return !!i && i.id === itemId && i.filename === file.name && Object.hasOwn(statusLabels, i.status);
             }, { method: 'POST', body: form });
             if (!mounted.current)
                 return;
@@ -199,7 +199,7 @@ export default function BatchUpload({ projectId, active, onUnavailable, onChange
     async function start() {
         if (running.current || !mounted.current)
             return;
-        const invalid = validateSelection(selection) ?? selection.map(file => formatError(file.name)).find(Boolean);
+        const invalid = validateSelection(selection, !!writingMaterials) ?? selection.map(file => formatError(file.name)).find(Boolean);
         if (invalid) {
             setError(invalid);
             return;
@@ -293,7 +293,7 @@ export default function BatchUpload({ projectId, active, onUnavailable, onChange
         </div>}
  {selection.length > 10 && <p role="alert">{t('每批最多选择 10 个文件。')}</p>}{error && <p role="alert">{t(error)}</p>}{loadError && <p role="alert">{t(loadError)}</p>}
  {batches.some(b => snapshots.current.has(b.id)) && <h3 className="upload-batches-title">{t('已上传批次')}</h3>}
- {batches.filter(b => snapshots.current.has(b.id)).map(batch => <article key={batch.id}><h3>{t('上传批次')} · {new Date(batch.created_at).toLocaleString()}</h3><p role="status">{t('已解析 {count} / {total}', { count: batch.items.filter(i => i.status === 'parsed').length, total: batch.items.length })}</p><ul>{batch.items.map(item => <li key={item.id}><strong>{item.filename}</strong> · {t(local[item.id] || statusLabels[item.status])}{item.error && <p>{t(apiError(item.error, '文件处理失败，请重试。'))}</p>}{item.file_id && <ProjectDownloadLink href={`/api/v1/projects/${encodeURIComponent(projectId)}/files/${encodeURIComponent(item.file_id)}/download`} filename={item.filename}>{t('下载原文件')}</ProjectDownloadLink>}{item.status === 'pending' && !formatError(item.filename) && <>{!files.current.has(item.id) && <label>{t('重新选择同一文件')}<input type="file" accept={accepted} onChange={e => {
+ {batches.filter(b => snapshots.current.has(b.id)).map(batch => <article key={batch.id}><h3>{t('上传批次')} · {new Date(batch.created_at).toLocaleString()}</h3><p role="status">{t(writingMaterials ? '已保存原件 {count} / {total}' : '已解析 {count} / {total}', { count: batch.items.filter(i => writingMaterials ? !!i.file_id : i.status === 'parsed').length, total: batch.items.length })}</p><ul>{batch.items.map(item => <li key={item.id}><strong>{item.filename}</strong> · {t(local[item.id] || statusLabels[item.status])}{item.error && <p>{t(apiError(item.error, '文件处理失败，请重试。'))}</p>}{item.file_id && <ProjectDownloadLink href={`/api/v1/projects/${encodeURIComponent(projectId)}/files/${encodeURIComponent(item.file_id)}/download`} filename={item.filename}>{t('下载原文件')}</ProjectDownloadLink>}{item.status === 'pending' && !formatError(item.filename) && <>{!files.current.has(item.id) && <label>{t('重新选择同一文件')}<input type="file" accept={accepted} onChange={e => {
                             const f = e.target.files?.[0];
                             if (!f || f.name !== item.filename || f.size !== item.size_bytes) {
                                 setError('请选择名称和大小一致的原文件。');

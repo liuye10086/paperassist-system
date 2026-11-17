@@ -1,6 +1,7 @@
 """Per-item explicit language review bound to immutable science and export bytes."""
 from uuid import uuid4
 from psycopg.types.json import Jsonb
+from app.adapters.manuscript_docx import CUSTOMER_RENDERER_VERSIONS
 from app.adapters.task_store import source_conflict
 from app.core.exceptions import StorageError
 from app.domain.dataset_preparation.service import require_key
@@ -29,7 +30,7 @@ def artifact_sha(row):
 
 
 class LanguageReviewService(LiveReviewService):
-    def prepare(self,db,project,review,body,*,numeric_version=NUMERIC_VERSION,frozen_render=None):
+    def prepare(self,db,project,review,body,*,numeric_version=NUMERIC_VERSION,frozen_render=None,renderer_version=None):
         if body['review_id']!=review['id'] or body['review_sha256']!=review['review_sha256']: raise source_conflict()
         try:
             candidate=prepare_candidate(review['reviewed_candidate_json'],body,numeric_version=numeric_version);seen=set()
@@ -56,7 +57,13 @@ class LanguageReviewService(LiveReviewService):
                 items,_=school_inventory(candidate,images,image_items,analysis,options,cache=dict(root=self.assets.directory,owner=self.store.user_id,project=project,db=db),frozen=frozen_render,school_template=template)
             else:
                 if body['schema_version']!=2:raise ValueError('SCI language request version mismatch')
-                items=inventory(candidate,images,image_items)
+                if renderer_version is None:
+                    renderer_version = self.manuscripts.export_renderer_version(db, project, candidate, plain=True)
+                if renderer_version not in (RENDERER_VERSION, *CUSTOMER_RENDERER_VERSIONS):
+                    raise ValueError('Unsupported language inventory renderer')
+                if renderer_version != RENDERER_VERSION:
+                    candidate['writing_provenance']['language_docx_renderer'] = renderer_version
+                items=inventory(candidate,images,image_items,renderer_version=renderer_version)
         except (ValueError,KeyError,TypeError,StopIteration,OSError) as exc: raise invalid(exc) from exc
         return candidate,items
 
@@ -78,7 +85,7 @@ class LanguageReviewService(LiveReviewService):
         supplied=request or default
         body=request_data(language_request_model(supplied),supplied)
         candidate,items=self.prepare(db,project,review,body)
-        return dict(schema_version=body['schema_version'],review_id=review_id,review_sha256=review['review_sha256'],output_language=candidate['output_language'],candidate=candidate,inventory=items,inventory_sha256=digest(items),editable_fields=editable_fields(review['reviewed_candidate_json']),renderer_version=RENDERER_VERSION)
+        return dict(schema_version=body['schema_version'],review_id=review_id,review_sha256=review['review_sha256'],output_language=candidate['output_language'],candidate=candidate,inventory=items,inventory_sha256=digest(items),editable_fields=editable_fields(review['reviewed_candidate_json']),renderer_version=candidate['writing_provenance'].get('language_docx_renderer',RENDERER_VERSION))
 
     def language_row(self,db,project,identity,request_id,language_id,*,for_admission=False,seen=None):
         self.manuscripts.root(db,project,identity)
@@ -92,7 +99,9 @@ class LanguageReviewService(LiveReviewService):
         except ValueError as exc:raise source_conflict() from exc
         frozen_render=row['candidate_json']['writing_provenance'].get('school_final_render')
         if row['candidate_json'].get('thesis_context') and frozen_render is None:raise source_conflict()
-        candidate,items=self.prepare(db,project,review,body,numeric_version=version,frozen_render=frozen_render)
+        # Older records used the original renderer even in the customer workspace.
+        renderer_version = row['candidate_json']['writing_provenance'].get('language_docx_renderer', RENDERER_VERSION)
+        candidate,items=self.prepare(db,project,review,body,numeric_version=version,frozen_render=frozen_render,renderer_version=renderer_version)
         self.finish(candidate,row['id'],row['review_sha256'],numeric_version=version)
         if candidate!=row['candidate_json'] or items!=row['inventory_json']: raise source_conflict()
         try: validate_language(items,body,candidate)

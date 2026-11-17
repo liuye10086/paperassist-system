@@ -20,6 +20,12 @@ def update_notice(candidate, request, *, reviewed=False):
     else:
         target=request.get('target_section') or ', '.join(request.get('target_sections') or [])
         section = SECTION_NAMES.get(target,(target,target))[0 if en else 1]
+        if candidate.get('paper_plan', {}).get('kind') == 'narrative_review':
+            from .article_contract import labels
+
+            by_id = {sid: english if en else zh for sid, english, zh in labels('narrative_review', candidate)}
+            targets = candidate['writing_provenance']['target_section_ids']
+            section = (', ' if en else '、').join(by_id[sid] for sid in targets)
         scope = (f'Single-section rewrite candidate: {section}; other sections preserved.' if en else
                  f'单章重写候选：{section}；其他章节保留。')
     if provenance == 'synthetic_fixture':

@@ -17,8 +17,9 @@ const fields = [
 ] as const
 const initialDraft = (value: string): FieldDraft => ({ saved: value, value, error: '', uncertain: false })
 
-export default function ProjectDetails({ project, onUpdated, showHeading = true, renderHeader, registerLeaveGuard }: {
+export default function ProjectDetails({ project, onUpdated, showHeading = true, showLanguage = true, renderHeader, registerLeaveGuard }: {
   project: Project; onUpdated: (project: Project) => void; showHeading?: boolean
+  showLanguage?: boolean
   renderHeader?: (language: ReactNode) => ReactNode; registerLeaveGuard?: RegisterLeaveGuard
 }) {
   const { t } = useI18n()
@@ -102,7 +103,8 @@ export default function ProjectDetails({ project, onUpdated, showHeading = true,
     void submit(field, 'save', value)
   }
 
-  const language = <ProjectLanguage key={project.id} project={project} onUpdated={onUpdated} disabled={busy !== null || uncertain} onBusyChange={setLanguageBusy} registerLeaveGuard={registerLeaveGuard}/>
+  const language = showLanguage ? <ProjectLanguage key={project.id} project={project} onUpdated={onUpdated}
+    disabled={busy !== null || uncertain} onBusyChange={setLanguageBusy} registerLeaveGuard={registerLeaveGuard} /> : null
   return <div className={renderHeader ? 'project-details project-details-with-header' : 'project-details'}>
     {renderHeader ? renderHeader(language) : showHeading && <><h3>{project.name}</h3><p>{project.research_topic}</p></>}
     <div className={renderHeader ? 'project-info-body' : undefined}>

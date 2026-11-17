@@ -12,7 +12,7 @@ class LanguageException(Strict):
 class LanguageDecision(Strict):
     location: str = Field(min_length=1,max_length=500)
     content_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
-    decision: Literal['target_language','no_text']
+    decision: Literal['target_language','no_text','provided_literal']
     reason: str = Field(min_length=1,max_length=2000)
     exceptions: list[LanguageException] = Field(default_factory=list,max_length=100)
 
@@ -32,7 +32,7 @@ class LanguagePreparation(Strict):
     review_id: str = Field(min_length=1,max_length=128)
     review_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
     edits: list[LanguageEdit] = Field(default_factory=list,max_length=5000)
-    figure_versions: list[FigureVersionDecision] = Field(default_factory=list,max_length=100)
+    figure_versions: list[FigureVersionDecision] = Field(default_factory=list)
 
 class LanguageReviewRequest(LanguagePreparation):
     inventory_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
@@ -41,7 +41,7 @@ class LanguageReviewRequest(LanguagePreparation):
 from app.domain.manuscripts.contracts import SchoolExportOptions
 
 class SchoolLanguageDecision(LanguageDecision):
-    decision:Literal['target_language','no_text','provided_literal']
+    """Per-item decision for a school or presentation inventory."""
 
 class SchoolLanguagePreparation(LanguagePreparation):
     schema_version:Literal[3]

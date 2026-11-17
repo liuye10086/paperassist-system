@@ -3,6 +3,7 @@ import re
 from collections import Counter
 from app.adapters.manuscript_docx import SECTION_LABELS
 from app.domain.manuscript_review.facts import displayed_paragraphs
+from app.domain.manuscript_writing.article_contract import visible_illustration_groups
 from . import frontiers_review as frontiers
 from .display import completed_narrative_review, context, display_sections, is_narrative_review
 from .format_contracts import SUBMISSION_KEYS
@@ -22,7 +23,7 @@ def category(key):
 def in_range(actual,expected):
     return actual<=expected if type(expected) is int else expected.get('min',0)<=actual<=expected.get('max',1000000)
 
-def section_headings(snapshot):
+def section_headings(snapshot, *, main_only=False):
     """Observe the public renderer's labels/order without exporting a document."""
     article = snapshot.get('article_type')
     rendered_labels = SECTION_LABELS
@@ -30,12 +31,14 @@ def section_headings(snapshot):
         from app.domain.manuscript_writing.article_contract import STRUCTURES, labels as article_labels
 
         if article in STRUCTURES:
-            rendered_labels = article_labels(article)
+            rendered_labels = article_labels(article, snapshot)
     labels={key:en if snapshot['output_language']=='en' else zh for key,en,zh in rendered_labels}
+    def visible(section):
+        return section['id'] != 'title' and not (main_only and section.get('parent_id') == 'themes')
     if snapshot.get('journal_display_context'):
-        return [s['display_name'] for s in display_sections(snapshot) if s['id']!='title']
+        return [s['display_name'] for s in display_sections(snapshot) if visible(s)]
     if 'sections' in snapshot:
-        return [labels.get(s['id'],s.get('title') or s.get('heading') or s['id']) for s in snapshot['sections'] if s['id']!='title']
+        return [labels.get(s['id'],s.get('title') or s.get('heading') or s['id']) for s in snapshot['sections'] if visible(s)]
     # Legacy fact drafts render Results, then Methods, with optional References;
     # their storage/displayed_paragraphs order is not their document order.
     selected={'results','materials_and_methods'}
@@ -49,8 +52,9 @@ def check_format(snapshot,requirements,conflicts,*,public_issues=(),warnings=(),
     abstracts=[p for role,p in paragraphs if role=='abstract']
     abstract='\n'.join(p['text'] for p in abstracts)
     language=snapshot['output_language']
-    figures=[f for g in snapshot.get('results_groups',[]) for f in g.get('figures',[])]
-    tables=[t for g in snapshot.get('results_groups',[]) for t in g.get('tables',[])]
+    groups=visible_illustration_groups(snapshot)
+    figures=[f for g in groups for f in g.get('figures',[])]
+    tables=[t for g in groups for t in g.get('tables',[])]
     items=[]
     frontiers_profile = (context(snapshot).get('frontiers_review', {})
                          if snapshot.get('journal_display_context', {}).get('frontiers_review') else {})
@@ -115,7 +119,7 @@ def check_format(snapshot,requirements,conflicts,*,public_issues=(),warnings=(),
             matches=({i['section_id']:i['display_name'] for i in actual}=={i['section_id']:i['display_name'] for i in expected}) if key=='section_display_names' else actual==expected
             status='pass' if matches else 'mismatch';location='journal_display_context';reason='读取固定期刊显示配置；未指定格式不认证为已适配。';automation='journal_display_v1'
         elif key in ('required_sections','section_order'):
-            actual=section_headings(snapshot)
+            actual=section_headings(snapshot, main_only=frontiers_scope)
             if key=='section_order' and len(expected)==7 and snapshot.get('journal_display_context') and not is_narrative_review(snapshot):
                 display=context(snapshot);actual=[display['names'][k] for k in display['order']]
             normalized=[s.strip().casefold() for s in actual];wanted=[s.strip().casefold() for s in expected];location='sections'

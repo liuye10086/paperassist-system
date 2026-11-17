@@ -126,6 +126,8 @@ from app.api.literature_citations import router as literature_citations_router
 app.include_router(literature_citations_router)
 from app.api.manuscripts import router as manuscripts_router
 app.include_router(manuscripts_router, dependencies=[Depends(legacy_writing_project)])
+from app.api.paper_materials import router as paper_materials_router
+app.include_router(paper_materials_router)
 
 
 @app.get('/api/v1/ai/config')

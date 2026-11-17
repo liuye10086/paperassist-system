@@ -1,5 +1,6 @@
 """Deterministic fact transcription. No model, statistical estimation or inference."""
 from copy import deepcopy
+from urllib.parse import quote
 from app.core.exceptions import StorageError
 from .contracts import METHOD_FIELDS,WORKFLOW
 from .sources import read_source
@@ -89,9 +90,11 @@ def result_text(result,en):
     return '; '.join(values)
 
 
-def freeze(service,project,request,*,frozen_sources=None,frozen_citation=None):
+def freeze(service,project,request,*,frozen_sources=None,frozen_citation=None,paper_plan=None):
     en=request.output_language=='en'
     sources=deepcopy(frozen_sources) if frozen_sources is not None else [read_source(service,project,s) for s in request.sources]
+    if paper_plan is not None and frozen_sources is None:
+        sources.extend(read_source(service,project,item['selection']) for item in paper_plan['materials'])
     lookup={s['id']:s for s in sources};issues=[];methods=[]
     def issue(identity,kind,field,message,values=None):
         if any(i['id']==identity for i in issues): return
@@ -119,14 +122,17 @@ def freeze(service,project,request,*,frozen_sources=None,frozen_citation=None):
                 result.extend(selected)
             else: result.append(identity)
         return result
-    def figure(identity):
+    def figure(identity, *, paper_caption=None):
         nonlocal figure_count
         source,image=image_lookup.get(identity,(lookup.get(identity),None))
         if not source or source['role']!='image_observation' or source['kind'] not in ('figure','figure_language_version','original','document_version'):
             raise StorageError('task_input_invalid','图表必须关联已选图表或原始图片。',422)
         if identity in used_figures: raise StorageError('task_input_invalid','图表不能重复编号。',422)
         used_figures.add(identity);content=source['content']
+        preview_url=image['preview_url'] if image else source['download_url']
+        image_metadata={}
         if image is not None:
+            image_metadata['image_id']=image['id']
             title=source['label']+' — '+image['id']
             candidate='; '.join(image['caption_candidates'])
             caption=(('Candidate source caption (verify): ' if en else '候选来源图注（待核对）：')+candidate) if candidate else ('Document image observation; caption to be supplied.' if en else '文档图片观察；图注待补充。')
@@ -137,11 +143,15 @@ def freeze(service,project,request,*,frozen_sources=None,frozen_citation=None):
             if language!=request.output_language: raise StorageError('task_source_conflict','图中文字语言与事实稿不一致，请先生成对应语言图表。',409)
             title=content.get('title') or source['label'];caption=content.get('caption') or ''
         else:
-            if content['source']['file_type'] not in ('png','jpeg'): raise StorageError('task_input_invalid','仅图片原件可作为观察图。',422)
+            file_type=content['source']['file_type']
+            if file_type not in ('png','jpeg','tiff'): raise StorageError('task_input_invalid','仅图片原件可作为观察图。',422)
+            if file_type=='tiff':
+                preview_url='/api/v1/projects/{}/files/{}/image-preview'.format(quote(project,safe=''),quote(source['file_id'],safe=''))
+                image_metadata['original_image_format']='tiff'
             title=source['label'];caption='User-provided image; no statistical values inferred.' if en else '用户提供原始图片；未从图片推断统计值。'
         figure_count+=1;note=notes.get(identity) or notes.get(source['id'])
         if note: used_notes.add(note.figure_id)
-        supplied=bool(note and note.caption.strip())
+        supplied=bool(paper_caption or note and note.caption.strip())
         source_caption=bool(image and candidate.strip() or source['kind'] in ('figure','figure_language_version') and caption.strip())
         caption_status='supplied' if supplied else 'candidate' if image and source_caption else 'source' if source_caption else 'missing'
         if caption_status=='missing':
@@ -151,10 +161,16 @@ def freeze(service,project,request,*,frozen_sources=None,frozen_citation=None):
         elif caption_status=='candidate':
             issue('verify:caption:'+identity,'limitation',identity,
                 f'Figure {figure_count}: The source caption candidate requires researcher verification.' if en else f'图 {figure_count}：来源候选图注需研究人员核对。')
-        return dict(id=identity,number=figure_count,title=title,caption=note.caption if supplied else caption,caption_status=caption_status,
+        if paper_caption:
+            title='Research image' if en else '研究图'
+        return dict(id=identity,number=figure_count,title=title,caption=paper_caption or (note.caption if supplied else caption),caption_status=caption_status,
             caption_origin='user_provided' if supplied else 'source',panels=[p.model_dump() for p in note.panels] if note else [],
             sha256=image['sha256'] if image else source['sha256'],source_ids=[source['id']],
-            preview_url=image['preview_url'] if image else source['download_url'],**(dict(image_id=image['id']) if image else {}))
+            preview_url=preview_url,**image_metadata)
+    if paper_plan is not None:
+        from .paper_plan import freeze_groups
+        groups,table_count=freeze_groups(service,project,paper_plan,lookup,figure,request.output_language)
+    planned_groups=len(groups)
     for group in request.results_groups:
         paragraphs=[];tables=[]
         for identity in group.analysis_run_ids:
@@ -194,7 +210,7 @@ def freeze(service,project,request,*,frozen_sources=None,frozen_citation=None):
     if extra_figures: groups.append(dict(id='source-observations',title='Source image observations' if en else '来源图片观察',paragraphs=[],tables=[],figures=[figure(i) for i in extra_figures]))
     if set(notes)-used_notes: raise StorageError('task_input_invalid','图注必须绑定已选图片。',422)
     from .illustrations import attach_references
-    attach_references(groups,request.output_language,issue)
+    attach_references(groups,request.output_language,issue,from_index=planned_groups)
     for source in sources:
         if source['role']=='user_results':
             issue('uncomputed:'+source['id'],'limitation',source['id'],'User-provided material was not recomputed and is not included as computed Results.' if en else '用户资料未重算，未作为系统统计结果写入Results。')
@@ -202,7 +218,8 @@ def freeze(service,project,request,*,frozen_sources=None,frozen_citation=None):
             issue('origin:'+source['id'],'limitation',source['id'],'Image observations and literature findings are not this study’s computed results.' if en else '图片观察及文献发现不属于本研究计算结果。')
         if source['kind']=='analysis_run' and source['id'] not in used_results:
             issue('ungrouped:'+source['id'],'missing',source['id'],'Selected result is not assigned to a Results group.' if en else '所选统计结果未分配到Results分组。')
-    if not used_results: issue('missing:results','missing','results','No computed Results selected.' if en else '尚未选择系统统计结果。')
+    if not used_results and paper_plan is None:
+        issue('missing:results','missing','results','No computed Results selected.' if en else '尚未选择系统统计结果。')
     references=[];citation=None
     if request.citation_draft:
         if frozen_citation is not None:
@@ -219,7 +236,13 @@ def freeze(service,project,request,*,frozen_sources=None,frozen_citation=None):
         references=deepcopy(citation['output']['references'])
         for paragraph in citation['output']['paragraphs']:
             methods.append(dict(id='literature:'+paragraph['id'],text=('Literature finding (not this study’s results): ' if en else '文献发现（并非本研究结果）：')+paragraph['text'],origin='literature',source_ids=[],citations=[]))
-    issue('scope','limitation','scope','Local deterministic fact draft; Results and Materials and methods only. Missing facts require completion; no complete manuscript or model writing.' if en else '本地确定性事实稿，仅含Results与Materials and methods。缺失事实待补充，不代表完整论文或模型写作。')
+    if paper_plan is not None:
+        summary = ('Fact draft based on the saved requirements and linked materials. Review observations and sources before continuing.' if en
+                   else '根据项目需求和关联资料整理的事实稿。请核对发现及其依据，再继续写作。')
+    else:
+        summary = ('Local deterministic fact draft; Results and Materials and methods only. Missing facts require completion; no complete manuscript or model writing.' if en
+                   else '本地确定性事实稿，仅含Results与Materials and methods。缺失事实待补充，不代表完整论文或模型写作。')
+    issue('scope','limitation','scope',summary)
     notice=issues[-1]['message']
     from .illustrations import check_references
     for item in check_references(groups,request.output_language,methods):
@@ -228,7 +251,13 @@ def freeze(service,project,request,*,frozen_sources=None,frozen_citation=None):
         notice=notice,methods=methods,results_groups=groups,references=references,issues=issues,sources=sources,citation_snapshot=citation)
     if request.analysis_handoff_run_ids:
         snapshot['analysis_handoff_run_ids']=request.analysis_handoff_run_ids
+    if paper_plan is not None:
+        snapshot.update(paper_plan=paper_plan,keywords=paper_plan['keywords'])
+        if paper_plan['kind']=='narrative_review':
+            from app.domain.manuscript_writing.article_contract import seed_review_sections
+            snapshot=seed_review_sections(snapshot)
     if getattr(request, 'thesis', None) is not None:
         from .school import seed_school_snapshot
-        snapshot = seed_school_snapshot(snapshot, service.freeze_school_context(project, request))
+        options={'paper_plan':paper_plan} if paper_plan is not None else {}
+        snapshot = seed_school_snapshot(snapshot, service.freeze_school_context(project, request, **options))
     return snapshot

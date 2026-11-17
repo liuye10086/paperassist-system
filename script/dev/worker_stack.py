@@ -285,11 +285,13 @@ def ensure_docker() -> None:
 
 
 def owned_containers(stack: Stack) -> list[dict]:
-    ids = docker(['ps', '-aq', '--filter', 'label=com.docker.compose.project=' + stack.project]).split()
+    # A diagnostic container can share the Compose project label without being a managed service.
+    ids = docker(['ps', '-aq', '--filter', 'label=com.docker.compose.project=' + stack.project,
+                  '--filter', 'label=com.docker.compose.oneoff=False']).split()
     if not ids:
         return []
     # Read only identity/state. Docker inspect without a format would expose env.
-    template = '{{json .Id}}|{{json .Config.Labels}}|{{json .State.Status}}|{{if .State.Health}}{{json .State.Health.Status}}{{else}}"none"{{end}}'
+    template = '{{json .Id}}|{{json .Config.Labels}}|{{json .State.Status}}|{{with index .State "Health"}}{{json .Status}}{{else}}"none"{{end}}'
     rows = docker(['inspect', '--format', template, *ids]).splitlines()
     result = []
     for row in rows:

@@ -47,6 +47,7 @@ def validate_chapters(context, groups):
 
 
 def seed_school_snapshot(snapshot, context):
+    from .paper_plan import finding_paragraph
     from app.domain.manuscript_writing.context import literature_paragraphs
     result = deepcopy(snapshot)
     chapters = validate_chapters(context, {g['id'] for g in snapshot['results_groups']})
@@ -55,6 +56,9 @@ def seed_school_snapshot(snapshot, context):
     used_methods = False
     used_literature = False
     literature = literature_paragraphs(snapshot)
+    paper_plan = snapshot.get('paper_plan')
+    planned_methods = {section['chapter_id']: section for section in (paper_plan or {}).get('sections', [])
+                       if section['purpose'] == 'materials_and_methods'}
     for chapter in chapters:
         section = deepcopy(chapter)
         paragraphs = []
@@ -63,6 +67,8 @@ def seed_school_snapshot(snapshot, context):
             # Literature is a reviewed finding, never an actual study method.
             paragraphs = [deepcopy(p) for p in snapshot['methods'] if p.get('origin') != 'literature']
             used_methods = True
+        if chapter['id'] in planned_methods:
+            paragraphs.insert(0, finding_paragraph(planned_methods[chapter['id']]))
         if role in ('introduction', 'discussion', 'other') and not used_literature and literature:
             paragraphs.extend(deepcopy(literature))
             used_literature = True
@@ -78,8 +84,9 @@ def seed_school_snapshot(snapshot, context):
         section['paragraphs'] = paragraphs if paragraphs or role == 'references' else [pending(chapter)]
         sections.append(section)
     result['sections'] = sections
-    result['notice'] = ('School chapter fact draft; missing research and manual content remain pending. No model writing or school export has been performed.'
-                        if snapshot['output_language'] == 'en' else '按学校章节组织的事实稿；缺失研究事实及人工内容仍待补充，尚未进行模型写作或学校成品导出。')
+    if paper_plan is None:
+        result['notice'] = ('School chapter fact draft; missing research and manual content remain pending. No model writing or school export has been performed.'
+                            if snapshot['output_language'] == 'en' else '按学校章节组织的事实稿；缺失研究事实及人工内容仍待补充，尚未进行模型写作或学校成品导出。')
     result['issues'] = [deepcopy(i) for i in snapshot['issues'] if i.get('id') != 'scope']
     result['issues'].append(dict(id='scope', kind='limitation', field='scope', message=result['notice'], values=[]))
     result['school_content_report'] = school_content_report(result)

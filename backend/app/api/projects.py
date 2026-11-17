@@ -7,10 +7,12 @@ from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, model_valida
 
 from app.core.config import ExcelSettings, get_request_excel_settings
 from app.adapters.excel import WorkbookPreview, fail, parse_workbook, read_upload
+from app.adapters.project_images import IMAGE_MEDIA_TYPES, PREVIEW_MAX_SIDE, tiff_as_png, validate_project_image
 from app.adapters.storage import PROJECT_UPDATE_LIMITS, ProjectStore, get_request_project_store
 from app.auth.permissions import require_customer_role
 from app.domain.project_summary import ProjectSummary, read_project_summary
-from app.domain.research_intake.sci_settings import SciProjectSettings, SciSettingsState, SciSettingsWrite, sci_settings
+from app.domain.research_intake.sci_settings import SciSettingsPayload, SciSettingsState, SciSettingsWrite, sci_settings
+from app.domain.school_templates.thesis_requirements import ThesisBasics, ThesisRequirementsWrite, thesis_requirements
 from app.domain.workflow_state import WorkflowState, read_workflow_state
 from app.domain.files import (ProjectFile, FilePage, FileMetadata, FileDetails, FilePurposesInput,
                               query_files, read_file_details, assign_file_purposes)
@@ -26,7 +28,8 @@ class ProjectInput(BaseModel):
     project_type: Literal["sci", "thesis", "research"]
     default_output_language: Literal["zh-CN", "en"] = "zh-CN"
     delivery_kinds: list[Literal['analysis','sci_draft','thesis_draft']] | None = Field(default=None,min_length=1,max_length=3)
-    sci_settings: SciProjectSettings | None = None
+    sci_settings: SciSettingsPayload | None = None
+    thesis_requirements: ThesisBasics | None = None
 
     @model_validator(mode='after')
     def deliveries_valid(self):
@@ -38,6 +41,8 @@ class ProjectInput(BaseModel):
             raise ValueError('Legacy projects retain their original delivery contract')
         if self.project_type != 'sci' and self.sci_settings is not None:
             raise ValueError('SCI settings require an SCI project')
+        if self.project_type != 'thesis' and self.thesis_requirements is not None:
+            raise ValueError('Thesis requirements require a thesis project')
         return self
 
 
@@ -138,14 +143,26 @@ def update_project_language(project_id: str, changes: ProjectLanguageInput, stor
     return store.update_project_language(project_id, changes.default_output_language)
 
 
-@router.get("/{project_id}/sci-settings", response_model=SciSettingsState, dependencies=[Depends(require_customer_role)])
+@router.get("/{project_id}/sci-settings", response_model=SciSettingsState, response_model_exclude_unset=True,
+            dependencies=[Depends(require_customer_role)])
 def get_sci_settings(project_id: str, store: Store):
     return sci_settings(store, project_id)
 
 
-@router.put("/{project_id}/sci-settings", response_model=SciSettingsState, dependencies=[Depends(require_customer_role)])
+@router.put("/{project_id}/sci-settings", response_model=SciSettingsState, response_model_exclude_unset=True,
+            dependencies=[Depends(require_customer_role)])
 def update_sci_settings(project_id: str, changes: SciSettingsWrite, store: Store):
     return sci_settings(store, project_id, changes)
+
+
+@router.get('/{project_id}/thesis-requirements', dependencies=[Depends(require_customer_role)])
+def get_thesis_requirements(project_id: str, store: Store):
+    return thesis_requirements(store, project_id)
+
+
+@router.put('/{project_id}/thesis-requirements', dependencies=[Depends(require_customer_role)])
+def update_thesis_requirements(project_id: str, changes: ThesisRequirementsWrite, store: Store):
+    return thesis_requirements(store, project_id, changes)
 
 
 @router.get('/{project_id}/summary', response_model=ProjectSummary)
@@ -242,7 +259,32 @@ def download_file(project_id: str, file_id: str, store: Store):
     if store.assignment is not None:
         with store.connection() as db:
             filename = analyst_file_names(db, store, project_id, [file_id]).get(file_id, filename)
-    return Response(store.original(record), media_type={"png":"image/png","jpeg":"image/jpeg","pdf":"application/pdf","xlsx":"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet","docx":"application/vnd.openxmlformats-officedocument.wordprocessingml.document"}.get(record["file_type"], "application/octet-stream"), headers={
+    media_type = IMAGE_MEDIA_TYPES.get(record['file_type']) or {
+        'pdf': 'application/pdf',
+        'xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        'docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    }.get(record['file_type'], 'application/octet-stream')
+    return Response(store.original(record), media_type=media_type, headers={
         "Content-Disposition": f"attachment; filename*=UTF-8''{quote(filename, safe='')}",
         "X-Content-Type-Options": "nosniff",
+    })
+
+
+@router.get('/{project_id}/files/{file_id}/image-preview', response_class=Response)
+def get_image_preview(project_id: str, file_id: str, store: Store):
+    record = store.file(project_id, file_id)
+    file_type = record['file_type']
+    if file_type not in IMAGE_MEDIA_TYPES:
+        fail('unsupported_file_type', '此预览仅支持 PNG、JPEG 和 TIFF 图片。', 422)
+    original = store.original(record)
+    if file_type == 'tiff':
+        content = tiff_as_png(original, max_side=PREVIEW_MAX_SIDE)
+        media_type = 'image/png'
+    else:
+        validate_project_image(original, file_type)
+        content, media_type = original, IMAGE_MEDIA_TYPES[file_type]
+    return Response(content, media_type=media_type, headers={
+        'Content-Disposition': 'inline',
+        'X-Content-Type-Options': 'nosniff',
+        'Cache-Control': 'private, no-store',
     })

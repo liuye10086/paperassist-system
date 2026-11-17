@@ -11,6 +11,9 @@ from PIL import Image
 from psycopg.types.json import Jsonb
 from app.adapters.task_store import TaskStore,source_conflict
 from app.adapters.figure_language_renderer import render_boxplot,text_item
+from app.adapters.project_images import (
+    IMAGE_FORMATS, TIFF_WORD_RENDERER_VERSION, WORD_MAX_SIDE, tiff_as_png, validate_project_image,
+)
 from app.core.exceptions import StorageError
 from app.domain.dataset_preparation.service import require_key
 from app.domain.files import require_file
@@ -33,7 +36,10 @@ class FigureLanguageService:
         file=self.file(db,project,source['file_id'])
         raw=self.assets.original(dict(file));content={}
         if source['kind']=='original':
-            if source['id']!=file['id'] or file['file_type'] not in ('png','jpeg'): raise source_conflict()
+            if source['id'] != file['id'] or file['file_type'] not in IMAGE_FORMATS:
+                raise source_conflict()
+            if file['file_type'] == 'tiff':
+                content['original_image_format'] = 'tiff'
         elif source['kind']=='figure':
             if not customer_can_use_analysis(db,self.assets,project): raise source_conflict()
             row=db.execute('SELECT f.* FROM figures f JOIN analysis_runs a ON a.id=f.analysis_run_id WHERE f.id=%s AND a.file_id=%s',(source['id'],file['id'])).fetchone()
@@ -92,6 +98,7 @@ class FigureLanguageService:
             raise source_conflict()
         if row['figure_id']!=(request.source.id if request.source.kind=='figure' else None) or row['document_version_id']!=(request.source.id if request.source.kind=='document_version' else None) or row['replacement_file_id']!=request.replacement_file_id:
             raise source_conflict()
+        tiff_projection = source.get('original_image_format') == 'tiff' and request.mode == 'no_text_confirmation'
         if snap['mode']=='local_boxplot':
             # Validate the frozen geometry and every label independently of PNG metadata.
             expected=render_boxplot(source,request.texts.model_dump(),request.output_language,renderer_version=snap['renderer_version'])
@@ -104,8 +111,13 @@ class FigureLanguageService:
                 file=self.file(db,project,request.replacement_file_id)
                 replacement=self.assets.original(dict(file))
                 if sha256(replacement).hexdigest()!=snap['sha256']: raise source_conflict()
+            elif tiff_projection:
+                if snap.get('renderer_version') != TIFF_WORD_RENDERER_VERSION:
+                    raise source_conflict()
             elif snap['sha256']!=sha256(original).hexdigest(): raise source_conflict()
-        self.png(row)
+        raw = self.png(row)
+        if tiff_projection and not raw.startswith(b'\x89PNG\r\n\x1a\n'):
+            raise source_conflict()
         return row
 
     def view(self,row):
@@ -164,7 +176,15 @@ class FigureLanguageService:
                     return self.view(fields),201
                 original,source=self.original(db,project,body['source'])
                 if sha256(original).hexdigest()!=request.original_sha256: raise source_conflict()
-                self.verify_image(original)
+                tiff_source = source.get('original_image_format') == 'tiff'
+                tiff_projection = tiff_source and request.mode == 'no_text_confirmation'
+                raw = original
+                if tiff_projection:
+                    raw = tiff_as_png(original, max_side=WORD_MAX_SIDE)
+                elif tiff_source:
+                    validate_project_image(original, 'tiff')
+                else:
+                    self.verify_image(original)
                 identity=str(uuid4())
                 snapshot=dict(schema_version=1,id=identity,output_language=request.output_language,mode=request.mode,
                     original=body['source']|dict(sha256=request.original_sha256),reason=request.reason)
@@ -172,13 +192,13 @@ class FigureLanguageService:
                     rendered=render_boxplot(source,request.texts.model_dump(),request.output_language)
                     raw=rendered.pop('png');snapshot.update(rendered,title=request.texts.title,caption=request.texts.caption)
                 else:
-                    raw=original
                     if request.replacement_file_id:
                         file=self.file(db,project,request.replacement_file_id)
                         if file['file_type'] not in ('png','jpeg'): raise source_conflict()
                         raw=self.assets.original(dict(file));self.verify_image(raw)
                     snapshot.update(title=request.title,caption=request.caption,text_manifest=[text_item(t.location,t.text) for t in request.text_items],
-                        data_fingerprint=None,geometry_fingerprint=None,renderer_version=None,font_hashes={},
+                        data_fingerprint=None,geometry_fingerprint=None,font_hashes={},
+                        renderer_version=TIFF_WORD_RENDERER_VERSION if tiff_projection else None,
                         support_scope='User supplied image inventory or explicit no-text inspection; numerical/geometry equivalence is not claimed.')
                 snapshot.update(sha256=sha256(raw).hexdigest(),size_bytes=len(raw))
                 target=self.directory/(identity+'.png')

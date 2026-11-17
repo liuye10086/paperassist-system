@@ -62,9 +62,9 @@ def normalize_sections(snapshot):
         sections=deepcopy(snapshot['sections'])
         expected=SECTION_IDS
         if snapshot.get('article_structure_version') is not None:
-            from .article_contract import VERSION,STRUCTURES
-            if snapshot['article_structure_version']!=VERSION or snapshot.get('article_type') not in STRUCTURES:raise ValueError('Invalid frozen article structure')
-            expected=STRUCTURES[snapshot['article_type']]
+            from .article_contract import matches_structure
+            if not matches_structure(snapshot):raise ValueError('Invalid frozen article structure')
+            return sections
         if [s['id'] for s in sections] != list(expected):
             raise ValueError('Invalid frozen sections')
         return sections

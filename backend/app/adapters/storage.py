@@ -1,6 +1,6 @@
 """PostgreSQL project metadata with immutable local file assets."""
 
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from datetime import datetime, timezone
 import hashlib
 import json
@@ -158,7 +158,7 @@ class ProjectStore:
         return dict(row)
 
     def create_project(self, name: str, research_topic: str, project_type: str, default_output_language: str = 'zh-CN',
-                       *, delivery_kinds=None, sci_settings=None, idempotency_key=None):
+                       *, delivery_kinds=None, sci_settings=None, thesis_requirements=None, idempotency_key=None):
         if default_output_language not in ('zh-CN', 'en'):
             raise StorageError('project_language_invalid', '项目默认输出语言仅支持中文或英文。', 422)
         from app.domain.research_intake.service import digest, request_key
@@ -171,6 +171,10 @@ class ProjectStore:
             body['delivery_kinds'] = sorted(delivery_kinds)
         if sci_settings is not None:
             body['sci_settings'] = sci_settings
+        if thesis_requirements is not None:
+            if project_type != 'thesis' or not self.owner_id:
+                raise StorageError('thesis_requirements_unavailable', '毕业论文需求须绑定毕业论文项目及所有者。', 422)
+            body['thesis_requirements'] = thesis_requirements
         creation_digest = None
         if project_type == 'research' or self.customer or idempotency_key is not None:
             request_key(idempotency_key)
@@ -188,7 +192,7 @@ class ProjectStore:
                     result = self.project(replay['project_id'])
                     result['_creation_replayed'] = True
                     return result
-            if self.customer and project_type == 'sci' and sci_settings is None:
+            if self.customer and project_type == 'sci' and not (sci_settings and 'proposed_title' in sci_settings):
                 raise StorageError('sci_settings_required', '请填写完整的 SCI 建项资料。', 422)
             if self.customer and project_type == 'research' and delivery_kinds != ['analysis']:
                 raise StorageError('research_requirement_invalid', '分析项目建项须选择数据分析交付。', 422)
@@ -200,6 +204,9 @@ class ProjectStore:
             initialize_policy(db,'project',project_id)
             initialize_intake(db,project_id,self.owner_id,project_type,delivery_kinds=delivery_kinds,
                               creation_key=idempotency_key,creation_digest=creation_digest,sci_settings=sci_settings)
+            if thesis_requirements is not None:
+                from app.domain.school_templates.thesis_requirements import initialize_thesis_requirements
+                initialize_thesis_requirements(db, self, project_id, thesis_requirements)
         return self.project(project_id)
 
     def project_creation_request(self, key):
@@ -252,14 +259,15 @@ class ProjectStore:
                                  tuple(normalized[field] for field in changed_fields) + (now,) + parameters).fetchone()
             return dict(updated)
 
-    def update_project_language(self, project_id: str, default_output_language: str) -> dict:
+    def update_project_language(self, project_id: str, default_output_language: str, *, connection=None) -> dict:
         self.require_project_scope(project_id)
         if default_output_language not in ('zh-CN', 'en'):
             raise StorageError('project_language_invalid', '项目默认输出语言仅支持中文或英文。', 422)
         scope = ' AND owner_id = %s' if self.owner_id is not None else ''
         parameters = (project_id, self.owner_id) if self.owner_id is not None else (project_id,)
         projection = self.project_fields
-        with self.connection(write=True) as db:
+        transaction = self.connection(write=True) if connection is None else nullcontext(connection)
+        with transaction as db:
             row = db.execute('SELECT ' + projection + ' FROM projects WHERE id = %s' + scope
                              + ' FOR UPDATE OF projects', parameters).fetchone()
             if row is None:

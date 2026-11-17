@@ -152,11 +152,13 @@ def build_bundle(base, request, *, execution_contract=None, include_reported_res
         check_text_leaves(bibliography)
         evidence_wire.append(dict(alias=alias,quote=safe_text(evidence['quote']),reading_scope=safe_text(evidence['reading_scope']),
             bibliography=bibliography))
+    from .paper_context import is_note
     context=[]
     for section in normalize_sections(base):
         if section['id']=='references': continue
         paragraphs=[]
         for p in section['paragraphs']:
+            if base.get('paper_plan') and is_note(p):continue
             # Explicit user methods and source-free title; sourced prose requires all its selected materials.
             ids=p.get('source_ids',[])
             if ids and not set(ids)<=set(request['selected_source_ids']): continue

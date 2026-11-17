@@ -17,6 +17,18 @@ from app.core.exceptions import StorageError
 RENDERER_VERSION = 'manuscript_docx_v7'
 CUSTOMER_RENDERER_VERSION = 'manuscript_docx_v8'
 CUSTOMER_NARRATIVE_REVIEW_RENDERER_VERSION = 'manuscript_docx_v9'
+CUSTOMER_ARTICLE_RENDERER_VERSION = 'manuscript_docx_v10'
+CUSTOMER_RENDERER_VERSIONS = (
+    CUSTOMER_RENDERER_VERSION, CUSTOMER_NARRATIVE_REVIEW_RENDERER_VERSION, CUSTOMER_ARTICLE_RENDERER_VERSION,
+)
+
+def customer_renderer_version(snapshot):
+    if snapshot.get('sections') and not snapshot.get('thesis_context'):
+        return CUSTOMER_ARTICLE_RENDERER_VERSION
+    if snapshot.get('article_type') == 'narrative_review' and not snapshot.get('thesis_context'):
+        return CUSTOMER_NARRATIVE_REVIEW_RENDERER_VERSION
+    return CUSTOMER_RENDERER_VERSION
+
 
 SECTION_LABELS = (
     ('title', 'Title', '标题'),
@@ -124,7 +136,11 @@ def _figure(document, figure, images, en):
         raise StorageError('figure_missing', '稿件引用的图片不可用。', 409)
     if hashlib.sha256(raw).hexdigest() != figure['sha256']:
         raise StorageError('figure_changed', '图片与稿件冻结版本不一致。', 409)
-    if figure.get('research_member_format') and not figure.get('language_version_id'):
+    if figure.get('original_image_format') == 'tiff' and not figure.get('language_version_id'):
+        from app.adapters.project_images import WORD_MAX_SIDE, tiff_as_png
+
+        raw = tiff_as_png(raw, max_side=WORD_MAX_SIDE)
+    elif figure.get('research_member_format') and not figure.get('language_version_id'):
         from app.adapters.research_report_images import as_png
         try:raw=as_png(raw,figure['research_member_format'])
         except (ValueError,OSError) as exc:raise StorageError('figure_changed','研究图件无法按固定格式读取。',409) from exc
@@ -147,15 +163,17 @@ def _figure(document, figure, images, en):
 def _full_sections(snapshot):
     sections = snapshot['sections']
     article = snapshot.get('article_type')
-    from app.domain.manuscript_writing.article_contract import STRUCTURES, labels as article_labels
+    from app.domain.manuscript_writing.article_contract import STRUCTURES, labels as article_labels, matches_structure
     if article is not None and article not in STRUCTURES:
         raise StorageError('report_render_failed','文章类型不受支持。',422)
-    section_labels = article_labels(article) if article else SECTION_LABELS
+    section_labels = article_labels(article, snapshot) if article else SECTION_LABELS
     valid = isinstance(sections, list) and len(sections) == len(section_labels)
     if valid:
         valid = all(isinstance(section, dict) and section.get('id') == labels[0]
                     and isinstance(section.get('paragraphs'), list)
                     for section, labels in zip(sections, section_labels))
+    if valid and article == 'narrative_review' and snapshot.get('paper_plan'):
+        valid = matches_structure(snapshot)
     if valid:
         paragraphs = [item for section in sections for item in section['paragraphs']]
         valid = all(isinstance(item, dict) and isinstance(item.get('id'), str) and item['id']
@@ -179,17 +197,28 @@ def _references(document, snapshot, en, *, required=False):
                                if en else '尚未选择已核实参考文献，待补充。')
 
 
+def _keywords(document, snapshot, en):
+    if snapshot.get('keywords'):
+        document.add_paragraph(('Keywords: ' if en else '关键词：')
+                               + ('; ' if en else '；').join(snapshot['keywords']))
+
+
 def _full_body(document, snapshot, sections, images, en, excluded_chapter_ids=frozenset()):
+    from app.domain.manuscript_writing.article_contract import illustration_groups, labels as article_labels
+
     bookmark_number = 0
+    planned_review = snapshot.get('paper_plan', {}).get('kind') == 'narrative_review'
+    submission_layout = snapshot.get('journal_display_context', {}).get('frontiers_review', {}).get('submission_layout')
     if snapshot.get('journal_display_context') and snapshot.get('article_type', 'research') in ('research', 'narrative_review'):
         from app.domain.journals.display import display_sections
         projected=display_sections(snapshot)[1:]
     else:
-        from app.domain.manuscript_writing.article_contract import labels as article_labels
-        labels_for = article_labels(snapshot.get('article_type','research')) if snapshot.get('article_type') else SECTION_LABELS
-        projected=[dict(section,display_name=labels[1 if en else 2]) for section,labels in zip(sections[1:],labels_for[1:])]
+        labels_for = article_labels(snapshot['article_type'], snapshot) if snapshot.get('article_type') else SECTION_LABELS
+        projected=[dict(section,display_name=labels[1 if en else 2],
+                        heading_level=section['level'] if planned_review and section.get('parent_id') == 'themes' else 1)
+                   for section,labels in zip(sections[1:],labels_for[1:])]
     for section in projected:
-        if section['id'] in excluded_chapter_ids:continue
+        if section['id'] in excluded_chapter_ids or planned_review and section.get('parent_id') in excluded_chapter_ids:continue
         document.add_heading(section['display_name'], section.get('heading_level', 1))
         if section['id'] == 'references':
             _references(document, snapshot, en, required=True)
@@ -197,14 +226,13 @@ def _full_body(document, snapshot, sections, images, en, excluded_chapter_ids=fr
         for item in section['paragraphs']:
             bookmark_number += 1
             _paragraph(document, item, bookmark_number)
-        if section['id'] == 'abstract' and snapshot.get('keywords'):
-            document.add_paragraph(('Keywords: ' if en else '关键词：')
-                                   + ('; ' if en else '；').join(snapshot['keywords']))
-        if section['id'] == 'results':
+        if section['id'] == 'abstract':
+            _keywords(document, snapshot, en)
+        if not (submission_layout and planned_review):
             # The sections are the writing text; original result paragraphs
             # remain frozen evidence and must not replace a rewritten section.
-            for group in snapshot['results_groups']:
-                if group['tables'] or group['figures']:
+            for group in illustration_groups(snapshot, section):
+                if section['id'] == 'results' and (group['tables'] or group['figures']):
                     document.add_heading(group['title'], 2)
                 for table in group['tables']:
                     _table(document, table)
@@ -324,7 +352,8 @@ def build_manuscript_docx(snapshot, images, *, school_plan=None, source_map=None
         display = context(snapshot)
         styles = display['styles']
         frontiers_layout = display.get('frontiers_review', {})
-        for scope,names in [('body',('Normal',)),('heading',('Heading 1',))]:
+        has_themes = snapshot.get('paper_plan', {}).get('kind') == 'narrative_review'
+        for scope,names in [('body',('Normal',)),('heading',('Heading 1','Heading 2') if has_themes else ('Heading 1',))]:
             for name in names:
                 style=document.styles[name]
                 for field in ('font_size_pt','line_spacing','space_before_pt','space_after_pt'):
@@ -360,6 +389,8 @@ def build_manuscript_docx(snapshot, images, *, school_plan=None, source_map=None
     if sections:
         _full_body(document, snapshot, sections, images, en, excluded_chapter_ids)
     else:
+        if snapshot.get('paper_plan') and 'abstract' not in excluded_chapter_ids:
+            _keywords(document, snapshot, en)
         if 'results' not in excluded_chapter_ids:document.add_heading('Results' if en else '结果', 1)
         for group in snapshot['results_groups'] if 'results' not in excluded_chapter_ids else []:
             document.add_heading(group['title'], 2)
@@ -377,11 +408,17 @@ def build_manuscript_docx(snapshot, images, *, school_plan=None, source_map=None
         if snapshot['references'] and 'references' not in excluded_chapter_ids:
             document.add_heading('References' if en else '参考文献', 1)
             _references(document, snapshot, en)
-    issues = snapshot['issues']
+    customer_article = customer_view and renderer_version == CUSTOMER_ARTICLE_RENDERER_VERSION
+    submission_article = customer_article and submission is not None
+    issues = [] if submission_article else snapshot['issues']
     if customer_view:
         issues = [issue for issue in issues if issue['id'] != 'scope' or issue['message'] != snapshot['notice']]
+        if customer_article:
+            internal_limits = {prefix + source['id'] for source in snapshot['sources']
+                               for prefix in ('uncomputed:', 'origin:')}
+            issues = [issue for issue in issues if issue['id'] not in internal_limits]
         if (snapshot.get('article_type') == 'narrative_review'
-                and renderer_version in (None, CUSTOMER_NARRATIVE_REVIEW_RENDERER_VERSION)):
+                and renderer_version in (None, CUSTOMER_NARRATIVE_REVIEW_RENDERER_VERSION, CUSTOMER_ARTICLE_RENDERER_VERSION)):
             from app.domain.manuscripts.contracts import METHOD_FIELDS
             original_study_fields = {*METHOD_FIELDS, 'results'}
             issues = [issue for issue in issues if not (
@@ -395,9 +432,9 @@ def build_manuscript_docx(snapshot, images, *, school_plan=None, source_map=None
             if issue.get('values'):
                 document.add_paragraph(('Conflicting records: ' if en else '相互矛盾的记录：')
                                        + ' / '.join(issue['values']))
-    if customer_view and snapshot.get('review'):
+    if not submission_article and snapshot.get('review') and customer_view:
         _append_customer_review(document, snapshot, issues)
-    elif snapshot.get('review'):
+    elif not customer_view and snapshot.get('review'):
         review=snapshot['review']
         document.add_heading('Material confirmations and consistency review' if en else '资料确认与一致性复核',1)
         document.add_paragraph('User confirmation is not scientific verification. Original source bindings remain frozen; semantic correctness requires researcher review.'
@@ -426,7 +463,7 @@ def build_manuscript_docx(snapshot, images, *, school_plan=None, source_map=None
             if key in seen: continue
             seen.add(key)
             document.add_paragraph(item['location']+' — '+item['message'])
-    if snapshot['sources']:
+    if snapshot['sources'] and not customer_article:
         document.add_heading('Selected source materials' if en else '所选来源资料', 1)
         description = None
         if not customer_view:

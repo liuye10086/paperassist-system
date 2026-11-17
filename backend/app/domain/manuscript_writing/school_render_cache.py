@@ -8,7 +8,9 @@ import re
 from uuid import uuid4
 
 from app.domain.literature.service import digest
-from app.adapters.school_docx import build_school_docx,complete_school_fields,final_school_source_map
+from app.adapters.school_docx import (
+    CUSTOMER_SCHOOL_LAYOUT_VERSION, build_school_docx, complete_school_fields, final_school_source_map,
+)
 
 PREFIX='manuscript_school_language'
 MAPPER_VERSION='school-final-map-v2'
@@ -76,6 +78,8 @@ def materialize(root,owner,project,candidate,images,plan,*,db=None,frozen=None,s
     from app.domain.school_templates.bsu_gs501 import SUBMISSION_FORMS_RENDERER
 
     docx_renderer=RENDERER_VERSION
+    if candidate.get('paper_plan'):
+        docx_renderer+='+'+CUSTOMER_SCHOOL_LAYOUT_VERSION
     if 'submission_forms_source_sha256' in plan:
         docx_renderer+='+'+SUBMISSION_FORMS_RENDERER
     mapper_version='school-final-map-v2' if plan.get('pagination_version')==2 else 'school-final-map-v1'

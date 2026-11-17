@@ -5,6 +5,7 @@ MANUSCRIPT = '/manuscripts/{manuscript_id}'
 WRITING = MANUSCRIPT + '/writing-requests'
 
 _PAPER_ROUTES = {
+    '/paper-materials': {'GET': ('',), 'PUT': ('/{note_id}',)},
     '/manuscripts': {
         'GET': ('/config', '/candidates'),
         'POST': ('', '/preview'),
@@ -36,7 +37,8 @@ _PAPER_ROUTES = {
         'POST': ('',),
     },
     '': {
-        'GET': ('/external-evidence/{version_id}', '/files/{file_id}/external-evidence-source'),
+        'GET': ('/external-evidence/{version_id}', '/files/{file_id}/external-evidence-source',
+                '/files/{file_id}/image-preview'),
     },
     '/manuscript-figure-language-versions': {
         'GET': ('', '/{version_id}', '/{version_id}/download'),
@@ -100,6 +102,7 @@ _SCI_ROUTES = {
 }
 
 _THESIS_ROUTES = {
+    '/thesis-requirements': {'GET': ('',), 'PUT': ('',)},
     '/thesis-profile': {'GET': ('',), 'PUT': ('',)},
     '/thesis-template-binding': {'POST': ('',)},
     '/school-templates': {

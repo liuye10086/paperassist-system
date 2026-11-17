@@ -42,7 +42,9 @@ def read_source(service,project,selection,*,allow_customer_pdf=False):
             raise StorageError('manuscript_source_not_visible', '请使用已发布的分析交付作为论文资料。', 404)
         if service.assets.customer:
             file = dict(require_file(db, project, file_id, material_filter=service.assets.material_filter))
-            customer_types=('docx','xlsx','png','jpeg','pdf') if allow_customer_pdf and kind=='document_version' else ('docx','xlsx','png','jpeg')
+            customer_types=('docx','xlsx','png','jpeg')
+            if kind in ('original','figure_language_version'): customer_types+=('tiff',)
+            if allow_customer_pdf and kind=='document_version': customer_types+=('pdf',)
             if file['file_type'] not in customer_types:
                 raise StorageError('unsupported_file_type', '论文资料支持 Word、Excel 和图片。', 422)
         else:
