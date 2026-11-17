@@ -2,11 +2,19 @@ import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { createArtifactSubmission, type ArtifactSubmission } from '../../shared/api/artifactSubmission'
 import { safeError, useI18n } from '../../shared/i18n'
 import ProjectCreateDialog from '../projects/ProjectCreateDialog'
-import { isProject, type Project } from '../projects/projectTypes'
+import { customerProjectTypeNames, isProject, type Project } from '../projects/projectTypes'
 import { IntakeError, intakeRequest } from '../research-intake/api'
 import useResearchDraft from '../research-results/useResearchDraft'
+import SciSettingsFields from './SciSettingsFields'
+import { prepareSciSettings, sciSettingsDraft, type SciSettingsDraft } from './sciProjectSettings'
 
-type Draft = { name: string; goal: string; submission: ArtifactSubmission | null }
+type Draft = {
+  name: string
+  goal: string
+  submission: ArtifactSubmission | null
+  projectType?: Project['project_type']
+  sci?: SciSettingsDraft
+}
 const emptyDraft = (): Draft => ({ name: '', goal: '', submission: null })
 
 export default function CustomerProjectCreate({ onCreated, onClose }: {
@@ -19,6 +27,14 @@ export default function CustomerProjectCreate({ onCreated, onClose }: {
   const [error, setError] = useState('')
   const request = useRef<AbortController | null>(null)
   useEffect(() => () => request.current?.abort(), [])
+  const projectType = draft.projectType ?? 'research'
+  const sci = draft.sci ?? sciSettingsDraft()
+  const locked = busy || !!draft.submission
+
+  function change(update: Partial<Draft>) {
+    setDraft(previous => ({ ...previous, ...update }))
+    setError('')
+  }
 
   async function create(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -29,26 +45,45 @@ export default function CustomerProjectCreate({ onCreated, onClose }: {
       setError('请填写项目名称和研究目标。')
       return
     }
-    const submission = draft.submission ?? createArtifactSubmission({
-      name, research_topic: goal, project_type: 'research', delivery_kinds: ['analysis'], default_output_language: locale,
-    })
+    let submission = draft.submission
+    if (!submission) {
+      const validated = projectType === 'sci' ? prepareSciSettings(sci) : null
+      if (validated && 'error' in validated) { setError(validated.error); return }
+      submission = createArtifactSubmission({
+        name, research_topic: goal, project_type: projectType, default_output_language: locale,
+        ...(projectType === 'research' ? { delivery_kinds: ['analysis'] } : {}),
+        ...(validated ? { sci_settings: validated.settings } : {}),
+      })
+    }
     setDraft({ ...draft, submission })
     const controller = new AbortController()
     request.current = controller
     setBusy(true)
     setError('')
+    let checkingReceipt = !!draft.submission
     try {
-      const project = await intakeRequest<Project>('/api/v1/projects', {
+      let project: Project | undefined
+      if (checkingReceipt) {
+        try {
+          project = await intakeRequest<Project>(`/api/v1/project-create-requests/${encodeURIComponent(submission.key)}`, {
+            signal: controller.signal,
+          })
+        } catch (cause) {
+          if (!(cause instanceof IntakeError) || cause.status !== 404) throw cause
+          checkingReceipt = false
+        }
+      }
+      if (!checkingReceipt) project = await intakeRequest<Project>('/api/v1/projects', {
         method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': submission.key },
         body: submission.body, signal: controller.signal,
       })
       if (controller.signal.aborted) return
-      if (!isProject(project)) throw new Error('项目响应格式不正确，请刷新项目列表。')
+      if (!isProject(project) || project.project_type !== projectType) throw new Error('项目响应格式不正确，请刷新项目列表。')
       setDraft(emptyDraft())
       onCreated(project)
     } catch (cause) {
       if (controller.signal.aborted) return
-      if (cause instanceof IntakeError && cause.status < 500 && cause.status !== 408) {
+      if (!checkingReceipt && cause instanceof IntakeError && cause.status < 500 && cause.status !== 408) {
         setDraft({ ...draft, submission: null })
         setError(safeError(cause, '创建项目失败，请检查输入后重试。'))
       } else {
@@ -61,13 +96,19 @@ export default function CustomerProjectCreate({ onCreated, onClose }: {
   }
 
   return <ProjectCreateDialog busy={busy} onClose={onClose}>
-    <form className="project-form customer-project-form" aria-busy={busy} onSubmit={event => void create(event)}>
+    <form className="project-form customer-project-form" noValidate aria-busy={busy} onSubmit={event => void create(event)}>
       <div className="project-fields">
+        <label>{t('项目类型')}<select value={projectType} disabled={locked}
+          onChange={event => change({ projectType: event.target.value as Project['project_type'] })}>
+          {Object.entries(customerProjectTypeNames).map(([value, label]) =>
+            <option value={value} key={value}>{t(label)}</option>)}
+        </select></label>
         <label>{t('项目名称')}<input placeholder={t('例如：药物干预后的表达变化研究')} required value={draft.name} maxLength={120} readOnly={!!draft.submission} disabled={busy}
-          onChange={event => setDraft({ ...draft, name: event.target.value })} /></label>
+          onChange={event => change({ name: event.target.value })} /></label>
         <label>{t('研究目标')}<textarea placeholder={t('用一句话描述你想研究什么，或比较哪些差异。')} required value={draft.goal} maxLength={500} rows={3} readOnly={!!draft.submission} disabled={busy}
-          onChange={event => setDraft({ ...draft, goal: event.target.value })} /></label>
+          onChange={event => change({ goal: event.target.value })} /></label>
       </div>
+      {projectType === 'sci' && <SciSettingsFields draft={sci} disabled={locked} onChange={value => change({ sci: value })} onError={setError} />}
       {error && <p className="error-panel" role="alert">{t(error)}</p>}
       <div className="project-form-actions">
         <button type="submit" className="button-primary" disabled={busy}>

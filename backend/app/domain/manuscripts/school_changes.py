@@ -12,6 +12,7 @@ from .service import ManuscriptService,now
 from .contracts import WORKFLOW
 from .school import pending,school_content_report,validate_chapters
 from .school_return import extract,apply_return,issue
+from .sources import require_visible_snapshot
 
 
 def invalid(message,code='school_change_invalid',status=409):return StorageError(code,message,status)
@@ -50,6 +51,8 @@ class SchoolChangeService:
         return source,raw,dict(manifest_sha256=digest(row['result_json']),parsed_sha256=sha256(parsed).hexdigest(),file=row['input_snapshot']['file']),document.model_dump()
 
     def register(self,project,identity,revision,request,key):
+        if self.assets.customer and request.kind!='template_migration':
+            raise StorageError('customer_operation_forbidden','当前工作台仅支持已确认学校模板的变更。',403)
         require_key(key);body=request.model_dump(exclude_none=True)
         with self.store.connection(write=True) as db:
             self.schools.project(db,project,True)
@@ -106,6 +109,8 @@ class SchoolChangeService:
             if row[key]!=row['request_json'].get(key):raise source_conflict()
         base=db.execute('SELECT * FROM manuscript_versions WHERE id=%s AND manuscript_id=%s AND project_id=%s AND user_id=%s',(row['base_version_id'],row['manuscript_id'],row['project_id'],row['user_id'])).fetchone()
         if not base or base['revision']!=frozen['base_revision'] or base['snapshot_sha256']!=frozen['base_snapshot_sha256'] or digest(base['snapshot_json'])!=base['snapshot_sha256']:raise source_conflict()
+        self.manuscripts.require_visible_version(db,base)
+        require_visible_snapshot(self.assets,db,row['project_id'],dict(thesis_context=frozen['target_context'],source=frozen['source']))
         if row['adopted_revision'] is not None:
             if digest(row['adopt_json'])!=row['adopt_sha256'] or digest(row['candidate_json'])!=row['candidate_sha256']:raise source_conflict()
         return base
@@ -164,7 +169,11 @@ class SchoolChangeService:
         if valid:
             try:validate_chapters(snapshot['thesis_context'],{g['id'] for g in snapshot['results_groups']})
             except ValueError:problems.append(issue('chapter_mapping_invalid','目标学校章节及结果组分配不一致，不能采用。'))
-            report=school_content_report(snapshot);snapshot['school_content_report']=report
+            writing_context=None
+            if row['kind']=='template_migration':
+                from app.domain.manuscript_review.writing_context import load_writing_context
+                writing_context=load_writing_context(self.manuscripts,db,row['project_id'],row['manuscript_id'],base['snapshot_json'])
+            report=school_content_report(snapshot,writing_context=writing_context);snapshot['school_content_report']=report
             for item in report['issues']:
                 if item['severity']=='error':problems.append(issue('manuscript_check',item['message'],item.get('location','')))
         for p in problems:
@@ -187,8 +196,13 @@ class SchoolChangeService:
     def list(self,project,identity):
         with self.store.connection() as db:
             self.manuscripts.root(db,project,identity)
-            rows=db.execute('SELECT * FROM manuscript_school_changes WHERE manuscript_id=%s ORDER BY created_at DESC,id',(identity,)).fetchall()
-            return dict(items=[self.view(db,self.row(db,project,identity,r['id'])) for r in rows])
+            rows=db.execute('SELECT * FROM manuscript_school_changes WHERE manuscript_id=%s AND project_id=%s AND user_id=%s ORDER BY created_at DESC,id',(identity,project,self.store.user_id)).fetchall()
+            items=[]
+            for row in rows:
+                try:items.append(self.view(db,row))
+                except StorageError as exc:
+                    if exc.code!='manuscript_source_not_visible':raise
+            return dict(items=items)
 
     def adopt(self,project,identity,change_id,request,key):
         require_key(key);body=request.model_dump();mappings=body['mappings']
@@ -206,6 +220,12 @@ class SchoolChangeService:
                 base=self.validate(db,row);self.assert_current(db,row,base);snapshot,_,_=self.candidate(db,row,mappings)
                 revision=root['current_revision']+1;version_id=str(uuid4());timestamp=now();context=snapshot['thesis_context']
                 provenance=dict(schema_version=1,change_id=row['id'],kind=row['kind'],base_version_id=base['id'],base_revision=base['revision'],input_sha256=row['input_sha256'],source=deepcopy(row['input_json']['source']),mappings=mappings,preview_sha256=view['preview_sha256'])
+                if row['kind']=='template_migration':
+                    from app.domain.manuscript_review.writing_context import has_reviewed_writing_context
+                    if has_reviewed_writing_context(base['snapshot_json']):provenance['retained_writing_context']=1
+                    if self.assets.customer:
+                        # A template section's restart applies once, even when several migrated chapters use it.
+                        snapshot.setdefault('review_school_layout', {})['pagination_version'] = 2
                 snapshot['school_change_provenance']=provenance
                 request_json=deepcopy(base['request_json']);request_json['expected_revision']=revision-1
                 request_json['thesis']=dict(confirmation_id=context['confirmation_id'],profile_revision=context['profile']['revision'],chapter_mappings=[dict(chapter_id=c['id'],purpose=c['purpose'],output_language=c['output_language'],result_group_ids=c['result_group_ids']) for c in context['chapters']])
@@ -222,6 +242,17 @@ class SchoolChangeService:
                 db.execute('UPDATE manuscript_school_changes SET adopted_revision=%s,adopt_key=%s,adopt_json=%s,adopt_sha256=%s,candidate_json=%s,candidate_sha256=%s WHERE id=%s',(revision,key,Jsonb(body),digest(body),Jsonb(snapshot),digest(snapshot),row['id']))
                 status=201
         return self.manuscripts.get(project,identity),status
+
+
+def reviewed_migration_parent(manuscripts,db,project,identity,snapshot):
+    """Recover the reviewed content authority, independently of the old Word layout."""
+    proof=snapshot['school_change_provenance']
+    service=SchoolChangeService(manuscripts.assets)
+    row=service.row(db,project,identity,proof['change_id'])
+    base=service.validate(db,row)
+    if (row['kind']!='template_migration' or row['candidate_json']!=snapshot
+        or row['base_version_id']!=proof['base_version_id'] or row['adopted_revision']<=base['revision']):raise source_conflict()
+    return base['snapshot_json']
 
 
 def validate_school_change_version(manuscripts,db,version,current=False):

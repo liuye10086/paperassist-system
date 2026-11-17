@@ -51,7 +51,9 @@ class WritingService:
         if not row: raise StorageError('task_not_found','写作请求不存在。',404)
         task=self.store.require_task(db,request_id);snap=require_snapshot(task)
         if row['input_snapshot']!=snap or row['input_digest']!=digest(snap) or row['request_json']!=snap['input'] or row['base_version_id']!=snap['base_version_id']: raise source_conflict()
+        self.manuscripts.require_visible_version(db, {'project_id': project, 'snapshot_json': snap['base_snapshot']})
         if row['candidate_json'] is not None:
+            self.manuscripts.require_visible_version(db, {'project_id': project, 'snapshot_json': row['candidate_json']})
             from .context import validate_candidate
             if row['candidate_sha256']!=digest(row['candidate_json']): raise source_conflict()
             model_call_id=row['candidate_json'].get('writing_provenance',{}).get('model_call_id')
@@ -85,6 +87,8 @@ class WritingService:
         if getattr(request,'schema_version',None)==2 or isinstance(request,dict) and request.get('schema_version')==2:
             from .authorization import LiveWritingService
             return LiveWritingService(self.assets).create(project,identity,request,key)
+        if self.assets.customer:
+            raise StorageError('customer_operation_forbidden', '论文写作须使用受控授权流程。', 403)
         require_key(key);request=WritingRequest.model_validate(request) if isinstance(request,dict) else request
         body=request.model_dump(mode='json')
         with self.store.connection(write=True) as db:
@@ -136,7 +140,13 @@ class WritingService:
         with self.store.connection() as db:
             self.manuscripts.root(db,project,identity)
             rows=db.execute('SELECT task_id FROM manuscript_writing_requests WHERE manuscript_id=%s AND project_id=%s AND user_id=%s ORDER BY created_at DESC,task_id',(identity,project,self.store.user_id)).fetchall()
-            return dict(items=[self.view(db,project,identity,r['task_id']) for r in rows])
+            items=[]
+            for row in rows:
+                try:
+                    items.append(self.view(db,project,identity,row['task_id']))
+                except StorageError as exc:
+                    if exc.code!='manuscript_source_not_visible': raise
+            return dict(items=items)
 
     def publish(self,project,identity,request_id,expected_revision,key,review_request=None):
         if review_request is not None:

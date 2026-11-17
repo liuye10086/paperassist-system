@@ -42,3 +42,38 @@ def test_synthetic_input_provenance_cannot_be_upgraded_by_real_guide():
     assert synthetic_input(dict(writing_provenance=dict(provider_provenance='synthetic_fixture')))
     assert synthetic_input(dict(journal_adaptation_provenance=dict(synthetic=True)))
     assert synthetic_input(dict(sources=[dict(content=dict(engine=dict(id='synthetic_fixture')))]))
+
+
+def test_narrative_review_adaptation_applies_word_styles_with_canonical_content_and_order():
+    from io import BytesIO
+    from docx import Document
+    from app.adapters.manuscript_docx import build_manuscript_docx
+    from app.domain.journals.format_rules import check_format
+    from app.domain.manuscript_writing.article_contract import STRUCTURES
+
+    snap = referenced()
+    snap.update(
+        article_type='narrative_review', notice='Synthetic review',
+        writing_provenance=dict(schema_version=2, verification_status='scientific_and_language_reviewed'),
+        sections=[
+            dict(id=section, paragraphs=[dict(id=section + ':1', text=snap['title'] if section == 'title' else section,
+                                               source_ids=[], citations=[], origin='user_provided')])
+            for section in STRUCTURES['narrative_review']
+        ],
+    )
+    style = dict(id='font', key='body_font_size_pt', value=12, status='known', source_id='guide')
+    order = dict(id='order', key='section_order', value=['Thematic synthesis', 'Abstract'], status='known', source_id='guide')
+    result = plan(snap, dict(selected_requirements=[style, order], conflicts=[]), [])
+    assert [action['id'] for action in result['actions']] == ['font']
+    assert [rule['key'] for rule in result['unexecuted']] == ['section_order']
+    adapted = apply(snap, result['actions'])
+    assert {key: value for key, value in adapted.items() if key != 'journal_display_context'} == snap
+    assert adapted['journal_display_context']['order'] == list(STRUCTURES['narrative_review'])
+    style_check = next(item for item in check_format(adapted, [style], [])['items'] if item['key'] == style['key'])
+    assert style_check['status'] == 'pass'
+
+    doc = Document(BytesIO(build_manuscript_docx(adapted, {})))
+    headings = [p.text for p in doc.paragraphs if p.style.name == 'Heading 1']
+    assert headings == ['Abstract', 'Scope and background', 'Literature sources and inclusion scope', 'Thematic synthesis',
+                        'Synthesis and limitations', 'Conclusion', 'References']
+    assert doc.styles['Normal'].font.size.pt == 12

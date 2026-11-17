@@ -41,12 +41,15 @@ def freeze_context(service,project,request,*,document_context=None):
             raise StorageError('task_input_invalid','章节用途必须按固定确认版完整对应。',422)
         if sum(m.purpose=='references' for m in selected.chapter_mappings)>1:raise StorageError('task_input_invalid','共用引用清单只能映射一个参考文献章节。',422)
         groups={g.id for g in request.results_groups};used=[];chapters=[]
+        if request.reported_result:groups.add('reported-result')
         for chapter,mapping in zip(current['chapters'],selected.chapter_mappings):
             if (mapping.result_group_ids and mapping.purpose!='results') or not set(mapping.result_group_ids)<=groups:
                 raise StorageError('task_input_invalid','结果组只能分配到结果用途章节。',422)
             used.extend(mapping.result_group_ids)
             chapters.append(dict(**chapter,purpose=mapping.purpose,output_language=request.output_language if mapping.output_language=='project' else mapping.output_language,result_group_ids=mapping.result_group_ids))
         if len(used)!=len(set(used)):raise StorageError('task_input_invalid','结果组不可重复分配。',422)
+        if request.reported_result and 'reported-result' not in used:
+            raise StorageError('task_input_invalid','用户报告的结果须分配到结果用途章节。',422)
         if any(s.file_id in current['template_source_file_ids'] for s in request.sources):
             raise StorageError('task_input_invalid','学校模板和补充规范不能作为研究事实来源。',422)
         saved=db.execute('SELECT * FROM school_template_confirmations WHERE id=%s AND project_id=%s AND user_id=%s',(selected.confirmation_id,project,service.store.user_id)).fetchone()

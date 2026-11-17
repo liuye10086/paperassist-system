@@ -51,7 +51,9 @@ class LanguageReviewService(LiveReviewService):
                 version=dict(project_id=project,snapshot_json=candidate)
                 options=self.manuscripts.school_options(version,dict(school=body['school']))
                 analysis=self.manuscripts.school_analysis(db,version,current=False)
-                items,_=school_inventory(candidate,images,image_items,analysis,options,cache=dict(root=self.assets.directory,owner=self.store.user_id,project=project,db=db),frozen=frozen_render)
+                from app.domain.school_templates import bsu_gs501
+                template=bsu_gs501.read_submission_template(self.assets,candidate) if frozen_render is None and bsu_gs501.selected(candidate) else None
+                items,_=school_inventory(candidate,images,image_items,analysis,options,cache=dict(root=self.assets.directory,owner=self.store.user_id,project=project,db=db),frozen=frozen_render,school_template=template)
             else:
                 if body['schema_version']!=2:raise ValueError('SCI language request version mismatch')
                 items=inventory(candidate,images,image_items)

@@ -13,6 +13,16 @@ V2_WORKFLOW_MESSAGE='该版本已完成 v2 科学与语言审核。此处仅可�
 def has_review_edits(request):
     return any(request.get(field) for field in ('decisions','metadata','associations','corrections','selected_sources'))
 
+
+def _retains_school_writing(snapshot):
+    change=snapshot.get('school_change_provenance') or {}
+    return change.get('kind')=='template_migration' and change.get('retained_writing_context')==1
+
+
+def has_reviewed_writing_context(snapshot):
+    return snapshot.get('writing_provenance',{}).get('schema_version')==2 or _retains_school_writing(snapshot)
+
+
 @dataclass(frozen=True)
 class WritingCheckContext:
     paragraphs: dict
@@ -72,6 +82,12 @@ def load_writing_context(manuscripts,db,project,identity,snapshot,*,check_versio
     if snapshot.get('review_revision_provenance'):
         from app.domain.review_rounds.revisions import revision_writing_context
         return revision_writing_context(manuscripts,db,project,identity,snapshot,check_version=check_version)
+    if _retains_school_writing(snapshot):
+        from app.domain.manuscripts.school_changes import reviewed_migration_parent
+        parent=reviewed_migration_parent(manuscripts,db,project,identity,snapshot)
+        inherited=load_writing_context(manuscripts,db,project,identity,parent,check_version=check_version)
+        if inherited is None:raise source_conflict()
+        return inherited
     if snapshot.get('writing_provenance',{}).get('schema_version')!=2:
         bridge=snapshot.get('research_bridge',{})
         if not bridge.get('base_version_id'):return None
@@ -112,7 +128,7 @@ def load_writing_context(manuscripts,db,project,identity,snapshot,*,check_versio
                 numeric_version=review['report_json'].get('numeric_validation_version',1) if check_version==2 else 1,
                 **(dict(numeric_contract_version=2,numeric_context=deepcopy(bundle['local_manifest'].get('numeric_context',{}))) if is_numeric_v2(bundle) else {})))
         current=frozen['base_snapshot']
-    if current.get('research_bridge',{}).get('base_version_id'):
+    if current.get('research_bridge',{}).get('base_version_id') or _retains_school_writing(current):
         inherited=load_writing_context(manuscripts,db,project,identity,current,check_version=check_version)
         if inherited:
             for key,entry in inherited.paragraphs.items():paragraphs.setdefault(key,entry)

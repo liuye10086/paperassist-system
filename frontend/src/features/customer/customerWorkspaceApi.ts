@@ -14,6 +14,7 @@ export type Progress = {
 }
 export type DeliverySummary = {
   id: string
+  delivery_id: string
   title: string
   kind: DeliveryKind
   revision: number

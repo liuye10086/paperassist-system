@@ -12,7 +12,7 @@ def preview(service,project,source):
         if source.get('file_id') or source.get('document_version_id'):raise invalid('纯文本意见不能混入文档版本。')
     else:
         if not source.get('file_id') or not source.get('document_version_id') or source.get('text'):raise invalid('文档意见必须选择固定公共解析版本。')
-        docs=DocumentService(service.assets);row=docs.load(project,source['file_id'],source['document_version_id'],True)
+        docs=DocumentService(service.assets,allow_customer_pdf=True);row=docs.load(project,source['file_id'],source['document_version_id'],True)
         _,document=docs.read(row)
         if document.kind not in ('docx_document','pdf_document'):raise invalid('不支持OCR意见，请核对后粘贴干净原文。')
         material=service.material(project,dict(kind='document_version',file_id=source['file_id'],id=source['document_version_id']))

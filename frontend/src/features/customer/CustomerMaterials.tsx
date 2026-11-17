@@ -11,37 +11,39 @@ import { useResearchRead } from '../research-results/api'
 const uploadKinds = [['documents', '文档与图片'], ['bio', '测序数据与样本表']] as const
 const pageSize = 5
 
-export default function CustomerMaterials({ projectId, headingRef, onContinue, onUnavailable, registerLeaveGuard }: {
+export default function CustomerMaterials({ projectId, headingRef, onContinue, onUnavailable, registerLeaveGuard, forWriting, active = true }: {
   projectId: string
-  headingRef: Ref<HTMLHeadingElement>
+  headingRef?: Ref<HTMLHeadingElement>
   onContinue: () => void
   onUnavailable: () => void
   registerLeaveGuard: RegisterLeaveGuard
+  forWriting?: 'sci' | 'thesis'
+  active?: boolean
 }) {
   const { t } = useI18n()
   const [kind, setKind] = useState<'documents' | 'bio'>('documents')
   const [page, setPage] = useState(1)
   const filesUrl = projectBase(projectId) + '/files'
-  const files = useResearchRead<FilePage>(`${filesUrl}?page=${page}&page_size=${pageSize}`, true)
+  const files = useResearchRead<FilePage>(`${filesUrl}?page=${page}&page_size=${pageSize}`, active)
   const pages = Math.max(1, Math.ceil((files.data?.total ?? 0) / pageSize))
   const uploadProps = { projectId, embedded: true, customerView: true, registerLeaveGuard, onChanged: files.refresh }
 
   return <div className="customer-section customer-materials">
     <div className="customer-section-heading">
-      <h1 ref={headingRef} tabIndex={-1}>{t('上传资料')}</h1>
-      <button type="button" className="button-primary" onClick={onContinue}>{t('下一步 选择需求')}</button>
+      {forWriting ? <h2>{t('上传写作资料')}</h2> : <h1 ref={headingRef} tabIndex={-1}>{t('上传资料')}</h1>}
+      <button type="button" className="button-primary" onClick={onContinue}>{t(forWriting === 'thesis' ? '下一步 章节与复核' : forWriting ? '下一步 稿件与复核' : '下一步 选择需求')}</button>
     </div>
     <div className="customer-materials-body" tabIndex={0} role="region" aria-label={t('上传资料')}>
-      <div className="customer-switches" role="group" aria-label={t('资料类型')}>
+      {!forWriting && <div className="customer-switches" role="group" aria-label={t('资料类型')}>
         {uploadKinds.map(([value, label]) => <button type="button" key={value} aria-pressed={kind === value}
           className="button-quiet" onClick={() => setKind(value)}>{t(label)}</button>)}
-      </div>
+      </div>}
       <div hidden={kind !== 'documents'}>
-        <BatchUpload {...uploadProps} active={kind === 'documents'} onUnavailable={onUnavailable} />
+        <BatchUpload {...uploadProps} active={active && kind === 'documents'} onUnavailable={onUnavailable} writingMaterials={forWriting} />
       </div>
-      <div hidden={kind !== 'bio'}>
+      {!forWriting && <div hidden={kind !== 'bio'}>
         <BioUpload {...uploadProps} active={kind === 'bio'} />
-      </div>
+      </div>}
       <div className="customer-section-heading customer-material-history">
         <h3>{t('已上传资料')}</h3>
         <button type="button" className="button-quiet" disabled={files.loading} onClick={files.refresh}>{t('刷新资料')}</button>

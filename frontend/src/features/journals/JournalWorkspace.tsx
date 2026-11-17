@@ -14,16 +14,20 @@ import JournalResults,{JournalProfile} from './JournalResults'
 import {isProfile,isRecommendation,isJournalConfiguration,record,syntheticLabel,type MaterialCandidate,type ManuscriptChoice,type Profile,type ProfileRequest,type Recommendation,type ResearchRequest,type JournalConfiguration} from './contracts'
 import useDraftLeaveGuard,{type RegisterLeaveGuard} from '../projects/useDraftLeaveGuard'
 import type {JournalView} from '../projects/manuscriptViews'
+import {journalChoices,type SciSettings} from '../customer/sciProjectSettings'
 import './journals.css'
-type Props={projectId:string;active:boolean;onOpenTask?:(id:string)=>void;view?:JournalView;onViewChange?:(view:JournalView)=>void;initialAdaptation?:string;onSelectAdaptation?:(id:string)=>void;registerLeaveGuard?:RegisterLeaveGuard}
+type Props={customerSci?:SciSettings|null;projectId:string;active:boolean;onOpenTask?:(id:string)=>void;view?:JournalView;onViewChange?:(view:JournalView)=>void;initialAdaptation?:string;onSelectAdaptation?:(id:string)=>void;registerLeaveGuard?:RegisterLeaveGuard}
 const journalViews:Record<JournalView,string>={overview:'期刊概况',research:'研究条件',sources:'来源资料',recommendations:'建议批次',guidelines:'指南与检查',adaptation:'有限适配',submission:'投稿记录'}
 const formatFailure='指南、目标或检查历史读取失败，请刷新后重试。'
 const failure='期刊资料或建议读取失败，请刷新后重试。'
 const mutationFailure='期刊请求未确认，请核对资料后重试。'
 export default function JournalWorkspace(props:Props){return <JournalPanel key={props.projectId} {...props}/>}
-function JournalPanel({projectId,active,onOpenTask,view,onViewChange,initialAdaptation,onSelectAdaptation,registerLeaveGuard}:Props){
+function JournalPanel({projectId,active,onOpenTask,view,onViewChange,initialAdaptation,onSelectAdaptation,registerLeaveGuard,customerSci}:Props){
  const taskLayout=view!==undefined;const [currentView,setCurrentView]=useState<JournalView>(view??'overview');const visited=useRef(new Set<JournalView>());const opened=useRef(active);if(active)opened.current=true;if(active)visited.current.add(currentView)
  useEffect(()=>{if(view)setCurrentView(view)},[view])
+ const customer=customerSci!==undefined
+ const intent=customerSci?.target_journal
+ const journalName=intent?.name??(intent?.choice==='science'?'Science':'')
  function navigate(next:JournalView){setCurrentView(next);onViewChange?.(next)}
  const [sourceView,setSourceView]=useState<'list'|'detail'|'edit'>('list'),[sourceId,setSourceId]=useState(''),[recommendationDetail,setRecommendationDetail]=useState(false)
  const [unconfirmed,setUnconfirmed]=useState(false)
@@ -82,14 +86,14 @@ function JournalPanel({projectId,active,onOpenTask,view,onViewChange,initialAdap
   if(!active||!visible||blocked)return;let current=true,timer=0;const controller=new AbortController(),pending=controllers.current;pending.add(controller)
   async function load(){try{const [a,e]=await Promise.all([
    request('journals/adaptations',(v):v is {items:Adaptation[]}=>record(v)&&Array.isArray(v.items)&&v.items.every(x=>isAdaptation(x,projectId)),controller),
-   request('journals/submission-events',(v):v is SubmissionHistory=>isSubmissionHistory(v,projectId),controller)])
-   if(!current||!alive.current||controller.signal.aborted)return;setAdaptations(a.items);setSubmissions(e);setAdaptationReady(true);setAdaptationError('')
+   customer?Promise.resolve(null):request('journals/submission-events',(v):v is SubmissionHistory=>isSubmissionHistory(v,projectId),controller)])
+   if(!current||!alive.current||controller.signal.aborted)return;setAdaptations(a.items);if(e)setSubmissions(e);setAdaptationReady(true);setAdaptationError('')
    if(a.items.some(a=>['queued','running'].includes(a.task.status)))timer=window.setTimeout(()=>void load(),3000)
   }catch(cause){if(current&&alive.current){setAdaptationReady(false);setAdaptationError(safeError(cause,'适配或投稿记录读取失败，请刷新重试。'))}}}
   void load();return()=>{current=false;controller.abort();pending.delete(controller);window.clearTimeout(timer)}
   // Requests inherit the parent project scope; no child registers a scope owner.
   // eslint-disable-next-line react-hooks/exhaustive-deps
- },[base,active,visible,blocked,attempt])
+ },[base,active,visible,blocked,attempt,customer])
  async function mutate<T>(path:string,body:unknown,valid:(v:unknown)=>v is T):Promise<T|null>{
   if(writing.current||blocked||!ready)return null;writing.current=true;setBusy(true);setError('');const controller=new AbortController();controllers.current.add(controller);const serialized=JSON.stringify(body);let operation=replay.current.get(path);if(operation?.body!==serialized){operation={body:serialized,key:crypto.randomUUID()};replay.current.set(path,operation)}
   try{const value=await request(path,valid,controller,{method:'POST',headers:{'Content-Type':'application/json','Idempotency-Key':operation.key},body:serialized});if(!alive.current||controller.signal.aborted)return null;replay.current.delete(path);setUnconfirmed(replay.current.size>0);return value}catch(cause){if(alive.current)setUnconfirmed(true);if(alive.current)setError(cause instanceof TaskRequestError&&cause.status===409?message('资料、预览或稿件 revision 已变化，请刷新核对；固定父稿保持原版本。',{}):safeError(cause,mutationFailure));return null}finally{writing.current=false;controllers.current.delete(controller);if(alive.current)setBusy(false)}
@@ -108,22 +112,30 @@ function JournalPanel({projectId,active,onOpenTask,view,onViewChange,initialAdap
  async function retry(){if(!item||item.task.status!=='failed'||(item.task.retry_count??0)>=3)return;const result=await mutate(`journals/recommendations/${encodeURIComponent(item.id)}/retry`,{},(v):v is Recommendation=>isRecommendation(v,projectId)&&v.id===item.id);if(result){setHistory(old=>old.map(v=>v.id===result.id?result:v));setAttempt(v=>v+1)}}
  if(!opened.current)return null
  return <section className="journal-workspace" hidden={!active} aria-label={t('期刊建议')}><div className="workspace-page-heading"><div><span className="workspace-eyebrow">SCI</span><h2>{t('期刊建议')}</h2><p>{t('依据明确研究信息与本地材料进行可解释的离线规则建议。')}</p></div><button type="button" disabled={busy||blocked} onClick={()=>setAttempt(v=>v+1)}>{t('刷新期刊资料')}</button></div>
- {taskLayout&&<nav className="journal-task-nav" aria-label={t('期刊任务视图')}>{(Object.entries(journalViews) as [JournalView,string][]).map(([id,label])=><button type="button" key={id} aria-pressed={currentView===id} onClick={()=>navigate(id)}>{t(label)}</button>)}</nav>}
+ {taskLayout&&<nav className="journal-task-nav" aria-label={t('期刊任务视图')}>{(Object.entries(journalViews) as [JournalView,string][]).filter(([id])=>!customer||id!=='submission').map(([id,label])=><button type="button" key={id} aria-pressed={currentView===id} onClick={()=>navigate(id)}>{t(label)}</button>)}</nav>}
  {(!taskLayout||currentView==='overview')&&<div className="warning-panel"><p>{t(profiles.some(p=>p.synthetic)?syntheticLabel:'若使用合成资料，仅能验证离线工程。')}</p><p>{t('真实模型调用 0；真实网络调用 0。真实材料不足时，结果不代表真实推荐质量或用户验收。')}</p><p>{t('SCI/SCIE、JIF/JCR、分区未接入；PubMed 不能证明 SCI。无录用概率或发表时间承诺。')}</p></div>}
- {taskLayout&&currentView==='overview'&&<section className="journal-panel journal-overview"><p>{t('先登记来源与研究条件，再查看建议；指南、固定目标、检查、适配和实际投稿分别处理。')}</p></section>}
+ {customer&&<section className="journal-panel" aria-label={t('目标期刊意向')}>
+  <h3>{t('目标期刊意向')}</h3>
+  {intent?<p>{journalName||(t(journalChoices[intent.choice]))}</p>:<p>{t('尚未记录目标期刊意向。')}</p>}
+  {!journalName&&<p>{t('请选择具体期刊并登记适用指南，当前仍可使用通用 Word。')}</p>}
+  {!!journalName&&!guides.some(g=>g.source_status==='available'&&g.permission_status==='allowed'&&g.requirements.length>0&&
+    profiles.some(p=>p.id===g.profile_id&&p.name.trim().toLowerCase()===journalName.trim().toLowerCase()))&&
+    <p>{t('尚未核对该期刊的适用指南和规则，可先下载通用 Word。')}</p>}
+ </section>}
+ {taskLayout&&currentView==='overview'&&<section className="journal-panel journal-overview"><p>{t(customer?'登记期刊资料与研究条件后生成建议，选定指南和固定稿件版本后做格式检查。':'先登记来源与研究条件，再查看建议；指南、固定目标、检查、适配和实际投稿分别处理。')}</p></section>}
  {error&&<p role="alert" className="error-panel">{t(error)}</p>}{blocked?<p role="alert">{t('会话或项目访问已变化，请重新打开项目。')}</p>:<>{!ready&&!error&&<p role="status">{t('正在读取期刊资料……')}</p>}{materialError&&<p role="alert">{t(materialError)}</p>}
  {formatError&&<p role="alert">{t(formatError)}</p>}
- {(!taskLayout||visited.current.has('guidelines'))&&<div hidden={taskLayout&&currentView!=='guidelines'}><JournalFormatPanel projectId={projectId} recommendations={history} profiles={profiles} guides={guides} targets={targets} checks={checks} manuscripts={manuscripts} materials={materials} busy={busy||!ready||!formatReady} onSaveGuide={saveGuide} onConfirm={confirmTarget} onCheck={checkManuscript} onRetry={c=>void retryCheck(c)} onOpenTask={onOpenTask} onUnavailable={stop} taskLayout={taskLayout} registerLeaveGuard={registerLeaveGuard}/></div>}
+ {(!taskLayout||visited.current.has('guidelines'))&&<div hidden={taskLayout&&currentView!=='guidelines'}><JournalFormatPanel customerSci={customer} projectId={projectId} recommendations={history} profiles={profiles} guides={guides} targets={targets} checks={checks} manuscripts={manuscripts} materials={materials} busy={busy||!ready||!formatReady} onSaveGuide={saveGuide} onConfirm={confirmTarget} onCheck={checkManuscript} onRetry={c=>void retryCheck(c)} onOpenTask={onOpenTask} onUnavailable={stop} taskLayout={taskLayout} registerLeaveGuard={registerLeaveGuard}/></div>}
  {adaptationError&&<p role="alert">{t(adaptationError)}</p>}
- {(!taskLayout||visited.current.has('adaptation'))&&<div hidden={taskLayout&&currentView!=='adaptation'}><JournalAdaptationPanel projectId={projectId} active={active&&(!taskLayout||currentView==='adaptation')} checks={checks} targets={targets} manuscripts={manuscripts} items={adaptations} busy={busy||!ready||!formatReady||!adaptationReady} onPreview={previewAdaptation} onAdopt={adopt} onRetry={a=>void retryAdaptation(a)} onOpenTask={onOpenTask} onUnavailable={stop} initialAdaptation={initialAdaptation} onSelectAdaptation={onSelectAdaptation} registerLeaveGuard={registerLeaveGuard}/></div>}
- {(!taskLayout||visited.current.has('submission'))&&<div hidden={taskLayout&&currentView!=='submission'}><JournalSubmissionPanel targets={targets} manuscripts={manuscripts} history={submissions} busy={busy||!ready||!formatReady||!adaptationReady} onSave={saveSubmission} registerLeaveGuard={registerLeaveGuard}/></div>}
- {(!taskLayout||visited.current.has('research'))&&<div hidden={taskLayout&&currentView!=='research'}><JournalResearchForm configuration={configuration} manuscripts={manuscripts} materials={materials} profiles={profiles} busy={busy||!ready} onCreate={create} registerLeaveGuard={registerLeaveGuard}/></div>}
+ {(!taskLayout||visited.current.has('adaptation'))&&<div hidden={taskLayout&&currentView!=='adaptation'}><JournalAdaptationPanel customerSci={customer} projectId={projectId} active={active&&(!taskLayout||currentView==='adaptation')} checks={checks} targets={targets} manuscripts={manuscripts} items={adaptations} busy={busy||!ready||!formatReady||!adaptationReady} onPreview={previewAdaptation} onAdopt={adopt} onRetry={a=>void retryAdaptation(a)} onOpenTask={onOpenTask} onUnavailable={stop} initialAdaptation={initialAdaptation} onSelectAdaptation={onSelectAdaptation} registerLeaveGuard={registerLeaveGuard}/></div>}
+ {!customer&&(!taskLayout||visited.current.has('submission'))&&<div hidden={taskLayout&&currentView!=='submission'}><JournalSubmissionPanel targets={targets} manuscripts={manuscripts} history={submissions} busy={busy||!ready||!formatReady||!adaptationReady} onSave={saveSubmission} registerLeaveGuard={registerLeaveGuard}/></div>}
+ {(!taskLayout||visited.current.has('research'))&&<div hidden={taskLayout&&currentView!=='research'}><JournalResearchForm sciSettings={customerSci??undefined} configuration={configuration} manuscripts={manuscripts} materials={materials} profiles={profiles} busy={busy||!ready} onCreate={create} registerLeaveGuard={registerLeaveGuard}/></div>}
  {(!taskLayout||visited.current.has('sources'))&&<div hidden={taskLayout&&currentView!=='sources'}>
  {taskLayout?<><section className="journal-panel" hidden={sourceView!=='list'} aria-label={t('期刊来源列表')}><div className="journal-list-heading"><h3>{t('期刊来源列表')}</h3><button type="button" onClick={()=>setSourceView('edit')}>{t('登记来源资料')}</button></div>{!profiles.length&&<p>{t('暂无期刊材料；请先登记来源或创建空候选批次查看待补信息。')}</p>}{profiles.map(p=><button className="journal-list-row" key={p.id} type="button" onClick={()=>{setSourceId(p.id);setSourceView('detail')}}><strong>{p.name}</strong><span>{p.verified_on} · {t(p.source_status==='available'?'可用':p.source_status==='expired'?'来源已过期':'来源不可用')}</span></button>)}</section>
  <section className="journal-panel" hidden={sourceView!=='detail'}>{sourceView==='detail'&&<><button type="button" onClick={()=>setSourceView('list')}>{t('返回来源列表')}</button>{profiles.find(p=>p.id===sourceId)?<JournalProfile profile={profiles.find(p=>p.id===sourceId)!}/>:<p>{t('所选来源不可用，请返回列表重新选择。')}</p>}</>}</section>
- <div hidden={sourceView!=='edit'}><button type="button" onClick={()=>setSourceView('list')}>{t('返回来源列表')}</button><JournalSourceForm projectId={projectId} onUnavailable={stop} profiles={profiles} materials={materials} busy={busy||!ready} onSave={save} registerLeaveGuard={registerLeaveGuard}/></div></>:<details className="journal-panel"><summary>{t('登记期刊资料与版本')}</summary><JournalSourceForm projectId={projectId} onUnavailable={stop} profiles={profiles} materials={materials} busy={busy||!ready} onSave={save} registerLeaveGuard={registerLeaveGuard}/>{!profiles.length&&<p>{t('暂无期刊材料；请先登记来源或创建空候选批次查看待补信息。')}</p>}{profiles.map(p=><JournalProfile key={p.id} profile={p}/>)}</details>}
+ <div hidden={sourceView!=='edit'}><button type="button" onClick={()=>setSourceView('list')}>{t('返回来源列表')}</button><JournalSourceForm initialName={journalName} projectId={projectId} onUnavailable={stop} profiles={profiles} materials={materials} busy={busy||!ready} onSave={save} registerLeaveGuard={registerLeaveGuard}/></div></>:<details className="journal-panel"><summary>{t('登记期刊资料与版本')}</summary><JournalSourceForm initialName={journalName} projectId={projectId} onUnavailable={stop} profiles={profiles} materials={materials} busy={busy||!ready} onSave={save} registerLeaveGuard={registerLeaveGuard}/>{!profiles.length&&<p>{t('暂无期刊材料；请先登记来源或创建空候选批次查看待补信息。')}</p>}{profiles.map(p=><JournalProfile key={p.id} profile={p}/>)}</details>}
  </div>}
  {(!taskLayout||visited.current.has('recommendations'))&&<div hidden={taskLayout&&currentView!=='recommendations'}><section className="journal-panel" hidden={taskLayout&&recommendationDetail} aria-label={t('建议批次历史')}><h3>{t('建议批次历史')}</h3><p>{t('历史批次保留创建时的输入、来源和字段证据；新版本不会覆盖旧建议。')}</p>{history.map(v=><button className="journal-list-row" type="button" key={v.id} aria-pressed={selected===v.id} onClick={()=>{setSelected(v.id);setRecommendationDetail(true)}}>{v.input_snapshot.research.title} · {v.id} · {new Date(v.created_at).toLocaleString(locale)}</button>)}{!history.length&&<p>{t('尚无建议批次。')}</p>}</section>
- <div hidden={taskLayout&&!recommendationDetail}>{taskLayout&&<button type="button" onClick={()=>setRecommendationDetail(false)}>{t('返回建议列表')}</button>}{item&&<JournalResults item={item} busy={busy} projectId={projectId} onOpenTask={onOpenTask} onRetry={()=>void retry()}/>}</div></div>}</>}
+ <div hidden={taskLayout&&!recommendationDetail}>{taskLayout&&<button type="button" onClick={()=>setRecommendationDetail(false)}>{t('返回建议列表')}</button>}{item&&<JournalResults customerSci={customer} item={item} busy={busy} projectId={projectId} onOpenTask={onOpenTask} onRetry={()=>void retry()}/>}</div></div>}</>}
  </section>
 }

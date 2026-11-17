@@ -46,7 +46,7 @@ def layout(base,request):
 
 def build_bundle(base,request,frozen):
     from .bundle import build_bundle as common,safe_text
-    from .numeric_contract import text_facts
+    from .numeric_contract import add_reported_results,text_facts
     from .frozen import wire_parts
     from .policy import POLICY_VERSION
     from app.core.exceptions import StorageError
@@ -82,6 +82,7 @@ def build_bundle(base,request,frozen):
             if values:contexts['c'+str(len(contexts)+1)]=dict(kind='provided_context',location=f'illustrations[{i}].panels[{j}]',origin='frozen_illustration',text=text,values=values)
     local.update(school=school,numeric_context=contexts,protected_identity=dict(sha256=digest(protected_projection(base))))
     payload['numeric_context']=[dict(alias=a,**row) for a,row in contexts.items()]
+    add_reported_results(base,request,payload,local,safe_text)
     for evidence in payload['evidence']:evidence['numeric_facts']=text_facts(evidence['quote'],'/quote/numbers')
     for c in school['chapters'].values():
         c['allowed_source_aliases']=allowed_sources(base,local,c)
@@ -104,10 +105,16 @@ def allowed_sources(base,local,chapter):
     return [a for a,identity in local['sources'].items() if identity in selected]
 
 def allowed_contexts(base,payload,contexts,chapter):
-    if chapter['purpose']!='results':return list(contexts)
+    from .numeric_contract import REPORTED_RESULTS_LOCATION
+    if chapter['purpose']!='results':
+        return [alias for alias,row in contexts.items() if row['location']!=REPORTED_RESULTS_LOCATION
+                or chapter['purpose'] in ('abstract','discussion','conclusion')]
     figures={f['number'] for g in base['results_groups'] if g['id'] in chapter['result_group_ids'] for f in g['figures']}
     result=[]
     for alias,row in contexts.items():
+        if row['location']==REPORTED_RESULTS_LOCATION and 'reported-result' in chapter['result_group_ids']:
+            result.append(alias)
+            continue
         location=re.match(r'illustrations\[(\d+)\]',row['location'])
         if location:
             item=payload['illustrations'][int(location[1])]

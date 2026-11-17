@@ -10,7 +10,7 @@ from app.domain.literature.service import digest
 from app.domain.dataset_preparation.service import require_key
 from .service import JournalService,invalid,now
 from .format_contracts import GuideRequest,TargetRequest
-from .guide_rules import extract_requirements,select_requirements
+from .guide_rules import extract_requirements,quote_has_count,select_requirements
 
 TABLES=('journal_guides','journal_targets','journal_format_checks','journal_adaptations','journal_submission_events')
 
@@ -20,7 +20,7 @@ class GuideService(JournalService):
         self.project(db,project)
         row=db.execute('SELECT * FROM '+table+' WHERE id=%s AND project_id=%s AND user_id=%s',(identity,project,self.store.user_id)).fetchone()
         if not row:raise StorageError('not_found','指南、目标或格式检查批次不存在。',404)
-        self.validate(row)
+        self.validate(db,row)
         if row['snapshot_json']['project_id']!=project:raise source_conflict()
         return row
 
@@ -35,8 +35,7 @@ class GuideService(JournalService):
         assert table in TABLES
         with self.store.connection() as db:
             self.project(db,project);rows=db.execute('SELECT * FROM '+table+' WHERE project_id=%s AND user_id=%s ORDER BY created_at DESC,id',(project,self.store.user_id)).fetchall()
-            for row in rows:self.validate(row)
-            return dict(items=[r['snapshot_json'] for r in rows])
+            return dict(items=[r['snapshot_json'] for r in self.visible_rows(db,rows)])
     def get_guide(self,project,identity):
         with self.store.connection() as db:return self.row(db,project,identity)['snapshot_json']
     def get_target(self,project,identity):
@@ -117,7 +116,7 @@ class GuideService(JournalService):
                     values=rule['value'].values() if isinstance(rule['value'],dict) else rule['value'] if isinstance(rule['value'],list) else [rule['value']]
                     for value in values:
                         if type(value) is int:
-                            if not re.search(r'(?<!\d)'+str(value)+r'(?!\d)',rule['quote']):raise invalid('数值要求必须逐项有原句数字依据。',422)
+                            if not quote_has_count(rule['quote'],value):raise invalid('数值要求必须逐项有原句数字依据。',422)
                         elif isinstance(value,str) and value.casefold() not in rule['quote'].casefold():raise invalid('标题/样式要求必须逐项有原句依据。',422)
                     if explicit and any(r['value']!=rule['value'] for r in explicit):raise invalid('人工纠正不能反转原句明确数字、列表或布尔要求。',422)
                 replacements=[r for r in extracted if (r['key'],r.get('article_type'),r.get('origin'))==(rule['key'],rule.get('article_type'),rule.get('origin'))]

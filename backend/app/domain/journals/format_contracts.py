@@ -4,10 +4,12 @@ from typing import Any,Literal
 from pydantic import Field,model_validator
 from .contracts import Strict,Material,Manuscript
 from .display import STYLE_KEYS,validate_style
+from .frontiers_review import LAYOUT_QUOTES, SUBMISSION_LAYOUT, matches_submission_quote
 
 FORMAT_WORKFLOW='journal_format_check_v1'
 CHECK_VERSION=1
-RULE_KEYS=('word_limit','required_sections','section_order','abstract_required','abstract_headings','abstract_word_limit','figure_limit','table_limit','figure_captions','table_captions','figure_numbering','table_numbering','figure_references','table_references','reference_style','reference_limit','dpi','section_display_names',*STYLE_KEYS)
+SUBMISSION_KEYS = (SUBMISSION_LAYOUT, 'table_editable_at_end', 'figure_submission', 'table_page_span')
+RULE_KEYS=('word_limit','required_sections','section_order','abstract_required','abstract_headings','abstract_word_limit','figure_limit','table_limit','figure_table_limit','figure_captions','table_captions','figure_numbering','table_numbering','figure_references','table_references','reference_style','reference_limit','dpi','section_display_names',*STYLE_KEYS,*LAYOUT_QUOTES,*SUBMISSION_KEYS)
 COUNT_METHODS=('en_whitespace_body','zh_hanzi_latin_body','en_whitespace_abstract','zh_hanzi_latin_abstract')
 STATUSES=('pass','mismatch','pending_verification','manual','unsupported')
 
@@ -39,7 +41,7 @@ class Requirement(Strict):
             if not isinstance(self.value,list) or len(self.value)!=7 or any(not isinstance(v,dict) or set(v)!= {'section_id','display_name'} or not isinstance(v['display_name'],str) or not v['display_name'].strip() or len(v['display_name'])>300 for v in self.value):raise ValueError('Seven explicit semantic display mappings required')
             if {v['section_id'] for v in self.value}!=set(SECTION_IDS) or len({v['display_name'] for v in self.value})!=7:raise ValueError('Mappings must be one-to-one')
             if any(v['section_id']+'='+v['display_name'] not in self.quote for v in self.value):raise ValueError('Each semantic mapping must be explicit in original quote')
-        elif self.key in ('word_limit','abstract_word_limit','figure_limit','table_limit','reference_limit','dpi'):
+        elif self.key in ('word_limit','abstract_word_limit','figure_limit','table_limit','figure_table_limit','reference_limit','dpi'):
             valid=type(self.value) is int and 0<=self.value<=1000000
             if isinstance(self.value,dict) and set(self.value)<= {'min','max'} and self.value:
                 valid=all(type(v) is int and 0<=v<=1000000 for v in self.value.values()) and self.value.get('min',0)<=self.value.get('max',1000000)
@@ -48,6 +50,12 @@ class Requirement(Strict):
             if not isinstance(self.value,list) or not self.value or len(self.value)>100 or any(not isinstance(v,str) or not v.strip() or len(v)>300 for v in self.value):raise ValueError('Explicit heading lists are required.')
         elif self.key=='reference_style':
             if not isinstance(self.value,str) or not self.value.strip() or len(self.value)>200:raise ValueError('Reference style needs an explicit name.')
+        elif self.key in LAYOUT_QUOTES:
+            if self.value is not True or LAYOUT_QUOTES[self.key] not in self.quote.casefold():
+                raise ValueError('Document layout needs the explicit Frontiers author-guide wording.')
+        elif self.key in SUBMISSION_KEYS:
+            if self.value is not True or not matches_submission_quote(self.key, self.quote):
+                raise ValueError('The submission rule needs the explicit Frontiers author-guide wording.')
         elif type(self.value) is not bool:raise ValueError('Presence rules require a boolean.')
         return self
 

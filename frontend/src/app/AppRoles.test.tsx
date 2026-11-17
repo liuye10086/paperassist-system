@@ -43,7 +43,7 @@ it.each([
   fireEvent.click(screen.getByRole('button', { name: '账号' }))
   expect(Boolean(screen.queryByRole('button', { name: '项目工作区' }))).toBe(role === 'analyst')
   expect(Boolean(screen.queryByRole('button', { name: '权限管理' }))).toBe(role === 'admin')
-  expect(Boolean(screen.queryByRole('button', { name: '新建研究项目' }))).toBe(role === 'customer')
+  expect(Boolean(screen.queryByRole('button', { name: '新建项目' }))).toBe(role === 'customer')
   expect(Boolean(screen.queryByText('Existing analyst workspace'))).toBe(role === 'analyst')
   expect(fetch.mock.calls.some(([url]) => url.includes('/admin/registrations') && url.includes('review_status=all'))).toBe(role === 'admin')
 })
@@ -59,6 +59,23 @@ it('keeps a customer opening an analyst report hash in the customer workspace',a
  expect(screen.queryByText('Existing analyst workspace')).toBeNull()
  expect(screen.queryByRole('button',{name:'准备详细报告'})).toBeNull()
  expect(fetch.mock.calls.some(([url])=>url.includes('/bio-reader-reports'))).toBe(false)
+})
+
+it.each([false, true])('protects a historical review link with session and project ownership, signed in = %s', async signedIn => {
+  window.history.replaceState(null, '', '#project=private-paper&section=reviews&round=r1&reviewRun=v1&reviewDocument=d1')
+  const fetch = vi.fn(async (url: string) => {
+    if (url.endsWith('/me')) return signedIn
+      ? Response.json({ user: { id: 'customer', email: 'customer@example.test', role: 'customer' }, csrf_token: 'test-csrf' })
+      : Response.json({ detail: { code: 'authentication_required' } }, { status: 401 })
+    return Response.json({ detail: { code: 'project_not_found' } }, { status: 404 })
+  })
+  vi.stubGlobal('fetch', fetch)
+  render(<App />)
+  if (signedIn) await screen.findByText('项目不存在或无权访问。')
+  else await screen.findByRole('heading', { name: '登录' })
+  expect(fetch.mock.calls.some(([url]) => url === '/api/v1/projects/private-paper')).toBe(signedIn)
+  expect(fetch.mock.calls.some(([url]) => url.includes('/reviews/'))).toBe(false)
+  expect(screen.queryByText('Existing analyst workspace')).toBeNull()
 })
 
 it('restores the permissions page and opens approved accounts from the sidebar', async () => {
@@ -104,7 +121,7 @@ it('assigns, replaces, and revokes analysts in dialogs on the same permissions p
   const candidates = ['analyst-a', 'analyst-b'].map(id => ({ id, email: id + '@example.test', role: 'analyst', active: true }))
   const disabledAnalyst = { id: 'disabled', email: 'disabled@example.test', role: 'analyst', active: false }
   let showEnabledAnalysts = false
-  let project = { id: 'project', name: '已提交的客户项目', research_topic: '对照分组', customer_email: 'owner@example.test',
+  let project = { id: 'project', name: '已提交的客户项目', research_topic: '对照分组', project_type: 'research', customer_email: 'owner@example.test',
     analyst_id: null as string | null, analyst_email: null as string | null, revision: 0,
     submitted_version: 2, progress_status: 'pending_assignment', updated_at: '2026-11-11T12:00:00Z' }
   const page = <T,>(items: T[]) => Response.json({ items, total: items.length, page: 1, page_size: 10 })

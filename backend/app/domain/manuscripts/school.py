@@ -114,7 +114,7 @@ def school_issues(snapshot):
     return issues
 
 
-def school_content_report(snapshot):
+def school_content_report(snapshot, *, writing_context=None):
     from app.domain.manuscript_review.checks import check_snapshot
     # A current material-review report already checked this exact candidate with
     # its explicit precision and strict correction locations. Reuse that proof.
@@ -125,6 +125,6 @@ def school_content_report(snapshot):
         # Writing retains exact reviewed paragraphs and their fact bindings; the
         # common review workflow inherits these same metadata from its history.
         previous = review or (snapshot.get('review_history') or [{}])[-1].get('review', {})
-        issues = check_snapshot(snapshot, metadata=previous.get('metadata', []))
+        issues = check_snapshot(snapshot, metadata=previous.get('metadata', []), writing_context=writing_context)
     return dict(rules_version=RULES_VERSION, issues=issues,
                 can_publish=not any(item['severity'] == 'error' for item in issues), scientifically_verified=False)

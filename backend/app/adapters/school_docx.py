@@ -16,10 +16,15 @@ from lxml import etree as E
 from app.core.exceptions import StorageError
 from app.domain.document_layout import LayoutOptions
 from app.domain.manuscripts.school_export import MANUAL_LABELS, validate_school_export
+from app.domain.school_templates import bsu_gs501
 from .document_layout.package import NS, encode, parse, read_package, write_package
+from .school_template_parser import PAGINATION_FIELD
 
 SCHOOL_RENDERER_VERSION='school-docx-v1'
 STYLE_NAMES={'body':'Normal','heading1':'Heading 1','heading2':'Heading 2','heading3':'Heading 3','title_zh':'Title','title_en':'School English Title','abstract_heading_zh':'School Chinese Abstract','abstract_heading_en':'School English Abstract','keywords_zh':'School Chinese Keywords','keywords_en':'School English Keywords','toc_heading':'School Contents','references_heading':'School References','acknowledgements_heading':'School Acknowledgements','figure_caption':'School Figure Caption','table_caption':'School Table Caption'}
+GS501_TEXT_STYLES={'abstract_body_en':'School English Abstract Body','reference_entry':'School Reference Entry'}
+GS501_TOC_STYLE='School Running Contents'
+TOC_STYLE_IDS={STYLE_NAMES['toc_heading'].replace(' ',''),GS501_TOC_STYLE.replace(' ','')}
 
 
 def _prop(parent,name):
@@ -32,7 +37,7 @@ def _prop(parent,name):
 
 
 def _style(document,category,plan):
-    name=STYLE_NAMES.get(category,'Normal')
+    name=STYLE_NAMES.get(category) or GS501_TEXT_STYLES[category]
     style=document.styles[name] if name in document.styles else document.styles.add_style(name,WD_STYLE_TYPE.PARAGRAPH)
     spec=plan['styles'].get(category,plan['styles'].get('body',{}))
     if name!='Normal':style.base_style=document.styles['Normal']
@@ -52,7 +57,7 @@ def _style(document,category,plan):
     for key,attribute in [('space_before_lines','beforeLines'),('space_after_lines','afterLines')]:
         if key in spec:spacing.set(qn('w:'+attribute),str(spec[key]))
     _prop(ppr,'ind').set(qn('w:firstLineChars'),str(spec.get('first_line_chars','0')))
-    if category not in ('body','keywords_zh','keywords_en'):
+    if category not in ('body','keywords_zh','keywords_en',*GS501_TEXT_STYLES):
         style.paragraph_format.keep_with_next=True
     if category not in ('heading1','heading2','heading3'):
         # These front-matter headings must not enter the body TOC through an
@@ -61,16 +66,32 @@ def _style(document,category,plan):
     return style
 
 
-def _field(paragraph,instruction):
+def _field(paragraph,instruction,cached_text='1'):
     field=OxmlElement('w:fldSimple');field.set(qn('w:instr'),instruction)
-    run=OxmlElement('w:r');text=OxmlElement('w:t');text.text='1';run.append(text);field.append(run);paragraph._p.append(field)
+    run=OxmlElement('w:r');text=OxmlElement('w:t');text.text=cached_text;run.append(text);field.append(run);paragraph._p.append(field)
+    return run
 
 
-def _section_settings(document,section,spec):
+def _running_title_style(document,name,category):
+    style=document.styles.add_style(name,WD_STYLE_TYPE.PARAGRAPH)
+    style.base_style=document.styles[STYLE_NAMES[category]]
+    return style
+
+
+def _field_font(run,name):
+    fonts=run.get_or_add_rPr().get_or_add_rFonts()
+    for attribute in ('ascii','hAnsi','eastAsia','cs'):fonts.set(qn('w:'+attribute),name)
+    run.get_or_add_rPr().get_or_add_sz().val=Pt(10.5)
+
+
+def _section_settings(document,section,spec,*,gs501=False,running_title=None):
     page=spec['page'];section.page_width=Cm(page['width_cm']);section.page_height=Cm(page['height_cm'])
     for name in ('top','bottom','left','right'):setattr(section,name+'_margin',Cm(page['margin_'+name+'_cm']))
-    section.different_first_page_header_footer=bool(spec.get('different_first_page'))
-    if spec.get('different_odd_even_pages'):
+    section.different_first_page_header_footer=not gs501 and bool(spec.get('different_first_page'))
+    if gs501:
+        section.header_distance=section.footer_distance=Cm(3)
+        section.gutter=0
+    elif spec.get('different_odd_even_pages'):
         document.settings.odd_and_even_pages_header_footer=True
     number=spec.get('page_number',{});pg=_prop(section._sectPr,'pgNumType')
     pg.set(qn('w:fmt'),number.get('format') or 'decimal')
@@ -83,18 +104,32 @@ def _section_settings(document,section,spec):
         for typ,target in objects.items():
             original=entries.get(typ)
             linked=bool(original and original.get('linked_to_previous'))
+            custom_header=gs501 and kind=='headers'
             # A new document's first section has no predecessor.
-            target.is_linked_to_previous=linked and len(document.sections)>1
+            target.is_linked_to_previous=not custom_header and linked and len(document.sections)>1
             if target.is_linked_to_previous:continue
             for child in list(target._element):target._element.remove(child)
             paragraph=target.add_paragraph();paragraph.alignment=WD_ALIGN_PARAGRAPH.CENTER
             paragraph.paragraph_format.first_line_indent=Pt(0)
-            if original:
-                if original.get('text'):paragraph.add_run(original['text'])
-                for instruction in dict.fromkeys(i.strip() for i in original.get('fields',[])):
-                    # Only passive page fields are copied. No instruction text
-                    # in a template can create links or executable fields.
-                    if re.fullmatch(r'(?:PAGE|NUMPAGES|SECTIONPAGES)(?:\s+\\\*\s+MERGEFORMAT)?',instruction,re.I):_field(paragraph,instruction)
+            if custom_header:
+                if typ=='default' and running_title:
+                    name,title,language=running_title
+                    run=_field(paragraph,'STYLEREF "'+name+'" '+r'\* MERGEFORMAT',title)
+                    _field_font(run,bsu_gs501.TIMES if language=='en' else bsu_gs501.SONG)
+            elif original:
+                if 'segments' in original:
+                    for segment in original['segments']:
+                        if segment['kind'] == 'text':
+                            paragraph.add_run(segment['text'])
+                        elif segment['kind'] == 'field' and PAGINATION_FIELD.fullmatch(segment['instruction']):
+                            run=_field(paragraph,segment['instruction'])
+                            if gs501:_field_font(run,bsu_gs501.SONG)
+                else:
+                    if original.get('text'):paragraph.add_run(original['text'])
+                    for instruction in dict.fromkeys(i.strip() for i in original.get('fields',[])):
+                        if PAGINATION_FIELD.fullmatch(instruction):
+                            run=_field(paragraph,instruction)
+                            if gs501:_field_font(run,bsu_gs501.SONG)
                 for run in paragraph.runs:
                     run.font.name='Times New Roman';run.font.size=Pt(9)
                     run._element.get_or_add_rPr().get_or_add_rFonts().set(qn('w:eastAsia'),'宋体')
@@ -176,13 +211,13 @@ class Footnotes:
         return write_package(parts)
 
 
-def _add_toc(content,plan,language):
+def _add_toc(content,plan,language,style_id):
     from .document_layout.engine import Editor
     editor=Editor(content,LayoutOptions(toc={'depth':plan['toc']['depth']}),language)
     pending=editor.finish();parts=read_package(pending);root=parse(parts['word/document.xml']);body=root.find(qn('w:body'))
     marker=root.xpath('//w:bookmarkStart[@w:name="PA_SCHOOL_TOC"]',namespaces=NS)[0].getparent()
     title,node=body[0],body[1];body.remove(title);body.remove(node)
-    ppr=_prop(title,'pPr');_prop(ppr,'pStyle').set(qn('w:val'),STYLE_NAMES['toc_heading'].replace(' ',''))
+    ppr=_prop(title,'pPr');_prop(ppr,'pStyle').set(qn('w:val'),style_id)
     index=body.index(marker);body.insert(index,title);body.insert(index+1,node);body.remove(marker)
     parts['word/document.xml']=encode(root)
     return write_package(parts)
@@ -190,114 +225,170 @@ def _add_toc(content,plan,language):
 
 class _SchoolPagination2:
     """Consume a real source section's restart only on its first use."""
-    def __init__(self,document):
+    def __init__(self,document,*,gs501=False):
         self.document=document;self.seen=set();self.active_spec=None
+        self.gs501=gs501;self.running_title=None
 
     def apply(self,section,spec):
         applied=deepcopy(spec)
         if spec['id'] in self.seen:
             applied['page_number']=dict(applied.get('page_number',{}),start=None,mode='continue_or_default')
-        _section_settings(self.document,section,applied)
+        _section_settings(self.document,section,applied,gs501=self.gs501,running_title=self.running_title)
         self.seen.add(spec['id']);self.active_spec=spec
 
     def new_section(self,spec):
-        self.apply(self.document.add_section(WD_SECTION_START.NEW_PAGE),spec)
+        # The template forms already close their own fourth section.
+        section=self.document.sections[-1] if self.active_spec is None else self.document.add_section(WD_SECTION_START.NEW_PAGE)
+        self.apply(section,spec)
 
 
-def build_school_docx(snapshot,images,plan,*,source_map=None,excluded_chapter_ids=frozenset()):
+def build_school_docx(snapshot,images,plan,*,source_map=None,excluded_chapter_ids=frozenset(),mask_identity=False,customer_revision=False,
+                      school_template=None):
     from .manuscript_docx import _document,_table,_figure,_save_document
     validate_school_export(plan,snapshot)
     if not plan['report']['can_export']:raise StorageError('manuscript_review_blocked','学校导出存在一致性硬错误。',409)
+    gs501=plan.get('format_profile')==bsu_gs501.PROFILE
+    submission_forms='submission_forms_source_sha256' in plan
+    if gs501 and excluded_chapter_ids:
+        raise StorageError('school_export_input_invalid','GS501 论文须保留已确认的全部章节。',422)
     document=_document()
     language_nodes={}
     mapping=source_map is not None or plan.get('language_mapping_version')==1
-    def mark(paragraph,chapter=None,identity=False):
+    def mark(paragraph,chapter=None,identity=False,generated_field=False,language=None):
         if not mapping:return
         node=getattr(paragraph,'_p',paragraph)
-        language_nodes[node]=dict(chapter_id=chapter['id'] if chapter else None,target_language=chapter['output_language'] if chapter else snapshot['output_language'],protected_identity=identity,scope='reference_metadata' if chapter and chapter['purpose']=='references' else 'narrative')
+        target_language=language or (chapter['output_language'] if chapter else snapshot['output_language'])
+        language_nodes[node]=dict(chapter_id=chapter['id'] if chapter else None,target_language=target_language,protected_identity=identity,scope='reference_metadata' if chapter and chapter['purpose']=='references' else 'narrative')
+        if generated_field:language_nodes[node].update(generated_field=True,scope='label')
     def capture(chapter=None):
         if not mapping:return
         for part in document.part.package.parts:
-            if str(part.partname)!='' and (str(part.partname)=='/word/document.xml' or re.fullmatch(r'/word/(?:header|footer)\d+\.xml',str(part.partname))):
+            part_name=str(part.partname)
+            if part_name=='/word/document.xml' or re.fullmatch(r'/word/(?:header|footer)\d+\.xml',part_name):
                 for node in part.element.iter(qn('w:p')):
-                    if node not in language_nodes:mark(node,chapter)
+                    generated=gs501 and part_name.startswith('/word/header') and any(f.get(qn('w:instr'),'').startswith('STYLEREF ') for f in node.iter(qn('w:fldSimple')))
+                    if node not in language_nodes:mark(node,chapter,generated_field=generated)
     # Preserve supplied soft breaks and the source paragraph bookmark, while
     # keeping short lines from stretching under the school's justified body.
     _prop(_prop(document.settings.element,'compat'),'doNotExpandShiftReturn')
     for category in STYLE_NAMES:_style(document,category,plan)
+    if gs501:
+        for category in GS501_TEXT_STYLES:_style(document,category,plan)
+    toc_style_id=document.styles[STYLE_NAMES['toc_heading']].style_id
     sections={s['chapter_id']:s for s in plan['sections']}
-    pagination=_SchoolPagination2(document) if plan.get('pagination_version')==2 else None
-    if pagination:pagination.apply(document.sections[0],sections['__cover__'])
-    else:_section_settings(document,document.sections[0],sections['__cover__'])
+    pagination=_SchoolPagination2(document,gs501=gs501) if plan.get('pagination_version')==2 else None
     front=plan.get('front_matter')
-    if front is None:
+    if submission_forms:
+        from .bsu_gs501_docx import insert_submission_forms
+
+        forms,protected,english=insert_submission_forms(document,school_template,snapshot,plan,blind=mask_identity)
+        skipped={c['id'] for c in snapshot['sections'] if bsu_gs501.submission_chapter(c,front)}
+        for element in forms:
+            for paragraph in element.iter(qn('w:p')):
+                mark(paragraph,identity=paragraph in protected,generated_field=True,language='en' if paragraph in english else 'zh-CN')
+    else:
+        skipped=set()
+        if pagination:pagination.apply(document.sections[0],sections['__cover__'])
+        else:_section_settings(document,document.sections[0],sections['__cover__'])
+    if not submission_forms and front is None:
         paragraph=document.add_paragraph(snapshot['thesis_context']['profile']['school'],style='Title')
         mark(paragraph,identity=True)
         document.add_paragraph(snapshot['title'],style='Title')
-        document.add_paragraph('School thesis engineering draft; verify synthetic materials and missing details.' if mapping and snapshot['output_language']=='en' else '学校论文工程稿  合成资料及缺失信息须核对')
+        if not customer_revision:
+            document.add_paragraph('School thesis engineering draft; verify synthetic materials and missing details.' if mapping and snapshot['output_language']=='en' else '学校论文工程稿  合成资料及缺失信息须核对')
         fields=plan['options'].get('manual_fields',{});profile=snapshot['thesis_context']['profile']
         for key,label in MANUAL_LABELS.items():
-            paragraph=document.add_paragraph(label+'：'+(fields.get(key) or profile.get(key) or '待填写'))
+            value=fields.get(key) or profile.get(key) or ''
+            if mask_identity and key in ('author','student_id','supervisor'):
+                if gs501:value='XXX'
+                elif value.strip():value='[已隐去]'
+            paragraph=document.add_paragraph(label+'：'+(value or '待填写'))
             mark(paragraph,identity=True)
-        document.add_paragraph('Only determined cover rules are applied; formal cover, identity and signatures require explicit user material.' if mapping and snapshot['output_language']=='en' else '封面仅应用可确定规则；原模板未确定的正式封面、身份和签名须人工补齐。')
-    else:
+        if not customer_revision:
+            document.add_paragraph('Only determined cover rules are applied; formal cover, identity and signatures require explicit user material.' if mapping and snapshot['output_language']=='en' else '封面仅应用可确定规则；原模板未确定的正式封面、身份和签名须人工补齐。')
+    elif not submission_forms:
         document.add_paragraph(snapshot['title'],style='Title')
-        _front_fields(document,plan,None,sections['__cover__']['id'],mark=mark,section_settings=pagination.apply if pagination else None)
+        _front_fields(document,plan,None,sections['__cover__']['id'],mark=mark,section_settings=pagination.apply if pagination else None,
+            mask_identity=mask_identity)
     capture()
     manual={i['chapter_id']:i['text'] for i in plan['options'].get('manual_chapters',[])}
     keywords={i['chapter_id']:i['values'] for i in plan['options'].get('keywords',[])}
     notes=Footnotes(document,snapshot,plan.get('citation_footnotes',False))
-    bookmark=0;toc_inserted=False;previous_spec=None
+    bookmark=0;toc_inserted=False;previous_spec=None;running_headers=False
     for chapter_index,chapter in enumerate(snapshot['sections']):
-        if chapter['id'] in excluded_chapter_ids:continue
+        if chapter['id'] in excluded_chapter_ids or chapter['id'] in skipped:continue
         role=chapter['purpose'];en=chapter['output_language']=='en'
         toc_just_inserted=False
         if plan['toc']['enabled'] and not toc_inserted and role not in ('manual','abstract','references','acknowledgements'):
+            if gs501 and running_headers:
+                toc_style=_running_title_style(document,GS501_TOC_STYLE,'toc_heading')
+                toc_style_id=toc_style.style_id
+                toc_title='目录' if snapshot['output_language'].startswith('zh') else 'Contents'
+                pagination.running_title=(toc_style.name,toc_title,snapshot['output_language'])
             if pagination:pagination.new_section(sections['__toc__'])
             else:
                 section=document.add_section(WD_SECTION_START.NEW_PAGE);_section_settings(document,section,sections['__toc__'])
             paragraph=document.add_paragraph();start=OxmlElement('w:bookmarkStart');start.set(qn('w:id'),'500000');start.set(qn('w:name'),'PA_SCHOOL_TOC')
             end=OxmlElement('w:bookmarkEnd');end.set(qn('w:id'),'500000');paragraph._p.append(start);paragraph._p.append(end);toc_inserted=True
             toc_just_inserted=True
-        current_spec=sections[chapter['id']]
-        chapter_page_break=False
-        if pagination:
-            if pagination.active_spec['id']!=current_spec['id']:pagination.new_section(current_spec)
-            else:chapter_page_break=chapter['level']==1 or chapter_index==0 or toc_just_inserted
-        elif chapter['level']==1 or previous_spec is None or current_spec['id']!=previous_spec['id']:
-            section=document.add_section(WD_SECTION_START.NEW_PAGE);_section_settings(document,section,current_spec)
-        previous_spec=current_spec
+            if gs501:capture()
+        if role=='abstract' and not en:running_headers=gs501
         if role=='abstract':category='abstract_heading_en' if en else 'abstract_heading_zh'
         elif role=='references':category='references_heading'
         elif role=='acknowledgements':category='acknowledgements_heading'
         elif role=='manual':category='abstract_heading_zh'
         else:category='heading'+str(min(3,chapter['level']))
-        heading=document.add_paragraph(chapter['title'],style=STYLE_NAMES[category])
+        title_style=STYLE_NAMES[category]
+        starts_running_section=running_headers and (chapter['level']==1 or role in ('abstract','references','acknowledgements'))
+        if starts_running_section:
+            title_style=_running_title_style(document,'School Running Heading '+str(chapter_index+1),category)
+            pagination.running_title=(title_style.name,chapter['title'],chapter['output_language'])
+        current_spec=sections[chapter['id']]
+        chapter_page_break=False
+        if pagination:
+            if starts_running_section or pagination.active_spec is None or pagination.active_spec['id']!=current_spec['id']:pagination.new_section(current_spec)
+            else:chapter_page_break=chapter['level']==1 or chapter_index==0 or toc_just_inserted
+        elif chapter['level']==1 or previous_spec is None or current_spec['id']!=previous_spec['id']:
+            section=document.add_section(WD_SECTION_START.NEW_PAGE);_section_settings(document,section,current_spec)
+        previous_spec=current_spec
+        heading=document.add_paragraph(chapter['title'],style=title_style)
         if chapter_page_break:heading.paragraph_format.page_break_before=True
         # References/acknowledgements enter the TOC; front matter and manual
         # declarations retain their school heading appearance without outline.
-        if role in ('references','acknowledgements'):_prop(heading._p.get_or_add_pPr(),'outlineLvl').set(qn('w:val'),str(min(3,chapter['level'])-1))
+        if role in ('references','acknowledgements') or starts_running_section and category.startswith('heading'):
+            _prop(heading._p.get_or_add_pPr(),'outlineLvl').set(qn('w:val'),str(min(3,chapter['level'])-1))
         if role=='references':
-            for reference in snapshot['references']:document.add_paragraph('['+str(reference['number'])+'] '+reference['text'])
+            entry_style=GS501_TEXT_STYLES['reference_entry'] if gs501 else None
+            for reference in snapshot['references']:document.add_paragraph('['+str(reference['number'])+'] '+reference['text'],style=entry_style)
             if not snapshot['references']:document.add_paragraph('No verified references selected.' if en else '尚未选择已核实参考文献，待补充。')
             if front is not None:
-                last=_front_fields(document,plan,chapter['id'],current_spec['id'],mark=lambda p,identity=False:mark(p,chapter,identity),section_settings=pagination.apply if pagination else None)
+                last=_front_fields(document,plan,chapter['id'],current_spec['id'],mark=lambda p,identity=False:mark(p,chapter,identity),
+                    section_settings=pagination.apply if pagination else None,mask_identity=mask_identity)
                 previous_spec=plan['front_matter_sections'][last]
             capture(chapter)
             continue
         if role=='abstract':
             title=plan['options'].get('english_title') or (snapshot['title'] if snapshot['output_language']=='en' else '英文题名待填写') if en else snapshot['title']
             document.add_paragraph(title,style=STYLE_NAMES['title_en' if en else 'title_zh'])
-        paragraphs=[dict(id='manual:'+chapter['id']+':'+str(index),text=line,citations=[],source_ids=[]) for index,line in enumerate(manual[chapter['id']].splitlines())] if role=='manual' and manual.get(chapter['id']) else chapter['paragraphs']
+        supplied = manual.get(chapter['id'], '')
+        paragraphs = chapter['paragraphs']
+        if (role == 'manual' and supplied) or (role == 'acknowledgements' and supplied.strip()):
+            paragraphs = [dict(id='manual:'+chapter['id']+':'+str(index), text=line, citations=[], source_ids=[])
+                          for index, line in enumerate(supplied.splitlines())]
         for item in paragraphs:
-            bookmark+=1;notes.paragraph(item,bookmark,plan)
+            bookmark+=1;paragraph=notes.paragraph(item,bookmark,plan)
+            if gs501 and role=='abstract' and en:paragraph.style=GS501_TEXT_STYLES['abstract_body_en']
         if front is not None:
-            last=_front_fields(document,plan,chapter['id'],current_spec['id'],mark=lambda p,identity=False:mark(p,chapter,identity),section_settings=pagination.apply if pagination else None)
+            last=_front_fields(document,plan,chapter['id'],current_spec['id'],mark=lambda p,identity=False:mark(p,chapter,identity),
+                section_settings=pagination.apply if pagination else None,mask_identity=mask_identity)
             previous_spec=plan['front_matter_sections'][last]
         if role=='abstract':
             values=keywords.get(chapter['id'],snapshot.get('keywords',[]) if chapter['output_language']==snapshot['output_language'] else [])
             paragraph=document.add_paragraph(style=STYLE_NAMES['keywords_en' if en else 'keywords_zh'])
-            paragraph.add_run('Keywords: ' if en else '关键词：').bold=True
+            if gs501 and en:
+                paragraph.add_run('Key Words').bold=True
+                paragraph.add_run(': ')
+            else:paragraph.add_run('Keywords: ' if en else '关键词：').bold=True
             paragraph.add_run(('; ' if en else '；').join(values) if values else ('Pending user input' if en else '待用户提供'))
         for group in snapshot['results_groups']:
             if group['id'] not in chapter.get('result_group_ids',[]):continue
@@ -329,8 +420,12 @@ def build_school_docx(snapshot,images,plan,*,source_map=None,excluded_chapter_id
         for index,(node,metadata) in enumerate(language_nodes.items()):
             start=OxmlElement('w:bookmarkStart');start.set(qn('w:id'),str(700000+index));start.set(qn('w:name'),'PA_LANGUAGE_'+str(index))
             end=OxmlElement('w:bookmarkEnd');end.set(qn('w:id'),str(700000+index));node.append(start);node.append(end)
+    if submission_forms:
+        from .bsu_gs501_docx import preserve_generated_body_style
+
+        preserve_generated_body_style(document)
     content=notes.finish(_save_document(document))
-    content=_add_toc(content,plan,snapshot['output_language']) if plan['toc']['enabled'] else content
+    content=_add_toc(content,plan,snapshot['output_language'],toc_style_id) if plan['toc']['enabled'] else content
     if source_map is not None:
         from io import BytesIO
         from zipfile import ZipFile
@@ -353,7 +448,7 @@ def build_school_docx(snapshot,images,plan,*,source_map=None,excluded_chapter_id
                         # own TOC heading/cache. Never infer chapter ownership by text.
                         style=node.find(qn('w:pPr')+'/'+qn('w:pStyle'))
                         fields=[f.get(qn('w:instr'),'') for f in node.iter(qn('w:fldSimple'))]
-                        if not (style is not None and style.get(qn('w:val'))==STYLE_NAMES['toc_heading'].replace(' ','') or any('TOC' in f for f in fields)):raise ValueError('Unmapped school export text')
+                        if not (style is not None and style.get(qn('w:val')) in TOC_STYLE_IDS or any('TOC' in f for f in fields)):raise ValueError('Unmapped school export text')
                         metadata=dict(chapter_id=None,target_language=snapshot['output_language'],protected_identity=False,generated_field=True,scope='label')
                     source_map.append(dict(location=name+':paragraph:'+str(index),text=text,**metadata,**({'source_bookmark':bookmark} if bookmark else {})))
     return content
@@ -401,7 +496,7 @@ def final_school_source_map(pending,content,source_map,language):
                 elif name!='word/document.xml' and name in before.namelist() and raw==before.read(name) and location in by_location:metadata=by_location[location]
                 else:
                     style=node.find(qn('w:pPr')+'/'+qn('w:pStyle'))
-                    if marks or links or style is None or style.get(qn('w:val'))!=STYLE_NAMES['toc_heading'].replace(' ',''):raise ValueError('Final school export text is not mapped')
+                    if marks or links or style is None or style.get(qn('w:val')) not in TOC_STYLE_IDS:raise ValueError('Final school export text is not mapped')
                     metadata=dict(chapter_id=None,target_language=language,protected_identity=False,generated_field=True,scope='label')
                 result.append(dict({k:v for k,v in metadata.items() if k not in ('location','text')},location=location,text=text))
     return result
@@ -416,7 +511,7 @@ def complete_school_fields(content,plan):
     return result,dict(status='updated',software='LibreOffice',renderer_identity=renderer_identity(),toc_entries=len(cache['toc_lines']),field_count=len(cache['fields']),source_sha256=sha256(content).hexdigest(),page_count=None,word_verified=False)
 
 
-def _front_fields(document,plan,chapter_id,section_id,mark=None,section_settings=None):
+def _front_fields(document,plan,chapter_id,section_id,mark=None,section_settings=None,*,mask_identity=False):
     """Apply only the confirmed paragraph source's finite passive attributes."""
     for field in plan['front_matter']['fields']:
         if field['chapter_id']!=chapter_id:continue
@@ -426,8 +521,14 @@ def _front_fields(document,plan,chapter_id,section_id,mark=None,section_settings
             else:_section_settings(document,section,plan['front_matter_sections'][field['section_id']])
             section_id=field['section_id']
         value=plan['options'].get('field_values',{}).get(field['id'],'').strip()
-        paragraph=document.add_paragraph(field['label']+'：'+(value or '待填写'))
-        if mark:mark(paragraph,identity=field['kind'] in ('identity','signature','date'))
+        source=plan['front_matter_sources'][field['source_id']]
+        gs501=plan.get('format_profile')==bsu_gs501.PROFILE
+        replacement=bsu_gs501.blind_field_value(field,source) if gs501 else None
+        if mask_identity and replacement is not None:displayed=replacement
+        elif mask_identity and field['kind'] in ('identity','signature') and value:displayed='[已隐去]'
+        else:displayed=value or '待填写'
+        paragraph=document.add_paragraph(field['label']+'：'+displayed)
+        if mark:mark(paragraph,identity=replacement is not None or field['kind'] in ('identity','signature','date'))
         spec=plan['front_matter_sources'][field['style_source_id']]['style'] if field['style_source_id'] else {}
         ppr=paragraph._p.get_or_add_pPr()
         if 'alignment' in spec:_prop(ppr,'jc').set(qn('w:val'),spec['alignment'])

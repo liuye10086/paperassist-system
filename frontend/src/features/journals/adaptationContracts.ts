@@ -1,6 +1,7 @@
 import {isTask,type TaskView} from '../tasks/taskTypes'
 import {record} from './contracts'
 import {sectionIds,styleBounds} from './formatContracts'
+import {articleStructures} from '../manuscripts/articleStructure'
 export type FixedManuscript={id:string;revision:number;version_id:string}
 export type AdaptationRequest={target_id:string;check_id:string;manuscript:FixedManuscript}
 export type Action={id:string;key:string;before:unknown;after:unknown;evidence:unknown[];reason:string}
@@ -19,17 +20,32 @@ const revision=(v:unknown):v is number=>Number.isSafeInteger(v)&&Number(v)>=1
 export function isFixedManuscript(v:unknown):v is FixedManuscript{return record(v)&&id(v.id)&&id(v.version_id)&&revision(v.revision)}
 export function sameManuscript(a:FixedManuscript,b:FixedManuscript){return a.id===b.id&&a.revision===b.revision&&a.version_id===b.version_id}
 export function actualSections(preview:AdaptationPreview,changes:Action[]){return preview.sections.map(section=>{
- const original=record(section.before)?section.before:{},before=section.section_id==='title'?{...original,styles:{}}:original,after={...before,styles:record(before.styles)?{...before.styles}:{}} as Record<string,unknown>
+ const original=record(section.before)?section.before:{},before=section.section_id==='title'&&!(record(original.styles)&&original.styles.document_single_spacing)?{...original,styles:{}}:original,after={...before,styles:record(before.styles)?{...before.styles}:{}} as Record<string,unknown>
  for(const change of changes){if(change.key==='section_display_names'&&record(change.after)&&typeof change.after[section.section_id]==='string')after.display_name=change.after[section.section_id]
+ else if(change.key==='required_sections'&&record(change.after)){const heading=change.after[section.section_id];if(record(heading)){after.display_name=heading.display_name;after.level=heading.level}}
  else if(change.key==='section_order'&&Array.isArray(change.after))after.position=change.after.indexOf(section.section_id)
+ else if(change.key==='document_single_spacing'&&change.after===true)(after.styles as Record<string,unknown>).document_single_spacing=true
  else if(section.section_id!=='title'&&Object.hasOwn(styleBounds,change.key))(after.styles as Record<string,unknown>)[change.key]=change.after}
- const changed=before.display_name!==after.display_name||before.position!==after.position||JSON.stringify(record(before.styles)?before.styles:{})!==JSON.stringify(after.styles)
+ const changed=before.display_name!==after.display_name||before.position!==after.position||before.level!==after.level||JSON.stringify(record(before.styles)?before.styles:{})!==JSON.stringify(after.styles)
  return {...section,before,after,changed}
 })}
 function action(v:unknown):v is Action{return record(v)&&text(v.id)&&!!v.id&&v.id.length<=200&&text(v.key)&&Object.hasOwn(v,'before')&&Object.hasOwn(v,'after')&&Array.isArray(v.evidence)&&text(v.reason)}
+function narrativeAction(v:Action){
+ if(Object.hasOwn(styleBounds,v.key))return true
+ if(v.key==='document_single_spacing'||v.key==='document_submission_layout')return v.after===true
+ if(v.key==='document_page_line_numbers')return record(v.after)&&v.after.page===true&&v.after.line===true
+ if(v.key==='reference_style')return v.after==='Frontiers Vancouver (Numbered)'
+ if(v.key!=='required_sections'||!record(v.after)||Object.keys(v.after).length!==3)return false
+ const names={introduction:'Introduction',discussion:'Discussion',conclusion:'Conclusion'}
+ const headings=v.after
+ return Object.entries(names).every(([id,name])=>{const heading=headings[id];return record(heading)&&heading.display_name===name&&heading.level===(id==='conclusion'?2:1)})
+}
 function unexecuted(v:unknown):v is Unexecuted{return record(v)&&text(v.key)&&text(v.reason)&&Array.isArray(v.evidence)}
+function hasSections(sections:unknown[],ids:readonly string[]){
+ return sections.length===ids.length&&ids.every(id=>sections.some(s=>record(s)&&s.section_id===id&&typeof s.changed==='boolean'&&Object.hasOwn(s,'before')&&Object.hasOwn(s,'after')))
+}
 export function isAdaptationPreview(v:unknown,expected?:AdaptationRequest):v is AdaptationPreview{
- if(!record(v)||!id(v.target_id)||!id(v.check_id)||!isFixedManuscript(v.manuscript)||!revision(v.expected_current_revision)||!hash(v.preview_sha256)||typeof v.synthetic!=='boolean'||typeof v.can_adopt!=='boolean'||!Array.isArray(v.actions)||!v.actions.every(action)||new Set(v.actions.map(a=>a.id)).size!==v.actions.length||!Array.isArray(v.unexecuted)||!v.unexecuted.every(unexecuted)||!Array.isArray(v.sections)||v.sections.length!==7||!sectionIds.every(id=>Array.isArray(v.sections)&&v.sections.filter(s=>record(s)&&s.section_id===id&&typeof s.changed==='boolean'&&Object.hasOwn(s,'before')&&Object.hasOwn(s,'after')).length===1)||v.can_adopt!==(v.actions.length>0))return false
+ if(!record(v)||!id(v.target_id)||!id(v.check_id)||!isFixedManuscript(v.manuscript)||!revision(v.expected_current_revision)||!hash(v.preview_sha256)||typeof v.synthetic!=='boolean'||typeof v.can_adopt!=='boolean'||!Array.isArray(v.actions)||!v.actions.every(action)||new Set(v.actions.map(a=>a.id)).size!==v.actions.length||!Array.isArray(v.unexecuted)||!v.unexecuted.every(unexecuted)||!Array.isArray(v.sections)||!(hasSections(v.sections,sectionIds)||hasSections(v.sections,articleStructures.narrative_review)&&v.actions.every(narrativeAction))||v.can_adopt!==(v.actions.length>0))return false
  return !expected||v.target_id===expected.target_id&&v.check_id===expected.check_id&&sameManuscript(v.manuscript,expected.manuscript)
 }
 export function isAdaptation(v:unknown,projectId:string):v is Adaptation{

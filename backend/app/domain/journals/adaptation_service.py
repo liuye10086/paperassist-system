@@ -46,7 +46,7 @@ class AdaptationService(FormatService):
         if task['input_snapshot']!=row['snapshot_json']:raise source_conflict()
         return row
     def view_adaptation(self,db,row):
-        self.validate(row)
+        self.validate(db,row)
         check=db.execute("SELECT state_json FROM task_checkpoints WHERE task_id=%s AND node='check' ORDER BY seq DESC LIMIT 1",(row['task_id'],)).fetchone()
         return dict(id=row['id'],input_snapshot=row['snapshot_json'],created_at=row['created_at'],task=self.store.public_task(self.store.require_task(db,row['task_id'])),result=row['result_json'],validation=check['state_json'] if check else None)
     def get_adaptation(self,project,identity):
@@ -54,7 +54,8 @@ class AdaptationService(FormatService):
     def adaptations(self,project):
         with self.store.connection() as db:
             self.project(db,project)
-            return dict(items=[self.view_adaptation(db,self.adaptation_row(db,project,r['id'])) for r in db.execute('SELECT id FROM journal_adaptations WHERE project_id=%s AND user_id=%s ORDER BY created_at DESC,id',(project,self.store.user_id)).fetchall()])
+            rows=db.execute('SELECT * FROM journal_adaptations WHERE project_id=%s AND user_id=%s ORDER BY created_at DESC,id',(project,self.store.user_id)).fetchall()
+            return dict(items=[self.view_adaptation(db,self.adaptation_row(db,project,r['id'])) for r in self.visible_rows(db,rows)])
     def create_adaptation(self,project,request,key):
         require_key(key);body=request.model_dump(mode='json')
         with self.store.connection(write=True) as db:

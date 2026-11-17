@@ -99,11 +99,11 @@ def test_material_confirmation_is_append_only_separate_from_actual_reading_scope
     from app.domain.literature.execution import run_literature_task
     from tests.api.test_literature_citations import CitationNcbi
     project,_,_,uploaded,_=uploaded_docx(client)
+    assert run_parse_file_task(uploaded['task']['id'],1,parser=parse_docx)['status']=='succeeded'
     pid=project['id'];lit=f'/api/v1/projects/{pid}/literature'
     task=create(client,pid).json()
     assert run_literature_task(task['id'],1,client=CitationNcbi(3))['status']=='succeeded'
     ref=client.get(lit+'/references').json()['items'][0]
-    assert run_parse_file_task(uploaded['task']['id'],1,parser=parse_docx)['status']=='succeeded'
     option=client.get(lit+'/evidence/material-options').json()['items'][0];version=option['versions'][0]
     material=post(client,lit+'/evidence/materials',dict(project_reference_id=ref['id'],file_id=uploaded['file_id'],
         source_kind=version['kind'],version_id=version['version_id'],source_description='Synthetic document',match_note='Manual synthetic match'),'material').json()

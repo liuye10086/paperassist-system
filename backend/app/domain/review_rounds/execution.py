@@ -2,10 +2,10 @@
 from app.adapters.task_execution_store import TaskExecutionStore,LeaseLost
 from app.adapters.task_store import TaskStore,source_conflict
 from app.core.exceptions import StorageError
-from app.domain.report_collections.service import scoped_store
 from app.domain.journals.service import now
 from .service import ReviewRoundService,input_version
-from .planning import propose,update_status,invalid,detect_conflicts
+from .planning import propose,update_status,invalid,detect_conflicts,requests_new_analysis
+from .access import review_task_assets
 
 def run_review_round_task(task_id,task_revision,*,config=None,directory=None):
     execution=TaskExecutionStore(config=config,directory=directory)
@@ -14,13 +14,17 @@ def run_review_round_task(task_id,task_revision,*,config=None,directory=None):
     try:
         with execution.connection(write=True) as db:
             task=execution.require_lease(db,lease);execution.require_owner(db,task)
-            service=ReviewRoundService(scoped_store(task['user_id'],execution.config,execution.assets.directory))
+            service=ReviewRoundService(review_task_assets(db,task,execution.config,execution.assets.directory))
             row=service.round_row(db,task['project_id'],input_version(task)['round_id'],True);base=service.fixed(db,row)
             state,events=service.state(db,row)
             from app.domain.admin_configuration.rule_consumption import rules,round_version
             version=round_version(db,row['id']);policy=rules(version,'review') if version else None
             if not events:
                 state['items']=[propose(source,n,segment,rules=policy) for source in row['snapshot_json']['sources'] for n,segment in enumerate(source['segments'],1)]
+                if service.assets.customer:
+                    for item in state['items']:
+                        if requests_new_analysis(item['original_text']):
+                            item['needs'].append(dict(kind='analysis',description='请补充分析项目已发布的交付，并核对实际结果。'))
                 from .grounded import grounded_plans
                 for item,grounded in zip(state['items'],grounded_plans(base['snapshot_json'],state['items'],state['materials'],rules=policy)):
                     item['plan']=grounded['plan'];item['locations']=[{k:loc[k] for k in ('kind','id')} for loc in grounded['locations']]
@@ -45,7 +49,7 @@ def run_review_round_task(task_id,task_revision,*,config=None,directory=None):
 
 def retry_in_transaction(store,db,task,expected_revision):
     if task['task_type']!='review_round_plan' or task['revision']!=expected_revision or task['status'] not in ('failed','waiting_input','waiting_confirmation'):raise invalid('返修计划任务不能恢复。',409)
-    service=ReviewRoundService(scoped_store(task['user_id'],store.config));row=service.round_row(db,task['project_id'],input_version(task)['round_id'],True);base=service.fixed(db,row)
+    service=ReviewRoundService(review_task_assets(db,task,store.config));row=service.round_row(db,task['project_id'],input_version(task)['round_id'],True);service.fixed(db,row)
     if task['status']=='failed' and task.get('error_code') not in ('storage_unavailable','task_worker_interrupted'):raise invalid('此错误不支持安全重试。',409)
     task.update(status='queued',revision=expected_revision+1,reason_code='retry_requested',error_code=None,updated_at=max(now(),task['updated_at']),_retry_reason='manual_retry')
     store.update_task(db,task,expected_revision)

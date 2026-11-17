@@ -41,6 +41,22 @@ def generated(payload):
         source_aliases=[],evidence_aliases=[],study_numeric_bindings=[])]) for sid in payload['writing_scope']['output_section_ids']])
 
 
+def test_legacy_article_wire_reconstructs_its_original_schema_and_sha():
+    from app.domain.manuscript_writing.bundle import build_bundle, validate_bundle
+    from app.domain.manuscript_writing.frozen import validate_wire
+    from tests.domain.test_unified_model_policy import historical_writing_contract
+
+    draft, selection = base(), request()
+    frozen = historical_writing_contract(schema_version=4)
+    bundle = build_bundle(draft, selection, execution_contract=frozen)
+    wire = json.loads(bundle['wire_json'])
+    assert 'article_instruction_revision' not in frozen
+    assert 'minItems' not in wire['text']['format']['schema']['$defs']['LiveSection']['properties']['paragraphs']
+    assert bundle['wire_sha256'] == '8af3ccf127a032bd54bac5ed47aaa2bd4c1ba7413b553657297f6219b149520e'
+    validate_wire(bundle['wire_json'], frozen)
+    validate_bundle(dict(bundle, base_snapshot=draft, request_json=selection))
+
+
 @pytest.mark.parametrize('kind',['research','brief','narrative_review','methods'])
 def test_four_types_execute_compose_and_render_type_headings(kind):
     from app.domain.manuscript_writing.live_execution import compose_live_candidate,validate_live_candidate
@@ -244,7 +260,7 @@ def test_invalid_sci_scope_preview_is_a_422_input_error(monkeypatch):
     db=SimpleNamespace(execute=lambda *args:SimpleNamespace(fetchone=lambda:None))
     service=auth.LiveWritingService.__new__(auth.LiveWritingService)
     service.store=SimpleNamespace(user_id='owner',connection=lambda **kwargs:nullcontext(db),require_task=lambda *args:dict(status='succeeded'))
-    service.manuscripts=SimpleNamespace(root=lambda *args:dict(current_revision=1),version=lambda *args:dict(id='version',task_id='task',snapshot_json=published_base()))
+    service.manuscripts=SimpleNamespace(assets=SimpleNamespace(customer=False),root=lambda *args:dict(current_revision=1),version=lambda *args:dict(id='version',task_id='task',snapshot_json=published_base()))
     monkeypatch.setattr(auth,'resolve_document_context',lambda *args,**kwargs:dict(document_kind='sci'))
     monkeypatch.setattr(auth,'resolve',lambda *args:None)
     monkeypatch.setattr(auth,'changes',lambda *args:[])

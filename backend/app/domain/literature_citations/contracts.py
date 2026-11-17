@@ -9,6 +9,7 @@ class Author(StrictModel):
     given: str = Field(default='',max_length=1000)
     initials: str = Field(default='',max_length=100)
     collective: str = Field(default='',max_length=2000)
+    suffix: str = Field(default='', max_length=100, exclude_if=lambda value: not value)
 
 
 class Metadata(StrictModel):

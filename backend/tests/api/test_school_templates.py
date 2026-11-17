@@ -9,10 +9,15 @@ def post(client,path,body,key='template'):
 
 
 def setup(client):
+    from app.adapters.docx_parser import parse_docx
+    from app.domain.tasks.file_parse_execution import run_parse_file_task
     from tests.helpers.document_samples import document_bytes
     project=client.post('/api/v1/projects',json=dict(name='合成学校',research_topic='合成材料',project_type='thesis')).json()
     base,batch,item,raw=register(client,project,document_bytes(),'school.docx')
     uploaded=client.post(base+'/'+batch['id']+'/items/'+item['client_id'],files={'file':(item['filename'],raw)}).json()
+    # The upload's document parse precedes the dedicated template task in the serial queue.
+    task=uploaded['task']
+    assert run_parse_file_task(task['id'],task['revision'],parser=parse_docx)['status']=='succeeded'
     path=f'/api/v1/projects/{project["id"]}'
     body=dict(name='合成模板',school='合成学校',version_label='',template_file_id=uploaded['file_id'],supplement_file_ids=[],manuscript_file_ids=[],supplement_text='附加要求：人工签名。')
     return path,body

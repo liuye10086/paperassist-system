@@ -57,8 +57,12 @@ def extract_metadata(raw: bytes, pmid: str) -> dict:
     result['journal_title'] = _text(article, 'Journal/Title')
     result['journal_abbreviation'] = _text(article, 'Journal/ISOAbbreviation') or _text(citation, 'MedlineJournalInfo/MedlineTA')
     for author in article.findall('AuthorList/Author'):
-        result['authors'].append(dict(family=_text(author, 'LastName'), given=_text(author, 'ForeName'),
-                                      initials=_text(author, 'Initials'), collective=_text(author, 'CollectiveName')))
+        name = dict(family=_text(author, 'LastName'), given=_text(author, 'ForeName'),
+                    initials=_text(author, 'Initials'), collective=_text(author, 'CollectiveName'))
+        suffix = _text(author, 'Suffix')
+        if suffix:
+            name['suffix'] = suffix
+        result['authors'].append(name)
     issue = article.find('Journal/JournalIssue')
     result['volume'] = _text(issue, 'Volume')
     result['issue'] = _text(issue, 'Issue')

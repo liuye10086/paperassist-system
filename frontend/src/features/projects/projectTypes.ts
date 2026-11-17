@@ -3,9 +3,11 @@ export type Project = {
   file_count: number; created_at: string; updated_at: string
   default_output_language?: 'zh-CN' | 'en'
   assignment_revision?: number
+  has_analysis_history?: boolean
 }
 
 export const typeNames = { sci: 'SCI 科研论文', thesis: '毕业论文', research: '研究项目' }
+export const customerProjectTypeNames = { research: '分析项目', sci: 'SCI 论文', thesis: '毕业论文' }
 export const PROJECT_PAGE_SIZE = 5
 
 export type ProjectPage = { items: Project[]; total: number; page: number; page_size: number }
@@ -27,4 +29,5 @@ export function isProject(value: unknown): value is Project {
     && typeof project.created_at === 'string' && typeof project.updated_at === 'string'
     && (project.default_output_language === undefined || project.default_output_language === 'zh-CN' || project.default_output_language === 'en')
     && (project.assignment_revision === undefined || (Number.isSafeInteger(project.assignment_revision) && project.assignment_revision > 0))
+    && (project.has_analysis_history === undefined || typeof project.has_analysis_history === 'boolean')
 }

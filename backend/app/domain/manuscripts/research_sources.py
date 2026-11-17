@@ -32,7 +32,8 @@ def _read_in_phase(service,project,source,db,*,phase,progress=None):
 
 
 def file_ids(sources):
-    return sorted({f for source in sources for f in ([source['file_id']] if 'file_id' in source else source.get('source_file_ids',[]))})
+    return sorted({f for source in sources for f in ([source['file_id']] if 'file_id' in source else source.get('source_file_ids',[]))
+                   if isinstance(f,str)})
 
 
 def bind(db,project,owner,version_id,source):
@@ -108,7 +109,15 @@ def validate_version(service,db,row):
     elif producer['task_type']=='manuscript_draft':
         task_input=producer['input_snapshot']
         if task_input.get('snapshot_sha256')!=row['snapshot_sha256'] or task_input.get('manuscript_version_id')!=row['id']:raise invalid()
-        if snapshot.get('writing_provenance'):
+        if snapshot.get('user_return_provenance'):
+            from app.domain.review_rounds.returns import validate_user_return_version
+
+            validate_user_return_version(service,db,row)
+        elif snapshot.get('review_revision_provenance'):
+            from app.domain.review_rounds.revisions import validate_revised_version
+
+            validate_revised_version(service,db,row)
+        elif snapshot.get('writing_provenance'):
             writing=db.execute('SELECT * FROM manuscript_writing_requests WHERE task_id=%s AND manuscript_id=%s AND project_id=%s AND user_id=%s',
                 (snapshot['writing_provenance']['request_id'],row['manuscript_id'],row['project_id'],row['user_id'])).fetchone()
             if not writing:raise invalid()
@@ -126,5 +135,6 @@ def validate_version(service,db,row):
     else:raise invalid()
     if row['parent_version_id']:
         parent=db.execute('SELECT * FROM manuscript_versions WHERE id=%s AND manuscript_id=%s AND project_id=%s AND user_id=%s',(row['parent_version_id'],row['manuscript_id'],row['project_id'],row['user_id'])).fetchone()
-        if not parent or parent['revision']!=row['revision']-1:raise invalid()
+        review_child=bool(snapshot.get('user_return_provenance') or snapshot.get('review_revision_provenance'))
+        if not parent or parent['revision']>=row['revision'] or (parent['revision']!=row['revision']-1 and not review_child):raise invalid()
     elif row['revision']!=1:raise invalid()

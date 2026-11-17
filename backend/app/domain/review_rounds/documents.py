@@ -8,10 +8,10 @@ from app.domain.dataset_preparation.service import require_key
 from app.domain.literature.service import digest
 from app.domain.manuscripts.service import now
 from .planning import invalid
-from .document_display import change_text
+from .document_display import SYSTEM_WAITING_REASONS_EN, reply_text
 
 
-def build_snapshot(row, kind, language):
+def build_snapshot(row, kind, language, *, customer_view=False):
     result = row['result_json']; fixed = row['snapshot_json']; en = language == 'en'
     if kind == 'reply' and fixed['project_type'] != 'sci':
         raise invalid('毕业论文不生成 SCI 回复。')
@@ -37,15 +37,10 @@ def build_snapshot(row, kind, language):
         reason = item.get('uncompleted_reason') or item.get('not_adopt_reason') or (item.get('decision') or {}).get('reason') or ''
         if item['status'] != 'completed' and not reason:
             reason = 'No verified change was completed.' if en else '尚无已核验的实际修改。'
-        if item['status'] == 'completed':
-            text = ('The manuscript was revised as follows: ' if en else '稿件已作以下实际修改：') + '\n'.join(change_text(c,'after',language) for c in actual)
-        elif item['status'] == 'not_adopted':
-            text = ('Not adopted. Reason: ' if en else '未采纳。原因：') + reason
-        else:
-            if actual:
-                text=('Partial changes were made: ' if en else '已作部分实际修改：')+'\n'.join(change_text(c,'after',language) for c in actual)
-                text+=('\nNot fully completed. Reason: ' if en else '\n本项尚未全部完成。原因：')+reason
-            else:text = ('Not completed. Reason: ' if en else '未完成，仍待补充。原因：') + reason
+        manual_reasons = (item.get('not_adopt_reason'), (item.get('decision') or {}).get('reason'))
+        if customer_view and en and reason not in manual_reasons:
+            reason = SYSTEM_WAITING_REASONS_EN.get((item['status'], reason), reason)
+        text = reply_text(actual, item['status'], reason, language, customer_view=customer_view)
         locations = []
         for change in actual:
             identity_location=change['location']['id']
@@ -88,13 +83,9 @@ class ReviewDocumentService:
         result = row['result_json']
         if task['status'] != 'succeeded' or not result:
             raise StorageError('review_revision_not_ready', '请等待实际修改成功。', 409)
-        output = result['output']; producer = self.store.require_task(db, output['task_id'])
-        version = db.execute('SELECT * FROM manuscript_versions WHERE id=%s AND manuscript_id=%s AND project_id=%s AND user_id=%s',
-            (output['version_id'], output['manuscript_id'], project, self.store.user_id)).fetchone()
-        if not version or version['task_id'] != producer['id'] or producer['status'] != 'succeeded':
+        version,producer = service.output(db,row)
+        if producer['status'] != 'succeeded':
             raise StorageError('review_revision_not_ready', '请等待公共新稿成功。', 409)
-        if version['revision']!=output['revision'] or digest(version['snapshot_json'])!=version['snapshot_sha256']:
-            raise source_conflict()
         row['_output_snapshot']=version['snapshot_json']
         from .grounded import evidence_for
         base=db.execute('SELECT snapshot_json,snapshot_sha256 FROM manuscript_versions WHERE id=%s AND manuscript_id=%s AND project_id=%s AND user_id=%s',
@@ -147,7 +138,7 @@ class ReviewDocumentService:
             revision=self.published_revision(db,project,identity)
             from app.domain.admin_configuration.rule_consumption import document_defaults
             defaults=document_defaults(db,revision['round_id'])
-            snapshot=build_snapshot(revision,request.kind,request.language or defaults['language'])
+            snapshot=build_snapshot(revision,request.kind,request.language or defaults['language'], customer_view=self.assets.customer)
             return self.insert(db,project,revision,snapshot,body,key)
 
     def version(self,project,identity,request,key):

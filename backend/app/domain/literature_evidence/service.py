@@ -80,8 +80,11 @@ class LiteratureEvidenceService:
     def material_options(self, project, page=1):
         with self.store.connection() as db:
             self.store.require_project(db, project)
-            total = db.execute("SELECT count(*) AS n FROM files WHERE project_id=%s AND file_type IN ('docx','pdf','png','jpeg')", (project,)).fetchone()['n']
-            files = db.execute("SELECT * FROM files WHERE project_id=%s AND file_type IN ('docx','pdf','png','jpeg') ORDER BY uploaded_at DESC,id LIMIT 10 OFFSET %s", (project, (page-1)*10)).fetchall()
+            types = ['docx', 'png', 'jpeg'] if self.assets.customer else ['docx', 'pdf', 'png', 'jpeg']
+            where = ' FROM files WHERE project_id=%s AND file_type=ANY(%s)' + self.assets.material_filter
+            total = db.execute('SELECT count(*) AS n' + where, (project, types)).fetchone()['n']
+            files = db.execute('SELECT *' + where + ' ORDER BY uploaded_at DESC,id LIMIT 10 OFFSET %s',
+                               (project, types, (page-1)*10)).fetchall()
             items = []
             for file in files:
                 versions = db.execute("""SELECT 'document_version' AS kind,r.id AS version_id,r.version FROM file_parse_results r
@@ -99,6 +102,9 @@ class LiteratureEvidenceService:
         row = db.execute('SELECT * FROM literature_materials WHERE id=%s AND project_id=%s AND user_id=%s', (identity, project, self.store.user_id)).fetchone()
         if not row:
             raise StorageError('literature_not_found', '文献材料不存在。', 404)
+        if self.assets.customer:
+            from app.domain.files import require_file
+            require_file(db, project, row['file_id'], material_filter=self.assets.material_filter)
         validate_request_row(row)
         reference = self.literature.require_reference(db, project, row['project_reference_id'])
         if reference['reference_id'] != row['reference_id'] or any(row[k] != row['request_json'][k] for k in ('file_id','source_kind','version_id','project_reference_id','source_description','match_note')):
@@ -135,6 +141,9 @@ class LiteratureEvidenceService:
             if project_reference_id:
                 self.literature.require_reference(db, project, project_reference_id)
             where = 'project_id=%s AND user_id=%s AND (%s::text IS NULL OR project_reference_id=%s)'
+            if self.assets.customer:
+                where += ''' AND EXISTS (SELECT 1 FROM files WHERE files.id=literature_materials.file_id'''
+                where += self.assets.material_filter + ')'
             args = (project, self.store.user_id, project_reference_id, project_reference_id)
             total = db.execute('SELECT count(*) AS n FROM literature_materials WHERE '+where, args).fetchone()['n']
             rows = db.execute('SELECT id FROM literature_materials WHERE '+where+' ORDER BY created_at DESC,id LIMIT 10 OFFSET %s', (*args,(page-1)*10)).fetchall()

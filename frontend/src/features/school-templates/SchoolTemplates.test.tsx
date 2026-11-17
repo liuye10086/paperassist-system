@@ -89,6 +89,25 @@ it('requires conflict decisions, preserves chapter edits, explicitly binds and r
  await user.click(screen.getByRole('button',{name:'绑定此确认版本'}));await screen.findByText('当前绑定版本')
  await user.click(screen.getByRole('button',{name:'刷新学校模板'}));await screen.findByText('当前绑定版本')
 })
+it('saves the GS501 formatting choice only when offered for the verified original',async()=>{
+ const {fetch}=server()
+ vi.stubGlobal('fetch',vi.fn(async(url:string,init?:RequestInit)=>{
+  const response=await fetch(url,init)
+  if(url.endsWith('/school-templates')&&!init?.method){
+   const data=await response.json();data.items[0].available_format_profile='bsu-gs501-academic-masters-2026';return Response.json(data)
+  }
+  return response
+ }))
+ const user=userEvent.setup();render(<SchoolTemplates projectId="p1" active customerView/>)
+ const choice=await screen.findByRole('checkbox',{name:'采用北体 GS501 学术型硕士排版'}) as HTMLInputElement
+ expect(choice.checked).toBe(false)
+ await user.click(choice);await user.selectOptions(screen.getByLabelText('字号冲突'),'o1')
+ await user.click(screen.getByRole('button',{name:'确认模板规则'}))
+ await waitFor(()=>{
+  const call=fetch.mock.calls.find(([url])=>url.endsWith('/confirm'))
+  expect(JSON.parse(String(call?.[1]?.body))).toMatchObject({format_profile:'bsu-gs501-academic-masters-2026'})
+ })
+})
 it('saves applicability and submits a retained source, then displays task completion',async()=>{
  const {fetch,complete}=server();const user=userEvent.setup();render(<SchoolTemplates projectId="p1" active />);await screen.findByText('正文字体')
  await user.selectOptions(screen.getByLabelText('模板 DOCX 原件'),'f1');await user.click(screen.getByRole('button',{name:'提交模板解析'}));await screen.findByText('待执行')

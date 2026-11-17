@@ -37,7 +37,19 @@ OVERRIDES={
     'narrative_review':{'introduction':('Scope and background','范围与背景'),'discussion':('Synthesis and limitations','综合讨论与局限')},
     'methods':{'introduction':('Problem and existing methods','问题与现有方法'),'materials_and_methods':('Method and procedure','方法与步骤'),'discussion':('Applicability and limitations','适用范围与限制')},
 }
-INSTRUCTIONS='''Use article-scope-v1. Return exactly writing_scope.output_section_ids and only planned/selected paragraph identities. Preserve all other local prose. Full drafts use the supplied article structure, not a generic SCI template. A narrative review synthesizes only acquired literature and scope: never invent a systematic search, screening, original experiment or study results. Methods validation must use actual frozen validation evidence; if unavailable return only the supplied validation-gap text. Briefs must retain critical methods and limitations while meeting confirmed limits; unconfirmed limits remain gaps. Polish changes wording only: preserve facts, numeric expressions, citation premises and conclusion strength. Expand/restructure may only use frozen paragraph lineage and selected new sources; never transfer old review decisions to changed text. References remain server-owned. All new claims require the existing explicit human scientific and language review.'''
+_ARTICLE_RULES='''Preserve all other local prose. Full drafts use the supplied article structure, not a generic SCI template. A narrative review synthesizes only acquired literature and scope: never invent a systematic search, screening, original experiment or study results. Methods validation must use actual frozen validation evidence; if unavailable return only the supplied validation-gap text. Briefs must retain critical methods and limitations while meeting confirmed limits; unconfirmed limits remain gaps. Polish changes wording only: preserve facts, numeric expressions, citation premises and conclusion strength. Expand/restructure may only use frozen paragraph lineage and selected new sources; never transfer old review decisions to changed text. References remain server-owned. All new claims require the existing explicit human scientific and language review.'''
+INSTRUCTIONS='Use article-scope-v1. Return exactly writing_scope.output_section_ids and only planned/selected paragraph identities. '+_ARTICLE_RULES
+SCI_PROSE_INSTRUCTIONS=(
+    'Use article-scope-v1. Return sections in the exact order of writing_scope.output_section_ids. '
+    'Write at least one non-empty paragraph in every requested section, with exactly one paragraph in the title section. '
+    'A full draft can assign new, unique paragraph IDs. Scoped edits use exactly the planned or selected paragraph IDs. '
+    + _ARTICLE_RULES + ' '
+    'Write ordinary manuscript prose and express source attribution within sentences. '
+    'Treat field labels, source headings, interface text, workflow notes and internal identifiers as input context. '
+    'Exclude those labels from the manuscript. Describe the documented source or observation in its place. '
+    'When evidence is missing for a section, use the supplied aim, observations or methods to state the specific scope '
+    'or limitation relevant to that section. Never invent results, methods, citations or literature claims.'
+)
 
 
 def labels(kind):
@@ -107,7 +119,7 @@ def has_validation(payload):
     return bool(payload.get('validation_source_aliases'))
 
 
-def build_bundle(base,request,frozen):
+def build_bundle(base,request,frozen,*,include_reported_results=True):
     from .bundle import build_bundle as common,safe_text
     from .school_live import build_bundle as school_bundle
     from .frozen import wire_parts
@@ -116,12 +128,16 @@ def build_bundle(base,request,frozen):
     school=bool(base.get('thesis_context'))
     if (request['document_kind']=='thesis')!=school or frozen['document_kind']!=request['document_kind']:raise ValueError('Frozen document kind mismatch')
     sections=structure(base,request);editing=scope(base,request,sections)
-    seed_contract={k:deepcopy(v) for k,v in frozen.items() if k not in ('document_kind','article_scope_version','numeric_contract_version')}
+    seed_contract={k:deepcopy(v) for k,v in frozen.items()
+                   if k not in ('document_kind','article_scope_version','numeric_contract_version','article_instruction_revision')}
     seed_contract['schema_version']=3 if school else 2
     seed_request=dict(request,mode='full_draft',target_section=None)
     if school:seed_contract.update(numeric_contract_version=2,school_content_version='school-live-v1')
     seed=(school_bundle if school else common)(base,seed_request,seed_contract) if school else common(base,seed_request,execution_contract=seed_contract)
     payload=json.loads(json.loads(seed['wire_json'])['input']);local=seed['local_manifest']
+    if include_reported_results and not school and request['article_type']=='research':
+        from .numeric_contract import add_reported_results
+        add_reported_results(base,request,payload,local,safe_text)
     if request['article_type']=='narrative_review' and not school:
         prohibited=[s for s in payload['sources'] if s.get('role') in ('computed_results','user_results','image_observation') or s.get('kind')=='analysis_run']
         if prohibited:raise ValueError('Narrative review uses acquired literature evidence, not original study results')
@@ -196,10 +212,13 @@ def build_bundle(base,request,frozen):
         local_manifest=local,omitted_manifest=seed['omitted_manifest'],policy_version=POLICY_VERSION)
 
 
-def output_schema(payload):
+def output_schema(payload,*,require_paragraph=False):
     from .numeric_contract import output_schema as numeric_schema
     result=numeric_schema(payload);ids=payload['writing_scope']['output_section_ids']
-    result['$defs']['LiveSection']['properties']['id']=dict(type='string',enum=ids)
+    section=result['$defs']['LiveSection']['properties']
+    section['id']=dict(type='string',enum=ids)
+    if require_paragraph:
+        section['paragraphs']['minItems']=1
     result['properties']['sections'].update(minItems=len(ids),maxItems=len(ids))
     return result
 

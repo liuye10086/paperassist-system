@@ -6,7 +6,7 @@ from app.domain.manuscripts.illustrations import BODY_REFERENCE, check_reference
 from .context import NUMBER, WritingCitationScopeError
 from .live_notice import COMPOSITION_VERSION, update_notice
 from .numeric_review import NUMERIC_VERSION,validation_version,numbers as signed_numbers,value as numeric_value
-from .numeric_contract import is_numeric_v2,context_facts
+from .numeric_contract import REPORTED_RESULTS_LOCATION, is_numeric_v2, context_facts
 
 def body_digest(candidate):
     """JSON digest of exact pre-citation prose, including title and abstract."""
@@ -42,6 +42,9 @@ def prepare(raw,snapshot,bundle,body,resolve_claim,*,numeric_version=NUMERIC_VER
     contextual=is_numeric_v2(bundle)
     contexts={alias:{(path,numeric_value(value) if strict else value) for path,value in values}
               for alias,values in context_facts(bundle).items()} if contextual else {}
+    manifest = bundle['local_manifest']
+    report_sources = {alias: row['source_ids'] for alias, row in manifest.get('numeric_context', {}).items()
+                      if row['location'] == REPORTED_RESULTS_LOCATION}
     fragments={}
     for section in candidate['sections']:
         for paragraph in section['paragraphs']:
@@ -52,6 +55,10 @@ def prepare(raw,snapshot,bundle,body,resolve_claim,*,numeric_version=NUMERIC_VER
                 raise ValueError('Provided-context decisions require the frozen numeric contract')
             text=decision['corrected_text'] if decision['corrected_text'] is not None else paragraph['text']
             if digest(text)!=decision['text_sha256']: raise ValueError('Decision does not bind exact corrected text')
+            source_ids = []
+            if (report_sources and text == paragraph['text'] and paragraph['origin'] == 'model_generated'
+                    and decision['classification'] == 'study_claim'):
+                source_ids.extend(manifest['sources'][alias] for alias in paragraph.get('suggested_source_aliases', []))
             paragraph['text']=text
             literature=decision['classification'] in ('literature_claim','mixed_claim')
             if literature!=(decision['claim'] is not None): raise ValueError('Literature classification requires a new exact claim')
@@ -68,11 +75,13 @@ def prepare(raw,snapshot,bundle,body,resolve_claim,*,numeric_version=NUMERIC_VER
                 if bound['kind']=='study':
                     if decision['classification'] not in ('study_claim','mixed_claim','context_claim') or bound['evidence_id'] is not None or (bound['fact_path'],value) not in facts.get(bound['source_alias'],set()): raise ValueError('Study number lacks an exact frozen fact')
                     if school and bound['source_alias'] not in allowed_sources(candidate,bundle['local_manifest'],section):raise ValueError('Study number belongs to another school chapter')
+                    source_ids.append(manifest['sources'][bound['source_alias']])
                 elif bound['kind']=='context':
                     if decision['classification'] not in ('context_claim','mixed_claim') or bound['evidence_id'] is not None or (bound['fact_path'],value) not in contexts.get(bound['source_alias'],set()): raise ValueError('Context number lacks an explicit exact frozen-context decision')
                     if school:
                         frozen_chapter=next(c for c in bundle['local_manifest']['school']['chapters'].values() if c['chapter_id']==section['id'])
                         if bound['source_alias'] not in frozen_chapter['allowed_context_aliases']:raise ValueError('Context belongs to another school chapter')
+                    source_ids.extend(report_sources.get(bound['source_alias'], []))
                 elif bound['kind']=='literature':
                     evidence=[e for b in fragment.get('bindings',[]) for e in b['evidence'] if e['id']==bound['evidence_id']]
                     if not literature or bound['source_alias'] is not None or bound['fact_path'] is not None or not evidence or value not in (signed_numbers if strict else NUMBER.findall)(evidence[0]['quote']): raise ValueError('Literature number lacks exact new-claim reviewed evidence')
@@ -80,7 +89,7 @@ def prepare(raw,snapshot,bundle,body,resolve_claim,*,numeric_version=NUMERIC_VER
                     raise ValueError('Unknown numeric decision kind')
             paragraph.update(verification_status='scientific_reviewed',numeric_bindings=deepcopy(bindings),
                 citations=deepcopy(fragment.get('bindings',[])),science_review=dict(classification=decision['classification'],basis=decision['scientific_basis'],text_sha256=digest(text)),
-                source_ids=list(dict.fromkeys(bundle['local_manifest']['sources'][b['source_alias']] for b in bindings if b['kind']=='study')))
+                source_ids=list(dict.fromkeys(source_ids)))
     if body_digest(candidate)!=body['consistency']['body_sha256']: raise ValueError('Title and abstract decisions bind a different body')
     if school:
         abstracts={s['id'] for s in candidate['sections'] if s['purpose']=='abstract'}

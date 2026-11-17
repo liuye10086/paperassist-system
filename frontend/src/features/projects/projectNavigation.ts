@@ -2,7 +2,7 @@ import {isInsightView} from '../bio-insights/state';
 import type { ProjectSection, WorkspaceView } from './WorkspaceShell';
 import { isTaskId } from '../tasks/taskTypes';
 import type { ResourceNavigation } from './resourceViews';
-import { reviewViews, taskDetailViews, type ReviewView, type TaskDetailView } from './reviewViews';
+import { isReviewItemId, reviewViews, taskDetailViews, type ReviewView, type TaskDetailView } from './reviewViews';
 import type { LiteratureNavigation } from './literatureViews';
 import { analysisEntryIntents, analysisViews, bioResultTabs, isBulkWorkflowView, supportsResultOrigin, type AnalysisNavigation, type ArtifactNavigation } from './analysisViews';
 import {isBulkPanel} from '../bio-insights/bulk'
@@ -199,10 +199,11 @@ export function parseNavigation(hash: string): NavigationRoute | null {
     }
     if (section === 'reviews') {
         const view = p.get('view') ?? (p.has('reviewDocument') ? 'documents' : p.has('reviewRun') ? 'revision' : p.has('round') ? 'items' : p.has('reviewManuscript') ? 'create' : 'list');
-        if (!(reviewViews as readonly string[]).includes(view) || !id('item') || p.has('item') && !p.has('round')) return null;
+        const itemId = p.get('item');
+        if (!(reviewViews as readonly string[]).includes(view) || itemId !== null && (!isReviewItemId(itemId) || !p.has('round'))) return null;
         if (!p.has('round') && !['list','create','progress'].includes(view) || p.has('round') && view === 'create') return null;
         r.reviewView = view as ReviewView;
-        r.reviewItemId = p.get('item') ?? '';
+        r.reviewItemId = itemId ?? '';
         if (!['round', 'reviewManuscript', 'reviewRun', 'reviewDocument'].every(id) || p.has('round') && (p.has('reviewManuscript') || p.has('reviewRevision')) || p.has('reviewRun') && !p.has('round') || p.has('reviewDocument') && !p.has('reviewRun') || p.has('reviewManuscript') !== p.has('reviewRevision') || p.has('reviewRevision') && !revision('reviewRevision'))
             return null;
         r.reviewLink = { round: p.get('round') ?? '', manuscript: p.get('reviewManuscript') ?? '', revision: Number(p.get('reviewRevision') ?? 0), run: p.get('reviewRun') ?? '', document: p.get('reviewDocument') ?? '' };

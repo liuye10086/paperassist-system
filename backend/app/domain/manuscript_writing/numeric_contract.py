@@ -3,6 +3,9 @@ from copy import deepcopy
 from app.domain.manuscripts.illustrations import BODY_REFERENCE
 from .numeric_review import numbers, value as numeric_value
 
+REPORTED_RESULTS_LOCATION = 'reported_results'
+REPORTED_RESULTS_INSTRUCTION = '''Numeric context at reported_results contains explicitly user-reported results. Keep the attribution and distinguish these values from system-computed results. Use the exact context alias, path and value for each reported number. The selected material aliases indicate the frozen sources for that report.'''
+
 INSTRUCTION = '''Use numeric contract 2. The source facts are the complete finite list of computed study values. Numeric context c-aliases describe provided methods or frozen illustration text, never computed study findings. Evidence e-aliases only offer quoted literature values pending new human claim review. For every numeric expression other than a valid figure/table identity, use a study_numeric_bindings row with an exact catalog source_alias, fact_path and value; this legacy field now carries typed catalog suggestions. Do not invent paths, change signs or precision, bind a figure/table number as a study fact, or use an evidence alias as a blanket numeric exemption. source_aliases lists only selected s-aliases; c-aliases belong only in binding rows. Keep provided-method statements separate from new study claims where possible. All suggestions remain pending scientific and language review.'''
 
 # INSTRUCTION is frozen for contracts without an explicit instruction revision.
@@ -32,6 +35,24 @@ def context_facts(bundle):
 def text_facts(text, prefix):
     return [dict(fact_path=f'{prefix}/{i}', value=v)
             for i, v in enumerate(numbers(BODY_REFERENCE.sub('', text)))]
+
+
+def add_reported_results(base, request, payload, local, safe_text):
+    """Project the explicitly bound report without mixing it into study facts."""
+    paragraph = next((paragraph for group in base.get('results_groups', []) if group['id'] == 'reported-result'
+                      for paragraph in group['paragraphs'] if paragraph['id'] == 'results:reported'), None)
+    if paragraph is None or paragraph['origin'] != 'user_provided' or paragraph.get('citations'):
+        return
+    source_ids = paragraph['source_ids']
+    if not source_ids or not set(source_ids) <= set(request['selected_source_ids']):
+        return
+    alias = f"c{len(local['numeric_context']) + 1}"
+    text = safe_text(paragraph['text'])
+    row = dict(kind='provided_context', location=REPORTED_RESULTS_LOCATION, origin='user_provided',
+               text=text, values=text_facts(text, '/numbers'))
+    local['numeric_context'][alias] = dict(deepcopy(row), source_ids=deepcopy(source_ids))
+    source_aliases = [key for key, source_id in local['sources'].items() if source_id in source_ids]
+    payload['numeric_context'].append(dict(row, alias=alias, source_aliases=source_aliases))
 
 
 def add_catalogs(base, request, payload, local, safe_text):

@@ -3,6 +3,8 @@ import {afterEach,expect,it,vi} from 'vitest'
 import ProjectManuscripts from './ProjectManuscripts'
 import ManuscriptPreview from './ManuscriptPreview'
 import ManuscriptWriting from './ManuscriptWriting'
+import ManuscriptExports from './ManuscriptExports'
+import {emptyPresentation} from './presentationTypes'
 import ManuscriptReview from './ManuscriptReview'
 import WritingLanguageReview from './WritingLanguageReview'
 import {reviewContext} from './reviewFixtures'
@@ -10,7 +12,7 @@ import {taskFixture} from '../tasks/taskFixtures'
 import {setLocale} from '../../shared/i18n'
 import {candidatesFixture,exportFixture,manuscriptFixture,snapshotFixture} from './manuscriptFixtures'
 import {languageArtifact,scienceReview} from './writingLiveFixtures'
-import {emptyInput,validInput,validSnapshot,type Snapshot,type ManuscriptVersion} from './manuscriptTypes'
+import {emptyInput,validInput,validManuscript,validSnapshot,type Snapshot,type ManuscriptVersion} from './manuscriptTypes'
 const profile={revision:2,school:'测试学校',department:'',major:'',degree_type:'硕士',education_level:'研究生',applicable_version:'2026',bound_confirmation_id:'confirm1'}
 const chapters=[{id:'chapter-method',title:'第二章 独立方法',level:1,purpose:'materials_and_methods',output_language:'en',result_group_ids:[]},{id:'chapter-result',title:'第三章 实验结果',level:2,purpose:'results',output_language:'zh-CN',result_group_ids:['g1']}]
 const school={schema_version:1,profile,template_version_id:'template1',confirmation_id:'confirm1',confirmation_sha256:'a'.repeat(64),confirmation:{id:'confirm1',chapters:chapters.map(({id,title,level})=>({id,title,level}))},source_files:[],chapters}
@@ -22,6 +24,22 @@ it('accepts frozen school chapters but rejects metadata order mismatches',()=>{
  expect(validSnapshot(snapshot,'p1')).toBe(true)
  expect(validSnapshot({...snapshot,school_content_report:undefined},'p1')).toBe(false)
  expect(validSnapshot({...snapshot,sections:[...snapshot.sections!].reverse()},'p1')).toBe(false)
+})
+it('admits typed numeric bindings from a retained school migration context',()=>{
+ const school_change_provenance={
+  schema_version:1,kind:'template_migration',change_id:'change-1',base_version_id:'v2',base_revision:2,
+  input_sha256:'a'.repeat(64),preview_sha256:'b'.repeat(64),source:{target_confirmation_id:school.confirmation_id},
+  mappings:chapters.map(c=>({input_section_id:c.id,chapter_id:c.id})),retained_writing_context:1,
+ }
+ const numeric={occurrence:0,kind:'context',value:'24',source_alias:'m1',fact_path:'/samples/0'}
+ const sections=snapshot.sections!.map((chapter,i)=>i===0?{...chapter,paragraphs:
+  chapter.paragraphs.map(p=>({...p,text:'24 samples',numeric_bindings:[numeric]}))}:chapter)
+ const adopted={...snapshot,sections,school_change_provenance}
+ const version={...manuscriptFixture.versions[0],id:'v3',revision:3,parent_version_id:'v2',snapshot:adopted,exports:[]}
+ expect(validManuscript({...manuscriptFixture,current_revision:3,versions:[version]},'p1')).toBe(true)
+ expect(validSnapshot({...adopted,school_change_provenance:undefined},'p1')).toBe(false)
+ expect(validSnapshot({...adopted,school_change_provenance:{...school_change_provenance,kind:'docx_return'}},'p1')).toBe(false)
+ expect(validSnapshot({...adopted,school_change_provenance:{...school_change_provenance,source:{target_confirmation_id:'other'}}},'p1')).toBe(false)
 })
 it('previews school order, actual titles and per-chapter language with a table only once',()=>{
  render(<ManuscriptPreview snapshot={snapshot}/>)
@@ -79,6 +97,74 @@ it('opens fixed school export while keeping controlled writing available',async(
  expect(screen.getByRole('button',{name:'受控写作与人工审核'})).toBeTruthy()
  expect(fetcher.mock.calls.every(([,init])=>!init?.method)).toBe(true)
 })
+
+it('exports reviewed school options by default and binds blind Word to a saved configuration for the same version',async()=>{
+ const schoolOptions={manual_fields:{author:'合成作者',student_id:'',department:'',major:'',class_name:'',supervisor:'',submission_date:''},
+  manual_chapters:[],english_title:'Reviewed title',keywords:[],include_toc:true,toc_depth:3}
+ const version:ManuscriptVersion={...manuscriptFixture.versions[0] as ManuscriptVersion,exports:[],snapshot:{...snapshot,writing_provenance:{
+  ...scienceReview.candidate.writing_provenance!,language_review_id:'language-review-1',school_export_options:schoolOptions,
+ }}}
+ const config=emptyPresentation()
+ const saved={id:'blind-config',schema_version:1,manuscript_id:'m1',base_version_id:version.id,peer_version_id:null,
+  revision:1,config:{...config,blind:{...config.blind,identity_terms:['补充身份词']}},checks:[],paragraph_groups:[],
+  quality:{scientific_semantic:'pending',word_wps:'pending',real_compliance:'pending'},can_export:true,stale:false,stale_version_ids:[]}
+ const exportPath='/api/v1/projects/p1/manuscripts/m1/versions/1/exports'
+ const fetcher=vi.fn(async(url:string,init?:RequestInit)=>{
+  if(url.endsWith('/presentations'))return Response.json(init?.method==='POST'?saved:{items:[]})
+  if(url===exportPath&&init?.method==='POST')return Response.json(exportFixture)
+  if(url===exportPath)return Response.json({items:[]})
+  return new Response(null,{status:404})
+ })
+ vi.stubGlobal('fetch',fetcher)
+ render(<ManuscriptExports projectId="p1" manuscriptId="m1" version={version} customerThesis/>)
+ expect(screen.getByLabelText('作者')).toHaveProperty('value','合成作者')
+ expect(screen.getByLabelText('作者').matches(':disabled')).toBe(true)
+ expect(fetcher.mock.calls.some(([url])=>url.endsWith('/presentations'))).toBe(false)
+ fireEvent.click(screen.getByRole('button',{name:'生成 DOCX'}))
+ await waitFor(()=>expect(fetcher.mock.calls.find(([url,init])=>url===exportPath&&init?.method==='POST')?.[1]?.body).toBe('{}'))
+ const mode=screen.getByRole('button',{name:'独立盲审派生稿'})
+ await waitFor(()=>expect(mode.matches(':disabled')).toBe(false))
+ fireEvent.click(mode)
+ expect(screen.queryByLabelText('关联的另一语言固定版本')).toBeNull()
+ expect(screen.getByRole('button',{name:'生成 DOCX'}).matches(':disabled')).toBe(true)
+ fireEvent.change(screen.getByLabelText('明确隐藏的身份词'),{target:{value:'补充身份词'}})
+ const save=screen.getByRole('button',{name:'保存盲审配置'})
+ await waitFor(()=>expect(save.matches(':disabled')).toBe(false))
+ fireEvent.click(save)
+ await waitFor(()=>expect(screen.getByRole('button',{name:'生成 DOCX'}).matches(':disabled')).toBe(false))
+ fireEvent.click(screen.getByRole('button',{name:'生成 DOCX'}))
+ await waitFor(()=>expect(fetcher.mock.calls.filter(([url,init])=>url===exportPath&&init?.method==='POST')).toHaveLength(2))
+ const blind=fetcher.mock.calls.filter(([url,init])=>url===exportPath&&init?.method==='POST')[1]
+ expect(JSON.parse(String(blind[1]?.body))).toEqual({presentation_version_id:saved.id,language_view:'zh-CN',review_mode:'blind'})
+ expect(screen.queryByRole('link',{name:/交付登记/})).toBeNull()
+})
+
+it('uses inherited thesis cover defaults for the revised Word and allows deliberate edits to the new export', async () => {
+ const schoolOptions = {
+  manual_fields:{author:'父稿封面作者',student_id:'',department:'',major:'',class_name:'',supervisor:'',submission_date:''},
+  manual_chapters:[],english_title:'Inherited title',keywords:[],include_toc:true,toc_depth:2,
+ }
+ const version: ManuscriptVersion = {
+  ...manuscriptFixture.versions[0] as ManuscriptVersion, exports:[],
+  snapshot:{...snapshot,review_school_layout:{options:schoolOptions}},
+ }
+ const fetcher=vi.fn(async(_url:string,init?:RequestInit)=>Response.json(init?.method==='POST'?exportFixture:{items:[]}))
+ vi.stubGlobal('fetch',fetcher)
+ render(<ManuscriptExports projectId="p1" manuscriptId="m1" version={version} customerThesis/>)
+ const author=screen.getByLabelText('作者')
+ expect(author).toHaveProperty('value','父稿封面作者')
+ expect(author.matches(':disabled')).toBe(false)
+ expect(screen.getByLabelText('目录深度')).toHaveProperty('value','2')
+ fireEvent.change(author,{target:{value:'核对后的作者'}})
+ fireEvent.click(screen.getByRole('button',{name:'生成 DOCX'}))
+ await waitFor(()=>{
+  const posted=fetcher.mock.calls.find(([,init])=>init?.method==='POST')
+  expect(JSON.parse(String(posted?.[1]?.body))).toMatchObject({
+   school:{...schoolOptions,manual_fields:{...schoolOptions.manual_fields,author:'核对后的作者'}},
+  })
+ })
+})
+
 it('localizes the frozen school export options in a selected historical language review',async()=>{
  setLocale('en')
  const schoolOptions={

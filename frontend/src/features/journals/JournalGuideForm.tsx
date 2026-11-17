@@ -8,7 +8,7 @@ const date=()=>new Date().toLocaleDateString('sv-SE')
 const empty=():GuideRequest=>({profile_id:'',name:'',source_type:'user_provided',source_text:'',source_url:'',official_url:'',source_version:'',acquired_on:date(),verified_on:date(),article_types:[],conditions:'',permission:'',permission_status:'unknown',source_status:'available',requirements:[],extract:true})
 type RuleDraft=Requirement&{min:string;max:string;input:string;names:Record<string,string>}
 const newRule=():RuleDraft=>({id:crypto.randomUUID(),key:'word_limit',value:null,status:'unknown',quote:'',location:'',article_type:null,count_method:null,origin:'journal',note:'',min:'',max:'',input:'',names:{}})
-const numeric=(k:RuleKey)=>['word_limit','abstract_word_limit','figure_limit','table_limit','reference_limit','dpi'].includes(k)
+const numeric=(k:RuleKey)=>['word_limit','abstract_word_limit','figure_limit','table_limit','figure_table_limit','reference_limit','dpi'].includes(k)
 const listing=(k:RuleKey)=>['required_sections','section_order','abstract_headings'].includes(k)
 export default function JournalGuideForm({projectId,profiles,guides,materials,busy,onUnavailable,onSave,registerLeaveGuard,taskLayout=false}:{projectId:string;profiles:Profile[];guides:Guide[];materials:MaterialCandidate[];busy:boolean;onUnavailable:()=>void;onSave:(v:GuideRequest)=>Promise<boolean>;registerLeaveGuard?:RegisterLeaveGuard;taskLayout?:boolean}){
  const {t}=useI18n();const [dirty,setDirty]=useState(false);useDraftLeaveGuard(registerLeaveGuard,dirty,false)

@@ -35,6 +35,7 @@ export const researchResultsMessages:Record<string,string> = {
   "使用原请求重试": "Retry the original request",
   "提交结果待核对，请刷新受控写作记录；模型提交未知时不得自动重发。": "Submission status needs checking. Refresh controlled writing records; unknown model submissions must not be resent automatically.",
   "使用原预览请求重试": "Retry the original preview request",
+  "使用原写作请求重试": "Retry the original writing request",
   "核对受控写作记录": "Check controlled writing records",
   "提交结果待核对，原请求与当前输入不一致。": "Submission status needs checking; the original request differs from the current input.",
   "提交结果待核对，请刷新任务并使用原请求重试。": "Submission status needs checking. Refresh tasks and retry the original request.",

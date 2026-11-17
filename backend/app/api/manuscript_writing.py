@@ -6,6 +6,7 @@ from fastapi import APIRouter,Response
 from app.api.dataset_preparation import Store,Key
 from app.domain.manuscript_writing.contracts import WritingRequest,PublishRequest
 from app.domain.manuscript_writing.service import WritingService
+from app.core.exceptions import StorageError
 router=APIRouter(prefix='/api/v1/projects/{project_id}/manuscripts/{manuscript_id}/writing-requests',tags=['SCI写作'])
 
 @router.post('',status_code=202)
@@ -21,6 +22,8 @@ def get(project_id:str,manuscript_id:str,request_id:str,store:Store): return Wri
 
 @router.post('/{request_id}/publish',status_code=201)
 def publish(project_id:str,manuscript_id:str,request_id:str,request:PublishRequest | ReviewedPublishRequest,response:Response,store:Store,idempotency_key:Key):
+    if store.customer and not isinstance(request, ReviewedPublishRequest):
+        raise StorageError('customer_operation_forbidden', '论文稿件须完成科学和语言复核后采用。', 403)
     result,response.status_code=WritingService(store).publish(project_id,manuscript_id,request_id,request.expected_revision,idempotency_key,request if isinstance(request,ReviewedPublishRequest) else None)
     return result
 

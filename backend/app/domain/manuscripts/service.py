@@ -12,7 +12,7 @@ from app.domain.literature.service import digest
 from app.domain.literature_citations.service import LiteratureCitationService
 from .contracts import ManuscriptRequest,METHOD_FIELDS,WORKFLOW,ExportRequest,SchoolExportOptions
 from .draft import freeze
-from .sources import changes,read_source
+from .sources import changes, customer_can_use_analysis, read_source, require_visible_snapshot
 
 def now(): return datetime.now(timezone.utc)
 def missing(): return StorageError('manuscript_not_found','事实稿或版本不存在。',404)
@@ -38,7 +38,9 @@ class ManuscriptService:
         items=[]
         with self.store.connection() as db:
             self.require_project(db,project)
-            files=db.execute('SELECT * FROM files WHERE project_id=%s ORDER BY uploaded_at DESC,id',(project,)).fetchall()
+            kinds = " AND file_type IN ('docx','xlsx','png','jpeg')" if self.assets.customer else ''
+            files=db.execute('SELECT * FROM files WHERE project_id=%s'+self.assets.material_filter+kinds+' ORDER BY uploaded_at DESC,id',(project,)).fetchall()
+            include_analysis = customer_can_use_analysis(db, self.assets, project)
             for file in files:
                 prefix=f'/api/v1/projects/{project}/files/{file["id"]}'
                 def item(kind,identity,label,version=None,roles=None,url=None):
@@ -49,25 +51,41 @@ class ManuscriptService:
                     rows=db.execute('SELECT v.id,v.version FROM '+table+" v JOIN tasks t ON t.id=v.task_id WHERE v.file_id=%s AND t.user_id=%s AND t.project_id=%s AND t.status='succeeded' ORDER BY v.version DESC",(file['id'],self.store.user_id,project)).fetchall()
                     for row in rows: item(kind,row['id'],file['filename']+' — '+('文档解析 / Parsed document' if kind=='document_version' else '人工核对 / Human reviewed')+' v'+str(row['version']),row['version'])
                 for row in db.execute("SELECT id,snapshot_json->>'title' AS title,version FROM external_evidence_versions WHERE file_id=%s AND project_id=%s AND user_id=%s ORDER BY version DESC",(file['id'],project,self.store.user_id)).fetchall(): item('external_evidence_version',row['id'],row['title'],row['version'])
-                for row in db.execute('SELECT id,setup_revision,engine_version FROM analysis_runs WHERE file_id=%s ORDER BY completed_at DESC,id',(file['id'],)).fetchall():
-                    item('analysis_run',row['id'],file['filename']+' — 统计结果 / Statistical result v'+str(row['setup_revision']),row['setup_revision'],['computed_results'],prefix+'/analysis-runs/'+row['id'])
-                for row in db.execute('SELECT f.id,f.figure_json FROM figures f JOIN analysis_runs a ON a.id=f.analysis_run_id WHERE a.file_id=%s ORDER BY f.id',(file['id'],)).fetchall():
-                    import json
-                    figure=json.loads(row['figure_json']);item('figure',row['id'],figure['title'],roles=['image_observation'])
-                for row in db.execute('SELECT r.id,r.report_json FROM reports r JOIN analysis_runs a ON a.id=r.analysis_run_id WHERE a.file_id=%s ORDER BY r.id',(file['id'],)).fetchall():
-                    import json
-                    report=json.loads(row['report_json'])
-                    item('analysis_report',row['id'],report['filename'],report['setup_revision'],['user_results'],prefix+'/analysis-runs/'+report['analysis_run_id']+'/report/'+row['id']+'/download')
-                for row in db.execute("SELECT r.id,r.report_json,v.collection_id FROM collection_reports r JOIN report_collection_versions v ON v.id=r.version_id JOIN report_collections c ON c.id=v.collection_id WHERE c.project_id=%s AND r.input_json->'items'->0->'result'->>'file_id'=%s ORDER BY r.id",(project,file['id'])).fetchall():
-                    report=row['report_json']
-                    item('collection_report',row['id'],report['filename'],report['export_revision'],['user_results'],f"/api/v1/projects/{project}/report-collections/{row['collection_id']}/reports/{row['id']}/download")
-                for row in db.execute('SELECT id,snapshot_json FROM manuscript_figure_language_versions WHERE file_id=%s AND project_id=%s AND user_id=%s ORDER BY created_at,id',(file['id'],project,self.store.user_id)).fetchall():
+                if include_analysis:
+                    for row in db.execute('SELECT id,setup_revision,engine_version FROM analysis_runs WHERE file_id=%s ORDER BY completed_at DESC,id',(file['id'],)).fetchall():
+                        item('analysis_run',row['id'],file['filename']+' — 统计结果 / Statistical result v'+str(row['setup_revision']),row['setup_revision'],['computed_results'],prefix+'/analysis-runs/'+row['id'])
+                    for row in db.execute('SELECT f.id,f.figure_json FROM figures f JOIN analysis_runs a ON a.id=f.analysis_run_id WHERE a.file_id=%s ORDER BY f.id',(file['id'],)).fetchall():
+                        import json
+                        figure=json.loads(row['figure_json']);item('figure',row['id'],figure['title'],roles=['image_observation'])
+                    for row in db.execute('SELECT r.id,r.report_json FROM reports r JOIN analysis_runs a ON a.id=r.analysis_run_id WHERE a.file_id=%s ORDER BY r.id',(file['id'],)).fetchall():
+                        import json
+                        report=json.loads(row['report_json'])
+                        item('analysis_report',row['id'],report['filename'],report['setup_revision'],['user_results'],prefix+'/analysis-runs/'+report['analysis_run_id']+'/report/'+row['id']+'/download')
+                    for row in db.execute("SELECT r.id,r.report_json,r.input_json,v.collection_id FROM collection_reports r JOIN report_collection_versions v ON v.id=r.version_id JOIN report_collections c ON c.id=v.collection_id WHERE c.project_id=%s AND r.input_json->'items'->0->'result'->>'file_id'=%s ORDER BY r.id",(project,file['id'])).fetchall():
+                        try:
+                            require_visible_snapshot(self.assets, db, project, row['input_json'])
+                        except StorageError as exc:
+                            if exc.code != 'manuscript_source_not_visible':
+                                raise
+                            continue
+                        report=row['report_json']
+                        item('collection_report',row['id'],report['filename'],report['export_revision'],['user_results'],f"/api/v1/projects/{project}/report-collections/{row['collection_id']}/reports/{row['id']}/download")
+                for row in db.execute('SELECT id,figure_id,replacement_file_id,snapshot_json FROM manuscript_figure_language_versions WHERE file_id=%s AND project_id=%s AND user_id=%s ORDER BY created_at,id',(file['id'],project,self.store.user_id)).fetchall():
+                    if row['figure_id'] and not include_analysis: continue
+                    if row['replacement_file_id']:
+                        try: require_visible_snapshot(self.assets,db,project,{'file_id':row['replacement_file_id']})
+                        except StorageError as exc:
+                            if exc.code!='manuscript_source_not_visible': raise
+                            continue
                     figure=row['snapshot_json']
                     item('figure_language_version',row['id'],figure['title']+' ['+figure['output_language']+']',roles=['image_observation'],
                         url=f"/api/v1/projects/{project}/manuscript-figure-language-versions/{row['id']}/download")
             drafts=[]
             for root in self.citations.rows(db,'literature_citation_drafts',project):
-                _,row=self.citations.draft_row(db,project,root['id'])
+                try: _,row=self.citations.draft_row(db,project,root['id'])
+                except StorageError as exc:
+                    if exc.code!='manuscript_source_not_visible': raise
+                    continue
                 snap=row['snapshot_json']
                 drafts.append(dict(id=root['id'],revision=row['revision'],title=snap['title'],usable=not bool(self.citations.current_changes(db,project,snap))))
         config=self.config(project)
@@ -120,7 +138,11 @@ class ManuscriptService:
         self.validate_version(db,row)
         return row
 
+    def require_visible_version(self, db, row):
+        require_visible_snapshot(self.assets, db, row['project_id'], row['snapshot_json'])
+
     def validate_version(self,db,row):
+        self.require_visible_version(db, row)
         snap=row['snapshot_json']
         if row['request_json'].get('kind')=='research_results_methods':
             from .research_sources import validate_version
@@ -300,21 +322,28 @@ class ManuscriptService:
         db.execute('SELECT id FROM manuscripts WHERE id=%s FOR UPDATE',(identity,)).fetchone()
         root=self.root(db,project,identity)
         if root['current_revision']!=frozen['expected_current_revision']:raise StorageError('manuscript_revision_conflict','稿件已有新版本，请刷新后重新采用固定父稿。',409)
-        if base['id']!=adaptation['manuscript_version_id'] or self.version(db,project,identity,base['revision'])!=base:raise source_conflict()
-        db.execute('SELECT id FROM review_rounds WHERE id=%s FOR UPDATE',(adaptation['round_id'],)).fetchone()
         from app.domain.review_rounds.revisions import RevisionService
-        _,expected,result=RevisionService(self.assets).compute(db,adaptation)
+        from .research_sources import KINDS,bind
+        reviews=RevisionService(self.assets)
+        if base['id']!=adaptation['manuscript_version_id'] or reviews.manuscript_row(db,project,identity,base['revision'])!=base:raise source_conflict()
+        db.execute('SELECT id FROM review_rounds WHERE id=%s FOR UPDATE',(adaptation['round_id'],)).fetchone()
+        _,expected,result=reviews.compute(db,adaptation)
         if not result['actual_changes'] or any(i['severity']=='error' for i in result['public_issues']):raise source_conflict()
         if candidate!=expected:raise source_conflict()
         self.verify_task(db,self.store.require_task(db,base['task_id']),current=True,_review_candidate=candidate)
         revision=root['current_revision']+1;version_id=str(uuid4());timestamp=now()
-        body=dict(base['request_json'],expected_revision=revision-1,sources=[{k:s[k] for k in ('kind','id','file_id','role')} for s in candidate['sources']])
+        body=dict(base['request_json'],expected_revision=revision-1)
+        if body.get('kind')!='research_results_methods':
+            body['sources']=[{k:s[k] for k in ('kind','id','file_id','role')} for s in candidate['sources']]
         producer=self.task(db,project,'manuscript_draft',dict(project_id=project,manuscript_id=identity,manuscript_version_id=version_id,revision=revision,output_language=candidate['output_language'],workflow_version=WORKFLOW,snapshot_sha256=digest(candidate)),'manuscript:'+version_id,validated_sources=candidate['sources'])
         from app.domain.admin_configuration.rule_consumption import inherit_task
         inherit_task(db,producer,parent_task=adaptation['task_id'])
         fields=dict(id=version_id,project_id=project,user_id=self.store.user_id,idempotency_key='review-revision:'+adaptation['id'],request_json=Jsonb(body),request_digest=digest(body),manuscript_id=identity,revision=revision,parent_version_id=base['id'],task_id=producer['id'],snapshot_json=Jsonb(candidate),snapshot_sha256=digest(candidate),created_at=timestamp,school_confirmation_id=base.get('school_confirmation_id'))
         db.execute('INSERT INTO manuscript_versions('+','.join(fields)+') VALUES ('+','.join(['%s']*len(fields))+')',tuple(fields.values()))
         for source in candidate['sources']:
+            if source['kind'] in KINDS:
+                bind(db,project,self.store.user_id,version_id,source)
+                continue
             foreign={'document_version':'document_version_id','ocr_review_version':'ocr_review_version_id','external_evidence_version':'external_evidence_version_id','analysis_run':'analysis_run_id','figure':'figure_id','figure_language_version':'figure_language_version_id','analysis_report':'analysis_report_id','collection_report':'collection_report_id'}.get(source['kind'])
             fields=dict(id=str(uuid4()),version_id=version_id,file_id=source['file_id'],kind=source['kind'],source_id=source['id'],role=source['role'],source_json=Jsonb(source),sha256=digest(source))
             if foreign:fields[foreign]=source['id']
@@ -350,7 +379,7 @@ class ManuscriptService:
         inherit_task(db,producer,round_id=record['previous_round_id'])
         fields=dict(id=version_id,project_id=project,user_id=self.store.user_id,idempotency_key='review-return:'+record['id'],request_json=Jsonb(body),request_digest=digest(body),manuscript_id=identity,revision=revision,parent_version_id=base['id'],task_id=producer['id'],snapshot_json=Jsonb(candidate),snapshot_sha256=digest(candidate),created_at=timestamp,school_confirmation_id=base.get('school_confirmation_id'))
         db.execute('INSERT INTO manuscript_versions('+','.join(fields)+') VALUES ('+','.join(['%s']*len(fields))+')',tuple(fields.values()))
-        for table in ('manuscript_sources','manuscript_citations'):
+        for table in ('manuscript_sources','manuscript_citations','manuscript_research_sources'):
             for original in db.execute('SELECT * FROM '+table+' WHERE version_id=%s',(base['id'],)).fetchall():
                 values=dict(original);values.update(id=str(uuid4()),version_id=version_id)
                 values={k:Jsonb(v) if isinstance(v,(dict,list)) else v for k,v in values.items()}
@@ -362,23 +391,42 @@ class ManuscriptService:
         self.validate_version(db,row)
         task=self.store.require_task(db,row['task_id'])
         status='published' if task['status']=='succeeded' else 'failed' if task['status']=='failed' else 'pending'
-        exports=db.execute('SELECT id FROM manuscript_exports WHERE version_id=%s ORDER BY created_at DESC,id',(row['id'],)).fetchall()
         return dict(id=row['id'],revision=row['revision'],parent_version_id=row['parent_version_id'],task_id=row['task_id'],status=status,
             created_at=row['created_at'].isoformat(),input=row['request_json'],snapshot=row['snapshot_json'],current_changes=self.source_changes(row['project_id'],row['snapshot_json']),
-            exports=[self.export_view(db,row,r['id']) for r in exports])
+            exports=self.export_views(db,row))
 
     def get(self,project,identity,revision=None):
         with self.store.connection() as db:
             root=self.root(db,project,identity)
             if revision is not None: return self.version_view(db,self.version(db,project,identity,revision))
             versions=db.execute('SELECT * FROM manuscript_versions WHERE manuscript_id=%s ORDER BY revision DESC',(identity,)).fetchall()
-            return {k:root[k] for k in ('id','project_id','title','current_revision','created_at','updated_at')} | dict(versions=[self.version_view(db,r) for r in versions])
+            visible = []
+            for row in versions:
+                try:
+                    visible.append(self.version_view(db, row))
+                except StorageError as exc:
+                    if exc.code != 'manuscript_source_not_visible':
+                        raise
+            result = {k:root[k] for k in ('id','project_id','title','current_revision','created_at','updated_at')} | dict(versions=visible)
+            if self.assets.customer:
+                if not visible:
+                    raise missing()
+                if visible[0]['revision'] != root['current_revision']:
+                    result.update(title=visible[0]['snapshot']['title'], current_revision=visible[0]['revision'], updated_at=visible[0]['created_at'])
+            return result
 
     def list(self,project):
         with self.store.connection() as db:
             self.require_project(db,project)
             ids=db.execute('SELECT id FROM manuscripts WHERE project_id=%s AND user_id=%s ORDER BY updated_at DESC,id',(project,self.store.user_id)).fetchall()
-        return dict(items=[self.get(project,r['id']) for r in ids])
+        items = []
+        for row in ids:
+            try:
+                items.append(self.get(project, row['id']))
+            except StorageError as exc:
+                if not self.assets.customer or exc.code != 'manuscript_not_found':
+                    raise
+        return dict(items=items)
 
     def review_superseded_analyses(self,db,row,candidate=None):
         """Receipt-backed history may retain an explicitly superseded setup."""
@@ -474,7 +522,8 @@ class ManuscriptService:
             return None
         sealed=version['snapshot_json'].get('writing_provenance',{}).get('school_export_options') if version['snapshot_json'].get('writing_provenance',{}).get('language_review_id') else None
         retained=version['snapshot_json'].get('research_school_export_defaults') if version['snapshot_json'].get('candidate_origin')=='system_fact_draft' else None
-        defaults=sealed if sealed is not None else retained
+        review_layout=version['snapshot_json'].get('review_school_layout',{})
+        defaults=sealed if sealed is not None else review_layout.get('options',retained)
         options=deepcopy(defaults) if defaults is not None and request.school is None else (request.school or SchoolExportOptions()).model_dump(mode='json')
         front=context['confirmation'].get('front_matter')
         if front is None:
@@ -484,8 +533,8 @@ class ManuscriptService:
             if set(options['field_values'])-{f['id'] for f in front['fields']}:raise StorageError('task_input_invalid','动态值必须对应固定学校确认字段。',422)
             options['field_values']={key:options['field_values'][key] for key in sorted(options['field_values'])}
         chapters={c['id']:c for c in context['chapters']}
-        for field,purpose in (('manual_chapters','manual'),('keywords','abstract')):
-            if any(item['chapter_id'] not in chapters or chapters[item['chapter_id']]['purpose']!=purpose for item in options[field]):
+        for field,purposes in (('manual_chapters',('manual','acknowledgements')),('keywords',('abstract',))):
+            if any(item['chapter_id'] not in chapters or chapters[item['chapter_id']]['purpose'] not in purposes for item in options[field]):
                 raise StorageError('task_input_invalid','人工正文和关键词只能对应冻结版指定用途章节。',422)
             # Ordering is semantic only through fixed chapter identities.
             options[field].sort(key=lambda item:list(chapters).index(item['chapter_id']))
@@ -506,10 +555,17 @@ class ManuscriptService:
             or digest(template['analysis_json'])!=template['analysis_sha256']):raise source_conflict()
         return template['analysis_json']
 
-    def compile_school_intent(self,db,version,options):
+    def compile_school_intent(self,db,version,options,*,submission_forms=None):
         from .school_export import compile_school_export,validate_school_export,reconcile_research_issues
+        from app.domain.school_templates import bsu_gs501
+
         analysis=self.school_analysis(db,version)
-        plan=compile_school_export(version['snapshot_json'],analysis,options)
+        snapshot=version['snapshot_json']
+        writing=snapshot.get('writing_provenance',{})
+        # A previous exact-output language approval remains bound to its bytes.
+        if submission_forms is None:
+            submission_forms=not writing.get('language_review_id') or bsu_gs501.reviewed_submission_forms(writing.get('school_final_render'))
+        plan=compile_school_export(snapshot,analysis,options,submission_forms=submission_forms)
         producer=self.store.require_task(db,version['task_id'])
         if producer['task_type']=='research_fact_draft':
             reconcile_research_issues(plan,version['snapshot_json'],producer['input_snapshot']['payload'])
@@ -551,12 +607,17 @@ class ManuscriptService:
         request=ExportRequest.model_validate(request) if isinstance(request,dict) else request or ExportRequest()
         with self.store.connection() as db:
             version=self.version(db,project,identity,revision)
-            from .presentation_export import resolve,school_request,preview_view
+            from .presentation_export import resolve,school_request,preview_view,customer_school_mask,reviewed_school_submission_forms
             presentation=resolve(self,db,version,request)
             options=self.school_options(version,school_request(presentation,request))
             result=dict(schema_version=1)
-            if options is not None:result['school']=self.compile_school_intent(db,version,options)['plan']
-            if presentation is not None:result['presentation']=preview_view(presentation)
+            if options is not None:
+                result['school']=self.compile_school_intent(db,version,options,
+                    submission_forms=reviewed_school_submission_forms(db,presentation))['plan']
+            if presentation is not None:
+                result['presentation']=preview_view(presentation)
+                if customer_school_mask(self,db,presentation):
+                    result['presentation']['notice']+=' 本次盲审输出会遮蔽已填写的姓名、身份和签名字段；正文与图件仍须核对。'
             if len(result)==1:raise StorageError('task_input_invalid','此预览需要学校或已保存的输出配置。',422)
             return result
 
@@ -566,7 +627,7 @@ class ManuscriptService:
         with self.store.connection(write=True) as db:
             self.root(db,project,identity);db.execute('SELECT id FROM manuscripts WHERE id=%s FOR UPDATE',(identity,)).fetchone()
             version=self.version(db,project,identity,revision)
-            from .presentation_export import resolve,school_request,seal
+            from .presentation_export import resolve,school_request,seal,reviewed_school_submission_forms
             presentation=resolve(self,db,version,request)
             options=self.school_options(version,school_request(presentation,request))
             existing=db.execute('SELECT * FROM manuscript_exports WHERE version_id=%s AND idempotency_key=%s',(version['id'],key)).fetchone()
@@ -580,11 +641,22 @@ class ManuscriptService:
                 export_id=existing['id'];status=200
             else:
                 if self.store.require_task(db,version['task_id'])['status']!='succeeded': raise StorageError('task_revision_conflict','请等待事实稿发布后导出。',409)
-                intent=self.compile_school_intent(db,version,options) if options is not None else None
+                intent=self.compile_school_intent(db,version,options,
+                    submission_forms=reviewed_school_submission_forms(db,presentation)) if options is not None else None
                 if intent is not None and not intent['plan']['report']['can_export']:
                     raise StorageError('task_input_invalid','学校导出存在必须修正的问题，请检查预览。',422)
                 export_id=str(uuid4());snapshot=dict(project_id=project,manuscript_id=identity,manuscript_version_id=version['id'],revision=revision,
                     output_language=version['snapshot_json']['output_language'],workflow_version=WORKFLOW,snapshot_sha256=version['snapshot_sha256'],export_id=export_id)
+                manuscript = version['snapshot_json']
+                revised = manuscript.get('review_revision_provenance') or manuscript.get('user_return_provenance')
+                if self.assets.customer and (revised or (presentation is None and intent is None
+                        and self.require_project(db,project)['project_type'] == 'sci')):
+                    from app.adapters.manuscript_docx import (
+                        CUSTOMER_NARRATIVE_REVIEW_RENDERER_VERSION, CUSTOMER_RENDERER_VERSION,
+                    )
+
+                    narrative_review = manuscript.get('article_type') == 'narrative_review' and not manuscript.get('thesis_context')
+                    snapshot['renderer_version'] = CUSTOMER_NARRATIVE_REVIEW_RENDERER_VERSION if narrative_review else CUSTOMER_RENDERER_VERSION
                 if intent is not None:snapshot['school_input_sha256']=digest(intent)
                 if presentation is not None:snapshot['presentation']=seal(self,db,presentation)
                 task=self.task(db,project,'manuscript_docx',snapshot,'manuscript-export:'+export_id,validated_sources=version['snapshot_json']['sources'])
@@ -614,11 +686,19 @@ class ManuscriptService:
             filename=metadata.get('filename'),sha256=metadata.get('sha256'),size_bytes=metadata.get('size_bytes'),created_at=row['created_at'],
             download_url=f"/api/v1/projects/{version['project_id']}/manuscripts/{version['manuscript_id']}/exports/{export_id}/download" if metadata and task['status']=='succeeded' else None,**school)
 
+    def export_views(self,db,version):
+        rows=db.execute('SELECT id FROM manuscript_exports WHERE version_id=%s ORDER BY created_at DESC,id',(version['id'],)).fetchall()
+        items=[]
+        for row in rows:
+            try:items.append(self.export_view(db,version,row['id']))
+            except StorageError as exc:
+                if exc.code!='manuscript_source_not_visible':raise
+        return items
+
     def exports(self,project,identity,revision):
         with self.store.connection() as db:
             version=self.version(db,project,identity,revision)
-            rows=db.execute('SELECT id FROM manuscript_exports WHERE version_id=%s ORDER BY created_at DESC,id',(version['id'],)).fetchall()
-            return dict(items=[self.export_view(db,version,r['id']) for r in rows])
+            return dict(items=self.export_views(db,version))
 
     def export(self,project,identity,export_id,download=False):
         with self.store.connection() as db:

@@ -13,8 +13,10 @@ from app.adapters.task_store import TaskStore,source_conflict
 from app.adapters.figure_language_renderer import render_boxplot,text_item
 from app.core.exceptions import StorageError
 from app.domain.dataset_preparation.service import require_key
+from app.domain.files import require_file
 from app.domain.literature.service import digest
 from .figure_language_contracts import FigureLanguageRequest
+from .sources import customer_can_use_analysis, require_visible_snapshot
 
 
 class FigureLanguageService:
@@ -28,12 +30,12 @@ class FigureLanguageService:
 
     def original(self,db,project,source):
         self.require_project(db,project)
-        file=db.execute('SELECT * FROM files WHERE id=%s AND project_id=%s',(source['file_id'],project)).fetchone()
-        if not file: raise source_conflict()
+        file=self.file(db,project,source['file_id'])
         raw=self.assets.original(dict(file));content={}
         if source['kind']=='original':
             if source['id']!=file['id'] or file['file_type'] not in ('png','jpeg'): raise source_conflict()
         elif source['kind']=='figure':
+            if not customer_can_use_analysis(db,self.assets,project): raise source_conflict()
             row=db.execute('SELECT f.* FROM figures f JOIN analysis_runs a ON a.id=f.analysis_run_id WHERE f.id=%s AND a.file_id=%s',(source['id'],file['id'])).fetchone()
             if not row: raise source_conflict()
             if row['figure_config_version_id']:
@@ -49,6 +51,13 @@ class FigureLanguageService:
             raw,_=documents.objects().image(row['result_json'],source['image_id'])
         else: raise source_conflict()
         return raw,content
+
+    def file(self,db,project,identity):
+        if self.assets.customer:
+            return require_file(db,project,identity,material_filter=self.assets.material_filter)
+        file=db.execute('SELECT * FROM files WHERE id=%s AND project_id=%s',(identity,project)).fetchone()
+        if not file: raise source_conflict()
+        return file
 
     @staticmethod
     def verify_image(raw):
@@ -92,8 +101,7 @@ class FigureLanguageService:
             expected=[text_item(t.location,t.text) for t in request.text_items]
             if snap['text_manifest']!=expected: raise source_conflict()
             if request.replacement_file_id:
-                file=db.execute('SELECT * FROM files WHERE id=%s AND project_id=%s',(request.replacement_file_id,project)).fetchone()
-                if not file: raise source_conflict()
+                file=self.file(db,project,request.replacement_file_id)
                 replacement=self.assets.original(dict(file))
                 if sha256(replacement).hexdigest()!=snap['sha256']: raise source_conflict()
             elif snap['sha256']!=sha256(original).hexdigest(): raise source_conflict()
@@ -110,8 +118,18 @@ class FigureLanguageService:
     def list(self,project):
         with self.store.connection() as db:
             self.require_project(db,project)
-            rows=db.execute('SELECT id FROM manuscript_figure_language_versions WHERE project_id=%s AND user_id=%s ORDER BY created_at,id',(project,self.store.user_id)).fetchall()
-            return dict(items=[self.view(self.row(db,project,r['id'])) for r in rows])
+            rows=db.execute('SELECT * FROM manuscript_figure_language_versions WHERE project_id=%s AND user_id=%s ORDER BY created_at,id',(project,self.store.user_id)).fetchall()
+            items=[]
+            for row in rows:
+                if self.assets.customer:
+                    if row['figure_id'] and not customer_can_use_analysis(db,self.assets,project): continue
+                    files=[{'file_id':identity} for identity in (row['file_id'],row['replacement_file_id']) if identity]
+                    try: require_visible_snapshot(self.assets,db,project,{'files':files})
+                    except StorageError as exc:
+                        if exc.code!='manuscript_source_not_visible': raise
+                        continue
+                items.append(self.view(self.validate_row(db,project,row)))
+            return dict(items=items)
 
     def create(self,project,request,key):
         require_key(key)
@@ -156,8 +174,8 @@ class FigureLanguageService:
                 else:
                     raw=original
                     if request.replacement_file_id:
-                        file=db.execute('SELECT * FROM files WHERE id=%s AND project_id=%s',(request.replacement_file_id,project)).fetchone()
-                        if not file or file['file_type'] not in ('png','jpeg'): raise source_conflict()
+                        file=self.file(db,project,request.replacement_file_id)
+                        if file['file_type'] not in ('png','jpeg'): raise source_conflict()
                         raw=self.assets.original(dict(file));self.verify_image(raw)
                     snapshot.update(title=request.title,caption=request.caption,text_manifest=[text_item(t.location,t.text) for t in request.text_items],
                         data_fingerprint=None,geometry_fingerprint=None,renderer_version=None,font_hashes={},

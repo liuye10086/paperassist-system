@@ -7,12 +7,12 @@ from psycopg.types.json import Jsonb
 from app.adapters.task_execution_store import TaskExecutionStore,LeaseLost
 from app.adapters.task_store import TaskStore,source_conflict
 from app.core.exceptions import StorageError
-from app.domain.report_collections.service import scoped_store
 from .document_exports import ReviewDocumentExportService
+from .access import review_task_assets
 from app.domain.literature.service import digest
-from app.adapters.review_docx import render_review_document,RENDERER_VERSION
+from app.adapters.review_docx import CUSTOMER_RENDERER_VERSIONS, RENDERER_VERSION, render_review_document, review_document_filename
 
-SAFE=frozenset(('task_owner_unavailable','task_source_conflict','source_conflict','report_changed','report_missing','storage_unavailable','review_revision_not_ready','report_render_failed'))
+SAFE=frozenset(('task_owner_unavailable','task_source_conflict','source_conflict','report_changed','report_missing','storage_unavailable','review_revision_not_ready','report_render_failed','manuscript_source_not_visible'))
 
 
 def run_review_document_export_task(task_id,task_revision,*,config=None,directory=None):
@@ -29,23 +29,24 @@ def run_review_document_export_task(task_id,task_revision,*,config=None,director
     try:
         with execution.connection(write=True) as db:
             task=execution.require_lease(db,lease);execution.require_owner(db,task)
-            service=ReviewDocumentExportService(scoped_store(task['user_id'],execution.config,execution.assets.directory))
+            service=ReviewDocumentExportService(review_task_assets(db,task,execution.config,execution.assets.directory))
             row=service.row(db,task['project_id'],task['input_snapshot']['export_id'])
             if row['task_id']!=task_id: raise source_conflict()
             service.verify(db,row)
-            if row['snapshot_json'].get('renderer_version','review_docx_v1')!=RENDERER_VERSION:
+            renderer = row['snapshot_json'].get('renderer_version', 'review_docx_v1')
+            if renderer not in (RENDERER_VERSION, *CUSTOMER_RENDERER_VERSIONS):
                 raise StorageError('task_source_conflict','独立文档展示模板已变化，请新建导出，旧成功文件仍保留。',409)
             raw=row['snapshot_json']['document']
             restored=candidates.restore(db,execution.assets.directory,task,lease)
         if restored:
             metadata,content,target=restored
         else:
-            content=render_review_document(dict(raw,document_version=row['snapshot_json']['document_version'],confirmed_at=row['snapshot_json']['confirmed_at']))
+            content=render_review_document(dict(raw,document_version=row['snapshot_json']['document_version'],confirmed_at=row['snapshot_json']['confirmed_at'],renderer_version=renderer))
             if not isinstance(content,bytes) or not content.startswith(b'PK') or len(content)>100*1024*1024: raise StorageError('report_render_failed','独立文档输出无效。',422)
             service.directory.mkdir(parents=True,exist_ok=True)
             object_name=row['id']+'-'+lease.lease_owner+'.docx'
             staged=service.directory/(object_name+'.part');target=service.directory/object_name
-            metadata=dict(filename=('review-response' if raw['kind']=='reply' else 'review-comparison')+'-'+raw['language']+'.docx',sha256=sha256(content).hexdigest(),size_bytes=len(content),document_sha256=row['snapshot_json']['document_sha256'],object_name=object_name,renderer_version=RENDERER_VERSION)
+            metadata=dict(filename=review_document_filename(raw,renderer),sha256=sha256(content).hexdigest(),size_bytes=len(content),document_sha256=row['snapshot_json']['document_sha256'],object_name=object_name,renderer_version=renderer)
         with execution.connection(write=True) as db:
             db.execute('SELECT id FROM tasks WHERE id=%s FOR UPDATE',(task_id,)).fetchone()
             task=execution.require_lease(db,lease);execution.require_owner(db,task)

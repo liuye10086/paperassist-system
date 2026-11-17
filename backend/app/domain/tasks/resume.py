@@ -18,7 +18,7 @@ class TaskResumeService:
     def __init__(self, user_id, config=None):
         self.store = TaskStore(user_id, config)
 
-    def resume(self, task_id, request, *, idempotency_key, transaction=None):
+    def resume(self, task_id, request, *, idempotency_key, transaction=None, customer=False):
         try:
             request = ResumeRequest.model_validate(request.model_dump() if isinstance(request, ResumeRequest) else request)
         except (ValidationError, TypeError, ValueError) as exc:
@@ -31,6 +31,13 @@ class TaskResumeService:
         connection = self.store.connection(write=True) if transaction is None else nullcontext(transaction)
         with connection as db:
             task = self.store.require_task(db, task_id)
+            if customer:
+                from app.auth.permissions import require_visible_paper_task
+                from app.domain.report_collections.service import scoped_store
+
+                assets = scoped_store(self.store.user_id, self.store.config)
+                assets.customer = True
+                require_visible_paper_task(db, assets, task)
             existing = db.execute('''SELECT * FROM task_resume_requests
                 WHERE user_id=%s AND task_id=%s AND idempotency_key=%s''',
                 (self.store.user_id, task_id, idempotency_key)).fetchone()
@@ -85,7 +92,10 @@ class TaskResumeService:
                 retry = {'bio_annotation':retry_annotation,'delivery_package':retry_research,'bio_resource_import':retry_insight,'bio_comparison':retry_insight,'bio_result_import':retry_insight,'bio_enrichment':retry_insight,'bio_candidate':retry_insight,'bio_insight_figure':retry_insight,'bio_feature_extract':retry_insight,'bio_integration':retry_insight,'research_figure':retry_research,'research_report':retry_research,'research_fact_draft':retry_research,'bio_analysis':retry_spatial,'bio_figure':retry_spatial,'bio_import':retry_bio,'school_rule_suggestion':retry_school_suggestion,'reader_report_narrative':retry_reader_report,'review_document_export':retry_review_document,'review_revision':retry_revision,'review_round_plan':retry_review,'journal_adaptation':retry_adaptation,'journal_format_check':retry_format,'journal_recommendation':retry_journal,'school_template_parse':retry_school_template,'manuscript_writing':retry_writing,'manuscript_draft':retry_manuscript,'manuscript_docx':retry_manuscript,'literature_assistance':retry_assistance,'literature_search':retry_literature,'statistics_compute':retry_statistics,'figure_projection':retry_configured,'figure_workbench':retry_configured,'figure_explanation':retry_configured,'collection_word_report': retry_collection_in_transaction, 'analysis_recommendation':retry_recommendation,'boxplot': retry_boxplot_in_transaction, 'explanation': retry_explanation_in_transaction,
                          'word_report': retry_word_in_transaction, 'parse_file': retry_parse_in_transaction,
                          'extract_dataset': retry_dataset_in_transaction, 'prepare_dataset': retry_preparation_in_transaction, 'review_ocr': retry_ocr_review_in_transaction, 'analysis_plan': retry_plan_in_transaction}[task['task_type']]
-                result = retry(self.store, db, task, request.expected_task_revision)
+                if customer and task['task_type'] in ('manuscript_draft','manuscript_docx'):
+                    result = retry_manuscript(self.store, db, task, request.expected_task_revision, assets=assets)
+                else:
+                    result = retry(self.store, db, task, request.expected_task_revision)
             db.execute('''INSERT INTO task_resume_requests
                 (id,task_id,user_id,idempotency_key,operation,wait_id,request_digest,expected_task_revision,
                  input_version,result_task_revision,response_json,created_at)

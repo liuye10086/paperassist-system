@@ -1,6 +1,7 @@
 from typing import Literal
 from pydantic import BaseModel,ConfigDict,Field,model_validator
 from .front_matter import FrontMatter
+from .bsu_gs501 import PROFILE as GS501_PROFILE
 
 WORKFLOW='school_template_v1'
 PARSER_VERSION='school-template-openxml-v1'
@@ -51,6 +52,7 @@ class TextDecision(StrictModel):
 
 class ConfirmRequest(StrictModel):
     front_matter:FrontMatter|None=None
+    format_profile:Literal[GS501_PROFILE]|None=None
     text_decisions:list[TextDecision]=Field(default_factory=list,max_length=2)
     analysis_sha256:str=Field(pattern=r'^[0-9a-f]{64}$')
     decisions:list[Decision]=Field(max_length=500)

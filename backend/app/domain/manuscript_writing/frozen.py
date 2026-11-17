@@ -6,6 +6,8 @@ from app.domain.model_usage.contracts import StrictContract,ModelPolicy,Money
 from app.domain.admin_configuration.model_consumption import combine
 from . import policy as installed
 
+SCI_ARTICLE_PROSE_REVISION = 'sci-article-prose-v2'
+
 
 class Contract(StrictContract):
     schema_version:Literal[1]=1
@@ -41,6 +43,7 @@ class ArticleContract(StrictContract):
     numeric_contract_version:Literal[2]=2
     document_kind:Literal['sci','thesis']
     article_scope_version:Literal['article-scope-v1']='article-scope-v1'
+    article_instruction_revision:Literal['sci-article-prose-v2']=SCI_ARTICLE_PROSE_REVISION
     policy:ModelPolicy
     max_input_allowance:Annotated[int,Field(strict=True,ge=1,le=100000)]
     protocol_allowance:Literal[4096]=4096
@@ -57,6 +60,10 @@ def validate(value):
     value=parsed.model_dump(mode='json')
     # Missing revision is the historical wire contract, including its dump shape.
     if 'instruction_revision' not in parsed.model_fields_set:value.pop('instruction_revision',None)
+    if 'article_instruction_revision' not in parsed.model_fields_set:
+        value.pop('article_instruction_revision',None)
+    elif value['document_kind']!='sci':
+        raise ValueError('SCI prose instructions require an SCI contract')
     p=value['policy']
     # Saved requests retain their original wire and billing policy after a model change.
     if (p['model'] not in (installed.MODEL,'gpt-5.4-2026-03-05') or p['prompt_version']!='sci-writing-v2' or p['tools']
@@ -65,12 +72,14 @@ def validate(value):
     return value
 
 
-def contract(version=None,*,schema_version=1,instruction_revision='numeric2-exact-v1',document_kind='sci'):
+def contract(version=None,*,schema_version=1,instruction_revision='numeric2-exact-v1',document_kind='sci',article_instruction_revision=None):
     if type(schema_version) is not int or schema_version not in (1,2,3,4):raise ValueError('Unknown frozen contract version')
     models=version['bundle']['models'] if version else None
     execution=models['writing']['execution'] if models else None
     if schema_version==4:
         article=dict(document_kind=document_kind,article_scope_version='article-scope-v1')
+        if article_instruction_revision is not None:
+            article['article_instruction_revision']=article_instruction_revision
     else: article={}
     return validate(dict(schema_version=schema_version,**article,**({'instruction_revision':instruction_revision} if schema_version==2 and instruction_revision is not None else {}),**({'numeric_contract_version':2} if schema_version in (3,4) else {}),**({'origin':'configuration' if version else 'installed'} if schema_version in (2,3,4) else {}),
         policy=execution['policy'] if execution else installed.policy().model_dump(mode='json'),
@@ -94,14 +103,21 @@ def wire_parts(value,payload):
     from .bundle import INSTRUCTIONS
     from .live_contracts import LiveOutput
     if value['schema_version']==4:
-        from .article_contract import INSTRUCTIONS,output_schema
-        from .numeric_contract import EXACT_INSTRUCTION
-        instruction=INSTRUCTIONS+' '+EXACT_INSTRUCTION;name='manuscript_writing_article_v1';schema=output_schema(payload)
+        from .article_contract import INSTRUCTIONS,SCI_PROSE_INSTRUCTIONS,output_schema
+        from .numeric_contract import EXACT_INSTRUCTION, REPORTED_RESULTS_LOCATION, REPORTED_RESULTS_INSTRUCTION
+        prose=value.get('article_instruction_revision')==SCI_ARTICLE_PROSE_REVISION
+        instruction=(SCI_PROSE_INSTRUCTIONS if prose else INSTRUCTIONS)+' '+EXACT_INSTRUCTION
+        name='manuscript_writing_article_v1'
+        schema=output_schema(payload,require_paragraph=prose)
+        if any(row['location'] == REPORTED_RESULTS_LOCATION for row in payload['numeric_context']):
+            instruction += ' ' + REPORTED_RESULTS_INSTRUCTION
     elif value['schema_version']==3:
         from .school_live import INSTRUCTIONS as school_instruction,output_schema
-        from .numeric_contract import INSTRUCTION
+        from .numeric_contract import INSTRUCTION,REPORTED_RESULTS_LOCATION,REPORTED_RESULTS_INSTRUCTION
         if value['numeric_contract_version']!=2 or payload.get('numeric_contract_version')!=2 or payload.get('school_content_version')!=value['school_content_version']:raise ValueError('School contract version mismatch')
         instruction=school_instruction+' '+INSTRUCTION;name='manuscript_school_writing_v1';schema=output_schema(payload)
+        if any(row['location']==REPORTED_RESULTS_LOCATION for row in payload['numeric_context']):
+            instruction+=' '+REPORTED_RESULTS_INSTRUCTION
     elif value['schema_version']==2:
         from .numeric_contract import INSTRUCTION,EXACT_INSTRUCTION,output_schema
         if payload.get('numeric_contract_version')!=2:raise ValueError('Numeric contract version mismatch')

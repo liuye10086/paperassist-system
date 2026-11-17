@@ -3,10 +3,6 @@ import ResearchWorkspace from '../research-results/ResearchWorkspace'
 import ResearchIntake from '../research-intake/ResearchIntake'
 import type { DeliveryKind } from '../research-intake/contracts'
 import {deliveryLabels} from '../research-intake/contracts'
-import ReviewsWorkspace from '../reviews/ReviewsWorkspace'
-import JournalWorkspace from '../journals/JournalWorkspace'
-import SchoolTemplates from '../school-templates/SchoolTemplates'
-import ProjectManuscripts from '../manuscripts/ProjectManuscripts'
 import {AnalysisWritingProvider} from '../manuscripts/AnalysisWritingContext'
 import ProjectLiterature from '../literature/ProjectLiterature'
 import { apiFetch } from '../../shared/api/client'
@@ -53,7 +49,6 @@ function isFixedAnalysisRead(analysis:AnalysisNavigation) {
 
 export default function ProjectWorkspace({ analysisOnly = false }: { analysisOnly?: boolean }) {
   const { t, locale } = useI18n()
-  const [schoolRevision,setSchoolRevision]=useState(0)
   const [bulkOverviewRevision,setBulkOverviewRevision]=useState(0)
   const [navigationSequence, setNavigationSequence] = useState(0)
   const [showCreate, setShowCreate] = useState(false)
@@ -425,15 +420,11 @@ export default function ProjectWorkspace({ analysisOnly = false }: { analysisOnl
                   onClick={() => selection.selectAnalysis({ view: 'bio-insight-runs', fileId: '' })}>{t('查看洞察分析结果')}</button>}/>
               <ProjectTasks projectId={project.id} active={assignedResultsActive} resultsOnly selectedTaskId="" onSelectTask={openResultTask}/>
             </>
-            : <ProjectSummary onAnalysisNavigate={selection.selectAnalysis} showArtifactNavigation={false} artifactNavigation={selection.artifactNavigation} onArtifactNavigate={selection.selectArtifact} key={`${project.id}:${schoolRevision}`} projectId={project.id} projectType={project.project_type} view={section === 'artifacts' ? 'artifacts' : 'overview'}
+            : <ProjectSummary onAnalysisNavigate={selection.selectAnalysis} showArtifactNavigation={false} artifactNavigation={selection.artifactNavigation} onArtifactNavigate={selection.selectArtifact} key={project.id} projectId={project.id} projectType={project.project_type} view={section === 'artifacts' ? 'artifacts' : 'overview'}
               active={view === 'project' && section === 'artifacts'&&!resultNext&&!selection.artifactNavigation.view.startsWith('research-')} onOpenJournals={analysisOnly?undefined:()=>changeSection('journals')} onOpenManuscripts={analysisOnly?undefined:()=>changeSection('manuscripts')} />}
         </div>
         {!analysisOnly && <>
-          {project.project_type === 'thesis' && <SchoolTemplates navigation={selection.schoolTemplateNavigation} onNavigate={selection.selectSchoolTemplate} registerLeaveGuard={selection.registerLeaveGuard} projectId={project.id} onChanged={()=>setSchoolRevision(value=>value+1)} active={view === 'project' && section === 'school-templates'} />}
           {project.project_type==='research'&&['reviews','journals'].includes(section)&&<section className="warning-panel"><h2>{t('已登记，当前流程未开放')}</h2><p>{t('研究项目的期刊和独立意见修改入口仍未开放，请使用已发布稿件的受控写作流程。')}</p><button type="button" onClick={()=>selection.changeOverviewView('deliveries')}>{t('交付登记')}</button></section>}
-          {project.project_type!=='research'&&<ReviewsWorkspace view={selection.reviewView} selectedItemId={selection.reviewItemId} onViewChange={selection.selectReviewView} onSelectItem={selection.selectReviewItem} onSelectRun={selection.selectReviewRun} onSelectDocument={selection.selectReviewDocument} registerLeaveGuard={selection.registerLeaveGuard} projectId={project.id} projectType={project.project_type} active={view==='project'&&section==='reviews'} roundId={selection.reviewLink.round} initialManuscript={selection.reviewLink.manuscript} initialRevision={selection.reviewLink.revision} initialRun={selection.reviewLink.run} initialDocument={selection.reviewLink.document} onSelectRound={selection.selectRound} onOpenTask={selection.selectTask}/>}
-          {project.project_type!=='research'&&<ProjectManuscripts view={selection.manuscriptView} onViewChange={selection.selectManuscriptView} onSelectVersion={selection.selectManuscriptVersion} registerLeaveGuard={selection.registerLeaveGuard} initialManuscript={selection.manuscriptLink.id} initialRevision={selection.manuscriptLink.revision} projectType={project.project_type} projectId={project.id} researchTopic={project.research_topic} outputLanguage={project.default_output_language??'zh-CN'} active={view==='project'&&section==='manuscripts'} onOpenTask={selection.selectTask} onOpenLiterature={()=>selection.selectLiterature('')}/>}
-          {project.project_type === 'sci' && <JournalWorkspace view={selection.journalView} onViewChange={selection.selectJournalView} initialAdaptation={selection.adaptationId} onSelectAdaptation={selection.selectJournalAdaptation} registerLeaveGuard={selection.registerLeaveGuard} projectId={project.id} active={view==='project'&&section==='journals'} onOpenTask={selection.selectTask}/>}
           <ProjectLiterature projectId={project.id} researchTopic={project.research_topic} outputLanguage={project.default_output_language??'zh-CN'} active={view==='project'&&section==='literature'} initialSearchId={selection.literatureSearchId} onSearchChange={selection.selectLiterature} onOpenTask={selection.selectTask} literatureNavigation={selection.literatureNavigation} onLiteratureNavigate={selection.selectLiteratureView} registerLeaveGuard={selection.registerLeaveGuard}/>
         </>}
         <ProjectTasks assigned={assigned} detailView={selection.taskDetailView} onDetailViewChange={selection.selectTaskDetailView} registerLeaveGuard={selection.registerLeaveGuard} onOpenJournals={analysisOnly?undefined:()=>changeSection('journals')} onOpenManuscripts={analysisOnly?undefined:()=>changeSection('manuscripts')} onOpenFiles={() => changeSection('files')} projectId={project.id} active={view === 'project' && section === 'tasks'}

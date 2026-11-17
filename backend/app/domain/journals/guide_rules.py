@@ -8,6 +8,13 @@ NUMBER_LABELS={'Maximum body words':'word_limit','Maximum abstract words':'abstr
 LIST_LABELS={'Required sections':'required_sections','Section order':'section_order','Abstract headings':'abstract_headings','必需章节':'required_sections','章节顺序':'section_order','摘要标题':'abstract_headings'}
 BOOL_LABELS={'Abstract required':'abstract_required','Figure captions':'figure_captions','Table captions':'table_captions','Figure numbering':'figure_numbering','Table numbering':'table_numbering','Figure references':'figure_references','Table references':'table_references','必须摘要':'abstract_required'}
 STYLE_LABELS={scope.title()+' '+label:scope+'_'+key for scope in ('heading','body') for label,key in [('font size','font_size_pt'),('line spacing','line_spacing'),('space before','space_before_pt'),('space after','space_after_pt')]}
+COUNT_NUMERAL = r'(?:[1-9][0-9]{0,2}(?:,[0-9]{3})+|\d+)'
+
+
+def quote_has_count(quote, value):
+    """Match a whole written count, including common thousands separators."""
+    matches = re.findall(rf'(?<!\d)(?<!\d[.,]){COUNT_NUMERAL}(?!\d|[.,]\d)', quote)
+    return any(number.replace(',', '') == str(value) for number in matches)
 
 def extract_requirements(text,*,location_prefix='line'):
     output=[]
@@ -33,9 +40,9 @@ def extract_requirements(text,*,location_prefix='line'):
             try:Requirement(id='check',key=key,value=value,status='known',quote=raw,location='line:'+str(line_no))
             except ValueError:continue
         elif label in NUMBER_LABELS:
-            numeric=re.fullmatch(r'(\d+)(?:\s*;\s*count:\s*(en_whitespace_body|zh_hanzi_latin_body|en_whitespace_abstract|zh_hanzi_latin_abstract))?',value)
+            numeric=re.fullmatch(rf'({COUNT_NUMERAL})(?:\s*;\s*count:\s*(en_whitespace_body|zh_hanzi_latin_body|en_whitespace_abstract|zh_hanzi_latin_abstract))?',value)
             if not numeric:continue
-            key=NUMBER_LABELS[label];value=int(numeric[1]);count=numeric[2]
+            key=NUMBER_LABELS[label];value=int(numeric[1].replace(',',''));count=numeric[2]
             if key=='dpi':status='unsupported'
         elif label in LIST_LABELS:
             key=LIST_LABELS[label];value=[v.strip() for v in value.split('|')]

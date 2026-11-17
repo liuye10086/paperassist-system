@@ -15,9 +15,10 @@ from .context import WritingCitationScopeError
 from .numeric_review import NUMERIC_VERSION,validation_version
 
 def school_inherited(service,db,project,identity,snapshot):
-    if not snapshot['base_snapshot'].get('thesis_context') or snapshot['base_snapshot'].get('writing_provenance',{}).get('schema_version')!=2:return None
-    from app.domain.manuscript_review.writing_context import load_writing_context
-    return load_writing_context(service.manuscripts,db,project,identity,snapshot['base_snapshot'])
+    from app.domain.manuscript_review.writing_context import has_reviewed_writing_context,load_writing_context
+    base=snapshot['base_snapshot']
+    if not base.get('thesis_context') or not has_reviewed_writing_context(base):return None
+    return load_writing_context(service.manuscripts,db,project,identity,base)
 
 
 def claim_language(candidate,paragraph_id):

@@ -9,11 +9,16 @@ from app.domain.journals.format_service import FormatService
 from app.domain.journals.service import now
 from app.domain.journals.display import synthetic_input
 from app.domain.literature.service import digest
+from app.domain.manuscripts.service import ManuscriptService,missing as missing_manuscript
+from app.domain.manuscripts.sources import require_visible_snapshot
 from .contracts import WORKFLOW,ReviewInputVersion,ItemEdit
 from .planning import invalid,propose,update_status
 from .extraction import preview
+from .access import require_review_document_versions
 from app.domain.admin_configuration.bindings import resolve,bind,projection
 from app.domain.admin_configuration.rule_consumption import rules,round_version,document_defaults
+
+ROLES = {'sci': ('editor', 'reviewer'), 'thesis': ('advisor', 'evaluator', 'defense')}
 
 def input_version(task):
     snap=task['input_snapshot']
@@ -23,31 +28,152 @@ def input_version(task):
 class ReviewRoundService(FormatService):
     def project(self,db,project,lock=False):
         row=self.store.require_project(db,project)
+        if self.assets.customer and row['project_type'] not in ROLES:
+            raise StorageError('customer_project_type_forbidden','此操作与当前项目类型不匹配。',403)
         if lock:db.execute('SELECT id FROM projects WHERE id=%s FOR UPDATE',(project,)).fetchone()
         return row
+
+    def visible_records(self, rows, read):
+        for row in rows:
+            try:
+                yield read(row)
+            except StorageError as exc:
+                if not self.assets.customer or exc.status != 404:
+                    raise
+
+    def visible_manuscript(self,db,version):
+        """Authorize the sealed parent once on read; its producer is checked when used."""
+        project=version['project_id']
+        while True:
+            snapshot=version['snapshot_json']
+            if digest(snapshot)!=version['snapshot_sha256'] or snapshot['project_id']!=project:
+                raise source_conflict()
+            require_visible_snapshot(self.assets,db,project,snapshot)
+            if not self.assets.customer:
+                return
+            revision=snapshot.get('review_revision_provenance')
+            returned=snapshot.get('user_return_provenance')
+            if revision:
+                link=db.execute('''SELECT snapshot_json,snapshot_sha256,round_id,manuscript_version_id AS parent_id
+                    FROM review_revision_runs WHERE id=%s AND project_id=%s AND user_id=%s AND output_version_id=%s''',
+                    (revision['revision_id'],project,self.store.user_id,version['id'])).fetchone()
+            elif returned:
+                link=db.execute('''SELECT snapshot_json,snapshot_sha256,previous_round_id AS round_id,base_version_id AS parent_id
+                    FROM review_round_user_returns WHERE id=%s AND project_id=%s AND user_id=%s AND output_version_id=%s''',
+                    (returned['return_id'],project,self.store.user_id,version['id'])).fetchone()
+            else:
+                return
+            if (not link or link['parent_id']!=version['parent_version_id']
+                or digest(link['snapshot_json'])!=link['snapshot_sha256']):
+                raise source_conflict()
+            require_visible_snapshot(self.assets,db,project,link['snapshot_json'])
+            review=db.execute('SELECT * FROM review_rounds WHERE id=%s AND project_id=%s AND user_id=%s',
+                (link['round_id'],project,self.store.user_id)).fetchone()
+            if not review:
+                raise source_conflict()
+            self.validate(db,review)
+            version=db.execute('''SELECT * FROM manuscript_versions WHERE id=%s AND manuscript_id=%s
+                AND project_id=%s AND user_id=%s AND revision<%s''',
+                (link['parent_id'],version['manuscript_id'],project,self.store.user_id,version['revision'])).fetchone()
+            if not version:
+                raise source_conflict()
+
+    def manuscript_row(self,db,project,identity,revision):
+        ManuscriptService(self.assets).root(db,project,identity)
+        row=db.execute('''SELECT * FROM manuscript_versions WHERE manuscript_id=%s AND revision=%s
+            AND project_id=%s AND user_id=%s''',(identity,revision,project,self.store.user_id)).fetchone()
+        if row is None:
+            raise missing_manuscript()
+        self.visible_manuscript(db,row)
+        return row
+
+    def manuscript(self,db,project,identity,revision):
+        row=self.manuscript_row(db,project,identity,revision)
+        task=self.store.require_task(db,row['task_id'])
+        if task['status']!='succeeded':
+            raise invalid('指定公共稿件版本尚未发布，请等待该版本完成。',409)
+        verified=ManuscriptService(self.assets).verify_task(db,task)
+        if verified['id']!=row['id']:
+            raise source_conflict()
+        return row
+
     def inputs(self,project):
         with self.store.connection() as db:
             p=self.project(db,project);manuscripts=[]
             for root in db.execute('SELECT * FROM manuscripts WHERE project_id=%s AND user_id=%s ORDER BY created_at DESC',(project,self.store.user_id)).fetchall():
-                versions=db.execute("SELECT v.id,v.revision,t.status FROM manuscript_versions v JOIN tasks t ON t.id=v.task_id WHERE v.manuscript_id=%s AND t.status='succeeded' ORDER BY v.revision DESC",(root['id'],)).fetchall()
-                manuscripts.append(dict(id=root['id'],title=root['title'],current_revision=root['current_revision'],versions=[dict(v,title=root['title'],status='published') for v in versions]))
-            documents=db.execute("SELECT f.id AS file_id,f.filename,r.id AS document_version_id,r.version,t.input_snapshot->>'kind' AS kind FROM files f JOIN file_parse_results r ON r.file_id=f.id JOIN tasks t ON t.id=r.task_id WHERE f.project_id=%s AND t.user_id=%s AND t.status='succeeded' AND t.workflow_version IN ('docx_document_v1','pdf_document_v1') ORDER BY f.filename,r.version DESC",(project,self.store.user_id)).fetchall()
+                versions=db.execute("""SELECT v.* FROM manuscript_versions v JOIN tasks t ON t.id=v.task_id
+                    WHERE v.manuscript_id=%s AND v.project_id=%s AND v.user_id=%s AND t.status='succeeded'
+                    ORDER BY v.revision DESC""",(root['id'],project,self.store.user_id)).fetchall()
+
+                def option(version):
+                    if self.assets.customer:
+                        self.visible_manuscript(db,version)
+                    title=version['snapshot_json']['title'] if self.assets.customer else root['title']
+                    return dict(id=version['id'],revision=version['revision'],title=title,status='published')
+
+                readable=list(self.visible_records(versions,option))
+                if readable or not self.assets.customer:
+                    manuscripts.append(dict(id=root['id'],title=readable[0]['title'] if self.assets.customer else root['title'],
+                                            current_revision=root['current_revision'],versions=readable))
+            documents=db.execute("""SELECT files.id AS file_id,files.filename,r.id AS document_version_id,r.version,
+                    t.input_snapshot->>'kind' AS kind FROM files JOIN file_parse_results r ON r.file_id=files.id
+                    JOIN tasks t ON t.id=r.task_id AND t.project_id=files.project_id
+                    WHERE files.project_id=%s AND t.user_id=%s AND t.status='succeeded'
+                    AND t.workflow_version IN ('docx_document_v1','pdf_document_v1')"""
+                    + self.assets.material_filter + ' ORDER BY files.filename,r.version DESC',(project,self.store.user_id)).fetchall()
             targets=db.execute("SELECT id,snapshot_json FROM journal_targets WHERE project_id=%s AND user_id=%s",(project,self.store.user_id)).fetchall() if p['project_type']=='sci' else []
-            confirmations=db.execute('SELECT id,snapshot_json FROM school_template_confirmations WHERE project_id=%s AND user_id=%s',(project,self.store.user_id)).fetchall() if p['project_type']=='thesis' else []
+            confirmations=db.execute('SELECT id,template_version_id FROM school_template_confirmations WHERE project_id=%s AND user_id=%s',(project,self.store.user_id)).fetchall() if p['project_type']=='thesis' else []
+            if self.assets.customer:
+                targets=list(self.visible_records(targets,lambda item:self.target_row(db,project,item['id'])))
+                from app.domain.school_templates.service import SchoolTemplateService
+                schools=SchoolTemplateService(self.assets)
+
+                def confirmation(item):
+                    template=schools.row(db,project,item['template_version_id'])
+                    saved=schools.confirmation(db,template)
+                    if saved is None or saved['id']!=item['id']:
+                        raise source_conflict()
+                    return item
+
+                confirmations=list(self.visible_records(confirmations,confirmation))
             return dict(project_type=p['project_type'],manuscripts=manuscripts,documents=[dict(d) for d in documents],journal_targets=[dict(id=r['id'],label=r['snapshot_json'].get('profile',{}).get('name') or '固定期刊目标') for r in targets],school_confirmations=[dict(id=r['id'],label='固定学校确认版本') for r in confirmations])
+
+    def material(self,project,selection):
+        from app.domain.manuscripts.sources import read_source
+
+        return read_source(self,project,selection,allow_customer_pdf=True)
     def preview(self,project,source):
-        with self.store.connection() as db:self.project(db,project)
+        with self.store.connection() as db:
+            p=self.project(db,project)
+            if self.assets.customer and source.role not in ROLES[p['project_type']]:
+                raise invalid('意见来源角色与项目类型不一致。')
         return preview(self,project,source)
     def round_row(self,db,project,identity,lock=False):
-        self.project(db,project)
+        p=self.project(db,project)
         row=db.execute('SELECT * FROM review_rounds WHERE id=%s AND project_id=%s AND user_id=%s'+(' FOR UPDATE' if lock else ''),(identity,project,self.store.user_id)).fetchone()
         if not row:raise StorageError('not_found','返修轮次不存在。',404)
-        self.validate(row);task=self.store.require_task(db,row['task_id']);input_version(task)
-        if task['input_snapshot']!=row['snapshot_json']:raise source_conflict()
+        self.validate(db,row);task=self.store.require_task(db,row['task_id']);input_version(task)
+        snap=row['snapshot_json']
+        if task['input_snapshot']!=snap or snap['project_type']!=p['project_type']:raise source_conflict()
+        if self.assets.customer:
+            m=snap['manuscript']
+            base=self.manuscript_row(db,project,m['id'],m['revision'])
+            if base['id']!=m['version_id'] or base['snapshot_sha256']!=m['sha256']:raise source_conflict()
+            if snap['constraints'].get('school_confirmation_id')!=(base['snapshot_json'].get('thesis_context') or {}).get('confirmation_id'):
+                raise source_conflict()
+            opinion_documents=[(source['file_id'],source['document_version_id']) for source in snap['sources'] if source['format']=='document']
+            materials=[(material['file_id'],material['id']) for material in snap['materials']]
+            require_review_document_versions(db,self.assets,project,opinion_documents+materials)
+            target=snap['constraints']['journal_target_id']
+            if target:self.target_row(db,project,target)
         return row
     def events(self,db,row):
         rows=db.execute('SELECT * FROM review_round_events WHERE round_id=%s ORDER BY revision',(row['id'],)).fetchall()
-        for event in rows:self.validate_event(event)
+        for event in rows:
+            self.validate_event(event)
+            require_visible_snapshot(self.assets,db,row['project_id'],event['snapshot_json'])
+        materials=[(material['file_id'],material['id']) for event in rows for material in event['snapshot_json']['materials']]
+        require_review_document_versions(db,self.assets,row['project_id'],materials)
         return rows
     def validate_event(self,row):
         if digest(row['request_json'])!=row['request_digest'] or digest(row['snapshot_json'])!=row['snapshot_sha256']:raise source_conflict()
@@ -60,14 +186,21 @@ class ReviewRoundService(FormatService):
         result=dict(id=row['id'],project_id=row['project_id'],title=snap['title'],project_type=snap['project_type'],round_number=row['round_number'],revision=events[-1]['revision'] if events else 1,synthetic=bool(snap['synthetic'] or state.get('synthetic')),manuscript={k:snap['manuscript'][k] for k in ('id','revision','version_id','title')},sources=snap['sources'],items=state['items'],materials=state['materials'],constraints=snap['constraints'],versions=[dict(id=e['id'],revision=e['revision'],created_at=e['created_at'],items=e['snapshot_json']['items']) for e in events if e['kind'] in ('initial','plans')],decisions=state['decisions'],task=self.store.public_task(task),wait=get_open_wait(db,task),created_at=row['created_at'],real_model_calls=False,real_network_calls=False)
         from .revisions import RevisionService
         revisions=RevisionService(self.assets)
-        runs=[revisions.view_revision(db,revisions.revision_row(db,row['project_id'],r['id'])) for r in db.execute('SELECT id FROM review_revision_runs WHERE round_id=%s ORDER BY created_at DESC,id',(row['id'],)).fetchall()]
+        runs=list(self.visible_records(db.execute('SELECT id FROM review_revision_runs WHERE round_id=%s ORDER BY created_at DESC,id',(row['id'],)).fetchall(),
+                    lambda item:revisions.view_revision(db,revisions.revision_row(db,row['project_id'],item['id']))))
         result['actual_revisions']=runs
         latest=next((r for r in runs if r['result'] and r['input_snapshot']['plan_revision']==result['revision']),None)
         if latest:result['items']=latest['result']['items']
-        result['documents']=[dict(r) for r in db.execute('SELECT id,revision_id,kind,version,language,confirmed_at FROM review_documents WHERE round_id=%s ORDER BY created_at DESC,id',(row['id'],)).fetchall()]
+        visible_revisions={run['id'] for run in runs}
+        result['documents']=[dict(r) for r in db.execute('SELECT id,revision_id,kind,version,language,confirmed_at FROM review_documents WHERE round_id=%s ORDER BY created_at DESC,id',(row['id'],)).fetchall() if r['revision_id'] in visible_revisions]
         from .lineage import round_continuation
         result['continuation']=round_continuation(self,db,row)
-        result['next_round_ids']=[r['round_id'] for r in db.execute('SELECT round_id FROM review_round_continuations WHERE previous_round_id=%s ORDER BY created_at,id',(row['id'],)).fetchall()]
+        next_rounds=db.execute('SELECT round_id FROM review_round_continuations WHERE previous_round_id=%s ORDER BY created_at,id',(row['id'],)).fetchall()
+        if self.assets.customer:
+            next_rounds=list(self.visible_records(next_rounds,lambda item:self.round_row(db,row['project_id'],item['round_id'])))
+            result['next_round_ids']=[item['id'] for item in next_rounds]
+        else:
+            result['next_round_ids']=[item['round_id'] for item in next_rounds]
         result['document_defaults']=document_defaults(db,row['id'])
         result['configuration']=projection(db,'review_round',row['id'])
         return result
@@ -76,7 +209,8 @@ class ReviewRoundService(FormatService):
     def listing(self,project):
         with self.store.connection() as db:
             self.project(db,project)
-            return dict(items=[self.view(db,self.round_row(db,project,r['id'])) for r in db.execute('SELECT * FROM review_rounds WHERE project_id=%s AND user_id=%s ORDER BY round_number DESC',(project,self.store.user_id)).fetchall()])
+            rows=db.execute('SELECT id FROM review_rounds WHERE project_id=%s AND user_id=%s ORDER BY round_number DESC',(project,self.store.user_id)).fetchall()
+            return dict(items=list(self.visible_records(rows,lambda item:self.view(db,self.round_row(db,project,item['id'])))))
     def append(self,db,row,revision,kind,key,body,state):
         db.execute('INSERT INTO review_round_events(id,round_id,project_id,user_id,revision,kind,idempotency_key,request_json,request_digest,snapshot_json,snapshot_sha256,created_at) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)',(str(uuid4()),row['id'],row['project_id'],self.store.user_id,revision,kind,key,Jsonb(body),digest(body),Jsonb(state),digest(state),now()))
     def fixed(self,db,row):
@@ -116,7 +250,7 @@ class ReviewRoundService(FormatService):
             else:
                 if request.school_confirmation_id:raise invalid('SCI不能选择学校约束。')
                 if request.journal_target_id:target=self.target_row(db,project,request.journal_target_id)['snapshot_json']
-            allowed=('editor','reviewer') if p['project_type']=='sci' else ('advisor','evaluator','defense');sources=[]
+            allowed=ROLES[p['project_type']];sources=[]
             for source in request.sources:
                 if source.role not in allowed:raise invalid('意见来源角色与项目类型不一致。')
                 result=self.preview(project,source)
@@ -157,13 +291,17 @@ class ReviewRoundService(FormatService):
                 sections=normalize_sections(base['snapshot_json']);valid={('section',s['id']) for s in sections}|{('paragraph',p['id']) for s in sections for p in s['paragraphs']}
                 for group in base['snapshot_json'].get('results_groups',[]):
                     for name in ('figures','tables'):valid.update((name[:-1],v['id']) for v in group.get(name,[]))
-                evidence={x['id'] for x in materials}|{x['id'] for x in base['snapshot_json'].get('sources',[])}
+                material_ids={x['id'] for x in materials}
+                evidence=material_ids|{x['id'] for x in base['snapshot_json'].get('sources',[])}
                 frozen_risks={i['id']:i for i in events[0]['snapshot_json']['items']}
                 changed_ids=set()
                 for edit in edits:
                     original_risk=frozen_risks[edit['id']]
                     edit['flags']=list(dict.fromkeys(edit['flags']+original_risk['flags']))
                     edit['conflicting_item_ids']=list(dict.fromkeys(edit['conflicting_item_ids']+original_risk['conflicting_item_ids']))
+                    if (self.assets.customer and not material_ids.intersection(edit['evidence_ids'])
+                        and not any(need['kind']=='analysis' for need in edit['needs'])):
+                        edit['needs'].extend(need for need in original_risk['needs'] if need['kind']=='analysis')
                     if any((x['kind'],x['id']) not in valid for x in edit['locations']):raise invalid('位置不属于固定稿件。')
                     if not set(edit['evidence_ids'])<=evidence:raise invalid('证据不属于固定材料。')
                     if not set(edit['conflicting_item_ids'])<=ids-{edit['id']}:raise invalid('冲突意见必须属于本轮且不能指向自身。')

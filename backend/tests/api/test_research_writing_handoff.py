@@ -110,12 +110,29 @@ def test_research_version_exports_and_enters_existing_writing_and_review(client,
     assert exported.status_code==201,exported.text
     from app.domain.manuscripts.execution import run_manuscript_task
     assert run_manuscript_task(exported.json()['task_id'],1)['status']=='succeeded'
+    from hashlib import sha256
+    from app.db.database import database_connection
+    from tests.integration.test_project_ownership import account_client
+    download = endpoint+'/exports/'+exported.json()['id']+'/download'
+    saved = client.get(endpoint+'/exports/'+exported.json()['id']).json()
+    raw = client.get(download)
+    assert raw.status_code == 200 and sha256(raw.content).hexdigest() == saved['sha256']
+    with database_connection() as db:
+        stored = db.execute('SELECT delivery_id FROM manuscripts WHERE id=%s', (result['manuscript_id'],)).fetchone()
+        assert stored['delivery_id'] == deliveries['sci_draft']
+    with account_client('historical-writing-foreign@example.test')[0] as other:
+        assert other.get(endpoint+'/versions/1').status_code == 404
+        assert other.get(download).status_code == 404
     pdf=client.post(base+'/pdf-exports',json=dict(source_kind='manuscript_export',source_id=exported.json()['id'],request_key='research-project-pdf'))
     assert pdf.status_code==405,pdf.text
     preview=client.post(endpoint+'/writing-previews',json=dict(schema_version=2,output_language='zh-CN',base_revision=1,mode='full_draft',selected_source_ids=[finding['id']],selected_evidence_ids=[]),headers={'Idempotency-Key':'preview'})
     assert preview.status_code==201,preview.text
     context=client.get(endpoint+'/reviews/context')
     assert context.status_code==200,context.text
+    with database_connection(write=True) as db:
+        db.execute('UPDATE research_deliveries SET active=false WHERE id=%s', (deliveries['sci_draft'],))
+    assert client.get(endpoint+'/versions/1').status_code == 200
+    assert client.get(download).content == raw.content
 
 
 def test_school_research_uses_confirmed_purposes_and_preserves_frozen_context(client,tmp_path):

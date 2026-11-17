@@ -115,8 +115,11 @@ def test_school_lengths_use_each_fixed_chapter_language_selection_and_manual_tex
     assert item['actual']==3 and item['status']=='passed'
     assert item['count_projection']['count_method']=='zh_hanzi_latin_words'
 
-def test_school_supplement_pending_placeholder_never_becomes_supplied_by_source():
+@pytest.mark.parametrize("chapter_purpose", ["manual", "acknowledgements"])
+def test_school_supplement_pending_placeholder_never_becomes_supplied_by_source(chapter_purpose):
     snapshot=school_length_sample()
+    snapshot['thesis_context']['chapters'][-1]['purpose']=chapter_purpose
+    snapshot['sections'][-1]['purpose']=chapter_purpose
     request=PresentationRequest(base_version_id='zh',config=dict(school=dict(supplements=[dict(chapter_id='manual',purpose='appendix',source='user-provided source')],options=dict(manual_chapters=[dict(chapter_id='manual',text='   ')]))))
     assert checks(build_preview(request,snapshot,None,'a'*64,None))['school:supplement:manual']=='pending'
     request.config.school.options.manual_chapters[0].text='真实人工附录'

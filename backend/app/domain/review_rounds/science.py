@@ -93,14 +93,14 @@ class ScienceService(FigureAdoptions, ReviewRoundService):
                          (identity, project, self.store.user_id)).fetchone()
         if not row:
             raise StorageError('not_found', '意见关联或分析采用不存在。', 404)
-        self.validate(row)
+        self.validate(db,row)
         snapshot=row['snapshot_json']
         if any(snapshot.get(k)!=row[k] for k in ('project_id','round_id','item_id','plan_revision')):
             raise source_conflict()
         return row
 
     def link_view(self, db, row):
-        self.validate(row)
+        self.validate(db,row)
         task = self.store.require_task(db, row['task_id'])
         snap = row['snapshot_json']
         round=self.round_row(db,row['project_id'],row['round_id'])
@@ -148,6 +148,10 @@ class ScienceService(FigureAdoptions, ReviewRoundService):
         with self.store.connection() as db:
             row = self.round_row(db, project, round_id)
             _, events = self.state(db, row)
+            if self.assets.customer:
+                return dict(round_id=round_id, plan_revision=events[-1]['revision'] if events else 1,
+                            task_links=[], analysis_adoptions=[], figure_adoptions=[],
+                            pending=['需要补充计算或图表时，请使用分析项目的已发布交付作为本轮材料。'])
             links = db.execute('SELECT * FROM review_opinion_task_links WHERE round_id=%s ORDER BY created_at,id', (round_id,)).fetchall()
             adoptions = db.execute('SELECT * FROM review_analysis_adoptions WHERE round_id=%s ORDER BY created_at,id', (round_id,)).fetchall()
             return dict(round_id=round_id, plan_revision=events[-1]['revision'] if events else 1,
@@ -188,7 +192,6 @@ class ScienceService(FigureAdoptions, ReviewRoundService):
             return self.link_view(db, self.science_row(db, project, snap['id'], 'review_opinion_task_links')), 201
 
     def adoption_view(self, row):
-        self.validate(row)
         snap = row['snapshot_json']
         return dict(id=row['id'], round_id=row['round_id'], item_id=row['item_id'], plan_revision=row['plan_revision'],
                     input_snapshot=deepcopy(snap), source=deepcopy(snap['source']), impact=deepcopy(snap['impact']),
@@ -337,7 +340,7 @@ class ScienceService(FigureAdoptions, ReviewRoundService):
 
     def validate_adoption(self, db, row, *, require_current=False):
         """Historical validation keeps the frozen plan, not today's setup revision."""
-        self.validate(row)
+        self.validate(db,row)
         frozen = row['snapshot_json']
         round = self.round_row(db, row['project_id'], row['round_id'])
         if (frozen['round_id'] != row['round_id'] or frozen['item_id'] != row['item_id'] or frozen['plan_revision'] != row['plan_revision']

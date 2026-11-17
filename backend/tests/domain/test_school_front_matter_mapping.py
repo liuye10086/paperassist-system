@@ -55,6 +55,7 @@ def test_conflicting_content_kinds_rejected_before_immutable_confirmation_insert
     payload['front_matter']['content_requirements'].append(first|dict(id='incompatible',kind='acknowledgements'))
     assert all('purpose' not in c for c in payload['chapters'])
     db=ReadOnlyDB();service=object.__new__(SchoolTemplateService)
+    service.assets=SimpleNamespace(customer=True)
     service.store=SimpleNamespace(connection=lambda **k:nullcontext(db),user_id='synthetic')
     service.project=lambda *a:None
     service.row=lambda *a:dict(id='template',analysis_json=data['analysis'],analysis_sha256=payload['analysis_sha256'])
@@ -70,6 +71,29 @@ def test_same_kind_multiple_requirements_remain_compatible():
     data=fixture();front=deepcopy(data['confirm-payload']['front_matter'])
     front['content_requirements'].append(front['content_requirements'][0]|dict(id='same-kind-source'))
     assert validate_front_matter(front,data['analysis'],data['confirm-payload']['chapters'])==front
+
+
+def test_supplied_acknowledgements_fulfil_the_confirmed_requirement_and_enter_language_review():
+    from app.domain.manuscript_writing.school_language import inventory
+
+    data = fixture()
+    snapshot = data['snapshot']
+    snapshot['writing_provenance'] = {}
+    missing_issue = 'school:required-content:ack'
+    original_options = data['plan']['options']
+    for manual_chapters in ([], [dict(chapter_id='ack', text='  ')]):
+        items, layout = inventory(deepcopy(snapshot), {}, [], data['analysis'],
+                                  original_options | dict(manual_chapters=manual_chapters))
+        assert missing_issue in {issue['id'] for issue in layout['report']['issues']}
+        assert any(row['chapter_id'] == 'ack' and row['text'] == 'Pending user content' for row in items)
+    acknowledgements = 'Thank you for reading this demonstration.'
+    items, layout = inventory(deepcopy(snapshot), {}, [], data['analysis'],
+                              original_options | dict(manual_chapters=[dict(chapter_id='ack', text=acknowledgements)]))
+    assert missing_issue not in {issue['id'] for issue in layout['report']['issues']}
+    paragraphs = [row for row in items if row['chapter_id'] == 'ack' and row['location'].startswith('word/document.xml:')]
+    assert [row['text'] for row in paragraphs] == ['Synthetic acknowledgements', acknowledgements]
+    assert paragraphs[1]['target_language'] == 'en'
+    assert paragraphs[1]['narrative_ranges'] == [[0, len(acknowledgements)]]
 
 
 @pytest.mark.parametrize('kind,wrong',[('declaration','acknowledgements'),('declaration','other'),('acknowledgements','manual')])

@@ -74,3 +74,26 @@ def test_canonical_writing_sections_without_title_fields_use_public_heading_labe
     rules=[dict(id=key,key=key,status='known',value=headings,quote=' | '.join(headings),location='line:1') for key in ('required_sections','section_order')]
     items=[i for i in check_format(snapshot,rules,[],public_issues=[])['items'] if i['category']=='sections']
     assert all(i['actual']==headings and i['status']=='pass' for i in items)
+
+
+@pytest.mark.parametrize(('language', 'headings'), [
+    ('en', ['Scope and background', 'Literature sources and inclusion scope', 'Thematic synthesis', 'Synthesis and limitations']),
+    ('zh-CN', ['范围与背景', '文献来源与纳入说明', '主题综合', '综合讨论与局限']),
+])
+def test_narrative_review_checks_use_the_word_headings(language, headings):
+    from app.domain.journals.format_rules import check_format
+    from app.domain.manuscript_writing.article_contract import STRUCTURES
+
+    snapshot = dict(
+        title='Synthetic', output_language=language, article_type='narrative_review',
+        sections=[dict(id=key, paragraphs=[]) for key in STRUCTURES['narrative_review']],
+        methods=[], results_groups=[], sources=[], references=[], issues=[],
+    )
+    rules = [
+        dict(id=key, key=key, status='known', value=headings, quote=' | '.join(headings), location='line:1')
+        for key in ('required_sections', 'section_order')
+    ]
+    items = check_format(snapshot, rules, [])['items']
+    assert {item['key']: item['status'] for item in items if item['category'] == 'sections'} == {
+        'required_sections': 'pass', 'section_order': 'pass',
+    }

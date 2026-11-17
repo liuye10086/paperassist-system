@@ -1,6 +1,7 @@
 // Public server codes only. Never render arbitrary server exception text.
 export const errorMessages: Record<string, {
  zh: string; en: string }> = {
+ gs501_reviewed_output_stale:{zh:'已确认的盲评稿仍含已知身份信息，请重新生成盲评 Word 并确认输出语言。',en:'The confirmed blind-review draft contains known identity information. Generate a new blind-review Word document and confirm its language.'},
  presentation_citation_unresolved:{zh:'引用重编号缺少固定片段依据，请补充引用关联。',en:'Citation renumbering needs frozen source excerpts. Complete the citation links.'},
  presentation_consistency_conflict:{zh:'输出配置存在一致性冲突，请核对配置及所选稿件。',en:'The output configuration is inconsistent. Review the settings and selected manuscripts.'},
  presentation_language_unavailable:{zh:'缺少所选语言的固定稿件，中英对照需要同源的中文和英文版本。',en:'A fixed manuscript in the selected language is missing. Bilingual output requires Chinese and English versions from the same source.'},
@@ -154,6 +155,8 @@ export const errorMessages: Record<string, {
  manuscript_review_not_found:{zh:'稿件评审不存在，请重新读取。',en:'The manuscript review is unavailable. Reload its details.'},
  manuscript_revision_conflict:{zh:'稿件已有新版本，请读取最新版本后核对。',en:'A newer manuscript version exists. Load the latest version and review it.'},
  manuscript_writing_input_limit:{zh:'完整写作外发包超过输入上限，请减少所选材料后重新预览；未作截断。',en:'The complete outbound writing bundle exceeds the input limit. Reduce the selected materials and preview again. No truncation was performed.'},
+ manuscript_article_type_changed:{zh:'稿件类型与项目当前设置不一致。请核对项目资料后重新准备写作预览。',en:'The manuscript type does not match the current project settings. Review the project details and prepare a new writing preview.'},
+ manuscript_writing_evidence_required:{zh:'所选依据不足。研究型论文需选择支撑结果的固定来源；综述需选择已核验的文献摘录。',en:'Select more evidence. Research papers need saved sources that support the results; narrative reviews need verified literature excerpts.'},
  manuscript_writing_language_invalid:{zh:'全文语言审核未通过完整性、图内文字、内容身份或科学审核边界校验，请核对审核结果。',en:'The full-text language review failed completeness, figure-text, content-identity or scientific-review boundary checks. Review its results.'},
  manuscript_writing_language_required:{zh:'审后候选尚未完成全文语言核验，请先完成语言审核。',en:'The reviewed candidate has not completed full-text language verification. Complete its language review first.'},
  manuscript_writing_material_blocked:{zh:'所选文字含本地路径、不支持的链接或凭据样式，请移除后重新预览。',en:'The selected text contains local paths, unsupported links or credential-like content. Remove them and preview again.'},
@@ -410,9 +413,15 @@ numeric_failure: {zh:'本地统计进程异常退出，未发布结果。请联�
   auth_content_too_large: { zh: '填写内容超过大小限制，请缩短后重试。', en: 'The form exceeds the size limit. Shorten your input and try again.' },
   registration_not_found: { zh: '注册申请不存在。', en: 'The registration application does not exist.' },
   registration_already_reviewed: { zh: '该注册申请已经审核，请查看最新结果。', en: 'This application has already been reviewed. Check its latest status.' },
-  customer_operation_forbidden: { zh: '客户账号可提交需求、资料和反馈。分析由分析员执行。', en: 'Customers can submit requirements, materials, and feedback. Analysts run analyses.' },
+  customer_operation_forbidden: { zh: '客户账号无权执行此操作。', en: 'This operation is unavailable to customer accounts.' },
+  customer_project_type_forbidden: { zh: '此操作与当前项目类型不匹配。', en: 'This operation is unavailable for this project type.' },
+  sci_settings_required: { zh: '请填写完整的 SCI 建项资料。', en: 'Complete the SCI project details.' },
+  sci_settings_unavailable: { zh: 'SCI 建项资料仅适用于 SCI 论文项目。', en: 'SCI details are available for SCI projects.' },
+  sci_settings_revision_conflict: { zh: 'SCI 建项资料已更新，请核对最新版本。', en: 'SCI project details have changed. Review the latest version.' },
+  manuscript_source_not_visible: { zh: '关联的稿件或来源材料不可访问，请核对所选资料。', en: 'A linked manuscript or source material is unavailable. Review the selected materials.' },
   project_assignment_revision_conflict: { zh: '项目分配已变化，请刷新列表后重试。', en: 'The assignment changed. Refresh the list and try again.' },
   project_assignment_analyst_invalid: { zh: '请选择已审核且启用的分析员账号。', en: 'Select an approved and enabled analyst account.' },
+  project_assignment_type_invalid: { zh: '论文项目仅可撤回已有分配。', en: 'Existing manuscript project assignments may be revoked.' },
   project_assignment_stale: { zh: '项目授权已变化，请重新打开项目。', en: 'Project access changed. Reopen the project.' },
   invalid_current_password: { zh: '当前密码错误。', en: 'The current password is incorrect.' },
   invalid_recovery_code: { zh: '恢复码无效或已过期，请联系管理员重新核验。', en: 'The recovery code is invalid or expired. Contact the administrator for verification.' },

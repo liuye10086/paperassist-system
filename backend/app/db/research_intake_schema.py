@@ -17,6 +17,7 @@ def define_research_intake_tables(metadata):
         sa.Column('owner_id', sa.Text), sa.Column('revision', sa.Integer, nullable=False, server_default='1'),
         sa.Column('current_requirement_version_id', sa.Text), sa.Column('current_design_version_id', sa.Text),
         sa.Column('creation_request_key', sa.Text), sa.Column('creation_digest', sa.Text),
+        sa.Column('sci_settings_json', JSONB),
         sa.Column('created_at', sa.DateTime(timezone=True), nullable=False),
         sa.Column('updated_at', sa.DateTime(timezone=True), nullable=False),
         scoped_fk(['project_id','owner_id'], ['projects.id','projects.owner_id'], 'cr_ri_owner_fk'),

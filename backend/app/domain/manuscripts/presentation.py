@@ -13,6 +13,7 @@ from app.domain.manuscript_review.facts import displayed_paragraphs
 from app.domain.manuscript_writing.numeric_review import numbers
 from .illustrations import BODY_REFERENCE
 from .presentation_contracts import PresentationRequest, PresentationConfig, STATEMENT_KINDS
+from .sources import require_visible_snapshot
 
 def invalid(message):return StorageError('task_input_invalid',message,422)
 def missing():return StorageError('manuscript_not_found','输出配置或固定稿件不存在。',404)
@@ -132,10 +133,11 @@ def build_preview(request,base,peer,base_sha,peer_sha):
         if not (included|excluded)<=set(chapters) or included&excluded:raise ValueError('Unknown or contradictory school chapter selection')
         if any(c['purpose']=='abstract' and (c['id'] in excluded or included and c['id'] not in included) for c in chapters.values()):raise ValueError('Mandatory bilingual abstracts cannot be excluded')
         manual={c.chapter_id:c.text for c in school.options.manual_chapters}
-        if any(i not in chapters or chapters[i]['purpose']!='manual' for i in manual):raise ValueError('Manual text must bind existing manual chapter identity')
+        manual_purposes=('manual','acknowledgements')
+        if any(i not in chapters or chapters[i]['purpose'] not in manual_purposes for i in manual):raise ValueError('Manual text must bind an existing manual or acknowledgements chapter')
         for supplement in school.supplements:
             chapter=chapters.get(supplement.chapter_id)
-            if not chapter or chapter['purpose'] not in ('manual','acknowledgements'):raise ValueError('Supplement requires existing manual/acknowledgements chapter')
+            if not chapter or chapter['purpose'] not in manual_purposes:raise ValueError('Supplement requires existing manual/acknowledgements chapter')
             existing=next((s for s in base.get('sections',[]) if s['id']==supplement.chapter_id),{})
             supplied=manual.get(supplement.chapter_id,'').strip() or any(p.get('text','').strip() and not p.get('id','').endswith(':pending') for p in existing.get('paragraphs',[]))
             ready=bool(supplied and supplement.source.strip())
@@ -190,12 +192,22 @@ class PresentationService:
     def _version(self,db,project,identity,provided=None):
         if provided is not None and provided['id']==identity:
             if provided['project_id']!=project or provided['user_id']!=self.store.user_id:raise missing()
+            self.manuscripts.require_visible_version(db,provided)
             return provided
         row=db.execute('SELECT * FROM manuscript_versions WHERE id=%s AND project_id=%s AND user_id=%s',(identity,project,self.store.user_id)).fetchone()
         if not row:raise missing()
         self.manuscripts.validate_version(db,row)
         if self.store.require_task(db,row['task_id'])['status']!='succeeded':raise source_conflict()
         return row
+
+    def _guide(self,db,project,config):
+        guide_id=config.guide_version_id or (config.school.guide_version_id if config.school else None)
+        if not guide_id:return None
+        guide=db.execute('SELECT * FROM journal_guides WHERE id=%s AND project_id=%s AND user_id=%s',(guide_id,project,self.store.user_id)).fetchone()
+        if not guide:raise missing()
+        if digest(guide['snapshot_json'])!=guide['snapshot_sha256'] or digest(guide['request_json'])!=guide['request_digest']:raise source_conflict()
+        require_visible_snapshot(self.manuscripts.assets,db,project,guide['snapshot_json'])
+        return guide
 
     def _prepare(self,db,project,identity,request,base_version=None):
         root=self.manuscripts.root(db,project,identity)
@@ -207,11 +219,8 @@ class PresentationService:
             if root.get('document_kind')!=other.get('document_kind') or bool(base['snapshot_json'].get('thesis_context'))!=bool(peer['snapshot_json'].get('thesis_context')):raise invalid('两侧稿件类型必须兼容。')
         try:preview=build_preview(request,base['snapshot_json'],peer['snapshot_json'] if peer else None,base['snapshot_sha256'],peer['snapshot_sha256'] if peer else None)
         except ValueError as exc:raise invalid(str(exc)) from exc
-        guide_id=request.config.guide_version_id or (request.config.school.guide_version_id if request.config.school else None)
-        if guide_id:
-            guide=db.execute('SELECT * FROM journal_guides WHERE id=%s AND project_id=%s AND user_id=%s',(guide_id,project,self.store.user_id)).fetchone()
-            if not guide:raise missing()
-            if digest(guide['snapshot_json'])!=guide['snapshot_sha256'] or digest(guide['request_json'])!=guide['request_digest']:raise source_conflict()
+        guide=self._guide(db,project,request.config)
+        if guide:
             from app.domain.journals.guide_rules import select_requirements
             from app.domain.journals.format_rules import check_format
             selected,conflicts,_=select_requirements(guide['snapshot_json']['requirements'],base['snapshot_json'].get('article_type'),[])
@@ -266,6 +275,7 @@ class PresentationService:
         request=PresentationRequest.model_validate(row['request_json'])
         base=self._version(db,project,request.base_version_id,base_version)
         peer=self._version(db,project,request.peer_version_id,peer_version) if request.peer_version_id else None
+        if self.manuscripts.assets.customer:self._guide(db,project,request.config)
         preview=row['snapshot_json']
         if (base['manuscript_id']!=identity or base['id']!=row['base_version_id'] or preview['base_sha256']!=base['snapshot_sha256'] or preview.get('peer_sha256')!=(peer['snapshot_sha256'] if peer else None) or row['peer_version_id']!=request.peer_version_id or preview['config']!=row['request_json'].get('config',{})):raise source_conflict()
         return row,base,peer,deepcopy(preview)
@@ -285,8 +295,18 @@ class PresentationService:
         with self.store.connection() as db:
             self.manuscripts.root(db,project,identity)
             rows=db.execute('SELECT id,base_version_id,peer_version_id FROM manuscript_presentation_versions WHERE manuscript_id=%s AND project_id=%s AND user_id=%s ORDER BY revision DESC',(identity,project,self.store.user_id)).fetchall()
-            versions={version_id:self._version(db,project,version_id) for version_id in {v for r in rows for v in (r['base_version_id'],r['peer_version_id']) if v}}
-            return dict(items=[self._view(db,*self.fixed(db,project,identity,r['id'],versions[r['base_version_id']],versions.get(r['peer_version_id']))) for r in rows])
+            versions={}
+            for version_id in {v for r in rows for v in (r['base_version_id'],r['peer_version_id']) if v}:
+                try:versions[version_id]=self._version(db,project,version_id)
+                except StorageError as exc:
+                    if exc.code!='manuscript_source_not_visible':raise
+            items=[]
+            for row in rows:
+                if row['base_version_id'] not in versions or row['peer_version_id'] and row['peer_version_id'] not in versions:continue
+                try:items.append(self._view(db,*self.fixed(db,project,identity,row['id'],versions[row['base_version_id']],versions.get(row['peer_version_id']))))
+                except StorageError as exc:
+                    if exc.code!='manuscript_source_not_visible':raise
+            return dict(items=items)
 
     def save(self,project,identity,request,key):
         require_key(key)

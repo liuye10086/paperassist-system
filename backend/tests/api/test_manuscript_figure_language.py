@@ -12,11 +12,18 @@ from tests.api.test_literature_evidence import post
 def uploaded(client,project,color='white'):
     from tests.api.test_file_batches import register
     from app.adapters.storage import get_project_store
+    from app.core.exceptions import StorageError
+    from app.domain.tasks.file_parse_execution import run_parse_file_task
     output=BytesIO();Image.new('RGB',(300,200),color).save(output,format='PNG')
     base,batch,item,content=register(client,{'id':project},output.getvalue(),'image.png','upload-'+color)
     response=client.post(base+'/'+batch['id']+'/items/'+item['client_id'],files={'file':('image.png',content)})
     assert response.status_code==202,response.text
-    return get_project_store().file(project,response.json()['file_id'])
+    uploaded=response.json();task=uploaded['task']
+    # These fixtures bind original pixels. Finish the upload's serial parse task without an OCR dependency.
+    def unavailable_ocr(*args,**kwargs):
+        raise StorageError('parse_environment_unavailable','OCR is outside this fixture.',409)
+    assert run_parse_file_task(task['id'],task['revision'],parser=unavailable_ocr)['status']=='failed'
+    return get_project_store().file(project,uploaded['file_id'])
 
 
 def setup(client):

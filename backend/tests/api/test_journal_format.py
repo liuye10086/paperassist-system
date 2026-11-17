@@ -125,6 +125,24 @@ def test_guide_manual_correction_needs_matching_location_and_preserves_extractio
     assert post(client,base+'/guides',guide(p,requirements=[rule]),'wrong-leading-line').status_code==422
 
 
+def test_guide_exact_quote_accepts_grouped_count_but_rejects_partial_count(client):
+    base, profile, _ = candidate(client)
+    quote = 'maximum word count of 12,000'
+    rule = dict(id='review-limit', key='word_limit', value=12000, status='known',
+                quote=quote, location='line:1', article_type='review')
+    prompt = guide(profile, source_text=quote, article_types=['review'], requirements=[rule])
+    response = post(client, base + '/guides', prompt, 'grouped-limit')
+    assert response.status_code == 201, response.text
+    assert response.json()['requirements'] == [rule | dict(count_method=None, origin='journal', note='')]
+    for partial in (12, 0):
+        wrong = prompt | dict(requirements=[rule | dict(value=partial)])
+        assert post(client, base + '/guides', wrong, f'partial-limit-{partial}').status_code == 422
+    labeled = guide(profile, source_text='Maximum body words: 12,000; count: en_whitespace_body')
+    explicit = post(client, base + '/guides', labeled, 'labeled-limit')
+    assert explicit.status_code == 201, explicit.text
+    assert explicit.json()['requirements'][0]['value'] == 12000
+
+
 def test_target_cross_guide_conflicts_specific_precedence_and_defer(client):
     base,p,r=candidate(client)
     g1=post(client,base+'/guides',guide(p,source_text='Maximum body words: 3000; count: en_whitespace_body\n[research] Maximum body words: 2000; count: en_whitespace_body'),'g1').json()

@@ -102,9 +102,11 @@ def test_fixed_old_parent_and_current_revision_cas(client):
     first=client.post(path,json=body,headers={'Idempotency-Key':'first'}).json()
     second=client.post(path,json=body,headers={'Idempotency-Key':'second'}).json()
     assert run_task(first['task']['id'],1)['status']=='succeeded'
-    result=client.get(url+'/revisions/'+first['id']).json()['result'];assert run_task(result['output']['task_id'],1)['status']=='succeeded'
+    result=client.get(url+'/revisions/'+first['id']).json()['result']
+    # The second dispatch precedes the public draft that the first dispatch created.
     assert run_task(second['task']['id'],1)['status']=='failed'
     assert client.get(url+'/revisions/'+second['id']).json()['result'] is None
+    assert run_task(result['output']['task_id'],1)['status']=='succeeded'
     fresh=client.get(url+'/rounds/'+round['id']+'/revision-context').json()
     assert fresh['manuscript']['version_id']==base['id']
     body.pop('preview_sha256');body['expected_current_revision']=fresh['expected_current_revision'];body['operations'][0]['text']+=' Explicit old-parent edit.'

@@ -438,6 +438,8 @@ def test_sdk_usage_preserves_missing_fields_and_explicit_null(details):
     ({'cached_tokens': 0, 'cache_write_tokens': 0}, 'estimated'),
     ({'cached_tokens': 0}, 'pending'),
     ({'cached_tokens': 0, 'cache_write_tokens': None}, 'pending'),
+    ({'cached_tokens': 0, 'cache_write_tokens': 96,
+      'cache_write_tokens_details': {'ttl_12h_tokens': 0, 'ttl_30m_tokens': 96}}, 'estimated'),
 ])
 def test_sdk_receipt_accounting_only_settles_complete_pricing_evidence(details, expected):
     gateway, adapter = modules()
@@ -451,6 +453,9 @@ def test_sdk_receipt_accounting_only_settles_complete_pricing_evidence(details, 
     assert result['call']['usage_status'] == expected
     with database_connection() as db:
         statuses = {row['status'] for row in db.execute('SELECT status FROM budget_reservations')}
+        if 'cache_write_tokens_details' in details:
+            row = db.execute('SELECT provider_usage FROM usage_events').fetchone()
+            assert row['provider_usage'] == usage
     assert statuses == {'settled' if expected == 'estimated' else 'held'}
 
 

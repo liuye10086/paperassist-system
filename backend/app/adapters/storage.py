@@ -157,21 +157,30 @@ class ProjectStore:
             raise StorageError("project_not_found", "项目不存在，请刷新项目列表。", 404)
         return dict(row)
 
-    def create_project(self, name: str, research_topic: str, project_type: str, default_output_language: str = 'zh-CN', *, delivery_kinds=None, idempotency_key=None):
+    def create_project(self, name: str, research_topic: str, project_type: str, default_output_language: str = 'zh-CN',
+                       *, delivery_kinds=None, sci_settings=None, idempotency_key=None):
         if default_output_language not in ('zh-CN', 'en'):
             raise StorageError('project_language_invalid', '项目默认输出语言仅支持中文或英文。', 422)
         from app.domain.research_intake.service import digest, request_key
         from app.adapters.research_intake_store import initialize_intake
-        creation_digest = None
+        body = dict(name=name, research_topic=research_topic, project_type=project_type,
+                    default_output_language=default_output_language)
         if project_type == 'research':
-            request_key(idempotency_key)
             if not self.owner_id or not isinstance(delivery_kinds,list) or not 1 <= len(delivery_kinds) <= 3 or len(set(delivery_kinds)) != len(delivery_kinds) or any(x not in ('analysis','sci_draft','thesis_draft') for x in delivery_kinds):
                 raise StorageError('research_requirement_invalid','研究项目须有owner及一至三种不重复交付。',422)
-            creation_digest = digest({'name':name,'research_topic':research_topic,'project_type':project_type,'default_output_language':default_output_language,'delivery_kinds':sorted(delivery_kinds)})
+            body['delivery_kinds'] = sorted(delivery_kinds)
+        if sci_settings is not None:
+            body['sci_settings'] = sci_settings
+        creation_digest = None
+        if project_type == 'research' or self.customer or idempotency_key is not None:
+            request_key(idempotency_key)
+            if not self.owner_id:
+                raise StorageError('research_requirement_invalid', '建项回执须绑定项目所有者。', 422)
+            creation_digest = digest(body)
         project_id = str(uuid4())
         now = datetime.now(timezone.utc).isoformat()
         with self.connection(write=True) as db:
-            if project_type == 'research':
+            if creation_digest is not None:
                 replay = db.execute('SELECT project_id,creation_digest FROM research_intakes WHERE owner_id=%s AND creation_request_key=%s',(self.owner_id,idempotency_key)).fetchone()
                 if replay:
                     if replay['creation_digest'] != creation_digest:
@@ -179,6 +188,10 @@ class ProjectStore:
                     result = self.project(replay['project_id'])
                     result['_creation_replayed'] = True
                     return result
+            if self.customer and project_type == 'sci' and sci_settings is None:
+                raise StorageError('sci_settings_required', '请填写完整的 SCI 建项资料。', 422)
+            if self.customer and project_type == 'research' and delivery_kinds != ['analysis']:
+                raise StorageError('research_requirement_invalid', '分析项目建项须选择数据分析交付。', 422)
             db.execute("""INSERT INTO projects
                 (id, name, research_topic, project_type, created_at, updated_at, owner_id, default_output_language)
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s)""",
@@ -186,7 +199,7 @@ class ProjectStore:
             from app.domain.storage_governance.service import initialize_policy
             initialize_policy(db,'project',project_id)
             initialize_intake(db,project_id,self.owner_id,project_type,delivery_kinds=delivery_kinds,
-                              creation_key=idempotency_key if project_type=='research' else None,creation_digest=creation_digest)
+                              creation_key=idempotency_key,creation_digest=creation_digest,sci_settings=sci_settings)
         return self.project(project_id)
 
     def project_creation_request(self, key):

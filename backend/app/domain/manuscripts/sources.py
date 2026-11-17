@@ -3,17 +3,53 @@ import json
 from app.adapters.task_store import source_conflict
 from app.core.exceptions import StorageError
 from app.domain.external_evidence.service import ExternalEvidenceService
+from app.domain.files import require_file
 from app.domain.literature.service import digest
 
 
-def read_source(service,project,selection):
+def customer_can_use_analysis(db, assets, project):
+    # Old statistical records do not identify the analyst who produced them.
+    # Assigned projects share only published deliveries; their Word/figures may be uploaded as customer sources.
+    return not assets.customer or db.execute('SELECT 1 FROM project_assignments WHERE project_id=%s', (project,)).fetchone() is None
+
+
+def require_visible_snapshot(assets, db, project, snapshot):
+    if not assets.customer:
+        return
+    from app.domain.file_lifecycle.references import file_ids
+    from .research_sources import file_ids as research_file_ids
+
+    identifiers = file_ids(snapshot)
+    identifiers.update(research_file_ids([source for source in snapshot.get('sources', ()) if isinstance(source, dict)]))
+    if identifiers:
+        visible = db.execute('''SELECT count(*) AS n FROM files WHERE project_id=%s AND id=ANY(%s)'''
+                             + assets.material_filter, (project, sorted(identifiers))).fetchone()['n']
+        if visible != len(identifiers):
+            raise StorageError('manuscript_source_not_visible', '关联材料不可访问。', 404)
+    context = snapshot.get('thesis_context')
+    if context and context.get('template_version_id'):
+        from app.domain.school_templates.service import SchoolTemplateService
+
+        SchoolTemplateService(assets).require_visible_sources(db, project, context['template_version_id'])
+
+
+def read_source(service,project,selection,*,allow_customer_pdf=False):
     selected=selection.model_dump() if hasattr(selection,'model_dump') else selection
     kind,identity,file_id=selected['kind'],selected['id'],selected['file_id']
     with service.store.connection() as db:
         service.store.require_project(db,project)
-        file=db.execute('SELECT * FROM files WHERE id=%s AND project_id=%s',(file_id,project)).fetchone()
-        if not file: raise source_conflict()
-        file=dict(file)
+        if kind in ('analysis_run', 'figure', 'analysis_report', 'collection_report') and not customer_can_use_analysis(db, service.assets, project):
+            raise StorageError('manuscript_source_not_visible', '请使用已发布的分析交付作为论文资料。', 404)
+        if service.assets.customer:
+            file = dict(require_file(db, project, file_id, material_filter=service.assets.material_filter))
+            customer_types=('docx','xlsx','png','jpeg','pdf') if allow_customer_pdf and kind=='document_version' else ('docx','xlsx','png','jpeg')
+            if file['file_type'] not in customer_types:
+                raise StorageError('unsupported_file_type', '论文资料支持 Word、Excel 和图片。', 422)
+        else:
+            file = db.execute('SELECT * FROM files WHERE id=%s AND project_id=%s', (file_id, project)).fetchone()
+            if not file:
+                raise source_conflict()
+            file = dict(file)
     # These evidence readers verify the original themselves. Other source kinds
     # still need the original-file check here, with no cache across calls.
     if kind not in ('original','document_version','ocr_review_version','external_evidence_version'):
@@ -22,7 +58,7 @@ def read_source(service,project,selection):
     label=file['filename'];content={};sha=file['sha256']
     if kind in ('original','document_version','ocr_review_version'):
         if kind=='original' and identity!=file_id: raise source_conflict()
-        source,items,row,document=ExternalEvidenceService(service.assets)._source(project,file_id,kind,None if kind=='original' else identity)
+        source,items,row,document=ExternalEvidenceService(service.assets)._source(project,file_id,kind,None if kind=='original' else identity,allow_customer_pdf=allow_customer_pdf)
         content=dict(source=source,items=items);sha=source['sha256']
         download=source['object_download_url'] or source['original_download_url']
         if kind=='document_version':

@@ -32,10 +32,32 @@ it('opens controlled writing without authorizing or executing, and invalidates i
  await waitFor(()=>expect(screen.getByRole('button',{name:'受控写作与人工审核'}).matches(':disabled')).toBe(true))
  const count=fetcher.mock.calls.length;fireEvent.click(screen.getByRole('button',{name:'受控写作与人工审核'}));expect(screen.queryByRole('region',{name:'受控写作工作区'})).toBeNull();expect(fetcher.mock.calls).toHaveLength(count)
 })
-it('executes only the explicitly matched authorized bundle and keeps failed unknown submissions visible without retry',async()=>{
+it.each([false,true])('requires an explicit original-key retry for an unconfirmed writing request (%s)',async interrupted=>{
  vi.stubGlobal('crypto',webcrypto);const bundle=bundleFixture(),authorization=authFixture([bundle,bundleFixture('b2'),bundleFixture('b3'),bundleFixture('b4')]);const failed={...liveRequest,candidate:null,task:{...liveRequest.task,status:'waiting_confirmation',display_status:'waiting_confirmation',reason_code:'submission_unknown'},model_calls:[{id:'call1',model:'gpt-5.4-2026-03-05',status:'submission_unknown',provider_provenance:'openai_live',bundle_id:'b1',authorization_id:'auth1',logical_task_id:'task-1',estimated_cost_micro_usd:null}]}
- const fetcher=vi.fn(async(url:string,init?:RequestInit)=>Response.json(url.endsWith('/manuscripts')?{items:[manuscriptFixture]}:url.endsWith('/writing-previews')?{items:[bundle],capabilities:{real_calls_enabled:true}}:url.endsWith('/writing-authorizations')?{items:[authorization]}:init?.method==='POST'?failed:{items:[]}));vi.stubGlobal('fetch',fetcher)
- render(<WritingLive {...props}/>);await screen.findByRole('option',{name:/b1 · 完整七部分初稿/});await waitFor(()=>expect(screen.getByLabelText('选择已冻结预览').matches(':disabled')).toBe(false));fireEvent.change(screen.getByLabelText('选择已冻结预览'),{target:{value:'b1'}});await screen.findByText('完整 wire 字节与 SHA 已核对。');fireEvent.click(screen.getByRole('button',{name:'读取同项目稿件与授权'}));await screen.findByRole('option',{name:'auth1 · 有效'});fireEvent.change(screen.getByLabelText('明确选择已有授权'),{target:{value:'auth1'}});fireEvent.change(screen.getByLabelText('授权逻辑任务'),{target:{value:'task-1'}});expect(screen.getByRole('button',{name:'提交已授权写作'}).matches(':disabled')).toBe(true);fireEvent.click(screen.getByLabelText('我确认执行当前精确 SHA；失败或未知不会自动重发。'));fireEvent.click(screen.getByRole('button',{name:'提交已授权写作'}));await screen.findByText('实际费用未知；仍占预留额度，不自动重发。');expect(fetcher.mock.calls.filter(([,init])=>init?.method==='POST')).toHaveLength(1);const body=JSON.parse(String(fetcher.mock.calls.find(([,init])=>init?.method==='POST')![1]?.body));expect(body).toEqual({schema_version:2,bundle_id:'b1',bundle_sha256:bundle.bundle_sha256,authorization_id:'auth1',logical_task_id:'task-1'});expect(screen.getByRole('button',{name:'提交已授权写作'}).matches(':disabled')).toBe(true)
+ const posts:RequestInit[]=[]
+ const fetcher=vi.fn(async(url:string,init?:RequestInit)=>{
+  if(init?.method==='POST'){
+   posts.push(init)
+   if(interrupted&&posts.length===1)throw new TypeError('Synthetic network interruption')
+   return Response.json(failed)
+  }
+  return Response.json(url.endsWith('/manuscripts')?{items:[manuscriptFixture]}:url.endsWith('/writing-previews')?{items:[bundle],capabilities:{real_calls_enabled:true}}:url.endsWith('/writing-authorizations')?{items:[authorization]}:{items:[]})
+ });vi.stubGlobal('fetch',fetcher)
+ render(<WritingLive {...props}/>);await screen.findByRole('option',{name:/b1 · 完整七部分初稿/});await waitFor(()=>expect(screen.getByLabelText('选择已冻结预览').matches(':disabled')).toBe(false));fireEvent.change(screen.getByLabelText('选择已冻结预览'),{target:{value:'b1'}});await screen.findByText('完整 wire 字节与 SHA 已核对。');fireEvent.click(screen.getByRole('button',{name:'读取同项目稿件与授权'}));await screen.findByRole('option',{name:'auth1 · 有效'});fireEvent.change(screen.getByLabelText('明确选择已有授权'),{target:{value:'auth1'}});fireEvent.change(screen.getByLabelText('授权逻辑任务'),{target:{value:'task-1'}});expect(screen.getByRole('button',{name:'提交已授权写作'}).matches(':disabled')).toBe(true);fireEvent.click(screen.getByLabelText('我确认执行当前精确 SHA；失败或未知不会自动重发。'));fireEvent.click(screen.getByRole('button',{name:'提交已授权写作'}));
+ if(interrupted){
+  await screen.findByRole('alert')
+  expect(posts).toHaveLength(1)
+  fireEvent.click(screen.getByRole('button',{name:'使用原写作请求重试'}))
+ }
+ await screen.findByText('实际费用未知；仍占预留额度，不自动重发。')
+ expect(posts).toHaveLength(interrupted?2:1)
+ expect(JSON.parse(String(posts[0].body))).toEqual({schema_version:2,bundle_id:'b1',bundle_sha256:bundle.bundle_sha256,authorization_id:'auth1',logical_task_id:'task-1'})
+ if(interrupted){
+  expect(posts[1].body).toBe(posts[0].body)
+  expect(new Headers(posts[1].headers).get('Idempotency-Key')).toBe(new Headers(posts[0].headers).get('Idempotency-Key'))
+ }
+ expect(screen.getByRole('button',{name:'提交已授权写作'}).matches(':disabled')).toBe(true)
+ expect(screen.queryByRole('button',{name:'使用原写作请求重试'})).toBeNull()
 })
 
 it.each(['reserved','released'] as const)('shows a %s call as not submitted without an executed provider receipt',async status=>{
@@ -107,4 +129,20 @@ it('matches a recovered controlled request by exact call identity without postin
 })
 it('links controlled writing tasks to their fixed task workspace',async()=>{
  const failed={...liveRequest,task:{...liveRequest.task,status:'failed',display_status:'failed'}};vi.stubGlobal('fetch',vi.fn(async(url:string)=>Response.json(url.endsWith('/writing-previews')?{items:[],capabilities:{real_calls_enabled:false}}:{items:[failed]})));render(<WritingLive {...props}/>);expect((await screen.findByRole('link',{name:'查看写作任务'})).getAttribute('href')).toBe('#project=p1&section=tasks&task=w1')
+})
+
+it.each(['research','narrative_review'] as const)('previews SCI customer %s with schema 4, project keywords and no implicit source selection', async article_type => {
+ const fetcher=vi.fn(async(url:string,_init?:RequestInit)=>Response.json(url.endsWith('/writing-previews')?{items:[bundleFixture()],capabilities:{real_calls_enabled:false}}:{items:[]}))
+ vi.stubGlobal('fetch',fetcher)
+ const sciSettings={article_type,keywords:['cell fate','lineage'],main_results:'Customer reported result',figure_plan:[{title:'Fig. 1',description:'A plan only'}],target_journal:{choice:'science',name:null}} as const
+ render(<WritingLive {...props} customerSci={{...sciSettings,keywords:[...sciSettings.keywords],figure_plan:[...sciSettings.figure_plan]}}/>)
+ await waitFor(()=>expect(screen.getByLabelText('受控写作方式').matches(':disabled')).toBe(false))
+ expect(screen.getByLabelText('受控写作关键词（每行一项）')).toHaveProperty('value','cell fate\nlineage')
+ expect(screen.queryByRole('option',{name:/b1 · 完整七部分初稿/})).toBeNull()
+ fireEvent.click(screen.getByRole('button',{name:'冻结完整外发预览'}))
+ await waitFor(()=>expect(fetcher.mock.calls.filter(([,init])=>init?.method==='POST')).toHaveLength(1))
+ const post=fetcher.mock.calls.find(([,init])=>init?.method==='POST')!
+ expect(post[0].endsWith('/writing-previews')).toBe(true)
+ expect(JSON.parse(String(post[1]?.body))).toMatchObject({schema_version:4,document_kind:'sci',article_type,keywords:['cell fate','lineage'],selected_source_ids:[],selected_evidence_ids:[]})
+ expect(screen.getByRole('button',{name:'提交已授权写作'}).matches(':disabled')).toBe(true)
 })

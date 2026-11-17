@@ -64,8 +64,9 @@ class ReviewDocumentExportService:
                 return self.view(db,self.row(db,project,old['id'])),200
             doc=self.documents.row(db,project,document_id)
             identity=str(uuid4());timestamp=now()
-            from app.adapters.review_docx import RENDERER_VERSION
-            snap=dict(kind='review_document_export',renderer_version=RENDERER_VERSION,project_id=project,document_id=document_id,document_version=doc['version'],confirmed_at=doc['confirmed_at'].isoformat() if doc['confirmed_at'] else None,document_sha256=doc['snapshot_sha256'],round_id=doc['round_id'],revision_id=doc['revision_id'],document=doc['snapshot_json'],workflow_version=WORKFLOW,real_model_calls=False,real_network_calls=False)
+            from app.adapters.review_docx import CUSTOMER_RENDERER_VERSION, RENDERER_VERSION
+            renderer = CUSTOMER_RENDERER_VERSION if self.assets.customer else RENDERER_VERSION
+            snap=dict(kind='review_document_export',renderer_version=renderer,project_id=project,document_id=document_id,document_version=doc['version'],confirmed_at=doc['confirmed_at'].isoformat() if doc['confirmed_at'] else None,document_sha256=doc['snapshot_sha256'],round_id=doc['round_id'],revision_id=doc['revision_id'],document=doc['snapshot_json'],workflow_version=WORKFLOW,real_model_calls=False,real_network_calls=False)
             task=dict(id=str(uuid4()),project_id=project,user_id=self.store.user_id,task_type='review_document_export',idempotency_key='review-document:'+identity,input_snapshot=dict(export_id=identity,**snap),workflow_version=WORKFLOW,status='queued',phase='export',revision=1,current_attempt=0,reason_code=None,created_at=timestamp,updated_at=timestamp)
             task['input_digest']=digest(task['input_snapshot'])
             self.store.insert_task(db,task);self.store.append_event(db,task,'created');self.store.enqueue(db,task)
@@ -105,8 +106,8 @@ class ReviewDocumentExportService:
 
 def retry_in_transaction(store,db,task,expected_revision):
     if task['revision']!=expected_revision or task['status']!='failed' or task.get('error_code') not in RETRYABLE | candidates.STORAGE_ERRORS:raise invalid('此独立文档任务不能恢复。',409)
-    from app.domain.report_collections.service import scoped_store
-    service=ReviewDocumentExportService(scoped_store(task['user_id'],store.config))
+    from .access import review_task_assets
+    service=ReviewDocumentExportService(review_task_assets(db,task,store.config))
     row=service.row(db,task['project_id'],input_version(task)['export_id'])
     service.verify(db,row)
     candidates.authorize(db,service.assets.directory,task)

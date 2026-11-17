@@ -6,7 +6,9 @@ from psycopg.types.json import Jsonb
 from app.adapters.task_store import TaskStore,source_conflict
 from app.core.exceptions import StorageError
 from app.domain.dataset_preparation.service import require_key
+from app.domain.files import require_file
 from app.domain.literature.service import digest
+from . import bsu_gs501
 from .contracts import WORKFLOW,PARSER_VERSION,PROFILE_FIELDS,TemplateRequest,ConfirmRequest
 
 def now(): return datetime.now(timezone.utc)
@@ -33,10 +35,19 @@ class SchoolTemplateService:
         if lock: db.execute('SELECT id FROM projects WHERE id=%s FOR UPDATE',(project,)).fetchone()
         return row
 
-    def profile_view(self,db,project):
+    def profile_view(self,db,project,*,include_hidden_binding=False):
         row=db.execute('SELECT * FROM thesis_profiles WHERE project_id=%s AND user_id=%s',(project,self.store.user_id)).fetchone()
-        return ({k:row[k] for k in ('revision',*PROFILE_FIELDS,'bound_confirmation_id')} if row else
+        profile=({k:row[k] for k in ('revision',*PROFILE_FIELDS,'bound_confirmation_id')} if row else
             dict(revision=0,**{k:'' for k in PROFILE_FIELDS},bound_confirmation_id=None))
+        if self.assets.customer and not include_hidden_binding and profile['bound_confirmation_id']:
+            saved=db.execute('SELECT template_version_id FROM school_template_confirmations WHERE id=%s AND project_id=%s AND user_id=%s',
+                (profile['bound_confirmation_id'],project,self.store.user_id)).fetchone()
+            if saved:
+                try:self.require_visible_sources(db,project,saved['template_version_id'])
+                except StorageError as exc:
+                    if exc.code!='manuscript_source_not_visible':raise
+                    profile['bound_confirmation_id']=None
+        return profile
 
     def profile(self,project):
         with self.store.connection() as db:
@@ -44,7 +55,7 @@ class SchoolTemplateService:
 
     def save_profile(self,project,request):
         with self.store.connection(write=True) as db:
-            self.project(db,project,True);old=self.profile_view(db,project)
+            self.project(db,project,True);old=self.profile_view(db,project,include_hidden_binding=True)
             if old['revision']!=request.expected_revision: raise StorageError('task_revision_conflict','学校资料已更新，请刷新。',409)
             values={k:getattr(request,k) for k in PROFILE_FIELDS}
             self._profile(db,project,old,values,old['bound_confirmation_id'])
@@ -59,9 +70,7 @@ class SchoolTemplateService:
             (project,self.store.user_id,old['revision']+1,*(values[k] for k in PROFILE_FIELDS),binding,now()))
 
     def freeze_source(self,db,project,file_id,role):
-        file=db.execute('SELECT * FROM files WHERE id=%s AND project_id=%s',(file_id,project)).fetchone()
-        if not file: raise StorageError('file_not_found','来源文件不存在。',404)
-        file=dict(file)
+        file=dict(require_file(db,project,file_id,material_filter=self.assets.material_filter))
         if role=='template' and file['file_type']!='docx': raise invalid('学校模板须为DOCX文件。',422)
         if role=='supplement' and file['file_type'] not in ('docx','pdf'): raise invalid('补充规范文件须为DOCX或PDF，可在文本框直接填写其他规范。',422)
         self.assets.original(file)
@@ -115,9 +124,26 @@ class SchoolTemplateService:
         self.project(db,project)
         row=db.execute('SELECT * FROM school_template_versions WHERE id=%s AND project_id=%s AND user_id=%s',(identity,project,self.store.user_id)).fetchone()
         if not row: raise StorageError('not_found','学校模板版本不存在。',404)
+        self.require_visible_sources(db,project,identity)
         return row
 
+    def require_visible_sources(self,db,project,identity):
+        if not self.assets.customer:
+            return
+        # A later version can quote rules and text decisions from its predecessors.
+        hidden=db.execute('''WITH RECURSIVE lineage(id,previous_version_id) AS (
+            SELECT id,previous_version_id FROM school_template_versions WHERE id=%s AND project_id=%s AND user_id=%s
+            UNION
+            SELECT p.id,p.previous_version_id FROM school_template_versions p JOIN lineage c ON p.id=c.previous_version_id
+            WHERE p.project_id=%s AND p.user_id=%s
+        ) SELECT 1 FROM school_template_sources s JOIN lineage l ON l.id=s.template_version_id
+        WHERE NOT EXISTS (SELECT 1 FROM files WHERE id=s.file_id AND project_id=s.project_id'''+self.assets.material_filter+''') LIMIT 1''',
+            (identity,project,self.store.user_id,project,self.store.user_id)).fetchone()
+        if hidden:
+            raise StorageError('manuscript_source_not_visible','关联材料不可访问。',404)
+
     def validate(self,db,row):
+        self.require_visible_sources(db,row['project_id'],row['id'])
         body=TemplateRequest.model_validate(row['request_json'])
         if digest(row['request_json'])!=row['request_digest'] or any(row[k]!=getattr(body,k) for k in ('name','school','version_label')): raise source_conflict()
         if row.get('previous_version_id')!=body.previous_version_id:raise source_conflict()
@@ -142,8 +168,8 @@ class SchoolTemplateService:
         changes=[]
         for source in sources:
             try:
-                file=db.execute('SELECT * FROM files WHERE id=%s AND project_id=%s',(source['file_id'],row['project_id'])).fetchone()
-                if not file or any(file[k]!=v for k,v in source['file'].items()): raise source_conflict()
+                file=require_file(db,row['project_id'],source['file_id'],material_filter=self.assets.material_filter)
+                if any(file[k]!=v for k,v in source['file'].items()): raise source_conflict()
                 self.assets.original(dict(file))
                 if source['document_version_id']:
                     from app.domain.external_evidence.service import ExternalEvidenceService
@@ -165,7 +191,8 @@ class SchoolTemplateService:
         snap=saved['snapshot_json']
         if (digest(snap)!=saved['snapshot_sha256'] or digest(saved['request_json'])!=saved['request_digest']
             or saved['analysis_sha256']!=row['analysis_sha256'] or snap['id']!=saved['id']
-            or snap['template_version_id']!=row['id'] or snap['analysis_sha256']!=saved['analysis_sha256']): raise source_conflict()
+            or snap['template_version_id']!=row['id'] or snap['analysis_sha256']!=saved['analysis_sha256']
+            or snap.get('format_profile')!=saved['request_json'].get('format_profile')): raise source_conflict()
         if 'suggestion_provenance' in snap:
             from .suggestion_service import SuggestionService
             provenance=snap['suggestion_provenance'];advice=SuggestionService(self.assets).suggestion_row(db,row['project_id'],provenance['suggestion_id'])
@@ -190,6 +217,7 @@ class SchoolTemplateService:
         from .suggestion_eligibility import note_eligibility
         confirmation=self.confirmation(db,row)
         return {k:row[k] for k in ('id','name','school','version_label','created_at','analysis_sha256')} | dict(task=self.store.public_task(task),front_matter_sources=front_sources(row['analysis_json']),
+            **({'available_format_profile':bsu_gs501.PROFILE} if bsu_gs501.available(sources) else {}),
             rule_suggestion_note_eligibility=note_eligibility(row['analysis_json'],confirmation.get('front_matter') if confirmation else None),
             configuration=projection(db,'task',task['id']),
             installed_rules={key:policy[key] for key in ('parser_version','quality_version','formats','conflict_policy')},
@@ -200,20 +228,30 @@ class SchoolTemplateService:
         with self.store.connection() as db:
             self.project(db,project)
             rows=db.execute('SELECT * FROM school_template_versions WHERE project_id=%s AND user_id=%s ORDER BY created_at DESC,id',(project,self.store.user_id)).fetchall()
-            return dict(items=[self.view(db,row) for row in rows])
+            items=[]
+            for row in rows:
+                try:items.append(self.view(db,row))
+                except StorageError as exc:
+                    if exc.code!='manuscript_source_not_visible':raise
+            return dict(items=items)
 
     def confirm(self,project,identity,request,key):
+        if self.assets.customer and getattr(request,'schema_version',None)==2:
+            raise StorageError('customer_operation_forbidden','请逐项人工确认学校模板规则。',403)
         require_key(key);body=request.model_dump(mode='json')
         if not request.text_decisions:body.pop('text_decisions',None)
         if request.front_matter is None:body.pop('front_matter',None)
+        if request.format_profile is None:body.pop('format_profile',None)
         with self.store.connection(write=True) as db:
             self.project(db,project,True);row=self.row(db,project,identity)
             existing=db.execute('SELECT * FROM school_template_confirmations WHERE template_version_id=%s',(identity,)).fetchone()
             if existing:
                 if existing['idempotency_key']==key and existing['request_digest']==digest(body): return self.confirmation(db,row),200
                 raise invalid('此模板版本已确认；确认版本不可覆盖。')
-            _,task=self.require_current(db,row)
+            sources,task=self.require_current(db,row)
             if task['status']!='succeeded' or not row['analysis_json'] or row['analysis_sha256']!=request.analysis_sha256: raise invalid('解析未完成或版本已变化，请刷新。')
+            if request.format_profile and not bsu_gs501.available(sources):
+                raise invalid('GS501 排版仅适用于已核实的北京体育大学学术型硕士校模原件。',422)
             text_options={o['id']:o for o in self.text_options(db,row)}
             choices={d.id:d for d in request.text_decisions}
             if len(choices)!=len(request.text_decisions) or set(choices)!=set(text_options):raise invalid('请明确选择两项文字规范的本次决定。',422)
@@ -254,6 +292,8 @@ class SchoolTemplateService:
             if request.front_matter is not None:
                 from .front_matter import validate_front_matter
                 snap['front_matter']=validate_front_matter(body['front_matter'],analysis,body['chapters'])
+            if request.format_profile is not None:
+                snap['format_profile']=request.format_profile
             db.execute('''INSERT INTO school_template_confirmations(id,project_id,user_id,idempotency_key,request_json,request_digest,template_version_id,analysis_sha256,snapshot_json,snapshot_sha256,created_at)
                 VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)''',(cid,project,self.store.user_id,key,Jsonb(body),digest(body),identity,row['analysis_sha256'],Jsonb(snap),digest(snap),timestamp))
             from app.domain.admin_configuration.bindings import bind,resolve

@@ -62,6 +62,8 @@ def test_v2_display_adaptation_old_parent_public_docx_and_idempotency(client):
     # Create a newer root version; adoption must still derive from the reviewed v2.
     newer=post(client,root+'/versions',body(expected_revision=2),'newer')
     assert newer.status_code==201,newer.text
+    newer_task = newer.json()['versions'][0]['task_id']
+    assert run_task(newer_task, 1)['status'] == 'succeeded'
     preview=client.post(base+'/adaptations/preview',json=request)
     assert preview.status_code==200,preview.text
     p=preview.json();assert len(p['sections'])==7 and len(p['actions'])==4

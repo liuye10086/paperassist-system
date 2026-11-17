@@ -8,14 +8,14 @@ function start(hash='#project=p1&section=reviews&round=r1') {
  vi.stubGlobal('fetch',vi.fn(async(url:string)=>Response.json({id:url.split('/').at(-1),name:'Research',research_topic:'Topic',project_type:'sci',file_count:0,created_at:'2026-10-26T00:00:00Z',updated_at:'2026-10-26T00:00:00Z'})))
  return renderHook(()=>useProjectSelection(()=>{},()=>{})).result
 }
-it('retains inactive review identity and task detail through same-project history',async()=>{
+it.each(['i1','f2a6939b-b706-4037-b294-68b106ebd602:1'])('retains inactive review identity %s and task detail through same-project history',async itemId=>{
  const s=start();await waitFor(()=>expect(s.current.project?.id).toBe('p1'))
- act(()=>s.current.selectReviewItem('i1'));act(()=>s.current.selectReviewView('plan'))
+ act(()=>s.current.selectReviewItem(itemId));act(()=>s.current.selectReviewView('plan'))
  act(()=>s.current.selectTask('t1'));act(()=>s.current.selectTaskDetailView('actions'))
  act(()=>s.current.selectTaskDetailView('events'))
  await act(async()=>window.history.back());await waitFor(()=>expect(s.current.taskDetailView).toBe('actions'))
  act(()=>s.current.changeSection('reviews'))
- expect(window.location.hash).toBe('#project=p1&section=reviews&view=plan&item=i1&round=r1')
+ expect(window.location.hash).toBe('#project=p1&section=reviews&view=plan&item='+encodeURIComponent(itemId)+'&round=r1')
  act(()=>s.current.changeSection('tasks'))
  expect(window.location.hash).toBe('#project=p1&section=tasks&view=actions&task=t1')
 })

@@ -1,0 +1,69 @@
+import type { Ref } from 'react'
+import { useI18n } from '../../shared/i18n'
+import ProjectManuscripts from '../manuscripts/ProjectManuscripts'
+import { schoolTemplateViews, type SchoolTemplateNavigation } from '../projects/manuscriptViews'
+import type { Project } from '../projects/projectTypes'
+import type { RegisterLeaveGuard } from '../projects/useDraftLeaveGuard'
+import SchoolTemplates from '../school-templates/SchoolTemplates'
+import CustomerWritingMaterials from './CustomerWritingMaterials'
+import { customerManuscriptNavigation, type UpdatePaperRoute } from './customerPaperNavigation'
+import { validCustomerRouteId } from './customerReviewNavigation'
+
+type Step = 'school' | 'materials' | 'citations' | 'manuscripts' | 'word'
+type Props = {
+  project: Project
+  step: Step
+  headingRef: Ref<HTMLHeadingElement>
+  registerLeaveGuard: RegisterLeaveGuard
+  onUnavailable: () => void
+  onNavigate: (step: Step) => void
+  params: URLSearchParams
+  onUpdateRoute: UpdatePaperRoute
+  onStartReview: (id: string, revision: number) => void
+}
+const titles: Record<Step, string> = {
+  school: '学校模板', materials: '写作资料与引用', citations: '写作资料与引用',
+  manuscripts: '章节与复核', word: '固定版本与 Word',
+}
+
+export default function CustomerThesisWorkflow({
+  project, step, headingRef, registerLeaveGuard, onUnavailable, onNavigate, params, onUpdateRoute, onStartReview,
+}: Props) {
+  const { t } = useI18n()
+  const wordOnly = step === 'word'
+  const manuscript = customerManuscriptNavigation(params, wordOnly, true)
+  const template = params.get('template')
+  const templateId = validCustomerRouteId(template) ? template : ''
+  const schoolView: SchoolTemplateNavigation = {
+    view: schoolTemplateViews.find(view => view === params.get('view')) ?? (templateId ? 'detail' : 'list'),
+    templateId,
+  }
+
+  return <section className="customer-section customer-manuscript-workflow">
+    <div className="customer-section-heading">
+      <h1 ref={headingRef} tabIndex={-1}>{t(titles[step])}</h1>
+      {step === 'school' && <button type="button" className="button-quiet"
+        onClick={() => onNavigate('materials')}>{t('下一步 写作资料与引用')}</button>}
+      {step === 'manuscripts' && <button type="button" className="button-quiet"
+        onClick={() => onNavigate('word')}>{t('查看固定版本 Word')}</button>}
+    </div>
+    {step === 'school' && params.has('template') && !templateId && <p role="alert">{t('指定学校模板版本不可用。')}</p>}
+    {step === 'school' && <SchoolTemplates projectId={project.id} active customerView navigation={schoolView}
+      onNavigate={({ view, templateId }) => onUpdateRoute({ view, template: templateId }, true)} registerLeaveGuard={registerLeaveGuard} />}
+    {(step === 'materials' || step === 'citations') && <CustomerWritingMaterials project={project}
+      startWithCitations={step === 'citations'} onContinue={() => onNavigate('manuscripts')}
+      params={params} onUpdateRoute={onUpdateRoute}
+      onUnavailable={onUnavailable} registerLeaveGuard={registerLeaveGuard} />}
+    {(step === 'manuscripts' || wordOnly) && manuscript.invalid &&
+      <p role="alert">{t('指定固定稿件版本不可用；不会自动替换为最新版本。')}</p>}
+    {(step === 'manuscripts' || wordOnly) && <ProjectManuscripts projectId={project.id}
+      researchTopic={project.research_topic} outputLanguage={project.default_output_language ?? 'zh-CN'}
+      active projectType="thesis" customerThesis={{ wordOnly }} view={manuscript.view}
+      initialManuscript={manuscript.manuscriptId} initialRevision={manuscript.revision}
+      onSelectVersion={(id, revision) => onUpdateRoute({ manuscript: id, revision, view: wordOnly ? 'exports' : 'body' }, true)}
+      onViewChange={view => onUpdateRoute({ view: wordOnly && view === 'body' ? 'exports' : view }, true)}
+      onStartReview={onStartReview}
+      onOpenLiterature={() => onNavigate('citations')} onOpenSchoolTemplate={() => onNavigate('school')}
+      registerLeaveGuard={registerLeaveGuard} />}
+  </section>
+}

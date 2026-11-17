@@ -4,6 +4,7 @@ from hashlib import sha256
 from app.domain.literature.service import digest
 from app.domain.manuscripts.school_export import compile_school_export
 from app.domain.manuscripts.contracts import SchoolExportOptions
+from app.domain.school_templates import bsu_gs501
 from app.adapters.school_docx import build_school_docx
 
 def normalized_options(options):
@@ -19,24 +20,26 @@ def validate_options_binding(candidate,options,plan=None):
     if p.get('school_export_options_sha256')!=digest(options) or p.get('school_export_options')!=options:raise ValueError('School export options differ from the reviewed artifact')
     if plan is not None and p.get('school_render_plan_sha256')!=plan_digest(plan):raise ValueError('School render plan differs from reviewed material')
 
-def inventory(candidate,images,image_items,analysis,options,*,cache=None,frozen=None):
+def inventory(candidate,images,image_items,analysis,options,*,cache=None,frozen=None,school_template=None):
     from .language import RENDERER_VERSION
     options=normalized_options(options)
     p=candidate['writing_provenance']
     if frozen is None or frozen.get('mapper_version')=='school-final-map-v2':p['school_pagination_version']=2
     elif frozen.get('mapper_version')!='school-final-map-v1' or p.get('school_pagination_version') is not None:raise ValueError('Frozen school pagination version differs')
     p['school_export_options']=deepcopy(options);p['school_export_options_sha256']=digest(options)
-    plan=compile_school_export(candidate,analysis,options)
+    submission_forms=school_template is not None or bsu_gs501.reviewed_submission_forms(frozen)
+    plan=compile_school_export(candidate,analysis,options,submission_forms=submission_forms)
     p['school_render_plan_sha256']=plan_digest(plan)
     # The plan's snapshot SHA must include the sealed options and render proof.
-    plan=compile_school_export(candidate,analysis,options)
+    plan=compile_school_export(candidate,analysis,options,submission_forms=submission_forms)
     if cache is not None:
         from .school_render_cache import materialize
-        raw,receipt,proof=materialize(cache['root'],cache['owner'],cache['project'],candidate,images,plan,db=cache.get('db'),frozen=frozen)
+        raw,receipt,proof=materialize(cache['root'],cache['owner'],cache['project'],candidate,images,plan,db=cache.get('db'),
+                                     frozen=frozen,school_template=school_template)
         mapped=receipt['source_map'];p['school_final_render']=proof
     else:
         from app.adapters.school_docx import complete_school_fields,final_school_source_map
-        mapped=[];pending=build_school_docx(candidate,images,plan,source_map=mapped)
+        mapped=[];pending=build_school_docx(candidate,images,plan,source_map=mapped,school_template=school_template)
         raw,receipt=complete_school_fields(pending,plan)
         if receipt.get('status')!=('updated' if plan['toc']['enabled'] else 'not_requested'):raise ValueError('School final fields were not completed')
         mapped=final_school_source_map(pending,raw,mapped,candidate['output_language'])

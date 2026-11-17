@@ -17,6 +17,8 @@ from app.domain.manuscripts.service import ManuscriptService
 from app.domain.manuscript_writing.context import normalize_sections
 from .return_contracts import RegisterReturn
 from .service import ReviewRoundService
+from .writing import retain_school_layout
+from .access import require_review_document_versions
 
 
 def invalid(message, code='review_return_invalid', status=422):
@@ -65,9 +67,11 @@ class ReviewReturnService(ReviewRoundService):
     def selected_base(self, db, project, previous, selection, revision_id=None):
         if selection.id!=previous['snapshot_json']['manuscript']['id']:
             raise invalid('回传父稿必须属于明确选定的上一轮稿件。')
-        base=self.manuscript(db,project,selection.id,selection.revision)
+        base=self.manuscript_row(db,project,selection.id,selection.revision)
         if base['id']!=selection.version_id:
             raise source_conflict()
+        if self.store.require_task(db,base['task_id'])['status']!='succeeded':
+            raise invalid('指定公共稿件版本尚未发布，请等待该版本完成。',status=409)
         if revision_id:
             from .revisions import RevisionService
             revisions=RevisionService(self.assets)
@@ -91,6 +95,7 @@ class ReviewReturnService(ReviewRoundService):
                     raise invalid('请求标识已用于不同回传。','task_idempotency_conflict',409)
                 return self.view_return(db,self.return_row(db,project,old['id'])),200
             base=self.selected_base(db,project,previous,request.manuscript,request.revision_id)
+            self.manuscripts.verify_task(db,self.store.require_task(db,base['task_id']))
             source,raw,parse,document=self.documents.document(project,body)
             baseline=None
             if request.base_export_id:
@@ -101,7 +106,7 @@ class ReviewReturnService(ReviewRoundService):
             extracted=extract(raw,source['filename'],return_base(base['snapshot_json']),baseline,
                               document=document,known_headings_only=not bool(base['snapshot_json'].get('thesis_context')))
             identity=str(uuid4())
-            frozen=dict(id=identity,project_id=project,schema_version=1,previous_round_id=previous_id,revision_id=request.revision_id,
+            frozen=dict(id=identity,project_id=project,schema_version=2,previous_round_id=previous_id,revision_id=request.revision_id,
                         manuscript=dict(id=base['manuscript_id'],revision=base['revision'],version_id=base['id'],sha256=base['snapshot_sha256']),
                         source=source,parse=parse,base_export_sha256=sha256(baseline).hexdigest() if baseline else None,
                         sections=extracted['sections'],issues=extracted['issues'],retained_nonbody=extracted['retained_nonbody'],
@@ -123,20 +128,24 @@ class ReviewReturnService(ReviewRoundService):
         return row
 
     def validate_return(self, db, row, *, current=False,_review_candidate=None):
-        self.validate(row)
+        self.validate(db,row)
         request=RegisterReturn.model_validate(row['request_json'])
         frozen=row['snapshot_json']
+        source=frozen['source']
         previous=self.round_row(db,row['project_id'],row['previous_round_id'])
         base=self.selected_base(db,row['project_id'],previous,request.manuscript,request.revision_id)
-        if (frozen.get('schema_version')!=1 or frozen['previous_round_id']!=row['previous_round_id']
+        if (frozen.get('schema_version') not in (1,2) or frozen['previous_round_id']!=row['previous_round_id']
             or frozen['revision_id']!=row['revision_id'] or frozen['manuscript']!=dict(id=base['manuscript_id'],revision=base['revision'],version_id=base['id'],sha256=base['snapshot_sha256'])
             or row['base_version_id']!=base['id'] or row['manuscript_id']!=base['manuscript_id']
             or any(row[k]!=row['request_json'].get(k) for k in ('revision_id','file_id','document_version_id','base_export_id'))
+            or any(row[k]!=source.get(k) for k in ('file_id','document_version_id','base_export_id'))
+            or frozen['parse']['file']['id']!=row['file_id']
             or frozen.get('real_model_calls') is not False or frozen.get('real_network_calls') is not False):
             raise source_conflict()
         if row['output_version_id']:
             if digest(row['adopt_json'])!=row['adopt_sha256'] or digest(row['candidate_json'])!=row['candidate_sha256']:
                 raise source_conflict()
+        require_review_document_versions(db,self.assets,row['project_id'],[(row['file_id'],row['document_version_id'])])
         if current:
             source,raw,parse,_=self.documents.document(row['project_id'],row['request_json'])
             if source!=frozen['source'] or parse!=frozen['parse']:
@@ -175,8 +184,15 @@ class ReviewReturnService(ReviewRoundService):
                 differences.append(dict(kind=problem['code'],location=problem['location'],message=problem['message'],before='',after=''))
         if snapshot.get('review'):
             snapshot.setdefault('review_history',[]).append(dict(review=deepcopy(snapshot['review']),provenance=deepcopy(snapshot.get('review_provenance',{})),applies_to_current_text=False,status='historical_requires_recheck'))
+        if frozen['schema_version']==2:
+            retain_school_layout(snapshot)
         for name in ('user_return_provenance','review_revision_provenance','review_provenance','writing_provenance','school_change_provenance','journal_adaptation_provenance','review'):
             snapshot.pop(name,None)
+        if frozen['schema_version']==2 and snapshot.get('thesis_context'):
+            from app.domain.manuscripts.school import school_content_report
+
+            snapshot['school_content_report']=school_content_report(snapshot,writing_context=retained_context(
+                self.manuscripts,db,row['project_id'],row['manuscript_id'],base['snapshot_json'],snapshot))
         snapshot['synthetic']=bool(frozen['synthetic'])
         return snapshot,differences,problems
 
@@ -192,8 +208,13 @@ class ReviewReturnService(ReviewRoundService):
         _,differences,problems,preview=self.preview_data(db,row,mappings)
         output=None
         if row['output_version_id']:
-            version=db.execute('SELECT * FROM manuscript_versions WHERE id=%s',(row['output_version_id'],)).fetchone()
-            self.manuscripts.validate_version(db,version)
+            version=db.execute('''SELECT * FROM manuscript_versions WHERE id=%s AND manuscript_id=%s
+                AND project_id=%s AND user_id=%s''',(row['output_version_id'],row['manuscript_id'],row['project_id'],row['user_id'])).fetchone()
+            if not version or version['parent_version_id']!=row['base_version_id']:
+                raise source_conflict()
+            self.visible_manuscript(db,version)
+            if version['snapshot_json']!=row['candidate_json']:
+                raise source_conflict()
             task=self.store.require_task(db,version['task_id'])
             output=dict(manuscript_id=version['manuscript_id'],version_id=version['id'],revision=version['revision'],parent_version_id=version['parent_version_id'],task_id=task['id'],status='published' if task['status']=='succeeded' else 'failed' if task['status']=='failed' else 'pending')
         return dict(id=row['id'],previous_round_id=row['previous_round_id'],revision_id=row['revision_id'],synthetic=frozen['synthetic'],
@@ -252,15 +273,23 @@ def validate_user_return_version(manuscripts, db, version, *, current=False,_rev
 
 def user_return_writing_context(manuscripts,db,project,identity,snapshot,*,check_version=2):
     """Keep only exact parent artifacts; new user statements gain no authority."""
-    from app.domain.manuscript_review.writing_context import load_writing_context,WritingCheckContext
     service=ReviewReturnService(manuscripts.assets)
     row=service.return_row(db,project,snapshot['user_return_provenance']['return_id'])
     if row['manuscript_id']!=identity or not row['output_version_id'] or row['candidate_json']!=snapshot:
         raise source_conflict()
-    version=db.execute('SELECT * FROM manuscript_versions WHERE id=%s',(row['output_version_id'],)).fetchone()
-    manuscripts.validate_version(db,version)
+    version=db.execute('''SELECT * FROM manuscript_versions WHERE id=%s AND manuscript_id=%s
+        AND project_id=%s AND user_id=%s''',(row['output_version_id'],identity,project,manuscripts.store.user_id)).fetchone()
+    if not version or version['parent_version_id']!=row['base_version_id'] or version['snapshot_json']!=snapshot:
+        raise source_conflict()
+    service.visible_manuscript(db,version)
     base=service.validate_return(db,row)
-    authority=load_writing_context(manuscripts,db,project,identity,base['snapshot_json'],check_version=check_version)
+    return retained_context(manuscripts,db,project,identity,base['snapshot_json'],snapshot,check_version=check_version)
+
+
+def retained_context(manuscripts,db,project,identity,parent,snapshot,*,check_version=2):
+    from app.domain.manuscript_review.writing_context import load_writing_context,WritingCheckContext
+
+    authority=load_writing_context(manuscripts,db,project,identity,parent,check_version=check_version)
     if authority is None:
         return None
     current={p['id']:p for s in normalize_sections(snapshot) for p in s['paragraphs']}

@@ -1,5 +1,5 @@
 import {STANDARD_REQUEST_TIMEOUT_MS} from '../../shared/api/requestTimeouts'
-import type { ReviewView, TaskDetailView } from './reviewViews';
+import { isReviewItemId, type ReviewView, type TaskDetailView } from './reviewViews';
 import type { AnalysisNavigation, ArtifactNavigation } from './analysisViews';
 import type { ManuscriptView, JournalView, SchoolTemplateNavigation } from './manuscriptViews';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
@@ -362,7 +362,7 @@ export default function useProjectSelection(onUnavailable: (id: string) => void,
         navigate({...routeRef.current,projectId:current.current?.id ?? '',workspaceView:'project',section:'reviews',reviewView,reviewLink});
     }
     function selectReviewItem(reviewItemId:string) {
-        if (validId(reviewItemId) && routeRef.current.reviewLink.round)
+        if (isReviewItemId(reviewItemId) && routeRef.current.reviewLink.round)
             navigate({...routeRef.current,projectId:current.current?.id ?? '',workspaceView:'project',section:'reviews',reviewItemId});
     }
     function selectReviewRun(run:string) {

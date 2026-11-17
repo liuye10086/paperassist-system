@@ -4,6 +4,15 @@ from app.core.exceptions import StorageError
 
 def invalid(message,status=422):return StorageError('task_input_invalid',message,status)
 
+_NEW_ANALYSIS_REQUEST = re.compile(
+    r'\b(?:re-?(?:calculat|comput|analy[sz])\w*|(?:new|additional)\s+(?:statistical\s+)?analysis)\b'
+    r'|(?:重新|再次|新增|补做|补充)[^。！？\n]{0,8}(?:计算|统计|分析)|补算|重算', re.IGNORECASE)
+
+
+def requests_new_analysis(text):
+    return bool(_NEW_ANALYSIS_REQUEST.search(text))
+
+
 def split_text(text,explicit=None,locations=None):
     if not isinstance(text,str) or not text.strip():raise invalid('意见原文不能为空。')
     if len(text)>500000:raise invalid('意见原文过长。')

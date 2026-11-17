@@ -3,6 +3,7 @@ import {afterEach,expect,it,vi} from 'vitest'
 import WritingScienceReview from './WritingScienceReview'
 import ManuscriptWriting from './ManuscriptWriting'
 import WritingLanguageReview from './WritingLanguageReview'
+import WritingLive from './WritingLive'
 import {manuscriptFixture,snapshotFixture} from './manuscriptFixtures'
 import {scienceReview,languageContext,reviewContext,liveRequest} from './writingLiveFixtures'
 import {validPreviewInput,bodyProjection} from './writingLiveTypes'
@@ -11,6 +12,19 @@ const chapters=[{id:'declaration-x',title:'人工声明',purpose:'manual',output
 const snapshot={...snapshotFixture,thesis_context:{schema_version:1,profile:{revision:2,school:'测试学校',department:'',major:'',degree_type:'硕士',education_level:'研究生',applicable_version:'2026',bound_confirmation_id:'confirm1'},template_version_id:'template1',confirmation_id:'confirm1',confirmation_sha256:'a'.repeat(64),confirmation:{id:'confirm1',chapters:chapters.map(({id,title,level})=>({id,title,level}))},source_files:[],chapters},sections:chapters.map(c=>({...c,paragraphs:[{id:c.id+':1',text:c.title,origin:'user_provided',source_ids:[],citations:[]}]})),school_content_report:{rules_version:'school_v1',issues:[],can_publish:true,scientifically_verified:false}} as unknown as Snapshot
 const props={projectId:'p1',manuscriptId:'m1',version:{...manuscriptFixture.versions[0],snapshot} as ManuscriptVersion,onPublished:vi.fn()}
 afterEach(()=>{cleanup();sessionStorage.clear();vi.useRealTimers();vi.unstubAllGlobals()})
+it('uses only the school preview contract in a thesis customer session',async()=>{
+ const fetcher=vi.fn(async(_url:string,init?:RequestInit)=>Response.json(init?.method==='POST'?{}:{items:[],capabilities:{real_calls_enabled:false}}))
+ vi.stubGlobal('fetch',fetcher)
+ render(<WritingLive {...props} customerThesis/>)
+ await waitFor(()=>expect(screen.getByLabelText('受控写作方式').matches(':disabled')).toBe(false))
+ expect(screen.queryByLabelText('文章类型与范围编辑')).toBeNull()
+ expect(screen.getByRole('button',{name:'提交已授权写作'}).matches(':disabled')).toBe(true)
+ fireEvent.click(screen.getByRole('button',{name:'冻结完整外发预览'}))
+ await waitFor(()=>expect(fetcher.mock.calls.find(([url,init])=>url.endsWith('/writing-previews')&&init?.method==='POST')).toBeTruthy())
+ const call=fetcher.mock.calls.find(([,init])=>init?.method==='POST')!
+ expect(JSON.parse(String(call[1]?.body))).toMatchObject({schema_version:3,base_revision:1,mode:'full_draft'})
+ expect(fetcher.mock.calls.every(([url])=>!url.includes('/tasks/'))).toBe(true)
+})
 it('opens school controlled writing and sends schema3 dynamic writable targets while displaying protected chapters',async()=>{
  const fetcher=vi.fn(async(_url:string,init?:RequestInit)=>Response.json(init?.method==='POST'?{}:{items:[],capabilities:{real_calls_enabled:false}}));vi.stubGlobal('fetch',fetcher)
  render(<ManuscriptWriting {...props}/>);fireEvent.click(screen.getByRole('button',{name:'受控写作与人工审核'}));await screen.findByRole('region',{name:'受控写作工作区'})

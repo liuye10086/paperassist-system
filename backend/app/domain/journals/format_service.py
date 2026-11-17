@@ -31,7 +31,7 @@ class FormatService(GuideService):
         return row
 
     def check_view(self,db,row):
-        self.validate(row);task=self.store.require_task(db,row['task_id']);input_version(task)
+        self.validate(db,row);task=self.store.require_task(db,row['task_id']);input_version(task)
         if row['snapshot_json']!=task['input_snapshot']:raise source_conflict()
         return dict(id=row['id'],input_snapshot=row['snapshot_json'],created_at=row['created_at'],task=self.store.public_task(task),result=row['result_json'])
 
@@ -71,7 +71,7 @@ class FormatService(GuideService):
     def checks(self,project):
         with self.store.connection() as db:
             self.project(db,project);rows=db.execute('SELECT * FROM journal_format_checks WHERE project_id=%s AND user_id=%s ORDER BY created_at DESC,id',(project,self.store.user_id)).fetchall()
-            return dict(items=[self.check_view(db,self.check_row(db,project,r['id'])) for r in rows])
+            return dict(items=[self.check_view(db,self.check_row(db,project,r['id'])) for r in self.visible_rows(db,rows)])
     def retry_check(self,project,identity):
         with self.store.connection(write=True) as db:
             self.project(db,project,True);row=self.check_row(db,project,identity);task=self.store.require_task(db,row['task_id'])
@@ -86,7 +86,7 @@ class FormatService(GuideService):
         manuscripts=ManuscriptService(self.assets)
         context=load_writing_context(manuscripts,db,row['project_id'],manuscript['id'],manuscript['snapshot'],check_version=frozen['public_check_version'])
         public=check_snapshot(manuscript['snapshot'],writing_context=context)
-        result=check_format(db,row['task_id'],manuscript['snapshot'],target['selected_requirements'],target['conflicts'],public_issues=public,warnings=frozen['warnings'])
+        result=check_format(db,row['task_id'],manuscript['snapshot'],target['selected_requirements'],target['conflicts'],public_issues=public,warnings=frozen['warnings'],target=target)
         result.update(synthetic=frozen.get('synthetic',target['synthetic']),target_id=target['id'],guide_id=target['guide']['id'],requirements_version=target['guide']['requirements_version'],manuscript_version_id=manuscript['version_id'],public_check_version=frozen['public_check_version'])
         return result
 

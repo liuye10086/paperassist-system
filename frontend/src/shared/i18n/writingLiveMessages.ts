@@ -1,6 +1,7 @@
 export const writingLiveMessages: Record<string, string> = {
   '查看候选阶段的冻结提示': 'View the frozen candidate-stage notice',
   '学校导出文本': 'School export text',
+  'Word 导出文字': 'Word export text',
   '冻结学校章节': 'Frozen school chapters',
   '题名由用户冻结；仅科学正文用途可生成，其他章节保持保护。': 'The title is frozen by the user. Only scientific body chapters may be generated; all other chapters are protected.',
   '可生成': 'Generation allowed',
@@ -12,6 +13,7 @@ export const writingLiveMessages: Record<string, string> = {
   '我已核对所选逻辑任务的全部 wire、精确 SHA、价格与外部保存范围，明确授权此批材料。': 'I have reviewed every wire, exact SHA, price and external storage scope for the selected logical tasks and explicitly authorize these materials.',
   '已提供方法/上下文数字目录': 'Provided method and context numeric catalog',
   '用户提供方法': 'User-provided methods',
+  '用户报告的结果': 'User-reported result',
   '已冻结图示文字': 'Frozen illustration text',
   '研究数值与已提供方法/上下文': 'Study values and provided methods or context',
   '已提供方法/上下文数字': 'Provided method or context value',
@@ -46,6 +48,7 @@ export const writingLiveMessages: Record<string, string> = {
   '最多 6 次 POST（含失败、未知与最多 2 次明确修正）；每任务 US$3，整批 US$12。剩余额度不授权新材料。': 'At most 6 POST requests, including failed or unknown outcomes and up to 2 explicit corrections. Limit: US$3 per task and US$12 per batch. Remaining allowance does not authorize new materials.',
   '读取同项目稿件与授权': 'Load manuscripts and authorizations from this project',
   '读取其他稿件的冻结预览': 'Load frozen previews from another manuscript',
+  '读取所选稿件的冻结预览': 'Load frozen previews for the selected manuscript',
   '请选择稿件': 'Select a manuscript',
   '逻辑任务': 'Logical task',
   '逻辑任务标识': 'Logical task ID',

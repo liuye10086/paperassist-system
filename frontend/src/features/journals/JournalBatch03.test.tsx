@@ -7,9 +7,11 @@ import {isRequirement,type GuideRequest} from './formatContracts'
 import {isTask,isWorkspace,sameInputVersion,taskDisplayName,taskPhaseName,type InputVersion} from '../tasks/taskTypes'
 import {taskFixture} from '../tasks/taskFixtures'
 import ManuscriptPreview from '../manuscripts/ManuscriptPreview'
+import {articleHeading,articleStructures} from '../manuscripts/articleStructure'
 import {snapshotFixture} from '../manuscripts/manuscriptFixtures'
 import {validSnapshot,type Snapshot} from '../manuscripts/manuscriptTypes'
 import {clearApiSession} from '../../shared/api/client'
+import {actualSections,isAdaptationPreview} from './adaptationContracts'
 
 const ids=['title','abstract','introduction','results','discussion','materials_and_methods','references'] as const
 const names=Object.fromEntries(ids.map(id=>[id,`Journal ${id}`])) as Record<typeof ids[number],string>
@@ -65,8 +67,62 @@ it('projects saved finite display order and headings while keeping semantic ids 
  expect(validSnapshot({...snapshot,journal_display_context:{...snapshot.journal_display_context,order:['title']}},'p1')).toBe(false)
  render(<ManuscriptPreview snapshot={snapshot}/>)
  const headings=screen.getAllByRole('heading',{level:4}).map(h=>h.textContent)
- expect(headings.slice(0,7)).toEqual(snapshot.journal_display_context!.order.map(id=>names[id]))
+ expect(headings.slice(0,7)).toEqual(snapshot.journal_display_context!.order.map(id=>snapshot.journal_display_context!.names[id]))
  expect(screen.getByRole('link',{name:'查看期刊适配依据'}).getAttribute('href')).toContain('adaptation=a1')
+})
+it('accepts reviewed narrative style changes with the original eight-part structure', () => {
+ const order = [...articleStructures.narrative_review]
+ const names = Object.fromEntries(order.map(id => [id, articleHeading('narrative_review', id, 'en')]))
+ const sectionChanges = order.map(section_id => ({
+  section_id, before: { display_name: names[section_id] }, after: { display_name: names[section_id] }, changed: section_id !== 'title',
+ }))
+ expect(isAdaptationPreview({ ...preview, sections: sectionChanges })).toBe(true)
+ expect(isAdaptationPreview({ ...preview, sections: [...sectionChanges.slice(0, -1), sectionChanges[1]] })).toBe(false)
+ expect(isAdaptationPreview({ ...preview, sections: sectionChanges, actions: [{ ...preview.actions[0], key: 'section_order' }] })).toBe(false)
+ const snapshot = {
+  ...(snapshotFixture as Snapshot), article_type: 'narrative_review', article_structure_version: 'article-scope-v1',
+  sections: order.map(id => ({ id, paragraphs: [] })),
+  writing_provenance: { schema_version: 2, provider_provenance: 'synthetic_fixture', verification_status: 'scientific_and_language_reviewed' },
+  journal_display_context: { version: 'journal_display_v1', names, order, styles: { heading_font_size_pt: 12.5 } },
+ } satisfies Snapshot
+ expect(validSnapshot(snapshot, 'p1')).toBe(true)
+ expect(validSnapshot({
+  ...snapshot, journal_display_context: { ...snapshot.journal_display_context, names: { ...names, themes: 'Replaced' } },
+ }, 'p1')).toBe(false)
+ render(<ManuscriptPreview snapshot={snapshot} customerSci />)
+ expect(screen.getByRole('heading', { name: 'Thematic synthesis' }).style.fontSize).toBe('12.5pt')
+})
+it('accepts and shows the scoped Frontiers review headings and bibliography', () => {
+ expect(isRequirement({...rule,key:'figure_table_limit',value:15,quote:'Figures/Tables: 15 maximum',article_type:'review'})).toBe(true)
+ const order = [...articleStructures.narrative_review]
+ const names = Object.fromEntries(order.map(id => [id, articleHeading('narrative_review', id, 'en')]))
+ const headings = {introduction:{display_name:'Introduction',level:1}, discussion:{display_name:'Discussion',level:1}, conclusion:{display_name:'Conclusion',level:2}}
+ const sections = order.map(section_id => ({section_id,before:{display_name:names[section_id],level:1},after:{display_name:names[section_id],level:1},changed:false}))
+ const actions = [
+  {...preview.actions[0],id:'headings',key:'required_sections',after:headings},
+  {...preview.actions[0],id:'spacing',key:'document_single_spacing',after:true},
+  {...preview.actions[0],id:'numbers',key:'document_page_line_numbers',after:{page:true,line:true}},
+  {...preview.actions[0],id:'references',key:'reference_style',after:'Frontiers Vancouver (Numbered)'},
+  {...preview.actions[0],id:'submission-layout',key:'document_submission_layout',after:true},
+ ]
+ const reviewPreview = {...preview,sections,actions}
+ expect(isAdaptationPreview(reviewPreview)).toBe(true)
+ expect(isAdaptationPreview({...reviewPreview,actions:[{...actions[0],after:{...headings,conclusion:{display_name:'Conclusion',level:1}}}]})).toBe(false)
+ expect(actualSections(reviewPreview,actions).find(section=>section.section_id==='conclusion')).toMatchObject({changed:true,after:headings.conclusion})
+ const ref='Example A. Exact title. Example J. (2020) 1:2. doi: 10.123/example'
+ const snapshot = {
+  ...(snapshotFixture as Snapshot), article_type:'narrative_review',article_structure_version:'article-scope-v1',
+  sections:order.map(id=>({id,paragraphs:[]})),references:[{number:1,project_reference_id:'r1',text:'Old NLM text'}],
+  writing_provenance:{schema_version:2,provider_provenance:'openai_live',verification_status:'scientific_and_language_reviewed'},
+  journal_display_context:{version:'journal_display_v1',names:{...names,introduction:'Introduction',discussion:'Discussion'},order,styles:{},
+   frontiers_review:{headings:true,single_spacing:true,page_line_numbers:true,reference_texts:[ref],submission_layout:true}},
+ } as Snapshot
+ expect(validSnapshot(snapshot,'p1')).toBe(true)
+ render(<ManuscriptPreview snapshot={snapshot} customerSci />)
+ expect(screen.getByRole('heading',{name:'Discussion',level:4}).style.lineHeight).toBe('1')
+ expect(screen.getByRole('heading',{name:'Conclusion',level:5})).toBeTruthy()
+ expect(screen.getByText(ref)).toBeTruthy()
+ expect(screen.queryByText('Old NLM text')).toBeNull()
 })
 function setup(noChanges=false){const posts:{url:string;body:Record<string,unknown>}[]=[];let items:unknown[]=[];let events:unknown[]=[]
  vi.stubGlobal('fetch',vi.fn(async(url:string,init?:RequestInit)=>{

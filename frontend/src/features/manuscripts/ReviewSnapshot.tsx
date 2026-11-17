@@ -1,4 +1,5 @@
 import {useI18n} from '../../shared/i18n'
+import {systemCheckText} from '../../shared/i18n/systemChecks'
 import {formatValue} from './reviewPresentation'
 import type {FrozenReview,Report} from './reviewTypes'
 export function ReviewReport({report,onLocate}:{report:Report;onLocate?:(location:string)=>void}){
@@ -7,8 +8,22 @@ export function ReviewReport({report,onLocate}:{report:Report;onLocate?:(locatio
  {report.impacts.map((impact,i)=><article key={i}><strong>{t('影响待核对')}</strong><p>{impact.source_id} · {t(impact.scope==='linked'?'精确关联范围':'保守影响范围')}</p><p>{impact.reasons.join(' · ')}</p>{impact.locations.map(location=><button type="button" key={location} disabled={!onLocate} onClick={()=>onLocate?.(location)}>{location}</button>)}</article>)}
  <ul>{report.issues.map(issue=><li key={issue.id}><strong>{t(issue.severity==='error'?'硬错误':issue.severity==='warning'?'提醒':'需人工核实')}</strong> · {issue.id==='workflow:v2_scientific_language_review'?t(issue.message):issue.message}<details><summary>{t('问题依据与预期')}</summary><p>{t('位置')} · {issue.location}</p><p>{t('实际内容')} · {formatValue(issue.actual)}</p><p>{t('期望内容')} · {formatValue(issue.expected)}</p><p>{t('证据依据')} · {formatValue(issue.source_evidence)}</p><p>{t('规则版本')} · {issue.rules_version}</p></details>{onLocate&&<button type="button" onClick={()=>onLocate(issue.location)}>{t('定位资料')}</button>}</li>)}</ul></div>
 }
-export default function ReviewSnapshot({review,historical=false,historicalNotice='正文已重写，旧检查仅供历史查阅，须重新检查。'}:{review:FrozenReview;historical?:boolean;historicalNotice?:string}){
+export default function ReviewSnapshot({review,historical=false,historicalNotice='正文已重写，旧检查仅供历史查阅，须重新检查。',customerView=false}:{review:FrozenReview;historical?:boolean;historicalNotice?:string;customerView?:boolean}){
  const {t}=useI18n()
+ if(customerView)return <section className="review-frozen">
+  <h4>{t(historical?'历史核对记录':'稿件核对记录')}</h4>
+  {historical&&<p>{t(historicalNotice)}</p>}
+  {review.decisions.map((decision,index)=><article key={index}>
+   <strong>{t(decision.status==='supplied'?'已补充':decision.status==='selected'?'已选择':decision.status==='pending'?'待核实':'不适用')}</strong>
+   <p>{decision.value}</p>
+   {decision.reason&&<p>{decision.reason}</p>}
+  </article>)}
+  {review.addendum.map(paragraph=><p key={paragraph.id}>{paragraph.text}</p>)}
+  {review.report.issues.length>0&&<ul>{review.report.issues.map(issue=><li key={issue.id}>
+   <strong>{t(issue.severity==='error'?'硬错误':issue.severity==='warning'?'提醒':'需人工核实')}</strong>
+   {' · '}{systemCheckText(issue.message)}
+  </li>)}</ul>}
+ </section>
  return <details className="review-frozen"><summary>{t(historical?'历史检查记录（不适用于当前正文）':'冻结的确认资料与检查')}</summary><p className="warning-panel">{t(historical?historicalNotice:'用户确认不代表科研验证；以下记录与本版本导出一致。')}</p>
  {review.decisions.map((d,i)=><article key={i}><strong>{t('确认资料')} · {d.target_id}</strong><p>{t(d.status==='supplied'?'已补充':d.status==='selected'?'已选择':d.status==='pending'?'待核实':'不适用')} · {d.value}</p><p>{t('说明理由')} · {d.reason}</p><p>{t('证据依据')} · {d.evidence}</p><small>{d.created_by} · {d.created_at}</small></article>)}
  {review.metadata.length>0&&<details><summary>{t('已记录的元数据')}</summary>{review.metadata.map((m,i)=><p key={i}>{m.target_id} · {m.field} = {m.value} · {m.evidence}{m.stale&&<strong> · {t('已过期，须重新确认')}</strong>}</p>)}</details>}

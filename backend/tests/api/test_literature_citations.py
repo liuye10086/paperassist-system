@@ -122,6 +122,58 @@ def test_manual_metadata_is_unverified_by_default_requires_basis_and_explicit_co
     assert history['total']==3 and history['items'][-1]['metadata']==meta['metadata']
 
 
+def test_citation_metadata_keeps_suffix_and_rereads_older_frozen_extracts(client, monkeypatch):
+    from app.domain.literature.execution import run_literature_task
+    from app.domain.literature_citations import service
+
+    class AuthorSuffixNcbi(CitationNcbi):
+        def fetch(self, pmids):
+            record = super().fetch(pmids)
+            raw = record.raw.replace(
+                b'<CollectiveName>Synthetic testing group</CollectiveName>',
+                b'<LastName>Sample</LastName><ForeName>Alex B</ForeName><Initials>AB</Initials><Suffix>Jr</Suffix>',
+            )
+            return parse_fetch(raw, pmids)
+
+    pid = project(client)
+    search = create(client, pid).json()
+    assert run_literature_task(search['id'], search['revision'], client=AuthorSuffixNcbi(2))['status'] == 'succeeded'
+    literature = f'/api/v1/projects/{pid}/literature'
+    refs = client.get(literature + '/references').json()['items']
+    ref = next(item for item in refs if item['record']['abstract'])
+    extract = service.extract_metadata
+
+    def previous_extract(raw, pmid):
+        result = extract(raw, pmid)
+        for author in result['authors']:
+            author.pop('suffix', None)
+        return result
+
+    drafts = literature + '/citations/drafts'
+    with monkeypatch.context() as historical:
+        historical.setattr(service, 'extract_metadata', previous_extract)
+        checked, old_binding, old_metadata, _ = binding(client, literature, search, ref)
+        old = post(client, drafts, draft_body(paragraph(checked, old_binding)), 'frozen').json()
+    assert old['snapshot']['output']['references'][0]['text'].startswith('Sample AB.')
+
+    metadata_path = f"{literature}/citations/references/{ref['id']}/metadata"
+    update = post(client, metadata_path,
+                  dict(expected_revision=1, mode='extract', search_id=search['id']), 'suffix-metadata')
+    assert update.status_code == 201, update.text
+    new_metadata = update.json()
+    assert new_metadata['metadata']['authors'][0]['suffix'] == 'Jr'
+    assert new_metadata['usable']
+    new_binding = old_binding | dict(metadata_version_id=new_metadata['id'])
+    updated = post(client, drafts + '/' + old['id'] + '/versions',
+                   draft_body(paragraph(checked, new_binding), expected_revision=1), 'suffix-draft')
+    assert updated.status_code == 201, updated.text
+    assert updated.json()['snapshot']['output']['references'][0]['text'].startswith('Sample AB Jr.')
+
+    history = client.get(metadata_path).json()
+    assert history['items'][-1] == old_metadata and history['items'][-1]['usable']
+    assert client.get(drafts + '/' + old['id'] + '/versions/1/output').json()['output'] == old['snapshot']['output']
+
+
 def test_cross_project_ids_and_editable_claim_text_are_rejected(client):
     _,lit,task,refs=seeded(client)
     c,b,meta,_=binding(client,lit,task,refs[0])

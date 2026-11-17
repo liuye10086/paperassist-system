@@ -33,6 +33,7 @@ class AssignmentRow(BaseModel):
     id: str
     name: str
     research_topic: str
+    project_type: Literal['research', 'sci', 'thesis']
     customer_email: str
     analyst_id: str | None
     analyst_email: str | None
@@ -79,7 +80,7 @@ _SOURCE = f'''projects p JOIN users customer ON customer.id=p.owner_id
         ON progress.requirement_version_id=submitted.id AND progress.project_id=p.id
         AND ((progress.assignment_revision IS NULL AND a.project_id IS NULL)
              OR (progress.assignment_revision=a.revision AND {_ACTIVE_GRANT}))'''
-_FIELDS = f'''p.id,p.name,p.research_topic,customer.email AS customer_email,
+_FIELDS = f'''p.id,p.name,p.research_topic,p.project_type,customer.email AS customer_email,
     a.analyst_id,analyst.email AS analyst_email,coalesce(a.revision,0) AS revision,
     submitted.version AS submitted_version,
     CASE WHEN submitted.id IS NULL THEN 'draft'
@@ -97,7 +98,7 @@ _CUSTOMER_PROJECT = "customer.role='customer'"
 
 
 def _customer_project(db, project_id, *, lock=False):
-    row = db.execute('''SELECT p.owner_id FROM projects p JOIN users customer ON customer.id=p.owner_id
+    row = db.execute('''SELECT p.owner_id,p.project_type FROM projects p JOIN users customer ON customer.id=p.owner_id
         WHERE p.id=%s AND ''' + _CUSTOMER_PROJECT + (' FOR UPDATE OF p' if lock else ''), (project_id,)).fetchone()
     if row is None:
         raise StorageError('project_not_found', '项目不存在，请刷新项目列表。', 404)
@@ -110,7 +111,7 @@ def _revision_conflict():
 
 @router.get('/admin/project-assignments', response_model=AssignmentPage)
 def list_assignments(request: Request, query: Annotated[AssignmentsQuery, Query()]):
-    where, values = [_CUSTOMER_PROJECT], []
+    where, values = [_CUSTOMER_PROJECT, "(p.project_type='research' OR a.analyst_id IS NOT NULL)"], []
     q = query.q.strip()
     if q:
         where.append('(' + ' OR '.join(f'strpos(lower({column}),lower(%s))>0' for column in (
@@ -135,6 +136,8 @@ def change_assignment(project_id: str, body: AssignmentChange, request: Request)
         previous_id = current['analyst_id'] if current else None
         if revision != body.expected_revision:
             raise _revision_conflict()
+        if project['project_type'] != 'research' and (body.analyst_id is not None or previous_id is None):
+            raise StorageError('project_assignment_type_invalid', '论文项目仅可撤回已有分配。', 422)
         analyst = None
         if body.analyst_id is not None:
             analyst = db.execute('SELECT analyst.email FROM users analyst WHERE analyst.id=%s AND ' + _ELIGIBLE

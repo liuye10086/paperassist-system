@@ -36,7 +36,7 @@ def cancel_local_task(task_id: str, request: RetryRequest, store: Store):
 
 
 @router.post('/{task_id}/retry', response_model=TaskView, status_code=202)
-def retry_task(task_id: str, request: RetryRequest, store: Store):
+def retry_task(task_id: str, request: RetryRequest, store: Store, http_request: Request):
     store.require_mutable(task_id)
     task_type = store.get(task_id)['task_type']
     from app.domain.bio_insights.task_contracts import INSIGHT_TASKS
@@ -110,8 +110,10 @@ def retry_task(task_id: str, request: RetryRequest, store: Store):
             return retry_in_transaction(store,db,store.require_task(db,task_id),request.expected_revision)
     if task_type in ('manuscript_draft','manuscript_docx'):
         from app.domain.manuscripts.execution import retry_in_transaction
+        from app.adapters.storage import get_request_project_store
+        assets = get_request_project_store(http_request) if http_request.state.user['role'] == 'customer' else None
         with store.connection(write=True) as db:
-            return retry_in_transaction(store,db,store.require_task(db,task_id),request.expected_revision)
+            return retry_in_transaction(store,db,store.require_task(db,task_id),request.expected_revision,assets=assets)
     if task_type == 'manuscript_writing':
         from app.domain.manuscript_writing.service import retry_in_transaction
         with store.connection(write=True) as db:
@@ -190,8 +192,8 @@ def list_project_tasks(
 
 
 @router.get('/{task_id}/workspace', response_model=TaskWorkspace)
-def get_task_workspace(task_id: str, store: Store):
-    return TaskWorkspaceService(store.user_id).get(task_id)
+def get_task_workspace(task_id: str, store: Store, http_request: Request):
+    return TaskWorkspaceService(store.user_id).get(task_id, customer=http_request.state.user['role']=='customer')
 
 
 @router.post('/{task_id}/resume', response_model=TaskView, status_code=202)
@@ -202,7 +204,8 @@ def resume_task(
     # Validated, allowlisted intent only; includes business rejection and replay.
     http_request.state.task_operation = request.operation
     store.require_mutable(task_id)
-    return TaskResumeService(store.user_id).resume(task_id, request, idempotency_key=idempotency_key)
+    return TaskResumeService(store.user_id).resume(task_id, request, idempotency_key=idempotency_key,
+                                                  customer=http_request.state.user['role'] == 'customer')
 
 
 @router.get('/{task_id}', response_model=TaskView)

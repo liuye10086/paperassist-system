@@ -1,6 +1,7 @@
 """SQL persistence helpers used inside the existing project transaction boundary."""
 from datetime import datetime, timezone
 from uuid import UUID, uuid4, uuid5
+from psycopg.types.json import Jsonb
 from app.core.exceptions import StorageError
 
 NAMESPACE=UUID('b9f6f346-4bb9-4f75-9426-4875b4939853')
@@ -11,10 +12,11 @@ def now():
     return datetime.now(timezone.utc)
 
 
-def initialize_intake(db,project_id,owner_id,project_type,*,delivery_kinds=None,creation_key=None,creation_digest=None):
+def initialize_intake(db,project_id,owner_id,project_type,*,delivery_kinds=None,creation_key=None,creation_digest=None,sci_settings=None):
     moment=now()
-    db.execute('''INSERT INTO research_intakes(project_id,owner_id,revision,creation_request_key,creation_digest,created_at,updated_at)
-        VALUES(%s,%s,1,%s,%s,%s,%s)''',(project_id,owner_id,creation_key,creation_digest,moment,moment))
+    db.execute('''INSERT INTO research_intakes(project_id,owner_id,revision,creation_request_key,creation_digest,sci_settings_json,created_at,updated_at)
+        VALUES(%s,%s,1,%s,%s,%s,%s,%s)''',
+        (project_id,owner_id,creation_key,creation_digest,Jsonb(sci_settings) if sci_settings is not None else None,moment,moment))
     kinds=delivery_kinds if project_type=='research' else [{'sci':'sci_draft','thesis':'thesis_draft'}[project_type]]
     for kind in kinds:
         identifier=str(uuid4()) if project_type=='research' else str(uuid5(NAMESPACE,f'delivery:{project_id}:{kind}'))

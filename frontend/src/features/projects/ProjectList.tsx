@@ -23,10 +23,12 @@ type ProjectListProps = {
   onRetry: () => void
   presentation?: 'cards' | 'table'
   emptyMessage?: string
+  typeLabels?: Record<Project['project_type'], string>
 }
 
 export default function ProjectList({ ref, items, total, query, searchDraft, loading, error,
-  onSearchDraftChange, onQueryChange, onOpen, onRetry, presentation = 'table', emptyMessage = '还没有项目，请先创建一个项目。' }: ProjectListProps) {
+  onSearchDraftChange, onQueryChange, onOpen, onRetry, presentation = 'table',
+  emptyMessage = '还没有项目，请先创建一个项目。', typeLabels = typeNames }: ProjectListProps) {
   const { t, locale } = useI18n()
   const pages = Math.max(1, Math.ceil(total / PROJECT_PAGE_SIZE))
   const filtered = Boolean(query.q || query.type)
@@ -48,7 +50,8 @@ export default function ProjectList({ ref, items, total, query, searchDraft, loa
       <label>{t("筛选项目类型")}<select value={query.type} onChange={event => onQueryChange({
         ...query, page: 1, type: event.target.value as ProjectListQuery['type'],
       })}>
-        <option value="">{t("全部类型")}</option><option value="sci">{t("SCI 科研论文")}</option><option value="thesis">{t("毕业论文")}</option><option value="research">{t("研究项目")}</option>
+        <option value="">{t("全部类型")}</option>
+        {Object.entries(typeLabels).map(([value, label]) => <option key={value} value={value}>{t(label)}</option>)}
       </select></label>
       <button type="button" className="button-quiet" onClick={clearFilters}>{t("清除筛选")}</button>
     </form>
@@ -60,7 +63,7 @@ export default function ProjectList({ ref, items, total, query, searchDraft, loa
       </div>}
       {cards ? <div className="project-card-list">
         {items.map(project => <article key={project.id} className="research-project-card">
-          <span className="project-type-badge">{t(typeNames[project.project_type])}</span>
+          <span className="project-type-badge">{t(typeLabels[project.project_type])}</span>
           <h3><button type="button" className="project-name" onClick={() => onOpen(project.id)}>{project.name}</button></h3>
           <p>{project.research_topic}</p>
           <div className="research-project-meta"><span>{t('{count} 个文件', { count: project.file_count })}</span>
@@ -72,7 +75,7 @@ export default function ProjectList({ ref, items, total, query, searchDraft, loa
           <thead><tr><th scope="col">{t("项目名称")}</th><th scope="col">{t("项目类型")}</th><th scope="col">{t("创建时间")}</th>
             <th scope="col">{t("最近更新时间")}</th><th scope="col" className="table-number">{t("文件数")}</th><th scope="col">{t("操作")}</th></tr></thead>
           <tbody>{items.map(project => <tr key={project.id}>
-            <td><button type="button" className="project-name" onClick={() => onOpen(project.id)}>{project.name}</button></td><td><span className="project-type-badge">{t(typeNames[project.project_type])}</span></td>
+            <td><button type="button" className="project-name" onClick={() => onOpen(project.id)}>{project.name}</button></td><td><span className="project-type-badge">{t(typeLabels[project.project_type])}</span></td>
             <td><time dateTime={project.created_at}>{new Date(project.created_at).toLocaleString(locale)}</time></td>
             <td><time dateTime={project.updated_at}>{new Date(project.updated_at).toLocaleString(locale)}</time></td>
             <td className="table-number">{project.file_count}</td>

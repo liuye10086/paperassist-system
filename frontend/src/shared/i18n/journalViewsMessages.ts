@@ -1,4 +1,10 @@
 export const journalViewsMessages: Record<string,string> = {
+ '首页统计和图表排版':'First-page counts and figure and table layout',
+ '图表合计':'Combined figure and table count',
+ '{words} 词、{figures} 图、{tables} 表':'{words} words, {figures} figures, {tables} tables',
+ '独立图件':'Separate figure files',
+ '稿末可编辑表格':'Editable tables at the end',
+ '跨多页表格':'Tables spanning multiple pages',
  '已获取，官方身份未核实':'Fetched; official identity unverified',
  '网页获取记录':'Web acquisition record',
  '来源请求地址：':'Requested source:',

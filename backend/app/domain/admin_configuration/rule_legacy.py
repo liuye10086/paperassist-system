@@ -52,7 +52,8 @@ def affected(task, paths):
             input_version(task)
             require(snapshot['document']['language'] in ('zh-CN','en'))
             require(all(isinstance(item['text'],str) for item in snapshot['document']['items']))
-            require(snapshot.get('renderer_version','review_docx_v1') in ('review_docx_v1','review_docx_v2','review_docx_v3'))
+            from app.adapters.review_docx import CUSTOMER_RENDERER_VERSIONS, RENDERER_VERSION
+            require(snapshot.get('renderer_version','review_docx_v1') in ('review_docx_v1','review_docx_v2',RENDERER_VERSION,*CUSTOMER_RENDERER_VERSIONS))
         else:return True
     except (ValueError,TypeError,KeyError,AssertionError,StorageError):
         return True

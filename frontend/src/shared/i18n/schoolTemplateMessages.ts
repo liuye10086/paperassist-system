@@ -1,4 +1,5 @@
 export const schoolTemplateMessages: Record<string,string> = {
+  '采用北体 GS501 学术型硕士排版': 'Use GS501 formatting for Beijing Sport University academic master’s theses',
   '此条含已识别的身份字段来源，不能外发；如同段混有格式规则，请单独补充规范文字。':'This note contains an identified identity-field source and cannot be sent. If it also contains formatting rules, provide those requirements as a separate note.',
   '学校规范建议':'School rule suggestions',
   '仅发送明确勾选的规范说明原文；已识别的身份字段来源会排除，原 DOCX 不发送。模型建议须逐项人工决定，不会自动确认或绑定模板。':'Only explicitly selected requirement notes are sent. Identified identity-field sources are excluded, and the original DOCX is not sent. Each suggestion requires a human decision; templates are never automatically confirmed or bound.',

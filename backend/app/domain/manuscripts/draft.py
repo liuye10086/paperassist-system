@@ -184,6 +184,12 @@ def freeze(service,project,request,*,frozen_sources=None,frozen_citation=None):
             if variable_names: method_text+=(' Variables: ' if en else ' 变量：')+', '.join(variable_names)
             methods.append(dict(id='methods:analysis:'+identity,text=method_text,origin='computed_result',source_ids=[identity],citations=[]))
         groups.append(dict(id=group.id,title=group.title,paragraphs=paragraphs,tables=tables,figures=[figure(i) for i in expanded(group.figure_ids)]))
+    if request.reported_result:
+        reported = request.reported_result
+        heading = 'User-reported results' if en else '用户报告的结果'
+        paragraph = dict(id='results:reported', text=f'{heading} · {reported.text}', origin='user_provided',
+                         source_ids=reported.source_ids, citations=[])
+        groups.append(dict(id='reported-result', title=heading, paragraphs=[paragraph], tables=[], figures=[]))
     extra_figures=[i for i in expanded([s['id'] for s in sources if s['role']=='image_observation' and s['kind'] in ('original','figure','figure_language_version','document_version')]) if i not in used_figures]
     if extra_figures: groups.append(dict(id='source-observations',title='Source image observations' if en else '来源图片观察',paragraphs=[],tables=[],figures=[figure(i) for i in extra_figures]))
     if set(notes)-used_notes: raise StorageError('task_input_invalid','图注必须绑定已选图片。',422)

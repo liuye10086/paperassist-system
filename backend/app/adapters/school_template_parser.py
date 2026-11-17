@@ -15,6 +15,7 @@ from app.domain.admin_configuration.contracts import Schools
 PARSER_VERSION = 'school-template-openxml-v1'
 Q = '{' + W + '}'
 REL = '{http://schemas.openxmlformats.org/officeDocument/2006/relationships}'
+PAGINATION_FIELD = re.compile(r'(?:PAGE|NUMPAGES|SECTIONPAGES)(?:\s+\\\*\s+MERGEFORMAT)?', re.I)
 MAX_RESULT_BYTES = 4194304
 RESULT_KEYS = frozenset(('parser_version', 'raw_styles', 'defaults', 'sections', 'chapters',
                          'rules', 'notes', 'conflicts', 'missing', 'unsupported', 'identity_fields', 'front_matter_sources'))
@@ -33,6 +34,68 @@ def _value(node, name, attribute='val'):
 
 def _text(node):
     return ''.join(node.xpath('.//w:t[not(ancestor::w:txbxContent) and not(ancestor::w:del) and not(ancestor::w:ins)]/text()', namespaces=NS)).strip()
+
+
+def _story_text_and_fields(root):
+    """Keep visible text except cached results of fields the renderer rebuilds."""
+    nodes = root.xpath(
+        './/*[self::w:fldChar or self::w:instrText or self::w:fldSimple or self::w:t]'
+        '[not(ancestor::w:txbxContent or ancestor::w:del or ancestor::w:ins)]', namespaces=NS)
+    fields, open_fields = [], []
+    cache_ends, simple_caches, page_fields = {}, set(), {}
+    for index, node in enumerate(nodes):
+        if node.tag == Q + 't' or next(node.iterancestors(Q + 'fldSimple'), None) is not None:
+            continue
+        if node.tag == Q + 'fldSimple':
+            code = node.get(Q + 'instr', '')
+            if code.strip() and not open_fields:
+                fields.append(code)
+                if PAGINATION_FIELD.fullmatch(code.strip()):
+                    simple_caches.add(node)
+                    page_fields[index] = code.strip()
+        elif node.tag == Q + 'instrText':
+            if open_fields and open_fields[-1][2] is None:
+                open_fields[-1][1].append(node.text or '')
+        else:
+            kind = node.get(Q + 'fldCharType')
+            if kind == 'begin':
+                open_fields.append((index, [], None))
+            elif open_fields and kind == 'separate' and open_fields[-1][2] is None:
+                start, parts, _ = open_fields[-1]
+                open_fields[-1] = (start, parts, index)
+            elif open_fields and kind == 'end':
+                start, parts, separator = open_fields.pop()
+                code = ''.join(parts)
+                if code.strip() and not open_fields:
+                    fields.append(code)
+                    if PAGINATION_FIELD.fullmatch(code.strip()):
+                        page_fields[start] = code.strip()
+                        if separator is not None:
+                            cache_ends[separator] = index
+
+    segments, text_runs = [], []
+    end = -1
+    for index, node in enumerate(nodes):
+        if index in page_fields:
+            if text_runs:
+                segments.append(dict(kind='text', text=''.join(text_runs)))
+                text_runs.clear()
+            segments.append(dict(kind='field', instruction=page_fields[index]))
+        end = cache_ends.get(index, end)
+        if index >= end and node.tag == Q + 't' and node.text and not any(
+                parent in simple_caches for parent in node.iterancestors(Q + 'fldSimple')):
+            text_runs.append(node.text)
+    if text_runs:
+        segments.append(dict(kind='text', text=''.join(text_runs)))
+    text = ''.join(item['text'] for item in segments if item['kind'] == 'text').strip()
+    story = dict(text=text, fields=fields)
+    if text and page_fields:
+        # Keep the existing projection when it emits the same text and fields.
+        legacy = [dict(kind='text', text=text)] + [
+            dict(kind='field', instruction=code) for code in dict.fromkeys(page_fields.values())]
+        if segments != legacy:
+            story['segments'] = segments
+    return story
 
 
 def _source(node, part='word/document.xml', text=None):
@@ -62,7 +125,8 @@ def _interpret_requirements(sections, rules, notes):
                     for section in sections:
                         offer(section['id'] + '.margin_' + key + '_cm', value, source)
         for clause in re.split(r'[。！？\n]', text):
-            for pattern, render in ((r'字数(?:要求|控制在)?\s*(\d+)\s*[-—至~]\s*(\d+)', lambda m: m[1] + '-' + m[2] + '字'),
+            for pattern, render in ((r'字数(?:要求|控制在)?\s*(\d+)\s*[-—至~～]\s*(\d+)', lambda m: m[1] + '-' + m[2] + '字'),
+                                    (r'(?<!\d)(\d+)\s*[-—至~～]\s*(\d+)\s*字', lambda m: m[1] + '-' + m[2] + '字'),
                                     (r'字数(?:要求)?\s*(\d+)字左右', lambda m: '约' + m[1] + '字')):
                 for match in re.finditer(pattern, clause):
                     context = clause[:match.start()]
@@ -225,19 +289,15 @@ def inspect_school_template(content: bytes, filename: str, *, heading_aliases=()
             section[key] = []
             for kind in ('default', 'first', 'even'):
                 part = direct[kind] if kind in direct else prior_parts[key].get(kind)
-                text, fields = '', []
-                if part:
-                    sub = _xml(parts[part])
-                    text = _text(sub)
-                    fields = sub.xpath('//w:instrText/text() | //w:fldSimple/@w:instr', namespaces=NS)
-                section[key].append({'type': kind, 'part': part, 'text': text, 'fields': fields,
+                story = _story_text_and_fields(_xml(parts[part])) if part else dict(text='', fields=[])
+                section[key].append({'type': kind, 'part': part, **story,
                                      'linked_to_previous': index > 1 and kind not in direct,
                                      'source': _source(node, text=tag + ':' + kind)})
                 if part:
                     prior_parts[key][kind] = part
         sections.append(section)
     notes, seen_notes, paragraphs = [], set(), []
-    normative = re.compile(r'字体|字号|号字|行距|间距|页边距|页面设置|留边|留\d|字数|关键词.{0,10}\d|关键字|编号|图的题注|图的环绕|表的标题|脚注|参考文献\d|签名|注意|全文中|图片缩放|自绘图|截图、照片')
+    normative = re.compile(r'字体|字号|号字|行距|间距|页边距|页面设置|留边|留\d|字数|关键词.{0,10}\d|关键字|编号|图的题注|图的环绕|表的标题|脚注|参考文献\d|签名|注意|全文中|图片缩放|自绘图|截图、照片|摘要[^。！？\n]{0,100}\d+\s*[-—至~～]\s*\d+\s*字')
     for node in root.xpath('/w:document/w:body/w:p', namespaces=NS):
         text = _text(node)
         if text:
@@ -254,6 +314,8 @@ def inspect_school_template(content: bytes, filename: str, *, heading_aliases=()
     chapters, exemplars, alias_examples = [], {}, {}
     front_sources=[]
     after_heading = False
+    part_roles = {'摘要': 'abstract_heading_zh', 'Abstract': 'abstract_heading_en', 'ABSTRACT': 'abstract_heading_en',
+                  '参考文献': 'references_heading', '目录': 'toc_heading', '致谢': 'acknowledgements_heading'}
     for paragraph_index, (node, text) in enumerate(paragraphs, 1):
         paragraph = node.find('w:pPr', NS)
         identity = _value(paragraph, 'pStyle') or default_style
@@ -295,26 +357,29 @@ def inspect_school_template(content: bytes, filename: str, *, heading_aliases=()
         is_toc = bool(identity and re.match(r'toc\s*\d', styles.get(identity, {}).get('name', identity), re.I)) or bool(re.search(r'PAGEREF|HYPERLINK\s+\\l\s+"?_Toc', instructions, re.I))
         role = None
         compact = re.sub(r'\s', '', text)
-        named_part = compact in ('摘要', 'Abstract', 'ABSTRACT', '参考文献', '目录', '致谢', '学位论文独创性声明', '学位论文版权使用授权书') or bool(re.match(r'^附录[A-ZＡ-Ｚ][:：]', compact))
-        guide = text.startswith(('自绘图', '截图、照片', '注意：', '一级标题：', '二级标题：', '三级标题：'))
+        named_part = compact in part_roles or compact in ('学位论文独创性声明', '学位论文版权使用授权书') or bool(re.match(r'^附录[A-ZＡ-Ｚ][:：]', compact))
+        guide = text.startswith(('自绘图', '截图、照片', '注意：', '一级标题：', '二级标题：', '三级标题：',
+                                 '自行确定是否使用', '论文中出现英文时'))
         if (level or named_part) and not is_toc and not guide:
             chapters.append({'id': 'chapter-' + str(paragraph_index if aliases else len(chapters)+1), 'title': text, 'level': level or 1, 'source': _source(node)})
-        if level and not is_toc and not guide:
-            role = f'heading{level}'
-            after_heading = True
-        if compact in ('摘要', 'Abstract', 'ABSTRACT', '参考文献', '目录', '致谢'):
-            role = {'摘要': 'abstract_heading_zh', 'Abstract': 'abstract_heading_en', 'ABSTRACT': 'abstract_heading_en',
-                    '参考文献': 'references_heading', '目录': 'toc_heading', '致谢': 'acknowledgements_heading'}[compact]
-        elif re.match(r'^图\s*\d', text):
-            role = 'figure_caption'
-        elif re.match(r'^表\s*\d', text):
-            role = 'table_caption'
-        elif compact.startswith('关键词'):
-            role = 'keywords_zh'
-        elif compact.lower().startswith('keywords:'):
-            role = 'keywords_en'
-        elif after_heading and not level and len(text) > 30 and not re.match(r'^(?:注意|正文[：:]|一级标题|二级标题|三级标题|图的题注|表的标题)', text):
-            role = 'body'
+        if not is_toc and not guide:
+            if named_part:
+                role = part_roles.get(compact)
+                after_heading = False
+            elif level:
+                role = f'heading{level}'
+                after_heading = True
+            if re.match(r'^图\s*\d', text):
+                role = 'figure_caption'
+            elif re.match(r'^表\s*\d', text):
+                role = 'table_caption'
+            elif re.match(r'^关键词[：:]', compact):
+                role = 'keywords_zh'
+            elif re.match(r'^keywords[：:]', compact, re.I):
+                role = 'keywords_en'
+            elif after_heading and not level and len(text) > 30 and not re.match(
+                    r'^(?:正文[：:]|[一二三]级标题|关键词|key\s*words\b)', text, re.I):
+                role = 'body'
         alias = aliases.get(text.strip()) if not is_toc and not guide else None
         if alias:
             original_chapter = next((c for c in chapters if c['source']['path'] == node.getroottree().getpath(node)), None)
@@ -338,13 +403,26 @@ def inspect_school_template(content: bytes, filename: str, *, heading_aliases=()
             role = alias
         if role:
             exemplars.setdefault(role, (node, effective))
-    # The paragraph immediately before an abstract is a title example, not a research requirement.
+    # An abstract need not repeat a title. Use a preceding example only with
+    # explicit title evidence in the same section, rather than front matter.
     for index, (node, text) in enumerate(paragraphs):
         if re.sub(r'\s', '', text) in ('摘要', 'Abstract', 'ABSTRACT') and index:
-            previous = paragraphs[index-1][0]
+            previous, title = paragraphs[index-1]
             role = 'title_zh' if '摘' in text else 'title_en'
+            style = _value(previous.find('w:pPr', NS), 'pStyle') or default_style
+            style_name = styles.get(style, {}).get('name', '')
+            label = re.sub(r'\s+', '', title)
+            if not (style_name.casefold() in ('title', 'subtitle', '标题', '副标题')
+                    or re.fullmatch(r'(?:(?:中|英)文)?(?:论文)?题[目名](?:示例|[（(](?:中文|英文)[）)])?[：:]?', label)
+                    or re.fullmatch(r'(?:English)?title(?:[（(]英文[）)])?[：:]?', label, re.I)):
+                continue
+            between = previous
+            while between is not node and between.find('w:pPr/w:sectPr', NS) is None:
+                between = between.getnext()
+            if between is not node:
+                continue
             properties = {**{'rPr.' + k: v for k, v in defaults['run'].items()},
-                          **style_properties(_value(previous.find('w:pPr', NS), 'pStyle') or default_style)}
+                          **style_properties(style)}
             runs = [r for r in previous.findall('.//' + Q + 'r') if _text(r)]
             if runs:
                 properties.update({'rPr.' + k: v for k, v in props(runs[0].find('w:rPr', NS)).items()})

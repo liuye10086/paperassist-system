@@ -90,9 +90,10 @@ class LayoutExportService:
             return dict(items=items)
 
     def row(self,db,project,identity):
-        self.store.require_project(db,project)
+        owner_project=self.store.require_project(db,project)
         row=db.execute('SELECT * FROM layout_exports WHERE id=%s AND project_id=%s AND user_id=%s',(identity,project,self.store.user_id)).fetchone()
-        if not row: raise missing()
+        if not row or getattr(self.assets,'customer',False) and (owner_project['project_type'] not in ('sci','thesis') or row['source_kind']!='manuscript_export'):
+            raise missing()
         return row
 
     def verify(self,db,row):
@@ -137,7 +138,7 @@ class LayoutExportService:
         if meta and (meta.get('source_sha256')!=row['source_sha256'] or meta.get('input_sha256')!=row['input_sha256'] or meta.get('renderer_manifest')!=row['renderer_identity']): raise source_conflict()
         mode=candidates.recovery_mode(db,self.assets.directory,task)
         return dict(recovery_mode=mode,id=row['id'],project_id=row['project_id'],source_kind=row['source_kind'],source_id=row['source_id'],status=task['status'],task_id=row['task_id'],created_at=row['created_at'].isoformat(),
-            layout=row['input_json']['layout'],output_language=row['input_json']['output_language'],layout_version=row['layout_version'],request_key=row['request_key'],can_retry=self.can_retry(db,row,task),filename=meta.get('filename'),error_code=task.get('error_code'),source_sha256=row['source_sha256'],parent_export_id=row['parent_export_id'],renderer_manifest=meta.get('renderer_manifest'),sha256=meta.get('sha256'),size_bytes=meta.get('size_bytes'),
+            layout=row['input_json']['layout'],output_language=row['input_json']['output_language'],layout_version=row['layout_version'],request_key=row['request_key'],can_retry=not getattr(self.assets,'customer',False) and self.can_retry(db,row,task),filename=meta.get('filename'),error_code=task.get('error_code'),source_sha256=row['source_sha256'],parent_export_id=row['parent_export_id'],renderer_manifest=meta.get('renderer_manifest'),sha256=meta.get('sha256'),size_bytes=meta.get('size_bytes'),
             download_url=f"/api/v1/projects/{row['project_id']}/layout-exports/{row['id']}/download" if meta else None)
 
     def create(self,project,request,parent=None):
@@ -182,7 +183,11 @@ class LayoutExportService:
         return self.create(project,dict(source_kind=row['source_kind'],source_id=row['source_id'],request_key=key,layout=row['input_json']['layout']),identity)
 
     def get(self,project,identity):
-        with self.store.connection() as db: return self.view(db,self.row(db,project,identity))
+        with self.store.connection() as db:
+            row=self.row(db,project,identity)
+            if getattr(self.assets,'customer',False):
+                self.verify_source(db,row)
+            return self.view(db,row)
 
     def list(self,project,source_kind=None,source_id=None):
         with self.store.connection() as db:

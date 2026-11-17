@@ -12,6 +12,10 @@
 .review-opinion-row{display:grid;gap:.5rem;width:100%;text-align:left;padding:1rem;margin-block:.65rem;border:1px solid var(--border);background:var(--surface);color:var(--text);border-radius:12px}
 .review-opinion-row strong{color:var(--text-h)}
 .review-opinion-row small{color:var(--accent)}
+.review-word-output{margin-block:0.75rem 1rem}
+.review-grounded-plans,.review-change-list{margin-block:1rem}
+.review-reader-evidence{margin-block:.45rem .7rem;padding:.65rem .8rem;border-inline-start:2px solid var(--border);background:var(--surface)}
+.review-reader-evidence p{margin:.3rem 0 0;white-space:pre-wrap}
 .reviews-workspace fieldset,.review-round-heading,.review-item,.review-source,.review-segment,.reviews-workspace .review-continuation,.reviews-workspace .review-science,.reviews-workspace .review-progress{border-color:var(--border)}
 .review-original,.review-create,.review-continuation dd{background:var(--surface)}
 .reviews-workspace [hidden]{display:none!important}

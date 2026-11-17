@@ -5,12 +5,12 @@ from app.core.exceptions import StorageError
 from app.adapters.task_store import source_conflict
 from app.domain.literature.service import digest
 from app.domain.manuscripts.service import now
-from app.domain.manuscripts.sources import writing_changes as changes
+from app.domain.manuscripts.sources import require_visible_snapshot, writing_changes as changes
 from app.domain.dataset_preparation.service import require_key, append_checkpoint
 from .bundle import build_bundle, validate_bundle
 from .live_contracts import PreviewRequest, AuthorizationRequest, LiveWritingRequest, WORKFLOW,preview_data
 from .policy import MAX_POSTS, MAX_CORRECTIONS, TASK_CAP, BATCH_CAP, POLICY_VERSION, capabilities
-from .frozen import contract,bundle_contract
+from .frozen import contract,bundle_contract,SCI_ARTICLE_PROSE_REVISION
 from app.domain.admin_configuration.bindings import resolve,bind
 from app.domain.manuscripts.delivery_context import resolve_document_context
 
@@ -32,10 +32,13 @@ class LiveWritingService:
             configuration=resolve(db,kind='writing_bundle',object_id=bundle_id)
             frozen=result.get('execution_contract')
             if configuration is not None:
-                if frozen is None or frozen!=contract(configuration,schema_version=frozen['schema_version'],instruction_revision=frozen.get('instruction_revision'),document_kind=frozen.get('document_kind','sci')):raise ValueError('Bundle binding mismatch')
+                if frozen is None or frozen!=contract(configuration,schema_version=frozen['schema_version'],
+                    instruction_revision=frozen.get('instruction_revision'),document_kind=frozen.get('document_kind','sci'),
+                    article_instruction_revision=frozen.get('article_instruction_revision')):raise ValueError('Bundle binding mismatch')
             elif frozen is not None:
                 if frozen.get('schema_version') not in (2,3,4) or frozen.get('origin')!='installed':raise ValueError('Bundle binding mismatch')
         except (ValueError,KeyError,TypeError): raise source_conflict() from None
+        require_visible_snapshot(self.manuscripts.assets, db, project, result['base_snapshot'])
         return result
 
     def current(self,db,bundle):
@@ -43,6 +46,37 @@ class LiveWritingService:
         root=self.manuscripts.root(db,bundle['project_id'],bundle['manuscript_id'])
         if (root['current_revision']!=bundle['request_json']['base_revision'] or version['id']!=bundle['base_version_id']
             or version['snapshot_json']!=bundle['base_snapshot'] or changes(self.manuscripts,bundle['project_id'],bundle['base_snapshot'])): raise source_conflict()
+        self.require_customer_writing_input(db, bundle['project_id'], bundle['request_json'], bundle['base_snapshot'])
+
+    def require_customer_writing_input(self, db, project, request, snapshot):
+        if not self.manuscripts.assets.customer:
+            return
+        if snapshot.get('thesis_context'):
+            if request['schema_version'] != 3:
+                raise StorageError('customer_operation_forbidden', '毕业论文须使用已确认学校章节的受控写作流程。', 403)
+            return
+        kind = request.get('article_type')
+        if request['schema_version'] != 4 or request.get('document_kind') != 'sci' or kind not in ('research', 'narrative_review'):
+            raise StorageError('customer_operation_forbidden', 'SCI 客户写作须使用受控的研究型论文或综述流程。', 403)
+        intake = db.execute('SELECT sci_settings_json FROM research_intakes WHERE project_id=%s', (project,)).fetchone()
+        settings = intake['sci_settings_json'] if intake else None
+        if settings and settings['article_type'] != kind:
+            raise StorageError('manuscript_article_type_changed', '论文类型与项目资料不一致，请重新准备写作预览。', 422)
+        if kind == 'narrative_review':
+            if not request['selected_evidence_ids']:
+                raise StorageError('manuscript_writing_evidence_required', '综述须选择至少一项已核验文献证据。', 422)
+            return
+        selected = set(request['selected_source_ids'])
+        supported_result = any(
+            paragraph['source_ids'] and set(paragraph['source_ids']) <= selected
+            for group in snapshot['results_groups'] for paragraph in group['paragraphs']
+            if paragraph['origin'] == 'computed_result' or paragraph['id'] == 'results:reported'
+        )
+        from app.domain.manuscripts.research_sources import KINDS
+        fixed_research = any(source['id'] in selected and source['kind'] in KINDS and source['content'].get('facts')
+                             for source in snapshot['sources'])
+        if not supported_result and not fixed_research:
+            raise StorageError('manuscript_writing_evidence_required', '研究型论文须选择已关联资料的结果或固定计算结果。', 422)
 
     @staticmethod
     def bundle_view(bundle):
@@ -63,9 +97,15 @@ class LiveWritingService:
             version=self.manuscripts.version(db,project,identity,body['base_revision'])
             if root['current_revision']!=body['base_revision'] or self.store.require_task(db,version['task_id'])['status']!='succeeded': raise source_conflict()
             if changes(self.manuscripts,project,version['snapshot_json']): raise source_conflict()
+            self.require_customer_writing_input(db, project, body, version['snapshot_json'])
             if body['mode']=='rewrite_section' and not version['snapshot_json'].get('sections'): raise StorageError('manuscript_writing_base_incomplete','重写需要已发布完整稿。',409)
             configuration=resolve(db)
-            try:data=build_bundle(version['snapshot_json'],body,execution_contract=contract(configuration,schema_version=4 if body['schema_version']==4 else (3 if school else 2),document_kind='thesis' if school else 'sci'))
+            schema_version=4 if body['schema_version']==4 else (3 if school else 2)
+            prose_revision=SCI_ARTICLE_PROSE_REVISION if schema_version==4 and not school else None
+            try:
+                frozen=contract(configuration,schema_version=schema_version,document_kind='thesis' if school else 'sci',
+                                article_instruction_revision=prose_revision)
+                data=build_bundle(version['snapshot_json'],body,execution_contract=frozen)
             except (ValueError,KeyError,TypeError) as exc:
                 if not school:raise StorageError('manuscript_writing_selection_invalid','文章结构、写作范围或所选证据与冻结基础稿不匹配。',422) from exc
                 raise StorageError('manuscript_writing_selection_invalid','学校章节、语言或所选用途与冻结确认不匹配；受保护章节不能请求模型生成。',422) from exc
@@ -86,7 +126,13 @@ class LiveWritingService:
         with self.store.connection() as db:
             self.manuscripts.root(db,project,identity)
             rows=db.execute('SELECT id FROM manuscript_writing_bundles WHERE project_id=%s AND user_id=%s AND manuscript_id=%s ORDER BY created_at DESC,id',(project,self.store.user_id,identity)).fetchall()
-            return dict(items=[self.bundle_view(self.bundle(db,project,r['id'])) for r in rows],capabilities=capabilities(resolve(db)))
+            items=[]
+            for row in rows:
+                try:
+                    items.append(self.bundle_view(self.bundle(db,project,row['id'])))
+                except StorageError as exc:
+                    if exc.code!='manuscript_source_not_visible': raise
+            return dict(items=items,capabilities=capabilities(resolve(db)))
 
     def authorization(self,db,project,identity):
         self.store.require_project(db,project)
@@ -202,7 +248,10 @@ def admission_context(store,db,task):
     from app.domain.report_collections.service import scoped_store
     from .service import require_snapshot
     snap=require_snapshot(task)
-    service=LiveWritingService(scoped_store(store.user_id,store.config))
+    assets=scoped_store(store.user_id,store.config)
+    user=db.execute('SELECT role FROM users WHERE id=%s',(store.user_id,)).fetchone()
+    assets.customer=bool(user and user['role']=='customer')
+    service=LiveWritingService(assets)
     bundle=service.bundle(db,task['project_id'],snap['execution']['bundle_id'])
     if bundle['manuscript_id']!=snap['manuscript_id'] or bundle['base_snapshot']!=snap['base_snapshot'] or bundle['request_json']!=snap['input']: raise source_conflict()
     auth,grant=service.require_authorized(db,task['project_id'],snap['execution'],bundle)

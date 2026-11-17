@@ -477,8 +477,9 @@ class TaskWorkspaceService:
         except (KeyError, TypeError, ValueError) as exc:
             raise source_conflict() from exc
 
-    def get(self, task_id):
+    def get(self, task_id, *, customer=False):
         from app.domain.tasks.waits import get_open_wait, allowed_recovery_actions
+        from app.auth.sci_access import PAPER_RECOVERY_TASK_TYPES
 
         with self.store.connection() as db:
             from app.domain.tasks.legacy import is_legacy_id, public_legacy_task, legacy_source
@@ -495,6 +496,8 @@ class TaskWorkspaceService:
             source = self.source(db, task)
             from app.domain.tasks.local_cancel import can_cancel
             actions = ['cancel'] if can_cancel(task) else allowed_recovery_actions(db, task) if source['is_current'] else []
+            if customer and task['task_type'] not in PAPER_RECOVERY_TASK_TYPES:
+                actions = []
             return {'task': self.store.public_task(task), 'source': source, 'wait': get_open_wait(db, task),
                     'allowed_actions': actions,
                     'artifacts': self.artifacts(db, task),

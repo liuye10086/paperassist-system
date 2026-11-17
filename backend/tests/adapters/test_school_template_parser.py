@@ -91,7 +91,79 @@ def test_header_link_and_page_fields_are_inspected_not_updated():
     assert result['sections'][1]['headers'][0]['linked_to_previous'] is True
     assert result['sections'][1]['headers'][0]['text'] == '学校论文页眉'
     assert 'PAGE' in result['sections'][0]['footers'][0]['fields']
+    assert 'segments' not in result['sections'][0]['footers'][0]
     assert any('签名' in field for field in result['identity_fields'])
+
+
+def test_header_footer_fields_keep_instructions_without_promoting_cached_results_to_literal_text():
+    from copy import deepcopy
+    from app.adapters.school_docx import _section_settings
+    from app.adapters.school_template_parser import inspect_school_template
+    from docx.oxml.ns import qn
+
+    def marker(paragraph, kind):
+        node = OxmlElement('w:fldChar')
+        node.set(qn('w:fldCharType'), kind)
+        paragraph.add_run()._r.append(node)
+
+    def instruction(paragraph, text):
+        node = OxmlElement('w:instrText')
+        node.text = text
+        paragraph.add_run()._r.append(node)
+
+    doc = Document(BytesIO(sample()))
+    section = doc.sections[0]
+    footer = section.footer.paragraphs[0]
+    footer.add_run('第 ')
+    marker(footer, 'begin')
+    instruction(footer, 'PAGE')
+    instruction(footer, r' \* MERGEFORMAT')
+    marker(footer, 'separate')
+    footer.add_run('9')
+    marker(footer, 'end')
+    footer.add_run(' 页，共 ')
+    simple = OxmlElement('w:fldSimple')
+    simple.set(qn('w:instr'), 'NUMPAGES')
+    cached_run = footer.add_run('88')._r
+    simple.append(cached_run)
+    footer._p.append(simple)
+    footer.add_run(' 页')
+
+    header = section.header.paragraphs[0]
+    marker(header, 'begin')
+    instruction(header, ' STYLEREF "Heading 1" ')
+    marker(header, 'separate')
+    header.add_run(' · 上次保存的篇眉')
+    marker(header, 'end')
+    header.add_run(' · 固定说明')
+    # With no matching end marker the trailing text is not a proven cache.
+    marker(header, 'begin')
+    instruction(header, ' PAGE ')
+    marker(header, 'separate')
+    header.add_run('（未配对字段后仍保留）')
+
+    out = BytesIO()
+    doc.save(out)
+    result = inspect_school_template(out.getvalue(), '学校.docx')['sections'][0]
+    assert result['footers'][0]['text'] == '第  页，共  页'
+    assert result['footers'][0]['fields'] == [r'PAGE \* MERGEFORMAT', 'NUMPAGES']
+    assert result['headers'][0]['text'] == '学校论文页眉 · 上次保存的篇眉 · 固定说明（未配对字段后仍保留）'
+    assert result['headers'][0]['fields'] == [' STYLEREF "Heading 1" ']
+    expected = ['第 ', r'PAGE \* MERGEFORMAT', ' 页，共 ', 'NUMPAGES', ' 页']
+
+    def footer_order(spec):
+        target = Document()
+        _section_settings(target, target.sections[0], spec)
+        return target.sections[0].footer.paragraphs[0]._p.xpath('w:r/w:t/text() | w:fldSimple/@w:instr')
+
+    assert footer_order(result) == expected
+    segments = result['footers'][0]['segments']
+    assert segments[1] == dict(kind='field', instruction=r'PAGE \* MERGEFORMAT')
+    segments.insert(1, dict(kind='field', instruction='INCLUDETEXT "untrusted.docx"'))
+    assert footer_order(result) == expected
+    legacy = deepcopy(result)
+    del legacy['footers'][0]['segments']
+    assert footer_order(legacy) == ['第  页，共  页', r'PAGE \* MERGEFORMAT', 'NUMPAGES']
 
 
 def test_textbox_norms_quoted_once_and_never_used_as_chapter_body():
@@ -181,6 +253,59 @@ def test_heading_font_notes_do_not_read_the_next_heading_role():
     result = merge_template_notes(base, [note])
     first = next(r for r in result['rules'] if r['id'] == 'heading1.font_east_asia')
     assert first['value'] == '宋体'
+
+
+def test_abstract_titles_require_title_evidence_instead_of_the_previous_front_matter():
+    from app.adapters.school_template_parser import inspect_school_template
+    doc = Document()
+    doc.add_heading('学位论文独创性声明', 1)
+    doc.add_paragraph('年    月    日')
+    doc.add_section(WD_SECTION_START.NEW_PAGE)
+    doc.add_heading('摘  要', 1)
+    doc.add_paragraph('关键词：工程；设计')
+    doc.add_section(WD_SECTION_START.NEW_PAGE)
+    doc.add_heading('ABSTRACT', 1)
+    out = BytesIO()
+    doc.save(out)
+    result = inspect_school_template(out.getvalue(), '学校模板.docx')
+    assert not [rule for rule in result['rules'] if rule['id'].startswith(('title_zh.', 'title_en.'))]
+    assert [c['title'] for c in result['chapters']] == ['学位论文独创性声明', '摘  要', 'ABSTRACT']
+    valid = inspect_school_template(sample(), '标题示例.docx')
+    assert any(r['id'].startswith('title_zh.') and r['example_source']['text'] == '中文论文题目' for r in valid['rules'])
+
+
+def test_abstract_prose_and_keyword_guidance_do_not_supply_body_or_keyword_styles():
+    from app.adapters.school_template_parser import inspect_school_template
+    doc = Document()
+    doc.add_heading('摘  要', 1)
+    abstract = doc.add_paragraph('中文摘要简述研究目的、方法和结果，并应作为可独立理解的完整表述来组织文字。')
+    abstract.runs[0].font.size = Pt(14)
+    guide = doc.add_paragraph('关键词在摘要下方另起一行，以便于文献检索，应该使用能准确表达研究主题的词语。')
+    guide.runs[0].font.size = Pt(14)
+    keyword = doc.add_paragraph('关键词：术语示例')
+    keyword.runs[0].font.size = Pt(12)
+    doc.add_heading('1 引言', 1)
+    body = doc.add_paragraph('本部分主要介绍研究问题、开展研究的背景和选题原因，并根据课题实际情况组织段落。')
+    body.runs[0].font.size = Pt(12)
+    out = BytesIO()
+    doc.save(out)
+    result = inspect_school_template(out.getvalue(), '学校模板.docx')
+    by_id = {rule['id']: rule for rule in result['rules']}
+    assert by_id['body.font_size_pt']['example_source']['text'] == body.text
+    assert by_id['keywords_zh.font_size_pt']['example_source']['text'] == keyword.text
+
+
+def test_abstract_range_with_fullwidth_tilde_is_preserved_as_a_source_bound_requirement():
+    from app.adapters.school_template_parser import inspect_school_template
+    doc = Document()
+    doc.add_heading('摘  要', 1)
+    abstract = doc.add_paragraph('中文摘要通常为300～1000字。')
+    doc.add_paragraph('正文通常为8000～12000字。')
+    out = BytesIO()
+    doc.save(out)
+    result = inspect_school_template(out.getvalue(), '学校模板.docx')
+    rule = next((r for r in result['rules'] if r['id'] == 'abstract.word_count'), None)
+    assert rule is not None and rule['value'] == '300-1000字' and rule['source']['text'] == abstract.text
 
 
 def test_template_process_never_falls_back_on_windows(monkeypatch):

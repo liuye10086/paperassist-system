@@ -47,13 +47,16 @@ def document_snapshot(project_id, file, parse_id, version):
         parser_version=PARSER_VERSION, settings=PDF_SETTINGS)).model_dump()
 
 class DocumentService:
-    def __init__(self, assets):
+    def __init__(self, assets, *, allow_customer_pdf=False):
         self.assets = assets
         self.store = TaskStore(assets.owner_id, assets.db_config)
+        self.customer_types = ('docx', 'pdf') if allow_customer_pdf else ('docx',)
 
     def file(self, db, project_id, file_id, lock=False):
         self.store.require_project(db, project_id)
-        file = require_file(db, project_id, file_id, lock=lock)
+        file = require_file(db, project_id, file_id, lock=lock, material_filter=self.assets.material_filter)
+        if self.assets.customer and file['file_type'] not in self.customer_types:
+            raise StorageError('unsupported_file_type', '论文资料的文档解析仅支持 Word。', 422)
         if file['file_type'] not in ('docx', 'pdf', 'png', 'jpeg'):
             raise StorageError('unsupported_file_type', '此接口仅支持 Word、PDF 或图片。', 422)
         return file
@@ -111,6 +114,8 @@ class DocumentService:
         with self.store.connection() as db:
             self.file(db,project_id,file_id)
             row = self.row(db,file_id,parse_id)
+            if self.assets.customer and (row['project_id']!=project_id or row['user_id']!=self.store.user_id):
+                raise StorageError('document_version_not_found', '文档解析版本不存在。', 404)
             self.validate(db,row)
             if row['workflow_version']=='ocr_document_v1':
                 self.assets.original(row['input_snapshot']['file'])

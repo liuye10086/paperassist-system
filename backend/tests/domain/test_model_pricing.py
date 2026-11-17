@@ -61,6 +61,22 @@ def test_cache_writes_require_supported_price_and_are_retained():
     assert result['estimated_cost_micro_usd'] == 18
 
 
+@pytest.mark.parametrize('breakdown,status,reason,amount', [
+    ({'ttl_30m_tokens': 4, 'ttl_12h_tokens': 0}, 'estimated', None, 18),
+    ({'ttl_30m_tokens': 3, 'ttl_12h_tokens': 1}, 'pending', 'price_unsupported', None),
+    ({'ttl_30m_tokens': 3, 'ttl_12h_tokens': 0}, 'pending', 'usage_invalid', None),
+    ({'ttl_30m_tokens': True, 'ttl_12h_tokens': 0}, 'pending', 'usage_invalid', None),
+    ({'ttl_30m_tokens': 4}, 'pending', 'usage_missing', 18),
+    ({'ttl_30m_tokens': 4, 'ttl_12h_tokens': 0, 'ttl_24h_tokens': 1}, 'pending', 'usage_unsupported', 18),
+])
+def test_cache_write_lifetime_breakdown_requires_consistent_counts_and_supported_price(breakdown, status, reason, amount):
+    from app.domain.model_usage.pricing import estimate_usage
+    observed = {'input_tokens': 10, 'output_tokens': 0, 'input_tokens_details': {
+        'cached_tokens': 0, 'cache_write_tokens': 4, 'cache_write_tokens_details': breakdown}}
+    result = estimate_usage(price(cache_write_micro_usd_per_million=3_000_000), observed)
+    assert (result['usage_status'], result['reason_code'], result['estimated_cost_micro_usd']) == (status, reason, amount)
+
+
 @pytest.mark.parametrize('detail_fields', [{}, {'input_tokens_details': None},
     {'input_tokens_details': {}}, {'input_tokens_details': {'cached_tokens': 0}},
     {'input_tokens_details': {'cache_write_tokens': 0}}])

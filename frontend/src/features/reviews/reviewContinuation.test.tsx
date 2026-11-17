@@ -65,6 +65,33 @@ it('preserves a user section mapping against a late return read',async()=>{
  render(<ReturnContinuationPanel projectId="p1" round={round as never} documents={inputs.documents as never} active onPrepareNext={vi.fn()} onOpenTask={vi.fn()}/>);fireEvent.click(screen.getByRole('button',{name:'回传与下一轮'}));await screen.findByRole('option',{name:'合成旧稿 · 版本 1'});fireEvent.change(screen.getByLabelText('回传依据的公共稿件版本'),{target:{value:'v1'}});fireEvent.change(screen.getByLabelText('清洁 DOCX 解析版本'),{target:{value:'parse1'}});fireEvent.click(screen.getByRole('button',{name:'登记回传原件'}));fireEvent.change(await screen.findByLabelText('回传章节“方法”对应稿件章节'),{target:{value:'methods'}});await act(async()=>{finish(Response.json(returned))});expect(screen.getByLabelText('回传章节“方法”对应稿件章节')).toHaveProperty('value','methods')
 })
 
+it('refreshes a newly adopted customer return without a second submit or manual refresh',async()=>{
+ const mapped={...returned,mappings:[{input_section_id:'input1',chapter_id:'methods'}],
+  differences:[{kind:'text',location:{chapter_id:'methods',parser_version:'internal-key'},message:'支持文本变化',before:'旧合成文本',after:'合成改文'}],
+  can_adopt:true,preview_sha256:'c'.repeat(64)}
+ const output={manuscript_id:'m1',version_id:'v3',revision:3,parent_version_id:'v1',task_id:'producer1',status:'pending'}
+ let adopted=false
+ let reread=false
+ const writes=mockApi((url,init)=>{
+  if(url.endsWith('/continuation-context'))return {...continuation,returns:[mapped]}
+  if(url.endsWith('/returns/return1')&&!init?.method){
+   reread=adopted
+   return adopted?{...mapped,output:{...output,status:'published'}}:mapped
+  }
+  if(url.endsWith('/return1/adopt')){adopted=true;return {...mapped,output}}
+ })
+ const {container}=render(<ReturnContinuationPanel projectId="p1" round={round as never}
+  documents={inputs.documents as never} active expanded customer onPrepareNext={vi.fn()} onOpenTask={vi.fn()}/>)
+ await screen.findByRole('option',{name:/回传记录 1/})
+ fireEvent.change(screen.getByLabelText('查看固定回传记录'),{target:{value:'return1'}})
+ fireEvent.click(await screen.findByRole('button',{name:'采用回传并另存公共稿'}))
+ await waitFor(()=>expect(screen.getByRole('button',{name:'用此回传稿准备下一轮'})).toHaveProperty('disabled',false))
+ expect(reread).toBe(true)
+ expect(writes.filter(write=>write.url.endsWith('/adopt'))).toHaveLength(1)
+ expect(container.textContent).not.toMatch(/chapter_id|internal-key|回传固定父稿版本/)
+ expect(container.querySelector('details, button[aria-expanded]')).toBeNull()
+})
+
 it('localizes ordinary continuation, science and progress controls through shared i18n',async()=>{
  setLocale('en');mockApi();render(<Workspace/>);expect(await screen.findByRole('button',{name:'Returned manuscript and next round'})).toBeTruthy();expect(screen.getByRole('button',{name:'Link scientific tasks and results'})).toBeTruthy();fireEvent.click(screen.getByRole('button',{name:'Record actual progress'}));expect(await screen.findByLabelText('Actual progress status')).toBeTruthy();expect(screen.getByRole('button',{name:'Save independent progress record'})).toBeTruthy();expect(screen.getByRole('option',{name:'Accepted'})).toBeTruthy()
 })

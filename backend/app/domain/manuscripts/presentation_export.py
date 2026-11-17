@@ -3,8 +3,11 @@ from copy import deepcopy
 from app.adapters.task_store import source_conflict
 from app.core.exceptions import StorageError
 from app.domain.literature.service import digest
+from app.domain.school_templates import bsu_gs501
 from .contracts import ExportRequest
 from .presentation import PresentationService
+
+SCHOOL_IDENTITY_MASK = 'protected-fields-v1'
 
 
 def resolve(service, db, version, request):
@@ -37,16 +40,60 @@ def school_request(context, request):
     return ExportRequest(school=options)
 
 
+def reviewed_school_submission_forms(db, context):
+    """Use the form variant already represented by an exact language approval."""
+    if context is None or not bsu_gs501.selected(context['selected']['snapshot_json']):
+        return None
+    review = context['preview']['config'].get('language_review')
+    if not review:
+        return None
+    version = context['base']
+    row = db.execute('SELECT metadata_json FROM manuscript_exports WHERE id=%s AND version_id=%s',
+                     (review['source_export_id'], version['id'])).fetchone()
+    if not row or not row['metadata_json']:
+        raise source_conflict()
+    metadata = row['metadata_json']
+    school = metadata.get('presentation', {}).get('school') or metadata.get('school') or {}
+    return 'submission_forms_source_sha256' in school.get('plan', {})
+
+
+def customer_school_mask(service, db, context):
+    snapshot=context['selected']['snapshot_json']
+    if (context['binding']['review_mode']!='blind' or not snapshot.get('thesis_context')
+            or not (service.assets.customer or bsu_gs501.selected(snapshot))):
+        return None
+    _require_masked_language_source(db, context)
+    return SCHOOL_IDENTITY_MASK
+
+
+def _require_masked_language_source(db, context):
+    review=context['preview']['config'].get('language_review')
+    if not review:return
+    base=context['base']
+    source=db.execute('''SELECT t.input_snapshot->'presentation'->>'school_identity_mask' AS mask
+        FROM manuscript_exports e JOIN tasks t ON t.id=e.task_id
+        WHERE e.id=%s AND e.version_id=%s AND t.project_id=%s AND t.user_id=%s''',
+        (review['source_export_id'],base['id'],base['project_id'],base['user_id'])).fetchone()
+    if not source or source['mask']!=SCHOOL_IDENTITY_MASK:
+        raise StorageError('task_input_invalid','请先生成遮蔽固定身份字段的盲审 Word，再用于语言确认。',422)
+
+
 def seal(service, db, context):
     if not context['preview']['can_export']:
         raise StorageError('presentation_consistency_conflict','输出配置存在一致性冲突，请先核对。',422)
     selected = context['selected']; plan = None
+    if bsu_gs501.selected(selected['snapshot_json']) and excluded_chapters(context):
+        raise StorageError('school_export_input_invalid','GS501 论文须保留已确认的全部章节。',422)
     if selected['id'] != context['base']['id'] and selected['snapshot_json'].get('thesis_context'):
         options = service.school_options(selected, school_request(context, ExportRequest()))
-        plan = service.compile_school_intent(db, selected, options)['plan']
+        plan = service.compile_school_intent(db, selected, options,
+            submission_forms=reviewed_school_submission_forms(db, context))['plan']
         if not plan['report']['can_export']:
             raise StorageError('task_input_invalid','所选语言的学校排版配置存在错误。',422)
-    return dict(binding=context['binding'], render_school_plan=plan)
+    sealed=dict(binding=context['binding'], render_school_plan=plan)
+    mask=customer_school_mask(service,db,context)
+    if mask is not None:sealed['school_identity_mask']=mask
+    return sealed
 
 
 def verify(service, db, version, task, *, current=False, progress=None):
@@ -63,6 +110,10 @@ def verify(service, db, version, task, *, current=False, progress=None):
     if plan is not None:
         from .school_export import validate_school_export
         validate_school_export(plan, selected['snapshot_json'], service.school_analysis(db, selected, current=current))
+    if 'school_identity_mask' in sealed:
+        if (sealed['school_identity_mask']!=SCHOOL_IDENTITY_MASK or binding['review_mode']!='blind'
+                or not selected['snapshot_json'].get('thesis_context')):raise source_conflict()
+        _require_masked_language_source(db, context)
     if context['peer'] is not None:
         producer = service.store.require_task(db, context['peer']['task_id'])
         if producer['status'] != 'succeeded':raise source_conflict()
@@ -108,11 +159,12 @@ def preview_view(context):
         items=assembled
     allowed={e['term'] for e in config['blind']['exceptions']}
     terms=sorted((t for t in config['blind']['identity_terms'] if t not in allowed), key=len, reverse=True)
+    replacement='XXX' if bsu_gs501.selected(selected) else '[已隐去]'
     projected=[]
     for p, language in items:
         text=p['text']
         if context['binding']['review_mode']=='blind':
-            for term in terms:text=text.replace(term,'[已隐去]')
+            for term in terms:text=text.replace(term,replacement)
         projected.append(dict(id=p['id'],text=text,target_language=language))
     return dict(binding=context['binding'],checks=context['preview']['checks'],quality=context['preview']['quality'],
                 preview_paragraphs=projected,blind_rules=deepcopy(config['blind']),
@@ -142,6 +194,18 @@ def confirmed_metadata(context, prior):
         item['confirmation']=dict(status='confirmed_for_exact_output',source_export_id=review['source_export_id'],source_sha256=review['source_sha256'],
             content_sha256=decision['content_sha256'],decision=decision['decision'],reason=decision['reason'],exceptions=deepcopy(decision['exceptions']))
     return result
+
+
+def verify_gs501_reviewed_output(context, plan, content):
+    """A previously reviewed document can still contain newly identified terms."""
+    if context['binding']['review_mode'] != 'blind' or not bsu_gs501.selected(context['selected']['snapshot_json']):
+        return
+    from app.adapters.manuscript_presentation_docx import inspect_docx
+
+    config = context['preview']['config']
+    rules = bsu_gs501.blind_terms(plan, config['blind'], authors=config['authors'])
+    if inspect_docx(content, rules)['known_identity_check'] != 'passed':
+        raise StorageError('gs501_reviewed_output_stale', '已确认的盲评稿仍含已知身份信息，请重新生成盲评 Word 并确认输出语言。', 422)
 
 
 def actual_checks(context, inventory):

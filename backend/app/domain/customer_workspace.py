@@ -79,7 +79,7 @@ class CustomerWorkspace:
 
     @staticmethod
     def _summary(row):
-        return {key: row[key] for key in ('id', 'title', 'kind', 'revision', 'published_at', 'member_count')}
+        return {key: row[key] for key in ('id', 'delivery_id', 'title', 'kind', 'revision', 'published_at', 'member_count')}
 
     def deliveries(self, project_id):
         with self.store.connection() as db:

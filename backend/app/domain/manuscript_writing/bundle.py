@@ -101,7 +101,7 @@ def evidence_catalog(base):
                     result[evidence['id']]=(evidence,binding)
     return result
 
-def build_bundle(base, request, *, execution_contract=None):
+def build_bundle(base, request, *, execution_contract=None, include_reported_results=True):
     from .frozen import contract,validate,wire_parts
     from app.domain.model_usage.contracts import ModelPolicy
     from app.domain.admin_configuration.model_consumption import combine
@@ -110,7 +110,7 @@ def build_bundle(base, request, *, execution_contract=None):
         raise StorageError('manuscript_writing_selection_invalid','此文章类型须使用文章结构协议，不能按旧七部分协议改写。',422)
     if frozen['schema_version']==4:
         from .article_contract import build_bundle as article_bundle
-        return article_bundle(base,request,frozen)
+        return article_bundle(base,request,frozen,include_reported_results=include_reported_results)
     if frozen['schema_version']==3:
         from .school_live import build_bundle as school_bundle
         return school_bundle(base,request,frozen)
@@ -204,7 +204,12 @@ def build_bundle(base, request, *, execution_contract=None):
 
 def validate_bundle(row):
     from .frozen import bundle_contract
-    rebuilt=build_bundle(row['base_snapshot'],row['request_json'],execution_contract=bundle_contract(row))
+    from .numeric_contract import REPORTED_RESULTS_LOCATION
+    # A preview frozen before the reported-results catalog must still reproduce its original wire.
+    has_report = any(entry['location'] == REPORTED_RESULTS_LOCATION
+                     for entry in row['local_manifest'].get('numeric_context', {}).values())
+    rebuilt=build_bundle(row['base_snapshot'],row['request_json'],execution_contract=bundle_contract(row),
+                         include_reported_results=has_report)
     if 'execution_contract' not in row:rebuilt.pop('execution_contract',None)
     if any(row[k]!=v for k,v in rebuilt.items()): raise ValueError('Frozen bundle mismatch')
     return row

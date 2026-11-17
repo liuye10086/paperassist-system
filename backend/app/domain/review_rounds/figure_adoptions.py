@@ -48,7 +48,7 @@ class FigureAdoptions:
         return source,analysis,receipt
 
     def figure_adoption_view(self,row):
-        self.validate(row);snap=row['snapshot_json']
+        snap=row['snapshot_json']
         return dict(id=row['id'],round_id=row['round_id'],item_id=row['item_id'],plan_revision=row['plan_revision'],
             input_snapshot=deepcopy(snap),source=deepcopy(snap['source']),supersedes_figure_id=snap['supersedes_figure_id'],
             affected_locations=deepcopy(snap['affected_locations']),created_at=row['created_at'])
@@ -91,7 +91,7 @@ class FigureAdoptions:
             return self.figure_adoption_view(self.science_row(db,project,snap['id'],TABLE)),201
 
     def validate_figure_adoption(self,db,row,*,require_current=False):
-        self.validate(row);snap=row['snapshot_json'];round=self.round_row(db,row['project_id'],row['round_id'])
+        self.validate(db,row);snap=row['snapshot_json'];round=self.round_row(db,row['project_id'],row['round_id'])
         if any(snap.get(k)!=row[k] for k in ('project_id','round_id','item_id','plan_revision','task_id','manuscript_version_id')) or round['snapshot_json']['manuscript']['version_id']!=row['manuscript_version_id']:raise source_conflict()
         link=self.science_row(db,row['project_id'],row['link_id'],'review_opinion_task_links');self.link_view(db,link)
         if (link['id']!=snap['task_link_id'] or link['round_id']!=row['round_id'] or link['item_id']!=row['item_id']

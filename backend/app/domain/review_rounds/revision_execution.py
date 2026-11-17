@@ -3,10 +3,10 @@ from psycopg.types.json import Jsonb
 from app.adapters.task_execution_store import TaskExecutionStore,LeaseLost
 from app.adapters.task_store import TaskStore,source_conflict
 from app.core.exceptions import StorageError
-from app.domain.report_collections.service import scoped_store
 from app.domain.literature.service import digest
 from app.domain.manuscripts.service import ManuscriptService
 from .revisions import RevisionService,input_version
+from .access import review_task_assets
 
 def run_review_revision_task(task_id,task_revision,*,config=None,directory=None,before_publish=None):
     execution=TaskExecutionStore(config=config,directory=directory)
@@ -15,7 +15,7 @@ def run_review_revision_task(task_id,task_revision,*,config=None,directory=None,
     try:
         with execution.connection() as db:
             task=execution.require_lease(db,lease);execution.require_owner(db,task)
-            service=RevisionService(scoped_store(task['user_id'],execution.config,execution.assets.directory))
+            service=RevisionService(review_task_assets(db,task,execution.config,execution.assets.directory))
             row=service.revision_row(db,task['project_id'],input_version(task)['revision_id'])
             base,candidate,result=service.compute(db,row)
         from app.domain.manuscripts.execution import checkpoint

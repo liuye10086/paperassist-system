@@ -7,11 +7,13 @@ from app.core.exceptions import StorageError
 from app.domain.dataset_preparation.service import require_key
 from app.domain.literature.service import digest
 from app.domain.manuscripts.service import ManuscriptService
+from app.domain.manuscripts.sources import require_visible_snapshot
 from app.domain.journals.service import now
 from .service import ReviewRoundService
 from .planning import invalid
 from .revision_contracts import WORKFLOW,RevisionInputVersion,RevisionPreview
 from .grounded import evidence_for,locations_for,grounded_plans,apply_operations
+from .writing import retain_school_layout
 from app.domain.admin_configuration.rule_consumption import rules,round_version,inherit_task
 
 
@@ -41,9 +43,9 @@ class RevisionService(ReviewRoundService):
         from .science_candidates import apply_analysis_sources
         from app.domain.manuscript_review.facts import extract_facts
         science=ScienceService(self.assets)
-        adopted=db.execute('SELECT * FROM review_analysis_adoptions WHERE round_id=%s ORDER BY created_at,id',(identity,)).fetchall()
+        adopted=[] if self.assets.customer else db.execute('SELECT * FROM review_analysis_adoptions WHERE round_id=%s ORDER BY created_at,id',(identity,)).fetchall()
         context['analysis_adoptions']=[science.adoption_view(science.validate_adoption(db,r)) for r in adopted]
-        figures=db.execute('SELECT * FROM review_figure_adoptions WHERE round_id=%s ORDER BY created_at,id',(identity,)).fetchall()
+        figures=[] if self.assets.customer else db.execute('SELECT * FROM review_figure_adoptions WHERE round_id=%s ORDER BY created_at,id',(identity,)).fetchall()
         context['figure_adoptions']=[science.figure_adoption_view(science.validate_figure_adoption(db,r)) for r in figures]
         current_items={i['id']:i for i in state['items']}
         selected=[r for r in adopted if r['item_id'] in current_items]
@@ -112,19 +114,55 @@ class RevisionService(ReviewRoundService):
         preview['preview_sha256']=digest(preview)
         return row,base,state,candidate,preview
     def preview_revision(self,project,identity,request):
-        with self.store.connection() as db:return self.calculate(db,project,identity,request)[4]
+        with self.store.connection() as db:
+            self.round_row(db,project,identity)
+            self.require_customer_material_selection(request)
+            return self.calculate(db,project,identity,request)[4]
+
+    def require_customer_material_selection(self, request):
+        if self.assets.customer and (request.analysis_adoption_ids or request.figure_adoption_ids):
+            raise StorageError('customer_operation_forbidden','请将已发布的分析交付作为返修材料上传后选择。',403)
+
     def revision_row(self,db,project,identity):
         self.project(db,project)
         row=db.execute('SELECT * FROM review_revision_runs WHERE id=%s AND project_id=%s AND user_id=%s',(identity,project,self.store.user_id)).fetchone()
         if not row:raise StorageError('not_found','实际修改批次不存在。',404)
-        self.validate(row);task=self.store.require_task(db,row['task_id']);input_version(task)
-        if task['input_snapshot']!=row['snapshot_json']:raise source_conflict()
+        self.validate(db,row);task=self.store.require_task(db,row['task_id']);input_version(task)
+        snap=row['snapshot_json']
+        parent=self.round_row(db,project,row['round_id'])['snapshot_json']
+        manuscript=parent['manuscript']
+        if (task['input_snapshot']!=snap or snap['round_id']!=row['round_id'] or snap['project_type']!=parent['project_type']
+            or snap['manuscript']!={k:manuscript[k] for k in ('id','revision','version_id')}
+            or snap['base_sha256']!=manuscript['sha256'] or row['manuscript_id']!=manuscript['id']
+            or row['manuscript_version_id']!=manuscript['version_id']):
+            raise source_conflict()
+        if row['result_json'] is not None:
+            require_visible_snapshot(self.assets,db,project,row['result_json'])
         return row
+
+    def output(self,db,row):
+        """Check the immutable child identity without recursively validating itself."""
+        value=row['result_json']['output']
+        version=db.execute('''SELECT * FROM manuscript_versions WHERE id=%s AND manuscript_id=%s
+            AND project_id=%s AND user_id=%s''',(row['output_version_id'],row['manuscript_id'],row['project_id'],row['user_id'])).fetchone()
+        if (not version or value!=dict(manuscript_id=version['manuscript_id'],version_id=version['id'],
+                revision=version['revision'],parent_version_id=version['parent_version_id'],task_id=version['task_id'])
+            or version['parent_version_id']!=row['manuscript_version_id']
+            or digest(version['snapshot_json'])!=version['snapshot_sha256']):
+            raise source_conflict()
+        producer=self.store.require_task(db,version['task_id'])
+        if (producer['task_type']!='manuscript_draft' or producer['project_id']!=row['project_id']
+            or producer['input_snapshot'].get('manuscript_version_id')!=version['id']
+            or producer['input_snapshot'].get('snapshot_sha256')!=version['snapshot_sha256']):
+            raise source_conflict()
+        require_visible_snapshot(self.assets,db,row['project_id'],version['snapshot_json'])
+        return version,producer
+
     def view_revision(self,db,row):
         check=db.execute("SELECT state_json FROM task_checkpoints WHERE task_id=%s AND node='check' ORDER BY seq DESC LIMIT 1",(row['task_id'],)).fetchone()
         result=deepcopy(row['result_json']);output_status=None
         if result:
-            producer=self.store.require_task(db,result['output']['task_id']);output_status='published' if producer['status']=='succeeded' else 'pending'
+            _,producer=self.output(db,row);output_status='published' if producer['status']=='succeeded' else 'pending'
             if output_status!='published':
                 for item in result['items']:
                     if item['status']=='completed':item.update(status='executing',uncompleted_reason='公共新稿生产任务尚未成功。')
@@ -134,7 +172,8 @@ class RevisionService(ReviewRoundService):
     def revisions(self,project,round_id):
         with self.store.connection() as db:
             self.round_row(db,project,round_id)
-            return dict(items=[self.view_revision(db,self.revision_row(db,project,r['id'])) for r in db.execute('SELECT id FROM review_revision_runs WHERE round_id=%s ORDER BY created_at DESC,id',(round_id,)).fetchall()])
+            rows=db.execute('SELECT id FROM review_revision_runs WHERE round_id=%s ORDER BY created_at DESC,id',(round_id,)).fetchall()
+            return dict(items=list(self.visible_records(rows,lambda item:self.view_revision(db,self.revision_row(db,project,item['id'])))))
     def adopt(self,project,identity,request,key):
         require_key(key);body=revision_request_body(request)
         with self.store.connection(write=True) as db:
@@ -143,12 +182,15 @@ class RevisionService(ReviewRoundService):
             if old:
                 if old['request_digest']!=digest(body) or old['round_id']!=identity:raise StorageError('task_idempotency_conflict','标识已用于其他修改输入。',409)
                 return self.view_revision(db,self.revision_row(db,project,old['id'])),200
+            self.round_row(db,project,identity)
+            self.require_customer_material_selection(request)
             row,base,state,candidate,preview=self.calculate(db,project,identity,request)
             if preview['preview_sha256']!=request.preview_sha256:raise invalid('差异预览已变化，请重新查看。',409)
             if not preview['can_adopt']:raise invalid('没有有效实际差异或公共检查存在硬错误，不能采用。',409)
             identity=str(uuid4());timestamp=now();snap=dict(id=identity,kind='review_revision',project_id=project,round_id=row['id'],workflow_version=WORKFLOW,project_type=row['snapshot_json']['project_type'],sources=[{k:v[k] for k in ('id','role','label')} for v in row['snapshot_json']['sources']],output_language=base['snapshot_json']['output_language'],manuscript=preview['manuscript'],base_sha256=base['snapshot_sha256'],plan_revision=request.plan_revision,plan_state=state,operations=body['operations'],expected_current_revision=request.expected_current_revision,preview=preview,synthetic=preview['synthetic'],real_model_calls=False,real_network_calls=False)
             if request.analysis_adoption_ids:snap['analysis_adoption_ids']=list(request.analysis_adoption_ids)
             if request.figure_adoption_ids:snap['figure_adoption_ids']=list(request.figure_adoption_ids)
+            snap['candidate_schema_version']=2
             task=dict(id=str(uuid4()),project_id=project,user_id=self.store.user_id,task_type='review_revision',idempotency_key='review-revision:'+identity,input_digest=digest(snap),input_snapshot=snap,workflow_version=WORKFLOW,status='queued',phase='verify',revision=1,current_attempt=0,reason_code=None,created_at=timestamp,updated_at=timestamp)
             self.store.insert_task(db,task);self.store.append_event(db,task,'created');self.store.enqueue(db,task)
             inherit_task(db,task,round_id=row['id'])
@@ -158,6 +200,8 @@ class RevisionService(ReviewRoundService):
         request=RevisionPreview.model_validate({k:row['request_json'][k] for k in RevisionPreview.model_fields if k in row['request_json']})
         _,base,state,candidate,preview=self.calculate(db,row['project_id'],row['round_id'],request)
         if preview!=row['snapshot_json']['preview'] or state!=row['snapshot_json']['plan_state'] or base['snapshot_sha256']!=row['snapshot_json']['base_sha256']:raise source_conflict()
+        if row['snapshot_json'].get('candidate_schema_version')==2:
+            retain_school_layout(candidate)
         candidate['review_revision_provenance']=dict(revision_id=row['id'],round_id=row['round_id'],base_version_id=base['id'],input_sha256=row['snapshot_sha256'],synthetic=preview['synthetic'])
         items=deepcopy(state['items'])
         for item in items:
@@ -175,8 +219,8 @@ class RevisionService(ReviewRoundService):
 
 def retry_in_transaction(store,db,task,expected_revision):
     if task['task_type']!='review_revision' or task['status']!='failed' or task['revision']!=expected_revision or task.get('error_code') not in ('storage_unavailable','task_worker_interrupted'):raise invalid('只能重试当前失败的实际修改任务。',409)
-    from app.domain.report_collections.service import scoped_store
-    service=RevisionService(scoped_store(task['user_id'],store.config));row=service.revision_row(db,task['project_id'],input_version(task)['revision_id'])
+    from .access import review_task_assets
+    service=RevisionService(review_task_assets(db,task,store.config));row=service.revision_row(db,task['project_id'],input_version(task)['revision_id'])
     if row['result_json'] is not None:raise source_conflict()
     task.update(status='queued',revision=expected_revision+1,reason_code='retry_requested',error_code=None,updated_at=max(now(),task['updated_at']),_retry_reason='manual_retry')
     store.update_task(db,task,expected_revision);store.append_event(db,task,'requeued');store.enqueue(db,task)
@@ -184,11 +228,10 @@ def retry_in_transaction(store,db,task,expected_revision):
 
 
 def validate_revised_version(manuscripts,db,version):
-    from app.domain.report_collections.service import scoped_store
-    service=RevisionService(scoped_store(version['user_id'],manuscripts.store.config,manuscripts.assets.directory));provenance=version['snapshot_json']['review_revision_provenance']
+    service=RevisionService(manuscripts.assets);provenance=version['snapshot_json']['review_revision_provenance']
     row=service.revision_row(db,version['project_id'],provenance.get('revision_id'));result=row['result_json'];frozen=row['snapshot_json']
     if not result or row['output_version_id']!=version['id'] or provenance['input_sha256']!=row['snapshot_sha256'] or any(i['severity']=='error' for i in result['public_issues']):raise source_conflict()
-    base=manuscripts.version(db,version['project_id'],version['manuscript_id'],frozen['manuscript']['revision'])
+    base=service.manuscript_row(db,version['project_id'],version['manuscript_id'],frozen['manuscript']['revision'])
     from app.domain.manuscript_review.writing_context import load_writing_context
     authority=load_writing_context(manuscripts,db,version['project_id'],version['manuscript_id'],base['snapshot_json'],check_version=2)
     target_id=service.round_row(db,version['project_id'],row['round_id'])['snapshot_json']['constraints']['journal_target_id'];target=service.target_row(db,version['project_id'],target_id)['snapshot_json'] if target_id else None
@@ -199,26 +242,29 @@ def validate_revised_version(manuscripts,db,version):
     from .figure_candidates import apply_figure_sources,figure_consistency_issues
     figures=ScienceService(manuscripts.assets).selected_figure_adoptions(db,version['project_id'],row['round_id'],frozen.get('figure_adoption_ids',[]))
     augmented,authority,figure_changes=apply_figure_sources(augmented,figures,adoptions,authority)
-    expected,changes,_,_,_=apply_operations(augmented,analysis_items(frozen['plan_state']['items'],adoptions),frozen['plan_state']['materials'],frozen['operations'],writing_context=authority,target=target)
+    detached=frozen.get('candidate_schema_version')==2
+    expected,changes,_,_,_=apply_operations(augmented,analysis_items(frozen['plan_state']['items'],adoptions),frozen['plan_state']['materials'],frozen['operations'],writing_context=authority,target=target,
+                                            fixed_safety=detached and round_version(db,row['round_id']) is not None)
     changes=table_changes+figure_changes+changes
     if any(i['severity']=='error' for i in analysis_consistency_issues(expected,adoptions)):raise source_conflict()
     if any(i['severity']=='error' for i in figure_consistency_issues(expected,figures)):raise source_conflict()
+    if detached:
+        retain_school_layout(expected)
     expected['review_revision_provenance']=dict(revision_id=row['id'],round_id=row['round_id'],base_version_id=base['id'],input_sha256=row['snapshot_sha256'],synthetic=frozen['synthetic'])
     if expected!=version['snapshot_json'] or changes!=result['actual_changes'] or base['id']!=version['parent_version_id'] or result['output']!=dict(manuscript_id=version['manuscript_id'],version_id=version['id'],revision=version['revision'],parent_version_id=version['parent_version_id'],task_id=version['task_id']):raise source_conflict()
 
 
 def revision_writing_context(manuscripts,db,project,identity,snapshot,*,check_version=2):
     """Public recheck of exact published local edits; original v2 rules stay strict."""
-    from app.domain.report_collections.service import scoped_store
     from app.domain.manuscript_review.writing_context import load_writing_context,WritingCheckContext
     from app.domain.manuscript_writing.context import normalize_sections
-    service=RevisionService(scoped_store(manuscripts.store.user_id,manuscripts.store.config,manuscripts.assets.directory))
+    service=RevisionService(manuscripts.assets)
     row=service.revision_row(db,project,snapshot['review_revision_provenance']['revision_id'])
     result=row['result_json']
     if not result or result['output']['manuscript_id']!=identity:raise source_conflict()
-    version=manuscripts.version(db,project,identity,result['output']['revision'])
+    version,_=service.output(db,row)
     if version['snapshot_json']!=snapshot:raise source_conflict()
-    base=manuscripts.version(db,project,identity,row['snapshot_json']['manuscript']['revision'])
+    base=service.manuscript_row(db,project,identity,row['snapshot_json']['manuscript']['revision'])
     authority=load_writing_context(manuscripts,db,project,identity,base['snapshot_json'],check_version=check_version)
     if authority is None:return None
     from .science import ScienceService

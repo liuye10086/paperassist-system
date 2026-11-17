@@ -121,6 +121,13 @@ class LiteratureCitationService:
         try:
             extracted=extract_metadata(raw,source['pmid'])
             metadata=extracted if req['mode']=='extract' else req['metadata']
+            if req['mode'] == 'extract' and snapshot.get('metadata') != extracted:
+                # Older metadata versions omitted every author's suffix. Verify
+                # them against the same receipt without updating the frozen data.
+                metadata = dict(extracted, authors=[
+                    {key: value for key, value in author.items() if key != 'suffix'}
+                    for author in extracted['authors']
+                ])
         except ValueError as exc:
             raise invalid('已保存回执无法提取此书目。') from exc
         expected=dict(metadata=metadata,source=source,mode=req['mode'],source_description=req['source_description'],
@@ -322,9 +329,15 @@ class LiteratureCitationService:
         snapshot=row['snapshot_json']
         if snapshot.get('draft_id')!=identity or snapshot.get('revision')!=revision or snapshot.get('version_id')!=row['id'] or snapshot.get('project_id')!=project:
             raise source_conflict()
+        from app.domain.manuscripts.sources import require_visible_snapshot
+
+        require_visible_snapshot(self.evidence.assets,db,project,snapshot)
         return root,row
 
     def draft_view(self,db,project,root,row):
+        from app.domain.manuscripts.sources import require_visible_snapshot
+
+        require_visible_snapshot(self.evidence.assets,db,project,row['snapshot_json'])
         return dict(id=root['id'],version_id=row['id'],project_id=project,revision=row['revision'],
             current_revision=root['revision'],is_current=root['revision']==row['revision'],snapshot=row['snapshot_json'],
             current_changes=self.current_changes(db,project,row['snapshot_json']),created_at=iso(row['created_at']))
@@ -379,8 +392,11 @@ class LiteratureCitationService:
             roots=self.rows(db,'literature_citation_drafts',project)
             items=[]
             for root in roots[(page-1)*10:page*10]:
-                _,row=self.draft_row(db,project,root['id'])
-                items.append(self.draft_view(db,project,root,row))
+                try:
+                    _,row=self.draft_row(db,project,root['id'])
+                    items.append(self.draft_view(db,project,root,row))
+                except StorageError as exc:
+                    if exc.code!='manuscript_source_not_visible': raise
             return dict(items=items,total=len(roots),page=page,page_size=10)
 
     def saved(self,project,identity,revision,source=False):

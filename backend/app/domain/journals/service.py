@@ -37,14 +37,24 @@ class JournalService:
         self.project(db,project)
         row=db.execute('SELECT * FROM '+table+' WHERE id=%s AND project_id=%s AND user_id=%s',(identity,project,self.store.user_id)).fetchone()
         if not row:raise StorageError('not_found','期刊资料或建议批次不存在。',404)
-        self.validate(row);return row
-    def validate(self,row):
+        self.validate(db,row);return row
+    def validate(self,db,row):
         if digest(row['request_json'])!=row['request_digest'] or digest(row['snapshot_json'])!=row['snapshot_sha256'] or row['snapshot_json']['id']!=row['id']:raise source_conflict()
         if row.get('result_json') is not None and digest(row['result_json'])!=row['result_sha256']:raise source_conflict()
+        from app.domain.manuscripts.sources import require_visible_snapshot
+
+        require_visible_snapshot(self.assets,db,row['project_id'],row['snapshot_json'])
+    def visible_rows(self,db,rows):
+        for row in rows:
+            try: self.validate(db,row)
+            except StorageError as exc:
+                if exc.code!='manuscript_source_not_visible': raise
+                continue
+            yield row
     def replay(self,db,table,project,key,body):
         row=db.execute('SELECT * FROM '+table+' WHERE project_id=%s AND user_id=%s AND idempotency_key=%s',(project,self.store.user_id,key)).fetchone()
         if row and row['request_digest']!=digest(body):raise StorageError('task_idempotency_conflict','请求标识已用于不同输入。',409)
-        if row:self.validate(row)
+        if row:self.validate(db,row)
         return row
     def material(self,project,selection):
         from app.domain.manuscripts.sources import read_source
@@ -79,8 +89,7 @@ class JournalService:
     def profiles(self,project):
         with self.store.connection() as db:
             self.project(db,project);rows=db.execute('SELECT * FROM journal_profiles WHERE project_id=%s AND user_id=%s ORDER BY created_at DESC,id',(project,self.store.user_id)).fetchall()
-            for row in rows:self.validate(row)
-            return dict(items=[r['snapshot_json'] for r in rows])
+            return dict(items=[r['snapshot_json'] for r in self.visible_rows(db,rows)])
     def profile(self,project,identity):
         with self.store.connection() as db:return self.row(db,project,identity,'journal_profiles')['snapshot_json']
     def create(self,project,request,key):
@@ -102,7 +111,7 @@ class JournalService:
             else:
                 if len(set(request.profile_ids))!=len(request.profile_ids):raise invalid('资料版本不能重复。',422)
                 rows=[self.row(db,project,i,'journal_profiles') for i in request.profile_ids]
-            for row in rows:self.validate(row)
+            rows=list(self.visible_rows(db,rows))
             materials=[self.material(project,m) for m in request.materials];manuscript=None
             if request.manuscript:
                 m=request.manuscript
@@ -122,7 +131,7 @@ class JournalService:
             self.references(db,project,identity,materials)
             return self.view(db,self.row(db,project,identity)),202
     def view(self,db,row):
-        self.validate(row);task=self.store.require_task(db,row['task_id']);input_version(task)
+        self.validate(db,row);task=self.store.require_task(db,row['task_id']);input_version(task)
         if task['input_snapshot']!=row['snapshot_json']:raise source_conflict()
         return dict(id=row['id'],input_snapshot=row['snapshot_json'],created_at=row['created_at'],task=self.store.public_task(task),result=row['result_json'])
     def get(self,project,identity):
@@ -130,7 +139,7 @@ class JournalService:
     def list(self,project):
         with self.store.connection() as db:
             self.project(db,project);rows=db.execute('SELECT * FROM journal_recommendations WHERE project_id=%s AND user_id=%s ORDER BY created_at DESC,id',(project,self.store.user_id)).fetchall()
-            return dict(items=[self.view(db,r) for r in rows])
+            return dict(items=[self.view(db,r) for r in self.visible_rows(db,rows)])
     def retry(self,project,identity):
         with self.store.connection(write=True) as db:
             self.project(db,project,True);row=self.row(db,project,identity);task=self.store.require_task(db,row['task_id'])

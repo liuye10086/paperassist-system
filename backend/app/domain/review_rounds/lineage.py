@@ -79,20 +79,27 @@ def continuation_context(assets, project, identity):
         row=rounds.round_row(db,project,identity)
         m=row['snapshot_json']['manuscript']
         root=returns.manuscripts.root(db,project,m['id'])
-        inputs=[]
-        for version in db.execute("SELECT v.* FROM manuscript_versions v JOIN tasks t ON t.id=v.task_id WHERE v.manuscript_id=%s AND t.status='succeeded' ORDER BY v.revision DESC",(m['id'],)).fetchall():
-            rounds.manuscript(db,project,m['id'],version['revision'])
-            exports=[]
-            for export in db.execute('SELECT id FROM manuscript_exports WHERE version_id=%s ORDER BY created_at DESC,id',(version['id'],)).fetchall():
-                view=returns.manuscripts.export_view(db,version,export['id'])
-                exports.append(dict(id=export['id'],status=view['status']))
-            inputs.append(dict(id=m['id'],revision=version['revision'],version_id=version['id'],title=version['snapshot_json']['title'],exports=exports))
-        successful=[]
-        for run in db.execute('SELECT id FROM review_revision_runs WHERE round_id=%s AND output_version_id IS NOT NULL ORDER BY created_at DESC,id',(identity,)).fetchall():
+        versions=db.execute("SELECT v.* FROM manuscript_versions v JOIN tasks t ON t.id=v.task_id WHERE v.manuscript_id=%s AND t.status='succeeded' ORDER BY v.revision DESC",(m['id'],)).fetchall()
+
+        def eligible(version):
+            rounds.visible_manuscript(db,version)
+            rows=db.execute('SELECT id FROM manuscript_exports WHERE version_id=%s ORDER BY created_at DESC,id',(version['id'],)).fetchall()
+            exports=[dict(id=export['id'],status=export['status']) for export in rounds.visible_records(rows,
+                     lambda item:returns.manuscripts.export_view(db,version,item['id']))]
+            return dict(id=m['id'],revision=version['revision'],version_id=version['id'],title=version['snapshot_json']['title'],exports=exports)
+
+        inputs=list(rounds.visible_records(versions,eligible))
+
+        def completed(run):
             fixed=revisions.revision_row(db,project,run['id'])
             if rounds.store.require_task(db,fixed['task_id'])['status']=='succeeded':
-                output=fixed['result_json']['output']
-                if rounds.store.require_task(db,output['task_id'])['status']=='succeeded':
-                    successful.append(dict(id=fixed['id'],output=output))
-        returned=[returns.view_return(db,returns.return_row(db,project,r['id'])) for r in db.execute('SELECT id FROM review_round_user_returns WHERE previous_round_id=%s ORDER BY created_at DESC,id',(identity,)).fetchall()]
+                _,producer=revisions.output(db,fixed)
+                if producer['status']=='succeeded':
+                    return dict(id=fixed['id'],output=fixed['result_json']['output'])
+            return None
+
+        runs=db.execute('SELECT id FROM review_revision_runs WHERE round_id=%s AND output_version_id IS NOT NULL ORDER BY created_at DESC,id',(identity,)).fetchall()
+        successful=[run for run in rounds.visible_records(runs,completed) if run is not None]
+        return_rows=db.execute('SELECT id FROM review_round_user_returns WHERE previous_round_id=%s ORDER BY created_at DESC,id',(identity,)).fetchall()
+        returned=list(rounds.visible_records(return_rows,lambda item:returns.view_return(db,returns.return_row(db,project,item['id']))))
         return dict(previous_round_id=identity,manuscript_id=m['id'],expected_current_revision=root['current_revision'],eligible_inputs=inputs,successful_revisions=successful,returns=returned)

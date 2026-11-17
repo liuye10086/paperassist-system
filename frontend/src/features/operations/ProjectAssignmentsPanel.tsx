@@ -1,6 +1,7 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState, type FormEvent } from 'react'
 import { safeError, useI18n } from '../../shared/i18n'
 import useDraftLeaveGuard, { type RegisterLeaveGuard } from '../projects/useDraftLeaveGuard'
+import type { Project } from '../projects/projectTypes'
 import { Filters, Pagination, ReadState, Table } from './OperationsCommon'
 import { OperationsError, operationsRequest, queryUrl, useOperationsRead, type Account, type Page } from './operationsApi'
 
@@ -11,6 +12,7 @@ type Assignment = {
   id: string
   name: string
   research_topic: string
+  project_type: Project['project_type']
   customer_email: string
   analyst_id: string | null
   analyst_email: string | null
@@ -73,9 +75,9 @@ export default function ProjectAssignmentsPanel({ active, onForbidden, registerL
         </td>
         <td>{project.analyst_email ?? t('未分配')}</td>
         <td><div className="assignment-actions">
-          <button type="button" aria-haspopup="dialog" onClick={event => open(project, 'assign', event.currentTarget)}>
+          {project.project_type === 'research' && <button type="button" aria-haspopup="dialog" onClick={event => open(project, 'assign', event.currentTarget)}>
             {t(project.analyst_id ? '更换分析员' : '分配分析员')}
-          </button>
+          </button>}
           {project.analyst_id && <button type="button" aria-haspopup="dialog" onClick={event => open(project, 'revoke', event.currentTarget)}>
             {t('撤回授权')}
           </button>}

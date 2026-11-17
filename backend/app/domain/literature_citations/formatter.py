@@ -31,17 +31,22 @@ def _first_present(*values):
     return next((value for value in values if isinstance(value, str) and value.strip()), '')
 
 
-def format_reference(metadata: dict) -> str:
+def _author_text(metadata):
     gaps = metadata_gaps(metadata)
     if gaps:
         raise ValueError('citation_metadata_incomplete:' + ','.join(gaps))
     authors = []
     for author in metadata['authors'][:6]:
         authors.append(_first_present(author.get('collective')) or ' '.join(filter(None, [
-            _first_present(author.get('family')), _first_present(author.get('initials'))])))
+            _first_present(author.get('family')), _first_present(author.get('initials')),
+            _first_present(author.get('suffix')).strip(' .,')])))
     if len(metadata['authors']) > 6:
         authors.append('et al.')
-    author_text = _sentence(', '.join(authors))
+    return _sentence(', '.join(authors))
+
+
+def format_reference(metadata: dict) -> str:
+    author_text = _author_text(metadata)
     issue_value = _first_present(metadata.get('issue'))
     issue = f'({issue_value})' if issue_value else ''
     locator = _first_present(metadata.get('pages'), metadata.get('article_number'))
@@ -51,6 +56,19 @@ def format_reference(metadata: dict) -> str:
     if doi:
         text += f' doi:{doi}.'
     return text
+
+
+def format_frontiers_reference(metadata: dict) -> str:
+    """Frontiers Vancouver journal articles; retain the verified locator and DOI."""
+    authors = _author_text(metadata)
+    year = metadata['year']
+    if not re.fullmatch(r'[12][0-9]{3}', year):
+        raise ValueError('Frontiers journal article requires a four-digit publication year')
+    locator = _first_present(metadata.get('pages'), metadata.get('article_number'))
+    text = (f"{authors} {_sentence(metadata['title'])} {_sentence(metadata['journal_abbreviation'])} "
+            f"({year}) {metadata['volume']}:{locator}.")
+    doi = _first_present(metadata.get('doi'))
+    return text + f' doi: {doi}' if doi else text
 
 
 def render_paragraphs(paragraphs: list[dict]) -> dict:

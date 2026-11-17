@@ -7,16 +7,22 @@ import { useResearchRead } from '../research-results/api'
 import CustomerFeedback from './CustomerFeedback'
 import { customerBase, type DeliveryDetail, type DeliverySummary } from './customerWorkspaceApi'
 
-export default function CustomerDeliveries({ projectId, headingRef, registerLeaveGuard }: {
+type Props = {
   projectId: string
+  initialSnapshotId?: string
+  initialDeliveryId?: string
+  onSelectSnapshot: (id: string | null) => void
   headingRef: RefObject<HTMLHeadingElement | null>
   registerLeaveGuard: RegisterLeaveGuard
-}) {
+}
+
+export default function CustomerDeliveries({ projectId, initialDeliveryId, initialSnapshotId, onSelectSnapshot, headingRef, registerLeaveGuard }: Props) {
   const { t, locale } = useI18n()
-  const [selected, setSelected] = useState<string | null>(null)
+  const selected = initialSnapshotId ?? null
   const returnDelivery = useRef<string | null>(null)
   const returnButton = useRef<HTMLButtonElement | null>(null)
   const read = useResearchRead<{ items: DeliverySummary[] }>(customerBase(projectId) + '/deliveries', selected === null)
+  const deliveries = read.data?.items.filter(item => !initialDeliveryId || item.delivery_id === initialDeliveryId)
   useLayoutEffect(() => {
     if (!selected && returnDelivery.current) {
       (returnButton.current ?? headingRef.current)?.focus()
@@ -24,7 +30,7 @@ export default function CustomerDeliveries({ projectId, headingRef, registerLeav
     }
   }, [selected, headingRef])
   if (selected) return <ReleasedDelivery key={selected} projectId={projectId} snapshotId={selected}
-    onBack={() => setSelected(null)} registerLeaveGuard={registerLeaveGuard} />
+    expectedDeliveryId={initialDeliveryId} onBack={() => onSelectSnapshot(null)} registerLeaveGuard={registerLeaveGuard} />
 
   return <div className="customer-section customer-deliveries">
     <div className="customer-section-heading">
@@ -33,32 +39,35 @@ export default function CustomerDeliveries({ projectId, headingRef, registerLeav
     </div>
     {read.error && <p role="alert" className="error-panel">{t(read.error)}</p>}
     {!read.data && !read.error && <p role="status">{t('正在读取已发布交付……')}</p>}
-    {read.data && !read.error && (read.data.items.length === 0
-      ? <p>{t('此项目暂无已发布交付。')}</p>
+    {deliveries && !read.error && (deliveries.length === 0
+      ? <p>{t(initialDeliveryId ? '此交付暂无已发布版本。' : '此项目暂无已发布交付。')}</p>
       : <ul className="customer-list">
-        {read.data.items.map(delivery => <li key={delivery.id} className="customer-delivery-row">
+        {deliveries.map(delivery => <li key={delivery.id} className="customer-delivery-row">
           <div className="customer-delivery-info"><strong>{delivery.title}</strong><p className="muted">
             {t(deliveryLabels[delivery.kind])} · {t('{count} 个文件', { count: delivery.member_count })} ·{' '}
             <time dateTime={delivery.published_at}>{new Date(delivery.published_at).toLocaleString(locale)}</time>
           </p></div>
           <button type="button" className="button-quiet" aria-label={t('查看交付 {title}', { title: delivery.title })}
             ref={button => { if (returnDelivery.current === delivery.id) returnButton.current = button }}
-            onClick={() => { returnDelivery.current = delivery.id; setSelected(delivery.id) }}>{t('查看详情')}</button>
+            onClick={() => { returnDelivery.current = delivery.id; onSelectSnapshot(delivery.id) }}>{t('查看详情')}</button>
         </li>)}
       </ul>)}
   </div>
 }
 
-function ReleasedDelivery({ projectId, snapshotId, onBack, registerLeaveGuard }: {
+function ReleasedDelivery({ projectId, snapshotId, expectedDeliveryId, onBack, registerLeaveGuard }: {
   projectId: string
   snapshotId: string
+  expectedDeliveryId?: string
   onBack: () => void
   registerLeaveGuard: RegisterLeaveGuard
 }) {
   const { t, locale } = useI18n()
   const base = `${customerBase(projectId)}/deliveries/${encodeURIComponent(snapshotId)}`
   const read = useResearchRead<DeliveryDetail>(base, true)
-  const delivery = read.data
+  const mismatch = !!read.data && (read.data.id !== snapshotId ||
+    !!expectedDeliveryId && read.data.delivery_id !== expectedDeliveryId)
+  const delivery = mismatch ? null : read.data
   const [previewId, setPreviewId] = useState<string | null>(null)
   const heading = useRef<HTMLHeadingElement | null>(null)
   const backButton = useRef<HTMLButtonElement | null>(null)
@@ -80,7 +89,8 @@ function ReleasedDelivery({ projectId, snapshotId, onBack, registerLeaveGuard }:
     {read.error && <div role="alert" className="error-panel">{t(read.error)}{' '}
       <button type="button" onClick={read.refresh}>{t('刷新交付')}</button>
     </div>}
-    {!delivery && !read.error && <p role="status">{t('正在读取交付详情……')}</p>}
+    {mismatch && <p role="alert">{t('该交付版本与链接不匹配。')}</p>}
+    {!read.data && !read.error && <p role="status">{t('正在读取交付详情……')}</p>}
     {delivery && !read.error && <>
       <div className="customer-delivery-row customer-delivery-heading">
         <div className="customer-delivery-info"><h1 ref={heading} tabIndex={-1}>{delivery.title}</h1><p className="muted">

@@ -67,30 +67,35 @@ def _write_once(path,raw):
         temporary.unlink(missing_ok=True)
 
 
-def materialize(root,owner,project,candidate,images,plan,*,db=None,frozen=None):
+def materialize(root,owner,project,candidate,images,plan,*,db=None,frozen=None,school_template=None):
     if frozen is not None:
         content,record=read(root,owner,project,frozen,candidate=candidate,images=images,plan=plan)
         return content,record,deepcopy(frozen)
     from app.adapters.pdf_renderer import renderer_identity
     from app.adapters.manuscript_docx import RENDERER_VERSION
+    from app.domain.school_templates.bsu_gs501 import SUBMISSION_FORMS_RENDERER
+
+    docx_renderer=RENDERER_VERSION
+    if 'submission_forms_source_sha256' in plan:
+        docx_renderer+='+'+SUBMISSION_FORMS_RENDERER
     mapper_version='school-final-map-v2' if plan.get('pagination_version')==2 else 'school-final-map-v1'
-    renderer=renderer_identity();key=basis(candidate,images,plan,renderer,mapper_version=mapper_version)
+    renderer=renderer_identity();key=basis(candidate,images,plan,renderer,mapper_version=mapper_version,docx_renderer=docx_renderer)
     docx,path=_paths(root,owner,project,key)
     if path.exists():
         with path.open('rb') as stream:raw=stream.read(8*1024*1024+1)
         if len(raw)>8*1024*1024:raise ValueError('School receipt exceeds limit')
         record=json.loads(raw)
-        proof=dict(key=key,mapper_version=mapper_version,docx_renderer_version=RENDERER_VERSION,renderer_identity=renderer,docx_sha256=record['docx_sha256'],docx_size_bytes=record['docx_size_bytes'],receipt_sha256=sha256(raw).hexdigest(),receipt_size_bytes=len(raw))
+        proof=dict(key=key,mapper_version=mapper_version,docx_renderer_version=docx_renderer,renderer_identity=renderer,docx_sha256=record['docx_sha256'],docx_size_bytes=record['docx_size_bytes'],receipt_sha256=sha256(raw).hexdigest(),receipt_size_bytes=len(raw))
         content,record=read(root,owner,project,proof,candidate=candidate,images=images,plan=plan)
         return content,record,proof
-    mapped=[];pending=build_school_docx(candidate,images,plan,source_map=mapped)
+    mapped=[];pending=build_school_docx(candidate,images,plan,source_map=mapped,school_template=school_template)
     content,update=complete_school_fields(pending,plan)
     if update.get('status')!=('updated' if plan['toc']['enabled'] else 'not_requested'):raise ValueError('School final fields were not completed')
     mapped=final_school_source_map(pending,content,mapped,candidate['output_language'])
-    record=dict(schema_version=1,key=key,owner_id=owner,project_id=project,mapper_version=mapper_version,docx_renderer_version=RENDERER_VERSION,renderer_identity=renderer,docx_sha256=sha256(content).hexdigest(),docx_size_bytes=len(content),source_map=mapped,field_update=update,toc_enabled=plan['toc']['enabled'])
+    record=dict(schema_version=1,key=key,owner_id=owner,project_id=project,mapper_version=mapper_version,docx_renderer_version=docx_renderer,renderer_identity=renderer,docx_sha256=sha256(content).hexdigest(),docx_size_bytes=len(content),source_map=mapped,field_update=update,toc_enabled=plan['toc']['enabled'])
     raw=json.dumps(record,ensure_ascii=False,sort_keys=True,separators=(',',':')).encode('utf-8')
     if len(raw)>8*1024*1024:raise ValueError('School receipt exceeds limit')
-    proof=dict(key=key,mapper_version=mapper_version,docx_renderer_version=RENDERER_VERSION,renderer_identity=renderer,docx_sha256=record['docx_sha256'],docx_size_bytes=len(content),receipt_sha256=sha256(raw).hexdigest(),receipt_size_bytes=len(raw))
+    proof=dict(key=key,mapper_version=mapper_version,docx_renderer_version=docx_renderer,renderer_identity=renderer,docx_sha256=record['docx_sha256'],docx_size_bytes=len(content),receipt_sha256=sha256(raw).hexdigest(),receipt_size_bytes=len(raw))
     for target,data in ((docx,content),(path,raw)):
         if db is None:_write_once(target,data)
         else:

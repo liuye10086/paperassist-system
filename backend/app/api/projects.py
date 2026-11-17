@@ -8,7 +8,9 @@ from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, model_valida
 from app.core.config import ExcelSettings, get_request_excel_settings
 from app.adapters.excel import WorkbookPreview, fail, parse_workbook, read_upload
 from app.adapters.storage import PROJECT_UPDATE_LIMITS, ProjectStore, get_request_project_store
+from app.auth.permissions import require_customer_role
 from app.domain.project_summary import ProjectSummary, read_project_summary
+from app.domain.research_intake.sci_settings import SciProjectSettings, SciSettingsState, SciSettingsWrite, sci_settings
 from app.domain.workflow_state import WorkflowState, read_workflow_state
 from app.domain.files import (ProjectFile, FilePage, FileMetadata, FileDetails, FilePurposesInput,
                               query_files, read_file_details, assign_file_purposes)
@@ -24,6 +26,7 @@ class ProjectInput(BaseModel):
     project_type: Literal["sci", "thesis", "research"]
     default_output_language: Literal["zh-CN", "en"] = "zh-CN"
     delivery_kinds: list[Literal['analysis','sci_draft','thesis_draft']] | None = Field(default=None,min_length=1,max_length=3)
+    sci_settings: SciProjectSettings | None = None
 
     @model_validator(mode='after')
     def deliveries_valid(self):
@@ -33,6 +36,8 @@ class ProjectInput(BaseModel):
             raise ValueError('Research projects require delivery kinds')
         if self.project_type!='research' and self.delivery_kinds is not None:
             raise ValueError('Legacy projects retain their original delivery contract')
+        if self.project_type != 'sci' and self.sci_settings is not None:
+            raise ValueError('SCI settings require an SCI project')
         return self
 
 
@@ -61,6 +66,11 @@ class ProjectPage(BaseModel):
 
 class AssignedProject(Project):
     assignment_revision: int = Field(ge=1)
+
+
+class CustomerPaperProject(Project):
+    project_type: Literal['sci', 'thesis']
+    has_analysis_history: bool
 
 
 class SavedUpload(BaseModel):
@@ -105,11 +115,16 @@ def get_workflow_state(project_id: str, store: Store):
     return read_workflow_state(store, project_id)
 
 
-@router.get("/{project_id}", response_model=AssignedProject | Project)
+@router.get("/{project_id}", response_model=AssignedProject | CustomerPaperProject | Project)
 def get_project(project_id: str, store: Store):
     project = store.project(project_id)
     if store.assignment is not None:
         project['assignment_revision'] = store.assignment.revision
+    elif store.customer and project['project_type'] in ('sci', 'thesis'):
+        with store.connection() as db:
+            project['has_analysis_history'] = db.execute('''SELECT EXISTS (
+                SELECT 1 FROM research_deliveries WHERE project_id=%s AND kind='analysis'
+            ) AS registered''', (project_id,)).fetchone()['registered']
     return project
 
 
@@ -121,6 +136,16 @@ def get_project_language(project_id: str, store: Store):
 @router.patch("/{project_id}/language", response_model=Project)
 def update_project_language(project_id: str, changes: ProjectLanguageInput, store: Store):
     return store.update_project_language(project_id, changes.default_output_language)
+
+
+@router.get("/{project_id}/sci-settings", response_model=SciSettingsState, dependencies=[Depends(require_customer_role)])
+def get_sci_settings(project_id: str, store: Store):
+    return sci_settings(store, project_id)
+
+
+@router.put("/{project_id}/sci-settings", response_model=SciSettingsState, dependencies=[Depends(require_customer_role)])
+def update_sci_settings(project_id: str, changes: SciSettingsWrite, store: Store):
+    return sci_settings(store, project_id, changes)
 
 
 @router.get('/{project_id}/summary', response_model=ProjectSummary)

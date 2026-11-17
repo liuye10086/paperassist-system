@@ -45,6 +45,16 @@ it('requires each language item and sends Unicode codepoint exceptions; publishe
 it('invalidates old language decisions when whitelisted text changes and preserves server rejection',async()=>{
  vi.stubGlobal('fetch',vi.fn(async(url:string,init?:RequestInit)=>url.endsWith('/language-context')&&init?.method==='POST'?Response.json({error:{code:'manuscript_writing_language_invalid'}},{status:422}):Response.json(url.endsWith('/language-context')?languageContext:{items:[]})));render(<WritingLanguageReview projectId="p1" manuscriptId="m1" baseRevision={1} review={scienceReview} onPublished={vi.fn()}/>);fireEvent.click(screen.getByRole('button',{name:'读取真实 DOCX 全语言清单'}));await screen.findByText('已读取当前固定版本的语言核对清单');await waitFor(()=>expect(screen.getByLabelText('局部语言修正').matches(':disabled')).toBe(false));fireEvent.change(screen.getByLabelText('局部语言修正'),{target:{value:'Changed'}});expect(screen.queryByLabelText('此项语言决定')).toBeNull();expect(screen.getByText('材料已更改，旧清单决定和发布选择已失效。请重新预览。')).toBeTruthy();fireEvent.click(screen.getByRole('button',{name:'预览修正后的完整语言清单'}));await waitFor(()=>expect(screen.getAllByRole('alert').length).toBeGreaterThan(1));expect(screen.getByRole('button',{name:'显式发布审核后版本'}).matches(':disabled')).toBe(true)
 })
+it('labels the SCI customer language inventory as Word export text', async () => {
+ const inventory = [{ ...languageContext.inventory[0], kind: 'export_text' }]
+ vi.stubGlobal('fetch', vi.fn(async (url: string) => Response.json(
+  url.endsWith('/language-context') ? { ...languageContext, inventory } : { items: [] },
+ )))
+ render(<WritingLanguageReview projectId="p1" manuscriptId="m1" baseRevision={1}
+  review={scienceReview} onPublished={vi.fn()} customerSci />)
+ fireEvent.click(screen.getByRole('button', { name: '读取真实 DOCX 全语言清单' }))
+ expect(await screen.findByRole('group', { name: '核对项目 1 · Word 导出文字' })).toBeTruthy()
+})
 function OperationHarness(){const op=useWritingOperation();return <><button disabled={op.busy} onClick={()=>void op.run('/local-test',(v):v is {ok:boolean}=>!!v&&typeof v==='object'&&'ok'in v,{exact:'body'})}>submit</button>{op.error&&<p role="alert">{op.error}</p>}</>}
 it('surfaces timeouts rather than silently clearing a failed submission',async()=>{
  vi.useFakeTimers();vi.stubGlobal('fetch',vi.fn(()=>new Promise<Response>(()=>{})));render(<OperationHarness/>);fireEvent.click(screen.getByRole('button'));await act(async()=>{vi.advanceTimersByTime(STANDARD_REQUEST_TIMEOUT_MS+1)});expect(screen.getByRole('alert').textContent).toContain('请求未确认')

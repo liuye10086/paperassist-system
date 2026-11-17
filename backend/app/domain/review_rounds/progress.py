@@ -44,7 +44,7 @@ class ReviewProgressService(ReviewRoundService):
         row=db.execute('SELECT * FROM project_review_progress_events WHERE id=%s AND project_id=%s AND user_id=%s',(identity,project,self.store.user_id)).fetchone()
         if not row:
             raise StorageError('not_found','用户项目进展不存在。',404)
-        self.validate(row)
+        self.validate(db,row)
         request=ProgressRequest.model_validate(row['request_json'])
         snap=row['snapshot_json']
         round,version=self.references(db,project,request)
@@ -78,7 +78,13 @@ class ReviewProgressService(ReviewRoundService):
             synthetic=bool(synthetic or synthetic_input(base['snapshot_json']))
         if snapshot.get('round_id'):
             round=self.round_row(db,project,snapshot['round_id'])
+            if snapshot.get('manuscript') and round['snapshot_json']['manuscript']['id']!=snapshot['manuscript']['id']:
+                raise source_conflict()
             synthetic=bool(synthetic or round['snapshot_json']['synthetic'])
+        if snapshot.get('export_id'):
+            if not snapshot.get('manuscript'):
+                raise source_conflict()
+            ManuscriptService(self.assets).export_view(db,base,snapshot['export_id'])
         value=dict(round_id=None,manuscript=None,export_id=None,corrects_event_id=None)
         value.update(snapshot)
         return dict(value,source_kind='journal',synthetic=synthetic)
@@ -86,15 +92,19 @@ class ReviewProgressService(ReviewRoundService):
     def listing(self, project):
         with self.store.connection() as db:
             p=self.project(db,project)
-            own=[self.progress_row(db,project,r['id'])['snapshot_json'] for r in db.execute('SELECT id FROM project_review_progress_events WHERE project_id=%s AND user_id=%s ORDER BY created_at DESC,id',(project,self.store.user_id)).fetchall()]
+            rows=db.execute('SELECT id FROM project_review_progress_events WHERE project_id=%s AND user_id=%s ORDER BY created_at DESC,id',(project,self.store.user_id)).fetchall()
+            own=list(self.visible_records(rows,lambda item:self.progress_row(db,project,item['id'])['snapshot_json']))
             corrected={event['corrects_event_id'] for event in own if event.get('corrects_event_id')}
             current=next((event for event in sorted(own,key=lambda e:(e['event_date'],e['created_at'],e['id']),reverse=True) if event['id'] not in corrected),None)
             journal_items=[]
             current_by_target={}
             if p['project_type']=='sci':
                 journals=SubmissionService(self.assets).listing(db,project)
-                journal_items=[self.journal_view(db,project,event) for event in journals['items']]
-                current_by_target={key:self.journal_view(db,project,event) for key,event in journals['current_by_target'].items()}
+                journal_items=list(self.visible_records(journals['items'],lambda event:self.journal_view(db,project,event)))
+                corrected={item['corrects_event_id'] for item in journal_items}
+                for item in sorted(journal_items,key=lambda event:(event['event_date'],event['created_at'],event['id']),reverse=True):
+                    if item['id'] not in corrected:
+                        current_by_target.setdefault(item['target_id'],item)
             items=sorted([*own,*journal_items],key=lambda e:(e['created_at'],e['id']),reverse=True)
             return dict(items=items,current=current,journal_current_by_target=current_by_target)
 

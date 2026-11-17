@@ -6,6 +6,25 @@ import {validSnapshot,type Snapshot} from './manuscriptTypes'
 import {setLocale} from '../../shared/i18n'
 import {actualSections,type AdaptationPreview} from '../journals/adaptationContracts'
 afterEach(()=>{cleanup();vi.unstubAllGlobals();setLocale('zh-CN')})
+it('omits original-study missing prompts only in customer narrative review previews',()=>{
+ const missingEthics='Ethics information: Not supplied; to be completed.'
+ const missingResults='No computed Results selected.'
+ const retained='The included publications still need full-text verification.'
+ const snapshot={...snapshotFixture,schema_version:1,workflow_version:'manuscript_fact_draft_v1',
+  output_language:'en',methods:[],article_type:'narrative_review',issues:[
+  {id:'missing:ethics',field:'ethics',kind:'missing',message:missingEthics,values:[]},
+  {id:'missing:results',field:'results',kind:'missing',message:missingResults,values:[]},
+  {id:'missing:literature_scope',field:'literature_scope',kind:'missing',message:retained,values:[]},
+ ]} satisfies Snapshot
+ const view=render(<ManuscriptPreview snapshot={snapshot} customerSci presentation="evidence"/>)
+ expect(screen.queryByText(missingEthics)).toBeNull()
+ expect(screen.queryByText(missingResults)).toBeNull()
+ expect(screen.getByText(retained)).toBeTruthy()
+ view.rerender(<ManuscriptPreview snapshot={snapshot} presentation="evidence"/>)
+ expect(screen.getByText(missingEthics)).toBeTruthy()
+ view.rerender(<ManuscriptPreview snapshot={{...snapshot,article_type:'research'}} customerSci presentation="evidence"/>)
+ expect(screen.getByText(missingResults)).toBeTruthy()
+})
 it('shows one frozen chapter at a time in body view and offers explicit full reading',()=>{
  const snapshot={...snapshotFixture,sections:['title','abstract','introduction','results','discussion','materials_and_methods','references'].map(id=>({id,paragraphs:[{id:`${id}:1`,text:`Content ${id}`,origin:'model_generated',source_ids:[],citations:[]}]}))} as Snapshot
  render(<ManuscriptPreview snapshot={snapshot} presentation="body"/>)

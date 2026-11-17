@@ -167,7 +167,7 @@ def _declarations(document, config, language):
         document.add_paragraph(labels_pair[0 if en else 1]+': '+text)
 
 
-def _replace_nodes(nodes, pattern):
+def _replace_nodes(nodes, pattern, replacement):
     """Replace explicit text across Word runs while retaining unaffected runs/styles."""
     text = ''.join(n.text or '' for n in nodes)
     spans = []; offset = 0
@@ -177,8 +177,8 @@ def _replace_nodes(nodes, pattern):
         for node, start, end in spans:
             left, right = max(start, match.start()), min(end, match.end())
             if left >= right: continue
-            replacement = '[已隐去]' if start <= match.start() < end else ''
-            node.text = (node.text or '')[:left-start]+replacement+(node.text or '')[right-start:]
+            insert = replacement if start <= match.start() < end else ''
+            node.text = (node.text or '')[:left-start]+insert+(node.text or '')[right-start:]
 
 
 def inspect_docx(raw, rules):
@@ -201,7 +201,7 @@ def inspect_docx(raw, rules):
                 exceptions=deepcopy(rules['exceptions']), anonymity_verified=False)
 
 
-def blind_docx(raw, rules):
+def blind_docx(raw, rules, *, replacement='[已隐去]'):
     parts = read_package(raw)
     allowed = {e['term'] for e in rules['exceptions']}
     terms = sorted({t for t in rules['identity_terms'] if t and t not in allowed}, key=len, reverse=True)
@@ -211,12 +211,14 @@ def blind_docx(raw, rules):
         root = parse(value)
         if pattern:
             for paragraph in root.iter(qn('w:p')):
-                _replace_nodes(list(paragraph.iter(qn('w:t'))), pattern)
+                _replace_nodes(list(paragraph.iter(qn('w:t'))), pattern, replacement)
             for node in root.iter():
-                if node.tag != qn('w:t') and node.text: node.text = pattern.sub('[已隐去]', node.text)
+                if node.tag != qn('w:t') and node.text and (replacement!='XXX' or node.tag not in (qn('w:instrText'),)):
+                    node.text = pattern.sub(replacement, node.text)
                 for key, val in list(node.attrib.items()):
                     # Relationship targets remain intact; unresolved names are reported.
-                    if key != 'Target': node.set(key, pattern.sub('[已隐去]', val))
+                    if key != 'Target' and (replacement!='XXX' or key.rsplit('}',1)[-1] in ('name','descr','title','author','initials')):
+                        node.set(key, pattern.sub(replacement, val))
         if name == 'docProps/core.xml':
             for node in root:
                 if node.tag.rsplit('}', 1)[-1] in ('creator', 'lastModifiedBy'): node.text = 'Anonymous'
@@ -310,14 +312,18 @@ def _school_display_headings(document, nodes):
         outline.set(qn('w:val'), '9')
 
 
-def decorate_docx(raw, selected, peer, config, language_view, review_mode, *, peer_images=None, source_map=(),excluded_chapter_ids=frozenset()):
+def decorate_docx(raw, selected, peer, config, language_view, review_mode, *, peer_images=None, source_map=(),
+                  excluded_chapter_ids=frozenset(), defer_blind=False):
     document = Document(BytesIO(raw))
     original_nodes = set(document.element.body)
     if language_view == 'zh-CN-en':
         if selected['output_language'] != 'zh-CN' or not peer or peer['output_language'] != 'en':
             raise StorageError('presentation_language_unavailable', '中英对照需要同源的中文和英文固定版本。', 422)
         _bilingual(document, selected, peer, config, peer_images or {},excluded_chapter_ids)
-    _declarations(document, config, selected['output_language'])
+    from app.domain.school_templates import bsu_gs501
+    gs501 = bsu_gs501.selected(selected)
+    if not gs501 or review_mode != 'blind' and (config['authors'] or config['statements']):
+        _declarations(document, config, selected['output_language'])
     if selected.get('thesis_context'):
         # Added presentation headings are outside the confirmed school chapter TOC.
         _school_display_headings(document, (node for node in document.element.body if node not in original_nodes))
@@ -332,7 +338,9 @@ def decorate_docx(raw, selected, peer, config, language_view, review_mode, *, pe
         parts[layout_path] = layout
         content = write_package(parts)
     blind = None
-    if review_mode == 'blind': content, blind = blind_docx(content, config['blind'])
+    if review_mode == 'blind' and not defer_blind:
+        rules = bsu_gs501.blind_terms(None, config['blind'], authors=config['authors']) if gs501 else config['blind']
+        content, blind = blind_docx(content, rules, replacement='XXX' if gs501 else '[已隐去]')
     return content, dict(blind=blind, language_inventory=language_inventory(content, selected['output_language'], source_map))
 
 

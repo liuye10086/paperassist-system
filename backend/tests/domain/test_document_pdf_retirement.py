@@ -150,10 +150,10 @@ def test_historical_pdf_binding_is_still_checked(tmp_path,tamper):
 @pytest.mark.parametrize('old',[False,True])
 def test_report_replay_uses_explicit_snapshot_pdf_policy(monkeypatch,tmp_path,old):
     from app.domain.research_results import reports
-    from app.adapters import research_report_render
+    from app.adapters.research_report_render import renderer_identity
     from app.domain.literature.service import digest
     content={'included_pdf':None}
-    snapshot=dict(report_version_id='report',content_sha256=digest(content),renderer_identity={'old':'fixed'},request=dict(title='Fixed',finding_version_id='finding'))
+    snapshot=dict(report_version_id='report',content_sha256=digest(content),renderer_identity=renderer_identity(),request=dict(title='Fixed',finding_version_id='finding'))
     if not old:snapshot['output_policy']='no_generated_pdf_v1'
     task=dict(id='task',project_id='project',input_snapshot=snapshot)
     row=dict(task_id='task',content_json=content,content_sha256=digest(content))
@@ -161,9 +161,8 @@ def test_report_replay_uses_explicit_snapshot_pdf_policy(monkeypatch,tmp_path,ol
     service.require=lambda *a:row
     monkeypatch.setattr(reports,'require_phase',lambda *a:None)
     monkeypatch.setattr(reports,'input_version',lambda *a:None)
-    monkeypatch.setattr(research_report_render,'renderer_identity',lambda:{'old':'fixed'})
     policies=[]
-    def freeze(*args,**kwargs):policies.append(kwargs['legacy_content']);return content,[],{}
+    def freeze(*args,**kwargs):policies.append(kwargs['legacy_content']);return content,[],{'snapshot':content}
     service._freeze_in_phase=freeze
     assert service._require_sources_in_phase('db',task,phase='phase')['snapshot']==content
     assert policies==[old]
@@ -194,11 +193,13 @@ def test_report_package_omits_generated_pdf_only_under_new_policy(monkeypatch,tm
     service=reports.ResearchReportService(assets)
     finding={'claims':[],'sources':[]}
     members=[dict(id=fmt,key='figure_'+fmt,format=fmt,role='figure',sha256=sha256(fmt.encode()).hexdigest(),size_bytes=len(fmt)) for fmt in ('png','pdf')]
-    figure=dict(task={'status':'succeeded'},config={'formats':['png','pdf']},manifest_sha256='a'*64,members=members)
+    figure=dict(task={'status':'succeeded'},task_id='figure-task',config={'formats':['png','pdf']},manifest_sha256='a'*64,
+                manifest={'caption_facts':[]},members=members)
     def require(db,table,project,identifier):
         if table=='research_finding_versions':return {'id':'finding','content_sha256':'a'*64}
         return dict(next(m for m in members if m['id']==identifier),figure_version_id='figure',storage_object_id=identifier)
     service.require=require;service.verify_content=lambda row:finding
+    monkeypatch.setattr(service.store,'require_task',lambda db,task_id:dict(input_snapshot={'caption_facts':[]}))
     monkeypatch.setattr(reports,'require_phase',lambda *a:None)
     monkeypatch.setattr(reports.ResearchSourceReader,'_read_source_in_phase',lambda *a,**kw:SimpleNamespace(content=finding))
     monkeypatch.setattr(reports.ResearchFindingService,'format_view',staticmethod(lambda row,content:dict(content=content)))

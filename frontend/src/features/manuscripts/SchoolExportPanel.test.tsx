@@ -26,22 +26,55 @@ it('collects only frozen dynamic fields for v2 and keeps user values across hidd
  const call=(fetcher.mock.calls as unknown as [string,RequestInit][]).find(([,init])=>init?.method==='POST')!
  expect(JSON.parse(String(call[1].body)).school.field_values).toEqual({degree:'用户填写'})
 })
+it('edits confirmed GS501 fields and directs signatures to the official Word form',()=>{
+ const fields=[
+  {id:'author',label:'论文作者',kind:'identity',section_id:'section-1',chapter_id:null},
+  {id:'committee',label:'答辩委员会',kind:'text',section_id:'section-2',chapter_id:null},
+  {id:'chair',label:'主席姓名',kind:'text',section_id:'section-2',chapter_id:null},
+  {id:'signature',label:'原创性声明签署',kind:'signature',section_id:'section-3',chapter_id:'declaration'},
+ ].map(field=>({...field,required:false,source_id:field.id,style_source_id:null}))
+ const front={schema_version:1,cover_section_id:'section-1',fields,content_requirements:[]}
+ const chapters=[
+  {id:'declaration',title:'北京体育大学学位论文原创性声明',purpose:'manual'},
+  {id:'thanks',title:'致谢',purpose:'acknowledgements'},
+ ]
+ const v={...version,snapshot:{...version.snapshot,thesis_context:{confirmation_id:'cf',chapters,
+  confirmation:{front_matter:front,format_profile:'bsu-gs501-academic-masters-2026'}}}} as unknown as ManuscriptVersion
+ vi.stubGlobal('fetch',vi.fn(async()=>Response.json({items:[]})))
+ render(<ManuscriptExports projectId="p1" manuscriptId="m1" version={v}/> )
+ expect(screen.getByLabelText('论文作者 · 可选')).toBeTruthy()
+ expect(screen.getByLabelText('主席姓名 · 可选')).toBeTruthy()
+ expect(screen.getByLabelText('致谢 · 人工文本')).toBeTruthy()
+ expect(screen.queryByLabelText('答辩委员会 · 可选')).toBeNull()
+ expect(screen.queryByLabelText('原创性声明签署 · 可选')).toBeNull()
+ expect(screen.queryByLabelText('北京体育大学学位论文原创性声明 · 人工文本')).toBeNull()
+ expect(screen.getByText(/本人在 Word 中插入电子签名/)).toBeTruthy()
+})
 it('collects explicit school fields and previews the request without submitting a task',async()=>{
- const version={...manuscriptFixture.versions[0],exports:[],snapshot:{...manuscriptFixture.versions[0].snapshot,thesis_context:{confirmation_id:'confirm1',chapters:[{id:'manual1',title:'声明',purpose:'manual'},{id:'abstract1',title:'英文摘要',purpose:'abstract'}]}}} as unknown as ManuscriptVersion
+ const version={...manuscriptFixture.versions[0],exports:[],snapshot:{...manuscriptFixture.versions[0].snapshot,thesis_context:{confirmation_id:'confirm1',chapters:[{id:'manual1',title:'声明',purpose:'manual'},{id:'abstract1',title:'英文摘要',purpose:'abstract'},{id:'ack1',title:'致谢',purpose:'acknowledgements'}]}}} as unknown as ManuscriptVersion
  const fetcher=vi.fn(async(_url:string,_init?:RequestInit)=>Response.json({items:[],pdf_status:'not_requested'}));vi.stubGlobal('fetch',fetcher)
  render(<ManuscriptExports projectId="p1" manuscriptId="m1" version={version}/>);
  fireEvent.change(screen.getByLabelText('作者'),{target:{value:'测试作者'}})
  fireEvent.change(screen.getByLabelText('声明 · 人工文本'),{target:{value:'明确提供文本'}})
  fireEvent.change(screen.getByLabelText('英文摘要 · 关键词'),{target:{value:'one; two'}})
+ fireEvent.change(screen.getByLabelText('致谢 · 人工文本'),{target:{value:'致谢由作者提供。'}})
  fireEvent.click(screen.getByRole('button',{name:'预览学校排版'}));await screen.findByRole('alert')
  const post=fetcher.mock.calls.find((call)=> (call as unknown as [string,RequestInit])[1]?.method==='POST') as unknown as [string,RequestInit]
  expect(post[0]).toContain('/versions/1/exports/preview')
- expect(JSON.parse(String(post[1].body))).toMatchObject({school:{manual_fields:{author:'测试作者'},manual_chapters:[{chapter_id:'manual1',text:'明确提供文本'}],keywords:[{chapter_id:'abstract1',values:['one','two']}],include_toc:true,toc_depth:3}})
+ expect(JSON.parse(String(post[1].body))).toMatchObject({school:{manual_fields:{author:'测试作者'},manual_chapters:[{chapter_id:'manual1',text:'明确提供文本'},{chapter_id:'ack1',text:'致谢由作者提供。'}],keywords:[{chapter_id:'abstract1',values:['one','two']}],include_toc:true,toc_depth:3}})
 })
 
 const report={rules_version:'school-export-v1',issues:[{id:'m1',kind:'manual' as const,severity:'human_review' as const,location:'cover',message:'封面作者待补充',source_evidence:[]}],can_export:true,scientifically_verified:false as const}
 const plan={schema_version:1 as const,rules_version:'school-export-v1',confirmation_id:'confirm1',confirmation_sha256:'a'.repeat(64),analysis_sha256:'b'.repeat(64),snapshot_sha256:'c'.repeat(64),options:{},styles:{},sections:[],chapters:[],requirements:[],rule_decisions:[{id:'font',message:'正文英文采用TNR',source_evidence:[]}],toc:{enabled:true,depth:3},label_map:{figures:{},tables:{}},report}
 const version={...manuscriptFixture.versions[0],exports:[],snapshot:{...manuscriptFixture.versions[0].snapshot,thesis_context:{confirmation_id:'confirm1',chapters:[]}}} as unknown as ManuscriptVersion
+it('describes revised thesis Word setup without the manuscript version number',async()=>{
+ vi.stubGlobal('fetch',vi.fn(async()=>Response.json({items:[]})))
+ const {container}=render(<ManuscriptExports customerThesis revisedResult projectId="p1" manuscriptId="m1" version={version}/>);
+ expect(await screen.findByText('修订稿尚未生成 Word。')).toBeTruthy()
+ expect(screen.getByRole('heading',{name:'学校排版'})).toBeTruthy()
+ expect(screen.getByLabelText('作者')).toBeTruthy()
+ expect(container.textContent).not.toMatch(/版本/)
+})
 it('previews and creates using identical school options, restores static receipt and keeps Word without PDF generation',async()=>{
  const result={...exportFixture,school:{plan,report,field_update:{status:'updated',renderer:'local'}}};let created=false
  const fetcher=vi.fn(async(url:string,init?:RequestInit)=>{

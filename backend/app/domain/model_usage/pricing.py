@@ -2,10 +2,15 @@
 from app.domain.model_usage.contracts import MAX_ACCOUNTED_MICRO_USD, MAX_MICRO_USD
 
 MILLION = 1_000_000
+CACHE_WRITE_TTL_FIELDS = frozenset({'ttl_30m_tokens', 'ttl_12h_tokens'})
 
 
 def _ceil_micro(numerator):
     return (numerator + MILLION - 1) // MILLION
+
+
+def _valid_count(count):
+    return type(count) is int and 0 <= count <= MAX_MICRO_USD
 
 
 def reserve_micro_usd(policy, input_token_allowance, tool_reserve_micro_usd=0):
@@ -29,7 +34,7 @@ def estimate_usage(price, usage, *, tools=None, tool_cost_micro_usd=None):
         return result
     allowed = {'input_tokens', 'output_tokens', 'total_tokens',
                'input_tokens_details', 'output_tokens_details'}
-    detail_fields = {'input_tokens_details': {'cached_tokens', 'cache_write_tokens'},
+    detail_fields = {'input_tokens_details': {'cached_tokens', 'cache_write_tokens', 'cache_write_tokens_details'},
                      'output_tokens_details': {'reasoning_tokens'}}
     clean, unsupported, invalid = {}, bool(set(usage) - allowed), False
     for name, value in usage.items():
@@ -46,11 +51,23 @@ def estimate_usage(price, usage, *, tools=None, tool_cost_micro_usd=None):
             for key, count in value.items():
                 if key not in detail_fields[name]:
                     continue
-                if type(count) is not int or not 0 <= count <= MAX_MICRO_USD:
+                if key == 'cache_write_tokens_details':
+                    if not isinstance(count, dict):
+                        invalid = True
+                        continue
+                    unsupported |= bool(count.keys() - CACHE_WRITE_TTL_FIELDS)
+                    breakdown = {}
+                    for ttl in count.keys() & CACHE_WRITE_TTL_FIELDS:
+                        if _valid_count(count[ttl]):
+                            breakdown[ttl] = count[ttl]
+                        else:
+                            invalid = True
+                    clean[name][key] = breakdown
+                elif not _valid_count(count):
                     invalid = True
                 else:
                     clean[name][key] = count
-        elif type(value) is not int or not 0 <= value <= MAX_MICRO_USD:
+        elif not _valid_count(value):
             invalid = True
         else:
             clean[name] = value
@@ -69,6 +86,19 @@ def estimate_usage(price, usage, *, tools=None, tool_cost_micro_usd=None):
             or (complete and 'total_tokens' in clean and clean['total_tokens'] != inputs + outputs)):
         result['reason_code'] = 'usage_invalid'
         return result
+    breakdown = details.get('cache_write_tokens_details')
+    if breakdown is not None:
+        known_writes = sum(breakdown.values())
+        complete_breakdown = CACHE_WRITE_TTL_FIELDS <= breakdown.keys()
+        if cached + known_writes > inputs or ('cache_write_tokens' in details and (
+                known_writes > written or (complete_breakdown and known_writes != written))):
+            result['reason_code'] = 'usage_invalid'
+            return result
+        # The frozen rate covers 30-minute writes. A billable 12-hour category needs its own rate.
+        if breakdown.get('ttl_12h_tokens', 0):
+            result['reason_code'] = 'price_unsupported'
+            return result
+        complete = complete and complete_breakdown
     if written and price.cache_write_micro_usd_per_million is None:
         result['reason_code'] = 'price_unsupported'
         return result

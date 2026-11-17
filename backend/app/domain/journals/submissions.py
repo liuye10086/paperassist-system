@@ -10,7 +10,7 @@ class SubmissionService(FormatService):
     def listing(self,db,project):
         self.project(db,project)
         rows=db.execute('SELECT * FROM journal_submission_events WHERE project_id=%s AND user_id=%s ORDER BY created_at DESC,id',(project,self.store.user_id)).fetchall()
-        for row in rows:self.validate(row)
+        for row in rows:self.validate(db,row)
         items=[r['snapshot_json'] for r in rows];corrected={i['corrects_event_id'] for i in items};current={}
         for item in sorted(items,key=lambda i:(i['event_date'],i['created_at'],i['id']),reverse=True):
             if item['id'] not in corrected:current.setdefault(item['target_id'],item)

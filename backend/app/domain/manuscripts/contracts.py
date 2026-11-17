@@ -64,6 +64,13 @@ class FigureNote(Strict):
     caption:str=Field(default='',max_length=6000)
     panels:list[Panel]=Field(default_factory=list,max_length=26)
 
+
+class ReportedResult(Strict):
+    model_config = ConfigDict(str_strip_whitespace=True)
+    text: str = Field(min_length=1, max_length=20000)
+    source_ids: list[str] = Field(min_length=1, max_length=30)
+
+
 SCHOOL_PURPOSES=('abstract','introduction','materials_and_methods','results','discussion','conclusion','references','acknowledgements','manual','other')
 
 class ChapterMapping(Strict):
@@ -90,6 +97,7 @@ class ManuscriptRequest(Strict):
     citation_draft:CitationDraft|None=None
     thesis:ThesisSelection|None=None
     analysis_handoff_run_ids:list[str]=Field(default_factory=list,max_length=30)
+    reported_result: ReportedResult | None = Field(default=None, exclude_if=lambda value: value is None)
 
     @model_validator(mode='after')
     def unique_inputs(self):
@@ -100,7 +108,14 @@ class ManuscriptRequest(Strict):
         if (len(self.analysis_handoff_run_ids)!=len(set(self.analysis_handoff_run_ids))
             or not set(self.analysis_handoff_run_ids)<={s.id for s in self.sources if s.kind=='analysis_run'}):
             raise ValueError('Historical handoff runs must be selected analysis sources.')
-        if any(g.id=='source-observations' for g in self.results_groups): raise ValueError('Reserved observation group identity.')
+        reserved_groups = {'source-observations', 'reported-result'} if self.reported_result else {'source-observations'}
+        if any(g.id in reserved_groups for g in self.results_groups):
+            raise ValueError('Reserved result group identity.')
+        if self.reported_result:
+            ids = self.reported_result.source_ids
+            if (len(set(ids)) != len(ids)
+                or not set(ids) <= {source.id for source in self.sources if source.role == 'user_results'}):
+                raise ValueError('Reported results require explicitly selected user-result sources.')
         if any(not set(ids)<=selected for ids in self.method_source_ids.values()):
             raise ValueError('Method sources must be selected.')
         return self

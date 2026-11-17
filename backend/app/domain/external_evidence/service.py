@@ -94,11 +94,14 @@ class ExternalEvidenceService:
         source,items,_,_=self._source(project,file_id,kind,version_id)
         return source,items
 
-    def _source(self,project,file_id,kind,version_id=None):
+    def _source(self,project,file_id,kind,version_id=None,*,allow_customer_pdf=False):
         """Keep verified document material local to this source projection."""
         with self.store.connection() as db:
             self.store.require_project(db,project)
-            file=dict(require_file(db,project,file_id))
+            file=dict(require_file(db,project,file_id,material_filter=self.assets.material_filter))
+        customer_types=('docx','xlsx','png','jpeg','pdf') if allow_customer_pdf and kind=='document_version' else ('docx','xlsx','png','jpeg')
+        if self.assets.customer and (file['file_type'] not in customer_types or kind=='ocr_review_version'):
+            raise StorageError('unsupported_file_type','SCI 资料支持 Word、Excel 和图片。',422)
         self.assets.original(file)
         prefix='/api/v1/projects/{}/files/{}'.format(quote(project,safe=''),quote(file_id,safe=''))
         source=dict(kind=kind,file_id=file_id,filename=file['filename'],file_type=file['file_type'],
@@ -110,7 +113,7 @@ class ExternalEvidenceService:
         elif kind=='document_version' and version_id:
             from app.domain.documents.service import DocumentService
             from app.domain.parsed_evidence.documents import docx_items,page_items
-            service=DocumentService(self.assets);row=service.load(project,file_id,version_id,True)
+            service=DocumentService(self.assets,allow_customer_pdf=allow_customer_pdf);row=service.load(project,file_id,version_id,True)
             _,document=service.read(row)
             base=prefix+'/document-versions/'+quote(version_id,safe='')
             items=docx_items(document,base+'/images') if document.kind=='docx_document' else page_items(document)

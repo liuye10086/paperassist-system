@@ -163,9 +163,10 @@ def test_unpublished_and_foreign_delivery_routes_are_closed(monkeypatch, tmp_pat
 
         legacy = project + f"/deliveries/{snapshot['delivery_id']}/snapshots"
         for internal in (legacy, legacy + '/' + snapshot['id'], snapshot['members'][0]['download_url'],
-                         '/api/v1/tasks/unknown', project + '/summary', project + '/research-findings',
+                         project + '/summary', project + '/research-findings',
                          project + f'/files/{file_id}/analysis-runs', project + '/bio-analysis-runs'):
             assert customer.get(internal).status_code == 403, internal
+        assert customer.get('/api/v1/tasks/unknown').status_code == 404
         assert customer.post(project + '/bio-analysis-runs', json={}).status_code == 403
         assert customer.get(project + f'/files/{file_id}/download').content == content
 
@@ -173,7 +174,7 @@ def test_unpublished_and_foreign_delivery_routes_are_closed(monkeypatch, tmp_pat
         visible = customer.get(workspace + '/deliveries').json()['items']
         assert len(visible) == 1
         summary = visible[0]
-        assert summary == {'id': snapshot['id'], 'title': 'Synthetic analysis', 'kind': 'analysis',
+        assert summary == {'id': snapshot['id'], 'delivery_id': snapshot['delivery_id'], 'title': 'Synthetic analysis', 'kind': 'analysis',
                            'revision': 1, 'published_at': summary['published_at'], 'member_count': 1}
         detail = customer.get(path).json()
         member = detail['members'][0]

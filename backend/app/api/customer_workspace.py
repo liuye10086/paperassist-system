@@ -38,6 +38,7 @@ class ProgressView(BaseModel):
 
 class DeliverySummary(BaseModel):
     id: str
+    delivery_id: str
     title: str
     kind: Literal['analysis', 'sci_draft', 'thesis_draft']
     revision: int

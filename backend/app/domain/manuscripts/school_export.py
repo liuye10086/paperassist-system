@@ -4,6 +4,7 @@ import re
 
 from app.core.exceptions import StorageError
 from app.domain.literature.service import digest
+from app.domain.school_templates import bsu_gs501
 from .school import CHAPTER_FIELDS, validate_chapters
 
 RULES_VERSION='school-export-v1'
@@ -80,12 +81,16 @@ def _explicit_style_spacing(analysis,styles,style_sources):
                 node=by_id.get(node.get('based_on'))
 
 
-def compile_school_export(snapshot,analysis,options):
+def compile_school_export(snapshot,analysis,options,*,submission_forms=False):
     context=snapshot.get('thesis_context')
     if not context or digest(analysis)!=context['confirmation'].get('analysis_sha256'):
         raise StorageError('task_source_conflict','学校导出必须读取稿件固定确认的原分析版本。',409)
     if digest(context['confirmation'])!=context['confirmation_sha256']:
         raise StorageError('task_source_conflict','学校确认快照已变化。',409)
+    gs501=bsu_gs501.selected(snapshot)
+    submission_forms=gs501 and submission_forms
+    if gs501 and not bsu_gs501.available(context['source_files']):
+        raise invalid('GS501 排版仅适用于已核实的北京体育大学学术型硕士校模原件。')
     from app.domain.school_templates.front_matter import validate_content_purposes
     front=context['confirmation'].get('front_matter')
     try:validate_content_purposes(front,context['chapters'])
@@ -101,11 +106,11 @@ def compile_school_export(snapshot,analysis,options):
         front_sources=resolved_sources(front,analysis)
         if set(options.get('field_values',{}))-{f['id'] for f in front['fields']}:raise invalid('动态值必须对应固定学校确认字段。')
     elif options.get('field_values'):raise invalid('旧学校确认不接受动态前置字段。')
-    for key,role in [('manual_chapters','manual'),('keywords','abstract')]:
+    for key,roles in [('manual_chapters', ('manual', 'acknowledgements')), ('keywords', ('abstract',))]:
         seen=set()
         for item in options.get(key,[]):
             identity=item['chapter_id']
-            if identity in seen or identity not in by_id or by_id[identity]['purpose']!=role:
+            if identity in seen or identity not in by_id or by_id[identity]['purpose'] not in roles:
                 raise invalid('人工内容或关键词必须对应固定学校章节，且不能重复。')
             seen.add(identity)
     styles={};style_sources={}
@@ -145,7 +150,7 @@ def compile_school_export(snapshot,analysis,options):
                         styles.setdefault(category,{})[key]=title['properties'][prop]
                         style_sources.setdefault(category,{})[key]=dict(part='word/styles.xml',path=f'/w:styles/w:style[@w:styleId="{title["id"]}"]',text=prop)
     else:
-        issue('school:template-support','unsupported','此模板尚无本批真实成品还原证据；导出只应用可确定规则，须人工核对。')
+        if not gs501:issue('school:template-support','unsupported','此模板尚无本批真实成品还原证据；导出只应用可确定规则，须人工核对。')
         _explicit_style_spacing(analysis,styles,style_sources)
     explicit=context['confirmation'].get('text_decisions',[])
     if explicit:
@@ -156,9 +161,30 @@ def compile_school_export(snapshot,analysis,options):
                 for style in styles.values():style['font_latin']='Times New Roman'
             elif decision['id']=='heading1_line_spacing':styles.setdefault('heading1',{}).update(line_spacing='360',line_rule='auto')
             decisions.append(dict(id='confirmed-text-'+decision['id'],message='本次学校确认明确采用文字说明。',source_evidence=[decision['evidence']]))
+    if gs501:
+        bsu_gs501.apply_styles(styles,style_sources)
+        decisions.append(dict(id='gs501-running-headers',message='从中文摘要起，首、奇、偶页使用随该部分标题变化的篇眉。',
+            source_evidence=[bsu_gs501.guide_source(8,'各部分篇眉与标题相同，包括首页和奇偶页。'),
+                             bsu_gs501.guide_source(13,'英文摘要篇眉用 Times New Roman 五号。')]))
+        decisions.append(dict(id='gs501-blind',message='盲评保留各章节，身份字段用 XXX，委员会及声明和授权的填写项留空。',
+            source_evidence=[dict(part=bsu_gs501.SOURCE_PAGE,path='2-1',text='北京体育大学研究生院 GS501 盲评版要求。')]))
+        if submission_forms:
+            decisions.append(dict(id='gs501-submission-forms',message='封面、题名页、原创性声明和授权书使用已上传的官方校模原页。',
+                source_evidence=[dict(part='word/document.xml',path='前四节',text='北京体育大学学术型硕士论文模板。')]))
+            issue('school:gs501-signing','manual','普通稿保留可编辑的委员会和签署栏。答辩版需本人电子签署，最终版还需填齐委员会姓名、职称和单位。'
+                '盲评稿保留原表，委员会、签署、日期和非公开审批项留空。',
+                sources=[dict(part=bsu_gs501.SOURCE_PAGE,path='2-1 至 2-3',text='北京体育大学研究生院 GS501 送审和提交要求。')])
     sections=[]
     for chapter in chapters:
         section,located=_section(chapter,analysis)
+        if gs501 and not located and front:
+            # Declaration headings are plain template paragraphs. Their confirmed
+            # signing fields locate the corresponding pages of the original.
+            signing_page=next((f['section_id'] for f in front['fields'] if f['chapter_id']==chapter['id']
+                and f['kind']=='signature' and f['section_id'] in ('section-3','section-4')),None)
+            if signing_page:
+                section=deepcopy(next(s for s in analysis['sections'] if s['id']==signing_page))
+                located=True
         # Resolved per-section page values override the original raw attributes.
         for rule in context['confirmation']['rules']:
             prefix=section['id']+'.'
@@ -203,9 +229,10 @@ def compile_school_export(snapshot,analysis,options):
             if chapter['output_language']=='en' and snapshot['output_language']!='en' and not options.get('english_title'):
                 issue('school:english-title','manual','英文题名未提供，不自动翻译或编造。',location=chapter['id'])
     for item in context['confirmation'].get('missing',[]):
-        if front is not None and item['id']=='cover_rules':continue
+        if (front is not None or submission_forms) and item['id']=='cover_rules':continue
         issue('school:missing:'+item['id'],'manual',item['message'])
     for item in context['confirmation'].get('unsupported',[]):
+        if submission_forms and item['id']=='front_matter_complex_layout':continue
         if item['id'] not in ('footnote_citations','text_rules_manual'):
             issue('school:unsupported:'+item['id'],'unsupported',item['message'])
     if notes:issue('school:written-requirements','format','固定文字规范及适用边界已列出；正文语义、图片内字和未结构化要求仍须人工核对。')
@@ -218,6 +245,14 @@ def compile_school_export(snapshot,analysis,options):
     if front is not None:
         values=options.get('field_values',{})
         for field in front['fields']:
+            if submission_forms and field['section_id'] in ('section-1','section-2','section-3','section-4') and (
+                    field['section_id'] in bsu_gs501.FORM_SECTION_TITLES
+                    or field['chapter_id'] is None and not bsu_gs501.form_field(field,front_sources[field['source_id']])):
+                if values.get(field['id'],'').strip():
+                    issue('school:gs501-manual-field:'+field['id'],'manual',
+                          field['label']+'的已保存文字保留在导出配置。普通稿请在 Word 原表中按要求填写此栏。',
+                          location=field['chapter_id'] or field['id'],sources=[front_sources[field['source_id']]['source']])
+                continue
             evidence=[front_sources[field['source_id']]['source']]
             if field['required'] and not values.get(field['id'],'').strip():
                 issue('school:field:'+field['id'],'manual',field['label']+'未提供，保留待填写。',location=field['chapter_id'] or field['id'],sources=evidence)
@@ -225,13 +260,14 @@ def compile_school_export(snapshot,analysis,options):
                 issue('school:signature-review:'+field['id'],'manual',field['label']+'仅为用户提供的文字，签名真实性仍须本人核对。',location=field['chapter_id'] or field['id'],sources=evidence)
         for requirement in front['content_requirements']:
             chapter=by_id[requirement['chapter_id']]
-            expected='manual' if requirement['kind']=='declaration' else 'acknowledgements'
+            if submission_forms and bsu_gs501.submission_chapter(chapter,front):continue
             section=next(s for s in snapshot['sections'] if s['id']==chapter['id'])
-            supplied=manual_text.get(chapter['id'],'').strip() if expected=='manual' else ''
+            supplied=manual_text.get(chapter['id'],'').strip()
             supplied=supplied or any(p.get('text','').strip() and not p.get('id','').endswith(':pending') for p in section['paragraphs'])
             if requirement['required'] and not supplied:
                 issue('school:required-content:'+requirement['id'],'content',chapter['title']+'正文待用户提供。',location=chapter['id'],sources=[front_sources[requirement['source_id']]['source']])
-        issue('school:front-layout','unsupported','前置规则仅支持普通段落及有限来源样式；复杂表格、浮动布局和真实学校逐页合规仍须人工核对。')
+        if not submission_forms:
+            issue('school:front-layout','unsupported','前置规则仅支持普通段落及有限来源样式；复杂表格、浮动布局和真实学校逐页合规仍须人工核对。')
     version=FRONT_RULES_VERSION if front is not None else RULES_VERSION
     result=dict(schema_version=2 if front is not None else 1,rules_version=version,snapshot_sha256=digest(snapshot),confirmation_id=context['confirmation_id'],confirmation_sha256=context['confirmation_sha256'],analysis_sha256=digest(analysis),options=deepcopy(options),styles=styles,style_sources=style_sources,
         sections=[first,toc_section,*sections],chapters=chapters,toc=dict(enabled=options.get('include_toc',True),depth=options.get('toc_depth',3)),label_map=label_map,rule_decisions=decisions,requirements=notes,
@@ -244,6 +280,16 @@ def compile_school_export(snapshot,analysis,options):
     if provenance.get('school_content_version')=='school-live-v1':
         result['language_mapping_version']=1
         if provenance.get('school_pagination_version')==2:result['pagination_version']=2
+    for option in ('language_mapping_version','pagination_version'):
+        if option in snapshot.get('review_school_layout',{}):
+            result[option]=snapshot['review_school_layout'][option]
+    if gs501:result.update(format_profile=bsu_gs501.PROFILE,pagination_version=2)
+    if submission_forms:
+        result['submission_forms_source_sha256']=bsu_gs501.TEMPLATE_SHA256
+        date_value=bsu_gs501.submission_values(result,blind=False).get('submission_date')
+        if date_value and not bsu_gs501.submission_month(date_value):
+            issue('school:gs501-date','manual','提交日期无法转换为校模的年月。已保留可编辑空栏，请在普通稿中核对填写。',
+                  location='submission_date')
     return result
 
 
@@ -251,7 +297,13 @@ def validate_school_export(plan,snapshot,analysis=None):
     context=snapshot.get('thesis_context') or {}
     front=context.get('confirmation',{}).get('front_matter')
     provenance=snapshot.get('writing_provenance',{})
-    pagination=2 if provenance.get('school_content_version')=='school-live-v1' and provenance.get('school_pagination_version')==2 else None
+    review_layout=snapshot.get('review_school_layout',{})
+    gs501=bsu_gs501.selected(snapshot)
+    if (plan.get('format_profile')!=(bsu_gs501.PROFILE if gs501 else None)
+            or gs501 and not bsu_gs501.available(context['source_files'])):raise invalid('学校排版配置与已确认的校模原件不一致。')
+    if 'submission_forms_source_sha256' in plan and (not gs501 or plan['submission_forms_source_sha256']!=bsu_gs501.TEMPLATE_SHA256):
+        raise invalid('学位论文送审表单与已确认的校模原件不一致。')
+    pagination=2 if gs501 else review_layout.get('pagination_version') or (2 if provenance.get('school_content_version')=='school-live-v1' and provenance.get('school_pagination_version')==2 else None)
     if plan.get('pagination_version')!=pagination:raise invalid('学校分页版本与冻结产物不一致。')
     if snapshot.get('writing_provenance',{}).get('school_content_version')=='school-live-v1' and snapshot['writing_provenance'].get('language_review_id'):
         from app.domain.manuscript_writing.school_language import validate_options_binding

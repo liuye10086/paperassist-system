@@ -4,6 +4,7 @@ export const schoolExportMessages:Record<string,string>={
 '学校固定版本导出':'School export of frozen version',
 '导出固定稿件版本 {revision}；人工字段仅保存到本次导出。':'Export frozen manuscript version {revision}; manual fields belong only to this export.',
 '未填写内容显示待补充，可生成工程样稿；不编造身份或签名。':'Missing content is marked as pending. An engineering draft can be exported without inventing identities or signatures.',
+'答辩版由本人在 Word 中插入电子签名。最终版还须填齐委员会姓名、职称及单位。':'Insert your electronic signature in Word for the defense draft. For the final draft, also supply the committee members’ names, titles, and institutions.',
 '本次导出内容':'Content for this export','作者':'Author','学号':'Student ID','院系':'Department','专业':'Major','班级':'Class','导师':'Supervisor','提交日期':'Submission date','英文题名':'English title',
 '{title} · 人工文本':'{title} · Manual text','{title} · 关键词':'{title} · Keywords','使用分号分隔关键词。':'Separate keywords with semicolons.',
 '包含目录':'Include table of contents','不含目录':'No table of contents','目录深度':'TOC depth','预览学校排版':'Preview school layout',
