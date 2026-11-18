@@ -436,7 +436,7 @@ it.each(['research', 'narrative_review'] as const)('carries %s project settings 
   await screen.findByRole('heading', { name: '稿件与复核', level: 1 })
   expect(await screen.findByText(settings.main_results, { selector: 'dd' })).toBeTruthy()
   expect(screen.getByText('细胞分化示意')).toBeTruthy()
-  expect(screen.getByText('single-cell、lineage')).toBeTruthy()
+  expect(screen.getByText('single-cell · lineage', { selector: 'dd' })).toBeTruthy()
   expect(screen.queryByRole('button', { name: '任务进度' })).toBeNull()
   expect(fetch.mock.calls.some(([, init]) => init?.method === 'POST')).toBe(false)
   fireEvent.click(screen.getByRole('button', { name: '整理事实稿资料' }))
@@ -457,14 +457,20 @@ it.each(['research', 'narrative_review'] as const)('carries %s project settings 
 })
 
 it.each(['research', 'thesis'] as const)('does not fetch SCI modules from a %s deep link', async project_type => {
-  const fetch = vi.fn(async (url: string) => url === base
-    ? Response.json({ ...project, project_type }) : new Response(null, { status: 404 }))
+  const fetch = vi.fn(async (url: string) => {
+    if (url === base) return Response.json({ ...project, project_type })
+    if (project_type === 'thesis' && url === base + '/thesis-requirements') {
+      return Response.json({ revision: 0, education_level: '', language: 'zh-CN', school: '', title: '', keywords: [], sections: [], template: null })
+    }
+    return new Response(null, { status: 404 })
+  })
   vi.stubGlobal('fetch', fetch)
   window.history.replaceState(null, '', `#customer-project=${project.id}&step=journals`)
   render(<CustomerWorkspace />)
   await screen.findByRole('heading', { name: '项目资料', level: 1 })
   expect(screen.queryByRole('heading', { name: '期刊适配与 Word' })).toBeNull()
-  expect(fetch.mock.calls.map(([url]) => url)).toEqual([base])
+  const expectedRequests = project_type === 'thesis' ? [base, base + '/thesis-requirements'] : [base]
+  expect(fetch.mock.calls.map(([url]) => url)).toEqual(expectedRequests)
 })
 
 it('shows the saved journal intent with a generic Word route and no submission history fetch', async () => {
@@ -514,7 +520,7 @@ it('loads Word for the selected historical SCI version without requesting option
   expect(fetch.mock.calls.map(([url]) => url)).toEqual([base, base + '/manuscripts', base + '/manuscripts/m1/versions/1/exports'])
 })
 
-it('accepts Word, Excel and images in the SCI upload picker without creating a PDF batch', async () => {
+it('accepts Word, Excel and images including TIFF in the SCI upload picker without creating a PDF batch', async () => {
   const fetch = vi.fn(async (url: string, _init?: RequestInit) => {
     if (url === base) return Response.json({ ...project, project_type: 'sci' })
     if (url === base + '/sci-settings') return Response.json({ settings: null, revision: 0 })
@@ -524,7 +530,7 @@ it('accepts Word, Excel and images in the SCI upload picker without creating a P
   window.history.replaceState(null, '', `#customer-project=${project.id}&step=materials`)
   render(<CustomerWorkspace />)
   const upload = await screen.findByLabelText('批量选择 Excel / Word / 图片文件')
-  expect(upload.getAttribute('accept')).toBe('.xlsx,.docx,.png,.jpg,.jpeg')
+  expect(upload.getAttribute('accept')).toBe('.xlsx,.docx,.png,.jpg,.jpeg,.tif,.tiff')
   fireEvent.change(upload, { target: { files: [new File(['test'], 'not-a-fact-source.pdf')] } })
   fireEvent.click(screen.getByRole('button', { name: '开始上传' }))
   expect(screen.getByRole('alert').textContent).toContain('SCI 写作资料请选择 Word、Excel 或图片。')
