@@ -9,7 +9,7 @@ export type ThesisInput={confirmation_id:string;profile_revision:number;chapter_
 export type SchoolChapter={id:string;title:string;level:number;purpose:SchoolPurpose;output_language:Locale;result_group_ids:string[]}
 export type ThesisContext={schema_version:1;profile:Profile;template_version_id:string;confirmation_id:string;confirmation_sha256:string;confirmation:Record<string,unknown>;source_files:Record<string,unknown>[];chapters:SchoolChapter[]}
 export type SchoolReport={rules_version:string;issues:Issue[];can_publish:boolean;scientifically_verified:false}
-export type ThesisReadiness={ready:boolean;blocking_reasons:string[];profile:Profile;confirmation_id:string|null;chapters:Chapter[];purposes:SchoolPurpose[];template_source_file_ids:string[]}
+export type ThesisReadiness={ready:boolean;blocking_reasons:string[];profile:Profile;confirmation_id:string|null;chapters:Chapter[];purposes:SchoolPurpose[];template_source_file_ids:string[];protected_chapter_purposes?:Record<string,'manual'|'acknowledgements'>}
 const record=(v:unknown):v is Record<string,unknown>=>!!v&&typeof v==='object'&&!Array.isArray(v)
 const text=(v:unknown):v is string=>typeof v==='string'
 const nonempty=(v:unknown):v is string=>text(v)&&v.length>0&&v.length<=200

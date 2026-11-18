@@ -413,7 +413,12 @@ class LiteratureCitationService:
             items=[]
             for ref in refs:
                 view=self.literature.reference_view(db,ref)
+                material_rows=self.rows(db,'literature_materials',project,
+                    ' AND project_reference_id=%s'+self.evidence.material_visibility_filter(),(ref['id'],))
                 metadata=self.rows(db,'literature_citation_metadata_versions',project,' AND project_reference_id=%s',(ref['id'],))
+                if self.evidence.assets.customer:
+                    material_ids={None, *(material['id'] for material in material_rows)}
+                    metadata=[row for row in metadata if row['request_json'].get('material_id') in material_ids]
                 latest_meta=max(metadata,key=lambda r:r['revision']) if metadata else None
                 meta=self.metadata_view(db,project,latest_meta) if latest_meta else None
                 tasks=[]
@@ -423,7 +428,6 @@ class LiteratureCitationService:
                     tasks.extend(['metadata_missing:'+g for g in meta['gaps']])
                     if not meta['source_verified'] or not meta['source_current']:
                         tasks.append('verify_metadata_source')
-                material_rows=self.rows(db,'literature_materials',project,' AND project_reference_id=%s',(ref['id'],))
                 materials=[]
                 for material in material_rows:
                     history=self.rows(db,'literature_material_confirmations',project,' AND material_id=%s',(material['id'],))
@@ -460,16 +464,18 @@ class LiteratureCitationService:
                             r=self.evidence.review_view(db,project,review)
                             actual_evidence=self.evidence.evidence_by_ids(db,project,root['id'],version['revision'],ref['id'],review['evidence_ids_json'])
                             self.validate_evidence_receipts(db,project,ref['id'],actual_evidence)
-                        except StorageError:
+                        except StorageError as exc:
                             review_actual=False
-                            # Keep the saved human statement visible while reporting its source as unverified.
-                            try:
-                                self.validate(review)
-                                saved=request_data(ReviewRequest,review['request_json'])
-                                r=dict(id=review['id'],claim_id=review['claim_id'],decided_by=review['decided_by'],
-                                    created_at=iso(review['created_at']),**saved)
-                            except StorageError:
-                                r=None
+                            # Keep stale decisions only when their material remains visible.
+                            r=None
+                            if not self.evidence.assets.customer or exc.code!='file_not_found':
+                                try:
+                                    self.validate(review)
+                                    saved=request_data(ReviewRequest,review['request_json'])
+                                    r=dict(id=review['id'],claim_id=review['claim_id'],decided_by=review['decided_by'],
+                                        created_at=iso(review['created_at']),**saved)
+                                except StorageError:
+                                    r=None
                     if not review_actual:
                         tasks.append('verify_evidence_source')
                     if not r or r['status']=='needs_review':

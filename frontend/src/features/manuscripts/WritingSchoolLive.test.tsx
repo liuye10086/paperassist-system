@@ -55,16 +55,21 @@ it('selects only writable school paragraphs for a scoped article request',async(
  const body=JSON.parse(String(fetcher.mock.calls.find(([,i])=>i?.method==='POST')![1]?.body))
  expect(body).toMatchObject({schema_version:4,document_kind:'thesis',article_type:'research',mode:'polish',target_sections:['methods-dynamic'],keywords:[],acknowledgements:''})
 })
-it('requires explicit literal decisions only for protected identity and invalidates decisions after school options change',async()=>{
- const review={...scienceReview,candidate:snapshot};const inventory=[{location:'identity:p1',kind:'paragraph',text:'本人',content_sha256:'e'.repeat(64),scope:'label',target_language:'zh-CN',chapter_id:'declaration-x',protected_identity:true},{location:'body:p2',kind:'paragraph',text:'Methods',content_sha256:'f'.repeat(64),scope:'narrative',target_language:'en',chapter_id:'methods-dynamic',protected_identity:false}]
+it('reviews identities and actual school references as supplied and invalidates decisions after school options change',async()=>{
+ const review={...scienceReview,candidate:snapshot};const inventory=[{location:'identity:p1',kind:'paragraph',text:'本人',content_sha256:'e'.repeat(64),scope:'label',target_language:'zh-CN',chapter_id:'declaration-x',protected_identity:true},{location:'body:p2',kind:'paragraph',text:'Methods',content_sha256:'f'.repeat(64),scope:'narrative',target_language:'en',chapter_id:'methods-dynamic',protected_identity:false},{location:'refs:p3',kind:'export_text',text:'[1] An English reference in a Chinese thesis.',content_sha256:'a'.repeat(64),scope:'reference_metadata',target_language:'zh-CN',chapter_id:'refs-middle'}]
  const fetcher=vi.fn(async(url:string,_init?:RequestInit)=>Response.json(url.endsWith('language-context')?{...languageContext,schema_version:3,candidate:snapshot,inventory,editable_fields:[]}:{items:[]}));vi.stubGlobal('fetch',fetcher)
  render(<WritingLanguageReview projectId="p1" manuscriptId="m1" baseRevision={1} review={review} onPublished={vi.fn()}/>);
  fireEvent.click(screen.getByRole('button',{name:'读取真实 DOCX 全语言清单'}));await screen.findByRole('group',{name:/核对项目 1/})
  const identity=screen.getByRole('group',{name:/核对项目 1/}),body=screen.getByRole('group',{name:/核对项目 2/})
+ const reference=within(screen.getByRole('group',{name:/核对项目 3/}))
  expect(within(identity).queryByRole('option',{name:'目标语言文字已逐项核对'})).toBeNull();expect(within(body).queryByRole('option',{name:'已逐项核对用户提供的身份原文'})).toBeNull()
+ expect(reference.getByRole('option',{name:'已核对参考文献原文'})).toBeTruthy()
+ expect(within(body).queryByRole('option',{name:'已核对参考文献原文'})).toBeNull()
  expect(within(identity).getByLabelText('此项语言决定')).toHaveProperty('value','')
  fireEvent.change(within(identity).getByLabelText('此项语言决定'),{target:{value:'provided_literal'}});fireEvent.change(within(identity).getByLabelText('此项语言审核理由'),{target:{value:'核对本人原文'}})
  fireEvent.change(within(body).getByLabelText('此项语言决定'),{target:{value:'target_language'}});fireEvent.change(within(body).getByLabelText('此项语言审核理由'),{target:{value:'English checked'}})
+ fireEvent.change(reference.getByLabelText('此项语言决定'),{target:{value:'provided_literal'}})
+ fireEvent.change(reference.getByLabelText('此项语言审核理由'),{target:{value:'已核对书目原始著录'}})
  expect(screen.getByRole('button',{name:'封存独立语言审核'}).matches(':disabled')).toBe(false)
  fireEvent.change(screen.getByLabelText('英文题名'),{target:{value:'Changed title'}})
  expect(screen.getByRole('alert').textContent).toContain('旧清单决定和发布选择已失效')

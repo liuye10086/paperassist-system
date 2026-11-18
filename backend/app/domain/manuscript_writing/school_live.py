@@ -46,6 +46,7 @@ def layout(base,request):
 
 def build_bundle(base,request,frozen):
     from .bundle import build_bundle as common,safe_text
+    from .context import paragraph_sources_selected
     from .numeric_contract import add_reported_results,text_facts
     from .frozen import wire_parts
     from .policy import POLICY_VERSION
@@ -58,17 +59,19 @@ def build_bundle(base,request,frozen):
     safe.pop('thesis_context',None);safe.pop('sections',None)
     safe.update(title='',methods=[])
     safe['results_groups']=[dict(g,paragraphs=[]) for g in safe.get('results_groups',[])]
-    legacy={k:deepcopy(v) for k,v in frozen.items() if k not in ('origin','numeric_contract_version','school_content_version')};legacy['schema_version']=1
+    legacy={k:deepcopy(v) for k,v in frozen.items() if k not in ('origin','numeric_contract_version','school_content_version','source_selection_version')};legacy['schema_version']=1
     seed=common(safe,dict(request,schema_version=2,keywords=[],acknowledgements=''),execution_contract=legacy)
     payload=json.loads(json.loads(seed['wire_json'])['input']);local=seed['local_manifest']
     payload.update(schema_version=3,school_content_version=VERSION,numeric_contract_version=2,context=[],keywords=[],acknowledgements='')
     contexts={};sections={s['id']:s for s in base['sections']}
+    selected_ids=set(request['selected_source_ids'])
+    reviewed_sources=frozen.get('source_selection_version')==2
     for alias,c in school['chapters'].items():
         if c['purpose'] not in WRITABLE:continue
         paragraphs=[]
         for i,p in enumerate(sections[c['chapter_id']]['paragraphs']):
             if base.get('paper_plan') and is_note(p):continue
-            if p.get('citations') or not set(p.get('source_ids',[]))<=set(request['selected_source_ids']):continue
+            if p.get('citations') or not paragraph_sources_selected(p,selected_ids,reviewed_sources=reviewed_sources):continue
             text=safe_text(p['text']);paragraphs.append(dict(text=text))
             if c['purpose']=='materials_and_methods' and p.get('origin')=='user_provided':
                 values=text_facts(text,'/numbers')

@@ -3,7 +3,7 @@ import json
 from datetime import timezone
 from psycopg.types.json import Jsonb
 
-from app.adapters.task_store import TaskStore, DatasetTaskAssets, source_conflict
+from app.adapters.task_store import TaskStore, source_conflict
 from app.domain.ocr_review.service import (OcrReviewService, validate_snapshot,
     review_input_version, candidate_id, latest_checkpoint, append_checkpoint, require_approval)
 from app.domain.tasks.waits import persist_wait
@@ -15,7 +15,9 @@ class OcrReviewStore:
         self.repository = repository
 
     def service(self,task):
-        return OcrReviewService(DatasetTaskAssets(task['user_id'],self.repository.config,self.repository.assets.directory))
+        from app.domain.report_collections.service import scoped_store
+
+        return OcrReviewService(scoped_store(task['user_id'],self.repository.config,self.repository.assets.directory))
 
     def load(self,lease):
         with self.repository.connection() as db:

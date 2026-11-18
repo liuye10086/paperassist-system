@@ -71,6 +71,53 @@ def test_sci_customer_routes_are_owner_project_and_material_scoped():
             assert owner.get(sci + suffix).status_code == 403
 
 
+def test_citation_candidates_and_todos_hide_quotes_from_invisible_materials():
+    from app.domain.literature.execution import run_literature_task
+    from tests.api.test_literature import create as create_search
+    from tests.api.test_literature_citations import CitationNcbi
+    from tests.api.test_literature_evidence import claim
+
+    with TestClient(app) as customer, TestClient(app) as other:
+        sign_in(customer, 'citation-reader@manuscript.test', 'customer')
+        uploader = sign_in(other, 'citation-uploader@manuscript.test', 'customer')
+        project = sci_project(customer)
+        project_id = project.rsplit('/', 1)[-1]
+        search = create_search(customer, project_id).json()
+        assert run_literature_task(search['id'], search['revision'], client=CitationNcbi(2))['status'] == 'succeeded'
+        literature = project + '/literature'
+        reference = customer.get(literature + '/references').json()['items'][0]['id']
+        evidence = literature + '/evidence'
+        quote = 'A synthetic excerpt from a restricted report.'
+        file = upload_docx(customer, project, 'restricted-report.docx', quote)
+        task = file['task']
+        assert run_parse_file_task(task['id'], task['revision'], parser=parse_docx)['status'] == 'succeeded'
+        parse = customer.get(f"{project}/files/{file['id']}/document-versions").json()['items'][0]
+        created = post(customer, evidence + '/materials', dict(project_reference_id=reference, file_id=file['id'],
+            source_kind='document_version', version_id=parse['id'], source_description='Test material', match_note='Test link'))
+        assert created.status_code == 201, created.text
+        material = created.json()['id']
+        source_url = f'{evidence}/materials/{material}/source'
+        item = customer.get(source_url).json()['items'][0]['id']
+        statement = claim(customer, evidence)
+        excerpt = post(customer, f"{evidence}/claims/{statement['id']}/evidence", dict(
+            claim_revision=statement['revision'], project_reference_id=reference, source_kind='material',
+            material_id=material, item_id=item, quote=quote))
+        assert excerpt.status_code == 201, excerpt.text
+
+        candidates = literature + '/citations/candidates'
+        assert quote in customer.get(candidates).text
+        with database_connection(write=True) as db:
+            db.execute('UPDATE files SET upload_actor_id=%s WHERE id=%s', (uploader, file['id']))
+
+        assert customer.get(source_url).status_code == 404
+        for url in (candidates, literature + '/citations/todos'):
+            result = customer.get(url)
+            assert result.status_code == 200, result.text
+            visible = next(entry for entry in result.json()['items'] if entry['id'] == reference)
+            assert visible['materials'] == []
+            assert quote not in result.text
+
+
 def test_research_preview_carries_reported_results_with_current_fixed_sources():
     with TestClient(app) as client, TestClient(app) as other:
         sign_in(client, 'sci-b02-reported@manuscript.test', 'customer')
@@ -132,6 +179,133 @@ def test_narrative_review_without_verified_citations_cannot_prepare_writing():
         response = post(client, path, article_request('narrative_review'), 'missing-literature')
         assert response.status_code == 422
         assert response.json()['detail']['code'] == 'manuscript_writing_evidence_required'
+
+
+def test_planned_review_heading_language_is_checked_before_writing():
+    with TestClient(app) as client:
+        sign_in(client, 'sci-heading@manuscript.test', 'customer')
+        project = sci_project(client, 'narrative_review')
+        plan = client.get(project + '/manuscripts/candidates').json()['paper_plan']
+        mismatch = post(client, project + '/manuscripts/preview', body(
+            title=plan['title'], output_language='zh-CN', paper_plan_token=plan['token']), 'review-preview')
+        assert mismatch.status_code == 422
+        assert mismatch.json()['detail']['code'] == 'manuscript_review_heading_language'
+        response = post(client, project + '/manuscripts', body(
+            title=plan['title'], paper_plan_token=plan['token']), 'review-base')
+        assert response.status_code == 201, response.text
+        draft = response.json()
+        assert run_task(draft['versions'][0]['task_id'], 1)['status'] == 'succeeded'
+        path = project + '/manuscripts/' + draft['id'] + '/writing-previews'
+        response = post(client, path, article_request('narrative_review', output_language='zh-CN'), 'language-mismatch')
+        assert response.status_code == 422
+        assert response.json()['detail']['code'] == 'manuscript_review_heading_language'
+        assert client.get(path).json()['items'] == []
+
+
+def test_excel_paper_material_freezes_selected_sheet_display_and_exact_values():
+    from uuid import uuid4
+    from openpyxl import Workbook
+    from app.adapters.excel import parse_workbook
+    from app.core.config import ExcelSettings
+
+    book = Workbook()
+    book.active.title = 'Results'
+    book.active.append(['Group', 'Proportion'])
+    book.active.append(['A', 0.5])
+    book.active['B2'].number_format = '0.00%'
+    book.create_sheet('Working notes').append(['Internal notes', '=1+1'])
+    book.create_sheet('Hidden').sheet_state = 'hidden'
+    buf = BytesIO()
+    book.save(buf)
+    with TestClient(app) as client:
+        sign_in(client, 'sci-worksheet@manuscript.test', 'customer')
+        project = sci_project(client)
+        base, batch, item, raw = register(client, {'id': project.rsplit('/', 1)[-1]}, buf.getvalue(), 'proportions.xlsx')
+        upload = client.post(f"{base}/{batch['id']}/items/{item['client_id']}", files={'file': ('proportions.xlsx', raw)})
+        assert upload.status_code == 202, upload.text
+        file_id = upload.json()['file_id']
+        task = upload.json()['task']
+        def excel_parser(content, filename, settings):
+            return parse_workbook(content, filename, ExcelSettings.model_validate(settings['excel']))
+        assert run_parse_file_task(task['id'], task['revision'], parser=excel_parser)['status'] == 'succeeded'
+        materials = project + '/paper-materials'
+        preview = client.get(f'{materials}/worksheets/{file_id}')
+        assert preview.status_code == 200, preview.text
+        assert [(row['name'], row['values_ready']) for row in preview.json()['sheets']] == [
+            ('Results', True), ('Working notes', False)]
+        assert preview.json()['sheets'][0]['preview_rows'] == [['A', '50.00%']]
+        target = client.get(materials).json()['targets'][0]['id']
+        note_url = f'{materials}/{uuid4()}'
+        note = dict(expected_revision=0, file_id=file_id, result='Observed proportions', target_id=target)
+        assert client.put(note_url, json=note).status_code == 422
+        saved = client.put(note_url, json=note | {'worksheet_names': ['Results']})
+        assert saved.status_code == 200, saved.text
+        assert client.put(note_url, json=note | {'worksheet_names': ['Results']}).json() == saved.json()
+        plan = client.get(project + '/manuscripts/candidates').json()['paper_plan']
+        response = post(client, project + '/manuscripts', body(
+            title=plan['title'], paper_plan_token=plan['token']), 'selected-table')
+        assert response.status_code == 201, response.text
+        manuscript = response.json()
+        version = manuscript['versions'][0]
+        [table] = version['snapshot']['results_groups'][0]['tables']
+        assert table['rows'] == [['A', '50.00%']]
+        assert table['numeric_cells'] == [{'row': 1, 'column': 1, 'value': '0.5', 'number_format': '0.00%'}]
+        assert 'Working notes' not in json.dumps(version['snapshot']['paper_plan'])
+        assert run_task(version['task_id'], 1)['status'] == 'succeeded'
+        root = f"{project}/manuscripts/{manuscript['id']}"
+        writing = post(client, root + '/writing-previews', article_request(
+            'research', selected_source_ids=[file_id]), 'worksheet-writing-preview')
+        assert writing.status_code == 201, writing.text
+        wire = json.loads(json.loads(writing.json()['wire_json'])['input'])
+        rows = next(row['values'] for row in wire['numeric_context'] if row['location'] == 'illustrations[0].table_cells')
+        assert rows == [dict(fact_path='/rows/0/1', value='50.00', display_text='50.00%')]
+        word = post(client, root + '/versions/1/exports', {}, 'selected-table-word')
+        assert word.status_code == 201, word.text
+        assert run_task(word.json()['task_id'], 1)['status'] == 'succeeded'
+        content = client.get(f"{root}/exports/{word.json()['id']}/download").content
+        [table] = Document(BytesIO(content)).tables
+        assert [cell.text for cell in table.rows[1].cells] == ['A', '50.00%']
+
+
+def test_figures_and_panels_use_frozen_file_numbers_across_findings():
+    from uuid import uuid4
+    from PIL import Image
+
+    with TestClient(app) as client:
+        sign_in(client, 'sci-figure-binding@manuscript.test', 'customer')
+        settings = SCI_SETTINGS | {'figure_findings': [
+            {'id': 'finding-1', 'finding': 'Initial measurements'},
+            {'id': 'finding-2', 'finding': 'Later measurements (Figure 2A).'},
+        ]}
+        project = project_path(create(client, 'numbering', **project_body('sci', sci_settings=settings)))
+        materials = project + '/paper-materials'
+        targets = client.get(materials).json()['targets']
+        ids = []
+        for index, target in enumerate([targets[0], targets[0], targets[1]]):
+            raw = BytesIO()
+            Image.new('RGB', (24, 24), (index * 70, 0, 0)).save(raw, format='PNG')
+            filename = f'observations-{index}.png'
+            base, batch, item, content = register(client, {'id': project.rsplit('/', 1)[-1]}, raw.getvalue(), filename, filename)
+            upload = client.post(f"{base}/{batch['id']}/items/{item['client_id']}", files={'file': (filename, content)})
+            assert upload.status_code == 202, upload.text
+            ids.append(upload.json()['file_id'])
+            saved = client.put(f'{materials}/{uuid4()}', json=dict(
+                expected_revision=0, file_id=ids[-1], result='Synthetic observation', target_id=target['id']))
+            assert saved.status_code == 200, saved.text
+
+        plan = client.get(project + '/manuscripts/candidates').json()['paper_plan']
+        preview = post(client, project + '/manuscripts/preview', body(
+            title=plan['title'], paper_plan_token=plan['token'], figure_notes=[
+                dict(figure_id=ids[-1], caption='', panels=[{'label': 'A', 'description': 'Later sample'}])]), 'numbering')
+        assert preview.status_code == 200, preview.text
+        first, second = preview.json()['results_groups']
+        assert len(first['figures']) == 2
+        assert [f['number'] for f in first['figures']] == [1, 2]
+        assert second['figures'][0]['number'] == 3
+        finding = second['paragraphs'][0]
+        assert finding['text'] == 'Later measurements (Figure 3A).'
+        assert finding['cross_references'] == [
+            dict(kind='figure', target_id=ids[-1], number=3, panel_label='A')]
 
 
 def test_sci_customer_retries_failed_word_with_its_fixed_input(monkeypatch):

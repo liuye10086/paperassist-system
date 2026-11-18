@@ -163,8 +163,10 @@ class TaskWorkspaceService:
                         analysis_run_id=None, is_current=True, dataset_source=snapshot['source'])
         if task['task_type'] == 'review_ocr':
             from app.domain.ocr_review.service import validate_snapshot, OcrReviewService
+            from app.domain.report_collections.service import scoped_store
+
             snapshot = validate_snapshot(task)
-            assets = DatasetTaskAssets(self.store.user_id,self.store.config)
+            assets = scoped_store(self.store.user_id,self.store.config)
             OcrReviewService(assets).require_raw(snapshot['source'],task['project_id'])
             return dict(file_id=snapshot['source']['file_id'],filename=snapshot['filename'],
                         analysis_run_id=None,is_current=True)
@@ -441,7 +443,9 @@ class TaskWorkspaceService:
             row = db.execute('SELECT id,version FROM ocr_review_versions WHERE task_id=%s',(task['id'],)).fetchone()
             if row:
                 from app.domain.ocr_review.service import OcrReviewService
-                summary = OcrReviewService(DatasetTaskAssets(self.store.user_id,self.store.config)).get_version(
+                from app.domain.report_collections.service import scoped_store
+
+                summary = OcrReviewService(scoped_store(self.store.user_id,self.store.config)).get_version(
                     task['project_id'],task['input_snapshot']['source']['file_id'],row['id'])
                 result['ocr_review'] = dict(filename=f"ocr-review-v{row['version']}.json",download_url=summary['download_url'])
             return result

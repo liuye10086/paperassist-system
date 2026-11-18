@@ -55,7 +55,46 @@ it('labels the SCI customer language inventory as Word export text', async () =>
  fireEvent.click(screen.getByRole('button', { name: '读取真实 DOCX 全语言清单' }))
  expect(await screen.findByRole('group', { name: '核对项目 1 · Word 导出文字' })).toBeTruthy()
 })
+it('selects an already sealed language review on a fresh mount and publishes those exact artifacts',async()=>{
+ const onPublished=vi.fn()
+ const candidate={...scienceReview.candidate,paper_plan:{kind:'research' as const,title:scienceReview.candidate.title,keywords:[],sections:[],materials:[]}}
+ const plannedReview={...scienceReview,candidate}
+ const fetcher=vi.fn(async(url:string,init?:RequestInit)=>{
+  if(url.endsWith('/reviews/science1/language-reviews'))return Response.json({items:[{id:languageArtifact.id,created_at:'2026-11-18T02:30:00Z'}]})
+  if(url.endsWith('/language-reviews/language1'))return Response.json({...languageArtifact,candidate})
+  if(url.endsWith('/publish')&&init?.method==='POST')return Response.json({...manuscriptFixture,current_revision:2})
+  throw Error(url)
+ })
+ vi.stubGlobal('fetch',fetcher)
+ render(<WritingLanguageReview projectId="p1" manuscriptId="m1" baseRevision={1} review={plannedReview} onPublished={onPublished} customerSci/>)
+ await screen.findByRole('option',{name:/语言审核产物 1/})
+ expect(screen.queryByText('高级设置：按编号回读历史语言产物')).toBeNull()
+ fireEvent.change(screen.getByLabelText('明确选择语言审核产物'),{target:{value:languageArtifact.id}})
+ await screen.findByRole('region',{name:'待显式发布的最终版本'})
+ expect(screen.getByRole('button',{name:'显式发布审核后版本'}).matches(':disabled')).toBe(true)
+ fireEvent.click(screen.getByLabelText('我已核对所选科学与语言产物及最终版本，明确发布为不可变新版本。'))
+ fireEvent.click(screen.getByRole('button',{name:'显式发布审核后版本'}))
+ await waitFor(()=>expect(onPublished).toHaveBeenCalledOnce())
+ expect(JSON.parse(String(fetcher.mock.calls.find(([,init])=>init?.method==='POST')![1]?.body))).toMatchObject({
+  review_id:scienceReview.id,review_sha256:scienceReview.review_sha256,language_review_id:languageArtifact.id,
+  language_review_sha256:languageArtifact.artifact_sha256,expected_revision:1,
+ })
+})
 function OperationHarness(){const op=useWritingOperation();return <><button disabled={op.busy} onClick={()=>void op.run('/local-test',(v):v is {ok:boolean}=>!!v&&typeof v==='object'&&'ok'in v,{exact:'body'})}>submit</button>{op.error&&<p role="alert">{op.error}</p>}</>}
+function ScopedOperationHarness(){
+ const op=useWritingOperation({projectId:'p1',manuscriptId:'m1',versionId:'v1',operation:'rejection-test'})
+ return <><button disabled={op.busy} onClick={()=>void op.run('/local-test',(v):v is {ok:boolean}=>!!v&&typeof v==='object'&&'ok'in v,{exact:'body'})}>submit</button>
+  {op.pending?.phase==='unknown'&&<p>pending replay</p>}{op.error&&<p role="alert">{op.error}</p>}</>
+}
+it('clears a pending writing request after a definitive closed-authorization response',async()=>{
+ vi.stubGlobal('fetch',vi.fn(async()=>Response.json({detail:{code:'manuscript_writing_authorization_closed'}},{status:409})))
+ render(<ScopedOperationHarness/>);fireEvent.click(screen.getByRole('button',{name:'submit'}))
+ await screen.findByRole('alert')
+ expect(screen.queryByText('pending replay')).toBeNull()
+ cleanup()
+ render(<ScopedOperationHarness/>)
+ expect(screen.queryByText('pending replay')).toBeNull()
+})
 it('surfaces timeouts rather than silently clearing a failed submission',async()=>{
  vi.useFakeTimers();vi.stubGlobal('fetch',vi.fn(()=>new Promise<Response>(()=>{})));render(<OperationHarness/>);fireEvent.click(screen.getByRole('button'));await act(async()=>{vi.advanceTimersByTime(STANDARD_REQUEST_TIMEOUT_MS+1)});expect(screen.getByRole('alert').textContent).toContain('请求未确认')
 })
@@ -63,7 +102,7 @@ it('blocks overlapping submits and keeps the same idempotency key after an uncer
  let fail:(error:Error)=>void=()=>{};const fetcher=vi.fn((_url:string,_init?:RequestInit)=>new Promise<Response>((_resolve,reject)=>{fail=reject}));vi.stubGlobal('fetch',fetcher);render(<OperationHarness/>);fireEvent.click(screen.getByRole('button'));fireEvent.click(screen.getByRole('button'));expect(fetcher).toHaveBeenCalledTimes(1);await act(async()=>fail(Error('lost')));fireEvent.click(screen.getByRole('button'));expect(fetcher).toHaveBeenCalledTimes(2);expect(new Headers(fetcher.mock.calls[0][1]?.headers).get('Idempotency-Key')).toBe(new Headers(fetcher.mock.calls[1][1]?.headers).get('Idempotency-Key'))
 })
 it('blocks new language confirmation for an empty image absent from the fixed candidate figures',async()=>{
- const context={...languageContext,inventory:[{location:'en:image:missing-fixed-image',kind:'image',text:'',content_sha256:'c'.repeat(64),language_known:true,no_text:true}]};const fetcher=vi.fn(async(url:string)=>Response.json(url.endsWith('/language-context')?context:{items:[]}));vi.stubGlobal('fetch',fetcher)
+ const context={...languageContext,inventory:[{location:'en:image:missing-fixed-image',kind:'image',text:'',content_sha256:'c'.repeat(64),language_known:true,no_text:true}]};const fetcher=vi.fn(async(url:string,_init?:RequestInit)=>Response.json(url.endsWith('/language-context')?context:{items:[]}));vi.stubGlobal('fetch',fetcher)
  render(<WritingLanguageReview projectId="p1" manuscriptId="m1" baseRevision={1} review={scienceReview} onPublished={vi.fn()}/>);fireEvent.click(screen.getByRole('button',{name:'读取真实 DOCX 全语言清单'}));await screen.findByText('已读取当前固定版本的语言核对清单')
- const decision=screen.getByLabelText('此项语言决定');expect((decision.closest('fieldset') as HTMLFieldSetElement).disabled).toBe(true);fireEvent.change(decision,{target:{value:'no_text'}});fireEvent.change(screen.getByLabelText('此项语言审核理由'),{target:{value:'Cannot identify this exact image'}});expect((screen.getByRole('button',{name:'封存独立语言审核'}) as HTMLButtonElement).disabled).toBe(true);expect(screen.getByText('本次清单中的第 1 个图像项目（不是图号）')).toBeTruthy();expect(fetcher.mock.calls.some(([url])=>url.endsWith('/language-reviews'))).toBe(false)
+ const decision=screen.getByLabelText('此项语言决定');expect((decision.closest('fieldset') as HTMLFieldSetElement).disabled).toBe(true);fireEvent.change(decision,{target:{value:'no_text'}});fireEvent.change(screen.getByLabelText('此项语言审核理由'),{target:{value:'Cannot identify this exact image'}});expect((screen.getByRole('button',{name:'封存独立语言审核'}) as HTMLButtonElement).disabled).toBe(true);expect(screen.getByText('本次清单中的第 1 个图像项目（不是图号）')).toBeTruthy();expect(fetcher.mock.calls.some(([url,init])=>url.endsWith('/language-reviews')&&init?.method==='POST')).toBe(false)
 })

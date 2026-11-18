@@ -13,7 +13,7 @@ export type SourceKind = 'original'|'document_version'|'ocr_review_version'|'ext
 export type SourceSelection={kind:SourceKind;id:string;file_id:string;role:SourceRole}
 export type SourceCandidate=Omit<SourceSelection,'role'>&{label:string;version:number|null;allowed_roles:SourceRole[];download_url:string|null}
 export type PaperPlanSection={id:string;label:string;text:string;group_title?:string;chapter_id?:string;purpose?:'materials_and_methods'|'results'}
-export type PaperPlanMaterial={section_id:string;filename:string;kind:'figure'|'table';result:string;selection:SourceSelection}
+export type PaperPlanMaterial={section_id:string;filename:string;kind:'figure'|'table';result:string;selection:SourceSelection;worksheet_names?:string[]}
 export type PaperPlan={kind:'research'|'narrative_review'|'thesis';title:string;keywords:string[];sections:PaperPlanSection[];materials:PaperPlanMaterial[]}
 export type PaperPlanCandidate=PaperPlan&{token:string;omitted_count:number}
 export type Candidates={project_type?:'sci'|'thesis';thesis?:ThesisReadiness|null;paper_plan?:PaperPlanCandidate;items:SourceCandidate[];citation_drafts:{id:string;revision:number;title:string;usable:boolean}[];methods_fields:MethodField[]}
@@ -22,7 +22,7 @@ export type FigureNote={figure_id:string;caption:string;panels:{label:string;des
 export type ManuscriptInput={paper_plan_token?:string;analysis_handoff_run_ids?:string[];thesis?:ThesisInput;title:string;output_language:Locale;expected_revision:number;sources:SourceSelection[];methods:Record<MethodField,string>;method_source_ids:Partial<Record<MethodField,string[]>>;method_conflicts:{field:MethodField;values:string[];note:string}[];results_groups:ResultsGroup[];figure_notes:FigureNote[];citation_draft:{id:string;revision:number}|null;reported_result?:{text:string;source_ids:string[]}|null}
 export type CrossReference={kind:'figure'|'table';target_id:string;number:number;panel_label:null|string}
 export type FrozenCitation={project_reference_id:string;reference_id:string;review_id:string;metadata_version_id:string}
-export type Paragraph={verification_status?:'pending'|'scientific_reviewed';id:string;text:string;origin:'user_provided'|'computed_result'|'literature'|'image_observation'|'model_generated';numeric_bindings?:({value:string;source_id:string}|{value:string;fact_id:string}|{occurrence:number;value:string;kind:'study'|'context'|'literature';source_alias?:string|null;fact_path?:string|null;evidence_id?:string|null})[];cross_references?:CrossReference[];source_ids:string[];citations:(number|FrozenCitation)[]}
+export type Paragraph={verification_status?:'pending'|'scientific_reviewed';id:string;text:string;origin:'user_provided'|'computed_result'|'literature'|'image_observation'|'model_generated';numeric_bindings?:({value:string;source_id:string}|{value:string;fact_id:string}|{occurrence:number;value:string;kind:'study'|'context'|'literature';source_alias?:string|null;fact_path?:string|null;evidence_id?:string|null})[];cross_references?:CrossReference[];source_ids:string[];suggested_source_aliases?:string[];citations:(number|FrozenCitation)[]}
 export type FrozenSource=SourceSelection&{label:string;sha256:string;download_url:string|null;content:Record<string,unknown>}
 export const sectionIds = ['title','abstract','introduction','results','discussion','materials_and_methods','references'] as const
 export type SectionId=typeof sectionIds[number]
@@ -36,6 +36,7 @@ export type ManuscriptExport={presentation?:PresentationExport;school?:SchoolExp
 export type ManuscriptVersion={id:string;revision:number;parent_version_id:string|null;task_id:string;status:'pending'|'published'|'failed';created_at:string;input:ManuscriptInput;snapshot:Snapshot;current_changes:{kind:string;id:string;reasons:string[]}[];exports:ManuscriptExport[]}
 export type Manuscript={id:string;project_id:string;title:string;current_revision:number;created_at:string;updated_at:string;versions:ManuscriptVersion[]}
 export const manuscriptBase=(projectId:string)=>`/api/v1/projects/${encodeURIComponent(projectId)}/manuscripts`
+export const manuscriptVersionPath=(projectId:string,manuscriptId:string,revision:number)=>`${manuscriptBase(projectId)}/${encodeURIComponent(manuscriptId)}/versions/${revision}`
 export const sourceKey=(source:{kind:string;id:string})=>`${source.kind}:${source.id}`
 export function emptyInput(title:string,language:Locale):ManuscriptInput{return{title,output_language:language,expected_revision:0,sources:[],methods:Object.fromEntries(methodFields.map(k=>[k,''])) as Record<MethodField,string>,method_source_ids:{},method_conflicts:[],results_groups:[],figure_notes:[],citation_draft:null}}
 const record=(v:unknown):v is Record<string,unknown>=>!!v&&typeof v==='object'&&!Array.isArray(v)
@@ -51,7 +52,7 @@ const planToken=(v:unknown):v is string=>text(v)&&/^[a-f0-9]{64}$/.test(v)
 function validPaperPlan(v:unknown):v is PaperPlan {
  if(!record(v)||!['research','narrative_review','thesis'].includes(String(v.kind))||!text(v.title)||!v.title.trim()||!strings(v.keywords)||!Array.isArray(v.sections)||!v.sections.every(s=>record(s)&&id(s.id)&&text(s.label)&&!!s.label.trim()&&text(s.text)&&(s.group_title===undefined||text(s.group_title))&&(v.kind==='thesis'?text(s.chapter_id)&&s.chapter_id.length>0&&['materials_and_methods','results'].includes(String(s.purpose)):s.chapter_id===undefined&&s.purpose===undefined)))return false
  const sectionIds=new Set(v.sections.map(s=>s.id))
- return sectionIds.size===v.sections.length&&Array.isArray(v.materials)&&v.materials.every(m=>record(m)&&sectionIds.has(m.section_id)&&text(m.filename)&&!!m.filename.trim()&&(m.kind==='figure'||m.kind==='table')&&text(m.result)&&selection(m.selection))
+ return sectionIds.size===v.sections.length&&Array.isArray(v.materials)&&v.materials.every(m=>record(m)&&sectionIds.has(m.section_id)&&text(m.filename)&&!!m.filename.trim()&&(m.kind==='figure'||m.kind==='table')&&text(m.result)&&selection(m.selection)&&(m.worksheet_names===undefined||strings(m.worksheet_names)))
 }
 function validPlanCandidate(v:unknown):v is PaperPlanCandidate{return record(v)&&planToken(v.token)&&integer(v.omitted_count)&&validPaperPlan(v)}
 function researchSource(v:unknown){return record(v)&&['research_finding_version','research_figure_version','research_report_version'].includes(String(v.kind))&&id(v.id)&&['user_results','image_observation'].includes(String(v.role))&&text(v.label)&&text(v.sha256)&&/^[a-f0-9]{64}$/.test(v.sha256)&&record(v.locator)&&strings(v.source_file_ids)&&v.source_file_ids.every(id)&&record(v.content)}

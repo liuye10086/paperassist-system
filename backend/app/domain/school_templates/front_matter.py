@@ -74,6 +74,14 @@ def validate_content_purposes(front,chapters):
         raise ValueError('Actual school chapter purpose conflicts with confirmed content requirement.')
 
 
+def blind_rules_with_identities(rules, values):
+    protected = {value.strip() for value in values}
+    protected.update(' '.join(value.split()) for value in tuple(protected))
+    protected.difference_update(('', 'XXX', '[已隐去]'))
+    return dict(rules, identity_terms=sorted(set(rules['identity_terms']) | protected),
+                exceptions=[exception for exception in rules['exceptions'] if exception['term'] not in protected])
+
+
 def validate_front_matter(front,analysis,chapters):
     body=FrontMatter.model_validate(front).model_dump(mode='json')
     by_id={item['id']:item for item in sources(analysis)}

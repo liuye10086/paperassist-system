@@ -321,6 +321,8 @@ def _append_customer_review(document, snapshot, issues):
 def build_manuscript_docx(snapshot, images, *, school_plan=None, source_map=None, excluded_chapter_ids=frozenset(), mask_school_identity=False,
                           customer_revision=False, customer_view=False, renderer_version=None, school_template=None):
     """Render only the frozen snapshot, retaining unresolved facts and original images."""
+    from app.domain.journals.display import legacy_revision_without_journal_display
+    snapshot=legacy_revision_without_journal_display(snapshot)
     if snapshot.get('schema_version') != 1 or snapshot.get('output_language') not in ('zh-CN', 'en'):
         raise StorageError('report_render_failed', '稿件版本格式不受支持。', 422)
     if snapshot.get('review'):

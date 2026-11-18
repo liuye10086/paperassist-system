@@ -7,9 +7,9 @@ import useDraftLeaveGuard, { type RegisterLeaveGuard } from '../projects/useDraf
 import { IntakeError, intakeRequest, projectBase } from '../research-intake/api'
 import { useResearchRead } from '../research-results/api'
 import useResearchDraft from '../research-results/useResearchDraft'
-import { paperMaterialKind, paperMaterialsUrl, type PaperFile, type PaperMaterialNote, type PaperMaterialTarget } from './paperMaterials'
+import { paperMaterialKind, paperMaterialsUrl, type PaperFile, type PaperMaterialNote, type PaperMaterialTarget, type PaperWorksheet } from './paperMaterials'
 
-type Edit = { id: string; revision: number; file: PaperFile; result: string; targetId: string | null }
+type Edit = { id: string; revision: number; file: PaperFile; result: string; targetId: string | null; worksheetNames?: string[] }
 
 export default function PaperMaterialEditor({ projectId, original, note, targets, onBack, onSaved, onRequirements, registerLeaveGuard }: {
   projectId: string; original: PaperFile; note: PaperMaterialNote | undefined; targets: PaperMaterialTarget[]
@@ -31,12 +31,18 @@ export default function PaperMaterialEditor({ projectId, original, note, targets
   }, [])
 
   const baseline: Edit = { id: current.note?.id ?? id, revision: current.note?.revision ?? 0, file: current.file,
-    result: current.note?.result ?? '', targetId: current.note?.target_available ? current.note.target_id : null }
+    result: current.note?.result ?? '', targetId: current.note?.target_available ? current.note.target_id : null,
+    worksheetNames: current.note?.worksheet_names ?? undefined }
   const draft = edit ?? baseline
   const outdated = !!edit && (edit.revision !== baseline.revision || !!current.note && edit.id !== current.note.id)
   useDraftLeaveGuard(registerLeaveGuard, !!edit, busy)
   const kind = paperMaterialKind(original)
   const fileUrl = `${projectBase(projectId)}/files/${encodeURIComponent(draft.file.id)}`
+  const excel = draft.file.file_type === 'xlsx'
+  const worksheetRead = useResearchRead<{ sheets: PaperWorksheet[] }>(
+    `${paperMaterialsUrl(projectId)}/worksheets/${encodeURIComponent(draft.file.id)}`, excel && !selecting)
+  const sheets = worksheetRead.data?.sheets ?? []
+  const worksheetNames = draft.worksheetNames ?? (sheets.length === 1 && sheets[0].values_ready ? [sheets[0].name] : [])
   const currentTarget = targets.find(target => target.id === draft.targetId)
 
   function change(update: Partial<Edit>) {
@@ -51,6 +57,7 @@ export default function PaperMaterialEditor({ projectId, original, note, targets
     const result = draft.result.trim()
     if (!result) { setError('请填写这份图表资料的主要结果。'); return }
     if (draft.targetId && !currentTarget) { setError('请重新选择当前项目中的关联。'); return }
+    if (excel && draft.targetId && !worksheetNames.length) { setError('请选择要入稿的工作表。'); return }
     const controller = new AbortController()
     request.current = controller
     setBusy(true)
@@ -59,7 +66,8 @@ export default function PaperMaterialEditor({ projectId, original, note, targets
     try {
       const next = await intakeRequest<PaperMaterialNote>(`${paperMaterialsUrl(projectId)}/${encodeURIComponent(draft.id)}`, {
         method: 'PUT', signal: controller.signal, headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ expected_revision: draft.revision, file_id: draft.file.id, result, target_id: draft.targetId }),
+        body: JSON.stringify({ expected_revision: draft.revision, file_id: draft.file.id, result, target_id: draft.targetId,
+          ...(excel ? { worksheet_names: worksheetNames.length ? worksheetNames : null } : {}) }),
       })
       if (controller.signal.aborted) return
       if (!next || next.id !== draft.id || next.file_id !== draft.file.id || next.result !== result ||
@@ -89,7 +97,7 @@ export default function PaperMaterialEditor({ projectId, original, note, targets
       </button>
     </div>
     {selecting ? <ReplacementFiles projectId={projectId} current={draft.file} onSelect={file => {
-      change({ file })
+      change({ file, worksheetNames: undefined })
       setSelecting(false)
     }} /> : <>
       <div className="paper-material-original">
@@ -112,10 +120,20 @@ export default function PaperMaterialEditor({ projectId, original, note, targets
               <option value="">{t('待关联')}</option>
               {targets.map(target => <option key={target.id} value={target.id}>{target.label}</option>)}
             </select></label>
+            {excel && <fieldset>
+              <legend>{t('入稿工作表')}</legend>
+              {worksheetRead.error && <p role="alert" className="error-panel">{t(worksheetRead.error)}{' '}
+                <button type="button" onClick={worksheetRead.refresh}>{t('重试')}</button></p>}
+              {!worksheetRead.data && !worksheetRead.error && <p role="status">{t('正在读取工作表……')}</p>}
+              {worksheetRead.data && !sheets.length && <p>{t('文件中没有可入稿的工作表。')}</p>}
+              {sheets.map(sheet => <WorksheetChoice key={sheet.name} sheet={sheet} selected={worksheetNames.includes(sheet.name)}
+                onChange={checked => change({ worksheetNames: sheets
+                  .filter(item => item.name === sheet.name ? checked : worksheetNames.includes(item.name)).map(item => item.name) })} />)}
+            </fieldset>}
           </fieldset>
           {(current.note?.target_label && !current.note.target_available) &&
             <p className="muted">{t('原关联 · {name}', { name: current.note.target_label })}</p>}
-          {!targets.length && <p>{t('请在项目资料添加图号、小标题或结果章节，再关联此文件。')}{' '}
+          {!targets.length && <p>{t('请在项目资料添加发现、小标题或结果章节，再关联此文件。')}{' '}
             <button type="button" className="button-quiet" disabled={busy} onClick={onRequirements}>{t('前往项目资料')}</button>
           </p>}
           {outdated && <p className="warning-panel" role="status">{t('图表资料已更新，请核对当前资料。')}{' '}
@@ -128,6 +146,25 @@ export default function PaperMaterialEditor({ projectId, original, note, targets
       </div>
     </>}
   </section>
+}
+
+function WorksheetChoice({ sheet, selected, onChange }: { sheet: PaperWorksheet; selected: boolean; onChange: (checked: boolean) => void }) {
+  const { t } = useI18n()
+  return <div>
+    <label><input type="checkbox" checked={selected} disabled={!sheet.values_ready}
+      onChange={event => onChange(event.target.checked)} />{sheet.name}</label>
+    {!sheet.values_ready && <p className="muted">{t('此工作表包含公式或错误单元格。请使用核对后的固定值。')}</p>}
+    {selected && <div className="field-table-scroll">
+      <table className="field-table">
+        <caption>{t('工作表预览 · {name}', { name: sheet.name })}</caption>
+        <thead><tr>{sheet.columns.map((value, index) => <th key={index}>{value}</th>)}</tr></thead>
+        <tbody>{sheet.preview_rows.map((row, index) => <tr key={index}>
+          {row.map((value, column) => <td key={column}>{value}</td>)}
+        </tr>)}</tbody>
+      </table>
+      {sheet.row_count > sheet.preview_rows.length && <small>{t('共 {count} 行，仅预览前几行。', { count: sheet.row_count })}</small>}
+    </div>}
+  </div>
 }
 
 const replacementPageSize = 10

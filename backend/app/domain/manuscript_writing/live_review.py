@@ -39,7 +39,7 @@ def require_language_review(db,service,project,review,request=None,*,for_admissi
 
 
 def invalid(exc):
-    return StorageError('manuscript_writing_review_invalid','科学审核缺失、文本不匹配、数值未绑定或非目标内容发生变化。',422)
+    return StorageError('manuscript_writing_review_invalid','请核对科学审核、审后文本、来源与数值绑定，以及非目标内容是否发生变化。',422)
 
 def artifact_sha(request_id,raw_sha,body,candidate,report):
     return digest(dict(request_id=request_id,candidate_sha256=raw_sha,request=body,candidate=candidate,report=report))
@@ -165,7 +165,8 @@ class LiveReviewService:
             try:
                 self.assert_inherited_numeric_safe(db,project,identity,snap,{request_id})
                 candidate,fragments=prepare(raw['candidate_json'],snap,bundle,body,
-                    lambda decision,text:self.resolve_claim(db,project,request_id,raw['candidate_sha256'],decision,text,claim_language(raw['candidate_json'],decision['paragraph_id'])))
+                    lambda decision,text:self.resolve_claim(db,project,request_id,raw['candidate_sha256'],decision,text,claim_language(raw['candidate_json'],decision['paragraph_id'])),
+                    require_source_selection=True)
                 citation_input,mapping=citation_body(candidate,fragments)
                 citation=self.citations.create_draft_in_transaction(db,project,citation_input,'writing-review:'+review_id)[0]['snapshot'] if citation_input['paragraphs'] else None
                 if citation and self.citations.current_changes(db,project,citation): raise source_conflict()

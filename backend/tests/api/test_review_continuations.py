@@ -100,6 +100,7 @@ def test_sci_user_return_public_producer_and_explicit_next_round(client):
     previous = client.get(url+'/rounds/'+round['id']).json()
     assert next_round['id'] in previous['next_round_ids'] and previous['actual_revisions']
     run_task(next_round['task']['id'],1)
+    assert run_task(older.json()['task']['id'],1) is not None
     continued=client.get(url+'/rounds/'+next_round['id']).json()
     context=client.get(url+'/rounds/'+next_round['id']+'/revision-context').json()
     location=next(p for p in context['locations'] if p['kind']=='paragraph' and p['section_id']=='materials_and_methods')

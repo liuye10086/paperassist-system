@@ -134,8 +134,10 @@ function ChangePanel({projectId,manuscriptId,version,currentRevision,active,temp
 }
 
 export function SchoolVersionOrigin({version,versions}:{version:ManuscriptVersion;versions:ManuscriptVersion[]}){
- const {t}=useI18n();const provenance=version.snapshot.school_change_provenance
- const label=version.snapshot.user_return_provenance?'用户回传':provenance?.kind==='template_migration'?'模板迁移':provenance?.kind==='docx_return'?'用户回传':version.snapshot.review_provenance?'检查修改':version.snapshot.writing_provenance?'写作发布':'系统生成'
+ const {t}=useI18n()
+ const snapshot=version.snapshot,change=snapshot.school_change_provenance
+ const written=version.parent_version_id&&snapshot.writing_provenance?.base_version_id===version.parent_version_id
+ const label=written?'写作发布':snapshot.user_return_provenance?'用户回传':change?.kind==='template_migration'?'模板迁移':change?.kind==='docx_return'?'用户回传':snapshot.review_provenance?'检查修改':snapshot.writing_provenance?'写作发布':'系统生成'
  const parent=versions.find(v=>v.id===version.parent_version_id)
  return <small>{t(label)}{parent&&` · ${t('父版本 {revision}',{revision:parent.revision})}`}</small>
 }

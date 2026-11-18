@@ -7,6 +7,7 @@ import ManuscriptExports from './ManuscriptExports'
 import {emptyPresentation} from './presentationTypes'
 import ManuscriptReview from './ManuscriptReview'
 import WritingLanguageReview from './WritingLanguageReview'
+import {SchoolVersionOrigin} from './SchoolChanges'
 import {reviewContext} from './reviewFixtures'
 import {taskFixture} from '../tasks/taskFixtures'
 import {setLocale} from '../../shared/i18n'
@@ -20,6 +21,17 @@ const snapshot={...snapshotFixture,output_language:'zh-CN',thesis_context:school
 const readiness={ready:true,blocking_reasons:[],profile,confirmation_id:'confirm1',chapters:chapters.map(({id,title,level})=>({id,title,level})),purposes:['abstract','introduction','materials_and_methods','results','discussion','conclusion','references','acknowledgements','manual','other'],template_source_file_ids:[]}
 const props={projectId:'p1',researchTopic:'学校研究',outputLanguage:'zh-CN' as const,active:true,projectType:'thesis' as const}
 afterEach(()=>{cleanup();vi.unstubAllGlobals();setLocale('zh-CN')})
+it('labels new writing after a school migration by its own release',()=>{
+ const previous:ManuscriptVersion={...manuscriptFixture.versions[0] as ManuscriptVersion,id:'v4',revision:4,snapshot}
+ const migrated={...previous,id:'v5',revision:5,parent_version_id:previous.id,
+  snapshot:{...snapshot,school_change_provenance:{kind:'template_migration'}}}
+ const written={...migrated,id:'v6',revision:6,parent_version_id:migrated.id,
+  snapshot:{...migrated.snapshot,writing_provenance:{base_version_id:migrated.id,provider_provenance:'synthetic_fixture',verification_status:'scientific_and_language_reviewed'}}}
+ const versions=[written,migrated,previous]
+ render(<><SchoolVersionOrigin version={written} versions={versions}/><SchoolVersionOrigin version={migrated} versions={versions}/></>)
+ expect(screen.getByText('写作发布 · 父版本 5')).toBeTruthy()
+ expect(screen.getByText('模板迁移 · 父版本 4')).toBeTruthy()
+})
 it('accepts frozen school chapters but rejects metadata order mismatches',()=>{
  expect(validSnapshot(snapshot,'p1')).toBe(true)
  expect(validSnapshot({...snapshot,school_content_report:undefined},'p1')).toBe(false)

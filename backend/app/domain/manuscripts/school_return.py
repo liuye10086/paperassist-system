@@ -35,7 +35,7 @@ def package_hints(raw):
 def normalize(text):return re.sub(r'\s+','',text)
 
 
-def extract(raw,filename,base,baseline_raw=None,*,document=None,known_headings_only=False):
+def extract(raw,filename,base,baseline_raw=None,*,document=None,known_headings_only=False,match_export_scope=False):
     document=document or parse_docx(raw,filename,DOCX_SETTINGS).document.model_dump()
     hints,protected,semantics,toc=package_hints(raw)
     original={};bookmark_sections={};by_title={}
@@ -61,8 +61,13 @@ def extract(raw,filename,base,baseline_raw=None,*,document=None,known_headings_o
     def visual(block,semantic_map=semantics):
         if block['kind']=='paragraph':return dict(text=block['text'],images=block['image_ids'],semantic=semantic_map.get(block['source']['path'],dict(references=[],fields=[])))
         return dict(rows=block['rows'],columns=block['columns'],cells=[dict(row=c['row'],column=c['column'],row_span=c['row_span'],column_span=c['column_span'],blocks=[visual(b,semantic_map) for b in c['blocks']]) for c in block['cells']])
+    from app.adapters.school_docx import TOC_STYLE_IDS
+
     def is_heading(block,marks):
-        return block['kind']=='paragraph' and not any(m in original for m in marks) and bool(normalize(block['text']) in by_title or not known_headings_only and (block.get('heading_level') or block.get('style_id') in ('SchoolChineseAbstract','SchoolEnglishAbstract','SchoolReferences','SchoolAcknowledgements')))
+        return (block['kind']=='paragraph' and not any(m in original for m in marks)
+                and not (match_export_scope and block.get('style_id') in TOC_STYLE_IDS)
+                and bool(normalize(block['text']) in by_title or not known_headings_only and
+                         (block.get('heading_level') or block.get('style_id') in ('SchoolChineseAbstract','SchoolEnglishAbstract','SchoolReferences','SchoolAcknowledgements'))))
     def chapter_scopes(doc,marks):
         # Chapter content/bookmark anchors survive inserted ordinary paragraphs.
         # No matching across chapter boundaries and no absolute XML row numbers.
@@ -144,7 +149,23 @@ def extract(raw,filename,base,baseline_raw=None,*,document=None,known_headings_o
             section['paragraph_items']=[dict(text=p['text'],original_id=p['id']) for p in old_section['paragraphs']]
     if not sections:problems.append(issue('empty_return','回传无可采用章节正文。'))
     if ignored:problems.append(issue('export_nonbody_retained','已核对固定导出中未变的封面、目录、图表说明和人工附加内容；保留在原导出与回传原件，未当作新增研究正文。',severity='warning'))
-    return dict(sections=sections,issues=problems,retained_nonbody=ignored,document_sha256=sha256(raw).hexdigest())
+    result=dict(sections=sections,issues=problems,retained_nonbody=ignored,document_sha256=sha256(raw).hexdigest())
+    if match_export_scope and baseline is not None:
+        cached_paths={path for toc in baseline_toc for path in toc['paths']}
+        exported=set()
+        for block in baseline['blocks']:
+            path=block['source']['path']
+            if block['kind']!='paragraph' or path in cached_paths:
+                continue
+            marks=baseline_hints.get(path,[])
+            for mark in marks:
+                exported.update(bookmark_sections.get(mark,()))
+            if is_heading(block,marks):
+                candidates=by_title.get(normalize(block['text']),[])
+                scope=baseline_scopes[path]
+                exported.update([scope] if scope in candidates else candidates)
+        result['exported_chapter_ids']=[s['id'] for s in base['sections'] if s['id'] in exported]
+    return result
 
 
 def tokens(text):

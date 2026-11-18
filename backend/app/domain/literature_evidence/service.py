@@ -135,15 +135,19 @@ class LiteratureEvidenceService:
                     reference_id=reference['reference_id'], source_json=source, **body)
             return self.material_view(project, row), status
 
+    def material_visibility_filter(self):
+        if not self.assets.customer:
+            return ''
+        return ''' AND EXISTS (SELECT 1 FROM files WHERE files.id=literature_materials.file_id
+            AND files.project_id=literature_materials.project_id''' + self.assets.material_filter + ')'
+
     def materials(self, project, page=1, project_reference_id=None):
         with self.store.connection() as db:
             self.store.require_project(db, project)
             if project_reference_id:
                 self.literature.require_reference(db, project, project_reference_id)
-            where = 'project_id=%s AND user_id=%s AND (%s::text IS NULL OR project_reference_id=%s)'
-            if self.assets.customer:
-                where += ''' AND EXISTS (SELECT 1 FROM files WHERE files.id=literature_materials.file_id'''
-                where += self.assets.material_filter + ')'
+            where = ('project_id=%s AND user_id=%s AND (%s::text IS NULL OR project_reference_id=%s)'
+                     + self.material_visibility_filter())
             args = (project, self.store.user_id, project_reference_id, project_reference_id)
             total = db.execute('SELECT count(*) AS n FROM literature_materials WHERE '+where, args).fetchone()['n']
             rows = db.execute('SELECT id FROM literature_materials WHERE '+where+' ORDER BY created_at DESC,id LIMIT 10 OFFSET %s', (*args,(page-1)*10)).fetchall()

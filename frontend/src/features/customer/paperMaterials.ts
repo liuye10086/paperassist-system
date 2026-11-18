@@ -8,11 +8,15 @@ export type PaperMaterialNote = {
   target_id: string | null
   target_label: string | null
   target_available: boolean
+  worksheet_names?: string[] | null
 }
 
 export type PaperMaterialTarget = { id: string; label: string }
 export type PaperMaterialsRead = { items: PaperMaterialNote[]; targets: PaperMaterialTarget[] }
 export type PaperFile = { id: string; filename: string; file_type: string }
+export type PaperWorksheet = {
+  name: string; columns: string[]; preview_rows: string[][]; row_count: number; values_ready: boolean
+}
 
 export function paperMaterialKind(file: PaperFile) {
   if (['png', 'jpeg', 'tiff'].includes(file.file_type)) return 'figure'

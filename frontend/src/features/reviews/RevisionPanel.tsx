@@ -8,7 +8,7 @@ import FixedEvidenceDetails,{FixedChangeValue,EvidenceLabel} from './FixedEviden
 import {useEffect,useLayoutEffect,useRef,useState} from 'react'
 import {useI18n} from '../../shared/i18n'
 import {useDocumentVisible} from '../tasks/useDocumentVisible'
-import {manuscriptBase,validManuscript,type ManuscriptVersion} from '../manuscripts/manuscriptTypes'
+import {manuscriptVersionPath,validManuscriptVersion,type ManuscriptVersion} from '../manuscripts/manuscriptTypes'
 import ManuscriptPreview from '../manuscripts/ManuscriptPreview'
 import ManuscriptExports from '../manuscripts/ManuscriptExports'
 import type {Round} from './reviewTypes'
@@ -37,7 +37,16 @@ function Panel({selectedItemId,onSelectItem,view,onSelectRun,onSelectDocument,pr
  useEffect(()=>{if(!open||!active||!visible||!available)return;let alive=true,timer=0
   async function load(){try{const [c,r]=await Promise.all([request(path+'/revision-context',(v):v is RevisionContext=>validRevisionContext(v,round.id)),request(path+'/revisions',(v):v is {items:Revision[]}=>object(v)&&Array.isArray(v.items)&&v.items.every(x=>validRevision(x,projectId,round.id)))]);if(!alive)return;if(!dirty.current){setContext(c);contextBase.current=c.plan_revision;setStale(false)}else if(contextBase.current!==c.plan_revision)setStale(true);setRevisions(r.items);if(!selectedRef.current&&r.items[0]&&active){setSelectedRun(r.items[0].id);if(customer)onSelectRun?.(r.items[0].id,true);else onSelectRun?.(r.items[0].id)}if(r.items.some(r=>['queued','running'].includes(r.task.status)||r.result&&r.output_status!=='published'))timer=window.setTimeout(()=>void load(),3000)}catch(cause){if(alive)setError(cause instanceof Error?cause.message:'修改成果读取失败。')}}void load();return()=>{alive=false;window.clearTimeout(timer)}
  },[open,active,visible,available,path,round.id,projectId,request,setError,refresh,round.revision,onSelectRun,customer])
- useEffect(()=>{if(!selected?.result||selected.task.status!=='succeeded'||selected.output_status!=='published'||!showManuscript||!active||!visible||!available)return;let alive=true;const out=selected.result.output;void request(manuscriptBase(projectId),(v):v is {items:import('../manuscripts/manuscriptTypes').Manuscript[]}=>object(v)&&Array.isArray(v.items)&&v.items.every(x=>validManuscript(x,projectId))).then(list=>{if(alive){const v=list.items.find(m=>m.id===out.manuscript_id)?.versions.find(v=>v.id===out.version_id&&v.status==='published');setPublishedVersion(v??null)}}).catch(()=>{});return()=>{alive=false}},[selected,showManuscript,projectId,active,visible,available,request])
+ useEffect(()=>{
+  if(!selected?.result||selected.task.status!=='succeeded'||selected.output_status!=='published'||!showManuscript||!active||!visible||!available)return
+  const c=new AbortController(), output=selected.result.output
+  void request(manuscriptVersionPath(projectId,output.manuscript_id,output.revision),
+   (value):value is ManuscriptVersion=>validManuscriptVersion(value,projectId,output.manuscript_id),undefined,c.signal)
+   .then(version=>{
+    if(!c.signal.aborted)setPublishedVersion(version.id===output.version_id&&version.revision===output.revision&&version.status==='published'?version:null)
+   }).catch(()=>{})
+  return()=>c.abort()
+ },[selected,showManuscript,projectId,active,visible,available,request])
  function edit(){dirty.current=true;setDraftChanged(true);setPreview(null)}
  useReviewDraftGuard(draftChanged||!!(content||reason||operations.length||figureIds.length))
  const [visitedRuns,setVisitedRuns]=useState<string[]>([])

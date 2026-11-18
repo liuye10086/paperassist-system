@@ -177,7 +177,9 @@ class SchoolTemplateService:
                 self.assets.original(dict(file))
                 if source['document_version_id']:
                     from app.domain.external_evidence.service import ExternalEvidenceService
-                    current,items=ExternalEvidenceService(self.assets).source(row['project_id'],source['file_id'],'document_version',source['document_version_id'])
+                    current,items=ExternalEvidenceService(self.assets).source(
+                        row['project_id'],source['file_id'],'document_version',source['document_version_id'],
+                        allow_customer_pdf=source['role']=='supplement')
                     if current['sha256']!=source['evidence_sha256'] or items!=source['evidence']: raise source_conflict()
             except StorageError as exc:
                 if exc.code in ('storage_unavailable','database_configuration'): raise

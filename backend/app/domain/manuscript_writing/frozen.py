@@ -25,6 +25,7 @@ class NumericContract(Contract):
     schema_version:Literal[2]=2
     origin:Literal['installed','configuration']
     instruction_revision:Literal['legacy','numeric2-exact-v1']='legacy'
+    source_selection_version:Literal[2]|None=Field(default=None,exclude_if=lambda value:value is None)
 
 class SchoolContract(NumericContract):
     schema_version:Literal[3]=3
@@ -44,6 +45,7 @@ class ArticleContract(StrictContract):
     document_kind:Literal['sci','thesis']
     article_scope_version:Literal['article-scope-v1']='article-scope-v1'
     article_instruction_revision:Literal['sci-article-prose-v2']=SCI_ARTICLE_PROSE_REVISION
+    source_selection_version:Literal[2]|None=Field(default=None,exclude_if=lambda value:value is None)
     policy:ModelPolicy
     max_input_allowance:Annotated[int,Field(strict=True,ge=1,le=100000)]
     protocol_allowance:Literal[4096]=4096
@@ -72,7 +74,7 @@ def validate(value):
     return value
 
 
-def contract(version=None,*,schema_version=1,instruction_revision='numeric2-exact-v1',document_kind='sci',article_instruction_revision=None):
+def contract(version=None,*,schema_version=1,instruction_revision='numeric2-exact-v1',document_kind='sci',article_instruction_revision=None,source_selection_version=None):
     if type(schema_version) is not int or schema_version not in (1,2,3,4):raise ValueError('Unknown frozen contract version')
     models=version['bundle']['models'] if version else None
     execution=models['writing']['execution'] if models else None
@@ -81,7 +83,8 @@ def contract(version=None,*,schema_version=1,instruction_revision='numeric2-exac
         if article_instruction_revision is not None:
             article['article_instruction_revision']=article_instruction_revision
     else: article={}
-    return validate(dict(schema_version=schema_version,**article,**({'instruction_revision':instruction_revision} if schema_version==2 and instruction_revision is not None else {}),**({'numeric_contract_version':2} if schema_version in (3,4) else {}),**({'origin':'configuration' if version else 'installed'} if schema_version in (2,3,4) else {}),
+    selection={'source_selection_version':source_selection_version} if source_selection_version is not None else {}
+    return validate(dict(schema_version=schema_version,**article,**selection,**({'instruction_revision':instruction_revision} if schema_version==2 and instruction_revision is not None else {}),**({'numeric_contract_version':2} if schema_version in (3,4) else {}),**({'origin':'configuration' if version else 'installed'} if schema_version in (2,3,4) else {}),
         policy=execution['policy'] if execution else installed.policy().model_dump(mode='json'),
         max_input_allowance=execution['input_token_allowance'] if execution else installed.MAX_INPUT,
         instruction=version['bundle']['prompts']['writing_instruction'] if version else '',

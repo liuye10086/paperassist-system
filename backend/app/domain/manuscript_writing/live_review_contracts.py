@@ -23,6 +23,7 @@ class ParagraphDecision(Strict):
     scientific_basis: str = Field(min_length=1,max_length=4000)
     claim: ClaimBinding | None = None
     numeric_bindings: list[NumericDecision] = Field(max_length=1000)
+    source_aliases: list[str] | None = Field(default=None,max_length=200,exclude_if=lambda value:value is None)
 
     @field_validator('scientific_basis','corrected_text')
     @classmethod

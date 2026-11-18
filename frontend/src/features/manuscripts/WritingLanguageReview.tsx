@@ -7,25 +7,31 @@ import {protocolLabel,inventoryKinds,inventoryScopes,exceptionKinds} from '../..
 import {useManuscriptDraft} from './useManuscriptDraft'
 import {useState} from 'react'
 import {useI18n} from '../../shared/i18n'
+import {useResearchRead} from '../research-results/api'
 import {manuscriptBase,validManuscript,type Manuscript} from './manuscriptTypes'
 import {codepointRange,listOf,validLanguageContext,validLanguageArtifact,validFigureVersion,type ScienceReview,type LanguageContext,type LanguageArtifact,type LanguagePreparation,type LanguageException,type FigureVersion,type InventoryItem} from './writingLiveTypes'
 import {useWritingOperation} from './useWritingOperation'
 import ManuscriptPreview from './ManuscriptPreview'
 import FigureLanguagePanel from './FigureLanguagePanel'
 export type ItemDecision={decision:''|'target_language'|'no_text'|'provided_literal';reason:string;exceptions:LanguageException[]}
+type SavedLanguageReview={id:string;created_at:string}
 
-function plannedDecision(item:InventoryItem):ItemDecision['decision']{
- if(item.protected_identity===true||item.preserve_reference===true)return 'provided_literal'
+function preservesReference(item:InventoryItem,school:boolean){
+ return item.preserve_reference===true||school&&item.kind==='export_text'&&item.scope==='reference_metadata'
+}
+
+function plannedDecision(item:InventoryItem,school:boolean):ItemDecision['decision']{
+ if(item.protected_identity===true||preservesReference(item,school))return 'provided_literal'
  if(item.kind!=='image')return 'target_language'
  if(item.language_known!==true)return ''
  return item.no_text===true?'no_text':'target_language'
 }
 
-export function LanguageItem({item,value,onChange,index,figures,inventory,customerSci=false,readable=false}:{customerSci?:boolean;readable?:boolean;figures?:ReviewFigure[];inventory?:InventoryItem[];index?:number;item:InventoryItem;value:ItemDecision;onChange:(v:ItemDecision)=>void}){
+export function LanguageItem({item,value,onChange,index,figures,inventory,customerSci=false,readable=false,school=false}:{customerSci?:boolean;readable?:boolean;school?:boolean;figures?:ReviewFigure[];inventory?:InventoryItem[];index?:number;item:InventoryItem;value:ItemDecision;onChange:(v:ItemDecision)=>void}){
  const {t}=useI18n(),[selection,setSelection]=useState({start:0,end:0}),[kind,setKind]=useState<LanguageException['kind']>('proper_name'),[reason,setReason]=useState('')
  const kindLabel=item.kind==='export_text'?t(customerSci?'Word 导出文字':'学校导出文本'):protocolLabel(inventoryKinds,item.kind,'未知类型')
  const ExceptionGroup=readable?'fieldset':'details',ExceptionTitle=readable?'legend':'summary'
- const requiredDecision=plannedDecision(item)
+ const requiredDecision=plannedDecision(item,school)
  const unknownImage=readable&&requiredDecision===''
  const imageItem=readable&&item.kind==='image'
  return <fieldset disabled={unknownImage||unlocatedEmptyImage(item,figures)}>
@@ -39,7 +45,7 @@ export function LanguageItem({item,value,onChange,index,figures,inventory,custom
    </label>}
    <label>{t('此项语言决定')}<select value={value.decision} onChange={e=>onChange({...value,decision:e.target.value as ItemDecision['decision']})}>
     <option value="">{t('尚未判断')}</option>
-    {requiredDecision==='provided_literal'?<option value="provided_literal">{t(item.preserve_reference===true?'已核对参考文献原文':'已逐项核对用户提供的身份原文')}</option>:<>
+    {requiredDecision==='provided_literal'?<option value="provided_literal">{t(preservesReference(item,school)?'已核对参考文献原文':'已逐项核对用户提供的身份原文')}</option>:<>
      {(!readable||requiredDecision==='target_language')&&<option value="target_language">{t('目标语言文字已逐项核对')}</option>}
      {(!readable||requiredDecision==='no_text')&&<option value="no_text">{t('已明确检查此图没有文字')}</option>}
     </>}
@@ -65,9 +71,13 @@ export default function WritingLanguageReview({projectId,manuscriptId,baseRevisi
  const readable=(customerSci||customerThesis)&&!!review.candidate.paper_plan
  const school=!!review.candidate.thesis_context
  const initialSchool:SchoolExportOptions={manual_fields:{author:'',student_id:'',department:'',major:'',class_name:'',supervisor:'',submission_date:''},manual_chapters:[],english_title:'',keywords:[],include_toc:true,toc_depth:3,field_values:{}}
- const {t}=useI18n(),op=useWritingOperation(),base=`${manuscriptBase(projectId)}/${encodeURIComponent(manuscriptId)}/writing-requests/${encodeURIComponent(review.request_id)}`,[context,setContext]=useState<LanguageContext|null>(null),[preparation,setPreparation]=useState<LanguagePreparation>({schema_version:school?3:2,...(school?{school:initialSchool}:{}),review_id:review.id,review_sha256:review.review_sha256,edits:[],figure_versions:[]}),[dirty,setDirty]=useState(true),[decisions,setDecisions]=useState<Record<string,ItemDecision>>({}),[versions,setVersions]=useState<FigureVersion[]>([]),[artifacts,setArtifacts]=useState<LanguageArtifact[]>([]),[selected,setSelected]=useState<LanguageArtifact|null>(null),[artifactId,setArtifactId]=useState(''),[confirmed,setConfirmed]=useState(false)
- useManuscriptDraft(preparation.edits.length>0||preparation.figure_versions.length>0||Object.keys(decisions).length>0||confirmed||school&&JSON.stringify(preparation.school)!==JSON.stringify(initialSchool))
- function invalidate(){setDirty(true);setDecisions({});setSelected(null);setConfirmed(false);if(school)setArtifacts([])}
+ const {t,locale}=useI18n(),op=useWritingOperation(),base=`${manuscriptBase(projectId)}/${encodeURIComponent(manuscriptId)}/writing-requests/${encodeURIComponent(review.request_id)}`,[context,setContext]=useState<LanguageContext|null>(null),[preparation,setPreparation]=useState<LanguagePreparation>({schema_version:school?3:2,...(school?{school:initialSchool}:{}),review_id:review.id,review_sha256:review.review_sha256,edits:[],figure_versions:[]}),[dirty,setDirty]=useState(true),[decisions,setDecisions]=useState<Record<string,ItemDecision>>({}),[versions,setVersions]=useState<FigureVersion[]>([]),[artifacts,setArtifacts]=useState<LanguageArtifact[]>([]),[selected,setSelected]=useState<LanguageArtifact|null>(null),[artifactId,setArtifactId]=useState(''),[confirmed,setConfirmed]=useState(false)
+ const history=useResearchRead<{items:SavedLanguageReview[]}>(`${base}/reviews/${encodeURIComponent(review.id)}/language-reviews`,op.valid)
+ const savedReviews=new Map((history.data?.items??[]).map(item=>[item.id,item]))
+ for(const artifact of artifacts)if(!savedReviews.has(artifact.id))savedReviews.set(artifact.id,{id:artifact.id,created_at:''})
+ const [savedPreparation,setSavedPreparation]=useState(()=>JSON.stringify(preparation))
+ useManuscriptDraft(JSON.stringify(preparation)!==savedPreparation||Object.keys(decisions).length>0||confirmed)
+ function invalidate(){setDirty(true);setDecisions({});setSelected(null);setConfirmed(false)}
  function figureLanguage(identity:string){
   const candidate=review.candidate
   if(!school)return candidate.output_language
@@ -89,12 +99,18 @@ export default function WritingLanguageReview({projectId,manuscriptId,baseRevisi
  const ready=context&&!dirty&&context.inventory.length>0&&context.inventory.every(item=>{
   const decision=decisions[item.location]
   if(!decision?.decision||!decision.reason.trim()||unlocatedEmptyImage(item,inventoryFigures))return false
-  if(readable)return decision.decision===plannedDecision(item)
-  return plannedDecision(item)==='provided_literal'?decision.decision==='provided_literal':['target_language','no_text'].includes(decision.decision)
+  if(readable)return decision.decision===plannedDecision(item,school)
+  return plannedDecision(item,school)==='provided_literal'?decision.decision==='provided_literal':['target_language','no_text'].includes(decision.decision)
  })
- async function save(){if(!context||!ready)return;const result=await op.run(`${base}/language-reviews`,(v):v is LanguageArtifact=>validLanguageArtifact(v,projectId,review),{...preparation,inventory_sha256:context.inventory_sha256,decisions:context.inventory.map(i=>({location:i.location,content_sha256:i.content_sha256,...decisions[i.location]}))});if(result){setArtifacts(old=>[...old.filter(a=>a.id!==result.id),result]);setSelected(null)}}
- async function readArtifact(){if(!artifactId.trim())return;const result=await op.run(`${base}/language-reviews/${encodeURIComponent(artifactId.trim())}`,(v):v is LanguageArtifact=>validLanguageArtifact(v,projectId,review));if(result){setArtifacts(old=>[...old.filter(a=>a.id!==result.id),result]);setSelected(null);setConfirmed(false);if(school){const options=result.candidate.writing_provenance?.school_export_options as SchoolExportOptions|undefined;if(options){setPreparation(old=>({...old,school:options}));setDirty(false);setContext(null)}}}}
- async function publish(){if(!selected||!confirmed||school&&dirty)return;const result=await op.run(`${base}/publish`,(v):v is Manuscript=>validManuscript(v,projectId)&&v.id===manuscriptId&&v.current_revision>baseRevision,{schema_version:2,expected_revision:baseRevision,review_id:review.id,review_sha256:review.review_sha256,language_review_id:selected.id,language_review_sha256:selected.artifact_sha256});if(result)onPublished(result)}
+ async function save(){if(!context||!ready)return;const result=await op.run(`${base}/language-reviews`,(v):v is LanguageArtifact=>validLanguageArtifact(v,projectId,review),{...preparation,inventory_sha256:context.inventory_sha256,decisions:context.inventory.map(i=>({location:i.location,content_sha256:i.content_sha256,...decisions[i.location]}))});if(result){setArtifacts(old=>[...old.filter(a=>a.id!==result.id),result]);setSelected(null);setConfirmed(false);setDecisions({});setSavedPreparation(JSON.stringify(preparation));history.refresh()}}
+ async function chooseArtifact(id:string){
+  setSelected(null);setConfirmed(false)
+  if(!id)return
+  const found=artifacts.find(a=>a.id===id)
+  const result=found??await op.run(`${base}/language-reviews/${encodeURIComponent(id)}`,(v):v is LanguageArtifact=>validLanguageArtifact(v,projectId,review)&&v.id===id)
+  if(result){if(!found)setArtifacts(old=>[...old.filter(a=>a.id!==result.id),result]);setSelected(result)}
+ }
+ async function publish(){if(!selected||!confirmed)return;const result=await op.run(`${base}/publish`,(v):v is Manuscript=>validManuscript(v,projectId)&&v.id===manuscriptId&&v.current_revision>baseRevision,{schema_version:2,expected_revision:baseRevision,review_id:review.id,review_sha256:review.review_sha256,language_review_id:selected.id,language_review_sha256:selected.artifact_sha256});if(result)onPublished(result)}
  return <section aria-label={t('独立语言审核与发布')}><h4>{t('独立语言审核与发布')}</h4><p>{t('已绑定所选科学审核产物')} · {t('稿件版本')} {baseRevision}</p><ManuscriptPreview customerSci={customerSci} customerView={readable} snapshot={review.candidate} label="科学审后版本"/><fieldset disabled={op.busy||!op.valid}><button type="button" onClick={()=>void load()}>{t('读取真实 DOCX 全语言清单')}</button></fieldset>{school&&op.valid&&<SchoolExportPanel version={{revision:baseRevision,snapshot:review.candidate}} customerView={customerThesis} value={preparation.school??initialSchool} onChange={value=>{invalidate();setPreparation(old=>({...old,school:value}))}} onPreview={()=>void load(true)} busy={op.busy} disabled={!op.valid} plan={null}/>}
  {op.valid&&<FigureLanguagePanel projectId={projectId} snapshot={review.candidate}
   confirmOnly={customerSci&&!readable} reviewLanguageForFigure={readable?figureLanguage:undefined}
@@ -118,5 +134,5 @@ export default function WritingLanguageReview({projectId,manuscriptId,baseRevisi
    </select>
   </label>
  })}
- <button type="button" onClick={()=>void load(true)}>{t('预览修正后的完整语言清单')}</button></fieldset>{dirty?<p role="alert">{t('材料已更改，旧清单决定和发布选择已失效。请重新预览。')}</p>:<><p>{t('已读取当前固定版本的语言核对清单')}</p><ManuscriptPreview customerSci={customerSci} customerView={readable} snapshot={context.candidate} label="完整语言审核候选"/><fieldset disabled={op.busy}>{context.inventory.map((i,index)=><LanguageItem customerSci={customerSci} readable={readable} figures={inventoryFigures} inventory={context.inventory} index={index+1} key={i.location+':'+i.content_sha256} item={i} value={decisions[i.location]??{decision:'',reason:'',exceptions:[]}} onChange={value=>{setDecisions(old=>({...old,[i.location]:value}));setSelected(null);setConfirmed(false)}}/>)}<button type="button" disabled={!ready} onClick={()=>void save()}>{t('封存独立语言审核')}</button></fieldset></>}</>}{op.valid&&<fieldset disabled={op.busy} style={{minWidth:0,overflowWrap:'anywhere'}}><legend>{t('选择语言产物并显式发布')}</legend>{!readable&&<details><summary>{t('高级设置：按编号回读历史语言产物')}</summary><label>{t('历史语言产物编号')}<input value={artifactId} onChange={e=>setArtifactId(e.target.value)}/></label><button type="button" disabled={!artifactId.trim()} onClick={()=>void readArtifact()}>{t('回读语言产物')}</button></details>}<label>{t('明确选择语言审核产物')}<select value={selected?.id??''} onChange={e=>{setSelected(artifacts.find(a=>a.id===e.target.value)??null);setConfirmed(false)}}><option value="">{t('尚未选择')}</option>{artifacts.filter(()=>!school||!dirty).map((a,index)=><option key={a.id} value={a.id}>{t('语言审核产物')} {index+1} · {a.candidate.title}</option>)}</select></label>{selected&&<div style={{minWidth:0,overflowWrap:'anywhere'}}><p>{t('已选定固定审核候选；仅在下方明确确认后发布。')}</p>{school&&(readable?<section><h5>{t('已固定的学校导出选项')}</h5><ReadableDetails value={selected.candidate.writing_provenance?.school_export_options}/></section>:<details><summary>{t('已固定的学校导出选项')}</summary><ReadableDetails value={{[t('学校导出选项')]:selected.candidate.writing_provenance?.school_export_options}}/></details>)}<ManuscriptPreview customerSci={customerSci} customerView={readable} snapshot={selected.candidate} label="待显式发布的最终版本"/></div>}<label><input type="checkbox" checked={confirmed} disabled={!selected} onChange={e=>setConfirmed(e.target.checked)}/>{t('我已核对所选科学与语言产物及最终版本，明确发布为不可变新版本。')}</label><button type="button" disabled={!selected||!confirmed||school&&dirty} onClick={()=>void publish()}>{t('显式发布审核后版本')}</button></fieldset>}{op.error&&<p role="alert">{t(op.error)}</p>}</section>
+ <button type="button" onClick={()=>void load(true)}>{t('预览修正后的完整语言清单')}</button></fieldset>{dirty?<p role="alert">{t('材料已更改，旧清单决定和发布选择已失效。请重新预览。')}</p>:<><p>{t('已读取当前固定版本的语言核对清单')}</p><ManuscriptPreview customerSci={customerSci} customerView={readable} snapshot={context.candidate} label="完整语言审核候选"/><fieldset disabled={op.busy}>{context.inventory.map((i,index)=><LanguageItem customerSci={customerSci} readable={readable} school={school} figures={inventoryFigures} inventory={context.inventory} index={index+1} key={i.location+':'+i.content_sha256} item={i} value={decisions[i.location]??{decision:'',reason:'',exceptions:[]}} onChange={value=>{setDecisions(old=>({...old,[i.location]:value}));setSelected(null);setConfirmed(false)}}/>)}<button type="button" disabled={!ready} onClick={()=>void save()}>{t('封存独立语言审核')}</button></fieldset></>}</>}{op.valid&&<fieldset disabled={op.busy} style={{minWidth:0,overflowWrap:'anywhere'}}><legend>{t('选择语言产物并显式发布')}</legend>{history.error&&<p role="alert">{t(history.error)} <button type="button" onClick={history.refresh}>{t('重试')}</button></p>}{!readable&&<details><summary>{t('高级设置：按编号回读历史语言产物')}</summary><label>{t('历史语言产物编号')}<input value={artifactId} onChange={e=>setArtifactId(e.target.value)}/></label><button type="button" disabled={!artifactId.trim()} onClick={()=>void chooseArtifact(artifactId.trim())}>{t('回读语言产物')}</button></details>}<label>{t('明确选择语言审核产物')}<select value={selected?.id??''} onChange={e=>void chooseArtifact(e.target.value)}><option value="">{t('尚未选择')}</option>{[...savedReviews.values()].map((a,index)=><option key={a.id} value={a.id}>{t('语言审核产物')} {index+1} · {a.created_at?new Date(a.created_at).toLocaleString(locale):review.candidate.title}</option>)}</select></label>{selected&&<div style={{minWidth:0,overflowWrap:'anywhere'}}><p>{t('已选定固定审核候选；仅在下方明确确认后发布。')}</p>{school&&(readable?<section><h5>{t('已固定的学校导出选项')}</h5><ReadableDetails value={selected.candidate.writing_provenance?.school_export_options}/></section>:<details><summary>{t('已固定的学校导出选项')}</summary><ReadableDetails value={{[t('学校导出选项')]:selected.candidate.writing_provenance?.school_export_options}}/></details>)}<ManuscriptPreview customerSci={customerSci} customerView={readable} snapshot={selected.candidate} label="待显式发布的最终版本"/></div>}<label><input type="checkbox" checked={confirmed} disabled={!selected} onChange={e=>setConfirmed(e.target.checked)}/>{t('我已核对所选科学与语言产物及最终版本，明确发布为不可变新版本。')}</label><button type="button" disabled={!selected||!confirmed} onClick={()=>void publish()}>{t('显式发布审核后版本')}</button></fieldset>}{op.error&&<p role="alert">{t(op.error)}</p>}</section>
 }

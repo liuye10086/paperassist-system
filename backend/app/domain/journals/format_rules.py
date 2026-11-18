@@ -5,7 +5,7 @@ from app.adapters.manuscript_docx import SECTION_LABELS
 from app.domain.manuscript_review.facts import displayed_paragraphs
 from app.domain.manuscript_writing.article_contract import visible_illustration_groups
 from . import frontiers_review as frontiers
-from .display import completed_narrative_review, context, display_sections, is_narrative_review
+from .display import completed_narrative_review, context, display_sections, is_narrative_review, legacy_revision_without_journal_display
 from .format_contracts import SUBMISSION_KEYS
 
 CATEGORIES=('length','sections','abstract','illustrations','references')
@@ -46,6 +46,7 @@ def section_headings(snapshot, *, main_only=False):
     return [labels[key] for key,_,_ in SECTION_LABELS if key in selected]
 
 def check_format(snapshot,requirements,conflicts,*,public_issues=(),warnings=(),target=None):
+    snapshot=legacy_revision_without_journal_display(snapshot)
     paragraphs=displayed_paragraphs(snapshot)
     sections=snapshot.get('sections')
     body='\n'.join(p['text'] for role,p in paragraphs if role not in ('abstract','references','title'))

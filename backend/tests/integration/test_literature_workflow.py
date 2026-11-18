@@ -182,6 +182,37 @@ def test_retry_budget_is_finite_and_saved_candidates_and_inputs_survive(client):
     assert client.get(f'/api/v1/projects/{pid}/literature/searches/{task["id"]}').json()['input'] == request()
 
 
+def test_customer_recovers_original_search_after_fetch_failure(monkeypatch):
+    from fastapi.testclient import TestClient
+    from app.main import app
+    from tests.api.test_customer_sci_workflow import sci_project
+    from tests.api.test_customer_workspace import sign_in
+
+    monkeypatch.setenv('PAPERASSIST_NCBI_ENABLED', '1')
+    monkeypatch.setenv('PAPERASSIST_NCBI_EMAIL', 'synthetic@example.invalid')
+    with TestClient(app) as customer:
+        sign_in(customer, 'pubmed-retry@example.test', 'customer')
+        project_path = sci_project(customer)
+        task = create(customer, project_path.rsplit('/', 1)[-1]).json()
+        provider = SyntheticNcbi(1, fail_fetches=4)
+        current = task
+        for _ in range(4):
+            current = execute(current, provider)
+        assert current['status'] == 'failed'
+        url = '/api/v1/tasks/' + task['id']
+        workspace = customer.get(url + '/workspace').json()
+        assert workspace['allowed_actions'] == ['retry']
+        body = dict(operation='retry', wait_id=None, expected_task_revision=current['revision'],
+                    input_version=current['input_version'])
+        headers = {'Idempotency-Key': 'retry-original-pubmed'}
+        queued = customer.post(url + '/resume', json=body, headers=headers)
+        assert queued.status_code == 202, queued.text
+        assert queued.json()['id'] == task['id']
+        assert customer.post(url + '/resume', json=body, headers=headers).json() == queued.json()
+        assert execute(queued.json(), provider)['status'] == 'succeeded'
+        assert [call[0] for call in provider.calls] == ['esearch'] + ['efetch'] * 5
+
+
 def test_source_bytes_tamper_is_reported_without_recomputation(client):
     from app.domain.literature.objects import LiteratureObjects
     pid = project(client)

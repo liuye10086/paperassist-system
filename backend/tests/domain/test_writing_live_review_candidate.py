@@ -1,6 +1,10 @@
 from copy import deepcopy
+import json
 import pytest
 from tests.domain.test_writing_live_candidates import fixture
+from app.core.exceptions import StorageError
+from app.domain.manuscript_writing.bundle import build_bundle, require_current_source_projection, validate_bundle
+from app.domain.manuscript_writing.frozen import contract
 from app.domain.manuscript_writing.live_execution import compose_live_candidate
 from app.domain.manuscript_writing.live_review_candidate import prepare,body_digest,finish,citation_body
 from app.domain.manuscript_writing.live_review_contracts import ScientificReviewRequest
@@ -29,6 +33,42 @@ def test_mixed_numbers_bind_every_occurrence_to_distinct_frozen_or_new_reviewed_
     candidate,_=prepare(raw,snap,bundle,body,resolve)
     assert candidate['sections'][2]['paragraphs'][0]['numeric_bindings']==body['paragraphs'][2]['numeric_bindings']
     assert raw['sections'][2]['paragraphs'][0]['verification_status']=='pending'
+
+
+def test_qualitative_correction_keeps_manual_source_binding_and_requires_it_in_later_requests():
+    raw,snap,bundle,body,resolve=sample()
+    paragraph=raw['sections'][2]['paragraphs'][0]
+    text='The intervention group showed a higher response.'
+    corrected=deepcopy(raw)
+    corrected['sections'][2]['paragraphs'][0]['text']=text
+    body['consistency']['body_sha256']=body_digest(corrected)
+    decision=body['paragraphs'][2]
+    decision.update(corrected_text=text,text_sha256=digest(text),classification='study_claim',claim=None,numeric_bindings=[])
+    assert paragraph['suggested_source_aliases']==['s1']
+    assert 'source_aliases' not in ScientificReviewRequest.model_validate(body).model_dump(mode='json')['paragraphs'][2]
+    with pytest.raises(ValueError,match='explicit frozen source'):
+        prepare(raw,snap,bundle,body,resolve,require_source_selection=True)
+    historical,_=prepare(raw,snap,bundle,body,resolve)
+    decision['source_aliases']=['s2']
+    with pytest.raises(ValueError,match='must use frozen sources'):
+        prepare(raw,snap,bundle,body,resolve)
+    decision['source_aliases']=['s1']
+    rebound,_=prepare(raw,snap,bundle,body,resolve)
+    source_id=bundle['local_manifest']['sources']['s1']
+    assert rebound['sections'][2]['paragraphs'][0]['source_ids']==[source_id]
+    request=dict(snap['input'],selected_evidence_ids=[],selected_source_ids=[])
+    current=contract(schema_version=2,source_selection_version=2)
+    assert text not in build_bundle(rebound,request,execution_contract=current)['wire_json']
+    assert text in build_bundle(rebound,dict(request,selected_source_ids=[source_id]),execution_contract=current)['wire_json']
+    assert text not in build_bundle(historical,request,execution_contract=current)['wire_json']
+
+    old=dict(build_bundle(historical,request,execution_contract=contract(schema_version=2)),
+             base_snapshot=historical,request_json=request)
+    assert text in json.loads(old['wire_json'])['input']
+    assert validate_bundle(old)==old
+    with pytest.raises(StorageError) as exc:
+        require_current_source_projection(old)
+    assert exc.value.code=='manuscript_writing_sources_refresh'
 
 @pytest.mark.parametrize('mutation',['missing','duplicate','path','study_value','literature_value','old_evidence','alias_only','classification','extra','swap'])
 def test_mixed_number_misattribution_is_rejected(mutation):

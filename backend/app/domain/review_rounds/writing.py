@@ -11,3 +11,13 @@ def retain_school_layout(snapshot):
         if writing.get('school_pagination_version') == 2:
             layout['pagination_version'] = 2
         snapshot['review_school_layout'] = layout
+
+
+def prepare_revision_layout(snapshot):
+    from app.domain.journals.display import is_narrative_review
+
+    retain_school_layout(snapshot)
+    if is_narrative_review(snapshot) and snapshot.pop('journal_display_context', None):
+        snapshot.pop('journal_adaptation_provenance', None)
+        return True
+    return False

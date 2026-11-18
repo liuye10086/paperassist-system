@@ -32,6 +32,11 @@ def test_language_artifact_binds_every_exported_text_and_publishes_exact_snapsho
     response=post(client,path+'/language-reviews',body,'language')
     assert response.status_code==201,response.text
     language=response.json()
+    listing=client.get(path+'/reviews/'+science['id']+'/language-reviews')
+    assert listing.status_code==200,listing.text
+    assert listing.json()=={'items':[{'id':language['id'],'created_at':language['created_at']}]}
+    assert client.get(path+'/reviews/other/language-reviews').status_code==404
+    assert client.get(path+'/language-reviews/'+language['id']).json()==language
     assert client.get(path+'/reviews/'+science['id']).json()==science
     assert post(client,path+'/language-reviews',body,'language').json()==language
     payload=dict(schema_version=2,expected_revision=1,review_id=science['id'],review_sha256=science['review_sha256'],language_review_id=language['id'],language_review_sha256=language['artifact_sha256'])

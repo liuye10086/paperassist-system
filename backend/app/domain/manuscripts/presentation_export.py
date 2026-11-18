@@ -196,16 +196,44 @@ def confirmed_metadata(context, prior):
     return result
 
 
-def verify_gs501_reviewed_output(context, plan, content):
-    """A previously reviewed document can still contain newly identified terms."""
-    if context['binding']['review_mode'] != 'blind' or not bsu_gs501.selected(context['selected']['snapshot_json']):
+def blind_export_rules(context, plan):
+    config = context['preview']['config']
+    rules = config['blind']
+    if plan is None:
+        return rules
+    snapshot = context['selected']['snapshot_json']
+    if bsu_gs501.selected(snapshot):
+        return bsu_gs501.blind_terms(plan, rules, authors=config['authors'])
+    from app.domain.school_templates.front_matter import blind_rules_with_identities
+
+    options = plan['options']
+    values = [author['name'] for author in config['authors']]
+    front = plan.get('front_matter')
+    if front is None:
+        profile = snapshot['thesis_context']['profile']
+        manual = options.get('manual_fields', {})
+        values.extend(manual.get(key) or profile.get(key, '') for key in ('author', 'student_id', 'supervisor'))
+    else:
+        fields = options.get('field_values', {})
+        values.extend(fields.get(field['id'], '') for field in front['fields'] if field['kind'] in ('identity', 'signature'))
+    return blind_rules_with_identities(rules, values)
+
+
+def require_removed_school_identities(report):
+    if report['known_identity_check'] != 'passed':
+        raise StorageError('school_blind_identity_remaining', '盲审稿仍含已知身份信息，请核对后重新导出。', 422)
+
+
+def verify_school_reviewed_output(context, plan, content):
+    """Check reused school Word bytes against the identities known for this export."""
+    if context['binding']['review_mode'] != 'blind' or plan is None:
         return
     from app.adapters.manuscript_presentation_docx import inspect_docx
 
-    config = context['preview']['config']
-    rules = bsu_gs501.blind_terms(plan, config['blind'], authors=config['authors'])
-    if inspect_docx(content, rules)['known_identity_check'] != 'passed':
+    report = inspect_docx(content, blind_export_rules(context, plan))
+    if bsu_gs501.selected(context['selected']['snapshot_json']) and report['known_identity_check'] != 'passed':
         raise StorageError('gs501_reviewed_output_stale', '已确认的盲评稿仍含已知身份信息，请重新生成盲评 Word 并确认输出语言。', 422)
+    require_removed_school_identities(report)
 
 
 def actual_checks(context, inventory):

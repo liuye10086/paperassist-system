@@ -1,6 +1,8 @@
 """Bounded DOCX returns reuse the common parser, matcher and manuscript producer."""
+from collections import Counter
 from copy import deepcopy
 from hashlib import sha256
+import re
 from uuid import uuid4
 
 from psycopg.types.json import Jsonb
@@ -14,11 +16,14 @@ from app.domain.literature.service import digest
 from app.domain.manuscripts.school_changes import SchoolChangeService
 from app.domain.manuscripts.school_return import extract, apply_return, issue
 from app.domain.manuscripts.service import ManuscriptService
-from app.domain.manuscript_writing.context import normalize_sections
+from app.domain.manuscript_writing.context import citation_fragments, normalize_sections
 from .return_contracts import RegisterReturn
 from .service import ReviewRoundService
-from .writing import retain_school_layout
+from .writing import prepare_revision_layout, retain_school_layout
 from .access import require_review_document_versions
+
+RETURN_SCHEMA_VERSION = 3
+INLINE_CITATION = re.compile(r'[（(]\s*([0-9]+(?:\s*[,，]\s*[0-9]+)*)\s*[)）]')
 
 
 def invalid(message, code='review_return_invalid', status=422):
@@ -37,8 +42,77 @@ def return_base(snapshot):
     return result
 
 
-def apply_supported_return(base, inputs, mappings):
+def return_chapters(snapshot, frozen):
+    base=return_base(snapshot)
+    if 'exported_chapter_ids' in frozen:
+        exported=set(frozen['exported_chapter_ids'])
+        base['sections']=[s for s in base['sections'] if s['id'] in exported]
+    return base
+
+
+def inline_numbers(text):
+    return Counter(tuple(re.findall(r'[0-9]+', match)) for match in INLINE_CITATION.findall(text))
+
+
+def retained_inline_citations(base, candidate, inputs, mappings):
+    """Check altered paragraphs against their exact frozen citation rendering."""
+    from app.domain.literature_citations.formatter import numeric_citation_marker
+
+    references={r['project_reference_id']:r['number'] for r in base['references']}
+    parent={s['id']:s['paragraphs'] for s in base['sections']}
+    revised={s['id']:s['paragraphs'] for s in candidate['sections']}
+    incoming={s['id']:s['paragraph_items'] for s in inputs}
+    cited={p['id']:p for paragraphs in parent.values() for p in paragraphs if p.get('citations')}
+    if not cited or not references:
+        return []
+    projections={}
+
+    def reused(p,text):
+        identity=p['id']
+        if identity not in projections:
+            try:
+                fragments=citation_fragments(base,p)
+                groups=[{references[b['project_reference_id']] for b in f['bindings']}
+                        if f['kind']=='claim' else set() for f in fragments]
+                rendered=''.join(f['text']+numeric_citation_marker(g) if g else f['text'] for f,g in zip(fragments,groups))
+            except (KeyError,ValueError):
+                # Older text without an exact frozen projection keeps the
+                # existing citation, numeric and document checks.
+                projections[identity]=None
+            else:
+                literal=inline_numbers(''.join(f['text'] for f in fragments))
+                projections[identity]=({str(n) for g in groups for n in g},literal) if rendered==p['text'] else None
+        projection=projections[identity]
+        if not projection:
+            return False
+        numbers,literal=projection
+        return any(numbers.intersection(group) and count>literal[group] for group,count in inline_numbers(text).items())
+
+    problems=[]
+    for mapping in mappings:
+        chapter=mapping['chapter_id']
+        before=parent[chapter]
+        after=revised[chapter]
+        if before==after:
+            continue
+        kept={p['id'] for p in after}
+        parent_ids={p['id'] for p in before}
+        displaced=[p for p in before if p['id'] in cited and p['id'] not in kept]
+        for original,paragraph in zip(incoming[mapping['input_section_id']],after):
+            if paragraph['id'] in parent_ids:
+                continue
+            anchor=original.get('original_id')
+            candidates=[cited[anchor]] if anchor in cited else [] if anchor else displaced
+            if any(reused(p,paragraph['text']) for p in candidates):
+                problems.append(issue('citation_changed','改写后的段落仍带原引文编号，须重新核对引文与新论述后再采用。',chapter))
+                break
+    return problems
+
+
+def apply_supported_return(base, inputs, mappings, *, check_inline=True):
     candidate, differences, problems = apply_return(base, inputs, mappings)
+    if check_inline and not base.get('thesis_context') and base.get('references'):
+        problems.extend(retained_inline_citations(base,candidate,inputs,mappings))
     # A changed statement is a new, unreviewed user paragraph. Its original
     # decision remains on the fixed parent, never on the new statement.
     for problem in problems:
@@ -104,14 +178,17 @@ class ReviewReturnService(ReviewRoundService):
                     raise invalid('固定导出不属于明确选定的公共父稿。')
                 _,baseline=self.manuscripts.export(project,base['manuscript_id'],request.base_export_id,True)
             extracted=extract(raw,source['filename'],return_base(base['snapshot_json']),baseline,
-                              document=document,known_headings_only=not bool(base['snapshot_json'].get('thesis_context')))
+                              document=document,known_headings_only=not bool(base['snapshot_json'].get('thesis_context')),
+                              match_export_scope=bool(baseline and base['snapshot_json'].get('thesis_context')))
             identity=str(uuid4())
-            frozen=dict(id=identity,project_id=project,schema_version=2,previous_round_id=previous_id,revision_id=request.revision_id,
+            frozen=dict(id=identity,project_id=project,schema_version=RETURN_SCHEMA_VERSION,previous_round_id=previous_id,revision_id=request.revision_id,
                         manuscript=dict(id=base['manuscript_id'],revision=base['revision'],version_id=base['id'],sha256=base['snapshot_sha256']),
                         source=source,parse=parse,base_export_sha256=sha256(baseline).hexdigest() if baseline else None,
                         sections=extracted['sections'],issues=extracted['issues'],retained_nonbody=extracted['retained_nonbody'],
                         synthetic=bool(request.synthetic or previous['snapshot_json']['synthetic'] or synthetic_input(base['snapshot_json'])),
                         real_model_calls=False,real_network_calls=False)
+            if 'exported_chapter_ids' in extracted:
+                frozen['exported_chapter_ids']=extracted['exported_chapter_ids']
             fields=dict(id=identity,project_id=project,user_id=self.store.user_id,idempotency_key=key,
                         request_json=Jsonb(body),request_digest=digest(body),snapshot_json=Jsonb(frozen),snapshot_sha256=digest(frozen),created_at=now(),
                         previous_round_id=previous_id,revision_id=request.revision_id,manuscript_id=base['manuscript_id'],base_version_id=base['id'],
@@ -134,7 +211,7 @@ class ReviewReturnService(ReviewRoundService):
         source=frozen['source']
         previous=self.round_row(db,row['project_id'],row['previous_round_id'])
         base=self.selected_base(db,row['project_id'],previous,request.manuscript,request.revision_id)
-        if (frozen.get('schema_version') not in (1,2) or frozen['previous_round_id']!=row['previous_round_id']
+        if (frozen.get('schema_version') not in (1,2,RETURN_SCHEMA_VERSION) or frozen['previous_round_id']!=row['previous_round_id']
             or frozen['revision_id']!=row['revision_id'] or frozen['manuscript']!=dict(id=base['manuscript_id'],revision=base['revision'],version_id=base['id'],sha256=base['snapshot_sha256'])
             or row['base_version_id']!=base['id'] or row['manuscript_id']!=base['manuscript_id']
             or any(row[k]!=row['request_json'].get(k) for k in ('revision_id','file_id','document_version_id','base_export_id'))
@@ -161,7 +238,7 @@ class ReviewReturnService(ReviewRoundService):
         base=self.validate_return(db,row)
         frozen=row['snapshot_json']
         snapshot=deepcopy(base['snapshot_json'])
-        working=return_base(snapshot)
+        working=return_chapters(snapshot,frozen)
         inputs=frozen['sections']
         problems=deepcopy(frozen['issues'])
         differences=[]
@@ -171,9 +248,13 @@ class ReviewReturnService(ReviewRoundService):
                and {m['input_section_id'] for m in mappings}==input_ids
                and {m['chapter_id'] for m in mappings}==target_ids)
         if not valid:
-            problems.append(issue('mapping_required','每个输入段落章节与父稿章节必须完整、唯一匹配；不能丢弃歧义或额外正文。'))
+            message=('回传章节须与所选 Word 的实际章节完整且唯一匹配。父稿中未导出的章节会保留。'
+                     if 'exported_chapter_ids' in frozen else
+                     '每个输入段落章节与父稿章节必须完整、唯一匹配；不能丢弃歧义或额外正文。')
+            problems.append(issue('mapping_required',message))
         if valid:
-            working,differences,new_problems=apply_supported_return(working,inputs,mappings)
+            check_inline=frozen['schema_version']==RETURN_SCHEMA_VERSION or not row['output_version_id']
+            working,differences,new_problems=apply_supported_return(working,inputs,mappings,check_inline=check_inline)
             problems.extend(new_problems)
             updated={s['id']:s for s in working['sections']}
             snapshot['sections']=[dict(s,paragraphs=deepcopy(updated[s['id']]['paragraphs'])) if s['id'] in updated else s for s in normalize_sections(snapshot)]
@@ -184,11 +265,13 @@ class ReviewReturnService(ReviewRoundService):
                 differences.append(dict(kind=problem['code'],location=problem['location'],message=problem['message'],before='',after=''))
         if snapshot.get('review'):
             snapshot.setdefault('review_history',[]).append(dict(review=deepcopy(snapshot['review']),provenance=deepcopy(snapshot.get('review_provenance',{})),applies_to_current_text=False,status='historical_requires_recheck'))
-        if frozen['schema_version']==2:
+        if frozen['schema_version']==RETURN_SCHEMA_VERSION:
+            prepare_revision_layout(snapshot)
+        elif frozen['schema_version']==2:
             retain_school_layout(snapshot)
         for name in ('user_return_provenance','review_revision_provenance','review_provenance','writing_provenance','school_change_provenance','journal_adaptation_provenance','review'):
             snapshot.pop(name,None)
-        if frozen['schema_version']==2 and snapshot.get('thesis_context'):
+        if frozen['schema_version'] in (2,RETURN_SCHEMA_VERSION) and snapshot.get('thesis_context'):
             from app.domain.manuscripts.school import school_content_report
 
             snapshot['school_content_report']=school_content_report(snapshot,writing_context=retained_context(
@@ -221,7 +304,7 @@ class ReviewReturnService(ReviewRoundService):
                     manuscript_id=row['manuscript_id'],base_version_id=row['base_version_id'],base_revision=frozen['manuscript']['revision'],
                     source=frozen['source'],original_download_url=f"/api/v1/projects/{row['project_id']}/files/{row['file_id']}/download",
                     input_sections=[{k:v for k,v in s.items() if k!='paragraph_items'} for s in frozen['sections']],
-                    target_chapters=[dict(id=s['id'],title=s['title']) for s in return_base(self.validate_return(db,row)['snapshot_json'])['sections']],
+                    target_chapters=[dict(id=s['id'],title=s['title']) for s in return_chapters(self.validate_return(db,row)['snapshot_json'],frozen)['sections']],
                     mappings=mappings,differences=differences,issues=problems,can_adopt=not any(p['severity']=='error' for p in problems),
                     preview_sha256=preview,output=output,created_at=row['created_at'])
 

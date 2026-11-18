@@ -55,8 +55,8 @@ def test_school_export_reuses_fixed_options_and_keeps_old_empty_contract(client)
     path, endpoint, _, root = published(client)
     version = root['versions'][0]
     saved = post(client, endpoint+'/presentations', dict(base_version_id=version['id'], config=dict(
-        school=dict(options=dict(include_toc=False, manual_fields=dict(author='合成作者乙'))),
-        blind=dict(identity_terms=['合成作者乙']))), 'school-config')
+        school=dict(options=dict(include_toc=False, manual_fields=dict(author='合成作者乙', department='合成院系'))),
+        authors=[dict(name='署名作者丙', order=1, source='工程样例')])), 'school-config')
     assert saved.status_code == 201, saved.text
     request = dict(presentation_version_id=saved.json()['id'], language_view='zh-CN', review_mode='blind')
     created = post(client, endpoint+'/versions/1/exports', request, 'school-blind')
@@ -65,6 +65,10 @@ def test_school_export_reuses_fixed_options_and_keeps_old_empty_contract(client)
     result = client.get(endpoint+'/exports/'+created.json()['id']).json()
     assert result['school']['field_update']['status'] == 'not_requested'
     assert result['presentation']['blind']['known_identity_check'] == 'passed'
-    assert client.get(result['download_url']).status_code == 200
+    downloaded = client.get(result['download_url'])
+    assert downloaded.status_code == 200
+    text = '\n'.join(paragraph.text for paragraph in Document(BytesIO(downloaded.content)).paragraphs)
+    assert '合成作者乙' not in text and '署名作者丙' not in text
+    assert '合成院系' in text
     assert post(client, endpoint+'/versions/1/exports', dict(request, school=dict(manual_fields=dict(author='changed'))), 'different').status_code == 422
     assert post(client, endpoint+'/versions/1/exports', dict(review_mode='blind'), 'missing-config').status_code == 422

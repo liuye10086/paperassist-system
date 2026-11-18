@@ -3,6 +3,7 @@ from copy import deepcopy
 from app.adapters.task_store import source_conflict
 from app.core.exceptions import StorageError
 from app.domain.literature.service import digest
+from app.domain.school_templates.front_matter import content_purposes, validate_content_purposes
 from app.domain.school_templates.service import SchoolTemplateService
 from .contracts import SCHOOL_PURPOSES
 
@@ -10,7 +11,8 @@ from .contracts import SCHOOL_PURPOSES
 def readiness(service,db,project):
     schools=SchoolTemplateService(service.assets)
     profile=schools.profile_view(db,project)
-    result=dict(ready=False,blocking_reasons=[],profile=profile,confirmation_id=profile['bound_confirmation_id'],chapters=[],purposes=list(SCHOOL_PURPOSES),template_source_file_ids=[])
+    result=dict(ready=False,blocking_reasons=[],profile=profile,confirmation_id=profile['bound_confirmation_id'],
+                chapters=[],purposes=list(SCHOOL_PURPOSES),template_source_file_ids=[],protected_chapter_purposes={})
     if not profile['bound_confirmation_id']:
         result['blocking_reasons'].append('school_template_not_bound')
         return result
@@ -21,6 +23,7 @@ def readiness(service,db,project):
     row=schools.row(db,project,saved['template_version_id'])
     sources,task=schools.validate(db,row);confirmation=schools.confirmation(db,row)
     result['chapters']=confirmation['chapters']
+    result['protected_chapter_purposes']=content_purposes(confirmation.get('front_matter'))
     result['template_source_file_ids']=[s['file_id'] for s in sources if s['role'] in ('template','supplement')]
     if task['status']!='succeeded':result['blocking_reasons'].append('school_template_not_ready')
     if schools.current_changes(db,row,sources):result['blocking_reasons'].append('school_template_source_changed')
@@ -64,7 +67,6 @@ def freeze_context(service,project,request,*,document_context=None,paper_plan=No
         saved=db.execute('SELECT * FROM school_template_confirmations WHERE id=%s AND project_id=%s AND user_id=%s',(selected.confirmation_id,project,service.store.user_id)).fetchone()
         schools=SchoolTemplateService(service.assets);row=schools.row(db,project,saved['template_version_id'])
         sources,_=schools.require_current(db,row);confirmation=schools.confirmation(db,row)
-        from app.domain.school_templates.front_matter import validate_content_purposes
         try:validate_content_purposes(confirmation.get('front_matter'),chapters)
         except ValueError as exc:raise StorageError('task_input_invalid','前置内容要求须对应声明人工章节或致谢用途。',422) from exc
         return deepcopy(dict(schema_version=1,profile=current['profile'],template_version_id=row['id'],confirmation_id=saved['id'],confirmation_sha256=saved['snapshot_sha256'],confirmation=confirmation,source_files=sources,chapters=chapters))
@@ -95,12 +97,9 @@ def current_changes(service,project,snapshot):
     with service.store.connection() as db:
         state=readiness(service,db,project)
     reasons=[]
-    current_profile, fixed_profile=state['profile'],context['profile']
-    if snapshot.get('paper_plan'):
-        # Saving writing requirements also advances the shared profile revision.
-        # A fixed manuscript still uses the same school settings in that case.
-        current_profile={key:value for key,value in current_profile.items() if key!='revision'}
-        fixed_profile={key:value for key,value in fixed_profile.items() if key!='revision'}
+    # The shared profile revision also advances when only writing requirements change.
+    current_profile={key:value for key,value in state['profile'].items() if key!='revision'}
+    fixed_profile={key:value for key,value in context['profile'].items() if key!='revision'}
     if current_profile!=fixed_profile:reasons.append('school_profile_changed')
     if state['confirmation_id']!=context['confirmation_id']:reasons.append('school_confirmation_changed')
     reasons.extend(state['blocking_reasons'])

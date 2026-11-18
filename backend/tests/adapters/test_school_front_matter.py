@@ -396,7 +396,7 @@ def test_gs501_exact_language_review_keeps_legacy_forms_and_rechecks_known_names
 
     from app.adapters.manuscript_presentation_docx import blind_docx
     from app.adapters.school_docx import build_school_docx
-    from app.domain.manuscripts.presentation_export import reviewed_school_submission_forms, verify_gs501_reviewed_output
+    from app.domain.manuscripts.presentation_export import reviewed_school_submission_forms, verify_school_reviewed_output
     from app.domain.school_templates.bsu_gs501 import blind_terms
 
     value, analysis = bsu_material()
@@ -416,7 +416,7 @@ def test_gs501_exact_language_review_keeps_legacy_forms_and_rechecks_known_names
     assert reviewed_school_submission_forms(db, context) is False
 
     with pytest.raises(StorageError) as error:
-        verify_gs501_reviewed_output(context, planned, draft)
+        verify_school_reviewed_output(context, planned, draft)
     assert error.value.code == 'gs501_reviewed_output_stale'
     clean, _ = blind_docx(draft, blind_terms(planned, rules, authors=authors), replacement='XXX')
-    verify_gs501_reviewed_output(context, planned, clean)
+    verify_school_reviewed_output(context, planned, clean)

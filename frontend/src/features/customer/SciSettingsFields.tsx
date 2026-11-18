@@ -59,9 +59,10 @@ export default function SciSettingsFields({ draft, disabled, onChange, onError }
     </fieldset>
     <PaperKeywordFields draft={draft} onChange={value => onChange({ ...draft, ...value })} onError={onError} />
     {draft.article_type === 'research' && <fieldset className="sci-content-list">
-      <legend>{t('逐图填写主要发现')}</legend>
+      <legend>{t('填写主要发现')}</legend>
+      <p className="muted">{t('上传后将图表关联到对应发现。稿件按实际入稿图件编号。')}</p>
       {figure_findings.map((item, index) => <fieldset key={item.id} className="sci-content-item">
-        <legend>Figure {index + 1}</legend>
+        <legend>{t('发现 {number}', { number: index + 1 })}</legend>
         <label>{t('主要发现')}<textarea required value={item.finding} rows={2} maxLength={20000}
           onChange={event => onChange({ ...draft, figure_findings: figure_findings.map(row =>
             row.id === item.id ? { ...row, finding: event.target.value } : row) })} /></label>
@@ -70,11 +71,12 @@ export default function SciSettingsFields({ draft, disabled, onChange, onError }
           onRemove={() => onChange({ ...draft, figure_findings: figure_findings.filter(row => row.id !== item.id) })} />
       </fieldset>)}
       <button type="button" onClick={() => onChange({ ...draft, figure_findings: [...figure_findings, { id: crypto.randomUUID(), finding: '' }] })}>
-        {t('添加一张图')}
+        {t('添加发现')}
       </button>
     </fieldset>}
     {draft.article_type === 'narrative_review' && <fieldset className="sci-content-list">
       <legend>{t('按小标题填写综述内容')}</legend>
+      <p className="muted">{t('小标题会用于成稿，请使用拟写作的语种。')}</p>
       {review_sections.map((item, index) => <fieldset key={item.id} className="sci-content-item">
         <legend>{t('小标题 {number}', { number: index + 1 })}</legend>
         <label>{t('小标题')}<input required value={item.heading} maxLength={200}

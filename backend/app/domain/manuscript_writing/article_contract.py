@@ -215,6 +215,7 @@ def has_validation(payload):
 
 def build_bundle(base,request,frozen,*,include_reported_results=True):
     from .bundle import build_bundle as common,safe_text
+    from .context import paragraph_sources_selected
     from .school_live import build_bundle as school_bundle
     from .frozen import wire_parts
     from .policy import POLICY_VERSION
@@ -248,6 +249,8 @@ def build_bundle(base,request,frozen,*,include_reported_results=True):
             payload['illustrations']=[item for item in payload['illustrations']
                                       if (item['kind'], item['number']) in allowed_illustrations]
     local['writing_scope']=editing
+    selected_ids=set(request['selected_source_ids'])
+    reviewed_sources=frozen.get('source_selection_version')==2
     if school:
         layout=local['school'];mapping={c['chapter_id']:a for a,c in layout['chapters'].items()}
         layout['writable_aliases']=[mapping[sid] for sid in editing['target_section_ids']]
@@ -278,7 +281,7 @@ def build_bundle(base,request,frozen,*,include_reported_results=True):
         for context in payload['context']:
             chapter=local['school']['chapters'][context['id']]
             rows=next(s for s in sections if s['id']==chapter['chapter_id'])['paragraphs']
-            permitted=[p for p in rows if not p.get('citations') and set(p.get('source_ids',[]))<=set(request['selected_source_ids'])
+            permitted=[p for p in rows if not p.get('citations') and paragraph_sources_selected(p,selected_ids,reviewed_sources=reviewed_sources)
                        and not (base.get('paper_plan') and is_note(p))]
             for projected,p in zip(context['paragraphs'],permitted):projected['id']=aliases[p['id']]
     else:
@@ -294,6 +297,7 @@ def build_bundle(base,request,frozen,*,include_reported_results=True):
         if section['id'] not in editing['target_section_ids']:continue
         for paragraph in section['paragraphs']:
             if not paragraph.get('citations') or paragraph['id'] not in editing['target_paragraph_ids']:continue
+            if reviewed_sources and not paragraph_sources_selected(paragraph,selected_ids,reviewed_sources=True):continue
             evidence_ids={e['id'] for binding in paragraph['citations'] for e in binding.get('evidence',[])}
             if not evidence_ids or not evidence_ids<=set(request['selected_evidence_ids']):
                 if request['mode']=='polish':raise ValueError('Polishing cited prose requires its explicitly selected frozen evidence')

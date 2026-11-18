@@ -13,7 +13,7 @@ import {apiFetch,onApiSessionChanged} from '../../shared/api/client'
 import {apiError,safeError,useI18n} from '../../shared/i18n'
 import BatchUpload from '../files/BatchUpload'
 import {useDocumentVisible} from '../tasks/useDocumentVisible'
-import {manuscriptBase,validManuscript,sectionLabels,type SectionId,type Manuscript,type Snapshot} from '../manuscripts/manuscriptTypes'
+import {manuscriptVersionPath,validManuscriptVersion,sectionLabels,type SectionId,type Snapshot} from '../manuscripts/manuscriptTypes'
 import {plannedSectionTitle} from '../manuscripts/paperPlan'
 import {categories,roles,itemEdit,reviewItemLabel,validInputs,validPreview,validRound,validSegments,type Inputs,type Round,type Preview,type Source,type Segment,type ItemEdit,type Item,type Material,type Location,type Role} from './reviewTypes'
 import {manuscriptHash} from './continuationTypes'
@@ -95,10 +95,11 @@ function Reviews({projectId,projectType,active,roundId,initialManuscript,initial
  const [title,setTitle]=useState(''),[versionId,setVersionId]=useState(nextInput?.manuscript.version_id??''),[previousRoundId,setPreviousRoundId]=useState(nextInput?.previous_round_id??initialPreviousRound??''),[userReturnId,setUserReturnId]=useState(nextInput?.user_return_id??initialReturn??''),[constraint,setConstraint]=useState(''),[sources,setSources]=useState<Source[]>([]),[upload,setUpload]=useState(false)
  const [source,setSource]=useState<Source>({role:projectType==='sci'?'reviewer':'advisor',label:'',format:'text',text:'',segments:[]}),[preview,setPreview]=useState<Preview|null>(null)
  const [busy,setBusy]=useState(false),[error,setError]=useState(''),[notice,setNotice]=useState(''),[blocked,setBlocked]=useState(false),[refresh,setRefresh]=useState(0),[snapshot,setSnapshot]=useState<Snapshot|null>(null),[history,setHistory]=useState<number|null>(null),[decisionDraft,setDecisionDraft]=useState<Record<string,{action:string;reason:string}>>({})
+ const [locationError,setLocationError]=useState('')
  const creationActive=useRef(active);useLayoutEffect(()=>{creationActive.current=active&&(!view||view==='create')},[active,view])
  const draftDirty=useRef(false),loadedRound=useRef<string|null>(null),loadedRevision=useRef<number|null>(null),entryApplied=useRef(false)
  const alive=useRef(true),lifetime=useRef(new AbortController()),lock=useRef(false),attempts=useRef(new Map<string,{body:string;key:string}>())
- const clear=useCallback(()=>{alive.current=false;lifetime.current.abort();setBlocked(true);setInputs(null);setRounds([]);setRound(null);setEdits([]);setMaterials([]);setDecisionDraft({});setSources([]);setSource({role:'reviewer',label:'',format:'text',text:'',segments:[]});setPreview(null);setSnapshot(null);setTitle('');setVersionId('');setConstraint('');setNotice('');setError('');setUpload(false);attempts.current.clear()},[])
+ const clear=useCallback(()=>{alive.current=false;lifetime.current.abort();setBlocked(true);setInputs(null);setRounds([]);setRound(null);setEdits([]);setMaterials([]);setDecisionDraft({});setSources([]);setSource({role:'reviewer',label:'',format:'text',text:'',segments:[]});setPreview(null);setSnapshot(null);setTitle('');setVersionId('');setConstraint('');setNotice('');setError('');setLocationError('');setUpload(false);attempts.current.clear()},[])
  useEffect(()=>{alive.current=true;if(lifetime.current.signal.aborted)lifetime.current=new AbortController();const old=lifetime.current,stop=onApiSessionChanged(clear);return()=>{alive.current=false;old.abort();stop()}},[clear])
  const request=useCallback(async<T,>(url:string,valid:(v:unknown)=>v is T,init?:RequestInit,signal?:AbortSignal):Promise<T>=>{const c=new AbortController(),parent=lifetime.current.signal,abort=()=>c.abort();parent.addEventListener('abort',abort,{once:true});signal?.addEventListener('abort',abort,{once:true});if(parent.aborted||signal?.aborted)c.abort();const timeout=window.setTimeout(abort,15000);try{const response=await apiFetch(url,{...init,signal:c.signal});const data=await response.json().catch(()=>null);if(!alive.current||parent.aborted||c.signal.aborted)throw new DOMException('Aborted','AbortError');if(response.status===401||response.status===403||(response.status===404&&data?.detail?.code==='project_not_found')){clear();throw new DOMException('Unavailable','AbortError')}if(!response.ok)throw new Error(apiError(data,'意见计划请求失败，请刷新后重试。'));if(!valid(data))throw new Error('意见计划响应格式不正确，请刷新。');return data}finally{window.clearTimeout(timeout);parent.removeEventListener('abort',abort);signal?.removeEventListener('abort',abort)}},[clear])
  const roundValid=useCallback((v:unknown):v is Round=>validRound(v,projectId),[projectId])
@@ -106,7 +107,26 @@ function Reviews({projectId,projectType,active,roundId,initialManuscript,initial
  useEffect(()=>{if(!active||!visible||blocked)return;const c=new AbortController();void Promise.all([request(base+'/inputs',validInputs,undefined,c.signal),request(base+'/rounds',(v):v is {items:Round[]}=>!!v&&typeof v==='object'&&'items'in v&&Array.isArray(v.items)&&v.items.every(roundValid),undefined,c.signal)]).then(([i,r])=>{if(c.signal.aborted)return;setInputs(i);setRounds(r.items);if(!entryApplied.current){entryApplied.current=true;if(!nextInput&&initialManuscript&&initialRevision){const m=i.manuscripts.find(m=>m.id===initialManuscript),v=m?.versions.find(v=>v.revision===initialRevision&&v.status==='published');if(v)setVersionId(v.id);else setError('所选固定稿件版本不可用，请重新选择。')}}}).catch(cause=>{if(!c.signal.aborted&&alive.current)setError(safeError(cause,'意见计划读取失败。'))});return()=>c.abort()},[active,visible,blocked,base,request,roundValid,refresh,initialManuscript,initialRevision,nextInput])
  useEffect(()=>{if(!active||!visible||blocked||!roundId)return;const c=new AbortController();let timer=0;async function load(){try{const r=await request(base+'/rounds/'+encodeURIComponent(roundId),roundValid,undefined,c.signal);if(c.signal.aborted)return;showRound(r,false);if(['queued','running'].includes(r.task.status))timer=window.setTimeout(()=>void load(),2000)}catch(cause){if(!c.signal.aborted&&alive.current)setError(safeError(cause,'本轮意见读取失败。'))}}void load();return()=>{c.abort();window.clearTimeout(timer)}},[roundId,base,active,visible,blocked,request,roundValid,showRound,refresh])
  const fixedVersionId=round?.manuscript.version_id||versionId
- useEffect(()=>{if(!active||!visible||!fixedVersionId||blocked)return;const c=new AbortController();void request(manuscriptBase(projectId),(v):v is {items:Manuscript[]}=>!!v&&typeof v==='object'&&'items'in v&&Array.isArray(v.items)&&v.items.every(m=>validManuscript(m,projectId)),undefined,c.signal).then(list=>{if(c.signal.aborted)return;const v=list.items.flatMap(m=>m.versions).find(v=>v.id===fixedVersionId&&v.status==='published');if(v){setSnapshot(v.snapshot);if(!roundId&&projectType==='thesis')setConstraint(v.snapshot.thesis_context?.confirmation_id??'')}else setError('固定稿件位置不可用，请刷新后核对。')}).catch(cause=>{if(!c.signal.aborted&&alive.current)setError(safeError(cause,'稿件位置读取失败。'))});return()=>c.abort()},[fixedVersionId,roundId,blocked,projectId,projectType,request,active,visible])
+ const selectedRoot=inputs?.manuscripts.find(m=>m.versions.some(version=>version.id===fixedVersionId))
+ const fixedManuscriptId=round?.manuscript.id??selectedRoot?.id
+ const fixedRevision=round?.manuscript.revision??selectedRoot?.versions.find(version=>version.id===fixedVersionId)?.revision
+ useEffect(()=>{
+  if(!active||!visible||!fixedManuscriptId||!fixedRevision||blocked)return
+  const c=new AbortController()
+  void request(manuscriptVersionPath(projectId,fixedManuscriptId,fixedRevision),
+   (value):value is import('../manuscripts/manuscriptTypes').ManuscriptVersion=>validManuscriptVersion(value,projectId,fixedManuscriptId),undefined,c.signal)
+   .then(version=>{
+    if(c.signal.aborted)return
+    if(version.id!==fixedVersionId||version.revision!==fixedRevision||version.status!=='published'){
+     setLocationError('固定稿件位置不可用，请刷新后核对。')
+     return
+    }
+    setSnapshot(version.snapshot)
+    setLocationError('')
+    if(!roundId&&projectType==='thesis')setConstraint(version.snapshot.thesis_context?.confirmation_id??'')
+   }).catch(cause=>{if(!c.signal.aborted&&alive.current)setLocationError(safeError(cause,'稿件位置读取失败。'))})
+  return()=>c.abort()
+ },[fixedVersionId,fixedManuscriptId,fixedRevision,roundId,blocked,projectId,projectType,request,active,visible,refresh])
 
  async function mutate<T>(path:string,body:unknown,valid:(v:unknown)=>v is T){const serialized=JSON.stringify(body),url=base+path;let attempt=attempts.current.get(url);if(attempt?.body!==serialized){attempt={body:serialized,key:crypto.randomUUID()};attempts.current.set(url,attempt)}return request(url,valid,{method:'POST',headers:{'Content-Type':'application/json','Idempotency-Key':attempt!.key},body:serialized})}
  async function run(work:()=>Promise<void>){if(lock.current||blocked)return;lock.current=true;setBusy(true);setError('');setNotice('');try{await work()}catch(cause){if(alive.current)setError(safeError(cause,'意见计划请求失败，请刷新后重试。'))}finally{lock.current=false;if(alive.current)setBusy(false)}}
@@ -229,7 +249,7 @@ function Reviews({projectId,projectType,active,roundId,initialManuscript,initial
  {!customer&&<header><h2>{t('意见修改')}</h2><p>{t('固定稿件版本，保留逐条原文，整理修改计划与处理决定。')}</p></header>}
  {!customer&&<p className="warning-panel">{t('本批仅使用合成材料与本地具体改文；未调用模型或业务外网，不代表真实科学验收。')}</p>}
  {customer&&round?.synthetic&&<p className="warning-panel">{t('本轮使用合成材料。')}</p>}
- {error&&<p className="error-panel" role="alert">{t(error)}</p>}{notice&&<p role="status">{t(notice)}</p>}
+ {(error||locationError)&&<p className="error-panel" role="alert">{t(error||locationError)}</p>}{notice&&<p role="status">{t(notice)}</p>}
  <button type="button" disabled={busy} onClick={()=>setRefresh(x=>x+1)}>{t('刷新意见记录')}</button>
  {view&&<nav className="review-view-tabs" aria-label={t('评审工作视图')}>{tabs.map(tab=>
   <button type="button" key={tab} aria-current={view===tab?'page':undefined} onClick={()=>onViewChange?.(tab)}>

@@ -191,7 +191,20 @@ class ManuscriptService:
         if snap.get('illustration_check_version') is not None:
             from .illustrations import check_bindings
             if snap['illustration_check_version']!=1 or check_bindings(snap['results_groups'],snap['output_language']): raise source_conflict()
-        if snap.get('user_return_provenance') is not None:
+        provenance=snap.get('writing_provenance')
+        written=self.is_written_version(row)
+        if written:
+            from app.domain.manuscript_writing.context import validate_candidate
+            writing=db.execute('SELECT * FROM manuscript_writing_requests WHERE task_id=%s AND manuscript_id=%s AND project_id=%s AND user_id=%s',(provenance.get('request_id'),row['manuscript_id'],row['project_id'],row['user_id'])).fetchone()
+            if not writing: raise source_conflict()
+            if provenance.get('schema_version')==2:
+                from app.domain.manuscript_writing.live_publish import validate_published
+                validate_published(self,db,row,writing)
+            else:
+                if writing['published_revision']!=row['revision'] or writing['candidate_json']!=snap or writing['base_version_id']!=row['parent_version_id']: raise source_conflict()
+                try: validate_candidate(snap,writing['input_snapshot'])
+                except (ValueError,TypeError,KeyError) as exc: raise source_conflict() from exc
+        elif snap.get('user_return_provenance') is not None:
             from app.domain.review_rounds.returns import validate_user_return_version
             validate_user_return_version(self,db,row)
         elif snap.get('review_revision_provenance') is not None:
@@ -206,18 +219,7 @@ class ManuscriptService:
         elif snap.get('review_provenance') is not None:
             from app.domain.manuscript_review.service import validate_review_version
             validate_review_version(self,db,row)
-        elif snap.get('writing_provenance') is not None:
-            from app.domain.manuscript_writing.context import validate_candidate
-            provenance=snap['writing_provenance']
-            writing=db.execute('SELECT * FROM manuscript_writing_requests WHERE task_id=%s AND manuscript_id=%s AND project_id=%s AND user_id=%s',(provenance.get('request_id'),row['manuscript_id'],row['project_id'],row['user_id'])).fetchone()
-            if not writing: raise source_conflict()
-            if provenance.get('schema_version')==2:
-                from app.domain.manuscript_writing.live_publish import validate_published
-                validate_published(self,db,row,writing)
-            else:
-                if writing['published_revision']!=row['revision'] or writing['candidate_json']!=snap or writing['base_version_id']!=row['parent_version_id']: raise source_conflict()
-                try: validate_candidate(snap,writing['input_snapshot'])
-                except (ValueError,TypeError,KeyError) as exc: raise source_conflict() from exc
+        elif provenance is not None: raise source_conflict()
         producer=db.execute('SELECT * FROM tasks WHERE id=%s',(row['task_id'],)).fetchone()
         if (not producer or producer['task_type']!='manuscript_draft' or producer['project_id']!=row['project_id'] or producer['user_id']!=row['user_id']
             or producer['input_digest']!=digest(producer['input_snapshot']) or producer['input_snapshot'].get('snapshot_sha256')!=row['snapshot_sha256']
@@ -230,7 +232,8 @@ class ManuscriptService:
             bound=by_id.get(source['id'])
             if not bound or bound['source_json']!=source or bound['sha256']!=digest(source) or any(bound[k]!=source[v] for k,v in (('kind','kind'),('file_id','file_id'),('role','role'))): raise source_conflict()
         parent=db.execute('SELECT revision FROM manuscript_versions WHERE id=%s AND manuscript_id=%s',(row['parent_version_id'],row['manuscript_id'])).fetchone() if row['parent_version_id'] else None
-        if row['revision']>1 and (not parent or (not 1<=parent['revision']<row['revision'] if snap.get('school_change_provenance') or snap.get('journal_adaptation_provenance') or snap.get('review_revision_provenance') or snap.get('user_return_provenance') else parent['revision']!=row['revision']-1)): raise source_conflict()
+        branching=not written and any(snap.get(key) for key in ('school_change_provenance','journal_adaptation_provenance','review_revision_provenance','user_return_provenance'))
+        if row['revision']>1 and (not parent or (not 1<=parent['revision']<row['revision'] if branching else parent['revision']!=row['revision']-1)): raise source_conflict()
         expected=[]
         citation=snap.get('citation_snapshot')
         if citation:
@@ -243,6 +246,12 @@ class ManuscriptService:
         actual=db.execute('SELECT * FROM manuscript_citations WHERE version_id=%s',(row['id'],)).fetchall()
         actual=[(r['paragraph_id'],r['claim_id'],r['claim_revision'],r['review_id'],r['metadata_version_id'],r['project_reference_id'],r['binding_json']) for r in actual]
         if sorted(actual,key=str)!=sorted(expected,key=str): raise source_conflict()
+
+    @staticmethod
+    def is_written_version(row):
+        # A derived manuscript may carry an earlier version's provenance.
+        writing=row['snapshot_json'].get('writing_provenance')
+        return bool(writing and row['parent_version_id'] and writing.get('base_version_id')==row['parent_version_id'])
 
     def task(self,db,project,task_type,snapshot,key,*,validated_sources):
         timestamp=now()
@@ -506,18 +515,20 @@ class ManuscriptService:
             published=db.execute("SELECT status FROM tasks WHERE id=%s",(row['task_id'],)).fetchone()
             if published['status']!='succeeded': raise StorageError('task_revision_conflict','事实稿尚未发布。',409)
         if current:
-            if task['task_type']=='manuscript_draft' and row['snapshot_json'].get('user_return_provenance'):
+            written=self.is_written_version(row)
+            school_change=not written and row['snapshot_json'].get('school_change_provenance')
+            if task['task_type']=='manuscript_draft' and not written and row['snapshot_json'].get('user_return_provenance'):
                 from app.domain.review_rounds.returns import validate_user_return_version
                 validate_user_return_version(self,db,row,current=True,_review_candidate=_review_candidate)
-            if task['task_type']=='manuscript_draft' and row['snapshot_json'].get('school_change_provenance'):
+            if task['task_type']=='manuscript_draft' and school_change:
                 from .school_changes import validate_school_change_version
                 validate_school_change_version(self,db,row,current=True)
-            if task['task_type']=='manuscript_draft' and not row['snapshot_json'].get('school_change_provenance') and row['snapshot_json'].get('thesis_context'):
+            if task['task_type']=='manuscript_draft' and not school_change and row['snapshot_json'].get('thesis_context'):
                 changed=self.source_changes(row['project_id'],row['snapshot_json'])
                 if changed:
                     superseded=self.review_superseded_analyses(db,row,_review_candidate)|set(row['snapshot_json'].get('analysis_handoff_run_ids',[]))
                     if any(c['kind']!='analysis_run' or c['id'] not in superseded or set(c['reasons'])!={'analysis_configuration_changed'} for c in changed):raise source_conflict()
-            if task['task_type']=='manuscript_draft' and row['snapshot_json'].get('review_provenance'):
+            if task['task_type']=='manuscript_draft' and not written and row['snapshot_json'].get('review_provenance'):
                 from app.domain.manuscript_review.service import ReviewService
                 reviews=ReviewService(self.assets)
                 review=reviews.row(db,task['project_id'],row['manuscript_id'],row['snapshot_json']['review_provenance']['review_id'])
@@ -742,7 +753,9 @@ class ManuscriptService:
             self.validate_version(db,version);view=self.export_view(db,version,export_id)
             if not download: return view
             row=db.execute('SELECT * FROM manuscript_exports WHERE id=%s',(export_id,)).fetchone()
-            task=self.store.require_task(db,row['task_id']);self.verify_task(db,task,current=bool(version['snapshot_json'].get('thesis_context')))
+            task=self.store.require_task(db,row['task_id'])
+            # Download the sealed version using its frozen sources and export receipt.
+            self.verify_task(db,task)
             metadata=row['metadata_json']
             if not metadata or task['status']!='succeeded': raise StorageError('task_revision_conflict','导出尚未成功。',409)
             if metadata.get('input_sha256')!=version['snapshot_sha256']: raise source_conflict()

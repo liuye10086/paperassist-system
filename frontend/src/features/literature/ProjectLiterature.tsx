@@ -6,8 +6,9 @@ import { useEffect, useId, useRef, useState, type FormEvent } from 'react'
 import { onApiSessionChanged } from '../../shared/api/client'
 import { apiError, safeError, translateForLocale, useI18n } from '../../shared/i18n'
 import ProjectDownloadLink from '../../shared/components/ProjectDownloadLink'
-import { isTask, taskDisplayName, type TaskView } from '../tasks/taskTypes'
+import { isTask, isWorkspace, taskDisplayName, type TaskView, type TaskWorkspace } from '../tasks/taskTypes'
 import { TaskRequestError } from '../tasks/taskApi'
+import TaskPendingAction from '../tasks/TaskPendingAction'
 import { basePath, literatureRequest, publicationTypes, validConfig, validDetail, validPage, validReference, validSearch, validSearchInput, type Configuration, type Page, type Reference, type ReferenceDetail, type Search, type SearchInput, type Selection, type Source } from './literatureApi'
 import type { LiteratureNavigation, LiteratureView } from '../projects/literatureViews'
 import type { RegisterLeaveGuard } from '../projects/useDraftLeaveGuard'
@@ -55,6 +56,9 @@ function Literature({projectId,researchTopic,outputLanguage,onOpenTask,initialSe
  const history=useResource<Page<Search>>(denied?null:`${base}/searches?page=${historyPage}`,v=>validPage(v,projectId,historyPage,x=>validSearch(x,projectId)),revision,deny,data=>{const last=Math.max(1,Math.ceil(data.total/10));if(historyPage>last)setHistoryPage(last)})
  const search=useResource<Search>(!denied&&searchId?`${base}/searches/${encodeURIComponent(searchId)}`:null,(v):v is Search=>validSearch(v,projectId)&&v.id===searchId,revision,deny)
  const selectedSearch=search.data
+ const recoveryId=view==='list'&&selectedSearch&&['failed','waiting_confirmation'].includes(selectedSearch.task.status) ? selectedSearch.id : null
+ const recovery=useResource<TaskWorkspace>(recoveryId?'/api/v1/tasks/'+encodeURIComponent(recoveryId)+'/workspace':null,
+  (v):v is TaskWorkspace=>!!recoveryId&&isWorkspace(v,projectId,recoveryId),revision,deny)
  const params=new URLSearchParams({page:String(candidatePage)});if(searchId)params.set('search_id',searchId);if(selection)params.set('selection',selection)
  const candidates=useResource<Page<Reference>>(denied?null:`${base}/references?${params}`,v=>validPage(v,projectId,candidatePage,x=>validReference(x,projectId)),revision,deny,data=>{const last=Math.max(1,Math.ceil(data.total/10));if(candidatePage>last)setCandidatePage(last)})
  function refresh(){setRevision(r=>r+1)}
@@ -69,8 +73,14 @@ function Literature({projectId,researchTopic,outputLanguage,onOpenTask,initialSe
  if(!validSearchInput(body)){setError('请检查研究主题、检索式和年份范围。');return}
  const signature=JSON.stringify(body);if(replay.current?.signature!==signature)replay.current={signature,key:crypto.randomUUID()}
  const controller=new AbortController();request.current=controller;setBusy(true);setError('');setSaved(null)
- try{const task=await literatureRequest(`${base}/searches`,controller,(v):v is TaskView=>isTask(v,projectId)&&v.task_type==='literature_search',{method:'POST',headers:{'Content-Type':'application/json','Idempotency-Key':replay.current.key},body:signature});if(mounted.current&&!controller.signal.aborted){setSaved(task);setInput(body);setInputBaseline(signature);setUncertain(false);refresh()}}
- catch(cause){if(mounted.current){if(cause instanceof TaskRequestError&&cause.status===403)deny();setUncertain(true);setError('检索提交结果未确认，请先刷新历史；相同输入重试沿用请求标识。')}}
+ try{const task=await literatureRequest(`${base}/searches`,controller,(v):v is TaskView=>isTask(v,projectId)&&v.task_type==='literature_search',{method:'POST',headers:{'Content-Type':'application/json','Idempotency-Key':replay.current.key},body:signature});if(mounted.current&&!controller.signal.aborted){replay.current=null;setSaved(task);setInput(body);setInputBaseline(signature);setUncertain(false);refresh()}}
+ catch(cause){if(mounted.current){
+  const rejected=cause instanceof TaskRequestError&&cause.status>=400&&cause.status<500
+  if(cause instanceof TaskRequestError&&cause.status===403)deny()
+  if(rejected)replay.current=null
+  setUncertain(!rejected)
+  setError(rejected?safeError(cause,'检索保存失败，请核对后重试。'):'检索提交结果未确认，请先刷新历史；相同输入重试沿用请求标识。')
+ }}
  finally{if(request.current===controller)request.current=null;if(mounted.current)setBusy(false)}
  }
  if(denied)return <p className="error-panel" role="alert">{t('项目不存在或无权访问。')}</p>
@@ -145,6 +155,8 @@ function Literature({projectId,researchTopic,outputLanguage,onOpenTask,initialSe
      {selectedSearch.task.status==='failed'&&<p className="error-panel" role="alert">
        {t(apiError({code:selectedSearch.task.error_code},'检索未完成，请核对条件后重试。'))}
      </p>}
+     {recovery.error&&<p role="alert">{t(recovery.error)}</p>}
+     {recovery.data&&<TaskPendingAction workspace={recovery.data} blocked={busy} onChanged={refresh}/>}
      {selectedSearch.matched_count===0&&<p className="warning-panel">{t('当前检索条件匹配 0 篇。可保留主要概念、替换同义词或放宽年份和文献类型，再保存为新的检索。')}</p>}
      {selectedSearch.missing_pmids.length>0&&<p className="warning-panel">{translateForLocale('部分条目未返回：{pmids}',selectedSearch.input.output_language,{pmids:selectedSearch.missing_pmids.join(', ')})}</p>}
      {selectedSearch.warnings.length>0&&<p className="warning-panel">{translateForLocale('PubMed 返回 {count} 条检索提示，请核对官方检索结果与原始来源。',selectedSearch.input.output_language,{count:selectedSearch.warnings.length})}</p>}

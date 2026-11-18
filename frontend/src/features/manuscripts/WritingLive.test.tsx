@@ -8,8 +8,34 @@ import {webcrypto} from 'node:crypto'
 import {authFixture,bundleFixture,liveRequest,unsubmittedRequest} from './writingLiveFixtures'
 import WritingLive from './WritingLive'
 import {ManuscriptDraftProvider} from './ManuscriptDraftProvider'
+import {workspaceFixture} from '../tasks/taskFixtures'
 const props={projectId:'p1',manuscriptId:'m1',version:manuscriptFixture.versions[0] as unknown as ManuscriptVersion,onPublished:vi.fn()}
 afterEach(()=>{cleanup();sessionStorage.clear();vi.unstubAllGlobals()})
+it.each([
+ {status:'failed',reason:'task_worker_interrupted',actions:['retry'],button:'重试原任务',operation:'retry'},
+ {status:'waiting_confirmation',reason:'observation_expired',actions:['resume'],button:'查询原回执一次',operation:'resume'},
+])('uses the scoped task action in the customer writing record for $reason',async({status,reason,actions,button,operation})=>{
+ const task={...liveRequest.task,revision:3,status,display_status:status,error_code:reason,reason_code:reason}
+ const wait=operation==='resume'?{...workspaceFixture.wait,kind:'remote_observation',input_version:task.input_version}:null
+ const url='/api/v1/tasks/'+task.id
+ const fetcher=vi.fn(async(path:string,init?:RequestInit)=>{
+  if(path===url+'/workspace')return Response.json({...workspaceFixture,task,wait,allowed_actions:actions,
+   source:{file_id:null,filename:'Saved draft',analysis_run_id:null,is_current:true}})
+  if(path===url+'/resume')return Response.json({...task,status:'queued',display_status:'queued',revision:task.revision+1})
+  if(init?.method==='POST')throw Error('Unrelated action')
+  return Response.json(path.endsWith('/writing-requests')?{items:[{...liveRequest,task,candidate:null}]}:
+   {items:[],capabilities:{real_calls_enabled:false}})
+ })
+ vi.stubGlobal('fetch',fetcher)
+ render(<WritingLive {...props} customerSci={null}/>)
+ fireEvent.click(await screen.findByRole('button',{name:'核对原写作任务'}))
+ fireEvent.click(await screen.findByRole('button',{name:button}))
+ await waitFor(()=>expect(fetcher.mock.calls.filter(([,init])=>init?.method==='POST')).toHaveLength(1))
+ const [path,init]=fetcher.mock.calls.find(([,init])=>init?.method==='POST')!
+ expect(path).toBe(url+'/resume')
+ expect(JSON.parse(String(init?.body))).toMatchObject({operation,wait_id:wait?.id??null,
+  expected_task_revision:task.revision,input_version:task.input_version})
+})
 it.each(['受控写作关键词（每行一项）','受控写作致谢'])('keeps cached %s dirty after switching to a section rewrite',async label=>{
  const guards=new Map<()=>boolean,()=>boolean>();const register=(guard:()=>boolean,dirty?:()=>boolean)=>{guards.set(guard,dirty??(()=>false));return ()=>{guards.delete(guard)}}
  vi.stubGlobal('fetch',vi.fn(async(url:string)=>Response.json(url.endsWith('/writing-previews')?{items:[],capabilities:{real_calls_enabled:false}}:{items:[]})))

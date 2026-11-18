@@ -1,5 +1,6 @@
 export const literatureMessages: Record<string,string> = {
   '检索将使用以下英文词组': 'The search will use these English terms',
+  '检索保存失败，请核对后重试。': 'The search could not be saved. Check the inputs and try again.',
   '请为这些手填关键词补充英文写法（{keywords}）。': 'Provide English terms for these keywords ({keywords}).',
  '保存的检索背景':'Saved search context','已保存的来源记录':'Saved source record',
  'NCBI 使用与版权说明': 'NCBI usage and copyright notice',

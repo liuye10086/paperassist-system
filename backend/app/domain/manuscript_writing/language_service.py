@@ -123,6 +123,18 @@ class LanguageReviewService(LiveReviewService):
     def get_language(self,project,identity,request_id,language_id):
         with self.store.connection() as db: return self.view_language(self.language_row(db,project,identity,request_id,language_id))
 
+    def list_language(self,project,identity,request_id,review_id):
+        with self.store.connection() as db:
+            review=super().row(db,project,identity,request_id,review_id)
+            raw,_=self.raw(db,project,identity,request_id)
+            if raw['base_version_id']!=review['base_version_id'] or raw['candidate_sha256']!=review['candidate_sha256']:
+                raise source_conflict()
+            rows=db.execute('''SELECT id,created_at FROM manuscript_writing_language_reviews
+                WHERE project_id=%s AND user_id=%s AND manuscript_id=%s AND request_id=%s
+                AND review_id=%s AND review_sha256=%s AND base_version_id=%s ORDER BY created_at,id''',
+                (project,self.store.user_id,identity,request_id,review_id,review['review_sha256'],review['base_version_id'])).fetchall()
+            return dict(items=[dict(id=row['id'],created_at=row['created_at'].isoformat()) for row in rows])
+
     def create_language(self,project,identity,request_id,request,key):
         require_key(key);body=request_data(language_request_model(request,review=True),request)
         with self.store.connection(write=True) as db:

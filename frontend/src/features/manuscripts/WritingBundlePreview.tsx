@@ -6,9 +6,26 @@ import {plannedSectionTitle} from './paperPlan'
 export function MaterialTree({value}:{value:unknown}){if(Array.isArray(value))return <ol>{value.map((v,i)=><li key={i}><MaterialTree value={v}/></li>)}</ol>;if(object(value))return <dl>{Object.entries(value).map(([k,v])=><div key={k}><dt>{k}</dt><dd><MaterialTree value={v}/></dd></div>)}</dl>;return <span style={{whiteSpace:'pre-wrap',overflowWrap:'anywhere'}}>{value===null?'null':String(value)}</span>}
 const records=(value:unknown)=>Array.isArray(value)?value.filter(object):[]
 const strings=(value:unknown)=>Array.isArray(value)?value.filter((item):item is string=>typeof item==='string'):[]
+const omittedLabels:Record<string,string>={
+ attachments:'文件附件',binary_images:'图片的像素原件',local_paths:'本机文件路径',private_configuration:'私有配置',
+ unselected_sources:'未选择的来源与段落',prior_reviews:'以往复核记录',school_identity:'学校与个人身份字段',
+ manual_chapters:'声明、签名等人工章节',school_template:'学校模板原件',
+}
+
+function WireText({value}:{value:unknown}){
+ return typeof value==='string'&&value?<p className="paper-plan-note">{value}</p>:null
+}
+
+function WireTable({columns,rows}:{columns:string[];rows:string[][]}){
+ return <div className="field-table-scroll"><table className="field-table">
+  <thead><tr>{columns.map((cell,index)=><th scope="col" key={index}>{cell}</th>)}</tr></thead>
+  <tbody>{rows.map((row,index)=><tr key={index}>{row.map((cell,column)=><td key={column}>{cell}</td>)}</tr>)}</tbody>
+ </table></div>
+}
 
 function ReadableWritingBundle({bundle,snapshot,wire,verified,failed}:{bundle:Bundle;snapshot:Snapshot;wire:unknown;verified:boolean;failed:boolean}){
  const {t}=useI18n()
+ const [view,setView]=useState<'content'|'omitted'|'request'>('content')
  const input:Record<string,unknown>=object(wire)&&object(wire.input)?wire.input:{}
  const headings=new Map<string,string>()
  for(const section of records(input.article_structure))if(typeof section.id==='string'&&typeof section.heading==='string')headings.set(section.id,section.heading)
@@ -17,22 +34,87 @@ function ReadableWritingBundle({bundle,snapshot,wire,verified,failed}:{bundle:Bu
  const targetIds=object(input.writing_scope)?strings(input.writing_scope.output_section_ids):typeof input.target_section==='string'?[input.target_section]:[...headings.keys()]
  const names=targetIds.map(sectionTitle).filter((name):name is string=>!!name)
  const keywords=strings(input.keywords)
- const sourceIds=new Set(Object.values(bundle.local_manifest.sources))
- const sources=snapshot.sources.filter(source=>sourceIds.has(source.id))
+ const sources=records(input.sources)
+ const sourceLabels=new Map(snapshot.sources.map(source=>[source.id,source.label]))
  const notes=records(input.paper_notes).filter(note=>typeof note.text==='string')
  const evidence=records(input.evidence).filter(item=>typeof item.quote==='string')
+ const paragraphs=records(input.context).filter(section=>records(section.paragraphs).length)
+ const illustrations=records(input.illustrations)
+ const shownText=new Set([
+  ...paragraphs.flatMap(section=>records(section.paragraphs).map(paragraph=>paragraph.text)),
+  ...notes.map(note=>note.text),
+  ...illustrations.flatMap(item=>[item.title,item.caption,...records(item.panels).map(panel=>panel.description)]),
+ ])
+ const additionalText=[...new Set(records(input.numeric_context)
+  .filter(item=>item.origin==='user_provided'&&typeof item.text==='string'&&!shownText.has(item.text))
+  .map(item=>String(item.text)))]
+ const omitted=strings(bundle.omitted_manifest).filter(key=>Object.hasOwn(omittedLabels,key))
  return <section aria-label={t('完整外发材料')}>
   <h4>{t('完整外发材料')}</h4>
   <p>{snapshot.title} · {t('固定版本 {number}',{number:bundle.request_json.base_revision})}</p>
   <p role={failed?'alert':'status'}>{t(failed?'发送材料未通过完整性核对，无法授权或执行。':verified?'已核对发送材料。此次预览未调用模型。':'正在核对发送材料……')}</p>
   <p>{t('模型')} {bundle.policy_json.model} · {t('单次预留')} {dollars(bundle.reserved_micro_usd)}</p>
   <p>{t('授权并提交后，后台响应会由模型服务商保存。')}</p>
+  <nav className="manuscript-view-nav" aria-label={t('发送材料视图')}>
+   {([['content','发送内容'],['omitted','未外发材料清单'],['request','完整请求原文']] as const).map(([id,label])=>
+    <button type="button" key={id} aria-pressed={view===id} onClick={()=>setView(id)}>{t(label)}</button>)}
+  </nav>
+  {view==='omitted'&&<ul>{omitted.map(key=><li key={key}>{t(omittedLabels[key])}</li>)}</ul>}
+  {view==='request'&&<pre className="paper-plan-note" style={{whiteSpace:'pre-wrap',overflowWrap:'anywhere'}}>{bundle.wire_json}</pre>}
+  {view==='content'&&<>
   {names.length>0&&<p><strong>{t('写作章节')}</strong> · {names.join(' · ')}</p>}
   {keywords.length>0&&<p><strong>{t('关键词')}</strong> · {keywords.join(' · ')}</p>}
   {typeof input.instructions==='string'&&input.instructions&&<p className="paper-plan-note"><strong>{t('写作要求')}</strong> · {input.instructions}</p>}
-  {sources.length>0&&<><h5>{t('已选来源')}</h5><ul>{sources.map(source=><li key={source.id}>{source.label}</li>)}</ul></>}
+  {typeof input.acknowledgements==='string'&&input.acknowledgements&&<><h5>{t('致谢')}</h5><WireText value={input.acknowledgements}/></>}
+  {paragraphs.length>0&&<section><h5>{t('将发送的原稿与方法段落')}</h5>
+   {paragraphs.map((section,index)=><article key={index}>
+    <h6>{sectionTitle(section.id)??t('正文')}</h6>
+    {records(section.paragraphs).map((paragraph,position)=><WireText key={position} value={paragraph.text}/>)}
+   </article>)}
+  </section>}
+  {sources.length>0&&<section><h5>{t('已选来源')}</h5>
+   {sources.map((source,index)=>{
+    const label=typeof source.alias==='string'?sourceLabels.get(bundle.local_manifest.sources[source.alias]):undefined
+    const facts=records(source.facts),labels=records(source.labels),methods=records(source.methods)
+    return <article key={index}>
+     <h6>{label??t('来源 {number}',{number:index+1})}</h6>
+     <WireText value={source.report_text}/>
+     {source.report_text_truncated===true&&<p>{t('发送的是固定报告摘录。')}</p>}
+     {methods.map((method,position)=><div key={position}>
+      <WireText value={method.title}/><WireText value={method.description}/>
+      {method.parameters!==undefined&&<><strong>{t('方法参数')}</strong><MaterialTree value={method.parameters}/></>}
+      {method.software!==undefined&&<><strong>{t('软件')}</strong><MaterialTree value={method.software}/></>}
+     </div>)}
+     {labels.map((item,position)=><WireText key={position} value={item.value}/>)}
+     {facts.length>0&&<WireTable columns={[t('数值位置'),t('数值')]} rows={facts.map(fact=>[
+      String(fact.label??fact.fact_path??''),String(fact.value??''),
+     ])}/>}
+     {[...strings(source.gaps),...strings(source.warnings)].map((value,position)=><WireText key={position} value={value}/>)}
+    </article>
+   })}
+  </section>}
+  {additionalText.length>0&&<section><h5>{t('将发送的补充方法与结果')}</h5>
+   {additionalText.map(value=><WireText key={value} value={value}/>)}
+  </section>}
   {notes.length>0&&<><h5>{t('已选的写作材料')}</h5>{notes.map((note,index)=><article key={index}>{sectionTitle(note.section_id)&&<strong>{sectionTitle(note.section_id)}</strong>}<p className="paper-plan-note">{String(note.text)}</p></article>)}</>}
-  <h5>{t('已选引用证据')}</h5>{evidence.length?evidence.map((item,index)=><article key={index}>{object(item.bibliography)&&typeof item.bibliography.title==='string'&&<strong>{item.bibliography.title}</strong>}<blockquote>{String(item.quote)}</blockquote></article>):<p>{t('未选择已核验的引用证据。')}</p>}
+  {illustrations.length>0&&<section><h5>{t('将发送的图表文字与数值')}</h5>
+   {illustrations.map((item,index)=><article key={index}>
+    <h6>{t(item.kind==='table'?'表':'图')} {String(item.number??'')} {sectionTitle(item.section_id)}</h6>
+    <WireText value={item.title}/><WireText value={item.caption}/>
+    {item.kind==='table'?<WireTable columns={strings(item.columns)} rows={Array.isArray(item.rows)?item.rows.map(strings):[]}/>:<>
+     {records(item.panels).map((panel,position)=><p key={position} className="paper-plan-note"><strong>{String(panel.label??'')}</strong> {String(panel.description??'')}</p>)}
+    </>}
+   </article>)}
+  </section>}
+  <h5>{t('已选引用证据')}</h5>{evidence.length?evidence.map((item,index)=>{
+   const bibliography=object(item.bibliography)?item.bibliography:{}
+   const reference=[...strings(bibliography.authors),bibliography.journal,bibliography.year,bibliography.doi].filter(Boolean).join(' · ')
+   return <article key={index}>
+    {typeof bibliography.title==='string'&&<strong>{bibliography.title}</strong>}
+    <WireText value={reference}/><blockquote>{String(item.quote)}</blockquote><WireText value={item.reading_scope}/>
+   </article>
+  }):<p>{t('未选择已核验的引用证据。')}</p>}
+  </>}
  </section>
 }
 

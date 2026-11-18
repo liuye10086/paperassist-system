@@ -105,6 +105,9 @@ function errorParams(code: string, value: unknown): Params {
   const rules: Record<string, Record<string, [number, number]>> = {
     file_too_large: { max_bytes: [1, Number.MAX_SAFE_INTEGER] },
     numeric_precision: { row: [1, 1_048_576] },
+    thesis_chapter_protected: { position: [1, 300] },
+    manuscript_review_heading_language: { position: [1, 300] },
+    manuscript_finding_figure_reference: { position: [1, 10_000] },
     plot_label_too_long: { max_chars: [1, 10_000] },
     openai_request_failed: { provider_status: [400, 599] },
   }

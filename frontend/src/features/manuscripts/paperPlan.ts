@@ -12,7 +12,7 @@ export function plannedThesisInput(plan:PaperPlan,readiness:ThesisReadiness,prev
     chapter_mappings:readiness.chapters.map(chapter=>{
       const saved=sameConfirmation?previous?.chapter_mappings.find(mapping=>mapping.chapter_id===chapter.id):undefined
       const planned=sectionsByChapter.get(chapter.id)
-      const purpose=planned?.purpose??saved?.purpose??('' as SchoolPurpose)
+      const purpose=readiness.protected_chapter_purposes?.[chapter.id]??planned?.purpose??saved?.purpose??('' as SchoolPurpose)
       return {
         chapter_id:chapter.id,purpose,output_language:saved?.output_language??'project',
         result_group_ids:purpose==='results'?[...(planned?[planned.id]:[]),...(saved?.result_group_ids??[]).filter(id=>!plannedGroupIds.has(id))]:[],
@@ -35,7 +35,7 @@ export function supplementaryInput(input:ManuscriptInput,fileIds:ReadonlySet<str
   return {
     ...input,sources:input.sources.filter(source=>!removedIds.has(source.id)),results_groups:groups,
     method_source_ids:Object.fromEntries(Object.entries(input.method_source_ids).map(([field,ids])=>[field,ids?.filter(id=>!removedIds.has(id))])),
-    figure_notes:input.figure_notes.filter(note=>!removedFigures.has(note.figure_id)),
+    figure_notes:input.figure_notes.filter(note=>fileIds.has(note.figure_id)||!removedFigures.has(note.figure_id)),
     analysis_handoff_run_ids:input.analysis_handoff_run_ids?.filter(id=>!removedIds.has(id)),
   }
 }

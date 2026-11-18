@@ -393,9 +393,9 @@ def retry_ocr_review_in_transaction(store,db,task,expected_revision):
         raise StorageError('task_revision_conflict','任务已更新，请重新读取。',409)
     store.require_project(db,task['project_id'])
     checkpoint=latest_checkpoint(db,task)  # Retry keeps the persisted node and revised edits.
-    from app.adapters.task_store import DatasetTaskAssets
+    from app.domain.report_collections.service import scoped_store
     from app.core.config import get_data_dir
-    service=OcrReviewService(DatasetTaskAssets(task['user_id'],store.config,get_data_dir()))
+    service=OcrReviewService(scoped_store(task['user_id'],store.config,get_data_dir()))
     authorize_checkpoint_rebuild(db,get_data_dir(),task,checkpoint,service,ocr=True)
     task.update(status='queued',revision=expected_revision+1,error_code=None,reason_code='retry_requested',
         _retry_reason='manual_retry',retry_count=0,updated_at=max(datetime.now(timezone.utc),task['updated_at']))

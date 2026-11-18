@@ -8,9 +8,50 @@ from app.domain.tasks.execution import run_task
 from app.db.database import database_connection
 
 
-def published(client):
+def published(client, *, legacy_pdf_role=None, school_profile=None):
     from app.domain.school_templates.execution import run_school_template_task
     path,template=school_setup(client)
+    sources = []
+    if legacy_pdf_role:
+        from app.adapters.pdf_parser import parse_pdf
+        from app.domain.tasks.file_parse_execution import run_parse_file_task
+        from tests.api.test_file_batches import register
+        from tests.helpers.pdf_samples import pdf_bytes
+
+        filename = 'school-source.pdf'
+        pdf = pdf_bytes([b'BT /F1 12 Tf 20 350 Td (Historical source) Tj ET'])
+        base, batch, entry, raw = register(client, {'id': path.rsplit('/', 1)[-1]}, pdf, filename, key='old-pdf')
+        uploaded = client.post(f"{base}/{batch['id']}/items/{entry['client_id']}", files={'file': (filename, raw)})
+        assert uploaded.status_code == 202, uploaded.text
+        file_id, task = (uploaded.json()[key] for key in ('file_id', 'task'))
+        assert run_parse_file_task(task['id'], task['revision'], parser=parse_pdf)['status'] == 'succeeded'
+        if legacy_pdf_role == 'supplement':
+            template['supplement_file_ids'] = [file_id]
+        else:
+            file = f'{path}/files/{file_id}'
+            version = client.get(file+'/document-versions').json()['items'][0]
+            if legacy_pdf_role == 'ocr_review':
+                from tests.helpers.ocr_samples import ocr_result
+                from tests.integration.test_ocr_review import decide, execute
+
+                parsed = post(client, file+'/document-versions/ocr', dict(expected_latest_version=1, page_numbers=[1]), 'old-ocr')
+                assert parsed.status_code == 202, parsed.text
+                assert run_parse_file_task(parsed.json()['task_id'], 1, parser=ocr_result)['status'] == 'succeeded'
+                queued = post(client, file+'/ocr-reviews', dict(parse_id=parsed.json()['id']), 'old-review')
+                assert queued.status_code == 202, queued.text
+                task = queued.json()
+                review = '/api/v1/tasks/'+task['id']+'/ocr-review'
+                assert execute(task)['status'] == 'waiting_confirmation'
+                corrected = decide(client, client.get(review).json(), 'revise', 'old-correct', [
+                    dict(block_id='text-1', action='replace_text', text='人工核对的历史方法段落。')])
+                assert corrected.status_code == 202, corrected.text
+                assert execute(corrected.json())['status'] == 'waiting_confirmation'
+                approved = decide(client, client.get(review).json(), 'approve', 'old-approve')
+                assert approved.status_code == 202, approved.text
+                assert execute(approved.json())['status'] == 'succeeded'
+                version = client.get(review).json()['result']
+            kind = 'ocr_review_version' if legacy_pdf_role == 'ocr_review' else 'document_version'
+            sources = [dict(kind=kind, id=version['id'], file_id=file_id, role='methods')]
     item=post(client,path+'/school-templates',template).json()
     def school_analysis(*args):
         analysis=base_analysis()
@@ -22,12 +63,69 @@ def published(client):
     item=client.get(path+'/school-templates').json()['items'][0]
     chapters=[dict(id='school-intro',title='绪论',level=1),dict(id='school-methods',title='研究方法',level=1),dict(id='school-results',title='结果',level=1)]
     confirmation=post(client,path+'/school-templates/'+item['id']+'/confirm',dict(analysis_sha256=item['analysis_sha256'],decisions=[dict(conflict_id='conflict-1',option_id='text-2')],chapters=chapters)).json()
-    profile=post(client,path+'/thesis-template-binding',dict(confirmation_id=confirmation['id'],expected_revision=0)).json()
-    request=dict(title='合成学校导出',output_language='zh-CN',sources=[],thesis=dict(confirmation_id=confirmation['id'],profile_revision=profile['revision'],chapter_mappings=[dict(chapter_id=c['id'],purpose=p,output_language='project',result_group_ids=[]) for c,p in zip(chapters,['introduction','materials_and_methods','results'])]))
+    profile_revision = 0
+    if school_profile is not None:
+        from app.domain.school_templates.contracts import PROFILE_FIELDS
+
+        fields = dict.fromkeys(PROFILE_FIELDS, '') | school_profile
+        response = client.put(path+'/thesis-profile', json=dict(expected_revision=0, **fields))
+        assert response.status_code == 200, response.text
+        profile_revision = response.json()['revision']
+    profile=post(client,path+'/thesis-template-binding',dict(confirmation_id=confirmation['id'],expected_revision=profile_revision)).json()
+    request=dict(title='合成学校导出',output_language='zh-CN',sources=sources,thesis=dict(confirmation_id=confirmation['id'],profile_revision=profile['revision'],chapter_mappings=[dict(chapter_id=c['id'],purpose=p,output_language='project',result_group_ids=[]) for c,p in zip(chapters,['introduction','materials_and_methods','results'])]))
     root=post(client,path+'/manuscripts',request,'school').json()
     assert run_task(root['versions'][0]['task_id'],1)['status']=='succeeded'
     base=path+'/manuscripts/'+root['id']
     return path,base,template,root
+
+
+@pytest.mark.parametrize('legacy_pdf_role', ['supplement', 'manuscript', 'ocr_review'])
+def test_customer_can_download_frozen_school_word_with_legacy_pdf(client, legacy_pdf_role):
+    from app.adapters.storage import ProjectStore
+    from app.core.config import get_data_dir
+    from app.domain.manuscripts.service import ManuscriptService
+
+    path, base, _, root = published(client, legacy_pdf_role=legacy_pdf_role)
+    created = post(client, base + '/versions/1/exports', {'school': {'include_toc': False}}, 'legacy-word')
+    assert created.status_code == 201, created.text
+    export = created.json()
+    assert run_task(export['task_id'], 1)['status'] == 'succeeded'
+    original = client.get(base + '/exports/' + export['id']).json()['download_url']
+    original = client.get(original)
+    assert original.status_code == 200, original.text
+
+    owner = client.get('/api/v1/auth/me').json()['user']['id']
+    customer = ManuscriptService(ProjectStore(get_data_dir(), owner_id=owner, customer=True))
+    project = path.rsplit('/', 1)[-1]
+    if legacy_pdf_role == 'supplement':
+        assert customer.config(project)['thesis']['ready']
+    _, restored = customer.export(project, root['id'], export['id'], download=True)
+    assert restored == original.content
+
+
+def test_filling_thesis_requirements_keeps_old_manuscript_school_config_current(client):
+    from app.adapters.storage import ProjectStore
+    from app.core.config import get_data_dir
+    from app.domain.manuscripts.service import ManuscriptService
+    from app.domain.school_templates.thesis_requirements import ThesisRequirementsWrite, thesis_requirements
+
+    profile = dict(school='合成学校', education_level='硕士')
+    path, _, _, root = published(client, school_profile=profile)
+    project = path.rsplit('/', 1)[-1]
+    snapshot = root['versions'][0]['snapshot']
+    owner = client.get('/api/v1/auth/me').json()['user']['id']
+    assets = ProjectStore(get_data_dir(), owner_id=owner, customer=True)
+    changes = ThesisRequirementsWrite(expected_revision=snapshot['thesis_context']['profile']['revision'],
+        expected_language='zh-CN', language='zh-CN', basics=dict(**profile, title='需求题目',
+            keywords=['研究方法', '观察记录', '样本比较', '结果复核']))
+    updated = thesis_requirements(assets, project, changes)
+
+    assert updated['revision'] == changes.expected_revision + 1
+    assert ManuscriptService(assets).source_changes(project, snapshot) == []
+    assert client.put(path+'/thesis-profile', json=dict(expected_revision=updated['revision'],
+        school=profile['school'], education_level=profile['education_level'],
+        department='', major='更新专业', degree_type='', applicable_version='')).status_code == 200
+    assert ManuscriptService(assets).source_changes(project, snapshot)[0]['reasons'] == ['school_profile_changed']
 
 
 def test_school_export_preview_and_idempotent_sealed_intent(client):

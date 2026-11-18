@@ -25,6 +25,8 @@ class PaperMaterialWrite(BaseModel):
     file_id: FileId
     result: ResultText
     target_id: TargetId | None = None
+    worksheet_names: list[Annotated[str, StringConstraints(min_length=1, max_length=128)]] | None = Field(
+        default=None, min_length=1, max_length=12)
 
 
 class PaperMaterialTarget(BaseModel):
@@ -40,6 +42,7 @@ class PaperMaterialNote(BaseModel):
     target_id: str | None
     target_label: str | None
     target_available: bool
+    worksheet_names: list[str] | None = None
 
 
 class PaperMaterialsView(BaseModel):
@@ -66,6 +69,10 @@ def sci_target_id(kind, row_id):
     return f'sci:{kind}:{row_id}'
 
 
+def sci_finding_label(number, language):
+    return f'Finding {number}' if language == 'en' else f'发现 {number}'
+
+
 def thesis_target_id(confirmation_id, chapter_id):
     return f'thesis:results:{confirmation_id}:{chapter_id}'
 
@@ -73,7 +80,7 @@ def thesis_target_id(confirmation_id, chapter_id):
 def sci_targets(db, project):
     settings = read_sci_settings(db, project)
     if settings.get('article_type') == 'research':
-        return [dict(id=sci_target_id('figure', item['id']), label=f'Figure {position}')
+        return [dict(id=sci_target_id('figure', item['id']), label=sci_finding_label(position, project['default_output_language']))
                 for position, item in enumerate(settings.get('figure_findings', []), 1)]
     if settings.get('article_type') == 'narrative_review':
         return [dict(id=sci_target_id('review', item['id']), label=item['heading'])
@@ -92,6 +99,7 @@ def thesis_targets(db, store, project_id):
         requirements = profile.get('requirements_json') or {}
         sections = requirements.get('chapter_plans', {}).get(binding, [])
         result_chapters = {item['chapter_id'] for item in sections if item['purpose'] == 'results'}
+        result_chapters.difference_update(template['protected_chapter_purposes'])
         if not result_chapters:
             return []
         _, task = schools.require_current(db, row)
@@ -115,7 +123,7 @@ def note_view(row, target_labels):
     target_id = row['target_id']
     return dict(id=row['id'], file_id=row['file_id'], revision=row['revision'], result=row['result_text'],
                 target_id=target_id, target_label=target_labels.get(target_id, row['target_label']),
-                target_available=target_id in target_labels)
+                target_available=target_id in target_labels, worksheet_names=row['worksheet_names'])
 
 
 def paper_material_rows(db, store, project_id, file_ids=None):
@@ -138,6 +146,17 @@ def list_paper_materials(store, project_id, file_ids=None):
         return dict(items=[note_view(row, target_labels) for row in rows], targets=targets)
 
 
+def paper_worksheets(store, project_id, file_id):
+    from app.domain.manuscripts.paper_tables import worksheet_previews
+
+    with store.connection() as db:
+        paper_project(db, store, project_id)
+        file = dict(require_file(db, project_id, file_id, material_filter=store.material_filter))
+    if file['file_type'] != 'xlsx':
+        raise StorageError('paper_material_file_unsupported', '请选择 Excel 原件。', 422)
+    return dict(sheets=worksheet_previews(store.original(file), file['filename']))
+
+
 def save_paper_material(store, project_id, note_id, changes: PaperMaterialWrite):
     with store.connection(write=True) as db:
         project = paper_project(db, store, project_id)
@@ -153,10 +172,15 @@ def save_paper_material(store, project_id, note_id, changes: PaperMaterialWrite)
             if MATERIAL_KINDS.get(previous['file_type']) != kind:
                 raise StorageError('paper_material_file_kind_changed', '请选择与原素材同类的图表文件。', 422)
 
-        values = (changes.file_id, changes.result, changes.target_id)
+        worksheets = changes.worksheet_names
+        if current and current['file_id'] == changes.file_id and 'worksheet_names' not in changes.model_fields_set:
+            worksheets = current['worksheet_names']
         revision = current['revision'] if current else 0
+        saved_worksheets = current['worksheet_names'] if current else None
         same_note = (current is not None
-                     and values == (current['file_id'], current['result_text'], current['target_id']))
+                     and (changes.file_id, changes.result, changes.target_id) ==
+                     (current['file_id'], current['result_text'], current['target_id'])
+                     and sorted(worksheets or []) == sorted(saved_worksheets or []))
         # The committed revision and its content are enough to recognize an exact
         # retry, even if its target became unavailable after the first save.
         if revision != changes.expected_revision and not (same_note and revision == changes.expected_revision + 1):
@@ -172,15 +196,22 @@ def save_paper_material(store, project_id, note_id, changes: PaperMaterialWrite)
             raise StorageError('paper_material_file_in_use', '此文件已有图表备注，请选择其他文件。', 409)
 
         require_scope_open(db, project_id, file_ids=(file['id'],))
+        if file['file_type'] == 'xlsx' and (worksheets is not None or changes.target_id is not None):
+            from app.domain.manuscripts.paper_tables import validate_worksheets
+
+            worksheets = validate_worksheets(store.original(dict(file)), file['filename'], worksheets)
+        elif worksheets is not None:
+            raise StorageError('paper_material_file_unsupported', '工作表仅适用于 Excel 原件。', 422)
+        values = (changes.file_id, changes.result, changes.target_id, worksheets)
         label = target_labels.get(changes.target_id)
         if current:
             row = db.execute('''UPDATE paper_material_notes SET file_id=%s, result_text=%s, target_id=%s,
-                target_label=%s, revision=revision+1
+                worksheet_names=%s, target_label=%s, revision=revision+1
                 WHERE project_id=%s AND owner_id=%s AND id=%s RETURNING *''',
                 (*values, label, *scope, note_id)).fetchone()
         else:
             row = db.execute('''INSERT INTO paper_material_notes(project_id, owner_id, id, file_id, result_text,
-                target_id, target_label, revision)
-                VALUES (%s,%s,%s,%s,%s,%s,%s,1) RETURNING *''',
+                target_id, worksheet_names, target_label, revision)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,1) RETURNING *''',
                 (*scope, note_id, *values, label)).fetchone()
         return note_view(row, target_labels)

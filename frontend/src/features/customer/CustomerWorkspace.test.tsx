@@ -29,6 +29,27 @@ afterEach(() => {
   window.history.replaceState(null, '', window.location.pathname)
 })
 
+it.each([
+  ['sci', '写作资料与引用'],
+  ['thesis', '写作资料与引用'],
+  ['research', '上传资料'],
+])('opens the original file list link in a %s project', async (projectType, heading) => {
+  window.history.replaceState(null, '', `#project=${project.id}&section=files`)
+  vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+    if (url === base) return Response.json({ ...project, project_type: projectType })
+    if (url === base + '/sci-settings') return Response.json({ settings: null, revision: 1 })
+    if (url === base + '/thesis-requirements') return Response.json({ revision: 0, language: 'zh-CN', title: '', keywords: [], sections: [], template: null })
+    if (url.startsWith(base + '/files?')) return Response.json({ items: [{ id: 'file-1', filename: '历史材料.xlsx', file_type: 'xlsx', parse_status: 'parsed' }], total: 1, page: 1, page_size: 5 })
+    if (url.startsWith(base + '/paper-materials')) return Response.json({ items: [], targets: [] })
+    return Response.json({ items: [], total: 0, page: 1, page_size: 5 })
+  }))
+
+  render(<CustomerWorkspace />)
+
+  await screen.findByRole('heading', { name: heading, level: 1 })
+  expect(await screen.findByText('历史材料.xlsx')).toBeTruthy()
+})
+
 it('creates a customer project, opens five steps, and sends feedback on a published delivery', async () => {
   const feedback: Feedback[] = []
   const fetch = vi.fn(async (url: string, init?: RequestInit) => {

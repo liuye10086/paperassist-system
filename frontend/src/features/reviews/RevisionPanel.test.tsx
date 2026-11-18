@@ -55,7 +55,7 @@ it('shows readable revisions, source excerpts and a flat Word download in the cu
   ...realContext,actual_changes:changes,unexecuted:[],public_issues:[repeated,repeated],constraint_issues:[repeated,blocker],
   can_adopt:false,preview_sha256:'c'.repeat(64),synthetic:true,
  }:url.endsWith('/revision-context')?realContext:
-  url.endsWith('/revisions')?{items:[revision]}:url.endsWith('/manuscripts')?{items:[manuscriptFixture]}:
+  url.endsWith('/revisions')?{items:[revision]}:url.endsWith('/manuscripts/m1/versions/1')?manuscriptFixture.versions[0]:
   url.endsWith('/exports')?{items:[exportFixture]}:{items:[]})))
  const {container}=render(<RevisionPanel projectId="p1" round={round} active disabled={false} onOpenTask={vi.fn()} customer view="revision"/>)
  expect((await screen.findByText('Revised method.')).closest('[hidden]')).toBeNull()

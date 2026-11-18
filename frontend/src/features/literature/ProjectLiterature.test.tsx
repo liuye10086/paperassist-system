@@ -2,7 +2,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testi
 import userEvent from '@testing-library/user-event'
 import { afterEach, expect, it, vi } from 'vitest'
 import ProjectLiterature from './ProjectLiterature'
-import { literatureTask } from './fixtures'
+import { literatureTask, literatureWorkspace } from './fixtures'
 import { clearApiSession } from '../../shared/api/client'
 import { setLocale, translate } from '../../shared/i18n'
 const stamp = '2026-10-08T01:00:00Z'
@@ -49,15 +49,49 @@ it.each([undefined,null,{kind:'section',label:'',text:''},{kind:'feedback',label
  expect(within(region).queryByText('保存的检索背景')).toBeNull()
  expect(within(region).getAllByRole('link',{name:'下载原始 JSON/XML'})).toHaveLength(2)
 })
-it('saves while NCBI is disabled and reuses idempotency for an unchanged retry',async()=>{
+it('starts a new search for an acknowledged submission with the same input',async()=>{
  const mock=setup();const open=vi.fn();render(<ProjectLiterature projectId="p1" researchTopic="Synthetic topic" active onOpenTask={open}/>);
  openView('新建文献检索');expect(await screen.findByText(/已保存结果仍可查看/)).toBeTruthy()
  const query=screen.getByLabelText('PubMed 检索式');fireEvent.change(query,{target:{value:'synthetic[Title]'}})
  await userEvent.click(screen.getByRole('button',{name:'保存检索并创建任务'}));await screen.findByText('检索任务已保存。')
  await userEvent.click(screen.getByRole('button',{name:'保存检索并创建任务'}));await waitFor(()=>expect(mock.mock.calls.filter(([,i])=>i?.method==='POST')).toHaveLength(2))
- const posts=mock.mock.calls.filter(([,i])=>i?.method==='POST');expect(new Headers(posts[0][1]?.headers).get('Idempotency-Key')).toBe(new Headers(posts[1][1]?.headers).get('Idempotency-Key'))
+ const posts=mock.mock.calls.filter(([,i])=>i?.method==='POST');expect(new Headers(posts[0][1]?.headers).get('Idempotency-Key')).not.toBe(new Headers(posts[1][1]?.headers).get('Idempotency-Key'))
  expect(JSON.parse(posts[0][1]!.body as string)).toMatchObject({research_topic:'Synthetic topic',query:'synthetic[Title]',limit:20,sort:'relevance',year_from:null,publication_types:[],source_context:{kind:'project_topic'}})
  await userEvent.click(screen.getByRole('button',{name:'查看检索任务'}));expect(open).toHaveBeenCalledWith('search1')
+})
+it('reuses the request key after a missing search submission receipt',async()=>{
+ let first=true
+ const mock=setup((url,init)=>{
+  if(url.endsWith('/searches')&&init?.method==='POST'&&first){first=false;return Promise.reject(new Error('connection lost'))}
+ })
+ render(<ProjectLiterature projectId="p1" researchTopic="Synthetic topic" active/>)
+ openView('新建文献检索')
+ fireEvent.change(screen.getByLabelText('PubMed 检索式'),{target:{value:'synthetic[Title]'}})
+ const submit=screen.getByRole('button',{name:'保存检索并创建任务'})
+ await userEvent.click(submit)
+ await screen.findByText(/检索提交结果未确认/)
+ await userEvent.click(submit)
+ await screen.findByText('检索任务已保存。')
+ const keys=mock.mock.calls.filter(([,init])=>init?.method==='POST').map(([,init])=>new Headers(init?.headers).get('Idempotency-Key'))
+ expect(keys).toEqual([expect.any(String), keys[0]])
+})
+it('lets a customer resume the failed search with its original task and input',async()=>{
+ const failed={...literatureTask,status:'failed',revision:5,reason_code:null,error_code:'ncbi_unavailable'}
+ const input={research_topic:'Synthetic topic',source_context:{kind:'project_topic',label:'',text:'Synthetic topic'},query:'synthetic',year_from:null,year_to:null,publication_types:[],sort:'relevance',limit:20,output_language:'zh-CN'}
+ const search={id:'search1',project_id:'p1',task:failed,input,effective_query:'(synthetic)',query_translation:null,matched_count:null,retrieved_count:0,missing_pmids:[],warnings:[],created_at:stamp,updated_at:stamp,source_url:'https://pubmed.ncbi.nlm.nih.gov/?term=synthetic'}
+ let resumed=false
+ const queued={...failed,status:'queued',revision:6,error_code:null}
+ const mock=setup(url=>{
+  if(url.endsWith('/searches/search1'))return Response.json({...search,task:resumed?queued:failed})
+  if(url.endsWith('/search1/workspace'))return Response.json({...literatureWorkspace,task:failed,wait:null,allowed_actions:['retry']})
+  if(url.endsWith('/search1/resume')){resumed=true;return Response.json(queued,{status:202})}
+ })
+ render(<ProjectLiterature projectId="p1" researchTopic="Synthetic topic" initialSearchId="search1" customerSci active/>)
+ await userEvent.click(await screen.findByRole('button',{name:'重试原任务'}))
+ await waitFor(()=> expect(screen.queryByRole('button',{name:'重试原任务'})).toBeNull())
+ const call=mock.mock.calls.find(([url])=>url.endsWith('/search1/resume'))
+ expect(JSON.parse(String(call?.[1]?.body))).toEqual({operation:'retry',wait_id:null,expected_task_revision:5,input_version:failed.input_version})
+ expect(mock.mock.calls.filter(([,init])=>init?.method==='POST')).toHaveLength(1)
 })
 it('rejects reversed years without posting and uses a new key after editing',async()=>{
  const mock=setup();render(<ProjectLiterature projectId="p1" researchTopic="Synthetic topic" active/>);openView('新建文献检索');await screen.findByText(/已保存结果仍可查看/)

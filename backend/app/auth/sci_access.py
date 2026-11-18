@@ -5,14 +5,14 @@ MANUSCRIPT = '/manuscripts/{manuscript_id}'
 WRITING = MANUSCRIPT + '/writing-requests'
 
 _PAPER_ROUTES = {
-    '/paper-materials': {'GET': ('',), 'PUT': ('/{note_id}',)},
+    '/paper-materials': {'GET': ('', '/worksheets/{file_id}'), 'PUT': ('/{note_id}',)},
     '/manuscripts': {
         'GET': ('/config', '/candidates'),
         'POST': ('', '/preview'),
     },
     MANUSCRIPT: {
         'GET': ('/versions/{revision}/writing-materials',),
-        'POST': ('/versions', '/recover', '/versions/{revision}/exports', '/versions/{revision}/exports/preview'),
+        'POST': ('/versions', '/versions/{revision}/exports', '/versions/{revision}/exports/preview'),
     },
     MANUSCRIPT + '/writing-previews': {
         'GET': ('', '/{bundle_id}'),
@@ -21,7 +21,8 @@ _PAPER_ROUTES = {
     WRITING: {
         'GET': (
             '', '/{request_id}', '/{request_id}/review-context', '/{request_id}/reviews/{review_id}',
-            '/{request_id}/reviews/{review_id}/language-context', '/{request_id}/language-reviews/{language_id}',
+            '/{request_id}/reviews/{review_id}/language-context', '/{request_id}/reviews/{review_id}/language-reviews',
+            '/{request_id}/language-reviews/{language_id}',
         ),
         'POST': (
             '', '/{request_id}/publish', '/{request_id}/reviews',
@@ -137,4 +138,4 @@ PAPER_TASK_TYPES = ('manuscript_draft', 'manuscript_docx', 'manuscript_writing',
 PAPER_READ_ONLY_TASK_TYPES = ('layout_docx',)
 SCI_TASK_TYPES = ('journal_recommendation', 'journal_format_check', 'journal_adaptation')
 THESIS_TASK_TYPES = ('school_template_parse',)
-PAPER_RECOVERY_TASK_TYPES = ('manuscript_writing', 'manuscript_docx', 'manuscript_draft') + REVIEW_TASK_TYPES
+PAPER_RECOVERY_TASK_TYPES = ('manuscript_writing', 'manuscript_docx', 'manuscript_draft', 'literature_search') + REVIEW_TASK_TYPES

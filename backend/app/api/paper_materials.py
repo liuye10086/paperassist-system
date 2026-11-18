@@ -8,7 +8,7 @@ from app.api.dataset_preparation import Store
 from app.auth.permissions import require_customer_role
 from app.domain.paper_materials import (
     FileId, PaperMaterialNote, PaperMaterialWrite, PaperMaterialsView,
-    list_paper_materials, save_paper_material,
+    list_paper_materials, paper_worksheets, save_paper_material,
 )
 
 
@@ -25,3 +25,8 @@ def materials(project_id: str, store: Store,
 @router.put('/{note_id}', response_model=PaperMaterialNote)
 def save_material(project_id: str, note_id: UUID, changes: PaperMaterialWrite, store: Store):
     return save_paper_material(store, project_id, str(note_id), changes)
+
+
+@router.get('/worksheets/{file_id}')
+def worksheets(project_id: str, file_id: FileId, store: Store):
+    return paper_worksheets(store, project_id, file_id)

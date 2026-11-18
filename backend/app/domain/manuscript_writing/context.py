@@ -31,7 +31,7 @@ def literature_paragraphs(snapshot):
     return result
 
 
-def citation_prose(snapshot,paragraph):
+def citation_fragments(snapshot,paragraph):
     """Exact pre-rendered fragments only; never infer citation marks by regex.
 
     Reuse the existing frozen citation/output projection to locate the same
@@ -47,7 +47,27 @@ def citation_prose(snapshot,paragraph):
     source=next(p for p in snapshot['citation_snapshot']['paragraphs'] if p['id']==identity)
     fragments=source['fragments']
     if any(not isinstance(f.get('text'),str) for f in fragments):raise ValueError('Cited prose lacks frozen pre-citation text')
-    return ''.join(f['text'] for f in fragments)
+    return fragments
+
+
+def citation_prose(snapshot,paragraph):
+    return ''.join(f['text'] for f in citation_fragments(snapshot,paragraph))
+
+
+RESEARCH_CLAIMS = frozenset(('study_claim','mixed_claim','context_claim'))
+
+
+def paragraph_sources_selected(paragraph, selected_sources, *, reviewed_sources=False):
+    source_ids=set(paragraph.get('source_ids',[]))
+    if not source_ids<=selected_sources:
+        return False
+    if source_ids or not reviewed_sources:
+        return True
+    classification=(paragraph.get('science_review') or {}).get('classification')
+    # Older science artifacts may have lost the attribution of a corrected claim.
+    # Explicit source-free author methods and non-claim text still provide context.
+    return not (classification in ('study_claim','mixed_claim')
+                or classification=='context_claim' and paragraph.get('suggested_source_aliases'))
 
 
 def normalize_sections(snapshot):

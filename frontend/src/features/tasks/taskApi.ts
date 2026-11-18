@@ -4,7 +4,14 @@ import { apiError } from '../../shared/i18n'
 
 export class TaskRequestError extends Error {
   status: number
-  constructor(message: string, status: number) { super(message); this.status = status }
+  code?: string
+  constructor(message: string, status: number, code?: string) { super(message); this.status = status; this.code = code }
+}
+
+function responseCode(value: unknown) {
+  if (!value || typeof value !== 'object') return
+  const detail = 'detail' in value ? value.detail : value
+  if (detail && typeof detail === 'object' && 'code' in detail && typeof detail.code === 'string') return detail.code
 }
 export async function taskRequest<T>(url: string, controller: AbortController, valid: (value: unknown) => value is T,
   fallback: string, init?: RequestInit, timeoutMs = STANDARD_REQUEST_TIMEOUT_MS): Promise<T> {
@@ -13,7 +20,7 @@ export async function taskRequest<T>(url: string, controller: AbortController, v
     return await Promise.race([
       apiFetch(url, { ...init, signal: controller.signal }).then(async response => {
         const value: unknown = await response.json().catch(() => null)
-        if (!response.ok) throw new TaskRequestError(apiError(value, fallback), response.status)
+        if (!response.ok) throw new TaskRequestError(apiError(value, fallback), response.status, responseCode(value))
         if (!valid(value)) throw new Error(fallback)
         return value
       }),

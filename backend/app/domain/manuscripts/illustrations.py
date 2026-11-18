@@ -67,6 +67,44 @@ def check_bindings(groups, language):
 BODY_REFERENCE = re.compile(r'(?<![A-Za-z])(?P<kind>Figure|Fig\.?|Table|图|表)\s*(?P<number>[0-9]+)(?:\s*\(?(?P<panel>[A-Za-z])\)?)?(?![A-Za-z0-9])',re.I)
 
 
+def bind_finding_figures(paragraph, figures, position, language):
+    """Bind the author's references inside a finding to its own frozen images."""
+    from app.core.exceptions import StorageError
+
+    by_number = {figure['number']: figure for figure in figures}
+    references = []
+
+    def reference(figure, panel=None):
+        item = dict(kind='figure', target_id=figure['id'], number=figure['number'], panel_label=panel)
+        if item not in references:
+            references.append(item)
+        return reference_text(item, language)
+
+    def replace(match):
+        if match['kind'].lower() in ('table', '表'):
+            return match.group()
+        number = int(match['number'])
+        target = by_number.get(number)
+        if target is None and number == position and len(figures) == 1:
+            # Older requirements displayed Figure N for the Nth finding.
+            target = figures[0]
+        panel = match['panel'].upper() if match['panel'] else None
+        if target is None or panel and panel not in (panel_labels(target) or []):
+            raise StorageError('manuscript_finding_figure_reference', '发现引用的图号或分面与关联图件不符。', 422,
+                               params={'position': position})
+        label = reference(target, panel)
+        # The common matcher also accepts "Figure 2 (A)". Preserve a closing
+        # prose parenthesis in "(Figure 2A)".
+        return label + (')' if match.group().endswith(')') and '(' not in match.group() else '')
+
+    text = BODY_REFERENCE.sub(replace, paragraph['text'])
+    mentioned = {ref['target_id'] for ref in references}
+    remaining = [reference(figure) for figure in figures if figure['id'] not in mentioned]
+    if remaining:
+        text += ' (' + ', '.join(remaining) + ')'
+    paragraph.update(text=text, cross_references=references)
+
+
 def check_references(groups, language, extra_paragraphs=()):
     """Report explicit textual references without rewriting user prose or guessing a target."""
     issues=check_bindings(groups,language)

@@ -20,9 +20,11 @@ export default function ThesisChapterFields({disabled=false,projectId,readiness,
    {readiness.chapters.map((chapter,index)=>{
     const mapping=mappings[index]
     const planned=paperPlan?.sections.find(section=>section.chapter_id===chapter.id)
+    const protectedPurpose=paperPlan&&readiness.protected_chapter_purposes?.[chapter.id]
     return <fieldset disabled={disabled} key={chapter.id} aria-label={chapter.title}>
      <legend>{chapter.title}</legend><p>{t('章节层级 {number}',{number:chapter.level})}</p>
-     {planned?.purpose?<p><strong>{t('内容用途')}</strong> · {t(purposeLabels[planned.purpose])} · {t('沿用已保存的写作要求')}</p>:<label>{t('内容用途')}<select value={mapping.purpose}
+     {protectedPurpose?<p><strong>{t('内容用途')}</strong> · {t(purposeLabels[protectedPurpose])} · {t('沿用学校模板确认的用途')}</p>
+      :planned?.purpose?<p><strong>{t('内容用途')}</strong> · {t(purposeLabels[planned.purpose])} · {t('沿用已保存的写作要求')}</p>:<label>{t('内容用途')}<select value={mapping.purpose}
       onChange={e=>change(index,{purpose:e.target.value as SchoolPurpose,result_group_ids:e.target.value==='results'?mapping.result_group_ids:[]})}>
       <option value="">{t('请选择内容用途')}</option>
       {schoolPurposes.map(purpose=><option key={purpose} value={purpose}>{t(purposeLabels[purpose])}</option>)}

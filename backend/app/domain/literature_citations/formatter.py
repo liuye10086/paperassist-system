@@ -71,6 +71,10 @@ def format_frontiers_reference(metadata: dict) -> str:
     return text + f' doi: {doi}' if doi else text
 
 
+def numeric_citation_marker(numbers) -> str:
+    return ' (' + ', '.join(str(number) for number in sorted(set(numbers))) + ')'
+
+
 def render_paragraphs(paragraphs: list[dict]) -> dict:
     """Number by first appearance, preserving paragraph IDs and exact text fragments."""
     numbers = {}
@@ -96,6 +100,6 @@ def render_paragraphs(paragraphs: list[dict]) -> dict:
                 elif selected_metadata[ref_id] != metadata:
                     raise ValueError('citation_metadata_versions_conflict')
                 cited.add(numbers[ref_id])
-            parts.append(fragment['text'] + ' (' + ', '.join(str(number) for number in sorted(cited)) + ')')
+            parts.append(fragment['text'] + numeric_citation_marker(cited))
         output.append(dict(id=paragraph['id'], text=''.join(parts)))
     return dict(paragraphs=output, text='\n\n'.join(paragraph['text'] for paragraph in output), references=references)

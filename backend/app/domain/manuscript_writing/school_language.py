@@ -76,4 +76,7 @@ def validate_decisions(items,body):
         if item.get('protected_identity'):
             if decision['decision']!='provided_literal' or decision['exceptions']:raise ValueError('Identity/signature/date values require explicit literal preservation')
         else:
+            # Keep the sealed inventory unchanged so older decisions remain readable.
+            if item['kind']=='export_text' and item.get('scope')=='reference_metadata':
+                item=dict(item,preserve_reference=True)
             common([item],dict(inventory_sha256=digest([item]),decisions=[decision]),item['target_language'])

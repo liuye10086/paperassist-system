@@ -5,15 +5,37 @@ import WritingBundlePreview from './WritingBundlePreview'
 import WritingAuthorization from './WritingAuthorization'
 import WritingLive from './WritingLive'
 import ProjectManuscripts from './ProjectManuscripts'
-import {bundleFixture,authFixture} from './writingLiveFixtures'
+import {bundleFixture,authFixture,hash} from './writingLiveFixtures'
 import {manuscriptFixture,candidatesFixture,snapshotFixture} from './manuscriptFixtures'
-import type {ManuscriptVersion} from './manuscriptTypes'
+import type {ManuscriptVersion,Snapshot} from './manuscriptTypes'
 beforeEach(()=>vi.stubGlobal('crypto',webcrypto))
 afterEach(()=>{cleanup();vi.unstubAllGlobals()})
 it('displays and downloads the complete exact wire, prices and hash, refusing a changed SHA',async()=>{
  const bundle=bundleFixture();const onVerified=vi.fn(),blobs:Blob[]=[];URL.createObjectURL=vi.fn((blob:Blob|MediaSource)=>{blobs.push(blob as Blob);return 'blob:test'});URL.revokeObjectURL=vi.fn();vi.spyOn(HTMLAnchorElement.prototype,'click').mockImplementation(()=>{})
  const view=render(<WritingBundlePreview bundle={bundle} onVerified={onVerified}/>);await screen.findByText('完整 wire 字节与 SHA 已核对。');expect(screen.getByText(bundle.wire_json)).toBeTruthy();expect(screen.getByText(/US\$2.500000 \/ US\$0.250000 \/ US\$15.000000/)).toBeTruthy();fireEvent.click(screen.getByRole('button',{name:'下载完整 wire'}));expect(blobs[0].size).toBe(bundle.wire_bytes);expect(onVerified).toHaveBeenCalledWith(bundle.bundle_sha256)
  view.rerender(<WritingBundlePreview key="changed" bundle={{...bundle,wire_json:bundle.wire_json+' '}} onVerified={onVerified}/>);await screen.findByRole('alert');expect(screen.getByRole('button',{name:'下载完整 wire'}).matches(':disabled')).toBe(true)
+})
+it('shows the customer the frozen outgoing passages, report, sources and illustration cells before authorization',async()=>{
+ const original=bundleFixture()
+ const wire=JSON.stringify({input:JSON.stringify({
+  context:[{id:'materials_and_methods',paragraphs:[{text:'Fixed study method passage'}]}],
+  acknowledgements:'Fixed acknowledgment',
+  sources:[{alias:'s1',report_text:'Fixed report passage',methods:[{title:'Recorded method',description:'Fixed method details'}]}],
+  numeric_context:[{origin:'user_provided',text:'Fixed reported results'}],
+  illustrations:[{kind:'table',number:1,columns:['Group','Ratio'],rows:[['A','50.00%']]},
+   {kind:'figure',number:1,title:'Fixed figure title',caption:'Fixed figure caption',panels:[{label:'B',description:'Fixed panel description'}]}],
+ })})
+ const bundle={...original,wire_json:wire,bundle_sha256:hash(wire),wire_bytes:new TextEncoder().encode(wire).length}
+ const onVerified=vi.fn()
+ render(<WritingBundlePreview bundle={bundle} readableSnapshot={snapshotFixture as Snapshot} onVerified={onVerified}/>)
+ await screen.findByText('已核对发送材料。此次预览未调用模型。')
+ for(const text of ['Fixed study method passage','Fixed acknowledgment','Fixed report passage','Fixed method details','Fixed reported results','Fixed figure caption','Fixed panel description'])expect(screen.getByText(text)).toBeTruthy()
+ expect(screen.getByRole('cell',{name:'50.00%'})).toBeTruthy()
+ fireEvent.click(screen.getByRole('button',{name:'未外发材料清单'}))
+ expect(screen.getByText('文件附件')).toBeTruthy()
+ fireEvent.click(screen.getByRole('button',{name:'完整请求原文'}))
+ expect(screen.getByText(wire)).toBeTruthy()
+ expect(onVerified).toHaveBeenCalledWith(bundle.bundle_sha256)
 })
 it('combines four distinct cross-manuscript tasks and known correction bundles only after explicit confirmation, then closes authorization',async()=>{
  const bundles=[bundleFixture('b1','m1'),bundleFixture('b2','m2'),bundleFixture('b3','m1'),bundleFixture('b4','m2'),bundleFixture('b5','m1')],authorization=authFixture(bundles.slice(0,4)),onSelect=vi.fn()
@@ -38,4 +60,31 @@ it('invalidates a previously selected grant when rereading current authorization
  vi.stubGlobal('fetch',vi.fn(async(url:string)=>Response.json(url.endsWith('/manuscripts')?{items:[manuscriptFixture]}:{items:[{...auth,status:loads++?'revoked':'active'}]})))
  render(<WritingAuthorization projectId="p1" onSelect={onSelect}/>);fireEvent.click(screen.getByRole('button',{name:'读取同项目稿件与授权'}));await screen.findByRole('option',{name:'auth1 · 有效'});fireEvent.change(screen.getByLabelText('明确选择已有授权'),{target:{value:'auth1'}});expect(onSelect).toHaveBeenLastCalledWith(auth)
  fireEvent.click(screen.getByRole('button',{name:'读取同项目稿件与授权'}));await screen.findByRole('option',{name:'auth1 · 已撤销'});expect(onSelect).toHaveBeenLastCalledWith(null);expect((screen.getByLabelText('明确选择已有授权') as HTMLSelectElement).value).toBe('')
+})
+it('allows an explicit new grant with the same materials after a successful creation',async()=>{
+ const fixture=bundleFixture()
+ const bundle={...fixture,local_manifest:{...fixture.local_manifest,numeric_context:{}}}
+ const requests:RequestInit[]=[]
+ const fetcher=vi.fn(async(url:string,init?:RequestInit)=>{
+  if(init?.method==='POST'){
+   requests.push(init)
+   return Response.json({...authFixture([bundle]),id:'grant'+requests.length})
+  }
+  return Response.json({items:url.endsWith('/manuscripts')?[manuscriptFixture]:url.endsWith('/writing-previews')?[bundle]:[]})
+ })
+ vi.stubGlobal('fetch',fetcher)
+ render(<WritingAuthorization projectId="p1" onSelect={vi.fn()}/>)
+ fireEvent.click(screen.getByRole('button',{name:'读取同项目稿件与授权'}))
+ await screen.findByRole('option',{name:/Saved draft/})
+ await waitFor(()=>expect(screen.getByLabelText('读取其他稿件的冻结预览').matches(':disabled')).toBe(false))
+ fireEvent.change(screen.getByLabelText('读取其他稿件的冻结预览'),{target:{value:'m1'}})
+ const group=within(screen.getByRole('group',{name:'逻辑任务 1'}))
+ fireEvent.click(await group.findByRole('checkbox',{name:/b1$/}))
+ for(const number of [1,2]){
+  fireEvent.click(screen.getByLabelText(/我已核对所选逻辑任务的全部 wire/))
+  fireEvent.click(screen.getByRole('button',{name:'明确创建批次授权'}))
+  await screen.findByRole('option',{name:'grant'+number+' · 有效'})
+ }
+ expect(requests[1].body).toBe(requests[0].body)
+ expect(new Headers(requests[1].headers).get('Idempotency-Key')).not.toBe(new Headers(requests[0].headers).get('Idempotency-Key'))
 })

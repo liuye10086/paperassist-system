@@ -23,6 +23,7 @@ export default function PaperPlanSummary({plan,heading,omittedCount=0,filesOnly=
         {!filesOnly&&section.text&&<p className="paper-plan-note">{section.text}</p>}
         {materials.length>0&&<ul className="paper-plan-files">{materials.map((material,index)=><li key={`${material.selection.kind}:${material.selection.id}:${index}`}>
           <strong>{t(material.kind==='figure'?'图':'表')} · {material.filename}</strong>
+          {!!material.worksheet_names?.length&&<p className="muted">{t('入稿工作表')} · {material.worksheet_names.join(' · ')}</p>}
           {!filesOnly&&material.result&&<p className="paper-plan-note">{material.result}</p>}
         </li>)}</ul>}
       </article>

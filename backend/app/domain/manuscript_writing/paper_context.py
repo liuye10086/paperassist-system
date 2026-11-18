@@ -165,15 +165,23 @@ def add_illustration_context(base, payload, local):
             continue
         cells = [(f'/columns/{c}', cell) for c, cell in enumerate(item['columns'])]
         cells.extend((f'/rows/{r}/{c}', cell) for r, row in enumerate(item['rows']) for c, cell in enumerate(row))
+        numeric_paths = {
+            (f"/rows/{cell['row'] - 1}/{cell['column']}" if cell['row'] else f"/columns/{cell['column']}")
+            for cell in original.get('numeric_cells', [])
+        }
         values = []
         for path, cell in cells:
+            percent = path in numeric_paths and cell.endswith('%')
             try:
-                number = numeric_value(cell)
+                number = numeric_value(cell.removesuffix('%') if percent else cell)
             except ValueError:
                 # Words, ranges and compound expressions stay in their exact
                 # cells; do not turn part of them into a numerical claim.
                 continue
-            values.append(dict(fact_path=path, value=number))
+            entry = dict(fact_path=path, value=number)
+            if percent:
+                entry['display_text'] = cell
+            values.append(entry)
         if values:
             row = dict(kind='provided_context', location=f'illustrations[{index}].table_cells',
                        origin='frozen_illustration', text=f"Table {item['number']}", values=values)

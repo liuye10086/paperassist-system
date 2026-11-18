@@ -107,6 +107,20 @@ def test_actual_reference_metadata_remains_locally_reviewable_but_not_blanket():
     with pytest.raises(ValueError):validate_decisions([forged],decisions([forged])|{'decisions':body['decisions']},'zh-CN')
 
 
+def test_school_reference_literal_is_bound_to_rendered_bibliography():
+    from app.domain.manuscript_writing.school_language import validate_decisions as validate_school
+
+    text = '[1] An English reference in a Chinese thesis.'
+    item = dict(location='word/document.xml:paragraph:99', kind='export_text', text=text,
+                content_sha256=digest(text), scope='reference_metadata', target_language='zh-CN')
+    body = decisions([item])
+    body['decisions'][0]['decision'] = 'provided_literal'
+    validate_school([item], body)
+    narrative = dict(item, scope='narrative')
+    with pytest.raises(ValueError, match='Text requires language judgment'):
+        validate_school([narrative], body | dict(inventory_sha256=digest([narrative])))
+
+
 @pytest.mark.parametrize('overlap',['title','caption'])
 def test_actual_bibliography_position_wins_over_unrelated_narrative_substrings(overlap):
     candidate,images=full_sample()

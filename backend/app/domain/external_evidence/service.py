@@ -90,8 +90,8 @@ class ExternalEvidenceService:
         self.assets=assets
         self.store=TaskStore(assets.owner_id,assets.db_config)
 
-    def source(self,project,file_id,kind,version_id=None):
-        source,items,_,_=self._source(project,file_id,kind,version_id)
+    def source(self,project,file_id,kind,version_id=None,*,allow_customer_pdf=False):
+        source,items,_,_=self._source(project,file_id,kind,version_id,allow_customer_pdf=allow_customer_pdf)
         return source,items
 
     def _source(self,project,file_id,kind,version_id=None,*,allow_customer_pdf=False):

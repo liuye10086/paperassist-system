@@ -7,7 +7,7 @@ from app.domain.literature.service import digest
 from app.domain.manuscripts.service import now
 from app.domain.manuscripts.sources import require_visible_snapshot, writing_changes as changes
 from app.domain.dataset_preparation.service import require_key, append_checkpoint
-from .bundle import build_bundle, validate_bundle
+from .bundle import build_bundle, require_current_source_projection, validate_bundle
 from .live_contracts import PreviewRequest, AuthorizationRequest, LiveWritingRequest, WORKFLOW,preview_data
 from .policy import MAX_POSTS, MAX_CORRECTIONS, TASK_CAP, BATCH_CAP, POLICY_VERSION, capabilities
 from .frozen import contract,bundle_contract,SCI_ARTICLE_PROSE_REVISION
@@ -34,7 +34,8 @@ class LiveWritingService:
             if configuration is not None:
                 if frozen is None or frozen!=contract(configuration,schema_version=frozen['schema_version'],
                     instruction_revision=frozen.get('instruction_revision'),document_kind=frozen.get('document_kind','sci'),
-                    article_instruction_revision=frozen.get('article_instruction_revision')):raise ValueError('Bundle binding mismatch')
+                    article_instruction_revision=frozen.get('article_instruction_revision'),
+                    source_selection_version=frozen.get('source_selection_version')):raise ValueError('Bundle binding mismatch')
             elif frozen is not None:
                 if frozen.get('schema_version') not in (2,3,4) or frozen.get('origin')!='installed':raise ValueError('Bundle binding mismatch')
         except (ValueError,KeyError,TypeError): raise source_conflict() from None
@@ -47,6 +48,7 @@ class LiveWritingService:
         if (root['current_revision']!=bundle['request_json']['base_revision'] or version['id']!=bundle['base_version_id']
             or version['snapshot_json']!=bundle['base_snapshot'] or changes(self.manuscripts,bundle['project_id'],bundle['base_snapshot'])): raise source_conflict()
         self.require_customer_writing_input(db, bundle['project_id'], bundle['request_json'], bundle['base_snapshot'])
+        require_current_source_projection(bundle)
 
     def require_customer_writing_input(self, db, project, request, snapshot):
         if not self.manuscripts.assets.customer:
@@ -68,6 +70,8 @@ class LiveWritingService:
         if expected != kind:
             raise StorageError('manuscript_article_type_changed', '论文类型与项目资料不一致，请重新准备写作预览。', 422)
         if kind == 'narrative_review':
+            from app.domain.manuscripts.paper_plan import require_review_heading_language
+            require_review_heading_language(plan, request['output_language'])
             if not request['selected_evidence_ids']:
                 raise StorageError('manuscript_writing_evidence_required', '综述须选择至少一项已核验文献证据。', 422)
             return
@@ -111,7 +115,7 @@ class LiveWritingService:
             prose_revision=SCI_ARTICLE_PROSE_REVISION if schema_version==4 and not school else None
             try:
                 frozen=contract(configuration,schema_version=schema_version,document_kind='thesis' if school else 'sci',
-                                article_instruction_revision=prose_revision)
+                                article_instruction_revision=prose_revision,source_selection_version=2)
                 data=build_bundle(version['snapshot_json'],body,execution_contract=frozen)
             except (ValueError,KeyError,TypeError) as exc:
                 if not school:raise StorageError('manuscript_writing_selection_invalid','文章结构、写作范围或所选证据与冻结基础稿不匹配。',422) from exc
@@ -201,9 +205,11 @@ class LiveWritingService:
 
     def require_authorized(self,db,project,request,bundle,*,current=True):
         auth=self.authorization(db,project,request['authorization_id'])
+        if auth['status']!='active':
+            raise StorageError('manuscript_writing_authorization_closed','写作授权已关闭，请重新读取并选择有效授权。',409)
         grant=db.execute('SELECT * FROM manuscript_writing_authorized_tasks WHERE authorization_id=%s AND logical_task_id=%s',(auth['id'],request['logical_task_id'])).fetchone()
         ref=dict(bundle_id=bundle['id'],bundle_sha256=bundle['bundle_sha256'])
-        if auth['status']!='active' or not grant or ref not in grant['bundles_json'] or request['bundle_sha256']!=bundle['bundle_sha256']: raise denied()
+        if not grant or ref not in grant['bundles_json'] or request['bundle_sha256']!=bundle['bundle_sha256']: raise denied()
         expected=next((t for t in auth['manifest_json']['tasks'] if t['logical_task_id']==request['logical_task_id']),None)
         manifest=auth['manifest_json']
         if (not expected or expected['bundles']!=grant['bundles_json'] or grant['cap_micro_usd']!=manifest['logical_task_cap_micro_usd']

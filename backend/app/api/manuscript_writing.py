@@ -82,6 +82,10 @@ def language_context(project_id:str,manuscript_id:str,request_id:str,review_id:s
 def language_preview(project_id:str,manuscript_id:str,request_id:str,review_id:str,request:LanguagePreparation | SchoolLanguagePreparation,store:Store):
     return LanguageReviewService(store).context(project_id,manuscript_id,request_id,review_id,request)
 
+@router.get('/{request_id}/reviews/{review_id}/language-reviews')
+def language_list(project_id:str,manuscript_id:str,request_id:str,review_id:str,store:Store):
+    return LanguageReviewService(store).list_language(project_id,manuscript_id,request_id,review_id)
+
 @router.post('/{request_id}/language-reviews',status_code=201)
 def language_create(project_id:str,manuscript_id:str,request_id:str,request:LanguageReviewRequest | SchoolLanguageReviewRequest,response:Response,store:Store,idempotency_key:Key):
     result,response.status_code=LanguageReviewService(store).create_language(project_id,manuscript_id,request_id,request,idempotency_key)

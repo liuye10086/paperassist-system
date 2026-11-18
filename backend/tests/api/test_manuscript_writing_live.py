@@ -78,6 +78,8 @@ def test_unauthorized_requests_never_create_calls(client, denial):
     if denial == 'unapproved': request['logical_task_id'] = 'unknown'
     response = post(client, root + '/writing-requests', request, 'write')
     assert response.status_code in (403, 404, 409), response.text
+    if denial == 'closed':
+        assert response.json()['detail']['code']=='manuscript_writing_authorization_closed'
     with database_connection() as db:
         assert db.execute('SELECT count(*) AS n FROM model_calls').fetchone()['n'] == 0
 

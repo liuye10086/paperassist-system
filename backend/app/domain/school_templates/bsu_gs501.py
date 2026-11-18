@@ -148,6 +148,8 @@ def blind_field_value(field, source):
 
 def blind_terms(plan, rules, *, authors=()):
     """Carry confirmed identity and signing values into the final DOCX scan."""
+    from .front_matter import blind_rules_with_identities
+
     if plan is not None and plan.get('format_profile') != PROFILE:
         return rules
     plan = plan or {}
@@ -167,8 +169,4 @@ def blind_terms(plan, rules, *, authors=()):
             if (key in ('author', 'student_id', 'supervisor') or field['kind'] == 'identity'
                     or blind_field_value(field, source) is not None or key and key.startswith('committee:')):
                 protected.add(options.get('field_values', {}).get(field['id'], '').strip())
-    protected.update(' '.join(value.split()) for value in tuple(protected))
-    protected.discard('')
-    protected.discard('XXX')
-    return dict(rules, identity_terms=sorted(set(rules['identity_terms']) | protected),
-                exceptions=[exception for exception in rules['exceptions'] if exception['term'] not in protected])
+    return blind_rules_with_identities(rules, protected)

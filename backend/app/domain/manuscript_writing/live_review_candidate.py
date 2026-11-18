@@ -3,7 +3,7 @@ from copy import deepcopy
 import json
 from app.domain.literature.service import digest
 from app.domain.manuscripts.illustrations import BODY_REFERENCE, check_references, rendered_groups
-from .context import NUMBER, WritingCitationScopeError
+from .context import NUMBER, RESEARCH_CLAIMS, WritingCitationScopeError
 from .live_notice import COMPOSITION_VERSION, update_notice
 from .numeric_review import NUMERIC_VERSION,validation_version,numbers as signed_numbers,value as numeric_value
 from .numeric_contract import REPORTED_RESULTS_LOCATION, is_numeric_v2, context_facts
@@ -25,7 +25,7 @@ def target_ids(raw,snapshot):
     return {p['id'] for s in raw['sections'] if (s.get('purpose') in WRITABLE if raw.get('thesis_context') else s['id']!='references') and
             (request['mode']=='full_draft' or s['id']==request.get('target_section')) for p in s['paragraphs']}
 
-def prepare(raw,snapshot,bundle,body,resolve_claim,*,numeric_version=NUMERIC_VERSION):
+def prepare(raw,snapshot,bundle,body,resolve_claim,*,numeric_version=NUMERIC_VERSION,require_source_selection=False):
     strict=validation_version(numeric_version)==NUMERIC_VERSION
     if digest(raw)!=body['candidate_sha256']: raise ValueError('Raw candidate SHA changed')
     from .school_live import is_school,validate_preservation,chapter_language,allowed_sources
@@ -58,13 +58,26 @@ def prepare(raw,snapshot,bundle,body,resolve_claim,*,numeric_version=NUMERIC_VER
                 raise ValueError('Provided-context decisions require the frozen numeric contract')
             text=decision['corrected_text'] if decision['corrected_text'] is not None else paragraph['text']
             if digest(text)!=decision['text_sha256']: raise ValueError('Decision does not bind exact corrected text')
+            numbers=(signed_numbers if strict else NUMBER.findall)(BODY_REFERENCE.sub('',text))
+            selected=decision.get('source_aliases')
             source_ids = []
-            if (report_sources and text == paragraph['text'] and paragraph['origin'] == 'model_generated'
+            if selected is not None:
+                permitted=allowed_sources(candidate,manifest,section) if school else manifest['sources']
+                if (len(selected)!=len(set(selected)) or not set(selected)<=set(permitted)
+                        or selected and decision['classification'] not in RESEARCH_CLAIMS):
+                    raise ValueError('Reviewed source selection must use frozen sources for this claim')
+                source_ids.extend(manifest['sources'][alias] for alias in selected)
+            elif (report_sources and text == paragraph['text'] and paragraph['origin'] == 'model_generated'
                     and decision['classification'] == 'study_claim'):
                 source_ids.extend(manifest['sources'][alias] for alias in paragraph.get('suggested_source_aliases', []))
-            if (paper_sources and text == paragraph['text'] and decision['classification']
-                    in ('study_claim', 'mixed_claim', 'context_claim')):
+            if (selected is None and paper_sources and text == paragraph['text']
+                    and decision['classification'] in RESEARCH_CLAIMS):
                 source_ids.extend(sid for sid in paragraph.get('source_ids', []) if sid in paper_sources)
+            if ((require_source_selection or selected is not None or bundle.get('execution_contract', {}).get('source_selection_version')==2)
+                    and not selected and not numbers and text!=paragraph['text']
+                    and decision['classification'] in RESEARCH_CLAIMS
+                    and (paragraph.get('source_ids') or paragraph.get('suggested_source_aliases'))):
+                raise ValueError('A corrected qualitative claim requires an explicit frozen source')
             if (raw.get('paper_plan', {}).get('kind') == 'narrative_review'
                     and decision['classification'] == 'study_claim'):
                 raise ValueError('Narrative review must not be approved as an original study claim')
@@ -76,7 +89,7 @@ def prepare(raw,snapshot,bundle,body,resolve_claim,*,numeric_version=NUMERIC_VER
             fragments[pid]=[fragment]
             issues=check_references(rendered_groups(snapshot['base_snapshot'],[dict(id=pid,text=text,origin='model_generated')]),chapter_language(candidate,pid) if school else candidate['output_language'])
             if any(i['field']==pid for i in issues): raise ValueError('Unknown figure or table')
-            numbers=(signed_numbers if strict else NUMBER.findall)(BODY_REFERENCE.sub('',text));bindings=decision['numeric_bindings']
+            bindings=decision['numeric_bindings']
             if sorted(b['occurrence'] for b in bindings)!=list(range(len(numbers))): raise ValueError('Every numeric occurrence must be classified exactly once')
             for bound in bindings:
                 value=numeric_value(bound['value']) if strict else bound['value']

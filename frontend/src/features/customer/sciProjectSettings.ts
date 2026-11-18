@@ -82,7 +82,7 @@ export function prepareSciSettings(draft: SciSettingsDraft): { settings: SciRequ
   if (article_type === 'research') {
     const figure_findings = draft.figure_findings.map(({ id, finding }) => ({ id, finding: finding.trim() }))
     if (!figure_findings.length || figure_findings.some(item => !item.finding)) {
-      return { error: '请至少添加一张图，并填写每张图的主要发现。' }
+      return { error: '请至少填写一条主要发现。' }
     }
     return { settings: { ...intent, article_type, figure_findings } }
   }

@@ -25,6 +25,14 @@ def completed_narrative_review(snapshot):
             and review.get('schema_version') == 2
             and review.get('verification_status') == 'scientific_and_language_reviewed')
 
+def legacy_revision_without_journal_display(snapshot):
+    """Read a detached historical revision without reusing the parent's format."""
+    if (snapshot.get('journal_display_context') and is_narrative_review(snapshot)
+            and not snapshot.get('writing_provenance')
+            and (snapshot.get('review_revision_provenance') or snapshot.get('user_return_provenance'))):
+        return {k: v for k, v in snapshot.items() if k not in ('journal_display_context','journal_adaptation_provenance')}
+    return snapshot
+
 def defaults(snapshot):
     from app.adapters.manuscript_docx import SECTION_LABELS
 
@@ -37,6 +45,7 @@ def defaults(snapshot):
     return dict(version=DISPLAY_VERSION, names=names, order=list(names), styles={})
 
 def context(snapshot):
+    snapshot = legacy_revision_without_journal_display(snapshot)
     base = defaults(snapshot)
     saved = snapshot.get('journal_display_context')
     value = deepcopy(saved or base)

@@ -13,7 +13,10 @@ export type ThesisBasicsDraft = PaperKeywordDraft & Omit<ThesisBasics, 'keywords
 export const thesisSectionLabels = { materials_and_methods: '材料与方法章节', results: '主要结果章节' } as const
 export type ThesisSectionPurpose = keyof typeof thesisSectionLabels
 export type ThesisSection = { chapter_id: string; purpose: ThesisSectionPurpose; content: string }
-export type BoundThesisTemplate = { name: string; confirmation_id: string; chapters: Chapter[] }
+export type BoundThesisTemplate = {
+  name: string; confirmation_id: string; chapters: Chapter[]
+  protected_chapter_purposes?: Record<string, 'manual' | 'acknowledgements'>
+}
 export type ThesisRequirements = Omit<ThesisBasics, 'education_level'> & {
   revision: number
   education_level: string

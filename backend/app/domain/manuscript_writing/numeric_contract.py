@@ -55,10 +55,11 @@ def add_reported_results(base, request, payload, local, safe_text):
     payload['numeric_context'].append(dict(row, alias=alias, source_aliases=source_aliases))
 
 
-def add_catalogs(base, request, payload, local, safe_text):
+def add_catalogs(base, request, payload, local, safe_text, *, reviewed_sources=False):
     """Only selected, explicit text projections; never recursively mine prose."""
-    from .context import normalize_sections
+    from .context import normalize_sections, paragraph_sources_selected
     rows = {}; seen = set()
+    selected=set(request['selected_source_ids'])
     def add(text, location, origin):
         text = safe_text(text)
         key = (origin, text)
@@ -71,13 +72,14 @@ def add_catalogs(base, request, payload, local, safe_text):
     for section in normalize_sections(base):
         if section['id'] != 'materials_and_methods': continue
         for i, paragraph in enumerate(section['paragraphs']):
-            ids = paragraph.get('source_ids', [])
-            if paragraph.get('origin') == 'user_provided' and not paragraph.get('citations') and set(ids) <= set(request['selected_source_ids']):
+            if paragraph.get('origin') == 'user_provided' and not paragraph.get('citations') and paragraph_sources_selected(
+                    paragraph, selected, reviewed_sources=reviewed_sources):
                 add(paragraph['text'], f'materials_and_methods[{i}]', 'user_provided')
     # A complete old draft can keep its original explicit methods alongside
     # generated sections. These originals retain user origin and selection.
     for i, paragraph in enumerate(base.get('methods', [])):
-        if paragraph.get('origin') == 'user_provided' and not paragraph.get('citations') and set(paragraph.get('source_ids', [])) <= set(request['selected_source_ids']):
+        if paragraph.get('origin') == 'user_provided' and not paragraph.get('citations') and paragraph_sources_selected(
+                paragraph, selected, reviewed_sources=reviewed_sources):
             add(paragraph['text'], f'provided_methods[{i}]', 'user_provided')
     for i, item in enumerate(payload['illustrations']):
         if item['kind'] != 'figure': continue

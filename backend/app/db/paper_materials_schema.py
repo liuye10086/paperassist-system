@@ -1,8 +1,9 @@
 """Owner-scoped notes on original paper figures and tables."""
 import sqlalchemy as sa
+from sqlalchemy.dialects.postgresql import ARRAY
 
 
-def define_paper_material_notes(metadata):
+def define_paper_material_notes(metadata, *, include_worksheet_names=True):
     return sa.Table(
         'paper_material_notes', metadata,
         sa.Column('project_id', sa.Text, primary_key=True),
@@ -13,6 +14,7 @@ def define_paper_material_notes(metadata):
         sa.Column('result_text', sa.Text, nullable=False),
         sa.Column('target_id', sa.Text),
         sa.Column('target_label', sa.Text),
+        *([sa.Column('worksheet_names', ARRAY(sa.Text))] if include_worksheet_names else []),
         sa.UniqueConstraint('file_id', name='paper_material_notes_file_key'),
         sa.ForeignKeyConstraint(
             ['project_id', 'owner_id'], ['projects.id', 'projects.owner_id'],

@@ -16,7 +16,7 @@ def has_review_edits(request):
 
 def _retains_school_writing(snapshot):
     change=snapshot.get('school_change_provenance') or {}
-    return change.get('kind')=='template_migration' and change.get('retained_writing_context')==1
+    return not snapshot.get('writing_provenance') and change.get('kind')=='template_migration' and change.get('retained_writing_context')==1
 
 
 def has_reviewed_writing_context(snapshot):

@@ -13,8 +13,11 @@ from .service import ReviewRoundService
 from .planning import invalid
 from .revision_contracts import WORKFLOW,RevisionInputVersion,RevisionPreview
 from .grounded import evidence_for,locations_for,grounded_plans,apply_operations
-from .writing import retain_school_layout
+from .writing import prepare_revision_layout, retain_school_layout
 from app.domain.admin_configuration.rule_consumption import rules,round_version,inherit_task
+
+CANDIDATE_SCHEMA_VERSION = 3
+GENERAL_WORD_NOTICE = '本次修订稿使用通用 Word 版式，期刊格式需按新稿重新核对。'
 
 
 def revision_request_body(request):
@@ -75,7 +78,7 @@ class RevisionService(ReviewRoundService):
         return row,base,state,context
     def revision_context(self,project,identity):
         with self.store.connection() as db:return self.fixed_context(db,project,identity)[3]
-    def calculate(self,db,project,identity,request):
+    def calculate(self,db,project,identity,request,*,candidate_schema_version=CANDIDATE_SCHEMA_VERSION):
         row,base,state,context=self.fixed_context(db,project,identity)
         if request.plan_revision!=context['plan_revision']:raise StorageError('task_revision_conflict','本轮计划或决定已变化，请刷新具体候选。',409)
         if request.expected_current_revision!=context['expected_current_revision']:raise StorageError('manuscript_revision_conflict','当前稿件版本已变化，请刷新。',409)
@@ -98,6 +101,7 @@ class RevisionService(ReviewRoundService):
         unexecuted+=science_unexecuted(state['items'],adoptions,figures,candidate)
         issues+=analysis_consistency_issues(candidate,adoptions)
         issues+=figure_consistency_issues(candidate,figures)
+        general_word = candidate_schema_version == CANDIDATE_SCHEMA_VERSION and prepare_revision_layout(candidate)
         previous=base['snapshot_json'].get('review') or (base['snapshot_json'].get('review_history') or [{}])[-1].get('review',{})
         issues+=check_snapshot(candidate,metadata=previous.get('metadata',[]),strict_locations=strict,writing_context=authority)
         for check in issues:
@@ -110,6 +114,8 @@ class RevisionService(ReviewRoundService):
         elif context['project_type']=='sci':constraints=[dict(severity='human_review',message='期刊规范待核：本轮未固定可用期刊指南。')]
         elif candidate.get('thesis_context'):
             constraints=candidate['school_content_report']['issues']
+        if general_word:
+            constraints.append(dict(severity='info',message=GENERAL_WORD_NOTICE))
         preview=dict(round_id=identity,plan_revision=request.plan_revision,manuscript=context['manuscript'],expected_current_revision=request.expected_current_revision,actual_changes=changes,unexecuted=unexecuted,public_issues=issues,constraint_issues=constraints,can_adopt=bool(changes) and not any(i['severity']=='error' for i in [*issues,*constraints]),synthetic=bool(row['snapshot_json']['synthetic'] or state.get('synthetic')))
         preview['preview_sha256']=digest(preview)
         return row,base,state,candidate,preview
@@ -190,7 +196,7 @@ class RevisionService(ReviewRoundService):
             identity=str(uuid4());timestamp=now();snap=dict(id=identity,kind='review_revision',project_id=project,round_id=row['id'],workflow_version=WORKFLOW,project_type=row['snapshot_json']['project_type'],sources=[{k:v[k] for k in ('id','role','label')} for v in row['snapshot_json']['sources']],output_language=base['snapshot_json']['output_language'],manuscript=preview['manuscript'],base_sha256=base['snapshot_sha256'],plan_revision=request.plan_revision,plan_state=state,operations=body['operations'],expected_current_revision=request.expected_current_revision,preview=preview,synthetic=preview['synthetic'],real_model_calls=False,real_network_calls=False)
             if request.analysis_adoption_ids:snap['analysis_adoption_ids']=list(request.analysis_adoption_ids)
             if request.figure_adoption_ids:snap['figure_adoption_ids']=list(request.figure_adoption_ids)
-            snap['candidate_schema_version']=2
+            snap['candidate_schema_version']=CANDIDATE_SCHEMA_VERSION
             task=dict(id=str(uuid4()),project_id=project,user_id=self.store.user_id,task_type='review_revision',idempotency_key='review-revision:'+identity,input_digest=digest(snap),input_snapshot=snap,workflow_version=WORKFLOW,status='queued',phase='verify',revision=1,current_attempt=0,reason_code=None,created_at=timestamp,updated_at=timestamp)
             self.store.insert_task(db,task);self.store.append_event(db,task,'created');self.store.enqueue(db,task)
             inherit_task(db,task,round_id=row['id'])
@@ -198,9 +204,10 @@ class RevisionService(ReviewRoundService):
             return self.view_revision(db,self.revision_row(db,project,identity)),202
     def compute(self,db,row):
         request=RevisionPreview.model_validate({k:row['request_json'][k] for k in RevisionPreview.model_fields if k in row['request_json']})
-        _,base,state,candidate,preview=self.calculate(db,row['project_id'],row['round_id'],request)
+        version=row['snapshot_json'].get('candidate_schema_version',1)
+        _,base,state,candidate,preview=self.calculate(db,row['project_id'],row['round_id'],request,candidate_schema_version=version)
         if preview!=row['snapshot_json']['preview'] or state!=row['snapshot_json']['plan_state'] or base['snapshot_sha256']!=row['snapshot_json']['base_sha256']:raise source_conflict()
-        if row['snapshot_json'].get('candidate_schema_version')==2:
+        if version==2:
             retain_school_layout(candidate)
         candidate['review_revision_provenance']=dict(revision_id=row['id'],round_id=row['round_id'],base_version_id=base['id'],input_sha256=row['snapshot_sha256'],synthetic=preview['synthetic'])
         items=deepcopy(state['items'])
@@ -242,13 +249,15 @@ def validate_revised_version(manuscripts,db,version):
     from .figure_candidates import apply_figure_sources,figure_consistency_issues
     figures=ScienceService(manuscripts.assets).selected_figure_adoptions(db,version['project_id'],row['round_id'],frozen.get('figure_adoption_ids',[]))
     augmented,authority,figure_changes=apply_figure_sources(augmented,figures,adoptions,authority)
-    detached=frozen.get('candidate_schema_version')==2
+    candidate_version=frozen.get('candidate_schema_version',1)
     expected,changes,_,_,_=apply_operations(augmented,analysis_items(frozen['plan_state']['items'],adoptions),frozen['plan_state']['materials'],frozen['operations'],writing_context=authority,target=target,
-                                            fixed_safety=detached and round_version(db,row['round_id']) is not None)
+                                            fixed_safety=candidate_version in (2,CANDIDATE_SCHEMA_VERSION) and round_version(db,row['round_id']) is not None)
     changes=table_changes+figure_changes+changes
     if any(i['severity']=='error' for i in analysis_consistency_issues(expected,adoptions)):raise source_conflict()
     if any(i['severity']=='error' for i in figure_consistency_issues(expected,figures)):raise source_conflict()
-    if detached:
+    if candidate_version==CANDIDATE_SCHEMA_VERSION:
+        prepare_revision_layout(expected)
+    elif candidate_version==2:
         retain_school_layout(expected)
     expected['review_revision_provenance']=dict(revision_id=row['id'],round_id=row['round_id'],base_version_id=base['id'],input_sha256=row['snapshot_sha256'],synthetic=frozen['synthetic'])
     if expected!=version['snapshot_json'] or changes!=result['actual_changes'] or base['id']!=version['parent_version_id'] or result['output']!=dict(manuscript_id=version['manuscript_id'],version_id=version['id'],revision=version['revision'],parent_version_id=version['parent_version_id'],task_id=version['task_id']):raise source_conflict()

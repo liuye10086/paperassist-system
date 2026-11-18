@@ -3,6 +3,7 @@ import { afterEach, expect, it, vi } from 'vitest'
 import ProjectManuscripts from './ProjectManuscripts'
 import { setLocale } from '../../shared/i18n'
 import { manuscriptFixture, candidatesFixture, snapshotFixture, exportFixture } from './manuscriptFixtures'
+import { taskFixture, workspaceFixture } from '../tasks/taskFixtures'
 const base = '/api/v1/projects/p1/manuscripts'
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.useRealTimers(); setLocale('zh-CN') })
 function server(history: unknown[] = [], wordExports: (typeof exportFixture)[] = []) {
@@ -15,6 +16,28 @@ function server(history: unknown[] = [], wordExports: (typeof exportFixture)[] =
   }); vi.stubGlobal('fetch', fetcher); return fetcher
 }
 const props={projectId:'p1',researchTopic:'示例研究',outputLanguage:'en' as const,active:true}
+it('retries only the fact draft task belonging to the selected failed version',async()=>{
+  const first={...manuscriptFixture.versions[0],status:'failed'}
+  const second={...first,id:'v2',revision:2,parent_version_id:'v1',task_id:'other-task',exports:[]}
+  const manuscript={...manuscriptFixture,current_revision:2,versions:[first,second]}
+  const task={...taskFixture,id:first.task_id,task_type:'manuscript_draft',status:'failed',display_status:'failed',phase:'write',
+    input_version:{kind:'manuscript',manuscript_version_id:first.id,output_language:'en',workflow_version:'manuscript_fact_draft_v1'}}
+  const taskUrl='/api/v1/tasks/'+task.id
+  const fetcher=vi.fn(async(url:string,init?:RequestInit)=>{
+    if(url===taskUrl+'/workspace')return Response.json({...workspaceFixture,task,source:{file_id:null,filename:'Saved draft',analysis_run_id:null,is_current:true},wait:null,allowed_actions:['retry']})
+    if(url===taskUrl+'/resume')return Response.json({...task,status:'queued',display_status:'queued',revision:4})
+    if(init?.method==='POST')throw Error('Unrelated action')
+    return Response.json(url===base?{items:[manuscript]}:candidatesFixture)
+  })
+  vi.stubGlobal('fetch',fetcher)
+  render(<ProjectManuscripts {...props}/>)
+  fireEvent.click((await screen.findAllByRole('button',{name:'重试事实稿发布'}))[0])
+  await waitFor(()=>expect(fetcher.mock.calls.filter(([,init])=>init?.method==='POST')).toHaveLength(1))
+  const [url,request]=fetcher.mock.calls.find(([,init])=>init?.method==='POST')!
+  expect(url).toBe(taskUrl+'/resume')
+  expect(JSON.parse(String(request?.body))).toEqual({operation:'retry',wait_id:null,expected_task_revision:3,input_version:task.input_version})
+})
+
 it('keeps reviewed v2 scientific content out of ordinary edit and review publishing',async()=>{
  const snapshot={...snapshotFixture,writing_provenance:{schema_version:2,provider_provenance:'synthetic_fixture',verification_status:'scientific_and_language_reviewed'}}
  server([{...manuscriptFixture,versions:[{...manuscriptFixture.versions[0],snapshot}]}]);render(<ProjectManuscripts {...props}/>);const edit=await screen.findByRole('button',{name:'以此版本编辑新稿'});expect(edit.hasAttribute('disabled')).toBe(true)

@@ -2,7 +2,8 @@
 from alembic import op
 import sqlalchemy as sa
 
-from app.db.schema import paper_material_notes
+from app.db.paper_materials_schema import define_paper_material_notes
+from app.db.schema import files, projects
 from app.db.storage_deletion_schema import install_file_reference_barriers
 
 
@@ -17,7 +18,10 @@ PAPER_TYPES = "file_type IN ('xlsx','docx','pdf','png','jpeg','tiff','bio_bundle
 def upgrade():
     op.drop_constraint('files_type_check', 'files', type_='check')
     op.create_check_constraint('files_type_check', 'files', PAPER_TYPES)
-    paper_material_notes.create(op.get_bind())
+    metadata = sa.MetaData()
+    for table in (projects, files):
+        table.to_metadata(metadata)
+    define_paper_material_notes(metadata, include_worksheet_names=False).create(op.get_bind())
     install_file_reference_barriers(op.execute, ('paper_material_notes',))
 
 

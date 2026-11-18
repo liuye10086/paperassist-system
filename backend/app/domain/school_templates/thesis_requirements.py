@@ -6,6 +6,7 @@ from pydantic import Field, StringConstraints, model_validator
 from app.core.exceptions import StorageError
 from app.domain.research_intake.paper_fields import ContentText, PaperKeywords, ShortText
 from .contracts import PROFILE_FIELDS, StrictModel
+from .front_matter import content_purposes
 from .service import SchoolTemplateService
 
 
@@ -60,7 +61,8 @@ def bound_template(schools, db, project, profile):
         return None, None
     row = schools.row(db, project, saved['template_version_id'])
     confirmation = schools.confirmation(db, row)
-    template = {'name': row['name'], 'confirmation_id': confirmation['id'], 'chapters': confirmation['chapters']}
+    template = {'name': row['name'], 'confirmation_id': confirmation['id'], 'chapters': confirmation['chapters'],
+                'protected_chapter_purposes': content_purposes(confirmation.get('front_matter'))}
     return template, row
 
 
@@ -93,6 +95,13 @@ def thesis_requirements(store, project, changes: ThesisRequirementsWrite | None 
             chapter_ids = [chapter['id'] for chapter in template['chapters']]
             if sections.keys() - set(chapter_ids):
                 raise StorageError('thesis_chapter_unavailable', '请选择当前学校模板中的章节。', 422)
+            protected = template['protected_chapter_purposes']
+            previous = {item['chapter_id']: item for item in plans.get(template['confirmation_id'], [])}
+            for position, chapter in enumerate(template['chapters'], 1):
+                key = chapter['id']
+                if key in protected and key in sections and sections[key] != previous.get(key):
+                    raise StorageError('thesis_chapter_protected', '学校模板已固定该章节用途。', 422,
+                                       params={'position': position})
             plans[template['confirmation_id']] = [sections[key] for key in chapter_ids if key in sections]
         values = profile | {'school': basics.school, 'education_level': basics.education_level}
         requirements = {'title': basics.title, 'keywords': basics.keywords, 'chapter_plans': plans}

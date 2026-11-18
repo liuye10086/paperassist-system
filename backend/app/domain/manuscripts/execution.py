@@ -91,19 +91,27 @@ def run_manuscript_task(task_id,task_revision,*,config=None,directory=None):
         content=metadata=None
         if restored:
             metadata,content,target=restored
+            presentation=version.get('_presentation_context')
+            if presentation is not None:
+                from .presentation_export import verify_school_reviewed_output
+
+                school=metadata.get('presentation', {}).get('school') or metadata.get('school') or {}
+                verify_school_reviewed_output(presentation,school.get('plan'),content)
         elif task['task_type']=='manuscript_docx':
             from app.adapters.manuscript_docx import (
                 CUSTOMER_RENDERER_VERSIONS, RENDERER_VERSION,
                 build_manuscript_docx, revised_manuscript_filename,
             )
+            from app.domain.journals.display import legacy_revision_without_journal_display
+
+            snapshot=legacy_revision_without_journal_display(snapshot)
             renderer = task['input_snapshot'].get('renderer_version', RENDERER_VERSION)
             if renderer not in (RENDERER_VERSION, *CUSTOMER_RENDERER_VERSIONS):
                 raise source_conflict()
             customer_view = renderer in CUSTOMER_RENDERER_VERSIONS
             customer_revision = customer_view and bool(snapshot.get('review_revision_provenance') or snapshot.get('user_return_provenance'))
             presentation=version.get('_presentation_context')
-            selected=presentation['selected'] if presentation is not None else version
-            rendered=selected['snapshot_json']
+            rendered=legacy_revision_without_journal_display(presentation['selected']['snapshot_json']) if presentation is not None else snapshot
             images=images_for(service,task['project_id'],rendered) if presentation is None else {}
             with service.store.connection() as export_db:
                 export_row=export_db.execute('SELECT * FROM manuscript_exports WHERE id=%s',(task['input_snapshot']['export_id'],)).fetchone()
@@ -113,7 +121,10 @@ def run_manuscript_task(task_id,task_revision,*,config=None,directory=None):
             template=bsu_gs501.read_submission_template(service.assets,rendered) if render_plan and 'submission_forms_source_sha256' in render_plan else None
             presentation_metadata=None;reused_renderer=None
             if presentation is not None:
-                from .presentation_export import excluded_chapters,actual_checks,confirmed_metadata,verify_gs501_reviewed_output
+                from .presentation_export import (
+                    actual_checks, blind_export_rules, confirmed_metadata, excluded_chapters,
+                    require_removed_school_identities, verify_school_reviewed_output,
+                )
                 from app.adapters.manuscript_presentation_docx import decorate_docx,blind_docx,language_inventory,actual_image_inventory,language_observations
                 config=presentation['preview']['config'];binding=presentation['binding']
                 mask=task['input_snapshot']['presentation'].get('school_identity_mask')
@@ -121,7 +132,7 @@ def run_manuscript_task(task_id,task_revision,*,config=None,directory=None):
                 if language_review:
                     prior,content=service.export(task['project_id'],version['manuscript_id'],language_review['source_export_id'],True)
                     if sha256(content).hexdigest()!=language_review['source_sha256']:raise source_conflict()
-                    verify_gs501_reviewed_output(presentation,render_plan,content)
+                    verify_school_reviewed_output(presentation,render_plan,content)
                     if bsu_gs501.selected(rendered):reused_renderer=prior['renderer_version']
                     presentation_metadata=confirmed_metadata(presentation,prior['presentation'])
                     if school_plan is not None:field_update=prior['school']['field_update']
@@ -143,10 +154,10 @@ def run_manuscript_task(task_id,task_revision,*,config=None,directory=None):
                         if field_update.get('status')!=('updated' if render_plan['toc']['enabled'] else 'not_requested'):
                             raise StorageError('layout_field_update_failed','学校目录实际更新未完成。',422)
                     if binding['review_mode']=='blind':
-                        if gs501_blind:
-                            rules=bsu_gs501.blind_terms(render_plan,config['blind'],authors=config['authors'])
-                            content,presentation_metadata['blind']=blind_docx(content,rules,replacement='XXX')
-                        else:content,presentation_metadata['blind']=blind_docx(content,config['blind'])
+                        rules=blind_export_rules(presentation,render_plan)
+                        content,presentation_metadata['blind']=blind_docx(content,rules,replacement='XXX' if gs501_blind else '[已隐去]')
+                        if render_plan is not None and not gs501_blind:
+                            require_removed_school_identities(presentation_metadata['blind'])
                         if mask:presentation_metadata['blind']['school_identity_fields']='masked'
                     inventory=language_inventory(content,rendered['output_language'],source_map)+actual_image_inventory(content,image_items+peer_items,rendered['output_language'])
                     presentation_metadata.update(binding=binding,checks=actual_checks(presentation,inventory),

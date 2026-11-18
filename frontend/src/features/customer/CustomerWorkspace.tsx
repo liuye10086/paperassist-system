@@ -124,7 +124,8 @@ export default function CustomerWorkspace() {
     (isAnalysis && steps.some(([key]) => key === step)) ||
     (isSci && (sciSteps.some(([key]) => key === step) || step === 'word' || step === 'citations')) ||
     (isThesis && (thesisSteps.some(([key]) => key === step) || step === 'citations'))
-  const activeStep = route && allowedStep(route.step) ? route.step : 'details'
+  const requestedStep = route?.step === 'upload' && (isSci || isThesis) ? 'materials' : route?.step
+  const activeStep = requestedStep && allowedStep(requestedStep) ? requestedStep : 'details'
   const routeParams = route?.params ?? new URLSearchParams()
   const reviewNavigation = activeStep === 'reviews' ? readCustomerReviewNavigation(routeParams) : null
 
@@ -210,7 +211,7 @@ export default function CustomerWorkspace() {
       if (value) next.set(key, String(value))
       else next.delete(key)
     }
-    navigate({ ...current, params: next }, { confirmed })
+    navigate({ ...current, step: activeStep, params: next }, { confirmed })
   }
 
   const updateReviewRoute = useCallback((update: (current: CustomerReviewNavigation) => CustomerReviewNavigation,

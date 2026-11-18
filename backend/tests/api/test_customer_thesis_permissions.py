@@ -126,6 +126,53 @@ def test_customer_school_templates_and_parse_tasks_require_visible_project_sourc
         assert client.get(task_url + '/events').status_code == 404
 
 
+def test_confirmed_declaration_is_unavailable_for_research_requirements_and_materials():
+    from psycopg.types.json import Jsonb
+    from tests.adapters.test_school_front_matter import synthetic
+
+    with TestClient(app) as client:
+        sign_in(client, 'thesis-protected-chapter@example.test', 'customer')
+        project = thesis_project(client)
+        submitted, _, _ = template(client, project, 'protected-chapter-template')
+        parsed = synthetic()
+        assert run_school_template_task(submitted['task']['id'], 1, parser=lambda *args, **kwargs: parsed)['status'] == 'succeeded'
+        item = client.get(project + '/school-templates').json()['items'][0]
+        chapters = [dict(id='declaration', title='学位论文独创性声明', level=1),
+                    dict(id='results', title='Study Results', level=1)]
+        front = dict(schema_version=1, cover_section_id='section-1', fields=[], content_requirements=[
+            dict(id='declaration', kind='declaration', required=True, chapter_id='declaration',
+                 source_id=parsed['front_matter_sources'][2]['id'])])
+        confirmation = post(client, f"{project}/school-templates/{item['id']}/confirm", dict(
+            analysis_sha256=item['analysis_sha256'], chapters=chapters, decisions=[], front_matter=front), 'fixed-front')
+        assert confirmation.status_code == 201, confirmation.text
+        confirmation = confirmation.json()
+        profile = bind(client, project, confirmation, 0)
+        url = project + '/thesis-requirements'
+        bad = dict(chapter_id='declaration', purpose='results', content='Legacy misplaced content')
+        good = dict(chapter_id='results', purpose='results', content='Describe the observations.')
+        request = dict(expected_revision=profile['revision'], expected_language='zh-CN', language='zh-CN',
+                       basics=dict(education_level='硕士', school='Synthetic university', title='Synthetic thesis',
+                                   keywords=['cohort', 'sampling', 'observations', 'comparison']),
+                       chapter_plan=dict(confirmation_id=confirmation['id'], sections=[bad, good]))
+        rejected = client.put(url, json=request)
+        assert rejected.status_code == 422
+        assert rejected.json()['detail']['code'] == 'thesis_chapter_protected'
+
+        # A pre-upgrade requirement remains visible but cannot become a fresh results group or material target.
+        stored = dict(title='Synthetic thesis', keywords=request['basics']['keywords'],
+                      chapter_plans={confirmation['id']: [bad, good]})
+        with database_connection(write=True) as db:
+            db.execute('UPDATE thesis_profiles SET requirements_json=%s WHERE project_id=%s',
+                       (Jsonb(stored), project.rsplit('/', 1)[-1]))
+        requirements = client.get(url).json()
+        assert requirements['sections'] == [bad, good]
+        assert requirements['template']['protected_chapter_purposes'] == {'declaration': 'manual'}
+        config = client.get(project + '/manuscripts/config').json()
+        assert config['thesis']['protected_chapter_purposes'] == {'declaration': 'manual'}
+        assert [row['chapter_id'] for row in config['paper_plan']['sections']] == ['results']
+        assert [row['label'] for row in client.get(project + '/paper-materials').json()['targets']] == ['Study Results']
+
+
 def test_customer_thesis_reported_results_and_hidden_fixed_versions():
     with TestClient(app) as client, TestClient(app) as other:
         sign_in(client, 'b03-manuscript-owner@example.test', 'customer')

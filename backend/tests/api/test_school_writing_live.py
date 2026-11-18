@@ -48,13 +48,26 @@ class SchoolFixture(LiveFixture):
         result['response']['output'][0]['content'][0]['text']=json.dumps(output)
         return result
 
-def school_chain(client,bilingual,*,include_toc=False,monkeypatch=None,real_layout=False,prior_cache_reference_count=0):
+def school_chain(client,bilingual,*,include_toc=False,monkeypatch=None,real_layout=False,prior_cache_reference_count=0,after_template_adoption=False):
     import time
     if monkeypatch is not None and not real_layout:
         from tests.domain.test_school_writing_live import synthetic_layout_cache
         monkeypatch.setattr('app.adapters.pdf_renderer.update_layout_fields',synthetic_layout_cache)
     path,base,root,confirmation=prepared(client,bilingual)
-    preview=post(client,base+'/writing-previews',dict(schema_version=3,base_revision=1,mode='full_draft',output_language='zh-CN',selected_source_ids=[],selected_evidence_ids=[]),'preview')
+    original_version=root['versions'][0]
+    if after_template_adoption:
+        change=post(client,base+'/versions/1/school-changes',dict(kind='template_migration',target_confirmation_id=confirmation['id']),'school-change')
+        assert change.status_code==201,change.text
+        plan=change.json()
+        migrated=post(client,base+'/school-changes/'+plan['id']+'/adopt',dict(expected_revision=1,mappings=plan['mappings'],preview_sha256=plan['preview_sha256']),'school-adopt')
+        assert migrated.status_code==201,migrated.text
+        original_version=migrated.json()['versions'][0]
+        assert original_version['snapshot']['school_change_provenance']
+        assert run_task(original_version['task_id'],1)['status']=='succeeded'
+    base_revision=original_version['revision']
+    new_revision=base_revision+1
+    version_url=base+f'/versions/{new_revision}'
+    preview=post(client,base+'/writing-previews',dict(schema_version=3,base_revision=base_revision,mode='full_draft',output_language='zh-CN',selected_source_ids=[],selected_evidence_ids=[]),'preview')
     assert preview.status_code==201,preview.text
     bundle=preview.json();assert bundle['execution_contract']['schema_version']==3
     assert 'private-' not in bundle['wire_json'] and confirmation['id'] not in bundle['wire_json']
@@ -66,7 +79,7 @@ def school_chain(client,bilingual,*,include_toc=False,monkeypatch=None,real_layo
     assert run_manuscript_writing_task(task['id'],task['revision'],provider=provider)['status']=='succeeded'
     assert provider.posts==[bundle['wire_json']]
     endpoint=base+'/writing-requests/'+task['id'];ctx=client.get(endpoint+'/review-context').json()
-    raw=ctx['candidate'];original=root['versions'][0]['snapshot']
+    raw=ctx['candidate'];original=original_version['snapshot']
     assert raw['title']==original['title'] and raw['sections'][0]==original['sections'][0]
     body=dict(schema_version=3,candidate_sha256=ctx['candidate_sha256'],paragraphs=[dict(paragraph_id=p['id'],text_sha256=digest(p['text']),classification='non_claim',scientific_basis='Explicit synthetic manual review',numeric_bindings=[]) for s in raw['sections'] for p in s['paragraphs'] if p['id'] in ctx['required_paragraph_ids']],consistency=dict(body_sha256=ctx['body_sha256'],title=dict(subject=True,direction=True,strength=True,basis='Frozen title compared'),abstracts={s['id']:dict(objective=True,methods=True,key_results=True,conclusion=True,basis='Each abstract compared') for s in raw['sections'] if s['purpose']=='abstract'}))
     science=post(client,endpoint+'/reviews',body,'science')
@@ -90,14 +103,19 @@ def school_chain(client,bilingual,*,include_toc=False,monkeypatch=None,real_layo
     assert language.status_code==201,language.text
     artifact=language.json()
     if monkeypatch is not None:monkeypatch.setattr('app.adapters.pdf_renderer.renderer_identity',no_renderer)
-    adopted=post(client,endpoint+'/publish',dict(schema_version=2,expected_revision=1,review_id=review['id'],review_sha256=review['review_sha256'],language_review_id=artifact['id'],language_review_sha256=artifact['artifact_sha256']),'adopt')
+    listing=client.get(endpoint+'/reviews/'+review['id']+'/language-reviews')
+    assert listing.status_code==200,listing.text
+    assert listing.json()=={'items':[{'id':artifact['id'],'created_at':artifact['created_at']}]}
+    assert client.get(endpoint+'/language-reviews/'+artifact['id']).json()==artifact
+    adopted=post(client,endpoint+'/publish',dict(schema_version=2,expected_revision=base_revision,review_id=review['id'],review_sha256=review['review_sha256'],language_review_id=artifact['id'],language_review_sha256=artifact['artifact_sha256']),'adopt')
     assert adopted.status_code==201,adopted.text
-    new_version=next(v for v in adopted.json()['versions'] if v['revision']==2)
+    new_version=next(v for v in adopted.json()['versions'] if v['revision']==new_revision)
     assert run_task(new_version['task_id'],1)['status']=='succeeded'
+    assert client.get(base+f'/versions/{base_revision}').json()['snapshot']==original
     with database_connection() as db:
-        saved=db.execute('SELECT school_confirmation_id FROM manuscript_versions WHERE manuscript_id=%s AND revision=2',(root['id'],)).fetchone()
+        saved=db.execute('SELECT school_confirmation_id FROM manuscript_versions WHERE manuscript_id=%s AND revision=%s',(root['id'],new_revision)).fetchone()
         assert saved['school_confirmation_id']==confirmation['id']
-    exported=post(client,base+'/versions/2/exports',{},'export')
+    exported=post(client,version_url+'/exports',{},'export')
     assert exported.status_code==201,exported.text
     assert run_task(exported.json()['task_id'],1)['status']=='succeeded'
     from hashlib import sha256
@@ -114,12 +132,12 @@ def school_chain(client,bilingual,*,include_toc=False,monkeypatch=None,real_layo
         for link in xml.xpath('//w:hyperlink[starts-with(@w:anchor,"PATOC")]',namespaces=ns):toc_pages.append(int(link.xpath('.//w:t/text()',namespaces=ns)[-1]))
         assert len(toc_pages)>1 and all(b>a for a,b in zip(toc_pages,toc_pages[1:]))
         print('school v2 final exported TOC pages:',toc_pages,'bilingual:',bilingual)
-    assert client.get(base+'/versions/2').status_code==200
+    assert client.get(version_url).status_code==200
     assert client.get(endpoint+'/language-reviews/'+artifact['id']).status_code==200
     changed=deepcopy(preparation['school'])
     if bilingual:changed['field_values']['author-custom']='CHANGED AUTHOR'
     else:changed['manual_fields']['author']='CHANGED AUTHOR'
-    rejected=post(client,base+'/versions/2/exports',dict(school=changed),'changed-export')
+    rejected=post(client,version_url+'/exports',dict(school=changed),'changed-export')
     assert rejected.status_code==422,rejected.text
     assert len(provider.posts)==1
     with database_connection(write=True) as db:
@@ -139,7 +157,7 @@ def school_chain(client,bilingual,*,include_toc=False,monkeypatch=None,real_layo
         assert len([k for k in file_object_keys(db,refs) if k.startswith('manuscript_school_language/')])==2
     return dict(project_id=root['project_id'],manuscript_id=root['id'],writing_request_id=task['id'],review=review,language_artifact=artifact,export=export,first_layout_seconds=elapsed,toc_pages=toc_pages)
 
-@pytest.mark.parametrize('bilingual',[False,True])
-def test_school_frozen_provider_science_language_publish_export_chain(client,bilingual,monkeypatch):
+@pytest.mark.parametrize(('bilingual','after_template_adoption'),[(False,False),(True,False),(False,True)])
+def test_school_frozen_provider_science_language_publish_export_chain(client,bilingual,after_template_adoption,monkeypatch):
     import os
-    school_chain(client,bilingual,include_toc=True,monkeypatch=monkeypatch,real_layout=os.getenv('PAPERASSIST_SCHOOL_LAYOUT_TEST_REAL')=='1')
+    school_chain(client,bilingual,include_toc=True,monkeypatch=monkeypatch,real_layout=os.getenv('PAPERASSIST_SCHOOL_LAYOUT_TEST_REAL')=='1',after_template_adoption=after_template_adoption)
