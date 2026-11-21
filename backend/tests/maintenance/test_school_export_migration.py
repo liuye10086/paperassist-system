@@ -1,4 +1,5 @@
 """0043 seals school export intent and preserves nonempty legacy exports."""
+from tests.helpers.historical_migration import historical_workflow, assert_saved_history_blocks
 import pytest
 from alembic import command
 from sqlalchemy.exc import SQLAlchemyError
@@ -16,10 +17,8 @@ def test_school_export_migration_preserves_legacy_metadata_hash_and_indexes(clie
     exported=post(client,path+'/'+root['id']+'/versions/1/exports',{},'sci-export').json()
     assert run_task(exported['task_id'],1)['status']=='succeeded'
     download=client.get(path+'/'+root['id']+'/exports/'+exported['id']+'/download').content
-    cfg=alembic_config()
-    with migration_connection(write=True) as db:
-        cfg.attributes.update(connection=db.raw_connection,database_config=get_migration_database_config())
-        command.downgrade(cfg,'0042_thesis_manuscripts')
+    with historical_workflow(get_migration_database_config(), '0042_thesis_manuscripts') as (db, cfg):
+        assert db.execute("SELECT 1 FROM manuscript_exports WHERE id=%s", (exported['id'],)).fetchone()
         fields='id,version_id,task_id,idempotency_key,metadata_json,created_at'
         rows=list(db.execute('SELECT '+fields+' FROM manuscript_exports ORDER BY id'))
         snapshots=list(db.execute('SELECT id,snapshot_json,snapshot_sha256,request_json,request_digest FROM manuscript_versions ORDER BY id'))
@@ -42,8 +41,4 @@ def test_school_export_downgrade_refuses_sealed_history(client):
     from tests.api.test_school_exports import published
     _,base,_,_=published(client)
     assert post(client,base+'/versions/1/exports',{},'school').status_code==201
-    cfg=alembic_config()
-    with pytest.raises(RuntimeError,match='refusing destructive downgrade'):
-        with migration_connection(write=True) as db:
-            cfg.attributes.update(connection=db.raw_connection,database_config=get_migration_database_config())
-            command.downgrade(cfg,'0042_thesis_manuscripts')
+    assert_saved_history_blocks('0043_school_exports', 'School export history exists; refusing destructive downgrade.')

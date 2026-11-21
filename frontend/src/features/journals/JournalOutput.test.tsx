@@ -6,6 +6,14 @@ import {clearApiSession} from '../../shared/api/client'
 const output={manuscript_id:'m1',version_id:'v3',revision:3,parent_version_id:'v1',task_id:'new-task'}
 const version={...manuscriptFixture.versions[0],id:'v3',revision:3,parent_version_id:'v1',task_id:'new-task',exports:[],snapshot:{...snapshotFixture,journal_adaptation_provenance:{adaptation_id:'a1',base_version_id:'v1',input_sha256:'a'.repeat(64),display_version:'journal_display_v1'}}}
 afterEach(()=>{cleanup();vi.useRealTimers();vi.unstubAllGlobals()})
+it.each([true,false])('shows the adaptation evidence link with provenance appropriate to the reader (customer: %s)',async customer=>{
+ vi.stubGlobal('fetch',vi.fn(async()=>Response.json({...version,status:'pending'})))
+ render(<JournalOutput projectId="p1" adaptationId="a1" output={output} active customerSci={customer} onUnavailable={vi.fn()}/>)
+ const link=await screen.findByRole('link',{name:'查看期刊适配依据'})
+ expect(link.getAttribute('href')).toContain(customer?'#customer-project=p1':'#project=p1')
+ expect(link.getAttribute('href')).toContain('adaptation=a1')
+ expect(link.parentElement?.textContent?.includes('v1 · journal_display_v1')).toBe(!customer)
+})
 it('waits on exact queued public output then reuses fixed-revision Word and historical PDFs',async()=>{
  let published=false;const calls:{url:string;body:unknown}[]=[]
  vi.stubGlobal('fetch',vi.fn(async(url:string,init?:RequestInit)=>{

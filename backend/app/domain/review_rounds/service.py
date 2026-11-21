@@ -51,30 +51,40 @@ class ReviewRoundService(FormatService):
             require_visible_snapshot(self.assets,db,project,snapshot)
             if not self.assets.customer:
                 return
+            if ManuscriptService.is_school_change_version(version):
+                # Older school changes can retain the parent's return proof. Follow
+                # the verified school change first, then check that parent's files.
+                from app.domain.manuscripts.school_changes import validate_school_change_version
+                version=validate_school_change_version(ManuscriptService(self.assets),db,version)
+                continue
             revision=snapshot.get('review_revision_provenance')
             returned=snapshot.get('user_return_provenance')
-            if revision:
-                link=db.execute('''SELECT snapshot_json,snapshot_sha256,round_id,manuscript_version_id AS parent_id
-                    FROM review_revision_runs WHERE id=%s AND project_id=%s AND user_id=%s AND output_version_id=%s''',
-                    (revision['revision_id'],project,self.store.user_id,version['id'])).fetchone()
-            elif returned:
-                link=db.execute('''SELECT snapshot_json,snapshot_sha256,previous_round_id AS round_id,base_version_id AS parent_id
-                    FROM review_round_user_returns WHERE id=%s AND project_id=%s AND user_id=%s AND output_version_id=%s''',
-                    (returned['return_id'],project,self.store.user_id,version['id'])).fetchone()
-            else:
+            if not (revision or returned):
                 return
-            if (not link or link['parent_id']!=version['parent_version_id']
-                or digest(link['snapshot_json'])!=link['snapshot_sha256']):
-                raise source_conflict()
-            require_visible_snapshot(self.assets,db,project,link['snapshot_json'])
-            review=db.execute('SELECT * FROM review_rounds WHERE id=%s AND project_id=%s AND user_id=%s',
-                (link['round_id'],project,self.store.user_id)).fetchone()
-            if not review:
-                raise source_conflict()
-            self.validate(db,review)
+            if ManuscriptService.is_written_version(version):
+                # The writing is this version's producer. The review proof belongs to its parent.
+                ManuscriptService(self.assets).validate_version(db,version)
+            else:
+                if revision:
+                    link=db.execute('''SELECT snapshot_json,snapshot_sha256,round_id,manuscript_version_id AS parent_id
+                        FROM review_revision_runs WHERE id=%s AND project_id=%s AND user_id=%s AND output_version_id=%s''',
+                        (revision['revision_id'],project,self.store.user_id,version['id'])).fetchone()
+                else:
+                    link=db.execute('''SELECT snapshot_json,snapshot_sha256,previous_round_id AS round_id,base_version_id AS parent_id
+                        FROM review_round_user_returns WHERE id=%s AND project_id=%s AND user_id=%s AND output_version_id=%s''',
+                        (returned['return_id'],project,self.store.user_id,version['id'])).fetchone()
+                if (not link or link['parent_id']!=version['parent_version_id']
+                    or digest(link['snapshot_json'])!=link['snapshot_sha256']):
+                    raise source_conflict()
+                require_visible_snapshot(self.assets,db,project,link['snapshot_json'])
+                review=db.execute('SELECT * FROM review_rounds WHERE id=%s AND project_id=%s AND user_id=%s',
+                    (link['round_id'],project,self.store.user_id)).fetchone()
+                if not review:
+                    raise source_conflict()
+                self.validate(db,review)
             version=db.execute('''SELECT * FROM manuscript_versions WHERE id=%s AND manuscript_id=%s
                 AND project_id=%s AND user_id=%s AND revision<%s''',
-                (link['parent_id'],version['manuscript_id'],project,self.store.user_id,version['revision'])).fetchone()
+                (version['parent_version_id'],version['manuscript_id'],project,self.store.user_id,version['revision'])).fetchone()
             if not version:
                 raise source_conflict()
 
@@ -109,7 +119,7 @@ class ReviewRoundService(FormatService):
                     if self.assets.customer:
                         self.visible_manuscript(db,version)
                     title=version['snapshot_json']['title'] if self.assets.customer else root['title']
-                    return dict(id=version['id'],revision=version['revision'],title=title,status='published')
+                    return dict(id=version['id'],revision=version['revision'],title=title,status='published',created_at=version['created_at'])
 
                 readable=list(self.visible_records(versions,option))
                 if readable or not self.assets.customer:
@@ -148,7 +158,7 @@ class ReviewRoundService(FormatService):
             if self.assets.customer and source.role not in ROLES[p['project_type']]:
                 raise invalid('意见来源角色与项目类型不一致。')
         return preview(self,project,source)
-    def round_row(self,db,project,identity,lock=False):
+    def round_row(self,db,project,identity,lock=False,*,plan_source=False):
         p=self.project(db,project)
         row=db.execute('SELECT * FROM review_rounds WHERE id=%s AND project_id=%s AND user_id=%s'+(' FOR UPDATE' if lock else ''),(identity,project,self.store.user_id)).fetchone()
         if not row:raise StorageError('not_found','返修轮次不存在。',404)
@@ -159,6 +169,8 @@ class ReviewRoundService(FormatService):
             m=snap['manuscript']
             base=self.manuscript_row(db,project,m['id'],m['revision'])
             if base['id']!=m['version_id'] or base['snapshot_sha256']!=m['sha256']:raise source_conflict()
+            # Reuse this verified read for display. Never add presentation fields to stored snapshots.
+            if plan_source:row=dict(row,_fixed_manuscript_snapshot=base['snapshot_json'])
             if snap['constraints'].get('school_confirmation_id')!=(base['snapshot_json'].get('thesis_context') or {}).get('confirmation_id'):
                 raise source_conflict()
             opinion_documents=[(source['file_id'],source['document_version_id']) for source in snap['sources'] if source['format']=='document']
@@ -191,6 +203,10 @@ class ReviewRoundService(FormatService):
         result['actual_revisions']=runs
         latest=next((r for r in runs if r['result'] and r['input_snapshot']['plan_revision']==result['revision']),None)
         if latest:result['items']=latest['result']['items']
+        if '_fixed_manuscript_snapshot' in row and events and events[0]['kind']=='initial':
+            from .grounded import initial_plan_locations
+            initial=events[0]['snapshot_json']
+            result['generated_plan_locations']=initial_plan_locations(row['_fixed_manuscript_snapshot'],initial['items'],initial['materials'])
         visible_revisions={run['id'] for run in runs}
         result['documents']=[dict(r) for r in db.execute('SELECT id,revision_id,kind,version,language,confirmed_at FROM review_documents WHERE round_id=%s ORDER BY created_at DESC,id',(row['id'],)).fetchall() if r['revision_id'] in visible_revisions]
         from .lineage import round_continuation
@@ -205,7 +221,7 @@ class ReviewRoundService(FormatService):
         result['configuration']=projection(db,'review_round',row['id'])
         return result
     def get(self,project,identity):
-        with self.store.connection() as db:return self.view(db,self.round_row(db,project,identity))
+        with self.store.connection() as db:return self.view(db,self.round_row(db,project,identity,plan_source=True))
     def listing(self,project):
         with self.store.connection() as db:
             self.project(db,project)
@@ -231,7 +247,7 @@ class ReviewRoundService(FormatService):
             old=db.execute('SELECT * FROM review_rounds WHERE project_id=%s AND user_id=%s AND idempotency_key=%s',(project,self.store.user_id,key)).fetchone()
             if old:
                 if old['request_digest']!=digest(body):raise StorageError('task_idempotency_conflict','标识已用于不同输入。',409)
-                return self.view(db,self.round_row(db,project,old['id'])),200
+                return self.view(db,self.round_row(db,project,old['id'],plan_source=True)),200
             configuration_version=resolve(db);rules(configuration_version,'review')
             if request.project_type!=p['project_type']:raise invalid('项目类型不一致。')
             m=request.manuscript;base=self.manuscript(db,project,m.id,m.revision)
@@ -273,7 +289,7 @@ class ReviewRoundService(FormatService):
     def mutate(self,project,identity,request,key,kind):
         require_key(key);body=request.model_dump(mode='json')
         with self.store.connection(write=True) as db:
-            row=self.round_row(db,project,identity,True);state,events=self.state(db,row)
+            row=self.round_row(db,project,identity,True,plan_source=True);state,events=self.state(db,row)
             old=next((e for e in events if e['idempotency_key']==key),None)
             if old:
                 if old['request_digest']!=digest(body) or old['kind']!=kind:raise StorageError('task_idempotency_conflict','标识已用于不同输入。',409)

@@ -31,11 +31,12 @@ def test_modern_parse_accepts_figure_png_only_after_completed_container_call():
 
 
 @pytest.mark.parametrize('change,path', [('coefficient','statistics.coefficient'),('count','statistics.n'),('language','language'),
-    ('label','variables.0.name'),('p_value','statistics.p_value')])
+    ('label','variables.0.name'),('p_value','statistics.p_value'),('overflow','statistics.coefficient')])
 def test_modern_mismatches_return_bounded_diff_and_receipts(change,path):
     from app.domain.plot_response import download_plot, PlotVerificationError
     actual=deepcopy(expected())
     if change=='coefficient': actual['statistics']['coefficient']=0.5
+    elif change=='overflow': actual['statistics']['coefficient']=10**400
     elif change=='count': actual['statistics']['n']=True
     elif change=='language': actual['language']='zh-CN'
     elif change=='label': actual['variables'][0]['name']='Wrong'

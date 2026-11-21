@@ -104,7 +104,8 @@ def _execute(repository,lease,provider_factory,providers,explanation):
         candidate=task['figure_candidate']
         if (candidate.get('facts_sha256')!=digest(expected) or any(candidate.get(k)!=v for k,v in expected.items()) or candidate.get('figure_config_version_id')!=row['id'] or candidate.get('configuration_sha256')!=row['sha256'] or candidate.get('projection_id')!=projection['id'] or candidate.get('projection_sha256')!=projection['sha256'] or candidate.get('source')!=result['source'] or candidate.get('analysis_run_id')!=result['id']):raise source_conflict()
         return _publish_figure(repository,lease,store,candidate)
-    if not call or not call.get('provider_response_id'):
+    refreshing = bool(call and call.get('provider_response_id'))
+    if not refreshing:
         task,store,row,result,projection,payload,expected=_context(repository,lease)
         if explanation:
             bundle=read_bundle(store.assets,task['project_id'],task['input_snapshot']['figure']['id']);payload=build_payload(bundle,version=task_version(task['input_snapshot']));instructions=explanation_instructions(payload)
@@ -112,10 +113,10 @@ def _execute(repository,lease,provider_factory,providers,explanation):
         from app.domain.admin_configuration.model_consumption import task_instructions
         with repository.connection() as db:instructions=task_instructions(db,task,instructions,'explanation' if explanation else 'plot')
         frozen=validate_policy(task['input_snapshot']['explanation_policy' if explanation else 'boxplot_policy'],payload,explanation=explanation,instructions=instructions)
-    if not explanation:repository.admit_figure_storage(lease)
+        if not explanation:repository.admit_figure_storage(lease)
     provider=provider_factory();providers.append(provider);gateway=ModelGateway(ModelUsageService(task['user_id'],repository.config),provider)
     try:
-        if call and call.get('provider_response_id'):output=gateway.refresh(call['id'])
+        if refreshing:output=gateway.refresh(call['id'])
         else:
             request=CallRequest(task_id=task['id'],expected_task_revision=task['revision'],call_key=EXPLANATION_KEY if explanation else PLOT_KEY,input_digest=input_digest(instructions=instructions,payload=payload),policy=ModelPolicy.model_validate(frozen['policy']),input_token_allowance=frozen['input_token_allowance'],tool_reserve_micro_usd=0 if explanation else frozen['tool_reserve_micro_usd'],tool_reserve_version=None if explanation else frozen['tool_reserve_version'])
             output=gateway.submit(request,instructions=instructions,payload=payload,execution_lease=lease) if explanation else gateway.submit_plot(request,instructions=instructions,payload=payload,execution_lease=lease)
@@ -145,6 +146,9 @@ def _execute(repository,lease,provider_factory,providers,explanation):
     from app.domain.figure_workbench.material import verify_manifest
     from app.adapters.openai_plot import validate_output
     parsed=parse_plot_response(response,(call.get('provider_state') or {}).get('container_id'),expected={'schema_version':4})
+    if refreshing:
+        # Recheck the hold before retrieving artifacts, once the original response is ready.
+        repository.admit_figure_storage(lease)
     policy=ModelPolicy.model_validate({k:call['policy_snapshot'][k] for k in ModelPolicy.model_fields if k in call['policy_snapshot']})
     raw=provider.download(parsed['files']['result.json'],parsed['provenance']['container_id'],8*1024*1024,policy=policy)
     if type(raw) is not bytes or len(raw)>8*1024*1024:raise PlotError('plot_output_limit','结果文件超过上限。')

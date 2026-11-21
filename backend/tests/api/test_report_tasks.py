@@ -24,6 +24,8 @@ def fail_task(client, task):
 
 def test_post_accepts_word_without_render_and_read_recovers_exact_task(client, cloud, writer, monkeypatch):
     *_, figure, explanation, url = report_ready(client)
+    with database_connection() as db:
+        initial_tasks = db.execute('SELECT count(*) AS n FROM tasks').fetchone()['n']
     def forbidden(*args, **kwargs):
         raise AssertionError('HTTP must not render Word')
     monkeypatch.setattr('app.domain.reports.build_report', forbidden)
@@ -40,16 +42,16 @@ def test_post_accepts_word_without_render_and_read_recovers_exact_task(client, c
     assert submit(client, url, figure, explanation).json()['task']['id'] == state['task']['id']
     with database_connection() as db:
         assert db.execute('SELECT count(*) AS n FROM reports').fetchone()['n'] == 0
-        assert db.execute('SELECT count(*) AS n FROM tasks').fetchone()['n'] == 1
+        assert db.execute('SELECT count(*) AS n FROM tasks').fetchone()['n'] == initial_tasks + 1
 
 
 def test_word_http_idempotency_header_is_validated_and_scoped_to_input(client, cloud, writer):
     *_, figure, explanation, url = report_ready(client)
+    *_, other_figure, other_explanation, other_url = report_ready(client)
     header = {'Idempotency-Key': 'same-word-request'}
     first = submit(client, url, figure, explanation, headers=header)
     assert first.status_code == 202
     assert submit(client, url, figure, explanation, headers=header).json()['task'] == first.json()['task']
-    *_, other_figure, other_explanation, other_url = report_ready(client)
     # Both fixtures have distinct projects, so the same key is independent.
     assert submit(client, other_url, other_figure, other_explanation, headers=header).status_code == 202
     for key in ('', 'has space', 'a' * 129):
@@ -58,7 +60,14 @@ def test_word_http_idempotency_header_is_validated_and_scoped_to_input(client, c
 
 def test_failed_word_retry_is_explicit_atomic_and_repeated_revision_is_idempotent(client, cloud, writer):
     *_, figure, explanation, url = report_ready(client)
-    failed = fail_task(client, submit(client, url, figure, explanation).json()['task'])
+    from app.domain.tasks.execution import run_word_task
+
+    def unavailable(payload, output):
+        raise OSError('synthetic unavailable report storage')
+
+    task = submit(client, url, figure, explanation).json()['task']
+    failed = run_word_task(task['id'], task['revision'], engine=unavailable)
+    assert failed['status'] == 'failed' and failed['error_code'] == 'storage_unavailable'
     endpoint = '/api/v1/tasks/' + failed['id'] + '/retry'
     with ThreadPoolExecutor(max_workers=3) as pool:
         responses = list(pool.map(lambda _: client.post(endpoint, json={'expected_revision': failed['revision']}), range(3)))
@@ -67,8 +76,8 @@ def test_failed_word_retry_is_explicit_atomic_and_repeated_revision_is_idempoten
     assert {task['revision'] for task in tasks} == {failed['revision'] + 1}
     assert all(task['status'] == 'queued' for task in tasks)
     with database_connection() as db:
-        assert db.execute('SELECT count(*) AS n FROM task_outbox').fetchone()['n'] == 2
-        assert db.execute('SELECT count(*) AS n FROM task_attempts').fetchone()['n'] == 1
+        assert db.execute('SELECT count(*) AS n FROM task_outbox WHERE task_id=%s', (task['id'],)).fetchone()['n'] == 2
+        assert db.execute('SELECT count(*) AS n FROM task_attempts WHERE task_id=%s', (task['id'],)).fetchone()['n'] == 1
     assert client.post(endpoint, json={'expected_revision': 1}).status_code == 409
     assert client.post(endpoint, json={'expected_revision': True}).status_code == 422
 
@@ -94,21 +103,28 @@ def test_legacy_cached_report_rechecks_revision_after_context_and_keeps_download
     original_bytes = client.get(download).content
     with database_connection() as db:
         predecessor_tasks = {(row['id'],row['task_type']) for row in db.execute('SELECT id,task_type FROM tasks')}
-    cached = submit(client, url, figure, explanation)
-    assert cached.status_code == 200 and cached.json()['task'] is None
-    assert cached.json()['report'] == state['report']
+    # An accepted old Word remains readable. A fresh request produces the governed report.
+    new = submit(client, url, figure, explanation, headers={'Idempotency-Key': 'first-reader-export'})
+    assert new.status_code == 202
+    task = new.json()['task']
+    assert new.json()['historical_report']['id'] == state['report']['id']
     with database_connection() as db:
-        assert {(row['id'],row['task_type']) for row in db.execute('SELECT id,task_type FROM tasks')} == predecessor_tasks
-        assert db.execute("SELECT count(*) AS n FROM tasks WHERE task_type='word_report'").fetchone()['n'] == 0
+        current = {(row['id'], row['task_type']) for row in db.execute('SELECT id,task_type FROM tasks')}
+        assert current - predecessor_tasks == {(task['id'], 'word_report')}
     original_context = reports.context
-    def changed(*args):
-        value = original_context(*args)
-        client.put(base + '/analysis-setup', json={**result['selection'], 'expected_revision': 1, 'unit': 'changed'})
+
+    def changed(*args, **kwargs):
+        value = original_context(*args, **kwargs)
+        update = client.put(base + '/analysis-setup', json={**result['selection'], 'expected_revision': 1, 'unit': 'changed'})
+        assert update.status_code == 200, update.text
         return value
-    monkeypatch.setattr(reports, 'context', changed)
-    response = submit(client, url, figure, explanation)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(reports, 'context', changed)
+        response = submit(client, url, figure, explanation, headers={'Idempotency-Key': 'new-during-change'})
     assert response.status_code == 409, response.text
     assert client.get(download).content == original_bytes
+
 
 
 def test_retry_hides_foreign_owner_and_rejects_non_word_task(client, cloud, writer):

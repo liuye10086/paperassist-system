@@ -300,7 +300,7 @@ it('approves the role from the application row and shows the confirmed result in
   mount()
   await admin('审核管理')
   const row = (await screen.findByText(pending.email)).closest('tr')!
-  const approve = within(row).getByRole('button', {name: '未审核'})
+  const approve = within(row).getByRole('button', {name: '通过并分配角色'})
   const role = within(row).getByRole('combobox')
   expect(role).toHaveProperty('value', 'customer')
   expect(within(role).getAllByRole('option').map(option => option.textContent)).toEqual(['客户', '分析员', '管理员'])
@@ -313,7 +313,7 @@ it('approves the role from the application row and shows the confirmed result in
   const confirmed = (await screen.findByText(pending.email)).closest('tr')!
   expect(within(confirmed).getByText('分析员')).toBeTruthy()
   expect(fetchMock.mock.calls.some(([url]) => url.endsWith('/registration'))).toBe(false)
-  expect(fetchMock.mock.calls.some(([url]) => url.includes('review_status=all') && url.includes('page_size=10'))).toBe(true)
+  expect(fetchMock.mock.calls.some(([url]) => url.includes('review_status=pending') && url.includes('page_size=10'))).toBe(true)
   const calls = fetchMock.mock.calls.filter(([url]) => url === path)
   expect(calls).toHaveLength(1)
   expect(JSON.parse(calls[0][1].body)).toEqual({decision:'approve', expected_revision:3, role:'analyst'})

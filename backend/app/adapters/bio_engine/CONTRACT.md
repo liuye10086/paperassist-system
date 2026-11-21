@@ -71,13 +71,19 @@ exported as `single_cell_tool_versions`, `library_algorithms`, and
 
 `figure` additionally supplies `processed:{manifest,members}` including
 `processed` H5AD and `markers_top` TSV. `config.kind` is `qc`, `pca`, `umap`,
-`marker_dotplot`, `marker_heatmap`, `spatial_cluster`, `spatial_gene`, `annotation`;
+`marker_dotplot`, `marker_heatmap`, `spatial_cluster`, `spatial_gene`, `annotation`,
+`integration_covariates` or `integration_harmony`;
 `gene_ids` always contain stable IDs. `layer=counts|normalized|log1p`,
 `palette=viridis|magma|tab20`, `title`, `vmin/vmax`, `width/height` pixels,
 `dpi`, `output_language` are frozen in figure manifests. Annotation is
 `{labels,members:{geometry:{path,sha256,size_bytes},assignments:{...}}}`.
 Geometry and assignments follow the backend fullres region schema. `figure`
 reads the fixed processed object and never recomputes normalization/clusters.
+QC redraws use published panel data or saved observation rows for grouping.
+`histogram_bins` controls QC distributions. `point_size` sets scatter area
+in square points or the maximum bubble area for marker dot plots.
+`min_detection_fraction` masks marker gene–cluster combinations for display.
+Both marker summaries preserve the original means and detection fractions.
 `panel` freezes the actual graphic identity: QC accepts distribution/scatter/
 violin/mitochondrial/sample_id/section/batch (default=distribution); PCA accepts
 scores/variance (default=scores); UMAP accepts scores (default=scores); other
@@ -155,6 +161,6 @@ integration coordinates, arrays, design counts, versions and R logs use the
 `integration_x_pca_unadjusted`, `integration_x_pca`, and optional
 `integration_x_pca_harmony`; H5AD obsm names keep the conventional uppercase X.
 Fixed default PNG kinds `integration_covariates` and
-`integration_harmony` publish as normal figure records; they are not new
-standalone plot request kinds. No PDF is emitted. Harmony-only uses the same
+`integration_harmony` publish as normal figure records. Standalone redraws read
+the published before/after coordinates and batch identities. No PDF is emitted. Harmony-only uses the same
 existing R task limits: RSS 4 GiB, AS 5 GiB, total outputs 1 GiB, leaf 256 MiB.

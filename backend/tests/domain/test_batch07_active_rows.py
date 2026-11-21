@@ -55,12 +55,25 @@ def test_quality_profile_missing_pages_never_return_excluded_rows():
 @pytest.mark.parametrize('method',['welch_t','mann_whitney_u','paired_t','wilcoxon','welch_anova','kruskal_wallis'])
 def test_comparison_projects_only_active_rows_and_checks_active_ids(method):
     from app.domain.comparison.checks import selected_records
-    paired=method in ('paired_t','wilcoxon')
-    sheet=sheet_for({2:[1,2,'A'],3:[8,9,'A'],4:[3,7,'B'],5:[5,9,'C']},[2,4,5])
-    selection=SimpleNamespace(sheet_name='Synthetic',design='paired' if paired else 'multiple',unit='',numeric_column='A',group_column='C',
-        pair_id_column='C',before_column='A',after_column='B',groups=[] if paired else [SimpleNamespace(kind='text',value=g) for g in 'ABC'],missing_policy='complete_pairs' if paired else 'complete_cases')
-    _,_,audit,_=selected_records(sheet,selection)
+    from app.domain.comparison.contracts import ComparisonSelection
+    from app.core.exceptions import StorageError
+    from tests.integration.test_comparison_plan import selection
+
+    chosen = selection('Synthetic', method)
+    if chosen['design'] == 'paired':
+        chosen.update(pair_id_column='C', before_column='A', after_column='B')
+    else:
+        chosen['group_column'] = 'C'
+    request = ComparisonSelection.model_validate(chosen)
+    last_group = 'B' if request.design == 'independent' else 'C'
+    rows = {2:[1,2,'A'], 3:[8,9,'A'], 4:[3,7,'B'], 5:[5,9,last_group]}
+    sheet = sheet_for(rows, [2,4,5])
+    _,_,audit,_=selected_records(sheet,request)
     assert audit['included_rows']==[2,4,5] and audit['excluded_rows']==[]
+    if request.design == 'paired':
+        with pytest.raises(StorageError) as duplicate:
+            selected_records(sheet_for(rows), request)
+        assert duplicate.value.code == 'pair_id_duplicate'
 
 
 @pytest.mark.parametrize('method',['ols','logistic','roc_auc','kaplan_meier'])

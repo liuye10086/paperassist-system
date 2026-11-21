@@ -90,6 +90,11 @@ function ResourceContent({ projectId, onSaved, section, onSectionChange, onUnava
     setRetainedBio({ navigation: desiredBio, qualityMode: qualityBioActive })
   }
   function navigateBio(next: AnalysisNavigation) {
+    if (section === 'files' && next.view === 'bio-insight-result' && next.bulkPanel) {
+      if (onAnalysisNavigate) onAnalysisNavigate(next)
+      else { setLocalAnalysis(next); onSectionChange('analysis') }
+      return
+    }
     if (section === 'files') navigate({view:'quality',fileId:'',bio:next})
     else navigateAnalysis(next)
   }
@@ -101,7 +106,8 @@ function ResourceContent({ projectId, onSaved, section, onSectionChange, onUnava
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
-  const [materialsRequestOpen, setMaterialsRequestOpen] = useState(false)
+  // The materials request is its own view of the current section; leaving the section returns to its normal content.
+  const [materialsRequestSection, setMaterialsRequestSection] = useState<string | null>(null)
   const [opened, setOpened] = useState<{ id: string; request: number } | null>(null)
   const [previewState, setPreviewState] = useState<SavedPreviewState | null>(null)
   const openSequence = useRef(0)
@@ -136,14 +142,17 @@ function ResourceContent({ projectId, onSaved, section, onSectionChange, onUnava
   function openBulkUpload(){setUploadKind('bio');openUpload()}
   const canContinueMaterials=!loading&&!error&&files.some(file=>file.parse_status==='stored'||file.parse_status==='parsed')
   const canRequestMaterials = analystWorkspace && analystWorkspace.value?.status !== 'delivered'
-    && (analystWorkspace.value?.requirement || materialsRequestOpen)
+    && (analystWorkspace.value?.requirement || materialsRequestSection === section)
+  const materialsRequestOpen = !onBackToResults && materialsRequestSection === section && !!canRequestMaterials
   const materialActions = analysisOnly && <div className="analyst-material-actions">
     {onBackToResults && <button type="button" className="button-quiet" onClick={onBackToResults}>{t('返回成果列表')}</button>}
     {!onBackToResults && (section === 'files'
-      ? <button type="button" onClick={() => navigateAnalysis(analysis)}>{t('返回执行分析')}</button>
-      : <button type="button" onClick={openMaterials}>{t('查看客户资料')}</button>)}
-    {!onBackToResults && canRequestMaterials && <button type="button" className="button-quiet" aria-expanded={materialsRequestOpen}
-      onClick={() => setMaterialsRequestOpen(open => !open)}>{t('填写补料说明')}</button>}
+      ? <button type="button" onClick={() => { setMaterialsRequestSection(null); navigateAnalysis(analysis) }}>{t('返回执行分析')}</button>
+      : <button type="button" onClick={() => { setMaterialsRequestSection(null); openMaterials() }}>{t('查看客户资料')}</button>)}
+    {!onBackToResults && canRequestMaterials && <nav className="analyst-work-views" aria-label={t('分析员工作视图')}>
+      <button type="button" aria-pressed={!materialsRequestOpen} onClick={() => setMaterialsRequestSection(null)}>{t(section === 'files' ? '客户资料' : '执行分析')}</button>
+      <button type="button" aria-pressed={materialsRequestOpen} onClick={() => setMaterialsRequestSection(section)}>{t('填写补料说明')}</button>
+    </nav>}
     {headerAction}
   </div>
   return <div className={section === 'files' ? 'project-files-page' : `project-analysis-page analysis-workspace${bulkHome&&analysis.bulkView==='design'?' bulk-workflow-design':''}`} hidden={!active || !['files','analysis'].includes(section)}>
@@ -151,9 +160,9 @@ function ResourceContent({ projectId, onSaved, section, onSectionChange, onUnava
       <h1>{t(onBackToResults ? '查看结果' : '执行分析')}</h1>
       {materialActions}
     </header> : materialActions}
-    {!onBackToResults && (analysisActive || filesActive) && materialsRequestOpen && canRequestMaterials &&
+    {(analysisActive || filesActive) && materialsRequestOpen && analystWorkspace &&
       <AnalystMaterialsRequest projectId={projectId} workspace={analystWorkspace}/>}
-    <section hidden={section !== 'files'} aria-label={analysisOnly ? t('客户资料') : undefined}>
+    <section hidden={section !== 'files' || materialsRequestOpen} aria-label={analysisOnly ? t('客户资料') : undefined}>
       <nav className="material-view-actions resource-view-nav" aria-label={t('材料视图')}>
           {!analysisOnly && <button type="button" aria-current={navigation.view === 'upload' ? 'page' : undefined} onClick={openUpload}>{t('上传文件')}</button>}
           <button type="button" aria-current={['list','detail','preview'].includes(navigation.view) ? 'page' : undefined} onClick={openMaterials}>{t('已上传文件')}</button>
@@ -190,7 +199,7 @@ function ResourceContent({ projectId, onSaved, section, onSectionChange, onUnava
       </footer>}
       </div>
     </section>
-    <div className={bioView?'analysis-content analysis-bio-header':'analysis-content'} hidden={section !== 'analysis'}>
+    <div className={bioView?'analysis-content analysis-bio-header':'analysis-content'} hidden={section !== 'analysis' || materialsRequestOpen}>
       <nav hidden={!!onBackToResults||analysis.view==='overview'||!!analysis.entry} className="analysis-overview-nav" aria-label={t('分析工作区')}>
         <button type="button" onClick={()=>navigateAnalysis({view:'overview',fileId:analysis.fileId,entry:analysis.entry,intent:analysis.intent})}>← {t('返回分析入口')}</button>
       </nav>
@@ -212,7 +221,7 @@ function ResourceContent({ projectId, onSaved, section, onSectionChange, onUnava
       </div>
     </div>
     </div>
-    <div className={section==='files'?'resource-bio-body':'analysis-bio-body'} hidden={!sharedBioActive}>
+    <div className={section==='files'?'resource-bio-body':'analysis-bio-body'} hidden={!sharedBioActive || materialsRequestOpen}>
       {qualityBioActive && navigation.bio?.view!=='bio-datasets' && <div className="resource-subview-actions"><button type="button" onClick={()=>navigateBio({view:'bio-datasets',fileId:''})}>{t('返回数据集与记录')}</button></div>}
       <BioImports analysisOnly={analysisOnly} allowCloud={!assigned} allowNewAnalysis={allowNewAnalysis} deliveryTarget={sharedBioActive?deliveryTarget:undefined}
         projectId={projectId} navigation={retainedBio.navigation} onNavigate={navigateBio} active={sharedBioActive} sectioned qualityMode={retainedBio.qualityMode}

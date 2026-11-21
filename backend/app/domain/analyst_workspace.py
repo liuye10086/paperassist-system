@@ -5,7 +5,7 @@ from collections import defaultdict
 from app.adapters.research_intake_store import latest_confirmed_requirement
 from app.adapters.research_results_store import invalid
 from app.core.exceptions import StorageError
-from app.domain.customer_workspace import confirmed_progress, read_published_deliveries
+from app.domain.customer_workspace import confirmed_progress, read_published_deliveries, read_submissions
 from app.domain.delivery_packages.service import DeliveryService, analysis_member_supported
 from app.domain.storage_governance.guards import require_scope_open
 
@@ -48,7 +48,7 @@ class AnalystWorkspace:
         return dict(assignment_revision=assignment.revision,
                     requirement=dict(id=requirement['id'], version=requirement['version']) if requirement else None,
                     status=progress['status'], note=progress['note'], feedback=feedback[None],
-                    publications=publications)
+                    publications=publications, submissions=read_submissions(db, project_id, requirement))
 
     def read(self, project_id):
         assignment = self._assignment(project_id)

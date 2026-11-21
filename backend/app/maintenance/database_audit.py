@@ -10,7 +10,8 @@ import re
 import sys
 from datetime import datetime, timedelta
 from sqlalchemy import inspect, CheckConstraint, DateTime, Text, UniqueConstraint, Integer, Float
-from sqlalchemy.dialects.postgresql import DOUBLE_PRECISION
+from sqlalchemy.dialects.postgresql import DOUBLE_PRECISION, dialect as postgresql_dialect
+from sqlalchemy.sql.elements import ClauseElement, TextClause
 from app.db.schema import metadata
 from app.db.database import SCHEMA_HEAD, database_connection, get_database_config
 
@@ -48,18 +49,39 @@ def valid_datetime(value):
     return isinstance(value, datetime) and value.tzinfo is not None and value.utcoffset() is not None
 
 
-def _check_signature(value):
+def _check_signature(value, dialect=None):
     # PostgreSQL rewrites IN lists to = ANY (ARRAY[]) and adds explicit casts.
+    if isinstance(value, ClauseElement) and not isinstance(value, TextClause):
+        value = value.compile(dialect=dialect or postgresql_dialect(),
+                              compile_kwargs={'include_table': False, 'literal_binds': True})
     parts = re.split(r"('(?:''|[^'])*')", str(value))
+    # pg_get_constraintdef prints wide integer constants as quoted int8 values.
+    # Only fold constants whose unquoted SQL spelling also has type bigint.
+    for index in range(1, len(parts), 2):
+        integer = re.fullmatch(r"'(-?[1-9][0-9]{0,18})'", parts[index])
+        cast = re.match(r'^::bigint\b', parts[index+1], re.I)
+        if integer and cast:
+            number = int(integer[1])
+            if -(2**63) <= number < 2**63 and not -(2**31) <= number < 2**31:
+                parts[index] = str(number)
+                parts[index+1] = parts[index+1][cast.end():]
     for index in range(0, len(parts), 2):
-        syntax = parts[index].lower()
+        # PostgreSQL quotes the lower-case column position before comparison.
+        syntax = re.sub(r'(?<![\w"])"position"(?=\s*(?:[<>=]|(?i:\bbetween\b)))', 'position', parts[index]).lower()
         syntax = re.sub(r'::(?:text|character varying|integer|bigint|double precision)', '', syntax)
-        # PostgreSQL expands these simple integer BETWEEN predicates into two
-        # inclusive comparisons. Keep both expressions/operators/bounds exact.
-        syntax = re.sub(r'\b(length\s*\(\s*[a-z_][a-z_0-9]*\s*\)|[a-z_][a-z_0-9]*)\s+between\s+(-?\d+)\s+and\s+(-?\d+)\b',
-            lambda m: f'({m[1]}>={m[2]} and {m[1]}<={m[3]})', syntax)
+        syntax = re.sub(r'\btrim\(\s*both\s+from\s+([a-z_][a-z_0-9]*)\s*\)', r'trim(\1)', syntax)
         parts[index] = syntax
-    return _boolean_check_signature(''.join(parts).strip())
+    # Only expand the known deterministic scalar forms. Match quoted strings
+    # separately so a literal containing SQL-looking text stays untouched.
+    identifier = r'[a-z_][a-z_0-9]*'
+    quoted = r"'(?:''|[^'])*'"
+    argument = rf'(?:btrim\s*\(\s*{identifier}\s*\)|{identifier})'
+    array_length = rf'jsonb_array_length\s*\(\s*{identifier}\s*->\s*{quoted}\s*\)'
+    scalar = rf'(?:length\s*\(\s*{argument}\s*\)|{array_length}|{identifier})'
+    between = rf'{quoted}|"(?:[^"]|"")*"|\b({scalar})\s+between\s+(-?\d+)\s+and\s+(-?\d+)\b'
+    expression = re.sub(between, lambda m: f'({m[1]}>={m[2]} and {m[1]}<={m[3]})' if m[1] else m[0],
+                        ''.join(parts).strip())
+    return _boolean_check_signature(expression)
 
 
 def _boolean_check_signature(expression):
@@ -211,7 +233,7 @@ def audit_database(db):
             expected_where = ei[name].dialect_options['postgresql'].get('where')
             where_matches = ((actual_where is None and expected_where is None) or
                              (actual_where is not None and expected_where is not None and
-                              _check_signature(actual_where) == _check_signature(expected_where)))
+                              _check_signature(actual_where) == _check_signature(expected_where, db.raw_connection.dialect)))
             if ai[name]['column_names'] != expected_columns or actual_sort != expected_sort or bool(ai[name]['unique']) != ei[name].unique or not where_matches:
                 issue(table.name, 'index:' + name)
     for row in db.execute('''SELECT t.relname AS table_name, i.relname AS index_name, x.indisvalid, x.indisready

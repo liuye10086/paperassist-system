@@ -1,4 +1,5 @@
 from sqlalchemy import inspect
+import pytest
 from app.db.database import database_connection, verify_runtime_permissions
 from app.db.schema import metadata
 from tests.api.test_analysis import client
@@ -31,36 +32,46 @@ def test_additive_quality_table_and_runtime_permissions(postgres_schema):
 
 def test_0027_preserves_all_legacy_rows_columns_indexes_and_prepared_json(client,postgres_migration_config):
     from alembic import command
-    from app.db.database import migration_connection,alembic_config
+    from tests.helpers.historical_migration import historical_workflow
     from tests.integration.test_batch07_quality_pipeline import published
     base,parent=published(client)
     before_bytes=client.get(parent['download_url']).content
-    with migration_connection(config=postgres_migration_config) as db:
-        settings=alembic_config(); settings.attributes.update(connection=db.raw_connection,database_config=postgres_migration_config)
-        command.downgrade(settings,'0026_figure_report_versions')
+    with historical_workflow(postgres_migration_config, '0026_figure_report_versions') as (db, settings):
+        saved = db.execute('SELECT * FROM prepared_dataset_versions WHERE id=%s', (parent['id'],)).fetchone()
+        from app.adapters.prepared_dataset_objects import PreparedDatasetObjects
+        from app.core.config import get_data_dir
+        objects = PreparedDatasetObjects(get_data_dir())
+        assert objects.read(saved)[0] == before_bytes
         inspector=inspect(db.raw_connection)
         names=[n for n in inspector.get_table_names() if n!='alembic_version']
         columns={n:[{**c,'type':str(c['type'])} for c in inspector.get_columns(n)] for n in names}
         rows={n:[dict(r) for r in db.execute('SELECT * FROM '+n)] for n in names}
         indexes={r['indexname']:r['indexdef'] for r in db.execute('SELECT indexname,indexdef FROM pg_indexes WHERE schemaname=current_schema()')}
-        command.upgrade(settings,'head')
+        command.upgrade(settings,'0027_quality_derivations')
         inspector=inspect(db.raw_connection)
         assert {n:[dict(r) for r in db.execute('SELECT * FROM '+n)] for n in names}==rows
         assert {n:[{**c,'type':str(c['type'])} for c in inspector.get_columns(n)] for n in names}==columns
         after={r['indexname']:r['indexdef'] for r in db.execute('SELECT indexname,indexdef FROM pg_indexes WHERE schemaname=current_schema()')}
         assert all(after[n]==value for n,value in indexes.items())
+        migrated = db.execute('SELECT * FROM prepared_dataset_versions WHERE id=%s', (parent['id'],)).fetchone()
+        assert objects.read(migrated)[0] == before_bytes
     assert client.get(parent['download_url']).content==before_bytes
     assert client.get(base+'/prepared-dataset-versions/'+parent['id']).json()==parent
 
-def test_0027_blocks_downgrade_for_pending_quality_task(client,postgres_migration_config):
-    import pytest
+@pytest.mark.initial_revision('0027_quality_derivations')
+def test_0027_blocks_downgrade_for_pending_quality_task(postgres_migration_config):
     from alembic import command
     from app.db.database import migration_connection,alembic_config
-    from tests.integration.test_batch07_quality_pipeline import published,quality_task
-    base,parent=published(client); quality_task(client,base,parent)
+    from tests.db.test_task_schema import insert_row, seed_owner, task_row
+    with database_connection(write=True) as db:
+        seed_owner(db)
+        insert_row(db, 'tasks', task_row(task_type='prepare_dataset', workflow_version='dataset_preparation_v2'))
+        pending = dict(db.execute('SELECT * FROM tasks').fetchone())
+        assert db.execute('SELECT count(*) AS n FROM prepared_dataset_derivations').fetchone()['n'] == 0
     with pytest.raises(RuntimeError,match='quality history'):
         with migration_connection(config=postgres_migration_config) as db:
             settings=alembic_config(); settings.attributes.update(connection=db.raw_connection,database_config=postgres_migration_config)
             command.downgrade(settings,'0026_figure_report_versions')
     with database_connection() as db:
-        assert db.execute('SELECT version_num FROM alembic_version').fetchone()['version_num']=='0029_statistics_execution'
+        assert db.execute('SELECT version_num FROM alembic_version').fetchone()['version_num']=='0027_quality_derivations'
+        assert dict(db.execute('SELECT * FROM tasks').fetchone()) == pending

@@ -252,6 +252,7 @@ def test_non_ascii_csrf_header_rejected():
         assert response.status_code == 403
 
 
+@pytest.mark.initial_revision('0001_postgresql')
 def test_upgrade_preserves_entire_legacy_resource_chain(postgres_schema, postgres_migration_config):
     from alembic import command
     from app.db.database import database_connection, alembic_config, migrate_database
@@ -271,9 +272,8 @@ def test_upgrade_preserves_entire_legacy_resource_chain(postgres_schema, postgre
         config = alembic_config()
         config.attributes["connection"] = db.raw_connection
         config.attributes["database_config"] = postgres_migration_config
-        command.downgrade(config, "0001_postgresql")
         db.execute(
-            "INSERT INTO projects VALUES ('p','legacy','topic','sci','created','updated')"
+            "INSERT INTO projects VALUES ('p','legacy','topic','sci','2026-10-01 08:30:00+08:00','2026-10-01T00:30:01.123456Z')"
         )
         db.execute(
             "INSERT INTO files VALUES ('f','p','legacy.xlsx','xlsx',123,'hash','uploaded','parsed',NULL,'{}')"
@@ -293,6 +293,12 @@ def test_upgrade_preserves_entire_legacy_resource_chain(postgres_schema, postgre
             table: [dict(row) for row in db.execute(f"SELECT * FROM {table}")]
             for table in tables
         }
+        command.upgrade(config, '0002_auth_ownership')
+        for table in tables:
+            rows = [dict(row) for row in db.execute(f'SELECT * FROM {table}')]
+            if table == 'projects':
+                assert rows[0].pop('owner_id') is None
+            assert rows == original[table]
     migrate_database(postgres_migration_config)
     with database_connection() as db:
         for table in tables:
@@ -307,7 +313,8 @@ def test_upgrade_preserves_entire_legacy_resource_chain(postgres_schema, postgre
                 assert rows[0].pop("metadata_revision") == 1
                 assert rows[0].pop("parse_revision") == 0
                 assert rows[0].pop("upload_item_id") is None
-            assert rows == original[table]
+            assert len(rows) == len(original[table]) == 1
+            assert {key: rows[0][key] for key in original[table][0]} == original[table][0]
         assert (
             db.execute("SELECT count(*) AS total FROM users").fetchone()["total"] == 0
         )

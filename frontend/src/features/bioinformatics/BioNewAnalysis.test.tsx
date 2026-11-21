@@ -46,7 +46,8 @@ it('disables single-cell start while the runtime is unavailable',async()=>{
  expect(button).toHaveProperty('disabled',true)
  fireEvent.submit(button.closest('form')!)
  expect(screen.queryByRole('button',{name:'开始单细胞分析'})).toBeNull()
- expect(screen.getByText('bio_environment_unavailable')).toBeTruthy()
+ expect(screen.getByText('生信计算环境尚未就绪；任务不能开始正式计算。')).toBeTruthy()
+ expect(screen.queryByText('bio_environment_unavailable')).toBeNull()
  expect(vi.mocked(apiFetch).mock.calls.some(c=>c[1]?.method==='POST')).toBe(false)
 })
 function Harness(){const s=useProjectSelection(()=>{},()=>{});return <><output>{s.analysisNavigation.view}</output><BioNewAnalysis projectId="p1" source={rawFixture} onNavigate={s.selectAnalysis} registerLeaveGuard={s.registerLeaveGuard}/></>}

@@ -16,6 +16,7 @@ export const platformJourneyMessages:Record<string,string>={
  '请先上传本次分析所需材料。':'Upload the materials needed for this analysis first.',
  '上传后的下一步':'Next step after uploading',
  '上传所需材料':'Upload required materials',
+ '正在读取导入材料……':'Loading import materials…',
  '重新读取导入材料':'Reload import materials',
  '下一步：检查并运行':'Next: review and run',
  '上一步：调整参数':'Back: adjust parameters',

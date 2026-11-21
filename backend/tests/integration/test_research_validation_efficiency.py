@@ -117,7 +117,7 @@ def test_checked_coalesces_lease_sql_and_always_fences_at_exit(client, monkeypat
                 db.execute("UPDATE task_attempts SET lease_owner='other-worker' WHERE task_id=%s", (task['id'],))
             return {'verified': True}
 
-    monkeypatch.setattr(execution, 'service_for', lambda task, repository: Sources())
+    monkeypatch.setattr(execution, 'service_for', lambda db, task, repository: Sources())
     with repository.connection(write=True) as db:
         original = db.execute
         renewals = []

@@ -197,15 +197,22 @@ def test_layout_queued_input_never_follows_new_manuscript_revision(client,monkey
     root=path.replace('/layout-exports','/manuscripts/')+manuscript
     newer=post(client,root+'/versions',body(expected_revision=1,title='Second independent revision'),'newer')
     assert newer.status_code==201,newer.text
-    task=newer.json()['versions'][0]['task_id'];assert run_task(task,1)['status']=='succeeded'
-    second=post(client,root+'/versions/2/exports',{},'second-export').json()
-    assert run_task(second['task_id'],1)['status']=='succeeded'
+    new_version = newer.json()['versions'][0]
+    assert new_version['revision'] == 2
     seen=[]
     def prepare(raw,options,**kwargs): seen.append(raw);return raw
     monkeypatch.setattr('app.domain.layout_exports.execution.prepare_layout_docx',prepare)
     assert run_task(saved['task_id'],1)['status']=='succeeded'
     assert seen==[original]
-    assert client.get(path+'/'+saved['id']).json()['source_id']==source['id']
+    assert run_task(new_version['task_id'], 1)['status'] == 'succeeded'
+    second = post(client, root+'/versions/2/exports', {}, 'second-export').json()
+    assert run_task(second['task_id'], 1)['status'] == 'succeeded'
+    second_file = client.get(root+'/exports/'+second['id']+'/download')
+    assert second_file.status_code == 200 and second_file.content != original
+    layout = client.get(path+'/'+saved['id']).json()
+    assert layout['source_id'] == source['id']
+    downloaded = client.get(layout['download_url'])
+    assert downloaded.status_code == 200 and downloaded.content == original
 
 
 def test_layout_audit_rejects_rehashed_retry_configuration_drift(client,monkeypatch):

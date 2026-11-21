@@ -88,7 +88,7 @@ def test_assigned_analyst_releases_frozen_snapshot_and_reads_customer_feedback()
         assert initial.status_code == 200, initial.text
         assert initial.json() == {
             'assignment_revision': revision, 'requirement': {'id': requirement['id'], 'version': requirement['version']},
-            'status': 'assigned', 'note': None, 'feedback': [], 'publications': [],
+            'status': 'assigned', 'note': None, 'feedback': [], 'publications': [], 'submissions': [],
         }
         intake = analyst.get(project + '/research-intake').json()
         assert intake['current_requirement']['id'] == requirement['id']
@@ -158,7 +158,7 @@ def test_assigned_analyst_releases_frozen_snapshot_and_reads_customer_feedback()
 
         delivered = workspace + '/deliveries/' + snapshot['id']
         detail = customer.get(delivered).json()
-        assert set(detail) == {'id', 'title', 'kind', 'revision', 'published_at', 'member_count',
+        assert set(detail) == {'id', 'delivery_id', 'title', 'kind', 'revision', 'published_at', 'member_count',
                                'members', 'package_url', 'feedback'}
         assert detail['title'] == 'Analysis output' and len(detail['members']) == 1
         member = detail['members'][0]

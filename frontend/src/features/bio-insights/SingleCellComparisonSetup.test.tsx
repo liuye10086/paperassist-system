@@ -14,6 +14,14 @@ function setup(composition:boolean,singleCondition=false){
  function Harness(){const[config,setConfig]=useState(latest);return <SingleCellComparisonSetup projectId="project" sources={sources} config={config} onChange={c=>{latest=c;setConfig(c)}}/>}
  render(<Harness/>);return()=>latest
 }
+it('can customize or restore the automatic composition PNG size',()=>{
+ const latest=setup(true)
+ fireEvent.click(screen.getByLabelText('自定义 PNG 尺寸'))
+ fireEvent.change(screen.getByLabelText('分辨率（DPI）'),{target:{value:'100'}})
+ expect(latest().plot_size).toEqual({width_inches:7,height_inches:5,dpi:100})
+ fireEvent.click(screen.getByLabelText('自定义 PNG 尺寸'))
+ expect(latest()).not.toHaveProperty('plot_size')
+})
 it('shows all denominator categories and remains descriptive without confirmed labels',async()=>{
  const config=setup(true)
  fireEvent.change(screen.getByLabelText('固定单细胞处理版本'),{target:{value:'p'}})

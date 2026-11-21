@@ -1,0 +1,27 @@
+{
+  "utc": "2026-11-20T08:52:51.930193+00:00",
+  "source_and_final_keys": 8577,
+  "prior": 7131,
+  "new_distinct": 1446,
+  "new_duplicate": 0,
+  "missing": 0,
+  "outcomes": {
+    "passed": 7869,
+    "skipped": 61,
+    "failed": 647
+  },
+  "distinct_failure_rows": 647,
+  "single_process_resumed_blocks": 29,
+  "head_comparison_blocks": 0,
+  "second_round_blocks": 0,
+  "temporary_containers": {
+    "pa-workflow-20261120-runner": {
+      "id": "d745be7a73e7c0b40ace4101fde8b0645ddf7856800b249e4ffdb76a1775b507",
+      "status": "exited"
+    },
+    "pa-workflow-20261120-testpg": {
+      "id": "d48910e0d937f88ec6b4976cea0975d5f059e054243093d47a0e274035d25306",
+      "status": "exited"
+    }
+  }
+}

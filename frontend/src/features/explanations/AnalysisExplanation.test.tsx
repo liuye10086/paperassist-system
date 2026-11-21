@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { apiError, setLocale, translate } from '../../shared/i18n'
 import { WorkflowNavigation, WorkflowProvider } from '../analysis/AnalysisWorkflow'
@@ -66,6 +66,9 @@ it('generates six sections with evidence and safely renders AI draft and provena
   expect(await screen.findByText(explanation.sections[0].text)).toBeTruthy()
   for (const section of explanation.sections) expect(screen.getByRole('heading', { name: section.title })).toBeTruthy()
   expect(screen.getAllByText('有效样本数：3')).toHaveLength(6)
+  expect(document.querySelector('details, summary')).toBeNull()
+  expect(screen.getAllByRole('heading', { name: '依据：已保存配置、统计结果与图表' })).toHaveLength(6)
+  expect(within(screen.getByRole('region', { name: '解释来源与核对记录' })).getByText('证据校验通过')).toBeTruthy()
   expect(screen.getByText(/AI 草稿/)).toBeTruthy(); expect(screen.getByText('未进行显著性检验')).toBeTruthy()
   expect(screen.queryAllByText(/SHA256|解释编号|配置版本|统计结果编号|图表编号|prompt_version|explanation-v1/)).toHaveLength(0); expect(screen.getByText('证据校验通过')).toBeTruthy(); expect(document.querySelector('script')).toBeNull()
   const posts = fetch.mock.calls.filter(call => call[1]?.method === 'POST')

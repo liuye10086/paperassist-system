@@ -1,6 +1,6 @@
 import {webcrypto,createHash} from 'node:crypto'
 import {afterEach,expect,it,vi} from 'vitest'
-import {canonicalJson,jsonDigest,codepointRange,validFigureVersion,validLiveRequest,validManifest,validReviewContext} from './writingLiveTypes'
+import {canonicalJson,jsonDigest,codepointRange,validFigureVersion,validLiveRequest,validManifest,validReviewContext,requestUsesGroup} from './writingLiveTypes'
 import {reviewContext,unsubmittedRequest} from './writingLiveFixtures'
 import {validSnapshot,validCandidates,validInput} from './manuscriptTypes'
 import {manuscriptFixture} from './manuscriptFixtures'
@@ -44,4 +44,15 @@ it('rejects incomplete claim evidence material and review contexts that could cr
 it.each(['reserved','released'] as const)('reads %s calls before supplier submission without accepting unknown provenance',status=>{
  const request=unsubmittedRequest(status);expect(validLiveRequest(request,'p1','m1')).toBe(true)
  expect(validLiveRequest({...request,model_calls:[{...request.model_calls[0],provider_provenance:'unexpected'}]},'p1','m1')).toBe(false)
+})
+it('reads the execution group of a request without model calls and matches a group by it',()=>{
+ const execution={bundle_id:'b1',authorization_id:'auth1',logical_task_id:'task-1'}
+ const request={...unsubmittedRequest('reserved'),model_calls:[],execution}
+ expect(validLiveRequest(request,'p1','m1')).toBe(true)
+ expect(validLiveRequest({...request,execution:{...execution,authorization_id:''}},'p1','m1')).toBe(false)
+ expect(validLiveRequest({...request,execution:null},'p1','m1')).toBe(false)
+ expect(requestUsesGroup(request,execution)).toBe(true)
+ expect(requestUsesGroup(request,{...execution,logical_task_id:'task-2'})).toBe(false)
+ // An older view without the field still matches by its model calls.
+ expect(requestUsesGroup(unsubmittedRequest('reserved'),execution)).toBe(true)
 })

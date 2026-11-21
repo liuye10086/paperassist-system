@@ -6,12 +6,18 @@ from tests.api.test_projects import client,create_project,upload
 
 
 def selected_image(client,size=(80,40)):
+    from app.domain.tasks.file_parse_execution import run_parse_file_task
     from tests.api.test_file_batches import register
+    from tests.helpers.ocr_samples import ocr_result
     project=create_project(client);stream=io.BytesIO();Image.new('RGB',size,'red').save(stream,'PNG')
     base,batch,item,content=register(client,project,content=stream.getvalue(),filename='source.png')
     response=client.post(base+'/'+batch['id']+'/items/'+item['client_id'],files={'file':(item['filename'],content)})
     assert response.status_code==202,response.text
-    return project['id'],response.json()['file_id']
+    uploaded = response.json()
+    task = uploaded['task']
+    assert task['task_type'] == 'parse_file'
+    assert run_parse_file_task(task['id'], task['revision'], parser=ocr_result)['status'] == 'succeeded'
+    return project['id'], uploaded['file_id']
 
 
 def test_research_figure_task_is_immutable_replayable_and_atomically_published(client,tmp_path,monkeypatch):

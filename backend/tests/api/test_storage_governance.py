@@ -44,7 +44,7 @@ def test_storage_reads_use_last_known_ledger_without_reconciliation_or_writer_lo
         with original_connection(*args,**kwargs) as db:
             yield db
     monkeypatch.setattr(storage_api,'database_connection',tracked_connection)
-    monkeypatch.setattr(storage_api,'reconcile_intents',lambda *args,**kwargs: (_ for _ in ()).throw(AssertionError('read must not reconcile')))
+    monkeypatch.setattr('app.domain.storage_governance.service.reconcile_intents',lambda *args,**kwargs: (_ for _ in ()).throw(AssertionError('read must not reconcile')))
     with TestClient(app) as client:
         login(client,accounts[2])
         own=client.get('/api/v1/me/storage',params={'project_id':pid})
@@ -57,13 +57,17 @@ def test_storage_reads_use_last_known_ledger_without_reconciliation_or_writer_lo
 
 
 def test_storage_scan_explicitly_reconciles_and_returns_current_status(admin,accounts,monkeypatch):
-    import app.api.storage_governance as storage_api
+    from app.domain.storage_governance import service
     store,pid=project(accounts)
     calls=[]
-    monkeypatch.setattr(storage_api,'reconcile_intents',lambda db,root:calls.append((db,root)) or 0)
+    reconcile=service.reconcile_intents
+    def counted(db,root):
+        calls.append(root)
+        return reconcile(db,root)
+    monkeypatch.setattr(service,'reconcile_intents',counted)
     response=admin.post('/api/v1/admin/storage/scan')
     assert response.status_code==200,response.text
-    assert calls and response.json()['reconciliation_status']=='current'
+    assert calls==[store.directory] and response.json()['reconciliation_status']=='current'
 
 
 def test_deferred_storage_read_previews_unreconciled_intent_without_writing(accounts):

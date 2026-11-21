@@ -12,7 +12,7 @@ from tests.api.test_analysis import client
 from tests.helpers.modeling import sample,selection,prepared_modeling
 from tests.integration.test_correlation_plan import prepared_correlations
 from tests.integration.test_comparison_plan import make_plan,approve
-from tests.integration.test_dataset_artifact_chain import confirmed_task
+from tests.integration.test_dataset_artifact_chain import checked_word_exports, confirmed_task
 from tests.integration.test_boxplot_execution import SyntheticPlotProvider
 from tests.integration.test_correlation_artifact_chain import ModernExplanationProvider,finish_plot
 from tests.integration.test_explanation_execution import run as run_explanation
@@ -104,15 +104,11 @@ def test_modeling_real_consumers_preserve_original_png_and_complete_tables(clien
     assert 'LOCAL-QUESTION-SENTINEL' not in json.dumps(explain.posts[0][1])
     with database_connection() as db:explanation=json.loads(db.execute('SELECT explanation_json FROM explanations WHERE id=%s',(done['result_explanation_id'],)).fetchone()['explanation_json'])
     assert explanation['schema_version']==4 and len(explanation['sections'])==6
-    task,_=artifact_task(client,base,file,result,'word_report',figure,explanation)
-    from app.domain.tasks.execution import run_word_task
-    done=run_word_task(task['id'],task['revision']);assert done and done['status']=='succeeded',done
-    workspace=client.get('/api/v1/tasks/'+task['id']+'/workspace');assert workspace.status_code==200,workspace.text
-    url=workspace.json()['artifacts']['report']['download_url'];response=client.get(url);assert response.status_code==200,response.text if response.status_code!=200 else ''
+    reader, historical = checked_word_exports(client, base, result, figure, explanation, provider.png)
     from docx import Document
-    doc=Document(BytesIO(response.content));assert len(doc.tables)>=3
+    doc=Document(BytesIO(historical[1]));assert len(doc.tables)>=3
     assert 'LOCAL-QUESTION-SENTINEL' in '\n'.join(p.text for p in doc.paragraphs)
-    with ZipFile(BytesIO(response.content)) as archive:assert [archive.read(n) for n in archive.namelist() if n.startswith('word/media/')]==[provider.png]
+    with ZipFile(BytesIO(historical[1])) as archive:assert [archive.read(n) for n in archive.namelist() if n.startswith('word/media/')]==[provider.png]
     assert blocked==[]
     png_url=base+'/analysis-runs/'+result['id']+'/figures/'+figure['id']+'/download'
     for change in ('count','scale','engine'):
@@ -122,13 +118,14 @@ def test_modeling_real_consumers_preserve_original_png_and_complete_tables(clien
         else:changed['engine']['id']='openai_modeling_plot_v5'
         with database_connection(write=True) as db:db.execute('UPDATE figures SET figure_json=%s WHERE id=%s',(json.dumps(changed),figure['id']))
         assert client.get(png_url).status_code==409,(method,change)
-        assert client.get(url).status_code==409,(method,change)
+        assert client.get(reader[0]).status_code==409,(method,change)
     with database_connection(write=True) as db:db.execute('UPDATE figures SET figure_json=%s WHERE id=%s',(json.dumps(figure),figure['id']))
     from tests.api.test_analysis import selection as descriptive_selection
     revision=client.put(base+'/analysis-setup',json=descriptive_selection(dataset_id=result['source']['dataset_id'],expected_revision=1,
         sheet_name=result['selection']['sheet_name'],numeric_column='B',group_column=None,unit='day' if method=='kaplan_meier' else ''))
     assert revision.status_code==200,revision.text
-    assert client.get(url).content==response.content
+    for url, content in (reader, historical):
+        assert client.get(url).content == content
     assert client.get(png_url).content==provider.png
     from app.maintenance.database_audit import audit_database
     with database_connection() as db:assert audit_database(db)['ok']

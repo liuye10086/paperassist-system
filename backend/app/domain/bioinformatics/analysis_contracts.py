@@ -174,7 +174,7 @@ class BioProcessedDatasetSourceV1(StrictModel):
 
 
 class BioFigureConfig(StrictModel):
-    kind: Literal['qc','pca','umap','marker_dotplot','marker_heatmap','spatial_cluster','spatial_gene','annotation']
+    kind: Literal['qc','pca','umap','marker_dotplot','marker_heatmap','spatial_cluster','spatial_gene','annotation','integration_covariates','integration_harmony']
     panel: Literal['default','scores','variance','distribution','violin','scatter','mitochondrial','sample_id','section','batch'] = 'default'
     color_by: Literal['cluster','sample_id','section','batch'] = 'cluster'
     gene_ids: list[Identifier] = Field(default_factory=list,max_length=100)
@@ -186,6 +186,9 @@ class BioFigureConfig(StrictModel):
     width: int = Field(default=1800,ge=100,le=4096)
     height: int = Field(default=1500,ge=100,le=4096)
     dpi: int = Field(default=300,ge=72,le=600)
+    point_size: float | None = Field(default=None,ge=.1,le=500,exclude_if=lambda v:v is None)
+    histogram_bins: int | None = Field(default=None,ge=2,le=200,exclude_if=lambda v:v is None)
+    min_detection_fraction: float | None = Field(default=None,ge=0,le=1,exclude_if=lambda v:v is None)
     output_language: Literal['zh-CN','en'] = 'en'
 
     @model_validator(mode='after')
@@ -193,6 +196,14 @@ class BioFigureConfig(StrictModel):
         panels={'qc':{'default','distribution','violin','scatter','mitochondrial','sample_id','section','batch'},
             'pca':{'default','scores','variance'},'umap':{'default','scores'}}
         if self.panel not in panels.get(self.kind,{'default'}):raise ValueError('Panel does not belong to figure kind')
+        if self.histogram_bins is not None and not (self.kind=='qc' and self.panel in ('default','distribution')):
+            raise ValueError('Histogram bins require a QC distribution panel')
+        if self.min_detection_fraction is not None and self.kind not in ('marker_dotplot','marker_heatmap'):
+            raise ValueError('Detection fraction requires a marker plot')
+        scatter=self.kind in ('umap','annotation','marker_dotplot','integration_covariates','integration_harmony') or (
+            self.kind=='pca' and self.panel!='variance' or self.kind=='qc' and self.panel in ('scatter','mitochondrial','sample_id','section','batch'))
+        if self.point_size is not None and not scatter:
+            raise ValueError('Point area requires a scatter plot')
         if self.width*self.height>16000000:
             raise ValueError('Figure pixel budget exceeded')
         if self.vmin is not None and self.vmax is not None and self.vmin>=self.vmax:
@@ -207,8 +218,7 @@ class BioFigureConfig(StrictModel):
 
 
 class BioDefaultFigureConfig(BioFigureConfig):
-    """Saved pipeline figures; these extra kinds are not standalone requests."""
-    kind: Literal['qc','pca','umap','marker_dotplot','marker_heatmap','spatial_cluster','spatial_gene','annotation','integration_covariates','integration_harmony']
+    """Configuration of a figure published with the processed dataset."""
 
 
 class BioFigureRequest(StrictModel):

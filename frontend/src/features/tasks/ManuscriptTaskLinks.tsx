@@ -6,7 +6,7 @@ import {taskRequest} from './taskApi'
 import type {TaskWorkspace} from './taskTypes'
 
 type Target={id:string;revision:number}
-export default function ManuscriptTaskLinks({workspace,active}:{workspace:TaskWorkspace;active:boolean}){
+export default function ManuscriptTaskLinks({workspace,active,customerView=false}:{workspace:TaskWorkspace;active:boolean;customerView?:boolean}){
  const {t}=useI18n(),{task,artifacts}=workspace
  const input=task.input_version
  const supported=['manuscript_writing','manuscript_draft','manuscript_docx'].includes(task.task_type)
@@ -31,5 +31,8 @@ export default function ManuscriptTaskLinks({workspace,active}:{workspace:TaskWo
  if(!supported||!sessionValid)return null
  const view=task.task_type==='manuscript_writing'?'writing':task.task_type==='manuscript_docx'?'exports':'body'
  const label=task.task_type==='manuscript_writing'?'返回稿件写作':task.task_type==='manuscript_docx'?'查看此版本的 Word':'查看此版本稿件'
- return <>{error&&<p role="status">{t(error)}</p>}{target&&<p><a href={`#project=${encodeURIComponent(task.project_id)}&section=manuscripts&view=${view}&manuscript=${encodeURIComponent(target.id)}&revision=${target.revision}`}>{t(label)}</a></p>}</>
+ const href=target&&(customerView
+  ?'#'+new URLSearchParams({'customer-project':task.project_id,step:view==='exports'?'word':'manuscripts',manuscript:target.id,revision:String(target.revision),view}).toString()
+  :`#project=${encodeURIComponent(task.project_id)}&section=manuscripts&view=${view}&manuscript=${encodeURIComponent(target.id)}&revision=${target.revision}`)
+ return <>{error&&<p role="status">{t(error)}</p>}{href&&<p><a href={href}>{t(label)}</a></p>}</>
 }

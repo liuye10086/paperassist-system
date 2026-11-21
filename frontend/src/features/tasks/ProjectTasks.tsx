@@ -12,6 +12,9 @@ import { useDocumentVisible } from './useDocumentVisible'
 import './task.css'
 
 const resultKinds: TaskType[] = ['statistics_compute', 'boxplot', 'figure_workbench', 'figure_explanation', 'explanation', 'word_report', 'collection_word_report']
+// Analysts work on analysis projects only: writing, review, journal, school and literature tasks are not theirs to filter.
+const nonAnalysisKind = /^(manuscript_|journal_|school_|literature_|review_(revision|document_export|round_plan)$)/
+const analystKinds = (Object.keys(taskNames) as TaskType[]).filter(kind => !nonAnalysisKind.test(kind))
 type Props = { assigned?: boolean; resultsOnly?: boolean; detailView?: TaskDetailView; taskReportReturn?:AnalysisNavigation; onDetailViewChange?: (view: TaskDetailView) => void; registerLeaveGuard?: RegisterLeaveGuard; projectId: string; active: boolean; selectedTaskId: string; onSelectTask: (id: string) => void; onBackToResults?: () => void; onOpenFiles?: () => void; onOpenManuscripts?:()=>void; onOpenJournals?:()=>void; onOpenLiterature?: (searchId:string)=>void }
 export default function ProjectTasks(props: Props) {
   const [visited, setVisited] = useState(props.active)
@@ -65,7 +68,7 @@ function Tasks({ projectId, active, selectedTaskId, onSelectTask, onBackToResult
     if (type === 'status') setStatus(next); else setKind(next)
   }
   const title = t(resultsOnly ? '表格分析结果' : '项目任务')
-  const kinds = resultsOnly ? resultKinds : Object.keys(taskNames) as TaskType[]
+  const kinds = resultsOnly ? resultKinds : assigned ? analystKinds : Object.keys(taskNames) as TaskType[]
   const kindFilter = <label>{t(resultsOnly ? '成果类型' : '任务类型')}
     <select value={kind} onChange={event => filters(event.target.value, 'kind')}>
       {!resultsOnly && <option value="">{t('全部类型')}</option>}
@@ -74,13 +77,13 @@ function Tasks({ projectId, active, selectedTaskId, onSelectTask, onBackToResult
   </label>
   return <section className="project-tasks" hidden={!active} aria-label={title}>
     <div hidden={layered && !!selectedTaskId} className="task-list-view">
-    <div className="task-page-heading"><h2>{title}</h2>
+    <div className="task-page-heading">{assigned && !resultsOnly ? null : <h2>{title}</h2>}
       <div className="task-list-actions">
         {resultsOnly && kindFilter}
         <button type="button" disabled={loading || !sessionValid} onClick={() => { setLoading(true); setError(''); setAttempt(value => value + 1) }}>{t(resultsOnly ? '刷新成果' : '刷新任务列表')}</button>
       </div>
     </div>
-    {!resultsOnly && <p className="task-scope-note">{t('这里展示统一任务及历史绘图、解释任务。')}</p>}
+    {!resultsOnly && !assigned && <p className="task-scope-note">{t('这里展示统一任务及历史绘图、解释任务。')}</p>}
     {!resultsOnly && <div className="task-filters">{kindFilter}
       <label>{t('任务状态')}<select value={status} onChange={event => filters(event.target.value, 'status')}>
         <option value="">{t('全部状态')}</option>{Object.entries(statusNames).map(([value, label]) => <option key={value} value={value}>{t(label)}</option>)}</select></label>
@@ -97,7 +100,7 @@ function Tasks({ projectId, active, selectedTaskId, onSelectTask, onBackToResult
             <td><button type="button" className="task-open button-quiet" aria-label={t(resultsOnly ? '查看{type}成果' : '查看{type}任务', { type: t(taskNames[task.task_type]) })}
               onClick={() => onSelectTask(task.id)}>{t(taskNames[task.task_type])}</button>{task.origin === 'legacy' && <small>{t('历史任务')}</small>}</td>
             <td><span className={`status-badge task-status task-status-${task.status}`}>{t(taskDisplayName(task))}</span><small>{t(taskPhaseName(task))}</small></td>
-            <td><strong>{source.filename||t('研究材料')}</strong>{source.dataset_source && <SourceSummary source={source.dataset_source} filename={source.filename} />}<small>{task.task_type.startsWith('bio_')?t(task.task_type==='bio_figure'?'固定处理结果与绘图参数':'固定生信来源与任务参数'):task.input_version.kind==='review_revision'?t('固定的意见计划、父稿与具体修改'):task.input_version.kind==='review_document_export'?t('固定独立成果版本与 DOCX 来源'):task.input_version.kind==='review_round_plan'?t('冻结的意见来源与固定稿件版本'):task.input_version.kind==='journal_adaptation'?t('冻结的期刊适配输入、所选动作与父稿'):task.input_version.kind==='journal_format_check'?t('冻结的目标、指南要求与稿件版本'):task.input_version.kind==='journal_recommendation'?t('冻结的期刊建议输入与来源'):task.input_version.kind==='pdf_export'?t('已冻结的 DOCX 来源'):task.input_version.kind==='manuscript'?t('已冻结的稿件资料'):task.task_type==='literature_assistance'?t('冻结的文献建议输入'):task.task_type==='literature_search'?t('已冻结的文献检索条件'):['parse_file', 'extract_dataset', 'review_ocr'].includes(task.task_type) ? t(task.task_type === 'review_ocr' ? '原图转录核对' : task.task_type === 'extract_dataset' ? '本地 Excel 结构提取' : '本地文件解析') : task.task_type === 'prepare_dataset' ? t('本地数据整理') : task.task_type === 'analysis_plan' ? t('整理数据分析计划') : t('分析配置 v{revision}', { revision: task.input_version.setup_revision ?? 0 })}</small>
+            <td><strong>{source.filename||t('研究材料')}</strong>{source.dataset_source && <SourceSummary source={source.dataset_source} filename={source.filename} />}<small>{task.task_type.startsWith('bio_')?t(task.task_type==='bio_figure'?'固定处理结果与绘图参数':'固定生信来源与任务参数'):task.input_version.kind==='review_revision'?t('固定的意见计划、父稿与具体修改'):task.input_version.kind==='review_document_export'?t('固定独立成果版本与 DOCX 来源'):task.input_version.kind==='review_round_plan'?t('冻结的意见来源与固定稿件版本'):task.input_version.kind==='journal_adaptation'?t('冻结的期刊适配输入、所选动作与父稿'):task.input_version.kind==='journal_format_check'?t('冻结的目标、指南要求与稿件版本'):task.input_version.kind==='journal_recommendation'?t('冻结的期刊建议输入与来源'):task.input_version.kind==='pdf_export'?t('已冻结的 DOCX 来源'):task.input_version.kind==='manuscript'?t('已冻结的稿件资料'):task.task_type==='literature_assistance'?t('冻结的文献建议输入'):task.task_type==='literature_search'?t('已冻结的文献检索条件'):['parse_file', 'extract_dataset', 'review_ocr'].includes(task.task_type) ? t(task.task_type === 'review_ocr' ? '原图转录核对' : task.task_type === 'extract_dataset' ? '本地 Excel 结构提取' : '本地文件解析') : task.task_type === 'prepare_dataset' ? t('本地数据整理') : task.task_type === 'analysis_plan' ? t('整理数据分析计划') : t(assigned ? '已保存的分析配置' : '分析配置 v{revision}', { revision: task.input_version.setup_revision ?? 0 })}</small>
               {task.task_type==='literature_assistance'&&<small>{t(source.is_current?'绑定提交时的输入版本':'绑定历史论述版本')}</small>}
               {!task.task_type.startsWith('bio_')&&!['review_revision','review_document_export','review_round_plan','journal_adaptation','journal_format_check','journal_recommendation','pdf_export','manuscript_draft','manuscript_docx','literature_assistance','literature_search','parse_file', 'extract_dataset', 'prepare_dataset', 'analysis_plan', 'review_ocr'].includes(task.task_type) && <small>{t(source.is_current ? '当前分析配置' : '历史分析配置')}</small>}</td>
             <td>{task.updated_at === null ? t('未记录') : <time dateTime={task.updated_at}>{new Date(task.updated_at).toLocaleString(locale)}</time>}</td></tr>)}</tbody></table></div>

@@ -8,6 +8,17 @@ const task = (status: string, extra = {}) => ({ id: 'task', status, revision: 3,
 const json = (value: unknown) => Promise.resolve({ ok: true, status: 200, json: async () => value })
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.useRealTimers(); vi.clearAllMocks() })
 
+it('opens the original project task after a rejected explanation without starting a new model call', async () => {
+  const fetch = vi.fn((url: string, _init?: RequestInit) => json(url.includes('explanation-config')
+    ? { configured: true }
+    : { ...empty, task: task('failed', { project_id: 'p1', error_code: 'explanation_invalid' }) }))
+  vi.stubGlobal('fetch', fetch)
+  render(<AnalysisExplanation {...props} />)
+  expect((await screen.findByRole('link', { name: '查看任务进度与恢复' })).getAttribute('href'))
+    .toBe('#project=p1&section=tasks&task=task')
+  expect(fetch.mock.calls.some(([, init]) => init?.method === 'POST')).toBe(false)
+})
+
 it('reads explanation policy independently of plot configuration', async () => {
   const fetch = vi.fn((url: string) => json(url === '/api/v1/ai/explanation-config' ? { configured: false, message_code: 'explanation_not_configured' } : empty))
   vi.stubGlobal('fetch', fetch)

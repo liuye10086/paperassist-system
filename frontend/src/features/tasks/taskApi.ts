@@ -1,11 +1,20 @@
 import {STANDARD_REQUEST_TIMEOUT_MS} from '../../shared/api/requestTimeouts'
 import { apiFetch } from '../../shared/api/client'
-import { apiError } from '../../shared/i18n'
+import { apiError, safeError } from '../../shared/i18n'
 
 export class TaskRequestError extends Error {
   status: number
   code?: string
   constructor(message: string, status: number, code?: string) { super(message); this.status = status; this.code = code }
+}
+
+export function taskErrorMessage(issue: unknown, fallback: string, customerView: boolean, conflictMessage?: string) {
+  const code = issue instanceof TaskRequestError ? issue.code : issue
+  if (customerView && (code === 'source_conflict' || code === 'task_source_conflict')) {
+    return '本次任务使用的资料或版本与记录不一致。请重新读取任务，核对所选资料和版本。如果仍有问题，请联系客服。'
+  }
+  if (issue instanceof TaskRequestError && issue.status === 409 && conflictMessage) return conflictMessage
+  return typeof issue === 'string' ? apiError({ code: issue }, fallback) : safeError(issue, fallback)
 }
 
 function responseCode(value: unknown) {

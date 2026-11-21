@@ -202,7 +202,7 @@ def projection_quality(item, language):
                      f'This figure projection used {count} valid records. Its inclusion scope can differ from the original analysis.')
 
 
-def figure_output(item, position, language):
+def figure_output(item, position, language, *, context_schema_version=2):
     figure, explanation, result = (item[key] for key in ('figure', 'explanation', 'result'))
     sections = {section['key']: clean(section['text']) for section in explanation['sections']}
     kind = figure.get('figure_kind') or figure_kind(result)
@@ -237,16 +237,21 @@ def figure_output(item, position, language):
     title = clean(figure.get('title')) or method_name(result, language)
     if figure.get('figure_number') is not None:
         title = re.sub(r'^(?:图|Figure)\s*\d+\s*[.．:：]?\s*', '', title) or method_name(result, language)
-    saved_caption = clean(item.get('user_caption'))
+    style = item.get('configuration', {}).get('config', {}).get('style', {})
+    captions = [clean(style.get('caption')) if context_schema_version >= 2 else '', clean(item.get('user_caption'))]
     reading = ' '.join(parts)
+    abbreviations = presentation.get('abbreviations', [])
+    if context_schema_version >= 2 and abbreviations:
+        definitions = '; '.join(f"{clean(entry['term'])} — {clean(entry['definition'])}" for entry in abbreviations)
+        reading += localized(language, '\n缩写：', '\nAbbreviations: ') + definitions
     if sections['methods']:
         reading += localized(language, '\n原图解记录的方法为 ', '\nThe saved explanation describes the method as follows. ') + sections['methods']
     observed = localized(language, '已保存且核对引用的图解记录如下。', 'The reference-checked saved explanation records the following.')
     observed += ' ' + sections['results'] + ' ' + projection_quality(item, language)
     interpreted = localized(language, '原图解对来源结果的解释为 ', 'The saved explanation interprets the recorded results as follows. ')
     interpreted += sections['interpretation']
-    if saved_caption:
-        interpreted += localized(language, '\n作者补充图注为 ', '\nThe author supplied this additional caption. ') + saved_caption
+    for caption in dict.fromkeys(filter(None, captions)):
+        interpreted += localized(language, '\n作者补充图注为 ', '\nThe author supplied this additional caption. ') + caption
     limitations = [clean(value) for value in explanation.get('limitations', [])]
     limitations += [clean(value) for value in presentation.get('statistical_notes', [])]
     limitations.append(localized(language, '本地报告沿用已保存图解和图件信息。图像细节需要结合原图人工核对。',
@@ -255,13 +260,14 @@ def figure_output(item, position, language):
                 limitations=' '.join(dict.fromkeys(value for value in limitations if value)))
 
 
-def build_reader_output(language, sources, items):
+def build_reader_output(language, sources, items, *, context_schema_version=2):
     """Validate the deterministic seven sections and four parts for each selected figure."""
     if any(item.get('explanation') is None for item in items):
         return None
     results = [source.content['result'] for source in sources]
     methods = list(dict.fromkeys(method_name(result, language) for result in results))
-    figure_sections = [figure_output(item, index, language) for index, item in enumerate(items, 1)]
+    figure_sections = [figure_output(item, index, language, context_schema_version=context_schema_version)
+                       for index, item in enumerate(items, 1)]
     scopes = [localized(language, f'分析 {index}。', f'Analysis {index}.') for index in range(1, len(results) + 1)]
     def per_result(function):
         return '\n\n'.join(f'{prefix} {function(result, language)}' for prefix, result in zip(scopes, results, strict=True))

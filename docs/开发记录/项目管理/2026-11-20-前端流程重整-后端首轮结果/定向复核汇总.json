@@ -1,0 +1,260 @@
+{
+  "checked_at": "2026-11-21T11:57:35+08:00",
+  "backend_first": {
+    "passed": 7869,
+    "skipped": 61,
+    "failed": 647
+  },
+  "backend_original_failed_nodes": 647,
+  "backend_original_failed_nodes_with_targeted_pass": 216,
+  "backend_original_failed_nodes_without_targeted_pass": 431,
+  "updated_contract": {
+    "original_index": 151,
+    "old": "tests/api/test_thesis_manuscripts.py::test_school_v2_direct_request_is_rejected_before_bundle_lookup",
+    "new": "tests/api/test_thesis_manuscripts.py::test_school_writing_rejects_missing_bundle_without_dispatch",
+    "passed_receipt": "linux-regression/auditfollow-historical-last3.xml",
+    "verified": "缺外发包返回 409，库中写作请求、写作任务及模型调用均为零。"
+  },
+  "backend_original_failed_without_passing_exact_or_replacement_test": 430,
+  "named_in_original_handoff": {
+    "total": 15,
+    "exact_passed": 14,
+    "renamed_contract_passed": 1
+  },
+  "backend_without_targeted_pass_by_initial_group": {
+    "STATE": 96,
+    "COUNT": 75,
+    "AUDIT": 41,
+    "API": 39,
+    "WORD": 34,
+    "MIG75": 29,
+    "MOCK": 23,
+    "ENVRUN": 17,
+    "IMPORT": 16,
+    "OLDHEAD": 14,
+    "BIND": 9,
+    "SOURCE": 9,
+    "FK": 8,
+    "RECOVER": 7,
+    "SCIENCE": 5,
+    "OTHER": 4,
+    "FONTS": 4,
+    "MIG85": 1
+  },
+  "backend_targeted_pass_by_initial_group": {
+    "PUBLIC": 47,
+    "GROUPID": 34,
+    "MIG73": 26,
+    "NUMMOCK": 20,
+    "HTTP500": 20,
+    "STATE": 17,
+    "MIG75": 15,
+    "AUDIT": 12,
+    "FINGER": 9,
+    "REVIEW": 4,
+    "NUMOUT": 3,
+    "COUNT": 2,
+    "PLOT": 1,
+    "RESEARCH": 1,
+    "ASSETS": 1,
+    "ASSIGN": 1,
+    "OLDHEAD": 1,
+    "SCISELECT": 1,
+    "IMPORTCOL": 1
+  },
+  "backend_count_method": "逐一匹配首轮文件、测试类和完整参数名。动态 UUID 占位符统一处理。只有该 testcase 自身通过才计入。同一节点只计一次。",
+  "backend_original_tsv_sha256": "fecf55091bbab179c63c2b1fe0f1719b31b584d1a7b1ac2df3decee5a5c1867f",
+  "backend_triage_tsv_sha256": "dc0cd277924758522583263d27cfd82e98ff9b80c86dab4a5a1fb712c536ae79",
+  "frontend_first": {
+    "total": 4241,
+    "passed": 4175,
+    "failed": 66
+  },
+  "frontend_targeted": {
+    "files": 18,
+    "passed": 212,
+    "failed": 0,
+    "original_failed_now_passed": 66
+  },
+  "independent_png": {
+    "filename": "B04-B10-22-colorblind-2400x1600.png",
+    "sha256": "c906b529264490c05160d045a251114993a84a0526c90ac3b4e99385a450e125",
+    "bytes": 323462,
+    "width": 2400,
+    "height": 1600,
+    "model_calls": 1
+  },
+  "second_full_run": false,
+  "junit_receipts_relative_to_runtime": {
+    "first-round-plot-review-162.xml": {
+      "tests": 162,
+      "passed": 162,
+      "sha256": "049feba67fa976e74273c381aaf6b7f145b33b9d9ccdd715d3dcaae311abaaf6"
+    },
+    "linux-regression/auditfollow-diagnosis.xml": {
+      "tests": 5,
+      "failure": 2,
+      "passed": 3,
+      "sha256": "1e1bb2c1877be34f3828fb91294e20415bba4bedb747a56dbcc332bc7069e9a9"
+    },
+    "linux-regression/auditfollow-historical-last3.xml": {
+      "tests": 3,
+      "passed": 3,
+      "sha256": "c0aeef74ebfddb4f8d7af60d76202295840b62811bccf6f0fbef02a07665f1d4"
+    },
+    "linux-regression/auditfollow-journal-and-history.xml": {
+      "tests": 5,
+      "passed": 2,
+      "failure": 3,
+      "sha256": "50205444c87a62379aa5e15a28d7955dc54428866e17b16df8fc33e88fcc495f"
+    },
+    "linux-regression/auditfollow-journal-queue.xml": {
+      "tests": 1,
+      "failure": 1,
+      "sha256": "ee6ea203d271eb5d58bb85ea951c7c3e5f5368dfe9d2c58f91172fd0b8e6c377"
+    },
+    "linux-regression/auditfollow-priority12.xml": {
+      "tests": 12,
+      "error": 1,
+      "passed": 5,
+      "failure": 6,
+      "sha256": "83f919299fec8215d6df0fd59db8050e55155f158ff1d1cf1108dfba04e68fda"
+    },
+    "linux-regression/auditfollow-priority7.xml": {
+      "tests": 7,
+      "passed": 7,
+      "sha256": "fbe2c1c9cbf53975df588fccce478b09c5e43dfea6a4eb5fd5d29de2446e5d6c"
+    },
+    "linux-regression/auditfollow-word-final.xml": {
+      "tests": 7,
+      "passed": 6,
+      "failure": 1,
+      "sha256": "71368f8d62ea78aa9cad14f387d9df604c2870eea94d71d489e1e67ee8685155"
+    },
+    "linux-regression/auditfollow-word-remaining.xml": {
+      "tests": 18,
+      "passed": 12,
+      "failure": 5,
+      "error": 1,
+      "sha256": "02e02fe8d0272ef10f2a2b9cda8ac9509e79735faa48c1bb3b1efde9c5009bbe"
+    },
+    "linux-regression/auditfollow-word-residual.xml": {
+      "tests": 6,
+      "passed": 5,
+      "failure": 1,
+      "sha256": "b7cd2c70edd4f89fcc0ddccb5c9fb8702f938b76e5d8969a8b56e5780f6d1b8d"
+    },
+    "linux-regression/auditfollow-wordcontrol.xml": {
+      "tests": 3,
+      "failure": 2,
+      "passed": 1,
+      "sha256": "3d2a65f23a7b68ead6346eb327f3a0efa7d7b70298e54c595532d1985c6646e5"
+    },
+    "linux-regression/candidatecheck-final.xml": {
+      "tests": 19,
+      "passed": 19,
+      "sha256": "70411942f5196af68b692448d006aec68f018cb88bfd85468e928ed15beaf975"
+    },
+    "linux-regression/candidatecheck-green.xml": {
+      "tests": 16,
+      "passed": 16,
+      "sha256": "6c14d6993e4c71d2219d159fc54497ba4aac4455b0e1b75d88955fef887ab18b"
+    },
+    "linux-regression/candidatecheck-new-source-red.xml": {
+      "tests": 2,
+      "failure": 1,
+      "passed": 1,
+      "sha256": "e0ec11ade0a517d1dba0d113aa0c5804327707b470ea539f34d9c0e9449b5b7b"
+    },
+    "linux-regression/candidatecheck-recovery.xml": {
+      "tests": 4,
+      "passed": 4,
+      "sha256": "832b90e40e0a3ddf85ec662baed5aac7be64cc80576f4fd35331a1c5471f9fd2"
+    },
+    "linux-regression/candidatecheck-red.xml": {
+      "tests": 1,
+      "failure": 1,
+      "sha256": "a4fe4ac7a2d9a7c8a05b6abc5605f1858b4a37cfb65c179599de9fe84c98f36d"
+    },
+    "linux-regression/candidatecheck-visibility-red.xml": {
+      "tests": 1,
+      "failure": 1,
+      "sha256": "da3e0979a2891de669fce9831e6c8aa0893ab88e5cc823b5fdb58a352ea1ce45"
+    },
+    "linux-regression/plotpollcheck-admin-queue-green.xml": {
+      "tests": 9,
+      "passed": 9,
+      "sha256": "b4c4922b6027759abe75f03acace4ace2a6a3dd93d657dfed41f0e154b0df477"
+    },
+    "linux-regression/plotpollcheck-admin-queue-red.xml": {
+      "tests": 3,
+      "failure": 3,
+      "sha256": "219a04eabbdf737b6024be6a21971ae8fd167d7da80613fba3586689db0d66b5"
+    },
+    "linux-regression/plotpollcheck-audit6.xml": {
+      "tests": 6,
+      "passed": 4,
+      "failure": 2,
+      "sha256": "399b8ac46de89305b82db5290b5a637eebdaddb335afbebf1ef6294da87a8637"
+    },
+    "linux-regression/plotpollcheck-finger-10-after-20261121.xml": {
+      "tests": 10,
+      "passed": 10,
+      "sha256": "001e600355ae7f13115dded478a2d5f9c083a68911609b03510c58c3ad304a4d"
+    },
+    "linux-regression/plotpollcheck-finger-10-diagnosis-20261121.xml": {
+      "tests": 10,
+      "failure": 10,
+      "sha256": "ece29f894ec6a478b17584433066e12dde8f5ca524f140aa30cb4e3e74cd0ea1"
+    },
+    "linux-regression/plotpollcheck-green.xml": {
+      "tests": 6,
+      "passed": 5,
+      "failure": 1,
+      "sha256": "901b59ca9b5a60b73b0205248bd7d44b1667e49579efefb10f816636d9d2f29b"
+    },
+    "linux-regression/plotpollcheck-migration-protection.xml": {
+      "tests": 8,
+      "passed": 7,
+      "failure": 1,
+      "sha256": "42c18e7afc6f354f4d67c49c2e20d052a800d83680713a8945465492eafdfab4"
+    },
+    "linux-regression/plotpollcheck-migration-stage.xml": {
+      "tests": 37,
+      "passed": 32,
+      "failure": 5,
+      "sha256": "4ec96705fadb82c8bcd29e8f201045e161c07d1fe1d39b8bc32e474501dc0cf9"
+    },
+    "linux-regression/plotpollcheck-migration-workbook.xml": {
+      "tests": 6,
+      "passed": 6,
+      "sha256": "01df2179445afa51d6b24fbca45af2e99b8fca02702cfd3c5597ed93f20c5016"
+    },
+    "linux-regression/plotpollcheck-nummock-transport-green-20261121.xml": {
+      "tests": 67,
+      "passed": 67,
+      "sha256": "d14fac4a2a9dfa5ad9899678e84f21dad14eed5a50f0b9c71692c7f5a02baa64"
+    },
+    "linux-regression/plotpollcheck-nummock-transport-red-20261121.xml": {
+      "tests": 24,
+      "failure": 4,
+      "passed": 20,
+      "sha256": "c799b809eb9fed3cdd8049f72327b97fc7b0ccf00793cb3e7c7f22e1767e6dcc"
+    },
+    "linux-regression/plotpollcheck-public-47-20261121.xml": {
+      "tests": 47,
+      "passed": 47,
+      "sha256": "4be9cd4a5d32e4b1b966ea4b2a45cf00bd6f5654553d4397599343e51e068210"
+    },
+    "linux-regression/plotpollcheck-red.xml": {
+      "tests": 2,
+      "failure": 2,
+      "sha256": "104f7af669cead046775235c248c53d5db5d061bbf726487390ea799d0e6cff3"
+    },
+    "linux-regression/plotpollcheck-scoped-ledger.xml": {
+      "tests": 1,
+      "passed": 1,
+      "sha256": "ba84348478774f7e6c6bfaf969f0542abe2be9ff93db83de25f8cb04aa00a856"
+    }
+  }
+}

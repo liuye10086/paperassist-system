@@ -1,6 +1,7 @@
 import {webcrypto} from 'node:crypto'
 import {cleanup,fireEvent,render,screen,waitFor,within} from '@testing-library/react'
 import {afterEach,beforeEach,expect,it,vi} from 'vitest'
+import {setLocale,translate} from '../../shared/i18n'
 import WritingAuthorization from './WritingAuthorization'
 import WritingScienceReview from './WritingScienceReview'
 import {authFixture,bundleFixture,liveRequest,rawSnapshot,reviewContext,scienceReview} from './writingLiveFixtures'
@@ -13,7 +14,7 @@ const numericContext={
  c2:{kind:'provided_context',location:'illustrations[0].caption',origin:'frozen_illustration',text:'The whisker limit is 1.5 IQR.',values:[{fact_path:'/numbers/0',value:'1.5'}]},
 } as const
 beforeEach(()=>vi.stubGlobal('crypto',webcrypto))
-afterEach(()=>{cleanup();vi.unstubAllGlobals()})
+afterEach(()=>{cleanup();setLocale('zh-CN');vi.unstubAllGlobals()})
 
 it('validates optional frozen numeric context without accepting malformed catalogs',()=>{
  const manifest={sources:{s1:'source1'},evidence:{},numeric_context:numericContext}
@@ -63,13 +64,43 @@ it.each([false,true])('creates a minimal authorization only when every selected 
  expect(body.tasks).toEqual(bundles.map((b,i)=>({logical_task_id:`task-${i+1}`,bundles:[{bundle_id:b.id,bundle_sha256:b.bundle_sha256}]})))
 })
 
-it('shows exact context provenance and requires manual independent study and context decisions',async()=>{
+function renderNumericReview(customer=false){
  const candidate={...rawSnapshot,sections:rawSnapshot.sections!.map(s=>s.id==='materials_and_methods'?{...s,paragraphs:s.paragraphs.map(p=>({...p,text:'The study has n=12. Use n−1 as the divisor.'}))}:s),writing_provenance:{...rawSnapshot.writing_provenance!,numeric_contract_version:2}}
  const context={...reviewContext,candidate,required_paragraph_ids:['materials_and_methods:1'],local_manifest:{sources:{s1:'source1'},evidence:{},numeric_context:numericContext},reviews:[]}
  const bundle={...bundleFixture(),local_manifest:context.local_manifest}
  bundle.wire_json=JSON.stringify({input:JSON.stringify({sources:[{alias:'s1',facts:[{fact_path:'/statistics/n',value:'12'}]}]})})
  const fetcher=vi.fn(async(url:string,init?:RequestInit)=>Response.json(url.endsWith('/review-context')?context:init?.method==='POST'?scienceReview:bundle))
- vi.stubGlobal('fetch',fetcher);render(<WritingScienceReview projectId="p1" manuscriptId="m1" request={{...liveRequest,candidate}} onPublished={vi.fn()}/>)
+ vi.stubGlobal('fetch',fetcher);render(<WritingScienceReview projectId="p1" manuscriptId="m1" request={{...liveRequest,candidate}} onPublished={vi.fn()} customerSci={customer}/>)
+ return fetcher
+}
+
+it.each([
+ {locale:'en',heading:'Science check',catalog:'Numbers in methods and materials',add:'Add a source for a number',remove:'Remove this number’s source',type:'Type of source',study:'Results from this study',value:'Value in the source'},
+ {locale:'zh-CN',heading:'科学核对',catalog:'方法和材料中的数值',add:'添加数字来源',remove:'移除这个数字的来源',type:'数值来源类型',study:'本研究的结果数据',value:'来源中的数值'},
+] as const)('labels the customer number and its sources in $locale',async labels=>{
+ setLocale(labels.locale)
+ renderNumericReview(true)
+ fireEvent.click(screen.getByRole('button',{name:translate('开始逐段核对')}))
+ await screen.findByText('Use n−1 as the divisor.')
+ expect.soft(screen.queryByRole('region',{name:labels.heading})).toBeTruthy()
+ expect.soft(screen.queryByRole('region',{name:labels.catalog})).toBeTruthy()
+ expect.soft(document.body.textContent).not.toMatch(/\boccurrence\b|numeric catalog|raw candidate and scientific review/i)
+ const paragraph=within(document.getElementById('writing-paragraph-materials_and_methods:1')!)
+ fireEvent.click(paragraph.getByRole('button',{name:labels.add}))
+ const number=paragraph.getByRole('group',{name:translate('第 {number} 个数字',{number:1})})
+ expect(within(number).getByRole('spinbutton')).toHaveProperty('value','1')
+ expect(within(number).getByRole('option',{name:labels.study})).toHaveProperty('value','study')
+ fireEvent.change(within(number).getByLabelText(labels.type),{target:{value:'context'}})
+ const source=within(number).getByLabelText(labels.value)
+ fireEvent.change(source,{target:{value:'c1|/numbers/0'}})
+ expect(source).toHaveProperty('value','c1|/numbers/0')
+ expect(number.textContent).not.toMatch(/fact path|context path|numeric(?:al)? binding|\/numbers\/0/i)
+ fireEvent.click(within(number).getByRole('button',{name:labels.remove}))
+ expect(paragraph.queryByRole('spinbutton')).toBeNull()
+})
+
+it('shows exact context provenance and requires manual independent study and context decisions',async()=>{
+ const fetcher=renderNumericReview()
  fireEvent.click(screen.getByRole('button',{name:'读取精确科学审核上下文'}))
  await screen.findByText('materials_and_methods[0]')
  expect(screen.getByText('Use n−1 as the divisor.')).toBeTruthy();expect(screen.getByText('illustrations[0].caption')).toBeTruthy();expect(screen.getByText('The whisker limit is 1.5 IQR.')).toBeTruthy()

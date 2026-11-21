@@ -7,7 +7,7 @@ from typing import Annotated, Literal
 from fastapi import APIRouter, Header, Response
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.api.customer_workspace import FeedbackView
+from app.api.customer_workspace import FeedbackView, SubmissionView
 from app.api.dependencies import Store
 from app.auth.permissions import PROJECT_PATH
 from app.domain.analyst_workspace import AnalystWorkspace
@@ -81,9 +81,10 @@ class PublicationFeedbackView(PublicationView):
 class AnalystWorkspaceView(BaseModel):
     assignment_revision: int
     requirement: RequirementView | None
-    status: Literal['draft', 'assigned', 'analyzing', 'needs_materials', 'delivered']
+    status: Literal['draft', 'assigned', 'analyzing', 'needs_materials', 'materials_submitted', 'delivered']
     note: str | None
     feedback: list[FeedbackView]
+    submissions: list[SubmissionView]
     publications: list[PublicationFeedbackView]
 
 

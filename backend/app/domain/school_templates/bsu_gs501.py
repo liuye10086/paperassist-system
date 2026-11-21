@@ -76,7 +76,7 @@ def form_field(field, source):
     return None
 
 
-def submission_values(plan, *, blind):
+def submission_values(plan):
     values = {}
     options = plan['options']
     if plan.get('front_matter') is None:
@@ -86,10 +86,8 @@ def submission_values(plan, *, blind):
     for field in (plan.get('front_matter') or {}).get('fields', []):
         key = form_field(field, plan['front_matter_sources'][field['source_id']])
         value = options.get('field_values', {}).get(field['id'], '').strip()
-        if key and value and field['section_id'] in ('section-1', 'section-2') and not (blind and key.startswith('committee:')):
+        if key and value and field['section_id'] in ('section-1', 'section-2'):
             values.setdefault(key, ' '.join(value.split()))
-    if blind:
-        values.update(author='XXX', student_id='XXX', supervisor='XXX', submission_date='')
     return values
 
 
@@ -132,41 +130,3 @@ def apply_styles(styles, sources):
         styles.setdefault(name, {}).update(values)
         evidence = dict(part='word/document.xml', path=f'/w:document/w:body/w:p[{paragraph}]', text=message)
         sources.setdefault(name, {}).update({key: evidence for key in values})
-
-
-def blind_field_value(field, source):
-    """Return a replacement for a protected field, or None for other fields."""
-    label = source.get('suggested_label') or field['label']
-    label = re.sub(r'\s+', '', label)
-    if field['kind'] == 'identity' or label in ('学号', '论文作者', '指导教师', '导师姓名', '作者姓名'):
-        return 'XXX'
-    if (field['kind'] == 'signature' or field['section_id'] in ('section-3', 'section-4')
-            or field['section_id'] == 'section-2' and label.startswith(('答辩委员会', *COMMITTEE_ROLES))):
-        return ''
-    return None
-
-
-def blind_terms(plan, rules, *, authors=()):
-    """Carry confirmed identity and signing values into the final DOCX scan."""
-    from .front_matter import blind_rules_with_identities
-
-    if plan is not None and plan.get('format_profile') != PROFILE:
-        return rules
-    plan = plan or {}
-    options = plan.get('options', {})
-    protected = {author['name'].strip() for author in authors}
-    if plan.get('front_matter') is None:
-        protected.update(options.get('manual_fields', {}).get(key, '').strip() for key in ('author', 'student_id', 'supervisor'))
-    else:
-        for field in plan['front_matter']['fields']:
-            source = plan['front_matter_sources'][field['source_id']]
-            key = form_field(field, source)
-            if ('submission_forms_source_sha256' in plan and key and key.startswith('committee:')
-                    and not key.endswith(':name') and field['kind'] != 'identity'):
-                # These cells are blank in a blind draft. Their institutional
-                # names and titles may also be required in fixed school text.
-                continue
-            if (key in ('author', 'student_id', 'supervisor') or field['kind'] == 'identity'
-                    or blind_field_value(field, source) is not None or key and key.startswith('committee:')):
-                protected.add(options.get('field_values', {}).get(field['id'], '').strip())
-    return blind_rules_with_identities(rules, protected)

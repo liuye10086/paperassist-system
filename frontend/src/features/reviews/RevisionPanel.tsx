@@ -16,7 +16,7 @@ import {reviewItemLabel} from './reviewTypes'
 import {operationNames,object,reviewBase,revisionHash,validRevisionContext,validRevisionPreview,validRevision,type Revision,type RevisionContext,type RevisionPreview,type Operation,type Change} from './revisionTypes'
 import {useReviewRequest} from './useReviewRequest'
 import ReviewDocuments from './ReviewDocuments'
-import {customerChangeText,customerGroundedAdvice,customerReviewLocation} from './customerReviewDisplay'
+import {customerChangeText,customerEvidenceLabel,customerGroundedAdvice,customerReviewLocation,renderPlanReferences,unchangedInitialPlan} from './customerReviewDisplay'
 type Props={selectedItemId?:string;onSelectItem?:(id:string)=>void;view?:ReviewView;
  onSelectRun?:(id:string,automatic?:boolean)=>void;onSelectDocument?:(id:string,automatic?:boolean)=>void;
  projectId:string;round:Round;active:boolean;disabled:boolean;onOpenTask:(id:string)=>void;
@@ -33,10 +33,12 @@ function Panel({selectedItemId,onSelectItem,view,onSelectRun,onSelectDocument,pr
  const [draftChanged,setDraftChanged]=useState(false)
  const dirty=useRef(false),contextBase=useRef<number|null>(null),[stale,setStale]=useState(false)
  const {request,run,available,busy,error,setError}=api
+ const awaitingPlan=customer&&!round.items.length&&['queued','running'].includes(round.task?.status)
+ const [readError,setReadError]=useState('')
  const selected=revisions.find(r=>r.id===selectedRun)??(!selectedRun?revisions[0]:undefined)
- useEffect(()=>{if(!open||!active||!visible||!available)return;let alive=true,timer=0
-  async function load(){try{const [c,r]=await Promise.all([request(path+'/revision-context',(v):v is RevisionContext=>validRevisionContext(v,round.id)),request(path+'/revisions',(v):v is {items:Revision[]}=>object(v)&&Array.isArray(v.items)&&v.items.every(x=>validRevision(x,projectId,round.id)))]);if(!alive)return;if(!dirty.current){setContext(c);contextBase.current=c.plan_revision;setStale(false)}else if(contextBase.current!==c.plan_revision)setStale(true);setRevisions(r.items);if(!selectedRef.current&&r.items[0]&&active){setSelectedRun(r.items[0].id);if(customer)onSelectRun?.(r.items[0].id,true);else onSelectRun?.(r.items[0].id)}if(r.items.some(r=>['queued','running'].includes(r.task.status)||r.result&&r.output_status!=='published'))timer=window.setTimeout(()=>void load(),3000)}catch(cause){if(alive)setError(cause instanceof Error?cause.message:'修改成果读取失败。')}}void load();return()=>{alive=false;window.clearTimeout(timer)}
- },[open,active,visible,available,path,round.id,projectId,request,setError,refresh,round.revision,onSelectRun,customer])
+ useEffect(()=>{if(!open||!active||!visible||!available||awaitingPlan)return;let alive=true,timer=0
+  async function load(){try{const [c,r]=await Promise.all([request(path+'/revision-context',(v):v is RevisionContext=>validRevisionContext(v,round.id)),request(path+'/revisions',(v):v is {items:Revision[]}=>object(v)&&Array.isArray(v.items)&&v.items.every(x=>validRevision(x,projectId,round.id)))]);if(!alive)return;setReadError('');if(!dirty.current){setContext(c);contextBase.current=c.plan_revision;setStale(false)}else if(contextBase.current!==c.plan_revision)setStale(true);setRevisions(r.items);if(!selectedRef.current&&r.items[0]&&active){setSelectedRun(r.items[0].id);if(customer)onSelectRun?.(r.items[0].id,true);else onSelectRun?.(r.items[0].id)}if(r.items.some(r=>['queued','running'].includes(r.task.status)||r.result&&r.output_status!=='published'))timer=window.setTimeout(()=>void load(),3000)}catch(cause){if(alive)setReadError(cause instanceof Error?cause.message:'修改成果读取失败。')}}void load();return()=>{alive=false;window.clearTimeout(timer)}
+ },[open,active,visible,available,path,round.id,projectId,request,awaitingPlan,refresh,round.revision,onSelectRun,customer])
  useEffect(()=>{
   if(!selected?.result||selected.task.status!=='succeeded'||selected.output_status!=='published'||!showManuscript||!active||!visible||!available)return
   const c=new AbortController(), output=selected.result.output
@@ -74,7 +76,7 @@ function Panel({selectedItemId,onSelectItem,view,onSelectRun,onSelectDocument,pr
     customerSci={round.project_type==='sci'} customerThesis={round.project_type==='thesis'} revisedResult/>
   </section>}
  <div hidden={!editing}><p>{t('本批使用固定材料和具体改文；未完成实验、文献与分析继续待补。任务成功和下载不会改变投稿或评审进展。')}</p>
- {disabled&&<p className="warning-panel">{t('请先保存本轮计划和重要决定，再执行本批修改。')}</p>}{stale&&<p className="warning-panel">{t('计划已有新版本；本地改文已保留，请先核对原基线。')}</p>}{error&&<p role="alert" className="error-panel">{t(error)}</p>}
+ {disabled&&<p className="warning-panel">{t('请先保存本轮计划和重要决定，再执行本批修改。')}</p>}{stale&&<p className="warning-panel">{t('计划已有新版本；本地改文已保留，请先核对原基线。')}</p>}{awaitingPlan&&<p role="status">{t('正在读取本轮意见……')}</p>}{(error||readError)&&<p role="alert" className="error-panel">{t(error||readError)}</p>}
  <button disabled={busy} type="button" onClick={()=>setRefresh(n=>n+1)}>{t('刷新本批成果')}</button><button type="button" disabled={busy} onClick={()=>{dirty.current=false;setPreview(null);setStale(false);setRefresh(n=>n+1)}}>{t('保留操作并更新核对基线')}</button>
  {context&&<><p>{customer?t('改文以本轮选定的原稿为依据，采用后另存修订稿。'):t('固定父稿：版本 {base}；当前最新版本 {current}。本批仍以固定父稿另存新稿。',{base:context.manuscript.revision,current:context.expected_current_revision})}</p>
  <GroundedPlans context={context} round={round} label={label} customer={customer} evidenceNames={evidenceNames}/>
@@ -126,11 +128,20 @@ function GroundedPlans({context,round,label,customer,evidenceNames}:GroundedProp
   const item=round.items.find(item=>item.id===plan.item_id)
   const locations=plan.locations??context.locations.filter(location=>item?.locations?.some(chosen=>chosen.id===location.id))
   const positions=[...new Set(locations.map(location=>customerReviewLocation(location,t)))]
+  let text=plan.plan
+  if(customer){
+   const saved=item?.plan
+   if(plan.location_spans&&(saved===undefined||item&&round.generated_plan_locations?.[item.id]&&unchangedInitialPlan(round,item,round.revision))){
+    const names=new Map(plan.evidence.map(source=>[source.id,customerEvidenceLabel(source,t,evidenceNames)]))
+    const options=context.locations.map(location=>({...location,label:customerReviewLocation(location,t)}))
+    text=renderPlanReferences(plan.plan,plan.location_spans,options,t,names)
+   }else text=saved??customerGroundedAdvice(item?.category,t)
+  }
   return <article key={plan.item_id}>
    <h5>{label(plan.item_id)}</h5>
    <blockquote>{plan.original_text}</blockquote>
    {customer&&positions.length>0&&<p>{positions.join('、')}</p>}
-   {customer?<p>{item?.plan?.trim() || customerGroundedAdvice(item?.category,t)}</p>:<p>{plan.plan}</p>}
+   <p>{text}</p>
    {customer
     ? <p>{customerChangeText(plan.existing_content,t)}</p>
     : <p>{typeof plan.existing_content==='string'?plan.existing_content:JSON.stringify(plan.existing_content)}</p>}

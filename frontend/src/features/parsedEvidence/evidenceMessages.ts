@@ -4,6 +4,8 @@ export const evidenceMessages:Record<string,string>={
  '记录数量：{count}':'Recorded count: {count}','解析器警告':'Parser warning',
  '来源行 {row}':'Source row {row}',
  '下载词法来源原始版本':'Download the raw parent for lexical evidence','原始版本读取值':'Value read from the raw version',
+ '解析证据视图':'Parsed evidence views','解析说明':'About parsed evidence',
+ '切换到“解析内容与来源”后读取已保存的解析证据。':'Saved parsed evidence is read when you switch to “Parsed content and sources”.',
  '解析内容与来源':'Parsed content and sources', '正在读取解析证据……':'Loading parsed evidence…',
  '解析证据读取失败，请重试。':'Could not read parsed evidence. Please try again.', '重新读取解析证据':'Reload parsed evidence',
  '存储数量不是研究样本量。':'Stored counts are not the research sample size.', '解析范围':'Evidence scope',

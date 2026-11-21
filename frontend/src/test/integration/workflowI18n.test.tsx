@@ -35,7 +35,7 @@ it('translates analysis labels while preserving field values and a draft on lang
     const revision = 6 - index
     const id = `s${revision}`
     return {
-      ...version, id, version: revision, file_id: 'f',
+      ...version, id, version: revision, file_id: 'f', completed_at: `2026-10-0${revision}T09:00:00Z`,
       task: { ...version.task, id: `t${revision}`, project_id: 'p', input_version: { ...version.task.input_version, structure_id: id } },
       datasets: [{ ...dataset, id: `d${revision}`, structure_id: id, version: revision, file_id: 'f', sheet_name: '研究数据' }],
     }
@@ -44,11 +44,13 @@ it('translates analysis labels while preserving field values and a draft on lang
     : url.endsWith('/analysis-setup') ? null : { sheet_name: '研究数据', row_count: 3, warnings: ['第一行作为字段名；分析使用第2行至最后有值行的完整记录，不自动清洗；普通小数采用 binary64，可能存在浮点误差。', '存在合并单元格，覆盖格不自动补值。'], columns: [{ id: 'A', name: '指标原文', type: 'number', non_missing_count: 3, missing_count: 0, numeric_count: 3, can_be_numeric: true, can_be_group: true, issue_cells: [] }] }))
   vi.stubGlobal('fetch', fetch); render(<AnalysisSetup projectId="p" files={[{ id: 'f', filename: '研究数据.xlsx', file_type: 'xlsx', parse_status: 'parsed', uploaded_at: '2026-10-05' }]} />)
   fireEvent.change(screen.getByLabelText('用于分析的文件'), { target: { value: 'f' } })
-  await screen.findByRole('option', { name: '原始数据版本 v6' })
+  const parsedAt = new Date(versions[0].completed_at)
+  await screen.findByRole('option', { name: `解析时间 · ${parsedAt.toLocaleString('zh-CN')}` })
   fireEvent.change(screen.getByLabelText('原始数据版本'), { target: { value: 's6' } })
   fireEvent.change(screen.getByLabelText('分析工作表'), { target: { value: 'd6' } })
   fireEvent.change(await screen.findByLabelText('数值单位（可选）'), { target: { value: '用户单位原文' } })
   const calls = fetch.mock.calls.length; locale('en')
+  expect(screen.getByRole('option', { name: `Parsed on · ${parsedAt.toLocaleString('en')}` })).toHaveProperty('selected', true)
   expect(screen.getByLabelText('Numeric column')).toBeTruthy()
   expect(screen.getByText('Page 1')).toBeTruthy()
   expect(screen.getByRole<HTMLButtonElement>('button', { name: 'Next dataset versions' }).disabled).toBe(false)

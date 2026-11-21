@@ -42,6 +42,9 @@ def test_report_diamond_public_freezes_and_five_stages_have_fresh_proofs(client,
         saved = deepcopy((content, bindings, payload))
         content['finding']['content']['title'] = 'caller mutation'
         assert service.freeze(db, project, request) == saved
+        nonempty = [p for p in phases if p['full_reads']]
+        assert len(nonempty) == 2
+        assert all(p['full_reads']==4 and p['proof_hits']==12 for p in nonempty)
         # Original raw() path performs the original independent complete reads.
         # Compare every frozen field and every table byte against that path.
         from app.adapters.bio_analysis_store import BioAnalysisStore
@@ -49,9 +52,6 @@ def test_report_diamond_public_freezes_and_five_stages_have_fresh_proofs(client,
             old_path.setattr(BioAnalysisStore, '_raw_lineage_in_phase',
                 lambda self, db, project, source, **kwargs: self.raw(db, project, source))
             assert service.freeze(db, project, request) == saved
-    nonempty = [p for p in phases if p['full_reads']]
-    assert len(nonempty) == 2
-    assert all(p['full_reads']==4 and p['proof_hits']==12 for p in nonempty)
     assert payload['table_raws'] and all(isinstance(raw, bytes) for raw in payload['table_raws'])
     assert all('phase' not in str(source.model_dump()) for source in bindings)
     response = client.post(base+'/research-reports', json={**request.model_dump(mode='json'), 'reader_narrative_id':research_reader_narrative},

@@ -179,18 +179,10 @@ def test_original_collection_export_uses_same_suite(client, monkeypatch, tmp_pat
     assert metadata == report and call_count() == before
     retain_artifacts('ordered-collection',report,{m['role']:client.get(m['download_url']) for m in report['members']})
     # An accepted waiting row from before the installation keeps its renderer.
-    from uuid import uuid4
-    from psycopg.types.json import Jsonb
     from app.domain.report_collections.contracts import RENDERER as old_renderer
-    from app.adapters.report_store import digest
-    old_id=str(uuid4())
-    with repository.store.connection(write=True) as db:
-        fixed=db.execute('SELECT * FROM report_collection_versions WHERE id=%s',(version['id'],)).fetchone()
-        db.execute('''INSERT INTO report_build_requests(id,version_id,export_revision,renderer_version,request_key,request_digest,
-            status,dependencies_json,created_at,updated_at) VALUES(%s,%s,2,%s,'old-waiting',%s,'waiting',%s,now(),now())''',
-            (old_id,version['id'],old_renderer,digest(dict(version_id=version['id'],sha256=fixed['sha256'],request_key='old-waiting')),Jsonb([])))
-        repository.advance_in_transaction(db,project,old_id)
-        old=repository.request_view(db,old_id)
+    from tests.helpers.tasks import historical_collection_export
+    old = historical_collection_export(repository, project, version['id'], 'old-waiting')
+    with repository.store.connection() as db:
         task=db.execute('SELECT * FROM tasks WHERE id=%s',(old['task_id'],)).fetchone()
         assert 'reader_export' not in task['input_snapshot']
     done=run_collection_word_task(old['task_id'],1)
@@ -214,12 +206,9 @@ def test_original_collection_export_uses_same_suite(client, monkeypatch, tmp_pat
 
 
 def test_old_queued_failed_task_and_request_key_keep_original_policy(client, cloud, writer, monkeypatch, tmp_path):
-    from datetime import datetime, timezone
-    from uuid import uuid4
-    from app.adapters.storage import get_project_store
-    from app.adapters.task_store import TaskStore, workflow_version
+    from app.adapters.task_store import TaskStore
     from app.domain.tasks.contracts import TaskCreateRequest
-    from app.domain.external_processing import request_digest
+    from tests.helpers.tasks import historical_word_task
     from app.domain.tasks.execution import run_word_task
     from app.domain.report_tasks import retry_word_task
     from app.domain.statistics_reader_reports.render import execute_statistics_report as render_report
@@ -230,14 +219,8 @@ def test_old_queued_failed_task_and_request_key_keep_original_policy(client, clo
     assets=scoped_store(client.get('/api/v1/auth/me').json()['user']['id']);store=TaskStore(assets.owner_id,assets.db_config)
     request=TaskCreateRequest(task_type='word_report',file_id=result['file_id'],analysis_run_id=result['id'],
         expected_revision=result['setup_revision'],figure_id=figure['id'],explanation_id=explanation['id'])
-    with store.connection(write=True) as db:
-        snapshot=store.source_snapshot(db,store.require_project(db,project),request)
-        moment=datetime.now(timezone.utc)
-        task=dict(id=str(uuid4()),project_id=project,user_id=store.user_id,task_type='word_report',
-            idempotency_key='old-accepted-key',input_digest=request_digest(request),input_snapshot=snapshot,
-            workflow_version=workflow_version('word_report',snapshot),status='queued',phase='export',revision=1,
-            current_attempt=0,reason_code=None,created_at=moment,updated_at=moment)
-        store.insert_task(db,task);store.append_event(db,task,'created');store.enqueue(db,task)
+    task = historical_word_task(store, project, request, 'old-accepted-key')
+    snapshot = task['input_snapshot']
     original=execution.build_report
     def failed_render(*args):raise OSError('Synthetic old renderer interruption')
     monkeypatch.setattr(execution,'build_report',failed_render)

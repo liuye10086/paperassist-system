@@ -53,7 +53,7 @@ def run_composition(payload,writer):
         inference_status='not_requested' if config.mode=='descriptive' else native.get('status'),inference_reason=native.get('reason'))
     writer.json('composition_methods',methods)
     if native:writer.json('propeller_native',native)
-    _plot(data,writer,label_names)
+    _plot(data,writer,label_names,config)
     return dict(summary=dict(row_count=len(results),total_cells=len(data['assignments']),unit_count=len(units),
         actual_units=methods['actual_units'],labels_confirmed=config.labels_confirmed,condition_count=len({u['condition'] for u in units}),
         inference_status=methods['inference_status'],inference_reason=methods['inference_reason'],result_member_key='composition_results',
@@ -61,22 +61,53 @@ def run_composition(payload,writer):
         provenance={'sources':[{k:s[k] for k in ('source_kind','source_id','sha256')} for s in payload['sources']]})
 
 
-def _plot(data,writer,label_names):
+def _plot(data,writer,label_names,config):
     from matplotlib import pyplot as plt
-    units=data['units'];fig,ax=plt.subplots(figsize=(max(7,min(14,len(units)*.5)),5))
+    units=data['units']
+    size=config.plot_size
+    figsize=(size.width_inches,size.height_inches) if size else (max(7,min(14,len(units)*.5)),5)
+    fig,ax=plt.subplots(figsize=figsize)
+    draw_composition_bars(ax,units,data['counts'],data['categories'],label_names)
+    fig.tight_layout();stream=io.BytesIO();fig.savefig(stream,format='png',dpi=size.dpi if size else 140);plt.close(fig)
+    writer.add('composition_plot',stream.getvalue(),'png','figure')
+
+
+def draw_composition_bars(ax,units,counts,categories,label_names,colors=None,zh=False):
     bottom=[0.]*len(units)
-    for category,label in data['categories']:
-        values=[next(r['proportion'] for r in data['counts'] if r['unit_id']==u['unit_id'] and (r['category'],r['label_id'])==(category,label)) for u in units]
-        ax.bar(range(len(units)),values,bottom=bottom,label=label_names.get(label,label) if label else category)
+    proportions={(r['unit_id'],r['category'],r['label_id'] or None):float(r['proportion']) for r in counts}
+    if len(proportions)!=len(counts) or len(counts)!=len(units)*len(categories):
+        raise ValueError('composition_plot_axis_mismatch')
+    for i,(category,label) in enumerate(categories):
+        values=[proportions[u['unit_id'],category,label] for u in units]
+        ax.bar(range(len(units)),values,bottom=bottom,label=label_names.get(label,label) if label else category,
+               color=colors[i] if colors is not None else None)
         bottom=[a+b for a,b in zip(bottom,values)]
     ax.set_xticks(range(len(units)),[str(u['donor'] or 'unmapped')+' / '+u['condition'] for u in units],rotation=60,ha='right')
     from pathlib import Path
     from matplotlib.font_manager import FontProperties
     font_path=Path('/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc')
     legend_font=FontProperties(fname=str(font_path),size=8) if font_path.is_file() else FontProperties(size=8)
-    ax.set_ylim(0,1);ax.set_ylabel('Proportion of all retained cells');ax.legend(loc='upper left',bbox_to_anchor=(1,1),prop=legend_font)
-    fig.tight_layout();stream=io.BytesIO();fig.savefig(stream,format='png',dpi=140);plt.close(fig)
-    writer.add('composition_plot',stream.getvalue(),'png','figure')
+    ax.set_ylim(0,1);ax.set_ylabel('全部保留细胞中的比例' if zh else 'Proportion of all retained cells');ax.legend(loc='upper left',bbox_to_anchor=(1,1),prop=legend_font)
+
+
+def draw_saved_composition(ax,source,config,zh):
+    from matplotlib.colors import LinearSegmentedColormap
+    from .figure_data import rows
+    plan=source['metadata'].get('plan_config',{})
+    if source['metadata'].get('kind')!='comparison' or plan.get('schema_version')!=5 or plan.get('method')!='single_cell_composition':
+        raise ValueError('composition_figure_source_mismatch')
+    counts=rows(source,'composition_counts')
+    units=rows(source,'composition_units')
+    names=document(source['members']['composition_methods'])['label_names']
+    categories=list(dict.fromkeys((r['category'],r['label_id'] or None) for r in counts))
+    if len(config.palette)==1:
+        colors=config.palette*len(categories)
+    else:
+        cmap=LinearSegmentedColormap.from_list('composition_palette',config.palette)
+        colors=[cmap(i/max(1,len(categories)-1)) for i in range(len(categories))]
+    draw_composition_bars(ax,units,counts,categories,names,colors,zh)
+    return dict(rows=counts,units=units,label_names=names,denominator='all_retained_cells_in_selected_conditions',
+                source_members={k:source['members'][k]['sha256'] for k in ('composition_counts','composition_units','composition_methods')}),not bool(units)
 
 
 def validate_composition_result(result,items,payload):

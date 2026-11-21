@@ -3,6 +3,15 @@ import pytest
 from tests.api.test_projects import client, create_project
 
 
+def test_task_material_reader_uses_the_worker_visibility_policy(tmp_path):
+    from app.adapters.task_store import DatasetTaskAssets
+
+    reader = DatasetTaskAssets('owner', None, tmp_path)
+    assert reader.owner_id == 'owner'
+    assert reader.customer is False
+    assert reader.material_filter == ''
+
+
 def test_public_batch_file_resolves_private_object_key_without_losing_scope_or_hash(client):
     from tests.api.test_file_batches import register
     from app.adapters.task_store import DatasetTaskAssets

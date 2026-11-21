@@ -18,6 +18,11 @@ from .sources import require_visible_snapshot
 def invalid(message,code='school_change_invalid',status=409):return StorageError(code,message,status)
 
 
+
+def matching_chapter(old,chapter):
+    """Template migration and the D6 preview: same id first, otherwise the same title."""
+    return old.get(chapter['id']) or next((s for s in old.values() if s['title']==chapter['title']),None)
+
 class SchoolChangeService:
     def __init__(self,assets):
         self.assets=assets;self.manuscripts=ManuscriptService(assets);self.store=self.manuscripts.store;self.schools=SchoolTemplateService(assets)
@@ -67,7 +72,7 @@ class SchoolChangeService:
                 saved,template,sources,confirmation=self.confirmation(db,project,request.target_confirmation_id)
                 context=frozen['target_context'];old={s['id']:s for s in context['chapters']};chapters=[]
                 for c in confirmation['chapters']:
-                    matching=old.get(c['id']) or next((s for s in old.values() if s['title']==c['title']),None)
+                    matching=matching_chapter(old,c)
                     chapters.append(deepcopy(c)|dict(purpose=matching['purpose'] if matching else 'other',output_language=matching['output_language'] if matching else snapshot['output_language'],result_group_ids=matching['result_group_ids'] if matching else []))
                 context.update(template_version_id=template['id'],confirmation_id=saved['id'],confirmation_sha256=saved['snapshot_sha256'],confirmation=confirmation,source_files=sources,chapters=chapters)
                 # Explicit migration uses the profile visible at registration, not future bindings.
@@ -165,11 +170,13 @@ class SchoolChangeService:
         # This is a new source kind, never a review or model-writing candidate.
         if snapshot.get('review'):
             snapshot.setdefault('review_history',[]).append(dict(provenance=deepcopy(snapshot.get('review_provenance',{})),review=deepcopy(snapshot['review']),applies_to_current_text=False,status='historical_requires_recheck'))
-        for key in ('review_provenance','writing_provenance','review','school_change_provenance'):snapshot.pop(key,None)
+        for key in ('review_provenance','writing_provenance','review','school_change_provenance',
+                    'user_return_provenance','review_revision_provenance','journal_adaptation_provenance'):
+            snapshot.pop(key,None)
+        writing_context=None
         if valid:
             try:validate_chapters(snapshot['thesis_context'],{g['id'] for g in snapshot['results_groups']})
             except ValueError:problems.append(issue('chapter_mapping_invalid','目标学校章节及结果组分配不一致，不能采用。'))
-            writing_context=None
             if row['kind']=='template_migration':
                 from app.domain.manuscript_review.writing_context import load_writing_context
                 writing_context=load_writing_context(self.manuscripts,db,row['project_id'],row['manuscript_id'],base['snapshot_json'])
@@ -178,17 +185,21 @@ class SchoolChangeService:
                 if item['severity']=='error':problems.append(issue('manuscript_check',item['message'],item.get('location','')))
         for p in problems:
             if p['code'] in ('illustration_changed','citation_changed') and not any(d['kind']==p['code'] for d in differences):differences.append(dict(kind=p['code'],location=p['location'],message=p['message'],before='',after=''))
-        return snapshot,differences,problems
+        return snapshot,differences,problems,writing_context is not None
 
-    def view(self,db,row,mappings=None):
+    def preview_result(self,db,row,mappings=None):
         frozen=row['input_json']
         if mappings is None:mappings=[dict(input_section_id=s['id'],chapter_id=s['suggested_chapter_id']) for s in frozen['sections'] if s['suggested_chapter_id']]
-        snapshot,differences,problems=self.candidate(db,row,mappings)
+        snapshot,differences,problems,retains_writing=self.candidate(db,row,mappings)
         preview=digest(dict(input_sha256=row['input_sha256'],mappings=mappings,candidate_sha256=digest(snapshot),differences=differences,issues=problems))
-        return dict(id=row['id'],kind=row['kind'],manuscript_id=row['manuscript_id'],base_version_id=row['base_version_id'],base_revision=frozen['base_revision'],created_at=row['created_at'].isoformat(),
+        view=dict(id=row['id'],kind=row['kind'],manuscript_id=row['manuscript_id'],base_version_id=row['base_version_id'],base_revision=frozen['base_revision'],created_at=row['created_at'].isoformat(),
             input_sha256=row['input_sha256'],source=frozen['source'],original_download_url=f"/api/v1/projects/{row['project_id']}/files/{row['file_id']}/download" if row['file_id'] else None,
             input_sections=[{k:v for k,v in s.items() if k!='paragraph_items'} for s in frozen['sections']],target_chapters=frozen['target_context']['chapters'],
             mappings=mappings,differences=differences,issues=problems,can_adopt=not any(p['severity']=='error' for p in problems),preview_sha256=preview,adopted_revision=row['adopted_revision'])
+        return view,snapshot,retains_writing
+
+    def view(self,db,row,mappings=None):
+        return self.preview_result(db,row,mappings)[0]
 
     def get(self,project,identity,change_id,request=None):
         with self.store.connection() as db:return self.view(db,self.row(db,project,identity,change_id),[m.model_dump() for m in request.mappings] if request else None)
@@ -214,15 +225,15 @@ class SchoolChangeService:
             else:
                 if request.expected_revision!=root['current_revision']:raise invalid('稿件已有新版本，请刷新。','manuscript_revision_conflict')
                 if db.execute('SELECT id FROM manuscript_versions WHERE manuscript_id=%s AND idempotency_key=%s',(identity,key)).fetchone():raise invalid('采用请求标识已使用。','task_idempotency_conflict')
-                view=self.view(db,row,mappings)
+                view,snapshot,retains_writing=self.preview_result(db,row,mappings)
                 if view['preview_sha256']!=request.preview_sha256:raise invalid('差异预览已变化，请重新查看。','school_change_preview_conflict')
                 if not view['can_adopt']:raise invalid('输入仍有硬错误；已保留本次输入及原稿。','school_change_blocked')
-                base=self.validate(db,row);self.assert_current(db,row,base);snapshot,_,_=self.candidate(db,row,mappings)
+                base=self.validate(db,row);self.assert_current(db,row,base)
                 revision=root['current_revision']+1;version_id=str(uuid4());timestamp=now();context=snapshot['thesis_context']
                 provenance=dict(schema_version=1,change_id=row['id'],kind=row['kind'],base_version_id=base['id'],base_revision=base['revision'],input_sha256=row['input_sha256'],source=deepcopy(row['input_json']['source']),mappings=mappings,preview_sha256=view['preview_sha256'])
                 if row['kind']=='template_migration':
-                    from app.domain.manuscript_review.writing_context import has_reviewed_writing_context
-                    if has_reviewed_writing_context(base['snapshot_json']):provenance['retained_writing_context']=1
+                    if retains_writing:
+                        provenance['retained_writing_context']=1
                     if self.assets.customer:
                         # A template section's restart applies once, even when several migrated chapters use it.
                         snapshot.setdefault('review_school_layout', {})['pagination_version'] = 2
@@ -241,7 +252,7 @@ class SchoolChangeService:
                 db.execute('UPDATE manuscripts SET current_revision=%s,updated_at=%s WHERE id=%s',(revision,timestamp,identity))
                 db.execute('UPDATE manuscript_school_changes SET adopted_revision=%s,adopt_key=%s,adopt_json=%s,adopt_sha256=%s,candidate_json=%s,candidate_sha256=%s WHERE id=%s',(revision,key,Jsonb(body),digest(body),Jsonb(snapshot),digest(snapshot),row['id']))
                 status=201
-        return self.manuscripts.get(project,identity),status
+            return self.manuscripts.get(project,identity,connection=db),status
 
 
 def reviewed_migration_parent(manuscripts,db,project,identity,snapshot):
@@ -262,5 +273,7 @@ def validate_school_change_version(manuscripts,db,version,current=False):
     if (row['adopted_revision']!=version['revision'] or row['candidate_json']!=version['snapshot_json'] or row['candidate_sha256']!=version['snapshot_sha256']
         or row['base_version_id']!=version['parent_version_id'] or provenance['input_sha256']!=row['input_sha256'] or provenance['mappings']!=row['adopt_json']['mappings']
         or provenance['preview_sha256']!=row['adopt_json']['preview_sha256'] or provenance['source']!=row['input_json']['source'] or provenance['kind']!=row['kind']
-        or provenance['base_revision']!=base['revision'] or provenance['base_version_id']!=base['id']):raise source_conflict()
+        or provenance['base_revision']!=base['revision'] or provenance['base_version_id']!=base['id']
+        or base['revision']>=version['revision']):raise source_conflict()
     if current:service.assert_current(db,row,base)
+    return base

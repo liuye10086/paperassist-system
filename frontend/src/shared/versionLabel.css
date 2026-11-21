@@ -1,0 +1,10 @@
+.version-label { display: inline-flex; flex-wrap: wrap; align-items: baseline; gap: 0 4px; }
+.version-label-current {
+  display: inline-block;
+  margin-left: 4px;
+  padding: 1px 8px;
+  border-radius: 10px;
+  font-size: 12px;
+  background: var(--primary);
+  color: #fff;
+}

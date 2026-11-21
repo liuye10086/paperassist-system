@@ -60,7 +60,11 @@ def test_purposes_revision_idempotency_conflict_and_original_preservation(client
     assert client.get(url + '/download').content == original
     details = client.get(url + '/details').json()
     assert details['source'] == {'kind': 'legacy_excel', 'preview_available': True, 'preview_row_limit': 20, 'parser_version': None}
-    assert details['references'] == dict.fromkeys(['structure_versions', 'dataset_versions', 'prepared_dataset_versions', 'analysis_setups', 'analysis_runs', 'figures', 'explanations', 'reports', 'tasks', 'legacy_jobs', 'active_tasks', 'recovery_candidates'], 0)
+    assert details['references'] == dict.fromkeys([
+        'structure_versions', 'dataset_versions', 'prepared_dataset_versions', 'prepared_dataset_derivations',
+        'prepared_dataset_derivations_v3', 'external_evidence_versions', 'analysis_setups', 'analysis_runs',
+        'figures', 'explanations', 'reports', 'tasks', 'legacy_jobs', 'active_tasks', 'recovery_candidates',
+    ], 0)
     assert details['retention'] == {'policy': 'internal_testing_keep', 'automatic_deletion': False, 'deletion_available': False}
     assert not {'object_key', 'storage_backend', 'uploader_id', 'preview_json', 'input_snapshot'} & details.keys()
 
@@ -115,7 +119,13 @@ def test_details_counts_persisted_chains_and_task_snapshot_sources(client):
         insert_row(db, 'tasks', task_row(id='other', idempotency_key='other', project_id=other['id'], user_id=user, input_snapshot={'file': {'id': file['id']}}, status='queued'))
     details = client.get(base + '/' + file['id'] + '/details')
     assert details.status_code == 200, details.text
-    assert details.json()['references'] == {'structure_versions': 0, 'dataset_versions': 0, 'prepared_dataset_versions': 0, 'analysis_setups': 1, 'analysis_runs': 1, 'figures': 1, 'explanations': 1, 'reports': 1, 'tasks': 4, 'legacy_jobs': 2, 'active_tasks': 2, 'recovery_candidates': 1}
+    # Active work includes the queued and waiting tasks and both unfinished legacy jobs.
+    assert details.json()['references'] == {
+        'structure_versions': 0, 'dataset_versions': 0, 'prepared_dataset_versions': 0,
+        'prepared_dataset_derivations': 0, 'prepared_dataset_derivations_v3': 0, 'external_evidence_versions': 0,
+        'analysis_setups': 1, 'analysis_runs': 1, 'figures': 1, 'explanations': 1, 'reports': 1,
+        'tasks': 4, 'legacy_jobs': 2, 'active_tasks': 4, 'recovery_candidates': 1,
+    }
     assert 'hidden' not in details.text and 'input_snapshot' not in details.text
 
 

@@ -50,7 +50,8 @@ export const bulkFigureLabels = {
 export type BulkFigureType = keyof typeof bulkFigureLabels
 export const bulkPanels = {
   qc_missing:'样本缺失比例',
-  qc_expression:'样本表达分布',
+  qc_expression:'样本表达五数摘要',
+  qc_ecdf:'样本表达累积分布',
   sample_clustering:'样本聚类',
   sample_correlation:'样本相关性',
   sample_distance:'样本距离',
@@ -58,6 +59,18 @@ export const bulkPanels = {
   pca_variance:'PCA 方差解释率',
 } as const
 export type BulkPanel = keyof typeof bulkPanels
+const defaultFigurePanels:Record<string,BulkPanel> = {
+  qc_missing:'qc_missing', expression_distribution:'qc_ecdf', pca:'pca_scores',
+  sample_clustering:'sample_clustering', correlation_heatmap:'sample_correlation', distance_heatmap:'sample_distance',
+}
+export const isTranscriptomeAssay = (assay:string) => assay==='bulk_rna_counts'||assay==='normalized_expression'
+export function defaultTranscriptomePanel(assay:string, kind:string) {
+  return isTranscriptomeAssay(assay)&&Object.hasOwn(defaultFigurePanels,kind)?defaultFigurePanels[kind]:undefined
+}
+export function processedPanelLanguage(result:TabularProcessed, panel:BulkPanel) {
+  const originalPanel=panel==='qc_expression'?'qc_ecdf':panel==='pca_variance'?'pca_scores':panel
+  return result.figures.find(item=>defaultTranscriptomePanel(result.source.assay,item.config.kind)===originalPanel)?.config.output_language
+}
 export type BulkPlanSeed = {config:Config;source:Source}
 export const isBulkFigureType = (v:unknown):v is BulkFigureType =>
   typeof v==='string'&&Object.hasOwn(bulkFigureLabels,v)
@@ -100,14 +113,14 @@ export function fixedBulkEnrichmentIdentity(result:Result|null):EnrichmentIdenti
 export function hasBulkPanel(result:TabularProcessed, panel:BulkPanel) {
   const tableKey = panel==='pca_variance'?'pca_variance_ratio':panel
   if (panel.startsWith('pca_')) return result.tables.some(table=>table.key===tableKey)
-  const dataKey = panel==='qc_expression'?'expression_distribution':panel
+  const dataKey = panel==='qc_expression'||panel==='qc_ecdf'?'expression_distribution':panel
   return result.figures.some(figure=>figure.config.kind===dataKey)
     ||result.members.some(member=>member.key===dataKey||member.key===dataKey+'_data')
     ||panel==='sample_clustering'&&result.tables.some(table=>table.key===tableKey)
 }
 
 export function bulkProcessedMatches(result:TabularProcessed, projectId:string, processedId:string, panel:BulkPanel) {
-  return isTabularProcessedSource(result.source,projectId)&&result.source.assay==='bulk_rna_counts'
+  return isTabularProcessedSource(result.source,projectId)&&isTranscriptomeAssay(result.source.assay)
     &&result.source.processed_dataset_version_id===processedId&&result.id===processedId
     &&result.source.manifest_sha256===result.manifest_sha256&&hasBulkPanel(result,panel)
 }

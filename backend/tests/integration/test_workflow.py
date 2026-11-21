@@ -40,6 +40,7 @@ def digest(value):
 
 
 def assert_bindings(project, file, result, figure, explanation, report, payload):
+    from app.db.database import database_connection
     assert file['project_id'] == project['id'] and result['file_id'] == file['id']
     assert figure['file_id'] == file['id']
     for item in (figure, explanation, report):
@@ -66,7 +67,19 @@ def assert_bindings(project, file, result, figure, explanation, report, payload)
     assert explanation['provenance']['input_sha256'] == digest(local_payload)
     snapshot = {'project': {key: project[key] for key in ('id', 'name', 'research_topic', 'project_type', 'created_at')},
                 'result': result, 'figure': figure, 'explanation': explanation}
+    if 'reader_export' in report:
+        with database_connection() as db:
+            saved = db.execute('SELECT input_snapshot FROM tasks WHERE id=%s',
+                               (report['reader_export']['task_id'],)).fetchone()['input_snapshot']
+        assert {key: saved[key] for key in snapshot} == snapshot
+        assert saved['file']['id'] == file['id'] and saved['file']['sha256'] == file['sha256']
+        assert report['reader_report']['origin'] == 'saved_explanation_reuse'
+        snapshot = saved
     assert report['input_sha256'] == digest(snapshot)
+    with database_connection() as db:
+        row = db.execute('SELECT input_json,report_json FROM reports WHERE id=%s AND analysis_run_id=%s',
+                         (report['id'], result['id'])).fetchone()
+    assert json.loads(row['input_json']) == snapshot and json.loads(row['report_json']) == report
     assert figure['verification']['status'] == 'matched'
     assert explanation['verification']['status'] == 'references_checked'
 
@@ -81,7 +94,9 @@ def assert_docx(content, project, file, result, figure, explanation, report, rev
         valid, excluded = (25, 2) if revision == 1 else (26, 1)
         assert f'原始数据 27 行；有效完整记录 {valid} 行；排除 {excluded} 行。' in text
         assert ('项目类型：SCI 论文' if project['project_type'] == 'sci' else '项目类型：毕业论文') in text
-        assert f'配置版本 {revision}' in text
+        assert report['setup_revision'] == result['setup_revision'] == revision
+        assert project['name'] in text and f"研究主题（用户填写）：{project['research_topic']}" in text
+        assert f"原始文件：{file['filename']}" in text and f"工作表：{result['selection']['sheet_name']}" in text
         tables = [[[''.join(cell.itertext()) for cell in row.findall('w:tc', ns)]
                    for row in table.findall('w:tr', ns)] for table in root.findall('.//w:tbl', ns)]
         if revision == 1:
@@ -100,10 +115,50 @@ def assert_docx(content, project, file, result, figure, explanation, report, rev
                 assert f"{evidence['label']}：{evidence['value']}" in text
         for value in (project['id'], file['id'], file['sha256'], result['id'], figure['id'],
                       figure['sha256'], explanation['id'], report['id'], report['input_sha256']):
-            assert value in text
+            assert value not in text
         images = [archive.read(name) for name in archive.namelist() if name.startswith('word/media/')]
         assert len(images) == 1
         assert hashlib.sha256(images[0]).hexdigest() == figure['sha256']
+
+
+def check_historical_word(client, project, file, result, figure, explanation, payload, endpoint):
+    from app.adapters.storage import ProjectStore
+    from app.core.config import get_data_dir
+    from app.domain import reports
+    from tests.helpers.tasks import task_owner
+
+    store = ProjectStore(get_data_dir(), owner_id=task_owner(client))
+    state, status = reports.generate_report(project['id'], file['id'], result['id'],
+        reports.ReportRequest(expected_revision=result['setup_revision'], figure_id=figure['id'], explanation_id=explanation['id']), store)
+    assert status == 201
+    report = state['report']
+    assert 'reader_export' not in report
+    assert_bindings(project, file, result, figure, explanation, report, payload)
+    downloaded = client.get(endpoint + '/' + report['id'] + '/download')
+    assert downloaded.status_code == 200
+    assert_docx(downloaded.content, project, file, result, figure, explanation, report, result['setup_revision'])
+
+
+def assert_reader_document(client, content, result, figure, report):
+    from openpyxl import load_workbook
+
+    assert hashlib.sha256(content).hexdigest() == report['sha256']
+    members = {item['role']: item for item in report['members']}
+    package = client.get(members['zip']['download_url'])
+    assert package.status_code == 200
+    with ZipFile(BytesIO(package.content)) as archive:
+        assert archive.read('analysis.docx') == content
+        assert hashlib.sha256(archive.read('figures/figure_01/selected_png.png')).hexdigest() == figure['sha256']
+        xlsx = archive.read('results.xlsx')
+    assert hashlib.sha256(xlsx).hexdigest() == members['xlsx']['sha256']
+    book = load_workbook(BytesIO(xlsx), read_only=True)
+    try:
+        summary = {row[0]: row[1] for row in book['分析01 总体摘要'].values}
+        assert int(summary['记录数']) == result['overall']['n']
+        assert float(summary['均值']) == pytest.approx(result['overall']['mean'])
+        assert float(summary['中位数']) == result['overall']['median']
+    finally:
+        book.close()
 
 
 @pytest.mark.parametrize('project_type', ['sci', 'thesis'])
@@ -179,6 +234,7 @@ def test_excel_to_word_versioned_workflow(client, cloud, writer, project_type):
         'overall.mean': '12.28', 'overall.median': '12', 'overall.q1': '7', 'overall.q3': '18'}
     for changes in ({'figure_id': 'wrong'}, {'explanation_id': 'wrong'}, {'expected_revision': 2}):
         assert export(client, old_run + '/report', figure, explanation, **changes).status_code == 409
+    check_historical_word(client, project, file, result, figure, explanation, writer.calls[0], old_run + '/report')
     exported = export(client, old_run + '/report', figure, explanation)
     assert exported.status_code == 200, exported.text
     report = exported.json()['report']
@@ -188,7 +244,7 @@ def test_excel_to_word_versioned_workflow(client, cloud, writer, project_type):
     assert downloaded.status_code == 200
     assert downloaded.headers['content-type'] == 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
     assert 'attachment' in downloaded.headers['content-disposition']
-    assert_docx(downloaded.content, project, file, result, figure, explanation, report, 1)
+    assert_reader_document(client, downloaded.content, result, figure, report)
 
     from tests.api.test_external_processing import confirmation
     old_confirmation = confirmation(client, old_run + '/explanation')
@@ -199,7 +255,9 @@ def test_excel_to_word_versioned_workflow(client, cloud, writer, project_type):
     assert statistics_post(client, base + '/analysis-runs', json={'expected_revision': 1}).status_code == 409
     assert client.post(old_run + '/boxplot', json={'expected_revision': 1}).status_code == 409
     assert submit(client, old_run + '/explanation', figure, external_processing=old_confirmation).status_code == 409
-    assert export(client, old_run + '/report', figure, explanation).status_code == 409
+    replay = export(client, old_run + '/report', figure, explanation)
+    assert replay.status_code == 200 and replay.json()['report'] == report
+    assert export(client, old_run + '/report', figure, explanation, key='fresh-export-for-revision-one').status_code == 409
     assert client.get(old_run + '/report').json()['report'] == report
     assert client.get(old_download).content == downloaded.content
     new_response = statistics_post(client, base + '/analysis-runs', json={'expected_revision': 2})
@@ -219,6 +277,7 @@ def test_excel_to_word_versioned_workflow(client, cloud, writer, project_type):
     new_explanation = client.get(new_run + '/explanation').json()['explanation']
     assert new_explanation['id'] != explanation['id']
     assert export(client, new_run + '/report', figure, explanation).status_code == 409
+    check_historical_word(client, project, file, new_result, new_figure, new_explanation, writer.calls[1], new_run + '/report')
     new_export = export(client, new_run + '/report', new_figure, new_explanation)
     assert new_export.status_code == 200, new_export.text
     new_report = new_export.json()['report']
@@ -226,7 +285,7 @@ def test_excel_to_word_versioned_workflow(client, cloud, writer, project_type):
     assert_bindings(project, file, new_result, new_figure, new_explanation, new_report, writer.calls[1])
     new_download = new_run + '/report/' + new_report['id'] + '/download'
     new_content = client.get(new_download).content
-    assert_docx(new_content, project, file, new_result, new_figure, new_explanation, new_report, 2)
+    assert_reader_document(client, new_content, new_result, new_figure, new_report)
     assert client.get(old_download).content == downloaded.content
 
     # New client lifecycle, same isolated on-disk store: no setup or source reseeding.

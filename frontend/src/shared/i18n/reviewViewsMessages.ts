@@ -19,4 +19,10 @@ export const reviewViewsMessages:Record<string,string>={
  '请先选择一条意见，再整理处理计划。':'Select an opinion before preparing its handling plan.',
  '独立逐条回复':'Independent itemized reply',
  '独立逐条对照':'Independent itemized comparison',
+ // B05 task 8: customer view names.
+ '修改稿':'Revised manuscript',
+ '修改后的 Word':'Revised Word file',
+ '补充资料后继续':'Continue after adding materials',
+ // B05 task 17: the customer's round task, without the local-plan wording.
+ '查看本轮任务':'View the task for this round',
 }

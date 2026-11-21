@@ -100,12 +100,13 @@ def test_language_confirmation_binds_real_export_bytes_config_and_legacy_raw_con
     decisions=[dict(location=i['location'],content_sha256=i['content_sha256'],decision='provided_literal' if i.get('protected_identity') else 'no_text' if i['kind']=='image' and i.get('no_text') else 'target_language',reason='Human verified this exact exported item',exceptions=[]) for i in items]
     review=dict(source_export_id=source['id'],source_sha256=metadata['sha256'],language_view='en',review_mode='identified',decisions=decisions)
     request=dict(expected_revision=2,base_version_id=base['id'],config=dict(saved['config'],language_review=review))
-    changed=deepcopy(request);changed['config']['blind']['identity_terms']=['Changed output configuration']
+    changed=deepcopy(request);changed['config']['statements']=[dict(kind='funding',state='pending')]
     assert post(client,endpoint,changed,'changed-config').status_code==409
     changed=deepcopy(request);changed['config']['language_review']['source_sha256']='0'*64
     assert post(client,endpoint,changed,'changed-sha').status_code==409
     changed=deepcopy(request);changed['config']['language_review']['review_mode']='blind'
-    assert post(client,endpoint,changed,'changed-mode').status_code==409
+    removed=post(client,endpoint,changed,'changed-mode')
+    assert removed.status_code==422 and removed.json()['detail']['code']=='blind_review_removed',removed.text
     changed=deepcopy(request);changed['config']['language_review']['decisions']=decisions[:-1]
     assert post(client,endpoint,changed,'missing-item').status_code==422
     source_path=get_data_dir()/'manuscript_exports'/(source['id']+'.docx');raw=source_path.read_bytes()

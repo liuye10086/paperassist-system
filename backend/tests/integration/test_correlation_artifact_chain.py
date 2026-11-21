@@ -12,7 +12,7 @@ from app.db.database import database_connection
 from tests.api.test_analysis import client
 from tests.helpers.analysis_plan import run_plan, review_plan, plan_decision, decide_plan
 from tests.integration.test_correlation_plan import prepared_correlations, create_correlation
-from tests.integration.test_dataset_artifact_chain import confirmed_task
+from tests.integration.test_dataset_artifact_chain import checked_word_exports, confirmed_task
 from tests.integration.test_boxplot_execution import SyntheticPlotProvider, run as run_plot
 from tests.integration.test_explanation_execution import SyntheticProvider, run as run_explanation
 
@@ -127,30 +127,23 @@ def test_confirmed_plan_to_original_png_explanation_word_and_history(client, mon
     assert 'LOCAL-QUESTION-SENTINEL' not in json.dumps(explaining.posts[0][1])
     with database_connection() as db:
         explanation = json.loads(db.execute('SELECT explanation_json FROM explanations WHERE id=%s', (done['result_explanation_id'],)).fetchone()['explanation_json'])
-    task, _ = modern_task(client, base, file, result, 'word_report', figure, explanation)
-    from app.domain.tasks.execution import run_word_task
-    done = run_word_task(task['id'], task['revision'])
-    assert done['status'] == 'succeeded', done
-    workspace = client.get('/api/v1/tasks/'+task['id']+'/workspace')
-    assert workspace.status_code == 200, workspace.text
-    url = workspace.json()['artifacts']['report']['download_url']
-    report = client.get(url)
-    assert report.status_code == 200, report.text if report.status_code != 200 else ''
+    reader, historical = checked_word_exports(client, base, result, figure, explanation, provider.png)
     from docx import Document
-    document = Document(BytesIO(report.content))
+    document = Document(BytesIO(historical[1]))
     text = '\n'.join(p.text for p in document.paragraphs)
     assert ('Correlation analysis report' if language=='en' else '相关分析报告') in text
     assert 'LOCAL-QUESTION-SENTINEL' in text
     body_text = text.split('Appendix B' if language=='en' else '附录 B')[0]
     assert result['source']['dataset_sha256'] not in body_text and result['id'] not in body_text
-    with ZipFile(BytesIO(report.content)) as archive:
+    with ZipFile(BytesIO(historical[1])) as archive:
         assert [archive.read(name) for name in archive.namelist() if name.startswith('word/media/')] == [provider.png]
     # A later setup does not make this immutable artifact unreadable.
     from tests.api.test_analysis import selection
     saved = client.put(base+'/analysis-setup', json=selection(dataset_id=result['source']['dataset_id'],
         expected_revision=1, sheet_name=result['selection']['sheet_name'], numeric_column='A', group_column=None, unit=''))
     assert saved.status_code == 200, saved.text
-    assert client.get(url).content == report.content
+    for url, content in (reader, historical):
+        assert client.get(url).content == content
     assert blocked == []
     from app.maintenance.database_audit import audit_database
     with database_connection() as db:

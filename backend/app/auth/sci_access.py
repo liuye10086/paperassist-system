@@ -105,7 +105,7 @@ _SCI_ROUTES = {
 _THESIS_ROUTES = {
     '/thesis-requirements': {'GET': ('',), 'PUT': ('',)},
     '/thesis-profile': {'GET': ('',), 'PUT': ('',)},
-    '/thesis-template-binding': {'POST': ('',)},
+    '/thesis-template-binding': {'POST': ('', '/preview')},
     '/school-templates': {
         'GET': ('',),
         'POST': ('', '/{identity}/retry', '/{identity}/confirm'),

@@ -1,4 +1,5 @@
 """0046 populated history survives additive 0047 without destructive downgrade."""
+from tests.helpers.historical_migration import historical_workflow, assert_saved_history_blocks
 import pytest
 from alembic import command
 from tests.api.test_analysis import client  # noqa: F401
@@ -14,10 +15,8 @@ def test_0047_retains_populated_0046_rows_indexes_and_controlled_downgrade(clien
     r=post(client,base+'/recommendations',request(),'r').json();run_task(r['task']['id'],1)
     g=post(client,base+'/guides',guide(p),'g').json();t=post(client,base+'/targets',target(p,r,g),'t').json()
     c=post(client,base+'/checks',dict(target_id=t['id'],manuscript=dict(id=m['id'],revision=1)),'c').json();run_task(c['task']['id'],1)
-    cfg=alembic_config()
-    with migration_connection(write=True) as db:
-        cfg.attributes.update(connection=db.raw_connection,database_config=get_migration_database_config())
-        command.downgrade(cfg,'0046_journal_format_checks')
+    with historical_workflow(get_migration_database_config(), '0046_journal_format_checks') as (db, cfg):
+        assert db.execute("SELECT 1 FROM journal_format_checks WHERE id=%s", (c['id'],)).fetchone()
         tables=[r['tablename'] for r in db.execute('SELECT tablename FROM pg_tables WHERE schemaname=current_schema()') if r['tablename']!='alembic_version']
         before=fingerprints(db,tables)
         indexes={r['indexname']:r['indexdef'] for r in db.execute('SELECT indexname,indexdef FROM pg_indexes WHERE schemaname=current_schema()')}
@@ -27,9 +26,7 @@ def test_0047_retains_populated_0046_rows_indexes_and_controlled_downgrade(clien
         assert all(after.get(k)==v for k,v in indexes.items())
     assert client.get(base+'/checks/'+c['id']).status_code==200
     event=post(client,base+'/submission-events',dict(target_id=t['id'],status='submitted',event_date='2026-10-23'),'event');assert event.status_code==201,event.text
-    with pytest.raises(RuntimeError,match='refusing destructive downgrade'):
-        with migration_connection(write=True) as db:
-            cfg.attributes.update(connection=db.raw_connection,database_config=get_migration_database_config());command.downgrade(cfg,'0046_journal_format_checks')
+    assert_saved_history_blocks('0047_journal_adaptations', 'Journal adaptation history exists; refusing destructive downgrade.')
     from app.maintenance.database_audit import audit_database
     with database_connection() as db:report=audit_database(db)
     assert report['ok'],report['schema_issues'] or [c for c in report['data_checks'] if c['invalid']]

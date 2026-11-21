@@ -47,6 +47,7 @@ def test_workspace_reads_current_source_without_private_snapshot_or_writes(clien
 
 
 def test_project_tasks_filter_and_page_stably(client):
+    other, other_request, _, _ = boxplot_task_input(client)
     project, request, _, _, service, first = create_task(client, 'first')
     second, _ = service.create(project, request, idempotency_key='second')
     # Exercise time ordering independently of the host clock's tick resolution.
@@ -71,7 +72,7 @@ def test_project_tasks_filter_and_page_stably(client):
         db.execute("UPDATE tasks SET created_at=%s WHERE project_id=%s AND task_type='boxplot'", (first['created_at'], project))
     tied = client.get(f'/api/v1/projects/{project}/tasks?task_type=boxplot').json()['items']
     assert [item['task']['id'] for item in tied] == sorted([first['id'], second['id']], reverse=True)
-    other, *_ = create_task(client, 'other-project')
+    service.create(other, other_request, idempotency_key='other-project')
     assert client.get(f'/api/v1/projects/{project}/tasks?task_type=boxplot').json()['total'] == 2
     assert client.get(f'/api/v1/projects/{other}/tasks?task_type=boxplot').json()['total'] == 1
 
@@ -175,7 +176,14 @@ def test_exact_saved_artifact_survives_new_setup_without_mutation(client, cloud,
     artifacts = response.json()['artifacts']
     artifact_kind = {'boxplot': 'figure', 'explanation': 'explanation', 'word_report': 'report'}[kind]
     artifact = artifacts[artifact_kind]
-    assert artifact and all(value is None for key, value in artifacts.items() if key != artifact_kind)
+    assert artifact
+    present = {key for key, value in artifacts.items() if value is not None}
+    if kind == 'word_report':
+        assert present == {'report', 'reader_export'}
+        assert artifacts['reader_export'] == artifact['reader_export']
+        assert artifacts['reader_export']['task_id'] == task['id']
+    else:
+        assert present == {artifact_kind}
     if kind == 'explanation':
         assert artifact['sections'] and set(artifact['sections'][0]) == {'key', 'title', 'text'}
     else:

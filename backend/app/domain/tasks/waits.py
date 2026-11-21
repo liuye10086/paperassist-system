@@ -253,6 +253,14 @@ def allowed_recovery_actions(db, task):
         if task['status'] in ('waiting_input','waiting_confirmation'):
             wait=get_open_wait(db,task)
             return ['resume'] if wait and wait['task_revision']==task['revision'] else []
+        if task['status']=='failed' and task.get('error_code')=='task_source_conflict':
+            from app.core.exceptions import StorageError
+            from app.domain.review_rounds.execution import verify_retry_sources
+            try:
+                verify_retry_sources(db,task)
+            except StorageError:
+                return []
+            return ['retry']
         return ['retry'] if task['status']=='failed' and task.get('error_code') in ('storage_unavailable','task_worker_interrupted') else []
     if task['task_type']=='manuscript_writing' and task.get('reason_code')!='observation_expired':
         from app.domain.manuscript_writing.service import recovery_actions
@@ -321,7 +329,7 @@ def allowed_recovery_actions(db, task):
     if task['task_type'] == 'boxplot':
         from app.domain.plot_tasks import _can_resume, _last_call, _unknown_submission
     elif task['task_type'] == 'explanation':
-        from app.domain.explanation_tasks import _can_resume, _last_call
+        from app.domain.explanation_tasks import can_retry_original as _can_resume, _last_call
         def _unknown_submission(call):
             return call and not call.get('provider_response_id') and call['status'] in ('submitting', 'submission_unknown')
     elif task['task_type'] == 'analysis_recommendation':

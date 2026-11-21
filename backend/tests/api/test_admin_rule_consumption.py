@@ -96,6 +96,21 @@ def synthetic_alias_docx(heading=False):
     return result.getvalue()
 
 
+def upload_parsed_docx(client, project, content, filename, *, key='batch-one'):
+    from app.adapters.docx_parser import parse_docx
+    from app.domain.tasks.file_parse_execution import run_parse_file_task
+    from tests.api.test_file_batches import register
+
+    base, batch, item, _ = register(client, project, content, filename, key=key)
+    upload = client.post(f"{base}/{batch['id']}/items/{item['client_id']}", files={'file': (filename, content)})
+    assert upload.status_code == 202, upload.text
+    uploaded = upload.json()
+    task = uploaded['task']
+    parsed = run_parse_file_task(task['id'], task['revision'], parser=parse_docx)
+    assert parsed and parsed['status'] == 'succeeded', parsed
+    return uploaded
+
+
 def test_school_alias_uses_actual_xml_properties_and_conflicts_survive_supplements():
     from app.adapters.school_template_parser import inspect_school_template, merge_template_notes
     raw = synthetic_alias_docx()
@@ -178,9 +193,10 @@ def test_legacy_complete_journal_and_school_are_executable_after_activation(admi
     from app.domain.journals.execution import run_journal_task
     from app.domain.school_templates.execution import run_school_template_task
     from tests.api.test_school_templates import setup as school_setup,analysis
+    school_path,body=school_setup(admin)
     base=setup(admin);post(admin,base+'/profiles',profile(),'p')
     old=post(admin,base+'/recommendations',request(),'old').json()
-    school_path,body=school_setup(admin);school=post(admin,school_path+'/school-templates',body,'school').json()
+    school=post(admin,school_path+'/school-templates',body,'school').json()
     one=baseline(admin);one=saved(admin,one,'journals','default_count',1)
     one=saved(admin,one,'schools','heading_aliases',[{'text':'Synthetic Chapter','role':'heading1'}])
     activate(admin,one)
@@ -194,11 +210,9 @@ def test_school_bound_parser_retry_and_confirmation_inherit(admin):
     from app.domain.school_templates.execution import run_school_template_task
     from app.core.exceptions import StorageError
     from app.adapters.school_template_parser import inspect_school_template
-    from tests.api.test_file_batches import register
     project=admin.post('/api/v1/projects',json=dict(name='synthetic alias',research_topic='synthetic',project_type='thesis')).json()
     raw=synthetic_alias_docx(True)
-    upload,batch,item,_=register(admin,project,raw,'synthetic.docx','docx')
-    uploaded=admin.post(upload+'/'+batch['id']+'/items/'+item['client_id'],files={'file':('synthetic.docx',raw)}).json()
+    uploaded=upload_parsed_docx(admin,project,raw,'synthetic.docx',key='docx')
     endpoint=f"/api/v1/projects/{project['id']}/school-templates"
     one=baseline(admin);one=saved(admin,one,'schools','heading_aliases',[{'text':'Synthetic Chapter','role':'heading1'}]);activate(admin,one)
     body=dict(name='synthetic template',school='synthetic school',template_file_id=uploaded['file_id'])
@@ -223,12 +237,10 @@ def test_school_bound_parser_retry_and_confirmation_inherit(admin):
 def test_rejected_heading_alias_does_not_become_confirmed_style_rules(admin):
     from app.domain.school_templates.execution import run_school_template_task
     from app.adapters.school_template_parser import inspect_school_template
-    from tests.api.test_file_batches import register
     one=baseline(admin);one=saved(admin,one,'schools','heading_aliases',[dict(text='Synthetic Chapter',role='heading1')]);activate(admin,one)
     project=admin.post('/api/v1/projects',json=dict(name='synthetic original role',research_topic='synthetic',project_type='thesis')).json()
     raw=synthetic_alias_docx(True)
-    upload,batch,item,_=register(admin,project,raw,'synthetic.docx')
-    file=admin.post(upload+'/'+batch['id']+'/items/'+item['client_id'],files={'file':('synthetic.docx',raw)}).json()
+    file=upload_parsed_docx(admin,project,raw,'synthetic.docx')
     path=f"/api/v1/projects/{project['id']}/school-templates"
     template=post(admin,path,dict(name='Synthetic role conflict',school='Synthetic school',template_file_id=file['file_id']),'parse').json()
     assert run_school_template_task(template['task']['id'],1,parser=inspect_school_template)['status']=='succeeded'
@@ -356,12 +368,10 @@ def test_legacy_missing_school_contract_blocks_only_related_fields(admin,account
 
 def existing_sci_fixture(client,project_id,*,prefix='synthetic-c'):
     """Reuse an existing SCI project; only local facts, no model/provider setup."""
-    from tests.api.test_file_batches import register
     from tests.api.test_manuscripts import body as manuscript_body
     from app.domain.tasks.execution import run_task
     raw=synthetic_alias_docx()
-    upload,batch,item,_=register(client,{'id':project_id},raw,prefix+'.docx',key=prefix+'-upload')
-    uploaded=client.post(upload+'/'+batch['id']+'/items/'+item['client_id'],files={'file':(prefix+'.docx',raw)}).json()
+    uploaded=upload_parsed_docx(client,{'id':project_id},raw,prefix+'.docx',key=prefix+'-upload')
     material=dict(kind='original',id=uploaded['file_id'],file_id=uploaded['file_id'])
     path=f'/api/v1/projects/{project_id}'
     manuscript=post(client,path+'/manuscripts',manuscript_body(sources=[material|dict(role='methods')]),prefix+'-draft').json()
@@ -402,13 +412,11 @@ def test_existing_project_fixture_needs_no_model_calls_or_extra_projects(admin):
 
 def existing_thesis_fixture(client,project_id,*,prefix='synthetic-school'):
     """Existing project, real synthetic parser evidence, explicit school confirmation."""
-    from tests.api.test_file_batches import register
     from app.adapters.school_template_parser import inspect_school_template
     from app.domain.school_templates.execution import run_school_template_task
     from app.domain.tasks.execution import run_task
     raw=synthetic_alias_docx()
-    upload,batch,item,_=register(client,{'id':project_id},raw,prefix+'.docx',key=prefix+'-upload')
-    uploaded=client.post(upload+'/'+batch['id']+'/items/'+item['client_id'],files={'file':(prefix+'.docx',raw)}).json()
+    uploaded=upload_parsed_docx(client,{'id':project_id},raw,prefix+'.docx',key=prefix+'-upload')
     path=f'/api/v1/projects/{project_id}'
     created=post(client,path+'/school-templates',dict(name='Synthetic school template',school='Synthetic school',template_file_id=uploaded['file_id']),prefix+'-parse')
     assert created.status_code==202,created.text
@@ -523,12 +531,10 @@ def test_named_chapter_without_heading_style_requires_alias_conflict(alias_role)
 def test_named_chapter_original_confirmation_restores_levels_and_preserves_analysis(admin,alias_role):
     from app.adapters.school_template_parser import inspect_school_template
     from app.domain.school_templates.execution import run_school_template_task
-    from tests.api.test_file_batches import register
     raw=named_chapter_docx();before=inspect_school_template(raw,'synthetic-named.docx')
     one=baseline(admin);one=saved(admin,one,'schools','heading_aliases',[dict(text=title,role=alias_role) for title in NAMED_CHAPTERS]);activate(admin,one)
     project=admin.post('/api/v1/projects',json=dict(name='synthetic named parts',research_topic='synthetic',project_type='thesis')).json()
-    upload,batch,item,_=register(admin,project,raw,'synthetic-named.docx')
-    file=admin.post(upload+'/'+batch['id']+'/items/'+item['client_id'],files={'file':('synthetic-named.docx',raw)}).json()
+    file=upload_parsed_docx(admin,project,raw,'synthetic-named.docx')
     path=f"/api/v1/projects/{project['id']}/school-templates"
     template=post(admin,path,dict(name='Synthetic named parts',school='Synthetic school',template_file_id=file['file_id']),'parse').json()
     assert run_school_template_task(template['task']['id'],1,parser=inspect_school_template)['status']=='succeeded'

@@ -80,7 +80,7 @@ x-worker: &worker
   stop_grace_period: 45s
 services:
   rabbitmq:
-    image: rabbitmq:4.3.6-alpine@sha256:2cb43283d8bbd3caa6c0f0dc00e96c8de772df33df7fd8af6aee4d605aeb8ada
+    image: &broker-image rabbitmq:4.3.6-alpine@sha256:2cb43283d8bbd3caa6c0f0dc00e96c8de772df33df7fd8af6aee4d605aeb8ada
     hostname: rabbitmq
     labels:
       io.paperassist.workspace: ${PAPERASSIST_STACK_ROOT}
@@ -139,6 +139,36 @@ services:
       timeout: 5s
       retries: 6
       start_period: 10s
+  # Docker does not publish ports on an internal-only network. The host API
+  # reaches the fixed Word service through this development-only TCP forwarder.
+  word-host:
+    profiles: [host-word-fields]
+    image: *broker-image
+    init: true
+    entrypoint: [/bin/busybox, nc]
+    command: [-lk, -p, '8080', -e, nc, -w, '110', pdf-renderer, '8080']
+    user: '65534:65534'
+    read_only: true
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    mem_limit: 32m
+    pids_limit: 32
+    tmpfs: [/var/lib/rabbitmq:size=1m]
+    networks: [word-host-access, pdf-internal]
+    ports:
+      - target: 8080
+        published: "${PAPERASSIST_RENDERER_HOST_PORT:-8185}"
+        host_ip: "${PAPERASSIST_RENDERER_HOST_IP:-127.0.0.1}"
+    labels:
+      io.paperassist.workspace: ${PAPERASSIST_STACK_ROOT}
+    depends_on:
+      pdf-renderer:
+        condition: service_healthy
+    healthcheck:
+      test: [CMD, /bin/busybox, wget, -q, -T, '5', -O, /dev/null, 'http://127.0.0.1:8080/health']
+      interval: 10s
+      timeout: 6s
+      retries: 3
   # Keep this service/network identity for existing stacks and frozen Word manifests.
   # /layout-cache calculates Word fields; its fixed fonts remain required for layout.
   pdf-renderer:
@@ -202,5 +232,6 @@ volumes:
   worker-execution:
     name: paperassist-worker-execution
 networks:
+  word-host-access: {}
   pdf-internal:
     internal: true

@@ -42,5 +42,5 @@ export function useWritingOperation(scope?:ManuscriptRequestScope){
   };if(controller.current===request&&alive.current&&session.current)setError(safeError(cause,'请求未确认；请刷新核对。不会自动重试或重新调用。'));return null}
   finally{if(controller.current===request){controller.current=null;if(alive.current&&session.current){setBusy(false);setMutating(false)}}}
  }
- return {run,busy,error,valid,setError,pending:pending.pending,resolvePending:()=>{pending.complete();setUncertain(false)}}
+ return {run,busy,reading:busy&&!mutating,error,valid,setError,pending:pending.pending,resolvePending:()=>{pending.complete();setUncertain(false)}}
 }

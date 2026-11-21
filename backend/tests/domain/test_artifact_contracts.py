@@ -38,6 +38,15 @@ def test_new_generation_of_v2_english_task_uses_english():
     assert figure_renderer(research_result(schema=2)) == 'openai_analysis_plot_v2'
 
 
+def test_boxplot_instructions_specify_nested_group_statistics():
+    from app.domain.external_material import plot_instructions
+    external = {'version': 3, 'task_type': 'boxplot', 'provider': 'openai'}
+    prompt = plot_instructions(external, research_result())
+    group_shape = 'groups:[{label,statistics:{n,mean,std,min,q1,median,q3,max,iqr}}]'
+    assert group_shape in prompt
+    assert group_shape not in plot_instructions(external, research_result(correlation=True))
+
+
 def test_unsupported_result_language_and_correlation_mode_rejected():
     from app.domain.artifact_contracts import artifact_language, figure_kind
     from app.core.exceptions import StorageError

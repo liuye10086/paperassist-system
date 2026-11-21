@@ -5,7 +5,8 @@ import { setLocale } from '../../shared/i18n'
 import { manuscriptFixture, candidatesFixture, snapshotFixture, exportFixture } from './manuscriptFixtures'
 import { taskFixture, workspaceFixture } from '../tasks/taskFixtures'
 const base = '/api/v1/projects/p1/manuscripts'
-afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.useRealTimers(); setLocale('zh-CN') })
+// Material drafts persist in the tab's session storage; start every case from a fresh tab.
+afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.useRealTimers(); setLocale('zh-CN'); sessionStorage.clear() })
 function server(history: unknown[] = [], wordExports: (typeof exportFixture)[] = []) {
   const fetcher = vi.fn(async (url: string, init?: RequestInit) => {
     if (url === `${base}/candidates`) return Response.json(candidatesFixture)

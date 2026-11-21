@@ -23,6 +23,11 @@ def nonempty_published(client):
     from tests.api.test_file_batches import register
     upload,batch,item,content=register(client,dict(id=project),raw.getvalue(),'synthetic.png')
     response=client.post(upload+'/'+batch['id']+'/items/'+item['client_id'],files={'file':('synthetic.png',content)});assert response.status_code==202,response.text
+    from app.domain.tasks.file_parse_execution import run_parse_file_task
+    from tests.helpers.ocr_samples import ocr_result
+    parse_task = response.json()['task']
+    assert parse_task['task_type'] == 'parse_file'
+    assert run_parse_file_task(parse_task['id'], parse_task['revision'], parser=ocr_result)['status'] == 'succeeded'
     file=dict(id=response.json()['file_id']);sources=[{k:s[k] for k in ('kind','id','file_id','role')} for s in v2['snapshot']['sources']]+[dict(kind='original',id=file['id'],file_id=file['id'],role='image_observation')]
     analysis=next(s['id'] for s in sources if s['kind']=='analysis_run')
     request=dict(title='Synthetic nonempty journal fixture',output_language='en',expected_revision=2,sources=sources,results_groups=[dict(id='main',title='Synthetic measured results',analysis_run_ids=[analysis])],citation_draft=dict(id=citation['id'],revision=1))

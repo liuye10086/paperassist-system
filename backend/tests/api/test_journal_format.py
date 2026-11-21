@@ -198,11 +198,11 @@ def test_format_failure_retry_resume_fixed_old_manuscript_and_new_guide(client):
 def test_unpublished_foreign_and_unusable_guide_rules_never_pass(client):
     from tests.api.test_manuscripts import body as ms_body,setup as ms_setup
     path,_,_=ms_setup(client);base=path.removesuffix('/manuscripts')+'/journals'
-    m=post(client,path,ms_body(),'m').json()
     p=post(client,base+'/profiles',profile(),'p').json()
     r=post(client,base+'/recommendations',request(),'r').json()
     from app.domain.tasks.execution import run_task
-    run_task(r['task']['id'],1)
+    assert run_task(r['task']['id'],1)['status']=='succeeded'
+    m=post(client,path,ms_body(),'m').json()
     response=post(client,base+'/guides',guide(p,source_status='expired',permission_status='disallowed'),'g')
     assert response.status_code==201,response.text
     g=response.json();t=post(client,base+'/targets',target(p,r,g),'t').json()

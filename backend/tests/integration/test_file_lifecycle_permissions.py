@@ -1,5 +1,6 @@
 """Two-account HTTP evidence for the file preparation and document routes."""
 from tests.helpers.legacy_plans import seed_legacy_plan
+from tests.helpers.read_only import assert_read_only_snapshot
 from pathlib import Path
 import hashlib
 import os
@@ -27,7 +28,7 @@ def assert_private_reads(owner,other,urls):
         assert allowed.status_code==200,(url,allowed.text)
         denied=other.get(url)
         assert denied.status_code==404,(url,denied.text)
-    assert fingerprint()==before
+    assert_read_only_snapshot(before, fingerprint())
 
 
 def task_urls(identifier):
@@ -40,7 +41,7 @@ def assert_private_recovery(owner,other,identifier):
     assert other.post('/api/v1/tasks/'+identifier+'/retry',json={'expected_revision':task['revision']}).status_code==404
     body=dict(operation='retry',wait_id=None,expected_task_revision=task['revision'],input_version=task['input_version'])
     assert other.post('/api/v1/tasks/'+identifier+'/resume',json=body,headers={'Idempotency-Key':'foreign-recovery'}).status_code==404
-    assert fingerprint()==before
+    assert_read_only_snapshot(before, fingerprint())
 
 
 def test_prepared_plan_raw_evidence_and_decisions_matrix(client):
@@ -61,7 +62,7 @@ def test_prepared_plan_raw_evidence_and_decisions_matrix(client):
         before=fingerprint()
         assert other.post(base+'/dataset-preparations',json=request,headers={'Idempotency-Key':'prepare'}).status_code==404
         assert decide(other,task,body).status_code==404
-        assert fingerprint()==before
+        assert_read_only_snapshot(before, fingerprint())
         approved=decide(client,task,body)
         assert approved.status_code==202
         assert run(approved.json())['status']=='succeeded'
@@ -81,7 +82,7 @@ def test_prepared_plan_raw_evidence_and_decisions_matrix(client):
         before=fingerprint()
         assert seed_legacy_plan(other, base+'/analysis-plans',json=plan_body,headers={'Idempotency-Key':'plan'}).status_code==404
         assert decide_plan(other,plan,plan_input).status_code==404
-        assert fingerprint()==before
+        assert_read_only_snapshot(before, fingerprint())
         approved_plan=decide_plan(client,plan,plan_input)
         assert approved_plan.status_code==202
         assert run_plan(approved_plan.json())['status']=='succeeded'
@@ -94,7 +95,7 @@ def test_prepared_plan_raw_evidence_and_decisions_matrix(client):
         before=fingerprint()
         for identifier in (task['id'],plan['id'],extract):
             assert_private_recovery(client,other,identifier)
-        assert fingerprint()==before
+        assert_read_only_snapshot(before, fingerprint())
         other_file=upload(client,base.split('/')[4]).json()['file']
         other_base='/'.join(base.split('/')[:-1])+'/'+other_file['id']
         for suffix in ('/dataset-versions/'+raw['id']+'/download',
@@ -134,7 +135,7 @@ def test_document_subresources_reparse_ocr_and_task_matrix(client,kind):
         assert other.post(base+'/document-versions',json=body,headers={'Idempotency-Key':'reparse'}).status_code==404
         if kind!='docx':
             assert other.post(base+'/document-versions/ocr',json={**body,'page_numbers':[1]},headers={'Idempotency-Key':'ocr'}).status_code==404
-        assert fingerprint()==before
+        assert_read_only_snapshot(before, fingerprint())
         allowed=client.post(base+'/document-versions'+('/ocr' if kind!='docx' else ''),
             json={**body,**({'page_numbers':[1]} if kind!='docx' else {})},headers={'Idempotency-Key':'reparse'})
         assert allowed.status_code==202,allowed.text
@@ -154,7 +155,7 @@ def test_ocr_review_candidate_publication_and_history_matrix(client):
         before=fingerprint()
         assert other.post(base+'/ocr-reviews',json={'parse_id':parent['id']},headers={'Idempotency-Key':'create'}).status_code==404
         assert decide(other,view,'revise','foreign',[dict(block_id='text-1',action='accept_original')]).status_code==404
-        assert fingerprint()==before
+        assert_read_only_snapshot(before, fingerprint())
         saved=decide(client,view,'revise','save',[dict(block_id='text-1',action='accept_original')])
         assert execute(saved.json())['status']=='waiting_confirmation'
         view=client.get(url).json()

@@ -101,6 +101,7 @@ def test_configured_bundle_reads_rebuild_its_frozen_revision(monkeypatch, revisi
     db = SimpleNamespace(execute=lambda *args: SimpleNamespace(fetchone=lambda: row))
     service = authorization.LiveWritingService.__new__(authorization.LiveWritingService)
     service.store = SimpleNamespace(require_project=lambda *args: None, user_id='fixture-user')
+    service.manuscripts = SimpleNamespace(assets=SimpleNamespace(customer=True))
     monkeypatch.setattr(authorization, 'resolve', lambda *args, **kwargs: config)
     restored = service.bundle(db, 'project', 'fixture')
     assert restored['execution_contract'] == frozen

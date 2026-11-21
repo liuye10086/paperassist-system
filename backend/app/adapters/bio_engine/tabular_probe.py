@@ -1,4 +1,8 @@
 """Offline synthetic import/processing gate through the actual isolated child."""
+from app.adapters.single_cell_r.bootstrap import preload_runtime_libraries
+
+preload_runtime_libraries()
+
 import argparse
 import hashlib
 import json

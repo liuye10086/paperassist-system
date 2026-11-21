@@ -26,7 +26,15 @@ def validate_language_confirmation(items,review):
 def _config_payload(config):
     payload=config.model_dump()
     if payload.get('language_review') is None:payload.pop('language_review',None)
+    # New configurations never store the removed blind key.
+    payload.pop('blind',None)
     return payload
+
+
+def require_no_blind(config):
+    from .contracts import blind_review_removed
+    if config.blind is not None and config.blind.requested():raise blind_review_removed()
+    if config.language_review is not None and config.language_review.review_mode!='identified':raise blind_review_removed()
 
 def _paragraphs(snapshot):
     return {p['id']:dict(deepcopy(p),section_id=role) for role,p in displayed_paragraphs(snapshot)}
@@ -176,14 +184,10 @@ def build_preview(request,base,peer,base_sha,peer_sha):
                 if a.kind=='minimum' and b.kind=='maximum' and (a.scope,a.language,a.unit)==(b.scope,b.language,b.unit) and a.value>b.value:
                     add('school:length_conflict','conflict','同一语言、范围和单位的学校最低篇幅超过上限。')
         if school.guide_version_id:add('journal:guide','pending','固定指南另由现有期刊规则检查，不将字段保存视为合规。')
-    chapters={s['id'] for snap in snaps.values() for s in snap.get('sections',[])}
-    if not set(request.config.blind.hidden_chapter_ids)<=chapters:raise ValueError('Unknown blind hidden chapter identity')
     for kind in STATEMENT_KINDS:
         statement=next((s for s in request.config.statements if s.kind==kind),None)
         add('statement:'+kind,'pending' if not statement or statement.state=='pending' else 'passed','仅记录用户声明、依据和状态；不自动推定合规。')
     add('authors','passed' if request.config.authors else 'pending','作者顺序及单位由用户提供；缺失不猜填。')
-    add('blind:images','passed' if request.config.blind.manual_image_review else 'pending','图片、扫描签名及嵌入对象须人工检查。')
-    add('blind:rules','passed' if request.config.blind.identity_terms else 'pending','盲审须明确身份词和例外；自动扫描不能保证匿名。')
     return dict(schema_version=1,base_version_id=request.base_version_id,peer_version_id=request.peer_version_id,base_sha256=base_sha,peer_sha256=peer_sha,config=config,checks=checks,paragraph_groups=groups,language_inventory=inventories,quality=dict(scientific_semantic='pending',word_wps='pending',real_compliance='pending'),can_export=not any(c['status']=='conflict' for c in checks))
 
 class PresentationService:
@@ -210,6 +214,7 @@ class PresentationService:
         return guide
 
     def _prepare(self,db,project,identity,request,base_version=None):
+        require_no_blind(request.config)
         root=self.manuscripts.root(db,project,identity)
         base=self._version(db,project,request.base_version_id,base_version)
         if base['manuscript_id']!=identity:raise invalid('基础版本须属于当前稿件。')
@@ -255,7 +260,7 @@ class PresentationService:
         source,_,_,old=self.fixed(db,project,identity,source_id,base_version=base,peer_version=peer)
         if (binding.get('presentation_sha256')!=source['snapshot_sha256'] or binding.get('config_sha256')!=digest(old['config'])
             or binding.get('peer_version_id')!=(peer['id'] if peer else None) or binding.get('peer_sha256')!=(peer['snapshot_sha256'] if peer else None)
-            or PresentationConfig.model_validate(old['config']).model_dump(exclude={'language_review'})!=request.config.model_dump(exclude={'language_review'})):raise source_conflict()
+            or PresentationConfig.model_validate(old['config']).model_dump(exclude={'language_review','blind'})!=request.config.model_dump(exclude={'language_review','blind'})):raise source_conflict()
         try:raw=(self.manuscripts.directory/(export['id']+'.docx')).read_bytes()
         except OSError as exc:raise source_conflict() from exc
         if len(raw)!=metadata.get('size_bytes') or sha256(raw).hexdigest()!=review.source_sha256:raise source_conflict()
@@ -313,6 +318,7 @@ class PresentationService:
         payload=request.model_dump();payload['config']=_config_payload(request.config);request_digest=digest(payload)
         with self.store.connection(write=True) as db:
             self.manuscripts.root(db,project,identity)
+            require_no_blind(request.config)
             db.execute('SELECT id FROM manuscripts WHERE id=%s FOR UPDATE',(identity,)).fetchone()
             prior=db.execute('SELECT id,request_digest FROM manuscript_presentation_versions WHERE manuscript_id=%s AND idempotency_key=%s',(identity,key)).fetchone()
             if prior:

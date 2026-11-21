@@ -1,5 +1,6 @@
 export const preparationMessages: Record<string, string> = {
  '整理预览': 'Preparation preview',
+ '来源：{filename}': 'Source: {filename}', '工作表：{sheet}': 'Sheet: {sheet}',
  '工作表：{sheet}；原始数据版本 v{version}。': 'Sheet: {sheet}; raw data version v{version}.', '工作表：{sheet}；原始数据 v{raw} · 整理数据 v{prepared}。': 'Sheet: {sheet}; raw data v{raw} · prepared data v{prepared}.',
  '新分析需明确选择整理数据版本，检查并保存配置。': 'For a new analysis, explicitly select a prepared version, check it, and save the setup.',
  '当前整理规则': 'Current preparation rules', '单位': 'Unit', '去除首尾空白': 'Trim surrounding whitespace', '缺失标记': 'Missing markers', '开启': 'On', '关闭': 'Off', '无单位（已确认）': 'No unit (confirmed)',

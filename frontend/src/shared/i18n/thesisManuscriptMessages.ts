@@ -35,4 +35,6 @@ export const thesisManuscriptMessages:Record<string,string>={
  '内容检查不等同于学校排版验收或科学有效性证明。':'Content checks do not certify school layout compliance or scientific validity.',
  '学校章节初稿':'School chapter draft',
  '发起学校章节写作':'Request school chapter writing',
+ // B05 task 10: thesis customer writing page.
+ '按学校模板的章节整理写作材料，生成正文初稿，核对后采用为新的一版。':'Organize the writing materials by the chapters of the school template, generate a first draft, check it and adopt it as a new version.',
 }

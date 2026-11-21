@@ -13,6 +13,10 @@ it.each(Object.keys(errorMessages))('retains the safe %s identifier and translat
     file_too_large: { max_bytes: 1048576 },
     numeric_precision: { column: 'A', row: 2 },
     plot_label_too_long: { max_chars: 200 },
+    // Codes whose message has a placeholder must list it here, or the text keeps "{position}".
+    thesis_chapter_protected: { position: 3 },
+    manuscript_review_heading_language: { position: 2 },
+    manuscript_finding_figure_reference: { position: 1 },
   }
   const id = apiError({ detail: { code, message: 'PRIVATE TRACE', params: { ...requiredParams[code], reason: 'PRIVATE TRACE', secret: 'PRIVATE TRACE' } } }, fallback)
   expect(id).toContain('PA_ERROR:')
@@ -91,4 +95,21 @@ it.each([
   for (const meaning of required) expect(text).toContain(meaning)
   expect(text).not.toContain('PRIVATE TRACE')
   expect(text).not.toMatch(/导出缺少固定排版配置|is missing its saved layout configuration/)
+})
+
+it.each([
+  ['manuscript_exists', '这个项目已经有稿件。请覆盖之前的写作材料。', /already has a manuscript/],
+  ['paper_materials_unavailable', '图表资料只适用于 SCI 论文和毕业论文项目。', /only to SCI manuscript and thesis projects/],
+  ['thesis_requirements_changed', '毕业论文需求或学校资料已更新，请核对后继续。', /have changed\. Review/],
+  ['thesis_requirements_unavailable', '毕业论文需求只适用于毕业论文项目。', /only to thesis projects/],
+  ['thesis_template_changed', '学校模板绑定已变化，请核对当前模板和章节。', /school template binding has changed\. Review the current template and chapters\./i],
+  ['thesis_template_required', '请先确认并绑定可用的学校模板。', /confirm and bind an available school template first\./i],
+  ['sci_settings_unavailable', 'SCI 建项资料仅适用于 SCI 论文项目。', /only to SCI manuscript projects/],
+  ['project_assignment_type_invalid', '论文项目仅可撤回已有分配。', /can only be revoked/],
+] as const)('gives readable %s text in both languages', (code, zh, en) => {
+  const id = apiError({ detail: { code, message: 'PRIVATE TRACE' } }, fallback)
+  expect(translate(id)).toBe(zh)
+  setLocale('en')
+  expect(translate(id)).toMatch(en)
+  expect(translate(id)).not.toMatch(/\b(revision|id|sha|internal|PRIVATE)\b/i)
 })

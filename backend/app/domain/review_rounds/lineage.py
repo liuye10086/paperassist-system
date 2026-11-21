@@ -84,9 +84,12 @@ def continuation_context(assets, project, identity):
         def eligible(version):
             rounds.visible_manuscript(db,version)
             rows=db.execute('SELECT id FROM manuscript_exports WHERE version_id=%s ORDER BY created_at DESC,id',(version['id'],)).fetchall()
-            exports=[dict(id=export['id'],status=export['status']) for export in rounds.visible_records(rows,
-                     lambda item:returns.manuscripts.export_view(db,version,item['id']))]
-            return dict(id=m['id'],revision=version['revision'],version_id=version['id'],title=version['snapshot_json']['title'],exports=exports)
+            # review_mode is the stored binding as-is: always 'identified' now, 'blind' only in history.
+            exports=[dict(id=export['id'],status=export['status'],created_at=export['created_at'],
+                          review_mode=((export.get('presentation') or {}).get('binding') or {}).get('review_mode','identified'))
+                     for export in rounds.visible_records(rows,lambda item:returns.manuscripts.export_view(db,version,item['id']))]
+            return dict(id=m['id'],revision=version['revision'],version_id=version['id'],title=version['snapshot_json']['title'],
+                        saved_at=version['created_at'],exports=exports)
 
         inputs=list(rounds.visible_records(versions,eligible))
 

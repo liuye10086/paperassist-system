@@ -174,7 +174,7 @@ def _fill_known_values(forms, title, english_title, values):
     return {student, *(forms[index] for index in (13, 14, 17, 28, 32, 33, 34, 35, 38))}
 
 
-def insert_submission_forms(document, template, snapshot, plan, *, blind):
+def insert_submission_forms(document, template, snapshot, plan):
     if template is None or sha256(template).hexdigest() != plan['submission_forms_source_sha256']:
         raise source_conflict()
     with ZipFile(BytesIO(template)) as archive:
@@ -185,7 +185,7 @@ def insert_submission_forms(document, template, snapshot, plan, *, blind):
         document.part.part_related_by(RELATIONSHIP_TYPE.THEME)._blob = archive.read('word/theme/theme1.xml')
         _connect_graphics(document, forms, archive)
     protected_nodes = _fill_known_values(forms, snapshot['title'], plan['options'].get('english_title', ''),
-                                         bsu_gs501.submission_values(plan, blind=blind))
+                                         bsu_gs501.submission_values(plan))
     for node in forms:
         for cached_break in list(node.iter(qn('w:lastRenderedPageBreak'))):
             cached_break.getparent().remove(cached_break)

@@ -51,18 +51,18 @@ def test_plot_recovery_metadata_rejects_nonobjects(postgres_schema, table, colum
         assert db.execute(f'SELECT {column} FROM {table} WHERE id=%s', (key,)).fetchone()[column] == {}
 
 
+@pytest.mark.initial_revision('0009_explanation_tasks')
 def test_0009_upgrade_preserves_all_columns_and_can_reverse(postgres_migration_config):
     with migration_connection(write=True, config=postgres_migration_config) as db:
         settings = alembic_config()
         settings.attributes.update(connection=db.raw_connection, database_config=postgres_migration_config)
-        command.downgrade(settings, '0009_explanation_tasks')
         seed_owner(db)
         insert_row(db, 'tasks', task_row())
         insert_row(db, 'model_calls', call_row())
         before = {table: dict(db.execute(f'SELECT * FROM {table}').fetchone())
                   for table in ('tasks', 'model_calls')}
-        command.upgrade(settings, 'head')
-        command.upgrade(settings, 'head')
+        command.upgrade(settings, '0010_boxplot_tasks')
+        command.upgrade(settings, '0010_boxplot_tasks')
         for table, original in before.items():
             current = dict(db.execute(f'SELECT * FROM {table}').fetchone())
             assert {key: current[key] for key in original} == original

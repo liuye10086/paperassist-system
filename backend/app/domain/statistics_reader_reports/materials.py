@@ -57,7 +57,7 @@ def report_overview(sources, items, language):
     return dict(summary=summary, facts=facts, methods=methods, gaps=gaps, limitations=limitations, sources=source_index)
 
 
-def assemble_statistics_material(*, title, language, sources, items, pngs):
+def assemble_statistics_material(*, title, language, sources, items, pngs, context_schema_version=2):
     """Pure assembly over previously verified result, explanation and PNG inputs."""
     sources_by_id = {source.source_id: source for source in sources}
     if (set(sources_by_id) != {item['result']['id'] for item in items}
@@ -115,7 +115,7 @@ def assemble_statistics_material(*, title, language, sources, items, pngs):
         raise invalid('research_export_limit_exceeded', 422)
     overview = report_overview(sources, items, language)
     try:
-        output = build_reader_output(language, sources, items)
+        output = build_reader_output(language, sources, items, context_schema_version=context_schema_version)
     except KeyError as exc:
         raise invalid('research_output_invalid', 422) from exc
     except ValueError:

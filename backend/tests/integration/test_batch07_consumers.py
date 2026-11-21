@@ -92,8 +92,9 @@ def test_quality_single_word_freezes_local_receipt_and_keeps_cloud_boundary(clie
     with database_connection() as db:
         snapshots=db.execute('SELECT task_type,input_snapshot FROM tasks').fetchall()
     words=[r['input_snapshot'] for r in snapshots if r['task_type']=='word_report']
-    assert len(words)==1 and words[0]['processing']['receipt']['manual_excluded_row_count']==1
-    assert 'LOCAL-QUALITY-REASON' in json.dumps(words[0]['processing'])
+    assert len(words)==2 and {bool(word.get('reader_export')) for word in words} == {True, False}
+    assert all(word['processing']['receipt']['manual_excluded_row_count']==1 for word in words)
+    assert all('LOCAL-QUALITY-REASON' in json.dumps(word['processing']) for word in words)
     for row in snapshots:
         if row['task_type'] in ('boxplot','explanation'):
             assert 'processing' not in row['input_snapshot']
@@ -120,12 +121,23 @@ def test_quality_collection_freezes_receipt_with_current_profile_and_independent
     assert preview['items'][0]['result']['check']['valid_count']==3
     assert preview['items'][0]['projection']['result']['audit']['valid_n']==4
     request=state['versions'][0]['requests'][0]
-    _,content=repository.download(project,state['id'],request['report']['id'])
+    metadata,content=repository.download(project,state['id'],request['report']['id'])
     from docx import Document
     from io import BytesIO
-    text=' '.join(p.text for p in Document(BytesIO(content)).paragraphs)
-    assert 'LOCAL-QUALITY-REASON' in text
+    paragraphs=[p.text for p in Document(BytesIO(content)).paragraphs]
+    assert metadata['reader_report']['origin']=='saved_explanation_reuse'
+    quality=metadata['reader_report']['narrative']['quality_control'].split('\n\n')
+    start=paragraphs.index(quality[0])
+    assert paragraphs[start:start+len(quality)]==quality
+    from tests.helpers.tasks import historical_collection_export
+    from app.domain.report_collections.execution import run_collection_word_task
+    historical = historical_collection_export(repository,project,state['current_version_id'],'legacy-quality-receipt')
+    assert run_collection_word_task(historical['task_id'],1)['status']=='succeeded'
+    built = repository.export(project,state['id'],state['current_version_id'],'legacy-quality-receipt')
+    _,legacy_bytes = repository.download(project,state['id'],built['report']['id'])
+    assert 'LOCAL-QUALITY-REASON' in ' '.join(p.text for p in Document(BytesIO(legacy_bytes)).paragraphs)
     with database_connection() as db:
         audit=audit_database(db)
-        assert db.execute('SELECT count(*) AS n FROM model_calls WHERE task_id=%s',(request['task_id'],)).fetchone()['n']==0
+        assert db.execute('SELECT count(*) AS n FROM model_calls WHERE task_id=ANY(%s)',
+                          ([request['task_id'],historical['task_id']],)).fetchone()['n']==0
     assert audit['ok'],audit

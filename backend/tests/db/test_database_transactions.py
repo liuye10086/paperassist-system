@@ -74,6 +74,10 @@ def test_waiting_writer_observes_previous_writer_commit(postgres_schema):
 def test_migration_is_idempotent_and_matches_core_metadata(postgres_schema, postgres_migration_config):
     with database_connection(write=True) as writer:
         insert_project(writer)
+    with database_connection() as reader:
+        inspector = inspect(reader.raw_connection)
+        prior_order = {name: [column['name'] for column in inspector.get_columns(name)]
+                       for name in metadata.tables}
     migrate_database(postgres_migration_config)
     with database_connection() as reader:
         ensure_schema_current(reader)
@@ -81,10 +85,13 @@ def test_migration_is_idempotent_and_matches_core_metadata(postgres_schema, post
         assert set(inspector.get_table_names(schema=postgres_schema.schema)) == set(metadata.tables) | {"alembic_version"}
         for name, table in metadata.tables.items():
             actual = inspector.get_columns(name, schema=postgres_schema.schema)
-            assert [column["name"] for column in actual] == list(table.c.keys())
+            assert [column["name"] for column in actual] == prior_order[name]
             dialect = reader.raw_connection.dialect
-            assert [str(column["type"].compile(dialect=dialect)) for column in actual] == [str(column.type.compile(dialect=dialect)) for column in table.c]
-            assert [column["nullable"] for column in actual] == [column.nullable for column in table.c]
+            reflected = {column["name"]: (column["type"].compile(dialect=dialect), column["nullable"])
+                         for column in actual}
+            expected = {column.name: (column.type.compile(dialect=dialect), column.nullable)
+                        for column in table.c}
+            assert reflected == expected, name
         assert reader.execute("SELECT name FROM projects").fetchone()["name"] == "before"
         assert reader.execute("SELECT version_num FROM alembic_version").fetchone()["version_num"] == SCHEMA_HEAD
 

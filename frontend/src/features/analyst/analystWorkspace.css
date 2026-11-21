@@ -20,6 +20,9 @@
 .analyst-feedback-list time, .analyst-publication time { font-size: 0.9em; }
 .analyst-publication { display: grid; gap: 6px; padding-block: 12px; border-top: 1px solid var(--border); }
 .analyst-note, .analyst-feedback-list p { white-space: pre-wrap; overflow-wrap: anywhere; }
+.analyst-submission-heading { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
+.analyst-submission-files { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.analyst-submission-files li { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; overflow-wrap: anywhere; }
 .analyst-project-details {
   height: var(--workspace-step-height);
   padding: var(--workspace-card-padding);

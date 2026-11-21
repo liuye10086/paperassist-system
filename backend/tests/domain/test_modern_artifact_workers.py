@@ -1,4 +1,5 @@
 """Exercise real Worker publication routing with isolated gateway boundaries."""
+from contextlib import contextmanager
 from types import SimpleNamespace
 import pytest
 
@@ -35,6 +36,17 @@ class Repository:
         self.expected = dict(title='Correlation', statistics=dict(coefficient=.8, n=5))
         self.payload = dict(language='en', schema_version=2, facts={}, required_references={})
         self.saved = None
+        self.storage_admissions = []
+
+    @contextmanager
+    def connection(self):
+        def execute(sql, args):
+            assert 'FROM admin_configuration_bindings' in sql and args == ('task', self.task['id'])
+            return SimpleNamespace(fetchone=lambda: None)
+        yield SimpleNamespace(execute=execute)
+
+    def admit_figure_storage(self, lease):
+        self.storage_admissions.append(lease)
 
     def load_boxplot_task(self, lease): return self.task
     def load_explanation_task(self, lease): return self.task
@@ -62,7 +74,9 @@ def test_plot_worker_publishes_frozen_english_language_and_modern_renderer(monke
     repo = Repository(); gateway(monkeypatch, plot_worker, repo)
     monkeypatch.setattr(plot_worker, 'parse_plot_response', lambda *a, **k: dict(provenance=dict(model='synthetic-model')))
     monkeypatch.setattr(plot_worker, 'download_plot', lambda *a, **k: dict(png=b'synthetic-bytes', provenance=dict(model='synthetic-model')))
-    result = plot_worker._execute(repo, object(), None, lambda: object(), [])
+    lease = object()
+    result = plot_worker._execute(repo, lease, None, lambda: object(), [])
+    assert repo.storage_admissions == [lease]
     assert result['language'] == 'en'
     assert result['engine']['id'] == 'openai_analysis_plot_v2'
     assert result['figure_kind'] == 'scatter'
@@ -96,7 +110,9 @@ def test_plot_mismatch_is_saved_before_terminal_failure_without_publishing(monke
     repo.record_plot_mismatch = persist
     monkeypatch.setattr(plot_worker, 'parse_plot_response', lambda *a, **k: dict(provenance=dict(model='synthetic-model')))
     monkeypatch.setattr(plot_worker, 'download_plot', failed_download)
-    result = plot_worker._execute(repo, object(), None, lambda: object(), [])
+    lease = object()
+    result = plot_worker._execute(repo, lease, None, lambda: object(), [])
+    assert repo.storage_admissions == [lease]
     assert result['status'] == 'failed'
     assert recorded == [dict(differences=differences, manifest=dict(statistics=dict(coefficient=.1)),
                              provenance=dict(response_id='resp_synthetic'))]

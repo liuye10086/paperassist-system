@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { onApiSessionChanged } from '../../shared/api/client'
 import { safeError, useI18n } from '../../shared/i18n'
+import ModuleViews,{ModuleView} from '../../shared/components/ModuleViews'
 import ProjectDownloadLink from '../../shared/components/ProjectDownloadLink'
 import { datasetRequest } from '../datasets/datasetApi'
 import { evidenceBase, isEvidence, type Evidence, type EvidenceLocation, type EvidenceTarget, type EvidenceValue } from './evidenceApi'
@@ -31,11 +32,13 @@ function Panel(props:Props) {
    request.current?.abort();setData(null);setOpen(false);props.onUnavailable?.()
   } else if([404,409,410].includes(status)){setData(null);setError('解析证据读取失败，请重试。')}
  }
- return <section className="parsed-evidence"><button aria-expanded={open} onClick={()=>setOpen(v=>!v)}>{t('解析内容与来源')}</button>
-  {open&&<><p className="muted">{t('存储数量不是研究样本量。')}</p>
+ // Evidence is read only after the reader switches to its view; the view stays mounted to keep the page position.
+ return <section className="parsed-evidence"><ModuleViews label={t('解析证据视图')} lazy value={open?'evidence':'about'} onChange={id=>setOpen(id==='evidence')}>
+  <ModuleView id="about" title={t('解析说明')}><p className="muted">{t('存储数量不是研究样本量。')}</p><p className="muted">{t('切换到“解析内容与来源”后读取已保存的解析证据。')}</p></ModuleView>
+  <ModuleView id="evidence" title={t('解析内容与来源')}>{open&&<>
    {error?<p role="alert">{t(error)}</p>:!data&&<p role="status">{t('正在读取解析证据……')}</p>}
    <button onClick={()=>setRefresh(n=>n+1)}>{t('重新读取解析证据')}</button>
-   {data&&<><p>{data.source.filename} · v{data.source.version} · {data.format} · {data.parser_version}</p>
+   {data&&<><p>{data.source.filename} · {data.format.toUpperCase()}</p>
     <p>{t('解析范围')} · {data.scope.kind==='sheet' ? [data.scope.sheet_name,data.scope.data_range??data.scope.stored_range].filter(Boolean).join(' · ') : data.format==='docx' ? t('已保存的文档结构') : data.scope.pages.length ? data.scope.pages.map(page=>t('物理页 {page}',{page})).join(', ') : t('未记录物理页范围')}</p>
     <p>{t('解析证据第 {page} 页 · 本页 {returned} 条 · 共 {total} 条',{page:data.pagination.page,returned:data.pagination.returned,total:data.pagination.total})}</p>
     <dl>{Object.entries(data.counts).map(([name,count])=><div key={name}><dt>{t(evidenceLabels[name]??name)}</dt><dd>{count}</dd></div>)}</dl>
@@ -59,8 +62,8 @@ function Panel(props:Props) {
     </article>)}
     <nav><button disabled={page===1} onClick={()=>setPage(n=>n-1)}>{t('上一页证据')}</button><button disabled={!data.pagination.has_more} onClick={()=>setPage(n=>n+1)}>{t('下一页证据')}</button></nav>
    </>}
-  </>}
- </section>
+  </>}</ModuleView>
+ </ModuleViews></section>
 }
 function LocationView({location:l,format}:{location:EvidenceLocation;format:Evidence['format']}) {
  const {t}=useI18n()

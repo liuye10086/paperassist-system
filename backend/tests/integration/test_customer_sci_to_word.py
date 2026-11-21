@@ -231,13 +231,16 @@ def test_customer_research_freezes_uploaded_result_numeric_context_and_figure_in
         altered = 'The supplied fixture describes a directional pattern.'
         discussion = next(section for section in candidate['sections'] if section['id'] == 'discussion')
         discussion['paragraphs'][0]['text'] = altered
-        next(p for p in corrected['paragraphs'] if p['paragraph_id'] == 'discussion:1').update(
-            corrected_text=altered, text_sha256=digest(altered),
-        )
+        corrected_discussion = next(p for p in corrected['paragraphs'] if p['paragraph_id'] == 'discussion:1')
+        corrected_discussion.update(corrected_text=altered, text_sha256=digest(altered))
         corrected['consistency']['body_sha256'] = body_digest(candidate)
+        missing_source = request(client, 'POST', path + '/reviews', status=422,
+                                 key='correction-without-source', json=corrected)
+        assert missing_source['detail']['code'] == 'manuscript_writing_review_invalid'
+        corrected_discussion['source_aliases'] = ['s1']
         changed = request(client, 'POST', path + '/reviews', status=201, key='science-correction', json=corrected)
         changed_discussion = next(section for section in changed['candidate']['sections'] if section['id'] == 'discussion')
-        assert changed_discussion['paragraphs'][0]['source_ids'] == []
+        assert changed_discussion['paragraphs'][0]['source_ids'] == [result_source['id']]
         fixed, url, raw = publish_word(client, root, path, science)
         assert fixed['article_type'] == 'research'
         assert fixed['keywords'] == ['synthetic fixture']

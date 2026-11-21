@@ -1,10 +1,8 @@
 """Read-only validation of all historical claim versions and actual source objects."""
-from types import SimpleNamespace
-from app.core.config import get_data_dir
+from app.adapters.task_store import DatasetTaskAssets
 from app.db.database import get_database_config
 from app.domain.literature_evidence.service import LiteratureEvidenceService, validate_request_row
 from app.domain.literature_evidence.contracts import ClaimRequest, ClaimVersionRequest
-from app.adapters.file_objects import LocalFileObjects
 from app.domain.literature.contracts import SearchRequest
 
 
@@ -14,8 +12,7 @@ def audit_literature_evidence(db):
 
     def service(owner):
         if owner not in services:
-            services[owner] = LiteratureEvidenceService(SimpleNamespace(owner_id=owner,
-                db_config=get_database_config(), directory=get_data_dir(), original=LocalFileObjects(get_data_dir()).original))
+            services[owner] = LiteratureEvidenceService(DatasetTaskAssets(owner, get_database_config()))
         return services[owner]
 
     for table in ('literature_materials', 'literature_claims', 'literature_claim_versions',

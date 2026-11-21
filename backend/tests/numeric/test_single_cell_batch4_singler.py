@@ -9,6 +9,7 @@ import pytest
 from scipy import sparse
 
 from app.adapters.single_cell_r import annotation
+from tests.numeric.embedded_r import compare_in_fresh_process
 
 
 def test_log_expression_rejects_shifted_duplicate_axes_and_nonfinite_values():
@@ -58,7 +59,11 @@ def test_reference_manifest_checks_content_and_exposes_matching_policy(tmp_path)
 
 
 @pytest.mark.skipif(not Path('/opt/paperassist-single-cell-r/lib/R').is_dir(),reason='pinned Linux R runtime required')
-def test_single_r_real_scoring_matches_native_and_preserves_shuffled_cell_axis(tmp_path,monkeypatch):
+def test_single_r_real_scoring_matches_native_and_preserves_shuffled_cell_axis(tmp_path):
+    compare_in_fresh_process(compare_native_single_r, tmp_path)
+
+
+def compare_native_single_r(tmp_path):
     from app.adapters.single_cell_r.bridge import initialize
     bridge=initialize(tmp_path);ro=bridge.ro
     cells=['z','a','b','y'];genes=[f'ENSG{i:011}' for i in range(80)]
@@ -74,7 +79,7 @@ def test_single_r_real_scoring_matches_native_and_preserves_shuffled_cell_axis(t
     import hashlib
     meta=dict(reference_id=annotation.REFERENCE_ID,species='Homo sapiens',gene_id_type='ensembl_gene_id',version='1.0.0',source='synthetic_validation_only',license='CC0-1.0',sha256=hashlib.sha256(path.read_bytes()).hexdigest(),gene_ids=genes,samples=12)
     (folder/'reference.json').write_text(json.dumps(meta),encoding='utf-8')
-    monkeypatch.setattr(annotation,'REFERENCE_ROOT',tmp_path)
+    annotation.REFERENCE_ROOT=tmp_path
     config=dict(reference_id=annotation.REFERENCE_ID,species='Homo sapiens',gene_id_type='ensembl_gene_id',label_level='main')
     actual=bridge.classify(x,cells,genes,config,27)
     assert actual['status']=='completed',actual

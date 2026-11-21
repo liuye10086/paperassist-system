@@ -19,7 +19,7 @@ def audit_journals(db,*,limit=200):
                     parent,materials=ref_parent(service,db,row['project_id'],row)
                     if not any(m and m['file_id']==row['file_id'] for m in materials):raise ValueError('Material mismatch')
                 else:
-                    service.validate(row)
+                    service.validate(db,row)
                     if table=='journal_profiles':
                         request=ProfileRequest.model_validate(row['request_json'])
                         if row['snapshot_json']['synthetic']!=(request.source_type=='synthetic'):raise ValueError('Synthetic level mismatch')

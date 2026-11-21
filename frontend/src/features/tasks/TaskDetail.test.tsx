@@ -431,3 +431,110 @@ it('recovers an independent adaptation task with its exact input and finite loca
  const [url,init]=fetch.mock.calls.find(([,init])=>init?.method==='POST')!;expect(url).toBe('/api/v1/tasks/t1/resume');expect(JSON.parse(String(init!.body))).toEqual({operation:'retry',wait_id:null,expected_task_revision:3,input_version:input})
  expect(screen.getByText('使用冻结的期刊适配、所选动作与父稿重试；不访问外网或调用模型。')).toBeTruthy();expect(screen.queryByText(/尚未提交的模型调用/)).toBeNull();expect(fetch.mock.calls.some(([url])=>url.includes('/model-usage'))).toBe(false);expect(await within(screen.getByRole('region',{name:'执行记录'})).findByText('期刊指南适配')).toBeTruthy()
 })
+
+const structureTask = { ...taskFixture, task_type: 'extract_dataset', phase: 'parse', status: 'succeeded', display_status: 'succeeded', reason_code: null, error_code: null,
+  input_version: { kind: 'excel_structure', structure_id: 's1', source_sha256: 'a'.repeat(64), parser_version: 'openpyxl-3.1.5-structure-v1' } }
+const structureWorkspace = { ...workspaceFixture, task: structureTask, source: { ...workspaceFixture.source, analysis_run_id: null }, wait: null, allowed_actions: [],
+  artifacts: { figure: null, explanation: null, report: null, dataset: { filename: 'structure.json', download_url: '/api/v1/projects/p1/datasets/s1/download' } } }
+it('hides the internal structure JSON download from customers but keeps it for staff', async () => {
+  api(structureWorkspace)
+  const view = render(<TaskDetail {...props} customerView />)
+  await screen.findByText('Excel 结构提取')
+  expect(screen.queryByRole('link', { name: '下载完整 JSON' })).toBeNull()
+  view.unmount()
+  render(<TaskDetail {...props} />)
+  expect(await screen.findByRole('link', { name: '下载完整 JSON' })).toBeTruthy()
+})
+it('embedded task details render without their own heading and leave focus alone', async () => {
+  api()
+  const outside = document.createElement('button'); document.body.append(outside); outside.focus()
+  render(<TaskDetail {...props} embedded />)
+  await screen.findByText('实验.xlsx')
+  expect(screen.queryByRole('heading', { level: 2, name: '任务详情' })).toBeNull()
+  expect(document.activeElement).toBe(outside)
+  expect(screen.getByRole('button', { name: '重新读取任务' })).toBeTruthy()
+  outside.remove()
+})
+it('keeps the default heading and focus when not embedded', async () => {
+  api()
+  render(<TaskDetail {...props} />)
+  const heading = await screen.findByRole('heading', { level: 2, name: '任务详情' })
+  expect(document.activeElement).toBe(heading)
+})
+it('passes the customer view to pending actions', async () => {
+  api()
+  render(<TaskDetail {...props} customerView view="actions" />)
+  expect(await screen.findByText('系统正在核对，请稍后刷新或联系客服。')).toBeTruthy()
+  expect(screen.queryByText('任务正在等待预算或模型配置，请联系管理员调整后继续。')).toBeNull()
+  expect(screen.getByRole('button', { name: '继续原任务' })).toBeTruthy()
+})
+// B05 task 17: on the customer task page “处理依据” names the customer's own material; staff keep the input wording.
+const roundPlanWorkspace = { ...workspaceFixture, wait: null, allowed_actions: [],
+  task: { ...taskFixture, task_type: 'review_round_plan', phase: 'verify', status: 'succeeded', display_status: 'succeeded', reason_code: null, error_code: null,
+    input_version: { kind: 'review_round_plan', round_id: 'r1', base_version_id: 'v1', workflow_version: 'review_round_plan_v1' } },
+  source: { file_id: null, filename: '一审意见', analysis_run_id: null, is_current: true } }
+const basis = () => screen.getByText(/^(处理依据|输入版本|Decision basis)$/).parentElement!.querySelector('dd')!.textContent
+it.each([
+  ['an uploaded file', structureWorkspace, '上传的文件', 'The uploaded file', '本地 Excel 结构提取'],
+  ['a review round', roundPlanWorkspace, '本轮意见和送审稿', 'The comments of this round and the manuscript under review', '冻结的意见来源与固定稿件版本'],
+  ['a saved analysis setup', { ...workspaceFixture, wait: null, allowed_actions: [] }, '已保存的分析配置', 'Saved analysis settings', '分析配置 v1'],
+] as const)('names %s as the customer basis in both languages and keeps the staff wording', async (_name, workspace, zh, en, staff) => {
+  api(workspace)
+  const view = render(<TaskDetail {...props} customerView allowUsage={false} />)
+  await screen.findByText('处理依据')
+  expect(basis()).toContain(zh)
+  expect(basis()).not.toMatch(/冻结|本地|固定/)
+  view.unmount()
+  setLocale('en')
+  const english = render(<TaskDetail {...props} customerView allowUsage={false} />)
+  await screen.findByText('Decision basis')
+  expect(basis()).toContain(en)
+  english.unmount()
+  setLocale('zh-CN')
+  render(<TaskDetail {...props} />)
+  await screen.findByText('输入版本')
+  expect(basis()).toContain(staff)
+})
+const customerSourceConflictZh = '本次任务使用的资料或版本与记录不一致。请重新读取任务，核对所选资料和版本。如果仍有问题，请联系客服。'
+const customerSourceConflictEn = 'The materials or version used for this task do not match its record. Reload the task and check the selected materials and version. If the issue persists, contact support.'
+
+it.each(['source_conflict', 'task_source_conflict'])('explains %s for the customer and staff across the review task views', async code => {
+  const workspace = { ...roundPlanWorkspace, allowed_actions: ['retry'],
+    task: { ...roundPlanWorkspace.task, status: 'failed', display_status: 'failed', error_code: code } }
+  const failure = { ...eventsFixture.items[0], status: 'failed', event_type: 'failed', error_category: 'source' }
+  const events = { ...eventsFixture, items: [{ ...failure, error_code: code }, { ...failure, seq: 2 }], next_cursor: 2 }
+  const fetch = vi.fn(async (url: string, init?: RequestInit) => {
+    if (init?.method === 'POST') return Response.json({ detail: { code } }, { status: 409 })
+    if (url.includes('/events?after=2')) return Response.json({ ...events, items: [] })
+    return Response.json(url.includes('/events') ? events : workspace)
+  })
+  vi.stubGlobal('fetch', fetch)
+  const page = render(<TaskDetail {...props} allowUsage={false} customerView />)
+  const records = await screen.findByRole('region', { name: '执行记录' })
+  await waitFor(() => expect(within(records).getAllByRole('listitem')).toHaveLength(2))
+  expect(page.container.querySelector('.task-overview-view .warning-panel')?.textContent).toBe(customerSourceConflictZh)
+  expect(within(records).getAllByText(customerSourceConflictZh)).toHaveLength(2)
+  fireEvent.click(screen.getByRole('button', { name: '重试原任务' }))
+  expect((await screen.findByRole('alert')).textContent).toBe(customerSourceConflictZh)
+
+  act(() => setLocale('en'))
+  expect(screen.getAllByText(customerSourceConflictEn)).toHaveLength(4)
+  expect(page.container.textContent).not.toMatch(/frozen|冻结/i)
+  expect(fetch.mock.calls.filter(([, init]) => init?.method === 'POST')).toHaveLength(1)
+
+  page.unmount()
+  const staff = render(<TaskDetail {...props} allowUsage={false} />)
+  await screen.findByText(/review the frozen source/i, { selector: '.task-overview-view .warning-panel' })
+  await waitFor(() => expect(staff.container.querySelectorAll('.task-event-error')).toHaveLength(2))
+  expect(screen.getAllByText(/review the frozen source/i)).toHaveLength(3)
+  act(() => setLocale('zh-CN'))
+  expect(screen.getAllByText(/核对冻结的来源/)).toHaveLength(3)
+})
+
+it('explains a source conflict when the customer reloads a review task workspace', async () => {
+  vi.stubGlobal('fetch', vi.fn(async () => Response.json({ detail: { code: 'task_source_conflict' } }, { status: 409 })))
+  render(<TaskDetail {...props} customerView view="overview" />)
+  expect((await screen.findByRole('alert')).textContent).toBe(customerSourceConflictZh)
+  act(() => setLocale('en'))
+  expect(screen.getByRole('alert').textContent).toBe(customerSourceConflictEn)
+})

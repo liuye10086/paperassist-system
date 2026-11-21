@@ -13,6 +13,7 @@ import secrets
 import shutil
 import subprocess
 import sys
+from urllib.parse import urlsplit
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / 'backend'))
@@ -111,6 +112,16 @@ def prepare(root: Path, values: dict, *, test_id=None, assets: Path | None = Non
     schema = 'pa_test_' + test_id if test_id else 'public'
     if values.get('PAPERASSIST_ENV', 'development') != mode or values.get('PAPERASSIST_DB_SCHEMA', 'public') != schema:
         raise ValueError('Stack environment/schema does not match its explicit mode.')
+    renderer_host = None
+    if not test_id:
+        from app.adapters.pdf_renderer import renderer_base_url
+        endpoint = urlsplit(renderer_base_url(values))
+        if (endpoint.scheme != 'http' or endpoint.hostname not in ('localhost', '127.0.0.1', '::1')
+                or endpoint.username is not None or endpoint.password is not None or endpoint.query
+                or endpoint.fragment or endpoint.path not in ('', '/') or endpoint.port == 0):
+            raise ValueError('The development Word field service requires a loopback HTTP address.')
+        renderer_host = {'published': str(endpoint.port or 80),
+                         'host_ip': '::1' if endpoint.hostname == '::1' else '127.0.0.1'}
     key = 'PAPERASSIST_TEST_DATABASE_URL' if test_id else 'PAPERASSIST_DATABASE_URL'
     from app.db.database import DatabaseConfig
     config = DatabaseConfig(mode, values.get(key, ''), schema)
@@ -194,11 +205,13 @@ def prepare(root: Path, values: dict, *, test_id=None, assets: Path | None = Non
                                   + '\0' + reader_live_enabled + '\0' + fonts + '\0' + str(data) + '\0' + build_fingerprint()
                                   + '\0' + str(staging_source) + '\0' + str(insights_staging_source) + '\0' + str(research_staging_source)
                                   + '\0' + tabular_manifest_path
+                                  + '\0' + json.dumps(renderer_host)
                                   + '\0' + hashlib.sha256((directory / 'bio-insights-runtime.json').read_bytes()).hexdigest()
                                   + '\0' + hashlib.sha256((directory / 'bio-tabular-runtime.json').read_bytes()).hexdigest()
                                   + '\0' + hashlib.sha256((directory / 'bulk-model-runtime.json').read_bytes()).hexdigest()
                                   + '\0' + hashlib.sha256((directory / 'bulk-display-runtime.json').read_bytes()).hexdigest()).encode()).hexdigest()
     environment = {
+        'COMPOSE_PROFILES': 'host-word-fields' if renderer_host else '',
         'PAPERASSIST_STACK_PROJECT': project,
         'PAPERASSIST_STACK_ROOT': str(root),
         'PAPERASSIST_STACK_PRIVATE': str(directory),
@@ -225,6 +238,9 @@ def prepare(root: Path, values: dict, *, test_id=None, assets: Path | None = Non
         'PAPERASSIST_RESEARCH_STAGING_DIR': '/research-staging',
         'PAPERASSIST_RESEARCH_STAGING_SOURCE': str(research_staging_source),
     }
+    if renderer_host:
+        environment['PAPERASSIST_RENDERER_HOST_IP'] = renderer_host['host_ip']
+        environment['PAPERASSIST_RENDERER_HOST_PORT'] = renderer_host['published']
     private_write(directory / 'stack.json', json.dumps({'root': str(root), 'project': project,
                                                        'environment': environment}, indent=2))
     return Stack(root, directory, project, environment)
@@ -306,7 +322,7 @@ def stop(stack: Stack) -> None:
     containers = owned_containers(stack)
     if not containers:
         return
-    for name in ('dispatcher', 'worker', 'pdf-renderer', 'rabbitmq'):
+    for name in ('word-host', 'dispatcher', 'worker', 'pdf-renderer', 'rabbitmq'):
         for item in containers:
             if item['service'] == name and item['status'] == 'running':
                 docker(['stop', '--time', '45', item['id']], timeout=60)
@@ -318,7 +334,10 @@ def start(stack: Stack) -> None:
     revision = stack.environment.get('PAPERASSIST_WORKER_CONFIG_REVISION', '')
     applied_path = stack.directory / 'applied-config-revision'
     configuration_applied = applied_path.exists() and applied_path.read_text(encoding='utf-8') == revision
-    if (configuration_applied and len(before) == 4 and {item['service'] for item in before} == {'worker', 'dispatcher', 'rabbitmq', 'pdf-renderer'}
+    services = {'worker', 'dispatcher', 'rabbitmq', 'pdf-renderer'}
+    if stack.environment.get('COMPOSE_PROFILES') == 'host-word-fields':
+        services.add('word-host')
+    if (configuration_applied and len(before) == len(services) and {item['service'] for item in before} == services
             and all(item['status'] == 'running' and item['health'] == 'healthy' for item in before)):
         return
     previously_running = {item['id'] for item in before if item['status'] == 'running'}

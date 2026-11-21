@@ -1,6 +1,39 @@
 from tests.api.test_analysis import client
 from tests.api.test_manuscript_review_v2_bridge import published
 
+def test_review_plan_retry_rechecks_sealed_sources_and_reuses_failed_task(client, monkeypatch):
+    from app.adapters.task_store import source_conflict
+    from app.domain.review_rounds.execution import run_review_round_task
+    from app.domain.review_rounds.service import ReviewRoundService
+
+    root,base,_,_=published(client)
+    reviews='/api/v1/projects/'+root.split('/')[4]+'/reviews'
+    payload=dict(title='Fixed parent review',project_type='sci',
+                 manuscript=dict(id=root.split('/')[-1],revision=base['revision'],version_id=base['id']),
+                 synthetic=True,sources=[dict(role='reviewer',label='Reviewer 1',format='text',
+                 text='Clarify the existing method.')],materials=[])
+    created=client.post(reviews+'/rounds',json=payload,headers={'Idempotency-Key':'recover-original-plan'})
+    assert created.status_code==202,created.text
+    saved=created.json();task_id=saved['task']['id'];task_path='/api/v1/tasks/'+task_id
+    with monkeypatch.context() as patch:
+        def invalid_parent(*_):
+            raise source_conflict()
+        patch.setattr(ReviewRoundService,'fixed',invalid_parent)
+        failed=run_review_round_task(task_id,1)
+        assert failed['status']=='failed' and failed['error_code']=='task_source_conflict'
+        assert 'retry' not in client.get(task_path+'/workspace').json()['allowed_actions']
+        assert client.post(task_path+'/retry',json={'expected_revision':failed['revision']}).status_code==409
+    workspace=client.get(task_path+'/workspace')
+    assert workspace.status_code==200,workspace.text
+    assert workspace.json()['allowed_actions']==['retry']
+    retried=client.post(task_path+'/retry',json={'expected_revision':failed['revision']})
+    assert retried.status_code==202,retried.text
+    assert retried.json()['id']==task_id
+    assert run_review_round_task(task_id,retried.json()['revision'])['status']=='succeeded'
+    round_view=client.get(reviews+'/rounds/'+saved['id']).json()
+    assert round_view['task']['id']==task_id and round_view['manuscript']['version_id']==base['id']
+    assert len(round_view['versions'])==1 and len(round_view['items'])==1
+
 def test_review_round_fixed_input_and_public_worker(client):
     root,base,_,_=published(client)
     project=root.split('/')[4];url=f'/api/v1/projects/{project}/reviews'

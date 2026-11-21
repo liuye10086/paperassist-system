@@ -295,3 +295,27 @@ it('warns before leaving a dirty project and retains its draft across steps', as
   expect(checkbox(singleCell).checked).toBe(true)
   expect(writes()).toHaveLength(0)
 })
+
+it.each(['analyzing', 'materials_submitted', 'delivered'])('explains the impact of updating requirements once an analyst works on them (%s)', async status => {
+  const { root } = server(version(emptyRequirement(), 'confirm'))
+  const fallback = vi.mocked(apiFetch).getMockImplementation()!
+  vi.mocked(apiFetch).mockImplementation(async (url, init) => url === `${base}/customer-workspace/progress`
+    ? Response.json({ status, requirement_version: 1, submitted_at: root.current_requirement?.created_at, updated_at: null,
+      note: null, feedback: [], submissions: [] })
+    : fallback(url, init))
+  await open()
+  expect(await screen.findByText('更新后，分析员需要按新需求重新核对。已发布的交付仍可下载。')).toBeTruthy()
+  expect(screen.getByRole('button', { name: '更新已提交的需求' })).toBeTruthy()
+})
+
+it('does not warn about analyst impact before an analyst is assigned', async () => {
+  server(version(emptyRequirement(), 'confirm'))
+  const fallback = vi.mocked(apiFetch).getMockImplementation()!
+  vi.mocked(apiFetch).mockImplementation(async (url, init) => url === `${base}/customer-workspace/progress`
+    ? Response.json({ status: 'pending_assignment', requirement_version: 1, submitted_at: null, updated_at: null, note: null, feedback: [], submissions: [] })
+    : fallback(url, init))
+  await open()
+  await waitFor(() => expect(vi.mocked(apiFetch).mock.calls.some(([url]) => url === `${base}/customer-workspace/progress`)).toBe(true))
+  expect(screen.queryByText('更新后，分析员需要按新需求重新核对。已发布的交付仍可下载。')).toBeNull()
+  expect(screen.getByRole('button', { name: '提交需求' })).toBeTruthy()
+})

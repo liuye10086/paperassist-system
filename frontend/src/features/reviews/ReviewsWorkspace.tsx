@@ -6,19 +6,28 @@ import ReturnContinuationPanel from './ReturnContinuationPanel'
 import ReviewSciencePanel from './ReviewSciencePanel'
 import ReviewProgressPanel from './ReviewProgressPanel'
 import ReviewSupplementResume from './ReviewSupplementResume'
-import type {NextRoundInput} from './continuationTypes'
+import type {ManuscriptInput,NextRoundInput} from './continuationTypes'
+import {versionLabelText} from '../../shared/versionLabelText'
 import ProjectDownloadLink from '../../shared/components/ProjectDownloadLink'
 import {useCallback,useContext,useEffect,useLayoutEffect,useRef,useState} from 'react'
 import {apiFetch,onApiSessionChanged} from '../../shared/api/client'
 import {apiError,safeError,useI18n} from '../../shared/i18n'
 import BatchUpload from '../files/BatchUpload'
+import useResearchDraft from '../research-results/useResearchDraft'
 import {useDocumentVisible} from '../tasks/useDocumentVisible'
+import {taskRequest,TaskRequestError} from '../tasks/taskApi'
 import {manuscriptVersionPath,validManuscriptVersion,sectionLabels,type SectionId,type Snapshot} from '../manuscripts/manuscriptTypes'
+import {customerPlanText} from './customerReviewDisplay'
 import {plannedSectionTitle} from '../manuscripts/paperPlan'
 import {categories,roles,itemEdit,reviewItemLabel,validInputs,validPreview,validRound,validSegments,type Inputs,type Round,type Preview,type Source,type Segment,type ItemEdit,type Item,type Material,type Location,type Role} from './reviewTypes'
-import {manuscriptHash} from './continuationTypes'
+import type {AnalysisPick} from '../customer/CustomerAnalysisResults'
 import './reviews.css'
 export type ReviewRoundSelection = { created?: boolean; continuation?: NextRoundInput }
+type CreationAttempt = { body: string; key: string }
+/** One opinion that sends the customer to the analysis results (B05 task 5, wireframe 17). */
+export type AnalysisPlace = { roundId: string; itemId: string; roundNumber: number; itemNumber: number }
+/** Where a manuscript was opened from: the round, and the opinion when one is selected (B05 task 7). */
+export type ManuscriptPlace = { roundNumber: number; itemNumber?: number }
 type Props = {
  view?: ReviewView
  selectedItemId?: string
@@ -39,8 +48,17 @@ type Props = {
  initialDocument?: string
  onSelectRound: (id: string, selection?: ReviewRoundSelection) => void
  onOpenTask: (id: string) => void
- onOpenAnalysisDeliveries?: () => void
+ /** Customer layout and wording; operators keep the original page. */
+ customer?: boolean
+ /** Customer: open the analysis results for one opinion that needs them (B05 task 5). */
+ onOpenAnalysisResults?: (place: AnalysisPlace) => void
+ /** Customer: the analysis result last downloaded for an opinion, kept for this browser tab only. */
+ analysisPick?: AnalysisPick | null
+ /** Customer return page navigation (B04 task 13); operators keep hash links. */
+ onOpenRound?: (id: string) => void
+ onOpenManuscript?: (manuscript: ManuscriptInput, place: ManuscriptPlace) => void
 }
+const noFileIds=():string[]=>[]
 export default function ReviewsWorkspace(props:Props){return <ReviewWorkspace key={props.projectId} {...props}/>}
 type ControllerEntry = {
  key: string
@@ -75,7 +93,7 @@ function ReviewWorkspace(props:Props){
      else props.onSelectRound(id)
     }}
     onPrepareNext={input=>{
-     if(props.onOpenAnalysisDeliveries) props.onSelectRound('',{continuation:input})
+     if(props.customer) props.onSelectRound('',{continuation:input})
      else {
       setNextInput(input)
       props.onSelectRound('')
@@ -86,20 +104,27 @@ function ReviewWorkspace(props:Props){
  </ReviewActivityContext.Provider>
 }
 type ReviewProps=Props&{nextInput:NextRoundInput|null;onPrepareNext:(input:NextRoundInput)=>void}
-function Reviews({projectId,projectType,active,roundId,initialManuscript,initialRevision,initialPreviousRound,initialReturn,initialRun,initialDocument,onSelectRound,onOpenTask,nextInput,onPrepareNext,view,selectedItemId,onViewChange,onSelectItem,onSelectRun,onSelectDocument,onOpenAnalysisDeliveries}:ReviewProps){
- const {t}=useI18n(),visible=useDocumentVisible(),base=`/api/v1/projects/${encodeURIComponent(projectId)}/reviews`
+function Reviews({projectId,projectType,active,roundId,initialManuscript,initialRevision,initialPreviousRound,initialReturn,initialRun,initialDocument,onSelectRound,onOpenTask,nextInput,onPrepareNext,view,selectedItemId,onViewChange,onSelectItem,onSelectRun,onSelectDocument,customer=false,onOpenAnalysisResults,analysisPick,onOpenRound,onOpenManuscript}:ReviewProps){
+ const {t,locale}=useI18n(),visible=useDocumentVisible(),base=`/api/v1/projects/${encodeURIComponent(projectId)}/reviews`
  const registerLeaveGuard = useContext(ReviewActivityContext)
- const customer = !!onOpenAnalysisDeliveries
  const pinnedParent = customer && !!initialManuscript && !!initialRevision
  const [inputs,setInputs]=useState<Inputs|null>(null),[rounds,setRounds]=useState<Round[]>([]),[round,setRound]=useState<Round|null>(null),[edits,setEdits]=useState<ItemEdit[]>([]),[materials,setMaterials]=useState<Material[]>([])
  const [title,setTitle]=useState(''),[versionId,setVersionId]=useState(nextInput?.manuscript.version_id??''),[previousRoundId,setPreviousRoundId]=useState(nextInput?.previous_round_id??initialPreviousRound??''),[userReturnId,setUserReturnId]=useState(nextInput?.user_return_id??initialReturn??''),[constraint,setConstraint]=useState(''),[sources,setSources]=useState<Source[]>([]),[upload,setUpload]=useState(false)
  const [source,setSource]=useState<Source>({role:projectType==='sci'?'reviewer':'advisor',label:'',format:'text',text:'',segments:[]}),[preview,setPreview]=useState<Preview|null>(null)
  const [busy,setBusy]=useState(false),[error,setError]=useState(''),[notice,setNotice]=useState(''),[blocked,setBlocked]=useState(false),[refresh,setRefresh]=useState(0),[snapshot,setSnapshot]=useState<Snapshot|null>(null),[history,setHistory]=useState<number|null>(null),[decisionDraft,setDecisionDraft]=useState<Record<string,{action:string;reason:string}>>({})
  const [locationError,setLocationError]=useState('')
+ const [uncertainCreation,setUncertainCreation]=useState<CreationAttempt|null>(null)
+ // The previous mixed key also included evidence uploads and cannot identify a returned manuscript.
+ const [returnUploadIds,setReturnUploadIds]=useResearchDraft<string[]>(projectId,`review-return-upload-files:${roundId}`,noFileIds)
+ const [pendingReturnItems,setPendingReturnItems]=useResearchDraft<string[]>(projectId,`review-return-upload-items:${roundId}`,noFileIds)
+ const [uploadOpinions,setUploadOpinions]=useResearchDraft<Record<string,string>>(projectId,`review-upload-opinions:${roundId}`,()=>({}))
+ const parsedItemsByFile=useRef(new Map<string,string>()),appliedFiles=useRef(new Set<string>())
+ const preselect=useRef<{itemId:string;fileIds:string[]}|null>(null),placeRef=useRef<HTMLParagraphElement|null>(null)
+ const [preselected,setPreselected]=useState('')
  const creationActive=useRef(active);useLayoutEffect(()=>{creationActive.current=active&&(!view||view==='create')},[active,view])
  const draftDirty=useRef(false),loadedRound=useRef<string|null>(null),loadedRevision=useRef<number|null>(null),entryApplied=useRef(false)
  const alive=useRef(true),lifetime=useRef(new AbortController()),lock=useRef(false),attempts=useRef(new Map<string,{body:string;key:string}>())
- const clear=useCallback(()=>{alive.current=false;lifetime.current.abort();setBlocked(true);setInputs(null);setRounds([]);setRound(null);setEdits([]);setMaterials([]);setDecisionDraft({});setSources([]);setSource({role:'reviewer',label:'',format:'text',text:'',segments:[]});setPreview(null);setSnapshot(null);setTitle('');setVersionId('');setConstraint('');setNotice('');setError('');setLocationError('');setUpload(false);attempts.current.clear()},[])
+ const clear=useCallback(()=>{alive.current=false;lifetime.current.abort();setBlocked(true);setInputs(null);setRounds([]);setRound(null);setEdits([]);setMaterials([]);setDecisionDraft({});setSources([]);setSource({role:'reviewer',label:'',format:'text',text:'',segments:[]});setPreview(null);setSnapshot(null);setTitle('');setVersionId('');setConstraint('');setNotice('');setError('');setLocationError('');setUpload(false);setUncertainCreation(null);attempts.current.clear()},[])
  useEffect(()=>{alive.current=true;if(lifetime.current.signal.aborted)lifetime.current=new AbortController();const old=lifetime.current,stop=onApiSessionChanged(clear);return()=>{alive.current=false;old.abort();stop()}},[clear])
  const request=useCallback(async<T,>(url:string,valid:(v:unknown)=>v is T,init?:RequestInit,signal?:AbortSignal):Promise<T>=>{const c=new AbortController(),parent=lifetime.current.signal,abort=()=>c.abort();parent.addEventListener('abort',abort,{once:true});signal?.addEventListener('abort',abort,{once:true});if(parent.aborted||signal?.aborted)c.abort();const timeout=window.setTimeout(abort,15000);try{const response=await apiFetch(url,{...init,signal:c.signal});const data=await response.json().catch(()=>null);if(!alive.current||parent.aborted||c.signal.aborted)throw new DOMException('Aborted','AbortError');if(response.status===401||response.status===403||(response.status===404&&data?.detail?.code==='project_not_found')){clear();throw new DOMException('Unavailable','AbortError')}if(!response.ok)throw new Error(apiError(data,'意见计划请求失败，请刷新后重试。'));if(!valid(data))throw new Error('意见计划响应格式不正确，请刷新。');return data}finally{window.clearTimeout(timeout);parent.removeEventListener('abort',abort);signal?.removeEventListener('abort',abort)}},[clear])
  const roundValid=useCallback((v:unknown):v is Round=>validRound(v,projectId),[projectId])
@@ -133,18 +158,49 @@ function Reviews({projectId,projectType,active,roundId,initialManuscript,initial
  function changeSource(p:Partial<Source>){setSource(s=>({...s,...p}));setPreview(null)}
  async function previewSource(){await run(async()=>{if(!source.label.trim())throw new Error('请填写来源身份。');const payload={...source,label:source.label.trim(),segments:undefined};const p=await mutate('/sources/preview',payload,validPreview);setPreview(p)})}
  function saveSource(){if(!preview?.supported||!validSegments(preview.original_text,preview.segments)){setError('分条必须按顺序完整覆盖原文，且不能重复。');return}setSources(old=>[...old,{...source,label:source.label.trim(),text:source.format==='text'?preview.original_text:undefined,segments:preview.segments.map(({start,end,original_number})=>({start,end,original_number}))}]);setSource({role:projectType==='sci'?'reviewer':'advisor',label:'',format:'text',text:'',segments:[]});setPreview(null)}
- async function create() {
-  await run(async()=>{
+ function newCreation():CreationAttempt {
    const manuscript = inputs?.manuscripts.find(m=>m.versions.some(v=>v.id===versionId&&v.status==='published'))
    const v = manuscript?.versions.find(v=>v.id===versionId)
    if(!title.trim()||!sources.length||!manuscript||!v)
     throw new Error('请填写轮次标题，选择已发布稿件版本，并保存至少一个来源。')
-   const r = await mutate('/rounds',{
+   const body=JSON.stringify({
     title:title.trim(),project_type:projectType,synthetic:!customer,
     manuscript:{id:manuscript.id,revision:v.revision,version_id:v.id},sources,materials,
     ...(previousRoundId?{previous_round_id:previousRoundId,user_return_id:userReturnId||null}:{}),
     ...(projectType==='sci'?{journal_target_id:constraint||null}:{school_confirmation_id:constraint||null}),
-   },roundValid)
+   })
+   return {body,key:crypto.randomUUID()}
+ }
+ async function create() {
+  await run(async()=>{
+   const attempt=uncertainCreation??newCreation()
+   const session=lifetime.current.signal
+   if(session.aborted)return
+   const controller=new AbortController()
+   const abort=()=>controller.abort()
+   session.addEventListener('abort',abort,{once:true})
+   let r:Round
+   try {
+    r=await taskRequest(base+'/rounds',controller,roundValid,'意见计划请求失败，请刷新后重试。',{
+     method:'POST',headers:{'Content-Type':'application/json','Idempotency-Key':attempt.key},body:attempt.body,
+    })
+   } catch(cause) {
+    if(session.aborted||!alive.current)return
+    if(cause instanceof TaskRequestError&&(
+     cause.status===401||cause.status===403||(cause.status===404&&cause.code==='project_not_found')
+    )){clear();return}
+    if(cause instanceof TaskRequestError&&cause.status>=400&&cause.status<500&&cause.status!==408){
+     setUncertainCreation(null)
+     throw cause
+    }
+    // A list read cannot identify this POST. Keep its original bytes and key for explicit replay.
+    setUncertainCreation(attempt)
+    throw new Error('请求结果未确认；请回读记录或使用原请求重试。')
+   } finally {
+    session.removeEventListener('abort',abort)
+   }
+   if(session.aborted||!alive.current)return
+   setUncertainCreation(null)
    setRound(null)
    loadedRound.current=null
    loadedRevision.current=null
@@ -180,7 +236,10 @@ function Reviews({projectId,projectType,active,roundId,initialManuscript,initial
  const importantEdits = edits.filter(i=>i.flags.length||i.proposed_action==='not_adopt')
  const displayedDecisions = customer ? importantEdits.filter(i=>i.id===selectedItemId) : importantEdits
 
- async function savePlan(){if(!round)return;await run(async()=>{const r=await mutate('/rounds/'+encodeURIComponent(round.id)+'/plans',{expected_revision:round.revision,items:edits,materials},roundValid);showRound(r);setNotice('意见计划已保存；意见仍待处理。')})}
+ async function savePlan(){if(!round)return;await run(async()=>{const r=await mutate('/rounds/'+encodeURIComponent(round.id)+'/plans',{expected_revision:round.revision,items:edits,materials},roundValid)
+  const savedItems=new Set([...appliedFiles.current].map(id=>parsedItemsByFile.current.get(id)))
+  if(savedItems.size)setUploadOpinions(old=>Object.fromEntries(Object.entries(old).filter(([id])=>!savedItems.has(id))))
+  showRound(r);setNotice('意见计划已保存；意见仍待处理。')})}
  async function saveDecisions() {
   if(!round)return
   await run(async()=>{
@@ -214,6 +273,30 @@ function Reviews({projectId,projectType,active,roundId,initialManuscript,initial
  useReviewDraftGuard(roundId?unsavedPlan:createDirty,busy)
  const inView=(...views:ReviewView[])=>!view||views.includes(view)
  const selectedItem=round?.items.find(i=>i.id===selectedItemId)
+ // Back from the analysis results (wireframe 17): uploads here are for the opinion in the address. Parsed files
+ // are ticked as an unsaved draft for this round and the opinion; nothing is saved until the customer saves the plan.
+ const uploadPlace=customer&&view==='supplements'&&round&&selectedItem
+  ? analysisPick
+   ? t('为 第 {round} 轮 · 意见 {item} 上传 · 来自 {project} · {delivery}',{round:round.round_number,item:selectedItem.number,project:analysisPick.researchProjectName,delivery:analysisPick.deliveryTitle})
+   : t('为 第 {round} 轮 · 意见 {item} 上传',{round:round.round_number,item:selectedItem.number})
+  : ''
+ const placing=!!uploadPlace
+ useEffect(()=>{if(placing&&active)placeRef.current?.focus({preventScroll:true})},[placing,active,selectedItemId])
+ useEffect(()=>{
+  const pending=preselect.current
+  if(!pending?.fileIds.length||!inputs||!round?.items.some(i=>i.id===pending.itemId))return
+  const found=pending.fileIds.filter(id=>!appliedFiles.current.has(id)).flatMap(fileId=>{
+   const latest=inputs.documents.filter(d=>d.file_id===fileId).reduce<Inputs['documents'][number]|undefined>((best,d)=>!best||d.version>best.version?d:best,undefined)
+   return latest?[latest]:[]
+  })
+  if(!found.length)return
+  pending.fileIds=pending.fileIds.filter(id=>!found.some(d=>d.file_id===id))
+  for(const document of found)appliedFiles.current.add(document.file_id)
+  draftDirty.current=true
+  setMaterials(old=>[...old,...found.filter(d=>!old.some(m=>m.id===d.document_version_id)).map((d):Material=>({kind:'document_version',file_id:d.file_id,id:d.document_version_id}))])
+  setEdits(old=>old.map(i=>i.id===pending.itemId?{...i,evidence_ids:[...new Set([...i.evidence_ids,...found.map(d=>d.document_version_id)])]}:i))
+  setPreselected(pending.itemId)
+ },[inputs,round])
  const available=inputs?.documents??[],locations=locationOptions(snapshot,t),readonly=history!==null,shown=readonly?round?.versions.find(v=>v.revision===history)?.items??[]:round?.items??[]
  const evidenceNames=new Map([
   ...(snapshot?.sources??[]).map(source=>[source.id,source.label] as const),
@@ -253,7 +336,7 @@ function Reviews({projectId,projectType,active,roundId,initialManuscript,initial
  <button type="button" disabled={busy} onClick={()=>setRefresh(x=>x+1)}>{t('刷新意见记录')}</button>
  {view&&<nav className="review-view-tabs" aria-label={t('评审工作视图')}>{tabs.map(tab=>
   <button type="button" key={tab} aria-current={view===tab?'page':undefined} onClick={()=>onViewChange?.(tab)}>
-   {t(customer&&tab==='science'?'分析材料补充':reviewViewLabels[tab])}
+   {t(customer?customerReviewViewLabels(projectType)[tab]:reviewViewLabels[tab])}
   </button>)}</nav>}
  <div hidden={!inView('list')}>
   <nav className="review-rounds" aria-label={t('意见轮次')}>
@@ -264,7 +347,9 @@ function Reviews({projectId,projectType,active,roundId,initialManuscript,initial
   </nav>
   {customer&&inputs&&!rounds.length&&<p className="muted">{t('尚无意见轮次。')}</p>}
  </div>
- {!roundId&&<div hidden={!inView('create')}><fieldset disabled={busy||!inputs} className="review-create">
+ {!roundId&&<div hidden={!inView('create')}>
+ {uncertainCreation&&<button type="button" disabled={busy} onClick={()=>void create()}>{t('使用原请求重试')}</button>}
+ <fieldset disabled={busy||!inputs||!!uncertainCreation} className="review-create">
   <legend>{t('新建意见轮次')}</legend>
   <label>{t('上一轮意见')}<select disabled={pinnedParent&&!!initialPreviousRound} value={previousRoundId} onChange={e=>{
    setPreviousRoundId(e.target.value);setUserReturnId('')
@@ -273,14 +358,14 @@ function Reviews({projectId,projectType,active,roundId,initialManuscript,initial
    <option value="">{t('独立首轮（不关联上一轮）')}</option>
    {rounds.map(r=><option key={r.id} value={r.id}>{t('第 {number} 轮',{number:r.round_number})} · {r.title}</option>)}
   </select></label>
-  {userReturnId&&<p>{t('已选择成功发布的回传新稿作为本轮固定输入。')}</p>}
+  {userReturnId&&<p>{t(customer?'已带入采用后的返回稿。':'已选择成功发布的回传新稿作为本轮固定输入。')}</p>}
   <label>{t('轮次标题')}<input value={title} maxLength={200} onChange={e=>setTitle(e.target.value)}/></label>
   <label>{t('固定稿件版本')}<select disabled={pinnedParent} value={versionId} onChange={e=>{
    setSnapshot(null);setConstraint('');setVersionId(e.target.value);setUserReturnId('')
   }}>
    <option value="">{t('请选择已发布版本')}</option>
    {inputs?.manuscripts.flatMap(m=>m.versions.filter(v=>v.status==='published').map(v=>
-    <option key={v.id} value={v.id}>{v.title||m.title} · {t('版本 {number}',{number:v.revision})}</option>))}
+    <option key={v.id} value={v.id}>{v.title||m.title} · {customer?versionLabelText(t,locale,v.revision,v.saved_at??''):t('版本 {number}',{number:v.revision})}</option>))}
   </select></label>
   {!customer&&<p>{t('允许选择旧版；创建后不会自动切换到最新稿。')}</p>}
   <label>{t(projectType==='sci'?'关联期刊目标（可选）':'固定稿件的学校确认')}
@@ -289,26 +374,50 @@ function Reviews({projectId,projectType,active,roundId,initialManuscript,initial
     {(projectType==='sci'?inputs?.journal_targets:inputs?.school_confirmations)?.map(c=><option key={c.id} value={c.id}>{c.label}</option>)}
    </select>
   </label>
- <fieldset><legend>{t('添加意见来源')}</legend><label>{t('来源角色')}<select value={source.role} onChange={e=>changeSource({role:e.target.value as Role})}>{(projectType==='sci'?['editor','reviewer']:['advisor','evaluator','defense']).map(role=><option key={role} value={role}>{t(roles[role as Role])}</option>)}</select></label><label>{t('来源身份')}<input value={source.label} maxLength={120} onChange={e=>changeSource({label:e.target.value})} placeholder={projectType==='sci'?'Reviewer 1':t('导师意见')}/></label><label>{t('收到日期')}<input type="date" value={source.received_on??''} onChange={e=>changeSource({received_on:e.target.value||null})}/></label><label>{t('来源方式')}<select value={source.format} onChange={e=>changeSource({format:e.target.value as Source['format'],text:'',file_id:undefined,document_version_id:undefined})}><option value="text">{t('粘贴原文')}</option><option value="document">{t('已解析 DOCX / PDF')}</option></select></label>{source.format==='text'?<label>{t('意见原文')}<textarea rows={7} value={source.text??''} onChange={e=>changeSource({text:e.target.value})}/></label>:<label>{t('选择固定解析版本')}<select value={source.document_version_id??''} onChange={e=>{const d=available.find(d=>d.document_version_id===e.target.value);changeSource({document_version_id:d?.document_version_id,file_id:d?.file_id})}}><option value="">{t('请选择解析文件')}</option>{available.map(d=><option key={d.document_version_id} value={d.document_version_id}>{d.filename} · {t('版本 {number}',{number:d.version})}</option>)}</select></label>}<button type="button" onClick={()=>void previewSource()}>{t('预览并分条')}</button>
+ <fieldset><legend>{t('添加意见来源')}</legend><label>{t('来源角色')}<select value={source.role} onChange={e=>changeSource({role:e.target.value as Role})}>{(projectType==='sci'?['editor','reviewer']:['advisor','evaluator','defense']).map(role=><option key={role} value={role}>{t(roles[role as Role])}</option>)}</select></label><label>{t('来源身份')}<input value={source.label} maxLength={120} onChange={e=>changeSource({label:e.target.value})} placeholder={projectType==='sci'?'Reviewer 1':t('导师意见')}/></label><label>{t('收到日期')}<input type="date" value={source.received_on??''} onChange={e=>changeSource({received_on:e.target.value||null})}/></label><label>{t('来源方式')}<select value={source.format} onChange={e=>changeSource({format:e.target.value as Source['format'],text:'',file_id:undefined,document_version_id:undefined})}><option value="text">{t('粘贴原文')}</option><option value="document">{t(customer?'已解析的 Word 或 PDF':'已解析 DOCX / PDF')}</option></select></label>{source.format==='text'?<label>{t('意见原文')}<textarea rows={7} value={source.text??''} onChange={e=>changeSource({text:e.target.value})}/></label>:<label>{t('选择固定解析版本')}<select value={source.document_version_id??''} onChange={e=>{const d=available.find(d=>d.document_version_id===e.target.value);changeSource({document_version_id:d?.document_version_id,file_id:d?.file_id})}}><option value="">{t('请选择解析文件')}</option>{available.map(d=><option key={d.document_version_id} value={d.document_version_id}>{d.filename} · {t('版本 {number}',{number:d.version})}</option>)}</select></label>}<button type="button" onClick={()=>void previewSource()}>{t('预览并分条')}</button>
  {preview&&<SourcePreview preview={preview} onChange={setPreview} onSave={saveSource}/>}</fieldset>
- {sources.map((s,i)=><article className="review-source" key={i}><strong>{t(roles[s.role])} · {s.label}</strong><span> · {t('{number} 条意见',{number:s.segments.length})}</span><button type="button" onClick={()=>setSources(old=>old.filter((_,n)=>n!==i))}>{t('移除此来源')}</button></article>)}
+ {sources.map((s,i)=><article className="review-source" key={i}><strong>{t(roles[s.role])} · {s.label}</strong><span> · {t(s.segments.length===1?'1 条意见':'{number} 条意见',{number:s.segments.length})}</span><button type="button" onClick={()=>setSources(old=>old.filter((_,n)=>n!==i))}>{t('移除此来源')}</button></article>)}
  <MaterialPicker documents={available} materials={materials} onChange={changeMaterials}/><button type="button" className="button-primary" onClick={()=>void create()}>{t('创建本轮意见计划')}</button></fieldset></div>}
  <div hidden={!inView('create','supplements','continuation')}>
   {!customer&&<button type="button" aria-expanded={upload} onClick={()=>setUpload(v=>!v)}>
    {t(upload?'收起上传入口':'上传并解析新的 DOCX / PDF')}
   </button>}
-  {upload&&<BatchUpload projectId={projectId} active={active&&inView('create','supplements','continuation')}
+  {uploadPlace&&<p ref={placeRef} tabIndex={-1} role="status" className="review-carried">{uploadPlace}</p>}
+  {upload&&(!customer||view!=='supplements'||!selectedItemId||selectedItem)&&<BatchUpload key={customer?(view==='supplements'?`supplements:${selectedItemId}`:view):undefined}
+   trackedItems={uploadPlace&&selectedItem?{
+    ids:Object.keys(uploadOpinions).filter(id=>uploadOpinions[id]===selectedItem.id),
+    register:ids=>setUploadOpinions(old=>({...old,...Object.fromEntries(ids.map(id=>[id,selectedItem.id]))})),
+   }:customer&&view==='continuation'&&roundId?{
+    ids:pendingReturnItems,
+    register:ids=>setPendingReturnItems(old=>[...new Set([...old,...ids])]),
+   }:undefined}
+   projectId={projectId} active={active&&inView('create','supplements','continuation')}
    reviewDocument={customer} registerLeaveGuard={registerLeaveGuard} embedded={customer} customerView={customer}
-   onUnavailable={clear} onChanged={()=>setRefresh(x=>x+1)}/>}
+   onUnavailable={clear} onChanged={(fileIds,parsedItems)=>{
+    for(const item of parsedItems??[])if(item.file_id)parsedItemsByFile.current.set(item.file_id,item.id)
+    if(customer&&view==='continuation'&&roundId&&fileIds?.length){
+     setReturnUploadIds(old=>[...new Set([...old,...fileIds])])
+     if(parsedItems?.length){
+      const completed=new Set(parsedItems.map(item=>item.id))
+      setPendingReturnItems(old=>old.filter(id=>!completed.has(id)))
+     }
+    }
+    if(fileIds?.length&&uploadPlace&&selectedItem){
+     const kept=preselect.current?.itemId===selectedItem.id?preselect.current.fileIds:[]
+     preselect.current={itemId:selectedItem.id,fileIds:[...new Set([...kept,...fileIds])]}
+    }
+    setRefresh(x=>x+1)
+   }}/>}
  </div>
- {roundId&&!round&&!error&&<p role="status">{t('正在读取本轮意见……')}</p>}{round&&<><header className="review-round-heading"><h3>{t('第 {number} 轮',{number:round.round_number})} · {round.title}</h3><p>{round.manuscript.title}{customer?<>{' · '}<a href={manuscriptHash(projectId,round.manuscript)}>{t('查看原稿')}</a></>:<> · {t('固定版本 {number}',{number:round.manuscript.revision})}</>}</p><p>{t(round.task.status==='succeeded'?'计划已保存，意见待处理':round.task.status==='waiting_input'?'本轮计划等待补充材料':round.task.status==='waiting_confirmation'?'本轮计划等待用户确认':round.task.status==='failed'?'本轮计划执行失败，请查看任务后安全重试。':'本轮计划处理中')}</p><button type="button" onClick={()=>onOpenTask(round.task.id)}>{t('查看任务与继续本地计划')}</button></header>
+ {roundId&&!round&&!error&&<p role="status">{t('正在读取本轮意见……')}</p>}{round&&<><header className="review-round-heading"><h3 tabIndex={customer?-1:undefined} data-review-return-focus={customer&&active&&view!=='continuation'&&(view!=='plan'||!selectedItem)?true:undefined}>{t('第 {number} 轮',{number:round.round_number})} · {round.title}</h3><p>{round.manuscript.title}{customer?onOpenManuscript&&<>{' · '}<button type="button" className="button-quiet" onClick={()=>onOpenManuscript(round.manuscript,{roundNumber:round.round_number,itemNumber:selectedItem?.number})}>{t('查看原稿')}</button></>:<> · {t('固定版本 {number}',{number:round.manuscript.revision})}</>}</p><p>{t(round.task.status==='succeeded'?'计划已保存，意见待处理':round.task.status==='waiting_input'?'本轮计划等待补充材料':round.task.status==='waiting_confirmation'?'本轮计划等待用户确认':round.task.status==='failed'?'本轮计划执行失败，请查看任务后安全重试。':'本轮计划处理中')}</p><button type="button" onClick={()=>onOpenTask(round.task.id)}>{t(customer?'查看本轮任务':'查看任务与继续本地计划')}</button></header>
  <div hidden={!inView('sources')}>
   {customer?<section aria-label={t('本轮来源原文')}><h4>{t('本轮来源原文')}</h4>{sourceRecords}</section>
    :<details open={!!view}><summary>{t('本轮来源原文')}</summary>{sourceRecords}</details>}
  </div>
- {view&&<section hidden={!inView('items')} aria-label={t('选择处理意见')}><h3>{t('选择处理意见')}</h3>{round.items.map(item=><button className="review-opinion-row" type="button" key={item.id} aria-current={selectedItemId===item.id?'true':undefined} onClick={()=>openItem(item.id)}><strong>{reviewItemLabel(item.number,round.sources.find(s=>s.id===item.source_id)?.label,t)}</strong><span>{item.original_text}</span><small>{t(itemStatuses[item.status])}</small></button>)}</section>}
+ {view&&<section hidden={!inView('items')} aria-label={t('选择处理意见')}><h3>{t('选择处理意见')}</h3>{round.items.map(item=><button className="review-opinion-row" type="button" key={item.id} aria-current={selectedItemId===item.id?'true':undefined} onClick={()=>openItem(item.id)}><strong>{reviewItemLabel(item.number,round.sources.find(s=>s.id===item.source_id)?.label,t)}</strong><span>{item.original_text}</span><small>{t(itemStatusLabel(item,customer))}</small></button>)}</section>}
  <div hidden={!inView('plan')}>
-  {view&&<label>{t('当前处理意见')}<select value={selectedItemId??''} onChange={e=>onSelectItem?.(e.target.value)}>
+  {view&&<label>{t('当前处理意见')}<select data-review-return-focus={customer&&active&&view==='plan'&&selectedItem?true:undefined}
+   value={selectedItemId??''} onChange={e=>onSelectItem?.(e.target.value)}>
    <option value="">{t('请选择意见')}</option>
    {round.items.map(i=><option key={i.id} value={i.id}>{reviewItemLabel(i.number,round.sources.find(s=>s.id===i.source_id)?.label,t)}</option>)}
   </select></label>}
@@ -326,8 +435,9 @@ function Reviews({projectId,projectType,active,roundId,initialManuscript,initial
     const edit=readonly?itemEdit(item):edits.find(e=>e.id===item.id)
     return edit&&<div key={item.id} hidden={!!view&&selectedItemId!==item.id}>
      <ReviewItem key={item.id+':'+String(history)} item={item} edit={edit} sources={round.sources} locations={locations}
+      planText={customer?customerPlanText(round,item,edit.plan,history??round.revision,locations,t,evidenceNames):edit.plan}
       documents={available.filter(d=>materials.some(m=>m.id===d.document_version_id))}
-      frozenSources={snapshot?.sources??[]} allItems={round.items} onChange={patch=>update(item.id,patch)}/>
+      frozenSources={snapshot?.sources??[]} allItems={round.items} customer={customer} onChange={patch=>update(item.id,patch)}/>
     </div>
    })}
    <MaterialPicker documents={available} materials={materials} onChange={changeMaterials}/>
@@ -358,25 +468,32 @@ function Reviews({projectId,projectType,active,roundId,initialManuscript,initial
   </section>
  </div>
  <div hidden={!inView('continuation')}>
-  <ReturnContinuationPanel projectId={projectId} round={round} documents={available} active={active&&inView('continuation')}
-   expanded={view==='continuation'} customer={customer} onPrepareNext={onPrepareNext} onOpenTask={onOpenTask}/>
+  <ReturnContinuationPanel projectId={projectId} projectType={projectType} round={round} documents={available}
+   recentFileIds={returnUploadIds} active={active&&inView('continuation')}
+   expanded={view==='continuation'} customer={customer} onPrepareNext={onPrepareNext} onOpenTask={onOpenTask}
+   onOpenRound={onOpenRound} onOpenManuscript={onOpenManuscript}/>
  </div>
  <div hidden={!inView('science')}>
-  {onOpenAnalysisDeliveries ? <section className="manuscript-panel">
+  {customer ? <section className="manuscript-panel">
    <h3>{t('分析材料补充')}</h3>
-   <p>{t('从分析项目下载已发布的 Word 材料，在本轮上传解析，然后在处理计划中选择对应的固定材料版本。')}</p>
-   <div className="review-inline-actions">
-    <button type="button" onClick={onOpenAnalysisDeliveries}>{t('前往已发布分析交付')}</button>
-    <button type="button" onClick={()=>onViewChange?.('supplements')}>{t('上传补充材料')}</button>
-   </div>
+   <p>{t('需要分析结果的意见，可以从你的分析项目取用已发布的成果，下载后回到这条意见上传 Word 文件。')}</p>
    {round.items.filter(item=>item.needs.length>0).map(item=><article key={item.id}>
-    <h4>{reviewItemLabel(item.number,round.sources.find(s=>s.id===item.source_id)?.label,t)} · {t(itemStatuses[item.status])}</h4>
+    <h4>{reviewItemLabel(item.number,round.sources.find(s=>s.id===item.source_id)?.label,t)} · {t(itemStatusLabel(item,customer))}</h4>
     <ul>{item.needs.map(need=><li key={need.kind+':'+need.description}>{need.description}</li>)}</ul>
+    <div className="review-inline-actions">
+     {item.needs.some(need=>need.kind==='analysis')&&onOpenAnalysisResults
+      ? <button type="button" onClick={()=>onOpenAnalysisResults({roundId:round.id,itemId:item.id,roundNumber:round.round_number,itemNumber:item.number})}>{t('去分析项目取结果')}</button>
+      : <button type="button" onClick={()=>onSelectItem?.(item.id,'supplements')}>{t('上传补充材料')}</button>}
+    </div>
    </article>)}
   </section> : <ReviewSciencePanel projectId={projectId} round={round} active={active&&inView('science')}
    expanded={view==='science'} disabled={planDirty} onOpenTask={onOpenTask} onChanged={()=>setRefresh(x=>x+1)}/>}
  </div>
  <div hidden={!inView('supplements')}>
+  {customer&&selectedItem&&preselected===selectedItem.id&&unsavedEdits&&<p role="status" className="review-carried">
+   {t('新文件已勾选为本轮材料和 意见 {item} 的依据，尚未保存。',{item:selectedItem.number})}
+   <button type="button" onClick={()=>onSelectItem?.(selectedItem.id,'plan')}>{t('查看并保存处理计划')}</button>
+  </p>}
   <ReviewSupplementResume projectId={projectId} round={round} active={active&&inView('supplements')}
    expanded={view==='supplements'} customer={customer} disabled={planDirty} onChanged={()=>setRefresh(x=>x+1)}/>
  </div>
@@ -392,6 +509,10 @@ const decisionLabels={accept:'采纳计划',clarify:'已澄清并确认处理',n
 const itemStatuses: Record<Item['status'], string> = {
  pending:'待处理',waiting_confirmation:'待确认',waiting_material:'待补材料',
  not_adopted:'已记录不采纳',executing:'执行中',completed:'有实际修改',
+}
+// Display only (B05 task 5): the customer sees which waiting opinions need an analysis result.
+function itemStatusLabel(item:Item,customer:boolean){
+ return customer&&item.status==='waiting_material'&&item.needs.some(need=>need.kind==='analysis')?'等分析结果':itemStatuses[item.status]
 }
 function SourcePreview({preview,onChange,onSave}:{preview:Preview;onChange:(v:Preview)=>void;onSave:()=>void}){const {t}=useI18n(),[splitAt,setSplitAt]=useState<Record<number,string>>({});const text=Array.from(preview.original_text);function update(i:number,patch:Partial<Segment>){onChange({...preview,segments:preview.segments.map((s,n)=>n===i?{...s,...patch}:s)})}return <section aria-label={t('原文分条预览')}><h4>{t('原文分条预览')}</h4><pre className="review-original">{preview.original_text}</pre>{preview.warnings.map((w,i)=><p className="warning-panel" key={i}>{t(w)}</p>)}{!preview.supported&&<p role="alert">{t('此文件含不完整或不可提取内容，请提供清洁文本；当前不能创建来源。')}</p>}{preview.segments.map((s,i)=><article className="review-segment" key={i}><label>{t('原始编号')}<input value={s.original_number} onChange={e=>update(i,{original_number:e.target.value})}/></label><pre className="review-original">{text.slice(s.start,s.end).join('')}</pre><SourcePosition value={s.location}/><label>{t('在本条第几个字符后拆分')}<input type="number" min={1} max={s.end-s.start-1} value={splitAt[i]??''} onChange={e=>setSplitAt(old=>({...old,[i]:e.target.value}))}/></label><button type="button" disabled={!(Number.isSafeInteger(Number(splitAt[i]))&&Number(splitAt[i])>0&&Number(splitAt[i])<s.end-s.start)} onClick={()=>{const at=s.start+Number(splitAt[i]);onChange({...preview,segments:preview.segments.flatMap((x,n)=>n===i?[{...s,end:at},{start:at,end:s.end,original_number:s.original_number+'b'}]:[x])})}}>{t('拆分此条')}</button>{i<preview.segments.length-1&&<button type="button" onClick={()=>onChange({...preview,segments:preview.segments.flatMap((x,n)=>n===i?[{...s,end:preview.segments[i+1].end}]:n===i+1?[]:[x])})}>{t('与下一条合并')}</button>}</article>)}<button type="button" disabled={!preview.supported||!validSegments(preview.original_text,preview.segments)} onClick={onSave}>{t('保存来源')}</button></section>}
 function MaterialPicker({documents,materials,onChange}:{documents:Inputs['documents'];materials:Material[];onChange:(v:Material[])=>void}){const {t}=useI18n();return <fieldset><legend>{t('补充材料（固定解析版本）')}</legend>{documents.length===0&&<p>{t('暂无已解析资料，可使用上传入口补充。')}</p>}{documents.map(d=><label key={d.document_version_id}><input type="checkbox" checked={materials.some(m=>m.id===d.document_version_id)} onChange={e=>onChange(e.target.checked?[...materials,{kind:'document_version',file_id:d.file_id,id:d.document_version_id}]:materials.filter(m=>m.id!==d.document_version_id))}/>{d.filename} · {t('版本 {number}',{number:d.version})}</label>)}</fieldset>}
@@ -415,8 +536,12 @@ function locationOptions(snapshot:Snapshot|null,t:(key:string,params?:Record<str
  }
  return result.filter((x,i)=>result.findIndex(v=>v.kind===x.kind&&v.id===x.id)===i)
 }
-function ReviewItem({item,edit,sources,locations,documents,frozenSources,allItems,onChange}:{item:Item;edit:ItemEdit;sources:Source[];locations:LocationOption[];documents:Inputs['documents'];frozenSources:{id:string;label:string}[];allItems:Item[];onChange:(patch:Partial<ItemEdit>)=>void}){const {t}=useI18n();return <article className="review-item"><h4>{reviewItemLabel(item.number,sources.find(s=>s.id===item.source_id)?.label,t)} · {t('原始编号 {number}',{number:item.original_number})}</h4><pre className="review-original">{item.original_text}</pre><SourcePosition value={item.source_location}/><p>{t({pending:'待处理',waiting_confirmation:'待确认',waiting_material:'待补材料',not_adopted:'已记录不采纳',executing:'执行中',completed:'有实际修改'}[item.status])}{item.uncompleted_reason&&' · '+t(item.uncompleted_reason)}</p><label>{t('意见类别')}<select value={edit.category} onChange={e=>onChange({category:e.target.value as ItemEdit['category']})}>{Object.entries(categories).map(([k,v])=><option key={k} value={k}>{t(v)}</option>)}</select></label><label>{t('定位到固定稿件')}<select multiple value={edit.locations.map(l=>l.kind+':'+l.id)} onChange={e=>onChange({locations:Array.from(e.target.selectedOptions).flatMap(o=>{const l=locations.find(l=>l.kind+':'+l.id===o.value);return l?[{kind:l.kind,id:l.id}]:[]})})}>{locations.map(l=><option key={l.kind+':'+l.id} value={l.kind+':'+l.id}>{l.label}</option>)}</select></label>{edit.locations.length===0&&<p>{t('尚未定位；请核对固定稿件后选择章节、段落或图表。')}</p>}<label>{t('修改计划')}<textarea value={edit.plan} rows={4} onChange={e=>onChange({plan:e.target.value})}/></label><fieldset><legend>{t('独立人工译文（不改动原文）')}</legend><label>{t('译文语言')}<select value={edit.translation?.language??'zh-CN'} onChange={e=>onChange({translation:{language:e.target.value as 'zh-CN'|'en',text:edit.translation?.text??''}})}><option value="zh-CN">{t('中文')}</option><option value="en">English</option></select></label><label>{t('人工译文')}<textarea value={edit.translation?.text??''} onChange={e=>onChange({translation:e.target.value?{language:edit.translation?.language??'zh-CN',text:e.target.value}:null})}/></label></fieldset><fieldset><legend>{t('依据材料')}</legend>{[...documents.map(d=>({id:d.document_version_id,label:d.filename+' · '+t('版本 {number}',{number:d.version})})),...frozenSources].filter((d,i,a)=>a.findIndex(x=>x.id===d.id)===i).map(d=><label key={d.id}><input type="checkbox" checked={edit.evidence_ids.includes(d.id)} onChange={e=>onChange({evidence_ids:e.target.checked?[...edit.evidence_ids,d.id]:edit.evidence_ids.filter(id=>id!==d.id)})}/>{d.label}</label>)}</fieldset><fieldset><legend>{t('待补需求')}</legend>{edit.needs.map((n,i)=><div className="review-need" key={i}><label>{t('需求类型')}<select value={n.kind} onChange={e=>onChange({needs:edit.needs.map((x,j)=>j===i?{...x,kind:e.target.value as typeof n.kind}:x)})}>{Object.entries({material:'资料',analysis:'分析',experiment:'实验',literature:'文献'}).map(([k,v])=><option key={k} value={k}>{t(v)}</option>)}</select></label><label>{t('需求说明')}<input value={n.description} onChange={e=>onChange({needs:edit.needs.map((x,j)=>j===i?{...x,description:e.target.value}:x)})}/></label><button type="button" onClick={()=>onChange({needs:edit.needs.filter((_,j)=>j!==i)})}>{t('移除需求')}</button></div>)}<button type="button" onClick={()=>onChange({needs:[...edit.needs,{kind:'material',description:''}]})}>{t('添加待补需求')}</button></fieldset><fieldset><legend>{t('风险与冲突')}</legend>{Object.entries({ambiguous:'含糊需澄清',conflict:'与其他意见冲突',conclusion_change:'可能改变结论'}).map(([k,v])=><label key={k}><input type="checkbox" checked={edit.flags.includes(k as ItemEdit['flags'][number])} onChange={e=>onChange({flags:e.target.checked?[...edit.flags,k as ItemEdit['flags'][number]]:edit.flags.filter(f=>f!==k)})}/>{t(v)}</label>)}{allItems.filter(i=>i.id!==item.id).map(i=><label key={i.id}><input type="checkbox" checked={edit.conflicting_item_ids.includes(i.id)} onChange={e=>onChange({conflicting_item_ids:e.target.checked?[...edit.conflicting_item_ids,i.id]:edit.conflicting_item_ids.filter(id=>id!==i.id)})}/>{t('关联冲突意见 {number}',{number:reviewItemLabel(i.number,sources.find(s=>s.id===i.source_id)?.label,t)})}</label>)}</fieldset><label>{t('拟处理方式')}<select value={edit.proposed_action} onChange={e=>onChange({proposed_action:e.target.value as ItemEdit['proposed_action']})}><option value="modify">{t('拟修改')}</option><option value="not_adopt">{t('拟不采纳')}</option></select></label><label>{t('不采纳理由')}<textarea value={edit.not_adopt_reason} onChange={e=>onChange({not_adopt_reason:e.target.value})}/></label></article>}
+function ReviewItem({item,edit,planText,sources,locations,documents,frozenSources,allItems,customer,onChange}:{item:Item;edit:ItemEdit;planText:string;sources:Source[];locations:LocationOption[];documents:Inputs['documents'];frozenSources:{id:string;label:string}[];allItems:Item[];customer:boolean;onChange:(patch:Partial<ItemEdit>)=>void}){const {t}=useI18n();return <article className="review-item"><h4>{reviewItemLabel(item.number,sources.find(s=>s.id===item.source_id)?.label,t)} · {t('原始编号 {number}',{number:item.original_number})}</h4><pre className="review-original">{item.original_text}</pre><SourcePosition value={item.source_location}/><p>{t(itemStatusLabel(item,customer))}{item.uncompleted_reason&&' · '+t(item.uncompleted_reason)}</p><label>{t('意见类别')}<select value={edit.category} onChange={e=>onChange({category:e.target.value as ItemEdit['category']})}>{Object.entries(categories).map(([k,v])=><option key={k} value={k}>{t(v)}</option>)}</select></label><label>{t('定位到固定稿件')}<select multiple value={edit.locations.map(l=>l.kind+':'+l.id)} onChange={e=>onChange({locations:Array.from(e.target.selectedOptions).flatMap(o=>{const l=locations.find(l=>l.kind+':'+l.id===o.value);return l?[{kind:l.kind,id:l.id}]:[]})})}>{locations.map(l=><option key={l.kind+':'+l.id} value={l.kind+':'+l.id}>{l.label}</option>)}</select></label>{edit.locations.length===0&&<p>{t('尚未定位；请核对固定稿件后选择章节、段落或图表。')}</p>}<label>{t('修改计划')}<textarea value={planText} rows={4} onChange={e=>onChange({plan:e.target.value})}/></label><fieldset><legend>{t('独立人工译文（不改动原文）')}</legend><label>{t('译文语言')}<select value={edit.translation?.language??'zh-CN'} onChange={e=>onChange({translation:{language:e.target.value as 'zh-CN'|'en',text:edit.translation?.text??''}})}><option value="zh-CN">{t('中文')}</option><option value="en">English</option></select></label><label>{t('人工译文')}<textarea value={edit.translation?.text??''} onChange={e=>onChange({translation:e.target.value?{language:edit.translation?.language??'zh-CN',text:e.target.value}:null})}/></label></fieldset><fieldset><legend>{t('依据材料')}</legend>{[...documents.map(d=>({id:d.document_version_id,label:d.filename+' · '+t('版本 {number}',{number:d.version})})),...frozenSources].filter((d,i,a)=>a.findIndex(x=>x.id===d.id)===i).map(d=><label key={d.id}><input type="checkbox" checked={edit.evidence_ids.includes(d.id)} onChange={e=>onChange({evidence_ids:e.target.checked?[...edit.evidence_ids,d.id]:edit.evidence_ids.filter(id=>id!==d.id)})}/>{d.label}</label>)}</fieldset><fieldset><legend>{t('待补需求')}</legend>{edit.needs.map((n,i)=><div className="review-need" key={i}><label>{t('需求类型')}<select value={n.kind} onChange={e=>onChange({needs:edit.needs.map((x,j)=>j===i?{...x,kind:e.target.value as typeof n.kind}:x)})}>{Object.entries({material:'资料',analysis:'分析',experiment:'实验',literature:'文献'}).map(([k,v])=><option key={k} value={k}>{t(v)}</option>)}</select></label><label>{t('需求说明')}<input value={n.description} onChange={e=>onChange({needs:edit.needs.map((x,j)=>j===i?{...x,description:e.target.value}:x)})}/></label><button type="button" onClick={()=>onChange({needs:edit.needs.filter((_,j)=>j!==i)})}>{t('移除需求')}</button></div>)}<button type="button" onClick={()=>onChange({needs:[...edit.needs,{kind:'material',description:''}]})}>{t('添加待补需求')}</button></fieldset><fieldset><legend>{t('风险与冲突')}</legend>{Object.entries({ambiguous:'含糊需澄清',conflict:'与其他意见冲突',conclusion_change:'可能改变结论'}).map(([k,v])=><label key={k}><input type="checkbox" checked={edit.flags.includes(k as ItemEdit['flags'][number])} onChange={e=>onChange({flags:e.target.checked?[...edit.flags,k as ItemEdit['flags'][number]]:edit.flags.filter(f=>f!==k)})}/>{t(v)}</label>)}{allItems.filter(i=>i.id!==item.id).map(i=><label key={i.id}><input type="checkbox" checked={edit.conflicting_item_ids.includes(i.id)} onChange={e=>onChange({conflicting_item_ids:e.target.checked?[...edit.conflicting_item_ids,i.id]:edit.conflicting_item_ids.filter(id=>id!==i.id)})}/>{t('关联冲突意见 {number}',{number:reviewItemLabel(i.number,sources.find(s=>s.id===i.source_id)?.label,t)})}</label>)}</fieldset><label>{t('拟处理方式')}<select value={edit.proposed_action} onChange={e=>onChange({proposed_action:e.target.value as ItemEdit['proposed_action']})}><option value="modify">{t('拟修改')}</option><option value="not_adopt">{t('拟不采纳')}</option></select></label><label>{t('不采纳理由')}<textarea value={edit.not_adopt_reason} onChange={e=>onChange({not_adopt_reason:e.target.value})}/></label></article>}
 
 function SourcePosition({value}:{value:unknown}){const {t}=useI18n();if(!value||typeof value!=='object')return null;const v=value as Record<string,unknown>,page=v.page??v.page_number;if(typeof v.label==='string'&&v.label)return <small>{v.label}</small>;if(typeof page==='number')return <small>{t('来源第 {number} 页',{number:page})}</small>;if(typeof v.start==='number'&&typeof v.end==='number')return <small>{t('来源原文第 {start} 至 {end} 个字符',{start:v.start+1,end:v.end})}</small>;if(typeof v.paragraph_index==='number')return <small>{t('来源段落 {number}',{number:v.paragraph_index+1})}</small>;return null}
 
 const reviewViewLabels:Record<ReviewView,string>={list:'意见轮次',create:'新建意见轮次',sources:'来源原文',items:'逐条意见',plan:'处理计划',revision:'有依据改文',comparison:'修改对照',response:'逐条回复',documents:'固定文档',continuation:'回传续轮',science:'科学补充',supplements:'补料继续',progress:'实际进展'}
+// Customer view names (B05 task 8); operators keep the table above.
+const customerReviewViewLabels=(projectType:'sci'|'thesis'):Record<ReviewView,string>=>({...reviewViewLabels,
+ revision:'修改稿',documents:'修改后的 Word',continuation:projectType==='thesis'?'导师返回的 Word':'返回的 Word',
+ science:'分析材料补充',supplements:'补充资料后继续'})

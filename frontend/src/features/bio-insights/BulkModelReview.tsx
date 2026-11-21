@@ -18,8 +18,8 @@ export default function BulkModelReview({design,sources}:{design:Design;sources:
   <p>{t('总 counts 至少 {total}，且至少 {samples} 个样本的 counts 达到 {perSample}。候选特征 {features} 个。',{
    total:rules.minimum_total_counts,samples:rules.minimum_expressing_samples,perSample:rules.minimum_sample_counts,features:rules.eligible_feature_count,
   })}</p>
-  <details open><summary>{t('最终纳入样本')} · {model.samples.length}</summary>
-   <div className="field-table-scroll"><table className="field-table" aria-label={t('最终纳入样本')}>
+  <h4>{t('最终纳入样本')} · {model.samples.length}</h4>
+  <div className="field-table-scroll"><table className="field-table" aria-label={t('最终纳入样本')}>
     <thead><tr>{['固定处理数据','样本 ID','条件','生物学单位','配对键','批次'].map(label=><th key={label}>{t(label)}</th>)}{covariates.map(term=><th key={term.field}>{term.name??term.field}</th>)}</tr></thead>
     <tbody>{model.samples.map(sample=><tr key={JSON.stringify([sample.processed_version_id,sample.sample_id])}>
      <td title={sample.processed_version_id}>{sourceName(sample.processed_version_id)}</td><td>{sample.sample_id}</td><td>{sample.condition}</td>
@@ -27,7 +27,6 @@ export default function BulkModelReview({design,sources}:{design:Design;sources:
      {covariates.map(term=><td key={term.field}>{String(sample.covariates[term.field]??'')}</td>)}
     </tr>)}</tbody>
    </table></div>
-  </details>
   <DataDetails title="排除样本及原因" value={design.exclusions??[]}/>
  </section>
 }

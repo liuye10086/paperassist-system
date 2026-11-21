@@ -137,12 +137,13 @@ def test_plot_bridge_requires_consent_policy_and_recovers_same_public_queue(clie
 
 
 def test_existing_boxplot_request_digest_remains_linkable(client, monkeypatch):
-    from tests.integration.test_boxplot_execution import queued
-    task, _, base, _ = queued(client, configured=False)
-    project = base.split('/')[4]
+    from app.domain.tasks.service import TaskService
+    from tests.helpers.tasks import boxplot_task_input, task_owner
+    project, request, _, _ = boxplot_task_input(client)
     with monkeypatch.context() as patch:
         patch.setattr('tests.api.test_descriptive.add_file', lambda instance, rows: upload_in_project(instance, project, rows))
         url, round, _, _ = make_round(client)
+    task, _ = TaskService(task_owner(client)).create(project, request, idempotency_key='plot-execution')
     path = url + '/rounds/' + round['id']
     with database_connection() as db:
         raw = db.execute('SELECT * FROM tasks WHERE id=%s',(task['id'],)).fetchone()

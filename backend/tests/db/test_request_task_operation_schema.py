@@ -8,16 +8,16 @@ from alembic import command
 from app.db.database import alembic_config,migration_connection
 
 
+@pytest.mark.initial_revision('0056_school_rule_suggestions')
 def test_0057_keeps_legacy_rows_unknown_and_preserves_append_only_history(postgres_migration_config):
     settings=alembic_config()
     settings.attributes['database_config']=postgres_migration_config
     with migration_connection(write=True) as db:
         settings.attributes['connection']=db.raw_connection
-        command.downgrade(settings,'0056_school_rule_suggestions')
         db.execute('''INSERT INTO operational_request_events(request_id,route_template,method,status,elapsed_ms,created_at)
             VALUES(%s,'/api/v1/tasks/{task_id}/resume','POST',202,3,%s)''',(uuid4().hex,datetime.now(timezone.utc)))
         before=dict(db.execute('SELECT * FROM operational_request_events').fetchone())
-        command.upgrade(settings,'head')
+        command.upgrade(settings,'0057_request_task_operation')
         after=dict(db.execute('SELECT * FROM operational_request_events').fetchone())
         assert after.pop('task_operation') is None
         assert after==before

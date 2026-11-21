@@ -27,3 +27,15 @@ it('labels verified public user returns in SCI and school history while keeping 
   cleanup()
  }
 })
+it('keeps the operator hash link to the returned parent manuscript (B05 task 7 changes customers only)',async()=>{
+ const task={...(await import('../tasks/taskFixtures')).taskFixture,task_type:'review_round_plan',input_version:{kind:'review_round_plan',round_id:'round1',base_version_id:'v1',workflow_version:'review_round_plan_v1'}}
+ const round={id:'round1',project_id:'p1',title:'合成第一轮',project_type:'sci',round_number:1,revision:1,synthetic:false,manuscript:{id:'m1',revision:1,version_id:'v1',title:'合成送审稿'},sources:[],items:[],materials:[],constraints:{school_confirmation_id:null,journal_target_id:null},versions:[],decisions:[],task,wait:null,created_at:task.created_at,real_model_calls:false,real_network_calls:false,continuation:null,next_round_ids:[]}
+ const registered={id:'return1',previous_round_id:'round1',revision_id:null,synthetic:false,manuscript_id:'m1',base_version_id:'v1',base_revision:1,source:{file_id:'fdoc',document_version_id:'parse1'},original_download_url:'/api/v1/projects/p1/files/fdoc/download',input_sections:[],target_chapters:[],mappings:[],differences:[],issues:[],can_adopt:false,preview_sha256:null,output:null,created_at:task.created_at}
+ vi.stubGlobal('fetch',vi.fn(async(url:string)=>Response.json(url.endsWith('/continuation-context')?{previous_round_id:'round1',manuscript_id:'m1',expected_current_revision:1,eligible_inputs:[],successful_revisions:[],returns:[registered]}:url.endsWith('/returns/return1')?registered:{items:[]})))
+ const {default:ReturnContinuationPanel}=await import('./ReturnContinuationPanel')
+ const {fireEvent}=await import('@testing-library/react')
+ render(<ReturnContinuationPanel projectId="p1" round={round as never} documents={[]} active expanded onPrepareNext={vi.fn()} onOpenTask={vi.fn()}/>)
+ fireEvent.change(await screen.findByLabelText('查看固定回传记录'),{target:{value:'return1'}})
+ expect((await screen.findByRole('link',{name:'查看回传固定父稿'})).getAttribute('href')).toBe('#project=p1&section=manuscripts&manuscript=m1&revision=1')
+ expect(screen.queryByRole('button',{name:'查看送审稿'})).toBeNull()
+})

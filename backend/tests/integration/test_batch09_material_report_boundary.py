@@ -42,7 +42,8 @@ def test_v4_local_external_claims_stay_out_of_cloud_and_word(client,monkeypatch,
     chain.test_confirmed_plan_to_original_png_explanation_word_and_history(client,monkeypatch,language,'pair','pearson')
     with database_connection() as db:
         reports=[json.loads(r['report_json']) for r in db.execute('SELECT report_json FROM reports')]
-        assert len(reports)==1
+        assert len(reports)==2
+        assert {bool(report.get('reader_export')) for report in reports} == {True, False}
     # Task snapshots are local provenance, not the material sent to a provider.
     assert len(providers)==2
     assert 'EXTERNAL-UNVERIFIED-99999' not in json.dumps(providers[0].payload)

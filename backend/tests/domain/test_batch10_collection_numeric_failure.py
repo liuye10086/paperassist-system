@@ -1,6 +1,8 @@
 """Collection failure receipts and publication fences without a database or kernel."""
 from contextlib import contextmanager
 from copy import deepcopy
+from datetime import datetime, timezone
+from hashlib import sha256
 from types import SimpleNamespace
 
 import pytest
@@ -11,12 +13,22 @@ def postgres_schema():
     yield None
 
 
+def task_row(task_type):
+    return dict(id='synthetic-task', user_id='synthetic-owner', status='running',
+                task_type=task_type, input_snapshot={}, created_at=datetime.now(timezone.utc))
+
+
+def dispatch_read(sql, args, task):
+    assert 'SELECT * FROM tasks' in sql and args == (task['id'],)
+    return SimpleNamespace(fetchone=lambda: task)
+
+
 def test_collection_numeric_failure_keeps_code_and_receipt(monkeypatch, tmp_path):
     from app.domain.report_collections import execution
     from app.domain.regression.common import NumericError
     from app.domain.fixed_statistics_runtime import scope_active
 
-    task = {'id': 'synthetic-task', 'user_id': 'synthetic-owner', 'status': 'running'}
+    task = task_row('collection_word_report')
     updates, finished = [], []
 
     class Repository:
@@ -29,8 +41,13 @@ def test_collection_numeric_failure_keeps_code_and_receipt(monkeypatch, tmp_path
         def require_owner(self, db, row): pass
 
         @contextmanager
-        def connection(self, **kwargs):
-            yield SimpleNamespace(execute=lambda sql, args: updates.append((sql, args)))
+        def connection(self, *, write=False):
+            def execute(sql, args):
+                if not write:
+                    return dispatch_read(sql, args, task)
+                assert sql.startswith('UPDATE report_build_requests')
+                updates.append((sql, args))
+            yield SimpleNamespace(execute=execute)
 
         def _finish(self, db, row, status, code):
             assert not scope_active(), 'Persist failure after the expired numeric scope ends.'
@@ -61,10 +78,11 @@ def test_collection_rechecks_lease_after_report_insert_before_success(monkeypatc
     from app.domain.report_collections import execution
     from app.adapters.task_execution_store import LeaseLost
 
-    task = {'id': 'synthetic-task', 'user_id': 'synthetic-owner', 'status': 'running'}
+    task = task_row('collection_word_report')
     snapshot = dict(build_request_id='synthetic-build', collection_id='synthetic-collection',
                     collection_version_id='synthetic-version', export_revision=1, language='en', items=[])
     lease_checks, writes, finished, transactions = [], [], [], []
+    candidate_events = []
 
     class Repository:
         config = None
@@ -83,7 +101,9 @@ def test_collection_rechecks_lease_after_report_insert_before_success(monkeypatc
         @contextmanager
         def connection(self, *, write=False):
             def execute(sql, args):
-                if write: writes.append(sql)
+                if not write:
+                    return dispatch_read(sql, args, task)
+                writes.append(sql)
                 return SimpleNamespace(fetchone=lambda: None)
             try:
                 yield SimpleNamespace(execute=execute)
@@ -99,6 +119,19 @@ def test_collection_rechecks_lease_after_report_insert_before_success(monkeypatc
 
     collection = SimpleNamespace(directory=tmp_path / 'reports', store=SimpleNamespace(),
                                  verify_task_snapshot=lambda *args: deepcopy(snapshot))
+
+    def capture(db, root, owner_task, lease, target, staged, content, metadata):
+        assert content == b'synthetic-docx' and metadata['sha256'] == sha256(content).hexdigest()
+        assert owner_task == task and target.parent == staged.parent == collection.directory
+        candidate_events.append(('capture', metadata['id']))
+
+    def publish(db, root, owner_task, lease, metadata):
+        assert candidate_events == [('capture', metadata['id'])]
+        candidate_events.append(('publish', metadata['id']))
+
+    monkeypatch.setattr(execution.candidates, 'restore', lambda *args: None)
+    monkeypatch.setattr(execution.candidates, 'capture', capture)
+    monkeypatch.setattr(execution.candidates, 'publish', publish)
     monkeypatch.setattr(execution, 'TaskExecutionStore', Repository)
     monkeypatch.setattr(execution, 'scoped_store', lambda *args: None)
     monkeypatch.setattr(execution, 'CollectionStore', lambda store: collection)
@@ -108,7 +141,8 @@ def test_collection_rechecks_lease_after_report_insert_before_success(monkeypatc
     assert execution.run_collection_word_task(task['id'], 1) is None
     assert len(lease_checks) == 3
     assert any(sql.startswith('INSERT INTO collection_reports') for sql in writes)
-    assert transactions == ['rolled_back']
+    assert [event for event, _ in candidate_events] == ['capture', 'publish']
+    assert transactions == ['committed', 'rolled_back']
     assert finished == []
     assert task['status'] == 'running'
     assert not list(collection.directory.glob('*.part'))
@@ -119,11 +153,22 @@ def test_word_render_numeric_timeout_is_not_reclassified_as_format_error(monkeyp
     from app.domain.regression.common import NumericError
 
     failures = []
+    task = task_row('word_report')
+    explanation = {'id': 'synthetic-explanation', 'engine': {'id': 'analysis_explanation_v2'}}
+
+    def cached(db, explanation_id, renderer):
+        assert (explanation_id, renderer) == (explanation['id'], 'word_analysis_report_v2')
+        return None
 
     class Repository:
+        reports = SimpleNamespace(cached=cached)
         def __init__(self, **kwargs): pass
         def claim(self, *args, **kwargs): return SimpleNamespace(attempt_no=1)
-        def load(self, lease): return {}, {}, b'synthetic-png'
+        def load(self, lease): return {'explanation': explanation}, {}, b'synthetic-png'
+        def restore_report(self, lease, snapshot): return None
+        @contextmanager
+        def connection(self):
+            yield SimpleNamespace(execute=lambda sql, args: dispatch_read(sql, args, task))
         def fail(self, lease, code, *, execution_receipt=None):
             failures.append((code, execution_receipt))
             return {'status': 'failed', 'error_code': code}

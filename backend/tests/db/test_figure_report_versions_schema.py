@@ -40,12 +40,12 @@ def test_collection_storage_does_not_replace_legacy_report_table(postgres_schema
         assert [r['column_name'] for r in legacy] == ['id','analysis_run_id','explanation_id','renderer_version','report_json','input_json']
 
 
+@pytest.mark.initial_revision('0025_correlation_planning')
 def test_0026_keeps_every_original_value_and_only_replaces_whitelisted_index(postgres_migration_config):
     from alembic import command
     from app.db.database import migration_connection, alembic_config
     with migration_connection(config=postgres_migration_config) as db:
         config=alembic_config(); config.attributes.update(connection=db.raw_connection,database_config=postgres_migration_config)
-        command.downgrade(config,'0025_correlation_planning')
         seed_legacy_artifacts(db)
         columns={r['table_name']: [] for r in db.execute("SELECT table_name FROM information_schema.tables WHERE table_schema=current_schema() AND table_name<>'alembic_version'")}
         for row in db.execute('SELECT table_name,column_name FROM information_schema.columns WHERE table_schema=current_schema() ORDER BY ordinal_position'):
@@ -62,6 +62,7 @@ def test_0026_keeps_every_original_value_and_only_replaces_whitelisted_index(pos
         assert {'figures_legacy_input_key','figures_config_input_key'} <= set(newindexes)
 
 
+@pytest.mark.initial_revision('0026_figure_report_versions')
 def test_0026_refuses_downgrade_with_pending_new_task(postgres_migration_config):
     from alembic import command
     from sqlalchemy.exc import DBAPIError
@@ -69,10 +70,10 @@ def test_0026_refuses_downgrade_with_pending_new_task(postgres_migration_config)
     from tests.db.test_task_schema import seed_owner,insert_row,task_row
     with database_connection(write=True) as db:
         seed_owner(db); insert_row(db,'tasks',task_row(task_type='collection_word_report'))
-    with pytest.raises(DBAPIError):
+    with pytest.raises(DBAPIError, match='figure/report history requires preservation'):
         with migration_connection(config=postgres_migration_config) as db:
             config=alembic_config(); config.attributes.update(connection=db.raw_connection,database_config=postgres_migration_config)
             command.downgrade(config,'0025_correlation_planning')
     with database_connection() as db:
-        assert db.execute('SELECT version_num FROM alembic_version').fetchone()['version_num']=='0029_statistics_execution'
+        assert db.execute('SELECT version_num FROM alembic_version').fetchone()['version_num']=='0026_figure_report_versions'
         assert db.execute('SELECT count(*) AS n FROM tasks').fetchone()['n']==1

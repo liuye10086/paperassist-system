@@ -130,8 +130,8 @@ def test_user_docx_material_freezes_actual_item_and_detects_original_tampering(c
     from app.core.config import get_data_dir
     from app.maintenance.literature_evidence_audit import audit_literature_evidence
     project, _, _, uploaded, original = uploaded_docx(client)
-    pid = project['id']; reference = seed_reference(client, pid)
     assert run_parse_file_task(uploaded['task']['id'], 1, parser=parse_docx)['status']=='succeeded'
+    pid = project['id']; reference = seed_reference(client, pid)
     path = f'/api/v1/projects/{pid}/literature/evidence'
     options = client.get(path+'/material-options')
     assert options.status_code == 200, options.text
@@ -169,8 +169,8 @@ def test_user_docx_material_freezes_actual_item_and_detects_original_tampering(c
 def test_unreadable_ocr_does_not_become_supporting_evidence(client):
     from tests.integration.test_ocr_review import setup_review, execute, decide
     project, file_base, parent, task, _ = setup_review(client)
-    pid = project['id']; reference = seed_reference(client, pid)
     assert execute(task)['status']=='waiting_confirmation'
+    pid = project['id']; reference = seed_reference(client, pid)
     review_url = '/api/v1/tasks/'+task['id']+'/ocr-review'
     revised = decide(client, client.get(review_url).json(), 'revise', 'unreadable', [dict(block_id='text-1', action='unreadable')])
     assert execute(revised.json())['status']=='waiting_confirmation'

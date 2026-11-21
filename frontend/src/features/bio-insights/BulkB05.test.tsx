@@ -68,7 +68,7 @@ it('reads the default contrast, preserves raw zero and NA, and searches exact st
   fireEvent.click(screen.getByRole('button',{name:'应用筛选'}))
   const across = await screen.findByRole('table',{name:'同一稳定 ID 的跨比较结果'})
   expect(within(across).getByText('-2')).toBeTruthy()
-  expect(screen.getByRole('link',{name:/comparison_results · tsv/}).getAttribute('href')).toBe('/full-table.tsv')
+  expect(screen.getByRole('link',{name:'差异比较结果.tsv'}).getAttribute('href')).toBe('/full-table.tsv')
   act(() => setLocale('en'))
   expect(screen.getByRole('combobox',{name:'Fixed contrast'})).toHaveProperty('value','forward')
   expect(screen.getByRole('button',{name:'Apply filters'})).toBeTruthy()
@@ -170,14 +170,22 @@ it('shows published plot methods, its complete data download and a route to edit
     summary:{figure_type:'bulk_ma',requested_top_n:20,displayed_feature_count:1,displayed_count:42,numerator:'treated',denominator:'control'},
     methods:{axes:{x:'base_mean',y:'effect_value'},source_id:'fixed',input_member:'comparison_results',
       config:{bulk_selection:{contrast_id:'forward',direction:'both',q_column:'q_within_contrast',q_threshold:0.05,minimum_absolute_effect:1}}},
-    members:[{...comparison.members[0],key:'plot_data',format:'json',download_url:'/full-plot.json'}],
+    members:[
+      {...comparison.members[0],key:'plot_data',role:'plot_data',format:'json',download_url:'/full-plot.json'},
+      {...comparison.members[0],id:'audit',key:'manifest',role:'manifest',format:'json',download_url:'/manifest.json'},
+      {...comparison.members[0],id:'internal',key:'plot_data',role:'audit',format:'json',download_url:'/internal.json'},
+    ],
   }
   vi.mocked(apiFetch).mockImplementation(async()=>Response.json(figure))
   render(<InsightResults projectId="p1" resultId="figure-version" active onResearch={vi.fn()} onNavigate={navigate}/>)
   await screen.findByRole('heading',{name:'Bulk MA 图'})
   expect(screen.getByText('实际标注 1 个基因，设定 Top N 为 20。')).toBeTruthy()
   expect(screen.getByText(/treated vs control \(forward\)/)).toBeTruthy()
-  expect(screen.getByRole('link',{name:/plot_data · json/}).getAttribute('href')).toBe('/full-plot.json')
+  expect(screen.getByRole('link',{name:'绘图数据.json'}).getAttribute('href')).toBe('/full-plot.json')
+  for (const href of ['/manifest.json', '/internal.json']) expect(document.querySelector(`a[href="${href}"]`)).toBeNull()
+  act(() => setLocale('en'))
+  expect(screen.getByRole('link',{name:'Plot data.json'}).getAttribute('href')).toBe('/full-plot.json')
+  act(() => setLocale('zh-CN'))
   fireEvent.click(screen.getByRole('button',{name:'打开固定计划修改样式'}))
   expect(navigate).toHaveBeenLastCalledWith({view:'bio-insight-plan',fileId:'',runId:'figure-run'})
 })
@@ -252,4 +260,24 @@ it('opens the fixed PCA replot from a validated deep link without selecting or r
   })
   expect(JSON.parse(String(writeCalls()[0][1]?.body)).config).not.toHaveProperty('bulk_selection')
   expect(vi.mocked(apiFetch).mock.calls.some(([url]) => String(url).includes('matrix-preview'))).toBe(false)
+})
+
+it('saves an adjusted expression curve from a fixed normalized transcriptome in its original language',async()=>{
+  const source={...b03,source:{...b03.source,assay:'normalized_expression' as const},
+    figures:[{id:'plot',config:{kind:'expression_distribution',output_language:'en',title:''},members:[]}]}
+  vi.mocked(apiFetch).mockImplementation(async(url,init)=>{
+    if(init?.method==='POST') return Response.json({id:'saved',plan_id:'root',revision:1})
+    return Response.json(String(url).endsWith('/bio-processed-datasets/processed1')?source:{items:[],total:0})
+  })
+  const route=parseNavigation('#project=p1&section=analysis&view=bio-insight-result&processed=processed1&bulkPanel=qc_ecdf')
+  render(<BioInsightsWorkspace projectId="p1" active navigation={route!.analysisNavigation} onNavigate={vi.fn()}/>)
+  await screen.findByRole('heading',{name:'样本表达累积分布'})
+  fireEvent.change(screen.getByLabelText('宽度 inches'),{target:{value:'8.5'}})
+  fireEvent.change(screen.getByLabelText('像素 DPI'),{target:{value:'200'}})
+  fireEvent.click(screen.getByRole('button',{name:'保存不可变草稿版本'}))
+  await waitFor(()=>expect(writeCalls()).toHaveLength(1))
+  expect(JSON.parse(String(writeCalls()[0][1]?.body))).toMatchObject({
+    sources:[{source_id:'processed1',sha256:sha,role:'processed'}],
+    config:{figure_type:'bulk_qc',bulk_panel:'qc_ecdf',output_language:'en',width_inches:8.5,dpi:200},
+  })
 })

@@ -13,7 +13,7 @@ const snapshot={...snapshotFixture,sources:[source,photo],results_groups:[{id:'g
 const frozenInput={...inputFixture,sources:[{kind:'document_version',id:'doc1',file_id:'file1',role:'image_observation'},{kind:'original',id:'photo1',file_id:'photo1',role:'image_observation'}],results_groups:[{id:'group1',title:'Observations',analysis_run_ids:[],figure_ids:pictures.map(f=>f.id).concat('photo1')}],figure_notes:pictures.map(f=>({figure_id:f.id,caption:f.caption,panels:[]})).concat({figure_id:'photo1',caption:'Keep original caption',panels:[]})}
 const history={...manuscriptFixture,versions:[{...manuscriptFixture.versions[0],input:frozenInput,snapshot,exports:[]}]}
 const props={projectId:'p1',researchTopic:'研究',outputLanguage:'en' as const,active:true}
-afterEach(()=>{cleanup();vi.unstubAllGlobals()})
+afterEach(()=>{cleanup();vi.unstubAllGlobals();sessionStorage.clear()})
 function serve(saved=false){
  const fetcher=vi.fn(async(url:string,init?:RequestInit)=>{
   if(url.endsWith('/candidates'))return Response.json({...candidatesFixture,items:[document,original]})

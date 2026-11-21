@@ -98,6 +98,22 @@ def _story_text_and_fields(root):
     return story
 
 
+def rendered_story_segments(story):
+    """Visible text and supported fields in Word output order, including older analyses."""
+    if 'segments' in story:
+        for segment in story['segments']:
+            if segment['kind'] == 'text':
+                yield 'text', segment['text']
+            elif segment['kind'] == 'field' and PAGINATION_FIELD.fullmatch(segment['instruction']):
+                yield 'field', segment['instruction']
+    else:
+        if story.get('text'):
+            yield 'text', story['text']
+        for instruction in dict.fromkeys(value.strip() for value in story.get('fields', [])):
+            if PAGINATION_FIELD.fullmatch(instruction):
+                yield 'field', instruction
+
+
 def _source(node, part='word/document.xml', text=None):
     return {'part': part, 'path': node.getroottree().getpath(node), 'text': _text(node) if text is None else text}
 

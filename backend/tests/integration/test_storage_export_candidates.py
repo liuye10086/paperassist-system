@@ -12,6 +12,7 @@ from app.domain.storage_governance.service import reconcile_intents, set_policy,
 from tests.api.test_analysis import client  # noqa: F401
 from tests.api.test_boxplot import cloud  # noqa: F401
 from tests.integration.test_explanations import writer  # noqa: F401
+from tests.helpers.tasks import historical_collection_export
 
 
 def test_generate_report_first_precommit_recovers_original_without_render(client, cloud, writer, monkeypatch):
@@ -214,9 +215,9 @@ def test_collection_admission_blocks_unmetered_bytes(collection_case):
     from tests.integration.test_batch05_collection_persistence import body
     from app.domain.report_collections.execution import run_collection_word_task
     repository, project, sample, explanation = collection_case
-    request = body(sample); request.items[0].explanation_id = explanation['id']
+    request = body(sample, automatic=False); request.items[0].explanation_id = explanation['id']
     saved = repository.create(project,request,'storage-collection')
-    task = saved['versions'][0]['requests'][0]
+    task = historical_collection_export(repository, project, saved['current_version_id'], 'legacy-storage')
     with repository.store.connection(write=True) as db:
         set_policy(db,'project',project,0,'enforced')
     result = run_collection_word_task(task['task_id'],1,config=repository.store.db_config,directory=repository.store.directory)
@@ -279,9 +280,8 @@ def test_local_docx_first_precommit_retries_original_without_render(client,cloud
     from app.domain.tasks.execution import run_task
     from app.adapters.task_execution_store import TaskExecutionStore
     if kind=='word_report':
-        from tests.integration.test_reports import report_ready
-        _,_,_,figure,explanation,url=report_ready(client)
-        task=client.post(url,json=dict(expected_revision=figure['setup_revision'],figure_id=figure['id'],explanation_id=explanation['id'])).json()['task']
+        from tests.integration.test_task_execution import queued
+        task, *_ = queued(client, historical=True)
         table,column='reports','report_json';render='app.domain.tasks.execution.build_report'
     elif kind=='manuscript_docx':
         from tests.api.test_manuscripts import setup,body
@@ -335,8 +335,9 @@ def test_collection_precommit_restores_original_without_render(collection_case,c
     from app.domain.report_collections.execution import run_collection_word_task
     from app.adapters.task_execution_store import TaskExecutionStore
     repository,project,sample,explanation=collection_case
-    request=body(sample);request.items[0].explanation_id=explanation['id']
-    root=repository.create(project,request,'rollback-collection');intent=root['versions'][0]['requests'][0]
+    request=body(sample, automatic=False);request.items[0].explanation_id=explanation['id']
+    root=repository.create(project,request,'rollback-collection')
+    intent = historical_collection_export(repository, project, root['current_version_id'], 'legacy-rollback')
     connection=TaskExecutionStore.connection;captured={}
     @contextmanager
     def interrupted(self,write=False):
@@ -480,12 +481,11 @@ def test_complete_sync_companion_damage_blocks_without_overwriting_candidate(cli
 
 
 def test_expired_staged_report_requires_manual_event_before_original_recovery(client,cloud,writer,monkeypatch):
-    from tests.integration.test_reports import report_ready
+    from tests.integration.test_task_execution import queued
     from app.adapters.task_execution_store import TaskExecutionStore
     from app.domain.tasks.execution import run_word_task
     from app.adapters.report_docx import build_report
-    _,_,_,figure,explanation,url=report_ready(client)
-    task=client.post(url,json=dict(expected_revision=figure['setup_revision'],figure_id=figure['id'],explanation_id=explanation['id'])).json()['task']
+    task, _, _, url = queued(client, historical=True)
     execution=TaskExecutionStore();lease=execution.claim(task['id'],1,task_type='word_report')
     snapshot,metadata,png=execution.load(lease);content=build_report(snapshot,metadata,png)
     staged=execution.stage(lease,content,snapshot,metadata)

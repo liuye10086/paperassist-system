@@ -16,6 +16,7 @@ _FIGURE_TITLES = {
     'pca': ('样本 PCA', 'Sample PCA'),
     'correlation_heatmap': ('样本相关性热图', 'Sample correlations'),
     'qc_expression': ('样本表达五数摘要', 'Five-number expression summaries'),
+    'qc_ecdf': ('样本表达累积分布', 'Cumulative expression distribution'),
     'sample_clustering': ('样本聚类', 'Sample clustering'),
     'sample_correlation': ('样本相关性', 'Sample correlations'),
     'sample_distance': ('样本距离', 'Sample distances'),

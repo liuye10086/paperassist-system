@@ -1,11 +1,15 @@
-import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, expect, it, vi } from 'vitest'
 import SchoolTemplates from './SchoolTemplates'
+import CustomerThesisWorkflow from '../customer/CustomerThesisWorkflow'
+import { buildReturn } from '../customer/returnToken'
 import { clearApiSession } from '../../shared/api/client'
 import {useState} from 'react'
 import type {SchoolTemplateNavigation} from '../projects/manuscriptViews'
 import {setLocale} from '../../shared/i18n'
+import {findTechnicalText} from '../../test/technicalText'
+import parsedSources from './fixtures/t2-template-rule-sources.json'
 const profile = { revision:0,school:'示例学校',department:'',major:'',degree_type:'',education_level:'',applicable_version:'',bound_confirmation_id:null }
 const analysis = {rules:[{id:'r1',label:'正文字体',value:'宋体',source:{part:'word/document.xml',path:'/p[2]',text:'正文宋体'}}],chapters:[{id:'c1',title:'绪论',level:1}],sections:[],notes:[],missing:['发布日期未注明'],unsupported:['文字规则仅引用'],identity_fields:[{label:'作者签名',required:true}],conflicts:[{id:'x1',label:'字号冲突',options:[{id:'o1',value:'小四',source:{part:'word/document.xml',path:'/p[4]',text:'小四'}},{id:'o2',value:'五号'}]}]}
 afterEach(()=>{cleanup();vi.unstubAllGlobals();setLocale('zh-CN')})
@@ -101,8 +105,9 @@ it('saves the GS501 formatting choice only when offered for the verified origina
  const user=userEvent.setup();render(<SchoolTemplates projectId="p1" active customerView/>)
  const choice=await screen.findByRole('checkbox',{name:'采用北体 GS501 学术型硕士排版'}) as HTMLInputElement
  expect(choice.checked).toBe(false)
- await user.click(choice);await user.selectOptions(screen.getByLabelText('字号冲突'),'o1')
- await user.click(screen.getByRole('button',{name:'确认模板规则'}))
+ // Customers choose conflicts on cards and adopt in one step (B04 task 5).
+ await user.click(choice);await user.click(screen.getByRole('radio',{name:/小四/}))
+ await user.click(screen.getByRole('button',{name:'采用这份模板'}))
  await waitFor(()=>{
   const call=fetch.mock.calls.find(([url])=>url.endsWith('/confirm'))
   expect(JSON.parse(String(call?.[1]?.body))).toMatchObject({format_profile:'bsu-gs501-academic-masters-2026'})
@@ -233,4 +238,274 @@ it('registers a new template with its explicitly selected previous version witho
  const user=userEvent.setup();render(<SchoolTemplates projectId="p1" active/>);await screen.findByText('正文字体')
  await user.selectOptions(screen.getByLabelText('更新自模板版本（可选）'),'v1');await user.selectOptions(screen.getByLabelText('模板 DOCX 原件'),'f1')
  await user.click(screen.getByRole('button',{name:'提交模板解析'}));await waitFor(()=>expect(created).toMatchObject({previous_version_id:'v1'}))
+})
+
+// B04 task 5: customers adopt a template in one step, see conflict sources in plain words, no folds or paths.
+const ids={template:'4d1f6a2b-8c3e-4f5a-9b7d-2e6c1a0f8b31',confirmation:'7a2c9e41-5b6d-4e8f-a1c3-9d0b2f4e6a57',other:'c3e5a7b9-1d2f-4a6b-8c0e-5f7a9b1d3e62',file:'e8b0d2f4-6a1c-4e3b-9d5f-7a0c2e4b6d81',supplement:'1b3d5f7a-9c2e-4a6b-8d0f-3e5a7c9b1d24',version:'5f7a9b1d-3e5a-4c7b-9d1f-2a4c6e8b0d35',previous:'9e1a3c5b-7d9f-4b2a-8c4e-6f8a0b2c4d57'}
+const sha='3f9a1c7e5b2d8f40a6c4e2b8d0f6a3c1e9b7d5f3a1c8e6b4d2f0a9c7e5b3d1f8'
+const systemIds=[...Object.values(ids),sha]
+const customerAnalysis={
+ rules:[{id:'body.font_size_pt',label:'body.font_size_pt',value:12,source:{part:'word/document.xml',path:'/w:document/w:body/w:p[4]',text:'正文小四号宋体'}},{id:'heading1.font_east_asia',label:'heading1.font_east_asia',value:'黑体',source:{part:'word/styles.xml',path:'/w:styles/w:style[3]',text:''}}],
+ chapters:[{id:'c1',title:'绪论',level:1,source:{part:'word/document.xml',path:'/w:document/w:body/w:p[9]',text:'第一章 绪论'}}],
+ sections:[{id:'section-1',page:{margin_top_cm:2.5},source:{part:'word/document.xml',path:'/w:document/w:body/w:sectPr'},different_first_page:true,different_odd_even_pages:false,page_number:{format:'upperRoman',start:'1',mode:'restart'},headers:[{type:'default',part:'word/header1.xml',text:'学位论文',fields:[' PAGE \\* MERGEFORMAT '],linked_to_previous:false,source:{part:'word/header1.xml',path:'/w:hdr/w:p[1]',text:'学位论文'}}],footers:[],break_type:null}],
+ notes:[{id:'supplement:text',text:'正文四号',source:{part:'supplement_text',path:'supplement_text',text:'正文四号'}}],missing:[],unsupported:[],identity_fields:[],
+ conflicts:[
+  {id:'conflict-1',rule_id:'body.font_size_pt',label:'body.font_size_pt',message:'实际属性与文字规范或多处文字表述不同，需确认适用要求。',options:[{id:'openxml',value:12,source:{part:'word/document.xml',path:'/w:document/w:body/w:p[4]',text:'正文小四号宋体'}},{id:'text-2',value:10.5,source:{part:'学校补充规范.docx',path:`document-version:${ids.version}:e1`,text:'正文：五号字'}}]},
+  {id:'conflict-2',rule_id:'abstract.word_count',label:'摘要字数',options:[{id:'text-1',value:'300-500字',source:{part:'supplement_text',path:'supplement_text',text:'摘要300-500字'}},{id:'text-2',value:'约400字',source:{part:'学校补充规范.docx',path:`document-version:${ids.version}:e2`,text:'摘要字数400字左右'}}]},
+ ]}
+type Reply=Response|((init?:RequestInit)=>Response|Promise<Response>)
+function customerServer(options:{bound?:string|null;previous?:string;confirmed?:boolean;bind?:Reply[];confirm?:Reply[];textOptions?:boolean}={}){
+ let bound=options.bound??null,revision=3,confirmation:null|{id:string}=options.confirmed?{id:ids.confirmation}:null
+ const confirms=[...options.confirm??[]],binds=[...options.bind??[]]
+ const calls:{method:string;path:string;key:string|null;body:unknown}[]=[]
+ const fetch=vi.fn(async(url:string,init?:RequestInit)=>{
+  const path=url.replace('/api/v1/projects/p1/',''),method=init?.method??'GET'
+  calls.push({method,path,key:new Headers(init?.headers).get('Idempotency-Key'),body:init?.body?JSON.parse(String(init.body)):null})
+  if(path==='thesis-profile')return Response.json({...profile,revision,bound_confirmation_id:bound})
+  if(path.startsWith('files?'))return Response.json({items:[],page:1,total:0,page_size:50})
+  if(path==='thesis-template-binding/preview')return Response.json({current:{confirmation_id:ids.other,template_name:'旧学校模板',confirmed_at:null},next:{confirmation_id:null,template_name:'学校论文模板',confirmed_at:null},chapters:[],outputs:[],manuscripts:[]})
+  if(path.endsWith('/confirm')){const next=confirms.shift();if(next)return typeof next==='function'?next():next;confirmation={id:ids.confirmation};return Response.json({...confirmation,chapters:customerAnalysis.chapters},{status:201})}
+  if(path==='thesis-template-binding'){const next=binds.shift();if(next)return typeof next==='function'?next(init):next;bound=ids.confirmation;revision++;return Response.json({...profile,revision,bound_confirmation_id:bound})}
+  const item={id:ids.template,name:'学校论文模板',school:'示例学校',version_label:'2026',previous_version_id:options.previous??null,task:{id:'t1',status:'succeeded'},analysis:customerAnalysis,analysis_sha256:sha,confirmation,
+   text_decision_options:options.textOptions?[
+    {id:'latin_font',label:'英文及数字字体',source_text:'英文一律采用Times New Roman',text_value:'Times New Roman',attribute_value:{'body.font_latin':'宋体'},source_sha256:sha,suggested_choice:null,changed:false,choices:['text','attributes']},
+    {id:'heading1_line_spacing',label:'一级标题行距',source_text:'一级标题采用1.5倍行距',text_value:'1.5',attribute_value:{'heading1.line_spacing':360},source_sha256:sha,suggested_choice:null,changed:true,choices:['text','attributes']},
+   ]:[],
+   supplement_text:'正文四号',sources:[{id:'s1',role:'template',file_id:ids.file,filename:'学校.docx',download_url:''},{id:'s2',role:'supplement',file_id:ids.supplement,filename:'学校补充规范.docx',download_url:''}]}
+  return Response.json({items:[item]})
+ });vi.stubGlobal('fetch',fetch)
+ return {calls,posts:()=>calls.filter(call=>call.method!=='GET').map(call=>call.path),setRevision:(value:number)=>{revision=value},setBound:(value:string)=>{bound=value;revision++}}
+}
+function renderCustomer(extra:Partial<Parameters<typeof SchoolTemplates>[0]>={}){
+ const onAdopted=vi.fn(),onChanged=vi.fn()
+ const view=render(<SchoolTemplates projectId="p1" active customerView navigation={{view:'binding',templateId:ids.template}} onNavigate={vi.fn()} onAdopted={onAdopted} onChanged={onChanged} {...extra}/>)
+ return {view,onAdopted,onChanged}
+}
+async function chooseAll(user:ReturnType<typeof userEvent.setup>){
+ await user.click(await screen.findByRole('radio',{name:/小四/}));await user.click(screen.getByRole('radio',{name:/300-500字/}))
+}
+const conflictQuestion='学校模板和补充说明的正文字号不同。请选择这篇论文采用的字号。'
+// Selected output of inspect_school_template(T2) and merge_template_notes with one authored margin note.
+function serveParsedSources(rules=parsedSources.rules) {
+ const {fetch}=server()
+ vi.stubGlobal('fetch',vi.fn(async(url:string,init?:RequestInit)=>{
+  const response=await fetch(url,init)
+  if(!url.endsWith('/school-templates')||init?.method)return response
+  const {items}=await response.json()
+  return Response.json({items:[{...items[0],id:ids.template,analysis:{...analysis,...parsedSources,rules}}]})
+ }))
+}
+it.each(['zh-CN','en'] as const)('localizes the stored GS501 level-four heading rule titles in %s',async(locale)=>{
+ setLocale(locale)
+ const fields=[
+  ['font_east_asia','中文字体','四级标题 · 中文字体','Level 4 heading · Chinese font'],
+  ['font_latin','西文字体','四级标题 · 英文字体','Level 4 heading · Latin font'],
+  ['font_size_pt','字号（pt）','四级标题 · 字号','Level 4 heading · Font size'],
+  ['alignment','对齐','四级标题 · 对齐方式','Level 4 heading · Alignment'],
+  ['line_spacing','行距原始值','四级标题 · 行距','Level 4 heading · Line spacing'],
+  ['line_rule','行距方式','四级标题 · 行距方式','Level 4 heading · Line spacing rule'],
+ ]
+ serveParsedSources(fields.map(([property,raw])=>({...parsedSources.rules[0],id:'heading4.'+property,label:'heading4 '+raw})))
+ renderCustomer()
+ const section=(await screen.findByRole('heading',{name:locale==='en'?'Template rules':'模板规则'})).closest('section')!
+ expect(Array.from(section.querySelectorAll('li > strong'),node=>node.textContent)).toEqual(fields.map(row=>row[locale==='en'?3:2]))
+})
+it.each(['zh-CN','en'] as const)('shows T2 parsed format sources and authored quotations separately in %s',async(locale)=>{
+ setLocale(locale);serveParsedSources()
+ const {view}=renderCustomer()
+ const heading=await screen.findByRole('heading',{name:locale==='en'?'Template rules':'模板规则'})
+ const rules=heading.closest('section')!.textContent!
+ const card=screen.getByRole('group',{name:locale==='en'?/Top margin/:/上边距/})
+ for(const area of [rules,card.textContent,view.container.textContent]){
+  expect(area).not.toMatch(/rPr\.|pPr\.|(?:top|w)=\d+ twips|(?:header|footer)Reference:/)
+ }
+ const expected=locale==='en'
+  ? ['Level 1 heading Chinese font','宋体','Level 1 heading font size','Size three (16 pt)','Section 1','Page width','21 cm','Top margin','2.5 cm','1.15 lines','School template']
+  : ['一级标题中文字体','宋体','一级标题字号','三号','第 1 节','页面宽度','21 厘米','上边距','2.5 厘米','1.15 倍','学校模板']
+ for(const value of expected)expect(rules).toContain(value)
+ expect(rules).toContain(parsedSources.rules.find(rule=>rule.id==='body.font_size_pt')!.example_source!.text)
+ const options=within(card).getAllByRole('radio')
+ expect(options[0].closest('label')?.textContent).toContain(locale==='en'?'2.5 cm':'2.5 厘米')
+ expect(options[1].closest('label')?.textContent).toContain(parsedSources.notes[0].text)
+ expect(options[1].closest('label')?.textContent).toContain(locale==='en'?'Supplementary note text':'补充说明文字')
+})
+it('retains the diagnostic source and location in the staff T2 template view',async()=>{
+ serveParsedSources()
+ render(<SchoolTemplates projectId="p1" active/>)
+ await screen.findByText('w=11906 twips')
+ expect(screen.getAllByText('样式 heading 1：rPr.sz.val=32').length).toBeGreaterThan(0)
+ expect(screen.getAllByText(/word\/styles\.xml · \/w:styles\/w:style/).length).toBeGreaterThan(0)
+})
+it('opens the old binding address as one customer view with a single adopt button and plain conflict cards',async()=>{
+ customerServer();const user=userEvent.setup();const {view}=renderCustomer()
+ const adopt=await screen.findByRole('button',{name:'采用这份模板'}) as HTMLButtonElement
+ expect(screen.queryByRole('navigation',{name:'模板详情视图'})).toBeNull()
+ for(const name of ['模板详情','解析规则','规则确认','项目绑定','确认模板规则','绑定此确认版本'])expect(screen.queryByRole('button',{name})).toBeNull()
+ expect(screen.getAllByRole('button').filter(button=>button.className.includes('button-primary'))).toEqual([adopt])
+ expect(adopt.disabled).toBe(true);expect(screen.getByText('还有 2 处需要选择')).toBeTruthy()
+ const prompt=screen.getByRole('group',{name:conflictQuestion})
+ expect(prompt.textContent).toContain('学校模板');expect(prompt.textContent).toContain('补充规范《学校补充规范.docx》');expect(prompt.textContent).toContain('正文：五号字');expect(prompt.textContent).toContain('五号')
+ expect(screen.getByRole('group',{name:'补充说明中的摘要字数要求不同。请选择这篇论文采用的字数。'}).textContent).toContain('补充说明文字')
+ await user.click(screen.getByRole('radio',{name:/小四/}));expect(screen.getByText('还有 1 处需要选择')).toBeTruthy()
+ await user.click(screen.getByRole('radio',{name:/300-500字/}));expect(screen.queryByText(/还有 \d+ 处需要选择/)).toBeNull();expect(adopt.disabled).toBe(false)
+ // Order: conflict cards, chapters, front matter, then the main button.
+ const order=[prompt,screen.getByLabelText('章节标题 1'),screen.getByLabelText('使用学校模板中的前置规则'),adopt]
+ for(let i=1;i<order.length;i++)expect(order[i-1].compareDocumentPosition(order[i])&Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+ expect(view.container.querySelectorAll('details,summary,[aria-expanded]')).toHaveLength(0)
+ const text=view.container.textContent??''
+ for(const raw of ['word/','/w:','document-version:','supplement_text','body.font_size_pt','heading1','upperRoman','MERGEFORMAT','查看来源'])expect(text).not.toContain(raw)
+ expect(text).toContain('正文小四号宋体');expect(text).toContain('一级标题中文字体');expect(text).toContain('大写罗马数字')
+ expect(findTechnicalText(view.container,{systemIds})).toEqual([])
+})
+it('confirms then binds with one click, reports the adoption and offers the next step',async()=>{
+ const server=customerServer();const user=userEvent.setup();const onContinue=vi.fn();const {onAdopted,onChanged}=renderCustomer({onContinue})
+ await chooseAll(user);await user.click(screen.getByRole('button',{name:'采用这份模板'}))
+ await screen.findByText('已采用 学校论文模板。')
+ expect(server.posts()).toEqual([`school-templates/${ids.template}/confirm`,'thesis-template-binding'])
+ const confirm=server.calls.find(call=>call.path.endsWith('/confirm'))!
+ expect(confirm.key).toBeTruthy();expect(confirm.body).toEqual({analysis_sha256:sha,decisions:[{conflict_id:'conflict-1',option_id:'openxml'},{conflict_id:'conflict-2',option_id:'text-1'}],chapters:[{id:'c1',title:'绪论',level:1}]})
+ expect(server.calls.find(call=>call.path==='thesis-template-binding')!.body).toEqual({confirmation_id:ids.confirmation,expected_revision:3})
+ expect(onAdopted).toHaveBeenCalledTimes(1);expect(onAdopted).toHaveBeenCalledWith(ids.confirmation);expect(onChanged).toHaveBeenCalled()
+ await user.click(screen.getByRole('button',{name:'继续 写作资料与引用'}));expect(onContinue).toHaveBeenCalledTimes(1)
+ expect(screen.queryByRole('button',{name:'采用这份模板'})).toBeNull()
+})
+it('retries only the binding after a failed bind and never re-sends the confirmation',async()=>{
+ const server=customerServer({bind:[Response.json({detail:{code:'internal_error'}},{status:500})]});const user=userEvent.setup();const {onAdopted}=renderCustomer()
+ await chooseAll(user);await user.click(screen.getByRole('button',{name:'采用这份模板'}))
+ await screen.findByText('规则已确认，但模板还没有采用。');expect(onAdopted).not.toHaveBeenCalled()
+ await user.click(screen.getByRole('button',{name:'重试采用'}));await screen.findByText('已采用 学校论文模板。')
+ expect(server.posts()).toEqual([`school-templates/${ids.template}/confirm`,'thesis-template-binding','thesis-template-binding'])
+ expect(onAdopted).toHaveBeenCalledWith(ids.confirmation)
+})
+it('rereads the profile after a bind revision conflict and binds again without confirming twice',async()=>{
+ const server=customerServer({bind:[()=>{server.setRevision(5);return Response.json({detail:{code:'task_revision_conflict',message:'学校资料已更新，请刷新。'}},{status:409})}]})
+ const user=userEvent.setup();renderCustomer()
+ await chooseAll(user);await user.click(screen.getByRole('button',{name:'采用这份模板'}));await screen.findByText('已采用 学校论文模板。')
+ const after=server.calls.slice(server.calls.findIndex(call=>call.path==='thesis-template-binding'))
+ expect(after.slice(0,3).map(call=>`${call.method} ${call.path}`)).toEqual(['POST thesis-template-binding','GET thesis-profile','POST thesis-template-binding'])
+ expect(after[2].body).toEqual({confirmation_id:ids.confirmation,expected_revision:5})
+ expect(server.posts().filter(path=>path.endsWith('/confirm'))).toHaveLength(1)
+})
+function chapterReturnWorkflow(){
+ const origin='customer-project=p1&step=manuscripts&view=materials&focus=chapters'
+ const params=new URLSearchParams({view:'detail',template:ids.template,...buildReturn(new URLSearchParams(origin),'chapter',{returnChapter:'章节与复核'})})
+ const follow=vi.fn()
+ render(<CustomerThesisWorkflow project={{id:'p1',name:'毕业论文',project_type:'thesis',research_topic:'研究设计',file_count:1,created_at:'2026-11-20',updated_at:'2026-11-20'}}
+   step="school" params={params} headingRef={null} registerLeaveGuard={()=>()=>{}} onUnavailable={vi.fn()} onNavigate={vi.fn()} onUpdateRoute={vi.fn()} onStartReview={vi.fn()} onFollowReturn={follow}/>)
+ return {follow,origin:'#'+origin}
+}
+it('returns to chapters after a slow successful binding retry',async()=>{
+ let signal:AbortSignal|null|undefined
+ const server=customerServer({confirmed:true,bind:[Response.json({detail:{code:'internal_error'}},{status:500}),init=>new Promise((resolve,reject)=>{
+  signal=init?.signal
+  signal?.addEventListener('abort',()=>reject(new DOMException('Aborted','AbortError')),{once:true})
+  setTimeout(()=>{server.setBound(ids.confirmation);resolve(Response.json({...profile,revision:4,bound_confirmation_id:ids.confirmation}))},20000)
+ })]})
+ const {follow,origin}=chapterReturnWorkflow()
+ fireEvent.click(await screen.findByRole('button',{name:'完成并返回 章节与复核'}))
+ const retry=await screen.findByRole('button',{name:'重试采用'})
+ vi.useFakeTimers()
+ try{
+  await act(async()=>{fireEvent.click(retry);await vi.advanceTimersByTimeAsync(15001)})
+  expect(signal?.aborted).toBe(false)
+  await act(async()=>{await vi.advanceTimersByTimeAsync(5000)})
+  expect(follow).toHaveBeenCalledExactlyOnceWith(origin,true)
+  expect(server.posts()).toEqual(['thesis-template-binding','thesis-template-binding'])
+ }finally{vi.useRealTimers()}
+})
+it.each(['disconnected','invalid receipt'] as const)('recovers the chapter trip with one binding after a committed %s response',async failure=>{
+ const server=customerServer({bind:[()=>{server.setBound(ids.confirmation);if(failure==='disconnected')throw new TypeError('Disconnected');return Response.json({})}]})
+ const {follow,origin}=chapterReturnWorkflow()
+ await chooseAll(userEvent.setup());fireEvent.click(screen.getByRole('button',{name:'完成并返回 章节与复核'}))
+ await waitFor(()=>expect(follow).toHaveBeenCalledExactlyOnceWith(origin,true))
+ expect(server.posts()).toEqual([`school-templates/${ids.template}/confirm`,'thesis-template-binding'])
+})
+it('checks again before an explicit retry when the first lost response completes later',async()=>{
+ const server=customerServer({confirmed:true,bind:[()=>{throw new TypeError('Disconnected')}]})
+ const {follow,origin}=chapterReturnWorkflow()
+ fireEvent.click(await screen.findByRole('button',{name:'完成并返回 章节与复核'}))
+ const retry=await screen.findByRole('button',{name:'重试采用'})
+ expect(follow).not.toHaveBeenCalled()
+ server.setBound(ids.confirmation)
+ fireEvent.click(retry)
+ await waitFor(()=>expect(follow).toHaveBeenCalledExactlyOnceWith(origin,true))
+ expect(server.posts()).toEqual(['thesis-template-binding'])
+})
+it.each(['disconnected','conflict'] as const)('preserves another binding discovered after a %s response',async failure=>{
+ const server=customerServer({confirmed:true,bind:[()=>{server.setBound(ids.other);if(failure==='disconnected')throw new TypeError('Disconnected');return Response.json({detail:{code:'task_revision_conflict'}},{status:409})}]})
+ const {follow}=chapterReturnWorkflow()
+ fireEvent.click(await screen.findByRole('button',{name:'完成并返回 章节与复核'}))
+ await screen.findByText('学校模板资料已更新，请重新打开这份模板。')
+ expect(follow).not.toHaveBeenCalled()
+ expect(server.posts()).toEqual(['thesis-template-binding'])
+})
+it.each(['disconnect','request timeout'] as const)('offers a read-only binding check after %s when the profile cannot be read',async failure=>{
+ let offline=false
+ const server=customerServer({confirmed:true,bind:[()=>{offline=true;if(failure==='disconnect')throw new TypeError('Disconnected');return new Response(null,{status:408})}]})
+ const original=fetch
+ const failedReads=vi.fn()
+ vi.stubGlobal('fetch',vi.fn((url:string,init?:RequestInit)=>{
+  if(offline&&url.endsWith('/thesis-profile')){failedReads();return Promise.reject(new TypeError('Disconnected'))}
+  return original(url,init)
+ }))
+ const {follow,origin}=chapterReturnWorkflow()
+ fireEvent.click(await screen.findByRole('button',{name:'完成并返回 章节与复核'}))
+ const check=await screen.findByRole('button',{name:'查看采用结果'})
+ expect(follow).not.toHaveBeenCalled()
+ expect(failedReads).toHaveBeenCalledTimes(1)
+ offline=false;server.setBound(ids.confirmation)
+ fireEvent.click(check)
+ await waitFor(()=>expect(follow).toHaveBeenCalledExactlyOnceWith(origin,true))
+ expect(server.posts()).toEqual(['thesis-template-binding'])
+})
+it('resends an unknown confirmation with the same key and ignores repeated clicks',async()=>{
+ const server=customerServer({confirm:[()=>{throw new TypeError('network')}]});const user=userEvent.setup();renderCustomer()
+ await chooseAll(user);await user.click(screen.getByRole('button',{name:'采用这份模板'}));await screen.findByRole('alert')
+ await user.tripleClick(screen.getByRole('button',{name:'采用这份模板'}));await screen.findByText('已采用 学校论文模板。')
+ const confirms=server.calls.filter(call=>call.path.endsWith('/confirm'))
+ expect(confirms).toHaveLength(2);expect(confirms[0].key).toBe(confirms[1].key)
+ expect(server.posts().filter(path=>path==='thesis-template-binding')).toHaveLength(1)
+})
+it('binds an already confirmed template directly and offers to finish and return to the chapter',async()=>{
+ const server=customerServer({confirmed:true});const user=userEvent.setup();const {onAdopted}=renderCustomer({returnPlace:'第 3 章 研究设计'})
+ await user.click(await screen.findByRole('button',{name:'完成并返回 第 3 章 研究设计'}))
+ await waitFor(()=>expect(onAdopted).toHaveBeenCalledWith(ids.confirmation))
+ expect(server.posts()).toEqual(['thesis-template-binding'])
+})
+it('uses change wording when another template is already adopted',async()=>{
+ customerServer({bound:ids.other,bind:[Response.json({detail:{code:'internal_error'}},{status:500})]});const user=userEvent.setup();const {view}=renderCustomer()
+ await chooseAll(user);await user.click(screen.getByRole('button',{name:'改用这份模板'}))
+ // B04 task 6: the change goes through the read-only preview first.
+ await screen.findByRole('heading',{name:'改用后会影响这些章节和格式'});await user.click(screen.getByRole('button',{name:'改用这份模板'}))
+ await screen.findByText('规则已确认，但还没有改用。');expect(screen.getByRole('button',{name:'重试改用'})).toBeTruthy()
+ expect(view.container.textContent).not.toContain('绑定')
+})
+it('shows supplement text, original style attributes and a missing previous version without folds or IDs',async()=>{
+ customerServer({previous:ids.previous,textOptions:true});const {view}=renderCustomer()
+ await screen.findByRole('button',{name:'采用这份模板'})
+ expect(screen.getByText(/原模板版本不可用/)).toBeTruthy();expect(screen.getByRole('heading',{name:'补充规范文本'})).toBeTruthy()
+ expect(screen.getByText(/正文英文字体：宋体/)).toBeTruthy();expect(screen.getByText('还有 4 处需要选择')).toBeTruthy()
+ expect(view.container.querySelectorAll('details,summary')).toHaveLength(0)
+ expect(view.container.textContent).not.toContain('绑定不会自动迁移历史稿')
+ expect(findTechnicalText(view.container,{systemIds})).toEqual([])
+})
+it('translates both fixed rule labels and instructions while retaining the source text in English',async()=>{
+ setLocale('en')
+ customerServer({textOptions:true})
+ renderCustomer()
+ const group=within(await screen.findByRole('group',{name:'Written requirement choices'}))
+ const labels=group.getAllByRole('combobox').map(select=>select.closest('label')?.firstChild?.textContent)
+ expect(labels).toEqual(['Font for English text and numbers','Level 1 heading line spacing'])
+ expect(group.getByText('The source or style changed. Check it again.')).toBeTruthy()
+ expect(group.getByText('英文一律采用Times New Roman')).toBeTruthy()
+ expect(group.getByText('一级标题采用1.5倍行距')).toBeTruthy()
+ expect(group.getByRole('option',{name:'Use the written requirement · 1.5'})).toBeTruthy()
+})
+it('keeps source paths and the staff confirmation and binding steps for analysts',async()=>{
+ const {fetch}=server();vi.stubGlobal('fetch',vi.fn(async(url:string,init?:RequestInit)=>{
+  const response=await fetch(url,init);if(url.endsWith('/school-templates')&&!init?.method){const data=await response.json();data.items[0].analysis.conflicts[0].rule_id='body.font_size_pt';return Response.json(data)}return response
+ }))
+ const view=render(<SchoolTemplates projectId="p1" active/>);await screen.findByText('正文字体')
+ expect(view.container.textContent).toContain('word/document.xml · /p[4]');expect(screen.getByRole('button',{name:'确认模板规则'})).toBeTruthy()
+ expect(screen.queryByRole('button',{name:'采用这份模板'})).toBeNull();expect(screen.getByLabelText('字号冲突').tagName).toBe('SELECT')
 })

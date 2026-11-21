@@ -4,6 +4,7 @@ from pathlib import Path
 from uuid import uuid4
 import pytest
 from tests.api.test_projects import client,create_project
+from tests.helpers.bio_runtime import bio_insights_test_image
 
 @pytest.fixture(autouse=True)
 def postgres_schema(monkeypatch,tmp_path):
@@ -49,7 +50,7 @@ def test_feature_native_lifecycle_freezes_source_recovers_and_projects(client,mo
         request=tmp_path/f'payload-{attempt[0]}.json';answer=tmp_path/f'answer-{attempt[0]}.json'
         request.write_text(json.dumps(linux({**payload,'output_directory':str(output)})),encoding='utf-8')
         script="import json;from pathlib import Path;from app.adapters.bio_insights_engine.pipeline import run;p=json.loads(Path('/work/"+request.name+"').read_bytes());r=run(p);Path('/work/"+answer.name+"').write_text(json.dumps(r))"
-        command=['docker','run','--rm','--network','none','--memory','2g','--cpus','2','-e','OPENBLAS_NUM_THREADS=1','-e','OMP_NUM_THREADS=1','-e','MKL_NUM_THREADS=1','-v',str(app)+':/app/app:ro','-v',str(tmp_path)+':/work','-w','/app','paperassist-client-b05-sub4-deps:local','/opt/paperassist-bio-insights/bin/python','-c',script]
+        command=['docker','run','--rm','--network','none','--memory','2g','--cpus','2','-e','OPENBLAS_NUM_THREADS=1','-e','OMP_NUM_THREADS=1','-e','MKL_NUM_THREADS=1','-v',str(app)+':/app/app:ro','-v',str(tmp_path)+':/work','-w','/app',bio_insights_test_image(),'/opt/paperassist-bio-insights/bin/python','-c',script]
         done=subprocess.run(command,capture_output=True,text=True,timeout=120);assert done.returncode==0,done.stderr
         def windows(value):
             if isinstance(value,dict):return {k:windows(v) for k,v in value.items()}

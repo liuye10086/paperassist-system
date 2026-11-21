@@ -14,12 +14,20 @@ from tests.integration.test_reports import report_ready
 from tests.helpers.tasks import task_owner
 
 
-def queued(client, key='word-request'):
+def queued(client, key='word-request', *, historical=False):
+    from tests.helpers.tasks import historical_word_task
+
     base, file, result, figure, explanation, url = report_ready(client)
-    task, _ = TaskService(task_owner(client)).create(base.split('/')[4], TaskCreateRequest(
+    project = base.split('/')[4]
+    service = TaskService(task_owner(client))
+    request = TaskCreateRequest(
         task_type='word_report', file_id=file['id'], analysis_run_id=result['id'],
-        expected_revision=result['setup_revision'], figure_id=figure['id'], explanation_id=explanation['id']),
-        idempotency_key=key)
+        expected_revision=result['setup_revision'], figure_id=figure['id'], explanation_id=explanation['id'],
+    )
+    if historical:
+        task = historical_word_task(service.store, project, request, key)
+    else:
+        task, _ = service.create(project, request, idempotency_key=key)
     return task, base, result, url
 
 
@@ -31,7 +39,7 @@ def expired(lease):
 
 def test_real_word_execution_saves_success_and_duplicate_message_is_noop(client, cloud, writer, tmp_path):
     from app.domain.tasks.execution import run_word_task
-    task, _, _, url = queued(client)
+    task, _, _, url = queued(client, historical=True)
     finished = run_word_task(task['id'], task['revision'])
     assert finished['status'] == 'succeeded' and finished['result_report_id']
     download = client.get(url + '/' + finished['result_report_id'] + '/download')
@@ -59,10 +67,10 @@ def test_claim_competition_and_heartbeat_does_not_add_events(client, cloud, writ
     assert sum(item is not None for item in leases) == 1
     assert store.heartbeat(lease)
     with database_connection() as db:
-        attempt = db.execute('SELECT * FROM task_attempts').fetchone()
+        attempt = db.execute('SELECT * FROM task_attempts WHERE task_id=%s', (task['id'],)).fetchone()
         assert attempt['heartbeat_at'] >= attempt['started_at']
         assert attempt['lease_expires_at'] > attempt['heartbeat_at']
-        assert len(db.execute('SELECT * FROM task_events').fetchall()) == 2
+        assert len(db.execute('SELECT * FROM task_events WHERE task_id=%s', (task['id'],)).fetchall()) == 2
 
 
 def test_expired_lease_requeues_and_fences_old_worker(client, cloud, writer):
@@ -95,13 +103,13 @@ def test_lost_workers_stop_after_three_attempts(client, cloud, writer):
         expired(lease)
         assert store.recover_expired() == 1
     with database_connection() as db:
-        current = db.execute('SELECT * FROM tasks').fetchone()
+        current = db.execute('SELECT * FROM tasks WHERE id=%s', (task['id'],)).fetchone()
     assert current['status'] == 'failed' and current['error_code'] == 'task_worker_interrupted'
 
 
 def test_queued_configuration_change_fails_without_report(client, cloud, writer, tmp_path):
     from app.domain.tasks.execution import run_word_task
-    task, base, result, _ = queued(client)
+    task, base, result, _ = queued(client, historical=True)
     client.put(base + '/analysis-setup', json={**result['selection'], 'expected_revision': 1, 'unit': 'new'})
     done = run_word_task(task['id'], task['revision'])
     assert done['status'] == 'failed' and done['error_code'] == 'task_source_conflict'
@@ -111,7 +119,7 @@ def test_queued_configuration_change_fails_without_report(client, cloud, writer,
 @pytest.mark.parametrize('timing', ['queued', 'rendered'])
 def test_disabled_owner_does_not_publish_report(client, cloud, writer, monkeypatch, timing):
     from app.domain.tasks import execution
-    task, *_ = queued(client)
+    task, *_ = queued(client, historical=True)
     owner = task_owner(client)
     def disable():
         with database_connection(write=True) as db:
@@ -127,7 +135,7 @@ def test_disabled_owner_does_not_publish_report(client, cloud, writer, monkeypat
         monkeypatch.setattr(execution, 'build_report', build)
     execution.run_word_task(task['id'], task['revision'])
     with database_connection() as db:
-        current = db.execute('SELECT * FROM tasks').fetchone()
+        current = db.execute('SELECT * FROM tasks WHERE id=%s', (task['id'],)).fetchone()
         assert current['status'] == 'failed' and current['error_code'] == 'task_owner_unavailable'
         assert not db.execute('SELECT * FROM reports').fetchall()
 
@@ -135,7 +143,7 @@ def test_disabled_owner_does_not_publish_report(client, cloud, writer, monkeypat
 def test_report_and_terminal_state_rollback_together(client, cloud, writer, monkeypatch):
     from app.domain.tasks.execution import run_word_task
     from app.adapters.task_store import TaskStore
-    task, *_ = queued(client)
+    task, *_ = queued(client, historical=True)
     append = TaskStore.append_event
     def rejected(db, current, event_type):
         if event_type == 'succeeded':
@@ -146,7 +154,7 @@ def test_report_and_terminal_state_rollback_together(client, cloud, writer, monk
         run_word_task(task['id'], task['revision'])
     with database_connection() as db:
         assert not db.execute('SELECT * FROM reports').fetchall()
-        current = db.execute('SELECT * FROM tasks').fetchone()
+        current = db.execute('SELECT * FROM tasks WHERE id=%s', (task['id'],)).fetchone()
         assert current['status'] != 'succeeded' and current['result_report_id'] is None
 
 
@@ -154,15 +162,16 @@ def test_source_tasks_share_one_report(client, cloud, writer):
     from app.domain.tasks.execution import run_word_task
     first, *_ = queued(client)
     with database_connection() as db:
-        source = db.execute('SELECT * FROM tasks').fetchone()
+        source = db.execute('SELECT * FROM tasks WHERE id=%s', (first['id'],)).fetchone()
     snap = source['input_snapshot']
     second, _ = TaskService(source['user_id']).create(source['project_id'], TaskCreateRequest(
         task_type='word_report', file_id=snap['file']['id'], analysis_run_id=snap['result']['id'],
         expected_revision=snap['result']['setup_revision'], figure_id=snap['figure']['id'],
         explanation_id=snap['explanation']['id']), idempotency_key='another-request')
     one = run_word_task(first['id'], first['revision'])
-    two = run_word_task(second['id'], second['revision'])
-    assert one['result_report_id'] == two['result_report_id']
+    assert second['id'] == first['id']
+    assert run_word_task(second['id'], second['revision']) is None
+    assert one['result_report_id']
     with database_connection() as db:
         assert len(db.execute('SELECT * FROM reports').fetchall()) == 1
 
@@ -170,7 +179,7 @@ def test_source_tasks_share_one_report(client, cloud, writer):
 def test_stage_write_failure_removes_only_its_new_partial(client, cloud, writer, monkeypatch, tmp_path):
     from app.domain.tasks.execution import run_word_task
     import os
-    task, *_ = queued(client)
+    task, *_ = queued(client, historical=True)
     monkeypatch.setattr(os, 'fsync', lambda _: (_ for _ in ()).throw(OSError('disk unavailable')))
     result = run_word_task(task['id'], task['revision'])
     assert result['status'] == 'failed' and result['error_code'] == 'storage_unavailable'
@@ -179,12 +188,14 @@ def test_stage_write_failure_removes_only_its_new_partial(client, cloud, writer,
 
 def test_stage_collision_never_deletes_existing_attempt_file(client, cloud, writer):
     from app.adapters.task_execution_store import TaskExecutionStore
-    task, *_ = queued(client)
+    task, *_ = queued(client, historical=True)
     store = TaskExecutionStore()
     lease = store.claim(task['id'], task['revision'])
     staged = store.stage(lease, b'owned-first-write')
-    with pytest.raises(FileExistsError):
+    from app.core.exceptions import StorageError
+    with pytest.raises(StorageError) as rejected:
         store.stage(lease, b'conflicting-second-write')
+    assert rejected.value.code == 'storage_accounting_unknown'
     assert staged.read_bytes() == b'owned-first-write'
 
 
@@ -201,7 +212,7 @@ def test_uncommitted_candidate_is_reused_without_stale_lease_overwrite(client, c
     from app.domain.tasks.execution import run_word_task
     from app.adapters.report_docx import build_report
     from app.adapters.task_store import TaskStore
-    task, *_ = queued(client)
+    task, *_ = queued(client, historical=True)
     store = TaskExecutionStore()
     old = store.claim(task['id'], task['revision'])
     snapshot, report, png = store.load(old)
@@ -221,15 +232,20 @@ def test_uncommitted_candidate_is_reused_without_stale_lease_overwrite(client, c
     with database_connection() as db:
         assert not db.execute('SELECT * FROM reports').fetchall()
     expired(old)
-    store.recover_expired()
+    assert store.recover_expired() == 1
     with database_connection() as db:
-        task = dict(db.execute('SELECT * FROM tasks').fetchone())
-    done = run_word_task(task['id'], task['revision'])
+        task = dict(db.execute('SELECT * FROM tasks WHERE id=%s', (old.task_id,)).fetchone())
+    assert (task['status'], task['error_code']) == ('failed', 'storage_accounting_unknown')
+    assert run_word_task(task['id'], task['revision']) is None
+    retry = client.post('/api/v1/tasks/' + task['id'] + '/retry', json={'expected_revision': task['revision']})
+    assert retry.status_code == 202, retry.text
+    monkeypatch.setattr('app.domain.tasks.execution.build_report', lambda *_: pytest.fail('Original candidate must be reused'))
+    done = run_word_task(task['id'], retry.json()['revision'])
     assert done['status'] == 'succeeded' and done['result_report_id'] == report['id']
     saved = candidate.read_bytes()
-    stale_part = store.stage(old, b'old-worker-content')
     with pytest.raises(LeaseLost):
-        store.complete(old, snapshot, report, stale_part, b'old-worker-content')
-    stale_part.unlink()
-    assert candidate.read_bytes() == saved
+        store.stage(old, b'old-worker-content')
+    with pytest.raises(LeaseLost):
+        store.complete(old, snapshot, report, staged, b'old-worker-content')
+    assert candidate.read_bytes() == saved == content
     assert len(list(candidate.parent.glob('*.docx'))) == 1

@@ -56,9 +56,10 @@ def test_unbound_fragments_and_forged_source_are_rejected(client):
 
 
 def test_new_schema_tables_and_metadata_are_additive(postgres_schema):
+    from app.db.database import SCHEMA_HEAD
     from app.db.schema import metadata
     with database_connection() as db:
-        assert db.execute('SELECT version_num FROM alembic_version').fetchone()['version_num']=='0029_statistics_execution'
+        assert db.execute('SELECT version_num FROM alembic_version').fetchone()['version_num']==SCHEMA_HEAD
         for table in ('prepared_dataset_derivations','prepared_dataset_derivations_v3','external_evidence_versions'):
             assert table in metadata.tables
             assert db.execute('SELECT count(*) AS n FROM '+table).fetchone()['n']==0

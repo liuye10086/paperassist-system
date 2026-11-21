@@ -69,3 +69,32 @@ it('returns to the first authoritative page when starting a batch from page two'
   const number=Number(new URL(url,'http://localhost').searchParams.get('page'));requested.push(number);return Response.json({items:number===1?(created?[snapshot,make('b1'),make('b2'),make('b3'),make('b4')]:[make('b1'),make('b2'),make('b3'),make('b4'),make('b5')]):[make('page-two')],total:created?7:6,page:number,page_size:5})
  });vi.stubGlobal('fetch',fetch);const view=render(<BatchUpload {...props}/>);await screen.findByText('b1.xlsx');fireEvent.click(screen.getByText('下一页'));await screen.findByText('page-two.xlsx');select([new File(['a'],'same.xlsx')]);fireEvent.click(screen.getByText('开始上传'));await waitFor(()=>expect(screen.getByText('上一页').getAttribute('disabled')).not.toBeNull());await screen.findByText('same.xlsx');expect(screen.queryByText('page-two.xlsx')).toBeNull();await waitFor(()=>expect(view.container.querySelectorAll('article')).toHaveLength(5));expect(requested.at(-1)).toBe(1)
 })
+it('reports only parsed files from batches started in this session to onChanged',async()=>{
+ let snapshot=batch();let parsed=false;const onChanged=vi.fn()
+ const old={...batch([{...item('old-item','parsed'),file_id:'fold'}],3),id:'b-old'}
+ vi.stubGlobal('fetch',vi.fn(async(url:string,init:RequestInit)=>{
+  if(init.method==='POST'&&url.endsWith('file-batches')){const body=JSON.parse(String(init.body));snapshot=batch([item(body.items[0].client_id)]);return Response.json(snapshot)}
+  if(url.includes('/items/')){snapshot={...snapshot,revision:2,items:snapshot.items.map(i=>({...i,status:'queued',file_id:'f1'}))};return Response.json(snapshot.items[0])}
+  if(url.endsWith('/b1'))return Response.json(snapshot)
+  return page(parsed?[{...snapshot,revision:4,items:snapshot.items.map(i=>({...i,status:'parsed',file_id:'f1'}))},old]:[old])
+ }))
+ render(<BatchUpload {...props} onChanged={onChanged}/>);await screen.findByText(/解析完成/)
+ expect(onChanged.mock.calls.flat().flat()).not.toContain('fold')
+ select([new File(['a'],'same.xlsx')]);fireEvent.click(screen.getByText('开始上传'));await screen.findByText(/已保存，等待解析/)
+ expect(onChanged.mock.calls.flat().flat()).not.toContain('f1')
+ parsed=true;fireEvent.click(screen.getByText('重新读取批次'))
+ await waitFor(()=>expect(onChanged).toHaveBeenLastCalledWith(['f1']))
+ expect(onChanged.mock.calls.flat().flat()).not.toContain('fold')
+})
+it.each(['zh-CN','en'] as const)('shows batch time in the interface language and readable file sizes in %s',async locale=>{
+ setLocale(locale);vi.stubGlobal('fetch',vi.fn(async()=>page([batch()])))
+ render(<BatchUpload {...props}/>)
+ const created=new Date('2026-10-10T00:00:00Z').toLocaleString(locale)
+ expect(await screen.findByText(`${locale==='en'?'Upload batch':'上传批次'} · ${created}`)).toBeTruthy()
+ fireEvent.change(screen.getByLabelText(locale==='en'?'Select Excel / Word / PDF / image files for batch upload':'批量选择 Excel / Word / PDF / 图片 文件'),{target:{files:[
+  new File([new Uint8Array(1.5*1024*1024)],'big.xlsx'),new File([new Uint8Array(2048)],'mid.xlsx'),new File([new Uint8Array(512)],'small.xlsx')]}})
+ expect(screen.getByText(/big\.xlsx · 1\.5 MB/)).toBeTruthy()
+ expect(screen.getByText(/mid\.xlsx · 2 KB/)).toBeTruthy()
+ expect(screen.getByText(locale==='en'?/small\.xlsx · 512 bytes/:/small\.xlsx · 512 字节/)).toBeTruthy()
+ expect(document.body.textContent).not.toContain('1572864')
+})

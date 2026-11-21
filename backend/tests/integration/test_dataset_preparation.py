@@ -129,8 +129,8 @@ def test_revision_uses_saved_recipe_rejects_stale_wait_and_keeps_original_snapsh
 
 def test_fixed_raw_version_and_owner_file_scoping(client):
     base, _, raw, _, task = create_preparation(client)
-    version(client,base,1)
     assert run(task)['status'] == 'waiting_confirmation'
+    version(client,base,1)
     view = review(client,task)
     assert view['source']['dataset_id'] == raw['id'] and view['source']['dataset_version'] == 1
     other_base, _ = add_file(client)
@@ -231,10 +231,12 @@ def test_selected_excel_coordinates_empty_rows_and_parent_ordinals(client):
     assert defaults.status_code == 200,defaults.text
     # Explicit empty terminal rows remain within the selected raw sheet extent.
     recipe = defaults.json()['recipe']
+    assert run(task)['status'] == 'waiting_confirmation'
     for key in ('selected-one','selected-two'):
         response = client.post(base+'/dataset-preparations',json=dict(dataset_id=raw['id'],recipe=recipe),headers={'Idempotency-Key':key})
         assert response.status_code == 202,response.text
-        created = response.json(); run(created)
+        created = response.json()
+        assert run(created)['status'] == 'waiting_confirmation'
         accepted = decide(client,created,decision(review(client,created)),key).json()
         assert run(accepted)['status'] == 'succeeded'
         result = review(client,created)['result']

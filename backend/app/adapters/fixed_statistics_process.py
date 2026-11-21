@@ -2,10 +2,10 @@
 import os
 from pathlib import Path
 import sys
-from app.adapters.excel_process import _run_child
+from app.adapters.excel_process import ChildOutputError, _run_child
 from app.core.exceptions import StorageError
 from app.domain.regression.common import NumericError
-from app.domain.fixed_statistics_contract import MAX_OUTPUT_BYTES
+from app.domain.fixed_statistics_contract import ERROR_MESSAGES, MAX_OUTPUT_BYTES
 
 MEMORY_BYTES = 1024 ** 3
 CPU_SECONDS = 30
@@ -18,6 +18,9 @@ def run_statistics_isolated(encoded, *, timeout_seconds):
     command = [sys.executable, '-I', '-B', str(Path(__file__).with_name('fixed_statistics_runner.py')), str(os.getpid())]
     try:
         message = _run_child(command, encoded, timeout_seconds=min(30., timeout_seconds), max_output_bytes=MAX_OUTPUT_BYTES)
+    except ChildOutputError as exc:
+        code = {'missing': 'numeric_output_missing', 'too_large': 'numeric_output_limit'}[exc.reason]
+        raise NumericError(code, ERROR_MESSAGES[code]) from None
     except StorageError as exc:
         # SIGKILL is ambiguous: never claim an OOM without evidence.
         code = {'parse_timeout': 'numeric_timeout', 'parse_resource_limit': 'numeric_process_terminated',

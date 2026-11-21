@@ -3,6 +3,9 @@ import { afterEach, expect, test, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import App from '../../app/App'
+import AuthBoundary from '../../features/auth/AuthBoundary'
+import ProjectWorkspace from '../../features/projects/ProjectWorkspace'
+import { workflowStateFixture } from '../fixtures/workflowStateFixture'
 import { summaryFixture } from '../fixtures/summaryFixture'
 import { filePageFixture } from '../fixtures/filePageFixture'
 import { batchUploadFixture } from '../fixtures/batchUploadFixture'
@@ -15,11 +18,11 @@ afterEach(() => {
   window.history.replaceState(null, '', '/')
 })
 
-const project = { id: 'p1', name: '药学项目', research_topic: '分组比较', project_type: 'sci', file_count: 1,
+const project = { id: 'p1', name: '药学项目', research_topic: '分组比较', project_type: 'research' as const, file_count: 1,
   created_at: '2026-09-29T10:00:00Z', updated_at: '2026-09-29T10:00:00Z' }
-const secondProject = { ...project, id: 'p2', name: '毕业论文项目', project_type: 'thesis', file_count: 0 }
-const session = { user: { id: 'user-a', email: 'a@paperassist.local', role: 'user' }, csrf_token: 'csrf-a' }
-const otherSession = { user: { id: 'user-b', email: 'b@paperassist.local', role: 'user' }, csrf_token: 'csrf-b' }
+const secondProject = { ...project, id: 'p2', name: '毕业论文项目', project_type: 'thesis' as const, file_count: 0 }
+const session = { user: { id: 'user-a', email: 'a@paperassist.local', role: 'customer' }, csrf_token: 'csrf-a' }
+const otherSession = { user: { id: 'user-b', email: 'b@paperassist.local', role: 'customer' }, csrf_token: 'csrf-b' }
 const record = { id: 'f1', project_id: 'p1', filename: '实验.xlsx', file_type: 'xlsx', size_bytes: 123,
   sha256: 'a'.repeat(64), uploaded_at: '2026-09-29T10:00:00Z', parse_status: 'parsed', error: null }
 const preview = { filename: '实验.xlsx', file_type: 'xlsx', sheets: [
@@ -48,7 +51,12 @@ function api(options: { patch?: (init: RequestInit) => Promise<Response> } = {})
         reserved_micro_usd: 0, pending_count: 0, items: [], total: 0, page: 1, page_size: 10 })
     }
     const summaryProject = projects.find(item => url.startsWith(`/api/v1/projects/${item.id}/summary?`))
-    if (summaryProject) return Response.json(summaryFixture(summaryProject.id, summaryProject.project_type as 'sci' | 'thesis'))
+    if (summaryProject) return Response.json(summaryFixture(summaryProject.id, summaryProject.project_type))
+    const current = projects.find(item => url.startsWith(`/api/v1/projects/${item.id}/`))
+    if (current && url.endsWith('/workflow-state')) return Response.json(workflowStateFixture(current))
+    if (current && url.endsWith('/customer-workspace/summary')) {
+      return Response.json({ project_id: current.id, step: 'details', target: {} })
+    }
     if (url.endsWith('/me')) return currentSession ? Response.json(currentSession) : new Response(null, { status: 401 })
     if (url.endsWith('/logout')) { currentSession = null; return new Response(null, { status: 204 }) }
     if (url.endsWith('/login')) { currentSession = otherSession; projects = [{ ...project, name: '乙用户项目' }]; return Response.json(currentSession) }
@@ -94,6 +102,16 @@ async function navigate(name: string) {
   await act(async () => { fireEvent.click(screen.getByRole('button', { name })) })
 }
 
+// These compatibility cases exercise the retained component's combined editor and Excel preview.
+async function openLegacyWorkspace() {
+  const user = userEvent.setup()
+  render(<AuthBoundary><ProjectWorkspace /></AuthBoundary>)
+  await user.click(await screen.findByRole('button', { name: '打开项目 药学项目' }))
+  await user.click(await screen.findByRole('button', { name: '第 1 步：项目资料' }))
+  await screen.findByLabelText('修改项目名称')
+  return user
+}
+
 async function openProject() {
   const user = userEvent.setup()
   render(<App />)
@@ -127,7 +145,7 @@ test('keeps project type locked without redundant editing guidance', async () =>
 
 test('patches only changed name and updates heading and selection without resetting file preview', async () => {
   const mock = api()
-  const user = await openProject()
+  const user = await openLegacyWorkspace()
   await navigate('项目文件')
   await user.click(await screen.findByRole('button', { name: '预览 实验.xlsx' }))
   await screen.findByRole('cell', { name: '10' })
@@ -161,7 +179,7 @@ test('patches only the changed research topic', async () => {
 
 test('cancels draft without a patch or clearing file preview', async () => {
   const mock = api()
-  const user = await openProject()
+  const user = await openLegacyWorkspace()
   await navigate('项目文件')
   await user.click(await screen.findByRole('button', { name: '预览 实验.xlsx' }))
   await screen.findByRole('cell', { name: '10' })
@@ -182,7 +200,7 @@ test('does not patch a draft with no actual changes', async () => {
   await editName(user, '  药学项目  ')
   await user.click(screen.getByRole('button', { name: '保存修改：项目名称' }))
   expect(patchCalls(mock)).toHaveLength(0)
-  expect(screen.getByRole('heading', { name: '药学项目' })).toBeTruthy()
+  expect(screen.getByLabelText('修改项目名称')).toHaveProperty('value', '药学项目')
 })
 
 for (const field of ['修改项目名称', '修改研究主题']) {
@@ -218,7 +236,7 @@ for (const failure of ['422', 'network']) {
     expect(screen.getByRole('alert').textContent).not.toContain('项目资料校验失败')
     expect((screen.getByLabelText('修改项目名称') as HTMLInputElement).value).toBe('新名称')
     await user.click(screen.getByRole('button', { name: '保存修改：项目名称' }))
-    expect(await screen.findByRole('heading', { name: '新名称' })).toBeTruthy()
+    await waitFor(() => expect(screen.getByRole('button', { name: '当前项目 新名称' })).toBeTruthy())
     expect(patchCalls(mock)).toHaveLength(2)
   })
 }
@@ -237,7 +255,7 @@ test('disables editing controls and prevents duplicate patches while saving', as
   expect((screen.getByLabelText('修改研究主题') as HTMLTextAreaElement).disabled).toBe(true)
   expect(patchCalls(mock)).toHaveLength(1)
   await act(async () => pending.resolve(Response.json({ ...project, name: '新名称' })))
-  expect(await screen.findByRole('heading', { name: '新名称' })).toBeTruthy()
+  await waitFor(() => expect(screen.getByRole('button', { name: '当前项目 新名称' })).toBeTruthy())
 })
 
 test('times out at the shared bounded deadline and rereads server result while preserving preview', async () => {
@@ -257,7 +275,7 @@ test('times out at the shared bounded deadline and rereads server result while p
     }
     return response
   })
-  const user = await openProject()
+  const user = await openLegacyWorkspace()
   await navigate('项目文件')
   await user.click(await screen.findByRole('button', { name: '预览 实验.xlsx' }))
   await screen.findByRole('cell', { name: '10' })
@@ -291,7 +309,7 @@ for (const late of ['response', 'body']) {
       response.json = () => { bodyStarted = true; return body.promise }
       return response
     } })
-    const user = await openProject()
+    const user = await openLegacyWorkspace()
     await editName(user)
     await user.click(screen.getByRole('button', { name: '保存修改：项目名称' }))
     if (late === 'body') await waitFor(() => expect(bodyStarted).toBe(true))
@@ -346,13 +364,13 @@ for (const late of ['response', 'body']) {
     await user.type(screen.getByLabelText('密码'), 'valid-password')
     await user.click(screen.getByRole('button', { name: /^登录$/ }))
     await user.click(await screen.findByRole('button', { name: '打开项目 乙用户项目' }))
-    await screen.findByRole('heading', { name: '乙用户项目' })
+    await screen.findByRole('button', { name: '当前项目 乙用户项目' })
     await act(async () => {
       if (late === 'response') pending.resolve(Response.json({ ...project, name: '甲用户迟到名称' }))
       else body.resolve({ ...project, name: '甲用户迟到名称' })
     })
     expect(screen.queryByText(/甲用户迟到名称/)).toBeNull()
-    expect(screen.getByRole('heading', { name: '乙用户项目' })).toBeTruthy()
+    expect(screen.getByLabelText('修改项目名称')).toHaveProperty('value', '乙用户项目')
   })
 }
 
@@ -365,7 +383,7 @@ test('retains an editing draft during same-project refresh and ignores stale lis
     if (url.startsWith('/api/v1/projects?') && ++lists === 2) return staleList.promise
     return normal(url, init)
   })
-  const user = await openProject()
+  const user = await openLegacyWorkspace()
   await editName(user)
   await user.click(screen.getByRole('button', {name:'第 2 步：文件上传/整理'}))
   const input = await screen.findByLabelText('批量选择 Excel / Word / PDF / 图片 文件')
@@ -391,7 +409,7 @@ test('retains an editing draft during same-project refresh and ignores stale lis
 
 test('does not reset draft when a same-project list refresh completes', async () => {
   const mock = api()
-  const user = await openProject()
+  const user = await openLegacyWorkspace()
   await editName(user)
   await user.click(screen.getByRole('button', {name:'第 2 步：文件上传/整理'}))
   const input = await screen.findByLabelText('批量选择 Excel / Word / PDF / 图片 文件')

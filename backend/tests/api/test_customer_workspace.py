@@ -101,7 +101,7 @@ def test_progress_follows_confirmed_version_and_its_publication():
         project = create_customer_project(client)
         path = project + '/customer-workspace/progress'
         draft = {'status': 'draft', 'requirement_version': None, 'submitted_at': None,
-                 'updated_at': None, 'note': None, 'feedback': []}
+                 'updated_at': None, 'note': None, 'feedback': [], 'submissions': []}
         assert client.get(path).json() == draft
         write_requirements(client, project, 1, 'save')
         assert client.get(path).json() == draft
@@ -294,3 +294,86 @@ def test_customer_routes_are_role_specific_and_legacy_delivery_still_reads(role)
         legacy = project + f"/deliveries/{snapshot['delivery_id']}/snapshots"
         assert client.get(legacy).json()['items'][0]['id'] == snapshot['id']
         assert client.get(snapshot['members'][0]['download_url']).content == content
+
+
+def test_cross_project_paper_customer_reads_own_analysis_deliveries_only():
+    """D3: a paper project reads the owner's analysis deliveries through the analysis project's own routes."""
+    from tests.api.test_customer_project_types import SCI_SETTINGS
+
+    with TestClient(app) as customer, TestClient(app) as other:
+        owner_id = sign_in(customer, 'cross-owner@workspace.test', 'customer')
+        sign_in(other, 'cross-other@workspace.test', 'customer')
+        sci = customer.post('/api/v1/projects', headers={'Idempotency-Key': 'cross-sci'}, json={
+            'name': 'Synthetic SCI project', 'research_topic': 'Synthetic topic',
+            'project_type': 'sci', 'sci_settings': SCI_SETTINGS,
+        })
+        thesis = customer.post('/api/v1/projects', headers={'Idempotency-Key': 'cross-thesis'}, json={
+            'name': 'Synthetic thesis project', 'research_topic': 'Synthetic topic', 'project_type': 'thesis',
+        })
+        assert sci.status_code == 201 and thesis.status_code == 201, (sci.text, thesis.text)
+        analysis = create_customer_project(customer, 'cross-analysis')
+        analysis_id = analysis.rsplit('/', 1)[-1]
+        submitted = write_requirements(customer, analysis, 1, 'confirm')
+        _, snapshot, _, content = freeze_delivery(customer, analysis, owner_id, submitted['id'])
+        publish_delivery(snapshot)
+
+        listed = customer.get('/api/v1/projects', params={'type': 'research', 'page': '1', 'page_size': '100'})
+        assert listed.status_code == 200, listed.text
+        assert [row['id'] for row in listed.json()['items']] == [analysis_id]
+        assert listed.json()['total'] == 1
+
+        workspace = analysis + '/customer-workspace'
+        detail_path = workspace + '/deliveries/' + snapshot['id']
+        download = detail_path + f"/members/{snapshot['members'][0]['id']}/download"
+        items = customer.get(workspace + '/deliveries')
+        assert items.status_code == 200 and [row['id'] for row in items.json()['items']] == [snapshot['id']]
+        assert items.json()['items'][0]['kind'] == 'analysis'
+        detail = customer.get(detail_path)
+        assert detail.status_code == 200 and detail.json()['members'][0]['download_url'] == download
+        member = customer.get(download)
+        assert member.status_code == 200 and member.content == content
+
+        for foreign in (workspace + '/deliveries', detail_path, download, detail_path + '/download'):
+            reply = other.get(foreign)
+            assert reply.status_code == 404, foreign
+            assert reply.json()['detail']['code'] == 'project_not_found', foreign
+
+        for paper in (sci.json()['id'], thesis.json()['id']):
+            paper_workspace = f'/api/v1/projects/{paper}/customer-workspace'
+            progress = customer.get(paper_workspace + '/progress')
+            assert progress.status_code == 403
+            assert progress.json()['detail']['code'] == 'customer_project_type_forbidden'
+            submission = customer.post(paper_workspace + '/material-submissions',
+                                       headers={'Idempotency-Key': f'cross-{paper}'}, json={})
+            assert submission.status_code == 403
+            assert submission.json()['detail']['code'] == 'customer_project_type_forbidden'
+            assert customer.get(paper_workspace + '/deliveries').json() == {'items': []}
+
+
+def test_cross_project_paper_with_analysis_history_still_reads_its_own_deliveries():
+    """Lock the existing allowance so D3 does not turn a paper project's own history into a 403."""
+    with TestClient(app) as client:
+        owner_id = sign_in(client, 'cross-history@workspace.test', 'analyst')
+        created = client.post('/api/v1/projects', json={
+            'name': 'Synthetic history SCI', 'research_topic': 'Synthetic topic', 'project_type': 'sci',
+        })
+        assert created.status_code == 201, created.text
+        project = '/api/v1/projects/' + created.json()['id']
+        submitted = write_requirements(client, project, 1, 'confirm')
+        _, snapshot, _, content = freeze_delivery(client, project, owner_id, submitted['id'])
+        publish_delivery(snapshot)
+        with database_connection(write=True) as db:
+            db.execute("UPDATE users SET role='customer' WHERE id=%s", (owner_id,))
+        client.cookies.clear()
+        auth = login(client, 'cross-history@workspace.test')
+        assert auth.status_code == 200
+        client.headers.update(write_headers(auth))
+
+        assert client.get(project).json()['has_analysis_history'] is True
+        workspace = project + '/customer-workspace'
+        listed = client.get(workspace + '/deliveries')
+        assert listed.status_code == 200 and [row['id'] for row in listed.json()['items']] == [snapshot['id']]
+        detail = client.get(workspace + '/deliveries/' + snapshot['id'])
+        assert detail.status_code == 200
+        member = client.get(detail.json()['members'][0]['download_url'])
+        assert member.status_code == 200 and member.content == content

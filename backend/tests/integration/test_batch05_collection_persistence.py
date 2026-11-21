@@ -34,7 +34,15 @@ def collection_case(client,cloud,writer,monkeypatch):
 
 def body(sample,automatic=True):
     from app.domain.report_collections.contracts import CollectionRequest
-    return CollectionRequest(title='Collection',language='zh-CN',automatic=automatic,items=[{'figure_id':sample['figure']['id']}])
+    return CollectionRequest(title='Collection',language=sample['figure']['language'],automatic=automatic,items=[{'figure_id':sample['figure']['id']}])
+
+
+@pytest.fixture
+def verified_collection_figure(client, monkeypatch):
+    from app.adapters.collection_store import CollectionStore
+    from tests.api.test_review_figure_adoptions import actual_plot
+    item = actual_plot(client, monkeypatch)
+    return CollectionStore(item['workbench'].assets), item
 
 
 def test_waiting_intent_has_no_task_and_repeated_save_is_idempotent(collection_case):
@@ -47,15 +55,17 @@ def test_waiting_intent_has_no_task_and_repeated_save_is_idempotent(collection_c
         assert db.execute('SELECT count(*) AS n FROM report_build_requests').fetchone()['n']==1
 
 
-def test_exact_dependency_advance_atomic_task_outbox_and_new_export_intent(collection_case):
-    repository,project,sample,explanation=collection_case
+def test_exact_dependency_advance_atomic_task_outbox_and_new_export_intent(verified_collection_figure, monkeypatch):
+    from tests.api.test_statistics_reader_reports import explain_collection_item
+    repository, sample = verified_collection_figure
+    project = sample['project']
     saved=repository.create(project,body(sample),'create-1'); version=saved['current_version_id']
-    # Only the exact declared engine can satisfy the frozen dependency.
-    with repository.store.connection(write=True) as db:
-        db.execute('UPDATE explanations SET engine_version=%s WHERE id=%s',('figure_explanation_v1',explanation['id']))
+    assert saved['versions'][0]['requests'][0]['status'] == 'waiting'
+    explanation_id = explain_collection_item(sample, monkeypatch)
     repository.advance(project,saved['versions'][0]['requests'][0]['id'])
     state=repository.get(project,saved['id']); automatic=state['versions'][0]['requests'][0]
     assert automatic['status']=='queued' and automatic['task_id']
+    assert repository.preview(project,saved['id'],version)['items'][0]['explanation']['id'] == explanation_id
     with repository.store.connection() as db:
         assert db.execute('SELECT count(*) AS n FROM task_outbox WHERE task_id=%s',(automatic['task_id'],)).fetchone()['n']==1
     explicit=repository.export(project,saved['id'],version,'explicit-1')
@@ -75,12 +85,15 @@ def test_new_version_does_not_replace_previous_intent_and_conflict_is_rejected(c
     with pytest.raises(StorageError): repository.create(project,request,'create-1')
 
 
-def test_local_worker_preserves_original_png_and_late_old_export(collection_case):
+def test_local_worker_preserves_original_png_and_late_old_export(verified_collection_figure, monkeypatch, client):
     from app.domain.report_collections.execution import run_collection_word_task
+    from tests.api.test_statistics_reader_reports import explain_collection_item
+    from tests.helpers.research_report import assert_word_figure_pixels
     from io import BytesIO
     from zipfile import ZipFile
-    repository,project,sample,explanation=collection_case
-    request=body(sample); request.items[0].explanation_id=explanation['id']
+    repository, sample = verified_collection_figure
+    project = sample['project']
+    request=body(sample); request.items[0].explanation_id=explain_collection_item(sample, monkeypatch)
     saved=repository.create(project,request,'create-1')
     old=saved['versions'][0]['requests'][0]
     request.expected_revision=1; request.title='New version'
@@ -91,23 +104,30 @@ def test_local_worker_preserves_original_png_and_late_old_export(collection_case
     assert current['current_version_id']==newer['current_version_id']
     report=next(v for v in current['versions'] if v['id']==saved['current_version_id'])['requests'][0]['report']
     metadata,content=repository.download(project,saved['id'],report['id'])
-    with ZipFile(BytesIO(content)) as archive:
-        assert [archive.read(n) for n in archive.namelist() if n.startswith('word/media/')]==[repository.store.figure_png(sample['figure'])]
+    assert metadata == report
+    original_png = repository.store.figure_png(sample['figure'])
+    assert_word_figure_pixels(content, original_png)
+    package = next(member for member in report['members'] if member['role'] == 'zip')
+    with ZipFile(BytesIO(client.get(package['download_url']).content)) as archive:
+        assert archive.read('figures/figure_01/selected_png.png') == original_png
     assert run_collection_word_task(old['task_id'],1,config=repository.store.db_config,directory=repository.store.directory) is None
 
 
 
-def test_background_compensation_recovers_published_explanation_without_browser(collection_case):
+def test_background_compensation_recovers_published_explanation_without_browser(verified_collection_figure, monkeypatch):
     from app.domain.report_collections.service import advance_pending
-    repository,project,sample,explanation=collection_case
+    from tests.api.test_statistics_reader_reports import explain_collection_item
+    repository, sample = verified_collection_figure
+    project = sample['project']
     saved=repository.create(project,body(sample),'create-1')
-    with repository.store.connection(write=True) as db:
-        db.execute('UPDATE explanations SET engine_version=%s WHERE id=%s',('figure_explanation_v1',explanation['id']))
+    assert saved['versions'][0]['requests'][0]['status'] == 'waiting'
+    explanation_id = explain_collection_item(sample, monkeypatch)
     assert advance_pending(config=repository.store.db_config,directory=repository.store.directory)==1
     advance_pending(config=repository.store.db_config,directory=repository.store.directory)
     with repository.store.connection() as db:
         assert db.execute("SELECT count(*) AS n FROM tasks WHERE task_type='collection_word_report'").fetchone()['n']==1
     assert repository.get(project,saved['id'])['versions'][0]['requests'][0]['status']=='queued'
+    assert repository.preview(project,saved['id'],saved['current_version_id'])['items'][0]['explanation']['id'] == explanation_id
 
 
 def test_concurrent_same_export_key_creates_single_intent(collection_case):
@@ -145,10 +165,12 @@ def test_legacy_png_request_returns_specific_numbering_conflict(collection_case)
     assert error.value.code=='collection_legacy_numbering'
 
 
-def test_worker_rejects_task_snapshot_digest_corruption(collection_case):
+def test_worker_rejects_task_snapshot_digest_corruption(verified_collection_figure, monkeypatch):
     from app.domain.report_collections.execution import run_collection_word_task
-    repository,project,sample,explanation=collection_case
-    request=body(sample); request.items[0].explanation_id=explanation['id']
+    from tests.api.test_statistics_reader_reports import explain_collection_item
+    repository, sample = verified_collection_figure
+    project = sample['project']
+    request=body(sample); request.items[0].explanation_id=explain_collection_item(sample, monkeypatch)
     state=repository.create(project,request,'create-1');task_id=state['versions'][0]['requests'][0]['task_id']
     with repository.store.connection(write=True) as db:
         db.execute('UPDATE tasks SET input_digest=%s WHERE id=%s',('a'*64,task_id))

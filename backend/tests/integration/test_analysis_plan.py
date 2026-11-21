@@ -99,7 +99,8 @@ def test_publish_cannot_overwrite_concurrent_setup_and_legacy_new_revision_stays
     failed=run_plan(approved.json())
     assert failed['status']=='failed' and failed['error_code']=='setup_conflict'
     assert client.get(base+'/analysis-setup').json()==direct.json()
-    assert statistics_post(client, base+'/analysis-runs',json={'expected_revision':1}).status_code==200
+    blocked=statistics_post(client, base+'/analysis-runs',json={'expected_revision':1})
+    assert blocked.status_code==409 and blocked.json()['detail']['code']=='task_source_conflict'
 
 
 @pytest.mark.parametrize('damage',['plan','decision','check','source','setup_ref','result_ref','delete_setup_ref','delete_result_ref'])
@@ -136,7 +137,20 @@ def test_confirmed_history_survives_direct_new_setup_without_plan(client):
     assert new.status_code==200 and new.json()['revision']==2 and 'analysis_plan' not in new.json()
     assert client.get(base+'/analysis-plans/'+view['result']['id']).json()==view['result']
     assert client.get(base+'/analysis-result').json()['result']==old
-    assert statistics_post(client, base+'/analysis-runs',json={'expected_revision':2}).json()['overall']['n']==5
+    blocked=statistics_post(client, base+'/analysis-runs',json={'expected_revision':2})
+    assert blocked.status_code==409 and blocked.json()['detail']['code']=='task_source_conflict'
+    request=dict(dataset_id=prepared['id'],expected_setup_revision=2,selection=new.json()['selection'])
+    pending=seed_legacy_plan(client,base+'/analysis-plans',json=request,headers={'Idempotency-Key':'approve-new-selection'})
+    assert pending.status_code==202,pending.text
+    task=pending.json()
+    assert run_plan(task)['status']=='waiting_confirmation'
+    approved=decide_plan(client,task,plan_decision(review_plan(client,task)),'confirm-new-selection')
+    assert approved.status_code==202,approved.text
+    assert run_plan(approved.json())['status']=='succeeded'
+    current=statistics_post(client,base+'/analysis-runs',json={'expected_revision':3})
+    assert current.status_code==200,current.text
+    assert current.json()['overall']['n']==5
+    assert client.get(base+'/analysis-runs/'+old['id']).json()==old
 
 
 def test_create_and_decision_strictness_and_ownership(client):
@@ -170,7 +184,7 @@ def test_filename_and_revision_origin_tampering_cannot_change_review(client):
 def test_missing_csrf_and_client_plan_reference_are_rejected(client):
     base,_,prepared=prepared_sample(client)
     body=dict(dataset_id=prepared['id'],expected_setup_revision=0,selection=selection(numeric_column='D',group_column='C',unit='mg'))
-    response=seed_legacy_plan(client, base+'/analysis-plans',json=body,headers={'Idempotency-Key':'csrf','X-CSRF-Token':'invalid'})
+    response=client.post(base+'/analysis-plans',json=body,headers={'Idempotency-Key':'csrf','X-CSRF-Token':'invalid'})
     assert response.status_code==403,response.text
     request=selection(numeric_column='D',group_column='C',unit='mg',dataset_id=prepared['id'],expected_revision=0)
     assert client.put(base+'/analysis-setup',json={**request,'analysis_plan':{'plan_id':'fake','sha256':'a'*64,'resolutions':{}}}).status_code==422

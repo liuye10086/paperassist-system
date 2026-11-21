@@ -127,13 +127,15 @@ def assert_legacy_files(root,prefixes):
 
 def test_legacy_figures_reports_collection_and_language(client,cloud,writer,collection_case,tmp_path):
     from tests.integration.test_batch05_collection_persistence import body
+    from tests.helpers.tasks import historical_collection_export
     from app.domain.report_collections.execution import run_collection_word_task
     from app.adapters.report_store import ReportStore
     from app.domain.reports import context
     from tests.integration.test_storage_transactional_producers import sync_candidate
     repository,pid,sample,explanation=collection_case
-    request=body(sample);request.items[0].explanation_id=explanation['id']
-    saved=repository.create(pid,request,'inventory-collection');intent=saved['versions'][0]['requests'][0]
+    request=body(sample, automatic=False);request.items[0].explanation_id=explanation['id']
+    saved=repository.create(pid,request,'inventory-collection')
+    intent = historical_collection_export(repository, pid, saved['current_version_id'], 'legacy-inventory')
     assert run_collection_word_task(intent['task_id'],1)['status']=='succeeded'
     snapshot,state=context(repository.store,pid,sample['result']['file_id'],sample['result']['id'])
     assert state['ready'];reports=ReportStore(repository.store)
@@ -294,6 +296,9 @@ def test_control_directory_link_persists_failed_preflight_without_reconciliation
         assert receipt['physical_bytes'] is None and receipt['physical_object_count'] is None
         assert receipt['last_successful_scan']==successful
         assert receipt['last_successful_scanned_at']==successful['scanned_at']
+        refreshed=admin.get('/api/v1/admin/storage')
+        assert refreshed.status_code==200,refreshed.text
+        assert refreshed.json()['inventory']==receipt and refreshed.json()['status']=='unknown'
         assert str(retained) not in json.dumps(receipt) and 'synthetic.xlsx' not in json.dumps(receipt)
         with store.connection() as db:
             assert db.execute('SELECT summary FROM storage_inventory_scans WHERE id=1').fetchone()['summary']==receipt

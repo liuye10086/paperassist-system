@@ -48,8 +48,10 @@ def test_prepared_full_chain_preserves_coordinates_source_and_word_labels(client
     monkeypatch.setattr(raw_chain,'new_result',prepared_result)
     chain=raw_chain.complete_chain(client,monkeypatch)
     text='\n'.join(p.text for p in Document(BytesIO(client.get(chain['report_url']).content)).paragraphs)
-    assert '原始数据版本 1 · 整理数据版本 1' in text
-    assert '所选整理区域 6 行' in text and '体重（列 D）' in text
+    source = chain['result']['source']
+    assert source['parent_dataset_version'] == source['dataset_version'] == 1
+    assert '来源记录数为 6，有效记录或配对数为 4，排除数为 2' in text
+    assert '体重' in text and 'mg' in text
     with database_connection() as db:
         audit=audit_database(db)
     assert audit['ok'],audit

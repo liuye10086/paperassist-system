@@ -48,7 +48,10 @@ function Launcher({ projectId, fileId, source, selection, initialSelection, fiel
   const [listError,setListError]=useState('')
   const action = useRef<AbortController | null>(null)
   const replay = useRef<{ signature: string; key: string } | null>(null)
-  useAnalysisLeaveGuard(() => !!replay.current || JSON.stringify(research) !== JSON.stringify(emptyResearchRequest()) || JSON.stringify(candidate) !== JSON.stringify(initialSelection ?? selection) || !!originRef || !!recommendationRef, busy || recommendationBusy)
+  const savedDraft = useRef<string | null>(null)
+  const draft = JSON.stringify([research, planSelection, originRef, recommendationRef])
+  const originalDraft = JSON.stringify([emptyResearchRequest(), initialSelection ?? selection, null, null])
+  useAnalysisLeaveGuard(() => !!replay.current || draft !== (savedDraft.current ?? originalDraft), busy || recommendationBusy)
   const [visitedReviews, setVisitedReviews] = useState<NonNullable<typeof selected>[]>([])
   if (selected && !visitedReviews.some(item => item.taskId === selected.taskId)) setVisitedReviews(items => [...items, selected])
   const base = `/api/v1/projects/${encodeURIComponent(projectId)}/files/${encodeURIComponent(fileId)}/analysis-plans`
@@ -72,6 +75,7 @@ function Launcher({ projectId, fileId, source, selection, initialSelection, fiel
       const task = await taskRequest(base, controller, (v): v is TaskView => isTask(v, projectId) && v.task_type === 'analysis_plan' && v.input_version.kind === 'analysis_plan' && v.input_version.workflow_version === 'analysis_plan_v5' && sameSource(v.input_version.source, source), '计划创建结果尚未确认，请重新读取列表。',
         { method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': replay.current.key }, body: signature })
       if (controller.signal.aborted || task.input_version.kind !== 'analysis_plan') return
+      savedDraft.current = draft
       setActionError('');setSelected({ taskId: task.id, inputVersion: task.input_version }); setPage(1); setRefresh(n => n + 1); replay.current = null
     } catch (cause) {
       if (cause instanceof TaskRequestError && cause.status === 409) replay.current = null

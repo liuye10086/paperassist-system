@@ -5,6 +5,8 @@ os.environ.update(MPLBACKEND='Agg',MPLCONFIGDIR='/tmp/b05-mpl',XDG_CACHE_HOME='/
 import sys
 from pathlib import Path
 sys.path.insert(0,str(Path(__file__).resolve().parents[3]))
+from app.adapters.single_cell_r.bootstrap import preload_runtime_libraries
+preload_runtime_libraries()
 import struct,signal,tempfile,codecs,traceback,resource
 from app.adapters.bio_engine.manifest import canonical
 from app.adapters.bio_engine.tabular_assays import import_tabular,run_tabular

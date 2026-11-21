@@ -15,8 +15,9 @@ import type { RegisterLeaveGuard } from '../projects/useDraftLeaveGuard'
 import {LiteratureActivity} from './LiteratureActivity'
 import {useLiteratureActive,useLiteratureLeaveGuard} from './literatureActivityContext'
 import { suggestManualPubMedQuery, suggestPubMedQuery } from './pubmedKeywords'
+import { citationBase, citationPage, validCandidate, type Candidate } from './citationApi'
 import './literature.css'
-type Props={customerSci?:boolean;projectKeywords?:readonly string[];projectId:string;researchTopic:string;outputLanguage?:string;active:boolean;initialSearchId?:string;onOpenTask?:(id:string)=>void;onSearchChange?:(id:string)=>void;literatureNavigation?:LiteratureNavigation;onLiteratureNavigate?:(next:LiteratureNavigation)=>void;registerLeaveGuard?:RegisterLeaveGuard}
+type Props={customerSci?:boolean;projectKeywords?:readonly string[];/** A paragraph waits for a reference (B03 task 7): called once one is shortlisted with a usable bibliography. */onReferenceReady?:(referenceId:string)=>void;projectId:string;researchTopic:string;outputLanguage?:string;active:boolean;initialSearchId?:string;onOpenTask?:(id:string)=>void;onSearchChange?:(id:string)=>void;literatureNavigation?:LiteratureNavigation;onLiteratureNavigate?:(next:LiteratureNavigation)=>void;registerLeaveGuard?:RegisterLeaveGuard}
 export default function ProjectLiterature(props:Props){return <Scope key={props.projectId} {...props}/>}
 function Scope(props:Props){const {t}=useI18n();const [valid,setValid]=useState(true);const [visited,setVisited]=useState(props.active);if(props.active&&!visited)setVisited(true);useEffect(()=>onApiSessionChanged(()=>setValid(false)),[]);return valid?visited?<div hidden={!props.active}><LiteratureActivity active={props.active} register={props.registerLeaveGuard}><Literature {...props}/></LiteratureActivity></div>:null:<p hidden={!props.active} role="alert">{t('会话已失效，请重新登录。')}</p>}
 function useResource<T>(url:string|null,valid:(v:unknown)=>v is T,revision:number,onDenied:()=>void,onLoaded?:(data:T)=>void){
@@ -31,8 +32,19 @@ function useResource<T>(url:string|null,valid:(v:unknown)=>v is T,revision:numbe
  return state.key===key?state:{key,data:null,error:'',loading:!!url}
 }
 function Pagination({page,total,label,onPage,disabled=false}:{page:number;total:number;label:string;onPage:(p:number)=>void;disabled?:boolean}){const {t}=useI18n();const pages=Math.max(1,Math.ceil(total/10));return <nav className="literature-pagination" aria-label={t(label)}><span>{t('共 {total} 项 · 第 {page} / {pages} 页',{total,page,pages})}</span><button type="button" disabled={disabled||page<=1} onClick={()=>onPage(page-1)}>{t('上一页')}</button><button type="button" disabled={disabled||page>=pages} onClick={()=>onPage(page+1)}>{t('下一页')}</button></nav>}
-function Literature({projectId,researchTopic,outputLanguage,onOpenTask,initialSearchId,onSearchChange,literatureNavigation,onLiteratureNavigate,customerSci=false,projectKeywords=[]}:Props){
+function Literature({projectId,researchTopic,outputLanguage,onOpenTask,initialSearchId,onSearchChange,literatureNavigation,onLiteratureNavigate,customerSci=false,projectKeywords=[],onReferenceReady}:Props){
  const {t,locale}=useI18n();const base=basePath(projectId)
+ // A shortlisted reference whose bibliography still needs checking; the citation list reports when it becomes usable.
+ const [waitingReference,setWaitingReference]=useState('');const readyReported=useRef(false)
+ const ready=(c:Candidate|undefined)=>!!c&&c.selection.status==='shortlisted'&&c.metadata?.usable===true
+ function reportReady(id:string){if(readyReported.current||!onReferenceReady)return;readyReported.current=true;setWaitingReference('');onReferenceReady(id)}
+ async function checkReady(id:string){
+  const controller=new AbortController()
+  try{for(let page=1;page<=10;page++){const result=await literatureRequest(`${citationBase(projectId)}/candidates?page=${page}`,controller,citationPage(projectId,page,validCandidate));const found=result.items.find(c=>c.id===id);if(found){if(ready(found)){reportReady(id);return}break}if(page*result.page_size>=result.total)break}}catch{/* an unreadable list keeps the customer here with the notice */}
+  if(mounted.current)setWaitingReference(id)
+ }
+ function selectionSaved(id:string,status:Selection['status']){if(onReferenceReady&&status==='shortlisted')void checkReady(id)}
+ function candidatesLoaded(items:Candidate[]){if(waitingReference&&ready(items.find(c=>c.id===waitingReference)))reportReady(waitingReference)}
  const queryHint=useId()
  const keywordSuggestion=suggestPubMedQuery(projectKeywords)
  const [localNavigation,setLocalNavigation]=useState<LiteratureNavigation>({view:'list',referenceId:''});const navigation=literatureNavigation??localNavigation;const view=navigation.view;
@@ -87,8 +99,9 @@ function Literature({projectId,researchTopic,outputLanguage,onOpenTask,initialSe
  return <section className="literature-workspace" aria-label={t('项目文献')}>
  <div className="workspace-page-heading"><div><span className="workspace-eyebrow">PubMed</span><h2>{t('文献')}</h2></div><button type="button" onClick={refresh}>{t('刷新文献记录')}</button></div>
  <nav className="literature-view-switcher" aria-label={t('文献任务视图')}>{([['list','候选列表'],['search','新建文献检索'],['history','检索历史'],['evidence','论述与证据核验'],['citations','引用工作台']] as const).map(([target,label])=><button key={target} type="button" aria-pressed={view===target} onClick={()=>navigate({view:target,referenceId:''})}>{t(label)}</button>)}</nav>
+ {waitingReference&&onReferenceReady&&<p role="status" className="warning-panel">{t('还需核对这篇文献的书目信息，完成后会自动回到本段。')}</p>}
  {(visited.has('evidence')||view==='evidence')&&<div hidden={view!=='evidence'}><LiteratureActivity active={view==='evidence'}><EvidenceWorkspace projectId={projectId} researchTopic={researchTopic} outputLanguage={outputLanguage} customerSci={customerSci} onOpenTask={onOpenTask} onDenied={deny}/></LiteratureActivity></div>}
- {(visited.has('citations')||view==='citations')&&<div hidden={view!=='citations'}><LiteratureActivity active={view==='citations'}><CitationWorkspace projectId={projectId} outputLanguage={outputLanguage} onVerify={()=>navigate({view:'evidence',referenceId:''})} onDenied={deny}/></LiteratureActivity></div>}
+ {(visited.has('citations')||view==='citations')&&<div hidden={view!=='citations'}><LiteratureActivity active={view==='citations'}><CitationWorkspace projectId={projectId} outputLanguage={outputLanguage} customerSci={customerSci} onCandidates={onReferenceReady?candidatesLoaded:undefined} onVerify={()=>navigate({view:'evidence',referenceId:''})} onDenied={deny}/></LiteratureActivity></div>}
  <div hidden={view!=='search'} className="literature-task-view">
  {config.loading&&<p role="status">{t('正在读取文献配置……')}</p>}{config.error&&<p role="alert">{t(config.error)}</p>}
  {config.data&&<p className="warning-panel">{t(config.data.available?'本机 NCBI 配置已启用；检索结果以实际任务回执为准。':'NCBI 当前关闭；已保存结果仍可查看。新检索任务将持久等待配置。')}</p>}
@@ -173,15 +186,25 @@ function Literature({projectId,researchTopic,outputLanguage,onOpenTask,initialSe
  {candidates.data&&<>{!candidates.data.items.length&&<p>{t('当前条件下暂无候选文献。')}</p>}<ol className="literature-candidates">{candidates.data.items.map(item=><li key={item.id}><h4 className="literature-original">{item.record.title||t('题名未提供')}</h4><p>{item.record.authors.length?item.record.authors.join('; '):t('作者未提供')} · {item.record.year??t('年份未提供')} · {item.record.journal||t('期刊未提供')}</p><span className="task-status">{t(selectionName(item.selection.status))}</span><button type="button" onClick={()=>navigate({view:'detail',referenceId:item.id})}>{t('查看候选详情')}</button></li>)}</ol><Pagination page={candidatePage} total={candidates.data.total} label="候选文献分页" onPage={setCandidatePage} disabled={candidates.loading}/></>}
  </section>
  </div>
- {[...details,...(view==='detail'&&detailId&&!details.some(d=>d.referenceId===detailId&&d.searchId===searchId)?[{referenceId:detailId,searchId}]:[])].map(d=><div key={`${d.referenceId}:${d.searchId}`} hidden={view!=='detail'||detailId!==d.referenceId||searchId!==d.searchId}><LiteratureActivity active={view==='detail'&&detailId===d.referenceId&&searchId===d.searchId}><CandidateDetail projectId={projectId} referenceId={d.referenceId} searchId={d.searchId} onClose={()=>navigate({view:'list',referenceId:''})} onChanged={refresh} onDenied={deny} onVerify={()=>navigate({view:'evidence',referenceId:''})}/></LiteratureActivity></div>)}
+ {[...details,...(view==='detail'&&detailId&&!details.some(d=>d.referenceId===detailId&&d.searchId===searchId)?[{referenceId:detailId,searchId}]:[])].map(d=><div key={`${d.referenceId}:${d.searchId}`} hidden={view!=='detail'||detailId!==d.referenceId||searchId!==d.searchId}><LiteratureActivity active={view==='detail'&&detailId===d.referenceId&&searchId===d.searchId}><CandidateDetail projectId={projectId} customerSci={customerSci} referenceId={d.referenceId} searchId={d.searchId} onClose={()=>navigate({view:'list',referenceId:''})} onChanged={refresh} onSaved={status=>selectionSaved(d.referenceId,status)} onDenied={deny} onVerify={()=>navigate({view:'evidence',referenceId:''})}/></LiteratureActivity></div>)}
  </section>
 }
 function publicationTypeLabel(type:string){return ({'Clinical Trial':'临床试验','Randomized Controlled Trial':'随机对照试验','Review':'综述','Systematic Review':'系统综述','Meta-Analysis':'荟萃分析','Observational Study':'观察性研究','Case Reports':'病例报告'} as Record<string,string>)[type]??type}
 function FrozenConditions({input}:{input:SearchInput}){const t=(key:string,params:Record<string,string|number>={})=>translateForLocale(key,input.output_language,params);return <p lang={input.output_language}>{t('年份：{from}–{to}；类型：{types}；排序：{sort}；最多 {limit} 篇；输出：{language}。',{from:input.year_from??t('不限'),to:input.year_to??t('不限'),types:input.publication_types.length?input.publication_types.map(type=>t(publicationTypeLabel(type))).join('; '):t('不限'),sort:t(input.sort==='pub_date'?'发表日期':'相关性'),limit:input.limit,language:input.output_language==='en'?'English':t('简体中文')})}</p>}
 function selectionName(status:Selection['status']){return {candidate:'候选',shortlisted:'人工入选',excluded:'人工排除'}[status]}
 function TaskEntry({projectId,taskId,onOpenTask,customerSci}:{customerSci:boolean;projectId:string;taskId:string;onOpenTask?:Props['onOpenTask']}){const {t}=useI18n();return customerSci?null:onOpenTask?<button type="button" onClick={()=>onOpenTask(taskId)}>{t('查看检索任务')}</button>:<a href={`#project=${encodeURIComponent(projectId)}&section=tasks&task=${encodeURIComponent(taskId)}`}>{t('查看检索任务')}</a>}
-function SourceView({source}:{source:Source}){const {t,locale}=useI18n();return <div className="literature-source"><p>{source.source_kind==='synthetic_fixture'?t('合成测试资料'):'NCBI E-utilities'} · {new Date(source.retrieved_at).toLocaleString(locale)} · {t(source.cached?'复用已保存的来源回执':'已保存的来源记录')}</p><SavedSearchContext context={source.source_context}/><p>{t('原始检索式')}：<span className="literature-original">{source.query}</span></p><p>{t('有效检索式')}：<span className="literature-original">{source.effective_query}</span></p><ProjectDownloadLink href={source.source_download_url} filename="pubmed-source.xml">{t('下载原始 JSON/XML')}</ProjectDownloadLink></div>}
-function CandidateDetail({projectId,referenceId,searchId,onClose,onChanged,onDenied,onVerify}:{projectId:string;referenceId:string;searchId:string;onClose:()=>void;onChanged:()=>void;onDenied:()=>void;onVerify:()=>void}){
+function SourceView({source,customer}:{source:Source;customer:boolean}) {
+ const {t,locale}=useI18n()
+ const sourceName=source.source_kind==='synthetic_fixture'?t('合成测试资料'):customer?'PubMed':'NCBI E-utilities'
+ return <div className="literature-source">
+  <p>{sourceName} · {new Date(source.retrieved_at).toLocaleString(locale)} · {t(source.cached?'复用已保存的来源回执':'已保存的来源记录')}</p>
+  <SavedSearchContext context={source.source_context}/>
+  <p>{t('原始检索式')}：<span className="literature-original">{source.query}</span></p>
+  <p>{t('有效检索式')}：<span className="literature-original">{source.effective_query}</span></p>
+  {!customer&&<ProjectDownloadLink href={source.source_download_url} filename="pubmed-source.xml">{t('下载原始 JSON/XML')}</ProjectDownloadLink>}
+ </div>
+}
+function CandidateDetail({projectId,referenceId,searchId,onClose,onChanged,onSaved,onDenied,onVerify,customerSci=false}:{customerSci?:boolean;projectId:string;referenceId:string;searchId:string;onClose:()=>void;onChanged:()=>void;onSaved?:(status:Selection['status'])=>void;onDenied:()=>void;onVerify:()=>void}){
  const {t}=useI18n();const [checksOpen,setChecksOpen]=useState(false);const [detailView,setDetailView]=useState('overview');const [page,setPage]=useState(1);const [revision,setRevision]=useState(0);const [status,setStatus]=useState<Selection['status']>('candidate');const [note,setNote]=useState('');const [error,setError]=useState('');const [busy,setBusy]=useState(false)
  const [dirty,setDirty]=useState(false);const dirtyRef=useRef(false);const [editorRevision,setEditorRevision]=useState<number|null>(null);const [uncertain,setUncertain]=useState(false);useLiteratureLeaveGuard(dirty||uncertain,busy);
  const request=useRef<AbortController|null>(null);const mounted=useRef(true);useEffect(()=>{mounted.current=true;return()=>{mounted.current=false;request.current?.abort()}},[])
@@ -189,7 +212,7 @@ function CandidateDetail({projectId,referenceId,searchId,onClose,onChanged,onDen
  const params=new URLSearchParams({page:String(page)});if(searchId)params.set('search_id',searchId)
  const detail=useResource<ReferenceDetail>(`${base}?${params}`,(v):v is ReferenceDetail=>validDetail(v,projectId,referenceId,page)&&(!searchId||v.source.search_id===searchId),revision,onDenied,data=>{if(!dirtyRef.current){setStatus(data.selection.status);setNote(data.selection.note);setEditorRevision(data.selection.revision)}const last=Math.max(1,Math.ceil(data.sources.total/10));if(page>last)setPage(last)})
  async function save(){if(!detail.data||request.current||detail.loading)return;const controller=new AbortController();request.current=controller;setBusy(true);setError('')
- try{await literatureRequest(base,controller,(v):v is Reference=>validReference(v,projectId)&&v.id===referenceId,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({expected_revision:editorRevision??detail.data.selection.revision,status,note})});if(mounted.current&&!controller.signal.aborted){dirtyRef.current=false;setDirty(false);setUncertain(false);setRevision(r=>r+1);onChanged()}}
+ try{await literatureRequest(base,controller,(v):v is Reference=>validReference(v,projectId)&&v.id===referenceId,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({expected_revision:editorRevision??detail.data.selection.revision,status,note})});if(mounted.current&&!controller.signal.aborted){dirtyRef.current=false;setDirty(false);setUncertain(false);setRevision(r=>r+1);onChanged();onSaved?.(status)}}
  catch(cause){if(mounted.current){if(cause instanceof TaskRequestError&&cause.status===403)onDenied();setUncertain(!(cause instanceof TaskRequestError&&cause.status===409));setError(cause instanceof TaskRequestError&&cause.status===409?'候选状态已变化，已重新读取；请核对后再保存。':'筛选保存未确认，请重新读取后核对。');setRevision(r=>r+1);onChanged()}}
  finally{if(request.current===controller)request.current=null;if(mounted.current)setBusy(false)}
  }
@@ -202,10 +225,10 @@ function CandidateDetail({projectId,referenceId,searchId,onClose,onChanged,onDen
  <p className="muted">{t('本次检索未取得全文；项目上传材料见论述与证据。')}</p><div className="literature-statuses">{['全文未取得'].map(s=><span key={s}>{t(s)}</span>)}</div><h4>{t('原文摘要')}</h4>{r.abstract_status==='available'?r.abstract.map((a,i)=><p className="literature-original" key={i}>{a.label&&<strong>{a.label}: </strong>}{a.text}</p>):<p>{t(r.abstract_status==='not_returned'?'摘要未返回':'摘要为空')}</p>}
  <p>{t('关键词')}：{r.keywords.length?r.keywords.join('; '):t('未提供')}</p><p>MeSH：{r.mesh_terms.length?r.mesh_terms.join('; '):t('未提供')}</p>
  <div className="literature-actions"><a href={`https://pubmed.ncbi.nlm.nih.gov/${item.pmid}/`} target="_blank" rel="noopener noreferrer">{t('PubMed 原始条目')}</a>{r.doi?<a href={`https://doi.org/${encodeURIComponent(r.doi)}`} target="_blank" rel="noopener noreferrer">{t('DOI 未核验入口')}</a>:<span>{t('DOI 未提供')}</span>}{r.full_text_links.filter(l=>/^https:\/\/pmc\.ncbi\.nlm\.nih\.gov\/articles\/PMC[1-9][0-9]*\/$/.test(l.url)).map(l=><a key={l.url} href={l.url} target="_blank" rel="noopener noreferrer">{t('PMC 全文入口')}</a>)}</div>
- <button type="button" aria-expanded={checksOpen} onClick={()=>{setChecksOpen(true);setDetailView('checks')}}>{t('查看三项核验与历史')}</button></div><div hidden={detailView!=='checks'}>{checksOpen&&<LiteratureActivity active={detailView==='checks'}><LiteratureChecks projectId={projectId} referenceId={referenceId} initialSearchId={searchId} onDenied={onDenied} onVerify={onVerify} onClose={()=>setDetailView('overview')}/></LiteratureActivity>}</div>
+ <button type="button" aria-pressed={detailView==='checks'} onClick={()=>{setChecksOpen(true);setDetailView('checks')}}>{t('查看三项核验与历史')}</button></div><div hidden={detailView!=='checks'}>{checksOpen&&<LiteratureActivity active={detailView==='checks'}><LiteratureChecks projectId={projectId} referenceId={referenceId} initialSearchId={searchId} customerSci={customerSci} onDenied={onDenied} onVerify={onVerify} onClose={()=>setDetailView('overview')}/></LiteratureActivity>}</div>
  <div hidden={detailView!=='sources'}>
- <h4>{t('当前条目快照来源')}</h4><SourceView source={item.source}/>
- <h4>{t('全部检索来源')}</h4>{item.sources.items.map((source,i)=><SourceView key={i} source={source}/>)}<Pagination page={page} total={item.sources.total} label="候选来源分页" onPage={setPage} disabled={busy||detail.loading}/>
+ <h4>{t('当前条目快照来源')}</h4><SourceView source={item.source} customer={customerSci}/>
+ <h4>{t('全部检索来源')}</h4>{item.sources.items.map((source,i)=><SourceView key={i} source={source} customer={customerSci}/>)}<Pagination page={page} total={item.sources.total} label="候选来源分页" onPage={setPage} disabled={busy||detail.loading}/>
  </div>
  <div hidden={detailView!=='selection'}>
  <fieldset disabled={busy||detail.loading}><legend>{t('人工筛选')}</legend><label>{t('人工筛选状态')}<select value={status} onChange={e=>{dirtyRef.current=true;setDirty(true);setStatus(e.target.value as Selection['status'])}}>{(['candidate','shortlisted','excluded'] as const).map(s=><option key={s} value={s}>{t(selectionName(s))}</option>)}</select></label><label>{t('筛选备注')}<textarea maxLength={2000} value={note} onChange={e=>{dirtyRef.current=true;setDirty(true);setNote(e.target.value)}}/></label><button type="button" className="button-primary" onClick={()=>void save()}>{t(busy?'正在保存筛选……':'保存人工筛选')}</button></fieldset>

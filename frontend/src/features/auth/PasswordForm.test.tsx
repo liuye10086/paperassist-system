@@ -23,6 +23,14 @@ async function open(mode: 'change' | 'reset', mutation: (init: RequestInit) => P
   fireEvent.click(await screen.findByRole('button', { name: mode === 'change' ? '修改密码' : '忘记密码' }))
   return { fetchMock, send }
 }
+
+it.each(['change', 'reset'] as const)('separates the English instructions on the %s password form', async mode => {
+  await open(mode)
+  const instructions = screen.getByText('新密码须为12–128个字符。更新成功后全部旧会话失效，请重新登录。')
+  act(() => setLocale('en'))
+  expect(instructions.textContent).toBe('The new password must contain 12–128 characters. After the update, all previous sessions expire. Please sign in again.')
+})
+
 function fill(mode: 'change' | 'reset', password = newPassword, confirmation = password) {
   fireEvent.change(screen.getByLabelText(mode === 'change' ? '当前密码' : '恢复码'), { target: { value: mode === 'change' ? 'old-password-123' : 'one-use-code' } })
   fireEvent.change(screen.getByLabelText('新密码'), { target: { value: password } })

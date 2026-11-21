@@ -38,6 +38,14 @@ export type Manuscript={id:string;project_id:string;title:string;current_revisio
 export const manuscriptBase=(projectId:string)=>`/api/v1/projects/${encodeURIComponent(projectId)}/manuscripts`
 export const manuscriptVersionPath=(projectId:string,manuscriptId:string,revision:number)=>`${manuscriptBase(projectId)}/${encodeURIComponent(manuscriptId)}/versions/${revision}`
 export const sourceKey=(source:{kind:string;id:string})=>`${source.kind}:${source.id}`
+// A version carries an adopted body when the backend's `is_written_version` holds (its writing provenance points at
+// its parent) or it was derived from an adopted body (review, revision, user return, journal or school provenance).
+const adoptedProvenance=['review_provenance','review_revision_provenance','user_return_provenance','journal_adaptation_provenance','school_change_provenance'] as const
+export function isAdoptedSnapshot(snapshot:Snapshot,parentVersionId:string|null):boolean{
+ const writing=snapshot.writing_provenance
+ if(writing&&parentVersionId&&writing.base_version_id===parentVersionId)return true
+ return adoptedProvenance.some(key=>snapshot[key]!==undefined&&snapshot[key]!==null)
+}
 export function emptyInput(title:string,language:Locale):ManuscriptInput{return{title,output_language:language,expected_revision:0,sources:[],methods:Object.fromEntries(methodFields.map(k=>[k,''])) as Record<MethodField,string>,method_source_ids:{},method_conflicts:[],results_groups:[],figure_notes:[],citation_draft:null}}
 const record=(v:unknown):v is Record<string,unknown>=>!!v&&typeof v==='object'&&!Array.isArray(v)
 const text=(v:unknown):v is string=>typeof v==='string'

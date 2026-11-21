@@ -31,9 +31,10 @@ from app.core.config import local_config
 
 from app.db.statistics_report_context_schema import TABLE_NAMES as STATISTICS_CONTEXT_TABLES
 
-SCHEMA_HEAD = "0089_paper_worksheets"
+SCHEMA_HEAD = "0090_material_submissions"
 _APPEND_ONLY_TABLES = frozenset({
     'account_deletions', 'reader_report_narrative_requests',
+    'customer_material_submissions', 'customer_material_submission_files',
     'bio_report_context_versions', 'bio_report_context_files', 'bio_report_context_requests',
     *STATISTICS_CONTEXT_TABLES, 'statistics_legacy_export_requests',
     'analysis_request_receipts', 'research_finding_versions', 'research_figure_members',

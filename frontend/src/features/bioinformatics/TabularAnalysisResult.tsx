@@ -11,7 +11,7 @@ import BioReproducibility from './BioReproducibility'
 import BulkQcDetails from './BulkQcDetails'
 import {BioResultSteps} from './BioResultPanels'
 import {figureConfigName,isTechnicalResultFile,resultTableLabels} from './bioPresentation'
-import {bulkPanels, bulkPanelTab, hasBulkPanel, type BulkPanel} from '../bio-insights/bulk'
+import {bulkPanels, bulkPanelTab, hasBulkPanel, isTranscriptomeAssay, type BulkPanel} from '../bio-insights/bulk'
 import BioReaderReport from '../bio-reader-reports/BioReaderReport'
 import type {ReportLocation} from '../bio-reader-reports/navigation'
 import type {BioReportContext} from '../bio-reader-reports/contracts'
@@ -31,7 +31,7 @@ export default function TabularAnalysisResult({projectId,result,tab,onNavigate,q
  const selected=tables.find(table=>table.key===tableKey)??tables.find(table=>table.key===summary.sample_qc_table)??tables[0]
  const correlationUnavailable=result.source.assay==='bulk_rna_counts'&&result.members.some(member=>member.key==='sample_correlation')&&
   !result.figures.some(figure=>figure.config.kind==='correlation_heatmap')
- const panels = !qualityMode&&result.source.assay==='bulk_rna_counts'
+ const panels = !qualityMode&&isTranscriptomeAssay(result.source.assay)
   ?(Object.keys(bulkPanels) as BulkPanel[]).filter(panel=>bulkPanelTab(panel)===active&&hasBulkPanel(result,panel))
   :[]
  return <section className="bio-workspace"><h2>{t('定量分析处理结果')}</h2>

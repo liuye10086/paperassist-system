@@ -1,4 +1,4 @@
-import { useEffect, type ReactNode } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { useI18n } from '../../shared/i18n'
 import { projectBase } from '../research-intake/api'
 import type { Intake } from '../research-intake/contracts'
@@ -14,21 +14,31 @@ import './analystDelivery.css'
 function PublishSnapshot({ projectId, assignmentRevision, snapshot, workspace }: {
   projectId: string; assignmentRevision: number; snapshot: DeliverySnapshot; workspace: AnalystWorkspace
 }) {
-  const { t } = useI18n()
+  const { t, locale } = useI18n()
   const [title, setTitle] = useResearchDraft(projectId, `analyst-publish:${assignmentRevision}:${snapshot.id}`, () => '')
-  const published = workspace.value?.publications.some(item => item.id === snapshot.id)
+  const [submitted, setSubmitted] = useState(false)
+  const publication = workspace.value?.publications.find(item => item.id === snapshot.id)
+  // The publish response alone confirms the release; the refreshed list may still be loading or fail to load.
+  const published = !!publication || workspace.published.includes(snapshot.id)
   useEffect(() => {
     if (published && title) setTitle('')
   }, [published, setTitle, title])
+  if (published) return <div className="analyst-delivery-published">
+    <p role="status">{t('此快照已发布给客户。')}</p>
+    {publication && <p className="analyst-delivery-hint">{t('发布时间')} <time dateTime={publication.published_at}>{new Date(publication.published_at).toLocaleString(locale)}</time></p>}
+  </div>
   if (!workspace.value) return null
-  if (published) return <p>{t('此快照已发布给客户。')}</p>
-  if (workspace.value.requirement?.id !== snapshot.requirement_version_id) return <p>{t('请关联客户最新提交的需求，重新冻结后再发布。')}</p>
+  if (workspace.value.requirement?.id !== snapshot.requirement_version_id) return <p>{t('请关联客户最新提交的需求，重新确认交付内容后再发布。')}</p>
   return <form className="analyst-delivery-row analyst-delivery-publish" onSubmit={event => {
     event.preventDefault()
-    if (!workspace.busy && title.trim()) workspace.publish(snapshot.id, title)
+    if (!workspace.busy && title.trim()) {
+      setSubmitted(true)
+      workspace.publish(snapshot.id, title)
+    }
   }}>
     <label>{t('交付标题')}<input value={title} required maxLength={200} disabled={workspace.busy} onChange={event => setTitle(event.target.value)}/></label>
     <button type="submit" className="button-primary" disabled={workspace.busy || !title.trim()}>{t('发布给客户')}</button>
+    {submitted && workspace.busy && <p role="status">{t('正在发布给客户……')}</p>}
   </form>
 }
 
@@ -40,7 +50,8 @@ export default function AnalystDelivery({ projectId, active, snapshotId, deliver
   const { t } = useI18n()
   const intake = useResearchRead<Intake>(`${projectBase(projectId)}/research-intake`, active)
   const delivery = intake.data?.deliveries?.find(item => item.kind === 'analysis')
-  const assignmentRevision = workspace?.value?.assignment_revision
+  // From the assignment itself, so a published snapshot stays confirmed even if the refreshed progress fails to load.
+  const assignmentRevision = workspace?.assignmentRevision
   return <div hidden={!active} className="analyst-delivery">
     <header className="analyst-project-details-heading">
       <h1>{t('分析交付')}</h1>

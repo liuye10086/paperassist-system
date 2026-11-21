@@ -18,7 +18,7 @@ from app.domain.document_layout import LayoutOptions
 from app.domain.manuscripts.school_export import MANUAL_LABELS, validate_school_export
 from app.domain.school_templates import bsu_gs501
 from .document_layout.package import NS, encode, parse, read_package, write_package
-from .school_template_parser import PAGINATION_FIELD
+from .school_template_parser import rendered_story_segments
 
 SCHOOL_RENDERER_VERSION='school-docx-v1'
 STYLE_NAMES={'body':'Normal','heading1':'Heading 1','heading2':'Heading 2','heading3':'Heading 3','title_zh':'Title','title_en':'School English Title','abstract_heading_zh':'School Chinese Abstract','abstract_heading_en':'School English Abstract','keywords_zh':'School Chinese Keywords','keywords_en':'School English Keywords','toc_heading':'School Contents','references_heading':'School References','acknowledgements_heading':'School Acknowledgements','figure_caption':'School Figure Caption','table_caption':'School Table Caption'}
@@ -117,19 +117,12 @@ def _section_settings(document,section,spec,*,gs501=False,running_title=None):
                     run=_field(paragraph,'STYLEREF "'+name+'" '+r'\* MERGEFORMAT',title)
                     _field_font(run,bsu_gs501.TIMES if language=='en' else bsu_gs501.SONG)
             elif original:
-                if 'segments' in original:
-                    for segment in original['segments']:
-                        if segment['kind'] == 'text':
-                            paragraph.add_run(segment['text'])
-                        elif segment['kind'] == 'field' and PAGINATION_FIELD.fullmatch(segment['instruction']):
-                            run=_field(paragraph,segment['instruction'])
-                            if gs501:_field_font(run,bsu_gs501.SONG)
-                else:
-                    if original.get('text'):paragraph.add_run(original['text'])
-                    for instruction in dict.fromkeys(i.strip() for i in original.get('fields',[])):
-                        if PAGINATION_FIELD.fullmatch(instruction):
-                            run=_field(paragraph,instruction)
-                            if gs501:_field_font(run,bsu_gs501.SONG)
+                for segment_kind, value in rendered_story_segments(original):
+                    if segment_kind == 'text':
+                        paragraph.add_run(value)
+                    else:
+                        run=_field(paragraph,value)
+                        if gs501:_field_font(run,bsu_gs501.SONG)
                 for run in paragraph.runs:
                     run.font.name='Times New Roman';run.font.size=Pt(9)
                     run._element.get_or_add_rPr().get_or_add_rFonts().set(qn('w:eastAsia'),'宋体')
@@ -245,7 +238,7 @@ class _SchoolPagination2:
 CUSTOMER_SCHOOL_LAYOUT_VERSION = 'school_customer_layout_v1'
 
 
-def build_school_docx(snapshot,images,plan,*,source_map=None,excluded_chapter_ids=frozenset(),mask_identity=False,customer_revision=False,
+def build_school_docx(snapshot,images,plan,*,source_map=None,excluded_chapter_ids=frozenset(),customer_revision=False,
                       school_template=None):
     from .manuscript_docx import _document,_table,_figure,_save_document
     validate_school_export(plan,snapshot)
@@ -285,7 +278,7 @@ def build_school_docx(snapshot,images,plan,*,source_map=None,excluded_chapter_id
     if submission_forms:
         from .bsu_gs501_docx import insert_submission_forms
 
-        forms,protected,english=insert_submission_forms(document,school_template,snapshot,plan,blind=mask_identity)
+        forms,protected,english=insert_submission_forms(document,school_template,snapshot,plan)
         skipped={c['id'] for c in snapshot['sections'] if bsu_gs501.submission_chapter(c,front)}
         for element in forms:
             for paragraph in element.iter(qn('w:p')):
@@ -303,9 +296,6 @@ def build_school_docx(snapshot,images,plan,*,source_map=None,excluded_chapter_id
         fields=plan['options'].get('manual_fields',{});profile=snapshot['thesis_context']['profile']
         for key,label in MANUAL_LABELS.items():
             value=fields.get(key) or profile.get(key) or ''
-            if mask_identity and key in ('author','student_id','supervisor'):
-                if gs501:value='XXX'
-                elif value.strip():value='[已隐去]'
             paragraph=document.add_paragraph(label+'：'+(value or '待填写'))
             mark(paragraph,identity=True)
         if not customer_revision:
@@ -316,8 +306,7 @@ def build_school_docx(snapshot,images,plan,*,source_map=None,excluded_chapter_id
                 document.add_paragraph('Only determined cover rules are applied; formal cover, identity and signatures require explicit user material.' if mapping and snapshot['output_language']=='en' else '封面仅应用可确定规则；原模板未确定的正式封面、身份和签名须人工补齐。')
     elif not submission_forms:
         document.add_paragraph(snapshot['title'],style='Title')
-        _front_fields(document,plan,None,sections['__cover__']['id'],mark=mark,section_settings=pagination.apply if pagination else None,
-            mask_identity=mask_identity)
+        _front_fields(document,plan,None,sections['__cover__']['id'],mark=mark,section_settings=pagination.apply if pagination else None)
     capture()
     manual={i['chapter_id']:i['text'] for i in plan['options'].get('manual_chapters',[])}
     keywords={i['chapter_id']:i['values'] for i in plan['options'].get('keywords',[])}
@@ -380,7 +369,7 @@ def build_school_docx(snapshot,images,plan,*,source_map=None,excluded_chapter_id
             if not snapshot['references']:document.add_paragraph('No verified references selected.' if en else '尚未选择已核实参考文献，待补充。')
             if front is not None:
                 last=_front_fields(document,plan,chapter['id'],current_spec['id'],mark=lambda p,identity=False:mark(p,chapter,identity),
-                    section_settings=pagination.apply if pagination else None,mask_identity=mask_identity)
+                    section_settings=pagination.apply if pagination else None)
                 previous_spec=plan['front_matter_sections'][last]
             capture(chapter)
             continue
@@ -399,7 +388,7 @@ def build_school_docx(snapshot,images,plan,*,source_map=None,excluded_chapter_id
             if gs501 and role=='abstract' and en:paragraph.style=GS501_TEXT_STYLES['abstract_body_en']
         if front is not None:
             last=_front_fields(document,plan,chapter['id'],current_spec['id'],mark=lambda p,identity=False:mark(p,chapter,identity),
-                section_settings=pagination.apply if pagination else None,mask_identity=mask_identity)
+                section_settings=pagination.apply if pagination else None)
             previous_spec=plan['front_matter_sections'][last]
         if role=='abstract':
             values=keywords.get(chapter['id'],snapshot.get('keywords',[]) if chapter['output_language']==snapshot['output_language'] else [])
@@ -530,7 +519,15 @@ def complete_school_fields(content,plan):
     return result,dict(status='updated',software='LibreOffice',renderer_identity=renderer_identity(),toc_entries=len(cache['toc_lines']),field_count=len(cache['fields']),source_sha256=sha256(content).hexdigest(),page_count=None,word_verified=False)
 
 
-def _front_fields(document,plan,chapter_id,section_id,mark=None,section_settings=None,*,mask_identity=False):
+def _gs501_protected_field(field,source):
+    """Unchanged GS501 protected-identity rule for the language map."""
+    label=re.sub(r'\s+','',source.get('suggested_label') or field['label'])
+    return (field['kind'] in ('identity','signature') or label in ('学号','论文作者','指导教师','导师姓名','作者姓名')
+            or field['section_id'] in ('section-3','section-4')
+            or field['section_id']=='section-2' and label.startswith(('答辩委员会',*bsu_gs501.COMMITTEE_ROLES)))
+
+
+def _front_fields(document,plan,chapter_id,section_id,mark=None,section_settings=None):
     """Apply only the confirmed paragraph source's finite passive attributes."""
     for field in plan['front_matter']['fields']:
         if field['chapter_id']!=chapter_id:continue
@@ -542,12 +539,8 @@ def _front_fields(document,plan,chapter_id,section_id,mark=None,section_settings
         value=plan['options'].get('field_values',{}).get(field['id'],'').strip()
         source=plan['front_matter_sources'][field['source_id']]
         gs501=plan.get('format_profile')==bsu_gs501.PROFILE
-        replacement=bsu_gs501.blind_field_value(field,source) if gs501 else None
-        if mask_identity and replacement is not None:displayed=replacement
-        elif mask_identity and field['kind'] in ('identity','signature') and value:displayed='[已隐去]'
-        else:displayed=value or '待填写'
-        paragraph=document.add_paragraph(field['label']+'：'+displayed)
-        if mark:mark(paragraph,identity=replacement is not None or field['kind'] in ('identity','signature','date'))
+        paragraph=document.add_paragraph(field['label']+'：'+(value or '待填写'))
+        if mark:mark(paragraph,identity=gs501 and _gs501_protected_field(field,source) or field['kind'] in ('identity','signature','date'))
         spec=plan['front_matter_sources'][field['style_source_id']]['style'] if field['style_source_id'] else {}
         ppr=paragraph._p.get_or_add_pPr()
         if 'alignment' in spec:_prop(ppr,'jc').set(qn('w:val'),spec['alignment'])

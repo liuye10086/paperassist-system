@@ -158,6 +158,14 @@ class CloudPlot:
             self.client.close()
 
 
+def _is_finite_number(value):
+    try:
+        return type(value) in (int, float) and math.isfinite(value)
+    except OverflowError:
+        # A JSON integer can exceed the range accepted by floating-point statistics.
+        return False
+
+
 def plot_differences(manifest, expected, *, legacy=False, strict_manifest=False):
     """Bounded, deterministic differences; raw observation arrays are never retained."""
     differences = []
@@ -186,7 +194,7 @@ def plot_differences(manifest, expected, *, legacy=False, strict_manifest=False)
             if not isinstance(actual,list) or len(actual)!=len(wanted): add(path,wanted,actual,'shape'); return
             for index,(a,b) in enumerate(zip(actual,wanted)): compare(a,b,path+'.'+str(index))
         elif type(wanted) in (int,float):
-            ok=type(actual) in (int,float) and math.isfinite(actual)
+            ok=_is_finite_number(actual)
             if type(wanted) is int: ok=ok and type(actual) is int and actual==wanted
             else:
                 modeling=expected.get('schema_version')==4
@@ -207,11 +215,8 @@ def validate_output(output, expected):
         if isinstance(wanted, list):
             return isinstance(actual, list) and len(actual) == len(wanted) and all(same(a, b) for a, b in zip(actual, wanted))
         if isinstance(wanted, (int, float)) and not isinstance(wanted, bool):
-            try:
-                return type(actual) in (int, float) and math.isfinite(actual) and (
-                    actual == wanted if isinstance(wanted, int) else math.isclose(actual, wanted, rel_tol=1e-10, abs_tol=0))
-            except OverflowError:
-                return False
+            return _is_finite_number(actual) and (
+                actual == wanted if isinstance(wanted, int) else math.isclose(actual, wanted, rel_tol=1e-10, abs_tol=0))
         return type(actual) is type(wanted) and actual == wanted
     modern = expected.get('schema_version') in (2,3,4)
     mismatch = plot_differences(output['manifest'],expected) if modern else not same(output['manifest'], expected)

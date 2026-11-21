@@ -153,7 +153,8 @@ def test_pdf_old_frozen_retry_then_v2_reparse_keeps_saved_v1(client, monkeypatch
 
 
 def test_evidence_owner_tamper_and_read_only_fingerprint(client):
-    import hashlib,json
+    from tests.helpers.read_only import assert_read_only_snapshot
+    import hashlib
     from pathlib import Path
     import os
     def data_root():return Path(os.environ['PAPERASSIST_DATA_DIR'])
@@ -168,12 +169,12 @@ def test_evidence_owner_tamper_and_read_only_fingerprint(client):
         with database_connection() as db:
             tables=db.execute("SELECT tablename FROM pg_tables WHERE schemaname=current_schema() ORDER BY tablename").fetchall()
             # Authentication refreshes its session timestamp on every authenticated HTTP request.
-            rows={t['tablename']:[dict(r) for r in db.execute('SELECT to_jsonb(t) AS row FROM "'+t['tablename']+'" t ORDER BY to_jsonb(t)::text').fetchall()] for t in tables if t['tablename']!='sessions'}
+            rows={t['tablename']:[r['row'] for r in db.execute('SELECT to_jsonb(t)::text AS row FROM "'+t['tablename']+'" t ORDER BY to_jsonb(t)::text').fetchall()] for t in tables if t['tablename']!='sessions'}
         assets={str(p.relative_to(data_root())):hashlib.sha256(p.read_bytes()).hexdigest() for p in Path(data_root()).rglob('*') if p.is_file()}
-        return json.dumps(rows,sort_keys=True,default=str),assets
+        return rows,assets
     before=fingerprint()
     all_evidence(client,url)
-    assert fingerprint()==before
+    assert_read_only_snapshot(before, fingerprint())
     with account_client('evidence-other@example.test')[0] as other:
         assert other.get(url).status_code==404
     with database_connection(write=True) as db:

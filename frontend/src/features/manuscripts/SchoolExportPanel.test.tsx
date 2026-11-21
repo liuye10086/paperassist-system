@@ -1,4 +1,4 @@
-import {cleanup,fireEvent,render,screen} from '@testing-library/react'
+import {cleanup,fireEvent,render,screen,within} from '@testing-library/react'
 import {afterEach,expect,it,vi} from 'vitest'
 import ManuscriptExports from './ManuscriptExports'
 import {manuscriptFixture,exportFixture} from './manuscriptFixtures'
@@ -6,7 +6,60 @@ import type {ManuscriptVersion} from './manuscriptTypes'
 import {act} from '@testing-library/react'
 import {setLocale} from '../../shared/i18n'
 import {SchoolExportDetails} from './SchoolExportPanel'
+import {findTechnicalText} from '../../test/technicalText'
 afterEach(()=>{cleanup();sessionStorage.clear();vi.unstubAllGlobals();setLocale('zh-CN')})
+
+const migrationSections = [
+ { id:'plan-results', chapter_id:'chapter-8', label:'3 观测记录与条件比较', purpose:'results', text:'' },
+ { id:'plan-methods', chapter_id:'chapter-7', label:'2 原方法标题', purpose:'materials_and_methods', text:'' },
+ { id:'plan-removed', chapter_id:'chapter-10', label:'已删除的原章', purpose:'results', text:'' },
+]
+function migratedWordVersion(withGroups:boolean) {
+ const chapters=[
+  {id:'chapter-2',title:'2 本版方法',purpose:'materials_and_methods',result_group_ids:[]},
+  {id:'chapter-9',title:'3 研究设计与条件比较',purpose:'results',result_group_ids:withGroups?['plan-results']:[]},
+  {id:'chapter-8',title:'新模板复用了原编号',purpose:'discussion',result_group_ids:[]},
+  {id:'chapter-new',title:'新模板另设的方法章节',purpose:'materials_and_methods',result_group_ids:[]},
+ ]
+ const material=(section_id:string,filename:string)=>({section_id,filename,kind:'table',result:'',
+  selection:{id:filename,file_id:filename,kind:'original',role:'user_results'},worksheet_names:['Sheet 1']})
+ return {...manuscriptFixture.versions[0],revision:4,exports:[],snapshot:{...manuscriptFixture.versions[0].snapshot,
+  thesis_context:{chapters,confirmation:{}},school_change_provenance:{kind:'template_migration',mappings:withGroups?[
+   {input_section_id:'chapter-7',chapter_id:'chapter-2'},{input_section_id:'chapter-8',chapter_id:'chapter-9'}]:[]},
+  paper_plan:{kind:'thesis',title:'材料计划',keywords:[],sections:migrationSections,
+   materials:[material('plan-results','原始第三章.xlsx'),material('plan-removed','已删除章节.xlsx')]},
+ }} as unknown as ManuscriptVersion
+}
+
+it('shows the migrated customer Word chapters in export order with their saved table assignments', async()=>{
+ vi.stubGlobal('fetch',vi.fn(async()=>Response.json({items:[]})))
+ const version=migratedWordVersion(true),before=JSON.stringify(version.snapshot)
+ render(<ManuscriptExports projectId="p1" manuscriptId="m1" version={version} customerThesis/>)
+ const summary=within(await screen.findByRole('region',{name:'本版 Word 使用的章节与图表'}))
+ expect(summary.getAllByRole('heading',{level:4}).map(h=>h.textContent)).toEqual(['2 本版方法','3 研究设计与条件比较'])
+ expect(within(summary.getByRole('heading',{name:'3 研究设计与条件比较'}).closest('article')!).getByText('表 · 原始第三章.xlsx')).toBeTruthy()
+ expect(summary.getByText(/入稿工作表.*Sheet 1/)).toBeTruthy()
+ expect(summary.queryByText(/已删除章节.xlsx/)).toBeNull()
+ expect(JSON.stringify(version.snapshot)).toBe(before)
+})
+
+it('does not attach an unassigned table to a reused chapter ID on the customer Word page',async()=>{
+ vi.stubGlobal('fetch',vi.fn(async()=>Response.json({items:[]})))
+ const version=migratedWordVersion(false)
+ render(<ManuscriptExports projectId="p1" manuscriptId="m1" version={version} customerThesis/>)
+ const summary=within(await screen.findByRole('region',{name:'本版 Word 使用的章节与图表'}))
+ expect(summary.queryAllByText(/原始第三章.xlsx|已删除章节.xlsx/)).toHaveLength(0)
+ expect(summary.queryByRole('heading',{name:'3 观测记录与条件比较'})).toBeNull()
+ expect(summary.queryAllByRole('heading',{level:4})).toHaveLength(0)
+ expect(summary.getByText('本版没有已确认归属的计划章节或图表。')).toBeTruthy()
+})
+
+it('keeps the archived plan names in the staff Word summary',async()=>{
+ vi.stubGlobal('fetch',vi.fn(async()=>Response.json({items:[]})))
+ render(<ManuscriptExports projectId="p1" manuscriptId="m1" version={migratedWordVersion(true)}/>)
+ const summary=within(await screen.findByRole('region',{name:'本版 Word 使用的章节与图表'}))
+ expect(summary.getByRole('heading',{name:'3 观测记录与条件比较'})).toBeTruthy()
+})
 it('translates new front matter missing and signature review issues when the UI language changes',()=>{
  const front={schema_version:1 as const,cover_section_id:'s1',fields:[{id:'signature',label:'用户签名',kind:'signature' as const,required:true,source_id:'p1',style_source_id:null,section_id:'s1',chapter_id:null}],content_requirements:[]}
  const details={...plan,schema_version:2 as const,front_matter:front,report:{...report,issues:[{id:'school:field:signature',kind:'manual' as const,severity:'human_review' as const,location:'signature',message:'用户签名未提供，保留待填写。',source_evidence:[]}]}}
@@ -116,4 +169,94 @@ it('keeps the existing layout entry for school exports without a TOC manifest',a
  render(<ManuscriptExports projectId="p1" manuscriptId="m1" version={version}/>);
  expect(await screen.findByRole('button',{name:'排版与公式'})).toBeTruthy()
  expect(screen.getByRole('link',{name:'下载 DOCX'})).toBeTruthy()
+})
+
+// B04 task 11: customer wording of the school export options.
+const customerChapters=[{id:'chapter-result',title:'第三章 实验结果',level:1,purpose:'results',output_language:'zh-CN',result_group_ids:[]}]
+const customerVersion=(confirmation:Record<string,unknown>={},extra:Record<string,unknown>={})=>({...manuscriptFixture.versions[0],id:'v3',revision:3,exports:[],snapshot:{...manuscriptFixture.versions[0].snapshot,output_language:'zh-CN',...extra,thesis_context:{confirmation_id:'confirm1',chapters:customerChapters,confirmation}}}) as unknown as ManuscriptVersion
+const customerBase='/api/v1/projects/p1/manuscripts/m1/versions/3/exports'
+const customerPlan=(canExport:boolean)=>({...plan,sections:[{chapter_id:'__cover__',page_number:null},{chapter_id:'chapter-result',page_number:{format:'decimal',mode:'restart',start:1}},{chapter_id:'unknown',page_number:null}],chapters:[{id:'chapter-result',title:'第三章 实验结果'}],
+ report:{...report,can_export:canExport,issues:canExport?[]:[{id:'e1',kind:'format' as const,severity:'error' as const,location:'cover',message:'封面缺少题名',source_evidence:[]}]}})
+function customerServer(canExport:boolean){
+ return vi.fn(async(url:string,_init?:RequestInit)=>url===`${customerBase}/preview`?Response.json({schema_version:1,school:customerPlan(canExport)}):Response.json({items:[]}))
+}
+it('words the customer school export options as the cover and contents of this Word',async()=>{
+ const fetcher=customerServer(true);vi.stubGlobal('fetch',fetcher)
+ const {container}=render(<ManuscriptExports customerThesis projectId="p1" manuscriptId="m1" version={customerVersion()}/>)
+ await screen.findByText('当前版本尚未生成 Word。')
+ expect(screen.getByRole('heading',{name:'封面与目录'})).toBeTruthy()
+ expect(screen.getByText('按第 3 版导出；封面等填写内容只用于这次 Word。')).toBeTruthy()
+ fireEvent.click(screen.getByLabelText('包含目录'))
+ fireEvent.change(screen.getByLabelText('目录深度'),{target:{value:'2'}})
+ fireEvent.click(screen.getByRole('button',{name:'检查能否生成 Word'}))
+ expect(await screen.findByText('可以生成 Word。')).toBeTruthy()
+ const post=(fetcher.mock.calls as unknown as [string,RequestInit][]).find(([,init])=>init?.method==='POST')!
+ expect(JSON.parse(String(post[1].body)).school).toMatchObject({include_toc:false,toc_depth:2})
+ const pages=[...container.querySelectorAll('.school-export-details > ul')].at(-1)!
+ expect([...pages.querySelectorAll('li')].map(li=>li.textContent?.split(' · ')[0])).toEqual(['封面','第三章 实验结果','第 3 节'])
+ for(const text of ['工程','版本 3','盲审稿会隐去','盲审','导出固定稿件'])expect(container.textContent).not.toContain(text)
+ expect(container.querySelectorAll('details')).toHaveLength(0)
+ expect(findTechnicalText(container,{systemIds:['confirm1','chapter-result','__cover__','a'.repeat(64),'b'.repeat(64),'c'.repeat(64)]})).toEqual([])
+})
+it('tells the customer when the school check blocks the Word',async()=>{
+ vi.stubGlobal('fetch',customerServer(false))
+ render(<ManuscriptExports customerThesis projectId="p1" manuscriptId="m1" version={customerVersion()}/>)
+ await screen.findByText('当前版本尚未生成 Word。')
+ fireEvent.click(screen.getByRole('button',{name:'检查能否生成 Word'}))
+ expect((await screen.findByText('有必须修改的项，暂时不能生成 Word。')).getAttribute('role')).toBe('alert')
+ expect((screen.getByRole('button',{name:'生成 Word'}) as HTMLButtonElement).disabled).toBe(true)
+})
+it('keeps GS501 identity fields for the identified Word and the third-party notice without hiding wording',async()=>{
+ const front={schema_version:1,cover_section_id:'section-1',fields:[{id:'author',label:'论文作者',kind:'identity',required:true,source_id:'author',style_source_id:null,section_id:'section-1',chapter_id:null}],content_requirements:[]}
+ vi.stubGlobal('fetch',customerServer(true))
+ const {container}=render(<ManuscriptExports customerThesis projectId="p1" manuscriptId="m1" version={customerVersion({front_matter:front,format_profile:'bsu-gs501-academic-masters-2026'})}/>)
+ await screen.findByText('当前版本尚未生成 Word。')
+ const panel=screen.getByRole('heading',{name:'封面与目录'}).parentElement!
+ expect(within(panel).getByText('盲评版请按学校要求交第三方处理。')).toBeTruthy()
+ expect(screen.getByLabelText('论文作者 · 必填')).toBeTruthy()
+ for(const text of ['盲审稿会隐去','隐去','工程'])expect(container.textContent).not.toContain(text)
+})
+it('disables the sealed customer options after language review',async()=>{
+ const sealed={manual_fields:{author:'合成作者',student_id:'',department:'',major:'',class_name:'',supervisor:'',submission_date:''},manual_chapters:[],english_title:'Reviewed title',keywords:[],include_toc:true,toc_depth:3}
+ vi.stubGlobal('fetch',customerServer(true))
+ render(<ManuscriptExports customerThesis projectId="p1" manuscriptId="m1" version={customerVersion({},{writing_provenance:{provider_provenance:'synthetic_fixture',verification_status:'not_verified',language_review_id:'lr1',school_export_options:sealed}})}/>)
+ await screen.findByText('当前版本尚未生成 Word。')
+ expect(screen.getByLabelText('作者').matches(':disabled')).toBe(true)
+ expect((screen.getByLabelText('作者') as HTMLInputElement).value).toBe('合成作者')
+ expect(screen.getByLabelText('目录深度').matches(':disabled')).toBe(true)
+})
+it('keeps the staff school export wording',async()=>{
+ vi.stubGlobal('fetch',customerServer(true))
+ render(<ManuscriptExports projectId="p1" manuscriptId="m1" version={customerVersion()}/>)
+ expect(screen.getByRole('heading',{name:'学校固定版本导出'})).toBeTruthy()
+ expect(screen.getByText('导出固定稿件版本 3；人工字段仅保存到本次导出。')).toBeTruthy()
+ fireEvent.click(screen.getByRole('button',{name:'预览学校排版'}))
+ expect(await screen.findByText('学校检查允许工程导出。')).toBeTruthy()
+})
+// B05 task 11: the customer Word page names what the customer fills in and what the button checks.
+const thanks={id:'chapter-thanks',title:'致谢',level:1,purpose:'acknowledgements',output_language:'zh-CN',result_group_ids:[]}
+const thanksVersion=()=>{const value=customerVersion();value.snapshot.thesis_context!.chapters=[...customerChapters,thanks] as never;return value}
+it('words the customer Word options without manual-text or layout-preview wording',async()=>{
+ vi.stubGlobal('fetch',customerServer(true))
+ const {container}=render(<ManuscriptExports customerThesis projectId="p1" manuscriptId="m1" version={thanksVersion()}/>)
+ await screen.findByText('当前版本尚未生成 Word。')
+ expect(screen.getByRole('group',{name:'封面和补充内容'})).toBeTruthy()
+ expect(screen.getByLabelText('致谢 · 需要你填写的内容')).toBeTruthy()
+ fireEvent.click(screen.getByRole('button',{name:'检查能否生成 Word'}))
+ expect(await screen.findByText('可以生成 Word。')).toBeTruthy()
+ expect(container.textContent).not.toMatch(/人工文本|预览学校排版|本次导出内容/)
+})
+it('words the customer Word options in English',async()=>{
+ setLocale('en')
+ vi.stubGlobal('fetch',customerServer(true))
+ render(<ManuscriptExports customerThesis projectId="p1" manuscriptId="m1" version={thanksVersion()}/>)
+ expect(await screen.findByRole('group',{name:'Cover and other content'})).toBeTruthy()
+ expect(screen.getByLabelText('致谢 · What you need to fill in')).toBeTruthy()
+ expect(screen.getByRole('button',{name:'Check whether Word can be generated'})).toBeTruthy()
+})
+it('keeps the staff manual-text wording on the staff Word page',async()=>{
+ vi.stubGlobal('fetch',customerServer(true))
+ render(<ManuscriptExports projectId="p1" manuscriptId="m1" version={thanksVersion()}/>)
+ expect(screen.getByRole('group',{name:'本次导出内容'})).toBeTruthy()
+ expect(screen.getByLabelText('致谢 · 人工文本')).toBeTruthy()
 })

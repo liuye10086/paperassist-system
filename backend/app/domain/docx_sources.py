@@ -14,6 +14,18 @@ class DocxSourceReader:
         with VerificationPhase(db,self.assets,project) as phase:
             return self._source_in_phase(db,project,kind,identity,phase=phase,progress=progress)
 
+    def new_source(self,db,project,kind,identity):
+        """A source for a new derived export. A historical blind Word stays read-only (blind review removed 2026-11-19):
+        it is still listed, downloaded and verified through source(), but nothing new is made from it."""
+        source=self.source(db,project,kind,identity)
+        if kind=='manuscript_export':
+            row=db.execute('SELECT t.input_snapshot FROM manuscript_exports e JOIN tasks t ON t.id=e.task_id WHERE e.id=%s',(identity,)).fetchone()
+            binding=((row['input_snapshot'] or {}).get('presentation') or {}).get('binding') or {}
+            if binding.get('review_mode','identified')!='identified':
+                from app.domain.manuscripts.contracts import blind_review_removed
+                raise blind_review_removed()
+        return source
+
     @phase_guard
     def _source_in_phase(self,db,project,kind,identity,*,phase,progress=None):
         require_phase(phase,db,self.assets,project)

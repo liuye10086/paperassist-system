@@ -84,6 +84,8 @@ class Statement(Strict):
         if self.state=='not_applicable' and (not self.reason.strip() or not self.source.strip()):raise ValueError('Not applicable requires reason and source')
         return self
 
+# Read-only compatibility: stored pre-removal configurations still validate.
+# New requests with non-empty values are rejected (blind_review_removed).
 class BlindException(Strict):
     term:str=Field(min_length=1,max_length=300)
     reason:str=Field(min_length=1,max_length=3000)
@@ -98,12 +100,14 @@ class BlindOptions(Strict):
         if len(self.identity_terms)!=len(set(self.identity_terms)):raise ValueError('Duplicate identity terms')
         if not {s.term for s in self.exceptions}<=set(self.identity_terms):raise ValueError('Blind exception must identify an explicit identity term')
         return self
+    def requested(self):
+        return bool(self.identity_terms or self.hidden_chapter_ids or self.exceptions or self.manual_image_review)
 
 class PresentationLanguageReview(Strict):
     source_export_id:str=Field(min_length=1,max_length=100)
     source_sha256:str=Field(pattern=r'^[0-9a-f]{64}$')
     language_view:Literal['zh-CN','en','zh-CN-en']
-    review_mode:Literal['identified','blind']
+    review_mode:Literal['identified','blind']  # 'blind' only in stored history
     decisions:list[SchoolLanguageDecision]=Field(min_length=1,max_length=10000)
 
 class PresentationConfig(Strict):
@@ -116,7 +120,7 @@ class PresentationConfig(Strict):
     authors:list[Author]=Field(default_factory=list,max_length=500)
     affiliations:list[Affiliation]=Field(default_factory=list,max_length=500)
     statements:list[Statement]=Field(default_factory=list,max_length=5)
-    blind:BlindOptions=Field(default_factory=BlindOptions)
+    blind:BlindOptions|None=None
     @model_validator(mode='after')
     def identities(self):
         if self.guide_version_id and self.school and self.school.guide_version_id and self.guide_version_id!=self.school.guide_version_id:raise ValueError('Conflicting fixed guide identities')

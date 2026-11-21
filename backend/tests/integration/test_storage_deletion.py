@@ -306,7 +306,7 @@ def test_file_plan_includes_retained_document_graph_and_download_dependencies(ac
     service_type,build=components()
     store=ProjectStore(get_data_dir(),owner_id=accounts[2]['id'])
     source=document_bytes()
-    created=build(store,evidence_directory=Path(os.environ['PAPERASSIST_DELETION_TEST_EVIDENCE_DIR']),
+    created=build(store,evidence_directory=Path(os.environ.get('PAPERASSIST_DELETION_TEST_EVIDENCE_DIR',tmp_path/'preserved-evidence')),
                   originals=[('retained.docx',source)])
     from app.domain.documents.service import document_snapshot
     from app.adapters.task_store import TaskStore

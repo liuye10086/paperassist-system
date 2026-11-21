@@ -52,7 +52,7 @@ class BioAnalysisExecution:
 
     @staticmethod
     def renew_lease(db,lease):
-        """Renew only a still-valid fenced lease, using the held writer connection."""
+        """Force a bio-type and lease check at a publication boundary."""
         from app.adapters.bio_lease import renew_bio_lease
         renew_bio_lease(db,lease)
 
@@ -82,8 +82,7 @@ class BioAnalysisExecution:
         entries.extend([(kind,prefix+'manifest',manifest_ref),(kind,prefix+'candidate',candidate_ref)])
         with self.repository.connection(write=True) as db:
             task=self.repository.require_lease(db,lease);self.repository.require_owner(db,task);current=latest_checkpoint(db,task)
-            progress=lambda:self.renew_lease(db,lease)
-            progress()
+            progress=self.repository.transaction_progress(db,lease)
             if current['id']!=checkpoint['id']:raise conflict('bio_input_integrity_changed')
             self.service(task).require_sources(db,task)
             rows=admit_bio_manifest(db,self.repository.assets.directory,task,entries,progress=progress)
@@ -92,7 +91,7 @@ class BioAnalysisExecution:
             # Only stable scalar reservation identity is serialized, never datetime.
             state['prepared_reservations']=[{k:r[k] for k in ('id','namespace','project_id','owner_id','task_id','kind','operation_key','object_key','size_bytes','sha256')} for r in rows]
             cp=append_checkpoint(db,task,'publish','publish',state,current)
-            progress()
+            self.renew_lease(db,lease)
         return self.publish_existing(lease,cp)
 
     def _staging_path(self,task,path):
@@ -107,15 +106,14 @@ class BioAnalysisExecution:
     def publish_existing(self,lease,checkpoint):
         with self.repository.connection(write=True) as db:
             task=self.repository.require_lease(db,lease);self.repository.require_owner(db,task);current=latest_checkpoint(db,task)
-            progress=lambda:self.renew_lease(db,lease)
-            progress()
+            progress=self.repository.transaction_progress(db,lease)
             if current['id']!=checkpoint['id'] or current['next_node']!='publish':raise conflict('bio_input_integrity_changed')
             service=self.service(task);service.require_sources(db,task);state=current['state_json'];prepared=state.get('prepared')
             if not prepared or prepared['input_sha256']!=task['input_digest']:raise conflict('bio_input_integrity_changed')
             if explicit_retry(db,task):
                 identifier=task['input_snapshot'].get('run_id') or task['input_snapshot']['figure_version_id'];kind=task['task_type']
                 authorize_rebuild(db,self.repository.assets.directory,task,allowed={kind:(self.objects(task).prefix,identifier,re.escape(kind+':'+identifier+':')+r'(?:qc|compute|figure|annotation):(?:leaf:[0-9a-f]{64}|manifest|candidate)')},progress=progress)
-            progress()
+            self.renew_lease(db,lease)
         objects=self.objects(task)
         for leaf in state['prepared_leaves']:
             record=leaf['record']
@@ -125,12 +123,11 @@ class BioAnalysisExecution:
         objects.write(state['prepared_candidate_ref'],canonical(prepared))
         with self.repository.connection(write=True) as db:
             task=self.repository.require_lease(db,lease);self.repository.require_owner(db,task);current=latest_checkpoint(db,task)
-            progress=lambda:self.renew_lease(db,lease)
-            progress()
+            progress=self.repository.transaction_progress(db,lease)
             if current['id']!=checkpoint['id']:raise conflict('bio_input_integrity_changed')
             service=self.service(task);service.require_sources(db,task)
             settle_bio_manifest(db,self.repository.assets.directory,task,state['prepared_reservations'],progress=progress)
-            progress()
+            self.renew_lease(db,lease)
             moment=max(self.repository.now(db),task['updated_at'])
             if prepared['stage']=='qc':
                 previous=task['revision'];task.update(status='waiting_confirmation',phase='plan',revision=previous+1,updated_at=moment,reason_code='confirmation_required',error_code=None)

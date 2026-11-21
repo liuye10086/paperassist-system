@@ -34,6 +34,13 @@ def _error(code):
     return StorageError(code, _MESSAGES[code])
 
 
+class ChildOutputError(StorageError):
+    """Preserve the shared parser code while identifying bounded pipe failures."""
+    def __init__(self, reason):
+        super().__init__('parse_output_invalid', _MESSAGES['parse_output_invalid'])
+        self.reason = reason
+
+
 def _terminate(process):
     try:
         os.killpg(process.pid, signal.SIGKILL)
@@ -87,7 +94,7 @@ def _run_child(command, payload, *, timeout_seconds, max_output_bytes, on_starte
                             ready = True
                             selector.register(process.stdin, selectors.EVENT_WRITE)
                         if len(output) > max_output_bytes:
-                            raise _error('parse_output_invalid')
+                            raise ChildOutputError('too_large')
                     else:
                         try:
                             position += os.write(process.stdin.fileno(), payload[position:position + 65536])
@@ -107,10 +114,12 @@ def _run_child(command, payload, *, timeout_seconds, max_output_bytes, on_starte
                 raise _error('parse_timeout') from None
         if returncode:
             raise _error('parse_resource_limit' if returncode in (-signal.SIGXCPU, -signal.SIGKILL) else 'parse_process_failed')
+        if ready and not output:
+            raise ChildOutputError('missing')
         try:
             value = json.loads(output, object_pairs_hook=_strict_object,
                                parse_constant=lambda _: (_ for _ in ()).throw(ValueError()))
-        except (ValueError, UnicodeError):
+        except (ValueError, UnicodeError, RecursionError):
             raise _error('parse_output_invalid') from None
         if not ready and value not in (
                 {'error': {'code': 'parse_environment_unavailable'}},

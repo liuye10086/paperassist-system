@@ -1,6 +1,7 @@
 import {useEffect,useState} from 'react'
 import {onApiSessionChanged} from '../../shared/api/client'
 import {useI18n} from '../../shared/i18n'
+import {taskStatusLabel} from '../../shared/i18n/protocolLabels'
 import type {TabularProcessed} from '../bioinformatics/tabularContracts'
 import type {AnalysisNavigation} from '../projects/analysisViews'
 import type {NativeDeliveryTarget} from '../analyst/NativeDeliveryArtifact'
@@ -11,7 +12,7 @@ import {projectBase} from './api'
 import {useInsightRead} from './hooks'
 import {kindLabels,type InsightKind,type Page,type Plan,type Result,type Run} from './contracts'
 import {defaultConfig,isInsightView,number,strings} from './state'
-import {bulkPanelFigureType,bulkPanelTab,bulkPlanScope,bulkProcessedMatches,isBulkEnrichmentFigure,isBulkEnrichmentResult,isBulkFigureType,isReviewedBulkComparison,type BulkPlanSeed} from './bulk'
+import {bulkPanelFigureType,bulkPanelTab,bulkPlanScope,bulkProcessedMatches,processedPanelLanguage,isBulkEnrichmentFigure,isBulkEnrichmentResult,isBulkFigureType,isReviewedBulkComparison,type BulkPlanSeed} from './bulk'
 import {DataDetails,Field,Paging,ReadState} from './InsightShared'
 import InsightPlanEditor,{InsightRun} from './InsightPlanEditor'
 import InsightResults from './InsightResults'
@@ -21,7 +22,7 @@ import './insights.css'
 type Props={allowExternalEvidenceRegistration?:boolean;allowNewAnalysis?:boolean;deliveryTarget?:NativeDeliveryTarget;projectId:string;navigation:AnalysisNavigation;active:boolean;onNavigate:(n:AnalysisNavigation)=>void;registerLeaveGuard?:RegisterLeaveGuard}
 export default function BioInsightsWorkspace(props:Props){return props.active&&isInsightView(props.navigation.view)?<Content key={`${props.projectId}:${props.navigation.entry?.requirementVersionId??''}:${props.navigation.entry?.scopeItemId??''}:${props.navigation.intent??''}`} {...props}/>:null}
 function Content({projectId,navigation:n,active,onNavigate,registerLeaveGuard,allowNewAnalysis=true,allowExternalEvidenceRegistration,deliveryTarget}:Props){
- const{t}=useI18n(),[valid,setValid]=useState(true),[page,setPage]=useState(1),[runPage,setRunPage]=useState(1),[newKind,setNewKind]=useState<InsightKind>(navigationKind(n)??'comparison')
+ const{t,locale}=useI18n(),[valid,setValid]=useState(true),[page,setPage]=useState(1),[runPage,setRunPage]=useState(1),[newKind,setNewKind]=useState<InsightKind>(navigationKind(n)??'comparison')
  const [workflowSeeds,setWorkflowSeeds]=useResearchDraft<Record<string,BulkPlanSeed>>(projectId,'bulk-workflow-plan-seeds',()=>({}))
  const workflowSeed=n.bulkView&&n.resultVersionId?workflowSeeds[`${n.bulkView}:${n.resultVersionId}`]:undefined
  const singleCellEnrichment=n.intent==='single_cell_enrichment'
@@ -34,7 +35,7 @@ function Content({projectId,navigation:n,active,onNavigate,registerLeaveGuard,al
  const processedRead=useInsightRead<TabularProcessed>(n.bulkPanel&&n.processedId?`${base}/bio-processed-datasets/${encodeURIComponent(n.processedId)}`:'',active&&!!n.bulkPanel,true)
  const processedSeed = n.bulkPanel&&n.processedId&&processedRead.data&&bulkProcessedMatches(processedRead.data,projectId,n.processedId,n.bulkPanel)
   ?{source:{source_kind:'bio_processed_dataset_version',source_id:n.processedId,sha256:processedRead.data.manifest_sha256,role:'processed',locator:{kind:'object'}},
-   config:{...defaultConfig('figure'),contrast_id:'',figure_type:bulkPanelFigureType(n.bulkPanel),bulk_panel:n.bulkPanel,result_source_id:n.processedId}} satisfies BulkPlanSeed
+   config:{...defaultConfig('figure'),output_language:processedPanelLanguage(processedRead.data,n.bulkPanel)??'zh-CN',contrast_id:'',figure_type:bulkPanelFigureType(n.bulkPanel),bulk_panel:n.bulkPanel,result_source_id:n.processedId}} satisfies BulkPlanSeed
   :undefined
  const resultSeed = workflowSeed??(n.resultVersionId&&seedEntry?.origin===n.resultVersionId?seedEntry.seed:undefined)
  const seed = processedSeed??resultSeed
@@ -114,7 +115,7 @@ function Content({projectId,navigation:n,active,onNavigate,registerLeaveGuard,al
 <ReadState {...plans}/>{plans.data&&!plans.data.items.length&&!plan.data&&<p>{t('暂无已保存计划')}</p>}<ul className="insight-history-list">{(plans.data?.items??(plan.data?[plan.data]:[])).map(v=><li key={v.id}><button type="button" onClick={()=>openPlan(v)}>{v.name} · {t(kindLabels[v.kind])} · {t(v.decision==='confirmed'?'已确认':'草稿')}</button></li>)}</ul>{plans.data&&<Paging page={page} total={plans.data.total} size={20} onPage={setPage}/>}
  </div><div className="insight-read-panel" hidden={historyPanel!=='runs'}>
  {singleCellEnrichment&&<p>{t('请选择已完成的单细胞供者差异结果，并核对匹配的本地基因集。')}</p>}
- <ReadState {...runs}/>{runs.data&&!visibleRuns.length&&<p>{t('暂无运行记录')}</p>}<ul className="insight-history-list">{visibleRuns.map(v=><li key={v.id}><button type="button" onClick={()=>openRun(v)}>{t(kindLabels[v.kind])} · {t(v.task.status)} · {v.task.created_at?new Date(v.task.created_at).toLocaleString():t('已记录')}</button>{v.result_version_id&&<button type="button" onClick={()=>result(v.result_version_id!)}>{t('查看固定结果')}</button>}</li>)}</ul>{runs.data&&<Paging page={runPage} total={runs.data.total} size={20} onPage={setRunPage}/>}</div></div>
+ <ReadState {...runs}/>{runs.data&&!visibleRuns.length&&<p>{t('暂无运行记录')}</p>}<ul className="insight-history-list">{visibleRuns.map(v=><li key={v.id}><button type="button" onClick={()=>openRun(v)}>{t(kindLabels[v.kind])} · {taskStatusLabel(v.task.status)} · {v.task.created_at?new Date(v.task.created_at).toLocaleString(locale):t('已记录')}</button>{v.result_version_id&&<button type="button" onClick={()=>result(v.result_version_id!)}>{t('查看固定结果')}</button>}</li>)}</ul>{runs.data&&<Paging page={runPage} total={runs.data.total} size={20} onPage={setRunPage}/>}</div></div>
  <div className="insight-read-panel" hidden={panel!=='resources'}>{resourcesVisited&&<InsightResources allowNewAnalysis={allowNewAnalysis} projectId={projectId} active={active&&panel==='resources'} selectedId={n.resourceVersionId} onSelect={id=>{
   const pinned=enrichmentConfig?n.resultVersionId:undefined
   setPanel('resources');setPanelRoute(['bio-resources','','',pinned??'',id??'','','',n.bulkView??''].join(':'))

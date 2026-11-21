@@ -235,7 +235,9 @@ def test_research_plaintext_does_not_expand_plot_or_explanation_material(client)
         return freeze_confirmation(current,kind,store.owner_id,dict(version=3,confirmed=True,
             source_digest=disclosed['source_digest'],labels={i['key']:i['value'] for i in disclosed['labels']}))
     # Both builders are exercised against actual frozen v2 statistics.
-    plot = build_material(result,record,None,ExcelSettings(),dataset_sheet=sheet,external=external('boxplot',snapshot))
+    from app.domain.statistics_execution.verification import verification_scope
+    with verification_scope():
+        plot = build_material(result,record,None,ExcelSettings(),dataset_sheet=sheet,external=external('boxplot',snapshot))
     assert 'LOCAL-RESEARCH-SENTINEL' not in json.dumps(plot, ensure_ascii=False)
     from app.domain.boxplot import plot_data
     figure = dict(**plot_data(result,[1.,5.,7.,9.],{'A':[1.,5.],'B':[7.,9.]}),

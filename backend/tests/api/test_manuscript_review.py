@@ -72,7 +72,7 @@ def test_fresh_export_key_keeps_prior_review_export_and_snapshot(client):
     with database_connection() as db:
         old_metadata = db.execute('SELECT metadata_json FROM manuscript_exports WHERE id=%s',
                                   (old['id'],)).fetchone()['metadata_json']
-    fresh_response = post(client, exports, {}, 'fresh-render-v5')
+    fresh_response = post(client, exports, {}, 'fresh-render')
     assert fresh_response.status_code == 201, fresh_response.text
     fresh = fresh_response.json()
     assert fresh['id'] != old['id'] and fresh['task_id'] != old['task_id']
@@ -89,7 +89,7 @@ def test_fresh_export_key_keeps_prior_review_export_and_snapshot(client):
         metadata = db.execute('SELECT metadata_json FROM manuscript_exports WHERE id=%s',
                               (fresh['id'],)).fetchone()['metadata_json']
     assert saved == old_metadata
-    assert metadata['renderer_version'] == RENDERER_VERSION == 'manuscript_docx_v5'
+    assert metadata['renderer_version'] == RENDERER_VERSION
     fresh_url = path+'/'+base['id']+'/exports/'+fresh['id']+'/download'
     assert client.get(fresh_url).status_code == 200
 

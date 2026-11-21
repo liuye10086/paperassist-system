@@ -11,8 +11,10 @@ import { paperMaterialKind, paperMaterialsUrl, type PaperFile, type PaperMateria
 
 type Edit = { id: string; revision: number; file: PaperFile; result: string; targetId: string | null; worksheetNames?: string[] }
 
-export default function PaperMaterialEditor({ projectId, original, note, targets, onBack, onSaved, onRequirements, registerLeaveGuard }: {
+export default function PaperMaterialEditor({ projectId, original, note, targets, prefill, onBack, onSaved, onRequirements, registerLeaveGuard }: {
   projectId: string; original: PaperFile; note: PaperMaterialNote | undefined; targets: PaperMaterialTarget[]
+  /** Suggested main result for a file without one, e.g. where an analysis result came from; saved only with the form. */
+  prefill?: string
   onBack: () => void; onSaved: () => void; onRequirements: () => void; registerLeaveGuard: RegisterLeaveGuard
 }) {
   const { t } = useI18n()
@@ -31,7 +33,7 @@ export default function PaperMaterialEditor({ projectId, original, note, targets
   }, [])
 
   const baseline: Edit = { id: current.note?.id ?? id, revision: current.note?.revision ?? 0, file: current.file,
-    result: current.note?.result ?? '', targetId: current.note?.target_available ? current.note.target_id : null,
+    result: current.note?.result ?? prefill ?? '', targetId: current.note?.target_available ? current.note.target_id : null,
     worksheetNames: current.note?.worksheet_names ?? undefined }
   const draft = edit ?? baseline
   const outdated = !!edit && (edit.revision !== baseline.revision || !!current.note && edit.id !== current.note.id)

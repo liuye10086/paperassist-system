@@ -1,4 +1,4 @@
-import {cleanup,fireEvent,render,screen,waitFor} from '@testing-library/react'
+import {cleanup,fireEvent,render,screen,waitFor,within} from '@testing-library/react'
 import {afterEach,expect,it,vi} from 'vitest'
 import InsightPlanEditor from './InsightPlanEditor'
 import {apiFetch} from '../../shared/api/client'
@@ -51,6 +51,8 @@ it('requires preview and confirmation separately, then invalidates confirmation 
  const model=await screen.findByRole('region',{name:'Bulk 模型确认摘要'})
  expect(model.textContent).toContain('~ condition')
  expect(model.textContent).toContain('B vs A')
+ expect(model.querySelector('details, summary')).toBeNull()
+ expect(within(model).getByRole('table',{name:'最终纳入样本'})).toBeTruthy()
  expect(posts()).toHaveLength(1)
  fireEvent.click(screen.getByRole('button',{name:'确认并保存 Bulk 模型'}))
  await waitFor(()=>expect(screen.getByRole('button',{name:'开始分析'})).toHaveProperty('disabled',false))

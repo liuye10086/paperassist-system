@@ -13,7 +13,9 @@ from io import BytesIO
 from zipfile import ZipFile
 
 import pytest
+from fastapi import HTTPException
 from app.db.database import database_connection, migrate_database
+from app.domain.statistics_execution.execution import run_statistics_task
 
 from tests.api.test_analysis import add_file, client, selection
 
@@ -29,6 +31,26 @@ def run(client, base, revision=1):
     response = statistics_post(client, base + '/analysis-runs', json={'expected_revision': revision})
     assert response.status_code == 200, response.text
     return response.json()
+
+
+def queue_statistics(client, base, revision):
+    response = client.post(base + '/analysis-runs', json={'expected_revision': revision})
+    assert response.status_code == 202, response.text
+    task = response.json()
+    assert (task['task_type'], task['status']) == ('statistics_compute', 'queued')
+    return task
+
+
+def assert_failed_statistics(client, base, revision, error_code):
+    queued = queue_statistics(client, base, revision)
+    run_statistics_task(queued['id'], queued['revision'])
+    response = client.get('/api/v1/tasks/' + queued['id'])
+    assert response.status_code == 200, response.text
+    failed = response.json()
+    assert (failed['status'], failed['error_code']) == ('failed', error_code)
+    assert failed['result_analysis_run_id'] is None
+    receipt = failed['execution_receipt']
+    assert (receipt['status'], receipt['error_code']) == ('failed', error_code)
 
 
 def test_real_statistics_use_complete_records_and_preserve_provenance(client):
@@ -49,7 +71,10 @@ def test_real_statistics_use_complete_records_and_preserve_provenance(client):
     assert result['engine']['quantile_method'] == 'linear_inclusive'
     assert result['engine']['python_version'] and result['engine']['openpyxl_version']
     assert result['started_at'] <= result['completed_at']
-    assert client.get(base + '/analysis-result').json() == {'current_revision': 1, 'is_current': True, 'result': result}
+    state = client.get(base + '/analysis-result').json()
+    task = state.pop('active_task')
+    assert state == {'current_revision': 1, 'is_current': True, 'result': result, 'execution_verification': 'verified'}
+    assert (task['task_type'], task['status'], task['result_analysis_run_id']) == ('statistics_compute', 'succeeded', result['id'])
 
 
 def test_uses_rows_beyond_preview_without_grouping(client):
@@ -86,7 +111,9 @@ def test_overflow_metrics_are_null_with_explanation_not_infinity(client):
     json.dumps(result, allow_nan=False)
 
 
-def test_integer_precision_loss_is_rejected_with_no_saved_result(client):
+def test_integer_precision_loss_is_rejected_with_no_saved_result(client, monkeypatch):
+    from app.domain import descriptive
+
     base, _ = add_file(client, [['值'], [1], [2]])
     # Supply exact OOXML integers; openpyxl's writer would round these first.
     content = client.get(base + '/download').content
@@ -100,11 +127,22 @@ def test_integer_precision_loss_is_rejected_with_no_saved_result(client):
     record = client.post(base.rsplit('/', 1)[0], files={'file': ('large.xlsx', output.getvalue())}).json()['file']
     base = base.rsplit('/', 1)[0] + '/' + record['id']
     assert client.put(base + '/analysis-setup', json=selection(expected_revision=0, group_column=None)).status_code == 200
-    response = statistics_post(client, base + '/analysis-runs', json={'expected_revision': 1})
-    assert response.status_code == 422
-    assert response.json()['detail']['code'] == 'numeric_precision'
-    assert response.json()['detail']['params'] == {'column': 'A', 'row': 2}
-    assert '整数' in response.json()['detail']['message']
+    diagnostics = []
+    execute = descriptive.execute
+
+    def record_diagnostic(*args, **kwargs):
+        try:
+            return execute(*args, **kwargs)
+        except HTTPException as exc:
+            diagnostics.append(exc)
+            raise
+
+    monkeypatch.setattr(descriptive, 'execute', record_diagnostic)
+    assert_failed_statistics(client, base, 1, 'numeric_precision')
+    diagnostic, = diagnostics
+    assert diagnostic.status_code == 422
+    assert diagnostic.detail['params'] == {'column': 'A', 'row': 2}
+    assert '整数' in diagnostic.detail['message']
     assert client.get(base + '/analysis-result').json()['result'] is None
 
 
@@ -126,7 +164,8 @@ def test_boolean_group_labels_and_singleton_warning(client):
 
 def test_requires_saved_configuration_and_strict_revision(client):
     base, _ = add_file(client)
-    assert client.get(base + '/analysis-result').json() == {'current_revision': None, 'is_current': False, 'result': None}
+    assert client.get(base + '/analysis-result').json() == {'current_revision': None, 'is_current': False,
+        'result': None, 'active_task': None, 'execution_verification': None}
     assert statistics_post(client, base + '/analysis-runs', json={'expected_revision': 1}).status_code == 409
     for payload in [{}, {'expected_revision': 0}, {'expected_revision': True}, {'expected_revision': 1, 'values': [999]}]:
         assert statistics_post(client, base + '/analysis-runs', json=payload).status_code == 422
@@ -137,7 +176,8 @@ def test_idempotent_retry_and_changed_configuration_keeps_old_result(client):
     first = run(client, base)
     assert run(client, base) == first
     client.put(base + '/analysis-setup', json=selection(expected_revision=1, group_column=None, unit='new'))
-    assert client.get(base + '/analysis-result').json() == {'current_revision': 2, 'is_current': False, 'result': first}
+    assert client.get(base + '/analysis-result').json() == {'current_revision': 2, 'is_current': False,
+        'result': first, 'active_task': None, 'execution_verification': 'verified'}
     assert statistics_post(client, base + '/analysis-runs', json={'expected_revision': 1}).status_code == 409
     second = run(client, base, 2)
     assert second['id'] != first['id'] and second['overall']['n'] == 4
@@ -182,8 +222,7 @@ def test_explicit_migration_preserves_configuration_and_file(client):
 def test_execution_rechecks_current_parse_limits(client, monkeypatch):
     base, _ = configured(client)
     monkeypatch.setenv('EXCEL_MAX_ROWS', '3')
-    response = statistics_post(client, base + '/analysis-runs', json={'expected_revision': 1})
-    assert response.status_code == 422
+    assert_failed_statistics(client, base, 1, 'workbook_too_large')
     assert client.get(base + '/analysis-result').json()['result'] is None
 
 
@@ -192,29 +231,33 @@ def test_configuration_changed_during_calculation_is_not_saved(client, monkeypat
     base, _ = configured(client, group_column=None)
     original = descriptive.summarize
 
-    def racing(values):
-        client.put(base + '/analysis-setup', json=selection(expected_revision=1, group_column=None, unit='changed'))
-        return original(values)
+    def racing(values, **kwargs):
+        changed = client.put(base + '/analysis-setup', json=selection(expected_revision=1, group_column=None, unit='changed'))
+        assert changed.status_code == 200, changed.text
+        return original(values, **kwargs)
 
     monkeypatch.setattr(descriptive, 'summarize', racing)
-    assert statistics_post(client, base + '/analysis-runs', json={'expected_revision': 1}).status_code == 409
-    assert client.get(base + '/analysis-result').json()['result'] is None
+    assert_failed_statistics(client, base, 1, 'task_source_conflict')
+    state = client.get(base + '/analysis-result').json()
+    assert state['current_revision'] == 2 and state['result'] is None
 
 
-def test_parallel_runs_return_one_persisted_result(client, monkeypatch):
-    from app.domain import descriptive
+def test_parallel_runs_return_one_persisted_result(client):
     base, _ = configured(client, group_column=None)
     barrier = Barrier(2)
-    original = descriptive.summarize
-
-    def synchronized(values):
+    def submit(_):
         barrier.wait(timeout=10)
-        return original(values)
+        return queue_statistics(client, base, 1)
 
-    monkeypatch.setattr(descriptive, 'summarize', synchronized)
     with ThreadPoolExecutor(max_workers=2) as pool:
-        results = list(pool.map(lambda _: run(client, base), range(2)))
-    assert results[0] == results[1]
+        first, second = pool.map(submit, range(2))
+    assert first == second
+    completed = run_statistics_task(first['id'], first['revision'])
+    assert completed['status'] == 'succeeded'
+    assert run_statistics_task(second['id'], second['revision']) is None
+    result = run(client, base)
+    assert result['id'] == completed['result_analysis_run_id']
+    assert client.get(base + '/analysis-result').json()['result'] == result
     with database_connection() as db:
         assert db.execute('SELECT count(*) AS count FROM analysis_runs').fetchone()['count'] == 1
 
@@ -224,6 +267,5 @@ def test_failed_save_preserves_previous_result(client, reject_database_write):
     previous = run(client, base)
     client.put(base + '/analysis-setup', json=selection(expected_revision=1, unit='changed'))
     with reject_database_write('analysis_runs'):
-        response = statistics_post(client, base + '/analysis-runs', json={'expected_revision': 2})
-    assert response.status_code == 503
+        assert_failed_statistics(client, base, 2, 'storage_unavailable')
     assert client.get(base + '/analysis-result').json()['result'] == previous

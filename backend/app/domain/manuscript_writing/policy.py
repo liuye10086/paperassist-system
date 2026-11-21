@@ -10,6 +10,9 @@ MAX_POSTS = 6
 MAX_CORRECTIONS = 2
 TASK_CAP = 3000000
 BATCH_CAP = 12000000
+# One source for the consent manifest and the preview disclosure.
+ENDPOINT = 'https://api.openai.com/v1/responses'
+EXTERNAL_STORAGE_NOTICE = 'OpenAI stores background responses; selected material is transmitted externally.'
 
 def policy():
     return ModelPolicy(model=MODEL, prompt_version='sci-writing-v2', max_output_tokens=MAX_OUTPUT,
@@ -35,4 +38,5 @@ def capabilities(version=None):
                 max_output_tokens=execution['policy']['max_output_tokens'] if execution else MAX_OUTPUT,
                 batch_max_posts=models['batch_max_posts'] if models else MAX_POSTS,
                 batch_cap_micro_usd=models['batch_cap_micro_usd'] if models else BATCH_CAP,
-                logical_task_cap_micro_usd=execution['task_limit_micro_usd'] if execution else TASK_CAP,publish_requires_review=True)
+                logical_task_cap_micro_usd=execution['task_limit_micro_usd'] if execution else TASK_CAP,publish_requires_review=True,
+                provider=ENDPOINT,storage_scope=EXTERNAL_STORAGE_NOTICE)

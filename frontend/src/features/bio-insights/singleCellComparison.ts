@@ -9,3 +9,11 @@ export function compositionOverview(rows:Observation[],processedId:string,condit
  for(const r of selected){const status=r.annotation_status;const category=status==='assigned'?(labels.includes(String(r.label_id??''))?'label':'other'):status==='unknown'?'unknown':status==='uncertain'?'uncertain':status==='ambiguous'||status==='conflict'?'conflict':'unlabeled';categories[category]++}
  return{totalCells:selected.length,donors:new Set(selected.map(r=>r.donor).filter(Boolean)).size,unknownDonorCells:selected.filter(r=>!r.donor).length,categories}
 }
+
+export function selectSavedCellFigure(config:Config,type:string):Config {
+ const next:Config={...config,figure_type:type,sample_groups:[],expression_groups:[],feature_ids:[],z_score:false,result_source_ids:[],selected_sets:[]}
+ for(const key of ['processed_source_id','contrast_id','figure_stratum','x_column','y_column','member_key','term_row_key','q_column',
+   'q_threshold','minimum_absolute_effect','regulation_top_n','cellchat_colormap','enrichment_order','intersection_mode','intersection_k']) delete next[key]
+ if(type==='topic_genie3') next.regulation_top_n=20
+ return next
+}

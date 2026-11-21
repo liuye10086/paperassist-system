@@ -80,8 +80,8 @@ def validate_execution_policy(value, payload=None, *, result=None):
                 from app.domain.comparison_prompts import PLOT_INSTRUCTIONS
                 instructions=PLOT_INSTRUCTIONS
             elif payload.get('schema_version')==2:
-                from app.domain.artifact_prompts import PLOT_INSTRUCTIONS
-                instructions=PLOT_INSTRUCTIONS
+                from app.domain.artifact_prompts import analysis_plot_instructions
+                instructions=analysis_plot_instructions(payload.get('figure_kind'))
             minimum = len(instructions.encode('utf-8')) + len(canonical_payload(payload).encode('utf-8')) + 4096
         except (TypeError, ValueError, RecursionError):
             raise StorageError('plot_input_limit', '图表输入材料无效或超出已配置的预算估算范围。', 422) from None

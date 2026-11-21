@@ -24,6 +24,15 @@ def seed_owner(db):
     role = 'analyst' if any(column['name'] == 'review_status' for column in columns) else 'user'
     db.execute("INSERT INTO users(id,email,password_hash,role,active,created_at,updated_at) VALUES ('u','u@example.invalid','unused',%s,true,1,1)", (role,))
     db.execute("INSERT INTO projects(id,name,research_topic,project_type,created_at,updated_at,owner_id) VALUES ('p','name','topic','sci','2026-10-08T00:00:00Z','2026-10-08T00:00:00Z','u')")
+    if inspect(db.raw_connection).has_table('research_intakes', schema=db.config.schema):
+        # Supply the inferred intake for the explicitly seeded legacy project.
+        db.execute("""INSERT INTO research_intakes(project_id, owner_id, created_at, updated_at)
+            SELECT id, owner_id, created_at::timestamptz, updated_at::timestamptz FROM projects WHERE id='p'""")
+        db.execute("""INSERT INTO research_deliveries
+            (id, project_id, kind, name, origin, created_by, created_at, updated_at)
+            SELECT 'p-draft', id, 'sci_draft', 'sci_draft', 'legacy_inferred', owner_id,
+                created_at::timestamptz, updated_at::timestamptz FROM projects WHERE id='p'""")
+
 
 
 def task_row(**changes):
@@ -48,8 +57,8 @@ def task_schema(postgres_schema):
 
 def test_four_task_tables_have_current_head_and_native_types(postgres_schema):
     assert TASK_TABLES <= metadata.tables.keys()
-    assert SCHEMA_HEAD == '0040_manuscript_writing_live'
     with database_connection() as db:
+        assert db.execute('SELECT version_num FROM alembic_version').fetchone()['version_num'] == SCHEMA_HEAD
         inspector = inspect(db.raw_connection)
         assert TASK_TABLES <= set(inspector.get_table_names(schema=postgres_schema.schema))
         columns = {c['name']: c for c in inspector.get_columns('tasks', schema=postgres_schema.schema)}
@@ -61,7 +70,7 @@ def test_four_task_tables_have_current_head_and_native_types(postgres_schema):
 
 
 @pytest.mark.parametrize('changes', [
-    {'task_type': 'arbitrary'}, {'status': 'cancelled'}, {'phase': 'other'},
+    {'task_type': 'arbitrary'}, {'status': 'invalid_status'}, {'phase': 'other'},
     {'reason_code': 'private exception'}, {'revision': 0}, {'current_attempt': -1},
     {'idempotency_key': ''}, {'idempotency_key': 'x' * 129},
     {'input_digest': 'A' * 64}, {'input_digest': 'a' * 63},
@@ -152,11 +161,11 @@ def test_task_runtime_has_dml_but_no_ddl_or_administrative_rights(task_schema):
                 db.execute(statement)
 
 
+@pytest.mark.initial_revision('0005_ownership_indexes')
 def test_0005_0006_roundtrip_preserves_old_columns_and_values(postgres_schema, postgres_migration_config):
     with migration_connection(write=True, config=postgres_migration_config) as db:
         settings = alembic_config()
         settings.attributes.update(connection=db.raw_connection, database_config=postgres_migration_config)
-        command.downgrade(settings, '0005_ownership_indexes')
         seed_owner(db)
         db.execute("UPDATE projects SET created_at='legacy exact text', updated_at='2026-10-08T00:00:00.123456Z'")
         # This roundtrip verifies preservation of old columns and values, not format support.
@@ -183,7 +192,8 @@ def test_0005_0006_roundtrip_preserves_old_columns_and_values(postgres_schema, p
         assert not TASK_TABLES & set(inspect(db.raw_connection).get_table_names(schema=postgres_schema.schema))
         for name in old_tables:
             assert [dict(row) for row in db.execute(f'SELECT * FROM "{name}"')] == before[name]
-        command.upgrade(settings, 'head')
+        command.upgrade(settings, '0006_unified_tasks')
+        assert db.execute('SELECT created_at FROM projects').fetchone()['created_at'] == 'legacy exact text'
 
 
 def test_migration_is_frozen_and_has_no_current_metadata_dependency(postgres_schema):

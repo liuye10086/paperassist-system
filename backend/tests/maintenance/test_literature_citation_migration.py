@@ -1,4 +1,6 @@
 """0031 -> 0032 preserves exact old rows, indexes and saved source bytes."""
+from app.db.database import SCHEMA_HEAD
+from tests.helpers.historical_migration import historical_workflow
 from alembic import command
 from alembic.script import ScriptDirectory
 from app.db.database import alembic_config, migration_connection, get_migration_database_config, database_connection, verify_runtime_permissions
@@ -13,10 +15,9 @@ def test_citation_upgrade_retains_existing_rows_indexes_and_sources(client):
     original_claim=claim(client,lit+'/evidence')
     source_url=refs[0]['source']['source_download_url'];source=client.get(source_url).content
     config=alembic_config()
-    assert ScriptDirectory.from_config(config).get_heads()==['0040_manuscript_writing_live']
-    with migration_connection(write=True) as db:
-        config.attributes.update(connection=db.raw_connection,database_config=get_migration_database_config())
-        command.downgrade(config,'0031_literature_evidence')
+    assert ScriptDirectory.from_config(config).get_heads()==[SCHEMA_HEAD]
+    with historical_workflow(get_migration_database_config(), '0031_literature_evidence') as (db, config):
+        assert db.execute("SELECT 1 FROM literature_claims WHERE id=%s", (original_claim['id'],)).fetchone()
         tables=[r['tablename'] for r in db.execute('SELECT tablename FROM pg_tables WHERE schemaname=current_schema()') if r['tablename']!='alembic_version']
         before=fingerprints(db,tables)
         indexes={r['indexname']:r['indexdef'] for r in db.execute('SELECT indexname,indexdef FROM pg_indexes WHERE schemaname=current_schema()')}

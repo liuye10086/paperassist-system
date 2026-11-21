@@ -104,6 +104,11 @@ def test_customer_review_routes_and_tasks_require_visible_fixed_inputs():
         assert workspace.status_code == 200, workspace.text
         assert workspace.json()['allowed_actions'] == ['resume']
         round = owner.get(round_path).json()
+        first_item = round['items'][0]
+        assert round['generated_plan_locations'][first_item['id']]
+        for span in round['generated_plan_locations'][first_item['id']]:
+            assert span['id'] in first_item['plan'][span['start']:span['end']]
+        assert 'generated_plan_locations' not in owner.get(reviews+'/rounds').json()['items'][0]
         assert round['items'][0]['status'] == 'waiting_material'
         assert round['items'][1]['status'] == 'waiting_material'
         assert [need['kind'] for need in round['items'][1]['needs']] == ['analysis']

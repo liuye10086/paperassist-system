@@ -19,8 +19,13 @@ def _retains_school_writing(snapshot):
     return not snapshot.get('writing_provenance') and change.get('kind')=='template_migration' and change.get('retained_writing_context')==1
 
 
+def _mixed_school_review(snapshot):
+    change=snapshot.get('school_change_provenance') or {}
+    return change.get('kind')=='template_migration' and bool(snapshot.get('user_return_provenance') or snapshot.get('review_revision_provenance'))
+
+
 def has_reviewed_writing_context(snapshot):
-    return snapshot.get('writing_provenance',{}).get('schema_version')==2 or _retains_school_writing(snapshot)
+    return snapshot.get('writing_provenance',{}).get('schema_version')==2 or _retains_school_writing(snapshot) or _mixed_school_review(snapshot)
 
 
 @dataclass(frozen=True)
@@ -76,18 +81,27 @@ class WritingCheckContext:
 def load_writing_context(manuscripts,db,project,identity,snapshot,*,check_version=2):
     """Load owner-scoped authoritative artifacts, including retained rewrite prose."""
     if type(check_version) is not int or check_version not in (1,2):raise source_conflict()
+    migration=_retains_school_writing(snapshot)
+    if _mixed_school_review(snapshot):
+        # Older migrations retained the parent's review/return marker. A later
+        # review can in turn retain a school marker; only the sealed candidate
+        # identifies which transition actually produced this snapshot.
+        from app.domain.literature.service import digest
+        migration=bool(db.execute('''SELECT 1 FROM manuscript_school_changes WHERE id=%s AND manuscript_id=%s
+            AND project_id=%s AND user_id=%s AND candidate_sha256=%s''',
+            (snapshot['school_change_provenance'].get('change_id'),identity,project,manuscripts.store.user_id,digest(snapshot))).fetchone())
+    if migration:
+        from app.domain.manuscripts.school_changes import reviewed_migration_parent
+        parent=reviewed_migration_parent(manuscripts,db,project,identity,snapshot)
+        inherited=load_writing_context(manuscripts,db,project,identity,parent,check_version=check_version)
+        if inherited is None and _retains_school_writing(snapshot):raise source_conflict()
+        return inherited
     if snapshot.get('user_return_provenance'):
         from app.domain.review_rounds.returns import user_return_writing_context
         return user_return_writing_context(manuscripts,db,project,identity,snapshot,check_version=check_version)
     if snapshot.get('review_revision_provenance'):
         from app.domain.review_rounds.revisions import revision_writing_context
         return revision_writing_context(manuscripts,db,project,identity,snapshot,check_version=check_version)
-    if _retains_school_writing(snapshot):
-        from app.domain.manuscripts.school_changes import reviewed_migration_parent
-        parent=reviewed_migration_parent(manuscripts,db,project,identity,snapshot)
-        inherited=load_writing_context(manuscripts,db,project,identity,parent,check_version=check_version)
-        if inherited is None:raise source_conflict()
-        return inherited
     if snapshot.get('writing_provenance',{}).get('schema_version')!=2:
         bridge=snapshot.get('research_bridge',{})
         if not bridge.get('base_version_id'):return None

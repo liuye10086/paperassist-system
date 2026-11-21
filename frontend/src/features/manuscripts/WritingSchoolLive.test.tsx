@@ -5,21 +5,25 @@ import ManuscriptWriting from './ManuscriptWriting'
 import WritingLanguageReview from './WritingLanguageReview'
 import WritingLive from './WritingLive'
 import {manuscriptFixture,snapshotFixture} from './manuscriptFixtures'
-import {scienceReview,languageContext,reviewContext,liveRequest} from './writingLiveFixtures'
-import {validPreviewInput,bodyProjection} from './writingLiveTypes'
+import {scienceReview,languageArtifact,languageContext,reviewContext,liveRequest,bundleFixture,hash,rawSnapshot} from './writingLiveFixtures'
+import {validPreviewInput,bodyProjection,type Authorization,type Bundle,type LiveRequest,type PreviewInput} from './writingLiveTypes'
+import {setLocale} from '../../shared/i18n'
+import {webcrypto} from 'node:crypto'
+import {findTechnicalText} from '../../test/technicalText'
 import type {Snapshot,ManuscriptVersion} from './manuscriptTypes'
 const chapters=[{id:'declaration-x',title:'人工声明',purpose:'manual',output_language:'zh-CN'}, {id:'refs-middle',title:'文献',purpose:'references',output_language:'en'}, {id:'abstract-zh',title:'中文摘要',purpose:'abstract',output_language:'zh-CN'}, {id:'abstract-en',title:'English Abstract',purpose:'abstract',output_language:'en'}, {id:'methods-dynamic',title:'独立方法',purpose:'materials_and_methods',output_language:'en'}].map(c=>({...c,level:2,result_group_ids:[]}))
 const snapshot={...snapshotFixture,thesis_context:{schema_version:1,profile:{revision:2,school:'测试学校',department:'',major:'',degree_type:'硕士',education_level:'研究生',applicable_version:'2026',bound_confirmation_id:'confirm1'},template_version_id:'template1',confirmation_id:'confirm1',confirmation_sha256:'a'.repeat(64),confirmation:{id:'confirm1',chapters:chapters.map(({id,title,level})=>({id,title,level}))},source_files:[],chapters},sections:chapters.map(c=>({...c,paragraphs:[{id:c.id+':1',text:c.title,origin:'user_provided',source_ids:[],citations:[]}]})),school_content_report:{rules_version:'school_v1',issues:[],can_publish:true,scientifically_verified:false}} as unknown as Snapshot
 const props={projectId:'p1',manuscriptId:'m1',version:{...manuscriptFixture.versions[0],snapshot} as ManuscriptVersion,onPublished:vi.fn()}
-afterEach(()=>{cleanup();sessionStorage.clear();vi.useRealTimers();vi.unstubAllGlobals()})
+afterEach(()=>{cleanup();setLocale('zh-CN');sessionStorage.clear();vi.useRealTimers();vi.unstubAllGlobals()})
 it('uses only the school preview contract in a thesis customer session',async()=>{
  const fetcher=vi.fn(async(_url:string,init?:RequestInit)=>Response.json(init?.method==='POST'?{}:{items:[],capabilities:{real_calls_enabled:false}}))
  vi.stubGlobal('fetch',fetcher)
  render(<WritingLive {...props} customerThesis/>)
- await waitFor(()=>expect(screen.getByLabelText('受控写作方式').matches(':disabled')).toBe(false))
+ await waitFor(()=>expect(screen.getByLabelText('写作方式').matches(':disabled')).toBe(false))
  expect(screen.queryByLabelText('文章类型与范围编辑')).toBeNull()
- expect(screen.getByRole('button',{name:'提交已授权写作'}).matches(':disabled')).toBe(true)
- fireEvent.click(screen.getByRole('button',{name:'冻结完整外发预览'}))
+ expect(screen.queryByRole('button',{name:'提交已授权写作'})).toBeNull()
+ expect(fetcher.mock.calls.filter(([,init])=>init?.method==='POST')).toHaveLength(0)
+ fireEvent.click(screen.getByRole('button',{name:'更新写作材料预览'}))
  await waitFor(()=>expect(fetcher.mock.calls.find(([url,init])=>url.endsWith('/writing-previews')&&init?.method==='POST')).toBeTruthy())
  const call=fetcher.mock.calls.find(([,init])=>init?.method==='POST')!
  expect(JSON.parse(String(call[1]?.body))).toMatchObject({schema_version:3,base_revision:1,mode:'full_draft'})
@@ -134,4 +138,165 @@ it('keeps only the local school language-context POST alive past 15 seconds and 
  expect(signal?.aborted).toBe(true)
  expect(screen.getByRole('alert').textContent).toContain('不会自动重试或重新调用')
  expect(fetcher.mock.calls.filter(([url])=>url.endsWith('language-context'))).toHaveLength(1)
+})
+
+// B04 task 7: the B03 customer writing chain (one confirmation, generating again, budget wait, coming back to a
+// paragraph) on a thesis, plus the thesis customer wording.
+const thesisBundleIds=['7c1d2e3f-4a5b-4c6d-8e7f-9a0b1c2d3e4f','8d2e3f4a-5b6c-4d7e-9f8a-0b1c2d3e4f5a']
+const thesisAuthIds=['1e2f3a4b-5c6d-4e7f-8a9b-0c1d2e3f4a5b','2f3a4b5c-6d7e-4f8a-9b0c-1d2e3f4a5b6c']
+const thesisRequestIds=['3a4b5c6d-7e8f-4a9b-8c0d-2e3f4a5b6c7d']
+type ThesisServer={previews:Bundle[];auths:Authorization[];requests:LiveRequest[];requestStatus?:{status:string;reason_code:string|null;error_code:string|null}}
+const thesisBase='/api/v1/projects/p1/manuscripts/m1'
+const thesisPosts=(fetcher:ReturnType<typeof vi.fn>,suffix:string)=>fetcher.mock.calls.filter(([url,init])=>(init as RequestInit|undefined)?.method==='POST'&&String(url).endsWith(suffix))
+function thesisBundle(input:PreviewInput,index:number):Bundle{
+ const fixture=bundleFixture(thesisBundleIds[index]),wire=JSON.stringify({model:'gpt-5.4-2026-03-05',input:JSON.stringify({instructions:'Write the school chapters.',sources:[],evidence:[]})})
+ const school={schema_version:1,chapters:{chapter1:{chapter_id:'methods-dynamic',title:'独立方法',level:2,purpose:'materials_and_methods',output_language:'en',result_group_ids:[]}},writable_aliases:['chapter1']}
+ return {...fixture,request_json:input,wire_json:wire,bundle_sha256:hash(wire),wire_sha256:hash(wire),wire_bytes:new TextEncoder().encode(wire).length,local_manifest:{...fixture.local_manifest,school,protected_identity:{sha256:hash('identity')}} as Bundle['local_manifest']}
+}
+function thesisAuth(tasks:Authorization['manifest']['tasks'],index:number):Authorization{
+ return {id:thesisAuthIds[index],project_id:'p1',status:'active',revision:1,manifest_sha256:hash('thesis-manifest'+index),manifest:{tasks,max_posts:6,max_corrections:2,cap_micro_usd:12000000,logical_task_cap_micro_usd:3000000,materials:[]},occupied_posts:0,occupied_micro_usd:0,logical_task_usage:[]}
+}
+function thesisRequest(call:{bundle_id:string;authorization_id:string;logical_task_id:string},input:PreviewInput,index:number,status={status:'queued',reason_code:null as string|null,error_code:null as string|null},candidate:Snapshot|null=null):LiveRequest{
+ const id=thesisRequestIds[index]
+ return {...liveRequest,id,input,base_revision:1,candidate,execution:call,task:{...liveRequest.task,id,status:status.status,display_status:status.status,reason_code:status.reason_code,error_code:status.error_code} as LiveRequest['task'],model_calls:[]}
+}
+function serveThesis(server:ThesisServer){
+ const fetcher=vi.fn(async(url:string,init?:RequestInit)=>{
+  if(init?.method==='POST'){
+   const sent=JSON.parse(String(init.body))
+   if(url===`${thesisBase}/writing-previews`){const created=thesisBundle(sent,server.previews.length);server.previews.unshift(created);return Response.json(created)}
+   if(url==='/api/v1/projects/p1/writing-authorizations'){const created=thesisAuth(sent.tasks,server.auths.length);server.auths.unshift(created);return Response.json(created)}
+   if(url===`${thesisBase}/writing-requests`){const input=server.previews.find(b=>b.id===sent.bundle_id)!.request_json;const created=thesisRequest(sent,input,server.requests.length,server.requestStatus);server.requests.unshift(created);return Response.json(created)}
+   return Response.json({})
+  }
+  if(url===`${thesisBase}/writing-previews`)return Response.json({items:server.previews,capabilities:{real_calls_enabled:true}})
+  if(url===`${thesisBase}/writing-requests`)return Response.json({items:server.requests})
+  if(url==='/api/v1/projects/p1/writing-authorizations')return Response.json({items:server.auths})
+  return Response.json({items:[]})
+ })
+ vi.stubGlobal('fetch',fetcher);return fetcher
+}
+const thesisGenerate=()=>screen.getByRole('button',{name:/^(生成正文初稿|再次生成正文)$/})
+const thesisConfirm=()=>screen.getByLabelText('我确认用以上材料生成正文，接受本次写作费用和外部保存范围。')
+async function thesisReady(){await waitFor(()=>expect(screen.getByText('本次将使用以下材料生成正文')).toBeTruthy());await waitFor(()=>expect(thesisConfirm().matches(':disabled')).toBe(false))}
+
+it('prepares the thesis preview on entry and generates with one confirmation in two more clicks',async()=>{
+ vi.stubGlobal('crypto',webcrypto)
+ const server:ThesisServer={previews:[],auths:[],requests:[]}
+ const fetcher=serveThesis(server)
+ render(<WritingLive {...props} customerThesis/>);await thesisReady()
+ expect(thesisPosts(fetcher,'/writing-previews')).toHaveLength(1)
+ expect(JSON.parse(String(thesisPosts(fetcher,'/writing-previews')[0][1]?.body))).toMatchObject({schema_version:3,base_revision:1,mode:'full_draft'})
+ expect(thesisGenerate().matches(':disabled')).toBe(true)
+ fireEvent.click(thesisConfirm());fireEvent.click(thesisGenerate())
+ await waitFor(()=>expect(thesisPosts(fetcher,'/writing-requests')).toHaveLength(1))
+ const bundle=server.previews[0]
+ expect(JSON.parse(String(thesisPosts(fetcher,'/writing-authorizations')[0][1]?.body))).toEqual({schema_version:2,confirmed:true,tasks:[{logical_task_id:'task-1',bundles:[{bundle_id:bundle.id,bundle_sha256:bundle.bundle_sha256}]}]})
+ expect(fetcher.mock.calls.filter(([,init])=>init?.method==='POST').map(([url])=>String(url).split('/').at(-1))).toEqual(['writing-previews','writing-authorizations','writing-requests'])
+ await screen.findByText('正在生成正文，完成后会自动打开核对。')
+ const systemIds=[...server.previews.flatMap(b=>[b.id,b.bundle_sha256]),...thesisAuthIds,...thesisRequestIds,'task-1']
+ expect(findTechnicalText(document.body,{systemIds})).toEqual([])
+ expect(document.body.textContent).not.toMatch(/declaration-x|refs-middle|abstract-zh|abstract-en|methods-dynamic/)
+ expect(document.body.textContent).not.toMatch(/冻结|科学正文用途|受控|SHA|[0-9a-f]{64}/)
+})
+
+it('says generating again costs another fee on a thesis version that already has a body',async()=>{
+ vi.stubGlobal('crypto',webcrypto)
+ const server:ThesisServer={previews:[],auths:[],requests:[]}
+ serveThesis(server)
+ const first=render(<WritingLive {...props} customerThesis/>);await thesisReady();first.unmount()
+ const bundle=server.previews[0]
+ server.auths=[thesisAuth([{logical_task_id:'task-1',bundles:[{bundle_id:bundle.id,bundle_sha256:bundle.bundle_sha256}]}],0)]
+ server.requests=[thesisRequest({bundle_id:bundle.id,authorization_id:thesisAuthIds[0],logical_task_id:'task-1'},bundle.request_json,0,{status:'succeeded',reason_code:null,error_code:null},rawSnapshot)]
+ const fetcher=serveThesis(server)
+ render(<WritingLive {...props} customerThesis/>);await thesisReady()
+ expect(screen.getByText('这一版已经生成过正文。再次生成会产生新的写作费用，之前的生成结果仍可查看。')).toBeTruthy()
+ expect(screen.queryByRole('button',{name:'生成正文初稿'})).toBeNull()
+ fireEvent.click(thesisConfirm());fireEvent.click(screen.getByRole('button',{name:'再次生成正文'}))
+ await waitFor(()=>expect(thesisPosts(fetcher,'/writing-requests')).toHaveLength(1))
+ expect(JSON.parse(String(thesisPosts(fetcher,'/writing-requests')[0][1]?.body))).toMatchObject({authorization_id:thesisAuthIds[1]})
+})
+
+it('shows the service desk notice for a thesis writing request waiting for budget',async()=>{
+ vi.stubGlobal('crypto',webcrypto)
+ const server:ThesisServer={previews:[],auths:[],requests:[],requestStatus:{status:'waiting_confirmation',reason_code:'model_budget_missing',error_code:null}}
+ serveThesis(server)
+ render(<WritingLive {...props} customerThesis/>);await thesisReady()
+ fireEvent.click(thesisConfirm());fireEvent.click(thesisGenerate())
+ expect(await screen.findByText('写作费用额度暂未开通或已用完，本次材料尚未发送。请联系客服开通后回到这里继续生成。')).toBeTruthy()
+ expect(screen.queryByRole('button',{name:'核对原写作任务'})).toBeNull()
+})
+
+it('uses customer wording for the thesis chapters that can be generated',async()=>{
+ vi.stubGlobal('fetch',vi.fn(async()=>Response.json({items:[],capabilities:{real_calls_enabled:false}})))
+ render(<WritingLive {...props} customerThesis/>)
+ const region=await screen.findByRole('region',{name:'本次可生成的章节'})
+ expect(region.textContent).toContain('题名沿用你保存的论文题目；致谢等章节不会改写。')
+ expect(within(region).getByText(/^独立方法 · /).textContent).toContain('可生成')
+ expect(within(region).getByText(/^人工声明 · /).textContent).not.toContain('declaration-x')
+ expect(document.body.textContent).not.toMatch(/冻结|科学正文用途|SHA/)
+})
+
+it('keeps the internal wording for the thesis chapters in the staff writing page',async()=>{
+ vi.stubGlobal('fetch',vi.fn(async()=>Response.json({items:[],capabilities:{real_calls_enabled:false}})))
+ render(<WritingLive {...props}/>)
+ const region=await screen.findByRole('region',{name:'冻结学校章节'})
+ expect(region.textContent).toContain('题名由用户冻结；仅科学正文用途可生成，其他章节保持保护。')
+})
+
+// Coming back from adding a source to a thesis paragraph: the chapter title names the place, “正文” when it has none.
+const reviewChapters=[{id:'methods-dynamic',title:'独立方法',level:1,purpose:'materials_and_methods',output_language:'en',result_group_ids:[]},{id:'untitled-chapter',title:'',level:1,purpose:'results',output_language:'zh-CN',result_group_ids:[]}]
+const reviewParagraph=(id:string,text:string)=>({id,text,origin:'model_generated',source_ids:[],citations:[],numeric_bindings:[]})
+const thesisReviewSnapshot={...snapshot,thesis_context:{...snapshot.thesis_context!,confirmation:{id:'confirm1',chapters:reviewChapters.map(({id,title,level})=>({id,title,level}))},chapters:reviewChapters},
+ sections:[{...reviewChapters[0],paragraphs:[reviewParagraph('methods-dynamic:1','Methods one'),reviewParagraph('methods-dynamic:2','Methods two')]},{...reviewChapters[1],paragraphs:[reviewParagraph('untitled-chapter:1','无题章节')]}]} as unknown as Snapshot
+const thesisReviewContext={...reviewContext,candidate:thesisReviewSnapshot,reviews:[],required_paragraph_ids:['methods-dynamic:1','methods-dynamic:2','untitled-chapter:1'],claim_contexts:{'methods-dynamic:1':'c1','methods-dynamic:2':'c2','untitled-chapter:1':'c3'},paragraph_languages:{'methods-dynamic:1':'en','methods-dynamic:2':'en','untitled-chapter:1':'zh-CN'},abstract_chapter_ids:[]}
+it('names thesis paragraphs by chapter title, falls back to “正文” and focuses the paragraph on return',async()=>{
+ vi.stubGlobal('fetch',vi.fn(async(url:string)=>Response.json(url.endsWith('/review-context')?thesisReviewContext:{items:[]})))
+ const request={...liveRequest,input:{...liveRequest.input,schema_version:3},candidate:thesisReviewSnapshot} as LiveRequest
+ render(<WritingScienceReview projectId="p1" manuscriptId="m1" request={request} customerSci customerThesis initialParagraph="methods-dynamic:2" onPublished={vi.fn()}/>)
+ await waitFor(()=>expect(document.activeElement?.id).toBe('writing-paragraph-methods-dynamic:2'))
+ expect(screen.getByLabelText('段落主张分类 独立方法 · 段落 2')).toBeTruthy()
+ expect(screen.getByLabelText('段落主张分类 正文 · 段落 1')).toBeTruthy()
+})
+
+it.each([['zh-CN', '封面与目录', '学号', '作者'], ['en', 'Cover and table of contents', 'Student ID', 'Author']] as const)(
+ 'shows the saved cover and contents on the customer adoption page in %s', async (locale, heading, student, author) => {
+  setLocale(locale)
+  const options = {manual_fields:{author:'Sample Author',student_id:'S-2026-47'}, field_values:{}, manual_chapters:[{chapter_id:'declaration-x',text:'My original declaration.'}], english_title:'An original title', keywords:[{chapter_id:'abstract-en',values:['maps','samples']}], include_toc:true, toc_depth:2}
+  const candidate={...snapshot,writing_provenance:{...scienceReview.candidate.writing_provenance!,school_export_options:options}}
+  const saved:typeof languageArtifact={...languageArtifact,candidate}
+  const fetcher=vi.fn(async(url:string)=>Response.json(url.endsWith('/language-reviews')?{items:[{id:saved.id,created_at:'2026-11-20T05:00:00Z'}]}:url.endsWith('/'+saved.id)?saved:{items:[]}))
+  vi.stubGlobal('fetch',fetcher)
+  const {unmount}=render(<WritingLanguageReview customerThesis projectId="p1" manuscriptId="m1" baseRevision={5} review={{...scienceReview,candidate}} onPublished={vi.fn()}/>)
+  const finished=within(await screen.findByRole('region',{name:locale==='en'?'Finish the manuscript check':'完成稿件复核'}))
+  const summary=within(finished.getByRole('region',{name:heading}))
+  expect(summary.getByText(student)).toBeTruthy();expect(summary.getByText('S-2026-47')).toBeTruthy()
+  expect(summary.getByText(author)).toBeTruthy();expect(summary.getByText('Sample Author')).toBeTruthy()
+  for(const value of ['An original title','My original declaration.','maps · samples']) expect(summary.getByText(value)).toBeTruthy()
+  expect(summary.getByText(/English Abstract.*(关键词|Keywords)/i)).toBeTruthy()
+  expect(summary.getByText(/(目录深度|TOC depth|Table of contents depth).*2/i)).toBeTruthy()
+  expect(finished.queryByText(/field values|manual fields|toc depth$|include toc|^values$/i)).toBeNull()
+  unmount()
+  const field={id:'input-8',label:'校方登记名称',kind:'text',required:true,source_id:'src',style_source_id:null,section_id:'s1',chapter_id:null}
+  const front={schema_version:1,cover_section_id:'s1',fields:[field],content_requirements:[]}
+  const customCandidate={...candidate,thesis_context:{...snapshot.thesis_context!,confirmation:{front_matter:front}},writing_provenance:{...candidate.writing_provenance,school_export_options:{...options,manual_fields:{},field_values:{'input-8':'保留原文'},include_toc:false}}}
+  saved.candidate=customCandidate
+  render(<WritingLanguageReview customerThesis projectId="p1" manuscriptId="m1" baseRevision={5} review={{...scienceReview,candidate:customCandidate}} onPublished={vi.fn()}/>)
+  const custom=within(within(await screen.findByRole('region',{name:locale==='en'?'Finish the manuscript check':'完成稿件复核'})).getByRole('region',{name:heading}))
+  expect(custom.getByText('校方登记名称')).toBeTruthy();expect(custom.getByText('保留原文')).toBeTruthy()
+  expect(custom.getByText(locale==='en'?'No table of contents':'不含目录')).toBeTruthy()
+  expect(custom.queryByText('input-8')).toBeNull()
+})
+
+it('preserves the staff school export details when a reviewer explicitly selects the saved language record', async()=>{
+ const candidate={...snapshot,writing_provenance:{...scienceReview.candidate.writing_provenance!,school_export_options:{manual_fields:{author:'Staff sample',student_id:'S-99'},include_toc:true,toc_depth:2}}}
+ const saved={...languageArtifact,candidate}
+ vi.stubGlobal('fetch',vi.fn(async(url:string)=>Response.json(url.endsWith('/language-reviews')?{items:[{id:saved.id,created_at:'2026-11-20T05:00:00Z'}]}:url.endsWith('/'+saved.id)?saved:{items:[]})))
+ render(<WritingLanguageReview projectId="p1" manuscriptId="m1" baseRevision={5} review={{...scienceReview,candidate}} onPublished={vi.fn()}/>)
+ await screen.findByRole('option',{name:/语言审核产物 1/})
+ fireEvent.change(screen.getByLabelText('明确选择语言审核产物'),{target:{value:saved.id}})
+ const disclosure=(await screen.findByText('已固定的学校导出选项')).closest('details')!
+ expect(disclosure).toBeTruthy()
+ expect(within(disclosure).getByText('Staff sample')).toBeTruthy()
+ expect(within(disclosure).queryByText('S-99')).toBeNull()
 })

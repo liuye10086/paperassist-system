@@ -17,4 +17,6 @@ def test_project_and_task_usage_include_figure_and_explanation_calls(client, mon
         detail = client.get(f'/api/v1/tasks/{task_id}/model-usage')
         assert detail.status_code == 200, detail.text
         assert detail.json()['total'] == 1
-        assert set(detail.json()['items'][0]) == {'id','task_type','model','status','provider_status','usage_status','estimated_cost_micro_usd','created_at','updated_at','reconciliation'}
+        call = detail.json()['items'][0]
+        assert set(call) == {'id','task_type','model','status','provider_provenance','provider_status','usage_status','estimated_cost_micro_usd','created_at','updated_at','reconciliation'}
+        assert call['provider_provenance'] is None

@@ -42,8 +42,9 @@ def test_new_text_decisions_are_explicit_and_preserved_without_old_json_rewrite(
 
 
 def test_previous_template_scope_and_default_request_compatibility(client):
-    path,request=setup(client);first=post(client,path+'/school-templates',request,'first').json()
+    path,request=setup(client)
     other,other_request=setup(client)
+    first=post(client,path+'/school-templates',request,'first').json()
     assert post(client,other+'/school-templates',other_request|dict(previous_version_id=first['id']),'foreign').status_code==404
     with database_connection() as db:
         body=db.execute('SELECT request_json FROM school_template_versions WHERE id=%s',(first['id'],)).fetchone()['request_json']

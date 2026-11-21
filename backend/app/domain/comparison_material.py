@@ -76,12 +76,42 @@ def build_material(result, groups, *, external=None, saved_expected=None):
     return payload,expected
 
 
+def _check_published_figure(assets, project_id, run_id, figure):
+    """Compare the stored metadata with the independent copy sealed at publication."""
+    from app.adapters.storage import _storage_connection
+    from app.domain.storage_governance.service import NAMESPACE
+    from app.domain.storage_governance.candidates import read_descriptor
+
+    figure_id = figure['id']
+    with _storage_connection(config=assets.db_config) as db:
+        row = db.execute('''SELECT t.id,t.project_id,t.user_id,t.task_type,t.input_digest,
+                                   r.state,r.candidate_json
+            FROM storage_reservations r JOIN tasks t ON t.id=r.task_id
+            WHERE r.namespace=%s AND r.project_id=%s AND r.object_key=%s
+              AND t.project_id=r.project_id AND t.user_id=r.owner_id
+              AND t.task_type='boxplot' AND t.result_figure_id=%s AND t.input_snapshot->'result'->>'id'=%s
+              AND r.operation_key='figure-task:' || t.id''',
+            (NAMESPACE, project_id, 'figures/' + figure_id + '.png', figure_id, run_id)).fetchone()
+    if row is None:
+        # Historical figures published before governed storage have no descriptor.
+        return
+    if row['state'] != 'settled' or row['candidate_json']['source_identity'] != row['input_digest']:
+        raise ValueError('Comparison figure publication does not match its task.')
+    document = read_descriptor(assets.directory, row)
+    if (any(document[key] != row[key] for key in ('id', 'project_id', 'user_id', 'task_type', 'input_digest'))
+            or document['candidate']['figure'] != figure):
+        raise ValueError('Comparison figure descriptor does not match its task.')
+
+
 def validate_figure_source(assets,project_id,file_id,result,figure):
-    """Rebuild every drawing summary before a persisted comparison figure is consumed."""
+    """Check the published drawing and its source without running numeric workers on reads."""
     from app.domain.comparison.service import load_comparison_input
     from app.adapters.openai_plot import plot_differences
+    from app.domain.statistics_execution.verification import should_recompute
     try:
         data=load_comparison_input(assets,project_id,file_id,result)
+        if not should_recompute():
+            _check_published_figure(assets, project_id, result['id'], figure)
         _,expected=build_material(result,data['groups'],external=figure.get('external_processing'),saved_expected=figure)
         expected.update(method={'id':result['statistics']['method'],'design':result['statistics']['design'],'inference_displayed':False},
             engine={'id':'openai_comparison_plot_v3','provider':'openai_code_interpreter'},figure_number=1,

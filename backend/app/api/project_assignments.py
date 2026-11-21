@@ -18,8 +18,13 @@ from app.domain.admin_operations import page_query, require_identity
 router = APIRouter(prefix='/api/v1', tags=['项目分配'])
 
 
+ProgressStatus = Literal['pending_assignment', 'assigned', 'analyzing', 'needs_materials', 'materials_submitted',
+                         'delivered', 'draft']
+
+
 class AssignmentsQuery(Paging):
     q: str = Field(default='', max_length=254, pattern=r'^[^\x00-\x1f\x7f]*$')
+    status: list[ProgressStatus] = Field(default_factory=list, max_length=7)
 
 
 class AssignmentChange(BaseModel):
@@ -40,6 +45,7 @@ class AssignmentRow(BaseModel):
     revision: int
     submitted_version: int | None
     progress_status: str
+    required_analyses: list[str]
     updated_at: str
 
 
@@ -73,7 +79,7 @@ _SOURCE = f'''projects p JOIN users customer ON customer.id=p.owner_id
     LEFT JOIN project_assignments a ON a.project_id=p.id AND a.owner_id=p.owner_id
     LEFT JOIN users analyst ON analyst.id=a.analyst_id
     LEFT JOIN LATERAL (
-        SELECT r.id,r.version FROM research_requirement_versions r
+        SELECT r.id,r.version,r.content_json FROM research_requirement_versions r
         WHERE r.project_id=p.id AND r.operation='confirm' ORDER BY r.version DESC LIMIT 1
     ) submitted ON true
     LEFT JOIN customer_requirement_progress progress
@@ -93,6 +99,10 @@ _FIELDS = f'''p.id,p.name,p.research_topic,p.project_type,customer.email AS cust
          WHEN progress.status IS NOT NULL THEN progress.status
          WHEN {_ACTIVE_GRANT} THEN 'assigned'
          ELSE 'pending_assignment' END AS progress_status,
+    ARRAY(SELECT substr(item->>'id',length('customer.type.')+1)
+          FROM jsonb_array_elements(coalesce(submitted.content_json->'scope_items','[]'::jsonb)) WITH ORDINALITY AS e(item,position)
+          WHERE starts_with(item->>'id','customer.type.') AND coalesce(item->>'status','')<>'not_included'
+          ORDER BY position) AS required_analyses,
     greatest(p.updated_at,to_char(a.updated_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"')) AS updated_at'''
 _CUSTOMER_PROJECT = "customer.role='customer'"
 
@@ -118,9 +128,12 @@ def list_assignments(request: Request, query: Annotated[AssignmentsQuery, Query(
             'p.name', 'p.research_topic', 'customer.email', 'analyst.email',
         )) + ')')
         values.extend((q,) * 4)
+    # progress_status is a SELECT alias; filter it outside the row subquery so counts and pages agree.
+    rows = '(SELECT ' + _FIELDS + ' FROM ' + _SOURCE + ' WHERE ' + ' AND '.join(where) + ') x'
+    outer, filters = (['x.progress_status=ANY(%s)'], [list(query.status)]) if query.status else ([], [])
     with _storage_connection() as db:
         require_identity(db, request.state.user['id'])
-        return page_query(db, _FIELDS, _SOURCE, where, values, query.page, query.page_size, 'updated_at DESC,p.id')
+        return page_query(db, 'x.*', rows, outer, values + filters, query.page, query.page_size, 'x.updated_at DESC,x.id')
 
 
 @router.patch('/admin/project-assignments/{project_id}', response_model=AssignmentRow)

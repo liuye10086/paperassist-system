@@ -4,6 +4,7 @@ from pathlib import Path
 from uuid import uuid4
 import pytest
 from tests.api.test_projects import client,create_project
+from tests.helpers.bio_runtime import bio_insights_test_image
 from tests.domain.test_bio_tabular_contracts import request_body
 from tests.domain.test_bio_evidence_independence import typed
 
@@ -21,7 +22,7 @@ def docker_call(tmp_path,module,function,payload):
     request.write_text(json.dumps(convert(payload,True)),encoding='utf-8')
     script="import json;from pathlib import Path;from "+module+" import "+function+";r="+function+"(json.loads(Path('/work/"+request.name+"').read_bytes()));Path('/work/"+answer.name+"').write_text(json.dumps(r))"
     app=Path(__file__).resolve().parents[2]/'app'
-    command=['docker','run','--rm','--network','none','--memory','2g','--cpus','2','-e','OPENBLAS_NUM_THREADS=1','-e','OMP_NUM_THREADS=1','-e','MKL_NUM_THREADS=1','-v',str(app)+':/app/app:ro','-v',str(tmp_path)+':/work','-w','/app','paperassist-client-b05-sub4-deps:local','/opt/paperassist-bio-insights/bin/python','-c',script]
+    command=['docker','run','--rm','--network','none','--memory','2g','--cpus','2','-e','OPENBLAS_NUM_THREADS=1','-e','OMP_NUM_THREADS=1','-e','MKL_NUM_THREADS=1','-v',str(app)+':/app/app:ro','-v',str(tmp_path)+':/work','-w','/app',bio_insights_test_image(),'/opt/paperassist-bio-insights/bin/python','-c',script]
     done=subprocess.run(command,capture_output=True,text=True,timeout=120);assert done.returncode==0,done.stderr
     return convert(json.loads(answer.read_bytes()),False)
 

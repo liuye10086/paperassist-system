@@ -112,7 +112,9 @@ export default function ProjectWorkspace({ analysisOnly = false }: { analysisOnl
   const showingAnalystExecution = analysisOnly && !!project && (section === 'files' || section === 'analysis' && !showingResult)
   const showingAnalystResults = analysisOnly && !!project && showingResult
   const showingAnalystDelivery = analysisOnly && !!project && section === 'overview' && overviewView === 'deliveries'
-  const analystStepTitle = showingAnalystResults ? '查看结果' : showingAnalystExecution ? '执行分析' : showingAnalystDelivery ? '分析交付' : undefined
+  // ProjectTasks drops its own h2 for assigned projects, so this h1 is the only task page heading.
+  const showingAnalystTasks = assigned && section === 'tasks' && !showingResult
+  const analystStepTitle = showingAnalystResults ? '查看结果' : showingAnalystExecution ? '执行分析' : showingAnalystDelivery ? '分析交付' : showingAnalystTasks ? '项目任务' : undefined
   const bulkDesign = section==='analysis'&&selection.analysisNavigation.view==='bulk-workflow'&&selection.analysisNavigation.bulkView==='design'
   const flow = useProjectFlow(view !== 'project' && assigned ? null : project, section, overviewView, assigned)
   const sectionReason: typeof flow.reason = (target, overview) => {
@@ -389,6 +391,10 @@ export default function ProjectWorkspace({ analysisOnly = false }: { analysisOnl
           onUpload={()=>selection.selectResource({view:'upload',fileId:''})} onAnalysis={openAnalysis} onResults={openResults}/>
         {showingAnalystResults && section !== 'analysis' && <header className="analyst-project-details-heading">
           <h1>{t('查看结果')}</h1>
+          {returnToListButton}
+        </header>}
+        {showingAnalystTasks && <header className="analyst-project-details-heading">
+          <h1>{t('项目任务')}</h1>
           {returnToListButton}
         </header>}
         {section === 'artifacts' && <ProjectResultNavigation analysisOnly={analysisOnly} navigation={selection.artifactNavigation} nextActive={resultNext} onNext={()=>analysisOnly ? selection.changeOverviewView('deliveries') : setResultPanel({route:resultRoute,next:true})} onNavigate={next=>{setResultPanel({route:resultRoute,next:false});selection.selectArtifact(next)}}/> }

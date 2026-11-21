@@ -47,29 +47,15 @@ def test_unified_task_codes_are_public():
 def test_only_versioned_recovery_and_explicit_preparation_decisions_mutate_tasks():
     task_paths = {path: item for path, item in app.openapi()['paths'].items()
                   if path == '/api/v1/tasks' or path.startswith('/api/v1/tasks/')}
-    assert set(task_paths) == {'/api/v1/tasks/{task_id}', '/api/v1/tasks/{task_id}/events',
-                               '/api/v1/tasks/{task_id}/retry', '/api/v1/tasks/{task_id}/model-usage',
-                               '/api/v1/tasks/{task_id}/workspace', '/api/v1/tasks/{task_id}/resume',
-                               '/api/v1/tasks/{task_id}/analysis-plan',
-                               '/api/v1/tasks/{task_id}/analysis-recommendation',
-                               '/api/v1/tasks/{task_id}/analysis-plan/decisions',
-                               '/api/v1/tasks/{task_id}/dataset-preparation',
-                               '/api/v1/tasks/{task_id}/dataset-preparation/decision',
-                               '/api/v1/tasks/{task_id}/dataset-preparation/preview/download',
-                               '/api/v1/tasks/{task_id}/ocr-review',
-                               '/api/v1/tasks/{task_id}/ocr-review/decision',
-                               '/api/v1/tasks/{task_id}/ocr-review/preview/download'}
-    assert set(task_paths['/api/v1/tasks/{task_id}/retry']) == {'post'}
-    assert set(task_paths['/api/v1/tasks/{task_id}/resume']) == {'post'}
-    assert set(task_paths['/api/v1/tasks/{task_id}/analysis-plan/decisions']) == {'post'}
-    assert set(task_paths['/api/v1/tasks/{task_id}/dataset-preparation/decision']) == {'post'}
-    assert set(task_paths['/api/v1/tasks/{task_id}/ocr-review/decision']) == {'post'}
-    assert all(set(task_paths[path]) == {'get'} for path in ('/api/v1/tasks/{task_id}',
-        '/api/v1/tasks/{task_id}/analysis-plan',
-        '/api/v1/tasks/{task_id}/analysis-recommendation',
-        '/api/v1/tasks/{task_id}/events', '/api/v1/tasks/{task_id}/model-usage', '/api/v1/tasks/{task_id}/workspace',
-        '/api/v1/tasks/{task_id}/dataset-preparation', '/api/v1/tasks/{task_id}/dataset-preparation/preview/download',
-        '/api/v1/tasks/{task_id}/ocr-review', '/api/v1/tasks/{task_id}/ocr-review/preview/download'))
+    base = '/api/v1/tasks/{task_id}'
+    reads = ('', '/events', '/progress', '/model-usage', '/workspace', '/analysis-plan', '/analysis-recommendation',
+             '/dataset-preparation', '/dataset-preparation/preview/download', '/dataset-preparation/impacts',
+             '/dataset-preparation/impacts/download', '/ocr-review', '/ocr-review/preview/download')
+    writes = ('/retry', '/resume', '/cancel', '/analysis-plan/decisions', '/analysis-plan/continuations',
+              '/analysis-plan/source-decisions', '/dataset-preparation/decision', '/ocr-review/decision')
+    expected = {base + path: {'get'} for path in reads}
+    expected.update({base + path: {'post'} for path in writes})
+    assert {path: set(methods) for path, methods in task_paths.items()} == expected
 
 
 def test_task_response_projects_public_fields_and_scopes_store_to_authenticated_user(client, monkeypatch):
@@ -82,6 +68,11 @@ def test_task_response_projects_public_fields_and_scopes_store_to_authenticated_
         'created_at': '2026-10-08T01:00:00Z', 'updated_at': '2026-10-08T01:00:00Z',
         'input_version': {'setup_revision': 3, 'output_language': 'zh-CN'},
         'result_report_id': None, 'result_explanation_id': None, 'result_figure_id': None, 'error_code': None,
+        'execution_receipt': None, 'result_analysis_run_id': None, 'result_bio_dataset_version_id': None,
+        'result_bio_resource_version_id': None, 'result_bio_insight_result_version_id': None,
+        'result_research_figure_version_id': None, 'result_research_report_version_id': None,
+        'result_research_candidate_id': None, 'result_bio_processed_dataset_version_id': None,
+        'result_bio_figure_version_id': None,
     }
     store_users = []
     store_type = tasks.TaskStore

@@ -1,21 +1,17 @@
 """Additive 0028 migration, historical byte preservation and downgrade guards."""
 from tests.helpers.legacy_plans import seed_legacy_plan
+import hashlib
 import json
 import os
 from pathlib import Path
 import pytest
 from sqlalchemy import inspect
 from alembic import command
-from app.db.database import database_connection,migration_connection,alembic_config,verify_runtime_permissions
+from app.db.database import database_connection,verify_runtime_permissions
+from tests.helpers.historical_migration import historical_workflow
 from tests.api.test_analysis import client
 
 NEW_TABLES=('external_evidence_versions','prepared_dataset_derivations_v3')
-
-
-def config(db,migration):
-    settings=alembic_config()
-    settings.attributes.update(connection=db.raw_connection,database_config=migration)
-    return settings
 
 
 def test_0028_schema_and_minimal_runtime_permissions(postgres_schema):
@@ -45,16 +41,16 @@ def test_0028_preserves_all_previous_rows_columns_indexes_and_report_assets(clie
     from tests.integration.test_batch05_collection_pipeline import complete_collection
     repository,project,result,state,_,_=complete_collection(client,monkeypatch)
     request=state['versions'][0]['requests'][0]
-    _,word=repository.download(project,state['id'],request['report']['id'])
-    with migration_connection(config=postgres_migration_config) as db:
-        settings=config(db,postgres_migration_config)
-        command.downgrade(settings,'0027_quality_derivations')
+    report,word=repository.download(project,state['id'],request['report']['id'])
+    with historical_workflow(postgres_migration_config, '0027_quality_derivations') as (db, settings):
+        saved = db.execute('SELECT * FROM collection_reports WHERE id=%s', (report['id'],)).fetchone()
+        assert saved['report_json'] == report and saved['sha256'] == hashlib.sha256(word).hexdigest()
         inspector=inspect(db.raw_connection)
         names=[n for n in inspector.get_table_names() if n!='alembic_version']
         columns={n:[{**c,'type':str(c['type'])} for c in inspector.get_columns(n)] for n in names}
         rows={n:[dict(r) for r in db.execute('SELECT * FROM '+n)] for n in names}
         indexes={r['indexname']:r['indexdef'] for r in db.execute('SELECT indexname,indexdef FROM pg_indexes WHERE schemaname=current_schema()')}
-        command.upgrade(settings,'head')
+        command.upgrade(settings,'0028_research_materials')
         inspector=inspect(db.raw_connection)
         assert {n:[dict(r) for r in db.execute('SELECT * FROM '+n)] for n in names}==rows
         assert {n:[{**c,'type':str(c['type'])} for c in inspector.get_columns(n)] for n in names}==columns
@@ -80,8 +76,18 @@ def test_0028_blocks_downgrade_if_new_history_exists(client,postgres_migration_c
         from tests.integration.test_batch07_quality_pipeline import published
         base,parent=published(client)
         filtering(client,base,parent)
-    with pytest.raises(RuntimeError,match='history|workflow state'):
-        with migration_connection(config=postgres_migration_config) as db:
-            command.downgrade(config(db,postgres_migration_config),'0027_quality_derivations')
-    with database_connection() as db:
-        assert db.execute('SELECT version_num FROM alembic_version').fetchone()['version_num']=='0029_statistics_execution'
+    with historical_workflow(postgres_migration_config, '0028_research_materials') as (db, settings):
+        if history == 'evidence':
+            before = db.execute('SELECT * FROM external_evidence_versions').fetchall()
+        else:
+            workflow = 'analysis_plan_v4' if history == 'requirement' else 'dataset_preparation_v3'
+            before = db.execute('SELECT * FROM tasks WHERE workflow_version=%s', (workflow,)).fetchall()
+        assert before
+        with pytest.raises(RuntimeError, match='history or v4 workflow state'):
+            with db.raw_connection.begin_nested():
+                command.downgrade(settings, '0027_quality_derivations')
+        assert db.execute('SELECT version_num FROM alembic_version').fetchone()['version_num'] == '0028_research_materials'
+        if history == 'evidence':
+            assert db.execute('SELECT * FROM external_evidence_versions').fetchall() == before
+        else:
+            assert db.execute('SELECT * FROM tasks WHERE workflow_version=%s', (workflow,)).fetchall() == before

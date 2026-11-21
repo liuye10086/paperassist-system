@@ -7,6 +7,7 @@ import { type PreparedDatasetAnalysisSource } from '../analysis/datasetSource'
 import { type Selection } from '../analysis/AnalysisSetup'
 import { setLocale } from '../../shared/i18n'
 import { WorkflowProvider } from '../analysis/AnalysisWorkflow'
+import { AnalysisActivity } from '../analysis/AnalysisActivity'
 
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); setLocale('zh-CN') })
 
@@ -63,13 +64,25 @@ test('creates a plan for the selected prepared version and recovers it from a bo
   })
   vi.stubGlobal('fetch', fetch)
   const user = userEvent.setup()
-  render(<AnalysisPlanLauncher projectId="p1" fileId="f1" source={reviewFixture.source as PreparedDatasetAnalysisSource} selection={reviewFixture.selection as Selection} setupRevision={0} disabled={false} onPublished={() => {}} />)
+  const confirm = vi.fn(() => false)
+  vi.stubGlobal('confirm', confirm)
+  let canLeave = () => true
+  render(<AnalysisActivity onCanLeave={guard => { canLeave = guard }}>
+    <AnalysisPlanLauncher projectId="p1" fileId="f1" source={reviewFixture.source as PreparedDatasetAnalysisSource} selection={reviewFixture.selection as Selection} setupRevision={0} disabled={false} onPublished={() => {}} />
+  </AnalysisActivity>)
   await screen.findByRole('button', { name: '生成分析计划' })
-  await user.type(screen.getByLabelText('研究问题'), '合成数据描述')
+  const question = screen.getByLabelText('研究问题')
+  await user.type(question, '合成数据描述')
+  expect(canLeave()).toBe(false)
   await user.click(screen.getByRole('button', { name: '生成分析计划' }))
   await waitFor(() => expect(fetch.mock.calls.some(([url]) => url.endsWith('/analysis-plans'))).toBe(true))
   const body = JSON.parse(fetch.mock.calls.find(([url]) => url.endsWith('/analysis-plans'))![1]?.body as string)
   expect(body).toEqual({ schema_version:5,input_kind:'data',file_id:'f1',evidence_version_ids:[],recommendation_ref:null,origin_recommendation_ref:null,dataset_id: 'prepared1', expected_setup_revision: 0, selection: reviewFixture.selection, research_request: { question: '合成数据描述', output_language: 'zh-CN', population: '', study_design: '', observation_unit: '', observation_structure: 'unknown', relationship_description: '', output_requirements: '' } })
   expect(await screen.findByText('需求与计划审核')).toBeTruthy()
   expect(fetch.mock.calls.filter(([url]) => url.includes('/analysis-plans?page=')).length).toBe(2)
+  confirm.mockClear()
+  expect(canLeave()).toBe(true)
+  expect(confirm).not.toHaveBeenCalled()
+  await user.type(question, '，补一项未提交的编辑')
+  expect(canLeave()).toBe(false)
 })

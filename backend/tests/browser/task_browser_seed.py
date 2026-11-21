@@ -79,9 +79,12 @@ def matrix(client, owner, project_id):
     from app.domain.tasks.execution import run_word_task
 
     service = TaskService(owner)
-    rows = []
-    for index, (filename, status, phase, display, wait_kind, actions) in enumerate(MATRIX):
-        base, file, result = source(client, project_id, filename)
+    sources = [source(client, project_id, row[0]) for row in MATRIX]
+    rows = {}
+    # Finish the real Word export before creating intentionally unfinished display tasks.
+    for index in sorted(range(len(MATRIX)), key=lambda i: MATRIX[i][1] != 'succeeded'):
+        filename, status, phase, display, wait_kind, actions = MATRIX[index]
+        base, file, result = sources[index]
         if status == 'succeeded':
             figure, explanation = saved_material(client, base, result)
             request = request_for(file, result, figure=figure, explanation=explanation)
@@ -99,8 +102,8 @@ def matrix(client, owner, project_id):
                           'failed': 'execution_failed'}[status]
                 task = service.transition(task['id'], expected_revision=task['revision'], status=status, reason_code=reason)
         assert (task['status'], task['phase'], task['display_status']) == (status, phase, display)
-        rows.append({'filename': filename, 'task_id': task['id'], 'file_id': file['id'],
+        rows[index] = {'filename': filename, 'task_id': task['id'], 'file_id': file['id'],
             'status': status, 'phase': phase, 'display_status': display,
             'wait_kind': wait_kind, 'allowed_actions': actions,
-            'evidence': 'actual_local_word_export' if status == 'succeeded' else 'synthetic_state_projection'})
-    return rows
+            'evidence': 'actual_local_word_export' if status == 'succeeded' else 'synthetic_state_projection'}
+    return [rows[index] for index in range(len(MATRIX))]

@@ -3,10 +3,54 @@ import {afterEach,expect,it,vi} from 'vitest'
 import RevisionPanel from './RevisionPanel'
 import {taskFixture} from '../tasks/taskFixtures'
 import {exportFixture,manuscriptFixture} from '../manuscripts/manuscriptFixtures'
-afterEach(()=>{cleanup();vi.unstubAllGlobals()})
+import {setLocale} from '../../shared/i18n'
+afterEach(()=>{cleanup();vi.unstubAllGlobals();setLocale('zh-CN')})
 const evidence={id:'e1',kind:'source',sha256:'a'.repeat(64),content:'固定证据：仅观察到关联'}
 const context={round_id:'r1',plan_revision:2,manuscript:{id:'m1',revision:1,version_id:'v1'},expected_current_revision:3,project_type:'sci',output_language:'en',locations:[{kind:'paragraph',id:'p1',section_id:'methods',section_title:'方法',text:'Old paragraph'}],citation_candidates:[],evidence:[evidence],grounded_plans:[{item_id:'i1',original_text:'Explain the association.',existing_content:'Old paragraph',evidence:[evidence],plan:'根据固定观察证据澄清关联',missing:['独立实验待补']}],constraints:{}}
 const round={project_type:'sci',id:'r1',revision:2,manuscript:{id:'m1',version_id:'v1',revision:1,title:'旧稿'},sources:[{id:'s1',label:'Reviewer 2'}],items:[{id:'i1',source_id:'s1',number:1,original_text:'Explain the association.'}]} as never
+
+it.each(['zh-CN','en'] as const)('uses actual generated location and evidence fields on the revision page in %s',async locale=>{
+ setLocale(locale)
+ const raw='materials_and_methods/methods:purpose',source='aa086d01-4f4a-5f85-9b28-9d143feea1fa',other='5da696af-99a7-44c1-8f29-25a4b067720e'
+ const pieces=['意见：原文 '+source+' 📝\n固定位置：','\n已读取具体资料：','：分组说明；','：统计报告\n具体处理：核对 ','。']
+ const values=[raw,source,other,raw],ids=['methods:purpose',source,other,'methods:purpose']
+ let plan=''
+ const spans=values.map((value,i)=>{plan+=pieces[i];const start=Array.from(plan).length;plan+=value;return {id:ids[i],kind:i===0||i===3?'paragraph':'evidence',start,end:start+value.length}})
+ plan+=pieces[4]
+ const item={id:'i1',source_id:'s1',number:1,original_text:'原文 '+source,plan,locations:[{kind:'paragraph',id:'methods:purpose'}]}
+ const saved={...(round as object),items:[item],versions:[{revision:1,items:[item]}],generated_plan_locations:{i1:spans}}
+ const location={kind:'paragraph',id:'methods:purpose',section_id:'materials_and_methods',section_title:'materials_and_methods',paragraph_number:1,text:'稿件原文'}
+ const materials=[{...evidence,id:source,kind:'document_version',content:{filename:'分组说明.docx'}},{...evidence,id:other,kind:'document_version',content:{filename:'统计报告.docx'}}]
+ const c={...context,locations:[location],evidence:materials,grounded_plans:[{...context.grounded_plans[0],plan,location_spans:spans,locations:[location],evidence:materials}]}
+ vi.stubGlobal('fetch',vi.fn(async(url:string)=>Response.json(url.endsWith('revision-context')?c:{items:[]})))
+ const props={projectId:'p1',active:true,disabled:false,customer:true,onOpenTask:vi.fn(),view:'revision' as const}
+ const ui=render(<RevisionPanel {...props} round={saved as never}/>)
+ const output=await screen.findByText(/已读取具体资料：/)
+ expect(output.textContent).not.toContain(raw)
+ expect(output.textContent).toMatch(locale==='en'?/Paragraph 1/i:/段落 1/)
+ expect(output.textContent).toContain('分组说明.docx：分组说明；统计报告.docx：统计报告')
+ expect(output.textContent?.split(source)).toHaveLength(2)
+ const manual='客户手写 '+source+'/'+raw
+ ui.rerender(<RevisionPanel {...props} round={{...saved,items:[{...item,plan:manual}]} as never}/>)
+ expect(await screen.findByText(manual)).toBeTruthy()
+})
+
+it('waits for the initial plan and clears a recovered revision-context read error',async()=>{
+ const fetcher=vi.fn(async(url:string)=>url.endsWith('/revision-context')&&unavailable?
+  Response.json({detail:{code:'task_input_invalid'}},{status:409}):Response.json(url.endsWith('/revision-context')?context:{items:[]}))
+ let unavailable=true
+ vi.stubGlobal('fetch',fetcher)
+ const props={projectId:'p1',active:true,disabled:false,customer:true,onOpenTask:vi.fn(),view:'revision' as const}
+ const waiting={...(round as object),items:[],versions:[],task:{status:'running'}}
+ const ui=render(<RevisionPanel {...props} round={waiting as never}/>)
+ expect(fetcher).not.toHaveBeenCalled()
+ ui.rerender(<RevisionPanel {...props} round={round}/>)
+ await screen.findByRole('alert')
+ unavailable=false
+ fireEvent.click(screen.getByRole('button',{name:'保留操作并更新核对基线'}))
+ await screen.findByText('已有资料支持的具体计划')
+ expect(screen.queryByRole('alert')).toBeNull()
+})
 it('selects readable fixed evidence and previews concrete changes before one batch adoption with current CAS',async()=>{
  const posts:{url:string;body:Record<string,unknown>}[]=[]
  vi.stubGlobal('fetch',vi.fn(async(url:string,init?:RequestInit)=>{const body=init?.body?JSON.parse(String(init.body)):{};if(init?.method==='POST')posts.push({url,body});return Response.json(url.endsWith('/revision-context')?context:url.endsWith('/preview')?{...context,actual_changes:[{item_id:'i1',kind:'replace_paragraph',location:context.locations[0],before:'Old paragraph',after:'Clarified association.',reason:'固定证据支持',evidence:[evidence]}],unexecuted:[{item_id:'i2',status:'waiting_material',reason:'独立实验尚未完成'}],public_issues:[],constraint_issues:[],can_adopt:true,preview_sha256:'b'.repeat(64),synthetic:true}:init?.method==='POST'?{id:'rev1',round_id:'r1',input_snapshot:{},task:{...taskFixture,task_type:'review_revision',phase:'verify',status:'queued',display_status:'queued',input_version:{kind:'review_revision',revision_id:'rev1',round_id:'r1',base_version_id:'v1',workflow_version:'review_revision_v1'}},result:null,validation:{},created_at:taskFixture.created_at}:{items:[]})}))
@@ -62,7 +106,7 @@ it('shows readable revisions, source excerpts and a flat Word download in the cu
  expect(screen.getAllByText(/材料与方法/).length).toBeGreaterThan(0)
  expect(screen.getAllByText('原实验材料中的方法依据。').length).toBeGreaterThan(0)
  expect(screen.getAllByText('实验说明.docx').length).toBeGreaterThan(0)
- expect((await screen.findByRole('link',{name:'下载 DOCX'})).getAttribute('href')).toBe(exportFixture.download_url)
+ expect((await screen.findByRole('link',{name:'下载这份 Word'})).getAttribute('href')).toBe(exportFixture.download_url)
  expect(container.textContent).not.toMatch(/materials_and_methods|document_version|parser_version|private-parse-id|SHA256|事实 ID|固定父稿：版本 1/)
  expect(container.querySelector('details, button[aria-expanded]')).toBeNull()
  fireEvent.change(screen.getByLabelText('本次处理意见'),{target:{value:'i1'}})

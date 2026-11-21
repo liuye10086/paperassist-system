@@ -22,7 +22,9 @@ from app.domain.external_processing import digest
 from app.domain.model_usage.service import ModelUsageService
 from tests.api.test_analysis import client
 from tests.integration.test_batch05_figure_store import source
-from tests.integration.test_batch05_figure_execution import frozen_policy,IndependentLineProvider,FigureExplanationProvider
+from tests.integration.test_batch05_figure_execution import frozen_policy,IndependentLineProvider
+from tests.integration.test_b07_repair_versions import SyntheticSentenceProvider
+from tests.integration.test_batch06_pipeline import checked_policy
 from tests.queue.test_real_worker import worker_stack
 
 def evidence_directory():
@@ -119,15 +121,10 @@ def synthetic_figure(workbench,project,result,config_id,monkeypatch):
 
 
 def synthetic_explanation(workbench,project,result,config_id,bundle,monkeypatch):
-    def policy(payload,explanation=False):
-        value=frozen_policy(payload)
-        value['policy'].update(prompt_version='figure_explanation_v2' if payload.get('figure_explanation_contract')==2 else 'figure_explanation_v1',output_format='analysis_explanation_v2',tools=[])
-        value.pop('tool_reserve_micro_usd');value.pop('tool_reserve_version');value['task_limit_micro_usd']=500000
-        return value
-    monkeypatch.setattr('app.domain.figure_workbench.tasks.policy_for',policy)
+    monkeypatch.setattr('app.domain.figure_workbench.tasks.policy_for',checked_policy)
     task=submit(workbench,project,result['file_id'],result['id'],config_id,GenerateFigure(idempotency_key='queue-source-explanation',
         external_processing={'confirmed':True,'payload_sha256':digest(build_payload(bundle))}),figure_id=bundle['figure']['id'])['task']
-    provider=FigureExplanationProvider()
+    provider=SyntheticSentenceProvider()
     task=run_figure_explanation_task(task['id'],task['revision'],provider_factory=lambda:provider)
     assert task is not None and task['status']=='succeeded',task
     return task

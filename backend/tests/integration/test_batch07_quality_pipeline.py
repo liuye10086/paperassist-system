@@ -79,11 +79,21 @@ def test_parallel_publications_share_root_sequence_and_keep_inherited_rows(clien
     base,parent=published(client)
     tasks=[]
     for key in ('q1','q2'):
-        task,_=quality_task(client,base,parent,key=key); run(task)
-        tasks.append(decide(client,task,decision(review(client,task)),key).json())
+        task,_=quality_task(client,base,parent,key=key)
+        assert run(task)['status']=='waiting_confirmation'
+        tasks.append(task)
+    tasks = [decide(client,task,decision(review(client,task)),key).json()
+             for task,key in zip(tasks,('q1','q2'),strict=True)]
     with ThreadPoolExecutor(max_workers=2) as pool:
         results=list(pool.map(run,tasks))
-    assert [r['status'] for r in results]==['succeeded','succeeded']
+    assert results[0]['status']=='succeeded'
+    if results[1] is None:
+        with database_connection() as db:
+            outbox = db.execute('SELECT published_at FROM task_outbox WHERE task_id=%s AND task_revision=%s',
+                                (tasks[1]['id'],tasks[1]['revision'])).fetchone()
+            assert outbox and outbox['published_at'] is None
+        results[1]=run(tasks[1])
+    assert results[1]['status']=='succeeded'
     with database_connection() as db:
         versions=[r['version'] for r in db.execute('SELECT version FROM prepared_dataset_versions ORDER BY version')]
     assert versions==[1,2,3]

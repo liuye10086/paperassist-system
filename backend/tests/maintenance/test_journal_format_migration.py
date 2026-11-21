@@ -1,4 +1,5 @@
 """0045→0046 preserves populated history, with sealed scope and one publication."""
+from tests.helpers.historical_migration import historical_workflow, assert_saved_history_blocks
 import pytest
 from alembic import command
 from sqlalchemy.exc import SQLAlchemyError
@@ -6,12 +7,12 @@ from tests.api.test_analysis import client  # noqa: F401
 from tests.api.test_journal_format import candidate,guide,target,manuscript
 from tests.api.test_journals import post,profile
 from tests.maintenance.test_literature_evidence_migration import fingerprints
-from app.db.database import migration_connection,database_connection,alembic_config,get_migration_database_config
+from app.db.database import SCHEMA_HEAD, database_connection,alembic_config,get_migration_database_config
 
 
 def test_0046_preserves_populated_0045_and_freezes_schema(client):
-    from app.db.database import SCHEMA_HEAD
-    assert SCHEMA_HEAD=='0047_journal_adaptations'
+    from alembic.script import ScriptDirectory
+    assert ScriptDirectory.from_config(alembic_config()).get_heads() == [SCHEMA_HEAD]
     base,p,r=candidate(client)
     path,m=manuscript(client)
     file=client.get(path.removesuffix('/manuscripts')+'/files').json()[0]
@@ -20,10 +21,8 @@ def test_0046_preserves_populated_0045_and_freezes_schema(client):
     material=dict(kind='original',id=file['id'],file_id=file['id'])
     saved=post(client,path.removesuffix('/manuscripts')+'/journals/profiles',profile(material=material),'source-profile')
     assert saved.status_code==201,saved.text
-    cfg=alembic_config()
-    with migration_connection(write=True) as db:
-        cfg.attributes.update(connection=db.raw_connection,database_config=get_migration_database_config())
-        command.downgrade(cfg,'0045_journal_recommendations')
+    with historical_workflow(get_migration_database_config(), '0045_journal_recommendations') as (db, cfg):
+        assert db.execute("SELECT 1 FROM journal_material_refs WHERE file_id=%s", (file['id'],)).fetchone()
         tables=[r['tablename'] for r in db.execute('SELECT tablename FROM pg_tables WHERE schemaname=current_schema()') if r['tablename']!='alembic_version']
         before=fingerprints(db,[t for t in tables if t!='journal_material_refs'])
         refs=[dict(r) for r in db.execute('SELECT * FROM journal_material_refs ORDER BY id')]
@@ -46,10 +45,7 @@ def test_0046_preserves_populated_0045_and_freezes_schema(client):
     for table in ('journal_guides','journal_targets'):
         with pytest.raises(SQLAlchemyError):
             with database_connection(write=True) as db:db.execute('DELETE FROM '+table)
-    with pytest.raises(RuntimeError,match='refusing destructive downgrade'):
-        with migration_connection(write=True) as db:
-            cfg.attributes.update(connection=db.raw_connection,database_config=get_migration_database_config())
-            command.downgrade(cfg,'0045_journal_recommendations')
+    assert_saved_history_blocks('0046_journal_format_checks', 'Journal format history exists; refusing destructive downgrade.')
     from app.maintenance.database_audit import audit_database
     with database_connection() as db:report=audit_database(db)
     assert report['ok'],report['schema_issues'] or [c for c in report['data_checks'] if c['invalid']]

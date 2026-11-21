@@ -2,14 +2,12 @@ import { afterEach, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import App from '../../app/App'
-import { summaryFixture } from '../fixtures/summaryFixture'
-import { workflowStateFixture } from '../fixtures/workflowStateFixture'
 
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); window.location.hash = '' })
-const session = { user: { id: 'a', email: 'admin@paperassist.local', role: 'admin' }, csrf_token: 'csrf' }
+const session = { user: { id: 'a', email: 'customer@paperassist.local', role: 'customer' }, csrf_token: 'csrf' }
 function empty(url: string) {
-  const parameters = new URL(url, 'http://localhost').searchParams
-  return Response.json(url.startsWith('/api/v1/projects?')
+  const { pathname, searchParams: parameters } = new URL(url, 'http://localhost')
+  return Response.json(['/api/v1/projects', '/api/v1/assigned-projects', '/api/v1/admin/registrations'].includes(pathname)
     ? { items: [], total: 0, page: Number(parameters.get('page')), page_size: Number(parameters.get('page_size')) } : [])
 }
 it.each([
@@ -22,7 +20,7 @@ it.each([
   vi.resetModules()
   const { default: SecondApp } = await import('../../app/App')
   const secondApi = await import('../../shared/api/client')
-  const nextSession = { user: { id: 'b', email: 'b@example.com', role: 'user' }, csrf_token: 'b-csrf' }
+  const nextSession = { user: { id: 'b', email: 'b@example.com', role: 'customer' }, csrf_token: 'b-csrf' }
   let cookie: typeof session | null = endpoint === 'change-password' ? session : null
   let finish!: () => void
   let passwordSignal: AbortSignal | null | undefined
@@ -76,7 +74,7 @@ it.each([
   await act(async () => { finish() })
   for (const tab of [first, second]) {
     await tab.findByLabelText('邮箱')
-    expect(tab.queryByRole('heading', { name: '工作台' })).toBeNull()
+    expect(tab.queryByRole('heading', { name: '我的项目' })).toBeNull()
     expect(tab.queryAllByText(/a-private|b-private/)).toHaveLength(0)
     expect(tab.queryByText(nextSession.user.email)).toBeNull()
   }
@@ -95,7 +93,7 @@ for (const late of ['login', 'logout'] as const) {
     vi.resetModules()
     const { default: SecondApp } = await import('../../app/App')
     const secondApi = await import('../../shared/api/client')
-    const b = { user: { id: 'b', email: 'b@example.com', role: 'user' }, csrf_token: 'b-csrf' }
+    const b = { user: { id: 'b', email: 'b@example.com', role: 'customer' }, csrf_token: 'b-csrf' }
     let cookie: typeof session | null = late === 'logout' ? session : null
     let finish!: () => void
     const mutationTokens: (string | null)[] = []
@@ -163,7 +161,7 @@ for (const late of ['login', 'logout'] as const) {
         await tab.findByRole('button', { name: 'b-private' })
       } else {
         await tab.findByLabelText('邮箱')
-        expect(tab.queryByRole('heading', { name: '工作台' })).toBeNull()
+        expect(tab.queryByRole('heading', { name: '我的项目' })).toBeNull()
       }
       expect(tab.queryAllByText(/a-private/)).toHaveLength(0)
       expect(tab.queryByText(session.user.email)).toBeNull()
@@ -193,7 +191,7 @@ it('restores session and retains workspace if logout fails, clearing hash only a
   window.location.hash = '#project-old'
   render(<App />)
   fireEvent.click(await screen.findByRole('button', { name: '账号' }))
-  await waitFor(() => expect(screen.getByText('还没有项目，请先创建一个项目。')).toBeTruthy())
+  await waitFor(() => expect(screen.getByText('还没有项目。新建一个项目，开始数据分析或论文写作。')).toBeTruthy())
   window.location.hash = '#project-old'
   fireEvent.click(screen.getByRole('button', { name: '退出登录' }))
   expect(await screen.findByRole('alert')).toBeTruthy()
@@ -206,11 +204,12 @@ it('restores session and retains workspace if logout fails, clearing hash only a
 })
 it('blocks workspace during restore and retries a 503', async () => {
   let finish!: (response: Response) => void
-  const mock = vi.fn().mockImplementationOnce(() => new Promise<Response>(resolve => { finish = resolve })).mockResolvedValue(Response.json(session))
+  const mock = vi.fn((url: string) => Promise.resolve(url.endsWith('/me') ? Response.json(session) : empty(url)))
+    .mockImplementationOnce(() => new Promise<Response>(resolve => { finish = resolve }))
   vi.stubGlobal('fetch', mock)
   render(<App />)
   expect(screen.getByRole('status').textContent).toContain('正在恢复')
-  expect(screen.queryByRole('heading', { name: '工作台' })).toBeNull()
+  expect(screen.queryByRole('heading', { name: '我的项目' })).toBeNull()
   finish(new Response(null, { status: 503 }))
   fireEvent.click(await screen.findByRole('button', { name: '重试' }))
   expect(await screen.findByRole('button', { name: '账号' })).toBeTruthy()
@@ -246,12 +245,12 @@ it('unmounts private workspace on expiry and mounts fresh state after a new logi
   window.location.hash = '#old-private-project'
   expire(new Response(null, { status: 401 }))
   expect(await screen.findByLabelText('邮箱')).toBeTruthy()
-  expect(screen.queryByRole('heading', { name: '工作台' })).toBeNull()
+  expect(screen.queryByRole('heading', { name: '我的项目' })).toBeNull()
   expect(window.location.hash).toBe('')
   fireEvent.change(screen.getByLabelText('邮箱'), { target: { value: session.user.email } })
   fireEvent.change(screen.getByLabelText('密码'), { target: { value: 'valid-password-123' } })
   fireEvent.submit(screen.getByLabelText('密码').closest('form')!)
-  expect(await screen.findByText('还没有项目，请先创建一个项目。')).toBeTruthy()
+  expect(await screen.findByText('还没有项目。新建一个项目，开始数据分析或论文写作。')).toBeTruthy()
   expect(screen.queryByLabelText('密码')).toBeNull()
 })
 it('does not report expiration to a first anonymous visitor', async () => {
@@ -278,9 +277,9 @@ it('removes private workspace before restoring after another tab changes the coo
     return empty(url)
   }))
   render(<App />)
-  await screen.findByText('还没有项目，请先创建一个项目。')
+  await screen.findByText('还没有项目。新建一个项目，开始数据分析或论文写作。')
   act(() => receive(new MessageEvent('message', { data: 'session_changed' })))
-  await waitFor(() => expect(screen.queryByRole('heading', { name: '工作台' })).toBeNull())
+  await waitFor(() => expect(screen.queryByRole('heading', { name: '我的项目' })).toBeNull())
   expect(screen.queryByText(session.user.email)).toBeNull()
   await waitFor(() => expect(restore).toBeTypeOf('function'))
   restore(new Response(null, { status: 401 }))
@@ -313,7 +312,7 @@ it('dismisses account actions when pressing non-focusable content outside the me
   const account = await screen.findByRole('button', { name: '账号' })
   await user.click(account)
   expect(account.getAttribute('aria-expanded')).toBe('true')
-  fireEvent.pointerDown(screen.getByRole('heading', { name: '工作台' }))
+  fireEvent.pointerDown(screen.getByRole('heading', { name: '我的项目' }))
   expect(screen.queryByRole('button', { name: '退出登录' })).toBeNull()
   expect(account.getAttribute('aria-expanded')).toBe('false')
   await user.click(account)
@@ -323,12 +322,14 @@ it('dismisses account actions when pressing non-focusable content outside the me
 })
 
 it('dismisses account actions only after keyboard focus leaves the account controls', async () => {
+  const actions = ['项目工作区', '本人用量', '修改密码', '退出登录']
   const user = userEvent.setup()
-  vi.stubGlobal('fetch', vi.fn(async (url: string) => url.endsWith('/me') ? Response.json(session) : empty(url)))
+  vi.stubGlobal('fetch', vi.fn(async (url: string) => url.endsWith('/me')
+    ? Response.json({ ...session, user: { ...session.user, role: 'analyst' } }) : empty(url)))
   render(<App />)
   const account = await screen.findByRole('button', { name: '账号' })
   await user.click(account)
-  for (const name of ['项目工作区', '本人用量', '管理员', '修改密码', '退出登录']) {
+  for (const name of actions) {
     await user.tab()
     expect(document.activeElement).toBe(screen.getByRole('button', { name }))
   }
@@ -339,7 +340,7 @@ it('dismisses account actions only after keyboard focus leaves the account contr
   expect(document.activeElement?.closest('.auth-account')).toBeNull()
   await user.click(account)
   await user.tab()
-  expect(document.activeElement).toBe(screen.getByRole('button', { name: '项目工作区' }))
+  expect(document.activeElement).toBe(screen.getByRole('button', { name: actions[0] }))
   await user.keyboard('{Escape}')
   expect(account.getAttribute('aria-expanded')).toBe('false')
   expect(document.activeElement).toBe(account)
@@ -360,7 +361,7 @@ it.each(['我的项目', '收起侧边栏'])('dismisses account actions when usi
 
 it('dismisses account actions while switching a project section', async () => {
   const user = userEvent.setup()
-  const project = { id: 'account-project', name: '菜单交互项目', research_topic: '菜单交互', project_type: 'sci' as const,
+  const project = { id: 'account-project', name: '菜单交互项目', research_topic: '菜单交互', project_type: 'research' as const,
     file_count: 0, created_at: '2026-10-07T00:00:00Z', updated_at: '2026-10-07T00:00:00Z' }
   vi.stubGlobal('fetch', vi.fn(async (url: string) => {
     if (url.endsWith('/me')) return Response.json(session)
@@ -369,19 +370,24 @@ it('dismisses account actions while switching a project section', async () => {
       return Response.json({ items: [project], total: 1, page: Number(parameters.get('page')), page_size: Number(parameters.get('page_size')) })
     }
     if (url === `/api/v1/projects/${project.id}`) return Response.json(project)
-    if (url === `/api/v1/projects/${project.id}/workflow-state`) return Response.json(workflowStateFixture(project))
-    if (url.includes('/summary?')) return Response.json(summaryFixture(project.id))
+    if (url === `/api/v1/projects/${project.id}/customer-workspace/summary`) {
+      return Response.json({ project_id: project.id, step: 'details', target: {} })
+    }
+    if (url.includes('/files?') || url.includes('/file-batches?')) {
+      return Response.json({ items: [], total: 0, page: 1, page_size: 5 })
+    }
     if (url.endsWith('/health')) return Response.json({ status: 'ok', service: 'paperassist-system' })
     if (url.endsWith('/config')) return Response.json({ max_upload_bytes: 10485760, preview_row_limit: 20 })
     return empty(url)
   }))
   render(<App />)
   await user.click(await screen.findByRole('button', { name: '打开项目 菜单交互项目' }))
-  const files = await screen.findByRole('button', { name: '第 2 步：文件上传/整理' })
+  const files = await screen.findByRole('button', { name: '第 2 步：上传资料' })
   const account = screen.getByRole('button', { name: '账号' })
   await user.click(account)
   await user.click(files)
   expect(screen.queryByRole('button', { name: '退出登录' })).toBeNull()
   expect(account.getAttribute('aria-expanded')).toBe('false')
-  expect(screen.getByRole('button', { name: '项目文件' }).getAttribute('aria-current')).toBe('page')
+  expect(files.getAttribute('aria-current')).toBe('step')
+  expect(await screen.findByRole('heading', { name: '上传资料' })).toBeTruthy()
 })

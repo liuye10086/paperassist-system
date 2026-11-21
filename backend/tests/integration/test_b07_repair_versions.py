@@ -5,6 +5,7 @@ tasks and Word export run locally; these tests never establish paid evidence.
 """
 from copy import deepcopy
 from io import BytesIO
+from xml.etree import ElementTree
 from zipfile import ZipFile
 import json
 import pytest
@@ -186,8 +187,12 @@ def test_authenticated_v5_pipeline_preserves_figure_version_and_exact_word_png(c
     assert saved['explanation']['engine']['id']=='figure_explanation_v5'
     assert len(saved['explanation']['sections'])==6
     repository=CollectionStore(workbench.assets)
-    request=CollectionRequest(title='B07 scoped integration',language='en',items=[{
-        'figure_id':figure['id'],'explanation_id':task['result_explanation_id']}])
+    selection = {'figure_id': figure['id'], 'explanation_id': task['result_explanation_id']}
+    assert saved['configuration']['config']['style']['caption'] == 'Author caption.'
+    assert figure['caption'].count('Author caption.') == 1
+    if figure_contract == 4:
+        selection['caption'] = 'Collection annotation.'
+    request=CollectionRequest(title='B07 scoped integration',language='en',items=[selection])
     collection=repository.create(project,request,'b07-v5-word')
     row=collection['versions'][0]['requests'][0]
     done=run_collection_word_task(row['task_id'],1,config=repository.store.db_config,directory=repository.store.directory)
@@ -196,10 +201,48 @@ def test_authenticated_v5_pipeline_preserves_figure_version_and_exact_word_png(c
     _,content=repository.download(project,collection['id'],report['id'])
     with ZipFile(BytesIO(content)) as archive:
         assert [archive.read(name) for name in archive.namelist() if name.startswith('word/media/')]==[provider.png]
-        text=archive.read('word/document.xml').decode()
+        document = ElementTree.fromstring(archive.read('word/document.xml'))
+        word = {'w': 'http://schemas.openxmlformats.org/wordprocessingml/2006/main'}
+        text = '\n'.join(''.join(node.text or '' for node in paragraph.findall('.//w:t', word))
+                         for paragraph in document.findall('.//w:p', word))
         assert text.count('Author caption.')==1
+        assert text.count('Collection annotation.') == (1 if figure_contract == 4 else 0)
         assert all(text.count(note)==1 for note in figure['presentation']['statistical_notes'])
         assert 'Axis alias' in text and 'Response alias' in text
     assert provider.posts==['container','upload','response'] and len(prose.posts)==1
     with workbench.tasks.connection() as db:
         assert db.execute('SELECT count(*) n FROM model_calls WHERE task_id=%s',(row['task_id'],)).fetchone()['n']==0
+    if figure_contract == 3:
+        from app.domain.statistics_reader_reports.service import StatisticsReaderReportService
+        service = StatisticsReaderReportService(workbench.assets)
+        build = StatisticsReaderReportService._build
+        with monkeypatch.context() as historical:
+            def prepare_old_context(self, *args, **kwargs):
+                kwargs.setdefault('context_schema_version', 1)
+                return build(self, *args, **kwargs)
+            historical.setattr(StatisticsReaderReportService, '_build', prepare_old_context)
+            old = repository.create(project, request, 'b07-historical-reader-caption')
+        with workbench.tasks.connection() as db:
+            frozen = db.execute('SELECT id,content_json,content_sha256 FROM statistics_report_context_versions '
+                                'WHERE collection_id=%s', (old['id'],)).fetchone()
+        assert frozen['content_json']['schema_version'] == 1
+        assert service.get(project, frozen['id'])['source']['sha256'] == frozen['content_sha256']
+
+
+@pytest.mark.parametrize('collection_caption', ['Collection annotation.', 'Author caption.'], ids=['distinct','same'])
+def test_reader_figure_keeps_each_authored_caption_once(collection_caption):
+    from app.domain.external_processing import digest
+    from app.domain.statistics_reader_reports.narrative import figure_output
+
+    item = dict(figure={'title': 'Line plot', 'figure_kind': 'line'}, result={},
+                explanation={'sections': [{'key': key, 'text': 'Saved text.'}
+                                          for key in ('methods', 'results', 'interpretation')]},
+                configuration={'config': {'style': {'caption': 'Author caption.'}}},
+                user_caption=collection_caption)
+    interpreted = figure_output(item, 1, 'en')['interpretation']
+    assert interpreted.count('Author caption.') == 1
+    assert interpreted.count('Collection annotation.') == (1 if collection_caption != 'Author caption.' else 0)
+    # Digests captured from the original, unmodified v1 projection.
+    old_digests = {'Collection annotation.': '39863374b0f771fe9b24b8a1708c40bccbf48714b090ec87cc4760d00e46149c',
+                   'Author caption.': 'a3db97882abd1c5251f0a66921829500db060d8195991fd80cc7c1c7c40dced9'}
+    assert digest(figure_output(item, 1, 'en', context_schema_version=1)) == old_digests[collection_caption]

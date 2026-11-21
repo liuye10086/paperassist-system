@@ -99,21 +99,29 @@ def test_cached_run_rejects_modified_frozen_source(client):
 
 def test_run_publication_rejects_same_revision_source_swap(client,monkeypatch):
     import json
-    from app.domain import descriptive
+    from app.domain.statistics_execution import execution
     base,_=add_file(client)
     first=version(client,base)
-    client.put(base+'/analysis-setup',json=selection(dataset_id=first['id'],expected_revision=0))
-    original=ProjectStore.save_analysis_run
-    def swap_then_save(store, project_id,file_id,result):
+    saved = client.put(base+'/analysis-setup',json=selection(dataset_id=first['id'],expected_revision=0))
+    assert saved.status_code == 200, saved.text
+    original = execution.complete
+
+    def swap_then_publish(repository, lease, assets, candidate, receipt):
+        assert candidate['source'] == saved.json()['source']
         with database_connection(write=True) as db:
-            row=db.execute('SELECT setup_json FROM analysis_setups').fetchone()
-            changed=json.loads(row['setup_json'])
-            changed['source']['dataset_version']=2
-            db.execute('UPDATE analysis_setups SET setup_json=%s',(json.dumps(changed),))
-        return original(store,project_id,file_id,result)
-    monkeypatch.setattr(ProjectStore,'save_analysis_run',swap_then_save)
-    response=statistics_post(client, base+'/analysis-runs',json={'expected_revision':1})
-    assert response.status_code==409, response.text
+            row = db.execute('SELECT setup_json FROM analysis_setups WHERE file_id=%s', (candidate['file_id'],)).fetchone()
+            setup = json.loads(row['setup_json'])
+            assert setup['revision'] == 1 and setup['source']['dataset_version'] == 1
+            setup['source']['dataset_version'] = 2
+            db.execute('UPDATE analysis_setups SET setup_json=%s WHERE file_id=%s', (json.dumps(setup), candidate['file_id']))
+        return original(repository, lease, assets, candidate, receipt)
+
+    monkeypatch.setattr(execution, 'complete', swap_then_publish)
+    response = client.post(base+'/analysis-runs', json={'expected_revision': 1})
+    assert response.status_code == 202, response.text
+    task = response.json()
+    failed = execution.run_statistics_task(task['id'], task['revision'])
+    assert (failed['status'], failed['error_code'], failed['result_analysis_run_id']) == ('failed', 'task_source_conflict', None)
     with database_connection() as db:
         assert db.execute('SELECT count(*) AS n FROM analysis_runs').fetchone()['n']==0
 

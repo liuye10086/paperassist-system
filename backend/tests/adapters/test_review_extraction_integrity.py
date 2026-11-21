@@ -24,7 +24,6 @@ def parsed_preview(monkeypatch, extra_xml):
     raw = modified.getvalue()
     document = parse_docx(raw, 'opinions.docx', DOCX_SETTINGS).document
     row = {'input_snapshot': {'file': {}}}
-    monkeypatch.setattr(DocumentService, '__init__', lambda *a: None)
     monkeypatch.setattr(DocumentService, 'load', lambda *a: row)
     monkeypatch.setattr(DocumentService, 'read', lambda *a: (None, document))
     def texts(blocks):
@@ -34,7 +33,7 @@ def parsed_preview(monkeypatch, extra_xml):
             else:
                 for cell in block.cells:
                     yield from texts(cell.blocks)
-    service = SimpleNamespace(assets=SimpleNamespace(original=lambda _: raw),
+    service = SimpleNamespace(assets=SimpleNamespace(owner_id='owner', db_config=object(), original=lambda _: raw),
         material=lambda *a: {'content': {'items': list(texts(document.blocks))}})
     result = preview(service, 'project', dict(format='document', file_id='file', document_version_id='version'))
     return document, result

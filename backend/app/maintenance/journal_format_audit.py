@@ -11,7 +11,7 @@ def audit_journal_formats(db,*,limit=200):
         total=db.execute('SELECT count(*) n FROM '+table).fetchone()['n'];rows=db.execute('SELECT * FROM '+table+' ORDER BY id LIMIT %s',(limit,)).fetchall();invalid=0
         for row in rows:
             try:
-                service=FormatService(scoped_store(row['user_id'],db.config));service.project(db,row['project_id']);service.validate(row);request=contract.model_validate(row['request_json']);snap=row['snapshot_json']
+                service=FormatService(scoped_store(row['user_id'],db.config));service.project(db,row['project_id']);service.validate(db,row);request=contract.model_validate(row['request_json']);snap=row['snapshot_json']
                 if table=='journal_guides':
                     profile=service.row(db,row['project_id'],row['profile_id'],'journal_profiles')['snapshot_json']
                     if snap['profile_id']!=row['profile_id'] or snap['requirements_version']!=row['requirements_version'] or (profile['synthetic'] and not snap['synthetic']):raise ValueError('Guide scope/level mismatch')

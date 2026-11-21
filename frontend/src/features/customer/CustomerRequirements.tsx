@@ -5,12 +5,16 @@ import useDraftLeaveGuard, { type RegisterLeaveGuard } from '../projects/useDraf
 import { IntakeError, intakeRequest, jsonRequest, projectBase } from '../research-intake/api'
 import type { Content, Intake, MaterialRef, Version } from '../research-intake/contracts'
 import { cleanMaterialRefs } from '../research-intake/state'
+import { useResearchRead } from '../research-results/api'
 import useResearchDraft from '../research-results/useResearchDraft'
 import {
   analysisTypeChoices, analysisTypes, buildRequirementContent, deliveryChoices, mergeRequirementInput, readRequirementInput,
   sameRequirementInput, toggleRequirementChoice, type Choice, type RequirementInput,
 } from './customerRequirementChoices'
+import { customerBase, type Progress } from './customerWorkspaceApi'
 import './customerRequirements.css'
+
+const analystStatuses = new Set<Progress['status']>(['assigned', 'analyzing', 'needs_materials', 'materials_submitted', 'delivered'])
 
 type Props = {
   projectId: string
@@ -175,6 +179,9 @@ function RequirementsForm({ projectId, headingRef, onSubmitted, registerLeaveGua
   const current = root?.current_requirement
   const status = draft ? '有未保存的修改。' : current?.operation === 'confirm' ? '需求已提交。' : current ? '草稿已保存。' : '尚未保存需求。'
   const disabled = busy || !!pending
+  // B02-2: once an analyst holds the submitted requirement, an update starts a new version for them to re-check.
+  const progress = useResearchRead<Progress>(customerBase(projectId) + '/progress', current?.operation === 'confirm')
+  const updatesAssigned = current?.operation === 'confirm' && !!progress.data && analystStatuses.has(progress.data.status)
   return <section className="customer-section customer-requirements" aria-labelledby={headingId}>
     <header className="customer-requirements__header">
       <h1 id={headingId} ref={headingRef} tabIndex={-1}>{t('选择需求')}</h1>
@@ -230,9 +237,14 @@ function RequirementsForm({ projectId, headingRef, onSubmitted, registerLeaveGua
         <button type="button" disabled={reading} onClick={() => void resolveWrite(pending)}>{t('按原请求重试')}</button>
       </div>}
     </div>}
+    {root && updatesAssigned && <p className="customer-requirements__impact" role="note">
+      {t('更新后，分析员需要按新需求重新核对。已发布的交付仍可下载。')}
+    </p>}
     {root && <footer className="customer-requirements__actions">
       <button type="button" disabled={disabled || conflict} onClick={() => save('save')}>{t('保存草稿')}</button>
-      <button type="button" className="button-primary" disabled={disabled || conflict} onClick={() => save('confirm')}>{t('提交需求')}</button>
+      <button type="button" className="button-primary" disabled={disabled || conflict} onClick={() => save('confirm')}>
+        {t(updatesAssigned ? '更新已提交的需求' : '提交需求')}
+      </button>
     </footer>}
   </section>
 }

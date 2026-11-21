@@ -23,21 +23,45 @@ def test_current_metadata_and_runtime_permissions_match_database():
     assert not result['schema_issues'], result['schema_issues']
 
 
+@pytest.mark.initial_revision('0057_request_task_operation')
 def test_legacy_backfill_preserves_values_and_creates_no_versions(postgres_migration_config):
     with migration_connection() as db:
         settings=alembic_config()
         settings.attributes.update(connection=db.raw_connection,database_config=postgres_migration_config)
-        command.downgrade(settings,'0057_request_task_operation')
-        db.execute("INSERT INTO projects(id,name,research_topic,project_type,created_at,updated_at) VALUES('old','原项目','主题','thesis','2026-10-01T00:00:00Z','2026-10-01T00:00:00Z')")
+        db.execute("INSERT INTO projects(id,name,research_topic,project_type,created_at,updated_at) VALUES('old','原项目','主题','thesis','2026-10-01T08:00:00+08:00','2026-10-02T01:02:03.456789Z')")
         before=dict(db.execute("SELECT * FROM projects WHERE id='old'").fetchone())
-        command.upgrade(settings,'head')
+        command.upgrade(settings,'0058_research_intake')
         after=dict(db.execute("SELECT * FROM projects WHERE id='old'").fetchone())
         assert before==after
         root=db.execute("SELECT * FROM research_intakes WHERE project_id='old'").fetchone()
         assert root['owner_id'] is None and root['current_requirement_version_id'] is None
         delivery=db.execute("SELECT * FROM research_deliveries WHERE project_id='old'").fetchone()
         assert delivery['kind']=='thesis_draft' and delivery['origin']=='legacy_inferred'
+        from datetime import datetime
+        for record in (root, delivery):
+            assert record['created_at'] == datetime.fromisoformat(before['created_at'])
+            assert record['updated_at'] == datetime.fromisoformat(before['updated_at'])
         assert db.execute('SELECT count(*) AS n FROM research_requirement_versions').fetchone()['n']==0
+
+
+
+@pytest.mark.initial_revision('0057_request_task_operation')
+def test_legacy_backfill_rejects_unreadable_business_time_without_partial_data(postgres_migration_config):
+    from sqlalchemy.exc import DataError
+
+    with migration_connection() as db:
+        db.execute("""INSERT INTO projects(id,name,research_topic,project_type,created_at,updated_at)
+            VALUES('unknown-time','legacy','topic','sci','not-a-timestamp','2026-01-01T09:00:00Z')""")
+        before = dict(db.execute("SELECT * FROM projects WHERE id='unknown-time'").fetchone())
+        settings = alembic_config()
+        settings.attributes.update(connection=db.raw_connection, database_config=postgres_migration_config)
+        with pytest.raises(DataError) as raised:
+            with db.raw_connection.begin_nested():
+                command.upgrade(settings, '0058_research_intake')
+        assert raised.value.orig.sqlstate == '22007'
+        assert dict(db.execute("SELECT * FROM projects WHERE id='unknown-time'").fetchone()) == before
+        assert db.execute('SELECT version_num FROM alembic_version').fetchone()['version_num'] == '0057_request_task_operation'
+        assert db.execute("SELECT to_regclass('research_intakes') AS root").fetchone()['root'] is None
 
 
 def test_immutable_snapshot_and_scoped_material_constraints(tmp_path):

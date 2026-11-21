@@ -147,3 +147,17 @@ def test_mapping_xlsx_reader_supports_20000_rows_without_relaxing_design_default
     with pytest.raises(StorageError):_xlsx_sample_text(store,file,0)
     text,name=_xlsx_sample_text(store,file,0,max_rows=20000,max_text_bytes=16777216)
     assert name=='mapping' and len(text.splitlines())==20001 and len(text)>2097152
+def test_core_plot_controls_are_scoped_and_old_figure_digest_shape_is_preserved():
+    from app.domain.bioinformatics.analysis_contracts import BioFigureConfig
+    for kind in ('integration_covariates', 'integration_harmony'):
+        assert BioFigureConfig(kind=kind, point_size=6).model_dump()['point_size'] == 6
+    old = BioFigureConfig(kind='umap').model_dump()
+    assert not {'point_size', 'histogram_bins', 'min_detection_fraction'} & old.keys()
+    for options in [
+        dict(kind='pca', panel='variance', point_size=4),
+        dict(kind='umap', histogram_bins=8),
+        dict(kind='marker_heatmap', min_detection_fraction=1.01),
+        dict(kind='qc', panel='scatter', histogram_bins=8),
+    ]:
+        with pytest.raises(ValueError):
+            BioFigureConfig(**options)

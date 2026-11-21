@@ -1,6 +1,6 @@
 import type { Ref } from 'react'
 import { PROJECT_PAGE_SIZE, typeNames, type Project } from './projectTypes'
-import { useI18n } from '../../shared/i18n'
+import { fileCountLabel, useI18n } from '../../shared/i18n'
 import './projectList.css'
 
 export type ProjectListQuery = {
@@ -24,13 +24,17 @@ type ProjectListProps = {
   presentation?: 'cards' | 'table'
   emptyMessage?: string
   typeLabels?: Record<Project['project_type'], string>
+  /** Projects per page as requested by the host; analysts keep the shared default. */
+  pageSize?: number
+  /** Shows “新建项目” in the empty state (wireframe 19). */
+  onCreate?: () => void
 }
 
 export default function ProjectList({ ref, items, total, query, searchDraft, loading, error,
   onSearchDraftChange, onQueryChange, onOpen, onRetry, presentation = 'table',
-  emptyMessage = '还没有项目，请先创建一个项目。', typeLabels = typeNames }: ProjectListProps) {
+  emptyMessage = '还没有项目，请先创建一个项目。', typeLabels = typeNames, pageSize = PROJECT_PAGE_SIZE, onCreate }: ProjectListProps) {
   const { t, locale } = useI18n()
-  const pages = Math.max(1, Math.ceil(total / PROJECT_PAGE_SIZE))
+  const pages = Math.max(1, Math.ceil(total / pageSize))
   const filtered = Boolean(query.q || query.type)
   const cards = presentation === 'cards'
   const pageSummary = <span>{t('共 {total} 个项目 · 第 {page} / {pages} 页', { total, page: query.page, pages })}</span>
@@ -66,7 +70,7 @@ export default function ProjectList({ ref, items, total, query, searchDraft, loa
           <span className="project-type-badge">{t(typeLabels[project.project_type])}</span>
           <h3><button type="button" className="project-name" onClick={() => onOpen(project.id)}>{project.name}</button></h3>
           <p>{project.research_topic}</p>
-          <div className="research-project-meta"><span>{t('{count} 个文件', { count: project.file_count })}</span>
+          <div className="research-project-meta"><span>{fileCountLabel(project.file_count)}</span>
             <time dateTime={project.updated_at}>{t('最近更新 {date}', { date: new Date(project.updated_at).toLocaleDateString(locale) })}</time></div>
           <button type="button" className="project-row-open button-quiet" aria-label={t('打开项目 {name}', { name: project.name })} onClick={() => onOpen(project.id)}>{t('打开项目')}<span aria-hidden="true">→</span></button>
         </article>)}
@@ -85,6 +89,7 @@ export default function ProjectList({ ref, items, total, query, searchDraft, loa
       </div>}
       {!loading && !error && total === 0 && <div className="empty-preview">
         <p>{t(filtered ? '没有匹配的项目。' : emptyMessage)}</p>
+        {!filtered && onCreate && <button type="button" className="button-primary" onClick={onCreate}>{t('新建项目')}</button>}
       </div>}
     </div>
     <nav className="project-pagination" aria-label={t('项目分页')}>

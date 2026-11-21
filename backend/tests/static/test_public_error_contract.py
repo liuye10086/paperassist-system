@@ -16,6 +16,7 @@ admin_usage_summary_not_found literature_pmc_not_authorized numeric_process_term
 review_continuation_invalid review_document_export_not_found review_document_export_not_ready
 review_document_not_found review_progress_correction_conflict review_progress_invalid
 review_return_blocked review_return_invalid review_return_preview_conflict review_revision_not_ready
+thesis_template_required
 '''.split())
 CONSTRUCTORS = {'StorageError', 'PlotError', 'NumericError', 'CorrelationError', 'ComparisonError'}
 

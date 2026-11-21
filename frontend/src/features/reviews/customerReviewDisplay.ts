@@ -1,8 +1,36 @@
 import { articleHeading } from '../manuscripts/articleStructure'
 import { object, type Evidence, type RevisionLocation } from './revisionTypes'
-import type { Item } from './reviewTypes'
+import type { Item, Location, PlanLocationSpan, Round } from './reviewTypes'
 
 type Translate = (key: string, params?: Record<string, string | number>) => string
+
+export function unchangedInitialPlan(round: Round, item: Item, revision: number) {
+  const versions = round.versions?.filter(version => version.revision <= revision)
+  return versions?.[0]?.revision === 1 && versions.every(version => version.items.find(entry => entry.id === item.id)?.plan === item.plan)
+}
+
+export function customerPlanText(round: Round, item: Item, edit: string, revision: number, locations: (Location & {label: string})[], t: Translate, evidenceNames?: ReadonlyMap<string,string>) {
+  if (edit !== item.plan || !unchangedInitialPlan(round,item,revision)) return edit
+  return renderPlanReferences(edit,round.generated_plan_locations?.[item.id],locations,t,evidenceNames)
+}
+
+export function renderPlanReferences(edit: string, spans: PlanLocationSpan[] | undefined, locations: {kind:string;id:string;label:string}[], t: Translate, evidenceNames?: ReadonlyMap<string,string>) {
+  if (!spans?.length) return edit
+  // Python offsets count Unicode code points, including non-BMP characters in quoted source text.
+  const chars = Array.from(edit)
+  const parts: string[] = []
+  let end = 0
+  for (const span of spans) {
+    if (!Number.isInteger(span.start) || !Number.isInteger(span.end) || span.start < end || span.end <= span.start || span.end > chars.length) return edit
+    const label = span.kind === 'evidence'
+      ? readerName(span.label) || readerName(evidenceNames?.get(span.id)) || t('依据材料')
+      : locations.find(location => location.kind === span.kind && location.id === span.id)?.label
+        || (span.kind === 'section' && reviewSectionTitle(undefined, span.id, t)) || t('稿件位置')
+    parts.push(chars.slice(end, span.start).join(''), label)
+    end = span.end
+  }
+  return parts.join('') + chars.slice(end).join('')
+}
 
 function readerName(value: unknown): string {
   if (typeof value !== 'string') return ''

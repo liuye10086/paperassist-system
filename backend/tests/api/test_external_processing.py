@@ -51,9 +51,10 @@ def test_disclosure_is_read_only_and_confirmation_is_frozen(client, cloud, polic
     headers = {'Idempotency-Key': 'external-plot'}
     accepted = client.post(url, json=body, headers=headers)
     assert accepted.status_code == 202, accepted.text
-    assert client.post(url, json=body, headers=headers).json()['task']['id'] == accepted.json()['task']['id']
+    task_id = accepted.json()['task']['id']
+    assert client.post(url, json=body, headers=headers).json()['task']['id'] == task_id
     with database_connection() as db:
-        frozen = db.execute('SELECT input_snapshot FROM tasks').fetchone()['input_snapshot']['external_processing']
+        frozen = db.execute('SELECT input_snapshot FROM tasks WHERE id=%s', (task_id,)).fetchone()['input_snapshot']['external_processing']
         assert frozen['labels'] == external['labels']
         assert frozen['confirmed_by'] and frozen['confirmed_at']
         assert frozen['source_digest'] == external['source_digest']

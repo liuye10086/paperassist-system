@@ -46,6 +46,7 @@ def test_runtime_dml_works(postgres_schema):
         db.execute("DELETE FROM projects WHERE id=%s", ('permissions-project',))
 
 
+@pytest.mark.initial_revision('0005_ownership_indexes')
 def test_external_connection_without_transaction_commits_migration(postgres_schema):
     from alembic import command
     from sqlalchemy import create_engine

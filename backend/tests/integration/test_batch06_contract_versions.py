@@ -20,11 +20,11 @@ def test_new_contract_marker_preserves_exact_legacy_material_when_absent(client,
     saved = workbench.save(*args, request); vid = saved['version']['id']
     with database_connection() as db:
         row = dict(db.execute('SELECT * FROM figure_config_versions WHERE id=%s',(vid,)).fetchone())
-    assert row['source_json']['figure_contract'] == 3
+    assert row['source_json']['figure_contract'] == 4
     checked=check_projection(workbench,*args,vid)
     confirm_projection(workbench,*args,vid,ConfirmProjection(input_sha256=checked['input_sha256'],approved=True))
     new = workbench.material(*args, vid)
-    assert new[3]['labels']['y_label'] and new[3]['presentation']['schema_version'] == 2
+    assert new[3]['labels']['y_label'] and new[3]['presentation']['schema_version'] == 3
     # Construct a genuine pre-upgrade immutable row before any decision or task.
     legacy_saved=workbench.save(*args,request);vid=legacy_saved['version']['id']
     with database_connection() as db:row=dict(db.execute('SELECT * FROM figure_config_versions WHERE id=%s',(vid,)).fetchone())
@@ -48,7 +48,7 @@ def test_new_contract_marker_preserves_exact_legacy_material_when_absent(client,
     checked=check_projection(workbench,*args,vid)
     confirm_projection(workbench,*args,vid,ConfirmProjection(input_sha256=checked['input_sha256'],approved=True))
     second=workbench.save(*args,SaveConfiguration(configuration_id=legacy_saved['id'],expected_revision=1,config=request.config))
-    assert second['version']['figure_contract']==3
+    assert second['version']['figure_contract']==4
     assert second['projection'] is None  # Changing the contract needs a fresh projection confirmation.
     with database_connection() as db:
         retained=dict(db.execute('SELECT * FROM figure_config_versions WHERE id=%s',(vid,)).fetchone())

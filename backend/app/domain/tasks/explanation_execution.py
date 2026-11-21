@@ -143,7 +143,7 @@ def _execute(repository, lease, config, provider_factory, remember_provider):
     parsed = parse_explanation_response(response)
     if parsed is None:
         return repository.fail(lease, 'model_response_invalid')
-    sections = render_explanation(parsed['draft'], payload)
+    sections = render_explanation(parsed['draft'], payload, merge_method_stop=True)
     from app.domain.artifact_contracts import modern_artifact, explanation_metadata
     if modern_artifact(snapshot['result']):
         explanation = explanation_metadata(snapshot['result'], snapshot['figure'], sections, payload,

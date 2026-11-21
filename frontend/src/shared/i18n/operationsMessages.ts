@@ -35,6 +35,13 @@ export const operationsMessages: Record<string, string> = {
   "项目分配保存失败，请刷新后重试。": "Could not save the assignment. Refresh and try again.",
   "撤回后，当前分析员将失去此项目的访问权限。": "Revoking access removes the current analyst's access to this project.",
   "确认撤回": "Revoke access",
+  "确认分配": "Confirm assignment",
+  "撤回理由": "Reason for revoking",
+  "请填写 5 至 500 字的撤回理由。": "Enter a reason for revoking of 5 to 500 characters.",
+  "所需分析": "Required analyses",
+  "所需分析：{names}": "Required analyses: {names}",
+  "筛选项目": "Filter projects",
+  "待分配项目已处理完。": "All projects awaiting assignment are handled.",
   "系统任务": "System tasks",
   "用量统计": "Usage",
   "运行日志": "Operational logs",
@@ -65,7 +72,6 @@ export const operationsMessages: Record<string, string> = {
   "驳回": "Reject",
   "驳回原因": "Reason for rejection",
   "为 {email} 分配角色": "Assign a role to {email}",
-  "未审核": "Not reviewed",
   "正在审核……": "Approving…",
   "请填写 5 至 500 字的审核理由。": "Enter a review reason of 5 to 500 characters.",
   "通过并分配角色": "Approve and assign role",
@@ -244,5 +250,10 @@ export const operationsMessages: Record<string, string> = {
   "提交结果未知": "Submission outcome unknown",
   "未提交已释放": "Released before submission",
   "外部提交结果尚未确认，请先核对已有回执，不能据此重新发送请求。": "The external submission outcome is unconfirmed. Check the existing receipt before taking action; do not resend the request.",
-  "创建前不存在": "Did not exist before creation"
+  "创建前不存在": "Did not exist before creation",
+  "审核状态": "Review status",
+  "驳回后账号会被停用，且无法撤回。": "Rejecting disables this account and cannot be undone.",
+  "确认驳回": "Confirm rejection",
+  "正在驳回……": "Rejecting…",
+  "账号已保存，该账号需重新登录。": "Account saved. This account must sign in again."
 }

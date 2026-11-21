@@ -8,6 +8,7 @@ from app.domain.bioinformatics.contracts import digest,canonical
 from app.domain.bioinformatics.service import require_key,append_checkpoint
 from app.domain.manuscripts.research_sources import read,_read_in_phase,bind,file_ids,KINDS
 from app.domain.manuscripts.service import ManuscriptService
+from app.domain.manuscripts.sources import read_source, require_visible_snapshot
 from app.domain.manuscripts.delivery_context import resolve_document_context
 from .handoff import ResearchHandoffService
 from .task_contracts import input_version
@@ -55,13 +56,13 @@ class ResearchCandidateService(ResearchResultsStore):
         if any(row[k]!=request[k] for k in ('delivery_id','manuscript_id','base_version_id','expected_revision')):raise invalid()
         if row['scope_json']!=dict(sections=request['sections'],writing_scope='results_methods'):raise invalid()
         resolve_document_context(db,task['project_id'],task['user_id'],delivery_id=row['delivery_id'],manuscript_id=row['manuscript_id'],active=False)
+        require_visible_snapshot(self.assets, db, task['project_id'], payload)
         service=ManuscriptService(self.assets)
         for source in payload['sources']:
             if progress is not None:progress()
             if source['kind'] in KINDS:
                 if _read_in_phase(service,task['project_id'],source,db,phase=phase,progress=progress)!=source:raise invalid()
             else:
-                from app.domain.manuscripts.sources import read_source
                 if read_source(service,task['project_id'],{k:source[k] for k in ('kind','id','file_id','role')})!=source:raise invalid()
             if progress is not None:progress()
         if row['base_version_id']:

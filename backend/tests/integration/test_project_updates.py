@@ -2,6 +2,7 @@
 
 from app.db.database import migration_connection
 from datetime import datetime, timedelta, timezone
+import hashlib
 from io import BytesIO
 import os
 from pathlib import Path
@@ -15,10 +16,11 @@ from app.main import app
 from app.adapters.storage import ProjectStore
 from app.core.exceptions import StorageError
 from tests.api.test_projects import client, create_project, upload  # noqa: F401
+from tests.integration.test_error_contract import assert_error
 from tests.integration.test_project_ownership import account_client
 from tests.api.test_boxplot import cloud  # noqa: F401
 from tests.integration.test_explanations import writer  # noqa: F401
-from tests.integration.test_reports import report_ready, export
+from tests.integration.test_reports import report_ready, export, frozen_historical_report
 
 
 def project_row(project_id):
@@ -91,10 +93,7 @@ def test_http_and_internal_store_reject_invalid_edits_without_partial_changes(cl
     response = client.patch(f'/api/v1/projects/{project["id"]}', content='null' if changes is None else None,
                             json=changes if changes is not None else None,
                             headers={'Content-Type': 'application/json'})
-    assert response.status_code == 422, response.text
-    assert set(response.json()['detail']) == {'code', 'message', 'params'}
-    assert response.json()['detail']['params'] == {}
-    assert response.json()['detail']['code'] == code
+    assert_error(response, 422, code)
     assert 'private-marker' not in response.text
     internal = ProjectStore(Path(os.environ['PAPERASSIST_DATA_DIR']))
     with pytest.raises(StorageError) as rejected:
@@ -180,10 +179,12 @@ def test_project_edit_preserves_artifacts_and_uses_project_at_first_report_expor
     base, file, result, figure, explanation, report_url = report_ready(client)
     project_url = base.split('/files/')[0]
     project = client.get(project_url).json()
+    historical = frozen_historical_report(client, report_url, figure, explanation) if export_before_edit else None
     report = export(client, report_url, figure, explanation).json()['report'] if export_before_edit else None
     downloads = [base + '/download', base + '/analysis-runs/' + result['id'] + '/boxplot/image']
     if report:
         downloads.append(report_url + '/' + report['id'] + '/download')
+        downloads.append(report_url + '/' + historical['id'] + '/download')
     content = {url: client.get(url).content for url in downloads}
     before = business_snapshot()
     directory = Path(os.environ['PAPERASSIST_DATA_DIR'])
@@ -202,6 +203,8 @@ def test_project_edit_preserves_artifacts_and_uses_project_at_first_report_expor
     assert {str(path.relative_to(directory)): path.read_bytes() for path in directory.rglob('*') if path.is_file()} == assets
     for url, expected in content.items():
         assert client.get(url).content == expected
+    if not export_before_edit:
+        historical = frozen_historical_report(client, report_url, figure, explanation)
     exported = export(client, report_url, figure, explanation)
     assert exported.status_code == 200
     if report:
@@ -210,9 +213,16 @@ def test_project_edit_preserves_artifacts_and_uses_project_at_first_report_expor
     report = exported.json()['report']
     download = report_url + '/' + report['id'] + '/download'
     word = client.get(download).content
-    with ZipFile(BytesIO(word)) as archive:
-        xml = archive.read('word/document.xml').decode()
     expected = project if export_before_edit else response.json()
+    with database_connection() as db:
+        snapshot = db.execute('SELECT input_snapshot FROM tasks WHERE id=%s',
+                              (report['reader_export']['task_id'],)).fetchone()['input_snapshot']
+    assert snapshot['project']['name'] == expected['name'] and snapshot['project']['research_topic'] == expected['research_topic']
+    assert hashlib.sha256(word).hexdigest() == report['sha256']
+    old_word = client.get(report_url + '/' + historical['id'] + '/download')
+    assert old_word.status_code == 200
+    with ZipFile(BytesIO(old_word.content)) as archive:
+        xml = archive.read('word/document.xml').decode()
     assert expected['name'] in xml and expected['research_topic'] in xml
     assert export(client, report_url, figure, explanation).json()['report'] == report
     assert client.get(download).content == word

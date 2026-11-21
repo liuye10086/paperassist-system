@@ -85,13 +85,14 @@ def test_config_has_only_safe_local_metadata(client, policy):
 
 def test_concurrent_same_source_accepts_one_task(client, cloud, policy):
     _, _, _, url = prepared(client)
+    baseline = persistence_counts()
     with ThreadPoolExecutor(max_workers=4) as pool:
         responses = list(pool.map(lambda _: post(client, url), range(4)))
     assert all(response.status_code == 202 for response in responses)
     assert len({response.json()['task']['id'] for response in responses}) == 1
-    with database_connection() as db:
-        assert db.execute('SELECT count(*) AS n FROM tasks').fetchone()['n'] == 1
-        assert db.execute('SELECT count(*) AS n FROM task_outbox').fetchone()['n'] == 1
+    after = persistence_counts()
+    assert after['tasks'] == baseline['tasks'] + 1
+    assert after['task_outbox'] == baseline['task_outbox'] + 1
     assert not cloud.calls
 
 
@@ -105,17 +106,19 @@ def test_different_headers_cannot_race_into_two_paid_tasks(client, policy, monke
         return task
     monkeypatch.setattr(plot_tasks, 'matching_task', synchronized)
     _, _, _, url = prepared(client)
+    baseline = persistence_counts()
     with ThreadPoolExecutor(max_workers=2) as pool:
         responses = list(pool.map(lambda key: client.post(url, json={'expected_revision': 1, 'external_processing': confirmation(client, url)},
             headers={'Idempotency-Key': key}), ['plot-race-a', 'plot-race-b']))
     assert sorted(response.status_code for response in responses) == [202, 409]
-    with database_connection() as db:
-        assert db.execute('SELECT count(*) AS n FROM tasks').fetchone()['n'] == 1
-        assert db.execute('SELECT count(*) AS n FROM task_outbox').fetchone()['n'] == 1
+    after = persistence_counts()
+    assert after['tasks'] == baseline['tasks'] + 1
+    assert after['task_outbox'] == baseline['task_outbox'] + 1
 
 
 def test_existing_header_replays_original_failure_without_new_policy(client, policy, monkeypatch):
     _, _, _, url = prepared(client)
+    baseline = persistence_counts()
     headers = {'Idempotency-Key': 'plot-original'}
     task = client.post(url, json={'expected_revision': 1, 'external_processing': confirmation(client, url)}, headers=headers).json()['task']
     failed = transition(client, task, 'failed', 'execution_failed', 'plot_invalid_result')
@@ -123,8 +126,7 @@ def test_existing_header_replays_original_failure_without_new_policy(client, pol
     response = client.post(url, json={'expected_revision': 1, 'retry': True, 'external_processing': confirmation(client, url)}, headers=headers)
     assert response.status_code == 200 and response.json()['task'] == failed
     assert client.get(url).json()['task'] == failed
-    with database_connection() as db:
-        assert db.execute('SELECT count(*) AS n FROM tasks').fetchone()['n'] == 1
+    assert persistence_counts()['tasks'] == baseline['tasks'] + 1
 
 
 @pytest.mark.parametrize('legacy', [False, True], ids=['failed-task', 'failed-legacy-job'])
@@ -174,6 +176,7 @@ def test_paid_successor_requires_request_key_before_loading_policy(client, cloud
 def test_paid_successor_failure_replays_same_key_and_new_key_authorizes_next_task(client, cloud, policy, monkeypatch):
     from app.domain import plot_policy
     _, _, _, url = prepared(client)
+    baseline = persistence_counts()
     initial = post(client, url).json()['task']
     observed = transition(client, initial, 'failed', 'execution_failed', 'plot_invalid_result')
     accepted = post(client, url, retry=True, expected_predecessor_id=initial['id'],
@@ -194,7 +197,8 @@ def test_paid_successor_failure_replays_same_key_and_new_key_authorizes_next_tas
     assert next_response.status_code == 202, next_response.text
     assert next_response.json()['task']['id'] not in (initial['id'], successor['id'])
     after = persistence_counts()
-    assert after['tasks'] == after['task_outbox'] == 3
+    assert after['tasks'] == baseline['tasks'] + 3
+    assert after['task_outbox'] == baseline['task_outbox'] + 3
     assert after['model_calls'] == after['budget_reservations'] == 0
     assert not cloud.calls
     with monkeypatch.context() as patch:
@@ -208,6 +212,7 @@ def test_paid_successor_failure_replays_same_key_and_new_key_authorizes_next_tas
 def test_keyless_failed_post_resumes_original_without_loading_new_policy(client, cloud, policy, monkeypatch):
     from app.domain import plot_policy
     _, _, _, url = prepared(client)
+    baseline = persistence_counts()
     initial = post(client, url).json()['task']
     transition(client, initial, 'failed', 'execution_failed', 'task_worker_interrupted')
     monkeypatch.setattr(plot_policy, 'get_execution_policy', lambda: pytest.fail('Resume loaded a new policy'))
@@ -216,7 +221,9 @@ def test_keyless_failed_post_resumes_original_without_loading_new_policy(client,
     assert response.json()['task']['id'] == initial['id']
     assert response.json()['task']['status'] == 'queued'
     counts = persistence_counts()
-    assert counts['tasks'] == 1 and counts['task_outbox'] == 2 and counts['model_calls'] == 0
+    assert counts['tasks'] == baseline['tasks'] + 1
+    assert counts['task_outbox'] == baseline['task_outbox'] + 2
+    assert counts['model_calls'] == 0
     assert not cloud.calls
 
 
@@ -329,7 +336,9 @@ def test_summary_includes_queued_plot_once(client, policy):
 ])
 def test_expired_retry_requires_definite_call_evidence(client, cloud, policy,
         call_status, call_error, response_id, replacement):
-    url, task, failed = failed_call(client, policy, call_status, call_error,
+    _, _, _, url = prepared(client)
+    baseline = persistence_counts()
+    task, failed = failed_call(client, url, policy, call_status, call_error,
         response_id=response_id, task_error='plot_container_expired')
     assert client.post('/api/v1/tasks/' + task['id'] + '/retry',
         json={'expected_revision': failed['revision']}).status_code == 409
@@ -340,19 +349,18 @@ def test_expired_retry_requires_definite_call_evidence(client, cloud, policy,
     assert (response.json()['task']['id'] != task['id']) == replacement
     assert post(client, url, retry=True).json()['task']['id'] == response.json()['task']['id']
     with database_connection() as db:
-        assert db.execute('SELECT count(*) AS n FROM tasks').fetchone()['n'] == (2 if replacement else 1)
+        assert db.execute('SELECT count(*) AS n FROM tasks').fetchone()['n'] == baseline['tasks'] + (2 if replacement else 1)
         assert db.execute('SELECT count(*) AS n FROM model_calls').fetchone()['n'] == 1
         assert db.execute("SELECT count(*) AS n FROM budget_reservations WHERE status='held'").fetchone()['n'] == 3
     assert not cloud.calls
 
 
-def failed_call(client, policy, call_status, call_error=None, *, response_id=None,
+def failed_call(client, url, policy, call_status, call_error=None, *, response_id=None,
         task_error='task_worker_interrupted', phase=None):
     from app.domain.tasks.service import TaskService
     from app.domain.model_usage.contracts import CallRequest
     from app.domain.model_usage.service import ModelUsageService
     from psycopg.types.json import Jsonb
-    _, _, _, url = prepared(client)
     task = post(client, url).json()['task']
     owner = client.get('/api/v1/auth/me').json()['user']['id']
     tasks = TaskService(owner)
@@ -372,7 +380,7 @@ def failed_call(client, policy, call_status, call_error=None, *, response_id=Non
     failed = tasks.transition(task['id'], expected_revision=running['revision'], status='failed', reason_code='execution_failed')
     with database_connection(write=True) as db:
         db.execute('UPDATE tasks SET error_code=%s WHERE id=%s', (task_error, task['id']))
-    return url, task, failed
+    return task, failed
 
 
 @pytest.mark.parametrize('call_status,phase,resumable', [
@@ -386,7 +394,9 @@ def failed_call(client, policy, call_status, call_error=None, *, response_id=Non
 @pytest.mark.parametrize('route', ['task_retry', 'plot_post'])
 def test_only_acknowledged_preparation_can_resume_same_task(client, cloud, policy,
         call_status, phase, resumable, route):
-    url, task, failed = failed_call(client, policy, call_status, phase=phase)
+    _, _, _, url = prepared(client)
+    baseline = persistence_counts()
+    task, failed = failed_call(client, url, policy, call_status, phase=phase)
     if route == 'task_retry':
         response = client.post('/api/v1/tasks/' + task['id'] + '/retry', json={'expected_revision': failed['revision']})
         assert response.status_code == (202 if resumable else 409), response.text
@@ -398,6 +408,6 @@ def test_only_acknowledged_preparation_can_resume_same_task(client, cloud, polic
     assert result['id'] == task['id']
     assert result['status'] == ('queued' if resumable else 'failed')
     with database_connection() as db:
-        assert db.execute('SELECT count(*) AS n FROM tasks').fetchone()['n'] == 1
+        assert db.execute('SELECT count(*) AS n FROM tasks').fetchone()['n'] == baseline['tasks'] + 1
         assert db.execute('SELECT count(*) AS n FROM model_calls').fetchone()['n'] == 1
     assert not cloud.calls

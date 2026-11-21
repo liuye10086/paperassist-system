@@ -11,12 +11,11 @@ from app.domain.manuscripts.sources import require_visible_snapshot
 from app.domain.journals.service import now
 from .service import ReviewRoundService
 from .planning import invalid
-from .revision_contracts import WORKFLOW,RevisionInputVersion,RevisionPreview
+from .revision_contracts import CANDIDATE_SCHEMA_VERSION,WORKFLOW,RevisionInputVersion,RevisionPreview
 from .grounded import evidence_for,locations_for,grounded_plans,apply_operations
 from .writing import prepare_revision_layout, retain_school_layout
 from app.domain.admin_configuration.rule_consumption import rules,round_version,inherit_task
 
-CANDIDATE_SCHEMA_VERSION = 3
 GENERAL_WORD_NOTICE = '本次修订稿使用通用 Word 版式，期刊格式需按新稿重新核对。'
 
 
@@ -34,12 +33,12 @@ def input_version(task):
 
 
 class RevisionService(ReviewRoundService):
-    def fixed_context(self,db,project,identity):
+    def fixed_context(self,db,project,identity,*,display=False):
         row=self.round_row(db,project,identity);base=self.fixed(db,row);state,events=self.state(db,row)
         version=round_version(db,identity);policy=rules(version,'review') if version else None
         if not events:raise invalid('请先等待轮次计划保存。',409)
         current=ManuscriptService(self.assets).root(db,project,base['manuscript_id'])['current_revision']
-        context=dict(round_id=identity,plan_revision=events[-1]['revision'],manuscript={k:row['snapshot_json']['manuscript'][k] for k in ('id','revision','version_id')},expected_current_revision=current,project_type=row['snapshot_json']['project_type'],output_language=base['snapshot_json']['output_language'],locations=locations_for(base['snapshot_json']),evidence=evidence_for(base['snapshot_json'],state['materials']),grounded_plans=grounded_plans(base['snapshot_json'],state['items'],state['materials']),constraints=row['snapshot_json']['constraints'])
+        context=dict(round_id=identity,plan_revision=events[-1]['revision'],manuscript={k:row['snapshot_json']['manuscript'][k] for k in ('id','revision','version_id')},expected_current_revision=current,project_type=row['snapshot_json']['project_type'],output_language=base['snapshot_json']['output_language'],locations=locations_for(base['snapshot_json'],numbered=display),evidence=evidence_for(base['snapshot_json'],state['materials']),grounded_plans=grounded_plans(base['snapshot_json'],state['items'],state['materials']),constraints=row['snapshot_json']['constraints'])
         from app.domain.manuscript_writing.context import literature_paragraphs
         context['citation_candidates']=[{k:p[k] for k in ('id','text','citations')} for p in literature_paragraphs(base['snapshot_json'])]
         from .science import ScienceService
@@ -74,10 +73,10 @@ class RevisionService(ReviewRoundService):
             item=next(i for i in planning_items if i['id']==adopted['item_id'])
             source_id=adopted['snapshot_json']['source']['id']
             if source_id not in item['evidence_ids']:item['evidence_ids'].append(source_id)
-        context['grounded_plans']=grounded_plans(augmented,planning_items,state['materials'],rules=policy)
+        context['grounded_plans']=grounded_plans(augmented,planning_items,state['materials'],rules=policy,with_locations=display)
         return row,base,state,context
     def revision_context(self,project,identity):
-        with self.store.connection() as db:return self.fixed_context(db,project,identity)[3]
+        with self.store.connection() as db:return self.fixed_context(db,project,identity,display=self.assets.customer)[3]
     def calculate(self,db,project,identity,request,*,candidate_schema_version=CANDIDATE_SCHEMA_VERSION):
         row,base,state,context=self.fixed_context(db,project,identity)
         if request.plan_revision!=context['plan_revision']:raise StorageError('task_revision_conflict','本轮计划或决定已变化，请刷新具体候选。',409)
@@ -94,14 +93,14 @@ class RevisionService(ReviewRoundService):
         figures=ScienceService(self.assets).selected_figure_adoptions(db,project,identity,request.figure_adoption_ids,request.plan_revision,require_current=True)
         augmented,authority,figure_changes=apply_figure_sources(augmented,figures,adoptions,authority)
         active_items=analysis_items(state['items'],adoptions)
-        candidate,changes,unexecuted,strict,issues=apply_operations(augmented,active_items,state['materials'],request.operations,writing_context=authority,target=target,fixed_safety=round_version(db,identity) is not None)
+        candidate,changes,unexecuted,strict,issues=apply_operations(augmented,active_items,state['materials'],request.operations,writing_context=authority,target=target,fixed_safety=round_version(db,identity) is not None,candidate_schema_version=candidate_schema_version)
         changes=table_changes+figure_changes+changes
         explicitly_changed={c['item_id'] for c in figure_changes}
         unexecuted=[u for u in unexecuted if not (u['item_id'] in explicitly_changed and u['reason']=='本次未选择具体修改。')]
         unexecuted+=science_unexecuted(state['items'],adoptions,figures,candidate)
         issues+=analysis_consistency_issues(candidate,adoptions)
         issues+=figure_consistency_issues(candidate,figures)
-        general_word = candidate_schema_version == CANDIDATE_SCHEMA_VERSION and prepare_revision_layout(candidate)
+        general_word = candidate_schema_version >= 3 and prepare_revision_layout(candidate)
         previous=base['snapshot_json'].get('review') or (base['snapshot_json'].get('review_history') or [{}])[-1].get('review',{})
         issues+=check_snapshot(candidate,metadata=previous.get('metadata',[]),strict_locations=strict,writing_context=authority)
         for check in issues:
@@ -251,11 +250,11 @@ def validate_revised_version(manuscripts,db,version):
     augmented,authority,figure_changes=apply_figure_sources(augmented,figures,adoptions,authority)
     candidate_version=frozen.get('candidate_schema_version',1)
     expected,changes,_,_,_=apply_operations(augmented,analysis_items(frozen['plan_state']['items'],adoptions),frozen['plan_state']['materials'],frozen['operations'],writing_context=authority,target=target,
-                                            fixed_safety=candidate_version in (2,CANDIDATE_SCHEMA_VERSION) and round_version(db,row['round_id']) is not None)
+                                            fixed_safety=candidate_version >= 2 and round_version(db,row['round_id']) is not None,candidate_schema_version=candidate_version)
     changes=table_changes+figure_changes+changes
     if any(i['severity']=='error' for i in analysis_consistency_issues(expected,adoptions)):raise source_conflict()
     if any(i['severity']=='error' for i in figure_consistency_issues(expected,figures)):raise source_conflict()
-    if candidate_version==CANDIDATE_SCHEMA_VERSION:
+    if candidate_version>=3:
         prepare_revision_layout(expected)
     elif candidate_version==2:
         retain_school_layout(expected)

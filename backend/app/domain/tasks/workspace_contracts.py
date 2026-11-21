@@ -106,24 +106,11 @@ class TaskArtifacts(BaseModel):
 
     @model_serializer(mode='wrap')
     def serialize_artifacts(self, handler):
-        value = handler(self)
-        if self.reader_export is None:value.pop('reader_export',None)
-        if self.bio_insights is None:value.pop('bio_insights',None)
-        if self.bio_reader_report_context_id is None:value.pop('bio_reader_report_context_id',None)
-        if self.bio_reader_report_request is None:value.pop('bio_reader_report_request',None)
-        if self.research_results is None:value.pop('research_results',None)
-        if self.bioinformatics is None:value.pop('bioinformatics',None)
-        if self.school_rule_suggestion is None:value.pop('school_rule_suggestion',None)
-        if self.review is None:value.pop('review',None)
-        if self.manuscript is None:value.pop('manuscript',None)
-        if self.literature_assistance is None:value.pop('literature_assistance',None)
-        if self.literature is None:value.pop('literature',None)
-        if self.analysis is None:value.pop('analysis',None)
-        if self.dataset is None:
-            value.pop('dataset', None)
-        if self.ocr_review is None:
-            value.pop('ocr_review', None)
-        return value
+        core_artifacts = {'figure', 'explanation', 'report'}
+        return {
+            name: value for name, value in handler(self).items()
+            if value is not None or name in core_artifacts
+        }
 
 
 class TaskWorkspace(BaseModel):

@@ -7,6 +7,46 @@ import {defaultConfig,buildPlan} from './state'
 import {apiFetch} from '../../shared/api/client'
 vi.mock('../../shared/api/client',()=>({apiFetch:vi.fn(),getApiUserId:()=> 'owner',onApiSessionChanged:()=>()=>{}}))
 afterEach(cleanup)
+it('selects a saved composition for redraw without a differential contrast or threshold',()=>{
+ let latest:Config={...defaultConfig('figure'),q_threshold:.05,minimum_absolute_effect:1}
+ function Editor(){const [config,set]=useState(latest);return <FigureSetup projectId="p" config={config} sources={[]} onChange={value=>{latest=value;set(value)}}/>}
+ render(<Editor/>)
+ fireEvent.change(screen.getByLabelText('图型'),{target:{value:'single_cell_composition'}})
+ expect(latest.figure_type).toBe('single_cell_composition')
+ expect(latest.contrast_id).toBeUndefined()
+ expect(screen.queryByLabelText('图件比较 ID')).toBeNull()
+ expect(screen.queryByLabelText('显示 Top N（不改变完整表）')).toBeNull()
+ expect(screen.getByText(/读取已保存的供者组成表/)).toBeTruthy()
+})
+it('uses an explicit color scale for the CellChat heatmap',()=>{
+ let latest={...defaultConfig('figure'),figure_type:'topic_cellchat'}
+ function Editor(){const [config,set]=useState<Config>(latest);return <FigureSetup projectId="p" config={config} sources={[]} onChange={next=>{latest={...next,figure_type:String(next.figure_type)};set(next)}}/>}
+ render(<Editor/>)
+ expect(screen.getByLabelText('通讯热图色阶')).toHaveProperty('value','viridis')
+ expect(screen.queryByLabelText('配色（逐行 #RRGGBB）')).toBeNull()
+ fireEvent.change(screen.getByLabelText('通讯热图色阶'),{target:{value:'custom'}})
+ expect(screen.getByLabelText('配色（逐行 #RRGGBB）')).toBeTruthy()
+ fireEvent.change(screen.getByLabelText('图型'),{target:{value:'topic_slingshot'}})
+ expect(latest).not.toHaveProperty('cellchat_colormap')
+})
+it('binds display thresholds and drops them when the figure changes',()=>{
+ let latest=defaultConfig('figure')
+ function Editor(){const [config,set]=useState(latest);return <FigureSetup projectId="p" config={config} sources={[]} onChange={next=>{latest=next;set(next)}}/>}
+ render(<Editor/>)
+ expect(screen.getByLabelText('着色 q 阈值')).toHaveProperty('value','0.05')
+ fireEvent.change(screen.getByLabelText('着色 q 阈值'),{target:{value:'0'}})
+ fireEvent.change(screen.getByLabelText('着色最小绝对效应'),{target:{value:'1.5'}})
+ expect(latest).toMatchObject({q_threshold:0,minimum_absolute_effect:1.5})
+ fireEvent.change(screen.getByLabelText('图型'),{target:{value:'enrichment'}})
+ expect(latest).not.toHaveProperty('minimum_absolute_effect')
+ expect(screen.getByLabelText('展示条目最大 q／FDR（留空显示全部）')).toHaveProperty('value','')
+ fireEvent.change(screen.getByLabelText('展示条目最大 q／FDR（留空显示全部）'),{target:{value:'0.1'}})
+ expect(latest.q_threshold).toBe(.1)
+ fireEvent.change(screen.getByLabelText('图型'),{target:{value:'topic_genie3'}})
+ expect(latest).not.toHaveProperty('q_threshold')
+ fireEvent.change(screen.getByLabelText('显示调控边 Top N'),{target:{value:'45'}})
+ expect(latest.regulation_top_n).toBe(45)
+})
 it('offers saved-value topic figures and clears irrelevant comparison selections',()=>{
  let value:Config={...defaultConfig('figure'),contrast_id:'old',processed_source_id:'old',expression_groups:[{label:'x',observation_keys:[]}],feature_ids:['gene'],z_score:true}
  function Harness(){const [c,set]=useState(value);return <FigureSetup projectId="p1" config={c} onChange={v=>{value=v;set(v)}} sources={[]}/>}

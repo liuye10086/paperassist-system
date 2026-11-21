@@ -3,7 +3,7 @@ import type {ReactNode} from 'react'
 import {apiError,useI18n} from '../../shared/i18n'
 import {isTechnicalResultFile,resultFileName} from '../bioinformatics/bioPresentation'
 import {displayRaw,text,number,strings,split,qOptions} from './state'
-import type {Config,Member,Source,Task} from './contracts'
+import type {Config,InsightKind,Member,Source,Task} from './contracts'
 import ProjectDownloadLink from '../../shared/components/ProjectDownloadLink'
 import ManuscriptImage from '../manuscripts/ManuscriptImage'
 import {RESEARCH_REQUEST_TIMEOUT_MS} from '../../shared/api/requestTimeouts'
@@ -27,9 +27,15 @@ export function TaskStatus({projectId,task}:{projectId:string;task:Task}){
  return <p role="status">{t('后台任务')} · {t(taskLabels[task.status]??'状态待核对')}
   {code&&' · '+t(apiError({code},'请查看任务详情。'))} · <a href={`#project=${projectId}&section=tasks&task=${task.id}`}>{t('查看任务进度与恢复')}</a></p>
 }
-export function Members({members,figureKind}:{projectId:string;members:Member[];figureKind?:string}){
+export function Members({members,figureKind,publishedKind}:{projectId:string;members:Member[];figureKind?:string;publishedKind?:InsightKind}){
  const{t}=useI18n()
- const files=members.filter(m=>!isTechnicalResultFile(m.key,m.format)&&m.format.toLowerCase()!=='pdf'&&(!members.some(member=>member.format.toLowerCase()==='pdf')||m.format.toLowerCase()!=='zip'))
+ const hasPdf=members.some(member=>member.format.toLowerCase()==='pdf')
+ const files=members.filter(member=>{
+  const format=member.format.toLowerCase()
+  if(format==='json') return member.role===member.key &&
+   ((publishedKind==='figure'&&member.key==='plot_data')||(publishedKind==='gsea_prerank'&&member.key==='gsea_curves'))
+  return !isTechnicalResultFile(member.key,format)&&format!=='pdf'&&!(hasPdf&&format==='zip')
+ })
  return <section><h3>{t('结果文件')}</h3><p>{t('下载包含完整结果；页面搜索、分页和 Top N 不改变文件或校正范围。')}</p><ul>{files.map(m=>{
   const name=resultFileName(m,t,figureKind)
   return <li key={m.id}><ProjectDownloadLink href={m.download_url} filename={name} timeoutMs={RESEARCH_REQUEST_TIMEOUT_MS}>{name}</ProjectDownloadLink>{m.format==='png'&&<ManuscriptImage url={m.download_url} title={name} timeoutMs={RESEARCH_REQUEST_TIMEOUT_MS}/>}</li>

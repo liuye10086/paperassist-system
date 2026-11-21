@@ -27,7 +27,7 @@ it('refreshes status and explicitly retries a lost export using the same fixed o
   if(url===endpoint&&init?.method==='POST'){
    if(!lostResponse){lostResponse=true;throw new TypeError('response lost')}
    const id=`export${items.length+1}`
-   const item={...exportFixture,id,download_url:`${manuscript}/exports/${id}/download`,presentation:{binding:JSON.parse(String(init.body)),checks:[],quality}}
+   const item={...exportFixture,id,download_url:`${manuscript}/exports/${id}/download`,presentation:{binding:{...JSON.parse(String(init.body)),review_mode:'identified'},checks:[],quality}}
    items.unshift(item)
    return Response.json(item)
   }
@@ -37,7 +37,7 @@ it('refreshes status and explicitly retries a lost export using the same fixed o
  const reads=()=>fetcher.mock.calls.filter(([url,init])=>url===endpoint&&!init?.method)
  const posts=()=>fetcher.mock.calls.filter(([,init])=>init?.method==='POST')
  const key=(init?:RequestInit)=>new Headers(init?.headers).get('Idempotency-Key')
- const binding={presentation_version_id:saved.id,language_view:'en',review_mode:'identified'}
+ const binding={presentation_version_id:saved.id,language_view:'en'}
  render(<ManuscriptExports projectId="p1" manuscriptId="m1" version={version} versions={[version]}/>)
  await screen.findByRole('option',{name:/配置版本 1/})
  await screen.findByText('当前版本尚未生成 Word。')
@@ -48,7 +48,7 @@ it('refreshes status and explicitly retries a lost export using the same fixed o
  expect(screen.getByText('Word 提交结果待核对，原请求和固定输入已保留。')).toBeTruthy()
  expect(generate).toHaveProperty('disabled',true)
  expect(screen.getByRole('button',{name:'刷新配置版本'}).matches(':disabled')).toBe(true)
- expect(screen.getByLabelText('审阅输出模式').matches(':disabled')).toBe(true)
+ expect(screen.getByLabelText('输出语言视图').matches(':disabled')).toBe(true)
  const beforeRefresh=reads().length
  fireEvent.click(screen.getByRole('button',{name:'刷新 DOCX 状态'}))
  await waitFor(()=>expect(reads()).toHaveLength(beforeRefresh+1))
@@ -64,13 +64,13 @@ it('refreshes status and explicitly retries a lost export using the same fixed o
  expect(key(first[1])).toBeTruthy()
  expect(key(retry[1])).toBe(key(first[1]))
  expect(generate).toHaveProperty('disabled',false)
- fireEvent.change(screen.getByLabelText('审阅输出模式'),{target:{value:'blind'}})
+ fireEvent.change(screen.getByLabelText('输出语言视图'),{target:{value:'zh-CN'}})
  fireEvent.click(generate)
  await waitFor(()=>expect(screen.getAllByRole('link',{name:'下载 DOCX'})).toHaveLength(2))
  expect(posts()).toHaveLength(3)
  const changed=posts()[2]
  expect(changed[0]).toBe(endpoint)
- expect(JSON.parse(String(changed[1]?.body))).toEqual({...binding,review_mode:'blind'})
+ expect(JSON.parse(String(changed[1]?.body))).toEqual({...binding,language_view:'zh-CN'})
  expect(key(changed[1])).toBeTruthy()
  expect(key(changed[1])).not.toBe(key(first[1]))
 })

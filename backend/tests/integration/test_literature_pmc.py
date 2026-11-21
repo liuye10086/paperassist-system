@@ -101,6 +101,8 @@ def test_comparison_frozen_concise_multiple_refs_old_snapshot_and_manual_gate(cl
     url=f'/api/v1/projects/{pid}/literature/assistance/tasks'
     old=dict(kind='evidence_review',claim_id=c['id'],claim_revision=1,project_reference_id=ref['id'],evidence_ids=[first['id']],output_language='en')
     old_task=post(client,url,old,'old').json()
+    from app.domain.literature_assistance.execution import run_assistance_task
+    assert run_assistance_task(old_task['id'],old_task['revision'])['status']=='waiting_confirmation'
     with database_connection() as db: old_snapshot=copy.deepcopy(db.execute('SELECT input_snapshot FROM tasks WHERE id=%s',(old_task['id'],)).fetchone()['input_snapshot'])
     req=dict(kind='evidence_comparison',claim_id=c['id'],claim_revision=1,evidence_ids=[first['id'],second['id']],output_language='en')
     request_adapter.validate_python(req)
@@ -120,7 +122,6 @@ def test_comparison_frozen_concise_multiple_refs_old_snapshot_and_manual_gate(cl
     result['status']='needs_review'; assert validate_result(result,snapshot)['comparison']=='conflicting'
     assert post(client,url,{**req,'evidence_ids':[first['id']]},'one-ref').status_code==422
     assert post(client,url,{**req,'evidence_ids':[first['id'],first['id']]},'duplicate').status_code==422
-    from app.domain.literature_assistance.execution import run_assistance_task
     waiting=run_assistance_task(task['id'],task['revision'])
     assert waiting['status']=='waiting_confirmation'
     workspace=client.get('/api/v1/tasks/'+task['id']+'/workspace')

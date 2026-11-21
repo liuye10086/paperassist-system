@@ -19,7 +19,7 @@ type Explanation = {schema_version?:2|3|4;plan_sha256?:string; source?: DatasetA
   limitations: string[]; engine: { id: string; provider: string; model: string }
   verification: { status: string; note: string }; provenance: Record<string, unknown>
 }
-type Task = { id: string; status: 'queued' | 'running' | 'waiting_input' | 'waiting_confirmation' | 'succeeded' | 'failed'
+type Task = { id: string; project_id?: string; status: 'queued' | 'running' | 'waiting_input' | 'waiting_confirmation' | 'succeeded' | 'failed'
   revision: number; reason_code: string | null; error_code: string | null; result_explanation_id?: string | null }
 type State = {generation_compatible?:boolean; current_revision: number | null; is_current: boolean; figure_id: string | null; explanation: Explanation | null; task?: Task | null
   job: { id: string; status: 'submitting' | 'running' | 'failed' | 'uncertain' | 'completed'; message: string; message_code?: string; message_params?: Record<string, string | number>; response_id: string | null; created_at: string } | null }
@@ -217,6 +217,7 @@ function ExplanationPanel({ base, runId, revision, figureId, canGenerate, canExp
     {!canGenerate && <p className="warning-panel">{t("请保存当前字段并完成对应配置的描述统计和图表后，再生成解释。")}</p>}
     {explanation && (!current) && <p className="warning-panel">{t('以下解释对应旧配置或旧图表，仅供查看，请使用当前结果重新生成。')}</p>}
     {retry && !unconfirmed && <p className="warning-panel">{t("上次解释生成失败。")}{t("再次调用 API 可能产生额外费用，请确认后点击重试。")}</p>}
+    {retry && task?.error_code === 'explanation_invalid' && task.project_id && <a href={`#project=${encodeURIComponent(task.project_id)}&section=tasks&task=${encodeURIComponent(task.id)}`}>{t('查看任务进度与恢复')}</a>}
     {unknown && !unconfirmed && <p className="warning-panel">{t('提交结果尚未核实，已停止再次调用。请联系管理员核对。')}</p>}
     {unavailable && <p className="warning-panel">{t('已提交的解释无法恢复，请联系管理员核对。')}</p>}
     {budgetWait && <p className="warning-panel">{t('解释正在等待预算或模型配置；请联系管理员配置后继续。')}</p>}
@@ -239,14 +240,14 @@ function ExplanationPanel({ base, runId, revision, figureId, canGenerate, canExp
       <p className="artifact-status">{t(current ? "当前结果" : "历史结果")}</p>
       {explanation.sections.map(section => <section className="explanation-section" key={section.key}>
         <h4>{section.title}</h4><p className="explanation-text">{section.text}</p>
-        <details><summary>{t("依据：已保存配置、统计结果与图表")}</summary><ul>{section.evidence.map(evidence => <li key={evidence.key}>{evidence.label}：{evidence.value}</li>)}</ul></details>
+        <div className="explanation-evidence"><h5>{t("依据：已保存配置、统计结果与图表")}</h5><ul>{section.evidence.map(evidence => <li key={evidence.key}>{evidence.label}：{evidence.value}</li>)}</ul></div>
       </section>)}
       <h4>{t("解释限制")}</h4><ul>{explanation.limitations.map((limitation, index) => <li key={index}>{limitation}</li>)}</ul>
-      <details className="artifact-details"><summary>{t("解释来源与核对记录")}</summary><SourceSummary source={explanation.source} filename={filename} />
+      <section className="artifact-details" aria-label={t("解释来源与核对记录")}><h4>{t("解释来源与核对记录")}</h4><SourceSummary source={explanation.source} filename={filename} />
         <p>{t("语言：")}{t(explanation.language === 'zh-CN' ? '中文' : '英文')}</p>
         <p>{explanation.verification.note}</p>
         <p>{t("保存时间：")}{explanation.created_at}</p>
-      </details>
+      </section>
     </>}
     {state && !explanation && !state.job && !task && <p>{t("尚未生成此图表的分析解释。")}</p>}
   </section></WorkflowStage>

@@ -72,7 +72,7 @@ script/
 - 后端健康检查：<http://127.0.0.1:8000/api/v1/health>
 - API 文档：<http://127.0.0.1:8000/docs>
 
-`start` 必要时启动 Docker Desktop，构建 Linux Worker 镜像，等待 RabbitMQ、Worker 和 dispatcher 三个容器健康，再启动前后端并检查 Vite 的 API 代理；全部成功才显示 Ready。重复启动复用已运行且健康的本项目服务，`status` 同时显示受管进程与容器状态。前后端在后台运行，启动命令返回或终端关闭后仍可验收。后端不启用自动 reload；修改后端代码后执行 stop、start。
+`start` 必要时启动 Docker Desktop，构建本地镜像，等待 RabbitMQ、Worker、dispatcher、Word 字段服务及其开发机回环入口健康，再启动前后端并检查 Vite 的 API 代理。宿主 API 经 `127.0.0.1:8185` 处理学校论文的目录和字段。需要其他回环端口时，在 `backend/.env` 设置 `PAPERASSIST_PDF_RENDERER_URL` 并重新启动开发堆栈。Worker 继续访问容器内的 `http://pdf-renderer:8080`。重复启动复用已运行且健康的本项目服务，`status` 同时显示受管进程与容器状态。前后端在后台运行，启动命令返回或终端关闭后仍可验收。受管后端未启用自动 reload，修改其代码后执行 stop、start。
 
 沿用本机 `backend/.env` 和当前终端环境变量，仍以环境变量优先；不安装宿主机依赖、不迁移数据库、不修改账户。需先按项目README完成Python虚拟环境、前端依赖和数据库配置，并安装使用Linux containers/WSL2的Docker Desktop；首次Worker构建会下载镜像和容器依赖。当前采用Celery5.6.3与RabbitMQ4.3.6，绘图、解释、Word报告与新批次Excel解析均异步交给Linux Worker执行；HTTP提交绘图/解释只创建任务，GET只读本地状态。历史绘图和解释扫描只恢复既有响应，不自动新建收费调用。运行配置与探测命令见[Worker运行说明](../infra/worker/README.md)。
 

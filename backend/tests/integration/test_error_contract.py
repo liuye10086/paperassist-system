@@ -1,8 +1,6 @@
-from app.core.paths import BACKEND_ROOT, PROJECT_ROOT
 """Stable public errors, safe translation parameters and legacy compatibility."""
 import ast
 import json
-from pathlib import Path
 import re
 
 import pytest
@@ -10,14 +8,17 @@ from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 from app.main import app
+from app.core.paths import PROJECT_ROOT
 from app.adapters.storage import ProjectStore
 from tests.api.test_excel import client  # noqa: F401
+from tests.api.test_task_request_id import assert_request_id
 
 
 def assert_error(response, status, code, params=None):
     assert response.status_code == status, response.text
     detail = response.json()['detail']
-    assert set(detail) == {'code', 'message', 'params'}
+    assert set(detail) == {'code', 'message', 'params', 'request_id', 'details'}
+    assert_request_id(response)
     assert detail['code'] == code
     assert isinstance(detail['message'], str) and detail['message']
     assert detail['params'] == (params or {})
@@ -34,9 +35,16 @@ def test_frontend_catalog_covers_public_codes():
              'openai_not_found', 'openai_request_failed', 'project_language_invalid', 'ai_configured'}
     codes.update('task_' + state for state in ('submitting', 'running', 'completed', 'uncertain', 'failed', 'unknown'))
     for module in (root / 'backend/app').rglob('*.py'):
-        for node in ast.walk(ast.parse(module.read_text(encoding='utf-8-sig'))):
+        tree = ast.parse(module.read_text(encoding='utf-8-sig'))
+        constructors = {'StorageError', 'PlotError', 'NumericError', 'CorrelationError', 'ComparisonError'}
+        if (module.relative_to(root / 'backend/app').as_posix() in
+                {'adapters/excel.py', 'adapters/docx_parser.py', 'adapters/ocr_parser.py'}
+                or any(isinstance(node, ast.ImportFrom) and node.module == 'app.adapters.excel'
+                       and any(alias.name == 'fail' for alias in node.names) for node in tree.body)):
+            constructors.add('fail')
+        for node in ast.walk(tree):
             if (isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
-                    and node.func.id in {'fail', 'StorageError', 'PlotError', 'NumericError', 'CorrelationError', 'ComparisonError'} and node.args
+                    and node.func.id in constructors and node.args
                     and isinstance(node.args[0], ast.Constant) and isinstance(node.args[0].value, str)):
                 codes.add(node.args[0].value)
     entries = set(re.findall(r'^[ \t]*([a-z][a-z0-9_]+):[ \t]*\{', catalog, re.MULTILINE))

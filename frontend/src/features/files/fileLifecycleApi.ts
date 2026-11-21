@@ -3,7 +3,17 @@ import {statusNames,taskNames} from '../tasks/taskTypes'
 import {captureApiSession} from '../../shared/api/client'
 const originalLifecycleCounts = {parse_versions:'解析版本',structure_versions:'结构版本记录',dataset_versions:'原始数据版本记录',prepared_dataset_versions:'整理数据版本记录',ocr_review_versions:'文字核对版本',confirmed_plans:'已确认分析计划',analysis_setups:'分析配置引用',analysis_runs:'统计分析引用',figures:'图表引用',explanations:'结果解释引用',reports:'Word 报告引用',tasks:'任务引用',legacy_jobs:'历史作业',active_tasks:'在途任务',registered_candidates:'已登记候选引用',model_calls:'模型调用记录',budget_reservations:'预算预留记录',task_outbox:'任务派发记录',task_checkpoints:'任务检查点',task_events:'任务事件',task_attempts:'任务尝试',task_waits:'任务等待记录',task_resume_requests:'任务恢复申请',usage_events:'用量记录',dataset_preparation_decisions:'数据整理决策',ocr_review_decisions:'文字核对决策',analysis_plan_decisions:'分析计划决策'} as const
 export const lifecycleCounts={...originalLifecycleCounts,prepared_dataset_derivations:'质量派生与回执',figure_configurations:'图表配置',figure_config_versions:'图表配置版本',figure_projection_decisions:'投影确认决定',figure_projection_results:'投影计算结果',report_collections:'报告集合',report_collection_versions:'报告集合版本',report_collection_items:'报告集合条目',report_build_requests:'报告导出意图',collection_reports:'集合 Word 成果'} as const
-export const reasonLabels = {report_build_pending:'仍有等待成果或可恢复的报告导出意图。',internal_testing_retention:'内测期间保留原件、历史版本和备份。',active_tasks:'存在在途任务。',integrity_unknown:'部分来源完整性无法确认，相关身份可能不显示。',external_work_unresolved:'外部工作结果尚未确认。',budget_reservations_held:'存在未结算预算预留。',outbox_pending:'存在待派发的任务记录。',recoverable_candidates:'存在可恢复的工作候选。',legacy_work_unknown:'历史工作状态尚未确认。',original_missing:'原件已缺失，无法确认可用性。',original_changed:'原件完整性核验失败。',original_unavailable:'原件暂时不可读取。',active_parse:'已有解析或结构提取任务，请等待完成。',unsupported_file_type:'此文件类型不支持重解析。',file_not_parsed:'请等待 Excel 初始解析完成。'} as const
+export const reasonLabels = {
+ bio_history_retained:'生信分析历史引用了此文件。',
+ research_results_history_retained:'已有研究成果或交付记录引用了此文件。',
+ research_material_history_retained:'已有研究资料记录引用了此文件。',
+ journal_history_retained:'期刊资料记录引用了此文件。',
+ paper_material_note_retained:'论文写作资料说明引用了此文件。',
+ customer_material_submission_retained:'客户补交资料记录引用了此文件。',
+ review_history_retained:'审阅或返修记录引用了此文件。',
+ school_template_history_retained:'学校模板或论文语言核对记录引用了此文件。',
+ school_change_history_retained:'论文模板迁移记录引用了此文件。',
+ report_build_pending:'仍有等待成果或可恢复的报告导出意图。',internal_testing_retention:'内测期间保留原件、历史版本和备份。',active_tasks:'存在在途任务。',integrity_unknown:'部分来源完整性无法确认，相关身份可能不显示。',external_work_unresolved:'外部工作结果尚未确认。',budget_reservations_held:'存在未结算预算预留。',outbox_pending:'存在待派发的任务记录。',recoverable_candidates:'存在可恢复的工作候选。',legacy_work_unknown:'历史工作状态尚未确认。',original_missing:'原件已缺失，无法确认可用性。',original_changed:'原件完整性核验失败。',original_unavailable:'原件暂时不可读取。',active_parse:'已有解析或结构提取任务，请等待完成。',unsupported_file_type:'此文件类型不支持重解析。',file_not_parsed:'请等待 Excel 初始解析完成。'} as const
 export type Reason = keyof typeof reasonLabels
 export type Counts = Record<keyof typeof originalLifecycleCounts,number> & Partial<Record<keyof typeof lifecycleCounts,number>>
 type Latest = {parse_versions:number;structure_versions:number;confirmed_plans:number;dataset_versions:{id:string;version:number;sheet_index:number}[];prepared_dataset_versions:{id:string;version:number;parent_dataset_id:string}[];ocr_review_versions:{id:string;version:number;parent_parse_id:string}[]}

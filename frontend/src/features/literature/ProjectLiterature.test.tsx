@@ -40,6 +40,20 @@ it.each(['zh-CN','en'] as const)('shows saved replay context unchanged with neut
  expect(within(region).getAllByText('synthetic')).toHaveLength(2)
  expect(within(region).getAllByRole('link',{name:locale==='en'?'Download original JSON/XML':'下载原始 JSON/XML'})).toHaveLength(2)
 })
+it.each(['zh-CN','en'] as const)('shows customers the publication source and preserves the original search in %s', async locale => {
+ setLocale(locale)
+ const source={...reference.source,source_kind:'ncbi_eutilities'}
+ setup(url=>url.includes('/references/candidate1')?Response.json({...detail,source,sources:{...detail.sources,items:[source]}}):undefined)
+ render(<ProjectLiterature projectId="p1" researchTopic="Synthetic topic" active customerSci/>)
+ openView('候选列表')
+ await userEvent.click(await screen.findByRole('button',{name:translate('查看候选详情')}))
+ openView('来源记录')
+ const region=within(screen.getByRole('region',{name:translate('候选文献详情')}))
+ expect(region.getAllByText(/^PubMed ·/)).toHaveLength(2)
+ expect(region.getAllByText('synthetic')).toHaveLength(2)
+ expect(region.queryByRole('link',{name:/JSON|XML/})).toBeNull()
+ expect(region.queryByText(/NCBI E-utilities/)).toBeNull()
+})
 it.each([undefined,null,{kind:'section',label:'',text:''},{kind:'feedback',label:'  ',text:'\n'}])('hides absent or empty saved source context (%j)',async source_context=>{
  const source={...reference.source,source_context}
  setup(url=>url.includes('/references/candidate1')?Response.json({...detail,source,sources:{...detail.sources,items:[source]}}):undefined)

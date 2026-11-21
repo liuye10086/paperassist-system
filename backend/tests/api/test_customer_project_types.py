@@ -289,3 +289,39 @@ def test_customer_existing_paper_history_and_tasks_are_scoped(monkeypatch):
                 with pytest.raises(StorageError) as error:
                     manuscripts.validate_version(db, {'id': 'synthetic', 'project_id': project_id, 'snapshot_json': snapshot})
                 assert error.value.code == 'manuscript_source_not_visible'
+
+
+def test_sci_settings_errors_keep_their_public_codes():
+    with TestClient(app) as client:
+        sign_in(client, 'sci-codes@manuscript.test', 'customer')
+        sci = project_path(create(client, 'sci-codes', **project_body('sci', sci_settings=SCI_SETTINGS)))
+        url = sci + '/sci-settings'
+        saved = client.put(url, json={'expected_revision': 1, 'settings': SCI_SETTINGS | {'proposed_title': 'Second title'}})
+        assert saved.status_code == 200, saved.text
+        stale = client.put(url, json={'expected_revision': 1, 'settings': SCI_SETTINGS | {'proposed_title': 'Stale title'}})
+        assert stale.status_code == 409
+        assert stale.json()['detail']['code'] == 'sci_settings_revision_conflict'
+        assert stale.json()['detail']['message'] == 'SCI 建项资料已更新，请核对最新版本。'
+
+        legacy = client.put(url, json={'expected_revision': 2, 'settings': LEGACY_SCI_SETTINGS})
+        assert legacy.status_code == 422
+        assert legacy.json()['detail']['code'] == 'sci_settings_required'
+
+        thesis = project_path(create(client, 'sci-codes-thesis', **project_body('thesis')))
+        for reply in (client.get(thesis + '/sci-settings'),
+                      client.put(thesis + '/sci-settings', json={'expected_revision': 1, 'settings': SCI_SETTINGS})):
+            assert reply.status_code == 403
+            assert reply.json()['detail']['code'] == 'sci_settings_unavailable'
+
+
+def test_paper_project_assignment_rejection_keeps_its_public_code():
+    with TestClient(app) as client, TestClient(app) as analyst, TestClient(app) as admin:
+        sign_in(client, 'assign-code-owner@manuscript.test', 'customer')
+        analyst_id = sign_in(analyst, 'assign-code-analyst@manuscript.test', 'analyst')
+        sign_in(admin, 'assign-code-admin@manuscript.test', 'admin')
+        thesis = project_path(create(client, 'assign-code', **project_body('thesis')))
+        rejected = admin.patch(f"{ASSIGNMENTS}/{thesis.rsplit('/', 1)[-1]}", json={
+            'expected_revision': 0, 'analyst_id': analyst_id, 'reason': 'Synthetic assignment',
+        })
+        assert rejected.status_code == 422
+        assert rejected.json()['detail']['code'] == 'project_assignment_type_invalid'

@@ -869,13 +869,16 @@ class TaskExecutionStore:
 
     def recover_expired(self, limit=20):
         with self.connection(write=True) as db:
-            from app.domain.storage_governance.service import reconcile_intents
-            reconcile_intents(db,self.assets.directory)
             rows = db.execute('''SELECT t.* FROM tasks t JOIN task_attempts a
                 ON a.task_id=t.id AND a.attempt_no=t.current_attempt
                 WHERE t.task_type IN ('bio_cloud_run','word_report','explanation','boxplot','parse_file','extract_dataset','prepare_dataset', 'review_ocr', 'analysis_plan', 'analysis_recommendation', 'figure_projection', 'figure_workbench', 'figure_explanation', 'collection_word_report', 'statistics_compute', 'literature_search', 'literature_assistance', 'manuscript_draft', 'manuscript_docx', 'layout_docx', 'manuscript_writing', 'school_template_parse', 'school_rule_suggestion', 'reader_report_narrative', 'journal_recommendation', 'journal_format_check', 'journal_adaptation', 'review_round_plan', 'review_revision', 'review_document_export', 'bio_import', 'bio_analysis', 'bio_annotation', 'bio_figure', 'research_figure', 'research_report', 'research_fact_draft','delivery_package', 'bio_resource_import', 'bio_comparison', 'bio_result_import', 'bio_enrichment', 'bio_candidate', 'bio_insight_figure','bio_feature_extract','bio_integration') AND t.status='running' AND a.status='running'
                 AND a.lease_expires_at<=clock_timestamp()
                 ORDER BY a.lease_expires_at,t.id LIMIT %s''', (limit,)).fetchall()
+            if rows:
+                # Only expired attempts need the storage ledger for recovery.
+                # Check it under the same writer lock before processing any of them.
+                from app.domain.storage_governance.service import reconcile_intents
+                reconcile_intents(db, self.assets.directory)
             for row in rows:
                 task = dict(row)
                 if task['task_type']=='bio_cloud_run':

@@ -16,8 +16,24 @@ def postgres_schema():
 
 def config():
     return dict(paragraph_groups=[], terminology=[], figure_pairs=[], school=None,
-                authors=[], affiliations=[], statements=[],
-                blind=dict(identity_terms=[], hidden_chapter_ids=[], exceptions=[], manual_image_review=False))
+                authors=[], affiliations=[], statements=[])
+
+
+def test_blind_helpers_are_removed_and_decoration_has_no_review_mode():
+    import inspect
+    from app.adapters import manuscript_docx, manuscript_presentation_docx, school_docx, bsu_gs501_docx
+    from app.domain.school_templates import bsu_gs501, front_matter
+    for module, name in ((manuscript_presentation_docx, 'blind_docx'), (manuscript_presentation_docx, 'inspect_docx'),
+                         (manuscript_presentation_docx, 'inspect_pdf'), (manuscript_presentation_docx, '_replace_nodes'),
+                         (bsu_gs501, 'blind_terms'), (bsu_gs501, 'blind_field_value'), (front_matter, 'blind_rules_with_identities')):
+        assert not hasattr(module, name), name
+    for function, removed in ((manuscript_presentation_docx.decorate_docx, ('review_mode', 'defer_blind')),
+                              (manuscript_docx.build_manuscript_docx, ('mask_school_identity',)),
+                              (manuscript_docx.revised_manuscript_filename, ('blind',)),
+                              (school_docx.build_school_docx, ('mask_identity',)),
+                              (bsu_gs501_docx.insert_submission_forms, ('blind',)),
+                              (bsu_gs501.submission_values, ('blind',))):
+        assert not set(removed) & set(inspect.signature(function).parameters), function.__name__
 
 
 def test_bilingual_derived_prose_is_adjacent_preserves_numbers_and_unpaired_text():
@@ -32,7 +48,7 @@ def test_bilingual_derived_prose_is_adjacent_preserves_numbers_and_unpaired_text
         dict(id='result', zh_ids=['group-1-result'], en_ids=['group-1-result'], status='paired'),
         dict(id='missing', zh_ids=[], en_ids=['methods-study_design'], status='missing')]
     raw = build_manuscript_docx(zh, images)
-    derived, report = decorate_docx(raw, zh, en, c, 'zh-CN-en', 'identified')
+    derived, report = decorate_docx(raw, zh, en, c, 'zh-CN-en')
     paragraphs = [p.text for p in Document(BytesIO(derived)).paragraphs]
     index = paragraphs.index(zh['results_groups'][0]['paragraphs'][0]['text'])
     assert paragraphs[index+1] == en['results_groups'][0]['paragraphs'][0]['text']
@@ -41,38 +57,6 @@ def test_bilingual_derived_prose_is_adjacent_preserves_numbers_and_unpaired_text
     assert any(i['target_language'] == 'en' and i['text'] == paragraphs[index+1] for i in report['language_inventory'])
     assert (zh, en) == frozen
     assert raw != derived
-
-
-def test_blind_removes_split_identity_from_body_header_properties_and_comment_keeps_original():
-    from app.adapters.manuscript_presentation_docx import blind_docx, inspect_docx
-    from app.adapters.document_layout.package import read_package, write_package
-    document = Document(); p = document.add_paragraph()
-    p.add_run('作者：张'); p.add_run('三；n = 12')
-    document.sections[0].header.paragraphs[0].text = '张三的论文'
-    document.core_properties.author = '张三'
-    stream = BytesIO(); document.save(stream)
-    parts = read_package(stream.getvalue())
-    parts['word/comments.xml'] = b'<w:comments xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:comment w:id="0" w:author="\xe5\xbc\xa0\xe4\xb8\x89"><w:p><w:r><w:t>\xe5\xbc\xa0\xe4\xb8\x89</w:t></w:r></w:p></w:comment></w:comments>'
-    original = write_package(parts)
-    rules = config()['blind'] | {'identity_terms': ['张三']}
-    derived, report = blind_docx(original, rules)
-    assert report['known_identity_check'] == 'passed'
-    assert inspect_docx(derived, rules)['remaining'] == []
-    with ZipFile(BytesIO(original)) as z:
-        assert '张三' in z.read('docProps/core.xml').decode()
-    doc = Document(BytesIO(derived))
-    assert 'n = 12' in doc.paragraphs[0].text
-    assert '张三' not in doc.paragraphs[0].text
-    assert doc.core_properties.author != '张三'
-
-
-def test_image_identity_is_explicitly_pending_even_when_known_text_is_removed():
-    from app.adapters.manuscript_docx import build_manuscript_docx
-    from app.adapters.manuscript_presentation_docx import blind_docx
-    snapshot, images = sample('zh-CN')
-    _, report = blind_docx(build_manuscript_docx(snapshot, images), config()['blind'])
-    assert report['images'] == 'pending_manual_review'
-    assert report['anonymity_verified'] is False
 
 
 def test_school_hidden_chapter_is_selected_by_identity_and_other_chapters_survive():
@@ -95,7 +79,7 @@ def test_bilingual_figure_reuses_same_png_and_original_table_with_both_captions(
     zh,images=sample('zh-CN');en,_=sample('en')
     en['results_groups'][0]['figures'][0]['caption']='Saved English caption; exploratory only.'
     c=config();c['figure_pairs']=[dict(figure_id='pair',zh_figure_id='figure-1',en_figure_id='figure-1')]
-    raw,_=decorate_docx(build_manuscript_docx(zh,images),zh,en,c,'zh-CN-en','identified',peer_images=images)
+    raw,_=decorate_docx(build_manuscript_docx(zh,images),zh,en,c,'zh-CN-en',peer_images=images)
     doc=Document(BytesIO(raw));text='\n'.join(p.text for p in doc.paragraphs)
     assert 'Saved English caption; exploratory only.' in text and 'CAPTION-SENTINEL' in text
     assert len(doc.inline_shapes)==1 and doc.tables[0].cell(2,1).text=='5.24'
@@ -118,25 +102,6 @@ def test_actual_whole_count_includes_supplied_material_but_excludes_header_and_o
     assert context['preview']['checks'][0]['status']=='pending'
 
 
-def test_sci_blind_hides_selected_section_in_both_languages_without_restoring_unmapped_peer():
-    from app.adapters.manuscript_docx import build_manuscript_docx, SECTION_LABELS
-    from app.adapters.manuscript_presentation_docx import decorate_docx
-    zh,images=sample('zh-CN');en,_=sample('en')
-    for snapshot in (zh,en):
-        snapshot['sections']=[dict(id=key,paragraphs=[]) for key,_,_ in SECTION_LABELS]
-        snapshot['sections'][0]['paragraphs']=[dict(id='title',text=snapshot['title'],source_ids=[],citations=[],origin='user_provided')]
-        snapshot['sections'][2]['paragraphs']=[dict(id='identity-intro',text='PRIVATE-AFFILIATION-'+snapshot['output_language'],source_ids=[],citations=[],origin='user_provided')]
-        snapshot['acknowledgements']='PRIVATE-THANKS'
-    c=config();c['blind']['hidden_chapter_ids']=['introduction','acknowledgements']
-    excluded=set(c['blind']['hidden_chapter_ids'])
-    raw=build_manuscript_docx(zh,images,excluded_chapter_ids=excluded)
-    assert 'PRIVATE-AFFILIATION' not in '\n'.join(p.text for p in Document(BytesIO(raw)).paragraphs)
-    result,_=decorate_docx(raw,zh,en,c,'zh-CN-en','blind',excluded_chapter_ids=excluded)
-    text='\n'.join(p.text for p in Document(BytesIO(result)).paragraphs)
-    assert 'PRIVATE-AFFILIATION' not in text and 'PRIVATE-THANKS' not in text
-    assert '合成队列样例' in text and 'Synthetic cohort' in text
-
-
 def test_actual_language_rule_conflicts_and_unreviewed_images_are_not_accepted_as_human_review():
     from app.adapters.manuscript_presentation_docx import language_observations
     items=[dict(kind='export_text',location='p:1',text='整段中文不能作为英文正文通过。',content_sha256='a'*64,target_language='en',scope='narrative'),
@@ -155,7 +120,7 @@ def test_school_decoration_keeps_layout_manifest_and_fixed_toc_targets():
     from docx.oxml.ns import qn
     snapshot, analysis = fixture()
     raw = build_school_docx(snapshot, {}, plan(snapshot, analysis))
-    derived, _ = decorate_docx(raw, snapshot, None, config(), 'zh-CN', 'identified')
+    derived, _ = decorate_docx(raw, snapshot, None, config(), 'zh-CN')
     with ZipFile(BytesIO(raw)) as before, ZipFile(BytesIO(derived)) as after:
         assert after.read('customXml/paperassist-layout.xml') == before.read('customXml/paperassist-layout.xml')
     heading = next(p for p in Document(BytesIO(derived)).paragraphs if p.text == 'Authorship and declarations')

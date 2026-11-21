@@ -46,6 +46,12 @@ def _volcano(fig,ax,source,config,zh):
             display_neg_log10_q=-math.log10(max(q,1e-300)) if q is not None else None,
             displayed=effect is not None and q is not None))
     eligible=[r for r in plot if r['displayed']]
+    q_limit=.05 if config.q_threshold is None else config.q_threshold
+    effect_limit=1 if config.minimum_absolute_effect is None else config.minimum_absolute_effect
+    def color_group(row):
+        effect=row['effect_value']
+        if row['q_value']>q_limit or abs(effect)<effect_limit:return 0
+        return (effect>0)-(effect<0)
     plan=source['metadata'].get('plan_config',{})
     sample=plan.get('kind')=='comparison' and plan.get('schema_version')==2
     labels=['numerator higher','denominator higher','other']
@@ -53,14 +59,14 @@ def _volcano(fig,ax,source,config,zh):
         labels=[str(data[0][k])+('较高' if zh else ' higher') for k in ('numerator','denominator')]+['未同时满足阈值' if zh else 'Does not meet both thresholds']
         labels=[textwrap.fill(label,width=22 if index==2 else 32) for index,label in enumerate(labels)]
     for direction,color,label in [(1,config.palette[1%len(config.palette)],labels[0]),(-1,config.palette[0],labels[1]),(0,'#94a3b8',labels[2])]:
-        subset=[r for r in eligible if (1 if r['q_value']<=.05 and r['effect_value']>=1 else -1 if r['q_value']<=.05 and r['effect_value']<=-1 else 0)==direction]
+        subset=[r for r in eligible if color_group(r)==direction]
         if subset:ax.scatter([r['effect_value'] for r in subset],[r['display_neg_log10_q'] for r in subset],s=11,alpha=.7,c=color,label=label,rasterized=False)
     if not eligible:_empty(ax,'没有可绘制的效应与 q 值' if zh else 'No computable effect and q values')
     else:
-        ax.axhline(-math.log10(.05),ls='--',lw=.7,c='#64748b')
+        ax.axhline(-math.log10(max(q_limit,ZERO_Q_DISPLAY_FLOOR)),ls='--',lw=.7,c='#64748b')
         if sample:
-            title=('着色条件：q <= 0.05\n且 |效应| >= 1\n（效应单位同横轴）' if zh else
-                   'Color rule: q <= 0.05\nand |effect| >= 1\n(effect unit as\non x-axis)')
+            title=(f'着色条件：q <= {q_limit:g}\n且 |效应| >= {effect_limit:g}\n（效应单位同横轴）' if zh else
+                   f'Color rule: q <= {q_limit:g}\nand |effect| >= {effect_limit:g}\n(effect unit as\non x-axis)')
             ax.legend(fontsize=7,title=title,title_fontsize=7)
         else:ax.legend(fontsize=7)
     ax.set_xlabel(data[0].get('effect_unit') or 'effect' if data else 'effect');ax.set_ylabel('-log10('+qcol+')')
@@ -74,7 +80,7 @@ def _volcano(fig,ax,source,config,zh):
         label=textwrap.fill(name+' ('+direction+')',width=48)
         if row.get('effect_unit'):label+='\n'+textwrap.fill(row['effect_unit'],width=48)
         ax.set_xlabel(label)
-    return dict(rows=plot,q_column=qcol,display_q_floor=1e-300,thresholds=dict(q=.05,absolute_effect=1),
+    return dict(rows=plot,q_column=qcol,display_q_floor=1e-300,thresholds=dict(q=q_limit,absolute_effect=effect_limit),
                 direction=dict(numerator=data[0].get('numerator'),denominator=data[0].get('denominator')) if data else {}),len(eligible)==0
 
 
@@ -133,10 +139,14 @@ def _enrichment(fig,ax,source,config,zh):
     else:
         data=contrast_rows(rows(source,'enrichment_results'),config.contrast_id)
         valid=[r for r in data if number(r.get(qcol)) is not None]
+        if config.q_threshold is not None:valid=[r for r in valid if number(r[qcol])<=config.q_threshold]
         valid.sort(key=lambda r:(number(r[qcol]),r['row_key']));display=valid[:config.top_n]
     values=[number(r.get(axis)) for r in display]
     if not display or not any(v is not None for v in values):
-        _empty(ax,'没有可计算的富集条目' if zh else 'No computable enrichment terms');empty=True
+        message='没有可计算的富集条目' if zh else 'No computable enrichment terms'
+        if config.q_threshold is not None:
+            message=f'没有可绘制的条目满足 {qcol} ≤ {config.q_threshold:g}' if zh else f'No plottable terms satisfy {qcol} ≤ {config.q_threshold:g}'
+        _empty(ax,message);empty=True
     else:
         selected=[(r,v) for r,v in zip(display,values) if v is not None];display=[r for r,_ in selected];values=[v for _,v in selected]
         labels=[r.get('term_name') or r['term_id'] for r in display];y=np.arange(len(values))
@@ -150,9 +160,12 @@ def _enrichment(fig,ax,source,config,zh):
                 s=[max(15,min(200,math.sqrt(float(r.get('k') or r.get('set_size') or 1))*15)) for r in display],cmap=cmap)
             fig.colorbar(image,ax=ax,label='-log10('+qcol+')')
         ax.set_yticks(y,labels,fontsize=7);ax.invert_yaxis();ax.set_xlabel('NES' if is_gsea else 'GeneRatio (hits / foreground)');empty=False
-        if all(number(r[qcol])>.05 for r in display):ax.set_title('q ≤ 0.05 无显著条目' if zh else 'No terms with q ≤ 0.05')
+        if config.q_threshold is not None:
+            ax.set_title(f'{qcol} ≤ {config.q_threshold:g}')
+        elif all(number(r[qcol])>.05 for r in display):ax.set_title('q ≤ 0.05 无显著条目' if zh else 'No terms with q ≤ 0.05')
     if config.enrichment_order:return plot,empty
     return dict(rows=data,displayed_row_keys=[r['row_key'] for r in display],q_column=qcol,top_n=config.top_n,
+        **({'q_threshold':config.q_threshold} if config.q_threshold is not None else {}),
         correction='GSEA joint-null FDR' if is_gsea else 'BH within frozen enrichment family',style=config.enrichment_style),empty
 
 
@@ -304,8 +317,9 @@ def run_figure(payload,writer):
     config=FigureConfig.model_validate(payload['config']);sources={s['source_id']:s for s in payload['sources']};source=sources[config.result_source_id]
     bulk=config.figure_type.startswith('bulk_')
     axes_members={
+        'single_cell_composition':('donor_condition','proportion','composition_counts'),
         'topic_slingshot':('representation_1','representation_2','topic_plot_data'),
-        'topic_genie3':('predictive_importance','edge','topic_plot_data'),
+        'topic_genie3':('predictive_importance','edge','regulation_results' if config.regulation_top_n is not None else 'topic_plot_data'),
         'topic_cellchat':('receiver','sender','topic_plot_data'),
         'integration_network':('layout_x','layout_y','integration_data'),
         'integration_flow':('lineage_stage','layout_y','integration_data'),
@@ -338,6 +352,9 @@ def run_figure(payload,writer):
         elif config.figure_type=='distribution' or config.figure_type=='heatmap' and config.sample_groups:
             from .quantitative_figures import draw_sample_plot
             data,empty=draw_sample_plot(fig,ax,source,config,sources,zh)
+        elif config.figure_type=='single_cell_composition':
+            from .single_cell_composition import draw_saved_composition
+            data,empty=draw_saved_composition(ax,source,config,zh)
         elif config.figure_type.startswith('topic_'):
             from .topic_figures import draw_topic
             data,empty=draw_topic(fig,ax,source,config,zh)
@@ -372,6 +389,8 @@ def run_figure(payload,writer):
                 'sample_exploratory':'样本探索' if zh else 'Sample exploratory','sample_inference':'样本比较' if zh else 'Sample comparison',
                 'external_result':'外部结果' if zh else 'External result','derived':'派生分析' if zh else 'Derived analysis'}
         title=config.title or (bulk_title(config,zh) if bulk else config.figure_type)
+        if not config.title and config.figure_type=='single_cell_composition':
+            title='供者细胞组成' if zh else 'Donor cell composition'
         restrictions=' / '.join(labels.get(s,s) for s in sorted(upstream)) or labels.get(scope,scope)
         if driven:restrictions+='; '+('数据驱动分组' if zh else 'data-driven grouping')
         notice=ax.get_title() if bulk or config.figure_type in ('enrichment','microbiome_pcoa') else ''
@@ -400,6 +419,8 @@ def run_figure(payload,writer):
             source_id=source['source_id'],source_sha256=source['sha256'],plot_data_key='plot_data',analysis_recomputed=False,
             zero_q_display_floor=ZERO_Q_DISPLAY_FLOOR if config.figure_type in ('volcano','bulk_volcano','enrichment') else None,raw_values_unchanged=True,
             empty_result=bool(empty),caption_scope='Sample measurements preserve missingness and declared units; technical exploration is not biological inference or independent validation.' if (upstream | {scope}) & {'sample_exploratory','sample_inference'} else 'Region enrichment does not establish pure cell identity, mechanism or independent validation.')
+        if config.figure_type=='single_cell_composition':
+            methods['caption_scope']='Fractions use all retained cells within each frozen donor-condition unit.'
         writer.json('figure_metadata',methods)
         summary=dict(figure_type=config.figure_type,actual_figure_type=methods['actual_figure_type'],empty_result=bool(empty),formats=config.formats,
                      output_language=config.output_language)

@@ -109,7 +109,10 @@ def validate_version(service,db,row):
     elif producer['task_type']=='manuscript_draft':
         task_input=producer['input_snapshot']
         if task_input.get('snapshot_sha256')!=row['snapshot_sha256'] or task_input.get('manuscript_version_id')!=row['id']:raise invalid()
-        if snapshot.get('user_return_provenance'):
+        if service.is_school_change_version(row):
+            from .school_changes import validate_school_change_version
+            validate_school_change_version(service,db,row)
+        elif snapshot.get('user_return_provenance'):
             from app.domain.review_rounds.returns import validate_user_return_version
 
             validate_user_return_version(service,db,row)
@@ -135,6 +138,6 @@ def validate_version(service,db,row):
     else:raise invalid()
     if row['parent_version_id']:
         parent=db.execute('SELECT * FROM manuscript_versions WHERE id=%s AND manuscript_id=%s AND project_id=%s AND user_id=%s',(row['parent_version_id'],row['manuscript_id'],row['project_id'],row['user_id'])).fetchone()
-        review_child=bool(snapshot.get('user_return_provenance') or snapshot.get('review_revision_provenance'))
-        if not parent or parent['revision']>=row['revision'] or (parent['revision']!=row['revision']-1 and not review_child):raise invalid()
+        branched=bool(snapshot.get('user_return_provenance') or snapshot.get('review_revision_provenance') or service.is_school_change_version(row))
+        if not parent or parent['revision']>=row['revision'] or (parent['revision']!=row['revision']-1 and not branched):raise invalid()
     elif row['revision']!=1:raise invalid()

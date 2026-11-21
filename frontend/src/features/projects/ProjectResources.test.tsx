@@ -6,6 +6,7 @@ import { setLocale } from '../../shared/i18n'
 import { clearApiSession } from '../../shared/api/client'
 import { lifecycleResponse } from '../files/lifecycleFixtures'
 import { batchUploadFixture } from '../../test/fixtures/batchUploadFixture'
+import {rawFixture} from '../bioinformatics/spatialFixtures'
 
 const originalScroll = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'scrollIntoView')
 afterEach(() => {
@@ -20,6 +21,22 @@ const files = Array.from({ length: 12 }, (_, index) => ({ id: `f${index}`, filen
 const workbook = { filename: files[0].filename, sheets: [{ name: '数据', columns: ['值'], row_count: 1,
   column_count: 1, preview_rows: [[5]], warnings: [] }] }
 const props = { projectId: 'p1', onSaved: vi.fn(), onSectionChange: vi.fn() }
+test('opens plotting settings from file quality in the analysis workspace',async()=>{
+ const raw={...rawFixture,parser_version:'tabular_assay_import_v1'}
+ const figure={id:'qc-plot',config:{kind:'expression_distribution',output_language:'en'},task:null,
+  manifest_sha256:'c'.repeat(64),members:[],processed_source:{kind:'bio_processed_dataset_version',
+   schema_version:2,project_id:'p1',processed_dataset_version_id:'frozen',analysis_run_id:'run',raw_source:raw,
+   recipe_version_id:'recipe',manifest_sha256:'a'.repeat(64),environment_digest:'b'.repeat(64),
+   engine_version:'tabular_quantitative_v1.0.0',assay:'bulk_rna_counts',observation_level:'sample'}}
+ const fetch=libraryApi(),original=fetch.getMockImplementation()!
+ fetch.mockImplementation(async(url,init)=>url.endsWith('/bio-figures/qc-plot')?Response.json(figure):original(url,init))
+ const openAnalysis=vi.fn(),openFiles=vi.fn()
+ render(<ProjectResources {...props} section="files" onAnalysisNavigate={openAnalysis} onResourceNavigate={openFiles}
+  resourceNavigation={{view:'quality',fileId:'',bio:{view:'bio-figure',fileId:'',figureId:'qc-plot'}}}/>)
+ fireEvent.click(await screen.findByRole('button',{name:'调整此图的绘图参数'}))
+ expect(openAnalysis).toHaveBeenCalledWith({view:'bio-insight-result',fileId:'',processedId:'frozen',bulkPanel:'qc_ecdf'})
+ expect(openFiles).not.toHaveBeenCalled()
+})
 test('offers the next requirement step at the end of the upload and整理 page without claiming originals are analysis ready',async()=>{
  const saved={...files[0],id:'raw',filename:'matrix.h5',file_type:'bio_component',parse_status:'stored'}
  const fetch=api(async()=>Response.json([saved]));const original=fetch.getMockImplementation()!

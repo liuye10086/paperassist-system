@@ -2,7 +2,7 @@ import '../research-results/researchLayout.css'
 import ModuleViews,{ModuleView} from '../../shared/components/ModuleViews'
 import {deliveryMemberContainsPdf as retiredCandidate} from '../../shared/pdfDelivery'
 import ReadableDetails from '../../shared/components/ReadableDetails'
-import {useEffect,useRef,useState,type ReactNode} from 'react'
+import {useEffect,useId,useRef,useState,type ReactNode} from 'react'
 import {onApiSessionChanged} from '../../shared/api/client'
 import {safeError,useI18n} from '../../shared/i18n'
 import ProjectDownloadLink from '../../shared/components/ProjectDownloadLink'
@@ -26,11 +26,13 @@ export default function DeliveryPackagePanel(props:Props){return <Panel key={`${
 function Panel({projectId,deliveryId,active,snapshotId='',onSelect,registerLeaveGuard,analysisOnly=false,requiredVersionId,renderSnapshotActions,publicationHistory}:Props){
  const {t,locale}=useI18n(),base=deliveryBase(projectId,deliveryId),[candidates,setCandidates]=useState<DeliveryCandidates|null>(null),[history,setHistory]=useState<DeliverySnapshot[]>([]),[selected,setSelected]=useState<DeliverySnapshot|null>(null),[readId,setReadId]=useState(snapshotId),[editing,setEditing]=useState(false),[deliveryView,setDeliveryView]=useState(analysisOnly&&!snapshotId?'candidates':'snapshot'),[valid,setValid]=useState(true),[loading,setLoading]=useState(false),[error,setError]=useState(''),[reload,setReload]=useState(0),[preview,setPreview]=useState<DeliverySnapshot|null>(null),[previewSignature,setPreviewSignature]=useState('')
  const [freezeCheck,setFreezeCheck]=useState<{signature:string;containsPdf:boolean}|null>(null)
+ const publishHintId=useId()
  const [savedDraft,setDraft]=useResearchDraft(projectId,`delivery:${deliveryId}`,emptyDraft),freeze=useDeliveryOperation<DeliverySnapshot>(projectId,deliveryId,'freeze'),previewController=useRef<AbortController|null>(null),latest=history[0]
  const hasDraft=JSON.stringify(savedDraft)!==JSON.stringify(emptyDraft())
- const draft=analysisOnly&&!hasDraft&&!latest&&requiredVersionId
+ // Blind delivery was removed (2026-11-19): every new snapshot is complete, even when an older saved draft said blind.
+ const draft:SnapshotWrite={...(analysisOnly&&!hasDraft&&!latest&&requiredVersionId
   ?{...savedDraft,requirement_version_id:requiredVersionId,opinion_round:'分析交付'}
-  :savedDraft
+  :savedDraft),mode:'complete'}
  const signature=JSON.stringify(draft)
  useDraftLeaveGuard(registerLeaveGuard,(analysisOnly||editing)&&hasDraft,loading||freeze.busy||freeze.unknown)
  useEffect(()=>{setReadId(snapshotId);if(analysisOnly)setDeliveryView(snapshotId?'snapshot':'candidates')},[analysisOnly,snapshotId])
@@ -42,10 +44,11 @@ function Panel({projectId,deliveryId,active,snapshotId='',onSelect,registerLeave
  useEffect(()=>{if(!freeze.value)return;const result=freeze.value;setSelected(result);setReadId(result.id);setEditing(false);setDeliveryView('snapshot');setDraft(emptyDraft());setPreview(null);setReload(r=>r+1);onSelect(result.id)},[freeze.value])
  const blocked=loading||freeze.busy||freeze.unknown||!freeze.valid||!valid
  function edit(p:Partial<SnapshotWrite>){setDraft({...draft,...p});setPreview(null);freeze.clearError()}
- function derive(s:DeliverySnapshot){if(blocked)return;const binding=analysisOnly?undefined:s.opinion_round_binding;setDraft({stage:'revision',parent_snapshot_id:s.id,expected_revision:s.revision,requirement_version_id:s.requirement_version_id,change_note:'',opinion_round:analysisOnly?'分析交付':s.opinion_round,opinion_round_id:binding?.status==='fixed_existing_event'?String(binding.round_id):null,opinion_round_event_id:binding?.status==='fixed_existing_event'?String(binding.event_id):null,mode:analysisOnly?'complete':s.mode,required_formats:s.required_formats,quality_items:s.quality_items,members:s.members.map(m=>m.selection)});setEditing(true);setPreview(null)}
+ function derive(s:DeliverySnapshot){if(blocked)return;const binding=analysisOnly?undefined:s.opinion_round_binding;setDraft({stage:'revision',parent_snapshot_id:s.id,expected_revision:s.revision,requirement_version_id:s.requirement_version_id,change_note:'',opinion_round:analysisOnly?'分析交付':s.opinion_round,opinion_round_id:binding?.status==='fixed_existing_event'?String(binding.round_id):null,opinion_round_event_id:binding?.status==='fixed_existing_event'?String(binding.event_id):null,mode:'complete',required_formats:s.required_formats,quality_items:s.quality_items,members:s.members.map(m=>m.selection)});setEditing(true);setPreview(null)}
  function toggle(c:Candidate,checked:boolean){edit({members:checked?[...draft.members,c.selection]:draft.members.filter(m=>selectionKey(m)!==selectionKey(c.selection))})}
  const knownMembers=[...history.flatMap(s=>s.members),...(selected?.members??[]),...(preview?.members??[])]
- const eligible=(c:Candidate,mode:SnapshotWrite['mode'])=>(!analysisOnly||c.selection.kind!=='manuscript_export')&&!retiredCandidate(c)&&!knownMembers.some(m=>selectionKey(m.selection)===selectionKey(c.selection)&&retiredCandidate(m))&&(c.status==='succeeded'||c.status==='existing_upload')&&(mode==='complete'||c.review_mode==='blind'||c.blind_eligible===true)
+ // Historical blind exports never enter an ordinary delivery.
+ const eligible=(c:Candidate)=>(!analysisOnly||c.selection.kind!=='manuscript_export')&&!retiredCandidate(c)&&!knownMembers.some(m=>selectionKey(m.selection)===selectionKey(c.selection)&&retiredCandidate(m))&&(c.status==='succeeded'||c.status==='existing_upload')&&c.review_mode!=='blind'
  const retiredPdf=draft.members.some(m=>m.kind==='pdf_export'||[...(candidates?.items??[]),...knownMembers].some(c=>selectionKey(c.selection)===selectionKey(m)&&retiredCandidate(c)))
  const pdfRequired=draft.required_formats.some(format=>format.toLowerCase()==='pdf')
  const pendingFreeze=freeze.pendingBody as Partial<SnapshotWrite>|undefined
@@ -82,15 +85,14 @@ function Panel({projectId,deliveryId,active,snapshotId='',onSelect,registerLeave
  const snapshotLabel=(s:DeliverySnapshot)=>[t(stageName(s.stage)),!analysisOnly&&`${t('版本')} ${s.revision}`,new Date(s.created_at).toLocaleString(locale)].filter(Boolean).join(' · ')
  const openSnapshot=(id:string)=>{setReadId(id);onSelect(id)}
  const visibleSnapshot=analysisOnly&&selected?.id!==readId?null:selected
- const startRevision=visibleSnapshot&&<button type="button" disabled={blocked} onClick={()=>{derive(visibleSnapshot);setDeliveryView(analysisOnly?'candidates':'draft')}}>{t(analysisOnly?'沿用这次交付进行修订':'从此快照派生新版本')}</button>
+ // A historical blind snapshot stays readable but is never the parent of a new snapshot.
+ const startRevision=visibleSnapshot&&visibleSnapshot.mode!=='blind'&&<button type="button" disabled={blocked} onClick={()=>{derive(visibleSnapshot);setDeliveryView(analysisOnly?'candidates':'draft')}}>{t(analysisOnly?'沿用这次交付进行修订':'从此快照派生新版本')}</button>
  const olderSnapshot=visibleSnapshot&&latest&&visibleSnapshot.id!==latest.id&&<p className="warning-panel">{t('正在查看历史交付。修订前请核对最近的交付：')}{snapshotLabel(latest)}</p>
  const freezeFields=<>
    <label>{t('交付阶段')}<select value={draft.stage} onChange={e=>edit({stage:e.target.value as SnapshotWrite['stage']})}><option value="first" disabled={!!draft.parent_snapshot_id}>{t('首次交付')}</option><option value="revision" disabled={!draft.parent_snapshot_id}>{t('修订交付')}</option><option value="final" disabled={!draft.parent_snapshot_id}>{t('最终阶段（不等于接受）')}</option></select></label>
    {!analysisOnly&&<p>{t('固定父快照')} {draft.parent_snapshot_id?t('已选定原交付版本'):t('首次交付，无原版本')} · {t('期望修订号')} {draft.expected_revision}</p>}
-   {latest&&<div className={analysisOnly?'analyst-delivery-actions':undefined}><span>{analysisOnly?`${t('最近冻结')}: ${snapshotLabel(latest)}`:`${t('服务器当前父快照')} · ${t('版本')} ${latest.revision}`}</span><button type="button" onClick={()=>edit({parent_snapshot_id:latest.id,expected_revision:latest.revision,stage:draft.stage==='first'?'revision':draft.stage})}>{t(analysisOnly?'采用最近的交付（保留选择）':'已比较，明确采用此父快照与修订号（保留选择）')}</button></div>}
+   {latest&&<div className={analysisOnly?'analyst-delivery-actions':undefined}><span>{analysisOnly?`${t('最近确认')}: ${snapshotLabel(latest)}`:`${t('服务器当前父快照')} · ${t('版本')} ${latest.revision}`}</span><button type="button" onClick={()=>edit({parent_snapshot_id:latest.id,expected_revision:latest.revision,stage:draft.stage==='first'?'revision':draft.stage})}>{t(analysisOnly?'采用最近的交付（保留选择）':'已比较，明确采用此父快照与修订号（保留选择）')}</button></div>}
    <label>{t(analysisOnly?'关联客户需求':'固定需求版本')}<select value={draft.requirement_version_id} onChange={e=>edit({requirement_version_id:e.target.value})}><option value="">{t(analysisOnly?'请选择客户需求':'请选择需求版本')}</option>{candidates?.requirements.filter(r=>requiredVersionId===undefined||r.id===requiredVersionId).map(r=><option key={r.id} value={r.id}>{analysisOnly?[t('客户最新提交'),r.created_at&&new Date(r.created_at).toLocaleString(locale)].filter(Boolean).join(' · '):`${t('已保存需求')} · ${t('版本')} ${r.version}`}</option>)}</select></label>
-   {!analysisOnly&&<><label>{t('交付模式')}<select value={draft.mode} onChange={e=>edit({mode:e.target.value as SnapshotWrite['mode'],members:[]})}><option value="complete">{t('普通完整交付')}</option><option value="blind">{t('独立盲审子交付')}</option></select></label>
-   {draft.mode==='blind'&&<p className="warning-panel">{t('仅选择明确适用的盲审派生件；普通报告 ZIP、表格、图源和原件不会自动加入。整个 ZIP 匿名性仍需独立核查。')}</p>}</>}
    {retiredPdf&&<p role="alert">{t('新交付不再支持 PDF 成果，请移除此原选择；其他草稿内容保留。')}</p>}{pdfRequired&&<p role="alert">{t('交付不再支持 PDF 必需格式，请移除后继续；其他草稿内容保留。')}<button type="button" onClick={()=>edit({required_formats:draft.required_formats.filter(format=>format.toLowerCase()!=='pdf')})}>{t('移除 PDF 格式')}</button></p>}<label>{t(analysisOnly?'本次必需格式':'本次必需格式（逗号分隔）')}<DelimitedInput placeholder={analysisOnly?t('用逗号分隔，例如 png, docx'):undefined} value={draft.required_formats} onChange={value=>edit({required_formats:value.map(v=>v.toLowerCase())})}/></label>
    <label>{t('本次修改说明')}<textarea rows={2} maxLength={8000} value={draft.change_note} onChange={e=>edit({change_note:e.target.value})}/></label>
    {!analysisOnly&&<><label>{t('意见轮次说明或不适用原因')}<input maxLength={200} value={draft.opinion_round} onChange={e=>edit({opinion_round:e.target.value})}/></label>
@@ -98,7 +100,7 @@ function Panel({projectId,deliveryId,active,snapshotId='',onSelect,registerLeave
    {round&&<label>{t('固定意见事件')}<select value={draft.opinion_round_event_id??''} onChange={e=>edit({opinion_round_event_id:e.target.value||null})}><option value="">{t('请选择已保存事件')}</option>{round.events.map(e=><option key={e.id} value={e.id}>{t('已保存事件')} · {t('版本')} {e.revision}</option>)}</select></label>}</>}
    <label>{t(analysisOnly?'人工未决质量项':'人工未决质量项（每行一项）')}<textarea rows={2} placeholder={analysisOnly?t('选填，每行一项'):undefined} value={draft.quality_items.map(text=>(selected?.members??[]).reduce((result,member)=>result.replaceAll(member.id,member.name),noticeText(text))).join('\n')} onChange={e=>edit({quality_items:e.target.value.split('\n')})}/></label>
  </>
- const available=candidates?.items.filter(c=>eligible(c,draft.mode))??[]
+ const available=candidates?.items.filter(eligible)??[]
  function candidate(c:Candidate){
   const key=selectionKey(c.selection),chosen=draft.members.find(m=>selectionKey(m)===key)
   const date=analysisOnly&&c.created_at?new Date(c.created_at).toLocaleString(locale):''
@@ -130,13 +132,13 @@ function Panel({projectId,deliveryId,active,snapshotId='',onSelect,registerLeave
   <p key={selectionKey(m)} className="warning-panel">{t('原选择当前不可选，请明确移除或核对来源')} {t('此前选定的成果')} {draft.members.indexOf(m)+1} <button type="button" onClick={()=>edit({members:draft.members.filter(s=>selectionKey(s)!==selectionKey(m))})}>{t('移除此原选择')}</button></p>)
  const canFreeze=preview&&previewSignature===signature&&ready&&!freeze.error
  const checkButton=<button type="button" className={analysisOnly&&!canFreeze?'button-primary':undefined} disabled={blocked||!ready} onClick={()=>void check()}>{t('核对所选成员与缺口')}</button>
- const freezeButton=canFreeze&&<button type="button" className={analysisOnly?'button-primary':undefined} disabled={blocked} onClick={()=>void freeze.submit('freeze',base+'/snapshots',draft,base+'/snapshots/requests/{key}')}>{t('冻结本次交付快照')}</button>
+ const freezeButton=canFreeze&&<button type="button" className={analysisOnly?'button-primary':undefined} disabled={blocked} onClick={()=>void freeze.submit('freeze',base+'/snapshots',draft,base+'/snapshots/requests/{key}')}>{t(analysisOnly?'确认交付内容':'冻结本次交付快照')}</button>
  const operationStatus=<>{freeze.unknown&&(retiredFreeze||freezeCheck?.containsPdf)&&<p>{t('此历史交付包含 PDF，仅保留状态与原请求查询。')}</p>}<OperationStatus operation={{...freeze,retryable:freeze.retryable&&!retiredFreeze&&!loading&&!!candidates&&freezeCheck?.signature===freezeSignature&&!freezeCheck.containsPdf}}/></>
 
  if(analysisOnly){
   const canEdit=!!candidates&&(!latest||hasDraft||editing)
   const waitForRequirement=requiredVersionId===''
-  const moveToPublication=<button type="button" onClick={()=>setDeliveryView('snapshot')}>{t('查看已冻结快照')}</button>
+  const moveToPublication=<button type="button" onClick={()=>setDeliveryView('snapshot')}>{t('查看已确认的交付内容')}</button>
   return <section hidden={!active} className="analyst-delivery-panel" aria-busy={loading||freeze.busy}>
    {error&&<p role="alert" className="error-panel">{t(error)}</p>}
    <ModuleViews label={t('交付流程')} value={deliveryView} onChange={setDeliveryView}>
@@ -156,10 +158,10 @@ function Panel({projectId,deliveryId,active,snapshotId='',onSelect,registerLeave
      </fieldset>}
      {waitForRequirement?<p className="analyst-delivery-hint">{t('客户尚未提交需求。')}</p>:candidates&&
       <div className="analyst-delivery-bar analyst-delivery-footer">{count}{canEdit
-       ?<button type="button" className="button-primary" disabled={blocked||!draft.members.length} onClick={()=>setDeliveryView('draft')}>{t('下一步：冻结快照')}</button>
+       ?<button type="button" className="button-primary" disabled={blocked||!draft.members.length} onClick={()=>setDeliveryView('draft')}>{t('下一步：核对交付内容')}</button>
        :moveToPublication}</div>}
     </ModuleView>
-    <ModuleView id="draft" title={t('冻结快照')}>
+    <ModuleView id="draft" title={t('核对交付内容')}>
      {canEdit&&!waitForRequirement?<div className="analyst-delivery-module">
       <div className="analyst-delivery-freeze">
        <fieldset className="analyst-delivery-fields" disabled={blocked}>{freezeFields}</fieldset>
@@ -167,23 +169,25 @@ function Panel({projectId,deliveryId,active,snapshotId='',onSelect,registerLeave
       </div>
       <div className="analyst-delivery-bar">
        <span>{count}{!ready&&<small> · {t('请先选定成员并填写本次修改说明。')}</small>}</span>
-       <div className="analyst-delivery-actions">{checkButton}{freezeButton}</div>
+       <div className="analyst-delivery-actions">{checkButton}{freezeButton}{renderSnapshotActions&&<>
+        <span className="analyst-delivery-hint" id={publishHintId}>{t('先确认交付内容')}</span>
+        <button type="button" disabled aria-describedby={publishHintId}>{t('发布给客户')}</button></>}</div>
       </div>
      </div>:candidates&&<div className="analyst-delivery-bar">
-      <p>{t(waitForRequirement?'客户尚未提交需求。':'沿用已冻结的交付后，可调整本次要交付的文件。')}</p>
+      <p>{t(waitForRequirement?'客户尚未提交需求。':'沿用已确认的交付内容后，可调整本次要交付的文件。')}</p>
       {!waitForRequirement&&moveToPublication}
      </div>}
     </ModuleView>
     <ModuleView id="snapshot" title={t('发布交付')}>
      <div className="analyst-delivery-module">
       {history.length>0?<div className="analyst-delivery-row">
-       <label>{t('固定交付快照')}<select value={readId} onChange={e=>openSnapshot(e.target.value)} disabled={blocked}>
-        <option value="" disabled>{t('请选择交付快照')}</option>
+       <label>{t('已确认的交付内容')}<select value={readId} onChange={e=>openSnapshot(e.target.value)} disabled={blocked}>
+        <option value="" disabled>{t('请选择交付内容')}</option>
         {history.map(s=><option key={s.id} value={s.id}>{snapshotLabel(s)}</option>)}
        </select></label>
        {startRevision}
-      </div>:candidates&&<div className="analyst-delivery-bar"><p>{t('请先冻结交付快照。')}</p>
-       <button type="button" onClick={()=>setDeliveryView('draft')}>{t('去冻结快照')}</button></div>}
+      </div>:candidates&&<div className="analyst-delivery-bar"><p>{t('请先确认交付内容。')}</p>
+       <button type="button" onClick={()=>setDeliveryView('draft')}>{t('去核对交付内容')}</button></div>}
       {readId&&!visibleSnapshot&&!error&&<p role="status">{t('正在读取交付记录……')}</p>}
       {visibleSnapshot&&<>
        {renderSnapshotActions?.(visibleSnapshot)}
@@ -227,9 +231,9 @@ function SnapshotFacts({snapshot:s,candidates}:{snapshot:DeliverySnapshot;candid
  const{t,locale}=useI18n()
  const memberLabel=(member:DeliverySnapshot['members'][number])=>member.display_name??candidates?.find(c=>selectionKey(c.selection)===selectionKey(member.selection))?.label??t('交付文件')
  const displayNotice=(text:string)=>s.members.reduce((result,member)=>result.replaceAll(member.name,memberLabel(member)).replaceAll(member.id,memberLabel(member)),noticeText(text))
- if(candidates)return <section aria-label={t('冻结成员与缺口核对')} className="analyst-delivery-review">
+ if(candidates)return <section aria-label={t('交付内容与缺口核对')} className="analyst-delivery-review">
   <div className="analyst-delivery-bar">
-   <h3>{t(s.sha256?'固定交付快照':'预览尚未冻结')}</h3>
+   <h3>{t(s.sha256?'已确认的交付内容':'交付内容尚未确认')}</h3>
    <span className={`status-badge analyst-delivery-completeness${s.completeness==='complete'?' is-complete':''}`}>{t(completenessLabels[s.completeness])}</span>
   </div>
   <p className="analyst-delivery-hint">{t(stageName(s.stage))}{s.created_at&&` · ${new Date(s.created_at).toLocaleString(locale)}`} · {t('已选择成员数')} {s.members.length}</p>

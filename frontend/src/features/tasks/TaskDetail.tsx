@@ -17,7 +17,7 @@ import StatisticsTaskRecovery from '../analysis/StatisticsTaskRecovery'
 import SourceSummary from '../analysis/SourceSummary'
 import { useEffect, useRef, useState } from 'react'
 import { onApiSessionChanged } from '../../shared/api/client'
-import { apiError, safeError, translateForLocale, useI18n } from '../../shared/i18n'
+import { translateForLocale, useI18n } from '../../shared/i18n'
 import ProjectDownloadLink from '../../shared/components/ProjectDownloadLink'
 import {ReportNarrativeView} from '../research-results/ResearchReportNarrative'
 import StatisticsReportDownloads from '../reports/StatisticsReportDownloads'
@@ -25,11 +25,12 @@ import {statisticsFormalReportHref,validStatisticsReaderExport} from '../reports
 import TaskModelUsage from '../model-usage/TaskModelUsage'
 import TaskEvents from './TaskEvents'
 import TaskPendingAction from './TaskPendingAction'
-import { isWorkspace, taskPhaseName, taskDisplayName, taskNames, type TaskWorkspace } from './taskTypes'
-import { taskRequest, TaskRequestError } from './taskApi'
+import { isWorkspace, taskPhaseName, taskDisplayName, taskNames, type TaskView, type TaskWorkspace } from './taskTypes'
+import { taskErrorMessage, taskRequest, TaskRequestError } from './taskApi'
 import { useDocumentVisible } from './useDocumentVisible'
 
-type Props = { allowUsage?: boolean; customerView?: boolean; active?: boolean; view?: TaskDetailView; taskReportReturn?:AnalysisNavigation; onViewChange?: (view: TaskDetailView) => void; registerLeaveGuard?: RegisterLeaveGuard; projectId: string; taskId: string; onChanged: () => void; onOpenFiles?: () => void; onOpenManuscripts?:()=>void; onOpenJournals?:()=>void; onOpenLiterature?: (searchId:string)=>void }
+/** `embedded`: the host page owns the heading and focus (customer legacy task, review task panels). */
+type Props = { allowUsage?: boolean; customerView?: boolean; embedded?: boolean; active?: boolean; view?: TaskDetailView; taskReportReturn?:AnalysisNavigation; onViewChange?: (view: TaskDetailView) => void; registerLeaveGuard?: RegisterLeaveGuard; projectId: string; taskId: string; onChanged: () => void; onOpenFiles?: () => void; onOpenManuscripts?:()=>void; onOpenJournals?:()=>void; onOpenLiterature?: (searchId:string)=>void }
 const historicalErrorReasons: Record<string, string> = {
   task_failed: '旧任务执行失败。',
   explanation_invalid: '旧任务的解释未通过事实核验，未保存内容。',
@@ -39,8 +40,28 @@ const historicalErrorReasons: Record<string, string> = {
 function historicalErrorReason(code: string) {
   return Object.hasOwn(historicalErrorReasons, code) ? historicalErrorReasons[code] : '旧系统记录了任务异常，具体原因无法确认。'
 }
+// The customer view names what the task worked on in the customer's own terms (B05 task 17): no frozen inputs,
+// local processing, fixed versions or revision numbers.
+const customerWordTaskNames: Partial<Record<TaskView['task_type'], string>> = {
+  manuscript_docx: '稿件 Word 导出', layout_docx: '导出排版后的 Word', review_document_export: '意见成果 Word 导出',
+}
+
+const customerBasisByType: Partial<Record<TaskView['task_type'], string>> = {
+  parse_file: '上传的文件', extract_dataset: '上传的文件', review_ocr: '上传的文件',
+  review_round_plan: '本轮意见和送审稿', review_revision: '本轮修改计划和原稿', review_document_export: '本轮修改结果',
+  journal_adaptation: '目标期刊和所选稿件', journal_format_check: '目标期刊和所选稿件', journal_recommendation: '目标期刊和所选稿件',
+  school_template_parse: '上传的学校模板', school_rule_suggestion: '上传的学校模板',
+  manuscript_writing: '已选稿件', manuscript_draft: '已选稿件', manuscript_docx: '已选稿件', layout_docx: '已选稿件', pdf_export: '已选稿件',
+  literature_search: '已保存的文献检索条件', literature_assistance: '已保存的文献检索条件',
+  research_figure: '已选的分析成果', research_report: '已选的分析成果', research_fact_draft: '已选的分析成果',
+  delivery_package: '已选的分析成果', reader_report_narrative: '已选的分析成果', collection_word_report: '已选报告',
+}
+function customerBasis(task: TaskView) {
+  return task.input_version.kind === 'report_collection' ? '已选报告'
+    : customerBasisByType[task.task_type] ?? (task.task_type.startsWith('bio_') ? '项目中已保存的分析资料' : '已保存的分析配置')
+}
 export default function TaskDetail(props: Props) { return <Detail key={`${props.projectId}:${props.taskId}`} {...props} /> }
-function Detail({ projectId, taskId, onChanged, onOpenFiles, onOpenLiterature, onOpenManuscripts, onOpenJournals, active = true, view, taskReportReturn, onViewChange, registerLeaveGuard, allowUsage = true, customerView = false }: Props) {
+function Detail({ projectId, taskId, onChanged, onOpenFiles, onOpenLiterature, onOpenManuscripts, onOpenJournals, active = true, view, taskReportReturn, onViewChange, registerLeaveGuard, allowUsage = true, customerView = false, embedded = false }: Props) {
   const { t, locale } = useI18n()
   const visible = useDocumentVisible()
   const [data, setData] = useState<TaskWorkspace | null>(null)
@@ -50,7 +71,7 @@ function Detail({ projectId, taskId, onChanged, onOpenFiles, onOpenLiterature, o
   const [sessionValid, setSessionValid] = useState(true)
   const request = useRef<AbortController | null>(null)
   const heading = useRef<HTMLHeadingElement | null>(null)
-  useEffect(() => { if (active) heading.current?.focus({ preventScroll: true }) }, [active])
+  useEffect(() => { if (active && !embedded) heading.current?.focus({ preventScroll: true }) }, [active, embedded])
   useEffect(() => onApiSessionChanged(() => {
     request.current?.abort(); setSessionValid(false); setData(null); setError(''); setLoading(false)
   }), [])
@@ -69,12 +90,12 @@ function Detail({ projectId, taskId, onChanged, onOpenFiles, onOpenLiterature, o
         if (!mounted) return
         if (cause instanceof TaskRequestError && cause.status === 404) setData(null)
         setError(cause instanceof TaskRequestError && cause.status === 404 ? '任务不存在或无权访问，请选择其他任务。'
-          : safeError(cause, '任务详情读取失败，请重试。'))
+          : taskErrorMessage(cause, '任务详情读取失败，请重试。', customerView))
       } finally { if (mounted) setLoading(false) }
     }
     void load()
     return () => { mounted = false; controller.abort(); window.clearTimeout(timer) }
-  }, [projectId, taskId, active, sessionValid, visible, attempt])
+  }, [projectId, taskId, active, sessionValid, visible, attempt, customerView])
   function refresh() { request.current?.abort(); setLoading(true); setError(''); setAttempt(value => value + 1) }
   const shown = (name: TaskDetailView) => (name !== 'usage' || allowUsage) && (view === undefined || view === name)
   const actionActive = active && shown('actions')
@@ -91,14 +112,14 @@ function Detail({ projectId, taskId, onChanged, onOpenFiles, onOpenLiterature, o
     `#project=${encodeURIComponent(projectId)}&section=artifacts&view=research-reports`
   const reportReturn=taskReportReturn?.reportContextId?bioReportLink(projectId,taskReportReturn.reportContextId,taskReportReturn):undefined
   return <section className="task-detail" data-layered={view!==undefined} aria-label={t('任务详情')} hidden={!active} aria-busy={loading}>
-    <div className="task-section-heading"><h2 ref={heading} tabIndex={-1}>{t('任务详情')}</h2>
+    <div className="task-section-heading">{!embedded && <h2 ref={heading} tabIndex={-1}>{t('任务详情')}</h2>}
       <button type="button" disabled={loading || !sessionValid} onClick={refresh}>{t('重新读取任务')}</button></div>
     {view !== undefined && onViewChange && <nav className="task-detail-nav" aria-label={t('任务详情视图')}>{taskDetailViews.filter(name => name !== 'usage' || allowUsage).map(name => <button type="button" key={name} aria-current={view === name ? 'page' : undefined} onClick={() => onViewChange(name)}>{t(viewLabels[name])}</button>)}</nav>}
     {loading && !data && <p role="status">{t('正在读取任务详情……')}</p>}
     {error && <p role="alert" className="error-panel">{t(error)}</p>}
     {!sessionValid && <p role="alert">{t('会话已失效，请重新登录。')}</p>}
     {data && sessionValid && <>
-      <div className="task-detail-title"><h3>{t(taskNames[data.task.task_type])}</h3>
+      <div className="task-detail-title"><h3>{t(customerView ? customerWordTaskNames[data.task.task_type] ?? taskNames[data.task.task_type] : taskNames[data.task.task_type])}</h3>
         <span className={`status-badge task-status task-status-${data.task.status}`}>{t(taskDisplayName(data.task))}</span></div>
       <div hidden={!shown('overview')} className="task-overview-view">
       {data.task.origin === 'legacy' && <><p className="task-scope-note">{t('历史任务')}</p>
@@ -106,12 +127,12 @@ function Detail({ projectId, taskId, onChanged, onOpenFiles, onOpenLiterature, o
       {data.task.task_type.startsWith('bio_')?<p className="muted analysis-source">{t('来源：固定生信输入')}</p>:['research_figure','research_report','research_fact_draft','delivery_package','reader_report_narrative','bio_import','review_revision','review_document_export','review_round_plan','journal_adaptation','journal_format_check','journal_recommendation','school_template_parse','school_rule_suggestion','layout_docx','manuscript_writing','pdf_export','manuscript_draft','manuscript_docx','literature_search','literature_assistance'].includes(data.task.task_type)?null:!['parse_file', 'extract_dataset', 'review_ocr'].includes(data.task.task_type) && data.task.input_version.kind==='analysis_plan'&&data.task.input_version.source===null?<p>{t('研究材料；尚无可计算数据。')}</p>:<SourceSummary source={data.source.dataset_source} filename={data.source.filename} />}
 
       <dl className="task-facts"><div><dt>{t(data.task.task_type==='reader_report_narrative'?'报告标题':['literature_search','literature_assistance'].includes(data.task.task_type)?'来源研究主题':'来源文件')}</dt><dd>{data.source.filename||t('研究材料')}</dd></div>
-        <div><dt>{t(customerView?'处理依据':allowUsage?'输入版本':'分析输入')}</dt><dd><span>{data.task.task_type.startsWith('bio_')?t(data.task.task_type==='bio_figure'?'固定处理结果与绘图参数':'固定生信来源与任务参数'):data.task.input_version.kind==='reader_report_narrative'?t('固定报告摘要、图件顺序与语言'):['research_figure','research_report','research_fact_draft','delivery_package'].includes(String(data.task.input_version.kind))?t('固定研究来源；仅执行本地成果整理'):data.task.input_version.kind==='review_revision'?t('固定的意见计划、父稿与具体修改'):data.task.input_version.kind==='review_document_export'?t('固定独立成果版本与 DOCX 来源'):data.task.input_version.kind==='review_round_plan'?t('冻结的意见来源与固定稿件版本'):data.task.input_version.kind==='journal_adaptation'?t('冻结的期刊适配输入、所选动作与父稿'):data.task.input_version.kind==='journal_format_check'?t('冻结的目标、指南要求与稿件版本'):data.task.input_version.kind==='journal_recommendation'?t('冻结的期刊建议输入与来源'):data.task.input_version.kind==='school_template'?t('已冻结的学校模板原件'):(data.task.input_version.kind==='layout_docx'||data.task.input_version.kind==='pdf_export')?t('已冻结的 DOCX 来源'):data.task.input_version.kind==='manuscript_writing'?t(customerView?'已选稿件':'已冻结的写作基础版本 {number}',{number:data.task.input_version.base_revision}):data.task.input_version.kind==='manuscript'?t('已冻结的稿件资料'):data.task.input_version.kind==='literature_assistance'?t('冻结的文献建议输入'):data.task.input_version.kind==='literature_search'?t('已冻结的文献检索条件'):data.task.input_version.kind==='report_collection'?t(customerView?'已选报告':'集合导出版本 {number}',{number:data.task.input_version.export_revision}):['figure_projection','figure_workbench','figure_explanation'].includes(data.task.task_type)?t('冻结的图表配置与来源'):['parse_file', 'extract_dataset', 'review_ocr'].includes(data.task.task_type) ? t(data.task.task_type === 'review_ocr' ? '原图转录核对' : data.task.task_type === 'extract_dataset' ? '本地 Excel 结构提取' : '本地文件解析') : data.task.task_type === 'prepare_dataset' ? t('本地数据整理') : data.task.task_type === 'analysis_recommendation'?t('受限分析建议'):data.task.task_type === 'analysis_plan' ? t('整理数据分析计划') : t(allowUsage?'分析配置 v{revision}':'已保存的分析配置', { revision: data.task.input_version.setup_revision ?? 0 })}</span>
+        <div><dt>{t(customerView?'处理依据':allowUsage?'输入版本':'分析输入')}</dt><dd><span>{customerView?t(customerBasis(data.task)):data.task.task_type.startsWith('bio_')?t(data.task.task_type==='bio_figure'?'固定处理结果与绘图参数':'固定生信来源与任务参数'):data.task.input_version.kind==='reader_report_narrative'?t('固定报告摘要、图件顺序与语言'):['research_figure','research_report','research_fact_draft','delivery_package'].includes(String(data.task.input_version.kind))?t('固定研究来源；仅执行本地成果整理'):data.task.input_version.kind==='review_revision'?t('固定的意见计划、父稿与具体修改'):data.task.input_version.kind==='review_document_export'?t('固定独立成果版本与 DOCX 来源'):data.task.input_version.kind==='review_round_plan'?t('冻结的意见来源与固定稿件版本'):data.task.input_version.kind==='journal_adaptation'?t('冻结的期刊适配输入、所选动作与父稿'):data.task.input_version.kind==='journal_format_check'?t('冻结的目标、指南要求与稿件版本'):data.task.input_version.kind==='journal_recommendation'?t('冻结的期刊建议输入与来源'):data.task.input_version.kind==='school_template'?t('已冻结的学校模板原件'):(data.task.input_version.kind==='layout_docx'||data.task.input_version.kind==='pdf_export')?t('已冻结的 DOCX 来源'):data.task.input_version.kind==='manuscript_writing'?t(customerView?'已选稿件':'已冻结的写作基础版本 {number}',{number:data.task.input_version.base_revision}):data.task.input_version.kind==='manuscript'?t('已冻结的稿件资料'):data.task.input_version.kind==='literature_assistance'?t('冻结的文献建议输入'):data.task.input_version.kind==='literature_search'?t('已冻结的文献检索条件'):data.task.input_version.kind==='report_collection'?t(customerView?'已选报告':'集合导出版本 {number}',{number:data.task.input_version.export_revision}):['figure_projection','figure_workbench','figure_explanation'].includes(data.task.task_type)?t('冻结的图表配置与来源'):['parse_file', 'extract_dataset', 'review_ocr'].includes(data.task.task_type) ? t(data.task.task_type === 'review_ocr' ? '原图转录核对' : data.task.task_type === 'extract_dataset' ? '本地 Excel 结构提取' : '本地文件解析') : data.task.task_type === 'prepare_dataset' ? t('本地数据整理') : data.task.task_type === 'analysis_recommendation'?t('受限分析建议'):data.task.task_type === 'analysis_plan' ? t('整理数据分析计划') : t(allowUsage?'分析配置 v{revision}':'已保存的分析配置', { revision: data.task.input_version.setup_revision ?? 0 })}</span>
           {!data.task.task_type.startsWith('bio_')&&!['research_figure','research_report','research_fact_draft','delivery_package','reader_report_narrative','review_revision','review_document_export','review_round_plan','journal_adaptation','journal_format_check','journal_recommendation','school_template_parse','school_rule_suggestion','layout_docx','manuscript_writing','pdf_export','manuscript_draft','manuscript_docx','literature_assistance','literature_search','figure_projection','figure_workbench','figure_explanation','collection_word_report','parse_file', 'extract_dataset', 'prepare_dataset', 'analysis_plan', 'analysis_recommendation', 'review_ocr'].includes(data.task.task_type) && <small>{t(data.source.is_current ? '当前分析配置' : '历史分析配置')}</small>}</dd></div>
         <div><dt>{t('处理阶段')}</dt><dd>{t(taskPhaseName(data.task))}</dd></div>
         <div><dt>{t('建立时间')}</dt><dd><time dateTime={data.task.created_at}>{new Date(data.task.created_at).toLocaleString(locale)}</time></dd></div></dl>
       {['research_figure','research_report','research_fact_draft','delivery_package','bio_import','review_revision','review_document_export','review_round_plan','journal_adaptation','journal_format_check','journal_recommendation','school_template_parse','school_rule_suggestion','layout_docx','pdf_export','figure_projection','figure_workbench','figure_explanation','collection_word_report','parse_file', 'extract_dataset', 'prepare_dataset', 'analysis_plan', 'analysis_recommendation', 'review_ocr'].includes(data.task.task_type) && onOpenFiles && <button type="button" onClick={onOpenFiles}>{t('查看项目文件')}</button>}
-      <ManuscriptTaskLinks workspace={data} active={active&&shown('overview')}/>
+      <ManuscriptTaskLinks workspace={data} customerView={customerView} active={active&&shown('overview')}/>
       {(data.task.input_version.kind==='pdf_export'||data.task.input_version.kind==='layout_docx')&&data.task.input_version.source_kind==='manuscript_export'&&onOpenManuscripts&&<button type="button" onClick={onOpenManuscripts}>{t('返回稿件写作')}</button>}
       {(data.task.task_type==='journal_adaptation'||data.task.task_type==='journal_format_check'||data.task.task_type==='journal_recommendation')&&<p>{data.task.input_version.kind==='journal_adaptation'?<a href={`#project=${encodeURIComponent(projectId)}&section=journals&adaptation=${encodeURIComponent(data.task.input_version.adaptation_id)}`}>{t('打开期刊建议')}</a>:onOpenJournals?<button type="button" onClick={onOpenJournals}>{t('打开期刊建议')}</button>:<a href={`#project=${encodeURIComponent(projectId)}&section=journals`}>{t('打开期刊建议')}</a>}</p>}
       {data.task.task_type==='literature_assistance'&&<p className="muted">{translateForLocale(data.source.is_current?'模型建议与人工决定独立保存；历史建议只读，不能自动确认或改写新版本。':'历史版本只读；旧判定和模型建议不能确认新论述。',data.task.input_version.output_language??locale)}</p>}
@@ -119,7 +140,7 @@ function Detail({ projectId, taskId, onChanged, onOpenFiles, onOpenLiterature, o
       <InsightTaskLinks task={data.task} artifact={data.artifacts.bio_insights}/><BioTaskLinks task={data.task}/><ResearchTaskLinks task={data.task} artifact={data.artifacts.research_results} reportReturn={reportReturn}/>{data.task.input_version.kind==='bio_import'&&<p><a href={`#project=${encodeURIComponent(projectId)}&section=analysis&view=bio-import&import=${encodeURIComponent(data.task.input_version.import_id)}`}>{t('查看生信导入与结果')}</a></p>}
       {data.task.error_code && (data.task.origin === 'legacy' ? <div className="warning-panel">
         <p>{t(historicalErrorReason(data.task.error_code))}</p><p>{t('此历史任务仅供查看，不支持恢复或重试。')}</p>
-      </div> : <p className="warning-panel">{t(apiError({ code: data.task.error_code }, '任务暂未完成，请查看处理说明。'))}</p>)}
+      </div> : <p className="warning-panel">{t(taskErrorMessage(data.task.error_code, '任务暂未完成，请查看处理说明。', customerView))}</p>)}
       </div>
       <div hidden={!shown('actions')} className="task-actions-view"><InsightTaskLinks task={data.task} artifact={data.artifacts.bio_insights}/><BioTaskLinks task={data.task}/><ResearchTaskLinks task={data.task} artifact={data.artifacts.research_results} reportReturn={reportReturn}/>{data.task.input_version.kind==='bio_import'&&<p><a href={`#project=${encodeURIComponent(projectId)}&section=analysis&view=bio-import&import=${encodeURIComponent(data.task.input_version.import_id)}`}>{t('查看生信导入与结果')}</a></p>}
       <AnalysisActivity registerLeaveGuard={registerLeaveGuard}>
@@ -127,7 +148,7 @@ function Detail({ projectId, taskId, onChanged, onOpenFiles, onOpenLiterature, o
       {data.task.input_version.kind==='layout_docx'&&data.task.status==='failed'&&<LayoutExports active={actionActive} registerLeaveGuard={registerLeaveGuard} projectId={projectId} sourceKind={data.task.input_version.source_kind} sourceId={data.task.input_version.source_id} sourceSha256={data.task.input_version.source_sha256} sourceLabel={data.source.filename} initialOpen disabled={loading||!!error}/>}
       {data.task.origin!=='legacy'&&data.task.task_type==='statistics_compute'&&<StatisticsTaskRecovery registerLeaveGuard={registerLeaveGuard} workspace={data} blocked={loading||!!error||!actionActive} onChanged={()=>{refresh();onChanged()}}/>}
       {data.task.task_type==='delivery_package'&&<DeliveryTaskRecovery workspace={data} active={actionActive} blocked={loading||!!error} registerLeaveGuard={registerLeaveGuard} onChanged={()=>{refresh();onChanged()}}/>}
-      {data.task.origin !== 'legacy' && !['layout_docx','statistics_compute','pdf_export','delivery_package'].includes(data.task.task_type) && (data.task.task_type!=='bio_import'||data.task.status==='failed') && <TaskPendingAction active={actionActive} registerLeaveGuard={registerLeaveGuard} workspace={data} blocked={loading || !!error} onChanged={() => { refresh(); onChanged() }} />}
+      {data.task.origin !== 'legacy' && !['layout_docx','statistics_compute','pdf_export','delivery_package'].includes(data.task.task_type) && (data.task.task_type!=='bio_import'||data.task.status==='failed') && <TaskPendingAction active={actionActive} customerView={customerView} registerLeaveGuard={registerLeaveGuard} workspace={data} blocked={loading || !!error} onChanged={() => { refresh(); onChanged() }} />}
       </AnalysisActivity>
       </div>
       <div hidden={!shown('result')} className="task-result-view"><InsightTaskLinks task={data.task} artifact={data.artifacts.bio_insights}/><BioTaskLinks task={data.task}/><ResearchTaskLinks task={data.task} artifact={data.artifacts.research_results} reportReturn={reportReturn}/>{data.task.input_version.kind==='bio_import'&&<p><a href={`#project=${encodeURIComponent(projectId)}&section=analysis&view=bio-import&import=${encodeURIComponent(data.task.input_version.import_id)}`}>{t('查看生信导入与结果')}</a></p>}
@@ -147,13 +168,13 @@ function Detail({ projectId, taskId, onChanged, onOpenFiles, onOpenLiterature, o
           <StatisticsReportDownloads files={reportFiles} filename={allowUsage?reportFiles.filename:t('分析报告')+'.docx'}/>
         </article>:data.artifacts.report && data.task.task_type!=='pdf_export' && <article><h4>{t(data.task.task_type==='review_document_export'?'独立意见成果 DOCX':data.task.task_type==='layout_docx'?'排版 DOCX 导出':'Word 分析报告')}</h4>
           <ProjectDownloadLink href={data.artifacts.report.download_url} filename={allowUsage?data.artifacts.report.filename:t(customerView?customerWordTitle:'分析报告')+'.docx'}>{t('下载此任务的 Word')}</ProjectDownloadLink></article>}
-        {data.artifacts.dataset && <ProjectDownloadLink href={data.artifacts.dataset.download_url} filename={allowUsage?data.artifacts.dataset.filename:t('表格结构')+'.json'}>{t('下载完整 JSON')}</ProjectDownloadLink>}
+        {data.artifacts.dataset && !customerView && <ProjectDownloadLink href={data.artifacts.dataset.download_url} filename={allowUsage?data.artifacts.dataset.filename:t('表格结构')+'.json'}>{t('下载完整 JSON')}</ProjectDownloadLink>}
         {data.task.task_type==='reader_report_narrative' ? <p>{t(data.task.status==='succeeded'?'详细解读已保存，可返回分析报告复核解读并生成文件。':'请返回分析报告查看解读进度。')} <a href={narrativeBack}>{t('返回分析报告')}</a></p>
         : !data.artifacts.literature_assistance?.result && !data.artifacts.literature && !data.artifacts.analysis && !data.artifacts.dataset && !data.artifacts.figure && !data.artifacts.explanation && !data.artifacts.report && <p className="task-empty">{t(data.task.origin === 'legacy'
           ? '无法确认此历史任务关联的成果。' : data.task.task_type==='review_round_plan'?'计划已保存，意见待处理；请返回本轮意见查看。':data.task.task_type==='journal_adaptation'&&data.task.status==='succeeded'?'期刊适配结果与公共新稿已保存，请打开期刊建议查看实际依据与固定版本导出。':data.task.task_type==='journal_format_check'&&data.task.status==='succeeded'?'期刊格式检查结果已保存，请打开期刊建议查看固定版本与调整清单。':data.task.task_type==='journal_recommendation'&&data.task.status==='succeeded'?'期刊建议已保存，请打开期刊建议查看本批结果与来源。':['parse_file', 'extract_dataset', 'review_ocr'].includes(data.task.task_type) && data.task.status === 'succeeded' ? (data.task.task_type === 'extract_dataset' ? '结构版本已保存，请到项目文件区查看。' : '文件已解析，请到项目文件区查看预览。') : data.task.task_type==='delivery_package'?'封包只整理已有固定成员；请返回交付登记查看原快照、下载与接受记录。':'此任务尚无已保存的成果。')}</p>}
       </section>}
       </div>
-      {data.task.origin !== 'legacy' && <><div className="task-events-view" hidden={!shown('events')}>{(data.task.task_type==='research_report'||data.task.task_type==='delivery_package')&&<TaskCheckpointProgress projectId={projectId} taskId={taskId} taskType={data.task.task_type} active={active&&shown('events')}/>}<TaskEvents active={active && shown('events')} taskId={taskId} taskType={data.task.task_type} live={live} refreshKey={attempt} /></div>
+      {data.task.origin !== 'legacy' && <><div className="task-events-view" hidden={!shown('events')}>{(data.task.task_type==='research_report'||data.task.task_type==='delivery_package')&&<TaskCheckpointProgress projectId={projectId} taskId={taskId} taskType={data.task.task_type} active={active&&shown('events')}/>}<TaskEvents active={active && shown('events')} customerView={customerView} taskId={taskId} taskType={data.task.task_type} live={live} refreshKey={attempt} /></div>
         <div className="task-usage-view" hidden={!shown('usage')}>
         {!['research_figure','research_report','research_fact_draft','delivery_package','review_revision','review_document_export','review_round_plan','journal_adaptation','journal_format_check','journal_recommendation','school_template_parse','layout_docx','pdf_export','manuscript_draft','manuscript_docx','literature_search','statistics_compute','parse_file', 'extract_dataset', 'prepare_dataset', 'analysis_plan', 'analysis_recommendation', 'review_ocr'].includes(data.task.task_type) && <TaskModelUsage layered={view!==undefined} active={active && shown('usage')} taskId={taskId} refreshKey={attempt + data.task.revision} />}
         {shown('usage') && ['research_figure','research_report','research_fact_draft','delivery_package','review_revision','review_document_export','review_round_plan','journal_adaptation','journal_format_check','journal_recommendation','school_template_parse','layout_docx','pdf_export','manuscript_draft','manuscript_docx','literature_search','statistics_compute','parse_file','extract_dataset','prepare_dataset','analysis_plan','analysis_recommendation','review_ocr'].includes(data.task.task_type) && view !== undefined && <p className="task-empty">{t('此任务未提供独立模型用量视图。')}</p>}</div></>}

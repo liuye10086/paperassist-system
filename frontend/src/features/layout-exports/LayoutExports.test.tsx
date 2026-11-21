@@ -5,6 +5,7 @@ import LayoutExports from './LayoutExports'
 import {setApiSession} from '../../shared/api/client'
 import {setLocale} from '../../shared/i18n'
 import {execFileSync} from 'node:child_process'
+import {existsSync} from 'node:fs'
 import {resolve} from 'node:path'
 const hash='a'.repeat(64),anchor=(n:number)=>`${hash}:${n}`
 const props={projectId:'p1',sourceKind:'report' as const,sourceId:'r1',sourceSha256:hash,sourceLabel:'Analysis v1'}
@@ -82,7 +83,9 @@ it.each([
  ['invalid','公式 badFormula 无效'],['wide','公式 badFormula 无效'],
  ['target','references.0.target_id'],['pagination','pagination.body_anchor_id'],['toc','toc.depth'],
 ])('locates %s using the real Python engine and public serializer response',async(caseName,expected)=>{
- const python=process.env.PAPERASSIST_TEST_PYTHON??resolve('..','backend','.venv',process.platform==='win32'?'Scripts/python.exe':'bin/python')
+ const windows = process.platform === 'win32'
+ const venv = resolve('..', 'backend', '.venv', windows ? 'Scripts/python.exe' : 'bin/python')
+ const python = process.env.PAPERASSIST_TEST_PYTHON ?? (existsSync(venv) ? venv : windows ? 'python' : 'python3')
  const payload=JSON.parse(execFileSync(python,[resolve('..','backend','tests','fixtures','layout_public_error.py'),caseName],{encoding:'utf8'}))
  vi.stubGlobal('fetch',vi.fn(async(url:string,init?:RequestInit)=>Response.json(init?.method==='POST'?payload:url.endsWith('/catalog')?catalog:{items:[]},{status:init?.method==='POST'?422:200})))
  render(<LayoutExports {...props}/>);await open()
@@ -125,4 +128,16 @@ it('accepts full Unicode equation/prefix limits and caps overflow by code point 
  const finalExpression='x'.repeat(1999)+'𝑥',finalPrefix='p'.repeat(99)+'𝑥'
  fireEvent.change(expression,{target:{value:finalExpression+'z'}});fireEvent.change(prefix,{target:{value:finalPrefix+'z'}});expect(expression.value).toBe(finalExpression);expect(prefix.value).toBe(finalPrefix)
  fireEvent.click(screen.getByRole('button',{name:'生成排版 DOCX'}));await waitFor(()=>expect(bodies).toHaveLength(1));expect(JSON.parse(bodies[0]).layout.formulas[0].expression).toBe(finalExpression);expect(JSON.parse(bodies[0]).layout.references[0].prefix).toBe(finalPrefix)
+})
+it('opens layout and equations as its own view without a fold and reads nothing before',async()=>{
+ const fetcher=vi.fn(async(url:string)=>Response.json(url.endsWith('/catalog')?catalog:{items:[]}));vi.stubGlobal('fetch',fetcher)
+ const {container}=render(<LayoutExports {...props}/>)
+ expect(container.querySelector('details, summary, [aria-expanded]')).toBeNull()
+ expect(screen.getByText('冻结来源：Analysis v1')).toBeTruthy()
+ expect(fetcher).not.toHaveBeenCalled()
+ await open()
+ expect(screen.getByRole('button',{name:'排版与公式'}).getAttribute('aria-pressed')).toBe('true')
+ expect(container.querySelector('details, summary, [aria-expanded]')).toBeNull()
+ fireEvent.click(screen.getByRole('button',{name:'排版说明'}))
+ expect(screen.queryByRole('button',{name:'生成排版 DOCX'})).toBeNull()
 })

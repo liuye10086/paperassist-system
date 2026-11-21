@@ -34,7 +34,8 @@ def other_account():
         identity = other.get('/api/v1/auth/me')
         assert identity.status_code == 200
         assert identity.json()['user']['id'] == created['id']
-        assert identity.json()['user']['role'] == role
+        expected_role = 'analyst' if role == 'user' else role
+        assert identity.json()['user']['role'] == created['role'] == expected_role
         assert other.cookies.get('paperassist_session')
         with database_connection() as db:
             assert db.execute('SELECT active FROM users WHERE id=%s', (created['id'],)).fetchone()['active']
@@ -107,12 +108,14 @@ def test_foreign_recovery_is_read_only_then_owner_same_body_succeeds(client, clo
     assert accepted['revision'] == task['revision'] + 1
     assert accepted['input_version'] == task['input_version']
     after = business_snapshot()
-    assert len(after['tasks']) == len(before['tasks']) == 1
+    assert {row['id'] for row in before['tasks']} == {row['id'] for row in after['tasks']}
+    assert [row for row in before['tasks'] if row['id'] != task['id']] == [
+        row for row in after['tasks'] if row['id'] != task['id']]
     for table in ('task_events', 'task_outbox'):
         assert len(after[table]) == len(before[table]) + 1
-    event = next(row for row in after['task_events'] if row['task_revision'] == accepted['revision'])
+    event, = [row for row in after['task_events'] if row['task_id'] == task['id'] and row['task_revision'] == accepted['revision']]
     assert event['event_type'] == 'requeued'
-    outbox = [row for row in after['task_outbox'] if row['task_revision'] == accepted['revision']]
+    outbox = [row for row in after['task_outbox'] if row['task_id'] == task['id'] and row['task_revision'] == accepted['revision']]
     assert len(outbox) == 1
     if route == 'budget_resume':
         assert len(after['task_waits']) == 1

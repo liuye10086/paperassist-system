@@ -11,11 +11,11 @@ from app.maintenance.database_audit import audit_database
 from tests.db.test_task_schema import seed_owner, task_row, insert_row
 
 
+@pytest.mark.initial_revision('0014_file_assets')
 def test_0015_preserves_every_old_file_value_and_task_snapshot(postgres_schema, postgres_migration_config):
     with migration_connection(config=postgres_migration_config) as db:
         settings = alembic_config()
         settings.attributes.update(connection=db.raw_connection, database_config=postgres_migration_config)
-        command.downgrade(settings, '0014_file_assets')
         seed_owner(db)
         db.execute('''INSERT INTO files(id,project_id,filename,file_type,size_bytes,sha256,uploaded_at,
             parse_status,error_json,preview_json,uploader_id,object_key,metadata_revision)
@@ -25,15 +25,16 @@ def test_0015_preserves_every_old_file_value_and_task_snapshot(postgres_schema, 
         insert_row(db, 'tasks', task_row(input_snapshot={'schema_version': 1, 'result': {'old': [None, 1]}}))
         old_task = dict(db.execute('SELECT * FROM tasks').fetchone())
         old_indexes = inspect(db.raw_connection).get_indexes('files', schema=postgres_schema.schema)
-        command.upgrade(settings, 'head')
+        command.upgrade(settings, '0015_file_parsing')
         new_file = dict(db.execute('SELECT * FROM files').fetchone())
         assert {key: new_file[key] for key in old_file} == old_file
         assert new_file['parse_revision'] == 0 and new_file['upload_item_id'] is None
         current_task=dict(db.execute('SELECT * FROM tasks').fetchone())
-        assert current_task.pop('verification_failure') is None
         assert current_task == old_task
         assert all(index in inspect(db.raw_connection).get_indexes('files', schema=postgres_schema.schema) for index in old_indexes)
         assert db.execute('SELECT count(*) AS n FROM file_parse_results').fetchone()['n'] == 0
+        command.upgrade(settings, 'head')
+        assert db.execute('SELECT verification_failure FROM tasks').fetchone()['verification_failure'] is None
         result = audit_database(db)
         assert result['ok'], result['schema_issues']
 

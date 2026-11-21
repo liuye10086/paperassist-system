@@ -1,4 +1,5 @@
 """0038→0039 uses only the fixture's random TEST schema."""
+from tests.helpers.historical_migration import historical_workflow, assert_saved_history_blocks
 import pytest
 from alembic import command
 from sqlalchemy.exc import SQLAlchemyError
@@ -16,12 +17,8 @@ def test_layout_migration_preserves_old_values_columns_indexes_and_constraints(c
     from tests.helpers.historical_pdf_exports import historical_pdf
     old=historical_pdf(pdf_path,'manuscript_export',source['id'],raw=b'%PDF-preserved-before-0039')
     before_pdf=client.get(pdf_path+'/'+old['id']+'/download').content
-    cfg=alembic_config()
-    with migration_connection(write=True) as db:
-        assert db.config.schema.startswith('pa_test_')
-        assert db.execute('SELECT current_database() AS name').fetchone()['name']=='paperassist_system_test'
-        cfg.attributes.update(connection=db.raw_connection,database_config=get_migration_database_config())
-        command.downgrade(cfg,'0038_manuscript_review')
+    with historical_workflow(get_migration_database_config(), '0038_manuscript_review') as (db, cfg):
+        assert db.execute("SELECT 1 FROM pdf_exports WHERE id=%s", (old['id'],)).fetchone()
         tables=[r['tablename'] for r in db.execute('SELECT tablename FROM pg_tables WHERE schemaname=current_schema()') if r['tablename']!='alembic_version']
         before=fingerprints(db,tables)
         indexes={r['indexname']:r['indexdef'] for r in db.execute('SELECT indexname,indexdef FROM pg_indexes WHERE schemaname=current_schema()')}
@@ -65,8 +62,4 @@ def test_layout_typed_scope_snapshot_and_downgrade_guards(client):
         with pytest.raises(SQLAlchemyError):
             with database_connection(write=True) as db:
                 db.execute('UPDATE layout_exports SET '+clause+' WHERE id=%s',(saved['id'],))
-    cfg=alembic_config()
-    with pytest.raises(RuntimeError,match='refusing destructive downgrade'):
-        with migration_connection(write=True) as db:
-            cfg.attributes.update(connection=db.raw_connection,database_config=get_migration_database_config())
-            command.downgrade(cfg,'0038_manuscript_review')
+    assert_saved_history_blocks('0039_layout_exports', 'Layout history exists; refusing destructive downgrade.')

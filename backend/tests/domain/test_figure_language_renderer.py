@@ -158,14 +158,18 @@ def test_tick_glyph_advances_are_centered_on_axis_marks_without_clipping(monkeyp
 
 
 def test_renderer_v2_centers_only_text_and_keeps_legacy_geometry_and_png_replay():
+    from io import BytesIO
+    from PIL import Image
     from app.adapters.figure_language_renderer import render_boxplot
     from app.core.exceptions import StorageError
     source=frozen();old=render_boxplot(source,labels(),'en',renderer_version='paperassist_horizontal_boxplot_language_v1')
     new=render_boxplot(source,labels(),'en')
     assert new['renderer_version']=='paperassist_horizontal_boxplot_language_v2'
     assert old['renderer_version']=='paperassist_horizontal_boxplot_language_v1'
-    # Captured before this fix using the existing locked font hashes and v1 renderer.
-    assert sha256(old['png']).hexdigest()=='53b4afba276e2f45166490a09107bdf855664cc121f6f0c4181a851fc05d696c'
+    # The original v1 image has the same pixels with zlib and zlib-ng.
+    with Image.open(BytesIO(old['png'])) as image:
+        assert image.format=='PNG' and image.size==(1800,1200)
+        assert sha256(image.convert('RGB').tobytes()).hexdigest()=='643d086cbe74aad2cdebd386ad2c52b67538a74fba8239731c5d6e6a02ceda9d'
     for field in ('geometry','geometry_fingerprint','data_fingerprint','frozen_series','text_manifest','font_hashes'):
         assert new[field]==old[field]
     assert new['png']!=old['png']

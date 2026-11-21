@@ -8,6 +8,8 @@ from fastapi.testclient import TestClient
 import pytest
 
 from app.domain.tasks.execution import run_task
+from app.db.database import database_connection
+from app.domain.manuscripts.school_changes import SchoolChangeService
 from app.main import app
 from tests.api.test_customer_sci_workflow import sci_project
 from tests.api.test_customer_workspace import sign_in
@@ -190,13 +192,13 @@ def return_and_continue(client, reviews, path, review, root, run, fixed, exporte
     return saved
 
 
-@pytest.mark.parametrize('kind', ['sci', 'thesis'])
+@pytest.mark.parametrize('kind', ['sci', 'thesis', 'thesis-legacy-migration'])
 def test_customer_review_revises_exports_and_starts_next_round(kind, monkeypatch):
-    thesis = kind == 'thesis'
+    thesis = kind != 'sci'
     monkeypatch.setattr('app.adapters.pdf_renderer.update_layout_fields', synthetic_layout_cache)
     with TestClient(app) as client, TestClient(app) as other:
         sign_in(client, f'{kind}-b04-revision@manuscript.test', 'customer')
-        sign_in(other, 'b04-foreign@manuscript.test', 'customer')
+        other_id = sign_in(other, 'b04-foreign@manuscript.test', 'customer')
         project, root, base, school = (thesis_parent if thesis else sci_parent)(client)
         original_export, original = export_word(client, root, base, school, 'b04-original')
         reviews = project + '/reviews'
@@ -229,3 +231,63 @@ def test_customer_review_revises_exports_and_starts_next_round(kind, monkeypatch
         assert client.get(revised['download_url']).content == raw
         assert client.get(comparison['download_url']).content == comparison_bytes
         assert client.post(project + '/pdf-exports', json={}).status_code == 405
+        if thesis:
+            migrate_returned_thesis(client, project, root, revised, raw, monkeypatch, other_id,
+                                    inherited_return=kind == 'thesis-legacy-migration')
+
+
+def migrate_returned_thesis(client, project, root, historical_export, historical_bytes, monkeypatch, other_id, *, inherited_return):
+    parent = request(client, 'GET', root)['versions'][0]
+    snapshot = parent['snapshot']
+    assert snapshot['user_return_provenance']['return_id']
+    if inherited_return:
+        # The original migration writer retained its parent's return proof. Seal
+        # the old shape through the normal registration, preview and adoption.
+        candidate = SchoolChangeService.candidate
+        def legacy_candidate(service, db, row, mappings):
+            result = candidate(service, db, row, mappings)
+            result[0]['user_return_provenance'] = snapshot['user_return_provenance']
+            return result
+        monkeypatch.setattr(SchoolChangeService, 'candidate', legacy_candidate)
+    templates = project + '/school-templates'
+    new = parse_template(client, project, start_template(client, project, 'after-return',
+                         previous=snapshot['thesis_context']['template_version_id'], updated=True))
+    confirmation = request(client, 'POST', templates + '/' + new['id'] + '/confirm', status=201,
+                           key='confirm-after-return', json=template_confirmation(new))
+    profile = request(client, 'GET', project + '/thesis-profile')
+    request(client, 'POST', project + '/thesis-template-binding', json=dict(
+        expected_revision=profile['revision'], confirmation_id=confirmation['id']))
+    change = request(client, 'POST', root + f"/versions/{parent['revision']}/school-changes", status=201,
+                     key='migrate-after-return', json=dict(kind='template_migration', target_confirmation_id=confirmation['id']))
+    path = root + '/school-changes/' + change['id']
+    preview = request(client, 'POST', path + '/preview', json=dict(mappings=change['mappings']))
+    assert preview['can_adopt'], preview['issues']
+    adoption = dict(mappings=preview['mappings'], expected_revision=parent['revision'], preview_sha256=preview['preview_sha256'])
+    migrated = request(client, 'POST', path + '/adopt', status=201, key='save-after-return', json=adoption)['versions'][0]
+    assert migrated['parent_version_id'] == parent['id']
+    assert migrated['snapshot']['school_change_provenance']['change_id'] == change['id']
+    assert ('user_return_provenance' in migrated['snapshot']) == inherited_return
+    assert run_task(migrated['task_id'], 1)['status'] == 'succeeded'
+    assert request(client, 'POST', path + '/adopt', key='save-after-return', json=adoption)['current_revision'] == migrated['revision']
+    assert request(client, 'GET', root + f"/versions/{parent['revision']}")['snapshot'] == snapshot
+    export_word(client, root, migrated, {}, 'word-after-return-migration')
+    assert client.get(historical_export['download_url']).content == historical_bytes
+    reviews = project + '/reviews'
+    def options():
+        result = request(client, 'GET', reviews + '/inputs')
+        return {v['id'] for m in result['manuscripts'] for v in m['versions']}
+    assert {parent['id'], migrated['id']} <= options()
+    for item in request(client, 'GET', reviews + '/rounds')['items']:
+        assert request(client, 'GET', reviews + '/rounds/' + item['id'])['manuscript'] == item['manuscript']
+    load_change = SchoolChangeService.row
+    with monkeypatch.context() as patch:
+        def mismatched_candidate(service, *args):
+            return {**load_change(service, *args), 'candidate_sha256': '0' * 64}
+        patch.setattr(SchoolChangeService, 'row', mismatched_candidate)
+        rejected = client.get(reviews + '/inputs')
+        assert rejected.status_code == 409
+        assert rejected.json()['detail']['code'] == 'task_source_conflict'
+    with database_connection(write=True) as db:
+        db.execute('UPDATE files SET upload_actor_id=%s WHERE id=%s',
+                   (other_id, snapshot['user_return_provenance']['source']['file_id']))
+    assert not {parent['id'], migrated['id']} & options()

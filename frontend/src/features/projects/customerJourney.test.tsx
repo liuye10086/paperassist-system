@@ -7,7 +7,10 @@ import { workflowStateFixture } from '../../test/fixtures/workflowStateFixture'
 import type { Project } from './projectTypes'
 import type { WorkflowState } from './useProjectFlow'
 
-vi.mock('../../shared/api/client', () => ({ apiFetch: vi.fn(), onApiSessionChanged: () => () => {} }))
+vi.mock('../../shared/api/client', async importOriginal => ({
+  ...await importOriginal<typeof import('../../shared/api/client')>(),
+  apiFetch: vi.fn(),
+}))
 vi.mock('./ProjectResources', () => ({ default: ({allowNewAnalysis}:{allowNewAnalysis?:boolean}) => <output aria-label="新分析入口状态">{String(allowNewAnalysis)}</output> }))
 vi.mock('./ProjectSummary', () => ({ default: () => null }))
 vi.mock('./ProjectDetails', () => ({ default: ({renderHeader}:{renderHeader?:(language:ReactNode)=>ReactNode}) => renderHeader?.(null) ?? null }))

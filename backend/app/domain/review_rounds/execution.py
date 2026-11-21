@@ -47,10 +47,17 @@ def run_review_round_task(task_id,task_revision,*,config=None,directory=None):
         try:return execution.fail(lease,exc.code if isinstance(exc,StorageError) else 'task_worker_interrupted')
         except LeaseLost:return None
 
+def verify_retry_sources(db,task,*,config=None,lock=False):
+    service=ReviewRoundService(review_task_assets(db,task,config))
+    row=service.round_row(db,task['project_id'],input_version(task)['round_id'],lock=lock)
+    if row['task_id']!=task['id']:
+        raise source_conflict()
+    service.fixed(db,row)
+
 def retry_in_transaction(store,db,task,expected_revision):
     if task['task_type']!='review_round_plan' or task['revision']!=expected_revision or task['status'] not in ('failed','waiting_input','waiting_confirmation'):raise invalid('返修计划任务不能恢复。',409)
-    service=ReviewRoundService(review_task_assets(db,task,store.config));row=service.round_row(db,task['project_id'],input_version(task)['round_id'],True);service.fixed(db,row)
-    if task['status']=='failed' and task.get('error_code') not in ('storage_unavailable','task_worker_interrupted'):raise invalid('此错误不支持安全重试。',409)
+    verify_retry_sources(db,task,config=store.config,lock=True)
+    if task['status']=='failed' and task.get('error_code') not in ('storage_unavailable','task_worker_interrupted','task_source_conflict'):raise invalid('此错误不支持安全重试。',409)
     task.update(status='queued',revision=expected_revision+1,reason_code='retry_requested',error_code=None,updated_at=max(now(),task['updated_at']),_retry_reason='manual_retry')
     store.update_task(db,task,expected_revision)
     from app.domain.tasks.waits import resolve_open_wait

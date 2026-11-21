@@ -82,10 +82,9 @@ it('refreshes a newly adopted customer return without a second submit or manual 
  })
  const {container}=render(<ReturnContinuationPanel projectId="p1" round={round as never}
   documents={inputs.documents as never} active expanded customer onPrepareNext={vi.fn()} onOpenTask={vi.fn()}/>)
- await screen.findByRole('option',{name:/回传记录 1/})
- fireEvent.change(screen.getByLabelText('查看固定回传记录'),{target:{value:'return1'}})
- fireEvent.click(await screen.findByRole('button',{name:'采用回传并另存公共稿'}))
- await waitFor(()=>expect(screen.getByRole('button',{name:'用此回传稿准备下一轮'})).toHaveProperty('disabled',false))
+ // The customer panel opens the latest unadopted return itself (B04 task 12); no record picker is needed.
+ fireEvent.click(await screen.findByRole('button',{name:'采用返回稿'}))
+ await waitFor(()=>expect(screen.getByRole('button',{name:'用返回稿开始下一轮'})).toHaveProperty('disabled',false))
  expect(reread).toBe(true)
  expect(writes.filter(write=>write.url.endsWith('/adopt'))).toHaveLength(1)
  expect(container.textContent).not.toMatch(/chapter_id|internal-key|回传固定父稿版本/)

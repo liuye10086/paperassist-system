@@ -271,7 +271,7 @@ function FigurePanel({ base, runId, revision, canGenerate, canExportSavedReport=
       <p><ProjectDownloadLink href={`${endpoint}/image?download=true`} filename={t(figureLabel)+'.png'}>{figureKind==='boxplot'?t('下载箱线图 PNG'):t('下载{figure} PNG',{figure:t(figureLabel)})}</ProjectDownloadLink></p>
       <section className="artifact-details"><h4>{t("图表来源与核对记录")}</h4>
         <p>{t("横轴：")}{figure.x_label}{t("；纵轴：")}{figure.y_label}</p>
-        <p>{figure.verification.note}{t("；请同时人工核对图像与标签。")}</p>
+        <p>{figure.verification.note}</p>
         <p>{t("保存时间：")}{figure.created_at}</p>
       </section>
     </figure>}

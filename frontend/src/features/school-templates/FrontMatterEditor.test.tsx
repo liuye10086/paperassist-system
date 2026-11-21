@@ -17,3 +17,14 @@ it('confirms source-backed dynamic fields without copying examples and preserves
  expect(screen.getByRole('status').textContent).not.toContain('示例值')
  expect(screen.getByRole('status').textContent).toContain('"required":true')
 })
+it('names customer source options by source and original text without storage paths',()=>{
+ const supplement={id:'p3',source:{part:'学校补充规范.docx',path:'document-version:5f7a9b1d-3e5a-4c7b-9d1f-2a4c6e8b0d35:e1',text:'学号：'},section_id:'s1',suggested_label:'学号',style:{font_size_pt:12},style_sources:{}} as FrontSource
+ const value:FrontMatter={schema_version:1,cover_section_id:'s1',fields:[{id:'field-1',label:'培养层次',kind:'text',required:false,source_id:'p1',style_source_id:null,section_id:'s1',chapter_id:null}],content_requirements:[]}
+ const view=render(<FrontMatterEditor customerView value={value} onChange={()=>{}} sources={[...sources,supplement]} sections={[{id:'s1'}]} chapters={[]}/>)
+ const labels=[...view.container.querySelectorAll('option')].map(option=>option.textContent??'')
+ expect(labels).toContain('学校模板 · 培养层次：示例值');expect(labels).toContain('补充规范《学校补充规范.docx》 · 学号：')
+ expect(labels.join('\n')).not.toMatch(/word\/|\/p\[|document-version:/)
+ cleanup()
+ const staff=render(<FrontMatterEditor value={value} onChange={()=>{}} sources={sources} sections={[{id:'s1'}]} chapters={[]}/>)
+ expect(staff.container.textContent).toContain('word/document.xml · /p[1]')
+})

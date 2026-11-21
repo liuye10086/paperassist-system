@@ -166,13 +166,10 @@ def compile_school_export(snapshot,analysis,options,*,submission_forms=False):
         decisions.append(dict(id='gs501-running-headers',message='从中文摘要起，首、奇、偶页使用随该部分标题变化的篇眉。',
             source_evidence=[bsu_gs501.guide_source(8,'各部分篇眉与标题相同，包括首页和奇偶页。'),
                              bsu_gs501.guide_source(13,'英文摘要篇眉用 Times New Roman 五号。')]))
-        decisions.append(dict(id='gs501-blind',message='盲评保留各章节，身份字段用 XXX，委员会及声明和授权的填写项留空。',
-            source_evidence=[dict(part=bsu_gs501.SOURCE_PAGE,path='2-1',text='北京体育大学研究生院 GS501 盲评版要求。')]))
         if submission_forms:
             decisions.append(dict(id='gs501-submission-forms',message='封面、题名页、原创性声明和授权书使用已上传的官方校模原页。',
                 source_evidence=[dict(part='word/document.xml',path='前四节',text='北京体育大学学术型硕士论文模板。')]))
-            issue('school:gs501-signing','manual','普通稿保留可编辑的委员会和签署栏。答辩版需本人电子签署，最终版还需填齐委员会姓名、职称和单位。'
-                '盲评稿保留原表，委员会、签署、日期和非公开审批项留空。',
+            issue('school:gs501-signing','manual','普通稿保留可编辑的委员会和签署栏。答辩版需本人电子签署，最终版还需填齐委员会姓名、职称和单位。',
                 sources=[dict(part=bsu_gs501.SOURCE_PAGE,path='2-1 至 2-3',text='北京体育大学研究生院 GS501 送审和提交要求。')])
     sections=[]
     for chapter in chapters:
@@ -286,7 +283,7 @@ def compile_school_export(snapshot,analysis,options,*,submission_forms=False):
     if gs501:result.update(format_profile=bsu_gs501.PROFILE,pagination_version=2)
     if submission_forms:
         result['submission_forms_source_sha256']=bsu_gs501.TEMPLATE_SHA256
-        date_value=bsu_gs501.submission_values(result,blind=False).get('submission_date')
+        date_value=bsu_gs501.submission_values(result).get('submission_date')
         if date_value and not bsu_gs501.submission_month(date_value):
             issue('school:gs501-date','manual','提交日期无法转换为校模的年月。已保留可编辑空栏，请在普通稿中核对填写。',
                   location='submission_date')

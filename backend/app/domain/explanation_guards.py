@@ -14,6 +14,13 @@ NEGATED_PREDICATE=re.compile(r'\b(?:cannot|can not|does not|do not|must not|shou
     r'(?:establish|imply|demonstrate|prove|support|show|justify|infer|claim|confirm|indicate|be|determine)\s+'
     r'(?:(?:a|any|the|clear|statistical|statistically)\s+){0,3}(?:caus\w*|significan\w*)$',re.I)
 ZH_SENSITIVE=re.compile(r'显著|统计学意义|因果|疗效')
+ZH_INFERENCE_OBJECT = r'(?:总体推断|因果(?:判断|推断|关系|结论)|(?:疗效|治疗效果)(?:判断|推断|结论))'
+# A denial may govern a list of noun phrases. Keep the surrounding clauses for validation.
+ZH_UNSUPPORTED_INFERENCES = re.compile(
+    r'(?<![^，,。；;！？!?\n])\s*(?:(?:这些|该|本次|本)(?:结果|数据|研究))?不支持'
+    + ZH_INFERENCE_OBJECT + r'(?:(?:、|或者|或|以及|和)' + ZH_INFERENCE_OBJECT + r')*'
+    + r'(?=\s*(?:[，,。；;！？!?\n]|$))'
+)
 ZH_CLAUSE_SPLIT=re.compile(r'[，,。；;！？!?\n]|但是|然而|但|并且|而且|以及|同时|且|却|仍|或者|或')
 ZH_NEGATED_PREDICATE=re.compile(r'(?:不能|无法|不足以|不应|不宜|尚不能)(?:据此)?'
     r'(?:说明|证明|认定|判断|推断|确定|声称|表明)'
@@ -25,8 +32,9 @@ ZH_NEGATED_PREDICATE=re.compile(r'(?:不能|无法|不足以|不应|不宜|尚�
 def unsafe_modern_prose(prose):
     if re.search(r'\b(?:auc|odds[ -]?ratio|hazard[ -]?ratio|survival[ -]?probability|sensitivity|specificity|r[ -]?squared|log[ -]?likelihood)\b|优势比|风险比|生存概率|敏感度|特异度|拟合优度',prose,re.I): return True
     if NUMBER_WORDS.search(prose) or LARGE_NUMBER_WORDS.search(prose) or QUANTITY_PLURALS.search(prose) or METRIC_PROSE.search(prose): return True
-    for match in ZH_SENSITIVE.finditer(prose):
-        clause=ZH_CLAUSE_SPLIT.split(prose[:match.start()])[-1]
+    zh_prose=ZH_UNSUPPORTED_INFERENCES.sub('',prose)
+    for match in ZH_SENSITIVE.finditer(zh_prose):
+        clause=ZH_CLAUSE_SPLIT.split(zh_prose[:match.start()])[-1]
         if not ZH_NEGATED_PREDICATE.search(clause+match.group()): return True
     for match in SENSITIVE.finditer(prose):
         clause=CLAUSE_SPLIT.split(prose[:match.start()])[-1]

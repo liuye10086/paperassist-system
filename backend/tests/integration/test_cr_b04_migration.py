@@ -41,11 +41,11 @@ def postgres_schema(monkeypatch,tmp_path):
 
 
 
-def upgrade():
+def upgrade(revision='0061_bio_insights'):
     with migration_connection(write=True) as db:
         cfg=alembic_config()
         cfg.attributes.update(connection=db.raw_connection,database_config=get_migration_database_config())
-        command.upgrade(cfg,'0061_bio_insights')
+        command.upgrade(cfg,revision)
 
 
 def test_upgrade_preserves_old_columns_and_matches_application_metadata():
@@ -59,6 +59,10 @@ def test_upgrade_preserves_old_columns_and_matches_application_metadata():
         assert db.execute('SELECT version_num FROM alembic_version').fetchone()['version_num']=='0061_bio_insights'
         for t in tables:
             assert db.execute('SELECT '+','.join(columns[t])+' FROM '+t+' ORDER BY '+columns[t][0]).fetchall()==before[t],t
+        from tests.helpers.historical_migration import assert_historical_runtime_grants
+        assert_historical_runtime_grants(db)
+    upgrade('head')
+    with database_connection() as db:
         verify_runtime_permissions(db.raw_connection,get_database_config())
         from app.maintenance.database_audit import audit_database
         from app.maintenance.database_audit import _check_signature
@@ -206,8 +210,9 @@ def test_resource_publication_is_once_only_and_raw_members_need_no_parser():
 
 def test_all_six_task_snapshots_and_version_lineage_are_strict():
     setup()
-    from app.db.bio_insights_schema import TASK_TYPES
-    for kind in TASK_TYPES:
+    task_types_0061 = ('bio_resource_import', 'bio_comparison', 'bio_result_import',
+                       'bio_enrichment', 'bio_candidate', 'bio_insight_figure')
+    for kind in task_types_0061:
         payload=dict(resource_version_id='resource') if kind=='bio_resource_import' else dict(plan_version_id='confirmed',run_id='run',source_digest='a'*64)
         with database_connection(write=True) as db:
             insight_task(db,kind,kind,**payload)

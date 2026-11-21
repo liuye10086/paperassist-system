@@ -18,13 +18,13 @@ def test_lifecycle_tables_runtime_permissions_and_audit(postgres_schema):
         assert any(c['column']=='lifecycle_integrity' for c in audit['data_checks'])
 
 
+@pytest.mark.initial_revision('0022_analysis_plans')
 def test_lifecycle_migration_preserves_rows_and_old_indexes(postgres_schema,postgres_migration_config):
     from alembic import command
     from tests.db.test_task_schema import seed_owner,task_row,insert_row
     with migration_connection(config=postgres_migration_config) as db:
         config=alembic_config()
         config.attributes.update(connection=db.raw_connection,database_config=postgres_migration_config)
-        command.downgrade(config,'0022_analysis_plans')
         seed_owner(db)
         insert_row(db,'tasks',task_row())
         tables=[r['table_name'] for r in db.execute("SELECT table_name FROM information_schema.tables WHERE table_schema=current_schema() AND table_name<>'alembic_version'")]
@@ -63,11 +63,15 @@ def test_lifecycle_scope_append_only_and_nonempty_downgrade(client,postgres_migr
         with pytest.raises(DBAPIError):
             with database_connection(write=True) as db:
                 db.execute(sql)
-    with pytest.raises(DBAPIError):
-        with migration_connection(config=postgres_migration_config) as db:
-            config=alembic_config()
-            config.attributes.update(connection=db.raw_connection,database_config=postgres_migration_config)
-            command.downgrade(config,'0022_analysis_plans')
+    from tests.helpers.historical_migration import historical_workflow
+    with historical_workflow(postgres_migration_config, '0023_file_lifecycle') as (old, settings):
+        frozen = dict(old.execute('SELECT * FROM file_deletion_requests').fetchone())
+        assert all(row[key] == value for key, value in frozen.items())
+        with pytest.raises(DBAPIError, match='lifecycle history requires preservation'):
+            with old.raw_connection.begin_nested():
+                command.downgrade(settings, '0022_analysis_plans')
+        assert old.execute('SELECT version_num FROM alembic_version').fetchone()['version_num'] == '0023_file_lifecycle'
+        assert dict(old.execute('SELECT * FROM file_deletion_requests').fetchone()) == frozen
     with database_connection() as db:
         assert dict(db.execute('SELECT * FROM file_deletion_requests').fetchone())==row
         assert audit_database(db)['ok']

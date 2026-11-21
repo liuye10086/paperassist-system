@@ -244,10 +244,7 @@ class SchoolTemplateService:
     def confirm(self,project,identity,request,key):
         if self.assets.customer and getattr(request,'schema_version',None)==2:
             raise StorageError('customer_operation_forbidden','请逐项人工确认学校模板规则。',403)
-        require_key(key);body=request.model_dump(mode='json')
-        if not request.text_decisions:body.pop('text_decisions',None)
-        if request.front_matter is None:body.pop('front_matter',None)
-        if request.format_profile is None:body.pop('format_profile',None)
+        require_key(key);body=self.request_body(request)
         with self.store.connection(write=True) as db:
             self.project(db,project,True);row=self.row(db,project,identity)
             existing=db.execute('SELECT * FROM school_template_confirmations WHERE template_version_id=%s',(identity,)).fetchone()
@@ -255,56 +252,71 @@ class SchoolTemplateService:
                 if existing['idempotency_key']==key and existing['request_digest']==digest(body): return self.confirmation(db,row),200
                 raise invalid('此模板版本已确认；确认版本不可覆盖。')
             sources,task=self.require_current(db,row)
-            if task['status']!='succeeded' or not row['analysis_json'] or row['analysis_sha256']!=request.analysis_sha256: raise invalid('解析未完成或版本已变化，请刷新。')
-            if request.format_profile and not bsu_gs501.available(sources):
-                raise invalid('GS501 排版仅适用于已核实的北京体育大学学术型硕士校模原件。',422)
-            text_options={o['id']:o for o in self.text_options(db,row)}
-            choices={d.id:d for d in request.text_decisions}
-            if len(choices)!=len(request.text_decisions) or set(choices)!=set(text_options):raise invalid('请明确选择两项文字规范的本次决定。',422)
-            for identity_,choice in choices.items():
-                option=text_options[identity_]
-                if choice.source_sha256!=option['source_sha256'] or choice.choice not in option['choices']:raise invalid('文字规范来源或选项已变化。')
-            analysis=row['analysis_json'];conflicts={c['id']:c for c in analysis['conflicts']};decisions={d.conflict_id:d.option_id for d in request.decisions}
-            if set(decisions)!=set(conflicts): raise invalid('须明确解决每一项冲突。')
-            rules=deepcopy(analysis['rules'])
-            for conflict_id,option_id in decisions.items():
-                conflict=conflicts[conflict_id];option=next((o for o in conflict['options'] if o['id']==option_id),None)
-                if not option: raise invalid('冲突选项不存在。',422)
-                matches=[r for r in rules if r['id']==conflict['rule_id']]
-                if len(matches)!=1: raise source_conflict()
-                matches[0].update(value=option['value'],source=option['source'])
-                if conflict.get('kind')=='heading_mapping':
-                    mapping=matches[0]['mapping'];chapter=next((c for c in body['chapters'] if c['id']==mapping['chapter_id']),None)
-                    if option['value']=='body':
-                        if chapter:raise invalid('正文角色不能同时保留为映射章节。',422)
-                    elif option['value'].startswith('heading'):
-                        if not chapter or chapter['level']!=int(option['value'][7:]):raise invalid('确认章节须与所选标题映射角色一致。',422)
-                    elif mapping.get('observed_level') is not None:
-                        if not chapter or chapter['level']!=mapping['observed_level']:raise invalid('确认章节须保留所选原章节角色。',422)
-                    elif chapter:raise invalid('所选原角色不是章节，不能同时采用映射章节。',422)
-            selected_roles={r['id']:r['value'] for r in rules if r['category']=='heading_mapping'}
-            rules=[r for r in rules if not r.get('alias_rule_id') or selected_roles.get(r['alias_rule_id'])==r['category']]
-            suggestion=None;deferred=[]
-            if getattr(request,'schema_version',None)==2:
-                from .suggestion_confirmation import apply
-                suggestion,deferred=apply(self,db,project,row,request,rules)
             timestamp=now();cid=str(uuid4())
-            snap=dict(id=cid,template_version_id=identity,analysis_sha256=row['analysis_sha256'],decisions=body['decisions'],chapters=body['chapters'],rules=rules,
-                missing=deepcopy(analysis['missing']),unsupported=deepcopy(analysis['unsupported']),created_at=timestamp.isoformat())
-            if suggestion is not None:
-                snap['suggestion_provenance']=suggestion
-                snap['unsupported'].extend(deferred)
-            if request.text_decisions:snap['text_decisions']=[d.model_dump()|dict(evidence=text_options[d.id]) for d in request.text_decisions]
-            if request.front_matter is not None:
-                from .front_matter import validate_front_matter
-                snap['front_matter']=validate_front_matter(body['front_matter'],analysis,body['chapters'])
-            if request.format_profile is not None:
-                snap['format_profile']=request.format_profile
+            snap=self.build_snapshot(db,project,row,request,body,sources,task,cid=cid,timestamp=timestamp)
             db.execute('''INSERT INTO school_template_confirmations(id,project_id,user_id,idempotency_key,request_json,request_digest,template_version_id,analysis_sha256,snapshot_json,snapshot_sha256,created_at)
                 VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)''',(cid,project,self.store.user_id,key,Jsonb(body),digest(body),identity,row['analysis_sha256'],Jsonb(snap),digest(snap),timestamp))
             from app.domain.admin_configuration.bindings import bind,resolve
             bind(db,kind='school_confirmation',object_id=cid,version=resolve(db,kind='task',object_id=task['id']))
             return snap,201
+
+    @staticmethod
+    def request_body(request):
+        """The stored confirmation request body (digest input)."""
+        body=request.model_dump(mode='json')
+        if not request.text_decisions:body.pop('text_decisions',None)
+        if request.front_matter is None:body.pop('front_matter',None)
+        if request.format_profile is None:body.pop('format_profile',None)
+        return body
+
+    def build_snapshot(self,db,project,row,request,body,sources,task,*,cid,timestamp):
+        """Validate a confirmation request and compose its snapshot; never writes."""
+        identity=row['id']
+        if task['status']!='succeeded' or not row['analysis_json'] or row['analysis_sha256']!=request.analysis_sha256: raise invalid('解析未完成或版本已变化，请刷新。')
+        if request.format_profile and not bsu_gs501.available(sources):
+            raise invalid('GS501 排版仅适用于已核实的北京体育大学学术型硕士校模原件。',422)
+        text_options={o['id']:o for o in self.text_options(db,row)}
+        choices={d.id:d for d in request.text_decisions}
+        if len(choices)!=len(request.text_decisions) or set(choices)!=set(text_options):raise invalid('请明确选择两项文字规范的本次决定。',422)
+        for identity_,choice in choices.items():
+            option=text_options[identity_]
+            if choice.source_sha256!=option['source_sha256'] or choice.choice not in option['choices']:raise invalid('文字规范来源或选项已变化。')
+        analysis=row['analysis_json'];conflicts={c['id']:c for c in analysis['conflicts']};decisions={d.conflict_id:d.option_id for d in request.decisions}
+        if set(decisions)!=set(conflicts): raise invalid('须明确解决每一项冲突。')
+        rules=deepcopy(analysis['rules'])
+        for conflict_id,option_id in decisions.items():
+            conflict=conflicts[conflict_id];option=next((o for o in conflict['options'] if o['id']==option_id),None)
+            if not option: raise invalid('冲突选项不存在。',422)
+            matches=[r for r in rules if r['id']==conflict['rule_id']]
+            if len(matches)!=1: raise source_conflict()
+            matches[0].update(value=option['value'],source=option['source'])
+            if conflict.get('kind')=='heading_mapping':
+                mapping=matches[0]['mapping'];chapter=next((c for c in body['chapters'] if c['id']==mapping['chapter_id']),None)
+                if option['value']=='body':
+                    if chapter:raise invalid('正文角色不能同时保留为映射章节。',422)
+                elif option['value'].startswith('heading'):
+                    if not chapter or chapter['level']!=int(option['value'][7:]):raise invalid('确认章节须与所选标题映射角色一致。',422)
+                elif mapping.get('observed_level') is not None:
+                    if not chapter or chapter['level']!=mapping['observed_level']:raise invalid('确认章节须保留所选原章节角色。',422)
+                elif chapter:raise invalid('所选原角色不是章节，不能同时采用映射章节。',422)
+        selected_roles={r['id']:r['value'] for r in rules if r['category']=='heading_mapping'}
+        rules=[r for r in rules if not r.get('alias_rule_id') or selected_roles.get(r['alias_rule_id'])==r['category']]
+        suggestion=None;deferred=[]
+        if getattr(request,'schema_version',None)==2:
+            from .suggestion_confirmation import apply
+            suggestion,deferred=apply(self,db,project,row,request,rules)
+        snap=dict(id=cid,template_version_id=identity,analysis_sha256=row['analysis_sha256'],decisions=body['decisions'],chapters=body['chapters'],rules=rules,
+            missing=deepcopy(analysis['missing']),unsupported=deepcopy(analysis['unsupported']),created_at=timestamp.isoformat())
+        if suggestion is not None:
+            snap['suggestion_provenance']=suggestion
+            snap['unsupported'].extend(deferred)
+        if request.text_decisions:snap['text_decisions']=[d.model_dump()|dict(evidence=text_options[d.id]) for d in request.text_decisions]
+        if request.front_matter is not None:
+            from .front_matter import validate_front_matter
+            snap['front_matter']=validate_front_matter(body['front_matter'],analysis,body['chapters'])
+        if request.format_profile is not None:
+            snap['format_profile']=request.format_profile
+        return snap
 
     def bind(self,project,request):
         with self.store.connection(write=True) as db:

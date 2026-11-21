@@ -1,5 +1,6 @@
 """0016 preserves all old columns, JSON and indexes in a UUID test schema."""
 import json
+import pytest
 from alembic import command
 from sqlalchemy import inspect
 from app.db.database import alembic_config, migration_connection
@@ -29,11 +30,11 @@ def assert_preserved_indexes(inspector,name,old_indexes):
         expected_indexes,key=lambda index:index['name'])
 
 
+@pytest.mark.initial_revision('0015_file_parsing')
 def test_0016_preserves_old_tables_columns_json_and_indexes(postgres_schema,postgres_migration_config):
     with migration_connection(config=postgres_migration_config) as db:
         settings=alembic_config()
         settings.attributes.update(connection=db.raw_connection,database_config=postgres_migration_config)
-        command.downgrade(settings,'0015_file_parsing')
         seed_owner(db)
         db.execute('''INSERT INTO files(id,project_id,filename,file_type,size_bytes,sha256,uploaded_at,
             parse_status,error_json,preview_json,uploader_id,object_key,metadata_revision,parse_revision)
@@ -48,7 +49,9 @@ def test_0016_preserves_old_tables_columns_json_and_indexes(postgres_schema,post
                     for column in inspector.get_columns(name)]
         columns={name:normalized_columns(name) for name in tables}
         indexes={name:inspector.get_indexes(name) for name in tables}
-        command.upgrade(settings,'head')
+        command.upgrade(settings,'0016_dataset_versions')
+        assert rows == {name:[dict(r) for r in db.execute('SELECT * FROM '+name)] for name in tables}
+        command.upgrade(settings,'0026_figure_report_versions')
         inspector=inspect(db.raw_connection)
         for name in tables:
             actual=[dict(row) for row in db.execute('SELECT * FROM '+name)]
@@ -64,5 +67,6 @@ def test_0016_preserves_old_tables_columns_json_and_indexes(postgres_schema,post
             assert_preserved_indexes(inspector,name,indexes[name])
         assert db.execute('SELECT count(*) AS n FROM file_structure_versions').fetchone()['n']==0
         assert db.execute('SELECT count(*) AS n FROM dataset_versions').fetchone()['n']==0
+        command.upgrade(settings,'head')
         result=audit_database(db)
         assert result['ok'],result['schema_issues']

@@ -11,6 +11,50 @@ from tests.integration.test_boxplot_execution import queued,run,SyntheticPlotPro
 from tests.api.test_boxplot import cloud
 
 
+@pytest.mark.parametrize('kind', ['boxplot', 'workbench'])
+def test_pending_plot_receipt_defers_without_readmitting_figure_storage(client, monkeypatch, kind):
+    from app.adapters.task_execution_store import TaskExecutionStore
+
+    if kind == 'boxplot':
+        task, _, _, result = queued(client)
+        provider = SyntheticPlotProvider(result)
+        execute = lambda task: run(task, provider)
+    else:
+        from tests.integration.test_batch05_figure_execution import queued_figure, IndependentLineProvider
+        from app.domain.figure_workbench.execution import run_figure_workbench_task
+        _, _, result, _, task = queued_figure(client, monkeypatch)
+        provider = IndependentLineProvider(result)
+        execute = lambda task: run_figure_workbench_task(task['id'], task['revision'], provider_factory=lambda: provider)
+
+    events = []
+    admit = TaskExecutionStore.admit_figure_storage
+    def record_admission(repository, lease):
+        hold = admit(repository, lease)
+        events.append('admitted')
+        return hold
+    monkeypatch.setattr(TaskExecutionStore, 'admit_figure_storage', record_admission)
+    provider.on_post = events.append
+    for _ in range(3):
+        task = execute(task)
+    assert events == ['admitted', 'container', 'admitted', 'upload', 'admitted', 'response']
+
+    events.clear()
+    waiting = execute(task)
+    assert waiting['status'] == 'running' and provider.gets and not provider.downloads
+    assert events == []
+
+    provider.pending = False
+    download = provider.download
+    def record_download(*args, **kwargs):
+        events.append('download')
+        return download(*args, **kwargs)
+    monkeypatch.setattr(provider, 'download', record_download)
+    done = execute(waiting)
+    assert done['status'] == 'succeeded', done
+    assert events == ['admitted', 'download', 'download']
+    assert provider.posts == ['container', 'upload', 'response']
+
+
 @pytest.mark.parametrize('kind',['boxplot','workbench'])
 def test_paid_candidate_survives_quota_tightening_and_real_resume(client,monkeypatch,kind):
     if kind=='boxplot':

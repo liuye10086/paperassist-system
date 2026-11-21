@@ -7,7 +7,7 @@ from app.core.config import get_data_dir
 from app.core.exceptions import StorageError
 from app.db.database import database_connection
 from app.domain.admin_operations import require_identity
-from app.domain.storage_governance.service import disk_status,inventory,usage,set_policy,reconcile_intents,preview_intents
+from app.domain.storage_governance.service import disk_status,inventory,usage,set_policy,preview_intents
 
 router=APIRouter(prefix='/api/v1',tags=['存储治理'])
 
@@ -16,21 +16,19 @@ def identity(request):
     return getattr(request.state,'user',{}).get('id')
 
 
-def fresh_usage(db,*,user_id=None,project_id=None,reconcile=True):
-    # Reconciliation is an explicit maintenance operation. Ordinary status
-    # reads use the durable ledger snapshot and must not take the global write
-    # lock or scan the intent directory on every page refresh.
-    preview={} if reconcile else preview_intents(db,get_data_dir(),user_id=user_id,project_id=project_id)
-    unresolved=reconcile_intents(db,get_data_dir()) if reconcile else preview['unresolved']
+def usage_preview(db,*,user_id=None,project_id=None):
     value=usage(db,user_id=user_id,project_id=project_id)
-    if not reconcile:
-        value['reserved_bytes']+=preview['reserved_bytes']
-        value['unknown_reservation_count']+=preview['unknown_reservation_count']
-        value['reservation_count']+=preview['reservation_count']
-    value.update(reconciled_at=datetime.now(timezone.utc).isoformat(),
-        reconciliation_status=('unresolved' if unresolved else 'current') if reconcile else 'deferred')
-    if unresolved:value['status']='unknown'
-    if user_id is None:value['unattributed_intent_count']=unresolved
+    value.update(reconciled_at=datetime.now(timezone.utc).isoformat(),reconciliation_status='deferred')
+    try:
+        preview=preview_intents(db,get_data_dir(),user_id=user_id,project_id=project_id)
+    except StorageError as exc:
+        if exc.code!='storage_accounting_unknown':raise
+        value['status']='unknown'
+        return value
+    for key in ('reserved_bytes','unknown_reservation_count','reservation_count'):
+        value[key]+=preview[key]
+    if preview['unresolved']:value['status']='unknown'
+    if user_id is None:value['unattributed_intent_count']=preview['unresolved']
     return value
 
 
@@ -40,7 +38,7 @@ def own_storage(request:Request,project_id:str|None=None):
         user=require_identity(db,identity(request),admin=False)
         if project_id is not None and not db.execute('SELECT id FROM projects WHERE id=%s AND owner_id=%s',(project_id,user['id'])).fetchone():
             raise StorageError('project_not_found','项目不存在。',404)
-        return {**fresh_usage(db,user_id=user['id'],project_id=project_id,reconcile=False), 'disk':disk_status(get_data_dir())}
+        return {**usage_preview(db,user_id=user['id'],project_id=project_id), 'disk':disk_status(get_data_dir())}
 
 
 @router.get('/admin/storage')
@@ -49,7 +47,7 @@ def admin_storage(request:Request):
         require_identity(db,identity(request))
         policies=[dict(row) for row in db.execute('SELECT scope_type,scope_id,mode,limit_bytes,revision,updated_at FROM storage_policies ORDER BY scope_type,scope_id')]
         scan=db.execute('SELECT summary FROM storage_inventory_scans WHERE id=1').fetchone()
-        return {**fresh_usage(db,reconcile=False),'disk':disk_status(get_data_dir()),'policies':policies,'inventory':scan['summary'] if scan else None}
+        return {**usage_preview(db),'disk':disk_status(get_data_dir()),'policies':policies,'inventory':scan['summary'] if scan else None}
 
 
 @router.get('/admin/storage/recovery')
@@ -67,7 +65,13 @@ def scan_storage(request:Request):
     with database_connection(write=True) as db:
         require_identity(db,identity(request))
         scanned=inventory(db,get_data_dir())
-        return {**fresh_usage(db,reconcile=True),'disk':disk_status(get_data_dir()),'inventory':scanned}
+        value=usage(db)
+        unresolved=scanned.get('unattributed_intent_count')
+        if unresolved is not None:value['unattributed_intent_count']=unresolved
+        if unresolved!=0:value['status']='unknown'
+        return {**value,'reconciled_at':scanned['scanned_at'],
+                'reconciliation_status':'current' if unresolved==0 else 'unresolved',
+                'disk':disk_status(get_data_dir()),'inventory':scanned}
 
 
 class StoragePolicy(BaseModel):

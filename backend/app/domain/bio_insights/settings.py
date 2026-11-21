@@ -47,7 +47,7 @@ def engine_code_files():
     paths += [root/name for name in ('__init__.py','adapters/__init__.py','domain/__init__.py',
         'adapters/bio_engine/__init__.py','adapters/bio_engine/manifest.py','adapters/excel_sandbox.py',
         'domain/bio_insights/__init__.py','domain/bio_insights/contracts.py','domain/bio_insights/design.py','domain/bio_insights/settings.py',
-        'domain/bio_insights/single_cell_composition_contracts.py','domain/bio_insights/single_cell_composition.py',
+        'domain/bio_insights/figure_size.py','domain/bio_insights/single_cell_composition_contracts.py','domain/bio_insights/single_cell_composition.py',
         'domain/bio_insights/single_cell_topic_contracts.py','domain/bio_insights/single_cell_topics.py',
         'adapters/single_cell_r/topics_resource.json',
         'domain/bio_insights/quantitative_contracts.py','domain/bio_insights/quantitative_design.py','domain/bio_insights/bulk_model_design.py',

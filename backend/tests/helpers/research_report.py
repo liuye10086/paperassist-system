@@ -10,6 +10,18 @@ READER_SECTIONS = (
 )
 
 
+def assert_word_figure_pixels(document, original_png):
+    from io import BytesIO
+    from zipfile import ZipFile
+    from PIL import Image
+
+    with ZipFile(BytesIO(document)) as archive:
+        image_name, = [name for name in archive.namelist() if name.startswith('word/media/')]
+        with Image.open(BytesIO(archive.read(image_name))) as embedded, Image.open(BytesIO(original_png)) as source:
+            assert embedded.size == source.size
+            assert embedded.convert('RGB').tobytes() == source.convert('RGB').tobytes()
+
+
 def sample_reader_record(base):
     en=base['language']=='en'
     sections=[

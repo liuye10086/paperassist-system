@@ -1,5 +1,6 @@
 """Frozen 0017 definitions preserve old tables and create real workflow relations."""
 from alembic import command
+import pytest
 from sqlalchemy import inspect
 from app.db.database import alembic_config,migration_connection,verify_runtime_permissions
 from app.db.schema import metadata
@@ -8,11 +9,11 @@ from tests.db.test_task_schema import seed_owner,task_row,insert_row
 from tests.db.test_dataset_schema import assert_preserved_indexes
 
 
+@pytest.mark.initial_revision('0016_dataset_versions')
 def test_0017_preserves_original_tables_and_json(postgres_schema,postgres_migration_config):
     with migration_connection(config=postgres_migration_config) as db:
         settings=alembic_config()
         settings.attributes.update(connection=db.raw_connection,database_config=postgres_migration_config)
-        command.downgrade(settings,'0016_dataset_versions')
         seed_owner(db)
         insert_row(db,'tasks',task_row(input_snapshot={'schema_version':1,'result':{'old':[None,1]}}))
         inspector=inspect(db.raw_connection)
@@ -22,7 +23,9 @@ def test_0017_preserves_original_tables_and_json(postgres_schema,postgres_migrat
             return [{**col,'type':str(col['type'].compile(dialect=db.raw_connection.dialect))} for col in inspector.get_columns(name)]
         old_columns={name:columns(name) for name in originals}
         old_indexes={name:inspector.get_indexes(name) for name in originals}
-        command.upgrade(settings,'head')
+        command.upgrade(settings,'0017_dataset_preparation')
+        assert records == {name:[dict(r) for r in db.execute('SELECT * FROM '+name)] for name in originals}
+        command.upgrade(settings,'0026_figure_report_versions')
         inspector=inspect(db.raw_connection)
         for name in originals:
             actual=[dict(row) for row in db.execute('SELECT * FROM '+name)]
@@ -38,6 +41,7 @@ def test_0017_preserves_original_tables_and_json(postgres_schema,postgres_migrat
             assert_preserved_indexes(inspector,name,old_indexes[name])
         for name in ('task_checkpoints','dataset_preparation_decisions','prepared_dataset_versions'):
             assert db.execute('SELECT count(*) AS n FROM '+name).fetchone()['n'] == 0
+        command.upgrade(settings,'head')
         result=audit_database(db)
         assert result['ok'],result['schema_issues']
 

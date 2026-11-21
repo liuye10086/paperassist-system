@@ -123,20 +123,21 @@ def _execute(repository, lease, config, provider_factory, providers):
         completed = repository.complete_boxplot(lease, snapshot, payload, expected)
         if completed is not None:
             return completed
-    if not call or not call.get('provider_response_id'):
+    refreshing = bool(call and call.get('provider_response_id'))
+    if not refreshing:
         task, snapshot, payload, expected = repository.load_boxplot(lease)
         cached = repository.cached_boxplot(lease)
         if cached is not None and call is None:
             return repository.complete_boxplot(lease, snapshot, payload, expected, cached=cached)
         frozen = validate_execution_policy(task['input_snapshot'].get('boxplot_policy'), payload=payload)
         check_input(frozen,instructions,payload,code='plot_input_limit')
-    repository.admit_figure_storage(lease)
+        repository.admit_figure_storage(lease)
     service = ModelUsageService(task['user_id'], config)
     provider = provider_factory()
     providers.append(provider)
     gateway = ModelGateway(service, provider)
     try:
-        if call and call.get('provider_response_id'):
+        if refreshing:
             output = gateway.refresh(call['id'])
         else:
             request = CallRequest(task_id=task['id'], expected_task_revision=task['revision'],
@@ -178,6 +179,9 @@ def _execute(repository, lease, config, provider_factory, providers):
     parsed = parse_plot_response(response, (call.get('provider_state') or {}).get('container_id'), expected=expected)
     if parsed is None:
         return repository.fail(lease, 'model_response_invalid')
+    if refreshing:
+        # A pending status uses no figure storage. Revalidate before the first download.
+        repository.admit_figure_storage(lease)
     policy = ModelPolicy.model_validate({key: call['policy_snapshot'][key]
         for key in ModelPolicy.model_fields if key in call['policy_snapshot']})
     try:

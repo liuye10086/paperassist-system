@@ -4,14 +4,16 @@ from psycopg.types.json import Jsonb
 
 from app.db.database import database_connection, migration_connection, verify_runtime_permissions, get_database_config
 from app.domain.bioinformatics.contracts import digest
+from tests.helpers.historical_migration import assert_historical_runtime_grants
 from tests.integration.test_account_deletion_migration import migrate
 from tests.api.test_projects import client, create_project
 
 
+@pytest.mark.initial_revision('0083_bio_report_contexts')
 def test_new_schema_roundtrip_retains_existing_fk_names_and_runtime_permissions(monkeypatch):
     with database_connection() as db:
-        before = db.execute("SELECT conrelid::regclass::text AS table_name,conname FROM pg_constraint WHERE conname LIKE 'b03_scope_fk_%%' ORDER BY 1,2").fetchall()
-        verify_runtime_permissions(db.raw_connection, get_database_config())
+        before = db.execute("SELECT conrelid::regclass::text AS table_name,conname FROM pg_constraint WHERE connamespace=current_schema()::regnamespace AND conname LIKE 'b03_scope_fk_%%' ORDER BY 1,2").fetchall()
+        assert_historical_runtime_grants(db)
     from app.db.research_results_schema import SOURCE_TARGETS
     monkeypatch.setitem(SOURCE_TARGETS, 'future_source_kind', ('future_source_id', 'files'))
     migrate('0082_reader_report_narratives', down=True)
@@ -19,11 +21,14 @@ def test_new_schema_roundtrip_retains_existing_fk_names_and_runtime_permissions(
         assert db.execute("SELECT to_regclass('bio_report_context_versions') AS name").fetchone()['name'] is None
     migrate('0083_bio_report_contexts')
     with database_connection() as db:
-        after = db.execute("SELECT conrelid::regclass::text AS table_name,conname FROM pg_constraint WHERE conname LIKE 'b03_scope_fk_%%' ORDER BY 1,2").fetchall()
+        after = db.execute("SELECT conrelid::regclass::text AS table_name,conname FROM pg_constraint WHERE connamespace=current_schema()::regnamespace AND conname LIKE 'b03_scope_fk_%%' ORDER BY 1,2").fetchall()
         assert before == after
-        verify_runtime_permissions(db.raw_connection, get_database_config())
+        assert_historical_runtime_grants(db)
         for table in ('research_source_bindings', 'manuscript_research_sources'):
             assert db.execute('SELECT 1 FROM information_schema.columns WHERE table_schema=current_schema() AND table_name=%s AND column_name=%s', (table, 'bio_report_context_id')).fetchone()
+    migrate('head')
+    with database_connection() as db:
+        verify_runtime_permissions(db.raw_connection, get_database_config())
 
 
 def test_saved_context_refuses_downgrade_and_is_database_immutable(client):

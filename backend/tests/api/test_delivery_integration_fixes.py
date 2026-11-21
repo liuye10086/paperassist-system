@@ -57,6 +57,35 @@ def test_legacy_manuscript_candidates_freeze_and_download_share_scoped_mapping(c
     with database_connection() as db:assert dict(db.execute('SELECT * FROM manuscripts WHERE id=%s',(root['id'],)).fetchone())==before
 
 
+def test_historical_blind_manuscript_export_is_not_a_complete_delivery_member(client,monkeypatch):
+    from copy import deepcopy
+    from tests.api.test_manuscripts import body
+    from app.domain.literature.service import digest
+    p=client.post('/api/v1/projects',json=dict(name='Legacy blind SCI',research_topic='Static integration fixture',project_type='sci')).json();base='/api/v1/projects/'+p['id']
+    root=post(client,base+'/manuscripts',body(),'blind-root').json();version=root['versions'][0];finish_static_task(version['task_id'])
+    exported=post(client,base+'/manuscripts/'+root['id']+'/versions/1/exports',{},'blind-export').json();finish_static_task(exported['task_id'])
+    docx=b'Historical blind DOCX boundary bytes'
+    metadata=dict(id=exported['id'],filename='Blind-zh-CN-v1-historic.docx',sha256=sha256(docx).hexdigest(),size_bytes=len(docx))
+    from app.domain.manuscripts.service import ManuscriptService
+    monkeypatch.setattr(ManuscriptService,'export',lambda self,project,manuscript,identifier,download=False:(metadata,docx) if download else metadata)
+    with database_connection(write=True) as db:
+        db.execute('UPDATE manuscript_exports SET metadata_json=%s WHERE id=%s',(Jsonb(metadata),exported['id']))
+        task=db.execute('SELECT input_snapshot FROM tasks WHERE id=%s',(exported['task_id'],)).fetchone()
+        snapshot=deepcopy(task['input_snapshot']);snapshot['presentation']=dict(binding=dict(review_mode='blind',language_view='zh-CN'))
+        db.execute('UPDATE tasks SET input_snapshot=%s,input_digest=%s WHERE id=%s',(Jsonb(snapshot),digest(snapshot),exported['task_id']))
+    intake=client.get(base+'/research-intake').json();delivery=next(d for d in intake['deliveries'] if d['kind']=='sci_draft');path=base+'/deliveries/'+delivery['id']
+    requirement=post(client,base+'/requirements',dict(expected_revision=1,operation='save',content=dict(schema_version=1,services=['sci_draft']),material_refs=[]),'blind-requirement').json()['version']
+    candidates=client.get(path+'/candidates');assert candidates.status_code==200,candidates.text
+    listed=next(m for m in candidates.json()['items'] if m['selection'].get('export_id')==exported['id'])
+    assert listed['review_mode']=='blind' and 'blind_eligible' not in listed
+    selections=[dict(kind='manuscript_export',manuscript_id=root['id'],version_id=version['id'],export_id=exported['id'])]
+    request=dict(stage='first',expected_revision=0,requirement_version_id=requirement['id'],change_note='Historical blind is excluded',opinion_round='not applicable',members=selections,required_formats=['docx'])
+    rejected=post(client,path+'/snapshots',request,'blind-freeze')
+    assert rejected.status_code==409 and rejected.json()['detail']['code']=='research_source_conflict',rejected.text
+    removed=post(client,path+'/snapshots',dict(request,mode='blind'),'blind-mode')
+    assert removed.status_code==422 and removed.json()['detail']['code']=='blind_review_removed',removed.text
+
+
 def test_progress_public_projection_is_bounded_scoped_and_fixed_per_attempt(client, research_reader_narrative):
     base,path,body=setup_delivery(client);saved=post(client,path+'/snapshots',body,'progress-snapshot').json();package_path=path+'/snapshots/'+saved['id']+'/package'
     queued=post(client,package_path,{},'progress-task').json();identifier=queued['task_id']

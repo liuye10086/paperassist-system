@@ -99,7 +99,8 @@ def budgets(client, task):
     from tests.helpers.tasks import task_owner
     service = ModelUsageService(task_owner(client))
     for scope, key in [('user', task_owner(client)), ('project', task['project_id']), ('task', task['id'])]:
-        service.set_budget(scope, key, 5000000, 0)
+        # Writing requests already carry their own task budget (revision 1).
+        service.set_budget(scope, key, 5000000, service.get_budget(scope, key)['revision'])
 
 
 def test_synthetic_assistance_uses_budget_usage_and_saved_receipt_without_duplicate_post(client):

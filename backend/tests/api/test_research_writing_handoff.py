@@ -1,4 +1,6 @@
 """Research delivery candidates stay separate until explicit CAS publication."""
+import pytest
+
 from tests.api.test_projects import client, upload
 
 
@@ -97,6 +99,44 @@ def publish_candidate(client,base,body,tmp_path,key='integration'):
     published=client.post(base+'/research-manuscript-candidates/'+candidate['id']+'/publish',json=dict(candidate_id=candidate['id'],expected_revision=body.get('expected_revision',0)),headers={'Idempotency-Key':'publish-'+key})
     assert published.status_code==201,published.text
     return published.json()
+
+
+@pytest.mark.parametrize('has_base', [False, True])
+@pytest.mark.parametrize('analyst_material', [False, True])
+def test_candidate_worker_rechecks_customer_visibility_of_frozen_sources(client, tmp_path, has_base, analyst_material):
+    from app.auth.service import create_user
+    from app.db.database import database_connection
+    from app.domain.research_results.execution import run_research_candidate_task, source_current
+
+    base, deliveries, finding = prepared(client)
+    project = base.rsplit('/', 1)[-1]
+    body = dict(delivery_id=deliveries['sci_draft'], finding_version_ids=[finding['id']])
+    request = body
+    if has_base:
+        first = publish_candidate(client, base, body, tmp_path)
+        request = dict(body, manuscript_id=first['manuscript_id'], base_version_id=first['version_id'], expected_revision=1)
+    queued = client.post(base+'/research-manuscript-candidates', json=request, headers={'Idempotency-Key':'visibility'})
+    assert queued.status_code == 201, queued.text
+    analyst = create_user('candidate-materials@example.test', 'Synthetic-materials-password', role='analyst')
+    with database_connection(write=True) as db:
+        db.execute("UPDATE users SET role='customer' WHERE id=(SELECT owner_id FROM projects WHERE id=%s)", (project,))
+        if analyst_material:
+            assert db.execute('UPDATE files SET upload_actor_id=%s WHERE project_id=%s', (analyst['id'], project)).rowcount == 1
+    with database_connection() as db:
+        task = db.execute('SELECT * FROM tasks WHERE id=%s', (queued.json()['task_id'],)).fetchone()
+        assert source_current(db, task) is (not analyst_material)
+
+    done = run_research_candidate_task(queued.json()['task_id'], 1, staging_directory=tmp_path/'stage')
+    if analyst_material:
+        assert done['status'] == 'failed' and done['error_code'] == 'manuscript_source_not_visible', done
+    else:
+        assert done['status'] == 'succeeded', done
+    with database_connection() as db:
+        candidate = db.execute('SELECT candidate_json FROM research_manuscript_candidates WHERE id=%s',
+                               (queued.json()['id'],)).fetchone()
+        assert (candidate['candidate_json'] is None) == analyst_material
+        versions = db.execute('SELECT current_revision FROM manuscripts WHERE project_id=%s', (project,)).fetchall()
+        assert [row['current_revision'] for row in versions] == ([1] if has_base else [])
 
 
 def test_research_version_exports_and_enters_existing_writing_and_review(client,tmp_path):

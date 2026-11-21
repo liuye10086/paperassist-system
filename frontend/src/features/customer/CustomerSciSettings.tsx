@@ -8,10 +8,11 @@ import SciSettingsFields from './SciSettingsFields'
 import SciSettingsSummary, { LegacySciHistory } from './SciSettingsSummary'
 import { isLegacySciSettings, prepareSciSettings, restoreSciSettingsDraft, sciSettingsDraft, type SciSettingsState, type StoredSciSettingsDraft } from './sciProjectSettings'
 
-type Props = { projectId: string; registerLeaveGuard: RegisterLeaveGuard }
+/** `onContinue`: after a confirmed save, go on to the writing materials (wireframe 23). */
+type Props = { projectId: string; registerLeaveGuard: RegisterLeaveGuard; onContinue?: () => void }
 type Edit = { revision: number; draft: StoredSciSettingsDraft }
 
-export default function CustomerSciSettings({ projectId, registerLeaveGuard }: Props) {
+export default function CustomerSciSettings({ projectId, registerLeaveGuard, onContinue }: Props) {
   const { t } = useI18n()
   const url = projectBase(projectId) + '/sci-settings'
   const read = useResearchRead<SciSettingsState>(url, true)
@@ -21,12 +22,12 @@ export default function CustomerSciSettings({ projectId, registerLeaveGuard }: P
       <button type="button" onClick={read.refresh}>{t('重试')}</button>
     </div>}
     {read.data
-      ? <SettingsEditor projectId={projectId} url={url} receipt={read.data} refresh={read.refresh} registerLeaveGuard={registerLeaveGuard} />
+      ? <SettingsEditor projectId={projectId} url={url} receipt={read.data} refresh={read.refresh} registerLeaveGuard={registerLeaveGuard} onContinue={onContinue} />
       : !read.error && <p role="status">{t('正在读取 SCI 建项资料……')}</p>}
   </section>
 }
 
-function SettingsEditor({ projectId, url, receipt, refresh, registerLeaveGuard }: Props & {
+function SettingsEditor({ projectId, url, receipt, refresh, registerLeaveGuard, onContinue }: Props & {
   url: string; receipt: SciSettingsState; refresh: () => void
 }) {
   const { t } = useI18n()
@@ -63,6 +64,7 @@ function SettingsEditor({ projectId, url, receipt, refresh, registerLeaveGuard }
       }
       setSaved(value)
       setEdit(null)
+      onContinue?.()
     } catch (cause) {
       if (controller.signal.aborted) return
       setError(safeError(cause, 'SCI 建项资料保存失败，请重试。'))
@@ -87,7 +89,7 @@ function SettingsEditor({ projectId, url, receipt, refresh, registerLeaveGuard }
       <SciSettingsFields draft={edit.draft} disabled={busy || stale} onChange={draft => { setEdit({ ...edit, draft }); setError('') }} onError={setError} />
       {error && <p className="error-panel" role="alert">{t(error)}</p>}
       <div className="sci-inline-controls">
-        <button type="submit" className="button-primary" disabled={busy || stale}>{t(busy ? '正在保存……' : '保存 SCI 建项资料')}</button>
+        <button type="submit" className="button-primary" disabled={busy || stale}>{t(busy ? '正在保存……' : onContinue ? '保存并继续 写作资料与引用' : '保存 SCI 建项资料')}</button>
         <button type="button" disabled={busy} onClick={() => { setEdit(null); setError('') }}>{t('取消')}</button>
       </div>
     </form>}

@@ -3,6 +3,8 @@ import {useI18n} from '../../shared/i18n'
 import {object,wireDigest,dollars,type Bundle} from './writingLiveTypes'
 import type {Snapshot} from './manuscriptTypes'
 import {plannedSectionTitle} from './paperPlan'
+import {readingScopeName} from '../literature/evidenceApi'
+import VersionLabel from '../../shared/VersionLabel'
 export function MaterialTree({value}:{value:unknown}){if(Array.isArray(value))return <ol>{value.map((v,i)=><li key={i}><MaterialTree value={v}/></li>)}</ol>;if(object(value))return <dl>{Object.entries(value).map(([k,v])=><div key={k}><dt>{k}</dt><dd><MaterialTree value={v}/></dd></div>)}</dl>;return <span style={{whiteSpace:'pre-wrap',overflowWrap:'anywhere'}}>{value===null?'null':String(value)}</span>}
 const records=(value:unknown)=>Array.isArray(value)?value.filter(object):[]
 const strings=(value:unknown)=>Array.isArray(value)?value.filter((item):item is string=>typeof item==='string'):[]
@@ -23,7 +25,9 @@ function WireTable({columns,rows}:{columns:string[];rows:string[][]}){
  </table></div>
 }
 
-function ReadableWritingBundle({bundle,snapshot,wire,verified,failed}:{bundle:Bundle;snapshot:Snapshot;wire:unknown;verified:boolean;failed:boolean}){
+// materialsOnly: the customer one-confirmation page shows its own check, fee and external-send notice, and names the
+// base version as “第 N 版 · 时间” when it is given savedAt.
+function ReadableWritingBundle({bundle,snapshot,wire,verified,failed,materialsOnly=false,savedAt}:{bundle:Bundle;snapshot:Snapshot;wire:unknown;verified:boolean;failed:boolean;materialsOnly?:boolean;savedAt?:string}){
  const {t}=useI18n()
  const [view,setView]=useState<'content'|'omitted'|'request'>('content')
  const input:Record<string,unknown>=object(wire)&&object(wire.input)?wire.input:{}
@@ -49,14 +53,15 @@ function ReadableWritingBundle({bundle,snapshot,wire,verified,failed}:{bundle:Bu
   .filter(item=>item.origin==='user_provided'&&typeof item.text==='string'&&!shownText.has(item.text))
   .map(item=>String(item.text)))]
  const omitted=strings(bundle.omitted_manifest).filter(key=>Object.hasOwn(omittedLabels,key))
- return <section aria-label={t('完整外发材料')}>
-  <h4>{t('完整外发材料')}</h4>
-  <p>{snapshot.title} · {t('固定版本 {number}',{number:bundle.request_json.base_revision})}</p>
-  <p role={failed?'alert':'status'}>{t(failed?'发送材料未通过完整性核对，无法授权或执行。':verified?'已核对发送材料。此次预览未调用模型。':'正在核对发送材料……')}</p>
+ const customerTitle=materialsOnly&&savedAt!==undefined
+ return <section aria-label={t(materialsOnly?'本次写作材料':'完整外发材料')}>
+  {!materialsOnly&&<h4>{t('完整外发材料')}</h4>}
+  <p>{snapshot.title} · {customerTitle?<VersionLabel revision={bundle.request_json.base_revision} savedAt={savedAt}/>:t('固定版本 {number}',{number:bundle.request_json.base_revision})}</p>
+  {!materialsOnly&&<><p role={failed?'alert':'status'}>{t(failed?'发送材料未通过完整性核对，无法授权或执行。':verified?'已核对发送材料。此次预览未调用模型。':'正在核对发送材料……')}</p>
   <p>{t('模型')} {bundle.policy_json.model} · {t('单次预留')} {dollars(bundle.reserved_micro_usd)}</p>
-  <p>{t('授权并提交后，后台响应会由模型服务商保存。')}</p>
+  <p>{t('授权并提交后，后台响应会由模型服务商保存。')}</p></>}
   <nav className="manuscript-view-nav" aria-label={t('发送材料视图')}>
-   {([['content','发送内容'],['omitted','未外发材料清单'],['request','完整请求原文']] as const).map(([id,label])=>
+   {(materialsOnly?[['content','发送内容'],['omitted','未外发材料清单']] as const:[['content','发送内容'],['omitted','未外发材料清单'],['request','完整请求原文']] as const).map(([id,label])=>
     <button type="button" key={id} aria-pressed={view===id} onClick={()=>setView(id)}>{t(label)}</button>)}
   </nav>
   {view==='omitted'&&<ul>{omitted.map(key=><li key={key}>{t(omittedLabels[key])}</li>)}</ul>}
@@ -86,8 +91,8 @@ function ReadableWritingBundle({bundle,snapshot,wire,verified,failed}:{bundle:Bu
       {method.software!==undefined&&<><strong>{t('软件')}</strong><MaterialTree value={method.software}/></>}
      </div>)}
      {labels.map((item,position)=><WireText key={position} value={item.value}/>)}
-     {facts.length>0&&<WireTable columns={[t('数值位置'),t('数值')]} rows={facts.map(fact=>[
-      String(fact.label??fact.fact_path??''),String(fact.value??''),
+     {facts.length>0&&<WireTable columns={[t('数值位置'),t('数值')]} rows={facts.map((fact,position)=>[
+      typeof fact.label==='string'&&fact.label?fact.label:t('数值 {number}',{number:position+1}),String(fact.value??''),
      ])}/>}
      {[...strings(source.gaps),...strings(source.warnings)].map((value,position)=><WireText key={position} value={value}/>)}
     </article>
@@ -111,14 +116,14 @@ function ReadableWritingBundle({bundle,snapshot,wire,verified,failed}:{bundle:Bu
    const reference=[...strings(bibliography.authors),bibliography.journal,bibliography.year,bibliography.doi].filter(Boolean).join(' · ')
    return <article key={index}>
     {typeof bibliography.title==='string'&&<strong>{bibliography.title}</strong>}
-    <WireText value={reference}/><blockquote>{String(item.quote)}</blockquote><WireText value={item.reading_scope}/>
+    <WireText value={reference}/><blockquote>{String(item.quote)}</blockquote>{typeof item.reading_scope==='string'&&<p>{t(readingScopeName(item.reading_scope))}</p>}
    </article>
   }):<p>{t('未选择已核验的引用证据。')}</p>}
   </>}
  </section>
 }
 
-export default function WritingBundlePreview({bundle,onVerified,customerThesis=false,readableSnapshot}:{bundle:Bundle;onVerified?:(sha:string)=>void;customerThesis?:boolean;readableSnapshot?:Snapshot}){
+export default function WritingBundlePreview({bundle,onVerified,customerThesis=false,readableSnapshot,materialsOnly=false,savedAt}:{bundle:Bundle;onVerified?:(sha:string)=>void;customerThesis?:boolean;readableSnapshot?:Snapshot;materialsOnly?:boolean;savedAt?:string}){
  const {t}=useI18n(),[verified,setVerified]=useState(false),[failed,setFailed]=useState(false)
  useEffect(()=>{let current=true;void wireDigest(bundle.wire_json).then(hash=>{if(!current)return;const matches=hash===bundle.bundle_sha256&&new TextEncoder().encode(bundle.wire_json).length===bundle.wire_bytes;setVerified(matches);setFailed(!matches);if(matches)onVerified?.(hash)}).catch(()=>{if(current)setFailed(true)});return()=>{current=false}},[bundle,onVerified])
  let wire:unknown;try{wire=JSON.parse(bundle.wire_json);if(object(wire)&&typeof wire.input==='string')wire={...wire,input:JSON.parse(wire.input)}}catch{wire=null}
@@ -130,7 +135,7 @@ export default function WritingBundlePreview({bundle,onVerified,customerThesis=f
   ['raw','完整 wire（无截断）',<pre key="raw" style={{whiteSpace:'pre-wrap',overflowWrap:'anywhere'}}>{bundle.wire_json}</pre>],
   ['omitted','未外发材料清单',<MaterialTree key="omitted" value={bundle.omitted_manifest}/>],
  ] as const
- if(readableSnapshot)return <ReadableWritingBundle bundle={bundle} snapshot={readableSnapshot} wire={wire} verified={verified} failed={failed}/>
+ if(readableSnapshot)return <ReadableWritingBundle bundle={bundle} snapshot={readableSnapshot} wire={wire} verified={verified} failed={failed} materialsOnly={materialsOnly} savedAt={savedAt}/>
  return <section aria-label={t('完整外发材料')}><h4>{t('完整外发材料')}</h4><p>{t('稿件')} {bundle.manuscript_id} · {t('基础版本')} {bundle.request_json.base_revision} · {bundle.request_json.output_language}</p><p>SHA-256: <code>{bundle.bundle_sha256}</code> · {bundle.wire_bytes} {t('字节')}</p><p role={failed?'alert':'status'}>{t(failed?'完整 wire 哈希校验失败，禁止授权或执行。':verified?'完整 wire 字节与 SHA 已核对。':'正在核对完整 wire……')}</p><p>{bundle.policy_json.model} · {price.version}</p><p>{t('每百万 token：输入 / 缓存输入 / 输出')} {dollars(price.input_micro_usd_per_million)} / {dollars(price.cached_input_micro_usd_per_million)} / {dollars(price.output_micro_usd_per_million)}</p><p>{t('输入保守上限')} {bundle.input_token_allowance} · {t('输出上限')} {bundle.policy_json.max_output_tokens} · {t('单次预留')} {dollars(bundle.reserved_micro_usd)}</p><p><code>https://api.openai.com/v1/responses</code></p><p>{t('固定官方端点；服务等级 default；无工具；不自动重试 POST。后台响应由供应商保存。账户模型可用性未验证。')}</p>{customerThesis?<>
   <nav className="manuscript-view-nav" aria-label={t('完整外发材料')}>{reviewViews.map(([key,label])=><button key={key} type="button" aria-pressed={reviewView===key} onClick={()=>setReviewView(key)}>{t(label)}</button>)}</nav>
   {reviewViews.find(([key])=>key===reviewView)?.[2]}

@@ -87,6 +87,7 @@ CUSTOMER_OPERATIONS = frozenset({
     ('GET', PROJECT_PATH + '/file-batches/{batch_id}'),
     ('POST', PROJECT_PATH + '/file-batches/{batch_id}/items/{item_id}'),
     ('GET', PROJECT_PATH + '/research-intake'),
+    ('GET', CUSTOMER_WORKSPACE_PATH + '/summary'),
     ('GET', CUSTOMER_WORKSPACE_PATH + '/deliveries'),
     ('GET', CUSTOMER_WORKSPACE_PATH + '/deliveries/{snapshot_id}'),
     ('GET', CUSTOMER_WORKSPACE_PATH + '/deliveries/{snapshot_id}/members/{member_id}/download'),
@@ -104,6 +105,7 @@ CUSTOMER_ANALYSIS_OPERATIONS = frozenset({
     ('GET', PROJECT_PATH + '/requirements/requests/{key}'),
     ('GET', PROJECT_PATH + '/requirements/{version_id}'),
     ('GET', CUSTOMER_WORKSPACE_PATH + '/progress'),
+    ('POST', CUSTOMER_WORKSPACE_PATH + '/material-submissions'),
 })
 
 CUSTOMER_MANUSCRIPT_READS = frozenset(('GET', MANUSCRIPTS_PATH + suffix) for suffix in (

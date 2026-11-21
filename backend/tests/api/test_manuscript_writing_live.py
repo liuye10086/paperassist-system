@@ -241,8 +241,8 @@ def test_cross_project_and_user_bundle_authorizations_are_denied(client,postgres
     from app.domain.manuscript_writing.authorization import LiveWritingService
     from app.domain.report_collections.service import scoped_store
     from app.core.exceptions import StorageError
-    root,bundle,path,auth,task=create_live(client)
     other_root,other_bundle=preview(client)
+    root,bundle,path,auth,task=create_live(client)
     response=post(client,other_root+'/writing-requests',request_v2(bundle,auth),'foreign')
     assert response.status_code==409,response.text
     foreign=LiveWritingService(scoped_store('unrelated-user',postgres_schema))
@@ -347,9 +347,83 @@ def test_preapproved_known_correction_bundle_uses_same_logical_task_budget(clien
         response=post(client,root+'/writing-requests',request_v2(selected,auth),'explicit-'+str(i));assert response.status_code==202,response.text
         task=response.json()['task']
         if i==0: budgets(client,task)
-        else: ModelUsageService(task_owner(client)).set_budget('task',task['id'],5000000,0)
+        else: ModelUsageService(task_owner(client)).set_budget('task',task['id'],5000000,1)
         provider=LiveFixture();assert run_manuscript_writing_task(task['id'],task['revision'],provider=provider)['status']=='succeeded'
         assert provider.posts==[selected['wire_json']]
     view=client.get(path+'/'+auth['id']).json()
     assert view['occupied_posts']==2
     assert view['logical_task_usage'][0]['occupied_posts']==2
+
+
+def task_budgets(task_id):
+    with database_connection() as db:
+        return db.execute("SELECT * FROM model_budgets WHERE scope_type='task' AND scope_key=%s",(task_id,)).fetchall()
+
+
+def owner_budgets(client,task,scopes):
+    from app.domain.model_usage.service import ModelUsageService
+    from tests.helpers.tasks import task_owner
+    owner=task_owner(client);service=ModelUsageService(owner)
+    keys=dict(user=owner,project=task['project_id'])
+    for scope in scopes: service.set_budget(scope,keys[scope],5000000,0)
+
+
+def test_writing_request_creates_task_budget_from_authorization_cap(client):
+    root,bundle=preview(client);path,auth=authorize(client,root,bundle)
+    first=post(client,root+'/writing-requests',request_v2(bundle,auth),'task-budget')
+    assert first.status_code==202,first.text
+    task=first.json()['task']
+    [row]=task_budgets(task['id'])
+    assert row['limit_micro_usd']==auth['manifest']['logical_task_cap_micro_usd']==3000000
+    assert row['task_id']==task['id'] and row['project_id']==task['project_id'] and row['revision']==1
+    assert post(client,root+'/writing-requests',request_v2(bundle,auth),'task-budget').status_code==200
+    assert len(task_budgets(task['id']))==1
+
+
+def test_user_and_project_budgets_are_enough_to_run(client):
+    root,bundle=preview(client);path,auth=authorize(client,root,bundle)
+    task=post(client,root+'/writing-requests',request_v2(bundle,auth),'two-levels').json()['task']
+    owner_budgets(client,task,('user','project'))
+    result=run_manuscript_writing_task(task['id'],task['revision'],provider=LiveFixture())
+    assert result['status']=='succeeded',result
+
+
+def test_missing_project_budget_still_waits(client):
+    root,bundle=preview(client);path,auth=authorize(client,root,bundle)
+    task=post(client,root+'/writing-requests',request_v2(bundle,auth),'no-project').json()['task']
+    owner_budgets(client,task,('user',))
+    provider=LiveFixture()
+    result=run_manuscript_writing_task(task['id'],task['revision'],provider=provider)
+    assert result['status']=='waiting_confirmation' and result['reason_code']=='budget_exceeded',result
+    assert provider.posts==[]
+
+
+def test_request_view_names_its_execution_group_before_any_model_call(client):
+    # A queued or budget-waiting request has no model call yet; the client still needs its group so it never reuses it.
+    root,bundle=preview(client);path,auth=authorize(client,root,bundle)
+    created=post(client,root+'/writing-requests',request_v2(bundle,auth),'execution-view').json()
+    expected=dict(bundle_id=bundle['id'],authorization_id=auth['id'],logical_task_id='task-0')
+    assert created['model_calls']==[] and created['execution']==expected
+    listed=client.get(root+'/writing-requests').json()['items']
+    assert [item['execution'] for item in listed if item['id']==created['id']]==[expected]
+    provider=LiveFixture()
+    task=created['task']
+    waited=run_manuscript_writing_task(task['id'],task['revision'],provider=provider)
+    assert waited['status']=='waiting_confirmation' and waited['error_code']=='model_budget_missing', waited
+    # After losing the POST response, the client only knows the authorized group.
+    listed=client.get(root+'/writing-requests').json()['items']
+    found=[item for item in listed if item['execution']==expected]
+    assert len(found)==1 and found[0]['id']==created['id']
+    assert found[0]['task']['status']=='waiting_confirmation' and found[0]['model_calls']==[]
+    assert provider.posts==[]
+    with database_connection() as db:
+        assert db.execute('SELECT count(*) AS n FROM model_calls').fetchone()['n']==0
+
+
+def test_preview_capabilities_disclose_manifest_receiver_and_storage_scope(client):
+    root,bundle=preview(client);path,auth=authorize(client,root,bundle)
+    capabilities=client.get(root+'/writing-previews').json()['capabilities']
+    assert capabilities['provider']==auth['manifest']['endpoint']
+    assert capabilities['storage_scope']==auth['manifest']['external_storage_notice']
+    assert isinstance(capabilities['provider'],str) and capabilities['provider']
+    assert isinstance(capabilities['storage_scope'],str) and capabilities['storage_scope']

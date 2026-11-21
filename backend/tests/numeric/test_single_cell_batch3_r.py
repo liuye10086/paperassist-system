@@ -10,11 +10,16 @@ preload_runtime_libraries()
 import numpy as np
 import pytest
 from scipy import sparse
+from tests.numeric.embedded_r import compare_in_fresh_process
 
 pytestmark=pytest.mark.skipif(not Path('/opt/paperassist-single-cell-r/lib/R').is_dir(),reason='pinned embedded R runtime required')
 
 
 def test_harmony_matches_native_function_with_explicit_cell_order(tmp_path):
+    compare_in_fresh_process(compare_native_harmony, tmp_path)
+
+
+def compare_native_harmony(tmp_path):
     from app.adapters.single_cell_r.bridge import initialize
     bridge=initialize(tmp_path);ro=bridge.ro
     rng=np.random.default_rng(72);pcs=rng.normal(size=(120,8));pcs[:60,0]+=3
@@ -43,7 +48,9 @@ def test_isolated_worker_runs_harmony_regression_exports_and_preserves_counts(tm
     writer.matrix('matrix',counts);writer.json('features_index',dict(feature_ids=genes,feature_symbols=genes,feature_types=['Gene Expression']*60))
     writer.json('barcodes_index',dict(barcodes=cells));writer.json('observation_map_index',dict(rows=[dict(barcode=c,library_id='L1' if i<60 else 'L2',batch=dict(status='known',value='b1' if i<60 else 'b2'),group=dict(status='known',value='healthy')) for i,c in enumerate(cells)]))
     output=tmp_path/'output';output.mkdir()
-    payload=dict(mode='compute',raw=dict(manifest=dict(assay='single_cell',input_shape=dict(observations=120,features=60)),members={m['key']:m for m in writer.artifacts}),
+    samples=[dict(library_id='L1',batch='b1',group='healthy'),dict(library_id='L2',batch='b2',group='healthy')]
+    manifest=dict(assay='single_cell',input_shape=dict(observations=120,features=60),samples=samples)
+    payload=dict(mode='compute',raw=dict(manifest=manifest,members={m['key']:m for m in writer.artifacts}),
         config=dict(seed=72,min_spots=1,hvg_count=24,pca_components=8,hvg_batch_key='batch',technical_covariates=['log1p_total_counts'],harmony=dict(enabled=True,batch_key='batch',theta=2,**{'lambda':1},max_iter=10)),output_directory=str(output))
     body=json.dumps(payload).encode();worker=Path(__file__).resolve().parents[2]/'app/adapters/bio_engine/worker.py'
     completed=subprocess.run([sys.executable,'-I','-B',str(worker),str(os.getpid())],input=struct.pack('!I',len(body))+body,env={},capture_output=True,timeout=420)

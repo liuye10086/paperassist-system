@@ -13,6 +13,17 @@ def fixture():
     return json.loads((Path(__file__).parents[1]/'fixtures/explanation_reference_prefix.json').read_text(encoding='utf-8'))
 
 
+@pytest.mark.parametrize('method, stop', [('固定的方法。', '。'), ('Frozen method.', '.')])
+def test_method_sentence_and_following_full_stop_share_one_terminator(method, stop):
+    payload=fixture()['payload']
+    payload['facts']['method.summary']={'label':'Method','raw':method,'value':method}
+    draft={key:' '.join('{{'+ref+'}}' for ref in refs) for key,refs in payload['required_references'].items()}
+    draft['methods'] += ' {{method.summary}}'+stop
+    section=next(item for item in render_explanation(draft,payload,merge_method_stop=True) if item['key']=='methods')
+    assert section['text'].endswith(method) and not section['text'].endswith(stop*2)
+    assert next(item for item in section['evidence'] if item['key']=='method.summary')['value']==method
+
+
 def test_real_synthetic_prefix_error_is_rejected_without_prose_guard_failure():
     data=fixture();payload=data['payload'];draft=data['draft']
     validate_draft(draft,payload)

@@ -1,4 +1,5 @@
 import {useState} from 'react'
+import ModuleViews,{ModuleView} from '../../shared/components/ModuleViews'
 import {useI18n} from '../../shared/i18n'
 import type {NativeDeliveryTarget} from '../analyst/NativeDeliveryArtifact'
 import BioReaderReport,{ReportSelectionToggle} from '../bio-reader-reports/BioReaderReport'
@@ -238,52 +239,53 @@ const countLabels:Record<string,string>={total:'总行数',tested:'已检验',ex
 
 function BulkFactsPreview({facts}:{facts:BulkDeliveryFacts}) {
   const {t,locale}=useI18n()
-  const [details,setDetails]=useState(false)
   const confirmation=facts.design.confirmation
   return <section className="bulk-facts" aria-label={t('固定报告事实预览')}>
     <h4>{t('固定报告事实预览')}</h4>
-    <h5>{t('样本质控与设计确认')}</h5>
-    <dl className="bulk-workflow-metrics">{Object.entries(qcLabels).map(([key,label])=>{
-      const value=facts.qc.summary[key]
-      return typeof value==='number'?<div key={key}><dt>{t(label)}</dt><dd>{value}</dd></div>:null
-    })}</dl>
-    <p>{facts.design.formula&&<code>{facts.design.formula}</code>} · {t('设计秩')} {facts.design.rank??'—'} · {t('残差自由度')} {facts.design.residual_df??'—'}</p>
-    <p>{t('物种分类号')} {facts.design.species_taxon_id??'—'} · {t('标识体系')} {facts.design.namespace??'—'} · {t('参考版本')} {facts.design.reference_version??'—'}</p>
-    {confirmation&&<p>{t('方案确认时间')} · <time dateTime={confirmation.confirmed_at}>
-      {new Date(confirmation.confirmed_at).toLocaleString(locale)}</time></p>}
-    {!!facts.qc.input_files?.length&&<p>{t('固定输入文件')} · {facts.qc.input_files.map(item=>item.filename).join(' · ')}</p>}
-    <h5>{t('固定比较与统计口径')}</h5>
-    {facts.contrasts.map(contrast=><section key={contrast.contrast_id}>
-      <p><strong>{bulkComparisonLabel(contrast)}</strong> · <BulkSelectionSummary value={contrast.selection}/></p>
-      <dl className="bulk-workflow-metrics">{Object.entries(contrast.counts).map(([key,value])=><div key={key}>
-        <dt>{t(countLabels[key]??key)}</dt><dd>{value}</dd>
-      </div>)}</dl>
-    </section>)}
-    {facts.figures.length>0&&<><h5>{t('固定图件与来源')}</h5><ul>{facts.figures.map(item=><li key={`${item.version_id}:${item.figure_type}:${item.panel??''}`}>
-      {item.title||t(bulkFigureLabels[item.figure_type as BulkFigureType]??item.figure_type)}
-    </li>)}</ul></>}
-    {facts.enrichments.length>0&&<><h5>{t('功能分析实际状态')}</h5><ul>{facts.enrichments.map(item=><li key={item.version_id}>
-      {t(kindLabels[item.kind as keyof typeof kindLabels]??item.kind)} · {t(bulkWorkflowStatuses[item.status]??item.status)}
-      {item.not_applicable_reason&&<> · {t(bulkEnrichmentReason(item.not_applicable_reason))}</>}
-    </li>)}</ul></>}
-    {facts.sensitivity&&<BulkSensitivitySummary result={facts.sensitivity}/>}
-    {facts.evidence.length>0&&<><h5>{t('独立分析与实验材料')}</h5><ul>{facts.evidence.map(item=><li key={`${item.kind}:${item.source_id}`}>
-      {t(bulkEvidenceKinds[item.kind])}{item.filename&&<> · {item.filename}</>}
-      {item.verification_status==='saved_execution_verified'&&<> · {t('已核对固定计算记录')}</>}
-      {item.verification_status==='attachment_integrity_verified'&&<> · {t('已核对原件完整性')}</>}
-      {item.independence_status==='unverified'&&<> · {t('样本独立性尚未核对')}</>}
-      {!!item.shared_processed_source_ids?.length&&<> · {t('共享固定处理来源')} {item.shared_processed_source_ids.join(', ')}</>}
-      {item.note&&<> · {item.note}</>}
-    </li>)}</ul></>}
-    <h5>{t('方法局限与使用范围')}</h5><ul>{facts.limitations.map((item,index)=><li key={index}>{item}</li>)}</ul>
-    <details onToggle={event=>setDetails(event.currentTarget.open)}><summary>{t('查看方法、来源与佐证详情')}</summary>
-      {details&&<>
+    <ModuleViews label={t('报告事实视图')} lazy>
+     <ModuleView id="summary" title={t('报告事实摘要')}>
+      <h5>{t('样本质控与设计确认')}</h5>
+      <dl className="bulk-workflow-metrics">{Object.entries(qcLabels).map(([key,label])=>{
+        const value=facts.qc.summary[key]
+        return typeof value==='number'?<div key={key}><dt>{t(label)}</dt><dd>{value}</dd></div>:null
+      })}</dl>
+      <p>{facts.design.formula&&<code>{facts.design.formula}</code>} · {t('设计秩')} {facts.design.rank??'—'} · {t('残差自由度')} {facts.design.residual_df??'—'}</p>
+      <p>{t('物种分类号')} {facts.design.species_taxon_id??'—'} · {t('标识体系')} {facts.design.namespace??'—'} · {t('参考版本')} {facts.design.reference_version??'—'}</p>
+      {confirmation&&<p>{t('方案确认时间')} · <time dateTime={confirmation.confirmed_at}>
+        {new Date(confirmation.confirmed_at).toLocaleString(locale)}</time></p>}
+      {!!facts.qc.input_files?.length&&<p>{t('固定输入文件')} · {facts.qc.input_files.map(item=>item.filename).join(' · ')}</p>}
+      <h5>{t('固定比较与统计口径')}</h5>
+      {facts.contrasts.map(contrast=><section key={contrast.contrast_id}>
+        <p><strong>{bulkComparisonLabel(contrast)}</strong> · <BulkSelectionSummary value={contrast.selection}/></p>
+        <dl className="bulk-workflow-metrics">{Object.entries(contrast.counts).map(([key,value])=><div key={key}>
+          <dt>{t(countLabels[key]??key)}</dt><dd>{value}</dd>
+        </div>)}</dl>
+      </section>)}
+      {facts.figures.length>0&&<><h5>{t('固定图件与来源')}</h5><ul>{facts.figures.map(item=><li key={`${item.version_id}:${item.figure_type}:${item.panel??''}`}>
+        {item.title||t(bulkFigureLabels[item.figure_type as BulkFigureType]??item.figure_type)}
+      </li>)}</ul></>}
+      {facts.enrichments.length>0&&<><h5>{t('功能分析实际状态')}</h5><ul>{facts.enrichments.map(item=><li key={item.version_id}>
+        {t(kindLabels[item.kind as keyof typeof kindLabels]??item.kind)} · {t(bulkWorkflowStatuses[item.status]??item.status)}
+        {item.not_applicable_reason&&<> · {t(bulkEnrichmentReason(item.not_applicable_reason))}</>}
+      </li>)}</ul></>}
+      {facts.sensitivity&&<BulkSensitivitySummary result={facts.sensitivity}/>}
+      {facts.evidence.length>0&&<><h5>{t('独立分析与实验材料')}</h5><ul>{facts.evidence.map(item=><li key={`${item.kind}:${item.source_id}`}>
+        {t(bulkEvidenceKinds[item.kind])}{item.filename&&<> · {item.filename}</>}
+        {item.verification_status==='saved_execution_verified'&&<> · {t('已核对固定计算记录')}</>}
+        {item.verification_status==='attachment_integrity_verified'&&<> · {t('已核对原件完整性')}</>}
+        {item.independence_status==='unverified'&&<> · {t('样本独立性尚未核对')}</>}
+        {!!item.shared_processed_source_ids?.length&&<> · {t('共享固定处理来源')} {item.shared_processed_source_ids.join(', ')}</>}
+        {item.note&&<> · {item.note}</>}
+      </li>)}</ul></>}
+      <h5>{t('方法局限与使用范围')}</h5><ul>{facts.limitations.map((item,index)=><li key={index}>{item}</li>)}</ul>
+     </ModuleView>
+     <ModuleView id="details" title={t('方法、来源与佐证详情')}>
       <DataDetails title="样本质控" value={facts.qc}/>
       <DataDetails title="确认设计与方法" value={facts.design}/>
       <DataDetails title="固定候选" value={facts.candidates}/>
       <DataDetails title="固定来源与资源" value={facts.references}/>
       <DataDetails title="独立分析与实验材料" value={facts.evidence}/>
-      </>}
-    </details>
+     </ModuleView>
+    </ModuleViews>
   </section>
 }

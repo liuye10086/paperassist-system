@@ -55,7 +55,7 @@ def test_literature_source_sign_cannot_be_ignored(quote):
 
 
 def language_case(place,old,new):
-    candidate=dict(results_groups=[dict(title='Results',tables=[dict(title='Table',columns=['Value'],rows=[[old]])],
+    candidate=dict(results_groups=[dict(id='results-1',title='Results',tables=[dict(title='Table',columns=['Value'],rows=[[old]])],
         figures=[dict(title='Figure',caption=old,panels=[dict(label='A',description=old)])])])
     path={'caption':'/results_groups/0/figures/0/caption','cell':'/results_groups/0/tables/0/rows/0/0',
           'panel':'/results_groups/0/figures/0/panels/0/description'}[place]
@@ -65,7 +65,7 @@ def language_case(place,old,new):
 @pytest.mark.parametrize('place',['caption','cell','panel'])
 @pytest.mark.parametrize('old,new',[('−5 mg','5 mg'),('－5 mg','5 mg'),('﹣5 mg','5 mg'),('- 5 mg','5 mg'),('− 5 mg','+5 mg'),('＋5 mg','−5 mg'),('﹢5 mg','−5 mg'),('±5 mg','5 mg'),('∓5 mg','5 mg')])
 def test_language_edits_cannot_delete_reverse_or_flatten_signs(place,old,new):
-    with pytest.raises(ValueError):prepare_candidate(*language_case(place,old,new))
+    with pytest.raises(ValueError,match='numerical facts|Ambiguous numeric notation'):prepare_candidate(*language_case(place,old,new))
 
 
 @pytest.mark.parametrize('place',['caption','cell','panel'])
@@ -82,7 +82,7 @@ def test_checker_projection_preserves_reference_marker_boundaries():
 
 @pytest.mark.parametrize('old,new',[('Q3−Q1','Q3Q1'),('A + 5','A 5'),('±5 mg','±5 milligrams'),('∓5 mg','∓5 milligrams')])
 def test_language_protects_standalone_operators_and_rejects_ambiguous_edits(old,new):
-    with pytest.raises(ValueError):prepare_candidate(*language_case('caption',old,new))
+    with pytest.raises(ValueError,match='numerical facts|Ambiguous numeric notation'):prepare_candidate(*language_case('caption',old,new))
 
 
 @pytest.mark.parametrize('kind',['study','literature'])

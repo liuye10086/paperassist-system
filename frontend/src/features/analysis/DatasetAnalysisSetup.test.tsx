@@ -31,7 +31,11 @@ function mockApi(options: { saved?: unknown; items?: StructureVersion[]; result?
    if (init?.method === 'PUT') { const body = JSON.parse(String(init.body)); return Response.json({ ...saved, revision: 2, source: body.dataset_id === 'd2' ? { ...source, dataset_id: 'd2', structure_id: 's2', dataset_version: 2 } : source }) }
    return Response.json(options.saved ?? null)
   }
-  if (url.includes('/analysis-profile?')) return Response.json(profile)
+  if (url.includes('/analysis-profile?')) {
+   const id = new URL(url, 'http://test').searchParams.get('dataset_id')
+   const selected = options.items?.flatMap(item => item.datasets).find(item => item.id === id)
+   return Response.json({ ...profile, sheet_name: selected?.sheet_name ?? profile.sheet_name })
+  }
   if (url.endsWith('/analysis-check')) return Response.json(check)
   if (url.endsWith('/analysis-result')) return Response.json({ current_revision: 1, is_current: true, result: options.result ?? null })
   if (url.endsWith('/boxplot')) return Response.json({ current_revision: 1, is_current: true, figure: null, job: null })
@@ -211,7 +215,8 @@ test('pagination and refreshing a newer failed version preserve selected version
  expect(select.value).toBe('s1'); expect((unit as HTMLInputElement).value).toBe(' draft')
 })
 test('changing only dataset source leaves existing statistics and their frozen label but blocks new execution', async () => {
- mockApi({ saved, result }); const user = userEvent.setup(); await open(user); await screen.findByLabelText('数值列')
+ const next = { ...newer, datasets: [{ ...newer.datasets[0], sheet_name: '另一张表' }] }
+ mockApi({ saved, result, items: [next, version] }); const user = userEvent.setup(); await open(user); await screen.findByLabelText('数值列')
  await user.click(screen.getByRole('button', { name: '统计结果' }))
  const table = await screen.findByRole('table', { name: '描述统计结果' })
  await user.click(screen.getByRole('button', { name: '字段配置' })); await pick(user, 's2', 'd2')
@@ -220,7 +225,7 @@ test('changing only dataset source leaves existing statistics and their frozen l
  expect(screen.getByRole('table', { name: '描述统计结果' })).toBe(table)
  expect((screen.getByRole('button', { name: '执行描述统计' }) as HTMLButtonElement).disabled).toBe(true)
  expect(screen.queryByText(/以下为历史结果/)).toBeNull()
- expect(screen.getByText(/来源：研究.xlsx；工作表：Sheet1；原始数据版本 v1。/, { selector: '.statistics-results .analysis-source' })).toBeTruthy()
+ expect(screen.getByText('来源：研究.xlsx · 工作表：Sheet1 · 原始数据', { selector: '.statistics-results .analysis-source' })).toBeTruthy()
 })
 test('legacy configuration and results remain readable while execution requires explicitly saved dataset source', async () => {
  const { source: _source, ...legacySaved } = saved; const { source: _resultSource, ...legacyResult } = result

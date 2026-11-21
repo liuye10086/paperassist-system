@@ -5,6 +5,30 @@ import BioImports from './BioImports'
 vi.mock('../../shared/api/client',()=>({apiFetch:vi.fn(),getApiUserId:()=> 'owner1',onApiSessionChanged:()=>()=>{}}))
 afterEach(()=>{cleanup();vi.clearAllMocks();sessionStorage.clear()})
 function responses(url:string,init?:RequestInit){return Promise.resolve(Response.json(init?.method==='POST'?{id:'import1'}:url.endsWith('/files')?[{id:'file1',filename:'matrix.h5',file_type:'bio_component'}]:url.includes('/bio-analysis-runs')?{items:[],total:0}:{items:[{id:'dataset1',name:'Existing Visium',revision:2}],total:1}))}
+const customerImport={projectId:'p1',active:true,analysisOnly:true,sectioned:true,qualityMode:false,navigation:{view:'bio-datasets' as const,fileId:'',intent:'single_cell_import' as const},onNavigate:()=>{}}
+it('waits for the customer file list before presenting five eligible omics files',async()=>{
+ let resolveFiles!:(value:Response)=>void
+ const pending=new Promise<Response>(resolve=>{resolveFiles=resolve})
+ vi.mocked(apiFetch).mockImplementation(async url=>url.endsWith('/files')?pending:Response.json({items:[],total:0}))
+ render(<BioImports {...customerImport}/>)
+ expect(screen.queryByText('客户资料中暂无可导入的组学数据。')).toBeNull()
+ expect(screen.getByRole('status').textContent).toContain('正在读取导入材料')
+ await act(async()=>resolveFiles(Response.json(Array.from({length:5},(_,i)=>({id:'f'+i,filename:'matrix-'+i+'.h5',file_type:'bio_component'})))))
+ expect(screen.getAllByRole('checkbox',{name:/matrix-\d\.h5/})).toHaveLength(5)
+ expect(screen.queryByText('正在读取导入材料……')).toBeNull()
+})
+it('shows a retry for a failed read and an empty message only after a successful empty response',async()=>{
+ let available=false
+ vi.mocked(apiFetch).mockImplementation(async url=>url.endsWith('/files')?
+   (available?Response.json([{id:'note',filename:'note.txt',file_type:'document'}]):new Response('',{status:503})):Response.json({items:[],total:0}))
+ render(<BioImports {...customerImport}/>)
+ const retry=await screen.findByRole('button',{name:'重新读取导入材料'})
+ expect(screen.queryByText('客户资料中暂无可导入的组学数据。')).toBeNull()
+ available=true
+ fireEvent.click(retry)
+ expect(await screen.findByText('客户资料中暂无可导入的组学数据。')).toBeTruthy()
+ expect(screen.queryByRole('alert')).toBeNull()
+})
 it('opens the import form from an original and restores its configuration and sample after reload',async()=>{
  vi.mocked(apiFetch).mockImplementation(responses)
  const props={projectId:'p1',active:true,sectioned:true,qualityMode:false,navigation:{view:'bio-datasets' as const,fileId:'file1'},initialFileIds:['file1'],entryKey:'req1:qc',onNavigate:vi.fn()}

@@ -1,12 +1,9 @@
 """Read-only historical provenance audit, independent of current support decisions."""
-from types import SimpleNamespace
-from app.core.config import get_data_dir
-from app.db.database import get_database_config
-from app.adapters.file_objects import LocalFileObjects
 from app.domain.literature.service import digest
 from app.domain.literature_citations.service import LiteratureCitationService
 from app.domain.literature_citations.contracts import DraftRequest, DraftVersionRequest, MaterialConfirmationRequest
 from app.domain.literature_citations.formatter import render_paragraphs
+from app.domain.report_collections.service import scoped_store
 
 
 def validate_version(svc,db,row):
@@ -64,8 +61,7 @@ def audit_literature_citations(db):
     services={};checks=[]
     def service(owner):
         if owner not in services:
-            services[owner]=LiteratureCitationService(SimpleNamespace(owner_id=owner,db_config=get_database_config(),
-                directory=get_data_dir(),original=LocalFileObjects(get_data_dir()).original))
+            services[owner]=LiteratureCitationService(scoped_store(owner,db.config))
         return services[owner]
     for table in ('literature_citation_metadata_versions','literature_material_confirmations',
                   'literature_citation_drafts','literature_citation_versions'):

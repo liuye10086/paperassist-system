@@ -29,6 +29,13 @@ function setup(initial:ReturnType<typeof recommendation>[]=[],initialProfiles:ty
  });vi.stubGlobal('fetch',fetch);const rendered=render(<JournalWorkspace projectId="p1" active onOpenTask={vi.fn()} {...(formal?{view:'overview' as const}:{})}/>);return {requests,fetch,...rendered}
 }
 async function fillResearch(){await screen.findByRole('option',{name:/Old manuscript.*版本 1/});fireEvent.change(screen.getByLabelText('研究标题'),{target:{value:'Cancer'}});fireEvent.change(screen.getByLabelText('主题标签（逗号或换行分隔）'),{target:{value:'cancer'}});fireEvent.change(screen.getByRole('textbox',{name:'文章类型'}),{target:{value:'research'}})}
+it('uses customer research labels even before SCI settings have been filled in',async()=>{
+ const {rerender}=setup([],[],false,true)
+ rerender(<JournalWorkspace projectId="p1" active customerSci={null} view="research"/>)
+ await screen.findByRole('option',{name:'Old manuscript · 第 1 版'})
+ fireEvent.change(screen.getByLabelText('固定稿件版本'),{target:{value:'m1:1'}})
+ expect(screen.getByText('本批固定所选版本：Old manuscript · 第 1 版')).toBeTruthy()
+})
 it('creates before a draft, freezes explicit old revision and creates a new batch for changed preferences',async()=>{
  const {requests}=setup();await fillResearch();fireEvent.click(screen.getByRole('button',{name:'创建建议批次'}));await waitFor(()=>expect(requests.length).toBe(1));expect(requests[0].body.manuscript).toBeNull();expect(requests[0].body.hard_filters).toEqual(['article_types','fee','unit_requirements']);expect(requests[0].body).not.toHaveProperty('limit')
  fireEvent.change(screen.getByLabelText('固定稿件版本'),{target:{value:'m1:1'}});fireEvent.change(screen.getByLabelText('预算金额'),{target:{value:'200'}});fireEvent.click(screen.getByRole('button',{name:'创建建议批次'}));await waitFor(()=>expect(requests.length).toBe(2));expect(requests[1].body.manuscript).toEqual({id:'m1',revision:1});expect(requests[1].body.budget).toEqual({amount:200,currency:'USD'});expect(requests[0].key).not.toBe(requests[1].key)

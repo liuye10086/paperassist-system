@@ -212,8 +212,10 @@
 :is(.admin-account-delete-dialog, .assignment-dialog) .error-panel { margin-top: 12px; }
 .admin-account-delete-actions, .assignment-dialog-actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 8px; margin-top: 20px; }
 .account-activity[data-active='true'] { --status-surface: var(--success-soft); --status-ink: var(--success); }
-.registration-review-action, .registration-status { min-width: 88px; min-height: 32px; justify-content: center; }
-.registration-review-action:disabled { background: var(--destructive-soft); color: var(--destructive); opacity: 1; }
+.registration-review-action, .registration-reject-action, .registration-status { min-width: 88px; min-height: 32px; justify-content: center; }
+.registration-status[data-status='pending'] { --status-surface: var(--warning-soft); --status-ink: var(--warning); }
+.registration-reject-reason { display: grid; gap: 6px; margin-top: 12px; }
+.registration-reject-reason textarea { width: 100%; resize: vertical; }
 .registration-status[data-status='approved'] { --status-surface: var(--success-soft); --status-ink: var(--success); }
 .registration-status[data-status='rejected'] { --status-surface: var(--destructive-soft); --status-ink: var(--destructive); }
 @media (max-width: 760px) {
@@ -224,9 +226,11 @@
   .admin-account-filters .operations-filters { flex: 1 1 100%; }
 }
 @media (pointer: coarse) {
-  .admin-account-panel .operations-table-scroll select, .registration-review-action { min-height: 44px; }
+  .admin-account-panel .operations-table-scroll select, .registration-review-action, .registration-reject-action { min-height: 44px; }
 }
 .project-assignments > h2 { margin: 0; }
+.assignment-status-filter { display: flex; flex-wrap: wrap; gap: 8px; }
+.assignment-finished { margin: 0; }
 .assignment-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 8px; }
 .assignment-dialog { width: min(560px, calc(100% - 32px)); }
 .assignment-dialog form > label, .assignment-dialog .admin-account-pager { margin-top: 12px; }

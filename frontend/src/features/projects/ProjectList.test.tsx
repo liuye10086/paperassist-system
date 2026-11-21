@@ -127,3 +127,10 @@ test('does not show an empty list message while the first request is loading', (
   setup({ items: [], total: 0, loading: true })
   expect(screen.queryByText('还没有项目，请先创建一个项目。')).toBeNull()
 })
+
+test('keeps the analyst empty state without a create button and five projects per page by default (B05 task 9)', () => {
+  render(<ProjectList items={[]} total={6} query={{ page: 1, q: '', type: '' }} searchDraft="" loading={false} error=""
+    onSearchDraftChange={() => {}} onQueryChange={() => {}} onOpen={() => {}} onRetry={() => {}} />)
+  expect(screen.getByText('共 6 个项目 · 第 1 / 2 页')).toBeTruthy()
+  expect(screen.queryByRole('button', { name: '新建项目' })).toBeNull()
+})

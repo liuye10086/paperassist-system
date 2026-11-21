@@ -15,7 +15,7 @@ from tests.api.test_boxplot import cloud
 from tests.domain.test_correlation_plan_contracts import research
 from tests.integration.test_correlation_plan import prepared_correlations
 from tests.integration.test_comparison_plan import selection,make_plan,approve,independent_rows
-from tests.integration.test_dataset_artifact_chain import confirmed_task
+from tests.integration.test_dataset_artifact_chain import checked_word_exports, confirmed_task
 from tests.integration.test_boxplot_execution import SyntheticPlotProvider,run as run_plot
 from tests.integration.test_correlation_artifact_chain import ModernExplanationProvider,finish_plot
 from tests.integration.test_explanation_execution import run as run_explanation
@@ -111,33 +111,28 @@ def complete_chain(client,method,language):
     assert outbound['schema_version']==3 and 'PRIVATE-ID' not in json.dumps(outbound) and 'LOCAL-QUESTION-SENTINEL' not in json.dumps(outbound)
     with database_connection() as db: explanation=json.loads(db.execute('SELECT explanation_json FROM explanations WHERE id=%s',(done['result_explanation_id'],)).fetchone()['explanation_json'])
     assert explanation['schema_version']==3 and explanation['engine']['id']=='analysis_explanation_v3'
-    task,_=comparison_task(client,base,file,result,'word_report',figure,explanation)
-    from app.domain.tasks.execution import run_word_task
-    done=run_word_task(task['id'],task['revision'])
-    assert done is not None and done['status']=='succeeded',done
-    workspace=client.get('/api/v1/tasks/'+task['id']+'/workspace');assert workspace.status_code==200,workspace.text
-    url=workspace.json()['artifacts']['report']['download_url'];download=client.get(url)
-    assert download.status_code==200,download.text if download.status_code!=200 else ''
+    reader, historical = checked_word_exports(client, base, result, figure, explanation, provider.png)
     from docx import Document
-    document=Document(BytesIO(download.content));text='\n'.join(p.text for p in document.paragraphs)
+    document=Document(BytesIO(historical[1]));text='\n'.join(p.text for p in document.paragraphs)
     assert ('Group comparison report' if language=='en' else '组间比较分析报告') in text and 'LOCAL-QUESTION-SENTINEL' in text
     assert 'PRIVATE-ID' not in text and 'relationship_form' not in text
     if result['selection']['design']=='paired': assert ('5 complete pairs' if language=='en' else '5 个完整对') in text
     if result['selection']['posthoc']=='all_pairs_holm': assert 'Holm' in text and ('simultaneous' if language=='en' else '同时') in text
-    with ZipFile(BytesIO(download.content)) as archive: assert [archive.read(name) for name in archive.namelist() if name.startswith('word/media/')]==[provider.png]
-    return base,file,result,figure,explanation,url,download.content
+    with ZipFile(BytesIO(historical[1])) as archive: assert [archive.read(name) for name in archive.namelist() if name.startswith('word/media/')]==[provider.png]
+    return base,file,result,figure,explanation,reader,historical
 
 
 @pytest.mark.parametrize('method,language',[('welch_t','en'),('mann_whitney_u','zh-CN'),('paired_t','zh-CN'),('wilcoxon','en'),('welch_anova','en'),('kruskal_wallis','zh-CN')])
 def test_six_comparisons_real_consumers_download_and_keep_immutable_history(client,monkeypatch,method,language):
     from tests.browser.task_browser_support import block_real_providers
     blocked=block_real_providers(monkeypatch)
-    base,file,result,figure,explanation,url,content=complete_chain(client,method,language)
+    base,file,result,figure,explanation,reader,historical=complete_chain(client,method,language)
     from tests.api.test_analysis import selection as descriptive_selection
     response=client.put(base+'/analysis-setup',json=descriptive_selection(dataset_id=result['source']['dataset_id'],expected_revision=1,
         sheet_name=result['selection']['sheet_name'],numeric_column='B' if result['selection']['design']=='paired' else 'A',group_column=None,unit=''))
     assert response.status_code==200,response.text
-    assert client.get(url).content==content
+    for url, content in (reader, historical):
+        assert client.get(url).content == content
     png_url=base+'/analysis-runs/'+result['id']+'/figures/'+figure['id']+'/download'
     assert client.get(png_url).status_code==200
     assert blocked==[]
@@ -159,8 +154,8 @@ def test_cloud_drawing_mismatch_persists_bounded_evidence_without_publish(client
 
 @pytest.mark.parametrize('target',['figure','report'])
 def test_paired_plot_difference_summary_cannot_be_tampered_for_consumers(client,target):
-    base,file,result,figure,explanation,report_url,_=complete_chain(client,'paired_t','en')
-    url=base+'/analysis-runs/'+result['id']+'/figures/'+figure['id']+'/download' if target=='figure' else report_url
+    base,file,result,figure,explanation,reader,_=complete_chain(client,'paired_t','en')
+    url=base+'/analysis-runs/'+result['id']+'/figures/'+figure['id']+'/download' if target=='figure' else reader[0]
     for change in ['difference','method','renderer']:
         changed=deepcopy(figure)
         if change=='difference': changed['paired_summary']['difference']['mean']=999.

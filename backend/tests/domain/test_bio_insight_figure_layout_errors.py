@@ -23,6 +23,7 @@ def test_layout_size_error_reaches_public_parent_response(tmp_path, monkeypatch)
     monkeypatch.setattr(transport, 'project_transport_payload', lambda payload: payload)
     monkeypatch.setattr(excel_process, '_run_child', lambda *args, **kwargs: {'error': {'code': code}})
     with pytest.raises(StorageError) as exc:
-        bio_insights_process.execute_bio_insights({'kind': 'bio_insight_figure'}, tmp_path)
+        bio_insights_process.execute_bio_insights(
+            {'kind': 'bio_insight_figure', 'config': {'kind': 'figure', 'figure_type': 'upset'}}, tmp_path)
     assert exc.value.code == code
     assert error_detail(exc.value.code, str(exc.value))['code'] == code

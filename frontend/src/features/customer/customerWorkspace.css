@@ -264,3 +264,27 @@
   .customer-deliveries .customer-actions { gap: 4px; }
   .customer-deliveries .customer-delivery-row :is(button, a) { padding-inline: 8px; font-size: 13px; }
 }
+
+/* B02 summary landing, supplement mode (wireframe 02) and progress submissions (wireframe 03). */
+.customer-landing-error { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 12px; }
+.customer-landing-error .error-panel { margin: 0; }
+.customer-supplement-request {
+  margin: 0 0 12px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  background: var(--warning-soft);
+  color: var(--foreground);
+}
+.customer-supplement-request p { margin: 0; overflow-wrap: anywhere; }
+.customer-supplement-request p + p { margin-top: 4px; font-size: 13px; }
+.customer-supplement { display: grid; gap: 8px; margin: 12px 0; }
+.customer-supplement h3 { margin: 0; }
+.customer-supplement-files label { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.customer-supplement-files input[type="checkbox"] { width: auto; min-height: 0; margin: 0; accent-color: var(--primary); }
+.customer-supplement-error { display: grid; gap: 8px; justify-items: start; }
+.customer-supplement-error p { margin: 0; }
+.customer-supplement-actions { display: flex; justify-content: flex-end; align-items: center; flex-wrap: wrap; gap: 12px; }
+.customer-submissions { margin-top: 16px; }
+.customer-submissions h3 { margin: 0 0 4px; }
+.customer-submission-files { display: grid; gap: 4px; margin-top: 6px; }
+.customer-requirements__impact { margin: 8px 0 0; color: var(--muted-foreground); }

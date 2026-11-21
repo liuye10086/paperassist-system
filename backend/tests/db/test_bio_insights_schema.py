@@ -25,9 +25,12 @@ def test_b04_sources_and_public_results_have_typed_scope():
     assert set(TABLES) <= set(metadata.tables), 'CR-B04 schema missing'
     from app.db.bio_insights_schema import SOURCE_TARGETS
     sources = metadata.tables['bio_insight_plan_sources']
-    assert len(SOURCE_TARGETS) == 7
+    assert set(SOURCE_TARGETS) == {'bio_processed_dataset_version', 'bio_observation_map_version',
+                                  'bio_annotation_version', 'research_design_version', 'bio_resource_version',
+                                  'bio_insight_result_version', 'original_file', 'external_evidence_version'}
     for col, target in SOURCE_TARGETS.values():
-        assert any(set(fk.column_keys) == {col, 'project_id'} for fk in sources.foreign_key_constraints)
+        assert any(fk.column_keys == [col, 'project_id'] and fk.referred_table.name == target
+                   for fk in sources.foreign_key_constraints)
     tasks = metadata.tables['tasks']
     for col in ('result_bio_resource_version_id', 'result_bio_insight_result_version_id'):
         assert col in tasks.c

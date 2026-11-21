@@ -3,15 +3,18 @@ import { useI18n, apiError } from '../../shared/i18n';
 import { onApiSessionChanged } from '../../shared/api/client';
 import { useDocumentVisible } from '../tasks/useDocumentVisible';
 import ProjectDownloadLink from '../../shared/components/ProjectDownloadLink';
-import { batchRequest, isBatch, mergeBatch, uploadQueue, validateFile, validateSelection, type UploadBatch, type BatchPage } from './batchUploadApi';
+import { batchRequest, isBatch, mergeBatch, uploadQueue, validateFile, validateSelection, type BatchItem, type UploadBatch, type BatchPage } from './batchUploadApi';
+import { formatFileSize } from './fileSize';
 import './batchUpload.css';
 import useDraftLeaveGuard, { type RegisterLeaveGuard } from '../projects/useDraftLeaveGuard';
 const statusLabels = { pending: '等待上传', rejected: '上传被拒绝', queued: '已保存，等待解析', parsing: '文件解析中', parsed: '解析完成', failed: '解析失败', stored: '已上传' };
-export default function BatchUpload({ projectId, active, onUnavailable, onChanged, registerLeaveGuard, embedded = false, customerView = false, writingMaterials, schoolTemplate = false, reviewDocument = false }: {
+export default function BatchUpload({ projectId, active, onUnavailable, onChanged, trackedItems, registerLeaveGuard, embedded = false, customerView = false, writingMaterials, schoolTemplate = false, reviewDocument = false }: {
     projectId: string;
     active: boolean;
     onUnavailable: () => void;
-    onChanged: () => void;
+    /** Unscoped callers receive parsed files from this mount. An opinion can restore its own registered items. */
+    onChanged: (fileIds?: string[], parsedItems?: Pick<BatchItem,'id'|'file_id'>[]) => void;
+    trackedItems?: { ids: string[]; register: (ids: string[]) => void };
     registerLeaveGuard?: RegisterLeaveGuard;
     embedded?: boolean;
     customerView?: boolean;
@@ -19,18 +22,19 @@ export default function BatchUpload({ projectId, active, onUnavailable, onChange
     schoolTemplate?: boolean;
     reviewDocument?: boolean;
 }) {
-    const { t } = useI18n();
+    const { t, locale } = useI18n();
+    // School template, review document and writing material uploads are customer pages only: say Word, not DOCX (B04 task 14).
     const wordOnly = schoolTemplate || reviewDocument;
     const accepted = wordOnly ? '.docx' : writingMaterials ? '.xlsx,.docx,.png,.jpg,.jpeg,.tif,.tiff' : '.xlsx,.docx,.pdf,.png,.jpg,.jpeg';
-    const uploadLabel = reviewDocument ? '批量上传返修 DOCX' : schoolTemplate ? '批量上传 DOCX 模板与规范' : writingMaterials ? '批量上传 Excel / Word / 图片' : '批量上传 Excel / Word / PDF / 图片';
-    const selectionLabel = wordOnly ? '批量选择 DOCX 文件' : writingMaterials ? '批量选择 Excel / Word / 图片文件' : '批量选择 Excel / Word / PDF / 图片 文件';
-    const uploadDescription = wordOnly ? '支持 DOCX。每个文件最多 10 MiB，每批最多 10 个。'
-        : writingMaterials ? '支持 DOCX、XLSX 和 PNG、JPEG、TIFF；每个文件最多 10 MiB，每批最多 10 个。'
+    const uploadLabel = reviewDocument ? '批量上传返修 Word' : schoolTemplate ? '批量上传 Word 模板与规范' : writingMaterials ? '批量上传 Excel / Word / 图片' : '批量上传 Excel / Word / PDF / 图片';
+    const selectionLabel = wordOnly ? '批量选择 Word 文件' : writingMaterials ? '批量选择 Excel / Word / 图片文件' : '批量选择 Excel / Word / PDF / 图片 文件';
+    const uploadDescription = wordOnly ? '支持 Word 文件。每个文件最多 10 MiB，每批最多 10 个。'
+        : writingMaterials ? '支持 Word、Excel 和 PNG、JPEG、TIFF 图片；每个文件最多 10 MiB，每批最多 10 个。'
         : embedded ? '支持 Excel、Word、PDF、PNG 和 JPG；每个文件最多 10 MiB，每批最多 10 个。'
         : '支持 .xlsx / .docx / .pdf / .png / .jpg / .jpeg，每文件最多 10 MiB，每批最多 10 项，同时上传 2 项。';
     const writingFileError = writingMaterials === 'thesis' ? '毕业论文写作资料请选择 Word、Excel 或图片。' : 'SCI 写作资料请选择 Word、Excel 或图片。';
     function formatError(filename: string) {
-        if (wordOnly && !/\.docx$/i.test(filename)) return schoolTemplate ? '学校模板和补充规范请选择 DOCX 文件。' : '请选择返修 DOCX 文件。';
+        if (wordOnly && !/\.docx$/i.test(filename)) return schoolTemplate ? '学校模板和补充规范请选择 Word 文件。' : '请选择返修 Word 文件。';
         return writingMaterials && /\.pdf$/i.test(filename) ? writingFileError : null;
     }
     const validateMaterial = (file: File) => formatError(file.name) ?? validateFile(file, !!writingMaterials);
@@ -59,14 +63,18 @@ export default function BatchUpload({ projectId, active, onUnavailable, onChange
     } | null>(null);
     const running = useRef(false);
     const base = `/api/v1/projects/${encodeURIComponent(projectId)}/file-batches`;
+    const sessionItems = useRef(new Set<string>());
     const changed = useRef(onChanged);
     changed.current = onChanged;
+    const tracked = useRef(trackedItems);
+    tracked.current = trackedItems;
     const stop = useCallback(() => {
         mounted.current = false;
         controllers.current.forEach(c => c.abort());
         controllers.current.clear();
         files.current.clear();
         snapshots.current.clear();
+        sessionItems.current.clear();
         registration.current = null;
         setSelection([]);
         setBatches([]);
@@ -113,8 +121,13 @@ export default function BatchUpload({ projectId, active, onUnavailable, onChange
         });
         // Detail reads only update visible entries; a page response owns membership.
         setBatches(current => current.map(b => b.id === batch.id ? merged : b));
-        if ((!previous || merged.revision > previous.revision) && merged.items.some(i => i.file_id))
-            changed.current();
+        if ((!previous || merged.revision > previous.revision) && merged.items.some(i => i.file_id)) {
+            const owned = tracked.current ? new Set(tracked.current.ids) : sessionItems.current;
+            const parsed = merged.items.filter(item => owned.has(item.id) && item.status === 'parsed' && item.file_id);
+            const ids = parsed.map(item => item.file_id!);
+            if (tracked.current) changed.current(ids, parsed);
+            else changed.current(ids);
+        }
         return merged;
     }
     async function reread(batchId: string) {
@@ -211,8 +224,10 @@ export default function BatchUpload({ projectId, active, onUnavailable, onChange
             registration.current = { key: crypto.randomUUID(), items: selection.map(file => {
                     const client_id = crypto.randomUUID();
                     files.current.set(client_id, file);
+                    sessionItems.current.add(client_id);
                     return { client_id, filename: file.name, size_bytes: file.size };
                 }) };
+            tracked.current?.register(registration.current.items.map(item => item.client_id));
         }
         try {
             const registered = await request(base, (v): v is UploadBatch => isBatch(v, projectId), { method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': registration.current.key }, body: JSON.stringify({ items: registration.current.items }) });
@@ -285,7 +300,7 @@ export default function BatchUpload({ projectId, active, onUnavailable, onChange
         {customerView ? <div className="customer-upload-row">{filePicker}{uploadButton}</div> : filePicker}
  {selection.length > 0 && <ul>{selection.map((f, i) => {
      const invalid = validateMaterial(f);
-     return <li key={i}>{f.name} · {f.size} {t('字节')}{invalid && <span className="file-failed"> {t(invalid)}</span>}</li>;
+     return <li key={i}>{f.name} · {formatFileSize(f.size, locale, t)}{invalid && <span className="file-failed"> {t(invalid)}</span>}</li>;
  })}</ul>}
         {(!customerView || showRefresh) && <div className="upload-submit-actions">
             {!customerView && uploadButton}
@@ -293,7 +308,7 @@ export default function BatchUpload({ projectId, active, onUnavailable, onChange
         </div>}
  {selection.length > 10 && <p role="alert">{t('每批最多选择 10 个文件。')}</p>}{error && <p role="alert">{t(error)}</p>}{loadError && <p role="alert">{t(loadError)}</p>}
  {batches.some(b => snapshots.current.has(b.id)) && <h3 className="upload-batches-title">{t('已上传批次')}</h3>}
- {batches.filter(b => snapshots.current.has(b.id)).map(batch => <article key={batch.id}><h3>{t('上传批次')} · {new Date(batch.created_at).toLocaleString()}</h3><p role="status">{t(writingMaterials ? '已保存原件 {count} / {total}' : '已解析 {count} / {total}', { count: batch.items.filter(i => writingMaterials ? !!i.file_id : i.status === 'parsed').length, total: batch.items.length })}</p><ul>{batch.items.map(item => <li key={item.id}><strong>{item.filename}</strong> · {t(local[item.id] || statusLabels[item.status])}{item.error && <p>{t(apiError(item.error, '文件处理失败，请重试。'))}</p>}{item.file_id && <ProjectDownloadLink href={`/api/v1/projects/${encodeURIComponent(projectId)}/files/${encodeURIComponent(item.file_id)}/download`} filename={item.filename}>{t('下载原文件')}</ProjectDownloadLink>}{item.status === 'pending' && !formatError(item.filename) && <>{!files.current.has(item.id) && <label>{t('重新选择同一文件')}<input type="file" accept={accepted} onChange={e => {
+ {batches.filter(b => snapshots.current.has(b.id)).map(batch => <article key={batch.id}><h3>{t('上传批次')} · {new Date(batch.created_at).toLocaleString(locale)}</h3><p role="status">{t(writingMaterials ? '已保存原件 {count} / {total}' : '已解析 {count} / {total}', { count: batch.items.filter(i => writingMaterials ? !!i.file_id : i.status === 'parsed').length, total: batch.items.length })}</p><ul>{batch.items.map(item => <li key={item.id}><strong>{item.filename}</strong> · {t(local[item.id] || statusLabels[item.status])}{item.error && <p>{t(apiError(item.error, '文件处理失败，请重试。'))}</p>}{item.file_id && <ProjectDownloadLink href={`/api/v1/projects/${encodeURIComponent(projectId)}/files/${encodeURIComponent(item.file_id)}/download`} filename={item.filename}>{t('下载原文件')}</ProjectDownloadLink>}{item.status === 'pending' && !formatError(item.filename) && <>{!files.current.has(item.id) && <label>{t('重新选择同一文件')}<input type="file" accept={accepted} onChange={e => {
                             const f = e.target.files?.[0];
                             if (!f || f.name !== item.filename || f.size !== item.size_bytes) {
                                 setError('请选择名称和大小一致的原文件。');

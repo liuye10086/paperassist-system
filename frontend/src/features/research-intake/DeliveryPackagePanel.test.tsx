@@ -60,12 +60,30 @@ it('recovers an unknown freeze through the original key without posting a new sn
  fireEvent.click(screen.getByRole('button',{name:'核对所选成员与缺口'}));await screen.findByRole('button',{name:'冻结本次交付快照'});fireEvent.click(screen.getByRole('button',{name:'冻结本次交付快照'}));fireEvent.click(await screen.findByRole('button',{name:'查询原请求结果'}));await waitFor(()=>expect(fetcher.mock.calls.some(([u])=>u.includes('/requests/'))).toBe(true))
  const posts=fetcher.mock.calls.filter(([u,i])=>u.endsWith('/snapshots')&&i?.method==='POST');expect(posts).toHaveLength(1);expect(fetcher.mock.calls.some(([u])=>u.endsWith('/requests/'+new Headers(posts[0][1]?.headers).get('Idempotency-Key')))).toBe(true)
 })
-it('preserves the conflicting input, separates blind selection and clears sensitive drafts on session change',async()=>{
+it('preserves the conflicting input after a version conflict',async()=>{
  mockApi({conflict:true});render(<DeliveryPackagePanel {...props} snapshotId="s1"/>);fireEvent.click(await screen.findByRole('button',{name:'从此快照派生新版本'}));fireEvent.change(screen.getByLabelText('本次修改说明'),{target:{value:'Private retained input'}})
  fireEvent.click(screen.getByRole('button',{name:'核对所选成员与缺口'}));await screen.findByRole('button',{name:'冻结本次交付快照'});fireEvent.click(screen.getByRole('button',{name:'冻结本次交付快照'}));await screen.findByText('版本冲突：草稿已保留。读取服务器历史，明确比较父快照与修订号后重新预览。')
  expect((screen.getByLabelText('本次修改说明') as HTMLTextAreaElement).value).toBe('Private retained input')
- fireEvent.change(screen.getByLabelText('交付模式'),{target:{value:'blind'}});expect(screen.queryByLabelText('draft.docx · Word 文档 · 署名版')).toBeNull();expect(screen.getByLabelText('blind.docx · Word 文档 · 盲审版')).toBeTruthy();expect((screen.getByLabelText('已选择成员数') as HTMLOutputElement).textContent).toBe('0')
+})
+it('clears sensitive delivery drafts on session change',async()=>{
+ mockApi();render(<DeliveryPackagePanel {...props} snapshotId="s1"/>);fireEvent.click(await screen.findByRole('button',{name:'从此快照派生新版本'}));fireEvent.change(screen.getByLabelText('本次修改说明'),{target:{value:'Private retained input'}})
  act(()=>clearApiSession());expect(screen.queryByDisplayValue('Private retained input')).toBeNull();expect(Object.values(sessionStorage).join('')).not.toContain('Private retained input')
+})
+// B04 task 0.5f: blind delivery is removed. Historical blind snapshots stay readable but cannot be derived from.
+it('offers no delivery mode, excludes historical blind candidates and always freezes complete deliveries',async()=>{
+ const fetcher=mockApi();render(<DeliveryPackagePanel {...props} snapshotId="s1"/>);fireEvent.click(await screen.findByRole('button',{name:'从此快照派生新版本'}))
+ expect(screen.queryByLabelText('交付模式')).toBeNull();expect(screen.queryByText(/盲审派生件/)).toBeNull()
+ expect(screen.getByLabelText('draft.docx · Word 文档 · 署名版')).toBeTruthy();expect(screen.queryByLabelText(/blind\.docx/)).toBeNull()
+ fireEvent.change(screen.getByLabelText('本次修改说明'),{target:{value:'Complete only'}});fireEvent.click(screen.getByRole('button',{name:'核对所选成员与缺口'}))
+ await waitFor(()=>expect(fetcher.mock.calls.some(([u,i])=>u.endsWith('/snapshots/preview')&&i?.method==='POST')).toBe(true))
+ expect(JSON.parse(String(fetcher.mock.calls.find(([u,i])=>u.endsWith('/snapshots/preview')&&i?.method==='POST')![1]?.body)).mode).toBe('complete')
+})
+it('keeps a historical blind snapshot readable but offers no derivation from it',async()=>{
+ const blindSnapshot={...snapshot,mode:'blind',members:[{...member,review_mode:'blind'}]}
+ vi.stubGlobal('fetch',vi.fn(async(url:string)=>Response.json(url.endsWith('/candidates')?candidates:url.endsWith('/snapshots/s1')?blindSnapshot:url.endsWith('/snapshots')?{items:[blindSnapshot]}:url.endsWith('/package')?{task:null,task_id:null,download_url:null,progress:null}:{items:[]})))
+ render(<DeliveryPackagePanel {...props} snapshotId="s1"/>);await screen.findByRole('link',{name:'下载已有成员 plot.png'})
+ expect(screen.getAllByText(/盲审交付/).length).toBeGreaterThan(0)
+ expect(screen.queryByRole('button',{name:'从此快照派生新版本'})).toBeNull()
 })
 it.each(['preview','freeze'])('names mismatched files when %s rejects a delivery and keeps the draft',async phase=>{
  const fallback=mockApi()
@@ -112,12 +130,12 @@ it('keeps the analyst draft and disables freeze when the latest customer require
  const fetcher=mockApi()
  const view=render(<DeliveryPackagePanel {...props} snapshotId="s1" analysisOnly requiredVersionId="r1"/>)
  fireEvent.click(await screen.findByRole('button',{name:'沿用这次交付进行修订'}))
- fireEvent.click(screen.getByRole('button',{name:'下一步：冻结快照'}))
+ fireEvent.click(screen.getByRole('button',{name:'下一步：核对交付内容'}))
  fireEvent.change(screen.getByLabelText('本次修改说明'),{target:{value:'Retain selected files and note'}})
  fireEvent.click(screen.getByRole('button',{name:'核对所选成员与缺口'}))
- await screen.findByRole('button',{name:'冻结本次交付快照'})
+ await screen.findByRole('button',{name:'确认交付内容'})
  view.rerender(<DeliveryPackagePanel {...props} snapshotId="s1" analysisOnly requiredVersionId="r2"/>)
- expect(screen.queryByRole('button',{name:'冻结本次交付快照'})).toBeNull()
+ expect(screen.queryByRole('button',{name:'确认交付内容'})).toBeNull()
  expect(screen.getByRole('button',{name:'核对所选成员与缺口'})).toHaveProperty('disabled',true)
  expect(screen.getByLabelText('本次修改说明')).toHaveProperty('value','Retain selected files and note')
  expect(fetcher.mock.calls.filter(([u,i])=>u.endsWith('/snapshots')&&i?.method==='POST')).toHaveLength(0)

@@ -1,3 +1,4 @@
+import ModuleViews,{ModuleView} from '../../shared/components/ModuleViews'
 import ReadableDetails from '../../shared/components/ReadableDetails'
 import {apiError, useI18n} from '../../shared/i18n'
 import type {ReportNarrative} from './contracts'
@@ -19,15 +20,14 @@ export function NarrativePreparation({projectId, enabled, preparation, taskLink}
       <p>{t(preview.cached?'可复用与当前内容匹配的解读。':'将向外部模型发送所选研究发现的固定结果摘要及下列图片。')}</p>
       <p>{t('模型 {model} · 本次预算预留 {amount}', {model: preview.model, amount: cost ?? ''})}</p>
       <p>{t('结果摘要包含 {facts} 项内容，图片 {figures} 张。', {facts: preview.fact_count, figures: preview.figures.length})}</p>
-      {!!preview.figures.length && <ol>{preview.figures.map((figure, index) => <li key={figure.number ?? index}>
-        {figure.title}
-        {(figure.source_caption || !!figure.caption_facts?.length) && <details>
-          <summary>{t('查看将发送的图注与绑定事实')}</summary>
+      {(!!preview.figures.length || preview.facts != null) && <ModuleViews label={t('外发材料视图')}>
+        {!!preview.figures.length && <ModuleView id="figures" title={t('将发送的图片与图注')}><ol>{preview.figures.map((figure, index) => <li key={figure.number ?? index}>
+          <strong>{figure.title}</strong>
           {figure.source_caption && <section><h5>{t('图注说明')}</h5><ReadableDetails value={figure.source_caption} readerView/></section>}
           {!!figure.caption_facts?.length && <section><h5>{t('图注绑定事实')}</h5><ReportDisclosureFacts facts={figure.caption_facts}/></section>}
-        </details>}
-      </li>)}</ol>}
-      {preview.facts != null && <details><summary>{t('查看将发送的结果摘要')}</summary><ReportDisclosureSummary material={preview.facts}/></details>}
+        </li>)}</ol></ModuleView>}
+        {preview.facts != null && <ModuleView id="facts" title={t('将发送的结果摘要')}><ReportDisclosureSummary material={preview.facts}/></ModuleView>}
+      </ModuleViews>}
       {!preview.real_calls_enabled && !preview.cached && <p role="status">{t('当前未启用真实模型调用。')}</p>}
       <label><input type="checkbox" checked={preparation.consent} onChange={event => preparation.setConsent(event.target.checked)}/>{t(preview.cached?'确认使用上述材料的已保存解读':'我同意发送上述材料以生成详细解读')}</label>
       <button type="button" className="button-primary" disabled={!preparation.consent || !enabled || preparation.blocking || !preview.real_calls_enabled && !preview.cached}

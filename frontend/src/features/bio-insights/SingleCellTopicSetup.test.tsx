@@ -4,8 +4,29 @@ import {afterEach,expect,it} from 'vitest'
 import SingleCellTopicSetup,{defaultSingleCellTopic} from './SingleCellTopicSetup'
 import {planIssues,buildPlan} from './state'
 import type {Config,Source} from './contracts'
+import {setLocale} from '../../shared/i18n'
 
 afterEach(cleanup)
+it('shows the plot sizing controls and defaults in English',()=>{
+ setLocale('en')
+ try {
+  render(<SingleCellTopicSetup projectId="p" config={defaultSingleCellTopic('p')} sources={[]} onChange={()=>{}}/>)
+  expect(screen.getByRole('group',{name:'PNG figure size'})).toBeTruthy()
+  expect(screen.getByLabelText('Customize PNG size')).toBeTruthy()
+  expect(screen.getByText('Default size is 8 × 5 inches at 180 DPI.')).toBeTruthy()
+ } finally {cleanup();setLocale('zh-CN')}
+})
+it('can set the original topic PNG size and GENIE3 edge count',()=>{
+ let latest:Config={...defaultSingleCellTopic('p'),method:'genie3'}
+ function Editor(){const[c,set]=useState(latest);return <SingleCellTopicSetup projectId="p" config={c} sources={[]} onChange={v=>{latest=v;set(v)}}/>}
+ render(<Editor/>)
+ fireEvent.click(screen.getByLabelText('自定义 PNG 尺寸'))
+ fireEvent.change(screen.getByLabelText('宽度（英寸）'),{target:{value:'6'}})
+ fireEvent.change(screen.getByLabelText('显示调控边 Top N'),{target:{value:'40'}})
+ expect(latest).toMatchObject({plot_size:{width_inches:6,height_inches:5,dpi:180},regulation_top_n:40})
+ fireEvent.change(screen.getByLabelText('专题方法'),{target:{value:'slingshot'}})
+ expect(latest).not.toHaveProperty('regulation_top_n')
+})
 const sources:Source[]=[{source_kind:'bio_processed_dataset_version',source_id:'p',title:'PBMC',role:'processed',sha256:'a'.repeat(64),locator:{kind:'object'}}]
 it('requires a root and its basis before a trajectory plan can run',()=>{
  let latest:Config=defaultSingleCellTopic('p')

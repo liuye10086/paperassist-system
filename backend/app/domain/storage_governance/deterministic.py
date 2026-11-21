@@ -29,7 +29,7 @@ def admit_manifest(db, root, task, entries):
     s._disk_guard(db, root, 0)
     rows = []
     for kind, operation, record in entries:
-        row = s.reserve(db, root, task['project_id'], operation, Path(root)/record['object_key'],
+        row = s._reserve_reconciled(db, root, task['project_id'], operation, Path(root)/record['object_key'],
             record['size_bytes'], sha256=record['sha256'], kind=kind, task_id=task['id'],
             allow_attributed_unknown=recovering)
         if (row['task_id'], row['kind'], row['owner_id']) != (task['id'], kind, task['user_id']):

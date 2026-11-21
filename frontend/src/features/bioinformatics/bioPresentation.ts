@@ -14,8 +14,10 @@ const figureNames:Record<string,string>={
  bulk_volcano:'差异表达火山图',bulk_ma:'表达量与差异散点图',bulk_heatmap:'差异基因热图',bulk_expression:'候选基因表达图',
  bulk_variable_heatmap:'高变基因热图',bulk_summary:'差异表达汇总图',
  topic_slingshot:'单细胞轨迹图',topic_genie3:'基因调控网络图',topic_cellchat:'细胞通讯图',
+ single_cell_composition:'供者细胞组成图',
  sample_clustering:'样本聚类图',qc_missing:'样本缺失比例图',expression_distribution:'样本表达分布图',
  pca_scores:'PCA 分布图',qc_expression:'样本表达五数摘要图',sample_distance_heatmap:'样本距离热图',
+ qc_ecdf:'样本表达累积分布图',
 }
 
 export const resultTableLabels:Record<string,string>={
@@ -28,6 +30,7 @@ export const resultTableLabels:Record<string,string>={
  cell_sample_donor:'细胞、样本与供体汇总',decontx:'环境 RNA 校正结果',
  sample_correlation:'样本相关性矩阵',candidate_results:'全部候选基因',bulk_candidate_top:'主要候选基因',
  enrichment_results:'功能富集结果',gsea_curves:'基因集富集曲线数据',comparison_results:'差异比较结果',
+ plot_data:'绘图数据',mapping_rows:'基因标识映射明细',mapping_exclusions:'映射排除记录',gsea_ranking:'GSEA 基因排序',
  expression_distribution:'样本表达分布',figure_data:'绘图数据',normalization_factors:'标准化系数',
  tool_log:'运行日志',library_qc_table:'分文库质控统计',qc_cells:'逐细胞质控结果',
  pca_loadings:'PCA 特征载荷',pca_variance_ratio:'PCA 方差解释比例',pca_feature_raw_indices:'PCA 特征原始位置',
@@ -74,6 +77,7 @@ export const isTechnicalResultFile=(key:string,format?:string)=>
 const blockerLabels:Record<string,string>={
  environment_unavailable:'生信计算环境尚未就绪；任务不能开始正式计算。',
  independent_biological_units_not_confirmed:'尚未确认独立的生物学重复。',
+ independent_donor_design_not_confirmed:'尚未确认独立供体设计',
  single_cell_observations_limit:'细胞数超过当前计算上限。',
  single_cell_features_limit:'基因数超过当前计算上限。',
  single_cell_nnz_limit:'非零表达值数超过当前计算上限。',

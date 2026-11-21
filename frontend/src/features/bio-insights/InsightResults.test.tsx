@@ -5,6 +5,16 @@ import {apiFetch} from '../../shared/api/client'
 vi.mock('../../shared/api/client',()=>({apiFetch:vi.fn(),getApiUserId:()=> 'owner',captureApiSession:()=>()=>{},onApiSessionChanged:()=>()=>{}}))
 vi.mock('./InsightShared',async importOriginal=>{const actual=await importOriginal<typeof import('./InsightShared')>();return{...actual,Members:()=> <p>complete downloads</p>}})
 afterEach(cleanup)
+it('labels the verified visualization scope of a saved figure in both languages',async()=>{
+ const {setLocale}=await import('../../shared/i18n')
+ vi.mocked(apiFetch).mockImplementation(async()=>Response.json({id:'plot',kind:'figure',provenance:'system_computed',inference_scope:'visualization',summary:{},methods:{},manifest:{},task:{id:'task',status:'succeeded'},members:[]}))
+ render(<InsightResults projectId="p1" resultId="plot" active onResearch={()=>{}}/>)
+ await screen.findByText('固定结果绘图')
+ try {
+  act(()=>setLocale('en'))
+  expect(screen.getByText('Plot of saved results')).toBeTruthy()
+ } finally {act(()=>setLocale('zh-CN'))}
+})
 it('keeps readable feature and contrast identities in new sample comparison row citations',async()=>{
  const hash='b'.repeat(64),select=vi.fn()
  vi.mocked(apiFetch).mockImplementation(async url=>Response.json(String(url).includes('/tables/')?
@@ -17,7 +27,7 @@ it('keeps readable feature and contrast identities in new sample comparison row 
  expect(select).toHaveBeenCalledWith(expect.objectContaining({source_kind:'bio_insight_result_member',source_id:'m2',sha256:hash,locator:{kind:'row',table:'comparison_results',row_key:{row_key:'opaque-row',feature_id:'bovine',contrast_id:'primary'},column:'p_value'}}))
 })
 it('keeps raw zero/NA with full-table count, server search and exact B03 row handoff',async()=>{
- const hash='a'.repeat(64),select=vi.fn();vi.mocked(apiFetch).mockImplementation(async url=>Response.json(String(url).includes('/tables/')?{key:'differential',columns:['row_key','feature_id','q_within_contrast','reason'],items:[{row_key:'row0',feature_id:'GENE0',q_within_contrast:'0',reason:'NA'}],page:1,page_size:50,total:2000,matched_total:1,sha256:hash,raw_text_values:true}:{id:'r1',kind:'comparison',provenance:'system_computed',inference_scope:'spot_exploratory',summary:{synthetic:true},methods:{},manifest:{},manifest_sha256:hash,task_id:'t1',task:{id:'t1',status:'succeeded'},members:[{id:'m1',key:'differential',format:'tsv',role:'table',sha256:hash,size_bytes:12,download_url:'/download'}]}));render(<InsightResults projectId="p1" resultId="r1" active onResearch={select}/>);const table=await screen.findByRole('table',{name:'完整结果表'});expect(within(table).getByText('0')).toBeTruthy();expect(within(table).getByText('NA')).toBeTruthy();expect(screen.getByText(/2000/)).toBeTruthy();expect(screen.getByText('spot_exploratory',{exact:true})).toBeTruthy();fireEvent.change(screen.getByLabelText('搜索完整结果'),{target:{value:'GENE0'}});fireEvent.click(screen.getByRole('button',{name:'搜索'}));await waitFor(()=>expect(vi.mocked(apiFetch).mock.calls.some(([url])=>String(url).includes('search=GENE0'))).toBe(true));fireEvent.click(screen.getByRole('button',{name:'引用此行到研究发现'}));expect(select).toHaveBeenCalledWith(expect.objectContaining({source_kind:'bio_insight_result_member',source_id:'m1',locator:expect.objectContaining({kind:'row',table:'differential',row_key:{row_key:'row0'}})}))
+ const hash='a'.repeat(64),select=vi.fn();vi.mocked(apiFetch).mockImplementation(async url=>Response.json(String(url).includes('/tables/')?{key:'differential',columns:['row_key','feature_id','q_within_contrast','reason'],items:[{row_key:'row0',feature_id:'GENE0',q_within_contrast:'0',reason:'NA'}],page:1,page_size:50,total:2000,matched_total:1,sha256:hash,raw_text_values:true}:{id:'r1',kind:'comparison',provenance:'system_computed',inference_scope:'spot_exploratory',summary:{synthetic:true},methods:{},manifest:{},manifest_sha256:hash,task_id:'t1',task:{id:'t1',status:'succeeded'},members:[{id:'m1',key:'differential',format:'tsv',role:'table',sha256:hash,size_bytes:12,download_url:'/download'}]}));render(<InsightResults projectId="p1" resultId="r1" active onResearch={select}/>);const table=await screen.findByRole('table',{name:'完整结果表'});expect(within(table).getByText('0')).toBeTruthy();expect(within(table).getByText('NA')).toBeTruthy();expect(screen.getByText(/2000/)).toBeTruthy();expect(screen.getByText('区域探索',{exact:true})).toBeTruthy();fireEvent.change(screen.getByLabelText('搜索完整结果'),{target:{value:'GENE0'}});fireEvent.click(screen.getByRole('button',{name:'搜索'}));await waitFor(()=>expect(vi.mocked(apiFetch).mock.calls.some(([url])=>String(url).includes('search=GENE0'))).toBe(true));fireEvent.click(screen.getByRole('button',{name:'引用此行到研究发现'}));expect(select).toHaveBeenCalledWith(expect.objectContaining({source_kind:'bio_insight_result_member',source_id:'m1',locator:expect.objectContaining({kind:'row',table:'differential',row_key:{row_key:'row0'}})}))
 })
 
 it('identifies descriptive composition, donor n and cell n while preserving the formal report entry',async()=>{
@@ -49,38 +59,38 @@ it('shows a single actual donor and cell column for one-condition description',a
  expect(screen.queryByRole('columnheader',{name:'分子组供者 n'})).toBeNull()
 })
 
-it('lazily mounts methods and large manifest only while expanded, retaining summary and downloads',async()=>{
+it('shows methods first and mounts the large manifest only while its view is shown, without folds',async()=>{
  const value={id:'lazy1',kind:'comparison',provenance:'system_computed',inference_scope:'spot_exploratory',summary:{note:'VISIBLE SUMMARY'},methods:{note:'METHOD DETAIL'},manifest:{members:Array.from({length:250},(_,i)=>({note:'MANIFEST MEMBER '+i}))},manifest_sha256:'f'.repeat(64),task:{id:'task',status:'succeeded'},members:[]}
  vi.mocked(apiFetch).mockImplementation(async()=>Response.json(value))
- render(<InsightResults projectId="p1" resultId="lazy1" active onResearch={()=>{}}/>)
+ const {container}=render(<InsightResults projectId="p1" resultId="lazy1" active onResearch={()=>{}}/>)
  await screen.findByText('VISIBLE SUMMARY')
- expect(screen.queryByText('METHOD DETAIL')).toBeNull()
+ expect(container.querySelector('details, summary, [aria-expanded]')).toBeNull()
+ expect(screen.getByText('METHOD DETAIL')).toBeTruthy()
  expect(screen.queryByText('MANIFEST MEMBER 249')).toBeNull()
  expect(screen.getByText('complete downloads')).toBeTruthy()
- fireEvent.click(screen.getByRole('button',{name:'展开方法详情'}))
- expect(screen.getByText('METHOD DETAIL')).toBeTruthy()
- fireEvent.click(screen.getByRole('button',{name:'展开完整来源与清单'}))
+ const views=within(screen.getByRole('navigation',{name:'固定结果详情视图'}))
+ fireEvent.click(views.getByRole('button',{name:'完整来源、环境、限制与清单'}))
  expect(screen.getByText('MANIFEST MEMBER 249')).toBeTruthy()
- fireEvent.click(screen.getByRole('button',{name:'收起方法详情'}))
- fireEvent.click(screen.getByRole('button',{name:'收起完整来源与清单'}))
- expect(screen.queryByText('METHOD DETAIL')).toBeNull()
+ fireEvent.click(views.getByRole('button',{name:'方法、统计单位与校正族'}))
+ expect(screen.getByText('METHOD DETAIL')).toBeTruthy()
  expect(screen.queryByText('MANIFEST MEMBER 249')).toBeNull()
 })
-it('resets expanded details on result changes and supports English controls',async()=>{
+it('resets the detail view on result changes and supports English controls',async()=>{
  const {setLocale}=await import('../../shared/i18n')
  const value=(id:string)=>({id,kind:'comparison',provenance:'system_computed',inference_scope:'spot_exploratory',summary:{note:'SUMMARY '+id},methods:{note:'METHOD '+id},manifest:{note:'MANIFEST '+id},manifest_sha256:'a'.repeat(64),task:{id:'task',status:'succeeded'},members:[]})
  vi.mocked(apiFetch).mockImplementation(async url=>Response.json(value(String(url).includes('/new')?'new':'old')))
  const view=render(<InsightResults projectId="p1" resultId="old" active onResearch={()=>{}}/>)
  await screen.findByText('SUMMARY old')
- fireEvent.click(screen.getByRole('button',{name:'展开完整来源与清单'}))
+ fireEvent.click(screen.getByRole('button',{name:'完整来源、环境、限制与清单'}))
  expect(screen.getByText('MANIFEST old')).toBeTruthy()
  view.rerender(<InsightResults projectId="p1" resultId="new" active onResearch={()=>{}}/>)
  await screen.findByText('SUMMARY new')
  expect(screen.queryByText('MANIFEST old')).toBeNull()
  expect(screen.queryByText('MANIFEST new')).toBeNull()
+ expect(screen.getByText('METHOD new')).toBeTruthy()
  act(()=>setLocale('en'))
- fireEvent.click(screen.getByRole('button',{name:'Expand full sources and manifest'}))
+ fireEvent.click(screen.getByRole('button',{name:'Full sources, environment, limitations, and manifest'}))
  expect(screen.getByText('MANIFEST new')).toBeTruthy()
- expect(screen.getByRole('button',{name:'Collapse full sources and manifest'})).toBeTruthy()
+ expect(screen.getByRole('button',{name:'Full sources, environment, limitations, and manifest'}).getAttribute('aria-pressed')).toBe('true')
  act(()=>setLocale('zh-CN'))
 })

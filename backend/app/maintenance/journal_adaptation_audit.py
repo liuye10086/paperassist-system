@@ -11,7 +11,7 @@ def audit_journal_adaptations(db,*,limit=200):
         rows=db.execute('SELECT * FROM '+table+' ORDER BY id LIMIT %s',(limit,)).fetchall();total=db.execute('SELECT count(*) n FROM '+table).fetchone()['n'];invalid=0
         for row in rows:
             try:
-                assets=scoped_store(row['user_id'],db.config);service=AdaptationService(assets);service.validate(row);request=contract.model_validate(row['request_json'])
+                assets=scoped_store(row['user_id'],db.config);service=AdaptationService(assets);service.validate(db,row);request=contract.model_validate(row['request_json'])
                 service.target_row(db,row['project_id'],row['target_id'])
                 if table=='journal_adaptations':
                     service.adaptation_row(db,row['project_id'],row['id'])

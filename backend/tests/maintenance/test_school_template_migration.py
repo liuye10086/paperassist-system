@@ -1,4 +1,5 @@
 """0040→0041 preserves the old database and seals new scoped history."""
+from tests.helpers.historical_migration import historical_workflow, assert_saved_history_blocks
 import pytest
 from alembic import command
 from sqlalchemy.exc import SQLAlchemyError
@@ -11,12 +12,8 @@ from app.db.database import alembic_config,get_migration_database_config,migrati
 def test_school_migration_preserves_existing_rows_columns_indexes_and_constraints(client):
     path,body=setup(client)
     original=client.get(path+'/files/'+body['template_file_id']+'/download').content
-    cfg=alembic_config()
-    with migration_connection(write=True) as db:
-        assert db.config.schema.startswith('pa_test_')
-        assert db.execute('SELECT current_database() AS name').fetchone()['name']=='paperassist_system_test'
-        cfg.attributes.update(connection=db.raw_connection,database_config=get_migration_database_config())
-        command.downgrade(cfg,'0040_manuscript_writing_live')
+    with historical_workflow(get_migration_database_config(), '0040_manuscript_writing_live') as (db, cfg):
+        assert db.execute("SELECT 1 FROM files WHERE id=%s", (body['template_file_id'],)).fetchone()
         tables=[r['tablename'] for r in db.execute('SELECT tablename FROM pg_tables WHERE schemaname=current_schema()') if r['tablename']!='alembic_version']
         before=fingerprints(db,tables)
         indexes={r['indexname']:r['indexdef'] for r in db.execute('SELECT indexname,indexdef FROM pg_indexes WHERE schemaname=current_schema()')}
@@ -52,11 +49,7 @@ def test_school_history_seal_scope_fks_and_downgrade_guard(client):
             SELECT %s,user_id,1,'','','','','','',id,clock_timestamp() FROM school_template_confirmations LIMIT 1''',(other_id,))]:
         with pytest.raises(SQLAlchemyError):
             with database_connection(write=True) as db:db.execute(sql,args)
-    cfg=alembic_config()
-    with pytest.raises(RuntimeError,match='refusing destructive downgrade'):
-        with migration_connection(write=True) as db:
-            cfg.attributes.update(connection=db.raw_connection,database_config=get_migration_database_config())
-            command.downgrade(cfg,'0040_manuscript_writing_live')
+    assert_saved_history_blocks('0041_school_templates', 'School template history exists; refusing destructive downgrade.')
 
 
 def test_school_audit_and_file_lifecycle_cover_retained_sources(client):

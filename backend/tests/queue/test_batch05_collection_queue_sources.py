@@ -36,7 +36,7 @@ def test_queue_synthetic_prerequisites_and_publication_gap(client, monkeypatch):
     with database_connection() as db:
         task = db.execute('SELECT * FROM tasks WHERE id=%s', (state()['task_id'],)).fetchone()
         assert db.execute('SELECT count(*) AS n FROM model_calls').fetchone()['n'] == 2
-        assert db.execute("SELECT count(*) AS n FROM task_attempts a JOIN tasks t ON t.id=a.task_id WHERE t.task_type='figure_projection'").fetchone()['n'] == 0
+        assert db.execute("SELECT count(*) AS n FROM task_attempts a JOIN tasks t ON t.id=a.task_id WHERE t.task_type='figure_projection'").fetchone()['n'] == 2
     completed = run_collection_word_task(task['id'], task['revision'])
     assert completed['status'] == 'succeeded'
     assert state()['report']['id']

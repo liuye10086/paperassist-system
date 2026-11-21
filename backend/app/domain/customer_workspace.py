@@ -16,7 +16,7 @@ from app.domain.research_results.report_package import make_package
 from app.domain.storage_governance.guards import require_scope_open
 
 
-_DELIVERIES = '''SELECT s.id, p.title, d.kind, s.revision, p.published_at, p.delivery_id,
+_DELIVERIES = '''SELECT s.id, p.title, d.kind, s.revision, p.published_at, p.delivery_id, s.requirement_version_id,
         jsonb_array_length(s.snapshot_json->'members') AS member_count
     FROM customer_delivery_publications p
     JOIN delivery_snapshots s ON s.id=p.snapshot_id AND s.project_id=p.project_id AND s.delivery_id=p.delivery_id
@@ -59,6 +59,20 @@ def confirmed_progress(db, project_id, owner_id, requirement, assignment):
                 updated_at=max(submitted_at, assignment_time or submitted_at))
 
 
+def read_submissions(db, project_id, requirement, submission_id=None):
+    """Every submission under the current requirement, across grants, newest first."""
+    if requirement is None:
+        return []
+    rows = db.execute('''SELECT s.id, s.note, s.created_at, coalesce(jsonb_agg(jsonb_build_object('id', f.id, 'name', f.filename)
+            ORDER BY f.uploaded_at, f.id) FILTER (WHERE f.id IS NOT NULL), '[]') AS files
+        FROM customer_material_submissions s
+        LEFT JOIN customer_material_submission_files m ON m.submission_id=s.id AND m.project_id=s.project_id
+        LEFT JOIN files f ON f.id=m.file_id AND f.project_id=m.project_id
+        WHERE s.project_id=%s AND s.requirement_version_id=%s AND (%s::text IS NULL OR s.id=%s)
+        GROUP BY s.id ORDER BY s.created_at DESC, s.id''', (project_id, requirement['id'], submission_id, submission_id))
+    return [dict(row, requirement_version=requirement['version'], file_ids=[f['id'] for f in row['files']]) for row in rows]
+
+
 class CustomerWorkspace:
     def __init__(self, projects):
         self.delivery = DeliveryService(projects)
@@ -75,7 +89,15 @@ class CustomerWorkspace:
             requirement = latest_confirmed_requirement(db, project_id)
             assignment = read_current_assignment(db, project_id)
             progress = confirmed_progress(db, project_id, self.store.user_id, requirement, assignment)
-            return dict(progress, feedback=self._feedback(db, project_id, None))
+            return dict(progress, feedback=self._feedback(db, project_id, None),
+                        submissions=read_submissions(db, project_id, requirement))
+
+    def summary(self, project_id):
+        from app.domain.customer_summary import summarize
+
+        with self.store.connection() as db:
+            project = self.store.require_project(db, project_id, role='customer')
+            return summarize(db, project, self.store.user_id, self.delivery.assets)
 
     @staticmethod
     def _summary(row):
@@ -160,3 +182,46 @@ class CustomerWorkspace:
                 VALUES (%s, %s, %s, %s, %s, %s) RETURNING id, message, created_at''',
                 (str(uuid4()), project_id, self.store.user_id, request.snapshot_id, request.message, key)).fetchone()
             return dict(row), 201
+
+    def submit_materials(self, project_id, request, key):
+        with self.store.connection(write=True) as db:
+            self.store.require_project(db, project_id, role='customer')
+            # Requirement confirmation and analyst progress writes take this lock first.
+            db.execute('SELECT project_id FROM research_intakes WHERE project_id=%s FOR UPDATE', (project_id,)).fetchone()
+            requirement = latest_confirmed_requirement(db, project_id)
+            note = request.note or None
+            existing = db.execute('''SELECT s.id AS submission_id, r.id, r.version FROM customer_material_submissions s
+                JOIN research_requirement_versions r ON r.id=s.requirement_version_id AND r.project_id=s.project_id
+                WHERE s.project_id=%s AND s.user_id=%s AND s.request_key=%s''', (project_id, self.store.user_id, key)).fetchone()
+            if existing:
+                saved, = read_submissions(db, project_id, existing, existing['submission_id'])
+                if (saved['requirement_version'], saved['note'], sorted(saved['file_ids'])) != (
+                        request.requirement_version, note, sorted(request.file_ids)):
+                    raise StorageError('research_request_conflict', '相同请求键已用于不同内容。', 409)
+                return saved, 200
+            if requirement is None or requirement['version'] != request.requirement_version:
+                raise StorageError('research_revision_conflict', '需求已更新，请重新读取任务进度。', 409)
+            assignment = read_current_assignment(db, project_id, lock=True)
+            db.execute('SELECT status FROM customer_requirement_progress WHERE requirement_version_id=%s FOR UPDATE',
+                       (requirement['id'],)).fetchone()
+            progress = confirmed_progress(db, project_id, self.store.user_id, requirement, assignment)
+            if progress['status'] != 'needs_materials':
+                raise StorageError('materials_not_requested', '分析员当前没有请求补充资料，请重新读取任务进度。', 409)
+            found = db.execute('SELECT count(*) AS n FROM files WHERE project_id=%s AND id=ANY(%s)'
+                               + self.delivery.assets.material_filter, (project_id, request.file_ids)).fetchone()['n']
+            if found != len(request.file_ids):
+                raise StorageError('material_file_invalid', '请选择本项目已上传完成的资料文件。', 422)
+            require_scope_open(db, project_id, file_ids=request.file_ids)
+            revision = assignment.revision if assignment else None
+            submission = str(uuid4())
+            db.execute('''INSERT INTO customer_material_submissions
+                (id, project_id, requirement_version_id, assignment_revision, user_id, request_key, note)
+                VALUES (%s,%s,%s,%s,%s,%s,%s)''',
+                (submission, project_id, requirement['id'], revision, self.store.user_id, key, note))
+            for file_id in request.file_ids:
+                db.execute('''INSERT INTO customer_material_submission_files (submission_id, file_id, project_id)
+                    VALUES (%s,%s,%s)''', (submission, file_id, project_id))
+            db.execute('''UPDATE customer_requirement_progress SET status='materials_submitted', updated_at=clock_timestamp()
+                WHERE requirement_version_id=%s AND project_id=%s AND assignment_revision IS NOT DISTINCT FROM %s::bigint''',
+                (requirement['id'], project_id, revision))
+            return read_submissions(db, project_id, requirement, submission)[0], 201

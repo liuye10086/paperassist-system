@@ -115,7 +115,7 @@ def test_journal_soft_preferences_conditional_fees_and_source_quotation(client):
     assert result['excluded']==[]
 
 
-def test_journal_selected_old_manuscript_material_ownership_and_audit(client):
+def test_journal_selected_old_manuscript_material_ownership_and_audit(client, monkeypatch):
     from tests.api.test_manuscripts import body as manuscript_body,setup as manuscript_setup
     path,filebase,file=manuscript_setup(client)
     created=post(client,path,manuscript_body(),'manuscript').json()
@@ -137,6 +137,21 @@ def test_journal_selected_old_manuscript_material_ownership_and_audit(client):
         from app.maintenance.database_audit import audit_database
         audit=audit_database(db)
         assert audit['ok'],audit['schema_issues'] or [c for c in audit['data_checks'] if c['invalid']]
+    # Present a damaged request to the validator without rewriting immutable history.
+    from app.domain.journals.service import JournalService
+    validate = JournalService.validate
+
+    def validate_with_damaged_request(service, db, row):
+        if row['id'] == item['id']:
+            row = {**row, 'request_digest': '0' * 64}
+        return validate(service, db, row)
+
+    monkeypatch.setattr(JournalService, 'validate', validate_with_damaged_request)
+    with database_connection() as db:
+        from app.maintenance.journal_audit import audit_journals
+        checks = {check['table']: check for check in audit_journals(db)}
+        assert checks['journal_recommendations']['invalid'] == 1
+        assert checks['journal_material_refs']['invalid'] == 1
 
 def test_journal_disabled_metrics_cannot_be_satisfied_through_unit_tags_and_lifecycle(client):
     from tests.api.test_analysis import add_file

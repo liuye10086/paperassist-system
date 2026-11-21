@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
-import { apiError, safeError, useI18n } from '../../shared/i18n'
-import { taskRequest } from './taskApi'
+import { apiError, useI18n } from '../../shared/i18n'
+import { taskErrorMessage, taskRequest } from './taskApi'
 import { eventNames, isEventPage, phaseNames, type ErrorCategory, type EventPage, type TaskEvent, type TaskType } from './taskTypes'
 import { useDocumentVisible } from './useDocumentVisible'
 
-export default function TaskEvents({ taskId, taskType, live, refreshKey, active = true }: { active?: boolean; taskId: string; taskType: TaskType; live: boolean; refreshKey: number }) {
+export default function TaskEvents({ taskId, taskType, live, refreshKey, active = true, customerView = false }: { active?: boolean; customerView?: boolean; taskId: string; taskType: TaskType; live: boolean; refreshKey: number }) {
   const { t } = useI18n()
   const visible = useDocumentVisible()
   const [events, setEvents] = useState<TaskEvent[]>([])
@@ -28,18 +28,18 @@ export default function TaskEvents({ taskId, taskType, live, refreshKey, active 
         setError(''); setHasMore(result.has_more)
         // Drain only one bounded page each cycle; the cursor never skips an unread page.
         if (live || result.has_more) timer = window.setTimeout(() => void load(), 5000)
-      } catch (cause) { if (mounted) setError(safeError(cause, '任务记录读取失败，请重试。')) }
+      } catch (cause) { if (mounted) setError(taskErrorMessage(cause, '任务记录读取失败，请重试。', customerView)) }
       finally { if (mounted) setLoading(false) }
     }
     void load()
     return () => { mounted = false; controller.abort(); window.clearTimeout(timer) }
-  }, [taskId, live, refreshKey, visible, active, attempt])
+  }, [taskId, live, refreshKey, visible, active, attempt, customerView])
   return <section className="task-events" hidden={!active} aria-label={t('执行记录')} aria-busy={loading}>
     <div className="task-section-heading"><h3>{t('执行记录')}</h3><button type="button" disabled={loading} onClick={() => { setLoading(true); setError(''); setAttempt(value => value + 1) }}>{t('刷新执行记录')}</button></div>
     {error && <p role="alert" className="error-panel">{t(error)}</p>}
     {loading && !events.length && <p role="status">{t('正在读取执行记录……')}</p>}
     {!loading && !events.length && !error && <p>{t('尚无已保存的执行记录。')}</p>}
-    <ol className="task-event-list">{events.map(event => <EventRecord key={event.seq} event={event} taskType={taskType} />)}</ol>
+    <ol className="task-event-list">{events.map(event => <EventRecord key={event.seq} event={event} taskType={taskType} customerView={customerView} />)}</ol>
     {hasMore && <button type="button" disabled={loading} onClick={() => { setLoading(true); setError(''); setAttempt(value => value + 1) }}>{t('继续加载执行记录')}</button>}
   </section>
 }
@@ -49,12 +49,12 @@ const categoryCodes: Record<Exclude<ErrorCategory, 'interrupted'>, string> = {
   configuration: 'model_request_rejected', source: 'task_source_conflict', output: 'model_response_invalid',
   submission_unknown: 'task_uncertain', budget: 'model_budget_missing', internal: 'internal_error',
 }
-function EventRecord({ event, taskType }: { event: TaskEvent; taskType: TaskType }) {
+function EventRecord({ event, taskType, customerView }: { event: TaskEvent; taskType: TaskType; customerView: boolean }) {
   const { t, locale } = useI18n()
   const fallback = apiError({ code: 'internal_error' }, '本次执行遇到问题，请查看处理说明。')
-  const summary = event.error_code != null ? apiError({ code: event.error_code }, fallback)
+  const summary = event.error_code != null ? taskErrorMessage(event.error_code, fallback, customerView)
     : event.error_category === 'interrupted' ? '任务执行中断，已保存的记录和成果会保留。'
-      : event.error_category ? apiError({ code: categoryCodes[event.error_category] }, fallback) : null
+      : event.error_category ? taskErrorMessage(categoryCodes[event.error_category], fallback, customerView) : null
   const temporaryFailure = event.error_category === 'temporary' || event.retry_reason === 'temporary_provider_error'
   const scheduled = event.event_type === 'deferred' && temporaryFailure && event.retry_count != null
     && event.retry_count > 0 && event.retry_delay_seconds != null

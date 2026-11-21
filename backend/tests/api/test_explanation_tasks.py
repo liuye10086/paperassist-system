@@ -57,14 +57,15 @@ def transition(client, task, status, reason=None, error=None):
 
 def test_concurrent_posts_share_task_and_outbox(client, cloud, writer):
     *_, figure, url = ready(client)
+    baseline = persistence_counts()
     with ThreadPoolExecutor(max_workers=4) as pool:
         responses = list(pool.map(lambda _: post(client, url, figure), range(4)))
     assert all(response.status_code == 202 for response in responses)
     assert len({response.json()['task']['id'] for response in responses}) == 1
     assert writer.calls == []
-    with database_connection() as db:
-        assert db.execute('SELECT count(*) AS n FROM tasks').fetchone()['n'] == 1
-        assert db.execute('SELECT count(*) AS n FROM task_outbox').fetchone()['n'] == 1
+    after = persistence_counts()
+    assert after['tasks'] == baseline['tasks'] + 1
+    assert after['task_outbox'] == baseline['task_outbox'] + 1
 
 
 def test_different_keys_cannot_race_into_duplicate_paid_tasks(client, cloud, writer, monkeypatch):
@@ -78,19 +79,21 @@ def test_different_keys_cannot_race_into_duplicate_paid_tasks(client, cloud, wri
         return result
     monkeypatch.setattr(explanation_tasks, 'matching_task', synchronized)
     *_, figure, url = ready(client)
+    baseline = persistence_counts()
     def create(key):
         return client.post(url, json={'expected_revision': 1, 'figure_id': figure['id'], 'external_processing': confirmation(client, url)}, headers={'Idempotency-Key': key})
     with ThreadPoolExecutor(max_workers=2) as pool:
         responses = list(pool.map(create, ['race-a', 'race-b']))
     assert sorted(response.status_code for response in responses) == [202, 409]
-    with database_connection() as db:
-        assert db.execute('SELECT count(*) AS n FROM tasks').fetchone()['n'] == 1
-        assert db.execute('SELECT count(*) AS n FROM task_outbox').fetchone()['n'] == 1
+    after = persistence_counts()
+    assert after['tasks'] == baseline['tasks'] + 1
+    assert after['task_outbox'] == baseline['task_outbox'] + 1
     assert not writer.calls
 
 
 def test_budget_wait_resumes_same_task_and_revision_only_once(client, cloud, writer):
     *_, figure, url = ready(client)
+    baseline = persistence_counts()
     task = post(client, url, figure).json()['task']
     waiting = transition(client, task, 'waiting_confirmation', 'budget_exceeded', 'model_budget_missing')
     endpoint = '/api/v1/tasks/' + task['id'] + '/retry'
@@ -102,7 +105,7 @@ def test_budget_wait_resumes_same_task_and_revision_only_once(client, cloud, wri
     assert client.post(endpoint, json={'expected_revision': 1}).status_code == 409
     assert writer.calls == []
     with database_connection() as db:
-        assert db.execute('SELECT count(*) AS n FROM task_outbox').fetchone()['n'] == 2
+        assert db.execute('SELECT count(*) AS n FROM task_outbox').fetchone()['n'] == baseline['task_outbox'] + 2
         assert db.execute('SELECT count(*) AS n FROM model_calls').fetchone()['n'] == 0
 
 
@@ -119,6 +122,7 @@ def test_unknown_submission_cannot_be_requeued_or_replaced(client, cloud, writer
 
 def test_explicit_failed_retry_creates_one_new_task_but_plain_post_does_not(client, cloud, writer):
     *_, figure, url = ready(client)
+    baseline = persistence_counts()
     original = post(client, url, figure).json()['task']
     failed = transition(client, original, 'failed', 'execution_failed', 'explanation_invalid')
     assert post(client, url, figure).json()['task'] == failed
@@ -130,8 +134,7 @@ def test_explicit_failed_retry_creates_one_new_task_but_plain_post_does_not(clie
     ids = {response.json()['task']['id'] for response in responses}
     assert len(ids) == 1 and original['id'] not in ids
     assert writer.calls == []
-    with database_connection() as db:
-        assert db.execute('SELECT count(*) AS n FROM tasks').fetchone()['n'] == 2
+    assert persistence_counts()['tasks'] == baseline['tasks'] + 2
 
 
 def test_missing_policy_rejects_new_work_but_does_not_block_existing_task_reads(client, cloud, writer, monkeypatch):
@@ -147,6 +150,7 @@ def test_missing_policy_rejects_new_work_but_does_not_block_existing_task_reads(
 
 def test_same_idempotency_key_replays_failure_without_loading_new_policy(client, cloud, writer, monkeypatch):
     *_, figure, url = ready(client)
+    baseline = persistence_counts()
     headers = {'Idempotency-Key': 'stable-original-request'}
     response = client.post(url, json={'expected_revision': 1, 'figure_id': figure['id'], 'external_processing': confirmation(client, url)}, headers=headers)
     failed = transition(client, response.json()['task'], 'failed', 'execution_failed', 'explanation_invalid')
@@ -154,8 +158,7 @@ def test_same_idempotency_key_replays_failure_without_loading_new_policy(client,
     replay = client.post(url, json={'expected_revision': 1, 'figure_id': figure['id'], 'retry': True, 'external_processing': confirmation(client, url)}, headers=headers)
     assert replay.status_code == 200, replay.text
     assert replay.json()['task'] == failed
-    with database_connection() as db:
-        assert db.execute('SELECT count(*) AS n FROM tasks').fetchone()['n'] == 1
+    assert persistence_counts()['tasks'] == baseline['tasks'] + 1
 
 
 @pytest.mark.parametrize('legacy', [False, True], ids=['failed-task', 'failed-legacy-job'])
@@ -252,6 +255,7 @@ def test_keyless_failed_post_preserves_existing_call_and_unknown_submission(clie
 def test_paid_successor_failure_replays_same_key_and_new_key_authorizes_next_task(client, cloud, writer, monkeypatch):
     from app.domain import explanation_policy
     *_, figure, url = ready(client)
+    baseline = persistence_counts()
     initial = post(client, url, figure).json()['task']
     observed = transition(client, initial, 'failed', 'execution_failed', 'explanation_invalid')
     accepted = post(client, url, figure, retry=True, expected_predecessor_id=initial['id'],
@@ -272,7 +276,8 @@ def test_paid_successor_failure_replays_same_key_and_new_key_authorizes_next_tas
     assert next_response.status_code == 202, next_response.text
     assert next_response.json()['task']['id'] not in (initial['id'], successor['id'])
     after = persistence_counts()
-    assert after['tasks'] == after['task_outbox'] == 3
+    assert after['tasks'] == baseline['tasks'] + 3
+    assert after['task_outbox'] == baseline['task_outbox'] + 3
     assert after['model_calls'] == after['budget_reservations'] == 0
     assert not cloud.calls and not writer.calls
     with monkeypatch.context() as patch:
@@ -286,6 +291,7 @@ def test_paid_successor_failure_replays_same_key_and_new_key_authorizes_next_tas
 def test_keyless_failed_post_resumes_original_without_loading_new_policy(client, cloud, writer, monkeypatch):
     from app.domain import explanation_policy
     *_, figure, url = ready(client)
+    baseline = persistence_counts()
     initial = post(client, url, figure).json()['task']
     transition(client, initial, 'failed', 'execution_failed', 'task_worker_interrupted')
     monkeypatch.setattr(explanation_policy, 'get_execution_policy', lambda payload: pytest.fail('Resume loaded a new policy'))
@@ -294,7 +300,9 @@ def test_keyless_failed_post_resumes_original_without_loading_new_policy(client,
     assert response.json()['task']['id'] == initial['id']
     assert response.json()['task']['status'] == 'queued'
     counts = persistence_counts()
-    assert counts['tasks'] == 1 and counts['task_outbox'] == 2 and counts['model_calls'] == 0
+    assert counts['tasks'] == baseline['tasks'] + 1
+    assert counts['task_outbox'] == baseline['task_outbox'] + 2
+    assert counts['model_calls'] == 0
     assert not cloud.calls and not writer.calls
 
 
@@ -370,6 +378,7 @@ def test_resume_missing_policy_freezes_new_config_and_budget_only_before_any_cal
 def test_provider_response_not_found_cannot_requeue_or_start_a_replacement(client, cloud, writer):
     from tests.integration.test_explanations import submit
     *_, figure, url = ready(client)
+    baseline = persistence_counts()
     writer.pending = True
     submit(client, url, figure)
     task = client.get(url).json()['task']
@@ -380,5 +389,5 @@ def test_provider_response_not_found_cannot_requeue_or_start_a_replacement(clien
     assert response.status_code == 200 and response.json()['task'] == failed
     assert len(writer.calls) == 1
     with database_connection() as db:
-        assert db.execute('SELECT count(*) AS n FROM tasks').fetchone()['n'] == 1
+        assert db.execute('SELECT count(*) AS n FROM tasks').fetchone()['n'] == baseline['tasks'] + 1
         assert db.execute('SELECT count(*) AS n FROM model_calls').fetchone()['n'] == 1

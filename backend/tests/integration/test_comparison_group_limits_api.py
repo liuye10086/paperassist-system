@@ -1,5 +1,4 @@
 """Real requests reject oversized category labels without changing source assets."""
-from tests.helpers.legacy_plans import seed_legacy_plan
 import copy
 from io import BytesIO
 from zipfile import ZipFile
@@ -24,7 +23,7 @@ def test_plan_api_rejects_short_unbounded_numeric_group_before_creating_task(cli
     chosen['groups']=[dict(kind='number',value=value),dict(kind='number',value='2')]
     with database_connection() as db:
         tasks_before=db.execute('SELECT count(*) AS n FROM tasks').fetchone()['n']
-    response=seed_legacy_plan(client, base+'/analysis-plans',json=dict(schema_version=3,dataset_id=prepared['id'],
+    response=client.post(base+'/analysis-plans',json=dict(schema_version=3,dataset_id=prepared['id'],
         expected_setup_revision=0,selection=chosen,research_request=research(),recommendation_ref=None),
         headers={'Idempotency-Key':'unbounded-numeric-group'})
     assert response.status_code==422,response.text

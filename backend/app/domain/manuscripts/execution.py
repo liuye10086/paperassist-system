@@ -13,7 +13,7 @@ from app.domain.report_collections.service import scoped_store
 from app.domain.literature.service import digest
 from app.domain.school_templates import bsu_gs501
 from .service import ManuscriptService,now
-from .contracts import WORKFLOW,ManuscriptRequest
+from .contracts import WORKFLOW,ManuscriptRequest,blind_review_removed
 
 
 def checkpoint(db,task,node,next_node,state):
@@ -75,6 +75,7 @@ def run_manuscript_task(task_id,task_revision,*,config=None,directory=None):
         with publication_transaction(execution,lease) as (db,progress):
             task=execution.require_lease(db,lease);execution.require_owner(db,task)
             if task['task_type'] not in ('manuscript_draft','manuscript_docx'): raise source_conflict()
+            reject_historical_blind(task)
             if db.execute('''SELECT 1 FROM manuscript_versions WHERE id=%s AND project_id=%s AND user_id=%s
                     AND (jsonb_exists(snapshot_json,'review_revision_provenance') OR jsonb_exists(snapshot_json,'user_return_provenance'))''',
                     (task['input_snapshot']['manuscript_version_id'],task['project_id'],task['user_id'])).fetchone():
@@ -91,12 +92,6 @@ def run_manuscript_task(task_id,task_revision,*,config=None,directory=None):
         content=metadata=None
         if restored:
             metadata,content,target=restored
-            presentation=version.get('_presentation_context')
-            if presentation is not None:
-                from .presentation_export import verify_school_reviewed_output
-
-                school=metadata.get('presentation', {}).get('school') or metadata.get('school') or {}
-                verify_school_reviewed_output(presentation,school.get('plan'),content)
         elif task['task_type']=='manuscript_docx':
             from app.adapters.manuscript_docx import (
                 CUSTOMER_RENDERER_VERSIONS, RENDERER_VERSION,
@@ -109,7 +104,8 @@ def run_manuscript_task(task_id,task_revision,*,config=None,directory=None):
             if renderer not in (RENDERER_VERSION, *CUSTOMER_RENDERER_VERSIONS):
                 raise source_conflict()
             customer_view = renderer in CUSTOMER_RENDERER_VERSIONS
-            customer_revision = customer_view and bool(snapshot.get('review_revision_provenance') or snapshot.get('user_return_provenance'))
+            customer_revision = customer_view and not service.is_school_change_version(version) and bool(
+                snapshot.get('review_revision_provenance') or snapshot.get('user_return_provenance'))
             presentation=version.get('_presentation_context')
             rendered=legacy_revision_without_journal_display(presentation['selected']['snapshot_json']) if presentation is not None else snapshot
             images=images_for(service,task['project_id'],rendered) if presentation is None else {}
@@ -121,48 +117,34 @@ def run_manuscript_task(task_id,task_revision,*,config=None,directory=None):
             template=bsu_gs501.read_submission_template(service.assets,rendered) if render_plan and 'submission_forms_source_sha256' in render_plan else None
             presentation_metadata=None;reused_renderer=None
             if presentation is not None:
-                from .presentation_export import (
-                    actual_checks, blind_export_rules, confirmed_metadata, excluded_chapters,
-                    require_removed_school_identities, verify_school_reviewed_output,
-                )
-                from app.adapters.manuscript_presentation_docx import decorate_docx,blind_docx,language_inventory,actual_image_inventory,language_observations
+                from .presentation_export import actual_checks, confirmed_metadata, excluded_chapters
+                from app.adapters.manuscript_presentation_docx import decorate_docx,language_inventory,actual_image_inventory,language_observations
                 config=presentation['preview']['config'];binding=presentation['binding']
-                mask=task['input_snapshot']['presentation'].get('school_identity_mask')
                 language_review=config.get('language_review')
                 if language_review:
                     prior,content=service.export(task['project_id'],version['manuscript_id'],language_review['source_export_id'],True)
                     if sha256(content).hexdigest()!=language_review['source_sha256']:raise source_conflict()
-                    verify_school_reviewed_output(presentation,render_plan,content)
                     if bsu_gs501.selected(rendered):reused_renderer=prior['renderer_version']
                     presentation_metadata=confirmed_metadata(presentation,prior['presentation'])
                     if school_plan is not None:field_update=prior['school']['field_update']
                 else:
                     images,image_items=presentation_images(service,task['project_id'],rendered)
-                    gs501_blind=binding['review_mode']=='blind' and bsu_gs501.selected(rendered)
                     source_map=[]
                     content=build_manuscript_docx(rendered,images,school_plan=render_plan,source_map=source_map,
-                         excluded_chapter_ids=excluded_chapters(presentation),mask_school_identity=bool(mask),
+                         excluded_chapter_ids=excluded_chapters(presentation),
                          customer_revision=customer_revision,renderer_version=renderer,school_template=template)
                     english=next((v['snapshot_json'] for v in (presentation['base'],presentation['peer']) if v and v['snapshot_json']['output_language']=='en'),None)
                     peer_images,peer_items=presentation_images(service,task['project_id'],english) if binding['language_view']=='zh-CN-en' and config['figure_pairs'] else ({},[])
                     content,presentation_metadata=decorate_docx(content,rendered,english,config,binding['language_view'],
-                        'blind' if gs501_blind else 'identified',peer_images=peer_images,source_map=source_map,
-                        excluded_chapter_ids=excluded_chapters(presentation),defer_blind=gs501_blind)
+                        peer_images=peer_images,source_map=source_map,excluded_chapter_ids=excluded_chapters(presentation))
                     if render_plan is not None:
                         from app.adapters.school_docx import complete_school_fields
                         content,field_update=complete_school_fields(content,render_plan)
                         if field_update.get('status')!=('updated' if render_plan['toc']['enabled'] else 'not_requested'):
                             raise StorageError('layout_field_update_failed','学校目录实际更新未完成。',422)
-                    if binding['review_mode']=='blind':
-                        rules=blind_export_rules(presentation,render_plan)
-                        content,presentation_metadata['blind']=blind_docx(content,rules,replacement='XXX' if gs501_blind else '[已隐去]')
-                        if render_plan is not None and not gs501_blind:
-                            require_removed_school_identities(presentation_metadata['blind'])
-                        if mask:presentation_metadata['blind']['school_identity_fields']='masked'
                     inventory=language_inventory(content,rendered['output_language'],source_map)+actual_image_inventory(content,image_items+peer_items,rendered['output_language'])
                     presentation_metadata.update(binding=binding,checks=actual_checks(presentation,inventory),
                         quality=dict(presentation['preview']['quality'],language_review='pending_explicit_review'),language_inventory=language_observations(inventory))
-                    if binding['review_mode']=='blind':presentation_metadata['blind_rules']=config['blind']
                     if render_plan is not None:presentation_metadata['school']=dict(plan=render_plan,report=render_plan['report'])
             elif school_plan is not None:
                 provenance=snapshot.get('writing_provenance',{})
@@ -193,17 +175,13 @@ def run_manuscript_task(task_id,task_revision,*,config=None,directory=None):
             if presentation_metadata is not None:
                 metadata['presentation']=presentation_metadata
                 metadata['renderer_version']+='+presentation_v1'
-                metadata['filename']=f"{'Blind' if presentation['binding']['review_mode']=='blind' else 'Manuscript'}-{presentation['binding']['language_view']}-v{version['revision']}-{export_id[:8]}.docx"
+                metadata['filename']=f"Manuscript-{presentation['binding']['language_view']}-v{version['revision']}-{export_id[:8]}.docx"
             if reused_renderer is not None:metadata['renderer_version']=reused_renderer
+            # Historical blind exports keep their stored metadata filename.
             if customer_revision:
-                blind = presentation is not None and presentation['binding']['review_mode']=='blind'
-                metadata['filename'] = revised_manuscript_filename(rendered, blind=blind)
+                metadata['filename'] = revised_manuscript_filename(rendered)
             elif customer_view and school_plan is not None and rendered.get('paper_plan'):
-                blind = presentation is not None and presentation['binding']['review_mode']=='blind'
-                if rendered['output_language']=='en':
-                    metadata['filename'] = 'Thesis - anonymized.docx' if blind else 'Thesis.docx'
-                else:
-                    metadata['filename'] = '毕业论文盲审稿.docx' if blind else '毕业论文.docx'
+                metadata['filename'] = 'Thesis.docx' if rendered['output_language']=='en' else '毕业论文.docx'
             elif customer_view:
                 metadata['filename'] = 'Manuscript.docx' if rendered['output_language'] == 'en' else 'SCI论文.docx'
             service.directory.mkdir(parents=True,exist_ok=True)
@@ -235,9 +213,16 @@ def run_manuscript_task(task_id,task_revision,*,config=None,directory=None):
         # Candidate ownership survives rollback; cleanup is never inferred from metadata.
 
 
+def reject_historical_blind(task):
+    """A pre-removal blind task would now render unmasked under a blind name."""
+    binding=(task['input_snapshot'].get('presentation') or {}).get('binding') or {}
+    if binding.get('review_mode','identified')!='identified':raise blind_review_removed()
+
+
 def retry_in_transaction(store,db,task,expected_revision,*,assets=None):
     if task['task_type'] not in ('manuscript_draft','manuscript_docx') or task['status']!='failed' or task['revision']!=expected_revision:
         raise StorageError('task_revision_conflict','仅能恢复当前失败事实稿任务。',409)
+    reject_historical_blind(task)
     assets=assets or scoped_store(task['user_id'],store.config)
     ManuscriptService(assets).verify_task(db,task,current=True)
     if task['task_type']=='manuscript_docx': candidates.authorize(db,assets.directory,task)

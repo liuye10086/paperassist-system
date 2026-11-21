@@ -1,7 +1,7 @@
 """The real workspace route must retain R3 fields through response_model."""
 from types import SimpleNamespace
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
 import pytest
 
@@ -11,6 +11,15 @@ from tests.integration.test_statistics_summary_projection import report_metadata
 @pytest.fixture(autouse=True)
 def postgres_schema():
     yield None
+
+
+def test_optional_artifacts_appear_only_when_the_task_has_a_value():
+    from app.domain.tasks.workspace_contracts import TaskArtifacts
+
+    empty = {'figure': None, 'explanation': None, 'report': None}
+    assert TaskArtifacts().model_dump() == empty
+    cloud = {'run_id': 'saved-run', 'status': 'succeeded'}
+    assert TaskArtifacts(bio_cloud=cloud).model_dump() == {**empty, 'bio_cloud': cloud}
 
 
 @pytest.mark.parametrize('kind',('word_report','collection_word_report'))
@@ -33,9 +42,17 @@ def test_workspace_http_response_preserves_fixed_reader_fields_and_legacy_shape(
         wait=None,allowed_actions=[],artifacts=artifacts)
     # Use the registered production router and its actual response_model;
     # substitute only the already-verified service boundary and auth scope.
-    monkeypatch.setattr(tasks,'TaskWorkspaceService',lambda owner:SimpleNamespace(get=lambda identifier:payload))
+    def configured_store(request: Request):
+        request.state.user = {'id': 'owner', 'role': 'analyst'}
+        return SimpleNamespace(user_id='owner')
+
+    def workspace(identifier, *, customer):
+        assert identifier == 'saved-report-task' and not customer
+        return payload
+
+    monkeypatch.setattr(tasks,'TaskWorkspaceService',lambda owner:SimpleNamespace(get=workspace))
     app=FastAPI();app.include_router(tasks.router)
-    app.dependency_overrides[tasks.get_request_task_store]=lambda:SimpleNamespace(user_id='owner')
+    app.dependency_overrides[tasks.get_request_task_store] = configured_store
     with TestClient(app) as client:
         response=client.get('/api/v1/tasks/saved-report-task/workspace')
     assert response.status_code==200,response.text

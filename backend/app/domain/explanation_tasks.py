@@ -55,6 +55,13 @@ def _can_resume(task, call):
         call is None or bool(call.get('provider_response_id')) or call['status'] == 'reserved')
 
 
+def can_retry_original(task, call):
+    if task.get('error_code') == 'explanation_invalid':
+        return bool(call and call['call_key'] == 'explanation:v1' and call['status'] == 'completed'
+                    and call.get('provider_status') == 'completed' and call.get('provider_response_id'))
+    return _can_resume(task, call)
+
+
 def submit_explanation(project_id, file_id, run_id, request, project_store, idempotency_key=None):
     from app.domain.explanations import context
     result, figure, state = context(project_store, project_id, file_id, run_id)
@@ -175,7 +182,7 @@ def retry_explanation_in_transaction(store, db, task, expected_revision):
         raise StorageError('task_revision_conflict', '任务已变化，请重新读取。', 409)
     budget_wait = task['status'] == 'waiting_confirmation' and task['reason_code'] == 'budget_exceeded'
     call = _last_call(db, task_id)
-    if not budget_wait and not (task['status'] == 'failed' and _can_resume(task, call)):
+    if not budget_wait and not (task['status'] == 'failed' and can_retry_original(task, call)):
         raise StorageError('task_transition_invalid', '此任务无法安全恢复，请核对已保存的调用状态。', 409)
     if call and not call.get('provider_response_id') and call['status'] in ('submitting', 'submission_unknown'):
         raise StorageError('task_transition_invalid', '提交结果未知，不能自动再次调用。', 409)

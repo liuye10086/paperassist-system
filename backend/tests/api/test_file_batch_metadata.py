@@ -8,6 +8,7 @@ from app.db.database import database_connection, get_engine
 from app.core.config import get_data_dir
 from tests.api.test_projects import client, create_project, upload  # noqa: F401
 from tests.api.test_excel import workbook_bytes
+from tests.helpers.read_only import assert_read_only_snapshot
 from tests.integration.test_project_ownership import account_client
 
 
@@ -66,9 +67,7 @@ def test_summary_pages_details_purposes_legacy_and_ownership(client):
     assert all('upload_batch' not in item for item in client.get(base).json())
     assert 'upload_batch' not in historical
     after = snapshot()
-    for table in before[0]:
-        assert after[0][table] == before[0][table], table
-    assert after[1] == before[1]
+    assert_read_only_snapshot(before, after)
     url = base + '/' + files[0]
     body = {'expected_revision': 1, 'purposes': ['paper']}
     saved = client.put(url + '/purposes', json=body)

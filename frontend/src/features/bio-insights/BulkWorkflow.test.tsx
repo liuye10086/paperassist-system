@@ -36,7 +36,7 @@ const descendant=(id:string,parent:string,kind='ora'):BulkWorkflowDescendant=>({
 const empty={refs:{},stale:false,stale_reasons:[],depends_on:[],items:[],status:'ready'}
 const overview:BulkWorkflowOverview={project_id:'p1',comparisons:[baseline,alternate],descendants:[descendant('ora-v2','de-v2'),descendant('wrong-lineage','de-v1'),
   {...descendant('unsupported-candidate','de-v2','candidate'),delivery_eligible:false}],
-  stages:bulkWorkflowViews.map(key=>key==='differential'?{...empty,key,refs:{...baseline.refs,task_id:'de-task'},status:'succeeded',items:[baseline,alternate]}:{...empty,key})}
+  stages:bulkWorkflowViews.map(key=>key==='differential'?{...empty,key,refs:{...baseline.refs,task_id:'de-task'},status:'succeeded',items:[{...baseline,steps:[{key:'差异检验',status:'succeeded'}]},alternate]}:{...empty,key})}
 const files=[{id:'experiment-1',filename:'qpcr-confirmation.pdf'}] as ProjectFile[]
 const selection={contrast_id:'treated-control',q_column:'q_within_contrast',q_threshold:0.05,minimum_absolute_effect:1,direction:'both'}
 const mockFetch=vi.mocked(apiFetch)
@@ -171,12 +171,17 @@ it('links every main view and preserves fixed history alongside live task naviga
     expect(navigate).toHaveBeenLastCalledWith(bulkRoute(bulkWorkflowViews[index]))
   }
   expect((await screen.findByRole('link',{name:'查看任务进度与恢复'})).getAttribute('href')).toBe('#project=p1&section=tasks&task=de-task')
-  const historyLabel=screen.getByText('固定版本与历史记录 · 1')
-  fireEvent.click(historyLabel)
-  const history=within(historyLabel.closest('details')!)
+  expect(document.querySelector('details, summary')).toBeNull()
+  fireEvent.click(within(screen.getByRole('navigation',{name:'步骤状态视图'})).getByRole('button',{name:'固定版本与历史记录 · 1'}))
+  const history=within(screen.getByRole('region',{name:'固定版本与历史记录 · 1'}))
   expect(history.getByText('此历史版本使用旧依赖，固定结果仍可读取。')).toBeTruthy()
   fireEvent.click(history.getByRole('button',{name:'查看固定结果'}))
   expect(navigate).toHaveBeenLastCalledWith({view:'bio-insight-result',fileId:'',bulkView:'differential',resultVersionId:'de-v1'})
+  fireEvent.click(within(screen.getByRole('navigation',{name:'步骤状态视图'})).getByRole('button',{name:'实际步骤状态和缺口'}))
+  expect(within(screen.getByRole('region',{name:'实际步骤状态和缺口'})).getByText(/差异检验 · /)).toBeTruthy()
+  expect(screen.queryByRole('link',{name:'查看任务进度与恢复'})).toBeNull()
+  fireEvent.click(within(screen.getByRole('navigation',{name:'步骤状态视图'})).getByRole('button',{name:'当前版本'}))
+  expect(screen.getByRole('link',{name:'查看任务进度与恢复'})).toBeTruthy()
   expect(mockFetch.mock.calls.every(([,init])=>!init?.method)).toBe(true)
 })
 
@@ -226,7 +231,12 @@ it('requires exact preview before both native downloads and separates evidence f
   fireEvent.click(screen.getByRole('button',{name:'添加佐证引用'}))
   fireEvent.click(screen.getByRole('button',{name:'预览报告事实'}))
   expect(await screen.findByText('Local fixture only')).toBeTruthy()
-  expect(within(screen.getByRole('region',{name:'固定报告事实预览'})).getByText('保留样本数')).toBeTruthy()
+  const facts=screen.getByRole('region',{name:'固定报告事实预览'})
+  expect(within(facts).getByText('保留样本数')).toBeTruthy()
+  expect(within(facts).getByText('~ condition')).toBeTruthy()
+  expect(facts.querySelector('details, summary')).toBeNull()
+  fireEvent.click(within(within(facts).getByRole('navigation',{name:'报告事实视图'})).getByRole('button',{name:'方法、来源与佐证详情'}))
+  expect(within(within(facts).getByRole('region',{name:'方法、来源与佐证详情'})).getByRole('heading',{name:'确认设计与方法'})).toBeTruthy()
   const request={comparison_version_id:'de-v2',result_version_ids:['ora-v2'],language:'zh',selections:[],sensitivity:null,
     evidence:[{kind:'independent_analysis',source_id:'qpcr-v3',note:''},{kind:'experimental_material',source_id:'experiment-1',note:''}]}
   expect(bodyFor('/delivery/preview')).toEqual([request])

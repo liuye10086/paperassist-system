@@ -25,23 +25,48 @@ it('allows single-cell annotation UMAP only with a verified matching manual labe
  expect(post[0]).toBe('/api/v1/projects/p1/bio-figures')
  expect(JSON.parse(String(post[1]?.body))).toMatchObject({annotation_version_id:'ann1',config:{kind:'annotation'}})
 })
-it.each([['integration_covariates','协变量校正前后对比图'],['integration_harmony','批次整合前后对比图']])('opens %s as a read-only published figure with preview and download',async (kind,label)=>{
+it.each([['integration_covariates','协变量校正前后对比图'],['integration_harmony','批次整合前后对比图']])('revises the saved %s coordinates with its own figure controls',async (kind,label)=>{
  vi.stubGlobal('URL',class extends URL{static createObjectURL=()=> 'blob:integration';static revokeObjectURL=vi.fn()})
  const download='/api/v1/projects/p1/bio-figures/figure1/members/image1/download'
  const figure={...previous(config),config:{...config,kind},members:[{id:'image1',key:kind,format:'png',filename:`${kind}.png`,size_bytes:3,sha256:'a'.repeat(64),download_url:download}]}
- vi.mocked(apiFetch).mockImplementation(async url=>String(url)===download?new Response(new Blob(['PNG'],{type:'image/png'})):Response.json(String(url).includes('bio-processed-datasets')?processedFixture:figure))
+ const result={...processedFixture,manifest:{assay:'single_cell'},members:[{key:kind+'_data'}]}
+ vi.mocked(apiFetch).mockImplementation(async (url,init)=>String(url)===download?new Response(new Blob(['PNG'],{type:'image/png'})):Response.json(init?.method==='POST'?{id:'revised'}:String(url).includes('bio-processed-datasets')?result:figure))
  render(<BioFigureDetail projectId="p1" figureId="figure1" onNavigate={()=>{}}/>)
  expect(await screen.findByRole('img',{name:label})).toBeTruthy()
- expect(vi.mocked(apiFetch).mock.calls.some(([url])=>String(url).includes('bio-processed-datasets'))).toBe(false)
  expect(screen.getByRole('link',{name:'下载 PNG'}).getAttribute('href')).toBe(download)
  expect(screen.queryByRole('heading',{name:'查看高级图件配置'})).toBeNull()
- expect(screen.getByText('此图记录整合处理前后的实际结果，可查看和下载。')).toBeTruthy()
  expect(screen.queryByText('单图配置与版本')).toBeNull()
  expect(screen.queryByRole('button',{name:'生成独立单图版本'})).toBeNull()
  fireEvent.click(screen.getByRole('button',{name:'高级配置'}))
  expect(screen.getByRole('heading',{name:'查看高级图件配置'})).toBeTruthy()
  expect(screen.getByText('1800 × 1500')).toBeTruthy()
  expect(screen.queryByText('vmax')).toBeNull()
+ fireEvent.click(await screen.findByRole('button',{name:'绘图设置'}))
+ expect((screen.getByLabelText('图片类型') as HTMLSelectElement).value).toBe(kind)
+ fireEvent.change(screen.getByLabelText('散点面积（pt²）'),{target:{value:'18'}})
+ fireEvent.click(screen.getByRole('button',{name:'生成独立单图版本'}))
+ await waitFor(()=>expect(vi.mocked(apiFetch).mock.calls.some(c=>c[1]?.method==='POST')).toBe(true))
+ const post=vi.mocked(apiFetch).mock.calls.find(c=>c[1]?.method==='POST')!
+ expect(JSON.parse(String(post[1]?.body))).toMatchObject({expected_version:1,config:{kind,point_size:18}})
+})
+
+it('clears histogram options when switching to marker display filtering and rejects invalid thresholds',async()=>{
+ vi.mocked(apiFetch).mockResolvedValue(Response.json({id:'revised'}))
+ render(<BioFigureComposer projectId="p1" result={{...processedFixture,manifest:{assay:'single_cell'}}} onNavigate={()=>{}}/>)
+ fireEvent.change(screen.getByLabelText('直方图分箱数'),{target:{value:'12'}})
+ fireEvent.change(screen.getByLabelText('图片类型'),{target:{value:'marker_dotplot'}})
+ expect(screen.queryByLabelText('直方图分箱数')).toBeNull()
+ const threshold=screen.getByLabelText('最低展示检出比例（0–1）')
+ fireEvent.change(threshold,{target:{value:'1.2'}})
+ const submit=screen.getByRole('button',{name:'生成独立单图版本'}) as HTMLButtonElement
+ expect(submit.disabled).toBe(true)
+ fireEvent.change(threshold,{target:{value:'0.25'}})
+ fireEvent.click(submit)
+ await waitFor(()=>expect(vi.mocked(apiFetch).mock.calls.some(c=>c[1]?.method==='POST')).toBe(true))
+ const post=vi.mocked(apiFetch).mock.calls.find(c=>c[1]?.method==='POST')!
+ const body=JSON.parse(String(post[1]?.body))
+ expect(body.config.min_detection_fraction).toBe(.25)
+ expect(body.config.histogram_bins).toBeUndefined()
 })
 it('adds only the published PNG member from a fixed figure to the delivery candidates',async()=>{
  const download='/api/v1/projects/p1/bio-figures/figure1/members/image1/download'

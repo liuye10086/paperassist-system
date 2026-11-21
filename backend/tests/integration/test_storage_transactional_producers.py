@@ -58,6 +58,23 @@ def sync_candidate(client, kind):
     return project, store, lambda: repository.save(snapshot, metadata, b'synthetic-docx-bytes'), 'reports'
 
 
+def test_dataset_manifest_scans_intents_once_and_renews_lease(client, monkeypatch):
+    from app.domain.storage_governance import service
+
+    _, _, produce, structure, _ = dataset_candidate(client)
+    assert len(structure.sheets) > 1
+    original = service.reconcile_intents
+    scans = []
+
+    def observed(db, root, **kwargs):
+        scans.append(callable(kwargs.get('progress')))
+        return original(db, root, **kwargs)
+
+    monkeypatch.setattr(service, 'reconcile_intents', observed)
+    assert produce()['status'] == 'succeeded'
+    assert scans == [True]
+
+
 def test_dataset_manifest_admits_all_sheets_before_first_byte(client):
     from app.adapters.dataset_objects import DatasetObject
     project, repo, produce, structure, _ = dataset_candidate(client)

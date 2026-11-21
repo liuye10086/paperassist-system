@@ -23,11 +23,13 @@ class LayoutExportService:
         self.assets=assets;self.store=TaskStore(assets.owner_id,assets.db_config)
         self.directory=Path(assets.directory)/'layout_exports'
 
-    def source(self,db,project,kind,identity):
+    def source(self,db,project,kind,identity,*,new=False):
         from app.domain.docx_sources import DocxSourceReader
         if kind not in ('report','collection_report','manuscript_export'):
             raise StorageError('task_input_invalid','排版来源类型无效。',422)
-        return DocxSourceReader(self.assets).source(db,project,kind,identity)
+        reader=DocxSourceReader(self.assets)
+        # A new layout rejects a historical blind Word (blind_review_removed); fixed historical rows still verify via source().
+        return reader.new_source(db,project,kind,identity) if new else reader.source(db,project,kind,identity)
 
     def language(self,db,source):
         kind=source['source_kind']
@@ -70,7 +72,7 @@ class LayoutExportService:
     def catalog(self,project,kind,identity):
         from app.adapters.document_layout import catalog_docx
         with self.store.connection() as db:
-            source,raw=self.source(db,project,kind,identity)
+            source,raw=self.source(db,project,kind,identity,new=True)
             return dict(**catalog_docx(raw),source_kind=kind,source_id=identity,filename=source['metadata']['filename'],
                 version=source['version'],output_language=self.language(db,source))
 
@@ -84,7 +86,10 @@ class LayoutExportService:
             items=[]
             for kind,sql in queries.items():
                 for row in db.execute(sql,(project,)).fetchall():
-                    source,raw=self.source(db,project,kind,row['id'])
+                    try:source,raw=self.source(db,project,kind,row['id'],new=True)
+                    except StorageError as error:
+                        if error.code=='blind_review_removed':continue  # a historical blind Word is not a layout source
+                        raise
                     items.append(dict(source_kind=kind,source_id=row['id'],filename=source['metadata']['filename'],
                         source_sha256=sha256(raw).hexdigest(),source_size=len(raw),version=source['version'],output_language=self.language(db,source)))
             return dict(items=items)
@@ -156,7 +161,7 @@ class LayoutExportService:
                 if candidates.hold(db,task): raise StorageError('storage_accounting_unknown','请恢复原导出候选。',409)
                 if not self.can_retry(db,previous,task):
                     raise StorageError('layout_retry_not_allowed','此排版DOCX任务不可重试。',409)
-            source,raw=self.source(db,project,request.source_kind,request.source_id)
+            source,raw=self.source(db,project,request.source_kind,request.source_id,new=True)
             from app.adapters.document_layout import apply_layout
             language=self.language(db,source)
             apply_layout(raw,request.layout,language=language)

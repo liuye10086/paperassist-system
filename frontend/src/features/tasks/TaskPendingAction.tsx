@@ -7,12 +7,15 @@ import RequirementReview from '../analysisPlan/RequirementReview'
 import AnalysisPlanReview from '../analysisPlan/AnalysisPlanReview'
 import OcrReviewWorkspace from '../documents/OcrReviewWorkspace'
 import { useEffect, useRef, useState } from 'react'
-import { safeError, useI18n } from '../../shared/i18n'
+import { useI18n } from '../../shared/i18n'
 import { isTask, sameInputVersion, type TaskOperation, type TaskView, type TaskWorkspace } from './taskTypes'
-import { taskRequest, TaskRequestError } from './taskApi'
+import { taskErrorMessage, taskRequest } from './taskApi'
 
-export default function TaskPendingAction({ workspace, blocked, onChanged, active: viewActive = true, registerLeaveGuard }: {
-  active?: boolean; registerLeaveGuard?: RegisterLeaveGuard;
+// Customer pages explain waits without staff-only wording (NCBI, Worker, frozen inputs, budgets, administrators).
+const customerChecking = '系统正在核对，请稍后刷新或联系客服。'
+const customerLiterature = '文献检索暂不可用，任务已保存。'
+export default function TaskPendingAction({ workspace, blocked, onChanged, active: viewActive = true, registerLeaveGuard, customerView = false }: {
+  active?: boolean; registerLeaveGuard?: RegisterLeaveGuard; customerView?: boolean;
   workspace: TaskWorkspace; blocked: boolean; onChanged: () => void
 }) {
   const { t } = useI18n()
@@ -44,8 +47,8 @@ export default function TaskPendingAction({ workspace, blocked, onChanged, activ
       onChanged()
     } catch (cause) {
       if (!active.current) return
-      setError(cause instanceof TaskRequestError && cause.status === 409 ? '任务状态已更新，请核对重新读取的内容后再操作。'
-        : safeError(cause, '恢复请求未确认，请先重新读取任务。'))
+      setError(taskErrorMessage(cause, '恢复请求未确认，请先重新读取任务。', customerView,
+        '任务状态已更新，请核对重新读取的内容后再操作。'))
       // Reread after conflict or an ambiguous transport outcome. Repeating the same
       // unchanged operation reuses its key, even when the first response was lost.
       onChanged()
@@ -53,7 +56,7 @@ export default function TaskPendingAction({ workspace, blocked, onChanged, activ
   }
   const currentWait = wait?.status === 'open' ? wait : null
   if (task.origin === 'legacy'||task.task_type==='pdf_export') return null
-  if(currentWait?.kind==='bio_analysis_confirmation')return <section className="task-pending"><p>{t('QC 候选待确认；计算已暂停，不占用 Worker。')}</p><BioTaskLinks task={task}/></section>
+  if(currentWait?.kind==='bio_analysis_confirmation')return <section className="task-pending"><p>{t(customerView?customerChecking:'QC 候选待确认；计算已暂停，不占用 Worker。')}</p>{!customerView&&<BioTaskLinks task={task}/>}</section>
   if(task.task_type==='figure_projection')return <p className="warning-panel">{t('请返回来源文件的图表工作台，核对投影人数与规则后独立确认。')}</p>
   if (task.task_type === 'review_ocr' && task.input_version.kind === 'ocr_review') return <OcrReviewWorkspace active={viewActive} registerLeaveGuard={registerLeaveGuard} projectId={task.project_id} fileId={task.input_version.source.file_id} parseId={task.input_version.source.parse_id} taskId={task.id} filename={workspace.source.filename} onUnavailable={onChanged} onPublished={onChanged}/>
   if (task.task_type === 'prepare_dataset') return <><PreparationReview active={viewActive} registerLeaveGuard={registerLeaveGuard} projectId={task.project_id} taskId={task.id} blocked={blocked} onChanged={onChanged} refreshKey={task.revision ?? 0} />
@@ -64,6 +67,15 @@ export default function TaskPendingAction({ workspace, blocked, onChanged, activ
   if (task.task_type === 'analysis_plan' && task.input_version.kind === 'analysis_plan') return <><AnalysisPlanReview active={viewActive} projectId={task.project_id} taskId={task.id} expectedInputVersion={task.input_version} blocked={blocked} onChanged={onChanged} refreshKey={task.revision ?? 0} />
     {actions.includes('retry') && <button type="button" className="button-primary" disabled={!viewActive || blocked || busy} onClick={() => void perform('retry')}>{t('重试原任务')}</button>}
     {error && <p role="alert" className="error-panel">{t(error)}</p>}</>
+  if (customerView) return <section className="task-pending" aria-label={t('任务处理')}>
+    {task.input_version.kind==='review_round_plan'&&<a href={reviewHash(task.project_id,task.input_version.round_id)}>{t('返回本轮意见计划')}</a>}
+    {currentWait && <p className="warning-panel">{t(currentWait.kind === 'literature_model_authorization' || currentWait.kind === 'literature_configuration' ? customerLiterature : customerChecking)}</p>}
+    {actions.length > 0 && <><p className="task-scope-note">{t('使用原资料重新处理；取消后已有成果不变。')}</p>
+      <div className="task-actions">{actions.map(operation => <button key={operation} type="button" className="button-primary" disabled={!viewActive || blocked || busy}
+        onClick={() => void perform(operation)}>{t(operation === 'cancel' ? '取消任务' : operation === 'retry' ? '重试原任务' : '继续原任务')}</button>)}</div></>}
+    {busy && <p role="status">{t('正在提交任务操作……')}</p>}
+    {error && <p role="alert" className="error-panel">{t(error)}</p>}
+  </section>
   return <section className="task-pending" aria-label={t('任务处理')}>
     {task.input_version.kind==='review_round_plan'&&<><a href={reviewHash(task.project_id,task.input_version.round_id)}>{t('返回本轮意见计划')}</a><p className="warning-panel">{t('计划保存成功仅代表计划已持久保存；待确认、待材料的意见仍未完成。')}</p></>}
     {currentWait?.kind === 'literature_model_authorization'&&<p className="warning-panel">{t('真实文献模型调用关闭；任务已保存并持久等待授权，尚无模型建议。')}</p>}

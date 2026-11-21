@@ -43,7 +43,8 @@ def test_declarations_require_real_sources_and_missing_school_material_stays_pen
     with pytest.raises(ValidationError):PresentationRequest(base_version_id='z',config=dict(statements=[dict(kind='ethics',state='not_applicable')]))
     request,zh,en=sample();result=build_preview(request,zh,en,'a'*64,'b'*64)
     assert checks(result)['statement:ethics']=='pending'
-    assert checks(result)['blind:images']=='pending'
+    assert not any(code.startswith('blind:') for code in checks(result))
+    assert 'blind' not in result['config']
     with pytest.raises(ValidationError):PresentationRequest(base_version_id='z',config=dict(authors=[dict(name='A',order=1,affiliation_ids=['missing'],source='provided')]))
 
 def test_school_supplement_fixed_ids_length_scope_and_mandatory_abstracts():
@@ -148,7 +149,7 @@ def test_confirmed_export_receipt_updates_checks_preserves_actual_counts_and_sou
     requirement=dict(scope='whole',language='en',unit='words',kind='maximum',value=100)
     actual=dict(code='school:length:0',status='passed',actual=25,requirement=requirement,count_projection=dict(scope='actual_docx_main_document'))
     old_checks=[dict(code='language:en',status='pending'),actual]
-    prior=dict(binding=dict(id='old'),checks=old_checks,language_inventory=[old_item],blind=dict(known_identity_check='passed'))
+    prior=dict(binding=dict(id='old'),checks=old_checks,language_inventory=[old_item])
     review=dict(source_export_id='source',source_sha256='b'*64,language_view='en',review_mode='identified',decisions=[dict(location='actual:1',content_sha256='a'*64,decision='target_language',reason='Exact human review',exceptions=[])])
     context=dict(binding=dict(id='new'),preview=dict(config=dict(language_review=review),checks=[dict(code='language:actual_export',status='passed'),dict(code='school:length:0',status='pending',requirement=requirement)],quality=dict(scientific_semantic='pending'),language_review=dict(status='confirmed',source_export_id='source',source_sha256='b'*64,inventory_sha256='c'*64,decision_count=1)))
     result=confirmed_metadata(context,prior)
@@ -160,12 +161,12 @@ def test_confirmed_export_receipt_updates_checks_preserves_actual_counts_and_sou
     assert result['language_inventory'][0]['confirmation']['status']=='confirmed_for_exact_output'
     assert prior['language_inventory']==[old_item] and 'confirmation' not in old_item
 
-def test_bilingual_preview_suppresses_hidden_peer_and_groups_without_visible_zh_anchor():
+def test_bilingual_preview_suppresses_excluded_peer_and_groups_without_visible_zh_anchor():
     from app.domain.manuscripts.presentation_export import preview_view
     def paragraph(identity):return dict(id=identity,text=identity)
     selected=dict(title='zh',output_language='zh-CN',sections=[dict(id='visible',paragraphs=[paragraph('z1'),paragraph('z3')]),dict(id='hidden-zh',paragraphs=[paragraph('z2'),paragraph('z4')])])
     peer=dict(title='en',output_language='en',sections=[dict(id='visible-en',paragraphs=[paragraph('eKeep'),paragraph('eByHidden'),paragraph('eFree')]),dict(id='hidden-en',paragraphs=[paragraph('ePeerHidden')])])
-    config=dict(paragraph_groups=[dict(id='partial',zh_ids=['z1','z2'],en_ids=['eKeep'],status='paired'),dict(id='hidden',zh_ids=['z4'],en_ids=['eByHidden'],status='paired')],blind=dict(hidden_chapter_ids=['hidden-zh','hidden-en'],identity_terms=[],exceptions=[]))
-    context=dict(selected=dict(snapshot_json=selected),base=dict(snapshot_json=selected),peer=dict(snapshot_json=peer),binding=dict(language_view='zh-CN-en',review_mode='blind'),preview=dict(config=config,checks=[],quality={}))
+    config=dict(paragraph_groups=[dict(id='partial',zh_ids=['z1','z2'],en_ids=['eKeep'],status='paired'),dict(id='hidden',zh_ids=['z4'],en_ids=['eByHidden'],status='paired')],school=dict(exclude_chapter_ids=['hidden-zh','hidden-en']))
+    context=dict(selected=dict(snapshot_json=selected),base=dict(snapshot_json=selected),peer=dict(snapshot_json=peer),binding=dict(language_view='zh-CN-en',review_mode='identified'),preview=dict(config=config,checks=[],quality={}))
     result=preview_view(context)
     assert [p['id'] for p in result['preview_paragraphs']]==['z1','eKeep','z3','eFree']

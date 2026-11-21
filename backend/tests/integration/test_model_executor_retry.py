@@ -204,8 +204,10 @@ def test_initial_receipt_persistence_failure_is_recovered_as_unknown_without_rep
     current = TaskStore(owner).get(task['id'])
     assert current['status'] == 'running' and current['retry_count'] == 0
     with database_connection(write=True) as db:
-        assert db.execute('SELECT lease_owner FROM task_attempts').fetchone()['lease_owner']
-        db.execute("UPDATE task_attempts SET lease_expires_at=clock_timestamp()-interval '1 second'")
+        assert db.execute('SELECT lease_owner FROM task_attempts WHERE task_id=%s AND attempt_no=%s',
+                          (current['id'], current['current_attempt'])).fetchone()['lease_owner']
+        db.execute("UPDATE task_attempts SET lease_expires_at=clock_timestamp()-interval '1 second' WHERE task_id=%s AND attempt_no=%s",
+                   (current['id'], current['current_attempt']))
     assert TaskExecutionStore().recover_expired() == 1
     current = TaskStore(owner).get(task['id'])
     assert current['status'] == 'waiting_confirmation' and current['retry_count'] == 0
@@ -248,8 +250,10 @@ def test_receipt_database_failure_leaves_lease_for_recovery_without_error_retry(
     saved = TaskStore(owner).get(current['id'])
     assert saved['status'] == 'running' and saved['retry_count'] == 0
     with database_connection(write=True) as db:
-        assert db.execute('SELECT lease_owner FROM task_attempts').fetchone()['lease_owner']
-        db.execute("UPDATE task_attempts SET lease_expires_at=clock_timestamp()-interval '1 second'")
+        assert db.execute('SELECT lease_owner FROM task_attempts WHERE task_id=%s AND attempt_no=%s',
+                          (saved['id'], saved['current_attempt'])).fetchone()['lease_owner']
+        db.execute("UPDATE task_attempts SET lease_expires_at=clock_timestamp()-interval '1 second' WHERE task_id=%s AND attempt_no=%s",
+                   (saved['id'], saved['current_attempt']))
     assert TaskExecutionStore().recover_expired() == 1
     provider.pending = False
     complete = execute(TaskStore(owner).get(current['id']), provider)

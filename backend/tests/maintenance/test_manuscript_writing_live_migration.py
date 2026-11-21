@@ -1,3 +1,4 @@
+from tests.helpers.historical_migration import assert_saved_history_blocks
 import pytest
 from alembic import command
 from tests.api.test_manuscripts import client
@@ -5,31 +6,31 @@ from tests.api.test_manuscript_writing_live import preview
 from tests.maintenance.test_literature_evidence_migration import fingerprints
 from app.db.database import alembic_config, get_migration_database_config, migration_connection, database_connection, SCHEMA_HEAD
 
-def test_0040_is_additive_and_schema_head_audit_agree(client):
+@pytest.mark.initial_revision('0039_layout_exports')
+def test_0040_is_additive_and_schema_head_audit_agree():
+    from tests.db.test_task_schema import seed_owner
     cfg=alembic_config()
     with migration_connection(write=True) as db:
         cfg.attributes.update(connection=db.raw_connection,database_config=get_migration_database_config())
-        command.downgrade(cfg,'0039_layout_exports')
+        seed_owner(db)
         tables=[r['tablename'] for r in db.execute('SELECT tablename FROM pg_tables WHERE schemaname=current_schema()') if r['tablename']!='alembic_version']
         before=fingerprints(db,tables)
-        command.upgrade(cfg,'head')
+        command.upgrade(cfg,'0040_manuscript_writing_live')
         assert fingerprints(db,tables)==before
+        command.upgrade(cfg,'head')
     with database_connection() as db:
         from app.maintenance.database_audit import audit_database
         result=audit_database(db)
         assert result['ok'],result['schema_issues'] or [c for c in result['data_checks'] if c['invalid']]
-        assert SCHEMA_HEAD=='0040_manuscript_writing_live'
+        assert db.execute('SELECT version_num FROM alembic_version').fetchone()['version_num'] == SCHEMA_HEAD
         assert {r['table'] for r in result['data_checks']} >= {'manuscript_writing_bundles','manuscript_writing_authorizations','manuscript_writing_authorized_tasks','manuscript_writing_call_admissions'}
         from sqlalchemy import inspect
         fks=inspect(db.raw_connection).get_foreign_keys('manuscript_writing_call_admissions',schema=db.config.schema)
         assert any(fk['referred_table']=='model_calls' and fk['constrained_columns']==['model_call_id','project_id','user_id'] for fk in fks)
 
 def test_saved_bundle_prevents_destructive_downgrade(client):
-    preview(client);cfg=alembic_config()
-    with pytest.raises(RuntimeError,match='refusing destructive downgrade'):
-        with migration_connection(write=True) as db:
-            cfg.attributes.update(connection=db.raw_connection,database_config=get_migration_database_config())
-            command.downgrade(cfg,'0039_layout_exports')
+    preview(client)
+    assert_saved_history_blocks('0040_manuscript_writing_live', 'Writing live history exists; refusing destructive downgrade.')
 
 def test_completed_synthetic_candidate_is_audited(client):
     from tests.api.test_manuscript_writing_live import create_live,LiveFixture

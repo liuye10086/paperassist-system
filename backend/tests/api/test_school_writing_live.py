@@ -161,3 +161,23 @@ def school_chain(client,bilingual,*,include_toc=False,monkeypatch=None,real_layo
 def test_school_frozen_provider_science_language_publish_export_chain(client,bilingual,after_template_adoption,monkeypatch):
     import os
     school_chain(client,bilingual,include_toc=True,monkeypatch=monkeypatch,real_layout=os.getenv('PAPERASSIST_SCHOOL_LAYOUT_TEST_REAL')=='1',after_template_adoption=after_template_adoption)
+
+
+def test_thesis_writing_request_gets_a_task_budget_and_waits_without_project_budget(client):
+    path,base,root,confirmation=prepared(client,False)
+    preview=post(client,base+'/writing-previews',dict(schema_version=3,base_revision=1,mode='full_draft',output_language='zh-CN',selected_source_ids=[],selected_evidence_ids=[]),'budget-preview')
+    assert preview.status_code==201,preview.text
+    bundle=preview.json();assert bundle['execution_contract']['schema_version']==3
+    ref=dict(bundle_id=bundle['id'],bundle_sha256=bundle['bundle_sha256'])
+    auth=post(client,path+'/writing-authorizations',dict(schema_version=2,confirmed=True,tasks=[dict(logical_task_id='thesis-budget',bundles=[ref])]),'budget-auth')
+    assert auth.status_code==201,auth.text
+    created=post(client,base+'/writing-requests',dict(schema_version=2,authorization_id=auth.json()['id'],logical_task_id='thesis-budget',**ref),'budget-write')
+    assert created.status_code==202,created.text
+    task=created.json()['task']
+    with database_connection() as db:
+        rows=db.execute("SELECT scope_type FROM model_budgets WHERE scope_key=%s",(task['id'],)).fetchall()
+    assert [r['scope_type'] for r in rows]==['task']
+    provider=SchoolFixture()
+    waited=run_manuscript_writing_task(task['id'],task['revision'],provider=provider)
+    assert waited['status']=='waiting_confirmation' and waited['reason_code']=='budget_exceeded',waited
+    assert provider.posts==[]

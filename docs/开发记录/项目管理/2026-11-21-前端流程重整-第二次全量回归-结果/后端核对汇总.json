@@ -1,0 +1,34 @@
+{
+  "tests": 8643,
+  "outcomes": {
+    "passed": 8227,
+    "skipped": 61,
+    "failed": 355
+  },
+  "files": 778,
+  "stages": 76,
+  "finished": "2026-11-21T09:12:06.333313+00:00",
+  "first_red_final": {
+    "passed": 647
+  },
+  "second_red_final": {
+    "passed": 355
+  },
+  "first_red_passed_same_node": 644,
+  "first_red_passed_replacement": 3,
+  "second_red_passed_same_node": 353,
+  "second_red_passed_replacement": 2,
+  "second_red_in_first": 347,
+  "second_red_new_to_first": 8,
+  "skipped_supplement_passed": 10,
+  "new_red_on_baseline": {
+    "tests/domain/test_batch10_explanation_v4.py::test_legacy_v3_style_reuse_retains_its_original_contract": "passed",
+    "tests/domain/test_batch10_explanation_v4.py::test_real_published_v3_remains_readable_and_byte_unchanged": "passed",
+    "tests/domain/test_explanation_v5_history.py::test_actual_v3_fixture_and_style_reuse_remain_v3": "passed",
+    "tests/domain/test_explanation_v5_history.py::test_native_v4_exact_replay[d3153a8f-532f-4953-bb35-d88f2cbe07de.json]": "passed",
+    "tests/domain/test_presentation_v4.py::test_actual_historical_payload_expected_presentation_prompt_and_source_stay_frozen[correlation_heatmap:en]": "passed",
+    "tests/domain/test_presentation_v4.py::test_actual_historical_payload_expected_presentation_prompt_and_source_stay_frozen[correlation_heatmap:zh-CN]": "passed",
+    "tests/domain/test_presentation_v4.py::test_actual_historical_payload_expected_presentation_prompt_and_source_stay_frozen[scatter:en]": "passed",
+    "tests/domain/test_presentation_v4.py::test_actual_historical_payload_expected_presentation_prompt_and_source_stay_frozen[scatter:zh-CN]": "passed"
+  }
+}

@@ -14,8 +14,10 @@ from tests.db.test_task_schema import seed_owner, insert_row, task_row
 def seeded(postgres_schema):
     with database_connection(write=True) as db:
         seed_owner(db)
-        insert_row(db, 'tasks', task_row(task_type='explanation', workflow_version='explanation_v1',
-            phase='interpret', input_snapshot={'result': {'setup_revision': 1}, 'output_language': 'zh-CN'}))
+        task = task_row(task_type='explanation', workflow_version='explanation_v1',
+            phase='interpret', input_snapshot={'result': {'setup_revision': 1}, 'output_language': 'zh-CN'})
+        insert_row(db, 'tasks', task)
+        TaskStore.enqueue(db, task)
     return TaskExecutionStore(), TaskStore('u')
 
 

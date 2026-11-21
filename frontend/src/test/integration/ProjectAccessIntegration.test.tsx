@@ -112,8 +112,7 @@ async function savedWorkspace() {
   await navigateSection(user, '数据分析')
   await screen.findByRole('link', { name: '下载 Word 报告' })
   await screen.findByAltText(figure.title)
-  await user.clear(screen.getByLabelText('分析草稿'))
-  await user.type(screen.getByLabelText('分析草稿'), '不能泄露的草稿')
+  fireEvent.change(screen.getByLabelText('分析草稿'), { target: { value: '不能泄露的草稿' } })
   return user
 }
 async function showDownload(user: ReturnType<typeof userEvent.setup>, download: typeof downloads[number]) {
@@ -259,13 +258,21 @@ test('A to B to A ignores a first-instance project 404 whose clone body arrives 
   const old = missing(); const clone = old.clone()
   vi.spyOn(clone, 'json').mockImplementation(() => { started.resolve(undefined); return cloneBody.promise })
   vi.spyOn(old, 'clone').mockReturnValue(clone)
-  render(<ProjectWorkspace />); const user = await savedWorkspace()
+  const listRoute = '#project=p1&section=files'
+  window.history.replaceState(null, '', listRoute)
   mock.override(url => url.endsWith('/preview') ? old : undefined)
-  await navigateSection(user, '项目文件')
-  await user.click(screen.getByRole('button', { name: `预览 ${file.filename}` })); await started.promise
-  await open(other.name); mock.override(() => undefined); await open()
-  await navigateSection(user, '项目文件')
-  await user.click(await screen.findByRole('button', { name: `预览 ${file.filename}` })); await screen.findByRole('cell', { name: '10' })
+  render(<ProjectWorkspace />)
+  fireEvent.click(await screen.findByRole('button', { name: `预览 ${file.filename}` }))
+  await started.promise
+
+  window.history.pushState(null, '', '#project=p2')
+  fireEvent.popState(window)
+  await screen.findByRole('heading', { name: other.name })
+  mock.override(() => undefined)
+  window.history.pushState(null, '', listRoute)
+  fireEvent.popState(window)
+  fireEvent.click(await screen.findByRole('button', { name: `预览 ${file.filename}` }))
+  await screen.findByRole('cell', { name: '10' })
   await act(async () => { cloneBody.resolve({ detail: { code: 'project_not_found' } }) })
   expect(sidebar().getByRole('button', { name: project.name })).toBeTruthy()
   expect(screen.getByRole('cell', { name: '10' })).toBeTruthy()

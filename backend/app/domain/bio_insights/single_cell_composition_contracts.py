@@ -1,6 +1,7 @@
 """Single-cell composition on a fixed processed axis and manual annotation."""
 from typing import Annotated, Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
+from .figure_size import PlotSize
 
 Identifier=Annotated[str,Field(min_length=1,max_length=200,pattern=r'^[^/\\\x00-\x1f]+$')]
 
@@ -18,6 +19,7 @@ class SingleCellSelection(BaseModel):
         return self
 
 class SingleCellCompositionConfig(SingleCellSelection):
+    plot_size: PlotSize | None = Field(default=None, exclude_if=lambda value: value is None)
     kind: Literal['comparison']='comparison'
     schema_version: Literal[5]=5
     method: Literal['single_cell_composition']='single_cell_composition'

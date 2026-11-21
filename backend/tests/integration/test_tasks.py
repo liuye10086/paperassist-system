@@ -26,14 +26,19 @@ def counts():
                 for table in ('tasks', 'task_attempts', 'task_events', 'task_outbox')}
 
 
+def counts_since(before):
+    return {table: count - before[table] for table, count in counts().items()}
+
+
 def test_creation_persists_snapshot_event_and_outbox_without_running_business(client):
     project, request, _, result = boxplot_task_input(client)
+    before = counts()
     service, store = services(client)
     task, created = service.create(project, request, idempotency_key='create-one')
     assert created and task['status'] == 'queued' and task['phase'] == 'compute'
     assert task['revision'] == 1 and task['current_attempt'] == 0
     assert task['input_version'] == {'setup_revision': 1, 'output_language': 'zh-CN'}
-    assert counts() == {'tasks': 1, 'task_attempts': 0, 'task_events': 1, 'task_outbox': 1}
+    assert counts_since(before) == {'tasks': 1, 'task_attempts': 0, 'task_events': 1, 'task_outbox': 1}
     with database_connection() as db:
         raw = db.execute('SELECT * FROM tasks WHERE id=%s', (task['id'],)).fetchone()
         assert raw['input_snapshot']['result'] == result
@@ -48,6 +53,7 @@ def test_creation_persists_snapshot_event_and_outbox_without_running_business(cl
 
 def test_idempotency_replay_is_stable_after_config_changes_but_new_request_is_rejected(client):
     project, request, base, result = boxplot_task_input(client)
+    before = counts()
     service, _ = services(client)
     task, _ = service.create(project, request, idempotency_key='same')
     client.put(base + '/analysis-setup', json={**result['selection'], 'expected_revision': 1, 'unit': 'changed'})
@@ -59,11 +65,12 @@ def test_idempotency_replay_is_stable_after_config_changes_but_new_request_is_re
     with pytest.raises(StorageError) as stale:
         service.create(project, request, idempotency_key='new')
     assert (stale.value.code, stale.value.status) == ('task_source_conflict', 409)
-    assert counts()['tasks'] == 1
+    assert counts_since(before)['tasks'] == 1
 
 
 def test_concurrent_same_key_creates_one_task_and_one_outbox(client):
     project, request, _, _ = boxplot_task_input(client)
+    before = counts()
     service, _ = services(client)
     ready = Barrier(4)
     def submit(_):
@@ -73,12 +80,13 @@ def test_concurrent_same_key_creates_one_task_and_one_outbox(client):
         results = list(pool.map(submit, range(4)))
     assert sum(created for _, created in results) == 1
     assert len({task['id'] for task, _ in results}) == 1
-    assert counts() == {'tasks': 1, 'task_attempts': 0, 'task_events': 1, 'task_outbox': 1}
+    assert counts_since(before) == {'tasks': 1, 'task_attempts': 0, 'task_events': 1, 'task_outbox': 1}
 
 
 def test_task_event_and_outbox_failure_rolls_back_whole_creation(client, monkeypatch):
     from app.db.database import DatabaseConnection
     project, request, _, _ = boxplot_task_input(client)
+    before = counts()
     service, _ = services(client)
     original = DatabaseConnection.execute
     def reject(db, sql, parameters=()):
@@ -89,7 +97,7 @@ def test_task_event_and_outbox_failure_rolls_back_whole_creation(client, monkeyp
         patch.setattr(DatabaseConnection, 'execute', reject)
         with pytest.raises(RuntimeError, match='injected-outbox-failure'):
             service.create(project, request, idempotency_key='rollback')
-    assert all(value == 0 for value in counts().values())
+    assert counts() == before
     assert service.create(project, request, idempotency_key='rollback')[1]
 
 
@@ -123,17 +131,19 @@ def test_task_ownership_is_checked_before_replaying_or_reading(client):
 def test_same_owner_cross_project_and_cross_file_sources_are_rejected(client):
     project, request, _, _ = boxplot_task_input(client)
     other_project, other_request, _, _ = boxplot_task_input(client)
+    before = counts()
     service, _ = services(client)
     for owner_project, inputs in [(other_project, request),
             (project, request.model_copy(update={'analysis_run_id': other_request.analysis_run_id}))]:
         with pytest.raises(StorageError) as rejected:
             service.create(owner_project, inputs, idempotency_key='wrong-chain')
         assert rejected.value.status in (404, 409)
-    assert counts()['tasks'] == 0
+    assert counts() == before
 
 
 def test_states_attempts_events_and_requeue_are_atomic_and_revision_checked(client):
     project, request, _, _ = boxplot_task_input(client)
+    before = counts()
     service, store = services(client)
     task, _ = service.create(project, request, idempotency_key='states')
     started = service.transition(task['id'], expected_revision=1, status='running')
@@ -153,9 +163,10 @@ def test_states_attempts_events_and_requeue_are_atomic_and_revision_checked(clie
     assert final['display_status'] == 'succeeded' and final['phase'] == 'verify'
     with pytest.raises(StorageError):
         service.transition(task['id'], expected_revision=7, status='queued', reason_code='retry_requested')
-    assert counts() == {'tasks': 1, 'task_attempts': 2, 'task_events': 7, 'task_outbox': 2}
+    assert counts_since(before) == {'tasks': 1, 'task_attempts': 2, 'task_events': 7, 'task_outbox': 2}
     with database_connection() as db:
-        attempts = db.execute('SELECT * FROM task_attempts ORDER BY attempt_no').fetchall()
+        attempts = db.execute('SELECT * FROM task_attempts WHERE task_id=%s ORDER BY attempt_no',
+                              (task['id'],)).fetchall()
     assert [attempt['status'] for attempt in attempts] == ['waiting_confirmation', 'succeeded']
     assert all(attempt['finished_at'] is not None for attempt in attempts)
     page = store.events(task['id'], after=0, limit=3)
@@ -168,6 +179,7 @@ def test_states_attempts_events_and_requeue_are_atomic_and_revision_checked(clie
 
 def test_concurrent_revision_updates_commit_only_one_event_and_attempt(client):
     project, request, _, _ = boxplot_task_input(client)
+    before = counts()
     service, _ = services(client)
     task, _ = service.create(project, request, idempotency_key='race')
     def start(_):
@@ -177,7 +189,7 @@ def test_concurrent_revision_updates_commit_only_one_event_and_attempt(client):
             return exc.code
     with ThreadPoolExecutor(max_workers=2) as pool:
         assert sorted(pool.map(start, range(2))) == ['running', 'task_revision_conflict']
-    assert counts() == {'tasks': 1, 'task_attempts': 1, 'task_events': 2, 'task_outbox': 1}
+    assert counts_since(before) == {'tasks': 1, 'task_attempts': 1, 'task_events': 2, 'task_outbox': 1}
 
 
 def test_word_and_explanation_snapshots_bind_existing_artifacts_without_new_calls(client, cloud, writer):
@@ -210,6 +222,7 @@ def test_reads_and_events_do_not_change_task_or_legacy_job_state(client):
 @pytest.mark.parametrize('damage', ['run_id', 'run_hash', 'setup_file', 'setup_selection', 'invalid_json', 'nonfinite'])
 def test_corrupted_saved_inputs_are_rejected_without_partial_task(client, damage):
     project, request, _, _ = boxplot_task_input(client)
+    before = counts()
     service, _ = services(client)
     with database_connection(write=True) as db:
         table, column, key = ('analysis_setups', 'setup_json', 'file_id') if damage.startswith('setup') else (
@@ -231,7 +244,7 @@ def test_corrupted_saved_inputs_are_rejected_without_partial_task(client, damage
     with pytest.raises(StorageError) as invalid:
         service.create(project, request, idempotency_key='damaged')
     assert (invalid.value.code, invalid.value.status) == ('task_source_conflict', 409)
-    assert all(value == 0 for value in counts().values())
+    assert counts() == before
 
 
 @pytest.mark.parametrize('damage', ['figure_id', 'figure_verification', 'explanation_figure', 'explanation_provenance'])
@@ -239,6 +252,7 @@ def test_artifact_snapshot_rejects_inconsistent_saved_source_chain(client, cloud
     from app.domain.tasks.contracts import TaskCreateRequest
     from tests.integration.test_reports import report_ready
     base, file, result, figure, explanation, _ = report_ready(client)
+    before = counts()
     service, _ = services(client)
     is_figure = damage.startswith('figure')
     value = figure if is_figure else explanation
@@ -259,11 +273,12 @@ def test_artifact_snapshot_rejects_inconsistent_saved_source_chain(client, cloud
     with pytest.raises(StorageError) as invalid:
         service.create(base.split('/')[4], inputs, idempotency_key='broken-chain')
     assert invalid.value.code == 'task_source_conflict'
-    assert all(value == 0 for value in counts().values())
+    assert counts() == before
 
 
 def test_transition_event_failure_rolls_back_attempt_and_revision(client, monkeypatch):
     project, request, _, _ = boxplot_task_input(client)
+    before = counts()
     service, store = services(client)
     task, _ = service.create(project, request, idempotency_key='event-rollback')
     def fail_event(*args):
@@ -273,12 +288,13 @@ def test_transition_event_failure_rolls_back_attempt_and_revision(client, monkey
         with pytest.raises(RuntimeError):
             service.transition(task['id'], expected_revision=1, status='running')
     assert store.get(task['id']) == task
-    assert counts() == {'tasks': 1, 'task_attempts': 0, 'task_events': 1, 'task_outbox': 1}
+    assert counts_since(before) == {'tasks': 1, 'task_attempts': 0, 'task_events': 1, 'task_outbox': 1}
     assert service.transition(task['id'], expected_revision=1, status='running')['current_attempt'] == 1
 
 
 def test_failed_and_input_waiting_require_explicit_requeue_reason(client):
     project, request, _, _ = boxplot_task_input(client)
+    before = counts()
     service, store = services(client)
     task, _ = service.create(project, request, idempotency_key='explicit-retry')
     service.transition(task['id'], expected_revision=1, status='running')
@@ -293,7 +309,7 @@ def test_failed_and_input_waiting_require_explicit_requeue_reason(client):
     service.transition(task['id'], expected_revision=5, status='failed', reason_code='execution_failed')
     service.transition(task['id'], expected_revision=6, status='queued', reason_code='retry_requested')
     assert store.get(task['id'])['revision'] == 7
-    assert counts() == {'tasks': 1, 'task_attempts': 2, 'task_events': 7, 'task_outbox': 3}
+    assert counts_since(before) == {'tasks': 1, 'task_attempts': 2, 'task_events': 7, 'task_outbox': 3}
 
 
 def test_invalid_internal_transition_types_leave_state_unchanged(client):
@@ -335,6 +351,7 @@ def test_explanation_requires_complete_figure_metadata(client, cloud, writer, da
     from app.domain.tasks.contracts import TaskCreateRequest
     from tests.integration.test_reports import report_ready
     base, file, result, figure, _, _ = report_ready(client)
+    before = counts()
     if damage == 'missing_hash':
         del figure['sha256']
     elif damage == 'bad_hash':
@@ -349,4 +366,4 @@ def test_explanation_requires_complete_figure_metadata(client, cloud, writer, da
     with pytest.raises(StorageError) as invalid:
         service.create(base.split('/')[4], request, idempotency_key='figure-metadata')
     assert invalid.value.code == 'task_source_conflict'
-    assert counts()['tasks'] == 0
+    assert counts() == before

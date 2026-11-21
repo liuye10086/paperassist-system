@@ -2,6 +2,7 @@ import useDraftLeaveGuard,{type RegisterLeaveGuard} from '../projects/useDraftLe
 import {useEffect,useLayoutEffect,useRef,useState} from 'react'
 import {onApiSessionChanged} from '../../shared/api/client'
 import {apiError,safeError,useI18n} from '../../shared/i18n'
+import ModuleViews,{ModuleView} from '../../shared/components/ModuleViews'
 import ProjectDownloadLink from '../../shared/components/ProjectDownloadLink'
 import {useDocumentVisible} from '../tasks/useDocumentVisible'
 import LayoutForm from './LayoutForm'
@@ -13,7 +14,7 @@ export default function LayoutExports(props:Props){return <Exports key={`${props
 function Exports({projectId,sourceKind,sourceId,sourceSha256,sourceLabel,active=true,disabled=false,onOpenTask,initialOpen=false,registerLeaveGuard}:Props){
  const {t}=useI18n(),visible=useDocumentVisible(),scope={projectId,sourceKind,sourceId,sourceSha256}
  const [open,setOpen]=useState(initialOpen),[catalog,setCatalog]=useState<Catalog|null>(null),[layout,setLayout]=useState<Layout|null>(null),[items,setItems]=useState<LayoutExport[]>([]),[error,setError]=useState(''),[catalogError,setCatalogError]=useState(''),[actionError,setActionError]=useState(''),[busy,setBusy]=useState(false),[loaded,setLoaded]=useState(false),[attempt,setAttempt]=useState(0),[sessionValid,setSessionValid]=useState(true),[panelVisible,setPanelVisible]=useState(false)
- const [cleanLayout,setCleanLayout]=useState('null'),[visited,setVisited]=useState(initialOpen)
+ const [cleanLayout,setCleanLayout]=useState('null')
  const mounted=useRef(true),action=useRef<AbortController|null>(null),panel=useRef<HTMLElement|null>(null)
  useLayoutEffect(()=>{const ancestors:HTMLElement[]=[];for(let n=panel.current;n;n=n.parentElement)ancestors.push(n);const update=()=>setPanelVisible(ancestors.every(n=>!n.hidden&&(n.tagName!=='DETAILS'||n.hasAttribute('open'))));update();const observer=new MutationObserver(update);ancestors.forEach(n=>observer.observe(n,{attributes:true,attributeFilter:['hidden','open']}));return()=>observer.disconnect()},[])
  useEffect(()=>{mounted.current=true;return()=>{mounted.current=false;action.current?.abort()}},[])
@@ -23,8 +24,11 @@ function Exports({projectId,sourceKind,sourceId,sourceSha256,sourceLabel,active=
  const pending=pendingLayout(scope),retryPending=items.some(x=>pendingLayout(scope,x.id)),unknown=!!pending||retryPending,blocked=busy||!loaded||!sessionValid||!active||!panelVisible||disabled
  useDraftLeaveGuard(registerLeaveGuard,JSON.stringify(layout)!==cleanLayout||unknown,busy)
  async function submit(parent?:string){if(action.current||blocked||!parent&&!pending&&(!layout||!catalog||!!error||!!catalogError))return;const existing=pendingLayout(scope,parent);if(!existing&&!parent&&layout&&catalog){const invalid=layoutFormError(layout,catalog);if(invalid){setActionError(invalid);return}}const controller=new AbortController();action.current=controller;setBusy(true);setActionError('');try{const value=await submitLayout(scope,layout??undefined,controller,parent,items.find(item=>item.id===parent));if(!mounted.current||controller.signal.aborted)return;setItems(old=>[value,...old.filter(x=>x.id!==value.id)]);if(!parent)setCleanLayout(JSON.stringify(layout));setAttempt(n=>n+1)}catch(cause){if(mounted.current&&!(cause instanceof DOMException&&cause.name==='AbortError'))setActionError(safeError(cause,'排版请求未确认，请确认上次请求。'))}finally{if(action.current===controller)action.current=null;if(mounted.current)setBusy(false)}}
- return <section ref={panel} className="layout-exports manuscript-panel" aria-label={t('排版与公式')}><button type="button" aria-expanded={open} disabled={!sessionValid||!active} onClick={()=>{setOpen(v=>!v);setVisited(true)}}>{t('排版与公式')}</button>{!sessionValid&&<p role="alert">{t('会话已失效，请重新登录。')}</p>}{visited&&<div hidden={!open}>
- <p>{t('原始 DOCX 保留；排版结果独立保存。')}</p><p>{t('冻结来源：{source}',{source:sourceLabel})}</p><p className="muted">{t('本地排版与公式导出，不调用模型或搜索。')}</p>
+ // The catalog and export history are read only after switching to the layout view.
+ return <section ref={panel} className="layout-exports manuscript-panel" aria-label={t('排版导出')}>{!sessionValid&&<p role="alert">{t('会话已失效，请重新登录。')}</p>}
+ <ModuleViews label={t('排版视图')} lazy value={open?'layout':'about'} onChange={id=>setOpen(id==='layout')}>
+ <ModuleView id="about" title={t('排版说明')}><p>{t('原始 DOCX 保留；排版结果独立保存。')}</p><p>{t('冻结来源：{source}',{source:sourceLabel})}</p><p className="muted">{t('本地排版与公式导出，不调用模型或搜索。')}</p></ModuleView>
+ <ModuleView id="layout" title={t('排版与公式')} disabled={!sessionValid||!active}>
  {catalog&&<p className="layout-source">{catalog.filename} · {t('原稿语言：{language}',{language:t(catalog.output_language==='en'?'英文':'中文')})} · {catalog.source_size.toLocaleString()} {t('字节')}<br/><span>SHA256: {catalog.source_sha256}</span></p>}
  {unknown&&<p className="warning-panel">{t('上次排版请求尚未确认。确认将复用原始设置与请求身份，不会新建第二份请求。')}</p>}
  {catalog&&layout&&<LayoutForm catalog={catalog} layout={layout} onChange={setLayout} disabled={blocked||unknown}/>}
@@ -36,5 +40,5 @@ function Exports({projectId,sourceKind,sourceId,sourceSha256,sourceLabel,active=
  {item.status==='succeeded'&&item.download_url&&item.sha256&&<><ProjectDownloadLink href={item.download_url} filename={item.filename??'layout.docx'}>{t('下载排版 DOCX')}</ProjectDownloadLink></>}
  {(pendingLayout(scope,item.id)||item.can_retry&&item.recovery_mode!=='blocked')&&<button type="button" disabled={blocked||unknown&&!pendingLayout(scope,item.id)} onClick={()=>void submit(item.id)}>{t(pendingLayout(scope,item.id)?'确认上次排版重试':item.recovery_mode==='local_candidate'?'恢复原导出候选':'重试排版')}</button>}
  {onOpenTask?<button type="button" onClick={()=>onOpenTask(item.task_id)}>{t('查看排版任务')}</button>:<a href={`#project=${encodeURIComponent(projectId)}&section=tasks&task=${encodeURIComponent(item.task_id)}`}>{t('查看排版任务')}</a>}</article>)}
- </div>}</section>
+ </ModuleView></ModuleViews></section>
 }

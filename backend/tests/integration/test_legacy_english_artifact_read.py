@@ -59,7 +59,8 @@ def test_saved_legacy_english_plan_artifacts_are_read_without_generation_cache_h
     old_explanation=client.get(url+'/explanation').json()
     assert old_explanation['explanation']['id']==explanation['id'] and old_explanation['generation_compatible'] is False
     old_report=client.get(url+'/report').json()
-    assert old_report['report']['id']==report['id'] and old_report['generation_compatible'] is False
+    assert old_report['report'] is None and old_report['generation_compatible'] is False
+    assert old_report['historical_report']['id']==report['id']
     assert client.get(url+'/report/'+report['id']+'/download').content==original_word
     from app.domain.plot_tasks import context
     from app.domain.explanations import context as explanation_context

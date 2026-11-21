@@ -1,23 +1,20 @@
 """0044→0045 retains nonempty public records, indexes, originals and sealed history."""
+from tests.helpers.historical_migration import historical_workflow, assert_saved_history_blocks
 import pytest
 from alembic import command
 from sqlalchemy.exc import SQLAlchemyError
 from tests.api.test_analysis import client  # noqa: F401
-from tests.api.test_school_templates import setup as school_setup
+from tests.api.test_school_templates import parsed as school_parsed
 from tests.api.test_journals import setup,profile,request,post
 from tests.maintenance.test_literature_evidence_migration import fingerprints
 from app.db.database import migration_connection,database_connection,alembic_config,get_migration_database_config,SCHEMA_HEAD
 
 
 def test_0045_preserves_nonempty_0044_records_indexes_and_originals(client):
-    path,template=school_setup(client)
+    path,template,saved_template=school_parsed(client)
     original=client.get(path+'/files/'+template['template_file_id']+'/download').content
-    cfg=alembic_config()
-    with migration_connection(write=True) as db:
-        assert db.config.schema.startswith('pa_test_')
-        assert db.execute('SELECT current_database() name').fetchone()['name']=='paperassist_system_test'
-        cfg.attributes.update(connection=db.raw_connection,database_config=get_migration_database_config())
-        command.downgrade(cfg,'0044_school_changes')
+    with historical_workflow(get_migration_database_config(), '0044_school_changes') as (db, cfg):
+        assert db.execute("SELECT 1 FROM school_template_versions WHERE id=%s", (saved_template['id'],)).fetchone()
         tables=[r['tablename'] for r in db.execute('SELECT tablename FROM pg_tables WHERE schemaname=current_schema()') if r['tablename']!='alembic_version']
         before=fingerprints(db,tables)
         indexes={r['indexname']:r['indexdef'] for r in db.execute('SELECT indexname,indexdef FROM pg_indexes WHERE schemaname=current_schema()')}
@@ -46,11 +43,7 @@ def test_journal_seals_json_checks_scope_and_guarded_downgrade(client):
     other=setup(client).split('/projects/')[1].split('/')[0]
     with pytest.raises(SQLAlchemyError):
         with database_connection(write=True) as db:db.execute('''INSERT INTO journal_profiles(id,project_id,user_id,idempotency_key,request_json,request_digest,snapshot_json,snapshot_sha256,created_at,previous_version_id) SELECT 'bad',%s,user_id,'bad',request_json,request_digest,snapshot_json,snapshot_sha256,created_at,id FROM journal_profiles WHERE id=%s''',(other,p['id']))
-    cfg=alembic_config()
-    with pytest.raises(RuntimeError,match='refusing destructive downgrade'):
-        with migration_connection(write=True) as db:
-            cfg.attributes.update(connection=db.raw_connection,database_config=get_migration_database_config())
-            command.downgrade(cfg,'0044_school_changes')
+    assert_saved_history_blocks('0045_journal_recommendations', 'Journal history exists; refusing destructive downgrade.')
     with database_connection(write=True) as db:db.execute('UPDATE tasks SET input_digest=%s WHERE id=%s',('a'*64,item['task']['id']))
     from app.maintenance.journal_audit import audit_journals
     with database_connection() as db:checks=audit_journals(db,limit=1)

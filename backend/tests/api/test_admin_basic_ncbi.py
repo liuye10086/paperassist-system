@@ -173,14 +173,21 @@ def test_two_versions_share_one_database_limiter(admin):
     two = saved(admin,one,'ncbi','interval_seconds',2.0); activate(admin,two,1,'slower')
     new = create(admin,pid,key='new').json()
     repository = TaskExecutionStore()
-    leases = [repository.claim(task['id'],1,task_type='literature_search') for task in (old,new)]
+    first = repository.claim(old['id'],1,task_type='literature_search')
+    assert first and repository.claim(new['id'],1,task_type='literature_search') is None
     with ThreadPoolExecutor(max_workers=2) as pool:
-        delays = sorted(pool.map(lambda lease: reserve_request(repository,lease),leases))
+        delays = sorted(pool.map(lambda lease: reserve_request(repository,lease),(first, first)))
     assert delays[0] == 0 and delays[1] > 0.4
     with database_connection() as db:
-        rows = db.execute('SELECT scope,next_allowed_at-clock_timestamp() AS remaining FROM ncbi_rate_limits').fetchall()
+        before = db.execute("SELECT next_allowed_at FROM ncbi_rate_limits WHERE scope='ncbi-eutilities'").fetchone()
+    repository.fail(first, 'task_execution_failed')
+    second = repository.claim(new['id'],1,task_type='literature_search')
+    assert second
+    reserve_request(repository,second)
+    with database_connection() as db:
+        rows = db.execute('SELECT scope,next_allowed_at FROM ncbi_rate_limits').fetchall()
         assert len(rows) == 1 and rows[0]['scope'] == 'ncbi-eutilities'
-        assert rows[0]['remaining'].total_seconds() > 2.0
+        assert (rows[0]['next_allowed_at'] - before['next_allowed_at']).total_seconds() >= 2.0
 
 
 def test_ncbi_worker_constructs_bound_timeout_but_never_opens_disabled_gate(admin,monkeypatch):

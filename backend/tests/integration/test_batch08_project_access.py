@@ -8,6 +8,7 @@ from tests.helpers.statistics import statistics_post
 from copy import deepcopy
 from io import BytesIO
 import json
+from xml.etree import ElementTree
 from zipfile import ZipFile
 
 import pytest
@@ -18,14 +19,16 @@ from app.adapters.storage import ProjectStore
 from app.core.config import get_data_dir
 from app.db.database import database_connection
 from app.domain.figure_workbench.execution import run_figure_workbench_task, run_figure_explanation_task
+from app.domain.figure_workbench.projection_execution import run_projection_task
 from app.domain.model_usage.service import ModelUsageService
 from app.domain.report_collections.execution import run_collection_word_task
 from tests.api.test_analysis import client
 from tests.api.test_dataset_analysis import version
 from tests.domain.test_correlation_plan_contracts import research, selection
 from tests.helpers.analysis_plan import run_plan, review_plan, plan_decision, decide_plan
+from tests.helpers.research_report import assert_word_figure_pixels
 from tests.helpers.tasks import task_owner
-from tests.integration.test_batch05_figure_execution import FigureExplanationProvider
+from tests.integration.test_b07_repair_versions import SyntheticSentenceProvider
 from tests.integration.test_batch06_pipeline import IndependentV2LineProvider, checked_policy
 from tests.integration.test_dataset_preparation import run, review, decide, decision
 from tests.integration.test_project_ownership import account_client
@@ -40,7 +43,7 @@ class ProjectLineProvider(IndependentV2LineProvider):
         return receipt
 
 
-class ProjectExplanationProvider(FigureExplanationProvider):
+class ProjectExplanationProvider(SyntheticSentenceProvider):
     def __init__(self, result):
         super().__init__()
         self.result = result
@@ -122,11 +125,17 @@ def complete_artifacts(client, monkeypatch, project_type):
     assert saved.status_code == 200, saved.text
     saved = saved.json()
     vid = saved['version']['id']
+    queued = client.post(work_url + f'/versions/{vid}/check')
+    assert queued.status_code == 202, queued.text
+    task = queued.json()['task']
+    assert run_projection_task(task['id'], task['revision'])['status'] == 'waiting_confirmation'
     check = client.post(work_url + f'/versions/{vid}/check')
     assert check.status_code == 200, check.text
     confirmed = client.post(work_url + f'/versions/{vid}/confirm',
         json={'approved': True, 'input_sha256': check.json()['input_sha256']})
-    assert confirmed.status_code == 200, confirmed.text
+    assert confirmed.status_code == 202, confirmed.text
+    task = confirmed.json()['task']
+    assert run_projection_task(task['id'], task['revision'])['status'] == 'succeeded'
     preview = client.post(work_url + f'/versions/{vid}/external-preview').json()
     monkeypatch.setattr('app.domain.figure_workbench.tasks.policy_for', checked_policy)
     usage = ModelUsageService(task_owner(client))
@@ -174,7 +183,7 @@ def complete_artifacts(client, monkeypatch, project_type):
     response = client.get(report_url)
     assert response.status_code == 200, response.text
     return {**source, 'work_url': work_url, 'config': config, 'configuration': saved,
-        'projection': confirmed.json(), 'bundle': bundle, 'provider': provider, 'prose': prose,
+        'projection': bundle['projection'], 'bundle': bundle, 'provider': provider, 'prose': prose,
         'collection_url': collection_url, 'collection': collection, 'collection_body': body,
         'report': report, 'report_url': report_url, 'docx': response.content,
         'figure_request': request, 'explanation_request': explanation_request, 'word_task': build['task_id']}
@@ -233,7 +242,6 @@ def assert_scope_denied(actor, victim, owned, *, cross_user=False):
         ('post', target_work + f'/figures/{fid}/explanation-preview', {}),
         ('post', target_work + f'/figures/{fid}/explanations', victim['explanation_request']),
         ('post', target_work + f'/versions/{vid}/reuse-explanation', {'source_explanation_id': eid}),
-        ('post', owned['base'] + '/analysis-plans', {**victim['plan_request'], 'expected_setup_revision': 1}),
     ]
     for number, (method, url, body) in enumerate(calls):
         response = actor.request(method, url, **({'json': body, 'headers': {'Idempotency-Key': f'denied-{number}'}} if method == 'post' else {}))
@@ -284,17 +292,21 @@ def test_two_project_types_use_frozen_artifacts_and_reject_cross_project_and_use
     assert result['statistics']['n'] == 3 and result['statistics']['coefficient'] == pytest.approx(1)
     assert result['analysis_context']['plan'] == case['plan']
     assert result['source']['dataset_id'] == case['prepared']['id']
+    retired = client.post(case['base'] + '/analysis-plans', json={**case['plan_request'], 'expected_setup_revision': 1},
+                          headers={'Idempotency-Key': 'retired-plan'})
+    assert retired.status_code == 422 and retired.json()['detail']['code'] == 'task_input_invalid'
     assert bundle['projection']['result']['audit']['valid_n'] == 4
-    assert bundle['explanation']['engine']['id'] == 'figure_explanation_v2'
+    assert bundle['explanation']['engine']['id'] == 'figure_explanation_v5'
     assert len(bundle['explanation']['sections']) == 6
     assert case['provider'].posts == ['container', 'upload', 'response'] and len(case['prose'].posts) == 1
     for url in guarded_reads(case):
         assert client.get(url).status_code == 200, url
     assert client.get(case['base'] + '/download').content == case['original']
+    assert_word_figure_pixels(case['docx'], case['provider'].png)
     with ZipFile(BytesIO(case['docx'])) as archive:
-        assert [archive.read(name) for name in archive.namelist() if name.startswith('word/media/')] == [case['provider'].png]
-        xml = archive.read('word/document.xml').decode()
-        assert 'Statistical results' in xml and 'Six-section explanations' in xml
+        text = ''.join(ElementTree.fromstring(archive.read('word/document.xml')).itertext())
+        results = next(section['text'] for section in bundle['explanation']['sections'] if section['key'] == 'results')
+        assert results in text
     with database_connection() as db:
         assert db.execute('SELECT count(*) AS n FROM model_calls WHERE task_id=%s', (case['word_task'],)).fetchone()['n'] == 0
 

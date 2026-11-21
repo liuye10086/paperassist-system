@@ -7,7 +7,7 @@ from app.core.config import get_data_dir
 
 from psycopg.types.json import Jsonb
 
-from app.adapters.storage import _storage_connection, ProjectStore
+from app.adapters.storage import _storage_connection, MaterialVisibility, ProjectStore
 from app.auth.project_access import ASSIGNED_TASK_TYPES, assignment_for_owner
 from app.core.exceptions import StorageError
 from app.core.errors import PUBLIC_CODES
@@ -53,7 +53,7 @@ def _source_json(value):
     return parsed
 
 
-class DatasetTaskAssets:
+class DatasetTaskAssets(MaterialVisibility):
     """Owner-scoped dataset reader with explicit database and asset roots."""
     def __init__(self, owner_id, config, directory=None):
         self.owner_id = owner_id

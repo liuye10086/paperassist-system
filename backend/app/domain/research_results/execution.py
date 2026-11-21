@@ -35,7 +35,7 @@ SOURCE_REJECTIONS=frozenset(('research_source_conflict','research_source_not_fou
     'delivery_member_source_missing','delivery_member_source_incomplete','delivery_member_duplicate',
     'research_source_limit_exceeded','research_fact_unresolved','research_figure_limit_exceeded',
     'research_export_limit_exceeded','research_output_invalid','research_revision_conflict',
-    'research_writing_unavailable','bio_input_integrity_changed','bio_source_conflict',
+    'research_writing_unavailable','manuscript_source_not_visible','bio_input_integrity_changed','bio_source_conflict',
     'bio_version_not_found','bio_processed_not_found','bio_figure_not_found','bio_member_not_found',
     'bio_output_invalid','bio_result_not_ready','source_conflict','task_source_conflict',
     'report_changed','report_missing','report_source_changed','report_source_conflict',
@@ -46,7 +46,18 @@ class _SourceRejected(Exception):
     def __init__(self,code):self.code=code
 
 
-def service_for(task,repository):
+def service_for(db,task,repository):
+    if task['task_type']=='research_fact_draft':
+        from app.domain.report_collections.service import scoped_store
+        from .candidates import ResearchCandidateService
+
+        # A new version rereads its base manuscript through the owner's material filter.
+        owner = db.execute('SELECT role FROM users WHERE id=%s AND active', (task['user_id'],)).fetchone()
+        if owner is None:
+            raise StorageError('task_owner_unavailable', '任务所属账号或项目已不可用。', 409)
+        assets = scoped_store(task['user_id'], repository.config, repository.assets.directory)
+        assets.customer = owner['role'] == 'customer'
+        return ResearchCandidateService(assets)
     assets=DatasetTaskAssets(task['user_id'],repository.config,repository.assets.directory)
     if is_reader_export(task):
         from app.domain.statistics_reader_reports.legacy_exports import StatisticsLegacyReportService
@@ -57,12 +68,10 @@ def service_for(task,repository):
     if task['task_type']=='research_figure':
         from .figures import ResearchFigureService
         return ResearchFigureService(assets)
-    # Report and fact-draft services implement the same require_sources/publish protocol.
     if task['task_type']=='research_report':
         from .reports import ResearchReportService
         return ResearchReportService(assets)
-    from .candidates import ResearchCandidateService
-    return ResearchCandidateService(assets)
+    raise invalid()
 
 
 def checkpoint_for(db,task):
@@ -114,11 +123,11 @@ class ResearchExecution:
             progress.renewed=dict(updated.fetchone())
             last_renewal=monotonic()
         if task['task_type'] in LEGACY_TASKS:
-            service_for(task,self.repository).association(db,task)
+            service_for(db,task,self.repository).association(db,task)
         progress(force=True)
         cp=checkpoint_for(db,task)
         if checkpoint is not None and checkpoint['id']!=cp['id']:raise invalid()
-        service=service_for(task,self.repository)
+        service=service_for(db,task,self.repository)
         try:payload=service.require_sources(db,task,progress=progress)
         except StorageError as exc:
             if exc.code not in SOURCE_REJECTIONS or not 400<=exc.status<500:raise
@@ -255,7 +264,7 @@ def _run_research_task(task_id,task_revision,*,task_type,config=None,directory=N
         # Prepare/publish still revalidate under their fenced writer phases.
         with repository.connection() as db:
             task=repository.require_lease(db,lease);repository.require_owner(db,task);cp=checkpoint_for(db,task)
-            payload=service_for(task,repository).require_sources(db,task)
+            payload=service_for(db,task,repository).require_sources(db,task)
         if task_type in ('delivery_package','research_report',*LEGACY_TASKS) and cp['next_node']=='check':
             with repository.connection(write=True) as db:
                 task=repository.require_lease(db,lease);repository.require_owner(db,task)
@@ -331,7 +340,7 @@ def source_current(db,task):
     try:
         from app.core.config import get_data_dir
         class Repository:config=db.config;assets=type('Assets',(),{'directory':get_data_dir()})()
-        service_for(task,Repository()).require_sources(db,task);return True
+        service_for(db,task,Repository()).require_sources(db,task);return True
     except Exception:return False
 
 

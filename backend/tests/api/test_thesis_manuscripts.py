@@ -119,14 +119,18 @@ def test_school_synthetic_candidate_and_review_publish_share_history(client):
     assert audit['ok'],audit['schema_issues'] or [c for c in audit['data_checks'] if c['invalid']]
 
 
-def test_school_v2_direct_request_is_rejected_before_bundle_lookup(client):
+def test_school_writing_rejects_missing_bundle_without_dispatch(client):
     from app.domain.tasks.execution import run_task
     path,_,request=bound(client)
     base=post(client,path+'/manuscripts',request,'create').json()
-    run_task(base['versions'][0]['task_id'],1)
+    assert run_task(base['versions'][0]['task_id'], 1)['status'] == 'succeeded'
     response=post(client,path+'/manuscripts/'+base['id']+'/writing-requests',dict(schema_version=2,bundle_id='missing',bundle_sha256='a'*64,authorization_id='missing',logical_task_id='school'),'v2')
-    assert response.status_code==422,response.text
+    assert response.status_code == 409, response.text
     assert response.json()['detail']['code']=='manuscript_writing_not_authorized'
+    with database_connection() as db:
+        assert db.execute('SELECT 1 FROM manuscript_writing_requests WHERE manuscript_id=%s', (base['id'],)).fetchone() is None
+        assert db.execute("SELECT 1 FROM tasks WHERE project_id=%s AND task_type='manuscript_writing'", (path.rsplit('/', 1)[1],)).fetchone() is None
+        assert db.execute('SELECT 1 FROM model_calls').fetchone() is None
 
 def test_school_uses_existing_offline_figure_language_service(client):
     from tests.api.test_manuscript_figure_language import uploaded

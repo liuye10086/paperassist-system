@@ -145,7 +145,8 @@ def test_saved_report_source_validates_input_docx_and_enters_public_writing_bund
     foreign=client.post('/api/v1/projects',json=dict(name='Foreign',research_topic='Test',project_type='sci')).json()['id']
     assert post(client,f'/api/v1/projects/{foreign}/manuscripts/analysis-selection',request,'foreign').status_code in (404,409)
     assert post(client,path+'/analysis-selection',request|dict(report_id='missing'),'missing').status_code in (404,409)
-    file=reports.directory/(report['id']+'.docx');raw=file.read_bytes();file.write_bytes(raw+b'tamper')
+    from tests.integration.test_reports import stored_report_path
+    file=stored_report_path(report);raw=file.read_bytes();file.write_bytes(raw+b'tamper')
     assert post(client,path+'/analysis-selection',request,'tamper-docx').status_code==409
     file.write_bytes(raw)
     changed=json.loads(row['input_json']);changed['project']['name']='tampered'

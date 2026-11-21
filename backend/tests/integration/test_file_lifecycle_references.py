@@ -257,7 +257,10 @@ def test_full_artifact_lineage_and_independent_call_reservation_outbox_states(cl
     value=assessment(client,base)
     # Synthetic plot's tool charge remains unreconciled after publication.
     assert value['deletion_status']=='blocked'
-    assert [r['code'] for r in value['reasons']]==['internal_testing_retention','budget_reservations_held']
+    assert [r['code'] for r in value['reasons']] == [
+        'internal_testing_retention', 'budget_reservations_held', 'research_results_history_retained',
+    ]
+    assert value['counts']['statistics_report_context_versions'] == 1
     for key in ('analysis_runs','figures','explanations','reports','model_calls','budget_reservations','usage_events'):
         assert value['counts'][key]>0, (key,value)
     from tests.integration.test_project_ownership import account_client

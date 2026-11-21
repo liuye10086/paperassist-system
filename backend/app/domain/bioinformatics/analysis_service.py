@@ -357,7 +357,7 @@ class BioAnalysisService(BioAnalysisStore):
         from app.adapters.bio_figure_store import BioFigureStore
         BioFigureStore(self.assets).publish_defaults(db,task,version_id,prepared,progress=progress)
         db.execute('UPDATE bio_analysis_runs SET processed_dataset_version_id=%s WHERE id=%s AND processed_dataset_version_id IS NULL',(version_id,snapshot['run_id']))
-        if progress is not None:progress()
+        if progress is not None:progress(force=True)
         return finish(db,task,checkpoint,moment,'result_bio_processed_dataset_version_id',version_id)
 
 

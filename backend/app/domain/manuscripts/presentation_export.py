@@ -7,6 +7,7 @@ from app.domain.school_templates import bsu_gs501
 from .contracts import ExportRequest
 from .presentation import PresentationService
 
+# Read-only marker of pre-removal masked school exports; never written again.
 SCHOOL_IDENTITY_MASK = 'protected-fields-v1'
 
 
@@ -20,6 +21,7 @@ def resolve(service, db, version, request):
     selected = next((v for v in (base, peer) if v and v['snapshot_json']['output_language'] == language), None)
     if selected is None or view == 'zh-CN-en' and peer is None:
         raise StorageError('presentation_language_unavailable','输出配置缺少所选语言的固定稿件。',422)
+    # The key stays in every binding: historical exports compare it exactly.
     binding = dict(presentation_version_id=row['id'], config_sha256=digest(preview['config']),
                    presentation_sha256=row['snapshot_sha256'], base_version_id=base['id'], base_sha256=base['snapshot_sha256'],
                    peer_version_id=peer['id'] if peer else None, peer_sha256=peer['snapshot_sha256'] if peer else None,
@@ -57,27 +59,6 @@ def reviewed_school_submission_forms(db, context):
     return 'submission_forms_source_sha256' in school.get('plan', {})
 
 
-def customer_school_mask(service, db, context):
-    snapshot=context['selected']['snapshot_json']
-    if (context['binding']['review_mode']!='blind' or not snapshot.get('thesis_context')
-            or not (service.assets.customer or bsu_gs501.selected(snapshot))):
-        return None
-    _require_masked_language_source(db, context)
-    return SCHOOL_IDENTITY_MASK
-
-
-def _require_masked_language_source(db, context):
-    review=context['preview']['config'].get('language_review')
-    if not review:return
-    base=context['base']
-    source=db.execute('''SELECT t.input_snapshot->'presentation'->>'school_identity_mask' AS mask
-        FROM manuscript_exports e JOIN tasks t ON t.id=e.task_id
-        WHERE e.id=%s AND e.version_id=%s AND t.project_id=%s AND t.user_id=%s''',
-        (review['source_export_id'],base['id'],base['project_id'],base['user_id'])).fetchone()
-    if not source or source['mask']!=SCHOOL_IDENTITY_MASK:
-        raise StorageError('task_input_invalid','请先生成遮蔽固定身份字段的盲审 Word，再用于语言确认。',422)
-
-
 def seal(service, db, context):
     if not context['preview']['can_export']:
         raise StorageError('presentation_consistency_conflict','输出配置存在一致性冲突，请先核对。',422)
@@ -90,18 +71,16 @@ def seal(service, db, context):
             submission_forms=reviewed_school_submission_forms(db, context))['plan']
         if not plan['report']['can_export']:
             raise StorageError('task_input_invalid','所选语言的学校排版配置存在错误。',422)
-    sealed=dict(binding=context['binding'], render_school_plan=plan)
-    mask=customer_school_mask(service,db,context)
-    if mask is not None:sealed['school_identity_mask']=mask
-    return sealed
+    return dict(binding=context['binding'], render_school_plan=plan)
 
 
 def verify(service, db, version, task, *, current=False, progress=None):
     sealed = task['input_snapshot'].get('presentation')
     if sealed is None:return None
     binding = sealed['binding']
-    request = ExportRequest(presentation_version_id=binding['presentation_version_id'],
-                            language_view=binding['language_view'], review_mode=binding['review_mode'])
+    # Rebuild without validation: a stored binding may be a historical blind one.
+    request = ExportRequest.model_construct(presentation_version_id=binding['presentation_version_id'], school=None,
+                                            language_view=binding['language_view'], review_mode=binding['review_mode'])
     context = resolve(service, db, version, request)
     if context['binding'] != binding or not context['preview']['can_export']:raise source_conflict()
     selected = context['selected']; plan = sealed.get('render_school_plan')
@@ -110,10 +89,8 @@ def verify(service, db, version, task, *, current=False, progress=None):
     if plan is not None:
         from .school_export import validate_school_export
         validate_school_export(plan, selected['snapshot_json'], service.school_analysis(db, selected, current=current))
-    if 'school_identity_mask' in sealed:
-        if (sealed['school_identity_mask']!=SCHOOL_IDENTITY_MASK or binding['review_mode']!='blind'
-                or not selected['snapshot_json'].get('thesis_context')):raise source_conflict()
-        _require_masked_language_source(db, context)
+    if 'school_identity_mask' in sealed and (sealed['school_identity_mask']!=SCHOOL_IDENTITY_MASK or binding['review_mode']!='blind'
+            or not selected['snapshot_json'].get('thesis_context')):raise source_conflict()
     if context['peer'] is not None:
         producer = service.store.require_task(db, context['peer']['task_id'])
         if producer['status'] != 'succeeded':raise source_conflict()
@@ -128,7 +105,6 @@ def excluded_chapters(context):
     included = school.get('include_chapter_ids', [])
     if included:
         excluded.update(s['id'] for s in chapters if s['id'] not in included and s.get('purpose') != 'abstract')
-    if context['binding']['review_mode'] == 'blind':excluded.update(config['blind']['hidden_chapter_ids'])
     return excluded
 
 
@@ -157,25 +133,16 @@ def preview_view(context):
                 assembled.append((lookup[identity],'en'));used.add(identity)
         assembled.extend((p,'en') for key,p in lookup.items() if key not in used)
         items=assembled
-    allowed={e['term'] for e in config['blind']['exceptions']}
-    terms=sorted((t for t in config['blind']['identity_terms'] if t not in allowed), key=len, reverse=True)
-    replacement='XXX' if bsu_gs501.selected(selected) else '[已隐去]'
-    projected=[]
-    for p, language in items:
-        text=p['text']
-        if context['binding']['review_mode']=='blind':
-            for term in terms:text=text.replace(term,replacement)
-        projected.append(dict(id=p['id'],text=text,target_language=language))
+    projected=[dict(id=p['id'],text=p['text'],target_language=language) for p, language in items]
     return dict(binding=context['binding'],checks=context['preview']['checks'],quality=context['preview']['quality'],
-                preview_paragraphs=projected,blind_rules=deepcopy(config['blind']),
-                notice='固定文本预览；实际 DOCX 身份及图像检查以导出回执为准。')
+                preview_paragraphs=projected,notice='固定文本预览；实际 Word 图像与格式以导出结果为准。')
 
 
 def public_view(context, metadata=None):
     saved=(metadata or {}).get('presentation')
     if saved is not None and saved.get('binding')!=context['binding']:raise source_conflict()
     return saved or dict(binding=context['binding'],checks=context['preview']['checks'],quality=context['preview']['quality'],
-                         blind=None,language_inventory=[])
+                         language_inventory=[])
 
 
 def confirmed_metadata(context, prior):
@@ -194,46 +161,6 @@ def confirmed_metadata(context, prior):
         item['confirmation']=dict(status='confirmed_for_exact_output',source_export_id=review['source_export_id'],source_sha256=review['source_sha256'],
             content_sha256=decision['content_sha256'],decision=decision['decision'],reason=decision['reason'],exceptions=deepcopy(decision['exceptions']))
     return result
-
-
-def blind_export_rules(context, plan):
-    config = context['preview']['config']
-    rules = config['blind']
-    if plan is None:
-        return rules
-    snapshot = context['selected']['snapshot_json']
-    if bsu_gs501.selected(snapshot):
-        return bsu_gs501.blind_terms(plan, rules, authors=config['authors'])
-    from app.domain.school_templates.front_matter import blind_rules_with_identities
-
-    options = plan['options']
-    values = [author['name'] for author in config['authors']]
-    front = plan.get('front_matter')
-    if front is None:
-        profile = snapshot['thesis_context']['profile']
-        manual = options.get('manual_fields', {})
-        values.extend(manual.get(key) or profile.get(key, '') for key in ('author', 'student_id', 'supervisor'))
-    else:
-        fields = options.get('field_values', {})
-        values.extend(fields.get(field['id'], '') for field in front['fields'] if field['kind'] in ('identity', 'signature'))
-    return blind_rules_with_identities(rules, values)
-
-
-def require_removed_school_identities(report):
-    if report['known_identity_check'] != 'passed':
-        raise StorageError('school_blind_identity_remaining', '盲审稿仍含已知身份信息，请核对后重新导出。', 422)
-
-
-def verify_school_reviewed_output(context, plan, content):
-    """Check reused school Word bytes against the identities known for this export."""
-    if context['binding']['review_mode'] != 'blind' or plan is None:
-        return
-    from app.adapters.manuscript_presentation_docx import inspect_docx
-
-    report = inspect_docx(content, blind_export_rules(context, plan))
-    if bsu_gs501.selected(context['selected']['snapshot_json']) and report['known_identity_check'] != 'passed':
-        raise StorageError('gs501_reviewed_output_stale', '已确认的盲评稿仍含已知身份信息，请重新生成盲评 Word 并确认输出语言。', 422)
-    require_removed_school_identities(report)
 
 
 def actual_checks(context, inventory):

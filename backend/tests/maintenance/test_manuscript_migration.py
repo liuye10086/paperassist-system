@@ -1,4 +1,5 @@
 """Additive migration retains historical rows and refuses destructive downgrade."""
+from tests.helpers.historical_migration import assert_saved_history_blocks
 import pytest
 from alembic import command
 from sqlalchemy.exc import SQLAlchemyError
@@ -9,19 +10,23 @@ from tests.api.test_literature_evidence import post
 from tests.maintenance.test_literature_evidence_migration import fingerprints
 
 
-def test_manuscript_upgrade_preserves_old_history_and_indexes(client):
-    setup(client)
+@pytest.mark.initial_revision('0034_literature_pmc')
+def test_manuscript_upgrade_preserves_old_history_and_indexes():
+    from tests.helpers.document_migration import seed_workbook
     cfg=alembic_config()
     with migration_connection(write=True) as db:
         cfg.attributes.update(connection=db.raw_connection,database_config=get_migration_database_config())
-        command.downgrade(cfg,'0034_literature_pmc')
+        original, content = seed_workbook(db)
+        db.execute("UPDATE files SET uploader_id='u', object_key='files/f.xlsx' WHERE id='f'")
         tables=[r['tablename'] for r in db.execute('SELECT tablename FROM pg_tables WHERE schemaname=current_schema()') if r['tablename']!='alembic_version']
         before=fingerprints(db,tables)
         indexes={r['indexname']:r['indexdef'] for r in db.execute('SELECT indexname,indexdef FROM pg_indexes WHERE schemaname=current_schema()')}
-        command.upgrade(cfg,'head')
+        command.upgrade(cfg,'0035_manuscripts')
         assert fingerprints(db,tables)==before
         after={r['indexname']:r['indexdef'] for r in db.execute('SELECT indexname,indexdef FROM pg_indexes WHERE schemaname=current_schema()')}
         assert all(after.get(k)==v for k,v in indexes.items())
+        command.upgrade(cfg,'head')
+    assert original.read_bytes() == content
     with database_connection() as db:
         verify_runtime_permissions(db.raw_connection,db.config)
         from app.maintenance.database_audit import audit_database
@@ -32,11 +37,7 @@ def test_manuscript_upgrade_preserves_old_history_and_indexes(client):
 def test_manuscript_history_blocks_downgrade_and_runtime_mutation(client):
     path,_,_=setup(client)
     assert post(client,path,body(),'first').status_code==201
-    cfg=alembic_config()
-    with pytest.raises(RuntimeError,match='refusing destructive downgrade'):
-        with migration_connection(write=True) as db:
-            cfg.attributes.update(connection=db.raw_connection,database_config=get_migration_database_config())
-            command.downgrade(cfg,'0034_literature_pmc')
+    assert_saved_history_blocks('0035_manuscripts', 'Manuscript history exists; refusing destructive downgrade.')
     for table in ('manuscript_versions','manuscript_sources','manuscript_citations'):
         with pytest.raises(SQLAlchemyError):
             with database_connection(write=True) as db: db.execute('DELETE FROM '+table)

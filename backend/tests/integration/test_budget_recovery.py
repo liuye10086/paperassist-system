@@ -19,7 +19,7 @@ from tests.api.test_external_processing import confirmation
 from tests.integration.test_explanation_execution import SyntheticProvider
 from tests.integration.test_explanations import writer  # noqa: F401
 from tests.integration.test_external_execution import ConfirmedPlotProvider
-from tests.integration.test_reports import export, report_ready
+from tests.integration.test_reports import export, report_ready, stored_report_path
 
 
 @pytest.fixture
@@ -47,7 +47,7 @@ def historical_artifacts(client, cloud, writer, monkeypatch):
         word = client.get(report_url + '/' + report['id'] + '/download')
         assert png.status_code == word.status_code == 200
         assert png.content == (data / 'figures' / (figure['id'] + '.png')).read_bytes()
-        assert word.content == (data / 'reports' / (report['id'] + '.docx')).read_bytes()
+        assert word.content == stored_report_path(report).read_bytes()
         assert hashlib.sha256(png.content).hexdigest() == figure['sha256']
         assert hashlib.sha256(word.content).hexdigest() == report['sha256']
         assert cloud.calls == writer.calls == []

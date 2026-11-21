@@ -13,6 +13,11 @@ it.each([['manuscript_writing','返回稿件写作','writing'],['manuscript_draf
  const fetcher=vi.fn(async(_url:string,_init?:RequestInit)=>Response.json(history));vi.stubGlobal('fetch',fetcher)
  render(<ManuscriptTaskLinks workspace={workspace(kind)} active/>);expect((await screen.findByRole('link',{name:label})).getAttribute('href')).toBe(`#project=p1&section=manuscripts&view=${view}&manuscript=m1&revision=1`);expect(fetcher.mock.calls.every(([,init])=>!init||!init.method||init.method==='GET')).toBe(true)
 })
+it.each([['manuscript_writing','writing'],['manuscript_draft','body']] as const)('keeps the customer on the original manuscript for a %s task',async(kind,view)=>{
+ vi.stubGlobal('fetch',vi.fn(async()=>Response.json(history)))
+ render(<ManuscriptTaskLinks workspace={workspace(kind)} customerView active/>)
+ expect((await screen.findByRole('link')).getAttribute('href')).toBe(`#customer-project=p1&step=manuscripts&manuscript=m1&revision=1&view=${view}`)
+})
 it('does not substitute the current version when the association is missing',async()=>{vi.stubGlobal('fetch',vi.fn(async()=>Response.json({items:[]})));render(<ManuscriptTaskLinks workspace={workspace('manuscript_writing')} active/>);expect(await screen.findByText(/无法唯一定位/)).toBeTruthy();expect(screen.queryByRole('link')).toBeNull()})
 it('stays on the task when history cannot be read',async()=>{vi.stubGlobal('fetch',vi.fn(async()=>{throw new Error('offline')}));render(<ManuscriptTaskLinks workspace={workspace('manuscript_writing')} active/>);expect(await screen.findByText(/稿件历史读取失败/)).toBeTruthy();expect(screen.queryByRole('link')).toBeNull()})
 it('uses the task artifact for a fixed Word version without fetching or generating',async()=>{const fetcher=vi.fn();vi.stubGlobal('fetch',fetcher);render(<ManuscriptTaskLinks workspace={workspace('manuscript_docx',{id:'m1',version_id:'v1',revision:1,download_url:null})} active/>);expect((await screen.findByRole('link',{name:'查看此版本的 Word'})).getAttribute('href')).toBe('#project=p1&section=manuscripts&view=exports&manuscript=m1&revision=1');expect(fetcher).not.toHaveBeenCalled()})

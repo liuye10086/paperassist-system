@@ -124,7 +124,7 @@ def test_customer_revised_school_keeps_template_front_matter_without_engineering
     assert '4 Observed findings' in body
     assert '学校论文工程稿' not in body
     assert revised_manuscript_filename(snapshot) == 'Revised thesis.docx'
-    assert revised_manuscript_filename(dict(snapshot, output_language='zh-CN'), blind=True) == '毕业论文盲审修订稿.docx'
+    assert revised_manuscript_filename(dict(snapshot, output_language='zh-CN')) == '毕业论文修订稿.docx'
     assert snapshot == original
 
 

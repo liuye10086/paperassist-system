@@ -243,13 +243,11 @@ def _full_body(document, snapshot, sections, images, en, excluded_chapter_ids=fr
         document.add_paragraph(snapshot['acknowledgements'])
 
 
-def revised_manuscript_filename(snapshot, *, blind=False):
+def revised_manuscript_filename(snapshot):
     thesis = bool(snapshot.get('thesis_context'))
     if snapshot['output_language'] == 'en':
-        title = 'Revised thesis' if thesis else 'Revised manuscript'
-        return title + (' - anonymized' if blind else '') + '.docx'
-    title = '毕业论文' if thesis else 'SCI论文'
-    return title + ('盲审' if blind else '') + '修订稿.docx'
+        return ('Revised thesis' if thesis else 'Revised manuscript') + '.docx'
+    return ('毕业论文' if thesis else 'SCI论文') + '修订稿.docx'
 
 
 def _reader_material_label(source, en):
@@ -318,7 +316,7 @@ def _append_customer_review(document, snapshot, issues):
         append(locations.get(item['location']), item['message'])
 
 
-def build_manuscript_docx(snapshot, images, *, school_plan=None, source_map=None, excluded_chapter_ids=frozenset(), mask_school_identity=False,
+def build_manuscript_docx(snapshot, images, *, school_plan=None, source_map=None, excluded_chapter_ids=frozenset(),
                           customer_revision=False, customer_view=False, renderer_version=None, school_template=None):
     """Render only the frozen snapshot, retaining unresolved facts and original images."""
     from app.domain.journals.display import legacy_revision_without_journal_display
@@ -345,7 +343,7 @@ def build_manuscript_docx(snapshot, images, *, school_plan=None, source_map=None
         if school_plan is None:raise StorageError('school_export_input_invalid','学校导出缺少固定排版配置。',422)
         from .school_docx import build_school_docx
         return build_school_docx(snapshot,images,school_plan,source_map=source_map,excluded_chapter_ids=excluded_chapter_ids,
-                                 mask_identity=mask_school_identity,customer_revision=customer_revision,school_template=school_template)
+                                 customer_revision=customer_revision,school_template=school_template)
     customer_view = customer_view or customer_revision
     document = _document()
     frontiers_layout = {}

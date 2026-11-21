@@ -39,6 +39,6 @@ def test_v3_rejects_crossed_roles_or_unapproved_decisions(change):
     with pytest.raises(ValueError):validate_draft(value,request())
 
 
-@pytest.mark.parametrize('version',[True,3.0,5])
+@pytest.mark.parametrize('version',[True,3.0,6])
 def test_recommendation_rejects_unknown_or_noninteger_version(version):
     with pytest.raises(ValueError):parse_request({**request(),'schema_version':version})

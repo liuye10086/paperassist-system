@@ -8,6 +8,14 @@ import pytest
 from docx import Document
 
 
+def worker_material(result, groups, *, external):
+    from app.domain.comparison_material import build_material
+    from app.domain.statistics_execution.verification import verification_scope
+
+    with verification_scope():
+        return build_material(result, groups, external=external)
+
+
 def comparison_result(language='en', design='independent', method=None, posthoc='none'):
     method = method or {'independent':'welch_t','paired':'paired_t','multiple':'welch_anova'}[design]
     groups = [[1., 3., 5.], [2., 5., 8.]]
@@ -84,10 +92,16 @@ def test_unknown_result_cannot_fall_back_to_descriptive_artifact():
 
 @pytest.mark.parametrize('design',['independent','paired','multiple'])
 def test_comparison_cloud_plot_only_receives_reviewed_numeric_material(design):
-    from app.domain.comparison_material import build_material
     value,groups=comparison_result(design=design)
     external=confirmation(value)
-    payload,expected=build_material(value,groups,external=external)
+    payload,expected=worker_material(value,groups,external=external)
+    from app.core.exceptions import StorageError
+    from app.domain.comparison_material import build_material
+
+    with pytest.raises(StorageError) as missing:
+        build_material(value, groups, external=external)
+    assert missing.value.code == 'task_source_conflict'
+    assert build_material(value, groups, external=external, saved_expected=expected) == (payload, expected)
     assert payload['schema_version']==3 and expected['statistics']['sample_sizes']==[3]*len(groups)
     assert 'PRIVATE' not in repr(payload)
     assert not any(key in payload for key in ('statistics','analysis_run_id','source_sha256','selection','row_audit'))
@@ -185,11 +199,10 @@ def test_comparison_word_uses_correct_assumptions_local_family_and_original_png(
 
 @pytest.mark.parametrize('design',['independent','paired'])
 def test_v3_plot_receipt_accepts_figure_file_and_verifies_independent_counts(design):
-    from app.domain.comparison_material import build_material
     from app.domain.plot_response import parse_plot_response,download_plot,PlotVerificationError
     from tests.adapters.test_analysis_plot_response import png,parsed
     value,groups=comparison_result(design=design)
-    _,expected=build_material(value,groups,external=confirmation(value))
+    _,expected=worker_material(value,groups,external=confirmation(value))
     response={'id':'resp_test','status':'completed','output':[
         {'type':'code_interpreter_call','container_id':'cntr_test','status':'completed'},
         {'type':'message','content':[{'annotations':[{'type':'container_file_citation','container_id':'cntr_test','filename':name,'file_id':file} for name,file in parsed()['files'].items()]}]}]}
@@ -231,8 +244,7 @@ def test_v3_admission_keeps_amounts_and_checks_material_before_provider():
         'input_micro_usd_per_million':1,'cached_input_micro_usd_per_million':1,'output_micro_usd_per_million':1,'cache_write_micro_usd_per_million':1}},
         'input_token_allowance':100000,'task_limit_micro_usd':1000000,'tool_reserve_micro_usd':1000,'tool_reserve_version':'test'}
     value,groups=comparison_result()
-    from app.domain.comparison_material import build_material
-    payload,_=build_material(value,groups,external=confirmation(value))
+    payload,_=worker_material(value,groups,external=confirmation(value))
     derived=plot_policy.derive_execution_policy(plot,payload)
     assert derived['policy']['prompt_version']=='openai_comparison_plot_v3'
     assert derived['policy']['price']==plot['policy']['price'] and derived['tool_reserve_micro_usd']==plot['tool_reserve_micro_usd']
@@ -246,25 +258,23 @@ def test_v3_admission_keeps_amounts_and_checks_material_before_provider():
 
 
 def test_comparison_material_rejects_changed_group_values_even_with_same_n():
-    from app.domain.comparison_material import build_material
     from app.core.exceptions import StorageError
     value,groups=comparison_result()
     groups[0][0]=100.
-    with pytest.raises(StorageError) as error: build_material(value,groups,external=confirmation(value))
+    with pytest.raises(StorageError) as error: worker_material(value,groups,external=confirmation(value))
     assert error.value.code=='result_mismatch'
 
 
 def test_v3_report_metadata_and_source_validation_use_frozen_comparison_contract():
     from app.adapters.report_store import ReportStore,digest
     from app.domain.artifact_contracts import figure_metadata,explanation_metadata
-    from app.domain.comparison_material import build_material
     from app.domain.external_material import explanation_material
     from app.domain.explanation_content import render_explanation
     from app.domain.reports import validate_sources
     from app.core.exceptions import StorageError
     value,groups=comparison_result()
     external=confirmation(value)
-    _,expected=build_material(value,groups,external=external)
+    _,expected=worker_material(value,groups,external=external)
     figure={**figure_metadata(value,expected,{'model':'synthetic'},external=external),'id':'figure','sha256':'c'*64}
     explanation_external=confirmation(value,'explanation',figure)
     payload,_=explanation_material(value,figure,explanation_external)
@@ -300,7 +310,6 @@ def test_malformed_cloud_evidence_never_retains_raw_arrays_in_differences():
 
 def test_cloud_material_accepts_platform_summary_roundoff_and_retains_frozen_facts():
     import math
-    from app.domain.comparison_material import build_material
     from app.domain.comparison.service import statistics_match
     from app.core.exceptions import StorageError
     value,groups=comparison_result()
@@ -308,11 +317,11 @@ def test_cloud_material_accepts_platform_summary_roundoff_and_retains_frozen_fac
     value['groups'][0]['statistics']['std']=math.nextafter(value['groups'][0]['statistics']['std'],math.inf)
     assert statistics_match(value['groups'],original,summaries=True)
     frozen=deepcopy(value)
-    _,expected=build_material(value,groups,external=confirmation(value))
+    _,expected=worker_material(value,groups,external=confirmation(value))
     assert expected['groups'][0]['statistics']['std']==value['groups'][0]['statistics']['std']
     assert value==frozen
     for _ in range(64): value['groups'][0]['statistics']['std']=math.nextafter(value['groups'][0]['statistics']['std'],math.inf)
-    with pytest.raises(StorageError): build_material(value,groups,external=confirmation(value))
+    with pytest.raises(StorageError): worker_material(value,groups,external=confirmation(value))
 
 
 @pytest.mark.parametrize('language',['zh-CN','en'])

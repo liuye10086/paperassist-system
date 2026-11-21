@@ -238,30 +238,39 @@ def test_change_revalidates_session_after_middleware(monkeypatch):
         assert service.hasher.verify(rows("users")[0]["password_hash"], PASSWORD)
 
 
+@pytest.mark.initial_revision('0002_auth_ownership')
 def test_migration_preserves_accounts_sessions_projects_and_matches_metadata(postgres_schema, postgres_migration_config):
     from alembic import command
     from sqlalchemy import inspect
     from app.db.database import alembic_config, migrate_database, SCHEMA_HEAD
     from app.db.schema import metadata
-    account()
-    service.authenticate(EMAIL, PASSWORD, "test")
+    from tests.db.test_task_schema import seed_owner
     with migration_connection(write=True) as db:
-        db.execute("INSERT INTO projects (id,name,research_topic,project_type,created_at,updated_at,owner_id) SELECT 'legacy','name','topic','sci','now','now',id FROM users")
+        seed_owner(db)
+        db.execute('''INSERT INTO sessions(token_hash,user_id,csrf_token,created_at,last_seen_at,expires_at)
+            VALUES (%s,'u','synthetic-session-csrf',1,2,3)''', (service.digest('synthetic-session'),))
         config = alembic_config()
         config.attributes["connection"] = db.raw_connection
         config.attributes["database_config"] = postgres_migration_config
-        command.downgrade(config, "0002_auth_ownership")
         originals = {table: [dict(row) for row in db.execute(f"SELECT * FROM {table}")] for table in ("users", "sessions", "projects")}
+        command.upgrade(config, '0003_password_security')
+        for table, original in originals.items():
+            assert [dict(row) for row in db.execute(f'SELECT * FROM {table}')] == original
     migrate_database(postgres_migration_config)
-    assert SCHEMA_HEAD == "0040_manuscript_writing_live"
     with database_connection() as db:
+        assert db.execute('SELECT version_num FROM alembic_version').fetchone()['version_num'] == SCHEMA_HEAD
         for table, original in originals.items():
             actual = [dict(row) for row in db.execute(f"SELECT * FROM {table}")]
+            assert len(actual) == len(original) == 1
             for row in actual:
                 if table in ("users", "projects"):
                     column = "ui_language" if table == "users" else "default_output_language"
                     assert row.pop(column) == "zh-CN"
-            assert actual == original
+            expected = original[0].copy()
+            if table == 'users':
+                assert expected['role'] == 'user' and actual[0]['review_status'] == 'approved'
+                expected['role'] = 'analyst'
+            assert {key: actual[0][key] for key in expected} == expected
         inspector = inspect(db.raw_connection)
         assert set(inspector.get_table_names()) == set(metadata.tables) | {"alembic_version"}
         for table in ("session_revocations", "password_recovery_codes", "auth_password_attempts"):

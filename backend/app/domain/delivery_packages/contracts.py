@@ -41,6 +41,7 @@ class SnapshotWrite(Strict):
     opinion_round:str=Field(min_length=1,max_length=200)
     opinion_round_id:str|None=None
     opinion_round_event_id:str|None=None
+    # 'blind' is only accepted to answer with blind_review_removed.
     mode:Literal['complete','blind']='complete'
     required_formats:list[str]=Field(default_factory=list,max_length=30)
     quality_items:list[str]=Field(default_factory=list,max_length=100)

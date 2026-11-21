@@ -1,0 +1,252 @@
+{
+  "rules": [
+    {
+      "id": "section-1.width_cm",
+      "category": "page",
+      "label": "第1节 页面宽度（cm）",
+      "value": 21.0,
+      "source": {
+        "part": "word/document.xml",
+        "path": "/w:document/w:body/w:p[3]/w:pPr/w:sectPr/w:pgSz",
+        "text": "w=11906 twips"
+      }
+    },
+    {
+      "id": "section-1.margin_top_cm",
+      "category": "page",
+      "label": "第1节 上边距（cm）",
+      "value": 2.5,
+      "source": {
+        "part": "word/document.xml",
+        "path": "/w:document/w:body/w:p[3]/w:pPr/w:sectPr/w:pgMar",
+        "text": "top=1417 twips"
+      }
+    },
+    {
+      "id": "abstract_heading_zh.line_spacing",
+      "category": "abstract_heading_zh",
+      "label": "中文摘要标题 行距原始值",
+      "value": "276",
+      "source": {
+        "part": "word/styles.xml",
+        "path": "/w:styles/w:docDefaults",
+        "text": "文档默认属性：pPr.spacing.line"
+      },
+      "origin": "document_default",
+      "example_source": {
+        "part": "word/document.xml",
+        "path": "/w:document/w:body/w:p[7]",
+        "text": "摘要"
+      }
+    },
+    {
+      "id": "abstract_heading_zh.line_rule",
+      "category": "abstract_heading_zh",
+      "label": "中文摘要标题 行距方式",
+      "value": "auto",
+      "source": {
+        "part": "word/styles.xml",
+        "path": "/w:styles/w:docDefaults",
+        "text": "文档默认属性：pPr.spacing.lineRule"
+      },
+      "origin": "document_default",
+      "example_source": {
+        "part": "word/document.xml",
+        "path": "/w:document/w:body/w:p[7]",
+        "text": "摘要"
+      }
+    },
+    {
+      "id": "heading1.font_east_asia",
+      "category": "heading1",
+      "label": "一级标题 中文字体",
+      "value": "宋体",
+      "source": {
+        "part": "word/styles.xml",
+        "path": "/w:styles/w:style[6]",
+        "text": "样式 heading 1：rPr.rFonts.eastAsia=宋体"
+      },
+      "origin": "style_inheritance",
+      "example_source": {
+        "part": "word/document.xml",
+        "path": "/w:document/w:body/w:p[14]",
+        "text": "1 绪论"
+      }
+    },
+    {
+      "id": "heading1.font_size_pt",
+      "category": "heading1",
+      "label": "一级标题 字号（pt）",
+      "value": 16.0,
+      "source": {
+        "part": "word/styles.xml",
+        "path": "/w:styles/w:style[6]",
+        "text": "样式 heading 1：rPr.sz.val=32"
+      },
+      "origin": "style_inheritance",
+      "example_source": {
+        "part": "word/document.xml",
+        "path": "/w:document/w:body/w:p[14]",
+        "text": "1 绪论"
+      }
+    },
+    {
+      "id": "body.font_size_pt",
+      "category": "body",
+      "label": "正文示例 字号（pt）",
+      "value": 14.0,
+      "source": {
+        "part": "word/document.xml",
+        "path": "/w:document/w:body/w:p[15]/w:r/w:rPr",
+        "text": "rPr.sz.val；示例：合成模板正文段落保留本段的属性来源，供测试人员根据已确认的样式核对生成文档。"
+      },
+      "origin": "direct",
+      "example_source": {
+        "part": "word/document.xml",
+        "path": "/w:document/w:body/w:p[15]",
+        "text": "合成模板正文段落保留本段的属性来源，供测试人员根据已确认的样式核对生成文档。"
+      }
+    }
+  ],
+  "conflicts": [
+    {
+      "id": "conflict-1",
+      "rule_id": "section-1.margin_top_cm",
+      "label": "第1节 上边距（cm）",
+      "message": "实际属性与文字规范或多处文字表述不同，需确认适用要求。",
+      "options": [
+        {
+          "id": "openxml",
+          "value": 2.5,
+          "source": {
+            "part": "word/document.xml",
+            "path": "/w:document/w:body/w:p[3]/w:pPr/w:sectPr/w:pgMar",
+            "text": "top=1417 twips"
+          }
+        },
+        {
+          "id": "text-2",
+          "value": 3.0,
+          "source": {
+            "text": "上边距 3 厘米。原说明中的单位写作 twips。",
+            "part": "supplement_text",
+            "path": "supplement_text"
+          }
+        }
+      ]
+    }
+  ],
+  "sections": [
+    {
+      "id": "section-1",
+      "page": {
+        "width_cm": 21.0,
+        "height_cm": 29.7,
+        "margin_top_cm": 2.5,
+        "margin_bottom_cm": 2.5,
+        "margin_left_cm": 2.5,
+        "margin_right_cm": 2.5
+      },
+      "source": {
+        "part": "word/document.xml",
+        "path": "/w:document/w:body/w:p[3]/w:pPr/w:sectPr",
+        "text": "分节属性"
+      },
+      "different_first_page": false,
+      "different_odd_even_pages": false,
+      "page_number": {
+        "format": null,
+        "start": null,
+        "mode": "continue_or_default"
+      },
+      "break_type": null,
+      "headers": [
+        {
+          "type": "default",
+          "part": null,
+          "text": "",
+          "fields": [],
+          "linked_to_previous": false,
+          "source": {
+            "part": "word/document.xml",
+            "path": "/w:document/w:body/w:p[3]/w:pPr/w:sectPr",
+            "text": "headerReference:default"
+          }
+        },
+        {
+          "type": "first",
+          "part": null,
+          "text": "",
+          "fields": [],
+          "linked_to_previous": false,
+          "source": {
+            "part": "word/document.xml",
+            "path": "/w:document/w:body/w:p[3]/w:pPr/w:sectPr",
+            "text": "headerReference:first"
+          }
+        },
+        {
+          "type": "even",
+          "part": null,
+          "text": "",
+          "fields": [],
+          "linked_to_previous": false,
+          "source": {
+            "part": "word/document.xml",
+            "path": "/w:document/w:body/w:p[3]/w:pPr/w:sectPr",
+            "text": "headerReference:even"
+          }
+        }
+      ],
+      "footers": [
+        {
+          "type": "default",
+          "part": null,
+          "text": "",
+          "fields": [],
+          "linked_to_previous": false,
+          "source": {
+            "part": "word/document.xml",
+            "path": "/w:document/w:body/w:p[3]/w:pPr/w:sectPr",
+            "text": "footerReference:default"
+          }
+        },
+        {
+          "type": "first",
+          "part": null,
+          "text": "",
+          "fields": [],
+          "linked_to_previous": false,
+          "source": {
+            "part": "word/document.xml",
+            "path": "/w:document/w:body/w:p[3]/w:pPr/w:sectPr",
+            "text": "footerReference:first"
+          }
+        },
+        {
+          "type": "even",
+          "part": null,
+          "text": "",
+          "fields": [],
+          "linked_to_previous": false,
+          "source": {
+            "part": "word/document.xml",
+            "path": "/w:document/w:body/w:p[3]/w:pPr/w:sectPr",
+            "text": "footerReference:even"
+          }
+        }
+      ]
+    }
+  ],
+  "notes": [
+    {
+      "id": "supplement:text",
+      "text": "上边距 3 厘米。原说明中的单位写作 twips。",
+      "source": {
+        "text": "上边距 3 厘米。原说明中的单位写作 twips。",
+        "part": "supplement_text",
+        "path": "supplement_text"
+      }
+    }
+  ]
+}

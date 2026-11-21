@@ -1,5 +1,6 @@
 from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
+from app.core.exceptions import StorageError
 
 WORKFLOW='manuscript_fact_draft_v1'
 METHOD_FIELDS=('research_question','purpose','hypothesis','study_design','population','samples','groups','materials','procedures','conditions','statistical_methods','ethics')
@@ -174,10 +175,23 @@ class ExportRequest(Strict):
     school:SchoolExportOptions|None=None
     presentation_version_id:str|None=Field(default=None,min_length=1,max_length=100)
     language_view:Literal['zh-CN','en','zh-CN-en']|None=None
+    # Historical exports may carry 'blind'; new requests are rejected by
+    # require_identified() with blind_review_removed, never by this Literal.
     review_mode:Literal['identified','blind']='identified'
 
     @model_validator(mode='after')
     def presentation_selection(self):
-        if not self.presentation_version_id and (self.language_view is not None or self.review_mode!='identified'):
-            raise ValueError('A language or blind view requires a saved presentation version')
+        if not self.presentation_version_id and self.language_view is not None:
+            raise ValueError('A language view requires a saved presentation version')
         return self
+
+
+BLIND_REVIEW_REMOVED='盲审已移出产品范围，请交第三方处理。'
+
+
+def blind_review_removed():
+    return StorageError('blind_review_removed',BLIND_REVIEW_REMOVED,422)
+
+
+def require_identified(review_mode):
+    if review_mode!='identified':raise blind_review_removed()

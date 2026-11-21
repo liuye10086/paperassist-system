@@ -192,7 +192,7 @@ def rewrite_pending(client,root):
     auth=post(client,root.split('/manuscripts/')[0]+'/writing-authorizations',dict(schema_version=2,confirmed=True,tasks=tasks),'rewrite-authorize').json()
     request=request_v2(bundle,auth);request['logical_task_id']='rewrite-0'
     response=post(client,root+'/writing-requests',request,'rewrite-request');assert response.status_code==202,response.text
-    task=response.json()['task'];ModelUsageService(task_owner(client)).set_budget('task',task['id'],5000000,0)
+    task=response.json()['task'];ModelUsageService(task_owner(client)).set_budget('task',task['id'],5000000,1)
     class RewriteFixture(LiveFixture):
         def receipt(self):
             value=super().receipt();output=json.loads(value['response']['output'][0]['content'][0]['text'])

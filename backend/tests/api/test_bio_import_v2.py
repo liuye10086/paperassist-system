@@ -1,6 +1,6 @@
 """Versioned import creation preserves v1 and freezes the qualified runtime."""
 from tests.api.test_projects import client
-from tests.integration.test_bio_import_publication import create_import
+from tests.integration.test_bio_import_publication import create_import, run
 import pytest
 
 
@@ -33,7 +33,8 @@ def test_explicit_v2_retry_preserves_its_frozen_input_version(client, monkeypatc
     from app.core.exceptions import StorageError
     monkeypatch.setattr(analysis_settings, 'runtime_identity', lambda: dict(available=True, blockers=[],
         engine_version='visium_explore_v1.0.0', environment_digest='a'*64, code_digest='b'*64))
-    base, _, file_id, _ = create_import(client)
+    base, legacy, file_id, _ = create_import(client)
+    assert run(legacy['task'])['status'] == 'waiting_confirmation'
     created = client.post(base+'/bio-imports', headers={'Idempotency-Key':'v2-retry-fixture'}, json=dict(
         file_ids=[file_id], assay='visium', name='frozen v2 retry', expected_dataset_revision=0,
         matrix_representation='mtx', compare_alternate=False))

@@ -1,4 +1,5 @@
 """Additive PDF migration and runtime source/lineage constraints."""
+from tests.helpers.historical_migration import historical_workflow, assert_saved_history_blocks
 import pytest
 from alembic import command
 from sqlalchemy.exc import SQLAlchemyError
@@ -9,15 +10,13 @@ from app.db.database import alembic_config,get_migration_database_config,migrati
 
 
 def test_pdf_migration_preserves_existing_rows_columns_and_indexes(client):
-    successful_docx(client)
-    cfg=alembic_config()
-    with migration_connection(write=True) as db:
-        cfg.attributes.update(connection=db.raw_connection,database_config=get_migration_database_config())
-        command.downgrade(cfg,'0035_manuscripts')
+    _, saved = successful_docx(client)
+    with historical_workflow(get_migration_database_config(), '0035_manuscripts') as (db, cfg):
+        assert db.execute("SELECT 1 FROM manuscript_exports WHERE id=%s", (saved['id'],)).fetchone()
         tables=[r['tablename'] for r in db.execute('SELECT tablename FROM pg_tables WHERE schemaname=current_schema()') if r['tablename']!='alembic_version']
         before=fingerprints(db,tables)
         indexes={r['indexname']:r['indexdef'] for r in db.execute('SELECT indexname,indexdef FROM pg_indexes WHERE schemaname=current_schema()')}
-        command.upgrade(cfg,'head')
+        command.upgrade(cfg,'0036_pdf_exports')
         assert fingerprints(db,tables)==before
         after={r['indexname']:r['indexdef'] for r in db.execute('SELECT indexname,indexdef FROM pg_indexes WHERE schemaname=current_schema()')}
         assert all(after.get(k)==v for k,v in indexes.items())
@@ -34,11 +33,7 @@ def test_pdf_fk_and_typed_source_and_parent_constraints_and_downgrade_guard(clie
     for clause,args in (("source_kind='report'",()),("manuscript_export_id='missing',source_id='missing'",()),("parent_export_id='missing'",())):
         with pytest.raises(SQLAlchemyError):
             with database_connection(write=True) as db: db.execute('UPDATE pdf_exports SET '+clause+' WHERE id=%s',(*args,saved['id']))
-    cfg=alembic_config()
-    with pytest.raises(RuntimeError,match='refusing destructive downgrade'):
-        with migration_connection(write=True) as db:
-            cfg.attributes.update(connection=db.raw_connection,database_config=get_migration_database_config())
-            command.downgrade(cfg,'0035_manuscripts')
+    assert_saved_history_blocks('0036_pdf_exports', 'PDF history exists; refusing destructive downgrade.')
 
 
 def test_audit_rejects_rehashed_task_binding_drift(client):

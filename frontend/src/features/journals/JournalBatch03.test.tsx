@@ -150,6 +150,27 @@ it('previews the selected old input and adopts only selected supported actions w
  expect(posts.every(p=>!p.url.includes('submission-events'))).toBe(true)
  clearApiSession();await waitFor(()=>expect(screen.queryByRole('heading',{name:'指南适配与新版本'})).toBeNull())
 })
+it.each([false,true])('guards replacing a preview only when it has actions (actions: %s)',async hasActions=>{
+ const confirm=vi.spyOn(window,'confirm').mockReturnValue(false)
+ let hasDraft: (()=>boolean)|undefined
+ try {
+  render(<JournalAdaptationPanel projectId="p1" active checks={[check] as never} targets={[target] as never}
+   manuscripts={[{id:'m1',title:'New',versions:[{id:'v1',revision:1,status:'published'}]}] as never} items={[]} busy={false}
+   onPreview={async()=>({...preview,actions:hasActions?preview.actions:[],can_adopt:hasActions}) as never}
+   onAdopt={vi.fn()} onRetry={vi.fn()} onUnavailable={vi.fn()}
+   registerLeaveGuard={(_guard,dirty)=>{hasDraft=dirty;return ()=>{hasDraft=undefined}}}/>)
+  const selector=screen.getByLabelText<HTMLSelectElement>('适配成功检查')
+  fireEvent.change(selector,{target:{value:'c1'}})
+  fireEvent.click(screen.getByRole('button',{name:'预览固定稿件适配'}))
+  await screen.findByRole('region',{name:'七部分差异预览'})
+  expect(hasDraft?.()).toBe(hasActions)
+  fireEvent.change(selector,{target:{value:''}})
+  expect(confirm).toHaveBeenCalledTimes(hasActions?1:0)
+  expect(selector.value).toBe(hasActions?'c1':'')
+ } finally {
+  confirm.mockRestore()
+ }
+})
 it('blocks empty adaptations and records corrections as independent appended user events',async()=>{
  const posts=setup(true);await waitFor(()=>expect((screen.getByLabelText('适配成功检查') as HTMLSelectElement).disabled).toBe(false));fireEvent.change(screen.getByLabelText('适配成功检查'),{target:{value:'c1'}});fireEvent.click(screen.getByRole('button',{name:'预览固定稿件适配'}));await screen.findByText('没有可执行差异；不生成空新版本。')
  expect((screen.getByRole('button',{name:'采用所选差异并创建公共任务'}) as HTMLButtonElement).disabled).toBe(true)

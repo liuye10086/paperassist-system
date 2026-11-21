@@ -9,6 +9,7 @@ from .microbiome_contracts import MicrobiomeConfig
 from .feature_contracts import FeatureExtractConfig
 from .integration_contracts import IntegrationConfig
 from .single_cell_topic_contracts import SingleCellTopicConfig
+from .figure_size import validate_figure_size
 from .evidence_contracts import EvidenceMatrixConfig
 
 Identifier = Annotated[str, Field(min_length=1, max_length=200, pattern=r'^[^/\\\x00-\x1f]+$')]
@@ -26,7 +27,7 @@ BULK_ORA_ELIGIBLE_BACKGROUND: BulkOraBackground = 'computable_selected_q_effect_
 BulkContrastFigure = Literal['bulk_volcano', 'bulk_ma', 'bulk_heatmap', 'bulk_variable_heatmap',
                             'bulk_expression', 'bulk_summary']
 BulkProcessedFigure = Literal['bulk_qc', 'bulk_pca']
-BulkQcPanel = Literal['qc_missing', 'qc_expression', 'sample_clustering', 'sample_correlation', 'sample_distance']
+BulkQcPanel = Literal['qc_missing', 'qc_expression', 'qc_ecdf', 'sample_clustering', 'sample_correlation', 'sample_distance']
 BulkPcaPanel = Literal['pca_scores', 'pca_variance']
 BULK_CONTRAST_FIGURES = frozenset(get_args(BulkContrastFigure))
 BULK_PROCESSED_FIGURES = frozenset(get_args(BulkProcessedFigure))
@@ -370,7 +371,7 @@ class FigureConfig(ConfigModel):
     selected_sets: list[FigureSetSelection] = Field(default_factory=list,max_length=8)
     intersection_mode: Literal['all','exclusive','at_least_k'] | None = None
     intersection_k: int | None = Field(default=None,ge=1,le=8)
-    figure_type: Literal['topic_slingshot','topic_genie3','topic_cellchat','volcano','heatmap','distribution','qpcr_samples','microbiome_composition','microbiome_alpha','microbiome_pcoa','feature_distribution','feature_scatter','integration_network','integration_flow','evidence_matrix','evidence_network','evidence_flow','enrichment','gsea','venn','upset','candidate_evidence'] | BulkContrastFigure | BulkProcessedFigure
+    figure_type: Literal['single_cell_composition','topic_slingshot','topic_genie3','topic_cellchat','volcano','heatmap','distribution','qpcr_samples','microbiome_composition','microbiome_alpha','microbiome_pcoa','feature_distribution','feature_scatter','integration_network','integration_flow','evidence_matrix','evidence_network','evidence_flow','enrichment','gsea','venn','upset','candidate_evidence'] | BulkContrastFigure | BulkProcessedFigure
     bulk_selection: BulkSelection | None = None
     bulk_panel: BulkQcPanel | BulkPcaPanel | None = None
     figure_stratum: Identifier | None = None
@@ -378,6 +379,10 @@ class FigureConfig(ConfigModel):
     member_key: Identifier | None = None
     term_row_key: Identifier | None = None
     enrichment_style: Literal['dot','bar'] = 'dot'
+    q_threshold: float | None = Field(default=None, ge=0, le=1, exclude_if=lambda value: value is None)
+    minimum_absolute_effect: float | None = Field(default=None, ge=0, le=1000000, exclude_if=lambda value: value is None)
+    regulation_top_n: int | None = Field(default=None, ge=1, le=500, exclude_if=lambda value: value is None)
+    cellchat_colormap: Literal['viridis','magma','cividis','custom'] | None = Field(default=None, exclude_if=lambda value: value is None)
     enrichment_order: Literal['adjusted_metric_term_id'] | None = None
     bulk_enrichment_render: Literal[True] | None = None
     title: str = Field(default='',max_length=1000)
@@ -411,9 +416,17 @@ class FigureConfig(ConfigModel):
 
     @model_validator(mode='after')
     def figure_inputs(self):
+        if self.q_threshold is not None and self.figure_type not in ('volcano', 'enrichment'):
+            raise ValueError('q_threshold_requires_volcano_or_enrichment')
+        if self.minimum_absolute_effect is not None and self.figure_type != 'volcano':
+            raise ValueError('minimum_absolute_effect_requires_volcano')
+        if self.regulation_top_n is not None and self.figure_type != 'topic_genie3':
+            raise ValueError('regulation_top_n_requires_genie3')
+        if self.cellchat_colormap is not None and self.figure_type != 'topic_cellchat':
+            raise ValueError('cellchat_colormap_requires_cellchat')
         if self.figure_type != 'bulk_expression' and any('/' in value or '\\' in value for value in self.feature_ids):
             raise ValueError('invalid_figure_feature_id')
-        if self.figure_type.startswith("topic_") and (self.expression_groups or self.sample_groups or self.processed_source_id or self.feature_ids or self.z_score or self.contrast_id or self.selected_sets or self.result_source_ids or self.term_row_key or self.q_column):raise ValueError("topic_figure_uses_saved_values_only")
+        if (self.figure_type.startswith("topic_") or self.figure_type=="single_cell_composition") and (self.expression_groups or self.sample_groups or self.processed_source_id or self.feature_ids or self.z_score or self.contrast_id or self.selected_sets or self.result_source_ids or self.term_row_key or self.q_column):raise ValueError("topic_figure_uses_saved_values_only")
         if not self.sample_groups and self.figure_type not in BULK_CONTRAST_FIGURES and self.figure_type not in ('qpcr_samples','microbiome_alpha') and (self.feature_ids or self.z_score):raise ValueError('sample_options_require_sample_groups')
         if self.figure_type.startswith('evidence_') and (self.expression_groups or self.sample_groups or self.processed_source_id or self.feature_ids or self.z_score or self.contrast_id):raise ValueError('evidence_figure_uses_saved_matrix_only')
         if self.figure_type.startswith('integration_') and (self.expression_groups or self.sample_groups or self.processed_source_id or self.feature_ids or self.z_score or self.contrast_id):raise ValueError('integration_figure_uses_saved_relations_only')
@@ -426,8 +439,7 @@ class FigureConfig(ConfigModel):
         if self.figure_type=='qpcr_samples' and (len(self.feature_ids)!=1 or self.sample_groups or self.expression_groups or self.processed_source_id or self.z_score or not self.contrast_id):raise ValueError('qpcr_figure_requires_one_target_and_contrast')
         if self.figure_type!='qpcr_samples' and self.figure_stratum is not None:raise ValueError('qpcr_stratum_requires_qpcr_figure')
         if len(set(self.formats))!=len(self.formats):raise ValueError('Duplicate figure formats')
-        width=round(self.width_inches*self.dpi);height=round(self.height_inches*self.dpi)
-        if max(width,height)>4096 or width*height>16000000:raise ValueError('Figure exceeds 4096 pixels per side or 16 million total pixels')
+        validate_figure_size(self.width_inches, self.height_inches, self.dpi)
         if self.enrichment_order is not None and self.figure_type != 'enrichment':
             raise ValueError('enrichment_order_requires_enrichment_figure')
         if self.bulk_enrichment_render and (self.figure_type not in ('enrichment', 'gsea') or self.result_source_ids

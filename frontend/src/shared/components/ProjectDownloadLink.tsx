@@ -3,12 +3,14 @@ import { useI18n, apiError, safeError } from '../i18n'
 import { useEffect, useRef, useState, type MouseEvent, type ReactNode } from 'react'
 import { apiFetch, captureApiSession, onApiSessionChanged } from '../api/client'
 import { captureProjectAccess } from '../api/projectAccess'
-type Props = { nativePrepared?:boolean; preparedFactsDigest?:string; timeoutMs?:number; href: string; filename: string; children: ReactNode; ariaLabel?: string; postBody?:unknown; onHttpError?: (status: number, body: unknown) => void }
+type Props = { nativePrepared?:boolean; preparedFactsDigest?:string; timeoutMs?:number; href: string; filename: string; children: ReactNode; ariaLabel?: string; postBody?:unknown; onHttpError?: (status: number, body: unknown) => void
+  /** Called once the browser was handed the downloaded file. */
+  onDownloaded?: () => void }
 export default function ProjectDownloadLink(props: Props) {
   return <DownloadLink key={props.href} {...props} />
 }
 
-function DownloadLink({ href, filename, children, ariaLabel, postBody, nativePrepared=false, preparedFactsDigest, onHttpError, timeoutMs=STANDARD_REQUEST_TIMEOUT_MS }: Props) {
+function DownloadLink({ href, filename, children, ariaLabel, postBody, nativePrepared=false, preparedFactsDigest, onHttpError, onDownloaded, timeoutMs=STANDARD_REQUEST_TIMEOUT_MS }: Props) {
   const { t } = useI18n()
   const post = nativePrepared || postBody !== undefined
   const [checkSession] = useState(captureApiSession)
@@ -81,6 +83,7 @@ function DownloadLink({ href, filename, children, ariaLabel, postBody, nativePre
         document.body.append(anchor)
         try { anchor.click() } finally { anchor.remove() }
       } finally { if (!nativePrepared) URL.revokeObjectURL(url) }
+      onDownloaded?.()
     } catch (cause) {
       if (active.current && !(cause instanceof DOMException && cause.name === 'AbortError')) {
         setError(safeError(cause, '下载失败，请重试。'))

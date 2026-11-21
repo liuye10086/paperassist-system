@@ -9,6 +9,7 @@ def public_snapshot(snapshot):
     from copy import deepcopy
     result=deepcopy(snapshot)
     for m in result['members']:m.pop('download_url',None)
+    # Read-only compatibility for historical blind snapshots (none can be created now).
     if result['mode']=='blind':
         for key in ('project_id','delivery_id','source_file_ids','requirement_version_id','parent_snapshot_id','change_note','opinion_round','opinion_round_binding','source_notices'):result.pop(key,None)
         result['quality_items']=['Blind derivations selected; full archive anonymity has not been independently verified.']

@@ -13,6 +13,14 @@ from app.core.exceptions import StorageError
 MAX_INPUT = 50 * 1024 * 1024
 
 
+def renderer_base_url(config):
+    if config.get('PAPERASSIST_PDF_RENDERER_URL'):
+        return config['PAPERASSIST_PDF_RENDERER_URL']
+    if config.get('PAPERASSIST_ENV', 'development') == 'development':
+        return 'http://127.0.0.1:8185'
+    return 'http://pdf-renderer:8080'
+
+
 def renderer_identity():
     return json.loads(Path(__file__).with_name('pdf_renderer_lock.json').read_text(encoding='utf-8'))
 
@@ -29,7 +37,7 @@ class NoRedirect(HTTPRedirectHandler):
 def update_layout_fields(content):
     if not content or len(content) > MAX_INPUT:
         raise failure('pdf_input_invalid')
-    base = local_config().get('PAPERASSIST_PDF_RENDERER_URL') or 'http://pdf-renderer:8080'
+    base = renderer_base_url(local_config())
     endpoint = urlsplit(base)
     if (endpoint.scheme != 'http' or endpoint.hostname not in {'pdf-renderer', '127.0.0.1', 'localhost', '::1'}
             or endpoint.username or endpoint.password or endpoint.query or endpoint.fragment or endpoint.path not in ('', '/')):

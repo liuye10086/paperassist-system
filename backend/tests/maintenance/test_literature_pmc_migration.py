@@ -1,4 +1,6 @@
 """0033 -> 0034 is additive and preserves all prior rows, indexes and assets."""
+from app.db.database import SCHEMA_HEAD
+from tests.helpers.historical_migration import historical_workflow, assert_saved_history_blocks
 import pytest
 from alembic import command
 from alembic.script import ScriptDirectory
@@ -12,10 +14,9 @@ def test_pmc_upgrade_preserves_old_rows_indexes_assets_and_frozen_ddl(client):
     _,_,_,refs=seeded(client)
     url=refs[0]['source']['source_download_url'];raw=client.get(url).content
     cfg=alembic_config()
-    assert ScriptDirectory.from_config(cfg).get_heads()==['0040_manuscript_writing_live']
-    with migration_connection(write=True) as db:
-        cfg.attributes.update(connection=db.raw_connection,database_config=get_migration_database_config())
-        command.downgrade(cfg,'0033_literature_checks')
+    assert ScriptDirectory.from_config(cfg).get_heads()==[SCHEMA_HEAD]
+    with historical_workflow(get_migration_database_config(), '0033_literature_checks') as (db, cfg):
+        assert db.execute("SELECT 1 FROM project_references WHERE id=%s", (refs[0]['id'],)).fetchone()
         tables=[r['tablename'] for r in db.execute('SELECT tablename FROM pg_tables WHERE schemaname=current_schema()') if r['tablename']!='alembic_version']
         before=fingerprints(db,tables)
         indexes={r['indexname']:r['indexdef'] for r in db.execute('SELECT indexname,indexdef FROM pg_indexes WHERE schemaname=current_schema()')}
@@ -45,7 +46,4 @@ def test_history_refuses_downgrade_and_runtime_receipts_are_append_only(client,t
         verify_runtime_permissions(db.raw_connection,db.config)
         assert db.execute("SELECT has_table_privilege(current_user,'literature_pmc_receipts','UPDATE') AS allowed").fetchone()['allowed'] is False
         assert db.execute("SELECT has_table_privilege(current_user,'literature_pmc_receipts','DELETE') AS allowed").fetchone()['allowed'] is False
-    with migration_connection(write=True) as db:
-        cfg=alembic_config();cfg.attributes.update(connection=db.raw_connection,database_config=get_migration_database_config())
-        with pytest.raises(RuntimeError,match='Cannot remove saved PMC or comparison history'):
-            command.downgrade(cfg,'0033_literature_checks')
+    assert_saved_history_blocks('0034_literature_pmc', 'Cannot remove saved PMC or comparison history')

@@ -245,7 +245,7 @@ def test_review_rewrite_keeps_non_target_sections_and_citation_table_exact(clien
     task=post(client,root+'/writing-requests',request_v2(bundle,auth),'rewrite').json()['task']
     from app.domain.model_usage.service import ModelUsageService
     from tests.helpers.tasks import task_owner
-    ModelUsageService(task_owner(client)).set_budget('task',task['id'],5000000,0)
+    ModelUsageService(task_owner(client)).set_budget('task',task['id'],5000000,1)
     provider=LiveFixture();original=provider.receipt
     def receipt():
         value=original();output=json.loads(value['response']['output'][0]['content'][0]['text']);output['sections']=[output['sections'][4]]

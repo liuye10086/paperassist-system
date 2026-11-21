@@ -145,12 +145,13 @@ def test_customer_can_submit_requirements_but_cannot_configure_or_run_analysis()
             ('POST', project + '/research-designs'),
             ('POST', project + '/bio-analysis-runs'),
             ('POST', project + '/bulk-workflow/sensitivity'),
-            ('POST', '/api/v1/tasks/task/retry'),
         ]:
             denied = client.request(method, path, headers={'Idempotency-Key': 'customer-compute'}, json={})
             assert denied.status_code == 403, (path, denied.text)
             assert denied.json()['detail']['code'] == 'customer_operation_forbidden'
 
+        missing = client.post('/api/v1/tasks/task/retry', json={'expected_revision': 1})
+        assert missing.status_code == 404 and missing.json()['detail']['code'] == 'task_not_found'
         assert client.post('/api/v1/auth/logout').status_code == 204
 
     with database_connection() as db:

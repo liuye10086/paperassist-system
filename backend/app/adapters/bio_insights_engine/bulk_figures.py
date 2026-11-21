@@ -4,6 +4,7 @@ from heapq import nsmallest
 import math
 import textwrap
 
+from app.adapters.bio_engine.tabular_assays import load_tabular
 from app.domain.bio_insights.bulk_results import (
     BULK_DIRECTIONS, bulk_contrast_labels, bulk_rank_key, bulk_row_class, finite_metric, is_reviewed_bulk,
 )
@@ -22,6 +23,7 @@ _Q_ADJUSTMENTS = {
 _PANEL_AXES = {
     'qc_missing': ('sample_id', 'missing_fraction', 'qc_missing_data'),
     'qc_expression': ('sample_id', 'quantiles', 'expression_distribution_data'),
+    'qc_ecdf': ('expression', 'empirical_fraction', 'expression_distribution_data'),
     'sample_clustering': ('feature_id', 'sample_id', 'sample_clustering_data'),
     'sample_correlation': ('sample_id', 'sample_id', 'sample_correlation'),
     'sample_distance': ('sample_id', 'sample_id', 'sample_distance'),
@@ -292,6 +294,9 @@ def _qc_plot(source, panel):
     samples = data['sample_ids']
     if len(samples) != len(set(samples)):
         raise ValueError('bulk_plot_sample_axis_mismatch')
+    if panel == 'qc_ecdf':
+        ecdf = _expression_ecdf(source, data)
+        return ecdf, [member], sum(row['measured'] > 0 for row in ecdf['curves']), len(samples)
     if panel == 'qc_missing':
         values = data['missing_fraction']
         if len(values) != len(samples):
@@ -301,6 +306,8 @@ def _qc_plot(source, panel):
         if set(data['quantiles']) != set(samples):
             raise ValueError('bulk_plot_sample_axis_mismatch')
         displayed = sum(all(v is not None for v in row.values()) for row in data['quantiles'].values())
+        if source['metadata'].get('assay') == 'normalized_expression':
+            data = data | dict(unit=source['metadata']['scale']['unit'])
         return data | dict(display_statistic='frozen_five_number_summary'), [member], displayed, len(samples)
     columns = data['feature_ids'] if panel == 'sample_clustering' else samples
     values = data['values']
@@ -309,8 +316,37 @@ def _qc_plot(source, panel):
     return data, [member], sum(value is not None for row in values for value in row), len(samples)*len(columns)
 
 
+def _expression_ecdf(source, summary):
+    import numpy as np
+
+    raw = source['raw']
+    values, missing, samples, _ = load_tabular(raw)
+    if samples != summary['sample_ids'] or raw['manifest']['assay'] != source['metadata']['assay']:
+        raise ValueError('bulk_plot_sample_axis_mismatch')
+    # Follow the original figure's recorded display sampling, including earlier
+    # versions which plotted every measured feature.
+    sampling = summary.get('display_sampling')
+    cap = None
+    if sampling is not None:
+        cap = sampling['max_points_per_sample']
+        if sampling.get('rule') != 'uniform_sorted_ranks_including_endpoints' or type(cap) is not int or cap < 2:
+            raise ValueError('bulk_plot_ecdf_sampling_invalid')
+    curves = []
+    for sample, row, mask in zip(samples, values, missing, strict=True):
+        ordered = np.sort(row[~mask])
+        size = len(ordered)
+        if cap and size > cap:
+            positions = np.linspace(0, size-1, cap, dtype=np.intp)
+            x, y = ordered[positions], positions / (size-1)
+        else:
+            x, y = ordered, np.linspace(0, 1, size)
+        curves.append(dict(sample_id=sample, measured=size, expression=x.tolist(), fraction=y.tolist()))
+    return dict(sample_ids=samples, curves=curves, unit=raw['manifest']['scale']['unit'],
+                display_sampling=sampling, raw_member_hashes=_member_hashes(raw, ('matrix_values','matrix_missing','samples_index','features_index')))
+
+
 def _processed_plot(source, config):
-    if source['source_kind'] != 'bio_processed_dataset_version' or source['metadata'].get('assay') != 'bulk_rna_counts':
+    if source['source_kind'] != 'bio_processed_dataset_version' or source['metadata'].get('assay') not in ('bulk_rna_counts', 'normalized_expression'):
         raise ValueError('bulk_processed_source_required')
     panel = config.bulk_panel
     if config.figure_type == 'bulk_pca':
@@ -344,6 +380,7 @@ def bulk_title(config, zh):
         'bulk_expression': ('候选基因样本表达', 'Candidate gene expression by sample'),
         'bulk_summary': ('比较结果数量汇总', 'Comparison counts'), 'qc_missing': ('样本缺失比例', 'Missing fraction by sample'),
         'qc_expression': ('样本表达五数摘要', 'Five-number expression summaries'),
+        'qc_ecdf': ('样本表达累积分布', 'Cumulative expression distribution'),
         'sample_clustering': ('样本聚类', 'Sample clustering'), 'sample_correlation': ('样本相关性', 'Sample correlation'),
         'sample_distance': ('样本距离', 'Sample distances'), 'pca_scores': ('样本 PCA 得分', 'Sample PCA scores'),
         'pca_variance': ('PCA 解释方差', 'PCA explained variance'),
@@ -515,6 +552,14 @@ def _draw_processed(fig, ax, config, data, zh):
                 ax.bar(i, value, color=config.palette[0])
         _ticks(ax, 'x', data['sample_ids'])
         ax.set(ylim=(0, 1), ylabel='缺失比例' if zh else 'Missing fraction')
+    elif panel == 'qc_ecdf':
+        for index, curve in enumerate(data['curves']):
+            if curve['measured']:
+                ax.plot(curve['expression'], curve['fraction'], label=curve['sample_id'],
+                        color=config.palette[index % len(config.palette)])
+        if len(data['sample_ids']) <= 12:
+            ax.legend(fontsize=7, frameon=False)
+        ax.set(xlabel=data['unit'], ylabel='经验累计比例' if zh else 'Empirical cumulative fraction')
     elif panel == 'qc_expression':
         boxes, positions = [], []
         for i, sample in enumerate(data['sample_ids']):
@@ -526,7 +571,7 @@ def _draw_processed(fig, ax, config, data, zh):
         ax.bxp(boxes, positions=positions, showfliers=False, patch_artist=True,
                boxprops={'facecolor': config.palette[0], 'alpha': .5}, medianprops={'color': '#111827'})
         _ticks(ax, 'x', data['sample_ids'])
-        ax.set_ylabel('原始 counts 分位数' if zh else 'Raw count quantiles')
+        ax.set_ylabel(data.get('unit') or ('原始 counts 分位数' if zh else 'Raw count quantiles'))
     else:
         samples = data['sample_ids']
         features = data['feature_ids'] if panel == 'sample_clustering' else samples

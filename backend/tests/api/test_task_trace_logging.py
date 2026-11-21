@@ -22,7 +22,11 @@ def postgres_schema():
     ('POST', '/boxplot', 422, 'boxplot_submission'),
     ('POST', '/explanation', 200, 'explanation_submission'),
 ])
-def test_task_trace_logs_only_generated_identity_and_fixed_operation(caplog, method, suffix, status, operation):
+def test_task_trace_logs_only_generated_identity_and_fixed_operation(caplog, monkeypatch, method, suffix, status, operation):
+    from app.domain import admin_operations
+
+    captured = []
+    monkeypatch.setattr(admin_operations, 'record_request', lambda event, candidate: captured.append((event, candidate)))
     async def application(scope, receive, send):
         response = {'ok': True} if status < 400 else {'detail': {'code': 'task_input_invalid', 'message': 'safe'}}
         await send({'type': 'http.response.start', 'status': status,
@@ -45,6 +49,9 @@ def test_task_trace_logs_only_generated_identity_and_fixed_operation(caplog, met
     assert f'operation={operation}' in message
     assert f'method={method}' in message and f'status={status}' in message
     assert 'PRIVATE_' not in message
+    (event, candidate), = captured
+    assert event['request_id'] == request_id and event['status'] == status and event['method'] == method
+    assert candidate is None and 'PRIVATE_' not in repr(event)
 
 
 def test_default_uvicorn_configuration_outputs_success_and_failure_once():

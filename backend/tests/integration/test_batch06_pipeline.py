@@ -2,6 +2,7 @@
 from copy import deepcopy
 from io import BytesIO
 import json
+from xml.etree import ElementTree
 from zipfile import ZipFile
 
 import pytest
@@ -117,10 +118,39 @@ def test_pending_v2_collection_advances_local_word_without_model_call(pipeline):
     assert figures[0]['figure_number'] == preview['items'][0]['figure_number'] == 1
     with ZipFile(BytesIO(content)) as archive:
         assert [archive.read(name) for name in archive.namelist() if name.startswith('word/media/')] == [provider.png]
-        xml = archive.read('word/document.xml').decode()
-        assert 'Abbreviations' in xml and 'Statistical note:' in xml
+        document = ElementTree.fromstring(archive.read('word/document.xml'))
+        ns = {'w': 'http://schemas.openxmlformats.org/wordprocessingml/2006/main'}
+        text = '\n'.join(''.join(node.text or '' for node in paragraph.findall('.//w:t', ns))
+                         for paragraph in document.findall('.//w:p', ns))
+        presentation = bundle['figure']['presentation']
+        assert presentation['abbreviations'] and presentation['statistical_notes']
+        for entry in presentation['abbreviations']:
+            assert f"{entry['term']} — {entry['definition']}" in text
+        for note in presentation['statistical_notes']:
+            assert note in text
     with workbench.tasks.connection() as db:
         assert db.execute('SELECT count(*) AS n FROM model_calls WHERE task_id=%s', (request['task_id'],)).fetchone()['n'] == 0
+
+
+@pytest.mark.parametrize('language,definition,note', [
+    ('en', 'Sample standard deviation (denominator n−1)', 'Error bars show sample SD.'),
+    ('zh-CN', '样本标准差（分母n−1）', '误差线表示样本SD。'),
+], ids=['english', 'chinese'])
+def test_reader_figure_displays_frozen_abbreviation_definition(language, definition, note):
+    from app.domain.external_processing import digest
+    from app.domain.statistics_reader_reports.narrative import figure_output
+
+    presentation = dict(abbreviations=[{'term': 'SD', 'definition': definition}], statistical_notes=[note])
+    item = dict(figure={'figure_kind': 'bar', 'title': 'SD', 'presentation': presentation}, result={},
+                explanation={'sections': [{'key': key, 'text': 'Saved text.'}
+                                          for key in ('methods', 'results', 'interpretation')]})
+    output = figure_output(item, 1, language)
+    assert output['reading'].count('SD — ' + definition) == 1
+    assert output['limitations'].count(note) == 1
+    # Whole-output digests from the historical projection of the same synthetic figure.
+    old_digests = {'en': '8f0bee00b9fae759256bab06995f3388bb5931fd71a9619e328a6ae0696d9114',
+                   'zh-CN': '061d267371d758c87036dc96e0606b8447dcddb169a828bafce19e681beed4b8'}
+    assert digest(figure_output(item, 1, language, context_schema_version=1)) == old_digests[language]
 
 
 @pytest.mark.parametrize('change', ['metadata', 'figure_engine', 'limitations', 'explanation_engine'])

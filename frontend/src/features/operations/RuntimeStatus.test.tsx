@@ -83,7 +83,7 @@ it('integrates the admin runtime tab with active polling and immediate role revo
  const draft=screen.getByLabelText('Retained project draft')
  fireEvent.change(draft,{target:{value:'edited draft'}})
  expect(mock.mock.calls.some(([url])=>url==='/api/v1/admin/runtime/status')).toBe(false)
- fireEvent.click(screen.getByRole('button',{name:'管理员'}));fireEvent.click(screen.getByRole('button',{name:'运行状态'}));await flush()
+ fireEvent.click(screen.getByRole('button',{name:'管理员'}));fireEvent.click(screen.getByRole('button',{name:'运营工具'}));fireEvent.click(screen.getByRole('button',{name:'运行状态'}));await flush()
  expect(screen.getByText('desired-config')).toBeTruthy()
  fireEvent.click(screen.getByRole('button',{name:'项目工作区'}));const count=mock.mock.calls.filter(([url])=>url==='/api/v1/admin/runtime/status').length
  await act(async()=>vi.advanceTimersByTime(16_000));expect(mock.mock.calls.filter(([url])=>url==='/api/v1/admin/runtime/status')).toHaveLength(count)

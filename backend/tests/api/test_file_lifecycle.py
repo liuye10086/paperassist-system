@@ -144,6 +144,7 @@ def test_lifecycle_disabled_and_anonymous_requests_are_rejected(client):
 def test_concurrent_duplicate_request_and_multiple_requests_do_not_modify_assets(client):
     from concurrent.futures import ThreadPoolExecutor
     from tests.integration.test_file_lifecycle_permissions import fingerprint
+    from tests.helpers.read_only import assert_read_only_snapshot
     _,_,base=lifecycle(client)
     body=dict(reason='concurrent',expected_assessment_revision=assessment(client,base)['assessment_revision'])
     before,objects=fingerprint()
@@ -155,8 +156,8 @@ def test_concurrent_duplicate_request_and_multiple_requests_do_not_modify_assets
     assert results[0].json()==results[1].json()
     assert submit('another').status_code==201
     after,after_objects=fingerprint()
-    assert after_objects==objects
-    assert {k:v for k,v in before.items() if k!='file_deletion_requests'}=={k:v for k,v in after.items() if k!='file_deletion_requests'}
+    del before['file_deletion_requests'], after['file_deletion_requests']
+    assert_read_only_snapshot((before, objects), (after, after_objects))
     assert client.get(base+'/lifecycle/deletion-requests?page_size=1').json()['total']==2
 
 

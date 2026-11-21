@@ -380,8 +380,9 @@ define_bio_insights_tables(metadata)
 from app.db.delivery_schema import define_delivery_tables
 define_delivery_tables(metadata)
 
-from app.db.customer_workspace_schema import define_customer_workspace_tables
-define_customer_workspace_tables(metadata, include_assignment_revision=True)
+from app.db.customer_workspace_schema import define_customer_workspace_tables, define_material_submission_tables
+define_customer_workspace_tables(metadata, include_assignment_revision=True, include_materials_submitted=True)
+define_material_submission_tables(metadata)
 
 from app.db.project_assignment_schema import define_project_assignment_tables
 define_project_assignment_tables(metadata)

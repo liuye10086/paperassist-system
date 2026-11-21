@@ -1,6 +1,5 @@
 """Offline adapter checks; the SQL boundary is mocked, no database is started."""
 from copy import deepcopy
-from types import SimpleNamespace
 from unittest.mock import Mock
 
 import pytest
@@ -65,7 +64,12 @@ def test_unresolvable_refs_have_no_metadata():
 
 
 def test_owner_boundary_still_rejects_other_owner():
+    from app.adapters.storage import ProjectStore
     db=Mock();db.execute.return_value.fetchone.return_value=None
-    with pytest.raises(StorageError):
-        require_owner(db,SimpleNamespace(owner_id='owner1'),'project1')
+    store=Mock(spec=ProjectStore)
+    store.owner_id='owner1'
+    with pytest.raises(StorageError) as denied:
+        require_owner(db,store,'project1')
+    assert denied.value.code=='project_not_found' and denied.value.status==404
+    store.require_project_scope.assert_called_once_with('project1')
     assert db.execute.call_args.args[1]==('project1','owner1')

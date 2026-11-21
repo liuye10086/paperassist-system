@@ -202,7 +202,7 @@ class BioInsightReproductionService(BioInsightsStore):
                 if payload['kind']=='bio_candidate' and payload['config'].get('schema_version')==2:
                     render.update(figure_types=['evidence_matrix','evidence_network','evidence_flow'],source_semantics='complete frozen candidate by external evidence cross product; source statements not recomputed; seed1729')
                 if payload['kind']=='bio_integration' and payload['config'].get('schema_version')==2:
-                    render.update(supported=True,figure_types=['topic_'+payload['config']['method']],source_semantics='immutable topic_plot_data; display only; no scientific recomputation')
+                    render.update(supported=True,figure_types=['topic_'+payload['config']['method']],source_semantics='immutable saved topic results; display only; no scientific recomputation')
                 elif payload['kind']=='bio_integration':
                     render.update(figure_types=['integration_network','integration_flow'],source_semantics='complete frozen integration_data nodes and edges; layout seed1729; display-only filter; no statistics recomputation')
                 if payload['kind']=='bio_feature_extract':

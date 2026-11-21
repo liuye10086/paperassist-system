@@ -285,3 +285,52 @@ def test_customer_materials_exclude_analyst_uploads_and_batches():
     assert hidden_reference.status_code == 422, hidden_reference.text
     assert hidden_reference.json()['detail']['code'] == 'research_material_invalid'
     assert submit_reference(customer_file).status_code == 201
+
+
+def test_assignment_list_filters_progress_status_in_sql_and_lists_required_analyses():
+    customer, admin, analyst = [TestClient(app) for _ in range(3)]
+    sign_in(customer, 'filter-owner@assignments.test', 'customer')
+    sign_in(admin, 'filter-admin@assignments.test', 'admin')
+    analyst_id = sign_in(analyst, 'filter-analyst@assignments.test', 'analyst')
+    draft, waiting, assigned, analyzing = [create_customer_project(customer, key=f'filter-{name}')
+                                           for name in ('draft', 'waiting', 'assigned', 'analyzing')]
+    scope = [{'id': 'customer.type.single_cell', 'title': 'Single cell', 'delivery_kind': 'analysis'},
+             {'id': 'customer.analysis.single_cell.differential', 'title': 'Differential', 'delivery_kind': 'analysis'},
+             {'id': 'customer.type.spatial', 'title': 'Spatial', 'delivery_kind': 'analysis', 'status': 'not_included'},
+             {'id': 'customer.type.bulk', 'title': 'Bulk', 'delivery_kind': 'analysis'}]
+    confirmed = customer.post(waiting + '/requirements', headers={'Idempotency-Key': 'filter-scope'}, json={
+        'expected_revision': 1, 'operation': 'confirm',
+        'content': {'schema_version': 1, 'services': ['analysis'], 'scope_items': scope},
+    })
+    assert confirmed.status_code == 201, confirmed.text
+    for project in (assigned, analyzing):
+        write_requirements(customer, project, 1, 'confirm')
+        assert assign(admin, project, analyst_id, 0).status_code == 200
+    requirement = analyst.get(analyzing + '/analyst-workspace').json()['requirement']
+    assert analyst.patch(analyzing + '/analyst-workspace/progress', json={
+        'assignment_revision': 1, 'requirement_version_id': requirement['id'], 'status': 'analyzing',
+    }).status_code == 200
+    ids = {path: path.rsplit('/', 1)[-1] for path in (draft, waiting, assigned, analyzing)}
+
+    def listed(**params):
+        response = admin.get(ASSIGNMENTS, params={'q': 'filter-owner@assignments.test', **params})
+        assert response.status_code == 200, response.text
+        return response.json()
+
+    everything = listed()
+    assert everything['total'] == 4
+    rows = {row['id']: row for row in everything['items']}
+    assert {rows[ids[path]]['progress_status'] for path in ids} == {'draft', 'pending_assignment', 'assigned', 'analyzing'}
+    assert rows[ids[waiting]]['required_analyses'] == ['single_cell', 'bulk']
+    assert rows[ids[draft]]['required_analyses'] == [] and rows[ids[assigned]]['required_analyses'] == []
+    pending = listed(status='pending_assignment')
+    assert (pending['total'], [row['id'] for row in pending['items']]) == (1, [ids[waiting]])
+    busy = listed(status=['assigned', 'analyzing'])
+    assert busy['total'] == 2 and {row['id'] for row in busy['items']} == {ids[assigned], ids[analyzing]}
+    first = listed(status=['assigned', 'analyzing'], page_size=1)
+    assert (first['total'], len(first['items'])) == (2, 1)
+    assert listed(status='draft')['items'][0]['id'] == ids[draft]
+    assert listed(status='materials_submitted')['total'] == 0
+    assert admin.get(ASSIGNMENTS, params={'status': 'bogus'}).status_code == 422
+    changed = assign(admin, waiting, analyst_id, 0).json()
+    assert changed['required_analyses'] == ['single_cell', 'bulk']

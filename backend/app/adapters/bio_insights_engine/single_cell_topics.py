@@ -68,7 +68,7 @@ def _trajectory(config,source,loaded,selection,indices,bridge,writer):
     writer.table('trajectory_curves',curves,['lineage_id','point_index']+[f'dimension_{j+1}' for j in range(matrix.shape[1])])
     writer.json('trajectory_native',native)
     plot=dict(method='slingshot',cells=cells,clusters=clusters,coordinates=matrix[:,:2],lineage_ids=native.get('lineage_ids',[]),curves=[np.asarray(c)[:,:2] for c in native.get('curves',[])],representation=config.representation,root=config.root_cluster)
-    _plot(plot,writer)
+    _plot(plot,writer,config)
     return dict(summary=dict(result_member_key='trajectory_results',row_count=len(rows),lineage_count=len(native.get('lineage_ids',[])),
         uncovered_cells=len(cells)-len({r['barcode'] for r in rows if r['covered']}),status=native['status'],reason=native.get('reason')),
         methods=dict(versions=native['versions'],logs=native.get('logs',[]),parameters=native.get('parameters',{}),lineage_clusters=native.get('lineage_clusters',[]),
@@ -100,7 +100,7 @@ def _regulation(config,source,loaded,selection,indices,bridge,writer):
         note='two_seed_random_stability_not_external_replication')
     writer.table('regulation_results',rows);writer.json('regulation_stability',stability)
     writer.json('regulation_native',runs)
-    _plot(dict(method='genie3',rows=rows[:20],stability=stability),writer)
+    _plot(dict(method='genie3',rows=rows[:config.regulation_top_n or 20],stability=stability),writer,config)
     return dict(summary=dict(result_member_key='regulation_results',row_count=len(rows),gene_count=len(config.gene_ids),tf_count=len(config.tf_ids),status='completed',stability=stability),
         methods=dict(versions=runs[0]['versions'],logs=[line for r in runs for line in r.get('logs',[])],parameters=dict(n_trees=config.n_trees,seeds=stability['seeds']),
             tf_ids=config.tf_ids,gene_ids=config.gene_ids,tf_basis=config.tf_basis,interpretation='predictive_importance_not_pvalue_or_causality'))
@@ -187,7 +187,7 @@ def _communication(config,source,loaded,selection,indices,bridge,writer):
     writer.table('communication_results',results);writer.table('communication_units',unit_status)
     writer.table('communication_comparisons',comparison,['sender','receiver','interaction_id','denominator','numerator','n_denominator','n_numerator','complete_pairs','mean_denominator','mean_numerator','difference','t_statistic','donor_p_value','donor_q_value','status','reason','donors_denominator','donors_numerator'])
     writer.json('communication_native',native_results);writer.json('communication_resource',resource)
-    _plot(dict(method='cellchat',rows=results,labels=config.label_ids,label_names=selection['label_names']),writer)
+    _plot(dict(method='cellchat',rows=results,labels=config.label_ids,label_names=selection['label_names']),writer,config)
     return dict(summary=dict(result_member_key='communication_results',row_count=len(results),status='completed' if any(r['status']=='computed' for r in results) else 'not_computable',
         computable_units=sum(u['status']=='completed' for u in unit_status),modeled_edges=sum(r['status']=='computed' for r in results),donor_tested_edges=sum(r['status']=='tested' for r in comparison),
         resource_id=resource['resource_id'],resource_interactions=len(lr_ids)),methods=dict(versions=versions,logs=logs,matching=matching,resource={k:v for k,v in resource.items() if k not in ('interactions','complexes')},
@@ -197,10 +197,11 @@ def _communication(config,source,loaded,selection,indices,bridge,writer):
         interpretation='model_predictions_not_measured_interactions_cell_permutation_not_donor_inference'))
 
 
-def _plot(data,writer):
+def _plot(data,writer,config):
     from matplotlib import pyplot as plt
     writer.json('topic_plot_data',data)
-    fig,ax=plt.subplots(figsize=(8,5))
+    size=config.plot_size
+    fig,ax=plt.subplots(figsize=(size.width_inches,size.height_inches) if size else (8,5))
     if data['method']=='slingshot':
         coords=np.asarray(data['coordinates']);clusters=np.asarray(data['clusters'])
         for group in sorted(set(clusters)):
@@ -211,7 +212,7 @@ def _plot(data,writer):
     elif data['method']=='genie3':
         rows=list(reversed(data['rows']));labels=[(r.get('regulator_symbol') or r['regulator'])+' → '+(r.get('target_symbol') or r['target']) for r in rows]
         y=np.arange(len(rows));ax.barh(y-.18,[r['weight'] for r in rows],height=.35,label='Primary seed');ax.barh(y+.18,[r['stability_weight'] for r in rows],height=.35,label='Second seed')
-        ax.set_yticks(y,labels,fontsize=7);ax.set(xlabel='GENIE3 predictive importance (not P)',title='Top 20 edges | two fixed seeds');ax.legend(fontsize=8)
+        ax.set_yticks(y,labels,fontsize=7);ax.set(xlabel='GENIE3 predictive importance (not P)',title=f'Top {config.regulation_top_n or 20} edges | two fixed seeds');ax.legend(fontsize=8)
     else:
         labels=data['labels'];matrix=np.full((len(labels),len(labels)),np.nan)
         for i,sender in enumerate(labels):
@@ -225,5 +226,5 @@ def _plot(data,writer):
         ax.set(xlabel='Receiver',ylabel='Sender',title='CellChat | literature demo LR subset')
         for i in range(len(labels)):
             for j in range(len(labels)):ax.text(j,i,'NA' if not np.isfinite(matrix[i,j]) else f'{matrix[i,j]:.3g}',ha='center',va='center',fontsize=8,color='white' if np.isfinite(matrix[i,j]) else 'black')
-    fig.tight_layout();stream=io.BytesIO();fig.savefig(stream,format='png',dpi=180);plt.close(fig)
+    fig.tight_layout();stream=io.BytesIO();fig.savefig(stream,format='png',dpi=size.dpi if size else 180);plt.close(fig)
     writer.add('topic_plot',stream.getvalue(),'png','figure')

@@ -6,7 +6,7 @@ import {processedFixture} from '../bioinformatics/spatialFixtures'
 import {setApiSession,clearApiSession} from '../../shared/api/client'
 import type {Result} from './contracts'
 afterEach(()=>{cleanup();vi.unstubAllGlobals();clearApiSession();sessionStorage.clear()})
-it('enters insights from an existing B02 result with its fixed processed identity and performs no reanalysis',async()=>{setApiSession('csrf','owner');const fetch=vi.fn().mockResolvedValue(Response.json(processedFixture));vi.stubGlobal('fetch',fetch);const navigate=vi.fn();render(<BioAnalysisResult projectId="p1" processedId="processed1" tab="methods" onNavigate={navigate}/>);fireEvent.click(await screen.findByRole('button',{name:'差异与功能分析'}));expect(navigate).toHaveBeenCalledWith({view:'bio-insights',fileId:'',processedId:'processed1'});expect(fetch.mock.calls.every(([,init])=>!init?.method||init.method==='GET')).toBe(true)})
+it('enters insights from an existing B02 result with its fixed processed identity and performs no reanalysis',async()=>{setApiSession('csrf','owner');const fetch=vi.fn().mockResolvedValue(Response.json(processedFixture));vi.stubGlobal('fetch',fetch);const navigate=vi.fn();render(<BioAnalysisResult projectId="p1" processedId="processed1" tab="methods" onNavigate={navigate}/>);fireEvent.click(await screen.findByRole('button',{name:'继续分析'}));fireEvent.click(await screen.findByRole('button',{name:'差异与功能分析'}));expect(navigate).toHaveBeenCalledWith({view:'bio-insights',fileId:'',processedId:'processed1'});expect(fetch.mock.calls.every(([,init])=>!init?.method||init.method==='GET')).toBe(true)})
 
 it('starts scoped single-cell differential expression with the existing donor-based design',async()=>{
  setApiSession('csrf','owner')
@@ -37,6 +37,22 @@ const fixedComparison:Result={
  members:[{id:'table1',key:'comparison_results',role:'table',format:'tsv',sha256:fixedHash,size_bytes:20,download_url:'/table'}],
 }
 const enrichmentEntry={requirementVersionId:'req1',scopeItemId:'customer.analysis.single_cell.enrichment'}
+
+it('opens a fixed composition result as a figure-only plan',async()=>{
+ setApiSession('csrf','owner')
+ const result={...fixedComparison,methods:{config:{kind:'comparison',schema_version:5,method:'single_cell_composition'}}}
+ const fetch=vi.fn(async(url:RequestInfo|URL,_init?:RequestInit)=>Response.json(
+  String(url).endsWith('/bio-insight-results/de1')?result:{items:[],total:0,columns:[]}
+ ))
+ vi.stubGlobal('fetch',fetch)
+ render(<BioInsightsWorkspace projectId="p1" active navigation={{view:'bio-insight-result',fileId:'',resultVersionId:'de1'}} onNavigate={()=>{}}/>)
+ fireEvent.click(await screen.findByRole('button',{name:'基于结果绘图'}))
+ fireEvent.click(await screen.findByRole('button',{name:'采用当前固定结果作为绘图来源'}))
+ fireEvent.click(screen.getByRole('button',{name:'配置分析'}))
+ expect(await screen.findByLabelText('图型')).toHaveProperty('value','single_cell_composition')
+ expect(screen.queryByLabelText('图件比较 ID')).toBeNull()
+ expect(fetch.mock.calls.every(([,init])=>!init?.method||init.method==='GET')).toBe(true)
+})
 
 it.each([
  {configured:true,methods:fixedComparison.methods,ready:true},

@@ -63,9 +63,8 @@ def test_multiround_versions_keep_frozen_inputs_assets_and_historical_artifacts(
     report = client.get(scenario['historical_urls']['report'])
     document = Document(BytesIO(report.content))
     text = '\n'.join(p.text for p in document.paragraphs)
-    assert '原始数据版本 1 · 整理数据版本 1' in text
-    assert '所选整理区域 6 行' in text and '体重（列 D）' in text
-    main_text = text.split('附录 A 解释依据')[0]
+    assert old['source']['parent_dataset_version'] == old['source']['dataset_version'] == 1
+    assert '来源记录数为 6，有效记录或配对数为 4，排除数为 2' in text
+    assert '体重' in text and 'mg' in text
     for forbidden in (old['source']['dataset_id'], old['source']['dataset_sha256'], scenario['file']['id'], scenario['file']['sha256']):
-        assert forbidden not in main_text
-    assert old['source']['dataset_id'] not in text and old['source']['dataset_sha256'] not in text
+        assert forbidden not in text

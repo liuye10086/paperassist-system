@@ -10,7 +10,7 @@ from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 
 from app.core.exceptions import StorageError
-from .document_layout.package import read_package, write_package, parse, encode, NS
+from .document_layout.package import read_package, write_package, parse, NS
 from .manuscript_docx import _paragraph, _save_document, _figure
 
 
@@ -167,69 +167,6 @@ def _declarations(document, config, language):
         document.add_paragraph(labels_pair[0 if en else 1]+': '+text)
 
 
-def _replace_nodes(nodes, pattern, replacement):
-    """Replace explicit text across Word runs while retaining unaffected runs/styles."""
-    text = ''.join(n.text or '' for n in nodes)
-    spans = []; offset = 0
-    for node in nodes:
-        spans.append((node, offset, offset+len(node.text or ''))); offset = spans[-1][2]
-    for match in reversed(list(pattern.finditer(text))):
-        for node, start, end in spans:
-            left, right = max(start, match.start()), min(end, match.end())
-            if left >= right: continue
-            insert = replacement if start <= match.start() < end else ''
-            node.text = (node.text or '')[:left-start]+insert+(node.text or '')[right-start:]
-
-
-def inspect_docx(raw, rules):
-    parts = read_package(raw)
-    allowed = {e['term'] for e in rules['exceptions']}
-    terms = [t for t in rules['identity_terms'] if t not in allowed]
-    remaining = []
-    for name, value in parts.items():
-        values = [name]
-        if name.endswith(('.xml', '.rels')):
-            root = parse(value)
-            values.extend(''.join(n.itertext()) for n in root.iter() if n.tag == qn('w:p'))
-            values.extend(n.text or '' for n in root.iter())
-            values.extend(a for n in root.iter() for a in n.attrib.values())
-        hits = [term for term in terms if any(term in value for value in values)]
-        if hits: remaining.append(dict(part=name, terms=hits))
-    images = any(n.startswith('word/media/') for n in parts)
-    return dict(known_identity_check='pending' if remaining else 'passed', remaining=remaining,
-                images=('user_confirmed' if rules['manual_image_review'] else 'pending_manual_review') if images else 'not_present',
-                exceptions=deepcopy(rules['exceptions']), anonymity_verified=False)
-
-
-def blind_docx(raw, rules, *, replacement='[已隐去]'):
-    parts = read_package(raw)
-    allowed = {e['term'] for e in rules['exceptions']}
-    terms = sorted({t for t in rules['identity_terms'] if t and t not in allowed}, key=len, reverse=True)
-    pattern = re.compile('|'.join(re.escape(t) for t in terms)) if terms else None
-    for name, value in list(parts.items()):
-        if not name.endswith(('.xml', '.rels')): continue
-        root = parse(value)
-        if pattern:
-            for paragraph in root.iter(qn('w:p')):
-                _replace_nodes(list(paragraph.iter(qn('w:t'))), pattern, replacement)
-            for node in root.iter():
-                if node.tag != qn('w:t') and node.text and (replacement!='XXX' or node.tag not in (qn('w:instrText'),)):
-                    node.text = pattern.sub(replacement, node.text)
-                for key, val in list(node.attrib.items()):
-                    # Relationship targets remain intact; unresolved names are reported.
-                    if key != 'Target' and (replacement!='XXX' or key.rsplit('}',1)[-1] in ('name','descr','title','author','initials')):
-                        node.set(key, pattern.sub(replacement, val))
-        if name == 'docProps/core.xml':
-            for node in root:
-                if node.tag.rsplit('}', 1)[-1] in ('creator', 'lastModifiedBy'): node.text = 'Anonymous'
-        for node in root.iter():
-            for key in list(node.attrib):
-                if key in (qn('w:author'), qn('w:initials')): node.set(key, 'Anonymous')
-        parts[name] = encode(root)
-    content = write_package(parts)
-    return content, inspect_docx(content, rules)
-
-
 def language_inventory(raw, language, source_map=()):
     owned = {r.get('source_bookmark'): r for r in source_map if r.get('source_bookmark')}
     items = []
@@ -312,8 +249,8 @@ def _school_display_headings(document, nodes):
         outline.set(qn('w:val'), '9')
 
 
-def decorate_docx(raw, selected, peer, config, language_view, review_mode, *, peer_images=None, source_map=(),
-                  excluded_chapter_ids=frozenset(), defer_blind=False):
+def decorate_docx(raw, selected, peer, config, language_view, *, peer_images=None, source_map=(),
+                  excluded_chapter_ids=frozenset()):
     document = Document(BytesIO(raw))
     original_nodes = set(document.element.body)
     if language_view == 'zh-CN-en':
@@ -322,7 +259,7 @@ def decorate_docx(raw, selected, peer, config, language_view, review_mode, *, pe
         _bilingual(document, selected, peer, config, peer_images or {},excluded_chapter_ids)
     from app.domain.school_templates import bsu_gs501
     gs501 = bsu_gs501.selected(selected)
-    if not gs501 or review_mode != 'blind' and (config['authors'] or config['statements']):
+    if not gs501 or config['authors'] or config['statements']:
         _declarations(document, config, selected['output_language'])
     if selected.get('thesis_context'):
         # Added presentation headings are outside the confirmed school chapter TOC.
@@ -337,42 +274,4 @@ def decorate_docx(raw, selected, peer, config, language_view, review_mode, *, pe
             parts = {name: rendered.read(name) for name in rendered.namelist()}
         parts[layout_path] = layout
         content = write_package(parts)
-    blind = None
-    if review_mode == 'blind' and not defer_blind:
-        rules = bsu_gs501.blind_terms(None, config['blind'], authors=config['authors']) if gs501 else config['blind']
-        content, blind = blind_docx(content, rules, replacement='XXX' if gs501 else '[已隐去]')
-    return content, dict(blind=blind, language_inventory=language_inventory(content, selected['output_language'], source_map))
-
-
-def inspect_pdf(raw, rules, *, image_status='pending_manual_review'):
-    """Inspect new PDF bytes, including metadata and actual passive annotation fields."""
-    import ctypes
-    import pypdfium2 as pdfium
-    allowed={e['term'] for e in rules['exceptions']}
-    terms=[t for t in rules['identity_terms'] if t not in allowed]
-    locations=[]
-    with pdfium.PdfDocument(raw) as document:
-        for key,value in document.get_metadata_dict().items():locations.append(('metadata:'+key,value))
-        for index,bookmark in enumerate(document.get_toc()):locations.append(('bookmark:'+str(index),bookmark.get_title()))
-        for index in range(document.count_attachments()):locations.append(('attachment:'+str(index),document.get_attachment(index).get_name()))
-        for index in range(len(document)):
-            page=document[index]
-            try:
-                textpage=page.get_textpage()
-                try:locations.append(('page:'+str(index+1),textpage.get_text_range()))
-                finally:textpage.close()
-                for number in range(pdfium.raw.FPDFPage_GetAnnotCount(page.raw)):
-                    annotation=pdfium.raw.FPDFPage_GetAnnot(page.raw,number)
-                    try:
-                        for key in (b'T',b'Contents',b'Subj',b'NM'):
-                            length=pdfium.raw.FPDFAnnot_GetStringValue(annotation,key,None,0)
-                            if length <= 2:continue
-                            buffer=(ctypes.c_ushort*(length//2))()
-                            pdfium.raw.FPDFAnnot_GetStringValue(annotation,key,buffer,length)
-                            locations.append((f'page:{index+1}:annotation:{number}:{key.decode()}',bytes(buffer).decode('utf-16-le').rstrip('\0')))
-                    finally:pdfium.raw.FPDFPage_CloseAnnot(annotation)
-            finally:page.close()
-    remaining=[dict(location=location,terms=[term for term in terms if term in text]) for location,text in locations
-               if any(term in text for term in terms)]
-    return dict(known_identity_check='pending' if remaining else 'passed',remaining=remaining,
-                image_identity=image_status,anonymity_verified=False)
+    return content, dict(language_inventory=language_inventory(content, selected['output_language'], source_map))

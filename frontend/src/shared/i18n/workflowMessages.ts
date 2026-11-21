@@ -290,7 +290,6 @@ export const workflowMessages: Record<string, string> = {
   '图表来源与核对记录': 'Chart sources and verification',
   '横轴：': 'X-axis: ',
   '；纵轴：': '; Y-axis: ',
-  '；请同时人工核对图像与标签。': '; Manually check the image and labels as well.',
   '保存时间：': 'Saved: ',
   '尚未生成此统计结果的箱线图。': 'No boxplot has been generated for these statistics.',
   '请先生成并保存箱线图，再生成分析解释。': 'Generate and save a boxplot before generating an explanation.',

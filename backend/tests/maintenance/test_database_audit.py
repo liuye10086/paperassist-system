@@ -31,13 +31,17 @@ def test_native_datetime_keeps_legacy_text_validation_separate(value, expected):
     else:
         assert valid_timestamp(value)
 
+# The 0090 schema exposes 340 legacy, lineage, ownership and integrity checks.
+CURRENT_AUDIT_CHECK_COUNT = 340
+
+
 def test_clean_schema(postgres_schema):
     from app.db.database import database_connection
     with database_connection(config=postgres_schema) as db:
         result = audit_database(db)
     assert result['ok'], result
     # Includes plan lineage, lifecycle receipts and scope-trigger integrity.
-    assert len(result['data_checks']) == 91
+    assert len(result['data_checks']) == CURRENT_AUDIT_CHECK_COUNT
     version_checks = {(check['table'], check['column']) for check in result['data_checks']
                       if check['table'] in {'file_structure_versions', 'dataset_versions'}}
     assert version_checks == {
@@ -172,6 +176,7 @@ def test_source_chain_mismatch(postgres_schema):
         result = audit_database(db)
     assert next(c for c in result['data_checks'] if c['table']=='explanations' and c['column']=='figure_id')['invalid'] == 1
 
+@pytest.mark.initial_revision('0005_ownership_indexes')
 def test_index_migration_roundtrip_preserves_values(postgres_schema, postgres_migration_config):
     from alembic import command
     from app.db.database import alembic_config, migration_connection
@@ -183,7 +188,7 @@ def test_index_migration_roundtrip_preserves_values(postgres_schema, postgres_mi
         settings.attributes['database_config'] = postgres_migration_config
         command.downgrade(settings, '0004_language_preferences')
         assert db.execute("SELECT to_regclass('projects_owner_updated') AS name").fetchone()['name'] is None
-        command.upgrade(settings, 'head')
+        command.upgrade(settings, '0005_ownership_indexes')
         assert dict(db.execute("SELECT * FROM projects WHERE id='p'").fetchone()) == before
         assert db.execute("SELECT to_regclass('projects_owner_updated') AS name").fetchone()['name'] is not None
 
@@ -197,7 +202,7 @@ def test_index_drift_still_audits_legacy_values(postgres_schema, postgres_migrat
         result = audit_database(db)
     assert not result['ok']
     assert {'table': 'reports', 'kind': 'index:reports_run'} in result['schema_issues']
-    assert len(result['data_checks']) == 91
+    assert len(result['data_checks']) == CURRENT_AUDIT_CHECK_COUNT
     assert next(c for c in result['data_checks'] if c['table']=='projects' and c['column']=='created_at')['invalid'] == 1
 
 def test_version_drift_is_reported_without_hiding_data(postgres_schema, postgres_migration_config):
@@ -208,11 +213,76 @@ def test_version_drift_is_reported_without_hiding_data(postgres_schema, postgres
         result = audit_database(db)
     assert not result['ok']
     assert {'table': 'alembic_version', 'kind': 'version'} in result['schema_issues']
-    assert len(result['data_checks']) == 91
+    assert len(result['data_checks']) == CURRENT_AUDIT_CHECK_COUNT
 
 import unittest
 
+class MigratedAuditMetadataTests(unittest.TestCase):
+    def test_cloud_and_annotation_task_scope_checks_match_the_migrations(self):
+        from sqlalchemy import CheckConstraint
+        from app.db.schema import metadata
+        from app.maintenance.database_audit import _check_signature
+
+        expected = {
+            'tasks_bio_cloud_snapshot_check': """task_type <> 'bio_cloud_run' OR (
+                workflow_version = 'bio_cloud_run_v1' AND input_snapshot->>'kind' = 'bio_cloud_run'
+                AND input_snapshot->>'project_id' = project_id AND input_snapshot->>'run_id' IS NOT NULL) IS TRUE""",
+            'tasks_annotation_snapshot_check': """task_type <> 'bio_annotation' OR (
+                workflow_version = 'bio_annotation_v1' AND input_snapshot->>'kind' = task_type
+                AND input_snapshot->>'project_id' = project_id AND input_snapshot->>'run_id' = id
+                AND jsonb_typeof(input_snapshot->'parent_processed_source') = 'object'
+                AND input_snapshot->>'request_digest' ~ '^[0-9a-f]{64}$') IS TRUE""",
+        }
+        checks = {c.name: c for c in metadata.tables['tasks'].constraints if isinstance(c, CheckConstraint)}
+        for name, expression in expected.items():
+            with self.subTest(constraint=name):
+                self.assertIn(name, checks)
+                self.assertEqual(_check_signature(checks[name].sqltext), _check_signature(expression))
+
+    def test_statistics_context_source_indexes_match_the_migrated_name_and_column(self):
+        from app.db.schema import metadata
+
+        for name in ('manuscript_research_sources', 'research_source_bindings'):
+            with self.subTest(table=name):
+                matches = [(i.name, i.unique) for i in metadata.tables[name].indexes
+                           if list(i.columns.keys()) == ['statistics_report_context_id']]
+                self.assertEqual(matches, [('src_' + name + '_context', False)])
+
 class AuditNormalizationTests(unittest.TestCase):
+    def test_partial_index_predicate_uses_postgresql_ddl(self):
+        import sqlalchemy as sa
+        from app.maintenance.database_audit import _check_signature
+
+        table = sa.table('project_assignments', sa.column('analyst_id'), sa.column('role'))
+        predicate = table.c.analyst_id.is_not(None) & (table.c.role == 'customer')
+        actual = "(analyst_id IS NOT NULL) AND (role = 'customer'::text)"
+        self.assertEqual(_check_signature(predicate), _check_signature(actual))
+        self.assertNotEqual(_check_signature(predicate), _check_signature(actual.replace("'customer'", "'analyst'")))
+        self.assertNotEqual(_check_signature(predicate), _check_signature(actual.replace('IS NOT NULL', 'IS NULL')))
+
+    def test_catalog_check_constraint_spellings(self):
+        from app.maintenance.database_audit import _check_signature
+
+        pairs = [
+            ('length(btrim(reason)) BETWEEN 5 AND 500', 'length(btrim(reason)) >= 5 AND length(btrim(reason)) <= 500',
+             'length(btrim(reason)) >= 6 AND length(btrim(reason)) <= 500'),
+            ('position BETWEEN 1 AND 30', '"position" >= 1 AND "position" <= 30',
+             '"Position" >= 1 AND "Position" <= 30'),
+            ('size_bytes <= 127775277056', "size_bytes <= '127775277056'::bigint",
+             "size_bytes <= '127775277055'::bigint"),
+            ('length(trim(note)) > 0', 'length(TRIM(BOTH FROM note)) > 0',
+             'length(TRIM(LEADING FROM note)) > 0'),
+            ("jsonb_array_length(input_snapshot->'files') BETWEEN 1 AND 7",
+             "jsonb_array_length(input_snapshot -> 'files'::text) >= 1 AND jsonb_array_length(input_snapshot -> 'files'::text) <= 7",
+             "jsonb_array_length(input_snapshot -> 'Files'::text) >= 1 AND jsonb_array_length(input_snapshot -> 'files'::text) <= 7"),
+        ]
+        for expected, reflected, changed in pairs:
+            with self.subTest(expected=expected):
+                self.assertEqual(_check_signature(expected), _check_signature(reflected))
+                self.assertNotEqual(_check_signature(expected), _check_signature(changed))
+        self.assertNotEqual(_check_signature("s = 'length(trim(note))'"),
+                            _check_signature("s = 'length(TRIM(BOTH FROM note))'"))
+
     def test_literals_remain_case_sensitive(self):
         from app.maintenance.database_audit import _check_signature
         self.assertNotEqual(_check_signature("ui_language IN ('zh-CN','en')"), _check_signature("ui_language IN ('zh-cn','EN')"))

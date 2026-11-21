@@ -108,3 +108,16 @@ it.each([
  const snapshot={...snapshotFixture,output_language,results_groups:[{id:'g1',title:'Results',paragraphs:[],figures:[],tables:[{id:'table1',number:1,title,columns:['Value'],rows:[['1']],source_ids:[]}]}]} as Snapshot
  render(<ManuscriptPreview snapshot={snapshot}/>);expect(screen.getByRole('table').querySelector('caption')?.textContent).toBe(caption);expect(snapshot.results_groups[0].tables[0].title).toBe(title)
 })
+
+
+it.each([['zh-CN', '文中引用的图表', '冻结图表引用'], ['en', 'Figures and tables cited in the text', 'Frozen figure and table references']] as const)(
+ 'uses a plain figure reference label in the customer manuscript body (%s)', (locale, label, internal) => {
+  const snapshot = { ...snapshotFixture, output_language: locale, methods: [{ ...snapshotFixture.methods[0],
+   cross_references: [{ kind: 'figure', number: 1, panel_label: 'A' }], }] } as unknown as Snapshot
+  const view = render(<ManuscriptPreview customerView presentation="body" snapshot={snapshot} />)
+  expect(screen.getByText(label + ' ·')).toBeTruthy()
+  expect(document.body.textContent).not.toContain(internal)
+  view.rerender(<ManuscriptPreview presentation="body" snapshot={snapshot} />)
+  expect(screen.getByText(internal + ' ·')).toBeTruthy()
+ },
+)

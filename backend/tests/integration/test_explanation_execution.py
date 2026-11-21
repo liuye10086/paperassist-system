@@ -14,7 +14,7 @@ from tests.api.test_analysis import client  # noqa: F401
 from tests.api.test_boxplot import cloud  # noqa: F401
 from tests.domain.test_explanation_content import valid_draft
 from tests.helpers.tasks import task_owner
-from tests.integration.test_explanations import ready
+from tests.integration.test_explanations import ready, writer  # noqa: F401
 from tests.integration.test_task_execution import expired
 
 
@@ -145,6 +145,28 @@ def run(task, provider):
     return execution.run_explanation_task(task['id'], task['revision'], provider_factory=lambda: provider)
 
 
+def test_explicit_task_recheck_uses_only_the_completed_explanation_response(client, cloud, monkeypatch):
+    from app.core.exceptions import PlotError
+    from app.domain.tasks import explanation_execution
+
+    task, *_ = execution_setup(client)
+    provider = SyntheticProvider()
+
+    def reject_before_fix(draft, payload):
+        raise PlotError('explanation_invalid', '原核验规则拒绝了已完成的解释。')
+
+    with monkeypatch.context() as old:
+        old.setattr(explanation_execution, 'render_explanation', reject_before_fix)
+        failed = run(task, provider)
+    path = '/api/v1/tasks/' + task['id']
+    assert failed['error_code'] == 'explanation_invalid'
+    assert 'retry' in client.get(path + '/workspace').json()['allowed_actions']
+    response = client.post(path + '/retry', json={'expected_revision': failed['revision']})
+    assert response.status_code == 202, response.text
+    assert run(response.json(), provider)['status'] == 'succeeded'
+    assert len(provider.posts) == len(provider.gets) == 1
+
+
 def test_pending_response_releases_worker_then_completes_same_call_and_attempt(client, cloud):
     task, owner, _, _, _, service = execution_setup(client)
     provider = SyntheticProvider(pending=True)
@@ -163,7 +185,8 @@ def test_pending_response_releases_worker_then_completes_same_call_and_attempt(c
         assert saved['provenance']['model_call_id'] == call['id']
         assert saved['provenance']['model_input_digest'] == call['input_digest']
         assert saved['provenance']['input_sha256'] != call['input_digest']
-        assert len(db.execute('SELECT * FROM task_attempts').fetchall()) == 1
+        attempts = db.execute('SELECT attempt_no,status FROM task_attempts WHERE task_id=%s', (task['id'],)).fetchall()
+        assert attempts == [{'attempt_no': 1, 'status': 'succeeded'}]
         assert {r['status'] for r in db.execute('SELECT status FROM budget_reservations')} == {'settled'}
 
 
@@ -374,22 +397,31 @@ def test_final_source_reads_cannot_outlive_publication_lease(client, cloud, monk
         assert not db.execute('SELECT id FROM explanations').fetchall()
 
 
-def test_later_cached_result_does_not_abandon_an_already_submitted_call(client, cloud):
-    task, owner, *_ = execution_setup(client)
-    second = same_source_task(task['id'], owner)
-    first_provider, second_provider = SyntheticProvider(pending=True), SyntheticProvider(pending=True)
-    second_provider.response_id = 'resp_second_task'
-    first_pending, second_pending = run(task, first_provider), run(second, second_provider)
-    first_provider.pending = False
-    first_done = run(first_pending, first_provider)
-    still_pending = run(second_pending, second_provider)
-    assert still_pending['status'] == 'running' and len(second_provider.gets) == 1
-    second_provider.pending = False
-    second_done = run(still_pending, second_provider)
-    assert second_done['status'] == 'succeeded'
-    assert second_done['result_explanation_id'] == first_done['result_explanation_id']
+def test_later_cached_result_does_not_abandon_an_already_submitted_call(client, cloud, request):
+    from tests.integration.test_explanations import recover, seed_legacy
+
+    task, _, base, result, figure, _ = execution_setup(client)
+    provider = SyntheticProvider(pending=True)
+    pending = run(task, provider)
+    assert pending['status'] == 'running' and len(provider.posts) == 1
+
+    # A legacy response can finish independently while this task holds the serial worker slot.
+    legacy_writer = request.getfixturevalue('writer')
+    url = f"{base}/analysis-runs/{result['id']}/explanation"
+    seed_legacy(client, url, figure)
+    recover()
+    cached = client.get(url).json()['explanation']
+    assert cached and not legacy_writer.calls
+
+    still_pending = run(pending, provider)
+    assert still_pending['status'] == 'running' and provider.gets == [provider.response_id]
+    provider.pending = False
+    finished = run(still_pending, provider)
+    assert finished['status'] == 'succeeded' and finished['result_explanation_id'] == cached['id']
+    assert provider.gets == [provider.response_id, provider.response_id] and len(provider.posts) == 1
     with database_connection() as db:
-        assert {row['status'] for row in db.execute('SELECT status FROM budget_reservations')} == {'settled'}
+        reservations = db.execute('SELECT status FROM budget_reservations').fetchall()
+        assert len(reservations) == 3 and all(row['status'] == 'settled' for row in reservations)
 
 
 def test_unknown_on_final_automatic_attempt_still_waits_without_requeue(client, cloud):
@@ -419,7 +451,7 @@ def test_unknown_on_final_automatic_attempt_still_waits_without_requeue(client, 
     assert waiting['current_attempt'] == 3
     with database_connection() as db:
         assert {row['status'] for row in db.execute('SELECT status FROM budget_reservations')} == {'held'}
-        assert db.execute('SELECT count(*) AS n FROM task_outbox').fetchone()['n'] == 3
+        assert db.execute('SELECT count(*) AS n FROM task_outbox WHERE task_id=%s', (task['id'],)).fetchone()['n'] == 3
 
 
 def test_source_changed_between_slices_still_retrieves_and_accounts_existing_response(client, cloud):

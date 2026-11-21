@@ -185,7 +185,8 @@ def test_boxplot_one_post_per_slice_then_original_png_and_ledger(client):
         assert figure['engine']['id'] == 'openai_boxplot_v1'
         assert call['provider_status'] == 'completed'
         assert {row['status'] for row in db.execute('SELECT status FROM budget_reservations')} == {'held'}
-        assert len(db.execute('SELECT id FROM task_attempts').fetchall()) == 1
+        attempts = db.execute('SELECT attempt_no,status FROM task_attempts WHERE task_id=%s', (task['id'],)).fetchall()
+        assert [(row['attempt_no'], row['status']) for row in attempts] == [(1, 'succeeded')]
 
 
 def test_boxplot_unconfigured_waits_without_provider(client):

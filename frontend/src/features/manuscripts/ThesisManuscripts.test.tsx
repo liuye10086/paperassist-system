@@ -4,13 +4,13 @@ import ProjectManuscripts from './ProjectManuscripts'
 import ManuscriptPreview from './ManuscriptPreview'
 import ManuscriptWriting from './ManuscriptWriting'
 import ManuscriptExports from './ManuscriptExports'
-import {emptyPresentation} from './presentationTypes'
 import ManuscriptReview from './ManuscriptReview'
 import WritingLanguageReview from './WritingLanguageReview'
 import {SchoolVersionOrigin} from './SchoolChanges'
 import {reviewContext} from './reviewFixtures'
 import {taskFixture} from '../tasks/taskFixtures'
 import {setLocale} from '../../shared/i18n'
+import {findTechnicalText} from '../../test/technicalText'
 import {candidatesFixture,exportFixture,manuscriptFixture,snapshotFixture} from './manuscriptFixtures'
 import {languageArtifact,scienceReview} from './writingLiveFixtures'
 import {emptyInput,validInput,validManuscript,validSnapshot,type Snapshot,type ManuscriptVersion} from './manuscriptTypes'
@@ -110,19 +110,14 @@ it('opens fixed school export while keeping controlled writing available',async(
  expect(fetcher.mock.calls.every(([,init])=>!init?.method)).toBe(true)
 })
 
-it('exports reviewed school options by default and binds blind Word to a saved configuration for the same version',async()=>{
+it('exports reviewed school options by default as the only thesis Word',async()=>{
  const schoolOptions={manual_fields:{author:'合成作者',student_id:'',department:'',major:'',class_name:'',supervisor:'',submission_date:''},
   manual_chapters:[],english_title:'Reviewed title',keywords:[],include_toc:true,toc_depth:3}
  const version:ManuscriptVersion={...manuscriptFixture.versions[0] as ManuscriptVersion,exports:[],snapshot:{...snapshot,writing_provenance:{
   ...scienceReview.candidate.writing_provenance!,language_review_id:'language-review-1',school_export_options:schoolOptions,
  }}}
- const config=emptyPresentation()
- const saved={id:'blind-config',schema_version:1,manuscript_id:'m1',base_version_id:version.id,peer_version_id:null,
-  revision:1,config:{...config,blind:{...config.blind,identity_terms:['补充身份词']}},checks:[],paragraph_groups:[],
-  quality:{scientific_semantic:'pending',word_wps:'pending',real_compliance:'pending'},can_export:true,stale:false,stale_version_ids:[]}
  const exportPath='/api/v1/projects/p1/manuscripts/m1/versions/1/exports'
  const fetcher=vi.fn(async(url:string,init?:RequestInit)=>{
-  if(url.endsWith('/presentations'))return Response.json(init?.method==='POST'?saved:{items:[]})
   if(url===exportPath&&init?.method==='POST')return Response.json(exportFixture)
   if(url===exportPath)return Response.json({items:[]})
   return new Response(null,{status:404})
@@ -132,22 +127,10 @@ it('exports reviewed school options by default and binds blind Word to a saved c
  expect(screen.getByLabelText('作者')).toHaveProperty('value','合成作者')
  expect(screen.getByLabelText('作者').matches(':disabled')).toBe(true)
  expect(fetcher.mock.calls.some(([url])=>url.endsWith('/presentations'))).toBe(false)
- fireEvent.click(screen.getByRole('button',{name:'生成 DOCX'}))
+ fireEvent.click(screen.getByRole('button',{name:'生成 Word'}))
  await waitFor(()=>expect(fetcher.mock.calls.find(([url,init])=>url===exportPath&&init?.method==='POST')?.[1]?.body).toBe('{}'))
- const mode=screen.getByRole('button',{name:'独立盲审派生稿'})
- await waitFor(()=>expect(mode.matches(':disabled')).toBe(false))
- fireEvent.click(mode)
- expect(screen.queryByLabelText('关联的另一语言固定版本')).toBeNull()
- expect(screen.getByRole('button',{name:'生成 DOCX'}).matches(':disabled')).toBe(true)
- fireEvent.change(screen.getByLabelText('明确隐藏的身份词'),{target:{value:'补充身份词'}})
- const save=screen.getByRole('button',{name:'保存盲审配置'})
- await waitFor(()=>expect(save.matches(':disabled')).toBe(false))
- fireEvent.click(save)
- await waitFor(()=>expect(screen.getByRole('button',{name:'生成 DOCX'}).matches(':disabled')).toBe(false))
- fireEvent.click(screen.getByRole('button',{name:'生成 DOCX'}))
- await waitFor(()=>expect(fetcher.mock.calls.filter(([url,init])=>url===exportPath&&init?.method==='POST')).toHaveLength(2))
- const blind=fetcher.mock.calls.filter(([url,init])=>url===exportPath&&init?.method==='POST')[1]
- expect(JSON.parse(String(blind[1]?.body))).toEqual({presentation_version_id:saved.id,language_view:'zh-CN',review_mode:'blind'})
+ expect(screen.queryByRole('button',{name:'独立盲审派生稿'})).toBeNull()
+ expect(fetcher.mock.calls.some(([url])=>url.endsWith('/presentations'))).toBe(false)
  expect(screen.queryByRole('link',{name:/交付登记/})).toBeNull()
 })
 
@@ -168,7 +151,7 @@ it('uses inherited thesis cover defaults for the revised Word and allows deliber
  expect(author.matches(':disabled')).toBe(false)
  expect(screen.getByLabelText('目录深度')).toHaveProperty('value','2')
  fireEvent.change(author,{target:{value:'核对后的作者'}})
- fireEvent.click(screen.getByRole('button',{name:'生成 DOCX'}))
+ fireEvent.click(screen.getByRole('button',{name:'生成 Word'}))
  await waitFor(()=>{
   const posted=fetcher.mock.calls.find(([,init])=>init?.method==='POST')
   expect(JSON.parse(String(posted?.[1]?.body))).toMatchObject({
@@ -266,6 +249,34 @@ it('accepts the school report wrapper with common review issue rule versions and
  const ref={id:'school-refs',title:'参考资料',level:1,purpose:'references',output_language:'zh-CN',result_group_ids:[],paragraphs:[{id:'reference:1',text:'Reference text only once',origin:'literature',source_ids:[],citations:[]}]}
  render(<ManuscriptPreview snapshot={{...snapshot,sections:[...snapshot.sections!,ref],references:[{number:1,text:'Reference text only once',project_reference_id:'ref1'}]} as unknown as Snapshot}/>);
  expect(screen.getAllByText('Reference text only once')).toHaveLength(1)
+})
+
+// B04 task 10: the thesis customer Word page (wordOnly) has one Word kind, no folded sections and no system values,
+// also when the list holds a historical blind export.
+it('keeps the thesis customer Word page to identified Word rows without folds or technical text',async()=>{
+ const ids={signed:'6f1d2c3b-4a5e-4f60-8a7b-9c0d1e2f3a4b',blind:'0b9e8d7c-6f5a-4b3c-9d2e-1f0a9b8c7d6e',signedTask:'3c4d5e6f-7a8b-4c9d-8e0f-1a2b3c4d5e6f',blindTask:'9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d'}
+ const sha='3f9a1c'+'0'.repeat(52)+'b7e4d2'
+ const word=(id:string,task_id:string,created_at:string,extra:Record<string,unknown>={})=>({...exportFixture,id,task_id,created_at,sha256:sha,filename:'毕业论文.docx',download_url:`/api/v1/projects/p1/manuscripts/m1/exports/${id}/download`,...extra})
+ const legacy={binding:{presentation_version_id:'p-old',language_view:'zh-CN',review_mode:'blind'},checks:[{code:'blind:images',status:'pending',message:'Images require blind review'}],quality:{scientific_semantic:'pending',word_wps:'pending',real_compliance:'pending'},blind:{known_identity_check:'passed',remaining:[],images:'pending_manual_review',exceptions:[],anonymity_verified:false}}
+ const items=[word(ids.blind,ids.blindTask,'2026-11-19T09:30:00Z',{filename:'毕业论文盲审稿.docx',presentation:legacy}),word(ids.signed,ids.signedTask,'2026-11-19T08:15:00Z')]
+ const version={...manuscriptFixture.versions[0],snapshot,exports:[],created_at:'2026-11-19T07:40:00Z'}
+ const base='/api/v1/projects/p1/manuscripts'
+ vi.stubGlobal('fetch',vi.fn(async(url:string)=>{
+  if(url===`${base}/candidates`)return Response.json({...candidatesFixture,project_type:'thesis',thesis:readiness})
+  if(url===base)return Response.json({items:[{...manuscriptFixture,versions:[version]}]})
+  if(url===`${base}/m1/versions/1/exports`)return Response.json({items})
+  return Response.json({items:[]})
+ }))
+ const {container}=render(<ProjectManuscripts {...props} customerThesis={{wordOnly:true}} view="exports" openLatest onViewChange={()=>{}} onSelectVersion={()=>{}}/>)
+ const region=await screen.findByRole('region',{name:'Word'})
+ const earlier=await within(region).findByRole('region',{name:'之前生成的 Word'})
+ expect(earlier.textContent).toContain('历史盲审稿')
+ expect(within(region).getAllByRole('link',{name:'下载这份 Word'})).toHaveLength(2)
+ for(const text of ['署名稿','独立盲审派生稿','输出配置','配置版本','Images require blind review'])expect(container.textContent).not.toContain(text)
+ expect(container.querySelectorAll('[aria-pressed="true"]').length).toBeLessThanOrEqual(1)
+ expect(region.querySelectorAll('[aria-pressed]')).toHaveLength(0)
+ expect(container.querySelectorAll('details')).toHaveLength(0)
+ expect(findTechnicalText(container,{systemIds:[...Object.values(ids),sha]})).toEqual([])
 })
 
 it('preserves the old SCI input contract by omitting thesis and rejects explicit null',()=>{

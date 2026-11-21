@@ -13,14 +13,13 @@ from app.adapters.bio_engine import plots
 
 
 def render(payload):
-    raw,features,barcodes,positions=load_raw(payload['raw']);writer=Writer(payload['output_directory']);writer.identity=payload.get('identity',{})
+    writer=Writer(payload['output_directory']);writer.identity=payload.get('identity',{})
     processed=payload['processed']; members=processed['members']
     import hashlib
     for member in members.values():
         path=Path(member['path'])
         if path.stat().st_size!=member['size_bytes'] or hashlib.sha256(path.read_bytes()).hexdigest()!=member['sha256']:
             raise ValueError('processed_hash_mismatch')
-    obj=ad.read_h5ad(members['processed']['path'])
     config=dict(payload['config']);kind=config['kind']
     panel=config.get('panel','default')
     permitted={'qc':{'default','distribution','scatter','violin','mitochondrial','sample_id','section','batch'},'pca':{'default','scores','variance'},'umap':{'default','scores'}}
@@ -28,6 +27,46 @@ def render(payload):
     config.update(width_inches=config.get('width',1800)/config.get('dpi',300),height_inches=config.get('height',1500)/config.get('dpi',300),cmap=config.get('palette','viridis'))
     if config['cmap'] not in {'viridis','magma','tab20'}: raise ValueError('unsupported_palette')
     if len(config.get('title',''))>200: raise ValueError('title_limit')
+    if kind=='qc':
+        render_saved_qc(writer,members,panel,config)
+    elif kind in ('integration_covariates','integration_harmony'):
+        from app.adapters.bio_engine.integration import integration_figure_from_saved
+        if payload['raw']['manifest'].get('assay')!='single_cell' or kind+'_data' not in members:
+            raise ValueError('invalid_parameter_figure_kind')
+        integration_figure_from_saved(writer,kind,json.loads(Path(members[kind+'_data']['path']).read_bytes()),config)
+    else:
+        render_processed_figure(writer,payload,kind,panel,members,config)
+    manifest={'schema_version':1,'engine_version':ENGINE_VERSION,'renderer_version':'bio_plots_v1','identity':payload.get('identity',{}),'config':config,
+              'members':[{k:v for k,v in a.items() if k!='path'} for a in writer.artifacts]}
+    writer.json('manifest',manifest)
+    return clean({'status':'completed','engine_version':ENGINE_VERSION,'outputs':writer.artifacts,'manifest':manifest,'summary':{'figures':sum(m['format']=='png' for m in writer.artifacts)},'steps':[{'key':'render','status':'completed','reason':None,'params':config}], 'checks':{'source_hashes':'verified'},'effective_params':config})
+
+
+def render_saved_qc(writer,members,panel,config):
+    panel='distribution' if panel=='default' else panel
+    if panel in ('sample_id','section','batch'):
+        key='qc_by_'+panel+'_data'
+        if key in members:
+            data=json.loads(Path(members[key]['path']).read_bytes())
+            raw_counts,raw_detected,values=data['total_counts'],data['detected_genes'],data['values']
+        else:
+            import csv
+            with Path(members['observations']['path']).open(encoding='utf8',newline='') as table:
+                rows=list(csv.DictReader(table,delimiter='\t'))
+            raw_counts=[float(row['total_counts']) for row in rows]
+            raw_detected=[float(row['detected_genes']) for row in rows]
+            values=[row.get(panel) or 'unknown' for row in rows]
+        qc=dict(raw_counts=np.asarray(raw_counts),raw_detected=np.asarray(raw_detected))
+        plots.qc_stratified(writer,qc,panel,values,config)
+    else:
+        data=json.loads(Path(members['qc_'+panel+'_data']['path']).read_bytes())
+        plots.qc_figure_from_saved(writer,panel,data,config)
+
+
+def render_processed_figure(writer,payload,kind,panel,members,config):
+    import hashlib
+    raw,features,barcodes,positions=load_raw(payload['raw'])
+    obj=ad.read_h5ad(members['processed']['path'])
     mask=np.zeros(len(barcodes),dtype=bool);mask[obj.obs['raw_index'].to_numpy(dtype=int)]=True
     clusters=obj.obs['cluster'].astype(str).to_numpy()
     if kind=='pca' and panel=='variance':
@@ -63,16 +102,6 @@ def render(payload):
             plots.marker_figures_from_saved(writer,data,config,symbols)
         else:
             plots.marker_figures(writer,obj.layers['counts'],obj.X,clusters,list(obj.var_names),rows,{**config,'feature_symbols':symbols})
-    elif kind=='qc':
-        from app.adapters.bio_engine.qc import quality_control
-        qc=quality_control(raw,features,barcodes,positions,processed['manifest']['params'])
-        if panel in {'sample_id','section','batch'}:
-            import csv
-            rows=list(csv.DictReader(Path(members['observations']['path']).read_text().splitlines(),delimiter='\t'))
-            mapping={row['barcode']:row for row in rows}
-            values=[mapping.get(b,{}).get(panel) if mapping.get(b,{}).get(panel+'_status')=='known' else 'unknown' for b in barcodes]
-            plots.qc_stratified(writer,qc,panel,values,config)
-        else:plots.qc_figures(writer,qc,config)
     elif kind=='annotation' and raw is not None and payload['raw']['manifest'].get('assay')=='single_cell':
         render_cell_annotation(writer,obj,payload.get('annotation'),config)
     elif kind=='annotation':
@@ -94,17 +123,13 @@ def render(payload):
         pmap={p['barcode']:p for p in positions}
         for row in assignments['rows']:
             if row['barcode'] in pmap:
-                p=pmap[row['barcode']];ax.plot(p['pxl_col_in_fullres']*scale,p['pxl_row_in_fullres']*scale,'.',color='#777777' if row['label_id'] is None else label_colors[row['label_id']],markersize=2)
+                p=pmap[row['barcode']];ax.plot(p['pxl_col_in_fullres']*scale,p['pxl_row_in_fullres']*scale,'.',color='#777777' if row['label_id'] is None else label_colors[row['label_id']],markersize=config.get('point_size',4)**.5)
         if image is None:ax.invert_yaxis()
         handles=[Line2D([],[],marker='o',linestyle='none',color=label_colors[identifier],label=labels[identifier]['name']+' ['+labels[identifier].get('status','unknown')+']') for identifier in ordered]
         if any(row['label_id'] is None for row in assignments['rows']):handles.append(Line2D([],[],marker='o',linestyle='none',color='#777777',label='unknown'))
         ax.set_aspect('equal');ax.legend(handles=handles,fontsize=7);ax.set_title(config.get('title') or 'Manual region-enriched labels (exploratory)')
         plots.save(writer,'annotation',fig,{'geometry':geometry,'assignments':assignments,'labels':annotation['labels'],'label_colors':label_colors,'image_scale':scale},{**config,'panel':'default','effective_palette':effective})
     else:raise ValueError('unsupported_figure_kind')
-    manifest={'schema_version':1,'engine_version':ENGINE_VERSION,'renderer_version':'bio_plots_v1','identity':payload.get('identity',{}),'config':config,
-              'members':[{k:v for k,v in a.items() if k!='path'} for a in writer.artifacts]}
-    writer.json('manifest',manifest)
-    return clean({'status':'completed','engine_version':ENGINE_VERSION,'outputs':writer.artifacts,'manifest':manifest,'summary':{'figures':sum(m['format']=='png' for m in writer.artifacts)},'steps':[{'key':'render','status':'completed','reason':None,'params':config}], 'checks':{'source_hashes':'verified'},'effective_params':config})
 
 
 def render_cell_annotation(writer,obj,annotation,config):
@@ -129,7 +154,7 @@ def render_cell_annotation(writer,obj,annotation,config):
     colors,effective=plots.categorical_colors(sorted(set(display)),config.get('cmap','tab20'))
     fig,ax=plt.subplots()
     for label in sorted(set(display)):
-        selected=display==label;ax.scatter(points[selected,0],points[selected,1],s=8,label=label,color=colors[label])
+        selected=display==label;ax.scatter(points[selected,0],points[selected,1],s=config.get('point_size',8),label=label,color=colors[label])
     ax.set(xlabel='UMAP1',ylabel='UMAP2',title=config.get('title') or 'Cell annotation candidates')
     ax.legend(fontsize=7)
     plots.save(writer,'annotation',fig,dict(barcodes=cells,coordinates=points,color_labels=display,category_colors=colors,

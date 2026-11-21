@@ -28,6 +28,8 @@ function importProgress(task:BioImport['task']) {
 
 export default function BioImportReview({projectId,importId,onNavigate,registerLeaveGuard}:{projectId:string;importId:string;onNavigate:(n:AnalysisNavigation)=>void;registerLeaveGuard?:RegisterLeaveGuard}){
  const {t}=useI18n(),read=useBioRead<BioImport>(`${projectBase(projectId)}/bio-imports/${encodeURIComponent(importId)}`,v=>['queued','running'].includes(v.task.status)),data=read.value
+ const input:{kind?:string;assay?:string}|undefined=data?.task.input_version
+ const singleCell=input?.kind==='bio_import'&&input.assay==='single_cell'
  const signature=data?.candidate?JSON.stringify([data.candidate.sha256,data.checkpoint_id,data.wait_id,data.task.revision,data.expected_dataset_revision]):null
  const [accepted,setAccepted]=useState<string|null>(null),accept=!!signature&&accepted===signature
  const writer=useBioWrite<unknown>(projectId,'import_confirmation',()=>{setAccepted(null);read.reload()},()=>{setAccepted(null);read.reload()})
@@ -48,7 +50,7 @@ export default function BioImportReview({projectId,importId,onNavigate,registerL
   {data&&<>
    {data.candidate?<>
     <ModuleViews label={t('导入核对模块')}>
-     <ModuleView id="structure" title={t('文件结构')}><BioCounts summary={data.candidate.summary}/><BioChecks layout="table" checks={data.candidate.checks}/><BioRepresentation summary={data.candidate.summary} checks={data.candidate.checks}/></ModuleView>
+     <ModuleView id="structure" title={t('文件结构')}><BioCounts summary={data.candidate.summary}/><BioChecks layout="table" checks={data.candidate.checks} singleCell={singleCell}/><BioRepresentation summary={data.candidate.summary} checks={data.candidate.checks}/></ModuleView>
      <ModuleView id="members" title={t('文件成员')}><BioMembers members={data.candidate.members} projectId={projectId}/></ModuleView>
      <ModuleView id="design" title={t('研究设计')}><p>{t('结构核对不自动确认生物独立性；请结合冻结样本表与实验设计核对供体和重复关系。')}</p><BioDesignLinks projectId={projectId}/></ModuleView>
     </ModuleViews>

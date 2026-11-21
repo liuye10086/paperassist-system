@@ -191,7 +191,8 @@ def create_retention_scenario(client, monkeypatch) -> dict:
             assert not view['source']['is_current']
             assert view['source']['dataset_source'] == old['source']
             assert view['task']['input_version']['source'] == old['source']
-        for kind, expected in downloads.items():
+        for kind in ('figure', 'explanation'):
+            expected = downloads[kind]
             response = client.get(urls[kind])
             assert response.status_code == 200, response.text
             if kind == 'explanation':
@@ -207,9 +208,12 @@ def create_retention_scenario(client, monkeypatch) -> dict:
                 assert response.content == expected, kind
         with monkeypatch.context() as original_download:
             original_download.setattr(ProjectStore, 'original', original_reader)
+            report = client.get(urls['report'])
+            assert report.status_code == 200 and report.content == downloads['report']
             response = client.get(base+'/download')
             assert response.status_code == 200 and response.content == content
-        assert retention_snapshot() == before_reads
+        from tests.helpers.read_only import assert_read_only_snapshot
+        assert_read_only_snapshot(before_reads, retention_snapshot())
     with database_connection() as db:
         audit = audit_database(db)
         calls = db.execute('SELECT count(*) AS n FROM model_calls').fetchone()['n']

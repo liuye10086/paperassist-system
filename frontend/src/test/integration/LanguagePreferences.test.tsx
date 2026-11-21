@@ -1,12 +1,12 @@
 import { afterEach, expect, it, vi } from 'vitest'
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import App from '../../app/App'
 import { clearApiSession } from '../../shared/api/client'
 import { setLocale } from '../../shared/i18n'
 import ProjectDetails from '../../features/projects/ProjectDetails'
 
 afterEach(() => { cleanup(); clearApiSession(); setLocale('zh-CN'); vi.useRealTimers(); vi.unstubAllGlobals(); window.location.hash = '' })
-const session = { user: { id: 'a', email: 'a@example.com', role: 'user', ui_language: 'en' }, csrf_token: 'token' }
+const session = { user: { id: 'a', email: 'a@example.com', role: 'customer', ui_language: 'en' }, csrf_token: 'token' }
 const project = { id: 'p', name: '中文研究名', research_topic: '原文主题', project_type: 'sci' as const,
   default_output_language: 'zh-CN' as const, file_count: 0, created_at: '2026-10-01T00:00:00Z', updated_at: '2026-10-01T00:00:00Z' }
 function empty(url: string) {
@@ -24,6 +24,17 @@ it('switches anonymous login without storing credentials or language in browser 
   expect(localStorage.length).toBe(0)
 })
 
+it.each(['research', 'sci', 'thesis'])('shows English project field hints when creating a %s project', async projectType => {
+  vi.stubGlobal('fetch', vi.fn(async (url: string) => url.endsWith('/me') ? Response.json(session) : empty(url)))
+  render(<App />)
+  const sidebar = within(await screen.findByRole('complementary', { name: 'Main navigation' }))
+  fireEvent.click(await sidebar.findByRole('button', { name: 'New project' }))
+  const form = within(screen.getByRole('dialog'))
+  fireEvent.change(form.getByLabelText('Project type'), { target: { value: projectType } })
+  expect.soft(form.getByRole('textbox', { name: 'Project name' }).getAttribute('placeholder')).toBe('For example, changes in gene expression after drug treatment')
+  expect.soft(form.getByRole('textbox', { name: 'Research objective' }).getAttribute('placeholder')).toBe('In one sentence, describe what you want to study or which differences you want to compare.')
+})
+
 it('restores the user language and persists changes without reloading projects or losing drafts', async () => {
   const fetcher = vi.fn(async (url: string, init?: RequestInit) => {
     if (url.endsWith('/me')) return Response.json(session)
@@ -35,14 +46,13 @@ it('restores the user language and persists changes without reloading projects o
   })
   vi.stubGlobal('fetch', fetcher)
   render(<App />)
-  await screen.findByRole('button', { name: 'Create a research project' })
-  fireEvent.click(screen.getByRole('button', { name: 'Create a research project' }))
+  const sidebar = within(await screen.findByRole('complementary', { name: 'Main navigation' }))
+  fireEvent.click(await sidebar.findByRole('button', { name: 'New project' }))
   fireEvent.change(screen.getByLabelText('Project name'), { target: { value: '草稿' } })
-  fireEvent.click(screen.getByRole('button', { name: 'Cancel creation' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
   const before = fetcher.mock.calls.filter(([url]) => url.startsWith('/api/v1/projects')).length
   fireEvent.change(screen.getByLabelText('Interface language'), { target: { value: 'zh-CN' } })
-  await screen.findByRole('button', { name: '新建研究项目' })
-  fireEvent.click(screen.getByRole('button', { name: '新建研究项目' }))
+  fireEvent.click(await sidebar.findByRole('button', { name: '新建项目' }))
   expect((screen.getByLabelText('项目名称') as HTMLInputElement).value).toBe('草稿')
   expect(fetcher.mock.calls.filter(([url]) => url.startsWith('/api/v1/projects')).length).toBe(before)
 })
@@ -52,7 +62,7 @@ it('keeps the saved language on failure and never displays untrusted server text
     : url.endsWith('/preferences') ? Response.json({ detail: { code: 'unknown', message: 'SECRET SQL' } }, { status: 500 }) : empty(url)))
   render(<App />)
   await screen.findByLabelText('Interface language')
-  await screen.findByRole('button', { name: 'Create a research project' })
+  await screen.findByRole('heading', { name: 'My projects' })
   fireEvent.change(screen.getByLabelText('Interface language'), { target: { value: 'zh-CN' } })
   await waitFor(() => expect(screen.getByRole('alert').textContent).toMatch(/language.*save|save.*language/i))
   expect(document.documentElement.lang).toBe('en')
@@ -68,7 +78,7 @@ it('ignores a delayed preference response after logout', async () => {
     return empty(url)
   }))
   render(<App />)
-  await screen.findByRole('button', { name: 'Create a research project' })
+  await screen.findByRole('heading', { name: 'My projects' })
   fireEvent.change(screen.getByLabelText('Interface language'), { target: { value: 'zh-CN' } })
   await waitFor(() => expect(finish).toBeTypeOf('function'))
   fireEvent.click(screen.getByRole('button', { name: /^(Account|账号)$/ }))

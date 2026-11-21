@@ -59,6 +59,9 @@ class BioFigureStore(BioAnalysisStore):
                 row,manifest,members=self.processed_record(db,project,request.processed_source.processed_dataset_version_id)
                 if self.processed_source(row,manifest)!=request.processed_source.model_dump():raise conflict('bio_input_integrity_changed')
                 if manifest.get('assay')=='single_cell' and request.config.kind in ('spatial_cluster','spatial_gene'):raise error('bio_recipe_invalid',422)
+                if request.config.kind in ('integration_covariates','integration_harmony') and (
+                    manifest.get('assay')!='single_cell' or not any(m['key']==request.config.kind+'_data' for m in members)
+                ):raise error('bio_recipe_invalid',422)
                 if request.annotation_version_id and request.config.kind!='annotation':raise error('bio_annotation_invalid',422)
                 if request.annotation_version_id:
                     annotation=self.require(db,'bio_annotation_versions',project,request.annotation_version_id)
@@ -102,7 +105,7 @@ class BioFigureStore(BioAnalysisStore):
             record=object_by_key(db,task['project_id'],task['user_id'],member)
             insert(db,'bio_figure_members',{**base_row(member['id'],task['project_id'],task['user_id']),'figure_version_id':identifier,
                 **{k:member[k] for k in ('key','format','size_bytes','sha256')},'storage_object_id':record['id']})
-        if progress is not None:progress()
+        if progress is not None:progress(force=True)
         return finish(db,task,checkpoint,moment,'result_bio_figure_version_id',identifier)
 
     def publish_defaults(self,db,task,processed_id,prepared,*,progress=None):

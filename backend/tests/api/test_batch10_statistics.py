@@ -1,3 +1,5 @@
+import pytest
+
 from app.db.database import database_connection, SCHEMA_HEAD
 from tests.api.test_analysis import client
 from tests.api.test_descriptive import configured
@@ -25,12 +27,17 @@ def test_analysis_post_queues_without_computing(client, monkeypatch):
 
 
 def test_statistics_schema_is_exact_and_nullable():
+    from alembic.script import ScriptDirectory
+    from sqlalchemy import inspect
+    from app.db.database import alembic_config
     from app.db.schema import metadata
-    assert SCHEMA_HEAD == '0040_manuscript_writing_live'
-    assert 'result_analysis_run_id' in metadata.tables['tasks'].c
-    assert 'execution_receipt' in metadata.tables['tasks'].c
+    assert ScriptDirectory.from_config(alembic_config()).get_heads() == [SCHEMA_HEAD]
     with database_connection() as db:
         from app.maintenance.database_audit import audit_database
+        assert db.execute('SELECT version_num FROM alembic_version').fetchone()['version_num'] == SCHEMA_HEAD
+        columns = {c['name']: c for c in inspect(db.raw_connection).get_columns('tasks', schema=db.config.schema)}
+        for name in ('result_analysis_run_id', 'execution_receipt'):
+            assert metadata.tables['tasks'].c[name].nullable and columns[name]['nullable']
         assert audit_database(db)['schema_issues'] == []
 
 def test_direct_execution_is_not_an_http_bypass(client):
@@ -148,6 +155,7 @@ def test_modern_setup_without_independent_plan_is_rejected():
         validate_setup(None,'project','file',{'source':{'kind':'prepared_dataset_version'},'selection':{'task_type':'descriptive_boxplot'}})
 
 
+@pytest.mark.initial_revision('0028_research_materials')
 def test_0029_migration_preserves_old_rows_and_null_receipts(postgres_migration_config):
     from app.db.database import migration_connection, alembic_config
     from alembic import command
@@ -155,12 +163,11 @@ def test_0029_migration_preserves_old_rows_and_null_receipts(postgres_migration_
     from psycopg.types.json import Jsonb
     with migration_connection(write=True,config=postgres_migration_config) as db:
         settings=alembic_config(); settings.attributes.update(connection=db.raw_connection,database_config=postgres_migration_config)
-        command.downgrade(settings,'0028_research_materials')
         seed_owner(db)
         row=task_row()
         db.execute('INSERT INTO tasks ('+','.join(row)+') VALUES ('+','.join(['%s']*len(row))+')',tuple(Jsonb(v) if k=='input_snapshot' else v for k,v in row.items()))
         before=dict(db.execute("SELECT * FROM tasks WHERE id='t'").fetchone())
-        command.upgrade(settings,'head')
+        command.upgrade(settings,'0029_statistics_execution')
         after=dict(db.execute("SELECT * FROM tasks WHERE id='t'").fetchone())
         assert {key:after[key] for key in before}==before
         assert after['execution_receipt'] is None and after['result_analysis_run_id'] is None
@@ -179,6 +186,8 @@ def test_numeric_deadline_bounds_database_statement():
             with _storage_connection() as db:
                 db.execute('SELECT pg_sleep(0.3)')
     assert caught.value.code=='numeric_timeout'
+    with _storage_connection() as db:
+        assert db.execute('SELECT 1 AS value').fetchone()['value'] == 1
 
 def test_successful_receipt_requires_real_isolation_measurements():
     from app.domain.statistics_execution import verification
@@ -193,8 +202,10 @@ def test_real_linux_statistics_task_produces_measured_receipt(client):
     import sys,pytest
     if sys.platform!='linux':pytest.skip('Real sandbox requires Linux; never replace it with a Windows fallback')
     from app.domain.tasks.execution import run_task
+    from app.domain.regression.bounded import clear_compute_cache
     base,_=configured(client,[['value'],[1],[2],[3]],group_column=None)
     queued=client.post(base+'/analysis-runs',json={'expected_revision':1}).json()
+    clear_compute_cache()
     task=run_task(queued['id'],queued['revision'])
     assert task['status']=='succeeded',task
     state=client.get(base+'/analysis-result').json()
@@ -208,28 +219,16 @@ def test_real_linux_statistics_task_produces_measured_receipt(client):
     assert audit['ok'],audit
 
 def test_legacy_result_read_stays_available_without_forged_sandbox_status(client, monkeypatch):
-    # A legacy persisted row remains readable, but is not labelled newly verified.
-    from app.domain.tasks.execution import run_task
-    from app.domain.fixed_statistics_runtime import record_execution
+    from tests.helpers.legacy_statistics import seed_legacy_statistics
     import app.domain.descriptive as descriptive
     base,_=configured(client,[['value'],[1],[2],[3]],group_column=None)
-    queued=client.post(base+'/analysis-runs',json={'expected_revision':1}).json()
-    def summary(*a,**k):
-        record_execution({'contract_version':'fixed_statistics_v2','sandbox_version':'fixed_statistics_linux_v1_as1073741824_cpu30_wall30','input_bytes':30,'output_bytes':300,'timeout_seconds':30,'elapsed_seconds':0.01,'cache_hit':False,'stdout_policy':'bounded_protocol','stderr_policy':'discard','input_policy':'frozen_projection','output_policy':'bounded_pipe','memory_hard_limit':1073741824,'isolation':'linux_landlock_seccomp','cpu_hard_limit_seconds':30,'cpu_affinity_count':1,'child_cpu_seconds':0.01,'child_peak_rss_bytes':1024,'error_code':None})
-        return {'n':3,'mean':2.,'std':1.,'min':1.,'q1':1.5,'median':2.,'q3':2.5,'max':3.,'iqr':1.,'warnings':[]}
-    monkeypatch.setattr(descriptive,'summarize',summary)
-    task=run_task(queued['id'],queued['revision'])
-    with database_connection(write=True) as db:
-        # Simulate an unchanged pre-0029 result by removing only the test task lineage.
-        db.execute('DELETE FROM task_events WHERE task_id=%s',(task['id'],))
-        db.execute('DELETE FROM task_attempts WHERE task_id=%s',(task['id'],))
-        db.execute('DELETE FROM task_outbox WHERE task_id=%s',(task['id'],))
-        db.execute('DELETE FROM tasks WHERE id=%s',(task['id'],))
+    historical=seed_legacy_statistics(client,base)
     monkeypatch.setattr(descriptive,'summarize',lambda *a,**k: (_ for _ in ()).throw(AssertionError('GET computed')))
     state=client.get(base+'/analysis-result')
     assert state.status_code==200,state.text
     assert state.json()['execution_verification']=='legacy_unverified'
-    assert client.get(base+'/analysis-runs/'+task['result_analysis_run_id']).status_code==200
+    assert state.json()['active_task'] is None
+    assert client.get(base+'/analysis-runs/'+historical['id']).json()==state.json()['result']==historical
 
 
 def test_modern_get_reads_saved_plan_statistics_without_any_numeric_spawn(client,monkeypatch):

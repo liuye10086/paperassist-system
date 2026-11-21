@@ -15,6 +15,7 @@ DIRECT = {
     'dataset_versions': 'dataset_versions', 'prepared_dataset_versions': 'prepared_dataset_versions',
     'ocr_review_versions': 'ocr_review_versions', 'confirmed_plans': 'confirmed_analysis_plans',
     'analysis_setups': 'analysis_setups', 'analysis_runs': 'analysis_runs',
+    'customer_material_submission_files': 'customer_material_submission_files',
 }
 SOURCE_TABLES = {
     'bio_dataset_version_id':'bio_dataset_versions', 'import_id':'bio_imports',
@@ -575,6 +576,7 @@ def read_references(db, file, user_id):
     if any(groups.get(name) for name in ('bio_report_context_versions','statistics_report_context_versions','research_finding_versions','research_figure_versions','research_report_versions','research_manuscript_candidates','manuscript_research_sources')):reasons.append('research_results_history_retained')
     if groups['journal_material_refs']:reasons.append('journal_history_retained')
     if groups['paper_material_notes']:reasons.append('paper_material_note_retained')
+    if groups['customer_material_submission_files']:reasons.append('customer_material_submission_retained')
     if groups['review_round_refs']:reasons.append('review_history_retained')
     if groups['school_template_versions']:reasons.append('school_template_history_retained')
     if groups['manuscript_school_language_artifacts']:reasons.append('school_template_history_retained')

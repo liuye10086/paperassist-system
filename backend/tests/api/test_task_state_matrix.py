@@ -37,7 +37,10 @@ def test_persistent_task_state_matrix_preserves_business_records(client, cloud, 
     page = client.get(f'/api/v1/projects/{selected["id"]}/tasks?page_size=50')
     assert page.status_code == 200
     unified = {item['task']['id']: item for item in page.json()['items'] if item['task']['origin'] == 'unified'}
-    assert set(unified) == {row['task_id'] for row in rows}
+    statistics = [item for item in unified.values() if item['task']['task_type'] == 'statistics_compute']
+    assert len(statistics) == len(rows)
+    assert {item['source']['file_id'] for item in statistics} == {row['file_id'] for row in rows}
+    assert set(unified) == {row['task_id'] for row in rows} | {item['task']['id'] for item in statistics}
     for row in rows:
         assert unified[row['task_id']]['source']['filename'] == row['filename']
         for key in ('status', 'phase', 'display_status'):

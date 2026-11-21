@@ -17,9 +17,11 @@ FIGURE_NAMES = {
     'bulk_volcano': '差异表达火山图', 'bulk_ma': '表达量与差异散点图', 'bulk_heatmap': '差异基因热图',
     'bulk_expression': '候选基因表达图', 'bulk_variable_heatmap': '高变基因热图', 'bulk_summary': '差异表达汇总图',
     'topic_slingshot': '单细胞轨迹图', 'topic_genie3': '基因调控网络图', 'topic_cellchat': '细胞通讯图',
+    'single_cell_composition': '供者细胞组成图',
     'sample_clustering': '样本聚类图', 'qc_missing': '样本缺失比例图', 'expression_distribution': '样本表达分布图',
     'sample_correlation_heatmap': '样本相关性热图', 'sample_distance_heatmap': '样本距离热图',
     'pca_scores': 'PCA 分布图', 'qc_expression': '样本表达五数摘要图',
+    'qc_ecdf': '样本表达累积分布图',
 }
 
 

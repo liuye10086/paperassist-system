@@ -18,7 +18,7 @@ def test_plan_profile_uses_fixed_kernel_instead_of_parent_statistics(monkeypatch
         return dict(numeric=numeric,outlier_rows=[c.row for c in outliers],precision_rows=[c.row for c in precision])
     def forbidden(*a,**k):raise AssertionError('Plan statistics ran in privileged parent')
     monkeypatch.setattr(scan,'numeric_profile',forbidden)
-    monkeypatch.setattr('app.domain.regression.bounded.compute_bounded',fixed)
+    monkeypatch.setattr('app.domain.analysis_plan.profile.compute_bounded',fixed)
     from app.domain.analysis_plan.checks import build_check
     check=build_check(sample(unit='mg'),selection(unit='mg'))
     assert calls and check['selected_fields'][0]['observed_min']==1.

@@ -3,22 +3,22 @@ import pytest
 from alembic import command
 from sqlalchemy.exc import DBAPIError
 from app.db.database import migration_connection, database_connection, alembic_config
-from tests.api.test_projects import client
-from tests.api.test_document_versions import uploaded_pdf, uploaded_docx
+from tests.helpers.document_migration import seed_document_parse
 
-def test_0019_preserves_word_rows(client, postgres_migration_config):
-    uploaded_docx(client)
+@pytest.mark.initial_revision('0018_document_parsing')
+def test_0019_preserves_word_rows(postgres_migration_config):
+    seed_document_parse('docx')
     with migration_connection(config=postgres_migration_config) as db:
         settings=alembic_config();settings.attributes.update(connection=db.raw_connection,database_config=postgres_migration_config)
-        command.downgrade(settings,'0018_document_parsing')
         before={table:[dict(row) for row in db.execute('SELECT * FROM '+table+' ORDER BY id')] for table in ('files','file_parse_results','tasks')}
         command.upgrade(settings,'0019_pdf_parsing')
         after={table:[dict(row) for row in db.execute('SELECT * FROM '+table+' ORDER BY id')] for table in before}
         assert before==after
 
-def test_0019_pdf_history_prevents_downgrade(client, postgres_migration_config):
-    uploaded_pdf(client)
-    with pytest.raises(DBAPIError):
+@pytest.mark.initial_revision('0019_pdf_parsing')
+def test_0019_pdf_history_prevents_downgrade(postgres_migration_config):
+    seed_document_parse('pdf')
+    with pytest.raises(DBAPIError, match='PDF history requires preservation'):
         with migration_connection(config=postgres_migration_config) as db:
             settings=alembic_config();settings.attributes.update(connection=db.raw_connection,database_config=postgres_migration_config)
             command.downgrade(settings,'0018_document_parsing')

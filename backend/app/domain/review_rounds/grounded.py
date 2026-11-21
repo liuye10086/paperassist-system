@@ -5,6 +5,24 @@ from app.domain.literature.service import digest
 from app.domain.manuscript_writing.context import normalize_sections,literature_paragraphs
 from app.domain.manuscript_review.checks import issue
 from .planning import invalid
+from .revision_contracts import CANDIDATE_SCHEMA_VERSION
+
+
+_SCIENTIFIC_CLAIM = re.compile(
+    r'\b(?:cause[ds]?|causal(?:ity)?|causation|proves?)\b|导致|因果|实验已完成|experiment.{0,20}completed', re.I)
+_CAUSAL_LIMITATION = re.compile(
+    r'(?:也|相关性?|这些数据|本研究)?(?:不能|无法|不足以)(?:据此)?(?:推断|证明|确定|判断)(?:存在)?因果(?:关系)?'
+    r'|(?:these data|these observations|this study|we|correlation)\s+(?:cannot|does not|do not)\s+'
+    r'(?:establish|infer|prove|demonstrate)\s+(?:causality|causation|a causal relationship)', re.I)
+
+
+def _unsupported_scientific_claim(text, candidate_schema_version):
+    if candidate_schema_version < 4:
+        return _SCIENTIFIC_CLAIM.search(text) is not None
+    # Only exempt a complete limitation. Other assertions in the edit still need evidence.
+    clauses = re.split(r'[，,。.!！?？;；\n]', text)
+    return any(_SCIENTIFIC_CLAIM.search(clause) and not _CAUSAL_LIMITATION.fullmatch(clause.strip())
+               for clause in clauses)
 
 
 def evidence_for(snapshot,materials):
@@ -15,15 +33,21 @@ def evidence_for(snapshot,materials):
     return values
 
 
-def locations_for(snapshot):
+def locations_for(snapshot,*,numbered=False):
     locations=[]
     for section in normalize_sections(snapshot):
         title=section.get('title') or section.get('display_name') or section['id']
         locations.append(dict(kind='section',id=section['id'],section_id=section['id'],section_title=title,text='\n'.join(p['text'] for p in section['paragraphs'])))
-        locations.extend(dict(kind='paragraph',id=p['id'],section_id=section['id'],section_title=title,text=p['text']) for p in section['paragraphs'])
+        for number,p in enumerate(section['paragraphs'],1):
+            loc=dict(kind='paragraph',id=p['id'],section_id=section['id'],section_title=title,text=p['text'])
+            if numbered:loc['paragraph_number']=number
+            locations.append(loc)
     for group in snapshot.get('results_groups',[]):
         for kind in ('figure','table'):
-            locations.extend(dict(kind=kind,id=f['id'],section_id=group['id'],section_title=group.get('title',group['id']),text=f.get('caption') or f.get('title','')) for f in group.get(kind+'s',[]))
+            for number,f in enumerate(group.get(kind+'s',[]),1):
+                loc=dict(kind=kind,id=f['id'],section_id=group['id'],section_title=group.get('title',group['id']),text=f.get('caption') or f.get('title',''))
+                if numbered:loc[kind+'_number']=f.get('number') or number
+                locations.append(loc)
     return locations
 
 
@@ -55,8 +79,30 @@ def evidence_summary(entry):
     return '；'.join(parts)[:3000] if parts else '固定资料未提供可用于本项的明确文本/统计字段；需人工核对原材料。'
 
 
-def grounded_plans(snapshot,items,materials,*,rules=None):
-    locations=locations_for(snapshot);evidence=evidence_for(snapshot,materials);result=[]
+def _join_plan_parts(groups, separator):
+    parts = []
+    for group in groups:
+        if parts:
+            parts.append(separator)
+        parts.extend(group)
+    return parts
+
+
+def _plan_text(parts, with_locations):
+    text, spans, offset = [], [], 0
+    for part in parts:
+        if isinstance(part, tuple):
+            kind, identity, part = part
+            if with_locations:
+                spans.append(dict(kind=kind, id=identity, start=offset, end=offset+len(part)))
+        text.append(part)
+        offset += len(part)
+    return ''.join(text), spans
+
+
+def grounded_plans(snapshot,items,materials,*,rules=None,with_locations=False):
+    locations=locations_for(snapshot,numbered=with_locations);evidence=evidence_for(snapshot,materials);result=[]
+    source_labels={s['id']:s.get('label') for s in [*snapshot.get('sources',[]),*materials]} if with_locations else {}
     sections=normalize_sections(snapshot)
     roles={'method':'materials_and_methods','statistics':'results','expression':'discussion','structure':'materials_and_methods'}
     for item in items:
@@ -73,26 +119,46 @@ def grounded_plans(snapshot,items,materials,*,rules=None):
         missing=[n['description'] for n in item['needs']]
         if not selected:missing.append('固定稿件没有可定位段落，需补明确位置。')
         if not used:missing.append('没有可反查既有材料，不自动生成新事实。')
-        summary='\n'.join(e['id']+'：'+e['summary'] for e in excerpts)
-        positions='；'.join(loc['section_title']+'/'+loc['id'] for loc in selected)
-        specific='按上述现文提供明确替换文本，逐句保留已有事实、引用及局限性。'
+        summary=_join_plan_parts(([('evidence',e['id'],e['id']),'：'+e['summary']] for e in excerpts),'\n')
+        positions=_join_plan_parts(([(loc['kind'],loc['id'],loc['section_title']+'/'+loc['id'])] for loc in selected),'；')
+        specific=['按上述现文提供明确替换文本，逐句保留已有事实、引用及局限性。']
         if item['category'] in ('statistics','method'):
-            specific='以列出的固定变量和统计记录核对 '+positions+' 中的样本口径及方法说明；已有结果保持原值，明确采用新分析时使用其公共事实ID及逐值绑定更新所有受影响段落，缺失单位或结果继续待核，不推断。'
+            specific=['以列出的固定变量和统计记录核对 ',*positions,' 中的样本口径及方法说明；已有结果保持原值，明确采用新分析时使用其公共事实ID及逐值绑定更新所有受影响段落，缺失单位或结果继续待核，不推断。']
         elif item['category']=='structure':
-            order='；'.join(s['id']+': '+', '.join(p['id'] for p in s['paragraphs']) for s in sections if s['id'] in {loc['section_id'] for loc in selected})
-            specific='当前段落顺序 '+order+'。可对上述现文按空行拆段或明确重排完整段落ID列表；数值和核验引用保持原绑定。'
-        elif item['category']=='figure':specific='核对 '+positions+' 当前图注「'+existing+'」与列出的图表/统计资料；只提交已有单位和对象支持的具体图注，未知误差线/实验信息列待补。'
-        elif item['category']=='literature':specific='固定稿含 '+str(len(snapshot.get('references',[])))+' 条参考记录。仅可将已经核验的原陈述及其支持绑定原样采用；新陈述/新文献支持仍待核验。'
-        elif item['category']=='experiment':specific='独立实验没有在本批执行。列明原意见中的实验要求并等待可验证材料；不能生成实验完成或新增结果表述。'
-        elif item['category']=='format':specific='保留固定章节与身份映射，使用本轮选定学校确认/期刊指南检查上述实际候选；只执行明确支持的章名显示调整。'
-        plan=f"意见：{item['original_text'].strip()}\n固定位置：{positions}\n固定现文：{existing}\n已读取具体资料：{summary}\n具体处理：{specific}\n缺口：{'；'.join(missing) if missing else '尚需用户提供具体改文；语义与科研合理性仍需人工核验。'}"
+            order=[]
+            for section in sections:
+                if section['id'] in {loc['section_id'] for loc in selected}:
+                    paragraphs=_join_plan_parts(([('paragraph',p['id'],p['id'])] for p in section['paragraphs']),', ')
+                    order.append([('section',section['id'],section['id']),': ',*paragraphs])
+            specific=['当前段落顺序 ',*_join_plan_parts(order,'；'),'。可对上述现文按空行拆段或明确重排完整段落ID列表；数值和核验引用保持原绑定。']
+        elif item['category']=='figure':specific=['核对 ',*positions,' 当前图注「'+existing+'」与列出的图表/统计资料；只提交已有单位和对象支持的具体图注，未知误差线/实验信息列待补。']
+        elif item['category']=='literature':specific=['固定稿含 '+str(len(snapshot.get('references',[])))+' 条参考记录。仅可将已经核验的原陈述及其支持绑定原样采用；新陈述/新文献支持仍待核验。']
+        elif item['category']=='experiment':specific=['独立实验没有在本批执行。列明原意见中的实验要求并等待可验证材料；不能生成实验完成或新增结果表述。']
+        elif item['category']=='format':specific=['保留固定章节与身份映射，使用本轮选定学校确认/期刊指南检查上述实际候选；只执行明确支持的章名显示调整。']
+        plan,spans=_plan_text([f"意见：{item['original_text'].strip()}\n固定位置：",*positions,
+                               f"\n固定现文：{existing}\n已读取具体资料：",*summary,"\n具体处理：",*specific,
+                               "\n缺口："+('；'.join(missing) if missing else '尚需用户提供具体改文；语义与科研合理性仍需人工核验。')],with_locations)
         if rules is not None and rules['handling_notes'][item['category']]:
             plan+='\n配置处理说明（不代表执行或确认）：'+rules['handling_notes'][item['category']]
         result.append(dict(item_id=item['id'],original_text=item['original_text'],existing_content=existing,locations=selected,evidence=excerpts,plan=plan,missing=missing))
+        if with_locations:
+            for span in spans:
+                if span['kind']=='evidence' and source_labels.get(span['id']):span['label']=source_labels[span['id']]
+            result[-1]['location_spans']=spans
     return result
 
 
-def apply_operations(snapshot,items,materials,operations,*,writing_context=None,target=None,fixed_safety=False):
+def initial_plan_locations(snapshot, items, materials):
+    """Locate renderer-owned references only when the immutable initial text matches."""
+    result = {}
+    for item, generated in zip(items, grounded_plans(snapshot, items, materials, with_locations=True)):
+        body = generated['plan']
+        if generated['location_spans'] and (item['plan'] == body or item['plan'].startswith(body + '\n配置处理说明（不代表执行或确认）：')):
+            result[item['id']] = generated['location_spans']
+    return result
+
+
+def apply_operations(snapshot,items,materials,operations,*,writing_context=None,target=None,fixed_safety=False,candidate_schema_version=CANDIDATE_SCHEMA_VERSION):
     if fixed_safety:
         from .planning import enforce_safety
         items=enforce_safety(deepcopy(items))
@@ -123,7 +189,7 @@ def apply_operations(snapshot,items,materials,operations,*,writing_context=None,
         elif 'conclusion_change' in item['flags']:reason='结论变化须提供可核验科学审核；本批具体改文不能把相关改为因果。'
         elif not op['evidence_ids']:reason='缺少固定材料依据。'
         text=(op.get('text') or '').strip()
-        if not reason and re.search(r'\b(?:cause[ds]?|causal(?:ity)?|causation|proves?)\b|导致|因果|实验已完成|experiment.{0,20}completed',text,re.I) and text!=loc['text']:reason='新增因果或实验完成表述没有独立科学执行依据。'
+        if not reason and text!=loc['text'] and _unsupported_scientific_claim(text,candidate_schema_version):reason='新增因果或实验完成表述没有独立科学执行依据。'
         if reason:
             unexecuted.append(dict(item_id=item['id'],reason=reason,status='waiting_material' if item['needs'] or '依据' in reason else item['status']));continue
         before=None;after=None;additional_evidence=[]

@@ -46,6 +46,7 @@ export const workspaceMessages: Record<string, string> = {
   '处理评审意见': 'Handle review comments',
   '查看项目任务': 'View project tasks',
   '打开项目': 'Open project',
+  '1 个文件': '1 file',
   '{count} 个文件': '{count} files',
   '当前项目有未保存的修改。离开并放弃这些修改？': 'This project has unsaved changes. Leave and discard them?',
   '当前保存请求尚未完成或结果待确认，请先核对保存结果。': 'The save request is pending or its result is uncertain. Verify the result first.',

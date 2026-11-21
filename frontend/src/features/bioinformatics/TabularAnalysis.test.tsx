@@ -160,6 +160,22 @@ it('navigates from a quantitative result figure to its fixed detail page',async(
  fireEvent.click(await screen.findByText('打开固定单图版本'))
  expect(nav).toHaveBeenCalledWith({view:'bio-figure',fileId:'',figureId:'qc-figure'})
 })
+it.each([
+ ['bulk_rna_counts','qc_missing','qc_missing'],
+ ['bulk_rna_counts','expression_distribution','qc_ecdf'],
+ ['normalized_expression','expression_distribution','qc_ecdf'],
+ ['normalized_expression','pca','pca_scores'],
+ ['bulk_rna_counts','sample_clustering','sample_clustering'],
+ ['bulk_rna_counts','correlation_heatmap','sample_correlation'],
+ ['bulk_rna_counts','distance_heatmap','sample_distance'],
+])('opens the correct plotting settings for %s %s',async(assay,kind,bulkPanel)=>{
+ const figure={id:'default-plot',root_id:'default-plot',version:1,processed_source:{...processed.source,assay},
+  config:{kind,output_language:'en'},members:[],manifest_sha256:'c'.repeat(64)}
+ vi.mocked(apiFetch).mockResolvedValue(Response.json(figure))
+ const nav=vi.fn();render(<BioFigureDetail projectId="p1" figureId={figure.id} onNavigate={nav}/>)
+ fireEvent.click(await screen.findByRole('button',{name:'调整此图的绘图参数'}))
+ expect(nav).toHaveBeenCalledWith({view:'bio-insight-result',fileId:'',processedId:'processed1',bulkPanel})
+})
 it('preserves quantitative recipe drafts across modules and keeps save actions outside the scroll area',async()=>{
  vi.mocked(apiFetch).mockImplementation(async url=>Response.json(String(url).includes('/research-designs')?{items:[],total:0}:String(url).includes('capabilities')?capability:setup))
  render(<BioAnalysisSetup projectId="p1" setupId="setup1" onNavigate={()=>{}}/>)

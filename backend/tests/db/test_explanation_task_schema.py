@@ -33,15 +33,15 @@ def test_explanation_reference_rejects_missing_product(postgres_schema):
             insert_row(db, 'tasks', task_row(result_explanation_id='missing'))
 
 
+@pytest.mark.initial_revision('0008_model_usage')
 def test_0008_upgrade_preserves_records_and_reverses(postgres_migration_config):
     with migration_connection(write=True, config=postgres_migration_config) as db:
         settings = alembic_config()
         settings.attributes.update(connection=db.raw_connection, database_config=postgres_migration_config)
-        command.downgrade(settings, '0008_model_usage')
         seed_owner(db)
         insert_row(db, 'tasks', task_row())
         before = dict(db.execute("SELECT * FROM tasks WHERE id='t'").fetchone())
-        command.upgrade(settings, 'head')
+        command.upgrade(settings, '0009_explanation_tasks')
         after = dict(db.execute("SELECT * FROM tasks WHERE id='t'").fetchone())
         assert {key: after[key] for key in before} == before
         assert after['result_explanation_id'] is None

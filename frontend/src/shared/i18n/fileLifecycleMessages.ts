@@ -1,4 +1,13 @@
 export const fileLifecycleMessages:Record<string,string>={
+ '生信分析历史引用了此文件。':'Bioinformatics analysis records reference this file.',
+ '已有研究成果或交付记录引用了此文件。':'Research outputs or delivery records reference this file.',
+ '已有研究资料记录引用了此文件。':'Research material records reference this file.',
+ '期刊资料记录引用了此文件。':'Journal material records reference this file.',
+ '论文写作资料说明引用了此文件。':'Manuscript material notes reference this file.',
+ '客户补交资料记录引用了此文件。':'A customer material submission references this file.',
+ '审阅或返修记录引用了此文件。':'Review or revision records reference this file.',
+ '学校模板或论文语言核对记录引用了此文件。':'School template or thesis language review records reference this file.',
+ '论文模板迁移记录引用了此文件。':'Thesis template migration records reference this file.',
  '内测期间保留原件、历史版本和备份。':'Originals, historical versions and backups are retained during internal testing.',
  '存在在途任务。':'There are active tasks.',
  '部分来源完整性无法确认，相关身份可能不显示。':'Some source integrity cannot be verified; affected identities may be omitted.',

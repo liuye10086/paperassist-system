@@ -70,6 +70,7 @@ def scientific_title(key, language):
         'topic_slingshot': ('单细胞轨迹', 'Single-cell trajectory'),
         'topic_genie3': ('单细胞调控网络', 'Single-cell regulatory network'),
         'topic_cellchat': ('细胞通讯概率热图', 'Cell communication probability heatmap'),
+        'single_cell_composition': ('供者细胞组成', 'Donor cell composition'),
     }
     if normalized in titles:
         return titles[normalized][language == 'en']

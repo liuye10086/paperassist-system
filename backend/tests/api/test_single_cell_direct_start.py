@@ -3,7 +3,8 @@ import hashlib,io,json
 from uuid import uuid4
 import numpy as np
 import pytest
-from tests.api.test_projects import client,create_project
+from tests.api.test_customer_workspace import create_customer_project
+from tests.api.test_projects import client
 
 
 @pytest.fixture
@@ -14,7 +15,7 @@ def ready_single_cell(client,monkeypatch,tmp_path,base=None):
     runtime=dict(available=True,blockers=[],engine_version='visium_explore_v1.0.0',environment_digest='b'*64,code_digest='a'*64)
     monkeypatch.setattr(single_cell_settings,'runtime_identity',lambda:runtime)
     stage=tmp_path/'science';monkeypatch.setenv('PAPERASSIST_BIO_STAGING_DIR',str(stage))
-    base=base or f"/api/v1/projects/{create_project(client)['id']}"
+    base=base or create_customer_project(client)
     content=b'%%MatrixMarket matrix coordinate integer general\n2 2 3\n1 1 1\n1 2 2\n2 2 3\n';item=str(uuid4())
     batch=client.post(base+'/bio-upload-batches',json={'items':[dict(client_id=item,filename='matrix.mtx',size_bytes=len(content))]},headers={'Idempotency-Key':'upload'})
     assert batch.status_code==201,batch.text

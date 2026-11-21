@@ -11,6 +11,7 @@ from tests.api.test_analysis import client  # noqa: F401
 from tests.api.test_dataset_analysis import version, forbid_original
 from tests.browser.task_browser_support import block_real_providers
 from tests.helpers.profile_known_relations import workbook_bytes, expected_profile, sample_rows
+from tests.helpers.read_only import assert_read_only_snapshot
 from app.core.config import get_data_dir
 from app.db.database import database_connection
 
@@ -131,7 +132,7 @@ def test_known_relations_saved_profile_and_reads_preserve_all_business_state(cli
         original = client.get(base + '/download')
         assert original.status_code == 200 and original.content == content
         assert client.get(base + '/analysis-result').json()['result'] == run.json()
-        assert snapshot() == before
+        assert_read_only_snapshot(before, snapshot())
     assert attempts == []
     for table in ('model_calls', 'budget_reservations', 'usage_events'):
         assert before[0][table] == []

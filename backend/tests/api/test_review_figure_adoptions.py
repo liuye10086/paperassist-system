@@ -253,12 +253,12 @@ def test_figure_adoption_rejects_unready_projection_foreign_stale_and_tampered_b
 
 
 def test_old_revision_request_and_preview_survive_0053_upgrade_without_resealing(client):
-    """Only this test's pa_test schema is downgraded/upgraded; old data stays exact."""
+    """Run the adjacent historical upgrade and retain the original sealed review request."""
     from tests.api.test_review_revisions import context_and_request
-    from app.db.database import database_connection,migration_connection,get_migration_database_config,alembic_config
+    from app.db.database import database_connection,get_migration_database_config
     from app.domain.tasks.execution import run_task
     from alembic import command
-    import re
+    from tests.helpers.historical_migration import historical_workflow
     url,round,parent,context,body=context_and_request(client,'1. Clarify the method.')
     path=url+'/rounds/'+round['id']+'/revisions'
     preview=post(client,path+'/preview',body,'legacy-preview').json()
@@ -270,16 +270,12 @@ def test_old_revision_request_and_preview_survive_0053_upgrade_without_resealing
         before=db.execute('SELECT row_to_json(r)::text AS raw FROM review_revision_runs r WHERE id=%s',(identity,)).fetchone()['raw']
         frozen=db.execute('SELECT request_json,snapshot_json FROM review_revision_runs WHERE id=%s',(identity,)).fetchone()
         assert 'figure_adoption_ids' not in frozen['request_json'] and 'figure_adoption_ids' not in frozen['snapshot_json']
-    config=get_migration_database_config()
-    assert config.environment=='test' and config.url.database=='paperassist_system_test' and re.fullmatch(r'pa_test_[a-f0-9]{32}',config.schema)
-    with migration_connection(write=True,config=config) as db:
-        settings=alembic_config();settings.attributes.update(connection=db.raw_connection,database_config=config)
-        command.downgrade(settings,'0053_storage_governance')
+    with historical_workflow(get_migration_database_config(), '0053_storage_governance') as (db, settings):
         assert db.execute('SELECT version_num FROM alembic_version').fetchone()['version_num']=='0053_storage_governance'
-        before_tables={r['tablename'] for r in db.execute('SELECT tablename FROM pg_tables WHERE schemaname=%s',(config.schema,)).fetchall()}
+        before_tables={r['tablename'] for r in db.execute('SELECT tablename FROM pg_tables WHERE schemaname=current_schema()').fetchall()}
         at_0053=db.execute('SELECT row_to_json(r)::text AS raw FROM review_revision_runs r WHERE id=%s',(identity,)).fetchone()['raw']
-        command.upgrade(settings,'head')
-        after_tables={r['tablename'] for r in db.execute('SELECT tablename FROM pg_tables WHERE schemaname=%s',(config.schema,)).fetchall()}
+        command.upgrade(settings,'0054_review_figure_adoptions')
+        after_tables={r['tablename'] for r in db.execute('SELECT tablename FROM pg_tables WHERE schemaname=current_schema()').fetchall()}
         assert after_tables-before_tables=={'review_figure_adoptions'} and not before_tables-after_tables
         after=db.execute('SELECT row_to_json(r)::text AS raw FROM review_revision_runs r WHERE id=%s',(identity,)).fetchone()['raw']
         assert before==at_0053==after

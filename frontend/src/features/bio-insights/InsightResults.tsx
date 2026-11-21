@@ -1,4 +1,5 @@
-import {useState} from 'react'
+import {useState,type ReactNode} from 'react'
+import ModuleViews,{ModuleView} from '../../shared/components/ModuleViews'
 import {useI18n} from '../../shared/i18n'
 import type {AnalysisNavigation} from '../projects/analysisViews'
 import NativeDeliveryArtifact,{type NativeDeliveryTarget} from '../analyst/NativeDeliveryArtifact'
@@ -19,7 +20,7 @@ import SingleCellTopicSummary from './SingleCellTopicSummary'
 import {displayRaw} from './state'
 import {bulkRoute} from './bulkWorkflow'
 
-const analysisScopeLabels:Record<string,string>={sample_inference:'按独立样本推断',sample_exploratory:'样本探索',spot_exploratory:'区域探索',donor_inference:'按供者推断',external_result:'外部结果'}
+const analysisScopeLabels:Record<string,string>={sample_inference:'按独立样本推断',sample_exploratory:'样本探索',spot_exploratory:'区域探索',donor_inference:'按供者推断',external_result:'外部结果',visualization:'固定结果绘图'}
 export default function InsightResults({projectId,resultId,active,onResearch,onNavigate,onBulkPlan,allowNewAnalysis,resultRead,deliveryTarget,location,reportContextId}: {
  projectId:string
  resultId:string
@@ -39,7 +40,10 @@ export default function InsightResults({projectId,resultId,active,onResearch,onN
  const data = result.data
  const reviewedBulk = isReviewedBulkComparison(data)
  const bulkEnrichment = isBulkEnrichmentResult(data)
- const [fullOpen,setFullOpen] = useState(false)
+ const tables = data&&<ResultTables key={'tables:'+data.id} {...{projectId,data,active,onResearch}}
+  onCurve={bulkEnrichment&&data.kind==='gsea_prerank'&&allowNewAnalysis!==false&&onBulkPlan&&data.members.some(member=>member.key==='gsea_curves')
+   ?(key,contrast)=>onBulkPlan(bulkEnrichmentFigureSeed(data,contrast||bulkEnrichmentResultContrast(data),{termRowKey:key}))
+   :undefined}/>
  return <section>
   <h3>{t('固定分析结果详情')}</h3><ReadState {...result}/>
   {data&&<>
@@ -58,20 +62,16 @@ export default function InsightResults({projectId,resultId,active,onResearch,onN
    {data.id===resultId&&<InsightDelivery key={'delivery:'+data.id} {...{projectId,active,location,deliveryTarget,reportContextId}} result={data}/>}
    <DataDetails title="结果概况与样例标记" value={data.summary}/><TaskStatus projectId={projectId} task={data.task}/>
    <button type="button" onClick={()=>onResearch({source_kind:'bio_insight_result_version',source_id:resultId,sha256:data.manifest_sha256,locator:{kind:'object'}})}>{t('将此固定结果送入研究发现')}</button>
-   <LazyResultDetails key={'methods:'+projectId+':'+data.id} title="方法、统计单位与校正族" expand="展开方法详情" collapse="收起方法详情" value={data.methods}/>
-   <LazyResultDetails key={'manifest:'+projectId+':'+data.id} title="完整来源、环境、限制与清单" expand="展开完整来源与清单" collapse="收起完整来源与清单" value={data.manifest}/>
+   <ResultDetailViews key={'details:'+projectId+':'+data.id} data={data} tables={reviewedBulk?tables:undefined}/>
    <InsightImpact key={'impact:'+data.id} projectId={projectId} id={data.id}/>
-   {reviewedBulk&&<button type="button" aria-expanded={fullOpen} onClick={()=>setFullOpen(value=>!value)}>{t(fullOpen?'收起完整结果表预览':'打开完整结果表预览')}</button>}
-   {(!reviewedBulk||fullOpen)&&<ResultTables key={'tables:'+data.id} {...{projectId,data,active,onResearch}}
-    onCurve={bulkEnrichment&&data.kind==='gsea_prerank'&&allowNewAnalysis!==false&&onBulkPlan&&data.members.some(member=>member.key==='gsea_curves')
-     ?(key,contrast)=>onBulkPlan(bulkEnrichmentFigureSeed(data,contrast||bulkEnrichmentResultContrast(data),{termRowKey:key}))
-     :undefined}/>}
+   {!reviewedBulk&&tables}
    {data.members.filter(member=>member.format==='png').map(member=><div className="intake-actions" key={member.id}>
     <button type="button" onClick={()=>onResearch({source_kind:'bio_insight_result_member',source_id:member.id,sha256:member.sha256,locator:{kind:'image'}})}>{t('引用图件')} · {figureName(member.key,t,String(data.summary.figure_type??''))}</button>
     {data.id===resultId&&data.task.status==='succeeded'&&<NativeDeliveryArtifact {...{projectId,deliveryTarget}}
      source={{kind:'bio_insight_png',version_id:data.id,member_id:member.id}} name={resultFileName(member,t,String(data.summary.figure_type??''))}/>}
    </div>)}
-   <Members projectId={projectId} members={data.members} figureKind={String(data.summary.figure_type??'')}/>
+   <Members projectId={projectId} members={data.members} figureKind={String(data.summary.figure_type??'')}
+    publishedKind={data.id===resultId&&data.task.status==='succeeded'?data.kind:undefined}/>
   </>}
  </section>
 }
@@ -169,7 +169,12 @@ function ResultTables({projectId,data,active,onResearch,onCurve}:{projectId:stri
  </>
 }
 
-function LazyResultDetails({title,expand,collapse,value}:{title:string;expand:string;collapse:string;value:unknown}) {
- const {t} = useI18n(),[open,setOpen] = useState(false)
- return <section><button type="button" aria-expanded={open} onClick={()=>setOpen(value=>!value)}>{t(open?collapse:expand)}</button>{open&&<DataDetails title={title} value={value}/>}</section>
+/** Methods open first; the large manifest is mounted only while its view is shown, reviewed Bulk tables once visited. */
+function ResultDetailViews({data,tables}:{data:Result;tables?:ReactNode}) {
+ const {t} = useI18n(),[view,setView] = useState('methods')
+ return <ModuleViews label={t('固定结果详情视图')} value={view} onChange={setView} lazy>
+  <ModuleView id="methods" title={t('方法、统计单位与校正族')}><DataDetails title="方法、统计单位与校正族" value={data.methods}/></ModuleView>
+  <ModuleView id="manifest" title={t('完整来源、环境、限制与清单')}>{view==='manifest'&&<DataDetails title="完整来源、环境、限制与清单" value={data.manifest}/>}</ModuleView>
+  {tables&&<ModuleView id="tables" title={t('完整结果表预览')}>{tables}</ModuleView>}
+ </ModuleViews>
 }

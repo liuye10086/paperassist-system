@@ -43,8 +43,8 @@ def model_rows(postgres_schema):
 
 def test_model_usage_migration_has_native_snapshots_and_matches_audit(postgres_schema):
     assert TABLES <= metadata.tables.keys()
-    assert SCHEMA_HEAD == '0040_manuscript_writing_live'
     with database_connection() as db:
+        assert db.execute('SELECT version_num FROM alembic_version').fetchone()['version_num'] == SCHEMA_HEAD
         inspector = inspect(db.raw_connection)
         assert TABLES <= set(inspector.get_table_names(schema=postgres_schema.schema))
         columns = {item['name']: item for item in inspector.get_columns('model_calls', schema=postgres_schema.schema)}
@@ -54,11 +54,11 @@ def test_model_usage_migration_has_native_snapshots_and_matches_audit(postgres_s
     assert result['ok'], {key: value for key, value in result.items() if key not in ('data_checks', 'compatibility')}
 
 
+@pytest.mark.initial_revision('0007_task_execution')
 def test_0007_upgrade_preserves_all_original_table_values(postgres_schema, postgres_migration_config):
     with migration_connection(write=True, config=postgres_migration_config) as db:
         settings = alembic_config()
         settings.attributes.update(connection=db.raw_connection, database_config=postgres_migration_config)
-        command.downgrade(settings, '0007_task_execution')
         seed_owner(db)
         insert_row(db, 'tasks', task_row())
         old_tables = inspect(db.raw_connection).get_table_names(schema=postgres_schema.schema)

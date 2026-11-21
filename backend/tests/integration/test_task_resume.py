@@ -219,9 +219,7 @@ def test_worker_budget_wait_is_persisted_and_legacy_resume_closes_it(client, pol
 
 @pytest.mark.parametrize('kind', ['boxplot', 'explanation', 'word_report'])
 def test_failed_tasks_share_explicit_idempotent_safe_retry(client, policy, writer, kind):
-    from app.domain.tasks.contracts import TaskCreateRequest
     from app.domain.tasks.resume import TaskResumeService
-    from app.domain.tasks.waits import allowed_recovery_actions
     if kind == 'boxplot':
         _, _, _, url = prepared(client)
         task = post(client, url).json()['task']
@@ -235,13 +233,14 @@ def test_failed_tasks_share_explicit_idempotent_safe_retry(client, policy, write
         task = accepted.json()['task']
     else:
         from tests.integration.test_task_execution import queued
-        task, *_ = queued(client)
+        task, *_ = queued(client, historical=True)
     owner = client.get('/api/v1/auth/me').json()['user']['id']
     failed = transition(client, task, 'failed', 'execution_failed', 'task_worker_interrupted')
     with database_connection(write=True) as db:
         db.execute('UPDATE tasks SET retry_count=3 WHERE id=%s', (task['id'],))
-    with database_connection() as db:
-        assert allowed_recovery_actions(db, failed) == ['retry']
+    workspace = client.get('/api/v1/tasks/' + task['id'] + '/workspace')
+    assert workspace.status_code == 200, workspace.text
+    assert workspace.json()['allowed_actions'] == ['retry']
     request = dict(operation='retry', wait_id=None, expected_task_revision=failed['revision'], input_version=failed['input_version'])
     service = TaskResumeService(owner)
     accepted = service.resume(task['id'], request, idempotency_key='safe-retry')
@@ -252,8 +251,8 @@ def test_failed_tasks_share_explicit_idempotent_safe_retry(client, policy, write
     assert service.resume(task['id'], request, idempotency_key='safe-retry') == accepted
     with database_connection() as db:
         assert db.execute('SELECT retry_count FROM tasks WHERE id=%s', (task['id'],)).fetchone()['retry_count'] == 1
-        assert db.execute('SELECT count(*) AS n FROM task_waits').fetchone()['n'] == 0
-        assert db.execute('SELECT wait_id FROM task_resume_requests').fetchone()['wait_id'] is None
+        assert db.execute('SELECT count(*) AS n FROM task_waits WHERE task_id=%s', (task['id'],)).fetchone()['n'] == 0
+        assert db.execute('SELECT wait_id FROM task_resume_requests WHERE task_id=%s', (task['id'],)).fetchone()['wait_id'] is None
 
 
 @pytest.mark.parametrize('code', ['plot_container_expired', 'plot_input_limit', 'plot_invalid_result', 'model_response_not_found'])

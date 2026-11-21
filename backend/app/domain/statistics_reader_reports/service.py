@@ -79,8 +79,10 @@ class StatisticsReaderReportService(ResearchResultsStore):
             raise invalid('research_source_incomplete', 422)
         return snapshot['items'], version['sha256']
 
-    def _build(self, db, project, request, *, phase, progress=None):
+    def _build(self, db, project, request, *, phase, progress=None, context_schema_version=2):
         require_phase(phase, db, self.assets, project)
+        if type(context_schema_version) is not int or context_schema_version not in (1, 2):
+            raise invalid()
         self.store.require_project(db, project)
         reader = ResearchSourceReader(self.assets)
         selection = request.selection
@@ -105,7 +107,8 @@ class StatisticsReaderReportService(ResearchResultsStore):
                     or explanation and explanation['language'] != request.language):
                 raise invalid('research_source_conflict', 422)
         pngs = [self.plots.figure_png(item['figure']) for item in items if item.get('figure')]
-        material = assemble_statistics_material(title=request.title, language=request.language, sources=sources, items=items, pngs=pngs)
+        material = assemble_statistics_material(title=request.title, language=request.language, sources=sources,
+                                                items=items, pngs=pngs, context_schema_version=context_schema_version)
         anchors = []
         file_shas = {}
         for index, item in enumerate(items, 1):
@@ -120,7 +123,7 @@ class StatisticsReaderReportService(ResearchResultsStore):
         available = material['local_output'] is not None
         reuse = dict(available=available, origin=ORIGIN if available else None, adapter_version=ADAPTER_VERSION,
                      gaps=material['overview']['gaps'])
-        content = dict(schema_version=1, title=request.title, language=request.language,
+        content = dict(schema_version=context_schema_version, title=request.title, language=request.language,
                        selection=selection.model_dump(mode='json'), collection_sha256=collection_sha,
                        source_file_ids=file_ids, source_file_shas=file_shas, anchors=anchors,
                        runs=[dict(id=source.source_id, sha256=source.sha256,
@@ -230,7 +233,8 @@ class StatisticsReaderReportService(ResearchResultsStore):
             WHERE context_id=%s AND project_id=%s AND user_id=%s ORDER BY position''', parameters).fetchall()
         if [dict(anchor) for anchor in anchors] != content['anchors']:
             raise invalid()
-        rebuilt, material = self._build(db, project, request, phase=phase, progress=progress)
+        rebuilt, material = self._build(db, project, request, phase=phase, progress=progress,
+                                        context_schema_version=content.get('schema_version'))
         if rebuilt != content:
             raise invalid()
         return row, content, material

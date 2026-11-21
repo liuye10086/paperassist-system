@@ -6,21 +6,26 @@ from sqlalchemy.exc import IntegrityError
 from app.db.database import database_connection, get_database_config, migration_connection, verify_runtime_permissions
 from app.domain.bioinformatics.contracts import digest
 from tests.api.test_projects import client, create_project  # noqa: F401
+from tests.helpers.historical_migration import assert_historical_runtime_grants
 from tests.integration.test_account_deletion_migration import migrate
 
 
+@pytest.mark.initial_revision('0084_statistics_report_context')
 def test_0084_roundtrip_retains_0083_bindings_and_runtime_grants():
     migrate('0083_bio_report_contexts', down=True)
     with database_connection() as db:
         assert db.execute("SELECT to_regclass('statistics_report_context_versions') AS name").fetchone()['name'] is None
-        before = db.execute("SELECT conname FROM pg_constraint WHERE conname LIKE 'brc_%%' ORDER BY 1").fetchall()
+        before = db.execute("SELECT conname FROM pg_constraint WHERE connamespace=current_schema()::regnamespace AND conname LIKE 'brc_%%' ORDER BY 1").fetchall()
     migrate('0084_statistics_report_context')
     with database_connection() as db:
-        verify_runtime_permissions(db.raw_connection, get_database_config())
-        assert before == db.execute("SELECT conname FROM pg_constraint WHERE conname LIKE 'brc_%%' ORDER BY 1").fetchall()
+        assert_historical_runtime_grants(db)
+        assert before == db.execute("SELECT conname FROM pg_constraint WHERE connamespace=current_schema()::regnamespace AND conname LIKE 'brc_%%' ORDER BY 1").fetchall()
         for table in ('research_source_bindings', 'manuscript_research_sources'):
             assert db.execute('SELECT 1 FROM information_schema.columns WHERE table_schema=current_schema() AND table_name=%s '
                               "AND column_name='statistics_report_context_id'", (table,)).fetchone()
+    migrate('head')
+    with database_connection() as db:
+        verify_runtime_permissions(db.raw_connection, get_database_config())
 
 
 def test_saved_context_is_immutable_scoped_and_blocks_downgrade(client):

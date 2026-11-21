@@ -13,6 +13,58 @@ import worker_stack
 
 
 class WorkerStackTests(unittest.TestCase):
+    def test_development_api_and_compose_use_the_same_loopback_word_service(self):
+        from app.adapters import pdf_renderer
+        from urllib.error import URLError
+        with tempfile.TemporaryDirectory() as directory, patch.object(worker_stack, 'protect_directory'):
+            root = Path(directory)
+            for configured, port in [('', 8185), ('http://127.0.0.1:18271', 18271)]:
+                values = dict(self.values(), PAPERASSIST_ENV='development', PAPERASSIST_PDF_RENDERER_URL=configured)
+                stack = worker_stack.prepare(root, values)
+                self.assertEqual(stack.environment.get('COMPOSE_PROFILES'), 'host-word-fields')
+                self.assertEqual(stack.environment.get('PAPERASSIST_RENDERER_HOST_IP'), '127.0.0.1')
+                self.assertEqual(stack.environment.get('PAPERASSIST_RENDERER_HOST_PORT'), str(port))
+                with patch.object(pdf_renderer, 'local_config', return_value=values), patch.object(pdf_renderer, 'build_opener') as opener:
+                    opener.return_value.open.side_effect = URLError('stopped')
+                    with self.assertRaises(pdf_renderer.StorageError):
+                        pdf_renderer.update_layout_fields(b'fixture')
+                    self.assertEqual(opener.return_value.open.call_args.args[0].full_url, f'http://127.0.0.1:{port}/layout-cache')
+
+    def test_empty_host_default_does_not_change_test_release_or_worker_transport(self):
+        from app.adapters.pdf_renderer import renderer_base_url
+        for mode in ('test', 'production'):
+            self.assertEqual(renderer_base_url({'PAPERASSIST_ENV': mode}), 'http://pdf-renderer:8080')
+        self.assertEqual(renderer_base_url({'PAPERASSIST_ENV': 'development',
+                         'PAPERASSIST_PDF_RENDERER_URL': 'http://pdf-renderer:8080'}), 'http://pdf-renderer:8080')
+
+    def test_host_configuration_never_publishes_a_lan_listener(self):
+        with tempfile.TemporaryDirectory() as directory:
+            with self.assertRaisesRegex(ValueError, 'loopback'):
+                worker_stack.prepare(Path(directory), dict(self.values(), PAPERASSIST_PDF_RENDERER_URL='http://0.0.0.0:8185'))
+
+    def test_isolated_stack_keeps_word_service_private_even_with_host_override(self):
+        with tempfile.TemporaryDirectory() as directory, patch.object(worker_stack, 'protect_directory'):
+            root = Path(directory)
+            ident = 'e' * 32
+            values = dict(self.values(), PAPERASSIST_ENV='test', PAPERASSIST_DB_SCHEMA='pa_test_' + ident,
+                          PAPERASSIST_PDF_RENDERER_URL='http://127.0.0.1:8185')
+            stack = worker_stack.prepare(root, values, test_id=ident, assets=root/'isolated')
+            self.assertEqual(stack.environment.get('COMPOSE_PROFILES'), '')
+            import yaml
+            base = yaml.safe_load((worker_stack.ROOT / 'compose.workers.yml').read_text(encoding='utf-8'))
+            renderer = base['services']['pdf-renderer']
+            self.assertNotIn('ports', renderer)
+            self.assertEqual(renderer['networks'], ['pdf-internal'])
+            self.assertTrue(base['networks']['pdf-internal']['internal'])
+            bridge = base['services']['word-host']
+            self.assertEqual(bridge['profiles'], ['host-word-fields'])
+            self.assertEqual(bridge['ports'][0]['target'], 8080)
+            self.assertEqual(bridge['ports'][0]['host_ip'], '${PAPERASSIST_RENDERER_HOST_IP:-127.0.0.1}')
+            self.assertEqual(bridge['ports'][0]['published'], '${PAPERASSIST_RENDERER_HOST_PORT:-8185}')
+            self.assertNotIn('secrets', bridge)
+            self.assertNotIn('volumes', bridge)
+            self.assertEqual(base['services']['worker']['environment']['PAPERASSIST_PDF_RENDERER_URL'], 'http://pdf-renderer:8080')
+
     def test_reader_model_flag_changes_worker_revision_and_is_disabled_for_test_stacks(self):
         with tempfile.TemporaryDirectory() as directory, patch.object(worker_stack, 'protect_directory'):
             root = Path(directory); self.source_tree(root)
@@ -60,7 +112,7 @@ class WorkerStackTests(unittest.TestCase):
             revision = 'PAPERASSIST_WORKER_CONFIG_REVISION'
             (first.directory / 'applied-config-revision').write_text(first.environment[revision])
             healthy = [{'id': name, 'service': name, 'status': 'running', 'health': 'healthy'}
-                       for name in ('worker', 'dispatcher', 'rabbitmq', 'pdf-renderer')]
+                       for name in ('worker', 'dispatcher', 'rabbitmq', 'pdf-renderer', 'word-host')]
             with patch.object(worker_stack, 'ensure_docker'), patch.object(worker_stack, 'owned_containers', return_value=healthy), \
                     patch.object(worker_stack, 'compose') as compose:
                 worker_stack.start(second)
@@ -77,7 +129,7 @@ class WorkerStackTests(unittest.TestCase):
             values = self.values()
             revision = 'PAPERASSIST_WORKER_CONFIG_REVISION'
             healthy = [{'id': name, 'service': name, 'status': 'running', 'health': 'healthy'}
-                       for name in ('worker', 'dispatcher', 'rabbitmq', 'pdf-renderer')]
+                       for name in ('worker', 'dispatcher', 'rabbitmq', 'pdf-renderer', 'word-host')]
             with patch.object(worker_stack, 'ROOT', root), patch.object(worker_stack, 'ensure_docker'), \
                     patch.object(worker_stack, 'owned_containers', return_value=healthy), \
                     patch.object(worker_stack, 'compose') as compose:
@@ -188,7 +240,7 @@ class WorkerStackTests(unittest.TestCase):
                 refreshed = worker_stack.prepare(root, values)
 
             healthy = [{'id': name, 'service': name, 'status': 'running', 'health': 'healthy'}
-                       for name in ('worker', 'dispatcher', 'rabbitmq', 'pdf-renderer')]
+                       for name in ('worker', 'dispatcher', 'rabbitmq', 'pdf-renderer', 'word-host')]
             with patch.object(worker_stack, 'ensure_docker'), patch.object(worker_stack, 'owned_containers', return_value=healthy), \
                     patch.object(worker_stack, 'compose') as compose:
                 worker_stack.start(refreshed)

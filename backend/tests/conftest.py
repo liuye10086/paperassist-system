@@ -55,12 +55,41 @@ def postgres_schema(request, monkeypatch, tmp_path):
     engine = create_engine(migration_config.url, poolclass=NullPool)
     quoted_schema = engine.dialect.identifier_preparer.quote(schema)
     created = False
+
+    def build_template(name):
+        # Migrate the session template exactly as a test schema would be migrated.
+        with monkeypatch.context() as patch:
+            patch.setenv('PAPERASSIST_DB_SCHEMA', name)
+            template_config = get_migration_database_config()
+            validate_database_pair(template_config, DatabaseConfig('test', url, name))
+            with engine.begin() as connection:
+                connection.exec_driver_sql(f'CREATE SCHEMA {engine.dialect.identifier_preparer.quote(name)}')
+            migrate_database(template_config)
+
     try:
         with engine.begin() as connection:
             assert connection.exec_driver_sql('SELECT current_database()').scalar_one() == 'paperassist_system_test'
-            connection.exec_driver_sql(f'CREATE SCHEMA {quoted_schema}')
-        created = True
-        migrate_database(migration_config)
+        from tests import schema_template
+        revision_marker = request.node.get_closest_marker('initial_revision')
+        # The shared template contains head. Historical rehearsals must start from an empty schema.
+        if revision_marker is None:
+            created = schema_template.clone(engine, migration_config.url, schema, build_template)
+        if not created:
+            with engine.begin() as connection:
+                connection.exec_driver_sql(f'CREATE SCHEMA {quoted_schema}')
+            created = True
+            if revision_marker is None:
+                migrate_database(migration_config)
+            else:
+                from alembic import command
+                from app.db.database import alembic_config, migration_connection
+
+                revision, = revision_marker.args
+                with migration_connection(config=migration_config) as db:
+                    settings = alembic_config()
+                    settings.attributes.update(connection=db.raw_connection, database_config=migration_config)
+                    command.upgrade(settings, revision)
+                    assert db.execute('SELECT version_num FROM alembic_version').fetchone()['version_num'] == revision
         from app.domain.storage_governance.deletion import register_new_test_schema
         register_new_test_schema(schema)
         yield config
@@ -68,9 +97,8 @@ def postgres_schema(request, monkeypatch, tmp_path):
         try:
             # This exact schema was created above; never drop arbitrary environment input.
             if created and re.fullmatch(r'pa_test_[0-9a-f]{32}', schema):
-                with engine.begin() as connection:
-                    assert connection.exec_driver_sql('SELECT current_database()').scalar_one() == 'paperassist_system_test'
-                    connection.exec_driver_sql(f'DROP SCHEMA {quoted_schema} CASCADE')
+                from tests import schema_template
+                schema_template.drop_schema(engine, schema)
         finally:
             engine.dispose()
 

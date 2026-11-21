@@ -52,8 +52,36 @@ def test_snapshot_revision_gap_replay_acceptance_and_retention(client):
     with pytest.raises(Exception,match='append-only'):
         with database_connection(write=True) as db:db.execute('UPDATE delivery_snapshots SET revision=99 WHERE id=%s',(first['id'],))
     blind=dict(body,mode='blind',expected_revision=3,parent_snapshot_id=three.json()['id'],stage='revision')
-    assert client.post(path+'/snapshots/preview',json=blind).status_code==409
+    for response in (client.post(path+'/snapshots/preview',json=blind),client.post(path+'/snapshots',json=blind,headers={'Idempotency-Key':'blind'})):
+        assert response.status_code==422,response.text
+        detail=response.json()['detail']
+        assert (detail['code'],detail['message'])==('blind_review_removed','盲审已移出产品范围，请交第三方处理。')
     assert client.post(path+'/snapshots',json=dict(body,members=[dict(kind='file',file_id='foreign')]),headers={'Idempotency-Key':'foreign'}).status_code in (404,409)
+
+
+def test_historical_blind_snapshot_stays_readable_but_cannot_be_a_parent(client):
+    from copy import deepcopy
+    from uuid import uuid4
+    from app.domain.delivery_packages.render import public_snapshot
+    from app.domain.delivery_packages.service import insert,normalized
+    from app.domain.literature.service import digest
+    base,path,body=setup_delivery(client)
+    first=client.post(path+'/snapshots',json=body,headers={'Idempotency-Key':'before-blind'});assert first.status_code==201,first.text
+    first=first.json()
+    with database_connection(write=True) as db:
+        row=dict(db.execute('SELECT * FROM delivery_snapshots WHERE id=%s',(first['id'],)).fetchone())
+        snapshot=deepcopy(row['snapshot_json']);identifier=str(uuid4())
+        snapshot.update(id=identifier,mode='blind',revision=2,parent_snapshot_id=first['id'],stage='revision')
+        insert(db,'delivery_snapshots',dict(row,id=identifier,revision=2,parent_snapshot_id=first['id'],stage='revision',request_key='historical-blind',
+            request_digest='0'*64,snapshot_json=normalized(snapshot),sha256=digest(snapshot)))
+    historical=client.get(path+'/snapshots/'+identifier)
+    assert historical.status_code==200,historical.text
+    assert historical.json()['mode']=='blind' and historical.json()['sha256']==digest(snapshot)
+    assert 'project_id' not in public_snapshot(dict(snapshot,sha256=digest(snapshot)))
+    child=dict(body,expected_revision=2,parent_snapshot_id=identifier,stage='revision')
+    response=client.post(path+'/snapshots/preview',json=child)
+    assert response.status_code==422,response.text
+    assert response.json()['detail']['code']=='blind_review_removed'
 
 
 def test_package_task_contract_and_in_memory_zip(client):
@@ -172,6 +200,7 @@ def test_opinion_round_identifier_requires_fixed_event_and_server_notices_are_ca
     base,path,body=setup_delivery(client)
     candidates=client.get(path+'/candidates');assert candidates.status_code==200,candidates.text
     assert candidates.json()['opinion_rounds']==[]
+    assert candidates.json()['items'] and all('blind_eligible' not in item for item in candidates.json()['items'])
     bad=client.post(path+'/snapshots/preview',json=dict(body,opinion_round_id='foreign-round',opinion_round_event_id='foreign-event'))
     assert bad.status_code==404,bad.text
     frozen=client.post(path+'/snapshots',json=body,headers={'Idempotency-Key':'explicit-no-round'});assert frozen.status_code==201,frozen.text

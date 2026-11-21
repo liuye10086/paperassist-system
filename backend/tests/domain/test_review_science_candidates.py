@@ -27,6 +27,29 @@ def materials():
     return snapshot, adoption
 
 
+@pytest.mark.parametrize(('text', 'allowed'), [
+    ('由于没有原始观测值，无法判断组间差异的方向，也不能据此推断因果关系。', True),
+    ('These data cannot establish causality.', True),
+    ('观察记录证明了因果关系。', False),
+    ('不能据此推断因果关系，但结果证明 A 导致 B。', False),
+    ('These data cannot establish causality, but A causes B.', False),
+    ('不能据此推断因果关系。实验已完成。', False),
+])
+def test_wording_revision_distinguishes_limitations_from_unsupported_claims(text, allowed):
+    from app.domain.review_rounds.grounded import apply_operations
+    snapshot, _ = materials()
+    item = dict(id='opinion', category='expression', original_text='Clarify the interpretation.',
+                flags=[], needs=[], status='pending', uncompleted_reason='Pending.')
+    edit = dict(item_id='opinion', kind='replace_paragraph', location_id='discussion:1',
+                text=text, evidence_ids=['old'], reason='Describe the scope of the observations.')
+    _, changes, skipped, _, _ = apply_operations(snapshot, [item], [], [edit])
+    assert bool(changes) is allowed
+    assert bool(skipped) is not allowed
+    if allowed:
+        _, old_changes, old_skipped, _, _ = apply_operations(snapshot, [item], [], [edit], candidate_schema_version=3)
+        assert not old_changes and old_skipped[0]['item_id'] == 'opinion'
+
+
 def test_superseded_results_keep_old_sources_and_transcribe_only_fixed_new_tables():
     from app.domain.review_rounds import science_candidates as science
     assert hasattr(science, 'apply_analysis_sources'), 'Receipt-backed candidate source adoption is missing'

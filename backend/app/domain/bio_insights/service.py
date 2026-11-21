@@ -86,18 +86,21 @@ def preview_bulk_display(config, source):
     reasons = []
     selection = config.bulk_selection
     if config.kind == 'figure' and config.figure_type in BULK_PROCESSED_FIGURES:
-        if (source['source_kind'] != 'bio_processed_dataset_version' or metadata.get('assay') != 'bulk_rna_counts'
+        if (source['source_kind'] != 'bio_processed_dataset_version' or metadata.get('assay') not in ('bulk_rna_counts', 'normalized_expression')
                 or metadata.get('observation_level') != 'sample' or metadata.get('manifest', {}).get('schema_version') != 2):
-            reasons.append(DesignReason(code='bulk_processed_source_required', message='重绘需要固定的 Bulk 样本质控结果。'))
+            reasons.append(DesignReason(code='bulk_processed_source_required', message='重绘需要固定的转录组样本质控结果。'))
         else:
             panel = config.bulk_panel
             required = {
                 'qc_missing': {'qc_missing_data'}, 'qc_expression': {'expression_distribution_data'},
+                'qc_ecdf': {'expression_distribution_data'},
                 'sample_clustering': set(), 'sample_correlation': {'sample_correlation'},
                 'sample_distance': {'sample_distance'}, 'pca_scores': {'pca_scores', 'pca_variance_ratio'},
                 'pca_variance': {'pca_variance_ratio'},
             }[panel]
             has_values = required <= members.keys()
+            if panel == 'qc_ecdf':
+                has_values = has_values and {'matrix_values', 'matrix_missing', 'samples_index', 'features_index'} <= source.get('raw', {}).get('members', {}).keys()
             if panel == 'sample_clustering':
                 has_values = 'sample_clustering_data' in members or (
                     'sample_clustering' in members and not any(InsightSourceReader.read_rows(members['sample_clustering'])))
@@ -274,6 +277,15 @@ class BioInsightsService(BioInsightsStore):
             plan=selected['metadata'].get('plan_config',{})
             if selected['metadata'].get('kind')!='integration' or plan.get('schema_version')!=2 or plan.get('method')!=config.figure_type.removeprefix('topic_') or 'topic_plot_data' not in selected['members']:
                 reasons.append(DesignReason(code='topic_result_required',message='专题重绘需要匹配方法及保存绘图数值的固定结果。'))
+            elif config.regulation_top_n is not None and 'regulation_results' not in selected['members']:
+                reasons.append(DesignReason(code='topic_result_required',message='自定义调控边展示数量需要固定结果中的完整调控权重表。'))
+        if config.kind=='figure' and config.figure_type=='single_cell_composition':
+            selected=next(s for s in sources if s['source_id']==config.result_source_id)
+            plan=selected['metadata'].get('plan_config',{})
+            if (selected['metadata'].get('kind')!='comparison' or plan.get('schema_version')!=5
+                    or plan.get('method')!='single_cell_composition'
+                    or not {'composition_counts','composition_units','composition_methods'}<=selected['members'].keys()):
+                reasons.append(DesignReason(code='composition_result_required',message='组成重绘需要包含完整组成计数、供者单元与标签的固定单细胞组成结果。'))
         if config.kind=='figure' and config.figure_type.startswith('integration_'):
             selected=next(s for s in sources if s['source_id']==config.result_source_id)
             if selected['metadata'].get('kind')!='integration':reasons.append(DesignReason(code='integration_result_required',message='来源图需要固定的整合结果。'))

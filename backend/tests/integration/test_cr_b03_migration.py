@@ -41,11 +41,11 @@ def postgres_schema(monkeypatch,tmp_path):
         engine.dispose()
 
 
-def upgrade():
+def upgrade(revision='head'):
     with migration_connection(write=True) as db:
         cfg=alembic_config()
         cfg.attributes.update(connection=db.raw_connection,database_config=get_migration_database_config())
-        command.upgrade(cfg,'head')
+        command.upgrade(cfg,revision)
 
 
 def seed():
@@ -79,11 +79,15 @@ def test_upgrade_preserves_every_old_column_value_and_runtime_grants(tmp_path):
         tables=[r['tablename'] for r in db.execute("SELECT tablename FROM pg_tables WHERE schemaname=current_schema() AND tablename<>'alembic_version'")]
         columns={t:[r['column_name'] for r in db.execute('SELECT column_name FROM information_schema.columns WHERE table_schema=current_schema() AND table_name=%s ORDER BY ordinal_position',(t,))] for t in tables}
         before={t:db.execute('SELECT '+','.join(columns[t])+' FROM '+t+' ORDER BY '+columns[t][0]).fetchall() for t in tables}
-    upgrade()
+    upgrade('0060_research_results_bridge')
     with database_connection() as db:
         assert db.execute('SELECT version_num FROM alembic_version').fetchone()['version_num']=='0060_research_results_bridge'
         for t in tables:
             assert db.execute('SELECT '+','.join(columns[t])+' FROM '+t+' ORDER BY '+columns[t][0]).fetchall()==before[t], t
+        from tests.helpers.historical_migration import assert_historical_runtime_grants
+        assert_historical_runtime_grants(db)
+    upgrade()
+    with database_connection() as db:
         verify_runtime_permissions(db.raw_connection,get_database_config())
         from app.maintenance.database_audit import audit_database
         audit=audit_database(db)

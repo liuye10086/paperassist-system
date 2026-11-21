@@ -1,4 +1,5 @@
 """0044 only adds relationships and sealed inputs; prior nonempty rows survive."""
+from tests.helpers.historical_migration import historical_workflow
 import pytest
 from alembic import command
 from sqlalchemy.exc import SQLAlchemyError
@@ -11,11 +12,8 @@ from app.db.database import migration_connection,database_connection,alembic_con
 def test_0044_preserves_nonempty_templates_manuscripts_tasks_and_indexes(client):
     path,template,request,root,endpoint=base(client)
     original=client.get(path+'/files/'+template['template_file_id']+'/download').content
-    cfg=alembic_config()
-    with migration_connection(write=True) as db:
-        assert db.config.schema.startswith('pa_test_')
-        cfg.attributes.update(connection=db.raw_connection,database_config=get_migration_database_config())
-        command.downgrade(cfg,'0043_school_exports')
+    with historical_workflow(get_migration_database_config(), '0043_school_exports') as (db, cfg):
+        assert db.execute("SELECT 1 FROM manuscripts WHERE id=%s", (root['id'],)).fetchone()
         tables=['school_template_versions','school_template_sources','school_template_confirmations','thesis_profiles','manuscripts','manuscript_versions','tasks']
         columns={t:[r['column_name'] for r in db.execute('SELECT column_name FROM information_schema.columns WHERE table_schema=current_schema() AND table_name=%s ORDER BY ordinal_position',(t,))] for t in tables}
         before={t:list(db.execute('SELECT '+','.join(columns[t])+' FROM '+t+' ORDER BY '+columns[t][0])) for t in tables}

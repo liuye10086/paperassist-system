@@ -1,8 +1,9 @@
 """Display saved topic numbers without importing any scientific bridge."""
 from collections import defaultdict
+from itertools import islice
 import copy
 import numpy as np
-from .inputs import document
+from .inputs import document,iter_table
 
 
 def draw_topic(fig,ax,source,config,zh):
@@ -23,7 +24,17 @@ def draw_topic(fig,ax,source,config,zh):
         ax.legend(bbox_to_anchor=(1,1),fontsize=7)
         empty=len(coords)==0
     elif method=='genie3':
-        rows=list(reversed(data['rows'][:config.top_n]));labels=[(r.get('regulator_symbol') or r['regulator'])+' → '+(r.get('target_symbol') or r['target']) for r in rows]
+        if config.regulation_top_n is not None:
+            member=source['members']['regulation_results']
+            selected=[]
+            for _,row in islice(iter_table(member,format='tsv'),config.regulation_top_n):
+                selected.append({**row,'weight':float(row['weight']),'stability_weight':float(row['stability_weight'])})
+            data={**data,'rows':selected,'requested_top_n':config.regulation_top_n,
+                  'source_members':{'regulation_results':member['sha256']}}
+            rows=list(reversed(selected))
+        else:
+            rows=list(reversed(data['rows'][:config.top_n]))
+        labels=[(r.get('regulator_symbol') or r['regulator'])+' → '+(r.get('target_symbol') or r['target']) for r in rows]
         y=np.arange(len(rows));ax.barh(y-.18,[r['weight'] for r in rows],height=.35,label=local('主随机种子','Primary seed'),color=config.palette[0]);ax.barh(y+.18,[r['stability_weight'] for r in rows],height=.35,label=local('第二随机种子','Second seed'),color=config.palette[1%len(config.palette)])
         ax.set_yticks(y,labels,fontsize=7);ax.set_xlabel(local('GENIE3预测重要性（不是P值）','GENIE3 predictive importance (not P)'));ax.legend(fontsize=8)
         empty=not rows
@@ -40,7 +51,11 @@ def draw_topic(fig,ax,source,config,zh):
                 if by_unit:matrix[i,j]=np.mean([sum(values) for values in by_unit.values()])
         finite=matrix[np.isfinite(matrix)];maximum=float(finite.max()) if len(finite) else 0.
         # Explicit positive upper limit prevents matplotlib expanding an all-zero scale below zero.
-        im=ax.imshow(np.ma.masked_invalid(matrix),cmap='viridis',vmin=0,vmax=maximum if maximum>0 else 1.)
+        cmap=config.cellchat_colormap or 'viridis'
+        if cmap=='custom':
+            from matplotlib.colors import LinearSegmentedColormap,ListedColormap
+            cmap=LinearSegmentedColormap.from_list('cellchat_palette',config.palette) if len(config.palette)>1 else ListedColormap(config.palette)
+        im=ax.imshow(np.ma.masked_invalid(matrix),cmap=cmap,vmin=0,vmax=maximum if maximum>0 else 1.)
         fig.colorbar(im,ax=ax,label=local('每单位LR概率之和的均值','Mean per-unit sum of modeled LR probabilities'))
         names=[data['label_names'].get(v,v) for v in labels];ax.set_xticks(range(len(labels)),names,rotation=35,ha='right');ax.set_yticks(range(len(labels)),names)
         ax.set(xlabel=local('接收群','Receiver'),ylabel=local('发送群','Sender'))

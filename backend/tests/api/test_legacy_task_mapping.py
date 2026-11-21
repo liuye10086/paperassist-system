@@ -32,6 +32,8 @@ def test_mixed_list_readonly_and_safe_legacy_details(client, cloud, monkeypatch)
     from tests.api.test_task_workspace import create_task
     project, request, base, result, service, unified = create_task(client)
     url = base + '/analysis-runs/' + result['id'] + '/boxplot'
+    before_ids = [i['task']['id'] for i in client.get(f'/api/v1/projects/{project}/tasks').json()['items']]
+    assert unified['id'] in before_ids
     job = seed_legacy(client, url, status='failed')
     job = change_job(job, message_code='private-error-marker', message='private-message-marker')
     legacy_id = identity(job)
@@ -39,7 +41,8 @@ def test_mixed_list_readonly_and_safe_legacy_details(client, cloud, monkeypatch)
     from app.adapters.storage import ProjectStore
     monkeypatch.setattr(ProjectStore, 'figure_job', lambda *a: pytest.fail('latest job read'))
     page = client.get(f'/api/v1/projects/{project}/tasks').json()
-    assert page['total'] == 2
+    assert page['total'] == len(before_ids) + 1
+    assert {i['task']['id'] for i in page['items']} == {*before_ids, legacy_id}
     item = next(item for item in page['items'] if item['task']['id'] == legacy_id)
     task = item['task']
     assert task['origin'] == 'legacy' and task['status'] == 'failed'
@@ -54,7 +57,8 @@ def test_mixed_list_readonly_and_safe_legacy_details(client, cloud, monkeypatch)
     assert events == {'task_id': legacy_id, 'items': [], 'next_cursor': 9, 'has_more': False}
     filtered = client.get(f'/api/v1/projects/{project}/tasks?status=failed&page_size=1').json()
     assert filtered['total'] == 1 and filtered['items'][0]['task']['id'] == legacy_id
-    assert client.get(f'/api/v1/projects/{project}/tasks?page=2&page_size=1').json()['items'][0]['task']['id'] == unified['id']
+    page_two = client.get(f'/api/v1/projects/{project}/tasks?page=2&page_size=1').json()
+    assert page_two['items'] == page['items'][1:2]
     for suffix, body in [('retry', {'expected_revision': 1}), ('resume', {
         'operation': 'retry', 'wait_id': None, 'expected_task_revision': 1,
         'input_version': {'setup_revision': 1, 'output_language': 'zh-CN'}})]:

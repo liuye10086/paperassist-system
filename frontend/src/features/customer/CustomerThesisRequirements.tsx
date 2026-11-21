@@ -12,6 +12,8 @@ import { prepareThesisBasics, thesisBasicsDraft, thesisLanguages, type ThesisBas
 type Props = {
   projectId: string
   onOpenTemplate: () => void
+  /** After a confirmed save, go on: to the school template, or to the writing materials once one is adopted (wireframe 23). */
+  onContinue?: (templateAdopted: boolean) => void
   onLanguageChanged: () => void
   registerLeaveGuard: RegisterLeaveGuard
 }
@@ -44,7 +46,7 @@ export default function CustomerThesisRequirements(props: Props) {
   </section>
 }
 
-function RequirementsEditor({ projectId, onOpenTemplate, onLanguageChanged, registerLeaveGuard, url, receipt, refresh }: Props & {
+function RequirementsEditor({ projectId, onOpenTemplate, onContinue, onLanguageChanged, registerLeaveGuard, url, receipt, refresh }: Props & {
   url: string; receipt: ThesisRequirements; refresh: () => void
 }) {
   const { t } = useI18n()
@@ -93,6 +95,7 @@ function RequirementsEditor({ projectId, onOpenTemplate, onLanguageChanged, regi
       change(null)
       refresh()
       if (value.language !== current.language) onLanguageChanged()
+      onContinue?.(!!value.template)
     } catch (cause) {
       if (controller.signal.aborted) return
       setError(safeError(cause, '毕业论文需求保存失败，请重试。'))
@@ -104,7 +107,7 @@ function RequirementsEditor({ projectId, onOpenTemplate, onLanguageChanged, regi
   }
 
   const templateLink = <div className="sci-inline-controls thesis-template-link">
-    <span>{template ? t('已绑定学校模板 · {name}', { name: template.name }) : t('请上传学校 DOCX 模板，确认规则并绑定后填写章节内容。')}</span>
+    <span>{template ? t('已采用学校模板 · {name}', { name: template.name }) : t('请上传学校 Word 模板，确认规则并采用后填写章节内容。')}</span>
     <button type="button" className="button-quiet" disabled={busy} onClick={onOpenTemplate}>{t('前往学校模板')}</button>
   </div>
   return <>
@@ -132,7 +135,8 @@ function RequirementsEditor({ projectId, onOpenTemplate, onLanguageChanged, regi
       </>}
       {error && <p role="alert" className="error-panel">{t(error)}</p>}
       <div className="sci-inline-controls">
-        <button type="submit" className="button-primary" disabled={busy || stale}>{t(busy ? '正在保存……' : '保存毕业论文需求')}</button>
+        <button type="submit" className="button-primary" disabled={busy || stale}>{t(busy ? '正在保存……' : !onContinue ? '保存毕业论文需求'
+          : template ? '保存并继续 写作资料与引用' : '保存并继续 学校模板')}</button>
         <button type="button" disabled={busy} onClick={() => change(null)}>{t('取消')}</button>
       </div>
     </form>}

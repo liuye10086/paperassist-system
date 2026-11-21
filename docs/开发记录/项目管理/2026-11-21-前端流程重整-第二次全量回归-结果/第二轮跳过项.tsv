@@ -1,0 +1,62 @@
+﻿模块	用例	pytest记录的原因	全量回执	补测结果	补测回执
+tests.adapters.test_excel_process.ExcelProcessTests	test_windows_fails_closed	Windows-only platform rejection	round2-backend-ordinary-001	passed	supplement-windows-platform
+tests.integration.test_bio_import_publication	test_windows_default_execution_preserves_environment_error_identity	Windows fail-closed contract	round2-backend-ordinary-034	passed	supplement-windows-platform
+tests.api.test_single_cell_mainline	test_matrix_to_direct_analysis_figures_and_word	Requires explicitly selected local Linux science image	round2-backend-ordinary-013		
+tests.api.test_single_cell_public_worker	test_public_matrix_normal_worker[single]	Requires public data and actually probed Linux runtime	round2-backend-ordinary-013		
+tests.api.test_single_cell_public_worker	test_public_matrix_normal_worker[multiple]	Requires public data and actually probed Linux runtime	round2-backend-ordinary-013		
+tests.bio_cloud_unit.test_adapter	test_sdk_models_and_real_stubber	could not import 'boto3': No module named 'boto3'	round2-backend-ordinary-014	passed	supplement-cloud-sdk-stubber
+tests.bio_cloud_unit.test_adapter	test_sdk_s3_contract_and_embedded_completion_failure	could not import 'boto3': No module named 'boto3'	round2-backend-ordinary-014	passed	supplement-cloud-sdk-stubber
+tests.bio_cloud_unit.test_adapter	test_profile_is_frozen_and_get_run_sdk_output_uri	could not import 'boto3': No module named 'boto3'	round2-backend-ordinary-014	passed	supplement-cloud-sdk-stubber
+tests.bio_cloud_unit.test_adapter	test_injected_sdk_client_with_retries_rejected	could not import 'boto3': No module named 'boto3'	round2-backend-ordinary-014	passed	supplement-cloud-sdk-stubber
+tests.browser.test_task_browser	test_task_browser_session	Real browser fixture requires PAPERASSIST_RUN_BROWSER_TESTS=1 and an absolute evidence directory.	round2-backend-ordinary-014		
+tests.api.test_school_return_matching	test_actual_word_saveas_only_changes_requested_prose	Local actual Word evidence is not checked into Git	round2-backend-ordinary-012		
+tests.api.test_school_templates	test_windows_worker_does_not_fall_back_to_inline_docx_parsing	Windows-specific refusal contract	round2-backend-ordinary-012	passed	supplement-windows-platform
+tests.queue.test_acceptance_delivery_crash	test_http_process_death_after_commit_replays_one_task	Explicit isolated HTTP/broker crash test is disabled.	round2-backend-ordinary-042		
+tests.queue.test_acceptance_delivery_crash	test_dispatcher_process_death_after_confirm_replays_real_messages	Explicit isolated HTTP/broker crash test is disabled.	round2-backend-ordinary-042		
+tests.queue.test_analysis_plan_queue	test_plan_wait_releases_single_worker_and_survives_restart	Explicit isolated queue drill is disabled.	round2-backend-ordinary-042		
+tests.queue.test_analysis_plan_queue	test_plan_crash_before_wait_and_publish_commit_recovers_once	Explicit isolated queue drill is disabled.	round2-backend-ordinary-042		
+tests.queue.test_batch05_collection_queue	test_collection_wait_restart_compensation_and_word_crash_publish_once	Explicit isolated Linux queue test disabled.	round2-backend-ordinary-042		
+tests.queue.test_batch07_quality_queue	test_linux_quality_wait_restart_revision_and_both_crash_windows	Explicit isolated Linux quality queue test disabled.	round2-backend-ordinary-042		
+tests.queue.test_batch08_reliability_queue	test_legacy_plot_boundaries_retain_isolated_volume	Explicit isolated batch08 Linux queue test disabled.	round2-backend-ordinary-042		
+tests.queue.test_batch08_reliability_queue	test_legacy_explanation_boundaries_retain_isolated_volume	Explicit isolated batch08 Linux queue test disabled.	round2-backend-ordinary-042		
+tests.queue.test_batch08_reliability_queue	test_collection_wait_restart_and_word_crash_retain_isolated_volume	Explicit isolated batch08 Linux queue test disabled.	round2-backend-ordinary-042		
+tests.queue.test_batch08_reliability_queue	test_current_figure_and_explanation_real_crash_recovery	Explicit isolated batch08 Linux queue test disabled.	round2-backend-ordinary-042		
+tests.queue.test_batch09_filter_queue	test_linux_filter_restart_revision_confirmation_and_duplicate_delivery	Explicit isolated Linux filter queue disabled.	round2-backend-ordinary-042		
+tests.queue.test_batch10_statistics_queue	test_real_statistics_queue_recovery_and_ocr_memory	Explicit isolated Linux queue test is disabled.	round2-backend-ordinary-042		
+tests.queue.test_batch10_statistics_queue	test_final_prefork_deadline_smoke	Explicit isolated Linux queue test is disabled.	round2-backend-ordinary-042		
+tests.queue.test_bio_import_queue	test_linux_bio_wait_restart_confirm_publish	Explicit bio queue test disabled	round2-backend-ordinary-042		
+tests.queue.test_comparison_plan_queue	test_comparison_wait_releases_worker_and_restart_publishes_once	Explicit isolated Linux comparison-plan test is disabled.	round2-backend-ordinary-042		
+tests.queue.test_comparison_plan_queue	test_six_windows_saved_methods_revalidate_in_real_linux_worker	Explicit isolated Linux comparison-plan test is disabled.	round2-backend-ordinary-042		
+tests.queue.test_correlation_plan_queue	test_correlation_input_restart_and_independent_confirmation_publish_once	Explicit isolated Linux correlation-plan test is disabled.	round2-backend-ordinary-042		
+tests.queue.test_correlation_plan_queue	test_windows_saved_statistics_revalidate_in_linux_worker	Explicit isolated Linux correlation-plan test is disabled.	round2-backend-ordinary-042		
+tests.queue.test_dataset_analysis_queue	test_full_dataset_chain_candidate_and_receipt_recovery_without_original_reads	Explicit isolated dataset analysis queue test is disabled.	round2-backend-ordinary-042		
+tests.queue.test_dataset_preparation_queue	test_wait_frees_worker_and_restart_can_revise_then_approve	Explicit isolated preparation queue test is disabled.	round2-backend-ordinary-042		
+tests.queue.test_dataset_preparation_queue	test_preview_and_publication_process_death_recover_with_unique_publish	Explicit isolated preparation queue test is disabled.	round2-backend-ordinary-042		
+tests.queue.test_dataset_queue	test_real_dataset_versions_keep_full_rows_and_old_preview_through_broker_restart	Explicit isolated Linux dataset queue test is disabled.	round2-backend-ordinary-042		
+tests.queue.test_dataset_queue	test_dataset_publication_death_rolls_back_all_sheets_and_recovers_once	Explicit isolated Linux dataset queue test is disabled.	round2-backend-ordinary-042		
+tests.adapters.test_pdf_process	test_non_linux_fails_closed	Windows guard	round2-backend-ordinary-003	passed	supplement-windows-platform
+tests.adapters.test_school_front_matter	test_gs501_submission_forms_reuse_original_layout_and_fill_only_known_slots	Requires the locally retained official GS501 upload.	round2-backend-ordinary-003		
+tests.adapters.test_school_pagination_v2	test_real_toc_page_numbers_follow_continuation_and_actual_source_restart[False]	Explicit local renderer run only	round2-backend-ordinary-003		
+tests.adapters.test_school_pagination_v2	test_real_toc_page_numbers_follow_continuation_and_actual_source_restart[True]	Explicit local renderer run only	round2-backend-ordinary-003		
+tests.adapters.test_ocr_process	test_windows_fails_closed	Windows-only check	round2-backend-ordinary-002	passed	supplement-windows-platform
+tests.domain.test_bio_parser	test_isolated_entry_fails_closed_on_windows	Windows fail-closed assertion	round2-backend-ordinary-022	passed	supplement-windows-platform
+tests.queue.test_documents_queue	test_linux_mixed_documents_and_reparse_keep_originals_and_old_versions	Explicit isolated Linux document queue test is disabled.	round2-backend-ordinary-043		
+tests.queue.test_documents_queue	test_document_publication_death_recovers_once_and_retains_candidate	Explicit isolated Linux document queue test is disabled.	round2-backend-ordinary-043		
+tests.queue.test_explanation_queue	test_explanation_slices_and_real_crash_recovery	Explicit isolated Linux explanation queue test is disabled.	round2-backend-ordinary-043		
+tests.queue.test_file_parse_queue	test_linux_mixed_batch_keeps_originals_and_resumes_after_broker_restart	Explicit isolated Linux parse queue test is disabled.	round2-backend-ordinary-043		
+tests.queue.test_file_parse_queue	test_parse_publication_process_death_rolls_back_and_recovers_once	Explicit isolated Linux parse queue test is disabled.	round2-backend-ordinary-043		
+tests.queue.test_finite_retry_queue	test_finite_retry_survives_restart_and_manual_recovery	Explicit isolated Linux finite retry test is disabled.	round2-backend-ordinary-043		
+tests.queue.test_literature_assistance_queue	test_linux_authorization_wait_and_restart_keep_single_model_publication	Explicit isolated Linux queue test disabled.	round2-backend-ordinary-043		
+tests.queue.test_literature_queue	test_linux_wait_restart_retry_cache_and_duplicate_delivery	Explicit isolated Linux queue disabled.	round2-backend-ordinary-043		
+tests.queue.test_modeling_plan_queue	test_modeling_missing_role_releases_worker_and_recovers_once	Explicit isolated Linux modeling test disabled.	round2-backend-ordinary-043		
+tests.queue.test_modeling_plan_queue	test_windows_modeling_results_rebuild_in_linux	Explicit isolated Linux modeling test disabled.	round2-backend-ordinary-043		
+tests.queue.test_ocr_queue	test_linux_image_and_selected_pdf_pages_keep_existing_versions	Explicit isolated Linux OCR queue test is disabled.	round2-backend-ordinary-043		
+tests.queue.test_ocr_queue	test_ocr_publication_death_recovers_once_and_preserves_candidate	Explicit isolated Linux OCR queue test is disabled.	round2-backend-ordinary-043		
+tests.queue.test_ocr_review_queue	test_review_wait_releases_worker_and_partial_draft_survives_restart	Explicit isolated OCR review queue test is disabled.	round2-backend-ordinary-043		
+tests.queue.test_pdf_queue	test_linux_mixed_pdf_batch_and_stopped_worker_reparse	Explicit isolated Linux PDF queue test is disabled.	round2-backend-ordinary-043		
+tests.queue.test_pdf_queue	test_pdf_publication_death_recovers_once_and_retains_candidate	Explicit isolated Linux PDF queue test is disabled.	round2-backend-ordinary-043		
+tests.queue.test_plot_queue	test_plot_effect_boundaries_and_png_crash_recovery	Explicit isolated Linux plot queue test is disabled.	round2-backend-ordinary-043		
+tests.queue.test_real_worker	test_linux_word_queue_and_broker_restart	Explicit isolated Linux queue test is disabled.	round2-backend-ordinary-043		
+tests.queue.test_research_plan_queue	test_research_input_wait_releases_worker_and_restart_requires_fresh_approval	Explicit isolated Linux research-plan drill is disabled.	round2-backend-ordinary-043		
+tests.queue.test_serial_worker	test_two_real_workers_serialize_word_backlog_and_recycle_children	Explicit isolated Linux serial queue acceptance is disabled.	round2-backend-ordinary-043		
+tests.queue.test_worker_crash	test_process_death_after_file_rename_rolls_back_then_recovers	Explicit isolated Linux queue crash test is disabled.	round2-backend-ordinary-043		

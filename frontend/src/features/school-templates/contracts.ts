@@ -8,7 +8,7 @@ export type FrontMatter={schema_version:1;cover_section_id:string;fields:FrontFi
 export type Chapter = {id:string;title:string;level:number;source?:Source}
 export type Fact = {id?:string;label?:string;category?:string;value?:unknown;text?:string;message?:string;source?:Source;required?:boolean}
 export type Section = {id:string;page:Record<string,number>;source?:Source;different_first_page:boolean;different_odd_even_pages:boolean;page_number:{format:string|null;start:string|null;mode:string};headers:{type:string;part:string|null;text:string;fields:string[];linked_to_previous:boolean;source?:Source}[];footers:Section['headers'];break_type:string|null}
-export type Analysis = {front_matter_sources?:FrontSource[];rules:Fact[];chapters:Chapter[];sections:Section[];notes:(Fact|string)[];conflicts:{id:string;label?:string;options:{id:string;value:unknown;source?:Source}[]}[];missing:(Fact|string)[];unsupported:(Fact|string)[];identity_fields:(Fact|string)[]}
+export type Analysis = {front_matter_sources?:FrontSource[];rules:Fact[];chapters:Chapter[];sections:Section[];notes:(Fact|string)[];conflicts:{id:string;rule_id?:string;kind?:string;label?:string;message?:string;options:{id:string;value:unknown;source?:Source}[]}[];missing:(Fact|string)[];unsupported:(Fact|string)[];identity_fields:(Fact|string)[]}
 export type SchoolFormatProfile = 'bsu-gs501-academic-masters-2026'
 export type Template = {available_format_profile?:SchoolFormatProfile;rule_suggestion_note_eligibility?:{eligible_note_ids:string[];blocked_notes:{note_id:string;reason_code:'identity_source'}[]};front_matter_sources?:FrontSource[];previous_version_id?:string|null;text_decision_options?:TextDecisionOption[];id:string;name:string;school:string;version_label:string;created_at:string;task:{id:string;status:string;error_code?:string|null};analysis:Analysis|null;analysis_sha256:string|null;confirmation:{id:string;format_profile?:SchoolFormatProfile;front_matter?:FrontMatter;text_decisions?:{id:string;choice:string;source_sha256:string}[];chapters?:Chapter[];decisions?:{conflict_id:string;option_id:string}[];rules?:Fact[];missing?:(Fact|string)[];unsupported?:(Fact|string)[]}|null;supplement_text?:string;sources:{id:string;role:string;file_id:string;filename:string;download_url:string;sha256?:string}[]}
 export const emptyProfile:Profile = {revision:0,school:'',department:'',major:'',degree_type:'',education_level:'',applicable_version:'',bound_confirmation_id:null}
@@ -42,3 +42,20 @@ export function isTemplateList(value:unknown):value is {items:Template[]}{
 
 export function validFrontSource(v:unknown):v is FrontSource{return record(v)&&typeof v.id==='string'&&record(v.source)&&source(v.source)&&(v.section_id===null||typeof v.section_id==='string')&&(v.suggested_label===null||typeof v.suggested_label==='string')&&record(v.style)&&Object.values(v.style).every(x=>typeof x==='string'||typeof x==='number'&&Number.isFinite(x))&&record(v.style_sources)&&Object.values(v.style_sources).every(source)}
 export function validFrontMatter(v:unknown):v is FrontMatter{return record(v)&&v.schema_version===1&&typeof v.cover_section_id==='string'&&Array.isArray(v.fields)&&v.fields.length<=100&&v.fields.every(f=>record(f)&&['id','label','source_id','section_id'].every(k=>typeof f[k]==='string')&&['text','identity','signature','date'].includes(String(f.kind))&&typeof f.required==='boolean'&&(f.style_source_id===null||typeof f.style_source_id==='string')&&(f.chapter_id===null||typeof f.chapter_id==='string'))&&new Set(v.fields.map(f=>f.id)).size===v.fields.length&&Array.isArray(v.content_requirements)&&v.content_requirements.length<=100&&v.content_requirements.every(r=>record(r)&&['id','source_id','chapter_id'].every(k=>typeof r[k]==='string')&&['declaration','acknowledgements'].includes(String(r.kind))&&typeof r.required==='boolean')&&new Set(v.content_requirements.map(r=>r.id)).size===v.content_requirements.length}
+
+// D6 change preview (POST thesis-template-binding/preview, interface design section 4).
+export type BindingSide={confirmation_id:string|null;template_name:string;confirmed_at:string|null}
+export type ChapterChange={title:string;change:'added'|'removed'|'title_changed'|'level_changed'|'order_changed';detail_key:string;detail_params:{from?:unknown;to?:unknown}}
+/** `rule_id` is the stable rule id when the format difference is a template rule; values are raw. */
+export type OutputChange={kind:'word_format';rule_id?:string;detail_key:string;detail_params:{from?:unknown;to?:unknown}}
+export type AffectedManuscript={manuscript_id:string;title:string;revision:number;keeps_template:true;next_action:'migrate'}
+export type BindingPreview={current:BindingSide|null;next:BindingSide;chapters:ChapterChange[];outputs:OutputChange[];manuscripts:AffectedManuscript[]}
+const chapterChanges=['added','removed','title_changed','level_changed','order_changed']
+function side(v:unknown):v is BindingSide{return record(v)&&(v.confirmation_id===null||typeof v.confirmation_id==='string')&&typeof v.template_name==='string'&&(v.confirmed_at===null||v.confirmed_at===undefined||typeof v.confirmed_at==='string')}
+function changeParams(v:unknown){return v===undefined||record(v)}
+export function isBindingPreview(v:unknown):v is BindingPreview{
+ return record(v)&&(v.current===null||side(v.current))&&side(v.next)
+  &&Array.isArray(v.chapters)&&v.chapters.every(c=>record(c)&&typeof c.title==='string'&&chapterChanges.includes(String(c.change))&&typeof c.detail_key==='string'&&changeParams(c.detail_params))
+  &&Array.isArray(v.outputs)&&v.outputs.every(o=>record(o)&&o.kind==='word_format'&&typeof o.detail_key==='string'&&(o.rule_id===undefined||typeof o.rule_id==='string')&&changeParams(o.detail_params))
+  &&Array.isArray(v.manuscripts)&&v.manuscripts.every(m=>record(m)&&typeof m.manuscript_id==='string'&&typeof m.title==='string'&&Number.isSafeInteger(m.revision)&&m.keeps_template===true&&m.next_action==='migrate')
+}

@@ -1,4 +1,5 @@
 export const journalMessages:Record<string,string>={
+ '请粘贴来源原文。':'Paste the source text.',
  '期刊适配使用了合成指南或稿件输入，仅验证离线工程，不代表真实期刊适配验收。':'Journal adaptation uses a synthetic guide or manuscript input for offline engineering validation only; it does not establish acceptance of a real journal adaptation.',
  'v2 审核稿仅可查看公共检查；普通修改与发布入口关闭。':'Reviewed v2 manuscripts allow shared inspection only; ordinary editing and publication are disabled.',
  '期刊指南适配':'Journal guide adaptation','指南适配中':'Adapting journal display',

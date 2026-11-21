@@ -212,6 +212,36 @@ def test_b05_not_computable_pca_and_clustering_keep_empty_frozen_panels(tmp_path
         assert data['displayed_count'] == 0 and data['omitted_count'] == 0
 
 
+@pytest.mark.parametrize(('assay', 'unit'), [('bulk_rna_counts', 'counts'), ('normalized_expression', 'TPM')])
+def test_expression_ecdf_reuses_frozen_input_scale_and_sample_order(tmp_path, assay, unit):
+    from app.adapters.bio_engine.manifest import Writer
+    from app.adapters.bio_insights_engine.bulk_figures import validate_bulk_plot
+
+    root = tmp_path / 'processed'
+    root.mkdir()
+    writer = Writer(root)
+    samples = ['b', 'a']
+    writer.json('expression_distribution_data', dict(sample_ids=samples))
+    processed = _source(root, 'bio_processed_dataset_version', dict(assay=assay, scale={'unit': unit}), writer)
+    raw_dir = tmp_path / 'raw'
+    raw_dir.mkdir()
+    raw = Writer(raw_dir)
+    counts = assay == 'bulk_rna_counts'
+    raw.array('matrix_values', np.array([[8, 1, 3], [4, 0, 2]], dtype='int64' if counts else 'float64'))
+    raw.array('matrix_missing', np.array([[False, False, False], [False, not counts, False]]))
+    raw.json('samples_index', dict(sample_ids=samples))
+    raw.json('features_index', dict(feature_ids=['F1','F2','F3']))
+    processed['raw'] = dict(manifest=dict(schema_version=3, assay=assay, scale={'unit': unit}),
+                            members={m['key']: m for m in raw.artifacts})
+    data, result, payload = _draw(tmp_path, processed, 'bulk_qc', bulk_panel='qc_ecdf')
+    assert data['sample_ids'] == samples and data['unit'] == unit
+    assert data['curves'][0] == dict(sample_id='b', measured=3, expression=[1, 3, 8], fraction=[0., .5, 1.])
+    assert data['curves'][1]['expression'] == ([0, 2, 4] if counts else [2, 4])
+    assert data['raw_member_hashes']['matrix_values'] == raw.artifacts[0]['sha256']
+    assert result['methods']['analysis_recomputed'] is False
+    validate_bulk_plot(payload, data)
+
+
 def test_b05_redraw_changes_image_without_refitting_or_changing_points(tmp_path, comparison, monkeypatch):
     from pydeseq2.dds import DeseqDataSet
 

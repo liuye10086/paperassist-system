@@ -60,7 +60,11 @@ def save(writer,key,fig,data,config=None):
     else:font_path=Path(findfont(FontProperties()))
     dpi=int(config.get('dpi',300));width=float(config.get('width_inches',6));height=float(config.get('height_inches',5))
     if dpi<72 or dpi>600 or max(width,height)*dpi>4096 or width*height*dpi*dpi>16000000: raise ValueError('figure_size_limit')
-    fig.set_size_inches(width,height);fig.tight_layout()
+    # Agg truncates the floating inch-to-pixel product (e.g. 965 px at 480 DPI).
+    # Keep the physical-size manifest exact while rounding the canvas up one ULP.
+    canvas_width=np.nextafter(width,np.inf) if 'width' in config and int(width*dpi)<config['width'] else width
+    canvas_height=np.nextafter(height,np.inf) if 'height' in config and int(height*dpi)<config['height'] else height
+    fig.set_size_inches(canvas_width,canvas_height);fig.tight_layout()
     members=[]
     for fmt,metadata in [('png',{'Software':'PaperAssist'})]:
         stream=io.BytesIO();fig.savefig(stream,format=fmt,dpi=dpi,metadata=metadata)
@@ -73,46 +77,59 @@ def save(writer,key,fig,data,config=None):
 
 
 def qc_figures(writer,qc,config):
-    palette_name=config.get('cmap') or config.get('palette') or 'viridis';palette=plt.get_cmap(palette_name)
+    totals=dict(total_counts=qc['raw_counts'],detected_genes=qc['raw_detected'])
+    filtered=dict(filtered_total_counts=qc['filtered_total'],filtered_detected_genes=qc['filtered_detected'])
+    fraction=qc['mt_fraction']
+    if fraction is None:
+        mitochondrial=dict(status='not_computable',reason=qc['mt_reason'],fraction=None)
+    else:
+        finite=np.isfinite(fraction)
+        mitochondrial=dict(status='completed' if finite.any() else 'not_computable',
+            reason=None if finite.any() else 'all_zero_total_counts',fraction=fraction,
+            total_counts=qc['raw_counts'],missing_zero_denominator=~finite)
+    panels=dict(distribution={**totals,**filtered,'kept':qc['obs_mask']},
+        scatter={**totals,'kept':qc['obs_mask']},
+        violin={**totals,**filtered,'extreme_candidate_rule':qc['extreme_fences']},mitochondrial=mitochondrial)
     chosen=config.get('panel','default') if config.get('kind')=='qc' else None
     if chosen=='default':chosen='distribution'
-    if chosen not in {None,'distribution','scatter','violin','mitochondrial'}:raise ValueError('invalid_parameter_qc_panel')
-    panels={}
-    # The bounded synthetic caller tests artist output; close unselected panels
-    # before saving so one standalone request always publishes one real figure.
-    fig,axes=plt.subplots(1,2)
-    for ax,field,filtered_field,title in zip(axes,['raw_counts','raw_detected'],['filtered_total','filtered_detected'],['Total counts','Detected genes']):
-        values=qc[field];ax.hist(values,bins=min(40,max(5,len(values)//2)),alpha=.6,label='Raw',color=palette(.2))
-        ax.hist(qc[filtered_field],bins=min(40,max(5,len(values)//2)),alpha=.6,label='Filtered',color=palette(.8));ax.set_xlabel(title);ax.legend()
-    panels['distribution']=(fig,{'total_counts':qc['raw_counts'],'detected_genes':qc['raw_detected'],'filtered_total_counts':qc['filtered_total'],'filtered_detected_genes':qc['filtered_detected'],'kept':qc['obs_mask']})
-    fig,ax=plt.subplots();ax.scatter(qc['raw_counts'],qc['raw_detected'],s=6,c=[palette(.75) if kept else (.6,.6,.6,1.) for kept in qc['obs_mask']])
-    ax.set(xlabel='Total counts',ylabel='Detected genes',title='QC: raw observations')
-    panels['scatter']=(fig,{'total_counts':qc['raw_counts'],'detected_genes':qc['raw_detected'],'kept':qc['obs_mask']})
-    fig,axes=plt.subplots(1,2)
-    for ax,field,filtered_field,title in zip(axes,['raw_counts','raw_detected'],['filtered_total','filtered_detected'],['Total counts','Detected genes']):
-        for ordinal,(label,values) in enumerate([('Raw',qc[field]),('Filtered',qc[filtered_field])],start=1):
-            if len(values)>1 and np.ptp(values)>0:
-                parts=ax.violinplot([values],positions=[ordinal],showmedians=True)
-                for body in parts['bodies']:body.set_facecolor(palette(.2 if ordinal==1 else .8))
-            elif len(values):ax.plot([ordinal],[values[0]],'o')
-        ax.set_xticks([1,2],['Raw','Filtered']);ax.set_ylabel(title)
-    panels['violin']=(fig,{'total_counts':qc['raw_counts'],'detected_genes':qc['raw_detected'],'filtered_total_counts':qc['filtered_total'],'filtered_detected_genes':qc['filtered_detected'],'extreme_candidate_rule':qc['extreme_fences']})
-    fig,ax=plt.subplots()
-    if qc['mt_fraction'] is None:
-        ax.axis('off');ax.text(.05,.5,'Mitochondrial fraction unavailable: rule unconfirmed',transform=ax.transAxes)
-        data={'status':'not_computable','reason':qc['mt_reason'],'fraction':None}
-    else:
-        finite=np.isfinite(qc['mt_fraction'])
-        ax.scatter(qc['raw_counts'][finite],qc['mt_fraction'][finite],s=6,color=palette(.6))
-        ax.set(xlabel='Total counts',ylabel='Mitochondrial fraction')
-        data={'status':'completed' if finite.any() else 'not_computable','reason':None if finite.any() else 'all_zero_total_counts',
-              'fraction':qc['mt_fraction'],'total_counts':qc['raw_counts'],'missing_zero_denominator':~finite}
-    panels['mitochondrial']=(fig,data)
-    for panel,(fig,data) in panels.items():
-        if chosen is None or panel==chosen:
-            if config.get('title'):fig.axes[0].set_title(config['title'])
-            save(writer,'qc_'+panel,fig,data,{**config,'kind':'qc','panel':panel,'palette':palette_name,'cmap':palette_name})
-        else:plt.close(fig)
+    if chosen is not None and chosen not in panels:raise ValueError('invalid_parameter_qc_panel')
+    for panel,data in panels.items():
+        if chosen is None or panel==chosen:qc_figure_from_saved(writer,panel,data,config)
+
+
+def qc_figure_from_saved(writer,panel,data,config):
+    palette_name=config.get('cmap') or config.get('palette') or 'viridis';palette=plt.get_cmap(palette_name)
+    if panel in ('distribution','violin'):
+        fig,axes=plt.subplots(1,2)
+        for ax,field,filtered_field,title in zip(axes,['total_counts','detected_genes'],['filtered_total_counts','filtered_detected_genes'],['Total counts','Detected genes']):
+            values=data[field];filtered=data[filtered_field]
+            if panel=='distribution':
+                bins=config.get('histogram_bins') or min(40,max(5,len(values)//2))
+                ax.hist(values,bins=bins,alpha=.6,label='Raw',color=palette(.2))
+                ax.hist(filtered,bins=bins,alpha=.6,label='Filtered',color=palette(.8));ax.set_xlabel(title);ax.legend()
+            else:
+                for index,group in enumerate([values,filtered],start=1):
+                    if len(group)>1 and np.ptp(group)>0:
+                        parts=ax.violinplot([group],positions=[index],showmedians=True)
+                        for body in parts['bodies']:body.set_facecolor(palette(.2 if index==1 else .8))
+                    elif len(group):ax.plot([index],[group[0]],'o')
+                ax.set_xticks([1,2],['Raw','Filtered']);ax.set_ylabel(title)
+    elif panel=='scatter':
+        fig,ax=plt.subplots()
+        ax.scatter(data['total_counts'],data['detected_genes'],s=config.get('point_size',6),
+            c=[palette(.75) if kept else (.6,.6,.6,1.) for kept in data['kept']])
+        ax.set(xlabel='Total counts',ylabel='Detected genes',title='QC: raw observations')
+    elif panel=='mitochondrial':
+        fig,ax=plt.subplots()
+        if data['fraction'] is None:
+            ax.axis('off');ax.text(.05,.5,'Mitochondrial fraction unavailable: rule unconfirmed',transform=ax.transAxes)
+        else:
+            fractions=np.asarray(data['fraction'],dtype=float);finite=np.isfinite(fractions)
+            ax.scatter(np.asarray(data['total_counts'])[finite],fractions[finite],s=config.get('point_size',6),color=palette(.6))
+            ax.set(xlabel='Total counts',ylabel='Mitochondrial fraction')
+    else:raise ValueError('invalid_parameter_qc_panel')
+    if config.get('title'):fig.axes[0].set_title(config['title'])
+    save(writer,'qc_'+panel,fig,data,{**config,'kind':'qc','panel':panel,'palette':palette_name,'cmap':palette_name})
 
 
 def qc_stratified(writer,qc,field,values,config):
@@ -121,7 +138,7 @@ def qc_stratified(writer,qc,field,values,config):
     labels=sorted(set(values))
     colors,effective=categorical_colors(labels,palette_name)
     for i,label in enumerate(labels):
-        selected=np.asarray([v==label for v in values]);ax.scatter(qc['raw_counts'][selected],qc['raw_detected'][selected],s=5,label=label,color=colors[label])
+        selected=np.asarray([v==label for v in values]);ax.scatter(qc['raw_counts'][selected],qc['raw_detected'][selected],s=config.get('point_size',5),label=label,color=colors[label])
     ax.set(xlabel='Total counts',ylabel='Detected genes',title=config.get('title') or 'QC by '+field);ax.legend(fontsize=6)
     save(writer,'qc_by_'+field,fig,{'field':field,'values':values,'total_counts':qc['raw_counts'],'detected_genes':qc['raw_detected'],'category_colors':colors},{**config,'kind':'qc','panel':field,'palette':palette_name,'cmap':palette_name,'effective_palette':effective})
 
@@ -138,7 +155,7 @@ def embedding_figure(writer,points,clusters,barcodes,kind,config,labels=None):
     colors,effective=categorical_colors(ordered,palette,numeric=color_by=='cluster')
     fig,ax=plt.subplots()
     for index,label in enumerate(ordered):
-        selected=labels==label;ax.scatter(points[selected,0],points[selected,1],s=8,label='Cluster '+label if color_by=='cluster' else label,color=colors[label])
+        selected=labels==label;ax.scatter(points[selected,0],points[selected,1],s=config.get('point_size',8),label='Cluster '+label if color_by=='cluster' else label,color=colors[label])
     ax.set(xlabel='PC1' if kind=='pca' else 'UMAP1',ylabel='PC2' if kind=='pca' else 'UMAP2',title=config.get('title') or '');ax.legend(fontsize=7)
     save(writer,kind,fig,{'barcodes':barcodes,'coordinates':points[:,:2],'clusters':clusters,'color_by':color_by,'color_labels':labels,'category_colors':colors},
          {**config,'kind':kind,'panel':'scores','palette':palette,'cmap':palette,'effective_palette':effective})
@@ -253,12 +270,14 @@ def marker_figures_from_saved(writer,data,config,feature_symbols=None):
             fig,ax=plt.subplots()
             values=means[np.ix_(ci,gi)].T;fractions=detection[np.ix_(ci,gi)].T
             limits=dict(vmin=config['vmin'] if config.get('vmin') is not None else float(means.min()),vmax=config['vmax'] if config.get('vmax') is not None else float(means.max()))
+            visible=fractions>=config.get('min_detection_fraction',0.)
             if kind=='marker_dotplot':
                 yy,xx=np.indices(values.shape)
-                artist=ax.scatter(xx.ravel(),yy.ravel(),s=fractions.ravel()*110,c=values.ravel(),cmap=palette,**limits)
-                handles=[ax.scatter([],[],s=f*110,c='#555555',label=f'{int(f*100)}%') for f in (.25,.5,1.)]
+                max_area=config.get('point_size',110)
+                artist=ax.scatter(xx[visible],yy[visible],s=fractions[visible]*max_area,c=values[visible],cmap=palette,**limits)
+                handles=[ax.scatter([],[],s=f*max_area,c='#555555',label=f'{int(f*100)}%') for f in (.25,.5,1.)]
                 ax.legend(handles=handles,title='Detected cells' if en else '检出细胞比例',loc='upper left',bbox_to_anchor=(1.15,1),fontsize=8,title_fontsize=8)
-            else:artist=ax.imshow(values,aspect='auto',cmap=palette,**limits)
+            else:artist=ax.imshow(np.ma.array(values,mask=~visible),aspect='auto',cmap=palette,**limits)
             ax.set_yticks(range(len(gi)),['\n'.join(textwrap.wrap(labels[i],32)) for i in gi],fontsize=9)
             ax.set_xticks(range(len(ci)),[str(clusters[i]) for i in ci],fontsize=9)
             ax.set_xlabel('Cluster' if en else '聚类')
@@ -268,7 +287,7 @@ def marker_figures_from_saved(writer,data,config,feature_symbols=None):
             fig.colorbar(artist,ax=ax,label='Mean log1p',pad=.03,shrink=.6)
             key=kind if page==1 else kind+'_page_'+str(page)
             page_data={**data,'feature_ids':ids,'feature_symbols':[mapping.get(i) for i in ids],'feature_labels':labels,
-                'display_feature_indices':gi,'display_cluster_indices':ci,'mean_log1p':means,'detection_fraction':detection,
+                'display_feature_indices':gi,'display_cluster_indices':ci,'display_mask':visible,'mean_log1p':means,'detection_fraction':detection,
                 'effective_color_limits':artist.get_clim(),'presentation_only':True}
             save(writer,key,fig,page_data,{**config,'kind':kind,'panel':'default','gene_ids':selected,
-                'width_inches':8,'height_inches':max(4,min(10,1.8+len(gi)*.35)), 'dpi':min(300,int(config.get('dpi',300)))})
+                'width_inches':config.get('width_inches',8),'height_inches':config.get('height_inches',max(4,min(10,1.8+len(gi)*.35)))})

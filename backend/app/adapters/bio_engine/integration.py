@@ -129,8 +129,6 @@ def batch_diagnostics(representations,rows,key,seed):
 
 
 def publish_integration(writer,result,rows,config):
-    from . import plots
-    from matplotlib import pyplot as plt
     state=result['integration'];representations={'X_pca_unadjusted':result['pca_unadjusted'],'X_pca':result['pca']}
     if result.get('pca_harmony') is not None:representations['X_pca_harmony']=result['pca_harmony']
     key=state['harmony']['batch_key'];labels=[r.get(key) or 'unknown' for r in rows]
@@ -144,18 +142,36 @@ def publish_integration(writer,result,rows,config):
     writer.table('integration_coordinates',[dict(barcode=r['barcode'],representation=name,**{f'dimension_{j+1}':float(v) for j,v in enumerate(matrix[i])}) for name,matrix in representations.items() for i,r in enumerate(rows)])
     for suffix,before,after in [('covariates','X_pca_unadjusted','X_pca'),('harmony','X_pca','X_pca_harmony')]:
         if after not in representations:continue
-        fig,axes=plt.subplots(1,2);colors,effective_palette=plots.categorical_colors(sorted(set(labels)),palette='tab20')
-        en=config.get('output_language','en')=='en'
-        titles=(['Before covariate regression','After covariate regression'] if en else ['协变量处理前','协变量处理后']) if suffix=='covariates' else (['Before Harmony (PCA)','After Harmony (corrected)'] if en else ['Harmony 前（PCA）','Harmony 后（校正维度）'])
-        if suffix=='covariates' and not state['technical_covariates'].get('applied'):titles[1]+=' (not applied)' if en else '（未应用）'
-        if suffix=='harmony':fig.suptitle('Harmony dimensions do not represent PCA explained variance' if en else 'Harmony 校正维度不代表 PCA 解释方差',fontsize=9)
-        for ax,name,title in zip(axes,[before,after],titles):
-            matrix=representations[name]
-            for label in sorted(set(labels)):
-                selected=np.asarray([v==label for v in labels]);ax.scatter(matrix[selected,0],matrix[selected,1],s=5,label=label,color=colors[label])
-            harmony=name=='X_pca_harmony';prefix=('Harmony dimension' if en else 'Harmony 维度') if harmony else 'PC'
-            ax.set(xlabel=prefix+' 1',ylabel=prefix+' 2',title=title);ax.legend(fontsize=6)
-        plots.save(writer,'integration_'+suffix,fig,dict(barcodes=[r['barcode'] for r in rows],batch_key=key,batches=labels,before=representations[before],after=representations[after],
-            category_colors=colors,effective_palette=effective_palette,
-            axis_note='Harmony axes are corrected dimensions, not PCA explained variance',state=state['harmony' if suffix=='harmony' else 'technical_covariates']),
-            {**config,'kind':'integration_'+suffix,'width_inches':8,'height_inches':4,'palette':'tab20','cmap':'tab20','effective_palette':effective_palette})
+        data=dict(barcodes=[r['barcode'] for r in rows],batch_key=key,batches=labels,
+            before=representations[before],after=representations[after],
+            axis_note='Harmony axes are corrected dimensions, not PCA explained variance',
+            state=state['harmony' if suffix=='harmony' else 'technical_covariates'])
+        integration_figure_from_saved(writer,'integration_'+suffix,data,{**config,'width_inches':8,'height_inches':4,'palette':'tab20'})
+
+
+def integration_figure_from_saved(writer,kind,data,config):
+    from . import plots
+    from matplotlib import pyplot as plt
+    labels=np.asarray(data['batches'])
+    palette=config.get('cmap') or config.get('palette') or 'tab20'
+    colors,effective=plots.categorical_colors(sorted(set(labels)),palette=palette)
+    en=config.get('output_language','en')=='en'
+    harmony=kind=='integration_harmony'
+    if harmony:
+        titles=['Before Harmony (PCA)','After Harmony (corrected)'] if en else ['Harmony 前（PCA）','Harmony 后（校正维度）']
+    else:
+        titles=['Before covariate regression','After covariate regression'] if en else ['协变量处理前','协变量处理后']
+        if not data['state'].get('applied'):titles[1]+=' (not applied)' if en else '（未应用）'
+    fig,axes=plt.subplots(1,2)
+    for ax,key,title in zip(axes,['before','after'],titles):
+        matrix=np.asarray(data[key],dtype=float)
+        for label in sorted(set(labels)):
+            selected=labels==label
+            ax.scatter(matrix[selected,0],matrix[selected,1],s=config.get('point_size',5),label=label,color=colors[label])
+        prefix=('Harmony dimension' if en else 'Harmony 维度') if harmony and key=='after' else 'PC'
+        ax.set(xlabel=prefix+' 1',ylabel=prefix+' 2',title=title);ax.legend(fontsize=6)
+    note='Harmony dimensions do not represent PCA explained variance' if en else 'Harmony 校正维度不代表 PCA 解释方差'
+    title='\n'.join(v for v in (config.get('title'),note if harmony else None) if v)
+    if title:fig.suptitle(title,fontsize=9)
+    plots.save(writer,kind,fig,{**data,'category_colors':colors,'effective_palette':effective},
+        {**config,'kind':kind,'palette':palette,'cmap':palette,'effective_palette':effective})

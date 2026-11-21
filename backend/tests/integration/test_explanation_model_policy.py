@@ -12,6 +12,7 @@ from app.core.exceptions import StorageError
 from app.db.database import database_connection
 from tests.api.test_analysis import client  # noqa: F401
 from tests.api.test_boxplot import cloud  # noqa: F401
+from tests.api.test_explanation_tasks import persistence_counts
 from tests.domain.test_explanation_policy import execution_policy
 from tests.integration.test_explanations import ready
 from tests.integration.test_model_usage import context, configure, request  # noqa: F401
@@ -116,14 +117,13 @@ def test_task_policy_and_budget_are_frozen_in_creation_transaction(client, cloud
 def test_task_budget_rolls_back_if_outbox_creation_fails(client, cloud, monkeypatch):
     from app.adapters.task_store import TaskStore
     service, project, value = create_input(client)
+    before = persistence_counts()
     def failure(*args):
         raise RuntimeError('synthetic failure')
     monkeypatch.setattr(TaskStore, 'enqueue', failure)
     with pytest.raises(RuntimeError):
         service.create(project, value, idempotency_key='policy', explanation_policy=execution_policy())
-    with database_connection() as db:
-        assert db.execute('SELECT count(*) AS n FROM tasks').fetchone()['n'] == 0
-        assert db.execute('SELECT count(*) AS n FROM model_budgets').fetchone()['n'] == 0
+    assert persistence_counts() == before
 
 
 def test_generic_explanation_task_can_persist_without_config(client, cloud, monkeypatch):
@@ -140,6 +140,7 @@ def test_generic_explanation_task_can_persist_without_config(client, cloud, monk
 @pytest.mark.parametrize('same_header', [False, True])
 def test_source_admission_is_atomic_across_request_headers(client, cloud, same_header):
     service, project, value = create_input(client)
+    before = persistence_counts()
     barrier = Barrier(2)
     def submit(number):
         barrier.wait(timeout=10)
@@ -155,9 +156,9 @@ def test_source_admission_is_atomic_across_request_headers(client, cloud, same_h
     assert len(accepted) == (2 if same_header else 1)
     assert sum(created for _, created in accepted) == 1
     assert len({task['id'] for task, _ in accepted}) == 1
-    with database_connection() as db:
-        for table in ('tasks', 'task_outbox', 'model_budgets'):
-            assert db.execute(f'SELECT count(*) AS n FROM {table}').fetchone()['n'] == 1
+    after = persistence_counts()
+    for table in ('tasks', 'task_outbox', 'model_budgets'):
+        assert after[table] == before[table] + 1
 
 
 def test_source_admission_rejects_changed_predecessor_and_keeps_header_digest(client, cloud):

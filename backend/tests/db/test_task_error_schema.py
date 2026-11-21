@@ -3,16 +3,15 @@ from sqlalchemy import inspect
 from sqlalchemy.exc import IntegrityError
 import pytest
 
-from app.db.database import SCHEMA_HEAD, alembic_config, database_connection, migration_connection
+from app.db.database import alembic_config, database_connection, migration_connection
 from tests.db.test_task_schema import seed_owner, task_row, insert_row, NOW
 
 
+@pytest.mark.initial_revision('0011_task_waits')
 def test_incremental_upgrade_keeps_old_history_null_and_downgrades(postgres_schema, postgres_migration_config):
-    assert SCHEMA_HEAD == '0040_manuscript_writing_live'
     with migration_connection(write=True, config=postgres_migration_config) as db:
         settings = alembic_config()
         settings.attributes.update(connection=db.raw_connection, database_config=postgres_migration_config)
-        command.downgrade(settings, '0011_task_waits')
         seed_owner(db)
         from psycopg.types.json import Jsonb
         row = task_row(status='failed', current_attempt=1, reason_code='execution_failed')
@@ -22,7 +21,7 @@ def test_incremental_upgrade_keeps_old_history_null_and_downgrades(postgres_sche
         db.execute("INSERT INTO task_attempts(id,task_id,attempt_no,status,started_at,finished_at,reason_code) VALUES ('a','t',1,'failed',%s,%s,'execution_failed')", (NOW, NOW))
         db.execute("INSERT INTO task_events(task_id,seq,task_revision,event_type,status,phase,reason_code,created_at) VALUES ('t',1,1,'failed','failed','parse','execution_failed',%s)", (NOW,))
         before = {table: dict(db.execute('SELECT * FROM ' + table).fetchone()) for table in ('tasks', 'task_attempts', 'task_events')}
-        command.upgrade(settings, 'head')
+        command.upgrade(settings, '0012_task_errors')
         assert db.execute('SELECT retry_count FROM tasks').fetchone()['retry_count'] == 0
         for table in ('task_attempts', 'task_events'):
             history = db.execute('SELECT * FROM ' + table).fetchone()
@@ -30,7 +29,7 @@ def test_incremental_upgrade_keeps_old_history_null_and_downgrades(postgres_sche
         command.downgrade(settings, '0011_task_waits')
         for table in before:
             assert dict(db.execute('SELECT * FROM ' + table).fetchone()) == before[table]
-        command.upgrade(settings, 'head')
+        command.upgrade(settings, '0012_task_errors')
 
 
 @pytest.mark.parametrize('count', [-1, 4])

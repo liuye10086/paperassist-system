@@ -14,10 +14,10 @@ const automation: Record<string, string> = {
 }
 
 /** UI display only; saved checks, research text and user-supplied reasons stay intact. */
-export function systemCheckText(value: unknown): string {
+export function systemCheckText(value: unknown, displayNames?: ReadonlyMap<string, string>): string {
   if (typeof value !== 'string') return ''
   const source = sources.get(value) ?? (Object.hasOwn(automation, value) ? automation[value] : undefined)
-  if (source) return translate(source)
+  if (source) return translate(displayNames?.get(source) ?? source)
   const reference = value.match(/^Unmatched body or caption reference: (.+)\. Verify the number and supplied panel; original text retained\.$/)
     ?? value.match(/^正文或图注引用无法对应：(.+)。请核对编号和已提供分面；原文保留。$/)
   if (reference && /^(?:Figure|Fig\.?|Table|图|表)\s*[0-9]+(?:\s*\(?[A-Za-z]\)?)?$/i.test(reference[1])) {

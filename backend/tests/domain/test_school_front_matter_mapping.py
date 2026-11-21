@@ -112,8 +112,8 @@ def manuscript_service(monkeypatch,context):
     from app.domain.literature.service import digest
     saved=dict(id=context['confirmation_id'],template_version_id=context['template_version_id'],snapshot_sha256=digest(context['confirmation']))
     db=ReadOnlyDB(saved);service=object.__new__(ManuscriptService)
-    service.assets=object();service.store=SimpleNamespace(connection=lambda **k:nullcontext(db),user_id='synthetic')
-    service.require_project=lambda *a:dict(project_type='thesis')
+    service.assets=SimpleNamespace(customer=True);service.store=SimpleNamespace(connection=lambda **k:nullcontext(db),user_id='synthetic')
+    service.require_project=lambda *a:dict(id='project',project_type='thesis')
     monkeypatch.setattr(binding,'readiness',lambda *a:dict(ready=True,confirmation_id=context['confirmation_id'],profile=context['profile'],chapters=context['confirmation']['chapters'],template_source_file_ids=[]))
     fake=SimpleNamespace(row=lambda *a:dict(id=context['template_version_id']),require_current=lambda *a:(context['source_files'],{}),confirmation=lambda *a:context['confirmation'])
     monkeypatch.setattr(binding,'SchoolTemplateService',lambda *a:fake)
@@ -123,16 +123,17 @@ def manuscript_service(monkeypatch,context):
 @pytest.mark.parametrize('kind,wrong',[('declaration','acknowledgements'),('declaration','other'),('acknowledgements','manual')])
 def test_create_rejects_wrong_actual_purpose_before_task_or_manuscript_persistence(monkeypatch,kind,wrong):
     from app.core.exceptions import StorageError
-    from app.domain.manuscripts import service as module
+    from app.domain.manuscripts import school
     data=fixture();context=deepcopy(data['snapshot']['thesis_context']);front=context['confirmation']['front_matter']
     requirement=next(r for r in front['content_requirements'] if r['kind']==kind);front['content_requirements']=[requirement]
     service,db=manuscript_service(monkeypatch,context)
-    def too_late(*a):raise AssertionError('Wrong mapping passed freeze_context into research freezing')
-    monkeypatch.setattr(module,'freeze',too_late)
+    def too_late(*a):raise AssertionError('Invalid school mapping reached draft assembly')
+    monkeypatch.setattr(school,'seed_school_snapshot',too_late)
     mappings=[dict(chapter_id=c['id'],purpose=wrong if c['id']==requirement['chapter_id'] else c['purpose'],output_language='project',result_group_ids=c['result_group_ids']) for c in context['chapters']]
     request=dict(title='Synthetic mapping check',output_language='en',results_groups=[dict(id='evidence',title='Synthetic results')],thesis=dict(confirmation_id=context['confirmation_id'],profile_revision=context['profile']['revision'],chapter_mappings=mappings))
     with pytest.raises(StorageError) as caught:service.create('project',request,'same-key')
     assert caught.value.code=='task_input_invalid' and caught.value.status==422
+    assert '前置内容要求' in caught.value.message
     assert db.writes==[]
 
 

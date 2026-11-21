@@ -399,7 +399,7 @@ def export_word(client, root, fixed, payload, key):
     return saved, download.content
 
 
-def assert_school_word(ordinary, blind, png, quote, reference):
+def assert_school_word(ordinary, png, quote, reference):
     document = Document(BytesIO(ordinary))
     paragraphs = {p.text: p for p in document.paragraphs}
     cover = paragraphs['作者姓名：' + AUTHOR]
@@ -431,19 +431,40 @@ def assert_school_word(ordinary, blind, png, quote, reference):
         assert links[1].getparent().xpath('./w:pPr/w:ind/@w:left', namespaces=NS) == ['240']
         assert HEADER_IDENTITY.encode() in b''.join(archive.read(name) for name in archive.namelist() if name.startswith('word/header'))
         assert png in [archive.read(name) for name in archive.namelist() if name.startswith('word/media/')]
-    blind_document = Document(BytesIO(blind))
-    blind_paragraphs = [p.text for p in blind_document.paragraphs]
-    assert {'作者姓名：[已隐去]', '作者签名：[已隐去]', DECLARATION} <= set(blind_paragraphs)
-    assert quote + ' (1)' in blind_paragraphs and '合成观察见图3.1。' in blind_paragraphs
-    assert (document.core_properties.author, blind_document.core_properties.author) == ('PaperAssist', 'Anonymous')
-    assert (document.core_properties.last_modified_by, blind_document.core_properties.last_modified_by) == ('PaperAssist', 'Anonymous')
-    with ZipFile(BytesIO(blind)) as archive:
-        names = archive.namelist()
-        package_text = '\n'.join(names) + '\n' + '\n'.join(
-            archive.read(name).decode('utf-8') for name in names if name.endswith(('.xml', '.rels'))
-        )
-        assert all(term not in package_text for term in (AUTHOR, SIGNATURE, HEADER_IDENTITY, TEMPLATE_NAME, TEMPLATE_SIGNATURE))
-        assert png in [archive.read(name) for name in names if name.startswith('word/media/')]
+    assert (document.core_properties.author, document.core_properties.last_modified_by) == ('PaperAssist', 'PaperAssist')
+
+
+def assert_historical_blind_export_stays_readable(client, root, fixed, options):
+    """A signed presentation export rewritten into the stored shape of a pre-removal blind one."""
+    from copy import deepcopy
+    from psycopg.types.json import Jsonb
+    presentation = request(client, 'POST', root + '/presentations', status=201, key='signed-config', json=dict(
+        base_version_id=fixed['id'], config=dict(school=dict(options=options))))
+    assert 'blind' not in presentation['config']
+    signed, raw = export_word(client, root, fixed, dict(presentation_version_id=presentation['id'], language_view='zh-CN'), 'signed-word')
+    assert signed['presentation']['binding']['review_mode'] == 'identified' and 'blind' not in signed['presentation']
+    text = '\n'.join(p.text for p in Document(BytesIO(raw)).paragraphs)
+    assert '作者姓名：' + AUTHOR in text and '[已隐去]' not in text
+    with database_connection(write=True) as db:
+        row = db.execute('SELECT e.metadata_json,t.id,t.input_snapshot FROM manuscript_exports e JOIN tasks t ON t.id=e.task_id WHERE e.id=%s',
+                         (signed['id'],)).fetchone()
+        snapshot = deepcopy(row['input_snapshot']); snapshot['presentation']['binding']['review_mode'] = 'blind'
+        metadata = deepcopy(row['metadata_json']); metadata['presentation']['binding']['review_mode'] = 'blind'
+        metadata['filename'] = '毕业论文盲审稿.docx'
+        db.execute('UPDATE tasks SET input_snapshot=%s,input_digest=%s WHERE id=%s', (Jsonb(snapshot), digest(snapshot), row['id']))
+        db.execute('UPDATE manuscript_exports SET metadata_json=%s WHERE id=%s', (Jsonb(metadata), signed['id']))
+    listed = request(client, 'GET', root + f"/versions/{fixed['revision']}/exports")['items']
+    historical = next(item for item in listed if item['id'] == signed['id'])
+    assert historical['presentation']['binding']['review_mode'] == 'blind' and historical['filename'] == '毕业论文盲审稿.docx'
+    assert request(client, 'GET', root + '/exports/' + signed['id'])['sha256'] == signed['sha256']
+    assert client.get(historical['download_url']).content == raw
+    with database_connection(write=True) as db:
+        db.execute("UPDATE tasks SET status='failed',error_code='storage_unavailable' WHERE id=%s", (row['id'],))
+    task = request(client, 'GET', '/api/v1/tasks/' + row['id'])
+    retried = client.post('/api/v1/tasks/' + row['id'] + '/retry', json=dict(expected_revision=task['revision']))
+    assert retried.status_code == 422 and retried.json()['detail']['code'] == 'blind_review_removed', retried.text
+    with database_connection(write=True) as db:
+        db.execute("UPDATE tasks SET status='succeeded',error_code=NULL WHERE id=%s", (row['id'],))
 
 
 def adopt_template_update(client, project, root, fixed, parent_template, profile):
@@ -578,21 +599,19 @@ def test_customer_confirms_writes_reviews_and_downloads_frozen_thesis(monkeypatc
         assert required.isdisjoint(issue['id'] for issue in export['school']['report']['issues'])
         changed = options | dict(field_values=options['field_values'] | dict(author='changed'))
         request(client, 'POST', root + '/versions/2/exports', status=422, key='changed-identity', json=dict(school=changed))
-        presentation = request(client, 'POST', root + '/presentations', status=201, key='blind-config', json=dict(
+        rejected = request(client, 'POST', root + '/presentations', status=422, key='blind-config', json=dict(
             base_version_id=fixed['id'], config=dict(school=dict(options=options), blind=dict(
                 identity_terms=[HEADER_IDENTITY],
             )),
         ))
-        blind_export, blind = export_word(client, root, fixed, dict(presentation_version_id=presentation['id'],
-                                                                  language_view='zh-CN', review_mode='blind'), 'blind-word')
-        assert blind_export['sha256'] != export['sha256']
-        blind_report = blind_export['presentation']['blind']
-        assert blind_report['known_identity_check'] == 'passed' and not blind_report['anonymity_verified']
-        assert blind_report['images'] == 'pending_manual_review'
-        assert_school_word(ordinary, blind, png, citation[-1], fixed['snapshot']['references'][0]['text'])
+        assert rejected['detail']['code'] == 'blind_review_removed'
+        rejected = request(client, 'POST', root + '/versions/2/exports', status=422, key='blind-word', json=dict(review_mode='blind'))
+        assert rejected['detail']['code'] == 'blind_review_removed'
+        assert 'presentation' not in export
+        assert_historical_blind_export_stays_readable(client, root, fixed, options)
+        assert_school_word(ordinary, png, citation[-1], fixed['snapshot']['references'][0]['text'])
         for url in (project + '/thesis-profile', template['sources'][0]['download_url'], root + '/versions/2',
-                    export['download_url'], blind_export['download_url']):
+                    export['download_url']):
             assert foreign.get(url).status_code == 404
         adopt_template_update(client, project, root, fixed, template, profile)
         assert client.get(export['download_url']).content == ordinary
-        assert client.get(blind_export['download_url']).content == blind

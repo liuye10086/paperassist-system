@@ -1,7 +1,7 @@
 """Owner-scoped school template intake, confirmation and explicit binding."""
 from fastapi import APIRouter,Response
 from app.api.dataset_preparation import Store,Key
-from app.domain.school_templates.contracts import ProfileRequest,TemplateRequest,ConfirmRequest,ConfirmRequestV2,BindingRequest,EmptyRequest
+from app.domain.school_templates.contracts import ProfileRequest,TemplateRequest,ConfirmRequest,ConfirmRequestV2,BindingRequest,BindingPreviewRequest,EmptyRequest
 from app.domain.school_templates.service import SchoolTemplateService
 
 router=APIRouter(prefix='/api/v1/projects/{project_id}',tags=['学校模板'])
@@ -30,6 +30,11 @@ def confirm(project_id:str,identity:str,request:ConfirmRequestV2|ConfirmRequest,
 
 @router.post('/thesis-template-binding')
 def bind(project_id:str,request:BindingRequest,store:Store): return SchoolTemplateService(store).bind(project_id,request)
+
+@router.post('/thesis-template-binding/preview')
+def preview_binding(project_id:str,request:BindingPreviewRequest,store:Store):
+    from app.domain.school_templates.binding_preview import preview_binding
+    return preview_binding(store,project_id,request)
 
 from app.domain.school_templates.suggestion_contracts import SuggestionPreview,SuggestionRequest
 from app.domain.school_templates.suggestion_service import SuggestionService

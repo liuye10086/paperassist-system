@@ -29,9 +29,10 @@ def report_ready(client):
     return base, file, result, figure, explanation, url.replace('/explanation', '/report')
 
 
-def export(client, url, figure, explanation, **changes):
+def export(client, url, figure, explanation, *, key=None, **changes):
     response = client.post(url, json={'expected_revision': figure['setup_revision'], 'figure_id': figure['id'],
-                                     'explanation_id': explanation['id'], **changes})
+                                     'explanation_id': explanation['id'], **changes},
+                           headers={'Idempotency-Key': key} if key else {})
     if response.status_code != 202:
         return response
     # Business tests explicitly execute the queued task in the isolated schema;
@@ -40,6 +41,37 @@ def export(client, url, figure, explanation, **changes):
     task = response.json()['task']
     run_word_task(task['id'], task['revision'])
     return client.get(url)
+
+
+def frozen_historical_report(client, url, figure, explanation):
+    from app.adapters.task_store import TaskStore
+    from app.domain.tasks.contracts import TaskCreateRequest
+    from app.domain.tasks.execution import run_word_task
+    from tests.helpers.tasks import historical_word_task, task_owner
+
+    project = url.split('/')[4]
+    request = TaskCreateRequest(task_type='word_report', file_id=figure['file_id'],
+        analysis_run_id=figure['analysis_run_id'], expected_revision=figure['setup_revision'],
+        figure_id=figure['id'], explanation_id=explanation['id'])
+    task = historical_word_task(TaskStore(task_owner(client)), project, request, 'historical-word')
+    done = run_word_task(task['id'], task['revision'])
+    assert done['status'] == 'succeeded'
+    report = client.get(url).json()['historical_report']
+    assert report['id'] == done['result_report_id'] and 'reader_export' not in report
+    return report
+
+
+def stored_report_path(report, *, collection=False):
+    from app.core.config import get_data_dir
+    from app.domain.storage_governance.historical import report_reference
+
+    with database_connection() as db:
+        table = 'collection_reports' if collection else 'reports'
+        row = db.execute(f'SELECT * FROM {table} WHERE id=%s', (report['id'],)).fetchone()
+        ref = report_reference(db, row, collection=collection)
+    path = get_data_dir() / ref['object_key']
+    assert hashlib.sha256(path.read_bytes()).hexdigest() == report['sha256'] == ref['sha256']
+    return path
 
 
 def test_report_requires_complete_current_sources(client, cloud):
@@ -73,19 +105,23 @@ def test_export_reuses_saved_content_and_png_without_api(client, cloud, writer, 
         ns = {'w': 'http://schemas.openxmlformats.org/wordprocessingml/2006/main'}
         paragraphs = [''.join(p.itertext()) for p in root.findall('.//w:p', ns)]
         text = '\n'.join(paragraphs)
-        for section in explanation['sections']:
-            assert section['text'] in text
-            for evidence in section['evidence']:
-                assert evidence['label'] in text and evidence['value'] in text
-        for value in ('无法计算', 'AI 初稿', result['filename']):
-            assert value in text
+        record = report['reader_report']
+        assert record['origin'] == 'saved_explanation_reuse'
+        assert record['sources'][0]['explanation_id'] == explanation['id']
+        assert len(record['narrative']) == 7
+        for prose in record['narrative'].values():
+            for line in prose.splitlines():
+                if line:
+                    assert line in text
         for internal in (file['sha256'], figure['sha256'], result['id'], explanation['id'], report['id'], '引用键：', '配置版本'):
             assert internal not in text
-        assert len(root.findall('.//w:tbl', ns)) >= 2
-        assert figure['title'] in paragraphs
-        assert f"图 {figure['figure_number']}  {figure['title']}" not in paragraphs
-        images = [archive.read(name) for name in archive.namelist() if name.startswith('word/media/')]
-        assert len(images) == 1 and hashlib.sha256(images[0]).hexdigest() == figure['sha256']
+    from app.adapters.storage import get_project_store
+    from tests.helpers.research_report import assert_word_figure_pixels
+    assert_word_figure_pixels(downloaded.content, get_project_store().figure_png(figure))
+    package = next(member for member in report['members'] if member['role'] == 'zip')
+    with ZipFile(BytesIO(client.get(package['download_url']).content)) as archive:
+        assert archive.read('analysis.docx') == downloaded.content
+        assert hashlib.sha256(archive.read('figures/figure_01/selected_png.png')).hexdigest() == figure['sha256']
     repeat = export(client, url, figure, explanation)
     assert repeat.status_code == 200 and repeat.json()['report'] == report
     assert client.get(url).json()['report'] == report
@@ -109,7 +145,9 @@ def test_old_report_download_survives_config_change_and_new_export(client, cloud
     client.put(base + '/analysis-setup', json={**result['selection'], 'expected_revision': 1, 'unit': 'new'})
     state = client.get(url).json()
     assert not state['is_current'] and not state['ready'] and state['report'] == old
-    assert export(client, url, figure, explanation).status_code == 409
+    replay = export(client, url, figure, explanation)
+    assert replay.status_code == 200 and replay.json()['report']['id'] == old['id']
+    assert export(client, url, figure, explanation, key='new-key-for-old-analysis').status_code == 409
     assert client.get(download).content == content
     from tests.api.test_descriptive import run
     current = run(client, base, revision=2)
@@ -134,29 +172,40 @@ def test_concurrent_export_saves_one_file(client, cloud, writer, tmp_path):
     run_word_task(task['id'], task['revision'])
     assert client.get(url).json()['report'] is not None
     assert run_word_task(task['id'], task['revision']) is None
-    assert len([path for path in (tmp_path / 'data' / 'reports').rglob('*') if path.is_file()]) == 1
+    report = client.get(url).json()['report']
+    path = stored_report_path(report)
+    assert path.read_bytes() == client.get(url + '/' + report['id'] + '/download').content
+    with database_connection() as db:
+        assert db.execute('SELECT count(*) AS n FROM reports').fetchone()['n'] == 1
+        assert db.execute("SELECT count(*) AS n FROM research_report_members WHERE role='docx'").fetchone()['n'] == 1
 
 
 def test_configuration_change_during_build_does_not_save(client, cloud, writer, monkeypatch, tmp_path):
     from app.domain.tasks import execution
-    base, _, result, figure, explanation, url = report_ready(client)
+    from tests.integration.test_task_execution import queued
+
+    task, base, result, _ = queued(client, historical=True)
     original = execution.build_report
+
     def changed(*args):
         content = original(*args)
-        client.put(base + '/analysis-setup', json={**result['selection'], 'expected_revision': 1, 'unit': 'changed'})
+        updated = client.put(base + '/analysis-setup', json={**result['selection'], 'expected_revision': 1, 'unit': 'changed'})
+        assert updated.status_code == 200, updated.text
         return content
+
     monkeypatch.setattr(execution, 'build_report', changed)
-    response = export(client, url, figure, explanation)
-    assert response.json()['task']['status'] == 'failed'
-    assert response.json()['task']['error_code'] == 'task_source_conflict'
-    assert not [path for path in (tmp_path / 'data' / 'reports').rglob('*') if path.is_file()]
+    finished = execution.run_word_task(task['id'], task['revision'])
+    assert finished['status'] == 'failed' and finished['error_code'] == 'task_source_conflict'
+    assert not list((tmp_path / 'data' / 'reports').rglob('*.docx'))
+    with database_connection() as db:
+        assert db.execute('SELECT 1 FROM reports').fetchone() is None
 
 
 @pytest.mark.parametrize('damage', ['missing', 'changed'])
 def test_report_download_detects_damage(client, cloud, writer, tmp_path, damage):
     *_, figure, explanation, url = report_ready(client)
-    report = export(client, url, figure, explanation).json()['report']
-    path = tmp_path / 'data' / 'reports' / (report['id'] + '.docx')
+    report = frozen_historical_report(client, url, figure, explanation)
+    path = stored_report_path(report)
     if damage == 'missing':
         path.unlink()
     else:
@@ -201,16 +250,18 @@ def test_changed_explanation_evidence_is_rejected(client, cloud, writer, tmp_pat
 
 def test_write_failure_leaves_no_report_and_can_retry(client, cloud, writer, monkeypatch, tmp_path):
     *_, figure, explanation, url = report_ready(client)
-    original = os.replace
-    def fail(source, target):
-        if Path(source).suffix == '.part' and Path(target).parent.name == 'reports':
-            raise OSError('disk failed')
-        return original(source, target)
+    from app.domain.statistics_reader_reports.legacy_exports import StatisticsLegacyReportService
+
+    def fail(*args, **kwargs):
+        raise OSError('disk unavailable while publishing report members')
+
     with monkeypatch.context() as patch:
-        patch.setattr(os, 'replace', fail)
+        patch.setattr(StatisticsLegacyReportService, 'publish_members', fail)
         failed = export(client, url, figure, explanation).json()['task']
         assert failed['status'] == 'failed' and failed['error_code'] == 'storage_unavailable'
-    assert not [path for path in (tmp_path / 'data' / 'reports').rglob('*') if path.is_file()]
+    with database_connection() as db:
+        assert db.execute('SELECT 1 FROM reports').fetchone() is None
+        assert db.execute('SELECT 1 FROM research_report_members').fetchone() is None
     retried = client.post('/api/v1/tasks/' + failed['id'] + '/retry', json={'expected_revision': failed['revision']})
     assert retried.status_code == 202
     from app.domain.tasks.execution import run_word_task
@@ -226,24 +277,32 @@ def test_cached_report_survives_revision_race(client, cloud, writer, monkeypatch
     download = url + '/' + report['id'] + '/download'
     content = client.get(download).content
     context = reports.context
-    def changed(*args):
-        value = context(*args)
-        client.put(base + '/analysis-setup', json={**result['selection'], 'expected_revision': 1, 'unit': 'changed'})
+    def changed(*args, **kwargs):
+        value = context(*args, **kwargs)
+        update = client.put(base + '/analysis-setup', json={**result['selection'], 'expected_revision': 1, 'unit': 'changed'})
+        assert update.status_code == 200, update.text
         return value
-    monkeypatch.setattr(reports, 'context', changed)
-    assert export(client, url, figure, explanation).status_code == 409
+
+    with monkeypatch.context() as patch:
+        patch.setattr(reports, 'context', changed)
+        replay = export(client, url, figure, explanation)
+    assert replay.status_code == 200 and replay.json()['report']['id'] == report['id']
+    assert export(client, url, figure, explanation, key='new-after-race').status_code == 409
     assert client.get(download).content == content
 
 
 @pytest.mark.parametrize('source', ['files', 'figures'])
 def test_source_damage_blocks_new_export_but_existing_download_is_independent(client, cloud, writer, tmp_path, source):
     _, file, _, figure, explanation, url = report_ready(client)
-    report = export(client, url, figure, explanation).json()['report']
+    historical = frozen_historical_report(client, url, figure, explanation)
+    current = export(client, url, figure, explanation).json()['report']
     filename = file['id'] + '.xlsx' if source == 'files' else figure['id'] + '.png'
     (tmp_path / 'data' / source / filename).write_bytes(b'damaged')
-    assert export(client, url, figure, explanation).status_code == 409
-    downloaded = client.get(url + '/' + report['id'] + '/download')
-    assert downloaded.status_code == 200 and hashlib.sha256(downloaded.content).hexdigest() == report['sha256']
+    assert export(client, url, figure, explanation, key='new-after-damage').status_code == 409
+    assert client.get(url + '/' + current['id'] + '/download').status_code == 409
+    downloaded = client.get(url + '/' + historical['id'] + '/download')
+    assert downloaded.status_code == 200
+    assert hashlib.sha256(downloaded.content).hexdigest() == historical['sha256']
 
 
 def test_docx_handles_long_labels_controls_and_extreme_values(client, cloud, writer):

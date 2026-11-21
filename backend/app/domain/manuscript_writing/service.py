@@ -131,7 +131,10 @@ class WritingService:
                 provenance=public_provider_provenance(saved,task) or 'not_recorded'
                 call.update(id=saved['id'],provider_provenance=provenance,provenance=provenance,
                     bundle_id=saved['bundle_id'],authorization_id=saved['authorization_id'],logical_task_id=saved['logical_task_id'])
-        return dict(id=request_id,project_id=project,manuscript_id=identity,base_revision=row['request_json']['base_revision'],task=self.store.public_task(task),input=row['request_json'],candidate=row['candidate_json'],published_revision=row['published_revision'],model_calls=calls,schema_version=task['input_snapshot']['schema_version'],real_calls_enabled=live_enabled if live else False,preservation_check=dict(non_target_sections_preserved=True) if row['candidate_json'] else None)
+        # The group this request was created for. Model calls appear only once the worker reserves budget, so a queued
+        # or budget-waiting request is recognized by this field, never by its (still empty) model calls.
+        extra=dict(execution={k:task['input_snapshot']['execution'][k] for k in ('bundle_id','authorization_id','logical_task_id')}) if live else {}
+        return dict(**extra,id=request_id,project_id=project,manuscript_id=identity,base_revision=row['request_json']['base_revision'],task=self.store.public_task(task),input=row['request_json'],candidate=row['candidate_json'],published_revision=row['published_revision'],model_calls=calls,schema_version=task['input_snapshot']['schema_version'],real_calls_enabled=live_enabled if live else False,preservation_check=dict(non_target_sections_preserved=True) if row['candidate_json'] else None)
 
     def get(self,project,identity,request_id):
         with self.store.connection() as db: return self.view(db,project,identity,request_id)

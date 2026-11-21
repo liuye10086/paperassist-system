@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event'
 import {afterEach,expect,it,vi} from 'vitest'
 import ReviewsWorkspace from './ReviewsWorkspace'
 import {clearApiSession} from '../../shared/api/client'
+import {STANDARD_REQUEST_TIMEOUT_MS} from '../../shared/api/requestTimeouts'
 const inputs={project_type:'sci',manuscripts:[{id:'m1',title:'固定稿',current_revision:2,versions:[{id:'v1',revision:1,status:'published',title:'旧稿'},{id:'v2',revision:2,status:'published',title:'新稿'}]}],documents:[],journal_targets:[],school_confirmations:[]}
 afterEach(()=>{cleanup();vi.unstubAllGlobals();setLocale('zh-CN');Object.defineProperty(document,'visibilityState',{configurable:true,value:'visible'})})
 vi.mock('../files/BatchUpload',()=>({default:({onChanged}:{onChanged:()=>void})=><button onClick={onChanged}>模拟上传完成</button>}))
@@ -35,6 +36,133 @@ it('loads only the fixed manuscript version and refreshes a failed location read
  expect(fetcher.mock.calls.some(([url])=>url.endsWith('/manuscripts'))).toBe(false)
 })
 function savedRound(){return {id:'round1',project_id:'p1',title:'合成审稿意见',project_type:'sci',round_number:1,revision:1,synthetic:true,manuscript:{id:manuscriptFixture.id,revision:1,version_id:manuscriptFixture.versions[0].id,title:'固定稿'},sources:[{id:'s1',role:'reviewer',label:'Reviewer 1',format:'text',file_id:null as string|null,document_version_id:null as string|null,original_text:reviewItem.original_text,segments:[],warnings:[]}],items:[structuredClone(reviewItem)],materials:[],constraints:{school_confirmation_id:null,journal_target_id:null},versions:[{id:'history1',revision:1,created_at:taskFixture.created_at,items:[structuredClone(reviewItem)]}],decisions:[],task:{...taskFixture,task_type:'review_round_plan',phase:'verify',input_version:{kind:'review_round_plan',round_id:'round1',base_version_id:manuscriptFixture.versions[0].id,workflow_version:'review_round_plan_v1'}},wait:null,created_at:taskFixture.created_at,real_model_calls:false,real_network_calls:false}}
+
+it.each([
+ {customer:true,locale:'zh-CN',label:'方法 · 段落 1'},
+ {customer:true,locale:'en',label:'Methods · Paragraph 1'},
+ {customer:false,locale:'zh-CN',label:'materials_and_methods/methods:purpose'},
+] as const)('shows generated locations in the plan for $locale customer=$customer and saves actual edits only',async({customer,locale,label})=>{
+ setLocale(locale)
+ const ref='materials_and_methods/methods:purpose',original='📝 '+ref
+ const parts=['意见：'+original+'\n固定位置：','\n固定现文：'+original+'\n已读取具体资料：'+original+'\n具体处理：以列出的固定变量和统计记录核对 ',' 中的样本口径及方法说明。']
+ const plan=parts.join(ref),start=Array.from(parts[0]).length,second=start+ref.length+Array.from(parts[1]).length
+ const spans=[start,second].map(offset=>({kind:'paragraph',id:'methods:purpose',start:offset,end:offset+ref.length}))
+ const r={...savedRound(),generated_plan_locations:{i1:spans}}
+ r.items[0]={...r.items[0],original_text:original,plan}
+ r.versions[0].items=[structuredClone(r.items[0])]
+ const v=structuredClone(manuscriptFixture.versions[0]);v.snapshot.methods[0].id='methods:purpose'
+ const posted:string[]=[]
+ vi.stubGlobal('fetch',vi.fn(async(url:string,init?:RequestInit)=>{
+  if(url.endsWith('/plans'))posted.push(JSON.parse(String(init?.body)).items[0].plan)
+  return Response.json(url.endsWith('/inputs')?inputs:url.endsWith('/manuscripts/m1/versions/1')?v:url.endsWith('/rounds')?{items:[r]}:r)
+ }))
+ render(<ReviewsWorkspace projectId="p1" projectType="sci" active customer={customer} roundId="round1" selectedItemId="i1" view="plan" onSelectRound={vi.fn()} onOpenTask={vi.fn()}/>)
+ const field=await screen.findByLabelText(locale==='en'?'Revision plan':'修改计划')
+ await waitFor(()=>expect((field as HTMLTextAreaElement).value).toBe(parts.join(label)))
+ const save=screen.getByRole('button',{name:locale==='en'?/save.*plan/i:'保存本轮计划修改'})
+ fireEvent.click(save)
+ await waitFor(()=>expect(posted).toEqual([plan]))
+ const authorText='我手写的 '+ref
+ await waitFor(()=>expect(field.matches(':disabled')).toBe(false))
+ fireEvent.change(field,{target:{value:authorText}})
+ expect((field as HTMLTextAreaElement).value).toBe(authorText)
+ fireEvent.click(save)
+ await waitFor(()=>expect(posted).toEqual([plan,authorText]))
+})
+
+it('preserves historical hand-written plans even when a later edit restores the original technical text',async()=>{
+ const ref='materials_and_methods/methods:purpose',generated='原位置 '+ref,manual='译者手写 '+ref
+ const r={...savedRound(),revision:3,generated_plan_locations:{i1:[{kind:'paragraph',id:'methods:purpose',start:4,end:4+ref.length}]}}
+ r.items[0].plan=generated
+ r.versions=[generated,manual,generated].map((plan,index)=>({...r.versions[0],id:'v'+index,revision:index+1,items:[{...r.items[0],plan}]}))
+ const v=structuredClone(manuscriptFixture.versions[0]);v.snapshot.methods[0].id='methods:purpose'
+ vi.stubGlobal('fetch',vi.fn(async(url:string)=>Response.json(url.endsWith('/inputs')?inputs:url.endsWith('/manuscripts/m1/versions/1')?v:url.endsWith('/rounds')?{items:[r]}:r)))
+ render(<ReviewsWorkspace projectId="p1" projectType="sci" active customer roundId="round1" selectedItemId="i1" view="plan" onSelectRound={vi.fn()} onOpenTask={vi.fn()}/>)
+ const field=()=>screen.getByLabelText('修改计划') as HTMLTextAreaElement
+ await screen.findByRole('option',{name:'方法 · 段落 1'})
+ expect(field().value).toBe(generated)
+ fireEvent.change(screen.getByLabelText('查看计划历史'),{target:{value:'2'}})
+ expect(field().value).toBe(manual)
+ fireEvent.change(screen.getByLabelText('查看计划历史'),{target:{value:'1'}})
+ expect(field().value).toBe('原位置 方法 · 段落 1')
+ expect(field().matches(':disabled')).toBe(true)
+})
+
+async function readyCustomerCreation(post:(init:RequestInit)=>Promise<Response>) {
+ const choose=vi.fn(), listing=vi.fn()
+ vi.stubGlobal('fetch',vi.fn(async(url:string,init?:RequestInit)=>{
+  if(url.endsWith('/inputs'))return Response.json(inputs)
+  if(url.endsWith('/sources/preview'))return Response.json({original_text:'A',segments:[{start:0,end:1,original_number:'1'}],supported:true,warnings:[]})
+  if(url.endsWith('/rounds')&&init?.method==='POST')return post(init)
+  if(url.endsWith('/rounds')){listing();return Response.json({items:[savedRound()]})}
+  return Response.json(manuscriptFixture.versions[0])
+ }))
+ render(<ReviewsWorkspace projectId="p1" projectType="sci" customer active view="create" roundId="" onSelectRound={choose} onOpenTask={vi.fn()}/>)
+ await screen.findByRole('option',{name:/旧稿/})
+ fireEvent.change(screen.getByLabelText('轮次标题'),{target:{value:'合成审稿意见'}})
+ fireEvent.change(screen.getByLabelText('固定稿件版本'),{target:{value:'v1'}})
+ fireEvent.change(screen.getByLabelText('来源身份'),{target:{value:'Reviewer 1'}})
+ fireEvent.change(screen.getByLabelText('意见原文'),{target:{value:'A'}})
+ fireEvent.click(screen.getByRole('button',{name:'预览并分条'}))
+ fireEvent.click(await screen.findByRole('button',{name:'保存来源'}))
+ return {choose,listing,submit:screen.getByRole('button',{name:'创建本轮意见计划'})}
+}
+
+it('keeps the original create pending past fifteen seconds and opens the accepted round',async()=>{
+ const post=vi.fn((init:RequestInit)=>new Promise<Response>((resolve,reject)=>{
+  init.signal?.addEventListener('abort',()=>reject(new DOMException('Aborted','AbortError')))
+  setTimeout(()=>resolve(Response.json(savedRound(),{status:202})),20000)
+ }))
+ const {choose,submit}=await readyCustomerCreation(post)
+ vi.useFakeTimers()
+ try {
+  fireEvent.click(submit)
+  await act(async()=>{await vi.advanceTimersByTimeAsync(15001)})
+  expect(post.mock.calls[0][0].signal?.aborted).toBe(false)
+  expect(submit.matches(':disabled')).toBe(true)
+  await act(async()=>{await vi.advanceTimersByTimeAsync(5000)})
+  expect(choose).toHaveBeenCalledWith('round1',{created:true})
+  expect(post).toHaveBeenCalledTimes(1)
+ }finally{vi.useRealTimers()}
+})
+
+it.each(['disconnect','deadline','invalid receipt','server error'] as const)('rereads without replaying an uncertain %s and explicitly retries the original creation',async failure=>{
+ const post=vi.fn(async(init:RequestInit)=>{
+  if(post.mock.calls.length>1)return Response.json(savedRound(),{status:200})
+  if(failure==='disconnect')throw new TypeError('network disconnected')
+  if(failure==='invalid receipt')return Response.json({}, {status:202})
+  if(failure==='server error')return Response.json({}, {status:503})
+  return new Promise<Response>((_,reject)=>init.signal?.addEventListener('abort',()=>reject(new DOMException('Aborted','AbortError'))))
+ })
+ const {choose,listing,submit}=await readyCustomerCreation(post)
+ if(failure==='deadline')vi.useFakeTimers()
+ try {
+  await act(async()=>{fireEvent.click(submit);if(failure==='deadline')await vi.advanceTimersByTimeAsync(STANDARD_REQUEST_TIMEOUT_MS+1)})
+  const retry=screen.getByRole('button',{name:'使用原请求重试'})
+  expect(screen.getByLabelText('轮次标题')).toHaveProperty('value','合成审稿意见')
+  expect(submit.matches(':disabled')).toBe(true)
+  const reads=listing.mock.calls.length
+  await act(async()=>{fireEvent.click(screen.getByRole('button',{name:'刷新意见记录'}))})
+  expect(listing.mock.calls.length).toBeGreaterThan(reads)
+  expect(post).toHaveBeenCalledTimes(1)
+  expect(choose).not.toHaveBeenCalled()
+  await act(async()=>{fireEvent.click(retry)})
+  const [first,second]=post.mock.calls.map(([init])=>[new Headers(init.headers).get('Idempotency-Key'),init.body])
+  expect(first[0]).toBeTruthy()
+  expect(second).toEqual(first)
+  expect(choose).toHaveBeenCalledWith('round1',{created:true})
+ }finally{vi.useRealTimers()}
+})
+
+it('keeps the form editable after a definitive review creation rejection',async()=>{
+ const post=vi.fn(async()=>Response.json({detail:{code:'validation_error'}},{status:422}))
+ const {choose,submit}=await readyCustomerCreation(post)
+ fireEvent.click(submit)
+ await screen.findByRole('alert')
+ expect(screen.queryByRole('button',{name:'使用原请求重试'})).toBeNull()
+ expect(submit.matches(':disabled')).toBe(false)
+ expect(choose).not.toHaveBeenCalled()
+})
 it('saves full editable plans without changing original opinions, then records decisions and reads history',async()=>{let state=savedRound();const writes:{url:string,body:Record<string,unknown>}[]=[];vi.stubGlobal('fetch',vi.fn(async(url:string,init?:RequestInit)=>{if(init?.method==='POST'){const body=JSON.parse(String(init.body));writes.push({url,body});if(url.endsWith('/plans')){state={...state,revision:2,items:body.items.map((edit:object)=>({...reviewItem,...edit,revision:2})),versions:[...state.versions,{id:'history2',revision:2,created_at:taskFixture.created_at,items:body.items.map((edit:object)=>({...reviewItem,...edit,revision:2}))}]};return Response.json(state)}return Response.json(state)}if(url.endsWith('/inputs'))return Response.json(inputs);if(url.endsWith('/manuscripts/m1/versions/1'))return Response.json(manuscriptFixture.versions[0]);if(url.endsWith('/rounds'))return Response.json({items:[state]});return Response.json(state)}));const openTask=vi.fn();render(<ReviewsWorkspace projectId="p1" projectType="sci" active roundId="round1" onSelectRound={vi.fn()} onOpenTask={openTask}/>);await screen.findAllByText(reviewItem.original_text);expect(screen.getByText('来源第 2 页')).toBeTruthy();fireEvent.change(screen.getByLabelText('人工译文'),{target:{value:'请解释统计方法。'}});fireEvent.change(screen.getByLabelText('修改计划'),{target:{value:'仅核对已有统计证据'}});fireEvent.click(screen.getByRole('button',{name:'保存本轮计划修改'}));await screen.findByText('意见计划已保存；意见仍待处理。');expect(writes[0].body).toMatchObject({expected_revision:1,items:[{id:'i1',translation:{language:'zh-CN',text:'请解释统计方法。'},plan:'仅核对已有统计证据'}]});expect(JSON.stringify(writes[0].body)).not.toContain('original_text');expect(screen.getAllByText(reviewItem.original_text)).toHaveLength(2);fireEvent.change(screen.getByLabelText('决定理由'),{target:{value:'已人工核对证据范围'}});fireEvent.click(screen.getByRole('button',{name:'保存本轮决定'}));await screen.findByText('决定已记录；可前往任务继续本地计划核查。');expect(writes[1].body).toEqual({expected_revision:2,decisions:[{item_id:'i1',action:'accept',reason:'已人工核对证据范围'}]});fireEvent.change(screen.getByLabelText('查看计划历史'),{target:{value:'1'}});expect(screen.getByLabelText('修改计划')).toHaveProperty('value','核对固定统计来源');expect(screen.getByLabelText('修改计划').matches(':disabled')).toBe(true);fireEvent.click(screen.getByRole('button',{name:'查看任务与继续本地计划'}));expect(openTask).toHaveBeenCalledWith('t1');expect(screen.queryByRole('button',{name:'生成回复信'})).toBeNull()})
 it('binds thesis reviews to the selected fixed manuscript school confirmation',async()=>{const chapters=[{id:'c1',title:'第一章',level:1,purpose:'materials_and_methods',output_language:'zh-CN',result_group_ids:[]}],profile={revision:1,school:'学校',department:'',major:'',degree_type:'硕士',education_level:'研究生',applicable_version:'2026',bound_confirmation_id:'confirm1'},school={schema_version:1,profile,template_version_id:'template1',confirmation_id:'confirm1',confirmation_sha256:'a'.repeat(64),confirmation:{id:'confirm1',chapters:[{id:'c1',title:'第一章',level:1}]},source_files:[],chapters};const v={...manuscriptFixture.versions[0],snapshot:{...manuscriptFixture.versions[0].snapshot,thesis_context:school,sections:chapters.map(c=>({...c,paragraphs:[]})),school_content_report:{rules_version:'school_v1',issues:[],can_publish:true,scientifically_verified:false}}};const i={...inputs,project_type:'thesis',manuscripts:[{id:manuscriptFixture.id,title:'固定学校稿',current_revision:1,versions:[{id:v.id,revision:1,status:'published',title:'固定学校稿'}]}],school_confirmations:[{id:'confirm1',label:'旧确认'},{id:'confirm2',label:'新确认'}]};vi.stubGlobal('fetch',vi.fn(async(url:string)=>Response.json(url.endsWith('/inputs')?i:url.endsWith('/manuscripts/m1/versions/1')?v:{items:[]})));render(<ReviewsWorkspace projectId="p1" projectType="thesis" active roundId="" initialManuscript={manuscriptFixture.id} initialRevision={1} onSelectRound={vi.fn()} onOpenTask={vi.fn()}/>);await waitFor(()=>expect(screen.getByLabelText('固定稿件的学校确认')).toHaveProperty('value','confirm1'));expect(screen.getByLabelText('固定稿件的学校确认').matches(':disabled')).toBe(true)})
 import {setLocale} from '../../shared/i18n'

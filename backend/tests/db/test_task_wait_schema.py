@@ -10,20 +10,20 @@ from tests.db.test_task_schema import seed_owner, insert_row, task_row, task_sch
 
 
 def test_wait_tables_are_native_and_runtime_role_can_access(postgres_schema):
-    assert SCHEMA_HEAD == '0040_manuscript_writing_live'
     assert {'task_waits', 'task_resume_requests'} <= metadata.tables.keys()
     with database_connection() as db:
+        assert db.execute('SELECT version_num FROM alembic_version').fetchone()['version_num'] == SCHEMA_HEAD
         columns = {item['name']: item for item in inspect(db.raw_connection).get_columns('task_waits', schema=postgres_schema.schema)}
         assert str(columns['input_version']['type']) == 'JSONB'
         assert columns['created_at']['type'].timezone
         verify_runtime_permissions(db.raw_connection, postgres_schema)
 
 
+@pytest.mark.initial_revision('0010_boxplot_tasks')
 def test_migration_backfills_only_waiting_tasks_without_rewriting_history(postgres_schema):
     with migration_connection(write=True) as db:
         settings = alembic_config()
         settings.attributes['connection'] = db.raw_connection
-        command.downgrade(settings, '0010_boxplot_tasks')
         seed_owner(db)
         for key, status, reason in [('budget', 'waiting_confirmation', 'budget_exceeded'),
                 ('unknown', 'waiting_confirmation', 'submission_unknown'), ('input', 'waiting_input', 'input_required'),
@@ -31,15 +31,16 @@ def test_migration_backfills_only_waiting_tasks_without_rewriting_history(postgr
             insert_row(db, 'tasks', task_row(id=key, idempotency_key=key, status=status, reason_code=reason,
                 input_snapshot={'result': {'setup_revision': 1}, 'output_language': 'zh-CN'}))
         before = [dict(row) for row in db.execute('SELECT * FROM tasks ORDER BY id')]
-        command.upgrade(settings, 'head')
+        command.upgrade(settings, '0011_task_waits')
         upgraded = db.execute('SELECT * FROM tasks ORDER BY id').fetchall()
         assert [{key: row[key] for key in before[0]} for row in upgraded] == before
-        assert all(row['retry_count'] == 0 for row in upgraded)
         rows = db.execute('SELECT kind,status FROM task_waits ORDER BY kind').fetchall()
         assert {row['kind'] for row in rows} == {'budget_confirmation', 'submission_unknown', 'unsupported_input', 'unsupported_confirmation'}
         assert all(row['status'] == 'open' for row in rows)
         assert db.execute('SELECT count(*) AS n FROM model_calls').fetchone()['n'] == 0
         assert db.execute('SELECT count(*) AS n FROM task_resume_requests').fetchone()['n'] == 0
+        command.upgrade(settings, '0012_task_errors')
+        assert all(row['retry_count'] == 0 for row in db.execute('SELECT retry_count FROM tasks'))
 
 
 def wait_row(**changes):

@@ -337,16 +337,40 @@ def test_disabled_wait_resumes_idempotently_only_after_local_identity_configurat
     assert execute(response.json(),SyntheticNcbi(0))['status'] == 'succeeded'
 
 
-def test_shared_limiter_reserves_distinct_slots_for_parallel_workers(client):
+def test_shared_limiter_reserves_distinct_slots_for_parallel_workers(client, monkeypatch):
     from concurrent.futures import ThreadPoolExecutor
+    from datetime import timedelta
+    from threading import Barrier
     from app.adapters.task_execution_store import TaskExecutionStore
-    from app.domain.literature.execution import reserve_request
+    from app.domain.literature.execution import Retrieval, reserve_request
     pid = project(client)
     repository = TaskExecutionStore()
     tasks = [create(client,pid,key='parallel-'+str(i)).json() for i in range(3)]
-    leases = [repository.claim(t['id'],t['revision'],task_type='literature_search') for t in tasks]
-    with ThreadPoolExecutor(max_workers=3) as pool:
-        delays = sorted(pool.map(lambda lease: reserve_request(repository,lease),leases))
-    assert delays[0] == 0 and delays[1] > .3 and delays[2] > .7
+    first = repository.claim(tasks[0]['id'], tasks[0]['revision'], task_type='literature_search')
+    assert first is not None
+    assert repository.claim(tasks[1]['id'], tasks[1]['revision'], task_type='literature_search') is None
+
+    # Use one arrival time for the slot calculation. Connections, leases and commits use PostgreSQL.
+    limiter = TaskExecutionStore()
     with database_connection() as db:
-        assert db.execute('SELECT count(*) AS n FROM ncbi_rate_limits').fetchone()['n'] == 1
+        arrival = repository.now(db)
+    monkeypatch.setattr(limiter, 'now', lambda db: arrival)
+    together = Barrier(3, timeout=10)
+    def parallel_reservation():
+        together.wait()
+        return reserve_request(limiter, first)
+
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        reservations = [pool.submit(parallel_reservation) for _ in range(3)]
+        delays = sorted(future.result() for future in reservations)
+    assert delays == [0.0, 0.5, 1.0]
+
+    lease = first
+    for task, expected_delay in zip(tasks[1:], (1.5, 2.0)):
+        assert Retrieval(repository, lease, SyntheticNcbi(0)).run()['status'] == 'succeeded'
+        lease = repository.claim(task['id'], task['revision'], task_type='literature_search')
+        assert lease is not None
+        assert reserve_request(limiter, lease) == expected_delay
+    with database_connection() as db:
+        rows = db.execute('SELECT scope,next_allowed_at FROM ncbi_rate_limits').fetchall()
+        assert [(row['scope'], row['next_allowed_at']) for row in rows] == [('ncbi-eutilities', arrival + timedelta(seconds=2.5))]

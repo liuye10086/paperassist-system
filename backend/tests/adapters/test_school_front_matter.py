@@ -257,36 +257,42 @@ def test_gs501_format_uses_english_roles_and_live_section_headers():
     assert document.xpath('//w:sectPr/w:pgNumType[@w:fmt="decimal"]/@w:start', namespaces=NS)==['1']
 
 
-def test_gs501_blind_keeps_front_pages_and_removes_the_supplied_identity_values():
+def test_gs501_signed_draft_keeps_supplied_identity_values_and_all_chapters():
     from app.adapters.school_docx import build_school_docx
 
     value, analysis = bsu_material()
     options = dict(field_values={'degree':'Private Author Example','committee':'Private Committee Example','signature':'Private Signature Example'})
     planned = plan(value, analysis, **options)
     identified = text(build_school_docx(value, {}, planned))
-    blinded = text(build_school_docx(value, {}, planned, mask_identity=True))
-    assert all(v in identified and v not in blinded for v in options['field_values'].values())
-    assert '论文作者：XXX' in blinded and '作者签名：待填写' not in blinded
-    assert all(c['title'] in blinded for c in value['sections'])
+    assert all(v in identified for v in options['field_values'].values())
+    assert 'XXX' not in identified and '[已隐去]' not in identified
+    assert all(c['title'] in identified for c in value['sections'])
     with pytest.raises(StorageError):
-        build_school_docx(value, {}, planned, mask_identity=True, excluded_chapter_ids={'background'})
+        build_school_docx(value, {}, planned, excluded_chapter_ids={'background'})
 
 
-def test_gs501_final_blind_scrubs_confirmed_values_outside_their_front_fields():
-    from app.adapters.manuscript_presentation_docx import blind_docx
+def test_gs501_signed_language_map_keeps_protected_identity_marks_after_blind_removal():
+    """Frozen before the removal: identity, signature and committee fields stay protected."""
     from app.adapters.school_docx import build_school_docx
-    from app.domain.school_templates.bsu_gs501 import blind_terms
 
     value, analysis = bsu_material()
-    value['sections'][1]['paragraphs'][0]['text'] = '示例中误留 Private Author Example。'
-    options = dict(field_values={'degree': 'Private Author Example', 'signature': 'Private Signature Example'})
+    fields = {f['id']: f for f in value['thesis_context']['confirmation']['front_matter']['fields']}
+    options = dict(field_values={'degree': 'Private Author Example', 'committee': 'Private Committee Example', 'signature': 'Private Signature Example'})
     planned = plan(value, analysis, **options)
-    raw = build_school_docx(value, {}, planned, mask_identity=True)
-    rules = dict(identity_terms=[], exceptions=[], manual_image_review=False)
-    blinded, receipt = blind_docx(raw, blind_terms(planned, rules), replacement='XXX')
-    assert '示例中误留 XXX。' in text(blinded)
-    assert not any(value.encode() in part for value in options['field_values'].values() for part in parts(blinded).values())
-    assert receipt['known_identity_check'] == 'passed'
+    source_map = []
+    raw = build_school_docx(value, {}, planned, source_map=source_map)
+    protected = [row['text'] for row in source_map if row['protected_identity']]
+    assert protected == [fields[key]['label'] + '：' + options['field_values'][key] for key in ('degree', 'committee', 'signature')]
+    assert sum(1 for row in source_map if not row['protected_identity']) == len(source_map) - 3
+    assert all(v in text(raw) for v in options['field_values'].values())
+
+
+def test_gs501_plan_and_guidance_no_longer_carry_the_blind_variant():
+    import json
+    value, analysis = bsu_material()
+    planned = plan(value, analysis)
+    serialized = json.dumps(planned, ensure_ascii=False)
+    assert 'gs501-blind' not in serialized and '盲评' not in serialized
 
 
 def test_gs501_profile_cannot_be_used_by_other_word_sources_or_forged_in_a_plan():
@@ -306,10 +312,9 @@ def test_gs501_submission_forms_reuse_original_layout_and_fill_only_known_slots(
     from hashlib import sha256
     from lxml import etree as E
 
-    from app.adapters.manuscript_presentation_docx import blind_docx, decorate_docx
+    from app.adapters.manuscript_presentation_docx import decorate_docx
     from app.adapters.school_docx import build_school_docx
     from app.domain.manuscripts.school_export import compile_school_export
-    from app.domain.school_templates.bsu_gs501 import blind_terms
 
     source_path = environ.get('PAPERASSIST_TEST_GS501_SOURCE')
     if not source_path:
@@ -340,43 +345,32 @@ def test_gs501_submission_forms_reuse_original_layout_and_fill_only_known_slots(
     assert planned['submission_forms_source_sha256'] == GS501_TEMPLATE_SHA
     png = parts(template)
     logos = {sha256(png[name]).hexdigest() for name in ('word/media/image1.jpeg', 'word/media/image2.jpeg', 'word/media/image3.jpeg')}
-    rules = dict(identity_terms=[], exceptions=[], manual_image_review=False)
     authors = [dict(name='配置作者姓名', order=1, corresponding=False, affiliation_ids=[])]
-    config = dict(authors=authors, affiliations=[], statements=[], blind=rules)
+    config = dict(authors=authors, affiliations=[], statements=[])
 
-    for blind in (False, True):
-        raw = build_school_docx(value, {}, planned, school_template=template, mask_identity=blind)
-        document = E.fromstring(parts(raw)['word/document.xml'])
-        front = document.find(qn('w:body'))[:63]
-        assert [node.tag for node in front] == [node.tag for node in original.find(qn('w:body'))[:63]]
-        assert [node.get(qn('w:val')) for paragraph in front for node in paragraph.iter(qn('w:gridSpan'))] == ['3', '3', '3']
-        assert len([node for paragraph in front for node in paragraph.iter(qn('w:sectPr'))]) == 4
-        assert logos <= {sha256(data).hexdigest() for name, data in parts(raw).items() if name.startswith('word/media/')}
-        assert not any('/embeddings/' in name for name in parts(raw))
-        declarations = original.find(qn('w:body'))[39:63]
-        assert [''.join(el.itertext()) for el in front[39:63]] == [''.join(el.itertext()) for el in declarations]
-        content = text(raw)
-        assert 'Frozen English title' in content and 'English title（英文）' not in content
-        assert content.count(declaration['title']) == 1
-        assert '开发测试声明文字。' not in content and '不能作为签名的测试字样' not in content and '委员会测试字样' not in content
-        assert ('确认作者姓名' in ''.join(front[13].itertext())) is (not blind)
-        assert ('2026 年 11 月' in ''.join(front[17].itertext())) is (not blind)
-        assert ('2026 年 11 月' in ''.join(front[38].itertext())) is (not blind)
-        chair = ''.join(front[32].itertext())
-        assert all((value in chair) is (not blind) for value in ('已确认主席姓名', '教授', '北京体育大学'))
-        assert content.count('XXX') == (5 if blind else 0)
-        decorated, _ = decorate_docx(raw, value, None, config, 'zh-CN', 'blind' if blind else 'identified', defer_blind=blind)
-        if blind:
-            assert '作者信息与声明' not in text(decorated)
-            filtered, receipt = blind_docx(decorated, blind_terms(planned, rules, authors=authors), replacement='XXX')
-            assert receipt['known_identity_check'] == 'passed'
-            assert '冻结文本中曾出现XXX和XXX。' in text(filtered)
-            assert '北京体育大学学位论文原创性声明' in text(filtered)
-        else:
-            assert '作者信息与声明' in text(decorated)
+    raw = build_school_docx(value, {}, planned, school_template=template)
+    document = E.fromstring(parts(raw)['word/document.xml'])
+    front = document.find(qn('w:body'))[:63]
+    assert [node.tag for node in front] == [node.tag for node in original.find(qn('w:body'))[:63]]
+    assert [node.get(qn('w:val')) for paragraph in front for node in paragraph.iter(qn('w:gridSpan'))] == ['3', '3', '3']
+    assert len([node for paragraph in front for node in paragraph.iter(qn('w:sectPr'))]) == 4
+    assert logos <= {sha256(data).hexdigest() for name, data in parts(raw).items() if name.startswith('word/media/')}
+    assert not any('/embeddings/' in name for name in parts(raw))
+    declarations = original.find(qn('w:body'))[39:63]
+    assert [''.join(el.itertext()) for el in front[39:63]] == [''.join(el.itertext()) for el in declarations]
+    content = text(raw)
+    assert 'Frozen English title' in content and 'English title（英文）' not in content
+    assert content.count(declaration['title']) == 1
+    assert '开发测试声明文字。' not in content and '不能作为签名的测试字样' not in content and '委员会测试字样' not in content
+    assert '确认作者姓名' in ''.join(front[13].itertext())
+    assert '2026 年 11 月' in ''.join(front[17].itertext())
+    assert '2026 年 11 月' in ''.join(front[38].itertext())
+    chair = ''.join(front[32].itertext())
+    assert all(value in chair for value in ('已确认主席姓名', '教授', '北京体育大学'))
+    assert content.count('XXX') == 0
+    decorated, _ = decorate_docx(raw, value, None, config, 'zh-CN')
+    assert '作者信息与声明' in text(decorated)
 
-    protected = blind_terms(planned, rules)['identity_terms']
-    assert '已确认主席姓名' in protected and '北京体育大学' not in protected
     with pytest.raises(StorageError):
         build_school_docx(value, {}, planned, school_template=template + b'changed')
 
@@ -391,32 +385,19 @@ def test_gs501_submission_date_keeps_year_and_month_from_valid_input(entered, ex
     assert submission_month(entered) == expected
 
 
-def test_gs501_exact_language_review_keeps_legacy_forms_and_rechecks_known_names():
+def test_gs501_exact_language_review_keeps_legacy_forms():
     from unittest.mock import Mock
 
-    from app.adapters.manuscript_presentation_docx import blind_docx
-    from app.adapters.school_docx import build_school_docx
-    from app.domain.manuscripts.presentation_export import reviewed_school_submission_forms, verify_school_reviewed_output
-    from app.domain.school_templates.bsu_gs501 import blind_terms
+    from app.domain.manuscripts.presentation_export import reviewed_school_submission_forms
 
     value, analysis = bsu_material()
-    value['sections'][1]['paragraphs'][0]['text'] = '另存正文的配置作者姓名。'
     planned = plan(value, analysis, include_toc=False)
-    draft = build_school_docx(value, {}, planned, mask_identity=True)
-    rules = dict(identity_terms=[], exceptions=[], manual_image_review=False)
-    authors = [dict(name='配置作者姓名')]
     context = dict(
         base=dict(id='base'),
         selected=dict(snapshot_json=value),
-        binding=dict(review_mode='blind'),
-        preview=dict(config=dict(blind=rules, authors=authors, language_review=dict(source_export_id='earlier'))),
+        binding=dict(review_mode='identified'),
+        preview=dict(config=dict(authors=[dict(name='配置作者姓名')], language_review=dict(source_export_id='earlier'))),
     )
     db = Mock()
     db.execute.return_value.fetchone.return_value = dict(metadata_json={'school': {'plan': planned}})
     assert reviewed_school_submission_forms(db, context) is False
-
-    with pytest.raises(StorageError) as error:
-        verify_school_reviewed_output(context, planned, draft)
-    assert error.value.code == 'gs501_reviewed_output_stale'
-    clean, _ = blind_docx(draft, blind_terms(planned, rules, authors=authors), replacement='XXX')
-    verify_school_reviewed_output(context, planned, clean)

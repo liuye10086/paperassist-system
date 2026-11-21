@@ -4,6 +4,14 @@ import {isAssessment,isImpactTask,isPage,isReceipt,lifecycleBase,lifecycleReques
 import {setApiSession} from '../../shared/api/client'
 import {setLocale,translate} from '../../shared/i18n'
 afterEach(()=>{vi.unstubAllGlobals();setLocale('zh-CN')})
+test.each([
+ 'bio_history_retained','research_results_history_retained','research_material_history_retained',
+ 'journal_history_retained','paper_material_note_retained','customer_material_submission_retained',
+ 'review_history_retained','school_template_history_retained','school_change_history_retained',
+])('accepts reparsing while keeping a historical file reference: %s',code=>{
+ const value=assessmentFixture('f','reparse')
+ expect(isAssessment({...value,deletion_status:'blocked',reasons:[...value.reasons,{code}]},'f','reparse')).toBe(true)
+})
 test('strict assessment accepts historical text identities and rejects malformed or cross-file scopes',()=>{
  const value=assessmentFixture('old file:一')
  expect(isAssessment(value,'old file:一','delete')).toBe(true)

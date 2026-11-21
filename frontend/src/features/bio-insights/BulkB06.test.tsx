@@ -17,7 +17,7 @@ const sha = 'a'.repeat(64)
 const sourceIdentity = {species_taxon_id:null, namespace:'Ensembl gene ID', reference_version:'airway package release data'}
 const selectedContrast = {contrast_id:'reverse', numerator:'untreated', denominator:'treated', total:3, tested:3,
   excluded:0, not_computable:0, missing_metric:0, deg:0, up:0, down:0}
-const member = (key:string,format='tsv') => ({id:key,key,format,role:'table',sha256:sha,size_bytes:16,download_url:`/${key}.${format}`})
+const member = (key:string,format='tsv') => ({id:key,key,format,role:key,sha256:sha,size_bytes:16,download_url:`/${key}.${format}`})
 const comparison:Result = {
   id:'fixed-b04', run_id:'comparison-run', kind:'comparison', provenance:'system_computed', inference_scope:'sample_inference',
   plan_version_id:'reviewed-plan',task_id:'comparison-task',summary:{}, manifest:{}, manifest_sha256:sha,
@@ -98,8 +98,8 @@ it('previews ORA from the fixed comparison with the applied native q rule and ex
   expect(taxon).toHaveProperty('value','')
   expect(within(taxon).getByRole('option',{name:'人类（NCBI Taxonomy 9606）'})).toBeTruthy()
   expect(within(taxon).getByRole('option',{name:'小鼠（NCBI Taxonomy 10090）'})).toBeTruthy()
-  expect(screen.getByText('airway package release data')).toBeTruthy()
-  await addResource('go-local',/Local GO · go-r1 · v2/)
+  expect(within(taxon.closest('fieldset, section')!).getByText('airway package release data')).toBeTruthy()
+  await addResource('go-local',/^Local GO · go-r1$/)
   expect(screen.queryByRole('option',{name:/Unrelated sequence/})).toBeNull()
   expect(screen.getByRole('button',{name:'下一步：检查与运行'})).toHaveProperty('disabled',true)
   fireEvent.change(taxon,{target:{value:'9606'}})
@@ -107,7 +107,7 @@ it('previews ORA from the fixed comparison with the applied native q rule and ex
   expect(screen.getByRole('button',{name:'下一步：检查与运行'})).toHaveProperty('disabled',true)
   fireEvent.change(screen.getByRole('textbox',{name:'物种依据'}),{target:{value:'airway package sample metadata'}})
   fireEvent.change(screen.getByRole('combobox',{name:'来源使用角色'}),{target:{value:'id_mapping'}})
-  await addResource('mapping-local',/Local ID map · id-r1 · v1/)
+  await addResource('mapping-local',/^Local ID map · id-r1$/)
   fireEvent.click(screen.getByRole('button',{name:'下一步：检查与运行'}))
   expect(screen.getByRole('button',{name:'运行固定富集'})).toHaveProperty('disabled',true)
   fireEvent.click(screen.getByRole('button',{name:'预检当前设计'}))
@@ -172,9 +172,9 @@ it('shows a no-significance GSEA outcome, mapping audit and a stable saved-curve
   expect(within(mapping).getByText('2')).toBeTruthy()
   expect(within(mapping).getByText('2 · 33.3%')).toBeTruthy()
   expect(screen.getByText('相同分值按稳定基因 ID 排序。')).toBeTruthy()
-  expect(screen.getByRole('link',{name:/mapping_exclusions · tsv/})).toBeTruthy()
-  expect(screen.getByRole('link',{name:/gsea_ranking · tsv/})).toBeTruthy()
-  expect(screen.getByRole('link',{name:/gsea_curves · json/})).toBeTruthy()
+  expect(screen.getByRole('link',{name:'映射排除记录.tsv'}).getAttribute('href')).toBe('/mapping_exclusions.tsv')
+  expect(screen.getByRole('link',{name:'GSEA 基因排序.tsv'}).getAttribute('href')).toBe('/gsea_ranking.tsv')
+  expect(screen.getByRole('link',{name:'基因集富集曲线数据.json'}).getAttribute('href')).toBe('/gsea_curves.json')
   expect(screen.getByRole('button',{name:'绘制富集点图'})).toBeTruthy()
   expect(screen.getByRole('button',{name:'绘制富集条图'})).toBeTruthy()
   fireEvent.click(await screen.findByRole('button',{name:/绘制已保存 GSEA 曲线.*GO:00001/}))

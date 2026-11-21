@@ -2,8 +2,6 @@
 from tests.helpers.legacy_plans import seed_legacy_plan
 from tests.helpers.statistics import statistics_post
 import copy
-import json
-from pathlib import Path
 from tests.api.test_analysis import client
 from tests.integration.test_batch07_quality_pipeline import published,quality_task
 from tests.integration.test_dataset_preparation import run,review,decide,decision
@@ -29,9 +27,11 @@ def accept(client,task,key='decision'):
 
 def test_complete_population_publish_counts_download_and_replay(client):
     base,parent=published(client,ROWS)
+    defaults=client.get(base+'/prepared-dataset-versions/'+parent['id']+'/filter-defaults')
+    assert defaults.status_code==200 and defaults.json()['base_record_count']==7
     old=client.get(parent['download_url']).content
     task,request=filtering(client,base,parent)
-    result,view,accepted=accept(client,task)
+    result,_,accepted=accept(client,task)
     assert result['source']['schema_version']==3 and result['operation']=='population_filter'
     assert result['summary']['retained_record_count']==3
     assert result['summary']['mismatch_excluded_row_count']==3 and result['summary']['unknown_excluded_row_count']==1
@@ -45,8 +45,6 @@ def test_complete_population_publish_counts_download_and_replay(client):
     assert run(accepted) is None
     with database_connection() as db:
         assert db.execute('SELECT count(*) AS n FROM prepared_dataset_derivations_v3').fetchone()['n']==1
-    target=Path(__file__).resolve().parents[3]/'script/.runtime/stage04-batch09/filter-api-fixture.json'
-    target.write_text(json.dumps(dict(defaults=client.get(base+'/prepared-dataset-versions/'+parent['id']+'/filter-defaults').json(),review=view,published=result,rows=rowview,impacts=client.get(result['impact_url']).json()),ensure_ascii=False,indent=2),encoding='utf-8')
     from tests.api.test_analysis import selection
     from tests.helpers.analysis_plan import run_plan,review_plan,plan_decision,decide_plan
     response=seed_legacy_plan(client, base+'/analysis-plans',json=dict(dataset_id=result['id'],expected_setup_revision=0,
@@ -83,7 +81,9 @@ def test_complete_population_publish_counts_download_and_replay(client):
     external=freeze_confirmation(frozen,'boxplot',task_owner(client),dict(version=disclosure_view['version'],confirmed=True,
         source_digest=disclosure_view['source_digest'],labels={x['key']:x['value'] for x in disclosure_view['labels']}))
     record,_,sheet=load_dataset(store,base.split('/')[4],base.split('/')[6],result['id'],expected_source=result['source'])
-    payload,expected=build_material(computed.json(),record,None,get_excel_settings(),dataset_sheet=sheet,external=external)
+    from app.domain.statistics_execution.verification import verification_scope
+    with verification_scope():
+        payload,expected=build_material(computed.json(),record,None,get_excel_settings(),dataset_sheet=sheet,external=external)
     assert payload['values']==[20.0,40.0,60.0] and expected['overall']['n']==3
     from tests.adapters.test_analysis_report_docx import snapshot
     from tests.adapters.test_analysis_plot_response import png

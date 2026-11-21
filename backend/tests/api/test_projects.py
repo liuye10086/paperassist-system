@@ -37,10 +37,10 @@ def create_project(client, name="研究项目", project_type="sci"):
 
 def legacy_project(client, identifier):
     """Persist the Text project ID retained by the offline SQLite importer."""
-    from app.db.database import database_connection
-    project = create_project(client)
-    with database_connection(write=True) as db:
-        db.execute('UPDATE projects SET id=%s WHERE id=%s', (identifier, project['id']))
+    from unittest.mock import patch
+    with patch.object(storage, 'uuid4', return_value=identifier):
+        project = create_project(client)
+    assert project['id'] == identifier
     response = client.get('/api/v1/projects/' + identifier)
     assert response.status_code == 200, response.text
     return response.json()
@@ -315,22 +315,18 @@ def test_concurrent_upload_keeps_project_update_time_monotonic(client, monkeypat
     project = create_project(client)
     store = ProjectStore(Path(os.environ["PAPERASSIST_DATA_DIR"]))
     started, resume = Event(), Event()
-    original_open = Path.open
-
-    def delay_first_write(path, *args, **kwargs):
-        if path.suffix == ".part" and not started.is_set():
-            started.set()
-            assert resume.wait(5), "second upload did not finish"
-        return original_open(path, *args, **kwargs)
-
-    monkeypatch.setattr(Path, "open", delay_first_write)
     now = datetime.now(timezone.utc)
     times = iter([now + timedelta(seconds=1), now + timedelta(seconds=2)])
 
     class UploadClock:
         @staticmethod
         def now(_timezone):
-            return next(times)
+            timestamp = next(times)
+            if not started.is_set():
+                # A request may pause after taking its timestamp, before it acquires the writer.
+                started.set()
+                assert resume.wait(10), "second upload did not finish"
+            return timestamp
 
     monkeypatch.setattr(storage, "datetime", UploadClock)
     error = {"code": "parse_failed", "message": "test fixture"}
@@ -342,6 +338,7 @@ def test_concurrent_upload_keeps_project_update_time_monotonic(client, monkeypat
         finally:
             resume.set()
         first = earlier.result(timeout=5)
+    assert first["uploaded_at"] < later["uploaded_at"]
     assert store.project(project["id"])["updated_at"] >= later["uploaded_at"]
     assert len(store.files(project["id"])) == 2
     assert store.original(first) == b"first"

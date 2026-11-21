@@ -47,7 +47,11 @@ def _compute_uncached(task_type, rows, selection, timeout_seconds=30):
     if len(encoded) > _MAX_INPUT_BYTES:
         raise NumericError('numeric_input_bytes_limit', '固定统计输入超过8 MiB。')
     message = run_statistics_isolated(encoded, timeout_seconds=timeout_seconds)
-    if len(json.dumps(message, ensure_ascii=False, allow_nan=False, separators=(',', ':')).encode('utf-8')) > _MAX_OUTPUT_BYTES:
+    try:
+        output_size = len(json.dumps(message, ensure_ascii=False, allow_nan=False, separators=(',', ':')).encode('utf-8'))
+    except (TypeError, ValueError, RecursionError):
+        raise NumericError('numeric_output_invalid', ERROR_MESSAGES['numeric_output_invalid']) from None
+    if output_size > _MAX_OUTPUT_BYTES:
         raise NumericError('numeric_output_limit', '固定统计输出超过16 MiB。')
     if type(message) is not dict:
         raise NumericError('numeric_output_invalid', '固定统计输出无效。')

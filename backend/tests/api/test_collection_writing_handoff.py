@@ -8,6 +8,7 @@ from hashlib import sha256
 from tests.api.test_analysis import client
 from tests.api.test_analysis_writing_handoff import next_run,counts
 from tests.api.test_review_figure_adoptions import actual_plot,post
+from tests.api.test_statistics_reader_reports import explain_collection_item
 from tests.api.test_manuscripts import body
 from app.db.database import database_connection
 
@@ -58,34 +59,6 @@ def second_plot(a,result,monkeypatch):
     return dict(project=project,file=file,result=result,config_id=vid,task=task,figure=bundle['figure'],png=provider.png,projection=projection,workbench=workbench)
 
 
-def explain(a,monkeypatch):
-    from app.adapters.figure_workbench_store import read_bundle
-    from app.domain.figure_workbench.explanations import build_payload
-    from app.domain.figure_workbench.tasks import submit,prompt_version
-    from app.domain.figure_workbench.contracts import GenerateFigure
-    from app.domain.figure_workbench.execution import run_figure_explanation_task
-    from tests.integration.test_explanation_execution import SyntheticProvider
-    from app.domain.literature.service import digest
-    def policy(payload,explanation=False):
-        return dict(policy=dict(model='test-explanation',prompt_version=prompt_version(payload,explanation=True),max_output_tokens=10000,timeout_seconds=15,tools=[],output_format='analysis_explanation_v1',price=dict(version='synthetic-only',model='test-explanation',input_micro_usd_per_million=100,cached_input_micro_usd_per_million=50,output_micro_usd_per_million=200)),input_token_allowance=100000,task_limit_micro_usd=500000)
-    monkeypatch.setattr('app.domain.figure_workbench.tasks.policy_for',policy)
-    payload=build_payload(read_bundle(a['workbench'].assets,a['project'],a['figure']['id']))
-    task=submit(a['workbench'],a['project'],a['file']['id'],a['result']['id'],a['config_id'],GenerateFigure(idempotency_key='collection-explain-'+a['result']['id'],external_processing=dict(confirmed=True,payload_sha256=digest(payload))),figure_id=a['figure']['id'])['task']
-    class Provider(SyntheticProvider):
-        def receipt(self):
-            receipt=super().receipt();sent=self.posts[0][1]
-            value={key:' '.join('{{'+ref+'}}' for ref in refs) for key,refs in sent['required_references'].items()}
-            receipt['response']['output'][0]['content'][0]['text']=json.dumps(value)
-            receipt['response_id']='resp_synthetic_explain_'+a['result']['id'];receipt['response']['id']=receipt['response_id']
-            return receipt
-    provider=Provider()
-    for _ in range(5):
-        task=run_figure_explanation_task(task['id'],task['revision'],provider_factory=lambda:provider)
-        if task['status'] in ('succeeded','failed'):break
-    assert task['status']=='succeeded',task
-    return task['result_explanation_id']
-
-
 @pytest.mark.parametrize('project_type',['sci','thesis'])
 def test_saved_dual_run_collection_transfers_exact_order_all_sources_caption_report_text_and_bytes(client,monkeypatch,project_type):
     from app.adapters.collection_store import CollectionStore
@@ -98,7 +71,7 @@ def test_saved_dual_run_collection_transfers_exact_order_all_sources_caption_rep
         from tests.api.test_school_exports import published
         school_path,_,_,school_root=published(client)
     a=actual_plot(client,monkeypatch,project=school_path.split('/')[4] if school_root else None);b=second_plot(a,next_run(client,a),monkeypatch)
-    ea=explain(a,monkeypatch);eb=explain(b,monkeypatch)
+    ea=explain_collection_item(a,monkeypatch);eb=explain_collection_item(b,monkeypatch)
     repository=CollectionStore(a['workbench'].assets)
     state=repository.create(a['project'],CollectionRequest(title='Synthetic A/B historical collection',language='en',items=[dict(figure_id=b['figure']['id'],explanation_id=eb,caption='User B caption'),dict(figure_id=a['figure']['id'],explanation_id=ea,caption='User A caption')]),'dual-run-collection')
     request=state['versions'][0]['requests'][0];assert request['status']=='queued',request
@@ -138,7 +111,8 @@ def test_saved_dual_run_collection_transfers_exact_order_all_sources_caption_rep
     foreign=client.post('/api/v1/projects',json=dict(name='Foreign collection',research_topic='Synthetic',project_type='sci')).json()['id']
     assert post(client,f'/api/v1/projects/{foreign}/manuscripts/collection-report-selection',payload,'foreign').status_code in (404,409)
     assert post(client,path+'/collection-report-selection',payload|dict(collection_version_id='missing'),'wrong-version').status_code in (404,409)
-    target=repository.directory/(report['id']+'.docx');raw=target.read_bytes();target.write_bytes(raw+b'changed')
+    from tests.integration.test_reports import stored_report_path
+    target=stored_report_path(report, collection=True);raw=target.read_bytes();target.write_bytes(raw+b'changed')
     assert post(client,path+'/collection-report-selection',payload,'changed-bytes').status_code==409
     target.write_bytes(raw)
     with database_connection(write=True) as db:

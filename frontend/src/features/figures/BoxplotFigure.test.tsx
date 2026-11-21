@@ -6,6 +6,15 @@ import { captureProjectAccess, watchProjectAccess } from '../../shared/api/proje
 
 const figure = { id: 'figure', analysis_run_id: 'run', setup_revision: 1, title: '图 1 测量值箱线图', caption: '完整记录；n=3', x_label: '分组', y_label: '测量值', source_sha256: 'source', sha256: 'image', created_at: '2026-09-29', engine: { id: 'boxplot-v1', provider: 'openai_code_interpreter', model: 'model' }, verification: { status: 'matched', note: '统计核对一致' } }
 const empty = { current_revision: 1, is_current: true, figure: null, job: null }
+it.each([
+  '结构化数值、标签及图注已核对；图片视觉内容仍需人工确认。',
+  'Structured values, labels and captions were checked; image pixels still require visual review.',
+])('shows the saved verification note once and verbatim: %s', async note => {
+  vi.stubGlobal('fetch', api({ ...empty, figure: { ...figure, verification: { status: 'matched', note } } }))
+  render(<BoxplotFigure {...props} />)
+  await screen.findByAltText(figure.title)
+  expect(screen.getByText(note, { exact: true })).toBeTruthy()
+})
 const props = { base: '/file', runId: 'run', revision: 1, canGenerate: true, disabled: false, onBusyChange: vi.fn() }
 const disclosure = { version: 1, provider: 'openai', task_type: 'boxplot', source_digest: 'source', has_saved_result: false, summary: { valid_count: 3, excluded_count: 0, group_count: 1 }, labels: [{ key: 'numeric_name', value: '测量值' }, { key: 'unit', value: '' }] }
 async function confirmSend() { await act(async () => {}); fireEvent.click(screen.getByRole('button', { name: '确认发送并生成' })); await act(async () => {}) }

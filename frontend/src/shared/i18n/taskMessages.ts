@@ -67,4 +67,16 @@ export const taskMessages: Record<string, string> = {
   '本次任务用量': 'Task usage', '刷新任务用量': 'Refresh task usage', '任务用量读取失败，请重试。': 'Could not load task usage. Please retry.',
   '任务预算': 'Task budget', '待核对调用：{count}': 'Calls awaiting review: {count}',
   '此任务尚无模型调用记录。': 'This task has no model call records.', '本次任务模型调用': 'Model calls for this task', '任务用量分页': 'Task usage pagination',
+  // B05 task 12: customer task wording and analyst task page.
+  '系统正在核对，请稍后刷新或联系客服。': 'We are checking this task. Refresh later or contact support.',
+  '文献检索暂不可用，任务已保存。': 'Literature search is temporarily unavailable. The task has been saved.',
+  '使用原资料重新处理；取消后已有成果不变。': 'Reprocesses with the original materials; cancelling keeps existing results.',
+  '已保存的分析配置': 'Saved analysis settings',
+  // B05 task 17: what a customer task worked on.
+  '上传的文件': 'The uploaded file', '本轮意见和送审稿': 'The comments of this round and the manuscript under review',
+  '本轮修改计划和原稿': 'The revision plan of this round and the original manuscript', '本轮修改结果': 'The revisions of this round',
+  '目标期刊和所选稿件': 'The target journal and the selected manuscript', '上传的学校模板': 'The uploaded school template',
+  '已保存的文献检索条件': 'Saved literature search settings', '已选的分析成果': 'Selected analysis results',
+  '项目中已保存的分析资料': 'Analysis materials saved in this project',
+  '本次任务使用的资料或版本与记录不一致。请重新读取任务，核对所选资料和版本。如果仍有问题，请联系客服。': 'The materials or version used for this task do not match its record. Reload the task and check the selected materials and version. If the issue persists, contact support.',
 }

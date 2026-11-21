@@ -1,3 +1,4 @@
+import ModuleViews,{ModuleView} from '../../shared/components/ModuleViews'
 import {apiError,useI18n} from '../../shared/i18n'
 import type {NativeDeliveryTarget} from '../analyst/NativeDeliveryArtifact'
 import {bulkWorkflowViews, type AnalysisNavigation, type BulkWorkflowView} from '../projects/analysisViews'
@@ -106,35 +107,37 @@ function StageVersions({projectId,view,stage,onNavigate}:{
   const history=stage.items.filter(item=>item!==current)
   return <section className="analysis-detail bulk-stage-summary" aria-label={t('当前流程状态')}>
     <h3>{t('当前流程状态')} · {t(statusLabel(stage))}</h3>
-    <VersionFreshness stale={stage.stale} reasons={stage.stale_reasons}/>
-    {current?.label&&<p>{current.label}</p>}
-    {current?.created_at&&<p>{t('记录时间')} · <time dateTime={current.created_at}>{new Date(current.created_at).toLocaleString(locale)}</time></p>}
-    <Outcome reason={stage.reason} errorCode={current?.error_code}/>
-    {stage.status==='dependency_blocked'&&stage.depends_on.length>0&&<div className="intake-actions">
-      {stage.depends_on.map(key=><button type="button" key={key} onClick={()=>onNavigate(bulkRoute(key))}>{t(bulkWorkflowLabels[key])}</button>)}
-    </div>}
-    <VersionActions {...{projectId,view,onNavigate}} refs={stage.refs}/>
-    {!!current?.steps?.length&&<details>
-      <summary>{t('实际步骤状态和缺口')}</summary>
-      <ul>{current.steps.map(step=><li key={step.key}>{t(step.key)} · {t(bulkWorkflowStatuses[step.status]??step.status)}
-        {step.reason&&<> · {t(step.reason)}</>}
-      </li>)}</ul>
-    </details>}
-    {view==='qc'&&stage.reusable_processed_refs?.processed_version_id&&<>
-      <p>{t('已有可继续使用的质控结果。')}</p>
-      <VersionActions {...{projectId,view,onNavigate}} refs={stage.reusable_processed_refs}/>
-    </>}
-    {history.length>0&&<details className="bulk-stage-history">
-      <summary>{t('固定版本与历史记录')} · {history.length}</summary>
-      <ul className="bulk-history-list">{history.map((item,index)=><li key={`${item.kind}:${versionKey(item.refs)??index}`}>
-        <strong>{item.label||t(workflowItemLabels[item.kind]??item.kind)}</strong>
-        {' · '}{t(statusLabel(item))}
-        {item.created_at&&<> · <time dateTime={item.created_at}>{new Date(item.created_at).toLocaleString(locale)}</time></>}
-        <VersionFreshness stale={item.stale} reasons={item.stale_reasons} historical/>
-        <Outcome reason={item.reason} errorCode={item.error_code}/>
-        <VersionActions {...{projectId,view,onNavigate}} refs={item.refs}/>
-      </li>)}</ul>
-    </details>}
+    <ModuleViews label={t('步骤状态视图')}>
+      <ModuleView id="current" title={t('当前版本')}>
+        <VersionFreshness stale={stage.stale} reasons={stage.stale_reasons}/>
+        {current?.label&&<p>{current.label}</p>}
+        {current?.created_at&&<p>{t('记录时间')} · <time dateTime={current.created_at}>{new Date(current.created_at).toLocaleString(locale)}</time></p>}
+        <Outcome reason={stage.reason} errorCode={current?.error_code}/>
+        {stage.status==='dependency_blocked'&&stage.depends_on.length>0&&<div className="intake-actions">
+          {stage.depends_on.map(key=><button type="button" key={key} onClick={()=>onNavigate(bulkRoute(key))}>{t(bulkWorkflowLabels[key])}</button>)}
+        </div>}
+        <VersionActions {...{projectId,view,onNavigate}} refs={stage.refs}/>
+        {view==='qc'&&stage.reusable_processed_refs?.processed_version_id&&<>
+          <p>{t('已有可继续使用的质控结果。')}</p>
+          <VersionActions {...{projectId,view,onNavigate}} refs={stage.reusable_processed_refs}/>
+        </>}
+      </ModuleView>
+      {!!current?.steps?.length&&<ModuleView id="steps" title={t('实际步骤状态和缺口')}>
+        <ul>{current.steps.map(step=><li key={step.key}>{t(step.key)} · {t(bulkWorkflowStatuses[step.status]??step.status)}
+          {step.reason&&<> · {t(step.reason)}</>}
+        </li>)}</ul>
+      </ModuleView>}
+      {history.length>0&&<ModuleView id="history" title={`${t('固定版本与历史记录')} · ${history.length}`}>
+        <ul className="bulk-history-list">{history.map((item,index)=><li key={`${item.kind}:${versionKey(item.refs)??index}`}>
+          <strong>{item.label||t(workflowItemLabels[item.kind]??item.kind)}</strong>
+          {' · '}{t(statusLabel(item))}
+          {item.created_at&&<> · <time dateTime={item.created_at}>{new Date(item.created_at).toLocaleString(locale)}</time></>}
+          <VersionFreshness stale={item.stale} reasons={item.stale_reasons} historical/>
+          <Outcome reason={item.reason} errorCode={item.error_code}/>
+          <VersionActions {...{projectId,view,onNavigate}} refs={item.refs}/>
+        </li>)}</ul>
+      </ModuleView>}
+    </ModuleViews>
   </section>
 }
 

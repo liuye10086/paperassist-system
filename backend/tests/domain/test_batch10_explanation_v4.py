@@ -65,6 +65,7 @@ def test_legacy_v3_style_reuse_retains_its_original_contract():
     value=e.reuse(old,new,old['explanation'])
     assert value['engine']['id']=='figure_explanation_v3'
     assert value['payload_sha256']==old['explanation']['payload_sha256']
+    assert value['sections']==old['explanation']['sections']
     e.validate_saved(new,value)
 
 

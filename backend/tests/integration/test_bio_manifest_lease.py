@@ -12,6 +12,74 @@ from app.adapters.bio_analysis_execution import BioAnalysisExecution
 from app.db.database import database_connection
 
 
+@pytest.fixture
+def prepared_publication(client, monkeypatch, tmp_path):
+    from tests.integration.test_bio_analysis_wait import confirm, run
+
+    base, created, staging, _ = create(client, monkeypatch, tmp_path)
+    assert run(created['task'], staging)['status'] == 'waiting_confirmation'
+    view = client.get(base + '/bio-analysis-runs/' + created['id']).json()
+    queued = confirm(client, base, created, view).json()
+    repository = TaskExecutionStore()
+    lease = repository.claim(queued['id'], queued['revision'], task_type='bio_analysis')
+    execution = BioAnalysisExecution(repository)
+    task, checkpoint, payload = execution.load(lease)
+    output = staging / task['id'] / 'compute'
+    output.mkdir(parents=True)
+    return execution, lease, checkpoint, payload_engine(payload, output, 'compute')
+
+
+def test_publication_renews_at_transaction_boundaries_while_checking_all_history(prepared_publication, monkeypatch):
+    from collections import Counter
+    from app.db.database import DatabaseConnection
+
+    execution, lease, checkpoint, result = prepared_publication
+    repository = execution.repository
+    history = {path.stem for path in (repository.assets.directory / '.storage-intents').glob('*.json')
+               if path.name.count('.') == 1}
+    assert len(history) > 5
+
+    updates = Counter()
+    checked = set()
+    execute = DatabaseConnection.execute
+
+    def observe(db, sql, parameters=()):
+        if 'UPDATE task_attempts a SET heartbeat_at' in sql:
+            updates[db] += 1
+        if 'SELECT * FROM storage_reservations WHERE id=%s' in sql:
+            checked.add(str(parameters[0]))
+        return execute(db, sql, parameters)
+
+    monkeypatch.setattr('app.adapters.task_execution_store.monotonic', lambda: 0.0)
+    monkeypatch.setattr(DatabaseConnection, 'execute', observe)
+    assert execution.publish_result(lease, checkpoint, result)['status'] == 'succeeded'
+    assert history <= checked
+    # Admission and pre-publication fence at both ends. Final settlement also
+    # fences before handing the result to the business publication step.
+    assert list(updates.values()) == [2, 2, 3]
+
+
+def test_expired_lease_at_end_of_business_publication_rolls_back_result(prepared_publication, monkeypatch):
+    from app.adapters.bio_figure_store import BioFigureStore
+
+    execution, lease, checkpoint, result = prepared_publication
+    publish_defaults = BioFigureStore.publish_defaults
+
+    def expire_after_defaults(store, db, *args, **kwargs):
+        publish_defaults(store, db, *args, **kwargs)
+        db.execute("UPDATE task_attempts SET lease_expires_at=clock_timestamp()-interval '1 second' WHERE task_id=%s",
+                   (lease.task_id,))
+
+    monkeypatch.setattr('app.adapters.task_execution_store.monotonic', lambda: 0.0)
+    monkeypatch.setattr(BioFigureStore, 'publish_defaults', expire_after_defaults)
+    with pytest.raises(LeaseLost):
+        execution.publish_result(lease, checkpoint, result)
+    with execution.repository.connection() as db:
+        assert db.execute('SELECT status FROM tasks WHERE id=%s', (lease.task_id,)).fetchone()['status'] == 'running'
+        assert db.execute('SELECT count(*) AS n FROM bio_processed_dataset_versions WHERE task_id=%s',
+                          (lease.task_id,)).fetchone()['n'] == 0
+
+
 def test_slow_legacy_import_manifest_renews_while_background_heartbeat_blocks(client,monkeypatch,tmp_path):
     from app.adapters.bio_dataset_execution import BioDatasetExecution
     from app.domain.storage_governance import service as ledger

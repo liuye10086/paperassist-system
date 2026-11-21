@@ -102,6 +102,5 @@ test('an unconfirmed revise keeps its edited recipe and reuses the same idempote
 test('a preparation source summary without filename omits an empty filename prefix', async () => {
  mockApi(); render(<PreparationReview projectId="p1" taskId={task.id} />)
  await screen.findByRole('button', { name: '确认并发布' })
- expect(screen.getByText('工作表：Sheet1；原始数据版本 v1。')).toBeTruthy()
- expect(screen.queryByText('来源：；工作表：Sheet1；原始数据版本 v1。')).toBeNull()
+ expect(screen.getByText('工作表：Sheet1 · 原始数据', { selector: '.analysis-source' })).toBeTruthy()
 })

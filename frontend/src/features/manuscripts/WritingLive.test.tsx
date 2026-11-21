@@ -157,18 +157,49 @@ it('links controlled writing tasks to their fixed task workspace',async()=>{
  const failed={...liveRequest,task:{...liveRequest.task,status:'failed',display_status:'failed'}};vi.stubGlobal('fetch',vi.fn(async(url:string)=>Response.json(url.endsWith('/writing-previews')?{items:[],capabilities:{real_calls_enabled:false}}:{items:[failed]})));render(<WritingLive {...props}/>);expect((await screen.findByRole('link',{name:'查看写作任务'})).getAttribute('href')).toBe('#project=p1&section=tasks&task=w1')
 })
 
-it.each(['research','narrative_review'] as const)('previews SCI customer %s with schema 4, project keywords and no implicit source selection', async article_type => {
- const fetcher=vi.fn(async(url:string,_init?:RequestInit)=>Response.json(url.endsWith('/writing-previews')?{items:[bundleFixture()],capabilities:{real_calls_enabled:false}}:{items:[]}))
+it.each(['research','narrative_review'] as const)('prepares the SCI customer %s preview by itself with schema 4, project keywords and no implicit source selection', async article_type => {
+ const fetcher=vi.fn(async(url:string,_init?:RequestInit)=>Response.json(url.endsWith('/writing-previews')?{items:[bundleFixture()],capabilities:{real_calls_enabled:true}}:{items:[]}))
  vi.stubGlobal('fetch',fetcher)
  const sciSettings={article_type,keywords:['cell fate','lineage'],main_results:'Customer reported result',figure_plan:[{title:'Fig. 1',description:'A plan only'}],target_journal:{choice:'science',name:null}} as const
  render(<WritingLive {...props} customerSci={{...sciSettings,keywords:[...sciSettings.keywords],figure_plan:[...sciSettings.figure_plan]}}/>)
- await waitFor(()=>expect(screen.getByLabelText('受控写作方式').matches(':disabled')).toBe(false))
- expect(screen.getByLabelText('受控写作关键词（每行一项）')).toHaveProperty('value','cell fate\nlineage')
- expect(screen.queryByRole('option',{name:/b1 · 完整七部分初稿/})).toBeNull()
- fireEvent.click(screen.getByRole('button',{name:'冻结完整外发预览'}))
  await waitFor(()=>expect(fetcher.mock.calls.filter(([,init])=>init?.method==='POST')).toHaveLength(1))
+ expect(screen.getByLabelText('写作关键词（每行一项）')).toHaveProperty('value','cell fate\nlineage')
+ expect(screen.queryByLabelText('受控写作关键词（每行一项）')).toBeNull()
+ expect(screen.queryByRole('option',{name:/b1 · 完整七部分初稿/})).toBeNull()
  const post=fetcher.mock.calls.find(([,init])=>init?.method==='POST')!
  expect(post[0].endsWith('/writing-previews')).toBe(true)
  expect(JSON.parse(String(post[1]?.body))).toMatchObject({schema_version:4,document_kind:'sci',article_type,keywords:['cell fate','lineage'],selected_source_ids:[],selected_evidence_ids:[]})
- expect(screen.getByRole('button',{name:'提交已授权写作'}).matches(':disabled')).toBe(true)
+ for(const name of ['冻结完整外发预览','提交已授权写作','核对受控写作记录','明确创建批次授权'])expect(screen.queryByRole('button',{name})).toBeNull()
+ expect(screen.queryByLabelText('选择已冻结预览')).toBeNull()
+})
+
+// B03 task 7: returning from adding a source reopens the same writing record; drafts never block leaving.
+function serveCustomerRecords(){
+ vi.stubGlobal('crypto',webcrypto)
+ const fetcher=vi.fn(async(path:string)=>Response.json(path.endsWith('/writing-requests')?{items:[liveRequest]}:
+  path.endsWith('/writing-previews')?{items:[],capabilities:{real_calls_enabled:false}}:{items:[]}))
+ vi.stubGlobal('fetch',fetcher);return fetcher
+}
+it('opens the writing record named in the address after returning to the paragraph',async()=>{
+ const fetcher=serveCustomerRecords()
+ render(<WritingLive {...props} customerSci={null} initialWritingRequest="w1" initialParagraph="discussion:1"/>)
+ expect(await screen.findByRole('region',{name:'科学核对'})).toBeTruthy()
+ await waitFor(()=>expect(fetcher.mock.calls.some(([url])=>String(url).endsWith('/writing-requests/w1/review-context'))).toBe(true))
+ expect(screen.queryByText('原位置已不可用，已回到逐段核对。')).toBeNull()
+})
+it('says the original place is gone when the writing record is no longer listed',async()=>{
+ serveCustomerRecords()
+ render(<WritingLive {...props} customerSci={null} initialWritingRequest="w-gone" initialParagraph="discussion:1"/>)
+ expect(await screen.findByText('原位置已不可用，已回到逐段核对。')).toBeTruthy()
+})
+it('does not ask before leaving when only the persisted writing draft changed',async()=>{
+ serveCustomerRecords()
+ const guards=new Map<unknown,()=>boolean>()
+ const register=(guard:(preserve?:boolean)=>boolean,isDirty?:()=>boolean)=>{guards.set(guard,isDirty??(()=>true));return ()=>{guards.delete(guard)}}
+ const confirm=vi.fn(()=>false);vi.stubGlobal('confirm',confirm)
+ render(<ManuscriptDraftProvider register={register}><WritingLive {...props} customerSci={null}/></ManuscriptDraftProvider>)
+ fireEvent.change(await screen.findByLabelText('本次写作要求'),{target:{value:'Keep this request'}})
+ expect([...guards.values()].some(isDirty=>isDirty())).toBe(false)
+ expect([...guards.keys()].every(guard=>(guard as (preserve?:boolean)=>boolean)(false))).toBe(true)
+ expect(confirm).not.toHaveBeenCalled()
 })

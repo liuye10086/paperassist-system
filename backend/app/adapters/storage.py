@@ -9,12 +9,14 @@ from pathlib import Path
 from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
 
 from fastapi import Request
+from psycopg.pq import TransactionStatus
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.core.config import get_data_dir
 from app.adapters.file_objects import LocalFileObjects
 from app.auth.project_access import ACTIVE_ASSIGNMENTS_FROM, assignment_for_owner
 from app.db.database import database_connection, ensure_schema_current, get_database_config, SchemaVersionError
+from app.domain.regression.common import NumericError
 
 
 PROJECT_UPDATE_LIMITS = {'name': 120, 'research_topic': 500}
@@ -27,15 +29,25 @@ from app.core.exceptions import StorageError
 def _storage_connection(write=False, config=None, *, serialize_writes=True):
     try:
         with database_connection(write=write, config=config, serialize_writes=serialize_writes) as db:
-            yield db
+            try:
+                yield db
+            except NumericError as exc:
+                connection = db.raw_connection
+                if exc.code == 'numeric_timeout' and not connection.invalidated:
+                    # A wall-clock timeout can interrupt libpq before it finishes the query.
+                    # SQLAlchemy cannot roll back this transaction over the still-busy connection.
+                    if connection.connection.driver_connection.info.transaction_status == TransactionStatus.ACTIVE:
+                        connection.invalidate()
+                raise
     except ValueError as exc:
+        if isinstance(exc, NumericError) and exc.code == 'numeric_timeout':
+            raise
         raise StorageError("database_configuration", "PostgreSQL连接配置无效，请检查本项目专用数据库配置。") from exc
     except SchemaVersionError as exc:
         raise StorageError("storage_version", "数据库结构未升级或版本不兼容，请先执行Alembic迁移。") from exc
     except SQLAlchemyError as exc:
         from app.domain.fixed_statistics_runtime import scope_active
         if scope_active() and getattr(getattr(exc,'orig',None),'sqlstate',None) in ('57014','55P03'):
-            from app.domain.regression.common import NumericError
             raise NumericError('numeric_timeout','统计节点数据库等待超过期限。') from exc
         raise StorageError("storage_unavailable", "PostgreSQL暂不可用，请检查数据库连接和权限后重试。") from exc
 
@@ -45,9 +57,22 @@ def check_database_ready():
         ensure_schema_current(db)
 
 
-class ProjectStore:
-    # Trusted background workers also build scoped instances without __init__.
+class MaterialVisibility:
+    """Select material visible to the current reader. Background workers validate frozen task inputs."""
     customer = False
+
+    @property
+    def material_filter(self):
+        # Customer material reads include their own uploads and historical
+        # originals. Analysis releases use their frozen snapshot.
+        return ''' AND NOT EXISTS (SELECT 1 FROM projects material_project WHERE material_project.id=files.project_id
+            AND coalesce(files.upload_actor_id,files.uploader_id,material_project.owner_id) IS DISTINCT FROM material_project.owner_id)
+            AND NOT EXISTS (SELECT 1 FROM bio_cloud_outputs o
+            WHERE o.project_id=files.project_id AND o.file_id=files.id)''' if self.customer else ''
+
+
+class ProjectStore(MaterialVisibility):
+    # Trusted background workers also build scoped instances without __init__.
     assignment = None
 
     def __init__(self, directory: Path, *, owner_id: str | None = None, customer: bool = False):
@@ -83,15 +108,6 @@ class ProjectStore:
     def require_project_scope(self, project_id):
         if self.assignment is not None:
             self.assignment.require_project(project_id)
-
-    @property
-    def material_filter(self):
-        # Ordinary customer material reads include the customer's own uploads
-        # and historical originals, while analysis releases use their snapshot.
-        return ''' AND NOT EXISTS (SELECT 1 FROM projects material_project WHERE material_project.id=files.project_id
-            AND coalesce(files.upload_actor_id,files.uploader_id,material_project.owner_id) IS DISTINCT FROM material_project.owner_id)
-            AND NOT EXISTS (SELECT 1 FROM bio_cloud_outputs o
-            WHERE o.project_id=files.project_id AND o.file_id=files.id)''' if self.customer else ''
 
     @property
     def project_fields(self):

@@ -169,6 +169,28 @@ def _require_object_identity(db,key,size_bytes,digest):
 
 def reserve(db,root,project_id,operation_key,path,size_bytes,*,kind='derived',task_id=None,sha256=None,allow_attributed_unknown=False):
     if reconcile_intents(db,root):raise invalid()
+    return _reserve_reconciled(db,root,project_id,operation_key,path,size_bytes,kind=kind,
+        task_id=task_id,sha256=sha256,allow_attributed_unknown=allow_attributed_unknown)
+
+
+def reserve_manifest(db, root, project_id, entries, *, kind, task_id, progress):
+    """Admit all members under the caller's writer lock before journaling any bytes."""
+    if reconcile_intents(db, root, progress=progress):
+        raise invalid()
+    rows = []
+    for operation, path, size, digest in entries:
+        progress()
+        row = _reserve_reconciled(db, root, project_id, operation, path, size, kind=kind,
+                                  task_id=task_id, sha256=digest, allow_attributed_unknown=False,
+                                  progress=progress)
+        if row['kind'] != kind or row['task_id'] != task_id:
+            raise invalid()
+        rows.append(row)
+    return rows
+
+
+def _reserve_reconciled(db,root,project_id,operation_key,path,size_bytes,*,kind,task_id,sha256,allow_attributed_unknown,progress=None):
+    """Reserve one member after reconciliation in the same serialized write transaction."""
     if type(size_bytes) is not int or not 0<=size_bytes<=2**63-1 or not isinstance(operation_key,str) or not 1<=len(operation_key)<=512:
         raise invalid()
     key=_key(root,path)
@@ -185,7 +207,7 @@ def reserve(db,root,project_id,operation_key,path,size_bytes,*,kind='derived',ta
         if existing['state']!='released':return dict(existing)
         # Release is terminal. A retry uses a new explicit operation identity.
         raise StorageError('storage_reservation_conflict','存储预留已释放，请使用新的操作身份。',409)
-    _disk_guard(db,root,size_bytes,key=key)
+    _disk_guard(db,root,size_bytes,key=key,**({'progress':progress} if progress is not None else {}))
     registered=db.execute('SELECT id,size_bytes,state FROM storage_objects WHERE namespace=%s AND object_key=%s',(NAMESPACE,key)).fetchone()
     increment=size_bytes
     if registered:
@@ -383,6 +405,13 @@ def publication_identity(db,root,project_id,operation_key,path,size_bytes,digest
         row=dict(db.execute('SELECT * FROM storage_reservations WHERE id=%s',(prior['id'],)).fetchone())
     else:
         row=reserve(db,root,project_id,operation_key,path,size_bytes,kind=kind,task_id=task_id,sha256=digest)
+    with publication_reserved(db,root,row,recover=recover):
+        yield row
+
+
+@contextmanager
+def publication_reserved(db,root,row,*,recover=False):
+    """Publish one admitted member in the same serialized write transaction."""
     _journal(db,root,row)
     try:
         yield row

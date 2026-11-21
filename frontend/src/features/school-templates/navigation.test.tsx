@@ -3,6 +3,11 @@ import {afterEach,expect,it,vi} from 'vitest'
 import WorkspaceShell from '../projects/WorkspaceShell'
 import useProjectSelection from '../projects/useProjectSelection'
 import {setLocale} from '../../shared/i18n'
+import {customerSchoolTemplateView,schoolTemplateViews} from '../projects/manuscriptViews'
+it('keeps old template task addresses valid and opens them as the single customer view',()=>{
+ for(const view of ['detail','rules','confirm','binding'] as const){expect(schoolTemplateViews).toContain(view);expect(customerSchoolTemplateView(view)).toBe('detail')}
+ for(const view of ['list','profile','upload'] as const)expect(customerSchoolTemplateView(view)).toBe(view)
+})
 afterEach(()=>{cleanup();vi.unstubAllGlobals();setLocale('zh-CN');window.history.replaceState(null,'','/')})
 it('offers school templates only for thesis projects and translates navigation',()=>{
  const props={view:'project' as const,projectName:'研究',section:'school-templates' as const,onNavigate:vi.fn(),onCreate:vi.fn(),onCurrentProject:vi.fn(),children:<div/>}

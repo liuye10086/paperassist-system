@@ -99,7 +99,21 @@ def test_research_candidate_rejects_stale_worker_and_has_no_formal_manuscript(cl
     with database_connection() as db:assert db.execute('SELECT count(*) AS n FROM manuscripts').fetchone()['n']==0
 
 
-@pytest.mark.parametrize('through_report,fmt',[(False,'png'),(True,'png'),(True,'tiff'),(True,'pdf'),(True,'svg')])
+def test_new_research_figure_rejects_pdf_without_queuing_a_render(client):
+    from tests.api.test_research_figure_publication import selected_image
+    from app.db.database import database_connection
+
+    project, file = selected_image(client)
+    response = client.post(f'/api/v1/projects/{project}/research-figures', json={
+        'mode': 'reuse', 'panels': [{'source': {'source_kind': 'original_file', 'source_id': file}}],
+        'formats': ['pdf'], 'caption': 'Fixed original figure',
+    }, headers={'Idempotency-Key': 'retired-pdf'})
+    assert response.status_code == 422, response.text
+    with database_connection() as db:
+        assert db.execute("SELECT 1 FROM tasks WHERE project_id=%s AND task_type='research_figure'", (project,)).fetchone() is None
+
+
+@pytest.mark.parametrize('through_report,fmt',[(False,'png'),(True,'png'),(True,'tiff'),(True,'svg')])
 def test_research_figure_is_in_common_docx_with_exact_bytes(client,tmp_path,through_report,fmt, research_reader_narrative):
     from tests.api.test_research_figure_publication import selected_image
     from tests.api.test_projects import upload

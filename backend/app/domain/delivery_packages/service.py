@@ -70,6 +70,8 @@ class DeliveryService(ResearchResultsStore):
             return self.view(rows[0],db) if key else dict(items=[self.view(row,db) for row in rows])
 
     def prepare_snapshot(self,db,project,delivery,request):
+        from app.domain.manuscripts.contracts import blind_review_removed
+        if request.mode!='complete':raise blind_review_removed()
         registered=self.scope(db,project,delivery)
         assigned = getattr(self.assets, 'assignment', None) is not None
         if assigned:
@@ -84,6 +86,8 @@ class DeliveryService(ResearchResultsStore):
             raise StorageError('delivery_snapshot_changed', '交付已有新版本，请读取最近的快照。', 409)
         if (not parent and request.stage!='first') or (parent and request.stage=='first'):
             raise StorageError('research_revision_conflict', '交付阶段与已有快照不符，请核对当前交付阶段。', 409)
+        # Historical blind snapshots stay readable but never seed new ones.
+        if parent and parent['snapshot_json'].get('mode')!='complete':raise blind_review_removed()
         round_binding=dict(status='not_applicable',reason=request.opinion_round)
         if bool(request.opinion_round_id)!=bool(request.opinion_round_event_id):raise invalid()
         if request.opinion_round_id:
@@ -161,7 +165,7 @@ class DeliveryService(ResearchResultsStore):
                 LEFT JOIN delivery_artifact_sources a ON a.file_id=f.id AND a.project_id=f.project_id
                 WHERE f.project_id=%s ORDER BY f.uploaded_at DESC,f.id''', (project,)):
                 item = dict(selection=dict(kind='file',file_id=row['id']),label=row['filename'],
-                            format=row['filename'].rsplit('.',1)[-1].lower(),status='existing_upload',blind_eligible=False)
+                            format=row['filename'].rsplit('.',1)[-1].lower(),status='existing_upload')
                 if row['native_artifact']:
                     item.update(status='succeeded', label=native_filename(row['native_artifact']),
                                 sha256=row['sha256'], created_at=row['uploaded_at'])

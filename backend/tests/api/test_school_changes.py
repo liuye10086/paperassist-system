@@ -162,3 +162,54 @@ def test_reviewed_parent_change_keeps_shared_review_history_contract(client):
         script="const{buildSync}=require('esbuild');const fs=require('fs');const value=JSON.parse(fs.readFileSync(0,'utf8'));const code=buildSync({stdin:{contents:\"export {validSnapshot} from './src/features/manuscripts/manuscriptTypes.ts'\",resolveDir:process.cwd()},bundle:true,platform:'node',format:'cjs',write:false}).outputFiles[0].text;const m={exports:{}};new Function('module','exports',code)(m,m.exports);if(!m.exports.validSnapshot(value,value.project_id))process.exit(1);"
         checked=subprocess.run(['node','-e',script],input=json.dumps(snapshot_),text=True,capture_output=True,cwd=frontend)
         assert checked.returncode==0,checked.stderr
+
+
+def exportable_update(client,path,template):
+    """A later template version with page sections, so both versions can render Word."""
+    from app.domain.school_templates.execution import run_school_template_task
+    def parser(*args):
+        result=analysis()
+        result['sections']=[dict(id='section-1',page=dict(width_cm=21,height_cm=29.7,margin_top_cm=2.5,margin_bottom_cm=2.5,margin_left_cm=2.5,margin_right_cm=2.5),
+            source=dict(part='word/document.xml',path='/w:document/w:body/w:p[100]/w:pPr/w:sectPr',text='synthetic page'),
+            page_number=dict(format='decimal',start='1',mode='restart'),break_type=None,different_first_page=False,different_odd_even_pages=False,headers=[],footers=[])]
+        return result
+    old=client.get(path+'/school-templates').json()['items'][0]
+    response=post(client,path+'/school-templates',template|dict(name='工程更新',previous_version_id=old['id']),'update')
+    assert response.status_code==202,response.text
+    assert run_school_template_task(response.json()['task']['id'],1,parser=parser)['status']=='succeeded'
+    item=next(i for i in client.get(path+'/school-templates').json()['items'] if i['id']==response.json()['id'])
+    chapters=deepcopy(old['confirmation']['chapters']);chapters[0]['title']='更新绪论'
+    confirmation=post(client,path+'/school-templates/'+item['id']+'/confirm',dict(analysis_sha256=item['analysis_sha256'],decisions=[dict(conflict_id='conflict-1',option_id='text-2')],chapters=chapters),'confirm-update')
+    assert confirmation.status_code==201,confirmation.text
+    return confirmation.json()
+
+
+def test_rebinding_rejects_old_version_export_keeps_downloaded_bytes_and_migrated_version_exports(client):
+    from tests.api.test_school_exports import published
+    path,endpoint,template,root=published(client)
+    first=post(client,endpoint+'/versions/1/exports',dict(school=dict(include_toc=False)),'old-word')
+    assert first.status_code==201,first.text
+    assert run_task(first.json()['task_id'],1)['status']=='succeeded'
+    old=client.get(endpoint+'/exports/'+first.json()['id']).json()
+    original=client.get(old['download_url']).content
+    confirmation=exportable_update(client,path,template)
+    rebound=post(client,path+'/thesis-template-binding',dict(confirmation_id=confirmation['id'],expected_revision=1))
+    assert rebound.status_code==200,rebound.text
+    rejected=post(client,endpoint+'/versions/1/exports',dict(school=dict(include_toc=False)),'old-again')
+    assert rejected.status_code==409 and rejected.json()['detail']['code']=='task_source_conflict',rejected.text
+    assert client.get(old['download_url']).content==original
+    change=post(client,endpoint+'/versions/1/school-changes',dict(kind='template_migration',target_confirmation_id=confirmation['id']),'migrate')
+    assert change.status_code==201,change.text
+    change=change.json()
+    previewed=post(client,endpoint+'/school-changes/'+change['id']+'/preview',dict(mappings=change['mappings']))
+    assert previewed.status_code==200,previewed.text
+    adopted=post(client,endpoint+'/school-changes/'+change['id']+'/adopt',dict(mappings=change['mappings'],expected_revision=1,preview_sha256=previewed.json()['preview_sha256']),'migrate-adopt')
+    assert adopted.status_code==201,adopted.text
+    version=adopted.json()['versions'][0]
+    assert version['snapshot']['thesis_context']['confirmation_id']==confirmation['id']
+    assert run_task(version['task_id'],1)['status']=='succeeded'
+    migrated=post(client,endpoint+'/versions/'+str(version['revision'])+'/exports',dict(school=dict(include_toc=False)),'new-word')
+    assert migrated.status_code==201,migrated.text
+    assert run_task(migrated.json()['task_id'],1)['status']=='succeeded'
+    assert client.get(client.get(endpoint+'/exports/'+migrated.json()['id']).json()['download_url']).status_code==200
+    assert client.get(old['download_url']).content==original

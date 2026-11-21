@@ -5,3 +5,7 @@ export type JournalView = typeof journalViews[number]
 export const schoolTemplateViews = ['list','profile','upload','detail','rules','confirm','binding'] as const
 export type SchoolTemplateView = typeof schoolTemplateViews[number]
 export type SchoolTemplateNavigation = {view:SchoolTemplateView;templateId:string}
+/** Customers see one template view; old addresses (rules / confirm / binding) stay valid and open it. */
+export function customerSchoolTemplateView(view:SchoolTemplateView):SchoolTemplateView{
+ return view==='rules'||view==='confirm'||view==='binding'?'detail':view
+}

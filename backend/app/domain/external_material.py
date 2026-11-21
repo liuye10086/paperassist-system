@@ -88,7 +88,7 @@ def contract_labels(result, figure, external, task_type):
 
 
 def plot_instructions(external, result=None):
-    from app.domain.artifact_contracts import modern_artifact
+    from app.domain.artifact_contracts import figure_kind, modern_artifact
     if result is not None and modern_artifact(result):
         require_contract(external, 'boxplot')
         if result.get('result_type') in ('regression','roc','survival'):
@@ -97,8 +97,8 @@ def plot_instructions(external, result=None):
         if result.get('result_type') == 'group_comparison':
             from app.domain.comparison_prompts import PLOT_INSTRUCTIONS as modern
             return modern
-        from app.domain.artifact_prompts import PLOT_INSTRUCTIONS as modern
-        return modern
+        from app.domain.artifact_prompts import analysis_plot_instructions
+        return analysis_plot_instructions(figure_kind(result))
     if external is None:
         from app.adapters.openai_plot import INSTRUCTIONS
         return INSTRUCTIONS

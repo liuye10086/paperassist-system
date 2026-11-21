@@ -181,7 +181,7 @@ export default function AccountsPanel({ userId, onForbidden, onAudit, active = t
       {success && !success.deleted && <button type="button" className="button-quiet" onClick={() => onAudit(success.id)}>{t('查看操作审计')}</button>}
     </div>
     {error && <p className="error-panel" role="alert">{t(error)}</p>}
-    {success?.deleted && <div className="admin-account-notice" role="status"><p>{t('账号已永久删除。')}</p></div>}
+    {success && <div className="admin-account-notice" role="status"><p>{t(success.deleted ? '账号已永久删除。' : '账号已保存，该账号需重新登录。')}</p></div>}
     <Table headers={headers}>
       {read.data?.items.map(item => {
         const editable = canEdit(item)

@@ -47,7 +47,7 @@ function open(hash: string) {
 }
 
 function server({ intakeDraft = false } = {}) {
-  const state = { status: 'assigned', note: null as string | null, frozen: false, published: false, revoked: false, stale: false, progressFailure: false, assignedTotal: 1 }
+  const state = { status: 'assigned', note: null as string | null, frozen: false, published: false, revoked: false, stale: false, progressFailure: false, readFailure: false, assignedTotal: 1 }
   const fetcher = vi.fn(async (url: string, init?: RequestInit) => {
     const [path, query] = url.split('?')
     const parameters = new URLSearchParams(query)
@@ -61,6 +61,7 @@ function server({ intakeDraft = false } = {}) {
     if (path.endsWith('/workflow-state')) return Response.json({ files: { total: 1, ready: 1 }, requirements: { saved: true, version: 1, services: ['analysis'] }, results: { available: false }, next_step: 'analysis' })
     if (state.revoked && path.startsWith(base)) return Response.json({ detail: { code: 'project_not_found' } }, { status: 404 })
     if (path === base) return Response.json(project)
+    if (path === analyst && state.readFailure) return Response.json({ detail: { code: 'storage_unavailable' } }, { status: 503 })
     if (path === analyst) return Response.json({ assignment_revision: 2, requirement: { id: 'r1', version: 1 }, status: state.status,
       note: state.note, feedback, publications: state.published ? [{ id: 's1', title: '第一版表达谱', published_at: date,
         feedback: [{ id: 'f2', message: '已下载分析结果。', created_at: date }] }] : [] })
@@ -212,7 +213,11 @@ it('marks missing materials from analysis without leaving the current view', asy
   const { fetcher } = server()
   const url = '#project=assigned&section=analysis&view=setup&file=f1'
   open(url)
-  fireEvent.click(await screen.findByRole('button', { name: '填写补料说明' }))
+  const views = within(await screen.findByRole('navigation', { name: '分析员工作视图' }))
+  expect(document.querySelector('.analyst-material-actions [aria-expanded], details, summary')).toBeNull()
+  fireEvent.click(views.getByRole('button', { name: '填写补料说明' }))
+  expect(views.getByRole('button', { name: '填写补料说明' }).getAttribute('aria-pressed')).toBe('true')
+  expect(screen.queryByRole('combobox', { name: '用于分析的文件' })).toBeNull()
   const request = within(screen.getByRole('region', { name: '待补材料' }))
   expect(request.getByRole('button', { name: '标记待补材料' })).toHaveProperty('disabled', true)
   fireEvent.change(request.getByLabelText('给客户的进度说明'), { target: { value: '请补充分组表。' } })
@@ -226,6 +231,8 @@ it('marks missing materials from analysis without leaving the current view', asy
     assignment_revision: 2, requirement_version_id: 'r1', status: 'needs_materials', note: '请补充分组表。',
   })
   expect(window.location.hash).toBe(url)
+  fireEvent.click(views.getByRole('button', { name: '执行分析' }))
+  expect(screen.queryByRole('region', { name: '待补材料' })).toBeNull()
   expect(screen.getByRole<HTMLSelectElement>('combobox', { name: '用于分析的文件' }).value).toBe(file.id)
 })
 
@@ -306,18 +313,23 @@ it('publishes a frozen analysis snapshot and shows feedback without starting a Z
   fireEvent.click(await candidates.findByLabelText('expression.csv · CSV 数据表'))
   expect(screen.queryByRole('textbox', { name: '本次修改说明' })).toBeNull()
   expect(screen.queryByRole('button', { name: '发布给客户' })).toBeNull()
-  fireEvent.click(sections.getByRole('button', { name: '冻结快照' }))
+  fireEvent.click(sections.getByRole('button', { name: '核对交付内容' }))
   expect(screen.getByRole('option', { name: '客户最新提交' })).toHaveProperty('selected', true)
   fireEvent.change(screen.getByLabelText('本次修改说明'), { target: { value: '比较结果' } })
   fireEvent.click(sections.getByRole('button', { name: '交付候选' }))
   expect(candidates.getByLabelText('expression.csv · CSV 数据表')).toHaveProperty('checked', true)
   fireEvent.click(sections.getByRole('button', { name: '发布交付' }))
-  expect(screen.getByText('请先冻结交付快照。')).toBeTruthy()
+  expect(screen.getByText('请先确认交付内容。')).toBeTruthy()
   expect(fetcher.mock.calls.filter(([, init]) => init?.method === 'POST')).toHaveLength(0)
-  fireEvent.click(sections.getByRole('button', { name: '冻结快照' }))
+  fireEvent.click(sections.getByRole('button', { name: '核对交付内容' }))
   expect(screen.getByLabelText('本次修改说明')).toHaveProperty('value', '比较结果')
+  const draftPublish = screen.getByRole('button', { name: '发布给客户' })
+  expect(draftPublish).toHaveProperty('disabled', true)
+  expect(draftPublish.getAttribute('aria-describedby') && document.getElementById(draftPublish.getAttribute('aria-describedby')!)?.textContent).toBe('先确认交付内容')
   fireEvent.click(screen.getByRole('button', { name: '核对所选成员与缺口' }))
-  fireEvent.click(await screen.findByRole('button', { name: '冻结本次交付快照' }))
+  const confirm = await screen.findByRole('button', { name: '确认交付内容' })
+  expect(confirm.className).toContain('button-primary')
+  fireEvent.click(confirm)
   await waitFor(() => expect(window.location.hash).toBe('#project=assigned&section=overview&view=deliveries&delivery=d1&snapshot=s1'))
   expect(sections.getByRole('button', { name: '发布交付' }).getAttribute('aria-pressed')).toBe('true')
   expect(await screen.findByRole('option', { name: /首次交付 · / })).toHaveProperty('selected', true)
@@ -330,9 +342,23 @@ it('publishes a frozen analysis snapshot and shows feedback without starting a Z
   expect((await screen.findByLabelText('交付标题') as HTMLInputElement).value).toBe('第一版表达谱')
   fireEvent.click(screen.getByRole('button', { name: '发布给客户' }))
   expect(await screen.findByText('已下载分析结果。')).toBeTruthy()
+  expect(await screen.findByText('此快照已发布给客户。')).toBeTruthy()
   const posts = fetcher.mock.calls.filter(([, init]) => init?.method === 'POST')
   expect(posts.map(([url]) => url)).toEqual([delivery + '/snapshots/preview', delivery + '/snapshots', analyst + '/publish'])
   expect(JSON.parse(String(posts[2][1]?.body))).toEqual({ assignment_revision: 2, snapshot_id: 's1', title: '第一版表达谱' })
+})
+
+it('confirms the publication from the publish response even when the refreshed progress cannot be read', async () => {
+  const { state } = server()
+  state.frozen = true
+  open('#project=assigned&section=overview&view=deliveries&delivery=d1&snapshot=s1')
+  fireEvent.change(await screen.findByLabelText('交付标题'), { target: { value: '第一版表达谱' } })
+  state.readFailure = true
+  fireEvent.click(screen.getByRole('button', { name: '发布给客户' }))
+  expect(await screen.findByText('正在发布给客户……')).toBeTruthy()
+  expect(await screen.findByText('此快照已发布给客户。')).toBeTruthy()
+  expect(state.published).toBe(true)
+  expect(screen.queryByRole('button', { name: '发布给客户' })).toBeNull()
 })
 
 it('clears the assigned project and returns to its list when permission is withdrawn', async () => {
@@ -517,4 +543,12 @@ it('keeps local bio import available without exposing FASTQ cloud for assigned p
   await screen.findByRole('group', { name: '从已保存原件发起导入' })
   expect(screen.queryByRole('button', { name: '打开 FASTQ 云端工作区' })).toBeNull()
   expect(fetcher.mock.calls.some(([url]) => url.includes('/bio-cloud'))).toBe(false)
+})
+
+it('titles the analyst task page with one page heading and keeps the way back to the list', async () => {
+  server()
+  open('#project=assigned&section=tasks')
+  expect(await screen.findByRole('heading', { level: 1, name: '项目任务' })).toBeTruthy()
+  expect(screen.getByRole('button', { name: '返回项目列表' })).toBeTruthy()
+  expect(screen.queryByText('这里展示统一任务及历史绘图、解释任务。')).toBeNull()
 })

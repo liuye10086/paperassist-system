@@ -143,6 +143,7 @@ class BioAnnotationService(BioAnnotationStore):
             'labels_json':labels,'checks_json':checks,'request_key':'SingleR:'+namespace,'request_digest':value['request_digest']})
         db.execute('UPDATE bio_annotation_sets SET current_version_id=%s WHERE id=%s',(namespace,namespace))
         from app.adapters.task_store import TaskStore
+        if progress is not None:progress(force=True)
         previous=task['revision'];task.update(status='succeeded',phase='verify',revision=previous+1,updated_at=moment,reason_code=None,error_code=None)
         append_checkpoint(db,task,'done','done',{**checkpoint['state_json'],'result_id':namespace},checkpoint)
         TaskStore.finish_attempt(db,task);TaskStore.update_task(db,task,previous);TaskStore.append_event(db,task,'succeeded')

@@ -145,5 +145,7 @@ def define_research_results_tables(metadata):
     for table in tables:
         for col in table.c:
             if col.name.endswith('_id') and col.name not in ('id','project_id','user_id'):
-                sa.Index(table.name+'_'+col.name,col)
+                index_name = ('src_' + table.name + '_context' if col.name == 'statistics_report_context_id'
+                              else table.name + '_' + col.name)
+                sa.Index(index_name, col)
     return tuple(tables)

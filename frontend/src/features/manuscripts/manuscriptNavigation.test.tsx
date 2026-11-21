@@ -1,9 +1,10 @@
 import {act,cleanup,fireEvent,render,screen,waitFor} from '@testing-library/react'
-import {afterEach,expect,it,vi} from 'vitest'
+import {afterEach,beforeEach,expect,it,vi} from 'vitest'
 import ProjectManuscripts from './ProjectManuscripts'
 import {candidatesFixture,manuscriptFixture} from './manuscriptFixtures'
 
-afterEach(()=>{cleanup();vi.unstubAllGlobals()})
+beforeEach(()=>sessionStorage.clear())
+afterEach(()=>{cleanup();vi.unstubAllGlobals();sessionStorage.clear()})
 const props={projectId:'p1',researchTopic:'Topic',outputLanguage:'en' as const,active:true}
 function server(){const fetcher=vi.fn(async(url:string)=>Response.json(url.endsWith('/candidates')?candidatesFixture:url==='/api/v1/projects/p1/manuscripts'?{items:[manuscriptFixture]}:{items:[],pdf_status:'not_requested'}));vi.stubGlobal('fetch',fetcher);return fetcher}
 it('starts with a manuscript list and opens a fixed version in the body view',async()=>{
@@ -32,12 +33,13 @@ it('keeps writing drafts tied to their version when navigating away and back',as
  view.rerender(<ProjectManuscripts {...props} view="writing" initialManuscript="m1" initialRevision={1}/>)
  expect(screen.getByLabelText('自由写作要求')).toHaveProperty('value','Keep writing')
 })
-it('registers unsaved material drafts without treating an unused idempotency key as pending',async()=>{
+it('registers material drafts as saved in the tab without treating an unused idempotency key as pending',async()=>{
  server();let dirty=()=>false;const register=vi.fn((_guard:()=>boolean,isDirty?:()=>boolean)=>{dirty=isDirty??(()=>false);return ()=>{}})
  render(<ProjectManuscripts {...props} view="materials" registerLeaveGuard={register}/>)
- await screen.findByRole('checkbox',{name:'固定统计结果'});expect(dirty()).toBe(false)
+ await screen.findByRole('checkbox',{name:'固定统计结果'});expect(register).toHaveBeenCalled();expect(dirty()).toBe(false)
  fireEvent.change(screen.getByLabelText('稿件标题'),{target:{value:'Changed'}})
- await waitFor(()=>expect(dirty()).toBe(true))
+ await waitFor(()=>expect(screen.getByLabelText('稿件标题')).toHaveProperty('value','Changed'))
+ expect(dirty()).toBe(false)
 })
 it('keeps separate writing requirements for each fixed version',async()=>{
  const second={...manuscriptFixture.versions[0],id:'v2',revision:2,parent_version_id:'v1',exports:[]}
@@ -72,4 +74,67 @@ it('does not change the viewed fixed version or task after a background fact-dra
  await act(async()=>finish(Response.json(result)))
  expect(screen.getByText('固定版本 1')).toBeTruthy();expect(change).not.toHaveBeenCalled()
  expect(screen.queryByRole('form',{name:'事实稿资料'})).toBeNull()
+})
+it('restores material input, the edited manuscript and the material page after remounting',async()=>{
+ server();const view=render(<ProjectManuscripts {...props} view="materials"/>)
+ await screen.findByRole('checkbox',{name:'固定统计结果'})
+ fireEvent.click(screen.getByRole('button',{name:'方法'}));fireEvent.change(screen.getByLabelText('研究问题'),{target:{value:'Persisted question'}})
+ fireEvent.change(screen.getByLabelText('稿件标题'),{target:{value:'Persisted title'}})
+ view.unmount()
+ render(<ProjectManuscripts {...props} view="materials"/>)
+ await screen.findByRole('checkbox',{name:'固定统计结果',hidden:true})
+ expect(screen.getByRole('button',{name:'方法'}).getAttribute('aria-pressed')).toBe('true')
+ expect(screen.getByLabelText('研究问题')).toHaveProperty('value','Persisted question')
+ expect(screen.getByLabelText('稿件标题')).toHaveProperty('value','Persisted title')
+ expect(screen.queryByText('已自动保存')).toBeNull()
+})
+it('keeps material drafts for each manuscript version address separately',async()=>{
+ server();const first=render(<ProjectManuscripts {...props} view="materials" initialManuscript="m1" initialRevision={1}/>)
+ await screen.findByRole('checkbox',{name:'固定统计结果'})
+ fireEvent.change(screen.getByLabelText('稿件标题'),{target:{value:'For m1'}});first.unmount()
+ const fresh=render(<ProjectManuscripts {...props} view="materials"/>)
+ await screen.findByRole('checkbox',{name:'固定统计结果'})
+ expect(screen.getByLabelText('稿件标题')).toHaveProperty('value','Topic');fresh.unmount()
+ render(<ProjectManuscripts {...props} view="materials" initialManuscript="m1" initialRevision={1}/>)
+ expect(await screen.findByLabelText('稿件标题')).toHaveProperty('value','For m1')
+})
+it('moves the draft with the address when the selected version changes before leaving',async()=>{
+ server();const view=render(<ProjectManuscripts {...props} view="materials"/>)
+ await screen.findByRole('checkbox',{name:'固定统计结果'})
+ fireEvent.change(screen.getByLabelText('稿件标题'),{target:{value:'Carried'}})
+ view.rerender(<ProjectManuscripts {...props} view="body" initialManuscript="m1" initialRevision={1}/>)
+ await screen.findByText('Frozen methods');view.unmount()
+ render(<ProjectManuscripts {...props} view="materials" initialManuscript="m1" initialRevision={1}/>)
+ expect(await screen.findByLabelText('稿件标题')).toHaveProperty('value','Carried')
+})
+it('does not ask to discard persisted material edits but still guards an unconfirmed save',async()=>{
+ let finish!:(response:Response)=>void
+ vi.stubGlobal('fetch',vi.fn((url:string,init?:RequestInit)=>init?.method==='POST'?new Promise<Response>(resolve=>{finish=resolve}):Promise.resolve(Response.json(url.endsWith('/candidates')?candidatesFixture:{items:[manuscriptFixture]}))))
+ vi.stubGlobal('confirm',vi.fn(()=>false));vi.stubGlobal('alert',vi.fn())
+ let guard:(preserve?:boolean)=>boolean=()=>true,dirty=()=>false
+ const register=vi.fn((next:(preserve?:boolean)=>boolean,isDirty?:()=>boolean)=>{guard=next;dirty=isDirty??(()=>false);return ()=>{}})
+ render(<ProjectManuscripts {...props} view="materials" registerLeaveGuard={register}/>)
+ await screen.findByRole('checkbox',{name:'固定统计结果'})
+ fireEvent.change(screen.getByLabelText('稿件标题'),{target:{value:'Changed'}})
+ fireEvent.change(screen.getByLabelText('不同说法（每行一项）'),{target:{value:'A\nB'}})
+ await waitFor(()=>expect(screen.getByLabelText('稿件标题')).toHaveProperty('value','Changed'))
+ expect(dirty()).toBe(false);expect(guard(false)).toBe(true);expect(window.confirm).not.toHaveBeenCalled()
+ fireEvent.click(screen.getByRole('button',{name:'保存并创建事实稿'}))
+ await waitFor(()=>expect(dirty()).toBe(true))
+ expect(guard(true)).toBe(false);expect(window.alert).toHaveBeenCalled()
+ await act(async()=>finish(Response.json({...manuscriptFixture,current_revision:2})))
+})
+it('keeps a restored draft and says the manuscript has changed when the server moved on',async()=>{
+ const fetcher=server();vi.stubGlobal('confirm',vi.fn(()=>true))
+ const view=render(<ProjectManuscripts {...props} view="versions" initialManuscript="m1" initialRevision={1}/>)
+ fireEvent.click(await screen.findByRole('button',{name:'以此版本编辑新稿'}))
+ view.rerender(<ProjectManuscripts {...props} view="materials" initialManuscript="m1" initialRevision={1}/>)
+ fireEvent.change(await screen.findByLabelText('稿件标题'),{target:{value:'Edited from version one'}})
+ expect(screen.queryByText('这份稿件已有更新。你输入的内容仍在，请核对后再保存。')).toBeNull()
+ view.unmount()
+ const newer={...manuscriptFixture,current_revision:2,versions:[...manuscriptFixture.versions,{...manuscriptFixture.versions[0],id:'v2',revision:2,parent_version_id:'v1',exports:[]}]}
+ fetcher.mockImplementation(async(url:string)=>Response.json(url.endsWith('/candidates')?candidatesFixture:url==='/api/v1/projects/p1/manuscripts'?{items:[newer]}:{items:[]}))
+ render(<ProjectManuscripts {...props} view="materials" initialManuscript="m1" initialRevision={1}/>)
+ expect(await screen.findByLabelText('稿件标题')).toHaveProperty('value','Edited from version one')
+ expect(await screen.findByText('这份稿件已有更新。你输入的内容仍在，请核对后再保存。')).toBeTruthy()
 })

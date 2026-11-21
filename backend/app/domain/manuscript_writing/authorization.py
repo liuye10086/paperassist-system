@@ -9,7 +9,7 @@ from app.domain.manuscripts.sources import require_visible_snapshot, writing_cha
 from app.domain.dataset_preparation.service import require_key, append_checkpoint
 from .bundle import build_bundle, require_current_source_projection, validate_bundle
 from .live_contracts import PreviewRequest, AuthorizationRequest, LiveWritingRequest, WORKFLOW,preview_data
-from .policy import MAX_POSTS, MAX_CORRECTIONS, TASK_CAP, BATCH_CAP, POLICY_VERSION, capabilities
+from .policy import MAX_POSTS, MAX_CORRECTIONS, TASK_CAP, BATCH_CAP, POLICY_VERSION, ENDPOINT, EXTERNAL_STORAGE_NOTICE, capabilities
 from .frozen import contract,bundle_contract,SCI_ARTICLE_PROSE_REVISION
 from app.domain.admin_configuration.bindings import resolve,bind
 from app.domain.manuscripts.delivery_context import resolve_document_context
@@ -174,8 +174,8 @@ class LiveWritingService:
                 raise StorageError('manuscript_writing_not_authorized','包含旧协议请求包时仍需四个明确逻辑任务；新数值协议可只选择实际需要的任务。',422)
             caps={key:min(value[key] for value in limits) for key in ('batch_max_posts','max_corrections','batch_cap_micro_usd','task_limit_micro_usd')}
             manifest=dict(schema_version=2,confirmed=True,tasks=body['tasks'],materials=materials,
-                endpoint='https://api.openai.com/v1/responses',background=True,store=True,service_tier='default',
-                external_storage_notice='OpenAI stores background responses; selected material is transmitted externally.',
+                endpoint=ENDPOINT,background=True,store=True,service_tier='default',
+                external_storage_notice=EXTERNAL_STORAGE_NOTICE,
                 max_posts=caps['batch_max_posts'],max_corrections=caps['max_corrections'],cap_micro_usd=caps['batch_cap_micro_usd'],logical_task_cap_micro_usd=caps['task_limit_micro_usd'])
             identity=str(uuid4());timestamp=now()
             db.execute('INSERT INTO manuscript_writing_authorizations(id,project_id,user_id,request_key,request_digest,manifest_json,manifest_sha256,status,revision,max_posts,cap_micro_usd,created_at) VALUES (%s,%s,%s,%s,%s,%s,%s,\'active\',1,%s,%s,%s)',
@@ -230,7 +230,7 @@ class LiveWritingService:
                 if bundle['manuscript_id']!=identity: raise denied()
                 frozen=bundle_contract(bundle);expected_thesis=frozen['schema_version']==3 or (frozen['schema_version']==4 and frozen.get('document_kind')=='thesis')
                 if (resolve_document_context(db,project,self.store.user_id,manuscript_id=identity)['document_kind']=='thesis')!=expected_thesis:raise denied()
-                self.require_authorized(db,project,execution,bundle)
+                _,grant=self.require_authorized(db,project,execution,bundle)
                 request_id=str(uuid4());timestamp=now()
                 snap=dict(schema_version=2,project_id=project,workflow_version=WORKFLOW,input=bundle['request_json'],execution=execution,
                     base_snapshot=bundle['base_snapshot'],base_version_id=bundle['base_version_id'],manuscript_id=identity,
@@ -239,9 +239,10 @@ class LiveWritingService:
                 self.store.insert_task(db,task)
                 configuration=resolve(db,kind='writing_bundle',object_id=bundle['id'])
                 bind(db,kind='task',object_id=request_id,version=configuration)
-                if configuration:
-                    db.execute("INSERT INTO model_budgets(id,user_id,scope_type,scope_key,project_id,task_id,limit_micro_usd,revision,created_at,updated_at) VALUES (%s,%s,'task',%s,%s,%s,%s,1,%s,%s)",
-                        (str(uuid4()),self.store.user_id,request_id,project,request_id,bundle_contract(bundle)['task_limit_micro_usd'],timestamp,timestamp))
+                # The task-level budget is the authorized per-task cap; user and project
+                # budgets stay with support/admin configuration.
+                db.execute("INSERT INTO model_budgets(id,user_id,scope_type,scope_key,project_id,task_id,limit_micro_usd,revision,created_at,updated_at) VALUES (%s,%s,'task',%s,%s,%s,%s,1,%s,%s)",
+                    (str(uuid4()),self.store.user_id,request_id,project,request_id,grant['cap_micro_usd'],timestamp,timestamp))
                 db.execute('INSERT INTO manuscript_writing_requests(task_id,project_id,user_id,manuscript_id,base_version_id,request_json,input_snapshot,input_digest,created_at,updated_at) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)',(request_id,project,self.store.user_id,identity,bundle['base_version_id'],Jsonb(bundle['request_json']),Jsonb(snap),digest(snap),timestamp,timestamp))
                 append_checkpoint(db,task,'check','check',dict(schema_version=2,input_digest=task['input_digest']))
                 self.store.append_event(db,task,'created');self.store.enqueue(db,task);status=202

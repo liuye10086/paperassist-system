@@ -79,7 +79,9 @@ test('late profile cannot replace newly selected version', async () => {
  const fetch = mockApi(); const original = fetch.getMockImplementation()!; let finish!: (r: Response) => void
  fetch.mockImplementation(url => url.endsWith('/d1/profile') ? new Promise(resolve => { finish = resolve }) : original(url)); const Component = await component(); const view = render(<Component base="/api/v1/projects/p1/files/f1" binding={binding} />)
  view.rerender(<Component base="/api/v1/projects/p1/files/f1" binding={{ ...preparedSource, source: preparedSource }} />); await screen.findByRole('heading', { name: '字段详细概况' }); await act(async () => finish(Response.json({ ...profile, record_count: 999 })))
- await waitFor(() => expect(document.body.textContent).not.toContain('999')); expect(document.body.textContent).toContain('整理数据 v2')
+ await waitFor(() => expect(document.body.textContent).not.toContain('999'))
+ expect(screen.getByText('来源：sample.xlsx · 工作表：Sheet1 · 整理数据')).toBeTruthy()
+ expect(screen.getByText(/数据区域 C5:C50/)).toBeTruthy()
 })
 
 test('issue and row failures can each retry without exposing server prose', async () => {

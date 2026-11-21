@@ -10,7 +10,7 @@ import {kindLabels,type Config,type Design,type InsightKind,type Plan,type Sourc
 import {buildPlan,defaultConfig,planIssues,strings} from './state'
 import InsightSources from './InsightSources'
 import ComparisonSetup from './ComparisonSetup'
-import {defaultSingleCellComposition,defaultSingleCellDE} from './singleCellComparison'
+import {defaultSingleCellComposition,defaultSingleCellDE,selectSavedCellFigure} from './singleCellComparison'
 import {defaultBulkConfig,defaultQuantitativeConfig} from './quantitative'
 import BulkModelReview from './BulkModelReview'
 import QpcrSetup,{defaultQpcrConfig} from './QpcrSetup'
@@ -160,7 +160,14 @@ export default function InsightPlanEditor({projectId,kind,active,initial,initial
     <h3>{t('选择本次分析的数据')}</h3><p className="muted">{t('选用已上传或已处理的固定版本，后续配置沿用这些来源。')}</p>
     {fixedEntry?<DataDetails title="本次固定来源" value={draft.sources.map(source=>({source_kind:source.source_kind,source_id:source.source_id,sha256:source.sha256}))}/>:<>
     {initialProcessedId&&!draft.sources.some(s=>s.source_id===initialProcessedId)&&<button type="button" disabled={!sources.data?.items.some(s=>s.source_id===initialProcessedId)} onClick={()=>{const s=sources.data?.items.find(s=>s.source_id===initialProcessedId);if(s?.sha256)selectSources([...draft.sources,{...s,sha256:s.sha256,role:'processed',locator:{kind:'object'}}])}}>{t('采用入口的固定处理版本')}</button>}
- {resultInput.data&&!draft.sources.some(s=>s.source_id===initialResultId)&&<button type="button" onClick={()=>setDraft(d=>({...d,sources:[...d.sources,{source_kind:'bio_insight_result_version',source_id:resultInput.data!.id,sha256:resultInput.data!.manifest_sha256,role:'result',locator:{kind:'object'}}],config:{...d.config,result_source_id:resultInput.data!.id,...(resultInput.data!.summary.topic_method?{figure_type:'topic_'+String(resultInput.data!.summary.topic_method)}:{})}}))}>{t('采用当前固定结果作为绘图来源')}</button>}
+ {resultInput.data&&!draft.sources.some(s=>s.source_id===initialResultId)&&<button type="button" onClick={()=>{
+   const result=resultInput.data!
+   const saved=result.methods?.config as Config|undefined
+   const type=result.summary.topic_method?'topic_'+String(result.summary.topic_method)
+     :result.kind==='comparison'&&saved?.method==='single_cell_composition'?'single_cell_composition':null
+   setDraft(d=>({...d,sources:[...d.sources,{source_kind:'bio_insight_result_version',source_id:result.id,sha256:result.manifest_sha256,role:'result',locator:{kind:'object'}}],
+     config:{...(type?selectSavedCellFigure(d.config,type):d.config),result_source_id:result.id}}))
+ }}>{t('采用当前固定结果作为绘图来源')}</button>}
  {singleCellEnrichment?<><DataDetails title="本次固定来源" value={draft.sources.filter(source=>source.role==='result')}/>
   <InsightSources projectId={projectId} active={active} bulkResources value={draft.sources.filter(source=>source.role!=='result')} onChange={selectEnrichmentResources}/></>:
   <InsightSources projectId={projectId} active={active} value={draft.sources} onChange={selectSources}

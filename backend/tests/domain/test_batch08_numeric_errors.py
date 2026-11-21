@@ -1,17 +1,17 @@
 """Fixed numerical failure reasons, safe process envelopes and unchanged limits."""
 import json
-import subprocess
-from pathlib import Path
 
 import pytest
 
-from app.domain.regression import bounded, runner
+from app.adapters import fixed_statistics_process
+from app.core.exceptions import StorageError
+from app.domain.regression import bounded
 from app.domain.regression.common import NumericError
 
 
 @pytest.fixture(autouse=True)
 def postgres_schema():
-    # This suite uses only temporary process files, never a database.
+    # This suite uses the bounded numerical transport, never a database.
     yield None
 
 
@@ -29,6 +29,33 @@ def assert_code(operation, code):
     assert 'private-marker' not in str(caught.value)
 
 
+def use_test_child(monkeypatch, script):
+    """Keep the production READY transport and limits, substitute only the child program."""
+    transport = fixed_statistics_process._run_child
+
+    def run(command, payload, **limits):
+        return transport([*command[:3], '-c', script, *command[3:]], payload, **limits)
+
+    monkeypatch.setattr(fixed_statistics_process, '_run_child', run)
+
+
+def configure_test_runner(monkeypatch, setup):
+    # Load the ordinary runner with its real sandbox and READY handshake.
+    use_test_child(monkeypatch, '''import sys
+from pathlib import Path
+runner_file = Path(sys.argv.pop(1))
+sys.path.insert(0, str(runner_file.parents[2]))
+from app.adapters import fixed_statistics_runner as runner
+''' + setup + '\nrunner.main()')
+
+
+def assert_failed_receipt(code):
+    receipt = bounded.last_execution_receipt()
+    assert receipt['error_code'] == code
+    assert receipt['output_bytes'] is None
+    assert receipt['cache_hit'] is False
+
+
 @pytest.mark.parametrize('kind,rows,code', [
     ('descriptive', [1.] * 100001, 'numeric_descriptive_limit'),
     ('regression', [{}] * 10001, 'numeric_row_limit'),
@@ -39,21 +66,21 @@ def assert_code(operation, code):
     ('survival', [], 'numeric_sample_size'),
 ])
 def test_count_limits_identify_the_actual_method(kind, rows, code, monkeypatch):
-    monkeypatch.setattr(bounded.subprocess, 'run', lambda *a, **k: pytest.fail('Oversized source spawned'))
+    monkeypatch.setattr(bounded, 'run_statistics_isolated', lambda *a, **k: pytest.fail('Oversized source spawned'))
     assert_code(lambda: bounded.compute_bounded(kind, rows, {}), code)
 
 
 @pytest.mark.parametrize('operation', ['cached', 'uncached', 'runner'])
-def test_input_byte_limit_is_not_a_row_or_covariate_limit(operation, monkeypatch, tmp_path):
+def test_input_byte_limit_is_not_a_row_or_covariate_limit(operation, monkeypatch):
+    if operation == 'runner':
+        configure_test_runner(monkeypatch, 'runner.MAX_INPUT_BYTES = 8')
+        assert_code(lambda: bounded.compute_bounded('descriptive', [1.], {}), 'numeric_input_bytes_limit')
+        return
     monkeypatch.setattr(bounded, '_MAX_INPUT_BYTES', 8)
-    monkeypatch.setattr(runner, 'MAX_INPUT_BYTES', 8)
-    monkeypatch.setattr(bounded.subprocess, 'run', lambda *a, **k: pytest.fail('Oversized input spawned'))
-    path = tmp_path / 'input.json'
-    path.write_text('x' * 9)
+    monkeypatch.setattr(bounded, 'run_statistics_isolated', lambda *a, **k: pytest.fail('Oversized input spawned'))
     actions = {
         'cached': lambda: bounded.compute_bounded('descriptive', [1.], {}),
         'uncached': lambda: bounded._compute_uncached('descriptive', [1.], {}),
-        'runner': lambda: runner.run(path, tmp_path / 'output.json'),
     }
     assert_code(actions[operation], 'numeric_input_bytes_limit')
 
@@ -64,10 +91,9 @@ def test_invalid_timeout_is_configuration_not_data_volume(timeout):
 
 
 def process_response(monkeypatch, body):
-    def run(args, **kwargs):
-        if body is not None:
-            Path(args[-1]).write_bytes(body)
-    monkeypatch.setattr(bounded.subprocess, 'run', run)
+    use_test_child(monkeypatch, "import sys\nsys.stdout.buffer.write(b'READY\\n')\n"
+                   "sys.stdout.buffer.flush()\nsys.stdin.buffer.read()\n"
+                   f"sys.stdout.buffer.write({body or b''!r})")
 
 
 @pytest.mark.parametrize('body,code', [
@@ -80,11 +106,11 @@ def process_response(monkeypatch, body):
 def test_missing_or_corrupt_output_does_not_blame_input(body, code, monkeypatch):
     process_response(monkeypatch, body)
     assert_code(lambda: bounded.compute_bounded('descriptive', [1.], {}), code)
-    assert bounded.last_execution_receipt() is None
+    assert_failed_receipt(code)
 
 
 def test_output_file_limit_is_independent_of_input_limit(monkeypatch):
-    monkeypatch.setattr(bounded, '_MAX_OUTPUT_BYTES', 8)
+    monkeypatch.setattr(fixed_statistics_process, 'MAX_OUTPUT_BYTES', 8)
     process_response(monkeypatch, b'x' * 9)
     assert_code(lambda: bounded.compute_bounded('descriptive', [1.], {}), 'numeric_output_limit')
 
@@ -95,23 +121,23 @@ def test_parent_serialized_result_limit_is_also_output_limit(monkeypatch):
     assert_code(lambda: bounded.compute_bounded('descriptive', [1.], {}), 'numeric_output_limit')
 
 
-def test_runner_output_limit_uses_output_code(monkeypatch, tmp_path):
-    path = tmp_path / 'input.json'
-    path.write_text(json.dumps(dict(task_type='descriptive', rows=[1., 2., 3.], selection={})))
-    monkeypatch.setattr(runner, 'MAX_OUTPUT_BYTES', 8)
-    assert_code(lambda: runner.run(path, tmp_path / 'output.json'), 'numeric_output_limit')
+def test_runner_output_limit_uses_output_code(monkeypatch):
+    configure_test_runner(monkeypatch, 'runner.MAX_OUTPUT_BYTES = 8')
+    assert_code(lambda: bounded.compute_bounded('descriptive', [1., 2., 3.], {}), 'numeric_output_limit')
 
 
 @pytest.mark.parametrize('error,code', [
-    (subprocess.TimeoutExpired('fixed', 30), 'numeric_timeout'),
-    (subprocess.CalledProcessError(1, 'fixed'), 'numeric_failure'),
+    (StorageError('parse_timeout', 'private-marker'), 'numeric_timeout'),
+    (StorageError('parse_process_failed', 'private-marker'), 'numeric_failure'),
     (OSError('private-marker'), 'numeric_failure'),
+    (StorageError('parse_resource_limit', 'private-marker'), 'numeric_process_terminated'),
 ])
 def test_process_failures_do_not_report_input_limits(error, code, monkeypatch):
     def fail(*args, **kwargs):
         raise error
-    monkeypatch.setattr(bounded.subprocess, 'run', fail)
+    monkeypatch.setattr(fixed_statistics_process, '_run_child', fail)
     assert_code(lambda: bounded.compute_bounded('descriptive', [1.], {}), code)
+    assert_failed_receipt(code)
 
 
 @pytest.mark.parametrize('code,expected', [
@@ -141,23 +167,21 @@ def test_nonfinite_output_is_corrupt_response_not_an_unhandled_exception(number,
 def test_extreme_corrupt_output_has_fixed_public_error(body, monkeypatch):
     process_response(monkeypatch, body)
     assert_code(lambda: bounded.compute_bounded('descriptive', [1.], {}), 'numeric_output_invalid')
-    assert bounded.last_execution_receipt() is None
+    assert_failed_receipt('numeric_output_invalid')
 
 
 def test_huge_timeout_is_invalid_configuration_without_float_overflow():
     assert_code(lambda: bounded.compute_bounded('descriptive', [1.], {}, 10 ** 1000), 'numeric_timeout_invalid')
 
 
-def test_runner_unexpected_exception_never_writes_raw_text(monkeypatch, tmp_path):
-    def fail(*args):
-        raise RuntimeError('private-marker')
-    output = tmp_path / 'output.json'
-    monkeypatch.setattr(runner, 'run', fail)
-    monkeypatch.setattr(runner.sys, 'argv', ['runner', str(tmp_path / 'input.json'), str(output)])
-    assert runner.main() == 0
-    message = json.loads(output.read_text())
+def test_runner_unexpected_exception_never_writes_raw_text(monkeypatch):
+    configure_test_runner(monkeypatch, """def fail(*args):
+    raise RuntimeError('private-marker')
+runner.compute_request = fail""")
+    message = fixed_statistics_process.run_statistics_isolated(b'{}', timeout_seconds=30)
+    assert message['status'] == 'error'
     assert message['code'] == 'numeric_failure'
-    assert 'private-marker' not in output.read_text()
+    assert 'private-marker' not in json.dumps(message)
 
 
 @pytest.mark.parametrize('code,category', [

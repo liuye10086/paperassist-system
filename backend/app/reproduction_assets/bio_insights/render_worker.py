@@ -22,6 +22,7 @@ import app.adapters.bio_insights_engine.microbiome_figures
 import app.adapters.bio_insights_engine.feature_figures
 import app.adapters.bio_insights_engine.integration_figures
 import app.adapters.bio_insights_engine.topic_figures
+import app.adapters.bio_insights_engine.single_cell_composition
 import app.adapters.bio_insights_engine.evidence_figures
 from app.adapters.bio_engine.manifest import Writer,canonical
 from app.domain.bio_insights.contracts import FigureConfig

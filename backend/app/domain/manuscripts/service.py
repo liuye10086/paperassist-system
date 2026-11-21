@@ -1,5 +1,6 @@
 """Immutable draft versions plus task-backed publication and local export intents."""
 from datetime import datetime,timezone
+from contextlib import nullcontext
 from copy import deepcopy
 from hashlib import sha256
 from pathlib import Path
@@ -10,7 +11,7 @@ from app.core.exceptions import StorageError
 from app.domain.dataset_preparation.service import require_key
 from app.domain.literature.service import digest
 from app.domain.literature_citations.service import LiteratureCitationService
-from .contracts import ManuscriptRequest,METHOD_FIELDS,WORKFLOW,ExportRequest,SchoolExportOptions
+from .contracts import ManuscriptRequest,METHOD_FIELDS,WORKFLOW,ExportRequest,SchoolExportOptions,require_identified
 from .draft import freeze
 from .sources import changes, customer_can_use_analysis, read_source, require_visible_snapshot
 
@@ -204,6 +205,9 @@ class ManuscriptService:
                 if writing['published_revision']!=row['revision'] or writing['candidate_json']!=snap or writing['base_version_id']!=row['parent_version_id']: raise source_conflict()
                 try: validate_candidate(snap,writing['input_snapshot'])
                 except (ValueError,TypeError,KeyError) as exc: raise source_conflict() from exc
+        elif self.is_school_change_version(row):
+            from .school_changes import validate_school_change_version
+            validate_school_change_version(self,db,row)
         elif snap.get('user_return_provenance') is not None:
             from app.domain.review_rounds.returns import validate_user_return_version
             validate_user_return_version(self,db,row)
@@ -214,8 +218,7 @@ class ManuscriptService:
             from app.domain.journals.adaptation_service import validate_adapted_version
             validate_adapted_version(self,db,row)
         elif snap.get('school_change_provenance') is not None:
-            from .school_changes import validate_school_change_version
-            validate_school_change_version(self,db,row)
+            raise source_conflict()
         elif snap.get('review_provenance') is not None:
             from app.domain.manuscript_review.service import validate_review_version
             validate_review_version(self,db,row)
@@ -248,6 +251,11 @@ class ManuscriptService:
         if sorted(actual,key=str)!=sorted(expected,key=str): raise source_conflict()
 
     @staticmethod
+    def is_school_change_version(row):
+        change = row['snapshot_json'].get('school_change_provenance')
+        return isinstance(change,dict) and bool(row['parent_version_id']) and change.get('base_version_id')==row['parent_version_id']
+
+    @staticmethod
     def is_written_version(row):
         # A derived manuscript may carry an earlier version's provenance.
         writing=row['snapshot_json'].get('writing_provenance')
@@ -268,6 +276,14 @@ class ManuscriptService:
         self.store.enqueue(db,task,validated_file_ids=file_ids)
         return task
 
+    def _reject_duplicate_customer_manuscript(self,db,value):
+        """D2: a customer paper project keeps one manuscript; later drafts are its versions.
+        Runs under the project row lock taken by create(). Research candidate publication
+        inserts its root directly and stays exempt."""
+        if not self.assets.customer or value['project_type'] not in ('sci','thesis'): return
+        if db.execute('SELECT 1 FROM manuscripts WHERE project_id=%s AND user_id=%s LIMIT 1',(value['id'],self.store.user_id)).fetchone():
+            raise StorageError('manuscript_exists','这个项目已经有稿件。请覆盖之前的写作材料。',409)
+
     def create(self,project,request,key,identity=None):
         require_key(key);request=ManuscriptRequest.model_validate(request) if isinstance(request,dict) else request
         body=request.model_dump(mode='json')
@@ -286,6 +302,7 @@ class ManuscriptService:
                 if replay['request_digest']!=hashed: raise StorageError('task_idempotency_conflict','请求标识已用于不同输入。',409)
                 identity=replay['manuscript_id'] if identity else replay['id'];status=200
             else:
+                if not identity: self._reject_duplicate_customer_manuscript(db,value)
                 revision=root['current_revision']+1 if identity else 1
                 if request.expected_revision!=(revision-1): raise StorageError('manuscript_revision_conflict','事实稿已有新版本，请刷新。',409)
                 base=self.version(db,project,identity,revision-1) if identity else None
@@ -432,8 +449,8 @@ class ManuscriptService:
             created_at=row['created_at'].isoformat(),input=row['request_json'],snapshot=row['snapshot_json'],current_changes=self.source_changes(row['project_id'],row['snapshot_json']),
             exports=self.export_views(db,row))
 
-    def get(self,project,identity,revision=None):
-        with self.store.connection() as db:
+    def get(self,project,identity,revision=None,*,connection=None):
+        with (self.store.connection() if connection is None else nullcontext(connection)) as db:
             root=self.root(db,project,identity)
             if revision is not None: return self.version_view(db,self.version(db,project,identity,revision))
             versions=db.execute('SELECT * FROM manuscript_versions WHERE manuscript_id=%s ORDER BY revision DESC',(identity,)).fetchall()
@@ -516,8 +533,8 @@ class ManuscriptService:
             if published['status']!='succeeded': raise StorageError('task_revision_conflict','事实稿尚未发布。',409)
         if current:
             written=self.is_written_version(row)
-            school_change=not written and row['snapshot_json'].get('school_change_provenance')
-            if task['task_type']=='manuscript_draft' and not written and row['snapshot_json'].get('user_return_provenance'):
+            school_change=not written and self.is_school_change_version(row)
+            if task['task_type']=='manuscript_draft' and not written and not school_change and row['snapshot_json'].get('user_return_provenance'):
                 from app.domain.review_rounds.returns import validate_user_return_version
                 validate_user_return_version(self,db,row,current=True,_review_candidate=_review_candidate)
             if task['task_type']=='manuscript_draft' and school_change:
@@ -644,9 +661,10 @@ class ManuscriptService:
 
     def preview_export(self,project,identity,revision,request=None):
         request=ExportRequest.model_validate(request) if isinstance(request,dict) else request or ExportRequest()
+        require_identified(request.review_mode)
         with self.store.connection() as db:
             version=self.version(db,project,identity,revision)
-            from .presentation_export import resolve,school_request,preview_view,customer_school_mask,reviewed_school_submission_forms
+            from .presentation_export import resolve,school_request,preview_view,reviewed_school_submission_forms
             presentation=resolve(self,db,version,request)
             options=self.school_options(version,school_request(presentation,request))
             result=dict(schema_version=1)
@@ -655,15 +673,13 @@ class ManuscriptService:
                     submission_forms=reviewed_school_submission_forms(db,presentation))['plan']
             if presentation is not None:
                 result['presentation']=preview_view(presentation)
-                if customer_school_mask(self,db,presentation):
-                    result['presentation']['notice']+=' 本次盲审输出会遮蔽已填写的姓名、身份和签名字段；正文与图件仍须核对。'
             if len(result)==1:raise StorageError('task_input_invalid','此预览需要学校或已保存的输出配置。',422)
             return result
 
-    def export_renderer_version(self, db, project, manuscript, *, plain):
+    def export_renderer_version(self, db, project, manuscript, *, plain, school_change=False):
         from app.adapters.manuscript_docx import RENDERER_VERSION, customer_renderer_version
 
-        revised = manuscript.get('review_revision_provenance') or manuscript.get('user_return_provenance')
+        revised = not school_change and (manuscript.get('review_revision_provenance') or manuscript.get('user_return_provenance'))
         planned_thesis = manuscript.get('thesis_context') and manuscript.get('paper_plan')
         if self.assets.customer and (revised or planned_thesis or (
                 plain and self.require_project(db, project)['project_type'] == 'sci')):
@@ -673,6 +689,7 @@ class ManuscriptService:
     def create_export(self,project,identity,revision,key,request=None):
         require_key(key)
         request=ExportRequest.model_validate(request) if isinstance(request,dict) else request or ExportRequest()
+        require_identified(request.review_mode)
         with self.store.connection(write=True) as db:
             self.root(db,project,identity);db.execute('SELECT id FROM manuscripts WHERE id=%s FOR UPDATE',(identity,)).fetchone()
             version=self.version(db,project,identity,revision)
@@ -686,10 +703,17 @@ class ManuscriptService:
                     raise StorageError('task_idempotency_conflict','请求标识已用于不同导出输入。',409)
                 old=self.store.require_task(db,existing['task_id'])['input_snapshot'].get('presentation')
                 if (old['binding'] if old else None)!=(presentation['binding'] if presentation else None):
-                    raise StorageError('task_idempotency_conflict','请求标识已用于不同语言或盲审输出。',409)
+                    raise StorageError('task_idempotency_conflict','请求标识已用于不同语言输出。',409)
                 export_id=existing['id'];status=200
             else:
                 if self.store.require_task(db,version['task_id'])['status']!='succeeded': raise StorageError('task_revision_conflict','请等待事实稿发布后导出。',409)
+                context=version['snapshot_json'].get('thesis_context')
+                if context:
+                    # After the project adopts another template, an older version must be
+                    # migrated before a new Word is made; existing downloads stay untouched.
+                    bound=db.execute('SELECT bound_confirmation_id FROM thesis_profiles WHERE project_id=%s AND user_id=%s',
+                                     (project,self.store.user_id)).fetchone()
+                    if not bound or bound['bound_confirmation_id']!=context['confirmation_id']:raise source_conflict()
                 intent=self.compile_school_intent(db,version,options,
                     submission_forms=reviewed_school_submission_forms(db,presentation)) if options is not None else None
                 if intent is not None and not intent['plan']['report']['can_export']:
@@ -699,7 +723,7 @@ class ManuscriptService:
                 from app.adapters.manuscript_docx import RENDERER_VERSION
 
                 renderer_version = self.export_renderer_version(db, project, version['snapshot_json'],
-                    plain=presentation is None and intent is None)
+                    plain=presentation is None and intent is None,school_change=self.is_school_change_version(version))
                 if renderer_version != RENDERER_VERSION:
                     snapshot['renderer_version'] = renderer_version
                 if intent is not None:snapshot['school_input_sha256']=digest(intent)

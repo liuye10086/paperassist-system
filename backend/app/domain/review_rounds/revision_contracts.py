@@ -3,6 +3,7 @@ from typing import Literal
 from pydantic import Field, model_validator
 from .contracts import Strict
 WORKFLOW='review_revision_v1'
+CANDIDATE_SCHEMA_VERSION = 4
 class RevisionInputVersion(Strict):
     kind:Literal['review_revision']='review_revision'
     revision_id:str

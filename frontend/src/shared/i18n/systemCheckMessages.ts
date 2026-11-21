@@ -1,4 +1,6 @@
 /** Fixed local engineering observations. Research values and user reasons are not templates. */
+export const journalExtractionNote='有限固定行提取；仅反映登记原文，不认证来源真实性。'
+
 export const systemCheckPairs: readonly (readonly [string, string])[] = [
   ['；', '; '],
   ['明确采用的新图、来源与有效图注必须保留；不可重新引入旧图。', 'Keep the explicitly adopted figure, source and valid caption; the replaced figure cannot be reintroduced.'],
@@ -67,6 +69,7 @@ export const systemCheckPairs: readonly (readonly [string, string])[] = [
   ['本批仅执行显示名称、顺序及有限格式；此项保留人工处理。', 'This adaptation changes display names, order and limited formatting only; this item remains manual.'],
   ['采用明确原句和固定指南版本；仅改变显示。', 'Uses explicit source wording and the fixed guide version; only the display changes.'],
   ['重排无法保持NLM首次引用顺序，须人工处理。', 'Reordering cannot preserve NLM first-citation order; manual handling is required.'],
+  [journalExtractionNote, 'These rules come from recognized lines in the supplied text. The source has not been authenticated.'],
   ['明确适用文章类型的专属条款优先同来源一般条款。', 'An explicitly applicable article-specific requirement takes priority over a general requirement from the same source.'],
   ['不同来源或同范围条款存在冲突；请有限选择或暂缓并写理由。', 'Requirements from different sources or within the same scope conflict; choose a supported option or defer and record a reason.'],
   ['用户未采用此项。', 'The user did not adopt this item.'],

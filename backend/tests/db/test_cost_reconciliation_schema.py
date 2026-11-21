@@ -10,11 +10,11 @@ from tests.db.test_model_usage_schema import model_rows, call_row, NOW  # noqa: 
 from tests.db.test_task_schema import seed_owner, insert_row, task_row
 
 
+@pytest.mark.initial_revision('0012_task_errors')
 def test_0013_round_trip_preserves_old_columns_and_indexes(postgres_schema, postgres_migration_config):
     with migration_connection(write=True, config=postgres_migration_config) as db:
         settings = alembic_config()
         settings.attributes.update(connection=db.raw_connection, database_config=postgres_migration_config)
-        command.downgrade(settings, '0012_task_errors')
         seed_owner(db)
         insert_row(db, 'tasks', task_row())
         insert_row(db, 'model_calls', call_row())
@@ -23,6 +23,20 @@ def test_0013_round_trip_preserves_old_columns_and_indexes(postgres_schema, post
         columns = {table: [column['name'] for column in inspect(db.raw_connection).get_columns(table, schema=postgres_schema.schema)] for table in tables}
         before = {table: [dict(row) for row in db.execute('SELECT * FROM "' + table + '" ORDER BY 1').fetchall()] for table in tables}
         indexes = {table: inspect(db.raw_connection).get_indexes(table, schema=postgres_schema.schema) for table in tables}
+        command.upgrade(settings, '0013_cost_reconciliation')
+        for table in tables:
+            current = inspect(db.raw_connection).get_indexes(table, schema=postgres_schema.schema)
+            assert all(index in current for index in indexes[table])
+        call = db.execute('SELECT * FROM model_calls').fetchone()
+        assert call['actual_token_micro_usd'] is None and call['actual_tool_micro_usd'] is None and call['reconciliation_revision'] == 0
+        command.downgrade(settings, '0012_task_errors')
+        for table in tables:
+            assert [dict(row) for row in db.execute('SELECT * FROM "' + table + '" ORDER BY 1').fetchall()] == before[table]
+        command.upgrade(settings, '0026_figure_report_versions')
+        from tests.db.test_dataset_schema import assert_preserved_indexes
+        inspector = inspect(db.raw_connection)
+        assert_preserved_indexes(inspector, 'figures', indexes['figures'])
+        indexes['figures'] = inspector.get_indexes('figures', schema=postgres_schema.schema)
         command.upgrade(settings, 'head')
         for table in tables:
             expected = before[table]
@@ -30,18 +44,9 @@ def test_0013_round_trip_preserves_old_columns_and_indexes(postgres_schema, post
                 expected = [{**row, 'role': 'analyst'} if row['role'] == 'user' else row for row in expected]
             assert [dict(row) for row in db.execute('SELECT ' + ','.join('"' + col + '"' for col in columns[table]) + ' FROM "' + table + '" ORDER BY 1').fetchall()] == expected
             current_indexes = inspect(db.raw_connection).get_indexes(table, schema=postgres_schema.schema)
-            assert all(index in current_indexes for index in indexes[table] if not (table=='figures' and index['name']=='figures_input_key'))
-            if table=='figures':
-                from tests.db.test_dataset_schema import assert_preserved_indexes
-                assert_preserved_indexes(inspect(db.raw_connection),table,indexes[table])
-        call = db.execute('SELECT * FROM model_calls').fetchone()
-        assert call['actual_token_micro_usd'] is None and call['actual_tool_micro_usd'] is None and call['reconciliation_revision'] == 0
+            assert all(index in current_indexes for index in indexes[table])
         audit = audit_database(db)
         assert audit['ok'], {key: value for key, value in audit.items() if key not in ('data_checks', 'compatibility')}
-        command.downgrade(settings, '0012_task_errors')
-        for table in tables:
-            assert [dict(row) for row in db.execute('SELECT * FROM "' + table + '" ORDER BY 1').fetchall()] == before[table]
-        command.upgrade(settings, 'head')
 
 
 @pytest.mark.parametrize('changes', [{'actual_token_micro_usd': -1}, {'actual_tool_micro_usd': -1}, {'reconciliation_revision': -1}])

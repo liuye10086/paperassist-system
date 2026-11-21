@@ -77,14 +77,15 @@ def test_figure_language_history_is_audited_and_retained_in_file_lifecycle(clien
     from app.db.database import database_connection
     from app.maintenance.database_audit import audit_database
     from app.domain.file_lifecycle.references import read_references
-    from app.adapters.storage import get_project_store
+    from tests.helpers.tasks import task_owner
     project,file,path,body=setup(client)
+    owner = task_owner(client)
     response=post(client,path,body,'retained')
     assert response.status_code==201,response.text
     with database_connection() as db:
         audit=audit_database(db)
         assert any(c['table']=='manuscript_figure_language_versions' and c['rows']==1 and c['invalid']==0 for c in audit['data_checks'])
-        refs=read_references(db,file,get_project_store().owner_id)
+        refs=read_references(db,file,owner)
         assert refs['counts']['manuscript_figure_language_versions']==1
 
 from tests.api.test_boxplot import cloud

@@ -59,11 +59,14 @@ def adjusted_enrichment_plot_data(source, config):
             raise ValueError('figure_invalid_q')
         if q is not None and numeric(row.get(xcol)) is not None:
             ranks.append((q, term, key))
-    display = [key for _, _, key in sorted(ranks)[:config.top_n]]
+    eligible = ranks if config.q_threshold is None else [r for r in ranks if r[0] <= config.q_threshold]
+    display = [key for _, _, key in sorted(eligible)[:config.top_n]]
     return dict(rows=data, displayed_row_keys=display, q_column=qcol, top_n=config.top_n,
                 correction='GSEA joint-null FDR' if gsea else 'BH within frozen enrichment family',
                 style=config.enrichment_style, sorting='adjusted_metric_asc_then_term_id_then_row_key',
                 requested_top_n=config.top_n, displayed_count=len(display), omitted_count=len(data)-len(display),
-                missing_count=len(data)-len(ranks), top_n_omitted_count=len(ranks)-len(display),
+                missing_count=len(data)-len(ranks), top_n_omitted_count=len(eligible)-len(display),
+                **({'q_threshold':config.q_threshold,'threshold_omitted_count':len(ranks)-len(eligible)}
+                   if config.q_threshold is not None else {}),
                 source_id=source['source_id'], source_sha256=source['sha256'],
                 source_members={member: source['members'][member]['sha256']})

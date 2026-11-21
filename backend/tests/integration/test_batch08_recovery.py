@@ -1,5 +1,6 @@
 """Batch08 recovery evidence: isolated PostgreSQL, synthetic providers, real workers."""
 from copy import deepcopy
+from datetime import datetime, timedelta
 import json
 
 import pytest
@@ -275,7 +276,19 @@ def assert_receipts(task, original_snapshot, *, explanation=False):
             assert value['statistics']['series'][0]['points'][0]['y'] == 9.
             assert value['verification']['status'] == 'matched'
             assert value['provenance']['code'] == ['# synthetic Python']
-            assert call['provider_state'] == {'version': 1, 'phase': 'response_ready', 'container_id': 'cntr_synthetic',
+            provider_state = dict(call['provider_state'])
+            observation = provider_state.pop('observation')
+            assert observation['version'] == 1 and observation['continuations'] == 0
+            assert datetime.fromisoformat(observation['deadline_at']) - datetime.fromisoformat(observation['started_at']) == timedelta(minutes=20)
+            assert provider_state.pop('submission_provenance') == {
+                'version': 1, 'kind': 'unknown', 'adapter': 'unknown', 'transport': 'unverified_injected',
+                'task_id': task['id'], 'input_digest': call['input_digest'], 'operation': 'plot',
+            }
+            # This injected provider omits the code-interpreter invocation ID.
+            assert provider_state.pop('tool_execution_evidence') == {
+                'response_id': call['provider_response_id'], 'complete': False, 'call_ids': [],
+            }
+            assert provider_state == {'version': 1, 'phase': 'response_ready', 'container_id': 'cntr_synthetic',
                 'container_request_id': 'req_container', 'input_file_id': 'cfile_input',
                 'input_file_path': '/mnt/data/data.json', 'upload_request_id': 'req_upload'}
         assert value['source'] == original_snapshot['source']
@@ -446,25 +459,40 @@ def test_configured_candidate_write_interruption_recovers_without_another_post(c
     from tests.integration.test_task_execution import expired
     from app.adapters.figure_workbench_store import read_bundle
     import app.domain.figure_workbench.execution as execution
+    from app.domain.storage_governance import service as storage
     workbench, project, _, _, task, provider, worker = configured_case(client, monkeypatch, 2)
     snapshot = raw_task(task)['input_snapshot']
     provider.pending = False
     task = step(step(task, provider, worker), provider, worker)
-    write = execution.write_candidate
-    def interrupted(*args):
-        if after_bytes:
-            write(*args)
-        raise OSError('synthetic asset write interruption')
-    monkeypatch.setattr(execution, 'write_candidate', interrupted)
-    assert worker(task['id'], task['revision'], provider_factory=lambda: provider) is None
-    candidate = raw_task(task)['figure_candidate']
-    assert candidate and raw_task(task)['result_figure_id'] is None
+    candidates = []
+    capture = storage.capture_candidate
+
+    def observe_capture(*args, **kwargs):
+        candidates.append(json.loads(kwargs['descriptor'])['candidate'])
+        if not after_bytes:
+            raise OSError('synthetic interruption before candidate capture')
+        return capture(*args, **kwargs)
+
+    def stop_before_publication(*args):
+        raise OSError('synthetic interruption after durable candidate capture')
+
+    with monkeypatch.context() as fault:
+        fault.setattr(storage, 'capture_candidate', observe_capture)
+        fault.setattr(execution, 'write_candidate', stop_before_publication)
+        assert worker(task['id'], task['revision'], provider_factory=lambda: provider) is None
+    candidate, = candidates
+    saved = raw_task(task)
+    assert saved['figure_candidate'] == (candidate if after_bytes else None)
+    assert saved['result_figure_id'] is None
     path = workbench.assets.figures_dir / (candidate['id'] + '.png')
-    assert path.exists() is after_bytes
+    assert not path.exists()
+    staged = workbench.assets.directory / 'task-staging' / (candidate['id'] + '.candidate')
+    assert staged.exists() is after_bytes
+    if after_bytes:
+        assert staged.read_bytes() == provider.png
     expired(lease_for(task))
     assert TaskExecutionStore().recover_expired() == 1
     task = TaskStore(workbench.tasks.user_id).get(task['id'])
-    monkeypatch.setattr(execution, 'write_candidate', write)
     def local_only():
         raise AssertionError('The durable candidate must not initialize a provider.')
     done = worker(task['id'], task['revision'], provider_factory=local_only if after_bytes else lambda: provider)
@@ -587,6 +615,9 @@ def test_collection_word_write_failure_retry_preserves_old_download_and_publishe
     assert repository.export(project, state['id'], state['current_version_id'], 'batch08-second-export') == build
     task = TaskStore(workbench.tasks.user_id).get(build['task_id'])
     frozen = raw_task(task)['input_snapshot']
+    def interrupt_render(payload, output):
+        raise OSError('synthetic local asset interruption before write')
+
     if after_bytes:
         original_finish = execution.TaskExecutionStore._finish
         def interrupted(self, db, active, status, error_code):
@@ -594,19 +625,13 @@ def test_collection_word_write_failure_retry_preserves_old_download_and_publishe
                 raise OSError('synthetic database boundary interruption after file rename')
             return original_finish(self, db, active, status, error_code)
         monkeypatch.setattr(execution.TaskExecutionStore, '_finish', interrupted)
-    else:
-        original_render = execution.build_collection_report
-        monkeypatch.setattr(execution, 'build_collection_report', lambda *args: (_ for _ in ()).throw(
-            OSError('synthetic local asset interruption before write')))
-    failed = run_collection_word_task(task['id'], task['revision'])
+    failed = run_collection_word_task(task['id'], task['revision'], engine=None if after_bytes else interrupt_render)
     assert failed and failed['status'] == 'failed' and failed['error_code'] == 'storage_unavailable'
     assert repository.download(project, state['id'], old['id']) == (old_meta, old_bytes)
     with database_connection() as db:
         assert db.execute('SELECT count(*) AS n FROM collection_reports WHERE build_request_id=%s', (build['id'],)).fetchone()['n'] == 0
     if after_bytes:
         monkeypatch.setattr(execution.TaskExecutionStore, '_finish', original_finish)
-    else:
-        monkeypatch.setattr(execution, 'build_collection_report', original_render)
     request = {'operation': 'retry', 'wait_id': None, 'expected_task_revision': failed['revision'],
         'input_version': failed['input_version']}
     resume = TaskResumeService(workbench.tasks.user_id)

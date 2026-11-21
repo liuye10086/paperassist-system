@@ -36,7 +36,9 @@ def test_numeric_timeout_finishes_once_with_receipt(monkeypatch, module, entry):
             return {'status': 'failed', 'error_code': code}
         load = staticmethod(fail_node)
     monkeypatch.setattr(worker, 'TaskExecutionStore', Repository)
-    if entry != 'run_word_task':
+    if entry == 'run_word_task':
+        monkeypatch.setattr('app.domain.statistics_reader_reports.legacy_exports.dispatch', lambda *args, **kwargs: (False, None))
+    else:
         monkeypatch.setattr(worker, '_execute', fail_node)
     result = getattr(worker, entry)('synthetic-task', 1)
     assert result == {'status': 'failed', 'error_code': 'numeric_timeout'}

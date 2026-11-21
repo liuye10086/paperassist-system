@@ -1,8 +1,12 @@
 import json
 
+import pytest
 from fastapi.testclient import TestClient
 
 from app.adapters.docx_parser import parse_docx
+from app.adapters.storage import ProjectStore
+from app.core.config import get_data_dir
+from app.core.errors import error_detail
 from app.core.exceptions import StorageError
 from app.db.database import database_connection
 from app.domain.school_templates.execution import run_school_template_task
@@ -211,9 +215,9 @@ def test_customer_thesis_reported_results_and_hidden_fixed_versions():
         assert reported['alias'] in payload['chapters'][0]['allowed_context_aliases']
         assert post(client, root + '/writing-requests', dict(base_revision=1, mode='full_draft'), 'offline').status_code == 403
 
-        presentation_input = dict(base_version_id=version['id'], config=dict(blind=dict(identity_terms=['Student Name'])))
+        presentation_input = dict(base_version_id=version['id'], config=dict(authors=[dict(name='Student Name', order=1, source='customer')]))
         presentation_path = root + '/presentations'
-        presentation = post(client, presentation_path, presentation_input, 'blind-config')
+        presentation = post(client, presentation_path, presentation_input, 'signed-config')
         assert presentation.status_code == 201, presentation.text
         presentation_id = presentation.json()['id']
 
@@ -240,3 +244,70 @@ def test_customer_thesis_reported_results_and_hidden_fixed_versions():
         assert client.get(previews + '/' + bundle['id']).status_code == 404
         assert client.get(presentation_path + '/' + presentation_id).status_code == 404
         assert client.get(presentation_path).json()['items'] == []
+
+
+def test_customer_binding_preview_is_thesis_only_and_owner_scoped():
+    with TestClient(app) as client, TestClient(app) as other:
+        sign_in(client, 'b04-preview-owner@example.test', 'customer')
+        sign_in(other, 'b04-preview-other@example.test', 'customer')
+        project = thesis_project(client)
+        item, _, _ = template(client, project, 'preview-template')
+        assert run_school_template_task(item['task']['id'], 1, parser=analysis)['status'] == 'succeeded'
+        parsed = next(i for i in client.get(project + '/school-templates').json()['items'] if i['id'] == item['id'])
+        body = dict(template_version_id=item['id'], expected_revision=0, analysis_sha256=parsed['analysis_sha256'],
+                    decisions=[dict(conflict_id='conflict-1', option_id='text-2')],
+                    chapters=[dict(id='results', title='Study Results', level=1)])
+        allowed = client.post(project + '/thesis-template-binding/preview', json=body)
+        assert allowed.status_code == 200, allowed.text
+        assert allowed.json()['current'] is None and allowed.json()['manuscripts'] == []
+        for wrong in (sci_project(client), create_customer_project(client)):
+            denied = client.post(wrong + '/thesis-template-binding/preview', json=body)
+            assert denied.status_code == 403 and denied.json()['detail']['code'] == 'customer_project_type_forbidden', denied.text
+        foreign = other.post(project + '/thesis-template-binding/preview', json=body)
+        assert foreign.status_code == 404 and foreign.json()['detail']['code'] == 'project_not_found', foreign.text
+
+
+def test_thesis_requirement_conflicts_keep_their_public_codes():
+    with TestClient(app) as client:
+        owner = sign_in(client, 'thesis-codes@example.test', 'customer')
+        project = thesis_project(client, 'thesis-codes')
+        url = project + '/thesis-requirements'
+        current = client.get(url)
+        assert current.status_code == 200, current.text
+        revision = current.json()['revision']
+        basics = dict(education_level='硕士', school='Synthetic university', title='Synthetic thesis',
+                      keywords=['cohort', 'sampling', 'observations', 'comparison'])
+        write = dict(expected_revision=revision, expected_language='zh-CN', language='zh-CN', basics=basics)
+
+        stale = client.put(url, json=write | {'expected_revision': revision + 3})
+        assert stale.status_code == 409
+        detail = stale.json()['detail']
+        assert (detail['code'], detail['message']) == ('thesis_requirements_changed', '毕业论文需求或学校资料已更新，请核对后继续。')
+
+        changed = client.put(url, json=write | {'chapter_plan': dict(confirmation_id='missing-confirmation', sections=[])})
+        assert changed.status_code == 409
+        detail = changed.json()['detail']
+        assert (detail['code'], detail['message'], detail['params']) == (
+            'thesis_template_changed', '学校模板绑定已变化，请核对当前模板和章节。', {})
+
+        item, _, _ = template(client, project, 'template-readiness')
+        assert run_school_template_task(item['task']['id'], 1, parser=analysis)['status'] == 'succeeded'
+        confirmation, _, _ = confirm_template(client, project, item, 'confirmed-template')
+        profile = bind(client, project, confirmation, revision)
+        with database_connection(write=True) as db:
+            db.execute("UPDATE tasks SET status='failed',error_code='parse_timeout' WHERE id=%s", (item['task']['id'],))
+        unavailable = client.put(url, json=write | dict(expected_revision=profile['revision'],
+                                 chapter_plan=dict(confirmation_id=confirmation['id'], sections=[])))
+        assert unavailable.status_code == 409
+        detail = unavailable.json()['detail']
+        assert (detail['code'], detail['message'], detail['params']) == (
+            'thesis_template_required', '请先确认并绑定可用的学校模板。', {})
+
+        sci = sci_project(client)
+        assert client.get(sci + '/thesis-requirements').json()['detail']['code'] == 'customer_project_type_forbidden'
+        # HTTP validation answers first; the store guard still needs a public code for direct callers.
+        store = ProjectStore(get_data_dir(), owner_id=owner, customer=True)
+        with pytest.raises(StorageError) as error:
+            store.create_project('Synthetic SCI', 'Synthetic topic', 'sci', thesis_requirements={'title': 'Synthetic'})
+        assert error.value.code == 'thesis_requirements_unavailable'
+        assert error_detail(error.value.code, error.value.message)['code'] == 'thesis_requirements_unavailable'

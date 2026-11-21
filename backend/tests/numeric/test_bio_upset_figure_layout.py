@@ -149,7 +149,8 @@ def test_worker_returns_specific_layout_size_error(tmp_path, monkeypatch):
 
     output = tmp_path / 'worker-output'
     output.mkdir()
-    request = json.dumps(dict(kind='bio_insight_figure', output_directory=str(output))).encode()
+    request = json.dumps(dict(kind='bio_insight_figure', config={'kind': 'figure', 'figure_type': 'upset'},
+                              output_directory=str(output))).encode()
     response = io.BytesIO()
     monkeypatch.setattr(worker.sys, 'stdin', SimpleNamespace(buffer=io.BytesIO(struct.pack('!I', len(request)) + request)))
     monkeypatch.setattr(worker.sys, 'stdout', SimpleNamespace(buffer=response))

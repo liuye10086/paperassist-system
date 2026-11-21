@@ -34,6 +34,7 @@ def test_modern_numeric_fact_tokens_render_their_own_metric_label_and_value():
 
 
 @pytest.mark.parametrize('text',['不能推断因果，但相关性显著。','变量显著相关。','相关性具有显著性。',
+    '不支持总体推断，但因果关系成立。','并非不支持因果判断。','不支持总体推断、因果判断，疗效显著。',
     'The observation is the billionth sample.','There are quadrillion samples.',
     'There are dozens of observations.','There are hundreds of observations.',
     'The population contains millions of observations.', 'There are tens of observations.',
@@ -50,6 +51,7 @@ def test_rereview_chinese_significance_and_large_english_number_words_rejected(t
 
 @pytest.mark.parametrize('text',['不能据此判断相关性显著。','不能推断因果。','没有计算统计显著性。',
     '不能据此判断显著性。','相关不能证明因果关系。','无法据此推断因果。',
+    '这些结果仅描述当前模拟数据，不支持总体推断、因果判断或治疗效果判断。',
     'Correlation does not establish causation.','These data cannot prove treatment effectiveness.'])
 def test_rereview_scoped_cautious_negations_remain_usable(text):
     from app.domain.explanation_content import build_payload,render_explanation

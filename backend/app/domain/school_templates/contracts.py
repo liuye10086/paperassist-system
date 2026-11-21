@@ -65,6 +65,17 @@ class ConfirmRequest(StrictModel):
         if any(not x.title.strip() for x in self.chapters): raise ValueError('章节标题不能为空。')
         return self
 
+class BindingPreviewRequest(StrictModel):
+    """ConfirmRequest fields are only needed while the target is still unconfirmed."""
+    template_version_id:str=Field(min_length=1,max_length=100)
+    expected_revision:int=Field(ge=0)
+    front_matter:FrontMatter|None=None
+    format_profile:Literal[GS501_PROFILE]|None=None
+    text_decisions:list[TextDecision]=Field(default_factory=list,max_length=2)
+    analysis_sha256:str|None=Field(default=None,pattern=r'^[0-9a-f]{64}$')
+    decisions:list[Decision]=Field(default_factory=list,max_length=500)
+    chapters:list[Chapter]|None=Field(default=None,max_length=300)
+
 class BindingRequest(StrictModel):
     confirmation_id:str=Field(min_length=1,max_length=64)
     expected_revision:int=Field(ge=0,le=2147483646)

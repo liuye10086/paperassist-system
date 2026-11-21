@@ -4,7 +4,8 @@ import type {SchoolPurpose,ThesisInput,ThesisReadiness} from './thesisTypes'
 
 export function plannedThesisInput(plan:PaperPlan,readiness:ThesisReadiness,previous?:ThesisInput):ThesisInput|undefined{
   if(plan.kind!=='thesis'||!readiness.ready||!readiness.confirmation_id)return previous
-  const sameConfirmation=previous?.confirmation_id===readiness.confirmation_id&&previous?.profile_revision===readiness.profile.revision
+  // Saving writing requirements can advance the profile revision without changing the confirmed chapters.
+  const sameConfirmation=previous?.confirmation_id===readiness.confirmation_id
   const sectionsByChapter=new Map(plan.sections.map(section=>[section.chapter_id,section]))
   const plannedGroupIds=new Set(plan.sections.map(section=>section.id))
   return {

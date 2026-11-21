@@ -392,3 +392,56 @@ def test_school_same_file_reanalysis_publishes_only_receipt_backed_supersession(
     with database_connection() as db:
         service=ManuscriptService(scoped_store(owner,db.config))
         with pytest.raises(StorageError):service.verify_task(db,service.store.require_task(db,output['task_id']),current=True)
+
+
+def test_continuation_inputs_carry_saved_and_export_times_and_review_mode(client):
+    from app.domain.tasks.execution import run_task
+    url, round, old, revision, root, parent = successful_revision(client)
+    exported = client.post(root+'/versions/'+str(parent['revision'])+'/exports', json={}, headers={'Idempotency-Key': 'context-export'})
+    assert exported.status_code == 201, exported.text
+    assert run_task(exported.json()['task_id'], 1)['status'] == 'succeeded'
+    context = client.get(url+'/rounds/'+round['id']+'/continuation-context')
+    assert context.status_code == 200, context.text
+    inputs = {item['version_id']: item for item in context.json()['eligible_inputs']}
+    assert all(item['saved_at'] for item in inputs.values())
+    assert inputs[parent['id']]['saved_at'] == parent['created_at']
+    export = next(e for e in inputs[parent['id']]['exports'] if e['id'] == exported.json()['id'])
+    assert export == dict(id=exported.json()['id'], status='succeeded', created_at=exported.json()['created_at'], review_mode='identified')
+    listed = client.get(url+'/inputs')
+    assert listed.status_code == 200, listed.text
+    versions = [v for m in listed.json()['manuscripts'] for v in m['versions']]
+    assert versions and all(v['created_at'] for v in versions)
+    assert next(v for v in versions if v['id'] == parent['id'])['created_at'] == parent['created_at']
+
+
+def test_return_registration_is_keyed_per_revision_batch(client):
+    """B05: the customer key digests version, document, revision and export, so a new batch is a new return."""
+    from app.db.database import database_connection
+    url, round, _, revision, root, parent = successful_revision(client)
+    saved, body = register_return(client, url, round, root, parent, revision['id'], suffix='batch')
+    path = url+'/rounds/'+round['id']+'/returns'
+
+    def returns():
+        with database_connection() as db:
+            return db.execute('SELECT count(*) AS n FROM review_round_user_returns WHERE project_id=%s',
+                              (round['project_id'],)).fetchone()['n']
+
+    replay = client.post(path, json=body, headers={'Idempotency-Key': 'register-return-batch'})
+    assert replay.status_code == 200 and replay.json()['id'] == saved['id']
+    assert returns() == 1
+
+    other_batch = body | dict(revision_id=None)
+    second = client.post(path, json=other_batch, headers={'Idempotency-Key': 'register-return-other-batch'})
+    assert second.status_code == 201, second.text
+    assert second.json()['id'] != saved['id']
+    assert returns() == 2
+
+    reused = client.post(path, json=other_batch, headers={'Idempotency-Key': 'register-return-batch'})
+    assert reused.status_code == 409
+    assert reused.json()['detail']['code'] == 'task_idempotency_conflict'
+
+    longest = client.post(path, json=body | dict(base_export_id=None), headers={'Idempotency-Key': 'r'*128})
+    assert longest.status_code == 201, longest.text
+    too_long = client.post(path, json=body | dict(base_export_id=None), headers={'Idempotency-Key': 'r'*129})
+    assert too_long.status_code == 422
+    assert returns() == 3

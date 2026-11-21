@@ -74,3 +74,6 @@
   .school-templates .template-chapter { grid-template-columns: minmax(0, 1fr); }
   .school-templates .template-version { padding: 1rem; }
 }
+/* B04 task 6: template change preview, chapters and Word format side by side. */
+.template-change-columns { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:16px; }
+@media(max-width:650px) { .template-change-columns { grid-template-columns:1fr; } }

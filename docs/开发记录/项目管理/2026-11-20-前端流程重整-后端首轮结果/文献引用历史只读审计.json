@@ -1,0 +1,12 @@
+{
+  "development_read_only": true,
+  "old_adapter_on_five_versions": "AttributeError: SimpleNamespace has no attribute customer",
+  "real_owner_scoped_reader_successes": 5,
+  "audit": {
+    "table": "literature_citation_versions",
+    "column": "owner_history_and_frozen_sources",
+    "rows": 5,
+    "invalid": 0
+  },
+  "tampered_memory_copy_rejected": "task_source_conflict"
+}

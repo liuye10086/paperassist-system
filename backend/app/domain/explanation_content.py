@@ -115,7 +115,7 @@ def limitations_for(result, language):
             'Numbers display at most 6 significant digits; saved statistical results retain full precision.']
 
 
-def render_explanation(draft, payload):
+def render_explanation(draft, payload, *, merge_method_stop=False):
     def invalid(message):
         raise PlotError('explanation_invalid', message + '解释未保存，请重新生成。')
     if not isinstance(draft, dict) or set(draft) != set(SECTIONS):
@@ -146,6 +146,10 @@ def render_explanation(draft, payload):
         # One substitution pass: user labels are literal data, never another template.
         if payload.get('schema_version') in (2,3,4):
             from app.domain.explanation_guards import fact_span
+            if merge_method_stop and 'method.summary' in refs:
+                method = payload['facts']['method.summary']['value']
+                if method.endswith(('。', '.')):
+                    text = text.replace('{{method.summary}}' + method[-1], '{{method.summary}}')
             rendered=TOKEN.sub(lambda match:fact_span(match[1],payload['facts'][match[1]]),text).strip()
         else:
             rendered = TOKEN.sub(lambda match: payload['facts'][match[1]]['value'], text).strip()

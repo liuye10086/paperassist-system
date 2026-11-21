@@ -26,6 +26,9 @@ def test_v2_creation_freezes_source_and_new_dataset_does_not_rebind(client):
     assert frozen['schema_version']==2 and frozen['source']==result['source']
     assert frozen['versions']['statistics']=='descriptive_statistics_dataset_v1'
     assert set(frozen['file'])=={'id','filename','sha256','size_bytes','file_type'}
+    service=TaskService(owner)
+    running=service.transition(task['id'],expected_revision=task['revision'],status='running')
+    service.transition(task['id'],expected_revision=running['revision'],status='waiting_confirmation',reason_code='budget_exceeded')
     version(client,base,1)
     assert store.get(task['id'])['input_version']['source']==result['source']
     with store.connection() as db:
@@ -125,13 +128,8 @@ def test_workspace_rejects_invalid_frozen_dataset_after_setup_changes(client, mo
     from app.adapters.storage import ProjectStore
     from app.adapters.task_execution_store import ExecutionAssets
     original_reader = ProjectStore.original
-    execution_reader = ExecutionAssets.original
     chain = complete_chain(client, monkeypatch)
-    # Restore only the reader; retain isolation and authentication fixtures.
-    monkeypatch.setattr(ProjectStore, 'original', original_reader)
-    monkeypatch.setattr(ExecutionAssets, 'original', execution_reader)
     second = version(client, chain['base'], 1)
-    from app.adapters.storage import ProjectStore
     from tests.api.test_dataset_analysis import forbid_original
     monkeypatch.setattr(ProjectStore, 'original', forbid_original)
     monkeypatch.setattr(ExecutionAssets, 'original', forbid_original)
@@ -142,7 +140,9 @@ def test_workspace_rejects_invalid_frozen_dataset_after_setup_changes(client, mo
     assert historical.status_code == 200, historical.text
     assert not historical.json()['source']['is_current']
     assert historical.json()['artifacts']['report']
-    assert client.get(chain['report_url']).status_code == 200
+    with monkeypatch.context() as download:
+        download.setattr(ProjectStore, 'original', original_reader)
+        assert client.get(chain['report_url']).status_code == 200
     with database_connection(write=True) as db:
         row = db.execute('SELECT object_key FROM dataset_versions WHERE id=%s', (chain['result']['source']['dataset_id'],)).fetchone()
         if damage == 'snapshot':

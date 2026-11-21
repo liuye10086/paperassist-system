@@ -1,6 +1,7 @@
 """Three optional single-cell methods on frozen processed data."""
 from typing import Annotated, Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
+from .figure_size import PlotSize
 
 Id=Annotated[str,Field(min_length=1,max_length=200,pattern=r'^[^/\\\x00-\x1f]+$')]
 
@@ -34,11 +35,15 @@ class SingleCellTopicConfig(BaseModel):
     lr_ids: list[Id]=Field(default_factory=list,max_length=100)
     n_boot: int=Field(default=100,ge=20,le=500)
     min_cells: int=Field(default=10,ge=2,le=1000)
+    plot_size: PlotSize | None = Field(default=None, exclude_if=lambda value: value is None)
+    regulation_top_n: int | None = Field(default=None, ge=1, le=500, exclude_if=lambda value: value is None)
     species_taxon_id: int|None=Field(default=None,gt=0,exclude_if=lambda value:value is None)
     species_basis: str=Field(default='',max_length=4000,exclude_if=lambda value:value=='')
 
     @model_validator(mode='after')
     def necessary_parameters(self):
+        if self.regulation_top_n is not None and self.method != 'genie3':
+            raise ValueError('regulation_top_n_requires_genie3')
         if self.species_taxon_id is not None or self.species_basis:
             if self.method!='cellchat':raise ValueError('topic_species_declaration_cellchat_only')
             if self.species_taxon_id is None or not self.species_basis.strip():raise ValueError('communication_species_and_basis_required')

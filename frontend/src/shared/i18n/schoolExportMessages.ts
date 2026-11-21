@@ -15,5 +15,9 @@ export const schoolExportMessages:Record<string,string>={
 '规则与冻结来源':'Rules and frozen sources','原稿 SHA256':'Manuscript SHA256','模板分析 SHA256':'Template analysis SHA256','确认 SHA256':'Confirmation SHA256',
 '分节与目录':'Sections and table of contents','学校缺项与限制':'Missing items and limitations','目录更新回执':'Field update receipt',
 '回执仅表示本地渲染器状态，Word/WPS 仍需人工核对。':'The receipt records only local renderer status. Word/WPS still require manual checks.',
-'学校稿与 DOCX 分别保存状态。':'School manuscript and DOCX maintain independent states.','内容':'Content','格式':'Format','人工核对':'Human review','暂不支持':'Unsupported','错误':'Error','警告':'Warning'
+'学校稿与 DOCX 分别保存状态。':'School manuscript and DOCX maintain independent states.','内容':'Content','格式':'Format','人工核对':'Human review','暂不支持':'Unsupported','错误':'Error','警告':'Warning',
+// B05 task 11: customer Word page options.
+'封面和补充内容':'Cover and other content',
+'{title} · 需要你填写的内容':'{title} · What you need to fill in',
+'检查能否生成 Word':'Check whether Word can be generated',
 }

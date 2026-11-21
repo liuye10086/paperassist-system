@@ -113,7 +113,7 @@ def thesis_requirements(store, project, changes: ThesisRequirementsWrite | None 
         if changes.chapter_plan is not None:
             _, task = schools.require_current(db, row)
             if task['status'] != 'succeeded':
-                raise StorageError('thesis_template_changed', '请先确认并绑定可用的学校模板。', 409)
+                raise StorageError('thesis_template_required', '请先确认并绑定可用的学校模板。', 409)
 
         # A customer can save thesis details while an older binding is inaccessible.
         binding = db.execute('SELECT bound_confirmation_id FROM thesis_profiles WHERE project_id=%s AND user_id=%s',

@@ -136,5 +136,6 @@ def scan(db,root):
         status='unknown' if errors or intent_unknown or metadata_failures else 'complete',coverage='asset_files',
         database_bytes='not_in_asset_quota',renderer_temporary_bytes='separate_tmpfs',installed_model_bytes='outside_asset_root',
         attribution='typed_sql_and_verified_candidate_ledger',automatic_deletion=False)
+    if safe_root:summary['unattributed_intent_count']=intent_unknown
     db.execute('INSERT INTO storage_inventory_scans(id,summary) VALUES(1,%s) ON CONFLICT(id) DO UPDATE SET summary=excluded.summary',(Jsonb(summary),))
     return summary

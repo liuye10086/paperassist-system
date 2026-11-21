@@ -64,7 +64,7 @@ def recover_legacy_explanation(project_id: str, file_id: str, run_id: str, store
                 payload = build_payload(result, figure)
                 if payload != job['payload']:
                     raise StorageError('source_conflict', '生成期间数据或图表已变化，请重新读取结果。', 409)
-                sections = render_explanation(output['draft'], payload)
+                sections = render_explanation(output['draft'], payload, merge_method_stop=True)
                 explanation = {'analysis_run_id': run_id, 'figure_id': figure['id'], 'figure_sha256': figure['sha256'],
                     'source_sha256': result['source_sha256'], 'setup_revision': result['setup_revision'],
                     'language': 'zh-CN', 'created_at': datetime.now(timezone.utc).isoformat(),

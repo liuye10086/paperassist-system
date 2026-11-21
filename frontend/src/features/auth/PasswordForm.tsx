@@ -99,7 +99,7 @@ export default function PasswordForm({ mode, onCancel, onSuccess }: Props) {
   return <section className="login-panel">
     <h2>{mode === 'change' ? t("修改密码") : t("恢复密码")}</h2>
     {mode === 'reset' && <p>{t("请联系管理员线下核验身份，获取15分钟有效、仅可使用一次的恢复码，再在此设置新密码。")}</p>}
-    <p>{t(passwordRule)}{t("更新成功后全部旧会话失效，请重新登录。")}</p>
+    <p>{t('新密码须为12–128个字符。更新成功后全部旧会话失效，请重新登录。')}</p>
     <form onSubmit={event => void submit(event)} aria-busy={busy}>
       <label>{mode === 'change' ? t("当前密码") : t("恢复码")}
         <input ref={credentialInput} type="password" autoComplete={mode === 'change' ? 'current-password' : 'off'} required

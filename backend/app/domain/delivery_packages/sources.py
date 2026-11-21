@@ -275,7 +275,7 @@ def resolve_members(service,db,project,delivery,selections,mode,progress=None,*,
                     for evidence in evidence_rows:
                         validate_evidence_row(db,evidence)
                         proof['source_notices'].append(dict(path='external_evidence:'+evidence['id'],value=dict(version=evidence['version'],sha256=evidence['sha256'],declarations=inherited_notices(evidence['snapshot_json']))))
-                if mode=='blind' and (kind not in ('manuscript_export','pdf_export') or review!='blind'):raise invalid()
+                # Historical blind exports never enter a complete delivery.
                 if mode=='complete' and review=='blind':raise invalid()
                 actual=sha256(raw).hexdigest();total+=len(raw)
                 if total>MAX_DELIVERY_BYTES:raise invalid('research_export_limit_exceeded',422)
@@ -286,7 +286,7 @@ def resolve_members(service,db,project,delivery,selections,mode,progress=None,*,
                                            params={'file': _selection_filename(service, db, project, selection, position)})
                     raise invalid()
                 seen.add(token);identifier=digest(value)[:24]
-                # Generated safe names prevent internal filenames/owner identities leaking into blind exports.
+                # Generated safe names keep internal filenames and owner identities out of the package.
                 name=directory+'/'+(native_name+'-' if native_name else '')+identifier+'.'+format
                 properties=image_properties(raw,format) if format in ('png','tiff','jpg','jpeg','svg','pdf') else {}
                 if properties:
