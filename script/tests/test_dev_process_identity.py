@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 
@@ -42,6 +43,9 @@ $script:freshProcess | Add-Member ScriptProperty Path {
     if ($Scenario -eq 'blank') { return ' ' }
     # Process metadata can be unavailable on creation and cached until Refresh.
     if ($Scenario -eq 'delayed' -and $this.RefreshCount -lt 2) { return $null }
+    if ($Scenario -eq 'dll-only' -or ($Scenario -eq 'dll-first' -and $this.RefreshCount -lt 2)) {
+        return 'C:\Windows\System32\ntdll.dll'
+    }
     return 'C:\observed\node.exe'
 }
 $script:freshProcess | Add-Member ScriptMethod Refresh {
@@ -79,6 +83,24 @@ catch { $failure = $_.Exception.Message }
 
 @unittest.skipUnless(os.name == 'nt' and POWERSHELL, 'Windows PowerShell launcher')
 class DevProcessIdentityTests(unittest.TestCase):
+    def test_status_runs_worker_with_workspace_python_from_another_directory(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            dev = root / 'script' / 'dev'
+            dev.mkdir(parents=True)
+            launcher = dev / 'dev.ps1'
+            shutil.copyfile(LAUNCHER, launcher)
+            (dev / 'worker_stack.py').write_text(
+                "import sys\nprint('probe:', sys.executable, sys.argv[1])\n", encoding='utf8')
+            runtime = dev.parent / '.runtime'
+            runtime.mkdir()
+            (runtime / 'dev-python.txt').write_text(sys.executable, encoding='utf8')
+            result = subprocess.run(
+                [POWERSHELL, '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass',
+                 '-File', str(launcher), 'status'], cwd=root.parent, capture_output=True, text=True, timeout=15)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn(f'probe: {sys.executable} status'.lower(), result.stdout.lower())
+
     def run_scenario(self, scenario):
         with tempfile.TemporaryDirectory() as directory:
             harness = Path(directory) / 'identity.ps1'
@@ -103,7 +125,7 @@ class DevProcessIdentityTests(unittest.TestCase):
         self.assertEqual(result['stops'], 0)
 
     def test_missing_path_fails_with_bounded_cleanup_of_fresh_process(self):
-        for scenario in ('missing', 'blank'):
+        for scenario in ('missing', 'blank', 'dll-only'):
             with self.subTest(scenario=scenario):
                 result = self.run_scenario(scenario)
                 self.assertIsNone(result['service'])
@@ -111,6 +133,12 @@ class DevProcessIdentityTests(unittest.TestCase):
                 self.assertEqual(result['stops'], 1)
                 self.assertTrue(result['pinned'])
                 self.assertLess(result['elapsed_ms'], 6000)
+
+    def test_waits_for_node_image_when_windows_initially_reports_a_dll(self):
+        result = self.run_scenario('dll-first')
+        self.assertIsNone(result['failure'])
+        self.assertEqual(result['service']['executable'], r'C:\observed\node.exe')
+        self.assertEqual(result['stops'], 0)
 
     def test_exited_process_never_returns_identity_or_stops_another_process(self):
         result = self.run_scenario('exited')

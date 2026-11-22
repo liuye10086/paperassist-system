@@ -171,6 +171,8 @@ try {
 
 日常启动（已完成依赖、专用连接配置和迁移时）：
 
+启动器默认使用 `backend\.venv\Scripts\python.exe`。如本机已安装后端依赖，且需要使用能访问 Docker Desktop 的 Python，可将该解释器的绝对路径单独一行写入 `script\.runtime\dev-python.txt`（UTF-8，本机配置）。`start`、`status`、`stop` 都使用同一解释器。
+
 Windows 本机验收在项目根目录使用统一脚本，启动前后端及RabbitMQ、Worker、dispatcher并检查健康状态。需要已安装Docker Desktop并使用Linux容器；启动器可启动Docker Desktop，首次需构建镜像。配置及版本见[Worker说明](infra/worker/README.md)：
 
 ```powershell

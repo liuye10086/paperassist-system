@@ -109,15 +109,15 @@ function Start-ServiceProcess([string]$Name, [string]$Executable, [string[]]$Arg
         -RedirectStandardOutput (Join-Path $runtimeDir "$Name.stdout.log") `
         -RedirectStandardError (Join-Path $runtimeDir "$Name.stderr.log")
     try {
-        # Keep the fresh OS handle pinned while metadata becomes available.
-        # Path may initially be null; never persist that or substitute the requested path.
+        # Windows can briefly report a loader DLL as the main module.
         $null = $process.Handle
+        $expectedImage = [IO.Path]::GetFileName($Executable)
         $identityWait = [Diagnostics.Stopwatch]::StartNew()
         while ($true) {
             $process.Refresh()
             if ($process.HasExited) { throw "$Name exited before its process identity was available." }
             $actualPath = $process.Path
-            if (-not [string]::IsNullOrWhiteSpace($actualPath)) {
+            if ([IO.Path]::GetFileName($actualPath) -eq $expectedImage) {
                 $startedUtc = $process.StartTime.ToUniversalTime().ToString('o')
                 if ($process.HasExited) { throw "$Name exited before its process identity was available." }
                 return [pscustomobject]@{
@@ -166,6 +166,13 @@ function Show-Ready($State) {
 }
 
 try {
+    $pythonSetting = Join-Path $runtimeDir 'dev-python.txt'
+    if (Test-Path -LiteralPath $pythonSetting -PathType Leaf) {
+        $pythonPath = (Get-Content -LiteralPath $pythonSetting -Raw -Encoding UTF8).Trim()
+        if (-not [IO.Path]::IsPathRooted($pythonPath) -or -not [IO.File]::Exists($pythonPath)) {
+            throw 'Set script/.runtime/dev-python.txt to the full path of an installed Python executable.'
+        }
+    }
     $null = New-Item -ItemType Directory -Path $runtimeDir -Force
     try {
         $controlLock = [IO.File]::Open((Join-Path $runtimeDir 'control.lock'), 'OpenOrCreate', 'ReadWrite', 'None')
